@@ -10,6 +10,9 @@ on:
     tags: ['*-v*']
   pull_request:
   workflow_dispatch:
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('docs-{0}', github.ref) || 'gh-pages-deploy' }}
+  cancel-in-progress: false
 permissions:
   contents: write
   pull-requests: read
@@ -25,10 +28,17 @@ jobs:
       - uses: julia-actions/setup-julia@v2
         with: { version: '1.12' }
       - id: p
+        shell: bash
         run: |
           all='["VisualGeometryCore","VisualGeometryIo","VisualGeometryFeatures","RobustVisualGeometry","VisualGeometryEval","PoseLib"]'
           case "${{ github.ref }}" in
-            refs/tags/*) tag="${{ github.ref_name }}"; echo "packages=[\"${tag%-v*}\"]" >> "$GITHUB_OUTPUT" ;;
+            refs/tags/*)
+              # Only <Package>-v<version> release tags (TagBot) deploy docs;
+              # other tags (e.g. PoseLib-binaries-v2.0.6) build nothing.
+              tag="${{ github.ref_name }}"; pkg="${tag%-v*}"
+              if [[ "$tag" =~ ^[A-Za-z]+-v[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo "$all" | grep -q "\"$pkg\""; then
+                echo "packages=[\"$pkg\"]" >> "$GITHUB_OUTPUT"
+              else echo "packages=[]" >> "$GITHUB_OUTPUT"; fi ;;
             *) if [ "${{ github.event_name }}" = pull_request ]; then
                  julia --startup-file=no ci/affected.jl "origin/${{ github.base_ref }}" HEAD
                else echo "packages=$all" >> "$GITHUB_OUTPUT"; fi ;;
@@ -38,9 +48,12 @@ jobs:
     if: needs.plan.outputs.packages != '[]'
     name: docs / ${{ matrix.package }}
     runs-on: ubuntu-latest
-    concurrency: { group: gh-pages-deploy, cancel-in-progress: false }
     strategy:
       fail-fast: false
+      # The deploys share one gh-pages branch: run the matrix one package at a
+      # time (a job-level concurrency group keeps only one pending job and
+      # cancels the rest of the matrix).
+      max-parallel: 1
       matrix:
         package: ${{ fromJSON(needs.plan.outputs.packages) }}
     steps:

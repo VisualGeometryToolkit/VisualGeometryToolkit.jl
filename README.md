@@ -1,5 +1,7 @@
 # VisualGeometryToolkit.jl
 
+by [James Pritts](https://prittjam.github.io/)
+
 Composable Julia packages for robust multiple-view geometry: geometric types
 and camera models, file formats, feature detection, robust estimation and
 RANSAC, evaluation protocols, and a PoseLib wrapper, factored so each layer is
@@ -93,4 +95,4 @@ for registration.
 MIT, Kiel University (each package directory carries its own copy). See
 [AUTHORS.md](AUTHORS.md).
 
-Maintainer: James Pritts.
+Maintainer: [James Pritts](https://prittjam.github.io/).

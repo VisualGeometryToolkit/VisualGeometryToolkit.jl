@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+<!-- VisualGeometryToolkit: three cameras in Julia's colours — centre, viewing frustum, image plane —
+     whose rays meet at one scene point (blue): multiple-view geometry. -->
+<polygon points="256.0,456.0 198.0,368.0 314.0,368.0" fill="#CB3C33" fill-opacity="0.18" stroke="#CB3C33" stroke-width="12" stroke-linejoin="round"/><line x1="256.0" y1="368.0" x2="256" y2="256" stroke="#CB3C33" stroke-width="10" stroke-linecap="round"/><circle cx="256.0" cy="456.0" r="20" fill="#CB3C33"/><polygon points="82.8,156.0 188.0,149.8 130.0,250.2" fill="#389826" fill-opacity="0.18" stroke="#389826" stroke-width="12" stroke-linejoin="round"/><line x1="159.0" y1="200.0" x2="256" y2="256" stroke="#389826" stroke-width="10" stroke-linecap="round"/><circle cx="82.8" cy="156.0" r="20" fill="#389826"/><polygon points="429.2,156.0 382.0,250.2 324.0,149.8" fill="#9558B2" fill-opacity="0.18" stroke="#9558B2" stroke-width="12" stroke-linejoin="round"/><line x1="353.0" y1="200.0" x2="256" y2="256" stroke="#9558B2" stroke-width="10" stroke-linecap="round"/><circle cx="429.2" cy="156.0" r="20" fill="#9558B2"/>
+<circle cx="256" cy="256" r="32" fill="#4063D8"/>
+</svg>

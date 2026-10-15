@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Transforms · VisualGeometryCore.jl</title><meta name="title" content="Transforms · VisualGeometryCore.jl"/><meta property="og:title" content="Transforms · VisualGeometryCore.jl"/><meta property="twitter:title" content="Transforms · VisualGeometryCore.jl"/><meta name="description" content="Documentation for VisualGeometryCore.jl."/><meta property="og:description" content="Documentation for VisualGeometryCore.jl."/><meta property="twitter:description" content="Documentation for VisualGeometryCore.jl."/><meta property="og:url" content="https://visualgeometrytoolkit.github.io/VisualGeometryCore/guide/transforms/"/><meta property="twitter:url" content="https://visualgeometrytoolkit.github.io/VisualGeometryCore/guide/transforms/"/><link rel="canonical" href="https://visualgeometrytoolkit.github.io/VisualGeometryCore/guide/transforms/"/><script data-outdated-warner src="../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.63.2/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../search_index.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><a class="docs-logo" href="../../"><img src="../../assets/logo.svg" alt="VisualGeometryCore.jl logo"/></a><div class="docs-package-name"><span class="docs-autofit"><a href="../../">VisualGeometryCore.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../">Home</a></li><li><a class="tocitem" href="../getting-started/">Getting Started</a></li><li><span class="tocitem">User Guide</span><ul><li><a class="tocitem" href="../conventions/">Conventions</a></li><li><a class="tocitem" href="../design/">Design: Attributed{V,A}</a></li><li><a class="tocitem" href="../frames/">Coordinate Frames</a></li><li><a class="tocitem" href="../forms/">Epipolar Forms</a></li><li><a class="tocitem" href="../stereo/">Stereo Rigs and Uncertainty</a></li><li><a class="tocitem" href="../cameras/">Cameras</a></li><li><a class="tocitem" href="../imaging-chain/">The Framed Imaging Chain</a></li><li><a class="tocitem" href="../sphere/">Ray Maps and Frame Transitions</a></li><li><a class="tocitem" href="../lenses/">Lens Families</a></li><li><a class="tocitem" href="../undistortion/">Back-projection and Undistortion</a></li><li><a class="tocitem" href="../batched/">Batches</a></li><li><a class="tocitem" href="../primitives/">Geometric Primitives</a></li><li class="is-active"><a class="tocitem" href>Transforms</a><ul class="internal"><li><a class="tocitem" href="#Homogeneous-2D-Transforms"><span>Homogeneous 2D Transforms</span></a></li><li><a class="tocitem" href="#Coordinate-Representations"><span>Coordinate Representations</span></a></li><li><a class="tocitem" href="#Coordinate-Mappings"><span>Coordinate Mappings</span></a></li><li><a class="tocitem" href="#Image-Warping-API"><span>Image Warping API</span></a></li><li><a class="tocitem" href="#Patch-Extraction"><span>Patch Extraction</span></a></li><li><a class="tocitem" href="#HomographyMap-and-Perspective-Division"><span>HomographyMap and Perspective Division</span></a></li><li><a class="tocitem" href="#Basis-Vectors"><span>Basis Vectors</span></a></li><li><a class="tocitem" href="#Camera-Homographies"><span>Camera Homographies</span></a></li><li><a class="tocitem" href="#Full-Image-Warping-Pipeline"><span>Full Image Warping Pipeline</span></a></li><li><a class="tocitem" href="#See-Also"><span>See Also</span></a></li></ul></li><li><a class="tocitem" href="../estimators/">Robust Estimation</a></li><li><a class="tocitem" href="../features/">Features &amp; Detection</a></li><li><a class="tocitem" href="../visualization/">Visualization</a></li></ul></li><li><span class="tocitem">API Reference</span><ul><li><a class="tocitem" href="../../api/frames/">Frames</a></li><li><a class="tocitem" href="../../api/transforms/">Transforms</a></li><li><a class="tocitem" href="../../api/warping/">Warping</a></li><li><a class="tocitem" href="../../api/batched/">Batched</a></li><li><a class="tocitem" href="../../api/cameras/">Cameras</a></li><li><a class="tocitem" href="../../api/generic_models/">Generic Camera Models</a></li><li><a class="tocitem" href="../../api/calibration/">Calibration</a></li><li><a class="tocitem" href="../../api/lenses/">Lenses</a></li><li><a class="tocitem" href="../../api/imaging/">Imaging Chain &amp; Stereo</a></li><li><a class="tocitem" href="../../api/primitives/">Primitives</a></li><li><a class="tocitem" href="../../api/solvers/">Solvers</a></li><li><a class="tocitem" href="../../api/matching/">Correspondences</a></li><li><a class="tocitem" href="../../api/estimators/">Robust Estimation</a></li><li><a class="tocitem" href="../../api/robust_losses/">Robust Losses</a></li><li><a class="tocitem" href="../../api/robust_statistics/">Robust Statistics &amp; Solvers</a></li><li><a class="tocitem" href="../../api/stack_contracts/">Configuration Tags &amp; Stack Contracts</a></li><li><a class="tocitem" href="../../api/manifolds/">Manifolds &amp; Uncertainty</a></li><li><a class="tocitem" href="../../api/types/">Core Types</a></li><li><a class="tocitem" href="../../api/core/">Core</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">User Guide</a></li><li class="is-active"><a href>Transforms</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Transforms</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/blob/main/VisualGeometryCore/docs/src/guide/transforms.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Coordinate-Transforms"><a class="docs-heading-anchor" href="#Coordinate-Transforms">Coordinate Transforms</a><a id="Coordinate-Transforms-1"></a><a class="docs-heading-anchor-permalink" href="#Coordinate-Transforms" title="Permalink"></a></h1><p>VisualGeometryCore provides homogeneous 2D transforms, coordinate mappings, and image warping utilities.</p><h2 id="Homogeneous-2D-Transforms"><a class="docs-heading-anchor" href="#Homogeneous-2D-Transforms">Homogeneous 2D Transforms</a><a id="Homogeneous-2D-Transforms-1"></a><a class="docs-heading-anchor-permalink" href="#Homogeneous-2D-Transforms" title="Permalink"></a></h2><h3 id="Basic-Transforms"><a class="docs-heading-anchor" href="#Basic-Transforms">Basic Transforms</a><a id="Basic-Transforms-1"></a><a class="docs-heading-anchor-permalink" href="#Basic-Transforms" title="Permalink"></a></h3><pre><code class="language-julia hljs">using VisualGeometryCore
+using LinearAlgebra: Diagonal
+using Rotations: RotMatrix
+using StaticArrays: SVector
+
+# Rotation (around origin)
+R = HomRotationMat(RotMatrix{2}(π/4))  # 45° counter-clockwise (from a Rotations.jl rotation)
+
+# Translation
+T = HomTranslationMat(Vec2(10.0, 20.0))
+
+# Uniform scaling (matches Julia&#39;s UniformScaling)
+S = HomUniformScalingMat{2}(2.0)  # 2× scaling
+
+# Diagonal scaling (non-uniform)
+S_diag = HomScalingMat(Diagonal(SVector(2.0, 1.5, 1.0)))  # 2× in x, 1.5× in y</code></pre><h3 id="Composite-Transforms"><a class="docs-heading-anchor" href="#Composite-Transforms">Composite Transforms</a><a id="Composite-Transforms-1"></a><a class="docs-heading-anchor-permalink" href="#Composite-Transforms" title="Permalink"></a></h3><p>The composite matrix types follow the projective-group hierarchy <code>AbstractHomMat ⊃ AbstractAffineMat ⊃ AbstractSimilarityMat ⊃ AbstractEuclideanMat</code>:</p><pre><code class="language-julia hljs"># Euclidean (rotation + translation), similarity, affine, projective —
+# each wraps a 3×3 matrix
+euclidean  = HomEuclideanMat(matrix)
+similarity = HomSimilarityMat(matrix)
+affine     = HomAffineMat(matrix)
+homography = HomographyMat(matrix)</code></pre><p>The type records the tightest transform class, which drives dispatch — e.g. a similarity maps a <code>Circle</code> to a <code>Circle</code>, an affinity maps it to a <code>HomEllipseMat</code>, and a general homography to a <code>Conic</code> (an ellipse only while the circle stays clear of the line at infinity — test with <code>classify_conic</code>).</p><h3 id="Applying-Transforms"><a class="docs-heading-anchor" href="#Applying-Transforms">Applying Transforms</a><a id="Applying-Transforms-1"></a><a class="docs-heading-anchor-permalink" href="#Applying-Transforms" title="Permalink"></a></h3><p>Use <code>HomographyMap</code> to make matrices callable:</p><pre><code class="language-julia hljs"># Wrap matrix in HomographyMap for callable syntax
+H_rot = HomographyMap(R)
+H_trans = HomographyMap(T)
+
+# Transform a point
+p = Point2(100.0, 150.0)
+p_rotated = H_rot(p)
+
+# Compose maps
+H_combined = H_trans ∘ H_rot  # First rotate, then translate
+p_final = H_combined(p)
+
+# Transform geometric primitives. The result type follows the map&#39;s matrix
+# type: a Circle under a similarity, a HomEllipseMat under an affinity, a
+# Conic under a general homography (possibly a hyperbola: the circle may cross
+# the line at infinity).
+circle = Circle(Point2(0.0, 0.0), 10.0)
+H_proj = HomographyMap(HomographyMat(camera))
+Q = H_proj(circle)                                     # a Conic
+ellipse = classify_conic(Q) isa EllipseTrait ? Ellipse(Q) : nothing</code></pre><p>For matrix multiplication without wrapping:</p><pre><code class="language-julia hljs"># Direct matrix operations
+p_hom = to_affine(p)  # [x, y, 1]
+p_transformed = to_euclidean(SMatrix{3,3}(R) * p_hom)
+
+# Compose matrices
+combined_mat = SMatrix{3,3}(T) * SMatrix{3,3}(R)</code></pre><h2 id="Coordinate-Representations"><a class="docs-heading-anchor" href="#Coordinate-Representations">Coordinate Representations</a><a id="Coordinate-Representations-1"></a><a class="docs-heading-anchor-permalink" href="#Coordinate-Representations" title="Permalink"></a></h2><h3 id="Homogeneous-Affine-Euclidean"><a class="docs-heading-anchor" href="#Homogeneous-Affine-Euclidean">Homogeneous ↔ Affine ↔ Euclidean</a><a id="Homogeneous-Affine-Euclidean-1"></a><a class="docs-heading-anchor-permalink" href="#Homogeneous-Affine-Euclidean" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Get underlying matrix
+mat = to_affine(R)      # 2×3 matrix [A | t]
+mat_hom = to_homogeneous(R)  # 3×3 matrix
+
+# Extract Euclidean components (rotation + translation only)
+euclidean_part = to_euclidean(affine)</code></pre><h2 id="Coordinate-Mappings"><a class="docs-heading-anchor" href="#Coordinate-Mappings">Coordinate Mappings</a><a id="Coordinate-Mappings-1"></a><a class="docs-heading-anchor-permalink" href="#Coordinate-Mappings" title="Permalink"></a></h2><p>Map between geometric regions via constructors on <code>AffineMap</code>. Each primitive&#39;s <code>AffineMap</code> is the map from canonical [-1, 1]² to that primitive&#39;s frame; compose / invert as needed.</p><h3 id="Rectangle-to-Rectangle"><a class="docs-heading-anchor" href="#Rectangle-to-Rectangle">Rectangle to Rectangle</a><a id="Rectangle-to-Rectangle-1"></a><a class="docs-heading-anchor-permalink" href="#Rectangle-to-Rectangle" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Source and target rectangles
+source = Rect(Point2(0.0, 0.0),  Vec2(100.0, 50.0))
+target = Rect(Point2(10.0, 20.0), Vec2(200.0, 100.0))
+
+# Compose source → canonical → target
+map = AffineMap(target) ∘ inv(AffineMap(source))
+
+# Apply to point
+p_source = Point2(50.0, 25.0)   # Center of source
+p_target = map(p_source)         # Center of target</code></pre><h3 id="Circle/Ellipse-to-Canonical-Square"><a class="docs-heading-anchor" href="#Circle/Ellipse-to-Canonical-Square">Circle/Ellipse to Canonical Square</a><a id="Circle/Ellipse-to-Canonical-Square-1"></a><a class="docs-heading-anchor-permalink" href="#Circle/Ellipse-to-Canonical-Square" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Map circle to canonical square [-1, 1]² is the inverse of canonical → circle
+circle = Circle(Point2(100.0, 150.0), 25.0)
+map = inv(AffineMap(circle))
+
+# Point on circle boundary → point on square boundary
+p_circle = Point2(125.0, 150.0)  # Right edge of circle
+p_canonical = map(p_circle)</code></pre><h2 id="Image-Warping-API"><a class="docs-heading-anchor" href="#Image-Warping-API">Image Warping API</a><a id="Image-Warping-API-1"></a><a class="docs-heading-anchor-permalink" href="#Image-Warping-API" title="Permalink"></a></h2><p>VisualGeometryCore exposes a <strong>single adapter</strong> <a href="../../api/warping/#VisualGeometryCore.image_warp-Union{Tuple{T}, Tuple{Type{T}, Any, Integer}} where T&lt;:AbstractFloat"><code>image_warp</code></a> that wraps a math-space <code>Transformation</code> into a <a href="../../api/warping/#VisualGeometryCore.BoundedMap"><code>BoundedMap</code></a> callable from Julia <code>(row, col)</code> array indices.  VGC math is always COLMAP convention (matching camera-intrinsics math); <code>image_warp</code> bakes the fixed COLMAP↔Julia bridges + row/col swap via composition.  No kwargs.</p><p>The user composes the math chain themselves with the two-step pattern: build the math transform → wrap with <code>image_warp</code>.</p><ul><li><a href="../../api/warping/#VisualGeometryCore.canonical_map-Tuple{Union{Ellipse, Circle}, Integer}"><code>canonical_map(geom, n; bound, align_corners)</code></a> — Cartesian-patch math.</li><li><a href="../../api/warping/#VisualGeometryCore.logpolar_map-Tuple{Union{Ellipse, Circle}, HyperRectangle{2}, Real}"><code>logpolar_map(geom, n, inner_radius; align_corners)</code></a> — log-polar math.</li><li><a href="../../api/warping/#VisualGeometryCore.image_warp-Union{Tuple{T}, Tuple{Type{T}, Any, Integer}} where T&lt;:AbstractFloat"><code>image_warp(math, n)</code></a> — final wrap; no kwargs.</li></ul><p>For advanced use (non-square or custom patch-domain), both math builders also accept an explicit <code>HyperRectangle{2}</code> instead of an integer size, and <code>image_warp</code> accepts a <code>Rect{2}</code> for the output region.</p><h3 id="Basic-Image-Warping"><a class="docs-heading-anchor" href="#Basic-Image-Warping">Basic Image Warping</a><a id="Basic-Image-Warping-1"></a><a class="docs-heading-anchor-permalink" href="#Basic-Image-Warping" title="Permalink"></a></h3><p><a href="../../api/warping/#VisualGeometryCore.image_warp!-Tuple{AbstractMatrix, BoundedMap, AbstractMatrix}"><code>image_warp!</code></a><code>(dst, src, bm; fillvalue)</code> resamples <code>src</code> into <code>dst</code> through the warp: for each <code>(row, col)</code> of <code>dst</code> it bilinearly samples <code>src</code> at <code>bm((row, col))</code>, running one KernelAbstractions kernel on the backend that owns <code>dst</code> (supply <code>CuArray</code>s for GPU execution).</p><pre><code class="language-julia hljs">using VisualGeometryCore
+
+# img :: Matrix{Float32}
+
+# Create a warp from geometry
+math = canonical_map(ellipse, 256; bound=1.0)
+bm    = image_warp(math, 256)
+
+# Resample into a pre-allocated patch
+patch = Matrix{Float32}(undef, 256, 256)
+image_warp!(patch, bm, img)</code></pre><h3 id="Reusing-a-warp"><a class="docs-heading-anchor" href="#Reusing-a-warp">Reusing a warp</a><a id="Reusing-a-warp-1"></a><a class="docs-heading-anchor-permalink" href="#Reusing-a-warp" title="Permalink"></a></h3><p>The returned <code>BoundedMap</code> is a plain value — keep it and apply it to many images:</p><pre><code class="language-julia hljs">math = canonical_map(ellipse, 256; bound=1.0)
+bm    = image_warp(math, 256)
+image_warp!(patch1, bm, img1)
+image_warp!(patch2, bm, img2)</code></pre><p><a href="../../api/warping/#VisualGeometryCore.image_warp_batch_to!-Union{Tuple{T}, Tuple{AbstractArray{T, 3}, AbstractVector{&lt;:BoundedMap}, AbstractMatrix}} where T"><code>image_warp_batch_to!</code></a> samples one image through a vector of warps into a 3D stack.</p><h3 id="Fillvalue-Conventions"><a class="docs-heading-anchor" href="#Fillvalue-Conventions">Fillvalue Conventions</a><a id="Fillvalue-Conventions-1"></a><a class="docs-heading-anchor-permalink" href="#Fillvalue-Conventions" title="Permalink"></a></h3><p>Supply <code>fillvalue</code> (the out-of-bounds tap value, in the float accumulation domain) as a keyword argument:</p><pre><code class="language-julia hljs">image_warp!(patch, bm, img; fillvalue=1.0f0)  # white out of bounds</code></pre><h2 id="Patch-Extraction"><a class="docs-heading-anchor" href="#Patch-Extraction">Patch Extraction</a><a id="Patch-Extraction-1"></a><a class="docs-heading-anchor-permalink" href="#Patch-Extraction" title="Permalink"></a></h2><h3 id="Canonical-Patches"><a class="docs-heading-anchor" href="#Canonical-Patches">Canonical Patches</a><a id="Canonical-Patches-1"></a><a class="docs-heading-anchor-permalink" href="#Canonical-Patches" title="Permalink"></a></h3><p>Extract patches in canonical (normalized) coordinates:</p><pre><code class="language-julia hljs"># From an ellipse - maps ellipse interior to square patch
+ellipse = Ellipse(Point2(100.0, 150.0), 30.0, 20.0, π/4)
+math = canonical_map(ellipse, 64; bound=1.0)
+bm    = image_warp(math, 64)
+patch = image_warp!(Matrix{Float32}(undef, 64, 64), bm, img)
+
+# From geometric primitives
+math = canonical_map(circle, 64; bound=1.0)
+bm    = image_warp(math, 64)</code></pre><h3 id="Feature-Frame-Patches"><a class="docs-heading-anchor" href="#Feature-Frame-Patches">Feature Frame Patches</a><a id="Feature-Frame-Patches-1"></a><a class="docs-heading-anchor-permalink" href="#Feature-Frame-Patches" title="Permalink"></a></h3><p>Extract patches from feature frames (Disc, EllipticFrame, AffineFrame). The math builders take a <code>Circle</code> or <code>Ellipse</code>, so convert the frame first:</p><pre><code class="language-julia hljs"># From a Disc (isotropic feature)
+disc = Disc(Point2(100.0, 200.0), 5.0)
+math = canonical_map(Circle(disc), 31; bound=1.0)
+bm    = image_warp(math, 31)
+patch = image_warp!(Matrix{Float32}(undef, 31, 31), bm, img)
+
+# From an EllipticFrame (anisotropic feature)
+frame = EllipticFrame(center, S)  # S is shape matrix
+math = canonical_map(Ellipse(frame), 31; bound=1.0)
+bm    = image_warp(math, 31)</code></pre><h3 id="Log-Polar-Patches"><a class="docs-heading-anchor" href="#Log-Polar-Patches">Log-Polar Patches</a><a id="Log-Polar-Patches-1"></a><a class="docs-heading-anchor-permalink" href="#Log-Polar-Patches" title="Permalink"></a></h3><p>Extract rotation-invariant patches using log-polar sampling:</p><pre><code class="language-julia hljs">lp_patch = Matrix{Float32}(undef, 256, 256)
+
+# Log-polar patch from a disc
+math = logpolar_map(Circle(disc), 256, 0.01)
+bm    = image_warp(math, 256)
+image_warp!(lp_patch, bm, img)
+
+# Custom inner radius (avoids singularity at center)
+math = logpolar_map(Circle(disc), 256, 0.05)
+bm    = image_warp(math, 256)
+image_warp!(lp_patch, bm, img)
+
+# From ellipse
+math = logpolar_map(ellipse, 256, 0.01)
+bm    = image_warp(math, 256)
+image_warp!(lp_patch, bm, img)</code></pre><p>Log-polar sampling maps:</p><ul><li>x-axis (columns) → radius (logarithmically scaled)</li><li>y-axis (rows) → angle (0 to 2π)</li></ul><p>This makes the patch invariant to rotation (becomes translation in y) and scale (becomes translation in x).</p><h3 id="Math-side-patch-composition"><a class="docs-heading-anchor" href="#Math-side-patch-composition">Math-side patch composition</a><a id="Math-side-patch-composition-1"></a><a class="docs-heading-anchor-permalink" href="#Math-side-patch-composition" title="Permalink"></a></h3><p>When you need to compose further math on the bare patch transform (e.g., detector-side compositions that chain <code>patch → input → level</code>), bypass the image-warp builders and use the math builders directly:</p><pre><code class="language-julia hljs"># Bare math: patch coords → input image coords
+patch_to_input  = canonical_map(geometry, patch_size; bound=1.0, align_corners=true)
+
+# Compose with additional math
+scale = 1.0 / step
+input_to_level  = AffineMap(SMatrix{2,2}(scale, 0.0, 0.0, scale),
+                            SVector(1.0 - scale, 1.0 - scale))
+patch_to_level  = input_to_level ∘ patch_to_input    # still bare math
+
+# Bake conventions at the boundary when you&#39;re ready to warp:
+bm = image_warp(patch_to_level, patch_size)
+patch = image_warp!(Matrix{Float32}(undef, patch_size, patch_size), bm, level_img)</code></pre><h2 id="HomographyMap-and-Perspective-Division"><a class="docs-heading-anchor" href="#HomographyMap-and-Perspective-Division">HomographyMap and Perspective Division</a><a id="HomographyMap-and-Perspective-Division-1"></a><a class="docs-heading-anchor-permalink" href="#HomographyMap-and-Perspective-Division" title="Permalink"></a></h2><p>When the inner transform is a <code>HomographyMap</code> (whose output is in homogeneous coordinates), <code>image_warp</code> automatically composes a <code>PerspectiveMap</code> into the chain so the warp sees inhomogeneous <code>(x, y)</code> output ready for sampling:</p><pre><code class="language-julia hljs"># HomographyMap output needs perspective division (handled internally)
+H  = HomographyMap(HomographyMat(matrix))
+bm = image_warp(H, 256)
+patch = image_warp!(Matrix{Float32}(undef, 256, 256), bm, img)</code></pre><h2 id="Basis-Vectors"><a class="docs-heading-anchor" href="#Basis-Vectors">Basis Vectors</a><a id="Basis-Vectors-1"></a><a class="docs-heading-anchor-permalink" href="#Basis-Vectors" title="Permalink"></a></h2><p>Canonical basis for coordinate systems:</p><pre><code class="language-julia hljs"># 2D canonical basis
+e1, e2 = canonical_basis(SVector{2,Float64})  # ([1.0, 0.0], [0.0, 1.0])
+
+# A single basis vector (internal, not exported)
+e1 = VisualGeometryCore.basis_vector(SVector{2,Float64}, 1)  # [1.0, 0.0]</code></pre><h2 id="Camera-Homographies"><a class="docs-heading-anchor" href="#Camera-Homographies">Camera Homographies</a><a id="Camera-Homographies-1"></a><a class="docs-heading-anchor-permalink" href="#Camera-Homographies" title="Permalink"></a></h2><p>Project between world plane and image:</p><pre><code class="language-julia hljs">using Rotations
+
+# Create camera
+camera = Camera(model, EuclideanMap(R, t))
+
+# Homography from world plane (z=0) to image
+H_mat = HomographyMat(camera)
+H = HomographyMap(H_mat)  # Wrap for callable syntax
+
+# Map world point to image
+p_world = Point2(100.0, 50.0)  # On z=0 plane
+p_image = H(p_world)
+
+# Transform circles (a Conic under a general homography)
+circle_world = Circle(Point2(100.0, 50.0), 25.0)
+Q_image = H(circle_world)  # a Conic; Ellipse(Q_image) once classify_conic(Q_image) isa EllipseTrait</code></pre><h2 id="Full-Image-Warping-Pipeline"><a class="docs-heading-anchor" href="#Full-Image-Warping-Pipeline">Full Image Warping Pipeline</a><a id="Full-Image-Warping-Pipeline-1"></a><a class="docs-heading-anchor-permalink" href="#Full-Image-Warping-Pipeline" title="Permalink"></a></h2><pre><code class="language-julia hljs"># Create camera viewing a planar surface
+camera = Camera(model, pose)
+
+# Get homography and wrap in HomographyMap
+H = HomographyMap(HomographyMat(camera))
+
+# Get output size from sensor
+image_rect = Rect(sensor)
+w_size = widths(image_rect)
+
+# Create warp (handles coordinate conventions and perspective division)
+bm = image_warp(inv(H), image_rect)
+
+# Resample the board image (a Matrix{Float32}) into the sensor frame
+warped_img = Matrix{Float32}(undef, Int(w_size[2]), Int(w_size[1]))  # (height, width)
+image_warp!(warped_img, bm, board_image; fillvalue=1.0f0)</code></pre><h2 id="See-Also"><a class="docs-heading-anchor" href="#See-Also">See Also</a><a id="See-Also-1"></a><a class="docs-heading-anchor-permalink" href="#See-Also" title="Permalink"></a></h2><ul><li><a href="../../api/transforms/">Transforms API Reference</a></li><li><a href="../frames/">Coordinate Frames</a> - The <code>Src</code>/<code>Dst</code> frame tags carried by <code>EuclideanMap</code> and <code>HomographyMap</code>, and the checked composition rules</li><li><a href="../batched/">Batched Maps</a> - The structure-of-arrays transform protocol</li><li><a href="../primitives/">Primitives Guide</a> - Transforming geometric shapes</li><li><a href="../cameras/">Cameras Guide</a> - Camera-based transformations</li></ul></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../primitives/">« Geometric Primitives</a><a class="docs-footer-nextpage" href="../estimators/">Robust Estimation »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.19.0 on <span class="colophon-date" title="Thursday 15 October 2026 23:52">Thursday 15 October 2026</span>. Using Julia version 1.12.7.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

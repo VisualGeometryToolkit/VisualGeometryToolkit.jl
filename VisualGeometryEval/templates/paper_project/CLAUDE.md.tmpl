@@ -1,0 +1,19 @@
+# CLAUDE.md
+
+{{NAME}}: a paper project of the visual-geometry stack. It follows the
+stack's paper-project conventions — VisualGeometryEval README, "Paper project
+conventions" — and `test/runtests.jl` enforces them
+(`VisualGeometryEval.PaperProjects.paper_project_violations`). In short:
+
+- every result and paper asset comes from a driver under `scripts/`
+  (`run_stages`: `--plan`, `--stage=NAME`, `--force`) reading a TOML config of
+  record under `configs/`; no data constant (seed, scene or frame list, data
+  path, numeric table) lives in a driver;
+- outputs go under `results_root()` in a directory keyed by `run_key(cfg)`,
+  with `write_run_records` / `write_provenance` beside them; inputs under
+  `data_root()` are read-only; no machine path, no `artifact"…"` in code;
+- every figure, table and macro the paper reads is a row of `REPRODUCE.md`;
+- published input data are Julia artifacts on Zenodo, catalogued in
+  `configs/data_artifacts.toml`.
+
+Run the tests with `julia --project=. test/runtests.jl`.

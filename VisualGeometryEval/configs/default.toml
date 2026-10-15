@@ -1,0 +1,152 @@
+# =============================================================================
+# configs/default.toml — THE defaults of record of VisualGeometryEval: every
+# value of the evaluation base that changes a reported statistic, a rendered
+# panel or a raw dataset read, and is not a tuning parameter (configs/tuning.toml)
+# or a scene split (configs/splits.toml).
+#
+# Only this package's own keys live here. The local-optimization and refit
+# protocol, the absolute-pose race and the pool-GENERATION parameters (sampler,
+# target, trials, subsample sizes and seeds) belong to their owners' configs.
+#
+# Read through ONE mechanism, `_config_default(table, key)` (src/config_defaults.jl,
+# VisualGeometryCore `toml_default`), which THROWS on a missing table or key.
+# Parsed at precompile (`include_dependency`): an edit forces a recompile, so a
+# Revise session needs a restart to see one. test/config_defaults_tests.jl
+# asserts every key here is read and every key read is here.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Reported statistics
+# -----------------------------------------------------------------------------
+[metrics]
+maa_threshold_deg = 10.0     # mAA@T: the AUC of the error CDF over [0, T] degrees
+bootstrap_resamples = 10000  # BCa bootstrap resamples of every confidence interval
+ci_alpha = 0.05              # two-sided level of every confidence interval (95 %)
+ci_min_scenes = 3            # fewer scenes than this ⇒ no scene-clustered CI (the point estimate twice)
+
+[render]
+# The basin panel masks a conditional (survivor) mean when fewer than this
+# fraction of seeds succeed — the mean collapses onto a lucky few.
+min_success_for_cond_mean = 0.20
+
+# -----------------------------------------------------------------------------
+# Raw dataset readers (Datasets): the per-dataset read thresholds.
+# -----------------------------------------------------------------------------
+[pool.heb]
+snn_threshold = 0.7          # keep matches with SNN < this (evaluate_H.py:142)
+
+[pool.phototourism]
+# Shekhovtsov's protocol (RANSAC-Scoring load_data.py:70-72
+# `saved_residuals_tutorial_0.9`, h_patches_residuals.py:134).
+snn_threshold = 0.9
+min_track_pairs = 10         # fewer SfM-track-paired detections ⇒ no stable σ̂²: the pair is dropped
+gt_inlier_sampson_px = 1.5   # the pair-eligibility mask: pixel Sampson under the GT F below this
+
+# -----------------------------------------------------------------------------
+# The depth-validated stereo datasets (Datasets: ETH3D, ScanNet1500, KITTI,
+# SevenScenes) behind `consolidate_csponds`.
+#
+# Ground-truth inlier validation (GTConfig), per dataset and matcher: metric
+# tolerances at the surface. The ETH3D/ScanNet values are the empirical
+# 3·MAD of the match noise on a sample of pairs with a 1 %-of-diagonal
+# Sampson gross-outlier filter; 7-Scenes and KITTI are uncalibrated
+# placeholders (see each table).
+# -----------------------------------------------------------------------------
+[gt.eth3d.roma]
+gt_method = "depth_warp_eth3d_laser"
+metric_tol_mm = 13.6         # n_sample = 20 pairs, σ_match ≈ 4.53 mm, 4078 validated csponds
+rel_tol = 0.02
+bidirectional = true
+
+[gt.eth3d.splg]
+gt_method = "depth_warp_eth3d_laser"
+metric_tol_mm = 68.6         # n_sample = 20 pairs, σ_match ≈ 22.88 mm, 176 validated csponds
+rel_tol = 0.02
+bidirectional = true
+
+[gt.scannet1500.roma]
+gt_method = "depth_warp_scannet_kinect"
+metric_tol_mm = 58.1         # n_sample = 30 pairs, σ_match ≈ 19.37 mm, 95,371 validated csponds
+rel_tol = 0.05
+bidirectional = true
+
+[gt.scannet1500.splg]
+gt_method = "depth_warp_scannet_kinect"
+metric_tol_mm = 53.3         # n_sample = 30 pairs, σ_match ≈ 17.77 mm, 4,678 validated csponds
+rel_tol = 0.05
+bidirectional = true
+
+[gt.seven_scenes.roma]
+gt_method = "depth_warp_seven_scenes_kinect"
+metric_tol_mm = 25.0         # placeholder: ScanNet's Kinect physics at half the focal/depth — recalibrate
+rel_tol = 0.05
+bidirectional = true
+
+[gt.kitti]
+# Velodyne HDL-64E projected into cam0; one tolerance for every matcher until
+# a per-matcher calibration lands.
+gt_method = "depth_warp_kitti_velodyne"
+metric_tol_mm = 30.0         # placeholder (±2 cm at range + projection quantization) — recalibrate
+rel_tol = 0.05
+bidirectional = true
+
+[datasets.eth3d]
+# A pair needs at least this many co-visible triangulated points. 200 is the
+# value the published ETH3D inputs were extracted with (it reproduces their
+# extraction manifest, all 3081 pairs of the 13 scenes, exactly);
+# SuperANSAC's eth3d.py defaults to 500 (246 of courtyard's 328 pairs).
+min_covisibility = 200
+
+[datasets.kitti]
+sequences = ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]   # the odometry sequences with poses
+interval = 1                 # consecutive frames
+stride = 1
+
+[datasets.seven_scenes]
+# The Kinect colour camera (every scene and sequence) and SuperANSAC's pair
+# rule and splits (tests/datasets/seven_scenes.py), `<scene>/<sequence>`.
+focal = 585.0
+principal_point = [320.0, 240.0]
+image_size = [640, 480]
+interval = 50                # pairs (img[i], img[i + interval]) …
+stride = 10                  # … for i = 0, stride, 2·stride, …
+test_sequences = [
+    "chess/seq-03", "chess/seq-05", "fire/seq-03", "fire/seq-04", "heads/seq-01",
+    "office/seq-02", "office/seq-06", "office/seq-07", "office/seq-09",
+    "pumpkin/seq-01", "pumpkin/seq-07",
+    "redkitchen/seq-03", "redkitchen/seq-04", "redkitchen/seq-06", "redkitchen/seq-12", "redkitchen/seq-14",
+    "stairs/seq-01", "stairs/seq-04",
+]
+train_sequences = [
+    "chess/seq-01", "chess/seq-02", "chess/seq-04", "chess/seq-06", "fire/seq-01", "fire/seq-02",
+    "heads/seq-02",
+    "office/seq-01", "office/seq-03", "office/seq-04", "office/seq-05", "office/seq-08", "office/seq-10",
+    "pumpkin/seq-02", "pumpkin/seq-03", "pumpkin/seq-06", "pumpkin/seq-08",
+    "redkitchen/seq-01", "redkitchen/seq-02", "redkitchen/seq-05", "redkitchen/seq-07", "redkitchen/seq-08",
+    "redkitchen/seq-11", "redkitchen/seq-13",
+    "stairs/seq-02", "stairs/seq-03", "stairs/seq-05", "stairs/seq-06",
+]
+
+# -----------------------------------------------------------------------------
+# The composition evaluator (Evaluation: the refit layer, the selection stream,
+# the sample-budget engine; moved from LocalOptimizationDoneRight's engine).
+# -----------------------------------------------------------------------------
+[local_optimization]
+# THE equal LO model-update budget of the evaluation: a paper's truncated
+# refiners run at most this many model updates per LO call, so arms compare at
+# equal cost (`lo_iteration_budget`). A paper with its own protocol supplies
+# its budget explicitly.
+iteration_budget = 25
+
+[refit]
+# The scale multiple at which the outlier-half-width ↔ loss-width crossover is
+# inverted when a loss-width refiner rides an outlier-half-width selector grid
+# (`consumed_native`). A definition of the refit protocol, not a tuned value.
+operating_scale_multiple = 2.5
+
+[selection]
+# The base seed of SIMFIT++'s random train/validation halves in a selection grid
+# (`stream_selections`): each (pair, column) draws from
+# StableRNG(stable_seed(simfitpp_seed, "simfitpp", pair content, column)), so the
+# grid is independent of the thread schedule and of Julia's version.
+simfitpp_seed = 0

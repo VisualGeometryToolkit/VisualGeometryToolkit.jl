@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Keep the workspace Manifest legal after git moves any Project.toml.
+#
+# The workspace has ONE untracked Manifest, at the root. A pull, checkout or
+# rebase that changes a Project.toml anywhere (a package, its test/ or docs/
+# env, ci/) can leave it illegal; this hook re-resolves it once, at the root.
+# Installed as post-merge, post-checkout and post-rewrite (symlinks to this
+# file). Activate once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# Never fails the git command; on error it says what to run by hand.
+# Manual form:  .githooks/sync-manifest [<old-rev> [<new-rev>]]
+
+set -u
+set -o pipefail
+repo=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$repo" || exit 0
+hook=$(basename "$0")
+
+case "$hook" in
+  post-merge)    old=ORIG_HEAD; new=HEAD ;;
+  post-rewrite)  [ "${1:-}" = rebase ] || exit 0; old=ORIG_HEAD; new=HEAD ;;
+  post-checkout) [ "${3:-0}" = 1 ] || exit 0; old=$1; new=$2 ;;
+  *)             old=${1:-ORIG_HEAD}; new=${2:-HEAD} ;;
+esac
+
+log() { printf '[sync-manifest] %s\n' "$*" >&2; }
+
+if git rev-parse --verify -q "$old^{commit}" >/dev/null 2>&1; then
+  git diff --quiet "$old" "$new" -- ':(glob)**/Project.toml' && exit 0
+fi
+[ -f Manifest.toml ] || exit 0          # nothing resolved yet: instantiate creates it
+
+command -v julia >/dev/null 2>&1 || { log "a Project.toml changed; run: julia --project=. -e 'using Pkg; Pkg.update()'"; exit 0; }
+TIMEOUT=(); command -v timeout >/dev/null 2>&1 && TIMEOUT=(timeout 900)
+
+log "a Project.toml changed — Pkg.update() at the workspace root (precompile deferred)"
+if JULIA_PKG_PRECOMPILE_AUTO=0 "${TIMEOUT[@]}" julia --startup-file=no --project=. \
+     -e 'using Pkg; Pkg.update(; io = devnull); println("workspace Manifest re-resolved")' 2>&1 | sed 's/^/[sync-manifest]   /' >&2
+then :
+else
+  log "FAILED — the Manifest may still be illegal; run: julia --startup-file=no --project=. -e 'using Pkg; Pkg.update()'"
+fi
+exit 0

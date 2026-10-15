@@ -1,0 +1,133 @@
+
+[Float32.division1]
+cpu_serial_distort = 30.401252
+cpu_serial_undistort = 10.844168
+cpu_threaded_distort = 1.439902
+cpu_threaded_undistort = 0.468425
+gpu_distort = 0.030427
+gpu_undistort = 0.026966
+
+[Float32.division3]
+cpu_serial_distort = 55.28939
+cpu_serial_undistort = 15.020142
+cpu_threaded_distort = 1.440092
+cpu_threaded_undistort = 0.694228
+gpu_distort = 0.036719
+gpu_undistort = 0.028519
+
+[Float32.double_sphere]
+cpu_serial_distort = 4.883264
+cpu_serial_undistort = 24.780808
+cpu_threaded_distort = 0.541064
+cpu_threaded_undistort = 1.129972
+gpu_distort = 0.026673
+gpu_undistort = 0.028847
+
+[Float32.kannala_brandt]
+cpu_serial_distort = 29.669526
+cpu_serial_undistort = 69.191162
+cpu_threaded_distort = 1.196983
+cpu_threaded_undistort = 2.501006
+gpu_distort = 0.028533
+gpu_undistort = 0.037374
+
+[Float32.opencv5]
+cpu_serial_distort = 12.521783
+cpu_serial_undistort = 170.640898
+cpu_threaded_distort = 0.563284
+cpu_threaded_undistort = 6.944765
+gpu_distort = 0.032279
+gpu_undistort = 0.078105
+
+[Float32.scaramuzza]
+cpu_serial_distort = 51.661383
+cpu_serial_undistort = 18.654146
+cpu_threaded_distort = 2.410834
+cpu_threaded_undistort = 0.764557
+gpu_distort = 0.034026
+gpu_undistort = 0.029061
+
+[Float32.thin_prism_fisheye]
+cpu_serial_distort = 31.418907
+cpu_serial_undistort = 89.428062
+cpu_threaded_distort = 1.48562
+cpu_threaded_undistort = 3.446107
+gpu_distort = 0.034026
+gpu_undistort = 0.040525
+
+[Float64.division1]
+cpu_serial_distort = 18.854642
+cpu_serial_undistort = 17.445497
+cpu_threaded_distort = 1.080157
+cpu_threaded_undistort = 0.375562
+gpu_distort = 0.040577
+gpu_undistort = 0.032495
+
+[Float64.division3]
+cpu_serial_distort = 75.216663
+cpu_serial_undistort = 16.62937
+cpu_threaded_distort = 3.1886
+cpu_threaded_undistort = 0.6915
+gpu_distort = 0.053477
+gpu_undistort = 0.036095
+
+[Float64.double_sphere]
+cpu_serial_distort = 12.34541
+cpu_serial_undistort = 28.865851
+cpu_threaded_distort = 0.818701
+cpu_threaded_undistort = 1.210925
+gpu_distort = 0.034739
+gpu_undistort = 0.038936
+
+[Float64.kannala_brandt]
+cpu_serial_distort = 42.497976
+cpu_serial_undistort = 103.607322
+cpu_threaded_distort = 1.76793
+cpu_threaded_undistort = 3.722688
+gpu_distort = 0.039074
+gpu_undistort = 0.054213
+
+[Float64.opencv5]
+cpu_serial_distort = 13.228075
+cpu_serial_undistort = 424.089975
+cpu_threaded_distort = 0.41282
+cpu_threaded_undistort = 14.055675
+gpu_distort = 0.038825
+gpu_undistort = 0.119619
+
+[Float64.scaramuzza]
+cpu_serial_distort = 74.253006
+cpu_serial_undistort = 23.123043
+cpu_threaded_distort = 3.182017
+cpu_threaded_undistort = 0.562826
+gpu_distort = 0.054974
+gpu_undistort = 0.037375
+
+[Float64.thin_prism_fisheye]
+cpu_serial_distort = 41.426176
+cpu_serial_undistort = 199.979116
+cpu_threaded_distort = 1.809295
+cpu_threaded_undistort = 6.668265
+gpu_distort = 0.043587
+gpu_undistort = 0.080838
+[crossover]
+division1_1024_serial = 0.013185
+division1_1024_threaded = 0.010849
+division1_16384_serial = 0.169151
+division1_16384_threaded = 0.046018
+division1_256_serial = 0.00299
+division1_256_threaded = 0.003319125
+division1_4096_serial = 0.035382
+division1_4096_threaded = 0.025529
+division1_65536_serial = 0.679194
+division1_65536_threaded = 0.06212
+opencv5_1024_serial = 0.40092
+opencv5_1024_threaded = 0.116389
+opencv5_16384_serial = 6.660794
+opencv5_16384_threaded = 0.477426
+opencv5_256_serial = 0.10103
+opencv5_256_threaded = 0.101299
+opencv5_4096_serial = 1.573641
+opencv5_4096_threaded = 0.146147
+opencv5_65536_serial = 25.484168
+opencv5_65536_threaded = 1.044096

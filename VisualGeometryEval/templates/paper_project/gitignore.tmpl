@@ -1,0 +1,26 @@
+# The per-machine bindings of the data trees (data/README.md): links or
+# directories, never tracked. Results live under data/exp_pro, keyed by run key.
+/data/exp_raw
+/data/exp_pro
+/data/sims
+
+# Local renderings (DrWatson plotsdir); the paper's assets are tracked under {{FIGDIR}}/
+/plots/
+
+# Julia. Manifest.toml IS tracked: it is the environment the results came from.
+Manifest-v*.toml
+LocalPreferences.toml
+
+# LaTeX build products
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+/{{PAPERDIR}}/*.pdf
+
+# Slurm
+slurm-*.out

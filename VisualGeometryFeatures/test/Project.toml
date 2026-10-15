@@ -1,0 +1,42 @@
+# The test environment (Pkg ≥ 1.11 form; replaces [extras]/[targets]). A
+# workspace member of ../Project.toml, so Pkg.test() runs it without a sandbox.
+[deps]
+Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+Colors = "5ae59095-9a9b-59fe-a467-6f913c188581"
+ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
+FixedPointNumbers = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
+JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
+JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
+JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
+KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+ReTestItems = "817f1d60-ba6b-4fd5-9520-3cf149f6a823"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+StructTypes = "856f2bd8-1eba-4b0a-8007-ebc267875bd4"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+VisualGeometryCore = "297d53b8-c8d7-4cd7-a9af-68e656508a81"
+VisualGeometryFeatures = "9e05951d-65eb-41d6-b120-50dff4d82817"
+
+[sources]
+VisualGeometryFeatures = {path = ".."}
+
+[compat]
+Aqua = "0.8.18"
+Colors = "0.13"
+ExplicitImports = "1.15"
+FixedPointNumbers = "0.8"
+JET = "0.12"
+JLD2 = "0.5, 0.6"
+JSON3 = "1"
+julia = "1.12"
+KernelAbstractions = "0.9.42"
+LinearAlgebra = "1"
+Makie = "0.24"
+Random = "1"
+ReTestItems = "1"
+Statistics = "1"
+StructTypes = "1"
+Test = "1"
+VisualGeometryCore = "0.1"

@@ -1,0 +1,18 @@
+# =============================================================================
+# src/{{NAME}}.jl — the shared prelude every driver includes after
+# `@quickactivate "{{NAME}}"`: `include(srcdir("{{NAME}}.jl"))`. It binds the
+# project's data trees (VisualGeometryEval Experiments: data_root() for the
+# read-only inputs, results_root() for the results) and brings in the stage
+# runner, the run key and the provenance writer. Project code shared by several
+# drivers goes here, never a data constant (those are configs/).
+# =============================================================================
+using DrWatson
+using TOML: TOML
+using StableRNGs: StableRNG
+using VisualGeometryEval.Experiments: Stage, run_stages, require_input, fresher, run_key,
+    set_project_root!, data_root, results_root, write_run_records, write_provenance, run_complete
+using VisualGeometryEval.Render: HOUSE_AXIS_COMMON, HOUSE_LINE_WIDTH, HOUSE_MARK_SIZE
+
+# data/exp_raw (inputs) and data/exp_pro (results) under this project, unless
+# CAU_DATA_ROOT / CAU_RESULTS_ROOT bind them elsewhere (data/README.md).
+set_project_root!(projectdir(); create_results = true)

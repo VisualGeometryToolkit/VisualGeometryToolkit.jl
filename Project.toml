@@ -1,0 +1,31 @@
+# The VisualGeometryToolkit workspace. Not a package: never registered.
+# One Manifest.toml (untracked) next to this file serves every project below.
+
+[workspace]
+projects = [
+    "VisualGeometryCore", "VisualGeometryIo", "VisualGeometryFeatures",
+    "RobustVisualGeometry", "VisualGeometryEval", "PoseLib",
+    "ci",
+]
+
+# Workspace wiring: every stack package resolves to its directory here.
+# Pkg merges [sources] per UUID across workspace projects, so these paths also
+# apply where a member depends on a sibling (VisualGeometryIo → VisualGeometryCore, …).
+[deps]
+PoseLib = "a8c7e0b4-3d2f-4f1c-9a1e-7b2d9c8f4a3b"
+RobustVisualGeometry = "48970fad-9a21-401c-bf6c-679fa4f2bd7f"
+VisualGeometryCore = "297d53b8-c8d7-4cd7-a9af-68e656508a81"
+VisualGeometryEval = "3a96b074-0aeb-4323-98af-032cad4f5882"
+VisualGeometryFeatures = "9e05951d-65eb-41d6-b120-50dff4d82817"
+VisualGeometryIo = "d0441031-17df-4f07-bc88-8d8f5a818e7b"
+
+[sources]
+PoseLib = {path = "PoseLib"}
+RobustVisualGeometry = {path = "RobustVisualGeometry"}
+VisualGeometryCore = {path = "VisualGeometryCore"}
+VisualGeometryEval = {path = "VisualGeometryEval"}
+VisualGeometryFeatures = {path = "VisualGeometryFeatures"}
+VisualGeometryIo = {path = "VisualGeometryIo"}
+
+[compat]
+julia = "1.12"

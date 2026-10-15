@@ -1,0 +1,141 @@
+# =============================================================================
+# Default configuration — the config of record.
+#
+# `RansacConfig()`, every local-optimization strategy's keyword defaults and
+# every `find_*` pipeline's `outlier_halfwidth` and `local_optimization`
+# default read THIS file. There is no second set of Julia
+# literals to drift from it (src/config_defaults.jl explains the mechanism;
+# test/config_toml_tests.jl asserts the file names every key a config struct
+# emits, so the completeness cannot rot).
+#
+# POLICY (matches BlobBoards): this shipped file is not edited per run. Single
+# values are overridden by keyword at the call site; a different configuration
+# is a different TOML: `RansacConfig(path)` loads its [ransac] table and
+# `local_optimization_from_toml` a strategy table, and absent keys inherit this file. The values
+# here are baked in at precompile time (`include_dependency` makes an edit
+# trigger a recompile), so a Revise session needs a restart to see one.
+# =============================================================================
+
+[ransac]
+# The three RansacConfig fields. `min_trials` is 100 everywhere now — the
+# fitting pipelines used to carry a parallel literal of 500 in _pipeline.jl,
+# two "defaults" that disagreed until 2026-09-03.
+success_prob   = 0.99
+max_trials     = 10000
+min_trials     = 100
+
+# -----------------------------------------------------------------------------
+# Per-pipeline defaults for the find_* entry points. The local optimization is
+# the classical one: least squares on the inliers, `Irls{TLSShape}` with no
+# width, so its truncation follows the scorer's decision point (the same
+# truncated-quadratic objective in selection and refinement). The paper's
+# optimizers (the half-quadratic lifts, GNC, the cross-validated operating
+# points) are LocalOptimizationDoneRight's: give one as `local_optimization`.
+# -----------------------------------------------------------------------------
+[pipelines.homography]
+threshold          = 3.0         # px — a convention (OpenCV findHomography's ransacReprojThreshold), not a tuned value
+local_optimization = { type = "irls", loss = "tls" }
+
+[pipelines.fundmat]
+threshold          = 3.0         # px — a convention (OpenCV findFundamentalMat's ransacReprojThreshold), not a tuned value
+local_optimization = { type = "irls", loss = "tls" }
+
+[pipelines.essential]
+threshold          = 1.0         # px — a convention (OpenCV findEssentialMat's threshold), not a tuned value
+local_optimization = { type = "irls", loss = "tls" }
+
+[pipelines.absolute_pose]
+threshold          = 8.0         # px — a convention (OpenCV solvePnPRansac's reprojectionError), not a tuned value
+local_optimization = { type = "irls", loss = "tls" }
+
+[pipelines.radial_homography]
+threshold          = 3.0         # px — a convention (the homography class's), not a tuned value
+local_optimization = { type = "irls", loss = "tls" }
+
+[pipelines.radial_camera]
+# The 1-D radial camera of a board (distortion-free verification): the residual
+# is the pixel distance to the predicted radial line (codimension 1).
+threshold          = 3.0         # px — a convention (the homography class's), not a tuned value
+local_optimization = { type = "irls", loss = "tls" }
+
+[pipelines.hand_eye]
+# threshold is UNIT-FREE here: a fraction of the problem's characteristic
+# length L (median rig translation per motion), so find_hand_eye's default
+# MSAC threshold of 0.01·L is the same whether the poses are in metres or
+# millimetres (a rotation error of 0.01 rad ≈ 0.57° reaches it). A caller's
+# `threshold` keyword is a length (the poses' unit). A convention of this
+# package (no external one exists), not a tuned value.
+threshold          = 0.01        # × L (dimensionless; rotation enters the residual as L·θ)
+motion_pairs       = "consecutive"
+local_optimization = { type = "irls", loss = "tls" }
+
+[fit_division_camera]
+ncoef             = 1
+max_iter          = 30
+outlier_halfwidth = 20.0         # px — the uniform outlier half-width, NOT the residual scale
+
+[robot_world_hand_eye]
+min_rel_angle_deg = 5.0          # relative motions below this are degenerate for the init
+
+[refine_robot_world_hand_eye]
+max_iter = 100                   # the reprojection LM's iteration cap
+
+[chart_lm]
+# The LO refit every chart problem runs (`refine!` → VGC's `_lmsolve_chart!`,
+# FastLevenbergMarquardt's `lmsolve!`): its LM iteration cap per refit. The
+# value is FLM's own documented default (`maxit = 1000`), recorded here rather
+# than inherited; FLM's `gtol = eps`, `xtol = 1e-10` and damping schedule are
+# its defaults and are not restated.
+max_iter = 1000
+# The LO refit's relative cost tolerance (FLM `ftol`: stop once an accepted
+# step's actual and predicted reductions are both below ftol·F). FLM's default
+# is eps, which runs every refit to its rounding floor: measured 2026-10-07 on
+# the PhotoTourism E replay (360 Welsch-IRLS LO calls), 28.6 residual and 8.0
+# Jacobian sweeps per refit, ~20 of them rejected steps at the floor. At 1e-10:
+# 5.6 and 4.1, the refit 2.3× faster, the returned E within 7.8e-7 (unit
+# Frobenius, max over the 360) of the eps run. Also FLM's absolute zero-cost
+# test (F < ftol at the start, and the stall postcondition's case 1).
+ftol = 1.0e-10
+# The stall postcondition (VGC `_lm_stationary`): a step-size stop (FLM code 2,
+# upstream's 4) is `:converged` only when the cost is zero by FLM's own test
+# (F < ftol) or max_j |J_jᵀf| / (‖J_j‖‖f‖) ≤ this at the returned point;
+# `:stalled` otherwise. Shared by every chart LM: the LO refits, `fit_lens` and
+# `refine_robot_world_hand_eye`. Measured 2026-10-01 (the cosine at every step-size
+# stop): genuine convergence on noisy data ≤ 6.2e-7 (218 346 LO refits of the
+# LM benchmark scenes; the RVG suite's noisy fits ≤ 4e-8); convergence at a
+# residual's rounding floor — the noiseless hand-eye fit, whose rotation log
+# is accurate to ~√eps — 0.0045–0.037; real stalls — a NaN or discontinuity
+# wall in the radial-camera, radial-homography and lens rows (no step along
+# −Jᵀf lowers F) — 0.084–0.42, and both FastLevenbergMarquardt issue #4
+# reproductions 1.0. The value sits in the gap between the last two.
+stationarity_tol = 0.05
+
+[relpose_bundle]
+max_iter = 100                   # the relative-pose bundle's LM iteration cap (its `refine!` and `bundle_refine_relpose`)
+stationarity_tol = 0.05         # its stall postcondition (see [chart_lm]; its own fits measured ≤ 1e-9 at convergence)
+
+[fit_lens]
+max_iter = 100                   # the lens regression's LM iteration cap
+
+# The EM of the Student-t + uniform mixture (`MixtureEmConfig`): what an
+# iteration does to the model, and to each part of the noise model. Under
+# `fit_residual_mixture` the model is a held fit's, so the update is "keep_model";
+# its `tol` stops the EM once an iteration lowers the mixture NLL by no more
+# than that fraction. Every nuisance part is estimated: ŝ², ν and the inlier
+# prior π (a held part is `{ type = "fixed_s2", s2 = … }`,
+# `{ type = "fixed_prior", inlier_prior = … }` or `{ type = "fixed_nu", nu = … }`;
+# ν may also be "consensus_dof", held at the consensus seed's posterior-
+# predictive dof).
+[mixture_em]
+max_iter = 200
+model_update = { type = "keep_model", tol = 1.0e-10 }
+nuisance = { scale = "estimated", inlier_prior = "estimated", nu = "estimated" }
+
+# -----------------------------------------------------------------------------
+# Local-optimization strategy internals. The keyword defaults of each strategy
+# constructor read its table. A strategy's width (`scale_multiple` or
+# `loss_width`) is deliberately absent: given none it follows the scorer's
+# decision point.
+# -----------------------------------------------------------------------------
+[local_optimization.irls]
+max_iter = 25

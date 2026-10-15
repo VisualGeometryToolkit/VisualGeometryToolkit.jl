@@ -1,0 +1,77 @@
+# Nightly (DESIGN D14): all six packages on Linux with Julia 1.12 and the
+# latest 1.x under --depwarn=error; PoseLib on macOS and Windows (OFF, below); the
+# downstream contract job (RansacScoringDoneRight, LocalOptimizationDoneRight,
+# BlobBoards against this workspace).
+#
+# GO-LIVE: the macOS/Windows and downstream jobs are switched OFF while the
+# repository is private (runner minutes; private downstream checkouts). Set the
+# repository variable NIGHTLY_FULL to 'true' at go-live to switch them on.
+name: Nightly
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux:
+    name: ${{ matrix.package }} / Julia ${{ matrix.julia }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        julia: ['1.12', '1']
+        package: [VisualGeometryCore, VisualGeometryIo, VisualGeometryFeatures, RobustVisualGeometry, VisualGeometryEval, PoseLib]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with: { version: '${{ matrix.julia }}' }
+      - uses: julia-actions/cache@v2
+      - run: julia --project=${{ matrix.package }}/test -e 'using Pkg; Pkg.instantiate()'
+      - run: julia --project=${{ matrix.package }} -e 'using Pkg; Pkg.test(; julia_args = ["--depwarn=error"])'
+  # PoseLib is Linux-only until the PoseLib_jll release: its binaries are the
+  # package's own Artifacts.toml, built for Linux only (GCC 14), and __init__
+  # refuses other platforms. Switch this job back on (`vars.NIGHTLY_FULL ==
+  # 'true'`) when PoseLib loads PoseLib_jll again.
+  poselib-os:
+    if: false                            # Linux-only PoseLib binaries until PoseLib_jll (see above)
+    name: PoseLib / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with: { version: '1.12' }
+      - uses: julia-actions/cache@v2
+      - run: julia --project=PoseLib/test -e "using Pkg; Pkg.instantiate()"
+      - run: julia --project=PoseLib -e "using Pkg; Pkg.test()"
+  downstream:
+    if: vars.NIGHTLY_FULL == 'true'      # GO-LIVE: disabled until the downstream repositories are public
+    name: downstream / ${{ matrix.repo }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        repo: [RansacScoringDoneRight.jl, LocalOptimizationDoneRight.jl, BlobBoards.jl]
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: toolkit }
+      - uses: actions/checkout@v4
+        with: { repository: 'VisualGeometryToolkit/${{ matrix.repo }}', path: downstream }
+      - uses: julia-actions/setup-julia@v2
+        with: { version: '1.12' }
+      - uses: julia-actions/cache@v2
+      - name: Point the downstream envs at this workspace, then test (CPU)
+        working-directory: downstream
+        run: |
+          for env in . test; do
+            [ -f "$env/Project.toml" ] && julia --startup-file=no ../toolkit/ci/downstream.jl "$env"
+          done
+          julia --project=. -e 'using Pkg; Pkg.test()'
+        env:
+          CUDA_VISIBLE_DEVICES: ''

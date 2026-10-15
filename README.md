@@ -33,30 +33,31 @@ Related packages in their own repositories:
 ```mermaid
 graph TD
     VGC["VisualGeometryCore"]
-    VGIO["VisualGeometryIo"]
     VGF["VisualGeometryFeatures"]
+    VGIO["VisualGeometryIo"]
     RVG["RobustVisualGeometry"]
-    VGE["VisualGeometryEval"]
     PL["PoseLib"]
     RSDR["RansacScoringDoneRight"]
     LODR["LocalOptimizationDoneRight"]
+    VGE["VisualGeometryEval"]
     BB["BlobBoards"]
 
-    VGIO --> VGC
-    VGF --> VGC
-    RVG --> VGC
-    PL --> VGC
-    RSDR --> VGC
-    VGE --> VGIO
-    VGE --> RVG
-    LODR --> RVG
-    LODR -. weak .-> PL
-    BB --> VGIO
-    BB --> VGF
-    BB --> RVG
-    BB --> RSDR
-    BB --> LODR
+    VGC --> VGF
+    VGC --> VGIO
+    VGC --> RVG
+    VGC --> PL
+    VGC --> RSDR
+    VGIO --> VGE
+    RVG --> VGE
+    RVG --> LODR
+    PL -.-> LODR
+    VGF --> BB
+    VGIO --> BB
+    RSDR --> BB
+    LODR --> BB
 ```
+
+Each package builds on the ones above it (direct dependencies; edges implied through another package are omitted). Dashed: optional (package extension).
 
 ## Installation
 

@@ -1,0 +1,44 @@
+# Workspace-wide rules. Each package directory keeps its own .gitignore for
+# what is specific to it. One untracked workspace Manifest at the root (D15).
+Manifest.toml
+Manifest-v*.toml
+LocalPreferences.toml
+
+# Documenter output (per-package rules, e.g. generated pages, are in each
+# package's own .gitignore)
+docs/build/
+
+# Claude Code per-machine state
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/worktrees/
+**/.claude/settings.local.json
+
+# Julia coverage / memory traces
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+
+# Editors, OS
+*~
+*.swp
+*.swo
+\#*\#
+.#*
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build products: PDFs (pdflatex on study sources) are never tracked
+*.pdf
+texput.log
+
+# Python side environments (VisualGeometryIo oracles: pixi)
+.pixi/
+pixi.lock
+.CondaPkg/
+__pycache__/
+*.py[cod]
+venv/
+.venv/

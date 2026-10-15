@@ -1,0 +1,124 @@
+[[PoseLib]]
+arch = "aarch64"
+cxxstring_abi = "cxx11"
+git-tree-sha1 = "738fe465edec5250f290568877e6ed17ee62b106"
+libc = "glibc"
+os = "linux"
+
+    [[PoseLib.download]]
+    sha256 = "1dbc10ae4bce6e03f989a20f44fa7e3ba37df04825a6aa4d1093ba9fa8e80529"
+    url = "https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/releases/download/PoseLib-binaries-v2.0.6/PoseLib.v2.0.6.aarch64-linux-gnu-cxx11.tar.gz"
+[[PoseLib]]
+arch = "aarch64"
+cxxstring_abi = "cxx11"
+git-tree-sha1 = "9d281490b30ac6d7cab3dafe2cdc8a80e209055f"
+libc = "musl"
+os = "linux"
+
+    [[PoseLib.download]]
+    sha256 = "8f1cbd1a157d166e33695060c0eddaf2c4f7d7a2ac25a4c8d7b11d822732bd95"
+    url = "https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/releases/download/PoseLib-binaries-v2.0.6/PoseLib.v2.0.6.aarch64-linux-musl-cxx11.tar.gz"
+[[PoseLib]]
+arch = "armv6l"
+call_abi = "eabihf"
+cxxstring_abi = "cxx11"
+git-tree-sha1 = "c7c6259f22ae1eb041fdffc2621c28784451719c"
+libc = "glibc"
+os = "linux"
+
+    [[PoseLib.download]]
+    sha256 = "cb8cf2b562e15ec27de7934d6a80e7df485f079ffd02b7bfdef2346b575b3199"
+    url = "https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/releases/download/PoseLib-binaries-v2.0.6/PoseLib.v2.0.6.armv6l-linux-gnueabihf-cxx11.tar.gz"
+[[PoseLib]]
+arch = "armv6l"
+call_abi = "eabihf"
+cxxstring_abi = "cxx11"
+git-tree-sha1 = "ee919c7604661b0a5215cbc77884435d7804b1f6"
+libc = "musl"
+os = "linux"
+
+    [[PoseLib.download]]
+    sha256 = "a53e4801eaf513140404a078314dd80399df1c12177333518e9f8abac12720c0"
+    url = "https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/releases/download/PoseLib-binaries-v2.0.6/PoseLib.v2.0.6.armv6l-linux-musleabihf-cxx11.tar.gz"
+[[PoseLib]]
+arch = "armv7l"
+call_abi = "eabihf"
+cxxstring_abi = "cxx11"
+git-tree-sha1 = "7e617332170f617d4cb764483ead670157dbf339"
+libc = "glibc"
+os = "linux"
+
+    [[PoseLib.download]]
+    sha256 = "93b29a8d4d207c3e39034b299946f2f1053c2cb35d8637c9b58c10f5cd1b08f5"
+    url = "https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/releases/download/PoseLib-binaries-v2.0.6/PoseLib.v2.0.6.armv7l-linux-gnueabihf-cxx11.tar.gz"
+[[PoseLib]]
+arch = "armv7l"
+call_abi = "eabihf"
+cxxstring_abi = "cxx11"
+git-tree-sha1 = "b16fef822a67cb640113e0d3c5767c3e49325be3"
+libc = "musl"
+os = "linux"
+
+    [[PoseLib.download]]
+    sha256 = "56089f72dabe66b844513c6d1a6fd17a15905ba3fc04dceded93828da462f2b8"
+    url = "https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/releases/download/PoseLib-binaries-v2.0.6/PoseLib.v2.0.6.armv7l-linux-musleabihf-cxx11.tar.gz"
+[[PoseLib]]
+arch = "i686"
+cxxstring_abi = "cxx11"
+git-tree-sha1 = "90b3dedc98ee4316c45a6dce46703092c4d6445e"
+libc = "glibc"
+os = "linux"
+
+    [[PoseLib.download]]
+    sha256 = "c45f8726730610cb0c22a1d7a5c16ec70a6101381072510066ea522510e22177"
+    url = "https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/releases/download/PoseLib-binaries-v2.0.6/PoseLib.v2.0.6.i686-linux-gnu-cxx11.tar.gz"
+[[PoseLib]]
+arch = "i686"
+cxxstring_abi = "cxx11"
+git-tree-sha1 = "3ae7a945212f7a8d246ccd93d46efeccc1e01d1b"
+libc = "musl"
+os = "linux"
+
+    [[PoseLib.download]]
+    sha256 = "9add09aaff82ca5e9c94c588c6ec89db94e9d384d1cdba8629351573372de95f"
+    url = "https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/releases/download/PoseLib-binaries-v2.0.6/PoseLib.v2.0.6.i686-linux-musl-cxx11.tar.gz"
+[[PoseLib]]
+arch = "powerpc64le"
+cxxstring_abi = "cxx11"
+git-tree-sha1 = "14ed37b2a399bdddd77857a750d044ca6a339194"
+libc = "glibc"
+os = "linux"
+
+    [[PoseLib.download]]
+    sha256 = "b34261e19d5094c1c8d7145f54c174300f1548095f9c0d87ad66c32d006b36ef"
+    url = "https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/releases/download/PoseLib-binaries-v2.0.6/PoseLib.v2.0.6.powerpc64le-linux-gnu-cxx11.tar.gz"
+[[PoseLib]]
+arch = "riscv64"
+cxxstring_abi = "cxx11"
+git-tree-sha1 = "5df84ca6b5534fd2d4d6a93c7c4165a39a7e3555"
+libc = "glibc"
+os = "linux"
+
+    [[PoseLib.download]]
+    sha256 = "113891b045b745cacbd719db0c5c3b6c028f3eadae18c00f3bc5121637d8d293"
+    url = "https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/releases/download/PoseLib-binaries-v2.0.6/PoseLib.v2.0.6.riscv64-linux-gnu-cxx11.tar.gz"
+[[PoseLib]]
+arch = "x86_64"
+cxxstring_abi = "cxx11"
+git-tree-sha1 = "9d4377e66e9481455d681fc76634eacdae2c5f35"
+libc = "glibc"
+os = "linux"
+
+    [[PoseLib.download]]
+    sha256 = "2a94fd1749251ea8014999b8c45067481ed1697c05b98203a260d37703441542"
+    url = "https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/releases/download/PoseLib-binaries-v2.0.6/PoseLib.v2.0.6.x86_64-linux-gnu-cxx11.tar.gz"
+[[PoseLib]]
+arch = "x86_64"
+cxxstring_abi = "cxx11"
+git-tree-sha1 = "1732aa5877ce701790564ecc34788e12415bb630"
+libc = "musl"
+os = "linux"
+
+    [[PoseLib.download]]
+    sha256 = "e6fbfc1782dbda353a3b4939cf4537d717d0b400895050f3ad4578ebc1fac507"
+    url = "https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/releases/download/PoseLib-binaries-v2.0.6/PoseLib.v2.0.6.x86_64-linux-musl-cxx11.tar.gz"

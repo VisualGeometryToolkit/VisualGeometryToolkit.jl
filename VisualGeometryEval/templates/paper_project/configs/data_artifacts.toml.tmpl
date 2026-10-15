@@ -1,0 +1,24 @@
+# The published-data catalog of {{NAME}} (VisualGeometryEval DataArtifacts):
+# one entry per Julia artifact in ../Artifacts.toml — what it holds, where it
+# mounts (data = data_root(), results = results_root()), which Zenodo record
+# carries it, and the config of record its file list derives from. The suite
+# checks the two agree (catalog_violations) once either binds an artifact.
+#
+#   pack:  DataArtifacts.pack_artifacts(load_catalog("configs/data_artifacts.toml"))
+#   fetch: DataArtifacts.fetch_artifacts!(load_catalog("configs/data_artifacts.toml"))
+
+[catalog]
+artifacts_toml = "../Artifacts.toml"
+
+[records.data]
+title = "{{NAME}}: input data"
+placeholder = "ZENODO_RECORD_DATA"
+
+# [artifacts.example_inputs]
+# kind = "tree"            # pool_sources | pools | stored | tree
+# dir = "example"          # (tree) every file under data_root()/example
+# mount = "data"
+# record = "data"
+# required = true
+# what = "the inputs of scripts/example_stage.jl"
+# provenance = "how they were made, from what"

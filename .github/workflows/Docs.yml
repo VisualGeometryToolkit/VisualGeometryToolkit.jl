@@ -1,0 +1,65 @@
+# Per-package Documenter sites into this repository's gh-pages branch
+# (DESIGN §4, D4/D5): gh-pages/<Package>/{dev,stable,v…}. PRs build the
+# affected packages without deploying; main deploys every package's dev docs; a
+# <Package>-v* tag (TagBot) deploys that package's release docs. The portal
+# (visualgeometrytoolkit.github.io) is rebuilt by a repository_dispatch.
+name: Docs
+on:
+  push:
+    branches: [main]
+    tags: ['*-v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: read
+  statuses: write
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.p.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: julia-actions/setup-julia@v2
+        with: { version: '1.12' }
+      - id: p
+        run: |
+          all='["VisualGeometryCore","VisualGeometryIo","VisualGeometryFeatures","RobustVisualGeometry","VisualGeometryEval","PoseLib"]'
+          case "${{ github.ref }}" in
+            refs/tags/*) tag="${{ github.ref_name }}"; echo "packages=[\"${tag%-v*}\"]" >> "$GITHUB_OUTPUT" ;;
+            *) if [ "${{ github.event_name }}" = pull_request ]; then
+                 julia --startup-file=no ci/affected.jl "origin/${{ github.base_ref }}" HEAD
+               else echo "packages=$all" >> "$GITHUB_OUTPUT"; fi ;;
+          esac
+  docs:
+    needs: plan
+    if: needs.plan.outputs.packages != '[]'
+    name: docs / ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    concurrency: { group: gh-pages-deploy, cancel-in-progress: false }
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.plan.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with: { version: '1.12' }
+      - uses: julia-actions/cache@v2
+      - run: julia --project=${{ matrix.package }}/docs -e 'using Pkg; Pkg.instantiate()'
+      - run: julia --project=${{ matrix.package }}/docs --startup-file=no ${{ matrix.package }}/docs/make.jl
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
+  portal:
+    needs: docs
+    if: github.event_name != 'pull_request' && vars.PORTAL_DISPATCH == 'true'   # GO-LIVE: set PORTAL_DISPATCH
+    runs-on: ubuntu-latest
+    steps:
+      - uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PORTAL_DISPATCH_TOKEN }}
+          repository: VisualGeometryToolkit/visualgeometrytoolkit.github.io
+          event-type: docs-updated

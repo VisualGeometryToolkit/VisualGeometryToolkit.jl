@@ -1,0 +1,45 @@
+Manifest.toml
+Manifest-v*.toml
+LocalPreferences.toml
+docs/build/
+data/*.h5
+
+# Claude Code per-machine state
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/worktrees/
+**/.claude/settings.local.json
+
+# Julia coverage / memory traces
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+
+# Editor backups
+*~
+\#*\#
+.#*
+
+# Editor / IDE state
+.vscode/
+
+# Loose data dir (raw datasets / scratch — too large for git)
+/data
+
+# PDFs are build products (LaTeX, figure renders), never sources: the
+# derivation notes are Documenter pages under docs/src/guide/.
+*.pdf
+
+# LaTeX build artifacts (pdflatex produces these alongside the .pdf).
+docs/**/*.aux
+docs/**/*.out
+docs/**/*.log
+docs/**/*.fls
+docs/**/*.fdb_latexmk
+docs/**/*.ppm
+docs/**/*_pg-*.png
+docs/**/*_pg*.png
+
+# Benchmark / evaluation scratch (large TSVs and logs from research runs)
+/bench/
+texput.log

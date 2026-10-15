@@ -1,0 +1,173 @@
+"""
+    VisualGeometryFeatures
+
+Feature detection and descriptor matching.
+
+- **Detection:** ASIFT (IMAS-25) on KernelAbstractions. [`asift_detect`](@ref) runs on the
+  CPU or any KernelAbstractions GPU backend and returns [`Detection`](@ref)s (a frame plus
+  metadata), which round-trip through JSON.
+- **Matching:** nearest-neighbour descriptor matching, one KernelAbstractions
+  implementation on the CPU or any GPU backend ([`nn_match`](@ref), `match`), and a
+  stacked matcher over many galleries ([`nn_match_stacked`](@ref)).
+- **Extensions:** JLD2 backs [`FileCache`](@ref); Makie draws detections and correspondences.
+
+Stereo datasets, ground truth and RoMa match IO moved to VisualGeometryEval in 0.8.
+"""
+module VisualGeometryFeatures
+
+# =============================================================================
+# Dependencies
+# =============================================================================
+
+using StaticArrays: SVector, SMatrix
+using ImageCore: channelview
+using StructArrays: StructArray
+using FixedPointNumbers: N0f8
+using Colors: Gray, Colorant
+
+# VisualGeometryCore (geometry primitives, units, the correspondence layer)
+import KernelAbstractions as KA   # KA devices are the backend dispatch tokens
+using VisualGeometryCore: Point2, Size2
+using VisualGeometryCore: Csponds  # #21 correspondence layer
+using VisualGeometryCore: default_device   # the family's one KA backend resolver — never a hardcoded KA.CPU()
+using VisualGeometryCore: AbstractDetection, FeatureFrame, OrientedDisc, AffineFrame
+using VisualGeometryCore: characteristic_scale
+using VisualGeometryCore: CovMat, UnlabeledFrame, Uncertain, implicit_covariance, propagate   # keypoint uncertainty
+import VisualGeometryCore: cov, geom   # extended for Detections of an Uncertain frame
+# Extended here with Detection methods:
+import VisualGeometryCore: Attributed, Disc, EllipticFrame, Ellipse
+import VisualGeometryCore: centroid, moment_matrix, feature_frame, region
+
+
+# JSON serialization for geometry types (moved from VGC)
+include("serialization.jl")
+
+# =============================================================================
+# INCLUDED SOURCE FILES
+# =============================================================================
+#
+#   serialization.jl    JSON (StructTypes) for Detection frames, Size2, quantities
+#   detection_types.jl  Detection{F,M}, polarity traits
+#   image_input.jl      gray_f32 / gray_u8 input ladders
+#   batching.jl         batched_rows chunking for the describe backends
+#   asift/              KernelAbstractions ASIFT (IMAS-25) — THE detector.
+#                       Identity-only tilt schedule ≡ plain DoG-SIFT.
+#   matching.jl         CspondSet (Cspond and csponds come from VGC)
+#   nn_match.jl         NN/MutualNN/KnnMatch strategies, metrics, match
+#   matching_ka.jl      the one matcher (KernelAbstractions) behind match and nn_match; pairwise_matrix
+#   matching_stacked_ka.jl  nn_match_stacked over many galleries
+#   described_feature.jl  DescribedFeature, descriptor_matrix
+#   visualization_stubs.jl  detections! stub; matches!/matches Cspond overloads live in the Makie ext
+#   cache.jl            FileCache (JLD2 backend in VisualGeometryFeaturesJLD2Ext)
+#
+# REMOVED 2026-07: the legacy scale-space detection stack (scalespace.jl,
+# responses.jl, extrema.jl, detector.jl, nms.jl — FeatureDetector, ScaleSpace,
+# Hessian/DoG/Laplacian response methods, suppress_*) is superseded by
+# src/asift/. `bbox` moved to VisualGeometryCore. hungarian.jl and
+# synthetic_correspondences.jl were dead code.
+
+include("detection_types.jl")
+include("image_input.jl")    # gray_f32 / gray_u8 — the input ladders (hoisted from BlobBoards)
+include("batching.jl")       # batched_rows — the describe backends' chunking skeleton
+include("asift/pyramid.jl")
+include("asift/warp.jl")
+include("asift/backproject.jl")
+include("asift/crosswarp.jl")
+include("asift/uncertainty.jl")   # FeatureCovariance: the keypoint covariance tables and per-keypoint math
+include("asift/driver.jl")
+include("asift/api.jl")
+include("matching.jl")
+include("nn_match.jl")
+include("matching_ka.jl")   # the one matcher: KA kernels on the CPU and any GPU
+include("matching_stacked_ka.jl")   # stacked multi-gallery matcher (hoisted from BlobBoards)
+include("described_feature.jl")
+include("visualization_stubs.jl")
+
+include("cache.jl")
+
+# =============================================================================
+# Backend-dispatched matching
+# =============================================================================
+
+"""
+    nn_match(desc1, desc2, strategy = MutualNN(); device = nothing, kw...) -> Vector{NNMatch}
+
+[`match`](@ref) on `device`, any KernelAbstractions backend (`device = nothing`
+is `KA.CPU()`). Every backend runs the same GEMM and selection kernels, so a GPU
+(e.g. `CUDABackend()`) returns what the CPU returns, with every keyword `match`
+accepts: `metric`, `dm`, `ratio_threshold`, `min_similarity`, `max_distance`.
+"""
+function nn_match(
+        desc1, desc2, strategy::NNStrategy = MutualNN();
+        device::Union{Nothing, KA.Backend} = nothing, kw...
+    )
+    return _match(desc1, desc2, strategy, something(device, KA.CPU()); kw...)
+end
+
+# =============================================================================
+# EXPORTS - Organized by category
+# =============================================================================
+#
+# Every export and `public` declaration of the package is here; the source
+# files define names but do not export them.
+
+# -----------------------------------------------------------------------------
+# 1. DETECTIONS - the Detection alias, its accessor, polarity helpers
+# -----------------------------------------------------------------------------
+export Detection
+export feature_frame            # VGC's accessor; the Detection method is added here
+export is_light, is_dark
+# The Holy trait behind is_light/is_dark: a metadata type opts in by extending
+# `polarity_trait`.
+public HasPolarityTrait, HasPolarity, NoPolarity, polarity_trait
+
+# -----------------------------------------------------------------------------
+# 2. ASIFT (IMAS-25) DETECTOR - KernelAbstractions, CPU or any GPU backend
+# -----------------------------------------------------------------------------
+export asift_detect, asift_detect!, asift_detections
+export AsiftPlan, ImasFeatureKA
+export clear_asift_plans!, set_max_cached_plans!
+export FeatureCovariance            # keypoint uncertainty: asift_detect(img; uncertainty = FeatureCovariance())
+export gray_f32, gray_u8        # the input ladders every detector-side entry point uses
+export batched_rows             # the describe backends' chunking skeleton
+
+# -----------------------------------------------------------------------------
+# 3. MATCHING - strategies, metrics, NN matching on any KA backend
+# -----------------------------------------------------------------------------
+export NNStrategy, NN, MutualNN, KnnMatch
+export DescriptorMetric, DescriptorSimilarity, DescriptorDistance, CosineSimilarity, L2
+export NNMatchMeta, NNMatch
+export nn_match, pairwise_matrix
+# `match` is public, not exported: exported, it clashed with Base.match, so an
+# unqualified match(r"...", s) was ambiguous in every `using VisualGeometryFeatures` module.
+public match
+export resolve_one_to_one, resolve_one_to_one!
+export StackedDescriptorIndex, nn_match_stacked
+export Cspond, csponds          # VGC's pair alias and builder; the NNMatch method is added here
+export CspondSet                # N-way correspondence
+# point_csponds deleted (#21) — use VGC points/planar_lift/lift
+
+# -----------------------------------------------------------------------------
+# 4. DESCRIBED FEATURES - Detection + descriptor, StructArray-backed
+# -----------------------------------------------------------------------------
+export DescribedFeature, described_features, descriptor_matrix
+
+# -----------------------------------------------------------------------------
+# 5. PERSISTENT CACHE - FileCache (JLD2 backend in VisualGeometryFeaturesJLD2Ext)
+# -----------------------------------------------------------------------------
+export FileCache, open_cache, close_cache, cache_key
+# `get!(f, cache::FileCache, key)` (JLD2 extension) extends Base.get! — nothing to export.
+
+# -----------------------------------------------------------------------------
+# 6. VISUALIZATION - stubs implemented in VisualGeometryFeaturesMakieExt
+# -----------------------------------------------------------------------------
+export detections!
+
+# -----------------------------------------------------------------------------
+# 7. SERIALIZATION - the JSON helpers BlobBoards reads its bundles with
+# -----------------------------------------------------------------------------
+public ScalarOrQuantity, _getfield
+
+include("precompile.jl")   # last: the workload calls the API defined above
+
+end # module VisualGeometryFeatures

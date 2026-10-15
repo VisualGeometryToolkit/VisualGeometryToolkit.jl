@@ -1,23 +1,25 @@
+<p align="center"><img src="assets/logo.svg" width="160" alt="VisualGeometryToolkit logo"></p>
+
 # VisualGeometryToolkit.jl
 
 by [James Pritts](https://prittjam.github.io/)
 
-Composable Julia packages for robust multiple-view geometry: geometric types
-and camera models, file formats, feature detection, robust estimation and
-RANSAC, evaluation protocols, and a PoseLib wrapper, factored so each layer is
-usable on its own.
+Composable Julia packages for robust multiple-view geometry: geometric types,
+file formats, feature detection, robust estimation and RANSAC, calibration
+(camera and lens models, hand–eye), fiducial markers (BlobBoards), evaluation
+protocols, and a PoseLib wrapper, factored so each layer is usable on its own.
 
 This repository is a Julia workspace. Each directory below is a separately
 registered package with its own version, tests and documentation.
 
 | Package | Role | Docs |
 |---|---|---|
-| [VisualGeometryCore](VisualGeometryCore) | Geometric types, frames, camera and lens models, minimal solvers, scale-space kernels, the robust-estimation contracts | [stable](https://visualgeometrytoolkit.github.io/VisualGeometryCore/stable) |
-| [VisualGeometryIo](VisualGeometryIo) | Versioned file formats: cameras, rigs, observations, targets, correspondences | [stable](https://visualgeometrytoolkit.github.io/VisualGeometryIo/stable) |
-| [VisualGeometryFeatures](VisualGeometryFeatures) | Feature detection (ASIFT/DoG with keypoint covariance) and matching | [stable](https://visualgeometrytoolkit.github.io/VisualGeometryFeatures/stable) |
-| [RobustVisualGeometry](RobustVisualGeometry) | The RANSAC loop, problem implementations, IRLS, hand–eye calibration | [stable](https://visualgeometrytoolkit.github.io/RobustVisualGeometry/stable) |
-| [VisualGeometryEval](VisualGeometryEval) | Evaluation protocol, benchmark pools, tuning, reproducible paper projects | [stable](https://visualgeometrytoolkit.github.io/VisualGeometryEval/stable) |
-| [PoseLib](PoseLib) | Julia wrapper of the PoseLib minimal solvers (prebuilt binaries as package artifacts) | [stable](https://visualgeometrytoolkit.github.io/PoseLib/stable) |
+| [VisualGeometryCore](VisualGeometryCore) | Geometric types, frames, camera and lens models, minimal solvers, scale-space kernels, the robust-estimation contracts | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryCore/) |
+| [VisualGeometryIo](VisualGeometryIo) | Versioned file formats: cameras, rigs, observations, targets, correspondences | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryIo/) |
+| [VisualGeometryFeatures](VisualGeometryFeatures) | Feature detection (ASIFT/DoG with keypoint covariance) and matching | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryFeatures/) |
+| [RobustVisualGeometry](RobustVisualGeometry) | The RANSAC loop, problem implementations, IRLS, hand–eye calibration | [docs](https://visualgeometrytoolkit.github.io/RobustVisualGeometry/) |
+| [VisualGeometryEval](VisualGeometryEval) | Evaluation protocol, benchmark pools, tuning, reproducible paper projects | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryEval/) |
+| [PoseLib](PoseLib) | Julia wrapper of the PoseLib minimal solvers (prebuilt binaries as package artifacts) | [docs](https://visualgeometrytoolkit.github.io/PoseLib/) |
 
 Related packages in their own repositories:
 [RansacScoringDoneRight.jl](https://github.com/VisualGeometryToolkit/RansacScoringDoneRight.jl)

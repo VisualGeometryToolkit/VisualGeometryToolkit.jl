@@ -1,13 +1,24 @@
 # Per-package Documenter sites into this repository's gh-pages branch
 # (DESIGN §4, D4/D5): gh-pages/<Package>/{dev,stable,v…}. PRs build the
-# affected packages without deploying; main deploys every package's dev docs; a
+# affected packages without deploying; a push to main deploys the dev docs of
+# the packages it affects (workflow_dispatch: all six); a
 # <Package>-v* tag (TagBot) deploys that package's release docs. The portal
 # (visualgeometrytoolkit.github.io) is rebuilt by a repository_dispatch.
 name: Docs
 on:
   push:
     branches: [main]
-    tags: ['*-v*']
+    tags: ['*-v*']          # path filters are not evaluated for tag pushes
+    # Root-only commits (README.md, assets/, other workflows) build no docs.
+    paths:
+      - 'VisualGeometryCore/**'
+      - 'VisualGeometryIo/**'
+      - 'VisualGeometryFeatures/**'
+      - 'RobustVisualGeometry/**'
+      - 'VisualGeometryEval/**'
+      - 'PoseLib/**'
+      - 'assets/logo.svg'
+      - '.github/workflows/Docs.yml'
   pull_request:
   workflow_dispatch:
 concurrency:
@@ -39,9 +50,12 @@ jobs:
               if [[ "$tag" =~ ^[A-Za-z]+-v[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo "$all" | grep -q "\"$pkg\""; then
                 echo "packages=[\"$pkg\"]" >> "$GITHUB_OUTPUT"
               else echo "packages=[]" >> "$GITHUB_OUTPUT"; fi ;;
-            *) if [ "${{ github.event_name }}" = pull_request ]; then
-                 julia --startup-file=no ci/affected.jl "origin/${{ github.base_ref }}" HEAD
-               else echo "packages=$all" >> "$GITHUB_OUTPUT"; fi ;;
+            *) case "${{ github.event_name }}" in
+                 # the changed packages and their dependents (a root file: all six)
+                 pull_request) julia --startup-file=no ci/affected.jl "origin/${{ github.base_ref }}" HEAD ;;
+                 push) julia --startup-file=no ci/affected.jl "${{ github.event.before }}" HEAD ;;
+                 *) echo "packages=$all" >> "$GITHUB_OUTPUT" ;;
+               esac ;;
           esac
   docs:
     needs: plan
@@ -61,6 +75,9 @@ jobs:
       - uses: julia-actions/setup-julia@v2
         with: { version: '1.12' }
       - uses: julia-actions/cache@v2
+      # The toolkit logo in every package site's sidebar (Documenter picks up
+      # docs/src/assets/logo.svg); copied at build time, not committed.
+      - run: mkdir -p ${{ matrix.package }}/docs/src/assets && cp assets/logo.svg ${{ matrix.package }}/docs/src/assets/logo.svg
       - run: julia --project=${{ matrix.package }}/docs -e 'using Pkg; Pkg.instantiate()'
       - run: julia --project=${{ matrix.package }}/docs --startup-file=no ${{ matrix.package }}/docs/make.jl
         env:

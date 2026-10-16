@@ -12,8 +12,10 @@
 #     suffix, Damerau–Levenshtein distance > 2 from every General name unless
 #     the package is in MANUAL_MERGE)
 #   - [compat] for every [deps] and [weakdeps] entry, stdlibs and julia included;
-#     each entry parses and is bounded (no "*", no ">="); stack packages at the
-#     workspace's stack compat
+#     each entry parses and is bounded (no "*", no ">="); stack packages in the
+#     workspace's stack series: STACK_COMPAT itself, or a raised floor inside it
+#     ("0.1.3") when a package needs a sibling's newer feature (the Downgrade
+#     workflow tests every package at its compat floors)
 #   - no [sources], [extras] or [targets] in the registered file (test deps live
 #     in test/Project.toml, which [sources]-links the package as path "..")
 #   - a LICENSE (OSI: MIT) inside the directory — the registered tarball is
@@ -34,6 +36,8 @@ const ROOT_PROJECT = TOML.parsefile(joinpath(ROOT, "Project.toml"))
 const PACKAGES = filter(!=("ci"), ROOT_PROJECT["workspace"]["projects"])
 const INITIAL_VERSION = v"0.1.0"
 const STACK_COMPAT = "0.1"
+# STACK_COMPAT, or a floor inside the same series: "0.1" or "0.1.N"
+const STACK_SERIES = Regex("^" * replace(STACK_COMPAT, "." => "\\.") * raw"(\.\d+)?$")
 # AutoMerge's name-similarity guideline would fail these; each needs a manual
 # merge by a General maintainer, with the reason recorded here (DESIGN D9).
 const MANUAL_MERGE = Dict("PoseLib" => "DL distance 2 from PDELib; the name of the upstream library and of PoseLib_jll")
@@ -87,8 +91,8 @@ function check_compat(pkg, label, proj; stack_ok = true, skip = ())
         catch e
             err(pkg, "$label: compat $n = \"$c\" does not parse ($(sprint(showerror, e)))")
         end
-        if stack_ok && n in PACKAGES && c != STACK_COMPAT
-            err(pkg, "$label: stack compat $n = \"$c\", expected \"$STACK_COMPAT\"")
+        if stack_ok && n in PACKAGES && !occursin(STACK_SERIES, c)
+            err(pkg, "$label: stack compat $n = \"$c\", expected \"$STACK_COMPAT\" or a floor inside it (\"$STACK_COMPAT.N\")")
         end
     end
 end

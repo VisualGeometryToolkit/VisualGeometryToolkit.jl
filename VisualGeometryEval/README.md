@@ -125,9 +125,9 @@ Every paper of the stack is produced by a **paper project**: a
 package) whose every figure, table and number comes from a tracked driver run
 on a config of record, from declared data, with a provenance record beside
 each result. The worked example is ACCV 2026's
-[`accv2026`](https://github.com/prittjam/LocalOptimizationDoneRight/tree/main/accv2026)
+[`accv2026`](https://github.com/VisualGeometryToolkit/LocalOptimizationDoneRight.jl/tree/main/accv2026)
 in LocalOptimizationDoneRight, with its
-[REPRODUCE.md](https://github.com/prittjam/LocalOptimizationDoneRight/blob/main/accv2026/REPRODUCE.md).
+[REPRODUCE.md](https://github.com/VisualGeometryToolkit/LocalOptimizationDoneRight.jl/blob/main/accv2026/REPRODUCE.md).
 One check enforces the rules below and a template starts a project that
 already satisfies them.
 

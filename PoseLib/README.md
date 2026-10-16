@@ -56,7 +56,7 @@ Loading this package extends VisualGeometryCore with:
 
 The stack's conventions — how estimators are named, how signatures order their
 arguments, and the frame-in = frame-out rule — are one page, VisualGeometryCore's
-[Conventions](https://github.com/prittjam/VisualGeometryCore.jl/blob/main/docs/src/guide/conventions.md)
+[Conventions](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/blob/main/VisualGeometryCore/conventions/README.md)
 (`docs/src/guide/conventions.md`). This package is a BINDING LAYER, and that
 fixes what it may and may not do with them.
 

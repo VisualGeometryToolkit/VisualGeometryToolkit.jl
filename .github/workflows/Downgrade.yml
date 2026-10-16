@@ -1,0 +1,72 @@
+name: Downgrade
+
+# Each package's tests at the OLDEST versions its [compat] allows: Resolver.jl
+# (julia-actions/julia-downgrade-compat) resolves the package and its test/
+# member to their compat floors, and the suite runs on that Manifest. A floor
+# that is too low — the code uses something a newer dependency, or a newer
+# SIBLING, added — fails here instead of on a user's machine. Floors are raised
+# by hand, in the commit that starts using the newer feature; the registration
+# lint accepts "0.1" or a floor inside it ("0.1.N") for stack packages.
+#
+# In this checkout the root Project.toml (the workspace and its [sources]) is
+# removed, so the package under test becomes its own workspace and its siblings
+# come from the registries at their floors — not from this repository's current
+# code, which is what the regular CI tests. The package's workspace is narrowed
+# to test/. Julia 1.12: Resolver.jl does not run on 1.13 yet.
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
+jobs:
+  packages:
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.list.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with: { version: '1.12' }
+      - id: list
+        run: |
+          julia --startup-file=no -e 'using TOML; p = filter(!=("ci"), TOML.parsefile("Project.toml")["workspace"]["projects"]); s = "[" * join(("\"$x\"" for x in p), ",") * "]"; println(s); open(io -> println(io, "packages=", s), ENV["GITHUB_OUTPUT"], "a")'
+
+  downgrade:
+    needs: packages
+    name: ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.packages.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with: { version: '1.12' }
+      - uses: julia-actions/cache@v2
+      # The siblings come from the registries: CauRegistry until the stack is in General.
+      - name: Registries
+        run: julia -e 'using Pkg; Pkg.Registry.add("General"); Pkg.Registry.add(url = "https://github.com/prittjam/CauRegistry.jl")'
+      - name: Make the package its own workspace (siblings from the registry), narrowed to test/
+        run: |
+          rm Project.toml
+          julia -e 'using TOML; f = joinpath(ARGS[1], "Project.toml"); p = TOML.parsefile(f); p["workspace"] = Dict("projects" => ["test"]); open(io -> TOML.print(io, p), f, "w")' ${{ matrix.package }}
+      - uses: julia-actions/julia-downgrade-compat@v2
+        with:
+          mode: deps
+          projects: ${{ matrix.package }}, ${{ matrix.package }}/test
+          julia_version: '1.12'
+      - name: Test at the compat floors
+        run: |
+          julia --color=yes --project=${{ matrix.package }} -e 'using Pkg; Pkg.test(; allow_reresolve = false, force_latest_compatible_version = false)' 2>&1 | tee test.log
+          # A ReTestItems suite that finds no test items "passes" with 0 tests.
+          if grep -q 'scan for test items' test.log && ! grep -qE 'Scheduling [1-9][0-9]* tests' test.log; then
+            echo "::error::the suite ran no test items"; exit 1
+          fi

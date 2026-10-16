@@ -27,7 +27,7 @@ Requires Julia 1.12. Part of the
 ## Conventions
 
 The stack's conventions are VGC's, and VGC's
-[Conventions](https://visualgeometrytoolkit.github.io/VisualGeometryCore.jl/dev/guide/conventions/)
+[Conventions](https://visualgeometrytoolkit.github.io/VisualGeometryCore/stable/guide/conventions/)
 is the canonical text — function verbs, argument order, data arguments, the
 frame tags and the pixel conventions. Read it there; this section records only
 what a VGF reader needs on top of it.

@@ -123,7 +123,7 @@ Pkg.add("VisualGeometryCore")
 ```
 
 Requires Julia 1.12. Documentation:
-<https://visualgeometrytoolkit.github.io/VisualGeometryCore.jl>.
+<https://visualgeometrytoolkit.github.io/VisualGeometryCore/>.
 
 ## Architecture
 

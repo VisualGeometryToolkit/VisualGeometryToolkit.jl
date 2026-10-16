@@ -122,7 +122,7 @@ successor.
 
 The stack's conventions — how estimators are named, how signatures order their
 arguments, and the frame-in = frame-out rule — are one page, VisualGeometryCore's
-[Conventions](https://visualgeometrytoolkit.github.io/VisualGeometryCore.jl/dev/guide/conventions/)
+[Conventions](https://visualgeometrytoolkit.github.io/VisualGeometryCore/stable/guide/conventions/)
 (`docs/src/guide/conventions.md`). This section is what they come to once the
 numbers are on disk. Nothing here normalizes: VGIo holds no estimator, so it
 owns no conditioning.

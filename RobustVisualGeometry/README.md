@@ -32,7 +32,7 @@ Pkg.add("RobustVisualGeometry")
 ```
 
 Requires Julia 1.12. Documentation:
-<https://visualgeometrytoolkit.github.io/RobustVisualGeometry.jl>.
+<https://visualgeometrytoolkit.github.io/RobustVisualGeometry/>.
 
 ## Quick Examples
 
@@ -225,7 +225,7 @@ RansacWorkspace{K, M, T, W, L}               the composed workspace, built once
 
 ## Documentation
 
-Online at <https://visualgeometrytoolkit.github.io/RobustVisualGeometry.jl>. To
+Online at <https://visualgeometrytoolkit.github.io/RobustVisualGeometry/>. To
 build locally (into `docs/build/`):
 
 ```bash

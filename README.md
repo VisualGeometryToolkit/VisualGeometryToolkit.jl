@@ -95,7 +95,8 @@ for registration.
 
 ## License
 
-MIT, James Pritts (each package directory carries its own copy). See
+MIT, James Pritts; PoseLib, MIT, Kiel University (each package directory
+carries its own copy). See
 [AUTHORS.md](AUTHORS.md).
 
 Maintainer: [James Pritts](https://prittjam.github.io/).

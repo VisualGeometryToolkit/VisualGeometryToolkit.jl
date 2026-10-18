@@ -35,11 +35,6 @@ const ROOT = dirname(@__DIR__)
 const ROOT_PROJECT = TOML.parsefile(joinpath(ROOT, "Project.toml"))
 const PACKAGES = filter(!=("ci"), ROOT_PROJECT["workspace"]["projects"])
 const INITIAL_VERSION = v"0.1.0"
-# A package whose first General registration cannot be 0.1.0. PoseLib: its
-# CauRegistry 0.1.0 depends on VisualGeometryCore's retired UUID, so the tree
-# that depends on VisualGeometryToolkitCore is 0.1.1 in both registries (it is
-# a manual merge in General anyway, its name 2 from PDELib).
-const INITIAL_VERSION_EXCEPTIONS = Dict("PoseLib" => v"0.1.1")
 const STACK_COMPAT = "0.1"
 # STACK_COMPAT, or a floor inside the same series: "0.1" or "0.1.N"
 const STACK_SERIES = Regex("^" * replace(STACK_COMPAT, "." => "\\.") * raw"(\.\d+)?$")
@@ -130,8 +125,7 @@ function check_package(pkg, general, initial)
     catch
         err(pkg, "version $(repr(get(proj, "version", nothing))) is not a version"); nothing
     end
-    initial && v !== nothing && v != get(INITIAL_VERSION_EXCEPTIONS, pkg, INITIAL_VERSION) &&
-        err(pkg, "version $v; the first registration is $(get(INITIAL_VERSION_EXCEPTIONS, pkg, INITIAL_VERSION))")
+    initial && v !== nothing && v != INITIAL_VERSION && err(pkg, "version $v; the first registration is $INITIAL_VERSION")
     # name rules
     occursin(r"^[A-Z][A-Za-z0-9]*$", pkg) || err(pkg, "name must be ASCII letters/digits with an uppercase start")
     length(pkg) >= 5 || err(pkg, "name shorter than 5 characters")

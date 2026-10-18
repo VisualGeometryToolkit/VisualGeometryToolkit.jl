@@ -18,7 +18,6 @@
 #
 # ==============================================================================
 
-using Rotations: Rotation, RotMatrix
 using StaticArrays: SMatrix
 
 """

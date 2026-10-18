@@ -1,5 +1,10 @@
 # VisualGeometryToolkitCore.jl
 
+[![CI](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/actions/workflows/CI.yml)
+[![Docs: stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/stable/)
+[![Docs: dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/dev/)
+[![Coverage](https://codecov.io/gh/VisualGeometryToolkit/VisualGeometryToolkit.jl/branch/main/graph/badge.svg?flag=VisualGeometryToolkitCore)](https://app.codecov.io/gh/VisualGeometryToolkit/VisualGeometryToolkit.jl?flags%5B0%5D=VisualGeometryToolkitCore)
+
 A Julia package for computational geometry, camera modeling, and the robust-estimation core of the VisualGeometry stack. Provides geometric primitives, projective transformations, camera models, and minimal solvers, with Makie visualization. Feature detection lives in VisualGeometryToolkitFeatures.
 
 ## Features
@@ -31,7 +36,7 @@ distance(line, Point2(0.0, 1.0))  # Signed distance
 
 # Traits for dispatch
 classify_conic(ellipse)  # EllipseTrait()
-has_boundary(circle)     # HasBoundary()
+VisualGeometryToolkitCore.has_boundary(circle)   # HasBoundary() (public, not exported)
 ```
 
 ## Transforms

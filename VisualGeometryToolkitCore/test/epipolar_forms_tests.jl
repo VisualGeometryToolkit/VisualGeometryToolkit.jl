@@ -358,7 +358,8 @@
             X = EuclideanMap(R, t)                        # unlabeled rigid map
             Em = EssentialMat(X)
             @test Em isa EssentialMat{Float64}
-            @test SMatrix{3, 3}(Em) == skew(SVector{3, Float64}(t)) * SMatrix{3, 3, Float64, 9}(R)
+            # ≈, not ==: a different evaluation order (FMA on aarch64) moves the last ulp
+            @test SMatrix{3, 3}(Em) ≈ skew(SVector{3, Float64}(t)) * SMatrix{3, 3, Float64, 9}(R) rtol = 8eps()
             @test SMatrix{3, 3}(Em) == SMatrix{3, 3}(E)   # matches EssentialMat(R, t)
             # labeled maps are welcome — frames are irrelevant to the algebra
             Ex = CameraExtrinsics(EuclideanMap(R, t))

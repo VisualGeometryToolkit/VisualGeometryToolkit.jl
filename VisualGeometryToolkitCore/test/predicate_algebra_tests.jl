@@ -136,7 +136,9 @@
             @test e_rt.center == e.center
             @test e_rt.a ≈ e.a
             @test e_rt.b ≈ e.b
-            @test mod(e_rt.θ - e.θ, π) ≈ 0.0 atol = 1.0e-10
+            # equal modulo π (an axis has no direction); mod(Δθ, π) jumps to ≈ π
+            # when Δθ comes out a hair below zero
+            @test abs(sin(e_rt.θ - e.θ)) < 1.0e-10
         end
 
         @testset "closest_point on hyperplane" begin

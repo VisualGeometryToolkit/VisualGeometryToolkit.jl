@@ -75,10 +75,9 @@ QuadGK = "2.11"
 Makie = "0.24.16"
 Random = "1"
 Rotations = "1.7"
-# Exactly General's 0.1.6: a fork of SpatialIndexing registered under the SAME
-# UUID at 0.1.7–0.1.10 would otherwise satisfy a plain "0.1.6". The
-# fork-only queries now live in VisualGeometryToolkitCore.SpatialQueries.
-SpatialIndexing = "=0.1.6"
+# The fork-only queries live in VisualGeometryToolkitCore.SpatialQueries; the
+# fork itself is no longer registered anywhere, so a plain caret bound is safe.
+SpatialIndexing = "0.1.6"
 SpecialFunctions = "2.9"
 StaticArrays = "1.9"
 Statistics = "1"

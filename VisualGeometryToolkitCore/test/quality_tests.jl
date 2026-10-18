@@ -6,11 +6,13 @@
 # added 2026-09-02. These gates keep the audits' wins from regressing: no
 # stale deps, no piracy beyond the documented allowlist, no method
 # ambiguities, no implicit or stale imports, and a JET report count that may
-# only DECREASE. They check the package and its submodules; the extensions are
-# separate root modules and are not checked.
+# only DECREASE. They check the package and its submodules. The extensions are
+# separate root modules: the Makie extension (the one with real code) gets its
+# own import check below, since nothing else loads Makie in the quality items.
 #
-# Two items: the shared gate skeleton (test_quality_gates) and the calling
-# conventions. A worker runs items in no fixed order, so a gate may run after
+# Three items: the shared gate skeleton (test_quality_gates), the calling
+# conventions and the Makie extension's imports. A worker runs items in no
+# fixed order, so a gate may run after
 # an item that extended a package function for its fixtures — the gate's
 # ambiguity filter handles that.
 # =============================================================================
@@ -112,4 +114,17 @@ end
     bad = [f for f in check(VisualGeometryToolkitCore) if (f[1], f[2]) ∉ allow]
     @test isempty(bad)
     isempty(bad) || foreach(f -> @warn("argument-order finding", f), bad)
+end
+
+@testitem "quality: Makie extension imports" begin
+    # The plotting code (src/plotting/, included by the Makie extension) is
+    # checked only when Makie is loaded, which no other quality item does; stale
+    # imports there went unseen on CI until a reviewer ran the suite with Makie
+    # in the environment (2026-10-17).
+    using Test, ExplicitImports
+    using Makie
+    using VisualGeometryToolkitCore
+    ext = Base.get_extension(VisualGeometryToolkitCore, :VisualGeometryToolkitCoreMakieExt)
+    @test ext !== nothing
+    @test check_no_stale_explicit_imports(ext) === nothing
 end

@@ -25,21 +25,21 @@ using VisualGeometryToolkitCore
 # Makie API — sufficient for everything below; GLMakie-specific calls live in
 # the GLMakie extension only.
 using Makie: Makie, @recipe, AbstractPlot, Attributes, Plot, Poly,
-    camera, convert_arguments, image, lines!, mesh!, scatter!,
+    camera, convert_arguments, lines!, mesh!, scatter!,
     campixel!, PlotSpec, automatic, cam3d!, DataAspect
 import Makie: Fixed as MakieFixed
 import Makie.SpecApi as MakieSpec
 
 # Additional dependencies needed by plotting code
 using Colors: Colors, Colorant
-using GeometryBasics: GeometryBasics, Point2, Point2f, Point3f, Vec2f, Vec3f, Rect2,
-    coordinates, height, origin, width, widths   # `widths` — plotting/rectification.jl
-using StaticArrays: StaticArrays, SVector, StaticVector
+using GeometryBasics: GeometryBasics, Point2, Point2f, Point3f, Vec3f, Rect2,
+    coordinates, widths   # `widths` — plotting/rectification.jl
+using StaticArrays: StaticArrays, SVector
 using StructArrays: StructArrays
 using LinearAlgebra: LinearAlgebra, I
 
 # VisualGeometryToolkitCore types
-using VisualGeometryToolkitCore: AbstractDetection, Disc, Ellipse, AbstractConic3D, Ellipse3D, Circle3D
+using VisualGeometryToolkitCore: AbstractDetection, Ellipse, AbstractConic3D, Circle3D
 using VisualGeometryToolkitCore: Line2D, clip_to_rect
 using VisualGeometryToolkitCore: LineConfidenceBand, band_boundary
 using VisualGeometryToolkitCore: canonical_basis, centroid

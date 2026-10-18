@@ -59,7 +59,9 @@
         W = whitening_factor(Gx)
         @test W * (Gx * Gx') * W' ≈ I rtol = 1.0e-12
         A = Gx[:, SOneTo(2)]
-        @test W == inv(SMatrix{2, 2}(cholesky(Symmetric(A * A' + I)).L))    # RVG's frozen factor, bit for bit
+        # RVG's frozen factor, to the last ulps: bit for bit on x86-64, but FMA on
+        # aarch64 rounds the two evaluation orders differently
+        @test W ≈ inv(SMatrix{2, 2}(cholesky(Symmetric(A * A' + I)).L)) rtol = 8eps()
         g, _, _ = constraint_with_jacobians(TransferForm(H), u₁[5], u₂[5])
         r, Jw, _ = whiten(g, Gx, Gθ)
         @test W * g ≈ r rtol = 1.0e-12

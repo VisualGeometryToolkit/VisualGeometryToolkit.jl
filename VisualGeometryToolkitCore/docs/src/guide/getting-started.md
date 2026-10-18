@@ -30,6 +30,34 @@ using VisualGeometryToolkitCore
 using GLMakie  # Activates the plotting extension
 ```
 
+## Quick Start
+
+The README's first example, run by the docs build (a doctest):
+
+```jldoctest quickstart
+julia> using VisualGeometryToolkitCore
+
+julia> ellipse = Ellipse(Point2(0.0, 0.0), 3.0, 2.0, π/4);
+
+julia> circle = Circle(Point2(1.0, 2.0), 1.5);
+
+julia> line = Line2D(Point2(0.0, 0.0), Point2(1.0, 1.0));
+
+julia> centroid(circle)
+2-element GeometryBasics.Point{2, Float64} with indices SOneTo(2):
+ 1.0
+ 2.0
+
+julia> distance(line, Point2(0.0, 1.0))   # signed distance
+0.7071067811865475
+
+julia> classify_conic(ellipse)
+EllipseTrait()
+
+julia> VisualGeometryToolkitCore.has_boundary(circle)   # public, not exported
+VisualGeometryToolkitCore.HasBoundary()
+```
+
 ## Key Concepts
 
 ### Physical Units
@@ -38,17 +66,18 @@ VisualGeometryToolkitCore uses
 [FlexUnits.jl](https://github.com/Deduction42/FlexUnits.jl)
 for physical quantities, with a pixel dimension added to SI:
 
-```julia
-# Length units
-distance = 50.0mm
-focal = 35.0mm
-pixel_size = 3.45μm       # Physical pixel pitch
+```jldoctest units
+julia> using VisualGeometryToolkitCore
 
-# Pixel units (logical)
-x_coord = 100.0px
+julia> focal = 35.0mm; pixel_size = 3.45μm;   # lengths
 
-# Density units
-print_res = 300dpi
+julia> x_coord = 100.0px;                       # pixels (logical)
+
+julia> ustrip(mm, 2.5cm)                        # strip in a named unit
+25.0
+
+julia> ustrip(px, 25.4mm * 300dpi)              # a length times a density is pixels
+300.0
 ```
 
 Values are stored in base units (metres, px): strip in a named unit,
@@ -112,14 +141,20 @@ Values that carry metadata use a single composition type:
 access forwarded transparently. `Uncertain{V,M}` is the same type with a
 covariance or precision matrix as the attributes.
 
-```julia
-# A depth-attributed pixel, as consumed by transfer(rig, p)
-p = Attributed(Point2(320.5, 240.5), 1.35)
-p.value       # the Point2
-p.attributes  # the depth
+```jldoctest attributed
+julia> using VisualGeometryToolkitCore
 
-# An uncertain point
-u = Uncertain(Point2(100.0, 200.0), CovMat{2}(σ = 0.5))   # Σ = σ²·I
+julia> p = Attributed(Point2(320.5, 240.5), 1.35);   # a depth-attributed pixel, as consumed by transfer(rig, p)
+
+julia> p.value                                        # the Point2
+2-element GeometryBasics.Point{2, Float64} with indices SOneTo(2):
+ 320.5
+ 240.5
+
+julia> p.attributes                                   # the depth
+1.35
+
+julia> u = Uncertain(Point2(100.0, 200.0), CovMat{2}(σ = 0.5));   # an uncertain point, Σ = σ²·I
 ```
 
 See [Design: Attributed{V,A}](design.md) for the rationale.

@@ -11,24 +11,35 @@ Pkg.add("VisualGeometryToolkitEstimation")
 
 ## RANSAC Homography
 
-Estimate a homography from noisy point correspondences with outliers using
-the convenience pipeline `find_homography`:
+Estimate a homography from point correspondences with outliers using the
+convenience pipeline `find_homography`. The example builds 40 correspondences
+from a known homography and replaces 8 of them with random points; the docs
+build runs it (a doctest):
 
-```julia
-using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitCore: csponds, estimate
-using StaticArrays
+```jldoctest homography
+julia> using VisualGeometryToolkitEstimation, Random
 
-# Point correspondences (source → target)
-src = [SA[100.0, 200.0], SA[300.0, 150.0], ...]
-dst = [SA[112.0, 195.0], SA[310.0, 148.0], ...]
+julia> using VisualGeometryToolkitCore: HomographyMat, HomographyMap, Point2, csponds, estimate, to_euclidean
 
-result = find_homography(csponds(src, dst))                    # MSAC at 3 px
-result = find_homography(csponds(src, dst); threshold = 2.0)   # a keyword overrides
+julia> H_true = HomographyMat([1.02 -0.02 12.0; 0.01 0.98 -5.0; 1e-5 2e-5 1.0]);
 
-H       = estimate(result)         # 3×3 homography matrix
-inliers = result.inlier_mask       # BitVector
-println("Inliers: $(sum(inliers)) / $(length(inliers))")
+julia> rng = Xoshiro(1);
+
+julia> src = [Point2(640rand(rng), 480rand(rng)) for _ in 1:40];   # source points, pixels
+
+julia> dst = [to_euclidean(HomographyMap(H_true)(x)) for x in src];   # their images under H_true
+
+julia> for i in 1:8; dst[i] = Point2(640rand(rng), 480rand(rng)); end   # 8 outliers
+
+julia> result = find_homography(csponds(src, dst));    # MSAC at 3 px, the default
+
+julia> count(result.inlier_mask)                        # the 32 true correspondences
+32
+
+julia> H = Matrix(estimate(result)); H ./ H[3, 3] ≈ Matrix(H_true)
+true
+
+julia> result = find_homography(csponds(src, dst); threshold = 2.0);   # a keyword overrides a default
 ```
 
 `find_homography` constructs a [`HomographyProblem`](@ref), wires up the core

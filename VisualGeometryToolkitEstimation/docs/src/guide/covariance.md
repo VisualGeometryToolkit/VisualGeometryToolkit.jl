@@ -579,7 +579,10 @@ absolute pose, hand-eye, lines): a held-out point's
 
 ## [References](@id cov-references)
 
-- W. Chojnacki, M. J. Brooks, A. van den Hengel, and D. Gawley. *On the fitting
-  of surfaces to data with covariances.* IEEE TPAMI, 22(11):1294–1303, 2000.
-- R. Hartley and A. Zisserman. *Multiple View Geometry in Computer Vision.*
-  Cambridge University Press, 2nd edition, 2003.
+```@bibliography
+Pages = []
+Canonical = false
+
+Chojnacki2000
+HartleyZisserman2003
+```

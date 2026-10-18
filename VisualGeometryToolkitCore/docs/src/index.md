@@ -117,7 +117,7 @@ Depth = 2
 
 VisualGeometryToolkitCore owns the contracts the robust-estimation packages compose
 through (see [The composable RANSAC](@ref)). It is consumed by
-[VisualGeometryToolkitEstimation.jl](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/tree/main/VisualGeometryToolkitEstimation)
+[VisualGeometryToolkitEstimation.jl](@extref VisualGeometryToolkitEstimation :doc:`index`)
 (the problems, the one RANSAC loop and the core local optimizations),
 [RansacScoringDoneRight.jl](https://github.com/VisualGeometryToolkit/RansacScoringDoneRight.jl)
 (the Student-t + uniform scorer and the grid selection families, implementing
@@ -125,7 +125,7 @@ the scoring and pool-selection contracts),
 LocalOptimizationDoneRight (the paper's local optimizers, implementing the
 local-optimization contract), VisualGeometryToolkitEval (datasets, pools, tuning and
 the composition evaluator),
-[VisualGeometryToolkitFeatures.jl](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/tree/main/VisualGeometryToolkitFeatures)
+[VisualGeometryToolkitFeatures.jl](@extref VisualGeometryToolkitFeatures :doc:`index`)
 (feature detection and matching), and
 [BlobBoards.jl](https://github.com/VisualGeometryToolkit/BlobBoards.jl)
 (fiducial blob-board targets).

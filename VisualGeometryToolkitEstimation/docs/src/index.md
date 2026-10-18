@@ -39,7 +39,7 @@ Robust estimation algorithms for geometric vision.
   chart-rows contract for lifted local optimizers.
 - **Solver backends**: pure-Julia `NativeSolver` or PoseLib C++ bindings via `PoseLibSolver`.
 
-Depends only on [VisualGeometryToolkitCore.jl](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/tree/main/VisualGeometryToolkitCore):
+Depends only on [VisualGeometryToolkitCore.jl](@extref VisualGeometryToolkitCore :doc:`index`):
 geometry types, minimal solvers, the problem protocol, the scoring and
 local-optimization contracts, the robust-loss shapes (`AbstractLossShape`),
 the robust-statistics toolkit and the generic block-coordinate-descent loop
@@ -65,7 +65,7 @@ VisualGeometryToolkitEstimation is the **robust estimation** layer of the
 [VisualGeometryToolkit](https://github.com/VisualGeometryToolkit) stack: the
 RANSAC loop, problem implementations, and the core local optimizations. It
 builds on
-[VisualGeometryToolkitCore.jl](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/tree/main/VisualGeometryToolkitCore)
+[VisualGeometryToolkitCore.jl](@extref VisualGeometryToolkitCore :doc:`index`)
 (geometric types and the contracts). Paper scorers and local optimizers live
 outside it and implement those contracts:
 [RansacScoringDoneRight.jl](https://github.com/VisualGeometryToolkit/RansacScoringDoneRight.jl)

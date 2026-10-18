@@ -112,7 +112,7 @@ end
 """
     ExtendedUnified(alpha, beta) <: AbstractProjection
 
-The enhanced unified camera model (Khomutenko et al. 2016; Kalibr's `eucm`):
+The enhanced unified camera model of [Khomutenko2016](@citet) (Kalibr's `eucm`):
 with `d = √(β(X₁² + X₂²) + X₃²)`, `x = X₁₂ / (α·d + (1 − α)·X₃)`.
 """
 struct ExtendedUnified{T <: Real} <: AbstractProjection
@@ -200,7 +200,7 @@ end
 """
     FieldOfView(omega)
 
-Devernay & Faugeras' field-of-view model (COLMAP `FOV`, Kalibr `fov`):
+The field-of-view model of [Devernay2001](@citet) (COLMAP `FOV`, Kalibr `fov`):
 `x ↦ x·atan(2r·tan(ω/2)) / (r·ω)`.
 """
 struct FieldOfView{T <: Real} <: AbstractDistortionTerm

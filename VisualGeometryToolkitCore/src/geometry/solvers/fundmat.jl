@@ -1152,7 +1152,7 @@ end
 """
     motion(H::HomographyMat) -> Vector{Tuple{RotMatrix{3,Float64}, Vec3{Float64}, Vec3{Float64}}}
 
-Malis–Vargas decomposition of a **calibrated** homography into up to 4 candidate
+Malis–Vargas decomposition [MalisVargas2007](@citep) of a **calibrated** homography into up to 4 candidate
 `(R, t, n)` motions: rotation `R`, translation `t = t_phys / d_phys`, and unit
 plane normal `n` (sign fixed so `n₃ ≥ 0`).  Native port of PoseLib's
 `motion_from_homography` (single-SVD variant); the candidate order matches
@@ -1336,7 +1336,7 @@ end
 """
     test_model(F::FundMat, u₁_sample, u₂_sample) -> Bool
 
-Oriented epipolar constraint (Chum et al. 2004). For an exact correspondence,
+Oriented epipolar constraint [Chum2004](@citep). For an exact correspondence,
 the epipolar line `l₁ = Fᵀũ₂` and the line `e₁ × ũ₁` are the same line in
 image 1 (both go through `e₁` and `ũ₁`), so `Fᵀũ₂ = μᵢ(e₁ × ũ₁)` for
 some scalar `μᵢ`. The signum uses the dot product of all three components:

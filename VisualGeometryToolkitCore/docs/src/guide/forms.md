@@ -105,4 +105,4 @@ carries a frame label must meet the slot it feeds — same wildcard table,
 
 - [Stereo Rigs and Uncertainty](stereo.md) — `essential_form(rig)` / `EpipolarForm(rig)` mint the labeled forms
 - [Coordinate Frames](frames.md) — the tag system the slots reuse
-- [Solvers API](../api/solvers.md)
+- [Solvers API](../api/solvers.md), [Epipolar Forms API](../api/epipolar_forms.md)

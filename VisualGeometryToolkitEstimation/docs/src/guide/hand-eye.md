@@ -701,11 +701,11 @@ implementation (`HandEyeProblem`) uses Variant 0.
 
 ## [References](@id handeye-references)
 
-- H. H. Chen. *A screw motion approach to uniqueness analysis of head-eye
-  geometry.* CVPR, pp. 145–151, 1991.
-- M. Shah. *Solving the robot-world/hand-eye calibration problem using the
-  Kronecker product.* ASME Journal of Mechanisms and Robotics, 5(3):031007,
-  2013.
-- R. Y. Tsai and R. K. Lenz. *A new technique for fully autonomous and
-  efficient 3D robotics hand/eye calibration.* IEEE Transactions on Robotics
-  and Automation, 5(3):345–358, 1989.
+```@bibliography
+Pages = []
+Canonical = false
+
+Chen1991
+Shah2013
+TsaiLenz1989
+```

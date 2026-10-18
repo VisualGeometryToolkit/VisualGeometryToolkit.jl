@@ -5,7 +5,19 @@ using VisualGeometryToolkitEstimation
 # doc COVERAGE is not this package's business — hence `checkdocs = :none`.
 using VisualGeometryToolkitCore
 
+using DocumenterCitations, DocumenterInterLinks
+
+# Literature: `[Key](@cite)` / `@citet` / `@citep` against docs/src/refs.bib,
+# listed on the References page.
+const BIB = CitationBibliography(joinpath(@__DIR__, "src", "refs.bib"); style = :authoryear)
+# The other stack packages' docs: `[text](@extref <Package> ...)` resolves
+# against the inventory (objects.inv) their published `dev` docs carry.
+const LINKS = InterLinks((p => "https://visualgeometrytoolkit.github.io/$p/dev/" for p in (
+    "VisualGeometryToolkitCore", "VisualGeometryToolkitIo", "VisualGeometryToolkitFeatures",
+    "VisualGeometryToolkitEstimation", "VisualGeometryToolkitEval", "PoseLib"))...)
+
 makedocs(;
+    plugins=[BIB, LINKS],
     modules=[VisualGeometryToolkitEstimation, VisualGeometryToolkitCore],
     checkdocs=:none,
     authors="James Pritts <jbpritts@gmail.com>",
@@ -54,6 +66,7 @@ makedocs(;
             "P3P" => "api/p3p.md",
             "Hand-Eye Calibration" => "api/hand_eye.md",
         ],
+        "References" => "references.md",
     ],
 )
 

@@ -3,7 +3,7 @@
 !!! note "Module Moved"
     Feature detection (scale space, blob detection, affine adaptation,
     descriptor matching) has been extracted to
-    [VisualGeometryToolkitFeatures.jl](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/tree/main/VisualGeometryToolkitFeatures).
+    [VisualGeometryToolkitFeatures.jl](@extref VisualGeometryToolkitFeatures :doc:`index`).
     Import `detect_features`, the detector types, scale-space machinery,
     and `match` from `VisualGeometryToolkitFeatures` instead of
     `VisualGeometryToolkitCore.Features`.

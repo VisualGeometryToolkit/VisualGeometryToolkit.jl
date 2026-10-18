@@ -357,10 +357,11 @@ wall from ground plane in a scene with multiple planes.
 
 ## [References](@id hdecomp-references)
 
-- D. Barath, D. Mishkin, M. Polic, W. Förstner, and J. Matas. *A Large-Scale
-  Homography Benchmark* (HEB). CVPR, pp. 21360–21370, 2023.
-- O. D. Faugeras and F. Lustman. *Motion and structure from motion in a
-  piecewise planar environment.* International Journal of Pattern Recognition
-  and Artificial Intelligence, 2(3):485–508, 1988.
-- E. Malis and M. Vargas. *Deeper understanding of the homography
-  decomposition for vision-based control.* INRIA Research Report RR-6303, 2007.
+```@bibliography
+Pages = []
+Canonical = false
+
+Barath2023
+FaugerasLustman1988
+MalisVargas2007
+```

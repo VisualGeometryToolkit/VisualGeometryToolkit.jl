@@ -32,9 +32,9 @@ radial basis is `radial_full`).
 | [`Stereographic`](@ref) | `r = 2 tan(θ/2)` | `StereographicFrame` |
 | [`Equisolid`](@ref) | `r = 2 sin(θ/2)` | `EquisolidFrame` |
 | [`Orthographic`](@ref) | `r = sin θ` | `OrthographicFrame` |
-| [`DoubleSphere`](@ref)`(xi, alpha)` | Usenko et al. 2018 | model-defined |
-| [`Unified`](@ref)`(xi)` | Mei & Rives 2007 (Kalibr `omni`) | model-defined |
-| [`ExtendedUnified`](@ref)`(alpha, beta)` | Khomutenko et al. 2016 (Kalibr `eucm`) | model-defined |
+| [`DoubleSphere`](@ref)`(xi, alpha)` | [Usenko2018](@citet) | model-defined |
+| [`Unified`](@ref)`(xi)` | [Mei2007](@citet) (Kalibr `omni`) | model-defined |
+| [`ExtendedUnified`](@ref)`(alpha, beta)` | [Khomutenko2016](@citet) (Kalibr `eucm`) | model-defined |
 
 `Lens(projection)` alone is the pure projection; [`Pinhole`](@ref) is
 `Lens(Perspective())`.

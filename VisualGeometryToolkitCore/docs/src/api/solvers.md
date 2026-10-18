@@ -5,8 +5,9 @@ CurrentModule = VisualGeometryToolkitCore
 ```
 
 Projective solver kernels (homography, fundamental, essential, P3P),
-slot-labeled epipolar forms, model-validity tests, and the zero-allocation
-SVD workspace, and the total-least-squares line. The `solve` protocol and the
+model-validity tests, the zero-allocation SVD workspace, and the
+total-least-squares line. The slot-labeled epipolar forms have their own page,
+the [Epipolar Forms API](epipolar_forms.md). The `solve` protocol and the
 solver registry are documented with the [Correspondence API](matching.md); see the
 [Epipolar Forms](../guide/forms.md) guide.
 
@@ -32,18 +33,6 @@ with `normalize` and the side accessors, whose composition moves a model
 (`D ∘ M ∘ inv(S)` into the normalized frame, `inv(D) ∘ M ∘ S` back). An
 estimator normalizes once at its entry and returns results in its inputs'
 frame; the DLT kernels take the enclosing normalization as `normalization`.
-
-## Epipolar Forms
-
-```@autodocs
-Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
-Private = false
-Pages = ["geometry/forms.jl"]
-```
-
-```@docs
-Base.transpose(::EpipolarForm)
-```
 
 ## Homography Solvers
 

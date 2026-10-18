@@ -802,8 +802,7 @@ normalization `N` and pixel data, and returns pixel state. `N` is REQUIRED —
 here; there is no fallback.
 
 One iteration of the stacked linear focal solve via the division-model lift
-(BabelCalib's back-end back-substitution, Lochman, Liepieshov, Chen, Perdoch,
-Zach, Pritts — ICCV 2021), as a [`DivisionCameraState`](@ref): the shared
+(BabelCalib's back-end back-substitution, [Lochman2021](@citet)), as a [`DivisionCameraState`](@ref): the shared
 unknowns plus the per-board poses and the whitened per-point residuals the next
 iteration needs. Square pixels are assumed. Both inputs are keyed by the view's
 identity `K` (the key sets must be equal — `ArgumentError`): `radial_cameras[id]`

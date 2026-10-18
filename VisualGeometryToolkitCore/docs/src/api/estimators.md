@@ -2,7 +2,7 @@
 
 !!! note "Division of labor"
     The RANSAC loop, the problems and the core local optimizations live in
-    [VisualGeometryToolkitEstimation.jl](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/tree/main/VisualGeometryToolkitEstimation).
+    [VisualGeometryToolkitEstimation.jl](@extref VisualGeometryToolkitEstimation :doc:`index`).
     VisualGeometryToolkitCore provides the contracts and shared primitives
     documented here and on the pages beside it: the problem, scoring and
     local-optimization contracts with the baseline scorers and pool

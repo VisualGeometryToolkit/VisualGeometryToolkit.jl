@@ -5,6 +5,17 @@ using VisualGeometryToolkitCore
 # which headless docs builds / CI don't have)
 using Makie
 
+using DocumenterCitations, DocumenterInterLinks
+
+# Literature: `[Key](@cite)` / `@citet` / `@citep` against docs/src/refs.bib,
+# listed on the References page.
+const BIB = CitationBibliography(joinpath(@__DIR__, "src", "refs.bib"); style = :authoryear)
+# The other stack packages' docs: `[text](@extref <Package> ...)` resolves
+# against the inventory (objects.inv) their published `dev` docs carry.
+const LINKS = InterLinks((p => "https://visualgeometrytoolkit.github.io/$p/dev/" for p in (
+    "VisualGeometryToolkitCore", "VisualGeometryToolkitIo", "VisualGeometryToolkitFeatures",
+    "VisualGeometryToolkitEstimation", "VisualGeometryToolkitEval", "PoseLib"))...)
+
 # The docs-build-only docstring shims that used to live here (prec, cov,
 # consensus_set, lo_marker, test_cheirality, is_peak, and the Cameras-scope
 # import of epipolar_map) landed in
@@ -39,6 +50,7 @@ let page = joinpath(@__DIR__, "src", "guide", "conventions.md")
 end
 
 makedocs(;
+    plugins = [BIB, LINKS],
     repo = Documenter.Remotes.GitHub("VisualGeometryToolkit", "VisualGeometryToolkit.jl"),
     modules = [VisualGeometryToolkitCore],
     authors = "James Pritts <jbpritts@gmail.com>",
@@ -58,7 +70,9 @@ makedocs(;
         # to 365 KiB): the losses and width axes to api/robust_losses.md, the
         # statistics toolkit, block coordinate descent and the LM core to
         # api/robust_statistics.md, the tag registry and stack contracts to
-        # api/stack_contracts.md.
+        # api/stack_contracts.md. Split on 2026-10-19 (api/solvers.html reached
+        # 201.7 KiB with the citation links): the epipolar forms to
+        # api/epipolar_forms.md.
         size_threshold_warn = 150 * 2^10,
         # The search index crossed the 500 KiB default with the 0.14
         # docstring additions (the shim-block docstrings moved into src plus
@@ -100,6 +114,7 @@ makedocs(;
             "Imaging Chain & Stereo" => "api/imaging.md",
             "Primitives" => "api/primitives.md",
             "Solvers" => "api/solvers.md",
+            "Epipolar Forms" => "api/epipolar_forms.md",
             "Correspondences" => "api/matching.md",
             "Robust Estimation" => "api/estimators.md",
             "Robust Losses" => "api/robust_losses.md",
@@ -109,6 +124,7 @@ makedocs(;
             "Core Types" => "api/types.md",
             "Core" => "api/core.md",
         ],
+        "References" => "references.md",
     ],
 )
 

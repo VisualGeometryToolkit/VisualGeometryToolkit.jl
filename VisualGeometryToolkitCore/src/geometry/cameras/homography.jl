@@ -47,7 +47,7 @@ world(target) → camera map `x_cam = R·X + t`, `t` in the target's units.
 the target lies in front of the camera (`t₃ > 0`); `R` is the proper rotation
 nearest (Frobenius) to `[r₁ r₂ r₁×r₂]`. An IDENTITY for an exact `H` — no
 correspondences, no refinement; for an estimated `H` it is the closed-form
-pose its planar model implies (Zhang, TPAMI 2000, §3.1).
+pose its planar model implies ([Zhang2000](@citet), §3.1).
 """
 function Extrinsics3(H::HomographyMat, intrinsics::AbstractIntrinsics)
     K = SMatrix{3, 3, Float64, 9}(intrinsics.K)

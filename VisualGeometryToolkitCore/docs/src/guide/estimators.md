@@ -6,7 +6,7 @@
     local-optimization contract — together with the robust-statistics
     toolkit, the loss family and the baseline scorers. The one generic RANSAC
     loop, the problems and the core local optimizations live in
-    [VisualGeometryToolkitEstimation.jl](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/tree/main/VisualGeometryToolkitEstimation);
+    [VisualGeometryToolkitEstimation.jl](@extref VisualGeometryToolkitEstimation :doc:`index`);
     the paper scorers in RansacScoringDoneRight and the paper local
     optimizers in LocalOptimizationDoneRight implement the contracts. See
     [The composable RANSAC](@ref) below.
@@ -223,7 +223,7 @@ solver covariance by the implicit function theorem — of a minimal solve, and o
 the whitened least-squares estimator on an overdetermined sample. Image-domain confidence regions
 ([`confidence_ellipse`](@ref), [`epipolar_band`](@ref),
 [`LineConfidenceBand`](@ref)) turn those covariances into point-transfer
-ellipses and Hartley–Zisserman epipolar-line bands.
+ellipses and Hartley–Zisserman epipolar-line bands [HartleyZisserman2003](@citep).
 
 ## API reference
 

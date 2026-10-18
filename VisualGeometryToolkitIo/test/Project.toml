@@ -14,8 +14,8 @@ SQLite = "0aa819cd-b072-5ff4-a722-6bc24af294d9"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-VisualGeometryToolkitCore = "297d53b8-c8d7-4cd7-a9af-68e656508a81"
-VisualGeometryToolkitIo = "d0441031-17df-4f07-bc88-8d8f5a818e7b"
+VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
+VisualGeometryToolkitIo = "2c312ccb-3050-452c-9523-414c480ba3da"
 
 [sources]
 VisualGeometryToolkitIo = {path = ".."}

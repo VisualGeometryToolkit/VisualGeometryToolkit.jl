@@ -1,5 +1,5 @@
 name = "VisualGeometryToolkitEstimation"
-uuid = "48970fad-9a21-401c-bf6c-679fa4f2bd7f"
+uuid = "9a478df9-9a37-4dc7-9070-58617efe7573"
 version = "0.1.0"
 authors = ["James Pritts <jbpritts@gmail.com>"]
 
@@ -14,7 +14,7 @@ SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
-VisualGeometryToolkitCore = "297d53b8-c8d7-4cd7-a9af-68e656508a81"
+VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
 
 [compat]
 FastLevenbergMarquardt = "0.1.0"

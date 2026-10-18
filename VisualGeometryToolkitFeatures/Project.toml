@@ -1,5 +1,5 @@
 name = "VisualGeometryToolkitFeatures"
-uuid = "9e05951d-65eb-41d6-b120-50dff4d82817"
+uuid = "9487290e-790c-4faa-aa87-bc3b5f18b9f7"
 version = "0.1.0"
 authors = ["James Pritts <jbpritts@gmail.com>"]
 
@@ -16,7 +16,7 @@ SHA = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 StructArrays = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
 StructTypes = "856f2bd8-1eba-4b0a-8007-ebc267875bd4"
-VisualGeometryToolkitCore = "297d53b8-c8d7-4cd7-a9af-68e656508a81"
+VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
 
 [weakdeps]
 JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"

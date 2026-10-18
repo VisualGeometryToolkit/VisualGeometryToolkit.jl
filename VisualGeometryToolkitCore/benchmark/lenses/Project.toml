@@ -7,7 +7,7 @@ CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 StructArrays = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
-VisualGeometryToolkitCore = "297d53b8-c8d7-4cd7-a9af-68e656508a81"
+VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 
 [sources]

@@ -3,7 +3,7 @@
 [deps]
 Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
-VisualGeometryToolkitCore = "297d53b8-c8d7-4cd7-a9af-68e656508a81"
+VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
 
 [compat]
 Pkg = "1"

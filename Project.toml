@@ -13,11 +13,11 @@ projects = [
 # apply where a member depends on a sibling (VisualGeometryToolkitIo → VisualGeometryToolkitCore, …).
 [deps]
 PoseLib = "a8c7e0b4-3d2f-4f1c-9a1e-7b2d9c8f4a3b"
-VisualGeometryToolkitEstimation = "48970fad-9a21-401c-bf6c-679fa4f2bd7f"
-VisualGeometryToolkitCore = "297d53b8-c8d7-4cd7-a9af-68e656508a81"
-VisualGeometryToolkitEval = "3a96b074-0aeb-4323-98af-032cad4f5882"
-VisualGeometryToolkitFeatures = "9e05951d-65eb-41d6-b120-50dff4d82817"
-VisualGeometryToolkitIo = "d0441031-17df-4f07-bc88-8d8f5a818e7b"
+VisualGeometryToolkitEstimation = "9a478df9-9a37-4dc7-9070-58617efe7573"
+VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
+VisualGeometryToolkitEval = "86c88899-11c8-4b8e-8d7a-f01a8ab99b28"
+VisualGeometryToolkitFeatures = "9487290e-790c-4faa-aa87-bc3b5f18b9f7"
+VisualGeometryToolkitIo = "2c312ccb-3050-452c-9523-414c480ba3da"
 
 [sources]
 PoseLib = {path = "PoseLib"}

@@ -16,8 +16,8 @@ ReTestItems = "817f1d60-ba6b-4fd5-9520-3cf149f6a823"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StructTypes = "856f2bd8-1eba-4b0a-8007-ebc267875bd4"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-VisualGeometryToolkitCore = "297d53b8-c8d7-4cd7-a9af-68e656508a81"
-VisualGeometryToolkitFeatures = "9e05951d-65eb-41d6-b120-50dff4d82817"
+VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
+VisualGeometryToolkitFeatures = "9487290e-790c-4faa-aa87-bc3b5f18b9f7"
 
 [sources]
 VisualGeometryToolkitFeatures = {path = ".."}

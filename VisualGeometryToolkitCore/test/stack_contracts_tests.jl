@@ -197,7 +197,7 @@ end
     write(proj, """
     name = "VisualGeometryToolkitEstimation"
     [deps]
-    VisualGeometryToolkitCore = "297d53b8-c8d7-4cd7-a9af-68e656508a81"
+    VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
     StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
     [weakdeps]
     PoseLib = "a8c7e0b4-3d2f-4f1c-9a1e-7b2d9c8f4a3b"

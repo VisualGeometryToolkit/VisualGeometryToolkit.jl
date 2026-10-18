@@ -1,7 +1,7 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
-VisualGeometryToolkitEstimation = "48970fad-9a21-401c-bf6c-679fa4f2bd7f"
-VisualGeometryToolkitCore = "297d53b8-c8d7-4cd7-a9af-68e656508a81"
+VisualGeometryToolkitEstimation = "9a478df9-9a37-4dc7-9070-58617efe7573"
+VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
 
 [sources]
 VisualGeometryToolkitEstimation = {path = ".."}

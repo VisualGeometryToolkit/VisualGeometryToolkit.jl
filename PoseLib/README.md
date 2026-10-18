@@ -1,5 +1,10 @@
 # PoseLib.jl
 
+[![CI](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/actions/workflows/CI.yml)
+[![Docs: stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://visualgeometrytoolkit.github.io/PoseLib/stable/)
+[![Docs: dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://visualgeometrytoolkit.github.io/PoseLib/dev/)
+[![Coverage](https://codecov.io/gh/VisualGeometryToolkit/VisualGeometryToolkit.jl/branch/main/graph/badge.svg?flag=PoseLib)](https://app.codecov.io/gh/VisualGeometryToolkit/VisualGeometryToolkit.jl?flags%5B0%5D=PoseLib)
+
 Julia bindings to [PoseLib](https://github.com/PoseLib/PoseLib), the C++
 library of minimal solvers and robust refiners for camera pose estimation by
 **Viktor Larsson and contributors**. Every solver and refiner reached from

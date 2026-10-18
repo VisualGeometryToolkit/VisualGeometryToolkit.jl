@@ -1,0 +1,38 @@
+# One flag per package: CI tests only the packages a change affects, so each
+# flag carries its last report forward until its package is tested again.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+flag_management:
+  default_rules:
+    carryforward: true
+  individual_flags:
+    - name: VisualGeometryToolkitCore
+      paths:
+        - VisualGeometryToolkitCore/src/
+        - VisualGeometryToolkitCore/ext/
+    - name: VisualGeometryToolkitIo
+      paths:
+        - VisualGeometryToolkitIo/src/
+        - VisualGeometryToolkitIo/ext/
+    - name: VisualGeometryToolkitFeatures
+      paths:
+        - VisualGeometryToolkitFeatures/src/
+        - VisualGeometryToolkitFeatures/ext/
+    - name: VisualGeometryToolkitEstimation
+      paths:
+        - VisualGeometryToolkitEstimation/src/
+        - VisualGeometryToolkitEstimation/ext/
+    - name: VisualGeometryToolkitEval
+      paths:
+        - VisualGeometryToolkitEval/src/
+        - VisualGeometryToolkitEval/ext/
+    - name: PoseLib
+      paths:
+        - PoseLib/src/
+        - PoseLib/ext/

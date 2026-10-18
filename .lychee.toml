@@ -9,11 +9,11 @@ retry_wait_time = 5
 timeout = 30
 max_concurrency = 16
 
-# 429 is rate limiting, never a dead link. doi.org and the publisher sites it
-# redirects to (IEEE, ACM, Springer, Elsevier, Wiley) answer 403 to anonymous
-# clients such as CI runners. lychee has no per-host accept list, so both are
-# accepted for every host; a dead link still shows as 404/410 or a DNS error.
-accept = ["200..=299", "403", "429"]
+# 429 is rate limiting, never a dead link. 403 is NOT accepted: no checked file
+# links to doi.org or a publisher site (IEEE, ACM, Springer, Elsevier, Wiley),
+# which answer 403 to anonymous clients such as CI runners. If such links appear,
+# exclude those hosts by name rather than accepting 403 for every host.
+accept = ["200..=299", "429"]
 
 # Skip links to localhost and private networks.
 exclude_all_private = true
@@ -28,9 +28,9 @@ include_mail = false
 exclude = [
   # Documenter cross references are Markdown links, not URLs:
   # `[x](@ref)`, `[x](@ref Target)`, `[x](@id ...)`, `[x](@extref ...)`,
-  # `[x](@cite ...)`.
-  '^@(ref|id|extref|cite)\b',
-  '(^|/)@(ref|id|extref|cite)(%20|\b)',
+  # `[x](@cite ...)`, `[x](@citet ...)`, `[x](@citep ...)`.
+  '^@(ref|id|extref|cite[tp]?)\b',
+  '(^|/)@(ref|id|extref|cite[tp]?)(%20|\b)',
   '^mailto:',
   '^https?://(localhost|127\.0\.0\.1)',
   # Per-package release docs exist only once a package is tagged, after its

@@ -132,7 +132,7 @@ _h4(b::AbstractSolverBackend, cs, idx) = homography_4pt(b, _pair_columns(cs), id
 
 Minimal 5-point radially distorted homography solver — one-sided
 one-parameter division model on the TARGET side ([`solve`](@ref) verb over
-the [`homography_5pt_radial`](@ref) kernel; Wadenbäck et al., 3DV 2026).
+the [`homography_5pt_radial`](@ref) kernel; [Wadenback2026](@citet)).
 `sample_size` 5, `max_solutions` 3 (at most 1 with `extra_check`, which
 keeps only the root most consistent with the redundant equation — the
 reference enables it inside its RANSAC wrapper).

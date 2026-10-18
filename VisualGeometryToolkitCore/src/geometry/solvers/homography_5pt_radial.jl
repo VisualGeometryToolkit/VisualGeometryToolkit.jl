@@ -235,9 +235,8 @@ end
         -> FixedModels{3, RadialHomography}
 
 Minimal 5-point solver for a homography with one-sided one-parameter
-division-model radial distortion on the TARGET side (Wadenbäck et al.,
-"Radially Distorted Homographies, Revisited", 3DV 2026 — port of HomLib's
-`get_one_sided`). Sources `sᵢ` are distortion-free; targets `dᵢ` are
+division-model radial distortion on the TARGET side ([Wadenback2026](@citet) —
+port of HomLib's `get_one_sided`). Sources `sᵢ` are distortion-free; targets `dᵢ` are
 observed (distorted). Each candidate `(H, k)` satisfies
 
     dᵢ / (1 + k‖dᵢ‖²) ≃ π(H s̃ᵢ)

@@ -20,7 +20,7 @@ is the radial 5-point kernel's root filter (see
 [`RadialHomographyProblem`](@ref)) and is refused with `minimal = :homography`.
 
 Robust radially distorted homography estimation (one-sided one-parameter
-division model on the TARGET side; Wadenbäck et al., 3DV 2026) via RANSAC
+division model on the TARGET side; [Wadenback2026](@citet)) via RANSAC
 with MSAC scoring. `minimal = :homography` pairs the global search for a plain homography (four-point
 hypotheses, `Homography4pt`) with this problem's (H, k) local optimization: the
 hypothesis carries no distortion term, k is seeded on its consensus by the

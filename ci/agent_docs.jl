@@ -3,7 +3,7 @@
 #   julia --project=ci ci/agent_docs.jl            # CLAUDE.md, AGENTS.md, .claude/** that git tracks
 #   julia --project=ci ci/agent_docs.jl --all      # ... and the extra patterns over EVERY tracked text file
 #
-# VisualGeometryCore's `agent_doc_violations` holds the public patterns (home
+# VisualGeometryToolkitCore's `agent_doc_violations` holds the public patterns (home
 # paths, keys, tokens). Release tooling adds its private list through the
 # environment, one regex per line in a file that never enters this repository:
 #
@@ -15,7 +15,7 @@
 # Findings print as "file:line matches <pattern>"; the exit code is their count
 # (capped at 1).
 
-using VisualGeometryCore: agent_doc_violations
+using VisualGeometryToolkitCore: agent_doc_violations
 
 const ROOT = dirname(@__DIR__)
 

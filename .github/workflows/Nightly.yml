@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         julia: ['1.12', '1']
-        package: [VisualGeometryCore, VisualGeometryIo, VisualGeometryFeatures, RobustVisualGeometry, VisualGeometryEval, PoseLib]
+        package: [VisualGeometryToolkitCore, VisualGeometryToolkitIo, VisualGeometryToolkitFeatures, VisualGeometryToolkitEstimation, VisualGeometryToolkitEval, PoseLib]
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2

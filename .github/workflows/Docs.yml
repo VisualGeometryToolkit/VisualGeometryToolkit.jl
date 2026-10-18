@@ -11,11 +11,11 @@ on:
     tags: ['*-v*']          # path filters are not evaluated for tag pushes
     # Root-only commits (README.md, assets/, other workflows) build no docs.
     paths:
-      - 'VisualGeometryCore/**'
-      - 'VisualGeometryIo/**'
-      - 'VisualGeometryFeatures/**'
-      - 'RobustVisualGeometry/**'
-      - 'VisualGeometryEval/**'
+      - 'VisualGeometryToolkitCore/**'
+      - 'VisualGeometryToolkitIo/**'
+      - 'VisualGeometryToolkitFeatures/**'
+      - 'VisualGeometryToolkitEstimation/**'
+      - 'VisualGeometryToolkitEval/**'
       - 'PoseLib/**'
       - 'assets/logo.svg'
       - '.github/workflows/Docs.yml'
@@ -41,7 +41,7 @@ jobs:
       - id: p
         shell: bash
         run: |
-          all='["VisualGeometryCore","VisualGeometryIo","VisualGeometryFeatures","RobustVisualGeometry","VisualGeometryEval","PoseLib"]'
+          all='["VisualGeometryToolkitCore","VisualGeometryToolkitIo","VisualGeometryToolkitFeatures","VisualGeometryToolkitEstimation","VisualGeometryToolkitEval","PoseLib"]'
           case "${{ github.ref }}" in
             refs/tags/*)
               # Only <Package>-v<version> release tags (TagBot) deploy docs;

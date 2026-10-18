@@ -4,7 +4,7 @@
 using Test
 using StaticArrays
 using LinearAlgebra
-using VisualGeometryCore
+using VisualGeometryToolkitCore
 
 @testset "P3P PoseLib Validation" begin
 
@@ -168,18 +168,18 @@ using VisualGeometryCore
     end
 
     # The "P3P End-to-End with Camera Model" testset lived here historically
-    # but is really a VisualGeometryCore integration test (CameraModel + blob
+    # but is really a VisualGeometryToolkitCore integration test (CameraModel + blob
     # JSON data + Unitful) that happens to use p3p — it belongs in VGC's
     # integration test suite, not PoseLib's unit tests.  Skip body intentionally.
     @testset "P3P End-to-End with Camera Model" begin
-        @test_skip "Moved back to VisualGeometryCore integration tests"
+        @test_skip "Moved back to VisualGeometryToolkitCore integration tests"
         if false
         using JSON3
         using GeometryBasics: Point3, Vec, origin
         using Rotations
         using Random
         using Statistics
-        using VisualGeometryCore: ustrip, mm, px
+        using VisualGeometryToolkitCore: ustrip, mm, px
 
         # Load blobs
         data_path = joinpath(@__DIR__, "data", "blob_pattern_eBd.json")

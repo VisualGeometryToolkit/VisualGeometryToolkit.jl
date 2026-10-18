@@ -2,8 +2,8 @@
 # P3P Camera Pose Estimation Unit Tests
 
 using Test
-using VisualGeometryCore
-using VisualGeometryCore: Camera, RotMatrix
+using VisualGeometryToolkitCore
+using VisualGeometryToolkitCore: Camera, RotMatrix
 using LinearAlgebra, Random, Statistics
 using GeometryBasics: Vec3, Point3
 using StaticArrays: SVector

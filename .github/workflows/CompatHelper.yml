@@ -20,7 +20,7 @@ jobs:
         run: |
           julia -e '
             using CompatHelper
-            pkgs = ["VisualGeometryCore", "VisualGeometryIo", "VisualGeometryFeatures", "RobustVisualGeometry", "VisualGeometryEval", "PoseLib"]
+            pkgs = ["VisualGeometryToolkitCore", "VisualGeometryToolkitIo", "VisualGeometryToolkitFeatures", "VisualGeometryToolkitEstimation", "VisualGeometryToolkitEval", "PoseLib"]
             subdirs = vcat([[p, "$p/test", "$p/docs"] for p in pkgs]..., ["ci"])
             CompatHelper.main(; subdirs)'
         env:

@@ -14,11 +14,11 @@ registered package with its own version, tests and documentation.
 
 | Package | Role | Docs |
 |---|---|---|
-| [VisualGeometryCore](VisualGeometryCore) | Geometric types, frames, camera and lens models, minimal solvers, scale-space kernels, the robust-estimation contracts | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryCore/) |
-| [VisualGeometryIo](VisualGeometryIo) | Versioned file formats: cameras, rigs, observations, targets, correspondences | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryIo/) |
-| [VisualGeometryFeatures](VisualGeometryFeatures) | Feature detection (ASIFT/DoG with keypoint covariance) and matching | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryFeatures/) |
-| [RobustVisualGeometry](RobustVisualGeometry) | The RANSAC loop, problem implementations, IRLS, hand–eye calibration | [docs](https://visualgeometrytoolkit.github.io/RobustVisualGeometry/) |
-| [VisualGeometryEval](VisualGeometryEval) | Evaluation protocol, benchmark pools, tuning, reproducible paper projects | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryEval/) |
+| [VisualGeometryToolkitCore](VisualGeometryToolkitCore) | Geometric types, frames, camera and lens models, minimal solvers, scale-space kernels, the robust-estimation contracts | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/) |
+| [VisualGeometryToolkitIo](VisualGeometryToolkitIo) | Versioned file formats: cameras, rigs, observations, targets, correspondences | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIo/) |
+| [VisualGeometryToolkitFeatures](VisualGeometryToolkitFeatures) | Feature detection (ASIFT/DoG with keypoint covariance) and matching | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitFeatures/) |
+| [VisualGeometryToolkitEstimation](VisualGeometryToolkitEstimation) | The RANSAC loop, problem implementations, IRLS, hand–eye calibration | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitEstimation/) |
+| [VisualGeometryToolkitEval](VisualGeometryToolkitEval) | Evaluation protocol, benchmark pools, tuning, reproducible paper projects | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitEval/) |
 | [PoseLib](PoseLib) | Julia wrapper of the PoseLib minimal solvers (prebuilt binaries as package artifacts) | [docs](https://visualgeometrytoolkit.github.io/PoseLib/) |
 
 Related packages in their own repositories:
@@ -34,14 +34,14 @@ Related packages in their own repositories:
 
 ```mermaid
 graph TD
-    VGC["VisualGeometryCore"]
-    VGF["VisualGeometryFeatures"]
-    VGIO["VisualGeometryIo"]
-    RVG["RobustVisualGeometry"]
+    VGC["VisualGeometryToolkitCore"]
+    VGF["VisualGeometryToolkitFeatures"]
+    VGIO["VisualGeometryToolkitIo"]
+    RVG["VisualGeometryToolkitEstimation"]
     PL["PoseLib"]
     RSDR["RansacScoringDoneRight"]
     LODR["LocalOptimizationDoneRight"]
-    VGE["VisualGeometryEval"]
+    VGE["VisualGeometryToolkitEval"]
     BB["BlobBoards"]
 
     VGC --> VGF
@@ -72,7 +72,7 @@ empty depot), then add packages as usual:
 using Pkg
 Pkg.Registry.add("General")
 Pkg.Registry.add(url = "https://github.com/prittjam/CauRegistry.jl")
-Pkg.add("RobustVisualGeometry")      # pulls VisualGeometryCore
+Pkg.add("VisualGeometryToolkitEstimation")      # pulls VisualGeometryToolkitCore
 ```
 
 Manifests record each package by UUID, version and tree hash, never by
@@ -85,11 +85,11 @@ git clone https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl
 cd VisualGeometryToolkit.jl
 git config core.hooksPath .githooks
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
-julia --project=VisualGeometryCore -e 'using Pkg; Pkg.test()'
+julia --project=VisualGeometryToolkitCore -e 'using Pkg; Pkg.test()'
 ```
 
 Inside the workspace every stack package resolves to its directory here, so a
-change to VisualGeometryCore is seen by the packages that depend on it. See
+change to VisualGeometryToolkitCore is seen by the packages that depend on it. See
 [CLAUDE.md](CLAUDE.md) for the conventions and [RELEASING.md](RELEASING.md)
 for registration.
 

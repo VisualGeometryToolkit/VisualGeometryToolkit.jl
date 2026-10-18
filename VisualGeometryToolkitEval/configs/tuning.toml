@@ -1,0 +1,165 @@
+# =============================================================================
+# configs/tuning.toml — THE defaults of record of every cross-validation
+# parameter in the evaluation stack (VisualGeometryToolkitEval Tuning module).
+#
+# A config's `[tuning.<name>]` table names a scheme with `type` and states only
+# what differs from these defaults; every absent key inherits, through three
+# levels: `[tags.<family>.<tag>]` (a tagged strategy's own defaults) or
+# `[types.<type>]` (an untagged one's), then
+# `[schemes.<scheme>]` (where the scheme differs from them), then the config.
+# A tagged table whose `type` differs from the inherited one starts again from
+# its tag's defaults. Unknown keys and tags are refused. The schema is
+# documented once, in docs/src/tuning.md.
+#
+# Parsed at precompile (`include_dependency`): an edit forces a recompile, so
+# a Revise session needs a restart to see one. This file is not edited
+# per run — a run states its own `[tuning.<name>]`.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Tag defaults: the parameters a tagged strategy takes when a table names the
+# tag and omits them. A tag with no table here has every parameter required
+# (a fixed window states its bounds).
+# -----------------------------------------------------------------------------
+[tags.spacing.log_per_decade]
+per_decade = 100            # points per decade
+
+[tags.spacing.log_per_octave]
+per_octave = 2              # half-octave ladders
+
+[tags.spacing.log_count]
+n = 200                     # native-grid columns of record
+
+[tags.spacing.linear_count]
+n = 21
+
+[tags.window.coverage]
+q_lo = 0.02                 # scale quantiles of the validation pool's σ̂²
+q_hi = 0.98
+log_margin = 0.05           # log headroom beyond the natives the window can request
+zeta_octaves = 0.0          # scale-corruption reach of the evaluation (0 = none)
+# q_lo == q_hi is the ONE-ANCHOR case; at 0.5 it is `reference_scale(s2)`, so
+# { q_lo = 0.5, q_hi = 0.5, zeta_octaves = 0.0 } is the window-matched grid —
+# the native image of the scale-multiple window and nothing more. That is what a
+# TUNE wants (it has one reference scale); a spread band is for the modes that
+# have many (validation_budget's 3500 draws share one sweep).
+
+[tags.window.centered]
+factor = 10.0               # [c/10, 10c]: two decades about the centre
+
+# The unit samplings of a cross-validation side (`exhaustive` has no parameters).
+# fraction 1.0 and cap 0 keep every unit; the seed is combined with each
+# scene's NAME (stratified) or with the salt "simple_random" (uniform, pooled;
+# the salt keeps its historical spelling) by THE stable seed derivation (Stats
+# `stable_seed`).
+[tags.unit_sampling.stratified]
+fraction = 1.0
+cap_per_scene = 0           # 0 = no cap
+seed = 20260901
+rng = "StableRNG"
+
+[tags.unit_sampling.uniform]
+fraction = 1.0
+cap = 0                     # 0 = no cap
+seed = 20260901
+rng = "StableRNG"
+
+# -----------------------------------------------------------------------------
+# Type defaults: the parameters of an untagged strategy (the scale-multiple
+# window, the grid extension, the cross-validation, the budget sampling)
+# wherever a scheme holds one.
+# -----------------------------------------------------------------------------
+[types.scale_multiple_window]
+lo = 0.8                    # the standardized window of scale multiples (σ-units)
+hi = 6.0
+
+[types.grid_extension]      # expand-on-boundary of a grid axis
+npts = 4
+max_rounds = 3
+
+# The cross-validation: every unit of each side by default. There is NO
+# default scene split — the data a tuning runs on is named by every config
+# (`scene_split = { type = "registered", name = "<split>" }`, the lists in
+# configs/splits.toml).
+[types.coarse_fine_axis]     # one axis of a joint_coarse_fine search (coarse and fine stated by the config)
+expensive = false           # true: a value costs a run the cheap axes reuse (asked for one value at a time)
+extension = { max_rounds = 2 }
+
+[types.incumbent]            # the setting a joint_coarse_fine search must beat (its `values` stated by the config)
+confidence = 0.95           # adopt the selection only if P(gain > 0) ≥ this under the paired unit bootstrap
+n_resamples = 1000
+seed = 20261015
+
+[types.cross_validation]
+validation = { type = "exhaustive" }
+test = { type = "exhaustive" }
+
+[types.budget_sampling]     # validation-budget draws: draw r of budget n from rng(stable_seed(seed, "budget", n, r))
+sizes = [2, 4, 8, 16, 32, 64, 128]
+n_draws = 500
+seed = 7
+rng = "StableRNG"
+
+# -----------------------------------------------------------------------------
+# Scheme defaults: everything a scheme runs under, where it differs from the
+# tag defaults above.
+# -----------------------------------------------------------------------------
+
+# THE coarse-fine search (Evaluation cv_probe.jl): a coarse probe with
+# expand-on-boundary, then a fine free argmin — of one scalar (`coarse_fine`,
+# its axis spelled flat) or of a product of named axes (`joint_coarse_fine`,
+# each axis a [types.coarse_fine_axis]).
+[schemes.coarse_fine]
+edge_margin = 1                                   # an argmin within 1 point of an edge extends
+criterion = { type = "finite_median" }
+
+[schemes.coarse_fine.coarse]
+type = "spaced"
+window = { type = "fixed", lo = 0.5, hi = 16.0 }
+spacing = { type = "log_per_decade", per_decade = 4 }   # quarter-decade probe
+
+[schemes.coarse_fine.extension]
+max_rounds = 2                                    # per side
+
+[schemes.coarse_fine.fine]                        # the fine sweep over the coarse bracket
+type = "log_count"
+
+[schemes.joint_coarse_fine]
+edge_margin = 1
+criterion = { type = "finite_median" }
+axes = {}
+
+# The bootstrap tuning harness (Evaluation WindowedGridMethod).
+[schemes.windowed_bootstrap]
+criterion = { type = "median_error" }
+
+[schemes.windowed_bootstrap.outlier_halfwidth]
+type = "spaced"
+window = { type = "coverage" }
+spacing = { type = "log_count" }
+
+[schemes.windowed_bootstrap.loss_width]
+type = "spaced"
+window = { type = "coverage" }
+spacing = { type = "log_count" }
+
+[schemes.windowed_bootstrap.scale_multiple]       # the standardized display axis
+type = "spaced"
+window = { type = "standardized" }
+spacing = { type = "linear_count" }
+
+[schemes.windowed_bootstrap.budget_sampling]
+n_draws = 120
+
+# Every combination of named settings of a method's configuration keys. NOT a
+# windowed scheme: no reference scale, no boundary extension. Consumers:
+# downstream product-grid specs and joint operating-point searches.
+[schemes.factorial]
+axes = {}
+# `max_error` is UNITS-NEUTRAL — the errors' own unit — and its 10.0 is NOT the
+# 10.0 of [metrics] maa_threshold_deg, which is degrees of pose error. Its first
+# consumer (BlobBoards bmvc2026) read it as 10 MILLIMETRES of inter-board
+# translation. The two coincide numerically and must not be tied
+# together: deriving this from the degrees constant would bind a millimetre
+# default to a rotation threshold.
+criterion = { type = "mean_average_accuracy", max_error = 10.0 }

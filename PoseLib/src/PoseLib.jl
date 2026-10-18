@@ -3,7 +3,7 @@
 
 Julia bindings to the PoseLib C++ minimal-solver library.
 
-Extends `VisualGeometryCore` with PoseLib-backed methods. Loading this
+Extends `VisualGeometryToolkitCore` with PoseLib-backed methods. Loading this
 package adds:
 
 - Backend overloads (`::PoseLibSolver`) for shared solvers:
@@ -14,7 +14,7 @@ package adds:
 - Robust-loss LM refinement, model first and correspondences as one
   Cspond vector: `refine_relpose`, `refine_fundamental`,
   `refine_homography`, `refine_absolute_pose`. The loss is a
-  VisualGeometryCore loss shape (`TLSShape()`, `HuberShape()`,
+  VisualGeometryToolkitCore loss shape (`TLSShape()`, `HuberShape()`,
   `CauchyShape()`, `GaussianShape()`) or `LeZachTruncation()`, at the
   `loss_width` the shape's own closed forms use.
   The calibrated pair each take the caller's own units, and REFUSE the z = 1
@@ -36,6 +36,7 @@ override the artifact in the depot's `Overrides.toml` (see the README,
 "Building the wrapper from source").
 """
 module PoseLib
+    import VisualGeometryToolkitCore as VgtkCore
 
 using StaticArrays: MVector, SVector, SMatrix, StaticVector, StaticMatrix
 using Rotations: RotMatrix
@@ -43,7 +44,7 @@ using Artifacts: @artifact_str
 using Libdl: dlopen, dlext
 using CompilerSupportLibraries_jll: CompilerSupportLibraries_jll  # libstdc++/libgcc_s, as the recipe declares
 
-using VisualGeometryCore: VisualGeometryCore,
+using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
     AbstractLossShape, GaussianShape, TLSShape, HuberShape, CauchyShape,
     HomographyMat, FundMat, EssentialMat, Extrinsics3, FixedModels,
     EuclideanMap, UnlabeledFrame,
@@ -141,7 +142,7 @@ end
 
 PoseLib backend for 4-point homography. Takes SVector{2} (inhomogeneous) points.
 """
-function VisualGeometryCore.homography_4pt(::PoseLibSolver,
+function VgtkCore.homography_4pt(::PoseLibSolver,
                         s₁::StaticVector{2,T}, s₂::StaticVector{2,T},
                         s₃::StaticVector{2,T}, s₄::StaticVector{2,T},
                         d₁::StaticVector{2,T}, d₂::StaticVector{2,T},
@@ -168,9 +169,9 @@ function VisualGeometryCore.homography_4pt(::PoseLibSolver,
     sign_normalize(HomographyMat{Float64}(Tuple(H)))
 end
 
-function VisualGeometryCore.homography_4pt(::PoseLibSolver, cs, idx::AbstractVector{<:Integer})
+function VgtkCore.homography_4pt(::PoseLibSolver, cs, idx::AbstractVector{<:Integer})
     u1 = cs.first; u2 = cs.second
-    @inbounds VisualGeometryCore.homography_4pt(PoseLibSolver(),
+    @inbounds VgtkCore.homography_4pt(PoseLibSolver(),
         u1[idx[1]], u1[idx[2]], u1[idx[3]], u1[idx[4]],
         u2[idx[1]], u2[idx[2]], u2[idx[3]], u2[idx[4]])
 end
@@ -179,7 +180,7 @@ end
 # fundamental_7pt  (PoseLib backend)
 # =============================================================================
 
-function VisualGeometryCore.fundamental_7pt(::PoseLibSolver, cs, idx::AbstractVector{<:Integer})
+function VgtkCore.fundamental_7pt(::PoseLibSolver, cs, idx::AbstractVector{<:Integer})
     u1 = cs.first; u2 = cs.second
     o = one(Float64)
     x1 = ntuple(Val(7)) do k
@@ -204,7 +205,7 @@ end
 # p3p  (PoseLib backend + convenience default)
 # =============================================================================
 
-function VisualGeometryCore.p3p(::PoseLibSolver,
+function VgtkCore.p3p(::PoseLibSolver,
              x::AbstractVector{S},
              X::AbstractVector{T}) where {S <: StaticVector{3,Float64},
                                           T <: StaticVector{3,Float64}}
@@ -221,7 +222,7 @@ function VisualGeometryCore.p3p(::PoseLibSolver,
     end
 end
 
-# No-backend p3p default now lives in VisualGeometryCore (NativeSolver, its
+# No-backend p3p default now lives in VisualGeometryToolkitCore (NativeSolver, its
 # port of this library's p3p.cc). Select this backend explicitly:
 # p3p(PoseLibSolver(), rays, X).
 
@@ -261,7 +262,7 @@ _Relpose5ptBuffers() = _Relpose5ptBuffers(Ref{NTuple{15,Float64}}(),
 const _Bearings5 = Union{NTuple{5, <:StaticVector{3, Float64}},
                          StaticVector{5, <:StaticVector{3, Float64}}}
 
-function VisualGeometryCore.essential_5pt(::PoseLibSolver, x1::_Bearings5, x2::_Bearings5)
+function VgtkCore.essential_5pt(::PoseLibSolver, x1::_Bearings5, x2::_Bearings5)
     bufs = _relpose5pt_buffers()
     bufs.p1[] = _pack_points3(Tuple(x1))
     bufs.p2[] = _pack_points3(Tuple(x2))
@@ -293,16 +294,16 @@ end
 # MethodError here, never lifted to z = 1. Columns are read through the
 # `sources`/`targets` protocol so every Cspond container works (a plain
 # `Vector{<:Pair}` has no `.first` column).
-function VisualGeometryCore.essential_5pt(::PoseLibSolver,
+function VgtkCore.essential_5pt(::PoseLibSolver,
         cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{3}}},
         idx::AbstractVector{<:Integer})
     u1 = sources(cs); u2 = targets(cs)
     x1 = @inbounds ntuple(k -> Vec3{Float64}(u1[idx[k]]), Val(5))
     x2 = @inbounds ntuple(k -> Vec3{Float64}(u2[idx[k]]), Val(5))
-    VisualGeometryCore.essential_5pt(PoseLibSolver(), x1, x2)
+    VgtkCore.essential_5pt(PoseLibSolver(), x1, x2)
 end
 
-# No-backend essential_5pt default now lives in VisualGeometryCore
+# No-backend essential_5pt default now lives in VisualGeometryToolkitCore
 # (NativeSolver port of relpose_5pt.cc). Select this backend explicitly:
 # essential_5pt(PoseLibSolver(), x1, x2).
 
@@ -310,7 +311,7 @@ end
 # essential_dlt  (PoseLib only — backend method + no-backend default)
 # =============================================================================
 
-function VisualGeometryCore.essential_dlt(::PoseLibSolver,
+function VgtkCore.essential_dlt(::PoseLibSolver,
         cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{3}}})
     n = length(cs)
     @assert n >= 8
@@ -323,8 +324,8 @@ function VisualGeometryCore.essential_dlt(::PoseLibSolver,
     EssentialMat{Float64}(Tuple(E_buf))
 end
 
-@inline VisualGeometryCore.essential_dlt(cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{3}}}) =
-    VisualGeometryCore.essential_dlt(PoseLibSolver(), cs)
+@inline VgtkCore.essential_dlt(cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{3}}}) =
+    VgtkCore.essential_dlt(PoseLibSolver(), cs)
 
 # =============================================================================
 # refine_relpose  (robust-loss LM refinement of a relative pose — PoseLib LO)
@@ -344,13 +345,13 @@ const Rigid3 = EuclideanMap{
 }
 
 # -----------------------------------------------------------------------------
-# The loss, typed: a VisualGeometryCore loss shape (or the Le–Zach marker),
+# The loss, typed: a VisualGeometryToolkitCore loss shape (or the Le–Zach marker),
 # mapped to PoseLib's `BundleOptions::LossType` enum (PoseLib/types.h) ONLY at
 # the ccall boundary. The integer enum never leaves this file.
 #
 # THE WIDTH. Each PoseLib loss is built from one scalar `loss_scale`
 # (PoseLib/robust/robust_loss.h), and for every loss bound here that scalar IS
-# the `loss_width` w of VisualGeometryCore's loss-shape closed forms,
+# the `loss_width` w of VisualGeometryToolkitCore's loss-shape closed forms,
 # s = r²:
 #
 #   TruncatedLoss(w)        ρ = min(s, w²),  weight = s < w²         ≡ ρ(TLSShape(), s, w²)
@@ -368,7 +369,7 @@ const Rigid3 = EuclideanMap{
 """
     LeZachTruncation()
 
-The truncated loss `ρ = min(r², w²)` (VisualGeometryCore's `TLSShape` at
+The truncated loss `ρ = min(r², w²)` (VisualGeometryToolkitCore's `TLSShape` at
 `loss_width = w`) optimized by the TR-IRLS scheme of Le & Zach (3DV 2021),
 PoseLib's `TRUNCATED_LE_ZACH`. A marker, not a loss shape: the LOSS is
 `TLSShape`'s, the marker selects the optimization scheme.
@@ -393,7 +394,7 @@ _poselib_loss_scale(loss, ::Nothing) = throw(ArgumentError(
 _poselib_loss_scale(::Union{TLSShape, HuberShape, CauchyShape, LeZachTruncation}, loss_width::Real) =
     Float64(loss_width)
 
-# Unit-norm gate for a bearing column. Matches RobustVisualGeometry's
+# Unit-norm gate for a bearing column. Matches VisualGeometryToolkitEstimation's
 # `_assert_unit_bearings` (`problems/cspond.jl`) in tolerance and in what the
 # message has to tell the caller — the stack settled this shape, so this
 # binding follows it rather than inventing a second one.
@@ -508,7 +509,7 @@ pose, through PoseLib's tangent-Sampson refiner
 correspondences `f₁ => f₂` of **unit bearings** (`StaticVector{3}`), carrying
 their 3×2 backprojection Jacobians as the attribute COLUMNS `M₁`/`M₂`
 (`withattrs(cs; M₁, M₂)`) — the pair
-`VisualGeometryCore.backproject_with_jacobian(model, u)` returns. Returns the
+`VisualGeometryToolkitCore.backproject_with_jacobian(model, u)` returns. Returns the
 refined `Rigid3`.
 
 This is the calibrated entry point with no chart: a ray at or beyond 90° is an
@@ -725,7 +726,7 @@ per point).  `H` is the seed 3×3 homography, `cs` the correspondences
 pixel-frame `H`), and `loss_width` the loss's width on the one-sided transfer
 residual.  Returns the refined `HomographyMat`.
 
-`loss` is a VisualGeometryCore loss shape — `TLSShape()` (the default: the
+`loss` is a VisualGeometryToolkitCore loss shape — `TLSShape()` (the default: the
 truncation `min(r², w²)`, inliers `r < w` and outliers zero-weighted),
 `HuberShape()`, `CauchyShape()`, `GaussianShape()` (plain least squares, which
 takes no `loss_width`) — or [`LeZachTruncation`](@ref)`()`, the same
@@ -755,10 +756,10 @@ function refine_homography(H::AbstractMatrix,
 end
 
 # =============================================================================
-# motion(::HomographyMat) — moved to VisualGeometryCore
+# motion(::HomographyMat) — moved to VisualGeometryToolkitCore
 # =============================================================================
 # The Malis–Vargas homography decomposition is now a NATIVE method in
-# VisualGeometryCore (src/geometry/fundmat.jl), ported off the C++
+# VisualGeometryToolkitCore (src/geometry/fundmat.jl), ported off the C++
 # `poselib_motion_from_homography` (validated bit-for-bit against it). PoseLib no
 # longer defines `motion(::HomographyMat)`, so the VGC method is authoritative.
 # The C wrapper symbol stays in the shared library but is unused from Julia.

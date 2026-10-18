@@ -34,7 +34,7 @@ Thumbs.db
 *.pdf
 texput.log
 
-# Python side environments (VisualGeometryIo oracles: pixi)
+# Python side environments (VisualGeometryToolkitIo oracles: pixi)
 .pixi/
 pixi.lock
 .CondaPkg/

@@ -13,16 +13,16 @@ name, the Registrator `subdir`, the TagBot tag prefix `<Name>-v…` and the docs
 
 | directory | package | depends on (stack) |
 |---|---|---|
-| `VisualGeometryCore/` | types, frames, cameras, kernels, the robust-estimation contracts | — |
-| `VisualGeometryIo/` | file formats and schemas | VisualGeometryCore |
-| `VisualGeometryFeatures/` | feature detection and matching | VisualGeometryCore |
-| `RobustVisualGeometry/` | the RANSAC loop and robust estimators | VisualGeometryCore |
-| `VisualGeometryEval/` | evaluation protocol, pools, paper-project template | VisualGeometryCore, VisualGeometryIo, RobustVisualGeometry |
-| `PoseLib/` | wrapper of the PoseLib C++ solvers (binaries: its `Artifacts.toml`) | VisualGeometryCore |
+| `VisualGeometryToolkitCore/` | types, frames, cameras, kernels, the robust-estimation contracts | — |
+| `VisualGeometryToolkitIo/` | file formats and schemas | VisualGeometryToolkitCore |
+| `VisualGeometryToolkitFeatures/` | feature detection and matching | VisualGeometryToolkitCore |
+| `VisualGeometryToolkitEstimation/` | the RANSAC loop and robust estimators | VisualGeometryToolkitCore |
+| `VisualGeometryToolkitEval/` | evaluation protocol, pools, paper-project template | VisualGeometryToolkitCore, VisualGeometryToolkitIo, VisualGeometryToolkitEstimation |
+| `PoseLib/` | wrapper of the PoseLib C++ solvers (binaries: its `Artifacts.toml`) | VisualGeometryToolkitCore |
 | `ci/` | workspace tooling; a workspace member, never registered | — |
 
 The stack dependency law is the allow-list
-`VisualGeometryCore/configs/stack_dependencies.toml`; nothing else may name a
+`VisualGeometryToolkitCore/configs/stack_dependencies.toml`; nothing else may name a
 stack package.
 
 The root `Project.toml` is not a package. Its `[sources]` resolve every stack
@@ -38,13 +38,13 @@ git config core.hooksPath .githooks          # re-resolve the root Manifest when
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
 
 # Test one package (inside the workspace: no sandbox, the root Manifest)
-julia --project=VisualGeometryCore -e 'using Pkg; Pkg.test()'
-julia --project=RobustVisualGeometry -e 'using Pkg; Pkg.test(; test_args = ["ransac"])'
-julia --project=VisualGeometryCore -e 'using Pkg; Pkg.test(; julia_args = ["--depwarn=error"])'
+julia --project=VisualGeometryToolkitCore -e 'using Pkg; Pkg.test()'
+julia --project=VisualGeometryToolkitEstimation -e 'using Pkg; Pkg.test(; test_args = ["ransac"])'
+julia --project=VisualGeometryToolkitCore -e 'using Pkg; Pkg.test(; julia_args = ["--depwarn=error"])'
 
 # Docs of one package. --startup-file=no is required (a startup.jl that
 # activates another env overrides --project).
-julia --project=VisualGeometryCore/docs --startup-file=no VisualGeometryCore/docs/make.jl
+julia --project=VisualGeometryToolkitCore/docs --startup-file=no VisualGeometryToolkitCore/docs/make.jl
 
 # Workspace checks (CI runs them on every PR)
 julia --project=ci ci/registration_lint.jl   # versions, compat, names, no tracked Manifest, allow-list
@@ -65,17 +65,17 @@ the release machine only. See `RELEASING.md`.
 
 ## Stack conventions
 
-The canonical text lives once, in `VisualGeometryCore/conventions/` (it ships
-with VisualGeometryCore; `VisualGeometryCore.conventions_dir()`). Change it
+The canonical text lives once, in `VisualGeometryToolkitCore/conventions/` (it ships
+with VisualGeometryToolkitCore; `VisualGeometryToolkitCore.conventions_dir()`). Change it
 there and nowhere else; downstream repositories check their copies against it.
 
-@VisualGeometryCore/conventions/overview.md
-@VisualGeometryCore/conventions/naming.md
-@VisualGeometryCore/conventions/signatures.md
-@VisualGeometryCore/conventions/data-arguments.md
-@VisualGeometryCore/conventions/frames.md
-@VisualGeometryCore/conventions/pixel-origins.md
-@VisualGeometryCore/conventions/bearings.md
-@VisualGeometryCore/conventions/jacobians.md
-@VisualGeometryCore/conventions/units.md
-@VisualGeometryCore/conventions/stack-contracts.md
+@VisualGeometryToolkitCore/conventions/overview.md
+@VisualGeometryToolkitCore/conventions/naming.md
+@VisualGeometryToolkitCore/conventions/signatures.md
+@VisualGeometryToolkitCore/conventions/data-arguments.md
+@VisualGeometryToolkitCore/conventions/frames.md
+@VisualGeometryToolkitCore/conventions/pixel-origins.md
+@VisualGeometryToolkitCore/conventions/bearings.md
+@VisualGeometryToolkitCore/conventions/jacobians.md
+@VisualGeometryToolkitCore/conventions/units.md
+@VisualGeometryToolkitCore/conventions/stack-contracts.md

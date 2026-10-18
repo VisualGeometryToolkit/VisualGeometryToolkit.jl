@@ -20,7 +20,7 @@
 #     in test/Project.toml, which [sources]-links the package as path "..")
 #   - a LICENSE (OSI: MIT) inside the directory — the registered tarball is
 #     the subdir only
-#   - the stack dependency allow-list (VisualGeometryCore's
+#   - the stack dependency allow-list (VisualGeometryToolkitCore's
 #     stack_dependency_violations) for the package, test and docs projects
 # Workspace:
 #   - no tracked Manifest*.toml anywhere
@@ -29,7 +29,7 @@
 # Prints one line per finding; exits 1 when there is an error.
 
 using Pkg, TOML
-using VisualGeometryCore: stack_dependency_violations
+using VisualGeometryToolkitCore: stack_dependency_violations
 
 const ROOT = dirname(@__DIR__)
 const ROOT_PROJECT = TOML.parsefile(joinpath(ROOT, "Project.toml"))

@@ -1,0 +1,12 @@
+[deps]
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
+VisualGeometryToolkitCore = "297d53b8-c8d7-4cd7-a9af-68e656508a81"
+
+[sources]
+VisualGeometryToolkitCore = {path = ".."}
+
+[compat]
+Makie = "0.24"
+julia = "1.12"
+Documenter = "1"

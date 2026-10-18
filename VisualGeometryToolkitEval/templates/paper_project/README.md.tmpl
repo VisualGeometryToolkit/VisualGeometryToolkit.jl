@@ -1,0 +1,27 @@
+# {{NAME}}
+
+A paper project of the visual-geometry stack, laid out by the stack's
+paper-project conventions (VisualGeometryToolkitEval README, "Paper project
+conventions"): a [DrWatson](https://juliadynamics.github.io/DrWatson.jl/)
+project whose every result comes from a driver under `scripts/` run on a
+config of record under `configs/`, and whose suite enforces the conventions.
+
+```
+julia --project=. -e 'using Pkg; Pkg.instantiate()'
+julia --project=. scripts/example_stage.jl --plan     # the stage plan
+julia --project=. scripts/example_stage.jl            # run what is pending
+julia --project=. test/runtests.jl                    # the conventions + the project's tests
+```
+
+| Path | Holds |
+|---|---|
+| `configs/` | the configs of record (TOML): every value a result depends on |
+| `scripts/` | the drivers: one per paper asset, stage-idempotent (`--plan`, `--stage=NAME`, `--force`) |
+| `src/` | the shared prelude (`{{NAME}}.jl`) the drivers include |
+| `test/` | the suite; `runtests.jl` calls `paper_project_violations` |
+| `{{PAPERDIR}}/` | the paper; generated assets under `{{FIGDIR}}/` |
+| `data/exp_raw` | the read-only inputs (a link or directory per machine, or the artifact view; `data/README.md`) |
+| `data/exp_pro` | the results, in directories keyed by run key, each with its `_provenance.toml` |
+| `plots/` | local renderings that are not paper assets |
+| `REPRODUCE.md` | the asset index: every figure, table and macro the paper reads → its generator, config and data |
+| `Artifacts.toml`, `configs/data_artifacts.toml` | the published input data (Zenodo) and their catalog |

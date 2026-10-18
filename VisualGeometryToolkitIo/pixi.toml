@@ -1,0 +1,21 @@
+[workspace]
+name = "VisualGeometryToolkitIo"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+
+# pycolmap is the reference implementation the COLMAP wire layer is verified
+# against (test/pycolmap_tests.jl, skipped when this environment is absent);
+# pycolmap and opencv-python generate the frozen lens-convention oracles
+# (test/oracles/generate.py → test/oracles/lens_conventions.json).
+[feature.py.dependencies]
+python = ">=3.11,<3.14"
+
+[feature.py.pypi-dependencies]
+pycolmap = "*"
+opencv-python-headless = "*"
+numpy = "*"
+
+[environments]
+py = { features = ["py"] }

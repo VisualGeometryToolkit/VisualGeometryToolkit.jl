@@ -37,7 +37,7 @@ which builds it for every platform; a later patch release switches to that JLL
 once it is registered, bringing macOS, Windows and FreeBSD, with no change to the
 API. Source: <https://github.com/VisualGeometryToolkit/PoseLib.jl>.
 
-Loading this package extends VisualGeometryCore with:
+Loading this package extends VisualGeometryToolkitCore with:
 
 - `PoseLibSolver` backend methods for the shared minimal solvers —
   `homography_4pt`, `fundamental_7pt`, `p3p`, `essential_5pt`;
@@ -45,7 +45,7 @@ Loading this package extends VisualGeometryCore with:
   routes here;
 - PoseLib's robust-loss LM refiners — `refine_relpose`, `refine_fundamental`,
   `refine_homography`, `refine_absolute_pose` — whose `loss` is a
-  VisualGeometryCore loss shape (`TLSShape()`, the MSAC default; `HuberShape()`,
+  VisualGeometryToolkitCore loss shape (`TLSShape()`, the MSAC default; `HuberShape()`,
   `CauchyShape()`, `GaussianShape()`) or `LeZachTruncation()` (the same
   truncation under the Le & Zach TR-IRLS scheme), at a `loss_width` that is the
   width of that shape's own closed forms, and whose `max_iter` the caller
@@ -55,8 +55,8 @@ Loading this package extends VisualGeometryCore with:
 ## Conventions
 
 The stack's conventions — how estimators are named, how signatures order their
-arguments, and the frame-in = frame-out rule — are one page, VisualGeometryCore's
-[Conventions](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/blob/main/VisualGeometryCore/conventions/README.md)
+arguments, and the frame-in = frame-out rule — are one page, VisualGeometryToolkitCore's
+[Conventions](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/blob/main/VisualGeometryToolkitCore/conventions/README.md)
 (`docs/src/guide/conventions.md`). This package is a BINDING LAYER, and that
 fixes what it may and may not do with them.
 
@@ -75,7 +75,7 @@ fixes what it may and may not do with them.
 - **A loss width is in the unit of the data handed over.** `loss_width` is the
   loss's width on that refiner's own residual, in the caller's units: never
   converted, never pre-divided by a focal on the caller's behalf. PoseLib's
-  `loss_scale` equals VisualGeometryCore's `loss_width` for every bound loss
+  `loss_scale` equals VisualGeometryToolkitCore's `loss_width` for every bound loss
   (truncated, Le–Zach, Huber, Cauchy: `ρ = min(r², w²)`, Huber's elbow at `w`,
   `w²·log1p(r²/w²)`), so it crosses unchanged. One width stays
   valid across the camera-aware `refine_relpose`'s two images even when their

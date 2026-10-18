@@ -3,10 +3,11 @@
 # gross outliers; every wrapper must pull a perturbed seed back to the truth,
 # and every Cspond container (Csponds, Vector{Pair}) must give the same model.
 
+import VisualGeometryToolkitCore as VgtkCore
 using Random: MersenneTwister
 using LinearAlgebra: normalize, norm, dot
 using Rotations: AngleAxis
-using VisualGeometryCore: Csponds, withattrs, backproject_with_jacobian, s2_tangent_basis,
+using VisualGeometryToolkitCore: Csponds, withattrs, backproject_with_jacobian, s2_tangent_basis,
                           CameraModel, LogicalIntrinsics, CameraCalibrationMat, Pinhole,
                           TLSShape, HuberShape, CauchyShape, GaussianShape
 
@@ -258,10 +259,10 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
     b2 = [normalize(R * Y + t) for Y in X]
 
     @testset "essential_dlt(cs)" begin
-        E = VisualGeometryCore.essential_dlt(Csponds(b1[1:20], b2[1:20]))
+        E = VgtkCore.essential_dlt(Csponds(b1[1:20], b2[1:20]))
         @test E isa EssentialMat{Float64}
         @test _proj_dist(E, tx * R) < 1e-8
-        @test VisualGeometryCore.essential_dlt(PoseLibSolver(), b1[1:20] .=> b2[1:20]) == E
+        @test VgtkCore.essential_dlt(PoseLibSolver(), b1[1:20] .=> b2[1:20]) == E
     end
 
     # The PoseLib backend of VGC's `Essential5pt`. VGC's `solve` hands the
@@ -273,14 +274,14 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
     @testset "essential_5pt / Essential5pt (PoseLib backend)" begin
         idx = [3, 17, 42, 88, 150]                    # all inliers (> nout)
         csv = b1 .=> b2
-        ref = VisualGeometryCore.essential_5pt(PoseLibSolver(),
+        ref = VgtkCore.essential_5pt(PoseLibSolver(),
                   ntuple(k -> b1[idx[k]], Val(5)), ntuple(k -> b2[idx[k]], Val(5)))
         @test length(ref) >= 1
         @test minimum(E -> _proj_dist(E, tx * R), ref) < 1e-8
-        for got in (VisualGeometryCore.solve(Essential5pt(PoseLibSolver()), csv, idx),
-                    VisualGeometryCore.solve(Essential5pt(PoseLibSolver()), Csponds(b1, b2), idx),
-                    VisualGeometryCore.essential_5pt(PoseLibSolver(), csv, idx),
-                    VisualGeometryCore.essential_5pt(PoseLibSolver(), Csponds(b1, b2), idx))
+        for got in (VgtkCore.solve(Essential5pt(PoseLibSolver()), csv, idx),
+                    VgtkCore.solve(Essential5pt(PoseLibSolver()), Csponds(b1, b2), idx),
+                    VgtkCore.essential_5pt(PoseLibSolver(), csv, idx),
+                    VgtkCore.essential_5pt(PoseLibSolver(), Csponds(b1, b2), idx))
             @test length(got) == length(ref) && all(collect(got) .== collect(ref))
         end
     end
@@ -292,17 +293,17 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
     @testset "calibrated kernels refuse 2-vectors" begin
         c1 = [_nrm(Y) for Y in X]
         c2 = [_nrm(R * Y + t) for Y in X]
-        @test_throws MethodError VisualGeometryCore.essential_5pt(PoseLibSolver(), c1 .=> c2, 1:5)
-        @test_throws MethodError VisualGeometryCore.essential_5pt(PoseLibSolver(), Csponds(c1, c2), 1:5)
-        @test_throws MethodError VisualGeometryCore.solve(Essential5pt(PoseLibSolver()), c1 .=> c2, 1:5)
-        @test_throws MethodError VisualGeometryCore.essential_dlt(PoseLibSolver(), Csponds(c1, c2))
-        @test_throws MethodError VisualGeometryCore.p3p(PoseLibSolver(), c1[1:3], X[1:3])
+        @test_throws MethodError VgtkCore.essential_5pt(PoseLibSolver(), c1 .=> c2, 1:5)
+        @test_throws MethodError VgtkCore.essential_5pt(PoseLibSolver(), Csponds(c1, c2), 1:5)
+        @test_throws MethodError VgtkCore.solve(Essential5pt(PoseLibSolver()), c1 .=> c2, 1:5)
+        @test_throws MethodError VgtkCore.essential_dlt(PoseLibSolver(), Csponds(c1, c2))
+        @test_throws MethodError VgtkCore.p3p(PoseLibSolver(), c1[1:3], X[1:3])
     end
     # -------------------------------------------------------------------------
     # The typed loss and its width. PoseLib builds every loss from one scalar
     # `loss_scale` (robust/robust_loss.h); the binding hands `loss_width` over
     # through UNCHANGED because, read off the C++, that scalar is exactly the
-    # width w of VisualGeometryCore's closed forms: TruncatedLoss
+    # width w of VisualGeometryToolkitCore's closed forms: TruncatedLoss
     # ρ = min(r², w²), Huber's elbow at r = w, Cauchy w²·log1p(r²/w²). These
     # pin it behaviourally on a Euclidean homography (forward and backward
     # transfer residuals have equal length), so a factor, a square or a ½ at

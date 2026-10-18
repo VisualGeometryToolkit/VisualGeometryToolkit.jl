@@ -1,0 +1,23 @@
+# The stack's dependency allow-list: one row per project, the stack packages it
+# may name in its Project.toml — [deps], [weakdeps], [extras] and the test
+# target alike. A "stack package" is any key of this table; a project absent
+# from it is an error. Read by `VisualGeometryToolkitCore.stack_dependency_violations`
+# (the quality gate runs it in every stack package; a paper project's own suite
+# calls it with the project's name). It lists the published packages and paper
+# projects only: a project kept elsewhere supplies its own row through the
+# `extra` keyword (a TOML file in this format), never by adding it here.
+
+VisualGeometryToolkitCore = []
+VisualGeometryToolkitIo = ["VisualGeometryToolkitCore"]
+VisualGeometryToolkitFeatures = ["VisualGeometryToolkitCore"]
+VisualGeometryToolkitEval = ["VisualGeometryToolkitCore", "VisualGeometryToolkitIo", "VisualGeometryToolkitEstimation"]
+PoseLib = ["VisualGeometryToolkitCore"]
+# Never RansacScoringDoneRight or LocalOptimizationDoneRight — not even in [extras].
+VisualGeometryToolkitEstimation = ["VisualGeometryToolkitCore"]
+RansacScoringDoneRight = ["VisualGeometryToolkitCore"]
+# PoseLib is a weak dependency here.
+LocalOptimizationDoneRight = ["VisualGeometryToolkitCore", "VisualGeometryToolkitEstimation", "PoseLib"]
+BlobBoards = ["VisualGeometryToolkitCore", "VisualGeometryToolkitIo", "VisualGeometryToolkitFeatures", "VisualGeometryToolkitEstimation", "RansacScoringDoneRight", "LocalOptimizationDoneRight"]
+accv2026 = ["LocalOptimizationDoneRight", "RansacScoringDoneRight", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "VisualGeometryToolkitCore", "VisualGeometryToolkitIo", "PoseLib"]
+neurips2026 = ["RansacScoringDoneRight", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "VisualGeometryToolkitCore"]
+bmvc2026 = ["VisualGeometryToolkitCore", "VisualGeometryToolkitIo", "VisualGeometryToolkitFeatures", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "RansacScoringDoneRight", "LocalOptimizationDoneRight", "BlobBoards"]

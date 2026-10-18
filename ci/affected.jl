@@ -5,8 +5,8 @@
 # A path under <Package>/ affects that package; anything else (root files,
 # ci/, .github/, .githooks/) affects every package. The closure follows the
 # workspace's own dependency edges: [deps], [weakdeps] and the test and docs
-# environments of each package, so a VisualGeometryCore change runs all six and
-# a RobustVisualGeometry change runs it and VisualGeometryEval. Stdlib only.
+# environments of each package, so a VisualGeometryToolkitCore change runs all six and
+# a VisualGeometryToolkitEstimation change runs it and VisualGeometryToolkitEval. Stdlib only.
 # In GitHub Actions the list is also written to $GITHUB_OUTPUT as `packages`.
 
 using TOML

@@ -40,7 +40,7 @@ by [`scripts/build_binaries.jl`](scripts/build_binaries.jl), which also writes
 `Artifacts.toml`. The same recipe is submitted to Yggdrasil as `PoseLib_jll`,
 which builds it for every platform; a later patch release switches to that JLL
 once it is registered, bringing macOS, Windows and FreeBSD, with no change to the
-API. Source: <https://github.com/VisualGeometryToolkit/PoseLib.jl>.
+API. Source: <https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/tree/main/PoseLib>.
 
 Loading this package extends VisualGeometryToolkitCore with:
 

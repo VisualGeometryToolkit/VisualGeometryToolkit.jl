@@ -93,6 +93,12 @@ change to VisualGeometryToolkitCore is seen by the packages that depend on it. S
 [CLAUDE.md](CLAUDE.md) for the conventions and [RELEASING.md](RELEASING.md)
 for registration.
 
+## Citing
+
+See [CITATION.cff](CITATION.cff) (GitHub's "Cite this repository" button) for
+the software entry, and cite the papers behind the methods you use, listed on
+[the portal](https://visualgeometrytoolkit.github.io/#publications).
+
 ## License
 
 MIT, James Pritts; PoseLib, MIT, Kiel University (each package directory

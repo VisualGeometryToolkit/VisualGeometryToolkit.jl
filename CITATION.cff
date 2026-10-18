@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: >-
+  If you use these packages, please cite them as below, and the papers that
+  describe the methods you use (listed at https://visualgeometrytoolkit.github.io/#publications).
+type: software
+title: "VisualGeometryToolkit.jl: Julia Packages for Multiple-View Geometry"
+authors:
+  - family-names: Pritts
+    given-names: James
+  - family-names: Sauer
+    given-names: Hendrik
+  - family-names: Sittart
+    given-names: Till
+repository-code: "https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl"
+url: "https://visualgeometrytoolkit.github.io/"
+license: MIT
+keywords:
+  - julia
+  - computer vision
+  - multiple-view geometry
+  - camera calibration
+  - RANSAC
+  - robust estimation

@@ -81,6 +81,7 @@ include("nn_match.jl")
 include("matching_ka.jl")   # the one matcher: KA kernels on the CPU and any GPU
 include("matching_stacked_ka.jl")   # stacked multi-gallery matcher (hoisted from BlobBoards)
 include("described_feature.jl")
+include("loma.jl")
 include("visualization_stubs.jl")
 
 include("cache.jl")
@@ -151,6 +152,7 @@ export CspondSet                # N-way correspondence
 # 4. DESCRIBED FEATURES - Detection + descriptor, StructArray-backed
 # -----------------------------------------------------------------------------
 export DescribedFeature, described_features, descriptor_matrix
+export LoMaBDescriptor, LoMaBMatcher
 
 # -----------------------------------------------------------------------------
 # 5. PERSISTENT CACHE - FileCache (JLD2 backend in VisualGeometryToolkitFeaturesJLD2Ext)

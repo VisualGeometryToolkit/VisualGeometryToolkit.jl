@@ -187,7 +187,7 @@ cite the toolkit; its [CITATION.cff](https://github.com/VisualGeometryToolkit/Vi
 (GitHub's "Cite this repository" button exports it):
 
 ```bibtex
-@software{VisualGeometryToolkit,
+@software{pritts2026vgtk,
   author = {Pritts, James and Sauer, Hendrik},
   title  = {{VisualGeometryToolkit.jl}: Julia Packages for Multiple-View Geometry},
   url    = {https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl},

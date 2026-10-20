@@ -9,8 +9,6 @@ authors:
     given-names: James
   - family-names: Sauer
     given-names: Hendrik
-  - family-names: Sittart
-    given-names: Till
 repository-code: "https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl"
 url: "https://visualgeometrytoolkit.github.io/"
 license: MIT

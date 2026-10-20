@@ -27,6 +27,32 @@ from either. Users add CauRegistry until a package is in General (README,
    waits for the merge.
 6. TagBot tags `<Package>-v<version>` and creates the GitHub release; the tag
    push builds that package's docs into `gh-pages/<Package>/v<version>`.
+7. Zenodo archives the whole repository at that release as a new version of the
+   toolkit's one record (metadata from `CITATION.cff`). Every package's release
+   is a version of the same record; the concept DOI in `CITATION.cff` and the
+   README always resolves to the latest, and is the one to cite.
+
+## The Zenodo DOI
+
+The toolkit has ONE concept DOI, not one per package. Zenodo's GitHub
+integration is switched on for this repository: sign in to Zenodo with GitHub,
+have an organization owner approve the Zenodo OAuth app for
+`VisualGeometryToolkit` (until then the repository is not listed, and Sync does
+not help), then toggle `VisualGeometryToolkit.jl` on Zenodo's GitHub page. It
+archives every published GitHub release, so a release that is not a package's
+— the PoseLib binaries — becomes a toolkit version too unless the toggle is off
+while it is published. If a package release has no Zenodo version, check that
+the toggle is still on.
+
+Only releases published after the toggle are archived. The first one mints the
+concept DOI. Zenodo reads `CITATION.cff` from the tagged commit, and
+VisualGeometryToolkitCore 0.1.0's commit predates the file, so that first
+record's title and authors are set by hand on Zenodo. Then record the concept
+DOI as `doi:` in `CITATION.cff`, as a DOI badge in the README, and as
+`doi = {…}` in the one BibTeX entry repeated in every "Citing" section: the
+root README, each package's README and the docs index of
+VisualGeometryToolkitCore, VisualGeometryToolkitEstimation and
+VisualGeometryToolkitEval.
 
 ## The first release (0.1.0)
 

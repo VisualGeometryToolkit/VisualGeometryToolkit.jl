@@ -152,7 +152,7 @@ export CspondSet                # N-way correspondence
 # 4. DESCRIBED FEATURES - Detection + descriptor, StructArray-backed
 # -----------------------------------------------------------------------------
 export DescribedFeature, described_features, descriptor_matrix
-export LoMaBDescriptor, LoMaBMatcher
+export LoMaDescriptor, LoMaMatcher   # LoMa (ONNX); models cached in the scratch space
 
 # -----------------------------------------------------------------------------
 # 5. PERSISTENT CACHE - FileCache (JLD2 backend in VisualGeometryToolkitFeaturesJLD2Ext)

@@ -2,6 +2,11 @@
 # LoMa (DeDoDe descriptors + LoMa matchers), ONNX Runtime on the CPU or CUDA
 # =============================================================================
 #
+# The networks, weights and ONNX exports are the LoMa authors' (Nordström et
+# al., ECCV 2026; https://github.com/davnords/LoMa), the descriptors DeDoDe's
+# (Edstedt et al., 3DV 2024; https://github.com/Parskatt/DeDoDe). This file
+# runs them; the README's Citing section has both BibTeX entries.
+#
 # The descriptor returns a StructArray{DescribedFeature}; the matcher returns
 # the stack's match type, Vector{NNMatch}, so `csponds(fa, fb, matches)` and
 # everything downstream of `match` take LoMa output unchanged.
@@ -134,6 +139,10 @@ the `max_detections` strongest detections (largest `|response|`) of `img` and
 returns a `StructArray{DescribedFeature}`. `execution_provider = :cuda` needs
 `import CUDA, cuDNN` and a functional device.
 
+The network is [DeDoDe](https://github.com/Parskatt/DeDoDe)'s (Edstedt et al.,
+3DV 2024), as exported by [LoMa](https://github.com/davnords/LoMa); cite both
+(BibTeX in the package README).
+
 `img` is a `(3, 784, 784)` Float32 RGB channelview in [0, 1], as
 `Float32.(channelview(rgb))` gives it: the exported graph's input shape is
 fixed, and it feeds the first convolution directly, with no normalization.
@@ -188,6 +197,10 @@ half-size bf16 export of any of them, which needs `execution_provider = :cuda`
 (ONNX Runtime's CPU provider lacks bf16 kernels). The model is downloaded on first use and
 cached; see the call method for matching. `execution_provider = :cuda` needs
 `import CUDA, cuDNN` and a functional device.
+
+The network is [LoMa](https://github.com/davnords/LoMa)'s (Nordström et al.,
+"LoMa: Local Feature Matching Revisited", ECCV 2026); cite it (BibTeX in the
+package README).
 """
 struct LoMaMatcher
     variant::Symbol

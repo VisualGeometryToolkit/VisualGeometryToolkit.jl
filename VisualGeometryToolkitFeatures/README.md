@@ -13,6 +13,10 @@ Feature detection, description and matching for the VisualGeometry stack.
 - **Matching** — nearest-neighbour descriptor matching, one KernelAbstractions
   implementation for the CPU and every GPU backend (`nn_match`, `match`), and a
   stacked matcher over many galleries (`nn_match_stacked`).
+- **LoMa** — the learned DeDoDe descriptors and LoMa matchers of
+  [LoMa](https://github.com/davnords/LoMa) (Nordström et al., ECCV 2026), run
+  from the authors' ONNX exports through ONNX Runtime on the CPU or CUDA
+  (`LoMaDescriptor`, `LoMaMatcher`). See [Citing](#citing).
 - **Extensions** — JLD2 backs `FileCache`; Makie draws detections and
   correspondences.
 
@@ -141,6 +145,30 @@ repository" button exports it):
 
 Cite also the papers behind the methods you use, listed on
 [the portal](https://visualgeometrytoolkit.github.io/#publications).
+
+### LoMa
+
+`LoMaDescriptor` and `LoMaMatcher` run the networks of [LoMa](https://github.com/davnords/LoMa) by **David Nordström, Johan Edstedt, Georg Bökman, Jonathan Astermark, Anders Heyden, Viktor Larsson, Mårten Wadenbäck, Michael Felsberg and Fredrik Kahl**. The architectures, the trained weights and the ONNX exports are theirs, downloaded from the authors' release; this package only feeds them keypoints and reads their matches back. The descriptors are [DeDoDe](https://github.com/Parskatt/DeDoDe)'s (Edstedt *et al.*). If you use them in published work, cite both:
+
+```bibtex
+@inproceedings{nordstrom2026loma,
+  title     = {{LoMa: Local Feature Matching Revisited}},
+  author    = {David Nordström and Johan Edstedt and Georg Bökman and Jonathan Astermark and Anders Heyden and Viktor Larsson and Mårten Wadenbäck and Michael Felsberg and Fredrik Kahl},
+  booktitle = {Proceedings of the European Conference on Computer Vision (ECCV)},
+  year      = {2026}
+}
+
+@inproceedings{edstedt2024dedode,
+  title     = {{DeDoDe: Detect, Don't Describe --- Describe, Don't Detect for Local Feature Matching}},
+  author    = {Johan Edstedt and Georg Bökman and Mårten Wadenbäck and Michael Felsberg},
+  booktitle = {2024 International Conference on 3D Vision (3DV)},
+  year      = {2024},
+  organization = {IEEE}
+}
+```
+
+LoMa's code is MIT-licensed except its matcher, which inherits LightGlue's
+Apache-2.0; DeDoDe is MIT except the DINOv2 backbone of DeDoDe-G (Apache-2.0).
 
 ## License
 

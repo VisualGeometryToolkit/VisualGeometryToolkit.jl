@@ -56,6 +56,24 @@ function make_line_data(; n_inliers = 100, n_outliers = 50, noise = 0.1, seed = 
     return vcat(inliers, outliers), SA[a, b, c], n_inliers
 end
 
+# A 1-D location problem whose `solve` records every sample it is handed: the
+# exhaustive schedule under the loop, observed from the problem's side.
+struct _PairRecordingProblem <: AbstractRansacProblem{2}
+    x::Vector{Float64}
+    seen::Vector{Tuple{Int, Int}}
+    sampler::VgtkEstimation.ExhaustiveSampler
+end
+_PairRecordingProblem(x) = _PairRecordingProblem(x, Tuple{Int, Int}[], VgtkEstimation.ExhaustiveSampler(length(x), 2))
+VgtkCore.data_size(p::_PairRecordingProblem) = length(p.x)
+VgtkCore.codimension(::Type{_PairRecordingProblem}) = 1
+VgtkCore.model_type(::Type{_PairRecordingProblem}) = Float64
+VgtkEstimation.sampler(p::_PairRecordingProblem) = p.sampler
+function VgtkCore.solve(p::_PairRecordingProblem, idx::AbstractVector{Int})
+    push!(p.seen, (idx[1], idx[2]))
+    return FixedModels{1, Float64}(1, ((p.x[idx[1]] + p.x[idx[2]]) / 2,))
+end
+VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i] - m
+
 @testset "RANSAC" begin
 
     @testset "RansacConfig defaults" begin
@@ -305,6 +323,35 @@ end
         # An ordinary case is still the hypergeometric count, clamped.
         n = at(BitVector([trues(50); falses(50)]), 2, cfg)
         @test 10 <= n < 900
+    end
+
+    @testset "ExhaustiveSampler: every sample once, no adaptive stop" begin
+        s = VgtkEstimation.ExhaustiveSampler(6, 3)
+        idx = zeros(Int, 3)
+        drawn = [(VgtkEstimation.draw!(Xoshiro(1), idx, s); Tuple(idx)) for _ in 1:binomial(6, 3)]
+        @test allunique(drawn) && all(c -> issorted(c) && all(in(1:6), c), drawn)
+        @test_throws ArgumentError VgtkEstimation.draw!(Xoshiro(1), idx, s)
+        VgtkEstimation.reset!(s)
+        VgtkEstimation.draw!(Xoshiro(2), idx, s)
+        @test idx == [1, 2, 3]                               # restarted; the rng is not used
+
+        # the schedule traits: the sampler, not the config, sets an exhaustive run's length
+        cfg = RansacConfig(max_trials = 3, min_trials = 1)
+        @test VgtkEstimation.trial_budget(s, cfg) == 20
+        @test VgtkEstimation.trial_budget(VgtkEstimation.UniformSampler(6), cfg) == 3
+        @test VgtkEstimation.trial_budget(VgtkEstimation.ExhaustiveSampler(1, 2), cfg) == 0
+        @test !VgtkEstimation.adapts(s) && VgtkEstimation.adapts(VgtkEstimation.UniformSampler(6))
+        @test_throws ArgumentError VgtkEstimation.ExhaustiveSampler(5, 0)
+
+        # under the loop: all-inlier-but-one data would end an adaptive run at once,
+        # and max_trials = 3 would cap it; the exhaustive run tries every pair once
+        x = [1.0, 1.0, 1.0, 1.0, 1.0, 5.0, 1.0]
+        p = _PairRecordingProblem(x)
+        r = ransac(p, MsacScoring(p; threshold = 0.5); config = cfg)
+        @test iterations(r) == binomial(7, 2)
+        @test sort(p.seen) == [(i, j) for i in 1:7 for j in (i + 1):7]
+        @test converged(r) && estimate(r) == 1.0
+        @test r.inlier_mask == (x .== 1.0)
     end
 
     @testset "a threshold scorer's workspace grows and shrinks with the problem" begin

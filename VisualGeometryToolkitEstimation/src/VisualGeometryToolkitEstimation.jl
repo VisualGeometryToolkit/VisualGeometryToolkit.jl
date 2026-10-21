@@ -270,8 +270,8 @@ public AbstractRansacProblem, AbstractCspondProblem, MinimalSolveProblem, PoseCo
 # measured (`PoolPair(rng, problem, raw; …)` is a method of VGC's record type).
 public draw_hypotheses, Hypotheses, PoolVariance, InlierVariance, TrackVariance
 # Samplers, and the protocol a new sampler implements (draw!, reset!).
-public AbstractSampler, UniformSampler, ProsacSampler, GaussianSampler, sampler,
-    draw!, reset!
+public AbstractSampler, UniformSampler, ProsacSampler, GaussianSampler, ExhaustiveSampler, sampler,
+    draw!, reset!, trial_budget, adapts
 # Workspaces.
 public DltWorkspace, RansacWorkspace, RansacResultBuffers, LoBuffers
 # The result's metadata, the lean LO result, and posterior helpers. The last two

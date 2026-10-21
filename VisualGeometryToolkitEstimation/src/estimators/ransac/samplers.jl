@@ -28,10 +28,15 @@ field for compile-time dispatch.
 - `reset!(sampler, budget::Int)` — reset, and take the run's trial budget
   (`ransac` supplies `config.max_trials`). The default ignores the budget;
   PROSAC schedules its pool growth over it.
+- `trial_budget(sampler, config)` / `adapts(sampler)` — the run's schedule:
+  how many trials `ransac` allows, and whether the incumbent may shorten it.
+  The defaults are `config.max_trials` and `true` (adaptive RANSAC).
 
 # Built-in Samplers
 - `UniformSampler`: Stateless uniform random sampling
 - `ProsacSampler`: Progressive sampling from high-quality matches
+- `GaussianSampler`: Weighted sampling without replacement
+- `ExhaustiveSampler`: Every minimal sample exactly once, no adaptive stop
 """
 abstract type AbstractSampler end
 
@@ -357,3 +362,88 @@ end
 
 draw!(rng::Random.AbstractRNG, indices::AbstractVector{Int}, s::GaussianSampler) =
     (_draw_gaussian!(rng, indices, s); nothing)
+
+# =============================================================================
+# Exhaustive Sampler — every minimal sample exactly once
+# =============================================================================
+#
+# For small data (a handful of lights, markers, …) every minimal sample is
+# cheap, so all of them are tried and adaptive termination — a bet that a good
+# sample has been seen — has nothing to win. The sampler owns that decision
+# through the schedule traits below; `ransac` reads them.
+
+"""
+    ExhaustiveSampler(n, k)
+
+Every `k`-subset of `1:n` exactly once, in lexicographic order:
+`binomial(n, k)` draws, after which `draw!` throws an `ArgumentError`.
+Deterministic: the rng a `draw!` is handed is not used, so a run is the same
+under every seed.
+
+Under `ransac` it draws exactly `binomial(n, k)` samples whatever the
+`RansacConfig` ([`trial_budget`](@ref)), and an incumbent never shortens the
+run ([`adapts`](@ref)): `success_prob`, `max_trials` and `min_trials` do not
+apply.
+"""
+mutable struct ExhaustiveSampler <: AbstractSampler
+    n::Int
+    k::Int
+    next::Vector{Int}   # the subset the next draw! returns
+    done::Bool
+end
+
+function ExhaustiveSampler(n::Integer, k::Integer)
+    k >= 1 || throw(ArgumentError("sample size k must be ≥ 1, got $k"))
+    n >= 0 || throw(ArgumentError("data size n must be ≥ 0, got $n"))
+    return ExhaustiveSampler(Int(n), Int(k), collect(1:k), n < k)
+end
+
+function draw!(::Random.AbstractRNG, indices::AbstractVector{Int}, s::ExhaustiveSampler)
+    s.done && throw(ArgumentError("ExhaustiveSampler: all binomial($(s.n), $(s.k)) samples drawn"))
+    copyto!(indices, s.next)
+    s.done = !_advance_combination!(s.next, s.n)
+    return nothing
+end
+
+reset!(s::ExhaustiveSampler) = (s.next .= 1:s.k; s.done = s.n < s.k; nothing)
+
+# The lexicographic successor of the k-subset `c` of 1:n, in place; `false`
+# (and `c` unchanged) past the last one.
+function _advance_combination!(c::AbstractVector{Int}, n::Int)
+    k = length(c)
+    i = k
+    @inbounds while i >= 1 && c[i] == n - k + i
+        i -= 1
+    end
+    i == 0 && return false
+    @inbounds c[i] += 1
+    @inbounds for j in (i + 1):k
+        c[j] = c[j - 1] + 1
+    end
+    return true
+end
+
+# -----------------------------------------------------------------------------
+# The schedule traits: how many trials a run makes, and whether it adapts
+# -----------------------------------------------------------------------------
+
+"""
+    trial_budget(sampler, config::RansacConfig) -> Int
+
+The number of trials `ransac` starts out allowing. `config.max_trials` for a
+random sampler (the default); `binomial(n, k)`, every sample, for the
+[`ExhaustiveSampler`](@ref), whatever the config.
+"""
+trial_budget(::AbstractSampler, config) = config.max_trials
+trial_budget(s::ExhaustiveSampler, _config) = s.n < s.k ? 0 : binomial(s.n, s.k)
+
+"""
+    adapts(sampler) -> Bool
+
+Whether `ransac` may shorten the run from the incumbent's consensus (the
+hypergeometric adaptive trial count). `true` for a random sampler (the
+default); `false` for the [`ExhaustiveSampler`](@ref), whose run is every
+sample.
+"""
+adapts(::AbstractSampler) = true
+adapts(::ExhaustiveSampler) = false

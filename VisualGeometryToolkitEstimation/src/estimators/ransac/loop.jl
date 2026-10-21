@@ -159,15 +159,19 @@ function _ransac_loop(
         score_guard::Bool, rng::Random.AbstractRNG, on_hypothesis, result
     ) where {K}
     best = (-Inf, -Inf)
-    needed = config.max_trials
+    # The sampler owns the schedule (`trial_budget`, `adapts`): `max_trials`,
+    # re-armed adaptively, for a random sampler; every sample exactly once,
+    # never re-armed, for the `ExhaustiveSampler`.
+    s = sampler(problem)
+    needed = trial_budget(s, config)
     trial = 0
     effective = 0
 
     _prepare!(problem, config.max_trials)
 
-    # `needed` is initialized to and clamped at `max_trials` by
-    # `_adaptive_trials`, so a separate `trial < max_trials` guard would
-    # be dead. The single bound is sufficient.
+    # `needed` is initialized to the budget and, for an adaptive sampler,
+    # clamped at `max_trials` by `_adaptive_trials`, so a separate
+    # `trial < max_trials` guard would be dead. The single bound is sufficient.
     while trial < needed
         trial += 1
 
@@ -182,7 +186,7 @@ function _ransac_loop(
         if best[2] > old_best[2] && ws.has_best
             # The adaptive count from the incumbent's consensus size k* (the
             # count of its mask, read without a bit count).
-            needed = _adaptive_trials(ws.best_k, length(ws.best_mask), K, config)
+            adapts(s) && (needed = _adaptive_trials(ws.best_k, length(ws.best_mask), K, config))
             # Anytime-trace hook: fires only on acceptance of a new tracked
             # best (rare); the `nothing` default is specialized away entirely.
             on_improvement === nothing || on_improvement(trial, best[2], ws)

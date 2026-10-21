@@ -101,6 +101,9 @@ AbstractSampler
 UniformSampler
 ProsacSampler
 GaussianSampler
+ExhaustiveSampler
+trial_budget
+adapts
 sampler
 ```
 

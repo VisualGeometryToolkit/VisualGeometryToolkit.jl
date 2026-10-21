@@ -143,9 +143,16 @@ filters unpromising trials before the expensive LO inner loop.
 |---------|-------------|
 | `UniformSampler(n)` | Uniform random sampling from `1:n` |
 | `ProsacSampler(sorted_indices, m; T_N)` | Progressive sampling using match quality ordering |
+| `ExhaustiveSampler(n, k)` | Every `k`-subset of `1:n` exactly once; no adaptive stop |
 
 The correspondence problems build their sampler themselves: uniform by
 default, PROSAC when per-match `scores` are given (`sampler =` overrides).
+
+The sampler also owns the run's schedule (`trial_budget`, `adapts`). A random
+sampler runs `config.max_trials` trials, shortened adaptively once a good
+consensus is seen. The `ExhaustiveSampler` runs exactly `binomial(n, k)`
+trials whatever the `RansacConfig`: for small data, where every minimal sample
+is cheap, all of them are tried.
 
 ## Configuration
 

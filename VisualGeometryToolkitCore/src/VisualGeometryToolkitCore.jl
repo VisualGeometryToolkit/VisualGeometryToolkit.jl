@@ -552,6 +552,8 @@ public test_sample, test_consensus
 export fundamental_dlt, fundamental_dlt!
 public fundamental_7pt   # positional minimal kernel under Fundamental7pt
 export tls_line                   # the total-least-squares line with its (φ, d) covariance
+export direct_ellipse             # the ellipse-specific algebraic fit (Halir–Flusser), one closed-form step
+public ellipse_log_shape, ellipse_from_log_shape   # the ellipse log-shape chart (cx, cy, S₁₁, S₁₂, S₂₂)
 public tls_line_statistics        # the same step's line, weighted residual sum and (φ, d) information
 export sampson_distance, signed_sampson_distance
 export triangulate   # ray-domain triangulation: the point AND both ray depths (cheirality is λ > 0, not z > 0)
@@ -756,6 +758,7 @@ include("geometry/solvers/essential_5pt_native.jl")        # Native 5-pt essenti
 include("geometry/solvers/homography_solvers.jl")         # Homography solvers (public API)
 include("geometry/solvers/fundmat.jl")                     # F-matrix solvers (public API)
 include("geometry/solvers/tls_line.jl")                    # tls_line: the total-least-squares line (Line2D, Uncertain)
+include("geometry/solvers/direct_ellipse.jl")              # direct_ellipse: the ellipse-specific algebraic fit; the log-shape chart
 include("geometry/radial_models.jl")                # AbstractRadialModel — the plane→pencil family (see the header for the layering)
 include("geometry/solvers/homography_5pt_radial.jl")       # 5-pt one-sided radial homography (HomLib Wadenbäck 3DV'26 port)
 include("geometry/forms.jl")                       # slot-labeled epipolar forms (EpipolarForm + actions)

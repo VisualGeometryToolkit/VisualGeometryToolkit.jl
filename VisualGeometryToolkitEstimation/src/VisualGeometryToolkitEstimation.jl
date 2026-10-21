@@ -7,7 +7,8 @@ import VisualGeometryToolkitCore as VgtkCore
 # =============================================================================
 
 using LinearAlgebra: LinearAlgebra, I, dot, norm, normalize, cross, svd,
-    Cholesky, Diagonal, Symmetric, cholesky, diag, issuccess, lu   # the relpose bundle's Schur solver
+    Cholesky, Diagonal, Symmetric, cholesky, diag, issuccess, lu,  # the relpose bundle's Schur solver
+    eigen                                                          # refine_ellipse's axes frame
 using StaticArrays: StaticArrays, MVector, SA, SMatrix, SVector, StaticVector
 using FixedSizeArrays: FixedSizeArray
 using Random: Random
@@ -42,7 +43,8 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
     kabsch, chordal_mean, log_so3,   # SO(3) log (hand-eye, robot-world)
     s2_tangent_basis,                        # the tangent chart of the P3P ray-coplanarity gate
     tls_line,                                # fit_line's unweighted seed direction
-    tls_line_statistics                      # the fixed-weight TLS step fit_line / the line LO reweight
+    tls_line_statistics,                     # the fixed-weight TLS step fit_line / the line LO reweight
+    Ellipse, direct_ellipse, ellipse_log_shape, ellipse_from_log_shape   # refine_ellipse: its start value and its chart
 
 # Shared robust-estimation interfaces (VGC src/robust/estimation.jl): the
 # LO-strategy root, the paper's two classification traits (optimization_path,
@@ -236,6 +238,7 @@ export find_homography, find_fundmat, find_essential, find_absolute_pose,
     find_hand_eye, find_radial_homography, find_radial_camera
 export fit_robot_world_hand_eye, refine_robot_world_hand_eye, fit_division_camera
 export fit_residual_mixture   # the inlier/outlier classification of a held model's residuals
+export refine_ellipse         # the orthogonal-distance ellipse from a start value (direct_ellipse by default)
 export fit_radial_camera, fit_lens, DivisionCameraError   # moved from VisualGeometryToolkitCore (estimator taxonomy v2)
 
 # -----------------------------------------------------------------------------
@@ -297,6 +300,7 @@ public lo_loss, strategy_loss, plain_scale_multiple, deployed_shape, lo_width_va
 public division_camera_step, DivisionCameraState, division_coeffs, board_sq_residuals,
     RadialLift, LensFitMetadata
 public bundle_refine_relpose, SchurSolver, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
+public EllipseFitMetadata
 # Configuration: configs/default.toml is the config of record; these select a
 # strategy by tag and write a config value back as a table.
 public default_config_path, local_optimization_from_toml, lo_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS,
@@ -349,6 +353,7 @@ include("fitting/_pipeline.jl")
 # Provides `fit_line` and the covariance-weighted line step `_weighted_line`,
 # which problems/line.jl's LO-RANSAC `refine!` calls.
 include("fitting/line.jl")
+include("fitting/ellipse.jl")      # refine_ellipse: the orthogonal-distance ellipse (chart LM on the log-shape chart)
 include("fitting/homography.jl")
 include("fitting/radial_homography.jl")
 include("fitting/radial_camera.jl")

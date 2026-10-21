@@ -58,6 +58,14 @@ Private = false
 Pages = ["geometry/solvers/tls_line.jl"]
 ```
 
+## Ellipses
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
+Private = false
+Pages = ["geometry/solvers/direct_ellipse.jl"]
+```
+
 ## Model Validity
 
 ```@autodocs

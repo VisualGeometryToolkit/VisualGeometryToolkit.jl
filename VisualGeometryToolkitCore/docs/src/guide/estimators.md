@@ -29,6 +29,7 @@ per-correspondence weights as its `weights` column.
 | Mean of a set of rotations | [`chordal_mean`](@ref)`(Rs)` | one-step | VGC |
 | Focal lengths from plane homographies | [`zhang_intrinsics`](@ref)`(Hs[, pitch])` | one-step | VGC |
 | Line through 2D points, with its covariance | [`tls_line`](@ref)`(points)` | one-step | VGC |
+| Ellipse through 2D points (algebraic, always an ellipse) | [`direct_ellipse`](@ref)`(points)` | one-step | VGC |
 | Normalize points for a solve (centroid, or a known centre) | `AffineMap(`[`HartleyNormalization`](@ref)`(; center), points)` | normalization | VGC |
 | Normalize a correspondence set for a model class | [`CspondNormalization`](@ref VisualGeometryToolkitCore.CspondNormalization)`(M, cs; center)` | normalization | VGC |
 | Store image points resolution-independently (pools) | `AffineMap(`[`DiagonalNormalization`](@ref)`(size))` | normalization | VGC |
@@ -44,6 +45,7 @@ per-correspondence weights as its `weights` column.
 | A lens model re-expressed in another family | `fit_lens` | fit | RVG |
 | Line through points carrying covariances | `fit_line` | fit | RVG |
 | Robot–world / hand–eye from a guess | `refine_robot_world_hand_eye` | refine | RVG |
+| Ellipse by orthogonal distance, with its covariance | `refine_ellipse` | refine | RVG |
 
 The kind fixes how a call can fail: an algorithm is one deterministic computation
 and can only be degenerate; a fit can fail to converge; a find is randomized;

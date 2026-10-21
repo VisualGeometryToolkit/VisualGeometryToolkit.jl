@@ -164,6 +164,24 @@ git config core.hooksPath .githooks
 VisualGeometryToolkitCore is written by James Pritts, with contributions from
 Hendrik Sauer (cross-platform build and CI).
 
+## Citing
+
+VisualGeometryToolkitCore is part of VisualGeometryToolkit. Cite the toolkit; its
+[CITATION.cff](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/blob/main/CITATION.cff) is the source of this entry (GitHub's "Cite this
+repository" button exports it):
+
+```bibtex
+@software{pritts2026vgtk,
+  author = {Pritts, James and Sauer, Hendrik},
+  title  = {{VisualGeometryToolkit.jl}: Julia Packages for Multiple-View Geometry},
+  url    = {https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl},
+  year   = {2026}
+}
+```
+
+Cite also the papers behind the methods you use, listed on
+[the portal](https://visualgeometrytoolkit.github.io/#publications).
+
 ## License
 
 MIT

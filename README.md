@@ -95,8 +95,19 @@ for registration.
 
 ## Citing
 
-See [CITATION.cff](CITATION.cff) (GitHub's "Cite this repository" button) for
-the software entry, and cite the papers behind the methods you use, listed on
+Cite the toolkit; [CITATION.cff](CITATION.cff) is the source of this entry
+(GitHub's "Cite this repository" button exports it):
+
+```bibtex
+@software{pritts2026vgtk,
+  author = {Pritts, James and Sauer, Hendrik},
+  title  = {{VisualGeometryToolkit.jl}: Julia Packages for Multiple-View Geometry},
+  url    = {https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl},
+  year   = {2026}
+}
+```
+
+Cite also the papers behind the methods you use, listed on
 [the portal](https://visualgeometrytoolkit.github.io/#publications).
 
 ## License

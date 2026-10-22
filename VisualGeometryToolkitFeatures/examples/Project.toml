@@ -1,0 +1,37 @@
+# The examples (loma.jl). A workspace member of ../Project.toml: it resolves
+# with VisualGeometryToolkitFeatures, its tests and docs, and the rest of the
+# toolkit in the one root Manifest. CUDA and cuDNN are here, never in the
+# package: loma.jl uses the GPU when CUDA.functional() and the CPU otherwise.
+# GLMakie draws the match lines (VisualGeometryToolkitCore's matches!); Scratch
+# caches the images.
+[deps]
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+Downloads = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
+FileIO = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
+GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
+ImageCore = "a09fc81d-aa75-5fe9-8630-4744c3626534"
+ImageIO = "82e4d734-157c-48bb-816b-45c225c6df19"
+ImageTransformations = "02fcd773-0e25-5acc-982a-7f6622650795"
+SHA = "ea8e919c-243c-51af-8825-aaa63cd721ce"
+Scratch = "6c6a2e73-6563-6170-7368-637461726353"
+VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
+VisualGeometryToolkitFeatures = "9487290e-790c-4faa-aa87-bc3b5f18b9f7"
+cuDNN = "02a925ec-e4fe-4b08-9a7e-0d78e3d38ccd"
+
+[sources]
+VisualGeometryToolkitFeatures = {path = ".."}
+
+[compat]
+CUDA = "5"
+Downloads = "1"
+FileIO = "1"
+GLMakie = "0.13"
+ImageCore = "0.10"
+ImageIO = "0.6"
+ImageTransformations = "0.10"
+SHA = "0.7, 1"
+Scratch = "1.2"
+VisualGeometryToolkitCore = "0.1"
+VisualGeometryToolkitFeatures = "0.1"
+cuDNN = "1"
+julia = "1.12"

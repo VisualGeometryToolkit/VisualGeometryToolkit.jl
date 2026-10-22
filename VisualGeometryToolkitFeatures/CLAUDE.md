@@ -43,5 +43,7 @@ The rule is the stack's (`conventions/frames.md`); how it lands here:
 
 Detectors return COLMAP pixel centres (top-left pixel centre at (0.5, 0.5)),
 pinned by a test. `raw = true` output is OpenCV-convention (0.5 less) and is
-documented as such. Matchers work in descriptor space and never touch
-coordinates.
+documented as such. The NN matchers work in descriptor space and never touch
+coordinates. LoMa (`src/loma.jl`) takes keypoints too: it maps COLMAP pixels
+into the network's [-1, 1] chart privately, and returns index matches
+(`Vector{NNMatch}`), never coordinates.

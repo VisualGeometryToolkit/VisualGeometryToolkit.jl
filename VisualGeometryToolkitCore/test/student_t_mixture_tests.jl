@@ -102,7 +102,9 @@
         # the state's mixture IS the one its E-step evaluated
         m = StudentTMixture(pws)
         @test pws.w == posterior_weight.(Ref(m), sq)
-        @test update_inlier_prior!(pws, n) == sum(pws.inlier_posterior) / n
+        # foldl, not sum: the M-step adds left to right, and `sum`'s pairwise order
+        # differs by an ulp on some Julia versions (1.13.2)
+        @test update_inlier_prior!(pws, n) == foldl(+, pws.inlier_posterior) / n
         @test StudentTMixture(pws) != m                       # π moved, and the mixture with it
         @test 0.6 < pws.inlier_prior <= 0.75 + 1e-6            # outliers weigh ~0; inliers at most 1
         fill!(pws.inlier_posterior, 1.0)

@@ -308,6 +308,7 @@ end
     using Test
     using LinearAlgebra
     using Random
+    using StableRNGs
     using StaticArrays
     const CHar = VgtkCore.Synthetic
 
@@ -331,12 +332,14 @@ end
             @test r.nfail == 0
         end
         # P3P: the tracked minimal solution against the implicit covariance. The bulk
-        # is calibrated (median ratio ≈ 0.9–0.95, coverage near nominal); the mean is
-        # not — near-degenerate P3P configurations give heavy tails (measured
-        # 2026-09-22: NEES 10.8 / 8.2 / 26 over 6 dof at f = 600 / 2000 / 150).
+        # is calibrated (median ratio ≈ 0.9–1.1, coverage near nominal); the mean is
+        # not reliably — near-degenerate P3P configurations give heavy tails (measured
+        # 2026-09-22: NEES 10.8 / 8.2 / 26 over 6 dof at f = 600 / 2000 / 150). Whether
+        # 400 draws contain such a configuration depends on the draws, so the mean is
+        # not asserted either way. StableRNG, not MersenneTwister: Julia 1.13 changed
+        # MersenneTwister's stream, and these bounds are properties of the draws.
         for (f, seed) in ((600.0, 5), (2000.0, 6), (150.0, 7))
-            r = CHar.run_calibration(CHar.p3p_trial(σ_px = 0.5, f = f), MersenneTwister(seed), 400, 6)
-            @test !CHar.is_calibrated(r)
+            r = CHar.run_calibration(CHar.p3p_trial(σ_px = 0.5, f = f), StableRNG(seed), 400, 6)
             @test 0.8 <= r.nees_median_ratio <= 1.25
             @test 0.85 <= r.coverage[2] <= 0.95
             @test r.nfail <= 0.05 * 400

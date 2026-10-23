@@ -18,6 +18,7 @@ using ExplicitImports: check_no_implicit_imports, check_all_explicit_imports_via
     check_no_stale_explicit_imports, check_all_qualified_accesses_are_public,
     check_all_explicit_imports_are_public
 using JET: JET
+using LinearAlgebra: LinearAlgebra
 using TOML: TOML
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, tag_registries, tag_rule_violations,
     tag_table_violations, config_tag_violations, stack_dependency_violations,
@@ -155,7 +156,10 @@ function test_quality_gates(
         @testset "ExplicitImports" begin
             @test check_no_implicit_imports(M) === nothing
             # Names are imported from the module that owns them — a re-export can move or vanish.
-            @test check_all_explicit_imports_via_owners(M) === nothing
+            # Except LinearAlgebra's re-exports of Base: Julia 1.13 moved `kron` into Base,
+            # and LinearAlgebra keeps it, so the import is the owner's on 1.12 and a
+            # re-export on 1.13, and the same source must succeed on both.
+            @test check_all_explicit_imports_via_owners(M; skip = (Base => Core, LinearAlgebra => Base)) === nothing
             @test check_no_stale_explicit_imports(M; ignore = Tuple(stale_ignore)) === nothing
             qualified_ignore === nothing ||
                 @test check_all_qualified_accesses_are_public(M; ignore = Tuple(qualified_ignore)) === nothing

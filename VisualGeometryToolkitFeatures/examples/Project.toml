@@ -1,7 +1,10 @@
-# The examples (loma.jl). A workspace member of ../Project.toml: it resolves
-# with VisualGeometryToolkitFeatures, its tests and docs, and the rest of the
-# toolkit in the one root Manifest. CUDA and cuDNN are here, never in the
-# package: loma.jl uses the GPU when CUDA.functional() and the CPU otherwise.
+# The examples (loma.jl). Deliberately NOT a workspace member: it resolves on
+# its own, in its own (untracked) Manifest. Its cuDNN 1 caps CUDA at 5.11.1,
+# and inside the one workspace Manifest that cap would hold back the CUDA every
+# package's tests run against. Instantiate it once:
+#   julia --project=VisualGeometryToolkitFeatures/examples -e 'using Pkg; Pkg.instantiate()'
+# CUDA and cuDNN are here, never in the package: loma.jl uses the GPU when
+# CUDA.functional() and the CPU otherwise.
 # GLMakie draws the match lines (VisualGeometryToolkitCore's matches!); Scratch
 # caches the images.
 [deps]
@@ -19,6 +22,7 @@ VisualGeometryToolkitFeatures = "9487290e-790c-4faa-aa87-bc3b5f18b9f7"
 cuDNN = "02a925ec-e4fe-4b08-9a7e-0d78e3d38ccd"
 
 [sources]
+VisualGeometryToolkitCore = {path = "../../VisualGeometryToolkitCore"}
 VisualGeometryToolkitFeatures = {path = ".."}
 
 [compat]

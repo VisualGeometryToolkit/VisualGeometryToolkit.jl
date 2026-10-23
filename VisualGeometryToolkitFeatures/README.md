@@ -21,6 +21,10 @@ Feature detection, description and matching for the VisualGeometry stack.
   (`LoMaDescriptor`, `LoMaMatcher`). See [Citing](#citing).
 - **Extensions.** JLD2 backs `FileCache`, and Makie draws detections and
   correspondences.
+- **SALAD** — the DINOv2 SALAD global place-recognition descriptor of
+  [SALAD](https://github.com/serizba/salad) (Izquierdo and Civera, CVPR 2024),
+  one unit vector per image, run from local ONNX exports through ONNX Runtime
+  on the CPU or CUDA (`SaladDescriptor`). See [Citing](#citing).
 
 The geometric types (feature frames, correspondences, covariances) are
 [VisualGeometryToolkitCore](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/stable/)'s.
@@ -136,6 +140,26 @@ Cite also the papers behind the methods you use, listed on
 
 LoMa's code is MIT-licensed except its matcher, which inherits LightGlue's
 Apache-2.0; DeDoDe is MIT except the DINOv2 backbone of DeDoDe-G (Apache-2.0).
+
+### SALAD
+
+`SaladDescriptor` runs the network of [SALAD](https://github.com/serizba/salad) by **Sergio Izquierdo and Javier Civera**. The architecture and the trained weights are theirs; this package only feeds it images and reads the descriptor back. If you use it in published work, cite:
+
+```bibtex
+@inproceedings{izquierdo2024optimal,
+  title     = {{Optimal Transport Aggregation for Visual Place Recognition}},
+  author    = {Sergio Izquierdo and Javier Civera},
+  booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year      = {2024}
+}
+```
+
+The authors publish PyTorch checkpoints only. Export them to ONNX with
+`export_onnx.py` of [the-sauer/salad](https://github.com/the-sauer/salad)
+(`--desc_size 64` / `32` for the smaller models) and supply the directory holding
+the `.onnx` files once, as `SaladDescriptor(; model_dir)` or
+`ENV["SALAD_MODEL_DIR"]`; the files are checked by sha256 and cached. SALAD's
+code and weights are GPL-3.0, and so are the exports.
 
 ## License
 

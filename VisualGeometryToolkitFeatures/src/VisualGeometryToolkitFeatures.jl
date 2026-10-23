@@ -82,6 +82,7 @@ include("matching_ka.jl")   # the one matcher: KA kernels on the CPU and any GPU
 include("matching_stacked_ka.jl")   # stacked multi-gallery matcher (hoisted from BlobBoards)
 include("described_feature.jl")
 include("loma.jl")
+include("salad.jl")   # after loma.jl: shares its ONNXRunTime, Scratch and SHA imports
 include("visualization_stubs.jl")
 
 include("cache.jl")
@@ -153,6 +154,7 @@ export CspondSet                # N-way correspondence
 # -----------------------------------------------------------------------------
 export DescribedFeature, described_features, descriptor_matrix
 export LoMaDescriptor, LoMaMatcher   # LoMa (ONNX); models cached in the scratch space
+export SaladDescriptor   # DINOv2 SALAD global descriptor (ONNX); models from a local dir, cached
 
 # -----------------------------------------------------------------------------
 # 5. PERSISTENT CACHE - FileCache (JLD2 backend in VisualGeometryToolkitFeaturesJLD2Ext)

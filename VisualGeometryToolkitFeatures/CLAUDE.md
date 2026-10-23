@@ -46,4 +46,5 @@ pinned by a test. `raw = true` output is OpenCV-convention (0.5 less) and is
 documented as such. The NN matchers work in descriptor space and never touch
 coordinates. LoMa (`src/loma.jl`) takes keypoints too: it maps COLMAP pixels
 into the network's [-1, 1] chart privately, and returns index matches
-(`Vector{NNMatch}`), never coordinates.
+(`Vector{NNMatch}`), never coordinates. SALAD (`src/salad.jl`) takes a whole
+image and returns one image-level descriptor: no coordinates in or out.

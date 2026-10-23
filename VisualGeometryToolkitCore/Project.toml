@@ -1,6 +1,6 @@
 name = "VisualGeometryToolkitCore"
 uuid = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["James Pritts <jbpritts@gmail.com>"]
 
 [deps]

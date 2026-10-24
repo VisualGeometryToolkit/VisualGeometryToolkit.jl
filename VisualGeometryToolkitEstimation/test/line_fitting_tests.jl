@@ -19,6 +19,7 @@ using LinearAlgebra
 using Statistics: cov
 using StaticArrays
 using Random
+using StableRNGs
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: Point2, Uncertain, CovMat, UnlabeledFrame, Line2D, HuberShape
 using VisualGeometryToolkitCore: coeffs, converged, estimate, geom, iterations, retcode   # VGC accessors (public)
@@ -33,7 +34,7 @@ const RVG = VisualGeometryToolkitEstimation
 @testset "line fitting" begin
 
     @testset "fit_line — heteroscedastic (Uncertain points)" begin
-        rng = MersenneTwister(29)
+        rng = StableRNG(29)
         # Half the points are 100× noisier; the weighted fit must ignore them.
         pts = Uncertain{Point2{Float64}, CovMat{2, Float64, 4, UnlabeledFrame{2}}}[]
         for i in 1:60
@@ -50,7 +51,7 @@ const RVG = VisualGeometryToolkitEstimation
     end
 
     @testset "LineFittingProblem — buffer type and LO refit" begin
-        rng = MersenneTwister(31)
+        rng = StableRNG(31)
         pts = [Point2{Float64}(Float64(i), 2.0i + 1.0 + 0.02 * randn(rng)) for i in 1:40]
         prob = LineFittingProblem(pts)
 
@@ -102,7 +103,7 @@ const RVG = VisualGeometryToolkitEstimation
 
     # (The Student-t + uniform IRLS version is LocalOptimizationDoneRight's test.)
     @testset "Irls{Welsch} recovers the line through its soft weights" begin
-        prob, θ₀ = _contaminated_line(MersenneTwister(57))
+        prob, θ₀ = _contaminated_line(StableRNG(57))
         r = locally_optimize(prob, θ₀; local_optimization = Irls{WelschShape}(scale_multiple = 1.5), threshold = 0.1)   # 10σ; the outliers sit 0.475 off the seed
         line = estimate(r)
         @test abs(distance(line, Point2(0.0, 0.0))) < 0.006
@@ -115,7 +116,7 @@ const RVG = VisualGeometryToolkitEstimation
         # robust line geometrically: the cost falls for several cycles. The stop
         # rule once compared the cost against an incumbent it had just set equal
         # to it, and every run stopped after two cycles.
-        prob, _ = _contaminated_line(MersenneTwister(58))
+        prob, _ = _contaminated_line(StableRNG(58))
         θ₀ = Line2D{Float64}(SVector(0.0, 1.0, -0.1))
         sc = MsacScoring(prob; threshold = 0.2)   # the seed's consensus: the inliers (0.1 off), not the outliers (0.4 off)
         lo = Irls{HuberShape}(scale_multiple = 1.345)
@@ -131,10 +132,10 @@ const RVG = VisualGeometryToolkitEstimation
         # The inhomogeneous line has no weighted refit (`refine!` is `nothing`):
         # the local optimizer must keep its incumbent, not hand `nothing` to the
         # scorer. (StuTuBCD's version: LocalOptimizationDoneRight's suite.)
-        rng = MersenneTwister(59)
+        rng = StableRNG(59)
         pts = [SVector(Float64(i), 1.0 + 0.5i + 0.01 * randn(rng)) for i in 1:40]
         prob = InhomLineFittingProblem(pts)
-        r = ransac(prob, MsacScoring(prob; threshold = 0.05); local_optimization = Irls{WelschShape}(scale_multiple = 1.5), rng = MersenneTwister(60))
+        r = ransac(prob, MsacScoring(prob; threshold = 0.05); local_optimization = Irls{WelschShape}(scale_multiple = 1.5), rng = StableRNG(60))
         @test converged(r)
         @test r.lo_retcode === :solve_failed
     end

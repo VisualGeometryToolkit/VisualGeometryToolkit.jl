@@ -5,6 +5,7 @@ using Test
 using LinearAlgebra
 using StaticArrays
 using Random
+using StableRNGs
 using StructArrays
 using Rotations: RotMatrix, MRP, RotY
 using VisualGeometryToolkitCore
@@ -26,7 +27,7 @@ _sampson_cost(E, u₁, u₂, w) =
 @testset "Essential LO (NonlinLsq pose-LM)" begin
     # Known relative pose → true essential matrix (calibrated points, K = I).
     R = RotY(0.2); t = normalize(SA[0.8, 0.1, 0.3])
-    u₁, u₂ = calibrated_pairs(MersenneTwister(7), R, t; n = 80, σ = 0.002)
+    u₁, u₂ = calibrated_pairs(StableRNG(7), R, t; n = 80, σ = 0.002)
     n = length(u₁)
     p = ecs(u₁, u₂)
 
@@ -68,7 +69,7 @@ end
     # by 1.8% — 0.19% at equal focals, inside anything anyone would call noise
     # — while moving the Jacobian by 341%. At one focal this canary could not
     # detect the swap it is here to detect.
-    rng = MersenneTwister(4242)
+    rng = StableRNG(4242)
     camA = CameraModel(800.0px, SA[320.0px, 240.0px])
     camB = CameraModel(1150.0px, SA[300.0px, 260.0px])
     m = 30
@@ -91,7 +92,7 @@ end
 end
 
 @testset "Essential Jacobian (analytic vs ForwardDiff)" begin
-    rng = MersenneTwister(11)
+    rng = StableRNG(11)
     R₀ = RotMatrix(MRP(0.1, -0.05, 0.2))
     t₀ = normalize(SA[0.5, -0.3, 0.8])
     m = 25
@@ -115,7 +116,7 @@ end
 end
 
 @testset "Measurement-map frame labels (VGC EpipolarForm adoption)" begin
-    rng = MersenneTwister(23)
+    rng = StableRNG(23)
     u₁ = [Point2{Float64}(0.3 * randn(rng), 0.3 * randn(rng)) for _ in 1:12]
     u₂ = [Point2{Float64}(0.3 * randn(rng), 0.3 * randn(rng)) for _ in 1:12]
     cs = StructArray(u₁ .=> u₂)
@@ -218,7 +219,7 @@ end
     # Float64 per point.
     cam1 = CameraModel(2000.0px, SA[960.0px, 540.0px])
     cam2 = CameraModel(2000.0px, SA[900.0px, 560.0px])
-    a, b, R, t = _e_pixel_scene(MersenneTwister(2031), cam1, cam2)
+    a, b, R, t = _e_pixel_scene(StableRNG(2031), cam1, cam2)
     p32 = _retyped(EssentialProblem(cam1, cam2, csponds(a, b)); T₁ = Float32)
     @test eltype(eltype(sources(p32.cs))) == Float32     # the regime under test
     θ = EssentialMat(R, t)
@@ -226,7 +227,7 @@ end
     VgtkEstimation.residuals!(r, p32, θ)
     @test all(isfinite, r[1:150])
     @test count(<(3.0), r[1:150]) > 140              # true inliers score as inliers
-    res = VgtkEstimation.ransac(p32, MsacScoring(p32; threshold = 3.0); rng = MersenneTwister(7))
+    res = VgtkEstimation.ransac(p32, MsacScoring(p32; threshold = 3.0); rng = StableRNG(7))
     @test converged(res)
     @test count(res.inlier_mask[1:150]) > 0.9 * 150
 
@@ -235,7 +236,7 @@ end
     # at the first local optimization. The refit now runs.
     camA = CameraModel(800.0px, SA[960.0px, 540.0px])
     camB = CameraModel(1150.0px, SA[900.0px, 560.0px])
-    a2, b2, R2, t2 = _e_pixel_scene(MersenneTwister(2032), camA, camB; n_out = 0)
+    a2, b2, R2, t2 = _e_pixel_scene(StableRNG(2032), camA, camB; n_out = 0)
     pm = _retyped(EssentialProblem(camA, camB, csponds(a2, b2)); T₂ = Float32)
     @test eltype(pm.cs.M₁) != eltype(pm.cs.M₂)
     θ₀ = EssentialMat(R2, normalize(t2 + SA[0.05, -0.04, 0.03]))
@@ -244,7 +245,7 @@ end
 end
 
 @testset "the camera form keeps the :score column (PROSAC) (N1)" begin
-    rng = MersenneTwister(2033)
+    rng = StableRNG(2033)
     cam = CameraModel(800.0px, SA[960.0px, 540.0px])
     a, b, _, _ = _e_pixel_scene(rng, cam, cam; n_out = 20)
     s = rand(rng, length(a))
@@ -258,7 +259,7 @@ end
     @test VgtkEstimation.sampler(EssentialProblem(cam, cam, Csponds(a, b))) isa
         VgtkEstimation.UniformSampler
     # and a scored pipeline run accepts it
-    @test find_essential(cam, cam, scored; rng = MersenneTwister(8)) !== nothing
+    @test find_essential(cam, cam, scored; rng = StableRNG(8)) !== nothing
 end
 
 @testset "non-finite bearings and Jacobians are refused (N2)" begin
@@ -282,7 +283,7 @@ end
 end
 
 @testset "sub-detector threshold refused on every entry (V17)" begin
-    rng = MersenneTwister(2034)
+    rng = StableRNG(2034)
     cam = CameraModel(800.0px, SA[960.0px, 540.0px])
     a, b, R, t = _e_pixel_scene(rng, cam, cam)
     p = EssentialProblem(cam, cam, csponds(a, b))
@@ -304,7 +305,7 @@ end
     @test err isa ArgumentError && occursin("threshold 0.02 is below", err.msg)
     # A pixel value is accepted on the same entries — the class default (1 px) included.
     @test locally_optimize(p, θ; threshold = 1.0, local_optimization = lo) !== nothing
-    @test converged(find_essential(cam, cam, csponds(a, b); rng = MersenneTwister(2035)))
+    @test converged(find_essential(cam, cam, csponds(a, b); rng = StableRNG(2035)))
     # A unit-focal camera's "pixel" IS a calibrated unit, so a calibrated
     # threshold is right there and is not refused.
     pc = EssentialProblem(IDCAM, IDCAM, csponds(calibrated_point.(Ref(cam), a), calibrated_point.(Ref(cam), b)))

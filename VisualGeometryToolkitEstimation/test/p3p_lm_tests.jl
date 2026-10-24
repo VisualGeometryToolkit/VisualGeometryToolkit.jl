@@ -26,6 +26,7 @@
 # duplicated across its two rows).
 # =============================================================================
 using Test, Random, LinearAlgebra, StaticArrays
+using StableRNGs
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: ManifoldLmWorkspace, lmsolve_chart!
 using VisualGeometryToolkitCore: sqrt_weights   # VGC accessor (public)
@@ -39,7 +40,7 @@ using VisualGeometryToolkitEstimation.FastLevenbergMarquardt: lmsolve
     stationarity_tol = VgtkEstimation._CHART_LM_STATIONARITY_TOL   # configs/default.toml [chart_lm]
     bounds_checked = Base.JLOptions().check_bounds == 1
     for (n, seed) in ((8, 1), (20, 13), (100, 7), (400, 99))
-        rng = MersenneTwister(seed)
+        rng = StableRNG(seed)
         R₀, t₀, prob, sw = p3p_scene(rng, IDCAM, n; σ = 0.001)
         ch = LeftRigidManifold6(R₀, t₀)
         data = _lm_state(prob, ch, sw)

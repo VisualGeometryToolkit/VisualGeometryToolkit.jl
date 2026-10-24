@@ -8,6 +8,7 @@
 # division model applied about that middle — the radial camera is untouched
 # by it, which is the whole point.
 using Test
+using StableRNGs
 using StaticArrays, LinearAlgebra, Random
 using FiniteDiff: FiniteDiff
 using Statistics: median
@@ -40,7 +41,7 @@ end
 _pd(a::RadialCamera, b::RadialCamera) = projective_distance(radial_rows(a), radial_rows(b))
 
 @testset "radial camera (RANSAC)" begin
-    rng = MersenneTwister(7)
+    rng = StableRNG(7)
     P_gt, pairs, gt = _board(rng)
     p = RadialCameraProblem(pairs; center = _CC)
     @test data_size(p) == length(pairs) && codimension(typeof(p)) == 1
@@ -68,18 +69,18 @@ _pd(a::RadialCamera, b::RadialCamera) = projective_distance(radial_rows(a), radi
     lm = VgtkEstimation.ChartLm(ch, p, sqrt.(w))
     @test VgtkCore.check_rows_jacobian(lm, SVector(0.01, -0.02, 0.005, 0.0, 0.015), data_size(p); atol = 1.0e-8)
     # RANSAC recovers the inlier set and the camera under distortion it never models
-    est = find_radial_camera(pairs; center = _CC, threshold = 5.0, rng = MersenneTwister(1))
+    est = find_radial_camera(pairs; center = _CC, threshold = 5.0, rng = StableRNG(1))
     @test est !== nothing
     @test _pd(estimate(est), P_gt) < sqrt(2 * 1.0e-6)
     m = est.inlier_mask
     @test count(m .& gt) >= count(gt) - 2 && count(m .& .!gt) == 0
     # with noise: still within the noise floor
-    P_gt2, pairs2, gt2 = _board(MersenneTwister(3); σ = 0.3)
-    est2 = find_radial_camera(pairs2; center = _CC, threshold = 5.0, rng = MersenneTwister(2))
+    P_gt2, pairs2, gt2 = _board(StableRNG(3); σ = 0.3)
+    est2 = find_radial_camera(pairs2; center = _CC, threshold = 5.0, rng = StableRNG(2))
     @test est2 !== nothing
     r2 = zeros(length(pairs2)); residuals!(r2, RadialCameraProblem(pairs2; center = _CC), estimate(est2))
     @test median(abs.(r2[gt2])) < 0.5
-    @test find_radial_camera(pairs[1:4]; center = _CC, rng = MersenneTwister(446)) === nothing
+    @test find_radial_camera(pairs[1:4]; center = _CC, rng = StableRNG(446)) === nothing
 end
 
 # The chart rows on the 5-dof complement chart (problems/manifold_providers.jl,
@@ -92,7 +93,7 @@ end
     using VisualGeometryToolkitEstimation: Irls, TLSShape, MinimalSolveProblem, ManifoldLiftProvider
     using VisualGeometryToolkitCore: rows_provider, lift_init, lift_refresh!, lift_jacobian!, lift_retract,
         lift_model, lift_residuals
-    rng = MersenneTwister(11)
+    rng = StableRNG(11)
     P_gt, pairs, gt = _board(rng; σ = 0.2)
     p = RadialCameraProblem(pairs; center = _CC)
     @test p isa MinimalSolveProblem
@@ -112,7 +113,7 @@ end
     Jc = FiniteDiff.finite_difference_jacobian(lift_rows, zero(SVector{5, Float64}), Val(:central))
     @test maximum(abs.(J - Jc)) < 1.0e-5 * max(1.0, maximum(abs.(Jc)))
     # the deployed pipeline: RANSAC + the class default
-    est = find_radial_camera(pairs; center = _CC, threshold = 5.0, rng = MersenneTwister(4))
+    est = find_radial_camera(pairs; center = _CC, threshold = 5.0, rng = StableRNG(4))
     @test est !== nothing
     @test est.lo_retcode != :not_run
     rr = zeros(length(pairs)); residuals!(rr, p, estimate(est))

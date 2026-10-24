@@ -12,6 +12,7 @@
 # seed; (6) optimal-triangulation `residuals!` ≤ DLT reprojection.
 # =============================================================================
 using Test, LinearAlgebra, Random, StaticArrays, Rotations
+using StableRNGs
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitEstimation: SchurSolver, bundle_refine_relpose, _RelposeBundleLm,
@@ -71,7 +72,7 @@ _seed(rng, Rgt, tgt; δ, s) = (
 )
 
 @testset "RelposeBundle: SchurSolver == dense damped solve" begin
-    rng = MersenneTwister(1); N = 7
+    rng = StableRNG(1); N = 7
     Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.003)
     R0, t0 = _seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
     Xi = reduce(vcat, [_dlt_reference_triangulation(u1[i], u2[i], KC1, KC2, R0, t0) for i in 1:N])
@@ -93,7 +94,7 @@ _seed(rng, Rgt, tgt; δ, s) = (
 end
 
 @testset "RelposeBundle: analytic Jacobian == ForwardDiff (K≠I)" begin
-    rng = MersenneTwister(2); N = 9
+    rng = StableRNG(2); N = 9
     Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.003)
     R0, t0 = SMatrix{3, 3, Float64, 9}(Rgt), Vec3{Float64}(tgt)
     Xi = reduce(vcat, [_dlt_reference_triangulation(u1[i], u2[i], KC1, KC2, R0, t0) for i in 1:N])
@@ -112,7 +113,7 @@ end
     # only to ~1e-8 there: perturbing the seed by 1e-14 moves the SAME (sparse)
     # solver's endpoint by up to ~5e-9 in t, so the two representations agree
     # to 1e-8 and the costs to rtol 1e-10.
-    rng = MersenneTwister(11); N = 25
+    rng = StableRNG(11); N = 25
     Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.002)
     R0, t0 = _seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
     iK1 = inv(KC1); iK2 = inv(KC2)
@@ -143,7 +144,7 @@ end
 end
 
 @testset "RelposeBundle: noiseless recovery is exact" begin
-    rng = MersenneTwister(3); N = 30
+    rng = StableRNG(3); N = 30
     Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.0)
     R0, t0 = _seed(rng, Rgt, tgt; δ = (0.04, -0.03, 0.05), s = 0.1)
     res = bundle_refine_relpose(rigid(R0, t0), KC1, KC2, csponds(u1, u2); max_iter = 200)
@@ -154,7 +155,7 @@ end
 end
 
 @testset "RelposeBundle: noisy refinement beats the seed" begin
-    rng = MersenneTwister(4); N = 60
+    rng = StableRNG(4); N = 60
     Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.002)
     R0, t0 = _seed(rng, Rgt, tgt; δ = (0.05, -0.04, 0.06), s = 0.12)
     seedR, seedt = _pose_errs(R0, t0, Rgt, tgt)
@@ -166,7 +167,7 @@ end
 end
 
 @testset "RelposeBundle: optimal triangulation ≤ DLT reprojection" begin
-    rng = MersenneTwister(5); N = 40
+    rng = StableRNG(5); N = 40
     Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.002)
     R0, t0 = _seed(rng, Rgt, tgt; δ = (0.04, -0.03, 0.05), s = 0.1)
     res = bundle_refine_relpose(rigid(R0, t0), KC1, KC2, csponds(u1, u2))
@@ -195,7 +196,7 @@ end
     @test all(isfinite, X)
     @test X[3] > 0                                   # far along the first ray, in front
 
-    rng = MersenneTwister(6); N = 30
+    rng = StableRNG(6); N = 30
     Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.002)
     # A point at infinity: parallel rays in the two views (up to rounding).
     d = normalize(SVector(0.1, -0.05, 1.0))
@@ -215,7 +216,7 @@ end
 end
 
 @testset "RelposeBundle: caller input validation (RB2, RB3, RB4)" begin
-    rng = MersenneTwister(7); N = 20
+    rng = StableRNG(7); N = 20
     Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.002)
     t0 = Vec3{Float64}(tgt)
     # RB2: a slightly drifted (non-orthonormal) seed, built with check = false,

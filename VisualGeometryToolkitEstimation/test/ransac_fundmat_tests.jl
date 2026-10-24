@@ -5,6 +5,7 @@ using Rotations: RotY
 using LinearAlgebra
 using StaticArrays
 using Random
+using StableRNGs
 using Statistics: median
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: csponds
@@ -30,7 +31,7 @@ _box(rng) = SA[4.0 * (rand(rng) - 0.5), 3.0 * (rand(rng) - 0.5), 5.0 + 3.0 * ran
 
 function make_fundmat_data(; n_inliers = 100, n_outliers = 30, noise = 0.5, seed = 42)
     source_pts, target_pts = stereo_pixel_pairs(
-        MersenneTwister(seed), _CAM₁, _CAM₂, _R, _T;
+        StableRNG(seed), _CAM₁, _CAM₂, _R, _T;
         n = n_inliers, σ₁ = noise, σ₂ = noise, point = _box, n_out = n_outliers,
         outlier = rng -> (SA[100.0 + 440.0 * rand(rng), 50.0 + 380.0 * rand(rng)], SA[80.0 + 440.0 * rand(rng), 60.0 + 380.0 * rand(rng)])
     )
@@ -38,7 +39,7 @@ function make_fundmat_data(; n_inliers = 100, n_outliers = 30, noise = 0.5, seed
 end
 
 make_exact_fundmat_data(; n = 7, seed = 42) =
-    (stereo_pixel_pairs(MersenneTwister(seed), _CAM₁, _CAM₂, _R, _T; n, point = _box)..., _F_TRUE)
+    (stereo_pixel_pairs(StableRNG(seed), _CAM₁, _CAM₂, _R, _T; n, point = _box)..., _F_TRUE)
 
 @testset "RANSAC Fundamental Matrix" begin
 
@@ -111,7 +112,7 @@ make_exact_fundmat_data(; n = 7, seed = 42) =
             problem,
             MsacScoring(problem; threshold = 3.0);   # the class convention (noise 0.5 px)
             config = RansacConfig(max_trials = 5000, min_trials = 500),
-            rng = MersenneTwister(191)
+            rng = StableRNG(191)
         )
 
         @test converged(result)
@@ -139,7 +140,7 @@ make_exact_fundmat_data(; n = 7, seed = 42) =
             MsacScoring(problem; threshold = 3.0);   # the class convention (noise 0.5 px)
             local_optimization = Irls{WelschShape}(scale_multiple = 1.5),
             config = RansacConfig(max_trials = 5000, min_trials = 500),
-            rng = MersenneTwister(192)
+            rng = StableRNG(192)
         )
 
         @test converged(result)

@@ -5,6 +5,7 @@ using Test
 using LinearAlgebra
 using StaticArrays
 using Random
+using StableRNGs
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: rotation, translation   # VGC accessors (public)
 using VisualGeometryToolkitCore: RigidExpManifold6   # the hand-eye refit chart (public)
@@ -16,7 +17,7 @@ using VisualGeometryToolkitEstimation: data_size, ChartLm
 # synthesize a solvable AX=XB scene, perturb the true X, and check the
 # posterior-weighted residual drops after the pose-LM refit.
 @testset "Hand-eye LO (NonlinLsq FLM) reduces residual" begin
-    rng = MersenneTwister(19)
+    rng = StableRNG(19)
     sc = robot_world_hand_eye_scene(rng; N = 8, Y = (ang_max = π / 2,), X = (ang_max = π / 2,), A = (ang_max = π / 2,))
     Xtrue = only(sc.X); A = sc.A
     B = [marker_pose(sc.Y, a, Xtrue) for a in A]

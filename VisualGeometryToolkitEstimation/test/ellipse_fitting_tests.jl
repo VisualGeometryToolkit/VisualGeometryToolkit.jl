@@ -7,6 +7,7 @@
     using LinearAlgebra
     using StaticArrays
     using Random
+    using StableRNGs
     using Statistics: mean
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: geom, estimate, retcode
@@ -16,7 +17,7 @@
         s, c = sincos(e.θ)
         return SVector(e.center...) + SMatrix{2, 2}(c, s, -s, c) * SVector(e.a * cos(φ), e.b * sin(φ))
     end
-    _points(e, n; σ = 0.0, arc = 2π, rng = MersenneTwister(1)) =
+    _points(e, n; σ = 0.0, arc = 2π, rng = StableRNG(1)) =
         [_boundary(e, φ) + σ * randn(rng, SVector{2}) for φ in range(0, arc, n + 1)[1:(end - 1)]]
     _chart(e) = VgtkCore.ellipse_log_shape(e)
     # RMS orthogonal distance of `pts` to `e`, by the fit's own foot point
@@ -29,7 +30,7 @@
 
     @testset "the foot point is the closest boundary point" begin
         c, V, a, b = VgtkEstimation._ellipse_frame(_chart(e0))
-        rng = MersenneTwister(2)
+        rng = StableRNG(2)
         grid = range(0, 2π, 100_001)
         for _ in 1:60
             p = SVector(120.0, 80.0) + 45 * (2 * rand(rng, SVector{2}) .- 1)    # inside, outside, near the centre
@@ -77,7 +78,7 @@
 
     @testset "the covariance is calibrated (Monte Carlo NEES ≈ 5)" begin
         nees = map(1:300) do s
-            u = estimate(refine_ellipse(_points(e0, 60; σ = 0.5, rng = MersenneTwister(1000 + s))))
+            u = estimate(refine_ellipse(_points(e0, 60; σ = 0.5, rng = StableRNG(1000 + s))))
             δ = _chart(geom(u)) - _chart(e0)
             dot(δ, Matrix(VgtkCore.cov(u)) \ δ)
         end

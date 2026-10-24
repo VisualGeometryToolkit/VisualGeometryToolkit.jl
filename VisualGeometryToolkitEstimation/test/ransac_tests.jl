@@ -5,6 +5,7 @@ using Test
 using LinearAlgebra
 using StaticArrays
 using Random
+using StableRNGs
 using VisualGeometryToolkitCore: Attributed
 using VisualGeometryToolkitCore: consensus_order, inlier_threshold, ThresholdScoringWorkspace   # the scoring contract (VGC)
 using VisualGeometryToolkitCore: converged, estimate, iterations, retcode   # VGC accessors (public)
@@ -36,7 +37,7 @@ VgtkCore.inlier_count(::_WorkspaceTestScoring, ::_WorkspaceTestWs) = 0
 # =============================================================================
 
 function make_line_data(; n_inliers = 100, n_outliers = 50, noise = 0.1, seed = 42)
-    rng = MersenneTwister(seed)
+    rng = StableRNG(seed)
     a, b, c = 2.0, -1.0, 1.0
     len = sqrt(a^2 + b^2)
     a, b, c = a / len, b / len, c / len
@@ -211,7 +212,7 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         points, true_model, _ = make_line_data(n_inliers = 200, n_outliers = 50)
         problem = LineFittingProblem(points)
         r = ransac(problem, RansacScoring(problem; threshold = 0.5); local_optimization = Irls{TLSShape}(),
-                   config = RansacConfig(max_trials = 2000, min_trials = 100), rng = MersenneTwister(144))
+                   config = RansacConfig(max_trials = 2000, min_trials = 100), rng = StableRNG(144))
         @test converged(r)
         model = _line_coeffs(r)
         dot(model, true_model) < 0 && (model = -model)
@@ -226,7 +227,7 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         result = ransac(
             problem, scoring;
             config = RansacConfig(max_trials = 2000, min_trials = 100),
-            rng = MersenneTwister(145)
+            rng = StableRNG(145)
         )
 
         @test converged(result)
@@ -249,7 +250,7 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         result = ransac(
             problem, scoring;
             config = RansacConfig(max_trials = 10_000, min_trials = 500),
-            rng = MersenneTwister(146)
+            rng = StableRNG(146)
         )
 
         @test converged(result)
@@ -269,7 +270,7 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         result = ransac(
             problem, scoring;
             config = RansacConfig(max_trials = 500),
-            rng = MersenneTwister(147)
+            rng = StableRNG(147)
         )
 
         @test result isa FitResult
@@ -296,7 +297,7 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         result = ransac(
             problem, scoring;
             config = RansacConfig(max_trials = 2000, min_trials = 100),
-            rng = MersenneTwister(148)
+            rng = StableRNG(148)
         )
         @test converged(result)
         @test result.dof > 0
@@ -363,11 +364,11 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         sc = MsacScoring(2; threshold = 0.5)
         lo = Irls{TLSShape}()
         ws = RansacWorkspace(LineFittingProblem(small), sc, lo)
-        r_ws = ransac(LineFittingProblem(large), sc; local_optimization = lo, workspace = ws, rng = MersenneTwister(149))
-        r_fresh = ransac(LineFittingProblem(large), sc; local_optimization = lo, rng = MersenneTwister(149))
+        r_ws = ransac(LineFittingProblem(large), sc; local_optimization = lo, workspace = ws, rng = StableRNG(149))
+        r_fresh = ransac(LineFittingProblem(large), sc; local_optimization = lo, rng = StableRNG(149))
         @test converged(r_ws) && estimate(r_ws) == estimate(r_fresh) && r_ws.inlier_mask == r_fresh.inlier_mask
         wl = RansacWorkspace(LineFittingProblem(large), sc)
-        @test converged(ransac(LineFittingProblem(small), sc; workspace = wl, rng = MersenneTwister(150)))
+        @test converged(ransac(LineFittingProblem(small), sc; workspace = wl, rng = StableRNG(150)))
     end
 
     @testset "another scorer's workspace is refused at entry" begin

@@ -9,6 +9,7 @@
 # points must be inliers. The Pinhole path is untouched.
 # =============================================================================
 using Test, Random, LinearAlgebra, StaticArrays, StructArrays
+using StableRNGs
 using FiniteDiff: FiniteDiff
 using Rotations: RotMatrix, RotXYZ
 using VisualGeometryToolkitCore
@@ -44,7 +45,7 @@ function _board_scene(rng, cam, R, t; σ = 0.3, n_out = 40)
 end
 @testset "absolute pose through a distorting lens — $name" for (name, cam) in _CAMS_L
     R_gt, t_gt, rim = _SCENES[name]
-    rng = MersenneTwister(21)
+    rng = StableRNG(21)
     src, dst, gt = _board_scene(rng, cam, R_gt, t_gt)
     c = SVector(2120.0, 1416.0)
     radius = [norm(SVector{2, Float64}(d) - c) for d in dst]
@@ -59,7 +60,7 @@ end
         "Irls{Welsch}" => RVGL.Irls{RVGL.WelschShape}(scale_multiple = 1.5),
     )   # the Student-t + uniform IRLS and the Welsch HQ lift: LocalOptimizationDoneRight's suite
     @testset "$lo_name" for (lo_name, lo) in arms
-        est = find_absolute_pose(cam, src .=> dst; threshold = 5.0, local_optimization = lo, rng = MersenneTwister(3))
+        est = find_absolute_pose(cam, src .=> dst; threshold = 5.0, local_optimization = lo, rng = StableRNG(3))
         @test est !== nothing
         @test rotation_error_deg(estimate(est), R_gt) < 0.05
         @test translation_error(estimate(est), t_gt) < 1.0

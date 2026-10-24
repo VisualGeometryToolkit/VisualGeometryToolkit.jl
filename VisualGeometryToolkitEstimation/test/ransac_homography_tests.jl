@@ -5,6 +5,7 @@ using Test
 using LinearAlgebra
 using StaticArrays
 using Random
+using StableRNGs
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: Csponds, csponds, exact
 using VisualGeometryToolkitCore: homography_4pt   # the positional minimal kernel (public, not exported)
@@ -21,7 +22,7 @@ using VisualGeometryToolkitEstimation: minimal_sample_size, data_size, model_typ
 # =============================================================================
 
 function make_homography_data(; n_inliers = 100, n_outliers = 30, noise = 0.5, seed = 42)
-    source_pts, target_pts = homography_pairs(MersenneTwister(seed), H_TRUE; n_in = n_inliers, n_out = n_outliers, σ = noise)
+    source_pts, target_pts = homography_pairs(StableRNG(seed), H_TRUE; n_in = n_inliers, n_out = n_outliers, σ = noise)
     return source_pts, target_pts, H_TRUE, n_inliers
 end
 
@@ -89,7 +90,7 @@ end
         result = ransac(
             p, MsacScoring(p; threshold = 2.0);
             config = RansacConfig(max_trials = 500, min_trials = 50),
-            rng = MersenneTwister(126)
+            rng = StableRNG(126)
         )
         @test converged(result)
         @test sum(result.inlier_mask) == length(board)
@@ -112,7 +113,7 @@ end
     # (VGC `constraint_with_jacobians(H, s, d)`, whose derivatives VGC's own
     # tests verify) evaluated on the problem's data.
     @testset "constraint_with_jacobians — the owner's, on the problem's data" begin
-        src_pts, dst_pts = homography_pairs(MersenneTwister(77), H_TRUE; n_in = 10, σ = 2.0)
+        src_pts, dst_pts = homography_pairs(StableRNG(77), H_TRUE; n_in = 10, σ = 2.0)
         prob = HomographyProblem(src_pts .=> dst_pts)
         for i in 1:10
             g, G_x, G_θ = VgtkEstimation.constraint_with_jacobians(prob, H_TRUE, i)
@@ -171,7 +172,7 @@ end
         result = ransac(
             problem, MsacScoring(problem; threshold = 3.0);
             config = RansacConfig(max_trials = 3000, min_trials = 200),
-            rng = MersenneTwister(127)
+            rng = StableRNG(127)
         )
 
         @test converged(result)
@@ -188,7 +189,7 @@ end
         H_true = H_TRUE
 
         n = 20
-        src, dst = homography_pairs(MersenneTwister(42), H_true; n_in = n)
+        src, dst = homography_pairs(StableRNG(42), H_true; n_in = n)
 
         p = HomographyProblem(csponds(src, dst))
         # Algebraic no-θ fit needs the DLT workspace explicitly — the problem's
@@ -224,7 +225,7 @@ end
             problem, MsacScoring(problem; threshold = 3.0);
             local_optimization = Irls{WelschShape}(scale_multiple = 1.5),
             config = RansacConfig(max_trials = 3000, min_trials = 200),
-            rng = MersenneTwister(128)
+            rng = StableRNG(128)
         )
 
         @test converged(result)
@@ -242,7 +243,7 @@ end
         )
 
         # High scores for inliers, low scores for outliers
-        rng = MersenneTwister(99)
+        rng = StableRNG(99)
         n_total = length(source_pts)
         # The prior is the correspondences' `:score` attribute column.
         scores = [i <= n_inliers ? 0.8 + 0.2 * rand(rng) : 0.1 * rand(rng) for i in 1:n_total]
@@ -252,7 +253,7 @@ end
         result = ransac(
             problem, MsacScoring(problem; threshold = 3.0);
             config = RansacConfig(max_trials = 3000, min_trials = 200),
-            rng = MersenneTwister(131)
+            rng = StableRNG(131)
         )
 
         @test converged(result)
@@ -331,8 +332,8 @@ end
         lo_default = VgtkEstimation._dflt_lo(:homography)
         for lo in (Irls{WelschShape}(scale_multiple = 1.5), lo_default)
             cfg = RansacConfig(max_trials = 3000, min_trials = 200)
-            rm = ransac(pm, MsacScoring(pm; threshold = 3.0); local_optimization = lo, config = cfg, rng = MersenneTwister(129))
-            ru = ransac(pu, MsacScoring(pu; threshold = 3.0); local_optimization = lo, config = cfg, rng = MersenneTwister(129))
+            rm = ransac(pm, MsacScoring(pm; threshold = 3.0); local_optimization = lo, config = cfg, rng = StableRNG(129))
+            ru = ransac(pu, MsacScoring(pu; threshold = 3.0); local_optimization = lo, config = cfg, rng = StableRNG(129))
             @test converged(rm)
             @test estimate(rm) isa model_type(pm)
             @test sum(rm.inlier_mask[1:n_inliers]) >= 0.9 * n_inliers
@@ -362,7 +363,7 @@ end
         r = ransac(
             pm, MsacScoring(pm; threshold = 3.0);
             config = RansacConfig(max_trials = 2000, min_trials = 100),
-            rng = MersenneTwister(130)
+            rng = StableRNG(130)
         )
         @test converged(r)
         @test max_transfer_error(_to_px(estimate(r)), H_true, mapped_test_pts) < 2.0
@@ -372,7 +373,7 @@ end
         # A 5 cm board in METRES, seen at 0.3 m by an f = 800 camera: grid
         # spacing ~7 mm, so an absolute 0.1 coincidence tolerance on the raw
         # board coordinates would refuse every minimal sample.
-        rng = MersenneTwister(5)
+        rng = StableRNG(5)
         # the board plane z = 0 seen by a pinhole camera: H = K·[r₁ r₂ t]
         H_true = HomographyMat(Camera(CameraModel(; focal = 800.0, pp = (320.0, 240.0)), EuclideanMap(RotMatrix(RotX(0.25)), SA[-0.025, -0.025, 0.3])))
         warp = homography_warp(H_true)
@@ -410,9 +411,9 @@ end
         cs = csponds(source_pts, target_pts)
         ws = VgtkEstimation.RansacWorkspace(HomographyProblem{Float64}, length(cs))
         p = HomographyProblem(cs)
-        @test converged(find_homography(cs; workspace = ws, rng = MersenneTwister(132)))
-        @test converged(find_homography(cs; workspace = ws, threshold = 2.0, rng = MersenneTwister(133)))
-        @test converged(find_homography(cs; workspace = ws, scoring = RansacScoring(p; threshold = 3.0), rng = MersenneTwister(134)))
+        @test converged(find_homography(cs; workspace = ws, rng = StableRNG(132)))
+        @test converged(find_homography(cs; workspace = ws, threshold = 2.0, rng = StableRNG(133)))
+        @test converged(find_homography(cs; workspace = ws, scoring = RansacScoring(p; threshold = 3.0), rng = StableRNG(134)))
     end
 
 end

@@ -6,6 +6,7 @@
 # and cost decrease of the weighted LM refit from a perturbed seed.
 # =============================================================================
 using Test, Random, LinearAlgebra, StaticArrays
+using StableRNGs
 using Rotations: RotMatrix, MRP
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: estimate   # VGC accessors (public)
@@ -17,7 +18,7 @@ using VisualGeometryToolkitEstimation
 const RVGF = VisualGeometryToolkitEstimation
 
 @testset "Bartoli–Sturm orthonormal F refit" begin
-    rng = MersenneTwister(42)
+    rng = StableRNG(42)
     # Ground-truth F from a random pose (rank-2 by construction).
     R = RotMatrix(MRP(0.1, -0.2, 0.15))
     t = normalize(SVector(0.3, -0.1, 1.0))

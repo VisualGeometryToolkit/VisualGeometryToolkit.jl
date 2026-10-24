@@ -6,13 +6,14 @@
 # Jacobian vs ForwardDiff, whitened refit cost decrease from perturbed seeds.
 # =============================================================================
 using Test, Random, LinearAlgebra, StaticArrays
+using StableRNGs
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: SL3_BASIS, HomographyManifold8   # the sl(3) chart and its basis (public)
 using VisualGeometryToolkitEstimation
 const RVGH = VisualGeometryToolkitEstimation
 
 @testset "sl(3) minimal homography refit" begin
-    rng = MersenneTwister(7)
+    rng = StableRNG(7)
     @test all(abs(tr(G)) < eps() for G in SL3_BASIS)
     @test length(SL3_BASIS) == 8
 

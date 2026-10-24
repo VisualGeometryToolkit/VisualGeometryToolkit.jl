@@ -12,6 +12,7 @@
 using Test
 using LinearAlgebra
 using Random
+using StableRNGs
 using StaticArrays
 using VisualGeometryToolkitCore: solver_covariance, provides_solver_covariance   # the constraint-problem contract (VGC)
 using VisualGeometryToolkitEstimation: BoundedProblem, RelposeBundleProblem
@@ -50,7 +51,7 @@ function _check_provider_contract(Σ9, mdl, D)
 end
 
 @testset "solver_covariance — HomographyProblem (chart-domain, 8-dof)" begin
-    rng = Random.MersenneTwister(31)
+    rng = StableRNG(31)
     H, cs = sample_homography_scene(rng)
     csn = perturb_pairs(rng, cs, 0.5, make_point_covs(rng, 4))
     p = HomographyProblem(csn)
@@ -67,7 +68,7 @@ end
 end
 
 @testset "solver_covariance — FundMatProblem (replaces the `nothing` gap)" begin
-    rng = Random.MersenneTwister(32)
+    rng = StableRNG(32)
     got = 0
     for _ in 1:6
         _, _, F, _, cs_px, _ = sample_twoview_scene(rng, 7)
@@ -89,7 +90,7 @@ end
 end
 
 @testset "solver_covariance — EssentialProblem (5-pt, bearing units)" begin
-    rng = Random.MersenneTwister(33)
+    rng = StableRNG(33)
     got = 0
     for _ in 1:6
         _, _, _, E, _, cs_nm = sample_twoview_scene(rng, 5)
@@ -121,7 +122,7 @@ _model_term(G::AbstractMatrix, Σ) = G * Σ * G'
     # 2026-09-22 the E and F providers returned the covariance of the CHART's
     # representative — ‖E‖ = √2 — whatever scale the solver returned, ‖E‖ = 1:
     # a 2× model term for every production E hypothesis.)
-    rng = Random.MersenneTwister(35)
+    rng = StableRNG(35)
     _, _, _, _, cpx, cnm = sample_twoview_scene(rng, 9)
     _, csh = sample_homography_scene(rng; npts = 8)
     cases = (
@@ -149,7 +150,7 @@ end
 # marginal's `Predictive` mode on these providers — is LocalOptimizationDoneRight's test.)
 
 @testset "MC calibration smoke — E through the harness (tracked protocol)" begin
-    rng = Random.MersenneTwister(34)
+    rng = StableRNG(34)
     # Chart-domain full-dof NEES for the tracked 5-point E solution is
     # heavy-tailed on the generic narrow-FOV family (constraint-variety
     # curvature — a property of the minimal PROBLEM, quantified in the

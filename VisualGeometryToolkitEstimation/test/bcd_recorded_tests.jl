@@ -8,6 +8,7 @@
 # builds it (the RVG internals), on a fresh workspace per run.
 # =============================================================================
 using Test, Random, LinearAlgebra, StaticArrays
+using StableRNGs
 using Rotations: RotXYZ
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: CameraModel, Point2, Vec3, csponds, estimate, retcode, iterations, Incumbent,
@@ -58,7 +59,7 @@ end
 # The division-camera IRLS, set up as `fit_division_camera` sets it up.
 function division_arm()
     cams = [board_camera(RotXYZ(a...), t) for (a, t) in zip(BOARD_ANGLES, BOARD_TS)]
-    boards, _ = noisy_board_views(MersenneTwister(3), cams; σ = 0.4, ε = 0.08)
+    boards, _ = noisy_board_views(StableRNG(3), cams; σ = 0.4, ε = 0.08)
     ids, Hs, bs = R._keyed_views(Dict(enumerate(R.RadialCamera.(cams))), Dict(enumerate(boards)))
     prior = R._point_weights(bs)
     N = R._division_normalization(bs, R._shared_center(Hs), prior)
@@ -76,7 +77,7 @@ end
 # residuals' median (the scorer-seeded start is the marginal's,
 # LocalOptimizationDoneRight's test).
 function mixture_arm()
-    rng = MersenneTwister(11)
+    rng = StableRNG(11)
     r = vcat([0.8 * hypot(randn(rng), randn(rng)) for _ in 1:300],
              [hypot(40.0 * (2rand(rng) - 1), 40.0 * (2rand(rng) - 1)) for _ in 1:60])
     n = length(r)

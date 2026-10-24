@@ -9,6 +9,7 @@
     using LinearAlgebra
     using StaticArrays
     using Random
+    using StableRNGs
     using Rotations: RotMatrix, RotX
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: csponds, exact, Uncertain, CovMat, pair_covariance, transfer_whitening!,
@@ -17,7 +18,7 @@
     using VisualGeometryToolkitEstimation
     using VisualGeometryToolkitEstimation: Irls, locally_optimize, RadialHomographyProblem
 
-    rng = MersenneTwister(5)
+    rng = StableRNG(5)
     H = HomographyMat(Camera(CameraModel(; focal = 800.0, pp = (320.0, 240.0)), EuclideanMap(RotMatrix(RotX(0.25)), SA[-0.025, -0.025, 0.3])))
     warp = homography_warp(H)
     board = [SA[0.05 * i / 7, 0.05 * j / 7] for i in 0:7 for j in 0:7]          # metres
@@ -106,7 +107,7 @@
         for k in 1:8
             bad[k] = bad[k] + SA[40.0 * randn(rng), 40.0 * randn(rng)]
         end
-        res = find_homography(csponds(exact.(board), bad); rng = MersenneTwister(1))
+        res = find_homography(csponds(exact.(board), bad); rng = StableRNG(1))
         @test converged(res)
         @test !any(res.inlier_mask[1:8])
         @test max_transfer_error(estimate(res), H, [SA[0.01, 0.01], SA[0.04, 0.02], SA[0.025, 0.045]]) < 1.0

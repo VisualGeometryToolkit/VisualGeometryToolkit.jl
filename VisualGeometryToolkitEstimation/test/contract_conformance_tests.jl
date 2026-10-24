@@ -12,6 +12,7 @@
 # claim is the next step, and flips to the helper's default once it holds.
 # =============================================================================
 using Test, Random, LinearAlgebra, StaticArrays, StructArrays
+using StableRNGs
 using Rotations: RotY, RotXYZ
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: test_scoring_contract, test_constraint_problem, test_local_optimization_contract,
@@ -28,25 +29,25 @@ using FiniteDiff: FiniteDiff
 # The incumbent of a short seeded RANSAC run: a model of the problem's own type,
 # near the scene's truth.
 function fitted(p, threshold; seed = 1)
-    r = ransac(p, MsacScoring(p; threshold); config = RansacConfig(max_trials = 300), rng = MersenneTwister(seed))
+    r = ransac(p, MsacScoring(p; threshold); config = RansacConfig(max_trials = 300), rng = StableRNG(seed))
     @test converged(r)
     return estimate(r)
 end
 
 # --- the scenes --------------------------------------------------------------
 function h_scene()
-    p = HomographyProblem(csponds(homography_pairs(MersenneTwister(7), H_TRUE; n_in = 80, n_out = 20, σ = 0.5)...))
+    p = HomographyProblem(csponds(homography_pairs(StableRNG(7), H_TRUE; n_in = 80, n_out = 20, σ = 0.5)...))
     return p, fitted(p, 3.0)
 end
 function epipolar_scenes()
-    u₁, u₂ = calibrated_pairs(MersenneTwister(11), RotY(0.25), normalize(SA[0.6, -0.15, 0.35]);
+    u₁, u₂ = calibrated_pairs(StableRNG(11), RotY(0.25), normalize(SA[0.6, -0.15, 0.35]);
                               n = 110, σ = 0.001, outlier_every = 12)
     pe = ecs(u₁, u₂)                                              # E in ECAM's pixels
     pf = FundMatProblem(StructArray(u₁ .=> u₂))                   # F on the calibrated points
     return (pe, fitted(pe, 3.0)), (pf, fitted(pf, 0.005))
 end
 function pnp_scene()
-    _, _, p, _ = p3p_scene(MersenneTwister(13), ECAM, 60; σ = 0.5)
+    _, _, p, _ = p3p_scene(StableRNG(13), ECAM, 60; σ = 0.5)
     return p, fitted(p, 3.0)
 end
 function radial_homography_scene()
@@ -64,7 +65,7 @@ function radial_homography_scene()
         end
     end
     pairs, _ = contaminated_pairs(
-        MersenneTwister(17), inlier, 70; σ = 0.3, n_out = 20, shuffle = true,
+        StableRNG(17), inlier, 70; σ = 0.3, n_out = 20, shuffle = true,
         outlier = (rng, _) -> SVector(200 * rand(rng), 150 * rand(rng)) => SVector(W * rand(rng), H * rand(rng))
     )
     p = RadialHomographyProblem(pairs; center = (W / 2, H / 2))
@@ -74,14 +75,14 @@ function radial_camera_scene()
     c = SVector(2000.0, 1500.0)
     cam = board_camera(RotXYZ(0.35, -0.25, 0.15), SVector(40.0, -30.0, 600.0); f = 900.0, ks = (-2.0e-7,), center = c)
     pairs, _ = contaminated_pairs(
-        MersenneTwister(19), board_pixels(cam; grid = -100.0:25.0:100.0); σ = 0.2, n_out = 20, shuffle = true,
+        StableRNG(19), board_pixels(cam; grid = -100.0:25.0:100.0); σ = 0.2, n_out = 20, shuffle = true,
         outlier = (rng, _) -> SVector(200 * rand(rng) - 100, 200 * rand(rng) - 100) => SVector(4000 * rand(rng), 3000 * rand(rng))
     )
     p = RadialCameraProblem(pairs; center = c)
     return p, fitted(p, 3.0)
 end
 function line_scenes()
-    rng = MersenneTwister(23)
+    rng = StableRNG(23)
     pts = [Point2{Float64}(10 * rand(rng) - 5, 0.0) for _ in 1:60]
     pts = [Point2{Float64}(q[1], 2q[1] + 1 + 0.05 * randn(rng)) for q in pts]
     append!(pts, [Point2{Float64}(30 * rand(rng) - 10, 30 * rand(rng) - 10) for _ in 1:20])
@@ -90,19 +91,19 @@ function line_scenes()
     return (pl, fitted(pl, 0.25)), (pih, fitted(pih, 0.25))
 end
 function hand_eye_scene()
-    rng = MersenneTwister(29)
+    rng = StableRNG(29)
     sc = robot_world_hand_eye_scene(rng; N = 30, Y = (ang_max = π, t_scale = 2.0), X = (ang_max = π, t_scale = 0.1),
                                     A = (ang_max = π / 3, t_scale = 0.5))
     X, Y, A = only(sc.X), sc.Y, sc.A
     B = [perturb_pose(rng, marker_pose(Y, A[i], X); σ_R = 0.001, σ_t = 0.001) for i in eachindex(A)]
     p = HandEyeProblem(A .=> B)
-    r = find_hand_eye(A .=> B; rng = MersenneTwister(31))
+    r = find_hand_eye(A .=> B; rng = StableRNG(31))
     @test converged(r)
     return p, convert(model_type(p), estimate(r))
 end
 
 @testset "scoring contract: the baseline scorers at a threshold" begin
-    rng = MersenneTwister(3)
+    rng = StableRNG(3)
     r = vcat(abs.(0.8 .* randn(rng, 150)), 40.0 .* rand(rng, 50))
     for sc in (MsacScoring(2; threshold = 3.0), RansacScoring(2; threshold = 3.0),
                MsacScoring(1; threshold = 1.5), RansacScoring(1; threshold = 1.5))

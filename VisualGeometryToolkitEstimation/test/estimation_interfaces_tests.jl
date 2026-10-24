@@ -19,6 +19,7 @@
 #      pattern eval relies on.
 # =============================================================================
 using Test, Random, LinearAlgebra, StaticArrays
+using StableRNGs
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: csponds,
     AbstractWeightPolicy, NormalizedWeightPolicy,
@@ -44,16 +45,21 @@ VgtkCore.RefitFamily(::_ContractTestLO) = ExternalRefit()
 
 # Small clean-ish homography problem (the HomographyScenes scene).
 _contract_problem(; n_in = 40, n_out = 10, noise = 0.3, seed = 7) =
-    HomographyProblem(csponds(homography_pairs(MersenneTwister(seed), H_TRUE; n_in, n_out, σ = noise)...))
+    HomographyProblem(csponds(homography_pairs(StableRNG(seed), H_TRUE; n_in, n_out, σ = noise)...))
 
 @testset "ConsensusSet epoch freshness + cached k*" begin
     problem = _contract_problem()
     scoring = MsacScoring(problem; threshold = 1.5)   # 5σ of the scene noise
     ws = RansacWorkspace(problem, scoring, Irls{WelschShape}(scale_multiple = 1.5))
     buf = ws.buf
-    models = solve(problem, [1, 2, 3, 4])
+    # A model from an all-inlier sample (the scene's first 40 points are its
+    # inliers). One noisy quadruple can be conditioned badly enough to support
+    # only itself, so the best supported of ten disjoint quadruples is used.
+    samples = [collect(i:(i + 3)) for i in 1:4:37]
+    models = solve(problem, first(samples))
     @test models !== nothing && !isempty(models)
-    model = first(models)
+    model = argmax(m -> score_model!(buf, scoring, problem, m)[2],
+                   (m for idx in samples for m in solve(problem, idx)))
 
     # score_model! returns (S, k*) — the scorer's k*, equal to the mask popcount.
     S, k = score_model!(buf, scoring, problem, model)

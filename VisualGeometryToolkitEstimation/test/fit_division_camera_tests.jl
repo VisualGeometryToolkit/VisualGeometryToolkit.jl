@@ -1,6 +1,7 @@
 @testitem "fit_division_camera" setup = [DivisionBoards] begin
 # fit_division_camera — iterated Sampson-whitened, Student-t re-weighted focal stack
 using Test, Random, LinearAlgebra
+using StableRNGs
 using StaticArrays: SVector, SMatrix, @SMatrix
 using Rotations: RotXYZ
 using VisualGeometryToolkitCore: HomographyMat, RadialCamera, CameraModel, focal_length, intrinsics, lens,
@@ -12,7 +13,7 @@ using VisualGeometryToolkitEstimation: fit_division_camera, find_radial_camera, 
 
 
 @testset "fit_division_camera (IRLS on the linear focal stack)" begin
-    rng = MersenneTwister(3)
+    rng = StableRNG(3)
     f0, k0 = F0, K0
     # boards at very different depths (BOARD_TS): the algebraic rows of the far
     # ones dominate an unwhitened stack — this is what the whitening corrects
@@ -80,7 +81,7 @@ using VisualGeometryToolkitEstimation: fit_division_camera, find_radial_camera, 
     Ps = [
         find_radial_camera(
                 b; center = (0.0, 0.0),
-                threshold = 5.0, rng = MersenneTwister(9)
+                threshold = 5.0, rng = StableRNG(9)
             ).estimate for b in boards
     ]
     @test all(P -> P isa RadialCamera, Ps)

@@ -7,7 +7,8 @@
 
 using Test
 using LinearAlgebra: norm, I, eigen, Symmetric, dot, cross, qr
-using Random: Random, MersenneTwister
+using Random: Random
+using StableRNGs
 using StaticArrays
 using Rotations: Rotations, RotMatrix, RotationVec, RotZ
 using VisualGeometryToolkitCore: EuclideanMap, log_so3
@@ -34,7 +35,7 @@ _nobs(markers) = sum(length, values(markers))
 @testset "fit_robot_world_hand_eye" begin
 
     @testset "noiseless recovery is exact" begin
-        rng = MersenneTwister(1)
+        rng = StableRNG(1)
         markers, Ygt, Xgt = _synth(rng; N = 12, M = 3)
         est = fit_robot_world_hand_eye(markers)
         @test estimate(est) isa RobotWorldHandEyeCalibration{Int}
@@ -49,7 +50,7 @@ _nobs(markers) = sum(length, values(markers))
     end
 
     @testset "moderate noise (1 mrad / 1 mm)" begin
-        rng = MersenneTwister(2)
+        rng = StableRNG(2)
         markers, Ygt, Xgt = _synth(rng; N = 40, M = 5, σ_R = 1.0e-3, σ_t = 1.0e-3, drop = 0.2)
         est = fit_robot_world_hand_eye(markers)
         @test norm(log_so3(rotation(estimate(est).Y)' * rotation(Ygt))) < 0.01            # < 0.6°
@@ -87,13 +88,13 @@ _nobs(markers) = sum(length, values(markers))
         # the staged solve is not — and Y scattered wider than it claimed
         # (median NEES ratio 1.26, 95 % coverage 0.85; 1.48 at N = 40), pinned
         # here as a known miss.
-        rY = run_calibration(trial(:Y), MersenneTwister(4), 400, 6)
+        rY = run_calibration(trial(:Y), StableRNG(4), 400, 6)
         @test is_calibrated(rY) && rY.nfail == 0
         for m in 1:M
-            rX = run_calibration(trial(m), MersenneTwister(40 + m), 400, 6)
+            rX = run_calibration(trial(m), StableRNG(40 + m), 400, 6)
             @test is_calibrated(rX) && rX.nfail == 0
         end
-        rJ = run_calibration(trial(:joint), MersenneTwister(44), 400, 6 * (M + 1))
+        rJ = run_calibration(trial(:joint), StableRNG(44), 400, 6 * (M + 1))
         @test is_calibrated(rJ) && rJ.nfail == 0
         # More poses: the regime where the Gauss–Newton miss grew (1.48 at N = 40).
         trial40 = function (rng)
@@ -101,11 +102,11 @@ _nobs(markers) = sum(length, values(markers))
             est = fit_robot_world_hand_eye(markers)
             return Vector(_δ(Ygt, estimate(est).Y)), Matrix(est.cov)[1:6, 1:6]
         end
-        @test is_calibrated(run_calibration(trial40, MersenneTwister(45), 300, 6))
+        @test is_calibrated(run_calibration(trial40, StableRNG(45), 300, 6))
     end
 
     @testset "degeneracy is REPORTED (pure-z gauge family)" begin
-        rng = MersenneTwister(5)
+        rng = StableRNG(5)
         # Rig rotations all about z with zero translation ⇒ the centralizer of
         # {A_i} is the TWO-parameter gauge family (Y, X_m) → (G∘Y, G∘X_m) with
         # G = (RotZ(φ), s·ẑ): a common yaw AND a common shift along z — the
@@ -121,7 +122,7 @@ _nobs(markers) = sum(length, values(markers))
         est = fit_robot_world_hand_eye(markers; σ_rot = 1.0, σ_trans = 1.0)
         λmin = est.min_eigval
         # healthy geometry for comparison
-        markersh, _, _ = _synth(MersenneTwister(6); N = 12, M = 2)
+        markersh, _, _ = _synth(StableRNG(6); N = 12, M = 2)
         esth = fit_robot_world_hand_eye(markersh; σ_rot = 1.0, σ_trans = 1.0)
         @test λmin < 1.0e-8 * esth.min_eigval    # collapsed vs healthy
         # The null space is 2-D, so `min_eigvec` is an ARBITRARY unit vector in
@@ -149,7 +150,7 @@ _nobs(markers) = sum(length, values(markers))
     end
 
     @testset "argument validation" begin
-        rng = MersenneTwister(7)
+        rng = StableRNG(7)
         markers, _, _ = _synth(rng; N = 6, M = 2)
         @test_throws ArgumentError fit_robot_world_hand_eye(Dict(1 => markers[1][1:2], 2 => markers[2][1:1]))   # underdetermined
         @test_throws ArgumentError fit_robot_world_hand_eye(Dict(1 => markers[1], 2 => empty(markers[2])))      # a marker with no observations

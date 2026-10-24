@@ -14,6 +14,7 @@
 using Test
 using TOML
 using Random
+using StableRNGs
 using StaticArrays
 using VisualGeometryToolkitCore: converged, estimate, iterations   # VGC accessors (public)
 using VisualGeometryToolkitCore: AbstractLocalOptimization, HuberShape, TLSShape, WelschShape   # owned and exported by VisualGeometryToolkitCore
@@ -213,12 +214,12 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _toml_key, _dflt_l
     end
 
     @testset "find_* defaults come from the file, and kwargs override" begin
-        rng = MersenneTwister(3)
+        rng = StableRNG(3)
         H = HomographyMat{Float64}(Tuple(SA[1.1 0.0 5.0; 0.0 1.1 -3.0; 0.0 0.0 1.0]))
         src, dst = homography_pairs(rng, H; n_in = 40, source = rng -> SVector{2, Float64}(randn(rng, 2) .* 100 .+ 200))
         pairs = src .=> dst
-        r_default = find_homography(pairs; rng = MersenneTwister(282))
-        r_config = find_homography(pairs; config = RansacConfig(max_trials = 200, min_trials = 10), rng = MersenneTwister(283))
+        r_default = find_homography(pairs; rng = StableRNG(282))
+        r_config = find_homography(pairs; config = RansacConfig(max_trials = 200, min_trials = 10), rng = StableRNG(283))
         @test converged(r_default) && converged(r_config)
         @test iterations(r_config) <= 200
         # `min_trials = 100` is the file's floor for the default run
@@ -230,8 +231,8 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _toml_key, _dflt_l
         prob = HomographyProblem(pairs)
         sc = MsacScoring(prob; threshold = 5.0)
         @test_throws ArgumentError find_homography(pairs; threshold = 5.0, scoring = sc)
-        r_a = find_homography(pairs; threshold = 5.0, rng = MersenneTwister(285))
-        r_s = find_homography(pairs; scoring = sc, rng = MersenneTwister(285))
+        r_a = find_homography(pairs; threshold = 5.0, rng = StableRNG(285))
+        r_s = find_homography(pairs; scoring = sc, rng = StableRNG(285))
         @test converged(r_s) && estimate(r_a) == estimate(r_s)      # the default IS MsacScoring(problem; threshold)
         lo = NoLocalOptimization()
         θ₀ = estimate(r_default)

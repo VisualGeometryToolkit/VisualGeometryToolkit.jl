@@ -9,6 +9,7 @@
 # image middle — the `center` find_radial_homography requires.
 
 using Test
+using StableRNGs
 using StaticArrays, LinearAlgebra, Random
 using VisualGeometryToolkitCore: center, converged, division_coeff, estimate, homography   # VGC accessors (public)
 using VisualGeometryToolkitCore: is_map_inlier   # the posterior MAP inlier rule
@@ -50,7 +51,7 @@ function _make_scene(rng, m_gt; n_in = 70, n_out = 30, σ = 0.0)
 end
 
 @testset "radial homography (RANSAC)" begin
-    rng = MersenneTwister(1234)
+    rng = StableRNG(1234)
     m_gt = _gt_model(-0.25)
 
     @testset "problem-level: minimal solve composes exact pixel-frame models" begin
@@ -88,7 +89,7 @@ end
         res = find_radial_homography(
             pairs; center = (_RW / 2, _RH / 2), threshold = 2.0,
             max_trials = 4000, min_trials = 200,
-            rng = MersenneTwister(99), lokw...
+            rng = StableRNG(99), lokw...
         )
         @test res !== nothing
         @test converged(res)
@@ -106,7 +107,7 @@ end
         pairs, _ = _make_scene(rng, m_gt; n_in = 120, n_out = 20, σ = 0.4)
         res = find_radial_homography(
             pairs; center = (_RW / 2, _RH / 2), threshold = 2.5,
-            max_trials = 4000, rng = MersenneTwister(7)
+            max_trials = 4000, rng = StableRNG(7)
         )
         @test res !== nothing
         @test converged(res)
@@ -129,7 +130,7 @@ end
 
     @testset "minimal = :homography — the global search for H with the (H, k) optimizer" begin
         using VisualGeometryToolkitEstimation: minimal_sample_size, _radial_k_seed
-        rng2 = MersenneTwister(77)
+        rng2 = StableRNG(77)
         pairs, gt = _make_scene(rng2, m_gt; n_in = 80, n_out = 25, σ = 0.3)
         p4 = RadialHomographyProblem(pairs; center = (_RW / 2, _RH / 2), minimal = :homography)
         @test minimal_sample_size(p4) == 4
@@ -148,7 +149,7 @@ end
         # optimization brings the distorted-away inliers in and recovers k
         est = find_radial_homography(
             pairs; center = (_RW / 2, _RH / 2), minimal = :homography, threshold = 3.0,
-            rng = MersenneTwister(5)
+            rng = StableRNG(5)
         )
         @test est !== nothing
         m = est.inlier_mask
@@ -189,7 +190,7 @@ end
         pairs, _ = _make_scene(rng, m_gt; n_in = 60, n_out = 15)
         res = find_radial_homography(
             pairs; center = (_RW / 2, _RH / 2), threshold = 2.0,
-            extent = rect, max_trials = 3000, rng = MersenneTwister(21)
+            extent = rect, max_trials = 3000, rng = StableRNG(21)
         )
         @test res !== nothing
         @test converged(res)

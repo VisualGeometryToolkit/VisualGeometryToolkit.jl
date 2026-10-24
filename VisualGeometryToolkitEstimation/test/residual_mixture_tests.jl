@@ -17,6 +17,7 @@
 
 using Test
 using Random
+using StableRNGs
 using VisualGeometryToolkitCore: inlier_mask, is_inlier, inlier_weight, robust_weight,
     update_nuisance!, update_weights!, retcode, iterations
 # The robust-statistics toolkit (VisualGeometryToolkitCore): the posterior-weight
@@ -77,7 +78,7 @@ function reprojection_residuals(rng; n_in, n_out, σ, halfwidth)
 end
 
 @testset "default nuisance policies == the two-part update, bit for bit" begin
-    rng = MersenneTwister(3)
+    rng = StableRNG(3)
     r, _ = reprojection_residuals(rng; n_in = 300, n_out = 60, σ = 0.8, halfwidth = 40.0)
     n = length(r)
     a = median_posterior(r, n)
@@ -105,7 +106,7 @@ end
 @testset "fit_residual_mixture: the model is held" begin
     # a weighted refit needs a model to refit — refused, not ignored (before
     # the scorer is read)
-    r, _ = reprojection_residuals(MersenneTwister(11); n_in = 100, n_out = 10, σ = 0.5, halfwidth = 50.0)
+    r, _ = reprojection_residuals(StableRNG(11); n_in = 100, n_out = 10, σ = 0.5, halfwidth = 50.0)
     @test_throws ArgumentError fit_residual_mixture(r, MsacScoring(2; threshold = 2.0); model_dof = 4,
                                                     config = MixtureEmConfig(model_update = WeightedRefine()))
 end
@@ -114,13 +115,16 @@ end
     # 400 Rayleigh inliers at σ = 0.8 per axis, 100 outliers uniform over the
     # ±40 square: the EM recovers σ, the inlier fraction and every label.
     σ, a = 0.8, 40.0
-    r, truth = reprojection_residuals(MersenneTwister(5); n_in = 400, n_out = 100, σ, halfwidth = a)
+    r, truth = reprojection_residuals(StableRNG(5); n_in = 400, n_out = 100, σ, halfwidth = a)
     sc = HalfwidthScoring(2; threshold = 3.0, outlier_halfwidth = a)
     fit = fit_residual_mixture(r, sc; model_dof = 4)
     @test fit isa FitResult{PosteriorWeightState, ResidualMixtureMetadata}
     @test converged(fit) && 1 <= iterations(fit) < MixtureEmConfig().max_iter
     p = estimate(fit)
-    @test sqrt(s_hat_sq(p)) ≈ σ rtol = 0.05
+    # σ against the inliers' own per-axis sample scale: the draw's scale
+    # (0.764 for this StableRNG seed) is what the EM can recover.
+    σ_sample = sqrt(sum(abs2, r[truth]) / (2 * count(truth)))
+    @test sqrt(s_hat_sq(p)) ≈ σ_sample rtol = 0.05
     @test inlier_prior(p) ≈ 0.8 atol = 0.02
     @test inlier_mask(p) == truth
     @test all(i -> is_inlier(p, i) == truth[i], eachindex(r))
@@ -141,7 +145,7 @@ end
     @test c.model_update == KeepModel(1.0e-10) && c.max_iter == 200
     @test c.nuisance.scale isa Estimated && c.nuisance.inlier_prior isa Estimated && c.nuisance.nu isa Estimated
     # the defaults are what an omitted `config` runs
-    r, _ = reprojection_residuals(MersenneTwister(7); n_in = 200, n_out = 50, σ = 1.2, halfwidth = 60.0)
+    r, _ = reprojection_residuals(StableRNG(7); n_in = 200, n_out = 50, σ = 1.2, halfwidth = 60.0)
     sc = HalfwidthScoring(2; threshold = 4.0, outlier_halfwidth = 60.0)
     a = fit_residual_mixture(r, sc; model_dof = 3)
     b = fit_residual_mixture(r, sc; model_dof = 3, config = mixture_em_from_toml(Dict{String, Any}()))
@@ -168,7 +172,7 @@ end
         ); section = "classification.em"),
     )
     @test classification.em.nuisance.nu isa ConsensusDof
-    rng = MersenneTwister(13)
+    rng = StableRNG(13)
     residuals, truth = reprojection_residuals(rng; n_in = 900, n_out = 25, σ = 0.4, halfwidth = 300.0)
     n = length(residuals)
     dof = 2n - 150                                      # a bundle with 150 free parameters

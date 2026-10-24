@@ -4,6 +4,7 @@ using Rotations: RotY
 using StaticArrays
 using StructArrays
 using Random
+using StableRNGs
 using LinearAlgebra
 
 using VisualGeometryToolkitCore
@@ -34,7 +35,7 @@ end
 # =============================================================================
 
 @testset "F-matrix DLT — noiseless precision (no RANSAC)" begin
-    rng = MersenneTwister(42)
+    rng = StableRNG(42)
     cs = noiseless_fundmat_pairs(rng, 100, 0)
 
     F_est = fundamental_dlt(cs)
@@ -57,7 +58,7 @@ end
 # =============================================================================
 
 @testset "Homography RANSAC — noiseless theoretical guarantees" begin
-    rng = MersenneTwister(42)
+    rng = StableRNG(42)
     H_true = SMatrix{3, 3, Float64, 9}(H_PX)
 
     scenarios = [
@@ -73,7 +74,7 @@ end
             config = RansacConfig(; max_trials = 10_000, success_prob = 0.9999, min_trials = 100)
             # The problem form: the codimension (2 for H) from the problem.
             scoring = MsacScoring(problem; threshold = 1.0e-4)
-            result = ransac(problem, scoring; config, rng = MersenneTwister(421))
+            result = ransac(problem, scoring; config, rng = StableRNG(421))
 
             @test converged(result)
             H_est_n = estimate(result) / estimate(result)[3, 3]
@@ -85,7 +86,7 @@ end
 end
 
 @testset "F-matrix RANSAC — noiseless theoretical guarantees" begin
-    rng = MersenneTwister(123)
+    rng = StableRNG(123)
 
     scenarios = [
         (100, 0, "0% outliers"),
@@ -99,7 +100,7 @@ end
             problem = FundMatProblem(cs)
             config = RansacConfig(; max_trials = 200_000, success_prob = 0.9999, min_trials = 500)
             scoring = MsacScoring(problem; threshold = 1.0e-4)
-            result = ransac(problem, scoring; config, rng = MersenneTwister(422))
+            result = ransac(problem, scoring; config, rng = StableRNG(422))
 
             @test converged(result)
             F_est = estimate(result)

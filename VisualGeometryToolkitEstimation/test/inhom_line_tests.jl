@@ -5,6 +5,7 @@ using LinearAlgebra
 using StaticArrays
 using StructArrays
 using Random
+using StableRNGs
 using ForwardDiff
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: estimate, metadata   # VGC accessors (public)
@@ -39,7 +40,7 @@ _g_of_y(pts, model, y, i) = constraint_with_jacobians(
 @testset "Inhomogeneous Line Fitting" begin
 
     @testset "solver_covariance — ForwardDiff verification (y-only)" begin
-        rng = MersenneTwister(42)
+        rng = StableRNG(42)
 
         for trial in 1:10
             # Random two points
@@ -72,7 +73,7 @@ _g_of_y(pts, model, y, i) = constraint_with_jacobians(
     end
 
     @testset "MSAC — end-to-end" begin
-        rng = MersenneTwister(999)
+        rng = StableRNG(999)
 
         # True line: y = 5 + 2x
         a_true, b_true = 5.0, 2.0
@@ -95,7 +96,7 @@ _g_of_y(pts, model, y, i) = constraint_with_jacobians(
         scoring = MsacScoring(prob; threshold = 3noise)   # 3σ of the inlier noise
         config = RansacConfig(; max_trials = 500, success_prob = 0.999)
 
-        result = ransac(prob, scoring; config, rng = MersenneTwister(171))
+        result = ransac(prob, scoring; config, rng = StableRNG(171))
 
         # Check model accuracy
         model = estimate(result)

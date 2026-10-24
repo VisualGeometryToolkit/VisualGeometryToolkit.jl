@@ -3,6 +3,7 @@
 using Test
 using LinearAlgebra: norm, I
 using Random: Random
+using StableRNGs
 using StaticArrays: SVector
 using Rotations: RotMatrix, RotationVec
 using VisualGeometryToolkitCore: EuclideanMap, log_so3
@@ -32,7 +33,7 @@ function _synth_dataset(rng; N = 60, σ_R = 0.001, σ_t = 0.001, n_outliers = 0)
 end
 
 @testset "Hand-Eye Calibration (AX = XB)" begin
-    rng = Random.MersenneTwister(20260520)
+    rng = StableRNG(20260520)
 
     @testset "noiseless recovery" begin
         A, B, Xgt, _, _ = _synth_dataset(rng; N = 30, σ_R = 0.0, σ_t = 0.0, n_outliers = 0)
@@ -40,7 +41,7 @@ end
         @test problem isa HandEyeProblem
         @test VgtkEstimation.data_size(problem) == 29   # N-1 consecutive
 
-        result = find_hand_eye(A .=> B; rng = Random.MersenneTwister(247))
+        result = find_hand_eye(A .=> B; rng = StableRNG(247))
         X_est = estimate(result)
         @test norm(log_so3(rotation(X_est)' * rotation(Xgt))) < 1.0e-4
         @test norm(translation(X_est) - translation(Xgt)) < 1.0e-4
@@ -48,7 +49,7 @@ end
 
     @testset "moderate noise (σ_R = 1 mrad, σ_t = 1 mm)" begin
         A, B, Xgt, _, _ = _synth_dataset(rng; N = 80, σ_R = 1.0e-3, σ_t = 1.0e-3, n_outliers = 0)
-        result = find_hand_eye(A .=> B; rng = Random.MersenneTwister(248))
+        result = find_hand_eye(A .=> B; rng = StableRNG(248))
         X_est = estimate(result)
         @test norm(log_so3(rotation(X_est)' * rotation(Xgt))) < 0.01            # < 0.6°
         @test norm(translation(X_est) - translation(Xgt)) < 0.01            # < 1 cm
@@ -57,7 +58,7 @@ end
     @testset "robust to gross outliers" begin
         A, B, Xgt, _, outlier_idx =
             _synth_dataset(rng; N = 120, σ_R = 1.0e-3, σ_t = 1.0e-3, n_outliers = 15)
-        result = find_hand_eye(A .=> B; rng = Random.MersenneTwister(249))
+        result = find_hand_eye(A .=> B; rng = StableRNG(249))
         X_est = estimate(result)
         # Should still recover X* despite ~12% outlier rate.
         @test norm(log_so3(rotation(X_est)' * rotation(Xgt))) < 0.05            # < 3°
@@ -66,7 +67,7 @@ end
 
     @testset "all-pairs motion mode" begin
         A, B, Xgt, _, _ = _synth_dataset(rng; N = 20, σ_R = 1.0e-3, σ_t = 1.0e-3, n_outliers = 0)
-        result = find_hand_eye(A .=> B; motion_pairs = :all, rng = Random.MersenneTwister(250))
+        result = find_hand_eye(A .=> B; motion_pairs = :all, rng = StableRNG(250))
         X_est = estimate(result)
         @test norm(log_so3(rotation(X_est)' * rotation(Xgt))) < 0.02
         @test norm(translation(X_est) - translation(Xgt)) < 0.02
@@ -82,7 +83,7 @@ end
         # motion succeeds at the constructor's rotation gate, so the problem is refused at
         # construction (it used to filter at a hard-coded 1°, build, and burn
         # every RANSAC trial to :no_model). A gate lowered by keyword admits it.
-        r7 = Random.MersenneTwister(7)
+        r7 = StableRNG(7)
         sc = robot_world_hand_eye_scene(r7; N = 1, Y = (ang_max = π, t_scale = 2.0), X = (ang_max = π, t_scale = 0.1), A = (ang_max = π, t_scale = 0.5))
         Xgt, Ygt, A = only(sc.X), sc.Y, sc.A
         for _ in 2:30
@@ -97,7 +98,7 @@ end
         @test VgtkEstimation.data_size(p2) == 29
         # The inner constructor is the gate: raw motions below the angle throw.
         @test_throws ArgumentError typeof(p2)(p2.motions, p2.char_length, deg2rad(5), p2._sampler)
-        r = find_hand_eye(A .=> B; min_rel_angle = deg2rad(2), rng = Random.MersenneTwister(251))
+        r = find_hand_eye(A .=> B; min_rel_angle = deg2rad(2), rng = StableRNG(251))
         @test converged(r)
         @test norm(log_so3(rotation(estimate(r))' * rotation(Xgt))) < 1.0e-4
         @test norm(translation(estimate(r)) - translation(Xgt)) < 1.0e-3
@@ -108,10 +109,10 @@ end
         # same scene in m and in mm scores identically: same inliers, the
         # estimate scaled by 1000. (As an absolute value it kept 3 of 79
         # motions in mm.)
-        A, B, Xgt, _, _ = _synth_dataset(Random.MersenneTwister(252); N = 80, σ_R = 1.0e-3, σ_t = 1.0e-3, n_outliers = 8)
+        A, B, Xgt, _, _ = _synth_dataset(StableRNG(252); N = 80, σ_R = 1.0e-3, σ_t = 1.0e-3, n_outliers = 8)
         mm(p) = Rigid3(rotation(p), SVector{3, Float64}((1000 .* translation(p))...))
-        r_m = find_hand_eye(A .=> B; rng = Random.MersenneTwister(253))
-        r_mm = find_hand_eye(mm.(A) .=> mm.(B); rng = Random.MersenneTwister(253))
+        r_m = find_hand_eye(A .=> B; rng = StableRNG(253))
+        r_mm = find_hand_eye(mm.(A) .=> mm.(B); rng = StableRNG(253))
         @test sum(r_m.inlier_mask) >= 50
         @test r_m.inlier_mask == r_mm.inlier_mask
         @test norm(log_so3(rotation(estimate(r_mm))' * rotation(estimate(r_m)))) < 1.0e-6

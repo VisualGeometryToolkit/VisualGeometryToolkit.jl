@@ -369,7 +369,7 @@ extent — information the bare `Camera` type doesn't retain.
 
 The wrapped camera may be UNPOSED — a bare `AbstractCameraModel` — which is
 COLMAP's "camera" row (intrinsics, lens and image size, no pose) and the
-element of a stored camera collection (VisualGeometryToolkitIo's `cameras` kind).
+element of a stored camera collection (VisualGeometryToolkitIO's `cameras` kind).
 `BoundedCamera(Camera(model(bc), pose), bc.extent)` is its posed counterpart;
 the pose accessors of an unposed one are a `MethodError`.
 

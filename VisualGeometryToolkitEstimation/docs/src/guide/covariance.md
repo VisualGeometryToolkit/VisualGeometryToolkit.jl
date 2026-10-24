@@ -4,7 +4,7 @@
 
 We show that the predictive constraint covariance
 ``\btSigma_{\bg_i}`` (3), and hence the predictive marginal score
-(RansacScoringDoneRight's `StudentTUniformScoring{Predictive}`, a predictive
+(RANSACScoringDoneRight's `StudentTUniformScoring{Predictive}`, a predictive
 scorer of VisualGeometryToolkitCore's scoring contract),
 is gauge-invariant for homogeneous geometric
 models such as the projective homography ``\mathbf{H}``. The proof relies on
@@ -492,7 +492,7 @@ compile-time constant.
 
 Each quantity above is computed by one function of the stack: the problem's
 constraint rows are VisualGeometryToolkitEstimation's, `propagate` and `whiten` are
-VisualGeometryToolkitCore's, and the predictive score is RansacScoringDoneRight's
+VisualGeometryToolkitCore's, and the predictive score is RANSACScoringDoneRight's
 (a scorer the loop reaches through `scored_model` and `score!`).
 
 | Math | Function | Returns |
@@ -502,7 +502,7 @@ VisualGeometryToolkitCore's, and the predictive score is RansacScoringDoneRight'
 | ``\br_i = \mathbf{L}_i^{-1}\bg_i``, ``\partial_\theta\bg_{i,w} = \mathbf{L}_i^{-1}\partial_\theta\bg_i`` (15) | `whiten(g, G_x, G_θ, Σₓ)` | ``(\br_i,\; \partial_\theta\bg_{i,w},\; \log\lvert\btSigma_{\bg_i}^{(\bx)}\rvert)`` |
 | ``\lVert\br_i\rVert``, the model-certain residual | [`whitened_residual`](@ref VisualGeometryToolkitCore.whitened_residual)`(problem, ctx, i)`, per point in [`residuals!`](@ref) | ``\lVert\br_i\rVert`` (signed when ``d_g = 1``) |
 | ``\btSigma_\theta`` on an index set ``\cS``: (13) on a minimal sample, (12) on an overdetermined one | [`solver_covariance`](@ref)`(problem, model, idx)` | ``\btSigma_\theta``, unit scale |
-| ``\widetilde{\mathbf{V}}_i = \mathbf{I} + \operatorname{propagate}(\partial_\theta\bg_{i,w},\, \btSigma_\theta)``, ``q_i = \br_i^\top \widetilde{\mathbf{V}}_i^{-1} \br_i`` (17), Remark 2 | RansacScoringDoneRight's `score_sq_residuals!` with a `StudentTUniformScoring{Predictive}` | ``q_i`` and the penalty ``\log\lvert\widetilde{\mathbf{V}}_i\rvert`` per point, then the sweep |
+| ``\widetilde{\mathbf{V}}_i = \mathbf{I} + \operatorname{propagate}(\partial_\theta\bg_{i,w},\, \btSigma_\theta)``, ``q_i = \br_i^\top \widetilde{\mathbf{V}}_i^{-1} \br_i`` (17), Remark 2 | RANSACScoringDoneRight's `score_sq_residuals!` with a `StudentTUniformScoring{Predictive}` | ``q_i`` and the penalty ``\log\lvert\widetilde{\mathbf{V}}_i\rvert`` per point, then the sweep |
 
 The interface is built around one problem method,
 `constraint_with_jacobians(problem, model, i)`, which returns the algebraic

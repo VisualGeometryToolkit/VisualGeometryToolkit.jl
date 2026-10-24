@@ -37,7 +37,7 @@ count uses the hypergeometric distribution (the stopping criterion).
 - `problem::AbstractRansacProblem`: Problem definition (data, solver, residuals)
 - `scoring::AbstractScoring`: any scorer of the contract — VisualGeometryToolkitCore's
   `MsacScoring`/`RansacScoring` at a threshold, or a scorer from another package
-  (a paper's: RansacScoringDoneRight's Student-t + uniform marginal)
+  (a paper's: RANSACScoringDoneRight's Student-t + uniform marginal)
 
 # Keyword Arguments
 - `local_optimization::AbstractLocalOptimization=default_local_optimization(scoring)`:
@@ -426,7 +426,7 @@ function _default_scoring(problem, scoring, threshold, outlier_halfwidth = nothi
             "`outlier_halfwidth` is no keyword of the core entries: the default scorer is MSAC at " *
                 "`threshold`. A Student-t + uniform marginal's outlier half-width belongs to that " *
                 "scoring — give `scoring = StudentTUniformScoring(problem, outlier_halfwidth)` " *
-                "(RansacScoringDoneRight)"
+                "(RANSACScoringDoneRight)"
         )
     )
     if scoring !== nothing

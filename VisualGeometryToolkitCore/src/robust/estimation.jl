@@ -3,7 +3,7 @@
 # and local optimization
 # =============================================================================
 #
-# THE join point between the scoring package (RansacScoringDoneRight: sweeps,
+# THE join point between the scoring package (RANSACScoringDoneRight: sweeps,
 # marginals, GPU grids) and the estimation package (VisualGeometryToolkitEstimation:
 # the RANSAC loop, LO strategies, problems). Types and contracts ONLY — no
 # behavior lives here. Both packages import these and implement; the RANSAC
@@ -450,7 +450,7 @@ posterior exceeds ½, i.e. the inlier label is the more probable one. The ½ is
 the definition of the MAP decision between two labels, not a tunable.
 
 THE one statement of that rule: every posterior check in the stack calls it
-(RansacScoringDoneRight's posterior weighting, VisualGeometryToolkitEstimation, the
+(RANSACScoringDoneRight's posterior weighting, VisualGeometryToolkitEstimation, the
 BlobBoards pipeline). It applies to a posterior membership only — never to an
 M-estimation loss weight, whose `0.5` has no probabilistic meaning (see
 [`is_inlier`](@ref)).

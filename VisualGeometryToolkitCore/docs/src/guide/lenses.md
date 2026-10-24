@@ -80,7 +80,7 @@ lift).
 | Kalibr `omni-radtan` | `Lens(Unified(ξ), Additive(Radial((k1, k2)), Tangential(r1, r2)))` |
 
 The adapters that read and write these conventions — and reproduce each
-convention's function exactly — live in VisualGeometryToolkitIo.
+convention's function exactly — live in VisualGeometryToolkitIO.
 
 ## Coefficients
 
@@ -99,7 +99,7 @@ poles bound what the lens images ([`view_angle_limit`](@ref),
 ## The lens record
 
 [`lens_record`](@ref) writes a lens as a self-describing record, the form
-VisualGeometryToolkitIo stores and configurations name: every key a leaf tag or a
+VisualGeometryToolkitIO stores and configurations name: every key a leaf tag or a
 combinator, every value a coefficient array whose length is the arity.
 
 ```julia

@@ -29,7 +29,7 @@
 #   B. Geman–Reynolds dual (the half-quadratic lift): ρ′(0) = w_max
 #      convention, Δ = w_max·w²/g′(0). The lift_* verbs below implement it;
 #      VisualGeometryToolkitEstimation's lift envelope tests are their numerical gate.
-#   C. Inlier density (RansacScoringDoneRight inlier_potentials.jl): the
+#   C. Inlier density (RANSACScoringDoneRight inlier_potentials.jl): the
 #      unified family itself — Δ swept, e^{−ρ} normalized over a truncated
 #      domain by Z̃. RSDR's formula layer defines its methods ON these tags.
 #
@@ -61,7 +61,7 @@ public ρ, ψ, weight, conjugate, conjugate_curvature, zblock, cost, cost_scale,
 # imports `sq_loss_width` by name.
 public sq_loss_width, loss_width
 # The χ²_d median behind every median-seeded scale (ŝ² = median(r²)/chisq_median(d));
-# RansacScoringDoneRight imports it by name.
+# RANSACScoringDoneRight imports it by name.
 public chisq_median
 
 """
@@ -967,7 +967,7 @@ comparison across methods (the evaluation's fairness axis, where
   weight at `decision_threshold` is exactly ½, `ω(t²; w²)/w_max = ½` (the
   half-weight decision of a reweighting loss);
 - `TLSShape`: the identity — a hard truncation decides at its own width;
-- RansacScoringDoneRight's `GauInlier`: the Student-t marginal's outlier
+- RANSACScoringDoneRight's `GauInlier`: the Student-t marginal's outlier
   half-width whose MAP boundary sits at `decision_threshold`.
 
 Closed forms for the shapes (`t` the decision threshold, `w` the loss width):

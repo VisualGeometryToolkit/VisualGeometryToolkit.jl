@@ -1,6 +1,6 @@
 # =============================================================================
 # The constraint-problem protocol — the residual-level contract scoring and
-# local optimization read (moved from RansacScoringDoneRight's interface.jl).
+# local optimization read (moved from RANSACScoringDoneRight's interface.jl).
 # =============================================================================
 #
 # A scorer scores models from per-point residuals. It does NOT know about

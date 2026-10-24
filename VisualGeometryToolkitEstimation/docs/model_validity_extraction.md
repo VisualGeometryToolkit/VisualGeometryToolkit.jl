@@ -4,7 +4,7 @@
 > by the composable RANSAC: VisualGeometryToolkitCore owns the problem protocol
 > (`AbstractConstraintProblem`), the scoring and local-optimization contracts
 > and the robust-statistics toolkit, and VisualGeometryToolkitEstimation depends on
-> VisualGeometryToolkitCore alone. RansacScoringDoneRight implements the scoring
+> VisualGeometryToolkitCore alone. RANSACScoringDoneRight implements the scoring
 > contract downstream.
 
 Goal: extract the RANSAC **scoring** layer into a standalone `RansacScoring.jl`

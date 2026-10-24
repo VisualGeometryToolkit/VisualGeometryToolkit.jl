@@ -14,7 +14,7 @@ A Julia package for computational geometry, camera modeling, and the robust-esti
 - **Image Warping**: `image_warp(math, output_rect)` — single adapter that wraps a math-space transform into a Julia-callable `BoundedMap`. VGC math is COLMAP throughout; image_warp bakes the fixed COLMAP↔Julia bridges
 - **Camera System**: Pinhole/fisheye/orthographic projection models, P3P pose estimation
 - **Matching**: Correspondence types for feature matching (`Cspond`, `Attributed`, `ScoredCspond`)
-- **Robust-estimation contracts**: the problem protocol, the scoring contract (with the `RansacScoring`/`MsacScoring` baselines), the local-optimization and external-refit contracts, the chart-rows contract, pool selection and the width axes — the interfaces VisualGeometryToolkitEstimation's RANSAC loop composes through, implemented by RansacScoringDoneRight (scorers) and LocalOptimizationDoneRight (local optimizers)
+- **Robust-estimation contracts**: the problem protocol, the scoring contract (with the `RansacScoring`/`MsacScoring` baselines), the local-optimization and external-refit contracts, the chart-rows contract, pool selection and the width axes — the interfaces VisualGeometryToolkitEstimation's RANSAC loop composes through, implemented by RANSACScoringDoneRight (scorers) and LocalOptimizationDoneRight (local optimizers)
 - **Units**: Physical (mm, μm) and logical (px, dpi) unit support via FlexUnits.jl, with a pixel dimension
 - **Visualization**: Makie extension (any backend) with SpecApi composition
 

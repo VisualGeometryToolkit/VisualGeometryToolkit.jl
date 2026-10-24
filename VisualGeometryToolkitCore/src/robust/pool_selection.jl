@@ -9,7 +9,7 @@
 #                                            the selections at every width of a grid
 #
 # A grid family (a scoring that is swept over a width grid on a device) owns
-# its staging and its kernels (RansacScoringDoneRight); the generic method here
+# its staging and its kernels (RANSACScoringDoneRight); the generic method here
 # is the CPU fallback every scoring with a width has: per grid column
 # `with_width` then `best_pool_model`.
 # =============================================================================

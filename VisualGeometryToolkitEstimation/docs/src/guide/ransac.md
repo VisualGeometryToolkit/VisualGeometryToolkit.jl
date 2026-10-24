@@ -28,13 +28,13 @@ allocation-free form: build `RansacWorkspace(problem, scoring, lo)` and
 A scoring is any implementation of VisualGeometryToolkitCore's scoring contract.
 The core ships MSAC and RANSAC at a threshold (VisualGeometryToolkitCore's
 `MsacScoring`, `RansacScoring`); the paper scorer, the Student-t + uniform
-marginal `StudentTUniformScoring`, is RansacScoringDoneRight's. See the
+marginal `StudentTUniformScoring`, is RANSACScoringDoneRight's. See the
 [Scoring Functions guide](scoring.md).
 
 ```julia
 scoring = MsacScoring(problem; threshold = 2.0)            # the find_* default
 
-using RansacScoringDoneRight: StudentTUniformScoring, Predictive
+using RANSACScoringDoneRight: StudentTUniformScoring, Predictive
 scoring = StudentTUniformScoring(problem, 20.0)            # outlier half-width, pixels
 scoring = StudentTUniformScoring{Predictive}(problem, 20.0)
 ```

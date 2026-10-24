@@ -1,5 +1,5 @@
 # =============================================================================
-# The truncated normaliser of a loss shape (moved from RansacScoringDoneRight):
+# The truncated normaliser of a loss shape (moved from RANSACScoringDoneRight):
 # the one quadrature behind every density built from a loss.
 # =============================================================================
 

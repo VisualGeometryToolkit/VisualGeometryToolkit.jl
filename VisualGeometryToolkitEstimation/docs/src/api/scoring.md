@@ -8,7 +8,7 @@ The RANSAC loop scores through VisualGeometryToolkitCore's scoring contract; the
 contract, its derived verbs and the baseline scorers are VisualGeometryToolkitCore's
 and documented here because the loop is built on them. Paper scorers (the
 Student-t + uniform marginal `StudentTUniformScoring`) are
-RansacScoringDoneRight's and are documented there.
+RANSACScoringDoneRight's and are documented there.
 
 ## The scoring contract
 

@@ -135,11 +135,11 @@ function pt_scene_files(scene::AbstractString, trees::PtRawTrees)
 end
 
 # =============================================================================
-# COLMAP reconstruction: VisualGeometryToolkitIo's reader, scale unknown
+# COLMAP reconstruction: VisualGeometryToolkitIO's reader, scale unknown
 # =============================================================================
 # PhotoTourism's COLMAP models are SfM reconstructions with an ARBITRARY world
 # scale; only the relative pose's direction is used, so the model is read
-# under VisualGeometryToolkitIo's explicit `UnknownScale()` contract and `tvec` stays a
+# under VisualGeometryToolkitIO's explicit `UnknownScale()` contract and `tvec` stays a
 # unitless number.
 
 # Pair-keyed index from points3D: (image_id_A, image_id_B) → vector of
@@ -167,7 +167,7 @@ function _build_track_index(pts)
     idx
 end
 
-# The pixel K of a COLMAP camera row, through VisualGeometryToolkitIo's
+# The pixel K of a COLMAP camera row, through VisualGeometryToolkitIO's
 # `camera_model`. All 21 IMC2020 scenes are PINHOLE; any other model is an
 # explicit error rather than silently dropped distortion.
 function _pinhole_K(cam)
@@ -319,7 +319,7 @@ function load_pt_pairs(scene::AbstractString, source::Symbol;
         isfile(p) || error("Missing $p")
     end
 
-    mdl = VgtkIo.load(VgtkIo.ColmapModel, recon_dir; contract = UnknownScale())
+    mdl = VgtkIO.load(VgtkIO.ColmapModel, recon_dir; contract = UnknownScale())
     cameras = Dict(c.camera_id => c for c in mdl.cameras)
     images  = Dict(replace(im.name, r"\.(jpg|jpeg|png)$"i => "") => im for im in mdl.images)
     recon   = (cameras = cameras, images = images, track_index = _build_track_index(mdl.points3D))

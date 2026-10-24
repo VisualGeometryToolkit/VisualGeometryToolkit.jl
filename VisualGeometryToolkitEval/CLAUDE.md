@@ -16,10 +16,10 @@ asset index checked against what its tex reads) and the paper-project
 conventions (`PaperProjects`: `paper_project_violations`, the one check every
 paper project's suite calls, and `new_paper_project`, the template whose files
 live in `templates/paper_project/`; README "Paper project conventions"). It
-depends on VisualGeometryToolkitCore, VisualGeometryToolkitIo and VisualGeometryToolkitEstimation only.
+depends on VisualGeometryToolkitCore, VisualGeometryToolkitIO and VisualGeometryToolkitEstimation only.
 The evaluator is written against VisualGeometryToolkitCore's contracts (scoring, local
 optimization, `RefitFamily`, `refine_external!`, `select_on_grid!`), never
-against a paper scorer or strategy: RansacScoringDoneRight,
+against a paper scorer or strategy: RANSACScoringDoneRight,
 LocalOptimizationDoneRight and PoseLib must not appear in its deps, weakdeps,
 extras or test target. The projects that evaluate those depend on it.
 Each submodule's API is reached through it (`using

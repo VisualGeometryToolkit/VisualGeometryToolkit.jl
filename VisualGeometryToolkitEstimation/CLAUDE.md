@@ -90,13 +90,13 @@ problems of the stack, and the core local optimizations `NoLocalOptimization`
 and `Irls{K}`. Out of the box every `find_*` runs VGC's `MsacScoring(problem;
 threshold)` with `Irls{TLSShape}` following the scorer's threshold; per-class
 thresholds are conventions (H/F/radial 3 px, E 1 px, PnP 8 px, hand-eye
-0.01·L). Paper scorers (RansacScoringDoneRight's `StudentTUniformScoring`)
+0.01·L). Paper scorers (RANSACScoringDoneRight's `StudentTUniformScoring`)
 and strategies (LocalOptimizationDoneRight's `HQ`, `Gnc`, `StudentTUniform`,
 …) implement the contracts downstream and are supplied as `scoring = …,
 local_optimization = …`. Depends ONLY on VisualGeometryToolkitCore (geometry types,
 solvers, the problem protocol, the contracts, the robust-statistics toolkit,
 robust losses, the BCD and chart-LM cores); it must never depend on
-RansacScoringDoneRight or LocalOptimizationDoneRight.
+RANSACScoringDoneRight or LocalOptimizationDoneRight.
 
 ### Module Structure
 

@@ -3,7 +3,7 @@
 # al., CVPR 2017): the co-visible pairs of the UNDISTORTED DSLR images (what a
 # matcher sees) and the laser depth of the DISTORTED ones (where the depth lives).
 #
-# Calibration is COLMAP text, read by VisualGeometryToolkitIo with the world unit
+# Calibration is COLMAP text, read by VisualGeometryToolkitIO with the world unit
 # stated (ETH3D is metric). The rig is built in METRES on the file's own
 # numbers — the unit of the laser depth and of the metric GT tolerance.
 # Depth files `ground_truth_depth/dslr_images/<name>` are raw little-endian
@@ -14,7 +14,7 @@ const _ETH3D_CONTRACT = UnitContract(world = m)
 
 # The ETH3D COLMAP model of `<scene_dir>/<calib>` (`dslr_calibration_jpg` or `…_undistorted`).
 _eth3d_model(scene_dir::AbstractString, calib::AbstractString) =
-    VgtkIo.load(ColmapModel, joinpath(scene_dir, calib); contract = _ETH3D_CONTRACT)
+    VgtkIO.load(ColmapModel, joinpath(scene_dir, calib); contract = _ETH3D_CONTRACT)
 
 # A COLMAP camera and image → a bounded camera, world→camera in metres.
 function _eth3d_camera(cam::ColmapCamera, im::ColmapImage)

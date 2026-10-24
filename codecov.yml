@@ -16,10 +16,10 @@ flag_management:
       paths:
         - VisualGeometryToolkitCore/src/
         - VisualGeometryToolkitCore/ext/
-    - name: VisualGeometryToolkitIo
+    - name: VisualGeometryToolkitIO
       paths:
-        - VisualGeometryToolkitIo/src/
-        - VisualGeometryToolkitIo/ext/
+        - VisualGeometryToolkitIO/src/
+        - VisualGeometryToolkitIO/ext/
     - name: VisualGeometryToolkitFeatures
       paths:
         - VisualGeometryToolkitFeatures/src/

@@ -6,7 +6,7 @@
 # models, pose errors and ground truth, stored in NormalizedImageFrame) with its
 # accessors, and `StereoRawPair`, the interface a dataset reader's raw pair
 # satisfies before a pool is drawn from it. The record lives here, the lowest
-# common parent of its readers (RansacScoringDoneRight's pool scorers), its
+# common parent of its readers (RANSACScoringDoneRight's pool scorers), its
 # writer (VisualGeometryToolkitEstimation's pool-pair constructor) and its IO
 # (VisualGeometryToolkitEval). The residual matrices are NOT part of the record: they
 # are a separate file bound to it by a content key (VisualGeometryToolkitEval).

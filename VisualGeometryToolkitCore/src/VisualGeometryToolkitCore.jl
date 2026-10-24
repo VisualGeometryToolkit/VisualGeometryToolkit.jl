@@ -2,7 +2,7 @@
     VisualGeometryToolkitCore
 
 Geometry, camera models and the robust-estimation core of the visual-geometry
-stack. VisualGeometryToolkitFeatures, VisualGeometryToolkitIo, VisualGeometryToolkitEstimation and
+stack. VisualGeometryToolkitFeatures, VisualGeometryToolkitIO, VisualGeometryToolkitEstimation and
 BlobBoards build on it.
 
 # Submodules
@@ -404,7 +404,7 @@ export AbstractLossShape, GaussianShape, WelschShape, GemanMcclureShape,
 # A shape's loss family and display short-name (robust/losses.jl).
 public loss_family, loss_label
 # The width quantities as dispatch tags, their persisted names, and the scale
-# multiple → native width map (robust/width_axes.jl); RansacScoringDoneRight
+# multiple → native width map (robust/width_axes.jl); RANSACScoringDoneRight
 # adds the OutlierHalfwidth method of `to_native`. Public, not exported.
 public WidthAxis, ScaleMultiple, LossWidth, OutlierHalfwidth, width_axis, width_axis_name, to_native,
     native_map, outlier_halfwidth_to_loss_width, loss_width_to_outlier_halfwidth
@@ -597,7 +597,7 @@ public SvdWorkspace, svd_nullvec!
 export propagate, whiten
 public whitening_factor   # L⁻¹ of the propagated constraint covariance, frozen once
 # The scalar kernel gᵀΣg behind `whiten`: public, not exported (an underscore
-# name has no place in `using`); RansacScoringDoneRight imports it by name.
+# name has no place in `using`); RANSACScoringDoneRight imports it by name.
 public _propagate_scalar
 
 # -----------------------------------------------------------------------------
@@ -681,8 +681,8 @@ public lgamma_lanczos, digamma_stirling, trigamma_stirling, lu_solve!, tree_sum!
     bilinear_sample_clamped
 public draw_ellipse!, draw_projected_ellipse!, draw_polyline!
 # Reached by qualified access or explicit import from the family's packages
-# (VisualGeometryToolkitEstimation, VisualGeometryToolkitEval, RansacScoringDoneRight, BlobBoards,
-# VisualGeometryToolkitIo, PoseLib, VisualGeometryToolkitFeatures):
+# (VisualGeometryToolkitEstimation, VisualGeometryToolkitEval, RANSACScoringDoneRight, BlobBoards,
+# VisualGeometryToolkitIO, PoseLib, VisualGeometryToolkitFeatures):
 public Cameras, Primitives, Synthetic, Pools, SpatialQueries, reference_frame, is_valid_solution,
     poly!, thin_ratio, is_orientation_preserving,
     rect_corners, is_convex_quad   # the extent checks' corner order and winding test

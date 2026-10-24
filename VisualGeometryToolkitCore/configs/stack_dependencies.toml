@@ -8,16 +8,16 @@
 # `extra` keyword (a TOML file in this format), never by adding it here.
 
 VisualGeometryToolkitCore = []
-VisualGeometryToolkitIo = ["VisualGeometryToolkitCore"]
+VisualGeometryToolkitIO = ["VisualGeometryToolkitCore"]
 VisualGeometryToolkitFeatures = ["VisualGeometryToolkitCore"]
-VisualGeometryToolkitEval = ["VisualGeometryToolkitCore", "VisualGeometryToolkitIo", "VisualGeometryToolkitEstimation"]
+VisualGeometryToolkitEval = ["VisualGeometryToolkitCore", "VisualGeometryToolkitIO", "VisualGeometryToolkitEstimation"]
 PoseLib = ["VisualGeometryToolkitCore"]
-# Never RansacScoringDoneRight or LocalOptimizationDoneRight — not even in [extras].
+# Never RANSACScoringDoneRight or LocalOptimizationDoneRight — not even in [extras].
 VisualGeometryToolkitEstimation = ["VisualGeometryToolkitCore"]
-RansacScoringDoneRight = ["VisualGeometryToolkitCore"]
+RANSACScoringDoneRight = ["VisualGeometryToolkitCore"]
 # PoseLib is a weak dependency here.
 LocalOptimizationDoneRight = ["VisualGeometryToolkitCore", "VisualGeometryToolkitEstimation", "PoseLib"]
-BlobBoards = ["VisualGeometryToolkitCore", "VisualGeometryToolkitIo", "VisualGeometryToolkitFeatures", "VisualGeometryToolkitEstimation", "RansacScoringDoneRight", "LocalOptimizationDoneRight"]
-accv2026 = ["LocalOptimizationDoneRight", "RansacScoringDoneRight", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "VisualGeometryToolkitCore", "VisualGeometryToolkitIo", "PoseLib"]
-neurips2026 = ["RansacScoringDoneRight", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "VisualGeometryToolkitCore"]
-bmvc2026 = ["VisualGeometryToolkitCore", "VisualGeometryToolkitIo", "VisualGeometryToolkitFeatures", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "RansacScoringDoneRight", "LocalOptimizationDoneRight", "BlobBoards"]
+BlobBoards = ["VisualGeometryToolkitCore", "VisualGeometryToolkitIO", "VisualGeometryToolkitFeatures", "VisualGeometryToolkitEstimation", "RANSACScoringDoneRight", "LocalOptimizationDoneRight"]
+accv2026 = ["LocalOptimizationDoneRight", "RANSACScoringDoneRight", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "VisualGeometryToolkitCore", "VisualGeometryToolkitIO", "PoseLib"]
+neurips2026 = ["RANSACScoringDoneRight", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "VisualGeometryToolkitCore"]
+bmvc2026 = ["VisualGeometryToolkitCore", "VisualGeometryToolkitIO", "VisualGeometryToolkitFeatures", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "RANSACScoringDoneRight", "LocalOptimizationDoneRight", "BlobBoards"]

@@ -58,7 +58,7 @@ VisualGeometryToolkitEval.
 
 CauRegistry goes public with the release, in one commit
 (`registry/cauregistry_golive.jl` of the assembly tooling): for the nine
-released packages (the six here, RansacScoringDoneRight,
+released packages (the six here, RANSACScoringDoneRight,
 LocalOptimizationDoneRight, BlobBoards) every earlier, private version is
 removed, and 0.1.0 is registered from the public repositories. The registry's
 other entries are unchanged.
@@ -69,8 +69,8 @@ merges:
 | wave | packages | needs |
 |---|---|---|
 | 1 | VisualGeometryToolkitCore | — |
-| 2 | VisualGeometryToolkitIo, VisualGeometryToolkitFeatures, VisualGeometryToolkitEstimation (+ RansacScoringDoneRight) | VisualGeometryToolkitCore |
-| 3 | VisualGeometryToolkitEval | VisualGeometryToolkitIo, VisualGeometryToolkitEstimation |
+| 2 | VisualGeometryToolkitIO, VisualGeometryToolkitFeatures, VisualGeometryToolkitEstimation (+ RANSACScoringDoneRight) | VisualGeometryToolkitCore |
+| 3 | VisualGeometryToolkitEval | VisualGeometryToolkitIO, VisualGeometryToolkitEstimation |
 | 4 | PoseLib, the last of the six | VisualGeometryToolkitCore; its binaries uploaded as release assets first |
 | 5 | (LocalOptimizationDoneRight) | VisualGeometryToolkitEstimation; PoseLib (a weak dependency, which General also requires registered) |
 | 6 | (BlobBoards) | the above |

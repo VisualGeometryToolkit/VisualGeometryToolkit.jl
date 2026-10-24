@@ -13,7 +13,7 @@ parameter conventions (facets). Sections 1–4 describe the shipped design.
 | `sq_loss_width` | `loss_width²`, the argument every closed form takes |
 | `scale_multiple` | `loss_width / ŝ`: the width as a dimensionless multiple of the estimated noise scale (NOT a quantile) |
 | `scale`, `s2` | the noise scale `ŝ` and its square — data, never a width |
-| `outlier_halfwidth` | the half-width of a Student-t marginal's uniform outlier component (RansacScoringDoneRight) |
+| `outlier_halfwidth` | the half-width of a Student-t marginal's uniform outlier component (RANSACScoringDoneRight) |
 | `decision_width(m, decision_threshold)` | the native width of `m` whose inlier/outlier decision flips at the residual `decision_threshold` |
 
 "Kernel" is not a name for any of these. In the stack it is kept only where it
@@ -70,7 +70,7 @@ depth), width `w` (`loss_width`). Derived quantities, all facet-independent:
 ships a working GR dual) but `ρ(∞) = ∞`. Boundedness is the axis that matters
 for *evidence*: `e^{−ρ}` of a bounded shape has a positive floor, so it is not
 normalizable on an unbounded domain, scoring with it needs the truncated
-normalizer `Z̃` over `[−r_max, r_max]` (RansacScoringDoneRight's construction),
+normalizer `Z̃` over `[−r_max, r_max]` (RANSACScoringDoneRight's construction),
 and the corresponding weight policy is never a `NormalizedWeightPolicy`.
 
 The shipped tags, by quadrant (`liftable` means the closed-form GR dual ships
@@ -118,12 +118,12 @@ that separates it from facet B.
 | `SmoothTLSShape` | `2u−u²` capped at 1 | 2 | `w²` |
 | `BarronShape(α)` | α-family: Welsch (α→−∞), GM (α=−2), Cauchy (α=0) | 1 | `2w²\|α−2\|/\|α\|` for α<0 (unbounded for 0≤α<2) |
 
-### Facet C — inlier density (RansacScoringDoneRight, inlier_potentials.jl)
+### Facet C — inlier density (RANSACScoringDoneRight, inlier_potentials.jl)
 
 Already the unified family: `Δ·g(x/w²)` with `sup g = 1` for the bounded tags,
 plus the truncated normalizer `log Z̃(w², Δ)` over the fixed domain
 `[0, r_max]`, which makes `e^{−ρ}` usable as an inlier density despite
-`bounded ⇒ ¬normalizable` on ℝ. RansacScoringDoneRight defines its formula
+`bounded ⇒ ¬normalizable` on ℝ. RANSACScoringDoneRight defines its formula
 layer (`_rho`, `_default_depth`, …) as methods ON the VGC tags;
 there is no second set of names.
 
@@ -202,7 +202,7 @@ generic, one method per owner, each owner's own math:
 |---|---|---|---|
 | Welsch, GM, Cauchy, smooth-TLS, Barron | VGC | normalized IRLS weight = ½ | `loss_width` |
 | `TLSShape` | VGC | the truncation itself | `t` (the identity) |
-| `GauInlier` | RansacScoringDoneRight | Student-t/uniform MAP boundary | `outlier_halfwidth` |
+| `GauInlier` | RANSACScoringDoneRight | Student-t/uniform MAP boundary | `outlier_halfwidth` |
 
 The MAP decision on a POSTERIOR membership weight is `is_map_inlier`
 (robust/estimation.jl): posterior > ½. It never applies to a loss weight.

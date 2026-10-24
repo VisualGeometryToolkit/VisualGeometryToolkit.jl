@@ -8,7 +8,7 @@ stage/run-record framework ([`Experiments`](@ref)), rendering
 ([`Datasets`](@ref)), the published-data catalog ([`DataArtifacts`](@ref)), the
 reproducible-figures contract ([`Reproduce`](@ref)) and the paper-project
 conventions ([`PaperProjects`](@ref)), with the artifact formats, the defaults
-of record and the driver CLI. Depends on VisualGeometryToolkitCore, VisualGeometryToolkitIo
+of record and the driver CLI. Depends on VisualGeometryToolkitCore, VisualGeometryToolkitIO
 and the core estimator VisualGeometryToolkitEstimation (its loop and problems, for the
 composition evaluator) — never on a paper's scorer or optimizer package.
 

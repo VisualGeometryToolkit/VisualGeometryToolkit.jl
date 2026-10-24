@@ -1,7 +1,7 @@
 # =============================================================================
 # The posterior-weight state of the Student-t + uniform mixture — the EM state
 # every posterior-weighted estimator of the stack runs (moved from
-# RansacScoringDoneRight's posterior_weighting.jl): its seeds, its M-step
+# RANSACScoringDoneRight's posterior_weighting.jl): its seeds, its M-step
 # blocks and their update policies, the ECM cycle, and the partition mixture's
 # weights.
 # =============================================================================

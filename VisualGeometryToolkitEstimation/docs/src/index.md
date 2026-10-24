@@ -17,7 +17,7 @@ Robust estimation algorithms for geometric vision.
   hand-eye `0.01·L`).
 - **Composition**: bring a scorer and a strategy from other packages by
   keyword — `scoring = StudentTUniformScoring(problem, a)` from
-  RansacScoringDoneRight, `local_optimization = HQ{WelschShape}(…)`,
+  RANSACScoringDoneRight, `local_optimization = HQ{WelschShape}(…)`,
   `StudentTUniform()`, `Gnc{…}(…)` from LocalOptimizationDoneRight. See
   [Getting Started](guide/getting-started.md).
 - **Core local optimizations**: [`NoLocalOptimization`](@ref) and the static
@@ -68,7 +68,7 @@ builds on
 [VisualGeometryToolkitCore.jl](@extref VisualGeometryToolkitCore :doc:`index`)
 (geometric types and the contracts). Paper scorers and local optimizers live
 outside it and implement those contracts:
-[RansacScoringDoneRight.jl](https://github.com/VisualGeometryToolkit/RansacScoringDoneRight.jl)
+[RANSACScoringDoneRight.jl](https://github.com/VisualGeometryToolkit/RANSACScoringDoneRight.jl)
 (the Student-t + uniform marginal score) and
 [LocalOptimizationDoneRight.jl](https://github.com/VisualGeometryToolkit/LocalOptimizationDoneRight.jl)
 (half-quadratic lifts, GNC, the Student-t + uniform IRLS). The

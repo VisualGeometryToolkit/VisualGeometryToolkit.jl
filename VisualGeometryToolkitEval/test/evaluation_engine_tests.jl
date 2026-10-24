@@ -529,7 +529,7 @@
         loss_widths = grid(1.0e-3, 0.1, LinearCount(5))
         # Both grids are test-local scorers on the `:pool` staging, so the
         # generic fallback runs whatever else is loaded (VisualGeometryToolkitEstimation
-        # loads RansacScoringDoneRight, whose grid families stage `:rsdr`; VGC's
+        # loads RANSACScoringDoneRight, whose grid families stage `:rsdr`; VGC's
         # MSAC at a threshold is none of them).
         hwsc, msac = template(), ThresholdMsac(1, 1.0)
         @test selection_staging(hwsc) === selection_staging(msac) === :pool

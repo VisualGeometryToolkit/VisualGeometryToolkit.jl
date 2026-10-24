@@ -26,7 +26,7 @@
 # a pose with its 6×6 covariance, a point with its d×d. Lengths are
 # millimetres, the stack's in-memory unit.
 #
-# These are the values VisualGeometryToolkitIo's `trajectory`, `target_poses`,
+# These are the values VisualGeometryToolkitIO's `trajectory`, `target_poses`,
 # `target_points2d` and `target_points3d` kinds serialize, exactly; the types
 # are permissive (an in-memory value may lack its images or sensors) and a
 # kind's writer states what its file requires.
@@ -237,7 +237,7 @@ and only [`convert_frame`](@ref) changes it (moving the numbers). The
 COLMAP points2D → points3D decomposition: a point is named by (target,
 index), resolved against the target definitions — a target `Rig` per
 connected component — which `targets` names by content identity
-(VisualGeometryToolkitIo's `content_id`). Per frame, optionally: `images[t]`,
+(VisualGeometryToolkitIO's `content_id`). Per frame, optionally: `images[t]`,
 `sensors[t]` (one name for all frames, or a map), `times[t]`.
 Otherwise a Dict: `obs[t]`, `obs[t] = v`, `keys`, `pairs`, iteration.
 """

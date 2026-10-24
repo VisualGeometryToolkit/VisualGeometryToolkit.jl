@@ -15,14 +15,14 @@ registered package with its own version, tests and documentation.
 | Package | Role | Docs |
 |---|---|---|
 | [VisualGeometryToolkitCore](VisualGeometryToolkitCore) | Geometric types, frames, camera and lens models, minimal solvers, scale-space kernels, the robust-estimation contracts | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/) |
-| [VisualGeometryToolkitIo](VisualGeometryToolkitIo) | Versioned file formats: cameras, rigs, observations, targets, correspondences | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIo/) |
+| [VisualGeometryToolkitIO](VisualGeometryToolkitIO) | Versioned file formats: cameras, rigs, observations, targets, correspondences | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/) |
 | [VisualGeometryToolkitFeatures](VisualGeometryToolkitFeatures) | Feature detection (ASIFT/DoG with keypoint covariance) and matching | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitFeatures/) |
 | [VisualGeometryToolkitEstimation](VisualGeometryToolkitEstimation) | The RANSAC loop, problem implementations, IRLS, hand–eye calibration | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitEstimation/) |
 | [VisualGeometryToolkitEval](VisualGeometryToolkitEval) | Evaluation protocol, benchmark pools, tuning, reproducible paper projects | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitEval/) |
 | [PoseLib](PoseLib) | Julia wrapper of the PoseLib minimal solvers (prebuilt binaries as package artifacts) | [docs](https://visualgeometrytoolkit.github.io/PoseLib/) |
 
 Related packages in their own repositories:
-[RansacScoringDoneRight.jl](https://github.com/VisualGeometryToolkit/RansacScoringDoneRight.jl)
+[RANSACScoringDoneRight.jl](https://github.com/VisualGeometryToolkit/RANSACScoringDoneRight.jl)
 (scale-free marginal RANSAC scoring),
 [LocalOptimizationDoneRight.jl](https://github.com/VisualGeometryToolkit/LocalOptimizationDoneRight.jl)
 (local optimization for RANSAC) and
@@ -36,10 +36,10 @@ Related packages in their own repositories:
 graph TD
     VGC["VisualGeometryToolkitCore"]
     VGF["VisualGeometryToolkitFeatures"]
-    VGIO["VisualGeometryToolkitIo"]
+    VGIO["VisualGeometryToolkitIO"]
     RVG["VisualGeometryToolkitEstimation"]
     PL["PoseLib"]
-    RSDR["RansacScoringDoneRight"]
+    RSDR["RANSACScoringDoneRight"]
     LODR["LocalOptimizationDoneRight"]
     VGE["VisualGeometryToolkitEval"]
     BB["BlobBoards"]

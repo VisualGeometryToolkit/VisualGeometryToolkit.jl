@@ -122,11 +122,11 @@ API page for the full keyword surface and
 ## Building the pipeline manually
 
 To swap the scorer or the local optimization, hand them to the pipeline or
-build the pieces directly. A scorer from RansacScoringDoneRight and a strategy
+build the pieces directly. A scorer from RANSACScoringDoneRight and a strategy
 from LocalOptimizationDoneRight compose like the core ones:
 
 ```julia
-using RansacScoringDoneRight: StudentTUniformScoring
+using RANSACScoringDoneRight: StudentTUniformScoring
 using LocalOptimizationDoneRight: HQ, WELSCH_HQ_SCALE_MULTIPLE_HOMOGRAPHY
 using VisualGeometryToolkitCore: WelschShape
 

@@ -695,7 +695,7 @@ end
     # GATE — the reported scale ŝ reads the residuals it was fit to: the same
     # residual against ŝ²·I₂ is χ²₂ (1.95/2, median ratio 1.05), and ŝ/σ has
     # median 0.98 on Gaussian and on Student-t ν₀ = 4 inliers alike. Until
-    # RansacScoringDoneRight bc9586e ŝ was √2·σ (median ratio 0.52): the
+    # RANSACScoringDoneRight bc9586e ŝ was √2·σ (median ratio 0.52): the
     # IRLS M-step divided the squared NORMS of codimension-2 residuals by Σw,
     # not d_g·Σπ.
     @test is_calibrated(run_calibration(_dc_residual_trial(scale = :ŝ), MersenneTwister(1002), 300, 2))

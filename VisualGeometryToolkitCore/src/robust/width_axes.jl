@@ -171,7 +171,7 @@ A scale multiple as the Student-t marginal's native width: the outlier
 half-width whose MAP inlier/outlier decision flips at the residual
 `scale_multiple · scale` — [`decision_width`](@ref) of the Gaussian-uniform
 mixture [`GauInlier`](@ref)`(scale²; d_g)`, the stack-wide definition of the
-crossover (moved from RansacScoringDoneRight). `scale` is the estimated inlier
+crossover (moved from RANSACScoringDoneRight). `scale` is the estimated inlier
 scale (linear, in the units of the residuals), and the result is in those units.
 
 `d_g` is the residual codimension (1 for E and F, 2 for H) and has no default:

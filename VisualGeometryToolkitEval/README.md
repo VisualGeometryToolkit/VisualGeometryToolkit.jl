@@ -9,10 +9,10 @@ The evaluation base of the VisualGeometry stack: the statistics, the codified
 cross-validation, the experiment framework, the figure renderers, the
 scoring-pool IO, the raw dataset readers, and the composition evaluator of
 scorer + local-optimization arms that the stack's research projects share. It
-depends on VisualGeometryToolkitCore, VisualGeometryToolkitIo and VisualGeometryToolkitEstimation (the
+depends on VisualGeometryToolkitCore, VisualGeometryToolkitIO and VisualGeometryToolkitEstimation (the
 core RANSAC loop and problems) only. The evaluator is written against
 VisualGeometryToolkitCore's scoring and local-optimization contracts, so it runs any
-scorer with any local optimizer; a project evaluating RansacScoringDoneRight's
+scorer with any local optimizer; a project evaluating RANSACScoringDoneRight's
 scorers or LocalOptimizationDoneRight's strategies brings those packages itself.
 
 | Module | What it holds |
@@ -258,7 +258,7 @@ Pkg.add("VisualGeometryToolkitEval")
 Requires Julia 1.12. Part of the
 [VisualGeometryToolkit](https://github.com/VisualGeometryToolkit) stack; built on
 [VisualGeometryToolkitCore.jl](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/tree/main/VisualGeometryToolkitCore)
-[VisualGeometryToolkitIo.jl](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/tree/main/VisualGeometryToolkitIo)
+[VisualGeometryToolkitIO.jl](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/tree/main/VisualGeometryToolkitIO)
 and [VisualGeometryToolkitEstimation.jl](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/tree/main/VisualGeometryToolkitEstimation).
 
 ## Defaults of record

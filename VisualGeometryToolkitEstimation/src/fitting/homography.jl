@@ -54,7 +54,7 @@ Returns a `RansacEstimate` or `nothing` if fewer than 4 correspondences.
   the inliers with its truncation at the scorer's decision point; any other
   `AbstractLocalOptimization` changes mechanism — LocalOptimizationDoneRight's
   half-quadratic lifts among them).
-- `scoring`: Override scoring function (default: VisualGeometryToolkitCore's `MsacScoring(problem; threshold)`; a paper's scorer, e.g. RansacScoringDoneRight's `StudentTUniformScoring`, plugs in here).
+- `scoring`: Override scoring function (default: VisualGeometryToolkitCore's `MsacScoring(problem; threshold)`; a paper's scorer, e.g. RANSACScoringDoneRight's `StudentTUniformScoring`, plugs in here).
 - `config`: Override `RansacConfig` (ignores `max_trials`/`min_trials`).
 - `rng`: the sampler's random number generator.
 

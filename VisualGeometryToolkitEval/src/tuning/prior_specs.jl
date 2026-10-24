@@ -3,7 +3,7 @@
 # ScalePriorFamily × PriorFitting axes (`PriorSpec`, `fit_prior`,
 # `family_tag`/`fitting_tag`, `prior_label`, `ALL_PRIOR_SPECS`), fitting
 # VisualGeometryToolkitCore's `IGPrior` from per-pair σ̂² samples. Moved from
-# RansacScoringDoneRight's eval_strategy.jl (K+, 2026-10-09): it is tuning
+# RANSACScoringDoneRight's eval_strategy.jl (K+, 2026-10-09): it is tuning
 # policy, consumed by the paper projects' tunings.
 # =============================================================================
 

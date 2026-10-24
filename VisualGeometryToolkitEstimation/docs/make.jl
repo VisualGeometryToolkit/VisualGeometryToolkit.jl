@@ -13,7 +13,7 @@ const BIB = CitationBibliography(joinpath(@__DIR__, "src", "refs.bib"); style = 
 # The other stack packages' docs: `[text](@extref <Package> ...)` resolves
 # against the inventory (objects.inv) their published `dev` docs carry.
 const LINKS = InterLinks((p => "https://visualgeometrytoolkit.github.io/$p/dev/" for p in (
-    "VisualGeometryToolkitCore", "VisualGeometryToolkitIo", "VisualGeometryToolkitFeatures",
+    "VisualGeometryToolkitCore", "VisualGeometryToolkitIO", "VisualGeometryToolkitFeatures",
     "VisualGeometryToolkitEstimation", "VisualGeometryToolkitEval", "PoseLib"))...)
 
 makedocs(;

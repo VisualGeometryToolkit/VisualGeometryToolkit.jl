@@ -1,7 +1,7 @@
 # The scale multiple → native maps on the outlier-half-width axis, the curried
 # per-axis map, the native-axis conversions at an operating scale multiple, and
 # the absolute loss width a `LossWidth` value carries (robust/width_axes.jl;
-# moved from RansacScoringDoneRight, K+ 2026-10-09).
+# moved from RANSACScoringDoneRight, K+ 2026-10-09).
 
 @testitem "native_width_maps" begin
     import VisualGeometryToolkitCore as VgtkCore

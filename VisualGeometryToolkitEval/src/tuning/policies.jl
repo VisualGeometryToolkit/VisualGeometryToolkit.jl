@@ -77,7 +77,7 @@ end
 #
 # `TuningCriterion`, `MedianError`, `MAA` (since folded into
 # `MeanAverageAccuracy`), `_tune_objective`, `_inf_failed` and
-# `tuning_criterion_label` moved here from RansacScoringDoneRight on
+# `tuning_criterion_label` moved here from RANSACScoringDoneRight on
 # 2026-10-02, completing the 2026-07-18 migration of the eval subsystem: they
 # are evaluation policy, every caller was already in this package, and nothing
 # in the scoring package used them (its one internal consumer, `bracket_key`,

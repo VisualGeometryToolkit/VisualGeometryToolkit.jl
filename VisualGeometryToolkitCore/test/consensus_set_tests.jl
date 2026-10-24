@@ -1,5 +1,5 @@
 # ConsensusSet's accessors exist so that downstream packages (VisualGeometryToolkitEstimation,
-# RansacScoringDoneRight) stop reading its FIELDS across a package boundary — the
+# RANSACScoringDoneRight) stop reading its FIELDS across a package boundary — the
 # coupling that lets an upstream struct change break a consumer silently at runtime
 # while its own suite stays green. The accessors are consumed downstream, not inside
 # VGC, so these items are what pins them here.

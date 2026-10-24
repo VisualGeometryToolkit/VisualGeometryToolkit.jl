@@ -1,5 +1,5 @@
 # The scale-prior strategy layer of a tuning (src/tuning/prior_specs.jl; moved
-# from RansacScoringDoneRight's eval_strategy.jl, K+ 2026-10-09): the prior
+# from RANSACScoringDoneRight's eval_strategy.jl, K+ 2026-10-09): the prior
 # family × fitting axes, `fit_prior` for every legal (family, fitting), the
 # illegal combinations refused at dispatch, the labels and per-axis tags, and
 # the roster a sweep iterates.

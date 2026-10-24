@@ -55,11 +55,11 @@ values.
 
 The loop runs on VisualGeometryToolkitCore's scoring and local-optimization
 contracts, so a scorer and a strategy from other packages plug in by keyword.
-The paper scorer is RansacScoringDoneRight's; the paper strategies are
+The paper scorer is RANSACScoringDoneRight's; the paper strategies are
 LocalOptimizationDoneRight's:
 
 ```julia
-using RansacScoringDoneRight: StudentTUniformScoring
+using RANSACScoringDoneRight: StudentTUniformScoring
 using LocalOptimizationDoneRight: HQ, StudentTUniform, WELSCH_HQ_SCALE_MULTIPLE_HOMOGRAPHY
 using VisualGeometryToolkitCore: WelschShape
 

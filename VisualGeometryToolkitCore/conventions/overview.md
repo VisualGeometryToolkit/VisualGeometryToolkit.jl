@@ -2,8 +2,8 @@
 
 This is the stack's canonical convention text, kept once, in
 VisualGeometryToolkitCore's `conventions/` folder. VisualGeometryToolkitCore,
-VisualGeometryToolkitIo, VisualGeometryToolkitFeatures, VisualGeometryToolkitEval,
-VisualGeometryToolkitEstimation, RansacScoringDoneRight, LocalOptimizationDoneRight,
+VisualGeometryToolkitIO, VisualGeometryToolkitFeatures, VisualGeometryToolkitEval,
+VisualGeometryToolkitEstimation, RANSACScoringDoneRight, LocalOptimizationDoneRight,
 PoseLib.jl and BlobBoards all follow it; each package's `CLAUDE.md` points here
 instead of carrying a copy, and adds only how a rule lands in that package.
 

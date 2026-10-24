@@ -4,7 +4,7 @@
 # GT) from which a pool is drawn.
 #
 #   PhotoTourism  load_pt_pairs, PtRawTrees, PT_SCENES (HDF5
-#                 matches + COLMAP recon through VisualGeometryToolkitIo)
+#                 matches + COLMAP recon through VisualGeometryToolkitIO)
 #   HEB           load_heb_pairs (`<scene>_homographies.h5`; the scene list is
 #                 configs/splits.toml `[splits.heb]`)
 #   RoMa / SP+LG  load_roma_pairs (consolidated JLD2)
@@ -21,7 +21,7 @@
 module Datasets
 
 import VisualGeometryToolkitCore as VgtkCore
-import VisualGeometryToolkitIo as VgtkIo
+import VisualGeometryToolkitIO as VgtkIO
 using Random: shuffle
 using LinearAlgebra: I
 using DelimitedFiles: readdlm
@@ -37,8 +37,8 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore, Size2, FundMat, Esse
     Camera, BoundedCamera, CameraModel, CameraCalibrationMat, EuclideanMap, StereoRig,
     validate_gt_inliers, VgcQuantity, m, mm, ustrip
 using VisualGeometryToolkitCore.Pools: Pools, StereoRawPair
-import VisualGeometryToolkitIo
-using VisualGeometryToolkitIo: UnknownScale, camera_model, UnitContract, ColmapModel, ColmapCamera, ColmapImage
+import VisualGeometryToolkitIO
+using VisualGeometryToolkitIO: UnknownScale, camera_model, UnitContract, ColmapModel, ColmapCamera, ColmapImage
 import .._config_default   # configs/default.toml (config_defaults.jl)
 using ..Stats: stable_seed, POOL_RNG
 

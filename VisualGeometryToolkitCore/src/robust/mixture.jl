@@ -1,7 +1,7 @@
 # =============================================================================
 # The Student-t inlier + uniform outlier mixture — its scalar E-step, the ν
 # M-step, and the MAP crossover of the Gaussian/uniform pair (moved from
-# RansacScoringDoneRight's posterior_weighting.jl and scoring.jl).
+# RANSACScoringDoneRight's posterior_weighting.jl and scoring.jl).
 # =============================================================================
 #
 # The EM iteration of the mixture alternates:

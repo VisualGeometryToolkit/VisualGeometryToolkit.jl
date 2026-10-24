@@ -90,7 +90,7 @@ const RETIRED_NAMES = String[
     "_pose" * "_step",
     "_lo" * "_step",
     "ellipse" * "_step",
-    # the naming sweep (RansacScoringDoneRight)
+    # the naming sweep (RANSACScoringDoneRight)
     "update" * "_nu",                        # the pure ν update is `next_nu`; `update_nu!` writes the ν block
     "log" * "_step", "inv_log" * "_step",    # the τ-grid's log bin spacing: `log_spacing`, `inv_log_spacing`
     "l" * "step",                            # a test's copy of that spacing: `lspacing`
@@ -124,7 +124,7 @@ const RETIRED_NAMES = String[
     # moves by `D ∘ M ∘ inv(S)` with CoordinateTransformations' `∘`/`inv`
     "push" * "_model", "pull" * "_model",    # a normalization's sides composed onto the model map
     "re" * "frame", "re" * "frame_jacobian", # `∘` on an EpipolarMap / a TransferForm's HomographyMap; `CameraModel(model, K′)`
-    # the pool frame is named as such (RansacScoringDoneRight, 2026-10-01): the
+    # the pool frame is named as such (RANSACScoringDoneRight, 2026-10-01): the
     # stored maps, normalization, calibrations and outlier support of a pool
     "canon" * "_maps",                       # `pool_frame_maps`
     "canonical" * "_normalization",          # `pool_normalization`
@@ -139,7 +139,7 @@ const RETIRED_NAMES = String[
     "canon" * ".jld2",                       # the April HEB sidecar suffix: `<scene>.pool_frame.jld2`
     # the lens families (VisualGeometryToolkitCore, 2026-10-08): a lens is a `Lens` (a
     # projection and a distortion in its frame) or a `LiftLens`; models are
-    # structures of leaves, conventions are VisualGeometryToolkitIo's adapters
+    # structures of leaves, conventions are VisualGeometryToolkitIO's adapters
     "Brown" * "Conrady",                     # OpenCV's models: `Lens(Perspective(), Additive(Radial(…), Tangential(…), …))`
     "Rational" * "Radial",                   # the rational lift: `LiftLens(Radial(k, d))`
     "Equidistant" * "Fisheye", "Stereographic" * "Fisheye",   # `Lens(Equidistant())`, `Lens(Stereographic())`
@@ -248,8 +248,8 @@ const RETIRED_NAMES = String[
     "KERNEL" * "_TAGS",                      # VisualGeometryToolkitEstimation: `LOSS_TAGS`
     "sq" * "_width",                         # `sq_loss_width` (and `loss_width` for the deployed width)
     "half_weight" * "_scale",                # `decision_width(shape, decision_threshold)`
-    "decision_threshold_to" * "_outlier_halfwidth",  # RansacScoringDoneRight: `decision_width(::GauInlier, …)`
-    "outlier_halfwidth_to" * "_decision_threshold",  # RansacScoringDoneRight: `decision_threshold(::GauInlier, …)`
+    "decision_threshold_to" * "_outlier_halfwidth",  # RANSACScoringDoneRight: `decision_width(::GauInlier, …)`
+    "outlier_halfwidth_to" * "_decision_threshold",  # RANSACScoringDoneRight: `decision_threshold(::GauInlier, …)`
     "KERNELS" * ".md",                       # `LOSSES.md`
     "Inlier" * "Kernel", "AbstractLift" * "Kernel",  # aliases of `AbstractLossShape`, deleted
     "Kernel" * "Width",                      # VisualGeometryToolkitCore: `LossWidth`
@@ -263,7 +263,7 @@ const RETIRED_NAMES = String[
     "_loss" * "type",                        # `_poselib_loss`
     "superansac" * "_threshold", "superansac" * "_threshold_worker",   # the SupeRANSAC drivers: the `loss_width` forms
     "sr_threshold" * "_star", "tdv_sr_thr" * "_cv_path", "TDV_SR_THR" * "_DEFAULT", "SR_AUTHORS_EXAMPLE" * "_THR",
-    # RansacScoringDoneRight: the loss vocabulary and the full width names
+    # RANSACScoringDoneRight: the loss vocabulary and the full width names
     "Kernel" * "Scoring", "Tau" * "Scoring",             # `LossCostScoring`, `LossWidthScoring`
     "tau" * "_scoring", "grid_evaluate" * "_tau", "_grid_evaluate" * "_tau",   # `loss_width_scoring`, `grid_evaluate_loss_width`
     "Kernel" * "Quad", "Kernel" * "Spec", "kernel" * "_spec", "_kernel" * "_spec",   # `LossQuad`, `LossSpec`, `loss_spec`
@@ -375,7 +375,7 @@ const _MANOPT_CYCLE_NAMES = ("step" * "_solver!",)
 # these (or a module or alias of the scanned package) binds a stack name.
 const _STACK_PACKAGES = Set([
     :VisualGeometryToolkitCore, :VisualGeometryToolkitEstimation, :VisualGeometryToolkitEval,
-    :RansacScoringDoneRight, :BlobBoards, :VisualGeometryToolkitFeatures, :VisualGeometryToolkitIo,
+    :RANSACScoringDoneRight, :BlobBoards, :VisualGeometryToolkitFeatures, :VisualGeometryToolkitIO,
     :PoseLib, :LocalOptimizationDoneRight,
 ])
 

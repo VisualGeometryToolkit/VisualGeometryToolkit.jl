@@ -58,7 +58,7 @@ one `solver_covariance`, the constraint sandwich over an index set).
 AbstractScoring (VGC)                        the scoring contract
 ├── MsacScoring{DG, T}, RansacScoring{DG, T} VGC's baseline scorers at a threshold
 │                                            (MSAC is every find_*'s default)
-└── StudentTUniformScoring{P, DG}            RansacScoringDoneRight's Student-t + uniform marginal
+└── StudentTUniformScoring{P, DG}            RANSACScoringDoneRight's Student-t + uniform marginal
                                              (one downstream implementation)
 ```
 
@@ -169,11 +169,11 @@ extract sample points and delegate to these VGC methods.
 ```
 VisualGeometryToolkitCore (types, solvers, loss shapes, contracts, toolkit, MSAC/RANSAC scorers)
         ↓                                   ↓                         ↓
-VisualGeometryToolkitEstimation              RansacScoringDoneRight     LocalOptimizationDoneRight
+VisualGeometryToolkitEstimation              RANSACScoringDoneRight     LocalOptimizationDoneRight
 (the RANSAC loop, problems,       (paper scorers; VGC only)  (paper strategies; VGC + RVG)
  NoLocalOptimization, Irls{K})
 ```
 
-The user composes them: `find_*(…; scoring = <a RansacScoringDoneRight scorer>,
+The user composes them: `find_*(…; scoring = <a RANSACScoringDoneRight scorer>,
 local_optimization = <a LocalOptimizationDoneRight strategy>)`. VisualGeometryToolkitEstimation depends on
 neither downstream package.

@@ -69,7 +69,7 @@
         # reports with it). RAISED to 21 on 2026-09-19 — the one exception, not a
         # regression: the weight-policy reading interface (`inlier_weight`,
         # `robust_weight`, `is_inlier`, `inlier_mask`) was hoisted into VGC for
-        # VisualGeometryToolkitEstimation and RansacScoringDoneRight, whose VGC defaults
+        # VisualGeometryToolkitEstimation and RANSACScoringDoneRight, whose VGC defaults
         # each raise one report of the abstract-stub class. Lowered to 20 on
         # 2026-09-21 (the `_remap_sample` union split retired with a real bug).
         # 2026-09-22: KernelAbstractions LAUNCH reports are no longer counted
@@ -86,7 +86,7 @@
         # protocol methods in the same worker hides three of these): the two
         # weight-policy defaults are gone (−2) and seven reports arrived (+7).
         # Five are the abstract-stub class, with the code that moved here from
-        # RansacScoringDoneRight — the constraint-problem protocol
+        # RANSACScoringDoneRight — the constraint-problem protocol
         # (`data_size`, `codimension` on an instance and on a type,
         # `constraint_with_jacobians`, implemented by each problem) and the
         # predictive scorers' optional `score!(…, ::Uncertain, …)` behind

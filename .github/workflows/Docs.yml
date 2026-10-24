@@ -12,7 +12,7 @@ on:
     # Root-only commits (README.md, assets/, other workflows) build no docs.
     paths:
       - 'VisualGeometryToolkitCore/**'
-      - 'VisualGeometryToolkitIo/**'
+      - 'VisualGeometryToolkitIO/**'
       - 'VisualGeometryToolkitFeatures/**'
       - 'VisualGeometryToolkitEstimation/**'
       - 'VisualGeometryToolkitEval/**'
@@ -41,7 +41,7 @@ jobs:
       - id: p
         shell: bash
         run: |
-          all='["VisualGeometryToolkitCore","VisualGeometryToolkitIo","VisualGeometryToolkitFeatures","VisualGeometryToolkitEstimation","VisualGeometryToolkitEval","PoseLib"]'
+          all='["VisualGeometryToolkitCore","VisualGeometryToolkitIO","VisualGeometryToolkitFeatures","VisualGeometryToolkitEstimation","VisualGeometryToolkitEval","PoseLib"]'
           case "${{ github.ref }}" in
             refs/tags/*)
               # Only <Package>-v<version> release tags (TagBot) deploy docs;

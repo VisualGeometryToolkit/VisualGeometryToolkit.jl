@@ -152,42 +152,42 @@ end
         using VisualGeometryToolkitCore: public_name, _private_one,
             _private_two   # a continued list
         import VisualGeometryToolkitEstimation.Sub: _sub_private
-        x = RansacScoringDoneRight._qualified(1)
+        x = RANSACScoringDoneRight._qualified(1)
         y = VisualGeometryToolkitCore.Cameras._nested
         # VisualGeometryToolkitCore._in_a_comment
         s = "VisualGeometryToolkitCore._in_a_string"
         z = MyOwnPackage._own
         """,
-        "b.jl" => "const R = VisualGeometryToolkitEstimation\nimport RansacScoringDoneRight as S\nR._via_const(); S._via_as()\n",
+        "b.jl" => "const R = VisualGeometryToolkitEstimation\nimport RANSACScoringDoneRight as S\nR._via_const(); S._via_as()\n",
     ))
     v = private_name_violations(src, "MyOwnPackage")
     @test sort(last.(split.(v, ": "))) == sort([
         "VisualGeometryToolkitCore._private_one", "VisualGeometryToolkitCore._private_two",
-        "VisualGeometryToolkitEstimation.Sub._sub_private", "RansacScoringDoneRight._qualified",
-        "VisualGeometryToolkitCore.Cameras._nested", "VisualGeometryToolkitEstimation._via_const", "RansacScoringDoneRight._via_as",
+        "VisualGeometryToolkitEstimation.Sub._sub_private", "RANSACScoringDoneRight._qualified",
+        "VisualGeometryToolkitCore.Cameras._nested", "VisualGeometryToolkitEstimation._via_const", "RANSACScoringDoneRight._via_as",
     ])
     @test startswith(only(filter(x -> occursin("_private_two", x), v)), "a.jl:1:")
     # a package's own names are its own
-    @test !any(occursin("_qualified", x) for x in private_name_violations(src, "RansacScoringDoneRight"))
+    @test !any(occursin("_qualified", x) for x in private_name_violations(src, "RANSACScoringDoneRight"))
 end
 
 @testitem "stack contracts: dependency allow-list" begin
     using Test
     using VisualGeometryToolkitCore: stack_dependencies, stack_dependency_violations
     t = stack_dependencies()
-    bb = ["VisualGeometryToolkitCore", "VisualGeometryToolkitIo", "VisualGeometryToolkitFeatures", "VisualGeometryToolkitEstimation", "RansacScoringDoneRight", "LocalOptimizationDoneRight"]
+    bb = ["VisualGeometryToolkitCore", "VisualGeometryToolkitIO", "VisualGeometryToolkitFeatures", "VisualGeometryToolkitEstimation", "RANSACScoringDoneRight", "LocalOptimizationDoneRight"]
     @test t == Dict(
         "VisualGeometryToolkitCore" => String[],
-        "VisualGeometryToolkitIo" => ["VisualGeometryToolkitCore"],
+        "VisualGeometryToolkitIO" => ["VisualGeometryToolkitCore"],
         "VisualGeometryToolkitFeatures" => ["VisualGeometryToolkitCore"],
-        "VisualGeometryToolkitEval" => ["VisualGeometryToolkitCore", "VisualGeometryToolkitIo", "VisualGeometryToolkitEstimation"],
+        "VisualGeometryToolkitEval" => ["VisualGeometryToolkitCore", "VisualGeometryToolkitIO", "VisualGeometryToolkitEstimation"],
         "PoseLib" => ["VisualGeometryToolkitCore"],
         "VisualGeometryToolkitEstimation" => ["VisualGeometryToolkitCore"],
-        "RansacScoringDoneRight" => ["VisualGeometryToolkitCore"],
+        "RANSACScoringDoneRight" => ["VisualGeometryToolkitCore"],
         "LocalOptimizationDoneRight" => ["VisualGeometryToolkitCore", "VisualGeometryToolkitEstimation", "PoseLib"],
         "BlobBoards" => bb,
-        "accv2026" => ["LocalOptimizationDoneRight", "RansacScoringDoneRight", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "VisualGeometryToolkitCore", "VisualGeometryToolkitIo", "PoseLib"],
-        "neurips2026" => ["RansacScoringDoneRight", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "VisualGeometryToolkitCore"],
+        "accv2026" => ["LocalOptimizationDoneRight", "RANSACScoringDoneRight", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "VisualGeometryToolkitCore", "VisualGeometryToolkitIO", "PoseLib"],
+        "neurips2026" => ["RANSACScoringDoneRight", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "VisualGeometryToolkitCore"],
         "bmvc2026" => vcat(bb[1:3], "VisualGeometryToolkitEval", bb[4:end], "BlobBoards"),
     )
     # every row names stack packages only, never itself
@@ -202,21 +202,21 @@ end
     [weakdeps]
     PoseLib = "a8c7e0b4-3d2f-4f1c-9a1e-7b2d9c8f4a3b"
     [extras]
-    RansacScoringDoneRight = "e23d4225-f201-4c3a-a297-7efae5f2deeb"
+    RANSACScoringDoneRight = "e23d4225-f201-4c3a-a297-7efae5f2deeb"
     [targets]
-    test = ["RansacScoringDoneRight", "Test"]
+    test = ["RANSACScoringDoneRight", "Test"]
     """)
     @test stack_dependency_violations(proj, "VisualGeometryToolkitEstimation") ==
-        ["weakdeps: PoseLib", "extras: RansacScoringDoneRight", "targets.test: RansacScoringDoneRight"]
-    @test stack_dependency_violations(proj, "LocalOptimizationDoneRight") == ["extras: RansacScoringDoneRight", "targets.test: RansacScoringDoneRight"]
+        ["weakdeps: PoseLib", "extras: RANSACScoringDoneRight", "targets.test: RANSACScoringDoneRight"]
+    @test stack_dependency_violations(proj, "LocalOptimizationDoneRight") == ["extras: RANSACScoringDoneRight", "targets.test: RANSACScoringDoneRight"]
     @test_throws ArgumentError stack_dependency_violations(proj, "NotAStackProject")
     # a project kept elsewhere supplies its own row, as a dictionary or a TOML file
-    row = Dict("SomeProject" => ["VisualGeometryToolkitCore", "VisualGeometryToolkitEstimation", "RansacScoringDoneRight"])
+    row = Dict("SomeProject" => ["VisualGeometryToolkitCore", "VisualGeometryToolkitEstimation", "RANSACScoringDoneRight"])
     @test stack_dependency_violations(proj, "SomeProject"; extra = row) == ["weakdeps: PoseLib"]
     rows = joinpath(mktempdir(), "rows.toml")
-    write(rows, "SomeProject = [\"VisualGeometryToolkitCore\", \"PoseLib\", \"RansacScoringDoneRight\"]\n")
+    write(rows, "SomeProject = [\"VisualGeometryToolkitCore\", \"PoseLib\", \"RANSACScoringDoneRight\"]\n")
     @test isempty(stack_dependency_violations(proj, "SomeProject"; extra = rows))
-    @test stack_dependencies(; extra = rows) == merge(t, Dict("SomeProject" => ["VisualGeometryToolkitCore", "PoseLib", "RansacScoringDoneRight"]))
+    @test stack_dependencies(; extra = rows) == merge(t, Dict("SomeProject" => ["VisualGeometryToolkitCore", "PoseLib", "RANSACScoringDoneRight"]))
     # an extra row adds a project, never replaces a published row
     @test_throws ArgumentError stack_dependencies(; extra = Dict("VisualGeometryToolkitEstimation" => String[]))
     # this package

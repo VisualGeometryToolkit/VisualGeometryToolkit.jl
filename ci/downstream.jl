@@ -5,7 +5,7 @@
 # Sets `[sources] <Package> = {path = "<abs path in this workspace>"}` in the
 # Project.toml in <project dir> for every workspace package it names in
 # [deps], [weakdeps] or [extras], plus each extra `Name=path` pair (another
-# downstream checkout, e.g. RansacScoringDoneRight for BlobBoards). With
+# downstream checkout, e.g. RANSACScoringDoneRight for BlobBoards). With
 # --compat the stack compat entries are set to the workspace's ("0.1"), for a
 # downstream repository that has not yet taken the 0.1 compat (DESIGN §6.4).
 #

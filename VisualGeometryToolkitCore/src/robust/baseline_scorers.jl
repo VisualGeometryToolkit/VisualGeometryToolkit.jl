@@ -1,11 +1,11 @@
 # =============================================================================
-# The baseline scorers — RANSAC and MSAC (moved from RansacScoringDoneRight's
+# The baseline scorers — RANSAC and MSAC (moved from RANSACScoringDoneRight's
 # loss-width families, not rewritten) — and their scoring-contract glue.
 # =============================================================================
 #
 # One type per scorer, two uses:
 #   * WIDTH-FREE (`MsacScoring()`, `MsacScoring(dg)`, threshold `nothing`): the
-#     grid family RansacScoringDoneRight sweeps a loss width over (its
+#     grid family RANSACScoringDoneRight sweeps a loss width over (its
 #     `grid_evaluate`, `best_pool_model`, `pool_model_score` methods);
 #   * AT A THRESHOLD (`MsacScoring(dg; threshold = τ)`): the RANSAC-loop scorer of
 #     the scoring contract. Its score is the SAME expression as RSDR's
@@ -88,7 +88,7 @@ residuals, and higher is better:
 - RANSAC: the inlier indicator `d² < loss_width²` (TLS's `weight`);
 - MSAC: `1 − ρ(TLSShape(), d², loss_width²)/loss_width²`.
 
-RansacScoringDoneRight adds the methods of its paper baselines (MLESAC,
+RANSACScoringDoneRight adds the methods of its paper baselines (MLESAC,
 MAGSAC++, the loss costs). Plain Float64 functions, callable inside a kernel. A
 non-finite `d2` is an outlier and is skipped by every caller; it is not an input.
 """
@@ -147,7 +147,7 @@ function score!(W::ThresholdScoringWorkspace, sc::_ScoringAtThreshold, scores::A
     q0 = residual_quality(sc, 0.0, τ)
     ns = sample === nothing ? 0 : length(sample)
     b = score_bound(sc)
-    # The pool score's arithmetic (RansacScoringDoneRight `pool_model_score`):
+    # The pool score's arithmetic (RANSACScoringDoneRight `pool_model_score`):
     # Σ quality over every point in index order, a non-finite residual an
     # outlier (quality 0), then each sample point corrected to zero residual.
     s = 0.0

@@ -1,7 +1,7 @@
 # `truncated_log_normaliser(shape, sq_loss_width, depth, r_max)`: the log
 # normaliser of the density a loss shape induces at depth Δ on [−r_max, r_max],
 # log ∫ exp(−Δ·ρ(shape, r²/w², 1)) dr — the one quadrature behind every density
-# built from a loss (RansacScoringDoneRight's scale marginals call it).
+# built from a loss (RANSACScoringDoneRight's scale marginals call it).
 #
 # Pinned against a densely split reference quadrature in ρ's scaled spelling
 # (rtol 1e-14), down to a well far narrower than the domain.

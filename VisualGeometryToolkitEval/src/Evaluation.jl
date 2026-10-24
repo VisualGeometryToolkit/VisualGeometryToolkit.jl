@@ -7,7 +7,7 @@
 # the bootstrap tuning harness (evaluate_val.jl: BootstrapMethod /
 # FlatProtocol / WindowedGridMethod, bootstrap_trials, compute_method_rows,
 # the standardized window's `window_columns`) and THE coarse-fine search
-# (cv_probe.jl). Every parameter they run under is a Tuning spec. Its statistics (reference scale, mAA rule, BCa CI) are Stats'. Absorbed from RansacScoringDoneRight 2026-07-18;
+# (cv_probe.jl). Every parameter they run under is a Tuning spec. Its statistics (reference scale, mAA rule, BCa CI) are Stats'. Absorbed from RANSACScoringDoneRight 2026-07-18;
 # it uses no scorer package and no optimizer package beyond the core
 # (VisualGeometryToolkitCore's contracts, VisualGeometryToolkitEstimation's loop and problems).
 #

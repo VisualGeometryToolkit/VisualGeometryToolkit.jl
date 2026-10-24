@@ -7,7 +7,7 @@
     toolkit, the loss family and the baseline scorers. The one generic RANSAC
     loop, the problems and the core local optimizations live in
     [VisualGeometryToolkitEstimation.jl](@extref VisualGeometryToolkitEstimation :doc:`index`);
-    the paper scorers in RansacScoringDoneRight and the paper local
+    the paper scorers in RANSACScoringDoneRight and the paper local
     optimizers in LocalOptimizationDoneRight implement the contracts. See
     [The composable RANSAC](@ref) below.
 
@@ -88,7 +88,7 @@ only the contract verbs, so a scorer or an optimizer from any package plugs in
 as a keyword:
 
 ```julia
-using VisualGeometryToolkitEstimation, RansacScoringDoneRight, LocalOptimizationDoneRight
+using VisualGeometryToolkitEstimation, RANSACScoringDoneRight, LocalOptimizationDoneRight
 find_homography(cs)       # core default: MsacScoring + Irls{TLSShape} at the scorer's threshold
 find_homography(cs; scoring = StudentTUniformScoring(HomographyProblem, 20.0),  # a scorer (RSDR)
                     local_optimization = HQ{WelschShape}())                     # an optimizer (LODR)
@@ -176,7 +176,7 @@ stored models; `select_on_grid!(idxs, P, scoring, grid, staged)` the
 selections at every width of a grid, after `selection_staging(scoring)` and
 `stage_selection(key, pairs, residuals; backend)`. The generic method is a CPU
 fallback (per column `with_width`, then `best_pool_model`); a grid family with
-device kernels (RansacScoringDoneRight) implements its own staging and
+device kernels (RANSACScoringDoneRight) implements its own staging and
 selection.
 
 **Width axes.** One name per width quantity, each a value carrier and, bare, an

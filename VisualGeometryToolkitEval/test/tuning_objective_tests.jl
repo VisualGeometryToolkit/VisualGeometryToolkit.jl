@@ -1,11 +1,11 @@
 # =============================================================================
 # tuning_objective_tests.jl — the tuning objectives. mAA is VisualGeometryToolkitCore's
-# `Synthetic.mean_average_accuracy`, the stack's one definition — RansacScoringDoneRight's
+# `Synthetic.mean_average_accuracy`, the stack's one definition — RANSACScoringDoneRight's
 # own `_maa` (the area under the sorted accuracy curve) is deleted.
 #
-# Moved here from RansacScoringDoneRight/test/ with the criteria themselves
+# Moved here from RANSACScoringDoneRight/test/ with the criteria themselves
 # (2026-10-03). The move left the file behind in a package whose `src` no longer
-# defines `MAA`, `MedianError` or `_tune_objective`, so RansacScoringDoneRight's
+# defines `MAA`, `MedianError` or `_tune_objective`, so RANSACScoringDoneRight's
 # own suite ran it and failed on `UndefVarError` — ReTestItems discovers every
 # `*_tests.jl` under test/, so an orphan runs rather than being ignored.
 #

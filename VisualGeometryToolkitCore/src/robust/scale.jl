@@ -1,6 +1,6 @@
 # =============================================================================
 # The scale estimators of the robust-statistics toolkit (moved from
-# RansacScoringDoneRight's sweep.jl and posterior_weighting.jl): the
+# RANSACScoringDoneRight's sweep.jl and posterior_weighting.jl): the
 # inverse-gamma scale prior, the inverse-gamma MAP scale, a hard partition's
 # Student-t, and the residual sums every estimator in the stack reads.
 # =============================================================================

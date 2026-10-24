@@ -1,6 +1,6 @@
 ## Persisted geometry: uncertainty and storage
 
-How geometry is written to and read from files (VisualGeometryToolkitIo's `vgio/<kind>/v<n>`
+How geometry is written to and read from files (VisualGeometryToolkitIO's `vgio/<kind>/v<n>`
 JSON kinds and any other stack format). It continues the measurement-noise rule above:
 the same three cases, now on disk.
 
@@ -51,7 +51,7 @@ the primitive's own tangent order and units:
   rot Z)`, with fixed-axis rotations in the parent frame and the translation in the
   parent frame. That is this chart with its blocks swapped.
   - The conversion is the permutation `P = [0 I₃; I₃ 0]`: `Σ_ros = P·Σ·Pᵀ`.
-  - VisualGeometryToolkitIo's `ros_pose_covariance` and `pose_covariance_from_ros` implement
+  - VisualGeometryToolkitIO's `ros_pose_covariance` and `pose_covariance_from_ros` implement
     it.
 
 A reader refuses a `covariance` of the wrong size, a non-finite one, or an asymmetric
@@ -83,7 +83,7 @@ format-side record type stands between the file and the value; a foreign format
 (COLMAP, an OpenCV or MATLAB export) keeps an adapter type that converts to and
 from VGC types.
 
-| Kind (VisualGeometryToolkitIo) | VGC value |
+| Kind (VisualGeometryToolkitIO) | VGC value |
 |---|---|
 | `cameras` | `Dict{Symbol, …}` of unposed `BoundedCamera`s of a `CameraModel` (name → camera) |
 | `transforms` | a `Vector` of labeled `EuclideanMap{3}`s (`Uncertain` allowed) |

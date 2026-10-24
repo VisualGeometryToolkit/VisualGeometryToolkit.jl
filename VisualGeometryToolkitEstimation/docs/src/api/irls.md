@@ -35,7 +35,7 @@ KeepModel
 
 Regression and classification apart: whatever fitted the model, its residuals
 are FIXED here. The scorer's consensus set — any scorer with a uniform
-outlier model (`outlier_halfwidth`), e.g. RansacScoringDoneRight's
+outlier model (`outlier_halfwidth`), e.g. RANSACScoringDoneRight's
 `StudentTUniformScoring` — seeds the Student-t + uniform mixture, EM fits it
 with the model held, and each residual's MAP label is VisualGeometryToolkitCore's
 `is_map_inlier` of its posterior.

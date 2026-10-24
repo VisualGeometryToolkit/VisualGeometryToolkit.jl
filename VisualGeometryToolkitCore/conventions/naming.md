@@ -69,7 +69,7 @@ carry the full `VisualGeometryToolkit` prefix (General already holds other
 `VisualGeometry*` packages). Code that qualifies a stack package's name binds
 its alias once per module — `import VisualGeometryToolkitCore as VgtkCore` — and
 writes `VgtkCore.foo`, never the long form. The aliases are exactly `VgtkCore`,
-`VgtkIo`, `VgtkFeatures`, `VgtkEval` and `VgtkEstimation`; PoseLib keeps its
+`VgtkIO`, `VgtkFeatures`, `VgtkEval` and `VgtkEstimation`; PoseLib keeps its
 name. The long name stays where Julia or a reader needs the real one:
 `Project.toml`, `using`/`import` paths (`using VisualGeometryToolkitCore.Pools`),
 a package's references to itself in its own `src/` and `docs/make.jl`, URLs,

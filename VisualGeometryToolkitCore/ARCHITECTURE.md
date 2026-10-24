@@ -74,7 +74,7 @@ include("robust/lo_contract.jl")      # the local-optimization and external-refi
 
 **Why here?** Contracts, the robust-statistics toolkit and the baseline
 scorers — no geometry. VisualGeometryToolkitEstimation implements the problem protocol and
-runs its one RANSAC loop over these verbs; RansacScoringDoneRight implements
+runs its one RANSAC loop over these verbs; RANSACScoringDoneRight implements
 the scoring contract; LocalOptimizationDoneRight implements the
 local-optimization contract and owns the lifts and continuation schedules. The
 pool-selection verbs (`robust/pool_selection.jl`: `best_pool_model`,

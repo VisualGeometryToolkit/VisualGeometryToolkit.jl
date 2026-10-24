@@ -26,7 +26,7 @@
    pixel-frame problem (`PoolPair(rng, problem, raw)`) and owns the record's
    pool-frame RANSAC problems (`HomographyProblem(pair)`,
    `FundMatProblem(pair)`, `EssentialProblem(pair)`); VisualGeometryToolkitEval reads
-   and writes pools; RansacScoringDoneRight's pool scorers score them in that
+   and writes pools; RANSACScoringDoneRight's pool scorers score them in that
    frame. Every API where pool data enters or leaves names that frame
    ([`pool_frame_maps`](@ref VisualGeometryToolkitCore.Pools.pool_frame_maps),
    [`pool_pixel_scale`](@ref VisualGeometryToolkitCore.Pools.pool_pixel_scale),
@@ -39,7 +39,7 @@
 | estimator, one-step public form | `find_homography`, `fit_division_camera`, `homography_dlt(cs)` | once in, once out |
 | inner loop | [`homography_dlt!`](@ref), `division_camera_step`, `refine!(ws, problem, θ, w)`, [`test_model`](@ref) | never; takes the estimator's |
 | minimal kernel | [`homography_4pt`](@ref), [`essential_5pt`](@ref), `solve(solver, cs, idx)` | never |
-| pool | [`PoolPair`](@ref VisualGeometryToolkitCore.Pools.PoolPair) (VGC `Pools`), VisualGeometryToolkitEstimation's pool-frame problems, VisualGeometryToolkitEval's pool IO, RansacScoringDoneRight's pool scorers | stored in [`NormalizedImageFrame`](@ref), declared |
+| pool | [`PoolPair`](@ref VisualGeometryToolkitCore.Pools.PoolPair) (VGC `Pools`), VisualGeometryToolkitEstimation's pool-frame problems, VisualGeometryToolkitEval's pool IO, RANSACScoringDoneRight's pool scorers | stored in [`NormalizedImageFrame`](@ref), declared |
 
 ```julia
 function homography_dlt(cs)                       # pixels in

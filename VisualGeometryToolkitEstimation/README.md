@@ -17,7 +17,7 @@ optimizer and any problem. Out of the box every `find_*` runs MSAC
 (VisualGeometryToolkitCore's `MsacScoring`) with least squares on the inliers
 (`Irls{TLSShape}`, its truncation at the scorer's threshold). The paper scorers
 and local optimizers live in their own packages and plug in by keyword:
-[RansacScoringDoneRight.jl](https://github.com/VisualGeometryToolkit/RansacScoringDoneRight.jl)
+[RANSACScoringDoneRight.jl](https://github.com/VisualGeometryToolkit/RANSACScoringDoneRight.jl)
 (the Student-t + uniform marginal score) and
 [LocalOptimizationDoneRight.jl](https://github.com/VisualGeometryToolkit/LocalOptimizationDoneRight.jl)
 (half-quadratic lifts, GNC, the Student-t + uniform IRLS, PoseLib refiners).
@@ -68,11 +68,11 @@ of the problem's characteristic length (a convention of this package).
 
 ### Composition: bring a scorer and a local optimizer
 
-A scorer from RansacScoringDoneRight and a strategy from
+A scorer from RANSACScoringDoneRight and a strategy from
 LocalOptimizationDoneRight are supplied as `scoring` and `local_optimization`:
 
 ```julia
-using RansacScoringDoneRight: StudentTUniformScoring
+using RANSACScoringDoneRight: StudentTUniformScoring
 using LocalOptimizationDoneRight: HQ, StudentTUniform, Gnc, WELSCH_HQ_SCALE_MULTIPLE_HOMOGRAPHY
 using VisualGeometryToolkitCore: WelschShape
 
@@ -177,7 +177,7 @@ AbstractRansacProblem{K} <: VGC AbstractConstraintProblem   RANSAC problem inter
 AbstractScoring (VGC)                        the scoring contract: scoring_workspace, score!,
 │                                            inlier_count, consensus_order (+ optional verbs)
 ├── MsacScoring, RansacScoring (VGC)         the baseline scorers; MSAC is the find_* default
-└── StudentTUniformScoring (RansacScoringDoneRight)   one example of a downstream scorer
+└── StudentTUniformScoring (RANSACScoringDoneRight)   one example of a downstream scorer
 
 AbstractLocalOptimization (VGC)              the LO contract: lo_workspace, locally_optimize!
 ├── NoLocalOptimization                      no refit; the default of ransac(problem, scoring)

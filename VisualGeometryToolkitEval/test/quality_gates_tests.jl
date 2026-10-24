@@ -123,7 +123,7 @@ end
 # The evaluation layer sits BELOW the paper packages: VisualGeometryToolkitEval
 # evaluates any scorer and any local optimizer through VisualGeometryToolkitCore's
 # contracts (and VisualGeometryToolkitEstimation's loop), so it may not depend on the
-# scorer package (RansacScoringDoneRight) or the optimizer package
+# scorer package (RANSACScoringDoneRight) or the optimizer package
 # (LocalOptimizationDoneRight) — not as a dependency, a weak dependency, a test
 # extra or a source, and no file of src/, ext/ or test/ loads either (K+,
 # 2026-10-09: the composition evaluator moved here from
@@ -134,7 +134,7 @@ end
 
     root = pkgdir(VisualGeometryToolkitEval)
     proj = TOML.parsefile(joinpath(root, "Project.toml"))
-    forbidden = Dict("RansacScoringDoneRight" => "e23d4225-f201-4c3a-a297-7efae5f2deeb",
+    forbidden = Dict("RANSACScoringDoneRight" => "e23d4225-f201-4c3a-a297-7efae5f2deeb",
                      "LocalOptimizationDoneRight" => "87a2e6a3-7afc-471f-bd1b-aa3740a29cd9")
     for (name, uuid) in forbidden
         for section in ("deps", "weakdeps", "extras", "sources", "compat")

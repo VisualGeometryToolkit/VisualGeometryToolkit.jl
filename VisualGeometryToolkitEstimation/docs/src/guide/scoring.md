@@ -57,14 +57,14 @@ is a fraction of the characteristic length, `0.01·L`.
 ## Composing a scorer from another package
 
 Any type implementing the contract is a `scoring`. The paper scorer of the
-stack is RansacScoringDoneRight's `StudentTUniformScoring`: a scale-free
+stack is RANSACScoringDoneRight's `StudentTUniformScoring`: a scale-free
 Student-t + uniform marginal likelihood that profiles the inlier set by
 sort-and-sweep and marginalises σ² under a scale prior (Jeffreys by default,
 `IGPrior(α₀, β₀)` optional). Its one width parameter is the outlier
 half-width `a`, the half-width of the uniform outlier support:
 
 ```julia
-using RansacScoringDoneRight: StudentTUniformScoring
+using RANSACScoringDoneRight: StudentTUniformScoring
 using VisualGeometryToolkitCore: IGPrior
 
 scoring = StudentTUniformScoring(problem, 20.0)                              # Jeffreys
@@ -75,7 +75,7 @@ result  = find_homography(pairs; scoring)
 The outlier half-width is the scorer's parameter, never a pipeline keyword:
 `find_*(…; outlier_halfwidth = …)` is an `ArgumentError` that names this form.
 The marginal score, its derivation and its sweep are documented with
-RansacScoringDoneRight.
+RANSACScoringDoneRight.
 
 ## Predictive scoring
 
@@ -106,7 +106,7 @@ local optimization (−0.029); E loses at selection (−0.010) and gains after i
 (+0.007), its one clear win being E after LO at N = 60 (+0.016). The loss is
 largest where the predicted variance is most heterogeneous across inliers
 (sd log V: H 2.30, F 1.39, pose 1.29, E 0.97). It costs 13–82× per hypothesis
-at N = 60 and 68–565× at N = 250 with RansacScoringDoneRight's kinetic sweep.
+at N = 60 and 68–565× at N = 250 with RANSACScoringDoneRight's kinetic sweep.
 The search itself is EXACT: this is a property of the FIRST-ORDER predictive
 model, not of the implementation. A post-release experiment (oracle covariance
 against the first-order one) will settle whether linearization is the cause.

@@ -14,10 +14,10 @@ name, the Registrator `subdir`, the TagBot tag prefix `<Name>-v…` and the docs
 | directory | package | depends on (stack) |
 |---|---|---|
 | `VisualGeometryToolkitCore/` | types, frames, cameras, kernels, the robust-estimation contracts | — |
-| `VisualGeometryToolkitIo/` | file formats and schemas | VisualGeometryToolkitCore |
+| `VisualGeometryToolkitIO/` | file formats and schemas | VisualGeometryToolkitCore |
 | `VisualGeometryToolkitFeatures/` | feature detection and matching | VisualGeometryToolkitCore |
 | `VisualGeometryToolkitEstimation/` | the RANSAC loop and robust estimators | VisualGeometryToolkitCore |
-| `VisualGeometryToolkitEval/` | evaluation protocol, pools, paper-project template | VisualGeometryToolkitCore, VisualGeometryToolkitIo, VisualGeometryToolkitEstimation |
+| `VisualGeometryToolkitEval/` | evaluation protocol, pools, paper-project template | VisualGeometryToolkitCore, VisualGeometryToolkitIO, VisualGeometryToolkitEstimation |
 | `PoseLib/` | wrapper of the PoseLib C++ solvers (binaries: its `Artifacts.toml`) | VisualGeometryToolkitCore |
 | `ci/` | workspace tooling; a workspace member, never registered | — |
 

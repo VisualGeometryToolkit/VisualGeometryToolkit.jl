@@ -66,7 +66,7 @@ Instantiate it with `julia --project=VisualGeometryToolkitFeatures/examples -e '
 The refinement accuracy pinned by the test suite (two detections of the same
 small, isolated blob differ by at most 0.06 px) is what
 VisualGeometryToolkitCore's coincidence gate is built around. That gate,
-`COINCIDENT_PX` = 0.1 px, passed as `tol_px` in Core's
+`COINCIDENT_PX` = 0.1 px, supplied as `tol_px` in Core's
 `src/geometry/model_validity.jl`, rejects minimal samples with coincident
 points, and it is set to clear the 0.06 px bound with margin. A change to the
 refinement that loosens the bound therefore changes which samples Core's

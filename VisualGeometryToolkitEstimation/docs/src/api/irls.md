@@ -29,6 +29,9 @@ PosteriorIrlsMethod
 PosteriorIrlsState
 WeightedRefine
 KeepModel
+LossPlainWeights
+StopWhenNoImprovement
+iterations_without_improvement
 ```
 
 ## Classifying a held model's residuals

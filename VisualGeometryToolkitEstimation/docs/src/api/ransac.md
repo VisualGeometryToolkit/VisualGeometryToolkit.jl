@@ -17,6 +17,8 @@ locally_optimize
 ```@docs
 AbstractRansacProblem
 AbstractCspondProblem
+MinimalSolveProblem
+PoseContext
 minimal_sample_size
 data_size
 model_type
@@ -105,6 +107,29 @@ ExhaustiveSampler
 trial_budget
 adapts
 sampler
+draw!
+reset!
+```
+
+## Validity regions
+
+A problem can declare a region of validity, such as the image extent. The
+consensus check then counts only the points inside it.
+
+```@docs
+BoundedProblem
+ExtentTrait
+NoExtent
+WithExtent
+extent_trait
+```
+
+## Relative-pose bundle
+
+```@docs
+RelposeBundleProblem
+bundle_refine_relpose
+SchurSolver
 ```
 
 ## Configuration and Results
@@ -227,5 +252,8 @@ lo_from_toml
 config_dict
 LO_TAGS
 LOSS_TAGS
+MODEL_UPDATE_TAGS
+NUISANCE_TAGS
+CONTRACT_GENERICS
 ```
 

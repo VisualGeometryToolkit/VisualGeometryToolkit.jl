@@ -77,6 +77,18 @@ end
 # MinimalSolveProblem
 # =============================================================================
 
+"""
+    MinimalSolveProblem{M, K, T, ...} <: AbstractCspondProblem{K}
+
+The one parametric correspondence problem behind [`HomographyProblem`](@ref),
+[`FundMatProblem`](@ref), [`EssentialProblem`](@ref) and
+[`AbsolutePoseProblem`](@ref), which are partial applications of it: `M` is
+the model type, `K` the minimal sample size and `T` the scalar type. The model
+type selects the per-model behaviour (codimension, minimal solver, residual
+whitening). The problem holds the correspondences in the caller's frame, its
+private normalization, the minimal solver, the sampler and, for absolute pose,
+a [`PoseContext`](@ref). Construct one through its aliases.
+"""
 struct MinimalSolveProblem{
         M,
         K,

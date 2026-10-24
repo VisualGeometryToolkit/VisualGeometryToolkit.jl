@@ -51,6 +51,16 @@ struct UniformSampler <: AbstractSampler
     n::Int
 end
 
+"""
+    draw!(rng::Random.AbstractRNG, indices::AbstractVector{Int}, sampler::AbstractSampler) -> nothing
+
+Fill `indices` with one minimal sample drawn by `sampler`, taking every random
+decision from `rng`. The sample's size is `length(indices)`. A sampler with a
+schedule (PROSAC) advances it, and that state is RNG state in the sense of the
+stack's mutation rule. See [`AbstractSampler`](@ref) for the protocol.
+"""
+function draw! end
+
 draw!(rng::Random.AbstractRNG, indices::AbstractVector{Int}, s::UniformSampler) =
     (_draw_uniform!(rng, indices, s.n); nothing)
 reset!(::UniformSampler) = nothing

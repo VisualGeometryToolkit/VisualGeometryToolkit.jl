@@ -26,6 +26,13 @@
 # inner problem via `Base.getproperty` + explicit interface methods.
 # =============================================================================
 
+"""
+    ExtentTrait
+
+Whether a RANSAC problem declares a validity region: [`NoExtent`](@ref) (the
+default) or [`WithExtent`](@ref). [`extent_trait`](@ref) returns a problem's
+trait, and [`BoundedProblem`](@ref) adds a region to any problem.
+"""
 abstract type ExtentTrait end
 
 """

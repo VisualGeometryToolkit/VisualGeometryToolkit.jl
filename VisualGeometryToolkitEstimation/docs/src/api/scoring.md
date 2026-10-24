@@ -97,3 +97,28 @@ NoLocalOptimization
 Irls
 default_local_optimization
 ```
+
+### Loss resolution
+
+The core strategies resolve the loss they deploy through these helpers. A
+downstream strategy can use them to follow the same width rules.
+
+```@docs
+lo_loss
+strategy_loss
+deployed_shape
+fixed_width
+lo_width_value
+plain_scale_multiple
+locally_optimize_rescored!
+```
+
+### Lifted local optimization
+
+The chart problems provide VisualGeometryToolkitCore's chart-rows contract, which
+the half-quadratic lifts of LocalOptimizationDoneRight consume.
+
+```@docs
+ManifoldLiftProvider
+LiftableProblem
+```

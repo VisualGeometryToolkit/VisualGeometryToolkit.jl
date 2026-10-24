@@ -304,7 +304,14 @@ The model-update registry of the posterior-weight EM (VisualGeometryToolkitCore'
 """
 const MODEL_UPDATE_TAGS = TagRegistry(:model_update, "", "weighted_refine" => WeightedRefine, "keep_model" => KeepModel;
                                       retired = ("keep" => "keep_model",), paths = [r"(^|\.)model_update(\.type)?$"])
-# One tag table per nuisance part: what "estimate" and "fixed" build for it.
+"""
+    NUISANCE_TAGS
+
+The nuisance-policy registries of the posterior-weight EM, one
+VisualGeometryToolkitCore `TagRegistry` per nuisance part, as a named tuple:
+`scale` (`"estimated"`, `"fixed_s2"`), `inlier_prior` (`"estimated"`,
+`"fixed_prior"`) and `nu` (`"estimated"`, `"fixed_nu"`, `"consensus_dof"`).
+"""
 const NUISANCE_TAGS = (
     scale = TagRegistry(:scale_policy, "", "estimated" => Estimated, "fixed_s2" => FixedS2;
                         retired = ("estimate" => "estimated", "fixed" => "fixed_s2"),

@@ -85,6 +85,15 @@
 # per-point Cholesky and the 6×6 reduced solve run per iteration. Every block is
 # a static array in a buffer the solver owns: nothing is allocated per call.
 # -----------------------------------------------------------------------------
+"""
+    SchurSolver(npts) <: FastLevenbergMarquardt.AbstractSolver
+
+The linear solver of [`bundle_refine_relpose`](@ref)'s Levenberg–Marquardt
+iterations. It solves the damped normal equations of the relative pose and
+`npts` structure points by eliminating each point's 3×3 block (the Schur
+complement), so a solve costs one 6×6 system plus `npts` 3×3 ones and
+allocates nothing.
+"""
 struct SchurSolver <: FastLevenbergMarquardt.AbstractSolver
     npts::Int
     Hpp::Base.RefValue{SMatrix{6, 6, Float64, 36}}       # Σᵢ J_pᵢᵀ J_pᵢ

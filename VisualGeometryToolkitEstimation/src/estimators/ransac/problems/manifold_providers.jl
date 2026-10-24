@@ -54,6 +54,15 @@ _lift_dims(problem) = (Val(chart_dof(problem)), Val(codimension(problem)))
 # instantiation carries a minimal chart of its model and a codimension-1 or -2
 # constraint. The lifts' `locally_optimize!` methods (LocalOptimizationDoneRight)
 # are typed on it, so the contract's refusal keeps guarding every other problem.
+"""
+    LiftableProblem
+
+The problems that provide VisualGeometryToolkitCore's chart-rows contract to a
+lifted local optimizer: the [`MinimalSolveProblem`](@ref) family, whose every
+instance has a minimal chart of its model and a codimension-1 or -2
+constraint. A lifted strategy's `locally_optimize!` methods dispatch on it,
+so the contract still refuses every other problem.
+"""
 const LiftableProblem = MinimalSolveProblem
 
 function rows_provider(problem::LiftableProblem)

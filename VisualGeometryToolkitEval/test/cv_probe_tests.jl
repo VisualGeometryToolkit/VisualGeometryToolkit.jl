@@ -198,8 +198,9 @@ end
 end
 
 @testitem "incumbent rule" setup = [TuningFixtures] begin
-    using Test, Logging, Random
+    using Test, Logging, StableRNGs
     using VisualGeometryToolkitEval.Evaluation: coarse_fine_search
+    using VisualGeometryToolkitEval.Stats: stable_seed
     using VisualGeometryToolkitEval.Tuning: grid_spec, tuning_hash, tuning_table
     quiet(f) = with_logger(f, NullLogger())
 
@@ -214,10 +215,16 @@ end
         inc === nothing ? Dict{String,Any}() : Dict{String,Any}("incumbent" => Dict{String,Any}("values" => inc)))
     spec(inc) = fixture_spec(table(inc); name = "i").scheme
     # 40 units × 6 items: the error grows away from (a, b) = (2, 0.5), with
-    # per-unit noise drawn per cell, so a small objective gap is not resolved
-    base = abs.(randn(MersenneTwister(5), 40, 6))
+    # per-unit noise drawn per cell, so a small objective gap is not resolved.
+    # The draws come from StableRNG and stable_seed because MersenneTwister's
+    # stream and Base.hash both changed in Julia 1.13. "A gain within the noise"
+    # is a property of the draws: the selection is the luckiest of the fine
+    # cells, so across seeds 1:20 the paired bootstrap keeps the incumbent for
+    # 13 of them. Seed 2 is one of those; "a clear gain" holds for all 20.
+    noise_seed = 2
+    base = abs.(randn(StableRNG(noise_seed), 40, 6))
     errs(p) = base .* (1 + 3abs(log(p.a / 2)) + 4abs(p.b - 0.5)) .*
-              (1 .+ rand(MersenneTwister(hash((p.a, p.b))), 40))
+              (1 .+ rand(StableRNG(stable_seed(noise_seed, p.a, p.b)), 40))
     cells(s) = Dict(:c => (a = grid_spec(s.axes["a"].coarse), b = grid_spec(s.axes["b"].coarse)))
     run(s; seen = []) = quiet(() -> coarse_fine_search(ps -> (push!(seen, only(values(ps))); Dict(k => errs.(v) for (k, v) in ps)),
                                                      cells(s), s))[:c]

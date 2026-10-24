@@ -3,6 +3,9 @@ uuid = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
 version = "0.1.1"
 authors = ["James Pritts <jbpritts@gmail.com>"]
 
+[workspace]
+projects = ["test", "docs", "benchmark/lenses"]
+
 [deps]
 Accessors = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
 Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
@@ -67,16 +70,14 @@ GeometryBasics = "0.5.13"
 ImageCore = "0.10.5"
 IntervalSets = "0.7.15"
 JET = "0.12.3"
-KernelAbstractions = "0.9.45"
+KernelAbstractions = "0.9.45, 0.10"
 LinearAlgebra = "1"
 LogExpFunctions = "1.0"
 MacroTools = "0.5.16"
-QuadGK = "2.11"
 Makie = "0.24.16"
+QuadGK = "2.11"
 Random = "1"
 Rotations = "1.7"
-# The fork-only queries live in VisualGeometryToolkitCore.SpatialQueries; the
-# fork itself is no longer registered anywhere, so a plain caret bound is safe.
 SpatialIndexing = "0.1.6"
 SpecialFunctions = "2.9"
 StaticArrays = "1.9"
@@ -85,6 +86,3 @@ StructArrays = "0.7.4"
 TOML = "1"
 Test = "1"
 julia = "1.12"
-
-[workspace]
-projects = ["test", "docs", "benchmark/lenses"]

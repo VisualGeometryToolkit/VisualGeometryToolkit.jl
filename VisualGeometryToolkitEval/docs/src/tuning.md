@@ -17,7 +17,7 @@ artifact keys:
 | name | meaning |
 |---|---|
 | `scale_multiple` | a width as a multiple of the estimated inlier scale ŝ (dimensionless); width = scale_multiple · ŝ |
-| `loss_width` | a robust loss's width, supplied directly (no scale estimate): a lifted or IRLS loss's, or a threshold score's (a threshold is its truncated loss's width) |
+| `loss_width` | a robust loss's width, supplied directly (no scale estimate): the width of a lifted loss, of a loss minimized by iteratively reweighted least squares (IRLS), or of a threshold score (a threshold is its truncated loss's width) |
 | `outlier_halfwidth` | the Student-t marginal's uniform outlier half-width |
 | `scale_multiple_window` | the standardized window `[lo, hi]` of scale multiples every search window is cut from |
 
@@ -126,7 +126,7 @@ of a corrupted native (never a tuning's).
 | `finite_median` | `FiniteMedian` | none | median of the finite errors (`Inf` when none) |
 | `scene_mean_lower_median` | `SceneMeanLowerMedian` | none | mean over scenes of each scene's lower median |
 | `scene_mean_median` | `SceneMeanMedian` | none | mean over scenes of each scene's finite median (Stats `scene_mean_median`) |
-| `mean_average_accuracy` | `MeanAverageAccuracy` | `max_error` (required) | −mAA up to `max_error`, in the errors' own units (Stats `eligible_maa`) |
+| `mean_average_accuracy` | `MeanAverageAccuracy` | `max_error` (required) | minus the mean average accuracy (mAA) up to `max_error`, in the errors' own units (Stats `eligible_maa`) |
 
 ### `scene_split`: `SceneSplit`
 
@@ -156,10 +156,11 @@ are refused as unknown.
 
 ## Randomness
 
-Each rule is the definition. Every seed of a sample is derived by Stats
-`stable_seed(seed, keys...)`: the first 8 bytes of the SHA-256 of the seed and
-the keys as text, a fixed algorithm (never `Base.hash`, which changes across
-Julia versions), keyed by NAME:
+Each rule below is the definition. Every seed of a sample is derived by Stats
+`stable_seed(seed, keys...)`: the first 8 bytes of the SHA-256 hash of the
+seed and the keys as text. The algorithm is fixed, unlike `Base.hash`, which
+changes across Julia versions, and the seed is keyed by a name rather than an
+index:
 
 - **Stratified sampling.** Scene `s` draws from `rng(stable_seed(seed, s))`.
 - **Uniform sampling.** The pooled draw is `rng(stable_seed(seed,
@@ -176,7 +177,7 @@ Julia versions), keyed by NAME:
 `rng` names an algorithm in `RNG_ALGORITHMS`: `"StableRNG"` only
 (StableRNGs.jl), whose streams are fixed across Julia versions; a permutation
 is drawn with `shuffle`, which StableRNGs guarantees (`randperm` it does not).
-The BCa bootstrap itself (Bootstrap.jl) resamples from Julia's default stream
+The bias-corrected and accelerated (BCa) bootstrap itself (Bootstrap.jl) resamples from Julia's default stream
 seeded by the row's rng, so a reported interval also depends on the Julia
 version, recorded in every artifact's code identity.
 
@@ -203,8 +204,8 @@ CrossValidation(scene_split::SceneSplit, validation::UnitSampling, test::UnitSam
   cap_per_scene, seed, rng)`, each scene sampled separately (the scene mix is
   preserved); `UniformSampling(fraction, cap, seed, rng)`, the units of all
   the side's scenes pooled. A sampler always permutes, keeps
-  `max(1, round(fraction·n))`, applies the cap, and sorts back into the data's
-  order LAST, so a cap never keeps a prefix of the data. Adding, removing or
+  `max(1, round(fraction·n))` and applies the cap. Only then does it sort back
+  into the data's order, so a cap never keeps a prefix of the data. Adding, removing or
   reordering other scenes leaves a stratified scene's sample unchanged.
 - **The sampling unit** is a property of the data, never of the spec:
   `sampling_unit(::Type{D})` is `PairUnit()` (an image pair: the stereo
@@ -242,7 +243,8 @@ test = { type = "exhaustive" }
 
 ### `joint_coarse_fine`: `JointCoarseFine` (Evaluation `coarse_fine_search`)
 
-THE coarse-fine search, over the product of named axes:
+The coarse-to-fine search over the product of named axes. It runs in four
+steps:
 
 1. the coarse product grid, every cell scored;
 2. while the joint argmin lies within `edge_margin` points of a face, that

@@ -15,7 +15,7 @@ reproducible-figures contract (`Reproduce`: a paper project's REPRODUCE.md
 asset index checked against what its tex reads) and the paper-project
 conventions (`PaperProjects`: `paper_project_violations`, the one check every
 paper project's suite calls, and `new_paper_project`, the template whose files
-live in `templates/paper_project/`; README "Paper project conventions"). It
+live in `templates/paper_project/`; the docs page `docs/src/paper-projects.md`). It
 depends on VisualGeometryToolkitCore, VisualGeometryToolkitIO and VisualGeometryToolkitEstimation only.
 The evaluator is written against VisualGeometryToolkitCore's contracts (scoring, local
 optimization, `RefitFamily`, `refine_external!`, `select_on_grid!`), never
@@ -32,7 +32,13 @@ ReTestItems: `Pkg.test(; test_args = ["pool_io|tuning"])` filters items by
 name. Check the reported total.
 The quality items (Aqua, ExplicitImports, JET ratchet at 0, calling
 conventions, undefined globals, the stack's naming check) run in the default
-suite.
+suite. The `readme` item runs every ```julia block of README.md, and checks
+that the installation block adds every package they import.
+
+The README is a README (purpose, installation, quick start, links). Reference
+material goes in the multi-page docs (`docs/src/`, one API page per submodule
+under `docs/src/api/`); `docs/make.jl` builds with no `warnonly`, so a new
+public name needs a docstring and a page that includes it.
 
 ## Defaults of record (TOML is the authority)
 

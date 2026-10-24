@@ -179,6 +179,6 @@ end
 
 function _direct_start(points)
     e = direct_ellipse(points)
-    e === nothing && throw(ArgumentError("refine_ellipse: the points admit no direct_ellipse start value; pass `init`"))
+    e === nothing && throw(ArgumentError("refine_ellipse: the points admit no direct_ellipse start value; supply `init`"))
     return e
 end

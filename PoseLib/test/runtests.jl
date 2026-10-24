@@ -13,6 +13,9 @@ using Artifacts: load_artifacts_toml
 
     include("agent_docs.jl")
 
+    # Every julia block of the README runs as written.
+    include("readme_tests.jl")
+
     @testset "smoke" begin
         # Identity pose with 3 known 3D points → P3P should recover it.
         X = [Point3(1.0, 0.5, 5.0), Point3(-0.5, 1.0, 4.0), Point3(0.0, -0.5, 6.0)]

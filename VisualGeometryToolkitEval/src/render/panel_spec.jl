@@ -1,5 +1,5 @@
 # =============================================================================
-# panel_spec.jl — PanelSpec: THE display-option record for the figure renderers.
+# panel_spec.jl — PanelSpec: The display-option record for the figure renderers.
 #
 # Every cosmetic/display choice that used to be threaded as parallel kwarg
 # lists through render_bundle → _write_lo_panels → build_axis lives here as

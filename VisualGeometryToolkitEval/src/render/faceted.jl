@@ -1,5 +1,5 @@
 # =============================================================================
-# src/render/faceted.jl — ONE pgfplots faceted-groupplot emitter.
+# src/render/faceted.jl — one pgfplots faceted-groupplot emitter.
 #
 # Consolidates the four hand-rolled, byte-similar emission blocks of the
 # faceted renderers (render_basin_faceted / render_miscal_faceted /

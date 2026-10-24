@@ -17,9 +17,9 @@ this module exports the submodules and the CLI.
 """
 module VisualGeometryToolkitEval
 
-include("config_defaults.jl")   # THE default mechanism: configs/default.toml → `_config_default`
+include("config_defaults.jl")   # the default mechanism: configs/default.toml → `_config_default`
 include("cli.jl")               # cli_option, start_output_flush!
-include("artifact_format.jl")   # THE format stamp of every persisted artifact kind
+include("artifact_format.jl")   # the format stamp of every persisted artifact kind
 
 import JLD2   # artifact_format.jl: every call is qualified
 

@@ -1,5 +1,5 @@
 # =============================================================================
-# src/tuning/persist.jl — THE writer and reader of a tuning artifact.
+# src/tuning/persist.jl — the writer and reader of a tuning artifact.
 #
 # Every artifact a tuning run persists (a sequential-CV sidecar or its
 # tune-phase checkpoint, a probe CV sidecar, a bundle of validation matrices)
@@ -66,7 +66,7 @@ const _ARTIFACT_KEYS = ("tuning_name", "tuning_spec", "tuning_hash", "grid_specs
 """
     save_tuning_artifact(path, spec::TuningSpec; grids, unit, code, data...) -> path
 
-THE writer of a tuning artifact: the spec (complete table — its
+The writer of a tuning artifact: the spec (complete table — its
 cross-validation's scene lists included — name, hash), the `grids`
 (`Dict{Symbol,<:GridSpec}`, one per axis the run tuned on), the sampling
 `unit` its cross-validation drew (the data's [`sampling_unit`](@ref)), the
@@ -112,7 +112,7 @@ Base.get(a::TuningArtifact, k::AbstractString, default) = get(a.data, k, default
 """
     load_tuning_artifact(path) -> TuningArtifact
 
-THE reader of a tuning artifact: refuses another format first (an
+The reader of a tuning artifact: refuses another format first (an
 `ArgumentError` naming the file: regenerate it by re-running its tuning), then reads the
 spec (complete — nothing inherited), checks its hash, and rebuilds every grid
 from its spec.

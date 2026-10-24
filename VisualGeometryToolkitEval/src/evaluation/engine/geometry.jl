@@ -1,5 +1,5 @@
 # =============================================================================
-# evaluation/engine/geometry.jl — per-pair pool-frame geometry, built ONCE
+# evaluation/engine/geometry.jl — per-pair pool-frame geometry, built once
 # per pair and shared by every selector / LO refit / refit family (moved from
 # LocalOptimizationDoneRight's engine, K+ 2026-10-09).
 #
@@ -61,7 +61,7 @@ _pair_csponds(pair) = Csponds(Point2{Float64}.(sources(pair.csponds)),
                               Point2{Float64}.(targets(pair.csponds)))
 
 # -----------------------------------------------------------------------------
-# THE imc of a model against the pair's GT, dispatched on the MODEL's type — one
+# The imc of a model against the pair's GT, dispatched on the model's type — one
 # function for pool models (selector checkpoints, the oracle), refit seeds and
 # refit results alike:
 #   EssentialMat — a metric essential: max(Δr, Δt) [deg] of its best
@@ -73,7 +73,7 @@ _pair_csponds(pair) = Csponds(Point2{Float64}.(sources(pair.csponds)),
 #                  decomposed (Malis–Vargas), ROTATION error Δr° minimized over
 #                  the candidates — the pools' `errors_r`, same metric.
 #
-# HOMOGRAPHY IS ROTATION ONLY (2026-07-26): HEB's small-baseline pairs make the H
+# HOMOGRAPHY IS ROTATION only (2026-07-26): HEB's small-baseline pairs make the H
 # decomposition's translation DIRECTION ill-conditioned (the scoring paper's
 # "HEB plane-assignment caveat"), so max(Δr, Δt°) saturates ~30°+ on a metric a
 # perfect H cannot improve. The house HEB protocol scores rotation only. Until
@@ -113,7 +113,7 @@ _refit_seed(::Type{<:Union{FundMatProblem,HomographyProblem}}, model, ::PairGeom
     PairCtx
 
 Everything the refit layer needs about one pair.
-Built ONCE per pair by [`build_pair_ctx`](@ref) and reused across every (LO
+Built once per pair by [`build_pair_ctx`](@ref) and reused across every (LO
 refit spec × grid column), it holds the pair itself (a light `PoolPair`), its pool-frame problem (`ep`), the optional
 `RelposeBundleProblem` (`bp`, `nothing` unless `bundle=true`), the geometry,
 the problem class (`problem_type`) and the refit scoring TEMPLATES: `scoring`,
@@ -179,7 +179,7 @@ _essential_bearings(P::Type, _) =
     throw(ArgumentError("the cheirality vote needs an EssentialProblem context; got $P"))
 
 # -----------------------------------------------------------------------------
-# Perturbed-seed helpers — THE basin-experiment perturbation (one copy, shared
+# Perturbed-seed helpers — the basin-experiment perturbation (one copy, shared
 # by run_basin_ladder.jl and the solo-CV driver so both protocols perturb
 # identically; moved here from run_basin_ladder.jl 2026-07-18).
 # -----------------------------------------------------------------------------

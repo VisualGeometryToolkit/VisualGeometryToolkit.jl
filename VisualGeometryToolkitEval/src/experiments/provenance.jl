@@ -1,11 +1,11 @@
 # =============================================================================
-# provenance.jl — THE provenance record of a derived artifact directory, the
+# provenance.jl — the provenance record of a derived artifact directory, the
 # skip-if-complete commit-drift check, the legacy cache key and the keyed
 # result cache (hoisted 2026-10-07: VisualGeometryToolkitEval `write_run_records`,
 # bmvc2026 src/provenance.jl `write_provenance`/`read_provenance`, bmvc2026
 # src/cache.jl `cached`, bmvc2026 sweep.jl's drift warning).
 #
-# THE SCHEMA IS DRWATSON'S TAGGED DICT. `_provenance.toml` holds one flat table:
+# The SCHEMA IS DRWATSON'S TAGGED DICT. `_provenance.toml` holds one flat table:
 # the caller's fields plus `driver`, `timestamp`, `hostname`, `julia` and what
 # DrWatson's `tag!` adds under its own names — `gitcommit` (`gitdescribe`,
 # "-dirty" on an uncommitted tree) and `gitpatch` (the `git diff HEAD` that

@@ -25,7 +25,7 @@
 # - `ScaleMultiple()` — the user supplies the scale multiple; the loss width is
 #   `scale_multiple·ŝ`, ŝ read from the consensus set at refit time
 #   (CONSENSUS-ANCHORED). The value is baked into `ctor(scale_multiple)`.
-# - `LossWidth()` — the loss width itself, in absolute residual units: ONE
+# - `LossWidth()` — the loss width itself, in absolute residual units: One
 #   quantity whatever the refiner. A native refiner runs its unit-multiple
 #   strategy at it (`with_width(lo, fixed_width(lo, w²))` — basin-only), an
 #   external refiner refines at it.
@@ -104,7 +104,7 @@ is_tuned(arm::ComposedSpec) = arm.source isa TunedWidth
 """
     operating_width(arm::ComposedSpec, selection, tuned) -> Float64
 
-THE refit width of `arm` at the tuned selection width `selection`.
+The refit width of `arm` at the tuned selection width `selection`.
 By its [`WidthSource`](@ref): a [`TunedWidth`](@ref) arm's tuned value `tuned`; a
 [`SelectionWidth`](@ref) arm's `selection` itself — `tuned` is `nothing` (the
 tuning stage, which has none) or a recorded width, which must equal
@@ -139,9 +139,9 @@ deployed_ref(::ScaleMultiple, selection, width) = Float64(selection)
 deployed_ref(::WidthAxis, selection, width) = Float64(width)
 
 # =============================================================================
-# SoloSpec — ONE ROLE validated in isolation with ONE native.
+# SoloSpec — one role validated in isolation with one native.
 #
-# Where a ComposedSpec is a composed score+LO pipeline, a SoloSpec is ONE role
+# Where a ComposedSpec is a composed score+LO pipeline, a SoloSpec is one role
 # — a scorer or an LO — whose single width value is supplied in ABSOLUTE
 # residual units, with the other role held out of the loop entirely:
 #
@@ -183,7 +183,7 @@ end
     solo_refit_imc!(ctx, spec::SoloSpec, seed_E, width, selection_halfwidth; on_fail = NaN)
         -> (imc°, lo_ns)
 
-THE width-delivery dispatch of a `:refinement` solo evaluation, one mechanical
+The width-delivery dispatch of a `:refinement` solo evaluation, one mechanical
 map from `spec.axis` to the refit call, shared by the basin tuning's refits and
 the ladder's solo mode so tuning and test deliver the width identically. The
 seed is swept under the context's solo template (`ctx.solo_scoring`):
@@ -205,7 +205,7 @@ function solo_refit_imc!(ctx, spec::SoloSpec, seed_E, width::Float64, selection_
 end
 
 # -----------------------------------------------------------------------------
-# The roster — a paper's arms, as ONE value every reader takes explicitly
+# The roster — a paper's arms, as one value every reader takes explicitly
 # -----------------------------------------------------------------------------
 """
     Roster(composed, solo, basin)

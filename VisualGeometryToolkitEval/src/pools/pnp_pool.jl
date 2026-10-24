@@ -1,5 +1,5 @@
 # =============================================================================
-# src/pools/pnp_pool.jl — THE on-disk layout of a 2D-3D (PnP) pool file: one
+# src/pools/pnp_pool.jl — the on-disk layout of a 2D-3D (PnP) pool file: one
 # writer and one reader for every producer and consumer. PnP pools are in
 # PIXELS (`ImageFrame`): queries carry their own camera.
 # =============================================================================
@@ -7,7 +7,7 @@
 """
     save_pnp_pool(path, pools, misses; score) -> path
 
-THE writer of a PnP pool file (artifact kind `:pnp_pool`, format 2), JLD2,
+The writer of a PnP pool file (artifact kind `:pnp_pool`, format 2), JLD2,
 plain data:
 
 | key | meaning |
@@ -28,7 +28,7 @@ end
 """
     load_pnp_pool(path) -> (; pools, misses, score)
 
-THE reader of a PnP pool file ([`save_pnp_pool`](@ref) is the format): refuses
+The reader of a PnP pool file ([`save_pnp_pool`](@ref) is the format): refuses
 another `pnp_pool_format` and a frame other than `ImageFrame`.
 """
 function load_pnp_pool(path::AbstractString)

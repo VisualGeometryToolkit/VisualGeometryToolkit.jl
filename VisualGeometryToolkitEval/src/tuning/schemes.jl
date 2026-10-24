@@ -22,7 +22,7 @@ abstract type TuningScheme end
 """
     CoarseFine(coarse, extension, edge_margin, fine, criterion, cross_validation)
 
-The coarse-fine search of ONE scalar (Evaluation cv_probe.jl): the
+The coarse-fine search of one scalar (Evaluation cv_probe.jl): the
 one-axis case of [`JointCoarseFine`](@ref), its axis spelled flat — sweep the
 `coarse` axis, `extend` it by `extension.npts` points on a side whenever the
 argmin lies within `edge_margin` points of that edge (at most

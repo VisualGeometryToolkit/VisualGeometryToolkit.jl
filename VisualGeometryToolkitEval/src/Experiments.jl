@@ -1,5 +1,5 @@
 # =============================================================================
-# Experiments — THE paper-generic experiment-codification framework (promoted
+# Experiments — the paper-generic experiment-codification framework (promoted
 # from papers/accv2026/experiments/common.jl; the paper file is now a thin
 # shim that sets the driver context and keeps the paper constants).
 #
@@ -11,13 +11,13 @@
 #   * and ends by RENDERING its artifact into the paper repo's figures/.
 #
 # CLI (uniform across every experiment file):
-#   --plan          print the stage plan (done/pending) and exit — THE
+#   --plan          print the stage plan (done/pending) and exit — the
 #                   structural check gate before any sbatch launch
 #   --stage=NAME    run exactly one stage (still skip-if-done; add --force)
 #   --force         re-run stages even when their done-predicate holds
 #
 # CV DISCIPLINE: no experiment file implements a sweep/argmin. All tuning is
-# THE single CV path (package Evaluation cv_probe.jl, with boundary_hits
+# The single CV path (package Evaluation cv_probe.jl, with boundary_hits
 # detection + read-time refusal); every sidecar is audited for interior
 # argmins BEFORE consumption.
 #
@@ -36,21 +36,18 @@ The paper-generic experiment-codification framework: the [`Stage`](@ref)
 table + [`run_stages`](@ref) entrypoint (`--plan`/`--stage`/`--force`), the
 [`run_driver`](@ref) shell-out, [`require_input`](@ref)/[`fresher`](@ref)
 declarations, the run records (the configuration-of-record layer), the
-executable codification contract ([`contract_violations`](@ref)) and the ONE
+executable codification contract ([`contract_violations`](@ref)) and the one
 data layer of every paper project: the root ladder and artifact view
 ([`set_project_root!`](@ref), [`data_root`](@ref), [`ArtifactView`](@ref)),
 the input write guard ([`assert_not_input`](@ref)), the provenance record
 ([`write_provenance`](@ref), [`read_provenance`](@ref)), the keyed cache
-([`cached_result`](@ref)) and the data policy ([`data_policy_violations`](@ref)). The
-interior-argmin audits of a deployed operating point belong to the package
-that owns the roster (LocalOptimizationDoneRight).
+([`cached_result`](@ref)) and the data policy ([`data_policy_violations`](@ref)).
 
-PROMOTION BOUNDARY: this module holds exactly what a future paper uses
-UNCHANGED — the runner mechanics and the contract rules. Everything that
-encodes a PAPER'S decisions stays in that paper's tree: stage rosters and
-input paths (the experiment files), the driver directory/project wiring
-(the paper's experiments/common.jl shim via [`set_driver_context!`](@ref)),
-artifact destinations, splits and oracle constants.
+This module holds what every paper uses unchanged: the runner mechanics and
+the contract rules. A paper's own decisions stay in that paper's project: its
+stage rosters and input paths, its driver wiring (set with
+[`set_driver_context!`](@ref)), its artifact destinations, splits and oracle
+constants.
 """
 module Experiments
 

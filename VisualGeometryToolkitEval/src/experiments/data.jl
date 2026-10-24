@@ -1,5 +1,5 @@
 # =============================================================================
-# data.jl — THE data/results binding of a codified experiment project: the root
+# data.jl — the data/results binding of a codified experiment project: the root
 # ladder, the artifact view and the input-tree write guard. One implementation
 # for every paper project of the stack (hoisted 2026-10-07 from
 # VisualGeometryToolkitEval run_records.jl `_root` and the paper projects' own

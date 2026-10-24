@@ -42,7 +42,7 @@ Returns `length(units) × length(pairs)` matrices: `translation` (the
 translation's distance from the reference, in the poses' units) and
 `rotation` (geodesic angle, degrees). An entry is `Inf` where the pair was
 not observed in that unit, or was observed in fewer than `max(min_obs, 3)`
-units (no reference) — so under [`eligible_maa`](@ref) (THE mAA rule: a
+units (no reference) — so under [`eligible_maa`](@ref) (the mAA rule: a
 non-finite error scores 0 and stays in the denominator) a missed pair counts
 as a failure, and `eligible_maa(e, isfinite.(e))` is the accuracy over what
 was observed.

@@ -82,7 +82,7 @@ paper_color_defs(style::PaperStyle) =
 """
     default_palette() -> Vector{Pair{String,String}}
 
-THE house base palette (`name => hex`, ordered): the standing selector/
+The house base palette (`name => hex`, ordered): the standing selector/
 reference colors every paper starts from — RGB-primary "ours" hues
 (Jeffreys red `e6194b`, IG-Robust green `3cb44b`, IG-MLE blue `4363d8`),
 baselines chosen so none competes with Jeffreys red (RANSAC pastel pink
@@ -105,7 +105,7 @@ default_palette() = [
 ]
 
 # A render-only exclusion is the `exclude` keyword of the emitters
-# (emitters.jl `emit_*`, `miscal_summary_rows`) — the ONE owner. `build_axis`
+# (emitters.jl `emit_*`, `miscal_summary_rows`) — the one owner. `build_axis`
 # below plots the style rows it is given, so excluding a method from it means
 # leaving its row out of the style.
 

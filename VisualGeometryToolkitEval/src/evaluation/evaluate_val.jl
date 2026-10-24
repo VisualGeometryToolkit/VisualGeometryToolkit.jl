@@ -73,7 +73,7 @@ function evaluate end
 The per-draw bootstrap: each of the `budget.n_draws` draws tunes the
 hyperparameter on `n` val pairs of `proto` (`tune`) and evaluates the tuned
 column on its test pairs (`evaluate`): the draw's median test error (a pair
-without a model counts as `Inf`) and its mAA@`T` (THE eligibility
+without a model counts as `Inf`) and its mAA@`T` (the eligibility
 rule, `eligible_maa`). Draw `r` uses `budget_rng(budget, n, r)`.
 """
 function bootstrap_trials(method::BootstrapMethod, proto::FlatProtocol, budget::BudgetSampling, n::Int;
@@ -164,7 +164,7 @@ end
 
 function tune(rng::AbstractRNG, m::WindowedGridMethod, val_pairs, n)
     isempty(val_pairs) && return 1
-    drawn = val_pairs[_sample_indices(rng, length(val_pairs), 1.0, n)]          # THE draw of the budget sampling
+    drawn = val_pairs[_sample_indices(rng, length(val_pairs), 1.0, n)]          # the draw of the budget sampling
     # s0(n) = √median σ̂² over the drawn val pairs — scale tied to cardinality n.
     s2 = Float64[]; sizehint!(s2, length(drawn))
     for (i, j) in drawn

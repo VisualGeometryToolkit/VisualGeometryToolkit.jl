@@ -48,7 +48,7 @@ their ANCHOR and how their endpoints leave it:
 
 Note where ζ sits: it scales the ANCHOR, never the endpoints. A window whose
 anchor spreads is asserting that the scale could be anywhere in that spread —
-right for a ζ ladder or a budget sweep, wrong for a tune, which has ONE
+right for a ζ ladder or a budget sweep, wrong for a tune, which has one
 reference scale. Anchor spread is bought with the grid's resolution.
 """
 abstract type WindowRule end

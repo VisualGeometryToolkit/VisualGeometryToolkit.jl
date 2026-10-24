@@ -1,5 +1,5 @@
 # =============================================================================
-# src/tuning/spacing.jl — grid spacing strategies and THE grid constructor.
+# src/tuning/spacing.jl — grid spacing strategies and the grid constructor.
 #
 # A spacing is a strategy TYPE whose fields are its complete parameter set;
 # `grid(lo, hi, spacing)` is the one constructor of a tuning grid over the
@@ -95,7 +95,7 @@ end
     grid(lo, hi, spacing::GridSpacing) -> AbstractRange{Float64}
     grid(spec::GridSpec) -> AbstractVector{Float64}
 
-THE tuning-grid constructor: `npoints(lo, hi, spacing)` points of `spacing`
+The tuning-grid constructor: `npoints(lo, hi, spacing)` points of `spacing`
 over `[lo, hi]` — Base `range(lo, hi; length)` for a linear spacing, Base
 `logrange(lo, hi, n)` for a log one (both hit `lo` and `hi` exactly). The
 second form realizes a persisted [`GridSpec`](@ref), its extension included.

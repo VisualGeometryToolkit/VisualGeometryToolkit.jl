@@ -1,5 +1,5 @@
 # =============================================================================
-# src/render/axis_style.jl — THE house axis-style source.
+# src/render/axis_style.jl — the house axis-style source.
 #
 # Every figure in every paper renders through this module; hand-styled axis
 # options in paper scripts are a DEFECT (enforced by the contract rules,
@@ -51,7 +51,7 @@ color_defs(pairs; command::AbstractString = "definecolor") =
 @doc """
     color_defs(pairs; command = "definecolor") -> String
 
-THE colour-definition emitter: one `\\<command>{<name>}{HTML}{<hex>}` line per
+The colour-definition emitter: one `\\<command>{<name>}{HTML}{<hex>}` line per
 `name => "RRGGBB"` pair, newline-separated (no trailing newline). `command` is
 `"definecolor"` or `"providecolor"` (idempotent; a host's own definition wins).
 """ color_defs
@@ -61,7 +61,7 @@ house_colors(pairs) = color_defs(pairs) * "\n"
     house_colors(pairs::Vector{<:Pair}) -> String
 
 `\\definecolor` block ([`color_defs`](@ref)) from `name => "RRGGBB"` pairs,
-newline-terminated — the ONE way a house figure loads its color registry
+newline-terminated — the one way a house figure loads its color registry
 (names come from the paper's arm/legend vocabulary; one color per arm).
 """ house_colors
 

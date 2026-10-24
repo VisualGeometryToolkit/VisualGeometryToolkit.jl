@@ -18,6 +18,21 @@
 # configuration); the read thresholds default to configs/default.toml
 # `[pool.<dataset>]`. Raw pairs are never persisted.
 # =============================================================================
+"""
+    Datasets
+
+Raw dataset readers. Each returns VisualGeometryToolkitCore `StereoRawPair`s in
+pixels, from which a scoring pool is drawn: PhotoTourism
+([`load_pt_pairs`](@ref)), the homography benchmark HEB
+([`load_heb_pairs`](@ref)) and consolidated RoMa or SuperPoint+LightGlue
+correspondences ([`load_roma_pairs`](@ref)). The module also produces those
+consolidated files from depth-validated stereo datasets ([`ETH3D`](@ref),
+[`ScanNet1500`](@ref), [`KITTI`](@ref), [`SevenScenes`](@ref)) through
+[`stereo_pairs`](@ref), [`load_sparse_matches`](@ref),
+[`load_validation_data`](@ref) and [`consolidate_csponds`](@ref).
+
+The read thresholds default to `configs/default.toml` (`[pool.<dataset>]`).
+"""
 module Datasets
 
 import VisualGeometryToolkitCore as VgtkCore

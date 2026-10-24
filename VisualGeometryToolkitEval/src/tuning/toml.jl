@@ -1,5 +1,5 @@
 # =============================================================================
-# src/tuning/toml.jl — THE `[tuning]` parser and writer.
+# src/tuning/toml.jl — the `[tuning]` parser and writer.
 #
 # configs/tuning.toml (this package) is the configuration of record of every
 # tuning parameter's DEFAULT, parsed at precompile (`include_dependency`: an
@@ -159,7 +159,7 @@ tuning_hash(x::Union{TuningSpec,TuningScheme}) = _toml_hash(Dict{String,Any}("sc
 """
     _toml_hash(d::AbstractDict) -> String
 
-THE content hash of the evaluation stack: the SHA-256 (hex, first 16) of `d`
+The content hash of the evaluation stack: the SHA-256 (hex, first 16) of `d`
 printed as sorted TOML. Independent of key order and fixed across Julia
 versions (unlike `Base.hash`); a TOML round trip of `d` reproduces it. Behind
 [`tuning_hash`](@ref) and Experiments `run_key`.

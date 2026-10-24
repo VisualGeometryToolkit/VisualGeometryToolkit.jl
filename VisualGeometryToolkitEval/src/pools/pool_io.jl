@@ -1,5 +1,5 @@
 # =============================================================================
-# src/pools/pool_io.jl — THE scoring-pool IO: the in-memory values
+# src/pools/pool_io.jl — the scoring-pool IO: the in-memory values
 # (`ScoringPool`, `PoolResiduals`), the content key `pool_key` that binds a
 # light pool file to its residuals file, the one writer and the one reader of
 # each, and the per-scene loader closures.
@@ -242,7 +242,7 @@ end
 """
     save_pool(path, pool::ScoringPool) -> path
 
-THE writer of a light pool file (artifact kind `:pool`, format 4). The file is
+The writer of a light pool file (artifact kind `:pool`, format 4). The file is
 JLD2 and holds PLAIN data only — no VisualGeometryToolkitCore type:
 
 | key | type | meaning |
@@ -302,7 +302,7 @@ const _POOL_FILE_KEYS = ("problem", "scene", "model_class", "frame", "pool_key",
 """
     load_pool(path) -> ScoringPool
 
-THE reader of a light pool file ([`save_pool`](@ref) is the format). Refuses,
+The reader of a light pool file ([`save_pool`](@ref) is the format). Refuses,
 with an `ArgumentError` naming the file: another `pool_format` (a format-3 pool
 is converted, never read: the error says how), missing or unknown keys, a frame
 other than `NormalizedImageFrame`, a ground-truth convention other than
@@ -345,7 +345,7 @@ end
 """
     save_pool_residuals(path, res::PoolResiduals) -> path
 
-THE writer of a residuals file (artifact kind `:pool_residuals`, format 1),
+The writer of a residuals file (artifact kind `:pool_residuals`, format 1),
 JLD2, PLAIN data only:
 
 | key | type | meaning |
@@ -370,7 +370,7 @@ end
 """
     load_pool_residuals(path, pool::ScoringPool; pairs = nothing) -> PoolResiduals
 
-THE reader of a residuals file ([`save_pool_residuals`](@ref) is the format),
+The reader of a residuals file ([`save_pool_residuals`](@ref) is the format),
 checked against the light `pool` it serves: refused (an `ArgumentError` naming
 the file) unless its `pool_key` is the pool's — the error names both keys — and
 it holds one matrix per pair, each `(num_points, num_models)` of that pair.
@@ -413,8 +413,8 @@ end
 """
     scene_loaders(pool_dir, scenes; residuals = false) -> Vector{Function}
 
-Zero-argument scene loaders over `<pool_dir>/<scene>.jld2` — THE loader
-constructor shared by every streaming driver. Each returns EVERY pair of its
+Zero-argument scene loaders over `<pool_dir>/<scene>.jld2` — the loader
+constructor shared by every streaming driver. Each returns every pair of its
 scene (a subset is a cross-validation's units, Tuning `validation_units` /
 `test_units`, never a prefix): the [`ScoringPool`](@ref), or with
 `residuals = true` the tuple `(pool, residuals::PoolResiduals)` read from

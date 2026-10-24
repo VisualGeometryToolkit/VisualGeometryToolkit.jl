@@ -20,7 +20,7 @@
 
 One raw RoMa / SP+LG pair, in pixels: csponds, `snn = 1 − confidence`, the
 consolidated GT inlier mask, the pixel calibrations, image sizes and the GT
-relative pose, with its source scene ([`pair_scene`](@ref)).
+relative pose, with its source scene (VisualGeometryToolkitCore's `pair_scene`).
 """
 struct RomaPair <: StereoRawPair
     src_id   :: String

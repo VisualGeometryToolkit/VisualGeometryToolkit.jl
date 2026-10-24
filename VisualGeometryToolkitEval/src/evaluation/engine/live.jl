@@ -9,7 +9,7 @@
 #
 #   live_runs   one live run per pair (threaded, seeded per pair,
 #               wall-bracketed, JIT warmed up outside every bracket)
-#   live_row    the per-run summary: median error, mAA (THE rule),
+#   live_row    the per-run summary: median error, mAA (the rule),
 #               outcome counts, median trials and wall
 # =============================================================================
 
@@ -55,7 +55,7 @@ end
 
 The summary of one [`live_runs`](@ref) result.
 Its fields are `med` the finite median error
-[deg], `maa` the mAA@`T` under THE eligibility rule (VisualGeometryToolkitEval
+[deg], `maa` the mAA@`T` under the eligibility rule (VisualGeometryToolkitEval
 `eligible_maa`: every pool pair is eligible, a run without a model scores 0;
 `T` defaults to its `maa_threshold()`), `med_trials` the median
 trials, `med_wall_ms` the median wall [ms], and the outcome counts

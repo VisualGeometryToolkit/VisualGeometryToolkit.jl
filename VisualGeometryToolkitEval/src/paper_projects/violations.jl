@@ -1,5 +1,5 @@
 # =============================================================================
-# violations.jl — THE paper-project check: every rule of the conventions, one
+# violations.jl — the paper-project check: every rule of the conventions, one
 # call, one structured list. A paper project's suite holds it in one line:
 #
 #   @test isempty(paper_project_violations(projectdir(); papers = ["paper/main.tex"]))

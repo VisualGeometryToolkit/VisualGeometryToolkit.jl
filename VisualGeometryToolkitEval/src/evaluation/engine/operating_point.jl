@@ -21,7 +21,7 @@ const OPERATING_SCALE_MULTIPLE = Float64(_config_default("refit", "operating_sca
 """
     lo_iteration_budget() -> Int
 
-THE equal LO model-update budget of the evaluation: configs/default.toml
+The equal LO model-update budget of the evaluation: configs/default.toml
 `[local_optimization] iteration_budget`, so arms compare at equal cost. A
 paper with its own protocol supplies its budget explicitly instead.
 """

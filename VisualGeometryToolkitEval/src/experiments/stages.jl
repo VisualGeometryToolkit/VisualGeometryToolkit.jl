@@ -1,5 +1,5 @@
 # =============================================================================
-# src/experiments/stages.jl — THE experiment stage runner, dependency-free.
+# src/experiments/stages.jl — the experiment stage runner, dependency-free.
 #
 # One experiment file = one deliverable; each file declares its DATA INPUTS
 # (`require_input` — hard error with a provenance message) and its STAGES
@@ -7,7 +7,7 @@
 # skipped unless --force), and ends with `run_stages(name, STAGES)`.
 #
 # CLI (uniform across every experiment file):
-#   --plan          print the stage plan (done/pending) and exit — THE
+#   --plan          print the stage plan (done/pending) and exit — the
 #                   structural check gate before any sbatch launch
 #   --stage=NAME    run exactly one stage, or a comma-separated subset
 #                   (still skip-if-done; add --force)
@@ -75,7 +75,7 @@ function run_stages(experiment::AbstractString, stages::Vector{Stage}; argv = AR
     for st in stages
         isempty(only) || String(st.name) in only || continue
         # RE-CHECK at execution time, not the plan snapshot above: a stage's
-        # input is often (re)written by an earlier stage of the SAME run, so a
+        # input is often (re)written by an earlier stage of the same run, so a
         # cached "DONE" silently skips work that has just been invalidated
         # (2026-09-09: timing_table's emit/design_table were skipped after
         # time_pt/time_scannet rewrote the measurements they read).

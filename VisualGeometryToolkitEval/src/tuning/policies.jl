@@ -73,7 +73,7 @@ struct GridExtension
 end
 
 # -----------------------------------------------------------------------------
-# Objectives — THE tuning criteria of the stack, all of them, here.
+# Objectives — the tuning criteria of the stack, all of them, here.
 #
 # `TuningCriterion`, `MedianError`, `MAA` (since folded into
 # `MeanAverageAccuracy`), `tune_objective`, `_inf_failed` and
@@ -81,7 +81,7 @@ end
 # 2026-10-02, completing the 2026-07-18 migration of the eval subsystem: they
 # are evaluation policy, every caller was already in this package, and nothing
 # in the scoring package used them (its one internal consumer, `bracket_key`,
-# had no caller and was deleted). A criterion is now defined in ONE place,
+# had no caller and was deleted). A criterion is now defined in one place,
 # beside the schemes that select it and the TOML tags that name it.
 # -----------------------------------------------------------------------------
 
@@ -169,7 +169,7 @@ in the denominator), MAXIMISED (the objective is its negative). TOML tag
 `"mean_average_accuracy"`.
 
 UNITS-NEUTRAL: `max_error` is in the errors' own unit — degrees on a pose
-error, mm for BlobBoards' bmvc2026 inter-board invariance. THE one mAA
+error, mm for BlobBoards' bmvc2026 inter-board invariance. The one mAA
 criterion: a second spelling `MAA(max_error_deg)` carried the identical
 statistic under a field name that asserted degrees, which a criterion handed
 millimetres cannot. It is retired (2026-10-03) along with its `"maa"` tag; the
@@ -184,7 +184,7 @@ struct MeanAverageAccuracy <: TuningCriterion
     end
 end
 # Through `eligible_maa`, not VGC's `mean_average_accuracy` directly: Stats
-# declares THE mAA rule — "every figure path computes mAA through
+# declares the mAA rule — "every figure path computes mAA through
 # `eligible_maa`" — and a tuning objective that called the statistic itself
 # would be a second path whose failure/eligibility convention could drift from
 # the reporting one. With no mask the two are identical

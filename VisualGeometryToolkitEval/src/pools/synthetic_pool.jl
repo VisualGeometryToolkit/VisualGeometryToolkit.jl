@@ -1,5 +1,5 @@
 # =============================================================================
-# src/pools/synthetic_pool.jl — THE synthetic E pool pair of the engine tests
+# src/pools/synthetic_pool.jl — the synthetic E pool pair of the engine tests
 # (this package's and the LO engine's): a small calibrated (K = I) scene built
 # directly in the pool frame, perturbed candidate essentials as the pool's
 # models (stored as FundMat, the E pool layout), their Sampson distances and

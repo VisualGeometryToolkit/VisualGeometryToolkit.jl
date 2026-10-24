@@ -1,10 +1,10 @@
 # =============================================================================
-# config_defaults.jl — THE default mechanism of VisualGeometryToolkitEval:
+# config_defaults.jl — the default mechanism of VisualGeometryToolkitEval:
 # configs/default.toml, read through `_config_default`.
 #
 # Every value of this package that changes a reported statistic, a rendered
 # panel or a raw dataset read and is not a tuning parameter (configs/tuning.toml, Tuning's
-# parser) or a scene split (configs/splits.toml) is declared ONCE in
+# parser) or a scene split (configs/splits.toml) is declared once in
 # configs/default.toml; every keyword default, struct default and dataset
 # constant reads it here, so there is no second set of Julia literals to drift
 # from it. The lookup is VisualGeometryToolkitCore's `toml_default`, which throws on a

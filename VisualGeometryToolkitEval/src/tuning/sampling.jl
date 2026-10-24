@@ -1,5 +1,5 @@
 # =============================================================================
-# src/tuning/sampling.jl — THE sampling of a cross-validation: which scenes are
+# src/tuning/sampling.jl — the sampling of a cross-validation: which scenes are
 # validation and which are test (a registered scene split), which units of
 # those scenes a tuning reads and an evaluation reads (a unit sampling per side),
 # and the random validation-budget draws. Every random choice is seeded by
@@ -61,7 +61,7 @@ abstract type SceneSplit end
 """
     RegisteredSceneSplit(name, validation_scenes, test_scenes)
 
-A scene split registered under `name` in configs/splits.toml (the ONE file of
+A scene split registered under `name` in configs/splits.toml (the one file of
 record of every scene list). A config names it (`scene_split = { type =
 "registered", name = "..." }`); the parser fills in the lists from the
 registry, so the complete table — and with it the spec hash and every
@@ -231,7 +231,7 @@ end
 """
     CrossValidation(scene_split::SceneSplit, validation::UnitSampling, test::UnitSampling)
 
-THE data side of a tuning: the scenes it tunes on and reports on
+The data side of a tuning: the scenes it tunes on and reports on
 (`scene_split`), and the units of each side it reads (`validation`, `test`).
 A driver states which samplings it supports by the signature of the method it
 calls (say `cv::CrossValidation{<:SceneSplit, StratifiedSampling}`), so an
@@ -285,7 +285,7 @@ test_scenes(cv::CrossValidation) = cv.scene_split.test_scenes
 """
     BudgetSampling(sizes, n_draws, seed, rng)
 
-THE validation-budget draws: for each budget `n ∈ sizes`, `n_draws` simple
+The validation-budget draws: for each budget `n ∈ sizes`, `n_draws` simple
 random samples of `n` validation units ([`budget_units`](@ref)), draw `r`
 from [`budget_rng`](@ref)`(b, n, r)`; the confidence interval over a budget's
 draws resamples from [`resampling_rng`](@ref)`(b, n)`.

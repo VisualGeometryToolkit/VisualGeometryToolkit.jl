@@ -11,7 +11,7 @@
 #                    static / direct  →  HQ lift  →  GNC.
 #   * MARKER     = optimization path:  o IRLS / triangle HQ lift / diamond GNC / oplus BCD /
 #                    square truncated LM|LZ (PoseLib fixed-scale).
-#   * LINE STYLE = scale interface: dashed ONLY for fixed-EXTERNAL-scale arms
+#   * LINE STYLE = scale interface: dashed only for fixed-EXTERNAL-scale arms
 #                    (TLS-LM, TLS-LZ); solid for everything else.
 #   * REFERENCES: oracle = solid black; perturbed-seed / gray refs = thin
 #                    dashed black!55.
@@ -85,7 +85,7 @@ const FAMILY_ORDER = (:tls, :welsch, :gm)
 const PATH_RANK = Dict(:seed => 0, :irls => 1, :hq => 2, :gnc => 3, :classical_lo => 4, :bcd => 5)
 "Within-family optimization-path sort rank of arm `key` of `style`."
 path_rank(style, key) = PATH_RANK[style.arms[key].path]
-# THE within-facet arm order (curves and legend entries): the paper's ramp step
+# The within-facet arm order (curves and legend entries): the paper's ramp step
 # (`shade`, so a legend reads light→dark exactly as the curves do) when the
 # paper declares one, else the optimization path; then label — deterministic,
 # so every figure's legend lists arms identically.
@@ -121,7 +121,7 @@ family_of(style, key) = style.arms[key].family
     family_rank(family) -> Int
 
 The facet position of a loss `family` in [`FAMILY_ORDER`](@ref) (1 = leftmost);
-a family outside it ranks after every facet. THE facet-walk key of tables and
+a family outside it ranks after every facet. The facet-walk key of tables and
 vocabularies that list arms in figure order.
 """
 family_rank(family) = something(findfirst(==(family), FAMILY_ORDER), length(FAMILY_ORDER) + 1)

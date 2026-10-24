@@ -1,5 +1,5 @@
 # =============================================================================
-# src/datasets/consolidate.jl — THE producer of the consolidated csponds files
+# src/datasets/consolidate.jl — the producer of the consolidated csponds files
 # `load_roma_pairs` reads: one `<scene>.jld2` per scene of a stereo dataset,
 # each pair's sparse matches with their GT inlier mask from depth.
 #

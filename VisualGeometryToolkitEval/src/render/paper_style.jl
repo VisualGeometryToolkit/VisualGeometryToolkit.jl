@@ -1,5 +1,5 @@
 # =============================================================================
-# src/render/paper_style.jl — PaperStyle: a paper's styling as ONE explicit
+# src/render/paper_style.jl — PaperStyle: a paper's styling as one explicit
 # value, given to every renderer that draws arms or paper colours.
 #
 # It replaces the registries a paper used to mutate at include time (the

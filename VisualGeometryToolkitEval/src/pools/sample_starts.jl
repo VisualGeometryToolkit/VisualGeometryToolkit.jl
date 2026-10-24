@@ -1,5 +1,5 @@
 # =============================================================================
-# src/pools/sample_starts.jl — THE minimal-sample boundaries of a pool: which
+# src/pools/sample_starts.jl — the minimal-sample boundaries of a pool: which
 # stored models came from which minimal sample. The one owner of that
 # reconstruction; no other code in the stack may rebuild sample boundaries
 # from `sample_indices`.
@@ -76,7 +76,7 @@ end
 """
     sample_starts(pool::ScoringPool; derived = nothing) -> Vector{Vector{Int}}
 
-THE minimal-sample boundaries of every pair of `pool`: `starts[i]` holds the
+The minimal-sample boundaries of every pair of `pool`: `starts[i]` holds the
 first model column of each minimal sample of pair `i`, in draw order, so pair
 `i`'s sample `s` owns columns `starts[i][s]:(starts[i][s+1] - 1)` (the last
 sample runs to `num_models`). [`sample_ids`](@ref) turns them into a per-model
@@ -190,7 +190,7 @@ end
 """
     save_sample_starts(path, pool::ScoringPool, starts; derivation, provenance = Dict()) -> path
 
-THE writer of a sample-starts file (artifact kind `:pool_samples`, format 1),
+The writer of a sample-starts file (artifact kind `:pool_samples`, format 1),
 JLD2, plain data: `pool_key` (the pool it belongs to), `scene`,
 `total_samples`, `starts` (`Vector{Vector{Int}}`, per pair, as
 [`sample_starts`](@ref) returns them), `derivation` (how they were obtained,
@@ -219,7 +219,7 @@ end
 """
     load_sample_starts(path, pool::ScoringPool) -> Vector{Vector{Int}}
 
-THE reader of a sample-starts file ([`save_sample_starts`](@ref) is the
+The reader of a sample-starts file ([`save_sample_starts`](@ref) is the
 format), checked against `pool`: refused (an `ArgumentError` naming the file)
 unless its `pool_key` is the pool's, every pair's starts are admissible for its
 record and their total is the `total_samples` stamp.

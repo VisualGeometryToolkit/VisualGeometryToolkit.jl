@@ -1,5 +1,5 @@
 # =============================================================================
-# src/pools/write_scene_pool.jl — THE generic scene-pool orchestration: the
+# src/pools/write_scene_pool.jl — the generic scene-pool orchestration: the
 # threaded, seeded build of one scene's pool from its raw pairs and the one
 # write of its two files. It knows no problem type: the caller's `build` draws
 # and assembles a pair (VisualGeometryToolkitEstimation's pool-pair constructor, wrapped

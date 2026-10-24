@@ -105,7 +105,7 @@ end
 
 One arm's curve over the columns of a deployed evaluation (`evaluation[arm]`, pairs
 × ζ): `stat` of each column — `finite_median` for the median row,
-`eligible_maa` for the mAA row (THE eligibility rule: every stored pair is
+`eligible_maa` for the mAA row (the eligibility rule: every stored pair is
 eligible, a pair without a model scores 0).
 """
 function evaluation_curve(evaluation, arm, stat)
@@ -234,7 +234,7 @@ end
                                oracle_med = nothing, oracle_maa = nothing,
                                oracle_label = "oracle")
 
-THE objective-faceted accuracy-vs-budget groupplot, from PRECOMPUTED per-arm
+The objective-faceted accuracy-vs-budget groupplot, from PRECOMPUTED per-arm
 curves ([`budget_curves`](@ref) for a budget cell's scene files; the PnP
 budget's own aggregation): `med[arm]`
 (median error, row label `med_ylabel`) and `maa[arm]` (mAA@10°) are vectors
@@ -313,7 +313,7 @@ end
 Emit the δ-perturbation basin faceted groupplot body to `out` from the ladder
 `bundle` (`errs` [pairs × nδ × nmethod], `methods`, `deltas`, `refinable`).
 `rows` selects the statistic per row, in order: `:succ` — success rate
-P(e≤succ°); `:maa` — mAA@succ° under THE eligibility rule (`eligible_maa`:
+P(e≤succ°); `:maa` — mAA@succ° under the eligibility rule (`eligible_maa`:
 the refinable pairs are the eligible ones, a failed refit — stored as NaN —
 scores 0); `:cond` — conditional mean final error given success, masked below
 success rate `minsucc`. Success is recomputed at `succ` degrees; the
@@ -408,12 +408,12 @@ function emit_basin_faceted(style::PaperStyle, bundle::AbstractString, out::Abst
 end
 
 # -----------------------------------------------------------------------------
-# Sample-budget panels from per-scene budget JLD2s — ONE path for every budget
+# Sample-budget panels from per-scene budget JLD2s — one path for every budget
 # cell: `budget_curves` (the statistics) → `emit_budget_faceted_curves` (the
 # faceted panel, also the PnP budget's) and, where a cell draws one,
 # `emit_budget_time_panel` (mAA vs cumulative LO time).
 # -----------------------------------------------------------------------------
-# THE budget scene schema (accv2026 src/cell_stages.jl `budget_cell_stages`):
+# The budget scene schema (accv2026 src/cell_stages.jl `budget_cell_stages`):
 # `err_lo[arm]` (P × L, the scoring column, at the LO checkpoints `lo_counts`)
 # and `oracle_err_batch` (P × the dense batch grid `sample_counts`).
 _budget_err(d, arm, j) = view(d["err_lo"][arm], :, j)
@@ -422,14 +422,14 @@ _budget_oracle(d, j) = view(d["oracle_err_batch"], :, j)
 """
     budget_curves(files; arms) -> (; budgets, med, maa, oracle_med, oracle_maa, outcomes)
 
-THE statistics of a budget cell from its per-scene budget `files` (the scene
+The statistics of a budget cell from its per-scene budget `files` (the scene
 schema above), for each of `arms` and the oracle, at every LO checkpoint
 (`budgets` = the files' `lo_counts`; the oracle read off its dense batch grid
 at those budgets):
 
   * `med` — the mean over scenes of the per-scene finite median
     (Shekhovtsov's mean-median; a scene without a finite error is skipped);
-  * `maa` — THE eligibility-ruled mAA (`eligible_maa`) POOLED over every pair
+  * `maa` — the eligibility-ruled mAA (`eligible_maa`) POOLED over every pair
     of every scene — every stored pool pair is eligible, a pair whose run left
     no model (non-finite error) scores 0.
 
@@ -515,7 +515,7 @@ The deployed evaluation of a miscalibration sidecar summarized at three
 points of its ζ ladder — the deflation extreme, calibration (ζ nearest 1) and
 the inflation extreme — per arm of `style`, in the faceted order (facet, then
 ramp step). `stat` is `:med` (finite median of the imc error, deg) or `:maa`
-(THE eligibility rule, `eligible_maa`). `rows[arm] = (deflation, calibration, inflation)`;
+(the eligibility rule, `eligible_maa`). `rows[arm] = (deflation, calibration, inflation)`;
 `zetas` the three ζ values.
 """
 function miscal_summary_rows(style::PaperStyle, sidecar::AbstractString; stat::Symbol = :med,

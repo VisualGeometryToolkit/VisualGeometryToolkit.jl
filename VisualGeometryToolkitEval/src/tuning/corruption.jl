@@ -1,12 +1,12 @@
 # =============================================================================
-# src/tuning/corruption.jl — THE deployment-corruption map of the
+# src/tuning/corruption.jl — the deployment-corruption map of the
 # miscalibration protocol: a tuned native width scaled by the deployment error ζ.
 # =============================================================================
 
 """
     corrupt_native(native::Real, ζ::Real) -> Float64
 
-THE deployment-corruption map (docs/src/protocol.md §3, miscalibration): a
+The deployment-corruption map (docs/src/protocol.md §3, miscalibration): a
 tuned-at-CALIBRATION native width (selection outlier half-width, loss width, or
 the oracle supplied scale a native is formed from) scaled by the deployment
 error ζ — the model of a mis-estimated inlier scale at deployment time. Every

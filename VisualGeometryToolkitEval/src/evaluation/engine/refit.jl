@@ -1,5 +1,5 @@
 # =============================================================================
-# evaluation/engine/refit.jl — ONE refit layer for every local optimizer.
+# evaluation/engine/refit.jl — one refit layer for every local optimizer.
 #
 # `RefitFamily(lo)` (VisualGeometryToolkitCore's Holy trait) routes a strategy to its
 # execution path; `guarded_refit` is the single seed-fallback + non-finite-
@@ -90,7 +90,7 @@ _convert_native(::LossWidth, ::OutlierHalfwidth, x, operating_scale_multiple, d_
     guarded_refit(opt, score, on_fail; warn_label = nothing)
         -> (err::Float64, lo_ns::Int64)
 
-THE seed-fallback + timing bracket.
+The seed-fallback + timing bracket.
 
 - `opt() -> Union{Nothing, M}` — the bracketed optimizer call (data-in →
   result-out). Throws are caught; `nothing` signals bail / no consensus.
@@ -135,7 +135,7 @@ plus the bracketed optimizer wall-clock.
   own imc (never-worsen); the ladder supplies `NaN`.
 - `bundle`: route the native refit through `ctx.bp` (Schur reprojection bundle)
   instead of the pose-only `ctx.ep`.
-- `s2`: an externally supplied squared scale — THE one conduit for a
+- `s2`: an externally supplied squared scale — the one conduit for a
   non-consensus width:
   * NativeRefit: the strategy is deployed at the absolute width
     `with_width(lo, fixed_width(lo, s2))` (its scale multiple at the scale
@@ -197,9 +197,9 @@ _ctx_workspace!(ctx, key::Symbol, prob, sc) =
     refit_model(problem, seed, lo, scoring; workspace = nothing, s2 = nothing)
         -> Union{Nothing, model}
 
-THE native (`locally_optimize`) refit of the refit layer, returning the refined
+The native (`locally_optimize`) refit of the refit layer, returning the refined
 MODEL — `nothing` when the strategy produced none. `lo` may be `ScoreGuarded`
-(the guard becomes `score_guard`). `s2` deploys the SAME strategy at an
+(the guard becomes `score_guard`). `s2` deploys the same strategy at an
 absolute squared scale (`with_width(lo, fixed_width(lo, s2))`; the scoring
 sweep is untouched, only the LO's width moves); `nothing` keeps the strategy's
 own width mode. The refit layer's imc rows wrap exactly this in

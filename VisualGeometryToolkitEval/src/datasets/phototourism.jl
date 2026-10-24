@@ -36,7 +36,7 @@
     PtRawTrees(; matches_tutorial_val, matches_tutorial_train, matches_ef_test,
                  recon_tutorial, recon_ef_test, recon_special = Dict{String,String}())
 
-The raw PhotoTourism trees, SUPPLIED BY THE CALLER. This package ships no data
+The raw PhotoTourism trees, supplied by the caller. This package ships no data
 directory to default to — the rule the HEB and RoMa readers follow (their
 files are arguments), and which PT alone used to break: these five trees were
 once absolute paths on one machine. Two consequences, both real: a registered package carried one

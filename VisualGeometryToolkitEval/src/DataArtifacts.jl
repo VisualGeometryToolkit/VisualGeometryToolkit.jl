@@ -49,6 +49,17 @@
 # artifact and a fetched view have one layout. A project adds kinds of its own
 # with the `kinds` keyword (`kind => (cfg, entry, root) -> files`).
 # =============================================================================
+"""
+    DataArtifacts
+
+A paper project's published input data as lazy Julia artifacts. The catalog
+([`load_catalog`](@ref), [`DataCatalog`](@ref)) states what each artifact holds,
+where it mounts, which Zenodo record carries it and which config of record its
+file list derives from. The author packs and binds the artifacts
+([`pack_artifacts`](@ref)); a consumer fetches them into the artifact view that
+the drivers read ([`fetch_artifacts!`](@ref)). [`catalog_violations`](@ref)
+checks a catalog against its bindings.
+"""
 module DataArtifacts
 
 using TOML: TOML
@@ -356,7 +367,7 @@ end
 """
     fetch_artifacts!(cat, names = required_artifacts(cat)) -> Vector{NamedTuple}
 
-Install `names` ([`Experiments.install_artifact`](@ref): download, verify,
+Install `names` ([`Experiments.install_artifact`](@ref VisualGeometryToolkitEval.Experiments.install_artifact): download, verify,
 unpack into the depot; a placeholder URL is refused with the way out) and link
 each tree into its mount root: `data` artifacts into the project's
 `data/exp_raw` as an artifact view — skipped when a data root is already bound

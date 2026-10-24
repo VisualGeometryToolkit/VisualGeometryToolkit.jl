@@ -1,7 +1,7 @@
 # =============================================================================
 # evaluation/engine/selection_stream.jl — the scene stream of every
 # selection+LO experiment: stage → the experiment's selection grids
-# (VisualGeometryToolkitCore's `select_on_grid!`, a grid family's own kernels) → ONE
+# (VisualGeometryToolkitCore's `select_on_grid!`, a grid family's own kernels) → one
 # apply_lo_refits call over `refits_of(idxs_of, scene_index)` (PairCtx built per
 # (pair, spec) for ALL refit specs).
 #
@@ -22,14 +22,14 @@ _selection_rng(fingerprint, t) = StableRNG(stable_seed(_SIMFITPP_SEED, "simfitpp
                       solo_scoring = scoring)
         -> (M::Dict{label, Vector{Matrix{T}}}, s2_by_scene, np_per)
 
-THE scene stream of every selection+LO experiment. `loaders[i]()` returns
+The scene stream of every selection+LO experiment. `loaders[i]()` returns
 scene `i`'s `(pool, residuals)` (VisualGeometryToolkitEval `scene_loaders(dir,
 scenes; residuals = true)`). Per scene: stage each `batch` of pairs once per
 staging kind (VisualGeometryToolkitCore `stage_selection` on `backend`, shared by the
 grids whose scorings declare the same `selection_staging`), evaluate every
 selection grid of `grids` (`key => (widths, scoring)`: the scoring's native
 widths and the scoring itself — VisualGeometryToolkitCore `select_on_grid!`) on it,
-then ONE [`apply_lo_refits`](@ref) call over `refits_of(idxs_of, scene_index)`
+then one [`apply_lo_refits`](@ref) call over `refits_of(idxs_of, scene_index)`
 (`idxs_of[key]` = that grid's per-(pair, column) selections) on the light
 records. `M[label]` holds each refit's per-scene matrix in element type `T`;
 `s2_by_scene` the records' σ̂², `np_per` the pairs per scene. `scoring` and

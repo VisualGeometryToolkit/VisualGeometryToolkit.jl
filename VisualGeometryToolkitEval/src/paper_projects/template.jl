@@ -1,5 +1,5 @@
 # =============================================================================
-# template.jl — THE paper-project template: DrWatson's `initialize_project`
+# template.jl — the paper-project template: DrWatson's `initialize_project`
 # with the paper-project folder template, then the generated files of
 # templates/paper_project/ (placeholders {{NAME}}, {{FIGDIR}}, …) — a project
 # that satisfies `paper_project_violations` once its example stage has run.

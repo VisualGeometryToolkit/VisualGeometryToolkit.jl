@@ -75,7 +75,7 @@ grid(g::ListedGrid) = copy(g.values)
 """
     extend(spec::SpacedGrid, sides; npts) -> (spec′, n_lo)
 
-THE expand-on-boundary extension of a grid: `npts` more points on each side in
+The expand-on-boundary extension of a grid: `npts` more points on each side in
 `sides ⊆ (:lo, :hi)`, continuing the base step. Every point of `grid(spec)`
 reappears (to rounding) in `grid(spec′)` at index `+ n_lo`, the count
 prepended, so already-computed columns stay valid by index (see
@@ -97,7 +97,7 @@ extend(g::ListedGrid, sides; npts::Integer) =
 
 The offset `n_lo ≥ 0` at which `grid(base)` sits inside `grid(sup)` when `sup`
 is `base` or an extension of it — same window and spacing, at least as many
-points on each side — else `nothing`. THE compatibility test of a resumed
+points on each side — else `nothing`. The compatibility test of a resumed
 checkpoint, a merged sidecar and a pinned grid: specs are compared, never
 realized values.
 """

@@ -1,5 +1,5 @@
 # =============================================================================
-# src/evaluation/cv_probe.jl — THE coarse-fine search: the one CV path of
+# src/evaluation/cv_probe.jl — the coarse-fine search: the one CV path of
 # every tuned hyperparameter, a scalar or a joint setting of several.
 #
 # A `[tuning.<name>]` spec of scheme `joint_coarse_fine` (Tuning
@@ -11,11 +11,11 @@
 #      coarse grids. While the joint argmin lies within `edge_margin` points
 #      of a face, that axis `extend`s by `extension.npts` points on that side
 #      (lo before hi, one side per axis per round, at most
-#      `extension.max_rounds` per side) and ONLY the new slab is evaluated.
+#      `extension.max_rounds` per side) and only the new slab is evaluated.
 #      Windows are located by expansion, never hand-widened; an axis whose
 #      argmin is still within the margin after its budget is a boundary hit.
 #   2. FINE — `fine_search`: the product of each axis's `fine` spacing over
-#      the coarse argmin's two neighbours on that axis; its free argmin is THE
+#      the coarse argmin's two neighbours on that axis; its free argmin is the
 #      selection.
 #      With an incumbent declared, the selection replaces it only when a paired
 #      unit bootstrap puts the gain above zero with the spec's confidence.
@@ -23,7 +23,7 @@
 #      statistics: the sampling distribution of the joint selection, read per
 #      axis.
 #
-# Persisted by `save_coarse_fine_artifact`; deployed through ONE gated
+# Persisted by `save_coarse_fine_artifact`; deployed through one gated
 # reader, `deployed_setting`, which refuses a boundary hit on any axis
 # (`enforce_probe_interior`).
 #
@@ -147,7 +147,7 @@ end
 
 Stage 2 of the coarse-fine search: per key, each axis's `fine` spacing over
 the two coarse neighbours of the coarse argmin on that axis, their product
-evaluated once (no extension), its free argmin THE selection. Each record of
+evaluated once (no extension), its free argmin the selection. Each record of
 [`coarse_search`](@ref) gains `fine` (the fine grid specs), `fine_objective`
 and `selected` (a NamedTuple of axis values); `evaluated` gains the fine
 cells. A spec's incumbent is evaluated (one more call) and the record gains
@@ -231,7 +231,7 @@ end
 Dict(k => [errors at x for x in xs_of[k]])`. Per cell the record
 `:coarse_spec`, `:x_star` (coarse), `:boundary_hit`, `:n_extensions`,
 `:curve_ys`, `:fine_spec`, `:fine_curve`, `:fine_idx`, `:fine_bracket`,
-`:x_star_fine` (THE tuned value) and the identity fields.
+`:x_star_fine` (the tuned value) and the identity fields.
 """
 function coarse_fine_cv_batched(curvesfn, coarse::AbstractDict{K,<:SpacedGrid}, scheme::CoarseFine;
                                 method_name = k -> Symbol(k), label = k -> string(k),
@@ -246,7 +246,7 @@ end
 """
     coarse_fine_cv(evalfn, coarse::SpacedGrid, scheme::CoarseFine; method_name, label, kwargs...) -> Dict
 
-[`coarse_fine_cv_batched`](@ref) of ONE cell and a point-wise `evalfn(x)`.
+[`coarse_fine_cv_batched`](@ref) of one cell and a point-wise `evalfn(x)`.
 """
 coarse_fine_cv(evalfn, coarse::SpacedGrid, scheme::CoarseFine; method_name::Symbol,
                label::AbstractString = String(method_name), kwargs...) =
@@ -256,7 +256,7 @@ coarse_fine_cv(evalfn, coarse::SpacedGrid, scheme::CoarseFine; method_name::Symb
 """
     probe_curve(evalfn, coarse::SpacedGrid, scheme::CoarseFine; method_name, label, param_name = :x) -> Dict
 
-The coarse stage alone ([`coarse_search`](@ref)) of ONE cell and a point-wise
+The coarse stage alone ([`coarse_search`](@ref)) of one cell and a point-wise
 `evalfn(x)`: the record of [`coarse_fine_cv_batched`](@ref) without its fine
 keys.
 """

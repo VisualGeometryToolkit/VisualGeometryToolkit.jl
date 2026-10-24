@@ -4,7 +4,7 @@
 #
 # Each selector folds models into a running best as samples accumulate;
 # `checkpoint` reads off its imc pose error; `lo_error!` refines the running
-# best through the SAME refit layer (`refit_imc!`) as every other consumer. The
+# best through the same refit layer (`refit_imc!`) as every other consumer. The
 # oracle is just another "method" column, not a special-cased array.
 #
 # All pose errors are `model_imc` (degrees), dispatched on the pool model's type:
@@ -138,7 +138,7 @@ function _config_lo_error!(ctx, best_idx::Int, width::Float64, cfg)
     # width in the LO). `consumed_native` maps the incoming native (on
     # `nat_axis`) to the refiner's consumed axis — identity for a native
     # refiner, outlier half-width → loss width for an external one — so every
-    # refiner sees the SAME operating point as the ladder and the tuning. The
+    # refiner sees the same operating point as the ladder and the tuning. The
     # refit scoring is the context's template AT nat′ (refit_imc!'s default),
     # never the selector's selection scoring.
     nat′ = consumed_native(cfg.lo_strategy, cfg.nat_axis, something(cfg.nat_ref, width);

@@ -1,5 +1,5 @@
 # =============================================================================
-# src/cli.jl — THE shared CLI + output scaffolding of every driver.
+# src/cli.jl — the shared CLI + output scaffolding of every driver.
 #
 # CLI dialect is `--key=value` (the RoMa/producer convention).
 # =============================================================================
@@ -20,7 +20,7 @@ const _FLUSH_TIMER = Ref{Union{Nothing,Timer}}(nothing)
     start_output_flush!(; interval = 2) -> Timer
 
 Flush `stdout` and `stderr` every `interval` seconds for the rest of the
-session (idempotent: a second call returns the running timer). THE one
+session (idempotent: a second call returns the running timer). The one
 flusher of every driver, GPU drivers included — it installs no logger type.
 """
 function start_output_flush!(; interval::Real = 2)

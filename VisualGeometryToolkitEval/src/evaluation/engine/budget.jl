@@ -2,7 +2,7 @@
 # evaluation/engine/budget.jl — the sample-budget selection + LO-checkpoint engine.
 # Per pair: walk the pool's hypothesis stream, have every selector
 # track its running best, record it at batch checkpoints, and refit it with the
-# configured LO strategy at LO checkpoints. Per-pair geometry flows through ONE
+# configured LO strategy at LO checkpoints. Per-pair geometry flows through one
 # PairCtx (build_pair_ctx) shared by selection scoring and every LO refit;
 # selection reads the pool's residual matrices, the refits the light records.
 # =============================================================================
@@ -175,7 +175,7 @@ function evaluate_sample_budget_pair!(
     next_batch_ix  = 1
     next_lo_ix     = 1
 
-    # ONE per-pair context: pool-frame EssentialProblem + calibration +
+    # One per-pair context: pool-frame EssentialProblem + calibration +
     # GT pose + pool-frame points — shared by selection scoring and every refit.
     ctx  = build_pair_ctx(problem_type, pair; scoring = refit_scoring)
     geom = ctx.geom
@@ -338,7 +338,7 @@ function evaluate_sample_budget(problem_type::Type,
         length(sample_starts) == P || throw(DimensionMismatch(
             "evaluate_sample_budget: $P pairs and $(length(sample_starts)) sample-start vectors"))
     end
-    # ONE refit template: the per-pair context carries it, and every refit
+    # One refit template: the per-pair context carries it, and every refit
     # builds its scoring from it at its own native (as the miscal evaluation's
     # `apply_lo_refits` does) — a method selecting under another template (a
     # scale prior) would refit under the first method's.
@@ -432,7 +432,7 @@ function _warmup_lo_startup(problem_type, methods, pairs, msac_specs, cfg, nsel,
     # `consumed_native` at cfg.nat_axis — identity for the :ig IRLS/GNC consumers,
     # outlier half-width → loss width for the truncated consumers — so the warm
     # call compiles and times the
-    # SAME path the loop takes.
+    # Same path the loop takes.
     if !(cfg.lo_strategy isa NoLocalOptimization)
         nat_w = consumed_native(cfg.lo_strategy, cfg.nat_axis, something(cfg.nat_ref, _method_width(methods[1]));
                              d_g = codimension(problem_type))

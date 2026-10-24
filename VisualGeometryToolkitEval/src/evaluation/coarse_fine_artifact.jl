@@ -1,5 +1,5 @@
 # =============================================================================
-# THE tuning artifact of a coarse-fine search (cv_probe.jl) and its ONE gated
+# The tuning artifact of a coarse-fine search (cv_probe.jl) and its one gated
 # reader.
 #
 # A tuned setting — one scalar or a joint setting of several — is selected by
@@ -27,7 +27,7 @@ artifact ([`save_tuning_artifact`](@ref)): the grids `coarse|<axis>` and
 `fine|<axis>`, and
 
     axes              the axis names, the search's order
-    selected          axis => THE tuned value (the fine argmin)
+    selected          axis => the tuned value (the fine argmin)
     coarse_argmin     axis => the coarse argmin
     boundary_hit      axis => the coarse argmin within the margin of a face
                       after the extension budget (refused by the reader)
@@ -68,7 +68,7 @@ end
 """
     deployed_setting(path; context = path, allow_edge = false) -> NamedTuple
 
-THE gated reader of a coarse-fine tuning artifact
+The gated reader of a coarse-fine tuning artifact
 ([`save_coarse_fine_artifact`](@ref)): the selected value of every axis, as a
 NamedTuple. HARD ERROR when the spec is not a coarse-fine one or the search
 hit its window's edge on any axis ([`enforce_probe_interior`](@ref);

@@ -1,5 +1,5 @@
 # =============================================================================
-# artifact_format.jl — THE format stamp of every persisted artifact kind.
+# artifact_format.jl — the format stamp of every persisted artifact kind.
 #
 # A persisted artifact (a scoring pool, a tuning sidecar or checkpoint) carries
 # `<kind>_format`, the layout of its contents, written by the one writer
@@ -105,7 +105,7 @@ end
 """
     _save_artifact(path, kind; keys...) -> path
 
-THE writer of a `kind` artifact: `keys` to `path` (JLD2), stamped
+The writer of a `kind` artifact: `keys` to `path` (JLD2), stamped
 `<kind>_format` at the current version. A key named like the stamp is refused.
 """
 function _save_artifact(path::AbstractString, kind::Symbol; keys...)

@@ -18,8 +18,8 @@
 
 The paper-project conventions: [`paper_project_violations`](@ref) (the one
 check every paper project's suite calls) and [`new_paper_project`](@ref) (the
-template, on DrWatson's `initialize_project`). The conventions are stated in
-the README section "Paper project conventions".
+template, on DrWatson's `initialize_project`). The conventions are stated on
+the documentation page [Paper projects](@ref).
 """
 module PaperProjects
 

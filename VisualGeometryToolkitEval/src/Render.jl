@@ -5,9 +5,20 @@
 # emitters.
 #
 # Paper-owned data (palette, summary rows, arm records, frozen axis blocks) is
-# ONE explicit `PaperStyle` value (paper_style.jl) the paper builds and hands
+# One explicit `PaperStyle` value (paper_style.jl) the paper builds and hands
 # to every renderer that draws arms or paper colours — never a registry.
 # =============================================================================
+"""
+    Render
+
+Figure and table rendering through PGFPlotsX: the panel record
+([`PanelSpec`](@ref)), a paper's styling as one value ([`PaperStyle`](@ref)),
+the faceted-arm grammar ([`arm_style`](@ref)), the house axis style
+([`HOUSE_AXIS_COMMON`](@ref)), the shared faceted group-plot emitter
+([`open_faceted_groupplot`](@ref)) and the panel and table emitters
+([`emit_miscal_faceted`](@ref), [`emit_basin_faceted`](@ref),
+[`emit_tuning_table`](@ref)).
+"""
 module Render
 
 using PGFPlotsX: PGFPlotsX, @pgf, Axis, LegendEntry, Plot, Table
@@ -30,9 +41,9 @@ export
     # figure_style.jl — the faceted-arm grammar
     arm_style_records, FAMILY_ORDER, family_rank, PATH_RANK, path_rank, arm_order,
     has_arm, arm_record, arm_style, family_of, panel_title,
-    # faceted.jl — THE shared faceted-groupplot emitter
+    # faceted.jl — the shared faceted-groupplot emitter
     open_faceted_groupplot, faceted_legend_opts, arm_plot_opts, arm_addplot, arm_legendimage,
-    # axis_style.jl — THE house axis-style source (all NEW figures)
+    # axis_style.jl — the house axis-style source (all NEW figures)
     HOUSE_AXIS_COMMON, HOUSE_LINE_WIDTH, HOUSE_MARK_SIZE, color_defs, house_colors,
     # emitters.jl — the generic panel/table emission bodies
     pgf_coords, evaluation_curve,

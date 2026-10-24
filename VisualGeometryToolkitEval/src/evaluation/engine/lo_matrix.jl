@@ -6,7 +6,7 @@
 #     idxs[p,t] — the pool index j* of the model the scorer picked at column t
 #                 (0 ⇒ no consensus / no model)
 # `apply_lo_refits` turns a VECTOR of refit specs into (pairs × |grid|) imc
-# matrices — ONE generic applier over the RefitFamily trait, building the
+# matrices — one generic applier over the RefitFamily trait, building the
 # per-pair pool-frame geometry (`PairCtx`) once per (pair, spec) task and
 # reusing it across that spec's columns.
 # =============================================================================
@@ -125,7 +125,7 @@ function apply_lo_refits(problem_type::Type, specs::AbstractVector{LoRefitSpec},
             error("apply_lo_refits: spec \"$(spec.label)\" idxs has $(size(spec.idxs,1)) rows ≠ $P pairs")
     end
     isempty(specs) && return out
-    # THE TASK SPACE IS THE FLAT (pair x spec) PRODUCT, and the schedule is
+    # The task space is the flat (pair x spec) product, and the schedule is
     # :greedy. Two separate corrections to what was here:
     #
     # 1. Threading over pairs alone made the iteration count `P`, which is small

@@ -1,5 +1,5 @@
 # =============================================================================
-# src/stats/stats.jl — THE shared summary statistics.
+# src/stats/stats.jl — the shared summary statistics.
 # =============================================================================
 
 """
@@ -27,7 +27,7 @@ lower_median(v) = isempty(v) ? NaN : partialsort(collect(v), cld(length(v), 2))
 """
     reference_scale(s2) -> Float64
 
-THE validation reference scale `s0 = √median σ̂²` over the FINITE entries of
+The validation reference scale `s0 = √median σ̂²` over the finite entries of
 the per-pair inlier variances `s2` — the scale every tuning window is
 positioned at. Throws on an input with no finite entry: a window cannot be
 placed without a scale, and a `NaN` scale would silently select nothing.
@@ -39,7 +39,7 @@ function reference_scale(s2)
 end
 
 # -----------------------------------------------------------------------------
-# THE mAA rule. A pair with ground truth and enough valid correspondences to run
+# The mAA rule. A pair with ground truth and enough valid correspondences to run
 # (at least one minimal sample) is ELIGIBLE: its run counts, and a run that
 # yields no model (error non-finite — `Inf` or `NaN`) scores accuracy 0 in the
 # denominator. A pair that cannot be processed (no ground truth, or fewer valid
@@ -58,7 +58,7 @@ end
 """
     maa_threshold() -> Float64
 
-THE mAA threshold of the reported statistics, in degrees: configs/default.toml
+The mAA threshold of the reported statistics, in degrees: configs/default.toml
 `[metrics] maa_threshold_deg` (the 10 of mAA@10°). Every reader of that
 threshold calls this; none spells the number.
 """
@@ -67,7 +67,7 @@ maa_threshold() = Float64(_config_default("metrics", "maa_threshold_deg"))
 """
     eligible_maa(errors, eligible = nothing; T = maa_threshold()) -> Float64
 
-THE mAA@`T` of a set of pairs under the eligibility rule: the continuous AUC
+The mAA@`T` of a set of pairs under the eligibility rule: the continuous AUC
 (VGC `mean_average_accuracy`) over the ELIGIBLE pairs, where a non-finite
 error (a run that yielded no model) scores 0 and stays in the denominator,
 and an ineligible pair (`eligible[i] == false`: no ground truth, or fewer
@@ -107,7 +107,7 @@ than 3 elements → `(NaN, NaN)` (BCa's jackknife needs them).
 
 `rng` seeds the global Random stream before the Bootstrap.jl call (the
 library resamples from it and takes no rng), so a fresh seed per call keeps a
-run reproducible ON ONE JULIA VERSION: the resampling itself is Julia's
+run reproducible on one Julia version: the resampling itself is Julia's
 task-local default stream, whose algorithm Julia does not fix across versions
 (record `julia_version` beside a reported CI). `n_resamples` and `alpha`
 default to configs/default.toml `[metrics]` (`bootstrap_resamples`,
@@ -141,7 +141,7 @@ The equal-weight MEAN over scenes of each scene's `stat` (`scene_errors`
 iterates the scenes' value vectors); a scene whose statistic is not finite is
 skipped, and the result is `NaN` when no scene has one.
 
-THE scene-level aggregation: a per-scene statistic weights scenes, not pairs,
+The scene-level aggregation: a per-scene statistic weights scenes, not pairs,
 which is what a cross-validation split BY SCENE is asking for. `isfinite` is the
 right skip predicate for either statistic this takes — [`finite_median`](@ref)
 filters non-finite values first and so returns a finite value or `NaN`, while
@@ -177,7 +177,7 @@ end
 """
     stable_seed(seed, keys...) -> UInt64
 
-THE seed derivation of every random sample in the evaluation stack: the first
+The seed derivation of every random sample in the evaluation stack: the first
 eight bytes (big-endian) of the SHA-256 of `seed` and `keys` printed as text,
 separated by the unit separator `\x1f`. A fixed algorithm, unlike `Base.hash`
 (which changes across Julia versions), and keyed by NAME, unlike `seed + i`: a

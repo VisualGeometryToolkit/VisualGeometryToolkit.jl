@@ -6,7 +6,7 @@
 # VisualGeometryToolkitCore's contracts alone: any scorer, any local optimizer), and
 # the bootstrap tuning harness (evaluate_val.jl: BootstrapMethod /
 # FlatProtocol / WindowedGridMethod, bootstrap_trials, compute_method_rows,
-# the standardized window's `window_columns`) and THE coarse-fine search
+# the standardized window's `window_columns`) and the coarse-fine search
 # (cv_probe.jl). Every parameter they run under is a Tuning spec. Its statistics (reference scale, mAA rule, BCa CI) are Stats'. Absorbed from RANSACScoringDoneRight 2026-07-18;
 # it uses no scorer package and no optimizer package beyond the core
 # (VisualGeometryToolkitCore's contracts, VisualGeometryToolkitEstimation's loop and problems).
@@ -19,6 +19,19 @@
 # had a live caller or a live reader of what it wrote; see evaluate_val.jl's
 # header.
 # =============================================================================
+"""
+    Evaluation
+
+The evaluators. The composition evaluator runs a scorer composed with a local
+optimizer (LO) on stored pool pairs ([`build_pair_ctx`](@ref),
+[`refit_imc!`](@ref), [`apply_lo_refits`](@ref),
+[`evaluate_sample_budget`](@ref), [`live_runs`](@ref), [`Roster`](@ref)). It is
+written against VisualGeometryToolkitCore's scoring and local-optimization
+contracts only, so it runs any scorer with any optimizer. The module also holds
+the coarse-to-fine search of every cross-validation
+([`coarse_fine_search`](@ref), [`coarse_fine_cv`](@ref)) and the bootstrap
+tuning harness ([`WindowedGridMethod`](@ref), [`compute_method_rows`](@ref)).
+"""
 module Evaluation
 
 import VisualGeometryToolkitCore as VgtkCore
@@ -65,13 +78,13 @@ using ..Render: lo_us_per_call
 import ..Tuning: tuning_criterion_label
 
 export
-    # cv_probe.jl — THE coarse-fine search (one function per stage), its
+    # cv_probe.jl — the coarse-fine search (one function per stage), its
     # scalar forms, and the boundary_hit refusal at read time
     coarse_search, fine_search, coarse_fine_search, enforce_probe_interior,
     coarse_fine_cv, coarse_fine_cv_batched, probe_curve, fine_stage,
     # rigid_invariance.jl — the rigid-target invariance criterion
     rigid_invariance_errors,
-    # coarse_fine_artifact.jl — THE coarse-fine tuning artifact: writer and gated reader
+    # coarse_fine_artifact.jl — the coarse-fine tuning artifact: writer and gated reader
     save_coarse_fine_artifact, deployed_setting,
     # evaluate_val.jl — the bootstrap tuning harness
     BootstrapMethod, FlatProtocol, WindowedGridMethod, window_columns,
@@ -112,7 +125,7 @@ include("evaluation/coarse_fine_artifact.jl")   # save_coarse_fine_artifact, dep
 include("evaluation/evaluate_val.jl")
 include("evaluation/engine/operating_point.jl")  # OPERATING_SCALE_MULTIPLE, lo_iteration_budget
 include("evaluation/engine/geometry.jl")         # PairGeom, PairCtx, build_pair_ctx, model_imc, problem_type
-include("evaluation/engine/refit.jl")            # THE refit layer (refit_imc!), ScoreGuarded, RefitHalfwidth
+include("evaluation/engine/refit.jl")            # the refit layer (refit_imc!), ScoreGuarded, RefitHalfwidth
 include("evaluation/engine/lo_matrix.jl")        # LoRefitSpec, apply_lo_refits
 include("evaluation/engine/selectors.jl")        # running-best selectors
 include("evaluation/engine/budget.jl")           # the sample-budget engine

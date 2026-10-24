@@ -1,16 +1,32 @@
 # =============================================================================
-# Pools — THE scoring-pool IO of the stack: the in-memory pool (`ScoringPool`
+# Pools — the scoring-pool IO of the stack: the in-memory pool (`ScoringPool`
 # of VisualGeometryToolkitCore `PoolPair` records) and its residual matrices
 # (`PoolResiduals`), bound by the content key `pool_key`; the one writer and
 # reader of each (format 4 light files, format 1 residuals files: PLAIN data,
 # no stack type serialized); the per-scene loaders; the generic scene-pool
 # orchestration `write_scene_pool`; the PnP pool file; and the synthetic E pool
-# pair of the engine tests; and THE minimal-sample boundaries of a pool
+# pair of the engine tests; and the minimal-sample boundaries of a pool
 # (`sample_starts`), the one place a sample count is reconstructed.
 #
 # A pool is in NormalizedImageFrame (`frame(::ScoringPool)`); a PnP pool in
 # ImageFrame. Nothing here converts a frame.
 # =============================================================================
+"""
+    Pools
+
+Scoring-pool input and output. A pool ([`ScoringPool`](@ref)) holds
+VisualGeometryToolkitCore `PoolPair` records; its residual matrices
+([`PoolResiduals`](@ref)) are bound to it by the content key
+[`pool_key`](@ref). The module has one writer and one reader of each
+([`save_pool`](@ref), [`load_pool`](@ref)), the per-scene loaders
+([`scene_loaders`](@ref)), the scene-pool producer
+([`write_scene_pool`](@ref)), the perspective-n-point (PnP) pool file
+([`save_pnp_pool`](@ref)) and the minimal-sample boundaries of a pool
+([`sample_starts`](@ref)).
+
+A scoring pool is stored in `NormalizedImageFrame` ([`frame`](@ref)) and a PnP
+pool in `ImageFrame`. Nothing here converts a frame.
+"""
 module Pools
 
 using LinearAlgebra: I, normalize

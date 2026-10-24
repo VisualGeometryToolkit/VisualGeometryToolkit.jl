@@ -9,9 +9,11 @@ Feature detection and descriptor matching.
 - **Matching:** nearest-neighbour descriptor matching, one KernelAbstractions
   implementation on the CPU or any GPU backend ([`nn_match`](@ref), `match`), and a
   stacked matcher over many galleries ([`nn_match_stacked`](@ref)).
+- **LoMa:** the learned DeDoDe descriptors and LoMa matchers, from the authors' ONNX
+  exports ([`LoMaDescriptor`](@ref), [`LoMaMatcher`](@ref)).
+- **Serialization:** detections, feature frames, `Size2` and quantities read and write
+  with JSON.jl (`JSON.json(d)`, `JSON.parse(str, Detection)`).
 - **Extensions:** JLD2 backs [`FileCache`](@ref); Makie draws detections and correspondences.
-
-Stereo datasets, ground truth and RoMa match IO moved to VisualGeometryToolkitEval in 0.8.
 """
 module VisualGeometryToolkitFeatures
 

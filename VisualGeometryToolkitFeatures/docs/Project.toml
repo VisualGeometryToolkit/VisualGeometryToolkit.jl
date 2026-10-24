@@ -1,5 +1,8 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
 VisualGeometryToolkitFeatures = "9487290e-790c-4faa-aa87-bc3b5f18b9f7"
 
 [sources]
@@ -8,3 +11,6 @@ VisualGeometryToolkitFeatures = {path = ".."}
 [compat]
 julia = "1.12"
 Documenter = "1"
+JSON = "1.12"
+Random = "1"
+VisualGeometryToolkitCore = "0.1"

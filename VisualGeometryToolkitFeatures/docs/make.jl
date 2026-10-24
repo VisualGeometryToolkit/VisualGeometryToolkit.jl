@@ -1,7 +1,8 @@
-# The minimal documentation site (DESIGN D6): the README as the index, one
-# @autodocs API page. Build locally (no deployment without CI):
+# The documentation site: the README as the index, the guide pages under
+# docs/src/guide/, the API reference under docs/src/api/ and a developer page. Build from the
+# repository root (no deployment without CI):
 #
-#   julia --project=docs --startup-file=no docs/make.jl     # → docs/build/index.html
+#   julia --project=VisualGeometryToolkitFeatures/docs --startup-file=no VisualGeometryToolkitFeatures/docs/make.jl
 
 using Documenter
 using VisualGeometryToolkitFeatures
@@ -27,9 +28,25 @@ makedocs(;
         size_threshold = nothing,
     ),
     # README links point into the repository, not at documented names.
-    warnonly = [:cross_references, :missing_docs],
-    checkdocs = :exports,
-    pages = ["Home" => "index.md", "API" => "api.md"],
+    warnonly = [:cross_references],
+    # every exported and every `public` name needs a docstring; the build fails otherwise
+    checkdocs = :public,
+    pages = [
+        "Home" => "index.md",
+        "Getting Started" => "guide/getting-started.md",
+        "User Guide" => [
+            "Detection" => "guide/detection.md",
+            "Matching" => "guide/matching.md",
+            "Serialization" => "guide/serialization.md",
+        ],
+        "API Reference" => [
+            "Detection" => "api/detection.md",
+            "Matching" => "api/matching.md",
+            "Serialization" => "api/serialization.md",
+            "Cache and Visualization" => "api/cache.md",
+        ],
+        "Developer Notes" => "developer.md",
+    ],
 )
 
 deploydocs(;

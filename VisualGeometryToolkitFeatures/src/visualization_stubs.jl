@@ -15,7 +15,7 @@
     detections!(ax, dets::AbstractVector{<:Detection};
                 cutoff=1.0, color_by=nothing, colormap=:viridis, kwargs...)
 
-Overlay detections as batched ellipse boundaries (VGC `ellipses!`).
+Overlay detections as batched ellipse boundaries (VisualGeometryToolkitCore's `ellipses!`).
 
 `color_by` selects the stroke coloring:
 - `nothing` — constant `strokecolor`

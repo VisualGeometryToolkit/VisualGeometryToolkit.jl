@@ -159,7 +159,7 @@ end
     asift_detections(feats, cov) -> Vector{Detection}
 
 Convert raw ASIFT features (0-indexed opencv pixel coords, input frame) into
-VGF `Detection{EllipticFrame}` in COLMAP convention (+0.5 on both axes, so the
+`Detection{EllipticFrame}`s in COLMAP convention (+0.5 on both axes, so the
 top-left pixel's centre is (0.5, 0.5); see [`asift_detect`](@ref)). The
 metadata is `(response, edge_score, laplacian_scale_score, warp_idx)`:
 `laplacian_scale_score = sign(response)` (+1 dark, −1 light — the DoG sign

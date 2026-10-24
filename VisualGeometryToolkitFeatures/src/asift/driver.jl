@@ -627,9 +627,46 @@ _scheduled(build, ::KA.CPU) =
 
 # ----- plan ------------------------------------------------------------------
 
-# MUTABLE for one reason: the pooled-feature buffers grow when a frame
-# produces more extrema than they hold (`_grow_pool!`). Every other field is
-# `const`.
+"""
+    AsiftPlan(W, H; device = default_device(), tilts = <IMAS-25>, seed_sigma = 1.6,
+              input_blur = 0.5, nb_scales = 3, capacity = 2^20, chunk = 0,
+              upsample = true)
+
+The preallocated buffers of the ASIFT detector for `W`×`H` images on `device`
+(any KernelAbstractions backend): the tilted warps, the scale-space pyramids,
+the feature pool and the compiled kernels. [`asift_detect!`](@ref) runs the
+detector in them without allocating on the device.
+
+[`asift_detect`](@ref) builds and caches plans itself (see
+[`set_max_cached_plans!`](@ref) and [`clear_asift_plans!`](@ref)), so most
+callers never construct one. Build one to own its lifetime, or to detect in a
+loop over same-size frames without the cache's lock.
+
+- `tilts`: the tilt schedule, a vector of `(t, φ)` pairs (tilt and longitude
+  in radians). The default is the 25 tilts of IMAS-25; `[(1.0, 0.0)]` alone is
+  plain DoG-SIFT.
+- `seed_sigma`, `input_blur`, `nb_scales`, `upsample`: the SIFT pyramid's seed
+  blur, the input's assumed blur, the scales per octave and whether the first
+  octave is the 2× upsampled image.
+- `capacity`: the initial size of the feature pool; it grows when a frame
+  produces more extrema.
+- `chunk`: how many warps stay resident at once; `0` sizes the chunk from the
+  device's free memory.
+
+A plan holds device memory (several GiB for a large image under the full
+schedule). It is mutable only because its feature pool grows.
+
+```jldoctest
+julia> using VisualGeometryToolkitFeatures
+
+julia> plan = AsiftPlan(64, 48; tilts = [(1.0, 0.0)]);
+
+julia> img = zeros(Float32, 64, 48);   # (W, H): x along the first axis
+
+julia> asift_detect!(plan, img)
+ImasFeatureKA[]
+```
+"""
 mutable struct AsiftPlan{D, A1, A2, A3, A4, AI, AU, AU8, GT, KN}
     const dev::D
     const W::Int

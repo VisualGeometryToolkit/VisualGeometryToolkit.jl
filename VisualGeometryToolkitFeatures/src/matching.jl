@@ -16,6 +16,31 @@
 using VisualGeometryToolkitCore: Cspond
 import VisualGeometryToolkitCore: csponds
 
+"""
+    CspondSet(features::AbstractVector)
+    CspondSet(features::Tuple)
+    CspondSet(T::Type)
+
+An N-way correspondence: the same scene point observed as one feature in each
+of several images, where `Cspond` is the two-way case. It wraps a vector
+of features and iterates, indexes and has a length like one. A tuple becomes a
+fixed-size `SVector`; a `Vector` (or `CspondSet(T)`, an empty one of element
+type `T`) grows with `push!` and `append!`.
+
+```jldoctest
+julia> using VisualGeometryToolkitFeatures
+
+julia> track = CspondSet(Int);
+
+julia> push!(track, 3); push!(track, 7);
+
+julia> length(track), track[2], collect(track)
+(2, 7, [3, 7])
+
+julia> length(CspondSet((1, 2, 3)))
+3
+```
+"""
 struct CspondSet{C <: AbstractVector}
     features::C
 end

@@ -29,7 +29,7 @@ The frame type `F` determines the geometry:
 - `Detection{OrientedDisc{T}, M}` - oriented isotropic detection (4 DOF)
 - `Detection{EllipticFrame{T}, M}` - anisotropic detection (5 DOF)
 - `Detection{AffineFrame{T}, M}` - full affine detection (6 DOF)
-- `Detection{<:Uncertain{F}, M}` - a frame `F` with its covariance (VGC's
+- `Detection{<:Uncertain{F}, M}` - a frame `F` with its covariance (VisualGeometryToolkitCore's
   `Uncertain(frame, Σ)`), from `asift_detect(…; uncertainty = FeatureCovariance())`:
   `cov(d)` is the covariance, `feature_frame(d)` the bare frame, `geom(d)` the
   detection without it, and the properties below read as on the bare detection
@@ -46,7 +46,7 @@ The frame type `F` determines the geometry:
 
 # Coordinates
 The frame's `center` is `(x, y)` in COLMAP pixel-centre coordinates, the
-convention of every VGF detector: x along the image columns, y along the rows,
+convention of every detector in this package: x along the image columns, y along the rows,
 the top-left pixel's centre at (0.5, 0.5). The pixel `img[r, c]` has its centre
 at `(c − 0.5, r − 0.5)`. [`asift_detect`](@ref) documents its measured sub-pixel
 accuracy.
@@ -61,15 +61,19 @@ Properties are forwarded from frame and metadata:
 - `d.response`, `d.edge_score`, etc. → forwarded from metadata
 
 # Example
-```julia
-disc = Disc(Point2(100.0, 200.0), 5.0)
-det = Detection(disc, (response=0.05, edge_score=3.2, laplacian_scale_score=-0.1))
-det.center       # from frame
-det.σ            # scale
-det.response     # from metadata
+```jldoctest
+julia> using VisualGeometryToolkitFeatures, VisualGeometryToolkitCore
+
+julia> det = Detection(Disc(Point2(100.0, 200.0), 5.0), (response = 0.05, laplacian_scale_score = -0.1));
+
+julia> Tuple(det.center), det.σ, det.response   # from the frame and the metadata
+((100.0, 200.0), 5.0, 0.05)
+
+julia> is_light(det)
+true
 ```
 
-See also: [`Disc`](@ref), [`EllipticFrame`](@ref), [`Attributed`](@ref)
+See also: [`Disc`](@ref), [`EllipticFrame`](@ref), VisualGeometryToolkitCore's `Attributed`
 """
 const Detection{F <: Union{FeatureFrame, _UncertainFrame}, M} = Attributed{F, M}
 
@@ -208,11 +212,54 @@ end
 """
     HasPolarityTrait
 
-Holy trait for metadata types indicating whether they contain polarity information.
+Holy trait for metadata types indicating whether they contain polarity
+information: [`HasPolarity`](@ref) or [`NoPolarity`](@ref), as
+[`polarity_trait`](@ref) returns it. Public, not exported.
 """
 abstract type HasPolarityTrait end
+
+"""
+    HasPolarity()
+
+The [`HasPolarityTrait`](@ref) of detection metadata that records a polarity:
+a `NamedTuple` with a `laplacian_scale_score` field, positive for a dark blob
+and negative for a light one. [`is_dark`](@ref) and [`is_light`](@ref) read
+that field's sign. Public, not exported.
+"""
 struct HasPolarity <: HasPolarityTrait end
+
+"""
+    NoPolarity()
+
+The [`HasPolarityTrait`](@ref) of detection metadata that records no polarity.
+[`is_dark`](@ref) and [`is_light`](@ref) are both `false` for such a detection.
+Public, not exported.
+"""
 struct NoPolarity <: HasPolarityTrait end
+
+"""
+    polarity_trait(::Type{M}) -> HasPolarityTrait
+    polarity_trait(d::Detection) -> HasPolarityTrait
+
+Whether metadata of type `M`, or the metadata of the detection `d`, records a
+polarity: [`HasPolarity`](@ref) for a `NamedTuple` with a
+`laplacian_scale_score` field, [`NoPolarity`](@ref) otherwise. A detector whose
+metadata is another type opts in by adding a method for its type, and must then
+give it a `laplacian_scale_score` property. Public, not exported.
+
+```jldoctest
+julia> using VisualGeometryToolkitFeatures, VisualGeometryToolkitCore
+
+julia> import VisualGeometryToolkitFeatures as VgtkFeatures
+
+julia> VgtkFeatures.polarity_trait(Detection(Disc(Point2(1.0, 2.0), 3.0), (response = 1.0,)))
+VisualGeometryToolkitFeatures.NoPolarity()
+
+julia> VgtkFeatures.polarity_trait(typeof((response = 1.0, laplacian_scale_score = -1.0)))
+VisualGeometryToolkitFeatures.HasPolarity()
+```
+"""
+function polarity_trait end
 
 @generated function polarity_trait(::Type{M}) where {M <: NamedTuple}
     if :laplacian_scale_score in fieldnames(M)
@@ -237,7 +284,46 @@ polarity_trait(d::AbstractDetection) = polarity_trait(typeof(getfield(d, :attrib
 @inline _is_dark(d, ::HasPolarity) = d.laplacian_scale_score > 0
 @inline _is_dark(d, ::NoPolarity) = false
 
+"""
+    is_light(d::Detection) -> Bool
+
+Whether `d` is a light blob on a darker background: its metadata records a
+polarity (see [`polarity_trait`](@ref)) and its `laplacian_scale_score` is
+negative. `false` for a detection without a recorded polarity. ASIFT
+detections record one, from the sign of the DoG response.
+
+```jldoctest
+julia> using VisualGeometryToolkitFeatures, VisualGeometryToolkitCore
+
+julia> d = Detection(Disc(Point2(1.0, 2.0), 3.0), 0.5; polarity = :light);
+
+julia> is_light(d), is_dark(d)
+(true, false)
+```
+
+See also [`is_dark`](@ref).
+"""
 @inline is_light(d::AbstractDetection) = _is_light(d, polarity_trait(d))
+
+"""
+    is_dark(d::Detection) -> Bool
+
+Whether `d` is a dark blob on a lighter background: its metadata records a
+polarity (see [`polarity_trait`](@ref)) and its `laplacian_scale_score` is
+positive. `false` for a detection without a recorded polarity.
+
+```jldoctest
+julia> using VisualGeometryToolkitFeatures, VisualGeometryToolkitCore
+
+julia> is_dark(Detection(Disc(Point2(1.0, 2.0), 3.0), 0.5; polarity = :dark))
+true
+
+julia> is_dark(Detection(Disc(Point2(1.0, 2.0), 3.0), 0.5))   # no polarity recorded
+false
+```
+
+See also [`is_light`](@ref).
+"""
 @inline is_dark(d::AbstractDetection) = _is_dark(d, polarity_trait(d))
 
 # =============================================================================

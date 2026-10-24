@@ -9,4 +9,4 @@ VisualGeometryToolkitIO = {path = ".."}
 [compat]
 julia = "1.12"
 Documenter = "1"
-VisualGeometryToolkitCore = "0.1"
+VisualGeometryToolkitCore = "0.1.2"

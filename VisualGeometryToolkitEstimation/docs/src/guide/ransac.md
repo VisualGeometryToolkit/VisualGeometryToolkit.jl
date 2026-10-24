@@ -169,6 +169,34 @@ config = RansacConfig(;
 result = ransac(problem, scoring; config=config)
 ```
 
+### Selecting a strategy in TOML
+
+A local-optimization strategy can be selected by tag, for instance from a
+configuration file. `local_optimization_from_toml` reads one strategy table.
+The core registry `VisualGeometryToolkitEstimation.LO_TAGS` holds the tags
+`"no_local_optimization"` and `"irls"`:
+
+```julia
+using VisualGeometryToolkitEstimation: local_optimization_from_toml
+
+lo = local_optimization_from_toml(Dict("type" => "irls", "loss" => "welsch", "scale_multiple" => 2.5);
+    class = :homography)
+```
+
+A table without a width key follows the scorer; `scale_multiple` or
+`loss_width` sets the width. Keys that are absent inherit the shipped
+`configs/default.toml`, and an unknown key or tag is an `ArgumentError`.
+Strategies from another package load through an explicit merge of its
+registry, for example LocalOptimizationDoneRight's:
+
+```julia
+import LocalOptimizationDoneRight
+using VisualGeometryToolkitEstimation: LO_TAGS
+
+lo = local_optimization_from_toml(Dict("type" => "hq", "loss" => "welsch", "scale_multiple" => 1.6);
+    class = :homography, tags = merge(LO_TAGS, LocalOptimizationDoneRight.LO_TAGS))
+```
+
 ## Result Type
 
 `ransac` returns a `RansacEstimate`:

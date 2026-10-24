@@ -87,6 +87,47 @@ RansacWorkspace{K, M, T, W, L}             built once, reused across trials and 
 no-scoring form `RansacWorkspace(P, n)` builds the default MSAC scorer's. All
 dispatch on `W` and `L` is static.
 
+## Design decisions
+
+**The loop knows contracts, not types.** The RANSAC loop
+(`src/estimators/ransac/loop.jl`) calls only VisualGeometryToolkitCore's contract
+verbs: `scored_model`, `score_model!`, `inlier_count`, `consensus_order`,
+`consensus_set`, `consensus_s2`, `inlier_probabilities!`, `is_predictive` and
+`locally_optimize!`. It names no scorer or strategy type. Any scorer therefore
+composes with any local optimizer and any problem, including the ones that
+live in other packages.
+
+**Dispatch is static.** `RansacWorkspace{K, M, T, W, L}` carries the type of
+the scorer's workspace `W` and of the local optimizer's workspace `L`. The
+loop compiles once for each combination of problem, scorer and local
+optimizer, with no runtime dispatch. On a reused workspace, `ransac!` does not
+allocate.
+
+**A width is resolved once.** A strategy that carries a loss width, such as
+`Irls{K, W}`, has one of three width modes. With no width it follows the
+scorer's `inlier_threshold`. `ScaleMultiple(m)` anchors the width at `m` times
+the consensus set's scale, and `LossWidth(w)` fixes it. VisualGeometryToolkitCore's
+`loss_at` resolves the mode once per call. Following a scorer that defines no
+threshold is refused at entry by `check_composition`.
+
+**Local optimization goes through `refine!`.** A problem implements
+VisualGeometryToolkitCore's `refine!(ws, problem, θ, weights)` on the workspace
+`refine_workspace(P, n)`. It is the weighted refit from the current model, and
+the problem's `refit_kind` trait routes it. For the homography, fundamental
+matrix, essential matrix, absolute pose and hand-eye problems, the refit is
+Levenberg–Marquardt on a minimal chart about the current model. The chart is
+sl(3) with 8 degrees of freedom for a homography, Bartoli–Sturm with 7 for a
+fundamental matrix, and so(3)⊕R³ with 6 for the two poses. The same chart
+problems provide VisualGeometryToolkitCore's chart-rows contract
+(`rows_provider`), which the half-quadratic lifts of
+LocalOptimizationDoneRight consume.
+
+**Cardinality and uncertainty are in the types.** The number of solutions a
+minimal solver returns is carried by `FixedModels{N, M}`. A model with a
+covariance is an `Uncertain{M}`, which the predictive scorers read. Covariances
+are propagated back through the problem's normalization, so they come back in
+the caller's units.
+
 ## Local Optimization (LO-RANSAC)
 
 Local optimization refines promising hypotheses during the RANSAC loop through

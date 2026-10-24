@@ -33,7 +33,7 @@ end
 _patterns(path) = [Regex(strip(l)) for l in eachline(path) if !isempty(strip(l)) && !startswith(strip(l), '#')]
 
 function main(args)
-    isdir(joinpath(ROOT, ".git")) || error("$ROOT is not a git checkout; agent_docs.jl needs `git ls-files`")
+    ispath(joinpath(ROOT, ".git")) || error("$ROOT is not a git checkout; agent_docs.jl needs `git ls-files`")
     extra = get(ENV, "AGENT_DOC_PATTERNS", nothing)
     found = agent_doc_violations(ROOT; extra)
     nagent = length(found)

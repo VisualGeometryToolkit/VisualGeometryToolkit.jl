@@ -101,7 +101,7 @@ An [`EuclideanMap`](@ref) whose translation is plain numbers
 the map the inner loop takes: minimal kernels, charts and manifolds, solvers.
 A unitful map handed to a function typed on it is a `MethodError`.
 """
-const PlainEuclideanMap{N} = EuclideanMap{N, <:Any, <:Any, <:StaticVector{N, <:Real}}
+const PlainEuclideanMap{N} = EuclideanMap{N, T, R, V} where {T, R <: Rotation{N, T}, V <: StaticVector{N, <:Real}}
 
 """
     UnitfulEuclideanMap{N}
@@ -110,7 +110,7 @@ An [`EuclideanMap`](@ref) whose translation is FlexUnits quantities — a
 physical map, its translation in metres (base form). See
 [`PlainEuclideanMap`](@ref), [`has_units`](@ref).
 """
-const UnitfulEuclideanMap{N} = EuclideanMap{N, <:Any, <:Any, <:StaticVector{N, <:Quantity}}
+const UnitfulEuclideanMap{N} = EuclideanMap{N, T, R, V} where {T, R <: Rotation{N, T}, V <: StaticVector{N, <:Quantity}}
 
 """
     rotation(E::EuclideanMap) -> Rotation
@@ -573,6 +573,14 @@ const CameraExtrinsics{T, R <: Rotation{3, T}, V <: StaticVector{3}} =
 # rotation and the frames exactly. An `Uncertain` pose's 6×6 form lives in the
 # `RigidExpManifold6` chart, rotation first, so its translation rows and
 # columns (4–6) carry the length unit: they move with it, once, here.
+#
+# Every length crosses between the forms through one pair, `_strip_length` and
+# `_attach_length` (FlexUnits' `ustrip` and `ubase`), so the conversion is
+# stated once for maps, points and every carrier built on them.
+
+# One length, plain in `u`; one plain number in `u`, as a length in metres.
+@inline _strip_length(u::Units, q::Quantity) = ustrip(u, q)
+@inline _attach_length(x::Real, u::Units) = _check_length(ubase(x * u))
 
 has_units(::EuclideanMap{N, T, R, V}) where {N, T, R, V} = eltype(V) <: Quantity
 has_units(u::Attributed) = has_units(getfield(u, :value))
@@ -592,7 +600,7 @@ function FlexUnits.ustrip(u::Units, E::EuclideanMap{N, T, R, V, Src, Dst}) where
                 "construction, `EuclideanMap(rotation(E), translation(E) .* u)`"
         )
     )
-    t = map(q -> ustrip(u, q), E.t)
+    t = map(q -> _strip_length(u, q), E.t)
     return EuclideanMap{N, T, R, typeof(t), Src, Dst}(E.R, t)
 end
 
@@ -601,7 +609,7 @@ end
 # rotation as a `RotMatrix`).
 function _attach_unit(E::EuclideanMap{N, T, R, V, Src, Dst}, u::Units) where {N, T, R, V, Src, Dst}
     has_units(E) && throw(ArgumentError("with_unit: the map's translation already has units"))
-    t = map(x -> _check_length(ubase(x * u)), E.t)
+    t = map(x -> _attach_length(x, u), E.t)
     return EuclideanMap{N, T, R, typeof(t), Src, Dst}(E.R, t)
 end
 
@@ -779,4 +787,41 @@ Returns:
     G_x = hcat(G_X, -one(SMatrix{2, 2, Float64}))
 
     return (g, G_x, G_θ)
+end
+
+# A physical map's translation as plain metres, a plain one's as it is: what a
+# public function reads where it only compares or measures a translation.
+_translation_metres(E::EuclideanMap) = has_units(E) ? _strip_metres(translation(E)) : translation(E)
+
+# -----------------------------------------------------------------------------
+# Units of a point — a target's, a capture's: the same moves as a map's
+# -----------------------------------------------------------------------------
+#
+# A physical point is a static vector of lengths (metres), or an `Uncertain`
+# one whose d×d covariance is in m² (a precision in 1/m²); its plain form in a
+# unit `u` scales the covariance by `ustrip(u, 1 m)²`, the inverse divides it.
+
+_ustrip_point(u::Units, p::StaticVector{N, <:Quantity}) where {N} = map(q -> _strip_length(u, q), p)
+_ustrip_point(u::Units, p::Uncertain) =
+    Uncertain(_ustrip_point(u, geom(p)), _scale_point_form(getfield(p, :attributes), _metre_factor(u), *))
+_ustrip_point(::Units, p) = throw(ArgumentError("ustrip: the point $(p) is plain numbers already; `with_unit` attaches a unit"))
+_attach_point(u::Units, p::StaticVector{N, <:Real}) where {N} = map(x -> _attach_length(x, u), p)
+_attach_point(u::Units, p::Uncertain) =
+    Uncertain(_attach_point(u, geom(p)), _scale_point_form(getfield(p, :attributes), _metre_factor(u), /))
+_attach_point(::Units, p) = throw(ArgumentError("with_unit: the point $(p) already has units"))
+
+_scale_point_form(M::CovMat{N, T, L, C}, f, op) where {N, T, L, C} = CovMat{N, T, L, C}(map(x -> op(x, f * f), Tuple(M)))
+_scale_point_form(M::PrecMat{N, T, L, C}, f, op) where {N, T, L, C} =
+    PrecMat{N, T, L, C}(map(x -> _opposite(op)(x, f * f), Tuple(M)))
+
+# A point's stored form: plain numbers as `Float64` (today's storage), lengths in
+# metres. For the containers that hold either (targets, 3D target points).
+_stored_point(::Val{N}, p::AbstractVector{<:Quantity}) where {N} = SVector{N}(map(q -> _check_length(ubase(q)), Tuple(SVector{N}(p))))
+_stored_point(::Val{N}, p::AbstractVector) where {N} = SVector{N, Float64}(p)
+
+# The containers hold one form: all plain or all lengths.
+function _check_one_form(ps, what)
+    isempty(ps) || allequal(has_units(geom(p)) for p in ps) ||
+        throw(ArgumentError("$(what): the points are all plain numbers or all lengths, not a mix"))
+    return ps
 end

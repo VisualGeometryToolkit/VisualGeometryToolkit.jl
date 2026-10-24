@@ -60,9 +60,11 @@ targets.jl for the calibratable-target protocol.
 """
 abstract type AbstractTarget end
 
-_target_point(p::StaticVector{2}) = SVector{2, Float64}(p)
-_target_point(p::StaticVector{3}) = SVector{3, Float64}(p)
-_target_point(p::AbstractVector) = length(p) == 2 ? SVector{2, Float64}(p) : length(p) == 3 ? SVector{3, Float64}(p) :
+# A target point stored: plain numbers as Float64, lengths in metres (FlexUnits
+# base form); an `Uncertain` one keeps its covariance (m² for a physical point).
+_target_point(p::StaticVector{2}) = _stored_point(Val(2), p)
+_target_point(p::StaticVector{3}) = _stored_point(Val(3), p)
+_target_point(p::AbstractVector) = length(p) == 2 ? _stored_point(Val(2), p) : length(p) == 3 ? _stored_point(Val(3), p) :
     throw(ArgumentError("a target point is a 2-vector (a plane's) or a 3-vector; got $(length(p)) entries"))
 _target_point(p::Uncertain) = (v = _target_point(geom(p)); Uncertain(v, CovMat(SMatrix{length(v), length(v), Float64}(Statistics.cov(p)))))
 
@@ -75,8 +77,13 @@ _target_point(p::Uncertain) = (v = _target_point(geom(p)); Uncertain(v, CovMat(S
 
 A target given by its points, explicitly, in its own frame: 2-vectors (a
 plane's) or 3-vectors, all of one dimension, plain or `Uncertain` (an
-estimated constellation, its covariances in mm²). A motion-capture body's
+estimated constellation with its covariances). A motion-capture body's
 marker constellation, or a board whose warp was resolved to measured points.
+
+A physical target's points are lengths, stored in metres (its covariances in
+m²); plain points are stored as `Float64`. All are one form or the other
+([`has_units`](@ref)); `ustrip(u, t)` and [`with_unit`](@ref)`(t, u)` move
+between them.
 """
 struct PointTarget{P} <: AbstractTarget
     points::Vector{P}
@@ -84,6 +91,7 @@ struct PointTarget{P} <: AbstractTarget
         ps = map(_target_point, pts)
         isempty(ps) || allequal(length(geom(p)) for p in ps) ||
             throw(ArgumentError("a target's points are all 2-vectors or all 3-vectors"))
+        _check_one_form(ps, "PointTarget")
         P = isempty(ps) ? SVector{3, Float64} : typejoin(map(typeof, ps)...)
         return new{P}(Vector{P}(ps))
     end
@@ -91,6 +99,9 @@ end
 
 points(t::PointTarget) = t.points
 Base.:(==)(a::PointTarget, b::PointTarget) = a.points == b.points
+has_units(t::PointTarget) = any(has_units, points(t))
+FlexUnits.ustrip(u::Units, t::PointTarget) = PointTarget([_ustrip_point(u, p) for p in points(t)])
+with_unit(t::PointTarget, u::Units) = PointTarget([_attach_point(u, p) for p in points(t)])
 
 # ------------------------------------------------------------------------------
 # Warps
@@ -163,17 +174,27 @@ on the plane `z = 0`). An unresolved target (a reference, no nominal points
 yet) is a pose-only board; [`resolve`](@ref) supplies its points, and its
 [`points`](@ref) is an error until then. VGC never parses a design file: the
 design's package resolves the reference.
+
+The nominal points are plain numbers (stored as `Float64`) or lengths (stored
+in metres), all one form ([`has_units`](@ref)); `ustrip(u, t)` and
+[`with_unit`](@ref)`(t, u)` move between them. An unresolved target holds no
+lengths: it is neither form, and both return it unchanged.
 """
-struct PlanarTarget{W <: AbstractWarp, N <: Union{Nothing, Vector{SVector{2, Float64}}}} <: AbstractTarget
+struct PlanarTarget{W <: AbstractWarp, N <: Union{Nothing, Vector{<:SVector{2}}}} <: AbstractTarget
     design::Union{Nothing, Symbol}
     nominal::N
     warp::W
     function PlanarTarget(design::Union{Nothing, Symbol}, nominal, warp::W) where {W <: AbstractWarp}
         (design === nothing && nominal === nothing) &&
             throw(ArgumentError("a planar target has a design reference, nominal points, or both"))
-        n = nominal === nothing ? nothing : SVector{2, Float64}[SVector{2, Float64}(geom(p)) for p in nominal]
+        n = nominal === nothing ? nothing : _nominal_points(nominal)
         return new{W, typeof(n)}(design, n, warp)
     end
+end
+# The nominal points stored (an empty design is a plain one, as before).
+function _nominal_points(nominal)
+    ps = _check_one_form([_stored_point(Val(2), geom(p)) for p in nominal], "PlanarTarget")
+    return isempty(ps) ? SVector{2, Float64}[] : ps
 end
 PlanarTarget(nominal::AbstractVector; warp::AbstractWarp = Rigid()) = PlanarTarget(nothing, nominal, warp)
 PlanarTarget(design::Symbol; nominal = nothing, warp::AbstractWarp = Rigid()) = PlanarTarget(design, nominal, warp)
@@ -202,6 +223,13 @@ function points(t::PlanarTarget)
     return [t.warp(p) for p in t.nominal]
 end
 Base.:(==)(a::PlanarTarget, b::PlanarTarget) = a.design === b.design && isequal(a.nominal, b.nominal) && a.warp == b.warp
+
+# Units: a resolved target's nominal points move; an unresolved one has none.
+has_units(t::PlanarTarget) = is_resolved(t) && has_units(t.nominal)
+FlexUnits.ustrip(u::Units, t::PlanarTarget) =
+    is_resolved(t) ? PlanarTarget(t.design, [_ustrip_point(u, p) for p in t.nominal], t.warp) : t
+with_unit(t::PlanarTarget, u::Units) =
+    is_resolved(t) ? PlanarTarget(t.design, [_attach_point(u, p) for p in t.nominal], t.warp) : t
 
 # --- the calibratable-target protocol ------------------------------------------------
 

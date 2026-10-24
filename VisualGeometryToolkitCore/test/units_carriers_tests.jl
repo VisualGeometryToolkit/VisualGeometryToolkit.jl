@@ -1,0 +1,179 @@
+# =============================================================================
+# Targets, mounts, rigs, cameras and captures carry units the way their poses
+# do: a physical value holds FlexUnits' base-form lengths (metres), its plain
+# form is `ustrip(u, x)`, and `with_unit(x, u)` reads a plain value as being in
+# `u`. A unitful value meeting plain numbers is FlexUnits' `DimensionError`.
+#
+# The unitful values are built as a file reader builds them,
+# `parse(Float64, "…e-3") * m` — the decimal shift of a millimetre text.
+# FlexUnits' `ustrip(mm, ·)` divides by the unit's scale, so the plain form it
+# returns is within one ulp of the millimetre value (the decimal-exact
+# conversion of a file's text is the IO layer's `read_length`/`write_length`).
+# =============================================================================
+
+@testitem "units carriers" begin
+    using Test
+    using StaticArrays, Rotations, LinearAlgebra, Statistics
+    using FlexUnits: Quantity
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: EuclideanMap, m, mm, ustrip, DimensionError, translation, rotation,
+        relabel, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, Uncertain, CovMat, geom,
+        has_units, with_unit, PointTarget, PlanarTarget, Mounted, Rig, Camera, BoundedCamera, CameraModel,
+        CameraCalibrationMat, Trajectory, TargetPoses, TargetPoints3D, Size2, project, pose, extrinsics, points
+
+    within_ulp(a::Number, b::Number) = abs(a - b) <= eps(abs(b))
+    within_ulp(a, b) = length(a) == length(b) && all(within_ulp(x, y) for (x, y) in zip(a, b))
+    # a millimetre text read as a length
+    from_mm(x::Real) = parse(Float64, "$(repr(Float64(x)))e-3") * m
+    from_mm(v::AbstractVector) = SVector{length(v)}(map(from_mm, v))
+
+    maps_close(A, B) = rotation(A) == rotation(B) && within_ulp(translation(A), translation(B))
+    pose_close(A::EuclideanMap, B::EuclideanMap) = maps_close(A, B)
+    pose_close(A::Uncertain, B::Uncertain) =
+        maps_close(geom(A), geom(B)) && within_ulp(SMatrix{6, 6}(cov(A)), SMatrix{6, 6}(cov(B)))
+    point_close(a::StaticVector, b::StaticVector) = within_ulp(a, b)
+    point_close(a::Uncertain, b::Uncertain) = within_ulp(geom(a), geom(b)) && within_ulp(cov(a), cov(b))
+
+    R = RotMatrix{3, Float64}(RotXYZ(0.1, -0.2, 0.3))
+    t_mm = SVector(62.8, 8029.3853, 62.746506)
+    E_mm = EuclideanMap(R, t_mm)
+    E_u = EuclideanMap(R, from_mm(t_mm))
+    Σ6 = CovMat(SMatrix{6, 6, Float64}(Diagonal(SVector(1.0e-4, 2.0e-4, 3.0e-4, 0.5, 0.7, 0.9))))
+    pts2_mm = [SVector(62.8, 13.9), SVector(-4.2, 120.5), SVector(0.0, 7.3)]
+    pts3_mm = [SVector(62.8, 13.9, 1.1), SVector(-4.2, 120.5, 0.0), SVector(0.0, 7.3, -3.3)]
+
+    @testset "PointTarget" begin
+        T_mm = PointTarget(pts3_mm)
+        T_u = PointTarget(from_mm.(pts3_mm))
+        @test has_units(T_u) && !has_units(T_mm)
+        @test eltype(eltype(points(T_u))) <: Quantity
+        @test all(point_close.(points(ustrip(mm, with_unit(T_mm, mm))), points(T_mm)))
+        @test all(point_close.(points(ustrip(mm, T_u)), points(T_mm)))
+        @test_throws ArgumentError ustrip(mm, T_mm)
+        @test_throws ArgumentError with_unit(T_u, mm)
+        # an estimated constellation: the covariance moves with the unit (mm² ↔ m²)
+        U_mm = PointTarget([Uncertain(p, CovMat{3}(σ = 0.1)) for p in pts3_mm])
+        U_u = with_unit(U_mm, mm)
+        @test has_units(U_u)
+        @test cov(points(U_u)[1]) ≈ CovMat{3}(σ = 1.0e-4)
+        @test all(point_close.(points(ustrip(mm, U_u)), points(U_mm)))
+        # all plain or all lengths
+        @test_throws ArgumentError PointTarget(Any[pts3_mm[1], from_mm(pts3_mm[2])])
+    end
+
+    @testset "PlanarTarget" begin
+        T_mm = PlanarTarget(pts2_mm)
+        T_u = PlanarTarget(from_mm.(pts2_mm))
+        @test has_units(T_u) && !has_units(T_mm)
+        @test eltype(eltype(points(T_u))) <: Quantity
+        @test all(point_close.(points(ustrip(mm, with_unit(T_mm, mm))), points(T_mm)))
+        @test all(point_close.(points(ustrip(mm, T_u)), points(T_mm)))
+        @test_throws ArgumentError ustrip(mm, T_mm)
+        @test_throws ArgumentError with_unit(T_u, mm)
+        # an unresolved target holds no lengths: neither form, returned unchanged
+        D = PlanarTarget(:board)
+        @test !has_units(D)
+        @test ustrip(mm, D) == D && with_unit(D, mm) == D
+    end
+
+    @testset "Mounted and target rigs: world points carry units" begin
+        M_mm = Mounted(PlanarTarget(pts2_mm), E_mm)
+        M_u = Mounted(PlanarTarget(from_mm.(pts2_mm)), E_u)
+        @test has_units(M_u) && !has_units(M_mm)
+        M_back = ustrip(mm, with_unit(M_mm, mm))
+        @test maps_close(pose(M_back), pose(M_mm))
+        @test all(point_close.(points(M_back), points(M_mm)))
+        @test maps_close(pose(ustrip(mm, M_u)), E_mm)
+        # a unitful mount on plain points, or the reverse, never promotes
+        @test_throws DimensionError Mounted(PlanarTarget(pts2_mm), E_u)
+        @test_throws DimensionError Mounted(PlanarTarget(from_mm.(pts2_mm)), E_mm)
+        # an uncertain mount: the covariance's translation block moves too
+        MU_mm = Mounted(PointTarget(pts3_mm), Uncertain(E_mm, Σ6))
+        MU_back = ustrip(mm, with_unit(MU_mm, mm))
+        @test pose_close(pose(MU_back), pose(MU_mm))
+
+        rig_u = Rig{WorldFrame}(Dict(:a => M_u, :b => Mounted(PlanarTarget(:b), E_u)))
+        rig_mm = Rig{WorldFrame}(Dict(:a => M_mm, :b => Mounted(PlanarTarget(:b), E_mm)))
+        @test has_units(rig_u) && !has_units(rig_mm)
+        W = points(rig_u, :a)
+        @test eltype(eltype(W)) <: Quantity
+        @test all(isapprox.(map(p -> ustrip.(mm, p), W), points(rig_mm, :a); rtol = 1.0e-12))
+        @test eltype(valtype(points(rig_u))) == eltype(W)
+        back = ustrip(mm, with_unit(rig_mm, mm))
+        @test maps_close(geom(pose(back, :a)), geom(pose(rig_mm, :a)))
+        @test all(isapprox.(points(back, :a), points(rig_mm, :a); rtol = 1.0e-14))
+        @test maps_close(geom(pose(ustrip(mm, rig_u), :b)), geom(pose(rig_mm, :b)))
+        # the gauge check reads a unitful identity
+        ident_u = EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, 0.0) .* m)
+        @test Rig{TargetFrame{:a}}(Dict(:a => Mounted(PlanarTarget(from_mm.(pts2_mm)), ident_u))) isa Rig
+        @test_throws ArgumentError Rig{TargetFrame{:a}}(Dict(:a => Mounted(PlanarTarget(from_mm.(pts2_mm)), E_u)))
+    end
+
+    model = CameraModel(CameraCalibrationMat(SMatrix{3, 3, Float64}(800, 0, 0, 0, 800, 0, 320, 240, 1)))
+
+    @testset "Camera, BoundedCamera and sensor rigs" begin
+        C_mm = Camera(model, E_mm)
+        C_u = Camera(model, E_u)
+        @test has_units(C_u) && !has_units(C_mm)
+        @test maps_close(extrinsics(ustrip(mm, with_unit(C_mm, mm))), extrinsics(C_mm))
+        @test maps_close(extrinsics(ustrip(mm, C_u)), extrinsics(C_mm))
+        @test_throws ArgumentError ustrip(mm, C_mm)
+        @test_throws ArgumentError with_unit(C_u, mm)
+        B_u = BoundedCamera(C_u, Size2(640, 480))
+        @test has_units(B_u) && !has_units(BoundedCamera(C_mm, Size2(640, 480)))
+        @test maps_close(extrinsics(ustrip(mm, B_u)), extrinsics(C_mm))
+        @test with_unit(ustrip(mm, B_u), mm) isa BoundedCamera
+        @test !has_units(BoundedCamera(model, Size2(640, 480)))   # unposed: no lengths
+
+        # projection: the unitful call is the plain call in metres, bit for bit
+        X = SVector(0.3, -0.1, 4.0)
+        @test project(Camera(model, E_u), X .* m) === project(Camera(model, ustrip(m, E_u)), X)
+        @test project(B_u, X .* m) === project(Camera(model, ustrip(m, E_u)), X)
+        @test_throws DimensionError project(C_u, X)
+
+        # a sensor rig of unitful cameras, gauge identity included
+        ident_u = EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, 0.0) .* m)
+        rig_u = Rig{ViewFrame{:l}}((
+            Camera(model, relabel(ViewFrame{:l}, ViewFrame{:l}, ident_u)),
+            Camera(model, relabel(ViewFrame{:l}, ViewFrame{:r}, E_u)),
+        ))
+        @test has_units(rig_u)
+        rig_mm = ustrip(mm, rig_u)
+        @test !has_units(rig_mm)
+        @test maps_close(extrinsics(rig_mm, 2), relabel(ViewFrame{:l}, ViewFrame{:r}, E_mm))
+        @test maps_close(extrinsics(ustrip(mm, with_unit(rig_mm, mm)), 2), extrinsics(rig_mm, 2))
+    end
+
+    @testset "Trajectory, TargetPoses, TargetPoints3D" begin
+        tr_mm = Trajectory(BodyFrame{:rig}, WorldFrame, Dict(1 => E_mm, 3 => Uncertain(E_mm, Σ6)); recovered = [3])
+        tr_u = with_unit(tr_mm, mm)
+        @test has_units(tr_u) && !has_units(tr_mm)
+        @test tr_u[1] isa EuclideanMap{3, Float64, <:Any, <:Any, BodyFrame{:rig}, WorldFrame}
+        back = ustrip(mm, tr_u)
+        @test pose_close(back[1], tr_mm[1]) && pose_close(back[3], tr_mm[3])
+        @test back.recovered == tr_mm.recovered
+        @test maps_close(ustrip(mm, Trajectory(BodyFrame{:rig}, WorldFrame, Dict(1 => E_u)))[1], tr_mm[1])
+        @test_throws ArgumentError ustrip(mm, tr_mm)
+
+        tp_mm = TargetPoses{CameraFrame}(Dict(1 => Dict(:b => E_mm, :c => Uncertain(E_mm, Σ6))); sensors = "cam")
+        tp_u = with_unit(tp_mm, mm)
+        @test has_units(tp_u) && !has_units(tp_mm)
+        back = ustrip(mm, tp_u)
+        @test pose_close(back[1][:b], tp_mm[1][:b]) && pose_close(back[1][:c], tp_mm[1][:c])
+        @test back.sensors == tp_mm.sensors
+        @test maps_close(geom(pose(tp_u, 1, :b)), geom(pose(with_unit(tp_mm, mm), 1, :b)))
+        @test_throws ArgumentError with_unit(tp_u, mm)
+
+        obs = [(target = :body, index = 3, xyz = pts3_mm[1]), (target = :body, index = 4, xyz = Uncertain(pts3_mm[2], CovMat{3}(σ = 0.2)))]
+        p3_mm = TargetPoints3D{WorldFrame}(Dict(7 => obs); sensors = "mocap")
+        p3_u = with_unit(p3_mm, mm)
+        @test has_units(p3_u) && !has_units(p3_mm)
+        @test eltype(p3_u[7][1].xyz) <: Quantity
+        back = ustrip(mm, p3_u)
+        @test point_close(back[7][1].xyz, p3_mm[7][1].xyz) && point_close(back[7][2].xyz, p3_mm[7][2].xyz)
+        @test back[7][2].index == 4 && back.sensors == p3_mm.sensors
+        p3_read = TargetPoints3D{WorldFrame}(Dict(7 => [(target = :body, index = 3, xyz = from_mm(pts3_mm[1]))]))
+        @test point_close(ustrip(mm, p3_read)[7][1].xyz, pts3_mm[1])
+        @test_throws ArgumentError ustrip(mm, p3_mm)
+    end
+end

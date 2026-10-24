@@ -23,8 +23,9 @@
 #   TargetPoints3D{F}     per frame, the 3D positions of target points, in the 3D frame F
 #
 # Each may carry `Uncertain` members (conventions/persisted-geometry.md):
-# a pose with its 6×6 covariance, a point with its d×d. Lengths are
-# millimetres, the stack's in-memory unit.
+# a pose with its 6×6 covariance, a point with its d×d. A physical value holds
+# its lengths as FlexUnits quantities in metres (covariances in m²), a plain
+# one plain numbers; `ustrip(u, x)` and `with_unit(x, u)` move between them.
 #
 # These are the values VisualGeometryToolkitIO's `trajectory`, `target_poses`,
 # `target_points2d` and `target_points3d` kinds serialize, exactly; the types
@@ -113,6 +114,15 @@ Base.:(==)(a::Trajectory{S, D}, b::Trajectory{S2, D2}) where {S, D, S2, D2} =
     S === S2 && D === D2 && a.poses == b.poses && a.images == b.images && a.times == b.times &&
     isequal(a.time_origin, b.time_origin) && a.recovered == b.recovered
 
+# Units: every pose moves, the per-frame facts ride along.
+has_units(tr::Trajectory) = any(has_units, values(tr.poses))
+_map_poses(f, tr::Trajectory{S, D}) where {S, D} = Trajectory{S, D}(
+    Dict(t => f(X) for (t, X) in tr.poses);
+    images = tr.images, times = tr.times, time_origin = tr.time_origin, recovered = tr.recovered,
+)
+FlexUnits.ustrip(u::Units, tr::Trajectory) = _map_poses(X -> ustrip(u, X), tr)
+with_unit(tr::Trajectory, u::Units) = _map_poses(X -> _with_unit_pose(X, u), tr)
+
 # ------------------------------------------------------------------------------
 # TargetPoses
 # ------------------------------------------------------------------------------
@@ -176,6 +186,14 @@ Base.:(==)(a::TargetPoses{F}, b::TargetPoses{G}) where {F, G} =
     F === G && a.frames == b.frames && a.images == b.images && a.sensors == b.sensors &&
     a.times == b.times && isequal(a.time_origin, b.time_origin)
 
+has_units(tp::TargetPoses) = any(ps -> any(has_units, values(ps)), values(tp.frames))
+_map_poses(f, tp::TargetPoses{F}) where {F} = TargetPoses{F}(
+    Dict(t => Dict(id => f(X) for (id, X) in ps) for (t, ps) in tp.frames);
+    images = tp.images, sensors = tp.sensors, times = tp.times, time_origin = tp.time_origin,
+)
+FlexUnits.ustrip(u::Units, tp::TargetPoses) = _map_poses(X -> ustrip(u, X), tp)
+with_unit(tp::TargetPoses, u::Units) = _map_poses(X -> _with_unit_pose(X, u), tp)
+
 # ------------------------------------------------------------------------------
 # TargetPoints2D / TargetPoints3D
 # ------------------------------------------------------------------------------
@@ -190,7 +208,8 @@ const UncertainPixel = Uncertain{SVector{2, Float64}, CovMat{2, Float64, 4, Unla
 """
     UncertainPoint3 = Uncertain{SVector{3, Float64}, CovMat{3, Float64, 9, UnlabeledFrame{3}}}
 
-A measured 3D point with its 3×3 covariance (mm²).
+A measured plain 3D point with its 3×3 covariance (in the point's units
+squared). A physical one holds metres, its covariance in m².
 """
 const UncertainPoint3 = Uncertain{SVector{3, Float64}, CovMat{3, Float64, 9, UnlabeledFrame{3}}}
 
@@ -206,18 +225,19 @@ the producer has none).
 const TargetPoint2D = @NamedTuple{target::Symbol, index::Int, xy::Union{SVector{2, Float64}, UncertainPixel}, weight::Float64}
 
 """
-    TargetPoint3D = @NamedTuple{target::Symbol, index::Int, xyz::Union{SVector{3, Float64}, UncertainPoint3}}
+    TargetPoint3D = @NamedTuple{target::Symbol, index::Int, xyz::Union{SVector{3}, Uncertain{<:SVector{3}}}}
 
 One measured 3D position of a target point (a motion-capture marker): point
-`index` of target `target`, at `xyz` (millimetres, in the frame of the
-[`TargetPoints3D`](@ref) holding it), plain or `Uncertain`.
+`index` of target `target`, at `xyz` (in the frame of the
+[`TargetPoints3D`](@ref) holding it), plain or `Uncertain`: plain numbers
+stored as `Float64`, or lengths stored in metres.
 """
-const TargetPoint3D = @NamedTuple{target::Symbol, index::Int, xyz::Union{SVector{3, Float64}, UncertainPoint3}}
+const TargetPoint3D = @NamedTuple{target::Symbol, index::Int, xyz::Union{SVector{3}, Uncertain{<:SVector{3}}}}
 
 _pixel(xy::Uncertain) = Uncertain(SVector{2, Float64}(geom(xy)), CovMat(SMatrix{2, 2, Float64, 4}(Statistics.cov(xy))))
 _pixel(xy) = SVector{2, Float64}(xy)
-_point3(p::Uncertain) = Uncertain(SVector{3, Float64}(geom(p)), CovMat(SMatrix{3, 3, Float64, 9}(Statistics.cov(p))))
-_point3(p) = SVector{3, Float64}(p)
+_point3(p::Uncertain) = Uncertain(_stored_point(Val(3), geom(p)), CovMat(SMatrix{3, 3, Float64, 9}(Statistics.cov(p))))
+_point3(p) = _stored_point(Val(3), p)
 
 function _target_point2d(o, t)
     hasproperty(o, :weight) || throw(
@@ -272,7 +292,9 @@ positions of target points — `tp[t]` a `Vector{`[`TargetPoint3D`](@ref)`}` —
 in the 3D frame `F` (`WorldFrame` for a tracker's room), millimetres. A
 motion-capture system's markers: a point is (body, marker index), the body's
 constellation its target definition. `sensors`, `images`, `times`,
-`targets` as for [`TargetPoints2D`](@ref).
+`targets` as for [`TargetPoints2D`](@ref). A physical capture holds lengths
+in metres ([`has_units`](@ref)); `ustrip(u, x)` and [`with_unit`](@ref)`(x, u)`
+move every point.
 """
 struct TargetPoints3D{F <: Frame{3}} <: AbstractDict{Int, Vector{TargetPoint3D}}
     frames::Dict{Int, Vector{TargetPoint3D}}
@@ -290,6 +312,7 @@ struct TargetPoints3D{F <: Frame{3}} <: AbstractDict{Int, Vector{TargetPoint3D}}
         ) where {F <: Frame{3}}
         F <: UnlabeledFrame && throw(ArgumentError("3D target points name the frame they are measured in (e.g. WorldFrame)"))
         fr = Dict{Int, Vector{TargetPoint3D}}(Int(t) => TargetPoint3D[_target_point3d(o, t) for o in os] for (t, os) in frames)
+        _check_one_form([p.xyz for ps in values(fr) for p in ps], "TargetPoints3D")
         imgs, sens, tms = _frame_strings(images, "images"), _frame_names(sensors, keys(fr)), _frame_times(times)
         _check_stamps(keys(fr), imgs, tms, time_origin, sens)
         allunique(targets) || throw(ArgumentError("`targets` names a target definition twice"))
@@ -303,6 +326,14 @@ for T in (:TargetPoints2D, :TargetPoints3D)
         F === G && a.frames == b.frames && a.images == b.images && a.sensors == b.sensors &&
         a.times == b.times && isequal(a.time_origin, b.time_origin) && a.targets == b.targets
 end
+
+has_units(x::TargetPoints3D) = any(ps -> any(p -> has_units(p.xyz), ps), values(x.frames))
+_map_points(f, x::TargetPoints3D{F}) where {F} = TargetPoints3D{F}(
+    Dict(t => [merge(p, (xyz = f(p.xyz),)) for p in ps] for (t, ps) in x.frames);
+    images = x.images, sensors = x.sensors, times = x.times, time_origin = x.time_origin, targets = x.targets,
+)
+FlexUnits.ustrip(u::Units, x::TargetPoints3D) = _map_points(p -> _ustrip_point(u, p), x)
+with_unit(x::TargetPoints3D, u::Units) = _map_points(p -> _attach_point(u, p), x)
 
 # --- the Dict surface, frame index → value -----------------------------------------
 

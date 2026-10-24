@@ -111,6 +111,10 @@ using ..VisualGeometryToolkitCore: Size2, Quantity, px, mm, μm, m
 using ..VisualGeometryToolkitCore: _check_pixels, _strip_pixels   # pixel-sized values: refuse a length (base/units.jl)
 using FlexUnits: Dimensions, FixRat32   # FlexUnits' base-form quantity, `Quantity{Float64, Dimensions{FixRat32}}`
 using ..VisualGeometryToolkitCore: EuclideanMap, CameraPose, CameraExtrinsics, to_affine, to_homogeneous, image_warp, image_warp!
+import ..VisualGeometryToolkitCore: has_units, with_unit   # extended on the carriers: targets, mounts, rigs, cameras, captures
+using ..VisualGeometryToolkitCore: translation, UnitfulEuclideanMap, _attach_unit, _ustrip_point, _attach_point, _stored_point,
+    _check_one_form, _strip_metres, _translation_metres   # the one strip/attach of maps and points (euclidean_map.jl)
+using FlexUnits: Units, DimensionError
 using ..VisualGeometryToolkitCore: TargetPlaneFrame, PixelFrame, UnlabeledFrame, relabel, unlabel, Frame
 using ..VisualGeometryToolkitCore: FramedImage   # rect-form undistort return currency (warp layer)
 using ..VisualGeometryToolkitCore: HomographyMap   # rectify.jl — the per-view rect→view collineation
@@ -415,6 +419,35 @@ MacroTools.@forward BoundedCamera.camera (
     project, backproject, unproject, is_in_front,
 )
 
+# ----------------------------------------------------------------------------
+# Units — a physical camera is one whose extrinsics are (translation in metres)
+# ----------------------------------------------------------------------------
+#
+# The model's pixel quantities are not lengths of the scene; only the mount
+# moves. The camera is rebuilt with its type parameters stated, so a stripped
+# map is stored as it is (the bare constructor would invert a `CameraPose`).
+
+# A camera posed by a physical map (bounds stated, so dispatch ranks it above `Camera`).
+const _UnitfulCamera = Camera{<:AbstractCameraModel, <:UnitfulEuclideanMap{3}}
+
+has_units(c::Camera) = has_units(c.extrinsics)
+has_units(c::BoundedCamera) = has_units(c.camera)
+has_units(::AbstractCameraModel) = false   # an unposed camera holds no length
+_rebuilt(c::Camera, X::EuclideanMap) = Camera{typeof(c.model), typeof(X)}(c.model, X)
+
+"""
+    ustrip(u::Units, camera::Camera | BoundedCamera) -> same type of camera
+
+A physical camera's plain form: its extrinsics stripped in the length unit
+`u` (`ustrip(u, E)`), the model and any extent unchanged. The inverse is
+[`with_unit`](@ref)`(camera, u)`. An `ArgumentError` on a camera already in
+the produced form.
+"""
+FlexUnits.ustrip(u::Units, c::Camera) = _rebuilt(c, ustrip(u, c.extrinsics))
+FlexUnits.ustrip(u::Units, c::BoundedCamera{<:AbstractCamera}) = BoundedCamera(ustrip(u, c.camera), c.extent)
+with_unit(c::Camera, u::Units) = _rebuilt(c, _attach_unit(c.extrinsics, u))
+with_unit(c::BoundedCamera{<:AbstractCamera}, u::Units) = BoundedCamera(with_unit(c.camera, u), c.extent)
+
 """
     extent(cam) -> Size2{Int}
 
@@ -469,6 +502,8 @@ mask = is_in_front.(Ref(camera), world_points)
 ```
 """
 is_in_front(c::Camera, p::Point3) = extrinsics(c)(p)[3] > 0
+# a physical camera: the test in metres, the point a length (a plain one is a DimensionError)
+is_in_front(c::_UnitfulCamera, p::Point3) = is_in_front(ustrip(m, c), Point3(_strip_metres(p)))
 
 """
     is_in_front(camera, x, y, z) -> AbstractArray{Bool}
@@ -488,6 +523,8 @@ function is_in_front(
     z_cam = R[3, 1] .* x .+ R[3, 2] .* y .+ R[3, 3] .* z .+ t[3]
     return z_cam .> zero(eltype(z_cam))
 end
+is_in_front(c::_UnitfulCamera, x::AbstractArray, y::AbstractArray, z::AbstractArray) =
+    is_in_front(ustrip(m, c), _strip_metres(x), _strip_metres(y), _strip_metres(z))
 
 """
     focal_length(camera::Camera)
@@ -586,6 +623,10 @@ u = project(camera, X_world)
 """
 @inline project(camera::Camera, X::AbstractVector) =
     project(camera.model, camera.extrinsics(X))
+# A physical camera strips at entry, in metres: exactly the plain camera's call
+# on the point in metres (a plain point is a `DimensionError`).
+@inline project(camera::_UnitfulCamera, X::AbstractVector) =
+    project(camera.model, ustrip(m, camera.extrinsics)(_strip_metres(X)))
 
 """
     project(camera::Camera, shape::Union{Circle, Ellipse}) -> Ellipse or Polygon
@@ -670,6 +711,10 @@ chosen metric unit, e.g. mm) and `LogicalIntrinsics` (unitless pixels;
     u::AbstractVector{Float64}, depth::Float64
 ) =
     Point3(pose(camera)(unproject(camera.model, u, depth)))
+# A physical camera takes a depth that is a length and returns the point in
+# metres: the plain call in metres, its result read back in metres.
+unproject(camera::_UnitfulCamera, u::AbstractVector{Float64}, depth::Quantity) =
+    _attach_point(m, unproject(ustrip(m, camera), u, ustrip(m, depth)))
 
 # ============================================================================
 # Camera Accessor Functions

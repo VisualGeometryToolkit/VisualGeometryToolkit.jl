@@ -62,9 +62,10 @@ _with_extrinsics(c::BoundedCamera, X::EuclideanMap{3}) =
 # The identity check of a gauge member's pose: the rig frame IS that member's
 # frame, so its stored map must be the identity to construction accuracy (a
 # re-expressed bundle gauge is `inv(T) ∘ T`, exact to rounding).
-_is_identity(m::EuclideanMap{3}; atol = 1.0e-6) =
-    isapprox(SMatrix{3, 3, Float64}(m.R), SMatrix{3, 3, Float64}(LinearAlgebra.I); atol) &&
-    isapprox(SVector{3, Float64}(m.t), zero(SVector{3, Float64}); atol)
+# A physical map's translation is read in metres (`atol` is then 1 μm).
+_is_identity(X::EuclideanMap{3}; atol = 1.0e-6) =
+    isapprox(SMatrix{3, 3, Float64}(X.R), SMatrix{3, 3, Float64}(LinearAlgebra.I); atol) &&
+    isapprox(SVector{3, Float64}(_translation_metres(X)), zero(SVector{3, Float64}); atol)
 
 # ------------------------------------------------------------------------------
 # Mounted — a target as a rig member: the target and its mount
@@ -84,16 +85,38 @@ access). The mount may be [`Uncertain`](@ref) (an estimated mount, its 6×6
 covariance in the `RigidExpManifold6` chart, rotation first); the rig hands it
 back uncertain, its covariance unchanged by the labels. `points(m)` are the
 target's own points; `pose(m)` is the mount.
+
+A physical mount (a translation in metres) holds a physical target (points in
+metres), a plain mount a plain one: a unitful mount on plain points, or the
+reverse, is FlexUnits' `DimensionError` at construction, never a promotion.
+`ustrip(u, m)` and [`with_unit`](@ref)`(m, u)` move both together.
 """
 struct Mounted{T <: AbstractTarget, X <: Union{EuclideanMap{3}, Uncertain{<:EuclideanMap{3}}}}
     target::T
     mount::X
-    Mounted(target::T, mount::Union{EuclideanMap{3}, Uncertain{<:EuclideanMap{3}}}) where {T <: AbstractTarget} =
-        (m = unlabel(mount); new{T, typeof(m)}(target, m))
+    function Mounted(target::T, mount::Union{EuclideanMap{3}, Uncertain{<:EuclideanMap{3}}}) where {T <: AbstractTarget}
+        _check_mount_units(target, mount)
+        X = unlabel(mount)
+        return new{T, typeof(X)}(target, X)
+    end
 end
 pose(m::Mounted) = m.mount
 points(m::Mounted) = points(m.target)
 Base.:(==)(a::Mounted, b::Mounted) = a.target == b.target && a.mount == b.mount
+
+# A mount and its target's points are one form; a target without points (an
+# unresolved design) takes either mount.
+function _check_mount_units(target, mount)
+    (is_resolved(target) && !isempty(points(target))) || return nothing
+    has_units(mount) == has_units(target) && return nothing
+    throw(DimensionError(translation(geom(mount)), geom(first(points(target)))))
+end
+has_units(m::Mounted) = has_units(pose(m))
+FlexUnits.ustrip(u::Units, m::Mounted) = Mounted(ustrip(u, m.target), ustrip(u, pose(m)))
+with_unit(m::Mounted, u::Units) = Mounted(with_unit(m.target, u), _with_unit_pose(pose(m), u))
+# a plain pose takes a unit by construction (rotation and frames kept); an uncertain one through `with_unit`
+_with_unit_pose(X::EuclideanMap, u::Units) = _attach_unit(X, u)
+_with_unit_pose(X::Uncertain, u::Units) = with_unit(X, u)
 
 # A stored mount minted with its labels; an uncertain one keeps its covariance.
 _mint(::Type{S}, ::Type{D}, m) where {S, D} = relabel(S, D, m)
@@ -392,12 +415,18 @@ pose(rig::Rig{F, <:_MixedStorage}, id::Symbol) where {F} =
     _is_target(rig, id) ? _mint(TargetFrame{id}, F, pose(_targets(rig)[id])) : pose(rig, _sensor_index(rig, id))
 
 # A target's own point lifted to 3D: a board point sits on its plane z = 0.
-_lift3(p::StaticVector{2}) = SVector{3, Float64}(p[1], p[2], 0.0)
-_lift3(p::StaticVector{3}) = SVector{3, Float64}(p[1], p[2], p[3])
+# Plain points as Float64 (today's numbers); lengths keep their quantities.
+_lift3(p::StaticVector{2, <:Real}) = SVector{3, Float64}(p[1], p[2], 0.0)
+_lift3(p::StaticVector{3, <:Real}) = SVector{3, Float64}(p[1], p[2], p[3])
+_lift3(p::StaticVector{2, <:Quantity}) = SVector{3}(p[1], p[2], zero(p[1]))
+_lift3(p::StaticVector{3, <:Quantity}) = SVector{3}(p[1], p[2], p[3])
+# a world point stored: plain as Float64, lengths in metres
+_world_point(X::StaticVector{3, <:Real}) = SVector{3, Float64}(X)
+_world_point(X::StaticVector{3, <:Quantity}) = SVector{3}(X)
 
 """
-    points(rig::Rig, id::Symbol) -> Vector{SVector{3, Float64}}
-    points(rig::Rig) -> Dict{Symbol, Vector{SVector{3, Float64}}}
+    points(rig::Rig, id::Symbol) -> Vector{SVector{3}}
+    points(rig::Rig) -> Dict{Symbol, Vector{SVector{3}}}
 
 The WORLD POINTS of a calibration target: target `id`'s pattern points
 carried through its pose into the rig frame (a board's plane points lifted
@@ -405,7 +434,8 @@ to `z = 0` first) — the 3D side of a target ↔ image correspondence, what an
 absolute-pose problem consumes. The one-argument form covers every target
 that carries points; an unresolved one (a design reference without its points,
 [`is_resolved`](@ref)) is an `ArgumentError` on its own and absent from the
-dictionary.
+dictionary. Plain targets give `SVector{3, Float64}`s; a physical rig (mounts
+and points in metres) gives lengths in metres.
 """
 function points(rig::Rig{F, <:Union{_TargetStorage, _MixedStorage}}, id::Symbol) where {F}
     m = _targets(rig)[id]
@@ -413,11 +443,36 @@ function points(rig::Rig{F, <:Union{_TargetStorage, _MixedStorage}}, id::Symbol)
         ArgumentError("points: target $(repr(id)) is unresolved — a design reference without its points")
     )
     P = geom(pose(rig, id))
-    return [SVector{3, Float64}(P(_lift3(geom(p)))) for p in points(m)]
+    return [_world_point(P(_lift3(geom(p)))) for p in points(m)]
 end
-points(rig::Rig{F, <:Union{_TargetStorage, _MixedStorage}}) where {F} = Dict{Symbol, Vector{SVector{3, Float64}}}(
-    id => points(rig, id) for id in block_order(_targets(rig)) if is_resolved(_targets(rig)[id].target)
-)
+function points(rig::Rig{F, <:Union{_TargetStorage, _MixedStorage}}) where {F}
+    W = [id => points(rig, id) for id in block_order(_targets(rig)) if is_resolved(_targets(rig)[id].target)]
+    return isempty(W) ? Dict{Symbol, Vector{SVector{3, Float64}}}() : Dict(W)
+end
+
+# ------------------------------------------------------------------------------
+# Units — a physical rig and its plain form, member by member
+# ------------------------------------------------------------------------------
+
+"""
+    has_units(rig::Rig) -> Bool
+
+Whether the rig's members are physical (sensor extrinsics, target mounts and
+points in metres). `ustrip(u, rig)` strips every member in `u` and
+[`with_unit`](@ref)`(rig, u)` reads every plain member as being in `u`, each
+rebuilding through the validating constructor (labels and gauge rechecked);
+a member already in the produced form is an `ArgumentError`.
+"""
+has_units(rig::Rig{F, <:_SensorStorage}) where {F} = any(has_units, rig.members)
+has_units(rig::Rig{F, <:_TargetStorage}) where {F} = any(has_units, values(rig.members))
+has_units(rig::Rig{F, <:_MixedStorage}) where {F} = any(has_units, _sensors(rig)) || any(has_units, values(_targets(rig)))
+
+_map_members(f, rig::Rig{F, <:_SensorStorage}) where {F} = Rig{F}(map(f, rig.members))
+_map_members(f, rig::Rig{F, <:_TargetStorage}) where {F} = Rig{F}(Dict(id => f(v) for (id, v) in rig.members))
+_map_members(f, rig::Rig{F, <:_MixedStorage}) where {F} =
+    Rig{F}(map(f, _sensors(rig)), Dict(id => f(v) for (id, v) in _targets(rig)))
+FlexUnits.ustrip(u::Units, rig::Rig) = _map_members(x -> ustrip(u, x), rig)
+with_unit(rig::Rig, u::Units) = _map_members(x -> with_unit(x, u), rig)
 
 # ------------------------------------------------------------------------------
 # with_model — same geometry, new camera model

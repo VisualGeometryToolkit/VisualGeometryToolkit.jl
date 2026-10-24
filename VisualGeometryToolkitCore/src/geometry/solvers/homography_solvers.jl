@@ -122,7 +122,8 @@ HartleyNormalization(; center = nothing) =
     DiagonalNormalization(size; center = (width/2, height/2))
 
 The image-size normalization as a STRATEGY: translate to `center` (the image
-centre by default) and divide by the half-diagonal `hypot(width, height)/2`,
+centre by default; `size` in pixels, plain numbers or `px` quantities — a length
+is a `DimensionError`) and divide by the half-diagonal `hypot(width, height)/2`,
 so the image corners land at unit radius — the coordinates of a
 [`NormalizedImageFrame`](@ref). For STORAGE only (the benchmark pools, where
 one noise level and one threshold must mean the same across resolutions);
@@ -139,7 +140,7 @@ function DiagonalNormalization(size; center = nothing)
     c = center === nothing ? SVector(w / 2, h / 2) : SVector{2, Float64}(center[1], center[2])
     return DiagonalNormalization(w, h, c)
 end
-_pixel_extent(x) = Float64(strip_or_bare(px, x))
+_pixel_extent(x) = Float64(_strip_pixels(x))   # a plain number or px; a length is a DimensionError
 
 """
     AffineMap(s::HartleyNormalization, points, mask = nothing, weights = nothing) -> AffineMap

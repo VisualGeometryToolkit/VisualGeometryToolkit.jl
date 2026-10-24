@@ -200,7 +200,13 @@ end
     @test overlap_area(Circle(Point2(0.0f0, 0.0f0), 1.0f0), Circle(Point2(9.0f0, 0.0f0), 1.0f0)) isa Float32
     # a frame's circle and a detection's go through the same strip
     @test Circle(dp, 3.0) == Circle(fp, 3.0)
-    # a known pitch must be a pitch
+    # a known pitch must be a pitch: a length (per pixel; a pixel is
+    # dimensionless, so 3.9μm and 3.9μm/px are the same pitch), never a count
     H = HomographyMat{Float64}(ntuple(i -> Float64(i in (1, 5, 9)), 9))
-    @test_throws ArgumentError zhang_intrinsics([H], Size2(width = 3.9mm, height = 4.0mm); center = (0.0, 0.0))
+    err = try
+        zhang_intrinsics([H], Size2(width = 3.9px, height = 4.0px); center = (0.0, 0.0))
+    catch e
+        e
+    end
+    @test err isa ArgumentError && occursin("pitch", err.msg)
 end

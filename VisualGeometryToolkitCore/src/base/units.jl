@@ -118,3 +118,25 @@ dimension is FlexUnits' `ConversionError`.
 """
 strip_or_bare(::Units, x::Real) = x
 strip_or_bare(u::Units, x::Quantity) = ustrip(u, x)
+
+# -----------------------------------------------------------------------------
+# Pixel-sized values: the length check that survives a dimensionless px
+# -----------------------------------------------------------------------------
+#
+# A pixel is dimensionless in FlexUnits, so `px` cannot be told from a radian
+# or a ratio. What can still be refused is a LENGTH (or any other dimension)
+# where a pixel count is meant: every public function that takes a pixel-sized
+# value (a resolution, an image size, a pixel focal length or principal point)
+# sends it through `_check_pixels` or `_strip_pixels`, which accept a plain
+# number or a dimensionless quantity and raise FlexUnits' `DimensionError`
+# otherwise.
+
+# `x` itself when it is a plain number or a dimensionless quantity.
+_check_pixels(x::Real) = x
+function _check_pixels(q::Quantity)
+    dimension(q) == dimension(px) || throw(DimensionError(q, px))
+    return q
+end
+# `x` as a plain number of pixels.
+_strip_pixels(x::Real) = x
+_strip_pixels(q::Quantity) = ustrip(px, _check_pixels(q))

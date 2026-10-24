@@ -9,7 +9,8 @@ The focal length a field of view implies: in pixels from field of view angle (pl
 angles carry no dimension in the VGC unit system) and resolution.
 
 # Arguments
-- `resolution::Size2`: Image resolution (width, height) in pixels
+- `resolution::Size2`: Image resolution (width, height) in pixels: plain numbers or
+  dimensionless quantities (`px`); a length is a `DimensionError`
 - `θ::Real`: Field of view angle in radians
 - `dimension::Symbol`: Which dimension the FOV applies to (`:horizontal` or `:vertical`)
 
@@ -24,9 +25,9 @@ focal_length_for_fov(Size2(width=1280px, height=960px), deg2rad(40.0))
 """
 function focal_length_for_fov(resolution::Size2, θ::Real; dimension = :horizontal)
     if dimension === :horizontal
-        f = 0.5 * resolution.width
+        f = 0.5 * _check_pixels(resolution.width)
     elseif dimension === :vertical
-        f = 0.5 * resolution.height
+        f = 0.5 * _check_pixels(resolution.height)
     else
         throw(ArgumentError("dimension must be :horizontal or :vertical"))
     end

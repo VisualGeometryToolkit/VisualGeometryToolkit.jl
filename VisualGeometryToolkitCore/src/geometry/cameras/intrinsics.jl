@@ -24,10 +24,12 @@ abstract type AbstractIntrinsics end
 Construct camera intrinsics matrix K from focal length(s) and principal point in pixel units.
 
 Units are enforced at construction but stored internally as unitless Float64 for performance.
+A pixel is dimensionless, so `f` and `pp` are dimensionless quantities (`800.0px`); a length
+(`16.0mm`, a metric focal length without its pitch) is a `DimensionError`.
 
 # Arguments
-- `f`: Focal length in pixels (PixelWidth) - either scalar for isotropic or tuple `(fx, fy)` for anisotropic
-- `pp`: Principal point in pixels as 2D vector [cx, cy] (PixelWidth elements)
+- `f`: Focal length in pixels - either scalar for isotropic or tuple `(fx, fy)` for anisotropic
+- `pp`: Principal point in pixels as 2D vector [cx, cy]
 
 # Returns
 3×3 unitless Float64 camera intrinsics matrix in column-major order:
@@ -47,9 +49,9 @@ K = CameraCalibrationMat((800.0px, 805.0px), [320.0px, 240.0px])
 ```
 """
 function CameraCalibrationMat(f::Quantity, pp::AbstractVector{<:Quantity})
-    # Strip units and store as Float64
-    f_val = ustrip(px, f)
-    pp_val = ustrip.(px, pp)
+    # Strip units and store as Float64 (pixels are dimensionless: a length is a DimensionError)
+    f_val = _strip_pixels(f)
+    pp_val = _strip_pixels.(pp)
     K = SMatrix{3, 3, Float64}(
         f_val, 0.0, 0.0,
         0.0, f_val, 0.0,
@@ -59,10 +61,10 @@ function CameraCalibrationMat(f::Quantity, pp::AbstractVector{<:Quantity})
 end
 
 function CameraCalibrationMat(f::Tuple{T, T}, pp::AbstractVector{<:Quantity}) where {T <: Quantity}
-    # Strip units and store as Float64
-    fx_val = ustrip(px, f[1])
-    fy_val = ustrip(px, f[2])
-    pp_val = ustrip.(px, pp)
+    # Strip units and store as Float64 (pixels are dimensionless: a length is a DimensionError)
+    fx_val = _strip_pixels(f[1])
+    fy_val = _strip_pixels(f[2])
+    pp_val = _strip_pixels.(pp)
     K = SMatrix{3, 3, Float64}(
         fx_val, 0.0, 0.0,
         0.0, fy_val, 0.0,

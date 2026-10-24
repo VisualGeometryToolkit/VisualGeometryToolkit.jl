@@ -4,8 +4,8 @@
 Image sensor specification with resolution and pixel pitch.
 
 # Fields
-- `resolution::Size2{TR}`: Pixel count (width × height in px)
-- `pitch::Size2{TP}`: Pixel pitch (physical size per pixel, e.g., μm/px)
+- `resolution::Size2{TR}`: Pixel count (width × height in px; dimensionless, a length is a `DimensionError`)
+- `pitch::Size2{TP}`: Pixel pitch (physical size per pixel, e.g., μm/px; a length, px being dimensionless)
 
 # Constructors
 ```julia
@@ -21,11 +21,11 @@ struct Sensor{TR <: Quantity, TP <: Quantity}
     resolution::Size2{TR}   # in px (logical width/height)
     pitch::Size2{TP}        # a length per pixel (e.g., μm/px)
 
-    # Inner constructor — the dims enforcement boundary (px resolution,
-    # length/px pitch).
+    # Inner constructor — the dims enforcement boundary: the resolution in
+    # pixels (dimensionless: a length is a `DimensionError`), the pitch a length
+    # per pixel (a length, px being dimensionless).
     function Sensor{TR, TP}(resolution::Size2{TR}, pitch::Size2{TP}) where {TR <: Quantity, TP <: Quantity}
-        all(c -> dimension(c) == dimension(px), resolution) ||
-            throw(ArgumentError("resolution must be in pixels, got $resolution"))
+        foreach(_check_pixels, resolution)
         all(c -> dimension(c) == dimension(mm / px), pitch) ||
             throw(ArgumentError("pitch must be a length per pixel, got $pitch"))
         return new{TR, TP}(resolution, pitch)

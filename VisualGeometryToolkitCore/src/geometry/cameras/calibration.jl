@@ -111,6 +111,7 @@ function zhang_intrinsics(
         Hs::AbstractVector{<:HomographyMat}, pitch::Size2;
         center, weights = nothing
     )
+    # px is dimensionless, so a length per pixel is a length (3.9μm == 3.9μm/px)
     all(c -> dimension(c) == dimension(mm / px), pitch) ||
         throw(ArgumentError("pitch must be a length per pixel, got $pitch"))
     τ = ustrip(pitch.width / pitch.height)   # fy/fx, dimensionless: fx = f/pitch_x, fy = f/pitch_y

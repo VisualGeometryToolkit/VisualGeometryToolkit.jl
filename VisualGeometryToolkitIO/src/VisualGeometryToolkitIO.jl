@@ -58,6 +58,18 @@ history). COLMAP model directories keep COLMAP's own format (world → camera
 poses, pixel centres at 0.5) and get a `vgio_units.json` sidecar declaring
 their world unit.
 =#
+"""
+    VisualGeometryToolkitIO
+
+File formats for the VisualGeometryToolkit stack. Each `vgio/<kind>` JSON file
+is the serialization of one VisualGeometryToolkitCore type: `load(T, path)`
+returns a value of type `T`, and `save(path, value)` writes one. Both verbs
+are public but not exported, so call them qualified
+(`import VisualGeometryToolkitIO as VgtkIO; VgtkIO.load(...)`).
+
+The package also reads and writes COLMAP models, reads COLMAP databases and
+OpenCV/MATLAB calibration exports, and exports to TUM, EuRoC, BOP and TRC.
+"""
 module VisualGeometryToolkitIO
 
 import VisualGeometryToolkitCore as VgtkCore
@@ -124,7 +136,7 @@ import VisualGeometryToolkitCore
 # it. The foreign formats' readers state the FILE's frame (`file_frame`), the
 # exporters their TARGET frame (`to_frame`).
 #
-# README.md tables every format with its reader and writer.
+# docs/src/guide/kinds.md tables every format with its reader and writer.
 function load end
 function save end
 

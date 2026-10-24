@@ -25,7 +25,7 @@
 # conventions/persisted-geometry.md): 6×6 rows over [δω; δt], rotation first,
 # rad and `length_unit`, in the chart R ↦ exp(δω)·R, t ↦ t + δt.
 #
-# Related formats (guidance; ours are JSON, typed and declared — see README):
+# Related formats (guidance; ours are JSON, typed and declared — see docs/src/guide/related-formats.md):
 # - ROS geometry_msgs/TransformStamped (common_msgs/geometry_msgs/msg/
 #   TransformStamped.msg:1-2,8-10) names a transform by `header.frame_id` and
 #   `child_frame_id`; ours names both ends as `from`/`to` and states what the

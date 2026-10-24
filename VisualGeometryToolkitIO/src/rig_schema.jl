@@ -141,6 +141,13 @@ target_json(t::PlanarTarget) = t.design === nothing ?
     (type = "planar", nominal = [collect(Float64, p) for p in t.nominal], warp = _warp_json(t.warp)) :
     (type = "planar", design = String(t.design), warp = _warp_json(t.warp))
 
+"""
+    target_from_json(body, unit; resolve = nothing) -> AbstractTarget
+
+Read a target body (the inverse of [`target_json`](@ref)) whose lengths are in
+`unit`, a unit name such as `"mm"`. A planar target that names its design is
+returned unresolved unless `resolve(design::Symbol)` returns its nominal points.
+"""
 function target_from_json(t, unit::AbstractString; resolve = nothing)
     u = parse_unit(unit)
     if t.type == "points"

@@ -136,6 +136,11 @@ end
 
 # --- image table ------------------------------------------------------------
 
+"""
+    n_images(db::ColmapDatabase) -> Int
+
+The number of rows in the database's `images` table.
+"""
 n_images(cdb::ColmapDatabase) =
     _query_one(r -> Int(r.n), cdb, "SELECT COUNT(*) AS n FROM images", ())
 
@@ -151,6 +156,12 @@ function image_names(cdb::ColmapDatabase)
     return names
 end
 
+"""
+    image_id(db::ColmapDatabase, name) -> Int
+
+The COLMAP `image_id` of the image called `name`. An `ArgumentError` when no
+image has that name.
+"""
 function image_id(cdb::ColmapDatabase, name::AbstractString)
     id = _query_one(
         r -> Int(r.image_id), cdb,
@@ -161,6 +172,12 @@ function image_id(cdb::ColmapDatabase, name::AbstractString)
     return id
 end
 
+"""
+    image_name(db::ColmapDatabase, image_id) -> String
+
+The name of the image with COLMAP id `image_id`. An `ArgumentError` when no
+image has that id.
+"""
 function image_name(cdb::ColmapDatabase, image_id::Integer)
     name = _query_one(
         r -> String(r.name), cdb,

@@ -57,14 +57,21 @@ VGC's `image_origin` keyword takes. Parallel to
 separate because the grammars differ: a 3D frame serializes prefixed
 (`"view:cam1"`), a pixel frame bare (`"colmap"`).
 
-`pixel_frame_from_name` validates by CONSTRUCTING the conversion to
-[`CANONICAL_PIXEL_FRAME`](@ref) — VGC decides whether a pixel frame exists,
+`pixel_frame_from_name` validates by constructing the conversion to the
+canonical pixel frame (`colmap`). VGC decides whether a pixel frame exists,
 and its error names the registered set. This only restates that refusal as
 the `ArgumentError` every corrupt record in this package raises.
 """
 pixel_frame_name(::Type{PixelFrame{O}}) where {O} = String(O)
 pixel_origin(::Type{PixelFrame{O}}) where {O} = O
 
+"""
+    pixel_frame_from_name(name) -> Type{<:PixelFrame}
+
+The pixel frame a file names (`"colmap"`, `"opencv"`, `"julia"`), the inverse
+of [`pixel_frame_name`](@ref). VGC decides which pixel frames exist; a name it
+does not know is an `ArgumentError` that quotes VGC's list.
+"""
 function pixel_frame_from_name(name::AbstractString)
     C = PixelFrame{Symbol(name)}
     try
@@ -174,6 +181,13 @@ VGC's canonical frame. Building blocks for a package serializing its own kind.
 """
 camera_json(model::CameraModel, extent::Size2, frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME) =
     _camera_body(model, extent, frame)
+"""
+    camera_from_json(body, frame) -> (model, extent)
+
+Read a camera body (the inverse of [`camera_json`](@ref)) whose principal
+point is in the pixel `frame` the enclosing file declares. The returned
+`CameraModel` is in VGC's canonical pixel frame.
+"""
 camera_from_json(body, frame::Type{<:PixelFrame}) = _camera_from_body(body, frame)
 
 # -----------------------------------------------------------------------------

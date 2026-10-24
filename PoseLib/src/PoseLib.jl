@@ -1,39 +1,25 @@
 """
     PoseLib
 
-Julia bindings to the PoseLib C++ minimal-solver library.
+Julia bindings to [PoseLib](https://github.com/PoseLib/PoseLib), the C++ library
+of minimal solvers and robust refiners for camera pose estimation.
 
-Extends `VisualGeometryToolkitCore` with PoseLib-backed methods. Loading this
-package adds:
+Loading this package extends VisualGeometryToolkitCore:
 
-- Backend overloads (`::PoseLibSolver`) for shared solvers:
-  `homography_4pt`, `fundamental_7pt`, `p3p`, `essential_5pt`.
-- A PoseLib-only solver (no native variant): `essential_dlt`, whose
-  convenience default routes to the PoseLib backend when no
-  `AbstractSolverBackend` is supplied.
-- Robust-loss LM refinement, model first and correspondences as one
-  Cspond vector: `refine_relpose`, `refine_fundamental`,
-  `refine_homography`, `refine_absolute_pose`. The loss is a
-  VisualGeometryToolkitCore loss shape (`TLSShape()`, `HuberShape()`,
-  `CauchyShape()`, `GaussianShape()`) or `LeZachTruncation()`, at the
-  `loss_width` the shape's own closed forms use.
-  The calibrated pair each take the caller's own units, and REFUSE the z = 1
-  chart: `refine_relpose(pose, cs)` on unit BEARINGS carrying their `M₁`/`M₂`
-  backprojection Jacobians (PoseLib's tangent Sampson — no chart, so a ray at
-  or beyond 90° is ordinary), and `refine_absolute_pose(pose, K, cs)` on pixel
-  points with a pixel loss width. Handing either a calibrated 2-vector raises
-  an `ArgumentError` naming the form to use. Each docstring names the unit its
-  `loss_width` is in, and what sets it.
+- Its minimal solvers gain a PoseLib backend, `PoseLibSolver()`: the
+  four-point homography, the seven-point fundamental matrix, the
+  perspective-three-point (P3P) absolute pose and the five-point essential
+  matrix. The eight-point essential matrix, `essential_dlt`, has no native
+  variant, so its default routes here.
+- PoseLib's robust Levenberg–Marquardt refiners are exported:
+  [`refine_homography`](@ref), [`refine_fundamental`](@ref),
+  [`refine_relpose`](@ref) and [`refine_absolute_pose`](@ref). Each takes a
+  seed model and its correspondences, and returns the refined model in the
+  caller's frame.
 
-# Binary
-
-The C++ library and its flat C wrapper (`wrapper/julia_wrapper.cpp`) ship
-prebuilt as this package's own `PoseLib` artifact (`Artifacts.toml`; Linux only
-until the `PoseLib_jll` release), built from
-the recipe `yggdrasil/P/PoseLib/build_tarballs.jl` by
-`scripts/build_binaries.jl`. To run against a library built from source,
-override the artifact in the depot's `Overrides.toml` (see the README,
-"Building the wrapper from source").
+The C++ library and its flat C wrapper ship prebuilt as this package's
+`PoseLib` artifact, on Linux only for now. The manual's "Platforms and
+binaries" page says how to run against a library built from source.
 """
 module PoseLib
     import VisualGeometryToolkitCore as VgtkCore
@@ -55,9 +41,9 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
 
 # Every `ccall` goes to `libposelib_jl`, the library in this package's `PoseLib`
 # artifact, resolved at load time so a relocated depot or an `Overrides.toml`
-# entry (README, "Building the wrapper from source") is honoured; nothing here
-# probes. The artifact is Linux-only until the `PoseLib_jll` release (README,
-# "Installation"); elsewhere loading stops here, with that reason.
+# entry (docs: Developer notes) is honoured; nothing here
+# probes. The artifact is Linux-only until the `PoseLib_jll` release (docs:
+# "Platforms and binaries"); elsewhere loading stops here, with that reason.
 libposelib_jl::String = ""
 
 function __init__()
@@ -65,7 +51,7 @@ function __init__()
         global libposelib_jl = joinpath(artifact"PoseLib", "lib", "libposelib_jl.$(dlext)")
         dlopen(libposelib_jl)
     else
-        error("PoseLib.jl binaries are Linux-only until the PoseLib_jll release; see README")
+        error("PoseLib.jl ships binaries for Linux only until the PoseLib_jll release; see https://visualgeometrytoolkit.github.io/PoseLib/stable/guide/binaries/")
     end
     return nothing
 end
@@ -138,9 +124,13 @@ end
 # =============================================================================
 
 """
-    homography_4pt(::PoseLibSolver, s₁, s₂, s₃, s₄, d₁, d₂, d₃, d₄)
+    homography_4pt(::PoseLibSolver, s₁, s₂, s₃, s₄, d₁, d₂, d₃, d₄) -> Union{HomographyMat, Nothing}
 
-PoseLib backend for 4-point homography. Takes SVector{2} (inhomogeneous) points.
+PoseLib's four-point homography solver, the `PoseLibSolver` backend of
+VisualGeometryToolkitCore's `homography_4pt` kernel. The points are 2-vectors:
+sources `sᵢ` and targets `dᵢ` with `dᵢ ≃ H sᵢ`. Returns the homography, sign
+normalized, or `nothing` for a degenerate sample. The public entry point is
+`solve(Homography4pt(PoseLibSolver()), cs, idx)`.
 """
 function VgtkCore.homography_4pt(::PoseLibSolver,
                         s₁::StaticVector{2,T}, s₂::StaticVector{2,T},
@@ -336,9 +326,24 @@ export LeZachTruncation
 
 # Relative-pose currency: a cam1→cam2 motion is NOT a world-to-camera
 # extrinsics, so `Extrinsics3`'s WorldFrame→CameraFrame labels would be
-# semantically wrong here. File-local UNLABELED concrete alias (same layout
-# as the retired VGC `Pose3`). VGC's view-identity frames (`ViewFrame{id}`)
-# could label it; that migration has not been done.
+# semantically wrong here. An UNLABELED concrete alias (same layout as the
+# retired VGC `Pose3`). VGC's view-identity frames (`ViewFrame{id}`) could
+# label it; that migration has not been done.
+public Rigid3
+
+"""
+    Rigid3
+
+The rigid motion `x ↦ R·x + t` that the pose refiners take as their seed and
+return: a VisualGeometryToolkitCore `EuclideanMap` in 3D with a `RotMatrix`
+rotation, a `Vec3` translation and unlabeled frames.
+`EuclideanMap(RotMatrix{3}(R), Vec3(t))` builds one.
+
+For [`refine_relpose`](@ref) it maps the first camera's frame to the second's.
+For [`refine_absolute_pose`](@ref) it maps the world frame to the camera's.
+A labeled pose, such as the `Extrinsics3` that P3P returns, is converted with
+VisualGeometryToolkitCore's `unlabel`.
+"""
 const Rigid3 = EuclideanMap{
     3, Float64, RotMatrix{3, Float64, 9}, Vec3{Float64},
     UnlabeledFrame{3}, UnlabeledFrame{3},
@@ -369,10 +374,13 @@ const Rigid3 = EuclideanMap{
 """
     LeZachTruncation()
 
-The truncated loss `ρ = min(r², w²)` (VisualGeometryToolkitCore's `TLSShape` at
-`loss_width = w`) optimized by the TR-IRLS scheme of Le & Zach (3DV 2021),
-PoseLib's `TRUNCATED_LE_ZACH`. A marker, not a loss shape: the LOSS is
-`TLSShape`'s, the marker selects the optimization scheme.
+The truncated loss `ρ = min(r², w²)`, optimized by the iteratively reweighted
+least-squares scheme of Le and Zach (International Conference on 3D Vision,
+2021). This is PoseLib's `TRUNCATED_LE_ZACH` loss.
+
+The loss itself is VisualGeometryToolkitCore's `TLSShape()` at `loss_width = w`.
+`LeZachTruncation()` is a marker, not a loss shape: it selects how the same
+loss is optimized. Any refiner takes it as its `loss` keyword.
 """
 struct LeZachTruncation end
 
@@ -429,20 +437,22 @@ end
 """
     refine_relpose(pose::Rigid3, cs::…StaticVector{2}…; max_iter, loss, loss_width)
 
-**Refused.** Calibrated 2-vectors are coordinates on the z = 1 chart
-(`GnomonicFrame`), and that chart has no point for a ray at or beyond 90° — the
-rays this stack exists to calibrate. Relative pose is calibrated geometry, so
+This form is refused with an `ArgumentError`. Calibrated 2-vectors are
+coordinates on the z = 1 plane (`GnomonicFrame`). That plane has no point for a
+ray at or beyond 90° from the optical axis, which excludes fisheye and
+omnidirectional cameras. Relative pose is calibrated geometry, so in this stack
 it takes unit bearings (unit rays).
 
-Use one of the two forms that do exist:
+Use one of the two supported forms:
 
-- `refine_relpose(pose, cs)` with `cs` of **unit bearings** `f₁ => f₂` carrying
-  their `M₁`/`M₂` backprojection Jacobians — PoseLib's tangent-Sampson refiner.
-- `refine_relpose(pose, K1, K2, cs)` with **pixel** points and the two
-  intrinsics, which back-projects through the cameras inside PoseLib and
-  reduces to exactly the same refiner.
+- `refine_relpose(pose, cs)`, with `cs` of unit bearings `f₁ => f₂` that carry
+  their back-projection Jacobians `M₁` and `M₂`. This is PoseLib's
+  tangent-Sampson refiner.
+- `refine_relpose(pose, K1, K2, cs)`, with pixel points and the two
+  intrinsic matrices. PoseLib back-projects through the cameras and runs the
+  same refiner.
 
-`backproject_with_jacobian(camera, u)` produces the bearing and its Jacobian
+`backproject_with_jacobian(camera, u)` returns a bearing and its Jacobian
 together.
 """
 function refine_relpose(::Rigid3,
@@ -462,19 +472,24 @@ end
 """
     refine_relpose(pose::Rigid3, K1, K2, cs; max_iter, loss = TLSShape(), loss_width) -> Rigid3
 
-**Camera-aware** robust-loss refinement (truncated by default: MSAC) (matches the RANSAC-Scoring reference):
-`pose` is the seed `Rigid3`, `cs` the correspondences `x1 => x2` in each
-image's frame, and `K1`/`K2` the intrinsics of THAT frame — pixels for pixel
-`K`, or any frame `K` is expressed in (LocalOptimizationDoneRight's refit layer supplies
-the pool frame's `Kc = T·K`). `loss_width` is the loss's width in the unit of that
-same frame. PoseLib calibrates internally through the cameras, so one width is
-valid even when the two focals differ. `loss` and `loss_width` are as in
-[`refine_homography`](@ref); `max_iter` (the LM iteration budget) is the
-caller's configuration and has no default.
+Robust Levenberg–Marquardt refinement of a relative pose from pixel
+correspondences and the two cameras' intrinsics.
 
-Each `K` reaches C++ as a SIMPLE_PINHOLE camera: focal `(K₁₁ + K₂₂)/2` and
-principal point `(K₁₃, K₂₃)`; the skew and any `K₁₁ ≠ K₂₂` are dropped, so the
-model is exact only for a square-pixel, zero-skew `K`.
+`pose` is the seed [`Rigid3`](@ref), mapping the first camera's frame to the
+second's. `cs` holds the correspondences `x1 => x2`, each point in its own
+image's frame. `K1` and `K2` are the intrinsic matrices of those frames: pixel
+matrices for pixel points, or matrices in whatever frame the points are in.
+Returns the refined `Rigid3`.
+
+`loss_width` is in the unit of the points. PoseLib back-projects through each
+camera, so one width serves both images even when their focal lengths differ.
+`loss` and `loss_width` are as in [`refine_homography`](@ref). `max_iter`, the
+iteration budget, has no default.
+
+Each `K` reaches PoseLib as its `SIMPLE_PINHOLE` camera model, with focal
+length `(K₁₁ + K₂₂)/2` and principal point `(K₁₃, K₂₃)`. Skew and any
+difference between `K₁₁` and `K₂₂` are dropped, so the model is exact only for
+square pixels and zero skew.
 """
 function refine_relpose(pose::Rigid3, K1::AbstractMatrix, K2::AbstractMatrix,
                         cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}};
@@ -502,50 +517,41 @@ end
 """
     refine_relpose(pose::Rigid3, cs; max_iter, loss = TLSShape(), loss_width) -> Rigid3
 
-**Bearing** robust-loss (truncated by default: MSAC) Levenberg–Marquardt refinement of a relative
-pose, through PoseLib's tangent-Sampson refiner
-(`refine_relpose(d1, d2, M1, M2, &pose, opt)`, `bundle.cc:228` —
-`FixCameraRelativePoseRefiner`). `pose` is the seed `Rigid3` and `cs` the
-correspondences `f₁ => f₂` of **unit bearings** (`StaticVector{3}`), carrying
-their 3×2 backprojection Jacobians as the attribute COLUMNS `M₁`/`M₂`
-(`withattrs(cs; M₁, M₂)`) — the pair
-`VisualGeometryToolkitCore.backproject_with_jacobian(model, u)` returns. Returns the
-refined `Rigid3`.
+Robust Levenberg–Marquardt refinement of a relative pose from unit bearings,
+through PoseLib's tangent-Sampson refiner.
 
-This is the calibrated entry point with no chart: a ray at or beyond 90° is an
-ordinary bearing here, where the z = 1 chart (`GnomonicFrame`) has no
-coordinate to name it with — which is why `StaticVector{2}` endpoints are
-refused, and why a 3-vector that is not unit-norm is refused too (a chart point
-lifted to `(x, y, 1)` satisfies the signature but is not a bearing).
+`pose` is the seed [`Rigid3`](@ref), mapping the first camera's frame to the
+second's. `cs` holds the correspondences `f₁ => f₂` of unit bearings
+(`StaticVector{3}`). They carry their 3×2 back-projection Jacobians as the
+attribute columns `M₁` and `M₂`, attached with `withattrs(cs; M₁, M₂)`.
+VisualGeometryToolkitCore's `backproject_with_jacobian(camera, u)` returns
+each bearing together with its Jacobian. Returns the refined `Rigid3`.
+
+No image plane is involved, so a ray at or beyond 90° from the optical axis is
+an ordinary input. A 3-vector that is not of unit length is refused with an
+`ArgumentError`: a point on the z = 1 plane lifted to `(x, y, 1)` has the right
+type but is not a bearing.
 
 # The unit of `loss_width`
 
-`loss_width` is the loss's width w (for the default truncation: inliers
-`r < w`, outliers zero-weighted) on
-the tangent-Sampson residual
+`loss_width` is the width `w` of the loss on the tangent-Sampson residual
 
     r = (f₂ᵀ E f₁) / √(‖M₂ᵀ E f₁‖² + ‖M₁ᵀ Eᵀ f₂‖²)
 
-whose denominator is exactly `‖∇C‖` of the epipolar constraint taken with
-respect to the coordinate `M` DIFFERENTIATES AGAINST. So `r` carries that
-coordinate's unit, and `loss_width` must be given in the same one: **`M` picks the unit
-and the call cannot.**
+The denominator is the gradient norm of the epipolar constraint with respect
+to the coordinates that `M` differentiates against. The residual `r` is in the
+unit of those coordinates, and `loss_width` must be given in the same unit.
+The Jacobians set the unit; the call cannot.
 
 | `M` is | `r` and `loss_width` are in |
 |---|---|
-| `∂f/∂u` from `backproject_with_jacobian` (the stack's producer) | **pixels** of `u` |
-| an orthonormal basis of the tangent plane `T_f S²` | **radians** |
+| `∂f/∂u` from `backproject_with_jacobian` | pixels of `u` |
+| an orthonormal basis of the tangent plane of the sphere at `f` | radians |
 
-Bearings are unitless, so nothing else can set the scale: supplying a width scaled as
-if the bearings carried one is wrong by a factor of the focal length, and fails
-silently — a truncated loss simply keeps the wrong inliers.
+A width in the wrong unit is off by a factor of the focal length. Nothing
+reports this: a truncated loss simply keeps the wrong inliers.
 
-# Frames
-
-Binding layer: `pose`, `cs`, `M₁`/`M₂` and `loss_width` are all in the caller's
-frame and the refined `Rigid3` comes back in it. Nothing here normalizes; the
-Jacobians are the caller's own, and whichever camera produced them fixes both
-the frame and the width's unit.
+All arguments are in the caller's frame, and the refined pose comes back in it.
 """
 function refine_relpose(pose::Rigid3,
                         cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{3}}};
@@ -589,14 +595,15 @@ export refine_fundamental
 """
     refine_fundamental(F, cs; max_iter, loss = TLSShape(), loss_width) -> FundMat
 
-Robust-loss (truncated by default: MSAC) Levenberg–Marquardt refinement of a
-fundamental matrix via
-PoseLib's `refine_fundamental` (Sampson error, optimized over the Bartoli–Sturm
-SVD factorization of `F`).  `F` is the seed 3×3 fundamental matrix, `cs` the
-correspondences `x1 => x2` of 2D image points (same coordinate frame as `F` —
-pixels for a pixel-frame `F`), and `loss_width` the loss's width on the
-Sampson residual.  `loss` and `loss_width` are as in
-[`refine_homography`](@ref).  Returns the refined `FundMat`.
+Robust Levenberg–Marquardt refinement of a fundamental matrix through
+PoseLib's `refine_fundamental`. It minimizes the Sampson error over the
+Bartoli–Sturm parametrization of `F`, which keeps the matrix at rank 2.
+
+`F` is the seed 3×3 fundamental matrix. `cs` holds the correspondences
+`x1 => x2` of 2D image points, in the frame `F` is expressed in (pixels for a
+pixel-frame `F`). `loss_width` is the width of the loss on the Sampson
+residual, in the same unit. `loss` and `loss_width` are as in
+[`refine_homography`](@ref). Returns the refined `FundMat`.
 """
 function refine_fundamental(F::AbstractMatrix,
                             cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}};
@@ -627,24 +634,19 @@ export refine_absolute_pose
 """
     refine_absolute_pose(pose::Rigid3, cs::…StaticVector{2}…; max_iter, loss, loss_width)
 
-**Refused.** The 2-vectors were coordinates on the z = 1 chart
-(`GnomonicFrame`) — "calibrated image points" — with the loss width pre-divided by the focal
-length. PnP is calibrated geometry, and the chart has no point for a ray at or
-beyond 90°, so this shape is the one the stack is removing.
+This form is refused with an `ArgumentError`. Its targets would be calibrated
+points on the z = 1 plane (`GnomonicFrame`), with a loss width divided by the
+focal length. That plane has no point for a ray at or beyond 90° from the
+optical axis.
 
-Use `refine_absolute_pose(pose, K, cs)`: the same correspondences as **pixels**
-with their intrinsics, and `loss_width` in pixels. Nothing is pre-divided, and the frame
-the caller hands over is the frame the result comes back in.
+Use `refine_absolute_pose(pose, K, cs)` instead: the same correspondences in
+pixels, the intrinsic matrix `K`, and `loss_width` in pixels.
 
-# The gap this leaves, stated rather than papered over
-
-PoseLib has no absolute-pose refiner on bearings — every `bundle_adjust`
-overload in `bundle.h` takes `Point2D`, because the residual is a reprojection
-into an image, not an angle on the sphere. So the pixel form above is the only
-absolute-pose path here, and it crosses as SIMPLE_PINHOLE, which cannot project
-a ray at or beyond 90° either. A fisheye caller therefore has no correct
-absolute-pose refinement in this package — which was equally true before, and
-is now visible instead of hidden behind a chart that silently mis-measured it.
+PoseLib has no absolute-pose refiner on bearings. Its residual is a
+reprojection error in the image, so the pixel form is the only one, and it
+reaches PoseLib as a `SIMPLE_PINHOLE` camera. That model cannot project a ray
+at or beyond 90° either, so this package offers no correct absolute-pose
+refinement for a fisheye camera.
 """
 function refine_absolute_pose(::Rigid3,
                               cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{2}}};
@@ -662,30 +664,24 @@ end
 """
     refine_absolute_pose(pose::Rigid3, K, cs; max_iter, loss = TLSShape(), loss_width) -> Rigid3
 
-**Camera-aware** absolute-pose bundle adjustment — PoseLib's
-`bundle_adjust(x, X, &image, opt)` (`bundle.cc:105`, the `Image` overload),
-whose `AbsolutePoseRefiner` forms the residual as
-`project(camera, R X + t) − x` through the camera's OWN projection. `pose` is
-the seed world→camera pose, `K` the intrinsics of the frame `cs`'s image points
-are in, and `cs` the correspondences `X => u` of 3D points to 2D image points
-in that same frame. Returns the refined `Rigid3`.
+Robust Levenberg–Marquardt refinement of an absolute pose from 3D-to-2D
+correspondences, through PoseLib's `bundle_adjust`. The residual is the
+reprojection error `project(camera, R X + t) − u`.
 
-`loss_width` is the loss's width on that reprojection residual, **in the
-units of `u` and `K` — pixels for a pixel-frame `K`**; `loss` and `loss_width`
-are as in [`refine_homography`](@ref). Nothing is pre-divided on the caller's behalf; this is the only
-absolute-pose form, the calibrated z = 1 one having been withdrawn.
+`pose` is the seed [`Rigid3`](@ref), mapping the world frame to the camera's.
+`K` is the intrinsic matrix of the frame the image points are in. `cs` holds
+the correspondences `X => u` of 3D points to 2D image points. Returns the
+refined `Rigid3`.
 
-`K` is NOT refined: `BundleOptions` leaves `refine_focal_length`,
-`refine_principal_point` and `refine_extra_params` false, so only the 6-DOF
-pose moves.
+`loss_width` is the width of the loss on the reprojection residual, in the
+unit of `u` and `K` (pixels for a pixel-frame `K`). `loss` and `loss_width`
+are as in [`refine_homography`](@ref). Only the six degrees of freedom of the
+pose are refined; `K` stays fixed.
 
-`K` reaches C++ as a SIMPLE_PINHOLE camera: focal `(K₁₁ + K₂₂)/2` and principal
-point `(K₁₃, K₂₃)`; the skew and any `K₁₁ ≠ K₂₂` are dropped, so the model is
-exact only for a square-pixel, zero-skew `K` — the same lossy crossing
-[`refine_relpose`](@ref) documents.
-
-Binding layer: `pose`, `cs`, `K` and `loss_width` are all in the caller's frame
-and the result comes back in it; nothing here normalizes.
+`K` reaches PoseLib as its `SIMPLE_PINHOLE` camera model, with focal length
+`(K₁₁ + K₂₂)/2` and principal point `(K₁₃, K₂₃)`. Skew and any difference
+between `K₁₁` and `K₂₂` are dropped, so the model is exact only for square
+pixels and zero skew.
 """
 function refine_absolute_pose(pose::Rigid3, K::AbstractMatrix,
                               cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{2}}};
@@ -711,30 +707,43 @@ function refine_absolute_pose(pose::Rigid3, K::AbstractMatrix,
                  Vec3{Float64}(t_out[1], t_out[2], t_out[3]))
 end
 
-"Upstream-faithful alias (PoseLib names absolute-pose refinement `bundle_adjust`); unexported. Takes `refine_absolute_pose`'s arguments (pose first, then the `X => x` csponds), not upstream's `(x, X, pose)`."
+"""
+    PoseLib.bundle_adjust(pose, K, cs; max_iter, loss, loss_width)
+
+An alias of [`refine_absolute_pose`](@ref) under PoseLib's own name for
+absolute-pose refinement. It is not exported. It takes
+`refine_absolute_pose`'s arguments (the pose first, then the `X => u`
+correspondences), not upstream's `(x, X, pose)` order.
+"""
 const bundle_adjust = refine_absolute_pose
 
 """
     refine_homography(H, cs; max_iter, loss = TLSShape(), loss_width) -> HomographyMat
 
-Robust-loss (truncated by default: MSAC) Levenberg–Marquardt refinement of a
-homography via
-PoseLib's `refine_homography` (symmetric transfer error — forward
-`|x2 - π(H x1)|` and backward `|x1 - π(adj(H) x2)|`, each side robustified
-per point).  `H` is the seed 3×3 homography, `cs` the correspondences
-`x1 => x2` of 2D image points (same coordinate frame as `H` — pixels for a
-pixel-frame `H`), and `loss_width` the loss's width on the one-sided transfer
-residual.  Returns the refined `HomographyMat`.
+Robust Levenberg–Marquardt refinement of a homography through PoseLib's
+`refine_homography`. It minimizes the symmetric transfer error: the forward
+residual `x2 − π(H x1)` and the backward residual `x1 − π(H⁻¹ x2)`, each
+robustified per point, where `π` divides by the third coordinate.
 
-`loss` is a VisualGeometryToolkitCore loss shape — `TLSShape()` (the default: the
-truncation `min(r², w²)`, inliers `r < w` and outliers zero-weighted),
-`HuberShape()`, `CauchyShape()`, `GaussianShape()` (plain least squares, which
-takes no `loss_width`) — or [`LeZachTruncation`](@ref)`()`, the same
-truncation optimized by the Le & Zach TR-IRLS scheme. `loss_width` is the
-width `w` of that shape's closed forms (`ρ(shape, r², w²)`); PoseLib's
-`loss_scale` equals it for every bound loss, so it crosses unchanged.
-`max_iter`, the LM iteration budget, is the caller's configuration: it has no
-default.
+`H` is the seed 3×3 homography. `cs` holds the correspondences `x1 => x2` of
+2D image points, in the frame `H` is expressed in (pixels for a pixel-frame
+`H`). `loss_width` is the width of the loss on a one-sided transfer residual,
+in the same unit. Returns the refined `HomographyMat`.
+
+`loss` is one of VisualGeometryToolkitCore's loss shapes, or
+[`LeZachTruncation`](@ref)`()`:
+
+| `loss` | `ρ(r)` | note |
+|---|---|---|
+| `TLSShape()` (default) | `min(r², w²)` | truncated quadratic: inliers have `r < w`, outliers get zero weight |
+| `HuberShape()` | `r²` up to `w`, linear beyond | |
+| `CauchyShape()` | `w² log(1 + r²/w²)` | |
+| `GaussianShape()` | `r²` | plain least squares; takes no `loss_width` |
+| `LeZachTruncation()` | `min(r², w²)` | the truncated loss under Le and Zach's scheme |
+
+`loss_width` is the width `w` of VisualGeometryToolkitCore's closed form for
+that shape. PoseLib's own `loss_scale` equals it for every loss bound here, so
+it reaches PoseLib unchanged. `max_iter`, the iteration budget, has no default.
 """
 function refine_homography(H::AbstractMatrix,
                            cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}};

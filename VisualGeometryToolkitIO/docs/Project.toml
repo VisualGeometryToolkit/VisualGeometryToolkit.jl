@@ -1,5 +1,6 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
 VisualGeometryToolkitIO = "0a7ae7e7-e931-45f8-9bba-03d07899cebc"
 
 [sources]
@@ -8,3 +9,4 @@ VisualGeometryToolkitIO = {path = ".."}
 [compat]
 julia = "1.12"
 Documenter = "1"
+VisualGeometryToolkitCore = "0.1"

@@ -183,13 +183,12 @@ function save_trc(path::AbstractString, obs::TargetPoints3D; data_rate::Union{No
     col = Dict(mk => i for (i, mk) in enumerate(markers))
     rate = data_rate !== nothing ? Float64(data_rate) :
         length(times) > 1 && times[end] > times[1] ? (length(times) - 1) / (times[end] - times[1]) : 1.0
-    T(xs...) = join(string.(xs), '\t') * '\t'
     open(path, "w") do io
-        println(io, T("PathFileType", 4, "(X/Y/Z)", basename(path)))
-        println(io, T("DataRate", "CameraRate", "NumFrames", "NumMarkers", "Units", "OrigDataRate", "OrigDataStartFrame", "OrigNumFrames"))
-        println(io, T(rate, rate, length(ts), length(markers), "mm", rate, 1, length(ts)))
-        println(io, T("Frame#", "Time", (x for (tg, ix) in markers for x in ("$(tg)_$(ix)", "", ""))...))
-        println(io, T("", "", (x for i in eachindex(markers) for x in ("X$(i)", "Y$(i)", "Z$(i)"))...))
+        _trc_line(io, ("PathFileType", 4, "(X/Y/Z)", basename(path)))
+        _trc_line(io, ("DataRate", "CameraRate", "NumFrames", "NumMarkers", "Units", "OrigDataRate", "OrigDataStartFrame", "OrigNumFrames"))
+        _trc_line(io, (rate, rate, length(ts), length(markers), "mm", rate, 1, length(ts)))
+        _trc_line(io, String["Frame#"; "Time"; [x for (tg, ix) in markers for x in ("$(tg)_$(ix)", "", "")]])
+        _trc_line(io, String[""; ""; [x for i in eachindex(markers) for x in ("X$(i)", "Y$(i)", "Z$(i)")]])
         println(io)
         for (k, (t, s)) in enumerate(zip(ts, times))
             row = fill("", 3 * length(markers))
@@ -198,8 +197,19 @@ function save_trc(path::AbstractString, obs::TargetPoints3D; data_rate::Union{No
                 j = 3 * (col[(o.target, o.index)] - 1)
                 row[j + 1], row[j + 2], row[j + 3] = string(p[1]), string(p[2]), string(p[3])
             end
-            println(io, T(k, s, row...))
+            print(io, k, '\t', s, '\t')
+            _trc_line(io, row)
         end
     end
     return (; path, markers = ["$(tg)_$(ix)" for (tg, ix) in markers])
+end
+
+# One TRC line: every field followed by a tab, then the newline. The fields are
+# printed one at a time rather than splatted into a `join`, which Julia cannot
+# infer for a variable-length argument list.
+function _trc_line(io::IO, fields)
+    for x in fields
+        print(io, x, '\t')
+    end
+    return println(io)
 end

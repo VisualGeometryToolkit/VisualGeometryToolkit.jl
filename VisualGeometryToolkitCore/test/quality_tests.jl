@@ -56,9 +56,7 @@
         # epipolar_map / FrameDependence: docstring-scope
         # imports into Cameras (used only by @ref cross-references; see the
         # import sites in cameras.jl).
-        # RegistryTools / dimvaltype: the PixelUnits registry module's imports
-        # for FlexUnits' `@generate_*` macros, used only in their expansions.
-        stale_ignore = (:pnp_pixel_whitening, :epipolar_map, :FrameDependence, :RegistryTools, :dimvaltype),
+        stale_ignore = (:pnp_pixel_whitening, :epipolar_map, :FrameDependence),
         # Not run here before the skeleton was shared, and it spawns a process.
         persistent_tasks = false,
         # RATCHET: may only go DOWN. Lower it whenever you fix some.

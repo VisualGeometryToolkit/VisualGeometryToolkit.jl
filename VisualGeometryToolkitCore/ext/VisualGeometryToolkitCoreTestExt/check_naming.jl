@@ -1404,11 +1404,12 @@ read by line-level approximations rather than parsers:
 Rule R8 (the hook names of `block_coordinate_descent!`) is Julia's alone.
 
 Rule R11 keeps units in one place: VisualGeometryToolkitCore's units module
-(`src/base/units.jl`: the `PixelUnits` registry, `parse_unit` — the stack's one
-guarded `uparse` — and `unit_string`) and FlexUnits itself. Anywhere else, in
-Julia code (comments and strings are prose), it flags a call to `uparse` or
-`qparse`, a reach into `PixelUnits.UNITS`, `convert(VgcQuantity…, q)` (FlexUnits'
-`ubase`), a `x isa Quantity ? ustrip(…)` branch (`strip_or_bare`), a literal
+(`src/base/units.jl`: the stack's four units registered into FlexUnits'
+registry, `parse_unit` — the stack's one guarded `uparse` — and `unit_string`)
+and FlexUnits itself. Anywhere else, in Julia code (comments and strings are
+prose), it flags a call to `uparse`, `qparse` or `register_unit`, a reach into
+`UnitRegistry.UNITS`, `convert(Quantity{…}, q)` (FlexUnits' `ubase`), a
+`x isa Quantity ? ustrip(…)` branch (`strip_or_bare`), a literal
 holding two or more unit names (a unit table: `("mm", "px")`, `Dict("mm" => …)`),
 and, outside `test/`, the hand-written conversion factor `25.4`. What FlexUnits
 genuinely lacks or what must stay bit-identical to stored values is allowed by
@@ -1585,8 +1586,7 @@ function _unit_name_count(ex::Expr)
     end
     return n
 end
-_is_vgc_quantity_type(t) = t === :VgcQuantity || (t isa Expr && t.head === :curly && t.args[1] === :VgcQuantity) ||
-    (t isa Expr && t.head === :. && _unit_rule_callee(t) === :VgcQuantity)
+_is_quantity_type(t) = t isa Expr && t.head === :curly && _unit_rule_callee(t.args[1]) === :Quantity
 _is_ustrip_call(x) = x isa Expr && x.head === :call && _unit_rule_callee(x.args[1]) === :ustrip
 _is_isa_quantity(c) = c isa Expr && c.head === :call && length(c.args) == 3 && c.args[1] === :isa &&
     _unit_rule_callee(c.args[3]) === :Quantity
@@ -1602,13 +1602,13 @@ function _unit_rules!(out, f, ex, in_test::Bool)
         elseif x isa Expr
             if x.head === :call
                 name = _unit_rule_callee(x.args[1])
-                name in (:uparse, :qparse) && flag(string(name, "(…)"))
-                name === :convert && length(x.args) >= 2 && _is_vgc_quantity_type(x.args[2]) && flag("convert(VgcQuantity…, …)")
+                name in (:uparse, :qparse, :register_unit) && flag(string(name, "(…)"))
+                name === :convert && length(x.args) >= 2 && _is_quantity_type(x.args[2]) && flag("convert(Quantity{…}, …)")
                 name in (:Dict, :tuple) && _unit_name_count(x) >= 2 && flag("a table of unit names")
             elseif x.head in (:tuple, :vect)
                 _unit_name_count(x) >= 2 && flag("a table of unit names")
-            elseif x.head === :. && length(x.args) == 2 && x.args[1] === :PixelUnits && x.args[2] == QuoteNode(:UNITS)
-                flag("PixelUnits.UNITS")
+            elseif x.head === :. && length(x.args) == 2 && _unit_rule_callee(x.args[1]) === :UnitRegistry && x.args[2] == QuoteNode(:UNITS)
+                flag("UnitRegistry.UNITS")
             elseif x.head === :if && length(x.args) >= 2 && _is_isa_quantity(x.args[1]) &&
                     (_is_ustrip_call(x.args[2]) || (length(x.args) >= 3 && _is_ustrip_call(x.args[3])))
                 flag("isa Quantity ? ustrip(…)")

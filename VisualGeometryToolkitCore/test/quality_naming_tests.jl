@@ -309,8 +309,10 @@ end
     @testset "R11: units in one place" begin
         @test rules("src/a.jl" => "u = uparse(s)\n") == [:R11]
         @test rules("src/a.jl" => "q = VisualGeometryToolkitCore.qparse(s)\n") == [:R11]
-        @test rules("src/a.jl" => "ok = haskey(PixelUnits.UNITS, k)\n") == [:R11]
-        @test rules("src/a.jl" => "q2 = convert(VgcQuantity{Float64}, q)\n") == [:R11]
+        @test rules("src/a.jl" => "ok = haskey(UnitRegistry.UNITS, k)\n") == [:R11]
+        @test rules("src/a.jl" => "ok = haskey(FlexUnits.UnitRegistry.UNITS, k)\n") == [:R11]
+        @test rules("src/a.jl" => "UnitRegistry.register_unit(\"furlong\" => u)\n") == [:R11]
+        @test rules("src/a.jl" => "q2 = convert(Quantity{Float64, Dimensions{FixRat32}}, q)\n") == [:R11]
         @test rules("src/a.jl" => "y = x isa Quantity ? ustrip(px, x) : x\n") == [:R11]
         @test rules("src/a.jl" => "const T = (\"mm\", \"px\")\n") == [:R11]
         @test rules("src/a.jl" => "const D = Dict(\"mm\" => 1, \"inch\" => 2)\n") == [:R11]
@@ -324,7 +326,7 @@ end
         # the units module itself is the rule's home
         @test quiet(
             "Project.toml" => "name = \"VisualGeometryToolkitCore\"\n",
-            "src/base/units.jl" => "u = uparse(s)\nk = PixelUnits.UNITS\n",
+            "src/base/units.jl" => "u = uparse(s)\nk = UnitRegistry.UNITS\nUnitRegistry.register_unit(\"px\" => u)\n",
         )
     end
 

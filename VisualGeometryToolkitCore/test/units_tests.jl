@@ -1,11 +1,12 @@
 # =============================================================================
-# Unit system: FlexUnits with a pixel dimension (PixelDimensions + the
-# PixelUnits registry), quantity conversions, Size2, per-type strip, and the
-# unitless origin-conversion Translation.
+# Unit system: FlexUnits as shipped (px, pd, dpi and pt registered into its
+# registry), quantity conversions, Size2, per-type strip, and the unitless
+# origin-conversion Translation.
 #
 # This is the unit-boundary contract of the package (audit #16): units are
 # enforced at construction, stripped for compute; dimensions are runtime
-# values (ONE concrete quantity type across px/mm/dpi); strip methods are
+# values (ONE concrete quantity type across px/mm/dpi, FlexUnits' base form);
+# strip methods are
 # defined per-type on VGC-owned types.
 # =============================================================================
 
@@ -14,21 +15,22 @@
     using StaticArrays: SA
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: px, dpi, pt, mm, cm, μm, m, inch, ft, ustrip, uconvert,
-        dimension, DimensionError, ConversionError, PixelDimensions, PixelUnits, VgcQuantity,
+        dimension, DimensionError, ConversionError,
         @ud_str, uparse, qparse, parse_unit, unit_string, strip_or_bare, Size2, Disc, EllipticFrame, aspect_ratio, area
-    using VisualGeometryToolkitCore.PixelUnits: @u_str
+    using FlexUnits: Dimensions, FixRat32, Quantity, UnitRegistry
+    using FlexUnits.UnitRegistry: @u_str
     using GeometryBasics: Point2, Rect2
     using CoordinateTransformations: Translation
 
     @testset "Unit system" begin
-        @testset "the registry recipe: px is a base dimension" begin
-            @test haskey(PixelUnits.UNITS, :px)
-            @test fieldnames(PixelDimensions) == (:m, :kg, :s, :A, :K, :cd, :mol, :px)
+        @testset "FlexUnits' registry: px is a dimensionless count" begin
+            @test haskey(UnitRegistry.UNITS, :px) && haskey(UnitRegistry.UNITS, :pd)
+            @test dimension(px) == dimension(UnitRegistry.UNITS[:rad])   # the accepted loss
             # the constants are the registry's dynamic units
             @test px == ud"px" && mm == ud"mm" && dpi == ud"dpi" && pt == ud"pt"
             @test uparse("px/inch") == dpi
             @test qparse("300 dpi") == 300.0dpi
-            # values are stored in base units: metres for a length, px for pixels
+            # values are stored in base units: metres for a length, a plain count for pixels
             @test ustrip(10.0mm) ≈ 0.01
             @test ustrip(3px) == 3.0
             # a unit that is wanted is named
@@ -42,14 +44,16 @@
 
             # THE point: px/mm/dpi share one concrete type, as do ud"…" quantities
             @test typeof(10.0mm) === typeof(3.0px) === typeof(300.0dpi) === typeof(1.0ud"mm/px")
-            @test 10.0mm isa VgcQuantity{Float64}
+            Q = Quantity{Float64, Dimensions{FixRat32}}
+            @test 10.0mm isa Q && isbitstype(Q)
             @test isconcretetype(eltype([1.0mm, 2.0px, 3.0dpi]))
             # a quantity–unit product carries its unit; convert takes it to the one type
-            @test convert(VgcQuantity{Float64}, 5.86μm / px) isa VgcQuantity{Float64}
-            @test convert(VgcQuantity{Float64}, 10u"mm") == 10.0mm
+            @test convert(Q, 5.86μm / px) isa Q
+            @test convert(Q, 10u"mm") == 10.0mm
 
-            # Dimension mismatch is a runtime error
+            # Dimension mismatch is a runtime error; a pixel is dimensionless
             @test_throws DimensionError 1.0mm + 1.0px
+            @test 3.0px + 1.0 == 4.0
             @test_throws ConversionError uconvert(px, 1.0mm)
 
             # Fractional exponents survive sqrt
@@ -94,7 +98,7 @@
             # Broadcasting preserves the Size2 type
             @test ustrip.(mm, sp) isa Size2
             # A mixed-unit-constructed Size2 is CONCRETE (dimensions are values)
-            @test Size2(width = 10.0mm, height = 1.0inch) isa Size2{VgcQuantity{Float64}}
+            @test Size2(width = 10.0mm, height = 1.0inch) isa Size2{Quantity{Float64, Dimensions{FixRat32}}}
         end
 
         @testset "unit names from outside: parse_unit and unit_string" begin

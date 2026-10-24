@@ -16,10 +16,6 @@ VisualGeometryToolkitCore
 
 ## Units and Quantities
 
-```@docs
-VisualGeometryToolkitCore.PixelUnits
-```
-
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false

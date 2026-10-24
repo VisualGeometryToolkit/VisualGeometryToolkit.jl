@@ -33,7 +33,7 @@ comment saying what it provides); this is the shape of it.
 
 ### 1. Base (loaded first)
 ```julia
-include("base/units.jl")         # PixelDimensions + PixelUnits registry, px, mm, dpi — no dependencies
+include("base/units.jl")         # unit constants px, mm, dpi; px, pd, dpi, pt registered at __init__ — no dependencies
 include("base/size2.jl")         # Size2
 include("base/feature_coords.jl")   # _strip_coords, the feature-coordinate compute boundary
 include("base/frames.jl")        # Frame{N} tag hierarchy (before types.jl: CovMat/PrecMat frame params)
@@ -282,7 +282,7 @@ extents); the size-form is sugar over the rect-form for the common case.
 | `src/base/interface.jl` | Loads `traits.jl` + `interface_functions.jl`; camera/detection interface stubs |
 | `src/base/traits.jl` | Holy Traits (`ConicTrait`, `HasBoundaryTrait`, `OverlapMethod`, `BoundsTrait`, `FrameScaleTrait`, `AbstractSolverBackend`) |
 | `src/base/types.jl` | Loads interface.jl, defines `AbstractDetection`, `Uncertain`, conic matrices |
-| `src/base/units.jl` | FlexUnits recipe: `PixelDimensions`, the `PixelUnits` registry, unit constants |
+| `src/base/units.jl` | unit constants, the stack's four units registered into FlexUnits' registry, `parse_unit`/`unit_string` |
 | `src/base/size2.jl` | Size2 type |
 | `src/base/feature_coords.jl` | `_strip_coords`: pixels in px, lengths in mm |
 | `src/geometry/transforms/matrices.jl` | Transform matrices + `AbstractHomMat` hierarchy (composition promotion) |

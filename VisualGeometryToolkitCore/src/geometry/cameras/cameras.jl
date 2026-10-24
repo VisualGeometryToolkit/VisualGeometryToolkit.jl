@@ -107,7 +107,8 @@ import ..VisualGeometryToolkitCore: bounds_trait, extent           # extend the 
 using Base: ImmutableDict
 
 # Import types and macros defined in core and geometry
-using ..VisualGeometryToolkitCore: Size2, VgcQuantity, Quantity, px, mm, μm, m
+using ..VisualGeometryToolkitCore: Size2, Quantity, px, mm, μm, m
+using FlexUnits: Dimensions, FixRat32   # FlexUnits' base-form quantity, `Quantity{Float64, Dimensions{FixRat32}}`
 using ..VisualGeometryToolkitCore: EuclideanMap, CameraPose, CameraExtrinsics, to_affine, to_homogeneous, image_warp, image_warp!
 using ..VisualGeometryToolkitCore: TargetPlaneFrame, PixelFrame, UnlabeledFrame, relabel, unlabel, Frame
 using ..VisualGeometryToolkitCore: FramedImage   # rect-form undistort return currency (warp layer)

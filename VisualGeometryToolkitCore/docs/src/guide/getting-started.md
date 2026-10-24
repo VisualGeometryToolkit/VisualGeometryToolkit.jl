@@ -64,7 +64,7 @@ VisualGeometryToolkitCore.HasBoundary()
 
 VisualGeometryToolkitCore uses
 [FlexUnits.jl](https://github.com/Deduction42/FlexUnits.jl)
-for physical quantities, with a pixel dimension added to SI:
+for physical quantities; a pixel (`px`) is a dimensionless count:
 
 ```jldoctest units
 julia> using VisualGeometryToolkitCore
@@ -80,9 +80,10 @@ julia> ustrip(px, 25.4mm * 300dpi)              # a length times a density is pi
 300.0
 ```
 
-Values are stored in base units (metres, px): strip in a named unit,
+Values are stored in base units (metres): strip in a named unit,
 `ustrip(mm, distance) == 50.0`. `ud"…"` and `uparse` parse unit strings, and
-`dimension(q) == dimension(px)` checks a dimension at an API boundary.
+`dimension(q) == dimension(mm)` checks a dimension at an API boundary (a
+pixel is dimensionless, so `dimension(px)` is also an angle's or a ratio's).
 
 ### Coordinate Conventions
 

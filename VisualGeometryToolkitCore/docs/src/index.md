@@ -26,7 +26,7 @@ VisualGeometryToolkitCore.jl is the foundation layer of the
   block-coordinate-descent loop, and scoring interfaces shared by the downstream
   estimation engines.
 - **Physical units** — `mm`, `μm`, `px`, `dpi` throughout, via
-  FlexUnits with a pixel dimension.
+  FlexUnits (a pixel is a dimensionless count).
 
 ## Design principles
 

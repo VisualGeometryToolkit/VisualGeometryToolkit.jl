@@ -17,13 +17,13 @@ Sensor(Size2(width=1920, height=1200), 5.86μm)  # Integers → px
 - [`CMOS_SENSORS`](@ref): Pre-defined sensor database
 - [`aspect_ratio`](@ref)
 """
-struct Sensor{TR <: VgcQuantity, TP <: VgcQuantity}
+struct Sensor{TR <: Quantity, TP <: Quantity}
     resolution::Size2{TR}   # in px (logical width/height)
     pitch::Size2{TP}        # a length per pixel (e.g., μm/px)
 
     # Inner constructor — the dims enforcement boundary (px resolution,
     # length/px pitch).
-    function Sensor{TR, TP}(resolution::Size2{TR}, pitch::Size2{TP}) where {TR <: VgcQuantity, TP <: VgcQuantity}
+    function Sensor{TR, TP}(resolution::Size2{TR}, pitch::Size2{TP}) where {TR <: Quantity, TP <: Quantity}
         all(c -> dimension(c) == dimension(px), resolution) ||
             throw(ArgumentError("resolution must be in pixels, got $resolution"))
         all(c -> dimension(c) == dimension(mm / px), pitch) ||
@@ -32,13 +32,13 @@ struct Sensor{TR <: VgcQuantity, TP <: VgcQuantity}
     end
 end
 
-# Constructors: any FlexUnits quantity in, stored as `VgcQuantity{Float64}`
-# (`5.86μm / px` is a unit-carrying quantity; `convert` takes it to the
-# dynamic-dimension type).
+# Constructors: any FlexUnits quantity in, stored in FlexUnits' base form
+# `Quantity{Float64, Dimensions{FixRat32}}` (`5.86μm / px` is a unit-carrying
+# quantity; `convert` takes it to the base form).
 Sensor(res::Size2{<:Integer}, pitch::Quantity) = Sensor(Size2(width = res.width * px, height = res.height * px), pitch)
 Sensor(res::Size2{<:Quantity}, pitch::Quantity) = Sensor(res, Size2(width = pitch / px, height = pitch / px))
 function Sensor(res::Size2{<:Quantity}, pitch::Size2{<:Quantity})
-    Q = VgcQuantity{Float64}
+    Q = Quantity{Float64, Dimensions{FixRat32}}
     return Sensor{Q, Q}(Size2{Q}(res), Size2{Q}(pitch))
 end
 

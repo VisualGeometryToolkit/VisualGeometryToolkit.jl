@@ -180,7 +180,8 @@ exported from the main module (FlexUnits-based; see
 unitless (lengths in mm, pixels in px); units are enforced at API
 boundaries (e.g. sensor pitches, focal lengths, metric tolerances) by
 stripping in a named unit (`ustrip(mm, q)`) or comparing
-`dimension(q) == dimension(px)`.
+`dimension(q) == dimension(mm)`. A pixel is dimensionless, so a pixel-sized
+parameter can refuse a length but not an angle.
 
 ## Feature Frames
 

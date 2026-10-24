@@ -15,7 +15,7 @@ with VisualGeometryToolkitCore: in an installed copy the folder is
 8. `measurement-noise.md` — plain = unit isotropic, `Uncertain` = its covariance, `exact` = none
 9. `persisted-geometry.md` — on disk, `covariance` present iff `Uncertain`; the pose chart; the JSON + payload storage rule
 10. `jacobians.md` — derivative and Jacobian names
-11. `units.md` — FlexUnits with a pixel dimension; values in base units, units named at `ustrip`
+11. `units.md` — FlexUnits as shipped, a dimensionless `px`; values in base units, units named at `ustrip`
 12. `stack-contracts.md` — tags, dependencies, package boundaries, agent docs
 
 **Who reads them.** VisualGeometryToolkitCore's `CLAUDE.md` imports every file. Each

@@ -32,7 +32,7 @@ const _NAMING_RULE_TEXT = Dict{Symbol, String}(
     :R8 => "a variant of a `block_coordinate_descent!` hook name",
     :R9 => "a retired name (the list lives in `check_naming`)",
     :R10 => "a width is bound by its full name — `scale_multiple`, `loss_width` or `outlier_halfwidth` — never an abbreviation or a letter (the lists live in `check_naming`)",
-    :R11 => "unit parsing, unit tables and unit conversion live in VisualGeometryToolkitCore's units module and FlexUnits: `parse_unit`/`unit_string`, `quantity`, `ubase`, `ustrip`, `strip_or_bare` — never `uparse`/`qparse` or the registry by hand, a table of unit names, `convert(VgcQuantity, …)`, an `isa Quantity ? ustrip` branch or a hand-written factor (25.4) (the allow-list lives in `check_naming`)",
+    :R11 => "unit parsing, unit tables and unit conversion live in VisualGeometryToolkitCore's units module and FlexUnits: `parse_unit`/`unit_string`, `quantity`, `ubase`, `ustrip`, `strip_or_bare` — never `uparse`/`qparse`/`register_unit` or the registry by hand, a table of unit names, `convert(Quantity{…}, …)`, an `isa Quantity ? ustrip` branch or a hand-written factor (25.4) (the allow-list lives in `check_naming`)",
     :parse => "the file does not parse",
 )
 

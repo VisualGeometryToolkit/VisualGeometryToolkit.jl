@@ -15,7 +15,7 @@ A Julia package for computational geometry, camera modeling, and the robust-esti
 - **Camera System**: Pinhole/fisheye/orthographic projection models, P3P pose estimation
 - **Matching**: Correspondence types for feature matching (`Cspond`, `Attributed`, `ScoredCspond`)
 - **Robust-estimation contracts**: the problem protocol, the scoring contract (with the `RansacScoring`/`MsacScoring` baselines), the local-optimization and external-refit contracts, the chart-rows contract, pool selection and the width axes — the interfaces VisualGeometryToolkitEstimation's RANSAC loop composes through, implemented by RANSACScoringDoneRight (scorers) and LocalOptimizationDoneRight (local optimizers)
-- **Units**: Physical (mm, μm) and logical (px, dpi) unit support via FlexUnits.jl, with a pixel dimension
+- **Units**: Physical (mm, μm) and logical (px, dpi) unit support via FlexUnits.jl (a pixel is dimensionless)
 - **Visualization**: Makie extension (any backend) with SpecApi composition
 
 ## Quick Start

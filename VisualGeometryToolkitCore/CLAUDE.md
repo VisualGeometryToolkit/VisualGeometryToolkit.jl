@@ -151,7 +151,7 @@ Other functions:
 
 ## Unit System
 
-Units are FlexUnits.jl with a pixel dimension, defined in `src/base/units.jl` as FlexUnits' documented recipe: the dimension struct `PixelDimensions` (SI plus `px`) and the registry module `PixelUnits`. Dimensions are runtime values, not type parameters: `10.0mm`, `3px` and `300dpi` all share one concrete type `VgcQuantity{Float64}`, and mismatches raise `DimensionError`/`ConversionError` at runtime. Values are stored in base units (metres, px), so a bare `ustrip` of a length is in metres: name the unit (`ustrip(mm, q)`). Angles are plain radians. See `conventions/units.md`.
+Units are FlexUnits.jl as it ships, with no stack quantity type, dimension set or registry: `src/base/units.jl` holds the unit constants and registers `px` (dimensionless), `pd`, `dpi` and `pt` into FlexUnits' own registry at `__init__` (a registration made while precompiling does not persist). Dimensions are runtime values, not type parameters: `10.0mm`, `3px` and `300dpi` all share FlexUnits' base-form type `Quantity{Float64, Dimensions{FixRat32}}` (spelled out, never aliased), and mismatches raise `DimensionError`/`ConversionError` at runtime. A pixel is dimensionless, so it cannot be told from a radian; a pixel-sized parameter refuses a length with `DimensionError`. Values are stored in base units (metres), so a bare `ustrip` of a length is in metres: name the unit (`ustrip(mm, q)`). Angles are plain radians. See `conventions/units.md`.
 
 **Logical units**: `px` (pixel), `dpi` (px/inch density)
 
@@ -159,8 +159,8 @@ Units are FlexUnits.jl with a pixel dimension, defined in `src/base/units.jl` as
 
 Key types and helpers:
 - `Size2{T}` - width/height with optional units (`src/base/size2.jl`)
-- `VgcQuantity{T}` - the dynamic quantity type held in structs; boundaries accept any FlexUnits `Quantity` and `ubase` it
-- `@ud_str`, `uparse`, `qparse` - the registry's parsers (`PixelUnits.@u_str` for static units); a unit name from outside is read ONLY by `parse_unit` (the guarded `uparse`) and written by `unit_string` — `check_naming` R11
+- `Quantity{Float64, Dimensions{FixRat32}}` - FlexUnits' base-form quantity, held in structs; boundaries accept any FlexUnits `Quantity` and `ubase` it
+- `@ud_str`, `uparse`, `qparse` - FlexUnits' registry parsers, re-exported; a unit name from outside is read ONLY by `parse_unit` (the guarded `uparse`) and written by `unit_string` — `check_naming` R11
 - `strip_or_bare(u, x)` - a quantity (or frame) stripped in `u`, plain numbers as they are
 - `dimension(q) == dimension(u)` - the dimension check at constructor boundaries
 - `ustrip(u, q)` - strip in a target unit; a px ↔ length crossing is a product with a density (`q * 300dpi`)
@@ -463,7 +463,7 @@ include("blob_types.jl")
 | `src/base/interface.jl` | Loads `traits.jl` + `interface_functions.jl`; camera/detection interface stubs |
 | `src/base/traits.jl` | Holy Traits definitions |
 | `src/base/types.jl` | Loads interface.jl, defines `AbstractDetection`, `Uncertain`, conic matrices |
-| `src/base/units.jl` | FlexUnits recipe: `PixelDimensions`, the `PixelUnits` registry, unit constants (`Size2` in `size2.jl`) |
+| `src/base/units.jl` | unit constants, the stack's four units registered into FlexUnits' registry, `parse_unit`/`unit_string` (`Size2` in `size2.jl`) |
 | `src/geometry/transforms/matrices.jl` | Transform matrices + abstract hierarchy (composition promotion) |
 | `src/geometry/transforms/euclidean_map.jl` | `EuclideanMap` for camera poses |
 | `src/geometry/transforms/homography_map.jl` | `HomographyMap` for points/lines/conics |

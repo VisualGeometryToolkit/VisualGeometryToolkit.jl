@@ -24,7 +24,7 @@ BlobBoards build on it.
   fundamental-matrix solvers) and the manifolds their models are refined on.
 - The robust-loss family (`AbstractLossShape`, `deploy`), the block-coordinate-descent/LO interface
   shared with VisualGeometryToolkitEstimation, and `FitResult`, the one fit return type.
-- Units: FlexUnits with a pixel dimension (`mm`, `px`, `dpi`, `ud"…"`, `Size2`).
+- Units: FlexUnits as shipped, plus the registered `px`, `pd`, `dpi` and `pt` (`mm`, `px`, `dpi`, `Size2`).
 
 Plotting loads as a package extension with any Makie backend.
 
@@ -60,10 +60,11 @@ using Random: Random
 import FastLevenbergMarquardt as FLM   # the stack's Levenberg–Marquardt (robust/lm_core.jl)
 
 
-# Units and physical quantities — FlexUnits with a pixel dimension (see base/units.jl)
+# Units and physical quantities — FlexUnits as shipped (see base/units.jl)
 import FlexUnits
-using FlexUnits: AbstractDimensions, FixRat32, Quantity, Units, ustrip, uconvert, dimension,
+using FlexUnits: Quantity, Units, UnitRegistry, ustrip, uconvert, dimension,
     DimensionError, ConversionError
+using FlexUnits.UnitRegistry: @ud_str, uparse, qparse
 
 # Data structures
 # JSON3/StructTypes serialization moved to VisualGeometryToolkitFeatures
@@ -303,12 +304,12 @@ public lift   # not exported: Makie exports its own `lift`
 # -----------------------------------------------------------------------------
 # 5. UNITS AND UTILITIES
 # -----------------------------------------------------------------------------
-# Unit constants and the FlexUnits registry over PixelDimensions (base/units.jl).
+# Unit constants; px, pd, dpi and pt are registered into FlexUnits' registry at
+# `__init__` (base/units.jl).
 export px, dpi, pt, mm, cm, μm, m, inch, ft
-export VgcQuantity, ustrip, uconvert, dimension, DimensionError, ConversionError
+export ustrip, uconvert, dimension, DimensionError, ConversionError
 export @ud_str, uparse, qparse
 export parse_unit, unit_string, strip_or_bare
-public PixelDimensions, PixelUnits
 export Size2
 export Gray, N0f8, N0f16  # Image types
 public filter_kwargs, validate_dir
@@ -687,7 +688,7 @@ public Cameras, Primitives, Synthetic, Pools, SpatialQueries, reference_frame, i
     poly!, thin_ratio, is_orientation_preserving,
     rect_corners, is_convex_quad   # the extent checks' corner order and winding test
 
-include("base/units.jl")    # PixelDimensions + PixelUnits registry, px, mm, dpi - no dependencies
+include("base/units.jl")    # unit constants px, mm, dpi, …; the stack units registered at __init__ - no dependencies
 include("base/size2.jl")    # Size2
 include("base/feature_coords.jl")   # _strip_coords: the feature-coordinate compute boundary
 include("base/frames.jl")   # Frame{N} tag hierarchy — BEFORE types.jl (CovMat/PrecMat frame params)
@@ -842,5 +843,12 @@ const SCALE_INTERFACE_TAGS = TagRegistry(:scale_interface, "",
 include("quality/stack_contracts.jl")
 include("quality/agent_docs.jl")
 include("quality/conventions.jl")
+
+# FlexUnits' registry is filled at load: a registration made while precompiling
+# does not persist into the loaded image.
+function __init__()
+    _register_stack_units()
+    return nothing
+end
 
 end # module VisualGeometryToolkitCore

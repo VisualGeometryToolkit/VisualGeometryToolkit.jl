@@ -23,12 +23,23 @@
 # Uses Rotations.jl for the rotation component.
 
 """
-    EuclideanMap{N,T,R<:Rotation{N,T},V<:StaticVector{N,T},Src<:Frame{N},Dst<:Frame{N}} <: Transformation
+    EuclideanMap{N,T,R<:Rotation{N,T},V<:StaticVector{N},Src<:Frame{N},Dst<:Frame{N}} <: Transformation
 
 Rigid transformation `x ↦ R*x + t` in `N` dimensions, combining rotation and translation.
 
 This represents a Euclidean (rigid body) transformation that preserves distances and angles.
 It consists of a rotation `R` followed by a translation `t`.
+
+The translation's element type is free. A PHYSICAL map — a pose, a mount, a
+rig member — holds FlexUnits' base-form quantities, `Quantity{T,
+Dimensions{FixRat32}}` in metres ([`UnitfulEuclideanMap`](@ref)); an
+inner-loop map holds plain numbers — `Float64`, `Float32`, a ForwardDiff
+`Dual` — beside a rotation of its own eltype `T`
+([`PlainEuclideanMap`](@ref)). [`has_units`](@ref) tells them apart,
+`ustrip(u, E)` gives the plain map in the unit `u`, and attaching a unit is
+construction, `EuclideanMap(rotation(E), translation(E) .* u)`. A unitful map
+meeting plain numbers — applied to a plain point, composed with a plain map —
+is FlexUnits' `DimensionError`, never a promotion.
 
 The trailing `Src`/`Dst` parameters are coordinate-[`Frame`](@ref) tags: the
 map consumes `Src`-coordinates and produces `Dst`-coordinates (Drake
@@ -41,7 +52,7 @@ escape hatches.
 
 # Fields
 - `R::Rotation{N,T}`: Rotation component (from Rotations.jl)
-- `t::StaticVector{N,T}`: Translation vector
+- `t::StaticVector{N}`: Translation vector — plain numbers, or lengths in metres
 
 # Constructors
 ```julia
@@ -53,6 +64,9 @@ euclidean = EuclideanMap(R, t)
 # From MRP (Modified Rodrigues Parameters) for 3D
 mrp = MRP(0.1, 0.2, 0.3)
 euclidean_3d = EuclideanMap(mrp, [1.0, 2.0, 3.0])
+
+# A physical pose: the translation a length (stored in metres)
+pose = EuclideanMap(mrp, SVector(62.8, 0.0, 1200.0) .* mm)
 
 # From tuple
 euclidean = EuclideanMap((R, t))
@@ -72,12 +86,31 @@ inverse_euclidean = inv(euclidean)
 ```
 """
 struct EuclideanMap{
-        N, T, R <: Rotation{N, T}, V <: StaticVector{N, T},
+        N, T, R <: Rotation{N, T}, V <: StaticVector{N},
         Src <: Frame{N}, Dst <: Frame{N},
     } <: AbstractMatrixMap
     R::R
-    t::V  # Stored unitless in mm (canonical unit for Length)
+    t::V  # plain numbers, or FlexUnits base-form lengths (metres)
 end
+
+"""
+    PlainEuclideanMap{N}
+
+An [`EuclideanMap`](@ref) whose translation is plain numbers
+(`V <: StaticVector{N, <:Real}`: `Float64`, `Float32`, a ForwardDiff `Dual`) —
+the map the inner loop takes: minimal kernels, charts and manifolds, solvers.
+A unitful map handed to a function typed on it is a `MethodError`.
+"""
+const PlainEuclideanMap{N} = EuclideanMap{N, <:Any, <:Any, <:StaticVector{N, <:Real}}
+
+"""
+    UnitfulEuclideanMap{N}
+
+An [`EuclideanMap`](@ref) whose translation is FlexUnits quantities — a
+physical map, its translation in metres (base form). See
+[`PlainEuclideanMap`](@ref), [`has_units`](@ref).
+"""
+const UnitfulEuclideanMap{N} = EuclideanMap{N, <:Any, <:Any, <:StaticVector{N, <:Quantity}}
 
 """
     rotation(E::EuclideanMap) -> Rotation
@@ -89,8 +122,9 @@ rotation(E::EuclideanMap) = E.R
 """
     translation(E::EuclideanMap) -> StaticVector
 
-The translation `t` of the rigid map `x ↦ R·x + t`, unitless in mm (the
-canonical length every `EuclideanMap` stores).
+The translation `t` of the rigid map `x ↦ R·x + t`: lengths in metres
+(FlexUnits base-form quantities) for a physical map, plain numbers for an
+inner-loop one ([`has_units`](@ref)).
 """
 translation(E::EuclideanMap) = E.t
 
@@ -100,7 +134,7 @@ translation(E::EuclideanMap) = E.t
 # code — which never states frames — compiles and behaves unchanged.
 @inline function (::Type{EuclideanMap{N, T, R, V}})(
         Rv, tv
-    ) where {N, T, R <: Rotation{N, T}, V <: StaticVector{N, T}}
+    ) where {N, T, R <: Rotation{N, T}, V <: StaticVector{N}}
     return EuclideanMap{N, T, R, V, UnlabeledFrame{N}, UnlabeledFrame{N}}(Rv, tv)
 end
 
@@ -129,44 +163,53 @@ function _assert_rotation(
 end
 
 
-# Constructors with unit enforcement
-"""
-    EuclideanMap(R::Rotation{N}, t::AbstractVector{<:Quantity})
+# The length every physical translation is: a quantity of another dimension is
+# FlexUnits' `DimensionError`.
+@inline function _check_length(q::Quantity)
+    dimension(q) == dimension(m) || throw(DimensionError(q, m))
+    return q
+end
 
-Construct EuclideanMap with unit-enforced translation vector: every
-component must be a physical length (`ustrip(mm, ·)` throws a
-`ConversionError` otherwise).  Stored as unitless Float64 mm.
+"""
+    EuclideanMap(R::Rotation{N}, t::AbstractVector{<:Quantity}; check = true)
+
+A PHYSICAL map: every component of `t` a length, in any length unit (a
+quantity of another dimension is a `DimensionError`), stored as FlexUnits'
+base-form quantities — metres (`ubase`). The rotation is stored as a
+`RotMatrix` of its own eltype.
 """
 function EuclideanMap(
         R::Rotation{N, T}, t::AbstractVector{<:Quantity};
         check::Bool = true
     ) where {N, T}
     check && _assert_rotation(R)
-    t_mm = ustrip.(mm, t)
-    return EuclideanMap(R, SVector{N, Float64}(t_mm); check = false)
+    R_typed = RotMatrix{N, T}(R)
+    t_m = SVector{N}(map(q -> _check_length(ubase(q)), Tuple(SVector{N}(t))))
+    return EuclideanMap{N, T, typeof(R_typed), typeof(t_m)}(R_typed, t_m)
 end
 
-# Fallback for unitless (internal use, backwards compatibility)
-# Always convert to Float64 for consistent storage
-# Note: Must explicitly construct to avoid infinite recursion when T != Float64
+# A plain (non-static) translation: stored as an `SVector` of its own float
+# type (B2: a Float32 vector stays Float32, an integer one becomes Float64);
+# the rotation keeps its eltype.
 function EuclideanMap(
         R::Rotation{N, T}, t::AbstractVector{<:Real};
         check::Bool = true
     ) where {N, T}
     check && _assert_rotation(R)
-    # Convert rotation to Float64 if needed, and create SVector
-    R_f64 = RotMatrix{N, Float64}(R)
-    t_f64 = SVector{N, Float64}(t)
-    # Call inner constructor directly
-    return EuclideanMap{N, Float64, typeof(R_f64), typeof(t_f64)}(R_f64, t_f64)
+    R_typed = RotMatrix{N, T}(R)
+    t_typed = SVector{N, float(eltype(t))}(t)
+    return EuclideanMap{N, T, typeof(R_typed), typeof(t_typed)}(R_typed, t_typed)
 end
 
 """
-    EuclideanMap(R::Rotation{N,T}, t::StaticVector{N,T}; check=true) -> EuclideanMap{N,T,...}
+    EuclideanMap(R::Rotation{N,T}, t::StaticVector{N,<:Real}; check=true) -> EuclideanMap{N,T,...}
 
 Element-type-preserving constructor that PRESERVES the input static-vector
-subtype.  `Vec3`, `Point3`, `SVector`, `MVector`, `FieldVector` are all
-bit-identical at the data level — accept whatever the caller hands in.
+subtype and eltype.  `Vec3`, `Point3`, `SVector`, `MVector`, `FieldVector`
+are all bit-identical at the data level — accept whatever the caller hands
+in. The translation's eltype is independent of the rotation's: a Float32 or
+ForwardDiff `Dual` translation beside a Float64 rotation stays what it is
+(an integer translation becomes its float type).
 
 If a typed container (e.g. `MVector{4, Extrinsics3}` or
 `FixedModels{4, Extrinsics3}`) needs a specific translation type, the
@@ -174,13 +217,16 @@ implicit `Base.convert` defined below performs the (zero-cost) bitcast at
 the storage boundary.
 """
 function EuclideanMap(
-        R::Rotation{N, T}, t::StaticVector{N, T};
+        R::Rotation{N, T}, t::StaticVector{N, <:Real};
         check::Bool = true
-    ) where {N, T <: Real}
+    ) where {N, T}
     check && _assert_rotation(R)
     R_typed = RotMatrix{N, T}(R)
-    return EuclideanMap{N, T, typeof(R_typed), typeof(t)}(R_typed, t)
+    t_typed = _float_translation(t)
+    return EuclideanMap{N, T, typeof(R_typed), typeof(t_typed)}(R_typed, t_typed)
 end
+_float_translation(t::StaticVector{N, <:Integer}) where {N} = SVector{N, float(eltype(t))}(t)
+_float_translation(t::StaticVector) = t
 
 # Storage-boundary conversion: bitcast translation/rotation to the alias
 # parameter types. Triggered implicitly by container `setindex!` and
@@ -196,8 +242,8 @@ end
 # Frame-preserving convert to the historical 4-parameter surface.
 @inline function Base.convert(
         ::Type{EuclideanMap{N, T, R, V}},
-        e::EuclideanMap{N, T, <:Rotation{N, T}, <:StaticVector{N, T}, Src, Dst}
-    ) where {N, T, R <: Rotation{N, T}, V <: StaticVector{N, T}, Src <: Frame{N}, Dst <: Frame{N}}
+        e::EuclideanMap{N, T, <:Rotation{N, T}, <:StaticVector{N}, Src, Dst}
+    ) where {N, T, R <: Rotation{N, T}, V <: StaticVector{N}, Src <: Frame{N}, Dst <: Frame{N}}
     return EuclideanMap{N, T, R, V, Src, Dst}(R(e.R), V(e.t))
 end
 
@@ -206,9 +252,9 @@ end
 # into a labeled slot is allowed; anything else is a MethodError).
 @inline function Base.convert(
         ::Type{EuclideanMap{N, T, R, V, Src, Dst}},
-        e::EuclideanMap{N, T, <:Rotation{N, T}, <:StaticVector{N, T}, Src0, Dst0}
+        e::EuclideanMap{N, T, <:Rotation{N, T}, <:StaticVector{N}, Src0, Dst0}
     ) where {
-        N, T, R <: Rotation{N, T}, V <: StaticVector{N, T},
+        N, T, R <: Rotation{N, T}, V <: StaticVector{N},
         Src <: Frame{N}, Dst <: Frame{N},
         Src0 <: Union{Src, UnlabeledFrame{N}}, Dst0 <: Union{Dst, UnlabeledFrame{N}},
     }
@@ -320,17 +366,15 @@ function EuclideanMap(quat::AbstractVector, t::AbstractVector)
         throw(ArgumentError("quat must be length 4 (qw,qx,qy,qz), got $(length(quat))"))
     length(t) == 3 ||
         throw(ArgumentError("t must be length 3 (tx,ty,tz), got $(length(t))"))
-    return EuclideanMap(
-        QuatRotation(quat[1], quat[2], quat[3], quat[4]),
-        Vec{3, Float64}(t[1], t[2], t[3])
-    )
+    return EuclideanMap(QuatRotation(quat[1], quat[2], quat[3], quat[4]), _translation3(t))
 end
+# The quaternion form's translation: plain numbers as Float64, lengths as quantities.
+_translation3(t::AbstractVector{<:Quantity}) = SVector{3}(t[1], t[2], t[3])
+_translation3(t::AbstractVector) = Vec{3, Float64}(t[1], t[2], t[3])
 
-# Per-component translation (R, tx, ty, tz), with unit enforcement
-function EuclideanMap(R::Rotation{3, T}, tx::Quantity, ty::Quantity, tz::Quantity) where {T}
-    t_mm = Vec{3, Float64}(ustrip(mm, tx), ustrip(mm, ty), ustrip(mm, tz))
-    return EuclideanMap(R, t_mm)
-end
+# Per-component translation (R, tx, ty, tz) of lengths: stored in metres
+EuclideanMap(R::Rotation{3, T}, tx::Quantity, ty::Quantity, tz::Quantity) where {T} =
+    EuclideanMap(R, SVector(ubase(tx), ubase(ty), ubase(tz)))
 
 EuclideanMap(R::Rotation{3, T}, tx::Real, ty::Real, tz::Real) where {T} =
     EuclideanMap(R, Vec{3, Float64}(tx, ty, tz))
@@ -339,7 +383,6 @@ EuclideanMap(E::EuclideanMap) = E
 
 EuclideanMap((R, t)::Tuple{<:Rotation, <:AbstractVector}) = EuclideanMap(R, t)
 
-# Accessor to reconstruct with units
 # Frame labeling escape hatches — relabel / unlabel
 
 """
@@ -359,7 +402,7 @@ See also [`unlabel`](@ref), [`Frame`](@ref).
 """
 @inline function relabel(
         ::Type{Src}, ::Type{Dst}, m::EuclideanMap{N, T, R, V}
-    ) where {N, T, R <: Rotation{N, T}, V <: StaticVector{N, T}, Src <: Frame{N}, Dst <: Frame{N}}
+    ) where {N, T, R <: Rotation{N, T}, V <: StaticVector{N}, Src <: Frame{N}, Dst <: Frame{N}}
     return EuclideanMap{N, T, R, V, Src, Dst}(m.R, m.t)
 end
 
@@ -394,7 +437,7 @@ unlabel(u::Uncertain{<:EuclideanMap{N}}) where {N} = relabel(UnlabeledFrame{N}, 
     # The rotation keeps its representation when its inverse has it (a
     # QuatRotation inverts to its conjugate, a RotMatrix to its transpose);
     # the branch is on types, so it folds at compile time.
-    Rin isa R && tin isa StaticVector{N, T} &&
+    Rin isa R && tin isa StaticVector{N} &&
         return relabel(Dst, Src, EuclideanMap{N, T, R, typeof(tin)}(Rin, tin))
     return relabel(Dst, Src, EuclideanMap(Rin, tin; check = false))
 end
@@ -440,8 +483,8 @@ function Base.:∘(
         A::EuclideanMap{N, TA, RA, VA, SrcA, DstA},
         B::EuclideanMap{N, TB, RB, VB, SrcB, DstB}
     ) where {
-        N, TA, RA <: Rotation{N, TA}, VA <: StaticVector{N, TA},
-        TB, RB <: Rotation{N, TB}, VB <: StaticVector{N, TB},
+        N, TA, RA <: Rotation{N, TA}, VA <: StaticVector{N},
+        TB, RB <: Rotation{N, TB}, VB <: StaticVector{N},
         SrcA <: Frame{N}, DstA <: Frame{N}, SrcB <: Frame{N}, DstB <: Frame{N},
     }
     _check_junction(SrcA, DstB, ∘, (A, B))
@@ -494,7 +537,7 @@ so handing a pose where extrinsics are expected is unrepresentable.
 
 See also [`CameraExtrinsics`](@ref), [`lookat_pose`](@ref), [`Frame`](@ref).
 """
-const CameraPose{T, R <: Rotation{3, T}, V <: StaticVector{3, T}} =
+const CameraPose{T, R <: Rotation{3, T}, V <: StaticVector{3}} =
     EuclideanMap{3, T, R, V, CameraFrame, WorldFrame}
 
 """
@@ -510,7 +553,7 @@ a `CameraExtrinsics` IS an `EuclideanMap`.
 `relabel`, overriding whatever frames `m` carried).
 `Camera(model, ::CameraExtrinsics)` stores it directly in the extrinsics slot.
 """
-const CameraExtrinsics{T, R <: Rotation{3, T}, V <: StaticVector{3, T}} =
+const CameraExtrinsics{T, R <: Rotation{3, T}, V <: StaticVector{3}} =
     EuclideanMap{3, T, R, V, WorldFrame, CameraFrame}
 
 # Labeling constructors on the aliases (explicit relabel; identity fast path
@@ -519,6 +562,83 @@ const CameraExtrinsics{T, R <: Rotation{3, T}, V <: StaticVector{3, T}} =
 (::Type{CameraPose})(m::CameraPose) = m
 (::Type{CameraExtrinsics})(m::EuclideanMap{3}) = relabel(WorldFrame, CameraFrame, m)
 (::Type{CameraExtrinsics})(m::CameraExtrinsics) = m
+
+# =============================================================================
+# Units — a physical map and its plain form
+# =============================================================================
+#
+# A physical map's translation is metres (FlexUnits base form); its plain form
+# in a unit `u` is `ustrip(u, E)`, and a plain map takes a unit by
+# construction, `EuclideanMap(rotation(E), translation(E) .* u)`. Both keep the
+# rotation and the frames exactly. An `Uncertain` pose's 6×6 form lives in the
+# `RigidExpManifold6` chart, rotation first, so its translation rows and
+# columns (4–6) carry the length unit: they move with it, once, here.
+
+has_units(::EuclideanMap{N, T, R, V}) where {N, T, R, V} = eltype(V) <: Quantity
+has_units(u::Attributed) = has_units(getfield(u, :value))
+
+"""
+    ustrip(u::Units, E::EuclideanMap) -> EuclideanMap
+
+The plain map of a physical `E`: its translation in the length unit `u`, the
+rotation and the frames unchanged. An `ArgumentError` on a map that is
+already plain ([`has_units`](@ref)); attach a unit by construction,
+`EuclideanMap(rotation(E), translation(E) .* u)`.
+"""
+function FlexUnits.ustrip(u::Units, E::EuclideanMap{N, T, R, V, Src, Dst}) where {N, T, R, V, Src, Dst}
+    has_units(E) || throw(
+        ArgumentError(
+            "ustrip: the map's translation is plain numbers already; a plain map takes a unit by " *
+                "construction, `EuclideanMap(rotation(E), translation(E) .* u)`"
+        )
+    )
+    t = map(q -> ustrip(u, q), E.t)
+    return EuclideanMap{N, T, R, typeof(t), Src, Dst}(E.R, t)
+end
+
+# A plain map read as being in the length unit `u`, stored in metres: the
+# rotation and the frames kept exactly (construction would re-store the
+# rotation as a `RotMatrix`).
+function _attach_unit(E::EuclideanMap{N, T, R, V, Src, Dst}, u::Units) where {N, T, R, V, Src, Dst}
+    has_units(E) && throw(ArgumentError("with_unit: the map's translation already has units"))
+    t = map(x -> _check_length(ubase(x * u)), E.t)
+    return EuclideanMap{N, T, R, typeof(t), Src, Dst}(E.R, t)
+end
+
+# The 6×6 pose form with its translation rows and columns (4–6) scaled by `f`:
+# `op = *` multiplies a covariance's (Σ ↦ DΣD, D = diag(1, 1, 1, f, f, f)),
+# `op = /` divides it; a precision moves the opposite way (Λ ↦ D⁻¹ΛD⁻¹). Each
+# entry is scaled once by the product of its row and column factors (1, f or
+# f·f), so a strip and its attach are inverse to within an ulp.
+function _scale_translation_block(M::CovMat{6, T, 36, C}, f, op) where {T, C}
+    return CovMat{6, T, 36, C}(ntuple(k -> _scaled_entry(M[k], k, f, op), Val(36)))
+end
+function _scale_translation_block(M::PrecMat{6, T, 36, C}, f, op) where {T, C}
+    return PrecMat{6, T, 36, C}(ntuple(k -> _scaled_entry(M[k], k, f, _opposite(op)), Val(36)))
+end
+@inline function _scaled_entry(x, k, f, op)
+    n = (mod1(k, 6) > 3) + ((k - 1) ÷ 6 + 1 > 3)
+    return n == 0 ? x : op(x, n == 1 ? f : f * f)
+end
+_opposite(::typeof(*)) = /
+_opposite(::typeof(/)) = *
+
+"""
+    ustrip(u::Units, X::Uncertain{<:EuclideanMap{3}}) -> Uncertain
+
+The plain form of an uncertain physical pose: the map stripped in `u`
+(`ustrip(u, E)`) and its 6×6 covariance (or precision) — rotation first, the
+`RigidExpManifold6` chart — rescaled with it: the translation block in `u²`,
+the rotation–translation block in `rad·u`. The inverse is
+[`with_unit`](@ref)`(X, u)`.
+"""
+FlexUnits.ustrip(u::Units, X::Uncertain{<:EuclideanMap{3}}) = Uncertain(
+    ustrip(u, geom(X)), _scale_translation_block(getfield(X, :attributes), _metre_factor(u), *)
+)
+
+with_unit(X::Uncertain{<:EuclideanMap{3}}, u::Units) = Uncertain(
+    _attach_unit(geom(X), u), _scale_translation_block(getfield(X, :attributes), _metre_factor(u), /)
+)
 
 # =============================================================================
 # Angular Distance Between Rotations and Translations

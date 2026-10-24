@@ -62,7 +62,7 @@ import FastLevenbergMarquardt as FLM   # the stack's Levenberg–Marquardt (robu
 
 # Units and physical quantities — FlexUnits as shipped (see base/units.jl)
 import FlexUnits
-using FlexUnits: Quantity, Units, UnitRegistry, ustrip, uconvert, dimension,
+using FlexUnits: Quantity, Units, UnitRegistry, ustrip, uconvert, dimension, ubase,
     DimensionError, ConversionError
 using FlexUnits.UnitRegistry: @ud_str, uparse, qparse
 
@@ -128,6 +128,7 @@ public ray_plane_intersection
 # Primary API: Maps operate on primitives (a conic maps to a conic; see HomographyMap)
 export AbstractMatrixMap         # parent for matrix-backed Maps (BoundedMap is a sibling)
 export HomographyMap, EuclideanMap, CameraPose, CameraExtrinsics, Extrinsics3
+public PlainEuclideanMap, UnitfulEuclideanMap   # the inner loop's map and the physical one
 public rotation, translation   # EuclideanMap accessors (x ↦ R·x + t); qualified or imported by name
 # Coordinate-frame tags (EuclideanMap Src/Dst parameters) + label escape hatches
 export Frame, UnlabeledFrame, WorldFrame, CameraFrame, TargetPlaneFrame, PixelFrame
@@ -310,6 +311,7 @@ export px, dpi, pt, mm, cm, μm, m, inch, ft
 export ustrip, uconvert, dimension, DimensionError, ConversionError
 export @ud_str, uparse, qparse
 export parse_unit, unit_string, strip_or_bare
+public has_units, with_unit   # plain or unitful; with_unit is ustrip's inverse on the stack's carriers
 export Size2
 export Gray, N0f8, N0f16  # Image types
 public filter_kwargs, validate_dir

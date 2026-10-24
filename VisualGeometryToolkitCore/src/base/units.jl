@@ -120,6 +120,56 @@ strip_or_bare(::Units, x::Real) = x
 strip_or_bare(u::Units, x::Quantity) = ustrip(u, x)
 
 # -----------------------------------------------------------------------------
+# Plain or unitful: the layering's one predicate
+# -----------------------------------------------------------------------------
+#
+# Public values that carry physical lengths (poses, target points, rigs,
+# captures) hold FlexUnits' base-form quantities, metres; the inner loop holds
+# plain numbers. `has_units` tells the two forms apart — each carrier adds a
+# method beside its type — and `ustrip(u, x)` / `with_unit(x, u)` move between
+# them: `ustrip` gives the plain form in `u`, `with_unit` reads a plain value as
+# being in `u` and stores it in metres. Each refuses a value already in the
+# form it produces (`ArgumentError`), so a strip is never applied twice.
+
+"""
+    has_units(x) -> Bool
+
+Whether `x` holds FlexUnits quantities — a physical value (a pose's
+translation, a target's points, a rig's mounts, in metres) — rather than plain
+numbers, the inner loop's form. Defined for numbers, arrays, and every carrier
+of a physical length (`EuclideanMap`, `Uncertain` values, targets, mounts,
+rigs, cameras, trajectories, target poses and 3D target points).
+"""
+has_units(::Real) = false
+has_units(::Quantity) = true
+has_units(::AbstractArray{<:Real}) = false
+has_units(::AbstractArray{<:Quantity}) = true
+has_units(x::AbstractArray) = any(has_units, x)
+
+"""
+    with_unit(x, u::Units)
+
+The inverse of `ustrip(u, x)` on the stack's carriers: `x`'s plain lengths
+read as being in the unit `u` and stored as FlexUnits base-form quantities
+(metres) — an `Uncertain` pose's covariance rescaled with them. An
+`ArgumentError` when `x` already has units ([`has_units`](@ref)). A plain
+`EuclideanMap` takes its unit by construction instead,
+`EuclideanMap(rotation(E), translation(E) .* u)`.
+"""
+function with_unit end
+
+# A length unit's factor from metres: `ustrip(u, 1 m)` (1000 for mm). A unit of
+# another dimension is FlexUnits' `ConversionError`.
+_metre_factor(u::Units) = ustrip(u, Quantity(1.0, dimension(m)))
+
+# One length vector as plain metres, refusing plain numbers where a physical
+# value is meant (a unitful pose meeting a plain point): the strip at a public
+# boundary. FlexUnits' `DimensionError`, as the arithmetic would raise.
+_strip_metres(x::StaticVector{N, <:Quantity}) where {N} = map(q -> ustrip(m, q), x)
+_strip_metres(x::AbstractVector{<:Quantity}) = ustrip.(m, x)
+_strip_metres(x::AbstractVector) = throw(DimensionError(x, m))
+
+# -----------------------------------------------------------------------------
 # Pixel-sized values: the length check that survives a dimensionless px
 # -----------------------------------------------------------------------------
 #

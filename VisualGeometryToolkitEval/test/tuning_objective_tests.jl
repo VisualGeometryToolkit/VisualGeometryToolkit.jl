@@ -5,7 +5,7 @@
 #
 # Moved here from RANSACScoringDoneRight/test/ with the criteria themselves
 # (2026-10-03). The move left the file behind in a package whose `src` no longer
-# defines `MAA`, `MedianError` or `_tune_objective`, so RANSACScoringDoneRight's
+# defines `MAA`, `MedianError` or `tune_objective`, so RANSACScoringDoneRight's
 # own suite ran it and failed on `UndefVarError` — ReTestItems discovers every
 # `*_tests.jl` under test/, so an orphan runs rather than being ignored.
 #
@@ -20,22 +20,22 @@
     using Test, Statistics
     using VisualGeometryToolkitCore.Synthetic: mean_average_accuracy
     using VisualGeometryToolkitEval.Tuning: MedianError, FiniteMedian, SceneMeanMedian,
-        SceneMeanLowerMedian, MeanAverageAccuracy, _tune_objective, tuning_criterion_label
+        SceneMeanLowerMedian, MeanAverageAccuracy, tune_objective, tuning_criterion_label
 
     @testset "tuning objectives: mAA is VGC's" begin
         e = [0.5, 2.0, 7.5, 12.0, 3.25]
         maa = MeanAverageAccuracy
-        @test _tune_objective(maa(10.0), e) === -mean_average_accuracy(e; T = 10.0)
-        @test _tune_objective(maa(20.0), e) === -mean_average_accuracy(e; T = 20.0)
+        @test tune_objective(maa(10.0), e) === -mean_average_accuracy(e; T = 10.0)
+        @test tune_objective(maa(20.0), e) === -mean_average_accuracy(e; T = 20.0)
         # the definition: the mean of max(0, 1 − e/T)
-        @test -_tune_objective(maa(10.0), e) ≈ sum(max.(0, 1 .- e ./ 10)) / length(e) rtol = 1e-15
+        @test -tune_objective(maa(10.0), e) ≈ sum(max.(0, 1 .- e ./ 10)) / length(e) rtol = 1e-15
         # the edges the deleted `_maa` got differently: a non-finite error is a
         # FAILURE (it used to poison the sum as NaN), and no errors is NaN (was 0.0)
-        @test -_tune_objective(maa(10.0), [0.5, NaN, 12.0]) ≈ 0.95 / 3 rtol = 1e-15
-        @test -_tune_objective(maa(10.0), [0.5, Inf, 12.0]) ≈ 0.95 / 3 rtol = 1e-15
-        @test isnan(_tune_objective(maa(10.0), Float64[]))
+        @test -tune_objective(maa(10.0), [0.5, NaN, 12.0]) ≈ 0.95 / 3 rtol = 1e-15
+        @test -tune_objective(maa(10.0), [0.5, Inf, 12.0]) ≈ 0.95 / 3 rtol = 1e-15
+        @test isnan(tune_objective(maa(10.0), Float64[]))
         # the median objective counts a failure as ∞, as before
-        @test _tune_objective(MedianError(), [1.0, NaN, 3.0]) == 3.0
+        @test tune_objective(MedianError(), [1.0, NaN, 3.0]) == 3.0
     end
 
     # The two median criteria differ ONLY in what a non-finite error means, and
@@ -44,13 +44,13 @@
     # is therefore scored very differently by the two.
     @testset "MedianError penalises a failure; FiniteMedian drops it" begin
         e = [1.0, 2.0, NaN, NaN]
-        @test _tune_objective(MedianError(), e) == Inf       # median(1, 2, Inf, Inf)
-        @test _tune_objective(FiniteMedian(), e) == 1.5      # median(1, 2)
-        @test _tune_objective(MedianError(), [1.0, 2.0, 3.0]) == 2.0
-        @test _tune_objective(FiniteMedian(), [1.0, 2.0, 3.0]) == 2.0
+        @test tune_objective(MedianError(), e) == Inf       # median(1, 2, Inf, Inf)
+        @test tune_objective(FiniteMedian(), e) == 1.5      # median(1, 2)
+        @test tune_objective(MedianError(), [1.0, 2.0, 3.0]) == 2.0
+        @test tune_objective(FiniteMedian(), [1.0, 2.0, 3.0]) == 2.0
         # an ALL-failed column must LOSE an argmin, never win it: `empty = Inf`
-        @test _tune_objective(FiniteMedian(), [NaN, NaN]) == Inf
-        @test _tune_objective(FiniteMedian(), Float64[]) == Inf
+        @test tune_objective(FiniteMedian(), [NaN, NaN]) == Inf
+        @test tune_objective(FiniteMedian(), Float64[]) == Inf
     end
 
     # Scene-level criteria take ONE error vector PER SCENE and weight scenes
@@ -58,12 +58,12 @@
     # out rather than poisoning the mean.
     @testset "scene-mean criteria weight scenes, not pairs" begin
         scenes = [[1.0, 1.0, 1.0, 1.0, 1.0], [5.0]]          # 5 pairs vs 1
-        @test _tune_objective(SceneMeanMedian(), scenes) == 3.0      # (1 + 5)/2, not 1.67
-        @test _tune_objective(SceneMeanLowerMedian(), scenes) == 3.0
+        @test tune_objective(SceneMeanMedian(), scenes) == 3.0      # (1 + 5)/2, not 1.67
+        @test tune_objective(SceneMeanLowerMedian(), scenes) == 3.0
         # a scene with no finite value is skipped, not counted as a failure
-        @test _tune_objective(SceneMeanMedian(), [[2.0], [NaN], [4.0]]) == 3.0
-        @test isnan(_tune_objective(SceneMeanMedian(), [[NaN], [Inf]]))
-        @test isnan(_tune_objective(SceneMeanLowerMedian(), [[NaN]]))
+        @test tune_objective(SceneMeanMedian(), [[2.0], [NaN], [4.0]]) == 3.0
+        @test isnan(tune_objective(SceneMeanMedian(), [[NaN], [Inf]]))
+        @test isnan(tune_objective(SceneMeanLowerMedian(), [[NaN]]))
     end
 
     # lower_median is the ⌈n/2⌉-th order statistic: on an even n it returns the
@@ -73,12 +73,12 @@
     @testset "lower_median returns an observed value on even n" begin
         # n = 4: median averages the two middle values, lower_median takes the
         # lower of them — ⌈4/2⌉ = 2, the 2nd order statistic.
-        @test _tune_objective(SceneMeanMedian(), [[1.0, 2.0, 3.0, 4.0]]) == 2.5      # averaged
-        @test _tune_objective(SceneMeanLowerMedian(), [[1.0, 2.0, 3.0, 4.0]]) == 2.0 # observed
+        @test tune_objective(SceneMeanMedian(), [[1.0, 2.0, 3.0, 4.0]]) == 2.5      # averaged
+        @test tune_objective(SceneMeanLowerMedian(), [[1.0, 2.0, 3.0, 4.0]]) == 2.0 # observed
         # n = 2: ⌈2/2⌉ = 1, so the lower of the pair.
-        @test _tune_objective(SceneMeanLowerMedian(), [[1.0, 2.0]]) == 1.0
-        @test _tune_objective(SceneMeanMedian(), [[1.0, 2.0, 3.0]]) ==
-              _tune_objective(SceneMeanLowerMedian(), [[1.0, 2.0, 3.0]])     # odd n agrees
+        @test tune_objective(SceneMeanLowerMedian(), [[1.0, 2.0]]) == 1.0
+        @test tune_objective(SceneMeanMedian(), [[1.0, 2.0, 3.0]]) ==
+              tune_objective(SceneMeanLowerMedian(), [[1.0, 2.0, 3.0]])     # odd n agrees
     end
 
     # ONE mAA criterion. The retired `MAA(max_error_deg)` was the identical

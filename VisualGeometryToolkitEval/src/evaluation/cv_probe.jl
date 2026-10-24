@@ -32,7 +32,7 @@
 # selectors of one validation sweep, the arms of one detection run) the cells
 # to evaluate, each a NamedTuple of axis values — returns per key the
 # validation ERRORS at each cell (a vector, or a `units × items` matrix); the
-# spec's criterion reduces them (Tuning `_tune_objective`, MINIMISED; NaN
+# spec's criterion reduces them (Tuning `tune_objective`, MINIMISED; NaN
 # counts as +Inf, never selected). The search makes one call per round per
 # distinct value of the expensive axes, so a caller that keeps its expensive
 # run per value pays one run per expensive value visited. No experiment
@@ -79,7 +79,7 @@ function _evaluate!(Y, ev, errorsfn, todo, gs, names, expensive, criterion)
             haskey(out, k) && length(out[k]) == length(ix) ||
                 error("objective: search $(repr(k)) asked for $(length(ix)) cells, got $(haskey(out, k) ? length(out[k]) : "none")")
             for (j, i) in enumerate(ix)
-                Y[k][todo[k][i]] = _tune_objective(criterion, out[k][j] isa AbstractMatrix ? vec(out[k][j]) : out[k][j])
+                Y[k][todo[k][i]] = tune_objective(criterion, out[k][j] isa AbstractMatrix ? vec(out[k][j]) : out[k][j])
                 push!(ev[k], pts[k][i] => out[k][j])
             end
         end
@@ -188,11 +188,11 @@ function _keep_incumbent(r, p, E, inc::Incumbent, criterion)
     Si = unit_statistics(criterion, E); rng = StableRNG(inc.seed); n = size(Si, 1)
     p_gain = mean(1:inc.n_resamples) do _
         rows = rand(rng, 1:n, n)
-        _stats_objective(criterion, S[rows, :]) < _stats_objective(criterion, Si[rows, :])
+        stats_objective(criterion, S[rows, :]) < stats_objective(criterion, Si[rows, :])
     end
     kept = p_gain < inc.confidence
     return merge(r, (; incumbent = p, incumbent_errors = E, kept_incumbent = kept, selected = kept ? p : r.selected,
-                     gain = (objective = _stats_objective(criterion, Si) - _stats_objective(criterion, S), p_gain)))
+                     gain = (objective = stats_objective(criterion, Si) - stats_objective(criterion, S), p_gain)))
 end
 
 """

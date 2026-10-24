@@ -49,12 +49,12 @@ import .._config_default   # configs/default.toml (config_defaults.jl)
 
 using ..Stats: bootstrap_ci, reference_scale, eligible_maa, maa_threshold, finite_median, pair_outcomes,
     stable_seed
-using ..Tuning: CoarseFine, CoarseFineAxis, Incumbent, JointCoarseFine, _stats_objective, SpacedGrid, GridSpec,
+using ..Tuning: CoarseFine, CoarseFineAxis, Incumbent, JointCoarseFine, stats_objective, SpacedGrid, GridSpec,
     ScaleMultipleWindow, BudgetSampling, grid, extend, budget_rng, unit_statistics,
     resampling_rng, _sample_indices,
     # the criteria and their objective: Tuning owns them since 2026-10-02
     # (they came from RSDR's eval_strategy.jl — see tuning/policies.jl).
-    TuningCriterion, MedianError, _tune_objective,
+    TuningCriterion, MedianError, tune_objective,
     # the evaluator's tuned-point readers and deployment corruption
     TuningArtifact, load_tuning_artifact, corrupt_native, nearest_column,
     # the coarse-fine artifact (coarse_fine_artifact.jl)

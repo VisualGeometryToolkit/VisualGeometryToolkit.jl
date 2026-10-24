@@ -19,13 +19,13 @@ unit_statistics(c::MeanAverageAccuracy, errors::AbstractMatrix) =
          fill(Float64(size(errors, 2)), size(errors, 1)))
 
 """
-    _stats_objective(criterion, stats) -> Real
+    stats_objective(criterion, stats) -> Real
 
 The criterion's objective (minimised) over [`unit_statistics`](@ref) rows.
 """
-function _stats_objective end
-_stats_objective(c::TuningCriterion, S::AbstractMatrix) = _tune_objective(c, vec(S))
-_stats_objective(::MeanAverageAccuracy, S::AbstractMatrix) = -sum(view(S, :, 1)) / sum(view(S, :, 2))
+function stats_objective end
+stats_objective(c::TuningCriterion, S::AbstractMatrix) = tune_objective(c, vec(S))
+stats_objective(::MeanAverageAccuracy, S::AbstractMatrix) = -sum(view(S, :, 1)) / sum(view(S, :, 2))
 
 """
     bootstrap_argmin(criterion::TuningCriterion, stats, rng; n_resamples) -> Vector{Int}
@@ -52,6 +52,6 @@ function bootstrap_argmin(criterion::TuningCriterion, stats::AbstractVector{<:Ab
         throw(ArgumentError("bootstrap_argmin: every candidate needs the same units (rows)"))
     return map(1:n_resamples) do _
         rows = rand(rng, 1:n, n)
-        argmin([_stats_objective(criterion, S[rows, :]) for S in stats])
+        argmin([stats_objective(criterion, S[rows, :]) for S in stats])
     end
 end

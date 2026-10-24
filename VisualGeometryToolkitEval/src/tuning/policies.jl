@@ -76,7 +76,7 @@ end
 # Objectives — THE tuning criteria of the stack, all of them, here.
 #
 # `TuningCriterion`, `MedianError`, `MAA` (since folded into
-# `MeanAverageAccuracy`), `_tune_objective`, `_inf_failed` and
+# `MeanAverageAccuracy`), `tune_objective`, `_inf_failed` and
 # `tuning_criterion_label` moved here from RANSACScoringDoneRight on
 # 2026-10-02, completing the 2026-07-18 migration of the eval subsystem: they
 # are evaluation policy, every caller was already in this package, and nothing
@@ -93,7 +93,7 @@ end
     TuningCriterion
 
 The objective a cross-validation minimizes over the validation errors of a
-candidate (`_tune_objective(criterion, errors)`); each concrete criterion is
+candidate (`tune_objective(criterion, errors)`); each concrete criterion is
 named in TOML by its tag.
 """
 abstract type TuningCriterion end
@@ -112,12 +112,12 @@ struct MedianError <: TuningCriterion end
 _inf_failed(e) = [isfinite(x) ? x : Inf for x in e]
 
 """
-    _tune_objective(criterion::TuningCriterion, errors) -> Real
+    tune_objective(criterion::TuningCriterion, errors) -> Real
 
 The value a cross-validation MINIMIZES for one candidate: `criterion` applied
 to its validation `errors` (one vector per scene for a per-scene criterion).
 """
-_tune_objective(::MedianError, errors) = median(_inf_failed(errors))
+tune_objective(::MedianError, errors) = median(_inf_failed(errors))
 
 """
     tuning_criterion_label(criterion) -> String
@@ -133,7 +133,7 @@ The median over the FINITE validation errors, `+Inf` when there are none (so
 an all-failed column loses every argmin). TOML tag `"finite_median"`.
 """
 struct FiniteMedian <: TuningCriterion end
-_tune_objective(::FiniteMedian, errors) = finite_median(errors; empty = Inf)
+tune_objective(::FiniteMedian, errors) = finite_median(errors; empty = Inf)
 tuning_criterion_label(::FiniteMedian) = "median"
 
 """
@@ -145,7 +145,7 @@ none is left). `errors` is one error vector per scene. TOML tag
 `"scene_mean_median"`.
 """
 struct SceneMeanMedian <: TuningCriterion end
-_tune_objective(::SceneMeanMedian, scene_errors) = scene_mean_median(scene_errors)
+tune_objective(::SceneMeanMedian, scene_errors) = scene_mean_median(scene_errors)
 tuning_criterion_label(::SceneMeanMedian) = "scene_mean_median"
 
 """
@@ -156,7 +156,7 @@ The mean over scenes of each scene's [`lower_median`](@ref) validation error
 `errors` is one error vector per scene. TOML tag `"scene_mean_lower_median"`.
 """
 struct SceneMeanLowerMedian <: TuningCriterion end
-_tune_objective(::SceneMeanLowerMedian, scene_errors) =
+tune_objective(::SceneMeanLowerMedian, scene_errors) =
     scene_mean(e -> lower_median(collect(Float64, e)), scene_errors)
 tuning_criterion_label(::SceneMeanLowerMedian) = "scene_mean_lower_median"
 
@@ -190,7 +190,7 @@ end
 # the reporting one. With no mask the two are identical
 # (`_eligibility(errors, ::Nothing) = trues(...)`), so this is reuse, not a
 # change of objective.
-_tune_objective(c::MeanAverageAccuracy, errors) =
+tune_objective(c::MeanAverageAccuracy, errors) =
     -eligible_maa(collect(Float64, errors); T = c.max_error)
 tuning_criterion_label(::MeanAverageAccuracy) = "mAA"
 

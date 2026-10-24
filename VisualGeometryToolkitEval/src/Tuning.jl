@@ -65,7 +65,7 @@ export
     PriorSpec, fit_prior
 
 public TUNING_DEFAULTS, TUNING_DEFAULTS_PATH, RNG_ALGORITHMS, SPLIT_REGISTRY, SPLIT_REGISTRY_PATH,
-    _tune_objective, _stats_objective, tuning_criterion_label
+    tune_objective, stats_objective, tuning_criterion_label
 # The prior-strategy tags are public, not exported: `InverseGamma` is also
 # Distributions' exported distribution.
 public Jeffreys, InverseGamma, MLE, RobustFit, Unfitted, JeffreysPriorSpec, IGRobustSpec, ALL_PRIOR_SPECS,

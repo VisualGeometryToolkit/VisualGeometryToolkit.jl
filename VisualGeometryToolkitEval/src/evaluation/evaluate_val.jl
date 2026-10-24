@@ -89,7 +89,7 @@ function bootstrap_trials(method::BootstrapMethod, proto::FlatProtocol, budget::
         trial_idxs[b] = col
         trial_meds[b], trial_maas[b] = get!(test_stats, col) do
             errors = evaluate(method, proto.test_pair_idx, col)
-            isempty(errors) ? (NaN, NaN) : (_tune_objective(MedianError(), errors), eligible_maa(errors; T))
+            isempty(errors) ? (NaN, NaN) : (tune_objective(MedianError(), errors), eligible_maa(errors; T))
         end
     end
     return trial_meds, trial_maas, trial_idxs
@@ -184,7 +184,7 @@ function tune(rng::AbstractRNG, m::WindowedGridMethod, val_pairs, n)
             v = m.scene_errors[i][j, col]; isfinite(v) && (nfin += 1; errbuf[nfin] = v)
         end
         nfin == 0 && continue
-        o = _tune_objective(m.criterion, view(errbuf, 1:nfin))
+        o = tune_objective(m.criterion, view(errbuf, 1:nfin))
         o < best_obj && (best_obj = o; best_col = col)
     end
     return best_col

@@ -11,7 +11,7 @@
     using VisualGeometryToolkitCore: project, Lens, Perspective, Equidistant, DoubleSphere, Unified, ExtendedUnified,
         FieldOfView, Radial, Additive, Tangential
 
-    oracle = JSON3.read(read(joinpath(@__DIR__, "oracles", "lens_conventions.json"), String))
+    oracle = parse_json(read(joinpath(@__DIR__, "oracles", "lens_conventions.json"), String))
     pixel(K, lens, X) = (x = project(lens, SVector{3, Float64}(X...)); SVector(K.fx * x[1] + K.cx, K.fy * x[2] + K.cy))
     worst = Dict{String, Float64}()
     for c in oracle.cases

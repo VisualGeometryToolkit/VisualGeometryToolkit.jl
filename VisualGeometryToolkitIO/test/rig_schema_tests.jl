@@ -54,13 +54,13 @@ end
     mktempdir() do dir
         path = joinpath(dir, "rig.json")
         save(path, rig; provenance = (name = "test-rig",))
-        d = JSON3.read(read(path, String))
+        d = parse_json(read(path, String))
         @test d.schema == "vgio/rig/v4" && d.pixel_frame == "colmap" && d.length_unit == "mm"
         @test d.frame == "view:left" && d.provenance.name == "test-rig"
         @test !haskey(d, :targets)                                       # omitted, not empty
         # the extrinsics' frames are where they sit — never restated beside them
         @test !haskey(d.sensors[2].extrinsics, :from) && !haskey(d.sensors[2].camera, :name)
-        @test d.sensors[2].extrinsics == JSON3.read(JSON3.write(VgtkIO.pose_json(extrinsics(rig))))
+        @test d.sensors[2].extrinsics == parse_json(JSON.json(VgtkIO.pose_json(extrinsics(rig))))
         back = load(Rig, path)
         @test back isa Rig{ViewFrame{:left}, <:Tuple}
         @test ids(back) == (:left, :right)
@@ -94,12 +94,12 @@ end
     gn = NoncentralGenericModel(64, 48, 0, 0, 63, 47, dirs, pts)
     mktempdir() do dir
         pc = joinpath(dir, "central.json"); save(pc, gc)
-        dc = JSON3.read(read(pc, String))
+        dc = parse_json(read(pc, String))
         @test dc.pixel_frame == "colmap" && dc.grid_layout == "row_major" && !haskey(dc, :length_unit)
         back = load(CentralGenericModel, pc)
         @test back.grid == gc.grid && back.calib_max_x == 63 && back.width == 64
         pn = joinpath(dir, "noncentral.json"); save(pn, gn)
-        @test JSON3.read(read(pn, String)).length_unit == "mm"     # the point grid's unit, declared
+        @test parse_json(read(pn, String)).length_unit == "mm"     # the point grid's unit, declared
         backn = load(NoncentralGenericModel, pn)
         @test backn.directions == gn.directions && backn.points == gn.points
         # typed load is an assertion of intent
@@ -120,9 +120,9 @@ end
         @test extent(backr[1]) == Size2(64, 48)
         # a generic sensor lives in the COLMAP pixel frame; a rig declaring
         # another could not hold one
-        raw = copy(JSON3.read(read(pr, String)))
+        raw = copy(parse_json(read(pr, String)))
         raw[:pixel_frame] = "opencv"
-        bad = joinpath(dir, "rig_generic_opencv.json"); write(bad, JSON3.write(raw))
+        bad = joinpath(dir, "rig_generic_opencv.json"); write(bad, JSON.json(raw))
         @test_throws ArgumentError load(Rig, bad)
     end
 end
@@ -150,7 +150,7 @@ end
     mktempdir() do dir
         path = joinpath(dir, "targets.json")
         save(path, tr)
-        d = JSON3.read(read(path, String))
+        d = parse_json(read(path, String))
         @test d.schema == "vgio/rig/v4" && !haskey(d, :pixel_frame) && !haskey(d, :sensors)   # pixel_frame iff sensors
         @test [t.id for t in d.targets] == ["a1f2", "b76e", "c9"]      # ids sorted
         @test d.targets[1].target.type == "planar" && haskey(d.targets[1].target, :nominal)
@@ -186,10 +186,10 @@ end
         # The file's declared length unit is honoured, not assumed: the same
         # numbers declared in metres are a thousand times larger in the
         # in-memory millimetres; a non-length unit is refused.
-        raw = copy(JSON3.read(read(path, String)))
+        raw = copy(parse_json(read(path, String)))
         function with_unit(u)
             q = joinpath(dir, "targets_$(u).json")
-            write(q, JSON3.write(merge(raw, Dict(:length_unit => u))))
+            write(q, JSON.json(merge(raw, Dict(:length_unit => u))))
             return q
         end
         @test points(load(Rig, with_unit("m"))[:a1f2]) ≈ [1000 .* p for p in pts]
@@ -222,7 +222,7 @@ end
     mktempdir() do dir
         path = joinpath(dir, "camera_rig.json")
         save(path, rig)
-        d = JSON3.read(read(path, String))
+        d = parse_json(read(path, String))
         @test d.pixel_frame == "colmap" && length(d.sensors) == 1 && length(d.targets) == 1
         @test d.targets[1].target.type == "points" && haskey(d.targets[1].target, :point_covariances)
         @test haskey(d.targets[1].pose, :covariance)
@@ -243,7 +243,7 @@ end
         @test t isa Attributed && t.value == markers && t.calibration === cal
         save(tp, markers)
         @test load(AbstractTarget, tp) == markers
-        dt = JSON3.read(read(tp, String))
+        dt = parse_json(read(tp, String))
         @test dt.schema == "vgio/target/v1" && !haskey(dt, :calibration)
         @test_throws ArgumentError save(tp, Attributed(markers, (; calibration = (; date = "May 2026"))))
         # a target file holding a referenced design reads back unresolved unless resolved
@@ -260,12 +260,12 @@ end
     mktempdir() do dir
         path = joinpath(dir, "r.json")
         save(path, Rig{WorldFrame}(Dict(:a => Mounted(PlanarTarget(pts), X))))
-        good = JSON3.read(read(path, String), Dict{String, Any})
+        good = JSON.parse(read(path, String); dicttype = Dict{String, Any})
         function refused(f, key)
             dd = deepcopy(good)
             f(dd)
             q = joinpath(dir, "bad.json")
-            write(q, JSON3.write(dd))
+            write(q, JSON.json(dd))
             e = try
                 load(Rig, q); nothing
             catch e
@@ -299,7 +299,7 @@ end
                 ("vgio/session/v3", Rig, "calibration pipeline's own session kind"),
             )
             p = joinpath(dir, "old.json")
-            write(p, JSON3.write(Dict("schema" => schema)))
+            write(p, JSON.json(Dict("schema" => schema)))
             e = try
                 load(T, p); nothing
             catch e
@@ -344,7 +344,7 @@ end
         @test back[1] isa EuclideanMap && back[3] isa Uncertain && cov(back[3]) == Σ
         @test back.images == tr.images && back.times == tr.times && back.time_origin == tr.time_origin
         @test back.recovered == Set([3])
-        d = JSON3.read(read(path, String))
+        d = parse_json(read(path, String))
         @test d.schema == "vgio/trajectory/v3" && (d.from, d.to) == ("body:board_rig", "world")
         @test !haskey(d.frames[1], :recovered) && d.frames[2].recovered == true      # written only when true
         # read → write → read is exact
@@ -380,7 +380,7 @@ end
         @test P isa EuclideanMap{3, Float64, <:Any, <:Any, TargetFrame{:b89}, CameraFrame} && P.t == X(900.0mm).t
         U = pose(back, 4, Symbol("006"))
         @test U isa Uncertain && cov(U) == Σ
-        d = JSON3.read(read(path, String))
+        d = parse_json(read(path, String))
         @test d.schema == "vgio/target_poses/v1" && d.to == "camera_optical"
         @test [p.target for p in d.frames[1].poses] == ["006", "b89"]           # ids sorted; an undetected target absent
         # read → write → read is exact
@@ -410,16 +410,16 @@ end
         back = load(TargetPoints3D, path)
         @test back == obs
         @test back[1][1].xyz isa SVector && back[1][2].xyz isa Uncertain && iszero(cov(back[1][2].xyz))
-        d = JSON3.read(read(path, String))
+        d = parse_json(read(path, String))
         @test d.schema == "vgio/target_points3d/v1" && d.frame == "world" && !haskey(d, :targets)
         @test !haskey(d.frames[1].points[1], :covariance) && haskey(d.frames[1].points[2], :covariance)
         # a file in metres reads into millimetres, its covariance into mm²
-        dm = JSON3.read(read(path, String), Dict{String, Any})
+        dm = JSON.parse(read(path, String); dicttype = Dict{String, Any})
         dm["length_unit"] = "m"
         dm["frames"][2]["points"][1]["xyz"] = [0.001, 0.002, 0.003]
         dm["frames"][2]["points"][1]["covariance"] = [[2.5e-7, 0, 0], [0, 2.5e-7, 0], [0, 0, 2.5e-7]]
         pm = joinpath(dir, "metres.json")
-        write(pm, JSON3.write(dm))
+        write(pm, JSON.json(dm))
         u = load(TargetPoints3D, pm)[2][1].xyz
         @test geom(u) ≈ SVector(1.0, 2.0, 3.0) && cov(u) ≈ SMatrix{3, 3, Float64}(LinearAlgebra.I) * 0.25
         # every frame names its sensor
@@ -460,11 +460,11 @@ end
         cams = Dict(:cam => BoundedCamera(CameraModel(K; lens = opencv_lens([-0.1, 0.01, 0.0, 0.0]), image_origin = :colmap), Size2(1280, 960)))
         @test_throws ArgumentError save_bop_scene(PixelFrame{:opencv}, joinpath(dir, "bop"), tp, cams)   # a lens, not a pinhole
         out = save_bop_scene(PixelFrame{:opencv}, joinpath(dir, "bop"), tp, cams; undistorted = true)
-        gt = JSON3.read(read(out.scene_gt, String))
+        gt = parse_json(read(out.scene_gt, String))
         e = only(o for o in gt[Symbol("2")] if o.obj_id == out.obj_ids[:b89])
         @test permutedims(reshape(collect(Float64, e.cam_R_m2c), 3, 3)) ≈ RotMatrix(poses[2].R) atol = 1.0e-15
         @test collect(Float64, e.cam_t_m2c) == collect(poses[2].t)
-        sc = JSON3.read(read(out.scene_camera, String))
+        sc = parse_json(read(out.scene_camera, String))
         @test collect(Float64, sc[Symbol("2")].cam_K) == [900.0, 0.0, 640.0, 0.0, 901.0, 480.0, 0.0, 0.0, 1.0]   # OpenCV pixel frame
         @test out.obj_ids == Dict(:a01 => 1, :b89 => 2) && out.images == Dict(2 => "DSC2.JPG")
         @test_throws ArgumentError save_bop_scene(PixelFrame{:opencv}, joinpath(dir, "bop2"), tp, Dict(:other => cams[:cam]); undistorted = true)
@@ -508,7 +508,7 @@ end
         path = joinpath(dir, "target_points.json")
         # the file declares the frame the TYPE carries, and no pixel is converted
         save(path, obs)
-        d = JSON3.read(read(path, String))
+        d = parse_json(read(path, String))
         @test d.schema == "vgio/target_points2d/v1" && d.pixel_frame == "julia" && d.point_index_base == 1
         @test d.frames[1].points[1].xy == [640.0, 480.0]
         @test d.targets == [content_id(targets)]
@@ -536,13 +536,13 @@ end
         @test_throws ArgumentError save(p, TargetPoints2D{PixelFrame{:julia}}(raw; images = Dict(1 => "a.png"), sensors = "cam", targets = obs.targets))
         @test_throws ArgumentError save(p, TargetPoints2D{PixelFrame{:julia}}(raw; images, targets = obs.targets))           # sensors
         save(p, TargetPoints2D{PixelFrame{:julia}}(raw; images, sensors = Dict(1 => "left", 3 => "right"), targets = obs.targets))
-        @test [f.sensor for f in JSON3.read(read(p, String)).frames] == ["left", "right"]
+        @test [f.sensor for f in parse_json(read(p, String)).frames] == ["left", "right"]
 
         # the export: one row per (frame, target), in an external calibrator's frame —
         # OpenCV's puts the pixel Julia's calls (640, 480) at (639, 479)
         cpath = joinpath(dir, "correspondences.json")
         @test save_correspondences(PixelFrame{:opencv}, cpath, obs, targets_path) == cpath
-        c = JSON3.read(read(cpath, String))
+        c = parse_json(read(cpath, String))
         @test c.schema == "vgio/correspondences/v2" && c.pixel_frame == "opencv" && c.length_unit == "mm"
         @test [(r.t, r.target) for r in c.rows] == [(1, "a1f2"), (3, "a1f2"), (3, "b0c1")]      # frame 3's two boards stay apart
         @test c.rows[1].image == "DSC0001.png" && c.rows[1].sensor == "cam"
@@ -554,7 +554,7 @@ end
         # default: the measurements' own frame
         jpath = joinpath(dir, "julia_rows.json")
         save_correspondences(jpath, obs, targets)
-        @test JSON3.read(read(jpath, String)).pixel_frame == "julia"
+        @test parse_json(read(jpath, String)).pixel_frame == "julia"
         # measurements resolve only against the targets they name
         other = joinpath(dir, "other_targets.json")
         save(other, Rig{TargetFrame{:a1f2}}(Dict(:a1f2 => Mounted(PlanarTarget(pts), at(0.0mm)), :b0c1 => Mounted(PlanarTarget(pts), at(50.0mm)))))
@@ -571,7 +571,7 @@ end
         o2 = TargetPoints2D{PixelFrame{:julia}}(raw; images, sensors = "cam", targets = [content_id(rp)])
         @test_throws ArgumentError save_correspondences(joinpath(dir, "x.json"), o2, rp)
         save_correspondences(joinpath(dir, "y.json"), o2, rp; resolve = _ -> pts)
-        @test JSON3.read(read(joinpath(dir, "y.json"), String)).rows[1].object_points[1] == [20.0, 10.0, 0.0]
+        @test parse_json(read(joinpath(dir, "y.json"), String)).rows[1].object_points[1] == [20.0, 10.0, 0.0]
         # a trajectory file is not target points
         tpath = joinpath(dir, "trajectory.json")
         save(tpath, Trajectory(TargetFrame{:a1f2}, WorldFrame, Dict(1 => at(900.0mm))))

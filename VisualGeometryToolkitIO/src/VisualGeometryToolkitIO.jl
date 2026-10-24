@@ -66,7 +66,7 @@ using StaticArrays: SMatrix, SVector, StaticMatrix
 using LinearAlgebra: norm
 using Statistics: cov
 using Rotations: QuatRotation, RotMatrix, RotationVec, RotZ, params
-using JSON3: JSON3
+using JSON: JSON
 using SQLite: SQLite
 using FlexUnits: Units, ustrip, dimension, quantity
 using VisualGeometryToolkitCore: parse_unit, unit_string, mm, m,

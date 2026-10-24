@@ -11,7 +11,7 @@
 #
 # The INPUT is an already-lowered tree: `nothing`, `Bool`, `Int64`, `Float64`,
 # strings, vectors and string-keyed dicts. Lowering a struct into that tree
-# (StructTypes, NamedTuples, units) is the caller's business — it is where the
+# (structs, NamedTuples, units) is the caller's business — it is where the
 # schema lives.
 # =============================================================================
 

@@ -70,7 +70,7 @@ ExternalCalibration(source, camera, poses, reprojection_error, error_statistic, 
 const _CAMERA_OPTICAL = frame_name(CameraFrame)          # "camera_optical"
 
 # A required key, or a message naming the file and the key rather than a
-# KeyError from deep inside JSON3.
+# KeyError from deep inside the parsed object.
 function _need(d, key::Symbol, path, what)
     haskey(d, key) || throw(
         ArgumentError("$(path): no `$(key)` — not a $(what) calibration export")
@@ -306,13 +306,13 @@ function load_opencv_calibration(
         target::AbstractString = "calibration_target",
     )
     unit, image_origin = file_unit, pixel_origin(file_frame)
-    d = _read_json(path)::AbstractDict   # a JSON object; JSON3.Object is not public
+    d = _read_json(path)::AbstractDict   # a JSON object
     what = "OpenCV"
     _check_declared(d, unit, image_origin, path)
     lens = opencv_lens(_opencv_file_vector(d, path, what))
     camera = _external_camera(d, lens, image_origin, path, what)
-    poses = _external_poses(_need(d, :poses, path, what)::JSON3.Array, unit, target, path)
-    images = haskey(d, :images) ? String[n::String for n in d.images::JSON3.Array] : nothing
+    poses = _external_poses(_need(d, :poses, path, what)::Vector{Any}, unit, target, path)
+    images = haskey(d, :images) ? String[n::String for n in d.images::Vector{Any}] : nothing
     (images === nothing || length(images) == length(poses)) || throw(
         ArgumentError("$(path): $(length(images)) image names for $(length(poses)) poses")
     )
@@ -362,13 +362,13 @@ function load_matlab_calibration(
         target::AbstractString = "calibration_target",
     )
     unit, image_origin = file_unit, pixel_origin(file_frame)
-    d = _read_json(path)::AbstractDict   # a JSON object; JSON3.Object is not public
+    d = _read_json(path)::AbstractDict   # a JSON object
     what = "MATLAB"
     camera, twist = if haskey(d, :mapping_coeffs)
         a = Float64.(collect(_need(d, :mapping_coeffs, path, what)))
         length(a) == 4 || throw(ArgumentError("$(path): `mapping_coeffs` is (a0, a2, a3, a4); got $(length(a))"))
         c = Float64.(collect(_need(d, :distortion_center, path, what)))
-        rows = _need(d, :stretch_matrix, path, what)::JSON3.Array
+        rows = _need(d, :stretch_matrix, path, what)::Vector{Any}
         a0 = a[1]
         # a0 is the focal length. The toolbox can converge to the mirrored
         # solution — a0 < 0 with every target behind the camera (two of this
@@ -397,7 +397,7 @@ function load_matlab_calibration(
         lens = opencv_lens([r(:r1), r(:r2), r(:t1), r(:t2), r(:r3)])
         _external_camera(d, lens, image_origin, path, what), one(RotMatrix{3, Float64})
     end
-    poses = _external_poses(_need(d, :poses, path, what)::JSON3.Array, unit, target, path; twist)
+    poses = _external_poses(_need(d, :poses, path, what)::Vector{Any}, unit, target, path; twist)
     return ExternalCalibration(
         :matlab, camera, poses, Float64(_need(d, :mean_error, path, what)::Real), :mean, String(path)
     )

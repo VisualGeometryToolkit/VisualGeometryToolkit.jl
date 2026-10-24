@@ -12,7 +12,7 @@
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitIO as VgtkIO
 
-using JSON3
+using JSON: JSON
 using VisualGeometryToolkitIO: VisualGeometryToolkitIO, ColmapModel, ColmapImage, canonical_qvec
 using VisualGeometryToolkitIO: load, save   # the two-verb I/O surface (unexported)
 using StaticArrays: SVector, SMatrix
@@ -28,7 +28,7 @@ using FlexUnits: DimensionError, ConversionError, quantity, ustrip
 using VisualGeometryToolkitCore: parse_unit, unit_string
 export quantity, ustrip, parse_unit, unit_string
 
-export JSON3, ColmapModel, ColmapImage, canonical_qvec, load, save
+export JSON, parse_json, ColmapModel, ColmapImage, canonical_qvec, load, save
 export SVector, SMatrix, norm, QuatRotation, RotMatrix
 export mm, m, px, CameraModel, CameraCalibrationMat, Pinhole,
     Lens, LiftLens, Perspective, Equidistant, Radial, Tangential, ThinPrism, Additive, Chain,
@@ -53,5 +53,9 @@ qpose(q, t) = EuclideanMap{3, Float64, QuatRotation{Float64}, VgtkCore.Vec3{Floa
 qpose(R::RotMatrix, t) = qpose(VgtkIO._qvec(R), t)
 
 _mkpose() = qpose(q0, SVector(251.9, -144.4, 904.1))
+
+# A file read the way a test inspects it: Symbol keys and dot access, so a test
+# can `merge` a Symbol-keyed edit into it and write it back.
+parse_json(s::AbstractString) = JSON.parse(s; dicttype = JSON.Object{Symbol, Any})
 
 end

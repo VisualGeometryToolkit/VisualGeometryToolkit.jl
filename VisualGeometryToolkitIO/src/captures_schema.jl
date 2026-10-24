@@ -174,7 +174,7 @@ function load(::Type{Trajectory}, path::AbstractString)
     d = _read_store(path, "trajectory", _TRAJECTORY_SPEC)
     unit = d.length_unit::String
     poses, images, times, recovered = Dict{Int, Any}(), Dict{Int, String}(), Dict{Int, Float64}(), Set{Int}()
-    for f in d.frames::JSON3.Array
+    for f in d.frames::Vector{Any}
         t = Int(f.t::Integer)
         poses[t] = pose_from_json(f.pose, unit)
         _read_stamps!(images, nothing, times, f, t)
@@ -246,10 +246,10 @@ function load(::Type{TargetPoses}, path::AbstractString)
     unit = d.length_unit::String
     frames = Dict{Int, Dict{Symbol, Any}}()
     images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()
-    for f in d.frames::JSON3.Array
+    for f in d.frames::Vector{Any}
         t = Int(f.t::Integer)
         _read_stamps!(images, sensors, times, f, t)
-        frames[t] = Dict{Symbol, Any}(Symbol(p.target::String) => pose_from_json(p, unit) for p in f.poses::JSON3.Array)
+        frames[t] = Dict{Symbol, Any}(Symbol(p.target::String) => pose_from_json(p, unit) for p in f.poses::Vector{Any})
     end
     return TargetPoses{frame_from_name(d.to::String)}(frames; images, sensors, times, time_origin = _time_origin(d))
 end
@@ -315,7 +315,7 @@ end
 
 function _pixel_from_json(o)
     xy = SVector{2, Float64}(Float64(o.xy[1]::Real), Float64(o.xy[2]::Real))
-    return haskey(o, :covariance) ? Uncertain(xy, CovMat(_cov_matrix(o.covariance::JSON3.Array, 2))) : xy
+    return haskey(o, :covariance) ? Uncertain(xy, CovMat(_cov_matrix(o.covariance::Vector{Any}, 2))) : xy
 end
 
 """
@@ -330,16 +330,16 @@ function load(::Type{TargetPoints2D}, path::AbstractString)
     d = _read_store(path, "target_points2d", _TARGET_POINTS2D_SPEC)
     frames = Dict{Int, Vector{TargetPoint2D}}()
     images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()
-    for f in d.frames::JSON3.Array
+    for f in d.frames::Vector{Any}
         t = Int(f.t::Integer)
         _read_stamps!(images, sensors, times, f, t)
         frames[t] = TargetPoint2D[
             (target = Symbol(o.target::String), index = Int(o.index::Integer), xy = _pixel_from_json(o), weight = Float64(o.weight::Real))
-                for o in f.points::JSON3.Array
+                for o in f.points::Vector{Any}
         ]
     end
     return TargetPoints2D{pixel_frame_from_name(d.pixel_frame::String)}(
-        frames; images, sensors, times, time_origin = _time_origin(d), targets = String[h::String for h in d.targets::JSON3.Array],
+        frames; images, sensors, times, time_origin = _time_origin(d), targets = String[h::String for h in d.targets::Vector{Any}],
     )
 end
 
@@ -405,8 +405,8 @@ end
 
 # One wire point in millimetres (`s` mm per the file's unit).
 function _point3_from_json(o, unit, s)
-    p = SVector{3, Float64}(ustrip.(mm, quantity.(Float64[Float64(c::Real) for c in o.xyz::JSON3.Array], unit))...)
-    xyz = haskey(o, :covariance) ? Uncertain(p, CovMat(_cov_matrix(o.covariance::JSON3.Array, 3) * s^2)) : p
+    p = SVector{3, Float64}(ustrip.(mm, quantity.(Float64[Float64(c::Real) for c in o.xyz::Vector{Any}], unit))...)
+    xyz = haskey(o, :covariance) ? Uncertain(p, CovMat(_cov_matrix(o.covariance::Vector{Any}, 3) * s^2)) : p
     return (target = Symbol(o.target::String), index = Int(o.index::Integer), xyz = xyz)
 end
 
@@ -422,13 +422,13 @@ function load(::Type{TargetPoints3D}, path::AbstractString)
     s = Float64(ustrip(mm, quantity(1.0, unit)))                         # mm per the file's unit
     frames = Dict{Int, Vector{TargetPoint3D}}()
     images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()
-    for f in d.frames::JSON3.Array
+    for f in d.frames::Vector{Any}
         t = Int(f.t::Integer)
         _read_stamps!(images, sensors, times, f, t)
-        frames[t] = TargetPoint3D[_point3_from_json(o, unit, s) for o in f.points::JSON3.Array]
+        frames[t] = TargetPoint3D[_point3_from_json(o, unit, s) for o in f.points::Vector{Any}]
     end
     return TargetPoints3D{frame_from_name(d.frame::String)}(
         frames; images, sensors, times, time_origin = _time_origin(d),
-        targets = haskey(d, :targets) ? String[h::String for h in d.targets::JSON3.Array] : String[],
+        targets = haskey(d, :targets) ? String[h::String for h in d.targets::Vector{Any}] : String[],
     )
 end

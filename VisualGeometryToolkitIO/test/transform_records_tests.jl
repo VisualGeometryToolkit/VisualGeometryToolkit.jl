@@ -16,19 +16,19 @@
         # EXACT by type: labels, translation and (quaternion-born) rotation bit for bit
         @test back == [labeled, X2]
         @test typeof(back[1]) == typeof(labeled) && typeof(back[2]) == typeof(X2)
-        d = JSON3.read(read(path, String))
+        d = parse_json(read(path, String))
         @test d.schema == "vgio/transforms/v3" && d.length_unit == "mm"
         @test d.rotation_encoding == "quaternion_wxyz_hamilton" && d.transform_convention == "x_to = R * x_from + t"
         @test (d.transforms[1].from, d.transforms[1].to) == ("target:b76e", "camera_optical")
         @test d.transforms[1].rotation[1] >= 0
         @test d.provenance.image == "DSC04520.JPG"
         # a file in metres reads into millimetres
-        body = JSON3.read(read(path, String), Dict{String, Any})
+        body = JSON.parse(read(path, String); dicttype = Dict{String, Any})
         body["length_unit"] = "m"
         for r in body["transforms"]
             r["translation"] = r["translation"] ./ 1000
         end
-        open(io -> JSON3.write(io, body), joinpath(dir, "metres.json"), "w")
+        open(io -> JSON.json(io, body), joinpath(dir, "metres.json"), "w")
         bm = load(Vector{EuclideanMap}, joinpath(dir, "metres.json"))
         @test bm[1].t ≈ labeled.t atol = 1.0e-9
         @test typeof(bm[1]) == typeof(labeled)
@@ -41,7 +41,7 @@
         # not poses at all: refused
         @test_throws ArgumentError save(joinpath(dir, "num.json"), [1.0, 2.0])
         # a px translation is not metric: the quantity boundary refuses it
-        @test_throws Exception VgtkIO.pose_from_json(JSON3.read("""{"rotation": [1,0,0,0], "translation": [1,2,3]}"""), "px")
+        @test_throws Exception VgtkIO.pose_from_json(parse_json("""{"rotation": [1,0,0,0], "translation": [1,2,3]}"""), "px")
     end
 end
 
@@ -73,15 +73,15 @@ end
             @test Z == Y && Z.R.q == Y.R.q && typeof(Z) == typeof(Y)
         end
         # the stored quaternion is not renormalized: what the file says is the value
-        body = JSON3.read(read(p1, String), Dict{String, Any})
+        body = JSON.parse(read(p1, String); dicttype = Dict{String, Any})
         qs = body["transforms"][1]["rotation"]
         qs[1] = nextfloat(Float64(qs[1]))
-        open(io -> JSON3.write(io, body), p1, "w")
+        open(io -> JSON.json(io, body), p1, "w")
         W = only(load(Vector{EuclideanMap}, p1))
         @test collect(VgtkIO._qvec(W.R)) == Float64.(qs)
         # …but it must be a unit quaternion
         qs[1] = 2.0
-        open(io -> JSON3.write(io, body), p1, "w")
+        open(io -> JSON.json(io, body), p1, "w")
         @test_throws ArgumentError load(Vector{EuclideanMap}, p1)
     end
 end
@@ -100,7 +100,7 @@ end
         e = Uncertain(pose, CovMat(zero(SMatrix{6, 6, Float64})))
         path = joinpath(dir, "x.json")
         save(path, [pose, u, e])
-        d = JSON3.read(read(path, String))
+        d = parse_json(read(path, String))
         @test !haskey(d.transforms[1], :covariance) && haskey(d.transforms[2], :covariance)   # written iff Uncertain
         back = load(Vector{EuclideanMap}, path)
         @test back == [pose, u, e]
@@ -108,19 +108,19 @@ end
         @test back[2] isa Uncertain && cov(back[2]) == Σ && geom(back[2]) == pose
         @test iszero(cov(back[3]))                            # exact stays exact
         # a file in metres: the translation block of the covariance moves with the unit
-        body = JSON3.read(read(path, String), Dict{String, Any})
+        body = JSON.parse(read(path, String); dicttype = Dict{String, Any})
         body["length_unit"] = "m"
         r = body["transforms"][2]
         r["translation"] = r["translation"] ./ 1000
         S = [Float64(r["covariance"][i][j]) * (i <= 3 && j <= 3 ? 1.0 : i > 3 && j > 3 ? 1.0e-6 : 1.0e-3) for i in 1:6, j in 1:6]
         r["covariance"] = [S[i, :] for i in 1:6]
         body["transforms"] = [r]
-        open(io -> JSON3.write(io, body), joinpath(dir, "m.json"), "w")
+        open(io -> JSON.json(io, body), joinpath(dir, "m.json"), "w")
         um = only(load(Vector{EuclideanMap}, joinpath(dir, "m.json")))
         @test cov(um) ≈ Σ rtol = 1.0e-12
         # an asymmetric covariance is refused by the validator
         r["covariance"][1][2] = 1.0e-7
-        open(io -> JSON3.write(io, body), joinpath(dir, "asym.json"), "w")
+        open(io -> JSON.json(io, body), joinpath(dir, "asym.json"), "w")
         @test_throws ArgumentError load(Vector{EuclideanMap}, joinpath(dir, "asym.json"))
         # ROS PoseWithCovariance orders translation first: a block swap, and back
         Σr = ros_pose_covariance(Σ)

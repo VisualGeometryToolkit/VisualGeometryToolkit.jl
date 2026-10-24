@@ -143,9 +143,9 @@ function _read_correspondences(path::AbstractString)
     rows = _CorrespondenceRow[
         (
             t = Int(r.t::Integer), image = r.image::String, sensor = r.sensor::String, target = Symbol(r.target::String),
-            object_points = _point_matrix(r.object_points::JSON3.Array, 3, p -> ustrip.(mm, quantity.(p, unit))),
-            image_points = _point_matrix(r.image_points::JSON3.Array, 2, identity),
-        ) for r in d.rows::JSON3.Array
+            object_points = _point_matrix(r.object_points::Vector{Any}, 3, p -> ustrip.(mm, quantity.(p, unit))),
+            image_points = _point_matrix(r.image_points::Vector{Any}, 2, identity),
+        ) for r in d.rows::Vector{Any}
     ]
     return pixel_frame_from_name(d.pixel_frame::String), rows
 end
@@ -153,7 +153,7 @@ end
 function _point_matrix(a, n::Int, f)
     M = Matrix{Float64}(undef, length(a), n)
     for (i, v) in enumerate(a)
-        M[i, :] = f(Float64[Float64(c::Real) for c in v::JSON3.Array])
+        M[i, :] = f(Float64[Float64(c::Real) for c in v::Vector{Any}])
     end
     return M
 end

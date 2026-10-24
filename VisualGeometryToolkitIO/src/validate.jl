@@ -278,9 +278,8 @@ end
 # Write `body` as a v2 file after validating the very bytes that land on disk
 # against `spec`: a writer cannot produce a file its own reader refuses.
 function _write_store(path::AbstractString, spec::_Spec, body)
-    s = JSON3.write(body)
-    _validate(spec, JSON3.read(s), path, "")
-    open(io -> JSON3.pretty(io, s), path, "w")
+    _validate(spec, _parse_json(_json(body)), path, "")
+    _write_json(path, body)
     return nothing
 end
 

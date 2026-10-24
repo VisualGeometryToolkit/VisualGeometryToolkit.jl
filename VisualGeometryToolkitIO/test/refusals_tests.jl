@@ -39,8 +39,8 @@
     mktempdir() do dir
         save(dir, model)
         sidecar = joinpath(dir, VgtkIO.UNITS_SIDECAR)
-        @test JSON3.read(read(sidecar, String)) == Dict(:schema => "vgio/units/v2", :world => "mm")
-        write(sidecar, JSON3.write((schema = "vgio/units/v1", world = "m", image = "px")))
+        @test parse_json(read(sidecar, String)) == Dict(:schema => "vgio/units/v2", :world => "mm")
+        write(sidecar, JSON.json((schema = "vgio/units/v1", world = "m", image = "px")))
         err = try
             load(ColmapModel, dir); nothing
         catch e
@@ -48,9 +48,9 @@
         end
         @test err isa ArgumentError && occursin("retired vgio/units/v1", err.msg)
         # a v2 sidecar holds exactly its declaration
-        write(sidecar, JSON3.write((schema = "vgio/units/v2", world = "mm", image = "px")))
+        write(sidecar, JSON.json((schema = "vgio/units/v2", world = "mm", image = "px")))
         @test_throws ArgumentError load(ColmapModel, dir)
-        write(sidecar, JSON3.write((schema = "vgio/units/v2", world = "px")))
+        write(sidecar, JSON.json((schema = "vgio/units/v2", world = "px")))
         @test_throws ArgumentError load(ColmapModel, dir)
     end
 
@@ -62,7 +62,7 @@
     mktempdir() do dir
         path = joinpath(dir, "g.json")
         write(
-            path, JSON3.write(
+            path, JSON.json(
                 (
                     schema = "vgio/generic_camera/v2", pixel_frame = "colmap", type = "Fisheye9000",
                     width = 4, height = 4,

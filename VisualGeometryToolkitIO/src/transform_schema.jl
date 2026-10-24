@@ -104,13 +104,13 @@ writes back to the same numbers. The quaternion must be unit-norm to 1e-6
 (refused otherwise, never normalized silently).
 """
 function pose_from_json(p, unit::AbstractString)
-    q = SVector{4, Float64}(Float64.(p.rotation::JSON3.Array)...)
+    q = SVector{4, Float64}(Float64.(p.rotation::Vector{Any})...)
     abs(norm(q) - 1) < 1.0e-6 || throw(
         ArgumentError("quaternion is not unit-norm (|q| = $(norm(q))); refusing to normalize silently")
     )
-    t = ustrip.(mm, quantity.(Float64.(p.translation::JSON3.Array), parse_unit(unit)))
+    t = ustrip.(mm, quantity.(Float64.(p.translation::Vector{Any}), parse_unit(unit)))
     X = _quat_map(canonical_qvec(q), t)
-    return haskey(p, :covariance) ? Uncertain(X, _pose_cov_mm(_cov_matrix(p.covariance::JSON3.Array, 6), unit)) : X
+    return haskey(p, :covariance) ? Uncertain(X, _pose_cov_mm(_cov_matrix(p.covariance::Vector{Any}, 6), unit)) : X
 end
 
 # The covariance of a pose in `unit`, moved to millimetres (the in-memory unit):
@@ -165,6 +165,6 @@ function load(::Type{Vector{EuclideanMap}}, path::AbstractString)
     unit = d.length_unit::String
     return _AnyPose[
         relabel(frame_from_name(r.from::String), frame_from_name(r.to::String), pose_from_json(r, unit))
-            for r in d.transforms::JSON3.Array
+            for r in d.transforms::Vector{Any}
     ]
 end

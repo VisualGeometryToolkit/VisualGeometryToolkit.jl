@@ -12,7 +12,7 @@
         end
         lines = readlines(path)
         @test length(lines) == 66
-        rows = [JSON3.read(l) for l in lines]
+        rows = [parse_json(l) for l in lines]
         @test rows[1].a == 1 && rows[1].b == "x"
         @test collect(rows[2].nested.c) == [1, 2, 3]
         @test sort([r.i for r in rows[3:end]]) == collect(1:64)

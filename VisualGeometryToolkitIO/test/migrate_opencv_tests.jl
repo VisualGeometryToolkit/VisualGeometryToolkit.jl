@@ -17,7 +17,7 @@
             :poses => [Dict(:rvec => rvec, :tvec => [0.17, 0.0122, 1.3969]), nothing, Dict(:rvec => -rvec, :tvec => [0.1, 0.2, 1.5])],
         )
         src = joinpath(dir, "calibration_opencv_default.json")
-        write(src, JSON3.write(body))
+        write(src, JSON.json(body))
         original = read(src, String)
         names = ["IMG_0001.png", "IMG_0002.png", "IMG_0003.png"]
         out = mkpath(joinpath(dir, "v2"))
@@ -42,7 +42,7 @@
         @test only(keys(store)) === :calibration_opencv_default && extent(cam) == Size2(4240, 2832)
         @test VgtkCore.model(cam) == cal.camera                            # K canonical (cx + 0.5), lens as the file names it
         @test VgtkCore.model(cam).intrinsics.K[1, 3] == 2175.69 + 0.5
-        cd_ = JSON3.read(read(r.cameras, String))
+        cd_ = parse_json(read(r.cameras, String))
         @test VgtkIO._plain(cd_.cameras[1].lens) == lens_record(cal.camera.lens)
         @test cd_.provenance.reprojection_error == 0.2737 && cd_.provenance.error_statistic == "rms"
 
@@ -62,7 +62,7 @@
 
         # a file that declares its tvec unit supplies it, and a contradicting caller is refused
         declared = joinpath(dir, "calibration_opencv_rational.json")
-        write(declared, JSON3.write(merge(body, Dict(:tvec_unit => "m"))))
+        write(declared, JSON.json(merge(body, Dict(:tvec_unit => "m"))))
         o2 = mkpath(joinpath(dir, "v2b"))
         r2 = migrate_opencv(declared; images = names, image_size = (4240, 2832), out = o2)
         @test load(Vector{EuclideanMap}, r2.poses)[1].t == cal.poses[1].t                    # tvec_unit "m" honoured

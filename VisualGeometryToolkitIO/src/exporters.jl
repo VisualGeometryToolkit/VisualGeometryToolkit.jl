@@ -143,16 +143,16 @@ function _save_bop_json(path, content::AbstractDict)
     open(path, "w") do io
         println(io, "{")
         for (i, k) in enumerate(ks)
-            print(io, "  ", JSON3.write(k), ": ", _sorted_json(content[k]))
+            print(io, "  ", _json(k), ": ", _sorted_json(content[k]))
             println(io, i < length(ks) ? "," : "")
         end
         println(io, "}")
     end
     return path
 end
-_sorted_json(x::AbstractDict) = "{" * join(("$(JSON3.write(String(k))): $(_sorted_json(x[k]))" for k in sort!(collect(keys(x)); by = string)), ", ") * "}"
+_sorted_json(x::AbstractDict) = "{" * join(("$(_json(String(k))): $(_sorted_json(x[k]))" for k in sort!(collect(keys(x)); by = string)), ", ") * "}"
 _sorted_json(x::AbstractVector) = "[" * join((_sorted_json(v) for v in x), ", ") * "]"
-_sorted_json(x) = JSON3.write(x)
+_sorted_json(x) = _json(x)
 
 """
     save_trc(path, obs::TargetPoints3D; data_rate = nothing, stamp = :time) -> (; path, markers)

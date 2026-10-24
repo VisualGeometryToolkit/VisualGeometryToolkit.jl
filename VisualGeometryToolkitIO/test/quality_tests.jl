@@ -5,8 +5,8 @@
 # Aqua, ExplicitImports and JET run in the DEFAULT suite: each catches a class
 # of rot no behavioural test here can see — a dep that stopped being used, an
 # export that names nothing, a compat entry that went missing, an upstream name
-# silently arriving through `using`, a schema field reaching typed code as a
-# 7-way JSON3 Union.
+# silently arriving through `using`, a schema field reaching typed code as an
+# untyped JSON value.
 #
 # JET used to live out of suite (`test/jet_ratchet.jl`) because this package
 # declared `julia = "1.10"` and JET requires 1.12. That floor was never real —
@@ -56,30 +56,34 @@ end
         ignore = (:params,)
     ) === nothing
 
-    #   JSON3.read/write/pretty/Array — JSON3's entire user-facing surface is
-    #                                   undeclared; nothing else to call.
-    #   SQLite.DB, DBInterface.execute/close! — likewise for the sqlite handle.
+    #   SQLite.DB, DBInterface.execute/close! — the sqlite handle's user-facing
+    #                                          surface is undeclared; nothing
+    #                                          else to call.
     @test check_all_qualified_accesses_are_public(
         VisualGeometryToolkitIO;
-        ignore = (:Array, :DB, :close!, :execute, :pretty, :read, :write)
+        ignore = (:DB, :close!, :execute)
     ) === nothing
 end
 
 @testitem "quality: JET" begin
     using JET
 
-    # THE RATCHET: `JET_BASELINE` only ever DECREASES. It is 0, which is a real
-    # claim about this package and not a lucky measurement — every report JET
-    # has raised here came from an UNTYPED READ: almost always JSON3's property
-    # access returning a 7-way `Union{Nothing, Bool, Float64, Int64, String,
-    # JSON3.Array, JSON3.Object}` (once, iterating an `AbstractString`, which
-    # yields `Any` — canonical.jl narrows the char). Those are fixed at the READ BOUNDARY with a typeassert per
-    # schema field (`d.frame::String`, `d.poses::JSON3.Array`, `sv.rms::Real`),
-    # where the expected type is a documented property of the schema and the
-    # assert doubles as validation. An assert inside a CALLEE is union-split at
-    # its caller and reports anyway — narrow where the field is read. If this
+    # The ratchet: `JET_BASELINE` only ever decreases. It is 0, which is a real
+    # claim about this package and not a lucky measurement. Almost every report
+    # JET has raised here came from an untyped read: a field of a parsed JSON
+    # object (with JSON3, a 7-way `Union`; with JSON.jl, `Any`), or iterating an
+    # `AbstractString`, which yields `Any` (canonical.jl narrows the char).
+    # Those are fixed at the read boundary with a typeassert per schema field
+    # (`d.frame::String`, `d.poses::Vector{Any}`, `sv.rms::Real`), where the
+    # expected type is a documented property of the schema and the assert
+    # doubles as validation. An assert inside a callee is union-split at its
+    # caller and reports anyway, so narrow where the field is read. If this
     # starts failing, look for a new `d.<field>` that reaches a typed function
-    # without an assert; do NOT add annotations downstream.
+    # without an assert; do not add annotations downstream.
+    #
+    # The other source is splatting a variable-length argument list into a
+    # call Julia cannot infer: Julia 1.13 reported `join(string.(xs), '\t')`
+    # over a splatted tuple in the TRC writer, which now prints field by field.
     JET_BASELINE = 0
     reports = JET.get_reports(
         JET.report_package(VisualGeometryToolkitIO; target_modules = (VisualGeometryToolkitIO,))

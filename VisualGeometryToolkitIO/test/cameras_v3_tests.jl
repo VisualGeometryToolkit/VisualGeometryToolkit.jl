@@ -41,7 +41,7 @@
             path = joinpath(dir, "cameras.json")
             save(path, recs; provenance = (reprojection_error = 0.0354, n_calibration_images = 56))
             back = load(Dict{Symbol, BoundedCamera}, path)
-            d = JSON3.read(read(path, String))
+            d = parse_json(read(path, String))
             @test back == recs                         # exact round trip by type
             @test back isa Dict{Symbol} && all(c -> c isa BoundedCamera, values(back))
             for n in names
@@ -79,7 +79,7 @@
         mktempdir() do dir
             path = joinpath(dir, "cameras.json")
             save(path, Dict(:c => BoundedCamera(m, Size2(4240, 2832))))
-            @test JSON3.read(read(path, String)).pixel_frame == "colmap"
+            @test parse_json(read(path, String)).pixel_frame == "colmap"
             back = load(Dict{Symbol, BoundedCamera}, path)
             # reloading must NOT shift again
             @test model(back[:c]).intrinsics.K == m.intrinsics.K
@@ -94,19 +94,19 @@
             canonical = CameraModel(K; lens = bc, image_origin = :colmap)
             path = joinpath(dir, "cameras.json")
             save(path, Dict(:c => BoundedCamera(canonical, Size2(4240, 2832))))
-            top = Dict{Symbol, Any}(pairs(JSON3.read(read(path, String))))
+            top = Dict{Symbol, Any}(pairs(parse_json(read(path, String))))
             cx0 = canonical.intrinsics.K[1, 3]
             cy0 = canonical.intrinsics.K[2, 3]
             for (frame, shift) in (("colmap", 0.0), ("opencv", 0.5), ("julia", -0.5))
                 q = joinpath(dir, "$(frame).json")
-                write(q, JSON3.write(merge(top, Dict(:pixel_frame => frame))))
+                write(q, JSON.json(merge(top, Dict(:pixel_frame => frame))))
                 got = load(Dict{Symbol, BoundedCamera}, q)[:c]
                 @test model(got).intrinsics.K[1, 3] ≈ cx0 + shift
                 @test model(got).intrinsics.K[2, 3] ≈ cy0 + shift
                 # ...and re-saving states the canonical frame, not the file's
                 r2 = joinpath(dir, "$(frame)_again.json")
                 save(r2, Dict(:c => got))
-                @test JSON3.read(read(r2, String)).pixel_frame == "colmap"
+                @test parse_json(read(r2, String)).pixel_frame == "colmap"
             end
         end
 
@@ -133,7 +133,7 @@
         mktempdir() do dir
             path = joinpath(dir, "cameras.json")
             save(path, Dict(:c => rec))
-            d = JSON3.read(read(path, String))
+            d = parse_json(read(path, String))
             tomutable(x::AbstractDict) = Dict{Symbol, Any}(Symbol(k) => tomutable(v) for (k, v) in x)
             tomutable(x::AbstractVector) = Any[tomutable(v) for v in x]
             tomutable(x) = x
@@ -141,7 +141,7 @@
                 dd = tomutable(d)
                 mutate(dd)
                 q = joinpath(dir, "bad.json")
-                write(q, JSON3.write(dd))
+                write(q, JSON.json(dd))
                 e = try
                     load(Dict{Symbol, BoundedCamera}, q); nothing
                 catch e
@@ -254,7 +254,7 @@
             @test back == recs                                                     # exact by type
             @test back[:full] isa Attributed && back[:none] isa BoundedCamera
             @test back[:full].calibration === full && back[:part].calibration === part
-            d = JSON3.read(read(path, String))
+            d = parse_json(read(path, String))
             # what is unknown is absent, in declaration order; no block at all when there is none
             @test collect(keys(d.cameras[1].calibration)) == [:tool, :source, :date, :reprojection_rms, :n_images, :n_points, :note]
             @test !haskey(d.cameras[2], :calibration)
@@ -272,7 +272,7 @@
                 dd = tomutable(d)
                 mutate(dd[:cameras][1][:calibration])
                 q = joinpath(dir, "bad.json")
-                write(q, JSON3.write(dd))
+                write(q, JSON.json(dd))
                 e = try
                     load(Dict{Symbol, BoundedCamera}, q); nothing
                 catch e

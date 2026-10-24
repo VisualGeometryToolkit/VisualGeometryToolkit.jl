@@ -94,7 +94,7 @@ end
 _lens_json(l) = applicable(lens_record, l) ? lens_record(l) :
     throw(ArgumentError("no lens record for the lens type $(typeof(l)) — the store holds VGC's Lens and LiftLens"))
 
-# JSON3 objects (Symbol keys, lazy arrays) as the plain Dicts and Vectors the
+# Parsed JSON objects (`JSON.Object`s) as the plain Dicts and Vectors the
 # lens record is.
 _plain(x::AbstractDict) = Dict{String, Any}(String(k) => _plain(v) for (k, v) in x)
 _plain(x::AbstractVector) = Any[_plain(v) for v in x]
@@ -330,7 +330,7 @@ function load(::Type{Dict{Symbol, BoundedCamera}}, path::AbstractString)
     d = _read_store(path, "cameras", _CAMERAS_SPEC)
     frame = pixel_frame_from_name(d.pixel_frame::String)
     out = Dict{Symbol, _StoredCamera}()
-    for c in d.cameras::JSON3.Array
+    for c in d.cameras::Vector{Any}
         bc = BoundedCamera(_camera_from_body(c, frame)...)
         out[Symbol(c.name::String)] = haskey(c, :calibration) ?
             Attributed(bc, (; calibration = _calibration_from_json(c.calibration::AbstractDict))) : bc

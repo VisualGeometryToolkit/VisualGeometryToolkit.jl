@@ -82,7 +82,7 @@ function _grid_from_json(a, gw::Int, gh::Int; unit::Units = mm, is_points::Bool 
     g = Matrix{Vec3{Float64}}(undef, gh, gw)
     for (i, v) in enumerate(a)
         gy, gx = divrem(i - 1, gw)
-        xyz = Float64[Float64(c::Real) for c in v::JSON3.Array]
+        xyz = Float64[Float64(c::Real) for c in v::Vector{Any}]
         g[gy + 1, gx + 1] = Vec3{Float64}((is_points ? ustrip.(mm, quantity.(xyz, unit)) : xyz)...)
     end
     return g
@@ -111,14 +111,14 @@ _generic_body(m::NoncentralGenericModel) = (
 # file declares (read only for a non-central point grid).
 function _generic_from_body(d, unit::Units)
     gw, gh = Int(d.grid_width::Integer), Int(d.grid_height::Integer)
-    dirs = _grid_from_json(d.direction_grid::JSON3.Array, gw, gh)
+    dirs = _grid_from_json(d.direction_grid::Vector{Any}, gw, gh)
     args = (
         Int(d.width::Integer), Int(d.height::Integer),
         Int(d.calibration_min_x::Integer), Int(d.calibration_min_y::Integer),
         Int(d.calibration_max_x::Integer), Int(d.calibration_max_y::Integer),
     )
     d.type == "CentralGenericModel" && return CentralGenericModel(args..., dirs)
-    return NoncentralGenericModel(args..., dirs, _grid_from_json(d.point_grid::JSON3.Array, gw, gh; unit, is_points = true))
+    return NoncentralGenericModel(args..., dirs, _grid_from_json(d.point_grid::Vector{Any}, gw, gh; unit, is_points = true))
 end
 
 """

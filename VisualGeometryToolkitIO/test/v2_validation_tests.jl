@@ -51,7 +51,7 @@
 
     function refusal(doc, dir, name; units = false)
         target = units ? mkpath(joinpath(dir, "sidecar_$(name)")) : joinpath(dir, "bad_$(name).json")
-        write(units ? joinpath(target, V.UNITS_SIDECAR) : target, JSON3.write(doc))
+        write(units ? joinpath(target, V.UNITS_SIDECAR) : target, JSON.json(doc))
         return try
             validate(target)
             nothing
@@ -118,7 +118,7 @@
         for (name, path) in sort!(collect(files))
             units = name == "units"
             file = units ? joinpath(path, V.UNITS_SIDECAR) : path
-            doc = tomutable(JSON3.read(read(file, String)))
+            doc = tomutable(parse_json(read(file, String)))
             @test validate(path) == get(Dict("generic_noncentral" => "generic_camera", "rig_generic" => "rig", "rig_targets" => "rig"), name, name)
             paths = required_paths(specs[name], doc)
             @test length(paths) >= 2
@@ -156,25 +156,25 @@
         end
 
         # a declaration is a TOKEN: anything else is refused, never reinterpreted
-        tr = tomutable(JSON3.read(read(files["transforms"], String)))
+        tr = tomutable(parse_json(read(files["transforms"], String)))
         @test occursin("rotation_encoding", something(refusal(merge(tr, Dict(:rotation_encoding => "quaternion_xyzw")), dir, "tok1"), ""))
         @test occursin("transform_convention", something(refusal(merge(tr, Dict(:transform_convention => "x_from = R x_to + t")), dir, "tok2"), ""))
         @test occursin("length_unit", something(refusal(merge(tr, Dict(:length_unit => "px")), dir, "tok3"), ""))
-        ob = tomutable(JSON3.read(read(files["target_points2d"], String)))
+        ob = tomutable(parse_json(read(files["target_points2d"], String)))
         @test occursin("point_index_base", something(refusal(merge(ob, Dict(:point_index_base => 0)), dir, "tok4"), ""))
         @test occursin("targets", something(refusal(merge(ob, Dict(:targets => Any[])), dir, "tok5"), ""))
-        ge = tomutable(JSON3.read(read(files["generic_camera"], String)))
+        ge = tomutable(parse_json(read(files["generic_camera"], String)))
         @test occursin("grid_layout", something(refusal(merge(ge, Dict(:grid_layout => "column_major")), dir, "tok7"), ""))
         @test occursin("pixel_frame", something(refusal(merge(ge, Dict(:pixel_frame => "opencv")), dir, "tok8"), ""))
         # a non-central model's point grid is declared in a unit, and a central one has neither
-        gn_doc = tomutable(JSON3.read(read(files["generic_noncentral"], String)))
+        gn_doc = tomutable(parse_json(read(files["generic_noncentral"], String)))
         @test refusal(without(gn_doc, [:length_unit]), dir, "gn_unit") !== nothing
         @test refusal(without(gn_doc, [:point_grid]), dir, "gn_grid") !== nothing
         @test refusal(merge(ge, Dict(:length_unit => "mm")), dir, "gc_unit") !== nothing
 
         # a frame name is the grammar's: a free-form one is refused
         @test occursin("frame name", something(refusal(with(tr, [:transforms, 1, :from], "printed_board_a"), dir, "free_from"), ""))
-        tj = tomutable(JSON3.read(read(files["trajectory"], String)))
+        tj = tomutable(parse_json(read(files["trajectory"], String)))
         @test occursin("frame name", something(refusal(merge(tj, Dict(:to => "mocap_world")), dir, "free_to"), ""))
         # a time is seconds since a stated origin
         @test occursin("time_origin", something(refusal(without(tj, [:time_origin]), dir, "no_origin"), ""))
@@ -185,8 +185,8 @@
         # the reserved `payload` (an Arrow sidecar of bulk arrays) is refused until a kind implements it
         @test occursin("payload", something(refusal(merge(tj, Dict(:payload => Dict(:file => "x.arrow", :sha256 => "0"))), dir, "payload"), ""))
         # the readers run the same table: a deletion refused by `validate` is refused by `load`
-        @test_throws ArgumentError load(Dict{Symbol, BoundedCamera}, (write(joinpath(dir, "c1.json"), JSON3.write(without(tomutable(JSON3.read(read(files["cameras"], String))), [:cameras, 1, :K, :skew]))); joinpath(dir, "c1.json")))
-        @test_throws ArgumentError load(Trajectory, (write(joinpath(dir, "t1.json"), JSON3.write(without(tomutable(JSON3.read(read(files["trajectory"], String))), [:to]))); joinpath(dir, "t1.json")))
+        @test_throws ArgumentError load(Dict{Symbol, BoundedCamera}, (write(joinpath(dir, "c1.json"), JSON.json(without(tomutable(parse_json(read(files["cameras"], String))), [:cameras, 1, :K, :skew]))); joinpath(dir, "c1.json")))
+        @test_throws ArgumentError load(Trajectory, (write(joinpath(dir, "t1.json"), JSON.json(without(tomutable(parse_json(read(files["trajectory"], String))), [:to]))); joinpath(dir, "t1.json")))
         # a writer cannot emit what its reader refuses
         @test_throws ArgumentError save(joinpath(dir, "empty_targets.json"), TargetPoints2D{PixelFrame{:colmap}}(obs.frames; obs.images, obs.sensors))
         @test !isfile(joinpath(dir, "empty_targets.json"))

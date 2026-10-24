@@ -115,8 +115,8 @@ end
 # their covariances (unit² → mm²).
 function _points_from_json(vals, unit::Units, covs = nothing)
     isempty(vals) && return SVector{2, Float64}[]
-    n = length(first(vals)::JSON3.Array)
-    pts = [SVector{n, Float64}(ustrip.(mm, quantity.(Float64[Float64(c::Real) for c in v::JSON3.Array], unit))...) for v in vals]
+    n = length(first(vals)::Vector{Any})
+    pts = [SVector{n, Float64}(ustrip.(mm, quantity.(Float64[Float64(c::Real) for c in v::Vector{Any}], unit))...) for v in vals]
     covs === nothing && return pts
     s2 = Float64(ustrip(mm, quantity(1.0, unit)))^2
     return [Uncertain(p, CovMat(_cov_matrix(c, n) * s2)) for (p, c) in zip(pts, covs)]
@@ -144,10 +144,10 @@ target_json(t::PlanarTarget) = t.design === nothing ?
 function target_from_json(t, unit::AbstractString; resolve = nothing)
     u = parse_unit(unit)
     if t.type == "points"
-        return PointTarget(_points_from_json(t.points::JSON3.Array, u, haskey(t, :point_covariances) ? t.point_covariances::JSON3.Array : nothing))
+        return PointTarget(_points_from_json(t.points::Vector{Any}, u, haskey(t, :point_covariances) ? t.point_covariances::Vector{Any} : nothing))
     end
     warp = _warp_from_json(t.warp)
-    haskey(t, :nominal) && return PlanarTarget(_points_from_json(t.nominal::JSON3.Array, u); warp)
+    haskey(t, :nominal) && return PlanarTarget(_points_from_json(t.nominal::Vector{Any}, u); warp)
     design = Symbol(t.design::String)
     nominal = resolve === nothing ? nothing : resolve(design)
     return PlanarTarget(design; nominal, warp)
@@ -311,7 +311,7 @@ function load(::Type{Rig}, path::AbstractString; resolve = nothing)
     haskey(d, :targets) || return Rig{F}((_load_sensors(d, F, unit)...,))
     members = Dict{Symbol, Mounted}(
         Symbol(t.id::String) => Mounted(target_from_json(t.target, unit; resolve), pose_from_json(t.pose, unit))
-            for t in d.targets::JSON3.Array
+            for t in d.targets::Vector{Any}
     )
     targets = Dict{Symbol, typejoin(map(typeof, values(members))...)}(members)
     haskey(d, :sensors) || return Rig{F}(targets)
@@ -320,7 +320,7 @@ end
 
 function _load_sensors(d, ::Type{F}, unit::String) where {F}
     pframe = pixel_frame_from_name(d.pixel_frame::String)
-    return map(d.sensors::JSON3.Array) do s
+    return map(d.sensors::Vector{Any}) do s
         Xl = relabel(F, ViewFrame{Symbol(s.id::String)}, pose_from_json(s.extrinsics, unit))
         if haskey(s.camera, :type)
             gm = _generic_from_body(s.camera, parse_unit(unit))
@@ -348,7 +348,7 @@ content_id(x::Union{Rig, AbstractString}) = _targets_hash(x)
 # relabeled provenance does not change which targets a file resolves against.
 # The same for a file on disk and for the rig it was written from.
 _targets_hash(path::AbstractString) = _hash_record(_read_store(path, "rig", _RIG_SPEC))
-_targets_hash(rig::Rig) = _hash_record(JSON3.read(JSON3.write(_rig_body(rig))))
+_targets_hash(rig::Rig) = _hash_record(_parse_json(_json(_rig_body(rig))))
 _hash_record(d) = sha256_hex(canonical_json(_lower(d; drop = :provenance)))
 
 _lower(x::AbstractDict; drop::Union{Nothing, Symbol} = nothing) =

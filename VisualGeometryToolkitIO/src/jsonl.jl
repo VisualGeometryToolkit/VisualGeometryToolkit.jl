@@ -23,14 +23,14 @@ end
 """
     append_jsonl(path, row)
 
-Append `row` (anything `JSON3.write` serializes — a `NamedTuple`, `Dict`, …)
+Append `row` (anything `JSON.json` serializes — a `NamedTuple`, `Dict`, …)
 to `path` as one JSON line. Thread-safe within the process (per-path lock)
 and process-append-safe (the line is written with a single `write` call on an
 append-mode handle, so concurrent writers interleave at line boundaries).
-Read the file back with `JSON3.read` per line.
+Read the file back with `JSON.parse` per line.
 """
 function append_jsonl(path::AbstractString, row)
-    line = JSON3.write(row) * "\n"
+    line = _json(row) * "\n"
     lock(_jsonl_lock(String(path))) do
         open(io -> write(io, line), path, "a")
     end

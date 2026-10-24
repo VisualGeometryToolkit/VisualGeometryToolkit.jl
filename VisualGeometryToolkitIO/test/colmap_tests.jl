@@ -7,7 +7,7 @@
     @test_throws ArgumentError ColmapCamera(1, :PINHOLE, 100, 100, [1.0, 2.0])   # wrong arity
     @test_throws ArgumentError ColmapCamera(1, :NOT_A_MODEL, 100, 100, Float64[])
     # an embedded pose: a non-unit quaternion and an unknown unit are refused, never repaired
-    pj(q) = JSON3.read(JSON3.write((rotation = collect(q), translation = [0.0, 0.0, 0.0])))
+    pj(q) = parse_json(JSON.json((rotation = collect(q), translation = [0.0, 0.0, 0.0])))
     @test_throws ArgumentError VgtkIO.pose_from_json(pj(2 .* q0), "mm")
     @test_throws ArgumentError VgtkIO.pose_from_json(pj(q0), "smoot")
     # An empty image name is representable in binary but NOT in text (NAME is
@@ -214,7 +214,7 @@ end
     mktempdir() do dir
         save(dir, ColmapModel([cam], [im], [pt], UnknownScale()))
         sidecar = joinpath(dir, VgtkIO.UNITS_SIDECAR)
-        @test JSON3.read(read(sidecar, String)).world == "unknown"   # the model states it
+        @test parse_json(read(sidecar, String)).world == "unknown"   # the model states it
         back = load(ColmapModel, dir)
         @test back.contract === UnknownScale()
         @test back.images[1].tvec == SVector(0.25, -1.5, 3.0)       # plain numbers, unscaled

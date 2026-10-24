@@ -18,7 +18,7 @@
     mktempdir() do dir
         cv = joinpath(dir, "calibration_opencv_thin_prism.json")
         write(
-            cv, JSON3.write(
+            cv, JSON.json(
                 Dict(
                     :fx => 2487.06, :fy => 2480.08, :cx => 2175.69, :cy => 1448.16,
                     :k1 => -2.7068, :k2 => 4.0035, :p1 => 0.0028, :p2 => 0.0017, :k3 => 1.5827,
@@ -48,7 +48,7 @@
         # the default model: no k4–k6, s1–s4 in the file → OpenCV's 5-coefficient model
         cv0 = joinpath(dir, "calibration_opencv_default.json")
         write(
-            cv0, JSON3.write(
+            cv0, JSON.json(
                 Dict(
                     :fx => 2466.9, :fy => 2464.4, :cx => 2155.5, :cy => 1408.2,
                     :k1 => -0.1653, :k2 => 0.0679, :p1 => -0.00046, :p2 => 0.00097, :k3 => -0.0167,
@@ -65,7 +65,7 @@
         # MATLAB, radial + tangential: OpenCV's polynomial under other names
         ml = joinpath(dir, "calibration_matlab_3radial2tangential.json")
         write(
-            ml, JSON3.write(
+            ml, JSON.json(
                 Dict(
                     :fx => 2472.59, :fy => 2470.3, :cx => 2155.82, :cy => 1409.01,
                     :r1 => -0.1642, :r2 => 0.0662, :r3 => -0.0155, :t1 => -0.000515, :t2 => 0.00092,
@@ -97,7 +97,7 @@
         S = [1.0009 -0.0043; 0.004 1.0]
         fe = joinpath(dir, "calibration_matlab_fisheye.json")
         write(
-            fe, JSON3.write(
+            fe, JSON.json(
                 Dict(
                     :model => "fisheye", :mapping_coeffs => [a0, a2, a3, a4],
                     :distortion_center => [2148.0, 1414.32],
@@ -147,7 +147,7 @@
         # a mirrored MATLAB solution (a0 < 0, target behind the camera) is refused as no camera
         mirrored = joinpath(dir, "calibration_matlab_fisheye_mirrored.json")
         write(
-            mirrored, JSON3.write(
+            mirrored, JSON.json(
                 Dict(
                     :model => "fisheye", :mapping_coeffs => [-a0, a2, a3, a4],
                     :distortion_center => [2148.0, 1414.32],
@@ -166,7 +166,7 @@
         # refusals: a missing required key names the file and the key; a
         # non-length unit is refused before any pose is scaled
         bad = joinpath(dir, "bad.json")
-        write(bad, JSON3.write(Dict(:fx => 1.0)))
+        write(bad, JSON.json(Dict(:fx => 1.0)))
         @test_throws ArgumentError load_opencv_calibration(bad; file_unit = m)
         @test_throws ArgumentError load_matlab_calibration(bad; file_unit = mm)
         @test_throws ArgumentError load_opencv_calibration(cv; file_unit = px)
@@ -187,7 +187,7 @@
         # Twelve coefficients, a pose, and a NULL pose — the reader keeps the
         # positional join, so the writer must keep the null in place.
         write(
-            cv, JSON3.write(
+            cv, JSON.json(
                 Dict(
                     :fx => 2467.46, :fy => 2464.95, :cx => 2158.78, :cy => 1420.35, :rms => 0.4453,
                     :k1 => 0.3227, :k2 => -0.462, :p1 => 0.001024, :p2 => 0.001357,
@@ -208,7 +208,7 @@
         b = load_opencv_calibration(out; file_unit = m)
         # the join with the images is in the file now, not the caller's
         @test b.images == names
-        @test JSON3.read(read(out, String)).images == names
+        @test parse_json(read(out, String)).images == names
         # …and a calibration read back writes them again without being told
         @test save_opencv_calibration(joinpath(dir, "again.json"), b; to_unit = m) == joinpath(dir, "again.json")
         @test load_opencv_calibration(joinpath(dir, "again.json"); file_unit = m).images == names
@@ -231,15 +231,15 @@
         @test length(lb) == 12
         @test VgtkCore.lens(a.camera) === VgtkCore.lens(b.camera)
         # the writer names the coefficients of the lens's own OpenCV vector, no more
-        @test !haskey(JSON3.read(read(out, String)), :tilt_x)
+        @test !haskey(parse_json(read(out, String)), :tilt_x)
         # a tilted sensor round-trips, and its tilt is never dropped: an unknown key is refused
-        tilted = merge(Dict(pairs(JSON3.read(read(cv, String)))), Dict(:tilt_x => 0.01, :tilt_y => -0.02))
-        write(joinpath(dir, "tilt.json"), JSON3.write(tilted))
+        tilted = merge(Dict(pairs(parse_json(read(cv, String)))), Dict(:tilt_x => 0.01, :tilt_y => -0.02))
+        write(joinpath(dir, "tilt.json"), JSON.json(tilted))
         ct = load_opencv_calibration(joinpath(dir, "tilt.json"); file_unit = m)
         @test opencv_coefficients(ct.camera.lens)[13:14] == [0.01, -0.02]
         save_opencv_calibration(joinpath(dir, "tilt_again.json"), ct; to_unit = m, images = names)
         @test load_opencv_calibration(joinpath(dir, "tilt_again.json"); file_unit = m).camera.lens === ct.camera.lens
-        write(joinpath(dir, "extra.json"), JSON3.write(merge(tilted, Dict(:tilt_z => 0.0))))
+        write(joinpath(dir, "extra.json"), JSON.json(merge(tilted, Dict(:tilt_z => 0.0))))
         @test_throws ArgumentError load_opencv_calibration(joinpath(dir, "extra.json"); file_unit = m)
         @test a.reprojection_error == b.reprojection_error
         # The null stays null, in its own position.
@@ -259,7 +259,7 @@
             x === nothing && continue
             @test x.t ≈ y.t atol = 1.0e-9
         end
-        declared = JSON3.read(read(mmfile, String))
+        declared = parse_json(read(mmfile, String))
         @test declared.unit == "mm" && declared.image_origin == "opencv"
 
         # A file that DECLARES its unit and origin is held to them. A metre
@@ -285,7 +285,7 @@
         # a `:julia` file read as `:julia` is the same camera as the `:opencv` one.
         jlfile = joinpath(dir, "julia.json")
         save_opencv_calibration(PixelFrame{:julia}, jlfile, a; to_unit = mm, images = names)
-        @test JSON3.read(read(jlfile, String)).image_origin == "julia"
+        @test parse_json(read(jlfile, String)).image_origin == "julia"
         jl = load_opencv_calibration(PixelFrame{:julia}, jlfile; file_unit = mm)
         @test SMatrix{3, 3, Float64}(jl.camera.intrinsics.K) ≈ Ka atol = 1.0e-9
         @test_throws ArgumentError load_opencv_calibration(jlfile; file_unit = mm)   # default :opencv ≠ declared

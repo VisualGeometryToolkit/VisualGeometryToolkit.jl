@@ -12,7 +12,7 @@
         rvec = [0.12, -0.34, 0.56]
         radial = joinpath(dir, "calibration_matlab_3radial2tangential.json")
         write(
-            radial, JSON3.write(
+            radial, JSON.json(
                 Dict(
                     :fx => 2472.59, :fy => 2470.3, :cx => 2155.82, :cy => 1409.01,
                     :r1 => -0.1642, :r2 => 0.0662, :r3 => -0.0155, :t1 => -0.000515, :t2 => 0.00092,
@@ -24,7 +24,7 @@
         a0, S = 2470.92, [1.0009 -0.0043; 0.004 1.0]
         fisheye = joinpath(dir, "calibration_matlab_fisheye.json")
         write(
-            fisheye, JSON3.write(
+            fisheye, JSON.json(
                 Dict(
                     :model => "fisheye", :mapping_coeffs => [a0, -6.73e-5, -1.03e-9, 2.32e-12],
                     :distortion_center => [2148.0, 1414.32],
@@ -48,7 +48,7 @@
             cal = load_matlab_calibration(src; file_unit = mm, target = "aprilgrid_matlab")   # MATLAB's (1, 1) frame by default
             cam = only(values(load(Dict{Symbol, VgtkCore.BoundedCamera}, r.cameras)))
             @test VgtkCore.model(cam) == cal.camera && VgtkCore.model(cam).lens isa lens_type && extent(cam) == Size2(4240, 2832)
-            d = JSON3.read(read(r.cameras, String))
+            d = parse_json(read(r.cameras, String))
             @test d.provenance.source == "matlab" && d.provenance.error_statistic == "mean"
             @test d.provenance.reprojection_error == cal.reprojection_error
             poses = load(Vector{EuclideanMap}, r.poses)

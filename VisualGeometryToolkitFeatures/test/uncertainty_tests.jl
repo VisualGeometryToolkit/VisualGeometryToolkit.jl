@@ -75,7 +75,7 @@ end
 @testitem "keypoint covariance: API, off path unchanged, round trips" setup = [Fixtures, UncFixtures] begin
     using VisualGeometryToolkitFeatures: ImasFeatureKA
     using VisualGeometryToolkitCore: Uncertain, CovMat, UnlabeledFrame, cov, geom
-    import JSON3
+    import JSON
     dev = KA.CPU()
     off = asift_detect(IMG; device = dev)
     on = asift_detect(IMG; device = dev, uncertainty = FeatureCovariance())
@@ -100,7 +100,7 @@ end
     # JSON round trip keeps the covariance (a NaN one as null)
     nanc = Detection(Uncertain(feature_frame(d), CovMat{3, Float64, 9}(Tuple(fill(NaN, 9)))), d.metadata)
     for x in (d, nanc)
-        y = JSON3.read(JSON3.write(x), Detection)
+        y = JSON.parse(JSON.json(x), Detection)
         @test feature_frame(y) == feature_frame(x) && y.metadata == x.metadata
         @test isequal(Matrix(cov(y)), Matrix(cov(x)))
     end

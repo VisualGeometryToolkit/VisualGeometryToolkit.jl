@@ -46,7 +46,7 @@ include("serialization.jl")
 # INCLUDED SOURCE FILES
 # =============================================================================
 #
-#   serialization.jl    JSON (StructTypes) for Detection frames, Size2, quantities
+#   serialization.jl    JSON (JSON.jl lower/lift) for Detection frames, Size2, quantities
 #   detection_types.jl  Detection{F,M}, polarity traits
 #   image_input.jl      gray_f32 / gray_u8 input ladders
 #   batching.jl         batched_rows chunking for the describe backends
@@ -166,9 +166,9 @@ export FileCache, open_cache, close_cache, cache_key
 export detections!
 
 # -----------------------------------------------------------------------------
-# 7. SERIALIZATION - the JSON helpers BlobBoards reads its bundles with
+# 7. SERIALIZATION - JSON.jl hooks (lower/lift) for detections, frames, Size2 and quantities
 # -----------------------------------------------------------------------------
-public ScalarOrQuantity, _getfield
+public ScalarOrQuantity
 
 include("precompile.jl")   # last: the workload calls the API defined above
 

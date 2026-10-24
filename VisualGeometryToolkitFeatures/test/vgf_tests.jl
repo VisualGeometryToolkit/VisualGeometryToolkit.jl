@@ -731,7 +731,7 @@ end
 end
 
 @testitem "Detection JSON round trip: every frame type, all metadata" setup = [Fixtures] begin
-    using JSON3
+    using JSON
     using VisualGeometryToolkitCore: Disc, OrientedDisc, EllipticFrame, AffineFrame
     meta = (response = 0.25, edge_score = 0.0, laplacian_scale_score = 1.0, warp_idx = 7)
     frames = (
@@ -743,17 +743,40 @@ end
         d = Detection(f, meta)
         # writing threw (the package's own `pairs` shadowed Base.pairs); reading
         # failed for every frame but Disc and dropped warp_idx
-        r = JSON3.read(JSON3.write(d), Detection)
+        r = JSON.parse(JSON.json(d), Detection)
         @test r.frame == d.frame
         @test r.metadata == d.metadata
         @test typeof(r.metadata) == typeof(d.metadata)   # 0.0 and 1.0 stay Float64
     end
-    # JSON3 reads through a Dict: documented fields first, the rest by name
+    # documented fields first, the rest by name, whatever the input's key order
     e = Detection(frames[1], (zeta = 1, response = 2.0, alpha = "a"))
-    @test JSON3.read(JSON3.write(e), Detection).metadata == (response = 2.0, alpha = "a", zeta = 1)
+    @test JSON.parse(JSON.json(e), Detection).metadata == (response = 2.0, alpha = "a", zeta = 1)
     a = first(asift_detect(IMG))
-    r = JSON3.read(JSON3.write(a), Detection)
+    r = JSON.parse(JSON.json(a), Detection)
     @test r.frame == a.frame && r.metadata == a.metadata && typeof(r) == typeof(a)
+    # a vector of detections, and the lift hook on an already parsed object
+    v = JSON.parse(JSON.json([a, a]), Vector{Detection})
+    @test length(v) == 2 && v[2].frame == a.frame
+    @test JSON.lift(Detection, JSON.parse(JSON.json(a))).frame == a.frame
+end
+
+@testitem "Detection JSON: the wire format is pinned" setup = [Fixtures] begin
+    # The format the JSON3/StructTypes writer produced, which stored files hold:
+    # moving to JSON.jl must not change a byte of it.
+    using JSON
+    using VisualGeometryToolkitCore: Disc, EllipticFrame, AffineFrame, OrientedDisc, Size2, Point2, mm, px, dpi
+    meta = (response = 0.25, edge_score = 0.0, laplacian_scale_score = -1.0, warp_idx = 7)
+    @test JSON.json(Detection(Disc(10.5, 20.25, 3.0), meta)) ==
+        """{"frame":{"center":[10.5,20.25],"σ":3.0},"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}"""
+    @test JSON.json(EllipticFrame([10.5, 20.25], [2.0 0.3; 0.3 1.5])) == """{"center":[10.5,20.25],"S":[2.0,0.3,0.3,1.5]}"""
+    @test JSON.json(AffineFrame([1.0, 2.0], [1.2 0.1; -0.2 0.9])) == """{"center":[1.0,2.0],"A":[1.2,-0.2,0.1,0.9]}"""
+    @test JSON.json(OrientedDisc(1.0, 2.0, 3.0, 0.5)) == """{"center":[1.0,2.0],"σ":3.0,"θ":0.5}"""
+    @test JSON.json(2.5mm) == """{"value":2.5,"unit":"mm"}"""
+    @test JSON.json(300dpi) == """{"value":300,"unit":"dpi"}"""
+    @test JSON.json(Size2(width = 640px, height = 480px)) ==
+        """{"width":{"value":640,"unit":"px"},"height":{"value":480,"unit":"px"}}"""
+    @test JSON.json(Disc(Point2(1.0mm, 2.0mm), 3.0mm)) ==
+        """{"center":[{"value":1.0,"unit":"mm"},{"value":2.0,"unit":"mm"}],"σ":{"value":3.0,"unit":"mm"}}"""
 end
 
 @testitem "nn_match_stacked has its docstring" setup = [Fixtures] begin
@@ -761,22 +784,26 @@ end
     @test occursin("LOCAL indices", string(@doc nn_match_stacked))
 end
 
-@testitem "StructTypes.construct for quantities and Size2 is unambiguous" setup = [Fixtures] begin
+@testitem "JSON.lift for quantities and Size2" setup = [Fixtures] begin
     import VisualGeometryToolkitFeatures as VgtkFeatures
-    # untyped second arguments overlapped StructTypes' own construct methods
-    # (identity, String, Nothing): construct(Size2, ::Size2) threw an
-    # ambiguity error instead of returning its argument
-    using StructTypes, JSON3
-    using VisualGeometryToolkitCore: Size2, mm
+    using JSON
+    using VisualGeometryToolkitCore: Size2, Disc, Point2, mm, px
     SQ = VgtkFeatures.ScalarOrQuantity
+    # the StructTypes methods these replace once overlapped StructTypes' own
     @test isempty(Test.detect_ambiguities(VisualGeometryToolkitFeatures; recursive = true))
     s = Size2(width = 3.0mm, height = 4.0mm)
-    @test StructTypes.construct(Size2, s) === s
-    @test StructTypes.construct(Size2, JSON3.read(JSON3.write(s))) == s
-    @test StructTypes.construct(Size2, Dict{String, Any}("width" => 640, "height" => 480)) ==
-        Size2(width = 640, height = 480)
-    @test StructTypes.construct(SQ, 5) == 5
-    @test StructTypes.construct(SQ, Dict{String, Any}("value" => 2.0, "unit" => "mm")) == 2.0mm
+    @test JSON.lift(Size2, JSON.parse(JSON.json(s))) == s
+    @test JSON.parse(JSON.json(s), Size2) == s
+    @test JSON.lift(Size2, Dict{String, Any}("width" => 640, "height" => 480)) == Size2(width = 640, height = 480)
+    @test JSON.lift(Size2, (width = 640, height = 480)) == Size2(width = 640, height = 480)
+    @test JSON.lift(SQ, 5) == 5
+    @test JSON.lift(SQ, Dict{String, Any}("value" => 2.0, "unit" => "mm")) == 2.0mm
+    # any unit parse_unit reads, compound ones included
+    @test JSON.lift(SQ, JSON.parse("""{"value": 0.5, "unit": "mm/px"}""")) == 0.5mm / px
+    disc = Disc(Point2(1.0mm, 2.0mm), 3.0mm)
+    @test JSON.parse(JSON.json(disc), Disc) == disc
+    # `_getfield` is an internal helper, not part of the API
+    @test !Base.ispublic(VisualGeometryToolkitFeatures, :_getfield)
 end
 
 @testitem "match does not shadow Base.match" setup = [Fixtures] begin

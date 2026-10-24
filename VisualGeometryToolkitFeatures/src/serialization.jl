@@ -1,32 +1,44 @@
 # =============================================================================
-# JSON3/StructTypes Serialization for Geometry Types
+# JSON serialization (JSON.jl 1.x) for the geometry types detections carry
 # =============================================================================
 #
-# Moved from VisualGeometryToolkitCore. Defines JSON serialization for:
-#   - VgcQuantity (dimension-aware canonicalization, {value, unit} JSON)
+# Moved from VisualGeometryToolkitCore. Each type gets the two JSON.jl hooks:
+#   - writing: `JSON.lower(::JSON.JSONStyle, x)` returns a plain value JSON.jl writes
+#   - reading: `JSON.lift(::Type{T}, obj)` builds `T` from a parsed JSON object
+#     (a `JSON.Object`, any `AbstractDict` with String keys, or a NamedTuple)
+# and `StructUtils.structlike(::Type{T}) = false` (what JSON.jl's `@nonstruct`
+# declares), so that `JSON.parse(str, T)` hands `lift` the whole object instead
+# of building `T` from its fields. Covered:
+#   - VgcQuantity ({value, unit} objects) and ScalarOrQuantity (a number or one)
 #   - Size2 (width/height with optional units)
-#   - ScalarOrQuantity (dispatch for Number vs Quantity)
-#   - Disc (feature frame with unit-carrying center/scale)
-#   - OrientedDisc, EllipticFrame, AffineFrame (simple struct serialization)
+#   - Disc (unit-carrying center/scale), OrientedDisc, EllipticFrame, AffineFrame
+# The Detection methods are in detection_types.jl.
 #
-# Also provides _getfield/_hasfield helpers for unified JSON field access.
+# The lower methods take `JSON.JSONStyle` rather than the style-free form because
+# JSON.jl's own `lower(::JSONStyle, ::AbstractVector)` is more specific than a
+# style-free method, and Size2 is a vector.
 
-using JSON3: JSON3
-using StructTypes: StructTypes
+using JSON: JSON
+using StructUtils: StructUtils
 using VisualGeometryToolkitCore: VgcQuantity, ustrip, dimension, parse_unit, mm, px, dpi
 
 # =============================================================================
-# JSON Field Access Helpers
+# JSON field access
 # =============================================================================
 
-# Unified JSON field access across Dict, JSON3.Object, and NamedTuple.
-# JSON3.Object and NamedTuple use Symbol keys; Dict uses String keys.
-_hasfield(x::Dict, key::String) = haskey(x, key)
-_hasfield(x, key::String) = haskey(x, Symbol(key))
+# A parsed JSON object is an AbstractDict with String keys (JSON.Object); a
+# NamedTuple stands in for one when a caller builds the input by hand.
+_hasfield(x::AbstractDict, key::String) = haskey(x, key)
+_hasfield(x::NamedTuple, key::String) = haskey(x, Symbol(key))
 
-_getfield(x::Dict, key::String) = x[key]
-_getfield(x, key::String) = getproperty(x, Symbol(key))
+_getfield(x::AbstractDict, key::String) = x[key]
+_getfield(x::NamedTuple, key::String) = getproperty(x, Symbol(key))
 _getfield(x, key::String, default) = _hasfield(x, key) ? _getfield(x, key) : default
+
+_keys(x::AbstractDict) = (String(k) for k in keys(x))
+_keys(x::NamedTuple) = (String(k) for k in keys(x))
+
+const _JSONObject = Union{AbstractDict, NamedTuple}
 
 # =============================================================================
 # Dimension Traits for Compile-Time Dispatch
@@ -43,9 +55,8 @@ struct PhysicalDim <: DimTrait end
 
 # Dimensions are runtime values: a quantity (or unit) is "logical" whenever its
 # px exponent is nonzero (px, dpi, and pitches), physical otherwise (pure
-# lengths).  This matches the legacy Unitful rule, which keyed on the
-# LogicalUnits dimension appearing anywhere in the dimension product — so px,
-# dpi, AND μm/px were all LogicalDim there too.
+# lengths). The legacy Unitful writer drew the same line, so px, dpi and μm/px
+# all snap to integers when they can.
 dim_trait(q) = iszero(dimension(q).px) ? PhysicalDim() : LogicalDim()
 
 # =============================================================================
@@ -71,22 +82,36 @@ snap_integer(v) = v
 # ScalarOrQuantity
 # =============================================================================
 
-# A FlexUnits quantity is a Number, so the old
-# Union{Number, Quantity} collapses; the alias survives for dispatch and
-# call-site readability.
+"""
+    ScalarOrQuantity
+
+The type of a JSON value that holds either a plain number or a quantity: an
+alias of `Number`, since a FlexUnits quantity is a `Number`. Read one with
+`JSON.lift(ScalarOrQuantity, x)`: a number comes back as it is, and a
+`{"value": …, "unit": …}` object comes back as a quantity in that unit.
+
+```jldoctest
+julia> using JSON, VisualGeometryToolkitCore
+
+julia> import VisualGeometryToolkitFeatures as VgtkFeatures
+
+julia> JSON.lift(VgtkFeatures.ScalarOrQuantity, 5)
+5
+
+julia> JSON.lift(VgtkFeatures.ScalarOrQuantity, JSON.parse(\"\"\"{"value": 2.5, "unit": "mm"}\"\"\")) == 2.5mm
+true
+
+julia> JSON.json(2.5mm)
+"{\\"value\\":2.5,\\"unit\\":\\"mm\\"}"
+```
+
+Public, not exported.
+"""
 const ScalarOrQuantity = Number
 
-# Construct ScalarOrQuantity from parsed JSON data
-function StructTypes.construct(::Type{ScalarOrQuantity}, data::Number)
-    return data
-end
-
-# The {value, unit} object form. The second argument is typed on purpose here and
-# in the quantity and Size2 methods below: untyped, it overlapped StructTypes' own
-# construct(::Type{T}, ::T), (::Type{<:Number}, ::String) and (::Type{T}, ::Nothing),
-# so those calls threw an ambiguity error instead of dispatching.
-StructTypes.construct(::Type{ScalarOrQuantity}, data::AbstractDict) =
-    StructTypes.construct(VgcQuantity, data)
+# A plain number lifts to itself through StructUtils' default `lift`; the
+# {value, unit} object form is added here.
+JSON.lift(::Type{ScalarOrQuantity}, data::AbstractDict) = JSON.lift(VgcQuantity, data)
 
 # =============================================================================
 # Quantity Serialization ({value, unit} JSON objects)
@@ -98,8 +123,8 @@ StructTypes.construct(::Type{ScalarOrQuantity}, data::AbstractDict) =
 # unit symbols and their products, quotients and powers (`mm/px`), the stack's
 # one guarded `uparse` — so every string the legacy Unitful writer ever
 # produced (observed corpus: mm, px, dpi, pd) loads, and old board JSONs keep
-# their stored config hash (UIDs printed on physical boards stay valid —
-# load_bundle never re-hashes).
+# their stored config hash (UIDs printed on physical boards stay valid:
+# readers never re-hash).
 # The writer keeps its own table: FlexUnits prints a registered unit as its
 # symbol, but a compound one (`mm/px`) as its internal form, no name.
 
@@ -112,20 +137,16 @@ function _canonical_unit(q)
     throw(ArgumentError("no canonical serialization unit for dimensions $(dimension(q))"))
 end
 
-StructTypes.StructType(::Type{<:VgcQuantity}) = StructTypes.CustomStruct()
-
-function StructTypes.lower(q::VgcQuantity)
+function JSON.lower(::JSON.JSONStyle, q::VgcQuantity)
     unit_str, u = _canonical_unit(q)
-    return (
-        value = canon_value(ustrip(u, q), dim_trait(q)),
-        unit = unit_str,
-    )
+    return (value = canon_value(ustrip(u, q), dim_trait(q)), unit = unit_str)
 end
 
-function StructTypes.construct(::Type{<:VgcQuantity}, obj::AbstractDict)
-    unit_str = obj["unit"]
-    u = parse_unit(String(unit_str); compound = true)
-    v = canon_value(obj["value"], dim_trait(u))
+StructUtils.structlike(::Type{<:VgcQuantity}) = false
+
+function JSON.lift(::Type{<:VgcQuantity}, obj::_JSONObject)
+    u = parse_unit(String(_getfield(obj, "unit")); compound = true)
+    v = canon_value(_getfield(obj, "value"), dim_trait(u))
     return v * u
 end
 
@@ -133,55 +154,51 @@ end
 # Size2 Serialization
 # =============================================================================
 
-StructTypes.StructType(::Type{<:Size2}) = StructTypes.CustomStruct()
+JSON.lower(::JSON.JSONStyle, s::Size2) = (width = s.width, height = s.height)
 
-StructTypes.lower(s::Size2) = (width = s.width, height = s.height)
+# Size2 is a StaticArrays FieldVector; on the reading side it is an object.
+StructUtils.structlike(::Type{<:Size2}) = false
+StructUtils.arraylike(::Type{<:Size2}) = false
 
-function StructTypes.construct(::Type{Size2}, x::Union{AbstractDict, NamedTuple})
-    width = StructTypes.construct(ScalarOrQuantity, _getfield(x, "width"))
-    height = StructTypes.construct(ScalarOrQuantity, _getfield(x, "height"))
+function JSON.lift(::Type{<:Size2}, x::_JSONObject)
+    width = JSON.lift(ScalarOrQuantity, _getfield(x, "width"))
+    height = JSON.lift(ScalarOrQuantity, _getfield(x, "height"))
     return Size2(width = width, height = height)
-end
-
-function StructTypes.construct(::Type{Size2{T}}, x::Union{AbstractDict, NamedTuple}) where {T}
-    return StructTypes.construct(Size2, x)
 end
 
 # =============================================================================
 # Feature Frame Serialization
 # =============================================================================
+#
+# The wire format of the frames: `center` as [x, y], a 2×2 matrix (`S`, `A`) as
+# its four entries in column order, scales and angles as numbers.
 
-# Disc uses CustomStruct to properly handle unit-carrying quantities
-StructTypes.StructType(::Type{<:Disc}) = StructTypes.CustomStruct()
+_json_center(x) = (c = _getfield(x, "center"); Point2{Float64}(c[1], c[2]))
+_json_mat2(v) = SMatrix{2, 2, Float64, 4}(v[1], v[2], v[3], v[4])
+_json_vec(M) = collect(Float64, vec(M))
 
-StructTypes.lower(d::Disc) = (center = d.center, σ = d.σ)
+StructUtils.structlike(::Type{<:Union{Disc, OrientedDisc, EllipticFrame, AffineFrame}}) = false
 
-function StructTypes.construct(::Type{Disc}, x::Union{Dict{String, Any}, JSON3.Object, NamedTuple})
+# Disc carries units: its center and σ may be quantities.
+JSON.lower(::JSON.JSONStyle, d::Disc) = (center = (d.center[1], d.center[2]), σ = d.σ)
+
+function JSON.lift(::Type{<:Disc}, x::_JSONObject)
     center_data = _getfield(x, "center")
     center = Point2(
-        StructTypes.construct(ScalarOrQuantity, center_data[1]),
-        StructTypes.construct(ScalarOrQuantity, center_data[2])
+        JSON.lift(ScalarOrQuantity, center_data[1]),
+        JSON.lift(ScalarOrQuantity, center_data[2])
     )
-    σ = StructTypes.construct(ScalarOrQuantity, _getfield(x, "σ"))
+    σ = JSON.lift(ScalarOrQuantity, _getfield(x, "σ"))
     return Disc(center, σ)
 end
 
-# Other frame types use simpler serialization (typically no units)
-StructTypes.StructType(::Type{<:OrientedDisc}) = StructTypes.Struct()
-StructTypes.StructType(::Type{<:EllipticFrame}) = StructTypes.Struct()
-StructTypes.StructType(::Type{<:AffineFrame}) = StructTypes.Struct()
+JSON.lower(::JSON.JSONStyle, f::OrientedDisc) = (center = (f.center[1], f.center[2]), σ = f.σ, θ = f.θ)
+JSON.lower(::JSON.JSONStyle, f::EllipticFrame) = (center = (f.center[1], f.center[2]), S = _json_vec(f.S))
+JSON.lower(::JSON.JSONStyle, f::AffineFrame) = (center = (f.center[1], f.center[2]), A = _json_vec(f.A))
 
-# ...and are READ from a JSON object here. `Struct()` lowers `center` as [x, y]
-# and a 2×2 matrix as its four entries in column order, but it cannot construct
-# from the object `Detection`'s reader hands over: detections on these frames
-# (every ASIFT detection is an EllipticFrame) could be written but not read.
-_json_center(x) = (c = _getfield(x, "center"); Point2{Float64}(c[1], c[2]))
-_json_mat2(v) = SMatrix{2, 2, Float64, 4}(v[1], v[2], v[3], v[4])
-
-StructTypes.construct(::Type{OrientedDisc}, x::Union{Dict{String, Any}, JSON3.Object, NamedTuple}) =
+JSON.lift(::Type{<:OrientedDisc}, x::_JSONObject) =
     OrientedDisc{Float64}(_json_center(x), Float64(_getfield(x, "σ")), Float64(_getfield(x, "θ")))
-StructTypes.construct(::Type{EllipticFrame}, x::Union{Dict{String, Any}, JSON3.Object, NamedTuple}) =
+JSON.lift(::Type{<:EllipticFrame}, x::_JSONObject) =
     EllipticFrame{Float64}(_json_center(x), _json_mat2(_getfield(x, "S")))
-StructTypes.construct(::Type{AffineFrame}, x::Union{Dict{String, Any}, JSON3.Object, NamedTuple}) =
+JSON.lift(::Type{<:AffineFrame}, x::_JSONObject) =
     AffineFrame{Float64}(_json_center(x), _json_mat2(_getfield(x, "A")))
-

@@ -275,16 +275,19 @@ Ellipse(d::Attributed{<:_UncertainFrame}; cutoff::Real = 1.0) = Ellipse(geom(d);
 # =============================================================================
 # JSON Serialization
 # =============================================================================
+#
+# A detection is written as one JSON object: its frame under `frame`, its
+# covariance (if any) under `cov`, and every metadata field under its own name.
+# `JSON.json(d)` writes it and `JSON.parse(str, Detection)` reads it back; the
+# hooks are JSON.jl's `lower` and `lift` (see serialization.jl). They are
+# declared on `Attributed` of a feature frame only, so no other `Attributed`
+# (e.g. a robust estimate wrapping a vector) changes how it serializes.
 
-# StructTypes for Attributed{<:FeatureFrame} only — no overlap with other Attributed uses
-# (e.g., RobustEstimate wraps Vector{T}, not FeatureFrame)
-# Two methods needed: one for concrete types (Detection{Disc{Float64}, NT}), one for the bare UnionAll
-StructTypes.StructType(::Type{<:Attributed{F, M}}) where {F <: FeatureFrame, M} = StructTypes.CustomStruct()
-StructTypes.StructType(::Type{Attributed{<:FeatureFrame}}) = StructTypes.CustomStruct()
-StructTypes.StructType(::Type{Detection}) = StructTypes.CustomStruct()   # the bare alias, read through `construct` below
-StructTypes.StructType(::Type{<:Attributed{F, M}}) where {F <: _UncertainFrame, M} = StructTypes.CustomStruct()
+const _DetectionTypes = Attributed{<:Union{FeatureFrame, _UncertainFrame}}
 
-function StructTypes.lower(d::Attributed{V, A}) where {V <: FeatureFrame, A}
+StructUtils.structlike(::Type{<:_DetectionTypes}) = false
+
+function JSON.lower(::JSON.JSONStyle, d::Attributed{V, A}) where {V <: FeatureFrame, A}
     meta = getfield(d, :attributes)
     return (frame = getfield(d, :value), Base.pairs(meta)...)
 end
@@ -292,7 +295,7 @@ end
 # An uncertain frame writes its covariance as `cov`, the matrix's entries in
 # column order — or `null` when it is NaN (an unrefined keypoint's), which JSON
 # cannot hold. Read back, `cov` makes the frame `Uncertain` again.
-function StructTypes.lower(d::Attributed{V, A}) where {V <: _UncertainFrame, A}
+function JSON.lower(::JSON.JSONStyle, d::Attributed{V, A}) where {V <: _UncertainFrame, A}
     Σ = cov(d)
     c = all(isfinite, Σ) ? vec(collect(Float64, Σ)) : nothing
     return (frame = feature_frame(d), cov = c, Base.pairs(getfield(d, :attributes))...)
@@ -301,31 +304,24 @@ end
 # The metadata fields every detector writes as Float64, in their canonical order.
 const _FLOAT_METADATA = (:response, :edge_score, :laplacian_scale_score)
 
-function StructTypes.construct(::Type{Detection}, x::Union{Dict{String, Any}, JSON3.Object, NamedTuple})
-    # Determine frame type from structure
+function JSON.lift(::Type{<:_DetectionTypes}, x::_JSONObject)
     frame_data = _getfield(x, "frame")
-
-    # Check what fields exist in frame to determine type
-    has_S = _hasfield(frame_data, "S")
-    has_A = _hasfield(frame_data, "A")
-    has_theta = _hasfield(frame_data, "θ")
-
-    fr = if has_A
-        StructTypes.construct(AffineFrame, frame_data)
-    elseif has_S
-        StructTypes.construct(EllipticFrame, frame_data)
-    elseif has_theta
-        StructTypes.construct(OrientedDisc, frame_data)
+    # The frame's type is read off its keys.
+    fr = if _hasfield(frame_data, "A")
+        JSON.lift(AffineFrame, frame_data)
+    elseif _hasfield(frame_data, "S")
+        JSON.lift(EllipticFrame, frame_data)
+    elseif _hasfield(frame_data, "θ")
+        JSON.lift(OrientedDisc, frame_data)
     else
-        StructTypes.construct(Disc, frame_data)
+        JSON.lift(Disc, frame_data)
     end
 
-    # Every key but `frame` is metadata. JSON3 reads a CustomStruct through a Dict,
-    # so neither key order nor Int-vs-Float survives (1.0 reads back as 1): the
-    # documented fields come first, as Float64, then the others by name. This
-    # rebuilt only the documented fields and silently dropped anything else —
-    # ASIFT's warp_idx among them.
-    present = Symbol[Symbol(k) for k in keys(x) if Symbol(k) ∉ (:frame, :cov)]
+    # Every key but `frame` and `cov` is metadata. The documented fields come
+    # first, as Float64 (a writer may print 1.0 as 1), then the others sorted by
+    # name, so the result does not depend on the key order of the input. Fields
+    # outside the documented ones (ASIFT's warp_idx among them) are kept.
+    present = Symbol[Symbol(k) for k in _keys(x) if k ∉ ("frame", "cov")]
     names = (filter(in(present), collect(_FLOAT_METADATA))..., sort!(setdiff(present, _FLOAT_METADATA))...)
     vals = Tuple(n in _FLOAT_METADATA ? Float64(_getfield(x, String(n))) : _getfield(x, String(n)) for n in names)
 

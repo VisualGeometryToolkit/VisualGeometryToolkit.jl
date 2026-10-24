@@ -18,8 +18,8 @@
         # Attributed, so its constructors, property forwarding and geometry
         # conversions extend VGC functions on VGC types; the JSON serialization
         # of VGC frames, Size2 and quantities lives here too. The fix is to move
-        # the type or the serialization into VGC. `Number` is
-        # StructTypes.construct behind ScalarOrQuantity, which BlobBoards calls.
+        # the type or the serialization into VGC. `Number` is the
+        # JSON.lift method behind ScalarOrQuantity (its {value, unit} form).
         # A pirated method on anything else fails this test. (Distributions'
         # MvNormal left the list with its serializer and Detection conversions,
         # which nothing called.)

@@ -39,7 +39,7 @@ using GeometryBasics:
     Rect2, radius
 import GeometryBasics: Point, Point2, Point3, Rect, Circle
 using StaticArrays:
-    StaticArrays, @SMatrix, FieldVector, SVector, SMatrix, MVector, MMatrix, SOneTo, StaticVector, StaticMatrix, similar_type
+    StaticArrays, @SMatrix, FieldVector, SVector, SMatrix, MVector, MMatrix, SOneTo, StaticArray, StaticVector, StaticMatrix, similar_type
 using Statistics: Statistics
 using Distributions: Distributions
 using LinearAlgebra: LinearAlgebra, Diagonal, UniformScaling, Symmetric, Adjoint, Transpose,

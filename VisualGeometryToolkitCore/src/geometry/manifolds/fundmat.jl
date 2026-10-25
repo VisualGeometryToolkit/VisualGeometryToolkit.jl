@@ -15,10 +15,17 @@ using LinearAlgebra: svd
 # exactly as Bartoli–Sturm §5.1.4; a transport into the chart (pinv) projects it out.
 # -----------------------------------------------------------------------------
 
-struct FundMatManifold7 <: Manifold
-    U::SMatrix{3, 3, Float64, 9}
-    V::SMatrix{3, 3, Float64, 9}
-    σ::Float64
+struct FundMatManifold7{T} <: Manifold
+    U::SMatrix{3, 3, T, 9}
+    V::SMatrix{3, 3, T, 9}
+    σ::T
+    FundMatManifold7{T}(U, V, σ) where {T} = new{T}(U, V, σ)
+end
+# The factors in their common float type: what `recenter` builds a step's
+# chart from (the contract's element-type rule).
+function FundMatManifold7(U::StaticMatrix{3, 3}, V::StaticMatrix{3, 3}, σ::Real)
+    T = float(promote_type(eltype(U), eltype(V), typeof(σ)))
+    return FundMatManifold7{T}(SMatrix{3, 3, T, 9}(U), SMatrix{3, 3, T, 9}(V), T(σ))
 end
 
 """

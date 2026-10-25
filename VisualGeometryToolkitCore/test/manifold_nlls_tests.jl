@@ -1,8 +1,12 @@
 @testitem "Manifolds as NLLSsolver variables, and is_stationary" begin
 # Every Manifold is an NLLSsolver variable (the NLLSsolver extension): its size
-# static for every manifold family, its re-anchoring update, a pose fit through
-# it — tangent_part, the slice both the update and a product manifold cut — and
-# is_stationary, the LM stall postcondition for a solver other than FLM.
+# static for every manifold family; `recenter`'s element-type rule (a step of
+# the manifold's own float type returns its own type, inferred; a Dual step a
+# Dual-valued manifold whose derivative is the retraction's), which is what
+# NLLSsolver's automatic Jacobian differentiates; the update; a pose fit on the
+# automatic Jacobian — tangent_part, the slice both the update and a product
+# manifold cut — and is_stationary, the LM stall postcondition for a solver
+# other than FLM.
 
 using Test
 using LinearAlgebra: I, norm
@@ -10,14 +14,17 @@ using StaticArrays
 using NLLSsolver: NLLSsolver
 using ForwardDiff: ForwardDiff
 using Rotations: RotMatrix, RotXYZ
-using VisualGeometryToolkitCore: DoubleSphere, EuclideanManifold, EuclideanMap, FundMatManifold7, HomographyManifold8,
-    LeftRigidManifold6, Lens, LensManifold, Pinhole, PlanarTarget, ProductManifold, RigidExpManifold6, RigidManifold6,
-    SphereManifold, TargetManifold, is_stationary, local_coordinates, manifold_parts, model, recenter, restrict, retract,
-    tangent_part, tangent_size
+import VisualGeometryToolkitCore as VgtkCore
+using VisualGeometryToolkitCore: DoubleSphere, EssentialManifold5, EssentialManifold6, EuclideanManifold, EuclideanMap,
+    FundMatManifold7, HomographyManifold8, LeftRigidManifold6, Lens, LensManifold, Pinhole, PlanarTarget,
+    ProductManifold, RigidExpManifold6, RigidManifold6, SphereManifold, TargetManifold, is_stationary,
+    local_coordinates, manifold_parts, model, recenter, restrict, retract, retract_jacobian, tangent_part,
+    tangent_size
 
 pose(ω, t) = EuclideanMap(RotMatrix{3}(RotXYZ(ω...)), SVector{3, Float64}(t))
 
-# One point's residual T(x) − y, through the variable's pose.
+# One point's residual T(x) − y, through the variable's pose: `computeresidual`
+# only, so NLLSsolver differentiates it (through `update`, i.e. `recenter`).
 struct _PointResidual <: NLLSsolver.AbstractResidual
     x::SVector{3, Float64}
     y::SVector{3, Float64}
@@ -27,37 +34,54 @@ NLLSsolver.nres(::_PointResidual) = NLLSsolver.static(3)
 NLLSsolver.varindices(::_PointResidual) = SVector(1)
 NLLSsolver.getvars(::_PointResidual, vars::Vector) = (vars[1],)
 NLLSsolver.computeresidual(r::_PointResidual, ch::RigidExpManifold6) = model(ch)(r.x) - r.y
-# The Jacobian in the manifold's coordinates, ForwardDiff through `retract` at
-# the chart origin (NLLSsolver's own autodiff would differentiate `update`, whose
-# `recenter` keeps the manifold's storage type).
-function NLLSsolver.computeresjac(_, r::_PointResidual, ch::RigidExpManifold6)
-    J = ForwardDiff.jacobian(δ -> retract(ch, δ)(r.x) - r.y, zero(SVector{6, Float64}))
-    return NLLSsolver.computeresidual(r, ch), J
-end
 Base.eltype(::_PointResidual) = Float64
 
 nvars_of(ch) = NLLSsolver.nvars(ch)
+ambient(ch) = VgtkCore._ambient_coordinates(model(ch))
 
 @testset "Manifolds as NLLSsolver variables, and is_stationary" begin
     R0 = SMatrix{3, 3, Float64, 9}(RotXYZ(0.3, -0.2, 0.5))
     t0 = SVector(1.0, -2.0, 3.0)
     ch = RigidExpManifold6(R0, t0)
+    families = (
+        (ch, 6), (LeftRigidManifold6(R0, t0), 6), (RigidManifold6(RotMatrix{3}(R0), t0), 6),
+        (HomographyManifold8(R0), 8), (FundMatManifold7(R0 + 0.1I), 7),
+        (EssentialManifold5(R0, t0 / norm(t0)), 5), (EssentialManifold6(R0, t0 / norm(t0)), 6),
+        (SphereManifold(SVector(0.0, 0.6, 0.8)), 2), (EuclideanManifold(t0), 3),
+        (LensManifold(Lens(DoubleSphere(-0.2, 0.6))), 2), (LensManifold(Pinhole()), 0),
+        (TargetManifold(PlanarTarget(:board)), 0),
+        (ProductManifold(ch, EuclideanManifold(t0)), 9),
+        (restrict(ch, SVector(true, true, true, false, false, true)), 4),
+    )
 
     @testset "the size is static for every manifold family" begin
         # A variable's size must be a compile-time constant of its type: it
         # selects NLLSsolver's static, allocation-free path.
-        for (m, D) in (
-                (ch, 6), (LeftRigidManifold6(R0, t0), 6), (RigidManifold6(R0, t0), 6),
-                (HomographyManifold8(R0), 8), (FundMatManifold7(R0 + 0.1I), 7),
-                (SphereManifold(SVector(0.0, 0.6, 0.8)), 2), (EuclideanManifold(t0), 3),
-                (LensManifold(Lens(DoubleSphere(-0.2, 0.6))), 2), (LensManifold(Pinhole()), 0),
-                (TargetManifold(PlanarTarget(:board)), 0),
-                (ProductManifold(ch, EuclideanManifold(t0)), 9),
-                (restrict(ch, SVector(true, true, true, false, false, true)), 4),
-            )
+        for (m, D) in families
             @test only(Base.return_types(nvars_of, (typeof(m),))) === typeof(NLLSsolver.static(D))
             @test tangent_size(m) == D
         end
+    end
+
+    @testset "recenter: its own type for its own float type, Duals for a Dual step" begin
+        for (m, D) in families
+            D == 0 && continue
+            δ = SVector{D}(ntuple(i -> 0.01i, D))
+            @test typeof(recenter(m, δ)) === typeof(m)                              # what a solver's variable holds
+            @test only(Base.return_types(recenter, (typeof(m), typeof(δ)))) === typeof(m)   # inferred
+            # ForwardDiff through recenter: the retraction's derivative — for the
+            # homography, whose anchor is rescaled to unit norm, with the scale
+            # direction (invisible to the projective model) removed.
+            J = ForwardDiff.jacobian(v -> ambient(recenter(m, v)), zero(SVector{D, Float64}))
+            T = retract_jacobian(m)
+            if m isa HomographyManifold8
+                h = ambient(m)
+                T = (I - h * h' / (h' * h)) * T / norm(h)
+            end
+            @test J ≈ T atol = 1.0e-12
+        end
+        ch32 = LeftRigidManifold6(SMatrix{3, 3, Float32}(R0), Float32.(t0))
+        @test typeof(recenter(ch32, zero(SVector{6, Float32}))) === typeof(ch32)
     end
 
     @testset "tangent_part, the update" begin
@@ -72,9 +96,13 @@ nvars_of(ch) = NLLSsolver.nvars(ch)
         @test typeof(NLLSsolver.update(ch, δ)) === typeof(ch)        # the type the variable vector holds
     end
 
-    @testset "a pose fit on NLLSsolver, the manifold as its variable" begin
+    @testset "a pose fit on NLLSsolver's automatic Jacobian, the manifold as its variable" begin
         truth = pose((0.3, -0.1, 0.2), (0.5, -0.2, 1.0))
         xs = [SVector(sin(i), cos(2i), 0.1i) for i in 1:12]
+        # the automatic Jacobian is the one through retract at the anchor
+        r = _PointResidual(xs[1], truth(xs[1]))
+        _, J = NLLSsolver.computeresjac(NLLSsolver.static(1), r, ch)
+        @test J ≈ ForwardDiff.jacobian(δ -> retract(ch, δ)(r.x) - r.y, zero(SVector{6, Float64})) atol = 1.0e-12
         problem = NLLSsolver.NLLSProblem(RigidExpManifold6{Float64}, _PointResidual)
         NLLSsolver.addvariable!(problem, RigidExpManifold6(pose((0.0, 0.0, 0.0), (0.0, 0.0, 0.0))))
         for x in xs

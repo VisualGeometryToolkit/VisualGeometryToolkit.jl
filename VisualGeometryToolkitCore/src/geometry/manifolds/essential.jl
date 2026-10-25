@@ -44,37 +44,38 @@ gauge direction).
 abstract type EssentialTranslation end
 
 "`t(v) = normalize(t + τ₁·b1 + τ₂·b2)`: the tangent basis `(b1, b2)` of S² at the anchor's `t`, frozen."
-struct S2TangentT <: EssentialTranslation
-    b1::Vec3{Float64}
-    b2::Vec3{Float64}
+struct S2TangentT{T} <: EssentialTranslation
+    b1::Vec3{T}
+    b2::Vec3{T}
 end
 "`t(v) = normalize(t + τ)`, `τ ∈ R³`: one gauge direction (`τ ∥ t`)."
 struct RenormalizedT <: EssentialTranslation end
 
-_t_dof(::Type{S2TangentT}) = 2
+_t_dof(::Type{<:S2TangentT}) = 2
 _t_dof(::Type{RenormalizedT}) = 3
 @inline _t_increment(g::S2TangentT, t, v) = normalize(t + v[4] * g.b1 + v[5] * g.b2)
 @inline _t_increment(::RenormalizedT, t, v) = normalize(t + Vec3(v[4], v[5], v[6]))   # eltype-generic (ForwardDiff)
 
 """
-    EssentialManifold{G <: EssentialTranslation} <: Manifold
+    EssentialManifold{G <: EssentialTranslation, T} <: Manifold
 
 The essential-matrix chart anchored at `(R, t)`, `|t| = 1`: `R(v) =
 RotMatrix(MRP(ω))·R`, `t(v)` the translation kind's increment, `E(v) =
-skew(t(v))·R(v)`. The stack's two are aliases: [`EssentialManifold5`](@ref)
-(minimal, production) and [`EssentialManifold6`](@ref) (one gauge direction,
-eval). See [`Manifold`](@ref).
+skew(t(v))·R(v)`, stored in the float type `T`. The stack's two are aliases:
+[`EssentialManifold5`](@ref) (minimal, production) and
+[`EssentialManifold6`](@ref) (one gauge direction, eval). See
+[`Manifold`](@ref).
 """
-struct EssentialManifold{G <: EssentialTranslation} <: Manifold
-    R::RotMatrix{3, Float64, 9}
-    t::Vec3{Float64}
+struct EssentialManifold{G <: EssentialTranslation, T} <: Manifold
+    R::RotMatrix{3, T, 9}
+    t::Vec3{T}
     g::G
 end
 
 """
     EssentialManifold5(R, t) <: Manifold
 
-The PRODUCTION 5-dof essential-matrix lift chart, `EssentialManifold{S2TangentT}`:
+The PRODUCTION 5-dof essential-matrix lift chart, `EssentialManifold{S2TangentT{Float64}}`:
 `so(3) ⊕ T_tS²`, gauge-fixed. Anchored at `(R, t)` with `|t| = 1` and an
 orthonormal tangent basis `(b1, b2)` of `S²` at `t` frozen at the anchor;
 coordinates `v = (ω₁, ω₂, ω₃, τ₁, τ₂)` act as `R(v) = RotMatrix(MRP(ω))·R`,
@@ -82,7 +83,7 @@ coordinates `v = (ω₁, ω₂, ω₃, τ₁, τ₂)` act as `R(v) = RotMatrix(M
 (rank 5, no gauge nullity). See [`EssentialManifold6`](@ref) for the
 deliberately non-minimal eval companion.
 """
-const EssentialManifold5 = EssentialManifold{S2TangentT}
+const EssentialManifold5 = EssentialManifold{S2TangentT{Float64}}
 
 """
     EssentialManifold6(R, t) <: Manifold
@@ -113,12 +114,17 @@ orientation preserved bit-for-bit for the consumer byte-identity gates)."
 end
 
 # The kind's translation data at an anchor translation `t`.
-_translation_kind(::Type{S2TangentT}, t) = S2TangentT(s2_tangent_basis(t)...)
+_translation_kind(::Type{<:S2TangentT}, t) = S2TangentT(s2_tangent_basis(t)...)
 _translation_kind(::Type{RenormalizedT}, t) = RenormalizedT()
 
+# In the anchor's float type T; the translation kind's data (S2TangentT's
+# basis) is computed in T too, so a Dual anchor (`recenter`'s element-type rule)
+# gives a Dual kind.
 function EssentialManifold{G}(R::AbstractMatrix, t::AbstractVector) where {G <: EssentialTranslation}
-    tv = Vec3{Float64}(t)
-    return EssentialManifold{G}(RotMatrix{3, Float64}(R), tv, _translation_kind(G, tv))
+    T = float(promote_type(eltype(R), eltype(t)))
+    tv = Vec3{T}(t)
+    g = _translation_kind(G, tv)
+    return EssentialManifold{typeof(g), T}(RotMatrix{3, T}(R), tv, g)
 end
 
 """
@@ -155,5 +161,5 @@ end
 # `recenter_pose` (the engines' verbatim update) does not
 function recenter(ch::EssentialManifold{G}, v) where {G}
     R, t = recenter_pose(ch, v)
-    return EssentialManifold{G}(RotMatrix{3, Float64}(_reproject_so3(R)), t)
+    return EssentialManifold{G}(_reproject_so3(R), t)
 end

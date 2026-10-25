@@ -54,7 +54,12 @@ Local coordinate system anchored at a model iterate. Contract:
   with ONE normalization policy: a rotation part re-projected onto SO(3)
   (`_reproject_so3`), the homography chart's anchor its unit-Frobenius
   representative of the same model (a first-order retraction lets the scale
-  drift); `retract` itself never normalizes;
+  drift); `retract` itself never normalizes. Its element type is
+  `promote_type` of the manifold's and `v`'s, as arithmetic's is: a step of
+  the manifold's own float type returns the manifold's own type (what a solver
+  stepping a manifold variable holds), and a step of ForwardDiff Duals returns
+  a Dual-valued manifold, so automatic differentiation through `recenter`
+  works (NLLSsolver's, through `update`);
 - `retract_jacobian(ch, v = 0)` — T(v) = ∂vec(retract(ch, v))/∂v (9 × D for
   3×3 models): at the anchor by default, at any `v` for an optimizer that
   iterates in the manifold instead of re-anchoring. Named after the function
@@ -91,6 +96,12 @@ abstract type Manifold end
 function tangent_size end
 function retract end
 function recenter end
+
+# `recenter`'s element-type rule: the manifold's element type `S` promoted with
+# the step's, and a static storage type `A` rebuilt in it (a `RotMatrix` keeps
+# its type: its method is beside the rigid charts).
+_recenter_eltype(::Type{S}, v) where {S} = promote_type(S, eltype(v))
+_with_eltype(::Type{A}, ::Type{T}) where {A <: StaticArray, T} = similar_type(A, T)
 
 """
     retract_jacobian(ch::Manifold) -> SMatrix
@@ -231,11 +242,11 @@ solver that stacks several manifolds' coordinates in one step vector.
 Every manifold is an NLLSsolver variable as it stands: with NLLSsolver loaded,
 the package extension `VisualGeometryToolkitCoreNLLSsolverExt` gives `Manifold`
 NLLSsolver's variable protocol, `nvars` its `tangent_size` and `update` its
-`recenter` on the variable's `tangent_part` of the step. A residual on a
-manifold variable supplies its Jacobian in the manifold's coordinates
-(`computeresjac`, e.g. ForwardDiff through `retract(ch, δ)` at `δ = 0`):
-NLLSsolver's automatic one differentiates `update`, and `recenter` keeps the
-manifold's storage type, which holds no dual number.
+`recenter` on the variable's `tangent_part` of the step. NLLSsolver's automatic
+Jacobian differentiates `update`, so a residual on manifold variables needs only
+`computeresidual`, written generic in the variables' element type (`recenter`
+returns a Dual-valued manifold for a Dual step); a residual may still supply
+`computeresjac` when a hand-written Jacobian is faster.
 """
 tangent_part(ch::Manifold, v, offset = 0) =
     SVector{tangent_size(ch), eltype(v)}(ntuple(j -> v[offset + j], Val(tangent_size(ch))))

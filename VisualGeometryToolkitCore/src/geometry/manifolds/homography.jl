@@ -39,11 +39,14 @@ The minimal 8-dof `sl(3)` homography manifold about an anchor:
 direction `H₀·εI`, so the manifold is minimal (rank 8) with no `‖H‖ = 1`
 constraint and no fixed-entry singularity; `∂H/∂vᵢ = H₀·Gᵢ` is exact and
 constant (first-order manifold, no dexp) — the LM refit's Jacobian
-convention. See [`Manifold`](@ref).
+convention. The anchor is stored in its float type (`Float64` from a `Float64`
+or integer `H0`). See [`Manifold`](@ref).
 """
-struct HomographyManifold8 <: Manifold
-    H0::SMatrix{3, 3, Float64, 9}
+struct HomographyManifold8{T} <: Manifold
+    H0::SMatrix{3, 3, T, 9}
+    HomographyManifold8{T}(H0) where {T} = new{T}(H0)
 end
+HomographyManifold8(H0::AbstractMatrix) = (T = float(eltype(H0)); HomographyManifold8{T}(SMatrix{3, 3, T, 9}(H0)))
 
 tangent_size(::HomographyManifold8) = 8
 
@@ -63,8 +66,9 @@ end
 # OF A REPRESENTATIVE, and this is the one it is of. @noinline per the
 # bit-stability note in base/manifold.jl: a `recenter` kernel is compiled once,
 # standalone, so its 3×3 products do not take a caller's fusion choices.
-@noinline function recenter(ch::HomographyManifold8, v)
-    H = SMatrix{3, 3, Float64, 9}(retract(ch, v))
-    return HomographyManifold8(H / norm(H))
+@noinline function recenter(ch::HomographyManifold8{S}, v) where {S}
+    T = _recenter_eltype(S, v)
+    H = SMatrix{3, 3, T, 9}(retract(ch, v))
+    return HomographyManifold8{T}(H / norm(H))
 end
 

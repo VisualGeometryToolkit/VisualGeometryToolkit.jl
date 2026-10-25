@@ -62,7 +62,8 @@ or `ΔR(ω)·t + τ` ([`CarriedT`](@ref)), `ΔR` the increment of `P`
 ([`MRPParam`](@ref), [`ExpParam`](@ref)). Full rank (no gauge). `retract` returns
 a `EuclideanMap`; the ambient vectorization is `[vec(R); t] ∈ R¹²`; `recenter`
 re-projects the rotation onto SO(3) (the one policy) and keeps the anchor's
-storage types; `local_coordinates` is closed form. The stack's named charts are
+storage types, in the element type the contract's rule gives (the anchor's for a
+step of its own float type); `local_coordinates` is closed form. The stack's named charts are
 aliases: [`RigidManifold6`](@ref), [`LeftRigidManifold6`](@ref),
 [`RigidExpManifold6`](@ref).
 """
@@ -181,12 +182,15 @@ end
 end
 
 # Re-anchoring re-projects R onto SO(3) — the one policy (`_reproject_so3`,
-# lie.jl) — and keeps the anchor's storage types: the update equations are
-# eltype-generic, STORAGE stays declared on the chart, so a solver stepping a
-# chart variable gets back the type it holds.
+# lie.jl) — and keeps the anchor's storage types in the contract's element type
+# (base/manifold.jl): a step of the chart's own float type gives back the type
+# a solver stepping a chart variable holds, a Dual step a Dual-valued chart.
+_with_eltype(::Type{<:RotMatrix{3}}, ::Type{T}) where {T} = RotMatrix{3, T, 9}
 function recenter(ch::RigidChart{P, C, Rot, Tr}, v) where {P, C, Rot, Tr}
     R, t = recenter_pose(ch, v)
-    return RigidChart{P, C, Rot, Tr}(Rot(_reproject_so3(R)), Tr(t))
+    T = _recenter_eltype(promote_type(eltype(Rot), eltype(Tr)), v)
+    RotT, TrT = _with_eltype(Rot, T), _with_eltype(Tr, T)
+    return RigidChart{P, C, RotT, TrT}(RotT(_reproject_so3(R)), TrT(t))
 end
 
 function retract(ch::RigidChart, v)

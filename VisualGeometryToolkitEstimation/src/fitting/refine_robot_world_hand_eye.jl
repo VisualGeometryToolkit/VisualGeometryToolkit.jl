@@ -11,14 +11,12 @@
 #     û = project(camera, Y⁻¹ ∘ A_i ∘ X_m (X)),
 #
 # and the estimate minimizes Σ‖û − u‖² over [Y | X₁ … X_M] in the calibration's
-# chart — `fit_robot_world_hand_eye`'s: VGC's `ProductManifold` of M + 1
-# `RigidExpManifold6` blocks (exp(δω)·R, t + δt), anchored at the guess
-# (`_robot_world_hand_eye_manifold`) — with VGC's chart LM (`lmsolve_chart!`:
-# FastLevenbergMarquardt's `lmsolve!`, N = 6(M + 1)), re-anchored at the
-# solution by the product's `recenter`. A
-# point depends on Y and its own X_m only, so its 2 × 12 Jacobian is
-# differentiated (ForwardDiff, through the retraction of the product of those
-# two blocks) and scattered into the 2n × N buffer.
+# chart — `fit_robot_world_hand_eye`'s: M + 1 `RigidExpManifold6` blocks
+# (exp(δω)·R, t + δt) — with NLLSsolver's Levenberg–Marquardt: each pose one
+# variable (VGC's `ManifoldBlock`, re-anchored at every accepted step), each
+# point one residual block. A point depends on Y and its own X_m only, so its
+# 2 × 12 Jacobian is differentiated (ForwardDiff, through the retraction of
+# those two blocks) and NLLSsolver accumulates its 12 × 12 block of JᵀJ.
 #
 # The covariance is the stack's one model covariance, VGC's
 # `implicit_covariance`, over the points' reprojection rows at the estimate
@@ -30,11 +28,11 @@
 # stationary point (an MLE under isotropic Gaussian pixel noise).
 # =============================================================================
 
-# The chart LM is static in its N = 6(M + 1) unknowns — the iterate is an
-# `SVector{N}` and the product chart unrolls over its M + 1 blocks, compiled per
-# M; its normal equations are FastLevenbergMarquardt's LAPACK Cholesky above
-# N = 12 (VGC `_lm_solver`), so no marker count is capped. (Until 2026-10-01
-# the solve was a static N × N Cholesky too, whose compile cost capped M at 4.)
+# Nothing is static in the marker count: the variables are a vector of pose
+# blocks, so one compiled method serves every M. (Until 2026-10-25 the LM was
+# VGC's chart LM on FastLevenbergMarquardt, static in N = 6(M + 1) and
+# compiled per M; until 2026-10-01 its solve was a static N × N Cholesky,
+# whose compile cost capped M at 4.)
 
 """
     refine_robot_world_hand_eye(guess::RobotWorldHandEyeCalibration{K}, camera::CameraModel, markers;
@@ -70,8 +68,10 @@ camera at frame i). Function names do not encode frames.
 # Keywords
 - `max_iter` — the LM's iteration cap.
 
-Any number of markers: the LM is static in its 6(M + 1) unknowns and compiled
-once per marker count. Plain least squares — the observations must be inliers (gate them
+Any number of markers: the LM is NLLSsolver's, one pose block per marker and one
+residual block per point, with nothing compiled per marker count. Its retcode is
+`:converged` only when the estimate is stationary (`VisualGeometryToolkitCore.is_stationary`),
+`:max_iterations` at the cap and `:stalled` otherwise. Plain least squares — the observations must be inliers (gate them
 upstream, as the per-board detection does). Rig poses, points and pixels must
 be finite, and every point must project at the guess (in front of the camera,
 inside the lens's domain): an `ArgumentError` names the first that does not.
@@ -118,7 +118,7 @@ function refine_robot_world_hand_eye(
     n = length(us)
     N = 6 * (M + 1)
     2n > N || throw(ArgumentError("underdetermined: $n points ($(2n) residuals) for $N unknowns"))
-    return _refine_robot_world_hand_eye(Val(M + 1), guess, counts, camera, RA, tA, pt_frame, pt_marker, Xs, us, max_iter)
+    return _refine_robot_world_hand_eye(guess, counts, camera, RA, tA, pt_frame, pt_marker, Xs, us, max_iter)
 end
 
 # Physical inputs: the guess, the rig poses and the points stripped in metres
@@ -147,71 +147,77 @@ end
     return SVector{2, T}(VgtkCore.reprojection_error(camera, inv(Y), Pw, u))   # world → camera → pixel
 end
 
-# The linearization state of one robot-world refinement call: the calibration's
-# chart `P` (`_robot_world_hand_eye_manifold`), the arm poses, the frame and marker index
-# of every observation, the board points, their pixels and the camera.
-struct _RobotWorldHandEyeLm{TP, TR, TT, TF, TM, TX, TU, TC}
-    P::TP
-    RA::TR
-    tA::TT
-    fr::TF
-    mk::TM
-    Xs::TX
-    us::TU
-    camera::TC
+# The NLLSsolver problem: one variable per pose — Y first, then X_m in
+# `guess.ids` order — each a `ManifoldBlock` of the calibration's chart
+# (`RigidExpManifold6`, re-anchored at every accepted step), and one residual
+# block per marker point, depending on Y and its own X_m. NLLSsolver
+# accumulates each point's 12 × 12 block of JᵀJ into the (M + 1) × (M + 1)
+# block normal equations; nothing is static in M.
+const _RwPoseBlock = ManifoldBlock{6, RigidExpManifold6{Float64}}
+
+struct _RwPointResidual{C} <: NLLSsolver.AbstractResidual
+    varind::SVector{2, Int}           # (Y, X_m) = variables (1, m + 1)
+    RA::SMatrix{3, 3, Float64, 9}     # the point's frame's rig pose
+    tA::SVector{3, Float64}
+    X::SVector{3, Float64}            # the point, in its marker's frame
+    u::SVector{2, Float64}            # its pixel
+    camera::C
+end
+NLLSsolver.ndeps(::_RwPointResidual) = NLLSsolver.static(2)
+NLLSsolver.nres(::_RwPointResidual) = NLLSsolver.static(2)
+NLLSsolver.varindices(r::_RwPointResidual) = r.varind
+NLLSsolver.getvars(r::_RwPointResidual, vars::Vector) = (vars[r.varind[1]]::_RwPoseBlock, vars[r.varind[2]]::_RwPoseBlock)
+Base.eltype(::_RwPointResidual) = Float64
+
+# The point's residual at the charts' origins, and its 2 × 12 Jacobian in
+# (δY, δX_m) — ForwardDiff through the retraction of the two blocks.
+_rw_residual(r::_RwPointResidual, chY, chX) =
+    _rw_point_residual(zero(SVector{12, Float64}), chY, chX, r.RA, r.tA, r.X, r.u, r.camera)
+_rw_jacobian(r::_RwPointResidual, chY, chX) = ForwardDiff.jacobian(
+    z -> _rw_point_residual(z, chY, chX, r.RA, r.tA, r.X, r.u, r.camera), zero(SVector{12, Float64})
+)
+NLLSsolver.computeresidual(r::_RwPointResidual, Y::_RwPoseBlock, X::_RwPoseBlock) = _rw_residual(r, Y.manifold, X.manifold)
+# Every pose is free in this refinement (`optimize!` over all variables), so
+# NLLSsolver asks for both blocks' columns: `varflags` = 0b11.
+function NLLSsolver.computeresjac(varflags, r::_RwPointResidual, Y::_RwPoseBlock, X::_RwPoseBlock)
+    varflags == 3 || throw(ArgumentError("refine_robot_world_hand_eye: every pose block is free (varflags = $varflags)"))
+    return _rw_residual(r, Y.manifold, X.manifold), _rw_jacobian(r, Y.manifold, X.manifold)
 end
 
-# Point k's residual at the stacked chart coordinates `x` — through its 12
-# coordinates (δY, δX_m), the parts of `x` it depends on.
-@inline function _rw_point_residual(lm::_RobotWorldHandEyeLm, parts, k, z = vcat(parts[1], parts[lm.mk[k] + 1]))
-    chs = lm.P.charts
-    f = lm.fr[k]
-    return _rw_point_residual(z, chs[1], chs[lm.mk[k] + 1], lm.RA[f], lm.tA[f], lm.Xs[k], lm.us[k], lm.camera)
-end
-
-# The reprojection rows in the stacked chart at `x` (`residual_rows!`).
-function residual_rows!(f, lm::_RobotWorldHandEyeLm, x::SVector)
-    parts = manifold_parts(lm.P, x)
-    @inbounds for k in eachindex(lm.us)
-        r = _rw_point_residual(lm, parts, k)
-        f[2k - 1] = r[1]; f[2k] = r[2]
-    end
-    return f
-end
-
-# The Jacobian by per-point BLOCKS, not VGC's dense default (ForwardDiff through
-# `residual_rows!`): a point depends on 12 of the N = 6(M + 1) coordinates, so
-# one 12-partial sweep per point replaces ⌈N/chunk⌉ sweeps over all points.
-# Measured 2026-09-30 against the dense default (per Jacobian): M = 1, n = 300:
-# 0.12 vs 0.36 ms (3.0×); M = 3, n = 900: 0.32 vs 0.68 ms (2.1×); M = 4,
-# n = 1200: 0.49 vs 1.35 ms (2.8×); the two agree to 3.4e-13.
-function residual_jacobian_rows!(J, lm::_RobotWorldHandEyeLm, x::SVector)
-    fill!(J, 0.0)
-    parts = manifold_parts(lm.P, x)
-    @inbounds for k in eachindex(lm.us)
-        m = lm.mk[k]
-        Jk = ForwardDiff.jacobian(z -> _rw_point_residual(lm, parts, k, z), vcat(parts[1], parts[m + 1]))
-        for a in 1:2, j in 1:6
-            J[2k - 2 + a, j] = Jk[a, j]
-            J[2k - 2 + a, 6m + j] = Jk[a, 6 + j]
+# The reprojection rows and their dense 2n × 6(M + 1) Jacobian at the charts'
+# origins — the covariance's and the stall postcondition's (point k's rows
+# 2k − 1, 2k; its columns those of Y and of its X_m).
+function _rw_rows_and_jacobian(costs::AbstractVector{<:_RwPointResidual}, charts::AbstractVector)
+    n = length(costs)
+    r = Vector{Float64}(undef, 2n)
+    J = zeros(2n, 6 * length(charts))
+    @inbounds for (k, c) in enumerate(costs)
+        chY, chX = charts[c.varind[1]], charts[c.varind[2]]
+        rk = _rw_residual(c, chY, chX)
+        Jk = _rw_jacobian(c, chY, chX)
+        m = c.varind[2] - 1
+        for a in 1:2
+            r[2k - 2 + a] = rk[a]
+            for j in 1:6
+                J[2k - 2 + a, j] = Jk[a, j]
+                J[2k - 2 + a, 6m + j] = Jk[a, 6 + j]
+            end
         end
     end
-    return J
+    return r, J
 end
 
-# Static in the B = M + 1 blocks of the chart (a function barrier).
 function _refine_robot_world_hand_eye(
-        ::Val{B}, guess::RobotWorldHandEyeCalibration, counts, camera, RA, tA, fr, mk, Xs, us, max_iter
-    ) where {B}
+        guess::RobotWorldHandEyeCalibration, counts, camera::C, RA, tA, fr, mk, Xs, us, max_iter
+    ) where {C}
     n = length(us)
-    N = 6B
-    lm = _RobotWorldHandEyeLm(_robot_world_hand_eye_manifold(guess, Val(B)), RA, tA, fr, mk, Xs, us, camera)
+    costs = [_RwPointResidual{C}(SVector(1, mk[k] + 1), RA[fr[k]], tA[fr[k]], Xs[k], us[k], camera) for k in 1:n]
+    blocks = _RwPoseBlock[ManifoldBlock(RigidExpManifold6(guess.Y)); [ManifoldBlock(RigidExpManifold6(guess.X[id])) for id in guess.ids]]
     # Every point must project at the guess: NaN is the lens's answer for a
     # ray it does not image (behind the camera, outside its domain), and one
     # NaN row would silently stall the LM.
-    r0 = residual_rows!(Vector{Float64}(undef, 2n), lm, zero(SVector{N, Float64}))
-    for k in 1:n
-        (isfinite(r0[2k - 1]) && isfinite(r0[2k])) || throw(
+    for (k, c) in enumerate(costs)
+        all(isfinite, _rw_residual(c, blocks[1].manifold, blocks[c.varind[2]].manifold)) || throw(
             ArgumentError(
                 "marker $(guess.ids[mk[k]]): point $(Xs[k]) does not project at the guess " *
                     "(behind the camera or outside the lens's domain)"
@@ -219,15 +225,24 @@ function _refine_robot_world_hand_eye(
         )
     end
 
-    ews = _lm_workspace(nothing, 2n, Val(N))       # the one LO-buffer reuse policy (interface.jl)
-    x, _, conv, iterations = lmsolve_chart!(ews, lm; maxit = max_iter, stationarity_tol = _CHART_LM_STATIONARITY_TOL)
-    all(isfinite, x) || throw(ErrorException("refine_robot_world_hand_eye: the LM step is not finite"))
+    problem = NLLSsolver.NLLSProblem(_RwPoseBlock, _RwPointResidual{C})
+    foreach(b -> NLLSsolver.addvariable!(problem, b), blocks)
+    foreach(c -> NLLSsolver.addcost!(problem, c), costs)
+    # One thread: a threaded cost sum would make the result depend on the
+    # thread count. No time cap (NLLSsolver's default is 30 s).
+    options = NLLSsolver.NLLSOptions(; maxiters = max_iter, maxtime = 1.0e6, numthreads = NLLSsolver.static(1))
+    result = NLLSsolver.optimize!(problem, options)
+    charts = [b.manifold for b in problem.variables]   # each anchored at its estimate
+    poses = map(model, charts)
+    all(p -> all(isfinite, rotation(p)) && all(isfinite, translation(p)), poses) ||
+        throw(ErrorException("refine_robot_world_hand_eye: the LM step is not finite"))
 
-    # The estimate: the chart re-anchored at the solution (the covariance's chart).
-    lm_hat = _RobotWorldHandEyeLm(recenter(lm.P, x), RA, tA, fr, mk, Xs, us, camera)
-    x0 = zero(SVector{N, Float64})
-    r = residual_rows!(Vector{Float64}(undef, 2n), lm_hat, x0)
-    J = residual_jacobian_rows!(Matrix{Float64}(undef, 2n, N), lm_hat, x0)
+    r, J = _rw_rows_and_jacobian(costs, charts)
+    # NLLSsolver's own stops (a small relative or absolute cost decrease, a
+    # small step) do not prove convergence; the stall postcondition does —
+    # FastLevenbergMarquardt's refits test the same one (VGC `lmsolve_rows!`).
+    retcode = result.termination & (1 << 8) != 0 ? :max_iterations :
+        is_stationary(J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol = eps()) ? :converged : :stalled
     # The covariance's blocks are the ELEMENTS — one rig pose's features, whose
     # points are contiguous (flattened element by element) — each a dense view
     # of its rows of J with measurement Jacobian −I: the same (JᵀJ)⁻¹ as per-
@@ -242,7 +257,7 @@ function _refine_robot_world_hand_eye(
         return Σ̃ === nothing ? nothing : s2 .* Σ̃
     end
     return _robot_world_hand_eye_result(
-        _robot_world_hand_eye_calibration(lm_hat.P, guess.ids), r, J, 2, counts, covariance, nothing, nothing;
-        retcode = VgtkCore.lm_retcode(conv), iterations, rms_rows = n
+        _robot_world_hand_eye_calibration(poses, guess.ids), r, J, 2, counts, covariance, nothing, nothing;
+        retcode, iterations = result.niterations, rms_rows = n
     )
 end

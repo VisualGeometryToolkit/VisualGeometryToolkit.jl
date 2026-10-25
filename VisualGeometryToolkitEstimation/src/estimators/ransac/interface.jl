@@ -463,8 +463,9 @@ end
 # The chart LM's iteration cap, stall tolerance and cost tolerance
 # (configs/default.toml [chart_lm]), read once: the refit runs per LO
 # iteration, so it does not look the file up per call. The stall tolerance is
-# every chart LM's (the LO refit, `fit_lens`, `refine_robot_world_hand_eye`);
-# the cost tolerance `ftol` is the LO refit's alone.
+# every chart LM's (the LO refit, `fit_lens`) and the stall postcondition of
+# `refine_robot_world_hand_eye`'s NLLSsolver LM (`is_stationary`); the cost
+# tolerance `ftol` is the LO refit's alone.
 const _CHART_LM_MAX_ITER = _dflt("chart_lm", "max_iter")::Int
 const _CHART_LM_STATIONARITY_TOL = _dflt("chart_lm", "stationarity_tol")::Float64
 const _CHART_LM_FTOL = _dflt("chart_lm", "ftol")::Float64

@@ -149,7 +149,7 @@ import VisualGeometryToolkitCore: rows_provider, lift_init, lift_refresh!, lift_
 # product chart and its parts, the rotation algorithms' stationarity
 # conditions, grouped data's block order, the radial-coefficient law and the
 # pixel intrinsics — each VGC's one spelling.
-using VisualGeometryToolkitCore: ProductManifold, EuclideanManifold, model, manifold_parts,
+using VisualGeometryToolkitCore: ProductManifold, EuclideanManifold, model,
     kabsch_stationarity, chordal_mean_stationarity, block_order, split_blocks,
     rescale_radial_coeff
 using VisualGeometryToolkitCore.Cameras: pixel_intrinsics
@@ -217,6 +217,8 @@ using VisualGeometryToolkitCore: PerspectiveMap, transform_deriv
 # PoseLibSolver paths are exercised by PoseLib's and VGC's suites, not this one.
 using ForwardDiff: ForwardDiff
 import FastLevenbergMarquardt   # relpose_bundle.jl's Schur solver: qualified AbstractSolver/init!/update!/solve!, LMWorkspace
+import NLLSsolver   # refine_robot_world_hand_eye's block-structured LM: qualified NLLSProblem/optimize! and its residual protocol
+using VisualGeometryToolkitCore: ManifoldBlock, is_stationary   # a manifold as an NLLSsolver variable; the stall postcondition
 using SparseArrays: SparseMatrixCSC, nonzeros   # relpose_bundle.jl's fixed-pattern arrowhead Jacobian
 
 

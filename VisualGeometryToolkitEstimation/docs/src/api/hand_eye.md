@@ -108,8 +108,9 @@ result.
 propagated through each stage's stationarity conditions by the implicit
 function theorem, and `Inf` along unobservable directions); `refine_robot_world_hand_eye` refines it
 against the markers' features — the reprojection error, camera and rig poses
-fixed — on the product of `M + 1` `RigidExpManifold6` charts (any number of
-markers; the LM is static in its `6(M + 1)` unknowns), and reports the
+fixed — on `M + 1` `RigidExpManifold6` charts with NLLSsolver's
+Levenberg–Marquardt (one pose block per marker and one residual block per
+point, so any number of markers with nothing compiled per count), and reports the
 covariance of that estimator's own optimum, `ŝ²·implicit_covariance`, which
 the Monte Carlo gate holds calibrated (Y, each `X_m`, the joint vector,
 held-out reprojection, frame count, field of view, marker count and a poor

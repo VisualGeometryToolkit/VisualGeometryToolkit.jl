@@ -98,17 +98,17 @@ end
 _robot_world_hand_eye_manifold(cal::RobotWorldHandEyeCalibration, ::Val{B}) where {B} =
     ProductManifold(ntuple(b -> RigidExpManifold6(b == 1 ? cal.Y : cal.X[cal.ids[b - 1]]), Val(B))...)
 # ... and back: the calibration at a chart's anchor.
-function _robot_world_hand_eye_calibration(P::ProductManifold, ids::Vector{K}) where {K}
-    poses = model(P)
-    return RobotWorldHandEyeCalibration(first(poses), Dict{K, Rigid3}(id => poses[m + 1] for (m, id) in enumerate(ids)))
-end
+_robot_world_hand_eye_calibration(P::ProductManifold, ids::Vector) = _robot_world_hand_eye_calibration(model(P), ids)
+# ... and from the poses (Y, X₁, …, X_M) in that order.
+_robot_world_hand_eye_calibration(poses, ids::Vector{K}) where {K} =
+    RobotWorldHandEyeCalibration(first(poses), Dict{K, Rigid3}(id => poses[m + 1] for (m, id) in enumerate(ids)))
 
 """
     RobotWorldHandEyeMetadata{K, S}
 
 `FitResult` metadata of [`fit_robot_world_hand_eye`](@ref) (`S = Float64`) and of
 [`refine_robot_world_hand_eye`](@ref) (`S = Nothing`: no pose-residual noise
-scales; its `retcode` is VGC `lm_retcode`'s) — one type, assembled in one place.
+scales; its `retcode` is `:converged`, `:max_iterations` or `:stalled`) — one type, assembled in one place.
 The core carries the `RobotWorldHandEyeCalibration` (`estimate`), the `retcode`, the
 `iterations`, the `rms` and the `n` observations (the fit: pose observations,
 its `rms` over the weighted residual rows; the refinement: points, its `rms`

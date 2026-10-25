@@ -216,7 +216,7 @@
             rb = StereoRig(BoundedCamera(cam1, Size2(640, 480)), cam2; ids = (:l, :r))
             rb2 = with_model(rb, 1 => m2)
             @test source(rb2) isa BoundedCamera && extent(source(rb2)) == Size2(640, 480)
-            # a GENERIC model rides a rig now (Camera bound loosened to AbstractCameraModel)
+            # a GENERIC model rides a rig (Camera's model is any unposed AbstractCamera)
             gen = CentralGenericModel(m2, (640, 480); grid_size = (6, 5))
             rg = with_model(rb, 1 => gen)
             @test model(source(rg)) isa CentralGenericModel

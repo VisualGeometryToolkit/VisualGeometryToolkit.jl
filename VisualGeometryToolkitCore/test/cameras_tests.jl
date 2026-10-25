@@ -1,0 +1,87 @@
+@testitem "camera hierarchy" begin
+    # =============================================================================
+    # One camera hierarchy: every camera — a model, a posed camera, a bounded one —
+    # is an `AbstractCamera`, and `has_extrinsics` says whether it carries a pose.
+    # =============================================================================
+    #
+    # Covers: the trait on each camera form (and forwarded through a
+    # BoundedCamera); the refusals of the forms the single hierarchy would
+    # otherwise admit (a posed camera posed again, a bounded model posed from
+    # inside the bound, a rig or stereo rig of unposed members); the units verbs
+    # on an unposed BoundedCamera (the hole the two-root hierarchy left: its
+    # methods matched only a posed inner camera); and that the package has no
+    # method ambiguities or unbound type parameters.
+    import VisualGeometryToolkitCore as VgtkCore
+    using Test
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: has_extrinsics, has_units, with_unit, model
+    using StaticArrays
+    using Rotations: RotMatrix, RotXYZ
+
+    K = @SMatrix [600.0 0.0 320.0; 0.0 600.0 240.0; 0.0 0.0 1.0]
+    cm = CameraModel(CameraCalibrationMat(K))
+    E = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.1, -0.2, 0.05)), SVector(0.3, -0.1, 2.0))
+    cam = Camera(cm, E)
+    sz = Size2(640, 480)
+    gen = CentralGenericModel(cm, (640, 480); grid_size = (6, 5))
+
+    @testset "one root, one trait" begin
+        for c in (cm, gen, cam, BoundedCamera(cm, sz), BoundedCamera(cam, sz))
+            @test c isa AbstractCamera
+        end
+        @test has_extrinsics(cm) == false
+        @test has_extrinsics(gen) == false
+        @test has_extrinsics(cam) == true
+        @test has_extrinsics(BoundedCamera(cm, sz)) == false
+        @test has_extrinsics(BoundedCamera(cam, sz)) == true
+        @test :has_extrinsics in names(VisualGeometryToolkitCore)   # public
+        @test any(f -> f === has_extrinsics, VgtkCore.CONTRACT_GENERICS)
+        # the layouts downstream dispatches on are unchanged
+        @test cam isa Camera{<:CameraModel{<:AbstractIntrinsics, <:Any}, <:EuclideanMap}
+        @test cam isa VgtkCore.PinholeCamera
+        @test BoundedCamera(cm, sz) isa BoundedCamera{<:CameraModel}
+        @test model(BoundedCamera(cm, sz)) === cm && model(cam) === cm
+    end
+
+    @testset "posing a posed camera is refused" begin
+        @test_throws ArgumentError Camera(cam, E)
+        @test_throws ArgumentError Camera(BoundedCamera(cam, sz), E)
+        @test_throws ArgumentError Camera(cam, inv(CameraExtrinsics(E)))   # the CameraPose form
+        # a bound goes outside the pose: BoundedCamera(Camera(model, E), extent)
+        @test_throws ArgumentError Camera(BoundedCamera(cm, sz), E)
+        # with_model takes a model, not a camera
+        @test_throws ArgumentError with_model(cam, cam)
+        @test_throws ArgumentError with_model(cm, cam)
+        @test with_model(cm, gen) === gen
+    end
+
+    @testset "a rig member is posed" begin
+        rcm = CameraModel(CameraCalibrationMat(K))
+        @test_throws ArgumentError Rig((rcm,))
+        @test_throws ArgumentError Rig{WorldFrame}((rcm,))
+        @test_throws ArgumentError Rig((BoundedCamera(rcm, sz),))
+        @test_throws ArgumentError StereoRig(rcm, cam)
+        @test_throws ArgumentError StereoRig(cam, BoundedCamera(rcm, sz))
+        @test_throws ArgumentError StereoRig(rcm, rcm, E)   # check = true reads the poses
+    end
+
+    @testset "units of an unposed BoundedCamera" begin
+        bc = BoundedCamera(cm, sz)
+        @test !has_units(bc) && !has_units(cm)
+        @test with_unit(bc, mm) == bc                    # a model holds no length: nothing to attach
+        @test ustrip(mm, bc) == bc
+        # the posed forms are unchanged
+        bu = BoundedCamera(with_unit(cam, mm), sz)
+        @test has_units(bu) && ustrip(mm, bu) isa BoundedCamera && !has_units(ustrip(mm, bu))
+        @test with_unit(ustrip(mm, bu), mm) isa BoundedCamera
+    end
+
+    @testset "no ambiguities, no unbound parameters" begin
+        # Only the package's own methods: another item in this worker may have
+        # extended a package function for its fixtures.
+        own(meth) = Base.moduleroot(meth.module) === VisualGeometryToolkitCore
+        amb = Test.detect_ambiguities(VisualGeometryToolkitCore; recursive = true)
+        @test isempty(filter(p -> own(p[1]) && own(p[2]), amb))
+        @test isempty(filter(own, Test.detect_unbound_args(VisualGeometryToolkitCore; recursive = true)))
+    end
+end

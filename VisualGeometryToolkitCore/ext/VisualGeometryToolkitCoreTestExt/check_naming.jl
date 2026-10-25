@@ -323,6 +323,8 @@ const RETIRED_NAMES = String[
     # `parameter_bounds` for lenses, targets, warps and intrinsics (2026-10-25)
     "lens" * "_parameters", "target" * "_parameters", "warp" * "_parameters",
     "lens" * "_parameter_names", "target" * "_parameter_names", "warp" * "_parameter_names",
+    # one camera hierarchy: `AbstractCamera` and the `has_extrinsics` trait (2026-10-25)
+    "Abstract" * "CameraModel",
 ]
 
 # Rule 10: the width quantities are bound by their full names. One name per

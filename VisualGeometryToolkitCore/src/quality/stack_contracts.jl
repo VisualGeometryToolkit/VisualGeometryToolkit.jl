@@ -149,7 +149,7 @@ const CONTRACT_GENERICS = (
     toml_key, toml_skip_fields, toml_field,
     # geometry and camera accessors other packages implement for their own types
     centroid, region, moment_matrix, feature_frame, geom, csponds, focal_length,
-    intrinsics, lens, model, extent, bounds_trait, Pools.pair_scene,
+    intrinsics, lens, model, extent, bounds_trait, has_extrinsics, Pools.pair_scene,
     # the plotting stubs (visualization_stubs.jl) the Makie extensions implement
     imshow!, poly!, matches, matches!, ellipses!,
 )

@@ -3,21 +3,13 @@
 # ==============================================================================
 
 """
-    AbstractCameraModel
+    CameraModel{I, L} <: AbstractCamera
 
-The unposed camera-model interface: `project(model, X)` /
-`backproject(model, u)` (and `unproject(model, u, depth)` where a z-depth
-is meaningful), all in the COLMAP pixel frame. `CameraModel` is the
-parametric intrinsics × lens family; the generic grid models
-(`CentralGenericModel`, `NoncentralGenericModel`) subtype the interface
-directly — they have no K/lens split.
-"""
-abstract type AbstractCameraModel end
-
-"""
-    CameraModel{I, L}
-
-Camera model combining intrinsics and lens model.
+Camera model combining intrinsics and lens model: an unposed camera
+([`has_extrinsics`](@ref) is `false`), the parametric intrinsics × lens
+family. The generic grid models ([`CentralGenericModel`](@ref),
+[`NoncentralGenericModel`](@ref)) are the other unposed cameras; they have no
+K/lens split.
 
 Use `project(model, X)` to map a 3D camera-space point to 2D pixel
 coordinates, and `backproject(model, u)` / `unproject(model, u, depth)`
@@ -49,7 +41,7 @@ X = SVector(10.0mm, 5.0mm, 100.0mm)
 u = project(model, X)
 ```
 """
-struct CameraModel{I <: AbstractIntrinsics, L <: AbstractLensModel} <: AbstractCameraModel
+struct CameraModel{I <: AbstractIntrinsics, L <: AbstractLensModel} <: AbstractCamera
     intrinsics::I
     lens::L
 end

@@ -99,6 +99,8 @@ function StereoRig(
         check::Bool = true,
         atol::Real = 1.0e-6
     )
+    # the check reads the given cameras' poses; unchecked, only their models are kept
+    check && _check_posed("StereoRig", (source, target))
     check && _assert_rig_consistency(source, target, extrinsics; atol = atol)
     # A physical relative pose: the rig is built from the plain one in metres, then
     # read back in metres — the same numbers as the plain construction. (The
@@ -112,12 +114,13 @@ function StereoRig(
     return Rig{F}((_with_extrinsics(source, ident), _with_extrinsics(target, X)))
 end
 
-# 2-arg form takes either Camera or BoundedCamera (or any AbstractCamera).
+# 2-arg form takes either Camera or BoundedCamera (or any posed AbstractCamera).
 # Uses method-form accessors (extrinsics, pose) so MacroTools.@forward on
 # BoundedCamera transparently delegates to the inner camera. The relative
 # transform is computed FROM the cameras here, so the consistency check
 # would compare it against itself — skip it.
 function StereoRig(source::AbstractCamera, target::AbstractCamera; ids::Tuple{Symbol, Symbol} = (:cam1, :cam2))
+    _check_posed("StereoRig", (source, target))
     # physical cameras compose in metres, plain; a physical camera beside a plain one is refused
     (has_units(source) || has_units(target)) &&
         return with_unit(StereoRig(ustrip(m, source), ustrip(m, target); ids), m)

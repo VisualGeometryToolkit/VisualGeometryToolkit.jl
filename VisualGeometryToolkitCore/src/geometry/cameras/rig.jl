@@ -43,8 +43,7 @@
 # would clobber with `WorldFrame → CameraFrame`.
 _raw_extrinsics(c::Camera) = c.extrinsics
 _raw_extrinsics(c::BoundedCamera) = _raw_extrinsics(c.camera)
-_raw_extrinsics(::AbstractCameraModel) =
-    throw(ArgumentError("an unposed camera (a BoundedCamera of a model) has no extrinsics — pose it: BoundedCamera(Camera(model, X), extent)"))
+_raw_extrinsics(c::AbstractCamera) = _unposed_only(_raw_extrinsics, "a rig member's extrinsics", c)
 
 # (Src, Dst) frame types of a labeled map, read off the type parameters.
 _em_frames(::EuclideanMap{N, T, R, V, Src, Dst}) where {N, T, R, V, Src, Dst} =
@@ -55,7 +54,7 @@ _view_id(::EuclideanMap{3, T, R, V, S, ViewFrame{b}}) where {T, R, V, S, b} = b
 
 # Rebuild a camera with new extrinsics, preserving a BoundedCamera wrapper.
 _with_extrinsics(c::Camera, X::EuclideanMap{3}) = Camera(c.model, X)
-_with_extrinsics(m::AbstractCameraModel, X::EuclideanMap{3}) = Camera(m, X)   # posing an unposed camera
+_with_extrinsics(m::AbstractCamera, X::EuclideanMap{3}) = Camera(m, X)   # posing an unposed camera (Camera refuses a posed one)
 _with_extrinsics(c::BoundedCamera, X::EuclideanMap{3}) =
     BoundedCamera(_with_extrinsics(c.camera, X), c.extent)
 
@@ -211,6 +210,7 @@ _pose_translation(X) = translation(geom(X))
 
 function _check_sensors(::Type{F}, members; gauge::Bool = true) where {F}
     isempty(members) && throw(ArgumentError("Rig: at least one sensor required"))
+    _check_posed("Rig", members)
     for (i, c) in enumerate(members)
         Src, Dst = _em_frames(_raw_extrinsics(c))
         Src === F || throw(
@@ -244,9 +244,26 @@ function _check_targets(::Type{F}, members; gauge::Bool = true) where {F}
     return nothing
 end
 
+# A rig member is a (model, mount) pair: every sensor is posed. Decided by the
+# members' types, so the loop over the tuple compiles away.
+function _check_posed(what, members)
+    for (i, c) in enumerate(members)
+        has_extrinsics(c) || throw(
+            ArgumentError(
+                "$(what): sensor $i is an unposed camera (a $(nameof(typeof(c)))) — a rig member is posed: " *
+                    "`Camera(model, X)` with X labeled `F → ViewFrame{id}`"
+            )
+        )
+    end
+    return nothing
+end
+
 # Deduce the reference frame from the first sensor's extrinsics source label.
-Rig(members::Tuple{Vararg{AbstractCamera}}) =
-    Rig{_em_frames(_raw_extrinsics(members[1]))[1]}(members)
+function Rig(members::Tuple{Vararg{AbstractCamera}})
+    isempty(members) && throw(ArgumentError("Rig: at least one sensor required"))
+    _check_posed("Rig", members)
+    return Rig{_em_frames(_raw_extrinsics(members[1]))[1]}(members)
+end
 
 # The gauge invariant. A sensor rig whose frame is one of its views: that
 # view's stored extrinsics is the identity (a rig may also be posed in a view
@@ -509,12 +526,17 @@ use case) that is the intent — the approximation error is the fit report's
 — while for a refinement the new model is the START of another bundle
 run, not a substitute for one.
 """
-with_model(c::Camera, model::AbstractCameraModel) = Camera(model, c.extrinsics)
-with_model(::AbstractCameraModel, model::AbstractCameraModel) = model   # an unposed camera is its model
-with_model(c::BoundedCamera, model::AbstractCameraModel) =
+with_model(c::Camera, model::AbstractCamera) = Camera(model, c.extrinsics)   # Camera checks `model`
+# an unposed camera is its model; a posed camera type answers with its own method
+function with_model(c::AbstractCamera, model::AbstractCamera)
+    has_extrinsics(c) && throw(MethodError(with_model, (c, model)))
+    _check_camera_model(model, "with_model")
+    return model
+end
+with_model(c::BoundedCamera, model::AbstractCamera) =
     BoundedCamera(with_model(c.camera, model), c.extent)
 
-function with_model(rig::Rig{F, <:Tuple}, im::Pair{<:Integer, <:AbstractCameraModel}) where {F}
+function with_model(rig::Rig{F, <:Tuple}, im::Pair{<:Integer, <:AbstractCamera}) where {F}
     i, m = im
     1 <= i <= length(rig.members) || throw(
         ArgumentError(
@@ -526,7 +548,7 @@ function with_model(rig::Rig{F, <:Tuple}, im::Pair{<:Integer, <:AbstractCameraMo
     end
     return Rig{F}(cams)
 end
-function with_model(rig::Rig{F, <:Tuple}, model::AbstractCameraModel) where {F}
+function with_model(rig::Rig{F, <:Tuple}, model::AbstractCamera) where {F}
     length(rig.members) == 1 || throw(
         ArgumentError(
             "with_model: the rig has $(length(rig.members)) sensors — supply `i => model`"

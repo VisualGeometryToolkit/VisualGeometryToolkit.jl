@@ -46,6 +46,7 @@ using VisualGeometryToolkitCore: canonical_basis, centroid
 using VisualGeometryToolkitCore: FeatureFrame
 using VisualGeometryToolkitCore.Cameras: Camera, CameraModel, unproject, pose
 using VisualGeometryToolkitCore: EuclideanMap, has_units   # a physical pose or camera is drawn in mm (plotting/geometry.jl)
+using VisualGeometryToolkitCore: has_extrinsics   # cameraplot! draws a posed camera only (plotting/camera_recipe.jl)
 using VisualGeometryToolkitCore: DEFAULT_MAX_FOV   # plot_rectification's field-of-view default (plotting/rectification.jl)
 
 # Stub functions to extend

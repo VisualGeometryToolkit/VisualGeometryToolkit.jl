@@ -24,6 +24,15 @@ A camera is assembled from three components:
 [`Camera`](@ref VisualGeometryToolkitCore.Cameras.Camera) pairs a model with a
 pose.
 
+Every camera — a model, a posed camera, a [`BoundedCamera`](@ref) of either —
+is an [`AbstractCamera`](@ref). Whether it carries a pose is the trait
+[`has_extrinsics`](@ref VisualGeometryToolkitCore.has_extrinsics): `false` for a
+model, `true` for a `Camera`, the wrapped camera's for a `BoundedCamera`. The
+posed-only verbs (`pose`, `extrinsics`, rig membership) refuse an unposed camera
+with an `ArgumentError`, and `Camera(model, X)` refuses a model that is already
+posed or bounded — the bound goes outside the pose,
+`BoundedCamera(Camera(model, X), extent)`.
+
 ## Quick Example
 
 ```julia

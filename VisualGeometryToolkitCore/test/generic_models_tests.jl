@@ -3,7 +3,7 @@
     using Test
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: CentralGenericModel, NoncentralGenericModel, Ray3, Division,
-        AbstractCameraModel
+        has_extrinsics
     using VisualGeometryToolkitCore.Cameras: _cubic_weights, _spline_window, _eval_window, _grid_coords
     using StaticArrays
     using FiniteDiff: FiniteDiff
@@ -57,7 +57,7 @@
 
         @testset "central: round trip + parity with the source" begin
             g = CentralGenericModel(src, (W, H); grid_size = (20, 16))
-            @test g isa AbstractCameraModel
+            @test g isa AbstractCamera && !has_extrinsics(g)
             rng = MersenneTwister(3)
             worst_rt = 0.0
             worst_angle = 0.0

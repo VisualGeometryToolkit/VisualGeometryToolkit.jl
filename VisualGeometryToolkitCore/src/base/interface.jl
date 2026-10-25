@@ -60,12 +60,18 @@ function feature_frame end
 """
     AbstractCamera
 
-Abstract base type for all camera types.
+The one camera type: every camera — an unposed model ([`CameraModel`](@ref),
+the generic grid models), a posed camera ([`Camera`](@ref)) and a bounded one
+([`BoundedCamera`](@ref)) — subtypes it. Whether a camera carries a pose is a
+trait, [`has_extrinsics`](@ref), not a second type root.
 
-Subtypes must implement:
-- `project(camera, point3d)` - Project a 3D point to 2D pixel coordinates
-- `backproject(camera, pixel)` - Backproject a 2D pixel to a 3D ray direction
-- `pose(camera)` - Return the camera pose as an EuclideanMap
+Every camera implements, in the COLMAP pixel frame:
+- `project(camera, X)` — a 3D point (camera frame for a model, world frame for
+  a posed camera) to its pixel
+- `backproject(camera, u)` — a pixel to its ray
+
+A posed camera (`has_extrinsics(camera) == true`) also implements `pose(camera)`
+and `extrinsics(camera)`; on an unposed one they are an `ArgumentError`.
 
 # Example
 ```julia
@@ -77,6 +83,23 @@ end
 ```
 """
 abstract type AbstractCamera end
+
+"""
+    has_extrinsics(camera::AbstractCamera) -> Bool
+
+Whether `camera` carries a pose: `true` for a [`Camera`](@ref) (a model and its
+extrinsics), `false` for an unposed model ([`CameraModel`](@ref),
+[`CentralGenericModel`](@ref), [`NoncentralGenericModel`](@ref)), and the
+wrapped camera's answer for a [`BoundedCamera`](@ref). It is decided by the
+camera's type, so a branch on it compiles away.
+
+The posed-only verbs — `pose`, `extrinsics`, rig membership, the
+[`StereoRig`](@ref) constructors that read poses — refuse an unposed camera
+with an `ArgumentError`, and `Camera(model, X)` refuses a posed `model`. A
+camera type of another package that carries a pose adds a method returning
+`true`.
+"""
+has_extrinsics(::AbstractCamera) = false
 
 """
     pose(camera::AbstractCamera) -> EuclideanMap

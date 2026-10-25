@@ -101,6 +101,7 @@ import ..VisualGeometryToolkitCore: aspect_ratio  # Extend interface stub (share
 using ..VisualGeometryToolkitCore: Attributed, csponds  # composition primitives (depth-attributed points, correspondence sets)
 using ..VisualGeometryToolkitCore: sources, targets, centroid  # correspondence access protocol (#21)
 using ..VisualGeometryToolkitCore: AbstractCamera  # Abstract camera type from interface
+import ..VisualGeometryToolkitCore: has_extrinsics  # the pose trait, answered per camera type
 using ..VisualGeometryToolkitCore: sampson_distance, skew, FundMat  # GT-pose Sampson filter in validate_gt_metric; skew in the pose Jacobian
 using ..VisualGeometryToolkitCore: HasBounds, NoBounds  # Bounds trait
 import ..VisualGeometryToolkitCore: bounds_trait, extent           # extend the trait + accessor
@@ -192,8 +193,10 @@ and `backproject(camera, u)` / `unproject(camera, u, depth)` for the
 inverse directions. The transform is computed on demand and inlined.
 
 # Type parameters
-- `M <: AbstractCameraModel`: camera model type ([`CameraModel`](@ref), or a
-  grid model)
+- `M <: AbstractCamera`: an UNPOSED camera model ([`CameraModel`](@ref), or a
+  grid model); `Camera(model, X)` refuses a posed one (`has_extrinsics(model)`)
+  and a [`BoundedCamera`](@ref) — the bound goes outside the pose,
+  `BoundedCamera(Camera(model, X), extent)`
 - `Rt <: EuclideanMap`: extrinsics type
 
 # Fields
@@ -218,12 +221,22 @@ u = project(camera, X_world)
 ```
 """
 struct Camera{
-        M <: AbstractCameraModel,   # any unposed model — parametric OR generic (0.16)
+        M <: AbstractCamera,   # an unposed model — parametric OR generic (checked below)
         Rt <: EuclideanMap,
     } <: AbstractCamera
     model::M
     extrinsics::Rt
+    # The one hierarchy admits a camera as the model type; the guard refuses the
+    # two forms that are not a model. It is decided by the model's type
+    # (`has_extrinsics` is a type-level answer), so it compiles away.
+    function Camera{M, Rt}(model, extrinsics) where {M <: AbstractCamera, Rt <: EuclideanMap}
+        _check_camera_model(model, "Camera")
+        return new{M, Rt}(model, extrinsics)
+    end
 end
+Camera(model::M, extrinsics::Rt) where {M <: AbstractCamera, Rt <: EuclideanMap} = Camera{M, Rt}(model, extrinsics)
+
+has_extrinsics(::Camera) = true
 
 """
     PinholeCamera
@@ -308,10 +321,10 @@ function _camera_project_world_points(camera::Camera, pts)
     return GeometryBasics.Polygon([Point2(project(camera, Point3{Float64}(p...))) for p in pts])
 end
 
-# For non-EuclideanMap extrinsics, convert first. The model bound keeps a
+# For non-EuclideanMap extrinsics, convert first. The camera bound keeps a
 # wrong first argument a MethodError instead of infinite recursion through
 # EuclideanMap(::EuclideanMap).
-Camera(model::AbstractCameraModel, extrinsics) = Camera(model, EuclideanMap(extrinsics))
+Camera(model::AbstractCamera, extrinsics) = Camera(model, EuclideanMap(extrinsics))
 
 """
     Camera(model::CameraModel, e::CameraExtrinsics) -> Camera
@@ -330,7 +343,7 @@ inverse camera. With frame labels that mistake is unrepresentable:
 directly into the extrinsics slot via the default constructor, `CameraPose`
 inverts internally, and `pose(Camera(model, P::CameraPose)) ≈ P`.
 """
-Camera(model::AbstractCameraModel, p::CameraPose) = Camera(model, inv(p))
+Camera(model::AbstractCamera, p::CameraPose) = Camera(model, inv(p))
 
 """
     Camera(K::StaticMatrix{3,3}, R::StaticMatrix{3,3}, t::StaticVector{3};
@@ -375,11 +388,12 @@ units.  Used by SfM/MVS dataset readers (ETH3D, ScanNet, COLMAP exports)
 where the camera is described by its calibration plus an explicit image
 extent — information the bare `Camera` type doesn't retain.
 
-The wrapped camera may be UNPOSED — a bare `AbstractCameraModel` — which is
-COLMAP's "camera" row (intrinsics, lens and image size, no pose) and the
-element of a stored camera collection (VisualGeometryToolkitIO's `cameras` kind).
-`BoundedCamera(Camera(model(bc), pose), bc.extent)` is its posed counterpart;
-the pose accessors of an unposed one are a `MethodError`.
+The wrapped camera may be UNPOSED — a bare model, `has_extrinsics(bc) == false`
+— which is COLMAP's "camera" row (intrinsics, lens and image size, no pose) and
+the element of a stored camera collection (VisualGeometryToolkitIO's `cameras`
+kind). `BoundedCamera(Camera(model(bc), pose), bc.extent)` is its posed
+counterpart; the pose accessors of an unposed one are an `ArgumentError`.
+[`has_extrinsics`](@ref) is the wrapped camera's.
 
 # Field access
 - `bc.camera`, `bc.extent` — direct fields.
@@ -403,13 +417,44 @@ bc.extent          # Size2(6048, 4032) — direct field
 extent(bc)         # same, via trait-dispatched accessor
 ```
 """
-struct BoundedCamera{C <: Union{AbstractCamera, AbstractCameraModel}} <: AbstractCamera
+struct BoundedCamera{C <: AbstractCamera} <: AbstractCamera
     camera::C
     extent::Size2{Int}
 end
 
 # Trait opt-in — instance form (matches VGC convention: see has_boundary(::Ellipse) etc.)
 bounds_trait(::BoundedCamera) = HasBounds()
+has_extrinsics(b::BoundedCamera) = has_extrinsics(b.camera)
+
+# What `Camera(model, X)` (and `with_model`) accepts as the model: an unposed
+# camera that is not a bound. A posed one would be posed twice; a bounded model
+# would put the bound inside the pose, a second spelling of
+# `BoundedCamera(Camera(model, X), extent)`.
+@noinline _refuse_posed_model(what, c) = throw(
+    ArgumentError(
+        "$(what): the model is a posed camera (a $(nameof(typeof(c)))) — a camera is posed once; " *
+            "supply its model: `$(what)(model(camera), …)`"
+    )
+)
+@noinline _refuse_bounded_model(what) = throw(
+    ArgumentError(
+        "$(what): the model is a BoundedCamera — the bound goes outside the pose: " *
+            "`BoundedCamera(Camera(model(bc), X), bc.extent)`"
+    )
+)
+_check_camera_model(c::AbstractCamera, what) = has_extrinsics(c) ? _refuse_posed_model(what, c) : nothing
+_check_camera_model(::BoundedCamera, what) = _refuse_bounded_model(what)
+
+# The posed-only verbs on an unposed camera: refused by name. A posed camera
+# type answers them with its own methods, so on one that lacks them this is the
+# MethodError it would have been.
+@noinline _refuse_unposed(what, c) = throw(
+    ArgumentError(
+        "$(what): the camera is unposed (a $(nameof(typeof(c))), `has_extrinsics` is false) — pose it: " *
+            "`Camera(model, X)`, or `BoundedCamera(Camera(model(bc), X), bc.extent)`"
+    )
+)
+_unposed_only(f, what, c, args...) = has_extrinsics(c) ? throw(MethodError(f, (c, args...))) : _refuse_unposed(what, c)
 
 # Method delegation to the wrapped camera (`bc.camera`).  Uses MacroTools.@forward
 # to generate the per-method overloads so we don't hand-roll one line per accessor.
@@ -430,7 +475,7 @@ MacroTools.@forward BoundedCamera.camera (
 # map is stored as it is (the bare constructor would invert a `CameraPose`).
 
 # A camera posed by a physical map (bounds stated, so dispatch ranks it above `Camera`).
-const _UnitfulCamera = Camera{<:AbstractCameraModel, <:UnitfulEuclideanMap{3}}
+const _UnitfulCamera = Camera{<:AbstractCamera, <:UnitfulEuclideanMap{3}}
 
 # The plane-coordinate verbs (a z = 0 conic or rectangle, the plane-induced
 # homography) take plain plane coordinates with no unit of their own, so a
@@ -449,7 +494,9 @@ transfer_ellipse(::_UnitfulCamera, ::Union{Circle, Ellipse}) = _refuse_physical_
 
 has_units(c::Camera) = has_units(c.extrinsics)
 has_units(c::BoundedCamera) = has_units(c.camera)
-has_units(::AbstractCameraModel) = false   # an unposed camera holds no length
+# An unposed camera holds no length (a NoncentralGenericModel's grid is plain
+# metres by its type, generic_models.jl); a posed camera type answers itself.
+has_units(c::AbstractCamera) = has_extrinsics(c) ? throw(MethodError(has_units, (c,))) : false
 _rebuilt(c::Camera, X::EuclideanMap) = Camera{typeof(c.model), typeof(X)}(c.model, X)
 
 """
@@ -458,11 +505,15 @@ _rebuilt(c::Camera, X::EuclideanMap) = Camera{typeof(c.model), typeof(X)}(c.mode
 A physical camera's plain form: its extrinsics stripped in the length unit
 `u` (`ustrip(u, E)`), the model and any extent unchanged. The inverse is
 [`with_unit`](@ref)`(camera, u)`. An `ArgumentError` on a camera already in
-the produced form.
+the produced form. An unposed camera (a model, or a `BoundedCamera` of one)
+holds no length, so both verbs return it unchanged.
 """
 FlexUnits.ustrip(u::Units, c::Camera) = _rebuilt(c, ustrip(u, c.extrinsics))
-FlexUnits.ustrip(u::Units, c::BoundedCamera{<:AbstractCamera}) = BoundedCamera(ustrip(u, c.camera), c.extent)
+FlexUnits.ustrip(u::Units, c::BoundedCamera) = BoundedCamera(ustrip(u, c.camera), c.extent)
 with_unit(c::Camera, u::Units) = _rebuilt(c, _attach_unit(c.extrinsics, u))
+# an unposed camera holds no length: nothing to strip or attach
+FlexUnits.ustrip(u::Units, c::AbstractCamera) = has_extrinsics(c) ? throw(MethodError(ustrip, (u, c))) : c
+with_unit(c::AbstractCamera, u::Units) = has_extrinsics(c) ? throw(MethodError(with_unit, (c, u))) : c
 
 # A non-central generic model's point grid is plain metres — the one length of
 # the stack its type cannot carry (generic_models.jl). A plain extrinsics is
@@ -492,7 +543,7 @@ FlexUnits.ustrip(u::Units, c::Camera{<:NoncentralGenericModel}) =
     u == m ? _rebuilt(c, ustrip(u, c.extrinsics)) : _refuse_noncentral_unit("ustrip", u)
 with_unit(c::Camera{<:NoncentralGenericModel}, u::Units) =
     u == m ? _rebuilt(c, _attach_unit(c.extrinsics, u)) : _refuse_noncentral_unit("with_unit", u)
-with_unit(c::BoundedCamera{<:AbstractCamera}, u::Units) = BoundedCamera(with_unit(c.camera, u), c.extent)
+with_unit(c::BoundedCamera, u::Units) = BoundedCamera(with_unit(c.camera, u), c.extent)
 
 """
     extent(cam) -> Size2{Int}
@@ -520,6 +571,7 @@ P.t                    # Camera position in world coordinates
 ```
 """
 pose(c::Camera) = inv(extrinsics(c))
+pose(c::AbstractCamera) = _unposed_only(pose, "pose", c)
 
 """
     extrinsics(camera) -> CameraExtrinsics
@@ -536,6 +588,7 @@ E(world_point)          # Transform point to camera coordinates
 ```
 """
 extrinsics(c::Camera) = CameraExtrinsics(c.extrinsics)
+extrinsics(c::AbstractCamera) = _unposed_only(extrinsics, "extrinsics", c)
 
 """
     is_in_front(camera, point::Point3) -> Bool
@@ -609,7 +662,8 @@ take.  Method form so wrappers (e.g. `BoundedCamera`) can delegate via
 `@forward`.
 """
 model(c::Camera) = c.model
-model(m::AbstractCameraModel) = m   # an unposed camera (a BoundedCamera of a model) is its own model
+# an unposed camera (a model, the inside of a BoundedCamera of one) is its own model
+model(c::AbstractCamera) = has_extrinsics(c) ? throw(MethodError(model, (c,))) : c
 
 """
     intrinsics(camera::Camera)
@@ -876,7 +930,7 @@ export convert_frame                      # the one way to change the pixel fram
 export rectify                            # stereo rectification: rectified pinhole rig + FramedImage pair
 export view_angle_limit                   # honest θ-domains
 export radial_part                         # a lens's radially symmetric part
-export AbstractCameraModel, CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models (Schöps et al.)
+export CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models (Schöps et al.)
 export spline_support, spline_weights, window_controls, window_indices, direction_tangents, default_generic_grid  # the grid model's window interface (0.22.2)
 export with_model                         # same camera/rig, new model — rebuilds through the validating constructor
 export reference_frame                    # rig/target-rig reference-frame type (submodule-level only:

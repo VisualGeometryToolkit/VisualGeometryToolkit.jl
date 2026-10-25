@@ -25,7 +25,7 @@
 # reference generates as C code are obtained here by ForwardDiff through the
 # same scalar spline window — identical totals.
 #
-# FRAMEWORK EMBEDDING. Both models subtype `AbstractCameraModel` and speak
+# FRAMEWORK EMBEDDING. Both models are unposed `AbstractCamera`s and speak
 # the package verbs — `project(model, X)`, `backproject(model, u)`,
 # `unproject(model, u, depth)` (central only; a non-central pixel has no
 # single z-depth point). The reference's pixel convention — origin at the
@@ -86,7 +86,7 @@ function _check_generic_area(width, height, cminx, cminy, cmaxx, cmaxy, gsz)
 end
 
 """
-    CentralGenericModel{T} <: AbstractCameraModel
+    CentralGenericModel{T} <: AbstractCamera
 
 The central generic camera model: a `grid` of UNIT observation directions
 (`Matrix{Vec3{T}}`, indexed `[gy, gx]`), interpolated by a uniform cubic
@@ -110,7 +110,7 @@ global prefilter solve never rings against near-fold curvature or unlit
 extrapolation. The bridge from the parametric zoo into the generic
 family.
 """
-struct CentralGenericModel{T <: AbstractFloat} <: AbstractCameraModel
+struct CentralGenericModel{T <: AbstractFloat} <: AbstractCamera
     width::Int
     height::Int
     calib_min_x::Int
@@ -134,7 +134,7 @@ CentralGenericModel(
 ) where {T} = CentralGenericModel{T}(w, h, a, b, c, d, grid)
 
 """
-    NoncentralGenericModel{T} <: AbstractCameraModel
+    NoncentralGenericModel{T} <: AbstractCamera
 
 The non-central generic camera model: per-grid-point observation LINES —
 `directions` (unit, re-normalized at construction) and `points` (a point on
@@ -159,7 +159,7 @@ camera, in metres only.
 Initialize from a parametric (central) model: directions by
 quasi-interpolation, points all zero.
 """
-struct NoncentralGenericModel{T <: AbstractFloat} <: AbstractCameraModel
+struct NoncentralGenericModel{T <: AbstractFloat} <: AbstractCamera
     width::Int
     height::Int
     calib_min_x::Int

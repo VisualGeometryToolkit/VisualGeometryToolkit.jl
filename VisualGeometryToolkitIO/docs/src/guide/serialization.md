@@ -40,7 +40,7 @@ other dimension has no declared unit and is an `ArgumentError`.
 
 ## Sizes, feature frames and detections
 
-[`json_value`](@ref)`(x, contract)` is the plain value a record holds for one
+[`json_value`](@ref)`(x, contract; kind)` is the plain value a record holds for one
 of VisualGeometryToolkitCore's values, which `JSON.json` writes, and
 [`from_json`](@ref)`(T, d, contract; kind)` reads it back from a parsed object.
 These are explicit functions, not methods of JSON.jl's `lower` and `lift`.
@@ -54,12 +54,14 @@ These are explicit functions, not methods of JSON.jl's `lower` and `lift`.
 | `AffineFrame` | `{"center": [x, y], "A": [A11, A21, A12, A22]}` |
 
 Matrices are written as their four entries in column order. A `Size2` or a
-`Disc` may hold plain numbers or quantities of ONE kind; its reader declares
-which with `kind` (`:plain`, `:length` or `:pixel`). The other frames hold
-plain numbers.
+`Disc` holds plain numbers or quantities of ONE kind, and both its writer and
+its reader declare which with the required keyword `kind` (`:plain`,
+`:length` or `:pixel`); there is no default, because a default would hand a
+length or a pixel count back as a bare number. The other frames hold plain
+numbers (`kind = :plain`).
 
 ```jldoctest serialization
-julia> s = JSON.json(VgtkIO.json_value(Size2(width = 210.0mm, height = 297.0mm), MM_PX))
+julia> s = JSON.json(VgtkIO.json_value(Size2(width = 210.0mm, height = 297.0mm), MM_PX; kind = :length))
 "{\"width\":210.0,\"height\":297.0}"
 
 julia> VgtkIO.from_json(Size2, JSON.parse(s), MM_PX; kind = :length) == Size2(width = 210.0mm, height = 297.0mm)
@@ -81,14 +83,14 @@ Metadata has no declared kind, so a quantity in it is refused on writing.
 ```jldoctest serialization
 julia> d = Attributed(Disc(Point2(10.5, 20.25), 3.0), (response = 0.25, laplacian_scale_score = 1.0));
 
-julia> s = JSON.json(VgtkIO.json_value(d, MM_PX))
+julia> s = JSON.json(VgtkIO.json_value(d, MM_PX; kind = :plain))
 "{\"frame\":{\"center\":[10.5,20.25],\"σ\":3.0},\"response\":0.25,\"laplacian_scale_score\":1.0}"
 
-julia> VgtkIO.from_json(AbstractDetection, JSON.parse(s), MM_PX) == d
+julia> VgtkIO.from_json(AbstractDetection, JSON.parse(s), MM_PX; kind = :plain) == d
 true
 ```
 
-With VisualGeometryToolkitFeatures loaded, `from_json(Detection, obj, contract)`
+With VisualGeometryToolkitFeatures loaded, `from_json(Detection, obj, contract; kind)`
 reads the same object.
 
 ## The legacy `{value, unit}` form
@@ -105,8 +107,8 @@ the unit's dimension. Nothing writes the legacy form.
 julia> VgtkIO.read_quantity(JSON.parse("""{"value": 2.5, "unit": "mm"}"""), :length, MM_PX) == 2.5mm
 true
 
-julia> VgtkIO.from_json(Size2, JSON.parse("""{"width": 3.0, "height": {"value": 4.0, "unit": "mm"}}"""), MM_PX) ==
-           Size2(width = 3.0, height = 4.0mm)
+julia> VgtkIO.from_json(Size2, JSON.parse("""{"width": 3.0, "height": {"value": 4.0, "unit": "mm"}}"""), MM_PX; kind = :length) ==
+           Size2(width = 3.0mm, height = 4.0mm)
 true
 ```
 

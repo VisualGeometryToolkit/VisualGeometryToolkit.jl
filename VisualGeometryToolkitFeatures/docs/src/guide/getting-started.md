@@ -116,7 +116,7 @@ the GPU and the learned LoMa matchers.
 ## Saving detections
 
 Detections are written to and read from JSON by VisualGeometryToolkitIO
-(`json_value(d, contract)` and `from_json(Detection, obj, contract)`), which
+(`json_value(d, contract; kind)` and `from_json(Detection, obj, contract; kind)`), which
 owns the stack's quantity JSON format; its
 [Serialization](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/stable/guide/serialization/)
 guide describes the format.

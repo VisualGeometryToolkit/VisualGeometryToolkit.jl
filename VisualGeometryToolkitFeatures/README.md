@@ -76,7 +76,7 @@ all(perm[m.second] == m.first for m in matches)   # true
 
 Detections are written to and read from JSON by
 [VisualGeometryToolkitIO](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/stable/guide/serialization/)
-(`json_value(d, contract)`, `from_json(Detection, obj, contract)`), which owns
+(`json_value(d, contract; kind)`, `from_json(Detection, obj, contract; kind)`), which owns
 the stack's quantity JSON format.
 
 ## Documentation

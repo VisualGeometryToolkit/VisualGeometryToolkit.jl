@@ -77,8 +77,8 @@ end
 
 @testitem "quantity JSON: Size2 and the feature frames round trip" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitIO: UnitContract, MM_PX, json_value, from_json
-    using VisualGeometryToolkitCore: Disc, OrientedDisc, EllipticFrame, AffineFrame, Point2
-    rt(x, c; kind = :plain) = from_json(typeof(x).name.wrapper, JSON.parse(JSON.json(json_value(x, c))), c; kind)
+    using VisualGeometryToolkitCore: Disc, OrientedDisc, EllipticFrame, AffineFrame, Point2, AbstractDetection
+    rt(x, c; kind) = from_json(typeof(x).name.wrapper, JSON.parse(JSON.json(json_value(x, c; kind))), c; kind)
     for c in (MM_PX, UnitContract(world = m))
         for (x, kind) in (
                 (Size2(width = 640px, height = 480px), :pixel), (Size2(width = 210.0mm, height = 297.0mm), :length),
@@ -94,21 +94,37 @@ end
         end
     end
     # the numbers are in the declared unit
-    @test JSON.json(json_value(Size2(width = 640px, height = 480px), MM_PX)) == """{"width":640,"height":480}"""
-    @test JSON.json(json_value(Size2(width = 210.0mm, height = 297.0mm), MM_PX)) == """{"width":210.0,"height":297.0}"""
-    @test JSON.json(json_value(Size2(width = 210.0mm, height = 297.0mm), UnitContract(world = m))) ==
+    @test JSON.json(json_value(Size2(width = 640px, height = 480px), MM_PX; kind = :pixel)) == """{"width":640,"height":480}"""
+    @test JSON.json(json_value(Size2(width = 210.0mm, height = 297.0mm), MM_PX; kind = :length)) == """{"width":210.0,"height":297.0}"""
+    @test JSON.json(json_value(Size2(width = 210.0mm, height = 297.0mm), UnitContract(world = m); kind = :length)) ==
         """{"width":0.21,"height":0.297}"""
-    @test JSON.json(json_value(Disc(Point2(1.0mm, 2.0mm), 3.0mm), MM_PX)) == """{"center":[1.0,2.0],"σ":3.0}"""
-    @test JSON.json(json_value(EllipticFrame([10.5, 20.25], [2.0 0.3; 0.3 1.5]), MM_PX)) ==
+    @test JSON.json(json_value(Disc(Point2(1.0mm, 2.0mm), 3.0mm), MM_PX; kind = :length)) == """{"center":[1.0,2.0],"σ":3.0}"""
+    @test JSON.json(json_value(EllipticFrame([10.5, 20.25], [2.0 0.3; 0.3 1.5]), MM_PX; kind = :plain)) ==
         """{"center":[10.5,20.25],"S":[2.0,0.3,0.3,1.5]}"""
-    @test JSON.json(json_value(AffineFrame([1.0, 2.0], [1.2 0.1; -0.2 0.9]), MM_PX)) ==
+    @test JSON.json(json_value(AffineFrame([1.0, 2.0], [1.2 0.1; -0.2 0.9]), MM_PX; kind = :plain)) ==
         """{"center":[1.0,2.0],"A":[1.2,-0.2,0.1,0.9]}"""
-    @test JSON.json(json_value(OrientedDisc(1.0, 2.0, 3.0, 0.5), MM_PX)) == """{"center":[1.0,2.0],"σ":3.0,"θ":0.5}"""
-    # one value, one kind: a size half in pixels and half in millimetres has no single declaration
-    @test_throws ArgumentError json_value(Size2(width = 640px, height = 3.0mm), MM_PX)
+    @test JSON.json(json_value(OrientedDisc(1.0, 2.0, 3.0, 0.5), MM_PX; kind = :plain)) == """{"center":[1.0,2.0],"σ":3.0,"θ":0.5}"""
+    # the declared kind is the value's: a size half in pixels and half in
+    # millimetres, or pixels written as lengths, or quantities written plain, is refused
+    @test_throws ArgumentError json_value(Size2(width = 640px, height = 3.0mm), MM_PX; kind = :pixel)
+    @test_throws ArgumentError json_value(Size2(width = 640px, height = 480px), MM_PX; kind = :length)
+    @test_throws ArgumentError json_value(Size2(width = 640px, height = 480px), MM_PX; kind = :plain)
+    @test_throws ArgumentError json_value(Size2(width = 640, height = 480), MM_PX; kind = :pixel)
+    @test_throws ArgumentError json_value(Disc(Point2(1.0mm, 2.0mm), 3.0mm), MM_PX; kind = :pixel)
+    @test_throws ArgumentError json_value(OrientedDisc(1.0, 2.0, 3.0, 0.5), MM_PX; kind = :pixel)
+    @test_throws ArgumentError from_json(OrientedDisc, Dict("center" => [1, 2], "σ" => 3, "θ" => 0), MM_PX; kind = :length)
+    # `kind` is required: no default hands a length or a pixel count back as a bare number
+    for (x, d) in (
+            (Size2(width = 640px, height = 480px), Dict("width" => 640, "height" => 480)),
+            (Disc(Point2(10.5px, 20.0px), 3.0px), Dict("center" => [10.5, 20], "σ" => 3)),
+        )
+        @test_throws UndefKeywordError json_value(x, MM_PX)
+        @test_throws UndefKeywordError from_json(typeof(x).name.wrapper, d, MM_PX)
+    end
+    @test_throws UndefKeywordError from_json(AbstractDetection, Dict("frame" => Dict("center" => [1, 2], "σ" => 3)), MM_PX)
     @test_throws ArgumentError from_json(Size2, Dict("width" => 1, "height" => 2), MM_PX; kind = :angle)
     # a parsed object, a Dict or a NamedTuple
-    @test from_json(Size2, Dict{String, Any}("width" => 640, "height" => 480), MM_PX) == Size2(width = 640, height = 480)
+    @test from_json(Size2, Dict{String, Any}("width" => 640, "height" => 480), MM_PX; kind = :plain) == Size2(width = 640, height = 480)
     @test from_json(Size2, (width = 640, height = 480), MM_PX; kind = :pixel) == Size2(width = 640px, height = 480px)
 end
 
@@ -117,7 +133,7 @@ end
     using VisualGeometryToolkitCore: Disc, OrientedDisc, EllipticFrame, AffineFrame, Point2, Attributed,
         AbstractDetection, Uncertain, CovMat
     using Statistics: cov
-    rt(d; kind = :plain) = from_json(AbstractDetection, JSON.parse(JSON.json(json_value(d, MM_PX))), MM_PX; kind)
+    rt(d; kind = :plain) = from_json(AbstractDetection, JSON.parse(JSON.json(json_value(d, MM_PX; kind))), MM_PX; kind)
     meta = (response = 0.25, edge_score = 0.0, laplacian_scale_score = 1.0, warp_idx = 7)
     frames = (
         Disc(10.5, 20.25, 3.0), OrientedDisc(10.5, 20.25, 3.0, 0.7),
@@ -139,18 +155,18 @@ end
     # an uncertain frame keeps its covariance; a NaN one is written null and read back NaN
     Σ = CovMat{3, Float64, 9}(Tuple([0.01 0.001 0.0; 0.001 0.02 0.0; 0.0 0.0 0.005]))
     u = Attributed(Uncertain(frames[1], Σ), meta)
-    @test JSON.json(json_value(u, MM_PX)) ==
+    @test JSON.json(json_value(u, MM_PX; kind = :plain)) ==
         """{"frame":{"center":[10.5,20.25],"σ":3.0},"cov":[0.01,0.001,0.0,0.001,0.02,0.0,0.0,0.0,0.005],"response":0.25,"edge_score":0.0,"laplacian_scale_score":1.0,"warp_idx":7}"""
     ru = rt(u)
     @test ru isa AbstractDetection && cov(getfield(ru, :value)) == cov(getfield(u, :value))
     n = Attributed(Uncertain(frames[1], CovMat{3, Float64, 9}(ntuple(_ -> NaN, 9))), meta)
-    @test occursin("\"cov\":null", JSON.json(json_value(n, MM_PX)))
+    @test occursin("\"cov\":null", JSON.json(json_value(n, MM_PX; kind = :plain)))
     @test all(isnan, cov(getfield(rt(n), :value)))
     # the wire format of a plain detection is the one stored files hold
-    @test JSON.json(json_value(Attributed(Disc(10.5, 20.25, 3.0), meta), MM_PX)) ==
+    @test JSON.json(json_value(Attributed(Disc(10.5, 20.25, 3.0), meta), MM_PX; kind = :plain)) ==
         """{"frame":{"center":[10.5,20.25],"σ":3.0},"response":0.25,"edge_score":0.0,"laplacian_scale_score":1.0,"warp_idx":7}"""
     # metadata has no declared kind, so a quantity there is refused, naming the field
-    err = try json_value(Attributed(frames[1], (response = 1.0, pitch = 2.5mm)), MM_PX) catch x; x end
+    err = try json_value(Attributed(frames[1], (response = 1.0, pitch = 2.5mm)), MM_PX; kind = :plain) catch x; x end
     @test err isa ArgumentError && occursin("pitch", err.msg)
 end
 
@@ -182,45 +198,46 @@ end
         @test (s, read_quantity(JSON.parse(s), kind, c)) == (s, q)
     end
     values = [
-        (Size2, """{"width":{"value":640,"unit":"px"},"height":{"value":480,"unit":"px"}}""", Size2(width = 640px, height = 480px)),
-        (Size2, """{"width":{"value":640.5,"unit":"px"},"height":{"value":480.25,"unit":"px"}}""", Size2(width = 640.5px, height = 480.25px)),
-        (Size2, """{"width":{"value":210.0,"unit":"mm"},"height":{"value":297.0,"unit":"mm"}}""", Size2(width = 210.0mm, height = 297.0mm)),
-        (Size2, """{"width":{"value":62.79999999999999,"unit":"mm"},"height":{"value":1.3,"unit":"mm"}}""", Size2(width = 62.8mm, height = 1.3mm)),
-        (Size2, """{"width":640,"height":480}""", Size2(width = 640, height = 480)),
-        (Size2, """{"width":640.5,"height":480.0}""", Size2(width = 640.5, height = 480.0)),
-        (Disc, """{"center":[10.5,20.25],"σ":3.0}""", Disc(10.5, 20.25, 3.0)),
-        (Disc, """{"center":[{"value":10.5,"unit":"px"},{"value":20,"unit":"px"}],"σ":{"value":3,"unit":"px"}}""", Disc(Point2(10.5px, 20.0px), 3.0px)),
-        (Disc, """{"center":[{"value":10.25,"unit":"px"},{"value":20.75,"unit":"px"}],"σ":{"value":1.6,"unit":"px"}}""", Disc(Point2(10.25px, 20.75px), 1.6px)),
-        (Disc, """{"center":[{"value":1.0,"unit":"mm"},{"value":2.0,"unit":"mm"}],"σ":{"value":3.0,"unit":"mm"}}""", Disc(Point2(1.0mm, 2.0mm), 3.0mm)),
-        (Disc, """{"center":[{"value":12.7,"unit":"mm"},{"value":0.3,"unit":"mm"}],"σ":{"value":1.25,"unit":"mm"}}""", Disc(Point2(12.7mm, 0.3mm), 1.25mm)),
-        (OrientedDisc, """{"center":[1.0,2.0],"σ":3.0,"θ":0.5}""", OrientedDisc(1.0, 2.0, 3.0, 0.5)),
-        (EllipticFrame, """{"center":[10.5,20.25],"S":[2.0,0.3,0.3,1.5]}""", EllipticFrame([10.5, 20.25], [2.0 0.3; 0.3 1.5])),
-        (AffineFrame, """{"center":[1.0,2.0],"A":[1.2,-0.2,0.1,0.9]}""", AffineFrame([1.0, 2.0], [1.2 0.1; -0.2 0.9])),
+        (Size2, """{"width":{"value":640,"unit":"px"},"height":{"value":480,"unit":"px"}}""", Size2(width = 640px, height = 480px), :pixel),
+        (Size2, """{"width":{"value":640.5,"unit":"px"},"height":{"value":480.25,"unit":"px"}}""", Size2(width = 640.5px, height = 480.25px), :pixel),
+        (Size2, """{"width":{"value":210.0,"unit":"mm"},"height":{"value":297.0,"unit":"mm"}}""", Size2(width = 210.0mm, height = 297.0mm), :length),
+        (Size2, """{"width":{"value":62.79999999999999,"unit":"mm"},"height":{"value":1.3,"unit":"mm"}}""", Size2(width = 62.8mm, height = 1.3mm), :length),
+        (Size2, """{"width":640,"height":480}""", Size2(width = 640, height = 480), :plain),
+        (Size2, """{"width":640.5,"height":480.0}""", Size2(width = 640.5, height = 480.0), :plain),
+        (Disc, """{"center":[10.5,20.25],"σ":3.0}""", Disc(10.5, 20.25, 3.0), :plain),
+        (Disc, """{"center":[{"value":10.5,"unit":"px"},{"value":20,"unit":"px"}],"σ":{"value":3,"unit":"px"}}""", Disc(Point2(10.5px, 20.0px), 3.0px), :pixel),
+        (Disc, """{"center":[{"value":10.25,"unit":"px"},{"value":20.75,"unit":"px"}],"σ":{"value":1.6,"unit":"px"}}""", Disc(Point2(10.25px, 20.75px), 1.6px), :pixel),
+        (Disc, """{"center":[{"value":1.0,"unit":"mm"},{"value":2.0,"unit":"mm"}],"σ":{"value":3.0,"unit":"mm"}}""", Disc(Point2(1.0mm, 2.0mm), 3.0mm), :length),
+        (Disc, """{"center":[{"value":12.7,"unit":"mm"},{"value":0.3,"unit":"mm"}],"σ":{"value":1.25,"unit":"mm"}}""", Disc(Point2(12.7mm, 0.3mm), 1.25mm), :length),
+        (OrientedDisc, """{"center":[1.0,2.0],"σ":3.0,"θ":0.5}""", OrientedDisc(1.0, 2.0, 3.0, 0.5), :plain),
+        (EllipticFrame, """{"center":[10.5,20.25],"S":[2.0,0.3,0.3,1.5]}""", EllipticFrame([10.5, 20.25], [2.0 0.3; 0.3 1.5]), :plain),
+        (AffineFrame, """{"center":[1.0,2.0],"A":[1.2,-0.2,0.1,0.9]}""", AffineFrame([1.0, 2.0], [1.2 0.1; -0.2 0.9]), :plain),
     ]
-    for (T, s, x) in values
-        # a legacy object carries its unit, so it reads whatever kind is declared for plain numbers
-        @test (s, from_json(T, JSON.parse(s), MM_PX)) == (s, x)
+    for (T, s, x, kind) in values
+        @test (s, from_json(T, JSON.parse(s), MM_PX; kind)) == (s, x)
     end
+    # a legacy object carries its unit, so it reads as its quantity under :plain too
+    @test from_json(Size2, JSON.parse(values[1][2]), MM_PX; kind = :plain) == values[1][3]
     # a declared kind is checked against a legacy object's unit
     @test from_json(Size2, JSON.parse(values[1][2]), MM_PX; kind = :pixel) == values[1][3]
     @test_throws ArgumentError from_json(Size2, JSON.parse(values[1][2]), MM_PX; kind = :length)
     detections = [
-        ("""{"frame":{"center":[10.5,20.25],"σ":3.0},"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}""", Disc(10.5, 20.25, 3.0)),
-        ("""{"frame":{"center":[{"value":10.5,"unit":"px"},{"value":20,"unit":"px"}],"σ":{"value":3,"unit":"px"}},"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}""", Disc(Point2(10.5px, 20.0px), 3.0px)),
-        ("""{"frame":{"center":[1.0,2.0],"σ":3.0,"θ":0.5},"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}""", OrientedDisc(1.0, 2.0, 3.0, 0.5)),
-        ("""{"frame":{"center":[10.5,20.25],"S":[2.0,0.3,0.3,1.5]},"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}""", EllipticFrame([10.5, 20.25], [2.0 0.3; 0.3 1.5])),
-        ("""{"frame":{"center":[1.0,2.0],"A":[1.2,-0.2,0.1,0.9]},"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}""", AffineFrame([1.0, 2.0], [1.2 0.1; -0.2 0.9])),
+        ("""{"frame":{"center":[10.5,20.25],"σ":3.0},"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}""", Disc(10.5, 20.25, 3.0), :plain),
+        ("""{"frame":{"center":[{"value":10.5,"unit":"px"},{"value":20,"unit":"px"}],"σ":{"value":3,"unit":"px"}},"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}""", Disc(Point2(10.5px, 20.0px), 3.0px), :pixel),
+        ("""{"frame":{"center":[1.0,2.0],"σ":3.0,"θ":0.5},"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}""", OrientedDisc(1.0, 2.0, 3.0, 0.5), :plain),
+        ("""{"frame":{"center":[10.5,20.25],"S":[2.0,0.3,0.3,1.5]},"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}""", EllipticFrame([10.5, 20.25], [2.0 0.3; 0.3 1.5]), :plain),
+        ("""{"frame":{"center":[1.0,2.0],"A":[1.2,-0.2,0.1,0.9]},"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}""", AffineFrame([1.0, 2.0], [1.2 0.1; -0.2 0.9]), :plain),
     ]
-    for (s, f) in detections
-        r = from_json(AbstractDetection, JSON.parse(s), MM_PX)
+    for (s, f, kind) in detections
+        r = from_json(AbstractDetection, JSON.parse(s), MM_PX; kind)
         @test (s, getfield(r, :value), getfield(r, :attributes)) == (s, f, meta)
     end
     s = """{"frame":{"center":[10.5,20.25],"σ":3.0},"cov":[0.01,0.001,0.0,0.001,0.02,0.0,0.0,0.0,0.005],"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}"""
-    r = from_json(AbstractDetection, JSON.parse(s), MM_PX)
+    r = from_json(AbstractDetection, JSON.parse(s), MM_PX; kind = :plain)
     @test r == Attributed(Uncertain(Disc(10.5, 20.25, 3.0), CovMat{3, Float64, 9}(Tuple([0.01 0.001 0.0; 0.001 0.02 0.0; 0.0 0.0 0.005]))), meta)
     # metadata is kept as it was read: Features' lift left a legacy quantity there a parsed object
     s = """{"frame":{"center":[1.0,2.0],"σ":3.0},"response":1.0,"image_size":{"width":{"value":640,"unit":"px"},"height":{"value":480,"unit":"px"}},"pitch":{"value":2.5,"unit":"mm"}}"""
-    a = getfield(from_json(AbstractDetection, JSON.parse(s), MM_PX), :attributes)
+    a = getfield(from_json(AbstractDetection, JSON.parse(s), MM_PX; kind = :plain), :attributes)
     @test keys(a) == (:response, :image_size, :pitch) && a.response === 1.0
     @test a.pitch == Dict("value" => 2.5, "unit" => "mm")
     @test a.image_size == Dict("width" => Dict("value" => 640, "unit" => "px"), "height" => Dict("value" => 480, "unit" => "px"))
@@ -250,7 +267,7 @@ end
         pc = d["preamble"]["pattern_config"]
         canvas = Size2(width = e.canvas[1] * mm, height = e.canvas[2] * mm)
         @test from_json(Size2, bc["canvas_size"], c; kind = :length) == canvas
-        @test from_json(Size2, bc["board_size"], c) == canvas
+        @test from_json(Size2, bc["board_size"], c; kind = :length) == canvas
         @test read_quantity(bc["print_density"], :density, c) == e.density * dpi
         @test read_quantity(bc["frame_width"], :length, c) == e.frame_width * mm
         @test read_quantity(bc["frame_padding"], :length, c) == 0 * mm

@@ -7,7 +7,9 @@
 # in the world unit, a density in the density unit, a pixel count as a number
 # of pixels. The unit is not repeated beside every value. What a number IS —
 # a length, a pixel count, a density — is the record's to say, field by field
-# (`read_quantity(x, kind, contract)`, the `kind` keyword of `from_json`),
+# (`read_quantity(x, kind, contract)`, the required `kind` keyword of
+# `json_value` and `from_json`, never defaulted: a default would hand a
+# length or a pixel count back as a bare number),
 # because a pixel is dimensionless and a number alone cannot say it.
 #
 # The legacy form, a `{"value": v, "unit": u}` object per quantity (what
@@ -19,6 +21,7 @@
 #
 # The codecs of VisualGeometryToolkitCore's sizes, feature frames and
 # detections are explicit functions, `json_value(x, contract)` and
+# `json_value(x, contract; kind)` and
 # `from_json(T, d, contract; kind)`, not methods of JSON.jl's `lower`/`lift`
 # (those are JSON.jl's functions on Core's types: piracy).
 
@@ -99,6 +102,8 @@ _get_key(x::AbstractDict, key::String) = haskey(x, key) ? x[key] : x[Symbol(key)
 _get_key(x::NamedTuple, key::String) = getproperty(x, Symbol(key))
 _key_names(x::_JSONObject) = (String(k) for k in keys(x))
 
+# Recognised only with exactly the two keys `value` and `unit`, which is what
+# every legacy writer (Features' hooks, BlobBoards' writers) emits.
 _is_legacy_quantity(x::_JSONObject) = length(x) == 2 && _has_key(x, "value") && _has_key(x, "unit")
 _is_legacy_quantity(x) = false
 
@@ -162,15 +167,21 @@ end
 _write_field(x::Real, ::UnitContract) = x
 _write_field(q::Quantity, contract::UnitContract) = write_quantity(q, contract)
 
-# One value is written under one kind, which its reader declares: a value
-# whose quantities are of two kinds (a width in px, a height in mm) is refused.
+# A value is written under the kind its caller declares, the one its reader
+# will declare: a number of any other kind (a width in px under :length, a
+# plain number under :pixel) is refused, so nothing is written as a number
+# that reads back as something else.
 _kind_of(::Real) = :plain
 _kind_of(q::Quantity) = _quantity_kind(q)
-function _one_kind(what, xs...)
-    kinds = unique(_kind_of.(xs))
-    length(kinds) == 1 || throw(
-        ArgumentError("$(what) holds quantities of $(join(kinds, " and ")); one value is written under one kind")
-    )
+const _VALUE_KINDS = (:plain, :length, :pixel)
+function _check_kind(what, kind::Symbol, xs...)
+    kind in _VALUE_KINDS ||
+        throw(ArgumentError("$(what): the kind is one of $(join(repr.(_VALUE_KINDS), ", ")), got $(repr(kind))"))
+    for x in xs
+        _kind_of(x) === kind || throw(
+            ArgumentError("$(what) holds $(x), a $(_kind_of(x)) value, but is written as $(repr(kind))")
+        )
+    end
     return nothing
 end
 
@@ -179,7 +190,7 @@ end
 # -----------------------------------------------------------------------------
 
 """
-    json_value(x, contract::UnitContract)
+    json_value(x, contract::UnitContract; kind)
     json_value(contract::UnitContract)
 
 The plain value (a NamedTuple of numbers, arrays and strings, which JSON.jl's
@@ -192,9 +203,14 @@ S21, S12, S22]}`, column order), `AffineFrame` (`… "A": …`) and a detection 
 an `Attributed` feature frame, VisualGeometryToolkitCore's
 `AbstractDetection` — written as its frame under `frame`, an `Uncertain`
 frame's covariance entries (column order) under `cov` (`null` when not
-finite), and each metadata field under its own name. A value whose quantities
-are of two kinds, and a quantity in a detection's metadata (it has no declared
-kind), are an `ArgumentError`.
+finite), and each metadata field under its own name.
+
+`kind`, required, declares what the numbers of the value are — `:plain`
+(plain numbers), `:length` or `:pixel` — the same `kind` its reader gives
+`from_json`. A value holding a number of another kind, and a quantity in a
+detection's metadata (it has no declared kind), are an `ArgumentError`. The
+`OrientedDisc`, `EllipticFrame` and `AffineFrame` hold plain numbers only
+(`kind = :plain`).
 
 `json_value(contract)` is the record's declaration of its units, `(world =
 "mm", density = "dpi")` for [`MM_PX`](@ref) (registered unit names; an
@@ -203,10 +219,10 @@ kind), are an `ArgumentError`.
 ```jldoctest
 julia> import JSON
 
-julia> JSON.json(VgtkIO.json_value(Size2(width = 640px, height = 480px), MM_PX))
+julia> JSON.json(VgtkIO.json_value(Size2(width = 640px, height = 480px), MM_PX; kind = :pixel))
 "{\\"width\\":640,\\"height\\":480}"
 
-julia> JSON.json(VgtkIO.json_value(Disc(Point2(1.0mm, 2.0mm), 3.0mm), UnitContract(world = m)))
+julia> JSON.json(VgtkIO.json_value(Disc(Point2(1.0mm, 2.0mm), 3.0mm), UnitContract(world = m); kind = :length))
 "{\\"center\\":[0.001,0.002],\\"σ\\":0.003}"
 
 julia> VgtkIO.json_value(MM_PX)
@@ -216,17 +232,18 @@ julia> VgtkIO.json_value(MM_PX)
 json_value(c::UnitContract) = (world = unit_string(c.world), density = unit_string(c.density))
 
 """
-    from_json(T, d, contract::UnitContract; kind = :plain)
+    from_json(T, d, contract::UnitContract; kind)
     from_json(UnitContract, d)
 
 The value of type `T` a JSON record holds as `d` (a parsed `JSON.Object`, any
 dictionary with string keys, or a NamedTuple), the inverse of
 [`json_value`](@ref): `T` is `Size2`, `Disc`, `OrientedDisc`,
 `EllipticFrame`, `AffineFrame` or a detection type (VisualGeometryToolkitCore's
-`AbstractDetection`, or VisualGeometryToolkitFeatures' `Detection`). `kind`
-declares what the numbers of a `Size2` or a `Disc` are — `:plain` (plain
-numbers), `:length`, `:pixel` — and is read through [`read_quantity`](@ref);
-the other frames hold plain numbers. Wherever a number is read, the legacy
+`AbstractDetection`, or VisualGeometryToolkitFeatures' `Detection`). `kind`,
+required and never defaulted, declares what the numbers of a `Size2` or a
+`Disc` are — `:plain` (plain numbers), `:length`, `:pixel` — and is read
+through [`read_quantity`](@ref); the other frames hold plain numbers
+(`kind = :plain`). Wherever a number is read, the legacy
 `{"value": v, "unit": u}` object is read too, as its quantity, and checked
 against a declared kind. A detection's frame type is read off its keys
 (`A`, `S`, `θ`, else a `Disc`); its documented metadata fields (`response`,
@@ -246,7 +263,7 @@ true
 
 julia> d = JSON.parse("{\\"width\\": {\\"value\\": 3.0, \\"unit\\": \\"mm\\"}, \\"height\\": {\\"value\\": 4.0, \\"unit\\": \\"mm\\"}}");
 
-julia> VgtkIO.from_json(Size2, d, MM_PX) == Size2(width = 3.0mm, height = 4.0mm)   # the legacy form
+julia> VgtkIO.from_json(Size2, d, MM_PX; kind = :length) == Size2(width = 3.0mm, height = 4.0mm)   # the legacy form
 true
 
 julia> VgtkIO.from_json(UnitContract, JSON.parse("{\\"world\\": \\"m\\"}")) == UnitContract(world = m)
@@ -263,23 +280,23 @@ end
 # Size2 and the feature frames
 # -----------------------------------------------------------------------------
 
-function json_value(s::Size2, contract::UnitContract)
-    _one_kind("a Size2", s.width, s.height)
+function json_value(s::Size2, contract::UnitContract; kind::Symbol)
+    _check_kind("a Size2", kind, s.width, s.height)
     return (width = _write_field(s.width, contract), height = _write_field(s.height, contract))
 end
 
-function from_json(::Type{<:Size2}, d::_JSONObject, contract::UnitContract; kind::Symbol = :plain)
+function from_json(::Type{<:Size2}, d::_JSONObject, contract::UnitContract; kind::Symbol)
     width = _read_field(_get_key(d, "width"), kind, contract)
     height = _read_field(_get_key(d, "height"), kind, contract)
     return Size2(width = width, height = height)
 end
 
-function json_value(f::Disc, contract::UnitContract)
-    _one_kind("a Disc", f.center[1], f.center[2], f.σ)
+function json_value(f::Disc, contract::UnitContract; kind::Symbol)
+    _check_kind("a Disc", kind, f.center[1], f.center[2], f.σ)
     return (center = (_write_field(f.center[1], contract), _write_field(f.center[2], contract)), σ = _write_field(f.σ, contract))
 end
 
-function from_json(::Type{<:Disc}, d::_JSONObject, contract::UnitContract; kind::Symbol = :plain)
+function from_json(::Type{<:Disc}, d::_JSONObject, contract::UnitContract; kind::Symbol)
     c = _get_key(d, "center")
     center = Point2(_read_field(c[1], kind, contract), _read_field(c[2], kind, contract))
     return Disc(center, _read_field(_get_key(d, "σ"), kind, contract))
@@ -290,22 +307,25 @@ _matrix_value(M) = collect(Float64, vec(M))
 _center_from(d) = (c = _get_key(d, "center"); Point2{Float64}(c[1], c[2]))
 _matrix_from(v) = SMatrix{2, 2, Float64, 4}(v[1], v[2], v[3], v[4])
 
-json_value(f::OrientedDisc{<:Real}, ::UnitContract) = (center = _center_value(f), σ = f.σ, θ = f.θ)
-json_value(f::EllipticFrame{<:Real}, ::UnitContract) = (center = _center_value(f), S = _matrix_value(f.S))
-json_value(f::AffineFrame{<:Real}, ::UnitContract) = (center = _center_value(f), A = _matrix_value(f.A))
-
 _plain_frame_kind(T, kind) = kind === :plain ||
     throw(ArgumentError("a $(T) holds plain numbers (pixels and radians); its kind is :plain, got $(repr(kind))"))
 
-function from_json(::Type{<:OrientedDisc}, d::_JSONObject, ::UnitContract; kind::Symbol = :plain)
+json_value(f::OrientedDisc{<:Real}, ::UnitContract; kind::Symbol) =
+    (_plain_frame_kind(OrientedDisc, kind); (center = _center_value(f), σ = f.σ, θ = f.θ))
+json_value(f::EllipticFrame{<:Real}, ::UnitContract; kind::Symbol) =
+    (_plain_frame_kind(EllipticFrame, kind); (center = _center_value(f), S = _matrix_value(f.S)))
+json_value(f::AffineFrame{<:Real}, ::UnitContract; kind::Symbol) =
+    (_plain_frame_kind(AffineFrame, kind); (center = _center_value(f), A = _matrix_value(f.A)))
+
+function from_json(::Type{<:OrientedDisc}, d::_JSONObject, ::UnitContract; kind::Symbol)
     _plain_frame_kind(OrientedDisc, kind)
     return OrientedDisc{Float64}(_center_from(d), Float64(_get_key(d, "σ")), Float64(_get_key(d, "θ")))
 end
-function from_json(::Type{<:EllipticFrame}, d::_JSONObject, ::UnitContract; kind::Symbol = :plain)
+function from_json(::Type{<:EllipticFrame}, d::_JSONObject, ::UnitContract; kind::Symbol)
     _plain_frame_kind(EllipticFrame, kind)
     return EllipticFrame{Float64}(_center_from(d), _matrix_from(_get_key(d, "S")))
 end
-function from_json(::Type{<:AffineFrame}, d::_JSONObject, ::UnitContract; kind::Symbol = :plain)
+function from_json(::Type{<:AffineFrame}, d::_JSONObject, ::UnitContract; kind::Symbol)
     _plain_frame_kind(AffineFrame, kind)
     return AffineFrame{Float64}(_center_from(d), _matrix_from(_get_key(d, "A")))
 end
@@ -331,26 +351,26 @@ function _metadata_value(meta::NamedTuple)
     return meta
 end
 
-function json_value(d::Attributed{<:FeatureFrame}, contract::UnitContract)
+function json_value(d::Attributed{<:FeatureFrame}, contract::UnitContract; kind::Symbol)
     meta = _metadata_value(getfield(d, :attributes))
-    return (frame = json_value(getfield(d, :value), contract), pairs(meta)...)
+    return (frame = json_value(getfield(d, :value), contract; kind), pairs(meta)...)
 end
 
 # An uncertain frame writes its covariance as `cov`, the matrix's entries in
 # column order — or `null` when it is not finite (an unrefined keypoint's),
 # which JSON cannot hold.
-function json_value(d::Attributed{<:Uncertain{<:FeatureFrame, <:CovMat}}, contract::UnitContract)
+function json_value(d::Attributed{<:Uncertain{<:FeatureFrame, <:CovMat}}, contract::UnitContract; kind::Symbol)
     u = getfield(d, :value)
     meta = _metadata_value(getfield(d, :attributes))
     Σ = cov(u)
     c = all(isfinite, Σ) ? vec(collect(Float64, Σ)) : nothing
-    return (frame = json_value(geom(u), contract), cov = c, pairs(meta)...)
+    return (frame = json_value(geom(u), contract; kind), cov = c, pairs(meta)...)
 end
 
 # The metadata fields every detector writes as Float64, in their canonical order.
 const _FLOAT_METADATA = (:response, :edge_score, :laplacian_scale_score)
 
-function from_json(::Type{<:AbstractDetection}, d::_JSONObject, contract::UnitContract; kind::Symbol = :plain)
+function from_json(::Type{<:AbstractDetection}, d::_JSONObject, contract::UnitContract; kind::Symbol)
     frame_data = _get_key(d, "frame")
     fr = if _has_key(frame_data, "A")
         from_json(AffineFrame, frame_data, contract; kind)

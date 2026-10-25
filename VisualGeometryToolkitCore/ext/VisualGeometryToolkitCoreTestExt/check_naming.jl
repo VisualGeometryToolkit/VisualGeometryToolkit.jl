@@ -1567,8 +1567,6 @@ const _UNIT_RULE_ALLOW = Dict{Tuple{String, String}, String}(
         "this rule's own lists of unit names and factors",
     ("VisualGeometryToolkitCore", "test/units_tests.jl") =>
         "the units module's own tests: they exercise uparse, qparse, the registry and convert",
-    ("VisualGeometryToolkitFeatures", "src/serialization.jl") =>
-        "the writer's one canonical unit name per dimension (mm, px, dpi, mm/px): FlexUnits prints a compound unit as its internal form, no name",
 )
 
 # Unit names as a file or a table spells them.

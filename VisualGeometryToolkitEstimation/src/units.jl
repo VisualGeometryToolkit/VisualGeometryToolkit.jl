@@ -62,7 +62,7 @@ function _refuse_physical_plane(cs, fname::AbstractString)
     _point_has_units(eltype(sources(cs))) && throw(
         ArgumentError(
             "$fname: the plane points are lengths, and the model it returns cannot record their unit; " *
-                "strip them in the unit you want the model in (`ustrip.(mm, X)`) and pass plain numbers"
+                "strip them in the unit you want the model in (`ustrip.(mm, X)`) and supply plain numbers"
         )
     )
     return cs

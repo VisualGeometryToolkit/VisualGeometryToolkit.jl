@@ -447,7 +447,7 @@ lens, every `X_cam[3] ≤ 0`) project to non-finite pixels; callers mask on
 `isfinite`, as with `project`.
 """
 @inline function constraint_with_jacobians(
-        model::CameraModel, pose::EuclideanMap{3, Float64},
+        model::CameraModel, pose::EuclideanMap{3, Float64, <:Rotations.Rotation{3, Float64}, <:StaticVector{3, Float64}},
         X::StaticVector{3, Float64}, u::StaticVector{2, Float64}
     )
     X_cam = pose.R * X + pose.t

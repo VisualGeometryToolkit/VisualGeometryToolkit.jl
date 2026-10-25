@@ -135,7 +135,7 @@ Embed a 2D circle into 3D using a Euclidean frame.
 
 The EuclideanMap `E` defines how the local xy-plane maps to world coordinates.
 """
-function Circle3D(c::GeometryBasics.Circle{T}, E::EuclideanMap{3}) where {T}
+function Circle3D(c::GeometryBasics.Circle{T}, E::PlainEuclideanMap{3}) where {T}
     ctr, u, v, RT = _embed_z0(E, GeometryBasics.origin(c), (one(T), zero(T)), (zero(T), one(T)), T)
     return Circle3D{RT}(ctr, RT(GeometryBasics.radius(c)), u, v)
 end
@@ -164,7 +164,7 @@ radius(c::Circle3D) = c.radius
 
 Transform a 3D circle through a rigid (Euclidean) transformation.
 """
-function (E::EuclideanMap{3, T})(c::Circle3D{S}) where {T, S}
+function (E::PlainEuclideanMap{3, T})(c::Circle3D{S}) where {T, S}
     RT = promote_type(T, S)
     new_center = Point3{RT}(E.R * c.center + E.t)
     new_u = Vec3{RT}(E.R * c.u)

@@ -192,7 +192,7 @@ end
 # (Line2D already had its action in primitives/hyperplane.jl.)
 
 @inline _rigid_angle(R) = atan(R[2, 1], R[1, 1])
-@inline function _rigid_center(E::EuclideanMap{2}, c)
+@inline function _rigid_center(E::PlainEuclideanMap{2}, c)   # pixel-frame maps: plain
     p = E.R * SVector{2}(c[1], c[2]) + E.t
     return Point2(p[1], p[2])
 end

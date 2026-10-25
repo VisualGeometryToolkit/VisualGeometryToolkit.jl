@@ -41,12 +41,17 @@ function frame_segments(;
     return segments, colors, axis_ends
 end
 
+# Plotting draws plain numbers: a physical pose or camera (translation in
+# metres) is shown in millimetres, the scene unit of the plots; a plain one as it is.
+_display_mm(x) = has_units(x) ? ustrip(mm, x) : x
+
 """
     frame_segments(pose::EuclideanMap; scale) -> (segments, colors, axis_ends)
 
-Convenience method for EuclideanMap poses.
+Convenience method for EuclideanMap poses (a physical pose drawn in mm).
 """
 function frame_segments(pose::EuclideanMap; scale::Real = 1.0)
+    pose = _display_mm(pose)
     return frame_segments(;
         origin = Point3f(pose.t),
         rotation = SMatrix{3, 3, Float64}(pose.R),
@@ -63,6 +68,7 @@ Compute NaN-separated line segments for a camera frustum wireframe.
 Returns segments suitable for a single Lines plot.
 """
 function frustum_segments(camera::Camera, sensor_bounds, depth::Real)
+    camera = _display_mm(camera)
     # Get camera pose
     cam_pose = pose(camera)
     cam_center = Point3f(cam_pose.t)

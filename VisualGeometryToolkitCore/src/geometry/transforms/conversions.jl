@@ -84,7 +84,7 @@ function to_homogeneous(L::CoordinateTransformations.LinearMap{Mat}) where {Mat 
 end
 
 # EuclideanMap: Rotation + Translation
-to_homogeneous(E::EuclideanMap{2, T}) where {T} = begin
+to_homogeneous(E::PlainEuclideanMap{2, T}) where {T} = begin
     M = SMatrix{2, 2, T}(Matrix(E.R))
     t = SVector{2, T}(E.t)
     HomEuclideanMat{T}(Tuple(to_homogeneous(M, t)))
@@ -141,7 +141,7 @@ function HomScalingMat(L::CoordinateTransformations.LinearMap{<:Diagonal{T}}) wh
     return HomScalingMat{T}(Tuple(to_homogeneous(M, zero(Vec{2, T}))))
 end
 
-HomEuclideanMat(E::EuclideanMap{2}) = to_homogeneous(E)
+HomEuclideanMat(E::PlainEuclideanMap{2}) = to_homogeneous(E)
 
 # General-affine inputs stay HomAffineMat (no narrower category exists).
 HomAffineMat(Af::CoordinateTransformations.AffineMap) = to_homogeneous(Af)

@@ -123,7 +123,7 @@ for C in (:LeftRigidManifold6, :RigidExpManifold6)
         T = float(promote_type(eltype(R), eltype(t)))
         return $C{T}(SMatrix{3, 3, T, 9}(R), SVector{3, T}(t))
     end
-    @eval $C(pose::EuclideanMap{3}) = $C(pose.R, pose.t)
+    @eval $C(pose::PlainEuclideanMap{3}) = $C(pose.R, pose.t)
 end
 
 # -----------------------------------------------------------------------------
@@ -170,7 +170,7 @@ zero_tangent(ch::RigidChart) = zero(SVector{6, float(eltype(ch.R))})
 # a pose's ambient coordinates, [vec(R); t] — every rigid chart's ambient space.
 # In the pose's float type: the retraction differential is ForwardDiff through
 # it, and a Float32 chart's differential stays Float32.
-function _ambient_coordinates(p::EuclideanMap{3})
+function _ambient_coordinates(p::PlainEuclideanMap{3})
     T = float(promote_type(eltype(p.R), eltype(p.t)))
     return vcat(SVector{9, T}(Tuple(SMatrix{3, 3}(p.R))), SVector{3, T}(p.t))
 end
@@ -200,7 +200,7 @@ model(ch::RigidChart) = EuclideanMap(RotMatrix{3}(ch.R), ch.t; check = false)
 # chart's ambient vectorization ([vec(R) column-major; t] ∈ R¹²): the 3×12
 # [x₁I₃ x₂I₃ x₃I₃ I₃]. With `retract_jacobian` this is the generic
 # `action_jacobian` of the rigid charts; the closed forms below override it.
-function CoordinateTransformations.transform_deriv_params(::EuclideanMap{3}, x::AbstractVector)
+function CoordinateTransformations.transform_deriv_params(::PlainEuclideanMap{3}, x::AbstractVector)
     I3 = SMatrix{3, 3, eltype(x), 9}(I)
     return hcat(x[1] * I3, x[2] * I3, x[3] * I3, I3)
 end
@@ -227,7 +227,7 @@ The rigid chart's inverse retraction: the `v` with `retract(ch, v) == pose` —
 rotations under π — or `log_so3`), `τ = t − t₀` (or `t − ΔR(ω)·t₀` when the
 rotation carries the translation). Closed form and exact.
 """
-function local_coordinates(ch::RigidChart, pose::EuclideanMap{3})
+function local_coordinates(ch::RigidChart, pose::PlainEuclideanMap{3})
     T = float(eltype(ch.R))
     R₀ = SMatrix{3, 3, T, 9}(ch.R)
     ω = _rot_log(_param(ch), SMatrix{3, 3, T, 9}(pose.R) * R₀')
@@ -235,4 +235,4 @@ function local_coordinates(ch::RigidChart, pose::EuclideanMap{3})
     return vcat(ω, τ)
 end
 # a restricted pose manifold reads the same closed form on its free coordinates
-local_coordinates(rc::SubsetManifold, pose::EuclideanMap{3}) = local_coordinates(rc.manifold, pose)[rc.idx]
+local_coordinates(rc::SubsetManifold, pose::PlainEuclideanMap{3}) = local_coordinates(rc.manifold, pose)[rc.idx]

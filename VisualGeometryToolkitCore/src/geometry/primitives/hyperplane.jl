@@ -468,7 +468,7 @@ plane = Plane3D(Point3(0,0,0), Vec3(0,0,1))  # z = 0
 plane′ = E(plane)  # Transformed plane
 ```
 """
-function (E::EuclideanMap{3, T})(plane::Plane3D{S}) where {T, S}
+function (E::PlainEuclideanMap{3, T})(plane::Plane3D{S}) where {T, S}
     n = normal(plane)
     # Rotate normal
     n′ = E.R * n
@@ -493,7 +493,7 @@ line = Line2D(0.0, π/2)  # y = 0 (Hesse form)
 line′ = E(line)  # Transformed line
 ```
 """
-function (E::EuclideanMap{2, T})(line::Line2D{S}) where {T, S}
+function (E::PlainEuclideanMap{2, T})(line::Line2D{S}) where {T, S}
     n = normal(line)
     # Rotate normal
     n′ = E.R * n

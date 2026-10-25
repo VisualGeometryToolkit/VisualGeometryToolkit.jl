@@ -85,7 +85,7 @@ RigidManifold6`, `RadialHomography →` sl(3) ⊕ k (a `ProductManifold`),
 `RadialCamera →` S⁵ (a `SphereManifold`, cameras/calibration.jl), a lens → its
 `LensManifold` (cameras/lens_parameters.jl).
 """
-minimal_manifold(T::EuclideanMap{3}) = RigidManifold6(T.R, T.t)
+minimal_manifold(T::PlainEuclideanMap{3}) = RigidManifold6(T.R, T.t)
 minimal_manifold(F::FundMat) = FundMatManifold7(SMatrix{3, 3, Float64, 9}(F))
 minimal_manifold(H::HomographyMat) = HomographyManifold8(SMatrix{3, 3, Float64, 9}(H))
 function minimal_manifold(E::EssentialMat)
@@ -133,7 +133,7 @@ local_coordinates(p::ProductManifold{<:Tuple, <:_RadialHomographyParts}, m::Radi
 # image point), where the model gradient is `Jπ·∂(R·X + t)/∂[vec(R); t]`.
 @inline cd_pair(M, c::Pair) = constraint_with_jacobians(M, c.first, c.second)
 @inline cd_pair(M, x::StaticVector) = constraint_with_jacobians(M, x)     # single-point data (a line's points)
-@inline function cd_pair(pose::EuclideanMap{3}, c::Pair{<:Any, <:StaticVector{2}})
+@inline function cd_pair(pose::PlainEuclideanMap{3}, c::Pair{<:Any, <:StaticVector{2}})
     X = SVector{3, Float64}(c.first[1], c.first[2], c.first[3])
     g, _, _ = constraint_with_jacobians(pose, X, SVector{3, Float64}(c.second[1], c.second[2], 1.0))
     Jπ = transform_deriv(PerspectiveMap(), SMatrix{3, 3, Float64, 9}(pose.R) * X + SVector{3, Float64}(pose.t))
@@ -141,7 +141,7 @@ local_coordinates(p::ProductManifold{<:Tuple, <:_RadialHomographyParts}, m::Radi
 end
 # The pose chart's image point is the calibrated z = 1 point; anything else (a
 # unit bearing) would be read as its first two components. Refuse it.
-cd_pair(::EuclideanMap{3}, c::Pair) = throw(ArgumentError(
+cd_pair(::PlainEuclideanMap{3}, c::Pair) = throw(ArgumentError(
     "the pose chart takes calibrated 2-vector image points `X => u`, got a $(length(c.second))-vector"
 ))
 # The entry every per-pair loop calls: correspondence `i` of the SET `cs`, so a

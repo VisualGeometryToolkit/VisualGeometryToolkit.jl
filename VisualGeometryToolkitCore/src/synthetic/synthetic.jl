@@ -71,6 +71,8 @@ using ..VisualGeometryToolkitCore: FundMat, Rect2, Line2D, LineConfidenceBand, e
 using ..VisualGeometryToolkitCore: backproject_with_jacobian, project, Csponds, withattrs, sources, targets
 using ..VisualGeometryToolkitCore: cd_pair, _chart_rows   # a correspondence's per-pair constraint factors (manifolds/covariance.jl)
 using ..VisualGeometryToolkitCore.Cameras: _pixel_K   # the pixel K literal (cameras/calibration.jl)
+using ..VisualGeometryToolkitCore: has_units, m   # a physical rig is read in metres (evaluation.jl)
+using FlexUnits: ustrip
 using Rotations: Rotations, RotMatrix, rotation_angle
 using CoordinateTransformations: AffineMap
 

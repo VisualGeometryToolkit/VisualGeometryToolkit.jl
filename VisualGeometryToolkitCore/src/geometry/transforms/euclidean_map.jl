@@ -95,22 +95,25 @@ end
 
 """
     PlainEuclideanMap{N}
+    PlainEuclideanMap{N, T}
 
 An [`EuclideanMap`](@ref) whose translation is plain numbers
 (`V <: StaticVector{N, <:Real}`: `Float64`, `Float32`, a ForwardDiff `Dual`) —
 the map the inner loop takes: minimal kernels, charts and manifolds, solvers.
-A unitful map handed to a function typed on it is a `MethodError`.
+A unitful map handed to a function typed on it is a `MethodError`. `T` is the
+rotation's eltype.
 """
-const PlainEuclideanMap{N} = EuclideanMap{N, T, R, V} where {T, R <: Rotation{N, T}, V <: StaticVector{N, <:Real}}
+const PlainEuclideanMap{N, T} = EuclideanMap{N, T, R, V} where {R <: Rotation{N, T}, V <: StaticVector{N, <:Real}}
 
 """
     UnitfulEuclideanMap{N}
+    UnitfulEuclideanMap{N, T}
 
 An [`EuclideanMap`](@ref) whose translation is FlexUnits quantities — a
 physical map, its translation in metres (base form). See
 [`PlainEuclideanMap`](@ref), [`has_units`](@ref).
 """
-const UnitfulEuclideanMap{N} = EuclideanMap{N, T, R, V} where {T, R <: Rotation{N, T}, V <: StaticVector{N, <:Quantity}}
+const UnitfulEuclideanMap{N, T} = EuclideanMap{N, T, R, V} where {R <: Rotation{N, T}, V <: StaticVector{N, <:Quantity}}
 
 """
     rotation(E::EuclideanMap) -> Rotation
@@ -164,8 +167,9 @@ end
 
 
 # The length every physical translation is: a quantity of another dimension is
-# FlexUnits' `DimensionError`.
-@inline function _check_length(q::Quantity)
+# FlexUnits' `DimensionError`. (Untyped: FlexUnits' arithmetic may infer to any
+# of its quantity types before `ubase` settles the base form.)
+@inline function _check_length(q)
     dimension(q) == dimension(m) || throw(DimensionError(q, m))
     return q
 end
@@ -660,7 +664,8 @@ with_unit(X::Uncertain{<:EuclideanMap{3}}, u::Units) = Uncertain(
 """
     translation_angle(t1, t2) -> Float64
 
-Angular distance (radians) between two translation directions.
+Angular distance (radians) between two translation directions — plain
+vectors, or lengths (compared in metres).
 
 Since translation is only recoverable up to scale from epipolar geometry,
 this compares directions, scale-free: `θ = atan(‖t₁ × t₂‖, t₁ · t₂)`, accurate
@@ -669,6 +674,8 @@ the digits near 0 and π). Also the angle between two bearings. `0` when either
 vector is (numerically) zero.
 """
 function translation_angle(t1::AbstractVector, t2::AbstractVector)
+    # lengths are compared in metres (a length against a plain vector is a DimensionError)
+    (has_units(t1) || has_units(t2)) && return translation_angle(_strip_metres(t1), _strip_metres(t2))
     (norm(t1) < 1.0e-15 || norm(t2) < 1.0e-15) && return 0.0
     a = SVector{3}(t1[1], t1[2], t1[3]); b = SVector{3}(t2[1], t2[2], t2[3])
     return atan(norm(cross(a, b)), dot(a, b))
@@ -762,7 +769,7 @@ Returns:
     `StaticVector{3}`), never on this chart.
 """
 @inline function constraint_with_jacobians(
-        pose::EuclideanMap{3, Float64},
+        pose::EuclideanMap{3, Float64, <:Rotation{3, Float64}, <:StaticVector{3, Float64}},   # plain: the inner loop
         X::StaticVector{3, Float64},
         ray::StaticVector{3, Float64}
     )

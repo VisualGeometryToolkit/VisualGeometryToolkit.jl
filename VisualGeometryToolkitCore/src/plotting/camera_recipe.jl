@@ -130,7 +130,7 @@ end
 # Main plot implementation
 function Makie.plot!(p::CameraPlot)
     # Extract values from observables
-    camera = p.camera[]
+    camera = _display_mm(p.camera[])   # a physical camera is drawn in mm
     sensor_bounds = p.sensor_bounds[]
 
     # Compute depth and axis length using shared helper

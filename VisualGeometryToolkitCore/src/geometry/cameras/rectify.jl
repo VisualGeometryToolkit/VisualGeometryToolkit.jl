@@ -53,6 +53,11 @@ x-axis is sign-fixed toward +x); a vertical rig wants the transposed
 convention. Throws for a near-zero baseline.
 """
 function rectify(rig::StereoRig; K = nothing)
+    # a physical rig rectifies in metres; the rectified rig is read back in metres
+    if has_units(rig)
+        r = rectify(ustrip(m, rig); K)
+        return (; rig = with_unit(r.rig, m), R = r.R, K = r.K)
+    end
     X = extrinsics(rig)                     # x₂ = R_rel x₁ + t (view1 → view2)
     R_rel = SMatrix{3, 3, Float64, 9}(RotMatrix(X.R))
     t = SVector{3, Float64}(X.t)

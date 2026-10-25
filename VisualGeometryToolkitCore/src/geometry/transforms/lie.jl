@@ -175,7 +175,7 @@ SE(3) logarithm of a rigid transform: `ω = log_so3(R)`,
 follows the map's rotation eltype. NOT AD-safe under Zygote (see
 [`log_so3`](@ref)).
 """
-function log_se3(E::EuclideanMap{3})
+function log_se3(E::PlainEuclideanMap{3})
     T = eltype(E.R)
     R = SMatrix{3, 3, T, 9}(E.R)
     t = SVector{3, T}(E.t)

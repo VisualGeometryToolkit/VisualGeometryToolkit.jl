@@ -70,6 +70,7 @@ using ..VisualGeometryToolkitCore: Uncertain, PrecMat, CovMat, cov
 using ..VisualGeometryToolkitCore: px, _strip_coords, _coord_unit   # the feature-coordinate compute boundary (base/feature_coords.jl)
 import ..VisualGeometryToolkitCore: strip_or_bare   # extended for the feature frames (base/units.jl)
 using ..VisualGeometryToolkitCore: propagate   # the congruence A^{-T}·Q·A^{-1} (base/propagate.jl)
+using ..VisualGeometryToolkitCore: PlainEuclideanMap   # the primitives' rigid actions take plain maps; a physical one is a MethodError
 
 # JSON serialization moved to VisualGeometryToolkitFeatures
 using Accessors: @set

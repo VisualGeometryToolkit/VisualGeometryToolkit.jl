@@ -63,15 +63,21 @@ const StereoRig{F <: Frame{3}, U <: AbstractCamera, V <: AbstractCamera} =
 # check/atol idiom): the caller-supplied relative transform must agree with
 # the one implied by the GIVEN cameras, `extrinsics(target) ∘ pose(source)`.
 # Rotation deviation is the relative rotation angle (radians); translation
-# deviation is relative to the expected translation's magnitude (unitless mm
-# storage), with a 1 mm floor so near-zero baselines don't blow up the ratio.
+# deviation is relative to the expected translation's magnitude, with a 1 mm
+# floor so near-zero baselines don't blow up the ratio: a plain map's
+# translation is read as millimetres (floor 1), a physical one's in metres
+# (floor 1e-3).
 function _assert_rig_consistency(
         source, target, given::EuclideanMap{3};
         atol::Real   # StereoRig's `atol` is the one authority
     )
     expected = extrinsics(target) ∘ pose(source)
+    # a physical relative pose against plain cameras (or the reverse) never compares
+    has_units(given) == has_units(expected) || throw(DimensionError(translation(given), translation(expected)))
     dev_rot = Rotations.rotation_angle(RotMatrix{3}(SMatrix{3, 3, Float64, 9}(given.R)' * SMatrix{3, 3, Float64, 9}(expected.R)))
-    dev_t = norm(given.t - expected.t) / max(1.0, norm(expected.t))
+    floor_t = has_units(given) ? 1.0e-3 : 1.0
+    t_given, t_expected = _translation_metres(given), _translation_metres(expected)
+    dev_t = norm(t_given - t_expected) / max(floor_t, norm(t_expected))
     (dev_rot ≤ atol && dev_t ≤ atol) && return nothing
     throw(
         ArgumentError(
@@ -91,6 +97,11 @@ function StereoRig(
         atol::Real = 1.0e-6
     )
     check && _assert_rig_consistency(source, target, extrinsics; atol = atol)
+    # A physical relative pose: the rig is built from the plain one in metres, then
+    # read back in metres — the same numbers as the plain construction. (The
+    # cameras give only their models here; their poses were the check's.)
+    has_units(extrinsics) &&
+        return with_unit(StereoRig(source, target, ustrip(m, extrinsics); ids, check = false), m)
     X = relabel(ViewFrame{ids[1]}, ViewFrame{ids[2]}, extrinsics)
     F = ViewFrame{ids[1]}
     T = eltype(X.t)
@@ -103,8 +114,12 @@ end
 # BoundedCamera transparently delegates to the inner camera. The relative
 # transform is computed FROM the cameras here, so the consistency check
 # would compare it against itself — skip it.
-StereoRig(source::AbstractCamera, target::AbstractCamera; ids::Tuple{Symbol, Symbol} = (:cam1, :cam2)) =
-    StereoRig(source, target, extrinsics(target) ∘ pose(source); ids, check = false)
+function StereoRig(source::AbstractCamera, target::AbstractCamera; ids::Tuple{Symbol, Symbol} = (:cam1, :cam2))
+    # physical cameras compose in metres, plain; a physical camera beside a plain one is refused
+    (has_units(source) || has_units(target)) &&
+        return with_unit(StereoRig(ustrip(m, source), ustrip(m, target); ids), m)
+    return StereoRig(source, target, extrinsics(target) ∘ pose(source); ids, check = false)
+end
 
 """
     source(rig::StereoRig) -> AbstractCamera
@@ -280,7 +295,7 @@ function depth_transfer(source::Camera, target::Camera, extrinsics)
         ray_source = backproject(source.model, u)
         # Assume depth=1 in source camera frame
         X_source = ray_source  # SVector{3} with unit depth
-        # Transform to target camera frame (extrinsics stores unitless internally)
+        # Transform to target camera frame (a plain map: unit depth is unitless)
         X_target = extrinsics(X_source)
         # Project to target image
         return project(target.model, X_target)
@@ -288,6 +303,9 @@ function depth_transfer(source::Camera, target::Camera, extrinsics)
     return map_pixel
 end
 
+# A physical relative pose is read in metres: the unit depth is 1 m.
+depth_transfer(source::Camera, target::Camera, extrinsics::UnitfulEuclideanMap{3}) =
+    depth_transfer(source, target, ustrip(m, extrinsics))
 depth_transfer(rig::StereoRig) = depth_transfer(source(rig), target(rig), extrinsics(rig))
 
 # ============================================================================
@@ -319,6 +337,9 @@ function transfer(
     pixel = project(tgt_model, X_tgt)
     return Attributed(pixel, X_tgt[3])
 end
+# A physical relative pose strips in metres: the depths are plain metres.
+transfer(src_model::CameraModel, extrinsics::UnitfulEuclideanMap{3}, tgt_model::CameraModel, p::Attributed{<:StaticVector{2}, <:Real}) =
+    transfer(src_model, ustrip(m, extrinsics), tgt_model, p)
 
 """
     transfer(rig::StereoRig, p::Attributed{<:StaticVector{2},<:Real})
@@ -395,6 +416,10 @@ function validate_gt_metric(
         rel_tol::Real = _GT_DEFAULTS.rel_tol,
         gross_outlier_pixel_frac::Real = _GT_DEFAULTS.gross_outlier_pixel_frac,
         bidirectional_depth::Bool = _GT_DEFAULTS.bidirectional_depth
+    )
+    # the depth maps are plain metres: a physical rig is read in metres
+    has_units(rig) && return validate_gt_metric(
+        ustrip(m, rig), csponds, depth_src, depth_tgt; rel_tol, gross_outlier_pixel_frac, bidirectional_depth
     )
     n = length(csponds)
     residuals = Vector{Vec3{Float64}}(undef, n)

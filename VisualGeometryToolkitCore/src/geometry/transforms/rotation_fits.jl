@@ -88,7 +88,7 @@ same depth to first order); the result is a first-order INIT for the second
 basin, to be refined before any comparison.
 """
 function mirror(
-        pose::EuclideanMap{3}, plane_point::StaticVector{3};
+        pose::PlainEuclideanMap{3}, plane_point::StaticVector{3};
         normal::StaticVector{3} = SVector(0.0, 0.0, 1.0)
     )
     n_c = pose.R * SVector{3, Float64}(normal)

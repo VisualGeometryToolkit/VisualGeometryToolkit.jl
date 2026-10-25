@@ -211,7 +211,7 @@ camera, so it is the geometry, not the test. Ray depth is still the right
 statement (a z-test assumes a forward hemisphere the ray domain lacks), but it
 buys correctness of MEANING, not accuracy.
 """
-@inline function triangulate(pose::EuclideanMap{3}, f₁::StaticVector{3}, f₂::StaticVector{3})
+@inline function triangulate(pose::PlainEuclideanMap{3}, f₁::StaticVector{3}, f₂::StaticVector{3})
     T = float(promote_type(eltype(f₁), eltype(f₂)))
     R = SMatrix{3, 3, T, 9}(pose.R)
     t = SVector{3, T}(pose.t)
@@ -245,7 +245,7 @@ hemisphere that a fisheye or omnidirectional camera does not have.
 Parallel rays (no parallax) are rejected — `NaN > 0` is false — which is the
 honest answer: nothing was triangulated.
 """
-@inline function test_cheirality(pose::EuclideanMap{3}, f₁::StaticVector{3}, f₂::StaticVector{3})
+@inline function test_cheirality(pose::PlainEuclideanMap{3}, f₁::StaticVector{3}, f₂::StaticVector{3})
     _, λ₁, λ₂ = triangulate(pose, f₁, f₂)
     return λ₁ > 0 && λ₂ > 0
 end
@@ -969,6 +969,9 @@ end
 # generic constructors for the wrapper type.)
 EssentialMat(pose::Union{EuclideanMap, Tuple{AbstractMatrix, AbstractVector}, NamedTuple}) =
     EssentialMat(_em_R(pose), _em_t(pose))
+# A physical pose strips in metres at entry: E = [t]×R is a plain matrix (its
+# scale is a gauge), equal to the plain pose's in metres.
+EssentialMat(pose::UnitfulEuclideanMap{3}) = EssentialMat(ustrip(m, pose))
 
 # Internal pose-decomposition shims — kept loose-typed so they accept
 # both `EuclideanMap` and any duck-typed `(R, t)` tuple.

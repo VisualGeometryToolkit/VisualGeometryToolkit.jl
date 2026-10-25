@@ -67,11 +67,14 @@ function focal_length_for_fov(sensor, θ::Real; dimension = :horizontal)
 end
 
 """
-    lookat(eye::StaticVector{3, <:Quantity}, target::StaticVector{3, <:Quantity}, up::StaticVector{3, <:Real})
+    lookat(eye::StaticVector{3, <:Quantity}, target::StaticVector{3, <:Quantity}, up::StaticVector{3, <:Real};
+           convention::Symbol = :cv)
 
 Create a camera extrinsics transform that looks from `eye` position toward `target`.
 
-Units are enforced at construction but stored internally as unitless Float64 in mm.
+A PHYSICAL pose: `eye` and `target` are lengths, and the extrinsics' translation
+is a length in metres — the plain [`lookat`](@ref) of the two points in metres,
+read back in metres (a plain point beside a length is a `DimensionError`).
 
 Uses **Computer Vision convention**:
 - +Z axis points FORWARD (toward target)
@@ -85,7 +88,7 @@ Uses **Computer Vision convention**:
 - `up::StaticVector{3, <:Real}`: World up direction, unitless (typically [0, -1, 0] for CV convention where -Y is up)
 
 # Returns
-- `CameraExtrinsics`: World-to-camera transformation (frame-labeled `EuclideanMap`)
+- `CameraExtrinsics`: World-to-camera transformation (frame-labeled `EuclideanMap`, physical)
 
 # Example
 ```julia
@@ -93,14 +96,8 @@ Uses **Computer Vision convention**:
 extrinsics = lookat(SVector(0.0mm, 0.0mm, 0.0mm), SVector(0.0mm, 0.0mm, 1000.0mm), SVector(0.0, -1.0, 0.0))
 ```
 """
-function lookat(eye::StaticVector{3, <:Quantity}, target::StaticVector{3, <:Quantity}, up::StaticVector{3, <:Real})
-    # Strip in mm (a ConversionError unless every component is a length)
-    eye_mm = ustrip.(mm, eye)
-    target_mm = ustrip.(mm, target)
-
-    # Call the unitless version (eye + target are positions → Point3)
-    return lookat(Point3{Float64}(eye_mm), Point3{Float64}(target_mm), up)
-end
+lookat(eye::StaticVector{3}, target::StaticVector{3}, up::StaticVector{3, <:Real}; convention::Symbol = :cv) =
+    _attach_unit(lookat(Point3{Float64}(_strip_metres(eye)), Point3{Float64}(_strip_metres(target)), up; convention), m)
 
 """
     lookat(eye::StaticVector{3, <:Real}, target::StaticVector{3, <:Real}, up::StaticVector{3, <:Real};
@@ -125,8 +122,8 @@ precedent as `Rect(sensor, :julia)`):
   world-to-camera extrinsics — only the frame construction differs.
 
 # Arguments
-- `eye::StaticVector{3}`: Camera position in world coordinates (unitless, assumed mm)
-- `target::StaticVector{3}`: Point to look at in world coordinates (unitless, assumed mm)
+- `eye::StaticVector{3}`: Camera position in world coordinates (plain numbers, in the caller's unit)
+- `target::StaticVector{3}`: Point to look at in world coordinates (same unit)
 - `up::StaticVector{3}`: World up direction (see per-convention notes above)
 
 # Returns
@@ -216,6 +213,10 @@ function lookat_pose(
     eye_vec = SVector{3}(eye[1], eye[2], eye[3])
     return CameraPose(EuclideanMap(Rotations.RotMatrix{3}(rotation), eye_vec))
 end
+# A physical pose: `eye` and `target` lengths, computed in metres, the pose's
+# translation read back in metres.
+lookat_pose(eye::StaticVector{3}, target::StaticVector{3}, up::StaticVector{3, <:Real}; convention::Symbol = :cv) =
+    _attach_unit(lookat_pose(Point3{Float64}(_strip_metres(eye)), Point3{Float64}(_strip_metres(target)), up; convention), m)
 
 # =============================================================================
 # P3P Pose Sampling - Moved to random.jl

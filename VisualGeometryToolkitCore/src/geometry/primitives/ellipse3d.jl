@@ -134,7 +134,7 @@ E = EuclideanMap(R, SVector(0, 0, 0))
 e3d = Ellipse3D(ellipse_2d, E)
 ```
 """
-function Ellipse3D(e::Ellipse{T}, E::EuclideanMap{3}) where {T}
+function Ellipse3D(e::Ellipse{T}, E::PlainEuclideanMap{3}) where {T}
     cosθ, sinθ = cos(e.θ), sin(e.θ)
     c, a, b, RT = _embed_z0(E, e.center, (e.a * cosθ, e.a * sinθ), (-e.b * sinθ, e.b * cosθ), T)
     return Ellipse3D(c, a, b)
@@ -144,7 +144,7 @@ end
 # `a`, `b` (2-tuples, in `T`) placed on the local z = 0 plane and carried by the
 # rigid map `E` — the centre as a point (`R·x + t`), the vectors as directions
 # (`R·v`). Returns them in the promoted type `RT`, with `RT`.
-@inline function _embed_z0(E::EuclideanMap{3}, ctr, a, b, ::Type{T}) where {T}
+@inline function _embed_z0(E::PlainEuclideanMap{3}, ctr, a, b, ::Type{T}) where {T}
     RT = promote_type(T, eltype(E.t))
     c = E.R * Point3{T}(ctr[1], ctr[2], zero(T)) + E.t
     return Point3{RT}(c), Vec3{RT}(E.R * Vec3{T}(a[1], a[2], zero(T))), Vec3{RT}(E.R * Vec3{T}(b[1], b[2], zero(T))), RT
@@ -155,7 +155,7 @@ end
 
 Embed a 2D circle into 3D using a Euclidean frame.
 """
-function Ellipse3D(c::GeometryBasics.Circle{T}, E::EuclideanMap{3}) where {T}
+function Ellipse3D(c::GeometryBasics.Circle{T}, E::PlainEuclideanMap{3}) where {T}
     r = GeometryBasics.radius(c)
     ctr, a, b, _ = _embed_z0(E, GeometryBasics.origin(c), (r, zero(T)), (zero(T), r), T)
     return Ellipse3D(ctr, a, b)
@@ -187,7 +187,7 @@ Transform a 3D ellipse through a rigid (Euclidean) transformation.
 
 The center is translated and rotated, the axis vectors are rotated.
 """
-function (E::EuclideanMap{3, T})(e::Ellipse3D{S}) where {T, S}
+function (E::PlainEuclideanMap{3, T})(e::Ellipse3D{S}) where {T, S}
     RT = promote_type(T, S)
     new_center = Point3{RT}((E.R * SVector{3}(e.center) + E.t)...)
     new_axis_a = Vec3{RT}((E.R * SVector{3}(e.axis_a))...)

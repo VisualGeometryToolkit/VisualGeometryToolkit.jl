@@ -73,6 +73,7 @@ Extracts K from the source camera and (R, t) from the rig's extrinsics.
 Assumes shared intrinsics.
 """
 function imc_pose_error(F_est::AbstractMatrix, rig::StereoRig)
+    has_units(rig) && return imc_pose_error(F_est, ustrip(m, rig))   # an angle: the rig read in metres
     K = calibration_matrix(source(rig))
     R_gt = SMatrix{3, 3, Float64}(RotMatrix(extrinsics(rig).R))
     t_gt = Vec3{Float64}(extrinsics(rig).t)

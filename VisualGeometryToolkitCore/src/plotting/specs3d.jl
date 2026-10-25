@@ -233,6 +233,7 @@ function camera!(
         frustum_color = :orange,
         frustum_linewidth = 2.0
     )
+    camera = _display_mm(camera)   # a physical camera is drawn in mm
 
     # Compute depth and axis length using shared helper
     eff_depth = effective_depth(camera, depth)

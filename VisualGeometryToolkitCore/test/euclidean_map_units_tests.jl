@@ -57,6 +57,33 @@
         @test_throws DimensionError E(SVector(1.0, 2, 3))
     end
 
+    @testset "a unitful map applied to a static point stays static and allocation-free" begin
+        x = SVector(0.4, -1.5, 2.25) .* m
+        apply(E, x) = E(x)
+        apply(E, x)
+        @test apply(E, x) isa SVector{3, Q}
+        @test (@allocated apply(E, x)) == 0
+        # the fast path is the generic `R * x + t`, bit for bit, in 2-D and 3-D,
+        # over translations and points spanning six decades
+        generic(E, x) = rotation(E) * x + translation(E)
+        decades = (1.0e-3, 1.0e-1, 1.0, 1.0e1, 1.0e3)
+        maps3 = [EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.3i, -0.7i, 1.1i)), SVector(sin(i), cos(3i), sin(5i)) .* (s * m))
+            for i in 1:12, s in decades]
+        points3 = [SVector(cos(i), sin(2i), cos(7i)) .* (s * m) for i in 1:40, s in decades]
+        @test all(E1(x1) === generic(E1, x1) for E1 in maps3, x1 in points3)
+        maps2 = [EuclideanMap(RotMatrix{2, Float64}(0.37i), SVector(sin(i), cos(3i)) .* (s * m)) for i in 1:12, s in decades]
+        points2 = [SVector(cos(i), sin(2i)) .* (s * m) for i in 1:40, s in decades]
+        @test all(E1(x1) === generic(E1, x1) for E1 in maps2, x1 in points2)
+        # a Float32 rotation, a labeled map
+        E32 = EuclideanMap(RotMatrix{3, Float32}(RotXYZ(0.1, -0.2, 0.3)), SVector(0.5, 0.25, -1.0) .* m; check = false)
+        @test E32(x) === generic(E32, x)
+        El = relabel(CameraFrame, WorldFrame, E)
+        @test El(x) === generic(El, x)
+        # a point of another dimension, or of mixed dimensions, is the generic DimensionError
+        @test_throws DimensionError E(SVector(1.0, 2, 3) .* (m * m))
+        @test_throws DimensionError E(SVector(1.0m, 2.0m, 3.0 * m * m))
+    end
+
     @testset "composition and inversion stay unitful and concrete" begin
         C = E ∘ E2
         @test isconcretetype(typeof(C))

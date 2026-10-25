@@ -3,16 +3,18 @@
 # translation. Gate (owner-approved): each quantity operation within 10x plain.
 #   julia --project=VisualGeometryToolkitCore/benchmark VisualGeometryToolkitCore/benchmark/units_overhead.jl
 #
-# Machine: Linux, `uptime` at 03:11:05 and 03:12:15 (before/after the runs):
-#   load average 6.79, 8.01, 8.98 then 4.10, 7.02, 8.57 (shared desktop, other work running).
-# Top CPU processes before timing (ps -eo pcpu,args --sort=-pcpu | head -5): Kaimon julia 15.6 %,
-#   cosmic-term 9.7 %, cosmic-comp 9.3 %, chrome zygote 7.7 %. The known leftover `bfs`
-#   search was not running at that moment (pgrep found none); nothing was killed.
-# Julia 1.12 (workspace), BenchmarkTools @benchmark, default parameters; ns per call.
-# RESULTS: operation | plain median | quantity median | ratio | plain min | quantity min | ratio | gate
-#   compose              |    6.0 |    19.3 |  3.20x |   6.0 |   19.3 |  3.21x | holds
-#   invert               |    1.9 |    10.5 |  5.63x |   1.8 |   10.2 |  5.58x | holds
-#   apply to 1000 points |  612.4 | 25547.0 | 41.72x | 598.8 | 25308.0 | 42.26x | fails (> 10x)
+# Machine: Linux, Julia 1.13.2, `uptime` 03:34:21 before the run: load average 9.16, 8.87, 7.43
+#   (shared desktop, other work running; 8.51, 8.74, 7.41 at 03:34:31 after).
+# Top CPU processes before timing (ps -eo pcpu,args --sort=-pcpu | head -6): a julia --startup-file=no
+#   15.5 %, the Kaimon julia REPL 13.2 %, cosmic-term 9.7 %, cosmic-comp 9.2 %, chrome zygote 7.2 %.
+# BenchmarkTools @benchmark, default parameters; ns per call.
+# RESULTS (after the static apply fast path, task 11b):
+#   operation | plain median | quantity median | ratio | plain min | quantity min | ratio | gate
+#   compose              |  6.2 |  20.1 |  3.23x |   6.2 |   20.0 |  3.23x | holds
+#   invert               |  1.8 |  10.5 |  5.69x |   1.8 |   10.2 |  5.58x | holds
+#   apply to 1000 points | 631.4 | 7420.2 | 11.75x | 599.6 | 7122.2 | 11.88x | fails (> 10x)
+# Before it (task 11, Julia 1.12, load 6.79): apply 612.4 | 25547.0 | 41.72x. The apply was already
+# static and allocation-free; the cost was FlexUnits' dimension check inside every muladd and +.
 
 using BenchmarkTools, FlexUnits, Rotations, StaticArrays
 using VisualGeometryToolkitCore: EuclideanMap, m

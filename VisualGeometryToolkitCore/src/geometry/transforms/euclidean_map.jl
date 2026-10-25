@@ -430,6 +430,28 @@ unlabel(u::Uncertain{<:EuclideanMap{N}}) where {N} = relabel(UnlabeledFrame{N}, 
 # Operations
 (E::EuclideanMap)(x) = E.R * x + E.t
 
+# A physical map applied to a physical point of the same base-form quantity
+# type: the generic `R * x + t` above, computed on the values. FlexUnits checks
+# dimensions inside every `muladd` and `+` (nine checks for N = 3); here every
+# component's dimension is checked once against the translation's, then the
+# values take exactly the operations StaticArrays' `R * x` generates —
+# `muladd(R[k,N], x[N], … muladd(R[k,2], x[2], R[k,1] * x[1]))`, FlexUnits'
+# quantity `muladd` being the plain `muladd` of the values (`dstrip`) — and
+# `+ t[k]`, so the result is the generic one bit for bit. A point of another
+# dimension takes the generic path and its `DimensionError`.
+@inline function (E::EuclideanMap{N, T, R, V})(
+        x::SVector{N, Q}
+    ) where {N, T, R <: Rotation{N, T}, Q <: Quantity{<:Real, <:FlexUnits.Dimensions}, V <: StaticVector{N, Q}}
+    t = E.t
+    d = dimension(t[1])
+    all(q -> dimension(q) == d, Tuple(x)) || return E.R * x + t
+    Rm = E.R
+    xv = map(FlexUnits.dstrip, Tuple(x))
+    return SVector{N}(ntuple(k -> Quantity(_rotated_row(Rm, xv, k) + FlexUnits.dstrip(t[k]), d), Val(N)))
+end
+@inline _rotated_row(Rm, xv::NTuple{N}, k) where {N} =
+    foldl((acc, j) -> muladd(Rm[k, j], xv[j], acc), ntuple(j -> j + 1, Val(N - 1)); init = Rm[k, 1] * xv[1])
+
 @inline function Base.inv(
         E::EuclideanMap{N, T, R, V, Src, Dst}
     ) where {N, T, R, V, Src, Dst}

@@ -90,9 +90,8 @@ end
 
 "The path of the scene-split registry of record, configs/splits.toml."
 const SPLIT_REGISTRY_PATH = normpath(joinpath(@__DIR__, "..", "..", "configs", "splits.toml"))
-include_dependency(SPLIT_REGISTRY_PATH)
 "The scene-split registry of record: every scene list of the stack (configs/splits.toml, parsed at precompile)."
-const SPLIT_REGISTRY = TOML.parsefile(SPLIT_REGISTRY_PATH)
+const SPLIT_REGISTRY = VGC.parse_defaults(SPLIT_REGISTRY_PATH)
 
 """
     registered_split(name) -> RegisteredSceneSplit

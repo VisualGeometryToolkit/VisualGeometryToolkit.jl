@@ -3,7 +3,8 @@
     using Test
     using TOML: TOML
     using VisualGeometryToolkitCore: present_kwargs, check_keys, toml_skip_fields, toml_key, toml_value,
-        toml_field, toml_table, allowed_keys, convert_field, toml_default, write_toml
+        toml_field, toml_table, allowed_keys, convert_field, toml_default, write_toml,
+        toml_field_name, parse_defaults
     import VisualGeometryToolkitCore
 
     # A config type with every non-mechanical case the packages hit: a renamed
@@ -68,6 +69,23 @@
             @test toml_default(defaults, "", "top") == 1
             @test_throws KeyError toml_default(defaults, "ransac", "nope")
             @test_throws KeyError toml_default(defaults, "nope", "k")
+        end
+        @testset "Greek ⇄ ASCII config keys, one table" begin
+            @test toml_key(Any, :α_min) == "alpha_min"
+            @test toml_key(Any, :μ) == "mu"
+            @test toml_key(Any, :scale) == "scale"
+            @test toml_field_name("mu") === :μ
+            @test toml_field_name("alpha_min") === :α_min
+            @test toml_field_name("scale") === :scale
+            for f in (:μ, :η, :γ, :ν, :α, :α_min)
+                @test toml_field_name(toml_key(Any, f)) === f
+            end
+            @test present_kwargs(Dict("mu" => 2), "mu" => Float64) == [:μ => 2.0]
+        end
+        @testset "parse_defaults parses the file" begin
+            path = joinpath(mktempdir(), "d.toml")
+            write(path, "top = 1\n[ransac]\nk = 3\n")
+            @test parse_defaults(path) == Dict("top" => 1, "ransac" => Dict("k" => 3))
         end
         @testset "write_toml round-trips through TOML.parsefile" begin
             path = joinpath(mktempdir(), "sub", "c.toml")

@@ -28,7 +28,7 @@
 # writer. What stays here is this package's: the Greek↔ASCII key spelling,
 # the retired-key set, the tag registries and the hook methods for its types.
 using VisualGeometryToolkitCore: present_kwargs, check_keys, toml_table,
-    allowed_keys, convert_field
+    allowed_keys, convert_field, toml_field_name
 import VisualGeometryToolkitCore: toml_key, toml_skip_fields, toml_field
 
 # RETIRED keys: knobs removed because nothing read them, which recorded run
@@ -52,7 +52,7 @@ _allowed_keys(::Type{T}, extra::String...) where {T} = allowed_keys(T, extra...)
 # The READER's half of VGC's field walk: typed per-key overrides — only the keys
 # PRESENT in the table become keywords, so absent ones fall through to the
 # struct's default (the shipped file), and ASCII spellings map back to the Greek
-# field names (`_field_of`) — through a `present_kwargs` spec derived from
+# field names (`toml_field_name`) — through a `present_kwargs` spec derived from
 # the same `fieldnames` / `toml_skip_fields` / `toml_key` walk `toml_table`
 # writes with, each value converted by its field's type (`_from_toml`, the
 # one per-field hook), minus the fields in `skip` the caller supplies itself.
@@ -62,7 +62,7 @@ function _table_kwargs(::Type{T}, d::AbstractDict; skip = ()) where {T}
         toml_key(T, f) => (v -> _from_toml(T, Val(f), v))
             for f in fieldnames(T) if !(f in skip) && !(f in toml_skip_fields(T))
     ]
-    return present_kwargs(d, spec...; field_of = _field_of)
+    return present_kwargs(d, spec...; field_of = toml_field_name)
 end
 _from_toml(::Type{T}, ::Val{F}, v) where {T, F} = convert_field(fieldtype(T, F), v)
 
@@ -137,7 +137,6 @@ for T in values(LO_TAGS)
         # The width field is written and read as its two keys
         # (`scale_multiple` | `loss_width`), never as `width`.
         toml_skip_fields(::Type{<:$T}) = (:width,)
-        toml_key(::Type{<:$T}, f::Symbol) = _toml_key(f)
     end
 end
 const _LOSS_TAG_OF = Dict{Type, String}(shape => tag for (tag, shape) in LOSS_TAGS)
@@ -289,7 +288,7 @@ end
 #     nuisance = { scale = "estimated", inlier_prior = { type = "fixed_prior", inlier_prior = 0.5 },
 #                  nu = { type = "fixed_nu", nu = 5.0 } }
 #
-# A field's key is its name (Greek spelled ASCII, `_toml_key`), every field is
+# A field's key is its name (Greek spelled ASCII, `toml_key`), every field is
 # required, and an unknown tag or key is refused (a retired one names its
 # successor). The scale's held value is VisualGeometryToolkitCore's `FixedS2(s2)`,
 # keyed `s2`: a SQUARED scale. ν has a third policy, "consensus_dof": held at
@@ -336,7 +335,7 @@ function _tagged_from_toml(tags, v, section::AbstractString)
         e isa ArgumentError || rethrow()
         throw(ArgumentError("[$section] $(e.msg)"))
     end
-    fkeys = String[_toml_key(f) for f in fieldnames(T) if f isa Symbol]
+    fkeys = String[toml_key(T, f) for f in fieldnames(T) if f isa Symbol]
     if d === nothing
         isempty(fkeys) || throw(ArgumentError(
             "[$section] $(repr(tag)) needs its $(join(fkeys, ", ")): spell it { type = $(repr(tag)), … }"))
@@ -354,7 +353,7 @@ function _tagged_to_toml(tags, x)
     fieldcount(typeof(x)) == 0 && return tag
     d = Dict{String, Any}("type" => tag)
     for f in fieldnames(typeof(x))
-        d[_toml_key(f::Symbol)] = getfield(x, f)
+        d[toml_key(typeof(x), f::Symbol)] = getfield(x, f)
     end
     return d
 end

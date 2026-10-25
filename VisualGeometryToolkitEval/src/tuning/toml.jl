@@ -31,9 +31,8 @@
 
 "The path of the shipped tuning defaults of record, configs/tuning.toml."
 const TUNING_DEFAULTS_PATH = normpath(joinpath(@__DIR__, "..", "..", "configs", "tuning.toml"))
-include_dependency(TUNING_DEFAULTS_PATH)
 "The shipped tuning defaults of record (configs/tuning.toml, parsed at precompile)."
-const TUNING_DEFAULTS = TOML.parsefile(TUNING_DEFAULTS_PATH)
+const TUNING_DEFAULTS = VGC.parse_defaults(TUNING_DEFAULTS_PATH)
 
 # -----------------------------------------------------------------------------
 # The tag registries: TOML tag → strategy type, per family.

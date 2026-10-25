@@ -27,6 +27,8 @@
 #                         throws on a missing key: a keyword default that is
 #                         not in the file would be a silent second source of
 #                         truth.
+#   * `parse_defaults` — parse a defaults file and record it as a precompilation
+#                         dependency of the calling package.
 #   * `write_toml`     — the one sorted writer behind every `write_config`.
 #
 # What stays in each package: its `configs/default.toml`, the
@@ -36,8 +38,25 @@
 
 using TOML: TOML
 
+# The Greek field names of the strategy structs and their ASCII TOML keys: ONE
+# table, both directions, so the loader and the writer cannot disagree.
+const _KEY_ASCII = Dict{Symbol, String}(
+    :μ => "mu", :η => "eta", :γ => "gamma", :ν => "nu", :α => "alpha",
+    :α_min => "alpha_min",
+)
+const _KEY_FIELD = Dict{String, Symbol}(key => field for (field, key) in _KEY_ASCII)
+
 """
-    present_kwargs(d::AbstractDict, spec::Pair{String}...; fallback = nothing, field_of = Symbol)
+    toml_field_name(key::AbstractString) -> Symbol
+
+The field name a TOML key spells: the inverse of [`toml_key`](@ref)'s Greek
+spelling (`"mu"` → `:μ`), `Symbol(key)` for every other key. The default
+`field_of` of [`present_kwargs`](@ref).
+"""
+toml_field_name(key::AbstractString) = get(_KEY_FIELD, key, Symbol(key))
+
+"""
+    present_kwargs(d::AbstractDict, spec::Pair{String}...; fallback = nothing, field_of = toml_field_name)
         -> Vector{Pair{Symbol, Any}}
 
 Typed per-key overrides. For each `"key" => convert` in `spec`, emit
@@ -45,9 +64,9 @@ Typed per-key overrides. For each `"key" => convert` in `spec`, emit
 `fallback` when THAT has it, else nothing at all — so an absent key falls
 through to the struct's own default rather than to a parallel literal here.
 `field_of` maps a TOML spelling to a field name (an ASCII `"mu"` for a Greek
-`:μ` field); the default is `Symbol`.
+`:μ` field); the default is [`toml_field_name`](@ref).
 """
-function present_kwargs(d::AbstractDict, spec::Pair{String}...; fallback = nothing, field_of = Symbol)
+function present_kwargs(d::AbstractDict, spec::Pair{String}...; fallback = nothing, field_of = toml_field_name)
     kw = Pair{Symbol, Any}[]
     for (k, f) in spec
         if haskey(d, k)
@@ -107,10 +126,13 @@ toml_skip_fields(::Type) = ()
     toml_key(::Type, f::Symbol) -> String
     toml_key(c, f::Symbol) -> String
 
-The TOML spelling of field `f` of this type; default `String(f)`. Dispatched
-on the TYPE so the reader's allowed-key list and the writer share one mapping.
+The TOML spelling of field `f` of this type; default `String(f)`, except that
+a Greek field name is spelled ASCII (`:μ` → `"mu"`, `:α_min` → `"alpha_min"`, the
+table behind [`toml_field_name`](@ref)) so a config is typeable everywhere.
+Dispatched on the TYPE so the reader's allowed-key list and the writer share
+one mapping.
 """
-toml_key(::Type, f::Symbol) = String(f)
+toml_key(::Type, f::Symbol) = get(_KEY_ASCII, f, String(f))
 toml_key(c, f::Symbol) = toml_key(typeof(c), f)
 
 """
@@ -173,6 +195,19 @@ A TOML value → the field type (`Float64(v)`, `Int(v)`, `Bool(v)`, `Symbol(v)`)
 the one converter behind a typed [`present_kwargs`](@ref) spec.
 """
 convert_field(::Type{T}, v) where {T} = T(v)
+
+"""
+    parse_defaults(path::AbstractString) -> Dict{String, Any}
+
+Parse a package's defaults file (its `configs/default.toml`) and record it as a
+precompilation dependency of the package being precompiled, so editing the file
+recompiles it. Call it at a module's top level with an absolute path:
+`const _TOML_DEFAULTS = parse_defaults(default_config_path())`.
+"""
+function parse_defaults(path::AbstractString)
+    include_dependency(path)
+    return TOML.parsefile(path)
+end
 
 """
     toml_default(defaults::AbstractDict, table::AbstractString, key::AbstractString)

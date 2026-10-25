@@ -680,7 +680,8 @@ public conventions_dir, convention_files
 
 # Shared machinery for the package family (unexported — import by name):
 public present_kwargs, check_keys, toml_skip_fields, toml_key, toml_value,
-    toml_field, toml_table, allowed_keys, convert_field, toml_default, write_toml
+    toml_field, toml_table, allowed_keys, convert_field, toml_default, write_toml,
+    toml_field_name, parse_defaults
 public lgamma_lanczos, digamma_stirling, trigamma_stirling, lu_solve!, tree_sum!,
     bilinear_sample_clamped
 public draw_ellipse!, draw_projected_ellipse!, draw_polyline!

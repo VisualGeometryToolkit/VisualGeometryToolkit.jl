@@ -16,12 +16,11 @@
 # =============================================================================
 
 using TOML: TOML
-using VisualGeometryToolkitCore: toml_default
+using VisualGeometryToolkitCore: toml_default, parse_defaults
 
 "The defaults of record (configs/default.toml)."
 const DEFAULTS_PATH = normpath(joinpath(@__DIR__, "..", "configs", "default.toml"))
-include_dependency(DEFAULTS_PATH)
-const _TOML_DEFAULTS = TOML.parsefile(DEFAULTS_PATH)
+const _TOML_DEFAULTS = parse_defaults(DEFAULTS_PATH)
 
 """
     _config_default(table, key)

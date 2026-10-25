@@ -32,7 +32,7 @@
 # =============================================================================
 
 using TOML: TOML
-using VisualGeometryToolkitCore: toml_default
+using VisualGeometryToolkitCore: toml_default, parse_defaults
 
 """
     default_config_path() -> String
@@ -42,8 +42,7 @@ point that is not handed an explicit config.
 """
 default_config_path() = normpath(joinpath(@__DIR__, "..", "configs", "default.toml"))
 
-include_dependency(default_config_path())
-const _TOML_DEFAULTS = TOML.parsefile(default_config_path())
+const _TOML_DEFAULTS = parse_defaults(default_config_path())
 
 """
     _dflt(table, key)
@@ -57,15 +56,3 @@ follows the scorer's decision point, and an explicit `scale_multiple` or
 `loss_width` is the caller's.
 """
 _dflt(table::AbstractString, key::AbstractString) = toml_default(_TOML_DEFAULTS, table, key)
-
-# ---- field ⇄ TOML key spelling -------------------------------------------------
-# The strategy structs use Greek field names (μ, η, γ, ν, α, α_min);
-# TOML keys stay ASCII so a config is typeable everywhere. ONE table, both
-# directions, so the loader and the writer cannot disagree.
-const _KEY_ASCII = Dict{Symbol, String}(
-    :μ => "mu", :η => "eta", :γ => "gamma", :ν => "nu", :α => "alpha",
-    :α_min => "alpha_min",
-)
-const _KEY_FIELD = Dict{String, Symbol}(key => field for (field, key) in _KEY_ASCII)
-_toml_key(f::Symbol) = get(_KEY_ASCII, f, String(f))
-_field_of(key::AbstractString) = get(_KEY_FIELD, key, Symbol(key))

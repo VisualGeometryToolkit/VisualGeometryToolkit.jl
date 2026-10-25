@@ -461,7 +461,7 @@ const LO_TAGS = TagRegistry(
 # The ONE keyword constructor of every strategy, driven by `fieldnames` and the
 # tag: a field's keyword is the field's name; its default is the strategy's
 # `[local_optimization.<tag>]` key in `configs/default.toml` (ASCII-spelled,
-# `_toml_key`); a field with NO key in the file is REQUIRED (Barron's `α`).
+# `toml_key`); a field with NO key in the file is REQUIRED (Barron's `α`).
 # The width field is set by `scale_multiple = m` (`ScaleMultiple(m)`) or
 # `loss_width = w` (`LossWidth(w)`) — both is an `ArgumentError` — and by
 # neither follows the scorer (`nothing`). Values convert to the field's type;
@@ -518,7 +518,7 @@ _lo_scale_multiple(::Type{<:Irls{GaussianShape}}, _) = throw(
 _lo_admits(::Type) = nothing
 _lo_admits(::Type{Irls{K}}) where {K} = _mechanism_admits_shape("Irls{$K}", K)
 
-_lo_key(::Type, ::Val{F}) where {F} = _toml_key(F)
+_lo_key(T::Type, ::Val{F}) where {F} = toml_key(T, F)
 
 _lo_field(::Type{T}, ::Val{F}, v) where {T, F} = convert(fieldtype(T, F), v)
 _lo_field(::Type, ::Val{:width}, w) = lo_width_value(w)

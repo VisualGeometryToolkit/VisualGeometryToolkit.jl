@@ -20,12 +20,13 @@ using VisualGeometryToolkitCore: converged, estimate, iterations   # VGC accesso
 using VisualGeometryToolkitCore: AbstractLocalOptimization, HuberShape, TLSShape, WelschShape   # owned and exported by VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: HomographyMat
 using VisualGeometryToolkitCore: MsacScoring   # owned and exported by VisualGeometryToolkitCore
+using VisualGeometryToolkitCore: toml_key   # public (the TOML key of a field)
 using VisualGeometryToolkitEstimation: LO_TAGS, config_dict, local_optimization_from_toml   # public, not exported
 using VisualGeometryToolkitEstimation
 import VisualGeometryToolkitCore
 # A width-carrying strategy's scale multiple (its `ScaleMultiple` width mode).
 sm(lo) = VgtkCore.lo_width(lo).value
-using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _toml_key, _dflt_lo, _allowed_keys, NoLocalOptimization
+using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, _allowed_keys, NoLocalOptimization
 
 @testset "TOML configuration" begin
 
@@ -83,10 +84,10 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _toml_key, _dflt_l
     @testset "the file is complete over every config field" begin
         # A defaulted knob that is not in the file would be a second authority.
         for f in fieldnames(RansacConfig)
-            @test haskey(_TOML_DEFAULTS["ransac"], _toml_key(f))
+            @test haskey(_TOML_DEFAULTS["ransac"], toml_key(Any, f))
         end
         for f in fieldnames(VgtkEstimation.MixtureEmConfig)
-            @test haskey(_TOML_DEFAULTS["mixture_em"], _toml_key(f))
+            @test haskey(_TOML_DEFAULTS["mixture_em"], toml_key(Any, f))
         end
         # Every strategy table names every keyword its constructor defaults —
         # `scale_multiple` / `alpha` are REQUIRED per call, deliberately absent.
@@ -99,7 +100,7 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _toml_key, _dflt_l
             for f in fieldnames(T)
                 f in get(required, tag, ()) && continue
                 f in VgtkCore.toml_skip_fields(T) && continue   # the scale interface is not a config key
-                @test haskey(tbl, _toml_key(f))
+                @test haskey(tbl, toml_key(Any, f))
             end
         end
         # ...and the converse, asserted rather than assumed: a key listed in
@@ -110,7 +111,7 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _toml_key, _dflt_l
         for (tag, fields) in required
             tbl = _TOML_DEFAULTS["local_optimization"][tag]
             for f in fields
-                @test !haskey(tbl, _toml_key(f))
+                @test !haskey(tbl, toml_key(Any, f))
             end
         end
         for (class, tbl) in _TOML_DEFAULTS["pipelines"]
@@ -202,7 +203,7 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _toml_key, _dflt_l
                 d = config_dict(lo)
                 for f in fieldnames(T)
                     f in VgtkCore.toml_skip_fields(T) && continue   # scale interface: not a config key
-                    @test haskey(d, _toml_key(f))
+                    @test haskey(d, toml_key(Any, f))
                 end
                 @test local_optimization_from_toml(d; class = :homography) == lo
             end

@@ -80,7 +80,7 @@ using Statistics: cov
 using Rotations: QuatRotation, RotMatrix, RotationVec, RotZ, params
 using JSON: JSON
 using SQLite: SQLite
-using FlexUnits: Units, ustrip, dimension, quantity
+using FlexUnits: Units, Quantity, ustrip, dimension, quantity, uscale
 using VisualGeometryToolkitCore: parse_unit, unit_string, mm, m,
     CameraModel, CameraCalibrationMat, AbstractLensModel, Lens, Pinhole, Division, KannalaBrandt, Scaramuzza,
     Perspective, Equidistant, DoubleSphere, Unified, ExtendedUnified,
@@ -140,6 +140,7 @@ import VisualGeometryToolkitCore
 function load end
 function save end
 
+include("lengths.jl")     # read_length / write_length: decimal-exact file lengths (before every schema)
 include("json.jl")
 include("validate.jl")    # the v2 spec combinators + read/write boundaries (before every schema: specs are consts)
 include("contract.jl")
@@ -193,6 +194,7 @@ export save_opencv_calibration        # the inverse of load_opencv_calibration: 
 # collide with FileIO's, BlobBoards' or a caller's own.
 public load, save                     # the two-verb I/O surface (see the top of this file)
 public ColmapModel                    # a COLMAP model directory's contents + its unit contract
+public read_length, write_length   # a file length <-> metres, decimal-exact (power-of-ten units shift the exponent)
 public validate                       # check any vgio file against its kind's table
 public pixel_frame_name, pixel_frame_from_name   # a pixel frame's serialized name, and back (VGC decides which exist)
 public pose_json, pose_from_json, pose_declarations, camera_json, camera_from_json,

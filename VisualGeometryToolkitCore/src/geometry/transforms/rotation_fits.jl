@@ -29,7 +29,7 @@ Throws `ArgumentError` on fewer than 2 pairs (a single pair leaves a
 one-parameter family of solutions).
 """
 kabsch(cs::AbstractVector{<:Pair{<:StaticVector{3, <:Quantity}, <:StaticVector{3, <:Quantity}}}) =
-    kabsch([_strip_metres(a) => _strip_metres(b) for (a, b) in zip(sources(cs), targets(cs))])
+    kabsch([_strip_metres(first(p)) => _strip_metres(last(p)) for p in cs])
 function kabsch(cs::AbstractVector{<:Pair{<:StaticVector{3}, <:StaticVector{3}}})
     length(cs) >= 2 ||
         throw(ArgumentError("need at least 2 vector pairs, got $(length(cs))"))

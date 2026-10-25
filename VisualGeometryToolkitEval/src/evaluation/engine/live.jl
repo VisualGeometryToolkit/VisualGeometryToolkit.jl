@@ -14,40 +14,66 @@
 # =============================================================================
 
 """
-    live_runs(scoring, lo, ctxs; problem_of, seed_of, config = RansacConfig(), warmup = true)
-        -> (; err, trials, wall_s)
+    live_runs(scoring, lo, ctxs; problem_of, seed_of, config = RansacConfig(), warmup = true,
+              lo_of = nothing, on_improvement_of = nothing, score_guard = false,
+              cancelled = () -> false, finalize = nothing)
+        -> (; err, trials, wall_s)            # plus `extras` when `finalize !== nothing`
 
 Run one live production `ransac` per pair context `ctxs[j]`, threaded over pairs.
 Each run uses the caller's problem of the pair, `problem_of(ctxs[j].pair)`, the
 selection `scoring`, the LO strategy `lo`, adaptive termination under `config`. Each pair's stream is `StableRNG(seed_of(j))`,
 handed to `ransac` explicitly, so a run is independent of the thread schedule,
-identical across calls that share `seed_of`, and fixed across Julia versions
-(`seed_of` should be a `stable_seed`). Per pair: `err[j]` the imc pose error
+identical across calls that share `seed_of` (`seed_of` should be a `stable_seed`). Per pair: `err[j]` the imc pose error
 [deg] of the final model, `Inf` when the run yielded no model (`converged`
-false); `trials[j]` the trials drawn; `wall_s[j]` the wall clock of the
+false) or the pair was cancelled; `trials[j]` the trials drawn; `wall_s[j]` the wall clock of the
 `ransac` call alone. `warmup` first runs one short solve on pair 1 (result
 discarded) so no bracket pays JIT.
+
+The keywords below default so that the result is exactly the plain run's.
+- `lo_of(j)` returns the LO strategy of pair `j`, overriding `lo` (the warmup uses `lo_of(1)`).
+- `on_improvement_of(j)` returns the `ransac` improvement callback of pair `j`
+  (`on_improvement(trial, score, ws)`, fired when the incumbent improves). The warmup
+  fires `on_improvement_of(1)` too, so every call compiles the one `ransac` loop
+  specialization; a callback that records must tolerate that first, discarded
+  firing.
+- `score_guard` is forwarded to `ransac`: per-candidate ScoreGuarded acceptance.
+- `cancelled()` is polled before each pair; a cancelled pair is not run and keeps
+  `err = Inf`, `trials = 0`, `wall_s = NaN`. Pairs are threaded, so a pair already
+  started finishes. [`Experiments.cancelled`](@ref) is the kaimon-aware poll.
+- `finalize(j, r)` runs after pair `j`'s `ransac` result `r`, on the pair's
+  thread and outside its wall bracket; its values come back as
+  `extras::Vector{Any}` (`nothing` for a pair not run). Without `finalize` the
+  result has no `extras` field.
 """
 function live_runs(scoring, lo::AbstractLocalOptimization, ctxs::AbstractVector{<:PairCtx};
                    problem_of, seed_of, config::RansacConfig = RansacConfig(),
-                   warmup::Bool = true)
+                   warmup::Bool = true, lo_of = nothing, on_improvement_of = nothing,
+                   score_guard::Bool = false, cancelled = () -> false, finalize = nothing)
     n = length(ctxs)
     problem_at(j) = problem_of(ctxs[j].pair)
+    lo_at(j) = lo_of === nothing ? lo : lo_of(j)
+    cb_at(j) = on_improvement_of === nothing ? nothing : on_improvement_of(j)
     if warmup && n > 0
-        ransac(problem_at(1), scoring; local_optimization = lo,
-               config = RansacConfig(max_trials = 100, min_trials = 1))
+        ransac(problem_at(1), scoring; local_optimization = lo_at(1),
+               config = RansacConfig(max_trials = 100, min_trials = 1),
+               on_improvement = cb_at(1), score_guard)
     end
     err = fill(Inf, n); trials = zeros(Int, n); wall_s = fill(NaN, n)
+    extras = Any[nothing for _ in 1:n]
     Threads.@threads for j in 1:n
+        cancelled() && continue
         prob = problem_at(j)
         rng = StableRNG(seed_of(j))
+        loj = lo_at(j); cb = cb_at(j)
         t0 = time_ns()
-        r = ransac(prob, scoring; local_optimization = lo, config, rng)
+        r = ransac(prob, scoring; local_optimization = loj, config,
+                   on_improvement = cb, score_guard, rng)
         wall_s[j] = (time_ns() - t0) / 1e9
         trials[j] = iterations(r)
         err[j] = converged(r) ? Float64(model_imc(estimate(r), ctxs[j])) : Inf
+        finalize === nothing || (extras[j] = finalize(j, r))
     end
-    return (; err, trials, wall_s)
+    return finalize === nothing ? (; err, trials, wall_s) : (; err, trials, wall_s, extras)
 end
 
 """

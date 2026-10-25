@@ -519,6 +519,40 @@
         @test 0 <= row.maa <= 1 && row.n_eligible == 8 && row.med == median(bare.err) && row.med_trials == median(bare.trials)
     end
 
+    @testset "live runs: per-pair hooks leave the defaults' output untouched" begin
+        ctxs = [build_pair_ctx(P, first(epair(MersenneTwister(100 + i)))) for i in 1:8]
+        sc = MsacScoring(1; threshold = 0.01)
+        problem_of = EssentialProblem
+        run(; kw...) = live_runs(sc, irls(), ctxs; problem_of, seed_of = j -> 7 + j, warmup = false, kw...)
+        base = run()
+        @test base.err == [3.585203625487833, 7.8158303757585434, 3.7568851311201112, 2.618818515365572, 3.0636424185959137, 0.668822182465071, 1.9706137868124836, 5.3988742939118275] && base.trials == [100, 100, 100, 100, 100, 100, 100, 100]   # recorded before the hooks existed
+        @test propertynames(base) == (:err, :trials, :wall_s)
+        # lo_of overriding with the same strategy, a callback and the guard off: same outputs
+        fired = [Threads.Atomic{Int}(0) for _ in 1:8]
+        cb_of(j) = (trial, score, ws) -> Threads.atomic_add!(fired[j], 1)
+        hooked = run(; lo_of = j -> irls(), on_improvement_of = cb_of)
+        @test hooked.err == base.err && hooked.trials == base.trials
+        @test all(f -> f[] > 0, fired)                                 # the callback fires on every pair
+        # the warm-up fires pair 1's callback too (the same closure type)
+        fired[1][] = 0
+        live_runs(sc, irls(), ctxs; problem_of, seed_of = j -> 7 + j, warmup = true, on_improvement_of = cb_of)
+        @test fired[1][] > 0
+        # finalize: extras only when asked, one per pair, in the pair's slot
+        fin = run(; finalize = (j, r) -> (j, VGC.converged(r)))
+        @test fin.err == base.err && fin.extras == [(j, true) for j in 1:8]
+        # the guard is forwarded to ransac and still yields a model per pair
+        guarded = run(; score_guard = true)
+        @test all(isfinite, guarded.err)
+        # cancellation: polled before each pair; nothing runs
+        calls = Threads.Atomic{Int}(0)
+        none = run(; cancelled = () -> true, finalize = (j, r) -> Threads.atomic_add!(calls, 1))
+        @test all(==(Inf), none.err) && all(==(0), none.trials) && all(isnan, none.wall_s)
+        @test calls[] == 0 && all(isnothing, none.extras)
+        # Experiments' kaimon hooks: false / no-op without Main.KaimonGate
+        @test Experiments.cancelled() === false
+        @test Experiments.progress("x") === false
+    end
+
     @testset "stream_selections: the :pool staging, the generic select_on_grid!" begin
         rng = MersenneTwister(20261001)
         prs = [epair(rng) for _ in 1:3]

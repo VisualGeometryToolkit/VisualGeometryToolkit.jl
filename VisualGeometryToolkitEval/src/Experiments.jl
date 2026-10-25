@@ -55,7 +55,7 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VGC   # check_keys
 using ..Tuning: resolve_tuning!, _toml_hash
 import ..cli_option   # src/cli.jl: stages.jl reads `--stage=` through it
 
-export Stage, run_stages, run_driver, set_driver_context!, require_input,
+export cancelled, progress, Stage, run_stages, run_driver, set_driver_context!, require_input,
        fresher, contract_violations,
        # run records (experiments/run_records.jl): the configuration-of-record layer
        load_run_config, run_key, RUN_KEY_EXCLUDED, RUN_CONFIG_KEYS, experiment_dir,
@@ -71,6 +71,26 @@ export Stage, run_stages, run_driver, set_driver_context!, require_input,
        DataPolicyAllow, data_policy_violations,
        # re-keying (experiments/rekey.jl): the old → new key map of a tag rename
        TagRename, rename_tags, rekey_map, write_rekey_map, read_rekey_map
+
+# Cooperative hooks of a kaimon warm-REPL run: no dependency on kaimon; they act
+# only when the session has defined `Main.KaimonGate`.
+"""
+    cancelled() -> Bool
+
+Whether a kaimon `cancel_eval` was requested for the running evaluation
+(`Main.KaimonGate.is_cancelled()`); `false` outside a kaimon session. Poll it from
+long loops, e.g. `live_runs(...; cancelled = Experiments.cancelled)`.
+"""
+cancelled() = isdefined(Main, :KaimonGate) && Base.invokelatest(Main.KaimonGate.is_cancelled)::Bool
+
+"""
+    progress(msg) -> Bool
+
+Report `msg` as the running evaluation's progress (`Main.KaimonGate.progress(msg)`)
+and return `true`; a no-op returning `false` outside a kaimon session.
+"""
+progress(msg::AbstractString) =
+    isdefined(Main, :KaimonGate) && (Base.invokelatest(Main.KaimonGate.progress, msg); true)
 
 # The stage runner — Stage, run_stages, require_input, fresher.
 include("experiments/stages.jl")

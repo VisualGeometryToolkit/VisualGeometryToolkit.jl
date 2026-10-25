@@ -38,6 +38,7 @@ ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
 GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
 JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
+NLLSsolver = "50b5cf9e-bf7a-4e29-8981-4280cbba70cb"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [extensions]
@@ -45,6 +46,7 @@ VisualGeometryToolkitCoreCUDAExt = "CUDA"
 VisualGeometryToolkitCoreChainRulesCoreExt = ["ChainRulesCore"]
 VisualGeometryToolkitCoreGLMakieExt = ["GLMakie", "Makie"]
 VisualGeometryToolkitCoreMakieExt = ["Makie"]
+VisualGeometryToolkitCoreNLLSsolverExt = "NLLSsolver"
 VisualGeometryToolkitCoreQualityExt = ["Aqua", "ExplicitImports", "JET", "Test"]
 VisualGeometryToolkitCoreTestExt = "Test"
 
@@ -73,6 +75,7 @@ LogExpFunctions = "1.0"
 MacroTools = "0.5.16"
 QuadGK = "2.11"
 Makie = "0.24.16"
+NLLSsolver = "4.1"
 Random = "1"
 Rotations = "1.7"
 # The fork-only queries live in VisualGeometryToolkitCore.SpatialQueries; the

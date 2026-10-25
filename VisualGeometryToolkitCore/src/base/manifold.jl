@@ -218,3 +218,27 @@ the pinned model. See [`SubsetManifold`](@ref); a lens manifold also restricts
 by coefficient name.
 """
 function restrict end
+
+"""
+    ManifoldBlock(manifold::Manifold) -> ManifoldBlock{D}
+
+A manifold as one variable block of a block-structured least-squares solver,
+`D = tangent_size(manifold)` coordinates: a step `δ` re-anchors it,
+`ManifoldBlock(recenter(manifold, δ))`, so the solver always steps from the
+chart origin of the current estimate. Its properties forward to the manifold
+(a pose block reads `.R`, `.t`). NLLSsolver's variable protocol on it
+(`nvars`, `update`) attaches with NLLSsolver (the package extension
+`VisualGeometryToolkitCoreNLLSsolverExt`); a concrete manifold type gives the
+concrete block type an NLLSsolver problem's variable vector is typed on. A
+residual on it supplies its Jacobian in the block's coordinates
+(`computeresjac`, e.g. ForwardDiff through `retract(b.manifold, δ)` at `δ = 0`):
+NLLSsolver's automatic one differentiates `update`, and a manifold's `recenter`
+stores the manifold's own element type, not a dual number.
+"""
+struct ManifoldBlock{D, C <: Manifold}
+    manifold::C
+    ManifoldBlock(manifold::C) where {C <: Manifold} = new{tangent_size(manifold), C}(manifold)
+end
+Base.getproperty(b::ManifoldBlock, s::Symbol) =
+    s === :manifold ? getfield(b, :manifold) : getproperty(getfield(b, :manifold), s)
+Base.propertynames(b::ManifoldBlock) = (:manifold, propertynames(getfield(b, :manifold))...)

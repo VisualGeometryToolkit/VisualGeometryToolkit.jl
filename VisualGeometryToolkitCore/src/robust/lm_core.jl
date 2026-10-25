@@ -10,11 +10,12 @@
 # local, centred at the base model) and returned as an `SVector{N}`; the chart
 # is fixed for the run and the caller re-centres it once, at the solution.
 # VisualGeometryToolkitEstimation's LO refits (H: N = 8, F: 7, E: 5, PnP and hand-eye: 6,
-# the radial homography: 9, the radial camera: 5), its `fit_lens` and its
-# `refine_robot_world_hand_eye` (N = 6(M + 1)) run the chart LM; its relative-pose
-# bundle runs `lmsolve_rows!` with its own Schur-complement solver.
-# A step-size stop is checked for stationarity before it is called converged
-# (`_lm_stationary`; retcode `:stalled` otherwise).
+# the radial homography: 9, the radial camera: 5) and its `fit_lens` run the
+# chart LM; its relative-pose bundle runs `lmsolve_rows!` with its own
+# Schur-complement solver. A step-size stop is checked for stationarity before
+# it is called converged (`_lm_stationary`; retcode `:stalled` otherwise) —
+# the same postcondition `is_stationary` states for a block-structured solver
+# (Estimation's `refine_robot_world_hand_eye`, on NLLSsolver).
 #
 # The buffers — FLM's `LMWorkspace` around an `MVector{N}` iterate, and its
 # Cholesky solver — live in a `ManifoldLmWorkspace` allocated once per (task,
@@ -26,7 +27,7 @@
 # with its unrolled static Cholesky on an `MMatrix` (its `CholeskySolver`
 # limit); above, an `MMatrix` would take StaticArrays' generic factorization —
 # compiled per N, allocating past N = 24 — so the solver is a `Matrix` and FLM
-# factors it with LAPACK. Measured 2026-10-01 on `refine_robot_world_hand_eye`'s LM
+# factors it with LAPACK. Measured 2026-10-01 on `refine_robot_world_hand_eye`'s LM (on the chart LM until 2026-10-25)
 # (median per solve, MVector iterate; MMatrix vs Matrix solver):
 #   N = 12: 1.80 vs 1.72 ms, both 0 allocations
 #   N = 18: 3.70 ms + 105 allocations vs 3.81 ms, 0
@@ -227,13 +228,20 @@ guarantee).
 _lm_stationary(buffers::FLM.LMWorkspace, lm, tol::Real, ftol::Real) =
     sum(abs2, buffers.f) < ftol || _lm_residual_cosine(buffers, lm) <= tol
 
-# The left side of test 2: max_j |Jⱼᵀ f| / (‖Jⱼ‖ ‖f‖) at `buffers.x` (0 when
-# ‖f‖ = 0; NaN propagates, and NaN ≤ tol is false).
+# The left side of test 2 at `buffers.x`: the Jacobian evaluated there once,
+# the cosine on FLM's own scratch.
 function _lm_residual_cosine(buffers::FLM.LMWorkspace, lm)
-    x, f, g, w = buffers.x, buffers.f, buffers.g, buffers.w
+    iszero(norm(buffers.f)) && return zero(eltype(buffers.f))
+    J = _flm_jacobian!(buffers.J, buffers.x, lm)
+    return _residual_cosine!(buffers.g, buffers.w, J, buffers.f)
+end
+
+# max_j |Jⱼᵀ f| / (‖Jⱼ‖ ‖f‖), with `g` and `w` scratch of length size(J, 2)
+# (0 when ‖f‖ = 0; an all-zero column is skipped; NaN propagates, and
+# NaN ≤ tol is false).
+function _residual_cosine!(g, w, J, f)
     fn = norm(f)
     iszero(fn) && return zero(fn)
-    J = _flm_jacobian!(buffers.J, x, lm)
     LinearAlgebra.mul!(g, J', f)
     sum!(abs2, w', J)
     c = zero(fn)
@@ -242,6 +250,25 @@ function _lm_residual_cosine(buffers::FLM.LMWorkspace, lm)
         c = max(c, abs(g[j]) / (sqrt(w[j]) * fn))
     end
     return c
+end
+
+"""
+    is_stationary(J::AbstractMatrix, f::AbstractVector; tol, ftol) -> Bool
+
+The stall postcondition of [`lmsolve_rows!`](@ref) for a solver other than
+FastLevenbergMarquardt: whether the point at which the residual `f` and its
+Jacobian `J` were evaluated is a stationary point of `F = ‖f‖²` —
+`F < ftol` (an exact fit, whose residual points in no particular direction),
+or every column `Jⱼ` numerically orthogonal to `f`,
+`max_j |Jⱼᵀ f| / (‖Jⱼ‖ ‖f‖) ≤ tol` (scale-invariant in the residuals and in
+each unknown; an all-zero column is skipped, a NaN fails). A refit whose
+solver stopped without this holding stopped where its damping grew, not at a
+minimizer: its retcode is `:stalled`.
+"""
+function is_stationary(J::AbstractMatrix, f::AbstractVector; tol::Real, ftol::Real)
+    sum(abs2, f) < ftol && return true
+    n = size(J, 2)
+    return _residual_cosine!(similar(f, n), similar(f, n), J, f) <= tol
 end
 
 """

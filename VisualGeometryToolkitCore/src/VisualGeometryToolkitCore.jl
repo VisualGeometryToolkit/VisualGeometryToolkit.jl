@@ -459,6 +459,7 @@ public tangent_size, EssentialManifold6, SubsetManifold, restrict, retract, rece
     recenter_pose, retract_jacobian, action_jacobian, retract_directions, s2_tangent_basis,
     SL3_BASIS
 public anchor_svd   # FundMatManifold7's anchor (U, σ, V)
+public ManifoldBlock   # a manifold as a least-squares variable block (NLLSsolver's protocol: the NLLSsolver extension)
 public LeftRigidManifold6   # the left-perturbation pose chart constraint_with_jacobians(pose, …) differentiates
 public RigidExpManifold6    # the decoupled pose chart: exp on R from the left, t free (hand-eye)
 public RigidChart, RotationParam, MRPParam, ExpParam, TranslationCoupling, FreeT, CarriedT   # the rigid chart family the three pose charts alias
@@ -499,7 +500,7 @@ public Incumbent, keep_best
 # (import-by-name), the workspace type is public.
 public ManifoldLmWorkspace
 # The chart-LM protocol a caller's linearization state implements (robust/lm_core.jl).
-public residual_rows!, residual_jacobian_rows!, lm_retcode
+public residual_rows!, residual_jacobian_rows!, lm_retcode, is_stationary
 # The stack's naming checker (ext/VisualGeometryToolkitCoreTestExt; loads with Test): every stack package's
 # quality test runs it on itself; reached qualified.
 public check_naming, NamingViolation, naming_scope

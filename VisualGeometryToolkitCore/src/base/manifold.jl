@@ -98,10 +98,9 @@ function retract end
 function recenter end
 
 # `recenter`'s element-type rule: the manifold's element type `S` promoted with
-# the step's, and a static storage type `A` rebuilt in it (a `RotMatrix` keeps
-# its type: its method is beside the rigid charts).
-_recenter_eltype(::Type{S}, v) where {S} = promote_type(S, eltype(v))
-_with_eltype(::Type{A}, ::Type{T}) where {A <: StaticArray, T} = similar_type(A, T)
+# the step's (`promote_type(S, eltype(v))`), and a static storage type `A` rebuilt
+# in it (a `RotMatrix` keeps its type: its method is beside the rigid charts).
+_storage_with_eltype(::Type{A}, ::Type{T}) where {A <: StaticArray, T} = similar_type(A, T)
 
 """
     retract_jacobian(ch::Manifold) -> SMatrix
@@ -238,15 +237,6 @@ entries after the first `offset`, statically sized and in `v`'s element type
 (ForwardDiff Duals included), since a manifold's `tangent_size` is a constant of
 its type. A product manifold cuts its parts' coordinates with it, and so does a
 solver that stacks several manifolds' coordinates in one step vector.
-
-Every manifold is an NLLSsolver variable as it stands: with NLLSsolver loaded,
-the package extension `VisualGeometryToolkitCoreNLLSsolverExt` gives `Manifold`
-NLLSsolver's variable protocol, `nvars` its `tangent_size` and `update` its
-`recenter` on the variable's `tangent_part` of the step. NLLSsolver's automatic
-Jacobian differentiates `update`, so a residual on manifold variables needs only
-`computeresidual`, written generic in the variables' element type (`recenter`
-returns a Dual-valued manifold for a Dual step); a residual may still supply
-`computeresjac` when a hand-written Jacobian is faster.
 """
 tangent_part(ch::Manifold, v, offset = 0) =
     SVector{tangent_size(ch), eltype(v)}(ntuple(j -> v[offset + j], Val(tangent_size(ch))))

@@ -185,11 +185,11 @@ end
 # lie.jl) — and keeps the anchor's storage types in the contract's element type
 # (base/manifold.jl): a step of the chart's own float type gives back the type
 # a solver stepping a chart variable holds, a Dual step a Dual-valued chart.
-_with_eltype(::Type{<:RotMatrix{3}}, ::Type{T}) where {T} = RotMatrix{3, T, 9}
+_storage_with_eltype(::Type{<:RotMatrix{3}}, ::Type{T}) where {T} = RotMatrix{3, T, 9}
 function recenter(ch::RigidChart{P, C, Rot, Tr}, v) where {P, C, Rot, Tr}
     R, t = recenter_pose(ch, v)
-    T = _recenter_eltype(promote_type(eltype(Rot), eltype(Tr)), v)
-    RotT, TrT = _with_eltype(Rot, T), _with_eltype(Tr, T)
+    T = promote_type(eltype(Rot), eltype(Tr), eltype(v))
+    RotT, TrT = _storage_with_eltype(Rot, T), _storage_with_eltype(Tr, T)
     return RigidChart{P, C, RotT, TrT}(RotT(_reproject_so3(R)), TrT(t))
 end
 

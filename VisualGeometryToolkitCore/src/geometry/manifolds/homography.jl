@@ -67,7 +67,7 @@ end
 # bit-stability note in base/manifold.jl: a `recenter` kernel is compiled once,
 # standalone, so its 3×3 products do not take a caller's fusion choices.
 @noinline function recenter(ch::HomographyManifold8{S}, v) where {S}
-    T = _recenter_eltype(S, v)
+    T = promote_type(S, eltype(v))
     H = SMatrix{3, 3, T, 9}(retract(ch, v))
     return HomographyManifold8{T}(H / norm(H))
 end

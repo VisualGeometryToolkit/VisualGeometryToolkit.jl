@@ -97,9 +97,7 @@ end
 # reported in. `Val(B)`, B = M + 1 blocks, keeps the product's type static.
 _robot_world_hand_eye_manifold(cal::RobotWorldHandEyeCalibration, ::Val{B}) where {B} =
     ProductManifold(ntuple(b -> RigidExpManifold6(b == 1 ? cal.Y : cal.X[cal.ids[b - 1]]), Val(B))...)
-# ... and back: the calibration at a chart's anchor.
-_robot_world_hand_eye_calibration(P::ProductManifold, ids::Vector) = _robot_world_hand_eye_calibration(model(P), ids)
-# ... and from the poses (Y, X₁, …, X_M) in that order.
+# ... and back: the calibration from the poses (Y, X₁, …, X_M) in that order.
 _robot_world_hand_eye_calibration(poses, ids::Vector{K}) where {K} =
     RobotWorldHandEyeCalibration(first(poses), Dict{K, Rigid3}(id => poses[m + 1] for (m, id) in enumerate(ids)))
 

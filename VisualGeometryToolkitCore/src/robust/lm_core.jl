@@ -27,7 +27,7 @@
 # with its unrolled static Cholesky on an `MMatrix` (its `CholeskySolver`
 # limit); above, an `MMatrix` would take StaticArrays' generic factorization —
 # compiled per N, allocating past N = 24 — so the solver is a `Matrix` and FLM
-# factors it with LAPACK. Measured 2026-10-01 on `refine_robot_world_hand_eye`'s LM (on the chart LM until 2026-10-25)
+# factors it with LAPACK. Measured 2026-10-01 on `refine_robot_world_hand_eye`'s LM
 # (median per solve, MVector iterate; MMatrix vs Matrix solver):
 #   N = 12: 1.80 vs 1.72 ms, both 0 allocations
 #   N = 18: 3.70 ms + 105 allocations vs 3.81 ms, 0
@@ -231,7 +231,6 @@ _lm_stationary(buffers::FLM.LMWorkspace, lm, tol::Real, ftol::Real) =
 # The left side of test 2 at `buffers.x`: the Jacobian evaluated there once,
 # the cosine on FLM's own scratch.
 function _lm_residual_cosine(buffers::FLM.LMWorkspace, lm)
-    iszero(norm(buffers.f)) && return zero(eltype(buffers.f))
     J = _flm_jacobian!(buffers.J, buffers.x, lm)
     return _residual_cosine!(buffers.g, buffers.w, J, buffers.f)
 end

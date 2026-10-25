@@ -29,10 +29,7 @@
 # =============================================================================
 
 # Nothing is static in the marker count: the variables are a vector of pose
-# blocks, so one compiled method serves every M. (Until 2026-10-25 the LM was
-# VGC's chart LM on FastLevenbergMarquardt, static in N = 6(M + 1) and
-# compiled per M; until 2026-10-01 its solve was a static N × N Cholesky,
-# whose compile cost capped M at 4.)
+# blocks, so one compiled method serves every M.
 
 """
     refine_robot_world_hand_eye(guess::RobotWorldHandEyeCalibration{K}, camera::CameraModel, markers;
@@ -196,13 +193,9 @@ function _rw_rows_and_jacobian(costs::AbstractVector{<:_RwPointResidual}, charts
         rk = _rw_residual(c, chY, chX)
         Jk = _rw_jacobian(c, chY, chX)
         m = c.varind[2] - 1
-        for a in 1:2
-            r[2k - 2 + a] = rk[a]
-            for j in 1:6
-                J[2k - 2 + a, j] = Jk[a, j]
-                J[2k - 2 + a, 6m + j] = Jk[a, 6 + j]
-            end
-        end
+        r[2k-1:2k] = rk
+        J[2k-1:2k, 1:6] = Jk[:, 1:6]
+        J[2k-1:2k, 6m+1:6m+6] = Jk[:, 7:12]
     end
     return r, J
 end

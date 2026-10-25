@@ -237,6 +237,31 @@ end
         @test sum(result.inlier_mask) >= n_inliers * 0.7
     end
 
+    @testset "CountedLO — instrumentation wrapper answers as the wrapped strategy" begin
+        source_pts, target_pts, _, _ = make_homography_data(
+            n_inliers = 100, n_outliers = 30, noise = 0.5, seed = 42
+        )
+        problem = HomographyProblem(csponds(source_pts, target_pts))
+        inner = Irls{WelschShape}(scale_multiple = 1.5)
+        counted = VgtkEstimation.CountedLO(inner)
+        run(lo) = ransac(
+            problem, MsacScoring(problem; threshold = 3.0);
+            local_optimization = lo,
+            config = RansacConfig(max_trials = 3000, min_trials = 200),
+            rng = StableRNG(128)
+        )
+        r_inner = run(inner)
+        r_counted = run(counted)
+        @test estimate(r_counted) == estimate(r_inner)
+        @test counted.calls[] >= 1
+        @test counted.iterations[] >= counted.calls[]
+        @test VgtkCore.lo_width(counted) == VgtkCore.lo_width(inner)
+        @test VgtkCore.lo_label(counted) == VgtkCore.lo_label(inner)
+        @test VgtkCore.scale_interface(counted) == VgtkCore.scale_interface(inner)
+        @test VgtkCore.optimization_path(counted) == VgtkCore.optimization_path(inner)
+        @test VgtkCore.loss_family(counted) == VgtkCore.loss_family(inner)
+    end
+
     @testset "PROSAC with scored correspondences" begin
         source_pts, target_pts, H_true, n_inliers = make_homography_data(
             n_inliers = 100, n_outliers = 30, noise = 0.5, seed = 42

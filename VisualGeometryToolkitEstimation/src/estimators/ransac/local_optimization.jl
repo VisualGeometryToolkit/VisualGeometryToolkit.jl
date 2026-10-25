@@ -292,3 +292,45 @@ function _seed_policy_weights!(state::PosteriorIrlsState, lh, n::Int)
     state.current_cost = cost
     return nothing
 end
+
+# =============================================================================
+# CountedLO — instrumentation around any local-optimization strategy
+# =============================================================================
+
+"""
+    CountedLO(inner::AbstractLocalOptimization)
+
+Instrumentation wrapper: counts the `locally_optimize!` invocations (`calls[]`)
+and the iterations they report (`iterations[]`, the sum of
+`iterations(result)`), and answers every hook the RANSAC loop, the scorer
+composition check and the reporting read on a strategy exactly as `inner`
+does, so a run with `CountedLO(inner)` returns the model a run with `inner`
+returns. It is not a registered strategy (no TOML tag): it carries counters,
+not configuration. A counter is shared by every run that is handed the same
+wrapper; build a fresh one per measurement.
+"""
+struct CountedLO{L <: AbstractLocalOptimization} <: AbstractLocalOptimization
+    inner::L
+    calls::Base.RefValue{Int}
+    iterations::Base.RefValue{Int}
+end
+CountedLO(inner::AbstractLocalOptimization) = CountedLO(inner, Ref(0), Ref(0))
+
+function locally_optimize!(L, lo::CountedLO, problem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring)
+    r = locally_optimize!(L, lo.inner, problem, model, cs, buf, scoring)
+    lo.calls[] += 1
+    lo.iterations[] += VgtkCore.iterations(r)
+    return r
+end
+
+lo_workspace(::Type{P}, ::Type{T}, lo::CountedLO, n::Int) where {P <: AbstractRansacProblem, T} =
+    lo_workspace(P, T, lo.inner, n)
+lo_width(lo::CountedLO) = lo_width(lo.inner)
+deployed_scale_multiple(lo::CountedLO, shape, m::Float64, s2, scoring) =
+    deployed_scale_multiple(lo.inner, shape, m, s2, scoring)
+VgtkCore.with_width(lo::CountedLO, w) = CountedLO(VgtkCore.with_width(lo.inner, w), lo.calls, lo.iterations)
+VgtkCore.optimization_path(lo::CountedLO) = VgtkCore.optimization_path(lo.inner)
+VgtkCore.scale_interface(lo::CountedLO) = VgtkCore.scale_interface(lo.inner)
+VgtkCore.loss_family(lo::CountedLO) = VgtkCore.loss_family(lo.inner)
+VgtkCore.lo_label(lo::CountedLO) = VgtkCore.lo_label(lo.inner)
+VgtkCore.lo_marker(lo::CountedLO) = VgtkCore.lo_marker(lo.inner)

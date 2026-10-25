@@ -264,6 +264,7 @@ export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem,
 # 4. LOCAL-OPTIMIZATION strategies a user picks
 # -----------------------------------------------------------------------------
 export Irls, NoLocalOptimization
+public CountedLO   # instrumentation: counts a strategy's locally_optimize! calls and iterations
 # The zero-allocation RANSAC entry and its result buffers.
 export ransac!
 

@@ -126,7 +126,7 @@ The loss-shape registry (VisualGeometryToolkitCore's `TagRegistry`, family suffi
 (`_LOSS_TABLE`, scoring_glue.jl).
 """
 const LOSS_TAGS = TagRegistry(:loss, "Shape", (tag => K for (K, tag) in _LOSS_TABLE)...;
-                              paths = [r"(^|\.)loss$"])
+                              paths = [r"^(.*\.)?loss$"])
 
 # `LO_TAGS` (scoring_glue.jl) is the strategy registry, built by `@lo_registry`
 # from the one row per strategy (`_LO_REGISTRY`), which also gives every
@@ -329,7 +329,7 @@ The model-update registry of the posterior-weight EM (VisualGeometryToolkitCore'
 `"keep_model"` ([`KeepModel`](@ref)).
 """
 const MODEL_UPDATE_TAGS = TagRegistry(:model_update, "", "weighted_refine" => WeightedRefine, "keep_model" => KeepModel;
-                                      retired = ("keep" => "keep_model",), paths = [r"(^|\.)model_update(\.type)?$"])
+                                      retired = ("keep" => "keep_model",), paths = [r"^(.*\.)?model_update(\.type)?$"])
 """
     NUISANCE_TAGS
 
@@ -341,13 +341,13 @@ VisualGeometryToolkitCore `TagRegistry` per nuisance part, as a named tuple:
 const NUISANCE_TAGS = (
     scale = TagRegistry(:scale_policy, "", "estimated" => Estimated, "fixed_s2" => FixedS2;
                         retired = ("estimate" => "estimated", "fixed" => "fixed_s2"),
-                        paths = [r"(^|\.)nuisance\.scale(\.type)?$"]),
+                        paths = [r"^(.*\.)?nuisance\.scale(\.type)?$"]),
     inlier_prior = TagRegistry(:inlier_prior_policy, "", "estimated" => Estimated, "fixed_prior" => FixedPrior;
                                retired = ("estimate" => "estimated", "fixed" => "fixed_prior"),
-                               paths = [r"(^|\.)nuisance\.inlier_prior(\.type)?$"]),
+                               paths = [r"^(.*\.)?nuisance\.inlier_prior(\.type)?$"]),
     nu = TagRegistry(:nu_policy, "", "estimated" => Estimated, "fixed_nu" => FixedNu, "consensus_dof" => ConsensusDof;
                      retired = ("estimate" => "estimated", "fixed" => "fixed_nu", "partition_dof" => "consensus_dof"),
-                     paths = [r"(^|\.)nuisance\.nu(\.type)?$"]),
+                     paths = [r"^(.*\.)?nuisance\.nu(\.type)?$"]),
 )
 
 function _tagged_from_toml(tags, v, section::AbstractString)

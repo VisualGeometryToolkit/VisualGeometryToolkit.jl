@@ -105,6 +105,7 @@ end
 
 @testitem "fit_result nested metadata" begin
     using VisualGeometryToolkitCore
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: FitResult, nested_metadata, _reject_shadowing
 
     struct _NestInner
@@ -115,7 +116,7 @@ end
         a::Int
         inner::_NestInner
     end
-    VisualGeometryToolkitCore.nested_metadata(::Type{_NestOuter}) = (:inner,)
+    VgtkCore.nested_metadata(::Type{_NestOuter}) = (:inner,)
 
     struct _NestClashInner
         a::Int
@@ -124,7 +125,7 @@ end
         a::Int
         inner::_NestClashInner
     end
-    VisualGeometryToolkitCore.nested_metadata(::Type{_NestClashOuter}) = (:inner,)
+    VgtkCore.nested_metadata(::Type{_NestClashOuter}) = (:inner,)
 
     struct _NestCoreInner
         rms::Float64
@@ -132,18 +133,18 @@ end
     struct _NestClashCore    # nested field `rms` equals a core field
         inner::_NestCoreInner
     end
-    VisualGeometryToolkitCore.nested_metadata(::Type{_NestClashCore}) = (:inner,)
+    VgtkCore.nested_metadata(::Type{_NestClashCore}) = (:inner,)
 
     struct _NestTwo          # two nested fields declare `b`
         p::_NestInner
         q::_NestInner
     end
-    VisualGeometryToolkitCore.nested_metadata(::Type{_NestTwo}) = (:p, :q)
+    VgtkCore.nested_metadata(::Type{_NestTwo}) = (:p, :q)
 
     struct _NestNotField
         a::Int
     end
-    VisualGeometryToolkitCore.nested_metadata(::Type{_NestNotField}) = (:nope,)
+    VgtkCore.nested_metadata(::Type{_NestNotField}) = (:nope,)
 
     @test nested_metadata(Nothing) === ()
     @test nested_metadata(_NestInner) === ()

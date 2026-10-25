@@ -50,23 +50,26 @@ const _KEY_FIELD = Dict{String, Symbol}(key => field for (field, key) in _KEY_AS
     toml_field_name(key::AbstractString) -> Symbol
 
 The field name a TOML key spells: the inverse of [`toml_key`](@ref)'s Greek
-spelling (`"mu"` → `:μ`), `Symbol(key)` for every other key. The default
-`field_of` of [`present_kwargs`](@ref).
+spelling (`"mu"` → `:μ`), `Symbol(key)` for every other key. A loader whose
+structs carry the Greek fields hands it to [`present_kwargs`](@ref) as
+`field_of = toml_field_name`; it is not that function's default, since a struct
+whose fields are themselves ASCII (`nu`, `gamma`, `alpha`) must not be renamed.
 """
 toml_field_name(key::AbstractString) = get(_KEY_FIELD, key, Symbol(key))
 
 """
-    present_kwargs(d::AbstractDict, spec::Pair{String}...; fallback = nothing, field_of = toml_field_name)
+    present_kwargs(d::AbstractDict, spec::Pair{String}...; fallback = nothing, field_of = Symbol)
         -> Vector{Pair{Symbol, Any}}
 
 Typed per-key overrides. For each `"key" => convert` in `spec`, emit
 `field_of("key") => convert(d["key"])` when `d` has the key, else the same from
 `fallback` when THAT has it, else nothing at all — so an absent key falls
 through to the struct's own default rather than to a parallel literal here.
-`field_of` maps a TOML spelling to a field name (an ASCII `"mu"` for a Greek
-`:μ` field); the default is [`toml_field_name`](@ref).
+`field_of` maps a TOML spelling to a field name; the default `Symbol` keeps the
+key as the field. A loader of structs with Greek fields (`:μ` read from an
+ASCII `"mu"`) supplies `field_of = `[`toml_field_name`](@ref).
 """
-function present_kwargs(d::AbstractDict, spec::Pair{String}...; fallback = nothing, field_of = toml_field_name)
+function present_kwargs(d::AbstractDict, spec::Pair{String}...; fallback = nothing, field_of = Symbol)
     kw = Pair{Symbol, Any}[]
     for (k, f) in spec
         if haskey(d, k)

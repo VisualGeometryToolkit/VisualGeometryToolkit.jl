@@ -169,6 +169,7 @@ end
 @testitem "parameter_protocol" begin
     using Test, StaticArrays, LinearAlgebra
     using VisualGeometryToolkitCore
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: LensManifold, retract, recenter, retract_jacobian, local_coordinates, tangent_size, model
 
     @testset "values are what the retired getters returned" begin
@@ -240,9 +241,9 @@ end
         @test f2(ch, v) == 0
     end
 
-    struct _OddBounds <: VisualGeometryToolkitCore.AbstractLensModel end
-    VisualGeometryToolkitCore.parameter_names(::_OddBounds) = (:a, :b)
-    VisualGeometryToolkitCore.parameter_bounds(::_OddBounds) = (SVector(0.0, -Inf), SVector(2.0, Inf))
+    struct _OddBounds <: VgtkCore.AbstractLensModel end
+    VgtkCore.parameter_names(::_OddBounds) = (:a, :b)
+    VgtkCore.parameter_bounds(::_OddBounds) = (SVector(0.0, -Inf), SVector(2.0, Inf))
 
     @testset "LensManifold refuses a bound it cannot honor" begin
         @test_throws ArgumentError LensManifold(_OddBounds())

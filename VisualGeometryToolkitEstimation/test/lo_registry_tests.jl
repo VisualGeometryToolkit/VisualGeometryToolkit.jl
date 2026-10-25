@@ -114,6 +114,25 @@ end
             Dict{String, Any}("type" => "terminal_lo", "inner" => lo_config_dict(Irls{WelschShape}(scale_multiple = 1.5)))
         @test local_optimization_from_toml(config_dict(t); class = :essential) == t
         @test VgtkEstimation.TerminalLO(; inner = Irls{TLSShape}()) == VgtkEstimation.TerminalLO(Irls{TLSShape}())
+        # The config-tag gate reads the nested strategy's tag too, at any depth.
+        mktempdir() do dir
+            write(joinpath(dir, "nested.toml"), """
+                [ransac.local_optimization]
+                type = "terminal_lo"
+                [ransac.local_optimization.inner]
+                type = "none"
+                [other.local_optimization]
+                type = "terminal_lo"
+                [other.local_optimization.inner]
+                type = "terminal_lo"
+                [other.local_optimization.inner.inner]
+                type = "irls_typo"
+                """)
+            found = VgtkCore.config_tag_violations([LO_TAGS], [dir])
+            @test length(found) == 2
+            @test any(f -> occursin("ransac.local_optimization.inner.type", f) && occursin("no_local_optimization", f), found)
+            @test any(f -> occursin("other.local_optimization.inner.inner.type", f) && occursin("irls_typo", f), found)
+        end
         @test_throws ArgumentError local_optimization_from_toml(Dict("type" => "terminal_lo"); class = :essential)
         @test_throws ArgumentError local_optimization_from_toml(
             Dict("type" => "terminal_lo", "inner" => "irls"); class = :essential)

@@ -3,8 +3,20 @@
 # estimators (SupeRANSAC, PoseLib's Python peers) that read plain arrays.
 # =============================================================================
 
-# N×4 `[x₁ y₁ x₂ y₂]` rows of a pair's pixel csponds — the external estimators' input layout.
-_match_matrix(cs) = [reduce(hcat, collect.(sources(cs)))' reduce(hcat, collect.(targets(cs)))']
+# N×4 `[x₁ y₁ x₂ y₂]` rows of a pair's pixel csponds — the external estimators' input layout;
+# a pair without correspondences is the empty 0×4 matrix of that layout.
+_match_matrix(cs) = isempty(cs) ? zeros(Float64, 0, 4) :
+    [reduce(hcat, collect.(sources(cs)))' reduce(hcat, collect.(targets(cs)))']
+
+# The external baselines read every pair's Lowe ratios; a pair stored without them is refused.
+function _check_snn(pool::ScoringPool, indices::AbstractVector{Int}, scene)
+    for i in indices
+        pool.pairs[i].snn === nothing && throw(ArgumentError(
+            "export_pixel_inputs: pair $i ($(pool.scene_names[i])) of $scene records no Lowe ratios (snn); " *
+            "the external baselines need them"))
+    end
+    return nothing
+end
 
 """
     export_pixel_inputs(path, pool, idx; scene = pool.scene, created = string(Dates.now())) -> path
@@ -17,13 +29,17 @@ pixel correspondences, back through the record's own maps,
 pixel calibrations `K1` and `K2` and the ground-truth `R_gt` and `t_gt`; plus
 `scene`, `n_pairs`, `pair_indices`, `pool_size`, the `pool_key` the slice was
 read from, a `provenance` string and `created`. The parent directory is
-created and an existing file is overwritten.
+created and an existing file is overwritten. A pair without stored Lowe ratios
+(`snn === nothing`) is an `ArgumentError` naming it — the external baselines
+need them — and nothing is written; a pair without correspondences exports a
+0×4 `matches`.
 """
 function export_pixel_inputs(path::AbstractString, pool::ScoringPool, idx::AbstractVector{<:Integer};
                              scene::AbstractString = pool.scene, created::AbstractString = string(Dates.now()))
     isempty(idx) && throw(ArgumentError("export_pixel_inputs: no pair indices for $scene"))
     issorted(idx; lt = <=) || throw(ArgumentError("export_pixel_inputs: pair indices of $scene must be strictly increasing"))
     indices = collect(Int, idx)
+    _check_snn(pool, indices, scene)
     ps = pool.pairs[indices]
     mkpath(dirname(abspath(path)))
     JLD2.jldsave(path; scene = String(scene), n_pairs = length(ps), pair_indices = indices,

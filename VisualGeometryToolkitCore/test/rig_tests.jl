@@ -120,6 +120,15 @@
             @test extrinsics(rig).t ≈ t && Matrix(extrinsics(rig).R) ≈ Matrix(R)   # the given transform survives
             @test_throws ArgumentError StereoRig(u, u, E)   # checked: members must be posed
             @test_throws ArgumentError StereoRig(u, u)       # computed from the members
+            # the frame-deducing Rig(members) refuses with the one check site's reasons
+            msg(f) = try f(); "" catch e; e isa ArgumentError ? e.msg : "" end
+            unposed(i) = "Rig: sensor $i is an unposed camera (a BoundedCamera) — a rig member is posed: " *
+                         "`PosedCamera(model, X)` with X labeled `F → ViewFrame{id}`"
+            posed = PosedCamera(cm, relabel(WorldFrame, ViewFrame{:a}, E))
+            @test msg(() -> Rig(())) == "Rig: at least one sensor required"
+            @test msg(() -> Rig((u,))) == unposed(1)
+            @test msg(() -> Rig((posed, u))) == unposed(2)
+            @test Rig((posed,)) isa Rig{WorldFrame}
         end
 
         @testset "a rig of targets — dict storage, labels minted, the frame is the gauge" begin

@@ -265,6 +265,57 @@ end
         @test VgtkCore.with_width(counted, VgtkCore.LossWidth(2.0)).iterations === counted.iterations
         @test VgtkCore.deployed_scale_multiple(VgtkEstimation.CountedLO(inner), WelschShape(), 1.5, 1.0, nothing) ==
             VgtkCore.deployed_scale_multiple(inner, WelschShape(), 1.5, 1.0, nothing)
+        # the loss identity and the fixed-width control are the inner's (a currency that reads the shape too)
+        for lo in (inner, Irls{GemanMcclureShape}(scale_multiple = 2.0))
+            c = VgtkEstimation.CountedLO(lo)
+            @test VgtkEstimation.strategy_loss(c) === VgtkEstimation.strategy_loss(lo)
+            @test VgtkEstimation.deployed_shape(c) == VgtkEstimation.deployed_shape(lo)
+            @test VgtkEstimation.fixed_width(c, 4.0) == VgtkEstimation.fixed_width(lo, 4.0)
+            @test VgtkCore.with_width(c, VgtkEstimation.fixed_width(c, 4.0)).inner ==
+                VgtkCore.with_width(lo, VgtkEstimation.fixed_width(lo, 4.0))
+            t = VgtkEstimation.TerminalLO(lo)
+            @test VgtkEstimation.strategy_loss(t) === VgtkEstimation.strategy_loss(lo)
+            @test VgtkEstimation.fixed_width(VgtkEstimation.CountedLO(t), 4.0) == VgtkEstimation.fixed_width(lo, 4.0)
+        end
+    end
+
+    @testset "CountedLO — one counter shared by threaded runs adds up exactly" begin
+        problems = map(1:16) do seed
+            src, tgt, _, _ = make_homography_data(n_inliers = 100, n_outliers = 30, noise = 0.5, seed = seed)
+            HomographyProblem(csponds(src, tgt))
+        end
+        inner = Irls{WelschShape}(scale_multiple = 1.5)
+        run(lo, j) = ransac(
+            problems[j], MsacScoring(problems[j]; threshold = 3.0);
+            local_optimization = lo,
+            config = RansacConfig(max_trials = 500, min_trials = 200),
+            rng = StableRNG(j)
+        )
+        serial = VgtkEstimation.CountedLO(inner)
+        foreach(j -> run(serial, j), eachindex(problems))
+        threaded = VgtkEstimation.CountedLO(inner)
+        Threads.@threads for j in eachindex(problems)
+            run(threaded, j)
+        end
+        @test serial.calls[] > length(problems)
+        @test threaded.calls[] == serial.calls[]
+        @test threaded.iterations[] == serial.iterations[]
+        # Contention the sweep above rarely reaches: four tasks hammer one counter
+        # with near-instant calls (a plain `Ref` loses increments here).
+        sc = MsacScoring(problems[1]; threshold = 3.0)
+        θ = estimate(run(inner, 1))
+        hammered = VgtkEstimation.CountedLO(NoLocalOptimization())
+        n_calls = 20_000
+        tasks = map(1:4) do _
+            Threads.@spawn begin
+                ws = VgtkEstimation.RansacWorkspace(problems[1], sc, hammered)
+                for _ in 1:n_calls
+                    locally_optimize(problems[1], θ; local_optimization = hammered, scoring = sc, workspace = ws)
+                end
+            end
+        end
+        foreach(wait, tasks)
+        @test hammered.calls[] == 4 * n_calls
     end
 
     @testset "TerminalLO — the raw race, then one seeded LO of its incumbent" begin

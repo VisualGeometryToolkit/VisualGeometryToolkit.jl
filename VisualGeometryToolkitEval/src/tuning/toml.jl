@@ -312,7 +312,7 @@ function tuning_spec(cfg::AbstractDict, name::AbstractString; under::AbstractDic
     tag = entry["type"]
     T = _tag_type("scheme", tag, "tuning.$name")
     if !isempty(under) || !isempty(over)
-        fields = Set(String(f) for f in fieldnames(T))
+        fields = Set(VGC.toml_key(T, f) for f in fieldnames(T))
         kept = Dict{String,Any}(String(k) => v for (k, v) in under if String(k) in fields)
         entry = layer_tuning(layer_tuning(kept, entry), over)
         tag = entry["type"]   # `over` may replace the scheme: its table then replaces the entry

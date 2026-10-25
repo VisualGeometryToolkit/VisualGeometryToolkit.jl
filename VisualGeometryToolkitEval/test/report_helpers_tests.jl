@@ -15,6 +15,7 @@
 
 @testitem "report_helpers" begin
     import VisualGeometryToolkitCore as VgtkCore
+    import VisualGeometryToolkitEval as VgtkEval
     using Test, Random, JLD2, Printf, Statistics, Dates, StaticArrays
     using FileWatching.Pidfile: mkpidlock
     using VisualGeometryToolkitEval
@@ -176,6 +177,27 @@
         end
     end
 
+    # A scheme with a Greek field (none ships): its TOML key is `toml_key`'s ASCII "mu".
+    struct GreekToyScheme <: VgtkEval.Tuning.TuningScheme
+        μ::Float64
+        n::Int
+    end
+    @testset "tuning_spec under: the scheme's fields as toml_key spells them" begin
+        reg = VgtkEval.Tuning.TUNING_TAGS["scheme"]
+        schemes = VgtkEval.Tuning.TUNING_DEFAULTS["schemes"]
+        try
+            VgtkEval.Tuning.TUNING_TAGS["scheme"] = merge(reg, VgtkCore.TagRegistry(:scheme, "", "greek_toy_scheme" => GreekToyScheme))
+            schemes["greek_toy_scheme"] = Dict{String,Any}("mu" => 1.0, "n" => 3)
+            cfg = Dict{String,Any}("tuning" => Dict{String,Any}("g" => Dict{String,Any}("type" => "greek_toy_scheme")))
+            @test tuning_spec(cfg, "g").scheme == GreekToyScheme(1.0, 3)
+            s = tuning_spec(cfg, "g"; under = Dict{String,Any}("mu" => 2.5, "not_a_scheme_field" => 1))
+            @test s.scheme == GreekToyScheme(2.5, 3)          # "mu" is a field's key: kept beneath the entry
+        finally
+            VgtkEval.Tuning.TUNING_TAGS["scheme"] = reg
+            delete!(schemes, "greek_toy_scheme")
+        end
+    end
+
     @testset "oracle floor writer" begin
         # the original, verbatim (LODR common.jl 60-106), with its literal note
         note = "median over test pairs of pool-best model error (<TAG> = floor; " *
@@ -267,6 +289,17 @@
             @test_throws ArgumentError export_pixel_inputs(joinpath(dir, "bad.jld2"), pool, [2, 2])
             @test_throws ArgumentError export_pixel_inputs(joinpath(dir, "bad.jld2"), pool, Int[])
             @test !isfile(joinpath(dir, "bad.jld2"))
+            # a pair stored without Lowe ratios is refused by name, before anything is written
+            @test p2.snn === nothing
+            bare = ScoringPool([pool.pairs[1], p2, pool.pairs[3]], :E, "scene"; scene_names = ["a", "b", "c"], stamps)
+            err = try export_pixel_inputs(joinpath(dir, "nosnn.jld2"), bare, [1, 2, 3]); nothing catch e; e end
+            @test err isa ArgumentError && occursin("pair 2 (b)", err.msg) && occursin("Lowe ratios", err.msg)
+            @test !isfile(joinpath(dir, "nosnn.jld2"))
+            @test isfile(export_pixel_inputs(joinpath(dir, "skip.jld2"), bare, [1, 3]))
         end
+        # a pair without correspondences is the layout's empty matrix
+        empty_cs = VgtkCore.csponds(SVector{2, Float64}[], SVector{2, Float64}[])
+        m0 = VgtkEval.Pools._match_matrix(empty_cs)
+        @test m0 isa Matrix{Float64} && size(m0) == (0, 4)
     end
 end

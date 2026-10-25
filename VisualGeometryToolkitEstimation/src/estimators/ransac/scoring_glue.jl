@@ -761,7 +761,7 @@ function _register_lo_rows(M::Module, rows, defaults; retired = ())
     return TagRegistry(
         :local_optimization, "",
         (tag => T for (T, tag) in rows)...;
-        retired, paths = [r"(^|\.)local_optimization\.type$"]
+        retired, paths = [r"^(.*\.)?local_optimization(\.inner)*\.type$"]
     )
 end
 

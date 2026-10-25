@@ -845,7 +845,7 @@ const SCALE_INTERFACE_TAGS = TagRegistry(:scale_interface, "",
     "consensus_anchored" => ConsensusAnchored, "fixed_scale" => FixedScale, "follows_scorer" => FollowsScorer,
     "self_scaling" => SelfScaling, "no_scale" => NoScale, "unspecified_scale" => UnspecifiedScale;
     retired = ("fixed" => "fixed_scale", "partition_anchored" => "consensus_anchored"),
-    paths = [r"(^|\.)scale_interface$"])
+    paths = [r"^(.*\.)?scale_interface$"])
 include("quality/stack_contracts.jl")
 include("quality/agent_docs.jl")
 include("quality/conventions.jl")

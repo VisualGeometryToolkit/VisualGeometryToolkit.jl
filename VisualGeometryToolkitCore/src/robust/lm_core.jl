@@ -306,14 +306,21 @@ lm_retcode(converged::Int) =
 
 The retcode of a fit run by NLLSsolver, from `termination` (the bit set of
 `NLLSResult.termination`) and the Jacobian `J` and residual `r` at the returned
-estimate. Checked in this order: any of bits 0, 1, 4, 5, 10 (a failed or
-non-finite solve, a NaN cost, …) is `:solve_failed`; bit 9 (the time cap) is
-`:max_time`; bit 8 (the iteration cap) is `:max_iterations`. Every other stop
-(a small cost decrease or step, bit 7, …) does not prove convergence: the stall
-postcondition does, so it is `:converged` when [`is_stationary`](@ref)`(J, r;
-tol, ftol)` holds and `:stalled` otherwise — the same postcondition
-[`lm_retcode`](@ref) applies to FastLevenbergMarquardt's stops. Pure Core: it
-reads the bits and does not load NLLSsolver.
+estimate. NLLSsolver 0.1's bits (`optimizeloop!`, src/optimize.jl): 0 the cost
+is infinite, 1 the cost is NaN, 2 the relative decrease in cost is too small,
+3 the absolute decrease in cost is too small, 4 an infinity in the step, 5 a
+NaN in the step, 6 the max of the step size is too small, 7 the maximum number
+of consecutive failed iterations (iterations whose cost is higher than the
+current best, `maxfails`) is reached, 8 the maximum number of iterations is
+reached, 9 the maximum amount of time is exceeded, 10 the cost computations do
+not agree, 16 terminated by the user callback. Checked in this order: any of
+bits 0, 1, 4, 5, 10 is `:solve_failed`; bit 9 is `:max_time`; bit 8 is
+`:max_iterations`. Every other stop — a small cost decrease (2, 3) or step (6),
+the consecutive-failure cap (7), the callback (16) — does not prove
+convergence: the stall postcondition does, so it is `:converged` when
+[`is_stationary`](@ref)`(J, r; tol, ftol)` holds and `:stalled` otherwise — the
+same postcondition [`lm_retcode`](@ref) applies to FastLevenbergMarquardt's
+stops. Pure Core: it reads the bits and does not load NLLSsolver.
 """
 function nlls_retcode(termination::Integer, J::AbstractMatrix, r::AbstractVector; tol::Real, ftol::Real)
     for bit in (0, 1, 4, 5, 10)

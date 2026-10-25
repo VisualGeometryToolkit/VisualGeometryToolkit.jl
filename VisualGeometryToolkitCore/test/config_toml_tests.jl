@@ -79,7 +79,12 @@
             for f in (:μ, :η, :γ, :ν, :α, :α_min)
                 @test toml_field_name(toml_key(Any, f)) === f
             end
-            @test present_kwargs(Dict("mu" => 2), "mu" => Float64) == [:μ => 2.0]
+            @test present_kwargs(Dict("mu" => 2), "mu" => Float64; field_of = toml_field_name) == [:μ => 2.0]
+            # the default spells the field as the key: a struct whose fields ARE ASCII
+            # (`nu`, `gamma`, `alpha`) reads through it unrenamed
+            ascii_kw = present_kwargs(Dict("nu" => 3, "gamma" => 0.5, "alpha" => 1), "nu" => Float64, "gamma" => Float64, "alpha" => Float64)
+            @test ascii_kw == [:nu => 3.0, :gamma => 0.5, :alpha => 1.0]
+            @test (; ascii_kw...) == (nu = 3.0, gamma = 0.5, alpha = 1.0)
         end
         @testset "parse_defaults parses the file" begin
             path = joinpath(mktempdir(), "d.toml")

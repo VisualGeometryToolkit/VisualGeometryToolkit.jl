@@ -259,11 +259,12 @@ function _check_posed(what, members)
 end
 
 # Deduce the reference frame from the first sensor's extrinsics source label.
-function Rig(members::Tuple{Vararg{AbstractCamera}})
-    isempty(members) && throw(ArgumentError("Rig: at least one sensor required"))
-    _check_posed("Rig", members)
-    return Rig{_em_frames(_raw_extrinsics(members[1]))[1]}(members)
-end
+# Without a posed first sensor there is none to deduce: the bare `Frame{3}`
+# stands in, and `_check_sensors` — the one check site — refuses the members
+# with its reason (no sensor, or an unposed one).
+Rig(members::Tuple{Vararg{AbstractCamera}}) = Rig{_rig_frame(members)}(members)
+_rig_frame(members) =
+    isempty(members) || !has_extrinsics(first(members)) ? Frame{3} : _em_frames(_raw_extrinsics(first(members)))[1]
 
 # The gauge invariant. A sensor rig whose frame is one of its views: that
 # view's stored extrinsics is the identity (a rig may also be posed in a view

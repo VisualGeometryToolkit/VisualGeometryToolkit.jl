@@ -307,19 +307,20 @@ composition check and the reporting read on a strategy exactly as `inner`
 does, so a run with `CountedLO(inner)` returns the model a run with `inner`
 returns. It is not a registered strategy (no TOML tag): it carries counters,
 not configuration. A counter is shared by every run that is handed the same
-wrapper; build a fresh one per measurement.
+wrapper — the counters are `Threads.Atomic{Int}`, so runs on several threads
+(a threaded sweep over pairs) add up exactly; build a fresh one per measurement.
 """
 struct CountedLO{L <: AbstractLocalOptimization} <: AbstractLocalOptimization
     inner::L
-    calls::Base.RefValue{Int}
-    iterations::Base.RefValue{Int}
+    calls::Threads.Atomic{Int}
+    iterations::Threads.Atomic{Int}
 end
-CountedLO(inner::AbstractLocalOptimization) = CountedLO(inner, Ref(0), Ref(0))
+CountedLO(inner::AbstractLocalOptimization) = CountedLO(inner, Threads.Atomic{Int}(0), Threads.Atomic{Int}(0))
 
 function locally_optimize!(L, lo::CountedLO, problem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring)
     r = locally_optimize!(L, lo.inner, problem, model, cs, buf, scoring)
-    lo.calls[] += 1
-    lo.iterations[] += VgtkCore.iterations(r)
+    Threads.atomic_add!(lo.calls, 1)
+    Threads.atomic_add!(lo.iterations, VgtkCore.iterations(r))
     return r
 end
 
@@ -328,6 +329,8 @@ lo_workspace(::Type{P}, ::Type{T}, lo::CountedLO, n::Int) where {P <: AbstractRa
 lo_width(lo::CountedLO) = lo_width(lo.inner)
 deployed_scale_multiple(lo::CountedLO, shape, m::Float64, s2, scoring) =
     deployed_scale_multiple(lo.inner, shape, m, s2, scoring)
+deployed_shape(lo::CountedLO) = deployed_shape(lo.inner)
+strategy_loss(::Type{<:CountedLO{L}}) where {L} = strategy_loss(L)
 VgtkCore.with_width(lo::CountedLO, w) = CountedLO(VgtkCore.with_width(lo.inner, w), lo.calls, lo.iterations)
 VgtkCore.optimization_path(lo::CountedLO) = VgtkCore.optimization_path(lo.inner)
 VgtkCore.scale_interface(lo::CountedLO) = VgtkCore.scale_interface(lo.inner)
@@ -353,6 +356,7 @@ lo_width(lo::TerminalLO) = lo_width(lo.inner)
 deployed_scale_multiple(lo::TerminalLO, shape, m::Float64, s2, scoring) =
     deployed_scale_multiple(lo.inner, shape, m, s2, scoring)
 deployed_shape(lo::TerminalLO) = deployed_shape(lo.inner)
+strategy_loss(::Type{<:TerminalLO{L}}) where {L} = strategy_loss(L)
 VgtkCore.with_width(lo::TerminalLO, w) = TerminalLO(VgtkCore.with_width(lo.inner, w))
 VgtkCore.optimization_path(lo::TerminalLO) = VgtkCore.optimization_path(lo.inner)
 VgtkCore.scale_interface(lo::TerminalLO) = VgtkCore.scale_interface(lo.inner)

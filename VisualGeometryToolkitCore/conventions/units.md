@@ -34,10 +34,13 @@ A physical value has two forms, and both are bits types:
 The plain form of a value is the whole value's `ustrip(u, X)`, for a pose, a
 target, a rig or a capture. It is never a value rebuilt from stripped
 components. A unit is attached by construction, `EuclideanMap(R, t .* m)`, or
-by `with_unit(X, u)`, which reads a plain value as being in `u`. One exception
+by `with_unit(X, u)`, which reads a plain value — a map included, its rotation
+kept exactly — as being in `u`. One exception
 is forced by its type: [`NoncentralGenericModel`](@ref) holds its line points
 as plain metres, because its grid of `Vec3{T}` cannot hold quantities, and its
-docstring says so.
+docstring says so. Because a plain extrinsics is "in the caller's unit", a
+`Camera` of that model refuses one (`ArgumentError`, naming `t .* m`); its
+plain form is `ustrip(m, camera)` only.
 
 Units are allowed in a type but not required by it, so the layering is held at
 four points:
@@ -48,9 +51,18 @@ four points:
    `trajectory`, `target_poses`, `transforms`, `target`, `target_points3d`,
    and the object points of `correspondences`). The `ArgumentError` names the
    fix, `t .* m`.
-3. A public estimator that takes physical values strips them at entry
-   (`ustrip(u, x)`) and reattaches the unit at exit. Unitful input gives
-   unitful output, and a plain physical input is refused.
+3. A public estimator that takes physical values strips them in metres at
+   entry (`ustrip(m, x)`) and reattaches the unit at exit, so unitful input
+   gives unitful output. Plain input gives plain output, in the caller's own
+   unit, as before units: estimators are not where plain data is refused, the
+   IO writers of point 2 are. A model that cannot record a unit — a plane
+   homography, a radial or division camera, the up-to-scale relative pose of
+   `bundle_refine_relpose` — refuses unitful input instead, with an
+   `ArgumentError` naming the fix (strip the plane points in metres, the unit
+   the stack's boundaries use). This supersedes the plan's earlier "a plain
+   physical input is refused" (ruling of 2026-10-25, Task 9): refusing plain
+   input would break every existing caller, so a later audit must not "fix"
+   the code back to it.
 4. `check_naming` rule R11 flags a `ustrip(…)` fed into an `EuclideanMap` or a
    target constructor, and a power-of-ten scale in a definition that names a
    file's `length_unit`. Unit names are read only by `parse_unit`.
@@ -124,7 +136,16 @@ for byte when its numbers have at most 15 significant digits. A full-precision
 number (16 or 17 digits) may move by at most 2 ulp on its first rewrite, and it
 stays fixed after that. This is inherent to metres in memory and millimetres in
 files: the two grids differ, so some 17-digit millimetre numbers share their
-nearest metre value with a neighbour, and one of the two cannot come back.
+nearest metre value with a neighbour, and one of the two cannot come back. An identity built on a file's bytes follows the value, not the bytes:
+VisualGeometryToolkitIO's `content_id(path)` of a rig hashes the record its
+loaded rig writes, so a file and the rig loaded from it name the same targets.
+
+**Board JSON is not covered.** VisualGeometryToolkitFeatures' quantity JSON
+(board and feature files, BlobBoards' identity data) still converts by
+multiplication (`value * u` on read, `ustrip(u, q)` on write), so a value
+such as `62.8` mm read and written again can print `62.79999999999999`. Its
+bytes are kept as they were for existing data; the decimal-exact pair above is
+VisualGeometryToolkitIO's only.
 
 **A length built in code has already rounded.** `[62.8, 1.3] .* mm` multiplies
 by the scale when it is stored in metres. `1.3mm` is held as

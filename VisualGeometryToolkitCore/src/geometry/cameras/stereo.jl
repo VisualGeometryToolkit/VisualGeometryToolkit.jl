@@ -63,10 +63,12 @@ const StereoRig{F <: Frame{3}, U <: AbstractCamera, V <: AbstractCamera} =
 # check/atol idiom): the caller-supplied relative transform must agree with
 # the one implied by the GIVEN cameras, `extrinsics(target) ∘ pose(source)`.
 # Rotation deviation is the relative rotation angle (radians); translation
-# deviation is relative to the expected translation's magnitude, with a 1 mm
-# floor so near-zero baselines don't blow up the ratio: a plain map's
-# translation is read as millimetres (floor 1), a physical one's in metres
-# (floor 1e-3).
+# deviation is relative, unit-free: the deviation over the larger of the
+# expected baseline and the two camera centres' distances from the world
+# origin. The centres floor a near-zero baseline at the scale the composition
+# `extrinsics(target) ∘ pose(source)` rounds at, in the data's own unit (a
+# plain map is in the caller's unit, so no fixed floor can be right for it —
+# frames.md rule 4).
 function _assert_rig_consistency(
         source, target, given::EuclideanMap{3};
         atol::Real   # StereoRig's `atol` is the one authority
@@ -75,9 +77,10 @@ function _assert_rig_consistency(
     # a physical relative pose against plain cameras (or the reverse) never compares
     has_units(given) == has_units(expected) || throw(DimensionError(translation(given), translation(expected)))
     dev_rot = Rotations.rotation_angle(RotMatrix{3}(SMatrix{3, 3, Float64, 9}(given.R)' * SMatrix{3, 3, Float64, 9}(expected.R)))
-    floor_t = has_units(given) ? 1.0e-3 : 1.0
     t_given, t_expected = _translation_metres(given), _translation_metres(expected)
-    dev_t = norm(t_given - t_expected) / max(floor_t, norm(t_expected))
+    scale = max(norm(t_expected), norm(_translation_metres(pose(source))), norm(_translation_metres(pose(target))))
+    Δ = norm(t_given - t_expected)
+    dev_t = Δ == 0 ? 0.0 : Δ / scale
     (dev_rot ≤ atol && dev_t ≤ atol) && return nothing
     throw(
         ArgumentError(

@@ -10,6 +10,7 @@
     using Test
     using StaticArrays, Rotations, LinearAlgebra
     using FlexUnits: Quantity
+    using Statistics: cov
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: EuclideanMap, m, mm, ustrip, DimensionError, translation, rotation,
         relabel, ViewFrame, has_units, with_unit, Camera, CameraModel, CameraCalibrationMat, StereoRig,
@@ -111,9 +112,57 @@
             @test err isa ArgumentError
             @test occursin("ustrip(mm, camera)", sprint(showerror, err))
         end
+        # a bounded physical camera forwards to the same refusal
+        @test_throws ArgumentError project(BoundedCamera(C1u, Size2(640, 480)), circ)
         # the plain camera in the plane's unit is the fix
         @test HomographyMat(ustrip(mm, C1u)) isa HomographyMat
         @test transfer_ellipse(ustrip(m, C1u), circ) isa Union{Ellipse, Nothing}
+    end
+
+    @testset "a plain camera of a non-central grid model is refused, naming the fix" begin
+        dirs = [Vec3{Float64}(0.01 * gx, 0.02 * gy, 1.0) for gy in 1:4, gx in 1:5]
+        gn = VgtkCore.NoncentralGenericModel(64, 48, 0, 0, 63, 47, dirs, [Vec3{Float64}(1.0e-4gx, -1.0e-4gy, 5.0e-5) for gy in 1:4, gx in 1:5])
+        msg(f) = (err = try f(); nothing catch e; e end; err isa ArgumentError ? sprint(showerror, err) : err)
+        # the grid is metres; a plain map is "in the caller's unit": ambiguous, refused
+        for f in (() -> Camera(gn, EuclideanMap(R1, t1 .* 1000)), () -> Camera(gn, pose(Camera(gn, E1u)) |> X -> ustrip(m, X)))
+            s = msg(f)
+            @test s isa String && occursin("t .* m", s) && occursin("with_unit(extrinsics, mm)", s)
+        end
+        # the physical camera is the plain-metres camera's call, and stripping it in another unit is refused
+        Cu = Camera(gn, E1u)
+        @test has_units(Cu)
+        @test ustrip(m, Cu).extrinsics === ustrip(m, E1u)
+        @test has_units(with_unit(ustrip(m, Cu), m))
+        @test msg(() -> ustrip(mm, Cu)) isa String
+        @test msg(() -> with_unit(ustrip(m, Cu), mm)) isa String
+        @test with_unit(EuclideanMap(R1, t1), m) == E1u     # a plain map takes its unit
+        @test with_unit(EuclideanMap(R1, t1 .* 1000), mm).R === R1
+    end
+
+    @testset "the stereo consistency check reads a plain rig in no fixed unit" begin
+        # the same 0.1 m baseline, perturbed by 5 ppm of it, in metres and in mm:
+        # one answer for both (a fixed 1-unit floor accepted the metres one)
+        I3 = one(RotMatrix{3, Float64})
+        for s in (1.0, 1000.0)
+            tb = SVector(-0.1, 0.002, 0.001) .* s
+            A, B = Camera(model, EuclideanMap(I3, zero(SVector{3, Float64}))), Camera(model, EuclideanMap(R2, tb))
+            @test StereoRig(A, B, EuclideanMap(R2, tb)) isa StereoRig
+            @test_throws ArgumentError StereoRig(A, B, EuclideanMap(R2, tb + SVector(5.0e-7 * s, 0.0, 0.0)))
+        end
+    end
+
+    @testset "physical forms of the raw-matrix camera, the arrow projection and kabsch" begin
+        K = SMatrix{3, 3, Float64}(800, 0, 0, 0, 810, 0, 320, 240, 1)
+        Cr = Camera(K, SMatrix{3, 3, Float64}(R1), t1 .* m)
+        @test has_units(Cr) && ustrip(m, Cr).extrinsics == ustrip(m, E1u)
+        o, d = SVector(0.01, -0.02, 2.0), SVector(0.0, 0.05, 0.0)
+        @test project(C1u, Point3(o .* m), Vec3(d .* m)) == project(C1, Point3(o...), Vec3(d...))
+        @test_throws DimensionError project(C1u, Point3(o...), Vec3(d...))
+        Xs = [SVector(1.0, 2, 3), SVector(-1.0, 0.5, 2), SVector(0.3, -2, 1)]
+        e = VgtkCore.exact(SVector(1.0, 2.0, 3.0) .* mm)       # a physical point known exactly
+        @test VgtkCore.geom(e) == SVector(0.001, 0.002, 0.003) .* m && iszero(Matrix(cov(e)))
+        @test_throws DimensionError VgtkCore.exact(SVector(1.0, 2.0, 3.0) .* VgtkCore.px)
+        @test VgtkCore.kabsch([x .* mm => (R2 * x) .* mm for x in Xs]) == VgtkCore.kabsch([ustrip.(m, x .* mm) => ustrip.(m, (R2 * x) .* mm) for x in Xs])
     end
 
     @testset "pose error: translations in metres, angles out" begin

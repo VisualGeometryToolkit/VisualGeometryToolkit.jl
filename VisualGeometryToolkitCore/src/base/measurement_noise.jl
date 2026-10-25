@@ -39,7 +39,8 @@ the measurement-noise rule (a plain point is unit isotropic noise, an
 [`Uncertain`](@ref) carries its own covariance). For data with no measurement
 error in its frame — a calibration board's points in metres, a world point.
 Board → image correspondences built as `exact.(board) .=> pixels` score the
-transfer error in the image's pixels, whatever the board's units.
+transfer error in the image's pixels, whatever the board's units. A physical
+`p` (lengths) stays in metres, and its zero covariance is in m².
 
 A correspondence needs one noisy endpoint: an estimator refuses a
 correspondence whose two endpoints are both exact (nothing to whiten).
@@ -51,6 +52,13 @@ that boundary and nothing in the inner loop, where the columns are what is read.
 """
 exact(p::StaticVector{N, T}) where {N, T <: Real} =
     Uncertain(p, CovMat{N, float(T), N * N}(ntuple(_ -> zero(float(T)), Val(N * N))))
+# A physical point (lengths, stored in metres): the zero covariance is in m²,
+# the unit an `Uncertain` physical point's covariance carries.
+function exact(p::StaticVector{N, <:Quantity}) where {N}
+    q = map(x -> _check_length(ubase(x)), p)
+    T = float(typeof(ustrip(first(q))))
+    return Uncertain(q, CovMat{N, T, N * N}(ntuple(_ -> zero(T), Val(N * N))))
+end
 
 # One endpoint's covariance as a static matrix: `I` (unit isotropic) for a plain
 # point, the stored or inverted form of an `Uncertain`.

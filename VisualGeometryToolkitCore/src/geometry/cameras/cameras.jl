@@ -339,11 +339,13 @@ Camera(model::AbstractCameraModel, p::CameraPose) = Camera(model, inv(p))
 Boundary constructor taking raw matrix data (typical for SfM dataset loaders).
 `R` is wrapped via the `EuclideanMap(::SMatrix, ...)` path which validates
 (and optionally snaps via `project=true`) before promoting to `RotMatrix`.
+`t` is plain numbers of `K`'s element type, or lengths (`t .* m`), which give
+a physical camera.
 """
 function Camera(
         K::StaticMatrix{3, 3, T},
         R::StaticMatrix{3, 3, T},
-        t::StaticVector{3, T};
+        t::Union{StaticVector{3, T}, StaticVector{3, <:Quantity}};
         check::Bool = true,
         project::Bool = false
     ) where {T}
@@ -461,6 +463,35 @@ the produced form.
 FlexUnits.ustrip(u::Units, c::Camera) = _rebuilt(c, ustrip(u, c.extrinsics))
 FlexUnits.ustrip(u::Units, c::BoundedCamera{<:AbstractCamera}) = BoundedCamera(ustrip(u, c.camera), c.extent)
 with_unit(c::Camera, u::Units) = _rebuilt(c, _attach_unit(c.extrinsics, u))
+
+# A non-central generic model's point grid is plain metres — the one length of
+# the stack its type cannot carry (generic_models.jl). A plain extrinsics is
+# "in the caller's unit", so a camera of the two would compare the grid's
+# metres with scene points in whatever unit the caller meant (mm: offsets
+# 1000× too small, a wrong pixel and no error). The ambiguous pair is refused
+# where it is built, naming the fix; the plain-metres camera is reached only by
+# stating the unit, `ustrip(m, camera)` of a physical one (and `with_unit(·, m)`
+# back), so a strip or attach in another unit is refused too.
+@noinline _refuse_plain_noncentral(what) = throw(
+    ArgumentError(
+        "$(what): a NoncentralGenericModel's point grid is in metres but the extrinsics are plain numbers " *
+            "with no unit — attach the unit to the extrinsics: `Camera(model, EuclideanMap(R, t .* m))`, or " *
+            "`Camera(model, with_unit(extrinsics, mm))` for a map in mm"
+    )
+)
+Camera(model::NoncentralGenericModel, X::EuclideanMap{3}) =
+    has_units(X) ? Camera{typeof(model), typeof(X)}(model, X) : _refuse_plain_noncentral("Camera")
+Camera(model::NoncentralGenericModel, p::CameraPose) = Camera(model, inv(p))
+@noinline _refuse_noncentral_unit(what, u) = throw(
+    ArgumentError(
+        "$(what)($(u), camera): a NoncentralGenericModel's point grid is in metres, so its camera's plain form " *
+            "is in metres too — use `m`, and the same unit for the scene points"
+    )
+)
+FlexUnits.ustrip(u::Units, c::Camera{<:NoncentralGenericModel}) =
+    u == m ? _rebuilt(c, ustrip(u, c.extrinsics)) : _refuse_noncentral_unit("ustrip", u)
+with_unit(c::Camera{<:NoncentralGenericModel}, u::Units) =
+    u == m ? _rebuilt(c, _attach_unit(c.extrinsics, u)) : _refuse_noncentral_unit("with_unit", u)
 with_unit(c::BoundedCamera{<:AbstractCamera}, u::Units) = BoundedCamera(with_unit(c.camera, u), c.extent)
 
 """
@@ -695,6 +726,10 @@ arrows2d!(ax, origin_2d, vec_2d; color=:magenta)
     tip_img = project(camera, Point3{Float64}((origin .+ dir)...))
     return (Point2(o_img...), Vec2((tip_img .- o_img)...))
 end
+# A physical camera: the origin and the displacement are lengths, stripped in
+# metres with the camera (a plain one is a `DimensionError`).
+project(camera::_UnitfulCamera, origin::GeometryBasics.Point3, dir::GeometryBasics.Vec3) =
+    project(ustrip(m, camera), Point3{Float64}(_strip_metres(origin)), Vec3{Float64}(_strip_metres(dir)))
 
 """
     backproject(camera::Camera, u::StaticVector{2, Float64}) -> Vec3

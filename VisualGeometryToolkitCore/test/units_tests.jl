@@ -106,6 +106,9 @@
             @test parse_unit("mm") == mm && parse_unit("inch") == inch && parse_unit("px") == px
             @test parse_unit("dpi") == dpi && parse_unit("pd") == px && parse_unit("in") == inch
             @test_throws ArgumentError parse_unit("mm/px")                    # an expression needs compound
+            # a stack unit name already bound to another unit is an error at load, not a skip
+            @test VisualGeometryToolkitCore._check_registered("pt", pt, pt) === nothing
+            @test_throws ErrorException VisualGeometryToolkitCore._check_registered("pt", mm, pt)
             @test_throws ArgumentError parse_unit("furlong")
             @test_throws ArgumentError parse_unit("MM")                       # the registry is case-sensitive
             # compound: registered symbols with *, / and integer ^ only, checked before uparse evaluates

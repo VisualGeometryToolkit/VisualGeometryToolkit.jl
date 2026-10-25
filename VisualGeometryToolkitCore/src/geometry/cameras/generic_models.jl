@@ -147,7 +147,12 @@ central.
 The `points` are plain metres in the camera frame. This is an exception to the
 units layering that the type forces: its grid of `Vec3{T}` is interpolated in
 the inner loop and cannot hold quantities, so the unit is stated here instead.
-A reader or writer of the model converts at its boundary.
+A reader or writer of the model converts at its boundary. A [`Camera`](@ref) of
+the model therefore takes physical extrinsics (`EuclideanMap(R, t .* m)`, or
+`with_unit(E, mm)` of a map in mm) and projects scene points that are lengths;
+a plain extrinsics is an `ArgumentError`, since it would be read in the
+caller's unit against the grid's metres. `ustrip(m, camera)` is the plain
+camera, in metres only.
 
     NoncentralGenericModel(model::CameraModel, (width, height); grid_size, calib_area)
 
@@ -399,8 +404,8 @@ end
     backproject(m::NoncentralGenericModel, pixel) -> Ray3 | nothing
 
 The observation LINE of `pixel`: both grids evaluated with the same spline
-window; the direction normalized, the origin as interpolated. `nothing`
-outside the calibrated area.
+window; the direction normalized, the origin as interpolated (plain metres in
+the camera frame, the grid's unit). `nothing` outside the calibrated area.
 """
 function backproject(m::NoncentralGenericModel{T}, pixel) where {T}
     x, y = float(pixel[1]), float(pixel[2])
@@ -494,7 +499,8 @@ const _PROJECT_TOL = 1.0e-6
 """
     project(m::NoncentralGenericModel, X; init = nothing) -> SVector{2} | nothing
 
-Project the camera-frame point `X` to a pixel: LM on the reference's
+Project the camera-frame point `X` — plain metres, the point grid's unit — to
+a pixel: LM on the reference's
 tangent-plane point-to-line residual — the two components of
 `origin(p) − X` in the tangent basis of the pixel's line direction — so a
 converged pixel's observation line goes through `X`. `init` defaults to

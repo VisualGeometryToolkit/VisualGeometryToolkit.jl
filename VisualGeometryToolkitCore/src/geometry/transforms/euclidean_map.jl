@@ -601,8 +601,8 @@ const CameraExtrinsics{T, R <: Rotation{3, T}, V <: StaticVector{3}} =
 # =============================================================================
 #
 # A physical map's translation is metres (FlexUnits base form); its plain form
-# in a unit `u` is `ustrip(u, E)`, and a plain map takes a unit by
-# construction, `EuclideanMap(rotation(E), translation(E) .* u)`. Both keep the
+# in a unit `u` is `ustrip(u, E)`, and a plain map takes a unit through
+# `with_unit(E, u)`. Both keep the
 # rotation and the frames exactly. An `Uncertain` pose's 6×6 form lives in the
 # `RigidExpManifold6` chart, rotation first, so its translation rows and
 # columns (4–6) carry the length unit: they move with it, once, here.
@@ -623,14 +623,12 @@ has_units(u::Attributed) = has_units(getfield(u, :value))
 
 The plain map of a physical `E`: its translation in the length unit `u`, the
 rotation and the frames unchanged. An `ArgumentError` on a map that is
-already plain ([`has_units`](@ref)); attach a unit by construction,
-`EuclideanMap(rotation(E), translation(E) .* u)`.
+already plain ([`has_units`](@ref)); [`with_unit`](@ref)`(E, u)` attaches one.
 """
 function FlexUnits.ustrip(u::Units, E::EuclideanMap{N, T, R, V, Src, Dst}) where {N, T, R, V, Src, Dst}
     has_units(E) || throw(
         ArgumentError(
-            "ustrip: the map's translation is plain numbers already; a plain map takes a unit by " *
-                "construction, `EuclideanMap(rotation(E), translation(E) .* u)`"
+            "ustrip: the map's translation is plain numbers already; `with_unit(E, u)` attaches a unit"
         )
     )
     t = map(q -> _strip_length(u, q), E.t)
@@ -645,6 +643,16 @@ function _attach_unit(E::EuclideanMap{N, T, R, V, Src, Dst}, u::Units) where {N,
     t = map(x -> _attach_length(x, u), E.t)
     return EuclideanMap{N, T, R, typeof(t), Src, Dst}(E.R, t)
 end
+
+"""
+    with_unit(E::EuclideanMap, u::Units) -> EuclideanMap
+
+The physical map of a plain `E`: its translation read as being in the length
+unit `u` and stored in metres, the rotation (of any parameterization) and the
+frames kept exactly. The inverse of [`ustrip`](@ref)`(u, E)`; an
+`ArgumentError` on a map that already has units.
+"""
+with_unit(E::EuclideanMap, u::Units) = _attach_unit(E, u)
 
 # The 6×6 pose form with its translation rows and columns (4–6) scaled by `f`:
 # `op = *` multiplies a covariance's (Σ ↦ DΣD, D = diag(1, 1, 1, f, f, f)),
@@ -855,9 +863,11 @@ _scale_point_form(M::PrecMat{N, T, L, C}, f, op) where {N, T, L, C} =
 _stored_point(::Val{N}, p::AbstractVector{<:Quantity}) where {N} = SVector{N}(map(q -> _check_length(ubase(q)), Tuple(SVector{N}(p))))
 _stored_point(::Val{N}, p::AbstractVector) where {N} = SVector{N, Float64}(p)
 
-# The containers hold one form: all plain or all lengths.
+# The containers hold one form: all plain or all lengths. A mix is FlexUnits'
+# `DimensionError`, as for the containers of poses (rig.jl's
+# `_check_one_pose_form`), named by one point of each form.
 function _check_one_form(ps, what)
-    isempty(ps) || allequal(has_units(geom(p)) for p in ps) ||
-        throw(ArgumentError("$(what): the points are all plain numbers or all lengths, not a mix"))
-    return ps
+    hs = [has_units(geom(p)) for p in ps]
+    (isempty(hs) || allequal(hs)) && return ps
+    throw(DimensionError(geom(ps[findfirst(hs)]), geom(ps[findfirst(!, hs)])))
 end

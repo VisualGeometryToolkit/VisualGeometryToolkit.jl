@@ -114,9 +114,7 @@ end
 has_units(m::Mounted) = has_units(pose(m))
 FlexUnits.ustrip(u::Units, m::Mounted) = Mounted(ustrip(u, m.target), ustrip(u, pose(m)))
 with_unit(m::Mounted, u::Units) = Mounted(with_unit(m.target, u), _with_unit_pose(pose(m), u))
-# a plain pose takes a unit by construction (rotation and frames kept); an uncertain one through `with_unit`
-_with_unit_pose(X::EuclideanMap, u::Units) = _attach_unit(X, u)
-_with_unit_pose(X::Uncertain, u::Units) = with_unit(X, u)
+_with_unit_pose(X, u::Units) = with_unit(X, u)   # a plain pose or an uncertain one: rotation and frames kept
 
 # A stored mount minted with its labels; an uncertain one keeps its covariance.
 _mint(::Type{S}, ::Type{D}, m) where {S, D} = relabel(S, D, m)

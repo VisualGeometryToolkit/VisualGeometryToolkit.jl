@@ -22,9 +22,14 @@ cross-covariance `Σ bᵢaᵢᵀ` (an SVD with the determinant-sign correction).
 The vectors are used as given, NOT centred: centre (and weight) them at the
 call site when aligning point clouds rather than directions.
 
+Physical pairs (lengths on both sides) are stripped in metres at entry; the
+rotation is unit-free, so it comes back the same either way.
+
 Throws `ArgumentError` on fewer than 2 pairs (a single pair leaves a
 one-parameter family of solutions).
 """
+kabsch(cs::AbstractVector{<:Pair{<:StaticVector{3, <:Quantity}, <:StaticVector{3, <:Quantity}}}) =
+    kabsch([_strip_metres(a) => _strip_metres(b) for (a, b) in zip(sources(cs), targets(cs))])
 function kabsch(cs::AbstractVector{<:Pair{<:StaticVector{3}, <:StaticVector{3}}})
     length(cs) >= 2 ||
         throw(ArgumentError("need at least 2 vector pairs, got $(length(cs))"))

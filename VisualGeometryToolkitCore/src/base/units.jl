@@ -37,16 +37,29 @@ const _pd = Units("pd" => px)   # the board JSONs' unit name for a pixel (print 
 const _STACK_UNITS = (px, _pd, dpi, pt)
 
 # Register the stack's units into `FlexUnits.UnitRegistry`, skipping one
-# already there (a second load, or another package that registered the same
-# unit). The registry is permanent: a name already bound to a different unit is
-# FlexUnits' `PermanentDictError`.
+# already there as the same unit (a second load, or another package that
+# registered it too). The registry is permanent, so a name already bound to a
+# DIFFERENT unit (a FlexUnits release defining its own `pt` or `pd`) cannot be
+# replaced; it is an error at load rather than a silent change of what
+# `parse_unit` reads.
 function _register_stack_units()
     for u in _STACK_UNITS
         name = string(u)
-        haskey(UnitRegistry.UNITS, Symbol(name)) || UnitRegistry.register_unit(name => u)
+        sym = Symbol(name)
+        if haskey(UnitRegistry.UNITS, sym)
+            _check_registered(name, UnitRegistry.UNITS[sym], u)
+        else
+            UnitRegistry.register_unit(name => u)
+        end
     end
     return nothing
 end
+_check_registered(name, existing, u) = existing == u ? nothing : throw(
+    ErrorException(
+        "VisualGeometryToolkitCore: FlexUnits' registry already binds the unit name \"$(name)\" to $(existing), " *
+            "not the stack's $(u); `parse_unit(\"$(name)\")` would change meaning — rename the stack's unit"
+    )
+)
 
 # -----------------------------------------------------------------------------
 # Unit names from outside: the one guarded parse, and its inverse
@@ -153,8 +166,9 @@ The inverse of `ustrip(u, x)` on the stack's carriers: `x`'s plain lengths
 read as being in the unit `u` and stored as FlexUnits base-form quantities
 (metres) — an `Uncertain` pose's covariance rescaled with them. An
 `ArgumentError` when `x` already has units ([`has_units`](@ref)). A plain
-`EuclideanMap` takes its unit by construction instead,
-`EuclideanMap(rotation(E), translation(E) .* u)`.
+`EuclideanMap` takes its unit this way too, its rotation kept exactly
+(construction, `EuclideanMap(rotation(E), translation(E) .* u)`, re-stores a
+non-`RotMatrix` rotation as one).
 """
 function with_unit end
 

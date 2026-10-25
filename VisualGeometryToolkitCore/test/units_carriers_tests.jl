@@ -58,7 +58,7 @@
         @test cov(points(U_u)[1]) ≈ CovMat{3}(σ = 1.0e-4)
         @test all(point_close.(points(ustrip(mm, U_u)), points(U_mm)))
         # all plain or all lengths
-        @test_throws ArgumentError PointTarget(Any[pts3_mm[1], from_mm(pts3_mm[2])])
+        @test_throws DimensionError PointTarget(Any[pts3_mm[1], from_mm(pts3_mm[2])])
     end
 
     @testset "PlanarTarget" begin

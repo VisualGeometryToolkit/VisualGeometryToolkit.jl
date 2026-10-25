@@ -81,16 +81,13 @@ retract_jacobian(p::ProductManifold, v::AbstractVector) = _blockdiag(map(retract
 retract_jacobian(p::ProductManifold, v::StaticVector) = _blockdiag(map(retract_jacobian, p.charts, manifold_parts(p, v)))   # beside the generic default
 local_coordinates(p::ProductManifold, parts::Tuple) = vcat(map(local_coordinates, p.charts, parts)...)
 
-# The coordinates of each part: consecutive slices of v, sized by the parts' charts.
-# The sizes go through `Val` so each slice is a statically sized `SVector` of v's
-# eltype (a chart's `tangent_size` is a constant of its type): the parts, and the
-# retraction of a product, infer — ForwardDiff Duals included (and a part with no
-# coordinates, a parameterless lens family, is an empty vector of v's eltype).
+# The coordinates of each part: consecutive `tangent_part`s of v, each statically
+# sized in v's eltype: the parts, and the retraction of a product, infer —
+# ForwardDiff Duals included (and a part with no coordinates, a parameterless
+# lens family, is an empty vector of v's eltype).
 function manifold_parts(p::ProductManifold, v)
     offsets = Base.front(accumulate(+, (0, map(tangent_size, p.charts)...)))
-    return map(p.charts, offsets) do ch, o
-        SVector{tangent_size(ch), eltype(v)}(ntuple(j -> v[o + j], Val(tangent_size(ch))))
-    end
+    return map((ch, o) -> tangent_part(ch, v, o), p.charts, offsets)
 end
 
 # Block-diagonal assembly of the parts' differentials: static while the result

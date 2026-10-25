@@ -13,8 +13,8 @@
 # and the estimate minimizes Σ‖û − u‖² over [Y | X₁ … X_M] in the calibration's
 # chart — `fit_robot_world_hand_eye`'s: M + 1 `RigidExpManifold6` blocks
 # (exp(δω)·R, t + δt) — with NLLSsolver's Levenberg–Marquardt: each pose one
-# variable (VGC's `ManifoldBlock`, re-anchored at every accepted step), each
-# point one residual block. A point depends on Y and its own X_m only, so its
+# variable (the chart itself, an NLLSsolver variable through VGC's NLLSsolver
+# extension, re-anchored at every accepted step), each point one residual block. A point depends on Y and its own X_m only, so its
 # 2 × 12 Jacobian is differentiated (ForwardDiff, through the retraction of
 # those two blocks) and NLLSsolver accumulates its 12 × 12 block of JᵀJ.
 #
@@ -148,12 +148,12 @@ end
 end
 
 # The NLLSsolver problem: one variable per pose — Y first, then X_m in
-# `guess.ids` order — each a `ManifoldBlock` of the calibration's chart
+# `guess.ids` order — each the calibration's chart itself
 # (`RigidExpManifold6`, re-anchored at every accepted step), and one residual
 # block per marker point, depending on Y and its own X_m. NLLSsolver
 # accumulates each point's 12 × 12 block of JᵀJ into the (M + 1) × (M + 1)
 # block normal equations; nothing is static in M.
-const _RwPoseBlock = ManifoldBlock{6, RigidExpManifold6{Float64}}
+const _RwPose = RigidExpManifold6{Float64}
 
 struct _RwPointResidual{C} <: NLLSsolver.AbstractResidual
     varind::SVector{2, Int}           # (Y, X_m) = variables (1, m + 1)
@@ -166,7 +166,7 @@ end
 NLLSsolver.ndeps(::_RwPointResidual) = NLLSsolver.static(2)
 NLLSsolver.nres(::_RwPointResidual) = NLLSsolver.static(2)
 NLLSsolver.varindices(r::_RwPointResidual) = r.varind
-NLLSsolver.getvars(r::_RwPointResidual, vars::Vector) = (vars[r.varind[1]]::_RwPoseBlock, vars[r.varind[2]]::_RwPoseBlock)
+NLLSsolver.getvars(r::_RwPointResidual, vars::Vector) = (vars[r.varind[1]]::_RwPose, vars[r.varind[2]]::_RwPose)
 Base.eltype(::_RwPointResidual) = Float64
 
 # The point's residual at the charts' origins, and its 2 × 12 Jacobian in
@@ -176,12 +176,12 @@ _rw_residual(r::_RwPointResidual, chY, chX) =
 _rw_jacobian(r::_RwPointResidual, chY, chX) = ForwardDiff.jacobian(
     z -> _rw_point_residual(z, chY, chX, r.RA, r.tA, r.X, r.u, r.camera), zero(SVector{12, Float64})
 )
-NLLSsolver.computeresidual(r::_RwPointResidual, Y::_RwPoseBlock, X::_RwPoseBlock) = _rw_residual(r, Y.manifold, X.manifold)
+NLLSsolver.computeresidual(r::_RwPointResidual, Y::_RwPose, X::_RwPose) = _rw_residual(r, Y, X)
 # Every pose is free in this refinement (`optimize!` over all variables), so
 # NLLSsolver asks for both blocks' columns: `varflags` = 0b11.
-function NLLSsolver.computeresjac(varflags, r::_RwPointResidual, Y::_RwPoseBlock, X::_RwPoseBlock)
-    varflags == 3 || throw(ArgumentError("refine_robot_world_hand_eye: every pose block is free (varflags = $varflags)"))
-    return _rw_residual(r, Y.manifold, X.manifold), _rw_jacobian(r, Y.manifold, X.manifold)
+function NLLSsolver.computeresjac(varflags, r::_RwPointResidual, Y::_RwPose, X::_RwPose)
+    varflags == 3 || throw(ArgumentError("refine_robot_world_hand_eye: every pose is free (varflags = $varflags)"))
+    return _rw_residual(r, Y, X), _rw_jacobian(r, Y, X)
 end
 
 # The reprojection rows and their dense 2n × 6(M + 1) Jacobian at the charts'
@@ -212,12 +212,12 @@ function _refine_robot_world_hand_eye(
     ) where {C}
     n = length(us)
     costs = [_RwPointResidual{C}(SVector(1, mk[k] + 1), RA[fr[k]], tA[fr[k]], Xs[k], us[k], camera) for k in 1:n]
-    blocks = _RwPoseBlock[ManifoldBlock(RigidExpManifold6(guess.Y)); [ManifoldBlock(RigidExpManifold6(guess.X[id])) for id in guess.ids]]
+    poses0 = _RwPose[RigidExpManifold6(guess.Y); [RigidExpManifold6(guess.X[id]) for id in guess.ids]]
     # Every point must project at the guess: NaN is the lens's answer for a
     # ray it does not image (behind the camera, outside its domain), and one
     # NaN row would silently stall the LM.
     for (k, c) in enumerate(costs)
-        all(isfinite, _rw_residual(c, blocks[1].manifold, blocks[c.varind[2]].manifold)) || throw(
+        all(isfinite, _rw_residual(c, poses0[1], poses0[c.varind[2]])) || throw(
             ArgumentError(
                 "marker $(guess.ids[mk[k]]): point $(Xs[k]) does not project at the guess " *
                     "(behind the camera or outside the lens's domain)"
@@ -225,14 +225,14 @@ function _refine_robot_world_hand_eye(
         )
     end
 
-    problem = NLLSsolver.NLLSProblem(_RwPoseBlock, _RwPointResidual{C})
-    foreach(b -> NLLSsolver.addvariable!(problem, b), blocks)
+    problem = NLLSsolver.NLLSProblem(_RwPose, _RwPointResidual{C})
+    foreach(ch -> NLLSsolver.addvariable!(problem, ch), poses0)
     foreach(c -> NLLSsolver.addcost!(problem, c), costs)
     # One thread: a threaded cost sum would make the result depend on the
     # thread count. No time cap (NLLSsolver's default is 30 s).
     options = NLLSsolver.NLLSOptions(; maxiters = max_iter, maxtime = 1.0e6, numthreads = NLLSsolver.static(1))
     result = NLLSsolver.optimize!(problem, options)
-    charts = [b.manifold for b in problem.variables]   # each anchored at its estimate
+    charts = collect(problem.variables)   # each anchored at its estimate
     poses = map(model, charts)
     all(p -> all(isfinite, rotation(p)) && all(isfinite, translation(p)), poses) ||
         throw(ErrorException("refine_robot_world_hand_eye: the LM step is not finite"))

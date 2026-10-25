@@ -168,6 +168,9 @@ end
     dst = [SVector(100.0 + 900 * p[1], 50.0 + 880 * p[2]) for p in src]
     phy = [p .* m for p in src] .=> dst
     @test_throws ArgumentError find_homography(phy)
+    # the fix it names strips in metres, the unit of the stack's other boundaries
+    msg = try find_homography(phy); "" catch e; sprint(showerror, e) end
+    @test occursin("ustrip.(m, X)", msg) && !occursin("ustrip.(mm", msg)
     @test_throws ArgumentError fit_radial_camera(phy; center = SVector(400.0, 300.0))
     @test_throws ArgumentError fit_division_camera(
         Dict(1 => HomographyMat(SMatrix{3, 3, Float64}(I))), Dict(1 => phy); focal_seed = 500.0

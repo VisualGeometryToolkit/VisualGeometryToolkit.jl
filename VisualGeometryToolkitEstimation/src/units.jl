@@ -36,11 +36,9 @@ _plain_metres(E::_PhysicalPose3) = ustrip(VgtkCore.m, E)
 _plain_metres(X::_PhysicalPoint3) = map(q -> ustrip(VgtkCore.m, q), X)
 _plain_metres(r::HyperRectangle{2, <:Quantity}) = ustrip(VgtkCore.m, r)
 
-# A plain pose read as metres: by construction (the documented attachment,
-# `EuclideanMap(R, t .* m)`), its frames kept. The rotation is the plain one,
-# unchecked and unchanged.
-_in_metres(E::EuclideanMap{3, T, R, <:StaticVector{3, <:Real}, Src, Dst}) where {T, R, Src, Dst} =
-    relabel(Src, Dst, EuclideanMap(rotation(E), translation(E) .* VgtkCore.m; check = false))
+# A plain pose read as metres: Core's `with_unit`, the one attachment — the
+# rotation (of any parameterization) and the frames kept exactly.
+_in_metres(E::EuclideanMap{3, T, R, <:StaticVector{3, <:Real}}) where {T, R} = VgtkCore.with_unit(E, VgtkCore.m)
 
 # A correspondence set with its endpoints mapped: a `Csponds` keeps its
 # attribute columns (a PROSAC `score`, `weights`), so the plain set samples and
@@ -62,7 +60,8 @@ function _refuse_physical_plane(cs, fname::AbstractString)
     _point_has_units(eltype(sources(cs))) && throw(
         ArgumentError(
             "$fname: the plane points are lengths, and the model it returns cannot record their unit; " *
-                "strip them in the unit you want the model in (`ustrip.(mm, X)`) and supply plain numbers"
+                "strip them in the unit the rest of your plain data uses — metres, as the stack's boundaries strip " *
+                "(`ustrip.(m, X)`) — and supply plain numbers"
         )
     )
     return cs

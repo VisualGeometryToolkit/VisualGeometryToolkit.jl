@@ -64,7 +64,13 @@ const _P3P_DEGENERACY_TOL = 1.0e-2
 # is 60x below a sub-pixel re-detection, so the image check never fires. That
 # is the same dead-gate defect B7 fixed for F/E/H, still present here. Left as
 # a separate decision rather than changed inside this window.
-const _P3P_COINCIDENT_WORLD = 1.0e-3   # caller's world units — NOT pixels
+#
+# The world value is in the problem's world unit: METRES whenever the data came
+# in physical (`find_absolute_pose` strips lengths in metres, so the radius is
+# 1 mm), the caller's own unit for plain data (1 μm for plain mm). Harmless for
+# boards (spacing ≫ 1 mm); a spread-relative radius is the calibrated fix, held
+# with the image one.
+const _P3P_COINCIDENT_WORLD = 1.0e-3   # the problem's world unit (metres for physical input) — NOT pixels
 const _P3P_COINCIDENT_IMAGE = 1.0e-3   # pixels — uncalibrated; see note above
 
 """
@@ -73,7 +79,7 @@ const _P3P_COINCIDENT_IMAGE = 1.0e-3   # pixels — uncalibrated; see note above
 Reject degenerate P3P minimal samples. Four checks, distinctness and
 collinearity in each of the two spaces:
 - **world**: the 3 control points distinct (`_P3P_COINCIDENT_WORLD`, in the
-  caller's units) and non-collinear (`thin_ratio` > `_P3P_DEGENERACY_TOL`).
+  problem's world unit: metres for physical input, else the caller's) and non-collinear (`thin_ratio` > `_P3P_DEGENERACY_TOL`).
   Collinear control points ⇒ no unique P3P solution; this one earns its place.
 - **image**: the 3 image points distinct (`_P3P_COINCIDENT_IMAGE`, pixels) and
   their RAYS not coplanar (thinness > `_P3P_DEGENERACY_TOL`). P3P degenerates

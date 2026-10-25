@@ -308,7 +308,8 @@ final iteration left without a pose, is not a residual.
 Units: the board points are plain numbers. The radial cameras and the board
 poses carry the board plane's unit, which neither a matrix nor this result
 records, so physical (unitful) board points are an `ArgumentError`: strip
-them in the unit the radial cameras were fit in (`ustrip.(mm, X)`).
+them in the unit the radial cameras were fit in — metres, as the stack's
+boundaries strip (`ustrip.(m, X)`).
 """
 function fit_division_camera(
         radial_cameras::AbstractDict{K, <:Union{HomographyMat, RadialCamera}},

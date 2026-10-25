@@ -26,7 +26,8 @@ other keywords as [`find_homography`](@ref).
 Units: the source points are plain numbers. A radial camera maps from the source
 plane, so its entries carry that plane's unit, which a matrix cannot record:
 physical (unitful) source points are an `ArgumentError` — strip them in the
-unit you want the model in (`ustrip.(mm, X)`).
+unit the rest of your plain data uses — metres, as the stack's boundaries strip
+(`ustrip.(m, X)`).
 """
 function find_radial_camera(
         pairs::AbstractVector{

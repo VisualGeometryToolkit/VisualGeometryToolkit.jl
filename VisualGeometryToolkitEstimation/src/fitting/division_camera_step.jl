@@ -862,7 +862,8 @@ the same camera, bit for bit. For a converged estimate call the robust driver.
 Units: the board points are plain numbers. The radial cameras and the board
 poses carry the board plane's unit, which neither a matrix nor this result
 records, so physical (unitful) board points are an `ArgumentError`: strip
-them in the unit the radial cameras were fit in (`ustrip.(mm, X)`).
+them in the unit the radial cameras were fit in — metres, as the stack's
+boundaries strip (`ustrip.(m, X)`).
 """
 function division_camera_step(
         N::CspondNormalization,

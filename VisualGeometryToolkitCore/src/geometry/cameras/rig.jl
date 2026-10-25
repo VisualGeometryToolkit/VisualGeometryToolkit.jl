@@ -173,6 +173,7 @@ struct Rig{F <: Frame{3}, M}
     # A physical rig: every sensor's extrinsics is labeled F → ViewFrame{id}.
     function Rig{F}(members::M) where {F <: Frame{3}, M <: Tuple{Vararg{AbstractCamera}}}
         _check_sensors(F, members)
+        _check_one_pose_form(collect(Any, members), _member_translation)
         return new{F, M}(members)
     end
 
@@ -181,6 +182,7 @@ struct Rig{F <: Frame{3}, M}
     # mixing target types has a `where`-typed value.
     function Rig{F}(members::M) where {F <: Frame{3}, M <: AbstractDict{Symbol}}
         _check_targets(F, members)
+        _check_one_pose_form(collect(Any, values(members)), _member_translation)
         return new{F, M}(members)
     end
 
@@ -188,6 +190,7 @@ struct Rig{F <: Frame{3}, M}
     function Rig{F}(sensors::S, targets::D) where {F <: Frame{3}, S <: Tuple{Vararg{AbstractCamera}}, D <: AbstractDict{Symbol}}
         _check_sensors(F, sensors; gauge = !(F <: TargetFrame))
         _check_targets(F, targets; gauge = !(F <: ViewFrame))
+        _check_one_pose_form(Any[sensors..., values(targets)...], _member_translation)
         vids = map(c -> _view_id(_raw_extrinsics(c)), sensors)
         isempty(intersect(vids, keys(targets))) ||
             throw(ArgumentError("Rig: a sensor and a target share the id(s) $(collect(intersect(vids, keys(targets))))"))
@@ -195,6 +198,18 @@ struct Rig{F <: Frame{3}, M}
         return new{F, typeof(m)}(m)
     end
 end
+
+# A container of poses holds one form: all plain or all physical. A mix is
+# FlexUnits' `DimensionError` (as for a `Mounted`), named by one member of each.
+function _check_one_pose_form(xs, translation_of)
+    hs = [has_units(x) for x in xs]
+    (isempty(hs) || allequal(hs)) && return nothing
+    a, b = xs[findfirst(hs)], xs[findfirst(!, hs)]
+    throw(DimensionError(translation_of(a), translation_of(b)))
+end
+_member_translation(c::AbstractCamera) = translation(_raw_extrinsics(c))
+_member_translation(m::Mounted) = translation(geom(pose(m)))
+_pose_translation(X) = translation(geom(X))
 
 function _check_sensors(::Type{F}, members; gauge::Bool = true) where {F}
     isempty(members) && throw(ArgumentError("Rig: at least one sensor required"))

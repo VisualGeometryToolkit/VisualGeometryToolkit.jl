@@ -430,6 +430,21 @@ MacroTools.@forward BoundedCamera.camera (
 # A camera posed by a physical map (bounds stated, so dispatch ranks it above `Camera`).
 const _UnitfulCamera = Camera{<:AbstractCameraModel, <:UnitfulEuclideanMap{3}}
 
+# The plane-coordinate verbs (a z = 0 conic or rectangle, the plane-induced
+# homography) take plain plane coordinates with no unit of their own, so a
+# physical camera cannot be applied to them without naming that unit: refused
+# with an `ArgumentError` naming the fix — the same error the stack's other
+# wrong-form refusals (`ustrip` of a plain value, `with_unit` of a physical one)
+# raise, since the camera is not of a wrong dimension but in the wrong form.
+@noinline _refuse_physical_camera(what) = throw(
+    ArgumentError(
+        "$(what): the camera is physical (its extrinsics in metres) but the plane coordinates are plain " *
+            "numbers with no unit — strip the camera in the unit of the plane coordinates: `ustrip(mm, camera)`"
+    )
+)
+
+transfer_ellipse(::_UnitfulCamera, ::Union{Circle, Ellipse}) = _refuse_physical_camera("transfer_ellipse")
+
 has_units(c::Camera) = has_units(c.extrinsics)
 has_units(c::BoundedCamera) = has_units(c.camera)
 has_units(::AbstractCameraModel) = false   # an unposed camera holds no length
@@ -636,6 +651,9 @@ the camera. For pinhole cameras, the analytic conic projection yields an
 `Ellipse`; partially-behind-camera cases or distorting lens models fall
 back to boundary-point sampling and return a `Polygon`.
 """
+project(::_UnitfulCamera, ::Union{Circle, Ellipse}) = _refuse_physical_camera("project(camera, conic)")
+project(::_UnitfulCamera, ::Circle3D) = _refuse_physical_camera("project(camera, ::Circle3D)")
+project(::_UnitfulCamera, ::GeometryBasics.HyperRectangle{2}, n::Int = 20) = _refuse_physical_camera("project(camera, rect)")
 @inline project(camera::Camera, shape::Union{Circle, Ellipse}) =
     _camera_project_conic(camera, shape)
 

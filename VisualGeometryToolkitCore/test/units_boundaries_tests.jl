@@ -15,7 +15,8 @@
         relabel, ViewFrame, has_units, with_unit, Camera, CameraModel, CameraCalibrationMat, StereoRig,
         extrinsics, pose, essential_form, EpipolarForm, EssentialMat, rectify, lookat, lookat_pose,
         transfer, Attributed, Point2, translation_angle, log_se3, minimal_manifold, RigidExpManifold6,
-        LeftRigidManifold6, triangulate, is_in_front, unproject, Point3, BoundedCamera, Size2
+        LeftRigidManifold6, triangulate, is_in_front, unproject, Point3, BoundedCamera, Size2,
+        transfer_ellipse, Circle, Ellipse, HomographyMat, Vec3, project
     using VisualGeometryToolkitCore.Synthetic: pose_error, imc_pose_error
 
     R1 = RotMatrix{3, Float64}(RotXYZ(0.01, -0.02, 0.005))
@@ -98,6 +99,21 @@
         @test ustrip.(m, Xu) == unproject(C1, u, 2.0)
         B = BoundedCamera(C1u, Size2(640, 480))
         @test is_in_front(B, Point3(X .* m)) == is_in_front(C1, X)
+    end
+
+    @testset "plane-coordinate verbs refuse a physical camera, naming the fix" begin
+        circ = Circle(Point2(0.01, 0.02), 0.005)
+        ell = Ellipse(Point2(0.01, 0.02), 0.006, 0.004, 0.3)
+        for f in (() -> transfer_ellipse(C1u, circ), () -> transfer_ellipse(C1u, ell),
+                  () -> project(C1u, circ), () -> project(C1u, ell), () -> HomographyMat(C1u),
+                  () -> HomographyMat(C1u, Point3(0.0, 0.0, 0.0), Vec3(1.0, 0.0, 0.0), Vec3(0.0, 1.0, 0.0)))
+            err = try f(); nothing catch e; e end
+            @test err isa ArgumentError
+            @test occursin("ustrip(mm, camera)", sprint(showerror, err))
+        end
+        # the plain camera in the plane's unit is the fix
+        @test HomographyMat(ustrip(mm, C1u)) isa HomographyMat
+        @test transfer_ellipse(ustrip(m, C1u), circ) isa Union{Ellipse, Nothing}
     end
 
     @testset "pose error: translations in metres, angles out" begin

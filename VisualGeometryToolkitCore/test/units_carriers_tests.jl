@@ -107,6 +107,8 @@
         ident_u = EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, 0.0) .* m)
         @test Rig{TargetFrame{:a}}(Dict(:a => Mounted(PlanarTarget(from_mm.(pts2_mm)), ident_u))) isa Rig
         @test_throws ArgumentError Rig{TargetFrame{:a}}(Dict(:a => Mounted(PlanarTarget(from_mm.(pts2_mm)), E_u)))
+        # a rig holds one form: a physical member beside a plain one is refused
+        @test_throws DimensionError Rig{WorldFrame}(Dict(:a => M_u, :b => M_mm))
     end
 
     model = CameraModel(CameraCalibrationMat(SMatrix{3, 3, Float64}(800, 0, 0, 0, 800, 0, 320, 240, 1)))
@@ -142,6 +144,14 @@
         @test !has_units(rig_mm)
         @test maps_close(extrinsics(rig_mm, 2), relabel(ViewFrame{:l}, ViewFrame{:r}, E_mm))
         @test maps_close(extrinsics(ustrip(mm, with_unit(rig_mm, mm)), 2), extrinsics(rig_mm, 2))
+        @test_throws DimensionError Rig{ViewFrame{:l}}((
+            Camera(model, relabel(ViewFrame{:l}, ViewFrame{:l}, ident_u)),
+            Camera(model, relabel(ViewFrame{:l}, ViewFrame{:r}, E_mm)),
+        ))
+        @test_throws DimensionError Rig{BodyFrame{:b}}(
+            (Camera(model, relabel(BodyFrame{:b}, ViewFrame{:r}, E_u)),),
+            Dict(:t => Mounted(PlanarTarget(pts2_mm), E_mm)),
+        )
     end
 
     @testset "Trajectory, TargetPoses, TargetPoints3D" begin
@@ -154,6 +164,8 @@
         @test back.recovered == tr_mm.recovered
         @test maps_close(ustrip(mm, Trajectory(BodyFrame{:rig}, WorldFrame, Dict(1 => E_u)))[1], tr_mm[1])
         @test_throws ArgumentError ustrip(mm, tr_mm)
+        @test_throws DimensionError Trajectory(BodyFrame{:rig}, WorldFrame, Dict(1 => E_mm, 2 => E_u))
+        @test_throws DimensionError Trajectory(BodyFrame{:rig}, WorldFrame, Dict(1 => Uncertain(E_mm, Σ6), 2 => E_u))
 
         tp_mm = TargetPoses{CameraFrame}(Dict(1 => Dict(:b => E_mm, :c => Uncertain(E_mm, Σ6))); sensors = "cam")
         tp_u = with_unit(tp_mm, mm)
@@ -163,6 +175,7 @@
         @test back.sensors == tp_mm.sensors
         @test maps_close(geom(pose(tp_u, 1, :b)), geom(pose(with_unit(tp_mm, mm), 1, :b)))
         @test_throws ArgumentError with_unit(tp_u, mm)
+        @test_throws DimensionError TargetPoses{CameraFrame}(Dict(1 => Dict(:b => E_mm), 2 => Dict(:c => E_u)))
 
         obs = [(target = :body, index = 3, xyz = pts3_mm[1]), (target = :body, index = 4, xyz = Uncertain(pts3_mm[2], CovMat{3}(σ = 0.2)))]
         p3_mm = TargetPoints3D{WorldFrame}(Dict(7 => obs); sensors = "mocap")

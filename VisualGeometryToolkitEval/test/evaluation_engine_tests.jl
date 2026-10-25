@@ -533,10 +533,15 @@
         hooked = run(; lo_of = j -> irls(), on_improvement_of = cb_of)
         @test hooked.err == base.err && hooked.trials == base.trials
         @test all(f -> f[] > 0, fired)                                 # the callback fires on every pair
-        # the warm-up fires pair 1's callback too (the same closure type)
-        fired[1][] = 0
-        live_runs(sc, irls(), ctxs; problem_of, seed_of = j -> 7 + j, warmup = true, on_improvement_of = cb_of)
-        @test fired[1][] > 0
+        # the warm-up asks for callback 0 (scratch storage), never pair 1's
+        events = [Int[] for _ in 0:8]                      # index j + 1
+        rec_of(j) = (trial, score, ws) -> push!(events[j + 1], trial)
+        live_runs(sc, irls(), ctxs; problem_of, seed_of = j -> 7 + j, warmup = true, on_improvement_of = rec_of)
+        warm = deepcopy(events)
+        empty!.(events)
+        live_runs(sc, irls(), ctxs; problem_of, seed_of = j -> 7 + j, warmup = false, on_improvement_of = rec_of)
+        @test !isempty(warm[1]) && isempty(events[1])      # j = 0 saw the warm-up only
+        @test warm[2:end] == events[2:end]                 # the pairs' records are the warm-up-free ones
         # finalize: extras only when asked, one per pair, in the pair's slot
         fin = run(; finalize = (j, r) -> (j, VGC.converged(r)))
         @test fin.err == base.err && fin.extras == [(j, true) for j in 1:8]
@@ -550,7 +555,7 @@
         @test calls[] == 0 && all(isnothing, none.extras)
         # Experiments' kaimon hooks: false / no-op without Main.KaimonGate
         @test Experiments.cancelled() === false
-        @test Experiments.progress("x") === false
+        @test Experiments.progress("x") === nothing
     end
 
     @testset "stream_selections: the :pool staging, the generic select_on_grid!" begin

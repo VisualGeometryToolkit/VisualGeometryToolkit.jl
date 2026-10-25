@@ -30,12 +30,13 @@ false) or the pair was cancelled; `trials[j]` the trials drawn; `wall_s[j]` the 
 discarded) so no bracket pays JIT.
 
 The keywords below default so that the result is exactly the plain run's.
-- `lo_of(j)` returns the LO strategy of pair `j`, overriding `lo` (the warmup uses `lo_of(1)`).
-- `on_improvement_of(j)` returns the `ransac` improvement callback of pair `j`
-  (`on_improvement(trial, score, ws)`, fired when the incumbent improves). The warmup
-  fires `on_improvement_of(1)` too, so every call compiles the one `ransac` loop
-  specialization; a callback that records must tolerate that first, discarded
-  firing.
+- `lo_of(j)` returns the LO strategy of pair `j`, overriding `lo`. The warmup
+  uses `lo_of(1)` (an LO holds no recorded state).
+- `on_improvement_of(j)` returns the `ransac` improvement callback
+  (`on_improvement(trial, score, ws)`, fired when the incumbent improves). It is
+  called with `j = 0` once for the warmup (return a throwaway callback of the same
+  type as for real pairs, writing to scratch storage, so the loop compiles once
+  and the warmup records nothing) and with `j = 1:n` for the pairs.
 - `score_guard` is forwarded to `ransac`: per-candidate ScoreGuarded acceptance.
 - `cancelled()` is polled before each pair; a cancelled pair is not run and keeps
   `err = Inf`, `trials = 0`, `wall_s = NaN`. Pairs are threaded, so a pair already
@@ -56,7 +57,7 @@ function live_runs(scoring, lo::AbstractLocalOptimization, ctxs::AbstractVector{
     if warmup && n > 0
         ransac(problem_at(1), scoring; local_optimization = lo_at(1),
                config = RansacConfig(max_trials = 100, min_trials = 1),
-               on_improvement = cb_at(1), score_guard)
+               on_improvement = cb_at(0), score_guard)
     end
     err = fill(Inf, n); trials = zeros(Int, n); wall_s = fill(NaN, n)
     extras = Any[nothing for _ in 1:n]

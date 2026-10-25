@@ -55,7 +55,7 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VGC   # check_keys
 using ..Tuning: resolve_tuning!, _toml_hash
 import ..cli_option   # src/cli.jl: stages.jl reads `--stage=` through it
 
-export cancelled, progress, Stage, run_stages, run_driver, set_driver_context!, require_input,
+export Stage, run_stages, run_driver, set_driver_context!, require_input,
        fresher, contract_violations,
        # run records (experiments/run_records.jl): the configuration-of-record layer
        load_run_config, run_key, RUN_KEY_EXCLUDED, RUN_CONFIG_KEYS, experiment_dir,
@@ -84,13 +84,17 @@ long loops, e.g. `live_runs(...; cancelled = Experiments.cancelled)`.
 cancelled() = isdefined(Main, :KaimonGate) && Base.invokelatest(Main.KaimonGate.is_cancelled)::Bool
 
 """
-    progress(msg) -> Bool
+    progress(msg) -> nothing
 
-Report `msg` as the running evaluation's progress (`Main.KaimonGate.progress(msg)`)
-and return `true`; a no-op returning `false` outside a kaimon session.
+Report `msg` as the running evaluation's progress (`Main.KaimonGate.progress(msg)`);
+a no-op outside a kaimon session.
 """
-progress(msg::AbstractString) =
-    isdefined(Main, :KaimonGate) && (Base.invokelatest(Main.KaimonGate.progress, msg); true)
+function progress(msg::AbstractString)
+    isdefined(Main, :KaimonGate) && Base.invokelatest(Main.KaimonGate.progress, msg)
+    return nothing
+end
+
+public cancelled, progress
 
 # The stage runner — Stage, run_stages, require_input, fresher.
 include("experiments/stages.jl")

@@ -38,7 +38,7 @@ VisualGeometryToolkitCore.Pools`):
   [`pool_imc`](@ref), [`gt_pose`](@ref), [`calibration_matrices`](@ref),
   [`pool_normalization`](@ref), [`pool_frame_maps`](@ref),
   [`pool_frame_calibrations`](@ref), [`pool_pixel_scale`](@ref),
-  [`pixel_csponds`](@ref) and [`rig`](@ref);
+  [`pixel_csponds`](@ref), [`pixel_residuals`](@ref) and [`rig`](@ref);
 - [`StereoRawPair`](@ref): what a dataset reader's pair provides before a pool
   is drawn from it (pixel correspondences, calibration, image sizes, GT).
 
@@ -50,7 +50,7 @@ module Pools
 using StaticArrays: SMatrix, SVector
 using CoordinateTransformations: AffineMap
 using ..VisualGeometryToolkitCore: HomographyMat, CspondNormalization, DiagonalNormalization,
-    source_map, target_map, to_homogeneous, ImageFrame, NormalizedImageFrame, csponds, sources, targets
+    source_map, target_map, to_homogeneous, sampson_distance, ImageFrame, NormalizedImageFrame, csponds, sources, targets
 using ..VisualGeometryToolkitCore.Cameras: FramedAffine, StereoRig, similarity_scale
 
 # =============================================================================
@@ -66,6 +66,7 @@ export num_points, num_models, pool_imc, gt_pose, calibration_matrices
 # its framed maps (ImageFrame → NormalizedImageFrame), the pool-frame cameras,
 # the pool units per pixel, and the correspondences back in pixels.
 export pool_normalization, pool_frame_maps, pool_frame_calibrations, pool_pixel_scale, pixel_csponds
+export pixel_residuals
 public rig   # the GT StereoRig, built on access (not exported: `rig` is every caller's local name)
 
 # -----------------------------------------------------------------------------

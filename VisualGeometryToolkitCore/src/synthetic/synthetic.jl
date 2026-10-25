@@ -73,7 +73,7 @@ using ..VisualGeometryToolkitCore: cd_pair, _chart_rows   # a correspondence's p
 using ..VisualGeometryToolkitCore.Cameras: _pixel_K   # the pixel K literal (cameras/calibration.jl)
 using ..VisualGeometryToolkitCore: has_units, m   # a physical rig is read in metres (evaluation.jl)
 using FlexUnits: ustrip
-using Rotations: Rotations, RotMatrix, rotation_angle
+using Rotations: Rotations, RotMatrix, AngleAxis, rotation_angle
 using CoordinateTransformations: AffineMap
 
 # =============================================================================
@@ -91,6 +91,7 @@ export ellipse_points
 export pose_error, imc_pose_error, optimistic_pose_error, projective_distance
 export maa, mean_average_accuracy, maa_score
 export normalize_map, perspective_augmentation
+public perturbed_pose
 
 # -----------------------------------------------------------------------------
 # 3. MONTE-CARLO CALIBRATION of the uncertainty-propagation chain (calibration.jl):

@@ -188,6 +188,7 @@ export to_homogeneous, to_affine, to_euclidean
 public saturation_bounds
 export FitResult, BundleMetadata
 export estimate, retcode, converged, iterations, rms, metadata, weights, dof
+public nested_metadata   # contract generic: a metadata type lists its nested metadata fields
 public homogeneous_w, maps_within
 
 

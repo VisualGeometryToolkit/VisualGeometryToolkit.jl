@@ -102,3 +102,67 @@
         end
     end
 end
+
+@testitem "fit_result nested metadata" begin
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: FitResult, nested_metadata, _reject_shadowing
+
+    struct _NestInner
+        b::Float64
+        c::Vector{Int}
+    end
+    struct _NestOuter
+        a::Int
+        inner::_NestInner
+    end
+    VisualGeometryToolkitCore.nested_metadata(::Type{_NestOuter}) = (:inner,)
+
+    struct _NestClashInner
+        a::Int
+    end
+    struct _NestClashOuter   # nested field `a` equals an outer field
+        a::Int
+        inner::_NestClashInner
+    end
+    VisualGeometryToolkitCore.nested_metadata(::Type{_NestClashOuter}) = (:inner,)
+
+    struct _NestCoreInner
+        rms::Float64
+    end
+    struct _NestClashCore    # nested field `rms` equals a core field
+        inner::_NestCoreInner
+    end
+    VisualGeometryToolkitCore.nested_metadata(::Type{_NestClashCore}) = (:inner,)
+
+    struct _NestTwo          # two nested fields declare `b`
+        p::_NestInner
+        q::_NestInner
+    end
+    VisualGeometryToolkitCore.nested_metadata(::Type{_NestTwo}) = (:p, :q)
+
+    struct _NestNotField
+        a::Int
+    end
+    VisualGeometryToolkitCore.nested_metadata(::Type{_NestNotField}) = (:nope,)
+
+    @test nested_metadata(Nothing) === ()
+    @test nested_metadata(_NestInner) === ()
+
+    m = _NestOuter(7, _NestInner(2.5, [1, 2]))
+    r = FitResult(:est, :converged, 3, 0.1, 9, m)
+    @test r.b == 2.5 && r.c == [1, 2] && r.a == 7
+    @test r.inner === m.inner
+    @test r.estimate === :est && r.converged
+    @test :b in propertynames(r) && :c in propertynames(r) && :inner in propertynames(r)
+    _b(x) = x.b; _c(x) = x.c; _a(x) = x.a
+    @test @inferred(_b(r)) == 2.5
+    @test @inferred(_c(r)) == [1, 2]
+    @test @inferred(_a(r)) == 7
+    @test_throws Exception r.nothing_here
+
+    @test_throws ErrorException FitResult(:e, :converged, 1, 0.0, 1, _NestClashOuter(1, _NestClashInner(2)))
+    @test_throws ErrorException FitResult(:e, :converged, 1, 0.0, 1, _NestClashCore(_NestCoreInner(2.0)))
+    @test_throws ErrorException FitResult(:e, :converged, 1, 0.0, 1, _NestTwo(_NestInner(1.0, [1]), _NestInner(2.0, [2])))
+    @test_throws ErrorException FitResult(:e, :converged, 1, 0.0, 1, _NestNotField(1))
+    @test _reject_shadowing(_NestOuter) === nothing
+end

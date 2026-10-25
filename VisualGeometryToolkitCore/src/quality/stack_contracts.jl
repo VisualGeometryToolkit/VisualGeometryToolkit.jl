@@ -145,6 +145,8 @@ const CONTRACT_GENERICS = (
     lift_valid, lift_rows, lift_residuals, lift_size,
     # the minimal-solver backends PoseLib.jl implements (geometry/solvers/)
     homography_4pt, fundamental_7pt, essential_5pt, essential_dlt, p3p,
+    # the FitResult property forwarding (base/fit_result.jl)
+    nested_metadata,
     # the TOML config hooks (base/config_toml.jl)
     toml_key, toml_skip_fields, toml_field,
     # geometry and camera accessors other packages implement for their own types

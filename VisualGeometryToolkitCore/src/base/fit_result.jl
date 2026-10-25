@@ -71,16 +71,52 @@ const _FITRESULT_PROPS = (_FITRESULT_CORE..., :converged)
 
 # A metadata type whose field would collide with the core is refused when
 # the result is BUILT: silently resolving `r.n` to one of two different
-# things is exactly the ambiguity this type exists to kill. `@generated`
-# so the check is decided once per `M` at compile time — for a valid `M`
-# the body is `nothing` and the constructor pays nothing for it.
-@generated function _reject_shadowing(::Type{M}) where {M}
-    clash = intersect(_FITRESULT_PROPS, fieldnames(M))
-    isempty(clash) && return :(nothing)
-    msg = "FitResult metadata type $M declares field(s) $clash, which would shadow " *
-        "FitResult's own core fields — rename them in the metadata type"
-    return :(error($msg))
+# things is exactly the ambiguity this type exists to kill. The common case
+# (no nested metadata, no clash) is a constant-folded comparison of field
+# names; the message is built only on the cold path.
+function _reject_shadowing(::Type{M}) where {M}
+    own = fieldnames(M)
+    nested = nested_metadata(M)
+    (isempty(nested) && isdisjoint(own, _FITRESULT_PROPS)) && return nothing
+    msg = _shadowing_message(M, own, nested)
+    msg === nothing || error(msg)
+    return nothing
 end
+
+@noinline function _shadowing_message(M, own, nested)
+    clash = intersect(_FITRESULT_PROPS, own)
+    isempty(clash) || return "FitResult metadata type $M declares field(s) $clash, which would shadow " *
+        "FitResult's own core fields — rename them in the metadata type"
+    # Nested names (`nested_metadata`) share the one property namespace with
+    # the core, the outer fields and each other.
+    seen = Set{Symbol}((_FITRESULT_PROPS..., own...))
+    for g in nested
+        g in own || return "nested_metadata($M) names $g, which is not a field of $M"
+        for f in fieldnames(fieldtype(M, g))
+            f in seen && return "FitResult metadata type $M: nested field $g declares $f, which " *
+                "would shadow a core field, an outer field or another nested field — " *
+                "rename it in $(fieldtype(M, g))"
+            push!(seen, f)
+        end
+    end
+    return nothing
+end
+
+"""
+    nested_metadata(::Type{M}) -> Tuple{Vararg{Symbol}}
+
+The fields of the metadata type `M` that are themselves metadata records whose
+fields a [`FitResult`](@ref) should forward too: for each listed field `g`,
+`r.f` reaches `r.metadata.g.f` for every field `f` of `g`'s type, beside the
+outer fields. Default `()`. A method is added once per metadata type, next to
+its definition (`nested_metadata(::Type{<:MyMeta}) = (:calibration,)`).
+
+The listed fields stay reachable under their own name. A nested field named
+like a core field of the result, an outer field or another nested field is
+refused when the result is built, exactly as an outer one is.
+"""
+nested_metadata(::Type) = ()
+
 
 """
     BundleMetadata(weights, residuals, fixed_frames, dof, loss_width, before, after)
@@ -178,14 +214,26 @@ converged(r::FitResult) = r.retcode === :converged
     for f in meta
         push!(ex, :(s === $(QuoteNode(f)) && return getfield(getfield(r, :metadata), $(QuoteNode(f)))))
     end
-    # Unknown name: fall through to the native field error — never `nothing`.
-    push!(ex, :(return getfield(r, s)))
+    # Nested metadata: read through an ordinary (non-generated) walk of
+    # `nested_metadata(M)`, so a method a metadata type adds after this
+    # generator was defined is seen (a generator cannot see later methods).
+    push!(ex, :(return _nested_property(r, nested_metadata(M), s)))
     return Expr(:block, ex...)
 end
 
-@generated function Base.propertynames(r::FitResult{P, M}) where {P, M}
-    names = (_FITRESULT_PROPS..., fieldnames(M)...)
-    return :($(QuoteNode(names)))
+# Walks the nested metadata fields; with a literal `s` the `hasfield` test
+# folds, so the result is the one field's concrete type. No nested field has
+# the name: the native field error, never `nothing`.
+@inline _nested_property(r::FitResult, ::Tuple{}, s::Symbol) = getfield(r, s)
+@inline function _nested_property(r::FitResult, nested::Tuple{Vararg{Symbol}}, s::Symbol)
+    inner = getfield(getfield(r, :metadata), first(nested))
+    hasfield(typeof(inner), s) && return getfield(inner, s)
+    return _nested_property(r, Base.tail(nested), s)
+end
+
+function Base.propertynames(r::FitResult{P, M}) where {P, M}
+    nested = Symbol[f for g in nested_metadata(M) for f in fieldnames(fieldtype(M, g))]
+    return (_FITRESULT_PROPS..., fieldnames(M)..., nested...)
 end
 
 # Named accessors for the diagnostics the ecosystem asks for by verb. One

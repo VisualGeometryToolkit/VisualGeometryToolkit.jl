@@ -22,3 +22,22 @@
         @test maa(e, 10) == 3 / 7
     end
 end
+
+@testitem "perturbed_pose" begin
+    using Test
+    using StableRNGs, StaticArrays
+    using Rotations: RotZ, RotY
+    using LinearAlgebra: norm
+    using VisualGeometryToolkitCore.Synthetic: perturbed_pose
+
+    # Expected values recorded from VisualGeometryToolkitEval's `perturbed_pose`
+    # (the body this one is moved from, verbatim) with the same inputs.
+    R = SMatrix{3, 3, Float64}(RotZ(0.3) * RotY(-0.2))
+    t = SVector(0.6, 0.1, -0.7)
+    Rp, tp = perturbed_pose(StableRNG(1), R, t, 0.1)
+    @test Rp == [0.9112397858850927 -0.372247141313633 -0.1762785250786902; 0.37526993893126315 0.9267570477025991 -0.01714197970155395; 0.16974841841565536 -0.050531577428282605 0.9841910557041215]
+    @test tp == [0.5748344741822867, -0.11302012837107411, -0.8104269108775696]
+    @test norm(tp) ≈ 1
+    # a caller-seeded rng reproduces the seed
+    @test perturbed_pose(StableRNG(1), R, t, 0.1) == (Rp, tp)
+end

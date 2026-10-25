@@ -185,28 +185,9 @@ _essential_bearings(P::Type, _) =
 # -----------------------------------------------------------------------------
 
 """
-    perturbed_pose(rng, R_gt, t_gt, δ) -> (RotMatrix, Vec3)
-
-The protocol's δr = δt = δ perturbation: rotation by `δ` [rad] about a seeded
-random axis plus a magnitude-`δ` translation jitter (t re-normalized). The
-draw order is fixed (axis first, then translation jitter), so a caller-seeded
-rng reproduces the seed bit-for-bit (ladder convention: one
-`StableRNG(stable_seed(seed, scene, pair, δ))` per (pair, δ), so every arm
-sees the identical perturbed seed, on every Julia version). Owned here since VisualGeometryToolkitCore 0.18 dropped
-`Synthetic.perturb_pose` (this was its only caller); the body is that
-function's, verbatim, with δr = δt = δ.
-"""
-function perturbed_pose(rng::AbstractRNG, R_gt, t_gt, δ::Real)
-    ax = normalize(SVector{3, Float64}(randn(rng), randn(rng), randn(rng)))
-    Rp = SMatrix{3, 3, Float64}(RotMatrix(AngleAxis(δ, ax...))) * SMatrix{3, 3, Float64}(R_gt)
-    tp = normalize(SVector{3, Float64}(t_gt) + δ * SVector{3, Float64}(randn(rng), randn(rng), randn(rng)))
-    return RotMatrix(Rp), VgtkCore.Vec3{Float64}(tp)
-end
-
-"""
     perturbed_seed_E(rng, R_gt, t_gt, δ) -> EssentialMat
 
-The δ-perturbed metric essential seed `[t]ₓR` of [`perturbed_pose`](@ref) —
+The δ-perturbed metric essential seed `[t]ₓR` of `VgtkCore.Synthetic.perturbed_pose` —
 the seed model every basin-style E refit starts from.
 """
-perturbed_seed_E(rng::AbstractRNG, R_gt, t_gt, δ::Real) = EssentialMat(perturbed_pose(rng, R_gt, t_gt, δ)...)
+perturbed_seed_E(rng::AbstractRNG, R_gt, t_gt, δ::Real) = EssentialMat(VgtkCore.Synthetic.perturbed_pose(rng, R_gt, t_gt, δ)...)

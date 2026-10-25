@@ -380,3 +380,43 @@ function pixel_csponds(pair::PoolPair)
     S, D = pool_frame_maps(pair)
     return csponds(map(inv(S), sources(pair.csponds)), map(inv(D), targets(pair.csponds)))
 end
+
+"""
+    pixel_residuals(pair::PoolPair) -> Matrix{Float32}
+
+The image-plane Sampson residuals of the pair's stored models in the PIXEL
+frame, `num_points × num_models`. Pixels are the frame the SIMFIT++ reference works in, so
+its pixel bounds apply to them without any scalar approximation (the pool frame
+scales the two images independently, so [`pool_pixel_scale`](@ref) is a bound on
+the scale, not a conversion). One
+n×M scan of the light record: the correspondences come back to pixels through
+the stored maps ([`pixel_csponds`](@ref)), each model by composition with the
+pool normalization's two sides, `inv(D) ∘ M ∘ S` (a pool `F` → `T₂ᵀ F T₁`, a
+pool `H` → `T₂⁻¹ H T₁`). A model type with neither law (a bare matrix) has no
+`sampson_distance` and is a `MethodError`.
+
+It never reads the pool's stored residual matrix, so it does not depend on that
+matrix's residual kind. The stored residuals of an essential pool are TANGENT
+Sampson distances (the pool generator's `residual_kind = :tangent_sampson`),
+those of an F or H pool image-plane Sampson (`:sampson`); this exit is
+image-plane Sampson for every pool, the quantity SIMFIT++'s pixel bounds are
+stated in.
+"""
+function pixel_residuals(pair::PoolPair)
+    n, M = num_points(pair), num_models(pair)
+    (n == 0 || M == 0) && return Matrix{Float32}(undef, n, M)
+    N = pool_normalization(pair)
+    S, D = source_map(N), target_map(N)
+    iD = inv(D)
+    px = pixel_csponds(pair)
+    u = [SVector{2,Float64}(x) for x in sources(px)]
+    v = [SVector{2,Float64}(x) for x in targets(px)]
+    out = Matrix{Float32}(undef, n, M)
+    @inbounds for (j, m) in enumerate(pair.models)
+        mp = iD ∘ m ∘ S
+        for i in 1:n
+            out[i, j] = Float32(sampson_distance(mp, u[i], v[i]))
+        end
+    end
+    return out
+end

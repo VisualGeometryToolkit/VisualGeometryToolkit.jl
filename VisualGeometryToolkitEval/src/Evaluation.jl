@@ -38,9 +38,9 @@ import VisualGeometryToolkitCore as VgtkCore
 using Printf: @printf, @sprintf
 using Random: AbstractRNG
 using Statistics: mean, std, median
-using LinearAlgebra: normalize, norm
+using LinearAlgebra: norm
 using StaticArrays: SMatrix, SVector
-using Rotations: RotMatrix, AngleAxis, rotation_angle
+using Rotations: RotMatrix, rotation_angle
 using StableRNGs: StableRNG
 
 # --- The core contracts (VisualGeometryToolkitCore) and the core loop (VisualGeometryToolkitEstimation)
@@ -95,7 +95,7 @@ export
     OPERATING_SCALE_MULTIPLE,
     # geometry.jl
     problem_type, PairCtx, build_pair_ctx, model_imc, refit_seed, essential_bearings,
-    perturbed_pose, perturbed_seed_E,
+    perturbed_seed_E,
     # refit.jl
     refit_imc!, refit_model, guarded_refit, NativeAxis, consumed_axis, consumed_native,
     ScoreGuarded, RefitHalfwidth,

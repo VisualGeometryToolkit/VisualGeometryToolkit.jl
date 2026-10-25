@@ -15,11 +15,14 @@ julia> import VisualGeometryToolkitIO as VgtkIO
 
 A pose is a VGC `EuclideanMap`. Its source and destination frames are type
 parameters, and a file names them by those types. Here the pose maps the
-camera rig's body frame into the camera's optical frame:
+camera rig's body frame into the camera's optical frame. A physical pose holds
+its translation as lengths, so the unit is attached to the translation by
+construction:
 
 ```jldoctest quickstart
-julia> X = relabel(BodyFrame{:camera_rig}, CameraFrame,
-           lookat(Vec3(0.0, 0.0, 500.0), Vec3(0.0, 0.0, 0.0), Vec3(0.0, -1.0, 0.0)));
+julia> X0 = lookat(Vec3(0.0, 0.0, 500.0), Vec3(0.0, 0.0, 0.0), Vec3(0.0, -1.0, 0.0));
+
+julia> X = relabel(BodyFrame{:camera_rig}, CameraFrame, EuclideanMap(X0.R, X0.t .* mm));
 
 julia> path = joinpath(mktempdir(), "hand_eye.json");
 

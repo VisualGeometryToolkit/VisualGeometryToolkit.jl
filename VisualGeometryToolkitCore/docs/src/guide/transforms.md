@@ -347,6 +347,30 @@ warped_img = Matrix{Float32}(undef, Int(w_size[2]), Int(w_size[1]))  # (height, 
 image_warp!(warped_img, bm, board_image; fillvalue=1.0f0)
 ```
 
+## Units in a Pose
+
+A physical [`EuclideanMap`](@ref), such as a camera pose, a mount or a rig
+member, holds its translation as lengths in metres
+(`UnitfulEuclideanMap`). An inner loop works on a plain map, whose
+translation is plain numbers (`PlainEuclideanMap`). The two forms meet
+only at an estimator's entry and exit, the same place where it normalizes its
+data (see the units layering on the [Conventions](conventions.md) page).
+
+```julia
+using StaticArrays, Rotations
+import VisualGeometryToolkitCore as VgtkCore
+X = EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.1, 0.0, 1.5) .* m)  # a pose, in metres
+VgtkCore.has_units(X)         # true
+Xp = ustrip(mm, X)            # the plain map, translation in millimetres
+Xm = EuclideanMap(Xp.R, Xp.t .* mm)   # a unit attached by construction
+X(SVector(0.0, 0.0, 1.0) .* m)                           # a unitful map acts on lengths
+```
+
+Strip the whole map with `ustrip(u, X)` rather than rebuilding it from a
+stripped translation. A unitful map that meets plain numbers (applied to a
+plain point, or composed with a plain map) raises FlexUnits' `DimensionError`
+instead of promoting.
+
 ## See Also
 
 - [Transforms API Reference](../api/transforms.md)

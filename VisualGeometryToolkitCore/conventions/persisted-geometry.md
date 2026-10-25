@@ -54,6 +54,16 @@ the primitive's own tangent order and units:
   - VisualGeometryToolkitIO's `ros_pose_covariance` and `pose_covariance_from_ros` implement
     it.
 
+**Units: memory in base units, files in the declared unit.** In memory a
+covariance is in base units, like the value it belongs to: m² for a 3D point,
+and for a pose rad² in the rotation block, m² in the translation block and
+m·rad in the cross block. On disk it is in the file's declared `length_unit`.
+A writer converts each entry with VisualGeometryToolkitIO's `write_length`
+rule, the same decimal shift as the value, raised to the entry's power of
+length, and a reader converts back the same way. A file in mm therefore holds
+mm² and mm·rad entries, and a covariance read from it is in m² and m·rad again.
+Pixel covariances are px² and are never converted.
+
 A reader refuses a `covariance` of the wrong size, a non-finite one, or an asymmetric
 one. It does not test positive semi-definiteness (an `exact` zero is valid).
 

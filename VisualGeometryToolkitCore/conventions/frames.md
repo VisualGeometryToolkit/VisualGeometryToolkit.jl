@@ -63,6 +63,14 @@ one) — never by a dedicated verb (the retired frame-change verbs are listed in
 Retired: `hartley_normalize`, `diag_normalize`, `rms_normalize`,
 `HartleyFrame`, `coord_normalization`, `normalization_map`.
 
+**Strip where you normalize.** Physical units leave a value at the same place
+as its frame. The estimator that owns the normalization strips its physical
+inputs into its private working unit once at entry, with the whole value's
+`ustrip(u, X)`, and reattaches the unit once at exit, where it composes the
+model back. Every layer below it sees plain numbers. A task verb forwards
+quantities as it forwards pixels, and a minimal kernel never sees a unit. See
+"Units" (`units.md`) for the layering and its four enforcement points.
+
 Calibrated geometry (E, relative pose, PnP) is on unit bearings, never the
 z = 1 plane, and takes no normalization: see "Calibrated geometry is on
 bearings" (`bearings.md`).

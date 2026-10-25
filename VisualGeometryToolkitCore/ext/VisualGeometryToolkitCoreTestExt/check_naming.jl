@@ -316,6 +316,9 @@ const RETIRED_NAMES = String[
     "RansacPool" * "Scorer", "Refit" * "Marginal", "Refit" * "Jeffreys", "loss_width" * "_port",
     "Override" * "Port", "Native" * "Port", "LossWidth" * "Port", "Msac" * "Selector",
     "external_loss" * "_width", "fixed_scale" * "_s2s",
+    # the units layering: FlexUnits as it ships, no stack quantity type,
+    # dimension set or registry (2026-10-25)
+    "Vgc" * "Quantity", "Pixel" * "Dimensions", "Pixel" * "Units",
 ]
 
 # Rule 10: the width quantities are bound by their full names. One name per
@@ -1411,7 +1414,16 @@ prose), it flags a call to `uparse`, `qparse` or `register_unit`, a reach into
 `UnitRegistry.UNITS`, `convert(Quantity{…}, q)` (FlexUnits' `ubase`), a
 `x isa Quantity ? ustrip(…)` branch (`strip_or_bare`), a literal
 holding two or more unit names (a unit table: `("mm", "px")`, `Dict("mm" => …)`),
-and, outside `test/`, the hand-written conversion factor `25.4`. What FlexUnits
+and, outside `test/`, the hand-written conversion factor `25.4`. It also keeps
+the units layering. A pose or a target's points (`EuclideanMap`,
+`PlanarTarget`, `PointTarget`, `TargetPoints3D`) built with a `ustrip(…)` or a
+`ustrip.(…)` in its arguments is flagged: a physical value is built from
+quantities (`t .* m`), and its plain form comes from the whole value's
+`ustrip(u, X)`. Outside `test/`, a definition that names a file's
+`length_unit` may not scale by a power of ten (`x * 0.001`, `x / 1000`),
+because a file length is converted by `read_length` and `write_length` alone.
+Limits: a component stripped into a local and handed on later is not seen, and
+neither is a scale held in a named constant. What FlexUnits
 genuinely lacks or what must stay bit-identical to stored values is allowed by
 file, with its reason, in `_UNIT_RULE_ALLOW`.
 
@@ -1591,17 +1603,57 @@ _is_ustrip_call(x) = x isa Expr && x.head === :call && _unit_rule_callee(x.args[
 _is_isa_quantity(c) = c isa Expr && c.head === :call && length(c.args) == 3 && c.args[1] === :isa &&
     _unit_rule_callee(c.args[3]) === :Quantity
 
+# A `ustrip(…)` call or a `ustrip.(…)` broadcast, qualified or not.
+_is_ustrip(x) = _is_ustrip_call(x) ||
+    (x isa Expr && x.head === :. && length(x.args) == 2 && x.args[2] isa Expr && x.args[2].head === :tuple &&
+        _unit_rule_callee(x.args[1]) === :ustrip)
+_holds_ustrip(x) = _is_ustrip(x) || (x isa Expr && any(_holds_ustrip, x.args))
+
+# The constructors of a public physical value: a pose and the targets' points.
+# A unitful value is built from quantities (`t .* m`); a plain one comes from
+# the whole value's `ustrip(u, X)`, never from stripping its components.
+const _PHYSICAL_CONSTRUCTORS = (:EuclideanMap, :PlanarTarget, :PointTarget, :TargetPoints3D)
+_constructor_name(c) = c isa Expr && c.head === :curly ? _unit_rule_callee(c.args[1]) : _unit_rule_callee(c)
+
+# A file's length unit, named in code: `d.length_unit`, `:length_unit`,
+# `"length_unit"` or a binding of that name.
+_names_length_unit(x) = x === :length_unit || x == "length_unit" || x == QuoteNode(:length_unit) ||
+    (x isa Expr && any(_names_length_unit, x.args))
+
+# A power-of-ten scale literal, the factor of a hand-converted file length
+# (`x * 0.001`, `x / 1000`, `1.0e-6 * x`).
+const _DECIMAL_SCALE_EXPONENTS = (-9, -6, -3, -2, 2, 3, 6, 9)
+_is_decimal_scale(x) = (x isa Float64 || x isa Float32 || x isa Int) && !iszero(x) &&
+    any(k -> abs(Float64(x)) == exp10(k), _DECIMAL_SCALE_EXPONENTS)
+const _SCALING_OPERATORS = (:*, :/, :\, :.*, :./, :.\)
+const _SCALING_UPDATES = (:*=, :/=, :.*=, :./=)
+_is_definition(x) = x isa Expr && (x.head === :function ||
+    (x.head === :(=) && length(x.args) == 2 && x.args[1] isa Expr && x.args[1].head in (:call, :where, :(::))))
+
 function _unit_rules!(out, f, ex, in_test::Bool)
     line = Ref(0)
     flag(text) = push!(out, NamingViolation(f, line[], text, :R11))
+    file_unit = Ref(false)   # inside a definition that names a file's length unit
     function walk(x)
         if x isa LineNumberNode
             line[] = x.line
         elseif x isa Float64
             !in_test && x in _CONVERSION_FACTORS && flag(string(x))
         elseif x isa Expr
+            if !in_test && !file_unit[] && _is_definition(x) && _names_length_unit(x)
+                file_unit[] = true
+                foreach(walk, x.args)
+                file_unit[] = false
+                return nothing
+            end
+            if file_unit[] && ((x.head === :call && x.args[1] in _SCALING_OPERATORS && any(_is_decimal_scale, x.args[2:end])) ||
+                    (x.head in _SCALING_UPDATES && length(x.args) == 2 && _is_decimal_scale(x.args[2])))
+                flag("a file length scaled by $(first(filter(_is_decimal_scale, x.args[2:end])))")
+            end
             if x.head === :call
                 name = _unit_rule_callee(x.args[1])
+                _constructor_name(x.args[1]) in _PHYSICAL_CONSTRUCTORS && any(_holds_ustrip, x.args[2:end]) &&
+                    flag(string(_constructor_name(x.args[1]), "(… ustrip …)"))
                 name in (:uparse, :qparse, :register_unit) && flag(string(name, "(…)"))
                 name === :convert && length(x.args) >= 2 && _is_quantity_type(x.args[2]) && flag("convert(Quantity{…}, …)")
                 name in (:Dict, :tuple) && _unit_name_count(x) >= 2 && flag("a table of unit names")

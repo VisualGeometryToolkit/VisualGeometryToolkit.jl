@@ -60,7 +60,10 @@ writer refuses data whose derived values disagree with their source.
 (`target_points2d`, `target_points3d`) names the rigs that define the targets
 it indexes by their content identity, `content_id(rig)` or
 `content_id(path)`. This is the SHA-256 of the canonical rig record without
-its provenance, and it is the same for a rig and for the file written from it.
+its provenance. The record hashed for a rig value is the one written in the
+default millimetres, so a rig and the file written from it in mm have the same
+identity. A file saved with another `length_unit`, such as `length_unit = m`,
+holds different numbers and so has its own identity, distinct from the value's.
 
 **One validator per kind.** The validator for each kind (`validate.jl`) runs
 on read and before every write, so a writer cannot produce a file that its

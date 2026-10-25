@@ -8,6 +8,53 @@ pixel count), `pd = px`, `dpi = px/inch` and `pt = inch/72` — and the stack's
 one guarded parse. Parsing (`ud"…"`, `uparse`, `qparse`), printing, conversion
 and dimension errors are FlexUnits'.
 
+### The layering: units at the boundary, plain numbers inside
+
+Units live at the public boundary and plain numbers live inside. A value moves
+from one to the other where the frames rule already conditions data: once at
+an estimator's entry and once at its exit.
+
+| Layer | Holds |
+|---|---|
+| Public values (held by users, handed between packages, persisted): `EuclideanMap` translations, `PlanarTarget` and `PointTarget` points, `Rig` mounts, `Trajectory`, `TargetPoses`, `TargetPoints3D`, sensor and board sizes | FlexUnits quantities for every physical length, in metres; a dimensionless quantity where a public value has no unit |
+| IO | a file declares its `length_unit`; a reader returns quantities, and a writer writes numbers in the declared unit |
+| Estimator, renderer and solver entry and exit (`fit_*`, `find_*`, `refine_*`, a one-step algorithm's public form) | one strip into the private working unit at entry, one reattachment at exit |
+| Inner loop (minimal kernels, `*_step` updates, `!` workspace forms, RANSAC internals, LM rows and charts, GPU kernels) | plain numbers of eltype `T` (`Float64`, `Float32`, a ForwardDiff `Dual`) |
+
+Pixel coordinates keep their frame tags, because `PixelFrame` is their unit.
+`px` quantities stay for sizes and densities.
+
+A physical value has two forms, and both are bits types:
+
+| Form | Element type | Where |
+|---|---|---|
+| base form, in metres | `Quantity{T, Dimensions{FixRat32}}` | public values: poses, points, sizes |
+| plain | `T` (`Float64`, `Float32`, `Dual`) | inner loops and GPU kernels |
+
+The plain form of a value is the whole value's `ustrip(u, X)`, for a pose, a
+target, a rig or a capture. It is never a value rebuilt from stripped
+components. A unit is attached by construction, `EuclideanMap(R, t .* m)`, or
+by `with_unit(X, u)`, which reads a plain value as being in `u`. One exception
+is forced by its type: [`NoncentralGenericModel`](@ref) holds its line points
+as plain metres, because its grid of `Vec3{T}` cannot hold quantities, and its
+docstring says so.
+
+Units are allowed in a type but not required by it, so the layering is held at
+four points:
+
+1. VisualGeometryToolkitIO's readers always return quantities, through
+   `read_length`.
+2. Its writers refuse a plain translation or point for a physical kind (`rig`,
+   `trajectory`, `target_poses`, `transforms`, `target`, `target_points3d`,
+   and the object points of `correspondences`). The `ArgumentError` names the
+   fix, `t .* m`.
+3. A public estimator that takes physical values strips them at entry
+   (`ustrip(u, x)`) and reattaches the unit at exit. Unitful input gives
+   unitful output, and a plain physical input is refused.
+4. `check_naming` rule R11 flags a `ustrip(…)` fed into an `EuclideanMap` or a
+   target constructor, and a power-of-ten scale in a definition that names a
+   file's `length_unit`. Unit names are read only by `parse_unit`.
+
 **A pixel is dimensionless.** FlexUnits' dimensions are the seven SI ones, so
 `px` cannot be told from `rad` or a ratio, and `3px + 1.0` is allowed. Pixel
 *coordinates* keep their safety through `PixelFrame` tags; only pixel-sized
@@ -53,3 +100,40 @@ a density (`q * 300dpi` is in px); there is no density-taking conversion
 verb. A dimension mismatch raises `DimensionError` (arithmetic) or
 `ConversionError` (`ustrip`/`uconvert` into a unit of the wrong dimension).
 Angles are plain radians.
+
+### Files keep human units
+
+Memory holds metres. A file holds the unit that reads naturally for its
+quantity: focal lengths and board sizes in mm, pixel pitch in μm, room-scale
+poses in m. The file declares its unit, once per file (`length_unit`) or per
+field. VisualGeometryToolkitIO's default file unit is mm.
+
+**Never convert a file length by multiplying by a scale.** The rounding comes
+from the multiplication, not from metres. `62.8 * 0.001` is `0.0628`, but
+`0.0628 / 0.001` is `62.79999999999999`, and the same happens for a few
+percent of typical millimetre values. VisualGeometryToolkitIO converts every
+file length with one pair, `read_length(x, u)` and `write_length(q, u)`. For a
+power-of-ten unit (mm, cm, μm, km) the pair shifts the decimal exponent, which
+is one correctly rounded parse. For another unit (inch, ft, pt) it reads by
+the unit's scale and writes the shortest decimal that reads back to the
+identical value. A side benefit is that memory values are correctly rounded:
+`13.9` mm reads as `0.0139` m.
+
+**What is exact.** A file that VisualGeometryToolkitIO wrote is rewritten byte
+for byte when its numbers have at most 15 significant digits. A full-precision
+number (16 or 17 digits) may move by at most 2 ulp on its first rewrite, and it
+stays fixed after that. This is inherent to metres in memory and millimetres in
+files: the two grids differ, so some 17-digit millimetre numbers share their
+nearest metre value with a neighbour, and one of the two cannot come back.
+
+**A length built in code has already rounded.** `[62.8, 1.3] .* mm` multiplies
+by the scale when it is stored in metres. `1.3mm` is held as
+`0.0013000000000000002` m, and a file written from it holds the 17-digit text
+`1.3000000000000003`. To build an exact length from a decimal in code, read it
+the way a file is read: `VisualGeometryToolkitIO.read_length(1.3, mm)`.
+
+**Covariances follow the same split.** In memory a covariance is in base units:
+for a pose, rad² in the rotation block, m² in the translation block and m·rad
+in the cross block. On disk it is in the file's declared `length_unit`,
+converted by the same decimal shift raised to each entry's power of length
+(mm² for a translation entry, mm·rad for a cross entry in a millimetre file).

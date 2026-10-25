@@ -127,6 +127,17 @@ This is the only origin-conversion API; it composes (frame-checked) with
 other labeled 2D maps and fuses in `image_warp` chains like any
 `EuclideanMap{2}`.
 
+## Frames and units
+
+A frame tag says which coordinates a map consumes and produces. A unit says
+what the numbers measure, and the two are independent. A pose between two 3D
+frames holds its translation in metres (see [Coordinate Transforms](transforms.md)),
+while pixel coordinates carry no unit at all: their [`PixelFrame`](@ref) tag is
+their unit. A pixel is dimensionless in FlexUnits, so `px` quantities are used
+only for sizes and densities. Both leave a value at the same place. An
+estimator strips the unit and normalizes the frame once at entry, and it
+restores both once at exit.
+
 ## See also
 
 - [Epipolar Forms](forms.md) — frame tags on the *slots* of a bilinear form

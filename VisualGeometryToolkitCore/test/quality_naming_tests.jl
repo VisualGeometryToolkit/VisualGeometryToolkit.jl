@@ -318,6 +318,22 @@ end
         @test rules("src/a.jl" => "const D = Dict(\"mm\" => 1, \"inch\" => 2)\n") == [:R11]
         @test rules("src/a.jl" => "const C = ((\"mm\", 1), (\"mm/px\", 2))\n") == [:R11]
         @test rules("src/a.jl" => "f(x) = x * 25.4\n") == [:R11]
+        # a pose or a target is built from quantities, never from stripped numbers
+        one_r11(files::Pair...) = map(v -> v.rule, findings(files...)) == [:R11]
+        @test one_r11("src/a.jl" => "X = EuclideanMap(R, ustrip.(mm, t))\n")
+        @test one_r11("src/a.jl" => "X = EuclideanMap{3}(R, ustrip(m, t))\n")
+        @test one_r11("src/a.jl" => "T = PlanarTarget(d, [ustrip.(mm, p) for p in ps], w)\n")
+        @test one_r11("test/a.jl" => "T = PointTarget([VisualGeometryToolkitCore.ustrip.(m, p) for p in ps])\n")
+        # a file length is converted by read_length and write_length, never by a scale
+        @test one_r11("src/a.jl" => "function f(d)\n    u = d.length_unit\n    return d.t .* 0.001\nend\n")
+        @test one_r11("src/a.jl" => "f(d) = d[\"length_unit\"] == \"m\" ? d[\"x\"] : d[\"x\"] / 1000\n")
+        @test one_r11("src/a.jl" => "f(d, x) = haskey(d, :length_unit) ? 1.0e-3 * x : x\n")
+        # must NOT flag: attaching a unit, stripping a whole pose, the IO pair,
+        # a scale with no file unit in sight, a test rewriting a fixture
+        @test quiet("src/a.jl" => "X = EuclideanMap(R, t .* m)\nY = ustrip(m, X)\nZ = Mounted(ustrip(m, tg), ustrip(m, X))\n")
+        @test quiet("src/a.jl" => "function f(d)\n    u = parse_unit(d.length_unit)\n    return read_length(d.x, u), write_length(d.q, u)\nend\n")
+        @test quiet("src/a.jl" => "g(t_ns) = t_ns / 1.0e9\nh(x) = 1000 * x\n")
+        @test quiet("test/a.jl" => "function f(d)\n    d[\"length_unit\"] = \"m\"\n    return d[\"t\"] ./ 1000\nend\n")
         # must NOT flag: a test stating an expected value, prose, the units
         # module's own verbs, one unit name
         @test quiet("test/a.jl" => "@test ustrip(mm, 1.0inch) ≈ 25.4\n")

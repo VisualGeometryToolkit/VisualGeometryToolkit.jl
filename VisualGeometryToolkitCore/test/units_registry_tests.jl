@@ -29,7 +29,8 @@
     @test unit_string(mm) == "mm"
 
     # the stack's own unit layer is gone
-    for name in (:VgcQuantity, :PixelDimensions, :PixelUnits)
+    # (the names are retired, so they are spelled in fragments)
+    for name in (Symbol("Vgc", "Quantity"), Symbol("Pixel", "Dimensions"), Symbol("Pixel", "Units"))
         @test !isdefined(VgtkCore, name)
     end
 

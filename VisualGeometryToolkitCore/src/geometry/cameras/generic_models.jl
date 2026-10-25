@@ -144,6 +144,11 @@ the same uniform cubic B-spline. `backproject` returns a [`Ray3`](@ref);
 point-to-line residual. With an all-zero `points` grid the model is exactly
 central.
 
+The `points` are plain metres in the camera frame. This is an exception to the
+units layering that the type forces: its grid of `Vec3{T}` is interpolated in
+the inner loop and cannot hold quantities, so the unit is stated here instead.
+A reader or writer of the model converts at its boundary.
+
     NoncentralGenericModel(model::CameraModel, (width, height); grid_size, calib_area)
 
 Initialize from a parametric (central) model: directions by

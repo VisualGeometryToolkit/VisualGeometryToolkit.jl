@@ -13,6 +13,13 @@
 # code); `stereo_pairs`, `load_validation_data` and `gt_config` dispatch on it.
 # Every pixel coordinate here is in the image the matcher saw; every depth is in
 # metres, invalid as NaN (VisualGeometryToolkitCore's convention).
+#
+# Units: a pair's `rig` is a public physical value, so the readers build it with
+# FlexUnits quantities in metres (each dataset's poses are metric, so `t .* m`
+# reads the file's numbers as metres, exactly: the scale is 1). Depth maps, a depth
+# validator's inputs, stay plain metres, as VisualGeometryToolkitCore's
+# `validate_gt_inliers` takes them; the consolidated record is plain data and
+# strips the rig once (`consolidate.jl`).
 # =============================================================================
 
 """
@@ -21,7 +28,8 @@
 One image pair of a [`AbstractStereoDataset`](@ref): the `scene`, the two image
 names (`source_name`, `target_name`) and paths (`source_img_path`,
 `target_img_path`, under the dataset's root), and the GT `rig`
-(`VisualGeometryToolkitCore.StereoRig`) in the frame of the images the matcher sees.
+(`VisualGeometryToolkitCore.StereoRig`) in the frame of the images the matcher sees,
+its translations FlexUnits lengths in metres.
 """
 const StereoPair = @NamedTuple{
     scene::String,
@@ -53,14 +61,14 @@ configs/default.toml (`"gt.eth3d.splg"`; `metric_tol_mm` in millimetres).
 """
 Base.@kwdef struct GTConfig
     gt_method     :: Symbol
-    metric_tol    :: VgcQuantity{Float64}
+    metric_tol    :: Quantity{Float64, Dimensions{FixRat32}}
     rel_tol       :: Float64
     bidirectional :: Bool
 end
 
 GTConfig(table::AbstractString) =
     GTConfig(gt_method = Symbol(_config_default(table, "gt_method")),
-             metric_tol = Float64(_config_default(table, "metric_tol_mm")) * mm,
+             metric_tol = read_length(_config_default(table, "metric_tol_mm"), mm),
              rel_tol = _config_default(table, "rel_tol"),
              bidirectional = _config_default(table, "bidirectional"))
 
@@ -168,19 +176,19 @@ gt_config(::KITTI, ::Union{Val{:roma},Val{:splg}}) = GTConfig("gt.kitti")   # on
 # Shared readers
 # -----------------------------------------------------------------------------
 
-# A pair from absolute camera-to-world poses `T_src`, `T_tgt` (4×4) and one
-# shared calibration `K` (OpenCV pixel origin): the source camera at the
+# A pair from absolute camera-to-world poses `T_src`, `T_tgt` (4×4, metres) and
+# one shared calibration `K` (OpenCV pixel origin): the source camera at the
 # identity, the target at `inv(T_tgt) · T_src` (re-orthonormalized: text-file
-# poses drift ~1e-6 from SO(3)).
+# poses drift ~1e-6 from SO(3)); the rig in metres.
 function _make_stereo_pair(scene::AbstractString, src_name::AbstractString, tgt_name::AbstractString,
                            src_path::AbstractString, tgt_path::AbstractString,
                            K::SMatrix{3,3,Float64,9}, T_src::SMatrix{4,4,Float64,16},
                            T_tgt::SMatrix{4,4,Float64,16}, extent::Size2)
     cm = CameraModel(CameraCalibrationMat(K); image_origin = :opencv)
-    cam_src = BoundedCamera(Camera(cm, EuclideanMap(SMatrix{3,3,Float64,9}(I), zero(Vec3{Float64}))), extent)
+    cam_src = BoundedCamera(Camera(cm, EuclideanMap(SMatrix{3,3,Float64,9}(I), zero(Vec3{Float64}) .* m)), extent)
     T = inv(T_tgt) * T_src
     cam_tgt = BoundedCamera(Camera(cm, EuclideanMap(SMatrix{3,3,Float64,9}(T[1:3, 1:3]),
-                                                    Vec3{Float64}(T[1:3, 4]); project = true)), extent)
+                                                    Vec3{Float64}(T[1:3, 4]) .* m; project = true)), extent)
     return StereoPair((scene, src_name, tgt_name, src_path, tgt_path, StereoRig(cam_src, cam_tgt)))
 end
 

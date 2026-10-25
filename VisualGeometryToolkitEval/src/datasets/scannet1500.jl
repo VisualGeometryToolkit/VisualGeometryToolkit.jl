@@ -4,7 +4,8 @@
 # the colour resolution.
 #
 # `test.npz`: `name` (1500 × 4 UInt16: scene, sub-scene, frame a, frame b) and
-# `rel_pose` (1500 × 12 Float32: the row-major source → target 3×4).
+# `rel_pose` (1500 × 12 Float32: the row-major source → target 3×4, metres).
+# The rig is built in metres (`t .* m`), the depth plain metres.
 # =============================================================================
 
 # Every ScanNet colour frame is 1296 × 968; depth is 640 × 480.
@@ -23,7 +24,7 @@ function scannet1500_pairs(root::AbstractString)
     (size(name, 2) == 4 && size(rel_pose, 2) == 12 && size(name, 1) == size(rel_pose, 1)) ||
         error("$(joinpath(root, "test.npz")): expected name (N, 4) and rel_pose (N, 12)")
     models = Dict{String,CameraModel}()
-    identity_pose = EuclideanMap(SMatrix{3,3,Float64,9}(I), zero(Vec3{Float64}))
+    identity_pose = EuclideanMap(SMatrix{3,3,Float64,9}(I), zero(Vec3{Float64}) .* m)
     pairs = Vector{StereoPair}(undef, size(name, 1))
     for i in axes(name, 1)
         scene = "scene$(lpad(Int(name[i, 1]), 4, '0'))_$(lpad(Int(name[i, 2]), 2, '0'))"
@@ -34,7 +35,7 @@ function scannet1500_pairs(root::AbstractString)
         end
         R, t = _row_major_pose(view(rel_pose, i, :))
         rig = StereoRig(BoundedCamera(Camera(cm, identity_pose), _SCANNET_COLOR_SIZE),
-                        BoundedCamera(Camera(cm, EuclideanMap(R, Vec3{Float64}(t); project = true)), _SCANNET_COLOR_SIZE))
+                        BoundedCamera(Camera(cm, EuclideanMap(R, Vec3{Float64}(t) .* m; project = true)), _SCANNET_COLOR_SIZE))
         src, tgt = "$(Int(name[i, 3])).jpg", "$(Int(name[i, 4])).jpg"
         pairs[i] = StereoPair((scene, src, tgt, joinpath(scene_dir, "color", src), joinpath(scene_dir, "color", tgt), rig))
     end

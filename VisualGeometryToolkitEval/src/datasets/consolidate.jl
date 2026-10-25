@@ -26,8 +26,10 @@ const CONSOLIDATED_FORMAT = 2
 _pixel_K(cam) = SMatrix{3,3,Float64,9}(intrinsics(model(cam)).K)
 _pixel_size(cam) = (e = extent(cam); Size2(Int(e.width), Int(e.height)))
 
+# The record is plain data: the rig's pose stripped once, in metres (a plain
+# rig is refused by `ustrip`: a dataset's rig is physical).
 function _consolidated_record(p, matches, inlier_mask::BitVector)
-    E = extrinsics(p.rig)                                   # source camera → target camera
+    E = ustrip(m, extrinsics(p.rig))                        # source camera → target camera, plain metres
     return (; scene = p.scene, source_name = p.source_name, target_name = p.target_name,
             csponds = matches.csponds, confidence = matches.confidence, inlier_mask,
             K1 = _pixel_K(source(p.rig)), K2 = _pixel_K(target(p.rig)),
@@ -74,7 +76,7 @@ function consolidate_csponds(ds::AbstractStereoDataset, matcher::Symbol;
         kept = [r for r in records if r !== nothing]
         out = joinpath(out_dir, "$(replace(scene, '/' => "__")).jld2")
         JLD2.jldsave(out; pairs = kept, format = CONSOLIDATED_FORMAT, matcher,
-                     gt_method = cfg.gt_method, metric_tol_mm = Float64(ustrip(mm, cfg.metric_tol)),
+                     gt_method = cfg.gt_method, metric_tol_mm = write_length(cfg.metric_tol, mm),
                      rel_tol = cfg.rel_tol, bidirectional = cfg.bidirectional)
         @info "consolidated csponds" scene pairs = length(kept) missing = length(pairs) - length(kept) out
         push!(written, out)

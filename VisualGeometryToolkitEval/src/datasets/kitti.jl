@@ -22,7 +22,9 @@ end
 # The cam0 calibration: `P0 = K [I | 0]`, so K is its left 3×3.
 _parse_kitti_calib(seq_dir::AbstractString) = first(_kitti_calib_row(seq_dir, "P0:"))
 
-# The velodyne → cam0 (rectified) rigid map of `Tr`.
+# The velodyne → cam0 (rectified) rigid map of `Tr`, plain metres: a private
+# map applied to every velodyne return in `_kitti_velo_to_depth` (an inner
+# loop), never handed out.
 function _parse_kitti_tr(seq_dir::AbstractString)
     R, t = _kitti_calib_row(seq_dir, "Tr:")
     return EuclideanMap(R, Vec3{Float64}(t); project = true)

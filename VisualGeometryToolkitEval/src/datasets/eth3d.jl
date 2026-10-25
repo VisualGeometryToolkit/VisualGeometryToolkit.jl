@@ -16,10 +16,11 @@ const _ETH3D_CONTRACT = UnitContract(world = m)
 _eth3d_model(scene_dir::AbstractString, calib::AbstractString) =
     VgtkIO.load(ColmapModel, joinpath(scene_dir, calib); contract = _ETH3D_CONTRACT)
 
-# A COLMAP camera and image → a bounded camera, world→camera in metres.
+# A COLMAP camera and image → a bounded camera, world→camera in metres: the
+# file's `tvec` is in the contract's world unit, metres, read as such.
 function _eth3d_camera(cam::ColmapCamera, im::ColmapImage)
     q, t = im.qvec, im.tvec
-    pose = EuclideanMap(q[1], q[2], q[3], q[4], t[1], t[2], t[3])
+    pose = EuclideanMap(QuatRotation(q[1], q[2], q[3], q[4]), Vec3{Float64}(t[1], t[2], t[3]) .* m)
     return BoundedCamera(Camera(camera_model(cam), pose), Size2(cam.width, cam.height))
 end
 

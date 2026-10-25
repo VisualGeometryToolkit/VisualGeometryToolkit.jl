@@ -50,10 +50,11 @@ using Rotations: QuatRotation
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, Size2, FundMat, EssentialMat, sampson_distance, intrinsics,
     centroid, model, extent, extrinsics, source, target, project, unproject, csponds, Point3, Vec3,
     Camera, BoundedCamera, CameraModel, CameraCalibrationMat, EuclideanMap, StereoRig,
-    validate_gt_inliers, VgcQuantity, m, mm, ustrip
+    validate_gt_inliers, m, mm, ustrip
+using FlexUnits: Quantity, Dimensions, FixRat32
 using VisualGeometryToolkitCore.Pools: Pools, StereoRawPair
 import VisualGeometryToolkitIO
-using VisualGeometryToolkitIO: UnknownScale, camera_model, UnitContract, ColmapModel, ColmapCamera, ColmapImage
+using VisualGeometryToolkitIO: read_length, write_length, UnknownScale, camera_model, UnitContract, ColmapModel, ColmapCamera, ColmapImage
 import .._config_default   # configs/default.toml (config_defaults.jl)
 using ..Stats: stable_seed, POOL_RNG
 

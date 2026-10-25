@@ -21,6 +21,8 @@
 One raw RoMa / SP+LG pair, in pixels: csponds, `snn = 1 − confidence`, the
 consolidated GT inlier mask, the pixel calibrations, image sizes and the GT
 relative pose, with its source scene (VisualGeometryToolkitCore's `pair_scene`).
+A raw pair is a pool's input, so it is plain data: `t_gt` is plain metres (the
+consolidated record strips the dataset's rig once).
 """
 struct RomaPair <: StereoRawPair
     src_id   :: String

@@ -35,7 +35,10 @@
             g = gt_config(ds, m)
             @test g isa GTConfig && g.rel_tol > 0
         end
-        @test gt_config(ETH3D(scenes_root = ""), :splg).metric_tol == 68.6 * VgtkCore.mm
+        # a file length, read as one (decimal-exact): metres in memory, 68.6 mm on disk
+        @test gt_config(ETH3D(scenes_root = ""), :splg).metric_tol == _D.read_length(68.6, VgtkCore.mm)
+        @test gt_config(ETH3D(scenes_root = ""), :splg).metric_tol isa typeof(1.0 * VgtkCore.m)
+        @test _D.write_length(gt_config(ETH3D(scenes_root = ""), :splg).metric_tol, VgtkCore.mm) == 68.6
         @test_throws MethodError gt_config(SevenScenes(root = ""), :splg)   # not calibrated
         @test ETH3D(scenes_root = "").min_covisibility == 200             # the published inputs' value
         @test length(_D._seven_scenes_sequences(:test)) == 18 && length(_D._seven_scenes_sequences(:train)) == 28
@@ -152,6 +155,14 @@
         ds = SevenScenes(root = root, scene = "chess", interval = 1, stride = 1)
         ps = stereo_pairs(ds)
         @test length(ps) == 1 && only(ps).scene == "chess/seq-03"
+        # a reader builds the rig, a public physical value, in metres
+        rig = only(ps).rig
+        @test VgtkCore.has_units(rig)
+        @test VgtkCore.ustrip(VgtkCore.m, VgtkCore.extrinsics(rig)).t ≈ [-0.1, 0, 0]
+        @test VgtkCore.extrinsics(rig).t[1] ≈ -10.0 * VgtkCore.cm
+        # the consolidated record is plain data: a plain rig is refused there
+        plain = merge(only(ps), (; rig = VgtkCore.ustrip(VgtkCore.m, rig)))
+        @test_throws ArgumentError _D._consolidated_record(plain, (csponds = nothing, confidence = nothing), BitVector())
         # a point at depth Z moves by −f·0.1/Z = −29.25 px; the last match is 40 px off
         src = Float32[200 300 400 350; 150 250 300 200]
         tgt = copy(src); tgt[1, :] .-= 29.25f0; tgt[1, 4] -= 40

@@ -193,8 +193,8 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, _allowed
             # config_dict is derived from fieldnames: every strategy field appears.
             for (tag, T) in LO_TAGS
                 tag == "no_local_optimization" && continue
-                takes_scale_multiple = VgtkEstimation._lo_takes_width(T) || hasfield(T, :scale_multiple)
-                takes_loss = VgtkEstimation._LO_PARAMETRIC[T]
+                takes_scale_multiple = hasfield(T, :width) || hasfield(T, :scale_multiple)
+                takes_loss = VgtkEstimation.lo_parametric(T)
                 # the minimal table for this tag: only the keys it actually takes
                 tbl = Dict{String, Any}("type" => tag)
                 takes_loss && (tbl["loss"] = "welsch")

@@ -245,12 +245,51 @@ lo = local_optimization_from_toml(table; class = :homography,
                                   tags = merge(LO_TAGS, LocalOptimizationDoneRight.LO_TAGS))
 ```
 
+### Registering strategies
+
+The strategy machinery — the registry, the keyword constructor, the TOML
+reader and the writer — is one public API that any package registers its
+strategies with. A package states one row per strategy and its defaults
+table; `@lo_registry` defines the row facts and the keyword constructors and
+returns the package's registry:
+
+```julia
+import VisualGeometryToolkitEstimation as VgtkEstimation
+
+#   type     tag        path   scale  family  label   shape  parametric
+const ROWS = ((MyArm, "my_arm", :irls, nothing, nothing, "Mine", nothing, false),)
+const MY_LO_TAGS = VgtkEstimation.@lo_registry ROWS defaults = MY_DEFAULTS["local_optimization"]
+```
+
+A strategy's exceptions are methods of the hooks — [`lo_admits`](@ref),
+[`lo_key`](@ref), [`lo_field`](@ref), [`lo_field_from_toml`](@ref),
+[`lo_absent`](@ref), [`lo_validate`](@ref), [`lo_concrete`](@ref),
+[`lo_scale_multiple_shape`](@ref) and [`lo_resolve_scale_multiple`](@ref) —
+all of them [`CONTRACT_GENERICS`](@ref); the reader and writer are the same for
+every strategy.
+
 ```@docs
 default_config_path
 local_optimization_from_toml
 lo_from_toml
 config_dict
+lo_config_dict
 LO_TAGS
+@lo_registry
+lo_construct
+lo_tag
+lo_defaults
+lo_parametric
+lo_admits
+lo_admits_shape
+lo_key
+lo_field
+lo_field_from_toml
+lo_absent
+lo_validate
+lo_concrete
+lo_scale_multiple_shape
+lo_resolve_scale_multiple
 LOSS_TAGS
 MODEL_UPDATE_TAGS
 NUISANCE_TAGS

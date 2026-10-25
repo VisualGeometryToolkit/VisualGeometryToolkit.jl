@@ -111,9 +111,10 @@ end
 # `loss_width` (an absolute width, `LossWidth`) — both is an error — and with
 # neither its width follows the scorer's decision point. Every other key is a
 # constructor keyword of that strategy and defaults to its
-# `[local_optimization.<type>]` table. The type's owner builds it
-# ([`lo_from_toml`](@ref)): a downstream package's strategies load through
-# this one entry once their tags are merged in.
+# `[local_optimization.<type>]` table. One reader builds every registered
+# strategy ([`lo_from_toml`](@ref)), its exceptions stated by its owner's hook
+# methods: a downstream package's strategies load through this one entry once
+# their tags are merged in.
 
 """
     LOSS_TAGS
@@ -125,40 +126,33 @@ The loss-shape registry (VisualGeometryToolkitCore's `TagRegistry`, family suffi
 const LOSS_TAGS = TagRegistry(:loss, "Shape", (tag => K for (K, tag) in _LOSS_TABLE)...;
                               paths = [r"(^|\.)loss$"])
 
-# `LO_TAGS` (scoring_glue.jl) is the strategy registry, derived from the one row
-# per strategy (`_LO_REGISTRY`) its keyword defaults read their tag from too.
+# `LO_TAGS` (scoring_glue.jl) is the strategy registry, built by `@lo_registry`
+# from the one row per strategy (`_LO_REGISTRY`), which also gives every
+# strategy type its `toml_skip_fields` (the width is written and read as its
+# two keys, `scale_multiple` | `loss_width`, never as `width`).
 
-# The skeleton's per-type hooks, on OUR strategy types — one method per
-# registered type rather than one on VGC's abstract `AbstractLocalOptimization`,
-# which would be type piracy (VGC's generic on VGC's type; Aqua refuses it).
-# The scale interface is not a config key; the Greek fields spell ASCII.
-for T in values(LO_TAGS)
-    @eval begin
-        # The width field is written and read as its two keys
-        # (`scale_multiple` | `loss_width`), never as `width`.
-        toml_skip_fields(::Type{<:$T}) = (:width,)
-    end
-end
 const _LOSS_TAG_OF = Dict{Type, String}(shape => tag for (tag, shape) in LOSS_TAGS)
-
-_lo_tag(lo::AbstractLocalOptimization) = _lo_tag(typeof(lo))
 _loss_tag(::Type{K}) where {K <: AbstractLossShape} = _LOSS_TAG_OF[K]
 # The width keys a strategy's table may carry: both for a width-carrying one
 # (the least-squares arm takes neither), none for another.
 _width_keys(::Type{C}) where {C} = _lo_takes_width(C) ? ("scale_multiple", "loss_width") : ()
 _width_keys(::Type{<:Irls{GaussianShape}}) = ()
 
-# The shape a FIXED-LOSS arm deploys is `_fixed_loss_shape` (scoring_glue.jl,
-# beside the arms' identity, which reads it too).
+# A strategy's TOML values convert through its hook.
+_from_toml(::Type{T}, ::Val{F}, v) where {T <: AbstractLocalOptimization, F} = lo_field_from_toml(T, Val(F), v)
 
-# A literal `scale_multiple` is the caller's own number and claims nothing
-# about provenance, so it carries no shape and is taken as given.
-_resolve_scale_multiple(v::Real, ::Symbol, ::Type{<:AbstractLossShape}) = Float64(v)
+"""
+    lo_resolve_scale_multiple(T, K, value; class::Symbol) -> Float64
 
-# `scale_multiple = "cross_validated"` names the accv2026 operating points,
-# which are LocalOptimizationDoneRight's tuning constants: its loader resolves
-# them. The core has none.
-_resolve_scale_multiple(v::AbstractString, ::Symbol, ::Type) = throw(ArgumentError(
+A TOML `scale_multiple` of strategy `T`, read for loss shape `K`
+([`lo_scale_multiple_shape`](@ref)) in pipeline model class `class`. A number
+is the caller's own and claims nothing about provenance, so it is taken as
+given. A string is refused here: `"cross_validated"` names the accv2026
+operating points, LocalOptimizationDoneRight's tuning constants, which its
+strategies resolve with a method of this hook.
+"""
+lo_resolve_scale_multiple(::Type, ::Type, v::Real; class::Symbol) = Float64(v)
+lo_resolve_scale_multiple(::Type, ::Type, v::AbstractString; class::Symbol) = throw(ArgumentError(
     v == "cross_validated" ?
     "scale_multiple = \"cross_validated\" is resolved by LocalOptimizationDoneRight's tuning " *
         "constants: load the strategy through its tags (tags = merge(VisualGeometryToolkitEstimation.LO_TAGS, " *
@@ -172,13 +166,13 @@ function _loss_of(d::AbstractDict, section)
 end
 
 """
-    local_optimization_from_toml(table; class::Symbol, tags = LO_TAGS) -> AbstractLocalOptimization
+    local_optimization_from_toml(table; class::Symbol, section = "local_optimization", tags = LO_TAGS) -> AbstractLocalOptimization
 
 Build a local-optimization strategy from its TOML table (see the registry
 comment above). `tags` is the strategy registry the `type` is looked up in —
 [`LO_TAGS`](@ref), or its merge with a downstream package's
-(`merge(LO_TAGS, LocalOptimizationDoneRight.LO_TAGS)`); the type's owner then
-builds it ([`lo_from_toml`](@ref)). `class` is the pipeline's model class (a
+(`merge(LO_TAGS, LocalOptimizationDoneRight.LO_TAGS)`); the entry is then
+built by [`lo_from_toml`](@ref). `class` is the pipeline's model class (a
 downstream `scale_multiple = "cross_validated"` resolves through it). Unknown
 `type`, `loss`, or keys are refused.
 """
@@ -186,53 +180,59 @@ function local_optimization_from_toml(d::AbstractDict; class::Symbol, section::A
                                       tags::TagRegistry = LO_TAGS)
     haskey(d, "type") || throw(ArgumentError("[$section] needs a `type` (one of $(sort(collect(keys(tags)))))"))
     T = tags[d["type"]]     # an unknown or retired tag is refused here, a retired one naming its successor
-    return lo_from_toml(T, d; class, section)
+    return lo_from_toml(T, d; class, section, tags)
 end
 
 """
-    lo_from_toml(T, table; class::Symbol, section) -> AbstractLocalOptimization
+    lo_concrete(T, table, section; tags) -> (C, extra_keys)
 
-The strategy of registry entry `T` (a type or a loss-parametric family) from
-its TOML table — the per-owner half of [`local_optimization_from_toml`](@ref).
-The core defines it for its own strategies; a downstream package that
-registers strategies (LocalOptimizationDoneRight) adds its methods.
+The concrete strategy type registry entry `T` names in its TOML `table`, and
+the keys the table may carry beyond `C`'s fields and width. Default: a
+loss-parametric family is concrete at its `loss` ([`LOSS_TAGS`](@ref); a
+missing or unknown loss is an `ArgumentError` listing the loss tags),
+`(T{K}, ("type", "loss"))`; any other strategy is itself, `(T, ("type",))`.
+`tags` is the strategy registry the table was read through, for a strategy
+that wraps another named by tag. `section` names the table in messages.
 """
-function lo_from_toml end
+lo_concrete(::Type{T}, d::AbstractDict, sec::AbstractString; tags::TagRegistry = LO_TAGS) where {T} =
+    lo_parametric(T) ? (T{_loss_of(d, sec)}, ("type", "loss")) : (T, ("type",))
 
-for T in values(LO_TAGS)
-    @eval lo_from_toml(::Type{<:$T}, d::AbstractDict; class::Symbol, section::AbstractString) =
-        _core_lo_from_toml($T, d; class, section)
-end
+"""
+    lo_from_toml(T, table; class::Symbol, section = "local_optimization", tags = LO_TAGS) -> AbstractLocalOptimization
 
-# A loss-parametric family is concrete at its `loss`; a plain strategy is itself.
-_core_concrete(::Type{Irls}, d, sec) = (Irls{_loss_of(d, sec)}, ("type", "loss"))
-_core_concrete(::Type{T}, d, sec) where {T} = (T, ("type",))
-
-function _core_lo_from_toml(T, d::AbstractDict; class::Symbol, section::AbstractString)
+The strategy of registry entry `T` (a type or a loss-parametric family,
+registered by any package with [`@lo_registry`](@ref)) from its TOML table —
+the half of [`local_optimization_from_toml`](@ref) after the tag lookup.
+The table's keys are the fields (Greek spelled ASCII), the width as
+`scale_multiple` or `loss_width`, and [`lo_concrete`](@ref)'s extra keys; an
+unknown key is refused, a field the owner's defaults have no key for is
+required, every other absent key inherits the defaults. A `scale_multiple`
+goes through [`lo_resolve_scale_multiple`](@ref) at
+[`lo_scale_multiple_shape`](@ref).
+"""
+function lo_from_toml(T::Type, d::AbstractDict; class::Symbol, section::AbstractString = "local_optimization",
+                      tags::TagRegistry = LO_TAGS)
     tag = d["type"]
     sec = "$section.$tag"
     # The concrete strategy type and the keys the table may carry beyond its fields.
-    C, extra = _core_concrete(T, d, sec)
+    C, extra = lo_concrete(T, d, sec; tags)
     _check_keys(d, _allowed_keys(C, extra..., _width_keys(C)...), sec)
-    # The ONE presence check: a key the shipped file has no default for is
+    # The ONE presence check: a key the defaults have no value for is
     # required. (No width: follow the scorer.)
+    defaults = lo_defaults(C)
     for f in fieldnames(C)
         f in toml_skip_fields(C) && continue
-        haskey(d, toml_key(C, f)) || _lo_has_default(C, f) ||
+        haskey(d, toml_key(C, f)) || _lo_has_default(C, f, defaults) ||
             throw(ArgumentError("[$sec] needs `$(toml_key(C, f))`"))
     end
     kw = _table_kwargs(C, d)
     haskey(d, "scale_multiple") && haskey(d, "loss_width") &&
         throw(ArgumentError("[$sec] give `scale_multiple` or `loss_width`, not both"))
-    haskey(d, "loss_width") && return _lo_construct(C; kw..., loss_width = Float64(d["loss_width"]))
-    haskey(d, "scale_multiple") || return _lo_construct(C; kw...)
-    scale_multiple = _resolve_scale_multiple(d["scale_multiple"], class, _scale_multiple_shape(C))
-    return _lo_construct(C; kw..., scale_multiple)
+    haskey(d, "loss_width") && return lo_construct(C; defaults, kw..., loss_width = Float64(d["loss_width"]))
+    haskey(d, "scale_multiple") || return lo_construct(C; defaults, kw...)
+    scale_multiple = lo_resolve_scale_multiple(C, lo_scale_multiple_shape(C), d["scale_multiple"]; class)
+    return lo_construct(C; defaults, kw..., scale_multiple)
 end
-
-# The shape a strategy's `scale_multiple` was cross-validated for: the loss of
-# the parametric family.
-_scale_multiple_shape(::Type{C}) where {C <: Irls} = strategy_loss(C)
 
 # The default strategy of a pipeline — read from the shipped file's
 # [pipelines.<class>] table. This is what every find_* signature defaults to.
@@ -246,24 +246,31 @@ _dflt_lo(class::Symbol) =
 """
     config_dict(c) -> Dict
 
-The TOML table for a config value (a `RansacConfig` or a local-optimization
-strategy), as a plain `Dict`. Derived from the structs by walking `fieldnames`,
-so it cannot fall out of sync with them; a strategy's table loads back through
-[`local_optimization_from_toml`](@ref) to an equal value.
+The TOML table for a config value (a `RansacConfig`, a `MixtureEmConfig` or a
+local-optimization strategy — [`lo_config_dict`](@ref)), as a plain `Dict`.
+Derived from the structs by walking `fieldnames`, so it cannot fall out of
+sync with them; a strategy's table loads back through
+[`local_optimization_from_toml`](@ref) to an equal value. A strategy whose
+table carries a key beyond the generic writer's adds a method.
 """
 config_dict(c::RansacConfig) = toml_table(c)
+config_dict(lo::AbstractLocalOptimization) = lo_config_dict(lo)
 
-config_dict(::NoLocalOptimization) = Dict{String, Any}("type" => "no_local_optimization")
-function config_dict(lo::Irls)
-    # The field walk is VGC's `toml_table` (the scale interface skipped, Greek
-    # spelled ASCII); only the
-    # discriminators are this package's.
+"""
+    lo_config_dict(lo) -> Dict{String, Any}
+
+The TOML table of any registered strategy: VisualGeometryToolkitCore's
+`toml_table` field walk (the width skipped, Greek spelled ASCII, a field's
+own spelling through `toml_field`), its `type` ([`lo_tag`](@ref)), its `loss`
+for a loss-parametric family, and its width as `scale_multiple` or
+`loss_width` (no width writes nothing).
+"""
+function lo_config_dict(lo::AbstractLocalOptimization)
+    T = typeof(lo)
     d = toml_table(lo)
-    d["type"] = _lo_tag(lo)
-    # `strategy_loss` (scoring_glue.jl) is the documented way to read the
-    # objective's tag out of a strategy TYPE.
-    lo isa Irls && (d["loss"] = _loss_tag(strategy_loss(lo)))
-    _lo_takes_width(typeof(lo)) && _width_to_toml!(d, lo.width)
+    d["type"] = lo_tag(T)
+    lo_parametric(T) && (d["loss"] = _loss_tag(strategy_loss(lo)))
+    _lo_takes_width(T) && _width_to_toml!(d, lo.width)
     return d
 end
 

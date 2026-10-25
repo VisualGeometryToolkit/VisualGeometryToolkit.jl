@@ -312,6 +312,12 @@ public EllipseFitMetadata
 # strategy by tag and write a config value back as a table.
 public default_config_path, local_optimization_from_toml, lo_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS,
     LOSS_TAGS
+# The local-optimization strategy machinery every package registers its
+# strategies with: the registry macro, the keyword constructor, the generic
+# writer, the shared shape admission, and the hooks (CONTRACT_GENERICS below).
+public @lo_registry, lo_construct, lo_config_dict, lo_admits_shape,
+    lo_tag, lo_defaults, lo_parametric, lo_admits, lo_key, lo_field, lo_field_from_toml, lo_absent,
+    lo_validate, lo_concrete, lo_scale_multiple_shape, lo_resolve_scale_multiple
 
 
 # =============================================================================
@@ -385,13 +391,19 @@ include("config_toml.jl")
 
 The generic functions of VisualGeometryToolkitEstimation another package may add methods
 to across a package boundary (VisualGeometryToolkitCore's quality gate,
-`contract_generic_violations`): the strategy registry's owner hooks
-(`lo_from_toml`, `config_dict`), a loss-parametric or fixed-loss strategy's
+`contract_generic_violations`): the local-optimization strategy machinery's
+row facts (`lo_tag`, `lo_defaults`, `lo_parametric`, defined by `@lo_registry`)
+and hooks (`lo_admits`, `lo_key`, `lo_field`, `lo_field_from_toml`,
+`lo_absent`, `lo_validate`, `lo_concrete`, `lo_scale_multiple_shape`,
+`lo_resolve_scale_multiple`), the writer (`config_dict`, for a strategy whose
+table carries a key beyond the generic one), a loss-parametric or fixed-loss strategy's
 identity (`strategy_loss`, `deployed_shape`), the posterior-weight stop rule's
 counter (`iterations_without_improvement`) and the sampler / running-best
 protocol (`reset!`, `draw!`).
 """
-const CONTRACT_GENERICS = (lo_from_toml, config_dict, strategy_loss, deployed_shape,
+const CONTRACT_GENERICS = (lo_tag, lo_defaults, lo_parametric, lo_admits, lo_key, lo_field, lo_field_from_toml,
+                           lo_absent, lo_validate, lo_concrete, lo_scale_multiple_shape, lo_resolve_scale_multiple,
+                           config_dict, strategy_loss, deployed_shape,
                            iterations_without_improvement, reset!, draw!)
 
 end # module VisualGeometryToolkitEstimation

@@ -33,7 +33,7 @@ struct NoLocalOptimization <: AbstractLocalOptimization end
 # are VGC's (`loss_family`, `loss_label`, beside the shapes).
 #
 # Barron's shape carries its α, so `Irls{K}` refuses it at construction
-# (`_mechanism_admits_shape` below) — the Barron family runs as
+# (`lo_admits_shape` below) — the Barron family runs as
 # LocalOptimizationDoneRight's fixed-loss arms.
 # -----------------------------------------------------------------------------
 const _LOSS_TABLE = (
@@ -94,16 +94,23 @@ struct Irls{K <: AbstractLossShape, W} <: AbstractLocalOptimization
     width::W
 end
 Irls{K}(max_iter::Integer, width::W) where {K, W} = Irls{K, W}(Int(max_iter), width)
-# Construction-time admission: a shape the mechanism
-# cannot run is refused HERE, rather than surfacing mid-RANSAC as a MethodError
-# from a VGC internal the caller never wrote (`BarronShape()` for a shape that
-# carries its α; `zblock(::TLSShape, …)` for one with no lift). The
-# admissible set is read off VGC's own traits, never re-listed here.
-# `strategy` names the strategy being built (`"Irls{…}"`) for the message.
-function _mechanism_admits_shape(strategy, ::Type{K}) where {K}
+"""
+    lo_admits_shape(T, K) -> nothing
+
+Construction-time admission of loss shape `K` by strategy type `T` (named in
+the message): `K` must be a zero-argument shape tag, so a shape the mechanism
+cannot run is refused when the strategy is built, rather than surfacing
+mid-RANSAC as a `MethodError` from a VisualGeometryToolkitCore internal the
+caller never wrote (`BarronShape()` for a shape that carries its α). The
+admissible set is read off VisualGeometryToolkitCore's own traits, never
+re-listed. The default of [`lo_admits`](@ref) for a loss-parametric family;
+a family with further conditions (a half-quadratic lift, a GNC surrogate)
+calls it first. An `ArgumentError` when `K` is not admitted.
+"""
+function lo_admits_shape(::Type{T}, ::Type{K}) where {T, K}
     applicable(K) || throw(
         ArgumentError(
-            "$strategy: $K is not a zero-argument shape tag (a Barron " *
+            "$T: $K is not a zero-argument shape tag (a Barron " *
                 "shape carries its α — LocalOptimizationDoneRight's BarronHQ or BarronAdaptive)"
         )
     )
@@ -403,79 +410,164 @@ VgtkCore.with_width(lo::Irls{K}, w) where {K} = Irls{K}(lo.max_iter, lo_width_va
 VgtkCore.scale_interface(::Irls{GaussianShape}) = NoScale()
 
 # =============================================================================
-# THE strategy registry — one row of facts per strategy, one keyword constructor
+# THE strategy machinery — one row of facts per strategy, one keyword
+# constructor, one reader and one writer (config_toml.jl), for every package
 # =============================================================================
 #
-# Every local-optimization strategy is ONE row here: its TOML tag (the
-# `configs/default.toml` `[local_optimization.<tag>]` table its keyword
-# defaults read, and the `type` a config spells it by — the tag rule:
-# `snake_case` of the type's name), its optimization path, whether it is a
-# loss-parametric family (`Irls{K}`, which takes a `loss` key), and — for the
-# named one-off strategies — the identity VGC's `lo_label` /
-# `loss_family` / `scale_interface` report. `nothing` in a column means the
-# fact is DERIVED, not stated: the parametric families read their label and
-# loss family off the loss tag (above), a fixed-loss arm its loss family off its
+# A local-optimization strategy is ONE row of a registry (`@lo_registry`):
+# its TOML tag (the `[local_optimization.<tag>]` table of its owner's defaults
+# its keyword defaults read, and the `type` a config spells it by — the tag
+# rule: `snake_case` of the type's name), its optimization path, whether it is
+# a loss-parametric family (`Irls{K}`, which takes a `loss` key), and — for
+# the named one-off strategies — the identity VisualGeometryToolkitCore's
+# `lo_label` / `loss_family` / `scale_interface` report. `nothing` in a column
+# means the fact is DERIVED, not stated: a parametric family reads its label
+# and loss family off its loss, a fixed-loss arm its loss family off its
 # `shape` column, and a width-carrying strategy its scale interface off its
 # width mode.
 #
-# LocalOptimizationDoneRight keeps the registry of its own strategies (its
-# `LO_TAGS`); a caller loading both merges them:
-# `local_optimization_from_toml(d; class, tags = merge(RVG.LO_TAGS, LODR.LO_TAGS))`.
+# The machinery is this package's and public; a downstream package
+# (LocalOptimizationDoneRight) registers its strategies with the same macro,
+# against its own defaults table, and states its exceptions as methods of the
+# hooks below — never a copy of the machinery. A caller loading both merges
+# the registries: `local_optimization_from_toml(d; class, tags = merge(LO_TAGS, Downstream.LO_TAGS))`.
 #
-#   type                 tag                      path   scale          family   label                     shape              parametric
-const _LO_REGISTRY = (
-    (NoLocalOptimization, "no_local_optimization", :seed, NoScale(),     :none,   raw"seed",                nothing,           false),
-    (Irls,                "irls",                  :irls, nothing,       nothing, nothing,                  nothing,           true),
-)
-
-for (T, tag, path, iface, family, label, shape, _) in _LO_REGISTRY
-    @eval begin
-        _lo_tag(::Type{<:$T}) = $tag
-        VgtkCore.optimization_path(::$T) = $(QuoteNode(path))
-    end
-    iface === nothing || @eval VgtkCore.scale_interface(::$T) = $iface
-    family === nothing || @eval VgtkCore.loss_family(::$T) = $(QuoteNode(family))
-    label === nothing || @eval VgtkCore.lo_label(::$T) = $label
-end
-
-# A strategy takes a width (`scale_multiple` / `loss_width` keys) iff it has a
-# `width` field, and a `loss` key iff it is a loss-parametric family.
-_lo_takes_width(::Type{T}) where {T} = :width in fieldnames(T)
-const _LO_PARAMETRIC = Dict{Any, Bool}(T => par for (T, _, _, _, _, _, _, par) in _LO_REGISTRY)
-
-"""
-    LO_TAGS
-
-The local-optimization strategy registry (VisualGeometryToolkitCore's `TagRegistry`):
-TOML tag → strategy type or loss-parametric family, the tag `snake_case` of the
-type's name. Retired tags name their successor.
-"""
-const LO_TAGS = TagRegistry(
-    :local_optimization, "",
-    (tag => T for (T, tag) in _LO_REGISTRY)...;
-    retired = ("none" => "no_local_optimization",),
-    paths = [r"(^|\.)local_optimization\.type$"]
-)
-
-# -----------------------------------------------------------------------------
-# The ONE keyword constructor of every strategy, driven by `fieldnames` and the
-# tag: a field's keyword is the field's name; its default is the strategy's
-# `[local_optimization.<tag>]` key in `configs/default.toml` (ASCII-spelled,
-# `toml_key`); a field with NO key in the file is REQUIRED (Barron's `α`).
+# The keyword constructor is driven by `fieldnames` and the tag: a field's
+# keyword is the field's name; its default is the strategy's table key
+# (`lo_key`, ASCII-spelled); a field with NO key in the table is REQUIRED.
 # The width field is set by `scale_multiple = m` (`ScaleMultiple(m)`) or
 # `loss_width = w` (`LossWidth(w)`) — both is an `ArgumentError` — and by
-# neither follows the scorer (`nothing`). Values convert to the field's type;
-# an unknown keyword is an `ArgumentError`.
-#
-# The per-strategy exceptions are hooks, each stated once:
-#   `_lo_admits(T)`            construction-time admission, BEFORE any field
-#   `_lo_key(T, Val(f))`       a field read from another key (HQ smooth-TLS)
-#   `_lo_field(T, Val(f), v)`  a supplied value's conversion / refusal
-#   `_lo_absent(T, Val(f))`    a field's value when the caller omits it
-#   `_lo_validate(lo)`         cross-field checks on the built value
-# -----------------------------------------------------------------------------
-function _lo_construct(::Type{T}; kw...) where {T <: AbstractLocalOptimization}
-    _lo_admits(T)
+# neither follows the scorer (`nothing`). An unknown keyword is an
+# `ArgumentError`. The per-strategy exceptions are the hooks, each stated once:
+#   `lo_admits(T, K)`                      construction-time admission, BEFORE any field (K: a family's parameter)
+#   `lo_key(T, Val(f))`                    a field's default read from another key
+#   `lo_field(T, Val(f), v)`               a supplied value's conversion / refusal
+#   `lo_field_from_toml(T, Val(f), v)`     a TOML value's conversion (reader and defaults)
+#   `lo_absent(T, Val(f); defaults)`       a field's value when the caller omits it
+#   `lo_validate(lo)`                      cross-field checks on the built value
+#   `lo_concrete(T, d, section; tags)`     the concrete type a TOML table names
+#   `lo_scale_multiple_shape(T)`           the shape a `scale_multiple` is read for
+#   `lo_resolve_scale_multiple(T, K, v; class)`   a TOML `scale_multiple` → a number
+
+"""
+    lo_tag(T) -> String
+    lo_tag(lo) -> String
+
+The TOML tag of a registered strategy type or loss-parametric family (its
+`@lo_registry` row): the `type` a config spells it by and the
+`[local_optimization.<tag>]` table its keyword defaults read.
+"""
+function lo_tag end
+lo_tag(lo::AbstractLocalOptimization) = lo_tag(typeof(lo))
+
+"""
+    lo_defaults(T) -> AbstractDict
+
+The `[local_optimization]` table of the defaults file of the package that
+registered `T` (keyed by tag; `@lo_registry`'s `defaults`): what
+[`lo_construct`](@ref) reads an omitted field from.
+"""
+function lo_defaults end
+
+"""
+    lo_parametric(T) -> Bool
+
+Whether `T` is a loss-parametric family (`Irls{K}`): its TOML table names its
+loss (`loss` key, [`LOSS_TAGS`](@ref)) and its type names the loss through
+[`strategy_loss`](@ref). `false` unless its `@lo_registry` row says so.
+"""
+lo_parametric(::Type) = false
+
+"""
+    lo_admits(T, K) -> nothing
+
+Construction-time admission of strategy type `T`, called before any field is
+read. `K` is the type parameter of a loss-parametric family — the loss `K` of
+`Irls{K}`, or the inner strategy of a wrapper (LocalOptimizationDoneRight's
+`Gnc{S}`) — and `nothing` for any other strategy. The default admits every
+non-parametric strategy and checks a family's shape with
+[`lo_admits_shape`](@ref); a family with further conditions adds a method
+(LocalOptimizationDoneRight's half-quadratic lift and GNC surrogate checks).
+Throws `ArgumentError`.
+"""
+lo_admits(::Type, ::Nothing) = nothing
+lo_admits(::Type{T}, ::Type{K}) where {T, K} = lo_admits_shape(T, K)
+# The type parameter a loss-parametric family is built at (`K` of `Irls{K}`).
+_family_parameter(::Type{T}) where {T} = first(Base.unwrap_unionall(T).parameters)
+
+"""
+    lo_key(T, Val(f)) -> String
+
+The key of the defaults table field `f` of strategy `T` defaults from.
+Default: VisualGeometryToolkitCore's `toml_key(T, f)` (Greek spelled ASCII). A
+strategy whose field defaults from another key adds a method
+(LocalOptimizationDoneRight's smooth-TLS lift, `max_iter_smooth_tls`).
+"""
+lo_key(::Type{T}, ::Val{F}) where {T, F} = toml_key(T, F)
+
+"""
+    lo_field(T, Val(f), v)
+
+Field `f` of strategy `T` from a value the caller supplied by keyword.
+Default: `convert(fieldtype(T, f), v)`; the width field goes through
+[`lo_width_value`](@ref).
+"""
+lo_field(::Type{T}, ::Val{F}, v) where {T, F} = convert(fieldtype(T, F), v)
+lo_field(::Type, ::Val{:width}, w) = lo_width_value(w)
+
+"""
+    lo_field_from_toml(T, Val(f), v)
+
+Field `f` of strategy `T` from a TOML value — a key of the caller's table or of
+the defaults table. Default: VisualGeometryToolkitCore's
+`convert_field(fieldtype(T, f), v)`. A field whose TOML spelling differs from
+its value adds a method (LocalOptimizationDoneRight's GNC `entry`, `"r_max"`
+for `NaN`).
+"""
+lo_field_from_toml(::Type{T}, ::Val{F}, v) where {T, F} = convert_field(fieldtype(T, F), v)
+
+"""
+    lo_absent(T, Val(f); defaults)
+
+Field `f` of strategy `T` when the caller omits it: the strategy's
+`defaults[lo_tag(T)]` key [`lo_key`](@ref)`(T, Val(f))`, converted by
+[`lo_field_from_toml`](@ref); with no such key the field is required
+(`UndefKeywordError`). The width field defaults to `nothing` (follow the
+scorer).
+"""
+function lo_absent(::Type{T}, ::Val{F}; defaults::AbstractDict) where {T, F}
+    _lo_has_default(T, F, defaults) || throw(UndefKeywordError(F))
+    return lo_field_from_toml(T, Val(F), _lo_table(T, defaults)[lo_key(T, Val(F))])
+end
+lo_absent(::Type, ::Val{:width}; defaults::AbstractDict) = nothing
+
+"""
+    lo_validate(lo) -> lo
+
+Cross-field checks on a freshly built strategy; returns it or throws. Default:
+none.
+"""
+lo_validate(lo) = lo
+
+# The strategy's table of the defaults (empty for a strategy with no fields),
+# and whether it defaults a field.
+_lo_table(::Type{T}, defaults::AbstractDict) where {T} = get(defaults, lo_tag(T), Dict{String, Any}())
+_lo_has_default(::Type{T}, f::Symbol, defaults::AbstractDict) where {T} =
+    haskey(_lo_table(T, defaults), lo_key(T, Val(f)))
+
+"""
+    lo_construct(T; defaults = lo_defaults(T), kw...) -> T
+
+THE keyword constructor of every registered strategy (`@lo_registry` defines
+`T(; kw...)` as this call): each field is its keyword or, omitted, its
+`defaults` value ([`lo_absent`](@ref)); the width is spelled `scale_multiple`
+or `loss_width` (both is an `ArgumentError`; neither follows the scorer). The
+hooks [`lo_admits`](@ref), [`lo_field`](@ref) and [`lo_validate`](@ref) state
+the per-strategy exceptions. `defaults` is the `[local_optimization]` table,
+keyed by tag. An unknown keyword is an `ArgumentError`.
+"""
+function lo_construct(::Type{T}; defaults::AbstractDict = lo_defaults(T), kw...) where {T <: AbstractLocalOptimization}
+    lo_admits(T, lo_parametric(T) ? _family_parameter(T) : nothing)
     kw = _lo_width_keywords(T, kw)
     for f in keys(kw)
         f in fieldnames(T) || throw(
@@ -486,10 +578,14 @@ function _lo_construct(::Type{T}; kw...) where {T <: AbstractLocalOptimization}
     end
     vals = ntuple(fieldcount(T)) do i
         f = fieldname(T, i)
-        haskey(kw, f) ? _lo_field(T, Val(f), kw[f]) : _lo_absent(T, Val(f))
+        haskey(kw, f) ? lo_field(T, Val(f), kw[f]) : lo_absent(T, Val(f); defaults)
     end
-    return _lo_validate(T(vals...))
+    return lo_validate(T(vals...))
 end
+
+# A strategy takes a width (`scale_multiple` / `loss_width` keys) iff it has a
+# `width` field.
+_lo_takes_width(::Type{T}) where {T} = :width in fieldnames(T)
 
 # The keywords a caller spells: the fields, the width field as its two keys.
 _lo_keywords(::Type{T}) where {T} =
@@ -515,32 +611,100 @@ _lo_scale_multiple(::Type{<:Irls{GaussianShape}}, _) = throw(
     )
 )
 
-_lo_admits(::Type) = nothing
-_lo_admits(::Type{Irls{K}}) where {K} = _mechanism_admits_shape("Irls{$K}", K)
+"""
+    lo_scale_multiple_shape(T) -> Type{<:AbstractLossShape}
 
-_lo_key(T::Type, ::Val{F}) where {F} = toml_key(T, F)
+The loss shape a TOML `scale_multiple` of strategy `T` is read for (and a
+named one, `"cross_validated"`, tuned for): a loss-parametric family's
+[`strategy_loss`](@ref), a fixed-loss arm's `@lo_registry` `shape` column. An
+`ArgumentError` for a strategy that has neither.
+"""
+lo_scale_multiple_shape(::Type{T}) where {T} =
+    lo_parametric(T) ? strategy_loss(T) :
+    throw(ArgumentError("$(nameof(T)) takes no `scale_multiple` (it has no width)"))
 
-_lo_field(::Type{T}, ::Val{F}, v) where {T, F} = convert(fieldtype(T, F), v)
-_lo_field(::Type, ::Val{:width}, w) = lo_width_value(w)
+"""
+    @lo_registry rows defaults = table [retired = (old => new, …)]
 
-function _lo_absent(::Type{T}, ::Val{F}) where {T, F}
-    _lo_has_default(T, F) || throw(UndefKeywordError(F))
-    return _from_toml(T, Val(F), _lo_table(T)[_lo_key(T, Val(F))])
-end
-# No width given: follow the scorer.
-_lo_absent(::Type, ::Val{:width}) = nothing
-# The strategy's `[local_optimization.<tag>]` table (empty for a strategy with
-# no fields), and whether it defaults a field.
-_lo_table(::Type{T}) where {T} = get(_TOML_DEFAULTS["local_optimization"], _lo_tag(T), Dict{String, Any}())
-_lo_has_default(::Type{T}, f::Symbol) where {T} = haskey(_lo_table(T), _lo_key(T, Val(f)))
+Register the local-optimization strategies of `rows` and return their
+VisualGeometryToolkitCore `TagRegistry` (family `:local_optimization`, the TOML
+path `local_optimization.type`): `const LO_TAGS = @lo_registry ROWS defaults = …`.
+Each row is
 
-_lo_validate(lo) = lo
+    (T, tag, path, scale_interface, loss_family, label, shape, parametric)
 
-for (T, _, _, _, _, _, _, parametric) in _LO_REGISTRY
-    T === NoLocalOptimization && continue          # no fields: the default constructor is it
-    if parametric
-        @eval (::Type{$T{P}})(; kw...) where {P} = _lo_construct($T{P}; kw...)
-    else
-        @eval (::Type{$T})(; kw...) = _lo_construct($T; kw...)
+with `nothing` for a fact that is derived rather than stated. `defaults` is an
+expression evaluated, in the calling module, each time a default is read: the
+`[local_optimization]` table of the caller's defaults file, keyed by tag.
+`retired` lists retired tags with their successors.
+
+The expansion is one call, made at load time in the calling module. Per row it
+defines [`lo_tag`](@ref), [`lo_defaults`](@ref), VisualGeometryToolkitCore's
+`optimization_path` and `toml_skip_fields` (the width is written as its two
+keys, never as `width`); for a parametric row [`lo_parametric`](@ref); for a
+stated scale interface, loss family or label the Core accessor; for a stated
+`shape` [`lo_scale_multiple_shape`](@ref) and the loss family of that shape;
+and, for a strategy with fields, the keyword constructor `T(; kw...)`
+(`T{K}(; kw...)` for a parametric family) as [`lo_construct`](@ref). A macro
+rather than a function because it defines methods in the caller's module.
+Every method it adds is on a declared contract generic.
+"""
+macro lo_registry(rows, options...)
+    opts = Dict{Symbol, Any}()
+    for o in options
+        Meta.isexpr(o, :(=), 2) && o.args[1] in (:defaults, :retired) ||
+            throw(ArgumentError("@lo_registry rows defaults = … [retired = …]; got `$o`"))
+        opts[o.args[1]] = o.args[2]
     end
+    haskey(opts, :defaults) || throw(ArgumentError("@lo_registry needs `defaults = …` (the [local_optimization] table)"))
+    return :(_register_lo_rows($__module__, $(esc(rows)), $(QuoteNode(opts[:defaults]));
+                               retired = $(esc(get(opts, :retired, :(()))))))
 end
+
+function _register_lo_rows(M::Module, rows, defaults; retired = ())
+    E, C = @__MODULE__, VisualGeometryToolkitCore
+    for (T, tag, path, iface, family, label, shape, parametric) in rows
+        Core.eval(M, quote
+            $E.lo_tag(::Type{<:$T}) = $tag
+            $E.lo_defaults(::Type{<:$T}) = $defaults
+            $C.optimization_path(::$T) = $(QuoteNode(path))
+            $C.toml_skip_fields(::Type{<:$T}) = (:width,)
+        end)
+        parametric && Core.eval(M, :($E.lo_parametric(::Type{<:$T}) = true))
+        iface === nothing || Core.eval(M, :($C.scale_interface(::$T) = $iface))
+        family === nothing || Core.eval(M, :($C.loss_family(::$T) = $(QuoteNode(family))))
+        label === nothing || Core.eval(M, :($C.lo_label(::$T) = $label))
+        shape === nothing || Core.eval(M, quote
+            $E.lo_scale_multiple_shape(::Type{<:$T}) = $shape
+            $C.loss_family(::$T) = $C.loss_family($shape)
+        end)
+        fieldcount(T) == 0 && continue          # no fields: the default constructor is it
+        if parametric
+            Core.eval(M, :((::Type{$T{P}})(; kw...) where {P} = $E.lo_construct($T{P}; kw...)))
+        else
+            Core.eval(M, :((::Type{$T})(; kw...) = $E.lo_construct($T; kw...)))
+        end
+    end
+    return TagRegistry(
+        :local_optimization, "",
+        (tag => T for (T, tag) in rows)...;
+        retired, paths = [r"(^|\.)local_optimization\.type$"]
+    )
+end
+
+# This package's strategies.
+#   type                 tag                      path   scale          family   label                     shape              parametric
+const _LO_REGISTRY = (
+    (NoLocalOptimization, "no_local_optimization", :seed, NoScale(),     :none,   raw"seed",                nothing,           false),
+    (Irls,                "irls",                  :irls, nothing,       nothing, nothing,                  nothing,           true),
+)
+
+"""
+    LO_TAGS
+
+The local-optimization strategy registry (VisualGeometryToolkitCore's `TagRegistry`,
+built by [`@lo_registry`](@ref)): TOML tag → strategy type or loss-parametric
+family, the tag `snake_case` of the type's name. Retired tags name their
+successor.
+"""
+const LO_TAGS = @lo_registry _LO_REGISTRY defaults = _TOML_DEFAULTS["local_optimization"] retired = ("none" => "no_local_optimization",)

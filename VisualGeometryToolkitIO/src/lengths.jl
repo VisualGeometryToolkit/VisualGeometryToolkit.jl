@@ -37,17 +37,63 @@
 function _shift_exponent(x::Float64, k::Integer)
     isfinite(x) || return x * exp10(k)
     s = repr(x)
+    fast = _shift_exponent_exact(s, k)
+    fast === nothing || return fast
     i = findfirst(==('e'), s)
     mantissa, exponent = i === nothing ? (s, 0) : (s[1:(i - 1)], parse(Int, s[(i + 1):end]))
     return parse(Float64, string(mantissa, "e", exponent + k))
+end
+
+# The common case of that `parse` without building or parsing a string: `repr`'s
+# digits D (as an integer) times 10^p, p its exponent plus `k` less its
+# fraction digits. When D ≤ 2^53 and |p| ≤ 22, D and 10^|p| are exact doubles,
+# so ONE IEEE multiply or divide is the correctly rounded D·10^p — the very
+# value `parse` returns, which is correctly rounded too (Clinger's fast path).
+# `nothing` otherwise, and the string path decides.
+const _EXACT_POWERS_OF_TEN = Tuple(parse(Float64, string("1e", p)) for p in 0:22)   # each exact
+function _shift_exponent_exact(s::String, k::Integer)
+    D = UInt64(0)
+    fraction_digits = 0
+    in_fraction = false
+    negative = false
+    exponent = 0
+    cu = codeunits(s)
+    i = 1
+    n = length(cu)
+    @inbounds while i <= n
+        c = cu[i]
+        if c == UInt8('-') && i == 1
+            negative = true
+        elseif c == UInt8('.')
+            in_fraction = true
+        elseif UInt8('0') <= c <= UInt8('9')
+            D = 10D + (c - UInt8('0'))
+            D > UInt64(2)^53 && return nothing
+            fraction_digits += in_fraction
+        elseif c == UInt8('e')
+            exponent = parse(Int, view(s, (i + 1):n))
+            break
+        else
+            return nothing
+        end
+        i += 1
+    end
+    p = exponent + Int(k) - fraction_digits
+    abs(p) <= 22 || return nothing
+    v = p >= 0 ? Float64(D) * _EXACT_POWERS_OF_TEN[p + 1] : Float64(D) / _EXACT_POWERS_OF_TEN[1 - p]
+    return negative ? -v : v
 end
 
 # The k of a unit whose scale is exactly 10^k metres, or `nothing`.
 function _decimal_exponent(scale::Real)
     scale > 0 || return nothing
     k = round(Int, log10(scale))
-    return scale == parse(Float64, string("1e", k)) ? k : nothing
+    return scale == _ten_to(k) ? k : nothing
 end
+# `parse(Float64, string("1e", k))`, the nearest double to 10^k, from a table built by
+# that very parse for the exponents a length unit has.
+const _TEN_TO = Tuple(parse(Float64, string("1e", k)) for k in -30:30)
+_ten_to(k::Int) = -30 <= k <= 30 ? _TEN_TO[k + 31] : parse(Float64, string("1e", k))
 
 function _length_scale(u::Units)
     dimension(u) == dimension(m) ||
@@ -65,18 +111,22 @@ function _read_power(x::Real, u::Units, n::Int)
     v = Float64(x)
     n == 0 && return v
     scale = _length_scale(u)
-    k = _decimal_exponent(scale)
-    return k === nothing ? v * scale^n : _shift_exponent(v, n * k)
+    return _read_scaled(v, scale, _decimal_exponent(scale), n)
 end
+# `_read_power` once the unit's scale and decimal exponent `k` are known.
+_read_scaled(v::Float64, scale::Float64, k, n::Int) = k === nothing ? v * scale^n : _shift_exponent(v, n * k)
 
 # The inverse: the number a file holds in `u`ⁿ for the plain base value `y`
 # (mⁿ) — the one whose `_read_power` is `y` itself whenever there is one.
 function _write_power(y::Float64, u::Units, n::Int)
     n == 0 && return y
-    scale = _length_scale(u)
+    return _write_scaled(y, _length_scale(u), n)
+end
+function _write_scaled(y::Float64, scale::Float64, n::Int)
     k = _decimal_exponent(scale)
-    back(c) = _read_power(c, u, n) === y
+    back(c) = _read_scaled(c, scale, k, n) === y    # `_read_power(c, u, n) === y`
     if k !== nothing
+        # the common path: the shift, and one read-back
         c = _shift_exponent(y, -n * k)
         back(c) && return c
         # a value the shift does not reproduce (a computed, full-precision
@@ -86,6 +136,10 @@ function _write_power(y::Float64, u::Units, n::Int)
         end
         return c          # no file number reads back to `y`: the nearest (within an ulp)
     end
+    # The fewest significant digits that read back. The search starts at one
+    # digit, which is where a person's number (2.5 inch) is found; a guessed
+    # starting count would have to prove every count below it fails, which is
+    # the same search.
     value = y / scale^n
     for d in 1:17
         candidate = round(value; sigdigits = d)
@@ -124,10 +178,10 @@ to the identical `q`. NaN and ±Inf are written as they are. An `ArgumentError`
 for a unit that is not a length, or a quantity that is not one.
 """
 function write_length(q::Quantity, u::Units)
-    _length_scale(u)
+    scale = _length_scale(u)
     dimension(q) == dimension(m) ||
         throw(ArgumentError("a file length needs a length quantity, got dimension $(dimension(q))"))
-    return _write_power(Float64(ustrip(m, q)), u, 1)
+    return _write_scaled(Float64(ustrip(m, q)), scale, 1)
 end
 
 # -----------------------------------------------------------------------------

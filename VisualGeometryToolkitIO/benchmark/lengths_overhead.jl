@@ -4,20 +4,24 @@
 # (`ustrip(u, quantity(x, u))`-style multiply by the unit scale), run in this
 # process on the same poses; the new path is the package's own pose_json /
 # pose_from_json (the records' encode and decode, which is all the conversion
-# touches), and save / load of the whole file are reported for context.
+# touches); save and load of one trajectory file, end to end, against the code before the units layering (trajectory_end_to_end.jl).
 # Gate (owner-approved): read and write each within 1.5x today.
 #   julia --project=VisualGeometryToolkitIO/benchmark VisualGeometryToolkitIO/benchmark/lengths_overhead.jl
 #
-# Machine: Linux, `uptime` at 03:11:05 and 03:12:15 (before/after the runs):
-#   load average 6.79, 8.01, 8.98 then 4.10, 7.02, 8.57 (shared desktop, other work running).
-# Top CPU processes before timing (ps -eo pcpu,args --sort=-pcpu | head -5): Kaimon julia 15.6 %,
-#   cosmic-term 9.7 %, cosmic-comp 9.3 %, chrome zygote 7.7 %. The known leftover `bfs`
-#   search was not running at that moment (pgrep found none); nothing was killed.
-# Julia 1.12 (workspace), BenchmarkTools @benchmark, default parameters; ns per call.
-# RESULTS: operation | today median | new median | ratio | today min | new min | ratio | gate
-#   read  (1000 records)  | 58256934 | 51831594 |  0.89x | 57531370 | 51184214 |  0.89x | holds
-#   write (1000 poses)    |    42167 |  3836652 | 90.99x |    39408 |  3757508 | 95.35x | fails (> 1.5x)
-#   context, new path only: load file 55225620 median / 54581916 min; save file 10157169 / 9669872.
+# Machine: Linux, Julia 1.13.2, `uptime` 03:34:31 before the run: load average 8.51, 8.74, 7.41
+#   (shared desktop, other work running; 6.17, 8.01, 7.24 at 03:35:32 after).
+# Top CPU processes before timing (ps -eo pcpu,args --sort=-pcpu | head -6): a julia --startup-file=no
+#   15.5 %, the Kaimon julia REPL 13.2 %, cosmic-term 9.7 %, cosmic-comp 9.2 %, chrome zygote 7.2 %.
+# BenchmarkTools @benchmark, default parameters; ns per call.
+# RESULTS (after write_length's one-read-back path, task 11b), conversion only:
+#   operation | today median | new median | ratio | today min | new min | ratio | gate
+#   read  (1000 records)  | 58151078 | 50480136 |  0.87x | 57457310 | 50050356 |  0.87x | holds
+#   write (1000 poses)    |    43896 |  1666857 | 37.97x |    40842 |  1617089 | 39.59x | fails (> 1.5x)
+# End to end, one 1000-pose trajectory file, baseline = trajectory_end_to_end.jl old against ddc1bbe,
+# run back to back (03:33:27, load 12.41 before / 9.43 after) and passed in as E2E_BASELINE_*:
+#   save | 3746064 | 8093121 | 2.16x | 3649578 | 7812282 | 2.14x
+#   load | 54471086 | 54627200 | 1.00x | 53947985 | 53910650 | 1.00x
+# Before 11b (task 11, Julia 1.12): write 42167 | 3836652 | 90.99x; save (new only) 10157169.
 # The read reference includes parse_unit of the file's unit name per record, as the reader does.
 
 using BenchmarkTools, FlexUnits, Rotations, StaticArrays
@@ -76,22 +80,39 @@ let a = new_decode(records), b = old_decode(records)
     @assert all(i -> maximum(abs, ustrip.(m, a[i].t) - ustrip.(m, b[i].t)) <= 1.0e-12, eachindex(a))
 end
 
-const path = tempname() * ".json"
-VgtkIo.save(path, poses; length_unit = unit)
-const loaded = VgtkIo.load(Vector{EuclideanMap}, path)
-@assert length(loaded) == 1000
-
 const CASES = [
     ("read (decode 1000 records)", @benchmark(old_decode($records)), @benchmark(new_decode($records))),
     ("write (encode 1000 poses)", @benchmark(old_encode($poses)), @benchmark(new_encode($poses))),
 ]
+
+# ---------------------------------------------------------------------------
+# End to end: save and load of ONE 1000-pose trajectory file. The trajectory is
+# built exactly as trajectory_end_to_end.jl builds it, which also runs against a
+# checkout of the code before the units layering (ddc1bbe, plain mm
+# translations) for the baseline: that code cannot load in this process, so its
+# numbers come in through the environment, E2E_BASELINE_SAVE_NS and
+# E2E_BASELINE_LOAD_NS (medians), and E2E_BASELINE_SAVE_MIN_NS /
+# E2E_BASELINE_LOAD_MIN_NS (minima); without them only the new numbers print.
+# ---------------------------------------------------------------------------
+using VisualGeometryToolkitCore: Trajectory, BodyFrame, WorldFrame
+e2e_tvec(i) = SVector(62.8 + 0.1i, 0.5i + 0.01, 1200.0 - 0.7i)    # the file's mm numbers
+const trajectory = Trajectory(
+    BodyFrame{:board_rig}, WorldFrame,
+    Dict(i => EuclideanMap(QuatRotation(RotXYZ(0.001i, 0.002i, 0.003i)), e2e_tvec(i) .* mm) for i in 1:1000);
+    times = Dict(i => 0.04i for i in 1:1000), time_origin = "2026-05-27T00:00:00",
+)
+const path = tempname() * ".json"
+VgtkIo.save(path, trajectory; length_unit = unit)
+@assert length(VgtkIo.load(Trajectory, path)) == 1000
+
 const FILE_CASES = [
-    ("load file (new, context)", @benchmark(VgtkIo.load(Vector{EuclideanMap}, $path))),
-    ("save file (new, context)", @benchmark(VgtkIo.save($path, $poses; length_unit = $unit))),
+    ("save trajectory file", "E2E_BASELINE_SAVE", @benchmark(VgtkIo.save($path, $trajectory; length_unit = $unit))),
+    ("load trajectory file", "E2E_BASELINE_LOAD", @benchmark(VgtkIo.load(Trajectory, $path))),
 ]
 
 const GATE = 1.5
 ns(b, f) = f(b).time
+println("conversion only")
 println("operation | today median ns | new median ns | ratio | today min ns | new min ns | ratio | gate <= $(GATE)x")
 for (name, today, new) in CASES
     r_med = ns(new, median) / ns(today, median)
@@ -102,7 +123,19 @@ for (name, today, new) in CASES
         " | ", round(r_min; digits = 2), " | ", r_med <= GATE ? "holds" : "fails"
     )
 end
-for (name, b) in FILE_CASES
-    println(name, " | median ns ", round(ns(b, median); digits = 1), " | min ns ", round(ns(b, minimum); digits = 1))
+println("end to end (baseline: trajectory_end_to_end.jl old, run against ddc1bbe)")
+println("operation | baseline median ns | new median ns | ratio | baseline min ns | new min ns | ratio")
+for (name, key, b) in FILE_CASES
+    med, mn = ns(b, median), ns(b, minimum)
+    base_med, base_min = get(ENV, key * "_NS", nothing), get(ENV, key * "_MIN_NS", nothing)
+    if base_med === nothing || base_min === nothing
+        println(name, " | - | ", round(med; digits = 1), " | - | - | ", round(mn; digits = 1), " | -")
+    else
+        bm, bn = parse(Float64, base_med), parse(Float64, base_min)
+        println(
+            name, " | ", bm, " | ", round(med; digits = 1), " | ", round(med / bm; digits = 2), " | ",
+            bn, " | ", round(mn; digits = 1), " | ", round(mn / bn; digits = 2)
+        )
+    end
 end
 rm(path; force = true)

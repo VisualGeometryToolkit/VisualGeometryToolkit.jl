@@ -103,7 +103,7 @@ end
 
 # A plain metre value as FlexUnits' base-form length (the sign of a zero kept:
 # `x * m` would add an offset and lose it).
-_metres(x::Real) = Quantity(Float64(x), dimension(m))
+_metre_quantity(x::Real) = Quantity(Float64(x), dimension(m))
 
 # The file number `x` of a quantity of length dimension `n` (0, 1 or 2: a
 # ratio, a length, an area), written in `u`ⁿ, as plain base units (mⁿ).
@@ -162,7 +162,7 @@ other units (`inch`, `ft`, `pt`) multiply by the unit's scale. Any Float64
 crosses — negative, ±0 with its sign, NaN, ±Inf; an integer is read as its
 Float64. An `ArgumentError` for a unit that is not a length.
 """
-read_length(x::Real, u::Units) = _metres(_read_power(x, u, 1))
+read_length(x::Real, u::Units) = _metre_quantity(_read_power(x, u, 1))
 
 """
     write_length(q::Quantity, u::Units) -> Float64

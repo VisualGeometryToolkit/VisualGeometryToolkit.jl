@@ -114,7 +114,7 @@ function _external_pose(p, unit::Units, target::AbstractString, twist::RotMatrix
     # OpenCV's rvec is a Rodrigues (rotation-vector) parameterization, which is
     # `Rotations.RotationVec` exactly; MATLAB's export uses the same vector.
     R = RotMatrix{3, Float64}(RotationVec(r[1], r[2], r[3]))
-    return relabel(TargetFrame{Symbol(target)}, CameraFrame, EuclideanMap(twist * R, map(_metres, twist * t)))
+    return relabel(TargetFrame{Symbol(target)}, CameraFrame, EuclideanMap(twist * R, map(_metre_quantity, twist * t)))
 end
 
 # S = U·Q — an RQ factorization of a 2×2 stretch matrix: `U` upper triangular

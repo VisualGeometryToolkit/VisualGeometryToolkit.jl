@@ -209,7 +209,7 @@ end
     # a computed metre value is written as a number that reads back to it, whenever one exists
     n_exact = count(1:20_000) do _
         y = (rand(rng) - 0.5) * 10.0^rand(rng, -4:1)
-        ustrip(m, VgtkIO.read_length(VgtkIO.write_length(VgtkIO._metres(y), mm), mm)) === y
+        ustrip(m, VgtkIO.read_length(VgtkIO.write_length(VgtkIO._metre_quantity(y), mm), mm)) === y
     end
     @test n_exact > 17_000
 end
@@ -241,4 +241,21 @@ end
         # a file whose numbers round-trip keeps the identity it always had
         @test content_id(joinpath(fixtures, "rig_targets.json")) == old_id
     end
+end
+
+@testitem "units: a loaded non-central grid model refuses a plain camera, naming the fix" setup = [VGIoFixtures] begin
+    using VisualGeometryToolkitCore: Camera, NoncentralGenericModel, has_units, project, with_unit
+    # The grid comes back in metres; the pre-0.2 habit `EuclideanMap(R, t_mm)`
+    # would compare it with scene points in mm (offsets 1000× too small).
+    gn = load(NoncentralGenericModel, joinpath(@__DIR__, "fixtures", "units", "generic_camera.json"))
+    R = one(RotMatrix{3, Float64})
+    t_mm = SVector(10.0, -5.0, 20.0)
+    err = try Camera(gn, EuclideanMap(R, t_mm)); nothing catch e; e end
+    @test err isa ArgumentError
+    @test occursin("t .* m", sprint(showerror, err)) && occursin("with_unit(extrinsics, mm)", sprint(showerror, err))
+    # the fix: the extrinsics in mm, stated
+    cam = Camera(gn, with_unit(EuclideanMap(R, t_mm), mm))
+    @test has_units(cam)
+    X = SVector(0.0, 0.0, 1000.0) .* mm
+    @test project(cam, X) == project(ustrip(m, cam), ustrip.(m, X))
 end

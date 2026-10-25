@@ -1,9 +1,10 @@
-# The file-length benchmark (lengths_overhead.jl). A workspace member of
+# The file-length benchmarks (lengths_overhead.jl, trajectory_end_to_end.jl). A workspace member of
 # ../Project.toml: it resolves with VisualGeometryToolkitIO in the one root Manifest.
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 FlexUnits = "76e01b6b-c995-4ce6-8559-91e72a3d4e95"
 Rotations = "6038ab10-8711-5258-84ad-4b1120ba62dc"
+SHA = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
 VisualGeometryToolkitIO = "0a7ae7e7-e931-45f8-9bba-03d07899cebc"
@@ -16,6 +17,7 @@ VisualGeometryToolkitIO = {path = ".."}
 BenchmarkTools = "1"
 FlexUnits = "0.6.11"
 Rotations = "1.7"
+SHA = "0.7, 1"
 StaticArrays = "1.9"
 VisualGeometryToolkitCore = "0.1.2"
 VisualGeometryToolkitIO = "0.1"

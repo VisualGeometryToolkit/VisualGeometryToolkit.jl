@@ -83,7 +83,7 @@ using Rotations: QuatRotation, RotMatrix, RotationVec, RotZ, params
 using JSON: JSON
 using SQLite: SQLite
 using FlexUnits: Units, Quantity, Dimensions, FixRat32, ustrip, dimension, uscale
-using VisualGeometryToolkitCore: parse_unit, unit_string, mm, m, has_units,
+using VisualGeometryToolkitCore: parse_unit, unit_string, mm, m, px, dpi, has_units,
     CameraModel, CameraCalibrationMat, AbstractLensModel, Lens, Pinhole, Division, KannalaBrandt, Scaramuzza,
     Perspective, Equidistant, DoubleSphere, Unified, ExtendedUnified,
     Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Chain, Even,
@@ -95,6 +95,7 @@ using VisualGeometryToolkitCore: parse_unit, unit_string, mm, m, has_units,
     CentralGenericModel, NoncentralGenericModel,
     Frame, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, UnlabeledFrame,
     Uncertain, CovMat, geom,
+    Point2, FeatureFrame, Disc, OrientedDisc, EllipticFrame, AffineFrame, AbstractDetection,
     relabel, ids, pose, extrinsics, reference_frame, model, extent, points
 import VisualGeometryToolkitCore
 
@@ -146,6 +147,7 @@ include("lengths.jl")     # read_length / write_length: decimal-exact file lengt
 include("json.jl")
 include("validate.jl")    # the v2 spec combinators + read/write boundaries (before every schema: specs are consts)
 include("contract.jl")
+include("core_json.jl")     # the quantity JSON format: numbers in the declared unit; VGC sizes, frames, detections
 include("wire.jl")
 include("colmap_text.jl")
 include("colmap_binary.jl")
@@ -197,6 +199,7 @@ export save_opencv_calibration        # the inverse of load_opencv_calibration: 
 public load, save                     # the two-verb I/O surface (see the top of this file)
 public ColmapModel                    # a COLMAP model directory's contents + its unit contract
 public read_length, write_length   # a file length <-> metres, decimal-exact (power-of-ten units shift the exponent)
+public read_quantity, write_quantity, json_value, from_json, ScalarOrQuantity   # the quantity JSON format (core_json.jl)
 public validate                       # check any vgio file against its kind's table
 public pixel_frame_name, pixel_frame_from_name   # a pixel frame's serialized name, and back (VGC decides which exist)
 public pose_json, pose_from_json, pose_declarations, camera_json, camera_from_json,

@@ -139,6 +139,11 @@ _is_length_name(s) = try
 catch
     false
 end
+_is_density_name(s) = try
+    dimension(parse_unit(s)) == dimension(dpi)
+catch
+    false
+end
 _is_pixel_frame_name(s) = try
     pixel_frame_from_name(s)
     true
@@ -171,6 +176,7 @@ _schema(kind) = "vgio/$(kind)/v$(_schema_version(kind))"
 _schema_tok(kind) = _Tok(_schema(kind))
 const _PIXEL_FRAME = _Named(_is_pixel_frame_name, "a registered pixel frame (colmap, opencv, julia)")
 const _LENGTH_UNIT = _Named(_is_length_name, "a registered length unit (mm, cm, m, um, inch)")
+const _DENSITY_UNIT = _Named(_is_density_name, "a registered density unit (dpi)")
 const _POSE_DECLARATIONS = Pair{Symbol, _Spec}[
     :length_unit => _LENGTH_UNIT,
     :rotation_encoding => _Tok(_ROTATION_ENCODING),

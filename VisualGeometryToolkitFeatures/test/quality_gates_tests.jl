@@ -16,19 +16,17 @@
         persistent_tasks = false,
         # Glue by design, not new piracy. Detection is an alias of VGC's
         # Attributed, so its constructors, property forwarding and geometry
-        # conversions extend VGC functions on VGC types; the JSON serialization
-        # of VGC frames, Size2 and FlexUnits quantities lives here too. The fix is to move
-        # the type or the serialization into VGC. `Number` is the
-        # JSON.lift method behind ScalarOrQuantity (its {value, unit} form).
-        # A pirated method on anything else fails this test. (Distributions'
+        # conversions extend VGC functions on VGC types. The fix is to move
+        # the type into VGC. (The JSON serialization of VGC frames, Size2 and
+        # FlexUnits quantities left for VisualGeometryToolkitIO, as explicit
+        # functions rather than JSON.jl methods.) A pirated method on anything
+        # else fails this test. (Distributions'
         # MvNormal left the list with its serializer and Detection conversions,
         # which nothing called.)
         piracies = (;
             treat_as_own = [
                 VGC.Attributed, VGC.AbstractDetection, VGC.FeatureFrame,
                 VGC.Disc, VGC.OrientedDisc, VGC.EllipticFrame, VGC.AffineFrame, VGC.Ellipse,
-                VGC.Size2, typeof(1.0 * VGC.mm), typeof(1.0 * VGC.mm).name.wrapper,
-                Number,
             ],
         ),
     )

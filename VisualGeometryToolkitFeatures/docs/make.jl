@@ -37,12 +37,10 @@ makedocs(;
         "User Guide" => [
             "Detection" => "guide/detection.md",
             "Matching" => "guide/matching.md",
-            "Serialization" => "guide/serialization.md",
         ],
         "API Reference" => [
             "Detection" => "api/detection.md",
             "Matching" => "api/matching.md",
-            "Serialization" => "api/serialization.md",
             "Cache and Visualization" => "api/cache.md",
         ],
         "Developer Notes" => "developer.md",

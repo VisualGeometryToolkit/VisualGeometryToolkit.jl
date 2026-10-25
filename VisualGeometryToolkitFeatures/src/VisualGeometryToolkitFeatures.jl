@@ -5,14 +5,12 @@ Feature detection and descriptor matching.
 
 - **Detection:** ASIFT (IMAS-25) on KernelAbstractions. [`asift_detect`](@ref) runs on the
   CPU or any KernelAbstractions GPU backend and returns [`Detection`](@ref)s (a frame plus
-  metadata), which round-trip through JSON.
+  metadata). VisualGeometryToolkitIO writes and reads them as JSON (`json_value`, `from_json`).
 - **Matching:** nearest-neighbour descriptor matching, one KernelAbstractions
   implementation on the CPU or any GPU backend ([`nn_match`](@ref), `match`), and a
   stacked matcher over many galleries ([`nn_match_stacked`](@ref)).
 - **LoMa:** the learned DeDoDe descriptors and LoMa matchers, from the authors' ONNX
   exports ([`LoMaDescriptor`](@ref), [`LoMaMatcher`](@ref)).
-- **Serialization:** detections, feature frames, `Size2` and quantities read and write
-  with JSON.jl (`JSON.json(d)`, `JSON.parse(str, Detection)`).
 - **Extensions:** JLD2 backs [`FileCache`](@ref); Makie draws detections and correspondences.
 """
 module VisualGeometryToolkitFeatures
@@ -29,7 +27,7 @@ using Colors: Gray, Colorant
 
 # VisualGeometryToolkitCore (geometry primitives, units, the correspondence layer)
 import KernelAbstractions as KA   # KA devices are the backend dispatch tokens
-using VisualGeometryToolkitCore: Point2, Size2
+using VisualGeometryToolkitCore: Point2
 using VisualGeometryToolkitCore: Csponds  # #21 correspondence layer
 using VisualGeometryToolkitCore: default_device   # the family's one KA backend resolver — never a hardcoded KA.CPU()
 using VisualGeometryToolkitCore: AbstractDetection, FeatureFrame, OrientedDisc, AffineFrame
@@ -41,14 +39,10 @@ import VisualGeometryToolkitCore: Attributed, Disc, EllipticFrame, Ellipse
 import VisualGeometryToolkitCore: centroid, moment_matrix, feature_frame, region
 
 
-# JSON serialization for geometry types (moved from VGC)
-include("serialization.jl")
-
 # =============================================================================
 # INCLUDED SOURCE FILES
 # =============================================================================
 #
-#   serialization.jl    JSON (JSON.jl lower/lift) for Detection frames, Size2, quantities
 #   detection_types.jl  Detection{F,M}, polarity traits
 #   image_input.jl      gray_f32 / gray_u8 input ladders
 #   batching.jl         batched_rows chunking for the describe backends
@@ -166,11 +160,6 @@ export FileCache, open_cache, close_cache, cache_key
 # 6. VISUALIZATION - stubs implemented in VisualGeometryToolkitFeaturesMakieExt
 # -----------------------------------------------------------------------------
 export detections!
-
-# -----------------------------------------------------------------------------
-# 7. SERIALIZATION - JSON.jl hooks (lower/lift) for detections, frames, Size2 and quantities
-# -----------------------------------------------------------------------------
-public ScalarOrQuantity, lower_quantity
 
 include("precompile.jl")   # last: the workload calls the API defined above
 

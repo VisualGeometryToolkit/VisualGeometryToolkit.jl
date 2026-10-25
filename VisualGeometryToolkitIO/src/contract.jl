@@ -11,26 +11,34 @@
 # `uparse`) and `unit_string` (FlexUnits' printing of a registered unit).
 
 """
-    UnitContract(; world = mm)
+    UnitContract(; world = mm, density = dpi)
     UnitContract(world)
 
-Declares the unit a file's world magnitudes — translations and 3D points —
-are expressed in (a length unit). Image magnitudes need no declaration:
-pixels are the only image unit. Persisted with the data it governs — inline
-fields in vgio JSON records, a `vgio_units.json` sidecar for COLMAP model
-directories — so files stay self-describing.
+Declares the units a file's magnitudes are expressed in: `world`, a length
+unit, for translations, 3D points and every other length; `density`, a unit
+of pixels per length (dimension 1/length, since a pixel is dimensionless), for
+print and sensor densities. Pixel counts need no declaration: pixels are the
+only image unit. Persisted with the data it governs — inline fields in vgio
+JSON records (`"units": {"world": "mm", "density": "dpi"}`, written by
+[`json_value`](@ref)`(contract)` and read by `from_json(UnitContract, d)`),
+a `vgio_units.json` sidecar for COLMAP model directories — so files stay
+self-describing. An `ArgumentError` for a `world` that is not a length or a
+`density` that is not pixels per length.
 """
 struct UnitContract
-    world::typeof(mm)   # a FlexUnits dynamic unit
+    world::typeof(mm)     # a FlexUnits dynamic unit
+    density::typeof(mm)   # likewise; dimension 1/length (px is dimensionless)
 
-    function UnitContract(world::Units)
+    function UnitContract(world::Units, density::Units = dpi)
         dimension(world) == dimension(m) ||
             throw(ArgumentError("the world unit must be a length, got $(world)"))
-        return new(world)
+        dimension(density) == dimension(dpi) ||
+            throw(ArgumentError("the density unit must be pixels per length (like dpi), got $(density)"))
+        return new(world, density)
     end
 end
 
-UnitContract(; world = mm) = UnitContract(world)
+UnitContract(; world = mm, density = dpi) = UnitContract(world, density)
 
 """The stack-canonical contract: world in millimeters (image values are pixels)."""
 const MM_PX = UnitContract()
@@ -82,13 +90,22 @@ _world_name(::UnknownScale) = _UNKNOWN_SCALE_NAME
 # The one declaration a COLMAP model directory needs beyond COLMAP's own
 # format, which fixes everything else (pixel centres at 0.5, world → camera
 # poses, Hamilton w-x-y-z quaternions, the per-model parameter order).
+# A `density` is optional: absent, it is dpi, and a contract whose density is
+# dpi writes none, so a sidecar holds what it held before densities existed.
 const _UNITS_SPEC = _Obj(
-    :schema => _schema_tok("units"),
-    :world => _Named(s -> s == _UNKNOWN_SCALE_NAME || _is_length_name(s), "a registered length unit, or \"unknown\""),
+    Pair{Symbol, _Spec}[
+        :schema => _schema_tok("units"),
+        :world => _Named(s -> s == _UNKNOWN_SCALE_NAME || _is_length_name(s), "a registered length unit, or \"unknown\""),
+    ],
+    Pair{Symbol, _Spec}[:density => _DENSITY_UNIT],
 )
 
+_sidecar_body(c::UnitContract) = c.density == dpi ? (schema = _schema("units"), world = _world_name(c)) :
+    (schema = _schema("units"), world = _world_name(c), density = unit_string(c.density))
+_sidecar_body(c::UnknownScale) = (schema = _schema("units"), world = _world_name(c))
+
 save_units_sidecar(dir::AbstractString, contract::Union{UnitContract, UnknownScale}) =
-    _write_store(joinpath(dir, UNITS_SIDECAR), _UNITS_SPEC, (schema = _schema("units"), world = _world_name(contract)))
+    _write_store(joinpath(dir, UNITS_SIDECAR), _UNITS_SPEC, _sidecar_body(contract))
 
 """
     load_units_sidecar(dir) -> Union{UnitContract, UnknownScale, Nothing}
@@ -96,12 +113,15 @@ save_units_sidecar(dir::AbstractString, contract::Union{UnitContract, UnknownSca
 Read the `vgio_units.json` sidecar of a COLMAP model directory; `nothing` if
 absent (a model produced by other tools — the caller must then declare units
 explicitly). `"world": "unknown"` is an [`UnknownScale`](@ref) model. A v1
-sidecar is refused by name: nothing reads a retired version.
+sidecar is refused by name: nothing reads a retired version. A sidecar
+without a `density` has dpi.
 """
 function load_units_sidecar(dir::AbstractString)
     path = joinpath(dir, UNITS_SIDECAR)
     isfile(path) || return nothing
-    world = _read_store(path, "units", _UNITS_SPEC).world::String
+    d = _read_store(path, "units", _UNITS_SPEC)
+    world = d.world::String
     world == _UNKNOWN_SCALE_NAME && return UnknownScale()
-    return UnitContract(world = parse_unit(world))
+    density = haskey(d, :density) ? parse_unit(d.density::String) : dpi
+    return UnitContract(parse_unit(world), density)
 end

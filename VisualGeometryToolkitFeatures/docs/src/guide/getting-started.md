@@ -6,11 +6,11 @@ step at a time. Every block on this page is a doctest, run by the docs build.
 ## Installation
 
 Install VisualGeometryToolkitFeatures from the General registry (Julia 1.12 or
-later), together with JSON.jl for the serialization step at the end:
+later):
 
 ```julia
 using Pkg
-Pkg.add(["VisualGeometryToolkitFeatures", "JSON"])
+Pkg.add("VisualGeometryToolkitFeatures")
 ```
 
 The geometric types come from VisualGeometryToolkitCore, which is installed as
@@ -115,18 +115,8 @@ the GPU and the learned LoMa matchers.
 
 ## Saving detections
 
-Detections are written and read with JSON.jl:
-
-```jldoctest quickstart
-julia> using JSON
-
-julia> s = JSON.json(dark);
-
-julia> JSON.parse(s, Detection) == dark
-true
-
-julia> JSON.parse(JSON.json(dets), Vector{Detection}) == dets
-true
-```
-
-[Serialization](serialization.md) describes the format.
+Detections are written to and read from JSON by VisualGeometryToolkitIO
+(`json_value(d, contract)` and `from_json(Detection, obj, contract)`), which
+owns the stack's quantity JSON format; its
+[Serialization](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/stable/guide/serialization/)
+guide describes the format.

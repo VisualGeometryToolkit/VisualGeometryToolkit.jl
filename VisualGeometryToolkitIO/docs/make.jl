@@ -34,6 +34,7 @@ makedocs(;
             "Schema Rules" => "guide/schemas.md",
             "Kinds and the I/O Surface" => "guide/kinds.md",
             "Conventions on Disk" => "guide/conventions.md",
+            "Quantities, Frames and Detections" => "guide/serialization.md",
             "Third-Party Calibrations" => "guide/third-party.md",
             "Related Formats and Exporters" => "guide/related-formats.md",
             "Layers and Design" => "guide/design.md",

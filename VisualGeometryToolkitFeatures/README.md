@@ -10,7 +10,7 @@ Feature detection, description and matching for the VisualGeometry stack.
 - **Detection.** ASIFT (IMAS-25) on KernelAbstractions. `asift_detect` runs on
   the CPU or any KernelAbstractions GPU backend and returns `Detection`s (a
   feature frame plus detector metadata), optionally with each keypoint's
-  covariance. Detections round-trip through JSON.
+  covariance. VisualGeometryToolkitIO writes and reads detections as JSON.
 - **Matching.** Nearest-neighbour descriptor matching, with one
   KernelAbstractions implementation for the CPU and every GPU backend
   (`nn_match`, `match`), and a stacked matcher over many galleries
@@ -31,17 +31,16 @@ them.
 
 ```julia
 using Pkg
-Pkg.add(["VisualGeometryToolkitFeatures", "JSON"])
+Pkg.add("VisualGeometryToolkitFeatures")
 ```
 
-JSON is needed only for the last lines of the quick start. The package
-requires Julia 1.12 and is part of the
+The package requires Julia 1.12 and is part of the
 [VisualGeometryToolkit](https://github.com/VisualGeometryToolkit) stack.
 
 ## Quick start
 
-The example detects the blobs of a synthetic image, matches two sets of
-descriptors and writes the detections to JSON. It needs no files and no
+The example detects the blobs of a synthetic image and matches two sets of
+descriptors. It needs no files and no
 network.
 
 ```julia
@@ -73,11 +72,12 @@ perm = randperm(rng, 100)
 D2 = unit_rows(D1[perm, :] .+ 0.05f0 .* randn(rng, Float32, 100, 32))
 matches = nn_match(D1, D2)             # mutual nearest neighbours, cosine similarity
 all(perm[m.second] == m.first for m in matches)   # true
-
-# Detections round-trip through JSON (JSON.jl).
-using JSON
-JSON.parse(JSON.json(dets), Vector{Detection}) == dets   # true
 ```
+
+Detections are written to and read from JSON by
+[VisualGeometryToolkitIO](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/stable/guide/serialization/)
+(`json_value(d, contract)`, `from_json(Detection, obj, contract)`), which owns
+the stack's quantity JSON format.
 
 ## Documentation
 
@@ -87,8 +87,6 @@ JSON.parse(JSON.json(dets), Vector{Detection}) == dets   # true
   the ASIFT detector, its coordinates, accuracy and keypoint covariance.
 - [Matching](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitFeatures/stable/guide/matching/):
   strategies, metrics, stacked galleries and LoMa.
-- [Serialization](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitFeatures/stable/guide/serialization/):
-  the JSON format of detections.
 - [API reference](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitFeatures/stable/api/detection/).
 
 The stack's shared conventions (function names, argument order, coordinate

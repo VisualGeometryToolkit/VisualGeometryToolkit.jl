@@ -29,7 +29,7 @@ repository root:
 
 ```bash
 julia --project=VisualGeometryToolkitFeatures -e 'using Pkg; Pkg.test()'
-julia --project=VisualGeometryToolkitFeatures -e 'using Pkg; Pkg.test(; test_args = ["JSON"])'
+julia --project=VisualGeometryToolkitFeatures -e 'using Pkg; Pkg.test(; test_args = ["polarity"])'
 ```
 
 The second form runs the items whose names match the pattern. Check the total
@@ -74,9 +74,7 @@ estimators reject. Coordinate it with Core instead of retuning the test here.
 
 ## Serialization
 
-The JSON hooks (`JSON.lower`, `JSON.lift` and StructUtils' `structlike`) are
-methods on functions of JSON.jl and StructUtils for types that
-VisualGeometryToolkitCore owns. That is type piracy by Aqua's definition, and
-the Aqua test lists those types under `treat_as_own`. The hooks would move to
-VisualGeometryToolkitCore if Core took on a JSON dependency. The written format
-is pinned by a test, since stored files depend on it.
+The package writes no file format. Detections, feature frames, `Size2` and
+quantities are serialized by VisualGeometryToolkitIO (`json_value`,
+`from_json`), which owns the stack's quantity JSON format and reads the
+legacy `{"value", "unit"}` objects this package's JSON.jl hooks once wrote.

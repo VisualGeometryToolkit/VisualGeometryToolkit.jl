@@ -327,8 +327,8 @@ end
 PosedCamera(model::AbstractCamera, extrinsics) = PosedCamera(model, EuclideanMap(extrinsics))
 
 """
-    PosedCamera(model::CameraModel, e::CameraExtrinsics) -> Camera
-    PosedCamera(model::CameraModel, p::CameraPose) -> Camera
+    PosedCamera(model::CameraModel, e::CameraExtrinsics) -> PosedCamera
+    PosedCamera(model::CameraModel, p::CameraPose) -> PosedCamera
 
 Construct a `PosedCamera` from a frame-labeled map, so the caller states which
 frame it holds instead of relying on the positional convention.
@@ -914,7 +914,7 @@ export CameraModel                     # Intrinsics + lens
 export AbstractCamera, PosedCamera          # PosedCamera with extrinsics
 export PosedPinholeCamera                   # Lens-dispatch alias
 export BoundedCamera, extent           # Wrapper that adds image bounds + accessor
-export model                            # CameraModel accessor on Camera/AbstractCamera
+export model                            # CameraModel accessor on PosedCamera/AbstractCamera
 
 # -----------------------------------------------------------------------------
 # 5. STEREO - Multi-camera geometry
@@ -971,7 +971,7 @@ export pose, extrinsics, is_in_front, default_frustum_depth
 # 8. CAMERA CONSTRUCTION
 # -----------------------------------------------------------------------------
 export lookat                          # Construct extrinsics from (eye, target, up)
-export lookat_pose                     # PosedCamera-to-world pose form of lookat (pairs with PosedCamera(model; pose=...))
+export lookat_pose                     # Camera-to-world pose form of lookat (pairs with PosedCamera(model; pose=...))
 
 # -----------------------------------------------------------------------------
 # 9. POSE ESTIMATION - P3P and calibration

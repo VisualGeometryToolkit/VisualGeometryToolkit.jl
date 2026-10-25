@@ -83,7 +83,7 @@ s = sensor("Sony", "IMX174")
 f = focal_length_for_fov(s, deg2rad(40.0); dimension=:horizontal)
 model = CameraModel(f, s.pitch, centroid(Rect(s)) .* px)   # Rect(s) is COLMAP convention
 
-# Camera with pose
+# Posed camera
 extrinsics = lookat(SVector(0.0, 0.0, 500.0), SVector(0.0, 0.0, 0.0), SVector(0.0, -1.0, 0.0))
 camera = PosedCamera(model, extrinsics)
 

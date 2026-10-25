@@ -11,7 +11,7 @@ julia --project=. examples/imshow_demo.jl      # needs GLMakie in the environmen
 
 | File | Surface |
 |---|---|
-| `camera_demo.jl` | `CameraModel`, lens models, `Camera` with a pose, `project` / `backproject`, normalized distortion |
+| `camera_demo.jl` | `CameraModel`, lens models, `PosedCamera` with a pose, `project` / `backproject`, normalized distortion |
 | `ellipse_transforms_demo.jl` | `Ellipse`, conic matrices, and covariant transforms under CoordinateTransformations maps |
 | `imshow_demo.jl` | `imshow` (Axis-based) and `CampixelImshow` + `poly!` overlays through the Makie extension |
 

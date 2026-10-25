@@ -50,7 +50,7 @@ pp = centroid(Rect(s)) .* px
 # Camera model (intrinsics + lens)
 model = CameraModel(f, s.pitch, pp)
 
-# Camera with pose (extrinsics)
+# Posed camera (extrinsics)
 camera = PosedCamera(model, lookat(SVector(0.0, 0.0, 500.0),
                               SVector(0.0, 0.0, 0.0),
                               SVector(0.0, -1.0, 0.0)))

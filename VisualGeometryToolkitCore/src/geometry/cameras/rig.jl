@@ -54,7 +54,7 @@ _view_id(::EuclideanMap{3, T, R, V, S, ViewFrame{b}}) where {T, R, V, S, b} = b
 
 # Rebuild a camera with new extrinsics, preserving a BoundedCamera wrapper.
 _with_extrinsics(c::PosedCamera, X::EuclideanMap{3}) = PosedCamera(c.model, X)
-_with_extrinsics(m::AbstractCamera, X::EuclideanMap{3}) = PosedCamera(m, X)   # posing an unposed camera (Camera refuses a posed one)
+_with_extrinsics(m::AbstractCamera, X::EuclideanMap{3}) = PosedCamera(m, X)   # posing an unposed camera (PosedCamera refuses a posed one)
 _with_extrinsics(c::BoundedCamera, X::EuclideanMap{3}) =
     BoundedCamera(_with_extrinsics(c.camera, X), c.extent)
 
@@ -526,7 +526,7 @@ use case) that is the intent — the approximation error is the fit report's
 — while for a refinement the new model is the START of another bundle
 run, not a substitute for one.
 """
-with_model(c::PosedCamera, model::AbstractCamera) = PosedCamera(model, c.extrinsics)   # Camera checks `model`
+with_model(c::PosedCamera, model::AbstractCamera) = PosedCamera(model, c.extrinsics)   # PosedCamera checks `model`
 # an unposed camera is its model; a posed camera type answers with its own method
 function with_model(c::AbstractCamera, model::AbstractCamera)
     has_extrinsics(c) && throw(MethodError(with_model, (c, model)))

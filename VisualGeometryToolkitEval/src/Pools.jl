@@ -39,9 +39,8 @@ using SHA: SHA
 using Rotations: RotY, RotZ
 using VisualGeometryToolkitCore: FundMat, HomographyMat, EssentialMat, NormalizedImageFrame, csponds, sources,
     targets, sampson_distance
-using VisualGeometryToolkitCore.Pools: pixel_csponds
 using VisualGeometryToolkitCore.Synthetic: optimistic_pose_error
-using VisualGeometryToolkitCore.Pools: PoolPair, num_points, num_models, pair_scene
+using VisualGeometryToolkitCore.Pools: PoolPair, num_points, num_models, pair_scene, pixel_csponds
 import .._save_artifact, .._check_artifact_format, .._format_key   # artifact_format.jl
 using ..Stats: stable_seed, POOL_RNG
 import ..Tuning: sampling_unit

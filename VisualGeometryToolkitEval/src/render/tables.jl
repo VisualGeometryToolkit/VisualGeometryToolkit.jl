@@ -5,15 +5,14 @@
 # =============================================================================
 
 """
-    fmt3(x; nonfinite = "NaN") -> String
+    fmt3(x; nonfinite = nothing) -> String
 
 A number cell: `x` with three decimals (`"%.3f"`). A non-finite `x` reads as
-`nonfinite` (a `String`), or as Julia's own spelling (`"NaN"`, `"Inf"`,
-`"-Inf"`) when `nonfinite = nothing`. A report whose reader distinguishes the
-infinities passes `nothing`; one that collapses them to a missing cell passes
-its own text.
+Julia's own spelling (`"NaN"`, `"Inf"`, `"-Inf"`) by default, or as
+`nonfinite` (a `String`) when one is given: a report that collapses every
+non-finite value to one text gives it as `nonfinite`.
 """
-function fmt3(x::Real; nonfinite::Union{Nothing,AbstractString} = "NaN")
+function fmt3(x::Real; nonfinite::Union{Nothing,AbstractString} = nothing)
     isfinite(x) && return @sprintf("%.3f", x)
     return nonfinite === nothing ? string(x) : String(nonfinite)
 end

@@ -60,7 +60,7 @@ export Stage, run_stages, run_driver, set_driver_context!, require_input,
        # run records (experiments/run_records.jl): the configuration-of-record layer
        load_run_config, run_key, RUN_KEY_EXCLUDED, RUN_CONFIG_KEYS, experiment_dir,
        write_run_records, oracle_floors_path, oracle_floor_source, oracle_floors_note,
-       write_oracle_floor!, oracle_floor_done,
+       write_oracle_floor, oracle_floor_done,
        # the data/results binding (experiments/data.jl)
        set_project_root!, project_root, data_root, results_root, is_primary_copy,
        assert_primary_copy, assert_not_input, ArtifactView, install_artifact, link_tree!,

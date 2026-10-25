@@ -22,7 +22,7 @@
         ImprovementTrace, trace_error_at, anytime_curve
     using VisualGeometryToolkitEval.Render: fmt3, write_tsv, read_tsv
     using VisualGeometryToolkitEval.Tuning: tuning_spec, tuning_table, layer_tuning, TUNING_TAGS
-    using VisualGeometryToolkitEval.Experiments: write_oracle_floor!, oracle_floor_done, oracle_floor_source,
+    using VisualGeometryToolkitEval.Experiments: write_oracle_floor, oracle_floor_done, oracle_floor_source,
         oracle_floors_path
     using VisualGeometryToolkitEval.Pools: export_pixel_inputs, ScoringPool, synthetic_e_pool_pair, GT_CONVENTION,
         load_pool
@@ -34,7 +34,7 @@
     ut_fmt(x) = isfinite(x) ? @sprintf("%.3f", x) : string(x)
     ut_f3(x) = @sprintf("%.3f", x)
 
-    function ut_anytime_replay(d, tgrid)   # `_anytime_replay` with the grid passed in
+    function ut_anytime_replay(d, tgrid)   # `_anytime_replay` with the grid given as an argument
         off, ft, fe = d["trace_offsets"], d["trace_t_ns"], d["trace_err"]
         n = length(off) - 1
         nb = length(tgrid)
@@ -97,6 +97,10 @@
         @test isequal(anytime_curve(tr, tgrid; stat = e -> ut_q(e, 0.5)), med_ref)
         @test anytime_curve(tr, tgrid; stat = e -> count(isfinite, e)) == reach_ref
         @test_throws DimensionMismatch ImprovementTrace([1, 3], [1.0], [1], [1.0])
+        @test_throws ArgumentError ImprovementTrace([0, 1], [1.0], [1], [1.0])        # 0-based column
+        @test_throws ArgumentError ImprovementTrace([1, 3, 2, 3], [1.0, 2.0], [1, 2], [1.0, 2.0])
+        kept = anytime_curve(tr, [1e-3, 3e-3]; stat = identity)                         # keeps its argument
+        @test kept[1] != kept[2] && kept[1] == [trace_error_at(tr, i; t_ns = 1e6) for i in 1:4]
     end
 
     @testset "quantile_or, fmt3" begin
@@ -106,12 +110,12 @@
         @test quantile_or(Float64[], 0.5; empty = Inf) == Inf
         @test quantile_or([1.0, 2.0], 0.5; empty = Inf) == 1.5
         for x in (0.0, 1.23456, -2.5, 1e6, NaN, Inf, -Inf)
-            @test fmt3(x; nonfinite = nothing) == ut_fmt(x)          # UT `_fmt`: string(x)
-            isfinite(x) ? (@test fmt3(x) == ut_f3(x)) : nothing
+            @test fmt3(x) == ut_fmt(x)                               # UT `_fmt`: string(x)
+            isfinite(x) && @test fmt3(x) == ut_f3(x)
         end
-        @test fmt3(NaN) == "NaN" && fmt3(Inf) == "NaN" && fmt3(-Inf; nonfinite = "-") == "-"
-        @test ut_f3(NaN) == fmt3(NaN) && ut_f3(Inf) == "Inf"          # UT `_f3` spelled "Inf": use nothing
-        @test fmt3(Inf; nonfinite = nothing) == ut_f3(Inf)
+        @test fmt3(NaN) == "NaN" && fmt3(Inf) == "Inf" && fmt3(-Inf) == "-Inf"
+        @test fmt3(Inf; nonfinite = "NaN") == "NaN" && fmt3(-Inf; nonfinite = "-") == "-"
+        @test ut_f3(NaN) == fmt3(NaN) && ut_f3(Inf) == fmt3(Inf)      # UT `_f3` spells Inf as Julia does
         @test fmt3(2) == "2.000"
     end
 
@@ -197,7 +201,7 @@
             src1 = oracle_floor_source("pools/E", :E, ["scene_b", "scene_a"])
             @test src1 == Dict("pool_dir" => "pools/E", "problem" => "E", "scenes" => ["scene_a", "scene_b"])
             src2 = oracle_floor_source("pools/H", "H", ["s"])
-            for (p, w) in ((a, write_oracle_floor!), (b, lodr_write))
+            for (p, w) in ((a, write_oracle_floor), (b, lodr_write))
                 w(p, "PT_E", 0.75, 0.62; source = src1, npairs = 100, driver = "drv.jl")
                 w(p, "PT_H", 1.25, 0.5; source = src2, npairs = 40, driver = :other)
             end

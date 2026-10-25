@@ -40,7 +40,7 @@ The keywords below default so that the result is exactly the plain run's.
 - `score_guard` is forwarded to `ransac`: per-candidate ScoreGuarded acceptance.
 - `cancelled()` is polled before each pair; a cancelled pair is not run and keeps
   `err = Inf`, `trials = 0`, `wall_s = NaN`. Pairs are threaded, so a pair already
-  started finishes. [`Experiments.cancelled`](@ref) is the kaimon-aware poll.
+  started finishes. [`VisualGeometryToolkitEval.Experiments.cancelled`](@ref) is the kaimon-aware poll.
 - `finalize(j, r)` runs after pair `j`'s `ransac` result `r`, on the pair's
   thread and outside its wall bracket; its values come back as
   `extras::Vector{Any}` (`nothing` for a pair not run). Without `finalize` the

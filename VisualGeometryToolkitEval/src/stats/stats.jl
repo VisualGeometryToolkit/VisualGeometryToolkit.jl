@@ -276,6 +276,9 @@ struct ImprovementTrace{O<:AbstractVector{<:Integer},T<:AbstractVector,H<:Abstra
     err::E
     function ImprovementTrace(offsets::O, t_ns::T, hyp::H, err::E) where {O<:AbstractVector{<:Integer},T<:AbstractVector,H<:AbstractVector,E<:AbstractVector}
         isempty(offsets) && throw(ArgumentError("ImprovementTrace: offsets must hold n + 1 >= 1 entries"))
+        first(offsets) == 1 ||
+            throw(ArgumentError("ImprovementTrace: offsets are 1-based (first(offsets) == 1), got $(first(offsets))"))
+        issorted(offsets) || throw(ArgumentError("ImprovementTrace: offsets must be non-decreasing"))
         n_events = last(offsets) - first(offsets)
         (length(t_ns) == length(hyp) == length(err) == n_events) ||
             throw(DimensionMismatch("ImprovementTrace: $n_events events by offsets, but t_ns, hyp, err have " *
@@ -322,6 +325,6 @@ function anytime_curve(tr::ImprovementTrace, tgrid::AbstractVector{<:Real}; stat
         for i in 1:n
             e_at[i] = trace_error_at(tr, i; t_ns = tns)
         end
-        stat(e_at)
+        stat(copy(e_at))   # a copy: a `stat` that keeps its argument must not alias the buffer
     end
 end

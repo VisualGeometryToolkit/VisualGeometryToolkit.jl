@@ -57,7 +57,7 @@ oracle_floors_path(root::AbstractString = results_root()) = joinpath(root, "orac
     oracle_floor_source(pool_dir, problem, scenes) -> Dict{String,Any}
 
 The record of what an oracle floor was computed on: the pool tree, the problem
-family and the (sorted) scenes. [`write_oracle_floor!`](@ref) stores it as the
+family and the (sorted) scenes. [`write_oracle_floor`](@ref) stores it as the
 floor's `source`; [`oracle_floor_done`](@ref) compares it with the current one.
 """
 oracle_floor_source(pool_dir, problem, scenes) = Dict{String,Any}(
@@ -68,7 +68,7 @@ oracle_floor_source(pool_dir, problem, scenes) = Dict{String,Any}(
     oracle_floors_note() -> String
 
 The `note` stored in the oracle-floor sidecar. The mAA threshold in it is the
-configured one ([`Stats.maa_threshold`](@ref)), not a literal.
+configured one ([`VisualGeometryToolkitEval.Stats.maa_threshold`](@ref)), not a literal.
 """
 oracle_floors_note() = "median over test pairs of pool-best model error (<TAG> = floor; " *
     "<TAG>_maa = mean pool-best mAA@$(Printf.@sprintf("%g", maa_threshold()))° ceiling); " *
@@ -76,7 +76,7 @@ oracle_floors_note() = "median over test pairs of pool-best model error (<TAG> =
     "sources[<TAG>] = the pools/scenes of record"
 
 """
-    write_oracle_floor!(path, tag, floor, maa; source, npairs, driver) -> path
+    write_oracle_floor(path, tag, floor, maa; source, npairs, driver) -> path
 
 Record the pool-best floor `floor` (median model error) and ceiling `maa` (mean
 pool-best mAA) of cell `tag` in the sidecar `path`
@@ -87,7 +87,7 @@ cells of the file are kept. The read-modify-write is serialized by a pid lock
 (`path * ".lock"`), because the oracle stages of concurrent chains write one
 file.
 """
-function write_oracle_floor!(path::AbstractString, tag::AbstractString, floor_v, maa;
+function write_oracle_floor(path::AbstractString, tag::AbstractString, floor_v, maa;
                              source::AbstractDict, npairs::Integer, driver)
     mkpath(dirname(abspath(path)))
     mkpidlock(String(path) * ".lock"; wait = true, stale_age = 600) do

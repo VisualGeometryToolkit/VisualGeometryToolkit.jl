@@ -250,3 +250,78 @@ function scale_bounds(s2::AbstractVector{<:Real}, q::Tuple{Real,Real})
     0 <= q[1] <= q[2] <= 1 || throw(ArgumentError("scale_bounds: need 0 ≤ q_lo ≤ q_hi ≤ 1, got $q"))
     return (sqrt(quantile(v, q[1])), sqrt(quantile(v, q[2])))
 end
+
+"""
+    quantile_or(v, p; empty = NaN) -> Real
+
+`quantile(v, p)`, or `empty` when `v` has no element. The report cells'
+quantile: a sample can be empty (every pair failed), and the caller chooses
+what that reads as.
+"""
+quantile_or(v, p; empty = NaN) = isempty(v) ? empty : quantile(v, p)
+
+"""
+    ImprovementTrace(offsets, t_ns, hyp, err)
+
+The persisted improvement events of `n` pairs in flat columns: pair `i` owns
+the events `offsets[i]:offsets[i+1]-1` (so `length(offsets) == n + 1`), each
+with the elapsed time `t_ns` (nanoseconds), the hypothesis count `hyp` (number
+of hypotheses drawn so far) and the ground-truth error `err` of the best model
+so far. Events of a pair are in time order.
+"""
+struct ImprovementTrace{O<:AbstractVector{<:Integer},T<:AbstractVector,H<:AbstractVector,E<:AbstractVector}
+    offsets::O
+    t_ns::T
+    hyp::H
+    err::E
+    function ImprovementTrace(offsets::O, t_ns::T, hyp::H, err::E) where {O<:AbstractVector{<:Integer},T<:AbstractVector,H<:AbstractVector,E<:AbstractVector}
+        isempty(offsets) && throw(ArgumentError("ImprovementTrace: offsets must hold n + 1 >= 1 entries"))
+        n_events = last(offsets) - first(offsets)
+        (length(t_ns) == length(hyp) == length(err) == n_events) ||
+            throw(DimensionMismatch("ImprovementTrace: $n_events events by offsets, but t_ns, hyp, err have " *
+                                    "$(length(t_ns)), $(length(hyp)), $(length(err))"))
+        return new{O,T,H,E}(offsets, t_ns, hyp, err)
+    end
+end
+
+"Number of pairs of a trace."
+Base.length(tr::ImprovementTrace) = length(tr.offsets) - 1
+
+"""
+    trace_error_at(tr, i; t_ns = nothing, hyp = nothing) -> Float64
+
+The ground-truth error of pair `i`'s best model once the budget is spent: the
+error of its LAST event whose time is at most `t_ns` and whose hypothesis
+count is at most `hyp` (a budget left `nothing` does not bind). `Inf` when no
+event is within the budget: a pair with no model yet counts as a failure.
+"""
+function trace_error_at(tr::ImprovementTrace, i::Integer; t_ns = nothing, hyp = nothing)
+    e = Inf
+    for k in tr.offsets[i]:(tr.offsets[i+1]-1)
+        t_ns !== nothing && tr.t_ns[k] > t_ns && break
+        hyp !== nothing && tr.hyp[k] > hyp && break
+        e = tr.err[k]
+    end
+    return e
+end
+
+"""
+    anytime_curve(tr, tgrid; stat = eligible_maa) -> Vector
+
+The accuracy-versus-time curve of a trace: for each budget `t` (seconds) of
+`tgrid`, `stat` of the per-pair errors [`trace_error_at`](@ref)`(tr, i; t_ns =
+1e9t)`. Pairs with no event by `t` enter as `Inf`, so a failure counts in
+`stat` (`eligible_maa` scores it 0; `finite_median` drops it; `e -> count(isfinite,
+e)` is the number of pairs reached).
+"""
+function anytime_curve(tr::ImprovementTrace, tgrid::AbstractVector{<:Real}; stat = eligible_maa)
+    n = length(tr)
+    e_at = Vector{Float64}(undef, n)
+    return map(tgrid) do t
+        tns = t * 1e9
+        for i in 1:n
+            e_at[i] = trace_error_at(tr, i; t_ns = tns)
+        end
+        stat(e_at)
+    end
+end

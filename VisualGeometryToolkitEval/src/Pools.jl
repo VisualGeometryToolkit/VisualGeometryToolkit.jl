@@ -34,10 +34,12 @@ using Printf: @sprintf
 using Random: AbstractRNG, MersenneTwister
 using StaticArrays: SMatrix, SVector, SA
 using JLD2: JLD2
+using Dates: Dates
 using SHA: SHA
 using Rotations: RotY, RotZ
 using VisualGeometryToolkitCore: FundMat, HomographyMat, EssentialMat, NormalizedImageFrame, csponds, sources,
     targets, sampson_distance
+using VisualGeometryToolkitCore.Pools: pixel_csponds
 using VisualGeometryToolkitCore.Synthetic: optimistic_pose_error
 using VisualGeometryToolkitCore.Pools: PoolPair, num_points, num_models, pair_scene
 import .._save_artifact, .._check_artifact_format, .._format_key   # artifact_format.jl
@@ -48,7 +50,7 @@ using ..Tuning: PairUnit
 export ScoringPool, PoolResiduals, pool_key, load_pool, save_pool, load_pool_residuals,
     save_pool_residuals, residual_matrix, residuals_path, scene_loaders, write_scene_pool,
     save_pnp_pool, load_pnp_pool, sample_starts, sample_ids, derive_sample_starts, save_sample_starts,
-    load_sample_starts
+    load_sample_starts, export_pixel_inputs
 
 public frame, GT_CONVENTION, synthetic_e_pool_pair
 
@@ -56,6 +58,7 @@ include("pools/pool_io.jl")
 include("pools/sample_starts.jl")
 include("pools/write_scene_pool.jl")
 include("pools/pnp_pool.jl")
+include("pools/pixel_inputs.jl")
 include("pools/synthetic_pool.jl")
 
 end # module Pools

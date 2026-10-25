@@ -17,7 +17,10 @@ the eligibility rule ([`eligible_maa`](@ref), [`pair_outcomes`](@ref)),
 bias-corrected and accelerated (BCa) bootstrap intervals
 ([`bootstrap_ci`](@ref)), means of per-scene medians
 ([`scene_mean_median`](@ref), [`scene_mean_median_rows!`](@ref)) and the seed
-derivation of every random sample ([`stable_seed`](@ref), [`POOL_RNG`](@ref)).
+derivation of every random sample ([`stable_seed`](@ref), [`POOL_RNG`](@ref)),
+the quantile of a possibly empty sample ([`quantile_or`](@ref)) and the replay
+of persisted improvement traces ([`ImprovementTrace`](@ref),
+[`trace_error_at`](@ref), [`anytime_curve`](@ref)).
 """
 module Stats
 
@@ -32,7 +35,7 @@ using VisualGeometryToolkitCore.Synthetic: mean_average_accuracy
 
 export finite_median, lower_median, reference_scale, maa_threshold, eligible_maa, pair_outcomes,
        bootstrap_ci, scene_mean, scene_mean_median, scene_mean_median_rows!, scene_ranges,
-       scale_bounds, stable_seed
+       scale_bounds, stable_seed, quantile_or, ImprovementTrace, trace_error_at, anytime_curve
 
 public POOL_RNG
 

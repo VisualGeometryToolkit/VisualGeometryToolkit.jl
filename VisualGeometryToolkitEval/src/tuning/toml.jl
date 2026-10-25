@@ -284,15 +284,24 @@ artifact.
 read_tuning(::Type{T}, table::AbstractDict) where {T} = _read(T, table, nothing, string(nameof(T)), false)
 
 """
-    tuning_spec(cfg, name) -> TuningSpec
-    tuning_spec(path::AbstractString, name) -> TuningSpec
+    tuning_spec(cfg, name; under = Dict(), over = Dict()) -> TuningSpec
+    tuning_spec(path::AbstractString, name; under, over) -> TuningSpec
 
 The `[tuning.<name>]` entry of a config (a parsed TOML `Dict` or a file path),
 its absent keys inherited from the shipped defaults (configs/tuning.toml of
 this package). The entry must name its scheme (`type`); unknown keys and
 tags are an `ArgumentError` naming the key path.
+
+`under` and `over` layer a campaign's protocol around the entry
+([`layer_tuning`](@ref)): `under` (a protocol-level table of parameters shared
+by every entry, such as a `cross_validation`) is layered beneath the entry,
+keeping only the keys that are fields of the entry's scheme, so one table
+serves entries of different schemes; `over` (a cell's overrides) is layered
+above it, unfiltered (an `over` that names another scheme `type` replaces the
+entry, as `layer_tuning` does). With both empty (the default) the entry is read as it is.
 """
-function tuning_spec(cfg::AbstractDict, name::AbstractString)
+function tuning_spec(cfg::AbstractDict, name::AbstractString; under::AbstractDict = Dict{String,Any}(),
+                     over::AbstractDict = Dict{String,Any}())
     haskey(cfg, "tuning") || throw(ArgumentError("config has no [tuning] table"))
     tt = cfg["tuning"]
     haskey(tt, name) ||
@@ -301,13 +310,20 @@ function tuning_spec(cfg::AbstractDict, name::AbstractString)
     entry isa AbstractDict || throw(ArgumentError("[tuning.$name] must be a table"))
     haskey(entry, "type") || throw(ArgumentError("[tuning.$name] names no scheme `type`"))
     tag = entry["type"]
-    _tag_type("scheme", tag, "tuning.$name")
+    T = _tag_type("scheme", tag, "tuning.$name")
+    if !isempty(under) || !isempty(over)
+        fields = Set(String(f) for f in fieldnames(T))
+        kept = Dict{String,Any}(String(k) => v for (k, v) in under if String(k) in fields)
+        entry = layer_tuning(layer_tuning(kept, entry), over)
+        tag = entry["type"]   # `over` may replace the scheme: its table then replaces the entry
+        _tag_type("scheme", tag, "tuning.$name")
+    end
     dflt = get(get(TUNING_DEFAULTS, "schemes", Dict()), String(tag), nothing)
     dflt === nothing && throw(ArgumentError("configs/tuning.toml has no [schemes.$tag] defaults"))
     scheme = _read_tagged_scheme(entry, merge(Dict{String,Any}("type" => tag), dflt), "tuning.$name")
     return TuningSpec(String(name), scheme)
 end
-tuning_spec(path::AbstractString, name::AbstractString) = tuning_spec(TOML.parsefile(path), name)
+tuning_spec(path::AbstractString, name::AbstractString; kw...) = tuning_spec(TOML.parsefile(path), name; kw...)
 
 _read_tagged_scheme(entry, dflt, path) = _read_struct(_tag_type("scheme", entry["type"], path), entry, dflt, path, true, true)
 

@@ -17,7 +17,8 @@ the faceted-arm grammar ([`arm_style`](@ref)), the house axis style
 ([`HOUSE_AXIS_COMMON`](@ref)), the shared faceted group-plot emitter
 ([`open_faceted_groupplot`](@ref)) and the panel and table emitters
 ([`emit_miscal_faceted`](@ref), [`emit_basin_faceted`](@ref),
-[`emit_tuning_table`](@ref)).
+[`emit_tuning_table`](@ref)), and the table-file helpers ([`fmt3`](@ref),
+[`write_tsv`](@ref), [`read_tsv`](@ref)).
 """
 module Render
 
@@ -51,7 +52,9 @@ export
     budget_curves, emit_budget_faceted_curves, emit_budget_time_panel,
     lo_us_per_call, emit_lo_timing_table, miscal_summary_rows, emit_miscal_summary_table,
     # tuning_table.jl — a coarse-fine tuning artifact's curve or surface
-    tuning_slice, emit_tuning_table
+    tuning_slice, emit_tuning_table,
+    # tables.jl — number cell and tab-separated table files
+    fmt3, write_tsv, read_tsv
 
 include("render/panel_spec.jl")
 include("render/axis_style.jl")
@@ -61,5 +64,6 @@ include("render/figure_style.jl")
 include("render/faceted.jl")
 include("render/emitters.jl")
 include("render/tuning_table.jl")
+include("render/tables.jl")
 
 end # module Render

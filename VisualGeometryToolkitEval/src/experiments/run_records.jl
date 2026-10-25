@@ -40,6 +40,10 @@
 # =============================================================================
 using TOML: TOML
 using Dates: Dates
+using JLD2: JLD2
+using Printf: Printf
+using FileWatching.Pidfile: mkpidlock
+using ..Stats: maa_threshold
 
 # The data/results binding (root ladder, artifact view, write guard) and the
 # provenance record (writer/reader, commit drift, run_complete, the keyed cache).
@@ -48,6 +52,75 @@ include("provenance.jl")
 
 "The pseudo-GT oracle-floor sidecar of a results tree (the floors' producer writes it): `<root>/oracle_floors.jld2`."
 oracle_floors_path(root::AbstractString = results_root()) = joinpath(root, "oracle_floors.jld2")
+
+"""
+    oracle_floor_source(pool_dir, problem, scenes) -> Dict{String,Any}
+
+The record of what an oracle floor was computed on: the pool tree, the problem
+family and the (sorted) scenes. [`write_oracle_floor!`](@ref) stores it as the
+floor's `source`; [`oracle_floor_done`](@ref) compares it with the current one.
+"""
+oracle_floor_source(pool_dir, problem, scenes) = Dict{String,Any}(
+    "pool_dir" => String(pool_dir), "problem" => String(problem),
+    "scenes" => sort(String.(collect(scenes))))
+
+"""
+    oracle_floors_note() -> String
+
+The `note` stored in the oracle-floor sidecar. The mAA threshold in it is the
+configured one ([`Stats.maa_threshold`](@ref)), not a literal.
+"""
+oracle_floors_note() = "median over test pairs of pool-best model error (<TAG> = floor; " *
+    "<TAG>_maa = mean pool-best mAA@$(Printf.@sprintf("%g", maa_threshold()))° ceiling); " *
+    "metric = problem-family model_imc; selection-only bound (LO may cross); " *
+    "sources[<TAG>] = the pools/scenes of record"
+
+"""
+    write_oracle_floor!(path, tag, floor, maa; source, npairs, driver) -> path
+
+Record the pool-best floor `floor` (median model error) and ceiling `maa` (mean
+pool-best mAA) of cell `tag` in the sidecar `path`
+([`oracle_floors_path`](@ref)), which holds `"floors"` (`tag => floor`,
+`tag * "_maa" => maa`), `"sources"` (`tag => source` plus `npairs`, `driver`
+and the time computed) and `"note"` ([`oracle_floors_note`](@ref)). The other
+cells of the file are kept. The read-modify-write is serialized by a pid lock
+(`path * ".lock"`), because the oracle stages of concurrent chains write one
+file.
+"""
+function write_oracle_floor!(path::AbstractString, tag::AbstractString, floor_v, maa;
+                             source::AbstractDict, npairs::Integer, driver)
+    mkpath(dirname(abspath(path)))
+    mkpidlock(String(path) * ".lock"; wait = true, stale_age = 600) do
+        f       = isfile(path) ? JLD2.load(path) : Dict{String,Any}()
+        floors  = get(f, "floors",  Dict{String,Float64}())
+        sources = get(f, "sources", Dict{String,Any}())
+        floors[tag]          = floor_v
+        floors["$(tag)_maa"] = maa
+        sources[tag] = merge(Dict{String,Any}(source),
+                             Dict{String,Any}("npairs" => npairs, "driver" => String(driver),
+                                              "computed" => string(Dates.now())))
+        JLD2.jldsave(path; floors, sources, note = oracle_floors_note())
+    end
+    return path
+end
+
+"""
+    oracle_floor_done(path, tag; source) -> Bool
+
+Whether cell `tag` has its floor in the sidecar `path` AND the floor was
+computed on `source` ([`oracle_floor_source`](@ref)): every key of `source` must
+equal the recorded one. Presence of the key alone is not enough: floors
+computed on a retired pool tree must not read as done.
+"""
+function oracle_floor_done(path::AbstractString, tag::AbstractString; source::AbstractDict)
+    isfile(path) || return false
+    f = JLD2.load(path)
+    floors = get(f, "floors", Dict{String,Float64}())
+    (haskey(floors, tag) && haskey(floors, "$(tag)_maa")) || return false
+    src = get(get(f, "sources", Dict{String,Any}()), tag, nothing)
+    src === nothing && return false
+    return all(get(src, k, nothing) == v for (k, v) in source)
+end
 
 """
     RUN_CONFIG_KEYS :: Vector{Pair{String,Tuple}}

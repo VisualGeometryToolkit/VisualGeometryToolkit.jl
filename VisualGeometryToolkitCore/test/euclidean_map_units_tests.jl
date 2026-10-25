@@ -79,6 +79,18 @@
         @test E32(x) === generic(E32, x)
         El = relabel(CameraFrame, WorldFrame, E)
         @test El(x) === generic(El, x)
+        # a QuatRotation map (as IO builds every loaded pose, with the explicit
+        # type constructor) and its inverse keep the quaternion's own product
+        quat_maps = [
+            EuclideanMap{3, Float64, QuatRotation{Float64}, SVector{3, Q}}(
+                    QuatRotation(RotXYZ(0.3i, -0.7i, 1.1i)), SVector(sin(i), cos(3i), sin(5i)) .* (s * m)
+                ) for i in 1:12, s in decades
+        ]
+        @test rotation(quat_maps[1]) isa QuatRotation{Float64}
+        @test rotation(inv(quat_maps[1])) isa QuatRotation{Float64}
+        @test all(E1(x1) === generic(E1, x1) for E1 in quat_maps, x1 in points3)
+        @test all(E1(x1) === generic(E1, x1) for E1 in inv.(quat_maps), x1 in points3)
+        @test apply(quat_maps[1], x) isa SVector{3, Q}
         # a point of another dimension, or of mixed dimensions, is the generic DimensionError
         @test_throws DimensionError E(SVector(1.0, 2, 3) .* (m * m))
         @test_throws DimensionError E(SVector(1.0m, 2.0m, 3.0 * m * m))

@@ -439,9 +439,16 @@ unlabel(u::Uncertain{<:EuclideanMap{N}}) where {N} = relabel(UnlabeledFrame{N}, 
 # quantity `muladd` being the plain `muladd` of the values (`dstrip`) — and
 # `+ t[k]`, so the result is the generic one bit for bit. A point of another
 # dimension takes the generic path and its `DimensionError`.
+#
+# Only a `RotMatrix`, whose `*` IS that matrix product. Every other rotation
+# keeps the generic path and its own product (a `QuatRotation` — every pose IO
+# loads, and its `inv` — rotates by the quaternion formula): running that
+# product on the stripped values instead is not bit-identical, because whether
+# a `muladd` fuses is the compiler's choice per call site, and it chooses
+# differently for the plain and the quantity forms.
 @inline function (E::EuclideanMap{N, T, R, V})(
         x::SVector{N, Q}
-    ) where {N, T, R <: Rotation{N, T}, Q <: Quantity{<:Real, <:FlexUnits.Dimensions}, V <: StaticVector{N, Q}}
+    ) where {N, T, R <: RotMatrix{N, T}, Q <: Quantity{<:Real, <:FlexUnits.Dimensions}, V <: StaticVector{N, Q}}
     t = E.t
     d = dimension(t[1])
     all(q -> dimension(q) == d, Tuple(x)) || return E.R * x + t

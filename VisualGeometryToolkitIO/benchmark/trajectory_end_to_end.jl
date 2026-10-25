@@ -5,7 +5,7 @@
 #     JULIA_LOAD_PATH="@:<scratch env>:@stdlib" julia --project=<ddc1bbe checkout> trajectory_end_to_end.jl old
 #   new (this tree: mm quantities, length_unit = mm):
 #     julia --project=VisualGeometryToolkitIO/benchmark VisualGeometryToolkitIO/benchmark/trajectory_end_to_end.jl new
-# Then pass the old medians/minima to lengths_overhead.jl as E2E_BASELINE_*.
+# Then supply the old medians/minima to lengths_overhead.jl as E2E_BASELINE_*.
 # The two files have the same header and records; only the last digits of some
 # computed (full-precision) mm numbers differ, 286 of 3000 translations here:
 # `x .* mm` rounds x to the nearest metre double, and that value is written back

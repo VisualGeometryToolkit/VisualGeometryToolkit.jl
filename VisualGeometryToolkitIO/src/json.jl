@@ -38,6 +38,8 @@ _parse_json(s::AbstractString; allownan::Bool = false) = JSON.parse(s; allownan)
 _write_json(path::AbstractString, body) = open(path, "w") do io
     JSON.json(io, body; pretty = 4)
 end
+# The text `_write_json` writes, as a string.
+_json_text(body) = JSON.json(body; pretty = 4)
 
 _read_json(path::AbstractString; allownan::Bool = false) = _parse_json(read(path, String); allownan)
 
@@ -81,4 +83,50 @@ function _first_nonfinite(x::AbstractVector, at)
     return nothing
 end
 _first_nonfinite(x, at) = nothing
+
+# The same search over a value about to be WRITTEN, before it is serialized:
+# the document `_json(x)` would hold, walked in the order JSON.jl writes it
+# (a NamedTuple's or Dict's entries in iteration order, a vector's or tuple's
+# elements), so the field named is the one a parse of the written text would
+# name. A value of any other type (one JSON.jl lowers on its own) is
+# serialized and parsed on its own, as a whole document was before.
+function _refuse_nonfinite_body(file, body)
+    found = _nonfinite_in_body(body)
+    found === nothing && return body
+    at = _body_path(found)
+    throw(ArgumentError("$(file): $(isempty(at) ? "top level" : at): expected a finite number"))
+end
+# `nothing`, or the path to the first non-finite number as its parts from the
+# leaf up (a key or a 1-based index); the path text is built only on a hit.
+_nonfinite_in_body(x::Real) = _first_nonfinite(x, "") === nothing ? nothing : Any[]
+_nonfinite_in_body(::Union{AbstractString, Symbol, Nothing}) = nothing
+_nonfinite_in_body(::AbstractVector{<:Union{AbstractString, Symbol}}) = nothing
+_nonfinite_in_body(x::AbstractVector{<:AbstractFloat}) = all(isfinite, x) ? nothing : Any[findfirst(!isfinite, x)]
+function _nonfinite_in_body(x::Union{NamedTuple, AbstractDict})
+    for (k, v) in pairs(x)
+        r = _nonfinite_in_body(v)
+        r === nothing || return push!(r, string(k))
+    end
+    return nothing
+end
+function _nonfinite_in_body(x::Union{AbstractVector, Tuple})
+    for (i, v) in enumerate(x)
+        r = _nonfinite_in_body(v)
+        r === nothing || return push!(r, i)
+    end
+    return nothing
+end
+function _nonfinite_in_body(x)
+    at = _first_nonfinite(_parse_json(_json(x; allownan = true); allownan = true), "")
+    return at === nothing ? nothing : Any[_LoweredPath(at)]   # a lowered value: its own path, already text
+end
+# The path `_first_nonfinite` found inside a value JSON.jl lowered ("" for the value itself).
+struct _LoweredPath
+    at::String
+end
+_join_path(at, index::Integer) = "$(at)[$(index)]"
+_join_path(at, key::AbstractString) = isempty(at) ? String(key) : "$(at).$(key)"
+_join_path(at, inner::_LoweredPath) =
+    isempty(inner.at) ? at : (isempty(at) || startswith(inner.at, "[")) ? at * inner.at : "$(at).$(inner.at)"
+_body_path(parts) = foldl(_join_path, Iterators.reverse(parts); init = "")
 

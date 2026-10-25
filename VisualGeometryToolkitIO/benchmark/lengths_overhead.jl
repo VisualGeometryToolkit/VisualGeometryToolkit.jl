@@ -18,10 +18,15 @@
 #   read  (1000 records)  | 58151078 | 50480136 |  0.87x | 57457310 | 50050356 |  0.87x | holds
 #   write (1000 poses)    |    43896 |  1666857 | 37.97x |    40842 |  1617089 | 39.59x | fails (> 1.5x)
 # End to end, one 1000-pose trajectory file, baseline = trajectory_end_to_end.jl old against ddc1bbe,
-# run back to back (03:33:27, load 12.41 before / 9.43 after) and passed in as E2E_BASELINE_*:
+# run back to back (03:33:27, load 12.41 before / 9.43 after) and supplied as E2E_BASELINE_*:
 #   save | 3746064 | 8093121 | 2.16x | 3649578 | 7812282 | 2.14x
 #   load | 54471086 | 54627200 | 1.00x | 53947985 | 53910650 | 1.00x
 # Before 11b (task 11, Julia 1.12): write 42167 | 3836652 | 90.99x; save (new only) 10157169.
+# After 11c (one serialization per save, non-finite numbers found by a direct scan), 03:42:46,
+#   load 8.35 / 8.67 / 7.72 before, 5.17 after; baseline rerun at 03:42:16 (load 11.12):
+#   write (1000 poses) | 43911 | 1664134 | 37.90x | 41101 | 1612070 | 39.22x | fails (> 1.5x)
+#   save | 3777415 | 5426504 | 1.44x | 3667759 | 5188082 | 1.41x
+#   load | 54486912 | 54564542 | 1.00x | 53889564 | 53917184 | 1.00x
 # The read reference includes parse_unit of the file's unit name per record, as the reader does.
 
 using BenchmarkTools, FlexUnits, Rotations, StaticArrays

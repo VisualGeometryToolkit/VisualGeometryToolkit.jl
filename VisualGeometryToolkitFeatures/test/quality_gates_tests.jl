@@ -17,7 +17,7 @@
         # Glue by design, not new piracy. Detection is an alias of VGC's
         # Attributed, so its constructors, property forwarding and geometry
         # conversions extend VGC functions on VGC types; the JSON serialization
-        # of VGC frames, Size2 and quantities lives here too. The fix is to move
+        # of VGC frames, Size2 and FlexUnits quantities lives here too. The fix is to move
         # the type or the serialization into VGC. `Number` is the
         # JSON.lift method behind ScalarOrQuantity (its {value, unit} form).
         # A pirated method on anything else fails this test. (Distributions'
@@ -27,7 +27,7 @@
             treat_as_own = [
                 VGC.Attributed, VGC.AbstractDetection, VGC.FeatureFrame,
                 VGC.Disc, VGC.OrientedDisc, VGC.EllipticFrame, VGC.AffineFrame, VGC.Ellipse,
-                VGC.Size2, VGC.VgcQuantity, Base.unwrap_unionall(VGC.VgcQuantity).name.wrapper,
+                VGC.Size2, typeof(1.0 * VGC.mm), typeof(1.0 * VGC.mm).name.wrapper,
                 Number,
             ],
         ),

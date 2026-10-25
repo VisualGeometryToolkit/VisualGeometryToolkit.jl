@@ -47,12 +47,19 @@ file.
 
 ## Quantities and sizes
 
-A quantity is written as `{"value": v, "unit": u}` in a canonical unit: `mm`
-for a length, `px` for a pixel count, `dpi` for a density and `mm/px` for a
-pitch. Pixel counts and densities are written as integers when they are
-integer-valued. Any unit name that VisualGeometryToolkitCore's `parse_unit`
-reads is accepted on reading. A `Size2` is `{"width": …, "height": …}`, each a
-plain number or a quantity.
+A quantity is written as `{"value": v, "unit": u}`. A pixel is dimensionless,
+so a quantity's dimension cannot tell a pixel count from an angle or a ratio:
+the unit comes from what the field holds. A `Size2`'s width and height and a
+`Disc`'s center and σ are a length or a pixel count, so a length is written in
+`mm` and a dimensionless value in `px`. A quantity with no field to say what it
+holds is a length (`mm`) or a density (`dpi`), and a dimensionless one is an
+`ArgumentError`. A serializer of another type writes its fields with
+[`lower_quantity`](@ref)`(q, field, units)`, which refuses a value that matches
+none of the field's units, or more than one, naming the field. Pixel counts
+and densities are written as integers when they are integer-valued; a pitch
+(`mm / px`) is a length. Any unit name that VisualGeometryToolkitCore's
+`parse_unit` reads is accepted on reading. A `Size2` is
+`{"width": …, "height": …}`, each a plain number or a quantity.
 
 ```jldoctest serialization
 julia> JSON.json(Size2(width = 640px, height = 480px))

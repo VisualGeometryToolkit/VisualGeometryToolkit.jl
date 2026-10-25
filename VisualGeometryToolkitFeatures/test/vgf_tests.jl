@@ -779,6 +779,88 @@ end
         """{"center":[{"value":1.0,"unit":"mm"},{"value":2.0,"unit":"mm"}],"σ":{"value":3.0,"unit":"mm"}}"""
 end
 
+@testitem "JSON golden bytes: the writer before px became dimensionless" setup = [Fixtures] begin
+    # Every value below was written by VisualGeometryToolkitFeatures at ddc1bbe,
+    # the last commit whose pixel was a dimension of its own, and the expected
+    # string is what it wrote, byte for byte. BlobBoards' board hashes are
+    # computed over these bytes, so the writer that decides "px" by a field's
+    # semantics (px is dimensionless now) must reproduce every one.
+    using JSON
+    using VisualGeometryToolkitCore: Disc, EllipticFrame, AffineFrame, OrientedDisc, Size2, Point2,
+        Uncertain, CovMat, mm, px, dpi, pt, inch, cm, μm, m
+    meta = (response = 0.25, edge_score = 0.0, laplacian_scale_score = -1.0, warp_idx = 7)
+    goldens = [
+        ("q_mm", 2.5mm, """{"value":2.5,"unit":"mm"}"""),
+        ("q_mm_int", 2.0mm, """{"value":2.0,"unit":"mm"}"""),
+        ("q_mm_small", 0.1mm, """{"value":0.1,"unit":"mm"}"""),
+        ("q_cm", 1.3cm, """{"value":13.0,"unit":"mm"}"""),
+        ("q_m", 0.0628m, """{"value":62.79999999999999,"unit":"mm"}"""),
+        ("q_pt", 141.73pt, """{"value":49.999194444444434,"unit":"mm"}"""),
+        ("q_inch", 1.0inch, """{"value":25.4,"unit":"mm"}"""),
+        ("q_um", 5.86μm, """{"value":0.00586,"unit":"mm"}"""),
+        ("q_dpi", 300dpi, """{"value":300,"unit":"dpi"}"""),
+        ("q_dpi_600", 600dpi, """{"value":600,"unit":"dpi"}"""),
+        ("q_dpi_frac", 72.5dpi, """{"value":72.5,"unit":"dpi"}"""),
+        ("size_px", Size2(width = 640px, height = 480px), """{"width":{"value":640,"unit":"px"},"height":{"value":480,"unit":"px"}}"""),
+        ("size_px_frac", Size2(width = 640.5px, height = 480.25px), """{"width":{"value":640.5,"unit":"px"},"height":{"value":480.25,"unit":"px"}}"""),
+        ("size_mm", Size2(width = 210.0mm, height = 297.0mm), """{"width":{"value":210.0,"unit":"mm"},"height":{"value":297.0,"unit":"mm"}}"""),
+        ("size_mm_frac", Size2(width = 62.8mm, height = 1.3mm), """{"width":{"value":62.79999999999999,"unit":"mm"},"height":{"value":1.3,"unit":"mm"}}"""),
+        ("size_plain", Size2(width = 640, height = 480), """{"width":640,"height":480}"""),
+        ("size_plain_f", Size2(width = 640.5, height = 480.0), """{"width":640.5,"height":480.0}"""),
+        ("disc_plain", Disc(10.5, 20.25, 3.0), """{"center":[10.5,20.25],"σ":3.0}"""),
+        ("disc_px", Disc(Point2(10.5px, 20.0px), 3.0px), """{"center":[{"value":10.5,"unit":"px"},{"value":20,"unit":"px"}],"σ":{"value":3,"unit":"px"}}"""),
+        ("disc_px_frac", Disc(Point2(10.25px, 20.75px), 1.6px), """{"center":[{"value":10.25,"unit":"px"},{"value":20.75,"unit":"px"}],"σ":{"value":1.6,"unit":"px"}}"""),
+        ("disc_mm", Disc(Point2(1.0mm, 2.0mm), 3.0mm), """{"center":[{"value":1.0,"unit":"mm"},{"value":2.0,"unit":"mm"}],"σ":{"value":3.0,"unit":"mm"}}"""),
+        ("disc_mm_frac", Disc(Point2(12.7mm, 0.3mm), 1.25mm), """{"center":[{"value":12.7,"unit":"mm"},{"value":0.3,"unit":"mm"}],"σ":{"value":1.25,"unit":"mm"}}"""),
+        ("oriented", OrientedDisc(1.0, 2.0, 3.0, 0.5), """{"center":[1.0,2.0],"σ":3.0,"θ":0.5}"""),
+        ("elliptic", EllipticFrame([10.5, 20.25], [2.0 0.3; 0.3 1.5]), """{"center":[10.5,20.25],"S":[2.0,0.3,0.3,1.5]}"""),
+        ("affine", AffineFrame([1.0, 2.0], [1.2 0.1; -0.2 0.9]), """{"center":[1.0,2.0],"A":[1.2,-0.2,0.1,0.9]}"""),
+        ("det_disc", Detection(Disc(10.5, 20.25, 3.0), meta), """{"frame":{"center":[10.5,20.25],"σ":3.0},"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}"""),
+        ("det_disc_px", Detection(Disc(Point2(10.5px, 20.0px), 3.0px), meta), """{"frame":{"center":[{"value":10.5,"unit":"px"},{"value":20,"unit":"px"}],"σ":{"value":3,"unit":"px"}},"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}"""),
+        ("det_oriented", Detection(OrientedDisc(1.0, 2.0, 3.0, 0.5), meta), """{"frame":{"center":[1.0,2.0],"σ":3.0,"θ":0.5},"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}"""),
+        ("det_elliptic", Detection(EllipticFrame([10.5, 20.25], [2.0 0.3; 0.3 1.5]), meta), """{"frame":{"center":[10.5,20.25],"S":[2.0,0.3,0.3,1.5]},"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}"""),
+        ("det_affine", Detection(AffineFrame([1.0, 2.0], [1.2 0.1; -0.2 0.9]), meta), """{"frame":{"center":[1.0,2.0],"A":[1.2,-0.2,0.1,0.9]},"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}"""),
+        ("det_uncertain", Detection(Uncertain(Disc(10.5, 20.25, 3.0), CovMat{3,Float64,9}(Tuple([0.01 0.001 0.0; 0.001 0.02 0.0; 0.0 0.0 0.005]))), meta), """{"frame":{"center":[10.5,20.25],"σ":3.0},"cov":[0.01,0.001,0.0,0.001,0.02,0.0,0.0,0.0,0.005],"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}"""),
+        ("det_size_meta", Detection(Disc(1.0, 2.0, 3.0), (response = 1.0, image_size = Size2(width = 640px, height = 480px), pitch = 2.5mm)), """{"frame":{"center":[1.0,2.0],"σ":3.0},"response":1.0,"image_size":{"width":{"value":640,"unit":"px"},"height":{"value":480,"unit":"px"}},"pitch":{"value":2.5,"unit":"mm"}}"""),
+    ]
+    for (name, value, bytes) in goldens
+        @test (name, JSON.json(value)) == (name, bytes)
+    end
+end
+
+@testitem "JSON: a quantity's unit comes from its field, not a pixel dimension" setup = [Fixtures] begin
+    # px is dimensionless, so a dimension cannot say "px": a radian would be
+    # written as one. A field's semantics choose the unit, and a value they
+    # cannot place is refused with the field's name.
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    using JSON
+    using VisualGeometryToolkitCore: Size2, Disc, Point2, mm, μm, px, dpi, parse_unit
+    lq = VgtkFeatures.lower_quantity
+    # a bare dimensionless quantity has no field to say what it holds; the old
+    # writer wrote "px" for it, which a field still gets, by naming its unit
+    @test_throws ArgumentError JSON.json(3px)
+    @test JSON.json(lq(3px, :min_scale, (px,))) == """{"value":3,"unit":"px"}"""
+    @test JSON.json(lq(3.5px, :min_scale, (px,))) == """{"value":3.5,"unit":"px"}"""
+    # a size field: a dimensionless value is pixels, a length is mm
+    @test lq(640px, :width, (mm, px)) == (value = 640, unit = "px")
+    @test lq(2.5mm, :width, (mm, px)) == (value = 2.5, unit = "mm")
+    @test lq(640, :width, (mm, px)) === 640
+    # a density is not a size: refused, naming the field
+    err = try lq(300dpi, :width, (mm, px)) catch e; e end
+    @test err isa ArgumentError && occursin("`width`", err.msg)
+    # two units of one dimension: ambiguous, refused naming the field
+    err = try lq(1.0px, :angle, (px, parse_unit("pd"))) catch e; e end
+    @test err isa ArgumentError && occursin("`angle`", err.msg) && occursin("ambiguous", err.msg)
+    # a length per pixel is a length now (the old writer raised a MethodError
+    # on one): written in mm, and it reads back equal
+    @test JSON.json(0.5mm / px) == """{"value":0.5,"unit":"mm"}"""
+    @test JSON.lift(VgtkFeatures.ScalarOrQuantity, JSON.parse(JSON.json(5.86μm / px))) ≈ 5.86μm / px
+    # round trips through the field writers
+    for v in (Size2(width = 640px, height = 480px), Size2(width = 3.0mm, height = 4.0mm), Disc(Point2(10.5px, 20.0px), 3.0px))
+        @test JSON.parse(JSON.json(v), typeof(v).name.wrapper) == v
+    end
+end
+
 @testitem "nn_match_stacked has its docstring" setup = [Fixtures] begin
     # it sat above `const _SCORE_BUDGET`, so it documented the constant
     @test occursin("LOCAL indices", string(@doc nn_match_stacked))

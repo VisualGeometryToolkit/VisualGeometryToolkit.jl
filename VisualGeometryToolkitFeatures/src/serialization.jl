@@ -9,7 +9,8 @@
 # and `StructUtils.structlike(::Type{T}) = false` (what JSON.jl's `@nonstruct`
 # declares), so that `JSON.parse(str, T)` hands `lift` the whole object instead
 # of building `T` from its fields. Covered:
-#   - VgcQuantity ({value, unit} objects) and ScalarOrQuantity (a number or one)
+#   - FlexUnits quantities ({value, unit} objects, `lower_quantity`) and
+#     ScalarOrQuantity (a number or one)
 #   - Size2 (width/height with optional units)
 #   - Disc (unit-carrying center/scale), OrientedDisc, EllipticFrame, AffineFrame
 # The Detection methods are in detection_types.jl.
@@ -20,7 +21,8 @@
 
 using JSON: JSON
 using StructUtils: StructUtils
-using VisualGeometryToolkitCore: VgcQuantity, ustrip, dimension, parse_unit, mm, px, dpi
+using FlexUnits: Quantity
+using VisualGeometryToolkitCore: ustrip, dimension, parse_unit, unit_string, mm, px, dpi
 
 # =============================================================================
 # JSON field access
@@ -41,42 +43,94 @@ _keys(x::NamedTuple) = (String(k) for k in keys(x))
 const _JSONObject = Union{AbstractDict, NamedTuple}
 
 # =============================================================================
-# Dimension Traits for Compile-Time Dispatch
+# Writing a quantity: the unit comes from the field
 # =============================================================================
+#
+# A pixel is dimensionless (FlexUnits' dimensions are the seven SI ones), so
+# a quantity's dimension no longer says whether it is a pixel count, an angle
+# or a ratio: the dimension cannot choose "px". The unit a value is written in
+# comes from what its FIELD holds instead — a size or a position (`Size2`'s
+# width and height, a `Disc`'s center and σ) is a length or a pixel count, so
+# a dimensionless value there is pixels — and a value whose field admits two
+# units of its dimension, or none, is refused with an `ArgumentError` naming
+# the field. A bare quantity, written with no field to say what it holds, is
+# a length (mm) or a density (dpi); a dimensionless one is refused.
+#
+# The bytes are those of the writer this replaces, which drew the line by a
+# pixel dimension: a length is written in mm as a Float64; a pixel count and a
+# density snap to an integer when they are integral (`640`, `300`). BlobBoards'
+# board hashes are computed over these bytes, and the golden test in
+# test/vgf_tests.jl pins them. A length per pixel (a pitch, `mm / px`) is a
+# length now, written in mm: the old writer raised a MethodError on one.
+#
+# PARSER: any unit name VisualGeometryToolkitCore's `parse_unit` reads — registered
+# unit symbols and their products, quotients and powers (`mm/px`), the stack's
+# one guarded `uparse` — so every string the legacy Unitful writer ever
+# produced (observed corpus: mm, px, dpi, pd) loads, and old board JSONs keep
+# their stored config hash (UIDs printed on physical boards stay valid:
+# readers never re-hash).
 
-"""Trait types for dimension-based serialization dispatch."""
-abstract type DimTrait end
+# The units a field of each kind may be written in, by its semantics.
+const _SIZE_UNITS = (mm, px)            # a size or a position: a length or a pixel count
+const _BARE_UNITS = (mm, dpi)           # a quantity with no field: a length or a density
 
-"""Logical dimensions (pixel exponent ≠ 0): counts, densities. Snap to Int when integer-valued."""
-struct LogicalDim <: DimTrait end
-
-"""Physical dimensions (pure length): always serialize as Float64."""
-struct PhysicalDim <: DimTrait end
-
-# Dimensions are runtime values: a quantity (or unit) is "logical" whenever its
-# px exponent is nonzero (px, dpi, and pitches), physical otherwise (pure
-# lengths). The legacy Unitful writer drew the same line, so px, dpi and μm/px
-# all snap to integers when they can.
-dim_trait(q) = iszero(dimension(q).px) ? PhysicalDim() : LogicalDim()
-
-# =============================================================================
-# Value Canonicalization
-# =============================================================================
+# A length is written as a Float64; anything else (a pixel count, a density)
+# as an integer when it is integral, as the writer this replaces did.
+_written_value(v, u) = dimension(u) == dimension(mm) ? Float64(v) : _snap_integer(v)
+_snap_integer(v::Integer) = Int(v)
+_snap_integer(v::AbstractFloat) = isinteger(v) ? Int(v) : v
 
 """
-    canon_value(v, trait::DimTrait)
+    lower_quantity(q, field::Symbol, units) -> (value = …, unit = …)
 
-Canonicalize a numeric value for JSON serialization based on dimension trait.
-- `LogicalDim`: snap to Int if exactly integer-valued
-- `PhysicalDim`: convert to Float64
+The `{"value": …, "unit": …}` object of the quantity `q` held in `field`,
+written in the one unit of `units` (a tuple of FlexUnits units: the units the
+field may hold) whose dimension is `q`'s, under its registered name
+(`unit_string`). A plain number is returned as it is. A quantity whose
+dimension matches no unit of `units`, or more than one, is an
+`ArgumentError` naming `field`: a pixel is dimensionless, so a field that
+admits `px` and another dimensionless unit cannot tell them apart.
+
+A length is written as a `Float64`, any other value as an integer when it is
+integral (`640`, `300`).
+
+A serializer of a type whose fields hold quantities calls this with each
+field's units: `Size2` and `Disc` write theirs with `(mm, px)`, so a
+dimensionless width is pixels.
+
+```jldoctest
+julia> using JSON, VisualGeometryToolkitCore
+
+julia> import VisualGeometryToolkitFeatures as VgtkFeatures
+
+julia> VgtkFeatures.lower_quantity(640px, :width, (mm, px))
+(value = 640, unit = "px")
+
+julia> VgtkFeatures.lower_quantity(2.5mm, :width, (mm, px))
+(value = 2.5, unit = "mm")
+```
+
+Public, not exported.
 """
-canon_value(v, ::LogicalDim) = snap_integer(v)
-canon_value(v, ::PhysicalDim) = Float64(v)
-
-"""Snap to Int if the value is exactly integer-valued."""
-snap_integer(v::Integer) = Int(v)
-snap_integer(v::AbstractFloat) = isinteger(v) ? Int(v) : v
-snap_integer(v) = v
+lower_quantity(q::Real, ::Symbol, units::Tuple) = q
+function lower_quantity(q::Quantity, field::Symbol, units::Tuple)
+    d = dimension(q)
+    matches = filter(u -> dimension(u) == d, units)
+    isempty(matches) && throw(
+        ArgumentError(
+            "field `$field`: a quantity of dimension $(repr(d)) is none of the units it holds " *
+                "($(join(unit_string.(units), ", ")))"
+        )
+    )
+    length(matches) == 1 || throw(
+        ArgumentError(
+            "field `$field`: a quantity of dimension $(repr(d)) is ambiguous between " *
+                "$(join(unit_string.(matches), " and ")) (a pixel is dimensionless)"
+        )
+    )
+    u = only(matches)
+    return (value = _written_value(ustrip(u, q), u), unit = unit_string(u))
+end
 
 # =============================================================================
 # ScalarOrQuantity
@@ -111,50 +165,38 @@ const ScalarOrQuantity = Number
 
 # A plain number lifts to itself through StructUtils' default `lift`; the
 # {value, unit} object form is added here.
-JSON.lift(::Type{ScalarOrQuantity}, data::AbstractDict) = JSON.lift(VgcQuantity, data)
+JSON.lift(::Type{ScalarOrQuantity}, data::AbstractDict) = JSON.lift(Quantity, data)
 
 # =============================================================================
 # Quantity Serialization ({value, unit} JSON objects)
 # =============================================================================
-#
-# WRITER: canonical units only — length→"mm", pixel→"px", density→"dpi",
-# pitch→"mm/px".  Deterministic output; new files hash at creation.
-# PARSER: any unit name VisualGeometryToolkitCore's `parse_unit` reads — registered
-# unit symbols and their products, quotients and powers (`mm/px`), the stack's
-# one guarded `uparse` — so every string the legacy Unitful writer ever
-# produced (observed corpus: mm, px, dpi, pd) loads, and old board JSONs keep
-# their stored config hash (UIDs printed on physical boards stay valid:
-# readers never re-hash).
-# The writer keeps its own table: FlexUnits prints a registered unit as its
-# symbol, but a compound one (`mm/px`) as its internal form, no name.
 
-const _CANONICAL_UNITS = (("mm", mm), ("px", px), ("dpi", dpi), ("mm/px", mm / px))
-
-function _canonical_unit(q)
-    for (s, u) in _CANONICAL_UNITS
-        dimension(q) == dimension(u) && return (s, u)
-    end
-    throw(ArgumentError("no canonical serialization unit for dimensions $(dimension(q))"))
+# A bare quantity — one JSON.jl reaches with no field to say what it holds
+# (inside a NamedTuple, a Dict or a metadata field) — is a length or a density.
+function JSON.lower(::JSON.JSONStyle, q::Quantity)
+    dimension(q) == dimension(px) && throw(
+        ArgumentError(
+            "a dimensionless quantity ($q) has no unit to be written in: a pixel count, an angle " *
+                "and a ratio share its dimension. Write the field that holds it with " *
+                "`VisualGeometryToolkitFeatures.lower_quantity(q, field, (px,))`"
+        )
+    )
+    return lower_quantity(q, :quantity, _BARE_UNITS)
 end
 
-function JSON.lower(::JSON.JSONStyle, q::VgcQuantity)
-    unit_str, u = _canonical_unit(q)
-    return (value = canon_value(ustrip(u, q), dim_trait(q)), unit = unit_str)
-end
+StructUtils.structlike(::Type{<:Quantity}) = false
 
-StructUtils.structlike(::Type{<:VgcQuantity}) = false
-
-function JSON.lift(::Type{<:VgcQuantity}, obj::_JSONObject)
+function JSON.lift(::Type{<:Quantity}, obj::_JSONObject)
     u = parse_unit(String(_getfield(obj, "unit")); compound = true)
-    v = canon_value(_getfield(obj, "value"), dim_trait(u))
-    return v * u
+    return _getfield(obj, "value") * u
 end
 
 # =============================================================================
 # Size2 Serialization
 # =============================================================================
 
-JSON.lower(::JSON.JSONStyle, s::Size2) = (width = s.width, height = s.height)
+JSON.lower(::JSON.JSONStyle, s::Size2) =
+    (width = lower_quantity(s.width, :width, _SIZE_UNITS), height = lower_quantity(s.height, :height, _SIZE_UNITS))
 
 # Size2 is a StaticArrays FieldVector; on the reading side it is an object.
 StructUtils.structlike(::Type{<:Size2}) = false
@@ -179,8 +221,11 @@ _json_vec(M) = collect(Float64, vec(M))
 
 StructUtils.structlike(::Type{<:Union{Disc, OrientedDisc, EllipticFrame, AffineFrame}}) = false
 
-# Disc carries units: its center and σ may be quantities.
-JSON.lower(::JSON.JSONStyle, d::Disc) = (center = (d.center[1], d.center[2]), σ = d.σ)
+# Disc carries units: its center and σ may be quantities, a length or a pixel count.
+JSON.lower(::JSON.JSONStyle, d::Disc) = (
+    center = (lower_quantity(d.center[1], :center, _SIZE_UNITS), lower_quantity(d.center[2], :center, _SIZE_UNITS)),
+    σ = lower_quantity(d.σ, :σ, _SIZE_UNITS),
+)
 
 function JSON.lift(::Type{<:Disc}, x::_JSONObject)
     center_data = _getfield(x, "center")

@@ -170,7 +170,7 @@ export detections!
 # -----------------------------------------------------------------------------
 # 7. SERIALIZATION - JSON.jl hooks (lower/lift) for detections, frames, Size2 and quantities
 # -----------------------------------------------------------------------------
-public ScalarOrQuantity
+public ScalarOrQuantity, lower_quantity
 
 include("precompile.jl")   # last: the workload calls the API defined above
 

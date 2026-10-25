@@ -56,7 +56,7 @@ end
 
 # The size of what VGC's `radial_part` strips from a lens (its tangential,
 # thin-prism and other non-radial terms; zero for a radially symmetric lens).
-_decentering(l::AbstractLensModel) = sqrt(max(sum(abs2, lens_parameters(l)) - sum(abs2, lens_parameters(radial_part(l))), 0.0))
+_decentering(l::AbstractLensModel) = sqrt(max(sum(abs2, parameter_vector(l)) - sum(abs2, parameter_vector(radial_part(l))), 0.0))
 
 # ------------------------------------------------------------------------------
 # Target manifolds: the family anchored at the fit's start (`LensManifold`, Dual-safe),

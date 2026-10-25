@@ -83,7 +83,7 @@ HomographyManifold8`, `EssentialMat → EssentialManifold5` (via the first
 candidate-invariant, see the header gauge note), `EuclideanMap{3} →
 RigidManifold6`, `RadialHomography →` sl(3) ⊕ k (a `ProductManifold`),
 `RadialCamera →` S⁵ (a `SphereManifold`, cameras/calibration.jl), a lens → its
-`LensManifold` (cameras/lens_parameters.jl).
+`LensManifold` (cameras/lens_chart.jl).
 """
 minimal_manifold(T::PlainEuclideanMap{3}) = RigidManifold6(T.R, T.t)
 minimal_manifold(F::FundMat) = FundMatManifold7(SMatrix{3, 3, Float64, 9}(F))

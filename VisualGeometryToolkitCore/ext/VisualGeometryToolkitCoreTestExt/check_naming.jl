@@ -319,6 +319,10 @@ const RETIRED_NAMES = String[
     # the units layering: FlexUnits as it ships, no stack quantity type,
     # dimension set or registry (2026-10-25)
     "Vgc" * "Quantity", "Pixel" * "Dimensions", "Pixel" * "Units",
+    # the one parameter protocol: `parameter_vector`, `parameter_names`,
+    # `parameter_bounds` for lenses, targets, warps and intrinsics (2026-10-25)
+    "lens" * "_parameters", "target" * "_parameters", "warp" * "_parameters",
+    "lens" * "_parameter_names", "target" * "_parameter_names", "warp" * "_parameter_names",
 ]
 
 # Rule 10: the width quantities are bound by their full names. One name per

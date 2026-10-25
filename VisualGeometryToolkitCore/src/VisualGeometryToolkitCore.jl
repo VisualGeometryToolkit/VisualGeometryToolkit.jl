@@ -228,7 +228,7 @@ public radial_ratio
 # AffineMap(K) ∘ lens.
 # Public, not exported (2026-09-15 audit): the framed imaging chain and sphere
 # maps have no consumer outside this package's tests.
-public FramedStage, FramedPerspective, FramedEquidistantProjection
+public FramedStage, FramedProjection, FramedPerspective, FramedEquidistantProjection
 public FramedDistort, FramedUndistort, FramedAffine, FramedChain
 public imaging_chain, distort_stage, undistort_stage, calibration_stage
 public similarity_scale   # a framed similarity's length ratio: pixel thresholds through the NormalizedImageFrame map
@@ -257,8 +257,8 @@ export lookat, lookat_pose, pose, extrinsics, is_in_front, StereoRig, depth_tran
 export Rig, Mounted, source, target, target_frames  # one Rig for sensors and targets: (model, mount) members; the frame is the gauge
 export sensor_rig, target_rig             # the two halves of a rig carrying both
 export AbstractTarget, PointTarget, PlanarTarget, resolve, is_resolved   # the target as a model (targets.jl)
-export AbstractWarp, Rigid, warp_parameters, warp_parameter_names, warp_jacobian   # a planar target's warp
-export target_parameters, target_parameter_names, regularizer   # the calibratable-target protocol
+export AbstractWarp, Rigid, warp_jacobian   # a planar target's warp
+export regularizer   # the calibratable-target protocol
 public TargetManifold                     # a calibratable target's Manifold (minimal_manifold(target))
 export Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
 export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3
@@ -266,7 +266,7 @@ export convert_frame   # the one way to change the pixel frame of pixel data
 export rectify             # stereo rectification (rig types + fused warp)
 export view_angle_limit  # the honest θ-domain of a lens
 public radial_part      # a lens's radially symmetric part (shared with VisualGeometryToolkitEstimation's fit_lens)
-export lens_parameters, with_parameters, lens_parameter_names  # the lens parameter chart
+export parameter_vector, parameter_names, parameter_bounds, with_parameters  # the lens parameter chart
 public LensManifold                       # the lens family's Manifold (minimal_manifold(lens)); restrict it to a target's free coefficients
 export AbstractCameraModel, CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models
 export default_generic_grid  # the grid model's window interface (0.22.2)

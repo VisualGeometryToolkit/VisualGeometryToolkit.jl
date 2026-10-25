@@ -4,7 +4,7 @@
     using Test
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: FitResult, estimate, rms, metadata, iterations, converged
-    using VisualGeometryToolkitCore: view_angle_limit, projected_radius, Division, lens_parameters, radial_part, parameters,
+    using VisualGeometryToolkitCore: view_angle_limit, projected_radius, Division, parameter_vector, radial_part, parameters,
         Lens, LiftLens, Radial, Tangential, ThinPrism, Additive, Perspective, Equidistant, Orthographic, Even,
         KannalaBrandt, DoubleSphere, Scaramuzza, Pinhole
     # the target types: a family with its arities
@@ -113,7 +113,7 @@
             rd = fit_lens(typeof(Lens(Perspective(), Additive(Radial((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), Tangential(0.0, 0.0)))), mdiv; max_radius_px = rcorner)
             cd = parameters(lens(estimate(rd)))
             @test cd.p1 == 0 && cd.p2 == 0 && cd.d1 == 0 && cd.d3 == 0
-            @test (cd.k1, cd.k2, cd.k3) == Tuple(lens_parameters(lens(estimate(r))))   # the same fit as the radial-only target
+            @test (cd.k1, cd.k2, cd.k3) == Tuple(parameter_vector(lens(estimate(r))))   # the same fit as the radial-only target
         end
 
         @testset "fov cap + pinhole target" begin

@@ -469,7 +469,7 @@
                 JX = transform_deriv(l, X)
                 @test all(isfinite, JX)
                 @test JX ≈ FiniteDiff.finite_difference_jacobian(v -> project(l, v), X, Val(:central)) rtol = 1.0e-5 atol = 1.0e-7
-                p = lens_parameters(l)
+                p = parameter_vector(l)
                 if !isempty(p)
                     Jp = transform_deriv_params(l, X)
                     @test Jp ≈ FiniteDiff.finite_difference_jacobian(q -> project(with_parameters(l, q), X), p, Val(:central)) rtol = 1.0e-5 atol = 1.0e-7

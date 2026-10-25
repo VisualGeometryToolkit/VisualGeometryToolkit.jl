@@ -26,7 +26,7 @@ A calibration target is a MODEL, the analogue of a camera model:
 [`PlanarTarget`](@ref) a design — its nominal points, or the reference they
 are resolved from — and a warp ([`Rigid`](@ref) today). A target whose
 geometry an estimator refines implements the calibratable-target protocol
-(`target_parameters`, `with_parameters`, `minimal_manifold`, `regularizer`).
+(`parameter_vector`, `with_parameters`, `minimal_manifold`, `regularizer`).
 
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]

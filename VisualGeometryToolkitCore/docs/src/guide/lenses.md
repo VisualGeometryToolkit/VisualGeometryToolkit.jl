@@ -84,11 +84,13 @@ convention's function exactly — live in VisualGeometryToolkitIO.
 
 ## Coefficients
 
-[`lens_parameters`](@ref)`(lens)` is the coefficient vector — projection first,
+[`parameter_vector`](@ref)`(lens)` is the coefficient vector — projection first,
 then the distortion's terms depth-first, left to right;
-[`lens_parameter_names`](@ref) names it, [`parameters`](@ref) pairs the two
+[`parameter_names`](@ref) names it, [`parameter_bounds`](@ref) bounds it
+(unbounded, but the double sphere's `α` in `(0, 1)`), [`parameters`](@ref) pairs the names and values
 in a `NamedTuple`, and [`with_parameters`](@ref) rebuilds the same structure
-from a vector of any number type. [`LensManifold`](@ref) moves the coefficients
+from a vector of any number type. The same three functions describe a
+calibratable target, its warp and a `LogicalIntrinsics`. [`LensManifold`](@ref) moves the coefficients
 (a bounded one, the double sphere's `α`, through its logit), and
 `restrict(LensManifold(lens), names)` frees a subset by name.
 

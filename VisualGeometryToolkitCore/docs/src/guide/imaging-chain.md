@@ -51,7 +51,8 @@ lens map's image, deliberately *not* a `RetinalFrame`) — and
 
 "Perspective precedes lens" is a property of perspective-plane *models*,
 not a law of the chain. Stage 1 is therefore a family — one framed
-projection per ray frame: [`FramedPerspective`](@ref),
+projection per ray frame, all one type, [`FramedProjection`](@ref)`{Src, Dst}`,
+named by their `Dst` family: [`FramedPerspective`](@ref),
 [`FramedEquidistantProjection`](@ref),
 [`FramedStereographicProjection`](@ref),
 [`FramedEquisolidProjection`](@ref),

@@ -15,7 +15,7 @@
 # Projections and terms are LEAVES: structs of numbers and tuples of numbers,
 # whose number type is their last type parameter. Lenses and combinators are
 # NODES, whose type parameters are their fields' types. Everything a lens is
-# asked — `lens_parameters`, `with_parameters`, `lens_parameter_names`, the zero
+# asked — `parameter_vector`, `with_parameters`, `parameter_names`, the zero
 # lens, the v3 record, the manifold, every Jacobian — is derived from the
 # fields by one generic walk; no leaf states anything of its own.
 

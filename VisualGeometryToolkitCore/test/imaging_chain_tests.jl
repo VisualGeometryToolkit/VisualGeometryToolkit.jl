@@ -480,3 +480,53 @@
         end
     end
 end
+
+# One FramedProjection{Src, Dst}; the five named projections are aliases with the
+# Dst frame family fixed. Goldens recorded from the five structs it replaced.
+@testitem "framed_projection" begin
+    using Test, StaticArrays
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: FramedProjection, FramedPerspective, FramedEquidistantProjection,
+        FramedStereographicProjection, FramedEquisolidProjection, FramedOrthographicProjection, FramedStage,
+        GnomonicFrame, EquidistantFrame, StereographicFrame, EquisolidFrame, OrthographicFrame
+
+    rays = [SVector(0.1, 0.2, 1.0), SVector(-0.5, 0.3, 0.8), SVector(0.0, 0.0, 1.0), SVector(1.0, -1.0, 0.2), SVector(0.3, 0.1, -0.5)]
+    golden = Dict(
+        FramedPerspective => [[0.1, 0.2], [-0.625, 0.375], [0.0, 0.0], [5.0, -5.0], [NaN, NaN]],
+        FramedEquidistantProjection => [
+            [0.0983816143377869, 0.1967632286755738], [-0.5400829446948567, 0.32404976681691405], [0.0, 0.0],
+            [1.0113795137428017, -1.0113795137428017], [2.4453735148215108, 0.8151245049405036],
+        ],
+        FramedStereographicProjection => [
+            [0.09878030638383933, 0.19756061276767867], [-0.5586749813563722, 0.33520498881382327], [0.0, 0.0],
+            [1.22828568570857, -1.22828568570857], [6.549647869859769, 2.183215956619923],
+        ],
+        FramedEquisolidProjection => [
+            [0.0981833530726402, 0.1963667061452804], [-0.531200034824358, 0.31872002089461476], [0.0, 0.0],
+            [0.9273467483078803, -0.9273467483078803], [1.8224372852066348, 0.6074790950688783],
+        ],
+        FramedOrthographicProjection => [
+            [0.09759000729485331, 0.19518001458970663], [-0.5050762722761053, 0.3030457633656632], [0.0, 0.0],
+            [0.7001400420140049, -0.7001400420140049], [NaN, NaN],
+        ],
+    )
+    families = Dict(
+        FramedPerspective => GnomonicFrame, FramedEquidistantProjection => EquidistantFrame,
+        FramedStereographicProjection => StereographicFrame, FramedEquisolidProjection => EquisolidFrame,
+        FramedOrthographicProjection => OrthographicFrame,
+    )
+    for (A, g) in golden
+        p = A()
+        F = families[A]
+        @test p isa FramedProjection{ViewFrame{:_}, F{:_}} && p isa A && p isa FramedStage
+        @test typeof(A(; id = :left)) === FramedProjection{ViewFrame{:left}, F{:left}}
+        @test A{ViewFrame{:x}, F{:x}}() isa FramedProjection{ViewFrame{:x}, F{:x}}
+        @test_throws MethodError inv(p)
+        for (r, gr) in zip(rays, g)
+            @test isequal(collect(p(r)), gr)
+        end
+    end
+    @test FramedPerspective <: FramedProjection
+    @test !(FramedPerspective{ViewFrame{:_}, GnomonicFrame{:_}} <: FramedEquisolidProjection)
+    @test !(FramedProjection{ViewFrame{:_}, EquisolidFrame{:_}}() isa FramedPerspective)
+end

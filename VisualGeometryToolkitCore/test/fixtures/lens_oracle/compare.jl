@@ -15,7 +15,7 @@ const _BC_OLD = (:k1, :k2, :k3, :k4, :k5, :k6, :p1, :p2, :s1, :s2, :s3, :s4)
 const _BC_NEW_TO_OLD = Dict(:k1 => :k1, :k2 => :k2, :k3 => :k3, :d1 => :k4, :d2 => :k5, :d3 => :k6,
     :p1 => :p1, :p2 => :p2, :sx1 => :s1, :sx2 => :s2, :sy1 => :s3, :sy2 => :s4)
 function _old_columns(name, lens, np)
-    names = lens_parameter_names(lens)
+    names = parameter_names(lens)
     startswith(name, "opencv") || return collect(1:length(names))
     return [findfirst(==(_BC_NEW_TO_OLD[n]), _BC_OLD) for n in names]
 end

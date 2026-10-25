@@ -34,11 +34,12 @@
 #
 # CALIBRATABLE TARGETS. A target whose geometry an estimator may refine
 # implements a parameter protocol, the target analogue of the lens leaf
-# protocol (lens_parameters.jl), on the same manifold contract the
+# protocol (lens_chart.jl), on the same manifold contract the
 # block-coordinate-descent and LM machinery consume:
 #
-#   target_parameters(t)        the parameter vector θ (an SVector; empty for Rigid)
-#   target_parameter_names(t)   its names, so a configuration frees or fixes them by name
+#   parameter_vector(t)         the parameter vector θ (an SVector; empty for Rigid)
+#   parameter_names(t)          its names, so a configuration frees or fixes them by name
+#   parameter_bounds(t)         its bounds (unbounded unless the warp says otherwise)
 #   with_parameters(t, θ)       the same target rebuilt from θ
 #   parameters(t)               both, as a NamedTuple
 #   minimal_manifold(t)         a `TargetManifold`: θ's offsets from an anchor;
@@ -47,7 +48,7 @@
 #                               e.g. a thin-plate spline's bending energy); empty for Rigid
 #
 # A `PlanarTarget` forwards the protocol to its warp, whose own protocol is
-# `warp_parameters`, `warp_parameter_names`, `with_parameters(w, θ)`,
+# `parameter_vector`, `parameter_names`, `with_parameters(w, θ)`,
 # `warp_jacobian(w, x)` (2 × n) and `regularizer(w)`.
 
 """
@@ -111,7 +112,7 @@ with_unit(t::PointTarget, u::Units) = PointTarget([_attach_point(u, p) for p in 
     AbstractWarp
 
 The deformation of a planar target's nominal design: a map of plane points
-`w(p)`, with the warp protocol `warp_parameters`, `warp_parameter_names`,
+`w(p)`, with the warp protocol `parameter_vector`, `parameter_names`,
 `with_parameters(w, θ)`, `warp_jacobian(w, x)` (∂w(x)/∂θ, 2 × n) and
 `regularizer(w)`. [`Rigid`](@ref) is the one shipped.
 """
@@ -126,20 +127,10 @@ regularizer.
 struct Rigid <: AbstractWarp end
 (::Rigid)(p) = p
 
-"""
-    warp_parameters(w) -> SVector
+# The warp's parameters (the protocol of lens_chart.jl); empty for `Rigid`.
+parameter_vector(::Rigid) = SVector{0, Float64}()
 
-The warp's parameters, in [`warp_parameter_names`](@ref)' order; empty for
-[`Rigid`](@ref).
-"""
-warp_parameters(::Rigid) = SVector{0, Float64}()
-
-"""
-    warp_parameter_names(w) -> NTuple{N, Symbol}
-
-The names of [`warp_parameters`](@ref).
-"""
-warp_parameter_names(::Rigid) = ()
+parameter_names(::Rigid) = ()
 with_parameters(w::Rigid, θ::AbstractVector) =
     (isempty(θ) || throw(ArgumentError("Rigid takes no parameters; got $(length(θ))")); w)
 
@@ -233,28 +224,19 @@ with_unit(t::PlanarTarget, u::Units) =
 
 # --- the calibratable-target protocol ------------------------------------------------
 
-"""
-    target_parameters(t) -> SVector
+# A calibratable target's parameters are its warp's.
+parameter_vector(t::PlanarTarget) = parameter_vector(t.warp)
 
-A calibratable target's parameter vector (a `PlanarTarget`'s: its warp's).
-"""
-target_parameters(t::PlanarTarget) = warp_parameters(t.warp)
-
-"""
-    target_parameter_names(t) -> NTuple{N, Symbol}
-
-The names of [`target_parameters`](@ref).
-"""
-target_parameter_names(t::PlanarTarget) = warp_parameter_names(t.warp)
+parameter_names(t::PlanarTarget) = parameter_names(t.warp)
 with_parameters(t::PlanarTarget, θ::AbstractVector) = PlanarTarget(t.design, t.nominal, with_parameters(t.warp, θ))
-parameters(t::PlanarTarget) = NamedTuple{target_parameter_names(t)}(Tuple(target_parameters(t)))
+parameters(t::PlanarTarget) = NamedTuple{parameter_names(t)}(Tuple(parameter_vector(t)))
 regularizer(t::PlanarTarget) = regularizer(t.warp)
 
 """
     TargetManifold(target) <: Manifold
 
 A calibratable target's manifold anchored at `target`: its
-[`target_parameters`](@ref)' coordinates as offsets from the anchor (linear);
+[`parameter_vector`](@ref)' coordinates as offsets from the anchor (linear);
 `action_jacobian(ch, x)` is ∂points/∂θ at the nominal point `x`
 (`warp_jacobian`). `minimal_manifold(target)` is this manifold. Zero-dimensional
 for a `Rigid` target.
@@ -263,12 +245,12 @@ struct TargetManifold{T <: AbstractTarget} <: Manifold
     target::T
 end
 minimal_manifold(t::PlanarTarget) = TargetManifold(t)
-_ambient_coordinates(t::PlanarTarget) = target_parameters(t)
-tangent_size(ch::TargetManifold) = length(target_parameters(ch.target))
+_ambient_coordinates(t::PlanarTarget) = parameter_vector(t)
+tangent_size(ch::TargetManifold) = length(parameter_vector(ch.target))
 model(ch::TargetManifold) = ch.target
-retract(ch::TargetManifold, v) = with_parameters(ch.target, target_parameters(ch.target) + v)
+retract(ch::TargetManifold, v) = with_parameters(ch.target, parameter_vector(ch.target) + v)
 recenter(ch::TargetManifold, v) = TargetManifold(retract(ch, v))
 retract_jacobian(ch::TargetManifold) = (n = tangent_size(ch); SMatrix{n, n, Float64}(LinearAlgebra.I))
 retract_jacobian(ch::TargetManifold, ::StaticVector) = retract_jacobian(ch)
 action_jacobian(ch::TargetManifold{<:PlanarTarget}, x) = warp_jacobian(ch.target.warp, x)
-local_coordinates(ch::TargetManifold, t::AbstractTarget) = target_parameters(t) - target_parameters(ch.target)
+local_coordinates(ch::TargetManifold, t::AbstractTarget) = parameter_vector(t) - parameter_vector(ch.target)

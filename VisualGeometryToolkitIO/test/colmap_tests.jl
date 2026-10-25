@@ -39,7 +39,7 @@ end
 
     c32 = camera_model(Float32, c2)
     @test eltype(c32.intrinsics.K) === Float32
-    @test eltype(lens_parameters(c32.lens)) === Float32
+    @test eltype(parameter_vector(c32.lens)) === Float32
 
     # a thin prism on a perspective view has no COLMAP model: loud, not truncated
     bcs = CameraModel(K; lens = opencv_lens([-0.1, 0.05, 1.0e-4, -2.0e-4, 0.01, 0.0, 0.0, 0.0, -5.5e-4, 7.0e-6, -2.2e-3, 1.2e-4]), image_origin = :colmap)
@@ -87,7 +87,7 @@ end
     @test cam.lens === Lens(Equidistant(), Additive(Radial((p[5], p[6], p[9], p[10])), Tangential(p[7], p[8]), ThinPrism((p[11],), (p[12],))))
     @test cam.intrinsics.K == SMatrix{3, 3, Float64}(p[1], 0, 0, 0, p[2], 0, p[3], p[4], 1)
     # VGC's order is the leaves' (k1, k2, k3, k4, p1, p2, sx1, sy1): k3, k4 move ahead of p1, p2
-    @test collect(VgtkCore.lens_parameters(cam.lens)) == p[[5, 6, 9, 10, 7, 8, 11, 12]]
+    @test collect(VgtkCore.parameter_vector(cam.lens)) == p[[5, 6, 9, 10, 7, 8, 11, 12]]
     # The camera projects as COLMAP evaluates the model (models.h, ImgFromCam
     # + Distortion), computed here independently of VGC's composition: the
     # equidistant angle, then the additive radial + tangential + thin-prism
@@ -121,8 +121,8 @@ end
     end
     # single precision end to end, as for the other models
     c32 = camera_model(Float32, row)
-    @test eltype(lens_parameters(c32.lens)) === Float32 && eltype(c32.intrinsics.K) === Float32
-    @test collect(VgtkCore.lens_parameters(c32.lens)) == Float32.(p[[5, 6, 9, 10, 7, 8, 11, 12]])
+    @test eltype(parameter_vector(c32.lens)) === Float32 && eltype(c32.intrinsics.K) === Float32
+    @test collect(VgtkCore.parameter_vector(c32.lens)) == Float32.(p[[5, 6, 9, 10, 7, 8, 11, 12]])
 end
 
 @testitem "colmap model round trip (binary + text)" setup = [VGIoFixtures] begin

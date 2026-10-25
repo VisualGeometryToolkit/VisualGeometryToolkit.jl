@@ -92,7 +92,7 @@ function monotone_radius(l::AbstractLensModel)
     r = radial(lf)
     r === nothing && return Inf
     u = _branch_end(r, lf isa Lens ? _frame_cap(lf.projection) : Inf)
-    T = eltype(lens_parameters(l))                  # the lens's coefficient precision
+    T = eltype(parameter_vector(l))                  # the lens's coefficient precision
     isfinite(u) || return T(Inf)
     return T(lf isa Lens ? sqrt(u) * radial_ratio(r, u) : _radius_at(r, u))
 end

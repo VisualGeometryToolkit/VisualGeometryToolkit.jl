@@ -188,7 +188,7 @@
             @test_throws ArgumentError points(u)
             @test_throws ArgumentError PlanarTarget(nothing, nothing, Rigid())
             # Rigid: no parameters, no regularizer, a zero-dimensional manifold
-            @test isempty(target_parameters(p)) && target_parameter_names(p) == () && parameters(p) == (;)
+            @test isempty(parameter_vector(p)) && parameter_names(p) == () && parameters(p) == (;)
             @test isempty(regularizer(p)) && with_parameters(p, Float64[]) == p
             ch = VgtkCore.minimal_manifold(p)
             @test ch isa VgtkCore.TargetManifold && VgtkCore.tangent_size(ch) == 0 && model(ch) === p

@@ -8,7 +8,7 @@
     using FiniteDiff: FiniteDiff
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: LensManifold, SubsetManifold, action_jacobian, retract_jacobian, local_coordinates, recenter, restrict, retract, tangent_size   # public, not exported
-    using VisualGeometryToolkitCore: model, transform_deriv_params, skew, lens_parameters, LeftRigidManifold6, transform_covariance
+    using VisualGeometryToolkitCore: model, transform_deriv_params, skew, parameter_vector, LeftRigidManifold6, transform_covariance
     using VisualGeometryToolkitCore: EssentialManifold6
     using Random: Random
 
@@ -114,7 +114,7 @@
             @test minimal_manifold(bc) isa LensManifold && model(ch) === bc
             @test tangent_size(ch) == 5                                 # k1–k3, p1, p2
             v = SVector(0.01, -0.02, 0.003, 0.0004, -0.0001)
-            @test lens_parameters(retract(ch, v)) ≈ lens_parameters(bc) + v
+            @test parameter_vector(retract(ch, v)) ≈ parameter_vector(bc) + v
             @test local_coordinates(ch, retract(ch, v)) ≈ v atol = 1.0e-15
             @test retract_jacobian(ch) == SMatrix{5, 5, Float64}(I)
             # the action on a ray: the lens's own parameter derivative, and ForwardDiff through the retraction
@@ -145,7 +145,7 @@
             l = retract(ch, SVector(0.1, 8.0))                      # a large step stays in (0, 1)
             @test parameters(l).xi ≈ -0.1 && 0 < parameters(l).alpha < 1
             @test local_coordinates(ch, l) ≈ SVector(0.1, 8.0) rtol = 1.0e-9
-            @test retract_jacobian(ch) ≈ ForwardDiff.jacobian(v -> lens_parameters(retract(ch, v)), zero(SVector{2, Float64})) atol = 1.0e-12
+            @test retract_jacobian(ch) ≈ ForwardDiff.jacobian(v -> parameter_vector(retract(ch, v)), zero(SVector{2, Float64})) atol = 1.0e-12
             @test action_jacobian(ch, P) ≈ _fd_action(ch, P, (m, y) -> VgtkCore.project(m, y)) rtol = 1.0e-8
             @test action_jacobian(restrict(ch, (:alpha,)), P) ≈ action_jacobian(ch, P)[:, SVector(2)]
         end

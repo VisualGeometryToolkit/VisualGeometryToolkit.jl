@@ -46,7 +46,7 @@ public coefficient_names  # a lens leaf type's coefficient names (the stack's le
 using StaticArrays: StaticArrays, SVector, SMatrix, StaticVector, StaticMatrix
 using LinearAlgebra: LinearAlgebra, normalize, cross, norm, det, svd
 using Statistics: Statistics   # cov of an Uncertain point (targets.jl, captures.jl)
-using LogExpFunctions: logit, logistic   # DoubleSphere's α chart (lens_parameters.jl)
+using LogExpFunctions: logit, logistic   # DoubleSphere's α chart (lens_chart.jl)
 using Random: Random, randperm
 import FlexUnits
 using FlexUnits: ustrip, dimension
@@ -91,11 +91,11 @@ import ..VisualGeometryToolkitCore: transfer  # Multi-view verb (extended on Ste
 # method (latent since 0.8; exposed by the 0.10 imaging-chain tests).
 import ..VisualGeometryToolkitCore: intrinsics, lens, model
 import ..VisualGeometryToolkitCore: Manifold, SubsetManifold, retract, recenter, retract_jacobian, action_jacobian,
-    local_coordinates, minimal_manifold, restrict, tangent_size   # the lens manifold (lens_parameters.jl) extends the contract
+    local_coordinates, minimal_manifold, restrict, tangent_size   # the lens manifold (lens_chart.jl) extends the contract
 using ..VisualGeometryToolkitCore: SphereManifold   # RadialCamera's minimal manifold (calibration.jl)
 import ..VisualGeometryToolkitCore: constraint_dim, _measurement_dim, _ambient_coordinates   # … and its place in the covariance machinery
 import ..VisualGeometryToolkitCore: _precision, _has_division  # image_warp chain hooks: lens precision, a lens consumes a ray
-import ..VisualGeometryToolkitCore: toml_value   # extended on lenses (lens_parameters.jl): a lens writes as its record
+import ..VisualGeometryToolkitCore: toml_value   # extended on lenses (lens_chart.jl): a lens writes as its record
 using ..VisualGeometryToolkitCore: pointwise!, ExecutionPolicy, Auto   # a lens over a batch of points (lens_rays.jl)
 import ..VisualGeometryToolkitCore: aspect_ratio  # Extend interface stub (shared with Primitives)
 using ..VisualGeometryToolkitCore: Attributed, csponds  # composition primitives (depth-attributed points, correspondence sets)
@@ -166,7 +166,7 @@ include("lenses.jl")         # the lens families: Lens/LiftLens, projections, te
 include("projections.jl")
 include("camera_models.jl")
 include("lens_rays.jl")       # THE lens contract: project/backproject on rays + the derived Jacobians
-include("lens_parameters.jl") # parameter chart, ∂lens/∂θ, TOML lens registry (0.22.1)
+include("lens_chart.jl") # parameter chart, ∂lens/∂θ, TOML lens registry (0.22.1)
 include("generic_models.jl") # Schöps et al. central/non-central generic grid models (0.16)
 include("imaging_chain.jl")   # framed stages between image frames + imaging_chain mint (0.10)
 
@@ -808,7 +808,7 @@ export zhang_intrinsics                # Zhang IAC regression from plane homogra
 # 3. LENS MODELS - Projection + distortion
 # -----------------------------------------------------------------------------
 export AbstractLensModel
-export LensManifold                       # the lens family's Manifold: lens_parameters' coordinates as offsets from an anchor
+export LensManifold                       # the lens family's Manifold: parameter_vector coordinates as offsets from an anchor
 export Pinhole                         # Ideal perspective (no distortion)
 export Lens, LiftLens, Division, KannalaBrandt, radial_ratio   # the two lens kinds and the named models
 export Scaramuzza                      # Scaramuzza's omnidirectional polynomial lift (MATLAB fisheyeIntrinsics)
@@ -824,7 +824,7 @@ export RadialCamera                    # the 1-D radial camera model (constraint
 export distortion_map                  # Undistorted→distorted COLMAP pixel map
 export imaging_transform, pinhole
 export undistort_normalized, InverseLens
-export lens_parameters, with_parameters, lens_parameter_names
+export parameter_vector, parameter_names, parameter_bounds, with_parameters
 export project_with_jacobians          # the image point and both lens Jacobians in one evaluation (lens_rays.jl)
 export reprojection_error              # project(camera, pose(X)) − u, Jacobian-free (camera_models.jl)
 export has_distortion
@@ -835,7 +835,7 @@ export view_angle, projected_radius   # the radial projection function r(θ) and
 # Framed imaging chain (0.10): typed frame-to-frame stages with checked
 # junctions. `imaging_chain` is the fully-typed mint; the legacy
 # `imaging_transform` shape is unchanged.
-export FramedStage, FramedPerspective, FramedEquidistantProjection
+export FramedStage, FramedProjection, FramedPerspective, FramedEquidistantProjection
 export FramedDistort, FramedUndistort, FramedAffine, FramedChain
 export imaging_chain, distort_stage, undistort_stage, calibration_stage
 export similarity_scale              # a framed similarity's length ratio (thresholds through a normalization)
@@ -868,8 +868,8 @@ export model                            # CameraModel accessor on Camera/Abstrac
 export Rig, Mounted, source, target, target_frames  # one Rig for sensors and targets: (model, mount) members; StereoRig = 2-tuple alias
 export sensor_rig, target_rig             # the two halves of a rig carrying both
 export AbstractTarget, PointTarget, PlanarTarget, resolve, is_resolved   # the target as a model (targets.jl)
-export AbstractWarp, Rigid, warp_parameters, warp_parameter_names, warp_jacobian   # a planar target's warp
-export target_parameters, target_parameter_names, regularizer, TargetManifold      # the calibratable-target protocol
+export AbstractWarp, Rigid, warp_jacobian   # a planar target's warp
+export regularizer, TargetManifold      # the calibratable-target protocol
 export Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
 export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3
 export convert_frame                      # the one way to change the pixel frame of pixel data

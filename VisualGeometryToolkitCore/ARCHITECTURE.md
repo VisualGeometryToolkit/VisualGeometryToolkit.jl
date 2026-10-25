@@ -306,7 +306,7 @@ extents); the size-form is sugar over the rect-form for the common case.
    struct of numbers and tuples of numbers with its number type as the last
    type parameter — its coefficients, their names, its zero, its record tag and
    payload all follow from the fields (add it to `_LEAVES` in
-   `lens_parameters.jl` to read it back) — and its map: a term's `_distort`
+   `lens_chart.jl` to read it back) — and its map: a term's `_distort`
    (or `_delta` with `isdelta`), a projection's `_project_ray` / `_lift_point`. A lens of a new KIND implements the
    contract on rays directly:
    ```julia
@@ -320,8 +320,9 @@ extents); the size-form is sugar over the rect-form for the common case.
    `transform_deriv` / `transform_deriv_params` / `project_with_jacobians`,
    `projected_radius` / `view_angle`, `unproject`, `imaging_transform`
    (`AffineMap(K) ∘ lens`), the batches (`pointwise!`) and warps, `RayMap`,
-   the framed stages, and — from the leaves — `lens_parameters` /
-   `with_parameters` / names, the record, the manifold and `_precision`.
+   the framed stages, and — from the leaves — `parameter_vector` /
+   `with_parameters` / names / bounds (a leaf with a bounded
+   coefficient adds its `_bound_pairs` method), the record, the manifold and `_precision`.
 
 ### Adding a New Primitive
 

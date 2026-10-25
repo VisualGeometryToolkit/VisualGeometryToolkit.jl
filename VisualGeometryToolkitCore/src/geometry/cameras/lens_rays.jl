@@ -989,13 +989,13 @@ angle. NaN wherever `project` is.
 """
     transform_deriv_params(lens, X::StaticVector{3}) -> SMatrix{2,N}
 
-`∂project/∂(lens parameters)` in [`lens_parameters`](@ref) order: ForwardDiff
+`∂project/∂(lens parameters)` in [`parameter_vector`](@ref) order: ForwardDiff
 through `project(with_parameters(lens, p), X)`, for every lens. Iterative
 inverses carry their derivatives by one Newton step at the root, so no Dual
 runs through a solve. NaN wherever `project` is.
 """
 @inline transform_deriv_params(lens::AbstractLensModel, X::StaticVector{3}) =
-    (Xf = _float_static(X); _jacobian(q -> project(with_parameters(lens, q), Xf), lens_parameters(lens)))
+    (Xf = _float_static(X); _jacobian(q -> project(with_parameters(lens, q), Xf), parameter_vector(lens)))
 
 """
     project_with_jacobians(lens, X::StaticVector{3}) -> (u, ∂u/∂X, ∂u/∂p)
@@ -1009,7 +1009,7 @@ RETURNED rather than written into optional output arguments; the Ceres
 analogue is what a `CostFunction::Evaluate` fills.
 """
 @inline project_with_jacobians(lens::AbstractLensModel, X::StaticVector{3}) =
-    _project_with_jacobians(lens, _float_static(X), _float_static(lens_parameters(lens)))
+    _project_with_jacobians(lens, _float_static(X), _float_static(parameter_vector(lens)))
 
 @inline function _project_with_jacobians(lens, X::SVector{3}, p::SVector{N}) where {N}
     w0 = vcat(X, p)
@@ -1068,7 +1068,7 @@ end
     _pointwise_jacobian(z -> undistort_normalized(m.lens, z), xd)
 
 @inline transform_deriv_params(lens::AbstractLensModel, x::StaticVector{2}) =
-    (xf = _float_static(x); _pointwise_jacobian(q -> distort_normalized(with_parameters(lens, q), xf), x, lens_parameters(lens)))
+    (xf = _float_static(x); _pointwise_jacobian(q -> distort_normalized(with_parameters(lens, q), xf), x, parameter_vector(lens)))
 # -----------------------------------------------------------------------------
 # A lens over a batch of points
 # -----------------------------------------------------------------------------

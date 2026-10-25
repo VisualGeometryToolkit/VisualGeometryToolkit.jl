@@ -1,35 +1,77 @@
 # =============================================================================
-# Lens parameters, the lens manifold, and the lens record
+# The parameter protocol, the lens manifold, and the lens record
 # =============================================================================
 #
-# Derived for every lens from its fields (lenses.jl), never tabulated:
+# One protocol for everything with a coefficient vector — a lens, a calibratable
+# target and its warp, a `LogicalIntrinsics`:
 #
-#   lens_parameters(lens)          the coefficient vector (the manifold's coordinates)
-#   with_parameters(lens, θ)       the same structure rebuilt from a vector
-#   lens_parameter_names(lens)     the coefficients' names, so a configuration can
-#                                  free or fix them by name
-#   parameters(lens)               both, as a NamedTuple
+#   parameter_vector(x)     the coefficient vector (the manifold's coordinates)
+#   parameter_names(x)      the coefficients' names, so a configuration can
+#                           free or fix them by name
+#   parameter_bounds(x)     the interval each coefficient may take (the ONE
+#                           source of bounds; the lens manifold's logit chart
+#                           reads it)
+#   with_parameters(x, θ)   the same structure rebuilt from a vector
+#   parameters(x)           names and values, as a NamedTuple
+#
+# Derived for every lens from its fields (lenses.jl), never tabulated.
 #   lens_record / lens_from_record the lens as a self-describing record (JSON, TOML)
 
 """
-    lens_parameters(lens) -> SVector
+    parameter_vector(x) -> SVector
 
-The lens's coefficients, in order: the projection's, then the distortion's
-terms depth-first, left to right, each term in its own documented order
-([`Radial`](@ref): `k…, d…`; [`Tangential`](@ref): `p1, p2`;
-[`ThinPrism`](@ref): `sx…, sy…`; …). Empty for a lens without coefficients.
+The coefficients of a model `x` — a lens, a calibratable target or its warp, or
+a [`LogicalIntrinsics`](@ref) — in the order of [`parameter_names`](@ref).
 Inverse of [`with_parameters`](@ref).
+
+A lens's are the projection's, then the distortion's terms depth-first, left to
+right, each term in its own documented order ([`Radial`](@ref): `k…, d…`;
+[`Tangential`](@ref): `p1, p2`; [`ThinPrism`](@ref): `sx…, sy…`; …); empty for
+a lens without coefficients. A `PlanarTarget`'s are its warp's (empty for
+[`Rigid`](@ref)). A `LogicalIntrinsics`'s are `f, aspect, skew, cx, cy` of
+`K = [f s cx; 0 f·aspect cy; 0 0 1]`, absolute and in pixels.
 """
-@inline function lens_parameters(l::AbstractLensModel)
+function parameter_vector end
+
+"""
+    parameter_names(x) -> NTuple{N, Symbol}
+
+The names of [`parameter_vector`](@ref), in its order — what a configuration
+refers to when it frees or fixes coefficients by name. A lens's are generated
+from its leaves: `k1…, d1…` ([`Radial`](@ref)), `p1, p2`, `sx1…, sy1…`, `tx, ty`,
+`omega`, `xi`, `alpha`, `beta`. A `LogicalIntrinsics`'s are
+`(:f, :aspect, :skew, :cx, :cy)`.
+"""
+function parameter_names end
+
+"""
+    parameter_bounds(x) -> (lo::SVector, hi::SVector)
+
+The interval each coefficient of [`parameter_vector`](@ref) may take, entry by
+entry: `(-Inf, Inf)` unless the model says otherwise. The double sphere's `α` is
+the one bounded lens coefficient, in `(0, 1)`. This is the only place a bound is
+stated: [`LensManifold`](@ref) moves a coefficient bounded to `(0, 1)` through
+its logit, so no step leaves the interval.
+"""
+function parameter_bounds end
+
+# The unbounded default: any model with a parameter vector.
+@inline function parameter_bounds(x)
+    θ = parameter_vector(x)
+    T = eltype(θ)
+    return (zero(θ) .- T(Inf), zero(θ) .+ T(Inf))
+end
+
+@inline function parameter_vector(l::AbstractLensModel)
     c = _coefficients_of(l)
     T = _coeff_type(l)
     return SVector{length(c), T === Union{} ? Float64 : T}(c)
 end
 
 """
-    with_parameters(lens, θ::AbstractVector) -> lens
+    with_parameters(x, θ::AbstractVector) -> x
 
-The lens rebuilt from the coefficient vector `θ` ([`lens_parameters`](@ref)'
+The model rebuilt from the coefficient vector `θ` ([`parameter_vector`](@ref)'
 inverse): the same structure and arities, the number type promoted to `θ`'s.
 """
 function with_parameters(l::AbstractLensModel, θ::AbstractVector)
@@ -38,35 +80,61 @@ function with_parameters(l::AbstractLensModel, θ::AbstractVector)
     return _with_parameters(l, θ)
 end
 
-"""
-    lens_parameter_names(lens) -> NTuple{N, Symbol}
+parameter_names(l::AbstractLensModel) = _coefficient_names_of(l)
 
-The names of [`lens_parameters`](@ref), in its order — what a configuration
-refers to when it frees or fixes coefficients by name. Generated from the
-leaves: `k1…, d1…` ([`Radial`](@ref)), `p1, p2`, `sx1…, sy1…`, `tx, ty`,
-`omega`, `xi`, `alpha`, `beta`.
-"""
-lens_parameter_names(l::AbstractLensModel) = _coefficient_names_of(l)
+# The bounds, per leaf: an interval for each coefficient (Float64 constants,
+# converted to the lens's number type in `parameter_bounds`). Only the double
+# sphere's α departs from the unbounded default.
+@inline _bound_pairs(leaf) = map(_ -> (-Inf, Inf), _coefficients(leaf))
+@inline _bound_pairs(::DoubleSphere) = ((-Inf, Inf), (0.0, 1.0))
+
+@inline function parameter_bounds(l::AbstractLensModel)
+    pairs = _flatmap(_bound_pairs, _leaves(l))
+    T = _bounds_eltype(l)
+    return (SVector(map(p -> T(p[1]), pairs)), SVector(map(p -> T(p[2]), pairs)))
+end
+@inline _bounds_eltype(l) = (T = _coeff_type(l); T === Union{} ? Float64 : T)
 
 """
-    parameters(lens) -> NamedTuple
+    parameters(x) -> NamedTuple
 
-The lens's coefficients by name: `parameters(KannalaBrandt(-0.04, 0.01)).k2`.
+The model's coefficients by name: `parameters(KannalaBrandt(-0.04, 0.01)).k2`.
 """
-parameters(l::AbstractLensModel) = NamedTuple{lens_parameter_names(l)}(Tuple(lens_parameters(l)))
+parameters(l::AbstractLensModel) = NamedTuple{parameter_names(l)}(Tuple(parameter_vector(l)))
+
+# --- LogicalIntrinsics: absolute, reportable coordinates --------------------------
+#
+# K = [f s cx; 0 f·aspect cy; 0 0 1], so a camera comparison reads the
+# intrinsics' coordinates the way it reads a lens's.
+
+parameter_names(::LogicalIntrinsics) = (:f, :aspect, :skew, :cx, :cy)
+function parameter_vector(intr::LogicalIntrinsics{T}) where {T}
+    K = intr.K
+    fx = K[1, 1]
+    return SVector{5, T}(fx, K[2, 2] / fx, K[1, 2], K[1, 3], K[2, 3])
+end
+function with_parameters(::LogicalIntrinsics, θ::AbstractVector)
+    length(θ) == 5 || throw(
+        ArgumentError("LogicalIntrinsics takes 5 parameters $((:f, :aspect, :skew, :cx, :cy)); got $(length(θ))")
+    )
+    f, aspect, skew, cx, cy = float.(θ)
+    T = typeof(f)
+    K = SMatrix{3, 3, T}(f, zero(T), zero(T), skew, f * aspect, zero(T), cx, cy, one(T))
+    return LogicalIntrinsics(CameraCalibrationMat(K))
+end
 
 # Precision hook (transforms/warp.jl's `_precision`): a lens rebuilt with
 # T-typed coefficients — the batched and fused kernel surfaces convert ONCE per
 # launch so per-element math never promotes (Metal has no Float64).
 _precision(::Type{T}, l::AbstractLensModel) where {T <: AbstractFloat} =
-    _with_parameters(l, map(T, lens_parameters(l)))
+    _with_parameters(l, map(T, parameter_vector(l)))
 
 # --- the lens manifold -------------------------------------------------------------
 
 """
     LensManifold(lens) <: Manifold
 
-The lens's manifold anchored at `lens`: `lens_parameters`' coordinates as
+The lens's manifold anchored at `lens`: `parameter_vector`' coordinates as
 offsets from the anchor, except that a coefficient bounded to `(0, 1)` — the
 double sphere's `α` — moves through its logit, so no step leaves the interval
 and every fitter (VisualGeometryToolkitEstimation's `fit_lens`, a calibration bundle)
@@ -81,10 +149,12 @@ struct LensManifold{L <: AbstractLensModel} <: Manifold
 end
 LensManifold(l::AbstractLensModel) = LensManifold{typeof(l)}(_interior(l))
 
-# Which coordinates are bounded to (0, 1): the double sphere's α.
-@inline _unit_bounded(leaf) = map(_ -> false, _coefficients(leaf))
-@inline _unit_bounded(::DoubleSphere) = (false, true)
-@inline _logit_mask(l) = _flatmap(_unit_bounded, _leaves(l))
+# Which coordinates are bounded to (0, 1): read off `parameter_bounds`, the one
+# source of bounds. A function of the lens's type alone, so it constant-folds.
+@inline function _logit_mask(l)
+    lo, hi = parameter_bounds(l)
+    return map((a, b) -> a == 0 && b == 1, Tuple(lo), Tuple(hi))
+end
 _has_logit(l) = any(_logit_mask(l))
 
 # A boundary value — 0 is a natural default for α — sits at the logit's ±∞,
@@ -93,16 +163,16 @@ const _UNIT_MARGIN = 1.0e-6
 _interior_unit(a) = clamp(a, oftype(a, _UNIT_MARGIN), one(a) - oftype(a, _UNIT_MARGIN))
 function _interior(l::AbstractLensModel)
     _has_logit(l) || return l
-    θ = lens_parameters(l)
+    θ = parameter_vector(l)
     return _with_parameters(l, map((t, b) -> b ? _interior_unit(t) : t, θ, SVector(_logit_mask(l))))
 end
 
 minimal_manifold(l::AbstractLensModel) = LensManifold(l)
-_ambient_coordinates(l::AbstractLensModel) = lens_parameters(l)
-tangent_size(ch::LensManifold) = length(lens_parameters(ch.lens))
+_ambient_coordinates(l::AbstractLensModel) = parameter_vector(l)
+tangent_size(ch::LensManifold) = length(parameter_vector(ch.lens))
 model(ch::LensManifold) = ch.lens
 function retract(ch::LensManifold, v)
-    θ0 = lens_parameters(ch.lens)
+    θ0 = parameter_vector(ch.lens)
     _has_logit(ch.lens) || return _with_parameters(ch.lens, θ0 + v)
     θ = map((t, d, b) -> b ? logistic(logit(t) + d) : t + d, θ0, v, SVector(_logit_mask(ch.lens)))
     return _with_parameters(ch.lens, θ)
@@ -111,7 +181,7 @@ recenter(ch::LensManifold, v) = LensManifold(retract(ch, v))
 function retract_jacobian(ch::LensManifold)
     n = tangent_size(ch)
     _has_logit(ch.lens) || return SMatrix{n, n, Float64}(LinearAlgebra.I)
-    θ = lens_parameters(ch.lens)
+    θ = parameter_vector(ch.lens)
     d = map((t, b) -> b ? Float64(t * (1 - t)) : 1.0, θ, SVector(_logit_mask(ch.lens)))
     return SMatrix{n, n, Float64}(LinearAlgebra.Diagonal(d))
 end
@@ -119,7 +189,7 @@ end
 function retract_jacobian(ch::LensManifold, v::StaticVector)
     _has_logit(ch.lens) || return retract_jacobian(ch)     # the chart is linear: constant differential
     n = tangent_size(ch)
-    θ = lens_parameters(ch.lens)
+    θ = parameter_vector(ch.lens)
     d = map((t, dv, b) -> b ? (a = logistic(logit(t) + dv); a * (1 - a)) : one(promote_type(typeof(t), typeof(dv))), θ, v, SVector(_logit_mask(ch.lens)))
     return SMatrix{n, n}(LinearAlgebra.Diagonal(d))
 end
@@ -129,7 +199,7 @@ function local_coordinates(ch::LensManifold, l::AbstractLensModel)
     _same_structure(ch.lens, l) || throw(
         ArgumentError("local_coordinates: a $(_structure_name(l)) is not on the manifold of $(_structure_name(ch.lens))")
     )
-    θ, θ0 = lens_parameters(l), lens_parameters(ch.lens)
+    θ, θ0 = parameter_vector(l), parameter_vector(ch.lens)
     _has_logit(l) || return θ - θ0
     return map((t, t0, b) -> b ? logit(_interior_unit(t)) - logit(t0) : t - t0, θ, θ0, SVector(_logit_mask(l)))
 end
@@ -143,11 +213,11 @@ _structure_name(l) = string(typeof(_precision(Float64, l)))
 """
     restrict(ch::LensManifold, names::Tuple{Vararg{Symbol}}) -> SubsetManifold
 
-The lens manifold on the coefficients `names` ([`lens_parameter_names`](@ref)'
+The lens manifold on the coefficients `names` ([`parameter_names`](@ref)'
 vocabulary) — a target's complexity as a manifold.
 """
 function restrict(ch::LensManifold, names::Tuple{Symbol, Vararg{Symbol}})
-    all_names = lens_parameter_names(ch.lens)
+    all_names = parameter_names(ch.lens)
     for n in names
         n in all_names || throw(
             ArgumentError("restrict: the lens has no coefficient $(repr(n)); its coefficients are $(join(String.(all_names), ", "))")

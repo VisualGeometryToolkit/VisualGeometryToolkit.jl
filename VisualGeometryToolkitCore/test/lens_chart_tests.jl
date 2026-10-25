@@ -1,14 +1,14 @@
-# The lens parameter chart (lens_parameters / with_parameters / names), the
+# The lens parameter chart (parameter_vector / with_parameters / names), the
 # parameter Jacobian transform_deriv_params, and the lens record
 # (lens_record / lens_from_record) — all derived from the leaves.
-@testitem "lens_parameters" begin
+@testitem "lens_chart" begin
     using Test, StaticArrays, LinearAlgebra, Random
     using FiniteDiff: FiniteDiff
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: transform_deriv_params, toml_value, distort_normalized, Even, Full
 
     function _numerical_param_jacobian(lens, x)
-        θ = lens_parameters(lens)
+        θ = parameter_vector(lens)
         isempty(θ) && return zeros(2, 0)
         return FiniteDiff.finite_difference_jacobian(θ′ -> distort_normalized(with_parameters(lens, θ′), x), θ, Val(:central))
     end
@@ -36,34 +36,34 @@
 
     @testset "lens parameter chart" begin
         for lens in lenses
-            θ = lens_parameters(lens)
+            θ = parameter_vector(lens)
             @test θ isa SVector
             rt = with_parameters(lens, θ)
-            @test typeof(rt) === typeof(lens) && lens_parameters(rt) == θ
+            @test typeof(rt) === typeof(lens) && parameter_vector(rt) == θ
             @test with_parameters(lens, collect(θ)) == lens                   # any vector
-            @test length(lens_parameter_names(lens)) == length(θ)
-            @test allunique(lens_parameter_names(lens))
-            @test values(parameters(lens)) == Tuple(θ) && keys(parameters(lens)) == lens_parameter_names(lens)
+            @test length(parameter_names(lens)) == length(θ)
+            @test allunique(parameter_names(lens))
+            @test values(parameters(lens)) == Tuple(θ) && keys(parameters(lens)) == parameter_names(lens)
             if length(θ) > 0
                 moved = with_parameters(lens, θ .+ 1.0e-3)
                 @test distort_normalized(moved, SVector(0.3, -0.2)) != distort_normalized(lens, SVector(0.3, -0.2))
                 @test_throws ArgumentError with_parameters(lens, θ[1:(end - 1)])
                 l32 = with_parameters(lens, Float32.(θ))
-                @test eltype(lens_parameters(l32)) === Float32
+                @test eltype(parameter_vector(l32)) === Float32
             else
                 @test_throws ArgumentError with_parameters(lens, [1.0])
             end
         end
         # the generated names: per leaf, projection first, distortion depth-first
-        @test lens_parameter_names(Division(-0.1, 0.02)) == (:d1, :d2)
-        @test lens_parameter_names(LiftLens(Radial((0.05, -0.01), (-0.2, 0.04, 0.003)))) == (:k1, :k2, :d1, :d2, :d3)
-        @test lens_parameter_names(opencv) == (:k1, :k2, :k3, :d1, :d2, :d3, :p1, :p2, :sx1, :sx2, :sy1, :sy2)
-        @test lens_parameter_names(Lens(DoubleSphere(0.0, 0.5))) == (:xi, :alpha)
-        @test lens_parameter_names(Lens(Unified(0.7), Additive(Radial((-0.1,)), Tangential(0.0, 0.0)))) == (:xi, :k1, :p1, :p2)
-        @test lens_parameter_names(Scaramuzza(0.1, 0.0, 0.2)) == (:d1, :d2, :d3)
-        @test lens_parameter_names(Lens(Perspective(), FieldOfView(0.9))) == (:omega,)
-        @test lens_parameter_names(Pinhole()) == ()
-        @test lens_parameters(Pinhole()) === SVector{0, Float64}()
+        @test parameter_names(Division(-0.1, 0.02)) == (:d1, :d2)
+        @test parameter_names(LiftLens(Radial((0.05, -0.01), (-0.2, 0.04, 0.003)))) == (:k1, :k2, :d1, :d2, :d3)
+        @test parameter_names(opencv) == (:k1, :k2, :k3, :d1, :d2, :d3, :p1, :p2, :sx1, :sx2, :sy1, :sy2)
+        @test parameter_names(Lens(DoubleSphere(0.0, 0.5))) == (:xi, :alpha)
+        @test parameter_names(Lens(Unified(0.7), Additive(Radial((-0.1,)), Tangential(0.0, 0.0)))) == (:xi, :k1, :p1, :p2)
+        @test parameter_names(Scaramuzza(0.1, 0.0, 0.2)) == (:d1, :d2, :d3)
+        @test parameter_names(Lens(Perspective(), FieldOfView(0.9))) == (:omega,)
+        @test parameter_names(Pinhole()) == ()
+        @test parameter_vector(Pinhole()) === SVector{0, Float64}()
         @test parameters(opencv).d3 == 0.001 && parameters(opencv).sy2 == -1.2e-3
         # names must be unique within a lens: two radial factors in one chain are refused
         @test_throws ArgumentError Lens(Perspective(), Chain(Radial((0.1,)), Radial((0.2,))))
@@ -86,7 +86,7 @@
     @testset "the zero lens of a type" begin
         for lens in lenses
             z = zero(typeof(lens))
-            @test typeof(z) === typeof(lens) && all(iszero, lens_parameters(z))
+            @test typeof(z) === typeof(lens) && all(iszero, parameter_vector(z))
         end
         @test zero(KannalaBrandt{4}) === KannalaBrandt(0.0, 0.0, 0.0, 0.0)
         @test zero(Division{2}) === Division(0.0, 0.0)
@@ -127,7 +127,7 @@
         for lens in lenses
             back = lens_from_record(lens_record(lens))
             @test back === lens
-            @test lens_from_record(Float32, lens_record(lens)) == with_parameters(lens, Float32.(lens_parameters(lens)))
+            @test lens_from_record(Float32, lens_record(lens)) == with_parameters(lens, Float32.(parameter_vector(lens)))
         end
         # random structures and arities, random coefficients: bitwise, through a string
         rng = Xoshiro(7)
@@ -160,5 +160,83 @@
             e
         end
         @test err isa ArgumentError && occursin("spline", err.msg)
+    end
+end
+
+# The one parameter protocol: parameter_vector / parameter_names / parameter_bounds
+# on lenses, targets, warps and LogicalIntrinsics. The golden values were
+# recorded from the per-family getters and name functions this protocol replaced.
+@testitem "parameter_protocol" begin
+    using Test, StaticArrays, LinearAlgebra
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: LensManifold, retract, recenter, retract_jacobian, local_coordinates, tangent_size, model
+
+    @testset "values are what the retired getters returned" begin
+        opencv = Lens(Perspective(), Additive(Radial((-0.2, 0.05, -0.01), (0.03, -0.004, 0.001)), Tangential(0.002, -0.001), ThinPrism((-5.5e-3, 7.0e-4), (2.2e-3, -1.2e-3))))
+        @test parameter_vector(opencv) == SVector(-0.2, 0.05, -0.01, 0.03, -0.004, 0.001, 0.002, -0.001, -5.5e-3, 7.0e-4, 2.2e-3, -1.2e-3)
+        @test parameter_names(opencv) == (:k1, :k2, :k3, :d1, :d2, :d3, :p1, :p2, :sx1, :sx2, :sy1, :sy2)
+        @test parameter_vector(Lens(DoubleSphere(-0.2, 0.6))) === SVector(-0.2, 0.6)
+        @test eltype(parameter_vector(with_parameters(Division(-0.1, 0.02), Float32[-0.1, 0.02]))) === Float32
+        @test parameter_vector(Pinhole()) === SVector{0, Float64}()
+        t = PlanarTarget([SVector(0.0, 0.0), SVector(1.0, 0.0)])
+        @test parameter_vector(t) === SVector{0, Float64}() && parameter_vector(Rigid()) === SVector{0, Float64}()
+        @test parameter_names(t) === () && parameter_names(Rigid()) === ()
+        @test parameters(t) == NamedTuple()
+    end
+
+    @testset "parameter_bounds" begin
+        lo, hi = parameter_bounds(Lens(DoubleSphere(0.1, 0.5)))
+        @test lo == SVector(-Inf, 0.0) && hi == SVector(Inf, 1.0)
+        @test (lo[2], hi[2]) == (0.0, 1.0)                           # α's bound
+        lo, hi = parameter_bounds(Lens(Unified(0.7), Additive(Radial((-0.1,)), Tangential(1.0e-3, 0.0))))
+        @test all(==(-Inf), lo) && all(==(Inf), hi) && length(lo) == 4
+        lo32, hi32 = parameter_bounds(Lens(DoubleSphere(0.1f0, 0.5f0)))
+        @test eltype(lo32) === Float32 && hi32[2] === 1.0f0
+        @test parameter_bounds(Pinhole()) == (SVector{0, Float64}(), SVector{0, Float64}())
+        t = PlanarTarget([SVector(0.0, 0.0)])
+        @test parameter_bounds(t) == (SVector{0, Float64}(), SVector{0, Float64}())
+        K = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(800.0, 0, 0, 1.5, 1000.0, 0, 320.0, 240.0, 1)))
+        lo, hi = parameter_bounds(K)
+        @test all(==(-Inf), lo) && all(==(Inf), hi) && length(lo) == 5
+    end
+
+    @testset "LogicalIntrinsics" begin
+        K = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(800.0, 0, 0, 1.5, 1000.0, 0, 320.0, 240.0, 1)))
+        @test parameter_names(K) == (:f, :aspect, :skew, :cx, :cy)
+        θ = parameter_vector(K)
+        @test θ == SVector(800.0, 1.25, 1.5, 320.0, 240.0)
+        @test with_parameters(K, θ) == K
+        @test with_parameters(K, collect(θ)).K == K.K
+        Kg = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(800.0, 0, 0, 1.5, 804.0, 0, 320.0, 240.0, 1)))
+        @test with_parameters(Kg, parameter_vector(Kg)).K ≈ Kg.K rtol = 1.0e-15   # f·aspect rounds in the last place
+        @test with_parameters(K, θ).K_inv == K.K_inv
+        @test_throws ArgumentError with_parameters(K, θ[1:4])
+        K32 = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float32}(800, 0, 0, 1.5, 804, 0, 320, 240, 1)))
+        @test eltype(parameter_vector(K32)) === Float32 && with_parameters(K32, parameter_vector(K32)) isa LogicalIntrinsics{Float32}
+    end
+
+    @testset "LensManifold reads parameter_bounds, unchanged values" begin
+        ds = Lens(DoubleSphere(0.1, 0.5)); ch = LensManifold(ds); v = SVector(0.01, 0.2)
+        @test parameter_vector(retract(ch, v)) == SVector(0.11, 0.549833997312478)
+        @test retract_jacobian(ch) == [1.0 0.0; 0.0 0.25]
+        @test retract_jacobian(ch, v) == [1.0 0.0; 0.0 0.24751657271185995]
+        @test local_coordinates(ch, retract(ch, v)) == SVector(0.009999999999999995, 0.20000000000000018)
+        @test parameter_vector(model(LensManifold(Lens(DoubleSphere(0.0, 0.0))))) == SVector(0.0, 1.0e-6)   # a boundary value anchors inside
+        kb = LensManifold(KannalaBrandt(-0.02, 0.003))
+        @test parameter_vector(retract(kb, SVector(0.001, -0.002))) == SVector(-0.019, 0.001)
+    end
+
+    @testset "LensManifold stays inferred and allocation-free" begin
+        ch = LensManifold(Lens(DoubleSphere(0.1, 0.5))); v = SVector(0.01, 0.2)
+        @inferred retract(ch, v)
+        @inferred recenter(ch, v)
+        @inferred retract_jacobian(ch, v)
+        @inferred local_coordinates(ch, retract(ch, v))
+        retract(ch, v); recenter(ch, v)
+        f1(ch, v) = @allocated retract(ch, v)
+        f2(ch, v) = @allocated recenter(ch, v)
+        f1(ch, v); f2(ch, v)
+        @test f1(ch, v) == 0
+        @test f2(ch, v) == 0
     end
 end

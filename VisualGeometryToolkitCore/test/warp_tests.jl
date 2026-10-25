@@ -181,7 +181,7 @@
             # the leading type DISPATCHES the warp-math precision (rand(T,…) style)
             bm32 = image_warp(Float32, distortion_map(cam), 64)
             @test bm32.map.t1 isa AffineMap{SMatrix{2, 2, Float32, 4}, SVector{2, Float32}}
-            @test lens_parameters(bm32.map.t2.t1) isa SVector{N, Float32} where {N}
+            @test parameter_vector(bm32.map.t2.t1) isa SVector{N, Float32} where {N}
 
             # Identity lens: undistort is a no-op forwarding
             cam_pin = CameraModel(; focal = 800.0, pp = (60.0, 50.0))
@@ -195,7 +195,7 @@
             bc = Lens(Perspective(), Radial((-0.1, 0.02)))
             @test bc isa Lens{Perspective, Radial{VgtkCore.Even, 2, 0, Float64}}
             bc32 = Lens(Perspective(), Radial((-0.1f0,)))
-            @test eltype(lens_parameters(bc32)) === Float32
+            @test eltype(parameter_vector(bc32)) === Float32
             @test bc32(SVector(0.1f0, 0.2f0)) isa Vec2{Float32}
         end
     end

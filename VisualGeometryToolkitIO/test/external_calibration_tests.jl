@@ -234,8 +234,8 @@
         Ka = SMatrix{3, 3, Float64}(a.camera.intrinsics.K)
         Kb = SMatrix{3, 3, Float64}(b.camera.intrinsics.K)
         @test Ka ≈ Kb atol = 1.0e-12
-        la = collect(Float64, VgtkCore.lens_parameters(VgtkCore.lens(a.camera)))
-        lb = collect(Float64, VgtkCore.lens_parameters(VgtkCore.lens(b.camera)))
+        la = collect(Float64, VgtkCore.parameter_vector(VgtkCore.lens(a.camera)))
+        lb = collect(Float64, VgtkCore.parameter_vector(VgtkCore.lens(b.camera)))
         @test la == lb                                   # all twelve, exactly
         @test length(lb) == 12
         @test VgtkCore.lens(a.camera) === VgtkCore.lens(b.camera)

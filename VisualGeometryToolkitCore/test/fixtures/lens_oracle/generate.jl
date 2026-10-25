@@ -80,7 +80,7 @@ function probe(lens, rng)
         "rays" => flat(rays), "project" => flat(proj),
         "points" => flat(pts), "backproject" => flat(back),
         "persp" => flat(persp), "distort" => flat(dist), "undistort" => flat(und),
-        "jac" => flat(vec.(J)), "jac_params" => flat(vec.(Jp)), "nparams" => length(lens_parameters(lens)),
+        "jac" => flat(vec.(J)), "jac_params" => flat(vec.(Jp)), "nparams" => length(parameter_vector(lens)),
         "project32" => flat([Float64.(p) for p in p32]), "backproject32" => flat([Float64.(b) for b in b32]),
     )
 end

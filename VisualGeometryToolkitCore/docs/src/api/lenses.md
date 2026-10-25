@@ -23,7 +23,7 @@ Pages = ["cameras/lenses.jl", "cameras/projections.jl"]
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false
-Pages = ["cameras/lens_rays.jl", "cameras/lens_parameters.jl"]
+Pages = ["cameras/lens_rays.jl", "cameras/lens_chart.jl"]
 ```
 
 ## Index

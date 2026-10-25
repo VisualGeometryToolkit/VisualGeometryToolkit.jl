@@ -6,7 +6,7 @@ using StaticArrays: SVector, SMatrix, @SMatrix
 using Rotations: RotXYZ
 using VisualGeometryToolkitCore: HomographyMat, RadialCamera, CameraModel, focal_length, intrinsics, lens,
     NoWhitening, SampsonWhitening
-using VisualGeometryToolkitCore: estimate, lens_parameters, retcode, iterations, rms   # VGC accessors (public)
+using VisualGeometryToolkitCore: estimate, parameter_vector, retcode, iterations, rms   # VGC accessors (public)
 using VisualGeometryToolkitCore: Csponds, calibration_matrix, radial_rows, CspondNormalization
 using VisualGeometryToolkitEstimation: DivisionCameraState, DivisionCameraError
 using VisualGeometryToolkitEstimation: fit_division_camera, find_radial_camera, division_camera_step
@@ -32,7 +32,7 @@ using VisualGeometryToolkitEstimation: fit_division_camera, find_radial_camera, 
     f_plain = focal_length(intrinsics(plain))[1]; f_irls = focal_length(intrinsics(estimate(res)))[1]
     @test abs(f_irls - f0) < abs(f_plain - f0)                        # whitening + robust weights beat the plain stack
     @test abs(f_irls - f0) / f0 < 1.0e-2                                  # information limit under 8 % contamination
-    @test abs(lens_parameters(lens(estimate(res)))[1] / f_irls^2 - k0) / abs(k0) < 0.05
+    @test abs(parameter_vector(lens(estimate(res)))[1] / f_irls^2 - k0) / abs(k0) < 0.05
     @test retcode(res) in (:converged, :max_iterations)
     @test 0.2 < res.sigma < 1.0                                        # ŝ recovers the pixel noise scale
     @test sort!(collect(keys(res.views))) == 1:6
@@ -57,7 +57,7 @@ using VisualGeometryToolkitEstimation: fit_division_camera, find_radial_camera, 
     p0 = estimate(fit_division_camera(rc, vw; image_size = sz, max_iter = 0))
     s0 = CameraModel(division_camera_step(N, rc, vw; whiten_at = 2500.0))
     @test calibration_matrix(p0) == calibration_matrix(s0)
-    @test lens_parameters(lens(p0)) == lens_parameters(lens(s0))
+    @test parameter_vector(lens(p0)) == parameter_vector(lens(s0))
     # with the seed given in pixels the image size does not enter the result, and
     # the normalization is conditioning: nor does where the pixels' origin is
     fA = focal_length(intrinsics(estimate(fit_division_camera(rc, vw; image_size = sz, focal_seed = 1800.0))))[1]

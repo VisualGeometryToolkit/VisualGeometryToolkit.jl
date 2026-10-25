@@ -60,7 +60,7 @@
             @test backproject(lens, u) ≈ X atol = 1.0e-10
             @test transform_deriv(lens, X) ≈ FiniteDiff.finite_difference_jacobian(v -> project(lens, v), X, Val(:central)) rtol = 1.0e-5 atol = 1.0e-7
             @test transform_deriv_params(lens, X) ≈
-                FiniteDiff.finite_difference_jacobian(q -> project(with_parameters(lens, q), X), lens_parameters(lens), Val(:central)) rtol = 1.0e-5 atol = 1.0e-7
+                FiniteDiff.finite_difference_jacobian(q -> project(with_parameters(lens, q), X), parameter_vector(lens), Val(:central)) rtol = 1.0e-5 atol = 1.0e-7
         end
         # every one of them images past 90°
         for lens in (DS_A, DS_B, UC..., EU[1])

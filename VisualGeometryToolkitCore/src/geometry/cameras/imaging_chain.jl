@@ -66,163 +66,67 @@ dst_frame(::FramedStage{Src, Dst}) where {Src, Dst} = Dst
 # -----------------------------------------------------------------------------
 
 """
-    FramedPerspective{Src <: Frame{3}, Dst <: Frame{2}}
-    FramedPerspective(; id::Symbol = :_)
+    FramedProjection{Src <: Frame{3}, Dst <: Frame{2}} <: FramedStage{Src, Dst}
 
-The framed GNOMONIC ray-frame projection: perspective division
-`(X, Y, Z) ↦ (X/Z, Y/Z)` from the 3D view frame onto the view's
-[`GnomonicFrame`](@ref). The math is the lens contract's Gnomonic frame
-projection (`lens_rays.jl`) — one definition of the gnomonic map; this stage
-wears the frames. The keyword
-constructor mints `FramedPerspective{ViewFrame{id}, GnomonicFrame{id}}()`
-(anonymous view `:_` by default — see [`DistortedFrame`](@ref)).
+The framed ray-frame projection (3D → 2D): the view's unit rays onto the retinal
+frame `Dst`, the section of the ray sphere that `Dst`'s family defines
+(`_sphere_section`, one definition per family, shared with the lens contract in
+`lens_rays.jl`). The stage wears the frames; the math is the lens contract's.
+One type serves the five geometry-defined families, and the five names below
+are aliases with the `Dst` family fixed:
+
+| alias | `Dst` family | image of a ray at polar angle `θ`, azimuth `ψ` |
+|---|---|---|
+| [`FramedPerspective`](@ref) | [`GnomonicFrame`](@ref) | `tan θ·(cos ψ, sin ψ)` — `(X/Z, Y/Z)`; NaN for `Z ≤ 0` |
+| [`FramedEquidistantProjection`](@ref) | [`EquidistantFrame`](@ref) | `θ·(cos ψ, sin ψ)`, `θ ∈ [0, π)` |
+| [`FramedStereographicProjection`](@ref) | [`StereographicFrame`](@ref) | `2·tan(θ/2)·(cos ψ, sin ψ)`; NaN at the antipode |
+| [`FramedEquisolidProjection`](@ref) | [`EquisolidFrame`](@ref) | `2·sin(θ/2)·(cos ψ, sin ψ)`, the whole sphere |
+| [`FramedOrthographicProjection`](@ref) | [`OrthographicFrame`](@ref) | `sin θ·(cos ψ, sin ψ)`; NaN for `Z < 0` (the frame folds) |
+
+Each alias has the keyword constructor `Alias(; id::Symbol = :_)`, which mints
+`FramedProjection{ViewFrame{id}, Family{id}}()` (anonymous view `:_` by
+default — see [`DistortedFrame`](@ref)); `Alias{Src, Dst}()` and
+`x isa Alias` work as they would on a type of its own. The azimuth is `ψ = 0`
+at the on-axis poles (`X = Y = 0`). A ray outside a frame's honest domain is
+answered NaN, never aliased onto an in-frame point.
 
 # No `inv` — deliberate
 
-Perspective projection collapses each ray (a 1-parameter fiber) to a point:
-a 3D → 2D fiber collapse has no inverse, so `inv` is absent by design (a
-`MethodError`, pinned by test). The right-inverses — the SECTIONS of the
-projection, each selecting one point per fiber via a depth — are
-[`unproject`](@ref) (pixel + depth → 3D point) and [`backproject`](@ref)
+A projection collapses each ray (a 1-parameter fiber) to a point: a 3D → 2D
+fiber collapse has no inverse, so `inv` is absent by design (a `MethodError`,
+pinned by test; the explicit throw is needed because CoordinateTransformations
+defines a generic `inv(::Transformation)` fallback, an `ErrorException`, which
+would misreport the ABSENCE as a missing definition). The right-inverses — the
+SECTIONS of the projection, each selecting one point per fiber via a depth —
+are [`unproject`](@ref) (pixel + depth → 3D point) and [`backproject`](@ref)
 (pixel → unit ray, the norm-one section); use those to go back.
 
-Serves the lenses whose distortion is defined on the perspective plane
-(`distortion_frame(lens) === GnomonicFrame`). Omnidirectional models use
-[`FramedEquidistantProjection`](@ref) instead.
+Serves the lenses by `distortion_frame(lens)`: the perspective-plane lenses
+use the gnomonic alias, the omnidirectional ones the others.
 """
-struct FramedPerspective{Src <: Frame{3}, Dst <: Frame{2}} <: FramedStage{Src, Dst} end
+struct FramedProjection{Src <: Frame{3}, Dst <: Frame{2}} <: FramedStage{Src, Dst} end
 
-FramedPerspective(; id::Symbol = :_) =
-    FramedPerspective{ViewFrame{id}, GnomonicFrame{id}}()
+@inline (::FramedProjection{Src, Dst})(X::StaticVector{3}) where {Src, Dst} = _sphere_section(Dst, X)
 
-@inline (::FramedPerspective)(X::StaticVector{3}) = _sphere_section(GnomonicFrame, X)
+Base.inv(p::FramedProjection) = throw(MethodError(inv, (p,)))
 
-# `inv` absent by design (fiber collapse) — pinned as the house MethodError
-# idiom. The explicit throw is needed because CT defines a generic
-# `inv(::Transformation)` fallback (an ErrorException), which would
-# misreport the ABSENCE as a missing definition rather than a non-existent
-# operation. Same for FramedEquidistantProjection below.
-Base.inv(p::FramedPerspective) = throw(MethodError(inv, (p,)))
+"The framed GNOMONIC ray-frame projection `(X, Y, Z) ↦ (X/Z, Y/Z)` onto [`GnomonicFrame`](@ref): an alias of [`FramedProjection`](@ref)."
+const FramedPerspective = FramedProjection{<:Frame{3}, <:GnomonicFrame}
+"The framed EQUIDISTANT-AZIMUTHAL ray-frame projection `θ·(cos ψ, sin ψ)` onto [`EquidistantFrame`](@ref), defined past 90° too: an alias of [`FramedProjection`](@ref)."
+const FramedEquidistantProjection = FramedProjection{<:Frame{3}, <:EquidistantFrame}
+"The framed STEREOGRAPHIC ray-frame projection `2·tan(θ/2)·(cos ψ, sin ψ)` onto [`StereographicFrame`](@ref), the conformal fisheye: an alias of [`FramedProjection`](@ref)."
+const FramedStereographicProjection = FramedProjection{<:Frame{3}, <:StereographicFrame}
+"The framed EQUISOLID (equal-area) ray-frame projection `2·sin(θ/2)·(cos ψ, sin ψ)` onto [`EquisolidFrame`](@ref), the whole sphere: an alias of [`FramedProjection`](@ref)."
+const FramedEquisolidProjection = FramedProjection{<:Frame{3}, <:EquisolidFrame}
+"The framed ORTHOGRAPHIC (sine-law) ray-frame projection `sin θ·(cos ψ, sin ψ)` onto [`OrthographicFrame`](@ref), NaN past the fold at 90°: an alias of [`FramedProjection`](@ref)."
+const FramedOrthographicProjection = FramedProjection{<:Frame{3}, <:OrthographicFrame}
 
-"""
-    FramedEquidistantProjection{Src <: Frame{3}, Dst <: Frame{2}}
-    FramedEquidistantProjection(; id::Symbol = :_)
-
-The framed EQUIDISTANT-AZIMUTHAL ray-frame projection: a 3D direction at
-polar angle `θ = atan(√(X²+Y²), Z)` and azimuth `ψ` maps to `θ·(cos ψ,
-sin ψ)` on the view's [`EquidistantFrame`](@ref). Well-defined for
-`θ ∈ [0, π)` — including `Z ≤ 0` rays, where the gnomonic frame fails —
-with the azimuth convention `ψ = 0` at the on-axis poles (`X = Y = 0`).
-The keyword constructor mints
-`FramedEquidistantProjection{ViewFrame{id}, EquidistantFrame{id}}()`.
-
-Serves the omnidirectional lenses
-(`distortion_frame(lens) === EquidistantFrame`): `KannalaBrandt`,
-the pure equidistant lens, COLMAP's thin-prism fisheye. Like [`FramedPerspective`](@ref)
-it is a fiber collapse with no `inv`; its sections are
-`unproject`/`backproject` on the owning camera model.
-"""
-struct FramedEquidistantProjection{Src <: Frame{3}, Dst <: Frame{2}} <:
-    FramedStage{Src, Dst} end
-
-FramedEquidistantProjection(; id::Symbol = :_) =
-    FramedEquidistantProjection{ViewFrame{id}, EquidistantFrame{id}}()
-
-@inline (::FramedEquidistantProjection)(X::StaticVector{3}) = _sphere_section(EquidistantFrame, X)
-
-# Fiber collapse — no inverse (see the FramedPerspective inv note).
-Base.inv(p::FramedEquidistantProjection) = throw(MethodError(inv, (p,)))
-
-"""
-    FramedStereographicProjection{Src <: Frame{3}, Dst <: Frame{2}}
-    FramedStereographicProjection(; id::Symbol = :_)
-
-The framed STEREOGRAPHIC ray-frame projection: a 3D direction at polar
-angle `θ` and azimuth `ψ` maps to `2·tan(θ/2)·(cos ψ, sin ψ)` on the
-view's [`StereographicFrame`](@ref) — projection of the ray sphere from
-its backward pole, the conformal member of the fisheye family.
-Well-defined for `θ ∈ [0, π)`; the exact antipode is outside the frame,
-where the stage answers NaN, as the lens contract does (the stereographic
-radius diverges there). The
-keyword constructor mints
-`FramedStereographicProjection{ViewFrame{id}, StereographicFrame{id}}()`.
-
-Serves `Lens(Stereographic())`
-(`distortion_frame(lens) === StereographicFrame`). Like
-[`FramedPerspective`](@ref) it is a fiber collapse with no `inv`.
-"""
-struct FramedStereographicProjection{Src <: Frame{3}, Dst <: Frame{2}} <:
-    FramedStage{Src, Dst} end
-
-FramedStereographicProjection(; id::Symbol = :_) =
-    FramedStereographicProjection{ViewFrame{id}, StereographicFrame{id}}()
-
-@inline (::FramedStereographicProjection)(X::StaticVector{3}) =
-    _sphere_section(StereographicFrame, X)
-
-# Fiber collapse — no inverse (see the FramedPerspective inv note).
-Base.inv(p::FramedStereographicProjection) = throw(MethodError(inv, (p,)))
-
-"""
-    FramedEquisolidProjection{Src <: Frame{3}, Dst <: Frame{2}}
-    FramedEquisolidProjection(; id::Symbol = :_)
-
-The framed EQUISOLID (Lambert equal-area) ray-frame projection: a 3D
-direction at polar angle `θ` and azimuth `ψ` maps to
-`2·sin(θ/2)·(cos ψ, sin ψ)` on the view's [`EquisolidFrame`](@ref).
-Well-defined on the WHOLE sphere `θ ∈ [0, π]` — the only member of the
-projection family with no excluded ray; the antipode maps to radius 2
-under the pole azimuth convention `ψ = 0`. The keyword constructor mints
-`FramedEquisolidProjection{ViewFrame{id}, EquisolidFrame{id}}()`.
-
-Serves `Lens(Equisolid())`
-(`distortion_frame(lens) === EquisolidFrame`). Like
-[`FramedPerspective`](@ref) it is a fiber collapse with no `inv`.
-"""
-struct FramedEquisolidProjection{Src <: Frame{3}, Dst <: Frame{2}} <:
-    FramedStage{Src, Dst} end
-
-FramedEquisolidProjection(; id::Symbol = :_) =
-    FramedEquisolidProjection{ViewFrame{id}, EquisolidFrame{id}}()
-
-@inline (::FramedEquisolidProjection)(X::StaticVector{3}) =
-    _sphere_section(EquisolidFrame, X)
-
-# Fiber collapse — no inverse (see the FramedPerspective inv note).
-Base.inv(p::FramedEquisolidProjection) = throw(MethodError(inv, (p,)))
-
-"""
-    FramedOrthographicProjection{Src <: Frame{3}, Dst <: Frame{2}}
-    FramedOrthographicProjection(; id::Symbol = :_)
-
-The framed ORTHOGRAPHIC (sine-law) ray-frame projection: a 3D direction
-at polar angle `θ` and azimuth `ψ` maps to `sin θ·(cos ψ, sin ψ)` on the
-view's [`OrthographicFrame`](@ref) — parallel projection of the ray
-sphere onto the equatorial plane.
-
-**Honest domain: `θ ∈ [0, π/2]` only.** The frame FOLDS at the equator
-(`r = sin θ` is non-injective past 90°), so backward rays (`Z < 0`) are
-OUTSIDE the frame and map to NaN — they are not "large radii",
-and silently aliasing them onto forward rays is exactly the bug the
-honest-domain discipline exists to prevent (see
-[`OrthographicFrame`](@ref)). The keyword constructor mints
-`FramedOrthographicProjection{ViewFrame{id}, OrthographicFrame{id}}()`.
-
-Serves `Lens(Orthographic())`
-(`distortion_frame(lens) === OrthographicFrame`). Like
-[`FramedPerspective`](@ref) it is a fiber collapse with no `inv`.
-"""
-struct FramedOrthographicProjection{Src <: Frame{3}, Dst <: Frame{2}} <:
-    FramedStage{Src, Dst} end
-
-FramedOrthographicProjection(; id::Symbol = :_) =
-    FramedOrthographicProjection{ViewFrame{id}, OrthographicFrame{id}}()
-
-@inline (::FramedOrthographicProjection)(X::StaticVector{3}) =
-    _sphere_section(OrthographicFrame, X)
-
-# Fiber collapse — no inverse (see the FramedPerspective inv note).
-Base.inv(p::FramedOrthographicProjection) = throw(MethodError(inv, (p,)))
+# The keyword constructors: `id` names the view and its retinal frame.
+FramedPerspective(; id::Symbol = :_) = FramedProjection{ViewFrame{id}, GnomonicFrame{id}}()
+FramedEquidistantProjection(; id::Symbol = :_) = FramedProjection{ViewFrame{id}, EquidistantFrame{id}}()
+FramedStereographicProjection(; id::Symbol = :_) = FramedProjection{ViewFrame{id}, StereographicFrame{id}}()
+FramedEquisolidProjection(; id::Symbol = :_) = FramedProjection{ViewFrame{id}, EquisolidFrame{id}}()
+FramedOrthographicProjection(; id::Symbol = :_) = FramedProjection{ViewFrame{id}, OrthographicFrame{id}}()
 
 # -----------------------------------------------------------------------------
 # distortion_frame — the frame a lens model's distortion is defined in

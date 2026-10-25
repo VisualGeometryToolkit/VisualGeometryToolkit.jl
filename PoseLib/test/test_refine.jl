@@ -251,6 +251,26 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
         Kbad = SMatrix{3,3}(f, 0, 0, 0, f, 0, 0.0, 0.0, 1.0)
         wrong_pp = refine_absolute_pose(seed, Kbad, Csponds(X, upix); max_iter = 25, loss_width = f * calibrated_loss_width)
         @test norm(wrong_pp.t - t) > 1e-3            # principal point is load-bearing
+
+        # Physical seed and world points (FlexUnits lengths): stripped in metres
+        # once, the same plain refinement, the pose read back in metres — equal
+        # bit for bit to the plain call on the inputs' plain metres.
+        Xm = [Y .* VgtkCore.m for Y in X]
+        seedm = VgtkCore.EuclideanMap(seed.R, seed.t .* VgtkCore.m)
+        phys = refine_absolute_pose(seedm, K1, Csponds(Xm, upix); max_iter = 25, loss_width = f * calibrated_loss_width)
+        @test VgtkCore.has_units(phys)
+        plainm = VgtkCore.ustrip(VgtkCore.m, phys)
+        @test plainm.R == pix.R && plainm.t == pix.t
+        @test [Y .* VgtkCore.m for Y in X] == Xm                      # the inputs are not touched
+        # mixed forms are refused, naming the fix
+        @test_throws ArgumentError refine_absolute_pose(seedm, K1, Csponds(X, upix); max_iter = 25, loss_width = 1.0)
+        @test_throws ArgumentError refine_absolute_pose(seed, K1, Csponds(Xm, upix); max_iter = 25, loss_width = 1.0)
+    end
+
+    @testset "refine_relpose refuses a physical seed: a relative pose is up to scale" begin
+        seedm = VgtkCore.EuclideanMap(seed.R, seed.t .* VgtkCore.m)
+        err = try refine_relpose(seedm, K1, K2, Csponds([SVector(0.0, 0.0)], [SVector(0.0, 0.0)]); max_iter = 1, loss_width = 1.0) catch e; e end
+        @test err isa ArgumentError && occursin("up to scale", err.msg)
     end
 
     # Unit bearings, not (x/z, y/z, 1): the chart lifted to a 3-vector satisfies

@@ -29,11 +29,12 @@ using Rotations: RotMatrix
 using Artifacts: @artifact_str
 using Libdl: dlopen, dlext
 using CompilerSupportLibraries_jll: CompilerSupportLibraries_jll  # libstdc++/libgcc_s, as the recipe declares
+using FlexUnits: Quantity
 
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
     AbstractLossShape, GaussianShape, TLSShape, HuberShape, CauchyShape,
     HomographyMat, FundMat, EssentialMat, Extrinsics3, FixedModels,
-    EuclideanMap, UnlabeledFrame,
+    EuclideanMap, UnlabeledFrame, UnitfulEuclideanMap, ustrip,
     PoseLibSolver, Vec3, Point3, Cspond, sources, targets, hasattr,
     sign_normalize, is_valid_solution,
     homography_4pt, fundamental_7pt, p3p,
@@ -435,6 +436,19 @@ function _assert_unit_bearings(fs, which::AbstractString)
 end
 
 """
+    refine_relpose(pose::UnitfulEuclideanMap{3}, args...; kw...)
+
+This form is refused with an `ArgumentError`. A calibrated relative pose is
+determined only up to scale, so its translation is a direction, not a length:
+there is no unit to strip at entry or to reattach at exit. Hand over the plain
+seed, `ustrip(m, pose)` converted to a [`Rigid3`](@ref).
+"""
+refine_relpose(::UnitfulEuclideanMap{3}, args...; kw...) = throw(ArgumentError(
+    "refine_relpose: a relative pose is up to scale, so its translation is a direction, not a " *
+        "length; supply the plain seed, `convert(PoseLib.Rigid3, ustrip(m, pose))`"
+))
+
+"""
     refine_relpose(pose::Rigid3, cs::…StaticVector{2}…; max_iter, loss, loss_width)
 
 This form is refused with an `ArgumentError`. Calibrated 2-vectors are
@@ -706,6 +720,47 @@ function refine_absolute_pose(pose::Rigid3, K::AbstractMatrix,
     return Rigid3(_read_mat33_from_buf(R_out, 0),
                  Vec3{Float64}(t_out[1], t_out[2], t_out[3]))
 end
+
+# -----------------------------------------------------------------------------
+# Physical poses and world points: one strip at entry, one reattachment at exit
+# -----------------------------------------------------------------------------
+#
+# The layering (VisualGeometryToolkitCore `conventions/units.md`): the ccall
+# boundary takes plain Float64, so a physical seed and physical world points
+# are stripped in metres once (`ustrip(m, ·)` of a base-form quantity is its
+# stored value, exactly), the plain refinement runs, and the refined pose is
+# read back in metres once (scale 1, exact). Mixed forms are refused.
+
+const _PhysicalPoints3 = AbstractVector{<:Cspond{<:StaticVector{3, <:Quantity}, <:StaticVector{2}}}
+const _PlainPoints3 = AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}
+
+_metres_point(X::StaticVector{3, <:Quantity}) = SVector{3, Float64}(ustrip(VgtkCore.m, X[1]), ustrip(VgtkCore.m, X[2]), ustrip(VgtkCore.m, X[3]))
+
+"""
+    refine_absolute_pose(pose::UnitfulEuclideanMap{3}, K, cs; max_iter, loss = TLSShape(), loss_width)
+
+The physical form of [`refine_absolute_pose`](@ref): `pose` a world→camera
+pose whose translation is a length (FlexUnits quantities) and `cs` the
+correspondences `X => u` with the world points `X` lengths. Both are stripped in
+metres once, the plain refinement runs, and the refined pose comes back with its
+translation in metres: equal, after `ustrip(m, ·)`, to the plain refinement's
+on the inputs' `ustrip(m, ·)`. `u`, `K` and `loss_width` stay in pixels. A
+physical seed with plain points, or the reverse, is an `ArgumentError`.
+"""
+function refine_absolute_pose(pose::UnitfulEuclideanMap{3}, K::AbstractMatrix, cs::_PhysicalPoints3; kwargs...)
+    seed = convert(Rigid3, ustrip(VgtkCore.m, pose))
+    plain = [_metres_point(first(c)) => last(c) for c in cs]
+    refined = refine_absolute_pose(seed, K, plain; kwargs...)
+    return EuclideanMap(refined.R, refined.t .* VgtkCore.m)
+end
+
+refine_absolute_pose(::UnitfulEuclideanMap{3}, ::AbstractMatrix, ::_PlainPoints3; kwargs...) = throw(ArgumentError(
+    "refine_absolute_pose: the seed is physical but the world points are plain; attach their unit (X .* m)"
+))
+refine_absolute_pose(::Rigid3, ::AbstractMatrix, ::_PhysicalPoints3; kwargs...) = throw(ArgumentError(
+    "refine_absolute_pose: the world points are physical but the seed is plain; attach its unit, " *
+        "EuclideanMap(pose.R, pose.t .* m)"
+))
 
 """
     PoseLib.bundle_adjust(pose, K, cs; max_iter, loss, loss_width)

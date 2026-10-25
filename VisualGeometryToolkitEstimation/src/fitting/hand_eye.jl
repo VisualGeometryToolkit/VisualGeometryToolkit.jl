@@ -56,8 +56,20 @@ a keyword overrides.
 - `scoring`, `config` — override scoring / `RansacConfig`; the other keywords
   as [`find_homography`](@ref).
 
+# Units
+The poses are plain or physical, all one form. Physical poses (translations
+in lengths, e.g. `EuclideanMap(R, t .* m)`) are read in metres at entry —
+exactly, the stored value — the search runs on plain metres, and `X` comes
+back physical, its translation in metres, equal after `ustrip(m, ·)` to the
+plain search's on the poses' `ustrip(m, ·)` with the same `rng`. A supplied
+`threshold` or `char_length` is then a length too (`5mm`; a plain number
+beside physical poses is a `DimensionError`). The residuals, `rms` and `sigma`
+are plain numbers in the translation's unit: metres for physical poses. Plain
+poses give a plain `X` in their own unit, as before.
+
 Returns an `FitResult{Rigid3, RansacMetadata}` whose `estimate` is
-`X = T_RP`. The nuisance camera-in-world transform `Y` is **not**
+`X = T_RP` (for physical poses, `X` is the same map with its translation in
+metres). The nuisance camera-in-world transform `Y` is **not**
 computed by this pipeline.
 `iterations(result)` is the number of trials (hypotheses drawn); test
 `converged(result)` before reading the model (see [`RansacEstimate`](@ref)).
@@ -71,7 +83,7 @@ X = estimate(result)                # T_RP, the calibration
 ```
 """
 function find_hand_eye(
-        cs::AbstractVector{<:Cspond{<:EuclideanMap{3}, <:EuclideanMap{3}}};
+        cs::AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}};
         motion_pairs::Symbol = Symbol(_dflt("pipelines.hand_eye", "motion_pairs")),
         char_length::Union{Nothing, Real} = nothing,
         min_rel_angle::Real = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg")),
@@ -79,4 +91,14 @@ function find_hand_eye(
     )
     problem = HandEyeProblem(cs; motion_pairs, char_length, min_rel_angle)
     return _ransac_pipeline(problem, :hand_eye; kwargs...)
+end
+
+# Physical poses: stripped in metres once (with the lengths beside them), the
+# plain search, `X` read back in metres once.
+function find_hand_eye(
+        cs::AbstractVector{<:Cspond{<:_PhysicalPose3, <:_PhysicalPose3}};
+        threshold = nothing, char_length = nothing, kwargs...
+    )
+    plain = _map_csponds(_plain_metres, _plain_metres, cs)::AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}
+    return _in_metres(find_hand_eye(plain; threshold = _metres(threshold), char_length = _metres(char_length), kwargs...))
 end

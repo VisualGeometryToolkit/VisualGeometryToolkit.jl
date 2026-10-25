@@ -71,12 +71,18 @@ result = find_homography(pairs)
 # pairs, build the columnar container (`withattrs` takes a `Csponds`)
 result = find_homography(Csponds(sources(pairs), targets(pairs); score = similarities))
 ```
+
+Units: the source points are plain numbers. A homography maps from the source
+plane, so its entries carry that plane's unit, which a matrix cannot record:
+physical (unitful) source points are an `ArgumentError` — strip them in the
+unit you want the model in (`ustrip.(mm, X)`).
 """
 function find_homography(
         pairs::AbstractVector{<:Pair{<:_PlanePoint, <:_PlanePoint}};
         extent::Union{Nothing, HyperRectangle{2}} = nothing,
         kwargs...
     )
+    _refuse_physical_plane(pairs, "find_homography")
     _holds_minimal_sample(HomographyProblem, length(pairs)) || return nothing
     return _ransac_pipeline(_with_extent(HomographyProblem(pairs), extent), :homography; kwargs...)
 end

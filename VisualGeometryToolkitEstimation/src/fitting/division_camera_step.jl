@@ -773,6 +773,7 @@ end
 
 function _keyed_views(radial_cameras::AbstractDict, views::AbstractDict)
     ids = block_order(views, radial_cameras)          # one radial camera per view: the key sets must match
+    foreach(id -> _refuse_physical_plane(views[id], "the division camera"), ids)   # board points as the radial cameras took them
     Hs = [radial_cameras[id] for id in ids]
     boards = [views[id] for id in ids]
     return ids, Hs, boards
@@ -857,6 +858,11 @@ The robust driver's iteration 0 is this step at its seed,
     estimate(fit_division_camera(radial_cameras, views; ncoef, focal_seed, max_iter = 0))
 
 the same camera, bit for bit. For a converged estimate call the robust driver.
+
+Units: the board points are plain numbers. The radial cameras and the board
+poses carry the board plane's unit, which neither a matrix nor this result
+records, so physical (unitful) board points are an `ArgumentError`: strip
+them in the unit the radial cameras were fit in (`ustrip.(mm, X)`).
 """
 function division_camera_step(
         N::CspondNormalization,

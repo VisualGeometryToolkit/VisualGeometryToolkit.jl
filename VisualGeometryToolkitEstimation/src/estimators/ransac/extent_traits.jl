@@ -106,7 +106,7 @@ extent_trait(::AbstractRansacProblem) = NoExtent()
 # which directions the camera images.
 @inline function _check_extent(
         et::WithExtent{<:HyperRectangle{2}}, p,
-        pose::EuclideanMap{3, Float64}, _mask
+        pose::PlainEuclideanMap{3, Float64}, _mask
     )
     C = rect_corners(et.extent)                     # VGC's CCW board corners, lifted to z = 0
     R = rotation(pose); t = translation(pose)

@@ -50,7 +50,7 @@
 # =============================================================================
 
 """
-    RobotWorldHandEyeCalibration{K}
+    RobotWorldHandEyeCalibration{K, P}
     RobotWorldHandEyeCalibration(Y, X::AbstractDict{K, <:EuclideanMap{3}})
 
 Result value of [`fit_robot_world_hand_eye`](@ref) and [`refine_robot_world_hand_eye`](@ref) (and
@@ -58,7 +58,9 @@ the guess [`refine_robot_world_hand_eye`](@ref) takes): the shared camera-in-ref
 transform `Y = T_WC`, the per-marker rig-mount transforms `X[id] = T_RP(id)`
 keyed by the caller's marker ids, and `ids`, those keys sorted — the block
 order of the covariance on the result's metadata. The constructor derives `ids`
-from `X`'s keys and stores the transforms as `Rigid3` (unlabeled).
+from `X`'s keys and stores the transforms unlabeled, all of one form `P`: plain
+(`Rigid3`), or physical — translations in metres — when `Y` and `X` are
+(a mix is a `MethodError`).
 
 Robot-world/hand-eye calibration is the literature's name for `AX = YB`
 (Zhuang, Roth & Shah 1994; Dornaika & Horaud 1998). Ours is the EYE-TO-HAND
@@ -67,16 +69,27 @@ with frames in the stack's `T_AB` notation: `Y = T_WC`, `X_m = T_RPm`,
 `A_i = T_WR` (the rig pose at frame i) and `B_i^m = T_CPm` (marker m in the
 camera at frame i). Function names do not encode frames.
 """
-struct RobotWorldHandEyeCalibration{K}
-    Y::Rigid3
-    X::Dict{K, Rigid3}
+struct RobotWorldHandEyeCalibration{K, P <: EuclideanMap{3}}
+    Y::P
+    X::Dict{K, P}
     ids::Vector{K}
 end
-function RobotWorldHandEyeCalibration(Y::EuclideanMap{3}, X::AbstractDict{K, <:EuclideanMap{3}}) where {K}
+function RobotWorldHandEyeCalibration(Y::PlainEuclideanMap{3}, X::AbstractDict{K, <:PlainEuclideanMap{3}}) where {K}
     ids = block_order(X)
-    return RobotWorldHandEyeCalibration{K}(
+    return RobotWorldHandEyeCalibration{K, Rigid3}(
         convert(Rigid3, unlabel(Y)), Dict{K, Rigid3}(id => convert(Rigid3, unlabel(X[id])) for id in ids), ids
     )
+end
+RobotWorldHandEyeCalibration(Y::_PhysicalPose3, X::AbstractDict{K, <:_PhysicalPose3}) where {K} =
+    _in_metres(RobotWorldHandEyeCalibration(_plain_metres(Y), Dict{K, Rigid3}(id => convert(Rigid3, unlabel(_plain_metres(T))) for (id, T) in X)))
+
+# A calibration's two forms, through its poses: the plain one in metres, and a
+# plain one read as metres (the boundary of `fit_`/`refine_robot_world_hand_eye`).
+_plain_metres(cal::RobotWorldHandEyeCalibration{K, <:_PhysicalPose3}) where {K} =
+    RobotWorldHandEyeCalibration{K, Rigid3}(_plain_metres(cal.Y), Dict{K, Rigid3}(id => _plain_metres(T) for (id, T) in cal.X), cal.ids)
+function _in_metres(cal::RobotWorldHandEyeCalibration{K, Rigid3}) where {K}
+    Y = _in_metres(cal.Y)
+    return RobotWorldHandEyeCalibration{K, typeof(Y)}(Y, Dict{K, typeof(Y)}(id => _in_metres(T) for (id, T) in cal.X), cal.ids)
 end
 
 # The calibration's chart: VGC's product of `RigidExpManifold6` blocks
@@ -183,7 +196,7 @@ end
 
 # A rigid transform as static Float64 (R, t), `unlabel`ed at the boundary; a
 # non-finite one is named (`what` of marker `id`'s element `j`).
-function _finite_pose(T, id, j, what)
+function _finite_pose(T::PlainEuclideanMap{3}, id, j, what)
     a = unlabel(T)
     R = SMatrix{3, 3, Float64, 9}(rotation(a)); t = SVector{3, Float64}(translation(a))
     (all(isfinite, R) && all(isfinite, t)) ||
@@ -436,6 +449,17 @@ means, translation normal equations) carries the noise through. It is
 reported with the observability diagnostics (`min_eigval`/`min_eigvec` of the
 residual's `JᵀJ`), and is `Inf` when `JᵀJ` is rank-deficient.
 
+# Units
+The poses are plain or physical, all one form. Physical poses (translations
+in lengths) are read in metres at entry — exactly, the stored value — the
+solve runs on plain metres, and the calibration comes back physical (`Y`, `X`
+in metres), equal after `ustrip(m, ·)` to the plain fit's on the poses'
+`ustrip(m, ·)`. A supplied `σ_trans` is then a length too (a plain number
+beside physical poses is a `DimensionError`). The metadata stay plain numbers
+whose length is the translation's unit — metres for physical poses: the
+residuals, the covariance's translation entries, `σ_trans`. Plain poses give
+a plain calibration in their own unit, as before.
+
 Inputs must be finite valid rigid transforms (`ArgumentError` otherwise);
 domain-specific gross-outlier gates (depth windows, cheirality) belong at
 the call site, upstream of this fit.
@@ -444,7 +468,7 @@ See also [`find_hand_eye`](@ref) for the ratio form `A_ij X = X B_ij` (no
 pose prior, RANSAC) which eliminates `Y` instead of estimating it.
 """
 function fit_robot_world_hand_eye(
-        markers::AbstractDict{K, <:AbstractVector{<:Cspond{<:EuclideanMap{3}, <:EuclideanMap{3}}}};
+        markers::AbstractDict{K, <:AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}};
         σ_rot::Union{Nothing, Real} = nothing,
         σ_trans::Union{Nothing, Real} = nothing,
         min_rel_angle::Real = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg"))
@@ -485,6 +509,17 @@ function fit_robot_world_hand_eye(
     )
     obs = (; RA, tA, obs_marker, RB, tB, pairs, axes_A, by_marker)
     return _fit_robot_world_hand_eye_report(cal, _robot_world_hand_eye_manifold(cal, Val(M + 1)), obs, counts, σ_rot, σ_trans)
+end
+
+# Physical poses: stripped in metres once (with σ_trans), the plain fit, the
+# calibration read back in metres once.
+function fit_robot_world_hand_eye(
+        markers::AbstractDict{K, <:AbstractVector{<:Cspond{<:_PhysicalPose3, <:_PhysicalPose3}}};
+        σ_trans = nothing, kwargs...
+    ) where {K}
+    plain = Dict(id => _map_csponds(_plain_metres, _plain_metres, cs) for (id, cs) in markers)::
+        AbstractDict{K, <:AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}}
+    return _in_metres(fit_robot_world_hand_eye(plain; σ_trans = _metres(σ_trans), kwargs...))
 end
 
 # The report at the staged estimate, in its chart `P` (a function barrier: P's

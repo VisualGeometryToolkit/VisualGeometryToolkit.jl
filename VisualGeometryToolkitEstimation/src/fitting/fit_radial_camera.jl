@@ -36,11 +36,17 @@ fit, whatever the whitening policy. When the constraint rows leave more than
 one null direction (a degenerate configuration — the plane points on a line,
 or a pixel on the centre) the retcode is `:degenerate`, the camera NaN and the
 rms NaN.
+
+Units: the source points are plain numbers. A radial camera maps from the source
+plane, so its entries carry that plane's unit, which a matrix cannot record:
+physical (unitful) source points are an `ArgumentError` — strip them in the
+unit you want the model in (`ustrip.(mm, X)`).
 """
 function fit_radial_camera(
         cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}}; center,
         whitening::WhiteningPolicy = SampsonWhitening(), iterations::Int = 2
     )
+    _refuse_physical_plane(cs, "fit_radial_camera")
     iterations >= 1 || throw(ArgumentError("fit_radial_camera: iterations must be ≥ 1 (0 would return the unfitted seed), got $iterations"))
     # The problem's one construction (canonical data, the radial camera's
     # normalization, the normalized view — where the pencil's centre is the

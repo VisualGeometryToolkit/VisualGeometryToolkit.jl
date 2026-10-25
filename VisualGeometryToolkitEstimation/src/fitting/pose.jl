@@ -28,6 +28,16 @@ P3P minimal sample).
 `iterations(result)` is the number of trials (hypotheses drawn); test
 `converged(result)` before reading the model (see [`RansacEstimate`](@ref)).
 
+# Units
+The world points are plain numbers or lengths, all one form. Lengths
+(FlexUnits quantities, e.g. `X .* m`) are read in metres at entry — exactly,
+the stored value — the search runs on plain metres, and the pose comes back
+physical: a unitful `CameraExtrinsics`, its translation in metres, equal after
+`ustrip(m, ·)` to the plain search's on `ustrip(m, X)` with the same `rng`.
+Plain points give a plain pose in their own unit, as before. The residuals,
+`rms` and `sigma` are pixels either way. A unitful `extent` goes with unitful
+points (a plain one with plain points).
+
 # Arguments
 - `correspondences`: `X => u` pairs (world point => raw pixel) — `Csponds`,
   `StructArray{<:Pair}` or a Pair vector; a `Csponds` `:score` column is the
@@ -48,11 +58,24 @@ result = find_absolute_pose(camera_model, correspondences; threshold=10.0)
 """
 function find_absolute_pose(
         camera_model::CameraModel,
-        pairs::AbstractVector{<:Pair{<:StaticVector{3}, <:StaticVector{2}}};
-        extent::Union{Nothing, HyperRectangle{2}} = nothing,
+        pairs::AbstractVector{<:Pair{<:StaticVector{3, <:Real}, <:StaticVector{2}}};
+        extent::Union{Nothing, HyperRectangle{2, <:Real}} = nothing,
         kwargs...
     )
     _holds_minimal_sample(AbsolutePoseProblem, length(pairs)) || return nothing
     problem = _with_extent(AbsolutePoseProblem(camera_model, pairs), extent)
     return _ransac_pipeline(problem, :absolute_pose; kwargs...)
+end
+
+# Physical world points: stripped in metres once, the plain search, the pose
+# read back in metres once.
+function find_absolute_pose(
+        camera_model::CameraModel,
+        pairs::AbstractVector{<:Pair{<:_PhysicalPoint3, <:StaticVector{2}}};
+        extent::Union{Nothing, HyperRectangle{2, <:Quantity}} = nothing,
+        kwargs...
+    )
+    plain = _map_csponds(_plain_metres, identity, pairs)::AbstractVector{<:Pair{<:StaticVector{3, <:Real}}}
+    result = find_absolute_pose(camera_model, plain; extent = extent === nothing ? nothing : _plain_metres(extent), kwargs...)
+    return result === nothing ? nothing : _in_metres(result)
 end

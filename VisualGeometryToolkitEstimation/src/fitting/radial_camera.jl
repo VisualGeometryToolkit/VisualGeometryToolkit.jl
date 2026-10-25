@@ -22,6 +22,11 @@ boards), so the solve is closed form with no root to pick.
 and the trial bounds to its `[ransac]` table. `threshold` builds the
 default scoring only; supplying it with `scoring` is an `ArgumentError`. The
 other keywords as [`find_homography`](@ref).
+
+Units: the source points are plain numbers. A radial camera maps from the source
+plane, so its entries carry that plane's unit, which a matrix cannot record:
+physical (unitful) source points are an `ArgumentError` — strip them in the
+unit you want the model in (`ustrip.(mm, X)`).
 """
 function find_radial_camera(
         pairs::AbstractVector{
@@ -31,6 +36,7 @@ function find_radial_camera(
         extent::Union{Nothing, HyperRectangle{2}} = nothing,
         kwargs...
     )
+    _refuse_physical_plane(pairs, "find_radial_camera")
     _holds_minimal_sample(RadialCameraProblem, length(pairs)) || return nothing
     problem = _with_extent(RadialCameraProblem(pairs; center), extent)
     return _ransac_pipeline(problem, :radial_camera; kwargs...)

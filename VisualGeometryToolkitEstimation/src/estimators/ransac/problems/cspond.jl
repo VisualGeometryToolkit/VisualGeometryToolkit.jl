@@ -210,6 +210,9 @@ _canonicalize_pairs(pairs) = _canonicalize_pairs(
 # A plane-point endpoint as the public `find_*` signatures accept it: a 2-vector,
 # plain or with its measurement noise (`Uncertain`, `exact`).
 const _PlanePoint = Union{StaticArrays.StaticVector{2}, VgtkCore.Uncertain{<:StaticArrays.StaticVector{2}}}
+# A world-point endpoint of the absolute-pose problem: plain numbers, with or
+# without measurement noise (physical points are stripped by the public entry).
+const _PlainPoint3 = Union{StaticArrays.StaticVector{3, <:Real}, VgtkCore.Uncertain{<:StaticArrays.StaticVector{3, <:Real}}}
 
 # The scalar of an endpoint type, through an `Uncertain` (or `exact`) wrapper.
 _point_scalar(::Type{P}) where {P} = eltype(P)
@@ -804,9 +807,14 @@ Welsch lift run on VGC's full-camera `constraint_with_jacobians(model, pose,
 X, u)`. A `Pinhole` model keeps the classic calibrated kernels
 (bit-identical to before). Nothing is undistorted: supply the detections as
 measured and the camera as calibrated.
+
+The world points are plain numbers (`StaticVector{3, <:Real}`, or an
+`Uncertain` one): a problem is the inner loop, and physical points (lengths)
+are a `MethodError` here — [`find_absolute_pose`](@ref) takes them and strips
+them in metres once.
 """
 function AbsolutePoseProblem(
-        model::CameraModel, pairs;
+        model::CameraModel, pairs::AbstractVector{<:Pair{<:_PlainPoint3}};
         backend::AbstractSolverBackend = NativeSolver()
     )
     smplr = _problem_sampler(pairs, 3, nothing)

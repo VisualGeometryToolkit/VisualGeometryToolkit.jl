@@ -45,6 +45,11 @@ chart-rows provider makes LocalOptimizationDoneRight's lifts available on the
 same manifold.
 
 The other keywords as [`find_homography`](@ref).
+
+Units: the source points are plain numbers. A radial homography maps from the source
+plane, so its entries carry that plane's unit, which a matrix cannot record:
+physical (unitful) source points are an `ArgumentError` — strip them in the
+unit you want the model in (`ustrip.(mm, X)`).
 """
 function find_radial_homography(
         pairs::AbstractVector{
@@ -56,6 +61,7 @@ function find_radial_homography(
         minimal::Symbol = :radial,
         kwargs...
     )
+    _refuse_physical_plane(pairs, "find_radial_homography")
     _holds_minimal_sample(_radial_sample_size(minimal), length(pairs)) || return nothing
     problem = _with_extent(RadialHomographyProblem(pairs; center, extra_check, minimal), extent)
     return _ransac_pipeline(problem, :radial_homography; kwargs...)

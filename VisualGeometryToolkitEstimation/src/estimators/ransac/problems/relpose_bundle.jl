@@ -352,7 +352,7 @@ function residual_jacobian_rows!(J::SparseMatrixCSC{Float64, Int}, lm::_RelposeB
 end
 
 """
-    bundle_refine_relpose(pose::EuclideanMap{3}, K1, K2, cs; max_iter)   # default: configs/default.toml [relpose_bundle]
+    bundle_refine_relpose(pose::PlainEuclideanMap{3}, K1, K2, cs; max_iter)   # default: configs/default.toml [relpose_bundle]
         -> Union{EuclideanMap{3}, Nothing}
 
 Robust full-3D two-view bundle adjustment of a relative pose: the exact
@@ -365,9 +365,14 @@ correspondences, a solver failure).
 `K2` (reprojection is `π(Kᵢ·X)`), any `sources`/`targets` container; per-point
 weights are its `weights` column when it has one (e.g. `withattrs(cs; weights
 = w)`, the IRLS posterior), unit otherwise.
+
+The seed is a plain pose (a physical one is a `MethodError`): two views fix a
+relative pose only up to scale, so its translation is a direction — read
+unit-normalized, returned with unit norm — and no length enters or leaves. A
+physical seed is stripped by the caller in any unit (`ustrip(m, pose)`).
 """
 function bundle_refine_relpose(
-        pose::EuclideanMap{3}, K1::AbstractMatrix, K2::AbstractMatrix,
+        pose::PlainEuclideanMap{3}, K1::AbstractMatrix, K2::AbstractMatrix,
         cs::AbstractVector{<:Pair}; max_iter::Int = _dflt("relpose_bundle", "max_iter")
     )
     u1 = sources(cs); u2 = targets(cs)

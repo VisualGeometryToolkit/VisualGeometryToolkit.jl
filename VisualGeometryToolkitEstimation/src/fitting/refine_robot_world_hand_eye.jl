@@ -78,11 +78,21 @@ inside the lens's domain): an `ArgumentError` names the first that does not.
 
 The covariance is VGC's `implicit_covariance` over the reprojection rows at
 the estimate times `ŝ² = RSS/dof` — see [`RobotWorldHandEyeMetadata`](@ref).
+
+# Units
+The guess, the rig poses and the marker points are plain or physical, all one
+form (a mix is a `MethodError`). Physical ones (lengths) are read in metres
+at entry — exactly, the stored value — the LM runs on plain metres, and the
+calibration comes back physical (`Y`, `X` in metres), equal after
+`ustrip(m, ·)` to the plain refinement's on the inputs' `ustrip(m, ·)`. The
+residuals and `rms` are pixels either way; the covariance's translation
+entries are plain numbers in the translation's unit, metres for physical
+inputs. Plain inputs give a plain calibration in their own unit, as before.
 """
 function refine_robot_world_hand_eye(
-        guess::RobotWorldHandEyeCalibration{K}, camera::CameraModel,
+        guess::RobotWorldHandEyeCalibration{K, <:PlainEuclideanMap{3}}, camera::CameraModel,
         markers::AbstractDict{
-            K, <:AbstractVector{<:Cspond{<:EuclideanMap{3}, <:AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{2}}}}},
+            K, <:AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}}},
         };
         max_iter::Int = _dflt("refine_robot_world_hand_eye", "max_iter")
     ) where {K}
@@ -109,6 +119,22 @@ function refine_robot_world_hand_eye(
     N = 6 * (M + 1)
     2n > N || throw(ArgumentError("underdetermined: $n points ($(2n) residuals) for $N unknowns"))
     return _refine_robot_world_hand_eye(Val(M + 1), guess, counts, camera, RA, tA, pt_frame, pt_marker, Xs, us, max_iter)
+end
+
+# Physical inputs: the guess, the rig poses and the points stripped in metres
+# once, the plain refinement, the calibration read back in metres once.
+function refine_robot_world_hand_eye(
+        guess::RobotWorldHandEyeCalibration{K, <:_PhysicalPose3}, camera::CameraModel,
+        markers::AbstractDict{
+            K, <:AbstractVector{<:Cspond{<:_PhysicalPose3, <:AbstractVector{<:Cspond{<:_PhysicalPoint3, <:StaticVector{2}}}}},
+        };
+        kwargs...
+    ) where {K}
+    features(fs) = _map_csponds(_plain_metres, identity, fs)
+    plain = Dict(id => _map_csponds(_plain_metres, features, els) for (id, els) in markers)::AbstractDict{
+        K, <:AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}}},
+    }
+    return _in_metres(refine_robot_world_hand_eye(_plain_metres(guess), camera, plain; kwargs...))
 end
 
 # One point's reprojection residual as a function of its 12 chart coordinates

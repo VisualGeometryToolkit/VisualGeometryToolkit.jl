@@ -55,6 +55,11 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
 # THE estimator result type and the accessors RVG reads it through (VGC
 # base/fit_result.jl). Every fit here returns a FitResult.
 using VisualGeometryToolkitCore: FitResult, estimate, retcode, iterations, weights
+# Units at the boundary (src/units.jl; VGC conventions/units.md): a public
+# estimator strips a physical input in metres at entry and reattaches metres at
+# exit; the inner loop takes plain maps (`PlainEuclideanMap`) and plain points.
+using FlexUnits: Quantity
+using VisualGeometryToolkitCore: PlainEuclideanMap, UnitfulEuclideanMap, ustrip, DimensionError, rms, metadata
 using VisualGeometryToolkitCore: CspondNormalization   # the correspondence normalization, chosen per model (VGC solver layer)
 # The benchmark pool record and the raw-pair interface (VGC Pools): RVG writes
 # the record (`PoolPair(rng, problem, raw)`, a constructor method on VGC's type
@@ -314,6 +319,7 @@ public default_config_path, local_optimization_from_toml, lo_from_toml, config_d
 include("interface.jl")
 # configs/default.toml → `_dflt`: MUST precede every config-carrying struct.
 include("config_defaults.jl")
+include("units.jl")              # the estimators' one strip at entry and one reattachment at exit
 
 # The generic loop (block_coordinate_descent!) is hoisted to VGC
 # robust/block_coordinate_descent.jl (imported above). The scale, mixture and

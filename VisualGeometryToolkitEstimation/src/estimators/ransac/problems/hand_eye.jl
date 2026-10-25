@@ -114,7 +114,10 @@ Build a `HandEyeProblem` from synchronized absolute-pose observations.
   (`motion_pairs = :consecutive` pairs neighbours): `A_i => B_i`, the
   rig-in-world pose (e.g. mocap) and the pattern-in-camera pose (e.g. PnP;
   labeled `Extrinsics3` accepted — unlabeled at the boundary). Any
-  `sources`/`targets` container of `Cspond{<:EuclideanMap{3}, <:EuclideanMap{3}}`.
+  `sources`/`targets` container of `Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}`:
+  plain translations, in one length unit — a problem is the inner loop, and a
+  physical (unitful) pose is a `MethodError` here; [`find_hand_eye`](@ref)
+  takes physical poses and strips them in metres once.
 
 # Keywords
 - `motion_pairs::Symbol` — `:consecutive` uses pairs `(i, i+1)` yielding
@@ -135,7 +138,7 @@ motions rotate at least `min_rel_angle` (no minimal sample could satisfy the gat
 refused here rather than as a `:no_model` after every RANSAC trial).
 """
 function HandEyeProblem(
-        cs::AbstractVector{<:Cspond{<:EuclideanMap{3}, <:EuclideanMap{3}}};
+        cs::AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}};
         motion_pairs::Symbol = Symbol(_dflt("pipelines.hand_eye", "motion_pairs")),
         char_length::Union{Nothing, Real} = nothing,
         min_rel_angle::Real = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg"))
@@ -201,7 +204,7 @@ test_model(::HandEyeProblem, X::Rigid3, ::AbstractVector{Int}) =
 # coordinates of A∘X in VGC's decoupled chart at X∘B (`local_coordinates`:
 # Log(R_A R_X R_Bᵀ R_Xᵀ) and R_A t_X + t_A − R_X t_B − t_X), the rotation block
 # scaled by L. Eltype-generic, so ForwardDiff Duals flow through X.
-@inline function _hand_eye_constraint(L, X::EuclideanMap{3}, A_ij, B_ij)
+@inline function _hand_eye_constraint(L, X::PlainEuclideanMap{3}, A_ij, B_ij)
     δ = local_coordinates(RigidExpManifold6(X ∘ B_ij), A_ij ∘ X)
     return SVector(L * δ[1], L * δ[2], L * δ[3], δ[4], δ[5], δ[6])
 end
@@ -374,8 +377,8 @@ all-pair frames. Discards pairs whose rig or pattern motion rotates less than
 every motion kept succeeds at it — and throws when fewer than two remain.
 """
 function _form_relative_motions(
-        A::AbstractVector{<:EuclideanMap{3}},
-        B::AbstractVector{<:EuclideanMap{3}},
+        A::AbstractVector{<:PlainEuclideanMap{3}},
+        B::AbstractVector{<:PlainEuclideanMap{3}},
         mode::Symbol,
         min_angle::Float64
     )

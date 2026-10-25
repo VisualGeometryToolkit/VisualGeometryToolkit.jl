@@ -12,7 +12,8 @@
 # Sampling: PROSAC (scored correspondences) or uniform (unscored).
 # =============================================================================
 
-# Pose arguments below are annotated `EuclideanMap{3, Float64}`, not the
+# Pose arguments below are annotated `PlainEuclideanMap{3, Float64}` (plain
+# numbers: the inner loop; a physical pose is a `MethodError`), not the
 # labeled `Extrinsics3` model alias: the LO/IRLS loop's in-flight iterates are
 # rebuilt as UNLABELED maps (left-retraction recentering), while workspace
 # models carry the Extrinsics3 labels — both must dispatch here. Labels
@@ -23,7 +24,7 @@
 # participation rule (`_pnp_participates`) turns it into VGC's out-of-field
 # residual: an outlier, not a NaN in the sort. `residuals!` is
 # VisualGeometryToolkitCore's loop over this.
-@inline function whitened_residual(p::AbsolutePoseProblem, pose::EuclideanMap{3, Float64}, i::Int)
+@inline function whitened_residual(p::AbsolutePoseProblem, pose::PlainEuclideanMap{3, Float64}, i::Int)
     e = @inbounds VgtkCore.reprojection_error(p.context.model, pose, sources(p.cs)[i], targets(p.cs)[i])
     _pnp_participates(e) || return VgtkCore.OUT_OF_FIELD_RESIDUAL
     return norm(e)
@@ -172,7 +173,7 @@ end
     return thin_ratio(chart(ua, da), chart(ub, db), chart(uc, dc))
 end
 
-function test_model(::AbsolutePoseProblem, pose::EuclideanMap{3, Float64}, ::AbstractVector{Int})
+function test_model(::AbsolutePoseProblem, pose::PlainEuclideanMap{3, Float64}, ::AbstractVector{Int})
     return all(isfinite, translation(pose))
 end
 
@@ -186,7 +187,7 @@ end
 # G_θ its 2×6 Jacobian along LeftRigidManifold6 at the pose. A point the lens
 # cannot place (`_pnp_participates`) is the out-of-field sentinel with a zero
 # model row: an outlier, never a NaN in the sweep.
-@inline function constraint_with_jacobians(p::AbsolutePoseProblem, pose::EuclideanMap{3, Float64}, i::Int)
+@inline function constraint_with_jacobians(p::AbsolutePoseProblem, pose::PlainEuclideanMap{3, Float64}, i::Int)
     e, G_x, G_θ, valid = _pnp_pixel_row(p, pose, i)
     valid && return (e, G_x, G_θ)
     return (SVector{2, Float64}(VgtkCore.OUT_OF_FIELD_RESIDUAL, 0.0), G_x, zero(G_θ))

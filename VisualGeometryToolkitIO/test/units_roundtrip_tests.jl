@@ -213,3 +213,32 @@ end
     end
     @test n_exact > 17_000
 end
+
+@testitem "units: a rig's identity survives a load, full-precision numbers included" setup = [VGIoFixtures] begin
+    using VisualGeometryToolkitCore: Rig, TargetPoints2D
+    # 287.15788802842013 mm has no metre value that writes back to it (it comes
+    # back 287.1578880284201): a file of computed mounts names the same targets
+    # loaded or by path.
+    fixtures = joinpath(@__DIR__, "fixtures", "units")
+    mktempdir() do dir
+        for name in ("rig.json", "rig_targets.json")
+            p = joinpath(dir, name)
+            write(p, replace(read(joinpath(fixtures, name), String), "251.9" => "287.15788802842013"))
+            @test occursin("287.15788802842013", read(p, String))
+            @test content_id(p) == content_id(load(Rig, p))
+        end
+        # a measurement file naming the targets by path resolves against the loaded rig
+        p = joinpath(dir, "rig_targets.json")
+        id = content_id(p)
+        obs_src = joinpath(fixtures, "target_points2d.json")
+        old_id = only(load(TargetPoints2D, obs_src).targets)
+        obs_path = joinpath(dir, "target_points2d.json")
+        write(obs_path, replace(read(obs_src, String), old_id => id))
+        obs = load(TargetPoints2D, obs_path)
+        out = joinpath(dir, "correspondences.json")
+        @test save_correspondences(PixelFrame{:opencv}, out, obs, load(Rig, p)) == out
+        @test save_correspondences(PixelFrame{:opencv}, out, obs, p) == out
+        # a file whose numbers round-trip keeps the identity it always had
+        @test content_id(joinpath(fixtures, "rig_targets.json")) == old_id
+    end
+end

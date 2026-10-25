@@ -333,8 +333,9 @@ targets (each `Mounted`, minted `TargetFrame{id} → frame` on access), or both.
 [`target_from_json`](@ref)). Type-unstable by nature (frame types are minted
 from file data) — load once, dispatch after.
 """
-function load(::Type{Rig}, path::AbstractString; resolve = nothing)
-    d = _read_store(path, "rig", _RIG_SPEC)
+load(::Type{Rig}, path::AbstractString; resolve = nothing) = _rig_from_record(_read_store(path, "rig", _RIG_SPEC); resolve)
+
+function _rig_from_record(d; resolve = nothing)
     F = frame_from_name(d.frame::String)
     unit = d.length_unit::String
     haskey(d, :targets) || return Rig{F}((_load_sensors(d, F, unit)...,))
@@ -367,7 +368,9 @@ end
 The identity a measurement file (`target_points2d`, `target_points3d`) names a
 target definition by — `targets` a `Rig` or a `vgio/rig/v4` path: the SHA-256
 of the canonical JSON of its rig record WITHOUT its provenance. A rig and the file written from it (in the
-default millimetres) have the same identity; a relabeled provenance does not change it, a file written in
+default millimetres) have the same identity, as do a file and the rig loaded from it (a path is hashed as
+the record its loaded rig writes, in the file's `length_unit`, so a full-precision number that does not
+survive into metres does not split the two); a relabeled provenance does not change it, a file written in
 another `length_unit` has its own. A measurement value's `targets` holds
 these.
 """
@@ -376,8 +379,18 @@ content_id(x::Union{Rig, AbstractString}) = _targets_hash(x)
 # The identity observations name a targets file by: the SHA-256 of the
 # canonical JSON (canonical.jl) of the record WITHOUT its provenance, so a
 # relabeled provenance does not change which targets a file resolves against.
-# The same for a file on disk and for the rig it was written from.
-_targets_hash(path::AbstractString) = _hash_record(_read_store(path, "rig", _RIG_SPEC))
+# The same for a file on disk and for the rig it was written from, and for a
+# file and the rig loaded from it: a path is hashed as the record its loaded
+# rig writes, in the file's own `length_unit`. A file's numbers are lengths read
+# into metres; a 16–17 digit one need not come back (the decimal-to-metre map
+# is not injective), so hashing the file's own bytes would give a loaded rig
+# another identity than its file. A number of ≤ 15 significant digits comes
+# back byte for byte, so such a file keeps the identity of its bytes.
+function _targets_hash(path::AbstractString)
+    d = _read_store(path, "rig", _RIG_SPEC)
+    rig = _rig_from_record(d)                 # a referenced design stays a reference
+    return _hash_record(_parse_json(_json(_rig_body(rig, parse_unit(d.length_unit::String)))))
+end
 _targets_hash(rig::Rig) = _hash_record(_parse_json(_json(_rig_body(rig))))
 _hash_record(d) = sha256_hex(canonical_json(_lower(d; drop = :provenance)))
 
@@ -390,9 +403,9 @@ const _HEX64 = _Named(s -> length(s) == 64 && all(c -> c in "0123456789abcdef", 
 
 # A targets argument — a Rig, a targets file, or several (one per connected
 # component) — as a list, its loaded rigs, and its content hashes. A PATH is
-# hashed as the file it is, a Rig as the record `save` writes for it: the two
-# agree for a file written from that rig, and a file migrated from v1 keeps its
-# own bytes' identity.
+# hashed as the record its loaded rig writes (in the file's unit), a Rig as the
+# record `save` writes for it: the two agree for a file written from that rig
+# and for a rig loaded from that file.
 _target_list(t::Union{Rig, AbstractString}) = Any[t]
 _target_list(ts::Union{AbstractVector, Tuple}) = collect(Any, ts)
 _target_rigs(ts; resolve = nothing) = [_target_rig(t; resolve) for t in _target_list(ts)]

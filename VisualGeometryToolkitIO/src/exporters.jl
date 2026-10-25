@@ -16,7 +16,8 @@
 # sensor body S in the reference R). Times are the trajectory's (seconds since
 # its `time_origin`), written as the format's timestamp.
 
-_pose_m(X) = (g = geom(X); (SVector{3, Float64}(ustrip.(m, quantity.(g.t, mm))), _qvec(g.R)))
+# A physical pose's translation in metres and its quaternion; a plain one is refused.
+_pose_m(X) = (g = geom(X); (_lengths_json(g.t, m, "the exported pose's translation"), _qvec(g.R)))
 
 function _stamps(tr::Trajectory, ts, stamp::Symbol)
     stamp === :index && return Float64.(ts)
@@ -125,7 +126,9 @@ function save_bop_scene(
         gt[string(t)] = map(sort!(collect(keys(tp.frames[t])))) do id
             X = geom(tp.frames[t][id])
             R = SMatrix{3, 3, Float64}(X.R)
-            Dict("cam_R_m2c" => vec(collect(R')), "cam_t_m2c" => collect(Float64, ustrip.(mm, _interior_t(X))), "obj_id" => ids[id])
+            t_mm = _lengths_json(X.t, mm, "save_bop_scene: target $(id)'s pose translation")
+            all(isfinite, t_mm) || throw(ArgumentError("save_bop_scene: frame $(t), target $(id): `cam_t_m2c` is not finite"))
+            Dict("cam_R_m2c" => vec(collect(R')), "cam_t_m2c" => t_mm, "obj_id" => ids[id])
         end
     end
     mkpath(dir)
@@ -193,7 +196,7 @@ function save_trc(path::AbstractString, obs::TargetPoints3D; data_rate::Union{No
         for (k, (t, s)) in enumerate(zip(ts, times))
             row = fill("", 3 * length(markers))
             for o in obs.frames[t]
-                p = geom(o.xyz)
+                p = _lengths_json(geom(o.xyz), mm, "save_trc: a 3D target point")   # TRC's Units: mm
                 j = 3 * (col[(o.target, o.index)] - 1)
                 row[j + 1], row[j + 2], row[j + 3] = string(p[1]), string(p[2]), string(p[3])
             end

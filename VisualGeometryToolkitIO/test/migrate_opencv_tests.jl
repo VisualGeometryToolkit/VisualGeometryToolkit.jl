@@ -51,10 +51,11 @@
             (VgtkCore.TargetFrame{:calibration_target}, VgtkCore.ViewFrame{Symbol("IMG_0001.png")}),
             (VgtkCore.TargetFrame{:calibration_target}, VgtkCore.ViewFrame{Symbol("IMG_0003.png")}),
         ]
-        # the OpenCV read's values: the translation bit for bit (metres → mm by the reader:
-        # 0.0122 m is 12.200000000000001 mm), the rotation to the quaternion encoding's precision
+        # the OpenCV read's values: the translation bit for bit (written in the
+        # export's own unit, metres), the rotation to the quaternion encoding's precision
         @test poses[1].t == cal.poses[1].t && maximum(abs, Matrix(poses[1].R) - Matrix(cal.poses[1].R)) <= 8 * eps()
-        @test poses[1].t ≈ SVector(170.0, 12.2, 1396.9)
+        @test ustrip.(m, poses[1].t) == [0.17, 0.0122, 1.3969]
+        @test parse_json(read(r.poses, String)).length_unit == "m"
         @test poses[2].t == cal.poses[3].t && maximum(abs, Matrix(poses[2].R) - Matrix(cal.poses[3].R)) <= 8 * eps()
 
         # nothing is overwritten

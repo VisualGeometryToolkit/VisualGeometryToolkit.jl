@@ -56,8 +56,10 @@
             @test length(poses) == length(posed)
             for (rec, (n, p)) in zip(poses, posed)
                 @test VgtkIO._pose_frames(rec) == (VgtkCore.TargetFrame{:aprilgrid_matlab}, VgtkCore.ViewFrame{Symbol(n)})
-                # the reader's values (fisheye twist and all): the translation bit for bit, the rotation to the encoding's precision
-                @test rec.t == p.t && maximum(abs, Matrix(rec.R) - Matrix(p.R)) <= 8 * eps()
+                # the reader's values: the translation bit for bit (a fisheye's twisted, computed one
+                # to the mm file's 2 ulp), the rotation to the encoding's precision
+                @test VgtkIO._same_pose(rec, p) && maximum(abs, Matrix(rec.R) - Matrix(p.R)) <= 8 * eps()
+                lens_type === Scaramuzza || @test rec.t == p.t
             end
         end
         # MATLAB's documented frame is the default: the principal point moves by −0.5 into the canonical frame

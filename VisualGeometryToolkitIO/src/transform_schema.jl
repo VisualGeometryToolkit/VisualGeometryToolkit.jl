@@ -64,7 +64,7 @@ pose_declarations(unit::Units = mm) =
     (length_unit = unit_string(unit), rotation_encoding = _ROTATION_ENCODING, transform_convention = _TRANSFORM_CONVENTION)
 _pose_declarations(unit::AbstractString) = pose_declarations(parse_unit(unit))
 
-# A covariance as the wire's array of rows, and back.
+# A covariance with no length in it (px², or a ratio) as the wire's rows, and back.
 _cov_json(Σ::StaticMatrix) = [Float64[Σ[i, j] for j in axes(Σ, 2)] for i in axes(Σ, 1)]
 _cov_matrix(c, n::Int) = SMatrix{n, n, Float64}(ntuple(k -> Float64(c[(k - 1) % n + 1][(k - 1) ÷ n + 1]::Real), n * n))
 
@@ -75,31 +75,36 @@ _pose_frames(X::EuclideanMap{N, T, R, V, S, D}) where {N, T, R, V, S, D} = (S, D
 _pose_frames(u::Uncertain{<:EuclideanMap{3}}) = _pose_frames(geom(u))
 
 """
-    pose_json(X) -> NamedTuple
+    pose_json(X, unit = mm) -> NamedTuple
 
-A pose — a VGC `EuclideanMap{3}` or an `Uncertain` one, any labels — as the
-embedded `{rotation, translation[, covariance]}` of every pose-carrying kind:
-the rotation a w-x-y-z quaternion with w ≥ 0 (a `QuatRotation`'s own, exactly;
-any other rotation converted, reading back as a `QuatRotation`), the translation in millimetres,
-the 6×6 covariance (over `[δω; δt]`, rad and mm) iff `Uncertain`. Its frames
-are not written: they are given by where it sits. The inverse is
-[`pose_from_json`](@ref).
+A physical pose — a VGC `EuclideanMap{3}` whose translation is lengths, or an
+`Uncertain` one, any labels — as the embedded `{rotation, translation[,
+covariance]}` of every pose-carrying kind: the rotation a w-x-y-z quaternion
+with w ≥ 0 (a `QuatRotation`'s own, exactly; any other rotation converted,
+reading back as a `QuatRotation`), the translation in the length `unit`
+([`write_length`](@ref)), the 6×6 covariance (over `[δω; δt]`, rad and `unit`)
+iff `Uncertain`. Its frames are not written: they are given by where it sits.
+A plain translation is an `ArgumentError` (attach its unit,
+`EuclideanMap(rotation(X), t .* m)`). The inverse is [`pose_from_json`](@ref).
 """
-function pose_json(X::EuclideanMap{3})
-    t = ustrip.(mm, _interior_t(X))
-    return (rotation = collect(_qvec(X.R)), translation = Float64[t[1], t[2], t[3]])
+function pose_json(X::EuclideanMap{3}, unit::Units = mm)
+    t = _lengths_json(X.t, unit, "a pose's translation")
+    return (rotation = collect(_qvec(X.R)), translation = t)
 end
-pose_json(u::Uncertain{<:EuclideanMap{3}}) =
-    merge(pose_json(geom(u)), (covariance = _cov_json(SMatrix{6, 6, Float64, 36}(cov(u))),))
+function pose_json(u::Uncertain{<:EuclideanMap{3}}, unit::Units = mm)
+    body = pose_json(geom(u), unit)
+    return merge(body, (covariance = _length_cov_json(SMatrix{6, 6, Float64, 36}(cov(u)), unit, _POSE_COV_DIMS),))
+end
 
 """
     pose_from_json(p, unit::AbstractString) -> EuclideanMap{3} | Uncertain
 
 [`pose_json`](@ref)'s inverse: an embedded `{rotation, translation[,
 covariance]}` read in the file's length `unit` (a unit name), returned
-UNLABELED in millimetres — `Uncertain` iff a covariance is stated, its
-translation block moved to mm². The rotation is the stored quaternion itself,
-a `QuatRotation` (not renormalized, not converted to a matrix), so the value
+UNLABELED, its translation lengths in metres ([`read_length`](@ref)) —
+`Uncertain` iff a covariance is stated, its translation block in m² and its
+cross block in m·rad. The rotation is the stored quaternion itself, a
+`QuatRotation` (not renormalized, not converted to a matrix), so the value
 writes back to the same numbers. The quaternion must be unit-norm to 1e-6
 (refused otherwise, never normalized silently).
 """
@@ -108,17 +113,10 @@ function pose_from_json(p, unit::AbstractString)
     abs(norm(q) - 1) < 1.0e-6 || throw(
         ArgumentError("quaternion is not unit-norm (|q| = $(norm(q))); refusing to normalize silently")
     )
-    t = ustrip.(mm, quantity.(Float64.(p.translation::Vector{Any}), parse_unit(unit)))
-    X = _quat_map(canonical_qvec(q), t)
-    return haskey(p, :covariance) ? Uncertain(X, _pose_cov_mm(_cov_matrix(p.covariance::Vector{Any}, 6), unit)) : X
-end
-
-# The covariance of a pose in `unit`, moved to millimetres (the in-memory unit):
-# the translation rows and columns scale by mm-per-unit.
-function _pose_cov_mm(Σ::SMatrix{6, 6, Float64}, unit::AbstractString)
-    s = Float64(ustrip(mm, quantity(1.0, parse_unit(unit))))      # mm per `unit`
-    d = SVector{6, Float64}(1.0, 1.0, 1.0, s, s, s)
-    return CovMat(SMatrix{6, 6, Float64, 36}(Σ .* (d * d')))
+    u = parse_unit(unit)
+    X = _quat_map(canonical_qvec(q), _lengths_from_json(Val(3), p.translation::Vector{Any}, u))
+    haskey(p, :covariance) || return X
+    return Uncertain(X, CovMat(_length_cov_from_json(p.covariance::Vector{Any}, 6, u, _POSE_COV_DIMS)))
 end
 
 # A labeled pose's frame names, from its labels.
@@ -131,23 +129,25 @@ function _labeled_names(X)
 end
 
 """
-    save(path, poses::AbstractVector; provenance = (;))
+    save(path, poses::AbstractVector; length_unit = mm, provenance = (;))
 
-Write labeled rigid poses — `EuclideanMap{…, S, D}` or `Uncertain` ones — as a
-`vgio/transforms/v3` file: each record's `from`/`to` are its labels' frame
-names ([`frame_name`](@ref)), its translation in millimetres, a `covariance`
-iff `Uncertain`. An unlabeled or half-labeled pose is refused (relabel it with
-the frames it maps between). `provenance` is the file's free-form object.
+Write labeled physical rigid poses — `EuclideanMap{…, S, D}` or `Uncertain`
+ones, their translations lengths — as a `vgio/transforms/v3` file: each
+record's `from`/`to` are its labels' frame names ([`frame_name`](@ref)), its
+translation in `length_unit` (declared), a `covariance` iff `Uncertain`. An
+unlabeled or half-labeled pose is refused (relabel it with the frames it maps
+between), and so is a plain translation (attach its unit, `t .* m`).
+`provenance` is the file's free-form object.
 """
-function save(path::AbstractString, poses::AbstractVector; provenance::NamedTuple = (;))
+function save(path::AbstractString, poses::AbstractVector; length_unit::Units = mm, provenance::NamedTuple = (;))
     all(X -> X isa _AnyPose, poses) || throw(
         ArgumentError("save: a transforms file holds rigid poses (EuclideanMap{3}, plain or Uncertain); got $(eltype(poses))")
     )
     records = map(poses) do X
         from, to = _labeled_names(X)
-        merge((from = from, to = to), pose_json(X))
+        merge((from = from, to = to), pose_json(X, length_unit))
     end
-    body = merge((schema = _schema("transforms"),), pose_declarations(mm), (transforms = records,))
+    body = merge((schema = _schema("transforms"),), pose_declarations(length_unit), (transforms = records,))
     _write_store(path, _TRANSFORMS_SPEC, _with_provenance(body, provenance))
     return nothing
 end
@@ -156,8 +156,9 @@ end
     load(Vector{EuclideanMap}, path) -> Vector{Union{EuclideanMap{3}, Uncertain{<:EuclideanMap{3}}}}
 
 Read a `vgio/transforms/v3` file: each record a pose labeled with its
-`from`/`to` frames (`frame_from_name`), in millimetres, `Uncertain` iff the
-file states a covariance. Type-unstable by nature (the labels come from the
+`from`/`to` frames (`frame_from_name`), its translation lengths in metres
+(read in the file's `length_unit`), `Uncertain` iff the file states a
+covariance. Type-unstable by nature (the labels come from the
 file). A retired v2 (free-form names) or v1 file is refused.
 """
 function load(::Type{Vector{EuclideanMap}}, path::AbstractString)

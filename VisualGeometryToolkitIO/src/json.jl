@@ -28,12 +28,57 @@
 # doubles as validation. A blanket narrowing here would only move the `Any`
 # one call deeper.
 
-_json(x) = JSON.json(x)
+_json(x; allownan::Bool = false) = JSON.json(x; allownan)
 
-_parse_json(s::AbstractString) = JSON.parse(s)
+# `allownan` reads NaN / Infinity as the value it names. It also reads EVERY
+# number as a Float64 (an integer field included), so it is used only to
+# locate a non-finite number the strict parse refused, and name its field.
+_parse_json(s::AbstractString; allownan::Bool = false) = JSON.parse(s; allownan)
 
 _write_json(path::AbstractString, body) = open(path, "w") do io
     JSON.json(io, body; pretty = 4)
 end
 
-_read_json(path::AbstractString) = _parse_json(read(path, String))
+_read_json(path::AbstractString; allownan::Bool = false) = _parse_json(read(path, String); allownan)
+
+# A vgio file, parsed strictly; a NaN or ±Infinity in it is refused naming its
+# field (JSON has no such number, and every vgio number is finite).
+function _read_vgio_json(path::AbstractString)
+    text = read(path, String)
+    return try
+        _parse_json(text)
+    catch e
+        e isa ArgumentError || rethrow()
+        doc = try
+            _parse_json(text; allownan = true)
+        catch
+            throw(e)                    # not a non-finite number: JSON's own refusal
+        end
+        _refuse_nonfinite(path, doc)
+        throw(e)
+    end
+end
+
+# The first non-finite number of a parsed document, refused by its path.
+function _refuse_nonfinite(file, doc)
+    at = _first_nonfinite(doc, "")
+    at === nothing && return doc
+    throw(ArgumentError("$(file): $(isempty(at) ? "top level" : at): expected a finite number"))
+end
+_first_nonfinite(x::Real, at) = (x isa Bool || isfinite(Float64(x))) ? nothing : at
+function _first_nonfinite(x::AbstractDict, at)
+    for (k, v) in x
+        r = _first_nonfinite(v, isempty(at) ? String(k) : "$(at).$(k)")
+        r === nothing || return r
+    end
+    return nothing
+end
+function _first_nonfinite(x::AbstractVector, at)
+    for (i, v) in enumerate(x)
+        r = _first_nonfinite(v, "$(at)[$(i)]")
+        r === nothing || return r
+    end
+    return nothing
+end
+_first_nonfinite(x, at) = nothing
+

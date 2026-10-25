@@ -7,7 +7,7 @@
     using Random: Xoshiro
     using FlexUnits: Quantity
     using VisualGeometryToolkitCore: cm, μm, inch, ft, pt, px
-    km = VisualGeometryToolkitCore.UnitRegistry.UNITS[:km]
+    km = parse_unit("km")
     rng = Xoshiro(1)
     vals = [round(rand(rng) * 10.0^e; digits = d) for e in -1:4, d in 1:6, _ in 1:20_000]
     @test length(vals) == 720_000

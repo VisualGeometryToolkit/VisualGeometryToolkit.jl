@@ -66,7 +66,8 @@ end
 _refuse(file, at, msg) = throw(ArgumentError("$(file): $(isempty(at) ? "top level" : at): $(msg)"))
 _at(at, k) = isempty(at) ? String(k) : "$(at).$(k)"
 
-_isreal(x) = x isa Real && !(x isa Bool) && isfinite(x)
+# finite as the Float64 it is read as (JSON.jl parses 1e400 as a BigFloat)
+_isreal(x) = x isa Real && !(x isa Bool) && isfinite(x) && isfinite(Float64(x))
 
 function _validate(s::_Obj, x, file, at)
     x isa AbstractDict || _refuse(file, at, "expected an object")
@@ -266,7 +267,7 @@ _refuse_payload(path, d) = haskey(d, _PAYLOAD_KEY) && throw(
 # Read a file of `kind`, refusing any other schema (a v1 one by name), and
 # validate it against `spec` before any field is used.
 function _read_store(path::AbstractString, kind::AbstractString, spec::_Spec)
-    d = _read_json(path)
+    d = _read_vgio_json(path)                 # a non-finite number is refused by its field
     d isa AbstractDict || throw(ArgumentError("$(path): not a JSON object"))
     s = get(d, :schema, nothing)
     s == _schema(kind) || _refuse_schema(path, kind, s)
@@ -278,6 +279,7 @@ end
 # Write `body` as a v2 file after validating the very bytes that land on disk
 # against `spec`: a writer cannot produce a file its own reader refuses.
 function _write_store(path::AbstractString, spec::_Spec, body)
+    _refuse_nonfinite(path, _parse_json(_json(body; allownan = true); allownan = true))   # NaN/Inf: by its field
     _validate(spec, _parse_json(_json(body)), path, "")
     _write_json(path, body)
     return nothing

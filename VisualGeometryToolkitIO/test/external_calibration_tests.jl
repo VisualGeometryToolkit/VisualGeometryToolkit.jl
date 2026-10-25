@@ -1,5 +1,5 @@
 # The OpenCV and MATLAB calibration exports: read into the stack's conventions
-# (COLMAP pixel frame, millimetres, poses labeled `TargetFrame{target} → CameraFrame`), with the two
+# (COLMAP pixel frame, lengths in metres, poses labeled `TargetFrame{target} → CameraFrame`), with the two
 # things the files never declare — pixel convention and length unit — stated
 # by the caller.
 
@@ -43,7 +43,7 @@
         @test length(cal.poses) == 2 && cal.poses[2] === nothing   # a null pose keeps its slot
         rec = cal.poses[1]
         @test _pose_frames(rec) == (TargetFrame{:aprilgrid}, CameraFrame)   # a labeled VGC pose, target → camera
-        @test rec.t ≈ [170.0, 12.2, 1396.9]                         # metres → millimetres
+        @test ustrip.(m, rec.t) == [0.17, 0.0122, 1.3969]           # lengths, held in metres
         @test Matrix(rec.R) ≈ Matrix(R) atol = 1.0e-12
         # the default model: no k4–k6, s1–s4 in the file → OpenCV's 5-coefficient model
         cv0 = joinpath(dir, "calibration_opencv_default.json")
@@ -83,7 +83,7 @@
         lm = parameters(calm.camera.lens)
         @test (lm.k1, lm.k2, lm.k3, lm.p1, lm.p2) == (-0.1642, 0.0662, -0.0155, -0.000515, 0.00092)
         @test calm.camera.lens === opencv_lens([-0.1642, 0.0662, -0.000515, 0.00092, -0.0155])
-        @test calm.poses[1].t == [-708.695, 148.6439, 1212.2104]   # already millimetres
+        @test ustrip.(m, calm.poses[1].t) == [-0.708695, 0.1486439, 1.2122104]   # mm read decimal-exactly
         @test _pose_frames(calm.poses[1]) == (TargetFrame{:calibration_target}, CameraFrame)
         # the file's frame defaults to MATLAB's documented one and is overridden
         # positionally, for a file verified to be in another; the unit has no default
@@ -140,7 +140,7 @@
         end
         # and the poses carry the same frame rotation
         @test length(calf.poses) == 1
-        @test calf.poses[1].t ≈ Rz * SVector(1.0, 2.0, 3.0)
+        @test ustrip.(m, calf.poses[1].t) ≈ Rz * SVector(0.001, 0.002, 0.003)
         @test Matrix(calf.poses[1].R) ≈ Matrix(Rz * R) atol = 1.0e-12
         @test calf.error_statistic === :mean
 
@@ -163,6 +163,15 @@
         end
         @test errm isa ArgumentError && occursin("mirrored", errm.msg)
 
+        # a non-finite tvec is refused by its pose
+        huge = joinpath(dir, "huge.json")
+        write(huge, replace(read(cv, String), "1.3969" => "1e400"))
+        errh = try
+            load_opencv_calibration(huge; file_unit = m)
+        catch e
+            e
+        end
+        @test errh isa ArgumentError && occursin("poses[1]", errh.msg)
         # refusals: a missing required key names the file and the key; a
         # non-length unit is refused before any pose is scaled
         bad = joinpath(dir, "bad.json")
@@ -247,17 +256,20 @@
         for (x, y) in zip(a.poses, b.poses)
             x === nothing && continue
             @test Matrix(x.R) ≈ Matrix(y.R) atol = 1.0e-12
-            @test x.t ≈ y.t atol = 1.0e-9
+            @test ustrip.(m, x.t) ≈ ustrip.(m, y.t) atol = 1.0e-12
         end
 
         # The unit is the writer's to apply, and it is recorded: written in
-        # millimetres, the same poses come back the same once read as mm.
+        # millimetres, the same poses come back the same once read as mm. A
+        # plain translation has no unit to write and is refused.
+        @test_throws ArgumentError save_opencv_calibration(joinpath(dir, "plain.json"), a.camera,
+            [EuclideanMap(one(RotMatrix{3, Float64}), SVector(1.0, 2.0, 3.0))]; rms = 0.1, to_unit = mm, images = ["a"])
         mmfile = joinpath(dir, "mm.json")
         save_opencv_calibration(mmfile, a; to_unit = mm, images = names)
         c = load_opencv_calibration(mmfile; file_unit = mm)
         for (x, y) in zip(a.poses, c.poses)
             x === nothing && continue
-            @test x.t ≈ y.t atol = 1.0e-9
+            @test ustrip.(m, x.t) ≈ ustrip.(m, y.t) atol = 1.0e-12
         end
         declared = parse_json(read(mmfile, String))
         @test declared.unit == "mm" && declared.image_origin == "opencv"
@@ -291,7 +303,7 @@
         @test_throws ArgumentError load_opencv_calibration(jlfile; file_unit = mm)   # default :opencv ≠ declared
         # A file that declares nothing — every third-party export — is read as
         # the caller says, whatever that is: the unit is then the caller's to know.
-        @test norm(load_opencv_calibration(cv; file_unit = mm).poses[1].t) ≈ norm(a.poses[1].t) / 1000
+        @test norm(ustrip.(m, load_opencv_calibration(cv; file_unit = mm).poses[1].t)) ≈ norm(ustrip.(m, a.poses[1].t)) / 1000
         # A declaration that is not a name is refused, not coerced.
         odd = joinpath(dir, "odd.json")
         write(odd, replace(read(mmfile, String), "\"unit\": \"mm\"" => "\"unit\": 1"))
@@ -308,7 +320,7 @@
         for (x, y) in zip(a.poses, d.poses)
             x === nothing && continue
             @test Matrix(x.R) ≈ Matrix(y.R) atol = 1.0e-12
-            @test x.t ≈ y.t atol = 1.0e-9
+            @test ustrip.(m, x.t) ≈ ustrip.(m, y.t) atol = 1.0e-12
         end
 
         # A lens this shape cannot describe is refused, not silently zeroed.

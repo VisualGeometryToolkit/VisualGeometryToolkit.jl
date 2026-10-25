@@ -22,7 +22,7 @@
         @test (d.transforms[1].from, d.transforms[1].to) == ("target:b76e", "camera_optical")
         @test d.transforms[1].rotation[1] >= 0
         @test d.provenance.image == "DSC04520.JPG"
-        # a file in metres reads into millimetres
+        # a file in metres reads into the same lengths
         body = JSON.parse(read(path, String); dicttype = Dict{String, Any})
         body["length_unit"] = "m"
         for r in body["transforms"]
@@ -30,10 +30,12 @@
         end
         open(io -> JSON.json(io, body), joinpath(dir, "metres.json"), "w")
         bm = load(Vector{EuclideanMap}, joinpath(dir, "metres.json"))
-        @test bm[1].t ≈ labeled.t atol = 1.0e-9
+        @test ustrip.(m, bm[1].t) ≈ ustrip.(m, labeled.t) atol = 1.0e-15
         @test typeof(bm[1]) == typeof(labeled)
         save(joinpath(dir, "empty.json"), EuclideanMap[])
         @test isempty(load(Vector{EuclideanMap}, joinpath(dir, "empty.json")))
+        # a plain translation is not a length: refused, naming the fix
+        @test_throws ArgumentError save(joinpath(dir, "plain.json"), [relabel(TargetFrame{:a}, BodyFrame{:b}, EuclideanMap(one(RotMatrix{3, Float64}), SVector(1.0, 2.0, 3.0)))])
         # unlabeled or half-labeled poses have no frames to name: refused
         @test_throws ArgumentError save(joinpath(dir, "free.json"), [pose])
         @test_throws ArgumentError save(joinpath(dir, "half.json"), [relabel(TargetFrame{:a}, UnlabeledFrame{3}, pose)])
@@ -61,7 +63,7 @@ end
             q = canonical_qvec(SVector{4, Float64}(v ./ norm(v)))
             # a RotMatrix value: converted once, read back as a QuatRotation-valued map
             Rm = RotMatrix{3, Float64}(QuatRotation(q[1], q[2], q[3], q[4]))
-            X = relabel(BodyFrame{:a}, WorldFrame, EuclideanMap(Rm, SVector(1.0, 2.0, 3.0)))
+            X = relabel(BodyFrame{:a}, WorldFrame, EuclideanMap(Rm, mm_lengths(SVector(1.0, 2.0, 3.0))))
             save(p1, [X])
             Y = only(load(Vector{EuclideanMap}, p1))
             @test Y.R isa QuatRotation{Float64} && Y.t == X.t
@@ -88,7 +90,8 @@ end
 
 # Uncertainty mirrors the type (VisualGeometryToolkitCore conventions/persisted-geometry.md):
 # plain ↔ no covariance, Uncertain ↔ covariance, exact ↔ zeros; the covariance is
-# the pose's [δω; δt] in rad and the file's unit, moved with the unit on read.
+# the pose's [δω; δt] in rad and the file's unit on disk, rad and metres in
+# memory, moved with the unit on read.
 @testitem "transforms/v3: uncertain poses, typed frames" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitCore: Uncertain, CovMat, geom, BodyFrame, CameraFrame, relabel
     using Statistics: cov

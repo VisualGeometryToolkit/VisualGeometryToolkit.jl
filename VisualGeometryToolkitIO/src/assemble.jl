@@ -2,15 +2,10 @@
 # Assembly — typed conversion between wire records and VGC types (Layer 3)
 # =============================================================================
 #
-# Quantity-first: reads attach the file's declared unit and then go through
-# VGC's checked constructors (EuclideanMap's quantity path strips in mm and
-# rejects non-length dimensions); writes exit through `ustrip(u, ·)` against the
-# target contract. The interior mm convention (EuclideanMap stores unitless
-# mm) is attached in exactly ONE place (`_interior_t`) — when VGC grows a
-# unit-carrying `translation(pose)` accessor, that function is what this
-# replaces.
-
-_interior_t(pose::EuclideanMap{3}) = quantity.(pose.t, mm)
+# Quantity-first: a physical pose holds its translation as lengths in metres
+# (VGC's base form); reads attach the file's declared unit through
+# `read_length`, writes leave through `write_length` in the target contract's
+# unit, and a plain translation is refused where a metric pose is meant.
 
 # A rotation's quaternion, w-x-y-z with w ≥ 0. A `QuatRotation` — every
 # rotation a vgio file is read into — is written as it is (the sign made
@@ -22,10 +17,11 @@ _qvec(R) = canonical_qvec(SVector{4, Float64}(params(QuatRotation(RotMatrix{3, F
 
 # A stored pose as the value the readers return: a rigid map whose rotation IS
 # the stored unit quaternion — not renormalized, not converted to a matrix —
-# and whose translation is in millimetres, a GeometryBasics `Vec3` (the stack's
-# translation type: VGC's `Extrinsics3` and its pose constructors carry one).
-_quat_map(q, t_mm) = EuclideanMap{3, Float64, QuatRotation{Float64}, Vec3{Float64}}(
-    QuatRotation(Float64(q[1]), Float64(q[2]), Float64(q[3]), Float64(q[4]), false), Vec3{Float64}(t_mm),
+# and whose translation is lengths in metres, the static vector VGC's own
+# physical constructor stores.
+_quat_map(q, t::SVector{3, Quantity{Float64, Dimensions{FixRat32}}}) =
+    EuclideanMap{3, Float64, QuatRotation{Float64}, typeof(t)}(
+    QuatRotation(Float64(q[1]), Float64(q[2]), Float64(q[3]), Float64(q[4]), false), t,
 )
 
 # --- poses ↔ COLMAP images ----------------------------------------------------
@@ -34,15 +30,17 @@ _quat_map(q, t_mm) = EuclideanMap{3, Float64, QuatRotation{Float64}, Vec3{Float6
     colmap_image(pose::EuclideanMap{3}, image_id, camera_id, name; contract = MM_PX) -> ColmapImage
 
 COLMAP images hold world→camera poses; a detected object→camera pose is the
-same direction, with "world" = the object frame. The pose is metric, so an
-[`UnknownScale`](@ref) contract, which has no length unit to write it in,
-is refused.
+same direction, with "world" = the object frame. The pose is metric — its
+translation lengths, written in the contract's world unit
+([`write_length`](@ref)); a plain translation is refused — so an
+[`UnknownScale`](@ref) contract, which has no length unit to write it in, is
+refused.
 """
 function colmap_image(
         pose::EuclideanMap{3}, image_id::Integer, camera_id::Integer,
         name::AbstractString; contract::Union{UnitContract, UnknownScale} = MM_PX
     )
-    t = ustrip.(_world_unit(contract), _interior_t(pose))
+    t = _lengths_json(pose.t, _world_unit(contract), "colmap_image: the pose's translation")
     return ColmapImage(
         Int32(image_id), _qvec(pose.R), SVector{3, Float64}(t),
         Int32(camera_id), String(name)
@@ -53,13 +51,13 @@ end
     rigid_transform(im::ColmapImage, contract) -> EuclideanMap{3}
 
 Assemble the world→camera pose of a COLMAP image row under the model's unit
-contract. An `EuclideanMap` is metric, so under [`UnknownScale`](@ref) this
-refuses; the row's `qvec` and unitless `tvec` are the pose up to scale.
+contract: its translation lengths in metres, read in the contract's world unit
+([`read_length`](@ref)). An `EuclideanMap` is metric, so under
+[`UnknownScale`](@ref) this refuses; the row's `qvec` and unitless `tvec` are
+the pose up to scale.
 """
-function rigid_transform(im::ColmapImage, contract::Union{UnitContract, UnknownScale})
-    t = ustrip.(mm, quantity.(im.tvec, _world_unit(contract)))
-    return _quat_map(im.qvec, t)
-end
+rigid_transform(im::ColmapImage, contract::Union{UnitContract, UnknownScale}) =
+    _quat_map(im.qvec, _lengths_from_json(Val(3), im.tvec, _world_unit(contract)))
 
 # --- cameras ↔ COLMAP cameras --------------------------------------------------
 #

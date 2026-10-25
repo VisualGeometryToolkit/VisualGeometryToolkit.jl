@@ -1,0 +1,61 @@
+{
+    "schema": "vgio/target_points2d/v1",
+    "pixel_frame": "julia",
+    "point_index_base": 1,
+    "targets": [
+        "a19adf2a1b6cb5d352dac3d6f1018f844cf9cf8f413ddf480539652e80957a88"
+    ],
+    "frames": [
+        {
+            "t": 1,
+            "image": "DSC0001.png",
+            "sensor": "cam",
+            "points": [
+                {
+                    "target": "a1f2",
+                    "index": 2,
+                    "xy": [
+                        640.0,
+                        480.0
+                    ],
+                    "weight": 1.0
+                }
+            ]
+        },
+        {
+            "t": 3,
+            "image": "DSC0003.png",
+            "sensor": "cam",
+            "points": [
+                {
+                    "target": "a1f2",
+                    "index": 4,
+                    "xy": [
+                        100.0,
+                        50.0
+                    ],
+                    "weight": 1.0
+                },
+                {
+                    "target": "b0c1",
+                    "index": 1,
+                    "xy": [
+                        1.5,
+                        2.5
+                    ],
+                    "weight": 0.5,
+                    "covariance": [
+                        [
+                            0.25,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.25
+                        ]
+                    ]
+                }
+            ]
+        }
+    ]
+}

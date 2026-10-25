@@ -42,9 +42,10 @@ import VisualGeometryToolkitIO as VgtkIO
 dir = mktempdir()
 
 # A pose whose frames are part of its type: the camera rig's body frame to the
-# camera's optical frame, in millimetres.
+# camera's optical frame. Its translation is a length (held in metres); the
+# file states it in millimetres, and a plain translation is refused.
 X = relabel(BodyFrame{:camera_rig}, CameraFrame,
-    lookat(Vec3(0.0, 0.0, 500.0), Vec3(0.0, 0.0, 0.0), Vec3(0.0, -1.0, 0.0)))
+    lookat(Vec3(0.0, 0.0, 500.0) .* mm, Vec3(0.0, 0.0, 0.0) .* mm, Vec3(0.0, -1.0, 0.0)))
 
 path = joinpath(dir, "hand_eye.json")
 VgtkIO.save(path, [X]; provenance = (method = "robot-world hand-eye",))

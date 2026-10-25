@@ -13,8 +13,9 @@
 # camera's name, a tracker's) and `time` (seconds since the file's
 # `time_origin`, an ISO 8601 date-time without zone, stated iff a frame has a
 # time). An instant not observed is ABSENT, never a NaN value. A file reads
-# back as the VGC value it was written from, exactly (lengths in millimetres,
-# `Uncertain` members with their covariance).
+# back as the VGC value it was written from, exactly (lengths in metres in
+# memory, in the declared `length_unit` on disk; `Uncertain` members with
+# their covariance). A writer refuses plain numbers where a length is meant.
 #
 # The hierarchy: a RIG of targets (rig/v4) defines targets and their points; a
 # measurement names a point by (target, index) — its `point_index_base`-based
@@ -141,20 +142,21 @@ const _TRAJECTORY_SPEC = _Checked(
 )
 
 """
-    save(path, tr::Trajectory{S, D}; provenance = (;))
+    save(path, tr::Trajectory{S, D}; length_unit = mm, provenance = (;))
 
-Write a VGC `Trajectory` as a `vgio/trajectory/v3` file: its frames
+Write a physical VGC `Trajectory` as a `vgio/trajectory/v3` file: its frames
 `from = frame_name(S)`, `to = frame_name(D)`, one record per frame index
 (sorted) — the pose (a `covariance` iff `Uncertain`), and its `image`, `time`
-and `recovered` flag where the trajectory has them — in millimetres.
+and `recovered` flag where the trajectory has them — in `length_unit`. A
+trajectory of plain poses is an `ArgumentError` (attach the unit, `t .* m`).
 """
-function save(path::AbstractString, tr::Trajectory{S, D}; provenance::NamedTuple = (;)) where {S, D}
+function save(path::AbstractString, tr::Trajectory{S, D}; length_unit::Units = mm, provenance::NamedTuple = (;)) where {S, D}
     frames = map(sort!(collect(keys(tr)))) do t
-        f = merge(_stamps_json(tr, t), (pose = pose_json(tr[t]),))
+        f = merge(_stamps_json(tr, t), (pose = pose_json(tr[t], length_unit),))
         t in tr.recovered ? merge(f, (recovered = true,)) : f
     end
     body = merge(
-        (schema = _schema("trajectory"),), pose_declarations(mm),
+        (schema = _schema("trajectory"),), pose_declarations(length_unit),
         (from = frame_name(S), to = frame_name(D)), _time_origin_json(tr), (frames = frames,),
     )
     _write_store(path, _TRAJECTORY_SPEC, _with_provenance(body, provenance))
@@ -165,7 +167,7 @@ end
     load(Trajectory, path) -> Trajectory{S, D}
 
 Read a `vgio/trajectory/v3` file: its frames as types (`S`, `D` from
-`from`/`to`), each pose labeled `S → D` in millimetres — `Uncertain` where the
+`from`/`to`), each pose labeled `S → D`, lengths in metres — `Uncertain` where the
 file states a covariance — with the images, times and recovered flags it
 records. Type-unstable by nature (the frame types come from the file): load
 once, dispatch after.
@@ -215,20 +217,20 @@ const _TARGET_POSES_SPEC = _Checked(
 )
 
 """
-    save(path, tp::TargetPoses{F}; provenance = (;))
+    save(path, tp::TargetPoses{F}; length_unit = mm, provenance = (;))
 
-Write a VGC `TargetPoses` as a `vgio/target_poses/v1` file declaring
+Write a physical VGC `TargetPoses` as a `vgio/target_poses/v1` file declaring
 `to = frame_name(F)`: per frame index (sorted), its image and sensor (both
 required) and time, and every target's pose (ids sorted; a `covariance` iff
-`Uncertain`), in millimetres.
+`Uncertain`), in `length_unit`. Plain poses are an `ArgumentError`.
 """
-function save(path::AbstractString, tp::TargetPoses{F}; provenance::NamedTuple = (;)) where {F}
+function save(path::AbstractString, tp::TargetPoses{F}; length_unit::Units = mm, provenance::NamedTuple = (;)) where {F}
     frames = map(sort!(collect(keys(tp)))) do t
-        poses = [merge((target = String(id),), pose_json(tp[t][id])) for id in sort!(collect(keys(tp[t])))]
+        poses = [merge((target = String(id),), pose_json(tp[t][id], length_unit)) for id in sort!(collect(keys(tp[t])))]
         merge(_stamps_json(tp, t), (poses = poses,))
     end
     body = merge(
-        (schema = _schema("target_poses"),), pose_declarations(mm), (to = frame_name(F),),
+        (schema = _schema("target_poses"),), pose_declarations(length_unit), (to = frame_name(F),),
         _time_origin_json(tp), (frames = frames,),
     )
     _write_store(path, _TARGET_POSES_SPEC, _with_provenance(body, provenance))
@@ -239,7 +241,7 @@ end
     load(TargetPoses, path) -> TargetPoses{F}
 
 Read a `vgio/target_poses/v1` file: `F` the frame its poses map into, every
-pose in millimetres, `Uncertain` where the file states a covariance.
+pose's lengths in metres, `Uncertain` where the file states a covariance.
 """
 function load(::Type{TargetPoses}, path::AbstractString)
     d = _read_store(path, "target_poses", _TARGET_POSES_SPEC)
@@ -298,7 +300,7 @@ function save(path::AbstractString, obs::TargetPoints2D{F}; provenance::NamedTup
         points = map(obs[t]) do o
             xy = geom(o.xy)
             p = (target = String(o.target), index = o.index, xy = [xy[1], xy[2]], weight = o.weight)
-            o.xy isa Uncertain ? merge(p, (covariance = _cov_json(cov(o.xy)),)) : p
+            o.xy isa Uncertain ? merge(p, (covariance = _cov_json(cov(o.xy)),)) : p   # px²: no length
         end
         merge(_stamps_json(obs, t), (points = points,))
     end
@@ -376,24 +378,25 @@ const _TARGET_POINTS3D_SPEC = _Checked(
 )
 
 """
-    save(path, obs::TargetPoints3D{F}; provenance = (;))
+    save(path, obs::TargetPoints3D{F}; length_unit = mm, provenance = (;))
 
-Write a VGC `TargetPoints3D` as a `vgio/target_points3d/v1` file in frame `F`,
-millimetres: per frame its sensor (required), image and time where stated; an
-`Uncertain` point writes its 3×3 `covariance`.
+Write a physical VGC `TargetPoints3D` as a `vgio/target_points3d/v1` file in
+frame `F`, in `length_unit`: per frame its sensor (required), image and time
+where stated; an `Uncertain` point writes its 3×3 `covariance` (`length_unit`²).
+Plain points are an `ArgumentError` (attach the unit, `p .* m`).
 """
-function save(path::AbstractString, obs::TargetPoints3D{F}; provenance::NamedTuple = (;)) where {F}
+function save(path::AbstractString, obs::TargetPoints3D{F}; length_unit::Units = mm, provenance::NamedTuple = (;)) where {F}
     frames = map(sort!(collect(keys(obs)))) do t
         points = map(obs[t]) do o
-            p = geom(o.xyz)
-            r = (target = String(o.target), index = o.index, xyz = [p[1], p[2], p[3]])
-            o.xyz isa Uncertain ? merge(r, (covariance = _cov_json(cov(o.xyz)),)) : r
+            xyz = _lengths_json(geom(o.xyz), length_unit, "save: a 3D target point")
+            r = (target = String(o.target), index = o.index, xyz = xyz)
+            o.xyz isa Uncertain ? merge(r, (covariance = _length_cov_json(cov(o.xyz), length_unit, _point_cov_dims(3)),)) : r
         end
         merge(_stamps_json(obs, t), (points = points,))
     end
     body = merge(
         (
-            schema = _schema("target_points3d"), length_unit = unit_string(mm), frame = frame_name(F),
+            schema = _schema("target_points3d"), length_unit = unit_string(length_unit), frame = frame_name(F),
             point_index_base = _POINT_INDEX_BASE,
         ),
         isempty(obs.targets) ? (;) : (targets = obs.targets,),
@@ -403,10 +406,11 @@ function save(path::AbstractString, obs::TargetPoints3D{F}; provenance::NamedTup
     return nothing
 end
 
-# One wire point in millimetres (`s` mm per the file's unit).
-function _point3_from_json(o, unit, s)
-    p = SVector{3, Float64}(ustrip.(mm, quantity.(Float64[Float64(c::Real) for c in o.xyz::Vector{Any}], unit))...)
-    xyz = haskey(o, :covariance) ? Uncertain(p, CovMat(_cov_matrix(o.covariance::Vector{Any}, 3) * s^2)) : p
+# One wire point as lengths in metres (its covariance in m²), read in the file's unit.
+function _point3_from_json(o, unit::Units)
+    p = _lengths_from_json(Val(3), o.xyz::Vector{Any}, unit)
+    xyz = haskey(o, :covariance) ?
+        Uncertain(p, CovMat(_length_cov_from_json(o.covariance::Vector{Any}, 3, unit, _point_cov_dims(3)))) : p
     return (target = Symbol(o.target::String), index = Int(o.index::Integer), xyz = xyz)
 end
 
@@ -414,18 +418,17 @@ end
     load(TargetPoints3D, path) -> TargetPoints3D{F}
 
 Read a `vgio/target_points3d/v1` file: the measurements in the frame `F` it
-declares, in millimetres (`Uncertain` where it states a covariance, in mm²).
+declares, lengths in metres (`Uncertain` where it states a covariance, in m²).
 """
 function load(::Type{TargetPoints3D}, path::AbstractString)
     d = _read_store(path, "target_points3d", _TARGET_POINTS3D_SPEC)
     unit = parse_unit(d.length_unit::String)
-    s = Float64(ustrip(mm, quantity(1.0, unit)))                         # mm per the file's unit
     frames = Dict{Int, Vector{TargetPoint3D}}()
     images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()
     for f in d.frames::Vector{Any}
         t = Int(f.t::Integer)
         _read_stamps!(images, sensors, times, f, t)
-        frames[t] = TargetPoint3D[_point3_from_json(o, unit, s) for o in f.points::Vector{Any}]
+        frames[t] = TargetPoint3D[_point3_from_json(o, unit) for o in f.points::Vector{Any}]
     end
     return TargetPoints3D{frame_from_name(d.frame::String)}(
         frames; images, sensors, times, time_origin = _time_origin(d),

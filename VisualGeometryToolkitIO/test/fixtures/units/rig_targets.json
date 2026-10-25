@@ -1,0 +1,89 @@
+{
+    "schema": "vgio/rig/v4",
+    "length_unit": "mm",
+    "rotation_encoding": "quaternion_wxyz_hamilton",
+    "transform_convention": "x_to = R * x_from + t",
+    "frame": "target:a1f2",
+    "targets": [
+        {
+            "id": "a1f2",
+            "target": {
+                "type": "planar",
+                "nominal": [
+                    [
+                        0.0,
+                        0.0
+                    ],
+                    [
+                        62.8,
+                        0.0
+                    ],
+                    [
+                        -13.9,
+                        40.25
+                    ],
+                    [
+                        1234.5,
+                        -0.001
+                    ]
+                ],
+                "warp": {
+                    "type": "rigid"
+                }
+            },
+            "pose": {
+                "rotation": [
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "translation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            }
+        },
+        {
+            "id": "b0c1",
+            "target": {
+                "type": "planar",
+                "nominal": [
+                    [
+                        0.0,
+                        0.0
+                    ],
+                    [
+                        62.8,
+                        0.0
+                    ],
+                    [
+                        -13.9,
+                        40.25
+                    ],
+                    [
+                        1234.5,
+                        -0.001
+                    ]
+                ],
+                "warp": {
+                    "type": "rigid"
+                }
+            },
+            "pose": {
+                "rotation": [
+                    0.9233805168766387,
+                    0.10259783520851541,
+                    -0.3077935056255462,
+                    0.20519567041703082
+                ],
+                "translation": [
+                    251.9,
+                    -144.4,
+                    904.1
+                ]
+            }
+        }
+    ]
+}

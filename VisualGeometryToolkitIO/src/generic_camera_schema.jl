@@ -27,6 +27,12 @@
 # a generic model embeds this BODY (no schema or declarations — the rig
 # declares them) where a parametric sensor embeds a camera body; it carries its
 # own width/height, so a bare `Camera` sensor suffices.
+#
+# The point grid is a plain model's numbers: VGC's grid models hold
+# `Vec3{T}`, so the points are plain METRES in memory — the unit VGC strips a
+# physical camera's extrinsics in to apply its model — and the file's
+# `length_unit` (mm unless the writer is given another) on disk, through
+# `read_length` / `write_length`.
 
 const _GRID = _Vec(_XYZ)
 const _GENERIC_TYPES = ("CentralGenericModel", "NoncentralGenericModel")
@@ -75,20 +81,23 @@ const _GENERIC_CAMERA_SPEC = _Checked(
 
 _grid_json(g::Matrix{<:Vec3}) =
     [[Float64(v[1]), Float64(v[2]), Float64(v[3])] for gy in 1:size(g, 1) for v in (g[gy, :]...,)]
+# a point grid (plain metres) in the file's length unit
+_point_grid_json(g::Matrix{<:Vec3}, unit::Units) =
+    [Float64[_write_power(Float64(v[k]), unit, 1) for k in 1:3] for gy in 1:size(g, 1) for v in (g[gy, :]...,)]
 
-# A grid back from its row-major entries, each scaled by `scale` (millimetres
-# per file unit; 1 for a direction grid).
+# A grid back from its row-major entries: a direction grid as stored, a point
+# grid read in the file's length unit into plain metres.
 function _grid_from_json(a, gw::Int, gh::Int; unit::Units = mm, is_points::Bool = false)
     g = Matrix{Vec3{Float64}}(undef, gh, gw)
     for (i, v) in enumerate(a)
         gy, gx = divrem(i - 1, gw)
-        xyz = Float64[Float64(c::Real) for c in v::Vector{Any}]
-        g[gy + 1, gx + 1] = Vec3{Float64}((is_points ? ustrip.(mm, quantity.(xyz, unit)) : xyz)...)
+        xyz = Float64[is_points ? _read_power(c::Real, unit, 1) : Float64(c::Real) for c in v::Vector{Any}]
+        g[gy + 1, gx + 1] = Vec3{Float64}(xyz...)
     end
     return g
 end
 
-_generic_body(m::CentralGenericModel) = (
+_generic_body(m::CentralGenericModel, ::Units = mm) = (
     type = "CentralGenericModel",
     width = m.width, height = m.height,
     calibration_min_x = m.calib_min_x, calibration_min_y = m.calib_min_y,
@@ -96,15 +105,15 @@ _generic_body(m::CentralGenericModel) = (
     grid_width = size(m.grid, 2), grid_height = size(m.grid, 1), grid_layout = _GRID_LAYOUT,
     direction_grid = _grid_json(m.grid),
 )
-# The point grid is written in millimetres, VGC's in-memory length unit.
-_generic_body(m::NoncentralGenericModel) = (
+# The point grid (plain metres) is written in the file's `unit`.
+_generic_body(m::NoncentralGenericModel, unit::Units = mm) = (
     type = "NoncentralGenericModel",
     width = m.width, height = m.height,
     calibration_min_x = m.calib_min_x, calibration_min_y = m.calib_min_y,
     calibration_max_x = m.calib_max_x, calibration_max_y = m.calib_max_y,
     grid_width = size(m.directions, 2), grid_height = size(m.directions, 1), grid_layout = _GRID_LAYOUT,
     direction_grid = _grid_json(m.directions),
-    point_grid = _grid_json(m.points),
+    point_grid = _point_grid_json(m.points, unit),
 )
 
 # A validated body back to the model; `unit` is the length unit the enclosing
@@ -123,19 +132,20 @@ end
 
 """
     save(path, m::CentralGenericModel; provenance = (;))
-    save(path, m::NoncentralGenericModel; provenance = (;))
+    save(path, m::NoncentralGenericModel; length_unit = mm, provenance = (;))
 
 Write a generic grid camera model as a `vgio/generic_camera/v2` file (field
 names mirror the reference implementation's YAML tags; grids row-major, in
-the COLMAP pixel frame; a non-central point grid in millimetres).
+the COLMAP pixel frame; a non-central point grid — plain metres in memory —
+in `length_unit`).
 """
 function save(
         path::AbstractString, m::Union{CentralGenericModel, NoncentralGenericModel};
-        provenance::NamedTuple = (;)
+        length_unit::Units = mm, provenance::NamedTuple = (;)
     )
     head = (schema = _schema("generic_camera"), pixel_frame = pixel_frame_name(CANONICAL_PIXEL_FRAME))
-    unit = m isa NoncentralGenericModel ? (length_unit = unit_string(mm),) : (;)
-    _write_store(path, _GENERIC_CAMERA_SPEC, _with_provenance(merge(head, unit, _generic_body(m)), provenance))
+    unit = m isa NoncentralGenericModel ? (length_unit = unit_string(length_unit),) : (;)
+    _write_store(path, _GENERIC_CAMERA_SPEC, _with_provenance(merge(head, unit, _generic_body(m, length_unit)), provenance))
     return nothing
 end
 
@@ -143,8 +153,9 @@ end
     load(CentralGenericModel, path) -> CentralGenericModel
     load(NoncentralGenericModel, path) -> NoncentralGenericModel
 
-Read a `vgio/generic_camera/v2` file. The typed load is an assertion of
-intent: loading a central record as non-central (or vice versa) errors.
+Read a `vgio/generic_camera/v2` file (a non-central point grid into plain
+metres). The typed load is an assertion of intent: loading a central record as
+non-central (or vice versa) errors.
 """
 load(::Type{T}, path::AbstractString) where {T <: Union{CentralGenericModel, NoncentralGenericModel}} =
     _typed_generic(T, _load_generic(path), path)

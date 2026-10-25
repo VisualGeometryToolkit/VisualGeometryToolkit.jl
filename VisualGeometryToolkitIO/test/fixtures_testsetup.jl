@@ -24,7 +24,7 @@ using VisualGeometryToolkitCore: mm, m, px, CameraModel, CameraCalibrationMat, P
     AbstractLensModel, Size2, extent, DoubleSphere, CentralGenericModel, PixelFrame,
     lens_record, lens_from_record, parameters, lens_parameters
 import VisualGeometryToolkitCore
-using FlexUnits: DimensionError, ConversionError, quantity, ustrip
+using FlexUnits: DimensionError, ConversionError, quantity, ustrip, Quantity, Dimensions, FixRat32
 using VisualGeometryToolkitCore: parse_unit, unit_string
 export quantity, ustrip, parse_unit, unit_string
 
@@ -36,7 +36,7 @@ export mm, m, px, CameraModel, CameraCalibrationMat, Pinhole,
     AbstractLensModel, Size2, extent, DoubleSphere, CentralGenericModel, PixelFrame,
     lens_record, lens_from_record, parameters, lens_parameters
 export VisualGeometryToolkitCore, DimensionError, ConversionError
-export q0, _mkpose, qpose
+export q0, _mkpose, qpose, mm_lengths, exact_mm, Quantity, Dimensions, FixRat32
 
 const q0 = canonical_qvec(
     SVector(
@@ -45,11 +45,20 @@ const q0 = canonical_qvec(
     )
 )
 
-# A pose as a vgio reader returns one: its rotation the stored quaternion itself,
-# its translation the stack's Vec3.
-qpose(q, t) = EuclideanMap{3, Float64, QuatRotation{Float64}, VgtkCore.Vec3{Float64}}(
-    QuatRotation(q[1], q[2], q[3], q[4], false), VgtkCore.Vec3{Float64}(t),
-)
+# Millimetre numbers as a reader returns them: lengths in metres, each the
+# metre value nearest the decimal (`read_length`, not `t .* mm`, which rounds
+# twice).
+mm_lengths(t) = SVector{length(t), Quantity{Float64, Dimensions{FixRat32}}}(map(x -> VgtkIO.read_length(x, mm), Tuple(t)))
+
+# An exactly known physical point (zero covariance, m²) of millimetre numbers.
+# (VGC's `exact` takes plain points only.)
+exact_mm(t) = VgtkCore.Uncertain(mm_lengths(t), VgtkCore.CovMat(zero(SMatrix{length(t), length(t), Float64})))
+
+# A pose as a vgio reader returns one: its rotation the stored quaternion
+# itself, its translation `t` (millimetre numbers) as lengths in metres.
+qpose(q, t) = (tq = mm_lengths(t); EuclideanMap{3, Float64, QuatRotation{Float64}, typeof(tq)}(
+    QuatRotation(q[1], q[2], q[3], q[4], false), tq,
+))
 qpose(R::RotMatrix, t) = qpose(VgtkIO._qvec(R), t)
 
 _mkpose() = qpose(q0, SVector(251.9, -144.4, 904.1))

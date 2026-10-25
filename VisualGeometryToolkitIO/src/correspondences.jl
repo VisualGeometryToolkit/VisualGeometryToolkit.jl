@@ -43,7 +43,9 @@ const _CORRESPONDENCES_SPEC = _Checked(
     x -> _unique_check([(r[:t], r[:target]) for r in x[:rows]], "(t, target) rows"),
 )
 
-# One (frame, target) row, as the file holds it.
+# One (frame, target) row: object points as plain METRES (read from the
+# targets' lengths), image points in pixels; the file holds the object points in
+# its `length_unit`.
 const _CorrespondenceRow = @NamedTuple{
     t::Int, image::String, sensor::String, target::Symbol,
     object_points::Matrix{Float64}, image_points::Matrix{Float64},
@@ -75,7 +77,8 @@ function _correspondence_rows(::Type{G}, obs::TargetPoints2D{F}, rigs) where {G 
             U = Matrix{Float64}(undef, length(os), 2)
             for (i, o) in enumerate(os)
                 p = geom(points[id][o.index])
-                X[i, 1] = p[1]; X[i, 2] = p[2]; X[i, 3] = length(p) >= 3 ? p[3] : 0.0
+                has_units(p) || _refuse_plain("save_correspondences: target $(id)'s points")
+                X[i, 1] = ustrip(m, p[1]); X[i, 2] = ustrip(m, p[2]); X[i, 3] = length(p) >= 3 ? ustrip(m, p[3]) : 0.0
                 u = shift(SVector{2, Float64}(geom(o.xy)))
                 U[i, 1] = u[1]; U[i, 2] = u[2]
             end
@@ -85,13 +88,17 @@ function _correspondence_rows(::Type{G}, obs::TargetPoints2D{F}, rigs) where {G 
     return out
 end
 
-function _write_correspondences(path::AbstractString, ::Type{G}, rows; provenance::NamedTuple = (;)) where {G <: PixelFrame}
+function _write_correspondences(
+        path::AbstractString, ::Type{G}, rows; length_unit::Units = mm, provenance::NamedTuple = (;)
+    ) where {G <: PixelFrame}
     body = (
-        schema = _schema("correspondences"), pixel_frame = pixel_frame_name(G), length_unit = unit_string(mm),
+        schema = _schema("correspondences"), pixel_frame = pixel_frame_name(G), length_unit = unit_string(length_unit),
         rows = [
             (
                 t = r.t, image = r.image, sensor = r.sensor, target = String(r.target),
-                object_points = [collect(Float64, view(r.object_points, i, :)) for i in axes(r.object_points, 1)],
+                object_points = [
+                    Float64[_write_power(r.object_points[i, k], length_unit, 1) for k in 1:3] for i in axes(r.object_points, 1)
+                ],
                 image_points = [collect(Float64, view(r.image_points, i, :)) for i in axes(r.image_points, 1)],
             ) for r in rows
         ],
@@ -101,12 +108,13 @@ function _write_correspondences(path::AbstractString, ::Type{G}, rows; provenanc
 end
 
 """
-    save_correspondences([to_frame = F,] path, obs::TargetPoints2D{F}, targets...; resolve = nothing, provenance = (;)) -> path
+    save_correspondences([to_frame = F,] path, obs::TargetPoints2D{F}, targets...; resolve = nothing, length_unit = mm, provenance = (;)) -> path
 
 Export a session's 2D–3D correspondences as one `vgio/correspondences/v2`
 file, one row per (frame, target) in frame then target order:
 `object_points` N×3 in the target's own frame (a board's plane points with
-z = 0, in millimetres) and `image_points` N×2, moved into `to_frame` — the
+z = 0, in `length_unit`, from the targets' lengths — plain points are an
+`ArgumentError`) and `image_points` N×2, moved into `to_frame` — the
 external calibrator's convention, declared in the file: `PixelFrame{:opencv}`
 for `cv::calibrateCamera` (the top-left pixel's centre at (0, 0)),
 `PixelFrame{:julia}` for MATLAB's (1, 1); the measurements' own frame by
@@ -122,7 +130,8 @@ save_correspondences(path::AbstractString, obs::TargetPoints2D{F}, targets...; k
     save_correspondences(F, path, obs, targets...; kwargs...)
 
 function save_correspondences(
-        ::Type{G}, path::AbstractString, obs::TargetPoints2D, targets...; resolve = nothing, provenance::NamedTuple = (;)
+        ::Type{G}, path::AbstractString, obs::TargetPoints2D, targets...;
+        resolve = nothing, length_unit::Units = mm, provenance::NamedTuple = (;)
     ) where {G <: PixelFrame}
     isempty(targets) && throw(ArgumentError("save_correspondences needs at least one targets rig or file"))
     list = collect(Any, targets)
@@ -132,18 +141,18 @@ function save_correspondences(
             ArgumentError("the measurements resolve against the targets $(sort(obs.targets)); the targets given are $(given)")
         )
     end
-    return _write_correspondences(path, G, _correspondence_rows(G, obs, _target_rigs(list; resolve)); provenance)
+    return _write_correspondences(path, G, _correspondence_rows(G, obs, _target_rigs(list; resolve)); length_unit, provenance)
 end
 
 # The file back, for the migration's verification only (correspondences is an
-# export; no kind reads it): its frame and its rows, object points in mm.
+# export; no kind reads it): its frame and its rows, object points in plain metres.
 function _read_correspondences(path::AbstractString)
     d = _read_store(path, "correspondences", _CORRESPONDENCES_SPEC)
     unit = parse_unit(d.length_unit::String)
     rows = _CorrespondenceRow[
         (
             t = Int(r.t::Integer), image = r.image::String, sensor = r.sensor::String, target = Symbol(r.target::String),
-            object_points = _point_matrix(r.object_points::Vector{Any}, 3, p -> ustrip.(mm, quantity.(p, unit))),
+            object_points = _point_matrix(r.object_points::Vector{Any}, 3, p -> [_read_power(x, unit, 1) for x in p]),
             image_points = _point_matrix(r.image_points::Vector{Any}, 2, identity),
         ) for r in d.rows::Vector{Any}
     ]

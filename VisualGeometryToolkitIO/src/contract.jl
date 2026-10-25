@@ -2,16 +2,13 @@
 # Unit contract — the checked boundary between file magnitudes and quantities
 # =============================================================================
 #
-# Dimensioned numbers cross between disk and memory through FlexUnits itself:
-# a read attaches the file's unit with `quantity(x, u)`, a write strips in the
-# file's unit with `ustrip(u, q)`, both dimension-checked at runtime (a px
-# quantity into a mm field is a `ConversionError`; a bare number has no
-# `ustrip(u, ·)` method). `quantity` keeps the file unit on the value, so a
-# magnitude read into the same unit comes back exactly (FlexUnits composes the
-# two unit transforms instead of storing the value in metres; `x * u` does
-# not). A single-argument `ustrip` (base units) is never used here. Unit names
-# are VisualGeometryToolkitCore's `parse_unit` (the stack's one guarded `uparse`) and
-# `unit_string` (FlexUnits' printing of a registered unit).
+# A file holds a length as a number in its declared unit; memory holds it as
+# FlexUnits' base-form quantity, metres. Every length crosses through the one
+# pair `read_length(x, u)` / `write_length(q, u)` (lengths.jl: decimal-exact
+# for a power-of-ten unit, dimension-checked), never by multiplying by a
+# scale here; a writer refuses plain numbers where a length is meant. Unit
+# names are VisualGeometryToolkitCore's `parse_unit` (the stack's one guarded
+# `uparse`) and `unit_string` (FlexUnits' printing of a registered unit).
 
 """
     UnitContract(; world = mm)
@@ -24,7 +21,7 @@ fields in vgio JSON records, a `vgio_units.json` sidecar for COLMAP model
 directories — so files stay self-describing.
 """
 struct UnitContract
-    world::typeof(mm)   # a dynamic unit of the PixelUnits registry
+    world::typeof(mm)   # a FlexUnits dynamic unit
 
     function UnitContract(world::Units)
         dimension(world) == dimension(m) ||

@@ -169,7 +169,7 @@ end
             @test back.points3D[1].track == model.points3D[1].track
 
             pose_back = rigid_transform(back.images[1], back.contract)
-            @test pose_back.t ≈ pose.t atol = 1.0e-9
+            @test pose_back.t == pose.t                     # mm in the model, the same metres back
 
             # sidecar-less dirs demand an explicit contract
             rm(joinpath(dir, VgtkIO.UNITS_SIDECAR))
@@ -239,6 +239,6 @@ end
     mktempdir() do dir
         save(dir, ColmapModel([cam], [im], [pt], MM_PX))
         @test_throws ArgumentError load(ColmapModel, dir; contract = UnknownScale())
-        @test rigid_transform(load(ColmapModel, dir).images[1], MM_PX).t ≈ [0.25, -1.5, 3.0]
+        @test rigid_transform(load(ColmapModel, dir).images[1], MM_PX).t == mm_lengths(SVector(0.25, -1.5, 3.0))
     end
 end

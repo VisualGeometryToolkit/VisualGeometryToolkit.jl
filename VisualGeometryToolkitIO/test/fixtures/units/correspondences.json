@@ -1,0 +1,64 @@
+{
+    "schema": "vgio/correspondences/v2",
+    "pixel_frame": "opencv",
+    "length_unit": "mm",
+    "rows": [
+        {
+            "t": 1,
+            "image": "DSC0001.png",
+            "sensor": "cam",
+            "target": "a1f2",
+            "object_points": [
+                [
+                    62.8,
+                    0.0,
+                    0.0
+                ]
+            ],
+            "image_points": [
+                [
+                    639.0,
+                    479.0
+                ]
+            ]
+        },
+        {
+            "t": 3,
+            "image": "DSC0003.png",
+            "sensor": "cam",
+            "target": "a1f2",
+            "object_points": [
+                [
+                    1234.5,
+                    -0.001,
+                    0.0
+                ]
+            ],
+            "image_points": [
+                [
+                    99.0,
+                    49.0
+                ]
+            ]
+        },
+        {
+            "t": 3,
+            "image": "DSC0003.png",
+            "sensor": "cam",
+            "target": "b0c1",
+            "object_points": [
+                [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            ],
+            "image_points": [
+                [
+                    0.5,
+                    1.5
+                ]
+            ]
+        }
+    ]
+}

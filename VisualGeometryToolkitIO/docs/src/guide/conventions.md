@@ -32,11 +32,15 @@ frame.
 
 ### Length unit
 
-Every writer writes millimetres, VGC's in-memory unit, and declares
-`length_unit` once. A reader accepts any declared length unit and returns
-millimetres. Magnitudes cross the file boundary only through FlexUnits'
-dimension-checked `quantity` and `ustrip`, and unit names through
-VisualGeometryToolkitCore's `parse_unit` and `unit_string`.
+In memory a length is a FlexUnits quantity in metres; in a file it is a
+number in the file's declared `length_unit`. Every writer writes millimetres
+unless given another `length_unit`, declares it once, and refuses plain
+numbers where a length is meant (attach the unit: `t .* m`). A reader accepts
+any declared length unit and returns lengths in metres. Every length crosses
+the file boundary through `read_length` and `write_length`, which shift the
+decimal exponent for a power-of-ten unit, so a file of human-scale numbers is
+rewritten byte for byte; unit names go through VisualGeometryToolkitCore's
+`parse_unit` and `unit_string`.
 
 ### Pose direction
 

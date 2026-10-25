@@ -6,11 +6,13 @@ Three layers:
 1. Wire types (`wire.jl`, `colmap_text.jl`, `colmap_binary.jl`) — unit-free,
    format-faithful COLMAP records plus the vgio JSON transform schema. Always
    Float64 on disk (COLMAP binary is double; JSON numbers are double).
-2. Unit contract (`contract.jl`) — the checked boundary between file magnitudes
-   and FlexUnits quantities. Every dimensioned number crosses through
-   FlexUnits' `quantity(x, u)` (read) and `ustrip(u, q)` (write), unit names
-   through VisualGeometryToolkitCore's `parse_unit`/`unit_string`; a single-argument
-   `ustrip` is never used in this package.
+2. Unit contract (`lengths.jl`, `contract.jl`) — the checked boundary between
+   file magnitudes and FlexUnits quantities. Memory holds lengths as base-form
+   quantities in metres, a file in its declared unit; every file length
+   crosses through `read_length(x, u)` and `write_length(q, u)` (decimal-exact
+   for a power-of-ten unit), a covariance entry through the same shift raised
+   to its power, and a writer refuses plain numbers where a length is meant.
+   Unit names go through VisualGeometryToolkitCore's `parse_unit`/`unit_string`.
 3. Assembly (`assemble.jl`) — typed conversion to/from VisualGeometryToolkitCore's
    `CameraModel` and rigid `EuclideanMap`s, quantity-first so VGC's construction-boundary
    unit enforcement is unavoidable for file data.
@@ -80,8 +82,8 @@ using Statistics: cov
 using Rotations: QuatRotation, RotMatrix, RotationVec, RotZ, params
 using JSON: JSON
 using SQLite: SQLite
-using FlexUnits: Units, Quantity, ustrip, dimension, quantity, uscale
-using VisualGeometryToolkitCore: parse_unit, unit_string, mm, m,
+using FlexUnits: Units, Quantity, Dimensions, FixRat32, ustrip, dimension, uscale
+using VisualGeometryToolkitCore: parse_unit, unit_string, mm, m, has_units,
     CameraModel, CameraCalibrationMat, AbstractLensModel, Lens, Pinhole, Division, KannalaBrandt, Scaramuzza,
     Perspective, Equidistant, DoubleSphere, Unified, ExtendedUnified,
     Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Chain, Even,

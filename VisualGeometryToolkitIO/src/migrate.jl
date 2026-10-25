@@ -12,10 +12,15 @@ _verify(ok::Bool, src, what) = ok || throw(
     ArgumentError("$(src): the conversion does not read back as the file read ($(what)); nothing was written")
 )
 
-# A pose read back from the quaternion encoding: its translation exact, its
-# rotation to the encoding's precision (bit for bit when a quaternion reads
-# back to it exactly — `_qvec` — and within a few ulp otherwise).
-_same_pose(a::EuclideanMap, b::EuclideanMap) = a.t == b.t && maximum(abs, Matrix(a.R) - Matrix(b.R)) <= 8 * eps()
+# A pose read back from the quaternion encoding: its translation to the length
+# conversion's guarantee — exact for a file-born value, within 2 ulp of the
+# metre value for a computed one (a fisheye's frame twist), which a file in a
+# unit other than metres may have no number for (lengths.jl) — its rotation to
+# the encoding's precision (bit for bit when a quaternion reads back to it
+# exactly — `_qvec` — and within a few ulp otherwise).
+_same_length(a, b) = (x = ustrip(m, a); y = ustrip(m, b); abs(x - y) <= 2 * eps(abs(x)))
+_same_pose(a::EuclideanMap, b::EuclideanMap) =
+    all(map(_same_length, a.t, b.t)) && maximum(abs, Matrix(a.R) - Matrix(b.R)) <= 8 * eps()
 
 # =============================================================================
 # migrate_opencv — a third-party OpenCV calibration into the native kinds
@@ -59,7 +64,7 @@ declared. The original is never touched. Written to `out`:
 - `<stem>_poses.json` — a `vgio/transforms/v2` file, one record per image the
   solver posed, NAMED by that image: `from = "target:<target>"`, `to =
   "view:<image>"` — the target in the camera frame of that view, `x_view = R
-  x_target + t`, in millimetres. An image whose pose the export has as `null`
+  x_target + t`, in the export's tvec unit (declared as its `length_unit`). An image whose pose the export has as `null`
   has no record.
 
 `images` is REQUIRED — one unique, non-empty name per entry of the export's
@@ -81,7 +86,8 @@ declare what their types say.
 
 The conversion is verified before anything is written to `out`: the v2 files,
 written to a temporary directory, must read back equal to the OpenCV read —
-the camera `==`, every pose's translation bit for bit and its rotation to the
+the camera `==`, every pose's translation bit for bit (a file-born value; a
+computed one within the length conversion's 2 ulp) and its rotation to the
 quaternion encoding's precision (`_qvec`). With
 `dry_run` nothing is written to `out`. Returns `(; path, cameras, poses,
 n_posed, n_unposed)`, the output paths `nothing` in a dry run.
@@ -95,15 +101,16 @@ function migrate_opencv(
         dry_run::Bool = false,
     )
     d = _read_json(path)::AbstractDict
-    cal = load_opencv_calibration(file_frame, path; file_unit = _tvec_unit(d, file_unit, path), target)
-    return _migrate_external(cal, "opencv", path; images, image_size, target, out, dry_run)
+    unit = _tvec_unit(d, file_unit, path)
+    cal = load_opencv_calibration(file_frame, path; file_unit = unit, target)
+    return _migrate_external(cal, "opencv", path; images, image_size, target, out, dry_run, unit)
 end
 
 # The native files of a third-party calibration already read into the
-# stack's conventions (canonical camera, millimetre poses), verified against
+# stack's conventions (canonical camera, poses in metres), verified against
 # that read before anything is written; shared by the OpenCV and MATLAB
-# migrations.
-function _migrate_external(cal::ExternalCalibration, source::AbstractString, path; images, image_size, target, out, dry_run)
+# migrations. The poses file keeps the export's own length unit (`unit`).
+function _migrate_external(cal::ExternalCalibration, source::AbstractString, path; images, image_size, target, out, dry_run, unit::Units)
     names = String[String(n) for n in images]
     (length(names) == length(cal.poses) && all(!isempty, names) && allunique(names)) || throw(
         ArgumentError(
@@ -127,7 +134,7 @@ function _migrate_external(cal::ExternalCalibration, source::AbstractString, pat
             cams_tmp, Dict(Symbol(stem) => BoundedCamera(cal.camera, Size2(w, h)));
             provenance = merge(prov, (reprojection_error = cal.reprojection_error, error_statistic = String(cal.error_statistic))),
         )
-        save(poses_tmp, records; provenance = prov)
+        save(poses_tmp, records; length_unit = unit, provenance = prov)
         store = load(Dict{Symbol, BoundedCamera}, cams_tmp)
         back = load(Vector{EuclideanMap}, poses_tmp)
         _verify(
@@ -165,7 +172,7 @@ as [`load_matlab_calibration`](@ref) reads it — MATLAB's polynomial lens, or t
 fisheye as `Scaramuzza` with its stretch in `K`; `provenance` records the
 `reprojection_error` with `error_statistic = "mean"`, MATLAB's statistic, not
 an rms) and `<stem>_poses.json` (`target:<target>` → `view:<image>` per posed
-image, in millimetres — the fisheye's frame twist applied, as the reader
+image, in the export's tvec unit — the fisheye's frame twist applied, as the reader
 applies it). The original is never touched, and the round trip is verified
 before anything is written.
 
@@ -187,8 +194,9 @@ function migrate_matlab(
         dry_run::Bool = false,
     )
     d = _read_json(path)::AbstractDict
-    cal = load_matlab_calibration(file_frame, path; file_unit = _tvec_unit(d, file_unit, path), target)
-    return _migrate_external(cal, "matlab", path; images, image_size, target, out, dry_run)
+    unit = _tvec_unit(d, file_unit, path)
+    cal = load_matlab_calibration(file_frame, path; file_unit = unit, target)
+    return _migrate_external(cal, "matlab", path; images, image_size, target, out, dry_run, unit)
 end
 
 # `--images` for the command line: a directory's image files, sorted by name

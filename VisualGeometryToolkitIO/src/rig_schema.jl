@@ -23,9 +23,13 @@
 #
 # UNCERTAINTY (VisualGeometryToolkitCore conventions/persisted-geometry.md): a mount
 # may carry a 6×6 `covariance`, a point target's points a parallel
-# `point_covariances` (one d×d per point, mm²) — each present iff the
-# in-memory value is `Uncertain`. A rig sensor's extrinsics are plain: a VGC
-# `Camera` holds a plain map.
+# `point_covariances` (one d×d per point, `length_unit`²) — each present iff
+# the in-memory value is `Uncertain`. A rig sensor's extrinsics are a VGC
+# `Camera`'s map, never uncertain.
+#
+# UNITS: a stored rig is PHYSICAL — its mounts, extrinsics and target points
+# are lengths (metres in memory, the declared `length_unit` on disk); a writer
+# refuses plain numbers where a length is meant.
 #
 # RIG SENSORS MUST BE BoundedCamera. A camera body requires the pixel extent,
 # which a bare Camera does not carry — wrap with `BoundedCamera(camera,
@@ -35,7 +39,7 @@ _unique_check(xs, what) = allunique(xs) ? nothing : "$(what) must be unique"
 
 # Read the schema a file declares, before knowing which kind to validate it as.
 function _peek_schema(path::AbstractString)
-    d = _read_json(path)
+    d = _read_vgio_json(path)
     d isa AbstractDict || throw(ArgumentError("$(path): not a JSON object"))
     return get(d, :schema, nothing)
 end
@@ -48,7 +52,8 @@ end
 #   {"type": "planar", "design": "<reference>", "warp": {"type": "rigid"}}            PlanarTarget of a referenced design
 #   {"type": "planar", "nominal": [[x, y], …], "warp": {"type": "rigid"}}             PlanarTarget of explicit points
 #
-# Points and nominal points in the file's `length_unit` (written in mm), in the
+# Points and nominal points in the file's `length_unit` (written in mm unless
+# the writer is given another), lengths in metres in memory, in the
 # target's own frame. A referenced design's nominal points are its owner's —
 # a BlobBoards board uid resolves to them — so they are NOT restated: `load`
 # returns the target unresolved unless the caller supplies `resolve`, the
@@ -99,54 +104,56 @@ const _TARGET_BODY = _Checked(
 # A target's points on the wire: the geometric values, and their covariances
 # iff every point is `Uncertain` (plain and uncertain points are not mixed in
 # one target — the file could not say which is which).
-function _points_json(what, pts)
-    vals = [collect(Float64, geom(p)) for p in pts]
+function _points_json(what, pts, unit::Units)
+    vals = [_lengths_json(geom(p), unit, "$(what): a point") for p in pts]
     n_u = count(p -> p isa Uncertain, pts)
     n_u == 0 && return (points = vals,)
     n_u == length(pts) || throw(
         ArgumentError("$(what): its points are partly Uncertain — make all of them Uncertain (exact where known) or none")
     )
-    return (points = vals, point_covariances = [_cov_json(cov(p)) for p in pts])
+    return (points = vals, point_covariances = [_length_cov_json(cov(p), unit, _point_cov_dims(length(geom(p)))) for p in pts])
 end
 
-# `points` back to static vectors of the recorded dimension, in the in-memory
-# convention — millimetres, the unit VGC composes a target's points with its
-# mount's translation in (`points(rig, id)`); `Uncertain` iff the file states
-# their covariances (unit² → mm²).
+# `points` back to static vectors of lengths (metres) of the recorded
+# dimension, the form VGC composes a target's points with its mount in
+# (`points(rig, id)`); `Uncertain` iff the file states their covariances
+# (unit² → m²).
 function _points_from_json(vals, unit::Units, covs = nothing)
     isempty(vals) && return SVector{2, Float64}[]
     n = length(first(vals)::Vector{Any})
-    pts = [SVector{n, Float64}(ustrip.(mm, quantity.(Float64[Float64(c::Real) for c in v::Vector{Any}], unit))...) for v in vals]
+    pts = [_lengths_from_json(Val(n), v::Vector{Any}, unit) for v in vals]
     covs === nothing && return pts
-    s2 = Float64(ustrip(mm, quantity(1.0, unit)))^2
-    return [Uncertain(p, CovMat(_cov_matrix(c, n) * s2)) for (p, c) in zip(pts, covs)]
+    return [Uncertain(p, CovMat(_length_cov_from_json(c, n, unit, _point_cov_dims(n)))) for (p, c) in zip(pts, covs)]
 end
 
 _warp_json(::Rigid) = (type = "rigid",)
 _warp_from_json(w) = w.type == "rigid" ? Rigid() : throw(ArgumentError("unknown warp $(repr(w.type))"))
 
 """
-    target_json(target) -> NamedTuple
+    target_json(target, unit = mm) -> NamedTuple
     target_from_json(body, unit; resolve = nothing) -> AbstractTarget
 
-The target body every target-carrying kind embeds (see rig_schema.jl), in
-millimetres, and back from a file in length `unit` (a unit name). A
-`PlanarTarget` of a referenced design is written by its reference alone and
-read back unresolved, unless `resolve(design::Symbol)` — the design owner's
-resolver — returns its nominal points. Building blocks for a package
-serializing its own kind.
+The target body every target-carrying kind embeds (see rig_schema.jl), its
+points (lengths) written in the length `unit`, and back from a file in length
+`unit` (a unit name), as lengths in metres. A target of plain points is an
+`ArgumentError` (attach the unit, `p .* m`). A `PlanarTarget` of a referenced
+design is written by its reference alone and read back unresolved, unless
+`resolve(design::Symbol)` — the design owner's resolver — returns its nominal
+points (lengths). Building blocks for a package serializing its own kind.
 """
-target_json(t::PointTarget) = merge((type = "points",), _points_json("a points target", points(t)))
-target_json(t::PlanarTarget) = t.design === nothing ?
-    (type = "planar", nominal = [collect(Float64, p) for p in t.nominal], warp = _warp_json(t.warp)) :
+target_json(t::PointTarget, unit::Units = mm) = merge((type = "points",), _points_json("a points target", points(t), unit))
+target_json(t::PlanarTarget, unit::Units = mm) = t.design === nothing ?
+    (type = "planar", nominal = [_lengths_json(p, unit, "a planar target's nominal point") for p in t.nominal], warp = _warp_json(t.warp)) :
     (type = "planar", design = String(t.design), warp = _warp_json(t.warp))
 
 """
     target_from_json(body, unit; resolve = nothing) -> AbstractTarget
 
 Read a target body (the inverse of [`target_json`](@ref)) whose lengths are in
-`unit`, a unit name such as `"mm"`. A planar target that names its design is
-returned unresolved unless `resolve(design::Symbol)` returns its nominal points.
+`unit`, a unit name such as `"mm"`, as lengths in metres. A planar target that
+names its design is returned unresolved unless `resolve(design::Symbol)`
+returns its nominal points — lengths, as the design's owner holds them; plain
+points are an `ArgumentError`.
 """
 function target_from_json(t, unit::AbstractString; resolve = nothing)
     u = parse_unit(unit)
@@ -157,6 +164,8 @@ function target_from_json(t, unit::AbstractString; resolve = nothing)
     haskey(t, :nominal) && return PlanarTarget(_points_from_json(t.nominal::Vector{Any}, u); warp)
     design = Symbol(t.design::String)
     nominal = resolve === nothing ? nothing : resolve(design)
+    (nominal === nothing || isempty(nominal) || has_units(nominal)) ||
+        _refuse_plain("resolve($(repr(design))): the design's nominal points")
     return PlanarTarget(design; nominal, warp)
 end
 
@@ -173,17 +182,28 @@ const _TARGET_SPEC = _Obj(
 )
 
 """
-    save(path, target::AbstractTarget; provenance = (;))
-    save(path, Attributed(target, (; calibration)); provenance = (;))
+    save(path, target::AbstractTarget; length_unit = mm, provenance = (;))
+    save(path, Attributed(target, (; calibration)); length_unit = mm, provenance = (;))
 
-Write one target as a `vgio/target/v1` file — its body (rig_schema.jl) and,
-for an `Attributed` one, its `calibration` block (the same block a camera
-carries: who fitted it, when, from what).
+Write one physical target as a `vgio/target/v1` file — its body (rig_schema.jl)
+in `length_unit` and, for an `Attributed` one, its `calibration` block (the
+same block a camera carries: who fitted it, when, from what). Plain points are
+an `ArgumentError`.
 """
-save(path::AbstractString, t::AbstractTarget; provenance::NamedTuple = (;)) =
-    (_write_store(path, _TARGET_SPEC, _with_provenance((schema = _schema("target"), length_unit = unit_string(mm), target = target_json(t)), provenance)); nothing)
-function save(path::AbstractString, t::Attributed{<:AbstractTarget, <:NamedTuple{(:calibration,)}}; provenance::NamedTuple = (;))
-    body = (schema = _schema("target"), length_unit = unit_string(mm), target = target_json(t.value), calibration = _calibration_json(t.calibration))
+save(path::AbstractString, t::AbstractTarget; length_unit::Units = mm, provenance::NamedTuple = (;)) = (
+    _write_store(
+        path, _TARGET_SPEC,
+        _with_provenance((schema = _schema("target"), length_unit = unit_string(length_unit), target = target_json(t, length_unit)), provenance),
+    ); nothing
+)
+function save(
+        path::AbstractString, t::Attributed{<:AbstractTarget, <:NamedTuple{(:calibration,)}};
+        length_unit::Units = mm, provenance::NamedTuple = (;)
+    )
+    body = (
+        schema = _schema("target"), length_unit = unit_string(length_unit), target = target_json(t.value, length_unit),
+        calibration = _calibration_json(t.calibration),
+    )
     _write_store(path, _TARGET_SPEC, _with_provenance(body, provenance))
     return nothing
 end
@@ -216,8 +236,8 @@ end
 # target gauged on one of them), a camera rig carrying its constellation both;
 # `pixel_frame` is declared iff there are sensors. Ids are unique across the
 # two. A sensor is a `BoundedCamera` (a camera body requires the pixel extent);
-# its extrinsics are plain (a VGC `Camera` holds a plain map); a mount may be
-# `Uncertain`.
+# its extrinsics are a plain-typed `EuclideanMap` (never `Uncertain`); a mount
+# may be `Uncertain`. Every translation and point is a length.
 
 const _SENSOR_RECORD = _Obj(
     :id => _NonEmpty(),
@@ -250,7 +270,7 @@ const _RIG_SPEC = _Checked(
     end,
 )
 
-function _sensor_json(rig, i, id)
+function _sensor_json(rig, i, id, unit::Units)
     c = sensor_rig(rig).members[i]
     m = model(c)
     body = if m isa CameraModel
@@ -259,9 +279,9 @@ function _sensor_json(rig, i, id)
         )
         _camera_body(m, extent(c))
     else
-        _generic_body(m)      # generic grid model: carries its own extent
+        _generic_body(m, unit)      # generic grid model: carries its own extent
     end
-    return (id = String(id), camera = body, extrinsics = pose_json(extrinsics(sensor_rig(rig), i)))   # <rig frame> → view:<id>
+    return (id = String(id), camera = body, extrinsics = pose_json(extrinsics(sensor_rig(rig), i), unit))   # <rig frame> → view:<id>
 end
 
 _has_sensors(::Rig{F, <:AbstractDict}) where {F <: Frame{3}} = false
@@ -270,42 +290,44 @@ _has_targets(::Rig{F, <:Tuple}) where {F <: Frame{3}} = false
 _has_targets(::Rig) = true
 
 # The rig record without provenance — what the file holds and what its content
-# identity covers. Lengths in millimetres, the in-memory unit.
-function _rig_body(rig::Rig)
+# identity covers. Lengths in `unit` (millimetres unless the writer is given
+# another; the identity of a `Rig` value is that of its millimetre record).
+function _rig_body(rig::Rig, unit::Units = mm)
     body = merge(
         (schema = _schema("rig"),),
         _has_sensors(rig) ? (pixel_frame = pixel_frame_name(CANONICAL_PIXEL_FRAME),) : (;),
-        pose_declarations(mm), (frame = frame_name(reference_frame(rig)),),
+        pose_declarations(unit), (frame = frame_name(reference_frame(rig)),),
     )
     if _has_sensors(rig)
         sr = sensor_rig(rig)
-        body = merge(body, (sensors = [_sensor_json(rig, i, id) for (i, id) in enumerate(ids(sr))],))
+        body = merge(body, (sensors = [_sensor_json(rig, i, id, unit) for (i, id) in enumerate(ids(sr))],))
     end
     if _has_targets(rig)
         tr = target_rig(rig)
-        targets = [(id = String(id), target = target_json(tr[id].target), pose = pose_json(pose(tr, id))) for id in ids(tr)]   # target:<id> → <rig frame>
+        targets = [(id = String(id), target = target_json(tr[id].target, unit), pose = pose_json(pose(tr, id), unit)) for id in ids(tr)]   # target:<id> → <rig frame>
         body = merge(body, (targets = targets,))
     end
     return body
 end
 
 """
-    save(path, rig::Rig; provenance = (;))
+    save(path, rig::Rig; length_unit = mm, provenance = (;))
 
-Write a VGC `Rig` — sensors, targets, or both — as a `vgio/rig/v4` file: each
-sensor (a `BoundedCamera`) with its extrinsics `frame → view:<id>`, each
-target (sorted by id) with its body and its mount `target:<id> → frame`
-(a `covariance` iff `Uncertain`). A rig's name, if it has one worth keeping,
-belongs in `provenance`.
+Write a physical VGC `Rig` — sensors, targets, or both — as a `vgio/rig/v4`
+file in `length_unit`: each sensor (a `BoundedCamera`) with its extrinsics
+`frame → view:<id>`, each target (sorted by id) with its body and its mount
+`target:<id> → frame` (a `covariance` iff `Uncertain`). A rig of plain
+translations or points is an `ArgumentError` (attach the unit, `t .* m`). A
+rig's name, if it has one worth keeping, belongs in `provenance`.
 """
-save(path::AbstractString, rig::Rig; provenance::NamedTuple = (;)) =
-    (_write_store(path, _RIG_SPEC, _with_provenance(_rig_body(rig), provenance)); nothing)
+save(path::AbstractString, rig::Rig; length_unit::Units = mm, provenance::NamedTuple = (;)) =
+    (_write_store(path, _RIG_SPEC, _with_provenance(_rig_body(rig, length_unit), provenance)); nothing)
 
 """
     load(Rig, path; resolve = nothing) -> Rig
 
 Read a `vgio/rig/v4` file back into a fully labeled VGC `Rig` of the storage
-it holds: sensors (each a `BoundedCamera` labeled `frame → ViewFrame{id}`),
+it holds, its lengths in metres: sensors (each a `BoundedCamera` labeled `frame → ViewFrame{id}`),
 targets (each `Mounted`, minted `TargetFrame{id} → frame` on access), or both.
 `resolve(design)` supplies a referenced planar design's nominal points (see
 [`target_from_json`](@ref)). Type-unstable by nature (frame types are minted
@@ -344,8 +366,9 @@ end
 
 The identity a measurement file (`target_points2d`, `target_points3d`) names a
 target definition by — `targets` a `Rig` or a `vgio/rig/v4` path: the SHA-256
-of the canonical JSON of its rig record WITHOUT its provenance. A rig and the file written from it have the same identity; a
-relabeled provenance does not change it. A measurement value's `targets` holds
+of the canonical JSON of its rig record WITHOUT its provenance. A rig and the file written from it (in the
+default millimetres) have the same identity; a relabeled provenance does not change it, a file written in
+another `length_unit` has its own. A measurement value's `targets` holds
 these.
 """
 content_id(x::Union{Rig, AbstractString}) = _targets_hash(x)

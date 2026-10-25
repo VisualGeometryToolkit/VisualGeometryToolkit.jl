@@ -64,7 +64,7 @@
         K = CameraCalibrationMat(SMatrix{3, 3, Float64}(900.0, 0, 0, 0, 900.0, 0, 2120.0, 1416.0, 1))
         bc = opencv_lens([-0.1, 0.05, 1.0e-4, -2.0e-4])
         pose(z) = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.1, -0.2, 0.3)), [1.0mm, 2.0mm, z])
-        pts = [SVector(10.0i, 5.0i) for i in 1:4]
+        pts = [mm_lengths(SVector(10.0i, 5.0i)) for i in 1:4]
         dirs = [Vec3{Float64}(0.01 * gx, 0.02 * gy, 1.0) for gy in 1:4, gx in 1:5]
         gc = CentralGenericModel(64, 48, 0, 0, 63, 47, dirs)
         gn = NoncentralGenericModel(64, 48, 0, 0, 63, 47, dirs, [Vec3{Float64}(0.1gx, -0.1gy, 0.05) for gy in 1:4, gx in 1:5])
@@ -90,7 +90,7 @@
         )
         save(at!("rig_generic", "rig_generic.json"), Rig{ViewFrame{:g}}((Camera(gn, relabel(ViewFrame{:g}, ViewFrame{:g}, ident)),)))
         save(at!("rig_targets", "targets.json"), targets)
-        save(at!("target", "target.json"), Attributed(PointTarget([SVector(1.0, 2.0, 3.0)]), (; calibration = (; tool = "t"))))
+        save(at!("target", "target.json"), Attributed(PointTarget([mm_lengths(SVector(1.0, 2.0, 3.0))]), (; calibration = (; tool = "t"))))
         save(
             at!("trajectory", "trajectory.json"),
             Trajectory(BodyFrame{:rig}, WorldFrame, Dict(1 => pose(900.0mm)); images = Dict(1 => "a.png"), times = Dict(1 => 0.5), time_origin = "2026-05-27T00:00:00"),
@@ -101,7 +101,7 @@
         )
         save(
             at!("target_points3d", "target_points3d.json"),
-            TargetPoints3D{WorldFrame}(Dict(1 => [(target = :rig, index = 1, xyz = SVector(1.0, 2.0, 3.0))]); sensors = "mocap", images = Dict(1 => "a.png")),
+            TargetPoints3D{WorldFrame}(Dict(1 => [(target = :rig, index = 1, xyz = mm_lengths(SVector(1.0, 2.0, 3.0)))]); sensors = "mocap", images = Dict(1 => "a.png")),
         )
         obs = TargetPoints2D{PixelFrame{:colmap}}(Dict(1 => [(; target = :a, index = 2, xy = SVector(640.0, 480.0), weight = 1.0)]);
             images = Dict(1 => "a.png"), sensors = "cam", targets = [content_id(targets)])

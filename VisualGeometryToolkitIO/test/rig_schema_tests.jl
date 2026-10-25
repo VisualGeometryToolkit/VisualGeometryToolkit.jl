@@ -44,9 +44,9 @@ end
     K1 = SMatrix{3, 3, Float64}(900.0, 0, 0, 0, 900.0, 0, 2120.0, 1416.0, 1)
     K2 = SMatrix{3, 3, Float64}(700.0, 0, 0, 0, 700.0, 0, 330.0, 250.0, 1)
     R = RotMatrix{3, Float64}(RotXYZ(0.08, -0.15, 0.05))
-    t = SVector(120.0, -15.0, 10.0)
-    cam1 = Camera(K1, one(RotMatrix{3, Float64}), zero(SVector{3, Float64}))
-    cam2 = Camera(K2, R, t)
+    t = mm_lengths(SVector(120.0, -15.0, 10.0))
+    cam1 = Camera(CameraModel(CameraCalibrationMat(K1)), EuclideanMap(one(RotMatrix{3, Float64}), mm_lengths(SVector(0.0, 0.0, 0.0))))
+    cam2 = Camera(CameraModel(CameraCalibrationMat(K2)), EuclideanMap(R, t))
     rig = StereoRig(
         BoundedCamera(cam1, Size2(4240, 2832)),
         BoundedCamera(cam2, Size2(640, 480)); ids = (:left, :right)
@@ -69,8 +69,8 @@ end
         @test model(source(back)) == model(source(rig)) && model(target(back)) == model(target(rig))
         Xa, Xb = extrinsics(rig), extrinsics(back)
         @test Xb.t == Xa.t
-        # a loaded translation is the stack's Vec3, whatever container was saved (here an SVector)
-        @test Xb.t isa VgtkCore.Vec3{Float64}
+        # a loaded translation is lengths in metres
+        @test Xb.t isa SVector{3, Quantity{Float64, Dimensions{FixRat32}}}
         @test VgtkIO._pose_frames(Xb) == VgtkIO._pose_frames(Xa)
         @test maximum(abs, Matrix(Xb.R) - Matrix(Xa.R)) <= POSE_ULP
         # a rig READ from a file round-trips exactly
@@ -137,7 +137,7 @@ end
     Xa = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.1, 0.2, -0.3)), [1.0mm, 2.0mm, 3.0mm])
     Xb = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(-0.2, 0.05, 0.4)), [-100.0mm, 50.0mm, 200.0mm])
     ident = EuclideanMap(one(RotMatrix{3, Float64}), [0.0mm, 0.0mm, 0.0mm])
-    pts = [SVector(0.0, 0.0), SVector(10.0, 0.0), SVector(0.0, 5.0)]
+    pts = [mm_lengths(p) for p in (SVector(0.0, 0.0), SVector(10.0, 0.0), SVector(0.0, 5.0))]
     # gauged on :a1f2 (explicit design points, at the identity); :b76e a
     # referenced design, resolved; :c9 a referenced design, unresolved
     tr = Rig{TargetFrame{:a1f2}}(
@@ -184,15 +184,15 @@ end
         @test backw isa Rig{WorldFrame} && ids(backw) == [:b76e]
 
         # The file's declared length unit is honoured, not assumed: the same
-        # numbers declared in metres are a thousand times larger in the
-        # in-memory millimetres; a non-length unit is refused.
+        # numbers declared in metres are a thousand times longer; a non-length
+        # unit is refused.
         raw = copy(parse_json(read(path, String)))
         function with_unit(u)
             q = joinpath(dir, "targets_$(u).json")
             write(q, JSON.json(merge(raw, Dict(:length_unit => u))))
             return q
         end
-        @test points(load(Rig, with_unit("m"))[:a1f2]) ≈ [1000 .* p for p in pts]
+        @test [ustrip.(m, p) for p in points(load(Rig, with_unit("m"))[:a1f2])] ≈ [1000 .* ustrip.(m, p) for p in pts]
         @test_throws ArgumentError load(Rig, with_unit("px"))
 
         # The content identity measurements name a rig by: the same for the
@@ -215,7 +215,7 @@ end
     K = SMatrix{3, 3, Float64}(900.0, 0, 0, 0, 900.0, 0, 640.0, 480.0, 1)
     Xc = relabel(BodyFrame{:camera_rig}, ViewFrame{:cam}, _mkpose())
     cam = BoundedCamera(Camera(CameraModel(CameraCalibrationMat(K)), Xc), Size2(1280, 960))
-    markers = PointTarget([exact(SVector(0.0, 0.0, 0.0)), exact(SVector(30.0, 0.0, 5.0)), exact(SVector(0.0, 40.0, -2.0))])
+    markers = PointTarget([exact_mm(SVector(0.0, 0.0, 0.0)), exact_mm(SVector(30.0, 0.0, 5.0)), exact_mm(SVector(0.0, 40.0, -2.0))])
     ident = EuclideanMap(one(RotMatrix{3, Float64}), [0.0mm, 0.0mm, 0.0mm])
     Σ = CovMat(SMatrix{6, 6, Float64}(LinearAlgebra.I) * 1.0e-4)
     rig = Rig{BodyFrame{:camera_rig}}((cam,), Dict(:markers => Mounted(markers, Uncertain(ident, Σ))))
@@ -249,13 +249,13 @@ end
         # a target file holding a referenced design reads back unresolved unless resolved
         save(tp, PlanarTarget(:b76e))
         @test !is_resolved(load(AbstractTarget, tp))
-        @test points(load(AbstractTarget, tp; resolve = _ -> [SVector(1.0, 2.0)])) == [SVector(1.0, 2.0)]
+        @test points(load(AbstractTarget, tp; resolve = _ -> [mm_lengths(SVector(1.0, 2.0))])) == [mm_lengths(SVector(1.0, 2.0))]
     end
 end
 
 @testitem "rig/v4: the validator" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitCore: Rig, Mounted, PlanarTarget, PointTarget, WorldFrame, exact
-    pts = [SVector(0.0, 0.0), SVector(10.0, 0.0)]
+    pts = [mm_lengths(SVector(0.0, 0.0)), mm_lengths(SVector(10.0, 0.0))]
     X = EuclideanMap(one(RotMatrix{3, Float64}), [10.0mm, 0.0mm, 0.0mm])
     mktempdir() do dir
         path = joinpath(dir, "r.json")
@@ -283,7 +283,7 @@ end
         @test refused(dd -> (dd["targets"][1]["target"] = Dict("type" => "points", "points" => [[1, 2], [1, 2, 3]])), "2-vectors")
         @test refused(dd -> push!(dd["targets"], deepcopy(dd["targets"][1])), "unique")
         # plain and uncertain points are not mixed in one target
-        @test_throws ArgumentError save(joinpath(dir, "mixed.json"), Rig{WorldFrame}(Dict(:a => Mounted(PointTarget([SVector(1.0, 2.0), exact(SVector(3.0, 4.0))]), X))))
+        @test_throws ArgumentError save(joinpath(dir, "mixed.json"), Rig{WorldFrame}(Dict(:a => Mounted(PointTarget([mm_lengths(SVector(1.0, 2.0)), exact_mm(SVector(3.0, 4.0))]), X))))
     end
 end
 
@@ -400,8 +400,8 @@ end
     mktempdir() do dir
         obs = TargetPoints3D{WorldFrame}(
             Dict(
-                1 => [(target = :board_rig, index = 1, xyz = SVector(1140.24, 327.55, 1614.39)), (target = :camera_rig, index = 3, xyz = exact(SVector(2113.1, 24.0, 1319.0)))],
-                2 => [(target = :board_rig, index = 2, xyz = Uncertain(SVector(1.0, 2.0, 3.0), CovMat(SMatrix{3, 3, Float64}(LinearAlgebra.I) * 0.25)))],
+                1 => [(target = :board_rig, index = 1, xyz = mm_lengths(SVector(1140.24, 327.55, 1614.39))), (target = :camera_rig, index = 3, xyz = exact_mm(SVector(2113.1, 24.0, 1319.0)))],
+                2 => [(target = :board_rig, index = 2, xyz = Uncertain(mm_lengths(SVector(1.0, 2.0, 3.0)), CovMat(SMatrix{3, 3, Float64}(LinearAlgebra.I) * 2.5e-7)))],
             );
             sensors = "mocap", images = Dict(1 => "DSC1.JPG"), times = Dict(1 => 10.0, 2 => 10.5), time_origin = "2026-05-27T00:00:00",
         )
@@ -413,7 +413,7 @@ end
         d = parse_json(read(path, String))
         @test d.schema == "vgio/target_points3d/v1" && d.frame == "world" && !haskey(d, :targets)
         @test !haskey(d.frames[1].points[1], :covariance) && haskey(d.frames[1].points[2], :covariance)
-        # a file in metres reads into millimetres, its covariance into mm²
+        # a file in metres reads into the same lengths, its covariance (m²) as it is
         dm = JSON.parse(read(path, String); dicttype = Dict{String, Any})
         dm["length_unit"] = "m"
         dm["frames"][2]["points"][1]["xyz"] = [0.001, 0.002, 0.003]
@@ -421,9 +421,9 @@ end
         pm = joinpath(dir, "metres.json")
         write(pm, JSON.json(dm))
         u = load(TargetPoints3D, pm)[2][1].xyz
-        @test geom(u) ≈ SVector(1.0, 2.0, 3.0) && cov(u) ≈ SMatrix{3, 3, Float64}(LinearAlgebra.I) * 0.25
+        @test geom(u) == mm_lengths(SVector(1.0, 2.0, 3.0)) && cov(u) == SMatrix{3, 3, Float64}(LinearAlgebra.I) * 2.5e-7
         # every frame names its sensor
-        @test_throws ArgumentError save(joinpath(dir, "x.json"), TargetPoints3D{WorldFrame}(Dict(1 => [(target = :a, index = 1, xyz = SVector(1.0, 2.0, 3.0))])))
+        @test_throws ArgumentError save(joinpath(dir, "x.json"), TargetPoints3D{WorldFrame}(Dict(1 => [(target = :a, index = 1, xyz = mm_lengths(SVector(1.0, 2.0, 3.0)))])))
     end
 end
 
@@ -439,7 +439,7 @@ end
         @test length(rows) == 4 && all(length.(rows) .== 8)
         for (t, r) in zip(1:4, rows)
             @test r[1] == tr.times[t]
-            @test SVector(r[2], r[3], r[4]) * 1000 ≈ geom(tr[t]).t atol = 1.0e-9
+            @test SVector(r[2], r[3], r[4]) == ustrip.(m, geom(tr[t]).t)       # metres, exactly
             @test RotMatrix(QuatRotation(r[8], r[5], r[6], r[7])) ≈ RotMatrix(geom(tr[t]).R) atol = 1.0e-12
         end
         # EuRoC: `#timestamp [ns], p_RS_R_*, q_RS_w…`, comma-separated, ≥ 8 columns (file_interface.py:224-243)
@@ -463,15 +463,15 @@ end
         gt = parse_json(read(out.scene_gt, String))
         e = only(o for o in gt[Symbol("2")] if o.obj_id == out.obj_ids[:b89])
         @test permutedims(reshape(collect(Float64, e.cam_R_m2c), 3, 3)) ≈ RotMatrix(poses[2].R) atol = 1.0e-15
-        @test collect(Float64, e.cam_t_m2c) == collect(poses[2].t)
+        @test collect(Float64, e.cam_t_m2c) == [200.0, -20.0, 1500.0]
         sc = parse_json(read(out.scene_camera, String))
         @test collect(Float64, sc[Symbol("2")].cam_K) == [900.0, 0.0, 640.0, 0.0, 901.0, 480.0, 0.0, 0.0, 1.0]   # OpenCV pixel frame
         @test out.obj_ids == Dict(:a01 => 1, :b89 => 2) && out.images == Dict(2 => "DSC2.JPG")
         @test_throws ArgumentError save_bop_scene(PixelFrame{:opencv}, joinpath(dir, "bop2"), tp, Dict(:other => cams[:cam]); undistorted = true)
         # TRC: header lines, tab-separated with a trailing tab, missing markers as empty fields (TRCFileAdapter.cpp)
         obs = TargetPoints3D{WorldFrame}(
-            Dict(1 => [(target = :rig, index = 1, xyz = SVector(1.0, 2.0, 3.0)), (target = :rig, index = 2, xyz = SVector(4.0, 5.0, 6.0))],
-                 2 => [(target = :rig, index = 2, xyz = SVector(7.0, 8.0, 9.0))]);
+            Dict(1 => [(target = :rig, index = 1, xyz = mm_lengths(SVector(1.0, 2.0, 3.0))), (target = :rig, index = 2, xyz = mm_lengths(SVector(4.0, 5.0, 6.0)))],
+                 2 => [(target = :rig, index = 2, xyz = mm_lengths(SVector(7.0, 8.0, 9.0)))]);
             sensors = "mocap", times = Dict(1 => 0.0, 2 => 0.5), time_origin = "2026-05-27T00:00:00",
         )
         r = save_trc(joinpath(dir, "markers.trc"), obs)
@@ -496,7 +496,7 @@ end
         3 => NamedTuple[(; target = :a1f2, index = 7, xy = SVector(100.0, 50.0), weight = 1.0), (; target = :b0c1, index = 1, xy = SVector(1.5, 2.5), weight = 0.5)],
         1 => NamedTuple[(; target = :a1f2, index = 2, xy = SVector(640.0, 480.0), weight = 1.0)],
     )
-    pts = [SVector(10.0i, 5.0i) for i in 1:7]
+    pts = [mm_lengths(SVector(10.0i, 5.0i)) for i in 1:7]
     at(z) = EuclideanMap(one(RotMatrix{3, Float64}), [0.0mm, 0.0mm, z])
     targets = Rig{TargetFrame{:a1f2}}(Dict(:a1f2 => Mounted(PlanarTarget(pts), at(0.0mm)), :b0c1 => Mounted(PlanarTarget(pts), at(100.0mm))))
     images = Dict(1 => "DSC0001.png", 3 => "DSC0003.png")

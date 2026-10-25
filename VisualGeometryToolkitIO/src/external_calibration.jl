@@ -28,7 +28,7 @@
 # third-party export) is read exactly as the caller says.
 #
 # Everything returned is in the stack's conventions: the camera in the COLMAP
-# pixel frame, the poses `target → camera_optical` in millimetres. The lens formulas
+# pixel frame, the poses `target → camera_optical` with lengths in metres. The lens formulas
 # agree on both sides — an OpenCV file's coefficients are OpenCV's distortion
 # vector (`opencv_lens`, conventions.jl); MATLAB's radial/tangential model is
 # OpenCV's polynomial term for term, so `opencv_lens([r1, r2, t1, t2, r3])` IS
@@ -43,7 +43,7 @@ One third-party calibration file as read by [`load_opencv_calibration`](@ref)
 or [`load_matlab_calibration`](@ref): `source` (`:opencv` or `:matlab`),
 `camera` (a VGC `CameraModel`, in the canonical frame by construction),
 `poses` (one VGC `EuclideanMap` labeled `TargetFrame{target} → CameraFrame`,
-in millimetres, per image; `nothing` where the file has `null`), the file's `reprojection_error` in pixels together with the
+its translation lengths in metres, per image; `nothing` where the file has `null`), the file's `reprojection_error` in pixels together with the
 statistic it is (`error_statistic`: `:rms` for OpenCV, `:mean` for MATLAB),
 `path`, and `images`: the image name of every pose when the file names them —
 this package's writer does — or `nothing` for a third-party export, whose
@@ -89,7 +89,9 @@ function _external_camera(d, lens, image_origin::Symbol, path, what)
     return CameraModel(K; lens, image_origin)
 end
 
-# `{rvec, tvec}` per image → `target → camera_optical` in millimetres; a `null`
+# `{rvec, tvec}` per image → `target → camera_optical`, lengths in metres (`tvec`
+# read in `unit` through `read_length`'s shift; a non-finite one refused by
+# name); a `null`
 # stays `nothing` so the caller's positional join over the images holds.
 # `twist` re-expresses the poses in a camera frame rotated about the optical
 # axis (the MATLAB fisheye's stretch matrix, below); the identity otherwise.
@@ -100,18 +102,19 @@ function _external_poses(
     dimension(unit) == dimension(m) || throw(
         ArgumentError("$(path): `unit` must be the length unit of `tvec` (mm, m, …), got $(unit)")
     )
-    scale = ustrip(mm, quantity(1.0, unit))       # mm per `unit`
     return Union{Nothing, EuclideanMap{3}}[
-        p === nothing ? nothing : _external_pose(p, scale, target, twist) for p in entries
+        p === nothing ? nothing : _external_pose(p, unit, target, twist, path, i) for (i, p) in enumerate(entries)
     ]
 end
-function _external_pose(p, scale::Float64, target::AbstractString, twist::RotMatrix{3, Float64})
+function _external_pose(p, unit::Units, target::AbstractString, twist::RotMatrix{3, Float64}, path, i)
     r = SVector{3, Float64}(Float64.(collect(p.rvec)))
-    t = SVector{3, Float64}(Float64.(collect(p.tvec))) .* scale
+    t = SVector{3, Float64}([_read_power(x::Real, unit, 1) for x in p.tvec])   # plain metres
+    (all(isfinite, r) && all(isfinite, t)) ||
+        throw(ArgumentError("$(path): poses[$(i)]: `rvec` and `tvec` must be finite numbers"))
     # OpenCV's rvec is a Rodrigues (rotation-vector) parameterization, which is
     # `Rotations.RotationVec` exactly; MATLAB's export uses the same vector.
     R = RotMatrix{3, Float64}(RotationVec(r[1], r[2], r[3]))
-    return relabel(TargetFrame{Symbol(target)}, CameraFrame, EuclideanMap(twist * R, quantity.(twist * t, mm)))
+    return relabel(TargetFrame{Symbol(target)}, CameraFrame, EuclideanMap(twist * R, map(_metres, twist * t)))
 end
 
 # S = U·Q — an RQ factorization of a 2×2 stretch matrix: `U` upper triangular
@@ -143,13 +146,14 @@ not need.
 
 The shape is a THIRD-PARTY one, so its conventions are its consumer's, and the
 two arguments are CONVERSION TARGETS applied to data whose own conventions its
-types fix — the camera's K is canonical by VGC's construction, the poses are
-millimetres — never labels for it:
+types fix — the camera's K is canonical by VGC's construction, the poses'
+translations are lengths — never labels for it:
 
   `to_frame`  the pixel frame `cx, cy` are written in; OpenCV's own,
               `PixelFrame{:opencv}`, by default. A type, it leads.
-  `to_unit`   the length unit `tvec` is written in (the poses are carried in
-              millimetres, so `to_unit = m` divides by a thousand).
+  `to_unit`   the length unit `tvec` is written in ([`write_length`](@ref):
+              a pose 1.39719 m from the target is `tvec` 1.39719 in `m`,
+              1397.19 in `mm`). A plain translation is an `ArgumentError`.
 
 Both are also written into the file, under `image_origin` and `unit`, and the
 reader refuses a caller who states different ones.
@@ -189,11 +193,10 @@ function save_opencv_calibration(
     # into the convention the file is written in.
     shift = EuclideanMap(CANONICAL_PIXEL_FRAME, PixelFrame{image_origin}).t
     cx, cy = Float64(K[1, 3]) + shift[1], Float64(K[2, 3]) + shift[2]
-    scale = ustrip(mm, quantity(1.0, unit))       # mm per `unit`
     body = (
         fx = Float64(K[1, 1]), fy = Float64(K[2, 2]), cx = cx, cy = cy,
         rms = Float64(rms),
-        poses = [p === nothing ? nothing : _opencv_pose(p, scale) for p in poses],
+        poses = [p === nothing ? nothing : _opencv_pose(p, unit) for p in poses],
         images = String.(images),
         NamedTuple{_OPENCV_KEYS[1:length(c)]}(Tuple(c))...,
         unit = string(unit), image_origin = String(image_origin),
@@ -261,14 +264,12 @@ end
 
 # A pose the reader will read back: OpenCV's Rodrigues vector and a
 # translation in the file's unit. `_external_pose` is the inverse.
-function _opencv_pose(p, scale::Float64)
-    R, t = _pose_parts(p)
-    r = RotationVec(RotMatrix{3, Float64}(R))
-    return (rvec = [r.sx, r.sy, r.sz], tvec = [t[1] / scale, t[2] / scale, t[3] / scale])
+function _opencv_pose(p::EuclideanMap, unit::Units)
+    r = RotationVec(RotMatrix{3, Float64}(p.R))
+    tvec = _lengths_json(p.t, unit, "save_opencv_calibration: a pose's translation")
+    all(isfinite, tvec) || throw(ArgumentError("save_opencv_calibration: a pose's `tvec` is not finite"))
+    return (rvec = [r.sx, r.sy, r.sz], tvec = tvec)
 end
-# An `EuclideanMap` — what a pipeline's poses are — carries its rotation and
-# translation (millimetres) as `.R` and `.t`.
-_pose_parts(p::EuclideanMap) = (RotMatrix{3, Float64}(p.R), SVector{3, Float64}(p.t))
 
 """
     load_opencv_calibration([file_frame = PixelFrame{:opencv},] path; file_unit, target = "calibration_target")
@@ -290,7 +291,7 @@ does not declare — never labels on data: `file_unit` is the length unit of
 `tvec` (the object points' unit, `m` or `mm`), and `file_frame` the pixel
 frame of `cx, cy`, OpenCV's own `PixelFrame{:opencv}` by default (a type, it
 leads). The camera returned is in VGC's canonical frame by construction and
-the poses in millimetres, so nothing downstream restates either. `target`
+the poses' translations lengths (metres), so nothing downstream restates either. `target`
 names the pattern in the pose records (`target → camera_optical`).
 
 Most third-party exports declare neither and are read as stated; some declare

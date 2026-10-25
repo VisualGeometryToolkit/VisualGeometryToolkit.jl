@@ -26,7 +26,7 @@
 # size), still configuration-adjacent and diffable. A rig whose sensor carries
 # a generic model embeds this BODY (no schema or declarations — the rig
 # declares them) where a parametric sensor embeds a camera body; it carries its
-# own width/height, so a bare `Camera` sensor suffices.
+# own width/height, so a bare `PosedCamera` sensor suffices.
 #
 # The point grid is a plain model's numbers: VGC's grid models hold
 # `Vec3{T}`, so the points are plain METRES in memory — the unit VGC strips a

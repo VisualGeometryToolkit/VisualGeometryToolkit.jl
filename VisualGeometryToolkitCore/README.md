@@ -85,7 +85,7 @@ model = CameraModel(f, s.pitch, centroid(Rect(s)) .* px)   # Rect(s) is COLMAP c
 
 # Camera with pose
 extrinsics = lookat(SVector(0.0, 0.0, 500.0), SVector(0.0, 0.0, 0.0), SVector(0.0, -1.0, 0.0))
-camera = Camera(model, extrinsics)
+camera = PosedCamera(model, extrinsics)
 
 # Project 3D points
 pixel = project(camera, Point3(1.0, 2.0, 10.0))   # world point in mm, the canonical length (as the pose is)

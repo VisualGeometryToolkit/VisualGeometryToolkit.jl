@@ -70,11 +70,10 @@
         K = SMatrix{3, 3, Float64}(1000.0, 0, 0, 0, 1000.0, 0, 640.0, 480.0, 1.0)
         R = SMatrix{3, 3, Float64}(1.0I)
         t = SVector(0.0, 0.0, 0.0)
-        # QUALIFIED: `Camera` is exported by BOTH this package and Makie, so it
-        # is ambiguous in any scope that loads the two — which is every scope
-        # that uses the plotting extension. Surfaced by this test item on the
-        # day it was written; the collision is worth knowing about.
-        camera = VgtkCore.Camera(K, R, t)
+        # QUALIFIED: Makie exports its own `Camera`, which this type was named
+        # before it became `PosedCamera`; the qualification is kept so the test
+        # does not depend on what Makie exports.
+        camera = VgtkCore.PosedCamera(K, R, t)
         bounds = Rect(Point2(0.0, 0.0), Vec2(1280.0, 960.0))
         segments, corners_world, cam_center = ext.frustum_segments(camera, bounds, 5.0)
         # Four rays out to the corners plus the far-plane rectangle, each pair

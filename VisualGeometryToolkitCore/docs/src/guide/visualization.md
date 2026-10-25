@@ -123,7 +123,7 @@ VisualGeometryToolkitFeatures extends them by dispatch for its feature types (th
 scene_3d = LScene3D(width=800, height=600)
 
 # Add camera visualization
-camera = Camera(model, pose)
+camera = PosedCamera(model, pose)
 image_rect = Rect(sensor)
 
 # camera! pushes axes, frustum, and center specs onto the SpecApi scene

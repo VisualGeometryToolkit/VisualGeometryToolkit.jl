@@ -25,7 +25,7 @@
 the plane `z = 0` of the board's 3D frame).
 
 Source frame of the plane-induced homography of a pinhole camera:
-`HomographyMap(camera::PinholeCamera)` is labeled
+`HomographyMap(camera::PosedPinholeCamera)` is labeled
 `Src = TargetPlaneFrame, Dst = PixelFrame{:colmap}` (monogram `H_PB`). Adoption by
 the F/E actions is deferred to 0.8 (pending view-identity symbol frames).
 """

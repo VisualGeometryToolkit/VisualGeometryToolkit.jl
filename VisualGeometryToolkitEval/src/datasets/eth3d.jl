@@ -21,7 +21,7 @@ _eth3d_model(scene_dir::AbstractString, calib::AbstractString) =
 function _eth3d_camera(cam::ColmapCamera, im::ColmapImage)
     q, t = im.qvec, im.tvec
     pose = EuclideanMap(QuatRotation(q[1], q[2], q[3], q[4]), Vec3{Float64}(t[1], t[2], t[3]) .* m)
-    return BoundedCamera(Camera(camera_model(cam), pose), Size2(cam.width, cam.height))
+    return BoundedCamera(PosedCamera(camera_model(cam), pose), Size2(cam.width, cam.height))
 end
 
 # ETH3D's raw depth (row-major Float32, `(height, width)`) as a `(H, W)` matrix, NaN invalid.

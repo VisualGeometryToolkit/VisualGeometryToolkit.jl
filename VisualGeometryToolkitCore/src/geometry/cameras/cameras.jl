@@ -13,7 +13,7 @@ Provides complete camera modeling including:
 - **Utilities**: Helper functions (focal_length, lookat, P3P solvers)
 
 # Main Types
-- `Camera`, `PinholeCamera`
+- `PosedCamera`, `PosedPinholeCamera`
 - `CameraModel`
 - `LogicalIntrinsics`
 - `Lens`, `LiftLens`, `Pinhole`, `KannalaBrandt`, `Division`
@@ -34,7 +34,7 @@ using VisualGeometryToolkitCore.Cameras
 s = sensor("Sony", "IMX174")
 f = focal_length_for_fov(s, deg2rad(40.0))
 model = CameraModel(f, s.pitch, centroid(Rect(s)) .* px)
-camera = Camera(model, lookat(...))
+camera = PosedCamera(model, lookat(...))
 ```
 """
 module Cameras
@@ -87,7 +87,7 @@ import ..VisualGeometryToolkitCore: transfer  # Multi-view verb (extended on Ste
 # Camera component accessors. `model` MUST extend the parent generic (which
 # base/manifold.jl also extends for Manifold): defining a fresh `Cameras.model`
 # would not merge into the already-bound `VisualGeometryToolkitCore.model` at
-# `using .Cameras`, so the top-level export would silently lack the Camera
+# `using .Cameras`, so the top-level export would silently lack the PosedCamera
 # method (latent since 0.8; exposed by the 0.10 imaging-chain tests).
 import ..VisualGeometryToolkitCore: intrinsics, lens, model
 import ..VisualGeometryToolkitCore: Manifold, SubsetManifold, retract, recenter, retract_jacobian, action_jacobian,
@@ -172,7 +172,7 @@ include("generic_models.jl") # Schöps et al. central/non-central generic grid m
 include("imaging_chain.jl")   # framed stages between image frames + imaging_chain mint (0.10)
 
 # ==============================================================================
-# Camera - Complete camera in 3D space (model + pose)
+# PosedCamera - Complete camera in 3D space (model + pose)
 # ==============================================================================
 # NOTE: AbstractCamera is defined in base/interface.jl to break circular
 # dependencies. This allows other modules to work with cameras without
@@ -180,12 +180,12 @@ include("imaging_chain.jl")   # framed stages between image frames + imaging_cha
 # ==============================================================================
 
 """
-    Camera{M, Rt} <: AbstractCamera
+    PosedCamera{M, Rt} <: AbstractCamera
 
 A camera in 3D space, consisting of a camera model (intrinsics + lens) and extrinsics (pose).
 
 Dispatch on the lens through the model parameter:
-`Camera{<:CameraModel{<:Any, <:MyLens}}` (the [`PinholeCamera`](@ref) alias
+`PosedCamera{<:CameraModel{<:Any, <:MyLens}}` (the [`PosedPinholeCamera`](@ref) alias
 is that form for `Pinhole`).
 
 Use `project(camera, X)` to map a 3D world point to 2D pixel coordinates,
@@ -194,9 +194,9 @@ inverse directions. The transform is computed on demand and inlined.
 
 # Type parameters
 - `M <: AbstractCamera`: an UNPOSED camera model ([`CameraModel`](@ref), or a
-  grid model); `Camera(model, X)` refuses a posed one (`has_extrinsics(model)`)
+  grid model); `PosedCamera(model, X)` refuses a posed one (`has_extrinsics(model)`)
   and a [`BoundedCamera`](@ref) — the bound goes outside the pose,
-  `BoundedCamera(Camera(model, X), extent)`
+  `BoundedCamera(PosedCamera(model, X), extent)`
 - `Rt <: EuclideanMap`: extrinsics type
 
 # Fields
@@ -208,19 +208,19 @@ inverse directions. The transform is computed on demand and inlined.
 # Create camera with logical intrinsics
 model = CameraModel(800.0px, [320.0px, 240.0px])
 extrinsics = EuclideanMap(RotMatrix(I), [0.0, 0.0, 0.0])
-camera = Camera(model, extrinsics)
+camera = PosedCamera(model, extrinsics)
 
-# Dispatch on lens (via the model parameter; PinholeCamera is the
+# Dispatch on lens (via the model parameter; PosedPinholeCamera is the
 # ready-made alias for the Pinhole case)
-foo(::PinholeCamera) = "pinhole path"
-foo(::Camera{<:CameraModel{<:AbstractIntrinsics, <:KannalaBrandt}}) = "fisheye path"
+foo(::PosedPinholeCamera) = "pinhole path"
+foo(::PosedCamera{<:CameraModel{<:AbstractIntrinsics, <:KannalaBrandt}}) = "fisheye path"
 
 # Project a world point
 X_world = SVector(1.0mm, 2.0mm, 10.0mm)
 u = project(camera, X_world)
 ```
 """
-struct Camera{
+struct PosedCamera{
         M <: AbstractCamera,   # an unposed model — parametric OR generic (checked below)
         Rt <: EuclideanMap,
     } <: AbstractCamera
@@ -229,45 +229,45 @@ struct Camera{
     # The one hierarchy admits a camera as the model type; the guard refuses the
     # two forms that are not a model. It is decided by the model's type
     # (`has_extrinsics` is a type-level answer), so it compiles away.
-    function Camera{M, Rt}(model, extrinsics) where {M <: AbstractCamera, Rt <: EuclideanMap}
-        _check_camera_model(model, "Camera")
+    function PosedCamera{M, Rt}(model, extrinsics) where {M <: AbstractCamera, Rt <: EuclideanMap}
+        _check_camera_model(model, "PosedCamera")
         return new{M, Rt}(model, extrinsics)
     end
 end
-Camera(model::M, extrinsics::Rt) where {M <: AbstractCamera, Rt <: EuclideanMap} = Camera{M, Rt}(model, extrinsics)
+PosedCamera(model::M, extrinsics::Rt) where {M <: AbstractCamera, Rt <: EuclideanMap} = PosedCamera{M, Rt}(model, extrinsics)
 
-has_extrinsics(::Camera) = true
+has_extrinsics(::PosedCamera) = true
 
 """
-    PinholeCamera
+    PosedPinholeCamera
 
 Cameras whose lens is exactly `Pinhole` — the alias for lens dispatch now
-that `Camera` carries only `{M, Rt}` (the former `{I, L, Rt, M}` repeated
+that `PosedCamera` carries only `{M, Rt}` (the former `{I, L, Rt, M}` repeated
 what `M` already determines).  Consumed by the induced-homography
 constructors in geometry/cameras/homography.jl.
 """
-const PinholeCamera = Camera{<:CameraModel{<:AbstractIntrinsics, Pinhole}}
+const PosedPinholeCamera = PosedCamera{<:CameraModel{<:AbstractIntrinsics, Pinhole}}
 
 # THE camera shape projection (a z = 0 plane circle/ellipse, a 3D circle): a
 # pinhole images the conic exactly through the plane homography — an `Ellipse`
 # when it stays one; otherwise (across the line at infinity), and for every
 # distorting lens, `n` boundary samples projected into a `Polygon`.
-function _camera_project_conic(camera::Camera, shape, n::Int = 64)
+function _camera_project_conic(camera::PosedCamera, shape, n::Int = 64)
     Q = _plane_conic(camera, shape, lens(camera))
     Q !== nothing && is_ellipse(Q) && return Ellipse(Q)
     return _camera_project_world_points(camera, _world_boundary(shape, n))
 end
 # The exact image conic through the plane-induced homography — pinhole only.
-_plane_conic(camera::Camera, shape::Union{Circle, Ellipse}, ::Pinhole) = HomographyMap(HomographyMat(camera))(shape)
-_plane_conic(camera::Camera, c::Circle3D, ::Pinhole) =
+_plane_conic(camera::PosedCamera, shape::Union{Circle, Ellipse}, ::Pinhole) = HomographyMap(HomographyMat(camera))(shape)
+_plane_conic(camera::PosedCamera, c::Circle3D, ::Pinhole) =
     HomographyMap(HomographyMat(camera, c.center, c.u, c.v))(Circle(Point2(0.0, 0.0), c.radius))   # the circle's local (u, v) frame
-_plane_conic(::Camera, _, ::AbstractLensModel) = nothing
+_plane_conic(::PosedCamera, _, ::AbstractLensModel) = nothing
 # The world boundary samples: a plane shape on z = 0, a 3D circle as is.
 _world_boundary(shape::Union{Circle, Ellipse}, n::Int) = (Point3{Float64}(p[1], p[2], 0.0) for p in boundary_points(shape, n))
 _world_boundary(c::Circle3D, n::Int) = boundary_points(c, n)
 
 """
-    transfer_ellipse(camera::Camera, shape::Union{Circle, Ellipse}) -> Ellipse | nothing
+    transfer_ellipse(camera::PosedCamera, shape::Union{Circle, Ellipse}) -> Ellipse | nothing
 
 The ellipse-preserving image of a `z = 0` plane circle/ellipse under
 `camera`: the exact conic through the plane-induced homography of the
@@ -278,7 +278,7 @@ of blob boards consumes (an ellipse to overlap, a centre to search at) and
 it stays an ellipse for every lens. `nothing` behind the camera, across the
 line at infinity, or where the lens map is not finite at the centre.
 """
-function transfer_ellipse(camera::Camera, shape::Union{Circle, Ellipse})
+function transfer_ellipse(camera::PosedCamera, shape::Union{Circle, Ellipse})
     m = camera.model
     # cheirality at the centre: a plane conic behind the camera has no image
     # (a homography maps it to a perfectly good conic, and a lens's forward
@@ -286,7 +286,7 @@ function transfer_ellipse(camera::Camera, shape::Union{Circle, Ellipse})
     c = centroid(shape)
     Xc = camera.extrinsics.R * SVector{3, Float64}(c[1], c[2], 0.0) + camera.extrinsics.t
     Xc[3] > 0 || return nothing
-    H = HomographyMap(Camera(pinhole(m), camera.extrinsics))
+    H = HomographyMap(PosedCamera(pinhole(m), camera.extrinsics))
     return _lens_ellipse(m.lens, m, transfer_ellipse(H, shape))
 end
 
@@ -309,31 +309,31 @@ _lens_ellipse(::Pinhole, m, ep::Ellipse) = ep
 _lens_ellipse(lens, m, ep::Ellipse) = transfer_ellipse(distortion_map(m), ep)
 
 # Rect: tessellate edges, lift to z=0, project → Polygon
-_camera_project_rect(camera::Camera, rect::GeometryBasics.HyperRectangle{2}, n::Int) =
+_camera_project_rect(camera::PosedCamera, rect::GeometryBasics.HyperRectangle{2}, n::Int) =
     _camera_project_points(camera, _rect_edge_samples(identity, rect, n))
 
 # Shared: lift 2D → 3D at z=0, project, return Polygon
-_camera_project_points(camera::Camera, pts) =
+_camera_project_points(camera::PosedCamera, pts) =
     _camera_project_world_points(camera, (Point3{Float64}(p[1], p[2], 0.0) for p in pts))
 
 # Shared: project 3D world points, return Polygon
-function _camera_project_world_points(camera::Camera, pts)
+function _camera_project_world_points(camera::PosedCamera, pts)
     return GeometryBasics.Polygon([Point2(project(camera, Point3{Float64}(p...))) for p in pts])
 end
 
 # For non-EuclideanMap extrinsics, convert first. The camera bound keeps a
 # wrong first argument a MethodError instead of infinite recursion through
 # EuclideanMap(::EuclideanMap).
-Camera(model::AbstractCamera, extrinsics) = Camera(model, EuclideanMap(extrinsics))
+PosedCamera(model::AbstractCamera, extrinsics) = PosedCamera(model, EuclideanMap(extrinsics))
 
 """
-    Camera(model::CameraModel, e::CameraExtrinsics) -> Camera
-    Camera(model::CameraModel, p::CameraPose) -> Camera
+    PosedCamera(model::CameraModel, e::CameraExtrinsics) -> Camera
+    PosedCamera(model::CameraModel, p::CameraPose) -> Camera
 
-Construct a `Camera` from a frame-labeled map, so the caller states which
+Construct a `PosedCamera` from a frame-labeled map, so the caller states which
 frame it holds instead of relying on the positional convention.
 
-The bare positional constructor `Camera(model, extrinsics::EuclideanMap)`
+The bare positional constructor `PosedCamera(model, extrinsics::EuclideanMap)`
 with an UNLABELED map takes the world-to-camera map (documented convention,
 unchecked); a caller holding a camera-to-world map (a `lookat`-style pose, a
 renderer's `sensor.to_world`) who supplies it positionally stores the WRONG
@@ -341,13 +341,13 @@ map without any error — every accessor then silently answers for the
 inverse camera. With frame labels that mistake is unrepresentable:
 `CameraExtrinsics` (being the extrinsics-labeled `EuclideanMap`) stores
 directly into the extrinsics slot via the default constructor, `CameraPose`
-inverts internally, and `pose(Camera(model, P::CameraPose)) ≈ P`.
+inverts internally, and `pose(PosedCamera(model, P::CameraPose)) ≈ P`.
 """
-Camera(model::AbstractCamera, p::CameraPose) = Camera(model, inv(p))
+PosedCamera(model::AbstractCamera, p::CameraPose) = PosedCamera(model, inv(p))
 
 """
-    Camera(K::StaticMatrix{3,3}, R::StaticMatrix{3,3}, t::StaticVector{3};
-           check=true, project=false) -> Camera
+    PosedCamera(K::StaticMatrix{3,3}, R::StaticMatrix{3,3}, t::StaticVector{3};
+           check=true, project=false) -> PosedCamera
 
 Boundary constructor taking raw matrix data (typical for SfM dataset loaders).
 `R` is wrapped via the `EuclideanMap(::SMatrix, ...)` path which validates
@@ -355,7 +355,7 @@ Boundary constructor taking raw matrix data (typical for SfM dataset loaders).
 `t` is plain numbers of `K`'s element type, or lengths (`t .* m`), which give
 a physical camera.
 """
-function Camera(
+function PosedCamera(
         K::StaticMatrix{3, 3, T},
         R::StaticMatrix{3, 3, T},
         t::Union{StaticVector{3, T}, StaticVector{3, <:Quantity}};
@@ -364,7 +364,7 @@ function Camera(
     ) where {T}
     K_calib = CameraCalibrationMat(K; check = check)
     model = CameraModel(K_calib)
-    return Camera(model, EuclideanMap(SMatrix{3, 3, T, 9}(R), t; check = check, project = project))
+    return PosedCamera(model, EuclideanMap(SMatrix{3, 3, T, 9}(R), t; check = check, project = project))
 end
 
 # ============================================================================
@@ -386,12 +386,12 @@ A wrapper around any `AbstractCamera` that adds pixel-space image bounds
 (width × height) without disturbing the underlying camera's intrinsics or
 units.  Used by SfM/MVS dataset readers (ETH3D, ScanNet, COLMAP exports)
 where the camera is described by its calibration plus an explicit image
-extent — information the bare `Camera` type doesn't retain.
+extent — information the bare `PosedCamera` type doesn't retain.
 
 The wrapped camera may be UNPOSED — a bare model, `has_extrinsics(bc) == false`
 — which is COLMAP's "camera" row (intrinsics, lens and image size, no pose) and
 the element of a stored camera collection (VisualGeometryToolkitIO's `cameras`
-kind). `BoundedCamera(Camera(model(bc), pose), bc.extent)` is its posed
+kind). `BoundedCamera(PosedCamera(model(bc), pose), bc.extent)` is its posed
 counterpart; the pose accessors of an unposed one are an `ArgumentError`.
 [`has_extrinsics`](@ref) is the wrapped camera's.
 
@@ -399,7 +399,7 @@ counterpart; the pose accessors of an unposed one are an `ArgumentError`.
 - `bc.camera`, `bc.extent` — direct fields.
 
 # Method delegation (via `MacroTools.@forward`)
-The standard Camera accessors (`intrinsics`, `lens`, `pose`, `extrinsics`,
+The standard PosedCamera accessors (`intrinsics`, `lens`, `pose`, `extrinsics`,
 `focal_length`, `model`, `calibration_matrix`) and the
 projection verbs are forwarded to the wrapped `camera`, so
 `intrinsics(bc) === intrinsics(bc.camera)` etc.; `is_in_front(bc, p)` too.
@@ -410,7 +410,7 @@ extent dispatch on `BoundsTrait`.  See `extent(::BoundedCamera) = bc.extent`.
 
 # Example
 ```julia
-inner = Camera(CameraModel(K; lens=Pinhole()), pose)
+inner = PosedCamera(CameraModel(K; lens=Pinhole()), pose)
 bc    = BoundedCamera(inner, Size2(6048, 4032))
 intrinsics(bc)     # forwarded → CameraCalibrationMat
 bc.extent          # Size2(6048, 4032) — direct field
@@ -426,10 +426,10 @@ end
 bounds_trait(::BoundedCamera) = HasBounds()
 has_extrinsics(b::BoundedCamera) = has_extrinsics(b.camera)
 
-# What `Camera(model, X)` (and `with_model`) accepts as the model: an unposed
+# What `PosedCamera(model, X)` (and `with_model`) accepts as the model: an unposed
 # camera that is not a bound. A posed one would be posed twice; a bounded model
 # would put the bound inside the pose, a second spelling of
-# `BoundedCamera(Camera(model, X), extent)`.
+# `BoundedCamera(PosedCamera(model, X), extent)`.
 @noinline _refuse_posed_model(what, c) = throw(
     ArgumentError(
         "$(what): the model is a posed camera (a $(nameof(typeof(c)))) — a camera is posed once; " *
@@ -439,7 +439,7 @@ has_extrinsics(b::BoundedCamera) = has_extrinsics(b.camera)
 @noinline _refuse_bounded_model(what) = throw(
     ArgumentError(
         "$(what): the model is a BoundedCamera — the bound goes outside the pose: " *
-            "`BoundedCamera(Camera(model(bc), X), bc.extent)`"
+            "`BoundedCamera(PosedCamera(model(bc), X), bc.extent)`"
     )
 )
 _check_camera_model(c::AbstractCamera, what) = has_extrinsics(c) ? _refuse_posed_model(what, c) : nothing
@@ -451,7 +451,7 @@ _check_camera_model(::BoundedCamera, what) = _refuse_bounded_model(what)
 @noinline _refuse_unposed(what, c) = throw(
     ArgumentError(
         "$(what): the camera is unposed (a $(nameof(typeof(c))), `has_extrinsics` is false) — pose it: " *
-            "`Camera(model, X)`, or `BoundedCamera(Camera(model(bc), X), bc.extent)`"
+            "`PosedCamera(model, X)`, or `BoundedCamera(PosedCamera(model(bc), X), bc.extent)`"
     )
 )
 _unposed_only(f, what, c, args...) = has_extrinsics(c) ? throw(MethodError(f, (c, args...))) : _refuse_unposed(what, c)
@@ -474,8 +474,8 @@ MacroTools.@forward BoundedCamera.camera (
 # moves. The camera is rebuilt with its type parameters stated, so a stripped
 # map is stored as it is (the bare constructor would invert a `CameraPose`).
 
-# A camera posed by a physical map (bounds stated, so dispatch ranks it above `Camera`).
-const _UnitfulCamera = Camera{<:AbstractCamera, <:UnitfulEuclideanMap{3}}
+# A camera posed by a physical map (bounds stated, so dispatch ranks it above `PosedCamera`).
+const _UnitfulPosedCamera = PosedCamera{<:AbstractCamera, <:UnitfulEuclideanMap{3}}
 
 # The plane-coordinate verbs (a z = 0 conic or rectangle, the plane-induced
 # homography) take plain plane coordinates with no unit of their own, so a
@@ -490,17 +490,17 @@ const _UnitfulCamera = Camera{<:AbstractCamera, <:UnitfulEuclideanMap{3}}
     )
 )
 
-transfer_ellipse(::_UnitfulCamera, ::Union{Circle, Ellipse}) = _refuse_physical_camera("transfer_ellipse")
+transfer_ellipse(::_UnitfulPosedCamera, ::Union{Circle, Ellipse}) = _refuse_physical_camera("transfer_ellipse")
 
-has_units(c::Camera) = has_units(c.extrinsics)
+has_units(c::PosedCamera) = has_units(c.extrinsics)
 has_units(c::BoundedCamera) = has_units(c.camera)
 # An unposed camera holds no length (a NoncentralGenericModel's grid is plain
 # metres by its type, generic_models.jl); a posed camera type answers itself.
 has_units(c::AbstractCamera) = has_extrinsics(c) ? throw(MethodError(has_units, (c,))) : false
-_rebuilt(c::Camera, X::EuclideanMap) = Camera{typeof(c.model), typeof(X)}(c.model, X)
+_rebuilt(c::PosedCamera, X::EuclideanMap) = PosedCamera{typeof(c.model), typeof(X)}(c.model, X)
 
 """
-    ustrip(u::Units, camera::Camera | BoundedCamera) -> same type of camera
+    ustrip(u::Units, camera::PosedCamera | BoundedCamera) -> same type of camera
 
 A physical camera's plain form: its extrinsics stripped in the length unit
 `u` (`ustrip(u, E)`), the model and any extent unchanged. The inverse is
@@ -508,9 +508,9 @@ A physical camera's plain form: its extrinsics stripped in the length unit
 the produced form. An unposed camera (a model, or a `BoundedCamera` of one)
 holds no length, so both verbs return it unchanged.
 """
-FlexUnits.ustrip(u::Units, c::Camera) = _rebuilt(c, ustrip(u, c.extrinsics))
+FlexUnits.ustrip(u::Units, c::PosedCamera) = _rebuilt(c, ustrip(u, c.extrinsics))
 FlexUnits.ustrip(u::Units, c::BoundedCamera) = BoundedCamera(ustrip(u, c.camera), c.extent)
-with_unit(c::Camera, u::Units) = _rebuilt(c, _attach_unit(c.extrinsics, u))
+with_unit(c::PosedCamera, u::Units) = _rebuilt(c, _attach_unit(c.extrinsics, u))
 # an unposed camera holds no length: nothing to strip or attach
 FlexUnits.ustrip(u::Units, c::AbstractCamera) = has_extrinsics(c) ? throw(MethodError(ustrip, (u, c))) : c
 with_unit(c::AbstractCamera, u::Units) = has_extrinsics(c) ? throw(MethodError(with_unit, (c, u))) : c
@@ -526,22 +526,22 @@ with_unit(c::AbstractCamera, u::Units) = has_extrinsics(c) ? throw(MethodError(w
 @noinline _refuse_plain_noncentral(what) = throw(
     ArgumentError(
         "$(what): a NoncentralGenericModel's point grid is in metres but the extrinsics are plain numbers " *
-            "with no unit — attach the unit to the extrinsics: `Camera(model, EuclideanMap(R, t .* m))`, or " *
-            "`Camera(model, with_unit(extrinsics, mm))` for a map in mm"
+            "with no unit — attach the unit to the extrinsics: `PosedCamera(model, EuclideanMap(R, t .* m))`, or " *
+            "`PosedCamera(model, with_unit(extrinsics, mm))` for a map in mm"
     )
 )
-Camera(model::NoncentralGenericModel, X::EuclideanMap{3}) =
-    has_units(X) ? Camera{typeof(model), typeof(X)}(model, X) : _refuse_plain_noncentral("Camera")
-Camera(model::NoncentralGenericModel, p::CameraPose) = Camera(model, inv(p))
+PosedCamera(model::NoncentralGenericModel, X::EuclideanMap{3}) =
+    has_units(X) ? PosedCamera{typeof(model), typeof(X)}(model, X) : _refuse_plain_noncentral("PosedCamera")
+PosedCamera(model::NoncentralGenericModel, p::CameraPose) = PosedCamera(model, inv(p))
 @noinline _refuse_noncentral_unit(what, u) = throw(
     ArgumentError(
         "$(what)($(u), camera): a NoncentralGenericModel's point grid is in metres, so its camera's plain form " *
             "is in metres too — use `m`, and the same unit for the scene points"
     )
 )
-FlexUnits.ustrip(u::Units, c::Camera{<:NoncentralGenericModel}) =
+FlexUnits.ustrip(u::Units, c::PosedCamera{<:NoncentralGenericModel}) =
     u == m ? _rebuilt(c, ustrip(u, c.extrinsics)) : _refuse_noncentral_unit("ustrip", u)
-with_unit(c::Camera{<:NoncentralGenericModel}, u::Units) =
+with_unit(c::PosedCamera{<:NoncentralGenericModel}, u::Units) =
     u == m ? _rebuilt(c, _attach_unit(c.extrinsics, u)) : _refuse_noncentral_unit("with_unit", u)
 with_unit(c::BoundedCamera, u::Units) = BoundedCamera(with_unit(c.camera, u), c.extent)
 
@@ -565,12 +565,12 @@ Camera pose (camera-to-world transform), inverse of extrinsics. Returns a
 frame-labeled map (`CameraFrame → WorldFrame`).
 
 ```julia
-camera = Camera(model, extrinsics)
+camera = PosedCamera(model, extrinsics)
 P = pose(camera)       # Camera-to-world
 P.t                    # Camera position in world coordinates
 ```
 """
-pose(c::Camera) = inv(extrinsics(c))
+pose(c::PosedCamera) = inv(extrinsics(c))
 pose(c::AbstractCamera) = _unposed_only(pose, "pose", c)
 
 """
@@ -582,12 +582,12 @@ contract, so the accessor labels it even when the camera was constructed
 from an unlabeled map (identity when already labeled).
 
 ```julia
-camera = Camera(model, ext)
+camera = PosedCamera(model, ext)
 E = extrinsics(camera)  # World-to-camera
 E(world_point)          # Transform point to camera coordinates
 ```
 """
-extrinsics(c::Camera) = CameraExtrinsics(c.extrinsics)
+extrinsics(c::PosedCamera) = CameraExtrinsics(c.extrinsics)
 extrinsics(c::AbstractCamera) = _unposed_only(extrinsics, "extrinsics", c)
 
 """
@@ -600,9 +600,9 @@ Broadcasts over points:
 mask = is_in_front.(Ref(camera), world_points)
 ```
 """
-is_in_front(c::Camera, p::Point3) = extrinsics(c)(p)[3] > 0
+is_in_front(c::PosedCamera, p::Point3) = extrinsics(c)(p)[3] > 0
 # a physical camera: the test in metres, the point a length (a plain one is a DimensionError)
-is_in_front(c::_UnitfulCamera, p::Point3) = is_in_front(ustrip(m, c), Point3(_strip_metres(p)))
+is_in_front(c::_UnitfulPosedCamera, p::Point3) = is_in_front(ustrip(m, c), Point3(_strip_metres(p)))
 
 """
     is_in_front(camera, x, y, z) -> AbstractArray{Bool}
@@ -614,7 +614,7 @@ the whole test one fused broadcast on GPU arrays (hoisted from the
 RayTracedCalibration GPU pipeline).
 """
 function is_in_front(
-        c::Camera, x::AbstractArray, y::AbstractArray, z::AbstractArray
+        c::PosedCamera, x::AbstractArray, y::AbstractArray, z::AbstractArray
     )
     ext = extrinsics(c)
     R = ext.R
@@ -622,11 +622,11 @@ function is_in_front(
     z_cam = R[3, 1] .* x .+ R[3, 2] .* y .+ R[3, 3] .* z .+ t[3]
     return z_cam .> zero(eltype(z_cam))
 end
-is_in_front(c::_UnitfulCamera, x::AbstractArray, y::AbstractArray, z::AbstractArray) =
+is_in_front(c::_UnitfulPosedCamera, x::AbstractArray, y::AbstractArray, z::AbstractArray) =
     is_in_front(ustrip(m, c), _strip_metres(x), _strip_metres(y), _strip_metres(z))
 
 """
-    focal_length(camera::Camera)
+    focal_length(camera::PosedCamera)
 
 Get focal length from camera's intrinsics: the `(fx, fy)` tuple in pixels.
 
@@ -634,50 +634,50 @@ Get focal length from camera's intrinsics: the `(fx, fy)` tuple in pixels.
 ```julia
 K = CameraCalibrationMat(800.0px, [320.0px, 240.0px])
 model = CameraModel(LogicalIntrinsics(K), Pinhole())
-camera = Camera(model, extrinsics)
+camera = PosedCamera(model, extrinsics)
 fx, fy = focal_length(camera)  # Returns (800.0, 800.0)
 ```
 """
-focal_length(camera::Camera) = focal_length(intrinsics(camera))
+focal_length(camera::PosedCamera) = focal_length(intrinsics(camera))
 
 """
-    calibration_matrix(camera::Camera) -> SMatrix{3,3,Float64,9}
+    calibration_matrix(camera::PosedCamera) -> SMatrix{3,3,Float64,9}
 
 Return the 3×3 calibration matrix K as a plain `SMatrix`.
 
 # Example
 ```julia
-camera = Camera(CameraModel(; focal=800.0, pp=(320.0, 240.0)), ext)
+camera = PosedCamera(CameraModel(; focal=800.0, pp=(320.0, 240.0)), ext)
 K = calibration_matrix(camera)  # [800 0 320; 0 800 240; 0 0 1]
 ```
 """
-calibration_matrix(camera::Camera) = calibration_matrix(camera.model)
+calibration_matrix(camera::PosedCamera) = calibration_matrix(camera.model)
 
 """
-    model(camera::Camera) -> CameraModel
+    model(camera::PosedCamera) -> CameraModel
 
 Return the camera's underlying `CameraModel` (intrinsics + lens), the
 single object the lower-level `project`/`backproject`/`transfer` kernels
 take.  Method form so wrappers (e.g. `BoundedCamera`) can delegate via
 `@forward`.
 """
-model(c::Camera) = c.model
+model(c::PosedCamera) = c.model
 # an unposed camera (a model, the inside of a BoundedCamera of one) is its own model
 model(c::AbstractCamera) = has_extrinsics(c) ? throw(MethodError(model, (c,))) : c
 
 """
-    intrinsics(camera::Camera)
+    intrinsics(camera::PosedCamera)
     intrinsics(model::CameraModel)
 
 Return the camera's intrinsics block (e.g. `LogicalIntrinsics`,
 `PhysicalIntrinsics`).  Equivalent to `camera.model.intrinsics` /
 `model.intrinsics` but lets downstream code stop reaching into the field.
 """
-intrinsics(camera::Camera) = intrinsics(camera.model)
+intrinsics(camera::PosedCamera) = intrinsics(camera.model)
 intrinsics(model::CameraModel) = model.intrinsics
 
 """
-    lens(camera::Camera)
+    lens(camera::PosedCamera)
     lens(model::CameraModel)
 
 Return the camera's lens model (e.g. `Pinhole`, a `Lens`, or any
@@ -685,28 +685,28 @@ user-defined `<: AbstractLensModel`).  Use this in dispatch when a downstream
 package wants to specialize on lens type without reaching into
 `camera.model.lens`.
 """
-lens(camera::Camera) = lens(camera.model)
+lens(camera::PosedCamera) = lens(camera.model)
 lens(model::CameraModel) = model.lens
 
 """
-    default_frustum_depth(camera::Camera) -> Float64
+    default_frustum_depth(camera::PosedCamera) -> Float64
 
 Default frustum depth for visualization: fx from K, a natural depth scale
 in the camera's working units.
 """
-default_frustum_depth(camera::Camera) = focal_length(camera)[1]
+default_frustum_depth(camera::PosedCamera) = focal_length(camera)[1]
 
 # ============================================================================
 # Camera Projection (World → Pixel)
 # ============================================================================
 
 """
-    project(camera::Camera, X_world::AbstractVector) -> Point2
+    project(camera::PosedCamera, X_world::AbstractVector) -> Point2
 
 Project 3D point from world coordinates to pixel coordinates.
 
 # Arguments
-- `camera::Camera`: Camera with model and extrinsics
+- `camera::PosedCamera`: Camera with model and extrinsics
 - `X_world::AbstractVector`: 3D point in world coordinates (with units)
 
 # Returns
@@ -716,54 +716,54 @@ Project 3D point from world coordinates to pixel coordinates.
 ```julia
 model = CameraModel(16.0mm, Size2(width=5.86μm/px, height=5.86μm/px), [320.0px, 240.0px])
 extrinsics = lookat(SVector(0.0, 0.0, 10.0), SVector(0.0, 0.0, 0.0), SVector(0.0, 1.0, 0.0))
-camera = Camera(model, extrinsics)
+camera = PosedCamera(model, extrinsics)
 X_world = SVector(1.0mm, 2.0mm, 3.0mm)
 u = project(camera, X_world)
 ```
 """
-@inline project(camera::Camera, X::AbstractVector) =
+@inline project(camera::PosedCamera, X::AbstractVector) =
     project(camera.model, camera.extrinsics(X))
 # A physical camera strips at entry, in metres: exactly the plain camera's call
 # on the point in metres (a plain point is a `DimensionError`).
-@inline project(camera::_UnitfulCamera, X::AbstractVector) =
+@inline project(camera::_UnitfulPosedCamera, X::AbstractVector) =
     project(camera.model, ustrip(m, camera.extrinsics)(_strip_metres(X)))
 
 """
-    project(camera::Camera, shape::Union{Circle, Ellipse}) -> Ellipse or Polygon
+    project(camera::PosedCamera, shape::Union{Circle, Ellipse}) -> Ellipse or Polygon
 
 Project a 2D circle or ellipse that lies on the world z=0 plane through
 the camera. For pinhole cameras, the analytic conic projection yields an
 `Ellipse`; partially-behind-camera cases or distorting lens models fall
 back to boundary-point sampling and return a `Polygon`.
 """
-project(::_UnitfulCamera, ::Union{Circle, Ellipse}) = _refuse_physical_camera("project(camera, conic)")
-project(::_UnitfulCamera, ::Circle3D) = _refuse_physical_camera("project(camera, ::Circle3D)")
-project(::_UnitfulCamera, ::GeometryBasics.HyperRectangle{2}, n::Int = 20) = _refuse_physical_camera("project(camera, rect)")
-@inline project(camera::Camera, shape::Union{Circle, Ellipse}) =
+project(::_UnitfulPosedCamera, ::Union{Circle, Ellipse}) = _refuse_physical_camera("project(camera, conic)")
+project(::_UnitfulPosedCamera, ::Circle3D) = _refuse_physical_camera("project(camera, ::Circle3D)")
+project(::_UnitfulPosedCamera, ::GeometryBasics.HyperRectangle{2}, n::Int = 20) = _refuse_physical_camera("project(camera, rect)")
+@inline project(camera::PosedCamera, shape::Union{Circle, Ellipse}) =
     _camera_project_conic(camera, shape)
 
 """
-    project(camera::Camera, c::Circle3D) -> Ellipse or Polygon
+    project(camera::PosedCamera, c::Circle3D) -> Ellipse or Polygon
 
 Project an arbitrarily-placed 3D circle through the camera. For pinhole
 cameras, the plane homography induced by the circle's local (u, v) frame
 gives the analytic image conic; other cases fall back to boundary
 sampling and return a `Polygon`.
 """
-@inline project(camera::Camera, c::Circle3D) =
+@inline project(camera::PosedCamera, c::Circle3D) =
     _camera_project_conic(camera, c)
 
 """
-    project(camera::Camera, rect::HyperRectangle{2}, n::Int=20) -> Polygon
+    project(camera::PosedCamera, rect::HyperRectangle{2}, n::Int=20) -> Polygon
 
 Project a 2D rectangle on the world z=0 plane, tessellating each edge
 into `n` samples.
 """
-@inline project(camera::Camera, rect::GeometryBasics.HyperRectangle{2}, n::Int = 20) =
+@inline project(camera::PosedCamera, rect::GeometryBasics.HyperRectangle{2}, n::Int = 20) =
     _camera_project_rect(camera, rect, n)
 
 """
-    project(camera::Camera, origin::Point3, dir::Vec3) -> (Point2, Vec2)
+    project(camera::PosedCamera, origin::Point3, dir::Vec3) -> (Point2, Vec2)
 
 Project a 3D origin and displacement through the camera and return the
 2D arrow endpoints — the origin's image and the vector from the origin's
@@ -775,18 +775,18 @@ origin_2d, vec_2d = project(cam, c.center, c.radius * normal(c))
 arrows2d!(ax, origin_2d, vec_2d; color=:magenta)
 ```
 """
-@inline function project(camera::Camera, origin::GeometryBasics.Point3, dir::GeometryBasics.Vec3)
+@inline function project(camera::PosedCamera, origin::GeometryBasics.Point3, dir::GeometryBasics.Vec3)
     o_img = project(camera, Point3{Float64}(origin...))
     tip_img = project(camera, Point3{Float64}((origin .+ dir)...))
     return (Point2(o_img...), Vec2((tip_img .- o_img)...))
 end
 # A physical camera: the origin and the displacement are lengths, stripped in
 # metres with the camera (a plain one is a `DimensionError`).
-project(camera::_UnitfulCamera, origin::GeometryBasics.Point3, dir::GeometryBasics.Vec3) =
+project(camera::_UnitfulPosedCamera, origin::GeometryBasics.Point3, dir::GeometryBasics.Vec3) =
     project(ustrip(m, camera), Point3{Float64}(_strip_metres(origin)), Vec3{Float64}(_strip_metres(dir)))
 
 """
-    backproject(camera::Camera, u::StaticVector{2, Float64}) -> Vec3
+    backproject(camera::PosedCamera, u::StaticVector{2, Float64}) -> Vec3
 
 Backproject a 2D pixel to a 3D ray direction in **world** coordinates
 (normalized).  Returned as a `Vec3` because it represents a direction —
@@ -794,17 +794,17 @@ not translatable under affine maps.  The ray's origin is the camera
 center (`pose(camera).t`); points along it are
 `pose(camera).t + s · dir` for `s > 0`.
 """
-@inline backproject(camera::Camera, u::StaticVector{2, Float64}) =
+@inline backproject(camera::PosedCamera, u::StaticVector{2, Float64}) =
     Vec3(pose(camera).R * backproject(camera.model, u))
 
-@inline function backproject(camera::Camera, points::AbstractVector{<:StaticVector{2, Float64}})
+@inline function backproject(camera::PosedCamera, points::AbstractVector{<:StaticVector{2, Float64}})
     R = pose(camera).R      # hoisted: one extrinsics inversion for the batch
     m = camera.model
     return [Vec3(R * backproject(m, u)) for u in points]
 end
 
 """
-    unproject(camera::Camera, u::AbstractVector{Float64}, depth::Float64) -> Point3
+    unproject(camera::PosedCamera, u::AbstractVector{Float64}, depth::Float64) -> Point3
 
 Unproject a 2D pixel at a given camera-space depth (Z along the camera's
 forward axis) to a 3D **point** in world coordinates.  Returned as a
@@ -814,13 +814,13 @@ chosen metric unit, e.g. mm) and `LogicalIntrinsics` (unitless pixels;
 `depth` carries whatever unit the caller picks for their scene).
 """
 @inline unproject(
-    camera::Camera,
+    camera::PosedCamera,
     u::AbstractVector{Float64}, depth::Float64
 ) =
     Point3(pose(camera)(unproject(camera.model, u, depth)))
 # A physical camera takes a depth that is a length and returns the point in
 # metres: the plain call in metres, its result read back in metres.
-unproject(camera::_UnitfulCamera, u::AbstractVector{Float64}, depth::Quantity) =
+unproject(camera::_UnitfulPosedCamera, u::AbstractVector{Float64}, depth::Quantity) =
     _attach_point(m, unproject(ustrip(m, camera), u, ustrip(m, depth)))
 
 # ============================================================================
@@ -836,7 +836,7 @@ include("rectify.jl")    # stereo rectification on the rig types (0.16)
 include("utilities.jl")
 include("random.jl")
 
-# Include planar homography (depends on Camera)
+# Include planar homography (depends on PosedCamera)
 include("homography.jl")   # camera-derived HomographyMat (moved out of geometry/ 0.29)
 include("calibration.jl")  # zhang_intrinsics — Zhang IAC regression from plane homographies
 
@@ -911,8 +911,8 @@ export project!, backproject!, distort_normalized!, undistort_normalized!
 # 4. CAMERA TYPES - Complete camera specifications
 # -----------------------------------------------------------------------------
 export CameraModel                     # Intrinsics + lens
-export AbstractCamera, Camera          # Camera with extrinsics
-export PinholeCamera                   # Lens-dispatch alias
+export AbstractCamera, PosedCamera          # PosedCamera with extrinsics
+export PosedPinholeCamera                   # Lens-dispatch alias
 export BoundedCamera, extent           # Wrapper that adds image bounds + accessor
 export model                            # CameraModel accessor on Camera/AbstractCamera
 
@@ -971,7 +971,7 @@ export pose, extrinsics, is_in_front, default_frustum_depth
 # 8. CAMERA CONSTRUCTION
 # -----------------------------------------------------------------------------
 export lookat                          # Construct extrinsics from (eye, target, up)
-export lookat_pose                     # Camera-to-world pose form of lookat (pairs with Camera(model; pose=...))
+export lookat_pose                     # PosedCamera-to-world pose form of lookat (pairs with PosedCamera(model; pose=...))
 
 # -----------------------------------------------------------------------------
 # 9. POSE ESTIMATION - P3P and calibration

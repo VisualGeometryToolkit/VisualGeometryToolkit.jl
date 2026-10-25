@@ -28,15 +28,15 @@
         t = SVector(0.4, -0.15, 0.1)
 
         @testset "construction invariants" begin
-            cam = Camera(K1, one(RotMatrix{3, Float64}), zero(Vec3{Float64}))
+            cam = PosedCamera(K1, one(RotMatrix{3, Float64}), zero(Vec3{Float64}))
             # unlabeled extrinsics: Src is not the rig frame
             @test_throws ArgumentError Rig{WorldFrame}((cam,))
             # labeled but destination is not a ViewFrame
-            wrong = Camera(model(cam), relabel(WorldFrame, CameraFrame, cam.extrinsics))
+            wrong = PosedCamera(model(cam), relabel(WorldFrame, CameraFrame, cam.extrinsics))
             @test_throws ArgumentError Rig{WorldFrame}((wrong,))
             # duplicate view ids
-            c1 = Camera(model(cam), relabel(WorldFrame, ViewFrame{:a}, cam.extrinsics))
-            c2 = Camera(
+            c1 = PosedCamera(model(cam), relabel(WorldFrame, ViewFrame{:a}, cam.extrinsics))
+            c2 = PosedCamera(
                 model(cam), relabel(WorldFrame, ViewFrame{:a}, EuclideanMap(R, t))
             )
             @test_throws ArgumentError Rig{WorldFrame}((c1, c2))
@@ -45,15 +45,15 @@
         end
 
         @testset "rig of one — the moving-camera case" begin
-            cam = Camera(K1, R, t)
-            c = Camera(model(cam), relabel(WorldFrame, ViewFrame{:cam}, cam.extrinsics))
+            cam = PosedCamera(K1, R, t)
+            c = PosedCamera(model(cam), relabel(WorldFrame, ViewFrame{:cam}, cam.extrinsics))
             rig = Rig{WorldFrame}((c,))
             @test length(rig) == 1
             @test ids(rig) == (:cam,)
             @test view_frames(rig) == (ViewFrame{:cam},)
             @test image_frames(rig) == (ImageFrame{:cam},)
             # label-preserving per-sensor accessors (NOT the WorldFrame→CameraFrame
-            # relabel of extrinsics(::Camera))
+            # relabel of extrinsics(::PosedCamera))
             X = extrinsics(rig, 1)
             @test X isa EuclideanMap{3, Float64, <:Any, <:Any, WorldFrame, ViewFrame{:cam}}
             P = pose(rig, 1)
@@ -86,25 +86,25 @@
             @test Xrel.t == X2.t && RotMatrix(Xrel.R) == RotMatrix(X2.R)
             # the reference view is the gauge: a rig gauged on a view whose
             # extrinsics is not the identity is refused
-            cam2 = Camera(K2, R, t)
-            moved = Camera(model(cam2), relabel(ViewFrame{:left}, ViewFrame{:left}, EuclideanMap(R, t)))
+            cam2 = PosedCamera(K2, R, t)
+            moved = PosedCamera(model(cam2), relabel(ViewFrame{:left}, ViewFrame{:left}, EuclideanMap(R, t)))
             @test_throws ArgumentError Rig{ViewFrame{:left}}((moved,))
             # a 1-sensor rig has no stereo surface
-            cam = Camera(K1, R, t)
-            c = Camera(model(cam), relabel(WorldFrame, ViewFrame{:cam}, cam.extrinsics))
+            cam = PosedCamera(K1, R, t)
+            c = PosedCamera(model(cam), relabel(WorldFrame, ViewFrame{:cam}, cam.extrinsics))
             mono = Rig{WorldFrame}((c,))
             @test_throws MethodError source(mono)
             @test_throws MethodError extrinsics(mono)
         end
 
         @testset "BoundedCamera survives re-expression" begin
-            cam1 = Camera(K1, one(RotMatrix{3, Float64}), zero(Vec3{Float64}))
-            cam2 = Camera(K2, R, Vec3{Float64}(t))
+            cam1 = PosedCamera(K1, one(RotMatrix{3, Float64}), zero(Vec3{Float64}))
+            cam2 = PosedCamera(K2, R, Vec3{Float64}(t))
             b1 = BoundedCamera(cam1, Size2(640, 480))
             rig = StereoRig(b1, cam2; ids = (:l, :r))
             @test source(rig) isa BoundedCamera
             @test extent(source(rig)) == Size2(640, 480)
-            @test target(rig) isa Camera
+            @test target(rig) isa PosedCamera
             @test ids(rig) == (:l, :r)
         end
 
@@ -164,7 +164,7 @@
         @testset "a rig of sensors and targets — the camera rig with its constellation" begin
             ident = EuclideanMap(one(RotMatrix{3, Float64}), zero(SVector{3, Float64}))
             Xc = relabel(BodyFrame{:camera_rig}, ViewFrame{:cam}, EuclideanMap(RotMatrix{3, Float64}(R), t))
-            cam = BoundedCamera(Camera(CameraModel(CameraCalibrationMat(K1)), Xc), Size2(640, 480))
+            cam = BoundedCamera(PosedCamera(CameraModel(CameraCalibrationMat(K1)), Xc), Size2(640, 480))
             markers = PointTarget([SVector(0.0, 0.0, 0.0), SVector(30.0, 0.0, 5.0), SVector(0.0, 40.0, -2.0)])
             rig = Rig{BodyFrame{:camera_rig}}((cam,), Dict(:markers => Mounted(markers, ident)))
             @test ids(rig) == [:cam, :markers] && length(rig) == 2
@@ -211,18 +211,18 @@
             @test X1.t == X0.t && RotMatrix(X1.R) == RotMatrix(X0.R)
             @test typeof(X1) == typeof(X0)                       # labels preserved
             # BoundedCamera wrapper survives
-            cam1 = Camera(K1, one(RotMatrix{3, Float64}), zero(Vec3{Float64}))
-            cam2 = Camera(K2, R, Vec3{Float64}(t))
+            cam1 = PosedCamera(K1, one(RotMatrix{3, Float64}), zero(Vec3{Float64}))
+            cam2 = PosedCamera(K2, R, Vec3{Float64}(t))
             rb = StereoRig(BoundedCamera(cam1, Size2(640, 480)), cam2; ids = (:l, :r))
             rb2 = with_model(rb, 1 => m2)
             @test source(rb2) isa BoundedCamera && extent(source(rb2)) == Size2(640, 480)
-            # a GENERIC model rides a rig (Camera's model is any unposed AbstractCamera)
+            # a GENERIC model rides a rig (PosedCamera's model is any unposed AbstractCamera)
             gen = CentralGenericModel(m2, (640, 480); grid_size = (6, 5))
             rg = with_model(rb, 1 => gen)
             @test model(source(rg)) isa CentralGenericModel
             @test ids(rg) == (:l, :r)
             # single-sensor convenience + guards
-            cammono = Camera(model(cam1), relabel(WorldFrame, ViewFrame{:cam}, cam1.extrinsics))
+            cammono = PosedCamera(model(cam1), relabel(WorldFrame, ViewFrame{:cam}, cam1.extrinsics))
             mono = Rig{WorldFrame}((cammono,))
             @test model(with_model(mono, m2)[1]) === m2
             @test_throws ArgumentError with_model(rb, m2)        # 2 sensors, no index

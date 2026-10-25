@@ -237,7 +237,7 @@ All other keyword arguments match the three-argument form.
 """
 function cameraplot!(scene, camera::AbstractCamera; frustum_image, kwargs...)
     has_extrinsics(camera) || throw(
-        ArgumentError("cameraplot!: the camera is unposed (`has_extrinsics` is false) — pose it to draw it: `Camera(model, X)`")
+        ArgumentError("cameraplot!: the camera is unposed (`has_extrinsics` is false) — pose it to draw it: `PosedCamera(model, X)`")
     )
     h, w = size(frustum_image)
     bounds = Rect2(0.0, 0.0, Float64(w), Float64(h))

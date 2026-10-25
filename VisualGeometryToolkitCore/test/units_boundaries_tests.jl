@@ -13,7 +13,7 @@
     using Statistics: cov
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: EuclideanMap, m, mm, ustrip, DimensionError, translation, rotation,
-        relabel, ViewFrame, has_units, with_unit, Camera, CameraModel, CameraCalibrationMat, StereoRig,
+        relabel, ViewFrame, has_units, with_unit, PosedCamera, CameraModel, CameraCalibrationMat, StereoRig,
         extrinsics, pose, essential_form, EpipolarForm, EssentialMat, rectify, lookat, lookat_pose,
         transfer, Attributed, Point2, translation_angle, log_se3, minimal_manifold, RigidExpManifold6,
         LeftRigidManifold6, triangulate, is_in_front, unproject, Point3, BoundedCamera, Size2,
@@ -27,7 +27,7 @@
     E1u = EuclideanMap(R1, t1 .* m)
     E2u = EuclideanMap(R2, t2 .* m)
     model = CameraModel(CameraCalibrationMat(SMatrix{3, 3, Float64}(800, 0, 0, 0, 810, 0, 320, 240, 1)))
-    C1u, C2u = Camera(model, E1u), Camera(model, E2u)
+    C1u, C2u = PosedCamera(model, E1u), PosedCamera(model, E2u)
     C1, C2 = ustrip(m, C1u), ustrip(m, C2u)
 
     @testset "inner loop: plain maps only" begin
@@ -124,12 +124,12 @@
         gn = VgtkCore.NoncentralGenericModel(64, 48, 0, 0, 63, 47, dirs, [Vec3{Float64}(1.0e-4gx, -1.0e-4gy, 5.0e-5) for gy in 1:4, gx in 1:5])
         msg(f) = (err = try f(); nothing catch e; e end; err isa ArgumentError ? sprint(showerror, err) : err)
         # the grid is metres; a plain map is "in the caller's unit": ambiguous, refused
-        for f in (() -> Camera(gn, EuclideanMap(R1, t1 .* 1000)), () -> Camera(gn, pose(Camera(gn, E1u)) |> X -> ustrip(m, X)))
+        for f in (() -> PosedCamera(gn, EuclideanMap(R1, t1 .* 1000)), () -> PosedCamera(gn, pose(PosedCamera(gn, E1u)) |> X -> ustrip(m, X)))
             s = msg(f)
             @test s isa String && occursin("t .* m", s) && occursin("with_unit(extrinsics, mm)", s)
         end
         # the physical camera is the plain-metres camera's call, and stripping it in another unit is refused
-        Cu = Camera(gn, E1u)
+        Cu = PosedCamera(gn, E1u)
         @test has_units(Cu)
         @test ustrip(m, Cu).extrinsics === ustrip(m, E1u)
         @test has_units(with_unit(ustrip(m, Cu), m))
@@ -145,7 +145,7 @@
         I3 = one(RotMatrix{3, Float64})
         for s in (1.0, 1000.0)
             tb = SVector(-0.1, 0.002, 0.001) .* s
-            A, B = Camera(model, EuclideanMap(I3, zero(SVector{3, Float64}))), Camera(model, EuclideanMap(R2, tb))
+            A, B = PosedCamera(model, EuclideanMap(I3, zero(SVector{3, Float64}))), PosedCamera(model, EuclideanMap(R2, tb))
             @test StereoRig(A, B, EuclideanMap(R2, tb)) isa StereoRig
             @test_throws ArgumentError StereoRig(A, B, EuclideanMap(R2, tb + SVector(5.0e-7 * s, 0.0, 0.0)))
         end
@@ -153,7 +153,7 @@
 
     @testset "physical forms of the raw-matrix camera, the arrow projection and kabsch" begin
         K = SMatrix{3, 3, Float64}(800, 0, 0, 0, 810, 0, 320, 240, 1)
-        Cr = Camera(K, SMatrix{3, 3, Float64}(R1), t1 .* m)
+        Cr = PosedCamera(K, SMatrix{3, 3, Float64}(R1), t1 .* m)
         @test has_units(Cr) && ustrip(m, Cr).extrinsics == ustrip(m, E1u)
         o, d = SVector(0.01, -0.02, 2.0), SVector(0.0, 0.05, 0.0)
         @test project(C1u, Point3(o .* m), Vec3(d .* m)) == project(C1, Point3(o...), Vec3(d...))

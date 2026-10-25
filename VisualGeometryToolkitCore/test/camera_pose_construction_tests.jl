@@ -5,7 +5,7 @@
     using Rotations: Rotations
     using LinearAlgebra: I, norm
 
-    # Frame-pair aliases: Camera(model, ::CameraPose) must invert into the
+    # Frame-pair aliases: PosedCamera(model, ::CameraPose) must invert into the
     # extrinsics slot (so pose(camera) round-trips the labeled map), and
     # lookat_pose must be the direct camera-to-world companion of lookat
     # (bit-exact eye translation, per-convention frame parity).
@@ -33,9 +33,9 @@
             @test P(SVector(0.0, 0.0, 0.0)) == P.t
         end
 
-        @testset "pose(Camera(model, P::CameraPose)) round-trips P" begin
+        @testset "pose(PosedCamera(model, P::CameraPose)) round-trips P" begin
             P = lookat_pose(eye, target, up; convention = :gfx)
-            cam = Camera(model, P)
+            cam = PosedCamera(model, P)
             @test SMatrix{3, 3, Float64, 9}(pose(cam).R) ≈ SMatrix{3, 3, Float64, 9}(P.R) atol = 1.0e-12
             @test pose(cam).t ≈ P.t atol = 1.0e-12
             # and the stored extrinsics really is the inverse map
@@ -43,7 +43,7 @@
             @test SMatrix{3, 3, Float64, 9}(E.R) ≈ SMatrix{3, 3, Float64, 9}(P.R)' atol = 1.0e-12
             @test E.t ≈ -SMatrix{3, 3, Float64, 9}(P.R)' * P.t atol = 1.0e-12
             # the two typed routes agree exactly: CameraExtrinsics unwraps, CameraPose inverts
-            cam_e = Camera(model, inv(P))
+            cam_e = PosedCamera(model, inv(P))
             @test extrinsics(cam_e).t == extrinsics(cam).t
             @test SMatrix{3, 3, Float64, 9}(extrinsics(cam_e).R) ==
                 SMatrix{3, 3, Float64, 9}(extrinsics(cam).R)
@@ -96,7 +96,7 @@
     @testset "is_in_front: camera first, BoundedCamera forwards" begin
         K = SMatrix{3, 3, Float64}(600.0, 0, 0, 0, 600.0, 0, 320.0, 240.0, 1.0)
         P = lookat_pose(SVector(0.3, -0.2, 0.6), SVector(0.1, 0.05, -1.0), SVector(0.0, 1.0, 0.0); convention = :gfx)
-        cam = Camera(CameraModel(CameraCalibrationMat(K)), P)
+        cam = PosedCamera(CameraModel(CameraCalibrationMat(K)), P)
         front = Point3(pose(cam)(SVector(0.1, -0.1, 2.0))...)   # camera-frame z = +2
         back = Point3(pose(cam)(SVector(0.1, -0.1, -2.0))...)   # camera-frame z = -2
         for c in (cam, BoundedCamera(cam, Size2(640, 480)))

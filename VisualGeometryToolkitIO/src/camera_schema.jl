@@ -272,7 +272,7 @@ end
 # camera's name (the identity a config refers to) to a VGC `BoundedCamera` of a
 # `CameraModel` (COLMAP's "camera" row: intrinsics, lens, image size, no pose),
 # or an `Attributed` one carrying its `calibration` block. Once a pose is known,
-# `BoundedCamera(Camera(model(bc), pose), bc.extent)` is the posed camera.
+# `BoundedCamera(PosedCamera(model(bc), pose), bc.extent)` is the posed camera.
 #
 # No pixel frame is stored per camera: a model's K is in VGC's canonical frame
 # by construction. On disk the store still names its pixel frame, because a

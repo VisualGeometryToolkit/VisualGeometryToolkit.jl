@@ -19,7 +19,7 @@
     using VisualGeometryToolkitEstimation: Irls, locally_optimize, RadialHomographyProblem
 
     rng = StableRNG(5)
-    H = HomographyMat(Camera(CameraModel(; focal = 800.0, pp = (320.0, 240.0)), EuclideanMap(RotMatrix(RotX(0.25)), SA[-0.025, -0.025, 0.3])))
+    H = HomographyMat(PosedCamera(CameraModel(; focal = 800.0, pp = (320.0, 240.0)), EuclideanMap(RotMatrix(RotX(0.25)), SA[-0.025, -0.025, 0.3])))
     warp = homography_warp(H)
     board = [SA[0.05 * i / 7, 0.05 * j / 7] for i in 0:7 for j in 0:7]          # metres
     pix = [warp(b) + SA[0.2 * randn(rng), 0.2 * randn(rng)] for b in board]

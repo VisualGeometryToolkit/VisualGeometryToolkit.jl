@@ -175,7 +175,7 @@ lines, via `Mᵀ`). There is no inverse map — the correlation is rank 2 (see
 
 !!! note
     Since 0.8 this name refers ONLY to the form action. The former
-    `epipolar_map(source::Camera, target::Camera, extrinsics)` — a
+    `epipolar_map(source::PosedCamera, target::PosedCamera, extrinsics)` — a
     unit-depth point-TRANSFER closure, not an epipolar correlation — is
     renamed [`depth_transfer`](@ref).
 """

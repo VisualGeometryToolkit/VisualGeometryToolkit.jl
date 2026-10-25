@@ -201,7 +201,7 @@ Built directly from the frame columns (rotation = camera basis as
 camera-to-world columns, translation = `eye` **bit-exactly**) rather than as
 `inv(lookat(...))`, so no inversion round-trip touches the translation.
 Feed the result straight to the frame-typed camera constructor
-`Camera(model, lookat_pose(...))`, which inverts internally into the
+`PosedCamera(model, lookat_pose(...))`, which inverts internally into the
 extrinsics slot.
 """
 function lookat_pose(
@@ -264,7 +264,7 @@ cs = csponds(X3, u3)
 
 # Solve P3P — always a FixedModels; empty (length 0) when no valid pose
 result = p3p(model, cs)
-cameras = Camera.(Ref(model), collect(result))
+cameras = PosedCamera.(Ref(model), collect(result))
 ```
 
 # See Also

@@ -4,7 +4,7 @@
 @testitem "sample_p3p" begin
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: sample_p3p, sensor, focal_length_for_fov, CameraModel, Camera, project, centroid, px, Plane3D
+    using VisualGeometryToolkitCore: sample_p3p, sensor, focal_length_for_fov, CameraModel, PosedCamera, project, centroid, px, Plane3D
     using GeometryBasics: Rect, Point3, widths
     using StaticArrays: SVector
     using LinearAlgebra: norm
@@ -20,7 +20,7 @@
     @testset "every solution reprojects its correspondences" begin
         exts, cs = sample_p3p(Xoshiro(7), model, X, bounds)
         @test !isempty(exts) && length(cs) == 3
-        @test all(norm(project(Camera(model, e), c.first) - c.second) < 1.0e-6 for e in exts, c in cs)
+        @test all(norm(project(PosedCamera(model, e), c.first) - c.second) < 1.0e-6 for e in exts, c in cs)
         @test all(c -> all(0 .<= c.second .<= widths(bounds)), cs)   # image points drawn inside the sensor
     end
 
@@ -29,7 +29,7 @@
                 sample_p3p(Xoshiro(7), model, X, bounds, Plane3D()),
                 sample_p3p(Xoshiro(7), model, X3, bounds, Plane3D()),
             )
-            @test cam isa Camera
+            @test cam isa PosedCamera
             @test all(norm(project(cam, c.first) - c.second) < 1.0e-6 for c in cs)
         end
     end

@@ -17,7 +17,7 @@
     # K-normalization bookkeeping E → F), slot-mismatch MethodErrors + the
     # wildcard truth-table rows, epipolar_map correctness on a synthetic
     # two-view setup (incidence, kernel, and pencil properties), the
-    # depth_transfer rename (old behavior pinned, old name's Camera methods
+    # depth_transfer rename (old behavior pinned, old name's PosedCamera methods
     # gone), and ViewFrame/ImageFrame open-hierarchy + StereoRig id minting.
 
     # A downstream-style slot frame: the hierarchy stays open for forms too.

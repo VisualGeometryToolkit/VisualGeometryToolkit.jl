@@ -18,7 +18,7 @@
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: EuclideanMap, m, mm, ustrip, DimensionError, translation, rotation,
         relabel, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, Uncertain, CovMat, geom,
-        has_units, with_unit, PointTarget, PlanarTarget, Mounted, Rig, Camera, BoundedCamera, CameraModel,
+        has_units, with_unit, PointTarget, PlanarTarget, Mounted, Rig, PosedCamera, BoundedCamera, CameraModel,
         CameraCalibrationMat, Trajectory, TargetPoses, TargetPoints3D, Size2, project, pose, extrinsics, points
 
     within_ulp(a::Number, b::Number) = abs(a - b) <= eps(abs(b))
@@ -113,9 +113,9 @@
 
     model = CameraModel(CameraCalibrationMat(SMatrix{3, 3, Float64}(800, 0, 0, 0, 800, 0, 320, 240, 1)))
 
-    @testset "Camera, BoundedCamera and sensor rigs" begin
-        C_mm = Camera(model, E_mm)
-        C_u = Camera(model, E_u)
+    @testset "PosedCamera, BoundedCamera and sensor rigs" begin
+        C_mm = PosedCamera(model, E_mm)
+        C_u = PosedCamera(model, E_u)
         @test has_units(C_u) && !has_units(C_mm)
         @test maps_close(extrinsics(ustrip(mm, with_unit(C_mm, mm))), extrinsics(C_mm))
         @test maps_close(extrinsics(ustrip(mm, C_u)), extrinsics(C_mm))
@@ -129,15 +129,15 @@
 
         # projection: the unitful call is the plain call in metres, bit for bit
         X = SVector(0.3, -0.1, 4.0)
-        @test project(Camera(model, E_u), X .* m) === project(Camera(model, ustrip(m, E_u)), X)
-        @test project(B_u, X .* m) === project(Camera(model, ustrip(m, E_u)), X)
+        @test project(PosedCamera(model, E_u), X .* m) === project(PosedCamera(model, ustrip(m, E_u)), X)
+        @test project(B_u, X .* m) === project(PosedCamera(model, ustrip(m, E_u)), X)
         @test_throws DimensionError project(C_u, X)
 
         # a sensor rig of unitful cameras, gauge identity included
         ident_u = EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, 0.0) .* m)
         rig_u = Rig{ViewFrame{:l}}((
-            Camera(model, relabel(ViewFrame{:l}, ViewFrame{:l}, ident_u)),
-            Camera(model, relabel(ViewFrame{:l}, ViewFrame{:r}, E_u)),
+            PosedCamera(model, relabel(ViewFrame{:l}, ViewFrame{:l}, ident_u)),
+            PosedCamera(model, relabel(ViewFrame{:l}, ViewFrame{:r}, E_u)),
         ))
         @test has_units(rig_u)
         rig_mm = ustrip(mm, rig_u)
@@ -145,11 +145,11 @@
         @test maps_close(extrinsics(rig_mm, 2), relabel(ViewFrame{:l}, ViewFrame{:r}, E_mm))
         @test maps_close(extrinsics(ustrip(mm, with_unit(rig_mm, mm)), 2), extrinsics(rig_mm, 2))
         @test_throws DimensionError Rig{ViewFrame{:l}}((
-            Camera(model, relabel(ViewFrame{:l}, ViewFrame{:l}, ident_u)),
-            Camera(model, relabel(ViewFrame{:l}, ViewFrame{:r}, E_mm)),
+            PosedCamera(model, relabel(ViewFrame{:l}, ViewFrame{:l}, ident_u)),
+            PosedCamera(model, relabel(ViewFrame{:l}, ViewFrame{:r}, E_mm)),
         ))
         @test_throws DimensionError Rig{BodyFrame{:b}}(
-            (Camera(model, relabel(BodyFrame{:b}, ViewFrame{:r}, E_u)),),
+            (PosedCamera(model, relabel(BodyFrame{:b}, ViewFrame{:r}, E_u)),),
             Dict(:t => Mounted(PlanarTarget(pts2_mm), E_mm)),
         )
     end

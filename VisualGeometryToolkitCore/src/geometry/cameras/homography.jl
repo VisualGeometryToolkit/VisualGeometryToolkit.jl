@@ -8,7 +8,7 @@
 # `inv(::HomographyMat)` override is needed.
 
 """
-    HomographyMat(camera::PinholeCamera) -> HomographyMat{Float64}
+    HomographyMat(camera::PosedPinholeCamera) -> HomographyMat{Float64}
 
 Compute the homography H that maps from a planar board (z=0 plane) to the image.
 
@@ -20,23 +20,23 @@ where K is intrinsics, r1 and r2 are the first two columns of the rotation matri
 and t is the translation from camera extrinsics.
 
 # Arguments
-- `camera::PinholeCamera`: Camera with pinhole projection
+- `camera::PosedPinholeCamera`: Camera with pinhole projection
 
 # Returns
 - `HomographyMat{Float64}`: Homography matrix (board coords → image coords)
 
 # Example
 ```julia
-camera = Camera(model, extrinsics)
+camera = PosedCamera(model, extrinsics)
 H = HomographyMat(camera)
 H_inv = inv(H)  # For warping: image → board
 ```
 """
-HomographyMat(camera::PinholeCamera) = _induced_plane_homography(camera)
+HomographyMat(camera::PosedPinholeCamera) = _induced_plane_homography(camera)
 # a physical pinhole: the plane coordinates have no unit — refused, naming the fix
-const _UnitfulPinholeCamera = Camera{<:CameraModel{<:AbstractIntrinsics, Pinhole}, <:UnitfulEuclideanMap{3}}
-HomographyMat(::_UnitfulPinholeCamera) = _refuse_physical_camera("HomographyMat(camera)")
-HomographyMat(::_UnitfulPinholeCamera, ::AbstractVector, ::AbstractVector, ::AbstractVector) =
+const _UnitfulPosedPinholeCamera = PosedCamera{<:CameraModel{<:AbstractIntrinsics, Pinhole}, <:UnitfulEuclideanMap{3}}
+HomographyMat(::_UnitfulPosedPinholeCamera) = _refuse_physical_camera("HomographyMat(camera)")
+HomographyMat(::_UnitfulPosedPinholeCamera, ::AbstractVector, ::AbstractVector, ::AbstractVector) =
     _refuse_physical_camera("HomographyMat(camera, origin, u, v)")
 
 """
@@ -71,7 +71,7 @@ end
 # For a PINHOLE camera this IS the plane → image map, which is why the public
 # constructor above is Pinhole-only: the plane map of a distorted camera is not
 # a homography, and offering one would be a lie about the geometry. The other
-# caller is `RadialCamera(::Camera)` (geometry/cameras/calibration.jl), where
+# caller is `RadialCamera(::PosedCamera)` (geometry/cameras/calibration.jl), where
 # the lens genuinely drops out — rows 1–2 of this matrix about the principal
 # point are the board's radial camera whatever the lens, because a radially
 # symmetric distortion about that point cannot move an image point off its own
@@ -80,7 +80,7 @@ end
 # The plane `(origin, u, v)` in world coordinates (default: the z = 0 board
 # plane, `origin = 0`, `u = e₁`, `v = e₂`): H = K·[R·u  R·v  R·origin + t].
 function _induced_plane_homography(
-        camera::Camera{<:CameraModel}, origin::AbstractVector = Point3{Float64}(0, 0, 0),
+        camera::PosedCamera{<:CameraModel}, origin::AbstractVector = Point3{Float64}(0, 0, 0),
         u::AbstractVector = Vec3{Float64}(1, 0, 0), v::AbstractVector = Vec3{Float64}(0, 1, 0)
     )
     K = camera.model.intrinsics.K
@@ -93,7 +93,7 @@ function _induced_plane_homography(
 end
 
 """
-    HomographyMat(camera::PinholeCamera,
+    HomographyMat(camera::PosedPinholeCamera,
                   origin::AbstractVector,
                   u::AbstractVector,
                   v::AbstractVector) -> HomographyMat{Float64}
@@ -109,7 +109,7 @@ A point (s, t, 1) in the plane-local frame corresponds to world point
 coordinates. Only valid for pinhole cameras.
 """
 function HomographyMat(
-        camera::PinholeCamera,
+        camera::PosedPinholeCamera,
         origin::AbstractVector,
         u::AbstractVector,
         v::AbstractVector
@@ -122,7 +122,7 @@ end
 # =============================================================================
 
 """
-    HomographyMap(camera::PinholeCamera) -> HomographyMap
+    HomographyMap(camera::PosedPinholeCamera) -> HomographyMap
 
 The plane-induced homography of `camera` as a LABELED map:
 `Src = TargetPlaneFrame, Dst = PixelFrame{:colmap}` (monogram `H_PB` — consumes
@@ -138,11 +138,11 @@ u = H(Point2(s, t))                # target-plane frame → homogeneous pixel
 H_warp = inv(H)                    # PixelFrame{:colmap} → TargetPlaneFrame
 ```
 """
-HomographyMap(camera::PinholeCamera) =
+HomographyMap(camera::PosedPinholeCamera) =
     HomographyMap{TargetPlaneFrame, PixelFrame{:colmap}}(HomographyMat(camera))
 
 """
-    HomographyMap(camera::PinholeCamera, origin, u, v) -> HomographyMap
+    HomographyMap(camera::PosedPinholeCamera, origin, u, v) -> HomographyMap
 
 The homography induced by the arbitrary world plane `(origin, u, v)`, as a
 partially labeled map: `Dst = PixelFrame{:colmap}` (VGC intrinsics produce
@@ -157,7 +157,7 @@ H = relabel(FacadeFrame, PixelFrame{:colmap}, HomographyMap(camera, o, u, v))
 ```
 """
 HomographyMap(
-    camera::PinholeCamera,
+    camera::PosedPinholeCamera,
     origin::AbstractVector, u::AbstractVector, v::AbstractVector
 ) = relabel(
     UnlabeledFrame{2}, PixelFrame{:colmap},

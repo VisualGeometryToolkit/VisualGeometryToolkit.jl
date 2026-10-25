@@ -34,8 +34,8 @@ function scannet1500_pairs(root::AbstractString)
             CameraModel(CameraCalibrationMat(SMatrix{3,3,Float64,9}(K[1:3, 1:3])); image_origin = :opencv)
         end
         R, t = _row_major_pose(view(rel_pose, i, :))
-        rig = StereoRig(BoundedCamera(Camera(cm, identity_pose), _SCANNET_COLOR_SIZE),
-                        BoundedCamera(Camera(cm, EuclideanMap(R, Vec3{Float64}(t) .* m; project = true)), _SCANNET_COLOR_SIZE))
+        rig = StereoRig(BoundedCamera(PosedCamera(cm, identity_pose), _SCANNET_COLOR_SIZE),
+                        BoundedCamera(PosedCamera(cm, EuclideanMap(R, Vec3{Float64}(t) .* m; project = true)), _SCANNET_COLOR_SIZE))
         src, tgt = "$(Int(name[i, 3])).jpg", "$(Int(name[i, 4])).jpg"
         pairs[i] = StereoPair((scene, src, tgt, joinpath(scene_dir, "color", src), joinpath(scene_dir, "color", tgt), rig))
     end

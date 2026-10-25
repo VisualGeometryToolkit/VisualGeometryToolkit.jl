@@ -147,7 +147,7 @@ central.
 The `points` are plain metres in the camera frame. This is an exception to the
 units layering that the type forces: its grid of `Vec3{T}` is interpolated in
 the inner loop and cannot hold quantities, so the unit is stated here instead.
-A reader or writer of the model converts at its boundary. A [`Camera`](@ref) of
+A reader or writer of the model converts at its boundary. A [`PosedCamera`](@ref) of
 the model therefore takes physical extrinsics (`EuclideanMap(R, t .* m)`, or
 `with_unit(E, mm)` of a map in mm) and projects scene points that are lengths;
 a plain extrinsics is an `ArgumentError`, since it would be read in the

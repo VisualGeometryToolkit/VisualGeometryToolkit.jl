@@ -274,8 +274,8 @@
             @test (distort_stage(bc_lens; id = :left) ∘ FramedPerspective(; id = :left)) isa
                 FramedChain{ViewFrame{:left}, DistortedFrame{:left}}
             # rig-derived labeling: mint from the rig's ids
-            cam1 = Camera(pin, EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, 0.0)))
-            cam2 = Camera(bc, EuclideanMap(one(RotMatrix{3, Float64}), SVector(120.0, 0.0, 0.0)))
+            cam1 = PosedCamera(pin, EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, 0.0)))
+            cam2 = PosedCamera(bc, EuclideanMap(one(RotMatrix{3, Float64}), SVector(120.0, 0.0, 0.0)))
             rig = StereoRig(cam1, cam2; ids = (:src, :tgt))
             a, b = ids(rig)
             c1 = imaging_chain(model(source(rig)); id = a)

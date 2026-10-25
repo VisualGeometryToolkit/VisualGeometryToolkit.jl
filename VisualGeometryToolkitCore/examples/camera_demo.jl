@@ -19,7 +19,7 @@ distorted = CameraModel(;
 # ── Pose: world → camera as an EuclideanMap (R, t) ──────────────────────
 R = SMatrix{3, 3, Float64}(RotXYZ(0.05, -0.10, 0.02))
 t = SVector(0.10, -0.05, 2.0)
-cam = Camera(pinhole, EuclideanMap(R, t))
+cam = PosedCamera(pinhole, EuclideanMap(R, t))
 
 X = SVector(0.2, -0.1, 0.5)          # a world point in front of the camera
 u = project(cam, X)                   # pixel coordinates (COLMAP convention)

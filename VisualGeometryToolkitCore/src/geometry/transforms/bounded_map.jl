@@ -2,7 +2,7 @@
 # BoundedMap — wrap any Transformation with an output rect (codomain extent)
 # =============================================================================
 #
-# Mirrors the BoundedCamera/Camera split: `BoundedMap` decorates an inner
+# Mirrors the BoundedCamera/PosedCamera split: `BoundedMap` decorates an inner
 # transform with a `Rect{2,Int}` describing where the transform's output
 # is intended to land (e.g., a warp's destination patch, or a homography's
 # valid image region).  Bounds are extrinsic — the inner map's mathematical

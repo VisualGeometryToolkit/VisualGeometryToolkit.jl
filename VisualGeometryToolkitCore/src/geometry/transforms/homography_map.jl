@@ -506,7 +506,7 @@ undistortion. A `ComposedTransformation` transfers stage by stage, so the
 exact stages stay exact and only the non-projective ones linearise: for a
 lens camera, `distortion_map(model) ∘ HomographyMap(pinhole camera)` pushes
 the conic through the plane homography exactly and applies the lens's
-affinity at the transferred centre (see [`transfer_ellipse(::Camera, _)`](@ref)).
+affinity at the transferred centre (see [`transfer_ellipse(::PosedCamera, _)`](@ref)).
 `nothing` where the map is not defined or not finite at the centre (a lens
 fold, the line at infinity).
 """
@@ -529,7 +529,7 @@ end
 # CoordinateTransformations': a lens that is not itself a `Transformation` makes
 # `AffineMap ∘ lens ∘ AffineMap` (i.e. `distortion_map`) a `ComposedFunction`.
 # Without this, composing the lens chain is a MethodError on exactly those lens
-# types — the reason `transfer_ellipse(::Camera, _)` used to unroll the stages.
+# types — the reason `transfer_ellipse(::PosedCamera, _)` used to unroll the stages.
 # `outer`/`inner` are Base's names for `t1`/`t2`.
 function transfer_ellipse(T::ComposedFunction, shape::Union{Circle, Ellipse})
     inner = transfer_ellipse(T.inner, shape)

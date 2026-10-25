@@ -89,7 +89,7 @@ Pkg.add("GLMakie")  # Automatically activates the plotting extension
   the top-level module (not submodules, due to circular dependencies).
 
 Commonly-used names are exported from the main module; the submodule paths
-(`VisualGeometryToolkitCore.Cameras.Camera`) and the exported names (`Camera`)
+(`VisualGeometryToolkitCore.Cameras.PosedCamera`) and the exported names (`PosedCamera`)
 are equivalent.
 
 ## Documentation

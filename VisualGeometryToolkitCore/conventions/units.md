@@ -39,7 +39,7 @@ kept exactly — as being in `u`. One exception
 is forced by its type: [`NoncentralGenericModel`](@ref) holds its line points
 as plain metres, because its grid of `Vec3{T}` cannot hold quantities, and its
 docstring says so. Because a plain extrinsics is "in the caller's unit", a
-`Camera` of that model refuses one (`ArgumentError`, naming `t .* m`); its
+`PosedCamera` of that model refuses one (`ArgumentError`, naming `t .* m`); its
 plain form is `ustrip(m, camera)` only.
 
 Units are allowed in a type but not required by it, so the layering is held at

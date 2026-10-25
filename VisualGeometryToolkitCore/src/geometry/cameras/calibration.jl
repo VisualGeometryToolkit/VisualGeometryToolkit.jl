@@ -228,7 +228,7 @@ end
 RadialCamera(m::RadialHomography) = RadialCamera(m.H, m.center)
 
 """
-    RadialCamera(cam::Camera) -> RadialCamera
+    RadialCamera(cam::PosedCamera) -> RadialCamera
 
 The 1-D radial camera of a POSED camera viewing the plane `z = 0` of its
 extrinsics' source frame: rows 1–2 of the induced homography `H = K·[r₁ r₂ t]`,
@@ -245,10 +245,10 @@ distortion about that same principal point moves an image point along its own
 ray from the centre, so it cannot change the ray — and the ray is all this
 model claims (see [`RadialCamera`](@ref)). That invariance is why a camera with
 ANY radially symmetric lens is admissible here, while
-`HomographyMat(::PinholeCamera)` stays Pinhole-only: the plane map of a
+`HomographyMat(::PosedPinholeCamera)` stays Pinhole-only: the plane map of a
 distorted camera is not a homography, but its radial camera is exact.
 """
-function RadialCamera(cam::Camera{<:CameraModel})
+function RadialCamera(cam::PosedCamera{<:CameraModel})
     K = calibration_matrix(cam)
     return RadialCamera(_induced_plane_homography(cam), Point2{Float64}(K[1, 3], K[2, 3]))
 end

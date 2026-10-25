@@ -61,7 +61,7 @@ function feature_frame end
     AbstractCamera
 
 The one camera type: every camera — an unposed model ([`CameraModel`](@ref),
-the generic grid models), a posed camera ([`Camera`](@ref)) and a bounded one
+the generic grid models), a posed camera ([`PosedCamera`](@ref)) and a bounded one
 ([`BoundedCamera`](@ref)) — subtypes it. Whether a camera carries a pose is a
 trait, [`has_extrinsics`](@ref), not a second type root.
 
@@ -87,7 +87,7 @@ abstract type AbstractCamera end
 """
     has_extrinsics(camera::AbstractCamera) -> Bool
 
-Whether `camera` carries a pose: `true` for a [`Camera`](@ref) (a model and its
+Whether `camera` carries a pose: `true` for a [`PosedCamera`](@ref) (a model and its
 extrinsics), `false` for an unposed model ([`CameraModel`](@ref),
 [`CentralGenericModel`](@ref), [`NoncentralGenericModel`](@ref)), and the
 wrapped camera's answer for a [`BoundedCamera`](@ref). It is decided by the
@@ -95,7 +95,7 @@ camera's type, so a branch on it compiles away.
 
 The posed-only verbs — `pose`, `extrinsics`, rig membership, the
 [`StereoRig`](@ref) constructors that read poses — refuse an unposed camera
-with an `ArgumentError`, and `Camera(model, X)` refuses a posed `model`. A
+with an `ArgumentError`, and `PosedCamera(model, X)` refuses a posed `model`. A
 camera type of another package that carries a pose adds a method returning
 `true`.
 """

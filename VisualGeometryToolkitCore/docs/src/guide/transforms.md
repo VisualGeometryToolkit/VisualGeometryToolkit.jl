@@ -311,7 +311,7 @@ Project between world plane and image:
 using Rotations
 
 # Create camera
-camera = Camera(model, EuclideanMap(R, t))
+camera = PosedCamera(model, EuclideanMap(R, t))
 
 # Homography from world plane (z=0) to image
 H_mat = HomographyMat(camera)
@@ -330,7 +330,7 @@ Q_image = H(circle_world)  # a Conic; Ellipse(Q_image) once classify_conic(Q_ima
 
 ```julia
 # Create camera viewing a planar surface
-camera = Camera(model, pose)
+camera = PosedCamera(model, pose)
 
 # Get homography and wrap in HomographyMap
 H = HomographyMap(HomographyMat(camera))

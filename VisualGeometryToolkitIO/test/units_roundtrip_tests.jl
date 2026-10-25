@@ -63,7 +63,7 @@ end
 @testitem "units: a writer refuses plain numbers where a length is meant" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: Rig, Mounted, PlanarTarget, PointTarget, Trajectory, TargetPoses, TargetPoints3D,
-        TargetPoints2D, BoundedCamera, Camera, StereoRig, WorldFrame, BodyFrame, CameraFrame, TargetFrame, relabel, has_units
+        TargetPoints2D, BoundedCamera, PosedCamera, StereoRig, WorldFrame, BodyFrame, CameraFrame, TargetFrame, relabel, has_units
 
     refused(f) = try
         f(); false
@@ -79,8 +79,8 @@ end
         @test refused(() -> save(p, Trajectory(BodyFrame{:a}, WorldFrame, Dict(1 => plain))))
         @test refused(() -> save(p, TargetPoses{CameraFrame}(Dict(1 => Dict(:a => plain)); images = Dict(1 => "a"), sensors = "c")))
         @test refused(() -> save(p, Rig{WorldFrame}(Dict(:a => Mounted(PlanarTarget(pts), plain)))))
-        @test refused(() -> save(p, StereoRig(BoundedCamera(Camera(K, one(RotMatrix{3, Float64}), zero(SVector{3, Float64})), Size2(1280, 960)),
-            BoundedCamera(Camera(K, one(RotMatrix{3, Float64}), SVector(120.0, 0.0, 0.0)), Size2(1280, 960)))))
+        @test refused(() -> save(p, StereoRig(BoundedCamera(PosedCamera(K, one(RotMatrix{3, Float64}), zero(SVector{3, Float64})), Size2(1280, 960)),
+            BoundedCamera(PosedCamera(K, one(RotMatrix{3, Float64}), SVector(120.0, 0.0, 0.0)), Size2(1280, 960)))))
         @test refused(() -> save(p, TargetPoints3D{WorldFrame}(Dict(1 => [(target = :a, index = 1, xyz = SVector(1.0, 2.0, 3.0))]); sensors = "m")))
         @test refused(() -> save(p, PointTarget([SVector(1.0, 2.0, 3.0)])))
         @test refused(() -> save(p, PlanarTarget(pts)))
@@ -244,17 +244,17 @@ end
 end
 
 @testitem "units: a loaded non-central grid model refuses a plain camera, naming the fix" setup = [VGIoFixtures] begin
-    using VisualGeometryToolkitCore: Camera, NoncentralGenericModel, has_units, project, with_unit
+    using VisualGeometryToolkitCore: PosedCamera, NoncentralGenericModel, has_units, project, with_unit
     # The grid comes back in metres; the pre-0.2 habit `EuclideanMap(R, t_mm)`
     # would compare it with scene points in mm (offsets 1000× too small).
     gn = load(NoncentralGenericModel, joinpath(@__DIR__, "fixtures", "units", "generic_camera.json"))
     R = one(RotMatrix{3, Float64})
     t_mm = SVector(10.0, -5.0, 20.0)
-    err = try Camera(gn, EuclideanMap(R, t_mm)); nothing catch e; e end
+    err = try PosedCamera(gn, EuclideanMap(R, t_mm)); nothing catch e; e end
     @test err isa ArgumentError
     @test occursin("t .* m", sprint(showerror, err)) && occursin("with_unit(extrinsics, mm)", sprint(showerror, err))
     # the fix: the extrinsics in mm, stated
-    cam = Camera(gn, with_unit(EuclideanMap(R, t_mm), mm))
+    cam = PosedCamera(gn, with_unit(EuclideanMap(R, t_mm), mm))
     @test has_units(cam)
     X = SVector(0.0, 0.0, 1000.0) .* mm
     @test project(cam, X) == project(ustrip(m, cam), ustrip.(m, X))

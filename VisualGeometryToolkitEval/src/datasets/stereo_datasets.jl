@@ -185,9 +185,9 @@ function _make_stereo_pair(scene::AbstractString, src_name::AbstractString, tgt_
                            K::SMatrix{3,3,Float64,9}, T_src::SMatrix{4,4,Float64,16},
                            T_tgt::SMatrix{4,4,Float64,16}, extent::Size2)
     cm = CameraModel(CameraCalibrationMat(K); image_origin = :opencv)
-    cam_src = BoundedCamera(Camera(cm, EuclideanMap(SMatrix{3,3,Float64,9}(I), zero(Vec3{Float64}) .* m)), extent)
+    cam_src = BoundedCamera(PosedCamera(cm, EuclideanMap(SMatrix{3,3,Float64,9}(I), zero(Vec3{Float64}) .* m)), extent)
     T = inv(T_tgt) * T_src
-    cam_tgt = BoundedCamera(Camera(cm, EuclideanMap(SMatrix{3,3,Float64,9}(T[1:3, 1:3]),
+    cam_tgt = BoundedCamera(PosedCamera(cm, EuclideanMap(SMatrix{3,3,Float64,9}(T[1:3, 1:3]),
                                                     Vec3{Float64}(T[1:3, 4]) .* m; project = true)), extent)
     return StereoPair((scene, src_name, tgt_name, src_path, tgt_path, StereoRig(cam_src, cam_tgt)))
 end

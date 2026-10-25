@@ -14,7 +14,7 @@
 #      forward AND an inverse, plus `Src`/`Dst` frame parameters, so a bad
 #      composition under `∘` is a type error.
 #   3. CAMERA MODELS — unposed `AbstractCamera`s; `CameraModel` = intrinsics + lens;
-#      `Camera` = model + extrinsics.  Domain is a 3D point.
+#      `PosedCamera` = model + extrinsics.  Domain is a 3D point.
 #
 # The radial models belong to NONE of those, and forcing them into one would be
 # the mistake.  They are 2D→2D relations between a PLANE and an IMAGE whose

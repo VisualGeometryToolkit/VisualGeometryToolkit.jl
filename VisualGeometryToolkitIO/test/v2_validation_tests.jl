@@ -10,7 +10,7 @@
 
 @testitem "v2 validation: every required key, refused by name" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitIO: validate
-    using VisualGeometryToolkitCore: Rig, Mounted, PlanarTarget, PointTarget, Attributed, BoundedCamera, Camera, TargetFrame, ViewFrame, BodyFrame, WorldFrame,
+    using VisualGeometryToolkitCore: Rig, Mounted, PlanarTarget, PointTarget, Attributed, BoundedCamera, PosedCamera, TargetFrame, ViewFrame, BodyFrame, WorldFrame,
         CameraFrame, CentralGenericModel, NoncentralGenericModel, Vec3, relabel, Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D
     using Rotations: RotXYZ, RotationVec
     import VisualGeometryToolkitCore
@@ -83,12 +83,12 @@
             at!("rig", "rig.json"),
             Rig{ViewFrame{:a}}(
                 (
-                    BoundedCamera(Camera(CameraModel(K; lens = bc, image_origin = :colmap), relabel(ViewFrame{:a}, ViewFrame{:a}, ident)), Size2(4240, 2832)),
-                    BoundedCamera(Camera(CameraModel(K; lens = bc, image_origin = :colmap), relabel(ViewFrame{:a}, ViewFrame{:b}, pose(5.0mm))), Size2(4240, 2832)),
+                    BoundedCamera(PosedCamera(CameraModel(K; lens = bc, image_origin = :colmap), relabel(ViewFrame{:a}, ViewFrame{:a}, ident)), Size2(4240, 2832)),
+                    BoundedCamera(PosedCamera(CameraModel(K; lens = bc, image_origin = :colmap), relabel(ViewFrame{:a}, ViewFrame{:b}, pose(5.0mm))), Size2(4240, 2832)),
                 )
             )
         )
-        save(at!("rig_generic", "rig_generic.json"), Rig{ViewFrame{:g}}((Camera(gn, relabel(ViewFrame{:g}, ViewFrame{:g}, ident)),)))
+        save(at!("rig_generic", "rig_generic.json"), Rig{ViewFrame{:g}}((PosedCamera(gn, relabel(ViewFrame{:g}, ViewFrame{:g}, ident)),)))
         save(at!("rig_targets", "targets.json"), targets)
         save(at!("target", "target.json"), Attributed(PointTarget([mm_lengths(SVector(1.0, 2.0, 3.0))]), (; calibration = (; tool = "t"))))
         save(

@@ -21,17 +21,17 @@ A camera is assembled from three components:
    [Coordinate Frames](frames.md))
 
 [`CameraModel`](@ref) pairs intrinsics with a lens;
-[`Camera`](@ref VisualGeometryToolkitCore.Cameras.Camera) pairs a model with a
+[`PosedCamera`](@ref VisualGeometryToolkitCore.Cameras.PosedCamera) pairs a model with a
 pose.
 
 Every camera — a model, a posed camera, a [`BoundedCamera`](@ref) of either —
 is an [`AbstractCamera`](@ref). Whether it carries a pose is the trait
 [`has_extrinsics`](@ref VisualGeometryToolkitCore.has_extrinsics): `false` for a
-model, `true` for a `Camera`, the wrapped camera's for a `BoundedCamera`. The
+model, `true` for a `PosedCamera`, the wrapped camera's for a `BoundedCamera`. The
 posed-only verbs (`pose`, `extrinsics`, rig membership) refuse an unposed camera
-with an `ArgumentError`, and `Camera(model, X)` refuses a model that is already
+with an `ArgumentError`, and `PosedCamera(model, X)` refuses a model that is already
 posed or bounded — the bound goes outside the pose,
-`BoundedCamera(Camera(model, X), extent)`.
+`BoundedCamera(PosedCamera(model, X), extent)`.
 
 ## Quick Example
 
@@ -51,7 +51,7 @@ pp = centroid(Rect(s)) .* px
 model = CameraModel(f, s.pitch, pp)
 
 # Camera with pose (extrinsics)
-camera = Camera(model, lookat(SVector(0.0, 0.0, 500.0),
+camera = PosedCamera(model, lookat(SVector(0.0, 0.0, 500.0),
                               SVector(0.0, 0.0, 0.0),
                               SVector(0.0, -1.0, 0.0)))
 ```
@@ -133,15 +133,15 @@ see [The Framed Imaging Chain](imaging-chain.md).
 Camera poses are frame-labeled rigid maps: [`CameraPose`](@ref) (`X_WC`,
 camera-to-world) and [`CameraExtrinsics`](@ref) (`X_CW`, world-to-camera)
 are frame-pair aliases of `EuclideanMap`, and `inv` converts between them
-by swapping the labels. `Camera(model, pose)` and
-`Camera(model, extrinsics)` both work — the constructor normalizes to the
+by swapping the labels. `PosedCamera(model, pose)` and
+`PosedCamera(model, extrinsics)` both work — the constructor normalizes to the
 extrinsics slot, so handing a pose where extrinsics are expected is
 unrepresentable.
 
 ```julia
 extrinsics = lookat(eye, target, up)      # world → camera EuclideanMap
 p = lookat_pose(eye, target, up)          # the inverse convention
-camera = Camera(model, extrinsics)
+camera = PosedCamera(model, extrinsics)
 pose(camera)                              # CameraPose (X_WC)
 ```
 
@@ -153,7 +153,7 @@ csp = csponds(X, u)               # StructArray of Pt3-to-Pt2 correspondences
 
 result = p3p(model, csp)          # FixedModels{4, Extrinsics3}, empty when no solution
 for ext in result                 # 0–4 Extrinsics3 solutions
-    camera_i = Camera(model, ext)
+    camera_i = PosedCamera(model, ext)
     # score by reprojection error ...
 end
 ```

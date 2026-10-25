@@ -21,7 +21,7 @@
     K = @SMatrix [600.0 0.0 320.0; 0.0 600.0 240.0; 0.0 0.0 1.0]
     cm = CameraModel(CameraCalibrationMat(K))
     E = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.1, -0.2, 0.05)), SVector(0.3, -0.1, 2.0))
-    cam = Camera(cm, E)
+    cam = PosedCamera(cm, E)
     sz = Size2(640, 480)
     gen = CentralGenericModel(cm, (640, 480); grid_size = (6, 5))
 
@@ -37,18 +37,18 @@
         @test :has_extrinsics in names(VisualGeometryToolkitCore)   # public
         @test any(f -> f === has_extrinsics, VgtkCore.CONTRACT_GENERICS)
         # the layouts downstream dispatches on are unchanged
-        @test cam isa Camera{<:CameraModel{<:AbstractIntrinsics, <:Any}, <:EuclideanMap}
-        @test cam isa VgtkCore.PinholeCamera
+        @test cam isa PosedCamera{<:CameraModel{<:AbstractIntrinsics, <:Any}, <:EuclideanMap}
+        @test cam isa VgtkCore.PosedPinholeCamera
         @test BoundedCamera(cm, sz) isa BoundedCamera{<:CameraModel}
         @test model(BoundedCamera(cm, sz)) === cm && model(cam) === cm
     end
 
     @testset "posing a posed camera is refused" begin
-        @test_throws ArgumentError Camera(cam, E)
-        @test_throws ArgumentError Camera(BoundedCamera(cam, sz), E)
-        @test_throws ArgumentError Camera(cam, inv(CameraExtrinsics(E)))   # the CameraPose form
-        # a bound goes outside the pose: BoundedCamera(Camera(model, E), extent)
-        @test_throws ArgumentError Camera(BoundedCamera(cm, sz), E)
+        @test_throws ArgumentError PosedCamera(cam, E)
+        @test_throws ArgumentError PosedCamera(BoundedCamera(cam, sz), E)
+        @test_throws ArgumentError PosedCamera(cam, inv(CameraExtrinsics(E)))   # the CameraPose form
+        # a bound goes outside the pose: BoundedCamera(PosedCamera(model, E), extent)
+        @test_throws ArgumentError PosedCamera(BoundedCamera(cm, sz), E)
         # with_model takes a model, not a camera
         @test_throws ArgumentError with_model(cam, cam)
         @test_throws ArgumentError with_model(cm, cam)
@@ -83,5 +83,15 @@
         amb = Test.detect_ambiguities(VisualGeometryToolkitCore; recursive = true)
         @test isempty(filter(p -> own(p[1]) && own(p[2]), amb))
         @test isempty(filter(own, Test.detect_unbound_args(VisualGeometryToolkitCore; recursive = true)))
+    end
+
+    @testset "the retired names are deleted, not aliased" begin
+        # `Camera` and `PinholeCamera` became `PosedCamera` and `PosedPinholeCamera`;
+        # a leftover use is an UndefVarError, not a deprecation.
+        @test !isdefined(VgtkCore, :Camera)
+        @test !isdefined(VgtkCore, :PinholeCamera)
+        @test !isdefined(VgtkCore.Cameras, :Camera)
+        @test !isdefined(VgtkCore.Cameras, :PinholeCamera)
+        @test isdefined(VgtkCore, :PosedCamera) && isdefined(VgtkCore, :PosedPinholeCamera)
     end
 end

@@ -565,7 +565,7 @@ Frame-pair alias for a camera POSE (camera-to-world transform):
 
 The typed algebra subsumes the former wrapper machinery:
 `inv(::CameraPose) -> CameraExtrinsics` (and back) via the frame swap, and
-`Camera(model, ::CameraPose)` inverts internally into the extrinsics slot,
+`PosedCamera(model, ::CameraPose)` inverts internally into the extrinsics slot,
 so handing a pose where extrinsics are expected is unrepresentable.
 
 See also [`CameraExtrinsics`](@ref), [`lookat_pose`](@ref), [`Frame`](@ref).
@@ -584,7 +584,7 @@ a `CameraExtrinsics` IS an `EuclideanMap`.
 
 `CameraExtrinsics(m::EuclideanMap{3})` labels `m` as extrinsics (an explicit
 `relabel`, overriding whatever frames `m` carried).
-`Camera(model, ::CameraExtrinsics)` stores it directly in the extrinsics slot.
+`PosedCamera(model, ::CameraExtrinsics)` stores it directly in the extrinsics slot.
 """
 const CameraExtrinsics{T, R <: Rotation{3, T}, V <: StaticVector{3}} =
     EuclideanMap{3, T, R, V, WorldFrame, CameraFrame}

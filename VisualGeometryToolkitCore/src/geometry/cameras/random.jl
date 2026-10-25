@@ -68,7 +68,7 @@ u_used = csponds.second  # All 2D image points
 # Or index individual correspondences: csponds[1].first, csponds[1].second
 
 # Use best extrinsics (e.g., based on reprojection error)
-cameras = Camera.(Ref(model), extrinsics)
+cameras = PosedCamera.(Ref(model), extrinsics)
 best_camera = cameras[1]  # Or select based on reprojection error
 ```
 """
@@ -130,7 +130,7 @@ end
 function _in_front_of(model, plane)
     return function (sols, X3, u3)
         for ext in sols
-            cam = Camera(model, ext)
+            cam = PosedCamera(model, ext)
             distance(plane, Point3(pose(cam).t...)) > 0 && return (cam, StructArray(X3 .=> u3))
         end
         return nothing
@@ -166,7 +166,7 @@ camera is "in front of" the target plane.
 
 # Returns
 - `(camera, csponds)`: Tuple containing:
-  - `camera::Camera`: The camera with valid pose (in front of plane)
+  - `camera::PosedCamera`: The camera with valid pose (in front of plane)
   - `csponds::StructArray{Pair{Point3, Point2}, 1, ...}`: The 3 correspondences used
 
 # Example

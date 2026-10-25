@@ -67,7 +67,7 @@ Compute NaN-separated line segments for a camera frustum wireframe.
 
 Returns segments suitable for a single Lines plot.
 """
-function frustum_segments(camera::Camera, sensor_bounds, depth::Real)
+function frustum_segments(camera::PosedCamera, sensor_bounds, depth::Real)
     camera = _display_mm(camera)
     # Get camera pose
     cam_pose = pose(camera)
@@ -104,6 +104,6 @@ end
 Compute effective frustum depth: `automatic` falls back to
 `default_frustum_depth` (the fx scale from K).
 """
-function effective_depth(camera::Camera, depth_attr)
+function effective_depth(camera::PosedCamera, depth_attr)
     return depth_attr === automatic ? default_frustum_depth(camera) : Float64(depth_attr)
 end

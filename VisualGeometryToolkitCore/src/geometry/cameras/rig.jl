@@ -38,10 +38,10 @@
 # ------------------------------------------------------------------------------
 
 # Raw stored extrinsics of a camera, WITHOUT the CameraExtrinsics relabel that
-# the public `extrinsics(::Camera)` accessor applies. Rig sensors carry
+# the public `extrinsics(::PosedCamera)` accessor applies. Rig sensors carry
 # rig-relative labels (`F → ViewFrame{id}`) in this slot, which the accessor
 # would clobber with `WorldFrame → CameraFrame`.
-_raw_extrinsics(c::Camera) = c.extrinsics
+_raw_extrinsics(c::PosedCamera) = c.extrinsics
 _raw_extrinsics(c::BoundedCamera) = _raw_extrinsics(c.camera)
 _raw_extrinsics(c::AbstractCamera) = _unposed_only(_raw_extrinsics, "a rig member's extrinsics", c)
 
@@ -53,8 +53,8 @@ _em_frames(::EuclideanMap{N, T, R, V, Src, Dst}) where {N, T, R, V, Src, Dst} =
 _view_id(::EuclideanMap{3, T, R, V, S, ViewFrame{b}}) where {T, R, V, S, b} = b
 
 # Rebuild a camera with new extrinsics, preserving a BoundedCamera wrapper.
-_with_extrinsics(c::Camera, X::EuclideanMap{3}) = Camera(c.model, X)
-_with_extrinsics(m::AbstractCamera, X::EuclideanMap{3}) = Camera(m, X)   # posing an unposed camera (Camera refuses a posed one)
+_with_extrinsics(c::PosedCamera, X::EuclideanMap{3}) = PosedCamera(c.model, X)
+_with_extrinsics(m::AbstractCamera, X::EuclideanMap{3}) = PosedCamera(m, X)   # posing an unposed camera (Camera refuses a posed one)
 _with_extrinsics(c::BoundedCamera, X::EuclideanMap{3}) =
     BoundedCamera(_with_extrinsics(c.camera, X), c.extent)
 
@@ -251,7 +251,7 @@ function _check_posed(what, members)
         has_extrinsics(c) || throw(
             ArgumentError(
                 "$(what): sensor $i is an unposed camera (a $(nameof(typeof(c)))) — a rig member is posed: " *
-                    "`Camera(model, X)` with X labeled `F → ViewFrame{id}`"
+                    "`PosedCamera(model, X)` with X labeled `F → ViewFrame{id}`"
             )
         )
     end
@@ -395,7 +395,7 @@ end
 """
     rig[id]   (rig[i] for a sensor rig)
 
-The member itself: a sensor (`Camera`/`BoundedCamera`, by view id or by
+The member itself: a sensor (`PosedCamera`/`BoundedCamera`, by view id or by
 position) or a [`Mounted`](@ref) target (by identity).
 """
 Base.getindex(rig::Rig{F, <:AbstractDict}, id::Symbol) where {F} = rig.members[id]
@@ -410,7 +410,7 @@ Base.getindex(rig::Rig{F, <:_MixedStorage}, i::Integer) where {F} = _sensors(rig
 
 Sensor `i`'s (or view `id`'s) stored rig-relative extrinsics, label-preserving:
 the map `F → ViewFrame{idᵢ}` (NOT the `WorldFrame → CameraFrame` relabel that
-`extrinsics(::Camera)` applies — a rig sensor's frame is the rig's, and the
+`extrinsics(::PosedCamera)` applies — a rig sensor's frame is the rig's, and the
 labels are kept). For a target rig, `F → TargetFrame{id}` — common-frame
 coordinates into target-local coordinates, `inv(pose(rig, id))` on demand.
 """
@@ -509,7 +509,7 @@ with_unit(rig::Rig, u::Units) = _map_members(x -> with_unit(x, u), rig)
 # ------------------------------------------------------------------------------
 
 """
-    with_model(camera, model) -> Camera/BoundedCamera
+    with_model(camera, model) -> PosedCamera/BoundedCamera
     with_model(rig::Rig, i => model) -> Rig
     with_model(rig::Rig, model) -> Rig            (single-sensor convenience)
 
@@ -526,7 +526,7 @@ use case) that is the intent — the approximation error is the fit report's
 — while for a refinement the new model is the START of another bundle
 run, not a substitute for one.
 """
-with_model(c::Camera, model::AbstractCamera) = Camera(model, c.extrinsics)   # Camera checks `model`
+with_model(c::PosedCamera, model::AbstractCamera) = PosedCamera(model, c.extrinsics)   # Camera checks `model`
 # an unposed camera is its model; a posed camera type answers with its own method
 function with_model(c::AbstractCamera, model::AbstractCamera)
     has_extrinsics(c) && throw(MethodError(with_model, (c, model)))

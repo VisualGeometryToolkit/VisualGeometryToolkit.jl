@@ -8,7 +8,7 @@
 #   * the ellipse-PRESERVING transfer of a plane conic through any map
 #     (`transfer_ellipse(::Transformation, _)`: exact for a homography, the
 #     local affinity elsewhere, stage by stage through compositions) and its
-#     camera form (`transfer_ellipse(::Camera, _)`).
+#     camera form (`transfer_ellipse(::PosedCamera, _)`).
 # =============================================================================
 @testitem "shape_transfer" begin
     import VisualGeometryToolkitCore as VgtkCore
@@ -99,7 +99,7 @@
         end
 
         @testset "transfer_ellipse(camera): the conic through the lens stays an ellipse — $name" for (name, cam) in _CAMS
-            camera = Camera(cam, _POSE)
+            camera = PosedCamera(cam, _POSE)
             for shape in (Circle(Point2(120.0, -80.0), 2.5), Ellipse(Point2(-140.0, 95.0), 3.0, 1.5, 0.7))
                 out = transfer_ellipse(camera, shape)
                 @test out isa Ellipse
@@ -117,7 +117,7 @@
                 if cam.lens isa Pinhole
                     @test out == transfer_ellipse(HomographyMap(camera), shape)
                 else
-                    Hp = HomographyMap(Camera(pinhole(cam), _POSE))
+                    Hp = HomographyMap(PosedCamera(pinhole(cam), _POSE))
                     stages = transfer_ellipse(Hp, shape)
                     for T in (AffineMap(SMatrix{3, 3, Float64}(cam.intrinsics.K_inv)), cam.lens, VgtkCore.Cameras._pixel_affine(cam.intrinsics))
                         stages = transfer_ellipse(T, stages)
@@ -129,11 +129,11 @@
 
         @testset "transfer_ellipse(camera) refuses a conic behind the camera" begin
             cam = CameraModel(LogicalIntrinsics(_K), Division(-0.3, -0.08))
-            behind = Camera(cam, EuclideanMap(RotMatrix{3, Float64}(one(SMatrix{3, 3, Float64})), SVector(0.0, 0.0, -100.0)))
+            behind = PosedCamera(cam, EuclideanMap(RotMatrix{3, Float64}(one(SMatrix{3, 3, Float64})), SVector(0.0, 0.0, -100.0)))
             @test transfer_ellipse(behind, Circle(Point2(12.0, 0.0), 3.0)) === nothing
-            @test transfer_ellipse(Camera(pinhole(cam), behind.extrinsics), Circle(Point2(12.0, 0.0), 3.0)) === nothing
+            @test transfer_ellipse(PosedCamera(pinhole(cam), behind.extrinsics), Circle(Point2(12.0, 0.0), 3.0)) === nothing
             # the division lens is finite all the way to 90° (its pole is the image circle), so 85° off-axis still transfers
-            far = Camera(cam, EuclideanMap(RotMatrix{3, Float64}(one(SMatrix{3, 3, Float64})), SVector(0.0, 0.0, 100.0)))
+            far = PosedCamera(cam, EuclideanMap(RotMatrix{3, Float64}(one(SMatrix{3, 3, Float64})), SVector(0.0, 0.0, 100.0)))
             @test transfer_ellipse(far, Circle(Point2(1200.0, 0.0), 3.0)) isa Ellipse
         end
     end

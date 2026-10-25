@@ -336,7 +336,7 @@
             R = RotXYZ(0.12, -0.25, 0.4)
             ext = VgtkCore.EuclideanMap(RotMatrix{3, Float64}(R), SVector(0.03, -0.02, 1.4))
             model = CameraModel(; focal = 900.0, pp = (640.0, 480.0))
-            cam = Camera(model, ext)
+            cam = PosedCamera(model, ext)
             P = RadialCamera(cam)
             # For a PINHOLE camera this must be exactly rows 1–2 of the induced
             # homography about the principal point — the constructor is an identity.
@@ -346,7 +346,7 @@
             # Swapping in a radially symmetric lens (same K, same pose) must leave the
             # radial camera BIT-identical: a distortion about that centre moves a
             # point along its own ray, and the ray is all this model claims.
-            cam_div = Camera(CameraModel(model.intrinsics, Division(-0.18, 0.03)), ext)
+            cam_div = PosedCamera(CameraModel(model.intrinsics, Division(-0.18, 0.03)), ext)
             Pd = RadialCamera(cam_div)
             @test Pd.P == P.P
             @test Pd.center == P.center

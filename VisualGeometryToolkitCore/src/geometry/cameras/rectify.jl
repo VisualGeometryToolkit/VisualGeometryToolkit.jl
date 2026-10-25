@@ -97,8 +97,8 @@ function rectify(rig::StereoRig; K = nothing)
     # a pure x-translation by construction.
     t_r = SMatrix{3, 3, Float64, 9}(Q2) * t
     model_r = CameraModel(LogicalIntrinsics(CameraCalibrationMat(Kr)), Pinhole())
-    cam1r = Camera(model_r, EuclideanMap(one(RotMatrix{3, Float64}), zero(Vec3{Float64})))
-    cam2r = Camera(model_r, EuclideanMap(one(RotMatrix{3, Float64}), Vec3{Float64}(t_r)))
+    cam1r = PosedCamera(model_r, EuclideanMap(one(RotMatrix{3, Float64}), zero(Vec3{Float64})))
+    cam2r = PosedCamera(model_r, EuclideanMap(one(RotMatrix{3, Float64}), Vec3{Float64}(t_r)))
     a, b = ids(rig)
     return (; rig = StereoRig(cam1r, cam2r; ids = (a, b)), R = (Q1, Q2), K = Kr)
 end

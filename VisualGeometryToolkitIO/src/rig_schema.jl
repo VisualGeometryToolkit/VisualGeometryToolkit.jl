@@ -25,14 +25,14 @@
 # may carry a 6×6 `covariance`, a point target's points a parallel
 # `point_covariances` (one d×d per point, `length_unit`²) — each present iff
 # the in-memory value is `Uncertain`. A rig sensor's extrinsics are a VGC
-# `Camera`'s map, never uncertain.
+# `PosedCamera`'s map, never uncertain.
 #
 # UNITS: a stored rig is PHYSICAL — its mounts, extrinsics and target points
 # are lengths (metres in memory, the declared `length_unit` on disk); a writer
 # refuses plain numbers where a length is meant.
 #
 # RIG SENSORS MUST BE BoundedCamera. A camera body requires the pixel extent,
-# which a bare Camera does not carry — wrap with `BoundedCamera(camera,
+# which a bare PosedCamera does not carry — wrap with `BoundedCamera(camera,
 # extent)` before saving. Refused loudly, not defaulted.
 
 _unique_check(xs, what) = allunique(xs) ? nothing : "$(what) must be unique"
@@ -354,10 +354,10 @@ function _load_sensors(d, ::Type{F}, unit::String) where {F}
         Xl = relabel(F, ViewFrame{Symbol(s.id::String)}, pose_from_json(s.extrinsics, unit))
         if haskey(s.camera, :type)
             gm = _generic_from_body(s.camera, parse_unit(unit))
-            BoundedCamera(Camera(gm, Xl), Size2(gm.width, gm.height))
+            BoundedCamera(PosedCamera(gm, Xl), Size2(gm.width, gm.height))
         else
             cm, ext = _camera_from_body(s.camera, pframe)
-            BoundedCamera(Camera(cm, Xl), ext)
+            BoundedCamera(PosedCamera(cm, Xl), ext)
         end
     end
 end

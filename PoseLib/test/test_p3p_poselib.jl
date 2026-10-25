@@ -202,7 +202,7 @@ using VisualGeometryToolkitCore
         Random.seed!(42)
         camera_position = Point3(400.0, 300.0, 1000.0)
         extrinsics = lookat(camera_position, Point3(400.0, 300.0, 0.0), Vec(0.0, -1.0, 0.0))
-        camera = Camera(model, extrinsics)
+        camera = PosedCamera(model, extrinsics)
 
         # Project all points
         u = project.(Ref(camera), X)
@@ -224,7 +224,7 @@ using VisualGeometryToolkitCore
         R_gt = Rotations.RotMatrix(extrinsics.R)
         t_gt = extrinsics.t
 
-        recovered_cameras = Camera.(Ref(model), EuclideanMap.(Rotations.MRP.(Rs), ts))
+        recovered_cameras = PosedCamera.(Ref(model), EuclideanMap.(Rotations.MRP.(Rs), ts))
         u_proj = [project.(Ref(cam), X) for cam in recovered_cameras]
         errors_sq = [sum.(abs2, u2 .- u) for u2 in u_proj]
         rms_error = sqrt.(mean.(errors_sq))

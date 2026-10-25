@@ -99,7 +99,7 @@ rotation first, in the chart `R ↦ exp(δω)·R, t ↦ t + δt`. A plain value 
 that no covariance was stated; an exact value has an all-zero covariance.
 `ros_pose_covariance` and `pose_covariance_from_ros` convert to and from the
 ROS `PoseWithCovariance` layout, which puts translation first. Kinds whose
-in-memory type cannot hold an `Uncertain` value (a rig sensor's `Camera`
+in-memory type cannot hold an `Uncertain` value (a rig sensor's `PosedCamera`
 extrinsics, a correspondence row) are always plain.
 
 ## Storage

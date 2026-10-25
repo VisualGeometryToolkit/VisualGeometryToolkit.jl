@@ -98,7 +98,7 @@ fig = plot(S.GridLayout([(1,1) => scene3d]))
 ```
 """
 function Frustum(
-        camera::Camera, sensor_bounds;
+        camera::PosedCamera, sensor_bounds;
         depth = automatic,
         color = :orange,
         linewidth::Real = 2
@@ -221,7 +221,7 @@ fig = plot(layout)
 ```
 """
 function camera!(
-        lscene, camera::Camera, sensor_bounds;
+        lscene, camera::PosedCamera, sensor_bounds;
         depth = automatic,
         show_center = true,
         show_axes = true,

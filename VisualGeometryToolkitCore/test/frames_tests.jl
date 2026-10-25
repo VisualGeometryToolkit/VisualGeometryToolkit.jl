@@ -13,7 +13,7 @@
     # Covers: frame-checked composition (every row of the wildcard truth table,
     # for BOTH matrix-backed Maps), typed inv round-trip, unlabel/relabel escape
     # hatches, dimension mismatch as a type error, CameraPose/CameraExtrinsics
-    # alias behavior (both Camera construction routes), lookat/lookat_pose
+    # alias behavior (both PosedCamera construction routes), lookat/lookat_pose
     # labeled returns, the labeled Extrinsics3 solver currency (p3p end-to-end),
     # the labeled Mat → Map homography lift, and the PixelFrame origin-conversion
     # frame maps that replaced the ImageOrigin value API in 0.7.
@@ -139,19 +139,19 @@
             @test e(x) == m_a(x)
         end
 
-        @testset "Camera construction — both labeled routes" begin
+        @testset "PosedCamera construction — both labeled routes" begin
             K = SMatrix{3, 3, Float64}(600.0, 0, 0, 0, 600.0, 0, 320.0, 240.0, 1.0)
             model = CameraModel(CameraCalibrationMat(K))
             e = CameraExtrinsics(m_a)
             p = inv(e)
-            cam_e = Camera(model, e)        # stores directly
-            cam_p = Camera(model, p)        # inverts internally
+            cam_e = PosedCamera(model, e)        # stores directly
+            cam_p = PosedCamera(model, p)        # inverts internally
             @test cam_e.extrinsics === e
             @test extrinsics(cam_e) === e
             @test extrinsics(cam_p).R ≈ e.R atol = 1.0e-12
             @test extrinsics(cam_p).t ≈ e.t atol = 1.0e-12
             # accessors return labeled maps even for unlabeled construction
-            cam_u = Camera(model, m_a)      # today's behavior: unlabeled = extrinsics
+            cam_u = PosedCamera(model, m_a)      # today's behavior: unlabeled = extrinsics
             @test cam_u.extrinsics === m_a
             @test extrinsics(cam_u) isa CameraExtrinsics
             @test pose(cam_u) isa CameraPose

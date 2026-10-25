@@ -9,7 +9,7 @@
         K = SMatrix{3, 3, Float64}(600.0, 0, 0, 0, 600.0, 0, 320.0, 240.0, 1.0)
         R = SMatrix{3, 3, Float64}(1.0I)
         t = SVector(0.0, 0.0, 8.0)
-        cam = Camera(K, R, t)
+        cam = PosedCamera(K, R, t)
 
         @testset "z=0 agreement with existing Circle method" begin
             c2 = Circle(Point2(0.0, 0.0), 1.0)
@@ -45,7 +45,7 @@
             # Rotate camera 20° about y, translate
             θ = deg2rad(20.0)
             Ry = SMatrix{3, 3, Float64}(cos(θ), 0, -sin(θ), 0, 1.0, 0, sin(θ), 0, cos(θ))
-            cam2 = Camera(K, Ry, SVector(1.0, 0.5, 6.0))
+            cam2 = PosedCamera(K, Ry, SVector(1.0, 0.5, 6.0))
             c3 = Circle3D(Point3(0.2, 0.1, 0.0), 0.5, Vec3(0.0, 0.0, 1.0))
             ell = project(cam2, c3)
             @test ell isa Ellipse

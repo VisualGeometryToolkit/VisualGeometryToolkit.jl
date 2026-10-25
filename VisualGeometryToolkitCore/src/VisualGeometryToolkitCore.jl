@@ -10,7 +10,7 @@ BlobBoards build on it.
   `OrientedDisc`, `EllipticFrame`, `AffineFrame`), hyperplanes (`Line2D`,
   `Plane3D`), 3-D conics (`Ellipse3D`, `Circle3D`) and `Paraboloid3D`.
 - `Cameras`: sensors (`CMOS_SENSORS`), intrinsics, lens models (`Lens`,
-  `LiftLens`, `Pinhole`, `KannalaBrandt`, `Division`, …), `Camera`, `CameraModel`,
+  `LiftLens`, `Pinhole`, `KannalaBrandt`, `Division`, …), `PosedCamera`, `CameraModel`,
   `Rig`, projection, calibration fits and P3P.
 - `Synthetic`: ground-truth generators and metrics for benchmarking estimators.
 
@@ -195,7 +195,7 @@ public homogeneous_w, maps_within
 # -----------------------------------------------------------------------------
 # 3. CAMERAS - Camera models, sensors, and projection
 # -----------------------------------------------------------------------------
-export AbstractCamera, Camera, BoundedCamera, CameraModel, Sensor, sensor, CMOS_SENSORS
+export AbstractCamera, PosedCamera, BoundedCamera, CameraModel, Sensor, sensor, CMOS_SENSORS
 public has_extrinsics   # whether a camera carries a pose (the one camera hierarchy's trait)
 export extent
 public BoundsTrait, HasBounds, NoBounds, bounds_trait

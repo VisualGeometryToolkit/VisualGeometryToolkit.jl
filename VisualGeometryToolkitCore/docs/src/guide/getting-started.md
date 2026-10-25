@@ -127,8 +127,8 @@ Commonly-used names are re-exported from the main module:
 
 ```julia
 # These are equivalent:
-camera = VisualGeometryToolkitCore.Cameras.Camera(model, pose)
-camera = Camera(model, pose)  # Re-exported
+camera = VisualGeometryToolkitCore.Cameras.PosedCamera(model, pose)
+camera = PosedCamera(model, pose)  # Re-exported
 ```
 
 Feature detection lives in VisualGeometryToolkitFeatures.jl; the estimation

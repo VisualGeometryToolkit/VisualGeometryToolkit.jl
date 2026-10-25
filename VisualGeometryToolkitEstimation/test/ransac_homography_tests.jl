@@ -400,7 +400,7 @@ end
         # board coordinates would refuse every minimal sample.
         rng = StableRNG(5)
         # the board plane z = 0 seen by a pinhole camera: H = K·[r₁ r₂ t]
-        H_true = HomographyMat(Camera(CameraModel(; focal = 800.0, pp = (320.0, 240.0)), EuclideanMap(RotMatrix(RotX(0.25)), SA[-0.025, -0.025, 0.3])))
+        H_true = HomographyMat(PosedCamera(CameraModel(; focal = 800.0, pp = (320.0, 240.0)), EuclideanMap(RotMatrix(RotX(0.25)), SA[-0.025, -0.025, 0.3])))
         warp = homography_warp(H_true)
         board = [SA[0.05 * i / 7, 0.05 * j / 7] for i in 0:7 for j in 0:7]
         pix = [warp(b) + SA[0.2 * randn(rng), 0.2 * randn(rng)] for b in board]

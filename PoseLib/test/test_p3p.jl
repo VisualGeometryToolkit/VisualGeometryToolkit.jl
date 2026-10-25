@@ -3,7 +3,7 @@
 
 using Test
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: Camera, RotMatrix
+using VisualGeometryToolkitCore: PosedCamera, RotMatrix
 using LinearAlgebra, Random, Statistics
 using GeometryBasics: Vec3, Point3
 using StaticArrays: SVector
@@ -34,7 +34,7 @@ using StaticArrays: SVector
             up_vector = Vec3(0.0, -1.0, 0.0)
 
             extrinsics_gt = lookat(camera_pos, target_pos, up_vector)
-            camera_gt = Camera(model, extrinsics_gt)
+            camera_gt = PosedCamera(model, extrinsics_gt)
 
             # Project 3D points to get 2D observations
             u = project.(Ref(camera_gt), X)
@@ -49,7 +49,7 @@ using StaticArrays: SVector
 
             if poses !== nothing && length(poses) > 0
                 # Select best solution based on reprojection error
-                cameras = [Camera(model, pose) for pose in poses]
+                cameras = [PosedCamera(model, pose) for pose in poses]
                 u_proj = [project.(Ref(cam), X) for cam in cameras]
                 mean_errors = [mean(norm.(u_p .- u_unitless)) for u_p in u_proj]
                 best_idx = argmin(mean_errors)
@@ -91,7 +91,7 @@ using StaticArrays: SVector
 
         camera_pos = Point3(400.0, 300.0, 2000.0)
         extrinsics = lookat(camera_pos, Point3(200.0, 200.0, 0.0), Vec3(0.0, -1.0, 0.0))
-        camera = Camera(model, extrinsics)
+        camera = PosedCamera(model, extrinsics)
 
         u = project.(Ref(camera), X_collinear)
         u_unitless = u
@@ -134,7 +134,7 @@ using StaticArrays: SVector
 
         camera_pos = Point3(50.0, 50.0, 500.0)
         extrinsics_gt = lookat(camera_pos, Point3(50.0, 50.0, 0.0), Vec3(0.0, -1.0, 0.0))
-        camera_gt = Camera(model, extrinsics_gt)
+        camera_gt = PosedCamera(model, extrinsics_gt)
 
         u = project.(Ref(camera_gt), X)
         u_unitless = u
@@ -143,7 +143,7 @@ using StaticArrays: SVector
 
         if poses !== nothing && length(poses) > 1
             # Multiple solutions exist - verify we can find the correct one
-            cameras = [Camera(model, pose) for pose in poses]
+            cameras = [PosedCamera(model, pose) for pose in poses]
             u_proj = [project.(Ref(cam), X) for cam in cameras]
             mean_errors = [mean(norm.(u_p .- u_unitless)) for u_p in u_proj]
 
@@ -177,7 +177,7 @@ using StaticArrays: SVector
 
         camera_pos_mm = Point3(300.0, 250.0, 2000.0)
         extrinsics = lookat(camera_pos_mm, Point3(300.0, 250.0, 0.0), Vec3(0.0, -1.0, 0.0))
-        camera = Camera(model, extrinsics)
+        camera = PosedCamera(model, extrinsics)
 
         # Test at mm scale
         u = project.(Ref(camera), X_mm)
@@ -193,7 +193,7 @@ using StaticArrays: SVector
         camera_pos_scaled = Point3(camera_pos_mm[1] * scale, camera_pos_mm[2] * scale, camera_pos_mm[3] * scale)
         target_scaled = Point3(300.0 * scale, 250.0 * scale, 0.0)
         extrinsics_scaled = lookat(camera_pos_scaled, target_scaled, Vec3(0.0, -1.0, 0.0))
-        camera_scaled = Camera(model, extrinsics_scaled)
+        camera_scaled = PosedCamera(model, extrinsics_scaled)
 
         u_scaled = project.(Ref(camera_scaled), X_scaled)
         @test all(isapprox.(u_scaled, u_unitless, atol=1e-10))  # Same projections
@@ -206,8 +206,8 @@ using StaticArrays: SVector
         # Recovered translations should scale proportionally
         if poses_mm !== nothing && poses_scaled !== nothing &&
                 length(poses_mm) > 0 && length(poses_scaled) > 0
-            cameras_mm     = [Camera(model, pose) for pose in poses_mm]
-            cameras_scaled = [Camera(model, pose) for pose in poses_scaled]
+            cameras_mm     = [PosedCamera(model, pose) for pose in poses_mm]
+            cameras_scaled = [PosedCamera(model, pose) for pose in poses_scaled]
 
             u_proj_mm     = [project.(Ref(cam), X_mm)     for cam in cameras_mm]
             u_proj_scaled = [project.(Ref(cam), X_scaled) for cam in cameras_scaled]

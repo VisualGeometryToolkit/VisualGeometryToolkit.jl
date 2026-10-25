@@ -35,7 +35,7 @@ end
 @testitem "rig/v4: a sensor rig" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitCore: Rig, StereoRig, BoundedCamera, Camera, ViewFrame,
+    using VisualGeometryToolkitCore: Rig, StereoRig, BoundedCamera, PosedCamera, ViewFrame,
         ids, extrinsics, model, source, target
     using Rotations: RotXYZ
 
@@ -45,8 +45,8 @@ end
     K2 = SMatrix{3, 3, Float64}(700.0, 0, 0, 0, 700.0, 0, 330.0, 250.0, 1)
     R = RotMatrix{3, Float64}(RotXYZ(0.08, -0.15, 0.05))
     t = mm_lengths(SVector(120.0, -15.0, 10.0))
-    cam1 = Camera(CameraModel(CameraCalibrationMat(K1)), EuclideanMap(one(RotMatrix{3, Float64}), mm_lengths(SVector(0.0, 0.0, 0.0))))
-    cam2 = Camera(CameraModel(CameraCalibrationMat(K2)), EuclideanMap(R, t))
+    cam1 = PosedCamera(CameraModel(CameraCalibrationMat(K1)), EuclideanMap(one(RotMatrix{3, Float64}), mm_lengths(SVector(0.0, 0.0, 0.0))))
+    cam2 = PosedCamera(CameraModel(CameraCalibrationMat(K2)), EuclideanMap(R, t))
     rig = StereoRig(
         BoundedCamera(cam1, Size2(4240, 2832)),
         BoundedCamera(cam2, Size2(640, 480)); ids = (:left, :right)
@@ -77,14 +77,14 @@ end
         p2 = joinpath(dir, "again.json")
         save(p2, back)
         @test extrinsics(load(Rig, p2)) == extrinsics(back)
-        # a bare Camera sensor (no extent) is refused
+        # a bare PosedCamera sensor (no extent) is refused
         rig_bare = StereoRig(cam1, cam2; ids = (:a, :b))
         @test_throws ArgumentError save(path, rig_bare)
     end
 end
 
 @testitem "generic camera round trip (vgio/generic_camera/v2)" setup = [VGIoFixtures] begin
-    using VisualGeometryToolkitCore: Rig, Camera, ViewFrame, NoncentralGenericModel, Vec3, relabel, ids, model
+    using VisualGeometryToolkitCore: Rig, PosedCamera, ViewFrame, NoncentralGenericModel, Vec3, relabel, ids, model
     using Rotations: RotXYZ
 
     gh, gw = 4, 5
@@ -111,7 +111,7 @@ end
             ViewFrame{:g}, ViewFrame{:g},
             EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.0, 0.0, 0.0)), [0.0mm, 0.0mm, 0.0mm])
         )
-        rigg = Rig{ViewFrame{:g}}((Camera(gc, Xl),))
+        rigg = Rig{ViewFrame{:g}}((PosedCamera(gc, Xl),))
         pr = joinpath(dir, "rig_generic.json"); save(pr, rigg)
         backr = load(Rig, pr)
         @test model(backr[1]) isa CentralGenericModel
@@ -208,13 +208,13 @@ end
 
 @testitem "rig/v4: sensors and targets — the camera rig with its constellation" setup = [VGIoFixtures] begin
     using LinearAlgebra: LinearAlgebra
-    using VisualGeometryToolkitCore: Rig, Mounted, PointTarget, PlanarTarget, AbstractTarget, Attributed, BoundedCamera, Camera,
+    using VisualGeometryToolkitCore: Rig, Mounted, PointTarget, PlanarTarget, AbstractTarget, Attributed, BoundedCamera, PosedCamera,
         BodyFrame, ViewFrame, Uncertain, CovMat, relabel, ids, pose, extrinsics, model, points,
         sensor_rig, target_rig, exact, is_resolved
     using Statistics: cov
     K = SMatrix{3, 3, Float64}(900.0, 0, 0, 0, 900.0, 0, 640.0, 480.0, 1)
     Xc = relabel(BodyFrame{:camera_rig}, ViewFrame{:cam}, _mkpose())
-    cam = BoundedCamera(Camera(CameraModel(CameraCalibrationMat(K)), Xc), Size2(1280, 960))
+    cam = BoundedCamera(PosedCamera(CameraModel(CameraCalibrationMat(K)), Xc), Size2(1280, 960))
     markers = PointTarget([exact_mm(SVector(0.0, 0.0, 0.0)), exact_mm(SVector(30.0, 0.0, 5.0)), exact_mm(SVector(0.0, 40.0, -2.0))])
     ident = EuclideanMap(one(RotMatrix{3, Float64}), [0.0mm, 0.0mm, 0.0mm])
     Σ = CovMat(SMatrix{6, 6, Float64}(LinearAlgebra.I) * 1.0e-4)

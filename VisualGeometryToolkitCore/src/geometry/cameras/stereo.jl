@@ -114,7 +114,7 @@ function StereoRig(
     return Rig{F}((_with_extrinsics(source, ident), _with_extrinsics(target, X)))
 end
 
-# 2-arg form takes either Camera or BoundedCamera (or any posed AbstractCamera).
+# 2-arg form takes either PosedCamera or BoundedCamera (or any posed AbstractCamera).
 # Uses method-form accessors (extrinsics, pose) so MacroTools.@forward on
 # BoundedCamera transparently delegates to the inner camera. The relative
 # transform is computed FROM the cameras here, so the consistency check
@@ -260,13 +260,13 @@ function StereoRig(
         check::Bool = true,
         ids::Tuple{Symbol, Symbol} = (:cam1, :cam2)
     ) where {T}
-    cam1 = Camera(K1, one(RotMatrix{3, T}), zero(Vec3{T}); check = check)
-    cam2 = Camera(K2, RotMatrix{3, T}(R_rel), Vec3{T}(t_rel); check = check)
+    cam1 = PosedCamera(K1, one(RotMatrix{3, T}), zero(Vec3{T}); check = check)
+    cam2 = PosedCamera(K2, RotMatrix{3, T}(R_rel), Vec3{T}(t_rel); check = check)
     return StereoRig(cam1, cam2; ids)
 end
 
 """
-    depth_transfer(source::Camera, target::Camera, extrinsics)
+    depth_transfer(source::PosedCamera, target::PosedCamera, extrinsics)
     depth_transfer(rig::StereoRig)
 
 Depth-ASSUMED point transfer from the source camera to the target camera:
@@ -286,14 +286,14 @@ Renamed from `epipolar_map` in 0.8 — the old name promised a correlation
 and delivered a transfer.
 
 # Arguments
-- `source::Camera`: Source camera
-- `target::Camera`: Target camera
+- `source::PosedCamera`: Source camera
+- `target::PosedCamera`: Target camera
 - `extrinsics::EuclideanMap`: Relative transform from source to target
 
 # Returns
 - Function mapping pixel coordinates from source to target camera
 """
-function depth_transfer(source::Camera, target::Camera, extrinsics)
+function depth_transfer(source::PosedCamera, target::PosedCamera, extrinsics)
     # This implementation assumes a specific depth for the 3D point (see the
     # docstring): unit depth in the source camera frame.
     function map_pixel(u)
@@ -310,7 +310,7 @@ function depth_transfer(source::Camera, target::Camera, extrinsics)
 end
 
 # A physical relative pose is read in metres: the unit depth is 1 m.
-depth_transfer(source::Camera, target::Camera, extrinsics::UnitfulEuclideanMap{3}) =
+depth_transfer(source::PosedCamera, target::PosedCamera, extrinsics::UnitfulEuclideanMap{3}) =
     depth_transfer(source, target, ustrip(m, extrinsics))
 depth_transfer(rig::StereoRig) = depth_transfer(source(rig), target(rig), extrinsics(rig))
 

@@ -63,8 +63,8 @@
             Kd = @SMatrix [400.0 0.0 320.0; 0.0 400.0 240.0; 0.0 0.0 1.0]
             m1 = CameraModel(CameraCalibrationMat(Kd); lens = Division(-0.15))
             m2 = CameraModel(CameraCalibrationMat(Kd); lens = Division(-0.15))
-            cam1 = Camera(m1, EuclideanMap(one(RotMatrix{3, Float64}), zero(Vec3{Float64})))
-            cam2 = Camera(m2, EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.02, -0.04, 0.01)), Vec3(-300.0, 5.0, 2.0)))
+            cam1 = PosedCamera(m1, EuclideanMap(one(RotMatrix{3, Float64}), zero(Vec3{Float64})))
+            cam2 = PosedCamera(m2, EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.02, -0.04, 0.01)), Vec3(-300.0, 5.0, 2.0)))
             drig = StereoRig(cam1, cam2; ids = (:l, :r))
 
             X = SVector(200.0, -100.0, 3000.0)             # view-1 coordinates
@@ -116,8 +116,8 @@
         g1 = CentralGenericModel(mdiv, (Ws, Hs); grid_size = (10, 8))
         g2 = CentralGenericModel(mdiv, (Ws, Hs); grid_size = (10, 8))
         X = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.0, 0.03, 0.0)), SVector(-40.0, 0.0, 0.0))
-        rig_par = StereoRig(Camera(mdiv, EuclideanMap(one(RotMatrix{3, Float64}), zeros(SVector{3, Float64}))), Camera(mdiv, X); ids = (:l, :r))
-        rig_gen = StereoRig(Camera(g1, EuclideanMap(one(RotMatrix{3, Float64}), zeros(SVector{3, Float64}))), Camera(g2, X); ids = (:l, :r))
+        rig_par = StereoRig(PosedCamera(mdiv, EuclideanMap(one(RotMatrix{3, Float64}), zeros(SVector{3, Float64}))), PosedCamera(mdiv, X); ids = (:l, :r))
+        rig_gen = StereoRig(PosedCamera(g1, EuclideanMap(one(RotMatrix{3, Float64}), zeros(SVector{3, Float64}))), PosedCamera(g2, X); ids = (:l, :r))
         # geometry form: a grid sensor cannot derive the shared K — loud contract
         @test_throws ArgumentError rectify(rig_gen)
         geo = rectify(rig_par)

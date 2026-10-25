@@ -5,6 +5,13 @@
 # update re-anchors the manifold at the stepped point (`recenter`). It attaches
 # when NLLSsolver is loaded, so VisualGeometryToolkitCore carries no solver
 # dependency of its own.
+#
+# `update` takes the variable's `tangent_part` of the solver's increment.
+# NLLSsolver's automatic Jacobian differentiates `update`, so `recenter` accepts
+# a Dual increment and returns a Dual-valued manifold; a residual on manifold
+# variables then needs only `computeresidual`, written generic in the variables'
+# element type. A residual may still supply `computeresjac` when a hand-written
+# Jacobian is faster.
 # =============================================================================
 module VisualGeometryToolkitCoreNLLSsolverExt
 

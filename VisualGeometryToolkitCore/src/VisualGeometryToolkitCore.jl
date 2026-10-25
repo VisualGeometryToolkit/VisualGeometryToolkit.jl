@@ -500,7 +500,7 @@ public Incumbent, keep_best
 # (import-by-name), the workspace type is public.
 public ManifoldLmWorkspace
 # The chart-LM protocol a caller's linearization state implements (robust/lm_core.jl).
-public residual_rows!, residual_jacobian_rows!, lm_retcode, is_stationary
+public residual_rows!, residual_jacobian_rows!, lm_retcode, is_stationary, nlls_retcode, loss_robustifier
 # The stack's naming checker (ext/VisualGeometryToolkitCoreTestExt; loads with Test): every stack package's
 # quality test runs it on itself; reached qualified.
 public check_naming, NamingViolation, naming_scope

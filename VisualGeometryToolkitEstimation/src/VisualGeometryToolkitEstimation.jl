@@ -218,7 +218,7 @@ using VisualGeometryToolkitCore: PerspectiveMap, transform_deriv
 using ForwardDiff: ForwardDiff
 import FastLevenbergMarquardt   # relpose_bundle.jl's Schur solver: qualified AbstractSolver/init!/update!/solve!, LMWorkspace
 import NLLSsolver   # refine_robot_world_hand_eye's block-structured LM: qualified NLLSProblem/optimize! and its residual protocol
-using VisualGeometryToolkitCore: is_stationary   # the stall postcondition for a solver other than FLM
+using VisualGeometryToolkitCore: nlls_retcode   # NLLSsolver's termination bits + the stall postcondition, as a retcode
 using SparseArrays: SparseMatrixCSC, nonzeros   # relpose_bundle.jl's fixed-pattern arrowhead Jacobian
 
 

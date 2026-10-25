@@ -67,8 +67,8 @@ camera at frame i). Function names do not encode frames.
 
 Any number of markers: the LM is NLLSsolver's, one pose block per marker and one
 residual block per point, with nothing compiled per marker count. Its retcode is
-`:converged` only when the estimate is stationary (`VisualGeometryToolkitCore.is_stationary`),
-`:max_iterations` at the cap and `:stalled` otherwise. Plain least squares — the observations must be inliers (gate them
+`:converged` only when the estimate is stationary, `:max_iterations` at the
+iteration cap and `:stalled` otherwise (`VisualGeometryToolkitCore.nlls_retcode`). Plain least squares — the observations must be inliers (gate them
 upstream, as the per-board detection does). Rig poses, points and pixels must
 be finite, and every point must project at the guess (in front of the camera,
 inside the lens's domain): an `ArgumentError` names the first that does not.
@@ -234,8 +234,7 @@ function _refine_robot_world_hand_eye(
     # NLLSsolver's own stops (a small relative or absolute cost decrease, a
     # small step) do not prove convergence; the stall postcondition does —
     # FastLevenbergMarquardt's refits test the same one (VGC `lmsolve_rows!`).
-    retcode = result.termination & (1 << 8) != 0 ? :max_iterations :
-        is_stationary(J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol = eps()) ? :converged : :stalled
+    retcode = nlls_retcode(result.termination, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol = eps())
     # The covariance's blocks are the ELEMENTS — one rig pose's features, whose
     # points are contiguous (flattened element by element) — each a dense view
     # of its rows of J with measurement Jacobian −I: the same (JᵀJ)⁻¹ as per-

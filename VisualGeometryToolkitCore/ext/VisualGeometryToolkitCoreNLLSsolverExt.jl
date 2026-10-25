@@ -15,10 +15,29 @@
 # =============================================================================
 module VisualGeometryToolkitCoreNLLSsolverExt
 
+using ForwardDiff: ForwardDiff
 using NLLSsolver: NLLSsolver
-using VisualGeometryToolkitCore: Manifold, recenter, tangent_part, tangent_size
+using VisualGeometryToolkitCore: AbstractLossShape, Manifold, recenter, tangent_part, tangent_size, weight, ρ
+import VisualGeometryToolkitCore: loss_robustifier   # the stub this extension adds its method to
 
 NLLSsolver.nvars(m::Manifold) = NLLSsolver.static(tangent_size(m))
 NLLSsolver.update(m::Manifold, δ, start = 1) = recenter(m, tangent_part(m, δ, start - 1))
+
+# A Core loss shape as NLLSsolver's robustifier: ρ(s) of the squared residual
+# norm s, ρ′ = `weight` and ρ″ its derivative (Core has no closed ρ″ per
+# shape; ForwardDiff differentiates the weight).
+struct LossRobustifier{S <: AbstractLossShape, T <: Real} <: NLLSsolver.AbstractRobustifier
+    shape::S
+    sq_loss_width::T
+end
+loss_robustifier(shape::AbstractLossShape, loss_width::Real) =
+    LossRobustifier(shape, Float64(loss_width)^2)
+
+NLLSsolver.robustify(k::LossRobustifier, cost) = ρ(k.shape, cost, k.sq_loss_width)
+function NLLSsolver.robustifydcost(k::LossRobustifier, cost)
+    ρ′ = weight(k.shape, cost, k.sq_loss_width)
+    ρ″ = ForwardDiff.derivative(s -> weight(k.shape, s, k.sq_loss_width), cost)
+    return ρ(k.shape, cost, k.sq_loss_width), ρ′, ρ″
+end
 
 end

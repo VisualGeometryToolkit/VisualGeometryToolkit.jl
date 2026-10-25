@@ -20,6 +20,7 @@ using VisualGeometryToolkitCore: DoubleSphere, EssentialManifold5, EssentialMani
     ProductManifold, RigidExpManifold6, RigidManifold6, SphereManifold, TargetManifold, is_stationary,
     local_coordinates, manifold_parts, model, recenter, restrict, retract, retract_jacobian, tangent_part,
     tangent_size
+using VisualGeometryToolkitCore: WelschShape, loss_robustifier, nlls_retcode
 
 pose(ω, t) = EuclideanMap(RotMatrix{3}(RotXYZ(ω...)), SVector{3, Float64}(t))
 
@@ -122,6 +123,43 @@ ambient(ch) = VgtkCore._ambient_coordinates(model(ch))
         @test is_stationary(J, zeros(3); tol = 1.0e-10, ftol = eps())            # an exact fit
         @test is_stationary(hcat(J, zeros(3)), J * x̂ - y; tol = 1.0e-10, ftol = eps())   # a zero column is skipped
         @test !is_stationary(J, [NaN, 0.0, 1.0]; tol = 1.0e-3, ftol = eps())     # a NaN fails
+    end
+
+    @testset "nlls_retcode and loss_robustifier" begin
+        J = [1.0 0.0; 0.0 2.0; 1.0 1.0]
+        y = [1.0, 2.0, 4.0]
+        x̂ = J \ y
+        r_opt = J * x̂ - y
+        r_off = J * (x̂ .+ 0.1) - y
+        kw = (; tol = 1.0e-6, ftol = eps())
+        @test nlls_retcode(1 << 1, J, r_opt; kw...) === :solve_failed
+        for b in (0, 1, 4, 5, 10)
+            @test nlls_retcode(1 << b, J, r_opt; kw...) === :solve_failed
+        end
+        @test nlls_retcode((1 << 1) | (1 << 9) | (1 << 8), J, r_opt; kw...) === :solve_failed   # failure outranks the caps
+        @test nlls_retcode((1 << 9) | (1 << 8), J, r_opt; kw...) === :max_time                  # time outranks iterations
+        @test nlls_retcode(1 << 9, J, r_opt; kw...) === :max_time
+        @test nlls_retcode((1 << 8) | (1 << 2), J, r_opt; kw...) === :max_iterations
+        @test nlls_retcode((1 << 8) | (1 << 3), J, r_opt; kw...) === :max_iterations
+        @test nlls_retcode(1 << 2, J, r_opt; kw...) === :converged
+        @test nlls_retcode(1 << 2, J, r_off; kw...) === :stalled        # a cost-decrease stop is no proof
+        @test nlls_retcode(1 << 7, J, r_off; kw...) === :stalled
+        @test nlls_retcode(1 << 7, J, r_opt; kw...) === :converged
+
+        # The oracle: CaliBlobs' production WelschRobustifier, written out.
+        w2 = 2.0^2
+        oracle_ρ(c) = w2 * (1 - exp(-c / w2))
+        oracle_d(c) = (e = exp(-c / w2); (w2 * (1 - e), e, -e / w2))
+        k = loss_robustifier(WelschShape(), 2.0)
+        @test k isa NLLSsolver.AbstractRobustifier
+        for c in (0.0, 0.5, 4.0, 100.0)
+            ρ, ρ′, ρ″ = NLLSsolver.robustifydcost(k, c)
+            o = oracle_d(c)
+            @test ρ ≈ o[1] rtol = 1.0e-14
+            @test ρ′ == o[2]
+            @test ρ″ ≈ o[3] rtol = 1.0e-14
+            @test NLLSsolver.robustify(k, c) ≈ oracle_ρ(c) rtol = 1.0e-14
+        end
     end
 end
 end

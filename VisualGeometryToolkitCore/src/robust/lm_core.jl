@@ -300,3 +300,39 @@ stationarity postcondition holds).
 """
 lm_retcode(converged::Int) =
     converged == -1 ? :max_iterations : converged == _LM_STALLED ? :stalled : :converged
+
+"""
+    nlls_retcode(termination::Integer, J::AbstractMatrix, r::AbstractVector; tol, ftol) -> Symbol
+
+The retcode of a fit run by NLLSsolver, from `termination` (the bit set of
+`NLLSResult.termination`) and the Jacobian `J` and residual `r` at the returned
+estimate. Checked in this order: any of bits 0, 1, 4, 5, 10 (a failed or
+non-finite solve, a NaN cost, …) is `:solve_failed`; bit 9 (the time cap) is
+`:max_time`; bit 8 (the iteration cap) is `:max_iterations`. Every other stop
+(a small cost decrease or step, bit 7, …) does not prove convergence: the stall
+postcondition does, so it is `:converged` when [`is_stationary`](@ref)`(J, r;
+tol, ftol)` holds and `:stalled` otherwise — the same postcondition
+[`lm_retcode`](@ref) applies to FastLevenbergMarquardt's stops. Pure Core: it
+reads the bits and does not load NLLSsolver.
+"""
+function nlls_retcode(termination::Integer, J::AbstractMatrix, r::AbstractVector; tol::Real, ftol::Real)
+    for bit in (0, 1, 4, 5, 10)
+        termination & (1 << bit) != 0 && return :solve_failed
+    end
+    termination & (1 << 9) != 0 && return :max_time
+    termination & (1 << 8) != 0 && return :max_iterations
+    return is_stationary(J, r; tol, ftol) ? :converged : :stalled
+end
+
+"""
+    loss_robustifier(shape::AbstractLossShape, loss_width::Real)
+
+NLLSsolver's robustifier (an `NLLSsolver.AbstractRobustifier`) for the loss
+`shape` at `loss_width`. NLLSsolver hands a robustifier the squared residual
+norm `cost` and reads `robustify(k, cost) = ρ` and
+`robustifydcost(k, cost) = (ρ, ρ′, ρ″)`; here ρ is Core's [`ρ`](@ref)`(shape,
+cost, loss_width²)` in the stack's convention `ρ′(0) = w_max` (no factor ½), ρ′
+its [`weight`](@ref) and ρ″ the derivative of that weight. The method lives in
+the NLLSsolver extension; this function is the stub it extends.
+"""
+function loss_robustifier end

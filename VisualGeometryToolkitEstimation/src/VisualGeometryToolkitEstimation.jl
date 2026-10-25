@@ -54,7 +54,7 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
 # VisualGeometryToolkitCore.optimization_path etc.).
 # THE estimator result type and the accessors RVG reads it through (VGC
 # base/fit_result.jl). Every fit here returns a FitResult.
-using VisualGeometryToolkitCore: FitResult, estimate, retcode, iterations, weights
+using VisualGeometryToolkitCore: FitResult, estimate, retcode, converged, iterations, weights
 # Units at the boundary (src/units.jl; VGC conventions/units.md): a public
 # estimator strips a physical input in metres at entry and reattaches metres at
 # exit; the inner loop takes plain maps (`PlainEuclideanMap`) and plain points.
@@ -265,6 +265,8 @@ export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem,
 # -----------------------------------------------------------------------------
 export Irls, NoLocalOptimization
 public CountedLO   # instrumentation: counts a strategy's locally_optimize! calls and iterations
+# The terminal placement (one LO of a raw race's incumbent) and the placement trait.
+public TerminalLO, lo_placement, terminal_strategy, InLoopPlacement, TerminalPlacement
 # The zero-allocation RANSAC entry and its result buffers.
 export ransac!
 
@@ -398,13 +400,14 @@ and hooks (`lo_admits`, `lo_key`, `lo_field`, `lo_field_from_toml`,
 `lo_absent`, `lo_validate`, `lo_concrete`, `lo_scale_multiple_shape`,
 `lo_resolve_scale_multiple`), the writer (`config_dict`, for a strategy whose
 table carries a key beyond the generic one), a loss-parametric or fixed-loss strategy's
-identity (`strategy_loss`, `deployed_shape`), the posterior-weight stop rule's
+identity (`strategy_loss`, `deployed_shape`), a wrapper's placement
+(`lo_placement`, `terminal_strategy`), the posterior-weight stop rule's
 counter (`iterations_without_improvement`) and the sampler / running-best
 protocol (`reset!`, `draw!`).
 """
 const CONTRACT_GENERICS = (lo_tag, lo_defaults, lo_parametric, lo_admits, lo_key, lo_field, lo_field_from_toml,
                            lo_absent, lo_validate, lo_concrete, lo_scale_multiple_shape, lo_resolve_scale_multiple,
-                           config_dict, strategy_loss, deployed_shape,
+                           config_dict, strategy_loss, deployed_shape, lo_placement, terminal_strategy,
                            iterations_without_improvement, reset!, draw!)
 
 end # module VisualGeometryToolkitEstimation

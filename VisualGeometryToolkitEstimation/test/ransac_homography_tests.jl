@@ -262,6 +262,72 @@ end
         @test VgtkCore.loss_family(counted) == VgtkCore.loss_family(inner)
     end
 
+    @testset "TerminalLO — the raw race, then one seeded LO of its incumbent" begin
+        source_pts, target_pts, _, _ = make_homography_data(
+            n_inliers = 100, n_outliers = 30, noise = 0.5, seed = 42
+        )
+        problem = HomographyProblem(csponds(source_pts, target_pts))
+        sc = MsacScoring(problem; threshold = 3.0)
+        cfg = RansacConfig(max_trials = 3000, min_trials = 200)
+        inner = Irls{WelschShape}(scale_multiple = 1.5)
+        events(trace) = (trial, score, ws) -> push!(trace, (trial, score, ws.best_model, ws.best_lo_retcode))
+        run(lo, trace = []; kw...) = ransac(
+            problem, sc; local_optimization = lo, config = cfg, rng = StableRNG(128),
+            on_improvement = events(trace), kw...
+        )
+
+        # The recipe it standardizes: the race with no LO, then the seeded refine.
+        trace0 = []
+        r0 = run(NoLocalOptimization(), trace0)
+        seeded = locally_optimize(problem, estimate(r0); local_optimization = inner, scoring = sc)
+        trace = []
+        rt = run(VgtkEstimation.TerminalLO(inner), trace)
+        @test converged(rt)
+        @test estimate(rt) == estimate(seeded)                 # bit-identical refined model
+        @test estimate(rt) != estimate(r0)                     # the LO did move it
+        @test VgtkCore.iterations(rt) == VgtkCore.iterations(r0)   # trials of the raw race
+        @test rt.sample_acceptance_rate == r0.sample_acceptance_rate
+        @test !isempty(trace0) && trace == trace0              # the raw incumbent's events
+        @test rt.lo_retcode == seeded.lo_retcode
+        @test rt.inlier_mask == seeded.inlier_mask             # re-scored for the refined model
+        @test rt.quality == seeded.quality
+        @test rt.residuals == seeded.residuals
+        @test rt.sigma === seeded.sigma
+
+        # A reused workspace gives the same.
+        ws = VgtkEstimation.RansacWorkspace(problem, sc, VgtkEstimation.TerminalLO(inner))
+        @test estimate(run(VgtkEstimation.TerminalLO(inner); workspace = ws)) == estimate(seeded)
+
+        # Placement is a static trait; a counter counts the terminal call in either nesting.
+        @test VgtkEstimation.lo_placement(inner) === VgtkEstimation.InLoopPlacement()
+        @test VgtkEstimation.lo_placement(VgtkEstimation.TerminalLO(inner)) === VgtkEstimation.TerminalPlacement()
+        outer = VgtkEstimation.CountedLO(VgtkEstimation.TerminalLO(inner))
+        @test VgtkEstimation.lo_placement(outer) === VgtkEstimation.TerminalPlacement()
+        @test estimate(run(outer)) == estimate(seeded)
+        @test outer.calls[] == 1
+        counted = VgtkEstimation.CountedLO(inner)
+        @test estimate(run(VgtkEstimation.TerminalLO(counted))) == estimate(seeded)
+        @test counted.calls[] == 1
+
+        # The per-candidate guard has no candidate to guard.
+        @test_throws ArgumentError run(VgtkEstimation.TerminalLO(inner); score_guard = true)
+
+        # Every hook answers as the inner strategy; the label names the placement.
+        t = VgtkEstimation.TerminalLO(inner)
+        @test VgtkCore.lo_label(t) == VgtkCore.lo_label(inner) * " (terminal)"
+        @test VgtkCore.lo_width(t) == VgtkCore.lo_width(inner)
+        @test VgtkCore.scale_interface(t) == VgtkCore.scale_interface(inner)
+        @test VgtkCore.optimization_path(t) == VgtkCore.optimization_path(inner)
+        @test VgtkCore.loss_family(t) == VgtkCore.loss_family(inner)
+        @test VgtkCore.lo_marker(t) == VgtkCore.lo_marker(inner)
+        @test VgtkCore.with_width(t, VgtkCore.LossWidth(2.0)) ==
+            VgtkEstimation.TerminalLO(VgtkCore.with_width(inner, VgtkCore.LossWidth(2.0)))
+        @test VgtkEstimation.fixed_width(t, 4.0) == VgtkEstimation.fixed_width(inner, 4.0)
+        # A seeded refine has no race: it runs the inner strategy.
+        @test estimate(locally_optimize(problem, estimate(r0); local_optimization = t, scoring = sc)) ==
+            estimate(seeded)
+    end
+
     @testset "PROSAC with scored correspondences" begin
         source_pts, target_pts, H_true, n_inliers = make_homography_data(
             n_inliers = 100, n_outliers = 30, noise = 0.5, seed = 42

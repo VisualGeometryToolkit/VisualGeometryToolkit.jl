@@ -98,6 +98,23 @@ Irls
 default_local_optimization
 ```
 
+### Placement and instrumentation
+
+A strategy runs inside the loop, on every candidate that enters the
+local-optimization gate, unless it is placed at the end: [`TerminalLO`](@ref)
+runs its inner strategy once on the final incumbent of a race decided on raw
+hypothesis scores. [`CountedLO`](@ref) counts a strategy's calls in either
+placement.
+
+```@docs
+TerminalLO
+lo_placement
+terminal_strategy
+InLoopPlacement
+TerminalPlacement
+CountedLO
+```
+
 ### Loss resolution
 
 The core strategies resolve the loss they deploy through these helpers. A

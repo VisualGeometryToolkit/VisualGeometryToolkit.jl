@@ -93,10 +93,12 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, _allowed
         # `scale_multiple` / `alpha` are REQUIRED per call, deliberately absent.
         # `scale_multiple` is cross-validated per model class, never defaulted
         # in the file, for EVERY arm that takes one.
-        required = Dict("irls" => (:scale_multiple,))
+        # The terminal placement's `inner` is a strategy, never a file default.
+        required = Dict("irls" => (:scale_multiple,), "terminal_lo" => (:inner,))
+        lo_table(tag) = get(_TOML_DEFAULTS["local_optimization"], tag, Dict{String, Any}())
         for (tag, T) in LO_TAGS
             tag == "no_local_optimization" && continue
-            tbl = _TOML_DEFAULTS["local_optimization"][tag]
+            tbl = lo_table(tag)
             for f in fieldnames(T)
                 f in get(required, tag, ()) && continue
                 f in VgtkCore.toml_skip_fields(T) && continue   # the scale interface is not a config key
@@ -109,7 +111,7 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, _allowed
         # silently defeat that resolution — which is exactly what a literal 1.5
         # did for the four fixed-loss arms.
         for (tag, fields) in required
-            tbl = _TOML_DEFAULTS["local_optimization"][tag]
+            tbl = lo_table(tag)
             for f in fields
                 @test !haskey(tbl, toml_key(Any, f))
             end
@@ -199,6 +201,8 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, _allowed
                 tbl = Dict{String, Any}("type" => tag)
                 takes_loss && (tbl["loss"] = "welsch")
                 takes_scale_multiple && (tbl["scale_multiple"] = 1.0)
+                hasfield(T, :inner) &&
+                    (tbl["inner"] = Dict{String, Any}("type" => "irls", "loss" => "welsch", "scale_multiple" => 1.0))
                 lo = local_optimization_from_toml(tbl; class = :homography)
                 d = config_dict(lo)
                 for f in fieldnames(T)

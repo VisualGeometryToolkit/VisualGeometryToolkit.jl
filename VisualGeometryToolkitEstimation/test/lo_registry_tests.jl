@@ -103,6 +103,22 @@ end
             Dict{String, Any}("type" => "irls", "loss" => "welsch", "max_iter" => 25, "loss_width" => 2.0)
         @test lo_config_dict(NoLocalOptimization()) == Dict{String, Any}("type" => "no_local_optimization")
         @test config_dict(Irls{TLSShape}()) == lo_config_dict(Irls{TLSShape}())
+
+        # The terminal placement: a nested `inner` table, read through the same registry.
+        term = Dict{String, Any}("type" => "terminal_lo",
+                                 "inner" => Dict{String, Any}("type" => "irls", "loss" => "welsch", "scale_multiple" => 1.5))
+        t = local_optimization_from_toml(term; class = :essential)
+        @test t == VgtkEstimation.TerminalLO(Irls{WelschShape}(scale_multiple = 1.5))
+        @test lo_tag(t) == "terminal_lo"
+        @test lo_config_dict(t) == config_dict(t) ==
+            Dict{String, Any}("type" => "terminal_lo", "inner" => lo_config_dict(Irls{WelschShape}(scale_multiple = 1.5)))
+        @test local_optimization_from_toml(config_dict(t); class = :essential) == t
+        @test VgtkEstimation.TerminalLO(; inner = Irls{TLSShape}()) == VgtkEstimation.TerminalLO(Irls{TLSShape}())
+        @test_throws ArgumentError local_optimization_from_toml(Dict("type" => "terminal_lo"); class = :essential)
+        @test_throws ArgumentError local_optimization_from_toml(
+            Dict("type" => "terminal_lo", "inner" => "irls"); class = :essential)
+        @test_throws ArgumentError local_optimization_from_toml(
+            Dict("type" => "terminal_lo", "inner" => Dict("type" => "irls", "loss" => "tls"), "max_iter" => 3); class = :essential)
         # The reader, called on the registry entry directly.
         @test lo_from_toml(Irls, Dict("type" => "irls", "loss" => "huber", "max_iter" => 7); class = :homography) ==
             Irls{VgtkCore.HuberShape}(max_iter = 7)

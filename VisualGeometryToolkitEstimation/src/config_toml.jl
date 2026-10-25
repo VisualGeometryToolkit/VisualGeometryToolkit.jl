@@ -234,6 +234,20 @@ function lo_from_toml(T::Type, d::AbstractDict; class::Symbol, section::Abstract
     return lo_construct(C; defaults, kw..., scale_multiple)
 end
 
+# The terminal placement's table names its strategy in a nested `inner` table,
+# read through the same registry (so a downstream inner strategy loads when
+# its tags are merged in); `type` and `inner` are its only keys.
+function lo_from_toml(::Type{<:TerminalLO}, d::AbstractDict; class::Symbol,
+                      section::AbstractString = "local_optimization", tags::TagRegistry = LO_TAGS)
+    sec = "$section.$(d["type"])"
+    _check_keys(d, ["type", "inner"], sec)
+    haskey(d, "inner") || throw(ArgumentError("[$sec] needs an `inner` strategy table ({ type = …, … })"))
+    inner = d["inner"]
+    inner isa AbstractDict ||
+        throw(ArgumentError("[$sec] `inner` must be a strategy table ({ type = …, … }), got $(repr(inner))"))
+    return TerminalLO(local_optimization_from_toml(inner; class, section = "$sec.inner", tags))
+end
+
 # The default strategy of a pipeline — read from the shipped file's
 # [pipelines.<class>] table. This is what every find_* signature defaults to.
 _dflt_lo(class::Symbol) =
@@ -273,6 +287,10 @@ function lo_config_dict(lo::AbstractLocalOptimization)
     _lo_takes_width(T) && _width_to_toml!(d, lo.width)
     return d
 end
+
+# The terminal placement: its tag and the inner strategy's own table
+# (`config_dict`, so a downstream inner strategy writes its own keys).
+lo_config_dict(lo::TerminalLO) = Dict{String, Any}("type" => lo_tag(lo), "inner" => config_dict(lo.inner))
 
 # The width mode, written as its key: `scale_multiple`, or `loss_width` (an
 # absolute width, `√s2` of `LossWidth(w) = (1, w²)`); no width writes nothing.

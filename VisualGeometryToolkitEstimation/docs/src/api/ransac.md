@@ -231,7 +231,7 @@ local_optimization = { type = "irls", loss = "tls" }     # no width key: follow 
 ```
 
 `type` is a tag of the strategy registry — the core [`LO_TAGS`](@ref)
-(`"no_local_optimization"`, `"irls"`), or its explicit merge with a downstream
+(`"no_local_optimization"`, `"irls"`, `"terminal_lo"`), or its explicit merge with a downstream
 package's — and `loss` a tag of [`LOSS_TAGS`](@ref). The registries are
 VisualGeometryToolkitCore `TagRegistry` values; a retired tag is refused with its
 successor's name. The paper strategies and their cross-validated operating

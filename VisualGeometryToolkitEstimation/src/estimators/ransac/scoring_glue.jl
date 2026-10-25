@@ -25,6 +25,80 @@ Default for all scoring functions (via `default_local_optimization`).
 """
 struct NoLocalOptimization <: AbstractLocalOptimization end
 
+"""
+    TerminalLO(inner::AbstractLocalOptimization) <: AbstractLocalOptimization
+    TerminalLO(; inner)
+
+The TERMINAL placement of a local optimization: `ransac` decides its incumbent
+race on raw-hypothesis scores alone, exactly as with
+[`NoLocalOptimization`](@ref) (same trials, scores and `on_improvement`
+events on the same rng), and after the loop runs `inner` ONCE on the final
+incumbent through the seeded path of [`locally_optimize`](@ref) — the same
+scorer, inside `ransac`'s wall time. The result is that seeded refine's:
+
+- `estimate`: the refined model, or the raw incumbent when the refined model
+  fails `test_consensus` (as `locally_optimize` keeps its seed);
+- `lo_retcode`: the inner strategy's (`:not_run` when the seed was kept);
+- `inlier_mask`, `residuals`, `weights`, `quality`, `sigma`, `dof`, `rms`:
+  the reported model re-scored under the scorer;
+- `iterations` and `sample_acceptance_rate`: the raw race's.
+
+A race that keeps no hypothesis returns its `:no_model` result unrefined, and
+an incumbent the scorer cannot score as a seed (a predictive scorer with no
+covariance on its consensus set) the raw race's result. `score_guard = true` is
+an `ArgumentError`: the guard is a per-candidate acceptance rule and the
+terminal placement has no candidate to accept. A seeded `locally_optimize`
+with a `TerminalLO` runs `inner` (a seed has no race).
+
+Every hook the loop, the composition check and the reporting read answers as
+`inner`'s (width, scale interface, loss family, path, marker, workspace), except
+the label, `"<inner label> (terminal)"`, so result records tell the
+placements apart. TOML: `{ type = "terminal_lo", inner = { … } }`, the inner
+table any registered strategy's. Counting: `CountedLO(TerminalLO(inner))` and
+`TerminalLO(CountedLO(inner))` both count the one terminal call per run that
+keeps a hypothesis (no LO runs inside the race).
+"""
+struct TerminalLO{L <: AbstractLocalOptimization} <: AbstractLocalOptimization
+    inner::L
+end
+
+"""
+    InLoopPlacement()
+
+The placement ([`lo_placement`](@ref)) of a strategy `ransac` runs on every
+candidate that enters the local-optimization gate: every strategy's default.
+"""
+struct InLoopPlacement end
+
+"""
+    TerminalPlacement()
+
+The placement ([`lo_placement`](@ref)) of a strategy `ransac` runs once, on the
+final incumbent of a raw race: [`TerminalLO`](@ref).
+"""
+struct TerminalPlacement end
+
+"""
+    lo_placement(lo) -> InLoopPlacement() | TerminalPlacement()
+
+Where `ransac` runs the strategy `lo`, dispatched statically in the loop:
+[`InLoopPlacement`](@ref)`()` by default, [`TerminalPlacement`](@ref)`()` for a
+[`TerminalLO`](@ref). A wrapper forwards it to the strategy it wraps (as
+[`CountedLO`](@ref) does), and then also [`terminal_strategy`](@ref).
+"""
+lo_placement(::AbstractLocalOptimization) = InLoopPlacement()
+lo_placement(::TerminalLO) = TerminalPlacement()
+
+"""
+    terminal_strategy(lo) -> AbstractLocalOptimization
+
+The strategy a terminal placement runs once on the final incumbent: `inner` of
+a [`TerminalLO`](@ref); a wrapper whose [`lo_placement`](@ref) is terminal
+rewraps its inner strategy's (`CountedLO(TerminalLO(inner))` runs
+`CountedLO(inner)` on the same counters).
+"""
+terminal_strategy(lo::TerminalLO) = lo.inner
+
 # -----------------------------------------------------------------------------
 # Loss TOML tags — the one table mapping the canonical VisualGeometryToolkitCore
 # loss shapes (robust/losses.jl) that the parametric strategy types
@@ -640,7 +714,7 @@ expression evaluated, in the calling module, each time a default is read: the
 
 The expansion is one call, made at load time in the calling module. Per row it
 defines [`lo_tag`](@ref), [`lo_defaults`](@ref), VisualGeometryToolkitCore's
-`optimization_path` and `toml_skip_fields` (the width is written as its two
+`toml_skip_fields` and, for a stated path, `optimization_path` (the width is written as its two
 keys, never as `width`); for a parametric row [`lo_parametric`](@ref); for a
 stated scale interface, loss family or label the Core accessor; for a stated
 `shape` [`lo_scale_multiple_shape`](@ref) and the loss family of that shape;
@@ -667,9 +741,9 @@ function _register_lo_rows(M::Module, rows, defaults; retired = ())
         Core.eval(M, quote
             $E.lo_tag(::Type{<:$T}) = $tag
             $E.lo_defaults(::Type{<:$T}) = $defaults
-            $C.optimization_path(::$T) = $(QuoteNode(path))
             $C.toml_skip_fields(::Type{<:$T}) = (:width,)
         end)
+        path === nothing || Core.eval(M, :($C.optimization_path(::$T) = $(QuoteNode(path))))
         parametric && Core.eval(M, :($E.lo_parametric(::Type{<:$T}) = true))
         iface === nothing || Core.eval(M, :($C.scale_interface(::$T) = $iface))
         family === nothing || Core.eval(M, :($C.loss_family(::$T) = $(QuoteNode(family))))
@@ -697,6 +771,9 @@ end
 const _LO_REGISTRY = (
     (NoLocalOptimization, "no_local_optimization", :seed, NoScale(),     :none,   raw"seed",                nothing,           false),
     (Irls,                "irls",                  :irls, nothing,       nothing, nothing,                  nothing,           true),
+    # Every identity fact of the terminal placement is its inner strategy's
+    # (local_optimization.jl, beside CountedLO).
+    (TerminalLO,          "terminal_lo",           nothing, nothing,     nothing, nothing,                  nothing,           false),
 )
 
 """

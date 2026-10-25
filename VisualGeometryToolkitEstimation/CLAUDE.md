@@ -65,7 +65,8 @@ default expression calls. A default that is not in the file throws BY DESIGN.
   "tls" }` (no width key: follow the scorer; or `scale_multiple = m` /
   `loss_width = w`) — tags in the `TagRegistry` values `LO_TAGS` / `LOSS_TAGS`
   (`src/config_toml.jl`, `scoring_glue.jl`). The core registry holds
-  `"no_local_optimization"` and `"irls"`; LocalOptimizationDoneRight's
+  `"no_local_optimization"`, `"irls"` and `"terminal_lo"` (`TerminalLO`, the
+  terminal placement: `{ type = "terminal_lo", inner = { … } }`); LocalOptimizationDoneRight's
   strategies load through an explicit merge,
   `tags = merge(VisualGeometryToolkitEstimation.LO_TAGS, LocalOptimizationDoneRight.LO_TAGS)`,
   which also resolves `scale_multiple = "cross_validated"` (the core refuses

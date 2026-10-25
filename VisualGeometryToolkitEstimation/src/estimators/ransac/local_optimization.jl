@@ -334,3 +334,29 @@ VgtkCore.scale_interface(lo::CountedLO) = VgtkCore.scale_interface(lo.inner)
 VgtkCore.loss_family(lo::CountedLO) = VgtkCore.loss_family(lo.inner)
 VgtkCore.lo_label(lo::CountedLO) = VgtkCore.lo_label(lo.inner)
 VgtkCore.lo_marker(lo::CountedLO) = VgtkCore.lo_marker(lo.inner)
+# A counter around a terminal placement is terminal, and counts the terminal call.
+lo_placement(lo::CountedLO) = lo_placement(lo.inner)
+terminal_strategy(lo::CountedLO) = CountedLO(terminal_strategy(lo.inner), lo.calls, lo.iterations)
+
+# =============================================================================
+# TerminalLO — the terminal placement (scoring_glue.jl); every hook is inner's
+# =============================================================================
+#
+# The loop never calls `locally_optimize!` with a `TerminalLO` (its race runs
+# `NoLocalOptimization`, its terminal call `inner`); a seeded `locally_optimize`
+# does, and runs `inner`.
+
+locally_optimize!(L, lo::TerminalLO, problem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring) =
+    locally_optimize!(L, lo.inner, problem, model, cs, buf, scoring)
+lo_workspace(::Type{P}, ::Type{T}, lo::TerminalLO, n::Int) where {P <: AbstractRansacProblem, T} =
+    lo_workspace(P, T, lo.inner, n)
+lo_width(lo::TerminalLO) = lo_width(lo.inner)
+deployed_scale_multiple(lo::TerminalLO, shape, m::Float64, s2, scoring) =
+    deployed_scale_multiple(lo.inner, shape, m, s2, scoring)
+deployed_shape(lo::TerminalLO) = deployed_shape(lo.inner)
+VgtkCore.with_width(lo::TerminalLO, w) = TerminalLO(VgtkCore.with_width(lo.inner, w))
+VgtkCore.optimization_path(lo::TerminalLO) = VgtkCore.optimization_path(lo.inner)
+VgtkCore.scale_interface(lo::TerminalLO) = VgtkCore.scale_interface(lo.inner)
+VgtkCore.loss_family(lo::TerminalLO) = VgtkCore.loss_family(lo.inner)
+VgtkCore.lo_label(lo::TerminalLO) = VgtkCore.lo_label(lo.inner) * " (terminal)"
+VgtkCore.lo_marker(lo::TerminalLO) = VgtkCore.lo_marker(lo.inner)

@@ -42,7 +42,8 @@ count uses the hypergeometric distribution (the stopping criterion).
 # Keyword Arguments
 - `local_optimization::AbstractLocalOptimization=default_local_optimization(scoring)`:
   the LO-RANSAC refinement strategy (default `NoLocalOptimization()`); dispatched
-  in the loop's Phase 2 via `locally_optimize!`
+  in the loop's Phase 2 via `locally_optimize!`, or — a [`TerminalLO`](@ref)
+  ([`lo_placement`](@ref)) — once on the final incumbent of a raw race
 - `config::RansacConfig=RansacConfig()`: max_trials, success_prob η, min_trials
 - `workspace::Union{Nothing,RansacWorkspace}=nothing`: Pre-allocated workspace
 - `rng::Random.AbstractRNG=Random.default_rng()`: source of every random draw
@@ -124,9 +125,40 @@ function ransac!(
     _check_scoring(problem, scoring)
     _entry_workspace(ws, problem, scoring, local_optimization)
     _set_n!(result, data_size(problem))
-    return _ransac_loop(
+    return _ransac_placed(
+        lo_placement(local_optimization),
         ws, problem, scoring, local_optimization, config, on_improvement,
         score_guard, rng, on_hypothesis, result
+    )
+end
+
+# The strategy's placement (`lo_placement`), dispatched statically: in-loop is
+# the loop itself; terminal is the loop with no LO, then one seeded LO of its
+# incumbent (`TerminalLO`).
+@inline _ransac_placed(::InLoopPlacement, args...) = _ransac_loop(args...)
+
+function _ransac_placed(
+        ::TerminalPlacement, ws::RansacWorkspace, problem, scoring,
+        local_optimization, config, on_improvement,
+        score_guard::Bool, rng::Random.AbstractRNG, on_hypothesis, result
+    )
+    score_guard && throw(
+        ArgumentError(
+            "score_guard is a per-candidate acceptance rule; a terminal local optimization " *
+                "($(nameof(typeof(local_optimization)))) runs on no candidate, only on the final incumbent"
+        )
+    )
+    raw = _ransac_loop(
+        ws, problem, scoring, NoLocalOptimization(), config, on_improvement,
+        false, rng, on_hypothesis, result
+    )
+    converged(raw) || return raw
+    # `has_best` still holds the raw incumbent: a seed the scorer cannot score
+    # finalizes as it, at its race score.
+    q = raw.quality
+    return _locally_optimize_seed!(
+        ws, problem, scoring, terminal_strategy(local_optimization), estimate(raw);
+        trial = iterations(raw), sar = raw.sample_acceptance_rate, result, unscored = (q, q)
     )
 end
 
@@ -567,17 +599,24 @@ function _select_then_optimize!(
     return _locally_optimize_seed!(ws, problem, scoring, lo, best_θ)
 end
 
+# `trial`, `sar`, `result` and `unscored` are a terminal placement's
+# (`_ransac_placed`): the raw race's trial count and acceptance rate, its result
+# buffers, and the score its incumbent finalizes at when the seed cannot be
+# scored (its `has_best` is then still the race's). A seeded refine's own are
+# one trial, every sample accepted, fresh buffers and no incumbent.
 function _locally_optimize_seed!(
         ws::RansacWorkspace{K, M, T}, problem,
         scoring::AbstractScoring, lo::AbstractLocalOptimization, seed::Union{M, Uncertain{M}};
-        score_guard::Bool = false
+        score_guard::Bool = false, trial::Int = 1, sar::Float64 = 1.0,
+        result::RansacResultBuffers = _result_buffers(ws, problem),
+        unscored::Tuple = (T(-Inf), T(-Inf))
     ) where {K, M, T}
     _prepare!(problem)
-    result = _result_buffers(ws, problem)
     θ₀ = geom(seed)
     scored = _seed_scored!(ws, problem, scoring, seed)
-    # No covariance on the seed's consensus: not scored (`has_best` is false).
-    scored === nothing && return _finalize(scoring, ws, problem, (T(-Inf), T(-Inf)), 1.0, 1, result)
+    # No covariance on the seed's consensus: not scored (`has_best` is false, or
+    # a terminal placement's raw incumbent).
+    scored === nothing && return _finalize(scoring, ws, problem, unscored, sar, trial, result)
     score_g, k_star = score_model!(ws.buf, scoring, problem, scored)
     if _holds_consensus(problem, k_star) && test_consensus(problem, θ₀, ws.buf.mask)
         # Phases 2–3 exactly as a RANSAC candidate runs them; only the
@@ -590,13 +629,13 @@ function _locally_optimize_seed!(
             # below the seed under the same scorer.
             if test_consensus(problem, lo_model, ws.buf.mask) && (!score_guard || score_l >= score_g)
                 _track_best!(ws, scoring, lo_model, retcode(lo_est))
-                return _finalize(scoring, ws, problem, (score_g, score_l), 1.0, 1, result)
+                return _finalize(scoring, ws, problem, (score_g, score_l), sar, trial, result)
             end
         end
         score_model!(ws.buf, scoring, problem, scored)
     end
     _track_best!(ws, scoring, θ₀)
-    return _finalize(scoring, ws, problem, (score_g, score_g), 1.0, 1, result)
+    return _finalize(scoring, ws, problem, (score_g, score_g), sar, trial, result)
 end
 
 # =============================================================================

@@ -260,6 +260,11 @@ end
         @test VgtkCore.scale_interface(counted) == VgtkCore.scale_interface(inner)
         @test VgtkCore.optimization_path(counted) == VgtkCore.optimization_path(inner)
         @test VgtkCore.loss_family(counted) == VgtkCore.loss_family(inner)
+        # rewidthing keeps the counters (the same Refs), and the currency hook is the inner's
+        @test VgtkCore.with_width(counted, VgtkCore.LossWidth(2.0)).calls === counted.calls
+        @test VgtkCore.with_width(counted, VgtkCore.LossWidth(2.0)).iterations === counted.iterations
+        @test VgtkCore.deployed_scale_multiple(VgtkEstimation.CountedLO(inner), WelschShape(), 1.5, 1.0, nothing) ==
+            VgtkCore.deployed_scale_multiple(inner, WelschShape(), 1.5, 1.0, nothing)
     end
 
     @testset "TerminalLO — the raw race, then one seeded LO of its incumbent" begin

@@ -55,6 +55,9 @@ The 3-arg constructor validates the given transform against
 (`check = true` by default, `atol` tolerance on the rotation angle and the
 relative translation deviation). Supply `check = false` for synthetic rigs
 whose cameras are placeholders and do not encode the relative geometry.
+`check = false` also admits UNPOSED members (a [`BoundedCamera`](@ref) with no
+pose): the rig poses them, so only the given relative transform matters. The
+2-argument form computes the transform from the cameras and so requires them posed.
 """
 const StereoRig{F <: Frame{3}, U <: AbstractCamera, V <: AbstractCamera} =
     Rig{F, Tuple{U, V}}

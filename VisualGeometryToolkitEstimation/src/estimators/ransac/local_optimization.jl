@@ -334,9 +334,8 @@ VgtkCore.scale_interface(lo::CountedLO) = VgtkCore.scale_interface(lo.inner)
 VgtkCore.loss_family(lo::CountedLO) = VgtkCore.loss_family(lo.inner)
 VgtkCore.lo_label(lo::CountedLO) = VgtkCore.lo_label(lo.inner)
 VgtkCore.lo_marker(lo::CountedLO) = VgtkCore.lo_marker(lo.inner)
-# A counter around a terminal placement is terminal, and counts the terminal call.
+# A counter around a terminal placement is terminal, and counts the terminal call (its `locally_optimize!` counts, then forwards).
 lo_placement(lo::CountedLO) = lo_placement(lo.inner)
-terminal_strategy(lo::CountedLO) = CountedLO(terminal_strategy(lo.inner), lo.calls, lo.iterations)
 
 # =============================================================================
 # TerminalLO — the terminal placement (scoring_glue.jl); every hook is inner's

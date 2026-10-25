@@ -106,7 +106,7 @@ _robot_world_hand_eye_calibration(poses, ids::Vector{K}) where {K} =
 
 `FitResult` metadata of [`fit_robot_world_hand_eye`](@ref) (`S = Float64`) and of
 [`refine_robot_world_hand_eye`](@ref) (`S = Nothing`: no pose-residual noise
-scales; its `retcode` is `:converged`, `:max_iterations` or `:stalled`) — one type, assembled in one place.
+scales; its `retcode` is `:converged`, `:max_iterations`, `:max_time`, `:solve_failed` or `:stalled`) — one type, assembled in one place.
 The core carries the `RobotWorldHandEyeCalibration` (`estimate`), the `retcode`, the
 `iterations`, the `rms` and the `n` observations (the fit: pose observations,
 its `rms` over the weighted residual rows; the refinement: points, its `rms`

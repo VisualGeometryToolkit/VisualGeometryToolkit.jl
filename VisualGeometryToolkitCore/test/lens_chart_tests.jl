@@ -239,4 +239,13 @@ end
         @test f1(ch, v) == 0
         @test f2(ch, v) == 0
     end
+
+    struct _OddBounds <: VisualGeometryToolkitCore.AbstractLensModel end
+    VisualGeometryToolkitCore.parameter_names(::_OddBounds) = (:a, :b)
+    VisualGeometryToolkitCore.parameter_bounds(::_OddBounds) = (SVector(0.0, -Inf), SVector(2.0, Inf))
+
+    @testset "LensManifold refuses a bound it cannot honor" begin
+        @test_throws ArgumentError LensManifold(_OddBounds())
+        @test LensManifold(KannalaBrandt(-0.02)) isa LensManifold   # unbounded: accepted
+    end
 end

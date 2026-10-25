@@ -147,7 +147,26 @@ struct LensManifold{L <: AbstractLensModel} <: Manifold
     lens::L
     LensManifold{L}(l::L) where {L <: AbstractLensModel} = new{L}(l)
 end
-LensManifold(l::AbstractLensModel) = LensManifold{typeof(l)}(_interior(l))
+function LensManifold(l::AbstractLensModel)
+    _check_unit_bounds(l)
+    return LensManifold{typeof(l)}(_interior(l))
+end
+
+# The chart's logit handles exactly the (0, 1) interval; any other finite bound
+# would be silently ignored by `retract`, so it is refused here instead.
+function _check_unit_bounds(l)
+    lo, hi = parameter_bounds(l)
+    for (i, name) in enumerate(parameter_names(l))
+        a, b = lo[i], hi[i]
+        (isfinite(a) || isfinite(b)) && !(a == 0 && b == 1) && throw(
+            ArgumentError(
+                "LensManifold: `$name` of $(nameof(typeof(l))) is bounded to ($a, $b); " *
+                    "the chart handles only (0, 1) bounds"
+            )
+        )
+    end
+    return nothing
+end
 
 # Which coordinates are bounded to (0, 1): read off `parameter_bounds`, the one
 # source of bounds. A function of the lens's type alone, so it constant-folds.

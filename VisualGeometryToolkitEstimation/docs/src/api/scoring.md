@@ -109,7 +109,6 @@ placement.
 ```@docs
 TerminalLO
 lo_placement
-terminal_strategy
 InLoopPlacement
 TerminalPlacement
 CountedLO

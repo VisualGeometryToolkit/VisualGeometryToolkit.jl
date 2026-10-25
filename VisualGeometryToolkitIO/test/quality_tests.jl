@@ -95,3 +95,16 @@ end
     end
     @test length(reports) <= JET_BASELINE
 end
+
+@testitem "quality: stack contracts" begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using Test
+    using VisualGeometryToolkitIO
+    # The stack contracts, enforced (VisualGeometryToolkitCore quality/stack_contracts.jl):
+    # no private name of another stack package, and methods on other stack packages'
+    # functions only on their CONTRACT_GENERICS.
+    root = pkgdir(VisualGeometryToolkitIO)
+    dirs = filter(isdir, [joinpath(root, "src"), joinpath(root, "ext")])
+    @test isempty(reduce(vcat, [VgtkCore.private_name_violations(d, "VisualGeometryToolkitIO") for d in dirs]))
+    @test isempty(VgtkCore.contract_generic_violations(VisualGeometryToolkitIO))
+end

@@ -21,7 +21,6 @@
         flag::Bool = true
     end
     VgtkCore.toml_skip_fields(::Type{<:_Outer}) = (:camera,)
-    VgtkCore.toml_key(::Type{<:_Outer}, f::Symbol) = f === :μ ? "mu" : String(f)
     VgtkCore.toml_field(c::_Outer, ::Val{:inner}) = toml_table(c.inner)
     VgtkCore.toml_field(c::_Outer, ::Val{:max_n}) = c.max_n == typemax(Int) ? "unbounded" : c.max_n
 

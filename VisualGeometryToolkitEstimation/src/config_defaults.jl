@@ -31,7 +31,6 @@
 # notice — the exact invisible-drift class this file exists to remove.
 # =============================================================================
 
-using TOML: TOML
 using VisualGeometryToolkitCore: toml_default, parse_defaults
 
 """

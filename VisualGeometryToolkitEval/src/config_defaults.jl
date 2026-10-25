@@ -15,7 +15,6 @@
 # recompile (a Revise session needs a restart to see one).
 # =============================================================================
 
-using TOML: TOML
 using VisualGeometryToolkitCore: toml_default, parse_defaults
 
 "The defaults of record (configs/default.toml)."

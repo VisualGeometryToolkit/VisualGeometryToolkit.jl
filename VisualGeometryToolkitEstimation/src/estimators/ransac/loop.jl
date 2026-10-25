@@ -157,7 +157,7 @@ function _ransac_placed(
     # finalizes as it, at its race score.
     q = raw.quality
     return _locally_optimize_seed!(
-        ws, problem, scoring, terminal_strategy(local_optimization), estimate(raw);
+        ws, problem, scoring, local_optimization, estimate(raw);
         trial = iterations(raw), sar = raw.sample_acceptance_rate, result, unscored = (q, q)
     )
 end

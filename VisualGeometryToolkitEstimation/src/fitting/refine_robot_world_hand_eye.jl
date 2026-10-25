@@ -68,7 +68,9 @@ camera at frame i). Function names do not encode frames.
 Any number of markers: the LM is NLLSsolver's, one pose block per marker and one
 residual block per point, with nothing compiled per marker count. Its retcode is
 `:converged` only when the estimate is stationary, `:max_iterations` at the
-iteration cap and `:stalled` otherwise (`VisualGeometryToolkitCore.nlls_retcode`). Plain least squares — the observations must be inliers (gate them
+iteration cap, `:max_time` at the solver's time cap, `:solve_failed` when a
+solve was non-finite or failed (the estimate is then the last accepted one)
+and `:stalled` otherwise (`VisualGeometryToolkitCore.nlls_retcode`). Plain least squares — the observations must be inliers (gate them
 upstream, as the per-board detection does). Rig poses, points and pixels must
 be finite, and every point must project at the guess (in front of the camera,
 inside the lens's domain): an `ArgumentError` names the first that does not.

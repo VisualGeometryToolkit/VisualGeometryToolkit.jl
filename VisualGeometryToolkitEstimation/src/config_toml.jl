@@ -24,9 +24,11 @@
 # The generic loader/writer machinery is VisualGeometryToolkitCore's (hoisted from
 # this fork and BlobBoards' on 2026-09-07): present-keys-only keyword
 # overrides, refuse-unknown-keys with retirement, the fieldnames-derived
-# table walk and its per-type hooks, the dotted default lookup, the sorted
-# writer. What stays here is this package's: the Greek↔ASCII key spelling,
-# the retired-key set, the tag registries and the hook methods for its types.
+# table walk and its per-type hooks (the Greek↔ASCII key spelling among
+# them), the dotted default lookup, the sorted writer. What stays here is this
+# package's: the retired-key set, the tag registries and the hook methods for
+# its types.
+using TOML: TOML
 using VisualGeometryToolkitCore: present_kwargs, check_keys, toml_table,
     allowed_keys, convert_field, toml_field_name
 import VisualGeometryToolkitCore: toml_key, toml_skip_fields, toml_field

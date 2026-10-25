@@ -75,3 +75,16 @@ end
     # [deps] and [weakdeps], so this was skipped from 2026-09-17 to 2026-09-21.
     Aqua.test_persistent_tasks(VisualGeometryToolkitFeatures)
 end
+
+@testitem "quality: stack contracts" begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using Test
+    using VisualGeometryToolkitFeatures
+    # The stack contracts, enforced (VisualGeometryToolkitCore quality/stack_contracts.jl):
+    # no private name of another stack package, and methods on other stack packages'
+    # functions only on their CONTRACT_GENERICS.
+    root = pkgdir(VisualGeometryToolkitFeatures)
+    dirs = filter(isdir, [joinpath(root, "src"), joinpath(root, "ext")])
+    @test isempty(reduce(vcat, [VgtkCore.private_name_violations(d, "VisualGeometryToolkitFeatures") for d in dirs]))
+    @test isempty(VgtkCore.contract_generic_violations(VisualGeometryToolkitFeatures))
+end

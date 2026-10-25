@@ -37,7 +37,10 @@ incumbent through the seeded path of [`locally_optimize`](@ref) — the same
 scorer, inside `ransac`'s wall time. The result is that seeded refine's:
 
 - `estimate`: the refined model, or the raw incumbent when the refined model
-  fails `test_consensus` (as `locally_optimize` keeps its seed);
+  fails `test_consensus` (as `locally_optimize` keeps its seed) or the
+  incumbent's consensus set is too thin to refine (`lo_retcode` `:thin_partition`).
+  The refined model is kept even if it scores below the raw incumbent (there is
+  no `score_guard` at the terminal placement);
 - `lo_retcode`: the inner strategy's (`:not_run` when the seed was kept);
 - `inlier_mask`, `residuals`, `weights`, `quality`, `sigma`, `dof`, `rms`:
   the reported model re-scored under the scorer;
@@ -56,7 +59,8 @@ the label, `"<inner label> (terminal)"`, so result records tell the
 placements apart. TOML: `{ type = "terminal_lo", inner = { … } }`, the inner
 table any registered strategy's. Counting: `CountedLO(TerminalLO(inner))` and
 `TerminalLO(CountedLO(inner))` both count the one terminal call per run that
-keeps a hypothesis (no LO runs inside the race).
+keeps a hypothesis (no LO runs inside the race). A wrapper of `TerminalLO`
+must forward [`lo_placement`](@ref), or `ransac` runs it in the loop.
 """
 struct TerminalLO{L <: AbstractLocalOptimization} <: AbstractLocalOptimization
     inner::L
@@ -83,21 +87,12 @@ struct TerminalPlacement end
 
 Where `ransac` runs the strategy `lo`, dispatched statically in the loop:
 [`InLoopPlacement`](@ref)`()` by default, [`TerminalPlacement`](@ref)`()` for a
-[`TerminalLO`](@ref). A wrapper forwards it to the strategy it wraps (as
-[`CountedLO`](@ref) does), and then also [`terminal_strategy`](@ref).
+[`TerminalLO`](@ref). A wrapper must forward it to the strategy it wraps (as
+[`CountedLO`](@ref) does): a wrapper of a [`TerminalLO`](@ref) that does not
+runs it in the loop's placement.
 """
 lo_placement(::AbstractLocalOptimization) = InLoopPlacement()
 lo_placement(::TerminalLO) = TerminalPlacement()
-
-"""
-    terminal_strategy(lo) -> AbstractLocalOptimization
-
-The strategy a terminal placement runs once on the final incumbent: `inner` of
-a [`TerminalLO`](@ref); a wrapper whose [`lo_placement`](@ref) is terminal
-rewraps its inner strategy's (`CountedLO(TerminalLO(inner))` runs
-`CountedLO(inner)` on the same counters).
-"""
-terminal_strategy(lo::TerminalLO) = lo.inner
 
 # -----------------------------------------------------------------------------
 # Loss TOML tags — the one table mapping the canonical VisualGeometryToolkitCore
@@ -585,6 +580,8 @@ lo_key(::Type{T}, ::Val{F}) where {T, F} = toml_key(T, F)
 Field `f` of strategy `T` from a value the caller supplied by keyword.
 Default: `convert(fieldtype(T, f), v)`; the width field goes through
 [`lo_width_value`](@ref).
+A downstream method is per field (`::Val{:x}`): a method on `Val{F}` for every
+field of its type is ambiguous with the `Val{:width}` catch-all below.
 """
 lo_field(::Type{T}, ::Val{F}, v) where {T, F} = convert(fieldtype(T, F), v)
 lo_field(::Type, ::Val{:width}, w) = lo_width_value(w)
@@ -608,6 +605,8 @@ Field `f` of strategy `T` when the caller omits it: the strategy's
 [`lo_field_from_toml`](@ref); with no such key the field is required
 (`UndefKeywordError`). The width field defaults to `nothing` (follow the
 scorer).
+A downstream method is per field (`::Val{:x}`): a method on `Val{F}` for every
+field of its type is ambiguous with the `Val{:width}` catch-all below.
 """
 function lo_absent(::Type{T}, ::Val{F}; defaults::AbstractDict) where {T, F}
     _lo_has_default(T, F, defaults) || throw(UndefKeywordError(F))

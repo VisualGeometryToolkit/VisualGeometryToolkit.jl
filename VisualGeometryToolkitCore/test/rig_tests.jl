@@ -108,6 +108,20 @@
             @test ids(rig) == (:l, :r)
         end
 
+        @testset "an unposed member: check = false admits it, everything else refuses" begin
+            cm = CameraModel(CameraCalibrationMat(K1))
+            u = BoundedCamera(cm, Size2(640, 480))
+            @test_throws ArgumentError pose(u)
+            @test_throws ArgumentError extrinsics(u)
+            E = EuclideanMap(R, Vec3{Float64}(t))
+            rig = StereoRig(u, u, E; check = false)        # the rig poses its members
+            @test rig isa StereoRig
+            @test VgtkCore.has_extrinsics(source(rig)) && VgtkCore.has_extrinsics(target(rig))
+            @test extrinsics(rig).t ≈ t && Matrix(extrinsics(rig).R) ≈ Matrix(R)   # the given transform survives
+            @test_throws ArgumentError StereoRig(u, u, E)   # checked: members must be posed
+            @test_throws ArgumentError StereoRig(u, u)       # computed from the members
+        end
+
         @testset "a rig of targets — dict storage, labels minted, the frame is the gauge" begin
             Xa = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.1, 0.2, -0.3)), SVector(1.0, 2.0, 3.0))
             Xb = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(-0.2, 0.05, 0.4)), SVector(-1.0, 0.5, 2.0))

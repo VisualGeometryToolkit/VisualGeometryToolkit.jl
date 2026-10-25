@@ -48,6 +48,12 @@
         @test !isempty(methods(VgtkCore.frameplot!))
     end
 
+    @testset "cameraplot! refuses an unposed camera" begin
+        K = SMatrix{3, 3, Float64}(1000.0, 0, 0, 0, 1000.0, 0, 640.0, 480.0, 1.0)
+        unposed = VgtkCore.BoundedCamera(VgtkCore.CameraModel(VgtkCore.CameraCalibrationMat(K)), VgtkCore.Size2(1280, 960))
+        @test_throws ArgumentError VgtkCore.cameraplot!(Makie.Scene(), unposed; frustum_image = zeros(4, 4))
+    end
+
     @testset "frame_segments: a pose's axes, in the pose's frame" begin
         # The NaN-separated form a single `Lines` plot consumes: three axes as
         # (origin, end, NaN) triples with the last separator dropped, one colour

@@ -152,6 +152,8 @@ const CONTRACT_GENERICS = (
     # geometry and camera accessors other packages implement for their own types
     centroid, region, moment_matrix, feature_frame, geom, csponds, focal_length,
     intrinsics, lens, model, extent, bounds_trait, has_extrinsics, Pools.pair_scene,
+    # the lens parameter chart downstream lenses and warps implement (geometry/cameras/lens_chart.jl)
+    parameter_vector, parameter_names, parameter_bounds, with_parameters,
     # the plotting stubs (visualization_stubs.jl) the Makie extensions implement
     imshow!, poly!, matches, matches!, ellipses!,
 )

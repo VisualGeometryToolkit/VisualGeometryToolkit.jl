@@ -127,7 +127,7 @@ public ray_plane_intersection
 # isbits and allocation-free. The verbs are generic words, so they stay public
 # (qualified access), as `model` does.
 export Quad, HeightSurface
-public intersection, chart, bounds, surface
+public intersection, chart, bounds, surface, surface_point
 
 # -----------------------------------------------------------------------------
 # 2. TRANSFORMS - Maps for transforming geometry
@@ -206,7 +206,7 @@ public homogeneous_w, maps_within
 # -----------------------------------------------------------------------------
 # 3. CAMERAS - Camera models, sensors, and projection
 # -----------------------------------------------------------------------------
-export AbstractCamera, PosedCamera, BoundedCamera, CameraModel, Sensor, sensor, CMOS_SENSORS
+export AbstractCamera, PosedCamera, BoundedCamera, CameraModel, Sensor, sensor, CMOS_SENSORS, Board
 public is_posed   # whether a camera or target carries a pose (the rig members' one placement trait)
 export extent
 public BoundsTrait, HasBounds, NoBounds, bounds_trait
@@ -273,7 +273,7 @@ export AbstractTarget, PointTarget, PlanarTarget, resolve, is_resolved   # the t
 export TargetCalibration, Rigid, Affine, ThinPlateSpline, HeightField, CalibrationChain   # a planar target's calibration kinds
 export calibration_jacobian, calibration, is_planar
 export regularizer   # the calibratable-target protocol
-public design, reference   # a planar target's design and its reference (not exported: common words)
+public design, reference, board   # a planar target's design, its reference and its board (not exported: common words)
 public PlanarCalibration, gauge_names, gauge_directions   # the shipped planar kinds as one type; a calibration's gauges
 public TargetManifold                     # a calibratable target's Manifold (minimal_manifold(target))
 export Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)

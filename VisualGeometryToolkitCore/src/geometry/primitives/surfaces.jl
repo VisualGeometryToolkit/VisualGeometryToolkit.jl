@@ -7,25 +7,31 @@
 # element type (Float32, Float64, ForwardDiff.Dual), allocation-free and
 # usable inside a KernelAbstractions kernel:
 #
-#   intersection(s, o, d) -> (t, x)   the ray o + t d meets s at x; NaN if it misses
+#   intersection(s, o, d) -> (t, x)   the ray o + t d (t ≥ 0) meets s at x; NaN if it misses
 #   normal(s, x)                      the unit normal of s at its point x
 #   chart(s, x) -> (u, v)             the chart coordinates of the point x of s
+#   surface_point(s, uv)              the point of s at chart coordinates uv (chart's inverse)
 #   bounds(s) -> Rect                 the chart rectangle s covers
 #
 # A ray is an origin and a direction, two 3-vectors, as `ray_plane_intersection`
-# takes it; there is no ray type.
+# takes it; there is no ray type. It is in the surface's frame (the posed
+# target's destination frame F) and units (metres when physical).
 #
-# The chart is a 3-D frame: an origin o and an orthonormal in-plane basis
-# (e_u, e_v), the normal n = e_u × e_v. The chart coordinates of x are
-# ((x − o)·e_u, (x − o)·e_v), in the units of the frame (a posed target's
-# chart is its TargetFrame: metres when physical). A HeightSurface is the
-# points o + u e_u + v e_v + h(u, v) n of its quad's chart, h the thin-plate
-# spline (numerics/thin_plate_spline.jl) through its nodal heights.
+# Two planar coordinate systems. The METRIC plane coordinates of x are
+# m = ((x − o)·e_u, (x − o)·e_v), (e_u, e_v, n) a right-handed orthonormal
+# frame (a posed target's TargetFrame: metres when physical). The CHART is
+# the design's: m = A c + b, an in-plane affine fixed at construction
+# (identity for a rigid target, the print's Affine otherwise), so
+# chart(s, x) = A⁻¹ (m − b) — a pattern lookup uses nominal coordinates and
+# the print's calibration is corrected, not ignored. The bounds are a
+# rectangle in the chart. A HeightSurface's height is a function of m (a
+# HeightField acts on the calibrated plane point): the points
+# o + m₁ e_u + m₂ e_v + h(m) n.
 #
-# A ray misses when it is parallel to the plane or when its hit's chart
-# coordinates fall outside `bounds` (closed): t and every coordinate of x are
-# then NaN. The rule is the same for both primitives; a HeightSurface tests
-# the surface point Newton ends on.
+# A ray misses when it is parallel to the plane, when the hit is behind its
+# origin (t < 0: a ray is a half-line), when its hit's chart coordinates fall
+# outside `bounds` (closed), or (HeightSurface) when Newton does not
+# converge: t and every coordinate of x are then NaN.
 #
 # Kept here, not in the Primitives submodule, because the height field
 # evaluates the thin-plate spline (included after Primitives), as bbox.jl is
@@ -36,11 +42,14 @@
 """
     intersection(s, o, d) -> (t, x)
 
-Where the ray `o + t d` (origin `o`, direction `d`, both 3-vectors; `d` need
-not be unit) meets the surface `s`: the ray parameter `t` and the point `x`.
-A ray that misses — parallel to a plane, or hitting outside
-[`bounds`](@ref)`(s)` — returns `t` and every coordinate of `x` as `NaN`, never
-an error. Methods: [`Quad`](@ref) (closed form, the arithmetic of
+Where the ray `o + t d`, `t ≥ 0` (origin `o`, direction `d`, both 3-vectors;
+`d` need not be unit) meets the surface `s`: the ray parameter `t` and the
+point `x`. The ray and `x` are in the surface's frame — for
+[`surface`](@ref)`(pt)` the pose's destination frame `F` — and its units
+(metres when the target is physical). A ray that misses — parallel to a
+plane, hitting behind its origin (`t < 0`), hitting outside
+[`bounds`](@ref)`(s)`, or (a [`HeightSurface`](@ref)) not converging —
+returns `t` and every coordinate of `x` as `NaN`, never an error. Methods: [`Quad`](@ref) (closed form, the arithmetic of
 [`ray_plane_intersection`](@ref)) and [`HeightSurface`](@ref) (Newton).
 Allocation-free and generic in the element type, so it runs on the GPU path
 and under `ForwardDiff`.
@@ -50,12 +59,25 @@ function intersection end
 """
     chart(s, x) -> SVector{2}
 
-The chart coordinates `(u, v)` of the point `x` of the surface `s`: the
-projection of `x − o` on the in-plane basis of `s` (the component along the
-normal is ignored, so for a [`HeightSurface`](@ref) they are the coordinates
-under the surface point).
+The chart coordinates `(u, v)` of the point `x` of the surface `s` — the
+DESIGN chart (for [`surface`](@ref)`(pt)`, the coordinates of the target's
+nominal points): the projection of `x − o` on the in-plane basis of `s`, then
+the inverse of the surface's in-plane affine (the print's calibration). The
+component along the normal is ignored, so for a [`HeightSurface`](@ref) they
+are the coordinates under the surface point. `x` is in the surface's frame
+and units, as for [`intersection`](@ref); [`surface_point`](@ref) is the
+inverse.
 """
 function chart end
+
+"""
+    surface_point(s, uv) -> SVector{3}
+
+The point of the surface `s` at chart coordinates `uv` (the inverse of
+[`chart`](@ref)): the in-plane affine applied, placed in the frame, lifted by
+the height for a [`HeightSurface`](@ref). In the surface's frame and units.
+"""
+function surface_point end
 
 """
     bounds(s) -> Rect2
@@ -70,63 +92,100 @@ function bounds end
 The surface a ray meets on the posed planar target `pt`, in the pose's
 destination frame: the frame of the [`Quad`](@ref) is the target's
 TargetFrame placed by `pose(pt)` (origin its translation, `e_u`, `e_v` and the
-normal the rotation's columns), its chart coordinates are TargetFrame `(x, y)`,
-and its rectangle is the bounding box of the CALIBRATED design's in-plane
-coordinates ([`points`](@ref)`(model(pt))`).
+normal the rotation's columns: the normal is TargetFrame +z, heights are
+positive along it, and nothing is turned towards a viewer). Its CHART is the
+design chart: the target's in-plane calibration (`Rigid` or `Affine`, or a
+chain of them) is the quad's affine, so [`chart`](@ref) of a hit is the
+nominal coordinates it shows. Its rectangle, in that chart, is
+`Rect(`[`board`](@ref)`(t))` when the target has a [`Board`](@ref), else the
+bounding box of the nominal points grown by a rounding margin (16 eps of its
+coordinates), so a ray at a design point on the box's edge is a hit.
 
-- A planar calibration ([`is_planar`](@ref): `Rigid`, `Affine`,
-  `ThinPlateSpline` and chains of them) gives a `Quad`.
+- A planar calibration (`Rigid`, `Affine` and chains of them) gives a `Quad`.
 - A [`HeightField`](@ref), alone or last in a [`CalibrationChain`](@ref) after
-  in-plane members, gives a [`HeightSurface`](@ref) over that `Quad` with the
-  field's nodes and heights and the weights the field formed once, when it was
-  built; nothing is solved per ray.
+  those, gives a [`HeightSurface`](@ref) over that `Quad` with the field's
+  nodes and heights (in the calibrated plane coordinates, TargetFrame
+  `(x, y)`) and the weights the field formed once, when it was built; nothing
+  is solved per ray.
+- An in-plane [`ThinPlateSpline`](@ref) member is not supported by the ray
+  primitives yet: an `ArgumentError` naming it.
 
 A physical target (metres) gives a primitive in metres, plain numbers. An
 uncertain pose or calibration gives its value. A `PointTarget` has no surface
-(a `MethodError`).
+(a `MethodError`). The kind is chosen by the calibration's type, so a rigid
+target's ray caster never compiles the height field's Newton loop.
 """
 function surface end   # the method: geometry/cameras/target_surfaces.jl
 
 """
-    Quad(origin, e_u, e_v, rect::Rect2)
+    Quad(origin, frame, rect::Rect2, A = I, b = 0)
     Quad{T}(q::Quad)
 
-A bounded plane: the rectangle `rect` of the chart carried by the 3-D frame
-`origin`, `(e_u, e_v)` — `e_u`, `e_v` an orthonormal in-plane basis, the normal
-`e_u × e_v`. A point with chart coordinates `(u, v)` is `origin + u e_u + v e_v`.
-`Quad{T}(q)` converts the element type (`Float32` for a device).
+A bounded plane. `frame` is a right-handed orthonormal 3 × 3 matrix (a
+rotation) whose columns are the in-plane basis `e_u`, `e_v` and the normal
+`n = e_u × e_v`; a point with metric plane coordinates `m` is
+`origin + m₁ e_u + m₂ e_v`. The CHART is `c` with `m = A c + b` (`A` an
+invertible 2 × 2 matrix, inverted once here), and `rect` is a rectangle in
+the chart. A left-handed or non-orthonormal `frame` (tolerance `1e-12`), a
+singular `A` or a negative width is an `ArgumentError`. `Quad{T}(q)` converts
+the element type (`Float32` for a device).
 
 isbits. [`intersection`](@ref) is [`ray_plane_intersection`](@ref)'s
-arithmetic, bit for bit, `NaN` outside `rect`; [`normal`](@ref) is the plane's;
-[`chart`](@ref) and [`bounds`](@ref) as their docstrings. A rigid or in-plane
-calibrated target's [`surface`](@ref) is a `Quad`.
+arithmetic, bit for bit, `NaN` when `t < 0` or the hit's chart is outside
+`rect`; [`chart`](@ref)`(q, x) = A⁻¹ (m − b)`; [`surface_point`](@ref) its
+inverse; [`bounds`](@ref) is `rect`. [`normal`](@ref) is the GEOMETRIC normal
+`n` on either side: a consumer that wants the normal facing the camera flips
+it against the ray (shading, not geometry). A rigid or affine-calibrated
+target's [`surface`](@ref) is a `Quad`.
+
+Under ChainRules (reverse mode) the plane is a constant of
+`ray_plane_intersection`, so a `Quad`'s intersection carries no gradient to
+its pose; ForwardDiff does.
 """
 struct Quad{T}
     plane::Plane3D{T}
     origin::SVector{3, T}
     e_u::SVector{3, T}
     e_v::SVector{3, T}
-    rect::Rect2{T}
+    A::SMatrix{2, 2, T, 4}        # chart → metric plane coordinates, m = A c + b
+    b::SVector{2, T}
+    A_inv::SMatrix{2, 2, T, 4}    # formed once, here
+    rect::Rect2{T}                # in the chart
 end
-function Quad(origin::StaticVector{3}, e_u::StaticVector{3}, e_v::StaticVector{3}, rect::Rect2)
-    T = float(promote_type(eltype(origin), eltype(e_u), eltype(e_v), eltype(rect.origin)))
-    o, u, v = SVector{3, T}(origin), SVector{3, T}(e_u), SVector{3, T}(e_v)
-    tol = sqrt(eps(T))
-    (abs(dot(u, u) - 1) <= tol && abs(dot(v, v) - 1) <= tol && abs(dot(u, v)) <= tol) ||
-        throw(ArgumentError("Quad: the in-plane basis (e_u, e_v) must be orthonormal"))
+const _FRAME_TOLERANCE = 1.0e-12
+function Quad(origin::StaticVector{3}, frame::StaticMatrix{3, 3}, rect::Rect2,
+              A::StaticMatrix{2, 2} = SMatrix{2, 2, Float64}(1, 0, 0, 1), b::StaticVector{2} = SVector(0.0, 0.0))
+    T = float(promote_type(eltype(origin), eltype(frame), eltype(rect.origin), eltype(A), eltype(b)))
+    R = SMatrix{3, 3, T}(frame)
+    maximum(abs, R' * R - I) <= _FRAME_TOLERANCE ||
+        throw(ArgumentError("Quad: the frame (e_u, e_v, n) must be orthonormal to $(_FRAME_TOLERANCE)"))
+    det(R) > 0 || throw(ArgumentError("Quad: the frame (e_u, e_v, n) is left-handed; the normal is e_u × e_v"))
+    all(>=(0), rect.widths) || throw(ArgumentError("Quad: the rectangle has a negative width, $(rect.widths)"))
+    Aₜ = SMatrix{2, 2, T}(A)
+    dA = det(Aₜ)
+    (isfinite(dA) && !iszero(dA)) || throw(ArgumentError("Quad: the chart's affine A is singular"))
+    o, u, v = SVector{3, T}(origin), R[:, 1], R[:, 2]
     plane = Plane3D(Point3{T}(o...), Vec3{T}(cross(u, v)...))
-    return Quad{T}(plane, o, u, v, Rect2{T}(rect))
+    return Quad{T}(plane, o, u, v, Aₜ, SVector{2, T}(b), inv(Aₜ), Rect2{T}(rect))
 end
 Quad{T}(q::Quad{T}) where {T} = q
-Quad{T}(q::Quad) where {T} = Quad{T}(Plane3D{T}(q.plane.coeffs), q.origin, q.e_u, q.e_v, Rect2{T}(q.rect))
-Base.:(==)(a::Quad, b::Quad) = a.plane.coeffs == b.plane.coeffs && a.origin == b.origin && a.e_u == b.e_u && a.e_v == b.e_v && a.rect == b.rect
+Quad{T}(q::Quad) where {T} = Quad{T}(Plane3D{T}(q.plane.coeffs), q.origin, q.e_u, q.e_v, q.A, q.b, q.A_inv, Rect2{T}(q.rect))
+_quad_fields(q::Quad) = (q.plane.coeffs, q.origin, q.e_u, q.e_v, q.A, q.b, q.A_inv, q.rect)
+Base.:(==)(a::Quad, b::Quad) = _quad_fields(a) == _quad_fields(b)
+Base.hash(q::Quad, h::UInt) = hash(_quad_fields(q), hash(:Quad, h))
 
 normal(q::Quad) = normal(q.plane)
 normal(q::Quad, x::StaticVector{3}) = normal(q.plane)
 bounds(q::Quad) = q.rect
-@inline function chart(q::Quad, x::StaticVector{3})
+# the metric plane coordinates m of x
+@inline function _plane_coordinates(q::Quad, x::StaticVector{3})
     δ = x - q.origin
     return SVector(dot(δ, q.e_u), dot(δ, q.e_v))
+end
+@inline chart(q::Quad, x::StaticVector{3}) = q.A_inv * (_plane_coordinates(q, x) - q.b)
+@inline function surface_point(q::Quad, uv::StaticVector{2})
+    m = q.A * uv + q.b
+    return q.origin + m[1] * q.e_u + m[2] * q.e_v
 end
 
 # The unbounded plane hit, as `ray_plane_intersection` computes it (its
@@ -142,9 +201,10 @@ end
     return (lo[1] <= c[1]) & (c[1] <= lo[1] + w[1]) & (lo[2] <= c[2]) & (c[2] <= lo[2] + w[2])
 end
 
-# (t, x) when x's chart coordinates lie in the rectangle, NaN otherwise.
-@inline function _within(q::Quad, t, x::StaticVector{3})
-    inside = _in_rect(q.rect, chart(q, x))
+# (t, x) for a hit in front of the origin whose chart coordinates lie in the
+# rectangle, NaN otherwise.
+@inline function _within(q::Quad, t, x::StaticVector{3}, ok = true)
+    inside = ok & (t >= 0) & _in_rect(q.rect, chart(q, x))
     nan = oftype(t, NaN)
     return ifelse(inside, t, nan), ifelse(inside, x, SVector(nan, nan, nan))
 end
@@ -158,21 +218,35 @@ end
     HeightSurface(quad, nodes, heights, w, a)
     HeightSurface{K, T}(s::HeightSurface)
 
-A height field over a [`Quad`](@ref): the points `o + u e_u + v e_v + h(u, v) n`
-for `(u, v)` in the quad's chart, `h` the thin-plate spline through the `K`
-nodal `heights` at the chart points `nodes`, with its weights `w` and affine
-part `a` ([`tps_coefficients`](@ref); formed once, by whoever builds the
-surface — [`surface`](@ref) takes them from the [`HeightField`](@ref)).
-`HeightSurface{K, T}(s)` converts the element type.
+A height field over a [`Quad`](@ref): the points `o + m₁ e_u + m₂ e_v + h(m) n`
+for `m` in the quad's metric plane coordinates, `h` the thin-plate spline
+through the `K` nodal `heights` at the plane points `nodes` (metric plane
+coordinates: a target's calibrated TargetFrame `(x, y)`, which is the design
+chart when the quad's affine is the identity), with its weights `w` and
+affine part `a` ([`tps_coefficients`](@ref); formed once, by whoever builds
+the surface — [`surface`](@ref) takes them from the [`HeightField`](@ref)).
+Heights are positive along the quad's normal. `HeightSurface{K, T}(s)`
+converts the element type.
 
 isbits. [`intersection`](@ref) is Newton's method on
-`g(t) = (o_ray + t d − o)·n − h(chart(o_ray + t d))`, started at the plane hit
-and run for exactly four iterations (RadiometricCamera's count: the slope of
-a print's height field is small, and the convergence quadratic); the hit is
-`NaN` when the surface point it ends on lies outside [`bounds`](@ref).
-[`normal`](@ref)`(s, x)` is the unit normal `(n − ∂h/∂u e_u − ∂h/∂v e_v) / ‖·‖`
+`g(t) = (o_ray + t d − o)·n − h(m(o_ray + t d))`, started at the plane hit:
+four iterations unconditionally (RadiometricCamera's count, so a ray that
+has converged by then is bit-identical to it), then up to sixteen more while
+the update is above rounding. The update `Δt` counts as rounding when
+`|Δt|·‖d‖ ≤ 64 eps(T) · (L + |t|‖d‖)` (it is then not applied), `L` the
+diagonal of [`bounds`](@ref) — a length scale of the surface; the iteration
+also counts as converged if its last applied update was below
+`√eps(T) · (L + |t|‖d‖)` (rounding amplified at grazing incidence).
+Otherwise the ray is a miss (`NaN`), as is one whose final surface point is
+behind the origin or outside `bounds`. The four iterations alone suffice
+while the height's slope × tan(incidence) is well below 1 (a print's warp);
+the continuation covers steep or grazing cases.
+
+[`normal`](@ref)`(s, x)` is the unit normal `(n − ∂h/∂m₁ e_u − ∂h/∂m₂ e_v) / ‖·‖`
 from the spline's analytic gradient ([`tps_gradient`](@ref)), on the side of
-the quad's normal.
+the quad's normal (geometric; flip it against the ray for a camera-facing
+one). [`chart`](@ref) and [`surface_point`](@ref) are the quad's, the latter
+lifted by the height.
 """
 struct HeightSurface{K, T}
     quad::Quad{T}
@@ -190,33 +264,67 @@ end
 HeightSurface{K, T}(s::HeightSurface{K, T}) where {K, T} = s
 HeightSurface{K, T}(s::HeightSurface{K}) where {K, T} =
     HeightSurface{K, T}(Quad{T}(s.quad), SVector{K, SVector{2, T}}(s.nodes), SVector{K, T}(s.heights), SVector{K, T}(s.w), SVector{3, T}(s.a))
-Base.:(==)(a::HeightSurface, b::HeightSurface) =
-    a.quad == b.quad && a.nodes == b.nodes && a.heights == b.heights && a.w == b.w && a.a == b.a
+_height_surface_fields(s::HeightSurface) = (s.quad, s.nodes, s.heights, s.w, s.a)
+Base.:(==)(a::HeightSurface, b::HeightSurface) = _height_surface_fields(a) == _height_surface_fields(b)
+Base.hash(s::HeightSurface, h::UInt) = hash(_height_surface_fields(s), hash(:HeightSurface, h))
 
 bounds(s::HeightSurface) = bounds(s.quad)
 chart(s::HeightSurface, x::StaticVector{3}) = chart(s.quad, x)
+@inline _height(s::HeightSurface, m::StaticVector{2}) = tps_evaluate(s.nodes, s.w, s.a, m)
+@inline function surface_point(s::HeightSurface, uv::StaticVector{2})
+    q = s.quad
+    m = q.A * uv + q.b
+    return q.origin + m[1] * q.e_u + m[2] * q.e_v + _height(s, m) * normal(q)
+end
 @inline function normal(s::HeightSurface, x::StaticVector{3})
     q = s.quad
-    g = tps_gradient(s.nodes, s.w, s.a, chart(q, x))
+    g = tps_gradient(s.nodes, s.w, s.a, _plane_coordinates(q, x))
     return LinearAlgebra.normalize(normal(q) - g[1] * q.e_u - g[2] * q.e_v)
 end
 
-# RadiometricCamera's count (src/board/warping.jl `intersect_board`)
+# RadiometricCamera's count (src/board/warping.jl `intersect_board`), then the
+# continuation's cap.
 const _HEIGHT_NEWTON_ITERATIONS = 4
+const _HEIGHT_NEWTON_MAX_ITER = 20
+
+# eps of a value's float type, through ForwardDiff's Dual
+_value_eps(x) = eps(float(typeof(ForwardDiff.value(x))))
 
 @inline function intersection(s::HeightSurface, o::StaticVector{3}, d::StaticVector{3})
     q = s.quad
     n = normal(q)
     den = dot(d, n)                       # g′ without the height's slope
-    s0 = dot(q.origin - o, n)             # g(t) = t den − s0 − h(chart(x))
+    s0 = dot(q.origin - o, n)             # g(t) = t den − s0 − h(m(x))
     t, x = _plane_hit(q, o, d)            # the seed
-    cd = SVector(dot(d, q.e_u), dot(d, q.e_v))   # the chart velocity of the ray
+    cd = SVector(dot(d, q.e_u), dot(d, q.e_v))   # the plane velocity of the ray
     for _ in 1:_HEIGHT_NEWTON_ITERATIONS
-        c = chart(q, x)
-        g = t * den - s0 - tps_evaluate(s.nodes, s.w, s.a, c)
-        gp = den - dot(tps_gradient(s.nodes, s.w, s.a, c), cd)
+        m = _plane_coordinates(q, x)
+        g = t * den - s0 - _height(s, m)
+        gp = den - dot(tps_gradient(s.nodes, s.w, s.a, m), cd)
         t -= g / gp
         x = o + t * d
     end
-    return _within(q, t, x)
+    # the continuation: stop at a rounding-level update, which is not applied
+    # (a converged ray keeps RadiometricCamera's four-iteration bits)
+    nd = norm(d)
+    L = hypot(q.rect.widths[1], q.rect.widths[2])
+    ε = _value_eps(t)
+    converged = false
+    last = oftype(abs(t), Inf)
+    for _ in (_HEIGHT_NEWTON_ITERATIONS + 1):_HEIGHT_NEWTON_MAX_ITER
+        m = _plane_coordinates(q, x)
+        g = t * den - s0 - _height(s, m)
+        gp = den - dot(tps_gradient(s.nodes, s.w, s.a, m), cd)
+        Δ = g / gp
+        scale = L + abs(t) * nd
+        if abs(Δ) * nd <= 64 * ε * scale
+            converged = true
+            break
+        end
+        last = abs(Δ) * nd / scale
+        t -= Δ
+        x = o + t * d
+    end
+    converged |= last <= sqrt(ε)
+    return _within(q, t, x, converged)
 end

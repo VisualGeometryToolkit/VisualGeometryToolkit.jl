@@ -116,8 +116,8 @@ with_unit(t::PointTarget, u::Units) = PointTarget([_attach_point(u, p) for p in 
 # ------------------------------------------------------------------------------
 
 """
-    PlanarTarget(nominal; calibration = Rigid())                  a design given by its points
-    PlanarTarget(design::Symbol; nominal = nothing, calibration = Rigid())   a content-addressed design
+    PlanarTarget(nominal; calibration = Rigid(), board = nothing)                  a design given by its points
+    PlanarTarget(design::Symbol; nominal = nothing, calibration = Rigid(), board = nothing)   a content-addressed design
 
 A planar target: a DESIGN — its nominal plane points, and/or the reference
 `design` they are resolved from (a BlobBoards board uid) — and a
@@ -140,18 +140,49 @@ height field's nodes and heights) is in the same form, or the constructor
 raises FlexUnits' `DimensionError`. `ustrip(u, t)` and [`with_unit`](@ref)`(t, u)`
 move the points and the calibration together. An unresolved target holds no
 points: it is neither form, and both move only its calibration.
+
+`board` is the board the design is printed on, a [`Board`](@ref) (its size and
+its corner in the design chart), or `nothing` — the target's analogue of a
+camera's [`Sensor`](@ref): `Rect(board)` is the printed domain in the design
+chart, and [`surface`](@ref) bounds the target's primitive by it. A board is
+lengths, so a resolved target with a board has physical points (FlexUnits'
+`DimensionError` otherwise), and they lie inside `Rect(board)` (an
+`ArgumentError` otherwise). Being in the design chart, the board is the same
+rectangle under any calibration. [`board`](@ref)`(t)` reads it; `ustrip` of a
+target with a board is an `ArgumentError` (plain points beside a board in
+lengths would be two forms).
 """
 struct PlanarTarget{C <: TargetCalibration, N <: Union{Nothing, Vector{<:SVector{2}}}, S <: Union{C, Uncertain{C}}} <: AbstractTarget
     reference::Union{Nothing, Symbol}
     nominal::N
     calibration::S
-    function PlanarTarget(reference::Union{Nothing, Symbol}, nominal, calibration::Union{TargetCalibration, Uncertain{<:TargetCalibration}})
+    board::Union{Nothing, Board}
+    function PlanarTarget(
+            reference::Union{Nothing, Symbol}, nominal, calibration::Union{TargetCalibration, Uncertain{<:TargetCalibration}},
+            board::Union{Nothing, Board} = nothing
+        )
         (reference === nothing && nominal === nothing) &&
             throw(ArgumentError("a planar target has a design reference, nominal points, or both"))
         n = nominal === nothing ? nothing : _nominal_points(nominal)
         _check_calibration(n, calibration)
-        return new{typeof(geom(calibration)), typeof(n), typeof(calibration)}(reference, n, calibration)
+        _check_board(n, board)
+        return new{typeof(geom(calibration)), typeof(n), typeof(calibration)}(reference, n, calibration, board)
     end
+end
+# A board is lengths: the nominal points are too, and lie on it (in the design
+# chart, metres).
+function _check_board(nominal, bd)
+    (bd === nothing || nominal === nothing || isempty(nominal)) && return nothing
+    has_units(first(nominal)) || throw(DimensionError(first(nominal), bd.size.width))
+    r = Rect(bd)
+    lo, hi = r.origin, r.origin + r.widths
+    for p in nominal
+        q = map(x -> ustrip(m, x), p)
+        (lo[1] <= q[1] <= hi[1] && lo[2] <= q[2] <= hi[2]) || throw(
+            ArgumentError("PlanarTarget: the nominal point $(Tuple(q)) m lies off the board, $(Tuple(lo)) to $(Tuple(hi)) m")
+        )
+    end
+    return nothing
 end
 # The nominal points stored (an empty design is a plain one, as before).
 function _nominal_points(nominal)
@@ -171,8 +202,9 @@ function _check_calibration(nominal, c)
     has_units(first(nominal)) == has_units(geom(c)) && return nothing
     throw(DimensionError(first(nominal), _length_sample(geom(c))))
 end
-PlanarTarget(nominal::AbstractVector; calibration = Rigid()) = PlanarTarget(nothing, nominal, calibration)
-PlanarTarget(reference::Symbol; nominal = nothing, calibration = Rigid()) = PlanarTarget(reference, nominal, calibration)
+PlanarTarget(nominal::AbstractVector; calibration = Rigid(), board = nothing) = PlanarTarget(nothing, nominal, calibration, board)
+PlanarTarget(reference::Symbol; nominal = nothing, calibration = Rigid(), board = nothing) =
+    PlanarTarget(reference, nominal, calibration, board)
 
 """
     calibration(t::PlanarTarget) -> TargetCalibration or Uncertain
@@ -209,12 +241,21 @@ when it is not. The physical target is `calibration(t)` applied to it.
 design(t::PlanarTarget) = something(t.nominal, t.reference)
 
 """
+    board(t::PlanarTarget) -> Union{Nothing, Board}
+
+The board the target's design is printed on ([`Board`](@ref)), or `nothing`
+when the target does not carry one. `Rect(board(t))` is its domain in the
+design chart, plain metres.
+"""
+board(t::PlanarTarget) = t.board
+
+"""
     resolve(t::PlanarTarget, nominal) -> PlanarTarget
 
 The target with its design's nominal points supplied — what the design's
 owner returns for the reference `reference(t)`.
 """
-resolve(t::PlanarTarget, nominal::AbstractVector) = PlanarTarget(t.reference, nominal, t.calibration)
+resolve(t::PlanarTarget, nominal::AbstractVector) = PlanarTarget(t.reference, nominal, t.calibration, t.board)
 
 """
     is_resolved(t) -> Bool
@@ -258,17 +299,23 @@ points(t::PlanarTarget) = _calibrated_points(t, geom(t.calibration), t.nominal)
 _calibrated_points(t, _, ::Nothing) = _refuse_unresolved(t)
 _calibrated_points(_, c, nominal) = [c(p) for p in nominal]
 Base.:(==)(a::PlanarTarget, b::PlanarTarget) =
-    a.reference === b.reference && isequal(a.nominal, b.nominal) && a.calibration == b.calibration
-Base.hash(t::PlanarTarget, h::UInt) = hash(t.calibration, hash(t.nominal, hash(t.reference, hash(:PlanarTarget, h))))
+    a.reference === b.reference && isequal(a.nominal, b.nominal) && a.calibration == b.calibration && a.board == b.board
+Base.hash(t::PlanarTarget, h::UInt) =
+    hash(t.board, hash(t.calibration, hash(t.nominal, hash(t.reference, hash(:PlanarTarget, h)))))
 
 # Units: a resolved target's nominal points move, and with them a calibration
 # that has lengths; an unresolved one moves only its calibration.
 has_units(t::PlanarTarget) = is_resolved(t) ? has_units(t.nominal) : has_units(geom(t.calibration))
-FlexUnits.ustrip(u::Units, t::PlanarTarget) = PlanarTarget(
-    t.reference, is_resolved(t) ? [_ustrip_point(u, p) for p in t.nominal] : nothing, _ustrip_calibration(u, t.calibration)
-)
+function FlexUnits.ustrip(u::Units, t::PlanarTarget)
+    t.board === nothing || throw(
+        ArgumentError("ustrip: the target has a board, which is lengths; plain points beside it would be two forms (strip `model` parts instead)")
+    )
+    return PlanarTarget(
+        t.reference, is_resolved(t) ? [_ustrip_point(u, p) for p in t.nominal] : nothing, _ustrip_calibration(u, t.calibration)
+    )
+end
 with_unit(t::PlanarTarget, u::Units) = PlanarTarget(
-    t.reference, is_resolved(t) ? [_attach_point(u, p) for p in t.nominal] : nothing, _attach_calibration(u, t.calibration)
+    t.reference, is_resolved(t) ? [_attach_point(u, p) for p in t.nominal] : nothing, _attach_calibration(u, t.calibration), t.board
 )
 
 # --- the calibratable-target protocol ------------------------------------------------
@@ -279,7 +326,7 @@ with_unit(t::PlanarTarget, u::Units) = PlanarTarget(
 parameter_vector(t::PlanarTarget) = parameter_vector(geom(t.calibration))
 
 parameter_names(t::PlanarTarget) = parameter_names(geom(t.calibration))
-with_parameters(t::PlanarTarget, θ::AbstractVector) = PlanarTarget(t.reference, t.nominal, with_parameters(geom(t.calibration), θ))
+with_parameters(t::PlanarTarget, θ::AbstractVector) = PlanarTarget(t.reference, t.nominal, with_parameters(geom(t.calibration), θ), t.board)
 parameters(t::PlanarTarget) = NamedTuple{parameter_names(t)}(Tuple(parameter_vector(t)))
 regularizer(t::PlanarTarget) = regularizer(geom(t.calibration))
 is_planar(::PlanarTarget{C}) where {C} = is_planar(C)

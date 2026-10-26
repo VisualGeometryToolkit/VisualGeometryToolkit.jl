@@ -30,6 +30,18 @@ Private = false
 Pages = ["cameras/intrinsics.jl", "cameras/sensors.jl"]
 ```
 
+## Boards
+
+A planar target's [`Board`](@ref) is the sensor's analogue: the printed
+board's size (lengths) and its corner in the design chart; `Rect(board)` is its
+domain there, as `Rect(sensor)` is the image's in pixels.
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Cameras]
+Private = false
+Pages = ["cameras/boards.jl"]
+```
+
 ## Index
 
 ```@index

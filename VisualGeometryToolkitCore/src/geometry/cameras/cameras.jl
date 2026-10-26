@@ -100,6 +100,7 @@ using ..VisualGeometryToolkitCore: pointwise!, ExecutionPolicy, Auto   # a lens 
 import ..VisualGeometryToolkitCore: aspect_ratio  # Extend interface stub (shared with Primitives)
 import ..VisualGeometryToolkitCore: surface   # a posed target's primitive (target_surfaces.jl)
 using ..VisualGeometryToolkitCore: Quad, HeightSurface, Rect2, rotation
+using ..VisualGeometryToolkitCore: _check_length   # a length, or a DimensionError (euclidean_map.jl)
 using ..VisualGeometryToolkitCore: Attributed, csponds  # composition primitives (depth-attributed points, correspondence sets)
 using ..VisualGeometryToolkitCore: sources, targets, centroid  # correspondence access protocol (#21)
 using ..VisualGeometryToolkitCore: AbstractCamera  # Abstract camera type from interface
@@ -164,6 +165,7 @@ using ..VisualGeometryToolkitCore: MinimalSolver, FixedModels
 
 # Include sensor specifications
 include("sensors.jl")
+include("boards.jl")           # Board: the board a planar target's pattern is printed on (the sensor's analogue)
 
 # Include modular camera components
 include("intrinsics.jl")
@@ -855,6 +857,8 @@ include("calibration.jl")  # zhang_intrinsics — Zhang IAC regression from plan
 # 1. SENSORS - Physical CMOS specifications
 # -----------------------------------------------------------------------------
 export Sensor, sensor                  # Sensor type and lookup
+export Board                            # the board a planar target's pattern is printed on (boards.jl)
+export board                            # a planar target's board (targets.jl; public, not exported, at the top level)
 export CMOS_SENSORS                    # Database of common sensors
 
 # -----------------------------------------------------------------------------

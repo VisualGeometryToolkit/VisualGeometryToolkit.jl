@@ -20,7 +20,7 @@ are method-form accessors (the second camera's is `destination`):
 - `extrinsics(rig)`: the relative rigid transform (monogram `X_{V₂V₁}`),
   DERIVED from the stored per-camera maps as
   `extrinsics(rig, 2) ∘ pose(rig, 1)` — it consumes source-view
-  (`ViewFrame{id₁}`) coordinates and produces target-view
+  (`ViewFrame{id₁}`) coordinates and produces destination-view
   (`ViewFrame{id₂}`) coordinates, i.e. `X₂ = R·X₁ + t`.
 - `pose(rig)`: `inv(extrinsics(rig))` (the typed algebra swaps the frames,
   `X_{V₁V₂}`).
@@ -34,7 +34,7 @@ the per-camera rig-relative maps).
 # Constructors
 ```julia
 StereoRig(left_camera, right_camera)   # Computes relative transform
-StereoRig(source, target, extrinsics)  # Explicit transform, CHECKED against
+StereoRig(source, destination, extrinsics)  # Explicit transform, CHECKED against
                                        # the cameras (check = false to skip)
 StereoRig(left, right; ids = (:left, :right))  # Mint per-view identities
 ```
@@ -51,7 +51,7 @@ epipolar forms. Purely additive: nothing in the rig forces identities onto
 callers who ignore them.
 
 The 3-arg constructor validates the given transform against
-`extrinsics(target) ∘ pose(source)` computed from the GIVEN cameras
+`extrinsics(destination) ∘ pose(source)` computed from the GIVEN cameras
 (`check = true` by default, `atol` tolerance on the rotation angle and the
 relative translation deviation). Supply `check = false` for synthetic rigs
 whose cameras are placeholders and do not encode the relative geometry.
@@ -64,31 +64,31 @@ const StereoRig{F <: Frame{3}, U <: AbstractCamera, V <: AbstractCamera} =
 
 # Consistency gate for the 3-arg constructor (mirrors the EuclideanMap
 # check/atol idiom): the caller-supplied relative transform must agree with
-# the one implied by the GIVEN cameras, `extrinsics(target) ∘ pose(source)`.
+# the one implied by the GIVEN cameras, `extrinsics(destination) ∘ pose(source)`.
 # Rotation deviation is the relative rotation angle (radians); translation
 # deviation is relative, unit-free: the deviation over the larger of the
 # expected baseline and the two camera centres' distances from the world
 # origin. The centres floor a near-zero baseline at the scale the composition
-# `extrinsics(target) ∘ pose(source)` rounds at, in the data's own unit (a
+# `extrinsics(destination) ∘ pose(source)` rounds at, in the data's own unit (a
 # plain map is in the caller's unit, so no fixed floor can be right for it —
 # frames.md rule 4).
 function _assert_rig_consistency(
-        source, target, given::EuclideanMap{3};
+        source, destination, given::EuclideanMap{3};
         atol::Real   # StereoRig's `atol` is the one authority
     )
-    expected = extrinsics(target) ∘ pose(source)
+    expected = extrinsics(destination) ∘ pose(source)
     # a physical relative pose against plain cameras (or the reverse) never compares
     has_units(given) == has_units(expected) || throw(DimensionError(translation(given), translation(expected)))
     dev_rot = Rotations.rotation_angle(RotMatrix{3}(SMatrix{3, 3, Float64, 9}(given.R)' * SMatrix{3, 3, Float64, 9}(expected.R)))
     t_given, t_expected = _translation_metres(given), _translation_metres(expected)
-    scale = max(norm(t_expected), norm(_translation_metres(pose(source))), norm(_translation_metres(pose(target))))
+    scale = max(norm(t_expected), norm(_translation_metres(pose(source))), norm(_translation_metres(pose(destination))))
     Δ = norm(t_given - t_expected)
     dev_t = Δ == 0 ? 0.0 : Δ / scale
     (dev_rot ≤ atol && dev_t ≤ atol) && return nothing
     throw(
         ArgumentError(
             "StereoRig: the given relative transform disagrees with " *
-                "extrinsics(target) ∘ pose(source) from the given cameras: " *
+                "extrinsics(destination) ∘ pose(source) from the given cameras: " *
                 "rotation deviation = $dev_rot rad, relative translation " *
                 "deviation = $dev_t (tolerance = $atol). Supply `check=false` " *
                 "for synthetic rigs whose cameras are placeholders."
@@ -97,24 +97,24 @@ function _assert_rig_consistency(
 end
 
 function StereoRig(
-        source::AbstractCamera, target::AbstractCamera, extrinsics::EuclideanMap{3};
+        source::AbstractCamera, destination::AbstractCamera, extrinsics::EuclideanMap{3};
         ids::Tuple{Symbol, Symbol} = (:cam1, :cam2),
         check::Bool = true,
         atol::Real = 1.0e-6
     )
     # the check reads the given cameras' poses; unchecked, only their models are kept
-    check && _check_posed("StereoRig", (source, target))
-    check && _assert_rig_consistency(source, target, extrinsics; atol = atol)
+    check && _check_posed("StereoRig", (source, destination))
+    check && _assert_rig_consistency(source, destination, extrinsics; atol = atol)
     # A physical relative pose: the rig is built from the plain one in metres, then
     # read back in metres — the same numbers as the plain construction. (The
     # cameras give only their models here; their poses were the check's.)
     has_units(extrinsics) &&
-        return with_unit(StereoRig(source, target, ustrip(m, extrinsics); ids, check = false), m)
+        return with_unit(StereoRig(source, destination, ustrip(m, extrinsics); ids, check = false), m)
     X = relabel(ViewFrame{ids[1]}, ViewFrame{ids[2]}, extrinsics)
     F = ViewFrame{ids[1]}
     T = eltype(X.t)
     ident = relabel(F, F, EuclideanMap(one(RotMatrix{3, T}), zero(Vec3{T})))
-    return Rig{F}((_with_extrinsics(source, ident), _with_extrinsics(target, X)))
+    return Rig{F}((_with_extrinsics(source, ident), _with_extrinsics(destination, X)))
 end
 
 # 2-arg form takes either PosedCamera or BoundedCamera (or any posed AbstractCamera).
@@ -122,12 +122,12 @@ end
 # BoundedCamera transparently delegates to the inner camera. The relative
 # transform is computed FROM the cameras here, so the consistency check
 # would compare it against itself — skip it.
-function StereoRig(source::AbstractCamera, target::AbstractCamera; ids::Tuple{Symbol, Symbol} = (:cam1, :cam2))
-    _check_posed("StereoRig", (source, target))
+function StereoRig(source::AbstractCamera, destination::AbstractCamera; ids::Tuple{Symbol, Symbol} = (:cam1, :cam2))
+    _check_posed("StereoRig", (source, destination))
     # physical cameras compose in metres, plain; a physical camera beside a plain one is refused
-    (has_units(source) || has_units(target)) &&
-        return with_unit(StereoRig(ustrip(m, source), ustrip(m, target); ids), m)
-    return StereoRig(source, target, extrinsics(target) ∘ pose(source); ids, check = false)
+    (has_units(source) || has_units(destination)) &&
+        return with_unit(StereoRig(ustrip(m, source), ustrip(m, destination); ids), m)
+    return StereoRig(source, destination, extrinsics(destination) ∘ pose(source); ids, check = false)
 end
 
 """
@@ -149,7 +149,7 @@ destination(rig::StereoRig) = rig.members[2]
 """
     extrinsics(rig::StereoRig) -> EuclideanMap
 
-The source→target relative rigid transform (monogram `X_{V₂V₁}`), DERIVED
+The source→destination relative rigid transform (monogram `X_{V₂V₁}`), DERIVED
 on demand from the stored per-camera rig-relative maps as
 `extrinsics(rig, 2) ∘ pose(rig, 1)` — labeled
 `ViewFrame{id₁} → ViewFrame{id₂}`, i.e. `X₂ = R·X₁ + t`. With the stereo
@@ -161,7 +161,7 @@ extrinsics(rig::StereoRig) = extrinsics(rig, 2) ∘ pose(rig, 1)
 """
     pose(rig::StereoRig) -> EuclideanMap
 
-The target-to-source relative transform, `inv(extrinsics(rig))` computed on
+The destination-to-source relative transform, `inv(extrinsics(rig))` computed on
 demand (monogram `X_{V₁V₂}`; the typed algebra swaps the frame labels to
 `ViewFrame{id₂} → ViewFrame{id₁}`).
 """
@@ -205,7 +205,7 @@ form `E = [t]×R` of [`essential_form`](@ref) is composed with the per-view
 calibrated → pixel collineations `Kᵢ = HomographyMap{GnomonicFrame{idᵢ},
 ImageFrame{idᵢ}}(Kᵢ)` — `K₂ ∘ epipolar_map(E) ∘ inv(K₁)` — computing
 `F = K₂⁻ᵀ E K₁⁻¹` with every junction frame-checked. Slot 1 takes
-source-view pixels, slot 2 target-view pixels (`u₂ᵀ F u₁ = 0` — the pinned
+source-view pixels, slot 2 destination-view pixels (`u₂ᵀ F u₁ = 0` — the pinned
 convention of [`EpipolarForm`](@ref); an `ImageFrame{id}` point is always
 read in the canonical `:colmap` origin convention).
 
@@ -269,13 +269,13 @@ function StereoRig(
 end
 
 """
-    depth_transfer(source::PosedCamera, target::PosedCamera, extrinsics)
+    depth_transfer(source::PosedCamera, destination::PosedCamera, extrinsics)
     depth_transfer(rig::StereoRig)
 
-Depth-ASSUMED point transfer from the source camera to the target camera:
-returns a closure mapping a source pixel to a target pixel by backprojecting
+Depth-ASSUMED point transfer from the source camera to the destination camera:
+returns a closure mapping a source pixel to a destination pixel by backprojecting
 to a ray, fixing **unit depth** in the source camera frame, transforming
-through `extrinsics`, and projecting into the target image.
+through `extrinsics`, and projecting into the destination image.
 
 WARNING: this is a point-to-point transfer under an arbitrary depth
 assumption — it is NOT the epipolar correlation. Without depth, a pixel
@@ -290,13 +290,13 @@ and delivered a transfer.
 
 # Arguments
 - `source::PosedCamera`: Source camera
-- `target::PosedCamera`: Target camera
-- `extrinsics::EuclideanMap`: Relative transform from source to target
+- `destination::PosedCamera`: destination camera
+- `extrinsics::EuclideanMap`: Relative transform from source to destination
 
 # Returns
-- Function mapping pixel coordinates from source to target camera
+- Function mapping pixel coordinates from source to destination camera
 """
-function depth_transfer(source::PosedCamera, target::PosedCamera, extrinsics)
+function depth_transfer(source::PosedCamera, destination::PosedCamera, extrinsics)
     # This implementation assumes a specific depth for the 3D point (see the
     # docstring): unit depth in the source camera frame.
     function map_pixel(u)
@@ -304,17 +304,17 @@ function depth_transfer(source::PosedCamera, target::PosedCamera, extrinsics)
         ray_source = backproject(source.model, u)
         # Assume depth=1 in source camera frame
         X_source = ray_source  # SVector{3} with unit depth
-        # Transform to target camera frame (a plain map: unit depth is unitless)
-        X_target = extrinsics(X_source)
-        # Project to target image
-        return project(target.model, X_target)
+        # Transform to destination camera frame (a plain map: unit depth is unitless)
+        X_destination = extrinsics(X_source)
+        # Project to destination image
+        return project(destination.model, X_destination)
     end
     return map_pixel
 end
 
 # A physical relative pose is read in metres: the unit depth is 1 m.
-depth_transfer(source::PosedCamera, target::PosedCamera, extrinsics::UnitfulEuclideanMap{3}) =
-    depth_transfer(source, target, ustrip(m, extrinsics))
+depth_transfer(source::PosedCamera, destination::PosedCamera, extrinsics::UnitfulEuclideanMap{3}) =
+    depth_transfer(source, destination, ustrip(m, extrinsics))
 depth_transfer(rig::StereoRig) = depth_transfer(source(rig), destination(rig), extrinsics(rig))
 
 # ============================================================================
@@ -329,7 +329,7 @@ depth_transfer(rig::StereoRig) = depth_transfer(source(rig), destination(rig), e
 Primitive form: transfer a depth-attributed pixel from one view to another
 through an explicit `(src_model, extrinsics, tgt_model)` triple.  Composes
 `unproject(src_model, ·, ·)`, `extrinsics(·)`, and `project(tgt_model, ·)`,
-binding the resulting target-frame depth as the attribute on the returned
+binding the resulting destination-frame depth as the attribute on the returned
 point.
 
 Multi-view analog of `unproject` / `project` (see also `depth_transfer`,
@@ -354,7 +354,7 @@ transfer(src_model::CameraModel, extrinsics::UnitfulEuclideanMap{3}, tgt_model::
     transfer(rig::StereoRig, p::Attributed{<:StaticVector{2},<:Real})
         -> Attributed{Point2, T}
 
-Convenience wrapper: transfer through `rig` in the source→target direction.
+Convenience wrapper: transfer through `rig` in the source→destination direction.
 For the reverse direction, call the four-arg primitive form directly with
 `destination(rig).model`, `pose(rig)`, `source(rig).model`.
 """

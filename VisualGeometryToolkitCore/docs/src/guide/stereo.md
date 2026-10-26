@@ -14,9 +14,9 @@ sensor rig stores ONLY a tuple of cameras, each expressed rig-relative
 (reference frame = view 1, held at the identity); a rig of calibration
 targets is the same type with dict storage, [`PosedTarget`](@ref) members (a target
 model — [`PlanarTarget`](@ref), [`PointTarget`](@ref) — and its pose) gauged on
-a board, and a camera rig carrying its marker constellation holds both. The old `source`/`target`/`extrinsics`
-fields are the method-form accessors [`source`](@ref), [`destination`](@ref)
-and `extrinsics`, and the relative rigid transform is
+a board, and a camera rig carrying its marker constellation holds both. The
+pair's two cameras are the method-form accessors [`source`](@ref) and
+[`destination`](@ref) (no stored fields), and the relative rigid transform is
 *derived* from the stored per-camera labeled maps:
 
 ```
@@ -24,7 +24,7 @@ extrinsics(rig) :: EuclideanMap{3, …, ViewFrame{id₁}, ViewFrame{id₂}}
 ```
 
 (monogram `X_{V₂V₁}`: consumes source-view coordinates, produces
-target-view coordinates, i.e. `X₂ = R·X₁ + t`). There is no cached inverse
+destination-view coordinates, i.e. `X₂ = R·X₁ + t`). There is no cached inverse
 and no stored id tuple — the labels are the single source of truth:
 
 - [`pose`](@ref pose(::StereoRig))`(rig)` is the on-demand
@@ -42,7 +42,7 @@ pose(rig)                     # ViewFrame{:right} → ViewFrame{:left}
 ```
 
 The 3-argument constructor validates a caller-supplied transform against
-`extrinsics(target) ∘ pose(source)` computed from the given cameras
+`extrinsics(destination) ∘ pose(source)` computed from the given cameras
 (`check = false` for synthetic rigs whose cameras are placeholders).
 
 ## Minting labeled epipolar forms

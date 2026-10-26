@@ -108,6 +108,21 @@
         xb = undist(tang, m)
         @test all(isfinite, xb) && xb[1] > -5 / 3 && norm(fwd(tang, xb) - m) < 1.0e-9
     end
+    # A tilt-first chain is reseeded from its radial stage too (the radial factor
+    # inverted between the undone stages): over this lattice the walk does not
+    # finish at 3 points, which were NaN while only a leading radial factor
+    # seeded. Every point is imaged, on the axis component.
+    tiltfirst = Lens(Perspective(), Chain(Tilt(-0.01311791766577625, -0.15298652218047473),
+        Additive(Radial((-0.20838301476990476, -0.04982895104626379, 0.024431338010754332),
+                        (0.11479329358169524, -0.10008971271326406, -0.012296270575612153)),
+                 Tangential(-0.010988293802287124, 0.002516452416855112),
+                 ThinPrism((0.005850789615659557, 0.0), (-0.014588143473107572, 0.0)))))
+    tf_roots = [(m, undist(tiltfirst, m)) for m in (SVector(u, v) for u in range(-2.0, 2.0, length = 41), v in range(-2.0, 2.0, length = 41))]
+    @test all(r -> all(isfinite, r[2]), tf_roots)
+    tf_ac = axis_component(x -> fwd(tiltfirst, x), Inf, 2.6, 601)       # fwd is NaN past the radial stage's fold
+    for (m, x) in tf_roots
+        @test norm(fwd(tiltfirst, x) - m) < 1.0e-9 * max(1, norm(m)) && in_component(tf_ac, x)
+    end
     # a Full-basis radial factor has no forward map in a lens's frame, anywhere
     full = VisualGeometryToolkitCore.Cameras.Radial{VisualGeometryToolkitCore.Cameras.Full}((0.1,), ())
     @test_throws ArgumentError Lens(Perspective(), Chain(Additive(full, Tangential(0.0, 1.0e-3)), Tilt(0.01, 0.0)))

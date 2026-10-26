@@ -543,12 +543,15 @@ end
 # radial head of an Additive stage, at that stage's input). The radial test is
 # needed because past a radial profile's fold the determinant turns positive
 # again (measured: OpenCV chains with roots 1.4 to 6.3 fold radii out that the
-# determinant alone accepts). CONNECTION to the axis is what the continuation
-# from the axis provides; a pointwise test cannot prove it. A root in a far
-# component of {det J > 0} inside every radial disk (the deltas or the tilt
-# folding there) would satisfy it; none was found in a search over strong chains
-# and delta-dominated lenses, and the tests flood-fill the region to check the
-# gained roots.
+# determinant alone accepts). CONNECTION to the axis is not tested anywhere: a
+# pointwise test cannot prove it, and only one of the three ways a root is found
+# provides it. The continuation walks from the axis, so its root is on the
+# axis's component; the first solve (Newton or the fixed point from x_d) and the
+# reseeded Newton after an unfinished walk (`_radial_seed`) are accepted by the
+# pointwise test alone. A root of theirs in a far component of {det J > 0}
+# inside every radial disk (the deltas or the tilt folding there) would be taken;
+# none was found in a search over strong chains and delta-dominated lenses, and
+# the tests flood-fill the region to check every root they accept.
 # (A Lens's radial factors are Even: the constructor refuses a Full-basis one
 # anywhere in the distortion, which has no forward map in the frame.)
 @inline _radial_ok(_, x) = true
@@ -660,16 +663,24 @@ _walk_trips(::Type{<:AbstractFloat}) = 24
     return xs, ok && dJ > 0 && _radial_ok(d, xs)
 end
 
-# The radial factor's own root, as the seed of a 2-D solve: the stages after the
-# leading radial factor undone where they have a closed form (a Tilt) and taken
-# as the identity otherwise, the factor inverted on its branch, its deltas
-# ignored. `(seed, found)`: not found where the distortion does not lead with an
-# Even radial factor or the factor's branch does not reach the radius — the
-# image is then past the branch, or the only seed left is x_d, which the first
-# solve started from.
+# The radial factor's own root, as the seed of a 2-D solve: in a Chain, the
+# FIRST radial stage (a Radial, or an Additive led by one) wherever it sits, the
+# stages after it undone where they have a closed form (a Tilt) and taken as the
+# identity otherwise, the factor inverted on its branch (its deltas ignored),
+# then the stages before it undone the same way. `(seed, found)`: not found
+# where the distortion has no Even radial factor or the factor's branch does not
+# reach the radius — the image is then past the branch, or the only seed left is
+# x_d, which the first solve started from.
 @inline _radial_seed(d, cap, xd) = (xd, false)
 @inline _radial_seed(a::Additive, cap, xd) = (h = _head(a); h isa Radial{Even} ? _radial_seed(h, cap, xd) : (xd, false))
-@inline _radial_seed(c::Chain, cap, xd) = _radial_seed(first(c.stages), cap, _undo_stages(Base.tail(c.stages), xd))
+@inline _radial_seed(c::Chain, cap, xd) = _chain_seed((), c.stages, cap, xd)
+@inline _chain_seed(::Tuple, ::Tuple{}, cap, xd) = (xd, false)
+@inline function _chain_seed(before::Tuple, ds::Tuple, cap, xd)
+    s, rest = first(ds), Base.tail(ds)
+    _is_radial(s) || return _chain_seed((before..., s), rest, cap, xd)
+    y, found = _radial_seed(s, cap, _undo_stages(rest, xd))
+    return _undo_stages(before, y), found
+end
 @inline function _radial_seed(r::Radial{Even}, cap, xd::SVector{2, S}) where {S}
     g, reached, _ = _ratio_branch_solve(r, cap, xd[1] * xd[1] + xd[2] * xd[2])
     return SVector{2, S}(g * xd[1], g * xd[2]), reached & isfinite(g)

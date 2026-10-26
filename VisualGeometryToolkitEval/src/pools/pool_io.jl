@@ -383,7 +383,12 @@ destination map is `destination_map`. The format-5 file goes to
 original's, which is never touched. The pool's residuals file
 ([`residuals_path`](@ref)), when present, is copied beside it unchanged: it is
 bound to the pool by [`pool_key`](@ref), which hashes no map, so it stays
-valid, as does a sample-starts file ([`save_sample_starts`](@ref)).
+valid. A sample-starts file ([`save_sample_starts`](@ref)) is NOT copied: it
+is derived data kept in a writable tree, never beside the pool, so the pool's
+path does not name it; it is bound by the same unchanged `pool_key` and reads
+against the migrated pool where it is. Both destinations, the pool's and its
+residuals', are checked before anything is written: an existing one is an
+`ArgumentError`, and a failed copy removes what it wrote.
 
 The migration is verified before anything is written to `out`: the format-5
 file, written to a temporary directory through [`save_pool`](@ref), must read
@@ -402,7 +407,10 @@ function migrate_pool(path::AbstractString; out::AbstractString, dry_run::Bool =
     abspath(out) == dirname(abspath(path)) && throw(ArgumentError(
         "migrate_pool: `out` is the original's directory ($(abspath(out))); the original is never overwritten — name another"))
     dst = joinpath(abspath(out), basename(path))
-    isfile(dst) && throw(ArgumentError("migrate_pool: $dst exists; nothing was written"))
+    r, rdst = residuals_path(path), residuals_path(dst)
+    for d in (dst, rdst)
+        ispath(d) && throw(ArgumentError("migrate_pool: $d exists; nothing was written"))
+    end
     raw = JLD2.load(path)
     pairs = [_format5_pair(nt, path, i) for (i, nt) in enumerate(raw["pairs"])]
     pool = _pool_from_raw(merge(raw, Dict{String, Any}("pairs" => pairs)), path)
@@ -423,10 +431,16 @@ function migrate_pool(path::AbstractString; out::AbstractString, dry_run::Bool =
         end
         dry_run && return (; path = nothing, residuals = nothing, n_pairs = length(pairs))
         mkpath(abspath(out))
-        cp(t, dst)
-        r = residuals_path(path)
-        rdst = isfile(r) ? cp(r, residuals_path(dst)) : nothing
-        return (; path = dst, residuals = rdst, n_pairs = length(pairs))
+        # the residuals first, the pool last: a pool file at `dst` is a whole migration
+        has_r = isfile(r)
+        try
+            has_r && cp(r, rdst)
+            cp(t, dst)
+        catch
+            rm(dst; force = true); has_r && rm(rdst; force = true)
+            rethrow()
+        end
+        return (; path = dst, residuals = has_r ? rdst : nothing, n_pairs = length(pairs))
     end
 end
 

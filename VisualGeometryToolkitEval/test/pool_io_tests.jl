@@ -140,6 +140,13 @@
         JLD2.jldopen(f -> @test(f["pool_format"] == 5), r.path, "r")
         # refusals: an existing output, the original's directory, a format-5 or an older file, a foreign pair
         @test occursin("exists", errmsg(() -> migrate_pool(v4; out)))
+        # an existing residuals destination is refused before the pool file is written
+        out2 = mkpath(joinpath(dir, "v5r")); touch(residuals_path(joinpath(out2, "scene.jld2")))
+        m2 = errmsg(() -> migrate_pool(v4; out = out2))
+        @test occursin("exists", m2) && occursin(residuals_path(joinpath(out2, "scene.jld2")), m2)
+        @test !isfile(joinpath(out2, "scene.jld2"))
+        # a sample-starts file is not copied: it binds by pool_key, which the migration keeps
+        @test readdir(out) == sort([basename(r.path), basename(r.residuals)])
         @test occursin("never overwritten", errmsg(() -> migrate_pool(v4; out = v4dir)))
         @test occursin("nothing to migrate", errmsg(() -> migrate_pool(path; out = joinpath(dir, "v5b"))))
         v3 = joinpath(v4dir, "v3.jld2"); JLD2.jldsave(v3; pool_format = 3, pairs = [1])

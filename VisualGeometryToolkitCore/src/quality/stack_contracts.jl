@@ -154,6 +154,16 @@ const CONTRACT_GENERICS = (
     intrinsics, lens, model, extent, bounds_trait, has_extrinsics, Pools.pair_scene,
     # the lens parameter chart downstream lenses and warps implement (geometry/cameras/lens_chart.jl)
     parameter_vector, parameter_names, parameter_bounds, with_parameters,
+    # the camera maps a downstream camera, lens or intrinsics implements
+    # (geometry/cameras/camera_models.jl, lens_rays.jl)
+    project, backproject,
+    # the Manifold protocol (base/manifold.jl): what a downstream Manifold subtype
+    # must implement (tangent_size, retract, recenter) and may override
+    # (local_coordinates, retract_jacobian, action_jacobian, zero_tangent,
+    # restrict, tangent_part, transform_covariance), and minimal_manifold, which
+    # a downstream model type answers with its manifold (`model` is above)
+    tangent_size, retract, recenter, local_coordinates, retract_jacobian, action_jacobian,
+    zero_tangent, restrict, tangent_part, transform_covariance, minimal_manifold,
     # the plotting stubs (visualization_stubs.jl) the Makie extensions implement
     imshow!, poly!, matches, matches!, ellipses!,
 )
@@ -168,6 +178,25 @@ quality gate ([`contract_generic_violations`](@ref)) requires every method a
 package adds to another stack package's function to land on one of that
 owner's contracts. Functions owned by Base, Core, the standard library or any
 package outside the stack are exempt.
+
+VisualGeometryToolkitCore's, by group:
+- the block-coordinate-descent hooks and readers (`update_model!`, …, `current_s2`);
+- the chart-LM row protocol (`residual_rows!`, `residual_jacobian_rows!`);
+- the RANSAC / local-optimization interface, the constraint-problem protocol,
+  the scoring and local-optimization contracts, pool selection and the
+  chart-rows contract;
+- the minimal-solver backends PoseLib.jl implements;
+- the `FitResult` property forwarding and the TOML config hooks;
+- the geometry and camera accessors other packages implement for their own
+  types (`centroid`, `intrinsics`, `lens`, `model`, …);
+- the parameter protocol (`parameter_vector`, `parameter_names`,
+  `parameter_bounds`, `with_parameters`);
+- the camera maps `project` and `backproject`;
+- the `Manifold` protocol: `tangent_size`, `retract` and `recenter`
+  (required), `local_coordinates`, `retract_jacobian`, `action_jacobian`,
+  `zero_tangent`, `restrict`, `tangent_part` and `transform_covariance`
+  (optional), and `minimal_manifold`;
+- the plotting stubs the Makie extensions implement.
 """ CONTRACT_GENERICS
 
 """

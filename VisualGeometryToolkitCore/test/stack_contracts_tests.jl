@@ -230,6 +230,12 @@ end
     @test all(f -> f isa Function && Base.moduleroot(parentmodule(f)) === VisualGeometryToolkitCore, CONTRACT_GENERICS)
     @test allunique(CONTRACT_GENERICS)
     @test centroid in CONTRACT_GENERICS && !(snake_case in CONTRACT_GENERICS)
+    # the camera maps and the Manifold protocol are extension points
+    for n in (:project, :backproject, :tangent_size, :retract, :recenter, :local_coordinates,
+              :retract_jacobian, :action_jacobian, :zero_tangent, :restrict, :tangent_part,
+              :transform_covariance, :minimal_manifold, :model)
+        @test getfield(VisualGeometryToolkitCore, n) in CONTRACT_GENERICS
+    end
     # this package extends no other stack package's functions
     @test isempty(contract_generic_violations(VisualGeometryToolkitCore))
 

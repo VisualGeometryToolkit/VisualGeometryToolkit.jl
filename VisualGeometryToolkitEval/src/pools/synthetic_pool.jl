@@ -59,6 +59,6 @@ function synthetic_e_pool_pair(rng::AbstractRNG = MersenneTwister(7); n::Integer
     pair = PoolPair{FundMat{Float64}}(; csponds = csponds(src, dst), K1 = K, K2 = K, R_gt = R, t_gt = t,
                                       models, sample_indices = samples, errors_r = er, errors_t = et,
                                       gt_inliers = trues(n), gt_variance = Float64(gt_variance),
-                                      source_map = K, target_map = K)
+                                      source_map = K, destination_map = K)
     return pair, D
 end

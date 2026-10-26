@@ -189,7 +189,7 @@
     # ------------------------------------------------------------------------------
     # the normalization — the one strategy, pooled: plane centroid, image about the centre
     # ------------------------------------------------------------------------------
-    using VisualGeometryToolkitCore: HartleyNormalization, AffineMap, target_map
+    using VisualGeometryToolkitCore: HartleyNormalization, AffineMap, destination_map
 
     @testset "the stack's normalization: required, about the centre" begin
         f0, k0 = F0, K0
@@ -199,7 +199,7 @@
 
         N = CspondNormalization(DivisionCameraState, _vw(boards); center = SVector(0.0, 0.0))
         @test N isa CspondNormalization
-        @test target_map(N)(SVector(0.0, 0.0)) ≈ SVector(0.0, 0.0) atol = 1.0e-15   # about the centre
+        @test destination_map(N)(SVector(0.0, 0.0)) ≈ SVector(0.0, 0.0) atol = 1.0e-15   # about the centre
         @test focal_length(intrinsics(_division_camera(Hs, boards; N)))[1] ≈ f0 rtol = 1.0e-8
         @test_throws MethodError division_camera_step(_rc(Hs), _vw(boards))            # no fallback: N is required
 

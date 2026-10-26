@@ -46,16 +46,16 @@ function homography_dlt(cs)                       # pixels in
     N = CspondNormalization(HomographyMat, cs)    # the one strategy, private
     return homography_dlt!(A, N, cs)              # inner loop: uses N, never builds one
 end                                               # H back in pixels
-τ_n = similarity_scale(target_map(N)) * τ_px      # a pixel tolerance, inside
+τ_n = similarity_scale(destination_map(N)) * τ_px # a pixel tolerance, inside
 ```
 
 Names: the strategies `HartleyNormalization(; center)` (centroid, or a known
 centre; mean distance √2) and `DiagonalNormalization(size; center)` (the pool
 frame), applied as `AffineMap(strategy, points)`; the two-sided value
 [`CspondNormalization`](@ref), whose two sides ([`source_map`](@ref),
-`target_map`) move a model by COMPOSITION — `D ∘ M ∘ inv(S)` into the
+`destination_map`) move a model by COMPOSITION — `D ∘ M ∘ inv(S)` into the
 normalized frame and `inv(D) ∘ M ∘ S` back, with `S = source_map(N)`,
-`D = target_map(N)`, `M` a map or a bare model matrix (a `HomographyMat` comes
+`D = destination_map(N)`, `M` a map or a bare model matrix (a `HomographyMat` comes
 back a `HomographyMat`, an F/E a `FundMat`; an [`EpipolarMap`](@ref) stays
 one) — never by a dedicated verb (the retired frame-change verbs are listed in
 `check_naming`). **`*Frame` names frame TAGS only** ([`ImageFrame`](@ref),

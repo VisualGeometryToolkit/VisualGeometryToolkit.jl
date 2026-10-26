@@ -521,7 +521,7 @@ public sqrt_weights   # its √weight buffer
 # minimal-solver protocol, registry.
 # `solve(solver, cs, idx)` (FixedModels) is THE minimal protocol; the one-step
 # solvers are called by their algorithm names (`homography_dlt(cs)`).
-public CspondNormalization, source_map, target_map   # a correspondence set's normalization as a value (models move by ∘ with its sides)
+public CspondNormalization, source_map, destination_map   # a correspondence set's normalization as a value (models move by ∘ with its sides)
 export HartleyNormalization, DiagonalNormalization   # normalization strategies, applied as AffineMap(strategy, points)
 export MinimalSolver, model_type
 public sample_size

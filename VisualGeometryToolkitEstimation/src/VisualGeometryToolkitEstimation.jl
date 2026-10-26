@@ -90,7 +90,7 @@ using VisualGeometryToolkitCore: AbstractLensModel, AbstractRadialModel,
     Stereographic, Equisolid, Orthographic, radial,
     LensManifold, Manifold, restrict, tangent_size,
     CameraCalibrationMat, LogicalIntrinsics, calibration_matrix, parameter_vector,
-    RadialCamera, source_map, target_map,
+    RadialCamera, source_map, destination_map,
     NoWhitening, WhiteningPolicy,
     projected_radius, view_angle, view_angle_limit, radial_part,
     similarity_scale   # a normalization's length ratio: pixel tolerances inside (radial homography)

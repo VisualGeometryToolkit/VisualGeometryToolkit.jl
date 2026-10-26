@@ -133,7 +133,7 @@ const RETIRED_NAMES = String[
     "canon" * "_maps" * "_unknown",          # the retired HEB pool reader: `pool_frame_maps_unknown`
     "CANON" * "_UNKNOWN",                    # the retired HEB pool reader: `UNKNOWN_POOL_FRAME_MAP`
     "canonical" * "_essential_problem",      # VisualGeometryToolkitEstimation: `EssentialProblem(pair)`
-    "canon" * "_src", "canon" * "_dst",      # StereoScoringData's maps: `source_map`, `target_map`
+    "canon" * "_src", "canon" * "_dst",      # StereoScoringData's maps: `source_map`, `destination_map`
     "_heb_canon" * "_maps",                  # the retired HEB pool reader: `_heb_pool_frame_maps`
     "canon" * "_sidecar",                    # the retired `migrate_heb_pool`: `pool_frame_sidecar`
     "canon" * ".jld2",                       # the April HEB sidecar suffix: `<scene>.pool_frame.jld2`
@@ -328,6 +328,10 @@ const RETIRED_NAMES = String[
     # a rig's target member is a `PosedTarget` (a posed target, as a
     # `PosedCamera` is a posed camera; `model(m)` is its target) (2026-10-26)
     "Mount" * "ed",
+    # a correspondence normalization's sides are `source_map` and
+    # `destination_map` (2026-10-26); format-4 pool files keep the former key,
+    # spelled in fragments by VisualGeometryToolkitEval's pool IO
+    "target" * "_map",
 ]
 
 # Rule 10: the width quantities are bound by their full names. One name per

@@ -447,7 +447,7 @@ function _division_camera_solve(
     X̄0 = SVector{3, Float64}(X̄[1], X̄[2], 0.0)
     # The radial cameras in the normalized frames: the frame change is plain
     # composition with the normalization's two maps, `D ∘ P ∘ inv(S)`.
-    Sinv = inv(source_map(normalization)); Dm = target_map(normalization)
+    Sinv = inv(source_map(normalization)); Dm = destination_map(normalization)
     kn = _normalized_kmode(k, σ)
     N = _ncoeffs(k)
     nboards = [normalize(normalization, pts) for pts in boards]
@@ -907,7 +907,7 @@ _rescaled_coeffs(k, s) = [rescale_radial_coeff(k[p], s, p) for p in eachindex(k)
 # side is an isotropic scale too (with any translation). Returns the image- and
 # plane-side scales (σ, S).
 function _check_division_normalization(N::CspondNormalization, c)
-    Dm, Sm = target_map(N), source_map(N)
+    Dm, Sm = destination_map(N), source_map(N)
     σ = _isotropic_scale(Dm, "image")
     oc = Dm(SVector{2, Float64}(c[1], c[2]))
     abs(oc[1]) + abs(oc[2]) <= 1.0e-9 || throw(

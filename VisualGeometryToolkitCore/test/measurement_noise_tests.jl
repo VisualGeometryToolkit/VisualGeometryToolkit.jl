@@ -10,7 +10,7 @@
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: exact, Uncertain, CovMat, PrecMat, cov, pair_covariance, noise_columns,
         sampson_distance, TransferForm, transfer_whitening!, whitening_factor, CspondNormalization,
-        source_map, target_map, implicit_covariance, minimal_manifold, constraint_with_jacobians
+        source_map, destination_map, implicit_covariance, minimal_manifold, constraint_with_jacobians
 
     rng = Xoshiro(11)
     H = HomographyMat(SMatrix{3, 3, Float64}(900.0, 20.0, 0.1, -30.0, 950.0, 0.2, 300.0, 200.0, 1.0))  # metres → pixels
@@ -83,7 +83,7 @@
         cs = withattrs(Csponds(b, u); Σ₂, score = collect(1.0:n))
         N = CspondNormalization(HomographyMat, cs)
         cn = LinearAlgebra.normalize(N, cs)
-        A = target_map(N).linear
+        A = destination_map(N).linear
         @test all(cn.Σ₂[i] ≈ A * Σ₂[i] * A' for i in 1:n)
         @test cn.score == cs.score                     # other columns forwarded
         @test !hasattr(cn, :Σ₁)

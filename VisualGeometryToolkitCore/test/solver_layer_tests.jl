@@ -8,7 +8,7 @@
     using Test
     using VisualGeometryToolkitCore: max_solutions, induced_models, minimal_solver
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: CspondNormalization, planar_lift, source_map, target_map, sample_size   # public, not exported
+    using VisualGeometryToolkitCore: CspondNormalization, planar_lift, source_map, destination_map, sample_size   # public, not exported
     using VisualGeometryToolkitCore: MappedColumn, lift
     using StaticArrays, LinearAlgebra, Random
     using Rotations: RotMatrix
@@ -143,7 +143,7 @@
 
             # the sides as affine maps: the accessors agree with normalize
             @test VgtkCore.source_map(f)(src[3]) ≈ sources(ncs)[3] rtol = 1.0e-15
-            @test VgtkCore.target_map(f)(dst[3]) ≈ targets(ncs)[3] rtol = 1.0e-15
+            @test VgtkCore.destination_map(f)(dst[3]) ≈ targets(ncs)[3] rtol = 1.0e-15
 
             # Hartley about a KNOWN centre, weighted: the centre lands on the
             # origin, the weighted mean distance from it is √2; similarity_scale
@@ -160,7 +160,7 @@
             @test norm(f.dst * f.dst_inv - I) < 1.0e-12
 
             # composition with the two sides round-trips (H and F laws)
-            S, D = HomographyMap(source_map(f)), HomographyMap(target_map(f))
+            S, D = HomographyMap(source_map(f)), HomographyMap(destination_map(f))
             Hn = HomographyMat(to_homogeneous(D ∘ HomographyMap(H0) ∘ inv(S)))
             @test Hn isa HomographyMat
             @test norm(HomographyMat(to_homogeneous(inv(D) ∘ HomographyMap(Hn) ∘ S)) - H0) < 1.0e-9
@@ -168,7 +168,7 @@
             # model, the source side's inverse before it
             transfer(H, x) = (PerspectiveMap() ∘ HomographyMap(H))(x)
             for x in (SVector(3.0, -2.0), SVector(40.0, 60.0), SVector(-7.5, 11.0))
-                @test transfer(Hn, source_map(f)(x)) ≈ target_map(f)(transfer(H0, x)) rtol = 1.0e-12
+                @test transfer(Hn, source_map(f)(x)) ≈ destination_map(f)(transfer(H0, x)) rtol = 1.0e-12
             end
 
             F0 = FundMat{Float64}(Tuple(SMatrix{3, 3, Float64}(0.0, 1.0, -0.4, -1.0, 0.1, 3.0, 0.2, -2.5, 1.0)))
@@ -177,7 +177,7 @@
             # model does on the data: u₂ᵀ F u₁ = D(u₂)ᵀ F̂ S(u₁) up to the homogeneous scale
             Fn = parent(D ∘ EpipolarMap(F0) ∘ inv(S))
             for (u1, u2) in ((SVector(3.0, -2.0), SVector(1.0, 4.0)), (SVector(40.0, 60.0), SVector(-5.0, 2.5)))
-                @test EpipolarForm(Fn)(source_map(f)(u1), target_map(f)(u2)) ≈ EpipolarForm(F0)(u1, u2) rtol = 1.0e-10
+                @test EpipolarForm(Fn)(source_map(f)(u1), destination_map(f)(u2)) ≈ EpipolarForm(F0)(u1, u2) rtol = 1.0e-10
             end
             E0 = EssentialMat{Float64}(Tuple(SMatrix{3, 3, Float64}(F0)))
             @test parent(inv(D) ∘ EpipolarMap(E0) ∘ S) isa FundMat    # a collineation leaves the essential manifold
@@ -416,7 +416,7 @@
 
             f = CspondNormalization(HomographyMat, cs)
             @test (@inferred CspondNormalization(HomographyMat, cs)) isa Any
-            Sf, Df = HomographyMap(source_map(f)), HomographyMap(target_map(f))
+            Sf, Df = HomographyMap(source_map(f)), HomographyMap(destination_map(f))
             @test (@inferred Df ∘ HomographyMap(H0) ∘ inv(Sf)) isa Any
             @test (@inferred inv(Df) ∘ HomographyMap(H0) ∘ Sf) isa Any
             F0 = FundMat{Float64}(Tuple(SMatrix{3, 3, Float64}(I)))

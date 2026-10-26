@@ -137,7 +137,7 @@ _rss_variance(rss::Float64, dof::Integer) = dof > 0 ? rss / dof : NaN
 # The oracle F from the GT pose, in pixels and in the pool frame.
 function _oracle_fundmat(raw::StereoRawPair, N::CspondNormalization)
     F_px = FundMat(EssentialMat(pair_R_gt(raw), pair_t_gt(raw)), pair_K1(raw), pair_K2(raw))
-    return target_map(N) ∘ F_px ∘ inv(source_map(N))
+    return destination_map(N) ∘ F_px ∘ inv(source_map(N))
 end
 
 # RSS of the oracle model over pool-frame points `src[i] => dst[i]` (optionally
@@ -163,7 +163,7 @@ end
 
 function _pool_variance(v::TrackVariance, problem::Union{EssentialProblem, FundMatProblem}, raw::StereoRawPair, draft)
     N = pool_normalization(raw)
-    rss = _oracle_rss(problem, raw, draft, source_map(N).(v.source), target_map(N).(v.target))
+    rss = _oracle_rss(problem, raw, draft, source_map(N).(v.source), destination_map(N).(v.target))
     return _rss_variance(rss, oracle_residual_dof(problem, length(v.source)))
 end
 
@@ -200,7 +200,7 @@ end
 # declared into the calibrated chart (`GnomonicFrame`, the `K⁻¹` maps) —
 # calibrated. Its pose error is read in that frame, and it moves into the pool
 # frame by composition with the pool normalization's sides,
-# `target_map(N) ∘ M ∘ inv(source_map(N))` of its pixel form.
+# `destination_map(N) ∘ M ∘ inv(source_map(N))` of its pixel form.
 
 _pool_model_class(::EssentialProblem) = FundMat{Float64}
 _pool_model_class(::FundMatProblem) = FundMat{Float64}
@@ -218,14 +218,14 @@ function _pose_errors(p::HomographyProblem, H, raw)
 end
 
 _to_pool_frame(::EssentialProblem, E, raw, N::CspondNormalization) =
-    target_map(N) ∘ FundMat(E, pair_K1(raw), pair_K2(raw)) ∘ inv(source_map(N))
+    destination_map(N) ∘ FundMat(E, pair_K1(raw), pair_K2(raw)) ∘ inv(source_map(N))
 _to_pool_frame(::FundMatProblem, F, raw, N::CspondNormalization) =
-    target_map(N) ∘ FundMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(F))) ∘ inv(source_map(N))
+    destination_map(N) ∘ FundMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(F))) ∘ inv(source_map(N))
 function _to_pool_frame(p::HomographyProblem, H, raw, N::CspondNormalization)
     Hd = HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(H)))
-    _homography_model_calibrated(p) || return target_map(N) ∘ Hd ∘ inv(source_map(N))
+    _homography_model_calibrated(p) || return destination_map(N) ∘ Hd ∘ inv(source_map(N))
     # the calibrated H back to pixels through the problem's own measurement maps
-    return target_map(N) ∘ inv(p.dst_frame_map) ∘ Hd ∘ p.src_frame_map ∘ inv(source_map(N))
+    return destination_map(N) ∘ inv(p.dst_frame_map) ∘ Hd ∘ p.src_frame_map ∘ inv(source_map(N))
 end
 
 # The model frame of a homography problem: the data (pixel) frame when it

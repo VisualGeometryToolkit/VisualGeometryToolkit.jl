@@ -258,10 +258,10 @@ each model class needs:
 
 Verbs:
 - `normalize(normalization, cs)` — materialized normalized correspondence set
-- [`source_map`](@ref) / `target_map` — its two sides as affine maps
+- [`source_map`](@ref) / `destination_map` — its two sides as affine maps
 - a model moves by composition with the two sides:
-  `target_map(N) ∘ M ∘ inv(source_map(N))` carries a data-frame model `M` into
-  the normalized frame and `inv(target_map(N)) ∘ M ∘ source_map(N)` back (`M`
+  `destination_map(N) ∘ M ∘ inv(source_map(N))` carries a data-frame model `M` into
+  the normalized frame and `inv(destination_map(N)) ∘ M ∘ source_map(N)` back (`M`
   a `HomographyMat`, a `FundMat`/`EssentialMat`, a `HomographyMap`, an
   [`EpipolarMap`](@ref), a `RadialHomography`, a `RadialCamera`).
 
@@ -303,14 +303,15 @@ _bitmask(idx, n) = (b = falses(n); b[idx] .= true; b)
 
 """
     source_map(f::CspondNormalization) -> AffineMap
-    target_map(f::CspondNormalization) -> AffineMap
+    destination_map(f::CspondNormalization) -> AffineMap
 
-The forward normalization of the source side and of the target side, as
-2D affine maps (`source_map(f)(x)` is the normalized source point). The
-accessors to a frame's sides; its inverses are `inv` of these.
+The forward normalization of the source side and of the destination side
+(the correspondences' `targets`), as 2D affine maps (`source_map(f)(x)` is
+the normalized source point). The accessors to a frame's sides; its inverses
+are `inv` of these.
 """
 source_map(f::CspondNormalization) = AffineMap(f.src)
-target_map(f::CspondNormalization) = AffineMap(f.dst)
+destination_map(f::CspondNormalization) = AffineMap(f.dst)
 
 """
     normalize(N::CspondNormalization, cs) -> Csponds
@@ -323,7 +324,7 @@ gives `s²·Σ`); every other attribute column is forwarded unchanged. Built onc
 per problem (the RANSAC hot loop then samples the normalized columns directly).
 """
 function LinearAlgebra.normalize(f::CspondNormalization{T}, cs::AbstractVector) where {T}
-    S, D = source_map(f), target_map(f)
+    S, D = source_map(f), destination_map(f)
     ns = [Point2{T}(S(p)) for p in sources(cs)]
     nt = [Point2{T}(D(p)) for p in targets(cs)]
     return Csponds(ns, nt, _transport_noise(attrs_of(cs), S.linear, D.linear))
@@ -526,7 +527,7 @@ function _dlt!(
         rows_per_point::Int, mask, svd_ws
     ) where {F, T}
     u₁ = sources(cs); u₂ = targets(cs); weights = weights_column(cs)
-    Sn, Dn = source_map(N), target_map(N)
+    Sn, Dn = source_map(N), destination_map(N)
     npts = 0
     for k in _selection(mask, u₁, u₂)
         npts += 1
@@ -585,7 +586,7 @@ function homography_dlt!(
     # N is the enclosing estimator's normalization: used here, never built here
     H_norm = _dlt!(_homography_dlt_rows!, A, N, cs, 2, mask, svd_ws)
     H_norm === nothing && return nothing
-    return sign_normalize(inv(target_map(N)) ∘ HomographyMat{T}(Tuple(H_norm)) ∘ source_map(N))   # composed back to the data frame, then the gauge
+    return sign_normalize(inv(destination_map(N)) ∘ HomographyMat{T}(Tuple(H_norm)) ∘ source_map(N))   # composed back to the data frame, then the gauge
 end
 
 # =============================================================================

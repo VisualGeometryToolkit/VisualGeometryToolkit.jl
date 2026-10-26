@@ -572,8 +572,8 @@ CspondNormalization(::Type{<:AbstractRadialModel}, cs; center, mask = nothing) =
 #
 # A radial homography is a plane → pixel map, so a frame change is `∘`, as for
 # every map: `D ∘ m ∘ B` for an image-side `D` and a plane-side `B` (a
-# normalization moves it by `target_map(N) ∘ m ∘ inv(source_map(N))`, and back
-# by `inv(target_map(N)) ∘ m ∘ source_map(N)`).
+# normalization moves it by `destination_map(N) ∘ m ∘ inv(source_map(N))`, and back
+# by `inv(destination_map(N)) ∘ m ∘ source_map(N)`).
 #
 #   plane side (any collineation B):  H′ = H·B, k and c unchanged
 #   image side (an ISOTROPIC similarity D = s·x + b — every normalization
@@ -612,7 +612,7 @@ Orientation and collinearity are scale-free; the SOURCE distinctness is a
 fixed separation `1e-3` in `cs`'s units, and the TARGET distinctness is an
 absolute separation `target_tol` in `cs`'s units — a caller holding the
 normalization converts a pixel separation through its scale
-(`target_tol = τ_px * similarity_scale(target_map(normalization))`), so the
+(`target_tol = τ_px * similarity_scale(destination_map(normalization))`), so the
 gate does not move with the frame.
 """
 function test_sample(

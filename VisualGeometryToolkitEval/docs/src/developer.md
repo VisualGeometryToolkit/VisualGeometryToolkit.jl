@@ -53,6 +53,6 @@ environment that cannot load this package can include them by path:
 A scoring pool ([`ScoringPool`](@ref)) is stored in `NormalizedImageFrame`
 and says so ([`frame`](@ref)); a perspective-n-point (PnP) pool is stored in
 `ImageFrame`. The pool and residual files hold plain data together with the
-stored maps (`source_map`, `target_map`), and a value leaves the pool frame
+stored maps (`source_map`, `destination_map`), and a value leaves the pool frame
 only through those maps. Nothing in this package converts a frame. The raw
 readers of `Datasets` return pixels.

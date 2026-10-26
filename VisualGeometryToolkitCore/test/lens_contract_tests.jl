@@ -9,7 +9,7 @@
     using FiniteDiff: FiniteDiff
     import ForwardDiff
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: NoWhitening, SampsonWhitening, monotone_radius, source_map, target_map, radial_ratio, whitened_rows, calibration_stage   # public, not exported
+    using VisualGeometryToolkitCore: NoWhitening, SampsonWhitening, monotone_radius, source_map, destination_map, radial_ratio, whitened_rows, calibration_stage   # public, not exported
     using VisualGeometryToolkitCore: project_with_jacobians, radial_camera_5pt   # kernel: public, not exported
 
     @testset "monotone_radius agrees with the fold view_angle_limit reports" begin
@@ -306,9 +306,9 @@
             # the radial camera's normalization: the pencil centre on the image
             # origin; a 5-point solve in that view, pulled back, is the camera
             Nr = VgtkCore.CspondNormalization(RadialCamera, Csponds(first.(raw), last.(raw)); center = c)
-            @test VgtkCore.target_map(Nr)(c) == SVector(0.0, 0.0)
+            @test VgtkCore.destination_map(Nr)(c) == SVector(0.0, 0.0)
             nraw = LinearAlgebra.normalize(Nr, Csponds(first.(raw), last.(raw)))
-            P5n = inv(HomographyMap(target_map(Nr))) ∘ radial_camera_5pt(nraw[[1, 5, 8, 21, 25]]; center = SVector(0.0, 0.0)) ∘ source_map(Nr)
+            P5n = inv(HomographyMap(destination_map(Nr))) ∘ radial_camera_5pt(nraw[[1, 5, 8, 21, 25]]; center = SVector(0.0, 0.0)) ∘ source_map(Nr)
             @test abs(abs(dot(vec(P5n.P), vec(P5r.P))) / (norm(P5n.P) * norm(P5r.P)) - 1) < 1.0e-12
             @test SVector(P5n.center...) ≈ c rtol = 1.0e-14
             @test_throws UndefKeywordError VgtkCore.CspondNormalization(RadialCamera, Csponds(first.(raw), last.(raw)))
@@ -361,7 +361,7 @@
             # composition with a normalization's sides — the family's frame law, both directions.
             cs = [X => SVector{2, Float64}(VgtkCore.project(cam_div, SVector(X[1], X[2], 0.0))) for X in Xs]
             fr = VgtkCore.CspondNormalization(HomographyMat, cs)
-            Sf, Df = HomographyMap(source_map(fr)), HomographyMap(target_map(fr))
+            Sf, Df = HomographyMap(source_map(fr)), HomographyMap(destination_map(fr))
             Pback = inv(Df) ∘ (Df ∘ Pd ∘ inv(Sf)) ∘ Sf
             @test Pback.P ./ Pback.P[1, 1] ≈ Pd.P ./ Pd.P[1, 1]
             @test Pback.center ≈ Pd.center

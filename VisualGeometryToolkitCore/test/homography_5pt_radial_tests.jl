@@ -232,7 +232,7 @@
                 AffineMap(DiagonalNormalization((1200.0, 900.0)))          # centred at (600, 450), the model's centre
             )
             s = 2 / hypot(1200.0, 900.0)
-            Sf = HomographyMap(VgtkCore.source_map(f)); Df = HomographyMap(VgtkCore.target_map(f))
+            Sf = HomographyMap(VgtkCore.source_map(f)); Df = HomographyMap(VgtkCore.destination_map(f))
             mn = Df ∘ mpx ∘ inv(Sf)
             @test mn.k ≈ mpx.k / s^2 rtol = 1.0e-12
             @test norm(mn.center) < 1.0e-9
@@ -327,7 +327,7 @@
     end
 
     @testset "the normalization: Hartley about the known distortion centre" begin
-        using VisualGeometryToolkitCore: radial_transfer, test_sample, similarity_scale, target_map, CspondNormalization
+        using VisualGeometryToolkitCore: radial_transfer, test_sample, similarity_scale, destination_map, CspondNormalization
         using Random: Xoshiro, randperm
         f0 = 1400.0; c = SVector(1010.0, 520.0)                     # not the image centre, not the centroid
         R = SMatrix{3, 3}(1.0, 0.0, 0.0, 0.0, cos(0.3), sin(0.3), 0.0, -sin(0.3), cos(0.3))
@@ -337,7 +337,7 @@
         Xs = [SVector(x, y) for x in -150.0:50.0:150.0 for y in -150.0:50.0:150.0]
         cs = Csponds(Xs, [SVector{2, Float64}(radial_transfer(m, X)) for X in Xs])
         fr = CspondNormalization(RadialHomography, cs; center = c)
-        @test target_map(fr)(c) == SVector(0.0, 0.0)                # the kernel's origin
+        @test destination_map(fr)(c) == SVector(0.0, 0.0)                # the kernel's origin
         @test_throws UndefKeywordError CspondNormalization(RadialHomography, cs)
         # the 5-pt kernel in this frame recovers the model exactly; a centroid
         # target frame puts the distortion centre on the centroid and misses
@@ -345,7 +345,7 @@
         cent = CspondNormalization(HartleyNormalization(), HartleyNormalization(), cs)
         csc = LinearAlgebra.normalize(cent, cs)
         _xf(mb, X) = (d = radial_transfer(mb, X); d === nothing ? Inf : norm(d - radial_transfer(m, X)))
-        _pulled(fr, m) = inv(HomographyMap(target_map(fr))) ∘ m ∘ VgtkCore.source_map(fr)
+        _pulled(fr, m) = inv(HomographyMap(destination_map(fr))) ∘ m ∘ VgtkCore.source_map(fr)
         err(fr, sols) = minimum((maximum(_xf(_pulled(fr, sols[i]), X) for X in Xs) for i in 1:length(sols)); init = Inf)
         rng = Xoshiro(3); best = Inf; bestc = Inf
         for _ in 1:100
@@ -357,7 +357,7 @@
         @test bestc > 0.1
         # the target distinctness gate reads a PIXEL separation through the
         # scale: an accepted sample fails exactly past its closest target pair
-        σ = similarity_scale(target_map(fr))
+        σ = similarity_scale(destination_map(fr))
         idx = first(filter(i -> test_sample(RadialHomography, csn, i), [randperm(rng, length(Xs))[1:5] for _ in 1:50]))
         dpx = minimum(norm(targets(cs)[a] - targets(cs)[b]) for a in idx for b in idx if a < b)
         @test test_sample(RadialHomography, csn, idx; target_tol = 0.99 * dpx * σ)

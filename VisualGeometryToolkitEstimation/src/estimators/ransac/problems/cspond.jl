@@ -19,8 +19,8 @@
 #                solver calls are gone.
 #   normalization — a VGC `CspondNormalization` (H/F) or `nothing` (E, pose).
 #                A model changes frame by composition with its two maps:
-#                `inv(target_map(N)) ∘ m ∘ source_map(N)` to the data frame,
-#                `target_map(N) ∘ m ∘ inv(source_map(N))` into the normalized one.
+#                `inv(destination_map(N)) ∘ m ∘ source_map(N)` to the data frame,
+#                `destination_map(N) ∘ m ∘ inv(source_map(N))` into the normalized one.
 #   cs_hartley — the Hartley-normalized gate view (2D-2D) or `nothing`.
 #   cs_solve   — the view the minimal solver consumes: the data itself
 #                (F, E's unit bearings, unmapped H), the measurement-mapped
@@ -863,7 +863,7 @@ function _candidate(
         p::MinimalSolveProblem{<:Union{HomographyMat, FundMat, VgtkCore.RadialHomography, VgtkCore.RadialCamera}}, m
     )
     N = p.normalization
-    return _with_datum(p, inv(target_map(N)) ∘ _model_class(p, m) ∘ source_map(N))
+    return _with_datum(p, inv(destination_map(N)) ∘ _model_class(p, m) ∘ source_map(N))
 end
 @inline _model_class(::MinimalSolveProblem, m) = m
 @inline _with_datum(::MinimalSolveProblem, m) = m
@@ -880,7 +880,7 @@ _candidate(::EssentialProblem{T}, E::EssentialMat) where {T <: AbstractFloat} = 
 # homography with h_31 ~ 1e-4 mapping a 1000×1000 image) can spuriously trip a
 # scalar check like `σ₁/σ₃ ≤ τ`, even when the model is bit-exact. So the gate
 # composes the model into the stored normalization
-# (`target_map(N) ∘ m ∘ inv(source_map(N))`) and hands
+# (`destination_map(N) ∘ m ∘ inv(source_map(N))`) and hands
 # VGC's model-class gate the normalized view: H (conditioning + cheirality), F
 # (the oriented epipolar check), the radial homography (conditioning +
 # ray-space cheirality). E has no post-solve gate (and no normalization: its
@@ -888,7 +888,7 @@ _candidate(::EssentialProblem{T}, E::EssentialMat) where {T <: AbstractFloat} = 
 # their own (their files / the default).
 function test_model(p::MinimalSolveProblem{<:Union{HomographyMat, FundMat, VgtkCore.RadialHomography}}, model, idx::AbstractVector{Int})
     N = p.normalization
-    return test_model(target_map(N) ∘ model ∘ inv(source_map(N)), p.cs_hartley, idx)
+    return test_model(destination_map(N) ∘ model ∘ inv(source_map(N)), p.cs_hartley, idx)
 end
 
 # Sample-degeneracy gate — dispatched BY FAMILY.

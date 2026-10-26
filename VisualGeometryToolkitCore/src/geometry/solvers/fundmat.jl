@@ -153,7 +153,7 @@ function fundamental_dlt!(
     # N is the enclosing estimator's normalization: used here, never built here
     F_norm = _dlt!(_fundmat_dlt_row!, A, N, cs, 1, mask, svd_ws)
     F_norm === nothing && return nothing
-    return sign_normalize(inv(target_map(N)) ∘ enforce_rank_two(FundMat{T}(Tuple(F_norm))) ∘ source_map(N))   # composed back to the data frame, then the gauge
+    return sign_normalize(inv(destination_map(N)) ∘ enforce_rank_two(FundMat{T}(Tuple(F_norm))) ∘ source_map(N))   # composed back to the data frame, then the gauge
 end
 
 """

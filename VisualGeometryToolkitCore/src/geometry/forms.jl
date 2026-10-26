@@ -215,8 +215,8 @@ the form's transformation law (`x₂′ᵀ M′ x₁′ = x₂ᵀ M x₁`). With
 `Hᵢ = HomographyMap{GnomonicFrame{i}, ImageFrame{i}}(Kᵢ)` (the calibrated →
 pixel collineations) `H₂ ∘ em ∘ inv(H₁)` is exactly `F = K₂⁻ᵀ E K₁⁻¹`, and a
 correspondence normalization moves a model by
-`target_map(N) ∘ em ∘ inv(source_map(N))` (and back by
-`inv(target_map(N)) ∘ em ∘ source_map(N)`). Each junction is frame-checked
+`destination_map(N) ∘ em ∘ inv(source_map(N))` (and back by
+`inv(destination_map(N)) ∘ em ∘ source_map(N)`). Each junction is frame-checked
 under the standing wildcard truth table (see `Base.:∘` at `EuclideanMap`): the
 correlation's slot-1 frame meets the right map's `Dst`, its slot-2 frame the
 left map's `Src`; a labeled mismatch is a `MethodError`. A CoordinateTransformations
@@ -261,8 +261,8 @@ A matrix carries no frames: it is the unlabeled wildcard at both junctions,
 and the maps keep their own labels. The epipolar result is always a
 [`FundMat`](@ref) — a general collineation keeps rank 2 but not the essential
 constraint (see `∘` on an `EpipolarMap`). A normalization's two sides move a
-model into its normalized frame by `target_map(N) ∘ m ∘ inv(source_map(N))`
-and back by `inv(target_map(N)) ∘ m ∘ source_map(N)`. The composition is exact algebra only: the
+model into its normalized frame by `destination_map(N) ∘ m ∘ inv(source_map(N))`
+and back by `inv(destination_map(N)) ∘ m ∘ source_map(N)`. The composition is exact algebra only: the
 caller's policy (the `sign_normalize` gauge, `enforce_rank_two`, the element
 type) is a separate call. A matrix composed with a matrix, or with anything
 that is not a collineation, is an `ArgumentError` naming the lift

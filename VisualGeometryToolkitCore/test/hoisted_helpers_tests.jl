@@ -15,7 +15,7 @@
     using VisualGeometryToolkitCore.Synthetic: normalize_map, perspective_augmentation
     using GeometryBasics: Rect2
     using VisualGeometryToolkitCore: Csponds, withattrs, weights_column, check_weights, CspondNormalization,
-        RadialCamera, radial_rows, center, source_map, target_map
+        RadialCamera, radial_rows, center, source_map, destination_map
 
     @testset "EuclideanMap{2} actions on primitives and frames" begin
         E = EuclideanMap(PixelFrame{:colmap}, PixelFrame{:julia})   # pure translation by (0.5, 0.5)
@@ -174,7 +174,7 @@
         x = [SVector(c[1] + 300 * randn(rng), c[2] + 300 * randn(rng)) for _ in 1:12]
         N = CspondNormalization(RadialCamera, Csponds(X, x); center = SVector(c[1], c[2]))
         Pn = RadialCamera(SMatrix{2, 3}(0.3, -0.2, 0.9, 0.4, 0.1, -0.5), Point2(0.0, 0.0))
-        Pd = inv(HomographyMap(target_map(N))) ∘ Pn ∘ source_map(N)   # back to pixels by composition
+        Pd = inv(HomographyMap(destination_map(N))) ∘ Pn ∘ source_map(N)   # back to pixels by composition
         P = RadialCamera(radial_rows(Pd), c)                      # the rows about a datum centre
         @test center(P) === c                                     # exact: the datum
         @test radial_rows(P) == radial_rows(Pd)

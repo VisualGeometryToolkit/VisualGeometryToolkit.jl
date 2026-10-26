@@ -13,7 +13,7 @@
 # History, per kind (the entry's `change` is what the CURRENT version
 # introduced, quoted in the refusal; `remedy` is what to do with an older file):
 #   pool    1 — the maps stored under their names before 2026-10-01 (or not at all)
-#           2 — `StereoScoringData.source_map` / `target_map` (2026-10-01)
+#           2 — `StereoScoringData.source_map` / its destination map (2026-10-01)
 #           3 — Julia-version-stable streams: the pair subsample and the
 #               minimal-sample draws seeded by `stable_seed` (SHA-256) on
 #               StableRNGs' `StableRNG`, recorded as `pool_rng` with the
@@ -22,6 +22,8 @@
 #               its residual matrices split into a `:pool_residuals` file bound
 #               to it by `pool_key`, the per-correspondence `snn` (2026-10-05;
 #               the format spec is Pools `save_pool`)
+#           5 — the destination map's pair key, `destination_map` (2026-10-26;
+#               `Pools.migrate_pool` carries a format-4 file over)
 #   pool_residuals
 #           1 — the residual matrices of a v4 pool, with `pool_key` and
 #               `residual_kind` (2026-10-05)
@@ -58,9 +60,9 @@ version introduced and the remedy for an older file. The file key is
 `"<kind>_format"`; an absent key is version 1.
 """
 const ARTIFACT_FORMATS = (
-    pool = (version = 4,
-            change = "plain-data pools split into a light record and a residuals file bound by pool_key",
-            remedy = "convert it with accv2026 scripts/tools/convert_pools_v4.jl"),
+    pool = (version = 5,
+            change = "the destination map's pair key, destination_map",
+            remedy = "migrate a format-4 pool with Pools.migrate_pool; convert an older one to format 4 first with accv2026 scripts/tools/convert_pools_v4.jl"),
     pool_residuals = (version = 1,
             change = "the residual matrices of a v4 pool",
             remedy = "convert its pool with accv2026 scripts/tools/convert_pools_v4.jl"),

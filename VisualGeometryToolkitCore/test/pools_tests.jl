@@ -6,7 +6,7 @@
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore.Pools
     using VisualGeometryToolkitCore.Pools: rig
-    using VisualGeometryToolkitCore: CspondNormalization, FramedAffine, similarity_scale, source_map, target_map
+    using VisualGeometryToolkitCore: CspondNormalization, FramedAffine, similarity_scale, source_map, destination_map
     using StaticArrays, LinearAlgebra, Random
     using Rotations: RotY, RotZ
 
@@ -21,7 +21,7 @@
     px1 = [SVector(rand(rng) * 1920, rand(rng) * 1080) for _ in 1:n]
     px2 = [SVector(rand(rng) * 1600, rand(rng) * 1200) for _ in 1:n]
     N = pool_normalization(sz1, sz2)
-    S, D = source_map(N), target_map(N)
+    S, D = source_map(N), destination_map(N)
     cs = csponds(S.(px1), D.(px2))                       # the stored pool-frame csponds
     models = [FundMat(SMatrix{3, 3, Float64}(randn(rng, 9)...)) for _ in 1:m]
     idx = rand(rng, 1:n, 7, m)
@@ -33,16 +33,16 @@
 
     @testset "the record and its maps" begin
         @test pair isa PoolPair{eltype(models)}
-        @test pair.source_map == to_homogeneous(S) && pair.target_map == to_homogeneous(D)
-        @test PoolPair(args..., pair.source_map, pair.target_map, snn).source_map == pair.source_map
+        @test pair.source_map == to_homogeneous(S) && pair.destination_map == to_homogeneous(D)
+        @test PoolPair(args..., pair.source_map, pair.destination_map, snn).source_map == pair.source_map
         @test PoolPair(args..., N, nothing).snn === nothing
         # the keyword form: every field named, the maps as both sides or as N
         kw = (; csponds = cs, K1, K2, R_gt = R, t_gt = t, models, sample_indices = idx,
               errors_r = er, errors_t = et, gt_inliers = gt, gt_variance = 0.25)
         kpair = PoolPair(; kw..., normalization = N, snn)
         @test kpair isa PoolPair{eltype(models)}
-        @test kpair.source_map == pair.source_map && kpair.target_map == pair.target_map && kpair.snn == snn
-        @test PoolPair{eltype(models)}(; kw..., source_map = pair.source_map, target_map = pair.target_map).snn === nothing
+        @test kpair.source_map == pair.source_map && kpair.destination_map == pair.destination_map && kpair.snn == snn
+        @test PoolPair{eltype(models)}(; kw..., source_map = pair.source_map, destination_map = pair.destination_map).snn === nothing
         @test_throws ArgumentError PoolPair(; kw...)
         @test_throws ArgumentError PoolPair(; kw..., source_map = pair.source_map)
         @test_throws ArgumentError PoolPair(; kw..., normalization = N, source_map = pair.source_map)
@@ -56,14 +56,14 @@
         Np = pool_normalization(pair)
         @test Np isa CspondNormalization
         @test to_homogeneous(source_map(Np)) == pair.source_map
-        @test to_homogeneous(target_map(Np)) == pair.target_map
+        @test to_homogeneous(destination_map(Np)) == pair.destination_map
     end
 
     @testset "a record without its maps is refused" begin
         @test_throws ArgumentError PoolPair(args...)
         @test_throws ArgumentError PoolPair{eltype(models)}(args...)
         bad = SMatrix{3, 3, Float64}(1, 0, 0.1, 0, 1, 0, 0, 0, 1)   # projective last row
-        @test_throws ArgumentError PoolPair(args..., bad, pair.target_map, nothing)
+        @test_throws ArgumentError PoolPair(args..., bad, pair.destination_map, nothing)
         @test_throws DimensionMismatch PoolPair(args..., N, rand(Float32, n + 1))
         @test_throws DimensionMismatch PoolPair(cs, K1, K2, R, t, models, idx[:, 1:(m - 1)], er, et, gt, 0.25, N, nothing)
         @test_throws DimensionMismatch PoolPair(cs, K1, K2, R, t, models, idx, er, et, gt[1:(n - 1)], 0.25, N, nothing)
@@ -77,7 +77,7 @@
             idx, er, et, gt, 0.25, N, nothing)
         @test pool_imc(Hpair, 2) == er[2]               # a homography's translation is not scored
         Kc1, Kc2 = pool_frame_calibrations(pair)
-        @test Kc1 == pair.source_map * K1 && Kc2 == pair.target_map * K2
+        @test Kc1 == pair.source_map * K1 && Kc2 == pair.destination_map * K2
         r = rig(pair)
         @test r isa StereoRig
         @test calibration_matrix(source(r)) ≈ K1
@@ -126,7 +126,7 @@
         @test pair_scene(raw) === nothing
         Nr = pool_normalization(raw)
         @test to_homogeneous(source_map(Nr)) == to_homogeneous(S)
-        @test to_homogeneous(target_map(Nr)) == to_homogeneous(D)
+        @test to_homogeneous(destination_map(Nr)) == to_homogeneous(D)
     end
 end
 
@@ -151,7 +151,7 @@ end
     mk(T1, T2) = PoolPair(;
         csponds = cs, K1 = Kc, K2 = Kc, R_gt = I3s, t_gt = SVector(1.0, 0.0, 0.0),
         models, sample_indices = zeros(Int, 7, K), errors_r = fill(NaN, K), errors_t = fill(NaN, K),
-        gt_inliers = falses(n), gt_variance = NaN, source_map = T1, target_map = T2
+        gt_inliers = falses(n), gt_variance = NaN, source_map = T1, destination_map = T2
     )
 
     out = pixel_residuals(mk(sim(1 / 650.0, -0.9, -0.7), sim(1 / 340.0, -0.95, -0.65)))

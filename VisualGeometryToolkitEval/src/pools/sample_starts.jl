@@ -4,7 +4,7 @@
 # reconstruction; no other code in the stack may rebuild sample boundaries
 # from `sample_indices`.
 #
-# A format-4 pool stores no per-model sample id. A draw yields its sibling
+# A pool (format 4 on) stores no per-model sample id. A draw yields its sibling
 # models in adjacent columns sharing one `sample_indices` column, and a
 # REPEATED draw of the same sample (the samplers draw with replacement across
 # trials) appends an identical column run. "A new sample where the column

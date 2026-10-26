@@ -261,8 +261,8 @@ HomographyMat(P::RadialCamera{T}) where {T} = HomographyMat{T}(
 )
 # A radial camera is a plane point → image LINE map, so a frame change is `∘`,
 # as for every map (a normalization moves it by
-# `target_map(N) ∘ P ∘ inv(source_map(N))`, back by
-# `inv(target_map(N)) ∘ P ∘ source_map(N)`; an image-side `FramedAffine` by
+# `destination_map(N) ∘ P ∘ inv(source_map(N))`, back by
+# `inv(destination_map(N)) ∘ P ∘ source_map(N)`; an image-side `FramedAffine` by
 # `HomographyMap(m) ∘ P`):
 #
 #   plane side (any collineation B):  rows P·B, centre unchanged
@@ -272,7 +272,7 @@ HomographyMat(P::RadialCamera{T}) where {T} = HomographyMat{T}(
 # A projective image-side map does not keep the pencil's centre a point of the
 # model: an `ArgumentError`. To re-attach a caller's DATUM centre exactly after
 # moving back (the inverse map carrying the normalized origin back rounds it):
-# `RadialCamera(radial_rows(inv(target_map(N)) ∘ P ∘ source_map(N)), c)`.
+# `RadialCamera(radial_rows(inv(destination_map(N)) ∘ P ∘ source_map(N)), c)`.
 function Base.:∘(a::Union{HomographyMap{3}, _CTLeafTransformation}, P::RadialCamera)
     D = SMatrix{3, 3}(to_homogeneous(a))
     (iszero(D[3, 1]) && iszero(D[3, 2]) && isone(D[3, 3])) ||

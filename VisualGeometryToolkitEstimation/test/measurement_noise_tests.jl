@@ -13,7 +13,7 @@
     using Rotations: RotMatrix, RotX
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: csponds, exact, Uncertain, CovMat, pair_covariance, transfer_whitening!,
-        whiten, constraint_rounding_scale, source_map, target_map, sampson_distance, residuals!,
+        whiten, constraint_rounding_scale, source_map, destination_map, sampson_distance, residuals!,
         converged, estimate, MsacScoring, TLSShape
     using VisualGeometryToolkitEstimation
     using VisualGeometryToolkitEstimation: Irls, locally_optimize, RadialHomographyProblem
@@ -81,10 +81,10 @@
         # the private normalization moves the noise with the points (Σ′ = AΣAᵀ),
         # so the Mahalanobis residual is the same in the normalized frame
         N = p.normalization
-        A₁ = source_map(N).linear; A₂ = target_map(N).linear
+        A₁ = source_map(N).linear; A₂ = destination_map(N).linear
         @test all(p.cs_hartley.Σ₁[i] ≈ A₁ * Σ₁[i] * A₁' for i in 1:n)
         @test all(p.cs_hartley.Σ₂[i] ≈ A₂ * Σ₂ * A₂' for i in 1:n)
-        Hn = HomographyMat(Tuple(SMatrix{3, 3}((target_map(N) ∘ HomographyMap(H) ∘ inv(source_map(N))).forward)))
+        Hn = HomographyMat(Tuple(SMatrix{3, 3}((destination_map(N) ∘ HomographyMap(H) ∘ inv(source_map(N))).forward)))
         cn = p.cs_hartley
         rn = [sampson_distance(Hn, Uncertain(sources(cn)[i], CovMat(cn.Σ₁[i])), Uncertain(targets(cn)[i], CovMat(cn.Σ₂[i]))) for i in 1:n]
         @test rn ≈ r rtol = 1.0e-9

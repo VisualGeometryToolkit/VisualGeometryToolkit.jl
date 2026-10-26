@@ -95,6 +95,6 @@ The rule is the stack's (`conventions/frames.md`); how it lands here:
 A scoring pool (`Pools.ScoringPool`, VisualGeometryToolkitCore `PoolPair` records)
 is stored in `NormalizedImageFrame` and says so (`Pools.frame`); a PnP pool is
 in `ImageFrame`. The pool and residual files hold plain data with the stored
-maps (`source_map`, `target_map`); a value leaves the pool frame only through
+maps (`source_map`, `destination_map`); a value leaves the pool frame only through
 those maps. Nothing in this package converts a frame. The raw readers
 (`Datasets`) return pixels.

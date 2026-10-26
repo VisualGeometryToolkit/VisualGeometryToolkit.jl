@@ -186,7 +186,7 @@ end
                 "`stream_product_tuning_cpu`, `budget_units`, `_save_artifact`, `ARTIFACT_FORMATS`, " *
                 "`load_tune_config`, `tune_tables`, `cv_polish_scale_multiple`, `run_sb_fair_deployed`, " *
                 "`SB_PRODUCT_TUNING`, `PS_CV`, `audit_product_tuning`, `merge_product_tuning_sidecars`, " *
-                "`source_map`, `target_map`, `_heb_pool_frame_maps`, `pool_frame_sidecar`, " *
+                "`source_map`, `destination_map`, `_heb_pool_frame_maps`, `pool_frame_sidecar`, " *
                 "`<scene>.pool_frame.jld2`, `install_flushing_logger!`.\n"
         )
         # the codified cross-validation's successors stand
@@ -212,6 +212,9 @@ end
         # accessors and the stereo pair's destination stand
         @test :R9 in rules("src/a.jl" => "m = " * "Mount" * "ed(t, X)\n")
         @test quiet("docs/a.md" => "`PosedTarget`, `model(m)`, `pose(m)`, `destination(rig)`, a mounted board.\n")
+        # a normalization's sides: the retired one trips, the successors stand
+        @test :R9 in rules("src/a.jl" => "D = " * "target" * "_map(N)\n")
+        @test quiet("docs/a.md" => "`source_map(N)`, `destination_map(N)`, `inv(destination_map(N)) ∘ M ∘ source_map(N)`.\n")
         # the dissolved evaluation package's pool names trip; their successors,
         # and names that merely contain a retired one, stand
         @test :R9 in rules("src/a.jl" => "x = " * "generate" * "_pool(n, snn)\n")

@@ -129,8 +129,14 @@ end
 # The v1 record's "warp" carries a rigid calibration only; any other kind (and an
 # uncertain one) waits for the target record that carries calibrations.
 _warp_json(::Rigid) = (type = "rigid",)
-_warp_json(c) = throw(
-    ArgumentError("save: a $(nameof(typeof(geom(c)))) target calibration is not in the vgio/target/v1 record, whose \"warp\" is rigid only")
+_warp_json(c::TargetCalibration) = throw(
+    ArgumentError("save: a $(nameof(typeof(c))) target calibration is not in the vgio/target/v1 record, whose \"warp\" is rigid only")
+)
+_warp_json(c::Uncertain{<:TargetCalibration}) = throw(
+    ArgumentError(
+        "save: an uncertain target calibration (a $(nameof(typeof(geom(c)))) with its covariance) is not in the vgio/target/v1 record, " *
+            "whose \"warp\" carries no parameters and no covariance"
+    )
 )
 _warp_from_json(w) = w.type == "rigid" ? Rigid() : throw(ArgumentError("unknown warp $(repr(w.type))"))
 
@@ -147,9 +153,9 @@ design is written by its reference alone and read back unresolved, unless
 points (lengths). Building blocks for a package serializing its own kind.
 """
 target_json(t::PointTarget, unit::Units = mm) = merge((type = "points",), _points_json("a points target", points(t), unit))
-target_json(t::PlanarTarget, unit::Units = mm) = t.design === nothing ?
+target_json(t::PlanarTarget, unit::Units = mm) = reference(t) === nothing ?
     (type = "planar", nominal = [_lengths_json(p, unit, "a planar target's nominal point") for p in t.nominal], warp = _warp_json(calibration(t))) :
-    (type = "planar", design = String(t.design), warp = _warp_json(calibration(t)))
+    (type = "planar", design = String(reference(t)), warp = _warp_json(calibration(t)))
 
 """
     target_from_json(body, unit; resolve = nothing) -> AbstractTarget
@@ -195,6 +201,12 @@ in `length_unit` and, for an `Attributed` one, its `calibration` block (the
 same block a camera carries: who fitted it, when, from what). Plain points are
 an `ArgumentError`, and so is a `PosedTarget`: the file holds an unposed
 target, so save its `model`, or the posed one inside a `Rig`.
+
+This `calibration` block is PROVENANCE, not the target's `TargetCalibration`:
+on an attributed `PlanarTarget`, `x.calibration` (the property; attributes
+first) is this block and `calibration(x)` (VisualGeometryToolkitCore's
+function) the target's calibration kind. The block is renamed in the next
+target record.
 """
 save(path::AbstractString, t::AbstractTarget; length_unit::Units = mm, provenance::NamedTuple = (;)) = (
     _write_store(

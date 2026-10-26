@@ -37,8 +37,8 @@ calibration estimates intrinsics and a lens. The kinds:
 | kind | map | parameters | Jacobian | regularizer | gauges fixed by default |
 |---|---|---|---|---|---|
 | [`Rigid`](@ref) | `p ↦ p` | none | 2 × 0 | none | none |
-| [`Affine`](@ref) | `p ↦ A p + b` | `a11, a12, a21, a22, bx, by` | 2 × 6 | none | `:scale` |
-| [`ThinPlateSpline`](@ref) | `p ↦ p + (f_x(p), f_y(p))` | `fx1…fxK, fy1…fyK` | 2 × 2K | bending energy, 2K rows | none |
+| [`Affine`](@ref) | `p ↦ A p + b` | `a11, a12, a21, a22, bx, by` | 2 × 6 | none | `:translation_x, :translation_y, :rotation, :scale` |
+| [`ThinPlateSpline`](@ref) | `p ↦ p + (f_x(p), f_y(p))` | `fx1…fxK, fy1…fyK` | 2 × 2K | bending energy, 2K rows | its affine part: `:fx_1, :fx_u, :fx_v, :fy_1, :fy_u, :fy_v` |
 | [`HeightField`](@ref) | `p ↦ (p, h(p))` | `h1…hK` | 3 × K | bending energy, K rows | `:piston, :tilt_x, :tilt_y` |
 | [`CalibrationChain`](@ref) | members in order | members', tag-prefixed | chain rule | stacked | members', tag-prefixed |
 
@@ -56,17 +56,23 @@ result type is inferred. A method that assumes the plane takes
 `t::PlanarTarget{<:PlanarCalibration}` and refuses a height field by dispatch.
 
 **Gauges.** Some directions of θ are the pose's: images cannot tell a target
-from the same target scaled (with the pose's translation scaled), nor a height
-field from the same one plus a plane (a tilted, shifted pose). The default
-[`TargetManifold`](@ref) — `minimal_manifold(t)` — holds them fixed: its chart
-is linear on an orthonormal basis of the complement of [`gauge_names`](@ref)'
-directions. A measured length frees the scale by name:
+from the same target shifted, turned in its plane or scaled (the pose moving
+with it), nor a height field from the same one plus a plane (a tilted,
+shifted pose). The default [`TargetManifold`](@ref) — `minimal_manifold(t)`,
+which means "the pose is estimated jointly" — holds them fixed: an `Affine`
+keeps only its stretch and shear, a `ThinPlateSpline` is a pure residual (its
+affine part is the `Affine`'s; a standalone one carries none), a
+`HeightField` loses its piston and tilts. The chart is linear on an
+orthonormal basis of the complement of [`gauge_names`](@ref)' directions,
+evaluated once at the anchor. With a known pose (motion capture) free the
+gauges by name; a measured length frees the scale:
 
 ```julia
-t = PlanarTarget(points; calibration = CalibrationChain(Affine(A, b), HeightField(nodes, h)))
-ch = minimal_manifold(t)                               # :affine_scale and the three height gauges fixed
-ch = TargetManifold(t; free = (:affine_scale,))       # a ruler pins the scale
-restrict(ch, (:affine_bx, :affine_by))                 # only the translation free
+t = PlanarTarget(pts; calibration = CalibrationChain(Affine(A, b), ThinPlateSpline(nodes), HeightField(nodes)))
+ch = minimal_manifold(t)                                   # the pose estimated jointly: every gauge fixed
+ch = TargetManifold(t; free = :affine_scale)               # a ruler pins the metric scale
+ch = TargetManifold(t; free = gauge_names(t))              # a known pose: nothing is a gauge
+restrict(minimal_manifold(t), (:affine_a11, :affine_a12, :affine_a21, :affine_a22))   # the print's linear part only: stretch and shear
 ```
 
 ```@autodocs

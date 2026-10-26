@@ -90,7 +90,7 @@ using VisualGeometryToolkitCore: parse_unit, unit_string, mm, m, px, dpi, has_un
     lens_record, lens_from_record,
     EuclideanMap, Size2, Vec3, PixelFrame,
     Rig, PosedTarget, BoundedCamera, PosedCamera, Attributed, sensor_rig, target_rig,
-    AbstractTarget, PointTarget, PlanarTarget, Rigid, calibration, is_resolved,
+    AbstractTarget, PointTarget, PlanarTarget, Rigid, TargetCalibration, calibration, reference, is_resolved,
     Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D, TargetPoint2D, TargetPoint3D,
     CentralGenericModel, NoncentralGenericModel,
     Frame, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, UnlabeledFrame,

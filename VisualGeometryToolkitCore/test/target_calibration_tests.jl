@@ -220,35 +220,56 @@ end
         retract_jacobian, action_jacobian, local_coordinates, restrict, gauge_names, gauge_directions, model
 
     rng = Xoshiro(7)
-    nodes = grid_nodes(4; lo = -0.1, hi = 0.1)
+    nodes = grid_nodes(4; lo = -0.1, hi = 0.1)                         # 16 nodes: an in-plane spline has n = 32
     pts = [SVector(0.2 * rand(rng) - 0.1, 0.2 * rand(rng) - 0.1) for _ in 1:12]
     A = Affine([1.002 0.001; -0.0015 0.998], [0.0004, -0.0003])
     H = HeightField(nodes, 1.0e-3 .* randn(rng, 16))
     T = ThinPlateSpline(nodes, 1.0e-4 .* randn(rng, 16), 1.0e-4 .* randn(rng, 16))
+    unit_cols(D) = D ./ norm.(eachcol(D))'
 
-    @testset "Affine: the uniform scale is fixed by default, freed by name" begin
+    @testset "Affine: translation, rotation and scale are fixed; stretch and shear stay" begin
         t = PlanarTarget(pts; calibration = A)
-        @test gauge_names(A) == (:scale,) && gauge_names(t) == (:scale,)
+        @test gauge_names(A) == (:translation_x, :translation_y, :rotation, :scale) && gauge_names(t) == gauge_names(A)
+        D = gauge_directions(A)
+        a = [1.002, 0.001, -0.0015, 0.998]
+        @test D[:, 1] == [0, 0, 0, 0, 1, 0] && D[:, 2] == [0, 0, 0, 0, 0, 1]
+        @test D[:, 3] ≈ [0.0015, -0.998, 1.002, 0.001, 0, 0] / norm(a)    # δA = J A₀
+        @test D[:, 4] ≈ [a; 0; 0] / norm(a)                                 # δA = A₀
         ch = minimal_manifold(t)
-        @test ch isa TargetManifold && tangent_size(ch) == 5
-        d = vec(gauge_directions(A))
-        @test d ≈ [1.002, 0.001, -0.0015, 0.998, 0.0, 0.0] / norm([1.002, 0.001, -0.0015, 0.998])
+        @test ch isa TargetManifold && tangent_size(ch) == 2
         B = retract_jacobian(ch)
-        @test size(B) == (6, 5) && B' * B ≈ I && norm(B' * d) < 1.0e-14       # the restricted direction has zero tangent
-        v = SVector{5}(1.0e-4 .* randn(rng, 5))
+        @test B isa SMatrix{6, 2} && B' * B ≈ I && norm(B' * D) < 1.0e-14   # the fixed directions have zero tangent
+        v = SVector{2}(1.0e-4 .* randn(rng, 2))
         Δθ = parameter_vector(retract(ch, v)) - parameter_vector(A)
-        @test abs(dot(d, Δθ)) < 1.0e-16 && local_coordinates(ch, retract(ch, v)) ≈ v
+        @test norm(D' * Δθ) < 1.0e-16 && local_coordinates(ch, retract(ch, v)) ≈ v
         @test action_jacobian(ch, pts[1]) ≈ calibration_jacobian(A, pts[1]) * B
-        ch6 = TargetManifold(t; free = (:scale,))
+        @test tangent_size(TargetManifold(t; free = :scale)) == 3            # a lone Symbol
+        @test tangent_size(TargetManifold(t; free = (:scale, :rotation))) == 4
+        ch6 = TargetManifold(t; free = gauge_names(A))                      # a known pose: everything free
         @test tangent_size(ch6) == 6 && retract_jacobian(ch6) == I
-        @test_throws ArgumentError TargetManifold(t; free = (:piston,))
+        @test_throws ArgumentError TargetManifold(t; free = :piston)
         # recenter keeps the slice and the type
         r = recenter(ch, v)
         @test typeof(r) === typeof(ch) && retract_jacobian(r) == B && model(r) == retract(ch, v)
         @test only(Base.return_types(recenter, (typeof(ch), typeof(v)))) === typeof(ch)
     end
 
-    @testset "HeightField: piston and the two tilts are fixed by default" begin
+    @testset "ThinPlateSpline: its whole affine part is fixed" begin
+        t = PlanarTarget(pts; calibration = T)
+        @test gauge_names(T) == (:fx_1, :fx_u, :fx_v, :fy_1, :fy_u, :fy_v)
+        D = gauge_directions(T)
+        u, w = [p[1] for p in nodes], [p[2] for p in nodes]
+        o, z = ones(16), zeros(16)
+        @test D == [[o; z] [u; z] [w; z] [z; o] [z; u] [z; w]]
+        ch = minimal_manifold(t)
+        @test tangent_size(ch) == 32 - 6
+        B = retract_jacobian(ch)
+        @test norm(B' * D) < 1.0e-13 && B' * B ≈ I
+        @test tangent_size(TargetManifold(t; free = (:fx_u, :fy_v))) == 28
+        @test tangent_size(TargetManifold(t; free = gauge_names(T))) == 32
+    end
+
+    @testset "HeightField: piston and the two tilts are fixed" begin
         t = PlanarTarget(pts; calibration = H)
         @test gauge_names(t) == (:piston, :tilt_x, :tilt_y)
         ch = minimal_manifold(t)
@@ -261,30 +282,181 @@ end
         @test abs(sum(δh)) < 1.0e-17 && abs(sum(p[1] * x for (p, x) in zip(nodes, δh))) < 1.0e-17 &&
             abs(sum(p[2] * x for (p, x) in zip(nodes, δh))) < 1.0e-17
         @test size(action_jacobian(ch, pts[1])) == (3, 13)
-        # a plane of heights is invisible: its tangent coordinates vanish
         plane = with_parameters(t, parameter_vector(H) + [1.0e-4 + 2.0e-3 * p[1] - 1.0e-3 * p[2] for p in nodes])
-        @test norm(local_coordinates(ch, plane)) < 1.0e-15
-        @test tangent_size(TargetManifold(t; free = (:piston,))) == 14
+        @test norm(local_coordinates(ch, plane)) < 1.0e-15                  # a plane of heights is invisible
+        @test tangent_size(TargetManifold(t; free = :piston)) == 14
         @test tangent_size(TargetManifold(t; free = (:piston, :tilt_x, :tilt_y))) == 16
     end
 
-    @testset "chains, the in-plane spline, restrict by name" begin
+    @testset "chains: the members' gauges, prefixed" begin
         C = CalibrationChain(A, T, H)
         t = PlanarTarget(pts; calibration = C)
-        @test gauge_names(C) == (:affine_scale, :height_field_piston, :height_field_tilt_x, :height_field_tilt_y)
+        @test gauge_names(C) == (:affine_translation_x, :affine_translation_y, :affine_rotation, :affine_scale,
+            :thin_plate_spline_fx_1, :thin_plate_spline_fx_u, :thin_plate_spline_fx_v,
+            :thin_plate_spline_fy_1, :thin_plate_spline_fy_u, :thin_plate_spline_fy_v,
+            :height_field_piston, :height_field_tilt_x, :height_field_tilt_y)
         ch = minimal_manifold(t)
-        @test tangent_size(ch) == 6 + 32 + 16 - 4
-        @test norm(retract_jacobian(ch)' * gauge_directions(C)) < 1.0e-13
-        @test tangent_size(TargetManifold(t; free = (:affine_scale,))) == 6 + 32 + 16 - 3
-        @test gauge_names(T) == () && tangent_size(minimal_manifold(PlanarTarget(pts; calibration = T))) == 32
-        # restrict to b alone: the scale direction has no component there, nothing more is lost
+        @test tangent_size(ch) == 6 + 32 + 16 - 13
+        @test norm(retract_jacobian(ch)' * unit_cols(gauge_directions(C))) < 1.0e-13
+        @test tangent_size(TargetManifold(t; free = :affine_scale)) == 6 + 32 + 16 - 12
+    end
+
+    @testset "restrict fixes only the gauge combinations inside the free span" begin
         tA = PlanarTarget(pts; calibration = A)
-        rb = restrict(minimal_manifold(tA), (:bx, :by))
+        chA = minimal_manifold(tA)
+        # b alone: both translations lie in it and are gauges there — nothing is left
+        @test tangent_size(restrict(chA, (:bx, :by))) == 0
+        rb = restrict(TargetManifold(tA; free = (:translation_x, :translation_y)), (:bx, :by))
         @test rb isa TargetManifold && tangent_size(rb) == 2 && retract_jacobian(rb) == SMatrix{6, 2}(0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1)
-        ra = restrict(minimal_manifold(tA), (:a11, :a22, :bx))
-        @test tangent_size(ra) == 2                                              # (a11, a22) minus their scale component
-        @test_throws ArgumentError restrict(minimal_manifold(tA), (:h1,))
-        # Rigid: zero-dimensional, as before
-        @test tangent_size(minimal_manifold(PlanarTarget(pts))) == 0
+        # the review's table: a gauge with only a component on the free axes fixes nothing
+        @test tangent_size(restrict(chA, (:a11,))) == 1
+        @test tangent_size(restrict(chA, (:a11, :a12))) == 2
+        tH = PlanarTarget(pts; calibration = H)
+        @test tangent_size(restrict(minimal_manifold(tH), (:h1, :h2, :h3))) == 3
+        @test tangent_size(restrict(minimal_manifold(tH), (:h1, :h2, :h3, :h4, :h5))) == 5
+        # at a diagonal A the scale (a11, 0, 0, a22) lies in (a11, a22) and bx is a translation: one left
+        tD = PlanarTarget(pts; calibration = Affine([1.002 0.0; 0.0 0.998], [0.0004, -0.0003]))
+        rD = restrict(minimal_manifold(tD), (:a11, :a22, :bx))
+        @test tangent_size(rD) == 1 && abs(dot(retract_jacobian(rD)[:, 1], [1.002, 0, 0, 0.998, 0, 0])) < 1.0e-14
+        @test_throws ArgumentError restrict(chA, (:h1,))
+        @test tangent_size(minimal_manifold(PlanarTarget(pts))) == 0           # Rigid: zero-dimensional
+    end
+
+    @testset "the basis: an SMatrix up to n = 18, a Matrix above" begin
+        T3 = ThinPlateSpline(grid_nodes(3; lo = -0.1, hi = 0.1))                   # n = 18
+        small = minimal_manifold(PlanarTarget(pts; calibration = T3))
+        @test retract_jacobian(small) isa SMatrix{18, 12}
+        vs = SVector{12}(1.0e-5 .* randn(rng, 12))
+        @test only(Base.return_types(recenter, (typeof(small), typeof(vs)))) === typeof(small)
+        @test action_jacobian(small, pts[1]) isa SMatrix{2, 12} && local_coordinates(small, retract(small, vs)) ≈ vs
+        @test retract_jacobian(minimal_manifold(PlanarTarget(pts; calibration = T))) isa Matrix{Float64}   # n = 32
+        T5 = ThinPlateSpline(grid_nodes(5; lo = -0.1, hi = 0.1))                   # n = 50
+        big = minimal_manifold(PlanarTarget(pts; calibration = T5))
+        B = retract_jacobian(big)
+        @test B isa Matrix{Float64} && size(B) == (50, 44) && tangent_size(big) == 44 && B' * B ≈ I
+        v = 1.0e-5 .* randn(rng, 44)
+        r = recenter(big, v)
+        @test typeof(r) === typeof(big) && only(Base.return_types(recenter, (typeof(big), Vector{Float64}))) === typeof(big)
+        @test local_coordinates(big, model(r)) ≈ v
+        J = action_jacobian(big, pts[1])
+        @test J isa Matrix{Float64} && size(J) == (2, 44) && J ≈ calibration_jacobian(T5, pts[1]) * B
+        @test norm(B' * gauge_directions(T5)) < 1.0e-13
+    end
+end
+
+@testitem "target calibration: the default manifold has full rank with the poses free" begin
+    # The review's harness: a pinhole, 4 poses about 0.6 m from a 20 × 16 cm
+    # board, 30 design points, 3 × 3 nodes. The joint projection Jacobian over the
+    # poses (a rotation vector and a translation each) and the default manifold's
+    # coordinates has full column rank: no gauge is left free.
+    using Test, StaticArrays, LinearAlgebra, Random, ForwardDiff
+    using VisualGeometryToolkitCore
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: grid_nodes, minimal_manifold, retract_jacobian, tangent_size
+
+    rng = Xoshiro(1)
+    design = [SVector(x, y) for x in range(-0.1, 0.1; length = 6) for y in range(-0.08, 0.08; length = 5)]
+    nodes = grid_nodes(3; lo = -0.1, hi = 0.1)
+    skew(ω) = SMatrix{3, 3}(0, ω[3], -ω[2], -ω[3], 0, ω[1], ω[2], -ω[1], 0)
+    function rodrigues(ω)
+        θ = sqrt(sum(abs2, ω) + 1.0e-300)
+        K = skew(ω / θ)
+        return one(SMatrix{3, 3, eltype(ω)}) + sin(θ) * K + (1 - cos(θ)) * K * K
+    end
+    lift(p::StaticVector{2}) = SVector(p[1], p[2], zero(p[1]))
+    lift(p::StaticVector{3}) = SVector(p[1], p[2], p[3])
+    F = 4
+    R0 = [rodrigues(SVector(0.3randn(rng), 0.3randn(rng), 0.3randn(rng))) for _ in 1:F]
+    t0 = [SVector(0.05randn(rng), 0.05randn(rng), 0.6 + 0.1rand(rng)) for _ in 1:F]
+    function projections(c, θ, pose)
+        cc = with_parameters(c, θ)
+        out = promote_type(eltype(θ), eltype(pose))[]
+        for f in 1:F
+            R = rodrigues(SVector{3}(pose[(6f - 5):(6f - 3)])) * R0[f]
+            t = t0[f] + SVector{3}(pose[(6f - 2):(6f)])
+            for p in design
+                X = R * lift(cc(p)) + t
+                push!(out, X[1] / X[3], X[2] / X[3])
+            end
+        end
+        return out
+    end
+    function nullity_default(c; free = ())
+        θ0 = Vector(parameter_vector(c)); n = length(θ0)
+        J = ForwardDiff.jacobian(z -> projections(c, z[1:n], z[(n + 1):end]), [θ0; fill(1.0e-12, 6F)])
+        B = Matrix(retract_jacobian(VgtkCore.TargetManifold(PlanarTarget(design; calibration = c); free)))
+        s = svdvals([J[:, 1:n] * B J[:, (n + 1):end]])
+        return count(<(1.0e-9 * s[1]), s)
+    end
+
+    A = Affine([1.01 0.02; -0.015 0.99], [0.003, -0.002])
+    T = ThinPlateSpline(nodes, 1.0e-4 .* randn(rng, 9), 1.0e-4 .* randn(rng, 9))
+    H0 = HeightField(nodes)
+    H = HeightField(nodes, 1.0e-3 .* randn(rng, 9))
+    cases = (
+        "Affine" => A, "ThinPlateSpline" => T, "HeightField flat" => H0, "HeightField h ≈ 1 mm" => H,
+        "Chain(Affine, TPS at zero displacement)" => CalibrationChain(A, ThinPlateSpline(nodes)),
+        "Chain(Affine, HeightField)" => CalibrationChain(A, H), "Chain(Affine, HeightField flat)" => CalibrationChain(A, H0),
+        "Chain(TPS, HeightField)" => CalibrationChain(T, H),
+    )
+    for (name, c) in cases
+        @testset "$name" begin
+            @test nullity_default(c) == 0
+        end
+    end
+    # the harness can see a gauge: with the Affine's freed, its four come back
+    @test nullity_default(A; free = VgtkCore.gauge_names(A)) == 4
+end
+
+@testitem "target calibration: names, hashes, AD on lengths, an uncertain calibration" begin
+    using Test, StaticArrays, LinearAlgebra, ForwardDiff
+    using VisualGeometryToolkitCore
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: grid_nodes, gauge_names, mm, m, Attributed
+    using FlexUnits: ustrip
+
+    nodes = grid_nodes(3; lo = 0.0, hi = 100.0)
+    A = Affine([1.001 0.0; 0.0 0.999], [0.5, -0.25])
+    T = ThinPlateSpline(nodes, fill(0.01, 9), fill(-0.01, 9))
+    H = HeightField(nodes, [0.1, 0.0, -0.1, 0.2, 0.0, 0.0, 0.0, 0.3, 0.0])
+    C = CalibrationChain(A, T, H)
+    pts = [SVector(0.0, 0.0), SVector(100.0, 0.0), SVector(30.0, 40.0)]
+
+    @testset "a chain's names are inferred" begin
+        @test (@inferred parameter_names(C)) == parameter_names(C) && length(parameter_names(C)) == 6 + 18 + 9
+        @test (@inferred gauge_names(C)) == gauge_names(C)
+        t = PlanarTarget(pts; calibration = C)
+        @test (@inferred VgtkCore.parameters(t)).affine_a11 == 1.001
+    end
+
+    @testset "hash agrees with ==" begin
+        for (x, y) in ((A, Affine([1.001 0.0; 0.0 0.999], [0.5, -0.25])), (T, ThinPlateSpline(nodes, fill(0.01, 9), fill(-0.01, 9))),
+                       (H, HeightField(nodes, [0.1, 0.0, -0.1, 0.2, 0.0, 0.0, 0.0, 0.3, 0.0])), (C, CalibrationChain(A, T, H)),
+                       (PlanarTarget(pts; calibration = H), PlanarTarget(pts; calibration = HeightField(nodes, [0.1, 0.0, -0.1, 0.2, 0.0, 0.0, 0.0, 0.3, 0.0]))))
+            @test x == y && hash(x) == hash(y)
+            @test length(Set([x, y])) == 1
+        end
+        @test hash(A) != hash(with_parameters(A, parameter_vector(A) .+ 1.0e-3))
+    end
+
+    @testset "ForwardDiff through a physical calibration" begin
+        pmm = SVector(10.0, 20.0) .* mm
+        for c in (VgtkCore.with_unit(A, mm), VgtkCore.with_unit(H, mm))
+            J = ForwardDiff.jacobian(θ -> ustrip.(m, with_parameters(c, θ)(pmm)), Vector(parameter_vector(c)))
+            @test J ≈ calibration_jacobian(c, pmm) atol = 1.0e-14
+        end
+    end
+
+    @testset "an uncertain calibration: with_parameters returns the bare kind" begin
+        u = Uncertain(A, CovMat(SMatrix{6, 6}(1.0e-6I)))
+        θ = parameter_vector(A) .+ 1.0e-4
+        @test with_parameters(u, θ) isa Affine && parameter_vector(with_parameters(u, θ)) == θ
+        @test calibration(with_parameters(PlanarTarget(pts; calibration = u), θ)) isa Affine
+    end
+
+    @testset "calibration of an attributed target is the TargetCalibration" begin
+        a = Attributed(PlanarTarget(pts; calibration = H), (; calibration = (; tool = "a ruler", n_images = 3)))
+        @test calibration(a) === H                                        # the function: the target's kind
+        @test a.calibration == (; tool = "a ruler", n_images = 3)         # the property: the provenance attribute
     end
 end

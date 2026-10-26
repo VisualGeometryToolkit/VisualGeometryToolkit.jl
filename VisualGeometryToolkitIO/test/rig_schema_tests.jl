@@ -129,7 +129,7 @@ end
 
 @testitem "rig/v4: a rig of targets" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, PointTarget, is_resolved, resolve,
-        WorldFrame, TargetFrame, ids, pose, points, reference_frame
+        WorldFrame, TargetFrame, ids, pose, points, reference_frame, reference
     using Rotations: RotXYZ
 
     const POSE_ULP = 1.0e-15
@@ -167,7 +167,7 @@ end
         @test maximum(abs, Matrix(Pa.R) - Matrix(pose(tr, :b76e).R)) <= POSE_ULP
         # explicit points survive; a referenced design comes back unresolved…
         @test back[:a1f2].target == tr[:a1f2].target
-        @test !is_resolved(back[:b76e].target) && back[:b76e].target.design === :b76e
+        @test !is_resolved(back[:b76e].target) && reference(back[:b76e].target) === :b76e
         @test_throws ArgumentError points(back, :c9)
         # …and resolved when the design's owner supplies its resolver: exact by type
         backr = load(Rig, path; resolve = id -> designs[id])
@@ -210,7 +210,7 @@ end
     using LinearAlgebra: LinearAlgebra
     using VisualGeometryToolkitCore: Rig, PosedTarget, PointTarget, PlanarTarget, AbstractTarget, Attributed, BoundedCamera, PosedCamera,
         BodyFrame, ViewFrame, Uncertain, CovMat, relabel, ids, pose, extrinsics, model, points,
-        sensor_rig, target_rig, exact, is_resolved, Affine
+        sensor_rig, target_rig, exact, is_resolved, Affine, Rigid
     using Statistics: cov
     K = SMatrix{3, 3, Float64}(900.0, 0, 0, 0, 900.0, 0, 640.0, 480.0, 1)
     Xc = relabel(BodyFrame{:camera_rig}, ViewFrame{:cam}, _mkpose())
@@ -265,6 +265,11 @@ end
         affine = Affine([1.001 0.0; 0.0 1.0], [0.1, 0.0] .* mm)
         e = try save(ta, PlanarTarget([mm_lengths(SVector(1.0, 2.0))]; calibration = affine)); nothing catch err; err end
         @test e isa ArgumentError && occursin("Affine", e.msg) && occursin("vgio/target/v1", e.msg)
+        @test !isfile(ta)
+        # an uncertain calibration, even a rigid one: its covariance has no place in v1
+        u = Uncertain(Rigid(), CovMat(SMatrix{0, 0, Float64}()))
+        e = try save(ta, PlanarTarget([mm_lengths(SVector(1.0, 2.0))]; calibration = u)); nothing catch err; err end
+        @test e isa ArgumentError && occursin("uncertain", e.msg) && occursin("covariance", e.msg) && !occursin("rigid only", e.msg)
         @test !isfile(ta)
     end
 end

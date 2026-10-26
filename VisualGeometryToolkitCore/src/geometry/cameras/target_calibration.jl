@@ -50,6 +50,14 @@ function calibration_jacobian end
 The prior's residual rows `r(θ)` at the current parameters: `‖r‖²` is the
 penalty a calibrating estimator adds (a thin-plate spline's bending energy, a
 shrinkage toward the design). Empty for [`Rigid`](@ref).
+
+The rows are a QUADRATIC BLOCK: only `‖r‖²` (equivalently `LᵀL`) is defined.
+The thin-plate kinds' rows are `L v` with `L` an eigen-factor of the bending
+form, and an eigenbasis is not unique (a symmetric node grid has repeated
+eigenvalues; the basis and the row signs follow the LAPACK build). So never
+compare rows one by one (across machines or against stored values), and never
+weight them one by one (a robust per-row weight would depend on that basis):
+weight the block as a whole.
 """
 function regularizer end
 
@@ -168,10 +176,11 @@ matrix, `b` a translation in the design's length form (plain, or lengths).
 Parameters `(:a11, :a12, :a21, :a22, :bx, :by)` (`A` row by row, then `b`),
 unbounded; [`calibration_jacobian`](@ref) is 2 × 6; no regularizer.
 
-Its uniform scale is a gauge: images alone cannot tell a target from the same
-target scaled about its origin (the pose's translation scales with it), so the
-default [`TargetManifold`](@ref) of an `Affine` target holds it fixed — see
-[`gauge_names`](@ref).
+With the pose estimated jointly, four of its six directions are the pose's
+(gauges): the translation `b`, the in-plane rotation and the uniform scale.
+The default [`TargetManifold`](@ref) holds them fixed and leaves the two that
+images can see, the anisotropic stretch and the shear — see
+[`gauge_names`](@ref). With a known pose, free them by name.
 """
 struct Affine{T} <: TargetCalibration
     A::SMatrix{2, 2, T, 4}
@@ -214,6 +223,7 @@ FlexUnits.ustrip(u::Units, c::Affine{T}) where {T} =
 with_unit(c::Affine{T}, u::Units) where {T} =
     c.physical ? _refuse_attach(c) : Affine{T}(c.A, map(x -> _to_metres(x, u), c.b), true)
 Base.:(==)(a::Affine, b::Affine) = a.A == b.A && a.b == b.b && a.physical == b.physical
+Base.hash(c::Affine, h::UInt) = hash(c.physical, hash(c.b, hash(c.A, hash(:Affine, h))))
 
 # ------------------------------------------------------------------------------
 # The thin-plate spline kinds — an in-plane residual and an out-of-plane height
@@ -257,7 +267,15 @@ target's plane, through the nodal displacements `fx` and `fy`. Nodes and
 displacements are in the design's length form (plain, or lengths).
 Parameters `(:fx1, …, :fxK, :fy1, …, :fyK)`, unbounded;
 [`calibration_jacobian`](@ref) is 2 × 2K (the splines' `nodal_weights`);
-[`regularizer`](@ref) the two splines' bending-energy rows (`2K` rows).
+[`regularizer`](@ref) the two splines' bending-energy rows (`2K` rows; a
+quadratic block, see its docstring).
+
+It is a RESIDUAL: its affine part (each spline's `1`, `u`, `v` over the nodes)
+is fixed by the default [`TargetManifold`](@ref) — `gauge_names` `(:fx_1,
+:fx_u, :fx_v, :fy_1, :fy_u, :fy_v)` — because four of those six directions
+are the pose's and all six duplicate an `Affine`. A standalone
+`ThinPlateSpline` therefore carries no affine part: chain it after an
+[`Affine`](@ref) for a print stretch and shear, or free `:fx_u`, … by name.
 """
 struct ThinPlateSpline{K, T} <: TargetCalibration
     system::ThinPlateSplineSystem{K}
@@ -303,7 +321,7 @@ end
 _calibration_tag(::ThinPlateSpline) = "thin_plate_spline"
 
 parameter_vector(c::ThinPlateSpline) = vcat(c.fx, c.fy)
-parameter_names(::ThinPlateSpline{K}) where {K} = (ntuple(i -> Symbol(:fx, i), Val(K))..., ntuple(i -> Symbol(:fy, i), Val(K))...)
+# parameter_names(::ThinPlateSpline): generated from the type, beside the name tables below
 function with_parameters(c::ThinPlateSpline{K}, θ::AbstractVector) where {K}
     length(θ) == 2K || _refuse_length(c, θ)
     T = float(eltype(θ))
@@ -331,6 +349,7 @@ function with_unit(c::ThinPlateSpline, u::Units)
 end
 Base.:(==)(a::ThinPlateSpline, b::ThinPlateSpline) =
     a.system.nodes == b.system.nodes && a.fx == b.fx && a.fy == b.fy && a.physical == b.physical
+Base.hash(c::ThinPlateSpline, h::UInt) = hash(c.physical, hash(c.fy, hash(c.fx, hash(c.system.nodes, hash(:ThinPlateSpline, h)))))
 Base.show(io::IO, c::ThinPlateSpline{K}) where {K} =
     print(io, "ThinPlateSpline over ", K, " nodes", c.physical ? " (lengths in metres)" : "")
 
@@ -386,7 +405,7 @@ end
 _calibration_tag(::HeightField) = "height_field"
 
 parameter_vector(c::HeightField) = c.h
-parameter_names(::HeightField{K}) where {K} = ntuple(i -> Symbol(:h, i), Val(K))
+# parameter_names(::HeightField): generated from the type, beside the name tables below
 function with_parameters(c::HeightField{K}, θ::AbstractVector) where {K}
     length(θ) == K || _refuse_length(c, θ)
     return _height_field(c.system, c.bending, _wrap(θ, Val(K), 0, float(eltype(θ))), c.physical)
@@ -411,8 +430,43 @@ function with_unit(c::HeightField, u::Units)
     return HeightField([map(to, p) for p in c.system.nodes], map(to, c.h))
 end
 Base.:(==)(a::HeightField, b::HeightField) = a.system.nodes == b.system.nodes && a.h == b.h && a.physical == b.physical
+Base.hash(c::HeightField, h::UInt) = hash(c.physical, hash(c.h, hash(c.system.nodes, hash(:HeightField, h))))
 Base.show(io::IO, c::HeightField{K}) where {K} =
     print(io, "HeightField over ", K, " nodes", c.physical ? " (lengths in metres)" : "")
+
+# ------------------------------------------------------------------------------
+# Names as a function of the type (what a chain's generated names read)
+# ------------------------------------------------------------------------------
+#
+# `nothing` for a type without a static table (a downstream kind): a chain
+# holding one builds its names at run time.
+_static_parameter_names(::Type) = nothing
+_static_parameter_names(::Type{Rigid}) = ()
+_static_parameter_names(::Type{<:Affine}) = (:a11, :a12, :a21, :a22, :bx, :by)
+_static_parameter_names(::Type{<:ThinPlateSpline{K}}) where {K} =
+    (ntuple(i -> Symbol(:fx, i), K)..., ntuple(i -> Symbol(:fy, i), K)...)
+_static_parameter_names(::Type{<:HeightField{K}}) where {K} = ntuple(i -> Symbol(:h, i), K)
+_static_gauge_names(::Type) = nothing
+_static_gauge_names(::Type{Rigid}) = ()
+_static_gauge_names(::Type{<:Affine}) = (:translation_x, :translation_y, :rotation, :scale)
+_static_gauge_names(::Type{<:ThinPlateSpline}) = (:fx_1, :fx_u, :fx_v, :fy_1, :fy_u, :fy_v)
+_static_gauge_names(::Type{<:HeightField}) = (:piston, :tilt_x, :tilt_y)
+_static_tag(::Type) = nothing
+_static_tag(::Type{Rigid}) = "rigid"
+_static_tag(::Type{<:Affine}) = "affine"
+_static_tag(::Type{<:ThinPlateSpline}) = "thin_plate_spline"
+_static_tag(::Type{<:HeightField}) = "height_field"
+# A literal tuple per type, so a NamedTuple over the names is inferred.
+@generated parameter_names(c::Union{ThinPlateSpline, HeightField}) = QuoteNode(_static_parameter_names(c))
+function _static_chain_names(f, ::Type{C}) where {C <: Tuple}
+    out = Symbol[]
+    for M in fieldtypes(C)
+        names, tag = f(M), _static_tag(M)
+        (names === nothing || tag === nothing) && return nothing
+        append!(out, (Symbol(tag, :_, n) for n in names))
+    end
+    return Tuple(out)
+end
 
 # ------------------------------------------------------------------------------
 # CalibrationChain — calibrations applied in order
@@ -460,8 +514,18 @@ _apply_members(cs::Tuple, q) = _apply_members(Base.tail(cs), _apply(first(cs), q
 _calibration_tag(::CalibrationChain) = "calibration_chain"
 
 parameter_vector(c::CalibrationChain) = vcat(map(parameter_vector, c.members)...)
-parameter_names(c::CalibrationChain) =
-    Tuple(Symbol(_calibration_tag(x), :_, n) for x in c.members for n in parameter_names(x))
+# The members' names, each prefixed by its member's tag. For the kinds shipped
+# here the names are a function of the TYPE, so a chain's are a literal tuple
+# (generated from its member types) and `parameters(t)` infers its NamedTuple;
+# a chain with a downstream member builds them at run time instead.
+@generated function parameter_names(c::CalibrationChain{C}) where {C}
+    names = _static_chain_names(_static_parameter_names, C)
+    return names === nothing ? :(_prefixed_names(parameter_names, c.members)) : QuoteNode(names)
+end
+_prefixed_names(f, ::Tuple{}) = ()
+_prefixed_names(f, cs::Tuple) =
+    (_prefixed(_calibration_tag(first(cs)), f(first(cs)))..., _prefixed_names(f, Base.tail(cs))...)
+_prefixed(tag, names::Tuple) = map(n -> Symbol(tag, :_, n), names)
 function with_parameters(c::CalibrationChain, θ::AbstractVector)
     length(θ) == length(parameter_vector(c)) || _refuse_length(c, θ)
     return CalibrationChain(_with_members(c.members, θ, 0))
@@ -502,6 +566,7 @@ function with_unit(c::CalibrationChain, u::Units)
     return CalibrationChain(map(x -> _attach_calibration(u, x), c.members))
 end
 Base.:(==)(a::CalibrationChain, b::CalibrationChain) = a.members == b.members
+Base.hash(c::CalibrationChain, h::UInt) = hash(c.members, hash(:CalibrationChain, h))
 
 # ------------------------------------------------------------------------------
 # Planarity — in the type
@@ -557,16 +622,26 @@ A calibration's GAUGES: the directions of its parameter vector θ (length `n`)
 that images of the target cannot observe because the target's pose absorbs
 them, by name; [`gauge_directions`](@ref) gives them as columns in θ's
 coordinates (plain numbers; lengths in metres). The default [`TargetManifold`](@ref) holds them fixed; a caller
-frees one by name, `TargetManifold(t; free = (:scale,))`.
+frees one by name, `TargetManifold(t; free = :scale)`.
 
-- [`Affine`](@ref): `:scale`, the uniform scale of the linear part,
-  `A ↦ (1 + s) A` with `b` held — in the `(a11, a12, a21, a22)` chart the
-  direction `(a11, a12, a21, a22, 0, 0) / ‖A‖_F` at the anchor. A target and
-  the same target scaled are the same images once the pose's translation
-  scales too, so the metric scale is fixed unless a measured length pins it.
-  (Its in-plane rotation and its translation `b` are the pose's as well when
-  the pose is estimated with it; they are not fixed by default — `restrict`
-  them away by name if the pose is free.)
+These defaults assume the pose is estimated jointly — that is what
+`minimal_manifold(t)` means. With a known pose (motion capture, a fixture),
+every kind's parameters are observable: free the gauges by name.
+
+- [`Affine`](@ref): `:translation_x`, `:translation_y` (the axes `bx`, `by`),
+  `:rotation` (`δA = J A₀`, `J` the quarter turn, `b` held: the direction
+  `(-a21, -a22, a11, a12, 0, 0)`) and `:scale` (`δA = A₀`: `(a11, a12, a21,
+  a22, 0, 0)`), the last two evaluated at the anchor `A₀`. A target and the
+  same target shifted, turned in its plane or scaled are the same images once
+  the pose moves with it (the scale with the pose's translation), so only the
+  anisotropic stretch and the shear stay free; a measured length (a ruler)
+  frees `:scale`.
+- [`ThinPlateSpline`](@ref): its whole affine part, `:fx_1`, `:fx_u`, `:fx_v`,
+  `:fy_1`, `:fy_u`, `:fy_v` — the columns `[1;0]`, `[u;0]`, `[v;0]`, `[0;1]`,
+  `[0;u]`, `[0;v]` over the nodes, constants. Four are the pose's (a
+  similarity), and all six duplicate an `Affine` it is chained after, so the
+  spline is a pure residual; free `:fx_u`, … by name to let a standalone one
+  carry a stretch.
 - [`HeightField`](@ref): `:piston`, `:tilt_x`, `:tilt_y` — heights that are an
   affine function of the node position, `hᵢ = α + β uᵢ + γ vᵢ`, the columns
   `1`, `u` and `v` over the nodes. The spline through affine heights is that
@@ -575,14 +650,16 @@ frees one by name, `TargetManifold(t; free = (:scale,))`.
   for the steps).
 - [`CalibrationChain`](@ref): its members', each name prefixed by its
   member's tag (`:affine_scale`, `:height_field_piston`, …).
-- [`Rigid`](@ref), [`ThinPlateSpline`](@ref): none. A downstream kind has
-  none unless it adds methods to both.
+- [`Rigid`](@ref): none. A downstream kind has none unless it adds methods
+  to both functions.
 """
 function gauge_names end
 gauge_names(::TargetCalibration) = ()
-gauge_names(::Affine) = (:scale,)
-gauge_names(::HeightField) = (:piston, :tilt_x, :tilt_y)
-gauge_names(c::CalibrationChain) = Tuple(Symbol(_calibration_tag(x), :_, g) for x in c.members for g in gauge_names(x))
+gauge_names(c::Union{Affine, ThinPlateSpline, HeightField}) = _static_gauge_names(typeof(c))
+@generated function gauge_names(c::CalibrationChain{C}) where {C}
+    names = _static_chain_names(_static_gauge_names, C)
+    return names === nothing ? :(_prefixed_names(gauge_names, c.members)) : QuoteNode(names)
+end
 gauge_names(u::Uncertain{<:TargetCalibration}) = gauge_names(geom(u))
 
 """
@@ -594,10 +671,23 @@ coordinates of `parameter_vector(c)`, evaluated at `c`.
 function gauge_directions end
 gauge_directions(c::TargetCalibration) = zeros(Float64, length(parameter_vector(c)), 0)
 function gauge_directions(c::Affine)
-    a = Float64.(Tuple(parameter_vector(c))[1:4])
-    s = LinearAlgebra.norm(a)
-    s > 0 || throw(ArgumentError("gauge_directions: an Affine with A = 0 has no scale direction"))
-    return reshape([collect(a ./ s); 0.0; 0.0], 6, 1)
+    a11, a12, a21, a22 = Float64.(Tuple(parameter_vector(c))[1:4])
+    s = hypot(a11, a12, a21, a22)
+    s > 0 || throw(ArgumentError("gauge_directions: an Affine with A = 0 has no rotation or scale direction"))
+    # rows: θ = (a11, a12, a21, a22, bx, by); columns: translation_x, translation_y,
+    # rotation (δA = J A₀) and scale (δA = A₀), the last two of unit norm
+    return [0.0 0.0 -a21/s a11/s
+            0.0 0.0 -a22/s a12/s
+            0.0 0.0  a11/s a21/s
+            0.0 0.0  a12/s a22/s
+            1.0 0.0  0.0   0.0
+            0.0 1.0  0.0   0.0]
+end
+function gauge_directions(c::ThinPlateSpline{K}) where {K}
+    o, z = ones(K), zeros(K)
+    u = [Float64(p[1]) for p in c.system.nodes]
+    v = [Float64(p[2]) for p in c.system.nodes]
+    return [[o; z] [u; z] [v; z] [z; o] [z; u] [z; v]]
 end
 gauge_directions(c::HeightField{K}) where {K} =
     [ones(K) [Float64(p[1]) for p in c.system.nodes] [Float64(p[2]) for p in c.system.nodes]]
@@ -623,3 +713,13 @@ for f in (:parameter_vector, :parameter_names, :parameter_bounds, :regularizer)
     @eval $f(u::Uncertain{<:TargetCalibration}) = $f(geom(u))
 end
 calibration_jacobian(u::Uncertain{<:TargetCalibration}, x) = calibration_jacobian(geom(u), x)
+
+"""
+    with_parameters(u::Uncertain{<:TargetCalibration}, θ) -> TargetCalibration
+
+The BARE kind rebuilt from `θ`: an estimate's covariance describes the
+parameters it was estimated at and does not survive a change of them, so the
+result is not `Uncertain`. (A `PlanarTarget`'s `with_parameters` does the same
+to its calibration.)
+"""
+with_parameters(u::Uncertain{<:TargetCalibration}, θ::AbstractVector) = with_parameters(geom(u), θ)

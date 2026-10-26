@@ -322,6 +322,23 @@ end
         @test tangent_size(minimal_manifold(PlanarTarget(pts))) == 0           # Rigid: zero-dimensional
     end
 
+    @testset "the gauge rank is scale-free: a physical spline on centimetre nodes" begin
+        # the tilt columns are the node coordinates, so their size follows the
+        # node units; the default manifold's tangent size must not
+        mt = VgtkCore.m
+        for s in (1.0e-2, 1.0e-9)                                        # 1e-9: where unnormalised columns lose rank
+            ns = grid_nodes(4; lo = -s, hi = s)
+            ns_m = [p .* mt for p in ns]
+            pts_m = [p .* (s / 0.1) .* mt for p in pts]
+            Hm = HeightField(ns_m, fill(0.0mt, 16))
+            Tm = ThinPlateSpline(ns_m, fill(0.0mt, 16), fill(0.0mt, 16))
+            @test tangent_size(minimal_manifold(PlanarTarget(pts_m; calibration = Hm))) == tangent_size(minimal_manifold(PlanarTarget(pts; calibration = H)))
+            @test tangent_size(minimal_manifold(PlanarTarget(pts_m; calibration = Tm))) == tangent_size(minimal_manifold(PlanarTarget(pts; calibration = T)))
+            Cm = CalibrationChain(Affine([1.0 0.0; 0.0 1.0], [0.0, 0.0] .* mt), Hm)
+            @test tangent_size(minimal_manifold(PlanarTarget(pts_m; calibration = Cm))) == 6 + 16 - 7
+        end
+    end
+
     @testset "the basis: an SMatrix up to n = 18, a Matrix above" begin
         T3 = ThinPlateSpline(grid_nodes(3; lo = -0.1, hi = 0.1))                   # n = 18
         small = minimal_manifold(PlanarTarget(pts; calibration = T3))

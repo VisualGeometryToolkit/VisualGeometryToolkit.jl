@@ -367,6 +367,12 @@ function _target_manifold(t::PlanarTarget, fixed_gauges::Vector{Symbol}, fixed::
     else
         gn = gauge_names(c)
         D = gauge_directions(c)[:, [findfirst(==(g), gn) for g in fixed_gauges]]
+        # unit columns: the rank cutoff below is then scale-free (a height
+        # field's tilt columns are its node coordinates, centimetres in metres)
+        for j in axes(D, 2)
+            nj = norm(view(D, :, j))
+            nj > 0 && (D[:, j] ./= nj)
+        end
         FD = svd(D)
         Q = FD.U[:, FD.S .> sqrt(eps(Float64)) * maximum(FD.S)]          # span(D), orthonormal
         inside = if length(free_axes) == n
@@ -406,9 +412,12 @@ local_coordinates(ch::TargetManifold, t::AbstractTarget) = ch.basis' * (paramete
     restrict(ch::TargetManifold, names::Tuple{Vararg{Symbol}}) -> TargetManifold
 
 The target manifold on the parameters `names` ([`parameter_names`](@ref)'
-vocabulary), every other parameter held at the anchor, its gauges still fixed
-— a calibration's complexity as a manifold, as `restrict` of a
-[`LensManifold`](@ref).
+vocabulary), every other parameter held at the anchor — a calibration's
+complexity as a manifold, as `restrict` of a [`LensManifold`](@ref). Of the
+fixed gauges, only the combinations that lie inside the span of the free
+parameters stay fixed: a gauge direction with a component on a held parameter
+cannot move there, so it constrains nothing (restricting an [`Affine`](@ref)
+to `(:a11,)` keeps that one direction free).
 """
 function restrict(ch::TargetManifold{<:PlanarTarget}, names::Tuple{Symbol, Vararg{Symbol}})
     all_names = parameter_names(ch.target)

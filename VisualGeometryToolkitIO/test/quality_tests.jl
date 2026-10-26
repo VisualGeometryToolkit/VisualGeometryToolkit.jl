@@ -108,3 +108,22 @@ end
     @test isempty(reduce(vcat, [VgtkCore.private_name_violations(d, "VisualGeometryToolkitIO") for d in dirs]))
     @test isempty(VgtkCore.contract_generic_violations(VisualGeometryToolkitIO))
 end
+
+@testitem "quality: the stack's gates (test_quality_gates)" begin
+    # VisualGeometryToolkitCore's one statement of the gates, so the stack
+    # contracts this package claims are tested by the same code as everywhere:
+    # the tag rule over its registries (it defines none: the target calibration
+    # kinds' tags are VisualGeometryToolkitCore's TARGET_CALIBRATION_TAGS), no tag
+    # table outside a TagRegistry in src/ (a heuristic scan: today it reports one
+    # false positive, a BOP scene's `"cam_K" => Kb`, a matrix and not a type), and
+    # the config tags (no configs/).
+    # Aqua, ExplicitImports and JET run again here at this package's bounds.
+    using Test, Aqua, ExplicitImports, JET
+    import VisualGeometryToolkitCore as VgtkCore
+    VgtkCore.test_quality_gates(
+        VisualGeometryToolkitIO;
+        jet_bound = 0, qualified_ignore = (:DB, :close!, :execute, :params),
+        tag_rules = :report, tag_tables = :report, config_tags = :report,
+    )
+    @test all(isempty ∘ VgtkCore.tag_rule_violations ∘ last, VgtkCore.tag_registries(VisualGeometryToolkitIO))
+end

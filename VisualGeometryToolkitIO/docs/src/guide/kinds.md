@@ -105,13 +105,22 @@ never shadows the target's `calibration`.
 `vgio/target/v1` and `vgio/rig/v4` files are not read: `load` refuses them,
 naming `vgio_migrate`. `vgio_migrate(path)` converts one file, and
 `bin/vgio_migrate.jl target|rig|file|tree|repoint` is its command (a dry run
-unless `--apply`). The new file is written to a temporary directory, read back
-and compared with the old one number for number before anything is written;
-it goes beside the original (`<stem>.migrated.json`), or over it with
-`out = path` (`--in-place`). A rig's content identity changes with the
-migration, so `vgio_migrate` reports `old_id` and `new_id`, and
-`repoint_targets` (or `vgio_migrate_tree`, which does both for a directory)
-re-points the measurement files that name it.
+unless `--apply`). The new file is written to a staging directory beside its
+destination (the same filesystem), read back and compared with the old one
+number for number, and only then renamed into place, one atomic `rename`; it
+goes beside the original (`<stem>.migrated.json`), or over it with
+`out = path` (`--in-place`), the original untouched until the rename.
+
+A rig's content identity changes with this migration (the identity is now
+version-free, so it will not again). `vgio_migrate` reports the rig's
+`old_ids` — the v4 identity of the file as written, and the one v4 minted for
+the value in millimetres when the file is in another unit — and its `new_id`.
+`repoint_targets` re-points a measurement file, refusing any identity that is
+neither mapped nor a given rig's. `vgio_migrate_tree` does both for a
+directory: it persists the identity map in `vgio_migrate_ids.json` before it
+writes anything, so a run interrupted after its rigs were migrated re-points
+correctly when rerun; a rerun of a migrated tree is idempotent, and every file
+it leaves as it is gets a log line saying why.
 
 A schema's owner extends the migration to its own files by adding a method of
 `VisualGeometryToolkitIO.migrate_schema(::Val{Symbol("<schema>")}, src, dst)`,

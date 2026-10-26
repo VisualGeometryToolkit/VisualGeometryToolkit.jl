@@ -141,6 +141,7 @@ function _target_calibration_check(x, member::Bool)
         return "a $(ty) calibration$(:nodes in want ? " over $(length(x[:nodes])) nodes" : "") states $(n) parameters, got $(length(x[:parameters]))"
     if haskey(x, :covariance)
         member && return "a chain's member carries no `covariance` (the chain's covers every member's parameters)"
+        n == 0 && return "a $(ty) calibration has no parameters, so no `covariance`"
         c = x[:covariance]
         (length(c) == n && all(r -> length(r) == n, c)) ||
             return "`covariance` is $(n)×$(n), over the calibration's parameters"
@@ -413,6 +414,14 @@ _refuse_posed_target(path) = throw(
     )
 )
 save(path::AbstractString, ::PosedTarget; kwargs...) = _refuse_posed_target(path)
+# The attribute's previous name: refused naming its successor.
+save(path::AbstractString, ::Attributed{<:AbstractTarget, <:NamedTuple{(:calibration,)}}; kwargs...) = throw(
+    ArgumentError(
+        "save($(repr(path))): a target's record of how it was calibrated is the attribute `calibration_record` " *
+            "(`Attributed(target, (; calibration_record = …))`), not `calibration`, which is the target's own " *
+            "TargetCalibration; a file holding the old block is migrated with vgio_migrate"
+    )
+)
 save(path::AbstractString, ::Attributed{<:PosedTarget, <:NamedTuple{(:calibration_record,)}}; kwargs...) = _refuse_posed_target(path)
 
 """
@@ -577,32 +586,129 @@ end
 
 The identity a measurement file (`target_points2d`, `target_points3d`) names a
 target definition by — `targets` a `Rig` or a `vgio/rig/v5` path: the SHA-256
-of the canonical JSON of the rig's CANONICAL TREE, built from the value: the
-rig record as the writer builds it, in metres (base units), its targets sorted
-by id, without the file's declarations (`schema`, `length_unit`,
-`rotation_encoding`, `transform_convention`, `pixel_frame`) and without its
-`provenance`. The identity does not change when the file format does: a
-rig, the file written from it in any `length_unit`, and the rig loaded back
-from that file have one identity, and a migration to the next rig version
-keeps it — a target's calibration kind and its parameters are part of it, a
-relabeled provenance is not. A measurement value's `targets` holds these.
+of the canonical JSON (`canonical_json`) of the rig's IDENTITY TREE. The tree
+is built from the in-memory value under the fixed names below — names of the
+identity's own, independent of any record's key spellings — every length in
+metres (base units), the targets sorted by id, and no schema version,
+declaration or provenance. The identity therefore does not change when the
+file format does: a rig, every file written from it in any `length_unit`, the
+rig loaded back from such a file, and a migration of the file to the next rig
+version have one identity. A relabeled provenance does not change it; a
+target's calibration kind, its parameters and its covariance do.
+
+The identity tree, fixed (a test pins it for a rig of every target kind):
+
+    rig        {"frame": <frame name>,
+                "sensors": [{"id", "camera", "extrinsics": <pose>}, …]  (iff sensors, in rig order),
+                "targets": [{"id", "target", "pose": <pose>}, …]        (iff targets, sorted by id)}
+    pose       {"rotation": [w, x, y, z] (Hamilton, w ≥ 0), "translation": [m, m, m],
+                "covariance": 6×6 rows over [δω; δt], rad and m       (iff Uncertain)}
+    camera     {"intrinsics": [fx, fy, cx, cy, skew] (px, the canonical pixel frame),
+                "extent": [width, height] (px), "lens": VGC's lens_record of the lens}
+             | {"grid_model": "central" | "noncentral", "extent": [width, height],
+                "calibrated_area": [min_x, min_y, max_x, max_y], "grid": [width, height],
+                "directions": row-major [[x, y, z], …], "points": row-major [[m, m, m], …] (non-central)}
+    target     {"kind": "points", "points": [[m, …], …], "point_covariances": per point d×d rows, m² (iff Uncertain)}
+             | {"kind": "planar", "reference": <id> | "nominal": [[m, m], …], "calibration": <calibration>}
+    calibration {"kind": <the kind's tag>, "parameters": parameter_vector (lengths in m),
+                 "nodes": [[m, m], …] (thin-plate kinds), "members": [<calibration>, …] (a chain),
+                 "covariance": rows over the parameters, m^(lᵢ+lⱼ) (iff Uncertain)}
 """
 content_id(x::Union{Rig, AbstractString}) = _targets_hash(x)
 
-# The identity observations name a targets file by: the SHA-256 of the
-# canonical JSON (canonical.jl) of the rig's canonical tree — its record in
-# metres without the file's declarations and its provenance (`content_id`).
-# A path is hashed as the rig it loads, so a file and its rig agree whatever
-# the file's unit. Changing what the tree holds changes every identity; the
-# pinned identity test (rig_schema_tests.jl) fails and must say why.
-const _FORMAT_DECLARATIONS = (:schema, :length_unit, :rotation_encoding, :transform_convention, :pixel_frame, :provenance)
 _targets_hash(path::AbstractString) = _targets_hash(_rig_from_record(_read_store(path, "rig", _RIG_SPEC)))   # a referenced design stays a reference
-_targets_hash(rig::Rig) = sha256_hex(canonical_json(_canonical_tree(rig)))
-function _canonical_tree(rig::Rig)
-    d = _lower(_parse_json(_json(_rig_body(rig, m))))
-    for k in _FORMAT_DECLARATIONS
-        delete!(d, String(k))
+_targets_hash(rig::Rig) = sha256_hex(canonical_json(_identity_tree(rig)))
+
+# The identity tree (content_id's docstring), from the value. Every number is a
+# Float64 (base units), an extent or grid size an Int; a name is a String.
+const _Id = Dict{String, Any}
+_id_metres(q) = Float64(ustrip(m, q))
+_id_lengths(v) = Any[_id_metres(q) for q in v]
+_id_rows(Σ) = Any[Any[Float64(Σ[i, j]) for j in axes(Σ, 2)] for i in axes(Σ, 1)]
+
+function _identity_tree(rig::Rig)
+    d = _Id("frame" => frame_name(reference_frame(rig)))
+    sensors, targets = _id_sensors(rig), _id_targets(rig)
+    sensors === nothing || (d["sensors"] = sensors)
+    targets === nothing || (d["targets"] = targets)
+    return d
+end
+_id_sensors(::Rig{F, <:AbstractDict}) where {F <: Frame{3}} = nothing
+_id_sensors(rig::Rig) = Any[_id_sensor(rig, i, id) for (i, id) in enumerate(ids(sensor_rig(rig)))]
+_id_sensor(rig, i, id) =      # (as the writer's `_sensor_json`: the rig untyped here)
+    _Id("id" => String(id), "camera" => _id_camera(sensor_rig(rig).members[i]), "extrinsics" => _id_pose(extrinsics(sensor_rig(rig), i)))
+_id_targets(::Rig{F, <:Tuple}) where {F <: Frame{3}} = nothing
+_id_targets(rig::Rig) = Any[
+    _Id("id" => String(id), "target" => _id_target(target_rig(rig)[id].target), "pose" => _id_pose(pose(target_rig(rig), id)))
+        for id in sort!(collect(ids(target_rig(rig))))
+]
+
+_id_pose(X::EuclideanMap{3}) = _Id("rotation" => Any[Float64(x) for x in _qvec(X.R)], "translation" => _id_lengths(X.t))
+function _id_pose(u::Uncertain{<:EuclideanMap{3}})
+    d = _id_pose(geom(u))
+    d["covariance"] = _id_rows(cov(u))
+    return d
+end
+
+function _id_camera(c)
+    mdl = model(c)
+    if mdl isa CameraModel
+        K = mdl.intrinsics.K
+        e = extent(c)
+        return _Id(
+            "intrinsics" => Any[Float64(K[1, 1]), Float64(K[2, 2]), Float64(K[1, 3]), Float64(K[2, 3]), Float64(K[1, 2])],
+            "extent" => Any[Int(e.width), Int(e.height)], "lens" => _lower(_parse_json(_json(_lens_json(mdl.lens)))),
+        )
     end
+    return _id_grid_model(mdl)
+end
+_id_grid(g) = Any[Any[Float64(v[k]) for k in 1:3] for gy in 1:size(g, 1) for v in (g[gy, :]...,)]
+function _id_grid_header(gm, grid)
+    return _Id(
+        "extent" => Any[Int(gm.width), Int(gm.height)],
+        "calibrated_area" => Any[Int(gm.calib_min_x), Int(gm.calib_min_y), Int(gm.calib_max_x), Int(gm.calib_max_y)],
+        "grid" => Any[size(grid, 2), size(grid, 1)],
+    )
+end
+_id_grid_model(gm::CentralGenericModel) = merge(_id_grid_header(gm, gm.grid), _Id("grid_model" => "central", "directions" => _id_grid(gm.grid)))
+_id_grid_model(gm::NoncentralGenericModel) = merge(
+    _id_grid_header(gm, gm.directions),
+    _Id("grid_model" => "noncentral", "directions" => _id_grid(gm.directions), "points" => _id_grid(gm.points)),   # plain metres
+)
+
+function _id_target(t::PointTarget)
+    pts = points(t)
+    d = _Id("kind" => "points", "points" => Any[_id_lengths(geom(p)) for p in pts])
+    any(p -> p isa Uncertain, pts) && (d["point_covariances"] = Any[_id_rows(cov(p)) for p in pts])
+    return d
+end
+function _id_target(t::PlanarTarget)
+    d = _Id("kind" => "planar", "calibration" => _id_calibration(calibration(t)))
+    ref, nominal = reference(t), t.nominal
+    if ref !== nothing
+        d["reference"] = String(ref)            # a referenced design: its points are its owner's
+    elseif nominal !== nothing
+        d["nominal"] = Any[_id_lengths(p) for p in nominal]
+    end
+    return d
+end
+
+# A calibration's numbers are stored as plain metres (a physical kind) or plain
+# numbers (an unphysical one, which no record holds: refused as the writer does).
+function _id_calibration(c::TargetCalibration)
+    d = _Id("kind" => _tag(c))
+    if c isa CalibrationChain
+        d["members"] = Any[_id_calibration(x) for x in c.members]
+    elseif !(c isa Rigid)
+        _physical(c)
+        d["parameters"] = Any[Float64(x) for x in parameter_vector(c)]
+        (c isa ThinPlateSpline || c isa HeightField) && (d["nodes"] = Any[Any[Float64(p[1]), Float64(p[2])] for p in c.system.nodes])
+    end
+    return d
+end
+function _id_calibration(u::Uncertain{<:TargetCalibration})
+    d = _id_calibration(geom(u))
+    d["covariance"] = _id_rows(cov(u))
     return d
 end
 

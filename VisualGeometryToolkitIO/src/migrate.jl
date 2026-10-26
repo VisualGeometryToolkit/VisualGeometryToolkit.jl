@@ -248,27 +248,45 @@ migrate_schema(::Val{S}, src::AbstractString, dst::AbstractString) where {S} = t
 Migrate the file at `path` from the earlier schema version it declares to its
 kind's current one, by the method of [`migrate_schema`](@ref) for that schema
 (`vgio/target/v1`, `vgio/rig/v4`, and any a schema owner adds). The migration
-is written to a temporary directory through the current writer, read back with
-the current reader and compared with the original, number for number; only
-then is it moved to `out`. The original is untouched unless `out == path` (an
-in-place migration, replaced only once verified); an existing `out` is
+is written through the current writer to a staging directory BESIDE `out`
+(the same filesystem), read back with the current reader and compared with the
+original, number for number; only then is it renamed to `out`, one atomic
+`rename`. The original is untouched unless `out == path` (an in-place
+migration, replaced by that rename only once verified); an existing `out` is
 otherwise refused. With `dry_run` the migration is verified and nothing is
 written. Returns `(; path, out, from, to, …)`, `out` `nothing` in a dry run,
-with whatever the schema's migration reports (a rig's `old_id` and `new_id`,
-the content identities measurement files name it by before and after).
+with whatever the schema's migration reports — a rig's `old_ids` (the v4
+identities measurement files may name it by: the one hashed from the file as
+written, and the one v4 minted for the value in millimetres, when the file is
+in another unit) and its `new_id`.
 """
 function vgio_migrate(path::AbstractString; out::AbstractString = _migrated_path(path), dry_run::Bool = false)
     s = _peek_schema(path)
     s isa AbstractString || throw(ArgumentError("$(path): not a vgio file (no schema)"))
     in_place = abspath(out) == abspath(path)
     (dry_run || in_place || !ispath(out)) || throw(ArgumentError("$(out) exists; refusing to overwrite it"))
-    return mktempdir() do tmp
-        staged = joinpath(tmp, basename(path))
+    return _staged(out, basename(path); dry_run) do staged
         r = migrate_schema(Val(Symbol(s)), String(path), staged)
-        dry_run && return merge((; path = String(path), out = nothing, from = String(s)), r)
-        mkpath(dirname(abspath(out)))
-        mv(staged, out; force = in_place)
-        return merge((; path = String(path), out = String(out), from = String(s)), r)
+        merge((; path = String(path), out = dry_run ? nothing : String(out), from = String(s)), r)
+    end
+end
+
+# Build a file at `staged`, a path in a fresh directory BESIDE `out` (one
+# filesystem), with `f(staged)`, and — unless a dry run — put it at `out` by
+# one `rename`, atomic on POSIX: an original at `out` is untouched until the
+# rename, and nothing is ever moved across filesystems. The staging directory
+# goes when this returns, whatever happened.
+function _staged(f, out::AbstractString, name::AbstractString; dry_run::Bool)
+    dir = dirname(abspath(out))
+    dry_run || mkpath(dir)
+    stage = dry_run ? mktempdir() : mktempdir(dir; prefix = ".vgio_migrate_")
+    try
+        staged = joinpath(stage, name)
+        r = f(staged)
+        dry_run || Base.Filesystem.rename(staged, abspath(out))
+        return r
+    finally
+        rm(stage; recursive = true, force = true)
     end
 end
 _migrated_path(path) = ((stem, ext) = splitext(path); string(stem, ".migrated", ext))
@@ -350,15 +368,30 @@ function migrate_schema(::Val{Symbol("vgio/rig/v4")}, src::AbstractString, dst::
     haskey(new, "targets") &&
         (back["targets"] = Any[merge(Dict{String, Any}(t), Dict{String, Any}("target" => _body_v2_to_v1(t["target"]))) for t in new["targets"]])
     _migrate_check(_same_tree(back, old), src, "the rig record")
-    return (; to = _schema("rig"), old_id = _rig_v4_id(old), new_id = content_id(dst))
+    old_ids = unique!([_rig_v4_id(old), _rig_v4_id_mm(value, old, dst)])
+    return (; to = _schema("rig"), old_id = first(old_ids), old_ids, new_id = content_id(dst))
 end
 
-# The content identity a vgio/rig/v4 file had: the SHA-256 of the canonical
-# JSON of its record without its provenance (the v4 definition, exact for a
-# file whose numbers have at most 15 significant digits — every file the
-# stack's writer wrote from file-born values).
+# The content identities a vgio/rig/v4 rig had. v4 hashed the record without
+# its provenance: `content_id(path)` the record its loaded rig writes in the
+# FILE's unit — which, for a file this migration accepts (it re-writes to the
+# file's own numbers), is the record as written, hashed here — and
+# `content_id(rig)` the record of the value in MILLIMETRES, which differs for a
+# rig whose file is in another unit and is what a producer that named the rig
+# by its value put in its measurement files. Both are mapped.
 _rig_v4_id(old::AbstractDict) =
     sha256_hex(canonical_json(Dict{String, Any}(k => v for (k, v) in old if k != "provenance")))
+function _rig_v4_id_mm(value, old::AbstractDict, dst::AbstractString)
+    old["length_unit"] == "mm" && return _rig_v4_id(old)
+    p = dst * ".mm.json"
+    save(p, value; length_unit = mm)
+    mmrec = _raw_tree(p)
+    rm(p)
+    mmrec["schema"] = old["schema"]
+    haskey(mmrec, "targets") &&
+        (mmrec["targets"] = Any[merge(Dict{String, Any}(t), Dict{String, Any}("target" => _body_v2_to_v1(t["target"]))) for t in mmrec["targets"]])
+    return _rig_v4_id(mmrec)
+end
 
 # =============================================================================
 # repoint_targets — a measurement file's `targets` re-pointed at migrated rigs
@@ -372,17 +405,19 @@ const _MEASUREMENT_KINDS = Dict("vgio/target_points2d/v1" => TargetPoints2D, "vg
 
 Re-point a measurement file (`vgio/target_points2d/v1`, `vgio/target_points3d/v1`)
 at the rigs its targets were migrated to: every identity in its `targets` that
-`ids` (old → new, as [`vgio_migrate`](@ref) reports a rig's `old_id` and
+`ids` (old → new, as [`vgio_migrate`](@ref) reports a rig's `old_ids` and
 `new_id`) maps is replaced; nothing else changes, and the file stays at its
-version. The guarded pattern: written by the current writer to a temporary
-directory, read back, compared with the original number for number (only the
-mapped identities differ), every new identity checked to be the
-[`content_id`](@ref) of one of `rigs` (rigs or `vgio/rig/v5` paths), and
-every measurement's (target, index) checked to resolve in them — an
-unresolved (referenced) target's points need `resolve`, its owner's resolver;
-without it, such a target is checked by id alone and counted in `unchecked`.
-Only then is it moved to `out` (`out == path` replaces it in place). Returns
-`(; path, out, repointed, unchecked)`.
+version. Every identity the file names must be mapped or be the
+[`content_id`](@ref) of one of `rigs` (rigs or `vgio/rig/v5` paths): any
+other is an `ArgumentError` naming the file and the identity, and nothing is
+written — a stale identity is never kept silently. The guarded pattern:
+written by the current writer beside `out`, read back, compared with the
+original number for number (only the mapped identities differ), every
+measurement's (target, index) checked to resolve in the rigs its identities
+name — an unresolved (referenced) target's points need `resolve`, its owner's
+resolver; without it, such a target is checked by id alone and counted in
+`unchecked`. Only then is it renamed to `out` (`out == path` replaces it in
+place). Returns `(; path, out, repointed, unchecked)`.
 """
 function repoint_targets(
         path::AbstractString, ids::AbstractDict, rigs; resolve = nothing,
@@ -396,26 +431,29 @@ function repoint_targets(
     old = _raw_tree(path)
     obs = load(T, path)
     map_ = Dict{String, String}(String(k) => String(v) for (k, v) in ids)
+    rig_list = _target_list(rigs)
+    hashes = _target_hashes(rig_list)
+    for t in obs.targets
+        new = get(map_, t, t)
+        new in hashes || throw(
+            ArgumentError(
+                "$(path): it names targets identity $(t)" * (haskey(map_, t) ? ", re-pointed to $(new)," : "") *
+                    " which is neither re-pointed nor the content_id of any rig given; nothing was written"
+            )
+        )
+    end
     targets = String[get(map_, t, t) for t in obs.targets]
     repointed = count(t -> haskey(map_, t), obs.targets)
-    loaded = _target_rigs(rigs; resolve)
-    hashes = Set(_target_hashes(rigs))
-    for t in obs.targets
-        haskey(map_, t) && (map_[t] in hashes || throw(ArgumentError("$(path): $(t) is re-pointed to $(map_[t]), which is none of the rigs given")))
-    end
-    unchecked = _check_resolves_by_id(obs, loaded, path)
-    return mktempdir() do tmp
-        staged = joinpath(tmp, basename(path))
+    named = [r for (r, h) in zip(rig_list, hashes) if h in targets]   # the rigs the measurements resolve in
+    unchecked = _check_resolves_by_id(obs, _target_rigs(named; resolve), path)
+    return _staged(out, basename(path); dry_run) do staged
         _save_repointed(staged, obs, targets, old)
         new = _raw_tree(staged)
         load(T, staged).targets == targets || _migrate_check(false, path, "its targets")
         back = copy(new)
         haskey(old, "targets") && (back["targets"] = old["targets"])
         _migrate_check(_same_tree(back, old), path, "the measurements")
-        dry_run && return (; path = String(path), out = nothing, repointed, unchecked)
-        mkpath(dirname(abspath(out)))
-        mv(staged, out; force = in_place)
-        return (; path = String(path), out = String(out), repointed, unchecked)
+        (; path = String(path), out = dry_run ? nothing : String(out), repointed, unchecked)
     end
 end
 
@@ -459,41 +497,106 @@ end
 
 Migrate every `.json` file under `dir` whose schema has a migration (a
 `vgio/target/v1`, a `vgio/rig/v4`, and any schema whose owner added a
-[`migrate_schema`](@ref) method), then re-point every measurement file under
-`dir` that names a migrated rig ([`repoint_targets`](@ref)), each by the
-guarded pattern; one line per file to `io`. Written beside each original as
-`<stem>.migrated.json`, or over it with `in_place`. A failure stops the run
-before anything else is written and is rethrown (files already migrated stay
-migrated, and a rerun skips them: they are current).
+[`migrate_schema`](@ref) method), then re-point the measurement files under
+`dir` ([`repoint_targets`](@ref)) at the current rigs of the tree, each by the
+guarded pattern, with one line per file to `io` — a file left as it is says
+why (`current`, or no `targets`). Written beside each original as
+`<stem>.migrated.json`, or over it with `in_place`.
+
+The old → new identity map is PERSISTED in `dir/vgio_migrate_ids.json`
+before any file is written, and read by a later run, so a run that fails after
+its rigs were migrated in place re-points correctly when rerun; a rerun of a
+migrated tree is idempotent (every file current, logged so). A measurement
+file naming an identity that is neither mapped nor a current rig's of the tree
+is refused (logged `FAILED`, nothing written for it), and the run ends in an
+`ArgumentError` listing every refusal.
 """
 function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run::Bool = false, io::IO = stdout)
-    files = sort!([joinpath(r, f) for (r, _, fs) in walkdir(dir) for f in fs if endswith(f, ".json")])
+    idsfile = joinpath(dir, _IDS_SIDECAR)
+    files = sort!([joinpath(r, f) for (r, _, fs) in walkdir(dir) for f in fs if endswith(f, ".json") && f != _IDS_SIDECAR])
     schemas = Dict(f => _try_schema(f) for f in files)
     results = NamedTuple[]
-    ids = Dict{String, String}()
-    rigs = String[]
+    ids = _read_ids(idsfile)
+    failed = String[]
     for f in files
         s = schemas[f]
-        (s isa String && _has_migration(s)) || continue
-        r = vgio_migrate(f; out = in_place ? f : _migrated_path(f), dry_run)
-        push!(results, r)
-        if haskey(r, :old_id)
-            ids[r.old_id] = r.new_id
-            push!(rigs, dry_run ? f : r.out)
+        if !(s isa String && _has_migration(s))
+            s isa String && _is_current(s) && !haskey(_MEASUREMENT_KINDS, s) && println(io, "current   ", f, ": ", s)
+            continue
         end
-        println(io, dry_run ? "verified  " : "migrated  ", f, ": ", s, " → ", r.to, haskey(r, :old_id) ? "  (content id $(r.old_id) → $(r.new_id))" : "")
+        out = in_place ? f : _migrated_path(f)
+        so = isfile(out) ? _try_schema(out) : nothing
+        if !in_place && so isa String && _is_current(so)
+            println(io, "current   ", f, ": already migrated to ", out)
+            continue
+        end
+        r = vgio_migrate(f; out, dry_run = true)                      # verified first: its identities known
+        if haskey(r, :old_ids) && !dry_run
+            for o in r.old_ids
+                ids[o] = r.new_id
+            end
+            _write_ids(idsfile, ids)                                   # persisted before anything is written
+        end
+        dry_run || (r = vgio_migrate(f; out))
+        push!(results, r)
+        println(io, dry_run ? "verified  " : "migrated  ", f, ": ", s, " → ", r.to,
+            haskey(r, :old_ids) ? "  (content id $(join(r.old_ids, ", ")) → $(r.new_id))" : "")
+        dry_run && haskey(r, :old_ids) && foreach(o -> (ids[o] = r.new_id), r.old_ids)
     end
-    isempty(ids) && return results
+    # the current rigs of the tree, and their identities
+    rigs = String[f for f in sort!([joinpath(r, f) for (r, _, fs) in walkdir(dir) for f in fs if endswith(f, ".json")])
+        if _try_schema(f) == _schema("rig")]
+    current = Set(content_id(r) for r in rigs)
     for f in files
-        haskey(_MEASUREMENT_KINDS, something(schemas[f], "")) || continue
-        any(t -> haskey(ids, t), something(get(_raw_tree(f), "targets", nothing), Any[])) || continue
-        dry_run && (println(io, "would re-point  ", f, " (after the rigs are written)"); continue)
-        r = repoint_targets(f, ids, rigs; out = in_place ? f : _migrated_path(f))
+        s = schemas[f]
+        haskey(_MEASUREMENT_KINDS, something(s, "")) || continue
+        ts = String[t for t in something(get(_raw_tree(f), "targets", nothing), Any[])]
+        if isempty(ts)
+            println(io, "current   ", f, ": names no targets (nothing to re-point)")
+            continue
+        end
+        if all(in(current), ts)
+            println(io, "current   ", f, ": names current rigs")
+            continue
+        end
+        stale = [t for t in ts if !(t in current) && !(haskey(ids, t) && (dry_run || ids[t] in current))]
+        if !isempty(stale)
+            println(io, "FAILED    ", f, ": names targets identit$(length(stale) == 1 ? "y" : "ies") $(join(stale, ", ")), neither re-pointed nor a current rig's")
+            push!(failed, f)
+            continue
+        end
+        out = in_place ? f : _migrated_path(f)
+        if !in_place && isfile(out)
+            println(io, "current   ", f, ": already re-pointed to ", out)
+            continue
+        end
+        if dry_run
+            println(io, "would re-point  ", f, " (once the rigs are written)")
+            continue
+        end
+        r = repoint_targets(f, ids, rigs; out)
         push!(results, r)
         println(io, "re-pointed  ", f, ": ", r.repointed, " targets identit$(r.repointed == 1 ? "y" : "ies")",
             r.unchecked > 0 ? " ($(r.unchecked) measurements of referenced targets checked by id)" : "")
     end
+    isempty(failed) || throw(ArgumentError("vgio_migrate_tree($(dir)): $(length(failed)) measurement file(s) name identities no rig of the tree has: $(join(failed, ", "))"))
     return results
+end
+
+# The persisted old → new identity map of a tree's migration.
+const _IDS_SIDECAR = "vgio_migrate_ids.json"
+_read_ids(p) = isfile(p) ? Dict{String, String}(String(k) => String(v) for (k, v) in _read_json(p)["identities"]) : Dict{String, String}()
+function _write_ids(p, ids::AbstractDict)
+    t = tempname(dirname(abspath(p)))
+    _write_json(t, Dict("identities" => Dict(sort!(collect(ids)))))
+    Base.Filesystem.rename(t, p)
+    return nothing
+end
+# Whether a schema is its kind's current version.
+function _is_current(s::AbstractString)
+    m_ = match(r"^vgio/([a-z0-9_]+)/v(\d+)$", s)
+    m_ === nothing && return false
+    return s == _schema(String(m_[1]::AbstractString))
 end
 _try_schema(f) = try
     s = _peek_schema(f)

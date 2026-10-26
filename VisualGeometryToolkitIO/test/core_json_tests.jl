@@ -253,6 +253,14 @@ end
     @test_throws ArgumentError role_unit(c, :ruler)
     @test_throws ArgumentError UnitContract(lengths = (world = pt,))       # world is the contract's own
     @test_throws ArgumentError UnitContract(lengths = (pattern = dpi,))    # a role is a length
+    e = try UnitContract(lengths = (density = mm,)); nothing catch e; e end  # the contract's density is not a length role
+    @test e isa ArgumentError && occursin("not a length role", e.msg)
+    for bad in (:Pattern, :rulerTick, Symbol("2x"), Symbol(""))
+        e = try UnitContract(lengths = NamedTuple{(bad,)}((pt,))); nothing catch e; e end
+        @test e isa ArgumentError && occursin("snake_case", e.msg)
+    end
+    @test isconcretetype(typeof(c)) && fieldtype(typeof(c), :lengths) == NamedTuple{(:pattern,), Tuple{typeof(mm)}}
+    @test_throws ArgumentError from_json(UnitContract, JSON.parse("{\"world\": \"mm\", \"lengths\": {\"density\": \"mm\"}}"))
     canvas = Size2(width = VgtkIO.read_length(150, mm), height = VgtkIO.read_length(77, mm))
     min_scale = VgtkIO.read_length(2.12598425197, pt)         # file-born pt numbers (BlobBoards' v4 pattern config)
     max_scale = VgtkIO.read_length(21.2595, pt)

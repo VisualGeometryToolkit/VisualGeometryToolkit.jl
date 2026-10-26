@@ -28,26 +28,33 @@ governs — inline fields in vgio JSON records (`"units": {"world": "mm",
 "density": "dpi", "lengths": {"pattern": "pt"}}`, written by
 [`json_value`](@ref)`(contract)` and read by `from_json(UnitContract, d)`), a
 `vgio_units.json` sidecar for COLMAP model directories (world and density
-only) — so files stay self-describing. An `ArgumentError` for a `world` or a
-role that is not a length, a role named `world`, or a `density` that is not
-pixels per length.
+only) — so files stay self-describing. The roles are a CLOSED set, the ones
+the contract declares: an `ArgumentError` for a `world` or a role that is not
+a length, a role named `world` or `density`, a role name that is not
+snake_case, a `density` that is not pixels per length, and (on use) a role
+the contract does not declare.
 """
-struct UnitContract
+struct UnitContract{R <: NamedTuple}
     world::typeof(mm)     # a FlexUnits dynamic unit
     density::typeof(mm)   # likewise; dimension 1/length (px is dimensionless)
-    lengths::NamedTuple   # role => length unit, beyond `world` (empty for most records)
+    lengths::R            # role => length unit beyond `world`, a closed set the record declares (empty for most)
 
     function UnitContract(world::Units, density::Units = dpi; lengths::NamedTuple = (;))
         dimension(world) == dimension(m) ||
             throw(ArgumentError("the world unit must be a length, got $(world)"))
         dimension(density) == dimension(dpi) ||
             throw(ArgumentError("the density unit must be pixels per length (like dpi), got $(density)"))
-        haskey(lengths, :world) && throw(ArgumentError("`world` is the contract's own length role; name another"))
         for (r, u) in pairs(lengths)
-            (u isa Units && dimension(u) == dimension(m)) ||
+            r === :world && throw(ArgumentError("`world` is the contract's own length role; name another"))
+            r === :density && throw(ArgumentError("`density` is the contract's pixels-per-length unit, not a length role; name another"))
+            name = String(r)
+            (occursin(r"^[a-z][a-z0-9_]*$", name) && VgtkCore.snake_case(name) == name) ||
+                throw(ArgumentError("a length role is named in snake_case (`pattern`, `ruler_tick`), got $(repr(name))"))
+            (u isa typeof(mm) && dimension(u) == dimension(m)) ||
                 throw(ArgumentError("the length role $(r) must be a length unit, got $(u)"))
         end
-        return new(world, density, lengths)
+        ls = NamedTuple{keys(lengths)}(Tuple(typeof(mm)[u for u in values(lengths)]))
+        return new{typeof(ls)}(world, density, ls)
     end
 end
 

@@ -59,15 +59,17 @@ writer refuses data whose derived values disagree with their source.
 **Measurements name their targets by content.** A measurement file
 (`target_points2d`, `target_points3d`) names the rigs that define the targets
 it indexes by their content identity, `content_id(rig)` or
-`content_id(path)`. This is the SHA-256 of a fixed canonical tree built from
-the rig: its record in metres, its targets sorted by id, without the file's
-declarations (`schema`, `length_unit`, `rotation_encoding`,
-`transform_convention`, `pixel_frame`) and without its provenance. The
-identity does not change when the file format does: a rig, the file written
-from it in any `length_unit` and the rig loaded back from that file have one
-identity. A target's calibration kind and its parameters are part of it. The
-identity is pinned by a test; a change to the canonical tree re-ids every rig
-and must migrate the measurement files that name them.
+`content_id(path)`. This is the SHA-256 of the rig's identity tree: built from
+the in-memory rig under names of the identity's own, fixed once in
+`content_id`'s docstring and independent of any record's key spellings, every
+length in metres, the targets sorted by id, with no schema version, no
+declaration and no provenance. The identity does not change when the file
+format does: a rig, the file written from it in any `length_unit`, the rig
+loaded back from that file and a migration of the file to the next rig
+version have one identity. A target's calibration kind, its parameters and
+its covariance are part of it. A test pins it for a rig of every target kind;
+a change to the tree re-ids every rig and must migrate the measurement files
+that name them.
 
 **One validator per kind.** The validator for each kind (`validate.jl`) runs
 on read and before every write, so a writer cannot produce a file that its

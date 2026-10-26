@@ -112,8 +112,9 @@ end
 
 Export a session's 2D–3D correspondences as one `vgio/correspondences/v2`
 file, one row per (frame, target) in frame then target order:
-`object_points` N×3 in the target's own frame (a board's plane points with
-z = 0, in `length_unit`, from the targets' lengths — plain points are an
+`object_points` N×3 in the target's own frame (the target's points on its
+surface: z = 0 for a planar calibration, the height a `HeightField` gives
+otherwise; in `length_unit`, from the targets' lengths — plain points are an
 `ArgumentError`) and `image_points` N×2, moved into `to_frame` — the
 external calibrator's convention, declared in the file: `PixelFrame{:opencv}`
 for `cv::calibrateCamera` (the top-left pixel's centre at (0, 0)),

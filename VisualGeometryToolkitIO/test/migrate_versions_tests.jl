@@ -4,7 +4,8 @@
 # =============================================================================
 
 @testsetup module MigrateFixtures
-    export units_fixture, as_v1_target, as_v4_rig, old_copy
+    import VisualGeometryToolkitIO
+    export units_fixture, as_v1_target, as_v4_rig, old_copy, as_v4_measurements, V4_ID, current_id
 
     units_fixture(name) = joinpath(@__DIR__, "fixtures", "units", name)
 
@@ -17,6 +18,17 @@
         "\"calibration\": {" => "\"warp\": {", "\"reference\":" => "\"design\":")
     as_v1_target(text) = replace(replace(text, "\"schema\": \"vgio/target/v2\"" => "\"schema\": \"vgio/target/v1\"",
         "\"calibration\": {" => "\"warp\": {", "\"reference\":" => "\"design\":"), "\"calibration_record\":" => "\"calibration\":")
+    # rig_targets.json's identity as vgio/rig/v4 defined it, which the
+    # measurements named before the migration, and its identity now
+    const V4_ID = "a19adf2a1b6cb5d352dac3d6f1018f844cf9cf8f413ddf480539652e80957a88"
+    current_id() = VisualGeometryToolkitIO.content_id(units_fixture("rig_targets.json"))
+    # the measurement fixtures as they were (target_points2d naming the v4 id;
+    # target_points3d names no targets)
+    function as_v4_measurements(dir)
+        write(joinpath(dir, "target_points2d.json"), replace(read(units_fixture("target_points2d.json"), String), current_id() => V4_ID))
+        cp(units_fixture("target_points3d.json"), joinpath(dir, "target_points3d.json"))
+        return joinpath(dir, "target_points2d.json")
+    end
     function old_copy(dir, name, f)
         p = joinpath(dir, name)
         write(p, f(read(units_fixture(name), String)))
@@ -77,13 +89,13 @@ end
         sensors = old_copy(dir, "rig.json", as_v4_rig)
         obs_new = load(TargetPoints2D, units_fixture("target_points2d.json"))
         # the measurements as they were: naming the v4 rig by its v4 identity
-        v4_id = "a19adf2a1b6cb5d352dac3d6f1018f844cf9cf8f413ddf480539652e80957a88"
+        v4_id = V4_ID
         obs = joinpath(dir, "target_points2d.json")
         write(obs, replace(read(units_fixture("target_points2d.json"), String), only(obs_new.targets) => v4_id))
         e = try load(Rig, rig); nothing catch e; e end
         @test e isa ArgumentError && occursin("vgio/rig/v4", e.msg) && occursin("vgio_migrate", e.msg)
         r = vgio_migrate(rig)
-        @test r.to == "vgio/rig/v5" && r.old_id == v4_id && r.new_id == content_id(r.out) == only(obs_new.targets)
+        @test r.to == "vgio/rig/v5" && r.old_id == v4_id && r.old_ids == [v4_id] && r.new_id == content_id(r.out) == only(obs_new.targets)   # an mm file: one v4 id
         @test read(r.out, String) == read(units_fixture("rig_targets.json"), String)
         rs = vgio_migrate(sensors; out = sensors)
         @test read(sensors, String) == read(units_fixture("rig.json"), String)
@@ -112,8 +124,7 @@ end
         for name in ("target_planar.json", "target_points.json")
             old_copy(tree, name, as_v1_target)
         end
-        write(joinpath(tree, "target_points2d.json"), replace(read(units_fixture("target_points2d.json"), String),
-            "eb9ad42d8920caa208a5ce708d0b1c7954c541cd65a857cc9ec97b540a8c00fe" => "a19adf2a1b6cb5d352dac3d6f1018f844cf9cf8f413ddf480539652e80957a88"))
+        as_v4_measurements(tree)
         before = Dict(f => read(joinpath(tree, f), String) for f in readdir(tree))
         io = IOBuffer()
         @test VgtkIO._migrate_cli(["tree", tree]; io) == 0                      # a dry run
@@ -122,12 +133,17 @@ end
         @test occursin("FAILED", String(take!(io)))
         @test VgtkIO._migrate_cli(["tree", tree, "--in-place", "--apply"]; io) == 0
         out = String(take!(io))
-        @test occursin("re-pointed", out) && occursin("a19adf2a", out)
+        @test occursin("re-pointed", out) && occursin(V4_ID, out)
         for f in readdir(tree)
+            f == "vgio_migrate_ids.json" && continue
             @test read(joinpath(tree, f), String) == read(units_fixture(f), String)
         end
+        @test VgtkIO._read_ids(joinpath(tree, "vgio_migrate_ids.json"))[V4_ID] == current_id()   # the map, persisted
         @test VgtkIO._migrate_cli(["tree", tree, "--in-place", "--apply"]; io) == 0   # current: nothing to do
-        @test !occursin("migrated", String(take!(io)))
+        out = String(take!(io))
+        @test !occursin("migrated", out) && !occursin("re-pointed", out)
+        @test occursin("current   $(joinpath(tree, "rig.json"))", out) && occursin("current   $(joinpath(tree, "target_points2d.json")): names current rigs", out)
+        @test occursin("current   $(joinpath(tree, "target_points3d.json")): names no targets", out)
         @test VgtkIO._migrate_cli(["target"]; io) == 2
     end
 end
@@ -145,5 +161,64 @@ end
         @test r.to == "toy/thing/v2" && occursin("toy/thing/v2", read(r.out, String))
         write(p, """{"schema": "toy/other/v1"}""")
         @test_throws ArgumentError vgio_migrate(p; out = joinpath(dir, "o.json"))   # no migration for it
+    end
+end
+
+@testitem "vgio_migrate: no stale identity is ever kept; an interrupted tree resumes from its persisted map" setup = [VGIoFixtures, MigrateFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: TargetPoints2D
+    mktempdir() do dir
+        tree = mkpath(joinpath(dir, "tree"))
+        old_copy(tree, "rig_targets.json", as_v4_rig)
+        obs = as_v4_measurements(tree)
+        # repoint_targets: an identity neither mapped nor a given rig's is refused, naming the file and the id
+        rig = vgio_migrate(joinpath(tree, "rig_targets.json"); out = joinpath(dir, "rig_v5.json"))
+        e = try repoint_targets(obs, Dict{String, String}(), [rig.out]; out = joinpath(dir, "x.json")); nothing catch e; e end
+        @test e isa ArgumentError && occursin(obs, e.msg) && occursin(V4_ID, e.msg) && !isfile(joinpath(dir, "x.json"))
+        rm(rig.out)
+        # a tree whose run was interrupted after its rigs were migrated in place: the
+        # measurements were not seen (here: not yet .json), the map was persisted
+        mv(obs, obs * ".later")
+        io = IOBuffer()
+        vgio_migrate_tree(tree; in_place = true, io)
+        @test VgtkIO._read_ids(joinpath(tree, "vgio_migrate_ids.json")) == Dict(V4_ID => current_id())
+        mv(obs * ".later", obs)
+        # the rerun finds every rig current, and re-points from the persisted map
+        out = (vgio_migrate_tree(tree; in_place = true, io); String(take!(io)))
+        @test occursin("current   $(joinpath(tree, "rig_targets.json"))", out) && occursin("re-pointed  $(obs)", out)
+        @test only(load(TargetPoints2D, obs).targets) == current_id()
+        # a measurement file naming an identity no rig of the tree has: FAILED, nothing written for it, the run an error
+        stray = joinpath(tree, "stray.json")
+        write(stray, replace(read(units_fixture("target_points2d.json"), String), current_id() => "0"^64))
+        before = read(stray, String)
+        e = try vgio_migrate_tree(tree; in_place = true, io); nothing catch e; e end
+        out = String(take!(io))
+        @test e isa ArgumentError && occursin(stray, e.msg) && occursin("FAILED    $(stray)", out) && occursin("0"^64, out)
+        @test read(stray, String) == before
+    end
+end
+
+@testitem "vgio_migrate: staged beside the file, renamed in place; a refusal leaves the original" setup = [VGIoFixtures, MigrateFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    mktempdir() do dir
+        # a migration that cannot reproduce the file's numbers: refused, the original byte for byte, nothing left beside it
+        src = old_copy(dir, "target_planar.json", t -> replace(as_v1_target(t), "1234.5" => "287.15788802842013"))
+        before = read(src, String)
+        @test_throws ArgumentError vgio_migrate(src; out = src)
+        @test read(src, String) == before && readdir(dir) == ["target_planar.json"]
+        # a migration in place: the file replaced, no staging directory left
+        src = old_copy(dir, "target_points.json", as_v1_target)
+        vgio_migrate(src; out = src)
+        @test read(src, String) == read(units_fixture("target_points.json"), String)
+        @test sort(readdir(dir)) == ["target_planar.json", "target_points.json"]
+        # beside it: the original untouched; a tree without in_place reruns (the migrated file is current)
+        tree = mkpath(joinpath(dir, "tree"))
+        o = old_copy(tree, "target_planar.json", as_v1_target)
+        io = IOBuffer()
+        vgio_migrate_tree(tree; io)
+        vgio_migrate_tree(tree; io)
+        out = String(take!(io))
+        @test occursin("already migrated to $(VgtkIO._migrated_path(o))", out)
+        @test read(o, String) == as_v1_target(read(units_fixture("target_planar.json"), String))
     end
 end

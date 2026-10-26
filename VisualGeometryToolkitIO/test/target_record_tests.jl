@@ -9,16 +9,12 @@
     using Statistics: cov
     using StaticArrays: SVector, SMatrix
     using LinearAlgebra: Diagonal
+    using Rotations: QuatRotation
     import VisualGeometryToolkitIO as VgtkIO
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: mm
 
-    export kinds, uncertain, design_points, mmq, same_target, same_calibration
-
-    # `==` of an `Uncertain` is `===` (VGC defines no `==` for `Attributed`), which a
-    # thin-plate kind's solver matrices make identity: compare the kind and the
-    # covariance instead.
-    same_calibration(a, b) = typeof(a) == typeof(b) && (a isa Uncertain ? (geom(a) == geom(b) && cov(a) == cov(b)) : a == b)
-    same_target(a, b) = reference(a) === reference(b) && isequal(a.nominal, b.nominal) && same_calibration(calibration(a), calibration(b))
+    export kinds, uncertain, design_points, mmq, identity_rig
 
     # one millimetre number as a reader returns it (lengths.jl: decimal-exact)
     mmq(x) = VgtkIO.read_length(x, mm)
@@ -33,6 +29,26 @@
         H = HeightField(nodes, mmq.([0.1, 0.0, -0.1, 0.2, 0.0, 0.0, 0.0, 0.3, 0.0]))
         return (rigid = Rigid(), affine = A, thin_plate_spline = T, height_field = H,
             calibration_chain = CalibrationChain(A, T, H), chain_in_plane = CalibrationChain(A, T))
+    end
+
+    # A rig of targets of every kind — rigid, affine, thin-plate, height field,
+    # a chain, Uncertain calibrations, a point target with covariances, an
+    # Uncertain pose — its numbers file-born: content_id's pin.
+    function identity_rig()
+        k = kinds()
+        X(t) = VgtkCore.EuclideanMap(QuatRotation(0.9128709291752769, 0.18257418583505536, 0.36514837167011072, 0.0, false), SVector(mmq(t[1]), mmq(t[2]), mmq(t[3])))
+        I6 = VgtkCore.CovMat(SMatrix{6, 6, Float64}(Diagonal([1.0e-6, 1.0e-6, 1.0e-6, 2.5e-7, 2.5e-7, 4.0e-7])))
+        ident = VgtkCore.EuclideanMap(QuatRotation(1.0, 0.0, 0.0, 0.0, false), SVector(mmq(0.0), mmq(0.0), mmq(0.0)))
+        pt = VgtkCore.PointTarget([VgtkCore.Uncertain(SVector(mmq(0.0), mmq(1.5), mmq(-2.0)), VgtkCore.CovMat(SMatrix{3, 3, Float64}(Diagonal([1.0e-8, 1.0e-8, 4.0e-8]))))])
+        members = Dict(
+            :a_rigid => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(design_points()), ident),
+            :b_affine => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(design_points(); calibration = uncertain(k.affine)), X((10.0, 0.0, 900.0))),
+            :c_tps => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(:c_tps; calibration = k.thin_plate_spline), X((-200.0, 15.5, 850.0))),
+            :d_height => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(design_points(); calibration = k.height_field), VgtkCore.Uncertain(X((0.0, 120.0, 910.0)), I6)),
+            :e_chain => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(design_points(); calibration = uncertain(k.calibration_chain)), X((300.0, -40.25, 1000.0))),
+            :f_points => VgtkCore.PosedTarget(pt, X((5.0, 5.0, 700.0))),
+        )
+        return VgtkCore.Rig{VgtkCore.TargetFrame{:a_rigid}}(members)
     end
 
     # an Uncertain one: a covariance over its parameters (lengths² in m²), its
@@ -51,25 +67,25 @@ end
 
 @testitem "target/v2: every calibration kind round-trips, with and without its covariance" setup = [VGIoFixtures, TargetRecordFixtures] begin
     using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, Attributed, Uncertain, calibration, points, geom,
-        is_resolved, reference, parameter_names
+        is_resolved, reference, parameter_names, Rigid
     using Statistics: cov
     mktempdir() do dir
         p = joinpath(dir, "target.json")
-        for (name, c) in pairs(kinds()), cc in (c, uncertain(c)), length_unit in (mm, m)
+        for (name, c) in pairs(kinds()), cc in (c isa Rigid ? (c,) : (c, uncertain(c))), length_unit in (mm, m)
             t = PlanarTarget(design_points(); calibration = cc)
             save(p, t; length_unit)
             d = parse_json(read(p, String))
             @test d.schema == "vgio/target/v2" && d.target.calibration.type == (name == :chain_in_plane ? "calibration_chain" : String(name))
             @test haskey(d.target.calibration, :covariance) == (cc isa Uncertain)
             back = load(AbstractTarget, p)
-            @test same_target(back, t)                        # exact, by type: values, units, the covariance
+            @test back == t                        # exact, by type: values, units, the covariance
             @test points(back) == points(t)
             # an unresolved target (a referenced design, no points) carries its calibration too
             r = PlanarTarget(:b76e; calibration = cc)
             save(p, r; length_unit)
             br = load(AbstractTarget, p)
-            @test same_target(br, r) && !is_resolved(br) && reference(br) === :b76e
-            @test same_target(load(AbstractTarget, p; resolve = _ -> design_points()), PlanarTarget(:b76e; nominal = design_points(), calibration = cc))
+            @test br == r && !is_resolved(br) && reference(br) === :b76e
+            @test load(AbstractTarget, p; resolve = _ -> design_points()) == PlanarTarget(:b76e; nominal = design_points(), calibration = cc)
         end
     end
 end
@@ -106,6 +122,9 @@ end
 
 @testitem "target/v2: refusals — plain calibrations, malformed records, the v1 keys" setup = [VGIoFixtures, TargetRecordFixtures] begin
     using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, Affine, HeightField, grid_nodes
+    struct AnotherKind <: VisualGeometryToolkitCore.TargetCalibration end
+    VisualGeometryToolkitCore.parameter_vector(::AnotherKind) = SVector{0, Float64}()
+    VisualGeometryToolkitCore.parameter_names(::AnotherKind) = ()
     mktempdir() do dir
         p = joinpath(dir, "target.json")
         # a calibration with lengths in plain numbers is refused at save, as plain points are
@@ -132,6 +151,22 @@ end
         @test refused(c -> (c["members"][1]["covariance"] = [[1.0]]), "carries no `covariance`")
         @test refused(c -> (c["covariance"] = [[1.0]]), "33×33")
         @test refused(c -> (c["members"] = [Dict("type" => "rigid"), Dict("type" => "rigid", "parameters" => [])]), "has no `parameters`")
+        # a rigid calibration has no parameters: no covariance, in the record or in memory
+        save(p, PlanarTarget(design_points()))
+        rd = JSON.parse(read(p, String); dicttype = Dict{String, Any})
+        rd["target"]["calibration"]["covariance"] = []
+        write(p, JSON.json(rd))
+        e = try load(AbstractTarget, p); nothing catch e; e end
+        @test e isa ArgumentError && occursin("no parameters, so no `covariance`", e.msg)
+        e = try VisualGeometryToolkitCore.Uncertain(VisualGeometryToolkitCore.Rigid(), VisualGeometryToolkitCore.CovMat(SMatrix{0, 0, Float64}())); nothing catch e; e end
+        @test e isa ArgumentError && occursin("no parameters, so no covariance", e.msg)
+        # the provenance attribute's previous name is refused naming its successor, nothing written
+        q = joinpath(dir, "old_attribute.json")
+        e = try save(q, VisualGeometryToolkitCore.Attributed(PlanarTarget(design_points()), (; calibration = (; tool = "t")))); nothing catch e; e end
+        @test e isa ArgumentError && occursin("calibration_record", e.msg) && occursin("vgio_migrate", e.msg) && !isfile(q)
+        # a downstream calibration kind (not in the registry) is refused at save, naming it
+        e = try save(q, PlanarTarget(design_points(); calibration = AnotherKind())); nothing catch e; e end
+        @test e isa ArgumentError && occursin("AnotherKind", e.msg) && !isfile(q)
         # the v1 keys and version name the migration
         dd = deepcopy(good)
         dd["target"]["warp"] = pop!(dd["target"], "calibration")
@@ -165,7 +200,7 @@ end
         save(p, rig)
         @test parse_json(read(p, String)).schema == "vgio/rig/v5"
         back = load(Rig, p)
-        @test ids(back) == ids(rig) && all(id -> same_target(back[id].target, rig[id].target), ids(rig))
+        @test ids(back) == ids(rig) && all(id -> back[id].target == rig[id].target, ids(rig))
         @test pose(back, :b) isa Uncertain && geom(pose(back, :b)).t == X.t && pose(back, :c).t == X.t
         @test !is_planar(back[:a].target) && eltype(points(back[:a].target)) <: SVector{3}
         @test calibration(back[:c].target) == k.affine
@@ -179,17 +214,36 @@ end
     end
 end
 
-@testitem "rig/v5: content_id is pinned on a fixed canonical tree" setup = [VGIoFixtures] begin
+@testitem "rig/v5: content_id is pinned on a fixed canonical tree" setup = [VGIoFixtures, TargetRecordFixtures] begin
     # The identity measurement files name a rig by is the SHA-256 of a FIXED
-    # canonical tree (content_id's docstring): changing what the tree holds
-    # re-ids every rig and orphans every measurement file. If this fails, the
-    # change must say why and migrate the measurement files that name the old ids.
+    # identity tree (content_id's docstring), built from the value under its own
+    # names. Changing what the tree holds re-ids every rig and orphans every
+    # measurement file: if a literal below fails, the change must say why and
+    # migrate the measurement files that name the old ids.
+    import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: Rig, TargetPoints2D
     fixtures = joinpath(@__DIR__, "fixtures", "units")
     id = content_id(joinpath(fixtures, "rig_targets.json"))
-    @test id == "eb9ad42d8920caa208a5ce708d0b1c7954c541cd65a857cc9ec97b540a8c00fe"
+    @test id == "980c47d473610daa038b633cf5d4d133931699a9cafe1ee210f507b9b1c793b3"
     @test only(load(TargetPoints2D, joinpath(fixtures, "target_points2d.json")).targets) == id
-    @test content_id(joinpath(fixtures, "rig.json")) == "2f461cfef0e8e465a9e4b107cb88c10783583b37ffeffe6842f76fec0a465bd0"
+    @test content_id(joinpath(fixtures, "rig.json")) == "5cdb12271e474c04c68ac5ea539f509a720449fcf42b79d8cc4a506cddcf9fe0"   # sensors
+    # a rig of every target kind, Uncertain calibrations and poses, a point target
+    rig = identity_rig()
+    @test content_id(rig) == "99835c0bedb6e885ea05eb5dca28ab9967a1a59515be04a27b03c6bc169a9d4a"
+    # the identity is the value's: every unit, and a file read back, agree
+    mktempdir() do dir
+        for u in (mm, m)
+            p = joinpath(dir, "rig_$(u).json")
+            save(p, rig; length_unit = u)
+            @test content_id(p) == content_id(rig) == content_id(load(Rig, p))
+        end
+    end
+    # its names are the identity's own, not the record's
+    t = VgtkIO._identity_tree(rig)
+    @test sort!(collect(keys(t))) == ["frame", "targets"]
+    e = only(x for x in t["targets"] if x["id"] == "e_chain")
+    @test e["target"]["kind"] == "planar" && e["target"]["calibration"]["kind"] == "calibration_chain" &&
+        haskey(e["target"]["calibration"], "covariance") && [x["kind"] for x in e["target"]["calibration"]["members"]] == ["affine", "thin_plate_spline", "height_field"]
 end
 
 @testitem "target/v2: a planar target's board — present and absent" setup = [VGIoFixtures, TargetRecordFixtures] begin

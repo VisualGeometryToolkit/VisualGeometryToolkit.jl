@@ -92,3 +92,88 @@
         end
     end
 end
+
+# left_jacobian's small-angle series: accurate where the closed form cancels
+# (θ below 1/4), and the closed form untouched above it.
+@testitem "left_jacobian small angles" begin
+    using Test
+    using StaticArrays
+    using Random
+    using LinearAlgebra: I, norm, normalize
+    using ForwardDiff
+    using VisualGeometryToolkitCore: left_jacobian, SO3, skew
+
+    # The closed form as it was before the series covered θ < 1/4 (small-angle switch at θ² < eps).
+    function left_jacobian_closed(ω::SVector{3, T}) where {T}
+        θ² = ω[1] * ω[1] + ω[2] * ω[2] + ω[3] * ω[3]
+        K = skew(ω)
+        if θ² < eps(T)
+            a = T(0.5) - θ² / T(24)
+            b = T(1) / T(6) - θ² / T(120)
+        else
+            θ = sqrt(θ²)
+            a = (one(T) - cos(θ)) / θ²
+            b = (θ - sin(θ)) / (θ² * θ)
+        end
+        return SMatrix{3, 3, T, 9}(I) + a * K + b * (K * K)
+    end
+
+    function reference(ω::SVector{3, Float64})
+        return setprecision(BigFloat, 300) do
+            w = BigFloat.(ω)
+            θ = sqrt(sum(abs2, w))
+            K = [0 -w[3] w[2]; w[3] 0 -w[1]; -w[2] w[1] 0]
+            a = (1 - cos(θ)) / θ^2
+            b = (θ - sin(θ)) / θ^3
+            Matrix(I, 3, 3) + a * K + b * K * K
+        end
+    end
+
+    @testset "bit-identical to the closed form for θ in [1/4, π]" begin
+        rng = Random.Xoshiro(7)
+        for _ in 1:10^4
+            u = normalize(randn(rng, SVector{3, Float64}))
+            ω = (0.25 + (π - 0.25) * rand(rng)) * u
+            @test left_jacobian(SO3, ω) == left_jacobian_closed(ω)
+        end
+    end
+
+    @testset "accuracy against a 300-bit reference, θ in [1e-12, 1]" begin
+        worst = 0.0
+        for θ in exp10.(range(-12, 0; length = 121))
+            for u in (normalize(SVector(0.3, -0.5, 0.8)), SVector(1.0, 0, 0), SVector(0, 0, -1.0))
+                ω = θ * u
+                J = left_jacobian(SO3, ω)
+                worst = max(worst, maximum(abs.(Float64.(reference(ω)) .- J)) / norm(J) / eps())
+            end
+        end
+        @test worst ≤ 4
+        # the closed form alone was off by thousands of eps here
+        ω = 1.0e-5 * normalize(SVector(0.3, -0.5, 0.8))
+        @test maximum(abs.(Float64.(reference(ω)) .- left_jacobian_closed(ω))) > 100 * eps()
+    end
+
+    @testset "series and closed form agree at the switch" begin
+        ω = (0.25 - 1.0e-12) * normalize(SVector(0.3, -0.5, 0.8))
+        @test maximum(abs.(left_jacobian(SO3, ω) .- left_jacobian_closed(ω))) ≤ 2 * eps()
+    end
+
+    @testset "ForwardDiff through the series branch" begin
+        ω0 = SVector(1.0e-3, -2.0e-3, 0.5e-3)
+        f(x) = vec(Matrix(left_jacobian(SO3, SVector{3}(x))))
+        Jd = ForwardDiff.jacobian(f, collect(ω0))
+        h = 1.0e-6
+        Jfd = reduce(hcat, [(f(collect(ω0) .+ h .* e) .- f(collect(ω0) .- h .* e)) ./ 2h for e in eachcol(Matrix(I, 3, 3))])
+        @test all(isfinite, Jd)
+        @test maximum(abs.(Jd .- Jfd)) ≤ 1.0e-8
+        # at the origin dJ/dω = ½ d[ω]×: finite and exact
+        J0 = ForwardDiff.jacobian(f, zeros(3))
+        @test all(isfinite, J0)
+    end
+
+    @testset "Float32 series" begin
+        ω = SVector{3, Float32}(1.0f-3, 2.0f-3, -1.0f-3)
+        J = left_jacobian(SO3, ω)
+        @test maximum(abs.(Float64.(J) .- Float64.(reference(Float64.(ω))))) ≤ 4 * eps(Float32)
+    end
+end

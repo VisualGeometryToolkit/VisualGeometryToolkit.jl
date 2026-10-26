@@ -59,6 +59,9 @@ function exp_so3(ω::SVector{3, T}) where {T <: Real}
     return SMatrix{3, 3, T, 9}(I) + a * K + b * (K * K)
 end
 
+# Series-vs-closed-form switch of `left_jacobian` on θ² (θ = 1/4): see its docstring.
+const _left_jacobian_series_sq = 1 // 16
+
 """
     SO3
 
@@ -72,7 +75,7 @@ struct SO3 end
     left_jacobian(SO3, ω::SVector{3,T}) -> SMatrix{3,3,T,9}
 
 Left Jacobian of SO(3): `J = I + a·[ω]× + b·[ω]×²` with
-`a = (1−cosθ)/θ²`, `b = (θ−sinθ)/θ³`, Taylor branch near zero. Maps a
+`a = (1−cosθ)/θ²`, `b = (θ−sinθ)/θ³`. Maps a
 rotation-vector perturbation to the translation part of the SE(3)
 exponential: `t = J(ω)·ρ`. Not provided by Rotations.jl.
 
@@ -86,9 +89,12 @@ one is off by 1.8e-6, and `Jl(ω) = Jl(−ω)ᵀ` to 0.0.
 function left_jacobian(::Type{SO3}, ω::SVector{3, T}) where {T <: Real}
     θ² = ω[1] * ω[1] + ω[2] * ω[2] + ω[3] * ω[3]
     K = skew(ω)
-    if θ² < _small_angle_sq(T)
-        a = T(0.5) - θ² / T(24)
-        b = T(1) / T(6) - θ² / T(120)
+    if θ² < _left_jacobian_series_sq
+        # Σₖ (−θ²)ᵏ/(2k+2)! and Σₖ (−θ²)ᵏ/(2k+3)!, k = 0:5, by Horner.
+        a = T(1 // 2) + θ² * (-T(1 // 24) + θ² * (T(1 // 720) + θ² * (-T(1 // 40320) +
+            θ² * (T(1 // 3628800) - θ² * T(1 // 479001600)))))
+        b = T(1 // 6) + θ² * (-T(1 // 120) + θ² * (T(1 // 5040) + θ² * (-T(1 // 362880) +
+            θ² * (T(1 // 39916800) - θ² * T(1 // 6227020800)))))
     else
         θ = sqrt(θ²)
         a = (one(T) - cos(θ)) / θ²

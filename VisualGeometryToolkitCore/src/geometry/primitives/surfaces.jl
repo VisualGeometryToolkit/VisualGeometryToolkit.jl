@@ -98,8 +98,8 @@ design chart: the target's in-plane calibration (`Rigid` or `Affine`, or a
 chain of them) is the quad's affine, so [`chart`](@ref) of a hit is the
 nominal coordinates it shows. Its rectangle, in that chart, is
 `Rect(`[`board`](@ref)`(t))` when the target has a [`Board`](@ref), else the
-bounding box of the nominal points grown by a rounding margin (16 eps of its
-coordinates), so a ray at a design point on the box's edge is a hit.
+design bounding box grown by 16 eps (of its coordinates), so a ray at a design
+point on the box's edge is a hit.
 
 - A planar calibration (`Rigid`, `Affine` and chains of them) gives a `Quad`.
 - A [`HeightField`](@ref), alone or last in a [`CalibrationChain`](@ref) after
@@ -287,9 +287,6 @@ end
 const _HEIGHT_NEWTON_ITERATIONS = 4
 const _HEIGHT_NEWTON_MAX_ITER = 20
 
-# eps of a value's float type, through ForwardDiff's Dual
-_value_eps(x) = eps(float(typeof(ForwardDiff.value(x))))
-
 @inline function intersection(s::HeightSurface, o::StaticVector{3}, d::StaticVector{3})
     q = s.quad
     n = normal(q)
@@ -308,7 +305,7 @@ _value_eps(x) = eps(float(typeof(ForwardDiff.value(x))))
     # (a converged ray keeps RadiometricCamera's four-iteration bits)
     nd = norm(d)
     L = hypot(q.rect.widths[1], q.rect.widths[2])
-    ε = _value_eps(t)
+    ε = eps(typeof(t))                   # a Dual's is its value type's (ForwardDiff)
     converged = false
     last = oftype(abs(t), Inf)
     for _ in (_HEIGHT_NEWTON_ITERATIONS + 1):_HEIGHT_NEWTON_MAX_ITER

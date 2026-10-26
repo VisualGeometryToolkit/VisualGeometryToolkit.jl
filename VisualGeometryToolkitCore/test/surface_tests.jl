@@ -432,6 +432,7 @@ end
 
 @testitem "surfaces: a planar target's Board" begin
     using Test, StaticArrays
+    using Rotations: RotMatrix
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: board, mm, m, px, with_parameters, parameter_vector
     using FlexUnits: DimensionError, ustrip
@@ -455,5 +456,20 @@ end
     @test board(with_parameters(tA, parameter_vector(tA))) === bd
     @test_throws DimensionError PlanarTarget([SVector(0.0, 0.0)]; board = bd)            # a board is lengths: the points too
     @test_throws ArgumentError PlanarTarget([SVector(300.0, 0.0) .* mm]; board = bd)     # off the board
-    @test_throws ArgumentError ustrip(mm, t)                                              # plain points beside a board in lengths
+    # ustrip moves the board with the points, and with_unit brings both back
+    tp = ustrip(mm, t)
+    @test board(tp) == Board(Size2(width = 297.0, height = 210.0), [-10.0, -5.0]) && Rect(board(tp)) ≈ Rect2(-10.0, -5.0, 297.0, 210.0)
+    @test VisualGeometryToolkitCore.with_unit(tp, mm) == t
+    tq = PlanarTarget(:b; board = bd)                                                    # unresolved: the board moves too
+    @test board(ustrip(mm, tq)) == board(tp) && VisualGeometryToolkitCore.with_unit(ustrip(mm, tq), mm) == tq
+    # a unitless board: plain numbers, for a plain design
+    bu = Board(Size2(width = 297.0, height = 210.0), [-10.0, -5.0])
+    @test !VisualGeometryToolkitCore.has_units(bu) && aspect_ratio(bu) ≈ 297 / 210 && bu.origin == SVector(-10.0, -5.0)
+    tu = PlanarTarget([SVector(0.0, 0.0), SVector(250.0, 180.0)]; board = bu)
+    @test board(tu) === bu && Rect(board(tu)) == Rect2(-10.0, -5.0, 297.0, 210.0)
+    @test Board(Size2(width = 297, height = 210)) == Board(Size2(width = 297.0, height = 210.0))
+    @test_throws DimensionError PlanarTarget(pts_mm; board = bu)                       # physical points, a plain board
+    @test_throws ArgumentError Board(Size2(width = 297.0, height = 210.0), [-10.0mm, -5.0mm])   # a mix
+    q = VisualGeometryToolkitCore.surface(PosedTarget(tu, EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, 1000.0))))
+    @test VisualGeometryToolkitCore.bounds(q) == Rect(bu)
 end

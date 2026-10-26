@@ -488,6 +488,10 @@ an `ArgumentError` otherwise), and the members with lengths all of one form
 each name prefixed by its member's tag (`:affine_a11`, …, `:height_field_h1`);
 [`calibration_jacobian`](@ref) composes the members' by the chain rule (3 rows
 once a height field is present); [`regularizer`](@ref) stacks theirs.
+
+A member acts on its predecessor's output, so its nodes (a thin-plate kind's)
+are in that member's input coordinates: a `HeightField` after an `Affine` has
+its nodes in the calibrated plane, not in the design.
 """
 struct CalibrationChain{C <: Tuple} <: TargetCalibration
     members::C

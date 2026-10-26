@@ -144,13 +144,12 @@ points: it is neither form, and both move only its calibration.
 `board` is the board the design is printed on, a [`Board`](@ref) (its size and
 its corner in the design chart), or `nothing` — the target's analogue of a
 camera's [`Sensor`](@ref): `Rect(board)` is the printed domain in the design
-chart, and [`surface`](@ref) bounds the target's primitive by it. A board is
-lengths, so a resolved target with a board has physical points (FlexUnits'
-`DimensionError` otherwise), and they lie inside `Rect(board)` (an
-`ArgumentError` otherwise). Being in the design chart, the board is the same
-rectangle under any calibration. [`board`](@ref)`(t)` reads it; `ustrip` of a
-target with a board is an `ArgumentError` (plain points beside a board in
-lengths would be two forms).
+chart, and [`surface`](@ref) bounds the target's primitive by it. The board
+is in the points' form — lengths for physical points, plain numbers for plain
+ones (FlexUnits' `DimensionError` otherwise) — and the points lie inside
+`Rect(board)` (an `ArgumentError` otherwise). Being in the design chart, the
+board is the same rectangle under any calibration. [`board`](@ref)`(t)`
+reads it; `ustrip` and `with_unit` move it with the points.
 """
 struct PlanarTarget{C <: TargetCalibration, N <: Union{Nothing, Vector{<:SVector{2}}}, S <: Union{C, Uncertain{C}}} <: AbstractTarget
     reference::Union{Nothing, Symbol}
@@ -169,17 +168,17 @@ struct PlanarTarget{C <: TargetCalibration, N <: Union{Nothing, Vector{<:SVector
         return new{typeof(geom(calibration)), typeof(n), typeof(calibration)}(reference, n, calibration, board)
     end
 end
-# A board is lengths: the nominal points are too, and lie on it (in the design
-# chart, metres).
+# The board is in the points' form, and they lie on it (in the design chart:
+# metres when physical).
 function _check_board(nominal, bd)
     (bd === nothing || nominal === nothing || isempty(nominal)) && return nothing
-    has_units(first(nominal)) || throw(DimensionError(first(nominal), bd.size.width))
+    has_units(first(nominal)) == has_units(bd) || throw(DimensionError(first(nominal), bd.size.width))
     r = Rect(bd)
     lo, hi = r.origin, r.origin + r.widths
     for p in nominal
-        q = map(x -> ustrip(m, x), p)
+        q = has_units(bd) ? map(x -> ustrip(m, x), p) : p
         (lo[1] <= q[1] <= hi[1] && lo[2] <= q[2] <= hi[2]) || throw(
-            ArgumentError("PlanarTarget: the nominal point $(Tuple(q)) m lies off the board, $(Tuple(lo)) to $(Tuple(hi)) m")
+            ArgumentError("PlanarTarget: the nominal point $(Tuple(q)) lies off the board, $(Tuple(lo)) to $(Tuple(hi))")
         )
     end
     return nothing
@@ -305,18 +304,19 @@ Base.hash(t::PlanarTarget, h::UInt) =
 
 # Units: a resolved target's nominal points move, and with them a calibration
 # that has lengths; an unresolved one moves only its calibration.
+# The board moves with them, by the same rule (an unresolved target's board
+# moves when it is in the form being left).
 has_units(t::PlanarTarget) = is_resolved(t) ? has_units(t.nominal) : has_units(geom(t.calibration))
-function FlexUnits.ustrip(u::Units, t::PlanarTarget)
-    t.board === nothing || throw(
-        ArgumentError("ustrip: the target has a board, which is lengths; plain points beside it would be two forms (strip `model` parts instead)")
-    )
-    return PlanarTarget(
-        t.reference, is_resolved(t) ? [_ustrip_point(u, p) for p in t.nominal] : nothing, _ustrip_calibration(u, t.calibration)
-    )
-end
-with_unit(t::PlanarTarget, u::Units) = PlanarTarget(
-    t.reference, is_resolved(t) ? [_attach_point(u, p) for p in t.nominal] : nothing, _attach_calibration(u, t.calibration), t.board
+FlexUnits.ustrip(u::Units, t::PlanarTarget) = PlanarTarget(
+    t.reference, is_resolved(t) ? [_ustrip_point(u, p) for p in t.nominal] : nothing, _ustrip_calibration(u, t.calibration),
+    _move_board(ustrip, u, t.board, true)
 )
+with_unit(t::PlanarTarget, u::Units) = PlanarTarget(
+    t.reference, is_resolved(t) ? [_attach_point(u, p) for p in t.nominal] : nothing, _attach_calibration(u, t.calibration),
+    _move_board((u, bd) -> with_unit(bd, u), u, t.board, false)
+)
+_move_board(_, _, ::Nothing, _) = nothing
+_move_board(f, u, bd::Board, from_physical::Bool) = has_units(bd) == from_physical ? f(u, bd) : bd
 
 # --- the calibratable-target protocol ------------------------------------------------
 

@@ -76,5 +76,7 @@ estimators reject. Coordinate it with Core instead of retuning the test here.
 
 The package writes no file format. Detections, feature frames, `Size2` and
 quantities are serialized by VisualGeometryToolkitIO (`json_value`,
-`from_json`), which owns the stack's quantity JSON format and reads the
-legacy `{"value", "unit"}` objects this package's JSON.jl hooks once wrote.
+`from_json`), which owns the stack's quantity JSON format: numbers in the
+record's declared units. The `{"value", "unit"}` objects this package's
+JSON.jl hooks once wrote are not read; a file holding them is migrated once
+(`vgio_migrate`).

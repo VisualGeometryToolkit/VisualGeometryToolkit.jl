@@ -11,34 +11,61 @@
 # `uparse`) and `unit_string` (FlexUnits' printing of a registered unit).
 
 """
-    UnitContract(; world = mm, density = dpi)
-    UnitContract(world)
+    UnitContract(; world = mm, density = dpi, lengths = (;))
+    UnitContract(world, density = dpi; lengths = (;))
 
 Declares the units a file's magnitudes are expressed in: `world`, a length
 unit, for translations, 3D points and every other length; `density`, a unit
 of pixels per length (dimension 1/length, since a pixel is dimensionless), for
-print and sensor densities. Pixel counts need no declaration: pixels are the
-only image unit. Persisted with the data it governs — inline fields in vgio
-JSON records (`"units": {"world": "mm", "density": "dpi"}`, written by
-[`json_value`](@ref)`(contract)` and read by `from_json(UnitContract, d)`),
-a `vgio_units.json` sidecar for COLMAP model directories — so files stay
-self-describing. An `ArgumentError` for a `world` that is not a length or a
-`density` that is not pixels per length.
+print and sensor densities; and `lengths`, further LENGTH ROLES, each a named
+length unit (`lengths = (pattern = pt,)`), for a record whose lengths are
+declared in more than one unit — a board's canvas in mm and its pattern in pt,
+each written decimal-exactly in its own unit. A field read or written in a
+role names it ([`read_quantity`](@ref)`(x, :length, c; role = :pattern)`);
+`:world` is the default role and names `world`. Pixel counts need no
+declaration: pixels are the only image unit. Persisted with the data it
+governs — inline fields in vgio JSON records (`"units": {"world": "mm",
+"density": "dpi", "lengths": {"pattern": "pt"}}`, written by
+[`json_value`](@ref)`(contract)` and read by `from_json(UnitContract, d)`), a
+`vgio_units.json` sidecar for COLMAP model directories (world and density
+only) — so files stay self-describing. An `ArgumentError` for a `world` or a
+role that is not a length, a role named `world`, or a `density` that is not
+pixels per length.
 """
 struct UnitContract
     world::typeof(mm)     # a FlexUnits dynamic unit
     density::typeof(mm)   # likewise; dimension 1/length (px is dimensionless)
+    lengths::NamedTuple   # role => length unit, beyond `world` (empty for most records)
 
-    function UnitContract(world::Units, density::Units = dpi)
+    function UnitContract(world::Units, density::Units = dpi; lengths::NamedTuple = (;))
         dimension(world) == dimension(m) ||
             throw(ArgumentError("the world unit must be a length, got $(world)"))
         dimension(density) == dimension(dpi) ||
             throw(ArgumentError("the density unit must be pixels per length (like dpi), got $(density)"))
-        return new(world, density)
+        haskey(lengths, :world) && throw(ArgumentError("`world` is the contract's own length role; name another"))
+        for (r, u) in pairs(lengths)
+            (u isa Units && dimension(u) == dimension(m)) ||
+                throw(ArgumentError("the length role $(r) must be a length unit, got $(u)"))
+        end
+        return new(world, density, lengths)
     end
 end
 
-UnitContract(; world = mm, density = dpi) = UnitContract(world, density)
+UnitContract(; world = mm, density = dpi, lengths::NamedTuple = (;)) = UnitContract(world, density; lengths)
+
+"""
+    role_unit(contract::UnitContract, role::Symbol = :world) -> Units
+
+The unit `contract` declares for the lengths of `role`: `world` for `:world`,
+the named role's otherwise; an `ArgumentError` for a role it does not declare.
+"""
+function role_unit(c::UnitContract, role::Symbol = :world)
+    role === :world && return c.world
+    haskey(c.lengths, role) || throw(
+        ArgumentError("the units declare no length role $(repr(role)) (world$(join((", $(k)" for k in keys(c.lengths)))))")
+    )
+    return c.lengths[role]
+end
 
 """The stack-canonical contract: world in millimeters (image values are pixels)."""
 const MM_PX = UnitContract()
@@ -104,8 +131,12 @@ _sidecar_body(c::UnitContract) = c.density == dpi ? (schema = _schema("units"), 
     (schema = _schema("units"), world = _world_name(c), density = unit_string(c.density))
 _sidecar_body(c::UnknownScale) = (schema = _schema("units"), world = _world_name(c))
 
-save_units_sidecar(dir::AbstractString, contract::Union{UnitContract, UnknownScale}) =
-    _write_store(joinpath(dir, UNITS_SIDECAR), _UNITS_SPEC, _sidecar_body(contract))
+function save_units_sidecar(dir::AbstractString, contract::Union{UnitContract, UnknownScale})
+    (contract isa UnitContract && !isempty(contract.lengths)) && throw(
+        ArgumentError("a COLMAP model's units sidecar declares its world and density only; this contract has length roles $(keys(contract.lengths))")
+    )
+    return _write_store(joinpath(dir, UNITS_SIDECAR), _UNITS_SPEC, _sidecar_body(contract))
+end
 
 """
     load_units_sidecar(dir) -> Union{UnitContract, UnknownScale, Nothing}

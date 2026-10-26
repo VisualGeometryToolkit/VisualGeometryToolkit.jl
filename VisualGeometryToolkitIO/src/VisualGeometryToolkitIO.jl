@@ -203,7 +203,7 @@ export save_opencv_calibration        # the inverse of load_opencv_calibration: 
 public load, save                     # the two-verb I/O surface (see the top of this file)
 public ColmapModel                    # a COLMAP model directory's contents + its unit contract
 public read_length, write_length   # a file length <-> metres, decimal-exact (power-of-ten units shift the exponent)
-public read_quantity, write_quantity, json_value, from_json, ScalarOrQuantity   # the quantity JSON format (core_json.jl)
+public read_quantity, write_quantity, json_value, from_json, ScalarOrQuantity, role_unit   # the quantity JSON format (core_json.jl); a contract's length roles
 public validate                       # check any vgio file against its kind's table
 public migrate_schema, CONTRACT_GENERICS   # the per-schema migration a schema owner extends (its declared extension points)
 public pixel_frame_name, pixel_frame_from_name   # a pixel frame's serialized name, and back (VGC decides which exist)

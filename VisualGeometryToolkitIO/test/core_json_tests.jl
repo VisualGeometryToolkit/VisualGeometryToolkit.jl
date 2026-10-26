@@ -1,6 +1,6 @@
 # =============================================================================
-# The quantity JSON format: numbers in the declared unit, the legacy
-# {value, unit} object read, and the codecs of VisualGeometryToolkitCore's
+# The quantity JSON format: numbers in the declared unit (one length unit per
+# role), the {value, unit} object refused, and the codecs of VisualGeometryToolkitCore's
 # sizes, feature frames and detections (moved from VisualGeometryToolkitFeatures)
 # =============================================================================
 
@@ -24,16 +24,12 @@
     px_per_mm = parse_unit("px/mm"; compound = true)
     @test read_quantity(12, :density, UnitContract(density = px_per_mm)) == 12 * px_per_mm
     @test write_quantity(300dpi, UnitContract(density = px_per_mm)) === ustrip(px_per_mm, 300dpi)
-    # the legacy {value, unit} object, any unit parse_unit reads, checked against the kind
-    @test read_quantity(Dict("value" => 2.5, "unit" => "mm"), :length, MM_PX) == 2.5mm
-    @test read_quantity(JSON.parse("""{"value": 1.3, "unit": "cm"}"""), :length, MM_PX) == 1.3 * parse_unit("cm")
-    @test read_quantity(Dict("value" => 640, "unit" => "px"), :pixel, MM_PX) == 640px
-    @test read_quantity(Dict("value" => 300, "unit" => "dpi"), :density, UnitContract(world = m)) == 300dpi
-    @test read_quantity(Dict("value" => 0.5, "unit" => "mm/px"), :length, MM_PX) == 0.5mm / px
-    @test read_quantity((value = 2.5, unit = "mm"), :length, MM_PX) == 2.5mm
-    @test_throws ArgumentError read_quantity(Dict("value" => 2.5, "unit" => "mm"), :pixel, MM_PX)
-    @test_throws ArgumentError read_quantity(Dict("value" => 300, "unit" => "dpi"), :length, MM_PX)
-    @test_throws ArgumentError read_quantity(Dict("value" => 1, "unit" => "furlong"), :length, MM_PX)
+    # the retired {value, unit} object is refused, naming the migration
+    for x in (Dict("value" => 2.5, "unit" => "mm"), JSON.parse("""{"value": 1.3, "unit": "cm"}"""), (value = 2.5, unit = "mm"))
+        e = try read_quantity(x, :length, MM_PX); nothing catch e; e end
+        @test e isa ArgumentError && occursin("vgio_migrate", e.msg) && occursin("declared unit", e.msg)
+    end
+    @test_throws ArgumentError read_quantity(Dict("value" => 640, "unit" => "px"), :pixel, MM_PX)
     @test_throws ArgumentError read_quantity(2.5, :angle, MM_PX)
     @test_throws ArgumentError read_quantity("2.5", :length, MM_PX)
     @test_throws ArgumentError read_quantity(true, :pixel, MM_PX)
@@ -170,11 +166,12 @@ end
     @test err isa ArgumentError && occursin("pitch", err.msg)
 end
 
-@testitem "quantity JSON: legacy {value, unit} detections and frames (Features' golden strings)" setup = [VGIoFixtures] begin
-    # Every string below was written by VisualGeometryToolkitFeatures' JSON.lower
-    # hooks (its golden-bytes test, pinned to the writer at ddc1bbe), and the
-    # value beside it is what Features' JSON.lift read back from it before the
-    # hooks moved here (recorded 2026-10-25 at 61389c3).
+@testitem "quantity JSON: detections and frames as numbers (Features' golden strings); the {value, unit} form refused" setup = [VGIoFixtures] begin
+    # The plain-number strings below were written by VisualGeometryToolkitFeatures'
+    # JSON.lower hooks (its golden-bytes test, pinned to the writer at ddc1bbe),
+    # and the value beside it is what Features' JSON.lift read back from it
+    # before the hooks moved here (recorded 2026-10-25 at 61389c3). Its strings
+    # in the {value, unit} form are not read (the form is retired): refused.
     using VisualGeometryToolkitIO: UnitContract, MM_PX, json_value, from_json, read_quantity
     using VisualGeometryToolkitCore: Disc, OrientedDisc, EllipticFrame, AffineFrame, Point2, Attributed,
         AbstractDetection, Uncertain, CovMat, dpi, pt, inch, μm
@@ -195,7 +192,7 @@ end
         ("""{"value":72.5,"unit":"dpi"}""", :density, 72.5dpi),
     ]
     for (s, kind, q) in quantities, c in (MM_PX, UnitContract(world = m))
-        @test (s, read_quantity(JSON.parse(s), kind, c)) == (s, q)
+        @test_throws ArgumentError read_quantity(JSON.parse(s), kind, c)
     end
     values = [
         (Size2, """{"width":{"value":640,"unit":"px"},"height":{"value":480,"unit":"px"}}""", Size2(width = 640px, height = 480px), :pixel),
@@ -214,13 +211,12 @@ end
         (AffineFrame, """{"center":[1.0,2.0],"A":[1.2,-0.2,0.1,0.9]}""", AffineFrame([1.0, 2.0], [1.2 0.1; -0.2 0.9]), :plain),
     ]
     for (T, s, x, kind) in values
-        @test (s, from_json(T, JSON.parse(s), MM_PX; kind)) == (s, x)
+        if occursin("\"value\"", s)
+            @test_throws ArgumentError from_json(T, JSON.parse(s), MM_PX; kind)
+        else
+            @test (s, from_json(T, JSON.parse(s), MM_PX; kind)) == (s, x)
+        end
     end
-    # a legacy object carries its unit, so it reads as its quantity under :plain too
-    @test from_json(Size2, JSON.parse(values[1][2]), MM_PX; kind = :plain) == values[1][3]
-    # a declared kind is checked against a legacy object's unit
-    @test from_json(Size2, JSON.parse(values[1][2]), MM_PX; kind = :pixel) == values[1][3]
-    @test_throws ArgumentError from_json(Size2, JSON.parse(values[1][2]), MM_PX; kind = :length)
     detections = [
         ("""{"frame":{"center":[10.5,20.25],"σ":3.0},"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}""", Disc(10.5, 20.25, 3.0), :plain),
         ("""{"frame":{"center":[{"value":10.5,"unit":"px"},{"value":20,"unit":"px"}],"σ":{"value":3,"unit":"px"}},"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}""", Disc(Point2(10.5px, 20.0px), 3.0px), :pixel),
@@ -229,13 +225,17 @@ end
         ("""{"frame":{"center":[1.0,2.0],"A":[1.2,-0.2,0.1,0.9]},"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}""", AffineFrame([1.0, 2.0], [1.2 0.1; -0.2 0.9]), :plain),
     ]
     for (s, f, kind) in detections
-        r = from_json(AbstractDetection, JSON.parse(s), MM_PX; kind)
-        @test (s, getfield(r, :value), getfield(r, :attributes)) == (s, f, meta)
+        if occursin("\"value\"", s)
+            @test_throws ArgumentError from_json(AbstractDetection, JSON.parse(s), MM_PX; kind)
+        else
+            r = from_json(AbstractDetection, JSON.parse(s), MM_PX; kind)
+            @test (s, getfield(r, :value), getfield(r, :attributes)) == (s, f, meta)
+        end
     end
     s = """{"frame":{"center":[10.5,20.25],"σ":3.0},"cov":[0.01,0.001,0.0,0.001,0.02,0.0,0.0,0.0,0.005],"response":0.25,"edge_score":0.0,"laplacian_scale_score":-1.0,"warp_idx":7}"""
     r = from_json(AbstractDetection, JSON.parse(s), MM_PX; kind = :plain)
     @test r == Attributed(Uncertain(Disc(10.5, 20.25, 3.0), CovMat{3, Float64, 9}(Tuple([0.01 0.001 0.0; 0.001 0.02 0.0; 0.0 0.0 0.005]))), meta)
-    # metadata is kept as it was read: Features' lift left a legacy quantity there a parsed object
+    # metadata is kept as it was read (it has no declared kind): an object there stays a parsed object
     s = """{"frame":{"center":[1.0,2.0],"σ":3.0},"response":1.0,"image_size":{"width":{"value":640,"unit":"px"},"height":{"value":480,"unit":"px"}},"pitch":{"value":2.5,"unit":"mm"}}"""
     a = getfield(from_json(AbstractDetection, JSON.parse(s), MM_PX; kind = :plain), :attributes)
     @test keys(a) == (:response, :image_size, :pitch) && a.response === 1.0
@@ -243,40 +243,55 @@ end
     @test a.image_size == Dict("width" => Dict("value" => 640, "unit" => "px"), "height" => Dict("value" => 480, "unit" => "px"))
 end
 
-@testitem "quantity JSON: legacy {value, unit} BlobBoards boards" setup = [VGIoFixtures] begin
-    # Two board files BlobBoards wrote in the legacy form (its test/fixtures at
-    # 673d288). The expected values are what VisualGeometryToolkitFeatures'
-    # JSON.lift read from them before the hooks moved here (recorded
-    # 2026-10-25 at 61389c3): each the file's value times its unit.
-    using VisualGeometryToolkitIO: MM_PX, UnitContract, from_json, read_quantity
-    using VisualGeometryToolkitCore: dpi
-    dir = joinpath(@__DIR__, "fixtures", "legacy_quantities")
-    expected = Dict(
-        "odd300.json" => (
-            canvas = (101, 77), density = 300, frame_width = 6, ticks = (10, 6, 5, 3),
-            resolution = (1052, 769), min_scale = 7.08661417323, max_scale = 38.45,
-        ),
-        "v3_raster_render_no_density.json" => (
-            canvas = (150, 150), density = 1200, frame_width = 11.25, ticks = (10, 11.25, 5, 5.625),
-            resolution = (6024, 6024), min_scale = 47.2440944882, max_scale = 301.2,
-        ),
+@testitem "quantity JSON: length roles — mm and pt in one record, each decimal-exact" setup = [VGIoFixtures] begin
+    using VisualGeometryToolkitIO: UnitContract, MM_PX, write_quantity, read_quantity, json_value, from_json, role_unit
+    using VisualGeometryToolkitCore: dpi, pt, inch, Disc, Point2
+    import VisualGeometryToolkitIO as VgtkIO
+    # a board-like record: its canvas in mm, its pattern in pt, its density in dpi
+    c = UnitContract(world = mm, density = dpi, lengths = (pattern = pt,))
+    @test role_unit(c, :world) == mm && role_unit(c, :pattern) == pt
+    @test_throws ArgumentError role_unit(c, :ruler)
+    @test_throws ArgumentError UnitContract(lengths = (world = pt,))       # world is the contract's own
+    @test_throws ArgumentError UnitContract(lengths = (pattern = dpi,))    # a role is a length
+    canvas = Size2(width = VgtkIO.read_length(150, mm), height = VgtkIO.read_length(77, mm))
+    min_scale = VgtkIO.read_length(2.12598425197, pt)         # file-born pt numbers (BlobBoards' v4 pattern config)
+    max_scale = VgtkIO.read_length(21.2595, pt)
+    grid = VgtkIO.read_length(0.01, pt)
+    blob = Disc(Point2(VgtkIO.read_length(17.5, pt), VgtkIO.read_length(125.25, pt)), min_scale)
+    record = (
+        units = json_value(c),
+        canvas_size = json_value(canvas, c; kind = :length),
+        print_density = write_quantity(1200dpi, c),
+        frame_width = write_quantity(VgtkIO.read_length(11.25, mm), c),
+        pattern = (min_scale = write_quantity(min_scale, c; role = :pattern), max_scale = write_quantity(max_scale, c; role = :pattern),
+                   layout_grid = write_quantity(grid, c; role = :pattern)),
+        blob = json_value(blob, c; kind = :length, role = :pattern),
     )
-    for (file, e) in expected, c in (MM_PX, UnitContract(world = m))
-        d = JSON.parse(read(joinpath(dir, file), String))
-        bc = d["preamble"]["board_config"]
-        pc = d["preamble"]["pattern_config"]
-        canvas = Size2(width = e.canvas[1] * mm, height = e.canvas[2] * mm)
-        @test from_json(Size2, bc["canvas_size"], c; kind = :length) == canvas
-        @test from_json(Size2, bc["board_size"], c; kind = :length) == canvas
-        @test read_quantity(bc["print_density"], :density, c) == e.density * dpi
-        @test read_quantity(bc["frame_width"], :length, c) == e.frame_width * mm
-        @test read_quantity(bc["frame_padding"], :length, c) == 0 * mm
-        rs = bc["ruler_spec"]
-        @test [read_quantity(rs[t][k], :length, c) for t in ("major_tick", "minor_tick") for k in ("spacing", "width")] ==
-            [x * mm for x in e.ticks]
-        @test from_json(Size2, pc["pattern_resolution"], c; kind = :pixel) ==
-            Size2(width = e.resolution[1] * px, height = e.resolution[2] * px)
-        @test read_quantity(pc["min_scale"], :pixel, c) == e.min_scale * px
-        @test read_quantity(pc["max_scale"], :pixel, c) == e.max_scale * px
-    end
+    text = JSON.json(record)
+    # every number is the file's own decimal, in its role's unit
+    @test occursin("\"units\":{\"world\":\"mm\",\"density\":\"dpi\",\"lengths\":{\"pattern\":\"pt\"}}", text)
+    @test occursin("\"canvas_size\":{\"width\":150.0,\"height\":77.0}", text)
+    @test occursin("\"min_scale\":2.12598425197", text) && occursin("\"max_scale\":21.2595", text) && occursin("\"layout_grid\":0.01", text)
+    @test occursin("\"center\":[17.5,125.25]", text) && occursin("\"print_density\":1200", text) && occursin("\"frame_width\":11.25", text)
+    # and read back, under the declaration the record carries, to the identical quantities
+    d = JSON.parse(text)
+    c2 = from_json(UnitContract, d["units"])
+    @test c2 == c
+    @test from_json(Size2, d["canvas_size"], c2; kind = :length) == canvas
+    @test read_quantity(d["print_density"], :density, c2) == 1200dpi
+    @test read_quantity(d["frame_width"], :length, c2) === VgtkIO.read_length(11.25, mm)
+    @test read_quantity(d["pattern"]["min_scale"], :length, c2; role = :pattern) === min_scale
+    @test read_quantity(d["pattern"]["max_scale"], :length, c2; role = :pattern) === max_scale
+    @test read_quantity(d["pattern"]["layout_grid"], :length, c2; role = :pattern) === grid
+    @test from_json(Disc, d["blob"], c2; kind = :length, role = :pattern) == blob
+    # a pt length in mm has no decimal-exact number: the role is what keeps it exact
+    @test write_quantity(min_scale, c) != 2.12598425197
+    # roles are for lengths; an undeclared role is refused
+    @test_throws ArgumentError write_quantity(1200dpi, c; role = :pattern)
+    @test_throws ArgumentError read_quantity(640, :pixel, c; role = :pattern)
+    @test_throws ArgumentError read_quantity(1.0, :length, MM_PX; role = :pattern)
+    # a declaration without roles is the contract without them; the COLMAP sidecar holds none
+    @test json_value(MM_PX) == (world = "mm", density = "dpi")
+    @test from_json(UnitContract, JSON.parse("{\"world\": \"mm\"}")) == MM_PX
+    @test_throws ArgumentError VgtkIO.save_units_sidecar(mktempdir(), c)
 end

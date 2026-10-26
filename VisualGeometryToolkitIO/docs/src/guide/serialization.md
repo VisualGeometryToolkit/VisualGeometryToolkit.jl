@@ -7,7 +7,8 @@ CurrentModule = VisualGeometryToolkitIO
 VisualGeometryToolkitIO owns the stack's quantity JSON format. A quantity in a
 JSON record is a **number in the unit the record declares**, and the record
 declares its units once, inline: `"units": {"world": "mm", "density": "dpi"}`,
-a [`UnitContract`](@ref). A length is a number in the world unit, a density
+a [`UnitContract`](@ref) (with further length roles where one record needs
+more than one length unit, below). A length is a number in the world unit, a density
 (pixels per length) a number in the density unit, and a pixel count a number
 of pixels. The unit is not repeated beside every value.
 
@@ -93,24 +94,35 @@ true
 With VisualGeometryToolkitFeatures loaded, `from_json(Detection, obj, contract; kind)`
 reads the same object.
 
-## The legacy `{value, unit}` form
+## Length roles: more than one length unit in one record
 
-Files written before this format — VisualGeometryToolkitFeatures' JSON.jl hooks
-and BlobBoards' board files — hold each quantity as a `{"value": v, "unit": u}`
-object. It is read wherever a number in the declared unit is, by
-`read_quantity` and every `from_json`, as `v` times the unit: any unit name
-VisualGeometryToolkitCore's `parse_unit` reads, compound ones such as `"mm/px"`
-included, whatever the contract declares. A declared kind is checked against
-the unit's dimension. Nothing writes the legacy form.
+A record whose lengths are declared in more than one unit — a board's canvas
+in millimetres and its pattern in points — names each further unit as a
+LENGTH ROLE of its contract: `UnitContract(world = mm, lengths = (pattern =
+pt,))`, declared `"units": {"world": "mm", "density": "dpi", "lengths":
+{"pattern": "pt"}}`. A length field read or written in a role names it
+(`role = :pattern`; `:world` is the default), so each number is decimal-exact
+in its own unit: a point value has no exact millimetre decimal.
 
 ```jldoctest serialization
-julia> VgtkIO.read_quantity(JSON.parse("""{"value": 2.5, "unit": "mm"}"""), :length, MM_PX) == 2.5mm
-true
+julia> c = UnitContract(world = mm, lengths = (pattern = pt,));
 
-julia> VgtkIO.from_json(Size2, JSON.parse("""{"width": 3.0, "height": {"value": 4.0, "unit": "mm"}}"""), MM_PX; kind = :length) ==
-           Size2(width = 3.0mm, height = 4.0mm)
-true
+julia> q = VgtkIO.read_length(2.12598425197, pt);
+
+julia> VgtkIO.write_quantity(q, c; role = :pattern), VgtkIO.read_quantity(2.12598425197, :length, c; role = :pattern) === q
+(2.12598425197, true)
+
+julia> VgtkIO.json_value(c)
+(world = "mm", density = "dpi", lengths = (pattern = "pt",))
 ```
+
+## One quantity form
+
+The `{"value": v, "unit": u}` object that VisualGeometryToolkitFeatures'
+JSON.jl hooks once wrote, and that BlobBoards' board files hold, is not read:
+`read_quantity` and every `from_json` refuse it, naming the migration. A file
+that holds it is migrated once by its owner (`vgio_migrate`, extended for the
+owner's schema through `migrate_schema`).
 
 [`ScalarOrQuantity`](@ref) is the type of a field that may hold a plain number
 or a quantity.

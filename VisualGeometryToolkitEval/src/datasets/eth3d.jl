@@ -94,7 +94,7 @@ function _eth3d_validation_data(scenes_root::AbstractString, p, csponds_undist::
     depth_src = _load_eth3d_depth(joinpath(scene_dir, "ground_truth_depth", im_a.name), Int(ca.width), Int(ca.height))
     depth_tgt = _load_eth3d_depth(joinpath(scene_dir, "ground_truth_depth", im_b.name), Int(cb.width), Int(cb.height))
     src = [_undistorted_to_distorted(source(p.rig), source(rig), centroid(c.first)) for c in csponds_undist]
-    tgt = [_undistorted_to_distorted(target(p.rig), target(rig), centroid(c.second)) for c in csponds_undist]
+    tgt = [_undistorted_to_distorted(destination(p.rig), destination(rig), centroid(c.second)) for c in csponds_undist]
     return (; rig, csponds = csponds(src, tgt), depth_src, depth_tgt)
 end
 

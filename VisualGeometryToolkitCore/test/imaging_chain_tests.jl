@@ -279,7 +279,7 @@
             rig = StereoRig(cam1, cam2; ids = (:src, :tgt))
             a, b = ids(rig)
             c1 = imaging_chain(model(source(rig)); id = a)
-            c2 = imaging_chain(model(target(rig)); id = b)
+            c2 = imaging_chain(model(destination(rig)); id = b)
             @test c1 isa FramedChain{ViewFrame{:src}, ImageFrame{:src}}
             @test c2 isa FramedChain{ViewFrame{:tgt}, ImageFrame{:tgt}}
             # numerical behavior is identical under any labeling

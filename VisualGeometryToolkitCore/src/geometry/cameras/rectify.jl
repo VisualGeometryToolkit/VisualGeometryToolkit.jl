@@ -78,7 +78,7 @@ function rectify(rig::StereoRig; K = nothing)
             # The default shared pinhole averages the two calibration
             # matrices — which a grid-model sensor does not have: name the
             # rectified K yourself there (same contract as generic undistort).
-            (model(source(rig)) isa CameraModel && model(target(rig)) isa CameraModel) ||
+            (model(source(rig)) isa CameraModel && model(destination(rig)) isa CameraModel) ||
             throw(
                 ArgumentError(
                     "rectify: a grid-model sensor has no calibration matrix to " *
@@ -86,7 +86,7 @@ function rectify(rig::StereoRig; K = nothing)
                 )
             )
             K1 = SMatrix{3, 3, Float64, 9}(calibration_matrix(source(rig)))
-            K2 = SMatrix{3, 3, Float64, 9}(calibration_matrix(target(rig)))
+            K2 = SMatrix{3, 3, Float64, 9}(calibration_matrix(destination(rig)))
             f = (K1[1, 1] + K1[2, 2] + K2[1, 1] + K2[2, 2]) / 4
             cx = (K1[1, 3] + K2[1, 3]) / 2
             cy = (K1[2, 3] + K2[2, 3]) / 2
@@ -153,7 +153,7 @@ function rectify(
     Kr_inv = inv(geo.K)
     window = Rect(0.0, 0.0, Float64(Wr), Float64(Hr))
     cis = ntuple(2) do i
-        sensor = i == 1 ? source(rig) : target(rig)
+        sensor = i == 1 ? source(rig) : destination(rig)
         mi = model(sensor)
         Ki = mi isa CameraModel ? SMatrix{3, 3, Float64, 9}(calibration_matrix(sensor)) : nothing
         _rectified_view(mi, images[i], Ki, geo.R[i], Kr_inv, window, Wout, Hout, precision)

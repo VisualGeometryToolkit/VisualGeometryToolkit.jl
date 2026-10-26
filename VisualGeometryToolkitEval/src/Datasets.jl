@@ -48,7 +48,7 @@ using StaticArrays: SMatrix, SVector
 using StructArrays: StructArrays, StructArray
 using Rotations: QuatRotation
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, Size2, FundMat, EssentialMat, sampson_distance, intrinsics,
-    centroid, model, extent, extrinsics, source, target, project, unproject, csponds, Point3, Vec3,
+    centroid, model, extent, extrinsics, source, destination, project, unproject, csponds, Point3, Vec3,
     PosedCamera, BoundedCamera, CameraModel, CameraCalibrationMat, EuclideanMap, StereoRig,
     validate_gt_inliers, m, mm, ustrip
 using FlexUnits: Quantity, Dimensions, FixRat32

@@ -36,7 +36,7 @@ end
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: Rig, StereoRig, BoundedCamera, PosedCamera, ViewFrame,
-        ids, extrinsics, model, source, target
+        ids, extrinsics, model, source, destination
     using Rotations: RotXYZ
 
     const POSE_ULP = 1.0e-15
@@ -65,8 +65,8 @@ end
         @test back isa Rig{ViewFrame{:left}, <:Tuple}
         @test ids(back) == (:left, :right)
         @test extent(source(back)) == Size2(4240, 2832)
-        @test extent(target(back)) == Size2(640, 480)
-        @test model(source(back)) == model(source(rig)) && model(target(back)) == model(target(rig))
+        @test extent(destination(back)) == Size2(640, 480)
+        @test model(source(back)) == model(source(rig)) && model(destination(back)) == model(destination(rig))
         Xa, Xb = extrinsics(rig), extrinsics(back)
         @test Xb.t == Xa.t
         # a loaded translation is lengths in metres

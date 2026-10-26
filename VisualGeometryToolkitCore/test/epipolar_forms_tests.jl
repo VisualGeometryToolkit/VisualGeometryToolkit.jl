@@ -209,13 +209,13 @@
             f = depth_transfer(rig)
             u = Point2(300.0, 220.0)
             # pin the closure's semantics: backproject (unit depth) ∘ extrinsics ∘ project
-            expected = project(target(rig).model, extrinsics(rig)(backproject(source(rig).model, u)))
+            expected = project(destination(rig).model, extrinsics(rig)(backproject(source(rig).model, u)))
             @test f(u) ≈ expected atol = 1.0e-12
             # three-arg primitive form agrees
-            g = depth_transfer(source(rig), target(rig), extrinsics(rig))
+            g = depth_transfer(source(rig), destination(rig), extrinsics(rig))
             @test g(u) ≈ expected atol = 1.0e-12
             # `epipolar_map` no longer accepts cameras/rigs — it is the form action
-            @test_throws MethodError epipolar_map(source(rig), target(rig), extrinsics(rig))
+            @test_throws MethodError epipolar_map(source(rig), destination(rig), extrinsics(rig))
             @test_throws MethodError epipolar_map(rig)
         end
 
@@ -257,9 +257,9 @@
             # custom ids thread through every constructor surface
             rig_lr = StereoRig(K1, K2, SMatrix{3, 3, Float64}(R), t; ids = (:left, :right))
             @test view_frames(rig_lr) == (ViewFrame{:left}, ViewFrame{:right})
-            rig2 = StereoRig(source(rig), target(rig); ids = (:src, :tgt))
+            rig2 = StereoRig(source(rig), destination(rig); ids = (:src, :tgt))
             @test image_frames(rig2) == (ImageFrame{:src}, ImageFrame{:tgt})
-            rig3 = StereoRig(source(rig), target(rig), unlabel(extrinsics(rig)); ids = (:x, :y))
+            rig3 = StereoRig(source(rig), destination(rig), unlabel(extrinsics(rig)); ids = (:x, :y))
             @test ids(rig3) == (:x, :y)
             # minted frames are ready-made slot labels for the form
             Ca, Cb = image_frames(rig_lr)
@@ -294,14 +294,14 @@
 
             # 3-arg constructor consistency check: a transform that disagrees with
             # extrinsics(target) ∘ pose(source) from the stored cameras is refused…
-            @test StereoRig(source(rig), target(rig), extrinsics(rig)) isa StereoRig
+            @test StereoRig(source(rig), destination(rig), extrinsics(rig)) isa StereoRig
             bad_t = EuclideanMap(RotMatrix{3, Float64}(R), t + SVector(0.05, 0.0, 0.0))
-            @test_throws ArgumentError StereoRig(source(rig), target(rig), bad_t)
+            @test_throws ArgumentError StereoRig(source(rig), destination(rig), bad_t)
             bad_R = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.09, -0.15, 0.05)), t)
-            @test_throws ArgumentError StereoRig(source(rig), target(rig), bad_R)
+            @test_throws ArgumentError StereoRig(source(rig), destination(rig), bad_R)
             # …and check=false admits it (documented escape for synthetic rigs
             # whose cameras are placeholders).
-            loose = StereoRig(source(rig), target(rig), bad_t; check = false, ids = (:a, :b))
+            loose = StereoRig(source(rig), destination(rig), bad_t; check = false, ids = (:a, :b))
             @test extrinsics(loose).t ≈ bad_t.t
             @test ids(loose) == (:a, :b)
 
@@ -323,7 +323,7 @@
             fF = EpipolarForm(rig)
             @test fF isa EpipolarForm{ImageFrame{:left}, ImageFrame{:right}, FundMat{Float64}}
             Ka = HomographyMap{GnomonicFrame{:left}, ImageFrame{:left}}(calibration_matrix(source(rig)))
-            Kb = HomographyMap{GnomonicFrame{:right}, ImageFrame{:right}}(calibration_matrix(target(rig)))
+            Kb = HomographyMap{GnomonicFrame{:right}, ImageFrame{:right}}(calibration_matrix(destination(rig)))
             hand = EpipolarForm(Kb ∘ epipolar_map(fe) ∘ inv(Ka))
             @test SMatrix{3, 3}(fF.mat) == SMatrix{3, 3}(hand.mat)
             @test SMatrix{3, 3}(fF.mat) ≈ SMatrix{3, 3}(FundMat(E, K1, K2)) rtol = 1.0e-8
@@ -346,7 +346,7 @@
             # (pose is now an accessor).
             u = Point2(300.0, 220.0)
             @test depth_transfer(rig)(u) ≈
-                project(target(rig).model, extrinsics(rig)(backproject(source(rig).model, u))) atol = 1.0e-12
+                project(destination(rig).model, extrinsics(rig)(backproject(source(rig).model, u))) atol = 1.0e-12
             fwd = transfer(rig, Attributed(Point2(u1s[1][1], u1s[1][2]), 4.0))
             @test fwd isa Attributed
         end

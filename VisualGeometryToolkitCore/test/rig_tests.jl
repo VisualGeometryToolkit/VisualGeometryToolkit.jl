@@ -104,7 +104,7 @@
             rig = StereoRig(b1, cam2; ids = (:l, :r))
             @test source(rig) isa BoundedCamera
             @test extent(source(rig)) == Size2(640, 480)
-            @test target(rig) isa PosedCamera
+            @test destination(rig) isa PosedCamera
             @test ids(rig) == (:l, :r)
         end
 
@@ -116,7 +116,7 @@
             E = EuclideanMap(R, Vec3{Float64}(t))
             rig = StereoRig(u, u, E; check = false)        # the rig poses its members
             @test rig isa StereoRig
-            @test VgtkCore.has_extrinsics(source(rig)) && VgtkCore.has_extrinsics(target(rig))
+            @test VgtkCore.has_extrinsics(source(rig)) && VgtkCore.has_extrinsics(destination(rig))
             @test extrinsics(rig).t ≈ t && Matrix(extrinsics(rig).R) ≈ Matrix(R)   # the given transform survives
             @test_throws ArgumentError StereoRig(u, u, E)   # checked: members must be posed
             @test_throws ArgumentError StereoRig(u, u)       # computed from the members
@@ -228,7 +228,7 @@
             m2 = CameraModel(CameraCalibrationMat(K2); lens = VgtkCore.Division(-0.2))
             rig2 = with_model(rig, 2 => m2)
             @test ids(rig2) == (:left, :right)
-            @test model(target(rig2)) === m2
+            @test model(destination(rig2)) === m2
             @test model(source(rig2)) === model(source(rig))
             X0, X1 = extrinsics(rig), extrinsics(rig2)          # geometry untouched
             @test X1.t == X0.t && RotMatrix(X1.R) == RotMatrix(X0.R)

@@ -920,7 +920,7 @@ export model                            # CameraModel accessor on PosedCamera/Ab
 # -----------------------------------------------------------------------------
 # 5. STEREO - Multi-camera geometry
 # -----------------------------------------------------------------------------
-export Rig, Mounted, source, target, target_frames  # one Rig for sensors and targets: (model, mount) members; StereoRig = 2-tuple alias
+export Rig, Mounted, source, destination, target_frames  # one Rig for sensors and targets: (model, mount) members; StereoRig = 2-tuple alias
 export sensor_rig, target_rig             # the two halves of a rig carrying both
 export AbstractTarget, PointTarget, PlanarTarget, resolve, is_resolved   # the target as a model (targets.jl)
 export AbstractWarp, Rigid, warp_jacobian   # a planar target's warp

@@ -81,7 +81,7 @@
         r = rig(pair)
         @test r isa StereoRig
         @test calibration_matrix(source(r)) ≈ K1
-        @test calibration_matrix(target(r)) ≈ K2
+        @test calibration_matrix(destination(r)) ≈ K2
         @test extrinsics(r).R ≈ R && extrinsics(r).t ≈ t
         @test ids(r) == (:cam1, :cam2)
     end

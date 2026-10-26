@@ -13,9 +13,9 @@ Since 0.16 there are NO `source`/`target`/`extrinsics` FIELDS: the rig
 stores its two cameras rig-relative (reference frame `F = ViewFrame{id₁}`;
 camera 1's stored extrinsics is the identity, camera 2's is the labeled
 relative transform `ViewFrame{id₁} → ViewFrame{id₂}`), and the old fields
-are method-form accessors:
+are method-form accessors (the second camera's is `destination`):
 
-- [`source`](@ref)`(rig)` / [`target`](@ref)`(rig)`: the two cameras
+- [`source`](@ref)`(rig)` / [`destination`](@ref)`(rig)`: the two cameras
   (rig-relative — the constructors re-express world-posed inputs).
 - `extrinsics(rig)`: the relative rigid transform (monogram `X_{V₂V₁}`),
   DERIVED from the stored per-camera maps as
@@ -139,12 +139,12 @@ the identity map on the rig frame `ViewFrame{id₁}`.
 source(rig::StereoRig) = rig.members[1]
 
 """
-    target(rig::StereoRig) -> AbstractCamera
+    destination(rig::StereoRig) -> AbstractCamera
 
-The target (right, view 2) camera — stored rig-relative: its extrinsics is
+The destination (right, view 2) camera — stored rig-relative: its extrinsics is
 the labeled relative transform `ViewFrame{id₁} → ViewFrame{id₂}`.
 """
-target(rig::StereoRig) = rig.members[2]
+destination(rig::StereoRig) = rig.members[2]
 
 """
     extrinsics(rig::StereoRig) -> EuclideanMap
@@ -239,7 +239,7 @@ function EpipolarForm(rig::StereoRig)
     # The view ids are run-time values, so the lifts' frame tags are too: the
     # assertions keep `∘` on the collineation × correlation methods.
     K₁ = HomographyMap{GnomonicFrame{a}, ImageFrame{a}}(calibration_matrix(source(rig)))::HomographyMap{3}
-    K₂ = HomographyMap{GnomonicFrame{b}, ImageFrame{b}}(calibration_matrix(target(rig)))::HomographyMap{3}
+    K₂ = HomographyMap{GnomonicFrame{b}, ImageFrame{b}}(calibration_matrix(destination(rig)))::HomographyMap{3}
     return EpipolarForm(K₂ ∘ epipolar_map(essential_form(rig)) ∘ inv(K₁))
 end
 
@@ -315,7 +315,7 @@ end
 # A physical relative pose is read in metres: the unit depth is 1 m.
 depth_transfer(source::PosedCamera, target::PosedCamera, extrinsics::UnitfulEuclideanMap{3}) =
     depth_transfer(source, target, ustrip(m, extrinsics))
-depth_transfer(rig::StereoRig) = depth_transfer(source(rig), target(rig), extrinsics(rig))
+depth_transfer(rig::StereoRig) = depth_transfer(source(rig), destination(rig), extrinsics(rig))
 
 # ============================================================================
 # Multi-view Point Transfer (depth-driven)
@@ -356,10 +356,10 @@ transfer(src_model::CameraModel, extrinsics::UnitfulEuclideanMap{3}, tgt_model::
 
 Convenience wrapper: transfer through `rig` in the source→target direction.
 For the reverse direction, call the four-arg primitive form directly with
-`target(rig).model`, `pose(rig)`, `source(rig).model`.
+`destination(rig).model`, `pose(rig)`, `source(rig).model`.
 """
 transfer(rig::StereoRig, p::Attributed{<:StaticVector{2}, <:Real}) =
-    transfer(model(source(rig)), extrinsics(rig), model(target(rig)), p)
+    transfer(model(source(rig)), extrinsics(rig), model(destination(rig)), p)
 
 # ----------------------------------------------------------------------------
 # Internal: COLMAP pixel → 1-based array index, with bounds-failure fallback.
@@ -434,7 +434,7 @@ function validate_gt_metric(
     residuals = Vector{Vec3{Float64}}(undef, n)
     valid = falses(n)
     src_model = model(source(rig))
-    tgt_model = model(target(rig))
+    tgt_model = model(destination(rig))
 
     # Stage-1 gross-outlier filter: GT-pose Sampson distance.
     #   F_gt = K₂⁻ᵀ · [t_gt]× · R_gt · K₁⁻¹
@@ -446,11 +446,11 @@ function validate_gt_metric(
     # depth — so the cspond label still comes from a depth-based residual,
     # only gross-outlier pre-filtering uses pose-only Sampson.
     K_src = calibration_matrix(source(rig))
-    K_tgt = calibration_matrix(target(rig))
+    K_tgt = calibration_matrix(destination(rig))
     R_gt = SMatrix{3, 3, Float64}(extrinsics(rig).R)
     t_gt = Vec3{Float64}(extrinsics(rig).t)
     F_gt = FundMat(EssentialMat(R_gt, t_gt), K_src, K_tgt)
-    sz_tgt = extent(target(rig))
+    sz_tgt = extent(destination(rig))
     diag_px = hypot(Float64(sz_tgt[1]), Float64(sz_tgt[2]))
     cap_samp = gross_outlier_pixel_frac * diag_px
 

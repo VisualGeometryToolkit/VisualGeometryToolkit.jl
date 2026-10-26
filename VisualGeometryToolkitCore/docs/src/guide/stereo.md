@@ -15,7 +15,8 @@ sensor rig stores ONLY a tuple of cameras, each expressed rig-relative
 targets is the same type with dict storage, [`Mounted`](@ref) members (a target
 model — [`PlanarTarget`](@ref), [`PointTarget`](@ref) — and its mount) gauged on
 a board, and a camera rig carrying its marker constellation holds both. The old `source`/`target`/`extrinsics`
-fields are method-form accessors, and the relative rigid transform is
+fields are the method-form accessors [`source`](@ref), [`destination`](@ref)
+and `extrinsics`, and the relative rigid transform is
 *derived* from the stored per-camera labeled maps:
 
 ```

@@ -161,7 +161,7 @@ label-preserving per storage; sensors also by position), `rig[id]`,
 `length`, `haskey`; [`view_frames`](@ref) / [`image_frames`](@ref) on sensor
 rigs, [`target_frames`](@ref) and [`points`](@ref)`(rig, id)` — the target's
 points in the rig frame, the WORLD POINTS of the assembly — on target rigs;
-the stereo surface ([`source`](@ref), [`target`](@ref), `extrinsics(rig)`,
+the stereo surface ([`source`](@ref), [`destination`](@ref), `extrinsics(rig)`,
 `pose(rig)`) on the 2-sensor alias.
 """
 struct Rig{F <: Frame{3}, M}

@@ -227,7 +227,11 @@ function lo_from_toml(T::Type, d::AbstractDict; class::Symbol, section::Abstract
         haskey(d, toml_key(C, f)) || _lo_has_default(C, f, defaults) ||
             throw(ArgumentError("[$sec] needs `$(toml_key(C, f))`"))
     end
-    kw = _table_kwargs(C, d)
+    # A plain `scale_multiple` FIELD (a fixed-loss arm such as LocalOptimizationDoneRight's
+    # Welsch-HQ-ECM) is read below, through `lo_resolve_scale_multiple`, like a width's:
+    # converting the key here as a field would turn the string "cross_validated" into a
+    # MethodError before the hook sees it.
+    kw = _table_kwargs(C, d; skip = (:scale_multiple,))
     haskey(d, "scale_multiple") && haskey(d, "loss_width") &&
         throw(ArgumentError("[$sec] give `scale_multiple` or `loss_width`, not both"))
     haskey(d, "loss_width") && return lo_construct(C; defaults, kw..., loss_width = Float64(d["loss_width"]))

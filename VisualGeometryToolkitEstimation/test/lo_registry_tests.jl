@@ -46,18 +46,26 @@ struct ToyWrap{S <: AbstractLocalOptimization, W} <: AbstractLocalOptimization
     width::W
 end
 ToyWrap{S}(factor::Real, width::W) where {S, W} = ToyWrap{S, W}(Float64(factor), width)
+# A fixed-loss arm whose scale multiple is a plain FIELD, not a `width` (the shape of
+# LocalOptimizationDoneRight's Welsch-HQ-ECM): a string value must reach the resolver.
+struct ToyEcm <: AbstractLocalOptimization
+    max_iter::Int
+    scale_multiple::Float64
+end
 VgtkEstimation.strategy_loss(::Type{<:ToyWrap{S}}) where {S} = VgtkEstimation.strategy_loss(S)
 
 const TOY_DEFAULTS = Dict{String, Any}(
     "toy_arm" => Dict{String, Any}("toy_iters" => 4, "mu" => 0.5),
     "toy_family" => Dict{String, Any}("max_iter" => 9),
     "toy_wrap" => Dict{String, Any}("factor" => 1.4),
+    "toy_ecm" => Dict{String, Any}("max_iter" => 5),
 )
 #   type        tag           path   scale      family  label        shape        parametric
 const TOY_ROWS = (
     (ToyArm,    "toy_arm",    :irls, nothing,   nothing, raw"Toy",    WelschShape, false),
     (ToyFamily, "toy_family", :hq,   NoScale(), nothing, nothing,     nothing,     true),
     (ToyWrap,   "toy_wrap",   :gnc,  nothing,   nothing, nothing,     nothing,     true),
+    (ToyEcm,    "toy_ecm",    :hq,   nothing,   nothing, nothing,     WelschShape, false),
 )
 const TOY_TAGS = @lo_registry TOY_ROWS defaults = TOY_DEFAULTS retired = ("toy" => "toy_arm",)
 
@@ -67,6 +75,9 @@ VgtkEstimation.lo_validate(lo::ToyArm) =
 VgtkEstimation.lo_resolve_scale_multiple(::Type{<:ToyArm}, ::Type{K}, v::AbstractString; class::Symbol) where {K} =
     v == "tuned" ? (class === :homography && K === WelschShape ? 3.0 : 4.0) :
     throw(ArgumentError("toy: unknown scale multiple $(repr(v))"))
+VgtkEstimation.lo_resolve_scale_multiple(::Type{<:ToyEcm}, ::Type{K}, v::AbstractString; class::Symbol) where {K} =
+    v == "cross_validated" ? (class === :homography ? 2.5 : 3.5) :
+    throw(ArgumentError("toy_ecm: scale_multiple must be a number or \"cross_validated\", got $(repr(v))"))
 VgtkEstimation.lo_admits(::Type{<:ToyFamily}, ::Type{K}) where {K} =
     K === GaussianShape ? throw(ArgumentError("ToyFamily{GaussianShape}: no")) : lo_admits_shape(ToyFamily{K}, K)
 
@@ -210,6 +221,23 @@ end
         @test f == ToyFamily{WelschShape}(; loss_width = 2.0)
         @test config_dict(f) == Dict{String, Any}("type" => "toy_family", "loss" => "welsch", "max_iter" => 9, "loss_width" => 2.0)
         @test load(config_dict(f)) == f
+        # A plain `scale_multiple` field: a string reaches the resolver (it was a MethodError
+        # from the field's conversion), a number is taken as given, and the table round-trips.
+        e = load(Dict("type" => "toy_ecm", "scale_multiple" => "cross_validated"))
+        @test e == ToyEcm(5, 2.5)
+        @test load(Dict("type" => "toy_ecm", "scale_multiple" => "cross_validated"); class = :essential) == ToyEcm(5, 3.5)
+        @test load(Dict("type" => "toy_ecm", "scale_multiple" => 1.75, "max_iter" => 2)) == ToyEcm(2, 1.75)
+        d = lo_config_dict(e)
+        @test d == Dict{String, Any}("type" => "toy_ecm", "max_iter" => 5, "scale_multiple" => 2.5)
+        @test load(d) == e
+        @test load(lo_config_dict(load(d))) == e
+        msg = try
+            load(Dict("type" => "toy_ecm", "scale_multiple" => "tuned")); ""
+        catch err
+            err isa ArgumentError ? sprint(showerror, err) : "not an ArgumentError: $err"
+        end
+        @test occursin("must be a number or \"cross_validated\"", msg) && occursin("\"tuned\"", msg)
+        @test_throws ArgumentError load(Dict("type" => "toy_ecm"))                          # its scale_multiple is required
         @test_throws ArgumentError load(Dict("type" => "toy_family"))                       # no loss
         @test_throws ArgumentError load(Dict("type" => "toy_family", "loss" => "nope"))     # unknown loss
         @test_throws ArgumentError load(Dict("type" => "toy_arm", "mu" => 1.0, "nu" => 2))  # unknown key

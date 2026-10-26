@@ -258,9 +258,9 @@ const _CALIBRATION = _Checked(
 _calibration_from_json(x) = NamedTuple(
     k => convert(T, x[k]) for (k, T) in zip(_CALIBRATION_KEYS, _CALIBRATION_TYPES) if haskey(x, k)
 )
-function _calibration_json(c::NamedTuple)
+function _calibration_json(c::NamedTuple, what::AbstractString = "a camera's calibration block")
     msg = _calibration_check(c)
-    msg === nothing || throw(ArgumentError("a camera's calibration block: $(msg)"))
+    msg === nothing || throw(ArgumentError("$(what): $(msg)"))
     return NamedTuple(k => getfield(c, k) for k in _CALIBRATION_KEYS if haskey(c, k))
 end
 

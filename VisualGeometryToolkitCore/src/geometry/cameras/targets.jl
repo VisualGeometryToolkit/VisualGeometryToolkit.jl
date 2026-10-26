@@ -216,20 +216,14 @@ PlanarTarget(reference::Symbol; nominal = nothing, calibration = Rigid(), board 
 
 """
     calibration(t::PlanarTarget) -> TargetCalibration or Uncertain
-    calibration(a::Attributed{<:PlanarTarget})
 
 The target's calibration as stored: a [`TargetCalibration`](@ref), or an
 [`Uncertain`](@ref) one carrying its covariance (`geom` unwraps it).
-
-Two meanings of "calibration" meet on an attributed target, and they differ.
-VisualGeometryToolkitIO's provenance block is `Attributed(t, (; calibration = …))`
-(who calibrated it, when, the RMS), and `Attributed`'s property forwarding
-reads attributes first. So `a.calibration` is that provenance record, while
-`calibration(a)` is the target's `TargetCalibration`. Use the function. The
-provenance attribute is renamed in IO's next target record.
+VisualGeometryToolkitIO's record of who calibrated a target (the tool, the
+date, the RMS) is a different thing with another name, the attribute
+`Attributed(t, (; calibration_record = …))`.
 """
 calibration(t::PlanarTarget) = t.calibration
-calibration(a::Attributed{<:PlanarTarget}) = calibration(getfield(a, :value))
 
 """
     reference(t::PlanarTarget) -> Union{Nothing, Symbol}

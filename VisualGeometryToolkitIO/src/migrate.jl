@@ -1,6 +1,7 @@
 # =============================================================================
-# Third-party calibrations into the native kinds — migrate_opencv, migrate_matlab
-# and the bin/vgio_migrate.jl command
+# Migrations — third-party calibrations into the native kinds (migrate_opencv,
+# migrate_matlab), earlier schema versions into the current ones (vgio_migrate,
+# migrate_schema, repoint_targets) — and the bin/vgio_migrate.jl command
 # =============================================================================
 #
 # Every conversion READS the foreign file, WRITES the native kinds to a
@@ -199,6 +200,311 @@ function migrate_matlab(
     return _migrate_external(cal, "matlab", path; images, image_size, target, out, dry_run, unit)
 end
 
+# =============================================================================
+# vgio_migrate — a file of an earlier schema version into the current one
+# =============================================================================
+#
+# No reader reads an earlier version: a stored file is MIGRATED once, by the
+# same guarded pattern as the third-party conversions above. `vgio_migrate`
+# finds the file's schema and calls the method of `migrate_schema` for it,
+# which reads the old record, builds the current value, WRITES it through the
+# current writer (its validation) to a temporary directory, READS it back with
+# the current reader and COMPARES every number with the old file — only then
+# does `vgio_migrate` move the result to `out`. Nothing is written when any
+# check fails, and the original is untouched unless `out` is the original's
+# own path (an in-place migration, replaced only after the verification).
+#
+# `migrate_schema` is a declared extension point (`CONTRACT_GENERICS`): the
+# owner of a schema adds the method for its old version — VisualGeometryToolkitIO
+# for vgio/target/v1 and vgio/rig/v4, BlobBoards for its boards — and
+# `vgio_migrate` (and the command) then migrates those files too, without this
+# package knowing their schema.
+
+"""
+    migrate_schema(::Val{schema}, src, dst) -> NamedTuple
+
+The migration of a file of the (old) `schema` — a `Symbol`, `Val(Symbol("vgio/rig/v4"))` —
+at `src` into its kind's current schema, written to `dst` (a path in a
+temporary directory [`vgio_migrate`](@ref) owns). A method reads `src`, writes
+the current file to `dst` through its writer, reads `dst` back with the
+current reader and compares every number with `src`, throwing an
+`ArgumentError` on any difference; it returns a summary `NamedTuple` with at
+least `to`, the schema written (and whatever the owner reports: a rig's
+`old_id` and `new_id`).
+
+A declared extension point (VisualGeometryToolkitIO's `CONTRACT_GENERICS`): the
+owner of a schema adds the method for each of its old versions.
+VisualGeometryToolkitIO's own: `vgio/target/v1` → `vgio/target/v2` and
+`vgio/rig/v4` → `vgio/rig/v5`.
+"""
+function migrate_schema end
+migrate_schema(::Val{S}, src::AbstractString, dst::AbstractString) where {S} = throw(
+    ArgumentError("$(src): no migration for a $(S) file (no method of VisualGeometryToolkitIO.migrate_schema for it)")
+)
+
+"""
+    vgio_migrate(path; out = <stem>.migrated.json beside path, dry_run = false) -> NamedTuple
+
+Migrate the file at `path` from the earlier schema version it declares to its
+kind's current one, by the method of [`migrate_schema`](@ref) for that schema
+(`vgio/target/v1`, `vgio/rig/v4`, and any a schema owner adds). The migration
+is written to a temporary directory through the current writer, read back with
+the current reader and compared with the original, number for number; only
+then is it moved to `out`. The original is untouched unless `out == path` (an
+in-place migration, replaced only once verified); an existing `out` is
+otherwise refused. With `dry_run` the migration is verified and nothing is
+written. Returns `(; path, out, from, to, …)`, `out` `nothing` in a dry run,
+with whatever the schema's migration reports (a rig's `old_id` and `new_id`,
+the content identities measurement files name it by before and after).
+"""
+function vgio_migrate(path::AbstractString; out::AbstractString = _migrated_path(path), dry_run::Bool = false)
+    s = _peek_schema(path)
+    s isa AbstractString || throw(ArgumentError("$(path): not a vgio file (no schema)"))
+    in_place = abspath(out) == abspath(path)
+    (dry_run || in_place || !ispath(out)) || throw(ArgumentError("$(out) exists; refusing to overwrite it"))
+    return mktempdir() do tmp
+        staged = joinpath(tmp, basename(path))
+        r = migrate_schema(Val(Symbol(s)), String(path), staged)
+        dry_run && return merge((; path = String(path), out = nothing, from = String(s)), r)
+        mkpath(dirname(abspath(out)))
+        mv(staged, out; force = in_place)
+        return merge((; path = String(path), out = String(out), from = String(s)), r)
+    end
+end
+_migrated_path(path) = ((stem, ext) = splitext(path); string(stem, ".migrated", ext))
+
+# The file's own tree as a Dict{String, Any}, every number as parsed.
+_raw_tree(path) = _lower(_read_vgio_json(path))
+
+# A file's free-form `provenance`, carried over unchanged: the writer's
+# keyword takes a NamedTuple.
+_namedtuple(x::AbstractDict) = NamedTuple(Symbol(k) => _namedtuple(v) for (k, v) in x)
+_namedtuple(x::AbstractVector) = Any[_namedtuple(v) for v in x]
+_namedtuple(x) = x
+_provenance_of(d::AbstractDict) = haskey(d, "provenance") ? _namedtuple(d["provenance"]) : (;)
+
+# Two parsed trees, number for number: the same keys, the same strings, and
+# every number the same Float64 (an integer `0` and `0.0` agree; the sign of a
+# zero must).
+_same_tree(a::AbstractDict, b::AbstractDict) = Set(keys(a)) == Set(keys(b)) && all(k -> _same_tree(a[k], b[k]), keys(a))
+_same_tree(a::AbstractVector, b::AbstractVector) = length(a) == length(b) && all(i -> _same_tree(a[i], b[i]), eachindex(a))
+_same_tree(a::Real, b::Real) = !(a isa Bool) && !(b isa Bool) ? (Float64(a) === Float64(b)) : a === b
+_same_tree(a, b) = isequal(a, b)
+
+# The old record's keys renamed to the new, and back. A target body's `warp`
+# (v1: rigid only, `{"type": "rigid"}` — already the v2 calibration record) is
+# its `calibration`, its `design` its `reference`; the target file's
+# `calibration` block its `calibration_record`.
+const _TARGET_BODY_RENAMES = ("warp" => "calibration", "design" => "reference")
+_renamed(d::AbstractDict, renames) = Dict{String, Any}(get(Dict(renames), k, k) => v for (k, v) in d)
+_body_v1_to_v2(b) = _renamed(b, _TARGET_BODY_RENAMES)
+_body_v2_to_v1(b) = _renamed(b, map(reverse, _TARGET_BODY_RENAMES))
+
+function _migrate_check(ok::Bool, src, what)
+    ok || throw(ArgumentError("$(src): the migration does not read back as the file read ($(what)); nothing was written"))
+    return nothing
+end
+
+# vgio/target/v1 → vgio/target/v2
+function migrate_schema(::Val{Symbol("vgio/target/v1")}, src::AbstractString, dst::AbstractString)
+    old = _raw_tree(src)
+    body = _renamed(old, ("calibration" => "calibration_record",))
+    body["schema"] = _schema("target")
+    body["target"] = _body_v1_to_v2(old["target"])
+    # the current value, built by the current reader from the renamed record
+    # (validated there), then written by the current writer in the file's unit
+    staged = dst * ".staged.json"
+    _write_store(staged, _TARGET_SPEC, body)
+    value = load(AbstractTarget, staged)
+    rm(staged)
+    save(dst, value; length_unit = parse_unit(old["length_unit"]::String), provenance = _provenance_of(old))
+    # read back, and every number compared with the old file's
+    load(AbstractTarget, dst)
+    new = _raw_tree(dst)
+    back = _renamed(new, ("calibration_record" => "calibration",))
+    back["schema"] = old["schema"]
+    back["target"] = _body_v2_to_v1(new["target"])
+    _migrate_check(_same_tree(back, old), src, "the target record")
+    return (; to = _schema("target"))
+end
+
+# vgio/rig/v4 → vgio/rig/v5. The rig's content identity changes with the
+# migration (content_id: the fixed canonical tree replaced the v4 record's
+# hash); both are reported, so measurement files naming the rig can be
+# re-pointed (`repoint_targets`).
+function migrate_schema(::Val{Symbol("vgio/rig/v4")}, src::AbstractString, dst::AbstractString)
+    old = _raw_tree(src)
+    body = copy(old)
+    body["schema"] = _schema("rig")
+    haskey(old, "targets") &&
+        (body["targets"] = Any[merge(Dict{String, Any}(t), Dict{String, Any}("target" => _body_v1_to_v2(t["target"]))) for t in old["targets"]])
+    staged = dst * ".staged.json"
+    _write_store(staged, _RIG_SPEC, body)
+    value = load(Rig, staged)
+    rm(staged)
+    save(dst, value; length_unit = parse_unit(old["length_unit"]::String), provenance = _provenance_of(old))
+    load(Rig, dst)
+    new = _raw_tree(dst)
+    back = copy(new)
+    back["schema"] = old["schema"]
+    haskey(new, "targets") &&
+        (back["targets"] = Any[merge(Dict{String, Any}(t), Dict{String, Any}("target" => _body_v2_to_v1(t["target"]))) for t in new["targets"]])
+    _migrate_check(_same_tree(back, old), src, "the rig record")
+    return (; to = _schema("rig"), old_id = _rig_v4_id(old), new_id = content_id(dst))
+end
+
+# The content identity a vgio/rig/v4 file had: the SHA-256 of the canonical
+# JSON of its record without its provenance (the v4 definition, exact for a
+# file whose numbers have at most 15 significant digits — every file the
+# stack's writer wrote from file-born values).
+_rig_v4_id(old::AbstractDict) =
+    sha256_hex(canonical_json(Dict{String, Any}(k => v for (k, v) in old if k != "provenance")))
+
+# =============================================================================
+# repoint_targets — a measurement file's `targets` re-pointed at migrated rigs
+# =============================================================================
+
+const _MEASUREMENT_KINDS = Dict("vgio/target_points2d/v1" => TargetPoints2D, "vgio/target_points3d/v1" => TargetPoints3D)
+
+"""
+    repoint_targets(path, ids, rigs; resolve = nothing, out = <stem>.migrated.json beside path,
+                    dry_run = false) -> NamedTuple
+
+Re-point a measurement file (`vgio/target_points2d/v1`, `vgio/target_points3d/v1`)
+at the rigs its targets were migrated to: every identity in its `targets` that
+`ids` (old → new, as [`vgio_migrate`](@ref) reports a rig's `old_id` and
+`new_id`) maps is replaced; nothing else changes, and the file stays at its
+version. The guarded pattern: written by the current writer to a temporary
+directory, read back, compared with the original number for number (only the
+mapped identities differ), every new identity checked to be the
+[`content_id`](@ref) of one of `rigs` (rigs or `vgio/rig/v5` paths), and
+every measurement's (target, index) checked to resolve in them — an
+unresolved (referenced) target's points need `resolve`, its owner's resolver;
+without it, such a target is checked by id alone and counted in `unchecked`.
+Only then is it moved to `out` (`out == path` replaces it in place). Returns
+`(; path, out, repointed, unchecked)`.
+"""
+function repoint_targets(
+        path::AbstractString, ids::AbstractDict, rigs; resolve = nothing,
+        out::AbstractString = _migrated_path(path), dry_run::Bool = false,
+    )
+    s = _peek_schema(path)
+    T = get(_MEASUREMENT_KINDS, s, nothing)
+    T === nothing && throw(ArgumentError("$(path): a $(repr(s)) file names no targets to re-point (target_points2d/v1, target_points3d/v1)"))
+    in_place = abspath(out) == abspath(path)
+    (dry_run || in_place || !ispath(out)) || throw(ArgumentError("$(out) exists; refusing to overwrite it"))
+    old = _raw_tree(path)
+    obs = load(T, path)
+    map_ = Dict{String, String}(String(k) => String(v) for (k, v) in ids)
+    targets = String[get(map_, t, t) for t in obs.targets]
+    repointed = count(t -> haskey(map_, t), obs.targets)
+    loaded = _target_rigs(rigs; resolve)
+    hashes = Set(_target_hashes(rigs))
+    for t in obs.targets
+        haskey(map_, t) && (map_[t] in hashes || throw(ArgumentError("$(path): $(t) is re-pointed to $(map_[t]), which is none of the rigs given")))
+    end
+    unchecked = _check_resolves_by_id(obs, loaded, path)
+    return mktempdir() do tmp
+        staged = joinpath(tmp, basename(path))
+        _save_repointed(staged, obs, targets, old)
+        new = _raw_tree(staged)
+        load(T, staged).targets == targets || _migrate_check(false, path, "its targets")
+        back = copy(new)
+        haskey(old, "targets") && (back["targets"] = old["targets"])
+        _migrate_check(_same_tree(back, old), path, "the measurements")
+        dry_run && return (; path = String(path), out = nothing, repointed, unchecked)
+        mkpath(dirname(abspath(out)))
+        mv(staged, out; force = in_place)
+        return (; path = String(path), out = String(out), repointed, unchecked)
+    end
+end
+
+_save_repointed(p, obs::TargetPoints2D{F}, targets, old) where {F} = save(
+    p, TargetPoints2D{F}(obs.frames; images = obs.images, sensors = obs.sensors, times = obs.times, time_origin = obs.time_origin, targets);
+    provenance = _provenance_of(old),
+)
+_save_repointed(p, obs::TargetPoints3D{F}, targets, old) where {F} = save(
+    p, TargetPoints3D{F}(obs.frames; images = obs.images, sensors = obs.sensors, times = obs.times, time_origin = obs.time_origin, targets);
+    length_unit = parse_unit(old["length_unit"]::String), provenance = _provenance_of(old),
+)
+
+# Every measurement's (target, index) resolves in the rigs: by its points
+# where the target is resolved, by its id alone where it is a reference
+# without its points (counted).
+function _check_resolves_by_id(obs, rigs, path)
+    npts = Dict{Symbol, Union{Nothing, Int}}()
+    for rig in rigs, id in ids(rig)
+        t = rig[id].target
+        npts[id] = is_resolved(t) ? length(points(t)) : nothing
+    end
+    unchecked = 0
+    for (f, os) in obs, o in os
+        haskey(npts, o.target) || throw(ArgumentError("$(path): frame $(f) measures target $(o.target), which none of the rigs given holds"))
+        n = npts[o.target]
+        if n === nothing
+            unchecked += 1
+        else
+            1 <= o.index <= n || throw(ArgumentError("$(path): frame $(f) measures point $(o.index) of target $(o.target), which has $(n)"))
+        end
+    end
+    return unchecked
+end
+
+# =============================================================================
+# A directory tree: every migratable file, then the measurements re-pointed
+# =============================================================================
+
+"""
+    vgio_migrate_tree(dir; in_place = false, dry_run = false, io = stdout) -> Vector{NamedTuple}
+
+Migrate every `.json` file under `dir` whose schema has a migration (a
+`vgio/target/v1`, a `vgio/rig/v4`, and any schema whose owner added a
+[`migrate_schema`](@ref) method), then re-point every measurement file under
+`dir` that names a migrated rig ([`repoint_targets`](@ref)), each by the
+guarded pattern; one line per file to `io`. Written beside each original as
+`<stem>.migrated.json`, or over it with `in_place`. A failure stops the run
+before anything else is written and is rethrown (files already migrated stay
+migrated, and a rerun skips them: they are current).
+"""
+function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run::Bool = false, io::IO = stdout)
+    files = sort!([joinpath(r, f) for (r, _, fs) in walkdir(dir) for f in fs if endswith(f, ".json")])
+    schemas = Dict(f => _try_schema(f) for f in files)
+    results = NamedTuple[]
+    ids = Dict{String, String}()
+    rigs = String[]
+    for f in files
+        s = schemas[f]
+        (s isa String && _has_migration(s)) || continue
+        r = vgio_migrate(f; out = in_place ? f : _migrated_path(f), dry_run)
+        push!(results, r)
+        if haskey(r, :old_id)
+            ids[r.old_id] = r.new_id
+            push!(rigs, dry_run ? f : r.out)
+        end
+        println(io, dry_run ? "verified  " : "migrated  ", f, ": ", s, " → ", r.to, haskey(r, :old_id) ? "  (content id $(r.old_id) → $(r.new_id))" : "")
+    end
+    isempty(ids) && return results
+    for f in files
+        haskey(_MEASUREMENT_KINDS, something(schemas[f], "")) || continue
+        any(t -> haskey(ids, t), something(get(_raw_tree(f), "targets", nothing), Any[])) || continue
+        dry_run && (println(io, "would re-point  ", f, " (after the rigs are written)"); continue)
+        r = repoint_targets(f, ids, rigs; out = in_place ? f : _migrated_path(f))
+        push!(results, r)
+        println(io, "re-pointed  ", f, ": ", r.repointed, " targets identit$(r.repointed == 1 ? "y" : "ies")",
+            r.unchecked > 0 ? " ($(r.unchecked) measurements of referenced targets checked by id)" : "")
+    end
+    return results
+end
+_try_schema(f) = try
+    s = _peek_schema(f)
+    s isa String ? s : nothing
+catch
+    nothing
+end
+# Whether a schema has a migration: a method of `migrate_schema` other than the refusing fallback.
+_has_migration(s::AbstractString) = which(migrate_schema, Tuple{Val{Symbol(s)}, String, String}) !==
+    which(migrate_schema, Tuple{Val{:__none__}, String, String})
+
 # `--images` for the command line: a directory's image files, sorted by name
 # (the join a positional export assumed, now made explicit), or a text file
 # naming one image per line.
@@ -279,16 +585,106 @@ function _migrate_external_cli(kind::AbstractString, args::AbstractVector{<:Abst
 end
 
 
+const _CLI_VERSION_USAGE = """
+usage: julia --project=<VisualGeometryToolkitIO> bin/vgio_migrate.jl target|rig|file [options] FILE
+       julia --project=<VisualGeometryToolkitIO> bin/vgio_migrate.jl tree [options] DIR
+       julia --project=<VisualGeometryToolkitIO> bin/vgio_migrate.jl repoint [options] FILE
+
+Migrate a file of an earlier schema version into the current one (target:
+vgio/target/v1 → v2; rig: vgio/rig/v4 → v5; file: any schema with a
+migration), every such file under a directory (tree, then re-pointing the
+measurement files that name a migrated rig), or re-point one measurement file
+(repoint). A DRY RUN unless --apply: migrated to a temporary directory, read
+back and compared number for number, nothing written. Written beside the
+original as <stem>.migrated.json, or over it with --in-place (only once
+verified).
+
+  --out FILE             where to write (target|rig|file|repoint)
+  --in-place             replace the original once verified
+  --id OLD=NEW           repoint: a targets identity and its replacement (repeatable)
+  --rig PATH             repoint: a migrated rig the new identities name (repeatable)
+  --apply                write
+"""
+
+function _migrate_version_cli(kind::AbstractString, args::AbstractVector{<:AbstractString}; io::IO = stdout)
+    apply, in_place, out, files = false, false, nothing, String[]
+    ids, rigs = Dict{String, String}(), String[]
+    i = 1
+    while i <= length(args)
+        a = args[i]
+        if a == "--apply"
+            apply = true
+        elseif a == "--in-place"
+            in_place = true
+        elseif a in ("--out", "--id", "--rig")
+            i < length(args) || (print(io, _CLI_VERSION_USAGE); return 2)
+            v = args[i += 1]
+            if a == "--out"
+                out = String(v)
+            elseif a == "--rig"
+                push!(rigs, String(v))
+            else
+                kv = split(v, '='; limit = 2)
+                length(kv) == 2 || (println(io, "--id is OLD=NEW, got $(v)"); return 2)
+                ids[String(kv[1])] = String(kv[2])
+            end
+        elseif a in ("-h", "--help")
+            print(io, _CLI_VERSION_USAGE)
+            return 0
+        elseif startswith(a, "--")
+            println(io, "unknown option $(a)")
+            print(io, _CLI_VERSION_USAGE)
+            return 2
+        else
+            push!(files, String(a))
+        end
+        i += 1
+    end
+    (length(files) == 1 && !(in_place && out !== nothing)) || (print(io, _CLI_VERSION_USAGE); return 2)
+    file = only(files)
+    dest = in_place ? file : something(out, _migrated_path(file))
+    try
+        if kind == "tree"
+            vgio_migrate_tree(file; in_place, dry_run = !apply, io)
+            apply || println(io, "(dry run; --apply to write)")
+            return 0
+        elseif kind == "repoint"
+            (isempty(ids) || isempty(rigs)) && (print(io, _CLI_VERSION_USAGE); return 2)
+            r = repoint_targets(file, ids, rigs; out = dest, dry_run = !apply)
+            println(io, apply ? "re-pointed  " : "verified  ", file, ": ", r.repointed, " targets identities",
+                apply ? "  → $(r.out)" : " (dry run; --apply to write)")
+            return 0
+        end
+        s = _peek_schema(file)
+        want = Dict("target" => "vgio/target/v1", "rig" => "vgio/rig/v4")
+        (kind == "file" || s == want[kind]) || throw(ArgumentError("$(file) is a $(repr(s)) file, not a $(want[kind]) one"))
+        r = vgio_migrate(file; out = dest, dry_run = !apply)
+        println(
+            io, apply ? "migrated  " : "verified  ", file, ": ", r.from, " → ", r.to,
+            haskey(r, :old_id) ? "  (content id $(r.old_id) → $(r.new_id))" : "",
+            apply ? "  → $(r.out)" : " (dry run; --apply to write)"
+        )
+        return 0
+    catch e
+        e isa ArgumentError || rethrow()
+        println(io, "FAILED    ", file, ": ", e.msg)
+        return 1
+    end
+end
+
 """
     _migrate_cli(args; io = stdout) -> Int
 
-The `bin/vgio_migrate.jl` command: `opencv|matlab [options] FILE`, a dry run
+The `bin/vgio_migrate.jl` command: `opencv|matlab [options] FILE` (a
+third-party calibration), `target|rig|file [options] FILE`, `tree [options]
+DIR` and `repoint [options] FILE` (earlier schema versions), each a dry run
 unless `--apply`. Returns the process exit code: 0 on success, 1 when the
 conversion failed, 2 on a usage error.
 """
 function _migrate_cli(args::AbstractVector{<:AbstractString}; io::IO = stdout)
     (!isempty(args) && first(args) in ("opencv", "matlab")) && return _migrate_external_cli(first(args), args[2:end]; io)
-    (!isempty(args) && first(args) in ("-h", "--help")) && (print(io, _CLI_EXTERNAL_USAGE); return 0)
-    print(io, _CLI_EXTERNAL_USAGE)
+    (!isempty(args) && first(args) in ("target", "rig", "file", "tree", "repoint")) && return _migrate_version_cli(first(args), args[2:end]; io)
+    (!isempty(args) && first(args) in ("-h", "--help")) && (print(io, _CLI_EXTERNAL_USAGE, "\n", _CLI_VERSION_USAGE); return 0)
+    print(io, _CLI_EXTERNAL_USAGE, "\n", _CLI_VERSION_USAGE)
     return 2
 end

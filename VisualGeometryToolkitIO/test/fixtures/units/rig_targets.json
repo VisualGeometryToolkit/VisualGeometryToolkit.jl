@@ -1,5 +1,5 @@
 {
-    "schema": "vgio/rig/v4",
+    "schema": "vgio/rig/v5",
     "length_unit": "mm",
     "rotation_encoding": "quaternion_wxyz_hamilton",
     "transform_convention": "x_to = R * x_from + t",
@@ -27,7 +27,7 @@
                         -0.001
                     ]
                 ],
-                "warp": {
+                "calibration": {
                     "type": "rigid"
                 }
             },
@@ -67,7 +67,7 @@
                         -0.001
                     ]
                 ],
-                "warp": {
+                "calibration": {
                     "type": "rigid"
                 }
             },

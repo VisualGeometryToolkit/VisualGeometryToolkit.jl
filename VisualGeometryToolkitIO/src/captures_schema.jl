@@ -17,7 +17,7 @@
 # memory, in the declared `length_unit` on disk; `Uncertain` members with
 # their covariance). A writer refuses plain numbers where a length is meant.
 #
-# The hierarchy: a RIG of targets (rig/v4) defines targets and their points; a
+# The hierarchy: a RIG of targets (rig/v5) defines targets and their points; a
 # measurement names a point by (target, index) — its `point_index_base`-based
 # position in that target's `points` — and the measurement file names the
 # targets files it resolves in by content identity (`targets`, see
@@ -50,7 +50,7 @@
 #
 # COLMAP, for orientation (no exporter): target_points2d is COLMAP's images.txt
 # `points2D` with their `POINT3D_ID`, the (target, index) pair playing the
-# `POINT3D_ID`; a rig of targets (rig/v4 targets) is COLMAP's `points3D`, kept as
+# `POINT3D_ID`; a rig of targets (rig/v5 targets) is COLMAP's `points3D`, kept as
 # per-target frames (each target's points in its own TargetFrame, placed by its
 # mount) with no stored tracks — the measurements are the tracks.
 #

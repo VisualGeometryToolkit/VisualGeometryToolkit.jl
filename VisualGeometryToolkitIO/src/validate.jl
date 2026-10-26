@@ -160,16 +160,23 @@ const _POINT_INDEX_BASE = 1
 # The current schema of each kind. A kind's version moves when its records
 # change shape: the lens-bearing kinds (cameras, rigs with sensors) took v3 at
 # the lens families (2026-10), whose lens record replaced v2's named-parameter
-# one; the rig is v4 since it holds targets too (the target model, 2026-10);
+# one; the rig took v4 when it held targets too (the target model, 2026-10);
 # every other older kind is v2.
+#
+# target v2 and rig v5 (the target calibrations, 2026-10-26): a planar target's
+# `"warp"` became its `"calibration"` record (every TargetCalibration kind,
+# with its parameters and covariance), its `"design"` reference `"reference"`,
+# and the target file's `"calibration"` block `"calibration_record"`. Their
+# predecessors are MIGRATED, once, by `vgio_migrate` (migrate.jl); no reader
+# reads them.
 #
 # transforms and trajectory are v3 since their frames are typed (2026-10): the
 # `from`/`to` names go through the frame grammar (`frame_from_name`), so a
 # free-form name is refused, and a pose may carry its covariance. The kinds
 # born after that are v1 (target, target_poses, target_points2d, target_points3d).
 const _SCHEMA_VERSION = Dict(
-    "cameras" => 3, "rig" => 4, "transforms" => 3, "trajectory" => 3,
-    "target" => 1, "target_poses" => 1, "target_points2d" => 1, "target_points3d" => 1,
+    "cameras" => 3, "rig" => 5, "transforms" => 3, "trajectory" => 3,
+    "target" => 2, "target_poses" => 1, "target_points2d" => 1, "target_points3d" => 1,
 )
 _schema_version(kind) = get(_SCHEMA_VERSION, kind, 2)
 _schema(kind) = "vgio/$(kind)/v$(_schema_version(kind))"
@@ -219,9 +226,13 @@ const _LENS_KINDS = ("cameras", "rig")
 # VGIo), and the producer re-exports.
 const _RETIRED_KINDS = Dict(
     "vgio/observations/v2" => "vgio/target_points2d/v1", "vgio/point_observations/v1" => "vgio/target_points3d/v1",
-    "vgio/targets/v2" => "vgio/rig/v4", "vgio/rig/v3" => "vgio/rig/v4",
+    "vgio/targets/v2" => "vgio/rig/v5", "vgio/rig/v3" => "vgio/rig/v5",
     "vgio/session/v3" => "the calibration pipeline's own session kind (a pipeline's checkpoint is the pipeline's, not VGIo's)",
 )
+
+# The versions `vgio_migrate` converts to the current one, and the command's
+# kind argument for each.
+const _MIGRATIONS_TO_CURRENT = Dict("vgio/target/v1" => "target", "vgio/rig/v4" => "rig")
 
 function _refuse_schema(path, kind::AbstractString, s)
     if s isa AbstractString && haskey(_RETIRED_KINDS, s)
@@ -238,6 +249,17 @@ function _refuse_schema(path, kind::AbstractString, s)
                 "$(path) is a retired $(s) file: its frame names are free strings, which $(_schema(kind)) " *
                     "types through the frame grammar (\"world\", \"camera_optical\", \"view:<id>\", \"target:<id>\", " *
                     "\"body:<id>\"). There is no reader for it: re-export it from its producer"
+            )
+        )
+    end
+    # the version before the current one of a kind with a migration: refused,
+    # naming it (`vgio_migrate`, migrate.jl)
+    if s isa AbstractString && haskey(_MIGRATIONS_TO_CURRENT, s)
+        throw(
+            ArgumentError(
+                "$(path) is a $(s) file; VisualGeometryToolkitIO reads only $(_schema(kind)), and there is no reader for it. " *
+                    "Migrate it once with vgio_migrate: `julia --project=<VisualGeometryToolkitIO> bin/vgio_migrate.jl " *
+                    "$(_MIGRATIONS_TO_CURRENT[s]) FILE --apply` (or `VisualGeometryToolkitIO.vgio_migrate(path)`)"
             )
         )
     end

@@ -137,7 +137,6 @@ end
 _apply(::Rigid, q) = q
 # ∂c(q)/∂q, the chain rule's factor; `Rigid` moves nothing.
 _point_jacobian(::Rigid, q) = SMatrix{2, 2, Float64}(LinearAlgebra.I)
-_calibration_tag(::Rigid) = "rigid"
 
 # Lengths read at a constructor: all plain or all lengths (stored as plain
 # metres), and which.
@@ -197,7 +196,6 @@ function Affine(A::AbstractMatrix, b::AbstractVector)
 end
 _apply(c::Affine, q) = c.A * q + c.b
 _point_jacobian(c::Affine, q) = c.A
-_calibration_tag(::Affine) = "affine"
 
 parameter_vector(c::Affine) = SVector(c.A[1, 1], c.A[1, 2], c.A[2, 1], c.A[2, 2], c.b[1], c.b[2])
 parameter_names(::Affine) = (:a11, :a12, :a21, :a22, :bx, :by)
@@ -318,7 +316,6 @@ function _point_jacobian(c::ThinPlateSpline, q)
     gy = tps_gradient(c.system.nodes, c.wy, c.ay, q)
     return SMatrix{2, 2}(1 + gx[1], gy[1], gx[2], 1 + gy[2])
 end
-_calibration_tag(::ThinPlateSpline) = "thin_plate_spline"
 
 parameter_vector(c::ThinPlateSpline) = vcat(c.fx, c.fy)
 # parameter_names(::ThinPlateSpline): generated from the type, beside the name tables below
@@ -402,7 +399,6 @@ function _point_jacobian(c::HeightField, q)
     o, z = one(eltype(g)), zero(eltype(g))
     return SMatrix{3, 2}(o, z, g[1], z, o, g[2])
 end
-_calibration_tag(::HeightField) = "height_field"
 
 parameter_vector(c::HeightField) = c.h
 # parameter_names(::HeightField): generated from the type, beside the name tables below
@@ -451,11 +447,9 @@ _static_gauge_names(::Type{Rigid}) = ()
 _static_gauge_names(::Type{<:Affine}) = (:translation_x, :translation_y, :rotation, :scale)
 _static_gauge_names(::Type{<:ThinPlateSpline}) = (:fx_1, :fx_u, :fx_v, :fy_1, :fy_u, :fy_v)
 _static_gauge_names(::Type{<:HeightField}) = (:piston, :tilt_x, :tilt_y)
-_static_tag(::Type) = nothing
-_static_tag(::Type{Rigid}) = "rigid"
-_static_tag(::Type{<:Affine}) = "affine"
-_static_tag(::Type{<:ThinPlateSpline}) = "thin_plate_spline"
-_static_tag(::Type{<:HeightField}) = "height_field"
+# a kind's tag, from the one registry (TARGET_CALIBRATION_TAGS, below the kinds)
+_static_tag(::Type{T}) where {T} =
+    any(K -> T <: K, values(TARGET_CALIBRATION_TAGS)) ? tag_of(TARGET_CALIBRATION_TAGS, T) : nothing
 # A literal tuple per type, so a NamedTuple over the names is inferred.
 @generated parameter_names(c::Union{ThinPlateSpline, HeightField}) = QuoteNode(_static_parameter_names(c))
 function _static_chain_names(f, ::Type{C}) where {C <: Tuple}
@@ -512,10 +506,24 @@ struct CalibrationChain{C <: Tuple} <: TargetCalibration
 end
 CalibrationChain(members::TargetCalibration...) = CalibrationChain(members)
 
+"""
+    TARGET_CALIBRATION_TAGS
+
+The [`TagRegistry`](@ref) of the target calibration kinds — the one map from a
+kind's tag to its type, read by a chain's parameter names (`:affine_a11`) and
+by VisualGeometryToolkitIO's target record (`"type": "affine"`): `"rigid"`,
+`"affine"`, `"thin_plate_spline"`, `"height_field"`, `"calibration_chain"`,
+`snake_case` of the type's name.
+"""
+const TARGET_CALIBRATION_TAGS = TagRegistry(:target_calibration, "",
+    "rigid" => Rigid, "affine" => Affine, "thin_plate_spline" => ThinPlateSpline,
+    "height_field" => HeightField, "calibration_chain" => CalibrationChain)
+# a calibration's tag (the registry's reverse lookup)
+_calibration_tag(c::TargetCalibration) = tag_of(TARGET_CALIBRATION_TAGS, c)
+
 _apply(c::CalibrationChain, q) = _apply_members(c.members, q)
 _apply_members(::Tuple{}, q) = q
 _apply_members(cs::Tuple, q) = _apply_members(Base.tail(cs), _apply(first(cs), q))
-_calibration_tag(::CalibrationChain) = "calibration_chain"
 
 parameter_vector(c::CalibrationChain) = vcat(map(parameter_vector, c.members)...)
 # The members' names, each prefixed by its member's tag. For the kinds shipped

@@ -21,8 +21,8 @@ argument, because the value already carries it.
 |---|---|---|---|
 | `vgio/cameras/v3` (the camera store) | `Dict{Symbol, …}` of name → `BoundedCamera` of a `CameraModel` (unposed, like a COLMAP "camera"), or an `Attributed` one with its `(; calibration)` block | `load(Dict{Symbol, BoundedCamera}, path)`; one camera: `load(BoundedCamera, path; name)` or `load(CameraModel, path; name)` | `save(path, store)` |
 | `vgio/transforms/v3` | `Vector` of labeled `EuclideanMap{3, …, S, D}`, or `Uncertain` ones (mm) | `load(Vector{EuclideanMap}, path)` | `save(path, poses)` |
-| `vgio/rig/v4` | `Rig{F, M}` holding sensors (a tuple of `BoundedCamera`s), targets (a `Dict` of `PosedTarget`s), or both | `load(Rig, path; resolve)` | `save(path, rig)` |
-| `vgio/target/v1` | one `AbstractTarget` (`PointTarget`, `PlanarTarget{Rigid}`), or an `Attributed` one with its `(; calibration)` block | `load(AbstractTarget, path; resolve)` | `save(path, target)` |
+| `vgio/rig/v5` | `Rig{F, M}` holding sensors (a tuple of `BoundedCamera`s), targets (a `Dict` of `PosedTarget`s), or both | `load(Rig, path; resolve)` | `save(path, rig)` |
+| `vgio/target/v2` | one `AbstractTarget` (`PointTarget`, `PlanarTarget` of any `TargetCalibration`, `Uncertain` or not), or an `Attributed` one with its `(; calibration_record)` | `load(AbstractTarget, path; resolve)` | `save(path, target)` |
 | `vgio/trajectory/v3` | `Trajectory{S, D}`: labeled poses per frame index, with images, times and recovered flags | `load(Trajectory, path)` | `save(path, tr)`; exporters `save_tum_trajectory`, `save_euroc_trajectory` |
 | `vgio/target_poses/v1` | `TargetPoses{F}`: per frame, `TargetFrame{id} → F` poses; `pose(tp, t, id)` | `load(TargetPoses, path)` | `save(path, tp)`; exporter `save_bop_scene` |
 | `vgio/target_points2d/v1` | `TargetPoints2D{F <: PixelFrame}`: per frame, `(target, index, xy, weight)` | `load(TargetPoints2D, path)` | `save(path, obs)`; exporter `save_correspondences` |
@@ -46,7 +46,7 @@ readers and migrations.
 This section is documentation only; there is no COLMAP exporter for these
 kinds. A `target_points2d` file corresponds to the `points2D` of COLMAP's
 `images.txt` with their `POINT3D_ID`, where the `(target, index)` pair plays
-the role of the `POINT3D_ID`. A rig of targets (the targets of a `rig/v4`)
+the role of the `POINT3D_ID`. A rig of targets (the targets of a `rig/v5`)
 corresponds to COLMAP's `points3D`. It is kept as per-target frames, with each
 target's points in its own `TargetFrame` and placed by its pose. It stores no
 tracks, because the measurements are the tracks.
@@ -61,14 +61,59 @@ written:
   it is `Uncertain`.
 - A `PlanarTarget` of explicit nominal points is written with those points.
 - A `PlanarTarget` of a content-addressed design (a BlobBoards board uid) is
-  written by its `design` reference alone, since its points belong to the
+  written by its `reference` alone, since its points belong to the
   design's owner. It reads back unresolved unless the caller supplies
-  `resolve`, the owner's resolver (`design::Symbol -> nominal points`).
+  `resolve`, the owner's resolver (`reference::Symbol -> nominal points`).
 
-The only warp the `vgio/target/v1` record holds is `{"type": "rigid"}`: a
-`PlanarTarget` whose `TargetCalibration` is anything but `Rigid` (or an
-uncertain one) is refused at save. A calibration with parameters will carry
-them, and their covariance, in its record.
+A `PlanarTarget`'s `calibration` (VGC's `TargetCalibration`, the map from the
+design to the physical target) is one record whose `type` is the kind's tag
+in VGC's `TARGET_CALIBRATION_TAGS`:
+
+```json
+"calibration": {"type": "rigid"}
+"calibration": {"type": "affine", "parameters": [a11, a12, a21, a22, bx, by]}
+"calibration": {"type": "thin_plate_spline", "nodes": [[u, v], …], "parameters": [fx1, …, fxK, fy1, …, fyK]}
+"calibration": {"type": "height_field", "nodes": [[u, v], …], "parameters": [h1, …, hK]}
+"calibration": {"type": "calibration_chain", "members": [{…}, {…}]}
+```
+
+`parameters` are the kind's `parameter_vector` in its `parameter_names` order:
+lengths (an affine's `b`, the displacements, the heights) in the file's
+`length_unit`, the affine's `A` plain. `nodes` are positions in the target's
+plane, in the file's unit. A chain's members are records of their own, in
+order. An `Uncertain` calibration adds `covariance` at the top of the record,
+n × n over `parameter_vector` (a chain's covers every member's parameters, so
+its members carry none), each entry in the file's unit raised to its length
+dimension. A calibration with lengths in plain numbers is refused, as plain
+points are.
+
+A `PlanarTarget` may also state its `extent`, its physical page (the printed
+canvas the design points lie inside) as a rectangle in the target's chart,
+`"extent": {"origin": [u, v], "widths": [w, h]}` in the file's unit — the
+`Rect` as it is held, so it reads back exactly. It is absent when unknown.
+
+A target file may also carry a `calibration_record`, the record of how the
+calibration was obtained (the keys of a camera's `calibration` block: `tool`,
+`source`, `date`, `reprojection_rms`, `n_images`, `n_points`, `note`). In
+memory it is the attribute `Attributed(target, (; calibration_record))`, so it
+never shadows the target's `calibration`.
+
+## Migrating an earlier version
+
+`vgio/target/v1` and `vgio/rig/v4` files are not read: `load` refuses them,
+naming `vgio_migrate`. `vgio_migrate(path)` converts one file, and
+`bin/vgio_migrate.jl target|rig|file|tree|repoint` is its command (a dry run
+unless `--apply`). The new file is written to a temporary directory, read back
+and compared with the old one number for number before anything is written;
+it goes beside the original (`<stem>.migrated.json`), or over it with
+`out = path` (`--in-place`). A rig's content identity changes with the
+migration, so `vgio_migrate` reports `old_id` and `new_id`, and
+`repoint_targets` (or `vgio_migrate_tree`, which does both for a directory)
+re-points the measurement files that name it.
+
+A schema's owner extends the migration to its own files by adding a method of
+`VisualGeometryToolkitIO.migrate_schema(::Val{Symbol("<schema>")}, src, dst)`,
+a declared extension point (`CONTRACT_GENERICS`).
 
 ## Building blocks for other kinds
 

@@ -639,7 +639,7 @@ public lm_workspace_type, lmsolve_chart!, lmsolve_rows!, fill_sqrt_weights!, man
 # the dependency allow-list, the private-name scan and the extension points
 # (quality/stack_contracts.jl). Reached qualified; the quality gates
 # (ext/VisualGeometryToolkitCoreQualityExt) run them over every stack package.
-public snake_case, TagRegistry, tag_of, expected_tag, tag_rule_violations, SCALE_INTERFACE_TAGS,
+public snake_case, TagRegistry, tag_of, expected_tag, tag_rule_violations, SCALE_INTERFACE_TAGS, TARGET_CALIBRATION_TAGS,
     tag_family, tag_paths, retired_tags, tag_registries,
     tag_table_violations, config_tag_violations
 public stack_dependencies, stack_dependency_violations, private_name_violations,
@@ -721,6 +721,7 @@ include("base/coordinates.jl")    # to_affine / to_euclidean — used by Primiti
 include("base/fit_result.jl")     # FitResult{P,M} — the one iterative-fit return type
 include("base/utils.jl")    # Geometry utilities - uses types
 include("base/config_toml.jl")  # TOML config skeleton shared by every package with a configuration of record
+include("quality/tag_registry.jl")  # TagRegistry: the one tag → type map (before the kinds that register tags: the target calibrations)
 include("base/device.jl")   # default_device — the family's one KA backend resolver (CUDA ext registers)
 include("base/svd_workspace.jl")  # SvdWorkspace + svd_nullvec! (used by solvers + RVG)
 include("base/propagate.jl")     # propagate(J, Σ) = J * Σ * J' with specializations
@@ -844,10 +845,10 @@ include("visualization_stubs.jl")
 include("quality/naming.jl")
 include("quality/test_helpers.jl")   # the rows checks, the quality gates (entry points)
 include("quality/contract_helpers.jl")   # the contract conformance helpers (entry points)
-# The stack's quality contracts: the tag registry and its scans; the package
-# boundaries (dependency allow-list, private names, CONTRACT_GENERICS — last,
-# as it lists functions from every section above).
-include("quality/tag_registry.jl")
+# The stack's quality contracts: the tag registry's scans (the registry itself
+# is included with the base layer, before the kinds that register tags); the
+# package boundaries (dependency allow-list, private names, CONTRACT_GENERICS —
+# last, as it lists functions from every section above).
 
 """
     SCALE_INTERFACE_TAGS

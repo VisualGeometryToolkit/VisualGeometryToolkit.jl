@@ -1,5 +1,5 @@
 {
-    "schema": "vgio/target/v1",
+    "schema": "vgio/target/v2",
     "length_unit": "mm",
     "target": {
         "type": "planar",
@@ -21,11 +21,11 @@
                 -0.001
             ]
         ],
-        "warp": {
+        "calibration": {
             "type": "rigid"
         }
     },
-    "calibration": {
+    "calibration_record": {
         "tool": "board",
         "n_images": 12
     }

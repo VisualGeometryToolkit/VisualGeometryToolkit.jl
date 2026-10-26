@@ -59,15 +59,15 @@ writer refuses data whose derived values disagree with their source.
 **Measurements name their targets by content.** A measurement file
 (`target_points2d`, `target_points3d`) names the rigs that define the targets
 it indexes by their content identity, `content_id(rig)` or
-`content_id(path)`. This is the SHA-256 of the canonical rig record without
-its provenance. The record hashed for a rig value is the one written in the
-default millimetres, so a rig and the file written from it in mm have the same
-identity. A path is hashed as the record its loaded rig writes, in the file's
-own `length_unit`, so a file and the rig loaded from it have the same identity
-too, even where a 16–17 digit number does not survive into metres; a file
-whose numbers have at most 15 significant digits keeps the identity of its
-bytes. A file saved with another `length_unit`, such as `length_unit = m`,
-holds different numbers and so has its own identity, distinct from the value's.
+`content_id(path)`. This is the SHA-256 of a fixed canonical tree built from
+the rig: its record in metres, its targets sorted by id, without the file's
+declarations (`schema`, `length_unit`, `rotation_encoding`,
+`transform_convention`, `pixel_frame`) and without its provenance. The
+identity does not change when the file format does: a rig, the file written
+from it in any `length_unit` and the rig loaded back from that file have one
+identity. A target's calibration kind and its parameters are part of it. The
+identity is pinned by a test; a change to the canonical tree re-ids every rig
+and must migrate the measurement files that name them.
 
 **One validator per kind.** The validator for each kind (`validate.jl`) runs
 on read and before every write, so a writer cannot produce a file that its
@@ -76,13 +76,16 @@ never reads it. `VisualGeometryToolkitIO.validate(path)` runs the validator
 on any file.
 
 **A calibration block says where a calibration came from.** A stored camera
-or target may carry an optional `calibration` block with the keys `tool`,
-`source` (a file or record name, never a machine path), `date`
-(`YYYY-MM-DD`), `reprojection_rms` (in px), `n_images`, `n_points` and
-`note`. Each key is omitted when it is unknown. In memory the block is the
-value's attribute, `Attributed(camera, (; calibration = (; tool = …, …)))`,
-and it is read back exactly. Unlike `provenance`, its keys are a closed set
-and are checked on write and on read.
+may carry an optional `calibration` block, and a target a
+`calibration_record`, with the keys `tool`, `source` (a file or record name,
+never a machine path), `date` (`YYYY-MM-DD`), `reprojection_rms` (in px),
+`n_images`, `n_points` and `note`. Each key is omitted when it is unknown. In
+memory the block is the value's attribute,
+`Attributed(camera, (; calibration = (; tool = …, …)))` and
+`Attributed(target, (; calibration_record = …))`, and it is read back exactly.
+Unlike `provenance`, its keys are a closed set and are checked on write and
+on read. (A target's own `calibration`, its `TargetCalibration`, is part of
+its body.)
 
 **Frame names follow one grammar.** The names are `world`, `camera_optical`,
 `view:<id>`, `target:<id>` and `body:<id>` (a rigid body, such as a tracked
@@ -131,9 +134,13 @@ the producer re-exports:
 |---|---|
 | `observations/v2` | `target_points2d/v1` |
 | `point_observations/v1` | `target_points3d/v1` |
-| `targets/v2`, `rig/v3` | `rig/v4` |
+| `targets/v2`, `rig/v3` | `rig/v5` |
 | `session/v3` | the calibration pipeline's own session kind |
 
 A pipeline's checkpoint belongs to the pipeline, not to core geometry, which
 is why `session` left this package. A reader refuses each retired kind and
 names its successor.
+
+`target/v1` and `rig/v4` (2026-10-26, the target calibrations) are migrated
+rather than retired: a reader refuses them naming `vgio_migrate`, which
+converts a file once (see [The Kinds](kinds.md#Migrating-an-earlier-version)).

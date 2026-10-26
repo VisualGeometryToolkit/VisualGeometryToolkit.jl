@@ -446,6 +446,16 @@ end
         @test (@inferred VgtkCore.parameters(t)).affine_a11 == 1.001
     end
 
+    @testset "one tag registry: TARGET_CALIBRATION_TAGS" begin
+        R = VgtkCore.TARGET_CALIBRATION_TAGS
+        @test collect(keys(R)) == ["rigid", "affine", "thin_plate_spline", "height_field", "calibration_chain"]
+        @test isempty(VgtkCore.tag_rule_violations(R))
+        @test [VgtkCore.tag_of(R, c) for c in (Rigid(), A, T, H, C)] == collect(keys(R))
+        @test R["affine"] === Affine && R["calibration_chain"] === CalibrationChain
+        @test_throws ArgumentError R["warp"]
+        @test parameter_names(C)[1] === :affine_a11 && parameter_names(C)[end] === :height_field_h9   # the chain prefixes are its tags
+    end
+
     @testset "hash agrees with ==" begin
         for (x, y) in ((A, Affine([1.001 0.0; 0.0 0.999], [0.5, -0.25])), (T, ThinPlateSpline(nodes, fill(0.01, 9), fill(-0.01, 9))),
                        (H, HeightField(nodes, [0.1, 0.0, -0.1, 0.2, 0.0, 0.0, 0.0, 0.3, 0.0])), (C, CalibrationChain(A, T, H)),
@@ -471,9 +481,9 @@ end
         @test calibration(with_parameters(PlanarTarget(pts; calibration = u), θ)) isa Affine
     end
 
-    @testset "calibration of an attributed target is the TargetCalibration" begin
-        a = Attributed(PlanarTarget(pts; calibration = H), (; calibration = (; tool = "a ruler", n_images = 3)))
-        @test calibration(a) === H                                        # the function: the target's kind
-        @test a.calibration == (; tool = "a ruler", n_images = 3)         # the property: the provenance attribute
+    @testset "an attributed target's calibration record does not shadow its calibration" begin
+        a = Attributed(PlanarTarget(pts; calibration = H), (; calibration_record = (; tool = "a ruler", n_images = 3)))
+        @test a.calibration === H && calibration(a.value) === H           # the field, forwarded: the target's kind
+        @test a.calibration_record == (; tool = "a ruler", n_images = 3)  # the attribute: who calibrated it
     end
 end

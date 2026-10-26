@@ -1,5 +1,5 @@
 # =============================================================================
-# vgio/rig/v4 and vgio/target/v1 — VGC's `Rig` in every storage (sensors,
+# vgio/rig/v5 and vgio/target/v2 — VGC's `Rig` in every storage (sensors,
 # targets, both) and VGC's target model, serialized
 # =============================================================================
 #
@@ -49,16 +49,41 @@ end
 # -----------------------------------------------------------------------------
 #
 #   {"type": "points", "points": [[x, y(, z)], …], "point_covariances": [[[…]…]…]}   PointTarget
-#   {"type": "planar", "design": "<reference>", "warp": {"type": "rigid"}}            PlanarTarget of a referenced design
-#   {"type": "planar", "nominal": [[x, y], …], "warp": {"type": "rigid"}}             PlanarTarget of explicit points
+#   {"type": "planar", "reference": "<reference>", "calibration": {calibration}}     PlanarTarget of a referenced design
+#   {"type": "planar", "nominal": [[x, y], …], "calibration": {calibration}}         PlanarTarget of explicit points
+#   … "extent": {"origin": [u, v], "widths": [w, h]}                                 (optional) its physical page
 #
 # Points and nominal points in the file's `length_unit` (written in mm unless
 # the writer is given another), lengths in metres in memory, in the
 # target's own frame. A referenced design's nominal points are its owner's —
 # a BlobBoards board uid resolves to them — so they are NOT restated: `load`
 # returns the target unresolved unless the caller supplies `resolve`, the
-# design owner's resolver. The warp's record carries its `parameters` (and their
-# `covariance`, `Uncertain`) for a warp that has any; `rigid` has none.
+# design owner's resolver.
+#
+# THE CALIBRATION — VGC's `TargetCalibration`, the map from the design to the
+# physical target — is one record, its `type` the kind's tag in VGC's
+# `TARGET_CALIBRATION_TAGS` (the one registry; snake_case of the type's name):
+#
+#   {"type": "rigid"}
+#   {"type": "affine", "parameters": [a11, a12, a21, a22, bx, by]}
+#   {"type": "thin_plate_spline", "nodes": [[u, v], …], "parameters": [fx1, …, fxK, fy1, …, fyK]}
+#   {"type": "height_field", "nodes": [[u, v], …], "parameters": [h1, …, hK]}
+#   {"type": "calibration_chain", "members": [{calibration}, {calibration}, …]}
+#
+# `parameters` are the kind's `parameter_vector`, in its `parameter_names`
+# order: lengths in the file's `length_unit` (an affine's `b`, the in-plane
+# displacements, the heights), plain numbers otherwise (an affine's `A`).
+# `nodes` are positions in the target's plane, lengths in the file's unit. A
+# chain's members are records of their own, in order, none of them a chain.
+# `covariance` (optional, top level only) is present iff the calibration is
+# `Uncertain`: n × n over `parameter_vector` (a chain's: every member's, in
+# order — one joint covariance, as `Uncertain(chain, Σ)` holds it), each entry
+# in the file's unit raised to its length dimension.
+#
+# THE EXTENT (optional, a planar target's): its physical page in the target's
+# chart — the printed canvas the design points lie inside — a `Rect` of
+# lengths, written as it is held, its `origin` and `widths` in the file's unit
+# (a corner pair would round through a subtraction); absent when unknown.
 
 const _TARGET_POINTS = _Checked(
     _Vec(_Vec(_Real())),
@@ -74,27 +99,95 @@ _point_covariances_check(pts, cs) = begin
     end
     nothing
 end
-const _WARP = _Obj(Pair{Symbol, _Spec}[:type => _Tok("rigid")], Pair{Symbol, _Spec}[])
+
+# The keys a calibration record of each kind states, and how many parameters
+# it holds — by the kind's TYPE, which the registry gives for its tag.
+_calibration_keys(::Type{Rigid}) = ()
+_calibration_keys(::Type{Affine}) = (:parameters,)
+_calibration_keys(::Type{ThinPlateSpline}) = (:nodes, :parameters)
+_calibration_keys(::Type{HeightField}) = (:nodes, :parameters)
+_calibration_keys(::Type{CalibrationChain}) = (:members,)
+_calibration_keys(::Type) = nothing      # a kind without a record (a downstream one)
+_n_parameters(::Type{Rigid}, x) = 0
+_n_parameters(::Type{Affine}, x) = 6
+_n_parameters(::Type{ThinPlateSpline}, x) = 2 * length(x[:nodes])
+_n_parameters(::Type{HeightField}, x) = length(x[:nodes])
+_n_parameters(::Type{CalibrationChain}, x) = sum(r -> _n_parameters(TARGET_CALIBRATION_TAGS[r[:type]], r), x[:members])
+
+function _target_calibration_check(x, member::Bool)
+    ty = x[:type]
+    haskey(TARGET_CALIBRATION_TAGS, ty) ||
+        return "unknown calibration type $(repr(ty)) (one of $(join(keys(TARGET_CALIBRATION_TAGS), ", ")))"
+    K = TARGET_CALIBRATION_TAGS[ty]
+    want = _calibration_keys(K)
+    want === nothing && return "a $(ty) calibration has no record in $(_schema("target"))"
+    for k in (:nodes, :parameters, :members)
+        (k in want) == haskey(x, k) || return k in want ? "a $(ty) calibration states its `$(k)`" : "a $(ty) calibration has no `$(k)`"
+    end
+    if K === CalibrationChain
+        member && return "a chain's member is not a chain (list its members instead)"
+        length(x[:members]) >= 2 || return "a calibration_chain has at least two members"
+        for (i, r) in enumerate(x[:members])
+            msg = _target_calibration_check(r, true)
+            msg === nothing || return "member $(i): $(msg)"
+        end
+    end
+    :nodes in want && isempty(x[:nodes]) && return "a $(ty) calibration has at least one node"
+    n = _n_parameters(K, x)
+    (:parameters in want && length(x[:parameters]) != n) &&
+        return "a $(ty) calibration$(:nodes in want ? " over $(length(x[:nodes])) nodes" : "") states $(n) parameters, got $(length(x[:parameters]))"
+    if haskey(x, :covariance)
+        member && return "a chain's member carries no `covariance` (the chain's covers every member's parameters)"
+        c = x[:covariance]
+        (length(c) == n && all(r -> length(r) == n, c)) ||
+            return "`covariance` is $(n)×$(n), over the calibration's parameters"
+        all(c[i][j] == c[j][i] for i in 1:n, j in 1:n) || return "`covariance` must be symmetric"
+    end
+    return nothing
+end
+const _CALIBRATION_FIELDS = Pair{Symbol, _Spec}[:nodes => _Vec(_XY), :parameters => _Vec(_Real()), :covariance => _Vec(_Vec(_Real()))]
+const _TARGET_CALIBRATION_MEMBER = _Obj(Pair{Symbol, _Spec}[:type => _NonEmpty()], vcat(_CALIBRATION_FIELDS, Pair{Symbol, _Spec}[:members => _Vec(_Free())]))
+const _TARGET_CALIBRATION = _Checked(
+    _Obj(Pair{Symbol, _Spec}[:type => _NonEmpty()], vcat(_CALIBRATION_FIELDS, Pair{Symbol, _Spec}[:members => _Vec(_TARGET_CALIBRATION_MEMBER)])),
+    x -> _target_calibration_check(x, false),
+)
+
+# The keys the previous records had: refused by name, with the migration.
+const _MIGRATED_TARGET_KEYS = (:warp => "calibration", :design => "reference")
+_migrated_key_message(old, new) =
+    "`$(old)` is a vgio/target/v1 and vgio/rig/v4 key; $(_schema("target")) and $(_schema("rig")) name it `$(new)`. " *
+    "Migrate the file once with vgio_migrate (bin/vgio_migrate.jl target|rig FILE)"
+
+const _EXTENT = _Obj(
+    :origin => _XY,
+    :widths => _Checked(_XY, w -> all(x -> x >= 0, w) ? nothing : "an extent's widths are ≥ 0"),
+)
+
 const _TARGET_BODY = _Checked(
     _Obj(
         Pair{Symbol, _Spec}[:type => _NonEmpty()],
         Pair{Symbol, _Spec}[
             :points => _TARGET_POINTS, :point_covariances => _Vec(_Vec(_Vec(_Real()))),
-            :design => _NonEmpty(), :nominal => _Vec(_Vec(_Real(), 2)), :warp => _WARP,
+            :reference => _NonEmpty(), :nominal => _Vec(_Vec(_Real(), 2)), :calibration => _TARGET_CALIBRATION,
+            :extent => _EXTENT,
+            :warp => _Free(), :design => _Str(),      # the v1 keys: refused below, naming the migration
         ],
     ),
     function (t)
+        for (old, new) in _MIGRATED_TARGET_KEYS
+            haskey(t, old) && return _migrated_key_message(old, new)
+        end
         ty = t[:type]
         if ty == "points"
             haskey(t, :points) || return "a points target states its `points`"
-            any(k -> haskey(t, k), (:design, :nominal, :warp)) && return "a points target has `points` (and `point_covariances`) only"
+            any(k -> haskey(t, k), (:reference, :nominal, :calibration, :extent)) && return "a points target has `points` (and `point_covariances`) only"
             haskey(t, :point_covariances) && return _point_covariances_check(t[:points], t[:point_covariances])
             return nothing
         elseif ty == "planar"
-            any(k -> haskey(t, k), (:points, :point_covariances)) && return "a planar target has `design` or `nominal`, and `warp`"
-            haskey(t, :warp) || return "a planar target states its `warp`"
-            (haskey(t, :design) ⊻ haskey(t, :nominal)) ||
-                return "a planar target states its `design` reference or its `nominal` points — one, not both (a referenced design's points are its owner's)"
+            any(k -> haskey(t, k), (:points, :point_covariances)) && return "a planar target has `reference` or `nominal`, and `calibration`"
+            haskey(t, :calibration) || return "a planar target states its `calibration`"
+            (haskey(t, :reference) ⊻ haskey(t, :nominal)) ||
+                return "a planar target states its `reference` or its `nominal` points — one, not both (a referenced design's points are its owner's)"
             return nothing
         end
         return "unknown target type $(repr(ty)) (points, planar)"
@@ -126,87 +219,166 @@ function _points_from_json(vals, unit::Units, covs = nothing)
     return [Uncertain(p, CovMat(_length_cov_from_json(c, n, unit, _point_cov_dims(n)))) for (p, c) in zip(pts, covs)]
 end
 
-# The v1 record's "warp" carries a rigid calibration only; any other kind (and an
-# uncertain one) waits for the target record that carries calibrations.
-_warp_json(::Rigid) = (type = "rigid",)
-_warp_json(c::TargetCalibration) = throw(
-    ArgumentError("save: a $(nameof(typeof(c))) target calibration is not in the vgio/target/v1 record, whose \"warp\" is rigid only")
+# The length dimension (0 or 1) of each parameter of a calibration, in
+# `parameter_vector` order: the record's statement of which numbers are lengths.
+_length_dims(::Rigid) = Int[]
+_length_dims(::Affine) = [0, 0, 0, 0, 1, 1]
+_length_dims(c::Union{ThinPlateSpline, HeightField}) = ones(Int, length(parameter_vector(c)))
+_length_dims(c::CalibrationChain) = reduce(vcat, map(_length_dims, c.members); init = Int[])
+
+# A plain metre value (a calibration's stored length) as the file's number in `u`.
+_metres_json(x::Real, u::Units) = write_length(_metre_quantity(x), u)
+_nodes_json(c, u::Units) = [[_metres_json(p[1], u), _metres_json(p[2], u)] for p in c.system.nodes]
+
+_tag(c::TargetCalibration) = tag_of(TARGET_CALIBRATION_TAGS, c)
+# A calibration with lengths is stored physical: plain numbers are refused, as
+# a target's plain points are.
+_physical(c::TargetCalibration) = (has_units(c) || _refuse_plain("a $(nameof(typeof(c))) target calibration"); c)
+
+_calibration_record(c::Rigid, ::Units) = (type = _tag(c),)
+function _calibration_record(c::Affine, u::Units)
+    θ = parameter_vector(_physical(c))
+    return (type = _tag(c), parameters = [Float64(θ[1]), Float64(θ[2]), Float64(θ[3]), Float64(θ[4]), _metres_json(θ[5], u), _metres_json(θ[6], u)])
+end
+_calibration_record(c::Union{ThinPlateSpline, HeightField}, u::Units) =
+    (type = _tag(_physical(c)), nodes = _nodes_json(c, u), parameters = [_metres_json(v, u) for v in parameter_vector(c)])
+_calibration_record(c::CalibrationChain, u::Units) = (type = _tag(c), members = [_calibration_record(x, u) for x in c.members])
+_calibration_record(c::TargetCalibration, ::Units) = throw(
+    ArgumentError("save: a $(nameof(typeof(c))) target calibration has no record in $(_schema("target")) (its kinds: $(join(keys(TARGET_CALIBRATION_TAGS), ", ")))")
 )
-_warp_json(c::Uncertain{<:TargetCalibration}) = throw(
-    ArgumentError(
-        "save: an uncertain target calibration (a $(nameof(typeof(geom(c)))) with its covariance) is not in the vgio/target/v1 record, " *
-            "whose \"warp\" carries no parameters and no covariance"
-    )
-)
-_warp_from_json(w) = w.type == "rigid" ? Rigid() : throw(ArgumentError("unknown warp $(repr(w.type))"))
+
+_target_calibration_json(c::TargetCalibration, u::Units) = _calibration_record(c, u)
+function _target_calibration_json(c::Uncertain{<:TargetCalibration}, u::Units)
+    g = geom(c)
+    dims = _length_dims(g)
+    Σ = cov(c)
+    rows = [Float64[_write_power(Float64(Σ[i, j]), u, dims[i] + dims[j]) for j in eachindex(dims)] for i in eachindex(dims)]
+    return merge(_calibration_record(g, u), (covariance = rows,))
+end
+
+_read_metres(x, u::Units) = read_length(x::Real, u)
+_nodes_from_json(x, u::Units) = [SVector(_read_metres(p[1], u), _read_metres(p[2], u)) for p in x.nodes::Vector{Any}]
+
+_calibration_from_record(::Type{Rigid}, x, u::Units) = Rigid()
+function _calibration_from_record(::Type{Affine}, x, u::Units)
+    p = x.parameters::Vector{Any}
+    return Affine(SMatrix{2, 2, Float64}(p[1], p[3], p[2], p[4]), [_read_metres(p[5], u), _read_metres(p[6], u)])
+end
+function _calibration_from_record(::Type{ThinPlateSpline}, x, u::Units)
+    nodes = _nodes_from_json(x, u)
+    p = x.parameters::Vector{Any}
+    K = length(nodes)
+    return ThinPlateSpline(nodes, [_read_metres(p[i], u) for i in 1:K], [_read_metres(p[K + i], u) for i in 1:K])
+end
+_calibration_from_record(::Type{HeightField}, x, u::Units) =
+    HeightField(_nodes_from_json(x, u), [_read_metres(v, u) for v in x.parameters::Vector{Any}])
+_calibration_from_record(::Type{CalibrationChain}, x, u::Units) =
+    CalibrationChain(Tuple(_target_calibration_from_json(r, u) for r in x.members::Vector{Any}))
+
+# A calibration record (validated) back to VGC's kind, `Uncertain` iff it
+# states a covariance (unit^(lᵢ+lⱼ) → m^(lᵢ+lⱼ)).
+function _target_calibration_from_json(x, u::Units)
+    c = _calibration_from_record(TARGET_CALIBRATION_TAGS[x.type::String], x, u)
+    haskey(x, :covariance) || return c
+    dims = _length_dims(c)
+    n = length(dims)
+    rows = x.covariance::Vector{Any}
+    Σ = [_read_power(rows[i][j]::Real, u, dims[i] + dims[j]) for i in 1:n, j in 1:n]
+    return Uncertain(c, CovMat(SMatrix{n, n, Float64}(Σ)))
+end
 
 """
     target_json(target, unit = mm) -> NamedTuple
     target_from_json(body, unit; resolve = nothing) -> AbstractTarget
 
 The target body every target-carrying kind embeds (see rig_schema.jl), its
-points (lengths) written in the length `unit`, and back from a file in length
-`unit` (a unit name), as lengths in metres. A target of plain points is an
+points (lengths) and its calibration's lengths written in the length `unit`,
+and back from a file in length `unit` (a unit name), as lengths in metres. A
+target of plain points, or a plain calibration with lengths, is an
 `ArgumentError` (attach the unit, `p .* m`). A `PlanarTarget` of a referenced
 design is written by its reference alone and read back unresolved, unless
-`resolve(design::Symbol)` — the design owner's resolver — returns its nominal
-points (lengths). Building blocks for a package serializing its own kind.
+`resolve(reference::Symbol)` — the design owner's resolver — returns its
+nominal points (lengths). Building blocks for a package serializing its own
+kind.
 """
 target_json(t::PointTarget, unit::Units = mm) = merge((type = "points",), _points_json("a points target", points(t), unit))
-target_json(t::PlanarTarget, unit::Units = mm) = reference(t) === nothing ?
-    (type = "planar", nominal = [_lengths_json(p, unit, "a planar target's nominal point") for p in t.nominal], warp = _warp_json(calibration(t))) :
-    (type = "planar", design = String(reference(t)), warp = _warp_json(calibration(t)))
+target_json(t::PlanarTarget, unit::Units = mm) = merge(
+    reference(t) === nothing ?
+        (type = "planar", nominal = [_lengths_json(p, unit, "a planar target's nominal point") for p in t.nominal], calibration = _target_calibration_json(calibration(t), unit)) :
+        (type = "planar", reference = String(reference(t)), calibration = _target_calibration_json(calibration(t), unit)),
+    _extent_json(_target_extent(t), unit),
+)
+
+# The extent ↔ its record (a `Rect` of lengths; plain numbers are refused).
+# (the page VGC's PlanarTarget holds in its field `extent`, where it has one;
+# decided by the type, at compile time)
+@generated _target_extent(t::PlanarTarget) = hasfield(t, :extent) ? :(t.extent) : :nothing
+_extent_json(::Nothing, ::Units) = (;)
+_extent_json(r::VgtkCore.Rect, u::Units) =
+    (extent = (origin = _lengths_json(r.origin, u, "a target's extent"), widths = _lengths_json(r.widths, u, "a target's extent")),)
+function _extent_from_json(x, u::Units)
+    o, w = x.origin::Vector{Any}, x.widths::Vector{Any}
+    return VgtkCore.Rect(VgtkCore.Point2(read_length(o[1]::Real, u), read_length(o[2]::Real, u)), VgtkCore.Vec2(read_length(w[1]::Real, u), read_length(w[2]::Real, u)))
+end
+# A target read with its extent. This VisualGeometryToolkitCore's PlanarTarget
+# holds none, so a file stating one is refused rather than read without it.
+_with_extent(t::PlanarTarget, ::Nothing) = t
+_with_extent(t::PlanarTarget, extent) = throw(
+    ArgumentError("the target states an `extent`, which this VisualGeometryToolkitCore's PlanarTarget does not hold ($(extent))")
+)
 
 """
     target_from_json(body, unit; resolve = nothing) -> AbstractTarget
 
 Read a target body (the inverse of [`target_json`](@ref)) whose lengths are in
-`unit`, a unit name such as `"mm"`, as lengths in metres. A planar target that
-names its design is returned unresolved unless `resolve(design::Symbol)`
-returns its nominal points — lengths, as the design's owner holds them; plain
-points are an `ArgumentError`.
+`unit`, a unit name such as `"mm"`, as lengths in metres, its calibration
+`Uncertain` iff the body states a covariance. A planar target that names its
+reference is returned unresolved unless `resolve(reference::Symbol)` returns
+its nominal points — lengths, as the design's owner holds them; plain points
+are an `ArgumentError`.
 """
 function target_from_json(t, unit::AbstractString; resolve = nothing)
     u = parse_unit(unit)
     if t.type == "points"
         return PointTarget(_points_from_json(t.points::Vector{Any}, u, haskey(t, :point_covariances) ? t.point_covariances::Vector{Any} : nothing))
     end
-    c = _warp_from_json(t.warp)
-    haskey(t, :nominal) && return PlanarTarget(_points_from_json(t.nominal::Vector{Any}, u); calibration = c)
-    design = Symbol(t.design::String)
-    nominal = resolve === nothing ? nothing : resolve(design)
+    c = _target_calibration_from_json(t.calibration, u)
+    extent = haskey(t, :extent) ? _extent_from_json(t.extent, u) : nothing
+    haskey(t, :nominal) && return _with_extent(PlanarTarget(_points_from_json(t.nominal::Vector{Any}, u); calibration = c), extent)
+    ref = Symbol(t.reference::String)
+    nominal = resolve === nothing ? nothing : resolve(ref)
     (nominal === nothing || isempty(nominal) || has_units(nominal)) ||
-        _refuse_plain("resolve($(repr(design))): the design's nominal points")
-    return PlanarTarget(design; nominal, calibration = c)
+        _refuse_plain("resolve($(repr(ref))): the design's nominal points")
+    return _with_extent(PlanarTarget(ref; nominal, calibration = c), extent)
 end
 
 # -----------------------------------------------------------------------------
-# vgio/target/v1 ↔ one target (AbstractTarget, or one Attributed with its calibration block)
+# vgio/target/v2 ↔ one target (AbstractTarget, or one Attributed with its calibration record)
 # -----------------------------------------------------------------------------
 #
-# {"schema": "vgio/target/v1", "length_unit": "mm", "target": {target body},
-#  "calibration": {…}}                                              (optional: the cameras' block)
+# {"schema": "vgio/target/v2", "length_unit": "mm", "target": {target body},
+#  "calibration_record": {…}}             (optional: who calibrated it — the cameras' block's keys)
 
 const _TARGET_SPEC = _Obj(
     Pair{Symbol, _Spec}[:schema => _schema_tok("target"), :length_unit => _LENGTH_UNIT, :target => _TARGET_BODY],
-    Pair{Symbol, _Spec}[:calibration => _CALIBRATION, _PROVENANCE...],
+    Pair{Symbol, _Spec}[:calibration_record => _CALIBRATION, _PROVENANCE...],
 )
 
 """
     save(path, target::AbstractTarget; length_unit = mm, provenance = (;))
-    save(path, Attributed(target, (; calibration)); length_unit = mm, provenance = (;))
+    save(path, Attributed(target, (; calibration_record)); length_unit = mm, provenance = (;))
 
-Write one physical target as a `vgio/target/v1` file — its body (rig_schema.jl)
-in `length_unit` and, for an `Attributed` one, its `calibration` block (the
-same block a camera carries: who fitted it, when, from what). Plain points are
-an `ArgumentError`, and so is a `PosedTarget`: the file holds an unposed
-target, so save its `model`, or the posed one inside a `Rig`.
+Write one physical target as a `vgio/target/v2` file — its body (rig_schema.jl:
+its points, and a planar target's calibration with its parameters and, when
+`Uncertain`, their covariance) in `length_unit` and, for an `Attributed` one,
+its `calibration_record`: who calibrated it, when, from what (the keys of a
+camera's `calibration` block). Plain points are an `ArgumentError`, and so is a
+`PosedTarget`: the file holds an unposed target, so save its `model`, or the
+posed one inside a `Rig`.
 
-This `calibration` block is PROVENANCE, not the target's `TargetCalibration`:
-on an attributed `PlanarTarget`, `x.calibration` (the property; attributes
-first) is this block and `calibration(x)` (VisualGeometryToolkitCore's
-function) the target's calibration kind. The block is renamed in the next
-target record.
+The calibration record is not the target's calibration: `calibration(t)` is
+the `TargetCalibration`, `x.calibration_record` the record of how it was
+obtained.
 """
 save(path::AbstractString, t::AbstractTarget; length_unit::Units = mm, provenance::NamedTuple = (;)) = (
     _write_store(
@@ -215,46 +387,49 @@ save(path::AbstractString, t::AbstractTarget; length_unit::Units = mm, provenanc
     ); nothing
 )
 function save(
-        path::AbstractString, t::Attributed{<:AbstractTarget, <:NamedTuple{(:calibration,)}};
+        path::AbstractString, t::Attributed{<:AbstractTarget, <:NamedTuple{(:calibration_record,)}};
         length_unit::Units = mm, provenance::NamedTuple = (;)
     )
     body = (
         schema = _schema("target"), length_unit = unit_string(length_unit), target = target_json(t.value, length_unit),
-        calibration = _calibration_json(t.calibration),
+        calibration_record = _calibration_json(t.calibration_record, "a target's calibration record"),
     )
     _write_store(path, _TARGET_SPEC, _with_provenance(body, provenance))
     return nothing
 end
-# A `vgio/target/v1` file holds an UNPOSED target: a posed one is refused here,
+# A `vgio/target/v2` file holds an UNPOSED target: a posed one is refused here,
 # before anything is written, rather than deep inside the writer. Its pose is a
 # rig member's, written by the rig writer.
 _refuse_posed_target(path) = throw(
     ArgumentError(
-        "save($(repr(path)), ::PosedTarget): a vgio/target/v1 file holds an unposed target — save `model(pt)`, " *
+        "save($(repr(path)), ::PosedTarget): a $(_schema("target")) file holds an unposed target — save `model(pt)`, " *
             "or the posed target as a member of a rig with the rig writer: `save(path, Rig{F}(Dict(id => pt)))`"
     )
 )
 save(path::AbstractString, ::PosedTarget; kwargs...) = _refuse_posed_target(path)
-save(path::AbstractString, ::Attributed{<:PosedTarget, <:NamedTuple{(:calibration,)}}; kwargs...) = _refuse_posed_target(path)
+save(path::AbstractString, ::Attributed{<:PosedTarget, <:NamedTuple{(:calibration_record,)}}; kwargs...) = _refuse_posed_target(path)
 
 """
     load(AbstractTarget, path; resolve = nothing) -> AbstractTarget | Attributed{<:AbstractTarget}
 
-Read a `vgio/target/v1` file: the target, `Attributed` with its `calibration`
-block where the file states one. `resolve(design)` supplies a referenced
-design's nominal points (else the target is returned unresolved).
+Read a `vgio/target/v2` file: the target, `Attributed` with its
+`calibration_record` where the file states one. `resolve(reference)` supplies
+a referenced design's nominal points (else the target is returned
+unresolved). A `vgio/target/v1` file is refused, naming its migration
+(`vgio_migrate`).
 """
 function load(::Type{AbstractTarget}, path::AbstractString; resolve = nothing)
     d = _read_store(path, "target", _TARGET_SPEC)
     t = target_from_json(d.target, d.length_unit::String; resolve)
-    return haskey(d, :calibration) ? Attributed(t, (; calibration = _calibration_from_json(d.calibration::AbstractDict))) : t
+    return haskey(d, :calibration_record) ?
+        Attributed(t, (; calibration_record = _calibration_from_json(d.calibration_record::AbstractDict))) : t
 end
 
 # -----------------------------------------------------------------------------
-# vgio/rig/v4 ↔ Rig, every storage
+# vgio/rig/v5 ↔ Rig, every storage
 # -----------------------------------------------------------------------------
 #
-# {"schema": "vgio/rig/v4", "pixel_frame": "colmap", <pose declarations>, "frame": "body:camera_rig",
+# {"schema": "vgio/rig/v5", "pixel_frame": "colmap", <pose declarations>, "frame": "body:camera_rig",
 #  "sensors": [{"id": "cam1", "camera": {camera body | generic body},
 #               "extrinsics": {rotation, translation}}],               extrinsics: `frame` → view:<id>
 #  "targets": [{"id": "<uid>", "target": {target body},
@@ -342,7 +517,7 @@ end
 """
     save(path, rig::Rig; length_unit = mm, provenance = (;))
 
-Write a physical VGC `Rig` — sensors, targets, or both — as a `vgio/rig/v4`
+Write a physical VGC `Rig` — sensors, targets, or both — as a `vgio/rig/v5`
 file in `length_unit`: each sensor (a `BoundedCamera`) with its extrinsics
 `frame → view:<id>`, each target (sorted by id) with its body and its pose
 `target:<id> → frame` (a `covariance` iff `Uncertain`). A rig of plain
@@ -355,7 +530,7 @@ save(path::AbstractString, rig::Rig; length_unit::Units = mm, provenance::NamedT
 """
     load(Rig, path; resolve = nothing) -> Rig
 
-Read a `vgio/rig/v4` file back into a fully labeled VGC `Rig` of the storage
+Read a `vgio/rig/v5` file back into a fully labeled VGC `Rig` of the storage
 it holds, its lengths in metres: sensors (each a `BoundedCamera` labeled `frame → ViewFrame{id}`),
 targets (each a `PosedTarget`, minted `TargetFrame{id} → frame` on access), or both.
 `resolve(design)` supplies a referenced planar design's nominal points (see
@@ -395,38 +570,39 @@ end
     content_id(targets) -> String
 
 The identity a measurement file (`target_points2d`, `target_points3d`) names a
-target definition by — `targets` a `Rig` or a `vgio/rig/v4` path: the SHA-256
-of the canonical JSON of its rig record WITHOUT its provenance. A rig and the file written from it (in the
-default millimetres) have the same identity, as do a file and the rig loaded from it (a path is hashed as
-the record its loaded rig writes, in the file's `length_unit`, so a full-precision number that does not
-survive into metres does not split the two); a relabeled provenance does not change it, a file written in
-another `length_unit` has its own. A measurement value's `targets` holds
-these.
+target definition by — `targets` a `Rig` or a `vgio/rig/v5` path: the SHA-256
+of the canonical JSON of the rig's CANONICAL TREE, built from the value: the
+rig record as the writer builds it, in metres (base units), its targets sorted
+by id, without the file's declarations (`schema`, `length_unit`,
+`rotation_encoding`, `transform_convention`, `pixel_frame`) and without its
+`provenance`. The identity does not change when the file format does: a
+rig, the file written from it in any `length_unit`, and the rig loaded back
+from that file have one identity, and a migration to the next rig version
+keeps it — a target's calibration kind and its parameters are part of it, a
+relabeled provenance is not. A measurement value's `targets` holds these.
 """
 content_id(x::Union{Rig, AbstractString}) = _targets_hash(x)
 
 # The identity observations name a targets file by: the SHA-256 of the
-# canonical JSON (canonical.jl) of the record WITHOUT its provenance, so a
-# relabeled provenance does not change which targets a file resolves against.
-# The same for a file on disk and for the rig it was written from, and for a
-# file and the rig loaded from it: a path is hashed as the record its loaded
-# rig writes, in the file's own `length_unit`. A file's numbers are lengths read
-# into metres; a 16–17 digit one need not come back (the decimal-to-metre map
-# is not injective), so hashing the file's own bytes would give a loaded rig
-# another identity than its file. A number of ≤ 15 significant digits comes
-# back byte for byte, so such a file keeps the identity of its bytes.
-function _targets_hash(path::AbstractString)
-    d = _read_store(path, "rig", _RIG_SPEC)
-    rig = _rig_from_record(d)                 # a referenced design stays a reference
-    return _hash_record(_parse_json(_json(_rig_body(rig, parse_unit(d.length_unit::String)))))
+# canonical JSON (canonical.jl) of the rig's canonical tree — its record in
+# metres without the file's declarations and its provenance (`content_id`).
+# A path is hashed as the rig it loads, so a file and its rig agree whatever
+# the file's unit. Changing what the tree holds changes every identity; the
+# pinned identity test (rig_schema_tests.jl) fails and must say why.
+const _FORMAT_DECLARATIONS = (:schema, :length_unit, :rotation_encoding, :transform_convention, :pixel_frame, :provenance)
+_targets_hash(path::AbstractString) = _targets_hash(_rig_from_record(_read_store(path, "rig", _RIG_SPEC)))   # a referenced design stays a reference
+_targets_hash(rig::Rig) = sha256_hex(canonical_json(_canonical_tree(rig)))
+function _canonical_tree(rig::Rig)
+    d = _lower(_parse_json(_json(_rig_body(rig, m))))
+    for k in _FORMAT_DECLARATIONS
+        delete!(d, String(k))
+    end
+    return d
 end
-_targets_hash(rig::Rig) = _hash_record(_parse_json(_json(_rig_body(rig))))
-_hash_record(d) = sha256_hex(canonical_json(_lower(d; drop = :provenance)))
 
-_lower(x::AbstractDict; drop::Union{Nothing, Symbol} = nothing) =
-    Dict{String, Any}(String(k) => _lower(v) for (k, v) in x if Symbol(k) !== drop)
-_lower(x::AbstractVector; drop = nothing) = Any[_lower(v) for v in x]
-_lower(x; drop = nothing) = x
+_lower(x::AbstractDict) = Dict{String, Any}(String(k) => _lower(v) for (k, v) in x)
+_lower(x::AbstractVector) = Any[_lower(v) for v in x]
+_lower(x) = x
 
 const _HEX64 = _Named(s -> length(s) == 64 && all(c -> c in "0123456789abcdef", s), "a SHA-256 hex digest")
 

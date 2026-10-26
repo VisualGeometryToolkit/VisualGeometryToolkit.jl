@@ -90,7 +90,7 @@
         )
         save(at!("rig_generic", "rig_generic.json"), Rig{ViewFrame{:g}}((PosedCamera(gn, relabel(ViewFrame{:g}, ViewFrame{:g}, ident)),)))
         save(at!("rig_targets", "targets.json"), targets)
-        save(at!("target", "target.json"), Attributed(PointTarget([mm_lengths(SVector(1.0, 2.0, 3.0))]), (; calibration = (; tool = "t"))))
+        save(at!("target", "target.json"), Attributed(PointTarget([mm_lengths(SVector(1.0, 2.0, 3.0))]), (; calibration_record = (; tool = "t"))))
         save(
             at!("trajectory", "trajectory.json"),
             Trajectory(BodyFrame{:rig}, WorldFrame, Dict(1 => pose(900.0mm)); images = Dict(1 => "a.png"), times = Dict(1 => 0.5), time_origin = "2026-05-27T00:00:00"),
@@ -137,16 +137,21 @@
             # their lens records (and rig/v3 with its successor), a typed-frame
             # kind's v1 and v2 for their free-form frame names, any other kind's
             # earlier version as retired; a kind born at v1 has nothing retired
-            v1 = replace(doc[:schema], r"/v[234]$" => "/v1")
-            if name in ("target_poses", "target_points2d", "target_points3d", "target")
+            v1 = replace(doc[:schema], r"/v[2345]$" => "/v1")
+            if name in ("target_poses", "target_points2d", "target_points3d")
                 @test endswith(doc[:schema], "/v1")
+            elseif name == "target"
+                # the version before is migrated, not read: the refusal names the migration
+                @test doc[:schema] == "vgio/target/v2"
+                @test occursin("vgio_migrate", something(refusal(merge(doc, Dict(:schema => v1)), dir, "$(name)_v1"; units), ""))
             elseif name in ("transforms", "trajectory")
                 @test occursin("free strings", something(refusal(merge(doc, Dict(:schema => replace(doc[:schema], "/v3" => "/v2"))), dir, "$(name)_v2"; units), ""))
                 @test occursin("free strings", something(refusal(merge(doc, Dict(:schema => v1)), dir, "$(name)_v1"; units), ""))
             elseif startswith(name, "rig")
                 @test occursin("lens records", something(refusal(merge(doc, Dict(:schema => v1)), dir, "$(name)_v1"; units), ""))
                 @test occursin("lens records", something(refusal(merge(doc, Dict(:schema => "vgio/rig/v2")), dir, "$(name)_v2"; units), ""))
-                @test occursin("rig/v4", something(refusal(merge(doc, Dict(:schema => "vgio/rig/v3")), dir, "$(name)_v3"; units), ""))
+                @test occursin("rig/v5", something(refusal(merge(doc, Dict(:schema => "vgio/rig/v3")), dir, "$(name)_v3"; units), ""))
+                @test occursin("vgio_migrate", something(refusal(merge(doc, Dict(:schema => "vgio/rig/v4")), dir, "$(name)_v4"; units), ""))
             elseif endswith(doc[:schema], "/v3")
                 @test occursin("lens records", something(refusal(merge(doc, Dict(:schema => v1)), dir, "$(name)_v1"; units), ""))
                 @test occursin("lens records", something(refusal(merge(doc, Dict(:schema => replace(doc[:schema], "/v3" => "/v2"))), dir, "$(name)_v2"; units), ""))

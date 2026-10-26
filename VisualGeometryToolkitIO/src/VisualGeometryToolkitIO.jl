@@ -29,11 +29,11 @@ what is about the file — the `schema` tag, the declared conventions, the
 reserved `payload`, the free-form `provenance` (a `save` keyword, never read
 back) — and none of it is part of the value. A fact about the value that must
 round-trip is part of the VGC value: a field (a trajectory's per-frame images
-and times) or an `Attributed` attribute (a camera's or a target's
-`calibration` block; a covariance, as `Uncertain`).
+and times) or an `Attributed` attribute (a camera's `calibration` block, a target's
+`calibration_record`; a covariance, as `Uncertain`).
 
-Every vgio file is a versioned schema (`vgio/<kind>/v<n>`: rig v4; cameras,
-transforms and trajectory v3; target, target_poses, target_points2d and
+Every vgio file is a versioned schema (`vgio/<kind>/v<n>`: rig v5; cameras,
+transforms and trajectory v3; target v2; target_poses, target_points2d and
 target_points3d v1; the rest v2), and a file is sufficient on its own and
 minimal:
 - every convention a reader needs is DECLARED in the file, once — the pixel
@@ -56,7 +56,9 @@ minimal:
   file → value → file is exact; any other rotation is converted on write.
 Retired kinds and versions are refused by name, with their successor; nothing
 reads them (their one-shot migrations ran in 2026-10 and live in the git
-history). COLMAP model directories keep COLMAP's own format (world → camera
+history). The version before the current target (v1) and rig (v4) is refused
+naming its migration, `vgio_migrate` (migrate.jl), which a schema's owner
+extends for its own kinds (`migrate_schema`). COLMAP model directories keep COLMAP's own format (world → camera
 poses, pixel centres at 0.5) and get a `vgio_units.json` sidecar declaring
 their world unit.
 =#
@@ -90,7 +92,8 @@ using VisualGeometryToolkitCore: parse_unit, unit_string, mm, m, px, dpi, has_un
     lens_record, lens_from_record,
     EuclideanMap, Size2, Vec3, PixelFrame,
     Rig, PosedTarget, BoundedCamera, PosedCamera, Attributed, sensor_rig, target_rig,
-    AbstractTarget, PointTarget, PlanarTarget, Rigid, TargetCalibration, calibration, reference, is_resolved,
+    AbstractTarget, PointTarget, PlanarTarget, TargetCalibration, calibration, reference, is_resolved,
+    Rigid, Affine, ThinPlateSpline, HeightField, CalibrationChain, TARGET_CALIBRATION_TAGS, tag_of, parameter_vector,
     Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D, TargetPoint2D, TargetPoint3D,
     CentralGenericModel, NoncentralGenericModel,
     Frame, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, UnlabeledFrame,
@@ -114,8 +117,8 @@ import VisualGeometryToolkitCore
 #   load(Dict{Symbol, BoundedCamera}, path)      vgio/cameras/v3     the camera store
 #   load(BoundedCamera | CameraModel, path; name = nothing)          one of its cameras (multi refused unnamed)
 #   load(Vector{EuclideanMap}, path)             vgio/transforms/v3  labeled poses
-#   load(Rig, path; resolve = nothing)           vgio/rig/v4         sensors, targets, or both
-#   load(AbstractTarget, path; resolve = nothing) vgio/target/v1     one target (+ its calibration block)
+#   load(Rig, path; resolve = nothing)           vgio/rig/v5         sensors, targets, or both
+#   load(AbstractTarget, path; resolve = nothing) vgio/target/v2     one target (+ its calibration record)
 #   load(Trajectory, path)                       vgio/trajectory/v3  a body's pose over time
 #   load(TargetPoses, path)                      vgio/target_poses/v1
 #   load(TargetPoints2D, path)                   vgio/target_points2d/v1
@@ -181,6 +184,7 @@ export save_correspondences           # export: measurements + targets → exter
 export save_tum_trajectory, save_euroc_trajectory, save_bop_scene, save_trc   # exporters to the community formats
 export ros_pose_covariance, pose_covariance_from_ros   # the pose covariance in ROS PoseWithCovariance order
 export migrate_opencv, migrate_matlab # a third-party OpenCV / MATLAB calibration → native v3 camera + image-named poses
+export vgio_migrate, vgio_migrate_tree, repoint_targets   # an earlier schema version → the current one, once; measurements re-pointed at migrated rigs
 export append_jsonl
 export canonical_json, sha256_hex
 
@@ -201,11 +205,23 @@ public ColmapModel                    # a COLMAP model directory's contents + it
 public read_length, write_length   # a file length <-> metres, decimal-exact (power-of-ten units shift the exponent)
 public read_quantity, write_quantity, json_value, from_json, ScalarOrQuantity   # the quantity JSON format (core_json.jl)
 public validate                       # check any vgio file against its kind's table
+public migrate_schema, CONTRACT_GENERICS   # the per-schema migration a schema owner extends (its declared extension points)
 public pixel_frame_name, pixel_frame_from_name   # a pixel frame's serialized name, and back (VGC decides which exist)
 public pose_json, pose_from_json, pose_declarations, camera_json, camera_from_json,
     target_json, target_from_json     # building blocks for a package's own kind (a calibration pipeline's session)
 public n_images, image_names, image_id, image_name, # ColmapDatabase accessors
     keypoints, descriptors, matches, matched_pairs, verified_matches,
     pair_id, pair_image_ids
+
+"""
+    CONTRACT_GENERICS
+
+VisualGeometryToolkitIO's declared extension points: the functions another
+stack package may add methods to (VisualGeometryToolkitCore's
+`contract_generic_violations` checks it). [`migrate_schema`](@ref): the owner
+of a schema adds the migration of each of its old versions, so
+[`vgio_migrate`](@ref) migrates its files.
+"""
+const CONTRACT_GENERICS = (migrate_schema,)
 
 end # module

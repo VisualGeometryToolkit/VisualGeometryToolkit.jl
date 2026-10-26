@@ -1,5 +1,5 @@
 {
-    "schema": "vgio/rig/v4",
+    "schema": "vgio/rig/v5",
     "pixel_frame": "colmap",
     "length_unit": "mm",
     "rotation_encoding": "quaternion_wxyz_hamilton",
@@ -90,7 +90,7 @@
                         -0.001
                     ]
                 ],
-                "warp": {
+                "calibration": {
                     "type": "rigid"
                 }
             },
@@ -112,8 +112,8 @@
             "id": "b76e",
             "target": {
                 "type": "planar",
-                "design": "b76e",
-                "warp": {
+                "reference": "b76e",
+                "calibration": {
                     "type": "rigid"
                 }
             },

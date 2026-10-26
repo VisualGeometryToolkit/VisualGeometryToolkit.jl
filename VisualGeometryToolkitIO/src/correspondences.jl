@@ -4,7 +4,7 @@
 # =============================================================================
 #
 # The measurements (target_points2d/v1, VGC `TargetPoints2D`) and the targets
-# (rig/v4, a VGC `Rig` of targets) are COLMAP's points2D → points3D
+# (rig/v5, a VGC `Rig` of targets) are COLMAP's points2D → points3D
 # decomposition: a pixel and a reference into a target's point list. Feeding a
 # third-party calibrator — cv::calibrateCamera, MATLAB's
 # estimateCameraParameters, the python side — means resolving the references
@@ -120,7 +120,7 @@ for `cv::calibrateCamera` (the top-left pixel's centre at (0, 0)),
 `PixelFrame{:julia}` for MATLAB's (1, 1); the measurements' own frame by
 default. A type, it leads.
 
-`targets` is one or more rigs or `vgio/rig/v4` paths (one per connected
+`targets` is one or more rigs or `vgio/rig/v5` paths (one per connected
 component; a target present in several must carry the same points in each;
 `resolve` resolves a referenced planar design read from a path); when `obs` names its targets (`obs.targets`), the given ones must be
 exactly those, by [`content_id`](@ref). Every (target, index) must resolve,

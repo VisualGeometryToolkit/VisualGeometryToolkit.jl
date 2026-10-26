@@ -1,5 +1,5 @@
 # =============================================================================
-# rig/v4, target/v1, trajectory/v3, target_poses/v1, target_points2d/v1,
+# rig/v5, target/v2, trajectory/v3, target_poses/v1, target_points2d/v1,
 # target_points3d/v1 round trips, and the correspondences export
 # =============================================================================
 #
@@ -32,7 +32,7 @@
     @test_throws ArgumentError frame_from_name("view:")            # a prefix is not a name
 end
 
-@testitem "rig/v4: a sensor rig" setup = [VGIoFixtures] begin
+@testitem "rig/v5: a sensor rig" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: Rig, StereoRig, BoundedCamera, PosedCamera, ViewFrame,
@@ -55,7 +55,7 @@ end
         path = joinpath(dir, "rig.json")
         save(path, rig; provenance = (name = "test-rig",))
         d = parse_json(read(path, String))
-        @test d.schema == "vgio/rig/v4" && d.pixel_frame == "colmap" && d.length_unit == "mm"
+        @test d.schema == "vgio/rig/v5" && d.pixel_frame == "colmap" && d.length_unit == "mm"
         @test d.frame == "view:left" && d.provenance.name == "test-rig"
         @test !haskey(d, :targets)                                       # omitted, not empty
         # the extrinsics' frames are where they sit — never restated beside them
@@ -127,7 +127,7 @@ end
     end
 end
 
-@testitem "rig/v4: a rig of targets" setup = [VGIoFixtures] begin
+@testitem "rig/v5: a rig of targets" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, PointTarget, is_resolved, resolve,
         WorldFrame, TargetFrame, ids, pose, points, reference_frame, reference
     using Rotations: RotXYZ
@@ -151,12 +151,12 @@ end
         path = joinpath(dir, "targets.json")
         save(path, tr)
         d = parse_json(read(path, String))
-        @test d.schema == "vgio/rig/v4" && !haskey(d, :pixel_frame) && !haskey(d, :sensors)   # pixel_frame iff sensors
+        @test d.schema == "vgio/rig/v5" && !haskey(d, :pixel_frame) && !haskey(d, :sensors)   # pixel_frame iff sensors
         @test [t.id for t in d.targets] == ["a1f2", "b76e", "c9"]      # ids sorted
         @test d.targets[1].target.type == "planar" && haskey(d.targets[1].target, :nominal)
         # a referenced design is written by its reference alone: its points are its owner's
-        @test d.targets[2].target.design == "b76e" && !haskey(d.targets[2].target, :nominal)
-        @test d.targets[2].target.warp.type == "rigid"
+        @test d.targets[2].target.reference == "b76e" && !haskey(d.targets[2].target, :nominal)
+        @test d.targets[2].target.calibration.type == "rigid"
         back = load(Rig, path)
         @test back isa Rig{TargetFrame{:a1f2}, <:AbstractDict}
         @test reference_frame(back) === TargetFrame{:a1f2}
@@ -196,21 +196,24 @@ end
         @test_throws ArgumentError load(Rig, with_unit("px"))
 
         # The content identity measurements name a rig by: the same for the
-        # file and for the rig it was written from (resolved or not), and blind
-        # to provenance.
+        # file and for the rig it was written from (resolved or not), blind
+        # to provenance and to the file's length unit.
         @test content_id(path) == content_id(tr) == content_id(back) == content_id(backr)
         pp = joinpath(dir, "targets_prov.json")
         save(pp, tr; provenance = (note = "relabeled",))
         @test content_id(pp) == content_id(path)
+        pm = joinpath(dir, "targets_m.json")
+        save(pm, tr; length_unit = m)
+        @test content_id(pm) == content_id(path)
         @test content_id(pw) != content_id(path)
     end
 end
 
-@testitem "rig/v4: sensors and targets — the camera rig with its constellation" setup = [VGIoFixtures] begin
+@testitem "rig/v5: sensors and targets — the camera rig with its constellation" setup = [VGIoFixtures] begin
     using LinearAlgebra: LinearAlgebra
     using VisualGeometryToolkitCore: Rig, PosedTarget, PointTarget, PlanarTarget, AbstractTarget, Attributed, BoundedCamera, PosedCamera,
         BodyFrame, ViewFrame, Uncertain, CovMat, relabel, ids, pose, extrinsics, model, points,
-        sensor_rig, target_rig, exact, is_resolved, Affine, Rigid
+        sensor_rig, target_rig, exact, is_resolved
     using Statistics: cov
     K = SMatrix{3, 3, Float64}(900.0, 0, 0, 0, 900.0, 0, 640.0, 480.0, 1)
     Xc = relabel(BodyFrame{:camera_rig}, ViewFrame{:cam}, _mkpose())
@@ -235,21 +238,22 @@ end
         @test pose(back, :markers) isa Uncertain && cov(pose(back, :markers)) == Σ
         @test ids(sensor_rig(back)) == (:cam,) && ids(target_rig(back)) == [:markers]
         @test content_id(back) == content_id(path)
-        # the same constellation as a lone target, with its calibration block (target/v1)
+        # the same constellation as a lone target, with its calibration record (target/v2)
         tp = joinpath(dir, "constellation.json")
         cal = (; tool = "mean over tracked frames", n_images = 120)
-        save(tp, Attributed(markers, (; calibration = cal)))
+        save(tp, Attributed(markers, (; calibration_record = cal)))
         t = load(AbstractTarget, tp)
-        @test t isa Attributed && t.value == markers && t.calibration === cal
+        @test t isa Attributed && t.value == markers && t.calibration_record === cal
+        @test parse_json(read(tp, String)).calibration_record.n_images == 120
         save(tp, markers)
         @test load(AbstractTarget, tp) == markers
         dt = parse_json(read(tp, String))
-        @test dt.schema == "vgio/target/v1" && !haskey(dt, :calibration)
-        @test_throws ArgumentError save(tp, Attributed(markers, (; calibration = (; date = "May 2026"))))
+        @test dt.schema == "vgio/target/v2" && !haskey(dt, :calibration_record)
+        @test_throws ArgumentError save(tp, Attributed(markers, (; calibration_record = (; date = "May 2026"))))
         # a posed target is not a target file: refused at save, naming the model and the rig writer, nothing written
         posed = PosedTarget(markers, ident)
         tq = joinpath(dir, "posed.json")
-        for x in (posed, Attributed(posed, (; calibration = cal)))
+        for x in (posed, Attributed(posed, (; calibration_record = cal)))
             e = try save(tq, x); nothing catch err; err end
             @test e isa ArgumentError && occursin("model(pt)", e.msg) && occursin("rig writer", e.msg)
         end
@@ -260,21 +264,10 @@ end
         save(tp, PlanarTarget(:b76e))
         @test !is_resolved(load(AbstractTarget, tp))
         @test points(load(AbstractTarget, tp; resolve = _ -> [mm_lengths(SVector(1.0, 2.0))])) == [mm_lengths(SVector(1.0, 2.0))]
-        # the v1 record's warp is rigid: any other target calibration is refused at save, nothing written
-        ta = joinpath(dir, "affine.json")
-        affine = Affine([1.001 0.0; 0.0 1.0], [0.1, 0.0] .* mm)
-        e = try save(ta, PlanarTarget([mm_lengths(SVector(1.0, 2.0))]; calibration = affine)); nothing catch err; err end
-        @test e isa ArgumentError && occursin("Affine", e.msg) && occursin("vgio/target/v1", e.msg)
-        @test !isfile(ta)
-        # an uncertain calibration, even a rigid one: its covariance has no place in v1
-        u = Uncertain(Rigid(), CovMat(SMatrix{0, 0, Float64}()))
-        e = try save(ta, PlanarTarget([mm_lengths(SVector(1.0, 2.0))]; calibration = u)); nothing catch err; err end
-        @test e isa ArgumentError && occursin("uncertain", e.msg) && occursin("covariance", e.msg) && !occursin("rigid only", e.msg)
-        @test !isfile(ta)
     end
 end
 
-@testitem "rig/v4: the validator" setup = [VGIoFixtures] begin
+@testitem "rig/v5: the validator" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, PointTarget, WorldFrame, exact
     pts = [mm_lengths(SVector(0.0, 0.0)), mm_lengths(SVector(10.0, 0.0))]
     X = EuclideanMap(one(RotMatrix{3, Float64}), [10.0mm, 0.0mm, 0.0mm])
@@ -297,10 +290,13 @@ end
         @test refused(dd -> (dd["pixel_frame"] = "colmap"), "pixel_frame")             # declared iff sensors
         @test refused(dd -> (dd["targets"] = []), "omitted, not empty")
         @test refused(dd -> delete!(dd, "targets"), "sensors, targets, or both")
-        @test refused(dd -> (dd["targets"][1]["target"]["design"] = "a"), "not both")     # design and nominal
+        @test refused(dd -> (dd["targets"][1]["target"]["reference"] = "a"), "not both")     # reference and nominal
         @test refused(dd -> (dd["targets"][1]["target"]["type"] = "spline"), "unknown target type")
-        @test refused(dd -> (dd["targets"][1]["target"]["warp"] = Dict("type" => "affine")), "rigid")
-        @test refused(dd -> delete!(dd["targets"][1]["target"], "warp"), "warp")
+        @test refused(dd -> (dd["targets"][1]["target"]["calibration"] = Dict("type" => "warp")), "unknown calibration type")
+        @test refused(dd -> delete!(dd["targets"][1]["target"], "calibration"), "states its `calibration`")
+        # the v1 keys, refused by name with the migration
+        @test refused(dd -> (dd["targets"][1]["target"]["warp"] = Dict("type" => "rigid")), "vgio_migrate")
+        @test refused(dd -> (dd["targets"][1]["target"]["design"] = "a"), "vgio_migrate")
         @test refused(dd -> (dd["targets"][1]["target"] = Dict("type" => "points", "points" => [[1, 2], [1, 2, 3]])), "2-vectors")
         @test refused(dd -> push!(dd["targets"], deepcopy(dd["targets"][1])), "unique")
         # plain and uncertain points are not mixed in one target
@@ -315,8 +311,8 @@ end
         for (schema, T, successor) in (
                 ("vgio/observations/v2", TargetPoints2D, "target_points2d/v1"),
                 ("vgio/point_observations/v1", TargetPoints3D, "target_points3d/v1"),
-                ("vgio/targets/v2", Rig, "rig/v4"),
-                ("vgio/rig/v3", Rig, "rig/v4"),
+                ("vgio/targets/v2", Rig, "rig/v5"),
+                ("vgio/rig/v3", Rig, "rig/v5"),
                 ("vgio/session/v3", Rig, "calibration pipeline's own session kind"),
             )
             p = joinpath(dir, "old.json")

@@ -335,8 +335,9 @@ const RETIRED_NAMES = String[
     # one placement trait for cameras and targets alike: `is_posed` (2026-10-26)
     "has" * "_extrinsics",
     # a planar target's design is moved by its `TargetCalibration` (field and
-    # keyword `calibration`, `calibration_jacobian`) (2026-10-26); the bare word
-    # stays until the target record that carries calibrations drops its key
+    # keyword `calibration`, `calibration_jacobian`) (2026-10-26). The target
+    # record dropped its "warp" key (vgio/target/v2), but the bare word stays
+    # unretired: it is also the image warp (`image_warp`) across the stack
     "Abstract" * "Warp", "warp" * "_jacobian", "warp" * " = Rigid",
 ]
 

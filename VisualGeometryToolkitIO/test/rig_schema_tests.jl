@@ -210,7 +210,7 @@ end
     using LinearAlgebra: LinearAlgebra
     using VisualGeometryToolkitCore: Rig, PosedTarget, PointTarget, PlanarTarget, AbstractTarget, Attributed, BoundedCamera, PosedCamera,
         BodyFrame, ViewFrame, Uncertain, CovMat, relabel, ids, pose, extrinsics, model, points,
-        sensor_rig, target_rig, exact, is_resolved
+        sensor_rig, target_rig, exact, is_resolved, Affine
     using Statistics: cov
     K = SMatrix{3, 3, Float64}(900.0, 0, 0, 0, 900.0, 0, 640.0, 480.0, 1)
     Xc = relabel(BodyFrame{:camera_rig}, ViewFrame{:cam}, _mkpose())
@@ -260,6 +260,12 @@ end
         save(tp, PlanarTarget(:b76e))
         @test !is_resolved(load(AbstractTarget, tp))
         @test points(load(AbstractTarget, tp; resolve = _ -> [mm_lengths(SVector(1.0, 2.0))])) == [mm_lengths(SVector(1.0, 2.0))]
+        # the v1 record's warp is rigid: any other target calibration is refused at save, nothing written
+        ta = joinpath(dir, "affine.json")
+        affine = Affine([1.001 0.0; 0.0 1.0], [0.1, 0.0] .* mm)
+        e = try save(ta, PlanarTarget([mm_lengths(SVector(1.0, 2.0))]; calibration = affine)); nothing catch err; err end
+        @test e isa ArgumentError && occursin("Affine", e.msg) && occursin("vgio/target/v1", e.msg)
+        @test !isfile(ta)
     end
 end
 

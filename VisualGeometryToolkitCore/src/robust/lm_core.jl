@@ -306,7 +306,7 @@ lm_retcode(converged::Int) =
 
 The retcode of a fit run by NLLSsolver, from `termination` (the bit set of
 `NLLSResult.termination`) and the Jacobian `J` and residual `r` at the returned
-estimate. NLLSsolver 0.1's bits (`optimizeloop!`, src/optimize.jl): 0 the cost
+estimate. NLLSsolver 5.x's bits (unchanged since 0.1; bits 0–10 and 16, `optimizeloop!`, src/optimize.jl): 0 the cost
 is infinite, 1 the cost is NaN, 2 the relative decrease in cost is too small,
 3 the absolute decrease in cost is too small, 4 an infinity in the step, 5 a
 NaN in the step, 6 the max of the step size is too small, 7 the maximum number

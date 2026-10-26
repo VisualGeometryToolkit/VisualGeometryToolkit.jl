@@ -24,7 +24,7 @@ BlobBoards build on it.
   fundamental-matrix solvers) and the manifolds their models are refined on.
 - The robust-loss family (`AbstractLossShape`, `deploy`), the block-coordinate-descent/LO interface
   shared with VisualGeometryToolkitEstimation, and `FitResult`, the one fit return type.
-- Numerics: the B-spline kernels and the thin-plate spline (`ThinPlateSpline`,
+- Numerics: the B-spline kernels and the thin-plate spline (`ThinPlateSplineSystem`,
   `tps_coefficients`, `tps_evaluate`, `tps_gradient`), public, not exported.
 - Units: FlexUnits as shipped, plus the registered `px`, `pd`, `dpi` and `pt` (`mm`, `px`, `dpi`, `Size2`).
 
@@ -186,7 +186,7 @@ public bspline_basis_iterative, evaluate_bspline_surface, bspline_surface_partia
 public evaluate_bspline_4d, bspline_4d_partial, contract_basis_4d_weighted
 # Thin-plate spline (hoisted from RadiometricCamera, arithmetic unchanged): the
 # host-side solver object and the isbits, allocation-free evaluator and gradient.
-public ThinPlateSpline, tps_radial_basis, grid_nodes, tps_coefficients
+public ThinPlateSplineSystem, tps_radial_basis, grid_nodes, tps_coefficients
 public tps_evaluate, tps_gradient, nodal_weights, bending_energy
 
 # Coordinate conversions

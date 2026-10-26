@@ -30,7 +30,7 @@
 @testitem "thin_plate_spline" begin
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: ThinPlateSpline, tps_radial_basis, grid_nodes, tps_coefficients,
+    using VisualGeometryToolkitCore: ThinPlateSplineSystem, tps_radial_basis, grid_nodes, tps_coefficients,
         tps_evaluate, tps_gradient, nodal_weights, bending_energy   # public, not exported
     using StaticArrays: SVector
     using LinearAlgebra: norm
@@ -59,7 +59,7 @@
         N = n * n
         nodes = grid_nodes(n)
         @test nodes == ref.nodes
-        tps = ThinPlateSpline(nodes)
+        tps = ThinPlateSplineSystem(nodes)
         t = ref.values
 
         # Through `inv` and BLAS: bounded (see the header).
@@ -99,7 +99,7 @@
         ref = REF.height
         nodes = grid_nodes(5; lo = 0.0, hi = 1.0)
         @test nodes == ref.nodes
-        snodes = ThinPlateSpline(nodes).nodes
+        snodes = ThinPlateSplineSystem(nodes).nodes
         w = SVector{25}(ref.w)
         a0 = zero(SVector{3, Float64})   # the height field is the spline without its affine part
         @test [tps_evaluate(snodes, w, a0, b) for b in ref.points] == ref.height
@@ -116,7 +116,7 @@
 
     @testset "Float32 within eps of Float64: $name" for (name, n) in (("grid_3", 3), ("grid_5", 5))
         ref = getproperty(REF, Symbol(name))
-        tps = ThinPlateSpline(grid_nodes(n))
+        tps = ThinPlateSplineSystem(grid_nodes(n))
         w32, a32 = tps_coefficients(tps, Float32.(ref.values))
         nodes32 = SVector{n * n}(SVector{2, Float32}.(tps.nodes))
         # The same (Float32-rounded) inputs evaluated in Float64: what differs is
@@ -139,7 +139,7 @@
 
     @testset "ForwardDiff: the analytic gradient and nodal_weights: $name" for (name, n) in (("grid_3", 3), ("grid_5", 5))
         ref = getproperty(REF, Symbol(name))
-        tps = ThinPlateSpline(grid_nodes(n))
+        tps = ThinPlateSplineSystem(grid_nodes(n))
         w, a = tps_coefficients(tps, ref.values)
         for p in POINTS
             # Through tps_evaluate with Dual coordinates (on a node too: the r² > 0 guard).
@@ -161,7 +161,7 @@
     end
 
     @testset "isbits and allocation-free" begin
-        tps = ThinPlateSpline(grid_nodes(5))
+        tps = ThinPlateSplineSystem(grid_nodes(5))
         w, a = tps_coefficients(tps, REF.grid_5.values)
         nodes, p = tps.nodes, SVector(0.123, -0.377)
         @test isbitstype(typeof(nodes)) && isbitstype(typeof(w)) && isbitstype(typeof(a))
@@ -180,7 +180,7 @@
             f[i] = tps_evaluate(nodes, w, a, points[i])
             g[i] = tps_gradient(nodes, w, a, points[i])
         end
-        tps = ThinPlateSpline(grid_nodes(5))
+        tps = ThinPlateSplineSystem(grid_nodes(5))
         for T in (Float64, Float32)
             w, a = tps_coefficients(tps, T.(REF.grid_5.values))
             nodes = SVector{25}(SVector{2, T}.(tps.nodes))

@@ -15,10 +15,11 @@
 # (test/fixtures/thin_plate_spline): `==` for everything after (w, a), within
 # a measured bound for what goes through `inv` and BLAS (the BLAS build owns
 # those last bits). Do not "improve" it — in particular the solver keeps `inv`
-# rather than a factorization (see `ThinPlateSpline`).
+# rather than a factorization (see `ThinPlateSplineSystem`).
 #
-# Two halves, as in RadiometricCamera: the solver object `ThinPlateSpline`
-# holds heap matrices and stays host-side; the evaluator takes isbits inputs
+# Two halves, as in RadiometricCamera: the solver object `ThinPlateSplineSystem`
+# (RadiometricCamera's `ThinPlateSpline`, renamed here because that name is the
+# target calibration kind's, geometry/cameras/targets.jl) holds heap matrices and stays host-side; the evaluator takes isbits inputs
 # (an `SVector` of nodes, `w`, `a`), allocates nothing and runs in a
 # KernelAbstractions kernel on the CPU backend (tested; no device backend is),
 # in any float type or `ForwardDiff.Dual`.
@@ -46,7 +47,7 @@ there) instead of `NaN`.
 end
 
 """
-    ThinPlateSpline(nodes) -> ThinPlateSpline{N}
+    ThinPlateSplineSystem(nodes) -> ThinPlateSplineSystem{N}
 
 The solver object of a thin-plate spline through `N` nodes in the plane: the
 node positions, the `(N + 3) × N` matrix `coeff` that maps nodal values to the
@@ -60,13 +61,13 @@ numbers, and a factorization would move them in the last bits. The matrices
 live on the host; [`tps_coefficients`](@ref) turns nodal values into the
 isbits `(w, a)` that [`tps_evaluate`](@ref) and [`tps_gradient`](@ref) take.
 """
-struct ThinPlateSpline{N}
+struct ThinPlateSplineSystem{N}
     nodes::SVector{N, SVector{2, Float64}}
     coeff::Matrix{Float64}      # (N+3) × N
     Q::Matrix{Float64}          # N × N
 end
 
-function ThinPlateSpline(nodes::AbstractVector{<:StaticVector{2}})
+function ThinPlateSplineSystem(nodes::AbstractVector{<:StaticVector{2}})
     N = length(nodes)
     Umat = [tps_radial_basis(SVector{2, Float64}(nodes[i]), SVector{2, Float64}(nodes[j])) for i in 1:N, j in 1:N]
     P = [ones(N) getindex.(nodes, 1) getindex.(nodes, 2)]
@@ -75,7 +76,7 @@ function ThinPlateSpline(nodes::AbstractVector{<:StaticVector{2}})
     coeff = Kinv[:, 1:N]
     Cw = coeff[1:N, :]
     Q = Matrix(Symmetric(Cw' * Umat * Cw))
-    return ThinPlateSpline{N}(SVector{N}(SVector{2, Float64}.(nodes)), coeff, Q)
+    return ThinPlateSplineSystem{N}(SVector{N}(SVector{2, Float64}.(nodes)), coeff, Q)
 end
 
 """
@@ -92,7 +93,7 @@ function grid_nodes(n::Integer; lo::Real = -0.5, hi::Real = 0.5)
 end
 
 """
-    tps_coefficients(tps::ThinPlateSpline{N}, values) -> (w::SVector{N}, a::SVector{3})
+    tps_coefficients(tps::ThinPlateSplineSystem{N}, values) -> (w::SVector{N}, a::SVector{3})
 
 The spline's weights `w` and affine part `a = (a₁, a_x, a_y)` through the
 nodal values `values` (length `N`). Linear in `values`, and generic in their
@@ -100,7 +101,7 @@ element type: a `ForwardDiff.Dual` or a `Float32` is kept (the product
 with the `Float64` matrix is formed first, then converted to the values'
 element type).
 """
-function tps_coefficients(tps::ThinPlateSpline{N}, t::AbstractVector{T}) where {N, T}
+function tps_coefficients(tps::ThinPlateSplineSystem{N}, t::AbstractVector{T}) where {N, T}
     length(t) == N || throw(DimensionMismatch("expected $N nodal values, got $(length(t))"))
     wa = tps.coeff * t
     return SVector{N, T}(ntuple(i -> wa[i], Val(N))), SVector{3, T}(wa[N + 1], wa[N + 2], wa[N + 3])
@@ -108,7 +109,7 @@ end
 
 """
     tps_evaluate(nodes, w, a, 𝐩) -> scalar
-    tps_evaluate(tps::ThinPlateSpline, w, a, 𝐩) -> scalar
+    tps_evaluate(tps::ThinPlateSplineSystem, w, a, 𝐩) -> scalar
 
 The spline at `𝐩`: `a₁ + a_x 𝐩_x + a_y 𝐩_y + Σᵢ wᵢ U(𝐩, 𝐩ᵢ)` with `(w, a)` from
 [`tps_coefficients`](@ref) and `U` the [`tps_radial_basis`](@ref). The first form
@@ -128,11 +129,11 @@ RadiometricCamera's two functions do; supply the nodes in the evaluation's type
     end
     return s
 end
-tps_evaluate(tps::ThinPlateSpline, w, a, 𝐩) = tps_evaluate(tps.nodes, w, a, 𝐩)
+tps_evaluate(tps::ThinPlateSplineSystem, w, a, 𝐩) = tps_evaluate(tps.nodes, w, a, 𝐩)
 
 """
     tps_gradient(nodes, w, a, 𝐩) -> SVector{2}
-    tps_gradient(tps::ThinPlateSpline, w, a, 𝐩) -> SVector{2}
+    tps_gradient(tps::ThinPlateSplineSystem, w, a, 𝐩) -> SVector{2}
 
 The analytic gradient `∇f(𝐩)` of [`tps_evaluate`](@ref): `(a_x, a_y) + Σᵢ wᵢ
 (𝐩 − 𝐩ᵢ)(ln r² + 1)`, since `∇_𝐩 ½ r² ln r² = (𝐩 − 𝐩ᵢ)(ln r² + 1)`; a node at
@@ -157,28 +158,28 @@ Supply the nodes in the evaluation's type and the two agree.
     end
     return SVector(a[2] + g1, a[3] + g2)
 end
-tps_gradient(tps::ThinPlateSpline, w, a, 𝐩) = tps_gradient(tps.nodes, w, a, 𝐩)
+tps_gradient(tps::ThinPlateSplineSystem, w, a, 𝐩) = tps_gradient(tps.nodes, w, a, 𝐩)
 
 """
-    nodal_weights(tps::ThinPlateSpline{N}, 𝐩) -> SVector{N, Float64}
+    nodal_weights(tps::ThinPlateSplineSystem{N}, 𝐩) -> SVector{N, Float64}
 
 The sensitivity of the spline at `𝐩` to each nodal value, `∂f(𝐩)/∂valuesᵢ`.
 With `f(𝐩) = φ(𝐩)ᵀ (coeff · values)` and `φ = (U(𝐩, 𝐩₁) … U(𝐩, 𝐩_N), 1, 𝐩_x,
 𝐩_y)`, node `i`'s weight is `Σ_r coeff[r, i] φ_r(𝐩)` — exact, since the spline
 is linear in its values. Host-side (it reads `coeff`), in `Float64`.
 """
-function nodal_weights(tps::ThinPlateSpline{N}, 𝐩::StaticVector{2}) where {N}
+function nodal_weights(tps::ThinPlateSplineSystem{N}, 𝐩::StaticVector{2}) where {N}
     φ = ntuple(r -> r <= N ? tps_radial_basis(𝐩, tps.nodes[r]) : (r == N + 1 ? 1.0 : (r == N + 2 ? Float64(𝐩[1]) : Float64(𝐩[2]))), Val(N + 3))
     c = tps.coeff
     return SVector{N}(ntuple(i -> sum(ntuple(r -> c[r, i] * φ[r], Val(N + 3))), Val(N)))
 end
 
 """
-    bending_energy(tps::ThinPlateSpline, values) -> scalar
+    bending_energy(tps::ThinPlateSplineSystem, values) -> scalar
 
 The bending energy `valuesᵀ Q values` of the spline through the nodal values
 `values` (`= wᵀ K w` with `K = [U(𝐩ᵢ, 𝐩ⱼ)]` the radial basis between the
 nodes; zero for affine values up to rounding); a quadratic regularizer on the
 values.
 """
-bending_energy(tps::ThinPlateSpline, t::AbstractVector) = dot(t, tps.Q * t)
+bending_energy(tps::ThinPlateSplineSystem, t::AbstractVector) = dot(t, tps.Q * t)

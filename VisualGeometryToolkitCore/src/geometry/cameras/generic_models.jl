@@ -236,15 +236,21 @@ end
     )
 end
 
-# The four uniform-cubic window weights at frac ∈ [3, 4) — ported verbatim
-# from the reference's util.h (EvalUniformCubicBSpline). Cross-checked
-# against BSplineKit in the tests.
+# The four uniform-cubic window weights at frac x ∈ [3, 4) — the reference's
+# util.h (EvalUniformCubicBSpline), cross-checked against BSplineKit in the
+# tests. The reference evaluates its cubic pieces in x itself, which cancels
+# to ~1e-5 absolute in Float32 (|x³| ≈ 64 against weights ≤ 2/3); the same
+# polynomials in the local coordinate u = x − 3 ∈ [0, 1) are exact in exact
+# arithmetic and, in Horner form, keep Float32 within 7e-8 of the exact
+# weights. (x − 3 is exact: x − (ix − 3) is.) Outside [3, 4) the pieces
+# extrapolate as the same cubics (`spline_weights`).
 @inline function _cubic_weights(x)
-    xd = x - 3
-    d = xd * xd * xd / 6
-    c = -x^3 / 2 + 5x^2 - 16x + 50 / 3
-    b = x^3 / 2 - 11x^2 / 2 + 39x / 2 - 131 / 6
-    a = -(x - 4)^3 / 6
+    u = x - 3
+    v = 1 - u
+    a = v * v * v / 6                           # (1 − u)³ / 6
+    b = (u * u * (3u - 6) + 4) / 6              # (3u³ − 6u² + 4) / 6
+    c = (((-3u + 3) * u + 3) * u + 1) / 6       # (−3u³ + 3u² + 3u + 1) / 6
+    d = u * u * u / 6                           # u³ / 6
     return (a, b, c, d)
 end
 

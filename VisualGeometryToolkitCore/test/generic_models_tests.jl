@@ -50,6 +50,24 @@
             end
         end
 
+        @testset "spline window weights — Float32 against BigFloat" begin
+            # The weights are cubics in u = x − 3; a Float32 evaluation stays
+            # within 1e-7 of the exact weights at the same x (the form in x
+            # itself lost 1.2e-5 to cancellation).
+            exact(u) = ((1 - u)^3 / 6, (3u^3 - 6u^2 + 4) / 6, (-3u^3 + 3u^2 + 3u + 1) / 6, u^3 / 6)
+            worst = 0.0
+            worst_sum = 0.0
+            for u in range(0.0f0, prevfloat(1.0f0); length = 20_001)
+                x = 3.0f0 + u
+                w = _cubic_weights(x)
+                worst = max(worst, maximum(Float64.(abs.(big.(w) .- exact(big(x) - 3)))))
+                worst_sum = max(worst_sum, abs(sum(Float64.(w)) - 1))
+            end
+            @test _cubic_weights(3.5f0) isa NTuple{4, Float32}
+            @test worst < 1.0e-7
+            @test worst_sum < 4 * eps(Float32)
+        end
+
         # A smooth parametric source: division lens on a small frame.
         W, H = 640, 480
         K = @SMatrix [300.0 0.0 320.0; 0.0 300.0 240.0; 0.0 0.0 1.0]

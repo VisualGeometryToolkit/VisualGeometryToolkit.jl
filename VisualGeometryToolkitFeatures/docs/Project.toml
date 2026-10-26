@@ -11,4 +11,4 @@ VisualGeometryToolkitFeatures = {path = ".."}
 julia = "1.12"
 Documenter = "1"
 Random = "1"
-VisualGeometryToolkitCore = "0.1"
+VisualGeometryToolkitCore = "0.2"

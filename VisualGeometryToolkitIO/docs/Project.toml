@@ -11,4 +11,4 @@ VisualGeometryToolkitIO = {path = ".."}
 julia = "1.12"
 Documenter = "1"
 JSON = "1.12"
-VisualGeometryToolkitCore = "0.1.2"
+VisualGeometryToolkitCore = "0.2"

@@ -35,8 +35,8 @@ const ROOT = dirname(@__DIR__)
 const ROOT_PROJECT = TOML.parsefile(joinpath(ROOT, "Project.toml"))
 const PACKAGES = filter(!=("ci"), ROOT_PROJECT["workspace"]["projects"])
 const INITIAL_VERSION = v"0.1.0"
-const STACK_COMPAT = "0.1"
-# STACK_COMPAT, or a floor inside the same series: "0.1" or "0.1.N"
+const STACK_COMPAT = "0.2"
+# STACK_COMPAT, or a floor inside the same series: "0.2" or "0.2.N"
 const STACK_SERIES = Regex("^" * replace(STACK_COMPAT, "." => "\\.") * raw"(\.\d+)?$")
 # AutoMerge's name-similarity guideline would fail these; each needs a manual
 # merge by a General maintainer, with the reason recorded here (DESIGN D9).

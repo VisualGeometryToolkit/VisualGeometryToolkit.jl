@@ -99,7 +99,8 @@ away.
 
 The posed-only verbs — `pose`, `extrinsics`, rig membership, the
 [`StereoRig`](@ref) constructors that read poses — refuse an unposed camera
-with an `ArgumentError`, and `PosedCamera(model, X)` and `PosedTarget(target, X)`
+with an `ArgumentError`, as `pose` and `extrinsics` refuse an unposed target
+(an unposed member of either kind is its own `model`), and `PosedCamera(model, X)` and `PosedTarget(target, X)`
 refuse a member that is already posed. A camera or target type of another
 package that carries a pose adds a method returning `true`.
 """

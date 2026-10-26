@@ -349,7 +349,7 @@ image_warp!(warped_img, bm, board_image; fillvalue=1.0f0)
 
 ## Units in a Pose
 
-A physical [`EuclideanMap`](@ref), such as a camera pose, a mount or a rig
+A physical [`EuclideanMap`](@ref), such as a camera pose, a target pose or a rig
 member, holds its translation as lengths in metres
 (`UnitfulEuclideanMap`). An inner loop works on a plain map, whose
 translation is plain numbers (`PlainEuclideanMap`). The two forms meet

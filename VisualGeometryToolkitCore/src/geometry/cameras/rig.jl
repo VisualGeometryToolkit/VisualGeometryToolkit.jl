@@ -119,6 +119,23 @@ pose(m::PosedTarget) = m.pose
 extrinsics(m::PosedTarget) = _inv_member(m.pose)
 is_posed(::PosedTarget) = true
 is_resolved(m::PosedTarget) = is_resolved(m.target)
+# a design reference resolved under its pose
+resolve(m::PosedTarget, nominal::AbstractVector) = PosedTarget(resolve(m.target, nominal), m.pose)
+
+# The calibratable-target protocol and its manifold are the target MODEL's, as
+# the lens chart is a camera model's and not a posed camera's: a posed target's
+# pose has its own chart. Refused by name rather than a MethodError deep inside.
+@noinline _refuse_posed_protocol(what, m::PosedTarget) = throw(
+    ArgumentError(
+        "$(what): the parameters are the target model's — apply it to `model(pt)` " *
+            "(a $(nameof(typeof(m.target)))); a posed target's pose has its own chart"
+    )
+)
+for f in (:parameter_vector, :parameter_names, :parameter_bounds, :parameters, :regularizer, :minimal_manifold, :ambient_coordinates)
+    @eval $f(m::PosedTarget) = _refuse_posed_protocol($(string(f)), m)
+end
+with_parameters(m::PosedTarget, ::AbstractVector) = _refuse_posed_protocol("with_parameters", m)
+TargetManifold(m::PosedTarget) = _refuse_posed_protocol("TargetManifold", m)
 points(m::PosedTarget) = points(m.target)
 Base.:(==)(a::PosedTarget, b::PosedTarget) = a.target == b.target && a.pose == b.pose
 

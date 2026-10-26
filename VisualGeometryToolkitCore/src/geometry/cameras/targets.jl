@@ -58,6 +58,13 @@ A calibration target as a model: [`points`](@ref)`(target)` returns its points
 in its own frame `TargetFrame{id}` — 2-vectors on the plane `z = 0` for a planar
 target, 3-vectors for a solid one — plain or `Uncertain`. See the header of
 targets.jl for the calibratable-target protocol.
+
+Placement is a trait, [`is_posed`](@ref), as for cameras: a target type such
+as [`PlanarTarget`](@ref) or [`PointTarget`](@ref) is unposed, is its own
+`model`, and refuses `pose` and `extrinsics` with an `ArgumentError`; a
+[`PosedTarget`](@ref) is posed. The calibratable-target protocol and
+[`TargetManifold`](@ref) are a target MODEL's, as the lens chart is a camera
+model's: on a `PosedTarget` they are an `ArgumentError` naming `model(pt)`.
 """
 abstract type AbstractTarget end
 
@@ -206,6 +213,22 @@ reference does not).
 """
 is_resolved(::AbstractTarget) = true
 is_posed(::AbstractTarget) = false   # an unposed target; `PosedTarget` (rig.jl) answers true
+
+# The camera parallel (cameras.jl `_unposed_only`): an unposed target is its own
+# model, and the posed-only verbs refuse it by name. A posed target type answers
+# them with its own methods, so on one that lacks them this is the MethodError
+# it would have been.
+@noinline _refuse_unposed_target(what, t) = throw(
+    ArgumentError(
+        "$(what): the target is unposed (a $(nameof(typeof(t))), `is_posed` is false) — pose it: " *
+            "`PosedTarget(model, X)`"
+    )
+)
+_unposed_target_only(f, what, t, args...) =
+    is_posed(t) ? throw(MethodError(f, (t, args...))) : _refuse_unposed_target(what, t)
+model(t::AbstractTarget) = is_posed(t) ? throw(MethodError(model, (t,))) : t
+pose(t::AbstractTarget) = _unposed_target_only(pose, "pose", t)
+extrinsics(t::AbstractTarget) = _unposed_target_only(extrinsics, "extrinsics", t)
 is_resolved(t::PlanarTarget) = t.nominal !== nothing
 
 function points(t::PlanarTarget)

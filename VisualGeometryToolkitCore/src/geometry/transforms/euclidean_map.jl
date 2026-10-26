@@ -30,7 +30,7 @@ Rigid transformation `x ↦ R*x + t` in `N` dimensions, combining rotation and t
 This represents a Euclidean (rigid body) transformation that preserves distances and angles.
 It consists of a rotation `R` followed by a translation `t`.
 
-The translation's element type is free. A PHYSICAL map — a pose, a mount, a
+The translation's element type is free. A PHYSICAL map — a camera or target pose, a
 rig member — holds FlexUnits' base-form quantities, `Quantity{T,
 Dimensions{FixRat32}}` in metres ([`UnitfulEuclideanMap`](@ref)); an
 inner-loop map holds plain numbers — `Float64`, `Float32`, a ForwardDiff

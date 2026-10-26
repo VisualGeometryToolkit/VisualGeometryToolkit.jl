@@ -84,6 +84,9 @@
         @test maps_close(pose(M_back), pose(M_mm))
         @test all(point_close.(points(M_back), points(M_mm)))
         @test maps_close(pose(ustrip(mm, M_u)), E_mm)
+        # units move a posed target as an AbstractTarget: it stays posed, its model moves with it
+        @test M_u isa VgtkCore.AbstractTarget && VgtkCore.is_posed(ustrip(mm, M_u)) && VgtkCore.is_posed(with_unit(M_mm, mm))
+        @test VgtkCore.model(ustrip(mm, M_u)) == ustrip(mm, VgtkCore.model(M_u)) && has_units(VgtkCore.model(with_unit(M_mm, mm)))
         # a unitful pose on plain points, or the reverse, never promotes
         @test_throws DimensionError PosedTarget(PlanarTarget(pts2_mm), E_u)
         @test_throws DimensionError PosedTarget(PlanarTarget(from_mm.(pts2_mm)), E_mm)

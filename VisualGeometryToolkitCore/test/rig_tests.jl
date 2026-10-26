@@ -188,6 +188,24 @@
             @test extrinsics(pt) == inv(pose(pt)) && is_resolved(pt) == is_resolved(board)
             @test_throws ArgumentError PosedTarget(pt, Xa)                   # posing a posed target
             @test_throws ArgumentError extrinsics(PosedTarget(PointTarget([exact(p) for p in pts]), Uncertain(Xa, Σ)))
+            # the camera parallel on an UNPOSED target: it is its own model; the posed-only verbs refuse it by name
+            @test model(board) === board && model(PointTarget(pts)) isa PointTarget
+            for f in (pose, extrinsics)
+                e = try f(board); nothing catch err; err end
+                @test e isa ArgumentError && occursin("unposed", e.msg) && occursin("PosedTarget(model, X)", e.msg)
+            end
+            # an unresolved design, posed: resolved by forwarding, the pose kept
+            pu = PosedTarget(PlanarTarget(:a), Xa)
+            @test !is_resolved(pu) && is_resolved(resolve(pu, pts))
+            @test resolve(pu, pts) == PosedTarget(resolve(PlanarTarget(:a), pts), Xa) && pose(resolve(pu, pts)) == pose(pu)
+            # the calibratable-target protocol and its manifold are the MODEL's: refused on a posed target, naming model(pt)
+            for f in (VgtkCore.parameter_vector, VgtkCore.parameter_names, VgtkCore.parameter_bounds, VgtkCore.parameters,
+                      VgtkCore.regularizer, VgtkCore.minimal_manifold, VgtkCore.TargetManifold, θ -> VgtkCore.with_parameters(θ, Float64[]))
+                e = try f(pt); nothing catch err; err end
+                @test e isa ArgumentError && occursin("model(pt)", e.msg)
+            end
+            @test VgtkCore.tangent_size(VgtkCore.TargetManifold(model(pt))) == 0   # the model's manifold stands
+            @test_throws ArgumentError VgtkCore.local_coordinates(VgtkCore.TargetManifold(board), pt)
         end
 
         @testset "a rig of sensors and targets — the camera rig with its constellation" begin

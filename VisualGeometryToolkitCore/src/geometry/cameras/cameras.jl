@@ -470,7 +470,7 @@ MacroTools.@forward BoundedCamera.camera (
 # Units — a physical camera is one whose extrinsics are (translation in metres)
 # ----------------------------------------------------------------------------
 #
-# The model's pixel quantities are not lengths of the scene; only the mount
+# The model's pixel quantities are not lengths of the scene; only the pose
 # moves. The camera is rebuilt with its type parameters stated, so a stripped
 # map is stored as it is (the bare constructor would invert a `CameraPose`).
 

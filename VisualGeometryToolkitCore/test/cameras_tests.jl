@@ -100,7 +100,7 @@ end
     # =============================================================================
     # A camera differentiates with ForwardDiff Duals: a Dual calibration matrix
     # keeps its element type, intrinsics rebuilt from Dual parameters are Dual,
-    # and exact-number input (integer, rational)
+    # and `backproject` takes Dual pixels. Exact-number input (integer, rational)
     # still promotes to Float64, value for value.
     # =============================================================================
     using Test
@@ -131,5 +131,21 @@ end
         @test ForwardDiff.jacobian(θ -> parameter_vector(with_parameters(intr, θ)), θ0) ≈ I
         d = ForwardDiff.Dual{Nothing}.(θ0, 1.0)
         @test with_parameters(intr, d) isa LogicalIntrinsics{eltype(d)}
+    end
+
+    @testset "backproject of Dual pixels" begin
+        K = CameraCalibrationMat(SMatrix{3, 3, Float64}(300.0, 0, 0, 0, 300.0, 0, 320.0, 240.0, 1))
+        u0 = [400.3, 287.1]
+        for lens in (KannalaBrandt(-0.04, 0.01), Lens(DoubleSphere(-0.2, 0.6)))
+            cm = CameraModel(K; lens)
+            ray(u) = Vector(backproject(cm, SVector{2}(u)))
+            J = ForwardDiff.jacobian(ray, u0)
+            Jfd = FiniteDiff.finite_difference_jacobian(ray, u0, Val(:central))
+            @test isapprox(J, Jfd; rtol = 1.0e-6)
+        end
+        cm = CameraModel(K; lens = KannalaBrandt(-0.04, 0.01))
+        # integer pixels: the bearing of their floating-point value
+        @test backproject(cm, SVector(400, 300)) == backproject(cm, SVector(400.0, 300.0))
+        @test backproject(cm, [SVector(400, 300)]) == [backproject(cm, SVector(400.0, 300.0))]
     end
 end

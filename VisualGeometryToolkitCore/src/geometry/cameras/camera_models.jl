@@ -290,14 +290,17 @@ so ForwardDiff duals flow through the pose and the lens.
 end
 
 """
-    backproject(model::CameraModel, u::StaticVector{2,T<:AbstractFloat}) -> Vec3
+    backproject(model::CameraModel, u::StaticVector{2,T<:Real}) -> Vec3
 
 Backproject 2D pixel coordinates to 3D ray direction.
 
-Inputs and outputs are unitless floats (assumed units: px for input, unitless
+Inputs and outputs are unitless (assumed units: px for input, unitless
 direction for output). The output eltype follows the usual promotion of the
 input and the intrinsics: Float64 pipelines are unchanged; a Float32 camera
-(`LogicalIntrinsics{Float32}`) with Float32 pixels stays Float32.
+(`LogicalIntrinsics{Float32}`) with Float32 pixels stays Float32; ForwardDiff
+`Dual` pixels give a `Dual` direction, so the bearing can be differentiated
+with respect to the pixel; integer pixels give the bearing of their
+floating-point value.
 
 The return type and semantics depend on the intrinsics type:
 - LogicalIntrinsics: Returns normalized unitless direction
@@ -317,12 +320,12 @@ u = SVector(400.0, 300.0)  # px (unitless)
 ray = backproject(camera, u)  # Returns normalized Vec3 direction
 ```
 """
-backproject(model::CameraModel, u::StaticVector{2, <:AbstractFloat}) =
+backproject(model::CameraModel, u::StaticVector{2, <:Real}) =
     Vec3(backproject(model.intrinsics, model.lens, u))
 
 # Batched version for multiple points. (It once handed the whole vector to the
 # scalar-only 3-arg method — a MethodError on every call, found by JET.)
-backproject(model::CameraModel, points::AbstractVector{<:StaticVector{2, <:AbstractFloat}}) =
+backproject(model::CameraModel, points::AbstractVector{<:StaticVector{2, <:Real}}) =
     map(u -> backproject(model, u), points)
 
 """
@@ -459,7 +462,7 @@ end
 # Jacobians are the lens contract: geometry/cameras/lens_rays.jl.
 
 """
-    backproject(intrinsics::AbstractIntrinsics, lens::AbstractLensModel, u::StaticVector{2,T<:AbstractFloat}) -> Vec3
+    backproject(intrinsics::AbstractIntrinsics, lens::AbstractLensModel, u::StaticVector{2,T<:Real}) -> Vec3
 
 The pixel-frame half of back-projection: `K⁻¹` takes the pixel `u` to the
 normalized distorted point, and the bearing is the lens's own
@@ -468,7 +471,7 @@ family extends.
 """
 @inline function backproject(
         intrinsics::AbstractIntrinsics, lens::AbstractLensModel,
-        u::StaticVector{2, <:AbstractFloat}
+        u::StaticVector{2, <:Real}
     )
     h = to_affine(u)
     xd = intrinsics.K_inv * h

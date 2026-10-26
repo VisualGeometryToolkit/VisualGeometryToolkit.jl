@@ -6,7 +6,7 @@
     CameraModel{I, L} <: AbstractCamera
 
 Camera model combining intrinsics and lens model: an unposed camera
-([`has_extrinsics`](@ref) is `false`), the parametric intrinsics × lens
+([`is_posed`](@ref) is `false`), the parametric intrinsics × lens
 family. The generic grid models ([`CentralGenericModel`](@ref),
 [`NoncentralGenericModel`](@ref)) are the other unposed cameras; they have no
 K/lens split.

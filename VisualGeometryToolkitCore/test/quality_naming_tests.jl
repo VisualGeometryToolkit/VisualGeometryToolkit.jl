@@ -212,6 +212,9 @@ end
         # accessors and the stereo pair's destination stand
         @test :R9 in rules("src/a.jl" => "m = " * "Mount" * "ed(t, X)\n")
         @test quiet("docs/a.md" => "`PosedTarget`, `model(m)`, `pose(m)`, `destination(rig)`, a mounted board.\n")
+        # the one placement trait: the retired name trips, its successor stands
+        @test :R9 in rules("src/a.jl" => "p = " * "has" * "_extrinsics(c)\n")
+        @test quiet("docs/a.md" => "`is_posed(member)`, `extrinsics(m)`.\n")
         # a normalization's sides: the retired one trips, the successors stand
         @test :R9 in rules("src/a.jl" => "D = " * "target" * "_map(N)\n")
         @test quiet("docs/a.md" => "`source_map(N)`, `destination_map(N)`, `inv(destination_map(N)) ∘ M ∘ source_map(N)`.\n")

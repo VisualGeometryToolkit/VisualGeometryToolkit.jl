@@ -76,9 +76,10 @@ using ..VisualGeometryToolkitCore: Uncertain, geom   # an estimated pose (conven
     PosedTarget(target::AbstractTarget, pose)
 
 A target as a [`Rig`](@ref) member, the target-side counterpart of a
-[`PosedCamera`](@ref): the TARGET — its geometry, an [`AbstractTarget`](@ref),
-independent of where it is mounted, so the same target can sit in several
-rigs — and its POSE, the rigid map taking target-local coordinates (the
+[`PosedCamera`](@ref) and, like it, of its kind's hierarchy: an
+[`AbstractTarget`](@ref) whose [`is_posed`](@ref) is `true`. It holds the
+TARGET — its geometry, an unposed `AbstractTarget`, independent of where it is
+mounted, so the same target can sit in several rigs — and its POSE, the rigid map taking target-local coordinates (the
 pattern plane `z = 0` for a planar target) into the rig frame, stored
 unlabeled (the rig mints `TargetFrame{id} → F` on access). The pose may be
 [`Uncertain`](@ref) (an estimated pose, its 6×6 covariance in the
@@ -87,17 +88,27 @@ its covariance unchanged by the labels.
 
 Accessors: `model(m)` is the target (as `model(::PosedCamera)` is a camera's
 model, so code over rig members calls `model(member)` for either kind),
-`pose(m)` the pose, and `points(m)` the target's own points.
+`pose(m)` the pose, `extrinsics(m)` its inverse (an `ArgumentError` for an
+uncertain pose, whose covariance does not invert by relabeling), and
+`points(m)` the target's own points. The target must be unposed: posing a
+`PosedTarget` is an `ArgumentError`, as posing a posed camera is.
 
 A physical pose (a translation in metres) holds a physical target (points in
 metres), a plain pose a plain one: a unitful pose on plain points, or the
 reverse, is FlexUnits' `DimensionError` at construction, never a promotion.
 `ustrip(u, m)` and [`with_unit`](@ref)`(m, u)` move both together.
 """
-struct PosedTarget{T <: AbstractTarget, X <: Union{EuclideanMap{3}, Uncertain{<:EuclideanMap{3}}}}
+struct PosedTarget{T <: AbstractTarget, X <: Union{EuclideanMap{3}, Uncertain{<:EuclideanMap{3}}}} <: AbstractTarget
     target::T
     pose::X
     function PosedTarget(target::T, pose::Union{EuclideanMap{3}, Uncertain{<:EuclideanMap{3}}}) where {T <: AbstractTarget}
+        # decided by the target's type (`is_posed` is a type-level answer), so it compiles away
+        is_posed(target) && throw(
+            ArgumentError(
+                "PosedTarget: the target is already posed (a $(nameof(typeof(target)))) — pose its model: " *
+                    "`PosedTarget(model(target), X)`"
+            )
+        )
         _check_pose_units(target, pose)
         X = unlabel(pose)
         return new{T, typeof(X)}(target, X)
@@ -105,6 +116,9 @@ struct PosedTarget{T <: AbstractTarget, X <: Union{EuclideanMap{3}, Uncertain{<:
 end
 model(m::PosedTarget) = m.target
 pose(m::PosedTarget) = m.pose
+extrinsics(m::PosedTarget) = _inv_member(m.pose)
+is_posed(::PosedTarget) = true
+is_resolved(m::PosedTarget) = is_resolved(m.target)
 points(m::PosedTarget) = points(m.target)
 Base.:(==)(a::PosedTarget, b::PosedTarget) = a.target == b.target && a.pose == b.pose
 
@@ -253,7 +267,7 @@ end
 # members' types, so the loop over the tuple compiles away.
 function _check_posed(what, members)
     for (i, c) in enumerate(members)
-        has_extrinsics(c) || throw(
+        is_posed(c) || throw(
             ArgumentError(
                 "$(what): sensor $i is an unposed camera (a $(nameof(typeof(c)))) — a rig member is posed: " *
                     "`PosedCamera(model, X)` with X labeled `F → ViewFrame{id}`"
@@ -269,7 +283,7 @@ end
 # with its reason (no sensor, or an unposed one).
 Rig(members::Tuple{Vararg{AbstractCamera}}) = Rig{_rig_frame(members)}(members)
 _rig_frame(members) =
-    isempty(members) || !has_extrinsics(first(members)) ? Frame{3} : _em_frames(_raw_extrinsics(first(members)))[1]
+    isempty(members) || !is_posed(first(members)) ? Frame{3} : _em_frames(_raw_extrinsics(first(members)))[1]
 
 # The gauge invariant. A sensor rig whose frame is one of its views: that
 # view's stored extrinsics is the identity (a rig may also be posed in a view
@@ -535,7 +549,7 @@ run, not a substitute for one.
 with_model(c::PosedCamera, model::AbstractCamera) = PosedCamera(model, c.extrinsics)   # PosedCamera checks `model`
 # an unposed camera is its model; a posed camera type answers with its own method
 function with_model(c::AbstractCamera, model::AbstractCamera)
-    has_extrinsics(c) && throw(MethodError(with_model, (c, model)))
+    is_posed(c) && throw(MethodError(with_model, (c, model)))
     _check_camera_model(model, "with_model")
     return model
 end

@@ -116,7 +116,7 @@
             E = EuclideanMap(R, Vec3{Float64}(t))
             rig = StereoRig(u, u, E; check = false)        # the rig poses its members
             @test rig isa StereoRig
-            @test VgtkCore.has_extrinsics(source(rig)) && VgtkCore.has_extrinsics(destination(rig))
+            @test VgtkCore.is_posed(source(rig)) && VgtkCore.is_posed(destination(rig))
             @test extrinsics(rig).t ≈ t && Matrix(extrinsics(rig).R) ≈ Matrix(R)   # the given transform survives
             @test_throws ArgumentError StereoRig(u, u, E)   # checked: members must be posed
             @test_throws ArgumentError StereoRig(u, u)       # computed from the members
@@ -182,6 +182,12 @@
             r1 = Rig{WorldFrame}(Dict(:a => PosedTarget(board, Xa)))
             r2 = Rig{BodyFrame{:board_rig}}(Dict(:a => PosedTarget(board, Xb)))
             @test model(r1[:a]) === model(r2[:a]) === board && points(r1[:a]) == points(r2[:a]) == pts
+            # one placement trait for both member kinds: a PosedTarget is a posed AbstractTarget
+            pt = r1[:a]
+            @test pt isa AbstractTarget && VgtkCore.is_posed(pt) && !VgtkCore.is_posed(board)
+            @test extrinsics(pt) == inv(pose(pt)) && is_resolved(pt) == is_resolved(board)
+            @test_throws ArgumentError PosedTarget(pt, Xa)                   # posing a posed target
+            @test_throws ArgumentError extrinsics(PosedTarget(PointTarget([exact(p) for p in pts]), Uncertain(Xa, Σ)))
         end
 
         @testset "a rig of sensors and targets — the camera rig with its constellation" begin

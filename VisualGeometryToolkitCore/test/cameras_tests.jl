@@ -1,7 +1,7 @@
 @testitem "camera hierarchy" begin
     # =============================================================================
     # One camera hierarchy: every camera — a model, a posed camera, a bounded one —
-    # is an `AbstractCamera`, and `has_extrinsics` says whether it carries a pose.
+    # is an `AbstractCamera`, and `is_posed` says whether it carries a pose.
     # =============================================================================
     #
     # Covers: the trait on each camera form (and forwarded through a
@@ -14,7 +14,7 @@
     import VisualGeometryToolkitCore as VgtkCore
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: has_extrinsics, has_units, with_unit, model
+    using VisualGeometryToolkitCore: is_posed, has_units, with_unit, model
     using StaticArrays
     using Rotations: RotMatrix, RotXYZ
 
@@ -29,13 +29,13 @@
         for c in (cm, gen, cam, BoundedCamera(cm, sz), BoundedCamera(cam, sz))
             @test c isa AbstractCamera
         end
-        @test has_extrinsics(cm) == false
-        @test has_extrinsics(gen) == false
-        @test has_extrinsics(cam) == true
-        @test has_extrinsics(BoundedCamera(cm, sz)) == false
-        @test has_extrinsics(BoundedCamera(cam, sz)) == true
-        @test :has_extrinsics in names(VisualGeometryToolkitCore)   # public
-        @test any(f -> f === has_extrinsics, VgtkCore.CONTRACT_GENERICS)
+        @test is_posed(cm) == false
+        @test is_posed(gen) == false
+        @test is_posed(cam) == true
+        @test is_posed(BoundedCamera(cm, sz)) == false
+        @test is_posed(BoundedCamera(cam, sz)) == true
+        @test :is_posed in names(VisualGeometryToolkitCore)   # public
+        @test any(f -> f === is_posed, VgtkCore.CONTRACT_GENERICS)
         # the layouts downstream dispatches on are unchanged
         @test cam isa PosedCamera{<:CameraModel{<:AbstractIntrinsics, <:Any}, <:EuclideanMap}
         @test cam isa VgtkCore.PosedPinholeCamera

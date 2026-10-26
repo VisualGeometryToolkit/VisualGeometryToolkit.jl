@@ -26,12 +26,15 @@ pose.
 
 Every camera — a model, a posed camera, a [`BoundedCamera`](@ref) of either —
 is an [`AbstractCamera`](@ref). Whether it carries a pose is the trait
-[`has_extrinsics`](@ref VisualGeometryToolkitCore.has_extrinsics): `false` for a
+[`is_posed`](@ref VisualGeometryToolkitCore.is_posed): `false` for a
 model, `true` for a `PosedCamera`, the wrapped camera's for a `BoundedCamera`. The
 posed-only verbs (`pose`, `extrinsics`, rig membership) refuse an unposed camera
 with an `ArgumentError`, and `PosedCamera(model, X)` refuses a model that is already
 posed or bounded — the bound goes outside the pose,
-`BoundedCamera(PosedCamera(model, X), extent)`.
+`BoundedCamera(PosedCamera(model, X), extent)`. The trait is shared with the
+calibration targets: a [`PosedTarget`](@ref) is posed, a `PlanarTarget` or
+`PointTarget` is not, and `model`, `pose` and `extrinsics` answer on a posed
+member of either kind.
 
 ## Quick Example
 

@@ -196,7 +196,7 @@ public homogeneous_w, maps_within
 # 3. CAMERAS - Camera models, sensors, and projection
 # -----------------------------------------------------------------------------
 export AbstractCamera, PosedCamera, BoundedCamera, CameraModel, Sensor, sensor, CMOS_SENSORS
-public has_extrinsics   # whether a camera carries a pose (the one camera hierarchy's trait)
+public is_posed   # whether a camera carries a pose (the one camera hierarchy's trait)
 export extent
 public BoundsTrait, HasBounds, NoBounds, bounds_trait
 export LogicalIntrinsics, AbstractIntrinsics

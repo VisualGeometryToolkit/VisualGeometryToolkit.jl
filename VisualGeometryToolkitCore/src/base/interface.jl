@@ -63,14 +63,14 @@ function feature_frame end
 The one camera type: every camera — an unposed model ([`CameraModel`](@ref),
 the generic grid models), a posed camera ([`PosedCamera`](@ref)) and a bounded one
 ([`BoundedCamera`](@ref)) — subtypes it. Whether a camera carries a pose is a
-trait, [`has_extrinsics`](@ref), not a second type root.
+trait, [`is_posed`](@ref) (shared with the targets), not a second type root.
 
 Every camera implements, in the COLMAP pixel frame:
 - `project(camera, X)` — a 3D point (camera frame for a model, world frame for
   a posed camera) to its pixel
 - `backproject(camera, u)` — a pixel to its ray
 
-A posed camera (`has_extrinsics(camera) == true`) also implements `pose(camera)`
+A posed camera (`is_posed(camera) == true`) also implements `pose(camera)`
 and `extrinsics(camera)`; on an unposed one they are an `ArgumentError`.
 
 # Example
@@ -85,21 +85,25 @@ end
 abstract type AbstractCamera end
 
 """
-    has_extrinsics(camera::AbstractCamera) -> Bool
+    is_posed(camera::AbstractCamera) -> Bool
+    is_posed(target::AbstractTarget) -> Bool
 
-Whether `camera` carries a pose: `true` for a [`PosedCamera`](@ref) (a model and its
+Whether a rig member kind carries a pose — the one placement trait of both
+kinds. For a camera: `true` for a [`PosedCamera`](@ref) (a model and its
 extrinsics), `false` for an unposed model ([`CameraModel`](@ref),
 [`CentralGenericModel`](@ref), [`NoncentralGenericModel`](@ref)), and the
-wrapped camera's answer for a [`BoundedCamera`](@ref). It is decided by the
-camera's type, so a branch on it compiles away.
+wrapped camera's answer for a [`BoundedCamera`](@ref). For a target: `true`
+for a [`PosedTarget`](@ref), `false` for an unposed one ([`PlanarTarget`](@ref),
+[`PointTarget`](@ref)). It is decided by the type, so a branch on it compiles
+away.
 
 The posed-only verbs — `pose`, `extrinsics`, rig membership, the
 [`StereoRig`](@ref) constructors that read poses — refuse an unposed camera
-with an `ArgumentError`, and `PosedCamera(model, X)` refuses a posed `model`. A
-camera type of another package that carries a pose adds a method returning
-`true`.
+with an `ArgumentError`, and `PosedCamera(model, X)` and `PosedTarget(target, X)`
+refuse a member that is already posed. A camera or target type of another
+package that carries a pose adds a method returning `true`.
 """
-has_extrinsics(::AbstractCamera) = false
+is_posed(::AbstractCamera) = false
 
 """
     pose(camera::AbstractCamera) -> EuclideanMap

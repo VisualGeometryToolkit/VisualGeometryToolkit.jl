@@ -205,6 +205,7 @@ Whether a target carries its points (a `PlanarTarget` holding only a design
 reference does not).
 """
 is_resolved(::AbstractTarget) = true
+is_posed(::AbstractTarget) = false   # an unposed target; `PosedTarget` (rig.jl) answers true
 is_resolved(t::PlanarTarget) = t.nominal !== nothing
 
 function points(t::PlanarTarget)

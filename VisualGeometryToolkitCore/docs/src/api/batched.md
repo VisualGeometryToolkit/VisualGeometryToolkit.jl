@@ -33,7 +33,8 @@ Pages = ["numerics/bspline.jl"]
 nodal values on scattered nodes (hoisted from RadiometricCamera, its arithmetic
 unchanged). [`ThinPlateSpline`](@ref) is the host-side solver; the evaluator
 [`tps_evaluate`](@ref) and its gradient [`tps_gradient`](@ref) take isbits
-`(nodes, w, a)`, allocate nothing and run inside a KernelAbstractions kernel.
+`(nodes, w, a)`, allocate nothing and run in a KernelAbstractions kernel on the
+CPU backend.
 
 ```julia
 tps = ThinPlateSpline(grid_nodes(5))            # 5 × 5 nodes over [-½, ½]²

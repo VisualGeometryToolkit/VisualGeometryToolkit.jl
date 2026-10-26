@@ -185,7 +185,7 @@ public ExecutionPolicy, Auto, Serial, Threaded, THREADED_MIN_LENGTH
 public bspline_basis_iterative, evaluate_bspline_surface, bspline_surface_partial
 public evaluate_bspline_4d, bspline_4d_partial, contract_basis_4d_weighted
 # Thin-plate spline (hoisted from RadiometricCamera, arithmetic unchanged): the
-# host-side solver object and the isbits, kernel-safe evaluator and gradient.
+# host-side solver object and the isbits, allocation-free evaluator and gradient.
 public ThinPlateSpline, tps_radial_basis, grid_nodes, tps_coefficients
 public tps_evaluate, tps_gradient, nodal_weights, bending_energy
 
@@ -802,7 +802,7 @@ include("numerics/bspline.jl")
 include("numerics/special.jl")    # device-safe lgamma/digamma/trigamma (adaptation kernels)
 include("numerics/small_lu.jl")   # in-register partial-pivot LU for fixed-size systems
 include("numerics/ka_reduce.jl")  # KernelAbstractions workgroup tree reduction
-include("numerics/thin_plate_spline.jl")   # thin-plate spline: host-side solver, isbits kernel-safe evaluator
+include("numerics/thin_plate_spline.jl")   # thin-plate spline: host-side solver, isbits allocation-free evaluator
 include("base/raster.jl")         # array plotting without Makie (masks, debug frames)
 include("geometry/primitives/bbox.jl")   # shape → SpatialIndexing.Rect (needs frames + dilate)
 # Allocation-free R-tree queries (intersection, nearest neighbour) and the

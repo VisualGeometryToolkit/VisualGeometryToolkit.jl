@@ -2,15 +2,29 @@
 # Thin-plate spline (numerics/thin_plate_spline.jl; hoisted from
 # RadiometricCamera src/camera/tps.jl and src/board/warping.jl).
 #
-# Bit identity: test/fixtures/thin_plate_spline/reference.jl holds, as
-# literals, what RadiometricCamera's OWN functions return for fixed nodal
-# values at 20 query points (on nodes, inside the hull, a hair off a node and
-# far outside it), on grid_nodes(3) and grid_nodes(5): U, the coefficients,
-# the evaluation, nodal_weights and the bending energy, its Float32 focus
-# path, and on its 5 × 5 height grid over [0, 1]² `board_height` and
-# `board_height_grad` — the gradient's source. generate.jl beside it wrote
-# it, in RadiometricCamera's environment. Every Float64 value is compared
-# with `==`.
+# Against RadiometricCamera: test/fixtures/thin_plate_spline/reference.jl
+# holds, as literals, what RadiometricCamera's OWN functions return for fixed
+# nodal values at 20 query points (on nodes, inside the hull, a hair off a
+# node and far outside it), on grid_nodes(3) and grid_nodes(5): U, the
+# coefficients, the evaluation, nodal_weights and the bending energy, its
+# Float32 focus path, and on its 5 × 5 height grid over [0, 1]²
+# `board_height` and `board_height_grad` — the gradient's source.
+# generate.jl beside it wrote it, in RadiometricCamera's environment.
+#
+# What is pinned exactly and what is bounded. Everything AFTER (w, a) — the
+# radial basis, the evaluation, the gradient — is plain scalar arithmetic and
+# is compared `==`, fed the fixture's own w and a. The coefficients, the
+# nodal weights and the bending energy go through `inv` and BLAS products, so
+# their last bits belong to the BLAS build (OpenBLAS picks its kernels by
+# CPU): they are compared within bounds measured on the recording machine
+# against two other solvers of the same system (Julia's generic LU, and
+# BigFloat rounded), whose largest deviations were, in eps() × the sum of
+# the magnitudes of the terms: w and a 9.3, nodal_weights 27.9, bending
+# energy 0.17. The bounds are 16, 32 and 1. On the recording machine the
+# deviation is zero; TPS_BITWISE=1 turns those comparisons back into `==`.
+# The gradient with a nonzero affine part has no RadiometricCamera
+# counterpart: it is bit-pinned only for a = 0 (the height grid), and checked
+# against ForwardDiff otherwise.
 # =============================================================================
 
 @testitem "thin_plate_spline" begin
@@ -25,8 +39,13 @@
     using KernelAbstractions: @kernel, @index, @Const
 
     include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "thin_plate_spline", "reference.jl"))
-    const REF = TPS_REFERENCE
-    const POINTS = REF.points
+    REF = TPS_REFERENCE
+    POINTS = REF.points
+    BITWISE = get(ENV, "TPS_BITWISE", "") == "1"   # the recording machine: the BLAS-dependent values `==` too
+
+    # Within `c` eps() of the sum of the term magnitudes `scale` (elementwise),
+    # or `==` under TPS_BITWISE.
+    within(x, ref, scale, c) = BITWISE ? x == ref : all(abs.(x .- ref) .<= c * eps() .* scale)
 
     # Σ of the magnitudes of the evaluation's terms: the scale its rounding
     # (and its cancellation far outside the hull) is measured against.
@@ -35,31 +54,47 @@
     gradient_scale(nodes, w, a, p) =
         abs(a[2]) + abs(a[3]) + sum(i -> abs(w[i]) * norm(p - nodes[i]) * (abs(log(max(norm(p - nodes[i])^2, floatmin()))) + 1), eachindex(w))
 
-    @testset "bit identity with RadiometricCamera: $name" for (name, n) in (("grid_3", 3), ("grid_5", 5))
+    @testset "against RadiometricCamera: $name" for (name, n) in (("grid_3", 3), ("grid_5", 5))
         ref = getproperty(REF, Symbol(name))
+        N = n * n
         nodes = grid_nodes(n)
         @test nodes == ref.nodes
         tps = ThinPlateSpline(nodes)
-        w, a = tps_coefficients(tps, ref.values)
-        @test collect(w) == ref.w
-        @test collect(a) == ref.a
-        @test [tps_evaluate(tps, w, a, p) for p in POINTS] == ref.evaluate
-        @test [tps_evaluate(tps.nodes, w, a, p) for p in POINTS] == ref.evaluate
-        @test [collect(nodal_weights(tps, p)) for p in POINTS] == ref.nodal_weights
-        @test bending_energy(tps, ref.values) == ref.bending_energy
+        t = ref.values
+
+        # Through `inv` and BLAS: bounded (see the header).
+        w, a = tps_coefficients(tps, t)
+        coeff_scale = [sum(abs.(tps.coeff[r, :]) .* abs.(t)) for r in 1:(N + 3)]
+        @test within(vcat(collect(w), collect(a)), vcat(ref.w, ref.a), coeff_scale, 16)
+        for (k, p) in enumerate(POINTS)
+            φ = [[abs(tps_radial_basis(p, q)) for q in tps.nodes]; 1.0; abs(p[1]); abs(p[2])]
+            @test within(collect(nodal_weights(tps, p)), ref.nodal_weights[k], [sum(abs.(tps.coeff[:, i]) .* φ) for i in 1:N], 32)
+        end
+        @test within(bending_energy(tps, t), ref.bending_energy, sum(abs.(t) .* (abs.(tps.Q) * abs.(t))), 1)
+
+        # Plain arithmetic, fed the fixture's (w, a): bit-identical.
+        rw, ra = SVector{N}(ref.w), SVector{3}(ref.a)
+        @test [tps_evaluate(tps, rw, ra, p) for p in POINTS] == ref.evaluate
+        @test [tps_evaluate(tps.nodes, rw, ra, p) for p in POINTS] == ref.evaluate
         @test [[tps_radial_basis(p, q) for q in tps.nodes] for p in POINTS] == ref.radial_basis
 
         # RadiometricCamera's Float32 path: the Float64 solver, Float32 (nodes, w, a, 𝐩).
-        w32, a32 = tps_coefficients(tps, Float32.(ref.values))
+        # The coefficients are a Float64 BLAS product rounded to Float32: within
+        # one Float32 ulp plus the Float64 bound.
+        w32, a32 = tps_coefficients(tps, Float32.(t))
         @test eltype(w32) == Float32 && eltype(a32) == Float32
-        @test collect(w32) == ref.w_f32
-        @test collect(a32) == ref.a_f32
-        nodes32 = SVector{n * n}(SVector{2, Float32}.(tps.nodes))
-        f32 = [tps_evaluate(nodes32, w32, a32, SVector{2, Float32}(p)) for p in POINTS]
+        ref32 = vcat(ref.w_f32, ref.a_f32)
+        coeff_scale32 = [sum(abs.(tps.coeff[r, :]) .* abs.(Float32.(t))) for r in 1:(N + 3)]
+        @test BITWISE ? vcat(collect(w32), collect(a32)) == ref32 :
+            all(abs.(Float64.(vcat(collect(w32), collect(a32))) .- ref32) .<= eps.(ref32) .+ 16 * eps() .* coeff_scale32)
+        nodes32 = SVector{N}(SVector{2, Float32}.(tps.nodes))
+        f32 = [tps_evaluate(nodes32, SVector{N}(ref.w_f32), SVector{3}(ref.a_f32), SVector{2, Float32}(p)) for p in POINTS]
         @test f32 isa Vector{Float32}
         @test f32 == ref.evaluate_f32
     end
 
+    # The gradient is bit-pinned here only, with a = 0: RadiometricCamera has no
+    # gradient with an affine part (ForwardDiff checks that case below).
     @testset "bit identity with RadiometricCamera: height grid gradient" begin
         ref = REF.height
         nodes = grid_nodes(5; lo = 0.0, hi = 1.0)
@@ -118,7 +153,7 @@
             φ_scale = (sum(q -> abs(tps_radial_basis(p, q)), tps.nodes) + 1 + abs(p[1]) + abs(p[2])) * maximum(abs, tps.coeff)
             @test norm(nw_ad - nodal_weights(tps, p), Inf) <= 64 * eps() * φ_scale
         end
-        # Interpolation: the spline passes through its nodal values.
+        # Interpolation: the spline interpolates its nodal values.
         @test [tps_evaluate(tps, w, a, q) for q in tps.nodes] ≈ ref.values rtol = 1.0e-12
         # Affine values bend nothing.
         affine = [1 + 2q[1] - 3q[2] for q in tps.nodes]
@@ -139,7 +174,7 @@
         @test allocations(tps_gradient, nodes32, w32, a32, SVector{2, Float32}(p)) == 0
     end
 
-    @testset "inside a KernelAbstractions kernel (CPU backend)" begin
+    @testset "runs in a KernelAbstractions kernel on the CPU backend" begin
         @kernel function tps_points_kernel!(f, g, @Const(points), nodes, w, a)
             i = @index(Global)
             f[i] = tps_evaluate(nodes, w, a, points[i])
@@ -158,6 +193,5 @@
             @test f == [tps_evaluate(nodes, w, a, p) for p in points]
             @test g == [tps_gradient(nodes, w, a, p) for p in points]
         end
-        @test [tps_evaluate(tps, tps_coefficients(tps, REF.grid_5.values)..., p) for p in POINTS] == REF.grid_5.evaluate
     end
 end

@@ -11,14 +11,24 @@
 #
 # The arithmetic is RadiometricCamera's, operation for operation: its golden
 # tests pin it, and test/thin_plate_spline_tests.jl checks every value here
-# `==` against numbers that RadiometricCamera's own functions produced
-# (test/fixtures/thin_plate_spline). Do not "improve" it — in particular the
-# solver keeps `inv` rather than a factorization (see `ThinPlateSpline`).
+# against numbers that RadiometricCamera's own functions produced
+# (test/fixtures/thin_plate_spline): `==` for everything after (w, a), within
+# a measured bound for what goes through `inv` and BLAS (the BLAS build owns
+# those last bits). Do not "improve" it — in particular the solver keeps `inv`
+# rather than a factorization (see `ThinPlateSpline`).
 #
 # Two halves, as in RadiometricCamera: the solver object `ThinPlateSpline`
 # holds heap matrices and stays host-side; the evaluator takes isbits inputs
-# (an `SVector` of nodes, `w`, `a`), allocates nothing and runs inside a
-# KernelAbstractions kernel, in any float type or `ForwardDiff.Dual`.
+# (an `SVector` of nodes, `w`, `a`), allocates nothing and runs in a
+# KernelAbstractions kernel on the CPU backend (tested; no device backend is),
+# in any float type or `ForwardDiff.Dual`.
+#
+# Element types: `tps_evaluate` PROMOTES the nodes with (w, 𝐩), while
+# `tps_gradient` CONVERTS the nodes to the promoted type of (w, 𝐩) — the rules
+# of RadiometricCamera's `tps_evaluate` and `board_height_grad`, kept as they
+# are and deliberately not unified (either change would move bits). Supplying the
+# nodes in the evaluation's type (Float32 nodes for a Float32 evaluation) makes
+# the two agree.
 # =============================================================================
 
 """
@@ -41,7 +51,8 @@ end
 The solver object of a thin-plate spline through `N` nodes in the plane: the
 node positions, the `(N + 3) × N` matrix `coeff` that maps nodal values to the
 spline's weights and affine part, `(w; a) = coeff · values`, and the `N × N`
-bending-energy form `Q` (`valuesᵀ Q values = wᵀ K w`, see [`bending_energy`](@ref)).
+bending-energy form `Q` (`valuesᵀ Q values = wᵀ K w`, `K = [U(𝐩ᵢ, 𝐩ⱼ)]`, see
+[`bending_energy`](@ref)).
 
 `coeff` is the first `N` columns of the INVERTED system matrix `[K P; Pᵀ 0]`,
 formed with `inv` as RadiometricCamera forms it: its golden tests pin these
@@ -71,7 +82,9 @@ end
     grid_nodes(n; lo = -0.5, hi = 0.5) -> Vector{SVector{2, Float64}}
 
 The `n × n` equally spaced nodes over the square `[lo, hi]²`, column-major
-(`x` fastest). The default square is RadiometricCamera's image chart.
+(`x` fastest). The default square `[-½, ½]²` is RadiometricCamera's SENSOR
+chart (its focus surface); a spline over another domain — a target's chart,
+say — supplies its own `lo` and `hi`.
 """
 function grid_nodes(n::Integer; lo::Real = -0.5, hi::Real = 0.5)
     g = range(lo, hi; length = n)
@@ -83,7 +96,7 @@ end
 
 The spline's weights `w` and affine part `a = (a₁, a_x, a_y)` through the
 nodal values `values` (length `N`). Linear in `values`, and generic in their
-element type: a `ForwardDiff.Dual` or a `Float32` passes through (the product
+element type: a `ForwardDiff.Dual` or a `Float32` is kept (the product
 with the `Float64` matrix is formed first, then converted to the values'
 element type).
 """
@@ -100,9 +113,12 @@ end
 The spline at `𝐩`: `a₁ + a_x 𝐩_x + a_y 𝐩_y + Σᵢ wᵢ U(𝐩, 𝐩ᵢ)` with `(w, a)` from
 [`tps_coefficients`](@ref) and `U` the [`tps_radial_basis`](@ref). The first form
 takes isbits inputs only (`nodes::SVector{N, <:StaticVector{2}}`, `w`, `a`,
-`𝐩`): it allocates nothing and runs inside a KernelAbstractions kernel. It is
-generic in the element type; give the nodes in the evaluation's type (a
-`Float32` evaluation with `Float64` nodes promotes to `Float64`).
+`𝐩`): it allocates nothing and runs in a KernelAbstractions kernel on the CPU
+backend. It is generic in the element type and PROMOTES the nodes with `w` and
+`𝐩`: a `Float32` evaluation with `Float64` nodes returns `Float64`. This
+differs from [`tps_gradient`](@ref), which converts the nodes, as
+RadiometricCamera's two functions do; supply the nodes in the evaluation's type
+(`Float32` nodes for `Float32`) and both work in that type.
 """
 @inline function tps_evaluate(nodes::SVector{N, <:StaticVector{2}}, w::StaticVector{N}, a::StaticVector{3}, 𝐩::StaticVector{2}) where {N}
     a_1, a_x, a_y = a[1], a[2], a[3]
@@ -122,9 +138,12 @@ The analytic gradient `∇f(𝐩)` of [`tps_evaluate`](@ref): `(a_x, a_y) + Σ�
 (𝐩 − 𝐩ᵢ)(ln r² + 1)`, since `∇_𝐩 ½ r² ln r² = (𝐩 − 𝐩ᵢ)(ln r² + 1)`; a node at
 `r = 0` contributes zero. The sum is RadiometricCamera's `board_height_grad`
 term for term (its height field is this spline without the affine part, which
-is added last). Isbits inputs, allocation-free and kernel-safe, as
-`tps_evaluate`; the node coordinates are converted to the promoted element
-type of `w` and `𝐩`.
+is added last). Isbits inputs and allocation-free, and it runs in a
+KernelAbstractions kernel on the CPU backend, as `tps_evaluate`. Unlike
+[`tps_evaluate`](@ref), which promotes, it CONVERTS the node coordinates to the
+promoted element type of `w` and `𝐩` (RadiometricCamera's `board_height_grad`
+rule): `Float32` `w` and `𝐩` with `Float64` nodes give a `Float32` gradient.
+Supply the nodes in the evaluation's type and the two agree.
 """
 @inline function tps_gradient(nodes::SVector{N, <:StaticVector{2}}, w::StaticVector{N}, a::StaticVector{3}, 𝐩::StaticVector{2}) where {N}
     S = promote_type(eltype(w), eltype(𝐩))
@@ -158,7 +177,8 @@ end
     bending_energy(tps::ThinPlateSpline, values) -> scalar
 
 The bending energy `valuesᵀ Q values` of the spline through the nodal values
-`values` (`= wᵀ K w`, zero for affine values up to rounding); a quadratic regularizer
-on the values.
+`values` (`= wᵀ K w` with `K = [U(𝐩ᵢ, 𝐩ⱼ)]` the radial basis between the
+nodes; zero for affine values up to rounding); a quadratic regularizer on the
+values.
 """
 bending_energy(tps::ThinPlateSpline, t::AbstractVector) = dot(t, tps.Q * t)

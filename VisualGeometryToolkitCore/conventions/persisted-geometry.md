@@ -122,7 +122,7 @@ camera's or a target's `calibration` block as
 
 **A referenced design is stored by its reference.** A [`PlanarTarget`](@ref)
 whose design is content-addressed (a BlobBoards board uid) is written by its
-`design` reference and its warp; its nominal points are the design's owner's
+`design` reference and its calibration; its nominal points are the design's owner's
 and are not restated. A reader returns it unresolved unless the caller supplies
 the owner's resolver.
 

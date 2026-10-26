@@ -65,7 +65,9 @@ written:
   design's owner. It reads back unresolved unless the caller supplies
   `resolve`, the owner's resolver (`design::Symbol -> nominal points`).
 
-The only warp today is `{"type": "rigid"}`. A warp with parameters will carry
+The only warp the `vgio/target/v1` record holds is `{"type": "rigid"}`: a
+`PlanarTarget` whose `TargetCalibration` is anything but `Rigid` (or an
+uncertain one) is refused at save. A calibration with parameters will carry
 them, and their covariance, in its record.
 
 ## Building blocks for other kinds

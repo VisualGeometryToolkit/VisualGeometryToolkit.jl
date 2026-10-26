@@ -25,10 +25,49 @@ A calibration target is a MODEL, the analogue of a camera model:
 [`PointTarget`](@ref) holds explicit (nominal or estimated) points,
 [`PlanarTarget`](@ref) a design — its nominal points, or the reference they
 are resolved from — and a [`TargetCalibration`](@ref) taking the design to
-the physical target ([`Rigid`](@ref): the design exactly). A target whose
-geometry an estimator refines implements the calibratable-target protocol
-(`parameter_vector`, `with_parameters`, `minimal_manifold`, `regularizer`,
-`calibration_jacobian`).
+the physical target. A target whose geometry an estimator refines implements
+the calibratable-target protocol (`parameter_vector`, `with_parameters`,
+`minimal_manifold`, `regularizer`, `calibration_jacobian`).
+
+### Target calibration
+
+What a target calibration estimates about the physical target, as a camera
+calibration estimates intrinsics and a lens. The kinds:
+
+| kind | map | parameters | Jacobian | regularizer | gauges fixed by default |
+|---|---|---|---|---|---|
+| [`Rigid`](@ref) | `p ↦ p` | none | 2 × 0 | none | none |
+| [`Affine`](@ref) | `p ↦ A p + b` | `a11, a12, a21, a22, bx, by` | 2 × 6 | none | `:scale` |
+| [`ThinPlateSpline`](@ref) | `p ↦ p + (f_x(p), f_y(p))` | `fx1…fxK, fy1…fyK` | 2 × 2K | bending energy, 2K rows | none |
+| [`HeightField`](@ref) | `p ↦ (p, h(p))` | `h1…hK` | 3 × K | bending energy, K rows | `:piston, :tilt_x, :tilt_y` |
+| [`CalibrationChain`](@ref) | members in order | members', tag-prefixed | chain rule | stacked | members', tag-prefixed |
+
+The thin-plate kinds are splines over `K` fixed nodes in the target's plane
+(the numerics' [`ThinPlateSplineSystem`](@ref)), their parameters the nodal
+values; a height is `tps_evaluate` of its spline, bit for bit. Lengths (an
+`Affine`'s `b`, nodes, displacements, heights) are in the design's form,
+plain or physical, and move with `ustrip`/`with_unit`. A calibration may be
+`Uncertain(c, CovMat(Σ))`, `Σ` over its parameters, as a pose may be.
+
+**Planarity is in the type.** [`is_planar`](@ref) is true for `Rigid`,
+`Affine`, `ThinPlateSpline` and chains of them, false once a `HeightField` is
+present; `points(t)` is then `SVector{2}`s on `z = 0` or `SVector{3}`s, and the
+result type is inferred. A method that assumes the plane takes
+`t::PlanarTarget{<:PlanarCalibration}` and refuses a height field by dispatch.
+
+**Gauges.** Some directions of θ are the pose's: images cannot tell a target
+from the same target scaled (with the pose's translation scaled), nor a height
+field from the same one plus a plane (a tilted, shifted pose). The default
+[`TargetManifold`](@ref) — `minimal_manifold(t)` — holds them fixed: its chart
+is linear on an orthonormal basis of the complement of [`gauge_names`](@ref)'
+directions. A measured length frees the scale by name:
+
+```julia
+t = PlanarTarget(points; calibration = CalibrationChain(Affine(A, b), HeightField(nodes, h)))
+ch = minimal_manifold(t)                               # :affine_scale and the three height gauges fixed
+ch = TargetManifold(t; free = (:affine_scale,))       # a ruler pins the scale
+restrict(ch, (:affine_bx, :affine_by))                 # only the translation free
+```
 
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]

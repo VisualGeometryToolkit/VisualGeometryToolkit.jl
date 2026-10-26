@@ -102,7 +102,8 @@ world, a tracker's room, or a member's own frame — the gauge). Each member is 
 - a target's is `TargetFrame{id}`; its pose ([`PosedTarget`](@ref)) is
   `TargetFrame{id} → F`, stored unlabeled and minted on access. The target's
   geometry — [`points`](@ref)`(target)`, a [`PlanarTarget`](@ref)'s plane
-  `z = 0` or a [`PointTarget`](@ref)'s points — is in `TargetFrame{id}` and
+  `z = 0` (or the 3-vectors a [`HeightField`](@ref) calibration lifts off it)
+  or a [`PointTarget`](@ref)'s points — is in `TargetFrame{id}` and
   independent of the pose, so one target can sit in several rigs.
 
 A capture's per-frame values keep the same frames: a [`Trajectory`](@ref)

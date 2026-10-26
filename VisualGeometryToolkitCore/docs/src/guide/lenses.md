@@ -90,7 +90,7 @@ then the distortion's terms depth-first, left to right;
 (unbounded, but the double sphere's `α` in `(0, 1)`), [`parameters`](@ref) pairs the names and values
 in a `NamedTuple`, and [`with_parameters`](@ref) rebuilds the same structure
 from a vector of any number type. The same three functions describe a
-calibratable target, its warp and a `LogicalIntrinsics`. [`LensManifold`](@ref) moves the coefficients
+calibratable target, its [`TargetCalibration`](@ref) and a `LogicalIntrinsics`. [`LensManifold`](@ref) moves the coefficients
 (a bounded one, the double sphere's `α`, through its logit), and
 `restrict(LensManifold(lens), names)` frees a subset by name.
 

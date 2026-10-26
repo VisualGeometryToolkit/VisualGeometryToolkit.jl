@@ -123,12 +123,6 @@ function with_parameters(::LogicalIntrinsics, θ::AbstractVector)
     return LogicalIntrinsics(CameraCalibrationMat(K))
 end
 
-# Precision hook (transforms/warp.jl's `_precision`): a lens rebuilt with
-# T-typed coefficients — the batched and fused kernel surfaces convert ONCE per
-# launch so per-element math never promotes (Metal has no Float64).
-_precision(::Type{T}, l::AbstractLensModel) where {T <: AbstractFloat} =
-    _with_parameters(l, map(T, parameter_vector(l)))
-
 """
     convert_eltype(::Type{T}, x) where {T <: AbstractFloat}
 
@@ -136,13 +130,18 @@ _precision(::Type{T}, l::AbstractLensModel) where {T <: AbstractFloat} =
 `LogicalIntrinsics` (`K`, with `K⁻¹` recomputed in `T`), a `CameraModel`
 (both), a `CentralGenericModel` or `NoncentralGenericModel` (the grids;
 the calibrated area stays as stored). Use it to move a camera to `Float32`
-before a GPU launch, or back to `Float64`. A lens and a grid model go through
-the same conversion the batched and fused kernels apply per launch.
+before a GPU launch, or back to `Float64`.
+
+A lens's and a grid model's method is also what the batched and fused
+kernels apply once per launch, so per-element math never promotes (Metal has
+no Float64): a downstream lens type that adds a method here is converted by
+them too.
 
 Public, not exported; a downstream camera or lens type adds its own method.
 """
 function convert_eltype end
-convert_eltype(::Type{T}, l::AbstractLensModel) where {T <: AbstractFloat} = _precision(T, l)
+convert_eltype(::Type{T}, l::AbstractLensModel) where {T <: AbstractFloat} =
+    _with_parameters(l, map(T, parameter_vector(l)))
 convert_eltype(::Type{T}, intr::LogicalIntrinsics) where {T <: AbstractFloat} =
     LogicalIntrinsics(CameraCalibrationMat{T}(intr.K))
 convert_eltype(::Type{T}, m::CameraModel) where {T <: AbstractFloat} =

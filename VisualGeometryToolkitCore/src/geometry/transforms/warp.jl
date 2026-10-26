@@ -179,8 +179,9 @@ fuse(bm::BoundedMap) = BoundedMap(fuse(bm.map), bm.rect)
 # =============================================================================
 #
 # `_precision(T, t)` rebuilds a (fused) chain with all stored floats in
-# precision `T`.  Leaves that carry no floats are returned unchanged; lens models
-# opt in where they are defined (see cameras/projections.jl).
+# precision `T`.  Leaves that carry no floats are returned unchanged; a lens or
+# grid model forwards to the public `convert_eltype` (the one bridge is in
+# cameras/generic_models.jl), so a downstream lens's method reaches the kernels.
 
 _precision(::Type{T}, x) where {T <: AbstractFloat} = x
 _precision(::Type{T}, x::Translation) where {T <: AbstractFloat} =

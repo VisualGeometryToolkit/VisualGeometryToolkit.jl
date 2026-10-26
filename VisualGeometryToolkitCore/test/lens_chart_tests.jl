@@ -295,4 +295,15 @@ end
     n32 = convert_eltype(Float32, n)
     @test n32 isa NoncentralGenericModel{Float32}
     @test all(near(a, b) for (a, b) in zip(convert_eltype(Float64, n32).directions, n.directions))
+
+    # the kernels' private conversion forwards to it: a downstream lens's own
+    # method is the one the batched and fused kernels apply
+    @test VgtkCore._precision(Float32, KannalaBrandt(-0.04, 0.01)) === convert_eltype(Float32, KannalaBrandt(-0.04, 0.01))
+    @test VgtkCore._precision(Float32, g).grid == g32.grid
+    @test VgtkCore._precision(Float32, intr) === intr          # intrinsics are not converted inside a warp chain
+    @eval struct _TaggedLens{T} <: VgtkCore.AbstractLensModel
+        k::T
+    end
+    @eval VgtkCore.convert_eltype(::Type{T}, l::_TaggedLens) where {T <: AbstractFloat} = _TaggedLens(T(l.k + 1))
+    @test VgtkCore._precision(Float32, _TaggedLens(1.0)) === _TaggedLens(2.0f0)
 end

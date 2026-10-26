@@ -661,20 +661,28 @@ function NoncentralGenericModel(
 end
 
 # ------------------------------------------------------------------------------
-# Precision conversion (house `_precision` convention)
+# Precision conversion: `convert_eltype`, and the warp chain's `_precision`
+# bridge to it
 # ------------------------------------------------------------------------------
-_precision(::Type{T}, m::CentralGenericModel) where {T <: AbstractFloat} =
+convert_eltype(::Type{T}, m::CentralGenericModel) where {T <: AbstractFloat} =
     CentralGenericModel{T}(
     m.width, m.height, m.calib_min_x, m.calib_min_y,
     m.calib_max_x, m.calib_max_y, Vec3{T}.(m.grid)
 )
-_precision(::Type{T}, m::NoncentralGenericModel) where {T <: AbstractFloat} =
+convert_eltype(::Type{T}, m::NoncentralGenericModel) where {T <: AbstractFloat} =
     NoncentralGenericModel{T}(
     m.width, m.height, m.calib_min_x, m.calib_min_y,
     m.calib_max_x, m.calib_max_y, Vec3{T}.(m.directions), Vec3{T}.(m.points)
 )
-convert_eltype(::Type{T}, m::Union{CentralGenericModel, NoncentralGenericModel}) where {T <: AbstractFloat} =
-    _precision(T, m)
+
+# The one bridge from transforms/warp.jl's private `_precision` (the fused
+# image_warp chain and the batched kernels) to the public conversion: a lens
+# or grid model in a chain converts through `convert_eltype`, so a downstream
+# lens's method is the one the kernels apply. Intrinsics and camera models are
+# deliberately NOT bridged: a chain holding one has always kept it as it is
+# (`_precision`'s identity fallback), and still does.
+_precision(::Type{T}, x::Union{AbstractLensModel, _GenericModel}) where {T <: AbstractFloat} =
+    convert_eltype(T, x)
 
 # ------------------------------------------------------------------------------
 # Undistortion through the generic model — coarse-inverse remap

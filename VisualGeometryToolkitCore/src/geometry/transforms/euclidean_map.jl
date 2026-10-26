@@ -166,6 +166,12 @@ function _assert_rotation(
 end
 
 
+# The rotation a positional constructor stores: a `RotMatrix` or a `QuatRotation`
+# stays what it is (a saved pose's quaternion round-trips bit for bit); any other
+# `Rotation` is stored as a `RotMatrix` of its own eltype.
+_stored_rotation(R::Union{RotMatrix, QuatRotation}) = R
+_stored_rotation(R::Rotation{N, T}) where {N, T} = RotMatrix{N, T}(R)
+
 # The length every physical translation is: a quantity of another dimension is
 # FlexUnits' `DimensionError`. (Untyped: FlexUnits' arithmetic may infer to any
 # of its quantity types before `ubase` settles the base form.)
@@ -179,15 +185,15 @@ end
 
 A PHYSICAL map: every component of `t` a length, in any length unit (a
 quantity of another dimension is a `DimensionError`), stored as FlexUnits'
-base-form quantities — metres (`ubase`). The rotation is stored as a
-`RotMatrix` of its own eltype.
+base-form quantities — metres (`ubase`). A `RotMatrix` or `QuatRotation` rotation
+is stored as given; any other `Rotation` as a `RotMatrix` of its own eltype.
 """
 function EuclideanMap(
         R::Rotation{N, T}, t::AbstractVector{<:Quantity};
         check::Bool = true
     ) where {N, T}
     check && _assert_rotation(R)
-    R_typed = RotMatrix{N, T}(R)
+    R_typed = _stored_rotation(R)
     t_m = SVector{N}(map(q -> _check_length(ubase(q)), Tuple(SVector{N}(t))))
     return EuclideanMap{N, T, typeof(R_typed), typeof(t_m)}(R_typed, t_m)
 end
@@ -200,7 +206,7 @@ function EuclideanMap(
         check::Bool = true
     ) where {N, T}
     check && _assert_rotation(R)
-    R_typed = RotMatrix{N, T}(R)
+    R_typed = _stored_rotation(R)
     t_typed = SVector{N, float(eltype(t))}(t)
     return EuclideanMap{N, T, typeof(R_typed), typeof(t_typed)}(R_typed, t_typed)
 end
@@ -225,7 +231,7 @@ function EuclideanMap(
         check::Bool = true
     ) where {N, T}
     check && _assert_rotation(R)
-    R_typed = RotMatrix{N, T}(R)
+    R_typed = _stored_rotation(R)
     t_typed = _float_translation(t)
     return EuclideanMap{N, T, typeof(R_typed), typeof(t_typed)}(R_typed, t_typed)
 end

@@ -91,6 +91,20 @@
         @test all(E1(x1) === generic(E1, x1) for E1 in quat_maps, x1 in points3)
         @test all(E1(x1) === generic(E1, x1) for E1 in inv.(quat_maps), x1 in points3)
         @test apply(quat_maps[1], x) isa SVector{3, Q}
+        # the public positional form keeps the rotation type it is given, for a
+        # unitful and a plain translation alike (a saved pose round-trips bit-exactly)
+        q = QuatRotation(RotXYZ(0.3, -0.7, 1.1))
+        t_mm = SVector(1.0, 2.0, 3.0) .* mm
+        Eq = EuclideanMap(q, t_mm)
+        @test rotation(Eq) isa QuatRotation{Float64}
+        @test rotation(Eq) === q
+        @test rotation(inv(Eq)) isa QuatRotation{Float64}
+        @test rotation(EuclideanMap(q, SVector(1.0, 2.0, 3.0))) === q
+        @test rotation(EuclideanMap(q, [1.0, 2.0, 3.0])) === q
+        Rm = RotMatrix{3, Float64}(RotXYZ(0.3, -0.7, 1.1))
+        @test rotation(EuclideanMap(Rm, t_mm)) === Rm
+        @test rotation(EuclideanMap(Rm, SVector(1.0, 2.0, 3.0))) isa RotMatrix{3, Float64}
+        @test rotation(EuclideanMap(RotationVec(0.1, 0.2, 0.3), SVector(1.0, 2.0, 3.0))) isa RotMatrix{3, Float64}
         # a point of another dimension, or of mixed dimensions, is the generic DimensionError
         @test_throws DimensionError E(SVector(1.0, 2, 3) .* (m * m))
         @test_throws DimensionError E(SVector(1.0m, 2.0m, 3.0 * m * m))

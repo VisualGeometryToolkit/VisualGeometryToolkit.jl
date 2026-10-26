@@ -83,6 +83,14 @@
     @test_throws ArgumentError Quad(SVector(0.0, 0.0, 0.0), SMatrix{3, 3}(0.0, 1, 0, 1, 0, 0, 0, 0, 1), Rect2(0.0, 0.0, 1.0, 1.0))
     @test_throws ArgumentError Quad(SVector(0.0, 0.0, 0.0), I3, Rect2(0.0, 0.0, -1.0, 1.0))
     @test_throws ArgumentError Quad(SVector(0.0, 0.0, 0.0), I3, Rect2(0.0, 0.0, 1.0, 1.0), SMatrix{2, 2}(1.0, 1.0, 1.0, 1.0))
+    # a Quad built from Float32 data is a Quad{Float32}: the frame is checked to Float32 rounding
+    R32 = SMatrix{3, 3, Float32}(RotMatrix(QuatRotation(1.0, 0.2, -0.1, 0.3)))
+    q32 = Quad(SVector(0.1f0, 0.2f0, 0.3f0), R32, Rect2{Float32}(-0.5f0, -0.5f0, 1.0f0, 1.0f0))
+    @test q32 isa Quad{Float32}
+    t32, x32 = intersection(q32, SVector(0.1f0, 0.2f0, 0.3f0) + 2 * R32[:, 3], -R32[:, 3])
+    @test t32 isa Float32 && t32 ≈ 2 && x32 ≈ SVector(0.1f0, 0.2f0, 0.3f0)
+    pt32 = PosedTarget(PlanarTarget([SVector(0.0, 0.0), SVector(0.1, 0.1)]), EuclideanMap(RotMatrix{3, Float32}(R32), SVector(0.1f0, 0.2f0, 0.3f0)))
+    @test VisualGeometryToolkitCore.surface(pt32) isa Quad
 
     # an in-plane affine: the chart is the design's, m = A c + b
     A = SMatrix{2, 2}(1.01, -0.003, 0.002, 0.99)
@@ -472,4 +480,21 @@ end
     @test_throws ArgumentError Board(Size2(width = 297.0, height = 210.0), [-10.0mm, -5.0mm])   # a mix
     q = VisualGeometryToolkitCore.surface(PosedTarget(tu, EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, 1000.0))))
     @test VisualGeometryToolkitCore.bounds(q) == Rect(bu)
+    # a point on the board's edge stays on it through mm ↔ m round trips (a unit
+    # conversion moves the edge by an ulp; the check allows 16 eps)
+    for (w, h, ox, oy) in ((297.3, 210.7, -10.1, -5.3), (420.0, 297.0, -0.7, -0.3), (1189.9, 841.1, -33.3, -11.1))
+        be = Board(Size2(width = w * mm, height = h * mm), [ox * mm, oy * mm])
+        corners = [c .* mm for c in (SVector(ox, oy), SVector(ox + w, oy), SVector(ox, oy + h), SVector(ox + w, oy + h))]
+        te = PlanarTarget(corners; board = be)
+        @test VisualGeometryToolkitCore.with_unit(ustrip(mm, te), mm) isa PlanarTarget
+        for u in (mm, VisualGeometryToolkitCore.inch)                                  # rebuilt from the stripped parts
+            ts = ustrip(u, te)
+            @test PlanarTarget(ts.nominal; board = board(ts)) == ts
+        end
+    end
+    # an unresolved target: the board is in its calibration's form when that carries lengths
+    @test_throws DimensionError PlanarTarget(:b; calibration = Affine([1.0 0.0; 0.0 1.0], [0.0, 0.0]), board = bd)
+    @test_throws DimensionError PlanarTarget(:b; calibration = Affine([1.0 0.0; 0.0 1.0], [0.0, 0.0] .* mm), board = bu)
+    @test board(PlanarTarget(:b; calibration = Affine([1.0 0.0; 0.0 1.0], [0.0, 0.0] .* mm), board = bd)) === bd
+    @test board(PlanarTarget(:b; board = bu)) === bu                                     # Rigid has no lengths: either form
 end

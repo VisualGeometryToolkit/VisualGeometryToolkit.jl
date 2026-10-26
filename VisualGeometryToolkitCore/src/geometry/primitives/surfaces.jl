@@ -126,7 +126,8 @@ rotation) whose columns are the in-plane basis `e_u`, `e_v` and the normal
 `n = e_u × e_v`; a point with metric plane coordinates `m` is
 `origin + m₁ e_u + m₂ e_v`. The CHART is `c` with `m = A c + b` (`A` an
 invertible 2 × 2 matrix, inverted once here), and `rect` is a rectangle in
-the chart. A left-handed or non-orthonormal `frame` (tolerance `1e-12`), a
+the chart. A left-handed or non-orthonormal `frame` (to `64 eps` of the
+frame's element type: 1.4e-14 in `Float64`, 7.6e-6 in `Float32`), a
 singular `A` or a negative width is an `ArgumentError`. `Quad{T}(q)` converts
 the element type (`Float32` for a device).
 
@@ -152,13 +153,21 @@ struct Quad{T}
     A_inv::SMatrix{2, 2, T, 4}    # formed once, here
     rect::Rect2{T}                # in the chart
 end
-const _FRAME_TOLERANCE = 1.0e-12
-function Quad(origin::StaticVector{3}, frame::StaticMatrix{3, 3}, rect::Rect2,
-              A::StaticMatrix{2, 2} = SMatrix{2, 2, Float64}(1, 0, 0, 1), b::StaticVector{2} = SVector(0.0, 0.0))
+# the frame's orthonormality, in eps of its own element type (a Float32 pose
+# is orthonormal to Float32 rounding, whatever the Quad's type)
+_frame_tolerance(::Type{T}) where {T} = 64 * eps(float(T))
+# no affine: the identity, in the type of the frame data (a Float32 frame gives a Float32 Quad)
+function Quad(origin::StaticVector{3}, frame::StaticMatrix{3, 3}, rect::Rect2)
+    T = float(promote_type(eltype(origin), eltype(frame), eltype(rect.origin)))
+    return Quad(origin, frame, rect, SMatrix{2, 2, T}(1, 0, 0, 1), zero(SVector{2, T}))
+end
+function Quad(origin::StaticVector{3}, frame::StaticMatrix{3, 3}, rect::Rect2, A::StaticMatrix{2, 2},
+              b::StaticVector{2} = zero(SVector{2, float(eltype(A))}))
     T = float(promote_type(eltype(origin), eltype(frame), eltype(rect.origin), eltype(A), eltype(b)))
     R = SMatrix{3, 3, T}(frame)
-    maximum(abs, R' * R - I) <= _FRAME_TOLERANCE ||
-        throw(ArgumentError("Quad: the frame (e_u, e_v, n) must be orthonormal to $(_FRAME_TOLERANCE)"))
+    tol = _frame_tolerance(eltype(frame))
+    maximum(abs, R' * R - I) <= tol ||
+        throw(ArgumentError("Quad: the frame (e_u, e_v, n) must be orthonormal to $(tol)"))
     det(R) > 0 || throw(ArgumentError("Quad: the frame (e_u, e_v, n) is left-handed; the normal is e_u × e_v"))
     all(>=(0), rect.widths) || throw(ArgumentError("Quad: the rectangle has a negative width, $(rect.widths)"))
     Aₜ = SMatrix{2, 2, T}(A)

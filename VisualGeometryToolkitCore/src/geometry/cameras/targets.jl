@@ -164,17 +164,26 @@ struct PlanarTarget{C <: TargetCalibration, N <: Union{Nothing, Vector{<:SVector
             throw(ArgumentError("a planar target has a design reference, nominal points, or both"))
         n = nominal === nothing ? nothing : _nominal_points(nominal)
         _check_calibration(n, calibration)
-        _check_board(n, board)
+        _check_board(n, board, calibration)
         return new{typeof(geom(calibration)), typeof(n), typeof(calibration)}(reference, n, calibration, board)
     end
 end
 # The board is in the points' form, and they lie on it (in the design chart:
 # metres when physical).
-function _check_board(nominal, bd)
-    (bd === nothing || nominal === nothing || isempty(nominal)) && return nothing
+# An unresolved target's board is in its calibration's form when that carries
+# lengths. A point on the edge is on the board within 16 eps of the board's
+# coordinates (a unit round trip moves the edge by an ulp), as surface()'s box.
+function _check_board(nominal, bd, c)
+    bd === nothing && return nothing
+    if nominal === nothing || isempty(nominal)
+        cc = geom(c)
+        (_has_lengths(cc) && has_units(cc) != has_units(bd)) && throw(DimensionError(_length_sample(cc), bd.size.width))
+        return nothing
+    end
     has_units(first(nominal)) == has_units(bd) || throw(DimensionError(first(nominal), bd.size.width))
     r = Rect(bd)
-    lo, hi = r.origin, r.origin + r.widths
+    δ = 16 * eps(Float64) * max(maximum(abs, r.origin), maximum(abs, r.origin + r.widths), maximum(r.widths))
+    lo, hi = r.origin .- δ, r.origin + r.widths .+ δ
     for p in nominal
         q = has_units(bd) ? map(x -> ustrip(m, x), p) : p
         (lo[1] <= q[1] <= hi[1] && lo[2] <= q[2] <= hi[2]) || throw(

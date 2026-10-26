@@ -7,7 +7,9 @@
     @test ustrip(mm, 1.0m) ≈ 1000.0
     @test ustrip.(m, [1000.0mm, 500.0mm]) ≈ [1.0, 0.5]
     @test_throws ConversionError ustrip(mm, 3.0px)     # px into a length field
-    @test_throws MethodError ustrip(mm, 3.0)           # a bare number has no unit to strip
+    # a bare number is not a length: a MethodError up to FlexUnits 0.6.14; from 0.6.15 a bare
+    # Real is a dimensionless quantity, so it is the ConversionError of the line above
+    @test_throws Union{MethodError, ConversionError} ustrip(mm, 3.0)
     @test ustrip(mm, quantity(0.1 + 0.2, mm)) === 0.1 + 0.2   # a file magnitude comes back exactly
     @test ustrip(mm, quantity(1.234, m)) === 1.234 * 1000.0
     # unit names are VisualGeometryToolkitCore's parse_unit / unit_string

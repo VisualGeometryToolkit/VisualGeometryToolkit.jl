@@ -192,37 +192,37 @@ end
     @test content_id(joinpath(fixtures, "rig.json")) == "2f461cfef0e8e465a9e4b107cb88c10783583b37ffeffe6842f76fec0a465bd0"
 end
 
-@testitem "target/v2: a planar target's page — present and absent" setup = [VGIoFixtures, TargetRecordFixtures] begin
+@testitem "target/v2: a planar target's board — present and absent" setup = [VGIoFixtures, TargetRecordFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget
     # The record of the sheet a target is printed on (VGC's PlanarTarget gains a
-    # `Page` on the primitives branch): its size in the Size2 form and its
+    # `Board` on the primitives branch): its size in the Size2 form and its
     # lower-left corner `origin` in the design chart, lengths in the file's
     # unit, exact; absent when the target has none.
-    page = (size = Size2(width = mmq(150.0), height = mmq(77.25)), origin = SVector(mmq(-13.9), mmq(0.0)))
+    board = (size = Size2(width = mmq(150.0), height = mmq(77.25)), origin = SVector(mmq(-13.9), mmq(0.0)))
     for u in (mm, m)
-        j = VgtkIO._page_json(page, u)
-        @test j.page.width == (u == mm ? 150.0 : 0.15) && j.page.height == (u == mm ? 77.25 : 0.07725)
-        @test j.page.origin == (u == mm ? [-13.9, 0.0] : [-0.0139, 0.0])
-        back = VgtkIO._page_from_json(parse_json(JSON.json(j.page)), u)
-        @test back.size == page.size && back.origin == page.origin
+        j = VgtkIO._board_json(board, u)
+        @test j.board.width == (u == mm ? 150.0 : 0.15) && j.board.height == (u == mm ? 77.25 : 0.07725)
+        @test j.board.origin == (u == mm ? [-13.9, 0.0] : [-0.0139, 0.0])
+        back = VgtkIO._board_from_json(parse_json(JSON.json(j.board)), u)
+        @test back.size == board.size && back.origin == board.origin
     end
-    @test VgtkIO._page_json(nothing, mm) == (;)
-    @test VgtkIO._target_page(PlanarTarget(design_points())) === nothing    # (until VGC's PlanarTarget holds a page)
-    @test_throws ArgumentError VgtkIO._page_json((size = Size2(width = 1.0, height = 1.0), origin = SVector(0.0, 0.0)), mm)   # plain numbers
+    @test VgtkIO._board_json(nothing, mm) == (;)
+    @test VgtkIO._target_board(PlanarTarget(design_points())) === nothing    # (until VGC's PlanarTarget holds a board)
+    @test_throws ArgumentError VgtkIO._board_json((size = Size2(width = 1.0, height = 1.0), origin = SVector(0.0, 0.0)), mm)   # plain numbers
     mktempdir() do dir
         p = joinpath(dir, "t.json")
         save(p, PlanarTarget(design_points()))
         d = JSON.parse(read(p, String); dicttype = Dict{String, Any})
-        @test !haskey(d["target"], "page")                           # absent when the target has none
+        @test !haskey(d["target"], "board")                           # absent when the target has none
         q = joinpath(dir, "e.json")
         refused(f) = (dd = deepcopy(d); f(dd); write(q, JSON.json(dd)); e = try load(AbstractTarget, q); nothing catch e; e end; e)
-        e = refused(dd -> (dd["target"]["page"] = Dict("width" => 150, "height" => 0, "origin" => [0, 0])))
+        e = refused(dd -> (dd["target"]["board"] = Dict("width" => 150, "height" => 0, "origin" => [0, 0])))
         @test e isa ArgumentError && occursin("are > 0", e.msg)
-        e = refused(dd -> (dd["target"]["page"] = Dict("width" => 150, "height" => 77)))
+        e = refused(dd -> (dd["target"]["board"] = Dict("width" => 150, "height" => 77)))
         @test e isa ArgumentError && occursin("origin", e.msg)
-        # validated, then read into the target (refused while VGC's PlanarTarget holds no page)
-        e = refused(dd -> (dd["target"]["page"] = Dict("width" => 150, "height" => 77, "origin" => [0, 0])))
-        @test e isa ArgumentError && (hasfield(PlanarTarget, :page) || occursin("page", e.msg))
+        # validated, then read into the target (refused while VGC's PlanarTarget holds no board)
+        e = refused(dd -> (dd["target"]["board"] = Dict("width" => 150, "height" => 77, "origin" => [0, 0])))
+        @test e isa ArgumentError && (hasfield(PlanarTarget, :board) || occursin("board", e.msg))
     end
 end

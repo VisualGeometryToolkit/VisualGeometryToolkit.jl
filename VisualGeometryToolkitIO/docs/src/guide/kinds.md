@@ -87,10 +87,10 @@ its members carry none), each entry in the file's unit raised to its length
 dimension. A calibration with lengths in plain numbers is refused, as plain
 points are.
 
-A `PlanarTarget` may also state its `page`, the physical sheet it is printed
+A `PlanarTarget` may also state its `board`, the physical sheet it is printed
 on (parallel to a camera's sensor): its size in the `Size2` form and its
 lower-left corner in the design chart,
-`"page": {"width": w, "height": h, "origin": [u, v]}`, every number a length
+`"board": {"width": w, "height": h, "origin": [u, v]}`, every number a length
 in the file's unit. It is absent when the target has none.
 
 A target file may also carry a `calibration_record`, the record of how the

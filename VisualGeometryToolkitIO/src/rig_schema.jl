@@ -51,7 +51,7 @@ end
 #   {"type": "points", "points": [[x, y(, z)], …], "point_covariances": [[[…]…]…]}   PointTarget
 #   {"type": "planar", "reference": "<reference>", "calibration": {calibration}}     PlanarTarget of a referenced design
 #   {"type": "planar", "nominal": [[x, y], …], "calibration": {calibration}}         PlanarTarget of explicit points
-#   … "page": {"width": w, "height": h, "origin": [u, v]}                           (optional) its physical sheet
+#   … "board": {"width": w, "height": h, "origin": [u, v]}                           (optional) its physical sheet
 #
 # Points and nominal points in the file's `length_unit` (written in mm unless
 # the writer is given another), lengths in metres in memory, in the
@@ -80,11 +80,11 @@ end
 # order — one joint covariance, as `Uncertain(chain, Σ)` holds it), each entry
 # in the file's unit raised to its length dimension.
 #
-# THE PAGE (optional, a planar target's): the physical sheet the design is
+# THE BOARD (optional, a planar target's): the physical sheet the design is
 # printed on, parallel to a camera's sensor — its size, a `Size2` of lengths in
 # the established Size2 form (`width`, `height`), and its lower-left corner in
 # the design chart, `origin` — every number a length in the file's unit;
-# absent when the target has none. (`Rect(page)` is the target's extent.)
+# absent when the target has none. (`Rect(board)` is the target's extent.)
 
 const _TARGET_POINTS = _Checked(
     _Vec(_Vec(_Real())),
@@ -159,9 +159,9 @@ _migrated_key_message(old, new) =
     "`$(old)` is a vgio/target/v1 and vgio/rig/v4 key; $(_schema("target")) and $(_schema("rig")) name it `$(new)`. " *
     "Migrate the file once with vgio_migrate (bin/vgio_migrate.jl target|rig FILE)"
 
-const _PAGE = _Checked(
+const _BOARD = _Checked(
     _Obj(:width => _Real(), :height => _Real(), :origin => _XY),
-    p -> (p[:width] > 0 && p[:height] > 0) ? nothing : "a page's width and height are > 0",
+    p -> (p[:width] > 0 && p[:height] > 0) ? nothing : "a board's width and height are > 0",
 )
 
 const _TARGET_BODY = _Checked(
@@ -170,7 +170,7 @@ const _TARGET_BODY = _Checked(
         Pair{Symbol, _Spec}[
             :points => _TARGET_POINTS, :point_covariances => _Vec(_Vec(_Vec(_Real()))),
             :reference => _NonEmpty(), :nominal => _Vec(_Vec(_Real(), 2)), :calibration => _TARGET_CALIBRATION,
-            :page => _PAGE,
+            :board => _BOARD,
             :warp => _Free(), :design => _Str(),      # the v1 keys: refused below, naming the migration
         ],
     ),
@@ -181,7 +181,7 @@ const _TARGET_BODY = _Checked(
         ty = t[:type]
         if ty == "points"
             haskey(t, :points) || return "a points target states its `points`"
-            any(k -> haskey(t, k), (:reference, :nominal, :calibration, :page)) && return "a points target has `points` (and `point_covariances`) only"
+            any(k -> haskey(t, k), (:reference, :nominal, :calibration, :board)) && return "a points target has `points` (and `point_covariances`) only"
             haskey(t, :point_covariances) && return _point_covariances_check(t[:points], t[:point_covariances])
             return nothing
         elseif ty == "planar"
@@ -307,28 +307,28 @@ target_json(t::PlanarTarget, unit::Units = mm) = merge(
     reference(t) === nothing ?
         (type = "planar", nominal = [_lengths_json(p, unit, "a planar target's nominal point") for p in t.nominal], calibration = _target_calibration_json(calibration(t), unit)) :
         (type = "planar", reference = String(reference(t)), calibration = _target_calibration_json(calibration(t), unit)),
-    _page_json(_target_page(t), unit),
+    _board_json(_target_board(t), unit),
 )
 
-# The page ↔ its record. A page is held as its two parts, `size` (a `Size2` of
-# lengths) and `origin` (a 2-vector of lengths): `_page_parts` reads them from
-# the page VGC's PlanarTarget holds in its field `page` (decided by the type,
+# The board ↔ its record. A board is held as its two parts, `size` (a `Size2` of
+# lengths) and `origin` (a 2-vector of lengths): `_board_parts` reads them from
+# the board VGC's PlanarTarget holds in its field `board` (decided by the type,
 # at compile time; `nothing` for a target without one).
-@generated _target_page(t::PlanarTarget) = hasfield(t, :page) ? :(_page_parts(t.page)) : :nothing
-_page_parts(::Nothing) = nothing
-_page_parts(p) = (size = p.size, origin = p.origin)
-_page_json(::Nothing, ::Units) = (;)
-function _page_json(p::NamedTuple{(:size, :origin)}, u::Units)
-    has_units(p.size) || _refuse_plain("a target's page")
-    return (page = merge(json_value(p.size, UnitContract(u); kind = :length), (origin = _lengths_json(p.origin, u, "a target's page"),)),)
+@generated _target_board(t::PlanarTarget) = hasfield(t, :board) ? :(_board_parts(t.board)) : :nothing
+_board_parts(::Nothing) = nothing
+_board_parts(p) = (size = p.size, origin = p.origin)
+_board_json(::Nothing, ::Units) = (;)
+function _board_json(p::NamedTuple{(:size, :origin)}, u::Units)
+    has_units(p.size) || _refuse_plain("a target's board")
+    return (board = merge(json_value(p.size, UnitContract(u); kind = :length), (origin = _lengths_json(p.origin, u, "a target's board"),)),)
 end
-_page_from_json(x, u::Units) =
+_board_from_json(x, u::Units) =
     (size = from_json(Size2, x, UnitContract(u); kind = :length), origin = _lengths_from_json(Val(2), x.origin::Vector{Any}, u))
-# A target read with its page. This VisualGeometryToolkitCore's PlanarTarget
+# A target read with its board. This VisualGeometryToolkitCore's PlanarTarget
 # holds none, so a file stating one is refused rather than read without it.
-_with_page(t::PlanarTarget, ::Nothing) = t
-_with_page(t::PlanarTarget, page) = throw(
-    ArgumentError("the target states a `page`, which this VisualGeometryToolkitCore's PlanarTarget does not hold ($(page))")
+_with_board(t::PlanarTarget, ::Nothing) = t
+_with_board(t::PlanarTarget, board) = throw(
+    ArgumentError("the target states a `board`, which this VisualGeometryToolkitCore's PlanarTarget does not hold ($(board))")
 )
 
 """
@@ -347,13 +347,13 @@ function target_from_json(t, unit::AbstractString; resolve = nothing)
         return PointTarget(_points_from_json(t.points::Vector{Any}, u, haskey(t, :point_covariances) ? t.point_covariances::Vector{Any} : nothing))
     end
     c = _target_calibration_from_json(t.calibration, u)
-    page = haskey(t, :page) ? _page_from_json(t.page, u) : nothing
-    haskey(t, :nominal) && return _with_page(PlanarTarget(_points_from_json(t.nominal::Vector{Any}, u); calibration = c), page)
+    board = haskey(t, :board) ? _board_from_json(t.board, u) : nothing
+    haskey(t, :nominal) && return _with_board(PlanarTarget(_points_from_json(t.nominal::Vector{Any}, u); calibration = c), board)
     ref = Symbol(t.reference::String)
     nominal = resolve === nothing ? nothing : resolve(ref)
     (nominal === nothing || isempty(nominal) || has_units(nominal)) ||
         _refuse_plain("resolve($(repr(ref))): the design's nominal points")
-    return _with_page(PlanarTarget(ref; nominal, calibration = c), page)
+    return _with_board(PlanarTarget(ref; nominal, calibration = c), board)
 end
 
 # -----------------------------------------------------------------------------

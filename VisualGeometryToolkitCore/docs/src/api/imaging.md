@@ -24,14 +24,16 @@ A calibration target is a MODEL, the analogue of a camera model:
 [`AbstractTarget`](@ref) promises `points(target)` in its own `TargetFrame{id}`;
 [`PointTarget`](@ref) holds explicit (nominal or estimated) points,
 [`PlanarTarget`](@ref) a design — its nominal points, or the reference they
-are resolved from — and a warp ([`Rigid`](@ref) today). A target whose
+are resolved from — and a [`TargetCalibration`](@ref) taking the design to
+the physical target ([`Rigid`](@ref): the design exactly). A target whose
 geometry an estimator refines implements the calibratable-target protocol
-(`parameter_vector`, `with_parameters`, `minimal_manifold`, `regularizer`).
+(`parameter_vector`, `with_parameters`, `minimal_manifold`, `regularizer`,
+`calibration_jacobian`).
 
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false
-Pages = ["cameras/targets.jl"]
+Pages = ["cameras/target_calibration.jl", "cameras/targets.jl"]
 ```
 
 ## Rigs

@@ -14,10 +14,10 @@
 #                         `Uncertain`. That is all regression and evaluation call.
 #   PointTarget           explicit points, nominal or estimated (`Uncertain`
 #                         points): a motion-capture marker constellation, or a
-#                         board whose warp was resolved to measured points.
-#   PlanarTarget{W}       a planar DESIGN — its nominal points, or the reference
-#                         they are resolved from — and a warp `W` taking them to
-#                         the physical target: `points = W(nominal)`.
+#                         board whose calibration was resolved to measured points.
+#   PlanarTarget{C}       a planar DESIGN — its nominal points, or the reference
+#                         they are resolved from — and a CALIBRATION `C` taking
+#                         them to the physical target: `points = C(nominal)`.
 #
 # THE DESIGN REFERENCE. A content-addressed design (a BlobBoards board uid) is
 # named by `design`; VGC holds the reference and, once resolved, the nominal
@@ -26,11 +26,10 @@
 # unresolved `PlanarTarget` (a pose-only board) has a reference and no points;
 # asking for its points is an error naming the reference.
 #
-# THE WARP. `Rigid` — the identity, no parameters — is exactly a printed board
-# taken as designed. The slot is the extension point for a deforming target: an
-# `Affine` warp, a `ThinPlateSpline{K}` with a bending-energy regularizer.
-# Adding one is purely additive: a new `AbstractWarp` implementing the warp
-# protocol below.
+# THE CALIBRATION. What a target calibration estimates about the physical
+# target, as a camera calibration estimates intrinsics and a lens: a
+# `TargetCalibration` (target_calibration.jl). `Rigid` — no parameters — is
+# exactly a printed board taken as designed.
 #
 # CALIBRATABLE TARGETS. A target whose geometry an estimator may refine
 # implements a parameter protocol, the target analogue of the lens leaf
@@ -39,17 +38,17 @@
 #
 #   parameter_vector(t)         the parameter vector θ (an SVector; empty for Rigid)
 #   parameter_names(t)          its names, so a configuration frees or fixes them by name
-#   parameter_bounds(t)         its bounds (unbounded unless the warp says otherwise)
+#   parameter_bounds(t)         its bounds (unbounded unless the calibration says otherwise)
 #   with_parameters(t, θ)       the same target rebuilt from θ
 #   parameters(t)               both, as a NamedTuple
 #   minimal_manifold(t)         a `TargetManifold`: θ's offsets from an anchor;
-#                               `action_jacobian(ch, x)` = ∂W(x)/∂θ at a nominal point x
+#                               `action_jacobian(ch, x)` = ∂C(x)/∂θ at a nominal point x
 #   regularizer(t)              the prior's residual rows r(θ) (‖r‖² the penalty,
 #                               e.g. a thin-plate spline's bending energy); empty for Rigid
 #
-# A `PlanarTarget` forwards the protocol to its warp, whose own protocol is
-# `parameter_vector`, `parameter_names`, `with_parameters(w, θ)`,
-# `warp_jacobian(w, x)` (2 × n) and `regularizer(w)`.
+# A `PlanarTarget` forwards the protocol to its calibration, whose own protocol is
+# `parameter_vector`, `parameter_names`, `with_parameters(c, θ)`,
+# `calibration_jacobian(c, x)` and `regularizer(c)`.
 
 """
     AbstractTarget
@@ -86,7 +85,7 @@ _target_point(p::Uncertain) = (v = _target_point(geom(p)); Uncertain(v, CovMat(S
 A target given by its points, explicitly, in its own frame: 2-vectors (a
 plane's) or 3-vectors, all of one dimension, plain or `Uncertain` (an
 estimated constellation with its covariances). A motion-capture body's
-marker constellation, or a board whose warp was resolved to measured points.
+marker constellation, or a board whose calibration was resolved to measured points.
 
 A physical target's points are lengths, stored in metres (its covariances in
 m²); plain points are stored as `Float64`. All are one form or the other
@@ -112,81 +111,45 @@ FlexUnits.ustrip(u::Units, t::PointTarget) = PointTarget([_ustrip_point(u, p) fo
 with_unit(t::PointTarget, u::Units) = PointTarget([_attach_point(u, p) for p in points(t)])
 
 # ------------------------------------------------------------------------------
-# Warps
-# ------------------------------------------------------------------------------
-
-"""
-    AbstractWarp
-
-The deformation of a planar target's nominal design: a map of plane points
-`w(p)`, with the warp protocol `parameter_vector`, `parameter_names`,
-`with_parameters(w, θ)`, `warp_jacobian(w, x)` (∂w(x)/∂θ, 2 × n) and
-`regularizer(w)`. [`Rigid`](@ref) is the one shipped.
-"""
-abstract type AbstractWarp end
-
-"""
-    Rigid() <: AbstractWarp
-
-The identity warp: the target is its design, exactly. No parameters, no
-regularizer.
-"""
-struct Rigid <: AbstractWarp end
-(::Rigid)(p) = p
-
-# The warp's parameters (the protocol of lens_chart.jl); empty for `Rigid`.
-parameter_vector(::Rigid) = SVector{0, Float64}()
-
-parameter_names(::Rigid) = ()
-with_parameters(w::Rigid, θ::AbstractVector) =
-    (isempty(θ) || throw(ArgumentError("Rigid takes no parameters; got $(length(θ))")); w)
-
-"""
-    warp_jacobian(w, x) -> SMatrix{2, n}
-
-∂w(x)/∂θ at the nominal plane point `x`.
-"""
-warp_jacobian(::Rigid, x) = zero(SMatrix{2, 0, Float64})
-
-"""
-    regularizer(w | target) -> SVector
-
-The prior's residual rows `r(θ)` at the current parameters: `‖r‖²` is the
-penalty a calibrating estimator adds (a thin-plate spline's bending energy, a
-shrinkage toward the design). Empty for [`Rigid`](@ref).
-"""
-regularizer(::Rigid) = SVector{0, Float64}()
-
-# ------------------------------------------------------------------------------
 # PlanarTarget
 # ------------------------------------------------------------------------------
 
 """
-    PlanarTarget(nominal; warp = Rigid())                  a design given by its points
-    PlanarTarget(design::Symbol; nominal = nothing, warp = Rigid())   a content-addressed design
+    PlanarTarget(nominal; calibration = Rigid())                  a design given by its points
+    PlanarTarget(design::Symbol; nominal = nothing, calibration = Rigid())   a content-addressed design
 
 A planar target: a DESIGN — its nominal plane points, and/or the reference
-`design` they are resolved from (a BlobBoards board uid) — and a warp `W`
-taking the design to the physical target, `points(t) = W.(nominal)` (2-vectors
-on the plane `z = 0`). An unresolved target (a reference, no nominal points
-yet) is a pose-only board; [`resolve`](@ref) supplies its points, and its
-[`points`](@ref) is an error until then. VGC never parses a design file: the
-design's package resolves the reference.
+`design` they are resolved from (a BlobBoards board uid) — and a
+[`TargetCalibration`](@ref) `C` taking the design to the physical target,
+`points(t) = C.(nominal)`. An unresolved target (a reference, no nominal
+points yet) is a pose-only board; [`resolve`](@ref) supplies its points, and
+its [`points`](@ref) is an error until then. VGC never parses a design file:
+the design's package resolves the reference.
+
+The calibration may be [`Uncertain`](@ref) — `Uncertain(c, CovMat(Σ))`, `Σ`
+over [`parameter_vector`](@ref)`(c)` — as a [`PosedTarget`](@ref)'s pose may
+be; the type parameter `C` is then the calibration kind it wraps.
+[`calibration`](@ref)`(t)` returns it as stored, [`design`](@ref)`(t)` the
+design.
 
 The nominal points are plain numbers (stored as `Float64`) or lengths (stored
-in metres), all one form ([`has_units`](@ref)); `ustrip(u, t)` and
-[`with_unit`](@ref)`(t, u)` move between them. An unresolved target holds no
-lengths: it is neither form, and both return it unchanged.
+in metres), all one form ([`has_units`](@ref)); a calibration with lengths
+(an `Affine`'s translation, a thin-plate spline's nodes and displacements, a
+height field's nodes and heights) is in the same form, or the constructor
+raises FlexUnits' `DimensionError`. `ustrip(u, t)` and [`with_unit`](@ref)`(t, u)`
+move the points and the calibration together. An unresolved target holds no
+points: it is neither form, and both move only its calibration.
 """
-struct PlanarTarget{W <: AbstractWarp, N <: Union{Nothing, Vector{<:SVector{2}}}} <: AbstractTarget
+struct PlanarTarget{C <: TargetCalibration, N <: Union{Nothing, Vector{<:SVector{2}}}, S <: Union{C, Uncertain{C}}} <: AbstractTarget
     design::Union{Nothing, Symbol}
     nominal::N
-    warp::W
-    function PlanarTarget(design::Union{Nothing, Symbol}, nominal, warp::W) where {W <: AbstractWarp}
+    calibration::S
+    function PlanarTarget(design::Union{Nothing, Symbol}, nominal, calibration::Union{TargetCalibration, Uncertain{<:TargetCalibration}})
         (design === nothing && nominal === nothing) &&
             throw(ArgumentError("a planar target has a design reference, nominal points, or both"))
         n = nominal === nothing ? nothing : _nominal_points(nominal)
-        return new{W, typeof(n)}(design, n, warp)
+        _check_calibration(n, calibration)
+        return new{typeof(geom(calibration)), typeof(n), typeof(calibration)}(design, n, calibration)
     end
 end
 # The nominal points stored (an empty design is a plain one, as before).
@@ -194,8 +157,38 @@ function _nominal_points(nominal)
     ps = _check_one_form([_stored_point(Val(2), geom(p)) for p in nominal], "PlanarTarget")
     return isempty(ps) ? SVector{2, Float64}[] : ps
 end
-PlanarTarget(nominal::AbstractVector; warp::AbstractWarp = Rigid()) = PlanarTarget(nothing, nominal, warp)
-PlanarTarget(design::Symbol; nominal = nothing, warp::AbstractWarp = Rigid()) = PlanarTarget(design, nominal, warp)
+# An uncertain calibration's form covers its parameters; a calibration with
+# lengths is in the form of the points it moves.
+function _check_calibration(nominal, c)
+    if c isa Uncertain
+        n = length(parameter_vector(geom(c)))
+        size(Statistics.cov(c)) == (n, n) || throw(
+            DimensionMismatch("an uncertain calibration's covariance is $(n) × $(n) (its parameters); got $(size(Statistics.cov(c)))")
+        )
+    end
+    (nominal === nothing || isempty(nominal) || !_has_lengths(geom(c))) && return nothing
+    has_units(first(nominal)) == has_units(geom(c)) && return nothing
+    throw(DimensionError(first(nominal), _length_sample(geom(c))))
+end
+PlanarTarget(nominal::AbstractVector; calibration = Rigid()) = PlanarTarget(nothing, nominal, calibration)
+PlanarTarget(design::Symbol; nominal = nothing, calibration = Rigid()) = PlanarTarget(design, nominal, calibration)
+
+"""
+    calibration(t::PlanarTarget) -> TargetCalibration or Uncertain
+
+The target's calibration as stored: a [`TargetCalibration`](@ref), or an
+[`Uncertain`](@ref) one carrying its covariance (`geom` unwraps it).
+"""
+calibration(t::PlanarTarget) = t.calibration
+
+"""
+    design(t::PlanarTarget) -> Vector{SVector{2}} or Symbol
+
+The target's design: its nominal plane points when it is resolved
+([`is_resolved`](@ref)), the reference they are resolved from (a `Symbol`)
+when it is not. The physical target is `calibration(t)` applied to it.
+"""
+design(t::PlanarTarget) = something(t.nominal, t.design)
 
 """
     resolve(t::PlanarTarget, nominal) -> PlanarTarget
@@ -203,7 +196,7 @@ PlanarTarget(design::Symbol; nominal = nothing, warp::AbstractWarp = Rigid()) = 
 The target with its design's nominal points supplied — what the design's
 owner returns for the reference `t.design`.
 """
-resolve(t::PlanarTarget, nominal::AbstractVector) = PlanarTarget(t.design, nominal, t.warp)
+resolve(t::PlanarTarget, nominal::AbstractVector) = PlanarTarget(t.design, nominal, t.calibration)
 
 """
     is_resolved(t) -> Bool
@@ -231,30 +224,36 @@ pose(t::AbstractTarget) = _unposed_target_only(pose, "pose", t)
 extrinsics(t::AbstractTarget) = _unposed_target_only(extrinsics, "extrinsics", t)
 is_resolved(t::PlanarTarget) = t.nominal !== nothing
 
-function points(t::PlanarTarget)
-    t.nominal === nothing && throw(
-        ArgumentError("points: the planar target $(repr(t.design)) is unresolved — its design's owner resolves the reference (`resolve`)")
-    )
-    return [t.warp(p) for p in t.nominal]
-end
-Base.:(==)(a::PlanarTarget, b::PlanarTarget) = a.design === b.design && isequal(a.nominal, b.nominal) && a.warp == b.warp
+@noinline _refuse_unresolved(t) = throw(
+    ArgumentError("points: the planar target $(repr(t.design)) is unresolved — its design's owner resolves the reference (`resolve`)")
+)
+points(t::PlanarTarget) = _calibrated_points(t, geom(t.calibration), t.nominal)
+_calibrated_points(t, _, ::Nothing) = _refuse_unresolved(t)
+_calibrated_points(_, c, nominal) = [c(p) for p in nominal]
+Base.:(==)(a::PlanarTarget, b::PlanarTarget) =
+    a.design === b.design && isequal(a.nominal, b.nominal) && a.calibration == b.calibration
 
-# Units: a resolved target's nominal points move; an unresolved one has none.
-has_units(t::PlanarTarget) = is_resolved(t) && has_units(t.nominal)
-FlexUnits.ustrip(u::Units, t::PlanarTarget) =
-    is_resolved(t) ? PlanarTarget(t.design, [_ustrip_point(u, p) for p in t.nominal], t.warp) : t
-with_unit(t::PlanarTarget, u::Units) =
-    is_resolved(t) ? PlanarTarget(t.design, [_attach_point(u, p) for p in t.nominal], t.warp) : t
+# Units: a resolved target's nominal points move, and with them a calibration
+# that has lengths; an unresolved one moves only its calibration.
+has_units(t::PlanarTarget) = is_resolved(t) ? has_units(t.nominal) : has_units(geom(t.calibration))
+FlexUnits.ustrip(u::Units, t::PlanarTarget) = PlanarTarget(
+    t.design, is_resolved(t) ? [_ustrip_point(u, p) for p in t.nominal] : nothing, _ustrip_calibration(u, t.calibration)
+)
+with_unit(t::PlanarTarget, u::Units) = PlanarTarget(
+    t.design, is_resolved(t) ? [_attach_point(u, p) for p in t.nominal] : nothing, _attach_calibration(u, t.calibration)
+)
 
 # --- the calibratable-target protocol ------------------------------------------------
 
-# A calibratable target's parameters are its warp's.
-parameter_vector(t::PlanarTarget) = parameter_vector(t.warp)
+# A calibratable target's parameters are its calibration's. A new parameter
+# vector is a new calibration: `with_parameters` drops an uncertain one's
+# covariance, which described the old parameters.
+parameter_vector(t::PlanarTarget) = parameter_vector(geom(t.calibration))
 
-parameter_names(t::PlanarTarget) = parameter_names(t.warp)
-with_parameters(t::PlanarTarget, θ::AbstractVector) = PlanarTarget(t.design, t.nominal, with_parameters(t.warp, θ))
+parameter_names(t::PlanarTarget) = parameter_names(geom(t.calibration))
+with_parameters(t::PlanarTarget, θ::AbstractVector) = PlanarTarget(t.design, t.nominal, with_parameters(geom(t.calibration), θ))
 parameters(t::PlanarTarget) = NamedTuple{parameter_names(t)}(Tuple(parameter_vector(t)))
-regularizer(t::PlanarTarget) = regularizer(t.warp)
+regularizer(t::PlanarTarget) = regularizer(geom(t.calibration))
 
 """
     TargetManifold(target) <: Manifold
@@ -262,8 +261,8 @@ regularizer(t::PlanarTarget) = regularizer(t.warp)
 A calibratable target's manifold anchored at `target`: its
 [`parameter_vector`](@ref)' coordinates as offsets from the anchor (linear);
 `action_jacobian(ch, x)` is ∂points/∂θ at the nominal point `x`
-(`warp_jacobian`). `minimal_manifold(target)` is this manifold. Zero-dimensional
-for a `Rigid` target.
+([`calibration_jacobian`](@ref)). `minimal_manifold(target)` is this manifold.
+Zero-dimensional for a `Rigid` target.
 """
 struct TargetManifold{T <: AbstractTarget} <: Manifold
     target::T
@@ -276,5 +275,5 @@ retract(ch::TargetManifold, v) = with_parameters(ch.target, parameter_vector(ch.
 recenter(ch::TargetManifold, v) = TargetManifold(retract(ch, v))
 retract_jacobian(ch::TargetManifold) = (n = tangent_size(ch); SMatrix{n, n, Float64}(LinearAlgebra.I))
 retract_jacobian(ch::TargetManifold, ::StaticVector) = retract_jacobian(ch)
-action_jacobian(ch::TargetManifold{<:PlanarTarget}, x) = warp_jacobian(ch.target.warp, x)
+action_jacobian(ch::TargetManifold{<:PlanarTarget}, x) = calibration_jacobian(geom(ch.target.calibration), x)
 local_coordinates(ch::TargetManifold, t::AbstractTarget) = parameter_vector(t) - parameter_vector(ch.target)

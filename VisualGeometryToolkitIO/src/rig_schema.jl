@@ -126,7 +126,12 @@ function _points_from_json(vals, unit::Units, covs = nothing)
     return [Uncertain(p, CovMat(_length_cov_from_json(c, n, unit, _point_cov_dims(n)))) for (p, c) in zip(pts, covs)]
 end
 
+# The v1 record's "warp" carries a rigid calibration only; any other kind (and an
+# uncertain one) waits for the target record that carries calibrations.
 _warp_json(::Rigid) = (type = "rigid",)
+_warp_json(c) = throw(
+    ArgumentError("save: a $(nameof(typeof(geom(c)))) target calibration is not in the vgio/target/v1 record, whose \"warp\" is rigid only")
+)
 _warp_from_json(w) = w.type == "rigid" ? Rigid() : throw(ArgumentError("unknown warp $(repr(w.type))"))
 
 """
@@ -143,8 +148,8 @@ points (lengths). Building blocks for a package serializing its own kind.
 """
 target_json(t::PointTarget, unit::Units = mm) = merge((type = "points",), _points_json("a points target", points(t), unit))
 target_json(t::PlanarTarget, unit::Units = mm) = t.design === nothing ?
-    (type = "planar", nominal = [_lengths_json(p, unit, "a planar target's nominal point") for p in t.nominal], warp = _warp_json(t.warp)) :
-    (type = "planar", design = String(t.design), warp = _warp_json(t.warp))
+    (type = "planar", nominal = [_lengths_json(p, unit, "a planar target's nominal point") for p in t.nominal], warp = _warp_json(calibration(t))) :
+    (type = "planar", design = String(t.design), warp = _warp_json(calibration(t)))
 
 """
     target_from_json(body, unit; resolve = nothing) -> AbstractTarget
@@ -160,13 +165,13 @@ function target_from_json(t, unit::AbstractString; resolve = nothing)
     if t.type == "points"
         return PointTarget(_points_from_json(t.points::Vector{Any}, u, haskey(t, :point_covariances) ? t.point_covariances::Vector{Any} : nothing))
     end
-    warp = _warp_from_json(t.warp)
-    haskey(t, :nominal) && return PlanarTarget(_points_from_json(t.nominal::Vector{Any}, u); warp)
+    c = _warp_from_json(t.warp)
+    haskey(t, :nominal) && return PlanarTarget(_points_from_json(t.nominal::Vector{Any}, u); calibration = c)
     design = Symbol(t.design::String)
     nominal = resolve === nothing ? nothing : resolve(design)
     (nominal === nothing || isempty(nominal) || has_units(nominal)) ||
         _refuse_plain("resolve($(repr(design))): the design's nominal points")
-    return PlanarTarget(design; nominal, warp)
+    return PlanarTarget(design; nominal, calibration = c)
 end
 
 # -----------------------------------------------------------------------------

@@ -152,8 +152,11 @@ const CONTRACT_GENERICS = (
     # geometry and camera accessors other packages implement for their own types
     centroid, region, moment_matrix, feature_frame, geom, csponds, focal_length,
     intrinsics, lens, model, extent, bounds_trait, is_posed, Pools.pair_scene,
-    # the lens parameter chart downstream lenses and warps implement (geometry/cameras/lens_chart.jl)
+    # the parameter protocol downstream lenses and target calibrations implement (geometry/cameras/lens_chart.jl)
     parameter_vector, parameter_names, parameter_bounds, with_parameters,
+    # the target-calibration protocol a downstream calibration kind or target
+    # implements (geometry/cameras/target_calibration.jl, targets.jl)
+    calibration_jacobian, regularizer, calibration, design,
     # the camera maps a downstream camera, lens or intrinsics implements
     # (geometry/cameras/camera_models.jl, lens_rays.jl), and its float-type conversion
     project, backproject, convert_eltype,
@@ -193,6 +196,8 @@ VisualGeometryToolkitCore's, by group:
   types (`centroid`, `intrinsics`, `lens`, `model`, …);
 - the parameter protocol (`parameter_vector`, `parameter_names`,
   `parameter_bounds`, `with_parameters`);
+- the target-calibration protocol (`calibration_jacobian`, `regularizer`) and
+  the target accessors `calibration` and `design`;
 - the camera maps `project` and `backproject`, and `convert_eltype`;
 - the `Manifold` protocol: `tangent_size`, `retract` and `recenter`
   (required), `local_coordinates`, `retract_jacobian`, `action_jacobian`,

@@ -265,7 +265,7 @@ export lookat, lookat_pose, pose, extrinsics, is_in_front, StereoRig, depth_tran
 export Rig, PosedTarget, source, destination, target_frames  # one Rig for sensors and targets: (model, pose) members; the frame is the gauge
 export sensor_rig, target_rig             # the two halves of a rig carrying both
 export AbstractTarget, PointTarget, PlanarTarget, resolve, is_resolved   # the target as a model (targets.jl)
-export AbstractWarp, Rigid, warp_jacobian   # a planar target's warp
+export TargetCalibration, Rigid, calibration_jacobian, calibration, design   # a planar target's calibration
 export regularizer   # the calibratable-target protocol
 public TargetManifold                     # a calibratable target's Manifold (minimal_manifold(target))
 export Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)

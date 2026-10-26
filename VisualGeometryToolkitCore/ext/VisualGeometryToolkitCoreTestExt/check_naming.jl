@@ -334,6 +334,10 @@ const RETIRED_NAMES = String[
     "target" * "_map",
     # one placement trait for cameras and targets alike: `is_posed` (2026-10-26)
     "has" * "_extrinsics",
+    # a planar target's design is moved by its `TargetCalibration` (field and
+    # keyword `calibration`, `calibration_jacobian`) (2026-10-26); the bare word
+    # stays until the target record that carries calibrations drops its key
+    "Abstract" * "Warp", "warp" * "_jacobian", "warp" * " = Rigid",
 ]
 
 # Rule 10: the width quantities are bound by their full names. One name per

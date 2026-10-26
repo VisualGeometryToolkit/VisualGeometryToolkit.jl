@@ -226,10 +226,10 @@
             @test_throws ArgumentError Rig{BodyFrame{:camera_rig}}((cam,), Dict(:cam => PosedTarget(markers, ident)))   # ids distinct
         end
 
-        @testset "targets — the model, the warp, the calibratable protocol" begin
+        @testset "targets — the model, the calibration, the calibratable protocol" begin
             pts = [SVector(0.0, 0.0), SVector(10.0, 0.0), SVector(0.0, 5.0)]
             p = PlanarTarget(:b76e; nominal = pts)
-            @test points(p) == pts && p.warp === Rigid() && is_resolved(p)
+            @test points(p) == pts && calibration(p) === Rigid() && design(p) == pts && is_resolved(p)
             u = PlanarTarget(:b76e)
             @test !is_resolved(u) && resolve(u, pts) == p
             @test_throws ArgumentError points(u)

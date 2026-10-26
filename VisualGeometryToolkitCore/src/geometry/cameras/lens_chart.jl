@@ -3,7 +3,7 @@
 # =============================================================================
 #
 # One protocol for everything with a coefficient vector — a lens, a calibratable
-# target and its warp, a `LogicalIntrinsics`:
+# target and its calibration, a `LogicalIntrinsics`:
 #
 #   parameter_vector(x)     the coefficient vector (the manifold's coordinates)
 #   parameter_names(x)      the coefficients' names, so a configuration can
@@ -20,14 +20,14 @@
 """
     parameter_vector(x) -> SVector
 
-The coefficients of a model `x` — a lens, a calibratable target or its warp, or
+The coefficients of a model `x` — a lens, a calibratable target or its calibration, or
 a [`LogicalIntrinsics`](@ref) — in the order of [`parameter_names`](@ref).
 Inverse of [`with_parameters`](@ref).
 
 A lens's are the projection's, then the distortion's terms depth-first, left to
 right, each term in its own documented order ([`Radial`](@ref): `k…, d…`;
 [`Tangential`](@ref): `p1, p2`; [`ThinPrism`](@ref): `sx…, sy…`; …); empty for
-a lens without coefficients. A `PlanarTarget`'s are its warp's (empty for
+a lens without coefficients. A `PlanarTarget`'s are its calibration's (empty for
 [`Rigid`](@ref)). A `LogicalIntrinsics`'s are `f, aspect, skew, cx, cy` of
 `K = [f s cx; 0 f·aspect cy; 0 0 1]`, absolute and in pixels.
 """

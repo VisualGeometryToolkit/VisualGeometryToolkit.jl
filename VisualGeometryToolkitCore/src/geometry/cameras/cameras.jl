@@ -114,7 +114,8 @@ using FlexUnits: Dimensions, FixRat32   # FlexUnits' base-form quantity, `Quanti
 using ..VisualGeometryToolkitCore: EuclideanMap, CameraPose, CameraExtrinsics, to_affine, to_homogeneous, image_warp, image_warp!
 import ..VisualGeometryToolkitCore: has_units, with_unit   # extended on the carriers: targets, mounts, rigs, cameras, captures
 using ..VisualGeometryToolkitCore: translation, UnitfulEuclideanMap, _attach_unit, _ustrip_point, _attach_point, _stored_point,
-    _check_one_form, _strip_metres, _translation_metres   # the one strip/attach of maps and points (euclidean_map.jl)
+    _check_one_form, _strip_metres, _translation_metres,   # the one strip/attach of maps and points (euclidean_map.jl)
+    _strip_length, _attach_length, _metre_factor, _opposite   # one length's strip/attach, a unit's metre factor (a calibration's lengths)
 using FlexUnits: Units, DimensionError
 using ..VisualGeometryToolkitCore: TargetPlaneFrame, PixelFrame, UnlabeledFrame, relabel, unlabel, Frame
 using ..VisualGeometryToolkitCore: FramedImage   # rect-form undistort return currency (warp layer)
@@ -829,7 +830,8 @@ unproject(camera::_UnitfulPosedCamera, u::AbstractVector{Float64}, depth::Quanti
 # ============================================================================
 
 # Include remaining camera system components
-include("targets.jl")  # AbstractTarget, PointTarget, PlanarTarget{W} (+ the warp and calibratable-target protocols)
+include("target_calibration.jl")  # TargetCalibration: the kinds of a planar target's calibration and their protocol
+include("targets.jl")  # AbstractTarget, PointTarget, PlanarTarget{C} (+ the calibratable-target protocol)
 include("rig.jl")     # Rig (sensors: tuple storage; targets: dict storage; both: the two side by side; gauge in the frame) + PosedTarget — before the stereo alias
 include("captures.jl")  # Trajectory, TargetPoses, TargetPoints2D/3D: per-frame values of a capture (+ convert_frame)
 include("stereo.jl")
@@ -924,7 +926,7 @@ export model                            # CameraModel accessor on PosedCamera/Ab
 export Rig, PosedTarget, source, destination, target_frames  # one Rig for sensors and targets: (model, pose) members; StereoRig = 2-tuple alias
 export sensor_rig, target_rig             # the two halves of a rig carrying both
 export AbstractTarget, PointTarget, PlanarTarget, resolve, is_resolved   # the target as a model (targets.jl)
-export AbstractWarp, Rigid, warp_jacobian   # a planar target's warp
+export TargetCalibration, Rigid, calibration_jacobian, calibration, design   # a planar target's calibration
 export regularizer, TargetManifold      # the calibratable-target protocol
 export Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
 export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3

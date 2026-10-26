@@ -85,12 +85,14 @@ _core_tol(::Type{T}) where {T <: AbstractFloat} = sqrt(eps(T))
 @inline _trips(::Type{Float64}) = (30, 20)
 @inline _trips(::Type{<:AbstractFloat}) = (12, 12)
 
-@inline function _newton_inverse(f::F, xd::SVector{2, S}, seed::SVector{2, S} = xd) where {F, S <: AbstractFloat}
+@inline function _newton_solve(f::F, xd::SVector{2, S}, seed::SVector{2, S} = xd) where {F, S <: AbstractFloat}
     rel2 = S(1) / S(100)
     x = ifelse(isfinite(seed[1]) & isfinite(seed[2]), seed, xd)
+    dJ = zero(S)
     for _ in 1:last(_trips(S))
         fx = f(x)
         J = ForwardDiff.jacobian(z -> SVector{2}(Tuple(f(z))), x)
+        dJ = J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1]
         Δx = J \ SVector{2, S}(fx[1] - xd[1], fx[2] - xd[2])
         radius2 = max((x[1] * x[1] + x[2] * x[2]) * rel2, rel2)
         δ2 = Δx[1] * Δx[1] + Δx[2] * Δx[2]
@@ -98,8 +100,11 @@ _core_tol(::Type{T}) where {T <: AbstractFloat} = sqrt(eps(T))
         x = SVector{2, S}(x[1] - scale * Δx[1], x[2] - scale * Δx[2])
         _newton_settled(scale * scale * δ2, x[1] * x[1] + x[2] * x[2], S) && break
     end
-    return x, _residual_ok(f(x), xd)
+    return x, _residual_ok(f(x), xd), dJ
 end
+# (`dJ` is det J at the last iterate's start, within the solve tolerance of the
+# root: the branch test of a Newton root reads it rather than differentiating
+# again.)
 
 # -----------------------------------------------------------------------------
 # Frames: ray ↔ frame point
@@ -364,9 +369,11 @@ end
 #   Additive, a lone delta    OpenCV's undistortPoints fixed point, finished by the
 #                             trust-region 2-D Newton
 #   FieldOfView, Tilt         closed form
-#   anything else (a Chain)   the trust-region 2-D Newton
-# A 2-D root stands only on the imaged branch (`_branch_root`); otherwise it is
-# continued from the axis.
+#   anything else (a Chain)   the trust-region 2-D Newton (a Full-basis radial
+#                             factor never gets here: the Lens constructor
+#                             refuses one anywhere in the distortion)
+# A 2-D root stands only where the pointwise branch test holds (`_branch_root`);
+# otherwise it is continued from the axis.
 
 @inline _undistort_in_frame(l::Lens, xd::StaticVector{2}) = _undistort(l.distortion, l, xd)
 
@@ -422,16 +429,27 @@ end
 end
 
 # The safeguarded solve: ρ·F(ρ²) = ρ_d on [0, ρ_branch), the factor's increasing
-# branch (ended by its fold, its pole, or the frame's own edge); returns g = ρ/ρ_d.
-@noinline function _ratio_on_branch(r::Radial, cap, t::S) where {S <: AbstractFloat}
+# branch (ended by its fold, its pole, or the frame's own edge); returns g = ρ/ρ_d
+# and whether it converged. `_ratio_branch_solve` also says whether the branch
+# reaches ρ_d at all: a 2-D solve's seed needs only that (`_radial_seed`).
+@inline function _ratio_on_branch(r::Radial, cap, t::S) where {S <: AbstractFloat}
+    g, reached, conv = _ratio_branch_solve(r, cap, t)
+    return g, reached & conv
+end
+@noinline function _ratio_branch_solve(r::Radial, cap, t::S) where {S <: AbstractFloat}
     ρd = sqrt(t)
     prof(ρ) = ρ * radial_ratio(r, ρ * ρ)
     dprof(ρ) = (w = ρ * ρ; radial_ratio(r, w) + 2 * w * _dratio(r, w))
     hi = S(sqrt(_branch_end(r, S(cap))))
-    (ρd > 0) || return one(S), false
-    isfinite(hi) && !(prof(hi) > ρd) && return one(S), false
+    (ρd > 0) || return one(S), false, false
+    # At a pole the rounded end can land just past it, where the profile is
+    # negative (measured: Float32, prof = −7·10⁷ one rounding past the pole, which
+    # declared a reachable radius unreached); read it just inside instead.
+    phi = prof(hi)
+    phi < 0 && (phi = prof(hi * (1 - sqrt(eps(S)))))
+    isfinite(hi) && !(phi > ρd) && return one(S), false, false
     ρ, conv = _radial_solve(prof, dprof, ρd, hi, Val(24))
-    return ρ / ρd, conv
+    return ρ / ρd, true, conv
 end
 
 # An Additive (or a lone delta): x ← (x_d − ΣΔ(x))·D/N(|x|²) — OpenCV's fixed
@@ -446,8 +464,12 @@ end
         h = _head(ap)
         f = z -> _distort(ap, z)
         x, ok = h isa Union{Nothing, Radial} ? _fixed_point(ap, h, x0) : (x0, false)
-        ok || ((x, ok) = _newton_inverse(f, x0, h isa Radial ? x : x0))
-        return _branch_root(f, ap, x0, x, ok)
+        if ok      # the contraction's root: its determinant, unless the cheap radial test already fails
+            dJ = _radial_ok(ap, x) ? _det_jacobian(f, x) : zero(eltype(x))
+        else
+            x, ok, dJ = _newton_solve(f, x0, h isa Radial ? x : x0)
+        end
+        return _branch_root(f, ap, _frame_cap(lp.projection), x0, x, ok, dJ)
     end
 
 @inline function _fixed_point(a, h, xd::SVector{2, S}) where {S <: AbstractFloat}
@@ -476,82 +498,165 @@ end
     return _nan_unless(ok, Vec2(F * xd[1], F * xd[2]))
 end
 
-@inline function _undistort(t::Tilt, l::Lens, xd::StaticVector{2})
+@inline _undistort(t::Tilt, l::Lens, xd::StaticVector{2}) = _tilt_inverse(t, xd)
+@inline function _tilt_inverse(t::Tilt, xd::StaticVector{2})
     v = _tilt_matrix(t) \ SVector(xd[1], xd[2], one(xd[1]))
     return Vec2(v[1] / v[3], v[2] / v[3])
 end
 
-# --- everything else (a Chain): the trust-region 2-D Newton -------------------
+# --- everything else (a Chain) -------------------------------------------------
 @inline _undistort(::AbstractDistortionTerm, l::Lens, xd::StaticVector{2}) =
     _undistort_2d(_frame_fwd, l, xd) do lp, x0
         f = z -> _distort(lp.distortion, z)
-        x, ok = _newton_inverse(f, x0)
-        return _branch_root(f, lp.distortion, x0, x, ok)
+        x, ok, dJ = _newton_solve(f, x0)
+        return _branch_root(f, lp.distortion, _frame_cap(lp.projection), x0, x, ok, dJ)
     end
 
 # --- the imaged branch of a 2-D inverse ---------------------------------------
 #
 # A distortion that folds has several preimages of one image point; the lens
-# images only the one on the branch connected to the axis. A 2-D root is on it
-# when the map is orientation-preserving there (det J > 0) AND, where the map
-# leads with a radial factor (an Additive's radial head, a Chain's first
-# stage), that factor's own branch test holds at the root's radius: past the
-# radial profile's fold the determinant turns positive again, so it alone
-# would accept the far side (measured: OpenCV chains with roots 1.4 to 6.3
-# fold radii out that every pointwise condition accepts).
-@inline _radial_head(r::Radial{Even}) = r
-@inline _radial_head(a::Additive) = (h = _head(a); h isa Radial{Even} ? h : nothing)
-@inline _radial_head(c::Chain) = _radial_head(first(c.stages))
-@inline _radial_head(_) = nothing
-
-@inline function _on_imaged_branch(f::F, d, x::SVector{2}) where {F}
-    J = ForwardDiff.jacobian(z -> SVector{2}(Tuple(f(z))), x)
-    r = _radial_head(d)
-    return J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1] > 0 &&
-        (r === nothing || _on_radial_branch(r, x[1] * x[1] + x[2] * x[2]))
+# images the one on the branch connected to the axis. The ACCEPTANCE test of a
+# root is pointwise: the map keeps orientation there (det J > 0) and every
+# radial factor of the distortion is on its own branch at its input (an
+# Additive's radial head at the root; each Radial stage of a Chain, or the
+# radial head of an Additive stage, at that stage's input). The radial test is
+# needed because past a radial profile's fold the determinant turns positive
+# again (measured: OpenCV chains with roots 1.4 to 6.3 fold radii out that the
+# determinant alone accepts). CONNECTION to the axis is what the continuation
+# from the axis provides; a pointwise test cannot prove it. A root in a far
+# component of {det J > 0} inside every radial disk (the deltas or the tilt
+# folding there) would satisfy it; none was found in a search over strong chains
+# and delta-dominated lenses, and the tests flood-fill the region to check the
+# gained roots.
+# (A Lens's radial factors are Even: the constructor refuses a Full-basis one
+# anywhere in the distortion, which has no forward map in the frame.)
+@inline _radial_ok(_, x) = true
+@inline _radial_ok(r::Radial{Even}, x) = _on_radial_branch(r, x[1] * x[1] + x[2] * x[2])
+@inline _radial_ok(a::Additive, x) = (h = _head(a); h === nothing || _radial_ok(h, x))
+@inline _radial_ok(c::Chain, x) = _chain_radial_ok(c.stages, x)
+@inline _chain_radial_ok(::Tuple{}, x) = true
+@inline function _chain_radial_ok(ds::Tuple, x)
+    _radial_ok(first(ds), x) || return false
+    rest = Base.tail(ds)
+    return !_any_radial(rest) || _chain_radial_ok(rest, _distort(first(ds), x))   # a later stage's input only when it is tested
 end
+@inline _is_radial(::Radial) = true
+@inline _is_radial(a::Additive) = _head(a) isa Radial
+@inline _is_radial(_) = false
+@inline _any_radial(ds::Tuple) = any(_is_radial, ds)
+
+@inline function _det_jacobian(f::F, x::SVector{2}) where {F}
+    J = ForwardDiff.jacobian(z -> SVector{2}(Tuple(f(z))), x)
+    return J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1]
+end
+@inline _on_imaged_branch(f::F, d, x::SVector{2}) where {F} = _radial_ok(d, x) && _det_jacobian(f, x) > 0
 
 # A converged root on the branch stands as solved: the result is the solver's
-# own, unchanged. Otherwise (no convergence, or a root past a fold) the root is
-# continued from the axis instead.
-@inline function _branch_root(f::F, d, xd::SVector{2}, x, ok) where {F}
-    ok && _on_imaged_branch(f, d, x) && return x, true
-    return _continued_inverse(f, d, xd)
+# own, unchanged. `dJ` is det J at (or, from Newton, within the solve tolerance
+# of) the root. Otherwise (no convergence, or a root past a fold) the root is
+# continued from the axis.
+@inline function _branch_root(f::F, d, cap, xd::SVector{2}, x, ok, dJ) where {F}
+    ok && dJ > 0 && _radial_ok(d, x) && return x, true
+    return _continued_inverse(f, d, cap, xd)
 end
 
 # Continuation along the image segment from the axis (every distortion fixes
-# the origin) to x_d: `_CONTINUATION_TARGETS` targets t·x_d, each solved by plain
-# Newton from the previous root, so the root follows the branch it starts on
-# and never jumps to a far preimage. Near the branch's edge, where the
-# structure-blind Newton from x_d stalls on its step clipping, the previous
-# root is a seed inside Newton's basin. A target the path cannot reach (a fold
-# crossed, a step that does not settle) ends the walk: the point is not imaged.
-# Measured over 32 random strong OpenCV chains (RadiometricCamera's comparison
-# set, five of them in lens_branch_tests): 6 targets of 8 trips reach every root
-# that 32 targets do; 8 targets keep a margin.
-const _CONTINUATION_TARGETS = 8
-const _CONTINUATION_TRIPS = 8
+# the origin) to x_d: targets t·x_d, each reached by a tangent predictor from
+# the last settled root (x + J⁻¹·Δt·x_d, J from that root's last trip) and plain
+# Newton, so the root follows the branch it starts on. The spacing adapts: it
+# starts at min(1/4, 1/|x_d|) — a strong lens's image grows much faster than
+# its root, so a far x_d needs fine targets near the axis — halves from the
+# last settled root when a target does not settle in 3 trips or a trip meets
+# det J ≤ 0 (down to 1/4 of the start), and doubles back after a settled one
+# (up to 1/4). Intermediate targets settle loosely (an update under 1% of the
+# root), the last one to the solve tolerance; the walk's trips are capped per
+# precision (`_walk_trips`). Where the walk cannot finish (the segment leaves
+# the branch's image, which need not be star-shaped about the origin, or the
+# budget runs out) the trust-region Newton runs once more from the radial
+# factor's own on-branch root (`_radial_seed`), where there is one, its root
+# accepted only through the same pointwise test. Trips: 48 in Float64, 24
+# otherwise. Measured on 96 random strong OpenCV chains (three seeds, sensor
+# lattices of half-width 1 and 3): every point RadiometricCamera's own inverse
+# images on the branch is imaged, every root found lies on the axis component
+# of {det J > 0, radial factors on their branch} (a flood fill), and of 213659
+# interior points of that component every image is inverted to a preimage on
+# it (113 to another one than the point: the map overlaps itself there) but
+# two, near a fold (det J ≈ 0.02) where Newton converges linearly. Float32
+# images the same points as Float64 but 31, where det J ≈ 600 puts the best
+# Float32 root's residual above the Float32 tolerance.
+_walk_trips(::Type{Float64}) = 48
+_walk_trips(::Type{<:AbstractFloat}) = 24
 
-@noinline function _continued_inverse(f::F, d, xd::SVector{2, S}) where {F, S <: AbstractFloat}
+@noinline function _continued_inverse(f::F, d, cap, xd::SVector{2, S}) where {F, S <: AbstractFloat}
+    hmax = one(S) / 4
+    h = min(hmax, inv(max(one(S), sqrt(xd[1] * xd[1] + xd[2] * xd[2]))))
+    hmin = h / 4
     x = zero(xd)
-    for k in 1:_CONTINUATION_TARGETS
-        t = S(k) / S(_CONTINUATION_TARGETS)
-        y1, y2 = t * xd[1], t * xd[2]
+    t = zero(S)
+    Jx = ForwardDiff.jacobian(w -> SVector{2}(Tuple(f(w))), x)
+    budget = _walk_trips(S)
+    while t < 1 && budget > 0 && h >= hmin
+        tn = min(t + h, one(S))
+        last_target = tn == 1
+        y1, y2 = tn * xd[1], tn * xd[2]
+        z = x + Jx \ SVector{2, S}((tn - t) * xd[1], (tn - t) * xd[2])          # predictor
+        Jz = Jx
         settled = false
-        for _ in 1:_CONTINUATION_TRIPS
-            fx = f(x)
-            J = ForwardDiff.jacobian(z -> SVector{2}(Tuple(f(z))), x)
-            J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1] > 0 || return x, false     # crossed a fold
-            Δx = J \ SVector{2, S}(fx[1] - y1, fx[2] - y2)
-            x = SVector{2, S}(x[1] - Δx[1], x[2] - Δx[2])
-            settled = _newton_settled(Δx[1] * Δx[1] + Δx[2] * Δx[2], x[1] * x[1] + x[2] * x[2], S)
+        for _ in 1:(last_target ? budget : min(3, budget))
+            budget -= 1
+            fz = f(z)
+            Jz = ForwardDiff.jacobian(w -> SVector{2}(Tuple(f(w))), z)
+            Jz[1, 1] * Jz[2, 2] - Jz[1, 2] * Jz[2, 1] > 0 || break           # a fold: shorten
+            Δz = Jz \ SVector{2, S}(fz[1] - y1, fz[2] - y2)
+            z = SVector{2, S}(z[1] - Δz[1], z[2] - Δz[2])
+            δ2, s2 = Δz[1] * Δz[1] + Δz[2] * Δz[2], z[1] * z[1] + z[2] * z[2]
+            # the last target settles to the solve tolerance AND the residual
+            # check: in Float32 a strongly expanding map (det J ~ 700) leaves a
+            # settled iterate's residual above it, one more trip below
+            settled = (isfinite(z[1]) & isfinite(z[2])) &&
+                (last_target ? _newton_settled(δ2, s2, S) && _residual_ok(f(z), xd) : !(δ2 > max(s2, one(S)) / 10000))
             settled && break
         end
-        # a target the path does not reach (past the branch's edge): stop there
-        (settled & isfinite(x[1]) & isfinite(x[2])) || return x, false
+        if settled && _radial_ok(d, z)         # a root past a radial fold: a jumped branch, shorten
+            x, Jx, t, h = z, Jz, tn, min(2 * h, hmax)
+        else
+            h /= 2
+        end
     end
-    return x, _residual_ok(f(x), xd) && _on_imaged_branch(f, d, x)
+    t == 1 && _residual_ok(f(x), xd) && _on_imaged_branch(f, d, x) && return x, true
+    seed, found = _radial_seed(d, cap, xd)
+    found || return x, false                  # no seed but x_d itself, which the first solve had
+    xs, ok, dJ = _newton_solve(f, xd, seed)
+    for _ in 1:2          # in Float32 a settled iterate of a strongly expanding map can miss the residual check by a trip
+        (ok | !(isfinite(xs[1]) & isfinite(xs[2]))) && break
+        fx = f(xs)
+        J = ForwardDiff.jacobian(w -> SVector{2}(Tuple(f(w))), xs)
+        dJ = J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1]
+        Δ = J \ SVector{2, S}(fx[1] - xd[1], fx[2] - xd[2])
+        xs = SVector{2, S}(xs[1] - Δ[1], xs[2] - Δ[2])
+        ok = _residual_ok(f(xs), xd)
+    end
+    return xs, ok && dJ > 0 && _radial_ok(d, xs)
 end
+
+# The radial factor's own root, as the seed of a 2-D solve: the stages after the
+# leading radial factor undone where they have a closed form (a Tilt) and taken
+# as the identity otherwise, the factor inverted on its branch, its deltas
+# ignored. `(seed, found)`: not found where the distortion does not lead with an
+# Even radial factor or the factor's branch does not reach the radius — the
+# image is then past the branch, or the only seed left is x_d, which the first
+# solve started from.
+@inline _radial_seed(d, cap, xd) = (xd, false)
+@inline _radial_seed(a::Additive, cap, xd) = (h = _head(a); h isa Radial{Even} ? _radial_seed(h, cap, xd) : (xd, false))
+@inline _radial_seed(c::Chain, cap, xd) = _radial_seed(first(c.stages), cap, _undo_stages(Base.tail(c.stages), xd))
+@inline function _radial_seed(r::Radial{Even}, cap, xd::SVector{2, S}) where {S}
+    g, reached, _ = _ratio_branch_solve(r, cap, xd[1] * xd[1] + xd[2] * xd[2])
+    return SVector{2, S}(g * xd[1], g * xd[2]), reached & isfinite(g)
+end
+@inline _undo_stages(::Tuple{}, y) = y
+@inline _undo_stages(ds::Tuple, y) = _undo_stages(Base.front(ds), _undo_stage(last(ds), y))
+@inline _undo_stage(t::Tilt, y::SVector{2, S}) where {S} = SVector{2, S}(Tuple(_tilt_inverse(t, y)))
+@inline _undo_stage(_, y) = y
 
 # -----------------------------------------------------------------------------
 # Projections: ray ↔ frame point

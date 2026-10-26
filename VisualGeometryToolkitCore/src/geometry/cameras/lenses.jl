@@ -299,7 +299,9 @@ struct Lens{F <: AbstractProjection, D} <: AbstractLensModel
 end
 Lens(p::AbstractProjection) = Lens(p, nothing)
 function Lens(p::AbstractProjection, d::AbstractDistortionTerm)
-    d isa Radial{Full} && throw(ArgumentError("Lens: a forward radial factor uses the Even basis; the Full basis is a LiftLens's"))
+    # anywhere in the distortion: a Full-basis factor has no forward map in the frame
+    any(t -> t isa Radial{Full}, _leaves(d)) &&
+        throw(ArgumentError("Lens: a forward radial factor uses the Even basis; the Full basis is a LiftLens's"))
     return _checked_names(Lens{typeof(p), typeof(d)}(p, d))
 end
 

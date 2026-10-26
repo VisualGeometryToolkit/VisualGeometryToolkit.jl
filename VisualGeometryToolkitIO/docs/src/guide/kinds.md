@@ -87,11 +87,12 @@ its members carry none), each entry in the file's unit raised to its length
 dimension. A calibration with lengths in plain numbers is refused, as plain
 points are.
 
-A `PlanarTarget` may also state its `board`, the physical sheet it is printed
-on (parallel to a camera's sensor): its size in the `Size2` form and its
-lower-left corner in the design chart,
-`"board": {"width": w, "height": h, "origin": [u, v]}`, every number a length
-in the file's unit. It is absent when the target has none.
+A `PlanarTarget` may also state its `board`, the physical board it is
+printed on (parallel to a camera's sensor; the board proper, inside the
+sheet's margin and frame included, as BlobBoards' `board_size` — not the
+sheet): its size in the `Size2` form and its lower-left corner in the design
+chart, `"board": {"size": {"width": w, "height": h}, "origin": [u, v]}`, every
+number a length in the file's unit. It is absent when the target has none.
 
 A target file may also carry a `calibration_record`, the record of how the
 calibration was obtained (the keys of a camera's `calibration` block: `tool`,

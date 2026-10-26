@@ -51,7 +51,7 @@ end
 #   {"type": "points", "points": [[x, y(, z)], …], "point_covariances": [[[…]…]…]}   PointTarget
 #   {"type": "planar", "reference": "<reference>", "calibration": {calibration}}     PlanarTarget of a referenced design
 #   {"type": "planar", "nominal": [[x, y], …], "calibration": {calibration}}         PlanarTarget of explicit points
-#   … "board": {"width": w, "height": h, "origin": [u, v]}                           (optional) its physical sheet
+#   … "board": {"size": {"width": w, "height": h}, "origin": [u, v]}               (optional) its physical board
 #
 # Points and nominal points in the file's `length_unit` (written in mm unless
 # the writer is given another), lengths in metres in memory, in the
@@ -80,11 +80,13 @@ end
 # order — one joint covariance, as `Uncertain(chain, Σ)` holds it), each entry
 # in the file's unit raised to its length dimension.
 #
-# THE BOARD (optional, a planar target's): the physical sheet the design is
-# printed on, parallel to a camera's sensor — its size, a `Size2` of lengths in
-# the established Size2 form (`width`, `height`), and its lower-left corner in
-# the design chart, `origin` — every number a length in the file's unit;
-# absent when the target has none. (`Rect(board)` is the target's extent.)
+# THE BOARD (optional, a planar target's): the physical board the design is
+# printed on, parallel to a camera's sensor — the board proper, inside the
+# sheet's margin and frame included (BlobBoards' `board_size`), not the sheet —
+# its `size`, a `Size2` of lengths in the established Size2 form (`width`,
+# `height`), and its lower-left corner in the design chart, `origin`, every
+# number a length in the file's unit; absent when the target has none.
+# (`Rect(board)` is the target's extent.)
 
 const _TARGET_POINTS = _Checked(
     _Vec(_Vec(_Real())),
@@ -159,9 +161,9 @@ _migrated_key_message(old, new) =
     "`$(old)` is a vgio/target/v1 and vgio/rig/v4 key; $(_schema("target")) and $(_schema("rig")) name it `$(new)`. " *
     "Migrate the file once with vgio_migrate (bin/vgio_migrate.jl target|rig FILE)"
 
-const _BOARD = _Checked(
-    _Obj(:width => _Real(), :height => _Real(), :origin => _XY),
-    p -> (p[:width] > 0 && p[:height] > 0) ? nothing : "a board's width and height are > 0",
+const _BOARD = _Obj(
+    :size => _Checked(_Obj(:width => _Real(), :height => _Real()), z -> (z[:width] > 0 && z[:height] > 0) ? nothing : "a board's width and height are > 0"),
+    :origin => _XY,
 )
 
 const _TARGET_BODY = _Checked(
@@ -320,10 +322,10 @@ _board_parts(p) = (size = p.size, origin = p.origin)
 _board_json(::Nothing, ::Units) = (;)
 function _board_json(p::NamedTuple{(:size, :origin)}, u::Units)
     has_units(p.size) || _refuse_plain("a target's board")
-    return (board = merge(json_value(p.size, UnitContract(u); kind = :length), (origin = _lengths_json(p.origin, u, "a target's board"),)),)
+    return (board = (size = json_value(p.size, UnitContract(u); kind = :length), origin = _lengths_json(p.origin, u, "a target's board")),)
 end
 _board_from_json(x, u::Units) =
-    (size = from_json(Size2, x, UnitContract(u); kind = :length), origin = _lengths_from_json(Val(2), x.origin::Vector{Any}, u))
+    (size = from_json(Size2, x.size, UnitContract(u); kind = :length), origin = _lengths_from_json(Val(2), x.origin::Vector{Any}, u))
 # A target read with its board. This VisualGeometryToolkitCore's PlanarTarget
 # holds none, so a file stating one is refused rather than read without it.
 _with_board(t::PlanarTarget, ::Nothing) = t

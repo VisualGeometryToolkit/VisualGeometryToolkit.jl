@@ -242,8 +242,9 @@ end
 # to ~1e-5 absolute in Float32 (|x³| ≈ 64 against weights ≤ 2/3); the same
 # polynomials in the local coordinate u = x − 3 ∈ [0, 1) are exact in exact
 # arithmetic and, in Horner form, keep Float32 within 7e-8 of the exact
-# weights. (x − 3 is exact: x − (ix − 3) is.) Outside [3, 4) the pieces
-# extrapolate as the same cubics (`spline_weights`).
+# weights. On the window's own cell, x ∈ [3, 4), u = x − 3 is exact
+# (Sterbenz); outside it (`spline_weights` on a drifted pixel) the pieces
+# extrapolate as the same cubics and u may round.
 @inline function _cubic_weights(x)
     u = x - 3
     v = 1 - u
@@ -280,13 +281,15 @@ end
     return acc
 end
 
-# d/dx of the four window weights — the same cubic pieces differentiated.
+# d/dx of the four window weights — the same cubic pieces differentiated, in
+# the same local coordinate u = x − 3 and Horner form as `_cubic_weights`.
 @inline function _cubic_weights_deriv(x)
-    xd = x - 3
-    d = xd * xd / 2
-    c = -3x^2 / 2 + 10x - 16
-    b = 3x^2 / 2 - 11x + 39 / 2
-    a = -(x - 4)^2 / 2
+    u = x - 3
+    v = 1 - u
+    a = -v * v / 2                  # −(1 − u)² / 2
+    b = u * (3u - 4) / 2            # (3u² − 4u) / 2
+    c = ((-3u + 2) * u + 1) / 2     # (−3u² + 2u + 1) / 2
+    d = u * u / 2                   # u² / 2
     return (a, b, c, d)
 end
 

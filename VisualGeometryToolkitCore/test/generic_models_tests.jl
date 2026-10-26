@@ -4,7 +4,7 @@
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: CentralGenericModel, NoncentralGenericModel, Ray3, Division,
         has_extrinsics
-    using VisualGeometryToolkitCore.Cameras: _cubic_weights, _spline_window, _eval_window, _grid_coords
+    using VisualGeometryToolkitCore.Cameras: _cubic_weights, _cubic_weights_deriv, _spline_window, _eval_window, _grid_coords
     using StaticArrays
     using FiniteDiff: FiniteDiff
     using GeometryBasics: Vec3
@@ -54,18 +54,26 @@
             # The weights are cubics in u = x − 3; a Float32 evaluation stays
             # within 1e-7 of the exact weights at the same x (the form in x
             # itself lost 1.2e-5 to cancellation).
+            # Their derivatives likewise (the x form lost 3.6e-6).
             exact(u) = ((1 - u)^3 / 6, (3u^3 - 6u^2 + 4) / 6, (-3u^3 + 3u^2 + 3u + 1) / 6, u^3 / 6)
-            worst = 0.0
-            worst_sum = 0.0
+            exact_deriv(u) = (-(1 - u)^2 / 2, (3u^2 - 4u) / 2, (-3u^2 + 2u + 1) / 2, u^2 / 2)
+            worst = worst_deriv = 0.0
+            worst_sum = worst_deriv_sum = 0.0
             for u in range(0.0f0, prevfloat(1.0f0); length = 20_001)
                 x = 3.0f0 + u
                 w = _cubic_weights(x)
+                dw = _cubic_weights_deriv(x)
                 worst = max(worst, maximum(Float64.(abs.(big.(w) .- exact(big(x) - 3)))))
+                worst_deriv = max(worst_deriv, maximum(Float64.(abs.(big.(dw) .- exact_deriv(big(x) - 3)))))
                 worst_sum = max(worst_sum, abs(sum(Float64.(w)) - 1))
+                worst_deriv_sum = max(worst_deriv_sum, abs(sum(Float64.(dw))))
             end
             @test _cubic_weights(3.5f0) isa NTuple{4, Float32}
+            @test _cubic_weights_deriv(3.5f0) isa NTuple{4, Float32}
             @test worst < 1.0e-7
+            @test worst_deriv < 1.0e-7
             @test worst_sum < 4 * eps(Float32)
+            @test worst_deriv_sum < 4 * eps(Float32)
         end
 
         # A smooth parametric source: division lens on a small frame.

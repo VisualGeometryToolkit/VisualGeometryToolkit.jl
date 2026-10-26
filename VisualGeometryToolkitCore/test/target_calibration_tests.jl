@@ -211,3 +211,80 @@ end
         @test points(rig, :b) ≈ [H(p) + SVector(0.0, 0.0, 1000.0) for p in pts]
     end
 end
+
+@testitem "target calibration: gauges on the target manifold" begin
+    using Test, StaticArrays, LinearAlgebra, Random, ForwardDiff
+    using VisualGeometryToolkitCore
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: grid_nodes, TargetManifold, minimal_manifold, tangent_size, retract, recenter,
+        retract_jacobian, action_jacobian, local_coordinates, restrict, gauge_names, gauge_directions, model
+
+    rng = Xoshiro(7)
+    nodes = grid_nodes(4; lo = -0.1, hi = 0.1)
+    pts = [SVector(0.2 * rand(rng) - 0.1, 0.2 * rand(rng) - 0.1) for _ in 1:12]
+    A = Affine([1.002 0.001; -0.0015 0.998], [0.0004, -0.0003])
+    H = HeightField(nodes, 1.0e-3 .* randn(rng, 16))
+    T = ThinPlateSpline(nodes, 1.0e-4 .* randn(rng, 16), 1.0e-4 .* randn(rng, 16))
+
+    @testset "Affine: the uniform scale is fixed by default, freed by name" begin
+        t = PlanarTarget(pts; calibration = A)
+        @test gauge_names(A) == (:scale,) && gauge_names(t) == (:scale,)
+        ch = minimal_manifold(t)
+        @test ch isa TargetManifold && tangent_size(ch) == 5
+        d = vec(gauge_directions(A))
+        @test d ≈ [1.002, 0.001, -0.0015, 0.998, 0.0, 0.0] / norm([1.002, 0.001, -0.0015, 0.998])
+        B = retract_jacobian(ch)
+        @test size(B) == (6, 5) && B' * B ≈ I && norm(B' * d) < 1.0e-14       # the restricted direction has zero tangent
+        v = SVector{5}(1.0e-4 .* randn(rng, 5))
+        Δθ = parameter_vector(retract(ch, v)) - parameter_vector(A)
+        @test abs(dot(d, Δθ)) < 1.0e-16 && local_coordinates(ch, retract(ch, v)) ≈ v
+        @test action_jacobian(ch, pts[1]) ≈ calibration_jacobian(A, pts[1]) * B
+        ch6 = TargetManifold(t; free = (:scale,))
+        @test tangent_size(ch6) == 6 && retract_jacobian(ch6) == I
+        @test_throws ArgumentError TargetManifold(t; free = (:piston,))
+        # recenter keeps the slice and the type
+        r = recenter(ch, v)
+        @test typeof(r) === typeof(ch) && retract_jacobian(r) == B && model(r) == retract(ch, v)
+        @test only(Base.return_types(recenter, (typeof(ch), typeof(v)))) === typeof(ch)
+    end
+
+    @testset "HeightField: piston and the two tilts are fixed by default" begin
+        t = PlanarTarget(pts; calibration = H)
+        @test gauge_names(t) == (:piston, :tilt_x, :tilt_y)
+        ch = minimal_manifold(t)
+        @test tangent_size(ch) == 13
+        D = gauge_directions(H)
+        B = retract_jacobian(ch)
+        @test norm(B' * D) < 1.0e-13 && B' * B ≈ I
+        v = SVector{13}(1.0e-4 .* randn(rng, 13))
+        δh = parameter_vector(retract(ch, v)) - parameter_vector(H)
+        @test abs(sum(δh)) < 1.0e-17 && abs(sum(p[1] * x for (p, x) in zip(nodes, δh))) < 1.0e-17 &&
+            abs(sum(p[2] * x for (p, x) in zip(nodes, δh))) < 1.0e-17
+        @test size(action_jacobian(ch, pts[1])) == (3, 13)
+        # a plane of heights is invisible: its tangent coordinates vanish
+        plane = with_parameters(t, parameter_vector(H) + [1.0e-4 + 2.0e-3 * p[1] - 1.0e-3 * p[2] for p in nodes])
+        @test norm(local_coordinates(ch, plane)) < 1.0e-15
+        @test tangent_size(TargetManifold(t; free = (:piston,))) == 14
+        @test tangent_size(TargetManifold(t; free = (:piston, :tilt_x, :tilt_y))) == 16
+    end
+
+    @testset "chains, the in-plane spline, restrict by name" begin
+        C = CalibrationChain(A, T, H)
+        t = PlanarTarget(pts; calibration = C)
+        @test gauge_names(C) == (:affine_scale, :height_field_piston, :height_field_tilt_x, :height_field_tilt_y)
+        ch = minimal_manifold(t)
+        @test tangent_size(ch) == 6 + 32 + 16 - 4
+        @test norm(retract_jacobian(ch)' * gauge_directions(C)) < 1.0e-13
+        @test tangent_size(TargetManifold(t; free = (:affine_scale,))) == 6 + 32 + 16 - 3
+        @test gauge_names(T) == () && tangent_size(minimal_manifold(PlanarTarget(pts; calibration = T))) == 32
+        # restrict to b alone: the scale direction has no component there, nothing more is lost
+        tA = PlanarTarget(pts; calibration = A)
+        rb = restrict(minimal_manifold(tA), (:bx, :by))
+        @test rb isa TargetManifold && tangent_size(rb) == 2 && retract_jacobian(rb) == SMatrix{6, 2}(0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1)
+        ra = restrict(minimal_manifold(tA), (:a11, :a22, :bx))
+        @test tangent_size(ra) == 2                                              # (a11, a22) minus their scale component
+        @test_throws ArgumentError restrict(minimal_manifold(tA), (:h1,))
+        # Rigid: zero-dimensional, as before
+        @test tangent_size(minimal_manifold(PlanarTarget(pts))) == 0
+    end
+end

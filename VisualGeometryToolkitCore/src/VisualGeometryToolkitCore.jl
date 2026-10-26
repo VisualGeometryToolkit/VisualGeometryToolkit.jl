@@ -268,7 +268,7 @@ export AbstractTarget, PointTarget, PlanarTarget, resolve, is_resolved   # the t
 export TargetCalibration, Rigid, Affine, ThinPlateSpline, HeightField, CalibrationChain   # a planar target's calibration kinds
 export calibration_jacobian, calibration, design, is_planar
 export regularizer   # the calibratable-target protocol
-public PlanarCalibration
+public PlanarCalibration, gauge_names, gauge_directions   # the shipped planar kinds as one type; a calibration's gauges
 public TargetManifold                     # a calibratable target's Manifold (minimal_manifold(target))
 export Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
 export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3

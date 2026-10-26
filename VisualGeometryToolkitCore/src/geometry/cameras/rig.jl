@@ -131,11 +131,11 @@ resolve(m::PosedTarget, nominal::AbstractVector) = PosedTarget(resolve(m.target,
             "(a $(nameof(typeof(m.target)))); a posed target's pose has its own chart"
     )
 )
-for f in (:parameter_vector, :parameter_names, :parameter_bounds, :parameters, :regularizer, :minimal_manifold, :ambient_coordinates)
+for f in (:parameter_vector, :parameter_names, :parameter_bounds, :parameters, :regularizer, :minimal_manifold, :ambient_coordinates, :gauge_names)
     @eval $f(m::PosedTarget) = _refuse_posed_protocol($(string(f)), m)
 end
 with_parameters(m::PosedTarget, ::AbstractVector) = _refuse_posed_protocol("with_parameters", m)
-TargetManifold(m::PosedTarget) = _refuse_posed_protocol("TargetManifold", m)
+TargetManifold(m::PosedTarget; free = ()) = _refuse_posed_protocol("TargetManifold", m)
 points(m::PosedTarget) = points(m.target)
 Base.:(==)(a::PosedTarget, b::PosedTarget) = a.target == b.target && a.pose == b.pose
 

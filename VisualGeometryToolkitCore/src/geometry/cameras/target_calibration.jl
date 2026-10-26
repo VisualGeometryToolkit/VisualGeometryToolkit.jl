@@ -149,10 +149,9 @@ end
 @noinline _refuse_form(what, x, physical) = throw(
     DimensionError(x, physical ? "a length (the nodes are lengths)" : "a plain number (the nodes are plain)")
 )
-# One length moved between metres and a unit `u`, through the one strip/attach
-# pair (euclidean_map.jl) that points and poses use.
-@inline _to_metres(x, u::Units) = _strip_length(m, _attach_length(x, u))
-@inline _from_metres(x, u::Units) = _strip_length(u, _attach_length(x, m))
+# One plain length moved between metres and a unit `u` (FlexUnits' conversion).
+@inline _to_metres(x::Real, u::Units) = ustrip(m, x * u)
+@inline _from_metres(x::Real, u::Units) = ustrip(u, x * m)
 @noinline _refuse_strip(c) = throw(ArgumentError("ustrip: the $(nameof(typeof(c))) is plain numbers already; `with_unit` attaches a unit"))
 @noinline _refuse_attach(c) = throw(ArgumentError("with_unit: the $(nameof(typeof(c))) already has units"))
 @noinline _refuse_length(c, θ) = throw(ArgumentError("$(nameof(typeof(c))) takes $(length(parameter_vector(c))) parameters; got $(length(θ))"))
@@ -272,7 +271,7 @@ struct ThinPlateSpline{K, T} <: TargetCalibration
     physical::Bool
 end
 function _thin_plate_spline(system::ThinPlateSplineSystem{K}, L, fx::SVector{K, T}, fy::SVector{K, T}, physical) where {K, T}
-    wx, ax = tps_coefficients(system, Vector(fx))   # a Vector, as RadiometricCamera passes its values:
+    wx, ax = tps_coefficients(system, Vector(fx))   # a Vector, as RadiometricCamera supplies its values:
     wy, ay = tps_coefficients(system, Vector(fy))   # the same BLAS product, the same bits
     return ThinPlateSpline{K, T}(system, fx, fy, wx, ax, wy, ay, L, physical)
 end
@@ -361,7 +360,7 @@ struct HeightField{K, T} <: TargetCalibration
     physical::Bool
 end
 function _height_field(system::ThinPlateSplineSystem{K}, L, h::SVector{K, T}, physical) where {K, T}
-    w, a = tps_coefficients(system, Vector(h))   # a Vector, as RadiometricCamera passes its heights: the same bits
+    w, a = tps_coefficients(system, Vector(h))   # a Vector, as RadiometricCamera supplies its heights: the same bits
     return HeightField{K, T}(system, h, w, a, L, physical)
 end
 function HeightField(nodes::AbstractVector, heights::AbstractVector)
@@ -487,7 +486,12 @@ regularizer(c::CalibrationChain) = vcat(map(regularizer, c.members)...)
 
 _has_lengths(c::CalibrationChain) = any(_has_lengths, c.members)
 has_units(c::CalibrationChain) = any(x -> _has_lengths(x) && has_units(x), c.members)
-_length_sample(c::CalibrationChain) = _length_sample(c.members[findfirst(_has_lengths, c.members)])
+function _length_sample(c::CalibrationChain)
+    for x in c.members
+        _has_lengths(x) && return _length_sample(x)
+    end
+    throw(ArgumentError("a $(nameof(typeof(c))) without lengths has no length to name"))
+end
 _length_mask(c::CalibrationChain) = vcat(map(_length_mask, c.members)...)
 function FlexUnits.ustrip(u::Units, c::CalibrationChain)
     has_units(c) || _refuse_strip(c)
@@ -541,6 +545,73 @@ const PlanarCalibration = Union{
     Rigid, Affine, ThinPlateSpline,
     CalibrationChain{<:Tuple{Vararg{Union{Rigid, Affine, ThinPlateSpline}}}},
 }
+
+# ------------------------------------------------------------------------------
+# Gauges — the directions the pose absorbs
+# ------------------------------------------------------------------------------
+
+"""
+    gauge_names(c | target) -> Tuple{Vararg{Symbol}}
+
+A calibration's GAUGES: the directions of its parameter vector θ (length `n`)
+that images of the target cannot observe because the target's pose absorbs
+them, by name; [`gauge_directions`](@ref) gives them as columns in θ's
+coordinates (plain numbers; lengths in metres). The default [`TargetManifold`](@ref) holds them fixed; a caller
+frees one by name, `TargetManifold(t; free = (:scale,))`.
+
+- [`Affine`](@ref): `:scale`, the uniform scale of the linear part,
+  `A ↦ (1 + s) A` with `b` held — in the `(a11, a12, a21, a22)` chart the
+  direction `(a11, a12, a21, a22, 0, 0) / ‖A‖_F` at the anchor. A target and
+  the same target scaled are the same images once the pose's translation
+  scales too, so the metric scale is fixed unless a measured length pins it.
+  (Its in-plane rotation and its translation `b` are the pose's as well when
+  the pose is estimated with it; they are not fixed by default — `restrict`
+  them away by name if the pose is free.)
+- [`HeightField`](@ref): `:piston`, `:tilt_x`, `:tilt_y` — heights that are an
+  affine function of the node position, `hᵢ = α + β uᵢ + γ vᵢ`, the columns
+  `1`, `u` and `v` over the nodes. The spline through affine heights is that
+  plane, which the pose's translation and two rotations reproduce; fixing them
+  leaves the heights orthogonal to every plane (`Σ hᵢ = Σ uᵢhᵢ = Σ vᵢhᵢ = 0`
+  for the steps).
+- [`CalibrationChain`](@ref): its members', each name prefixed by its
+  member's tag (`:affine_scale`, `:height_field_piston`, …).
+- [`Rigid`](@ref), [`ThinPlateSpline`](@ref): none. A downstream kind has
+  none unless it adds methods to both.
+"""
+function gauge_names end
+gauge_names(::TargetCalibration) = ()
+gauge_names(::Affine) = (:scale,)
+gauge_names(::HeightField) = (:piston, :tilt_x, :tilt_y)
+gauge_names(c::CalibrationChain) = Tuple(Symbol(_calibration_tag(x), :_, g) for x in c.members for g in gauge_names(x))
+gauge_names(u::Uncertain{<:TargetCalibration}) = gauge_names(geom(u))
+
+"""
+    gauge_directions(c) -> Matrix{Float64}
+
+The gauges of [`gauge_names`](@ref) as the columns of an `n × g` matrix in the
+coordinates of `parameter_vector(c)`, evaluated at `c`.
+"""
+function gauge_directions end
+gauge_directions(c::TargetCalibration) = zeros(Float64, length(parameter_vector(c)), 0)
+function gauge_directions(c::Affine)
+    a = Float64.(Tuple(parameter_vector(c))[1:4])
+    s = LinearAlgebra.norm(a)
+    s > 0 || throw(ArgumentError("gauge_directions: an Affine with A = 0 has no scale direction"))
+    return reshape([collect(a ./ s); 0.0; 0.0], 6, 1)
+end
+gauge_directions(c::HeightField{K}) where {K} =
+    [ones(K) [Float64(p[1]) for p in c.system.nodes] [Float64(p[2]) for p in c.system.nodes]]
+function gauge_directions(c::CalibrationChain)
+    ns = [length(parameter_vector(x)) for x in c.members]
+    blocks = [gauge_directions(x) for x in c.members]
+    D = zeros(Float64, sum(ns), sum(size.(blocks, 2)))
+    r = 0; k = 0
+    for (n, b) in zip(ns, blocks)
+        D[(r + 1):(r + n), (k + 1):(k + size(b, 2))] = b
+        r += n; k += size(b, 2)
+    end
+    return D
+end
 
 # --- an uncertain calibration -------------------------------------------------------
 #

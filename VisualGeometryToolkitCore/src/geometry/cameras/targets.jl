@@ -265,26 +265,99 @@ with_parameters(t::PlanarTarget, θ::AbstractVector) = PlanarTarget(t.design, t.
 parameters(t::PlanarTarget) = NamedTuple{parameter_names(t)}(Tuple(parameter_vector(t)))
 regularizer(t::PlanarTarget) = regularizer(geom(t.calibration))
 is_planar(::PlanarTarget{C}) where {C} = is_planar(C)
+gauge_names(t::PlanarTarget) = gauge_names(geom(t.calibration))
 
 """
-    TargetManifold(target) <: Manifold
+    TargetManifold(target; free = ()) <: Manifold
 
-A calibratable target's manifold anchored at `target`: its
-[`parameter_vector`](@ref)' coordinates as offsets from the anchor (linear);
-`action_jacobian(ch, x)` is ∂points/∂θ at the nominal point `x`
-([`calibration_jacobian`](@ref)). `minimal_manifold(target)` is this manifold.
+A calibratable target's manifold anchored at `target`, with its GAUGES held
+fixed: the directions of [`parameter_vector`](@ref)`(target)` that images
+cannot see because the target's pose absorbs them ([`gauge_names`](@ref)) —
+an [`Affine`](@ref)'s uniform scale, a [`HeightField`](@ref)'s piston and two
+tilts. `minimal_manifold(target)` is this manifold; `free` names gauge
+directions to leave free (`TargetManifold(t; free = (:scale,))` when a
+measured length — a ruler, motion capture — pins the scale).
+
+The chart is linear: `retract(ch, v) = with_parameters(target, θ₀ + B v)`,
+`B` an `n × m` matrix whose orthonormal columns span the directions of θ
+orthogonal to the fixed ones, so `tangent_size(ch) = m` and
+`retract_jacobian(ch) = B`. With nothing fixed `B` is the identity and the
+coordinates are the parameters' offsets, named by [`parameter_names`](@ref);
+with a gauge fixed they are coordinates in that orthonormal basis.
+`action_jacobian(ch, x) = calibration_jacobian(c, x) · B` at the design point
+`x`; `local_coordinates(ch, t) = Bᵀ (θ(t) − θ₀)`. [`restrict`](@ref)`(ch,
+names)` keeps only the parameters `names` free (the others fixed, as a
+`TargetManifold` with the same gauges).
+
+The gauge directions are evaluated ONCE, at the anchor the manifold is built
+on, and `recenter` keeps `B`: a fit moves on one linear slice through its
+starting parameters (for an `Affine`, the component of `A` along the anchor's
+`A₀` stays where it started), and the manifold's type does not change.
 Zero-dimensional for a `Rigid` target.
 """
-struct TargetManifold{T <: AbstractTarget} <: Manifold
+struct TargetManifold{T <: AbstractTarget, B <: SMatrix} <: Manifold
     target::T
+    basis::B                      # n × m, orthonormal columns: the free directions of θ
+    fixed_gauges::Vector{Symbol}  # the gauge directions held fixed
+    fixed::Vector{Symbol}         # the parameters held fixed (`restrict`)
 end
+function TargetManifold(t::PlanarTarget; free::Tuple{Vararg{Symbol}} = ())
+    gauges = gauge_names(t)
+    for g in free
+        g in gauges || throw(
+            ArgumentError("TargetManifold: no gauge direction $(repr(g)) to free; the target's are $(isempty(gauges) ? "none" : join(gauges, ", "))")
+        )
+    end
+    return _target_manifold(t, Symbol[g for g in gauges if !(g in free)], Symbol[])
+end
+
+# B: the free parameter axes E (every axis but the fixed parameters), then
+# within them the orthogonal complement of the fixed gauge directions D
+# projected on them (an SVD of EᵀD, each direction normalized first). The span
+# of B is exactly the complement of span(fixed axes ∪ D).
+function _target_manifold(t::PlanarTarget, fixed_gauges::Vector{Symbol}, fixed::Vector{Symbol})
+    c = geom(t.calibration)
+    names = parameter_names(c)
+    n = length(names)
+    E = Matrix{Float64}(LinearAlgebra.I, n, n)[:, [i for i in 1:n if !(names[i] in fixed)]]
+    B = if isempty(fixed_gauges)
+        E
+    else
+        gn = gauge_names(c)
+        D = gauge_directions(c)[:, [findfirst(==(g), gn) for g in fixed_gauges]]
+        Dp = E' * (D ./ max.(LinearAlgebra.norm.(eachcol(D))', floatmin(Float64)))
+        F = svd(Dp; full = true)
+        r = count(>(sqrt(eps(Float64)) * max(1.0, maximum(F.S; init = 0.0))), F.S)
+        E * F.U[:, (r + 1):end]
+    end
+    return TargetManifold(t, SMatrix{n, size(B, 2), Float64}(B), fixed_gauges, fixed)
+end
+
 minimal_manifold(t::PlanarTarget) = TargetManifold(t)
 ambient_coordinates(t::PlanarTarget) = parameter_vector(t)
-tangent_size(ch::TargetManifold) = length(parameter_vector(ch.target))
+tangent_size(ch::TargetManifold) = size(ch.basis, 2)
 model(ch::TargetManifold) = ch.target
-retract(ch::TargetManifold, v) = with_parameters(ch.target, parameter_vector(ch.target) + v)
-recenter(ch::TargetManifold, v) = TargetManifold(retract(ch, v))
-retract_jacobian(ch::TargetManifold) = (n = tangent_size(ch); SMatrix{n, n, Float64}(LinearAlgebra.I))
-retract_jacobian(ch::TargetManifold, ::StaticVector) = retract_jacobian(ch)
-action_jacobian(ch::TargetManifold{<:PlanarTarget}, x) = calibration_jacobian(geom(ch.target.calibration), x)
-local_coordinates(ch::TargetManifold, t::AbstractTarget) = parameter_vector(t) - parameter_vector(ch.target)
+retract(ch::TargetManifold, v) = with_parameters(ch.target, parameter_vector(ch.target) + ch.basis * v)
+recenter(ch::TargetManifold, v) = TargetManifold(retract(ch, v), ch.basis, ch.fixed_gauges, ch.fixed)
+retract_jacobian(ch::TargetManifold) = ch.basis
+retract_jacobian(ch::TargetManifold, ::StaticVector) = ch.basis
+action_jacobian(ch::TargetManifold{<:PlanarTarget}, x) = calibration_jacobian(geom(ch.target.calibration), x) * ch.basis
+local_coordinates(ch::TargetManifold, t::AbstractTarget) = ch.basis' * (parameter_vector(t) - parameter_vector(ch.target))
+
+"""
+    restrict(ch::TargetManifold, names::Tuple{Vararg{Symbol}}) -> TargetManifold
+
+The target manifold on the parameters `names` ([`parameter_names`](@ref)'
+vocabulary), every other parameter held at the anchor, its gauges still fixed
+— a calibration's complexity as a manifold, as `restrict` of a
+[`LensManifold`](@ref).
+"""
+function restrict(ch::TargetManifold{<:PlanarTarget}, names::Tuple{Symbol, Vararg{Symbol}})
+    all_names = parameter_names(ch.target)
+    for n in names
+        n in all_names || throw(
+            ArgumentError("restrict: the target has no parameter $(repr(n)); its parameters are $(join(String.(all_names), ", "))")
+        )
+    end
+    return _target_manifold(ch.target, ch.fixed_gauges, Symbol[n for n in all_names if !(n in names)])
+end

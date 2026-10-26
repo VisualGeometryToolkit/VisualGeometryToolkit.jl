@@ -417,12 +417,22 @@ end
     T = promote_type(eltype(xd), _coeff_type(l))
     S = float(_primal_float(T))
     g = one(S)
+    settled = false
     for _ in 1:12
         Δg = _ratio_G(rp, g, tp) / _ratio_dG(rp, g, tp)
         g -= Δg
-        _newton_settled(Δg * Δg, g * g, S) && break
+        settled = _newton_settled(Δg * Δg, g * g, S)
+        settled && break
     end
-    ok = abs(_ratio_G(rp, g, tp)) <= _core_tol(S) && g > 0 && _on_radial_branch(rp, g * g * tp)
+    # An iterate stands when it has SETTLED (its error is the square of an update
+    # at the solve tolerance: rounding) or its residual is at rounding already (at
+    # the image of a fold, where G′ → 0 and Newton cannot settle, the root is as
+    # good as the precision makes it). An iterate still crawling in from g = 1
+    # when the trips run out can meet the solve tolerance with its error at that
+    # tolerance (measured: Kannala–Brandt far from the axis, a 7e-7 update left a
+    # 1e-11 ray error); the safeguarded solve finishes it, to rounding.
+    G = abs(_ratio_G(rp, g, tp))
+    ok = (settled ? G <= _core_tol(S) : G <= 8 * eps(S)) && g > 0 && _on_radial_branch(rp, g * g * tp)
     ok || ((g, ok) = _ratio_on_branch(rp, _frame_cap(l.projection), S(tp)))
     _is_dual_type(T) && (g = g - _ratio_G(r, g, t) / _ratio_dG(rp, g, tp))
     return _nan_unless(ok, Vec2(g * xd[1], g * xd[2]))

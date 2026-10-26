@@ -640,8 +640,30 @@
             @test !isfinite(C.projected_radius(rneg, Float64(π)))                         # 180° is a limit, not a value
         end
 
+        @testset "the radial inverse round-trips at rounding level" begin
+            # Newton in the ratio from g = 1 used to stand on a residual within the
+            # solve tolerance while still crawling in (a 1e-7 update): far from the
+            # axis of a strong Kannala–Brandt the ray came back 2e-11 to 4e-11 off.
+            # Only a settled iterate (or one at rounding) stands now; Float32 too.
+            strong = (
+                KannalaBrandt(-0.04, 0.0004, -0.0008, 0.0007), KannalaBrandt(0.5, -0.4, 0.1, 0.0),
+                KannalaBrandt(-0.043, 0.011, -0.0083, 0.0015), KannalaBrandt(-0.2, 0.02, 0.0, 0.002),
+            )
+            for l in strong, (T, bound) in ((Float64, 1.0e-13), (Float32, 1.5e-6))
+                lT = VgtkCore.convert_eltype(T, l)
+                θmax = 0.95 * min(C.view_angle_limit(l), π)
+                worst = 0.0
+                for θ in range(θmax / 600, θmax; length = 600), φ in (0.05, 1.3, 2.9, 4.4)
+                    X = SVector{3, T}(sin(θ) * cos(φ), sin(θ) * sin(φ), cos(θ))
+                    b = backproject(lT, project(lT, X))
+                    worst = max(worst, Float64(norm(b - X)))
+                end
+                @test worst <= bound
+            end
+        end
+
         @testset "the number type follows the inputs" begin
-            kb32 = KannalaBrandt(Float32(-0.01f0), Float32(0.001f0))
+            kb32 =KannalaBrandt(Float32(-0.01f0), Float32(0.001f0))
             u32 = project(kb32, SVector{3, Float32}(ray(deg2rad(100.0))))
             @test eltype(u32) === Float32
             @test eltype(backproject(kb32, u32)) === Float32

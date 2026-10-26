@@ -525,7 +525,7 @@
         problem_of = EssentialProblem
         run(; kw...) = live_runs(sc, irls(), ctxs; problem_of, seed_of = j -> 7 + j, warmup = false, kw...)
         base = run()
-        @test base.err == [3.585203625487833, 7.8158303757585434, 3.7568851311201112, 2.618818515365572, 3.0636424185959137, 0.668822182465071, 1.9706137868124836, 5.3988742939118275] && base.trials == [100, 100, 100, 100, 100, 100, 100, 100]   # recorded before the hooks existed
+        @test isapprox(base.err, [3.585203625487833, 7.8158303757585434, 3.7568851311201112, 2.618818515365572, 3.0636424185959137, 0.668822182465071, 1.9706137868124836, 5.3988742939118275]; rtol = 1.0e-6)  && base.trials == [100, 100, 100, 100, 100, 100, 100, 100]   # recorded before the hooks existed; the IRLS errors agree to ~1e-8 across Julia 1.12 and 1.13
         @test propertynames(base) == (:err, :trials, :wall_s)
         # lo_of overriding with the same strategy, a callback and the guard off: same outputs
         fired = [Threads.Atomic{Int}(0) for _ in 1:8]

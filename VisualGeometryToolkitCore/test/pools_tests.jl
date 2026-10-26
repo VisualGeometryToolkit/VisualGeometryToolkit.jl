@@ -158,7 +158,7 @@ end
     @test size(out) == (n, K) && eltype(out) == Float32
     @test out[1, :] == Float32[198.04472, 213.90952, 30.329472, 190.538]
     @test out[n, :] == Float32[516.3198, 287.9541, 181.46095, 210.06163]
-    @test sum(out) == 35983.92f0
+    @test sum(out) ≈ 35983.92f0 rtol = 1.0f-6   # the Float32 summation order differs by an ulp between Julia 1.12 and 1.13
 
     # identity maps: the pixel frame IS the pool frame
     Dc = Float32[sampson_distance(models[j], cs[i].first, cs[i].second) for i in 1:n, j in 1:K]

@@ -300,7 +300,8 @@ input and the intrinsics: Float64 pipelines are unchanged; a Float32 camera
 (`LogicalIntrinsics{Float32}`) with Float32 pixels stays Float32; ForwardDiff
 `Dual` pixels give a `Dual` direction, so the bearing can be differentiated
 with respect to the pixel; integer pixels give the bearing of their
-floating-point value.
+floating-point value, as the lens-level `backproject(lens, xd)` and the grid
+models' `backproject` do.
 
 The return type and semantics depend on the intrinsics type:
 - LogicalIntrinsics: Returns normalized unitless direction

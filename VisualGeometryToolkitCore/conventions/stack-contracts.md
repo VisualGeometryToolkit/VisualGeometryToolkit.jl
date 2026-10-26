@@ -56,9 +56,9 @@ package's function only when the owner lists it in its `CONTRACT_GENERICS`
 (VisualGeometryToolkitCore's: the block-coordinate-descent hooks, the chart-LM row
 protocol, the RANSAC/LO interface, the minimal-solver backends, the TOML config
 hooks, the accessors other packages implement for their own types, the
-parameter protocol, the camera maps `project` and `backproject` and their
-`convert_eltype`, the
-`Manifold` protocol and the plotting stubs). Any stack package may declare its own;
+parameter protocol, the camera maps `project` and `backproject`,
+`convert_eltype`, the `Manifold` protocol with `ambient_coordinates`, and the
+plotting stubs). Any stack package may declare its own;
 `contract_generic_violations(M)` lists the methods that land elsewhere.
 Functions owned by Base, Core, the standard library or a package outside the
 stack are exempt.

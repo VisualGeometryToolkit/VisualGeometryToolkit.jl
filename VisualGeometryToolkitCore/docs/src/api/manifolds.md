@@ -6,7 +6,10 @@ CurrentModule = VisualGeometryToolkitCore
 
 The minimal parameterizations the estimators refine on (the `Manifold`
 contract and its instances), first-order covariance transport and solver
-covariance, and the image-domain confidence regions that display it. Split
+covariance, and the image-domain confidence regions that display it. A
+model's [`ambient_coordinates`](@ref) are what a manifold's default
+[`retract_jacobian`](@ref) differentiates; a model type defined outside this
+package adds its method. Split
 from the [Robust Estimation API](estimators.md) page. See the
 [Robust Estimation](../guide/estimators.md) and
 [Stereo Rigs and Uncertainty](../guide/stereo.md) guides.

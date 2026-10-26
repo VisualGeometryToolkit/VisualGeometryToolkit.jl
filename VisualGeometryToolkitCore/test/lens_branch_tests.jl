@@ -89,6 +89,25 @@
             @test norm(m) > 0.75
         end
     end
+    # forward, the same radial test at the same input: a ray whose tilted point is
+    # past ρ = √2 projects to NaN (it used to land on the factor's second rise)
+    tilt_only = Lens(Perspective(), Tilt(0.02, -0.01))
+    for u in range(-3.0, 3.0, length = 61), v in range(-3.0, 3.0, length = 61)
+        x = SVector(u, v)
+        ρt = norm(distort_normalized(tilt_only, x))
+        abs(ρt - ρfold) < 1.0e-6 && continue
+        @test all(isfinite, fwd(tilted, x)) == (ρt < ρfold)
+    end
+    # NOT tested forward: a fold of the deltas. Tangential(0, 0.1) has
+    # det J = (1 + 0.2u)(1 + 0.6u) on v = 0, negative for u ∈ (−5, −5/3): such a
+    # ray projects to a finite point, whose backproject is the branch's preimage
+    tang = Lens(Perspective(), Tangential(0.0, 0.1))
+    for u in (-2.0, -3.0, -4.0)
+        m = fwd(tang, SVector(u, 0.0))
+        @test all(isfinite, m)
+        xb = undist(tang, m)
+        @test all(isfinite, xb) && xb[1] > -5 / 3 && norm(fwd(tang, xb) - m) < 1.0e-9
+    end
     # a Full-basis radial factor has no forward map in a lens's frame, anywhere
     full = VisualGeometryToolkitCore.Cameras.Radial{VisualGeometryToolkitCore.Cameras.Full}((0.1,), ())
     @test_throws ArgumentError Lens(Perspective(), Chain(Additive(full, Tangential(0.0, 1.0e-3)), Tilt(0.01, 0.0)))

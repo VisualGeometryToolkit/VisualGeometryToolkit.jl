@@ -80,6 +80,33 @@ matters); a solve that does not certify is NaN. For `Dual` inputs the
 derivative comes from one Newton step at the converged primal root (the
 implicit function theorem), so first derivatives are exact.
 
+## Folds and the imaged branch
+
+A distortion that folds gives one image point several preimages. The lens
+images the **imaged branch**: the region connected to the axis where the map
+keeps orientation (`det J > 0`) and every [`Radial`](@ref) factor is before
+its fold or pole. `backproject` returns the preimage on it, or NaN. The two
+directions do not test the same things:
+
+- `project` NaNs a ray past a radial factor's fold, every radial factor at its
+  own input (a lone one, an [`Additive`](@ref)'s head, each radial stage of a
+  [`Chain`](@ref)). It does **not** test the determinant, which would cost a
+  Jacobian per projected point. So where the deltas of an `Additive`
+  (tangential, thin prism) or a `Chain`'s [`Tilt`](@ref) fold the map, a ray
+  past that fold projects to a finite point, and `backproject` of that point
+  is the branch's preimage — a different ray — or NaN. The round trip
+  `backproject(lens, project(lens, X)) ≈ X/‖X‖` holds on the imaged branch,
+  not past such a fold. An image undistortion samples through `project`, so
+  it repeats branch content there instead of filling.
+- The branch test is pointwise. Where the map overlaps itself **inside** the
+  axis-connected component, a point has several preimages on the branch and
+  `backproject` returns the first one its solver reaches. This is rare (0.05 %
+  of the interior points of deliberately strong OpenCV chains), but a
+  per-pixel undistortion map can jump between preimages there. Whether a lens
+  is one-to-one over a sensor is a property of the lens: it belongs in an
+  optional check of the lens over the sensor rectangle, not in a per-pixel
+  test.
+
 ## Batches
 
 A batch of points goes through the same per-point maps by broadcasting:

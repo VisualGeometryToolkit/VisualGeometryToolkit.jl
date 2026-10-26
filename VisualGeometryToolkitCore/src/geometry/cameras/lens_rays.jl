@@ -286,7 +286,7 @@ end
 # -----------------------------------------------------------------------------
 #
 # `_distort(d, x)` is the plain map; `_distort_in_frame(lens, x)` adds the
-# branch test of the lens's radial factor: past its fold (or pole) two rays
+# branch test of the lens's radial factors: past a fold (or pole) two rays
 # would share an image point, so the point is not imaged (NaN).
 
 @inline _distort(::Nothing, x::StaticVector{2}) = Vec2(x[1], x[2])
@@ -356,6 +356,17 @@ end
     r = radial(l)
     r === nothing && return _distort(l.distortion, x)
     ok = _on_radial_branch(_primal(r), _primal(x[1] * x[1] + x[2] * x[2]))
+    return _nan_unless(ok, _distort(l.distortion, x))
+end
+# A Chain has no `radial(lens)` (its radial factor need not lead, and `radial`
+# feeds `radial_part` and `view_angle_limit`, which mean the lens's one radially
+# symmetric factor): its forward map tests every radial factor at that stage's
+# own input — the radial half of the inverse's acceptance (`_radial_ok`), so a
+# ray past a radial stage's fold is NaN both ways. The determinant half is NOT
+# tested forward (a Jacobian per projected point): a ray where the deltas or the
+# tilt fold maps to a finite point that `backproject` rejects (see `project`).
+@inline function _distort_in_frame(l::Lens{<:AbstractProjection, <:Chain}, x::StaticVector{2})
+    ok = _radial_ok(_primal(l.distortion), SVector(_primal(x[1]), _primal(x[2])))
     return _nan_unless(ok, _distort(l.distortion, x))
 end
 
@@ -786,6 +797,19 @@ A [`Lens`](@ref) projects the ray onto its projection's frame and distorts the
 frame point there; no perspective hop is involved unless the projection IS the
 perspective one, whose domain genuinely ends at 90°. A [`LiftLens`](@ref)
 solves the image radius as a root on the ray.
+
+A ray past the fold (or pole) of a radial factor is NaN: every [`Radial`](@ref)
+factor is tested at its own input — a lone one, an [`Additive`](@ref)'s head,
+each radial stage of a [`Chain`](@ref). The other folds are NOT tested
+forward, since that would cost a Jacobian per projected point: where the
+deltas of an `Additive` (tangential, thin prism) or a `Chain`'s
+[`Tilt`](@ref) fold the map (det J ≤ 0 inside the radial factor's disk),
+`project` returns a finite point, and [`backproject`](@ref) of that point is
+not the ray — it is the imaged branch's preimage, a different ray, or NaN
+where the branch does not reach the point. So the round trip
+`backproject(lens, project(lens, X)) ≈ X / ‖X‖` holds on the imaged branch
+(the region connected to the axis where det J > 0 and every radial factor is
+before its fold), not past such a fold.
 """
 @inline function project(l::Lens, X::StaticVector{3})
     x, ok = _project_ray(l.projection, X)
@@ -800,6 +824,23 @@ The UNIT ray behind the normalized image point `xd` — the other half of the
 lens contract, with [`project`](@ref)`(lens, X)`. NaN where the lens does not
 image the point (outside its frame's domain, past a fold, a non-converged
 inverse), never a throw.
+
+Where the in-plane distortion folds, a point has several preimages, and the
+answer is the one on the imaged branch: det J > 0 there and every
+[`Radial`](@ref) factor before its fold, reached from the axis. Two
+consequences:
+- [`project`](@ref) tests only the radial factors, so a ray past a fold of
+  the deltas of an [`Additive`](@ref) or of a [`Chain`](@ref)'s
+  [`Tilt`](@ref) projects to a finite point that `backproject` rejects: it
+  returns the branch's preimage (a different ray) or NaN, never that ray.
+- The acceptance test is pointwise. Where the map overlaps itself INSIDE the
+  axis-connected component, a point has several preimages on the branch and
+  `backproject` returns the first the solver reaches — rare (0.05 % of the
+  interior points of deliberately strong OpenCV chains), but an undistortion
+  map built from `backproject` may jump between preimages from one pixel to
+  the next there. Whether a lens is injective over a sensor is a property of
+  the LENS, for an optional check over the sensor rectangle, not something
+  tested per pixel.
 """
 @inline function backproject(l::Lens, xd::StaticVector{2})
     x = _undistort_in_frame(l, xd)

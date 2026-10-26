@@ -711,6 +711,16 @@ For each output (undistorted) pixel, computes the corresponding source
 `BoundedMap` (K is assumed to be in COLMAP convention: image corner at
 origin, pixel centers at 0.5).
 
+Each output pixel is sampled through [`project`](@ref), which NaNs a ray past
+a radial factor's fold (the pixel takes the fill value) but does not test the
+other folds: past a fold of an [`Additive`](@ref)'s deltas or a
+[`Chain`](@ref)'s [`Tilt`](@ref) the pixel samples a finite source pixel whose
+[`backproject`](@ref) is a different ray, so the output repeats content of
+the imaged branch there. Where the lens overlaps itself over the sensor, no
+undistortion is one-to-one, and a map built from `backproject` may jump
+between preimages (see [`backproject`](@ref)): injectivity is checked on the
+lens over the sensor rectangle, not per pixel.
+
 # Arguments
 - `model::CameraModel`: Camera model (any lens family)
 - `img`: Input distorted image (any AbstractMatrix — Gray, RGB, etc.)

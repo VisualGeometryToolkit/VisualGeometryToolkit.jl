@@ -136,16 +136,18 @@ for byte when its numbers have at most 15 significant digits. A full-precision
 number (16 or 17 digits) may move by at most 2 ulp on its first rewrite, and it
 stays fixed after that. This is inherent to metres in memory and millimetres in
 files: the two grids differ, so some 17-digit millimetre numbers share their
-nearest metre value with a neighbour, and one of the two cannot come back. An identity built on a file's bytes follows the value, not the bytes:
-VisualGeometryToolkitIO's `content_id(path)` of a rig hashes the record its
-loaded rig writes, so a file and the rig loaded from it name the same targets.
+nearest metre value with a neighbour, and one of the two cannot come back. An identity follows the value, not the bytes:
+VisualGeometryToolkitIO's `content_id` of a rig hashes a canonical tree of
+the loaded value in metres, so a file, the rig loaded from it and the same
+rig written in another unit name the same targets.
 
-**Board JSON is not covered.** VisualGeometryToolkitFeatures' quantity JSON
-(board and feature files, BlobBoards' identity data) still converts by
-multiplication (`value * u` on read, `ustrip(u, q)` on write), so a value
-such as `62.8` mm read and written again can print `62.79999999999999`. Its
-bytes are kept as they were for existing data; the decimal-exact pair above is
-VisualGeometryToolkitIO's only.
+**One quantity form.** A JSON record holds each quantity as a number in the
+unit it declares (`"units": {"world": "mm", "density": "dpi"}`), through the
+pair above; a record whose lengths need more than one unit declares each
+further one as a length role (`"lengths": {"pattern": "pt"}`), each number
+decimal-exact in its own. The `{"value": v, "unit": u}` objects that
+VisualGeometryToolkitFeatures once wrote, and that BlobBoards' boards hold,
+are not read: their owner migrates such files once (`vgio_migrate`).
 
 **A length built in code has already rounded.** `[62.8, 1.3] .* mm` multiplies
 by the scale when it is stored in metres. `1.3mm` is held as

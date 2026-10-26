@@ -465,6 +465,16 @@ struct Attributed{V, A}
     attributes::A
 end
 
+# Equality and hashing by value and attributes. The default (`===`, `objectid`)
+# is identity for a value that holds heap data — an `Uncertain` thin-plate
+# calibration with its solver matrices — so two equal ones compared unequal and
+# did not deduplicate in a Set.
+Base.:(==)(a::Attributed, b::Attributed) =
+    getfield(a, :value) == getfield(b, :value) && getfield(a, :attributes) == getfield(b, :attributes)
+Base.isequal(a::Attributed, b::Attributed) =
+    isequal(getfield(a, :value), getfield(b, :value)) && isequal(getfield(a, :attributes), getfield(b, :attributes))
+Base.hash(a::Attributed, h::UInt) = hash(getfield(a, :attributes), hash(getfield(a, :value), hash(:Attributed, h)))
+
 # Property forwarding (`getproperty` / `propertynames`) is defined with the
 # statistical forms below ("Uncertain{V,M}"): it treats a `CovMat`/`PrecMat`
 # attribute apart, so it is stated once those types exist.

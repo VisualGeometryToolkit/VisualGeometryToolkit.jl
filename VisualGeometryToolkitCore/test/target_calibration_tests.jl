@@ -429,8 +429,15 @@ end
     using Test, StaticArrays, LinearAlgebra, ForwardDiff
     using VisualGeometryToolkitCore
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: grid_nodes, gauge_names, mm, m, Attributed
+    using VisualGeometryToolkitCore: grid_nodes, gauge_names, mm, m, Attributed, Uncertain, CovMat
     using FlexUnits: ustrip
+    # a kind another package defines: the public protocol only
+    struct DownstreamShift <: TargetCalibration
+        dx::Float64
+        dy::Float64
+    end
+    VgtkCore.parameter_vector(c::DownstreamShift) = SVector(c.dx, c.dy)
+    VgtkCore.parameter_names(::DownstreamShift) = (:dx, :dy)
 
     nodes = grid_nodes(3; lo = 0.0, hi = 100.0)
     A = Affine([1.001 0.0; 0.0 0.999], [0.5, -0.25])
@@ -454,6 +461,29 @@ end
         @test R["affine"] === Affine && R["calibration_chain"] === CalibrationChain
         @test_throws ArgumentError R["warp"]
         @test parameter_names(C)[1] === :affine_a11 && parameter_names(C)[end] === :height_field_h9   # the chain prefixes are its tags
+    end
+
+    @testset "Attributed: ==, isequal and hash by value and attributes" begin
+        Σ(n) = CovMat(SMatrix{n, n, Float64}(1.0e-6I))
+        uT, uT2 = Uncertain(T, Σ(18)), Uncertain(ThinPlateSpline(nodes, fill(0.01, 9), fill(-0.01, 9)), Σ(18))
+        @test uT == uT2 && isequal(uT, uT2) && hash(uT) == hash(uT2) && length(Set([uT, uT2])) == 1
+        @test uT != Uncertain(T, CovMat(SMatrix{18, 18, Float64}(2.0e-6I)))
+        # whole targets compare equal, an uncertain thin-plate calibration included
+        t1 = PlanarTarget(pts; calibration = Uncertain(C, Σ(33)))
+        t2 = PlanarTarget(copy(pts); calibration = Uncertain(CalibrationChain(A, T, H), Σ(33)))
+        @test t1 == t2 && hash(t1) == hash(t2)
+        a = Attributed(t1, (; calibration_record = (; tool = "x")))
+        @test a == Attributed(t2, (; calibration_record = (; tool = "x"))) && a != Attributed(t2, (; calibration_record = (; tool = "y")))
+    end
+
+    @testset "Uncertain(Rigid(), Σ) is refused: a rigid calibration has no parameters" begin
+        e = try Uncertain(Rigid(), CovMat(SMatrix{0, 0, Float64}())); nothing catch e; e end
+        @test e isa ArgumentError && occursin("no parameters, so no covariance", e.msg)
+    end
+
+    @testset "a chain with a downstream member constructs, its names prefixed by the tag rule" begin
+        @test parameter_names(CalibrationChain(A, DownstreamShift(0.1, 0.2)))[7:8] == (:downstream_shift_dx, :downstream_shift_dy)
+        @test VgtkCore.Cameras._calibration_tag(DownstreamShift(0.0, 0.0)) == "downstream_shift"
     end
 
     @testset "hash agrees with ==" begin

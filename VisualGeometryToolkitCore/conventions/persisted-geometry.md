@@ -116,15 +116,34 @@ which is written from a keyword and never read back — and none of it is part o
 the value. A fact about the VALUE that must round-trip is part of the VGC value:
 a field (a trajectory's per-frame images and times, a measurement's target
 identities) or an `Attributed` attribute — a covariance as `Uncertain`, a
-camera's or a target's `calibration` block as
-`Attributed(value, (; calibration = (; tool, source, date, reprojection_rms, n_images, n_points, note)))`
-(the stated keys only; a closed set).
+camera's `calibration` block as
+`Attributed(camera, (; calibration = (; tool, source, date, reprojection_rms, n_images, n_points, note)))`,
+a target's as `Attributed(target, (; calibration_record = (; …)))` (the same
+closed set of keys; the target's own `calibration` is its
+[`TargetCalibration`](@ref), part of the value, so the record is named apart).
+
+**A target's calibration is part of its record.** A [`PlanarTarget`](@ref)'s
+[`TargetCalibration`](@ref) is written in its body as one `calibration` record
+(`vgio/target/v2`, `vgio/rig/v5`): its `type`, the kind's tag in
+`TARGET_CALIBRATION_TAGS`; its `parameters` in `parameter_names` order, lengths
+in the file's unit; `nodes` for a thin-plate kind; `members` for a chain; and a
+`covariance` over every parameter iff it is `Uncertain`. A target with a
+`board` (the physical board it is printed on) writes it as
+`{"size": {"width", "height"}, "origin": [u, v]}`, lengths in the file's unit.
 
 **A referenced design is stored by its reference.** A [`PlanarTarget`](@ref)
 whose design is content-addressed (a BlobBoards board uid) is written by its
-`design` reference and its calibration; its nominal points are the design's owner's
+`reference` and its calibration; its nominal points are the design's owner's
 and are not restated. A reader returns it unresolved unless the caller supplies
 the owner's resolver.
+
+**An identity does not change when the file format does.** A measurement names
+the rig that defines its targets by `content_id`: the SHA-256 of a canonical
+tree built from the in-memory rig, under fixed names written once (in
+VisualGeometryToolkitIO's `content_id`), in base units, its targets in a fixed
+order, with no schema version and no envelope provenance. A rig, every file
+written from it in any unit, and a migration of that file to the next record
+version have one identity; a test pins it for a rig of every target kind.
 
 **Persisted rotations are quaternions.** A rotation is stored as a Hamilton
 quaternion (w-x-y-z, w ≥ 0) and READ AS ONE: the reader builds a

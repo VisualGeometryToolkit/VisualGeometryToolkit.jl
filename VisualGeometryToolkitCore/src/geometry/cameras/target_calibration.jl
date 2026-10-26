@@ -84,6 +84,10 @@ regularizer(::Rigid) = SVector{0, Float64}()
 # its own form, to name the mismatch in a `DimensionError`. `_length_mask(c)`:
 # which entries of θ are lengths (they scale with a unit change; the rest are
 # dimensionless).
+# A kind another package defines states its lengths through the public
+# protocol only (`has_units`, `ustrip`, `with_unit`); the chain's length-form
+# check (one form across members) covers the kinds shipped here.
+_has_lengths(::TargetCalibration) = false
 _has_lengths(::Rigid) = false
 has_units(::Rigid) = false
 _length_mask(::Rigid) = SVector{0, Bool}()
@@ -518,8 +522,19 @@ by VisualGeometryToolkitIO's target record (`"type": "affine"`): `"rigid"`,
 const TARGET_CALIBRATION_TAGS = TagRegistry(:target_calibration, "",
     "rigid" => Rigid, "affine" => Affine, "thin_plate_spline" => ThinPlateSpline,
     "height_field" => HeightField, "calibration_chain" => CalibrationChain)
-# a calibration's tag (the registry's reverse lookup)
-_calibration_tag(c::TargetCalibration) = tag_of(TARGET_CALIBRATION_TAGS, c)
+# a calibration's tag: the registry's reverse lookup for a shipped kind; for a
+# kind another package defines (which the registry does not hold), the tag
+# rule's spelling of its type name, so a chain holding one still constructs
+_calibration_tag(c::TargetCalibration) = _calibration_tag(typeof(c))
+
+# A Rigid calibration has no parameters, so nothing for a covariance to be
+# over: `Uncertain(Rigid(), Σ)` is refused at construction (the target record
+# writes no covariance for it either).
+(::Type{Attributed})(::Rigid, ::Union{CovMat, PrecMat}) = throw(
+    ArgumentError("a Rigid target calibration has no parameters, so no covariance: Uncertain(Rigid(), Σ) is refused — use Rigid()")
+)
+_calibration_tag(::Type{T}) where {T <: TargetCalibration} =
+    any(K -> T <: K, values(TARGET_CALIBRATION_TAGS)) ? tag_of(TARGET_CALIBRATION_TAGS, T) : snake_case(nameof(T))
 
 _apply(c::CalibrationChain, q) = _apply_members(c.members, q)
 _apply_members(::Tuple{}, q) = q

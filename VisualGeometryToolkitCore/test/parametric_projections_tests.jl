@@ -15,6 +15,7 @@
     using VisualGeometryToolkitCore.Cameras: _ds_w2
     using StaticArrays: SVector
     using FiniteDiff: FiniteDiff
+    using ForwardDiff: ForwardDiff
     using LinearAlgebra: I, norm, normalize
 
     # Calibration-plausible parameter sets: one on each side of the α = 1/2
@@ -102,6 +103,88 @@
         # the unified model with ξ > 1 images a bounded disc; past it, NaN
         @test all(isnan, backproject(Lens(Unified(1.3)), SVector(3.0, 0.0)))
         @test all(isnan, project(Lens(Unified(0.6)), SVector(0.0, 0.0, -1.0)))
+    end
+
+    @testset "double sphere: backproject without the FOV bound (fov_bound = false)" begin
+        # The closed-form lift (eq. 46-51), clamped radicands, no domain test at all.
+        function ds_lift(ξ, α, m)
+            r2 = m[1]^2 + m[2]^2
+            mz = (1 - α^2 * r2) / (α * sqrt(max(1 - (2α - 1) * r2, 0)) + 1 - α)
+            s = (mz * ξ + sqrt(max(mz^2 + (1 - ξ^2) * r2, 0))) / (mz^2 + r2)
+            return SVector(s * m[1], s * m[2], s * mz - ξ)
+        end
+        # The algebraic domain alone: the unprojection radius and the second radicand.
+        function ds_algebraic(ξ, α, m)
+            r2 = m[1]^2 + m[2]^2
+            disc = 1 - (2α - 1) * r2
+            mz = (1 - α^2 * r2) / (α * sqrt(max(disc, 0)) + 1 - α)
+            return (α <= 0.5 || disc >= 0) && mz^2 + (1 - ξ^2) * r2 >= 0
+        end
+        grid = [SVector(u, v) for u in range(-2.3, 2.3; length = 47) for v in range(-2.3, 2.3; length = 47)]
+        lenses = (
+            DS_A, DS_B, DS_C, Lens(DoubleSphere(-0.6, 0.6)), Lens(DoubleSphere(0.6, 0.3)),
+            Lens(DoubleSphere(-0.2, 0.55), Radial((-0.05, 0.01))),
+        )
+        generic = Tuple{Lens, SVector{2, Float64}}
+        for lens in lenses, x in grid
+            # the default is the lens contract's answer, bit for bit (the generic Lens method)
+            ref = invoke(backproject, generic, lens, x)
+            @test isequal(backproject(lens, x), ref)
+            @test isequal(backproject(lens, x; fov_bound = true), ref)
+            # where the bound holds the unchecked form is that same answer
+            all(isfinite, ref) && @test isequal(backproject(lens, x; fov_bound = false), ref)
+        end
+
+        # ξ = −0.6, α = 0.6: past the paper's bound (≈ 95.1°) yet inside the algebraic
+        # domain (r ≤ √5) — points a caller with only the algebraic domain accepts.
+        ξ, α = -0.6, 0.6
+        lens = Lens(DoubleSphere(ξ, α))
+        past = [x for x in grid if ds_algebraic(ξ, α, x) && all(isnan, backproject(lens, x))]
+        radial_past = [SVector(ρ * cos(ψ), ρ * sin(ψ)) for ρ in (2.21, 2.22, 2.23, 2.236) for ψ in (0.0, 0.7, 2.0, -2.9)]
+        @test !isempty(past)
+        for x in vcat(past, radial_past)
+            @test ds_algebraic(ξ, α, x)
+            @test all(isnan, backproject(lens, x))
+            b = backproject(lens, x; fov_bound = false)
+            @test b ≈ ds_lift(ξ, α, x) atol = 1.0e-12
+            @test norm(b) ≈ 1 atol = 1.0e-12
+            @test all(isnan, project(lens, b))            # project keeps the bound
+        end
+        # the algebraic domain still yields NaN (r > √5)
+        @test all(isnan, backproject(lens, SVector(2.3, 0.0); fov_bound = false))
+        # inside the bound, unchecked == checked == the closed form
+        for x in (SVector(0.3, -0.2), SVector(1.5, 0.9), SVector(-2.0, 0.5))
+            @test isequal(backproject(lens, x; fov_bound = false), backproject(lens, x))
+            @test backproject(lens, x) ≈ ds_lift(ξ, α, x) atol = 1.0e-12
+        end
+
+        # ForwardDiff through the unchecked form, past the bound: w.r.t. the point
+        # and w.r.t. (ξ, α), against central differences. The point sits near the
+        # algebraic edge (√(1 − (2α − 1)r²) ≈ 0.12), where a Float64 difference's
+        # step error reaches 1e-6, so the differences run in 256-bit BigFloat.
+        x0 = SVector(2.22 * cos(0.4), 2.22 * sin(0.4))
+        @test all(isnan, backproject(lens, x0))
+        fxp(v) = Vector(backproject(Lens(DoubleSphere(v[3], v[4])), SVector(v[1], v[2]); fov_bound = false))
+        v0 = [x0[1], x0[2], ξ, α]
+        J = ForwardDiff.jacobian(fxp, v0)
+        @test all(isfinite, J)
+        Jref = setprecision(BigFloat, 256) do
+            h = big"1e-25"
+            reduce(hcat, [(fxp(big.(v0) .+ h .* (1:4 .== j)) .- fxp(big.(v0) .- h .* (1:4 .== j))) ./ (2h) for j in 1:4])
+        end
+        @test J ≈ Float64.(Jref) rtol = 1.0e-10
+
+        # Float32: same answer at Float32 precision, Float32 out, no allocation
+        lens32 = Lens(DoubleSphere(Float32(ξ), Float32(α)))
+        x32 = SVector{2, Float32}(x0)
+        b32 = backproject(lens32, x32; fov_bound = false)
+        @test eltype(b32) === Float32
+        @test b32 ≈ backproject(lens, x0; fov_bound = false) atol = 1.0f-5
+        @test all(isnan, backproject(lens32, x32))
+        bp(l, x) = backproject(l, x; fov_bound = false)
+        bp(lens32, x32)
+        @test (@allocated bp(lens32, x32)) == 0
+        @test isbitstype(typeof(lens32))
     end
 
     @testset "a batch through pointwise!: every policy the same" begin

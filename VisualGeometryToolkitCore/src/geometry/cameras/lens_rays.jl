@@ -526,8 +526,10 @@ end
 end
 
 # The unprojection (eq. 46-51): the ray s·(m_x, m_y, m_z) − (0, 0, ξ), already unit,
-# with the paper's domains — r² ≤ 1/(2α − 1) for α > 1/2 and the FOV bound.
-@inline function _lift_point(p::DoubleSphere, xd::StaticVector{2})
+# with the paper's domains — r² ≤ 1/(2α − 1) for α > 1/2 and, when `fov_bound`,
+# the FOV bound. The ray is the same either way; only the flag differs.
+@inline _lift_point(p::DoubleSphere, xd::StaticVector{2}) = _lift_point(p, xd, true)
+@inline function _lift_point(p::DoubleSphere, xd::StaticVector{2}, fov_bound::Bool)
     ξ, α = p.xi, p.alpha
     mx, my = xd[1], xd[2]
     r2 = mx * mx + my * my
@@ -537,7 +539,7 @@ end
     a = mz * mz + (1 - ξ * ξ) * r2                         # negative only for ξ > 1, outside the domain
     s = (mz * ξ + sqrt(max(a, zero(a)))) / (mz * mz + r2)
     zr = s * mz - ξ
-    fov_ok = _ds_forward_inside(p, zr) || (zr > -_ds_w2(p) * sqrt(s * s * r2 + zr * zr))
+    fov_ok = !fov_bound || _ds_forward_inside(p, zr) || (zr > -_ds_w2(p) * sqrt(s * s * r2 + zr * zr))
     ok = dom & fov_ok & (a >= 0)
     return Vec3(s * mx, s * my, zr), ok
 end
@@ -613,6 +615,41 @@ inverse), never a throw.
 @inline function backproject(l::Lens, xd::StaticVector{2})
     x = _undistort_in_frame(l, xd)
     ray, ok = _lift_point(l.projection, x)
+    return _nan_unless(ok, Vec3(ray))
+end
+
+"""
+    backproject(lens::Lens{<:DoubleSphere}, xd::StaticVector{2}; fov_bound::Bool = true) -> Vec3
+
+The double sphere's [`backproject`](@ref), with the choice of domain in the
+caller's hands. By default (`fov_bound = true`) it is the lens contract's
+answer: NaN outside the closed-form inverse's domain (`r² ≤ 1/(2α − 1)` for
+`α > 1/2`, a non-negative second radicand) AND outside the paper's
+field-of-view bound `z > −w₂·‖X‖` (Usenko, Demmel & Cremers 2018, eq. 34-36),
+which [`project`](@ref) keeps too.
+
+`fov_bound = false` drops only the field-of-view bound: the closed-form lift
+(eq. 46-51) is returned wherever it is defined, NaN still outside the
+algebraic domain. It is the same ray where the bound holds, so the default and
+the unchecked form agree there bit for bit; the Dual and Float32 behaviour is
+the default's (closed form, no allocation).
+
+Past the bound the ray has a weaker meaning, which is why the default keeps it:
+- `project(lens, ray)` returns NaN for it — `project` is not relaxed — so
+  the pair no longer round-trips through the lens contract;
+- for `|ξ| < 1` the ray still solves the projection's closed-form forward
+  equation `x = X₁₂ / (α·d₂ + (1 − α)·z_s)`, but past the bound it is ONE
+  preimage of the frame point (the lift's `+` root), not necessarily the only
+  one: for `ξ = 0.6`, `α = 0.3` the forward map runs through a pole and a
+  second ray, on the opposite azimuth, images the same point. For `ξ = −0.6`,
+  `α = 0.6` the map stays monotone in the view angle out to the algebraic edge
+  `r = 1/√(2α − 1)`, and the bound is merely conservative;
+- at `|ξ| ≥ 1`, the edge of or outside the paper's range, the ray need not
+  solve the forward equation at all (it can sit on its 0/0).
+"""
+@inline function backproject(l::Lens{<:DoubleSphere}, xd::StaticVector{2}; fov_bound::Bool = true)
+    x = _undistort_in_frame(l, xd)
+    ray, ok = _lift_point(l.projection, x, fov_bound)
     return _nan_unless(ok, Vec3(ray))
 end
 

@@ -21,6 +21,11 @@ code.
   model's field of view), never throw, never allocate, and are generic in the
   number type: `Float32` for GPU kernels, ForwardDiff `Dual`s for Jacobians in
   the point and in the lens parameters.
+- One domain is the caller's choice: a [`DoubleSphere`](@ref) lens takes
+  `backproject(lens, x_d; fov_bound = false)`, the closed-form lift without the
+  paper's field-of-view bound (NaN only outside the algebraic domain). Past the
+  bound the ray need not round-trip — `project` keeps the bound — and need not
+  be the point's only preimage; the default keeps the bound.
 
 A [`Lens`](@ref) — a projection plus a distortion in the projection's frame —
 gets both maps from one generic body; a [`LiftLens`](@ref) (the division

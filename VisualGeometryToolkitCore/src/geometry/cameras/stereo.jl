@@ -9,11 +9,11 @@ Stereo camera pair — the 2-sensor specialization of [`Rig`](@ref): a stereo
 rig IS a rig whose camera container is a 2-tuple, so the pair's length is in
 the type and the stereo surface dispatches on it with no runtime check.
 
-Since 0.16 there are NO `source`/`target`/`extrinsics` FIELDS: the rig
-stores its two cameras rig-relative (reference frame `F = ViewFrame{id₁}`;
-camera 1's stored extrinsics is the identity, camera 2's is the labeled
-relative transform `ViewFrame{id₁} → ViewFrame{id₂}`), and the old fields
-are method-form accessors (the second camera's is `destination`):
+The rig has no `source`, `destination` or `extrinsics` fields (none since
+0.16): it stores its two cameras rig-relative (reference frame
+`F = ViewFrame{id₁}`; camera 1's stored extrinsics is the identity, camera 2's
+is the labeled relative transform `ViewFrame{id₁} → ViewFrame{id₂}`), and the
+three are method-form accessors:
 
 - [`source`](@ref)`(rig)` / [`destination`](@ref)`(rig)`: the two cameras
   (rig-relative — the constructors re-express world-posed inputs).
@@ -400,14 +400,14 @@ Geometric pre-validation in metric space, without any pixel-residual
 threshold. A cspond is valid when it satisfies, in order:
 
 1. a gross-outlier gate: its GT-pose Sampson distance is at most
-   `gross_outlier_pixel_frac` × the target image diagonal (pose only, no depth);
+   `gross_outlier_pixel_frac` × the destination image diagonal (pose only, no depth);
 2. `depth_src` is finite at `p_A` and `depth_tgt` is finite at `p_B`;
 3. the forward warp of `p_A` lands where `depth_tgt` is finite, and the
-   predicted and observed target depths agree within `rel_tol` (relative);
+   predicted and observed destination depths agree within `rel_tol` (relative);
 4. with `bidirectional_depth`, warping `p_B` back at its observed depth agrees
    with `depth_src` the same way.
 
-The residual is **3D, in meters**: forward, in the target camera frame,
+The residual is **3D, in meters**: forward, in the destination camera frame,
 
     residuals[i] = unproject(tgt, p̂_B, d̂_B) − unproject(tgt, p_B, d_obs)
 
@@ -438,7 +438,7 @@ function validate_gt_metric(
 
     # Stage-1 gross-outlier filter: GT-pose Sampson distance.
     #   F_gt = K₂⁻ᵀ · [t_gt]× · R_gt · K₁⁻¹
-    #   reject if sampson_distance(F_gt, p_A, p_B) > frac_diag · diag_target
+    #   reject if sampson_distance(F_gt, p_A, p_B) > frac_diag · diag_destination
     # Sampson is depth-free, so this filter works on datasets with sparse or
     # noisy depth (KITTI Velodyne, ScanNet Kinect) where the pixel depth-warp
     # filter would jitter or NaN-out most candidates. The filter is also
@@ -476,7 +476,7 @@ function validate_gt_metric(
         isnan(d_B_obs_at_pBhat) && continue
         abs(d_B_pred - d_B_obs_at_pBhat) / d_B_obs_at_pBhat > rel_tol && continue
 
-        # Forward 3D residual in target frame, via VGC's `unproject`
+        # Forward 3D residual in the destination camera frame, via VGC's `unproject`
         # (handles any pinhole/distorted lens model uniformly).
         X_pred_B = unproject(tgt_model, p_B_pred, d_B_pred)
         X_obs_B = unproject(tgt_model, p_B, d_B_obs)
@@ -554,7 +554,7 @@ Metric-tolerance variant. The 3D-disagreement vector at the surface is
 
     r₃ᴅ = X̂_B − X_B
 
-where `X̂_B` is the predicted 3D point in the target camera frame (from
+where `X̂_B` is the predicted 3D point in the destination camera frame (from
 forward-warping `(p_A, depth_src(p_A))` through the rig) and `X_B` is the
 observed 3D point at `(p_B, depth_tgt(p_B))`. An inlier has `‖r₃ᴅ‖ < metric_tol`.
 

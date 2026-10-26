@@ -208,3 +208,89 @@ end
         @test all(isfinite, t)
     end
 end
+
+@testitem "surfaces: surface(::PosedTarget) by the calibration's kind" begin
+    using Test, StaticArrays, LinearAlgebra, Random
+    using Rotations: RotMatrix, QuatRotation
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: intersection, chart, bounds, normal, surface, grid_nodes, mm, m,
+        ThinPlateSplineSystem, tps_coefficients, tps_evaluate
+
+    rng = Xoshiro(17)
+    R = RotMatrix(QuatRotation(1.0, 0.2, -0.1, 0.3))
+    tr = SVector(0.2, -0.1, 1.5)
+    X = EuclideanMap(R, tr)
+    pts = [SVector(0.2 * i - 0.5, 0.1 * j - 0.3) for i in 0:5 for j in 0:6]   # [-0.5, 0.5] × [-0.3, 0.3]
+    bbox(ps) = Rect2(minimum(p[1] for p in ps), minimum(p[2] for p in ps),
+                     maximum(p[1] for p in ps) - minimum(p[1] for p in ps), maximum(p[2] for p in ps) - minimum(p[2] for p in ps))
+    nodes = grid_nodes(3; lo = -0.6, hi = 0.6)
+    H = HeightField(nodes, 1.0e-3 .* randn(rng, 9))
+    A = Affine([1.01 0.002; -0.003 0.99], [0.004, -0.002])
+
+    @testset "Rigid: a Quad in the pose's frame" begin
+        q = @inferred surface(PosedTarget(PlanarTarget(pts), X))
+        @test q isa Quad{Float64} && bounds(q) == bbox(pts) && bounds(q) ≈ Rect2(-0.5, -0.3, 1.0, 0.6)
+        @test q.origin == tr && q.e_u == R[:, 1] && q.e_v == R[:, 2] && normal(q) ≈ R[:, 3]
+        @test all(chart(q, X(SVector(p[1], p[2], 0.0))) ≈ p for p in pts)          # the chart is TargetFrame (x, y)
+        # a ray at a design point meets it
+        p = SVector(pts[9][1], pts[9][2], 0.0)
+        t, x = intersection(q, X(p) + R * SVector(0.0, 0.0, 2.0), -R[:, 3])
+        @test t ≈ 2 && x ≈ X(p)
+    end
+
+    @testset "Affine: a Quad over the transformed design" begin
+        q = surface(PosedTarget(PlanarTarget(pts; calibration = A), X))
+        @test q isa Quad && bounds(q) == bbox([A(p) for p in pts]) && bounds(q) != bbox(pts)
+    end
+
+    @testset "HeightField: a HeightSurface with the field's heights and weights" begin
+        s = @inferred surface(PosedTarget(PlanarTarget(pts; calibration = H), X))
+        @test s isa HeightSurface{9, Float64}
+        @test s.heights == H.h && s.nodes == SVector{9}(nodes) && s.w === H.w && s.a === H.a
+        @test bounds(s) == bbox(pts) && s.quad == surface(PosedTarget(PlanarTarget(pts), X))
+        # a hit lies on the surface: in TargetFrame its z is h(x, y)
+        p = SVector(0.13, -0.07)
+        t, x = intersection(s, X(SVector(p[1], p[2], 0.0)) + R * SVector(0.1, 0.0, 1.0), R * normalize(SVector(-0.1, 0.0, -1.0)))
+        y = inv(X)(x)
+        @test isfinite(t) && abs(y[3] - H(SVector(y[1], y[2]))[3]) < 1.0e-15 && chart(s, x) ≈ y[SOneTo(2)]
+    end
+
+    @testset "CalibrationChain(Affine, HeightField): a HeightSurface over the transformed design" begin
+        s = surface(PosedTarget(PlanarTarget(pts; calibration = CalibrationChain(A, H)), X))
+        @test s isa HeightSurface{9, Float64} && s.heights == H.h && s.w === H.w
+        @test bounds(s) == bbox([A(p) for p in pts])
+    end
+
+    @testset "the RadiometricCamera fixture board, posed" begin
+        include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "height_surface", "reference.jl"))
+        REF = HEIGHT_SURFACE_REFERENCE
+        rn = [REF.origin[SOneTo(2)] + 2 .* b for b in REF.nodes]
+        Hr = HeightField(rn, REF.bending_heights)
+        pt = PosedTarget(PlanarTarget(grid_nodes(3; lo = -1.0, hi = 1.0); calibration = Hr), EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, 0.0)))
+        s = surface(pt)
+        w, a = tps_coefficients(ThinPlateSplineSystem(rn), Vector(REF.bending_heights))
+        quad = Quad(SVector(0.0, 0.0, 0.0), SVector(1.0, 0.0, 0.0), SVector(0.0, 1.0, 0.0), Rect2(-1.0, -1.0, 2.0, 2.0))
+        @test s == HeightSurface(quad, SVector{25}(rn), SVector{25}(REF.bending_heights), w, a)
+        hits = [intersection(s, o, d) for (o, d) in zip(REF.ray_origins, REF.ray_directions)]
+        @test maximum(abs.(first.(hits) - REF.t)) <= 1.0e-15
+        @test maximum(maximum(abs, x - r) for (x, r) in zip(last.(hits), REF.x)) <= 1.0e-15
+    end
+
+    @testset "a physical target: plain metres; an uncertain pose: its value" begin
+        pts_mm = [p .* 1000 .* mm for p in pts]
+        H_mm = HeightField([p .* 1000 .* mm for p in nodes], H.h .* 1000 .* mm)
+        X_mm = EuclideanMap(R, tr .* 1000 .* mm)
+        s = surface(PosedTarget(PlanarTarget(pts_mm; calibration = H_mm), X_mm))
+        s_m = surface(PosedTarget(PlanarTarget(pts; calibration = H), X))
+        @test s isa HeightSurface{9, Float64}
+        @test s.quad.origin ≈ tr && s.nodes ≈ s_m.nodes && s.heights ≈ s_m.heights && bounds(s).origin ≈ bounds(s_m).origin
+        o, d = tr + R * SVector(0.1, 0.0, 1.0), R * normalize(SVector(-0.1, 0.05, -1.0))
+        @test intersection(s, o, d)[2] ≈ intersection(s_m, o, d)[2] atol = 1.0e-14
+        Xu = Uncertain(X, CovMat(SMatrix{6, 6}(1.0e-6 * I)))
+        @test surface(PosedTarget(PlanarTarget(pts), Xu)) == surface(PosedTarget(PlanarTarget(pts), X))
+    end
+
+    @testset "a point target has no surface" begin
+        @test_throws MethodError surface(PosedTarget(PointTarget([SVector(0.0, 0.0, 0.0), SVector(1.0, 0.0, 0.0)]), X))
+    end
+end

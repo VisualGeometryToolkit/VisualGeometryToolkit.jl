@@ -158,8 +158,8 @@ const CONTRACT_GENERICS = (
     # implements (geometry/cameras/target_calibration.jl, targets.jl)
     calibration_jacobian, regularizer, is_planar, gauge_names, gauge_directions, calibration, design,
     # the surface a ray meets (geometry/primitives/surfaces.jl): a downstream
-    # surface primitive answers the queries
-    intersection, normal, chart, bounds,
+    # surface primitive answers the queries, a downstream calibration kind `surface`
+    intersection, normal, chart, bounds, surface,
     # the camera maps a downstream camera, lens or intrinsics implements
     # (geometry/cameras/camera_models.jl, lens_rays.jl), and its float-type conversion
     project, backproject, convert_eltype,
@@ -202,7 +202,8 @@ VisualGeometryToolkitCore's, by group:
 - the target-calibration protocol (`calibration_jacobian`, `regularizer`,
   `is_planar`, `gauge_names`, `gauge_directions`) and
   the target accessors `calibration` and `design`;
-- the surface protocol (`intersection`, `normal`, `chart`, `bounds`);
+- the surface protocol (`intersection`, `normal`, `chart`, `bounds`) and
+  `surface`, which builds a posed target's primitive;
 - the camera maps `project` and `backproject`, and `convert_eltype`;
 - the `Manifold` protocol: `tangent_size`, `retract` and `recenter`
   (required), `local_coordinates`, `retract_jacobian`, `action_jacobian`,

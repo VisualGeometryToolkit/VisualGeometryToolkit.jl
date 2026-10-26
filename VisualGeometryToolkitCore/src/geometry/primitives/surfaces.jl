@@ -29,7 +29,8 @@
 #
 # Kept here, not in the Primitives submodule, because the height field
 # evaluates the thin-plate spline (included after Primitives), as bbox.jl is
-# kept for the frames it needs.
+# kept for the frames it needs. `surface(::PosedTarget)` builds either
+# primitive from a posed target (geometry/cameras/target_surfaces.jl).
 # =============================================================================
 
 """
@@ -64,6 +65,29 @@ The rectangle of chart coordinates the surface `s` covers ([`chart`](@ref)).
 function bounds end
 
 """
+    surface(pt::PosedTarget{<:PlanarTarget}) -> Quad | HeightSurface
+
+The surface a ray meets on the posed planar target `pt`, in the pose's
+destination frame: the frame of the [`Quad`](@ref) is the target's
+TargetFrame placed by `pose(pt)` (origin its translation, `e_u`, `e_v` and the
+normal the rotation's columns), its chart coordinates are TargetFrame `(x, y)`,
+and its rectangle is the bounding box of the CALIBRATED design's in-plane
+coordinates ([`points`](@ref)`(model(pt))`).
+
+- A planar calibration ([`is_planar`](@ref): `Rigid`, `Affine`,
+  `ThinPlateSpline` and chains of them) gives a `Quad`.
+- A [`HeightField`](@ref), alone or last in a [`CalibrationChain`](@ref) after
+  in-plane members, gives a [`HeightSurface`](@ref) over that `Quad` with the
+  field's nodes and heights and the weights the field formed once, when it was
+  built; nothing is solved per ray.
+
+A physical target (metres) gives a primitive in metres, plain numbers. An
+uncertain pose or calibration gives its value. A `PointTarget` has no surface
+(a `MethodError`).
+"""
+function surface end   # the method: geometry/cameras/target_surfaces.jl
+
+"""
     Quad(origin, e_u, e_v, rect::Rect2)
     Quad{T}(q::Quad)
 
@@ -74,7 +98,8 @@ A bounded plane: the rectangle `rect` of the chart carried by the 3-D frame
 
 isbits. [`intersection`](@ref) is [`ray_plane_intersection`](@ref)'s
 arithmetic, bit for bit, `NaN` outside `rect`; [`normal`](@ref) is the plane's;
-[`chart`](@ref) and [`bounds`](@ref) as their docstrings.
+[`chart`](@ref) and [`bounds`](@ref) as their docstrings. A rigid or in-plane
+calibrated target's [`surface`](@ref) is a `Quad`.
 """
 struct Quad{T}
     plane::Plane3D{T}
@@ -137,7 +162,7 @@ A height field over a [`Quad`](@ref): the points `o + u e_u + v e_v + h(u, v) n`
 for `(u, v)` in the quad's chart, `h` the thin-plate spline through the `K`
 nodal `heights` at the chart points `nodes`, with its weights `w` and affine
 part `a` ([`tps_coefficients`](@ref); formed once, by whoever builds the
-surface).
+surface — [`surface`](@ref) takes them from the [`HeightField`](@ref)).
 `HeightSurface{K, T}(s)` converts the element type.
 
 isbits. [`intersection`](@ref) is Newton's method on

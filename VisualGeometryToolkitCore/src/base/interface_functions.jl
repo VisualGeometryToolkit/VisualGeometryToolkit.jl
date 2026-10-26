@@ -118,6 +118,8 @@ Return the normal vector of a geometric primitive.
 Methods:
 - `normal(::Hyperplane)` → unit normal vector
 - `normal(::Ellipse3D)` → unit normal of the ellipse's plane
+- `normal(s, x)` → unit normal of the surface `s` at its point `x`
+  ([`Quad`](@ref), [`HeightSurface`](@ref))
 """
 function normal end
 

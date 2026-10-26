@@ -127,7 +127,7 @@ public ray_plane_intersection
 # isbits and allocation-free. The verbs are generic words, so they stay public
 # (qualified access), as `model` does.
 export Quad, HeightSurface
-public intersection, chart, bounds
+public intersection, chart, bounds, surface
 
 # -----------------------------------------------------------------------------
 # 2. TRANSFORMS - Maps for transforming geometry

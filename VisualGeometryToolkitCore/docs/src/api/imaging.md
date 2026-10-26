@@ -81,6 +81,17 @@ Private = false
 Pages = ["cameras/target_calibration.jl", "cameras/targets.jl"]
 ```
 
+### The surface a ray meets
+
+[`surface`](@ref)`(pt)` gives a posed planar target's geometric primitive, in
+the pose's destination frame with the target's own `(x, y)` as its chart
+(metres when physical), bounded by the calibrated design: a
+[`Quad`](@ref) for a planar calibration, a [`HeightSurface`](@ref) for a
+`HeightField` (alone or after in-plane members). The choice is by type, so a
+rigid target's ray caster never compiles the height field's Newton loop. See
+[The Surface a Ray Meets](primitives.md#The-Surface-a-Ray-Meets), where
+`surface` is documented with the primitives.
+
 ## Rigs
 
 A [`Rig`](@ref) is members with fixed poses in one frame, each a (model,

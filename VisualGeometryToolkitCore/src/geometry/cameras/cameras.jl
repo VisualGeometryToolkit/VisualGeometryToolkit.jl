@@ -98,6 +98,8 @@ import ..VisualGeometryToolkitCore: _precision, _has_division  # image_warp chai
 import ..VisualGeometryToolkitCore: toml_value   # extended on lenses (lens_chart.jl): a lens writes as its record
 using ..VisualGeometryToolkitCore: pointwise!, ExecutionPolicy, Auto   # a lens over a batch of points (lens_rays.jl)
 import ..VisualGeometryToolkitCore: aspect_ratio  # Extend interface stub (shared with Primitives)
+import ..VisualGeometryToolkitCore: surface   # a posed target's primitive (target_surfaces.jl)
+using ..VisualGeometryToolkitCore: Quad, HeightSurface, Rect2, rotation
 using ..VisualGeometryToolkitCore: Attributed, csponds  # composition primitives (depth-attributed points, correspondence sets)
 using ..VisualGeometryToolkitCore: sources, targets, centroid  # correspondence access protocol (#21)
 using ..VisualGeometryToolkitCore: AbstractCamera  # Abstract camera type from interface
@@ -834,6 +836,7 @@ unproject(camera::_UnitfulPosedCamera, u::AbstractVector{Float64}, depth::Quanti
 include("target_calibration.jl")  # TargetCalibration: the kinds of a planar target's calibration and their protocol
 include("targets.jl")  # AbstractTarget, PointTarget, PlanarTarget{C} (+ the calibratable-target protocol)
 include("rig.jl")     # Rig (sensors: tuple storage; targets: dict storage; both: the two side by side; gauge in the frame) + PosedTarget — before the stereo alias
+include("target_surfaces.jl")  # surface(::PosedTarget): the Quad or HeightSurface a ray meets
 include("captures.jl")  # Trajectory, TargetPoses, TargetPoints2D/3D: per-frame values of a capture (+ convert_frame)
 include("stereo.jl")
 include("rectify.jl")    # stereo rectification on the rig types (0.16)

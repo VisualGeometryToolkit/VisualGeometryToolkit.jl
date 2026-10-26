@@ -702,13 +702,16 @@ end
 @inline _ds_forward_inside(p::DoubleSphere, z) =
     (z > 0) & (p.xi >= 0) & (p.alpha >= 0) & (p.alpha <= 1)
 
-@inline function _project_ray(p::DoubleSphere, X::StaticVector{3})
+# The projection (eq. 40-45), with the FOV bound when `fov_bound`; the point is the
+# same either way, only the flag differs.
+@inline _project_ray(p::DoubleSphere, X::StaticVector{3}) = _project_ray(p, X, true)
+@inline function _project_ray(p::DoubleSphere, X::StaticVector{3}, fov_bound::Bool)
     x, y, z = X[1], X[2], X[3]
     d1 = sqrt(x * x + y * y + z * z)
     zs = p.xi * d1 + z
     d2 = sqrt(x * x + y * y + zs * zs)
     s = inv(p.alpha * d2 + (1 - p.alpha) * zs)
-    return Vec2(s * x, s * y), _ds_forward_inside(p, z) || (z > -_ds_w2(p) * d1)
+    return Vec2(s * x, s * y), !fov_bound || _ds_forward_inside(p, z) || (z > -_ds_w2(p) * d1)
 end
 
 # The unprojection (eq. 46-51): the ray s·(m_x, m_y, m_z) − (0, 0, ξ), already unit,
@@ -821,8 +824,10 @@ the unchecked form agree there bit for bit; the Dual and Float32 behaviour is
 the default's (closed form, no allocation).
 
 Past the bound the ray has a weaker meaning, which is why the default keeps it:
-- `project(lens, ray)` returns NaN for it — `project` is not relaxed — so
-  the pair no longer round-trips through the lens contract;
+- `project(lens, ray)` returns NaN for it — the default keeps the bound — so
+  the pair no longer round-trips through the lens contract; the unchecked
+  `project(lens, ray; fov_bound = false)` gives the point back only where the
+  forward map is still one-to-one;
 - for `|ξ| < 1` the ray still solves the projection's closed-form forward
   equation `x = X₁₂ / (α·d₂ + (1 − α)·z_s)`, but past the bound it is ONE
   preimage of the frame point (the lift's `+` root), not necessarily the only
@@ -837,6 +842,42 @@ Past the bound the ray has a weaker meaning, which is why the default keeps it:
     x = _undistort_in_frame(l, xd)
     ray, ok = _lift_point(l.projection, x, fov_bound)
     return _nan_unless(ok, Vec3(ray))
+end
+
+"""
+    project(lens::Lens{<:DoubleSphere}, X::StaticVector{3}; fov_bound::Bool = true) -> Vec2
+
+The double sphere's [`project`](@ref), with the choice of domain in the
+caller's hands — the forward twin of the double sphere's
+[`backproject`](@ref)`(lens, xd; fov_bound)`.
+By default (`fov_bound = true`) it is the lens contract's answer: NaN for a ray
+outside the paper's field-of-view bound `z > −w₂·‖X‖` (Usenko, Demmel & Cremers
+2018, eq. 34-36).
+
+`fov_bound = false` drops the bound: the closed-form forward map
+`x = X₁₂ / (α·d₂ + (1 − α)·z_s)`, `d₂ = ‖(X₁, X₂, ξ‖X‖ + X₃)‖`, `z_s = ξ‖X‖ + X₃`
+(eq. 40-45), for every ray but the zero vector. It is the same point where the
+bound holds, so the default and the unchecked form agree there bit for bit; a
+distortion in the frame is applied as usual. The Dual and Float32 behaviour is
+the default's (closed form, no allocation).
+
+Past the bound the point has a weaker meaning, which is why the default keeps
+it:
+- `backproject(lens, x)` returns NaN for it, and even
+  `backproject(lens, x; fov_bound = false)` need not return the ray: there is
+  NO round-trip guarantee past the bound;
+- the map need not be one-to-one there: for `ξ = 0.6`, `α = 0.3` it runs
+  through a pole at θ ≈ 148.2° (the denominator `α·d₂ + (1 − α)·z_s` reaches
+  0, the point is infinite), and a ray beyond it lands on the opposite
+  azimuth, on a point another ray already images; for `ξ = −0.6`, `α = 0.6`
+  the radius rises monotonically in the view angle up to the algebraic edge
+  `r = 1/√(2α − 1)` (θ ≈ 105.3°, the bound being merely conservative before
+  it) and folds back past it, where two rays share a point.
+"""
+@inline function project(l::Lens{<:DoubleSphere}, X::StaticVector{3}; fov_bound::Bool = true)
+    x, ok = _project_ray(l.projection, X, fov_bound)
+    ok || return _nan_vec2(one(float(promote_type(eltype(X), _coeff_type(l)))) * X[1])
+    return Vec2(_distort_in_frame(l, x))
 end
 
 

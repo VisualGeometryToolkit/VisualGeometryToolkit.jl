@@ -187,6 +187,83 @@
         @test isbitstype(typeof(lens32))
     end
 
+    @testset "double sphere: project without the FOV bound (fov_bound = false)" begin
+        # The closed-form forward map (eq. 40-45), no domain test at all.
+        function ds_project(ξ, α, X)
+            d1 = sqrt(X[1]^2 + X[2]^2 + X[3]^2)
+            zs = ξ * d1 + X[3]
+            den = α * sqrt(X[1]^2 + X[2]^2 + zs^2) + (1 - α) * zs
+            return SVector(X[1] / den, X[2] / den)
+        end
+        rays = [ray(θ; ψ) for θ in range(0, π; length = 61) for ψ in range(-π, π; length = 13)]
+        push!(rays, SVector(0.0, 0.0, 0.0), SVector(0.0, 0.0, -1.0), 3.7 * ray(1.9))
+        lenses = (
+            DS_A, DS_B, DS_C, Lens(DoubleSphere(-0.6, 0.6)), Lens(DoubleSphere(0.6, 0.3)),
+            Lens(DoubleSphere(-0.2, 0.55), Radial((-0.05, 0.01))),
+        )
+        generic = Tuple{Lens, SVector{3, Float64}}
+        for lens in lenses, X in rays
+            # the default is the lens contract's answer (the generic Lens method): bit
+            # for bit without a distortion; with one, `invoke` runs a separately
+            # compiled `evalpoly` whose muladds may fuse differently, so to rounding
+            ref = invoke(project, generic, lens, X)
+            same(a, b) = lens.distortion === nothing ? isequal(a, b) :
+                (isequal(isnan.(a), isnan.(b)) && isapprox(a, b; rtol = 4 * eps(), nans = true))
+            @test same(project(lens, X), ref)
+            @test isequal(project(lens, X; fov_bound = true), project(lens, X))
+            # where the bound holds the unchecked form is that same answer
+            all(isfinite, ref) && @test isequal(project(lens, X; fov_bound = false), project(lens, X))
+        end
+        # the zero vector is still no ray
+        @test all(isnan, project(DS_A, SVector(0.0, 0.0, 0.0); fov_bound = false))
+
+        # where the check fails, the unchecked form is the closed form
+        nfailed = 0
+        for (ξ, α) in ((-0.2, 0.55), (0.3, 0.4), (0.1, 0.7), (-0.6, 0.6), (0.6, 0.3)), X in rays
+            lens = Lens(DoubleSphere(ξ, α))
+            (iszero(X) || all(isfinite, project(lens, X))) && continue
+            ref = ds_project(ξ, α, X)
+            all(isfinite, ref) || continue
+            nfailed += 1
+            @test isapprox(project(lens, X; fov_bound = false), ref; rtol = 1.0e-12)
+        end
+        @test nfailed > 100
+
+        # ξ = −0.6, α = 0.6: between the paper's bound (≈ 95.1°) and the algebraic edge
+        # (≈ 105.3°) the map is still one-to-one, so the two unchecked forms round-trip
+        lens = Lens(DoubleSphere(-0.6, 0.6))
+        for θ in (1.67, 1.72, 1.78, 1.83), ψ in (0.0, 1.1, -2.5)
+            X = ray(θ; ψ)
+            @test all(isnan, project(lens, X))
+            u = project(lens, X; fov_bound = false)
+            @test backproject(lens, u; fov_bound = false) ≈ X atol = 1.0e-9
+        end
+
+        # ForwardDiff through the unchecked form past the bound, w.r.t. the ray and
+        # (ξ, α), against 256-bit BigFloat central differences
+        fxp(v) = Vector(project(Lens(DoubleSphere(v[4], v[5])), SVector(v[1], v[2], v[3]); fov_bound = false))
+        X0 = ray(1.75; ψ = 0.4)
+        v0 = [X0[1], X0[2], X0[3], -0.6, 0.6]
+        J = ForwardDiff.jacobian(fxp, v0)
+        @test all(isfinite, J)
+        Jref = setprecision(BigFloat, 256) do
+            h = big"1e-25"
+            reduce(hcat, [(fxp(big.(v0) .+ h .* (1:5 .== j)) .- fxp(big.(v0) .- h .* (1:5 .== j))) ./ (2h) for j in 1:5])
+        end
+        @test J ≈ Float64.(Jref) rtol = 1.0e-10
+
+        # Float32: same answer at Float32 precision, Float32 out, no allocation
+        lens32 = Lens(DoubleSphere(-0.6f0, 0.6f0))
+        X32 = SVector{3, Float32}(X0)
+        u32 = project(lens32, X32; fov_bound = false)
+        @test eltype(u32) === Float32
+        @test u32 ≈ project(lens, X0; fov_bound = false) rtol = 1.0f-5
+        @test all(isnan, project(lens32, X32))
+        pj(l, X) = project(l, X; fov_bound = false)
+        pj(lens32, X32)
+        @test (@allocated pj(lens32, X32)) == 0
+    end
+
     @testset "a batch through pointwise!: every policy the same" begin
         xs = [SVector(u, v) for u in range(-0.4, 0.4; length = 9) for v in range(-0.3, 0.3; length = 9)]
         push!(xs, SVector(2.0, 0.0))                      # not imaged by DS_C

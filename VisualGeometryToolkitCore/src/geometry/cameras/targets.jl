@@ -55,7 +55,8 @@
 
 A calibration target as a model: [`points`](@ref)`(target)` returns its points
 in its own frame `TargetFrame{id}` — 2-vectors on the plane `z = 0` for a planar
-target, 3-vectors for a solid one — plain or `Uncertain`. See the header of
+target, 3-vectors for a solid one or a planar design lifted off its plane by a
+[`HeightField`](@ref) — plain or `Uncertain`. See the header of
 targets.jl for the calibratable-target protocol.
 
 Placement is a trait, [`is_posed`](@ref), as for cameras: a target type such
@@ -227,6 +228,15 @@ is_resolved(t::PlanarTarget) = t.nominal !== nothing
 @noinline _refuse_unresolved(t) = throw(
     ArgumentError("points: the planar target $(repr(t.design)) is unresolved — its design's owner resolves the reference (`resolve`)")
 )
+"""
+    points(t::PlanarTarget) -> Vector{SVector{2}} or Vector{SVector{3}}
+
+The physical target's points in its own frame, `calibration(t)` applied to the
+design: `SVector{2}`s on the plane `z = 0` when the calibration
+[`is_planar`](@ref), `SVector{3}`s when a [`HeightField`](@ref) lifts them off
+it — decided by the calibration's type, so the result type is inferred. An
+`ArgumentError` naming the reference for an unresolved target.
+"""
 points(t::PlanarTarget) = _calibrated_points(t, geom(t.calibration), t.nominal)
 _calibrated_points(t, _, ::Nothing) = _refuse_unresolved(t)
 _calibrated_points(_, c, nominal) = [c(p) for p in nominal]
@@ -254,6 +264,7 @@ parameter_names(t::PlanarTarget) = parameter_names(geom(t.calibration))
 with_parameters(t::PlanarTarget, θ::AbstractVector) = PlanarTarget(t.design, t.nominal, with_parameters(geom(t.calibration), θ))
 parameters(t::PlanarTarget) = NamedTuple{parameter_names(t)}(Tuple(parameter_vector(t)))
 regularizer(t::PlanarTarget) = regularizer(geom(t.calibration))
+is_planar(::PlanarTarget{C}) where {C} = is_planar(C)
 
 """
     TargetManifold(target) <: Manifold

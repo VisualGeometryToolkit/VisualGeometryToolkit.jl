@@ -928,7 +928,8 @@ export Rig, PosedTarget, source, destination, target_frames  # one Rig for senso
 export sensor_rig, target_rig             # the two halves of a rig carrying both
 export AbstractTarget, PointTarget, PlanarTarget, resolve, is_resolved   # the target as a model (targets.jl)
 export TargetCalibration, Rigid, Affine, ThinPlateSpline, HeightField, CalibrationChain   # a planar target's calibration kinds
-export calibration_jacobian, calibration, design
+export calibration_jacobian, calibration, design, is_planar
+export PlanarCalibration                 # the shipped planar kinds as one type (public, not exported, at the top level)
 export regularizer, TargetManifold      # the calibratable-target protocol
 export Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
 export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3

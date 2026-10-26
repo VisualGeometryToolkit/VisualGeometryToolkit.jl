@@ -80,7 +80,7 @@ A target as a [`Rig`](@ref) member, the target-side counterpart of a
 [`AbstractTarget`](@ref) whose [`is_posed`](@ref) is `true`. It holds the
 TARGET — its geometry, an unposed `AbstractTarget`, independent of where it is
 mounted, so the same target can sit in several rigs — and its POSE, the rigid map taking target-local coordinates (the
-pattern plane `z = 0` for a planar target) into the rig frame, stored
+pattern plane `z = 0` for a planar target, the points a [`HeightField`](@ref) lifts off it as they are) into the rig frame, stored
 unlabeled (the rig mints `TargetFrame{id} → F` on access). The pose may be
 [`Uncertain`](@ref) (an estimated pose, its 6×6 covariance in the
 `RigidExpManifold6` chart, rotation first); the rig hands it back uncertain,
@@ -481,7 +481,8 @@ pose(rig::Rig{F, <:_MixedStorage}, i::Integer) where {F} = inv(extrinsics(rig, i
 pose(rig::Rig{F, <:_MixedStorage}, id::Symbol) where {F} =
     _is_target(rig, id) ? _mint(TargetFrame{id}, F, pose(_targets(rig)[id])) : pose(rig, _sensor_index(rig, id))
 
-# A target's own point lifted to 3D: a board point sits on its plane z = 0.
+# A target's own point lifted to 3D: a planar board's point sits on its plane
+# z = 0; a 3-vector (a solid target's, or a height field's) is taken as it is.
 # Plain points as Float64 (today's numbers); lengths keep their quantities.
 _lift3(p::StaticVector{2, <:Real}) = SVector{3, Float64}(p[1], p[2], 0.0)
 _lift3(p::StaticVector{3, <:Real}) = SVector{3, Float64}(p[1], p[2], p[3])
@@ -497,7 +498,7 @@ _world_point(X::StaticVector{3, <:Quantity}) = SVector{3}(X)
 
 The WORLD POINTS of a calibration target: target `id`'s pattern points
 carried through its pose into the rig frame (a board's plane points lifted
-to `z = 0` first) — the 3D side of a target ↔ image correspondence, what an
+to `z = 0` first; a height-field calibration's 3-vectors as they are) — the 3D side of a target ↔ image correspondence, what an
 absolute-pose problem consumes. The one-argument form covers every target
 that carries points; an unresolved one (a design reference without its points,
 [`is_resolved`](@ref)) is an `ArgumentError` on its own and absent from the

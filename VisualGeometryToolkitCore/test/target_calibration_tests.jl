@@ -161,3 +161,53 @@ end
         @test_throws DimensionMismatch PlanarTarget(pts_mm; calibration = Uncertain(A, CovMat(SMatrix{2, 2}(1.0, 0, 0, 1.0))))
     end
 end
+
+@testitem "target calibration: planarity is in the type" begin
+    using Test, StaticArrays, LinearAlgebra
+    using VisualGeometryToolkitCore
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: grid_nodes, PlanarCalibration, mm
+
+    nodes = grid_nodes(3; lo = 0.0, hi = 100.0)
+    A = Affine([1.0 0.001; 0.0 1.0], [0.1, 0.0])
+    T = ThinPlateSpline(nodes, fill(0.01, 9), fill(-0.01, 9))
+    H = HeightField(nodes, [0.0, 0.1, 0.0, 0.2, 0.0, -0.1, 0.0, 0.0, 0.3])
+    pts = [SVector(0.0, 0.0), SVector(100.0, 0.0), SVector(0.0, 50.0), SVector(30.0, 40.0)]
+
+    @testset "is_planar by type" begin
+        @test is_planar(Rigid) && is_planar(typeof(A)) && is_planar(typeof(T)) && !is_planar(typeof(H))
+        @test is_planar(typeof(CalibrationChain(A, T))) && is_planar(typeof(CalibrationChain(Rigid(), A)))
+        @test !is_planar(typeof(CalibrationChain(A, T, H))) && !is_planar(typeof(CalibrationChain(A, H)))
+        @test is_planar(A) && !is_planar(H) && is_planar(PlanarTarget(pts; calibration = T)) && !is_planar(PlanarTarget(pts; calibration = H))
+        @test is_planar(Uncertain(A, CovMat(SMatrix{6, 6}(1.0I)))) && !is_planar(Uncertain(H, CovMat(SMatrix{9, 9}(1.0I))))
+        @test (@inferred is_planar(typeof(CalibrationChain(A, T, H)))) === false
+        @test A isa PlanarCalibration && T isa PlanarCalibration && CalibrationChain(A, T) isa PlanarCalibration
+        @test !(H isa PlanarCalibration) && !(CalibrationChain(A, H) isa PlanarCalibration)
+    end
+
+    @testset "points: SVector{2} when planar, SVector{3} otherwise (inferred)" begin
+        for c in (Rigid(), A, T, CalibrationChain(A, T))
+            t = PlanarTarget(pts; calibration = c)
+            P = @inferred points(t)
+            @test eltype(P) === SVector{2, Float64}
+        end
+        for c in (H, CalibrationChain(A, H), CalibrationChain(A, T, H))
+            t = PlanarTarget(pts; calibration = c)
+            P = @inferred points(t)
+            @test eltype(P) === SVector{3, Float64}
+            @test P == [c(p) for p in pts]
+        end
+        tmm = PlanarTarget([p .* mm for p in pts]; calibration = VgtkCore.with_unit(H, mm))
+        @test eltype(@inferred points(tmm)) <: SVector{3, <:VgtkCore.Quantity}
+        # a method written for the plane refuses a height field by dispatch
+        on_plane(t::PlanarTarget{<:PlanarCalibration}) = length(points(t))
+        @test on_plane(PlanarTarget(pts; calibration = CalibrationChain(A, T))) == 4
+        @test_throws MethodError on_plane(PlanarTarget(pts; calibration = H))
+    end
+
+    @testset "a rig's world points take a lifted target as it is" begin
+        X = EuclideanMap(one(SMatrix{3, 3, Float64}), SVector(0.0, 0.0, 1000.0))
+        rig = Rig{WorldFrame}(Dict(:b => PosedTarget(PlanarTarget(pts; calibration = H), X)))
+        @test points(rig, :b) ≈ [H(p) + SVector(0.0, 0.0, 1000.0) for p in pts]
+    end
+end

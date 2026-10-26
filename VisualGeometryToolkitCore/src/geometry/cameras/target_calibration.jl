@@ -499,6 +499,49 @@ function with_unit(c::CalibrationChain, u::Units)
 end
 Base.:(==)(a::CalibrationChain, b::CalibrationChain) = a.members == b.members
 
+# ------------------------------------------------------------------------------
+# Planarity — in the type
+# ------------------------------------------------------------------------------
+
+"""
+    is_planar(::Type{C}) -> Bool
+    is_planar(c::TargetCalibration) / is_planar(t::PlanarTarget) -> Bool
+
+Whether a calibration keeps the design in its plane — a function of the TYPE,
+so it folds at compile time: `true` for [`Rigid`](@ref), [`Affine`](@ref),
+[`ThinPlateSpline`](@ref) and a [`CalibrationChain`](@ref) of them, `false`
+for a [`HeightField`](@ref) and a chain ending in one. A planar target's
+[`points`](@ref) are `SVector{2}`s (on `z = 0` of its frame), a non-planar
+one's `SVector{3}`s. An [`Uncertain`](@ref) calibration is planar when its
+kind is. A downstream kind declares its own method; there is no default.
+"""
+function is_planar end
+is_planar(::Type{Rigid}) = true
+is_planar(::Type{<:Affine}) = true
+is_planar(::Type{<:ThinPlateSpline}) = true
+is_planar(::Type{<:HeightField}) = false
+is_planar(::Type{CalibrationChain{C}}) where {C} = _all_planar(C)
+@inline _all_planar(::Type{Tuple{}}) = true
+@inline _all_planar(::Type{C}) where {C <: Tuple} = is_planar(Base.tuple_type_head(C)) && _all_planar(Base.tuple_type_tail(C))
+is_planar(::Type{<:Attributed{C, <:Union{CovMat, PrecMat}}}) where {C <: TargetCalibration} = is_planar(C)
+is_planar(c::TargetCalibration) = is_planar(typeof(c))
+is_planar(u::Uncertain{<:TargetCalibration}) = is_planar(typeof(geom(u)))
+
+"""
+    PlanarCalibration
+
+The planar calibration kinds this package ships — [`Rigid`](@ref),
+[`Affine`](@ref), [`ThinPlateSpline`](@ref) and a [`CalibrationChain`](@ref)
+of them — as one type, for a method that assumes the design stays on `z = 0`:
+`f(t::PlanarTarget{<:PlanarCalibration})` refuses a target with a
+[`HeightField`](@ref) by dispatch (a `MethodError`). A method that should
+also take a downstream planar kind checks [`is_planar`](@ref) instead.
+"""
+const PlanarCalibration = Union{
+    Rigid, Affine, ThinPlateSpline,
+    CalibrationChain{<:Tuple{Vararg{Union{Rigid, Affine, ThinPlateSpline}}}},
+}
+
 # --- an uncertain calibration -------------------------------------------------------
 #
 # `Uncertain(c, CovMat(Σ))`, Σ over `parameter_vector(c)`, as a pose is

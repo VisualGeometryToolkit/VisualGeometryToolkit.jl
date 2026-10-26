@@ -128,7 +128,7 @@ end
 end
 
 @testitem "rig/v4: a rig of targets" setup = [VGIoFixtures] begin
-    using VisualGeometryToolkitCore: Rig, Mounted, PlanarTarget, PointTarget, is_resolved, resolve,
+    using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, PointTarget, is_resolved, resolve,
         WorldFrame, TargetFrame, ids, pose, points, reference_frame
     using Rotations: RotXYZ
 
@@ -142,8 +142,8 @@ end
     # referenced design, resolved; :c9 a referenced design, unresolved
     tr = Rig{TargetFrame{:a1f2}}(
         Dict(
-            :a1f2 => Mounted(PlanarTarget(pts), ident), :b76e => Mounted(PlanarTarget(:b76e; nominal = pts), Xa),
-            :c9 => Mounted(PlanarTarget(:c9), Xb),
+            :a1f2 => PosedTarget(PlanarTarget(pts), ident), :b76e => PosedTarget(PlanarTarget(:b76e; nominal = pts), Xa),
+            :c9 => PosedTarget(PlanarTarget(:c9), Xb),
         )
     )
     designs = Dict(:b76e => pts, :c9 => pts)
@@ -179,7 +179,7 @@ end
         @test load(Rig, p2; resolve = id -> designs[id]).members == backr.members
         # a target rig posed in an external frame round-trips the same way
         pw = joinpath(dir, "targets_world.json")
-        save(pw, Rig{WorldFrame}(Dict(:b76e => Mounted(PlanarTarget(:b76e), Xa))))
+        save(pw, Rig{WorldFrame}(Dict(:b76e => PosedTarget(PlanarTarget(:b76e), Xa))))
         backw = load(Rig, pw)
         @test backw isa Rig{WorldFrame} && ids(backw) == [:b76e]
 
@@ -208,7 +208,7 @@ end
 
 @testitem "rig/v4: sensors and targets — the camera rig with its constellation" setup = [VGIoFixtures] begin
     using LinearAlgebra: LinearAlgebra
-    using VisualGeometryToolkitCore: Rig, Mounted, PointTarget, PlanarTarget, AbstractTarget, Attributed, BoundedCamera, PosedCamera,
+    using VisualGeometryToolkitCore: Rig, PosedTarget, PointTarget, PlanarTarget, AbstractTarget, Attributed, BoundedCamera, PosedCamera,
         BodyFrame, ViewFrame, Uncertain, CovMat, relabel, ids, pose, extrinsics, model, points,
         sensor_rig, target_rig, exact, is_resolved
     using Statistics: cov
@@ -218,7 +218,7 @@ end
     markers = PointTarget([exact_mm(SVector(0.0, 0.0, 0.0)), exact_mm(SVector(30.0, 0.0, 5.0)), exact_mm(SVector(0.0, 40.0, -2.0))])
     ident = EuclideanMap(one(RotMatrix{3, Float64}), [0.0mm, 0.0mm, 0.0mm])
     Σ = CovMat(SMatrix{6, 6, Float64}(LinearAlgebra.I) * 1.0e-4)
-    rig = Rig{BodyFrame{:camera_rig}}((cam,), Dict(:markers => Mounted(markers, Uncertain(ident, Σ))))
+    rig = Rig{BodyFrame{:camera_rig}}((cam,), Dict(:markers => PosedTarget(markers, Uncertain(ident, Σ))))
     mktempdir() do dir
         path = joinpath(dir, "camera_rig.json")
         save(path, rig)
@@ -254,12 +254,12 @@ end
 end
 
 @testitem "rig/v4: the validator" setup = [VGIoFixtures] begin
-    using VisualGeometryToolkitCore: Rig, Mounted, PlanarTarget, PointTarget, WorldFrame, exact
+    using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, PointTarget, WorldFrame, exact
     pts = [mm_lengths(SVector(0.0, 0.0)), mm_lengths(SVector(10.0, 0.0))]
     X = EuclideanMap(one(RotMatrix{3, Float64}), [10.0mm, 0.0mm, 0.0mm])
     mktempdir() do dir
         path = joinpath(dir, "r.json")
-        save(path, Rig{WorldFrame}(Dict(:a => Mounted(PlanarTarget(pts), X))))
+        save(path, Rig{WorldFrame}(Dict(:a => PosedTarget(PlanarTarget(pts), X))))
         good = JSON.parse(read(path, String); dicttype = Dict{String, Any})
         function refused(f, key)
             dd = deepcopy(good)
@@ -283,7 +283,7 @@ end
         @test refused(dd -> (dd["targets"][1]["target"] = Dict("type" => "points", "points" => [[1, 2], [1, 2, 3]])), "2-vectors")
         @test refused(dd -> push!(dd["targets"], deepcopy(dd["targets"][1])), "unique")
         # plain and uncertain points are not mixed in one target
-        @test_throws ArgumentError save(joinpath(dir, "mixed.json"), Rig{WorldFrame}(Dict(:a => Mounted(PointTarget([mm_lengths(SVector(1.0, 2.0)), exact_mm(SVector(3.0, 4.0))]), X))))
+        @test_throws ArgumentError save(joinpath(dir, "mixed.json"), Rig{WorldFrame}(Dict(:a => PosedTarget(PointTarget([mm_lengths(SVector(1.0, 2.0)), exact_mm(SVector(3.0, 4.0))]), X))))
     end
 end
 
@@ -488,7 +488,7 @@ end
 
 @testitem "target points 2D and the correspondences export" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitCore: Rig, Mounted, PlanarTarget, TargetPoints2D, Trajectory, TargetFrame, WorldFrame,
+    using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, TargetPoints2D, Trajectory, TargetFrame, WorldFrame,
         Uncertain, CovMat, convert_frame
     using Statistics: cov
 
@@ -498,7 +498,7 @@ end
     )
     pts = [mm_lengths(SVector(10.0i, 5.0i)) for i in 1:7]
     at(z) = EuclideanMap(one(RotMatrix{3, Float64}), [0.0mm, 0.0mm, z])
-    targets = Rig{TargetFrame{:a1f2}}(Dict(:a1f2 => Mounted(PlanarTarget(pts), at(0.0mm)), :b0c1 => Mounted(PlanarTarget(pts), at(100.0mm))))
+    targets = Rig{TargetFrame{:a1f2}}(Dict(:a1f2 => PosedTarget(PlanarTarget(pts), at(0.0mm)), :b0c1 => PosedTarget(PlanarTarget(pts), at(100.0mm))))
     images = Dict(1 => "DSC0001.png", 3 => "DSC0003.png")
     mktempdir() do dir
         targets_path = joinpath(dir, "targets.json")
@@ -557,7 +557,7 @@ end
         @test parse_json(read(jpath, String)).pixel_frame == "julia"
         # measurements resolve only against the targets they name
         other = joinpath(dir, "other_targets.json")
-        save(other, Rig{TargetFrame{:a1f2}}(Dict(:a1f2 => Mounted(PlanarTarget(pts), at(0.0mm)), :b0c1 => Mounted(PlanarTarget(pts), at(50.0mm)))))
+        save(other, Rig{TargetFrame{:a1f2}}(Dict(:a1f2 => PosedTarget(PlanarTarget(pts), at(0.0mm)), :b0c1 => PosedTarget(PlanarTarget(pts), at(50.0mm)))))
         @test_throws ArgumentError save_correspondences(joinpath(dir, "x.json"), obs, other)
         # every (target, index) must resolve
         bad = TargetPoints2D{PixelFrame{:colmap}}(Dict(1 => [(; target = :a1f2, index = 8, xy = SVector(1.0, 2.0), weight = 1.0)]); images = Dict(1 => "a.png"), sensors = "cam")
@@ -565,7 +565,7 @@ end
         nob = TargetPoints2D{PixelFrame{:colmap}}(Dict(1 => [(; target = :zz, index = 1, xy = SVector(1.0, 2.0), weight = 1.0)]); images = Dict(1 => "a.png"), sensors = "cam")
         @test_throws ArgumentError save_correspondences(joinpath(dir, "x.json"), nob, targets)
         # unresolved designs need their resolver
-        refd = Rig{TargetFrame{:a1f2}}(Dict(:a1f2 => Mounted(PlanarTarget(:a1f2; nominal = pts), at(0.0mm)), :b0c1 => Mounted(PlanarTarget(:b0c1; nominal = pts), at(100.0mm))))
+        refd = Rig{TargetFrame{:a1f2}}(Dict(:a1f2 => PosedTarget(PlanarTarget(:a1f2; nominal = pts), at(0.0mm)), :b0c1 => PosedTarget(PlanarTarget(:b0c1; nominal = pts), at(100.0mm))))
         rp = joinpath(dir, "refd.json")
         save(rp, refd)
         o2 = TargetPoints2D{PixelFrame{:julia}}(raw; images, sensors = "cam", targets = [content_id(rp)])

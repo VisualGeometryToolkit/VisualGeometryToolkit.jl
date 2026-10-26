@@ -10,7 +10,7 @@
 
 @testitem "v2 validation: every required key, refused by name" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitIO: validate
-    using VisualGeometryToolkitCore: Rig, Mounted, PlanarTarget, PointTarget, Attributed, BoundedCamera, PosedCamera, TargetFrame, ViewFrame, BodyFrame, WorldFrame,
+    using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, PointTarget, Attributed, BoundedCamera, PosedCamera, TargetFrame, ViewFrame, BodyFrame, WorldFrame,
         CameraFrame, CentralGenericModel, NoncentralGenericModel, Vec3, relabel, Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D
     using Rotations: RotXYZ, RotationVec
     import VisualGeometryToolkitCore
@@ -69,7 +69,7 @@
         gc = CentralGenericModel(64, 48, 0, 0, 63, 47, dirs)
         gn = NoncentralGenericModel(64, 48, 0, 0, 63, 47, dirs, [Vec3{Float64}(0.1gx, -0.1gy, 0.05) for gy in 1:4, gx in 1:5])
         ident = EuclideanMap(one(RotMatrix{3, Float64}), [0.0mm, 0.0mm, 0.0mm])
-        targets = Rig{TargetFrame{:a}}(Dict(:a => Mounted(PlanarTarget(pts), ident), :b => Mounted(PlanarTarget(:b), pose(100.0mm))))
+        targets = Rig{TargetFrame{:a}}(Dict(:a => PosedTarget(PlanarTarget(pts), ident), :b => PosedTarget(PlanarTarget(:b), pose(100.0mm))))
 
         files = Dict{String, String}()
         at!(name, base) = (files[name] = joinpath(dir, base))

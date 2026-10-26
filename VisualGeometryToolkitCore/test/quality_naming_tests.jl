@@ -208,6 +208,10 @@ end
             "docs/a.md" => "`fit_robot_world_hand_eye`, `refine_robot_world_hand_eye`, " *
                 "`RobotWorldHandEyeCalibration`, `RobotWorldHandEyeMetadata`, `find_hand_eye`.\n"
         )
+        # a rig's target member: the retired type trips; its successor, its
+        # accessors and the stereo pair's destination stand
+        @test :R9 in rules("src/a.jl" => "m = " * "Mount" * "ed(t, X)\n")
+        @test quiet("docs/a.md" => "`PosedTarget`, `model(m)`, `pose(m)`, `destination(rig)`, a mounted board.\n")
         # the dissolved evaluation package's pool names trip; their successors,
         # and names that merely contain a retired one, stand
         @test :R9 in rules("src/a.jl" => "x = " * "generate" * "_pool(n, snn)\n")
@@ -330,7 +334,7 @@ end
         @test one_r11("src/a.jl" => "f(d, x) = haskey(d, :length_unit) ? 1.0e-3 * x : x\n")
         # must NOT flag: attaching a unit, stripping a whole pose, the IO pair,
         # a scale with no file unit in sight, a test rewriting a fixture
-        @test quiet("src/a.jl" => "X = EuclideanMap(R, t .* m)\nY = ustrip(m, X)\nZ = Mounted(ustrip(m, tg), ustrip(m, X))\n")
+        @test quiet("src/a.jl" => "X = EuclideanMap(R, t .* m)\nY = ustrip(m, X)\nZ = PosedTarget(ustrip(m, tg), ustrip(m, X))\n")
         @test quiet("src/a.jl" => "function f(d)\n    u = parse_unit(d.length_unit)\n    return read_length(d.x, u), write_length(d.q, u)\nend\n")
         @test quiet("src/a.jl" => "g(t_ns) = t_ns / 1.0e9\nh(x) = 1000 * x\n")
         @test quiet("test/a.jl" => "function f(d)\n    d[\"length_unit\"] = \"m\"\n    return d[\"t\"] ./ 1000\nend\n")

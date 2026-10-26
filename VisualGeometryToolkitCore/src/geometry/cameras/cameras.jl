@@ -659,7 +659,8 @@ calibration_matrix(camera::PosedCamera) = calibration_matrix(camera.model)
 Return the camera's underlying `CameraModel` (intrinsics + lens), the
 single object the lower-level `project`/`backproject`/`transfer` kernels
 take.  Method form so wrappers (e.g. `BoundedCamera`) can delegate via
-`@forward`.
+`@forward`. A rig's other member kind answers the same accessor:
+`model(::PosedTarget)` is its target.
 """
 model(c::PosedCamera) = c.model
 # an unposed camera (a model, the inside of a BoundedCamera of one) is its own model
@@ -829,7 +830,7 @@ unproject(camera::_UnitfulPosedCamera, u::AbstractVector{Float64}, depth::Quanti
 
 # Include remaining camera system components
 include("targets.jl")  # AbstractTarget, PointTarget, PlanarTarget{W} (+ the warp and calibratable-target protocols)
-include("rig.jl")     # Rig (sensors: tuple storage; targets: dict storage; both: the two side by side; gauge in the frame) + Mounted — before the stereo alias
+include("rig.jl")     # Rig (sensors: tuple storage; targets: dict storage; both: the two side by side; gauge in the frame) + PosedTarget — before the stereo alias
 include("captures.jl")  # Trajectory, TargetPoses, TargetPoints2D/3D: per-frame values of a capture (+ convert_frame)
 include("stereo.jl")
 include("rectify.jl")    # stereo rectification on the rig types (0.16)
@@ -920,7 +921,7 @@ export model                            # CameraModel accessor on PosedCamera/Ab
 # -----------------------------------------------------------------------------
 # 5. STEREO - Multi-camera geometry
 # -----------------------------------------------------------------------------
-export Rig, Mounted, source, destination, target_frames  # one Rig for sensors and targets: (model, mount) members; StereoRig = 2-tuple alias
+export Rig, PosedTarget, source, destination, target_frames  # one Rig for sensors and targets: (model, pose) members; StereoRig = 2-tuple alias
 export sensor_rig, target_rig             # the two halves of a rig carrying both
 export AbstractTarget, PointTarget, PlanarTarget, resolve, is_resolved   # the target as a model (targets.jl)
 export AbstractWarp, Rigid, warp_jacobian   # a planar target's warp

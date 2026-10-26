@@ -4,7 +4,7 @@
 #
 # A target is what a camera observes and a measurement names: a set of points
 # in its own frame, `TargetFrame{id}`. Its geometry is independent of where it
-# is mounted — the same target can sit in several rigs (`Mounted`, rig.jl) —
+# is mounted — the same target can sit in several rigs (`PosedTarget`, rig.jl) —
 # and of who calibrated it (a stored target's `calibration` block is an
 # attribute of the value, as a camera's is).
 #

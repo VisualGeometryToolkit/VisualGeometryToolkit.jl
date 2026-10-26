@@ -97,7 +97,7 @@ from VGC types.
 |---|---|
 | `cameras` | `Dict{Symbol, …}` of unposed `BoundedCamera`s of a `CameraModel` (name → camera) |
 | `transforms` | a `Vector` of labeled `EuclideanMap{3}`s (`Uncertain` allowed) |
-| `rig` | [`Rig`](@ref): sensors, [`Mounted`](@ref) targets, or both |
+| `rig` | [`Rig`](@ref): sensors, [`PosedTarget`](@ref)s, or both |
 | `target` | an [`AbstractTarget`](@ref) ([`PointTarget`](@ref), [`PlanarTarget`](@ref)) |
 | `trajectory` | [`Trajectory`](@ref) |
 | `target_poses` | [`TargetPoses`](@ref) |
@@ -106,7 +106,7 @@ from VGC types.
 The measurement kinds are COLMAP's decomposition: `target_points2d` ≈ COLMAP's
 `images.txt` `points2D` with their `POINT3D_ID` — here the pair (target id,
 point index) — and the target rig ≈ `points3D`, kept as per-target frames (each
-target's points in its own frame, posed by its mount) with no stored tracks.
+target's points in its own frame, placed by its pose) with no stored tracks.
 
 **Metadata: envelope for the file, attributes for the value.** The file's
 envelope holds what is about the FILE — the `schema` tag, the declared

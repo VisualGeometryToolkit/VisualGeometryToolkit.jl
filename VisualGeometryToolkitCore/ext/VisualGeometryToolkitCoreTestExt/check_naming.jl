@@ -325,6 +325,9 @@ const RETIRED_NAMES = String[
     "lens" * "_parameter_names", "target" * "_parameter_names", "warp" * "_parameter_names",
     # one camera hierarchy: `AbstractCamera` and the `has_extrinsics` trait (2026-10-25)
     "Abstract" * "CameraModel",
+    # a rig's target member is a `PosedTarget` (a posed target, as a
+    # `PosedCamera` is a posed camera; `model(m)` is its target) (2026-10-26)
+    "Mount" * "ed",
 ]
 
 # Rule 10: the width quantities are bound by their full names. One name per

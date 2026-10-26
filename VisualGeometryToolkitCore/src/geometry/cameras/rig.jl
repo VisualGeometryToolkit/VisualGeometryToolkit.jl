@@ -6,9 +6,9 @@
 # "view" conflates:
 #
 #   Rig        members with FIXED poses in a common frame — the assembly. Each
-#              member is a (model, mount) pair: a camera (its model and its
+#              member is a (model, pose) pair: a camera (its model and its
 #              rig-relative extrinsics) or a target (an `AbstractTarget`,
-#              targets.jl, and its mount, `Mounted`). Three storages, ONE type:
+#              targets.jl, and its pose, `PosedTarget`). Three storages, ONE type:
 #              sensors only (tuple storage, small N, static dispatch — a single
 #              camera is a rig of one, `StereoRig` the 2-tuple alias), targets
 #              only (dict storage, many members, labels minted on access), and
@@ -67,55 +67,60 @@ _is_identity(X::EuclideanMap{3}; atol = 1.0e-6) =
     isapprox(SVector{3, Float64}(_translation_metres(X)), zero(SVector{3, Float64}); atol)
 
 # ------------------------------------------------------------------------------
-# Mounted — a target as a rig member: the target and its mount
+# PosedTarget — a target as a rig member: the target and its pose
 # ------------------------------------------------------------------------------
 
-using ..VisualGeometryToolkitCore: Uncertain, geom   # an estimated mount (conventions/persisted-geometry.md)
+using ..VisualGeometryToolkitCore: Uncertain, geom   # an estimated pose (conventions/persisted-geometry.md)
 
 """
-    Mounted(target::AbstractTarget, mount)
+    PosedTarget(target::AbstractTarget, pose)
 
-A target as a [`Rig`](@ref) member: the TARGET — its geometry, an
-[`AbstractTarget`](@ref), independent of where it is mounted, so the same
-target can sit in several rigs — and its MOUNT, the rigid map taking
-target-local coordinates (the pattern plane `z = 0` for a planar target) into
-the rig frame, stored unlabeled (the rig mints `TargetFrame{id} → F` on
-access). The mount may be [`Uncertain`](@ref) (an estimated mount, its 6×6
-covariance in the `RigidExpManifold6` chart, rotation first); the rig hands it
-back uncertain, its covariance unchanged by the labels. `points(m)` are the
-target's own points; `pose(m)` is the mount.
+A target as a [`Rig`](@ref) member, the target-side counterpart of a
+[`PosedCamera`](@ref): the TARGET — its geometry, an [`AbstractTarget`](@ref),
+independent of where it is mounted, so the same target can sit in several
+rigs — and its POSE, the rigid map taking target-local coordinates (the
+pattern plane `z = 0` for a planar target) into the rig frame, stored
+unlabeled (the rig mints `TargetFrame{id} → F` on access). The pose may be
+[`Uncertain`](@ref) (an estimated pose, its 6×6 covariance in the
+`RigidExpManifold6` chart, rotation first); the rig hands it back uncertain,
+its covariance unchanged by the labels.
 
-A physical mount (a translation in metres) holds a physical target (points in
-metres), a plain mount a plain one: a unitful mount on plain points, or the
+Accessors: `model(m)` is the target (as `model(::PosedCamera)` is a camera's
+model, so code over rig members calls `model(member)` for either kind),
+`pose(m)` the pose, and `points(m)` the target's own points.
+
+A physical pose (a translation in metres) holds a physical target (points in
+metres), a plain pose a plain one: a unitful pose on plain points, or the
 reverse, is FlexUnits' `DimensionError` at construction, never a promotion.
 `ustrip(u, m)` and [`with_unit`](@ref)`(m, u)` move both together.
 """
-struct Mounted{T <: AbstractTarget, X <: Union{EuclideanMap{3}, Uncertain{<:EuclideanMap{3}}}}
+struct PosedTarget{T <: AbstractTarget, X <: Union{EuclideanMap{3}, Uncertain{<:EuclideanMap{3}}}}
     target::T
-    mount::X
-    function Mounted(target::T, mount::Union{EuclideanMap{3}, Uncertain{<:EuclideanMap{3}}}) where {T <: AbstractTarget}
-        _check_mount_units(target, mount)
-        X = unlabel(mount)
+    pose::X
+    function PosedTarget(target::T, pose::Union{EuclideanMap{3}, Uncertain{<:EuclideanMap{3}}}) where {T <: AbstractTarget}
+        _check_pose_units(target, pose)
+        X = unlabel(pose)
         return new{T, typeof(X)}(target, X)
     end
 end
-pose(m::Mounted) = m.mount
-points(m::Mounted) = points(m.target)
-Base.:(==)(a::Mounted, b::Mounted) = a.target == b.target && a.mount == b.mount
+model(m::PosedTarget) = m.target
+pose(m::PosedTarget) = m.pose
+points(m::PosedTarget) = points(m.target)
+Base.:(==)(a::PosedTarget, b::PosedTarget) = a.target == b.target && a.pose == b.pose
 
-# A mount and its target's points are one form; a target without points (an
-# unresolved design) takes either mount.
-function _check_mount_units(target, mount)
+# A pose and its target's points are one form; a target without points (an
+# unresolved design) takes either pose.
+function _check_pose_units(target, pose)
     (is_resolved(target) && !isempty(points(target))) || return nothing
-    has_units(mount) == has_units(target) && return nothing
-    throw(DimensionError(translation(geom(mount)), geom(first(points(target)))))
+    has_units(pose) == has_units(target) && return nothing
+    throw(DimensionError(translation(geom(pose)), geom(first(points(target)))))
 end
-has_units(m::Mounted) = has_units(pose(m))
-FlexUnits.ustrip(u::Units, m::Mounted) = Mounted(ustrip(u, m.target), ustrip(u, pose(m)))
-with_unit(m::Mounted, u::Units) = Mounted(with_unit(m.target, u), _with_unit_pose(pose(m), u))
+has_units(m::PosedTarget) = has_units(pose(m))
+FlexUnits.ustrip(u::Units, m::PosedTarget) = PosedTarget(ustrip(u, m.target), ustrip(u, pose(m)))
+with_unit(m::PosedTarget, u::Units) = PosedTarget(with_unit(m.target, u), _with_unit_pose(pose(m), u))
 _with_unit_pose(X, u::Units) = with_unit(X, u)   # a plain pose or an uncertain one: rotation and frames kept
 
-# A stored mount minted with its labels; an uncertain one keeps its covariance.
+# A stored pose minted with its labels; an uncertain one keeps its covariance.
 _mint(::Type{S}, ::Type{D}, m) where {S, D} = relabel(S, D, m)
 
 # ------------------------------------------------------------------------------
@@ -126,19 +131,19 @@ _mint(::Type{S}, ::Type{D}, m) where {S, D} = relabel(S, D, m)
     Rig{F, M}
 
 A rigid assembly: members with FIXED poses in a common frame `F`, each a
-(model, mount) pair. Three storages, one interface:
+(model, pose) pair. Three storages, one interface:
 
 - `M <: Tuple{Vararg{AbstractCamera}}` — a physical multi-sensor rig. Sensor
   `i`'s extrinsics is the labeled map `F → ViewFrame{idᵢ}`, stored inside the
-  camera (a camera IS its model and its mount); the ids, the reference frame
+  camera (a camera IS its model and its pose); the ids, the reference frame
   and every relative transform are read off those labels — there is no cached
   inverse, no id tuple, no second copy to drift. The tuple makes the sensor
   count static: [`StereoRig`](@ref) IS the 2-tuple case, dispatchable with no
   runtime length check. Many views over time are NOT a rig — they are frames
   of one (see the header comment) — which is why a `Vector` of hundreds of
   cameras is not accepted.
-- `M <: AbstractDict{Symbol, <:Mounted}` — a rig of targets: each a
-  [`Mounted`](@ref) target keyed by identity, its mount stored unlabeled and
+- `M <: AbstractDict{Symbol, <:PosedTarget}` — a rig of targets: each a
+  [`PosedTarget`](@ref) keyed by identity, its pose stored unlabeled and
   minted `TargetFrame{id} → F` on access.
 - `M <: NamedTuple{(:sensors, :targets)}` — both: a sensor tuple and a target
   dictionary posed in one frame (a camera rig carrying its motion-capture
@@ -174,7 +179,7 @@ struct Rig{F <: Frame{3}, M}
         return new{F, M}(members)
     end
 
-    # A rig of targets: Mounted targets keyed by identity, mounts unlabeled.
+    # A rig of targets: PosedTargets keyed by identity, poses unlabeled.
     # The value type is checked per member, not in the signature: a dictionary
     # mixing target types has a `where`-typed value.
     function Rig{F}(members::M) where {F <: Frame{3}, M <: AbstractDict{Symbol}}
@@ -197,7 +202,7 @@ struct Rig{F <: Frame{3}, M}
 end
 
 # A container of poses holds one form: all plain or all physical. A mix is
-# FlexUnits' `DimensionError` (as for a `Mounted`), named by one member of each.
+# FlexUnits' `DimensionError` (as for a `PosedTarget`), named by one member of each.
 function _check_one_pose_form(xs, translation_of)
     hs = [has_units(x) for x in xs]
     (isempty(hs) || allequal(hs)) && return nothing
@@ -205,7 +210,7 @@ function _check_one_pose_form(xs, translation_of)
     throw(DimensionError(translation_of(a), translation_of(b)))
 end
 _member_translation(c::AbstractCamera) = translation(_raw_extrinsics(c))
-_member_translation(m::Mounted) = translation(geom(pose(m)))
+_member_translation(m::PosedTarget) = translation(geom(pose(m)))
 _pose_translation(X) = translation(geom(X))
 
 function _check_sensors(::Type{F}, members; gauge::Bool = true) where {F}
@@ -236,15 +241,15 @@ end
 function _check_targets(::Type{F}, members; gauge::Bool = true) where {F}
     isempty(members) && throw(ArgumentError("Rig: at least one target required"))
     for (id, m) in members
-        m isa Mounted || throw(
-            ArgumentError("Rig: member $(repr(id)) is a $(typeof(m)), not a Mounted target (a target and its mount)")
+        m isa PosedTarget || throw(
+            ArgumentError("Rig: member $(repr(id)) is a $(typeof(m)), not a PosedTarget (a target and its pose)")
         )
     end
     gauge && _check_gauge(F, members)
     return nothing
 end
 
-# A rig member is a (model, mount) pair: every sensor is posed. Decided by the
+# A rig member is a (model, pose) pair: every sensor is posed. Decided by the
 # members' types, so the loop over the tuple compiles away.
 function _check_posed(what, members)
     for (i, c) in enumerate(members)
@@ -397,7 +402,7 @@ end
     rig[id]   (rig[i] for a sensor rig)
 
 The member itself: a sensor (`PosedCamera`/`BoundedCamera`, by view id or by
-position) or a [`Mounted`](@ref) target (by identity).
+position) or a [`PosedTarget`](@ref) (by identity).
 """
 Base.getindex(rig::Rig{F, <:AbstractDict}, id::Symbol) where {F} = rig.members[id]
 Base.getindex(rig::Rig{F, <:Tuple}, id::Symbol) where {F} = rig.members[_sensor_index(rig, id)]
@@ -465,7 +470,7 @@ to `z = 0` first) — the 3D side of a target ↔ image correspondence, what an
 absolute-pose problem consumes. The one-argument form covers every target
 that carries points; an unresolved one (a design reference without its points,
 [`is_resolved`](@ref)) is an `ArgumentError` on its own and absent from the
-dictionary. Plain targets give `SVector{3, Float64}`s; a physical rig (mounts
+dictionary. Plain targets give `SVector{3, Float64}`s; a physical rig (target poses
 and points in metres) gives lengths in metres.
 """
 function points(rig::Rig{F, <:Union{_TargetStorage, _MixedStorage}}, id::Symbol) where {F}
@@ -488,7 +493,7 @@ end
 """
     has_units(rig::Rig) -> Bool
 
-Whether the rig's members are physical (sensor extrinsics, target mounts and
+Whether the rig's members are physical (sensor extrinsics, target poses and
 points in metres). `ustrip(u, rig)` strips every member in `u` and
 [`with_unit`](@ref)`(rig, u)` reads every plain member as being in `u`, each
 rebuilding through the validating constructor (labels and gauge rechecked);

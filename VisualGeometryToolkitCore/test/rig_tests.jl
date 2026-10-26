@@ -137,7 +137,7 @@
             pts = [SVector(0.0, 0.0), SVector(10.0, 0.0), SVector(0.0, 5.0)]
             # posed in an external frame: no gauge member, any pose goes; pose-only boards
             # are unresolved planar targets (a design reference, no points yet)
-            tr = Rig{WorldFrame}(Dict(:b => Mounted(PlanarTarget(:b), Xb), :a => Mounted(PlanarTarget(:a), Xa)))
+            tr = Rig{WorldFrame}(Dict(:b => PosedTarget(PlanarTarget(:b), Xb), :a => PosedTarget(PlanarTarget(:a), Xa)))
             @test tr isa Rig && length(tr) == 2
             @test haskey(tr, :a) && !haskey(tr, :z)
             @test ids(tr) == [:a, :b]                     # sorted, deterministic
@@ -149,12 +149,12 @@
             @test Ea isa EuclideanMap{3, Float64, <:Any, <:Any, WorldFrame, TargetFrame{:a}}
             Xt = SVector(0.1, 0.2, 0.0)
             @test Ea(Pa(Xt)) ≈ Xt atol = 1.0e-12
-            @test tr[:a] isa Mounted && pose(tr[:a]).t == Xa.t && !is_resolved(tr[:a].target)
+            @test tr[:a] isa PosedTarget && pose(tr[:a]).t == Xa.t && !is_resolved(model(tr[:a])) && model(tr[:a]) === tr[:a].target
             @test_throws ArgumentError points(tr, :a)      # unresolved: no pattern geometry
             @test isempty(points(tr))
             # gauged on a member: that member's frame IS the rig frame, its pose the identity
             ident = EuclideanMap(one(RotMatrix{3, Float64}), zero(SVector{3, Float64}))
-            g = Rig{TargetFrame{:a}}(Dict(:a => Mounted(PlanarTarget(pts), ident), :b => Mounted(PlanarTarget(:b; nominal = pts), Xb)))
+            g = Rig{TargetFrame{:a}}(Dict(:a => PosedTarget(PlanarTarget(pts), ident), :b => PosedTarget(PlanarTarget(:b; nominal = pts), Xb)))
             @test reference_frame(g) === TargetFrame{:a}
             @test pose(g, :b) isa EuclideanMap{3, Float64, <:Any, <:Any, TargetFrame{:b}, TargetFrame{:a}}
             @test norm(pose(g, :a).t) == 0.0
@@ -163,25 +163,25 @@
             @test points(g, :b)[2] ≈ Xb(SVector(10.0, 0.0, 0.0)) atol = 1.0e-12
             @test Set(keys(points(g))) == Set([:a, :b])
             # the gauge invariants: the gauge member exists, and sits at the identity
-            @test_throws ArgumentError Rig{TargetFrame{:a}}(Dict(:a => Mounted(PlanarTarget(:a), Xa)))
-            @test_throws ArgumentError Rig{TargetFrame{:z}}(Dict(:a => Mounted(PlanarTarget(:a), ident)))
-            # uncertain members (conventions/persisted-geometry.md): an estimated mount on a
+            @test_throws ArgumentError Rig{TargetFrame{:a}}(Dict(:a => PosedTarget(PlanarTarget(:a), Xa)))
+            @test_throws ArgumentError Rig{TargetFrame{:z}}(Dict(:a => PosedTarget(PlanarTarget(:a), ident)))
+            # uncertain members (conventions/persisted-geometry.md): an estimated pose on a
             # body, its covariance kept through the minted labels; estimated points a PointTarget
             Σ = CovMat(SMatrix{6, 6, Float64}(LinearAlgebra.I) * 1.0e-4)
-            ub = Rig{BodyFrame{:board_rig}}(Dict(:a => Mounted(PointTarget([exact(p) for p in pts]), Uncertain(Xa, Σ))))
+            ub = Rig{BodyFrame{:board_rig}}(Dict(:a => PosedTarget(PointTarget([exact(p) for p in pts]), Uncertain(Xa, Σ))))
             Pu = pose(ub, :a)
             @test Pu isa Uncertain
             @test geom(Pu) isa EuclideanMap{3, Float64, <:Any, <:Any, TargetFrame{:a}, BodyFrame{:board_rig}}
             @test cov(Pu) == Σ && geom(Pu).t == Xa.t
             @test points(ub, :a)[2] ≈ Xa(SVector(10.0, 0.0, 0.0)) atol = 1.0e-12
             @test_throws ArgumentError extrinsics(ub, :a)          # a covariance does not invert by relabeling
-            @test_throws ArgumentError Rig{WorldFrame}(Dict{Symbol, Mounted}())
-            @test_throws ArgumentError Rig{WorldFrame}(Dict(:a => PlanarTarget(pts)))   # a member is Mounted
-            # a member's geometry is independent of its mount: the same target in two rigs
+            @test_throws ArgumentError Rig{WorldFrame}(Dict{Symbol, PosedTarget}())
+            @test_throws ArgumentError Rig{WorldFrame}(Dict(:a => PlanarTarget(pts)))   # a member is a PosedTarget
+            # a member's geometry is independent of its pose: the same target in two rigs
             board = PlanarTarget(:a; nominal = pts)
-            r1 = Rig{WorldFrame}(Dict(:a => Mounted(board, Xa)))
-            r2 = Rig{BodyFrame{:board_rig}}(Dict(:a => Mounted(board, Xb)))
-            @test r1[:a].target === r2[:a].target && points(r1[:a]) == points(r2[:a]) == pts
+            r1 = Rig{WorldFrame}(Dict(:a => PosedTarget(board, Xa)))
+            r2 = Rig{BodyFrame{:board_rig}}(Dict(:a => PosedTarget(board, Xb)))
+            @test model(r1[:a]) === model(r2[:a]) === board && points(r1[:a]) == points(r2[:a]) == pts
         end
 
         @testset "a rig of sensors and targets — the camera rig with its constellation" begin
@@ -189,7 +189,7 @@
             Xc = relabel(BodyFrame{:camera_rig}, ViewFrame{:cam}, EuclideanMap(RotMatrix{3, Float64}(R), t))
             cam = BoundedCamera(PosedCamera(CameraModel(CameraCalibrationMat(K1)), Xc), Size2(640, 480))
             markers = PointTarget([SVector(0.0, 0.0, 0.0), SVector(30.0, 0.0, 5.0), SVector(0.0, 40.0, -2.0)])
-            rig = Rig{BodyFrame{:camera_rig}}((cam,), Dict(:markers => Mounted(markers, ident)))
+            rig = Rig{BodyFrame{:camera_rig}}((cam,), Dict(:markers => PosedTarget(markers, ident)))
             @test ids(rig) == [:cam, :markers] && length(rig) == 2
             @test haskey(rig, :cam) && haskey(rig, :markers) && !haskey(rig, :z)
             @test rig[:cam] === cam && rig[1] === cam && rig[:markers].target === markers
@@ -199,7 +199,7 @@
             @test view_frames(rig) == (ViewFrame{:cam},) && target_frames(rig) == [TargetFrame{:markers}]
             @test sensor_rig(rig) isa Rig{BodyFrame{:camera_rig}, <:Tuple} && ids(sensor_rig(rig)) == (:cam,)
             @test target_rig(rig) isa Rig{BodyFrame{:camera_rig}, <:AbstractDict} && ids(target_rig(rig)) == [:markers]
-            @test_throws ArgumentError Rig{BodyFrame{:camera_rig}}((cam,), Dict(:cam => Mounted(markers, ident)))   # ids distinct
+            @test_throws ArgumentError Rig{BodyFrame{:camera_rig}}((cam,), Dict(:cam => PosedTarget(markers, ident)))   # ids distinct
         end
 
         @testset "targets — the model, the warp, the calibratable protocol" begin

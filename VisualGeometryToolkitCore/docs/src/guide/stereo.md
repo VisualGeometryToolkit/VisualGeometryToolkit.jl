@@ -12,8 +12,8 @@ A [`StereoRig`](@ref) is the 2-sensor case of the general [`Rig`](@ref)
 — a frame with posed members, whose frame is the gauge member's own. A
 sensor rig stores ONLY a tuple of cameras, each expressed rig-relative
 (reference frame = view 1, held at the identity); a rig of calibration
-targets is the same type with dict storage, [`Mounted`](@ref) members (a target
-model — [`PlanarTarget`](@ref), [`PointTarget`](@ref) — and its mount) gauged on
+targets is the same type with dict storage, [`PosedTarget`](@ref) members (a target
+model — [`PlanarTarget`](@ref), [`PointTarget`](@ref) — and its pose) gauged on
 a board, and a camera rig carrying its marker constellation holds both. The old `source`/`target`/`extrinsics`
 fields are the method-form accessors [`source`](@ref), [`destination`](@ref)
 and `extrinsics`, and the relative rigid transform is

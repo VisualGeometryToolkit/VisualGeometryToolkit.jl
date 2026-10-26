@@ -17,17 +17,17 @@
 # it resolves in by their content identity ([`content_id`](@ref)).
 #
 # ONE AUTHORITY PER NAME: a pose's frames are given by where it sits — a
-# sensor's by the rig `frame` and its `id`, a target's mount by its `id` and
+# sensor's by the rig `frame` and its `id`, a target's pose by its `id` and
 # the rig `frame` — and are never restated beside it, so they cannot disagree
 # with it. FRAME NAMES go through the frame grammar (frame_names.jl).
 #
-# UNCERTAINTY (VisualGeometryToolkitCore conventions/persisted-geometry.md): a mount
+# UNCERTAINTY (VisualGeometryToolkitCore conventions/persisted-geometry.md): a pose
 # may carry a 6×6 `covariance`, a point target's points a parallel
 # `point_covariances` (one d×d per point, `length_unit`²) — each present iff
 # the in-memory value is `Uncertain`. A rig sensor's extrinsics are a VGC
 # `PosedCamera`'s map, never uncertain.
 #
-# UNITS: a stored rig is PHYSICAL — its mounts, extrinsics and target points
+# UNITS: a stored rig is PHYSICAL — its target poses, extrinsics and target points
 # are lengths (metres in memory, the declared `length_unit` on disk); a writer
 # refuses plain numbers where a length is meant.
 #
@@ -115,7 +115,7 @@ function _points_json(what, pts, unit::Units)
 end
 
 # `points` back to static vectors of lengths (metres) of the recorded
-# dimension, the form VGC composes a target's points with its mount in
+# dimension, the form VGC composes a target's points with its pose in
 # (`points(rig, id)`); `Uncertain` iff the file states their covariances
 # (unit² → m²).
 function _points_from_json(vals, unit::Units, covs = nothing)
@@ -229,14 +229,14 @@ end
 #  "sensors": [{"id": "cam1", "camera": {camera body | generic body},
 #               "extrinsics": {rotation, translation}}],               extrinsics: `frame` → view:<id>
 #  "targets": [{"id": "<uid>", "target": {target body},
-#               "pose": {rotation, translation[, covariance]}}]}       pose (the mount): target:<id> → `frame`
+#               "pose": {rotation, translation[, covariance]}}]}       pose: target:<id> → `frame`
 #
 # A sensor rig has `sensors` only, a rig of targets `targets` only (a board
 # rig, a motion-capture body's constellation, the boards of a calibration
 # target gauged on one of them), a camera rig carrying its constellation both;
 # `pixel_frame` is declared iff there are sensors. Ids are unique across the
 # two. A sensor is a `BoundedCamera` (a camera body requires the pixel extent);
-# its extrinsics are a plain-typed `EuclideanMap` (never `Uncertain`); a mount
+# its extrinsics are a plain-typed `EuclideanMap` (never `Uncertain`); a target pose
 # may be `Uncertain`. Every translation and point is a length.
 
 const _SENSOR_RECORD = _Obj(
@@ -315,7 +315,7 @@ end
 
 Write a physical VGC `Rig` — sensors, targets, or both — as a `vgio/rig/v4`
 file in `length_unit`: each sensor (a `BoundedCamera`) with its extrinsics
-`frame → view:<id>`, each target (sorted by id) with its body and its mount
+`frame → view:<id>`, each target (sorted by id) with its body and its pose
 `target:<id> → frame` (a `covariance` iff `Uncertain`). A rig of plain
 translations or points is an `ArgumentError` (attach the unit, `t .* m`). A
 rig's name, if it has one worth keeping, belongs in `provenance`.
@@ -328,7 +328,7 @@ save(path::AbstractString, rig::Rig; length_unit::Units = mm, provenance::NamedT
 
 Read a `vgio/rig/v4` file back into a fully labeled VGC `Rig` of the storage
 it holds, its lengths in metres: sensors (each a `BoundedCamera` labeled `frame → ViewFrame{id}`),
-targets (each `Mounted`, minted `TargetFrame{id} → frame` on access), or both.
+targets (each a `PosedTarget`, minted `TargetFrame{id} → frame` on access), or both.
 `resolve(design)` supplies a referenced planar design's nominal points (see
 [`target_from_json`](@ref)). Type-unstable by nature (frame types are minted
 from file data) — load once, dispatch after.
@@ -339,8 +339,8 @@ function _rig_from_record(d; resolve = nothing)
     F = frame_from_name(d.frame::String)
     unit = d.length_unit::String
     haskey(d, :targets) || return Rig{F}((_load_sensors(d, F, unit)...,))
-    members = Dict{Symbol, Mounted}(
-        Symbol(t.id::String) => Mounted(target_from_json(t.target, unit; resolve), pose_from_json(t.pose, unit))
+    members = Dict{Symbol, PosedTarget}(
+        Symbol(t.id::String) => PosedTarget(target_from_json(t.target, unit; resolve), pose_from_json(t.pose, unit))
             for t in d.targets::Vector{Any}
     )
     targets = Dict{Symbol, typejoin(map(typeof, values(members))...)}(members)

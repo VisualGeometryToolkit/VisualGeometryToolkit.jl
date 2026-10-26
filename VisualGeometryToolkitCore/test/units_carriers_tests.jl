@@ -1,5 +1,5 @@
 # =============================================================================
-# Targets, mounts, rigs, cameras and captures carry units the way their poses
+# Targets, posed targets, rigs, cameras and captures carry units the way their poses
 # do: a physical value holds FlexUnits' base-form lengths (metres), its plain
 # form is `ustrip(u, x)`, and `with_unit(x, u)` reads a plain value as being in
 # `u`. A unitful value meeting plain numbers is FlexUnits' `DimensionError`.
@@ -18,7 +18,7 @@
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: EuclideanMap, m, mm, ustrip, DimensionError, translation, rotation,
         relabel, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, Uncertain, CovMat, geom,
-        has_units, with_unit, PointTarget, PlanarTarget, Mounted, Rig, PosedCamera, BoundedCamera, CameraModel,
+        has_units, with_unit, PointTarget, PlanarTarget, PosedTarget, Rig, PosedCamera, BoundedCamera, CameraModel,
         CameraCalibrationMat, Trajectory, TargetPoses, TargetPoints3D, Size2, project, pose, extrinsics, points
 
     within_ulp(a::Number, b::Number) = abs(a - b) <= eps(abs(b))
@@ -76,24 +76,24 @@
         @test ustrip(mm, D) == D && with_unit(D, mm) == D
     end
 
-    @testset "Mounted and target rigs: world points carry units" begin
-        M_mm = Mounted(PlanarTarget(pts2_mm), E_mm)
-        M_u = Mounted(PlanarTarget(from_mm.(pts2_mm)), E_u)
+    @testset "PosedTarget and target rigs: world points carry units" begin
+        M_mm = PosedTarget(PlanarTarget(pts2_mm), E_mm)
+        M_u = PosedTarget(PlanarTarget(from_mm.(pts2_mm)), E_u)
         @test has_units(M_u) && !has_units(M_mm)
         M_back = ustrip(mm, with_unit(M_mm, mm))
         @test maps_close(pose(M_back), pose(M_mm))
         @test all(point_close.(points(M_back), points(M_mm)))
         @test maps_close(pose(ustrip(mm, M_u)), E_mm)
-        # a unitful mount on plain points, or the reverse, never promotes
-        @test_throws DimensionError Mounted(PlanarTarget(pts2_mm), E_u)
-        @test_throws DimensionError Mounted(PlanarTarget(from_mm.(pts2_mm)), E_mm)
-        # an uncertain mount: the covariance's translation block moves too
-        MU_mm = Mounted(PointTarget(pts3_mm), Uncertain(E_mm, Σ6))
+        # a unitful pose on plain points, or the reverse, never promotes
+        @test_throws DimensionError PosedTarget(PlanarTarget(pts2_mm), E_u)
+        @test_throws DimensionError PosedTarget(PlanarTarget(from_mm.(pts2_mm)), E_mm)
+        # an uncertain pose: the covariance's translation block moves too
+        MU_mm = PosedTarget(PointTarget(pts3_mm), Uncertain(E_mm, Σ6))
         MU_back = ustrip(mm, with_unit(MU_mm, mm))
         @test pose_close(pose(MU_back), pose(MU_mm))
 
-        rig_u = Rig{WorldFrame}(Dict(:a => M_u, :b => Mounted(PlanarTarget(:b), E_u)))
-        rig_mm = Rig{WorldFrame}(Dict(:a => M_mm, :b => Mounted(PlanarTarget(:b), E_mm)))
+        rig_u = Rig{WorldFrame}(Dict(:a => M_u, :b => PosedTarget(PlanarTarget(:b), E_u)))
+        rig_mm = Rig{WorldFrame}(Dict(:a => M_mm, :b => PosedTarget(PlanarTarget(:b), E_mm)))
         @test has_units(rig_u) && !has_units(rig_mm)
         W = points(rig_u, :a)
         @test eltype(eltype(W)) <: Quantity
@@ -105,8 +105,8 @@
         @test maps_close(geom(pose(ustrip(mm, rig_u), :b)), geom(pose(rig_mm, :b)))
         # the gauge check reads a unitful identity
         ident_u = EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, 0.0) .* m)
-        @test Rig{TargetFrame{:a}}(Dict(:a => Mounted(PlanarTarget(from_mm.(pts2_mm)), ident_u))) isa Rig
-        @test_throws ArgumentError Rig{TargetFrame{:a}}(Dict(:a => Mounted(PlanarTarget(from_mm.(pts2_mm)), E_u)))
+        @test Rig{TargetFrame{:a}}(Dict(:a => PosedTarget(PlanarTarget(from_mm.(pts2_mm)), ident_u))) isa Rig
+        @test_throws ArgumentError Rig{TargetFrame{:a}}(Dict(:a => PosedTarget(PlanarTarget(from_mm.(pts2_mm)), E_u)))
         # a rig holds one form: a physical member beside a plain one is refused
         @test_throws DimensionError Rig{WorldFrame}(Dict(:a => M_u, :b => M_mm))
     end
@@ -150,7 +150,7 @@
         ))
         @test_throws DimensionError Rig{BodyFrame{:b}}(
             (PosedCamera(model, relabel(BodyFrame{:b}, ViewFrame{:r}, E_u)),),
-            Dict(:t => Mounted(PlanarTarget(pts2_mm), E_mm)),
+            Dict(:t => PosedTarget(PlanarTarget(pts2_mm), E_mm)),
         )
     end
 

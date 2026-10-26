@@ -96,14 +96,14 @@ this class of bug is: *what units is my data in, at every problem I construct?*
 
 A [`Rig`](@ref) is posed in ONE frame `F` (a body `BodyFrame{:camera_rig}`, the
 world, a tracker's room, or a member's own frame — the gauge). Each member is a
-(model, mount) pair and names its own frame:
+(model, pose) pair and names its own frame:
 
-- a sensor's is `ViewFrame{id}`; its mount is its extrinsics, `F → ViewFrame{id}`;
-- a target's is `TargetFrame{id}`; its mount ([`Mounted`](@ref)) is
+- a sensor's is `ViewFrame{id}`; its pose is its extrinsics, `F → ViewFrame{id}`;
+- a target's is `TargetFrame{id}`; its pose ([`PosedTarget`](@ref)) is
   `TargetFrame{id} → F`, stored unlabeled and minted on access. The target's
   geometry — [`points`](@ref)`(target)`, a [`PlanarTarget`](@ref)'s plane
   `z = 0` or a [`PointTarget`](@ref)'s points — is in `TargetFrame{id}` and
-  independent of the mount, so one target can sit in several rigs.
+  independent of the pose, so one target can sit in several rigs.
 
 A capture's per-frame values keep the same frames: a [`Trajectory`](@ref)
 maps one body's frame into one frame over time (`BodyFrame{:board_rig} →

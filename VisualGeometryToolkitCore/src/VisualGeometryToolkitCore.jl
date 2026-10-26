@@ -256,7 +256,7 @@ export aspect_ratio
 # action (section 8 below). `view_frames`/`image_frames` expose the rig's
 # minted per-view ViewFrame/ImageFrame tags.
 export lookat, lookat_pose, pose, extrinsics, is_in_front, StereoRig, depth_transfer
-export Rig, Mounted, source, destination, target_frames  # one Rig for sensors and targets: (model, mount) members; the frame is the gauge
+export Rig, PosedTarget, source, destination, target_frames  # one Rig for sensors and targets: (model, pose) members; the frame is the gauge
 export sensor_rig, target_rig             # the two halves of a rig carrying both
 export AbstractTarget, PointTarget, PlanarTarget, resolve, is_resolved   # the target as a model (targets.jl)
 export AbstractWarp, Rigid, warp_jacobian   # a planar target's warp

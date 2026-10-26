@@ -21,7 +21,7 @@ argument, because the value already carries it.
 |---|---|---|---|
 | `vgio/cameras/v3` (the camera store) | `Dict{Symbol, …}` of name → `BoundedCamera` of a `CameraModel` (unposed, like a COLMAP "camera"), or an `Attributed` one with its `(; calibration)` block | `load(Dict{Symbol, BoundedCamera}, path)`; one camera: `load(BoundedCamera, path; name)` or `load(CameraModel, path; name)` | `save(path, store)` |
 | `vgio/transforms/v3` | `Vector` of labeled `EuclideanMap{3, …, S, D}`, or `Uncertain` ones (mm) | `load(Vector{EuclideanMap}, path)` | `save(path, poses)` |
-| `vgio/rig/v4` | `Rig{F, M}` holding sensors (a tuple of `BoundedCamera`s), targets (a `Dict` of `Mounted` targets), or both | `load(Rig, path; resolve)` | `save(path, rig)` |
+| `vgio/rig/v4` | `Rig{F, M}` holding sensors (a tuple of `BoundedCamera`s), targets (a `Dict` of `PosedTarget`s), or both | `load(Rig, path; resolve)` | `save(path, rig)` |
 | `vgio/target/v1` | one `AbstractTarget` (`PointTarget`, `PlanarTarget{Rigid}`), or an `Attributed` one with its `(; calibration)` block | `load(AbstractTarget, path; resolve)` | `save(path, target)` |
 | `vgio/trajectory/v3` | `Trajectory{S, D}`: labeled poses per frame index, with images, times and recovered flags | `load(Trajectory, path)` | `save(path, tr)`; exporters `save_tum_trajectory`, `save_euroc_trajectory` |
 | `vgio/target_poses/v1` | `TargetPoses{F}`: per frame, `TargetFrame{id} → F` poses; `pose(tp, t, id)` | `load(TargetPoses, path)` | `save(path, tp)`; exporter `save_bop_scene` |
@@ -48,13 +48,13 @@ kinds. A `target_points2d` file corresponds to the `points2D` of COLMAP's
 `images.txt` with their `POINT3D_ID`, where the `(target, index)` pair plays
 the role of the `POINT3D_ID`. A rig of targets (the targets of a `rig/v4`)
 corresponds to COLMAP's `points3D`. It is kept as per-target frames, with each
-target's points in its own `TargetFrame` and placed by its mount. It stores no
+target's points in its own `TargetFrame` and placed by its pose. It stores no
 tracks, because the measurements are the tracks.
 
 ## Targets
 
-A rig's target member is VGC's `Mounted(target, mount)`: the target's geometry
-(an `AbstractTarget`) and its mount in the rig frame. How each target is
+A rig's target member is VGC's `PosedTarget(target, pose)`: the target's geometry
+(an `AbstractTarget`) and its pose in the rig frame. How each target is
 written:
 
 - A `PointTarget` is written with its points, and with their covariances if

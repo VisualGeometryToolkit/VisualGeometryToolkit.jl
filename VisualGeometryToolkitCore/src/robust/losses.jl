@@ -812,9 +812,9 @@ The loss at position `μ` on its graduation path. `μ = 1` is the target for the
 The homotopy's endpoint. A deployed loss IS the target; an annealed one
 unwraps to it. GNC graduates at [`sq_loss_width`](@ref) but best-tracks against this.
 
-NOT `target`: that name is the stereo-rig accessor (`target(::StereoRig)`,
-geometry/cameras/stereo.jl), exported since 0.25 and meaning the second camera
-of a pair — a different concept that must not share a generic with this one.
+NOT `target`: a target in this stack is a calibration target
+([`AbstractTarget`](@ref), [`PosedTarget`](@ref)) — a different concept that
+must not share a name with this one.
 """
 target_loss(loss::DeployedLoss) = loss
 target_loss(annealed::AnnealedLoss) = annealed.value

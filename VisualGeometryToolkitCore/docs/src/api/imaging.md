@@ -37,8 +37,8 @@ Pages = ["cameras/targets.jl"]
 ## Rigs
 
 A [`Rig`](@ref) is members with fixed poses in one frame, each a (model,
-mount) pair: a camera (its model and rig-relative extrinsics) or a
-[`Mounted`](@ref) target. Sensors only, targets only, or both (a camera rig
+pose) pair: a camera (its model and rig-relative extrinsics) or a
+[`PosedTarget`](@ref). Sensors only, targets only, or both (a camera rig
 carrying its marker constellation).
 
 ```@autodocs

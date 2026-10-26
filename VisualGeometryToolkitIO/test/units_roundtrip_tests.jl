@@ -62,7 +62,7 @@ end
 
 @testitem "units: a writer refuses plain numbers where a length is meant" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitCore: Rig, Mounted, PlanarTarget, PointTarget, Trajectory, TargetPoses, TargetPoints3D,
+    using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, PointTarget, Trajectory, TargetPoses, TargetPoints3D,
         TargetPoints2D, BoundedCamera, PosedCamera, StereoRig, WorldFrame, BodyFrame, CameraFrame, TargetFrame, relabel, has_units
 
     refused(f) = try
@@ -78,7 +78,7 @@ end
         @test refused(() -> save(p, [relabel(WorldFrame, CameraFrame, plain)]))
         @test refused(() -> save(p, Trajectory(BodyFrame{:a}, WorldFrame, Dict(1 => plain))))
         @test refused(() -> save(p, TargetPoses{CameraFrame}(Dict(1 => Dict(:a => plain)); images = Dict(1 => "a"), sensors = "c")))
-        @test refused(() -> save(p, Rig{WorldFrame}(Dict(:a => Mounted(PlanarTarget(pts), plain)))))
+        @test refused(() -> save(p, Rig{WorldFrame}(Dict(:a => PosedTarget(PlanarTarget(pts), plain)))))
         @test refused(() -> save(p, StereoRig(BoundedCamera(PosedCamera(K, one(RotMatrix{3, Float64}), zero(SVector{3, Float64})), Size2(1280, 960)),
             BoundedCamera(PosedCamera(K, one(RotMatrix{3, Float64}), SVector(120.0, 0.0, 0.0)), Size2(1280, 960)))))
         @test refused(() -> save(p, TargetPoints3D{WorldFrame}(Dict(1 => [(target = :a, index = 1, xyz = SVector(1.0, 2.0, 3.0))]); sensors = "m")))
@@ -89,11 +89,11 @@ end
         @test refused(() -> colmap_image(plain, 1, 1, "a.png"))
         @test refused(() -> save_opencv_calibration(p, CameraModel(CameraCalibrationMat(K)), [plain]; rms = 0.1, to_unit = mm, images = ["a"]))
         # the correspondences export reads its object points from the targets
-        targets = Rig{TargetFrame{:a}}(Dict(:a => Mounted(PlanarTarget(pts), EuclideanMap(one(RotMatrix{3, Float64}), zero(SVector{3, Float64})))))
+        targets = Rig{TargetFrame{:a}}(Dict(:a => PosedTarget(PlanarTarget(pts), EuclideanMap(one(RotMatrix{3, Float64}), zero(SVector{3, Float64})))))
         obs = TargetPoints2D{PixelFrame{:colmap}}(Dict(1 => [(; target = :a, index = 1, xy = SVector(1.0, 2.0), weight = 1.0)]); images = Dict(1 => "a.png"), sensors = "cam")
         @test refused(() -> save_correspondences(p, obs, targets))
         # a resolver of a referenced design hands back lengths
-        save(p, Rig{WorldFrame}(Dict(:b => Mounted(PlanarTarget(:b), EuclideanMap(one(RotMatrix{3, Float64}), SVector(1.0, 2.0, 3.0) .* mm)))))
+        save(p, Rig{WorldFrame}(Dict(:b => PosedTarget(PlanarTarget(:b), EuclideanMap(one(RotMatrix{3, Float64}), SVector(1.0, 2.0, 3.0) .* mm)))))
         @test refused(() -> load(Rig, p; resolve = _ -> pts))
         @test has_units(load(Rig, p; resolve = _ -> [x .* mm for x in pts])[:b].target)
     end
@@ -217,7 +217,7 @@ end
 @testitem "units: a rig's identity survives a load, full-precision numbers included" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitCore: Rig, TargetPoints2D
     # 287.15788802842013 mm has no metre value that writes back to it (it comes
-    # back 287.1578880284201): a file of computed mounts names the same targets
+    # back 287.1578880284201): a file of computed target poses names the same targets
     # loaded or by path.
     fixtures = joinpath(@__DIR__, "fixtures", "units")
     mktempdir() do dir

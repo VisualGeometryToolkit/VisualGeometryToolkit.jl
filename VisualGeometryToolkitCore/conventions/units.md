@@ -16,7 +16,7 @@ an estimator's entry and once at its exit.
 
 | Layer | Holds |
 |---|---|
-| Public values (held by users, handed between packages, persisted): `EuclideanMap` translations, `PlanarTarget` and `PointTarget` points, `Rig` mounts, `Trajectory`, `TargetPoses`, `TargetPoints3D`, sensor and board sizes | FlexUnits quantities for every physical length, in metres; a dimensionless quantity where a public value has no unit |
+| Public values (held by users, handed between packages, persisted): `EuclideanMap` translations, `PlanarTarget` and `PointTarget` points, `Rig` target poses, `Trajectory`, `TargetPoses`, `TargetPoints3D`, sensor and board sizes | FlexUnits quantities for every physical length, in metres; a dimensionless quantity where a public value has no unit |
 | IO | a file declares its `length_unit`; a reader returns quantities, and a writer writes numbers in the declared unit |
 | Estimator, renderer and solver entry and exit (`fit_*`, `find_*`, `refine_*`, a one-step algorithm's public form) | one strip into the private working unit at entry, one reattachment at exit |
 | Inner loop (minimal kernels, `*_step` updates, `!` workspace forms, RANSAC internals, LM rows and charts, GPU kernels) | plain numbers of eltype `T` (`Float64`, `Float32`, a ForwardDiff `Dual`) |

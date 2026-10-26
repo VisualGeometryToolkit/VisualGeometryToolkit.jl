@@ -123,6 +123,11 @@ export slope, intercept, clip_to_rect
 # Batched SoA ray-plane intersection (0.14; hoisted from RayTracedCalibration):
 # broadcasted hit points + ray parameters of SoA ray bundles against a Plane3D.
 public ray_plane_intersection
+# The surface a ray meets (geometry/primitives/surfaces.jl): one protocol,
+# isbits and allocation-free. The verbs are generic words, so they stay public
+# (qualified access), as `model` does.
+export Quad, HeightSurface
+public intersection, chart, bounds
 
 # -----------------------------------------------------------------------------
 # 2. TRANSFORMS - Maps for transforming geometry
@@ -806,6 +811,7 @@ include("numerics/special.jl")    # device-safe lgamma/digamma/trigamma (adaptat
 include("numerics/small_lu.jl")   # in-register partial-pivot LU for fixed-size systems
 include("numerics/ka_reduce.jl")  # KernelAbstractions workgroup tree reduction
 include("numerics/thin_plate_spline.jl")   # thin-plate spline: host-side solver, isbits allocation-free evaluator
+include("geometry/primitives/surfaces.jl")   # Quad, HeightSurface: the surface a ray meets (needs the thin-plate evaluator)
 include("base/raster.jl")         # array plotting without Makie (masks, debug frames)
 include("geometry/primitives/bbox.jl")   # shape → SpatialIndexing.Rect (needs frames + dilate)
 # Allocation-free R-tree queries (intersection, nearest neighbour) and the

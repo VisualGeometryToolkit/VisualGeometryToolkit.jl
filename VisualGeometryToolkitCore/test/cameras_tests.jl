@@ -144,6 +144,16 @@ end
             @test isapprox(J, Jfd; rtol = 1.0e-6)
         end
         cm = CameraModel(K; lens = KannalaBrandt(-0.04, 0.01))
+        # end to end in the intrinsics: θ → Dual intrinsics → camera → bearing / pixel
+        intr = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(300.0, 0, 0, 1.5, 310.0, 0, 320.0, 240.0, 1)))
+        θ0 = collect(parameter_vector(intr))
+        for lens in (KannalaBrandt(-0.04, 0.01), Lens(DoubleSphere(-0.2, 0.6)))
+            bearing(θ) = Vector(backproject(CameraModel(with_parameters(intr, θ); lens), SVector(400.3, 287.1)))
+            pixel(θ) = Vector(project(CameraModel(with_parameters(intr, θ); lens), SVector(0.1, 0.2, 1.0)))
+            for h in (bearing, pixel)
+                @test isapprox(ForwardDiff.jacobian(h, θ0), FiniteDiff.finite_difference_jacobian(h, θ0, Val(:central)); rtol = 1.0e-6)
+            end
+        end
         # integer pixels: the bearing of their floating-point value
         @test backproject(cm, SVector(400, 300)) == backproject(cm, SVector(400.0, 300.0))
         @test backproject(cm, [SVector(400, 300)]) == [backproject(cm, SVector(400.0, 300.0))]

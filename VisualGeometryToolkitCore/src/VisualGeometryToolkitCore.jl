@@ -24,6 +24,8 @@ BlobBoards build on it.
   fundamental-matrix solvers) and the manifolds their models are refined on.
 - The robust-loss family (`AbstractLossShape`, `deploy`), the block-coordinate-descent/LO interface
   shared with VisualGeometryToolkitEstimation, and `FitResult`, the one fit return type.
+- Numerics: the B-spline kernels and the thin-plate spline (`ThinPlateSpline`,
+  `tps_coefficients`, `tps_evaluate`, `tps_gradient`), public, not exported.
 - Units: FlexUnits as shipped, plus the registered `px`, `pd`, `dpi` and `pt` (`mm`, `px`, `dpi`, `Size2`).
 
 Plotting loads as a package extension with any Makie backend.
@@ -182,6 +184,10 @@ public ExecutionPolicy, Auto, Serial, Threaded, THREADED_MIN_LENGTH
 # derivative surfaces; the rrules live in the ChainRulesCore extension.
 public bspline_basis_iterative, evaluate_bspline_surface, bspline_surface_partial
 public evaluate_bspline_4d, bspline_4d_partial, contract_basis_4d_weighted
+# Thin-plate spline (hoisted from RadiometricCamera, arithmetic unchanged): the
+# host-side solver object and the isbits, kernel-safe evaluator and gradient.
+public ThinPlateSpline, tps_radial_basis, grid_nodes, tps_coefficients
+public tps_evaluate, tps_gradient, nodal_weights, bending_energy
 
 # Coordinate conversions
 export to_homogeneous, to_affine, to_euclidean
@@ -796,6 +802,7 @@ include("numerics/bspline.jl")
 include("numerics/special.jl")    # device-safe lgamma/digamma/trigamma (adaptation kernels)
 include("numerics/small_lu.jl")   # in-register partial-pivot LU for fixed-size systems
 include("numerics/ka_reduce.jl")  # KernelAbstractions workgroup tree reduction
+include("numerics/thin_plate_spline.jl")   # thin-plate spline: host-side solver, isbits kernel-safe evaluator
 include("base/raster.jl")         # array plotting without Makie (masks, debug frames)
 include("geometry/primitives/bbox.jl")   # shape → SpatialIndexing.Rect (needs frames + dilate)
 # Allocation-free R-tree queries (intersection, nearest neighbour) and the

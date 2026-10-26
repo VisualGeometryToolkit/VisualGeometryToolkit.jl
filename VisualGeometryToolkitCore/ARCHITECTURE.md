@@ -153,6 +153,7 @@ include("numerics/bspline.jl")                   # B-spline surfaces (grid camer
 include("numerics/special.jl")                   # device-safe lgamma/digamma/trigamma
 include("numerics/small_lu.jl")                  # in-register partial-pivot LU for fixed-size systems
 include("numerics/ka_reduce.jl")                 # KernelAbstractions workgroup tree reduction
+include("numerics/thin_plate_spline.jl")         # thin-plate spline: host-side solver, isbits evaluator
 include("base/raster.jl")                        # array plotting without Makie (masks, debug frames)
 include("geometry/primitives/bbox.jl")           # shape → SpatialIndexing.Rect (needs frames + dilate)
 include("geometry/spatial_queries.jl")           # SpatialQueries submodule: allocation-free R-tree queries

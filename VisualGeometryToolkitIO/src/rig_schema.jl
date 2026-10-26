@@ -188,7 +188,8 @@ const _TARGET_SPEC = _Obj(
 Write one physical target as a `vgio/target/v1` file — its body (rig_schema.jl)
 in `length_unit` and, for an `Attributed` one, its `calibration` block (the
 same block a camera carries: who fitted it, when, from what). Plain points are
-an `ArgumentError`.
+an `ArgumentError`, and so is a `PosedTarget`: the file holds an unposed
+target, so save its `model`, or the posed one inside a `Rig`.
 """
 save(path::AbstractString, t::AbstractTarget; length_unit::Units = mm, provenance::NamedTuple = (;)) = (
     _write_store(
@@ -207,6 +208,17 @@ function save(
     _write_store(path, _TARGET_SPEC, _with_provenance(body, provenance))
     return nothing
 end
+# A `vgio/target/v1` file holds an UNPOSED target: a posed one is refused here,
+# before anything is written, rather than deep inside the writer. Its pose is a
+# rig member's, written by the rig writer.
+_refuse_posed_target(path) = throw(
+    ArgumentError(
+        "save($(repr(path)), ::PosedTarget): a vgio/target/v1 file holds an unposed target — save `model(pt)`, " *
+            "or the posed target as a member of a rig with the rig writer: `save(path, Rig{F}(Dict(id => pt)))`"
+    )
+)
+save(path::AbstractString, ::PosedTarget; kwargs...) = _refuse_posed_target(path)
+save(path::AbstractString, ::Attributed{<:PosedTarget, <:NamedTuple{(:calibration,)}}; kwargs...) = _refuse_posed_target(path)
 
 """
     load(AbstractTarget, path; resolve = nothing) -> AbstractTarget | Attributed{<:AbstractTarget}

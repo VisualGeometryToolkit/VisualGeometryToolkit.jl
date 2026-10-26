@@ -246,6 +246,16 @@ end
         dt = parse_json(read(tp, String))
         @test dt.schema == "vgio/target/v1" && !haskey(dt, :calibration)
         @test_throws ArgumentError save(tp, Attributed(markers, (; calibration = (; date = "May 2026"))))
+        # a posed target is not a target file: refused at save, naming the model and the rig writer, nothing written
+        posed = PosedTarget(markers, ident)
+        tq = joinpath(dir, "posed.json")
+        for x in (posed, Attributed(posed, (; calibration = cal)))
+            e = try save(tq, x); nothing catch err; err end
+            @test e isa ArgumentError && occursin("model(pt)", e.msg) && occursin("rig writer", e.msg)
+        end
+        @test !isfile(tq)
+        save(tq, model(posed))                                        # its model is
+        @test load(AbstractTarget, tq) == markers
         # a target file holding a referenced design reads back unresolved unless resolved
         save(tp, PlanarTarget(:b76e))
         @test !is_resolved(load(AbstractTarget, tp))

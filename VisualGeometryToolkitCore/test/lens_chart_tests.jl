@@ -250,3 +250,49 @@ end
         @test LensManifold(KannalaBrandt(-0.02)) isa LensManifold   # unbounded: accepted
     end
 end
+
+# convert_eltype: a lens, intrinsics, camera model or grid model rebuilt in
+# another float type, and back.
+@testitem "convert_eltype" begin
+    using Test, StaticArrays
+    using VisualGeometryToolkitCore
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: convert_eltype, CentralGenericModel, NoncentralGenericModel, Division, CONTRACT_GENERICS
+
+    @test convert_eltype in CONTRACT_GENERICS && Base.ispublic(VgtkCore, :convert_eltype) && !Base.isexported(VgtkCore, :convert_eltype)
+    # within one Float32 rounding of the value (relative), back in Float64
+    near(a, b) = all(abs.(a .- b) .<= eps(Float32) .* max.(abs.(b), 1))
+
+    for lens in (KannalaBrandt(-0.04, 0.01), Lens(DoubleSphere(-0.2, 0.6)), Division(-0.1))
+        l32 = convert_eltype(Float32, lens)
+        @test eltype(parameter_vector(l32)) === Float32
+        l64 = convert_eltype(Float64, l32)
+        @test typeof(l64) === typeof(lens) && near(parameter_vector(l64), parameter_vector(lens))
+    end
+
+    intr = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(800.1, 0, 0, 1.5, 1000.3, 0, 320.7, 240.2, 1)))
+    i32 = convert_eltype(Float32, intr)
+    @test i32 isa LogicalIntrinsics{Float32} && eltype(i32.K_inv) === Float32
+    i64 = convert_eltype(Float64, i32)
+    @test i64 isa LogicalIntrinsics{Float64} && near(i64.K, intr.K) && near(i64.K_inv, intr.K_inv)
+
+    cm = CameraModel(intr; lens = KannalaBrandt(-0.04, 0.01))
+    c32 = convert_eltype(Float32, cm)
+    @test c32 isa CameraModel{LogicalIntrinsics{Float32}} && eltype(parameter_vector(c32.lens)) === Float32
+    u = SVector(400.5f0, 300.25f0)
+    @test eltype(backproject(c32, u)) === Float32
+    c64 = convert_eltype(Float64, c32)
+    @test typeof(c64) === typeof(cm) && near(c64.intrinsics.K, cm.intrinsics.K)
+
+    K = @SMatrix [300.0 0.0 320.0; 0.0 300.0 240.0; 0.0 0.0 1.0]
+    src = CameraModel(CameraCalibrationMat(K); lens = Division(-0.1))
+    g = CentralGenericModel(src, (640, 480); grid_size = (12, 10))
+    g32 = convert_eltype(Float32, g)
+    @test g32 isa CentralGenericModel{Float32}
+    g64 = convert_eltype(Float64, g32)
+    @test g64 isa CentralGenericModel{Float64} && all(near(a, b) for (a, b) in zip(g64.grid, g.grid))
+    n = NoncentralGenericModel(src, (640, 480); grid_size = (12, 10))
+    n32 = convert_eltype(Float32, n)
+    @test n32 isa NoncentralGenericModel{Float32}
+    @test all(near(a, b) for (a, b) in zip(convert_eltype(Float64, n32).directions, n.directions))
+end

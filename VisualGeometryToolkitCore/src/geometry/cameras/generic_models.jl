@@ -670,6 +670,8 @@ _precision(::Type{T}, m::NoncentralGenericModel) where {T <: AbstractFloat} =
     m.width, m.height, m.calib_min_x, m.calib_min_y,
     m.calib_max_x, m.calib_max_y, Vec3{T}.(m.directions), Vec3{T}.(m.points)
 )
+convert_eltype(::Type{T}, m::Union{CentralGenericModel, NoncentralGenericModel}) where {T <: AbstractFloat} =
+    _precision(T, m)
 
 # ------------------------------------------------------------------------------
 # Undistortion through the generic model — coarse-inverse remap

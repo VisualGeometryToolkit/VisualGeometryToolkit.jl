@@ -155,8 +155,8 @@ const CONTRACT_GENERICS = (
     # the lens parameter chart downstream lenses and warps implement (geometry/cameras/lens_chart.jl)
     parameter_vector, parameter_names, parameter_bounds, with_parameters,
     # the camera maps a downstream camera, lens or intrinsics implements
-    # (geometry/cameras/camera_models.jl, lens_rays.jl)
-    project, backproject,
+    # (geometry/cameras/camera_models.jl, lens_rays.jl), and its float-type conversion
+    project, backproject, convert_eltype,
     # the Manifold protocol (base/manifold.jl): what a downstream Manifold subtype
     # must implement (tangent_size, retract, recenter) and may override
     # (local_coordinates, retract_jacobian, action_jacobian, zero_tangent,
@@ -191,7 +191,7 @@ VisualGeometryToolkitCore's, by group:
   types (`centroid`, `intrinsics`, `lens`, `model`, …);
 - the parameter protocol (`parameter_vector`, `parameter_names`,
   `parameter_bounds`, `with_parameters`);
-- the camera maps `project` and `backproject`;
+- the camera maps `project` and `backproject`, and `convert_eltype`;
 - the `Manifold` protocol: `tangent_size`, `retract` and `recenter`
   (required), `local_coordinates`, `retract_jacobian`, `action_jacobian`,
   `zero_tangent`, `restrict`, `tangent_part` and `transform_covariance`

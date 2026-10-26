@@ -129,6 +129,25 @@ end
 _precision(::Type{T}, l::AbstractLensModel) where {T <: AbstractFloat} =
     _with_parameters(l, map(T, parameter_vector(l)))
 
+"""
+    convert_eltype(::Type{T}, x) where {T <: AbstractFloat}
+
+`x` rebuilt with every stored number in `T`: a lens (its coefficients), a
+`LogicalIntrinsics` (`K`, with `K⁻¹` recomputed in `T`), a `CameraModel`
+(both), a `CentralGenericModel` or `NoncentralGenericModel` (the grids;
+the calibrated area stays as stored). Use it to move a camera to `Float32`
+before a GPU launch, or back to `Float64`. A lens and a grid model go through
+the same conversion the batched and fused kernels apply per launch.
+
+Public, not exported; a downstream camera or lens type adds its own method.
+"""
+function convert_eltype end
+convert_eltype(::Type{T}, l::AbstractLensModel) where {T <: AbstractFloat} = _precision(T, l)
+convert_eltype(::Type{T}, intr::LogicalIntrinsics) where {T <: AbstractFloat} =
+    LogicalIntrinsics(CameraCalibrationMat{T}(intr.K))
+convert_eltype(::Type{T}, m::CameraModel) where {T <: AbstractFloat} =
+    CameraModel(convert_eltype(T, m.intrinsics), convert_eltype(T, m.lens))
+
 # --- the lens manifold -------------------------------------------------------------
 
 """

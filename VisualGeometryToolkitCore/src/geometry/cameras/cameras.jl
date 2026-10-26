@@ -879,6 +879,7 @@ export distortion_map                  # Undistorted→distorted COLMAP pixel ma
 export imaging_transform, pinhole
 export undistort_normalized, InverseLens
 export parameter_vector, parameter_names, parameter_bounds, with_parameters
+export convert_eltype                  # a camera, lens or intrinsics in another float type (public, not exported, at the top level)
 export project_with_jacobians          # the image point and both lens Jacobians in one evaluation (lens_rays.jl)
 export reprojection_error              # project(camera, pose(X)) − u, Jacobian-free (camera_models.jl)
 export has_distortion

@@ -516,7 +516,7 @@
         @test size(T) == (12, 6)
         # the chart's own retraction in its ambient coordinates (the MRP left
         # rotation and the free translation checked explicitly above)
-        amb(v) = VgtkCore._ambient_coordinates(retract(ch, v))
+        amb(v) = VgtkCore.ambient_coordinates(retract(ch, v))
         fd = FiniteDiff.finite_difference_jacobian(amb, zero(SVector{6, Float64}), Val(:central))
         for q in 1:6
             @test maximum(abs.(T[:, q] .- fd[:, q])) < 1.0e-6 * max(1.0, maximum(abs.(fd[:, q])))

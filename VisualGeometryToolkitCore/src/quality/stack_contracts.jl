@@ -160,10 +160,12 @@ const CONTRACT_GENERICS = (
     # the Manifold protocol (base/manifold.jl): what a downstream Manifold subtype
     # must implement (tangent_size, retract, recenter) and may override
     # (local_coordinates, retract_jacobian, action_jacobian, zero_tangent,
-    # restrict, tangent_part, transform_covariance), and minimal_manifold, which
-    # a downstream model type answers with its manifold (`model` is above)
+    # restrict, tangent_part, transform_covariance), and the two a downstream
+    # model type answers: minimal_manifold (its manifold) and ambient_coordinates
+    # (what the default retract_jacobian differentiates; `model` is above)
     tangent_size, retract, recenter, local_coordinates, retract_jacobian, action_jacobian,
     zero_tangent, restrict, tangent_part, transform_covariance, minimal_manifold,
+    ambient_coordinates,
     # the plotting stubs (visualization_stubs.jl) the Makie extensions implement
     imshow!, poly!, matches, matches!, ellipses!,
 )
@@ -195,7 +197,9 @@ VisualGeometryToolkitCore's, by group:
 - the `Manifold` protocol: `tangent_size`, `retract` and `recenter`
   (required), `local_coordinates`, `retract_jacobian`, `action_jacobian`,
   `zero_tangent`, `restrict`, `tangent_part` and `transform_covariance`
-  (optional), and `minimal_manifold`;
+  (optional), and `minimal_manifold` and `ambient_coordinates`, which a
+  downstream model type answers (a model that is not a static array or a tuple
+  of them adds `ambient_coordinates` rather than overriding `retract_jacobian`);
 - the plotting stubs the Makie extensions implement.
 """ CONTRACT_GENERICS
 

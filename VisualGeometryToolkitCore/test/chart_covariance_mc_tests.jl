@@ -46,7 +46,7 @@
         trial(rng) = begin
             pose, chL, Σ̃, est, s2 = pnp_parts(rng)
             (Σ̃ === nothing || est === nothing) && return nothing
-            amb = VgtkCore._ambient_coordinates          # [vec(R); t]
+            amb = VgtkCore.ambient_coordinates          # [vec(R); t]
             (Vector(amb(est[1]) - amb(pose)), s2 .* Matrix(transform_covariance(chL, EuclideanManifold(chL), Σ̃)))
         end
         r = CHar.run_calibration(trial, MersenneTwister(103), 400, 12; cond_cap = 1.0e8)

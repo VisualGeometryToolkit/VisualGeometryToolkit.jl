@@ -205,7 +205,7 @@ function _interior(l::AbstractLensModel)
 end
 
 minimal_manifold(l::AbstractLensModel) = LensManifold(l)
-_ambient_coordinates(l::AbstractLensModel) = parameter_vector(l)
+ambient_coordinates(l::AbstractLensModel) = parameter_vector(l)
 tangent_size(ch::LensManifold) = length(parameter_vector(ch.lens))
 model(ch::LensManifold) = ch.lens
 function retract(ch::LensManifold, v)

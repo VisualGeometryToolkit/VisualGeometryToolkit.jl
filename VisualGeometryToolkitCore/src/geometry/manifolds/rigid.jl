@@ -171,7 +171,7 @@ zero_tangent(ch::RigidChart) = zero(SVector{6, float(eltype(ch.R))})
 # a pose's ambient coordinates, [vec(R); t] — every rigid chart's ambient space.
 # In the pose's float type: the retraction differential is ForwardDiff through
 # it, and a Float32 chart's differential stays Float32.
-function _ambient_coordinates(p::PlainEuclideanMap{3})
+function ambient_coordinates(p::PlainEuclideanMap{3})
     T = float(promote_type(eltype(p.R), eltype(p.t)))
     return vcat(SVector{9, T}(Tuple(SMatrix{3, 3}(p.R))), SVector{3, T}(p.t))
 end

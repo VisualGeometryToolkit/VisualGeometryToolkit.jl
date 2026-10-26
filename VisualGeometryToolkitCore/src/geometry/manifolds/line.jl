@@ -20,7 +20,7 @@ struct Line2DManifold{T} <: Manifold
 end
 
 tangent_size(::Line2DManifold) = 2
-_ambient_coordinates(l::Line2D) = coeffs(l)
+ambient_coordinates(l::Line2D) = coeffs(l)
 model(ch::Line2DManifold) = ch.line
 
 function retract(ch::Line2DManifold, v)

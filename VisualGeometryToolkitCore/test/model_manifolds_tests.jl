@@ -168,7 +168,7 @@
     @testset "retract_jacobian(ch, v) at v ≠ 0, every chart, against central differences" begin
         # central differences, not ForwardDiff: retract_jacobian is itself
         # ForwardDiff through the retraction, and the check must be independent
-        cdiff(ch, v) = FiniteDiff.finite_difference_jacobian(w -> VgtkCore._ambient_coordinates(retract(ch, w)), v, Val(:central))
+        cdiff(ch, v) = FiniteDiff.finite_difference_jacobian(w -> VgtkCore.ambient_coordinates(retract(ch, w)), v, Val(:central))
         R0 = RotMatrix{3, Float64}(RotXYZ(0.3, -0.2, 0.5)); t0 = normalize(SVector(1.0, -2.0, 3.0))
         F0 = SMatrix{3, 3, Float64}(1.0e-6, -2.0e-5, 3.0e-3, 4.0e-5, 1.0e-6, -2.0e-2, -1.0e-3, 2.0e-2, 1.0)
         H0 = SMatrix{3, 3, Float64}(1.1, 0.02, 1.0e-4, -0.03, 0.95, 2.0e-4, 12.0, -7.0, 1.0)
@@ -326,9 +326,9 @@ end
         # model is the retraction at the anchor coordinates zero_tangent
         @test zero_tangent(ch) == zero(SVector{D})
         m, r0 = model(ch), retract(ch, zero_tangent(ch))
-        @test VgtkCore._ambient_coordinates(m) ≈ VgtkCore._ambient_coordinates(r0) atol = 1.0e-15
+        @test VgtkCore.ambient_coordinates(m) ≈ VgtkCore.ambient_coordinates(r0) atol = 1.0e-15
         # the generic retraction differential against central differences
-        f(w) = VgtkCore._ambient_coordinates(retract(ch, w))
+        f(w) = VgtkCore.ambient_coordinates(retract(ch, w))
         Tfd = FiniteDiff.finite_difference_jacobian(f, v, Val(:central))
         @test retract_jacobian(ch, v) ≈ Tfd rtol = 1.0e-7 atol = 1.0e-8
         ch isa RigidChart || continue
@@ -339,4 +339,27 @@ end
         @test local_coordinates(ch, retract(ch, v)) ≈ v rtol = 1.0e-10
         @test SMatrix{3, 3}(model(recenter(ch, v)).R) ≈ SMatrix{3, 3}(retract(ch, v).R) rtol = 1.0e-12
     end
+end
+
+# A manifold whose model is a plain struct implements the protocol from outside:
+# the model's `ambient_coordinates` method is all the defaults of
+# `retract_jacobian` and `action_jacobian` need.
+@testitem "manifold on a struct model" begin
+    using Test, StaticArrays
+    import VisualGeometryToolkitCore as VgtkCore
+    @eval struct _Gain{T <: Real}       # generic in T: the default Jacobian retracts Duals
+        g::T
+        b::T
+    end
+    @eval VgtkCore.ambient_coordinates(m::_Gain) = SVector(m.g, m.b)
+    @eval struct _GainManifold{T} <: VgtkCore.Manifold
+        anchor::_Gain{T}
+    end
+    @eval VgtkCore.tangent_size(::_GainManifold) = 2
+    @eval VgtkCore.retract(ch::_GainManifold, v) = _Gain(ch.anchor.g * exp(v[1]), ch.anchor.b + v[2])
+    @eval VgtkCore.recenter(ch::_GainManifold, v) = _GainManifold(VgtkCore.retract(ch, v))
+    ch = _GainManifold(_Gain(2.0, 0.5))
+    @test VgtkCore.retract_jacobian(ch) ≈ [2.0 0.0; 0.0 1.0]
+    @test VgtkCore.retract_jacobian(ch, SVector(log(1.5), 0.0)) ≈ [3.0 0.0; 0.0 1.0]
+    @test VgtkCore.model(ch) == _Gain(2.0, 0.5)
 end

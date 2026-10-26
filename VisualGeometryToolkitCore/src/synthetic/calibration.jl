@@ -769,8 +769,8 @@ _chart_coordinates(ch, θ̂) = local_coordinates(ch, SMatrix{3, 3, Float64, 9}(�
 #              free of the chart's own nonlinearity along its weak directions.
 _trial_error(::Val{:chart}, ch, θ̂, v) = Vector(v)
 function _trial_error(::Val{:ambient}, ch, θ̂, v)
-    m0 = Vector(_ambient_coordinates(model(ch)))
-    m̂ = Vector(_ambient_coordinates(θ̂))
+    m0 = Vector(ambient_coordinates(model(ch)))
+    m̂ = Vector(ambient_coordinates(θ̂))
     T = Matrix(retract_jacobian(ch))
     θ̂ isa EuclideanMap && return pinv(T) * (m̂ - m0)
     ws = pinv(hcat(T, -m̂)) * (-m0)                 # [T  −θ̂]·[w; s] ≈ −θ_gt

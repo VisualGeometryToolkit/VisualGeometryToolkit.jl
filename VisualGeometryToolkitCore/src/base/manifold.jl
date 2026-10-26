@@ -74,6 +74,10 @@ Local coordinate system anchored at a model iterate. Contract:
   manifold has one;
 - `local_coordinates(ch, target)` — the inverse retraction (closed form for
   the rigid and lens manifolds, Gauss–Newton for the projective ones);
+- `ambient_coordinates(model)` — the model's ambient coordinate vector, which
+  the default `retract_jacobian` (and so the default `action_jacobian` and
+  `transform_covariance`) differentiates; provided for static arrays and
+  tuples of them, and added by every other model a manifold retracts to;
 - covariance transport through the retraction, first order:
   `transform_covariance(ch, EuclideanManifold(ch), Σv)` to the ambient space and
   back, or to another chart of the same model (see header).
@@ -122,7 +126,7 @@ does not override it is `_retract_jacobian_fd`, ForwardDiff through `retract`
 — exact to first order with no hand-derivation risk, and every closed-form
 override is pinned against it in the manifold contract tests. A linear chart
 (`LensManifold`) returns the identity. The default needs only `retract` and the
-model's `_ambient_coordinates`.
+model's `ambient_coordinates`.
 
 Public, not exported; VisualGeometryToolkitEstimation builds its LM and covariance steps
 on it.
@@ -186,7 +190,7 @@ end
 # hand-derivation risk (pinned against central differences in the manifold
 # contract tests). The default of `retract_jacobian`.
 _retract_jacobian_fd(ch::Manifold, v::StaticVector) =
-    ForwardDiff.jacobian(w -> _ambient_coordinates(retract(ch, w)), v)
+    ForwardDiff.jacobian(w -> ambient_coordinates(retract(ch, w)), v)
 
 """
     transform_covariance(from::Manifold, to::Manifold, Σ) -> Matrix
@@ -209,12 +213,24 @@ GTSAM equivalent: `TransformCovariance<T>` (a group-frame change), and the
 transform_covariance(from::Manifold, to::Manifold, Σ::AbstractMatrix) =
     propagate(pinv(retract_jacobian(to)), propagate(retract_jacobian(from), Σ))
 
-# The ambient coordinates of a model — the vector its charts' `retract_jacobian`
-# differentiates, the anchor of its ambient chart `EuclideanManifold(ch)`. Every
-# model a chart retracts to adds its method beside its chart.
-_ambient_coordinates(M::StaticMatrix) = SVector{length(M)}(Tuple(M))
-_ambient_coordinates(x::StaticVector) = x
-_ambient_coordinates(parts::Tuple) = vcat(map(_ambient_coordinates, parts)...)
+"""
+    ambient_coordinates(model) -> SVector
+
+The model's AMBIENT coordinates: the vector its manifolds' default
+[`retract_jacobian`](@ref) differentiates (so the default
+[`action_jacobian`](@ref) and [`transform_covariance`](@ref) too), and the
+anchor of its ambient chart `EuclideanManifold(ch)`. A static matrix is its
+column-major entries, a static vector itself, a tuple the concatenation of its
+parts'. Every model a manifold retracts to adds its method beside its
+manifold — a downstream model that is not a static array or a tuple of them
+adds one too, rather than overriding `retract_jacobian`.
+
+Public, not exported; a contract generic.
+"""
+function ambient_coordinates end
+ambient_coordinates(M::StaticMatrix) = SVector{length(M)}(Tuple(M))
+ambient_coordinates(x::StaticVector) = x
+ambient_coordinates(parts::Tuple) = vcat(map(ambient_coordinates, parts)...)
 
 """
     restrict(ch::Manifold, free::SVector{D, Bool}) -> SubsetManifold

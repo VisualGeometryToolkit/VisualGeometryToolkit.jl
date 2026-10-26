@@ -27,7 +27,7 @@ lens's parameters, …) — where [`transform_covariance`](@ref) pushes a covari
 to, `transform_covariance(ch, EuclideanManifold(ch), Σv)`, and pulls it from,
 `transform_covariance(EuclideanManifold(ch), ch, Σ)`.
 """
-EuclideanManifold(ch::Manifold) = EuclideanManifold(_ambient_coordinates(model(ch)))
+EuclideanManifold(ch::Manifold) = EuclideanManifold(ambient_coordinates(model(ch)))
 
 tangent_size(::EuclideanManifold{N}) where {N} = N
 model(ch::EuclideanManifold) = ch.x

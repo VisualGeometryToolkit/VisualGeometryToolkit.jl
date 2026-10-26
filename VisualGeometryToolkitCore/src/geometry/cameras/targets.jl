@@ -245,7 +245,7 @@ struct TargetManifold{T <: AbstractTarget} <: Manifold
     target::T
 end
 minimal_manifold(t::PlanarTarget) = TargetManifold(t)
-_ambient_coordinates(t::PlanarTarget) = parameter_vector(t)
+ambient_coordinates(t::PlanarTarget) = parameter_vector(t)
 tangent_size(ch::TargetManifold) = length(parameter_vector(ch.target))
 model(ch::TargetManifold) = ch.target
 retract(ch::TargetManifold, v) = with_parameters(ch.target, parameter_vector(ch.target) + v)

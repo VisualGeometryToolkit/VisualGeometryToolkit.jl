@@ -468,6 +468,7 @@ public RigidExpManifold6    # the decoupled pose chart: exp on R from the left, 
 public RigidChart, RotationParam, MRPParam, ExpParam, TranslationCoupling, FreeT, CarriedT   # the rigid chart family the three pose charts alias
 public EssentialManifold, EssentialTranslation, S2TangentT, RenormalizedT   # the essential chart family EssentialManifold5/6 alias
 public zero_tangent   # a chart's anchor coordinates, v = 0, in its float type
+public ambient_coordinates   # a model's ambient coordinates, which a manifold's default retract_jacobian differentiates
 public SphereManifold       # S^{N−1}: a model up to scale and sign (minimal_manifold(::RadialCamera))
 public EuclideanManifold, ProductManifold   # a plain vector; a model of independent parts (minimal_manifold(::RadialHomography))
 public Line2DManifold       # a 2D line: normal angle ⊕ offset (minimal_manifold(::Line2D))

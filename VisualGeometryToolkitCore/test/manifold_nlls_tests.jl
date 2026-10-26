@@ -38,7 +38,7 @@ NLLSsolver.computeresidual(r::_PointResidual, ch::RigidExpManifold6) = model(ch)
 Base.eltype(::_PointResidual) = Float64
 
 nvars_of(ch) = NLLSsolver.nvars(ch)
-ambient(ch) = VgtkCore._ambient_coordinates(model(ch))
+ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
 
 @testset "Manifolds as NLLSsolver variables, and is_stationary" begin
     R0 = SMatrix{3, 3, Float64, 9}(RotXYZ(0.3, -0.2, 0.5))

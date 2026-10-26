@@ -119,7 +119,7 @@ data: the covariance machinery takes a vector of points for a line chart.
 end
 minimal_manifold(l::Line2D) = Line2DManifold(l)
 
-_ambient_coordinates(m::RadialHomography) = vcat(SVector{9}(Tuple(SMatrix{3, 3}(m.H))), SVector(m.k))
+ambient_coordinates(m::RadialHomography) = vcat(SVector{9}(Tuple(SMatrix{3, 3}(m.H))), SVector(m.k))
 minimal_manifold(m::RadialHomography) = ProductManifold(
     HomographyManifold8(SMatrix{3, 3, Float64, 9}(m.H)), EuclideanManifold(SVector(m.k));
     embed = _RadialHomographyParts(m.center)

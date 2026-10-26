@@ -189,7 +189,7 @@ struct _RadialCameraRows{T}
 end
 (e::_RadialCameraRows)(p::StaticVector{6}) = RadialCamera(SMatrix{2, 3}(Tuple(p)), e.center)
 minimal_manifold(m::RadialCamera) = SphereManifold(SVector{6}(Tuple(m.P)), _RadialCameraRows(m.center))
-_ambient_coordinates(m::RadialCamera) = SVector{6}(Tuple(m.P))
+ambient_coordinates(m::RadialCamera) = SVector{6}(Tuple(m.P))
 local_coordinates(ch::SphereManifold{6}, m::RadialCamera) = local_coordinates(ch, SVector{6}(Tuple(m.P)))
 constraint_dim(::Type{<:RadialCamera}) = 1
 _measurement_dim(::Type{<:RadialCamera}) = 2

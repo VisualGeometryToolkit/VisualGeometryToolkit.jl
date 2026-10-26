@@ -233,7 +233,7 @@ end
     # the camera maps and the Manifold protocol are extension points
     for n in (:project, :backproject, :tangent_size, :retract, :recenter, :local_coordinates,
               :retract_jacobian, :action_jacobian, :zero_tangent, :restrict, :tangent_part,
-              :transform_covariance, :minimal_manifold, :model)
+              :transform_covariance, :minimal_manifold, :ambient_coordinates, :model)
         @test getfield(VisualGeometryToolkitCore, n) in CONTRACT_GENERICS
     end
     # this package extends no other stack package's functions

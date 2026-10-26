@@ -59,7 +59,7 @@ using ..VisualGeometryToolkitCore: EssentialMat, HomographyMat, motion,
 # ... and the chart and covariance machinery the calibration harness drives
 using ..VisualGeometryToolkitCore: FundMat, Rect2, Line2D, LineConfidenceBand, epipolar_band, PerspectiveMap,
     minimal_manifold, implicit_covariance, local_coordinates, retract, tangent_size,
-    model, transform_covariance, EuclideanManifold, _ambient_coordinates, propagate,
+    model, transform_covariance, EuclideanManifold, ambient_coordinates, propagate,
     transform_deriv_params, homography_4pt, to_euclidean, to_affine,
     clip_to_rect, in_band, unit_normalize, transform_deriv,
     manifold_constraints, constraint_jacobians,

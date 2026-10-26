@@ -134,7 +134,10 @@ frame's edge (`π/2 − 10⁻³` for the perspective frame); a lift's fold; the
 double sphere's FOV bound — and a monotonicity scan of
 [`projected_radius`](@ref) otherwise. A [`Chain`](@ref) with a radial stage
 is bounded by that stage, tested at its own input as [`project`](@ref) tests
-it: the angle where `project` first turns NaN, bisected to rounding. `cap` bounds the answer: the generic
+it: the angle where `project` first turns NaN, bisected to rounding. When a
+stage precedes the radial one (a tilt) that angle depends on the azimuth, and
+the limit is its minimum over azimuths, so every ray within it is imaged; a
+lens whose bound is radially symmetric reads it at azimuth 0. `cap` bounds the answer: the generic
 scan runs to it (default `π − 10⁻³`); the closed forms clamp to it (default
 none).
 """
@@ -171,16 +174,47 @@ function view_angle_limit(l::Lens; cap::Real = Inf)
     b = _frame_backproject(C, SVector(sqrt(u), 0.0))
     return min(atan(b[1], b[3]) * (1 - 1.0e-9), edge)
 end
-# A Chain with a radial stage: the stage is tested at its own input (behind a
-# tilt, say), so the angle where `project` first turns NaN has no closed form
-# here. It is found on `projected_radius`: the first NaN of a scan, bisected to
-# rounding; the limit is the last imaged angle (`edge` when none is NaN). As for
-# an Additive's radial head, the other terms do not enter: the radius may peak a
-# little before the radial stage's fold. A Chain without one: the plain scan.
+# A Chain with a radial stage: the stage is tested at its own input, so the angle
+# where `project` first turns NaN has no closed form here. Along one azimuth it
+# is the first NaN of a scan, bisected to rounding — the last imaged angle,
+# `edge` when none is NaN. As for an Additive's radial head, the other terms do
+# not enter: the radius may peak a little before the radial stage's fold. When
+# the radial stage leads, its input is the frame point and the onset is the same
+# at every azimuth (azimuth 0 is read). When a stage comes before it (a tilt),
+# the onset depends on the azimuth, and the limit is its MINIMUM over azimuths
+# — the angle within which every ray is imaged: 36 azimuths, the least refined
+# by a golden-section search between its neighbours. A Chain without a radial
+# stage: the plain scan.
 function _chain_view_angle_limit(l::Lens, edge)
     _bounding_radial(_precision(Float64, l)) === nothing &&
         return invoke(view_angle_limit, Tuple{AbstractLensModel}, l; cap = edge)
-    imaged(θ) = isfinite(projected_radius(l, θ))
+    _is_radial(first(l.distortion.stages)) &&
+        return _nan_onset(θ -> isfinite(projected_radius(l, θ)), edge)
+    onset(ψ) = _nan_onset(θ -> all(isfinite, project(l, SVector(sin(θ) * cos(ψ), sin(θ) * sin(ψ), cos(θ)))), edge)
+    n = 36
+    ψs = range(0, 2π; length = n + 1)[1:n]
+    θs = map(onset, ψs)
+    k = argmin(θs)
+    a, b = ψs[k] - 2π / n, ψs[k] + 2π / n
+    g = (sqrt(5) - 1) / 2
+    c, d = b - g * (b - a), a + g * (b - a)
+    fc, fd = onset(c), onset(d)
+    for _ in 1:40
+        if fc < fd
+            b, d, fd = d, c, fc
+            c = b - g * (b - a)
+            fc = onset(c)
+        else
+            a, c, fc = c, d, fd
+            d = a + g * (b - a)
+            fd = onset(d)
+        end
+    end
+    return min(θs[k], fc, fd)
+end
+# The last angle at which `imaged` holds, scanning [10⁻⁴, edge] and bisecting the
+# first failure to rounding; `edge` when it never fails.
+function _nan_onset(imaged, edge)
     θs = range(1.0e-4, float(edge); length = 1024)
     k = findfirst(!imaged, θs)
     k === nothing && return float(edge)

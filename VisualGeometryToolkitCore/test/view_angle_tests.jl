@@ -31,25 +31,52 @@
         tilt = Tilt(0.02, -0.01)
         chain = Lens(Perspective(), Chain(tilt, Additive(Radial((-0.3, 0.04)), Tangential(1.0e-3, -5.0e-4))))
         twin = Lens(Perspective(), Additive(Radial((-0.3, 0.04)), Tangential(1.0e-3, -5.0e-4)))
-        ray(θ) = SVector(sin(θ), 0.0, cos(θ))
-        function first_nan(l)                   # bisected on project itself, azimuth 0
-            lo, hi = 0.5, 1.4
+        ray(θ, ψ = 0.0) = SVector(sin(θ) * cos(ψ), sin(θ) * sin(ψ), cos(θ))
+        function first_nan(l, ψ = 0.0)          # bisected on project itself
+            lo, hi = 0.3, 1.5
             for _ in 1:80
                 m = (lo + hi) / 2
-                all(isfinite, project(l, ray(m))) ? (lo = m) : (hi = m)
+                all(isfinite, project(l, ray(m, ψ))) ? (lo = m) : (hi = m)
             end
             return lo
         end
+        # the onset along every azimuth: the limit of a tilt-first chain is its minimum
+        min_first_nan(l, n) = minimum(first_nan(l, ψ) for ψ in range(0, 2π; length = n + 1)[1:n])
         for (l, before) in ((chain, x -> distort_normalized(Lens(Perspective(), tilt), x)), (twin, identity))
             θn = first_nan(l)
-            @test view_angle_limit(l) ≈ θn atol = 1.0e-6
-            @test all(isfinite, project(l, ray(view_angle_limit(l))))
             # the radial stage's output radius at its input where project turns NaN
             x = ray(θn)
             ρ = norm(before(SVector(x[1] / x[3], x[2] / x[3])))
             @test monotone_radius(l) ≈ ρ * F(ρ^2) atol = 1.0e-6
         end
         @test monotone_radius(chain) == monotone_radius(twin)
+        # the twin's bound is radially symmetric: the onset at azimuth 0
+        @test view_angle_limit(twin) ≈ first_nan(twin) atol = 1.0e-6
+        # a tilt before the radial stage: the onset depends on the azimuth (here
+        # 0.9487 at azimuth 0), and the limit is the least of them
+        @test view_angle_limit(chain) ≈ 0.9404484 atol = 1.0e-6
+        @test view_angle_limit(chain) ≈ min_first_nan(chain, 72) atol = 1.0e-4
+        @test view_angle_limit(chain) <= min_first_nan(chain, 72)
+        strong = Lens(Perspective(), Chain(Tilt(0.15, -0.1), Additive(Radial((-0.3, 0.04)), Tangential(1.0e-3, -5.0e-4))))
+        @test first_nan(strong) > 0.88                                  # azimuth 0 overstates it by ≈ 3°
+        @test view_angle_limit(strong) ≈ 0.8375568 atol = 1.0e-6
+        @test view_angle_limit(strong) ≈ min_first_nan(strong, 72) atol = 1.0e-4
+        for ψ in range(0, 2π; length = 49)                               # every ray within it is imaged
+            @test all(isfinite, project(strong, ray(view_angle_limit(strong), ψ)))
+        end
+        # a chain whose radial stage leads: the onset at azimuth 0, as before the sweep
+        radial_first = (
+            (Lens(Perspective(), Chain(Additive(Radial((-0.3, 0.04)), Tangential(1.0e-3, 0.0)), Tilt(0.01, 0.0))), 0.9553166181245096, 0.7919595949289332),
+            (Lens(Perspective(), Chain(Additive(Radial((-0.150994, -0.0501823, 0.023916), (0.187097, 0.0255086, -0.00128661)),
+                Tangential(0.00244469, 0.00575199), ThinPrism((-0.00157781, -0.000969799), (-0.000762879, 0.00210571))),
+                Tilt(-0.00992587, -0.0062454))), 0.838476342933477, 0.685637031417361),
+            (Lens(Equidistant(), Chain(Radial((-0.02, 0.003)), Tilt(0.05, 0.02))), 3.1405926535897932, 3.439526174339641),
+        )
+        for (l, θ, ρ) in radial_first
+            @test view_angle_limit(l) ≈ θ rtol = 1.0e-12
+            @test monotone_radius(l) ≈ ρ rtol = 1.0e-12
+        end
+        @test view_angle_limit(radial_first[1][1]) ≈ first_nan(radial_first[1][1]) atol = 1.0e-6
 
         # every other lens reports what it did before the Chain rule
         unchanged = (

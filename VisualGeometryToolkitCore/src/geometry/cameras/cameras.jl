@@ -116,6 +116,7 @@ import ..VisualGeometryToolkitCore: has_units, with_unit   # extended on the car
 using ..VisualGeometryToolkitCore: translation, UnitfulEuclideanMap, _attach_unit, _ustrip_point, _attach_point, _stored_point,
     _check_one_form, _strip_metres, _translation_metres,   # the one strip/attach of maps and points (euclidean_map.jl)
     _strip_length, _attach_length, _metre_factor, _opposite   # one length's strip/attach, a unit's metre factor (a calibration's lengths)
+using ..VisualGeometryToolkitCore: ThinPlateSplineSystem, tps_coefficients, tps_evaluate, tps_gradient, nodal_weights   # the thin-plate calibration kinds (target_calibration.jl)
 using FlexUnits: Units, DimensionError
 using ..VisualGeometryToolkitCore: TargetPlaneFrame, PixelFrame, UnlabeledFrame, relabel, unlabel, Frame
 using ..VisualGeometryToolkitCore: FramedImage   # rect-form undistort return currency (warp layer)
@@ -926,7 +927,8 @@ export model                            # CameraModel accessor on PosedCamera/Ab
 export Rig, PosedTarget, source, destination, target_frames  # one Rig for sensors and targets: (model, pose) members; StereoRig = 2-tuple alias
 export sensor_rig, target_rig             # the two halves of a rig carrying both
 export AbstractTarget, PointTarget, PlanarTarget, resolve, is_resolved   # the target as a model (targets.jl)
-export TargetCalibration, Rigid, calibration_jacobian, calibration, design   # a planar target's calibration
+export TargetCalibration, Rigid, Affine, ThinPlateSpline, HeightField, CalibrationChain   # a planar target's calibration kinds
+export calibration_jacobian, calibration, design
 export regularizer, TargetManifold      # the calibratable-target protocol
 export Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
 export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3

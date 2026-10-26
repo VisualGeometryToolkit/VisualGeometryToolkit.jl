@@ -201,18 +201,28 @@
             DS_A, DS_B, DS_C, Lens(DoubleSphere(-0.6, 0.6)), Lens(DoubleSphere(0.6, 0.3)),
             Lens(DoubleSphere(-0.2, 0.55), Radial((-0.05, 0.01))),
         )
-        generic = Tuple{Lens, SVector{3, Float64}}
+        # A structural reference, not the compiled generic method: the paper's bound
+        # (eq. 34-36), the closed form, and the one distortion here, Radial((−0.05,
+        # 0.01)), whose profile never folds. To 4 eps: the reference orders its
+        # operations differently (x/den, not inv(den)·x).
+        function ds_reference(lens, X)
+            ξ, α = lens.projection.xi, lens.projection.alpha
+            d1 = norm(X)
+            inside = (X[3] > 0 && ξ >= 0 && 0 <= α <= 1) || X[3] > -_ds_w2(lens.projection) * d1
+            inside || return SVector(NaN, NaN)
+            x = ds_project(ξ, α, X)
+            lens.distortion === nothing && return x
+            s = x[1]^2 + x[2]^2
+            return (1 - 0.05s + 0.01s^2) * x
+        end
+        same(a, b) = isequal(isnan.(a), isnan.(b)) && isapprox(a, b; rtol = 4 * eps(), nans = true)
         for lens in lenses, X in rays
-            # the default is the lens contract's answer (the generic Lens method): bit
-            # for bit without a distortion; with one, `invoke` runs a separately
-            # compiled `evalpoly` whose muladds may fuse differently, so to rounding
-            ref = invoke(project, generic, lens, X)
-            same(a, b) = lens.distortion === nothing ? isequal(a, b) :
-                (isequal(isnan.(a), isnan.(b)) && isapprox(a, b; rtol = 4 * eps(), nans = true))
-            @test same(project(lens, X), ref)
+            iszero(X) && continue
+            # the default is the lens contract's answer
+            @test same(project(lens, X), ds_reference(lens, X))
             @test isequal(project(lens, X; fov_bound = true), project(lens, X))
             # where the bound holds the unchecked form is that same answer
-            all(isfinite, ref) && @test isequal(project(lens, X; fov_bound = false), project(lens, X))
+            all(isfinite, project(lens, X)) && @test isequal(project(lens, X; fov_bound = false), project(lens, X))
         end
         # the zero vector is still no ray
         @test all(isnan, project(DS_A, SVector(0.0, 0.0, 0.0); fov_bound = false))

@@ -364,7 +364,8 @@ end
 # own input — the radial half of the inverse's acceptance (`_radial_ok`), so a
 # ray past a radial stage's fold is NaN both ways. The determinant half is NOT
 # tested forward (a Jacobian per projected point): a ray where the deltas or the
-# tilt fold maps to a finite point that `backproject` rejects (see `project`).
+# tilt fold maps to a finite point whose `backproject` is the imaged branch's
+# preimage (a different ray), or NaN (see `project`).
 @inline function _distort_in_frame(l::Lens{<:AbstractProjection, <:Chain}, x::StaticVector{2})
     ok = _radial_ok(_primal(l.distortion), SVector(_primal(x[1]), _primal(x[2])))
     return _nan_unless(ok, _distort(l.distortion, x))
@@ -681,6 +682,10 @@ end
     y, found = _radial_seed(s, cap, _undo_stages(rest, xd))
     return _undo_stages(before, y), found
 end
+# `cap` is the projection frame's (squared) edge. For a radial stage behind
+# another stage (a tilt) it bounds that stage's input, not the frame point: it
+# only decides whether a seed exists, and the seed's root still has to meet the
+# pointwise test.
 @inline function _radial_seed(r::Radial{Even}, cap, xd::SVector{2, S}) where {S}
     g, reached, _ = _ratio_branch_solve(r, cap, xd[1] * xd[1] + xd[2] * xd[2])
     return SVector{2, S}(g * xd[1], g * xd[2]), reached & isfinite(g)
@@ -842,8 +847,8 @@ answer is the one on the imaged branch: det J > 0 there and every
 consequences:
 - [`project`](@ref) tests only the radial factors, so a ray past a fold of
   the deltas of an [`Additive`](@ref) or of a [`Chain`](@ref)'s
-  [`Tilt`](@ref) projects to a finite point that `backproject` rejects: it
-  returns the branch's preimage (a different ray) or NaN, never that ray.
+  [`Tilt`](@ref) projects to a finite point whose `backproject` is the
+  imaged branch's preimage (a different ray), or NaN — never that ray.
 - The acceptance test is pointwise. Where the map overlaps itself INSIDE the
   axis-connected component, a point has several preimages on the branch and
   `backproject` returns the first the solver reaches — rare (0.05 % of the
@@ -886,7 +891,8 @@ Past the bound the ray has a weaker meaning, which is why the default keeps it:
   one: for `ξ = 0.6`, `α = 0.3` the forward map runs through a pole and a
   second ray, on the opposite azimuth, images the same point. For `ξ = −0.6`,
   `α = 0.6` the map stays monotone in the view angle out to the algebraic edge
-  `r = 1/√(2α − 1)`, and the bound is merely conservative;
+  `r = 1/√(2α − 1)` (θ ≈ 105.3°), the bound being merely conservative before
+  it, and folds back past it, where two rays share a point;
 - at `|ξ| ≥ 1`, the edge of or outside the paper's range, the ray need not
   solve the forward equation at all (it can sit on its 0/0).
 """

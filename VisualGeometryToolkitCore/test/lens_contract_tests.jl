@@ -645,6 +645,9 @@
             # solve tolerance while still crawling in (a 1e-7 update): far from the
             # axis of a strong Kannala–Brandt the ray came back 2e-11 to 4e-11 off.
             # Only a settled iterate (or one at rounding) stands now; Float32 too.
+            # The bounds hold for lenses that do not fold before 0.95 of their
+            # limit: next to a fold the inverse is ill-conditioned, ~1e-13 in
+            # Float64 and ~3e-5 in Float32 on every path.
             strong = (
                 KannalaBrandt(-0.04, 0.0004, -0.0008, 0.0007), KannalaBrandt(0.5, -0.4, 0.1, 0.0),
                 KannalaBrandt(-0.043, 0.011, -0.0083, 0.0015), KannalaBrandt(-0.2, 0.02, 0.0, 0.002),
@@ -663,7 +666,7 @@
         end
 
         @testset "the number type follows the inputs" begin
-            kb32 =KannalaBrandt(Float32(-0.01f0), Float32(0.001f0))
+            kb32 = KannalaBrandt(Float32(-0.01f0), Float32(0.001f0))
             u32 = project(kb32, SVector{3, Float32}(ray(deg2rad(100.0))))
             @test eltype(u32) === Float32
             @test eltype(backproject(kb32, u32)) === Float32

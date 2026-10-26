@@ -86,16 +86,30 @@ lens whose profile never folds.
   [`view_angle_limit`](@ref).
 - a [`LiftLens`](@ref): the first pole of `D` (the 90° circle) or fold of the
   lift — `1/√|k|` for `Division(k)`.
+- a [`Chain`](@ref) distortion: its FIRST radial stage (a `Radial`, or an
+  [`Additive`](@ref) led by one), wherever it sits — the stage [`project`](@ref)
+  tests — read as above at that stage's output; the stages around it do not
+  enter (for a stage behind a tilt, the frame's edge caps the stage's input).
 """
 function monotone_radius(l::AbstractLensModel)
     lf = _precision(Float64, l)
-    r = radial(lf)
+    r = _bounding_radial(lf)
     r === nothing && return Inf
     u = _branch_end(r, lf isa Lens ? _frame_cap(lf.projection) : Inf)
     T = eltype(parameter_vector(l))                  # the lens's coefficient precision
     isfinite(u) || return T(Inf)
     return T(lf isa Lens ? sqrt(u) * radial_ratio(r, u) : _radius_at(r, u))
 end
+
+# The radial factor that bounds what a lens images: `radial(lens)`, or for a
+# Chain its first radial stage's factor (`radial` stays `nothing` for a Chain:
+# `radial_part` and the fit read it as the lens's ONE radially symmetric factor).
+_bounding_radial(l) = radial(l)
+_bounding_radial(l::Lens{<:AbstractProjection, <:Chain}) = _first_radial_factor(l.distortion.stages)
+_first_radial_factor(::Tuple{}) = nothing
+_first_radial_factor(ds::Tuple) = _is_radial(first(ds)) ? _radial_factor(first(ds)) : _first_radial_factor(Base.tail(ds))
+_radial_factor(r::Radial) = r
+_radial_factor(a::Additive) = _head(a)
 
 # ==============================================================================
 # View-angle limits — the honest θ-domain of each lens (value-dependent) — and
@@ -118,7 +132,9 @@ the frame's own edge). Closed forms where the lens has one — the fold or pole
 of a forward lens's radial factor read through its frame, never past the
 frame's edge (`π/2 − 10⁻³` for the perspective frame); a lift's fold; the
 double sphere's FOV bound — and a monotonicity scan of
-[`projected_radius`](@ref) otherwise. `cap` bounds the answer: the generic
+[`projected_radius`](@ref) otherwise. A [`Chain`](@ref) with a radial stage
+is bounded by that stage, tested at its own input as [`project`](@ref) tests
+it: the angle where `project` first turns NaN, bisected to rounding. `cap` bounds the answer: the generic
 scan runs to it (default `π − 10⁻³`); the closed forms clamp to it (default
 none).
 """
@@ -148,11 +164,33 @@ function view_angle_limit(l::Lens; cap::Real = Inf)
     C === nothing && return scan(min(float(cap), _SPHERE_EDGE))
     edge = min(float(cap), C <: Union{GnomonicFrame, OrthographicFrame} ? _PERSPECTIVE_EDGE : _SPHERE_EDGE)
     r = radial(_precision(Float64, l))
+    l.distortion isa Chain && return _chain_view_angle_limit(l, edge)
     r === nothing && return l.distortion === nothing ? edge : scan(edge)
     u = _branch_end(r, _frame_cap(l.projection))
     isfinite(u) || return edge
     b = _frame_backproject(C, SVector(sqrt(u), 0.0))
     return min(atan(b[1], b[3]) * (1 - 1.0e-9), edge)
+end
+# A Chain with a radial stage: the stage is tested at its own input (behind a
+# tilt, say), so the angle where `project` first turns NaN has no closed form
+# here. It is found on `projected_radius`: the first NaN of a scan, bisected to
+# rounding; the limit is the last imaged angle (`edge` when none is NaN). As for
+# an Additive's radial head, the other terms do not enter: the radius may peak a
+# little before the radial stage's fold. A Chain without one: the plain scan.
+function _chain_view_angle_limit(l::Lens, edge)
+    _bounding_radial(_precision(Float64, l)) === nothing &&
+        return invoke(view_angle_limit, Tuple{AbstractLensModel}, l; cap = edge)
+    imaged(θ) = isfinite(projected_radius(l, θ))
+    θs = range(1.0e-4, float(edge); length = 1024)
+    k = findfirst(!imaged, θs)
+    k === nothing && return float(edge)
+    k == 1 && return first(θs)
+    lo, hi = θs[k - 1], θs[k]
+    for _ in 1:60
+        m = (lo + hi) / 2
+        imaged(m) ? (lo = m) : (hi = m)
+    end
+    return lo
 end
 view_angle_limit(l::Lens{<:DoubleSphere, Nothing}; cap::Real = Inf) =
     min(acos(clamp(-_ds_w2(l.projection), -1.0, 1.0)) - 1.0e-6, float(cap))

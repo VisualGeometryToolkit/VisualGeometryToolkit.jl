@@ -110,11 +110,14 @@ function _assert_calibration_matrix(
 end
 
 """
-    CameraCalibrationMat(M::AbstractMatrix{<:Real}; check=true) -> CameraCalibrationMat{Float64}
+    CameraCalibrationMat(M::AbstractMatrix{<:Real}; check=true) -> CameraCalibrationMat
 
 Construct from a 3×3 matrix (e.g., from OpenCV calibration JSON).
 
-Values are stored as unitless Float64 (COLMAP convention: pixel centers at 0.5).
+Values are stored unitless (COLMAP convention: pixel centers at 0.5). An
+integer, rational or irrational matrix is promoted to `Float64`; any other
+concrete real element type is kept, so a matrix of ForwardDiff `Dual`s gives a
+`Dual` calibration matrix that automatic differentiation runs through.
 `check` validates the pinhole structure (positive focals, upper-triangular,
 last row `[0, 0, 1]`) and names the transpose when the rows are swapped.
 
@@ -125,10 +128,18 @@ Km = [[800, 0, 320], [0, 800, 240], [0, 0, 1]]
 K = CameraCalibrationMat(stack(Km)')
 ```
 """
-function CameraCalibrationMat(M::AbstractMatrix{<:Real}; check::Bool = true)
+function CameraCalibrationMat(M::AbstractMatrix{T}; check::Bool = true) where {T <: Real}
     check && _assert_calibration_matrix(M)
-    return CameraCalibrationMat{Float64}(Tuple(SMatrix{3, 3, Float64}(M)))
+    S = _calibration_eltype(T)
+    return CameraCalibrationMat{S}(Tuple(SMatrix{3, 3, S}(M)))
 end
+
+# The stored element type of a calibration matrix built from a `T` matrix: an
+# exact number (integer, rational, irrational) or an abstract eltype is
+# promoted to Float64, as it always was; any other concrete real (a
+# ForwardDiff Dual) is kept.
+_calibration_eltype(::Type{<:Union{Integer, Rational, AbstractIrrational}}) = Float64
+_calibration_eltype(::Type{T}) where {T <: Real} = isconcretetype(T) ? T : Float64
 
 """
     CameraCalibrationMat(M::AbstractMatrix{T}; check=true) where T<:AbstractFloat
@@ -149,7 +160,7 @@ end
 
 # Static-matrix inputs: the @smatrix_wrapper converter `CameraCalibrationMat(
 # ::StaticArray{…,2})` is more specific than the AbstractMatrix methods above
-# and would bypass validation and the Float64 promotion. These two are more
+# and would bypass validation and the exact-number promotion. These two are more
 # specific still (bounded T), so an SMatrix/RotMatrix/MMatrix K is checked
 # like any other matrix (dataset loaders build K as an SMatrix).
 function CameraCalibrationMat(
@@ -164,7 +175,8 @@ function CameraCalibrationMat(
         check::Bool = true
     ) where {T <: Real}
     check && _assert_calibration_matrix(M)
-    return CameraCalibrationMat{Float64}(Tuple(SMatrix{3, 3, Float64}(M)))
+    S = _calibration_eltype(T)
+    return CameraCalibrationMat{S}(Tuple(SMatrix{3, 3, S}(M)))
 end
 
 """

@@ -95,3 +95,41 @@
         @test isdefined(VgtkCore, :PosedCamera) && isdefined(VgtkCore, :PosedPinholeCamera)
     end
 end
+
+@testitem "cameras under ForwardDiff" begin
+    # =============================================================================
+    # A camera differentiates with ForwardDiff Duals: a Dual calibration matrix
+    # keeps its element type, intrinsics rebuilt from Dual parameters are Dual,
+    # and exact-number input (integer, rational)
+    # still promotes to Float64, value for value.
+    # =============================================================================
+    using Test
+    using VisualGeometryToolkitCore
+    using StaticArrays
+    using LinearAlgebra: I
+    using ForwardDiff: ForwardDiff
+    using FiniteDiff: FiniteDiff
+
+    @testset "CameraCalibrationMat element types" begin
+        Kf = SMatrix{3, 3, Float64}(800, 0, 0, 0, 810, 0, 320, 240, 1)
+        for M in ([800 0 320; 0 810 240; 0 0 1], [800 0 320; 0 810 240; 0 0 1] .// 1, SMatrix{3, 3}(800, 0, 0, 0, 810, 0, 320, 240, 1))
+            K = CameraCalibrationMat(M)
+            @test K isa CameraCalibrationMat{Float64} && SMatrix(K) == Kf
+        end
+        @test CameraCalibrationMat(Float32.(Kf)) isa CameraCalibrationMat{Float32}
+        f = ForwardDiff.Dual{Nothing}(800.0, 1.0)
+        D = typeof(f)
+        Kd = CameraCalibrationMat([f 0 320; 0 f 240; 0 0 1])
+        @test Kd isa CameraCalibrationMat{D} && ForwardDiff.value(Kd[1, 1]) == 800.0
+        @test CameraCalibrationMat(SMatrix{3, 3, D}(Kd)) isa CameraCalibrationMat{D}
+        @test_throws ArgumentError CameraCalibrationMat(SMatrix{3, 3, D}(Kd)')     # the transpose check reads Duals
+    end
+
+    @testset "with_parameters(::LogicalIntrinsics) differentiates" begin
+        intr = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(800.0, 0, 0, 1.5, 1000.0, 0, 320.0, 240.0, 1)))
+        θ0 = collect(parameter_vector(intr))
+        @test ForwardDiff.jacobian(θ -> parameter_vector(with_parameters(intr, θ)), θ0) ≈ I
+        d = ForwardDiff.Dual{Nothing}.(θ0, 1.0)
+        @test with_parameters(intr, d) isa LogicalIntrinsics{eltype(d)}
+    end
+end

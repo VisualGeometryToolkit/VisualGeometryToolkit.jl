@@ -364,7 +364,9 @@ end
 #   Additive, a lone delta    OpenCV's undistortPoints fixed point, finished by the
 #                             trust-region 2-D Newton
 #   FieldOfView, Tilt         closed form
-#   anything else             the trust-region 2-D Newton
+#   anything else (a Chain)   the trust-region 2-D Newton
+# A 2-D root stands only on the imaged branch (`_branch_root`); otherwise it is
+# continued from the axis.
 
 @inline _undistort_in_frame(l::Lens, xd::StaticVector{2}) = _undistort(l.distortion, l, xd)
 
@@ -442,9 +444,10 @@ end
     _undistort_2d(_frame_fwd, l, xd) do lp, x0
         ap = lp.distortion
         h = _head(ap)
+        f = z -> _distort(ap, z)
         x, ok = h isa Union{Nothing, Radial} ? _fixed_point(ap, h, x0) : (x0, false)
-        ok && return x, ok
-        return _newton_inverse(z -> _distort(ap, z), x0, h isa Radial ? x : x0)
+        ok || ((x, ok) = _newton_inverse(f, x0, h isa Radial ? x : x0))
+        return _branch_root(f, ap, x0, x, ok)
     end
 
 @inline function _fixed_point(a, h, xd::SVector{2, S}) where {S <: AbstractFloat}
@@ -478,9 +481,77 @@ end
     return Vec2(v[1] / v[3], v[2] / v[3])
 end
 
-# --- everything else: the trust-region 2-D Newton -----------------------------
+# --- everything else (a Chain): the trust-region 2-D Newton -------------------
 @inline _undistort(::AbstractDistortionTerm, l::Lens, xd::StaticVector{2}) =
-    _undistort_2d((lp, x0) -> _newton_inverse(z -> _distort(lp.distortion, z), x0), _frame_fwd, l, xd)
+    _undistort_2d(_frame_fwd, l, xd) do lp, x0
+        f = z -> _distort(lp.distortion, z)
+        x, ok = _newton_inverse(f, x0)
+        return _branch_root(f, lp.distortion, x0, x, ok)
+    end
+
+# --- the imaged branch of a 2-D inverse ---------------------------------------
+#
+# A distortion that folds has several preimages of one image point; the lens
+# images only the one on the branch connected to the axis. A 2-D root is on it
+# when the map is orientation-preserving there (det J > 0) AND, where the map
+# leads with a radial factor (an Additive's radial head, a Chain's first
+# stage), that factor's own branch test holds at the root's radius: past the
+# radial profile's fold the determinant turns positive again, so it alone
+# would accept the far side (measured: OpenCV chains with roots 1.4 to 6.3
+# fold radii out that every pointwise condition accepts).
+@inline _radial_head(r::Radial{Even}) = r
+@inline _radial_head(a::Additive) = (h = _head(a); h isa Radial{Even} ? h : nothing)
+@inline _radial_head(c::Chain) = _radial_head(first(c.stages))
+@inline _radial_head(_) = nothing
+
+@inline function _on_imaged_branch(f::F, d, x::SVector{2}) where {F}
+    J = ForwardDiff.jacobian(z -> SVector{2}(Tuple(f(z))), x)
+    r = _radial_head(d)
+    return J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1] > 0 &&
+        (r === nothing || _on_radial_branch(r, x[1] * x[1] + x[2] * x[2]))
+end
+
+# A converged root on the branch stands as solved: the result is the solver's
+# own, unchanged. Otherwise (no convergence, or a root past a fold) the root is
+# continued from the axis instead.
+@inline function _branch_root(f::F, d, xd::SVector{2}, x, ok) where {F}
+    ok && _on_imaged_branch(f, d, x) && return x, true
+    return _continued_inverse(f, d, xd)
+end
+
+# Continuation along the image segment from the axis (every distortion fixes
+# the origin) to x_d: `_CONTINUATION_TARGETS` targets t·x_d, each solved by plain
+# Newton from the previous root, so the root follows the branch it starts on
+# and never jumps to a far preimage. Near the branch's edge, where the
+# structure-blind Newton from x_d stalls on its step clipping, the previous
+# root is a seed inside Newton's basin. A target the path cannot reach (a fold
+# crossed, a step that does not settle) ends the walk: the point is not imaged.
+# Measured over 32 random strong OpenCV chains (RadiometricCamera's comparison
+# set, five of them in lens_branch_tests): 6 targets of 8 trips reach every root
+# that 32 targets do; 8 targets keep a margin.
+const _CONTINUATION_TARGETS = 8
+const _CONTINUATION_TRIPS = 8
+
+@noinline function _continued_inverse(f::F, d, xd::SVector{2, S}) where {F, S <: AbstractFloat}
+    x = zero(xd)
+    for k in 1:_CONTINUATION_TARGETS
+        t = S(k) / S(_CONTINUATION_TARGETS)
+        y1, y2 = t * xd[1], t * xd[2]
+        settled = false
+        for _ in 1:_CONTINUATION_TRIPS
+            fx = f(x)
+            J = ForwardDiff.jacobian(z -> SVector{2}(Tuple(f(z))), x)
+            J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1] > 0 || return x, false     # crossed a fold
+            Δx = J \ SVector{2, S}(fx[1] - y1, fx[2] - y2)
+            x = SVector{2, S}(x[1] - Δx[1], x[2] - Δx[2])
+            settled = _newton_settled(Δx[1] * Δx[1] + Δx[2] * Δx[2], x[1] * x[1] + x[2] * x[2], S)
+            settled && break
+        end
+        # a target the path does not reach (past the branch's edge): stop there
+        (settled & isfinite(x[1]) & isfinite(x[2])) || return x, false
+    end
+    return x, _residual_ok(f(x), xd) && _on_imaged_branch(f, d, x)
+end
 
 # -----------------------------------------------------------------------------
 # Projections: ray ↔ frame point

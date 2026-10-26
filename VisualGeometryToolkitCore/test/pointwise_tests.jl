@@ -15,8 +15,11 @@
     BC = Lens(Perspective(), Additive(Radial((-0.28, 0.07, -0.01)), Tangential(1.0e-3, -5.0e-4)))
     KB = KannalaBrandt(-0.02, 0.005, -1.0e-3, 2.0e-4)
     TPF = Lens(Equidistant(), Additive(Radial((-0.01, 0.005, -1.0e-3, 2.0e-4)), Tangential(1.0e-3, -5.0e-4), ThinPrism((2.0e-4,), (-1.0e-4,))))
+    # OpenCV's full model: rational radial, tangential and thin prism, then the sensor tilt
+    OCV = Lens(Perspective(), Chain(Additive(Radial((-0.12, 0.03, 0.004), (0.02, -0.001, 0.0003)), Tangential(1.0e-3, -5.0e-4),
+        ThinPrism((-5.5e-3, 7.0e-4), (2.2e-3, -1.2e-3))), Tilt(0.01, -0.02)))
     lenses = (Pinhole(), BC, KB, TPF, Division(-0.31, 0.024), Scaramuzza(-0.17, -0.006, 0.035), Lens(DoubleSphere(-0.2, 0.59)),
-        Lens(Equidistant()), Lens(Perspective(), Tangential(1.0e-3, -5.0e-4)))
+        Lens(Equidistant()), Lens(Perspective(), Tangential(1.0e-3, -5.0e-4)), OCV)
 
     @testset "perspective views: round trip at both precisions" begin
         function worst_roundtrip(lens, ::Type{T}) where {T}
@@ -105,6 +108,17 @@
                 gb = Base.invokelatest(Array, back)
                 @test all(i -> (all(isnan, gb[i]) && all(isnan, hb[i])) || norm(gb[i] - hb[i]) <= 1.0f-4, eachindex(hb))
             end
+            # a strong OpenCV chain out to its branch's edge, where the inverse
+            # continues from the axis (the device runs the same fallback)
+            strong = _precision(Float32, Lens(Perspective(), Chain(Additive(Radial((-0.150994, -0.0501823, 0.023916), (0.187097, 0.0255086, -0.00128661)),
+                Tangential(0.00244469, 0.00575199), ThinPrism((-0.00157781, -0.000969799), (-0.000762879, 0.00210571))), Tilt(-0.00992587, -0.0062454))))
+            pts = vec([SVector{2, Float32}(u, v) for u in range(-4.0f0, 4.0f0; length = 33), v in range(-4.0f0, 4.0f0; length = 33)])
+            hb = similar(pts, SVector{3, Float32}); backproject!(hb, strong, pts)
+            back = Base.invokelatest(CuArray, hb)
+            Base.invokelatest(backproject!, back, strong, Base.invokelatest(CuArray, pts))
+            gb = Base.invokelatest(Array, back)
+            @test count(b -> all(isfinite, b), hb) > 0 && count(b -> all(isnan, b), hb) > 0
+            @test all(i -> (all(isnan, gb[i]) && all(isnan, hb[i])) || norm(gb[i] - hb[i]) <= 1.0f-4, eachindex(hb))
         end
     end
 end

@@ -23,7 +23,7 @@
 # plain dθ integral and is exponentially accurate on smooth profiles.
 #
 # DOMAIN POLICY (the fisheye ↔ Brown–Conrady question): the fit domain is
-# the INTERSECTION min(source limit, target-representable limit, user fov
+# the INTERSECTION min(source limit, target-representable limit, user max_view_angle
 # cap) — never silently truncated: the result reports θ_max used vs the
 # source's own limit and warns when the target throws field away (a
 # perspective-plane target simply cannot represent θ ≥ 90°; "valid to 85°"
@@ -93,7 +93,7 @@ end
 # parameters do not move (the perspective plane, the fixed fisheye projections)
 # answers VGC's own `view_angle_limit` (the one owner of the edge and its
 # margin); the polynomial and lift families are unbounded a priori and take the
-# sphere's edge, relying on the source/fov cap.
+# sphere's edge, relying on the source/max_view_angle cap.
 # A forward family with a fixed projection is bounded by its projection's edge
 # (the perspective plane at 90°); every other family by the sphere's.
 _family_limit(::Type{<:Lens{F}}) where {F <: Union{Perspective, Equidistant, Stereographic, Equisolid, Orthographic}} =
@@ -154,7 +154,7 @@ end
 
 """
     fit_lens(::Type{L}, model::CameraModel;
-             fov = nothing, max_radius_px = nothing, n = 128, weight = :image,
+             max_view_angle = nothing, max_radius_px = nothing, n = 128, weight = :image,
              fix_focal = false, max_iter, direction = :forward)   # max_iter: configs/default.toml [fit_lens]
         -> FitResult{CameraModel, LensFitMetadata}
 
@@ -165,7 +165,10 @@ discrete objective IS the integral). The focal scale `s` is fit jointly
 (frames differ in slope at the center — DoubleSphere especially), so the
 result is a full `CameraModel`: `K` scaled by `s`, principal point kept.
 
-- `fov`: optional cap on the fit domain, radians of view angle.
+- `max_view_angle`: optional cap on the fit domain, a HALF-angle — the largest
+  view angle θ from the optical axis fitted, in radians (VGC `view_angle`,
+  `view_angle_limit`); not the full angle of view, Core's `fov(camera)`. Until
+  2026-10-27 this keyword was `fov`.
 - `max_radius_px`: optional cap by the sensor's coverage — the farthest
   LIT image point's distance from the principal point in pixels. For a
   full-field lens that is the frame corner (`hypot(cx, cy)` for a centered
@@ -190,7 +193,7 @@ stopped on its step size at a non-stationary point — or `:solve_failed`, the
 cost or the step non-finite outside a step-size stop), `rms` the weighted profile
 RMS in px, and the metadata carries `s`, the angular domains, `max_px`,
 the fit `direction` and `weight`; `clipped` is true when the target family
-or `fov` cut the source's own domain (warned).
+or `max_view_angle` cut the source's own domain (warned).
 
 Targets: any lens TYPE with its arities — `KannalaBrandt{4}`, `Division{2}`
 (`Division` alone fits `Division{1}`), `Scaramuzza{3}`, `LiftLens{Radial{Even, P, Q}}`,
@@ -205,7 +208,7 @@ decentering terms contributes its radial part (warned when non-negligible).
 """
 function fit_lens(
         ::Type{L}, model::CameraModel;
-        fov::Union{Nothing, Real} = nothing, max_radius_px::Union{Nothing, Real} = nothing,
+        max_view_angle::Union{Nothing, Real} = nothing, max_radius_px::Union{Nothing, Real} = nothing,
         n::Int = 128, weight::Symbol = :image, fix_focal::Bool = false, max_iter::Int = _dflt("fit_lens", "max_iter"),
         direction::Symbol = :forward
     ) where {L <: AbstractLensModel}
@@ -234,10 +237,10 @@ function fit_lens(
     # the perspective plane's edge, exactly as a perspective TARGET caps the
     # forward one — clipped and warned, never fitted to garbage.
     θ_inv = direction === :inverse ? _family_limit(typeof(Pinhole())) : Inf
-    θ_max = min(θ_source, _family_limit(L), θ_inv, fov === nothing ? Inf : float(fov))
+    θ_max = min(θ_source, _family_limit(L), θ_inv, max_view_angle === nothing ? Inf : float(max_view_angle))
     θ_max > 0.02 || throw(ArgumentError("fit_lens: empty fit domain (θ_max = $θ_max)"))
     clipped = θ_max < θ_source * (1 - 1.0e-6)
-    clipped && fov === nothing && @warn "fit_lens: $(θ_max == θ_inv ? "the inverse profile (tan θ, the perspective plane)" : "target family $(L)") cannot represent the source's field — fitting θ ∈ [0, $(round(rad2deg(θ_max); digits = 1))°] of the source's $(round(rad2deg(θ_source); digits = 1))°"
+    clipped && max_view_angle === nothing && @warn "fit_lens: $(θ_max == θ_inv ? "the inverse profile (tan θ, the perspective plane)" : "target family $(L)") cannot represent the source's field — fitting θ ∈ [0, $(round(rad2deg(θ_max); digits = 1))°] of the source's $(round(rad2deg(θ_source); digits = 1))°"
 
     # Quadrature of the L² functional: nodes, CC weights, density (θ-domain
     # forward; φ = atan r_d domain for the inverse fit — see the samplers).

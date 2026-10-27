@@ -27,7 +27,7 @@
     # nodes. Covers: the quadrature itself, same-family round trips (the
     # recovery test of the driver), the division → {KB, DoubleSphere} fits the
     # facility exists for, the Brown–Conrady domain-clip policy (perspective
-    # targets cannot see past 90° — warned, reported, never silent), the fov
+    # targets cannot see past 90° — warned, reported, never silent), the max_view_angle
     # cap, fix_focal, scale-only projection targets, and the rational target's
     # ray-lift angle residual.
 
@@ -116,8 +116,8 @@
             @test (cd.k1, cd.k2, cd.k3) == Tuple(parameter_vector(lens(estimate(r))))   # the same fit as the radial-only target
         end
 
-        @testset "fov cap + pinhole target" begin
-            r = fit_lens(Pinhole, mdiv; fov = deg2rad(30))
+        @testset "max_view_angle cap + pinhole target" begin
+            r = fit_lens(Pinhole, mdiv; max_view_angle = deg2rad(30))
             @test metadata(r).θ_max ≈ deg2rad(30) atol = 1.0e-12
             @test 0 < metadata(r).s < 1                      # barrel: r_d < tanθ ⇒ smaller equivalent focal
             @test rms(r) < 30.0                  # a pinhole is a poor fisheye — but a fitted one
@@ -189,7 +189,7 @@
         # gives it an analytic UNDISTORT in its own parameterization.
         hd(lens) = CameraModel(; focal = 900.0, pp = (960.0, 540.0), lens)   # a 1920 × 1080 frame
         src = hd(Lens(Perspective(), Radial((-0.18, 0.03))))
-        rinv = fit_lens(OPENCV3, src; direction = :inverse, fov = 0.6)
+        rinv = fit_lens(OPENCV3, src; direction = :inverse, max_view_angle = 0.6)
         @test rinv isa FitResult
         @test metadata(rinv).direction === :inverse
         @test rms(rinv) < 0.5
@@ -205,7 +205,7 @@
         # Division: analytic backward already — the inverse fit is its analytic
         # FORWARD complement in the same two coefficients.
         dsrc = hd(VgtkCore.Division(-0.2, -0.05))
-        dinv = fit_lens(Division{2}, dsrc; direction = :inverse, fov = 0.9)
+        dinv = fit_lens(Division{2}, dsrc; direction = :inverse, max_view_angle = 0.9)
         @test metadata(dinv).direction === :inverse && isfinite(rms(dinv))
         # a source imaging past 90°: the inverse targets are tan θ, which the
         # perspective plane ends at — the domain is capped below 90° and warned,

@@ -19,14 +19,13 @@
 #       The problems are deliberately WELL-CONDITIONED (convergence in tens of
 #       iterations, guarded below): a fit that crawls amplifies benign ulp
 #       differences and would test the compiler.
-#   (2) ALLOCATION FLAT IN n — the 2n residual/Jacobian buffers, the static
-#       iterate and Gram and the NLLSsolver problem are the workspace's (the
-#       ~926 MB/frame hotspot this guards). FastLevenbergMarquardt's run
-#       allocated nothing; NLLSsolver's `optimize!` through its `OptimizeCache`
-#       allocates a few small objects per call (the cache holds its internal
-#       data untyped): measured 2026-10-27, 5 allocations at every n of the
-#       sweep on Julia 1.13, 9 / 10 / 9 / 9 on 1.12. Gated at the measured
-#       maximum, ALLOCS_BOUND = 10, at every n.
+#   (2) NO ALLOCATION — the 2n residual/Jacobian buffers, the static iterate
+#       and Gram, the NLLSsolver problem and the fork's TYPED OptimizeCache are
+#       the workspace's (the ~926 MB/frame hotspot this guards): measured
+#       2026-10-27 on the fork's `stack` (b0f800c), 0 allocations at every n
+#       (the untyped cache allocated 5 per refit on 1.13, 9–10 on 1.12). On a
+#       registered NLLSsolver (no cache: the solver's internal data rebuilt
+#       per refit, 4–5 allocations measured) the assertion is skipped.
 # `sqrtw` uses the family per-ROW convention (length 2n, a point's weight
 # duplicated across its two rows).
 # =============================================================================
@@ -64,7 +63,7 @@ end
 
 @testset "P3P LM refit — family workspace, NLLSsolver chart LM" begin
     stationarity_tol = VgtkEstimation._CHART_LM_STATIONARITY_TOL   # configs/default.toml [chart_lm]
-    ALLOCS_BOUND = 10   # the measured maximum: 10 on Julia 1.12 (9 / 10 / 9 / 9), 5 on 1.13
+    ALLOCS_BOUND = 0    # with the fork's TYPED cache (stack b0f800c): 0 at every n, Julia 1.13 and 1.12
     allocs = Int[]
     for (n, seed) in ((8, 1), (20, 13), (100, 7), (400, 99))
         rng = StableRNG(seed)

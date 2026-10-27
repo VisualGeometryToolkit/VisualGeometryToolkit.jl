@@ -69,6 +69,26 @@ end
     end
 end
 
+# A function barrier: the testitem's locals are globals.
+_refit!(ws, lm) = lmsolve_chart!(ws, lm; stationarity_tol = 0.05, ftol = 1.0e-10)
+_refit_allocations(ws, lm) = @allocations _refit!(ws, lm)
+
+@testset "a refit through the typed cache allocates nothing" begin
+    # The fork's typed `OptimizeCache(problem, options, unfixed)` (#62 on
+    # `stack`): measured 2026-10-27, 0 allocations per refit (the untyped cache
+    # allocated 5). On a registered NLLSsolver the path without a cache
+    # rebuilds the solver's internal data per refit: not asserted.
+    s = collect(range(0.0, 2.0; length = 40))
+    lm = _ExpFitLm(s, [1.5 * exp(-0.8 * si) + 0.3 * si + 0.2 for si in s], SVector(1.0, 0.0, 0.0, 0.0))
+    ws = ManifoldLmWorkspace(length(s), 4)
+    _refit!(ws, lm); _refit!(ws, lm)
+    if nlls_features().cache
+        @test _refit_allocations(ws, lm) == 0
+    else
+        @test_skip _refit_allocations(ws, lm) == 0
+    end
+end
+
 @testset "the stop codes: one decoder, one order" begin
     # NLLSsolver's termination bits → `_nlls_stop`, the one decoder the chart
     # LM and `nlls_retcode` read: failure without a step stop −3; step stop

@@ -249,17 +249,23 @@ end
     # dependency), on the second call of each size: the NLLSsolver problem and
     # its internal data are kept per (task, N), so a call allocates the seed
     # structure's √weights and a few small solver objects, flat in N. Measured
-    # 2026-10-27 (NLLSsolver, the fork's Schur system and cache):
-    # 31 / 34 / 34 at N = 100 / 1000 / 10000. Until then FastLevenbergMarquardt's
+    # 2026-10-27 (NLLSsolver, the fork's Schur system and TYPED cache, stack
+    # b0f800c): 26 / 28 / 28 at N = 100 / 1000 / 10000 on Julia 1.13 (the
+    # untyped cache: 31 / 34 / 34). The bound is the fork's: on a registered
+    # NLLSsolver (no cache) the assertion is skipped. Until then FastLevenbergMarquardt's
     # call built its buffers per call: 53 / 54 / 54 (the bound was 62).
-    ALLOCS_BOUND = 40
+    ALLOCS_BOUND = 28
     counts = map((100, 1000, 10000)) do N
         R0, t0, u1, u2 = _harness_scene(N)
         cs = csponds(u1, u2); seed = rigid(R0, t0)
         bundle_refine_relpose(seed, KP1, KP2, cs)
         Base.@allocations bundle_refine_relpose(seed, KP1, KP2, cs)
     end
-    @test all(<=(ALLOCS_BOUND), counts)
+    if VgtkCore.nlls_features().cache
+        @test all(<=(ALLOCS_BOUND), counts)
+    else
+        @test_skip all(<=(ALLOCS_BOUND), counts)
+    end
 end
 
 @testset "RelposeBundle: noiseless recovery is exact" begin

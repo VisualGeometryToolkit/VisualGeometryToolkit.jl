@@ -46,7 +46,13 @@ checkout of the stack pins the fork, a registry install does not (see the
 README's "Recovering the full speed of the LM driver").
 """
 nlls_features() = (; cache = _NLLS_HAS_CACHE, schur = _NLLS_HAS_SCHUR)
-const _NLLS_HAS_CACHE = isdefined(NLLSsolver, :OptimizeCache)
+# The cache is used in its TYPED form, `OptimizeCache(problem, options, unfixed)`
+# (the fork's #62 as merged into `stack`): concretely typed by the problem, so a
+# refit through it allocates nothing. An NLLSsolver without that constructor
+# (a release, or an older fork with only the untyped cache) takes the path
+# without a cache.
+const _NLLS_HAS_CACHE = isdefined(NLLSsolver, :OptimizeCache) &&
+    hasmethod(NLLSsolver.OptimizeCache, Tuple{NLLSsolver.NLLSProblem, NLLSsolver.NLLSOptions, Any})
 const _NLLS_HAS_SCHUR = isdefined(NLLSsolver, :MultiVariateLSschur) && isdefined(NLLSsolver, :iseliminable)
 
 # NLLSsolver's consecutive-failure cap (its default, `maxfails = 3`) and no time
@@ -213,8 +219,10 @@ NLLSsolver.computeresidual(c::_ChartRows, x) = residual_rows!(c.r, c.state.lm, x
 # bit). A non-finite cost is +Inf: a candidate step whose rows are NaN (a step
 # past a NaN or discontinuity wall — the radial-camera, radial-homography and
 # lens rows have them) is a REJECTED step, as it was for FastLevenbergMarquardt,
-# which compared F(x + p) < F(x); NLLSsolver accepts any trial whose cost is
-# not greater than the best, which NaN is not, and would stop there.
+# which compared F(x + p) < F(x); a released NLLSsolver accepts any trial
+# whose cost is not greater than the best, which NaN is not, and would stop
+# there. The fork rejects NaN trials itself (`stack`, upstream PR #64); the rule
+# stays for the registry path.
 @inline _finite_cost(c::Float64) = isfinite(c) ? c : Inf
 function NLLSsolver.computecost(c::_ChartRows, x)
     r = residual_rows!(c.r, c.state.lm, x)
@@ -253,33 +261,38 @@ function NLLSsolver.computecostgradhess(_varflags, c::_ChartRows{N}, x) where {N
     return _finite_cost(0.5 * s), SVector(g), SMatrix(H)
 end
 
-# The concrete type of an untyped cache (`OptimizeCache` is parametric once the
-# fork's typed cache lands: `typeof` keeps this field concrete either way).
-const _NllsCache = _NLLS_HAS_CACHE ? typeof(NLLSsolver.OptimizeCache()) : Nothing
-_nlls_cache() = _NLLS_HAS_CACHE ? NLLSsolver.OptimizeCache() : nothing
-
 # The kept NLLSsolver problem of one linearization-state type, its state slot
-# and its internal-data cache.
-struct _ChartRun{N, L}
+# and its internal-data cache (typed by the problem: `C`, `Nothing` without
+# the fork's cache).
+struct _ChartRun{N, L, C}
     state::_ChartState{L}
     problem::NLLSsolver.NLLSProblem{SVector{N, Float64}, _ChartRows{N, L}}
-    cache::_NllsCache
+    cache::C
 end
+const _CHART_OPTIONS_TYPE = typeof(_nlls_options(_DTD, 1, 1.0, 1.0))
+_chart_problem_type(::Val{N}, ::Type{L}) where {N, L} = NLLSsolver.NLLSProblem{SVector{N, Float64}, _ChartRows{N, L}}
+# The concrete run type of (N, L): the typed cache's type is the constructor's
+# inferred return type (a constant of the two types).
+_chart_run_type(v::Val{N}, ::Type{L}) where {N, L} = _ChartRun{N, L, _chart_cache_type(v, L)}
+_chart_cache_type(v::Val, ::Type{L}) where {L} = _NLLS_HAS_CACHE ?
+    Core.Compiler.return_type(NLLSsolver.OptimizeCache, Tuple{_chart_problem_type(v, L), _CHART_OPTIONS_TYPE, Int}) : Nothing
 function _ChartRun(ews::ManifoldLmWorkspace{N}, lm::L) where {N, L}
     state = _ChartState{L}(lm)
     problem = NLLSsolver.NLLSProblem(SVector{N, Float64}, _ChartRows{N, L})
     NLLSsolver.addvariable!(problem, zero(SVector{N, Float64}))
     NLLSsolver.addcost!(problem, _ChartRows{N, L}(state, ews.r, ews.J))
-    return _ChartRun{N, L}(state, problem, _nlls_cache())
+    cache = _NLLS_HAS_CACHE ? NLLSsolver.OptimizeCache(problem, _nlls_options(_DTD, 1, 1.0, 1.0), 1) : nothing
+    return _chart_run_type(Val(N), L)(state, problem, cache)
 end
 
 # The workspace's run for this state type: the kept one, or a new one kept in
 # its place (a workspace serves one state type at a time; the LO's never
 # changes type).
 @inline function _chart_run(ews::ManifoldLmWorkspace{N}, lm::L) where {N, L}
+    R = _chart_run_type(Val(N), L)
     run = ews.run
-    run isa _ChartRun{N, L} && return run
-    new = _ChartRun(ews, lm)
+    run isa R && return run
+    new = _ChartRun(ews, lm)::R
     ews.run = new
     return new
 end

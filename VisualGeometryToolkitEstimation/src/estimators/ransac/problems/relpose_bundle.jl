@@ -100,7 +100,7 @@ const _BUNDLE_CACHE = nlls_features().cache
 if _BUNDLE_SCHUR
     NLLSsolver.iseliminable(::Type{_BundlePoint{true}}) = NLLSsolver.static(true)
 end
-const _BundleCache = _BUNDLE_CACHE ? typeof(NLLSsolver.OptimizeCache()) : Nothing   # concrete (see VGC lm_core.jl)
+const _BundleCacheType = _BUNDLE_CACHE ? NLLSsolver.OptimizeCache : Nothing
 
 # The data of the current call — the calibrations, the two views and the
 # √weights — shared by every residual block, replaced per call.
@@ -157,7 +157,11 @@ end
 struct _BundleRun{E, D}
     data::D
     problem::NLLSsolver.NLLSProblem{Union{_BundlePose, _BundlePoint{E}}, _BundleRows{E, D}}
-    cache::_BundleCache
+    # The fork's TYPED OptimizeCache built for this problem (VGC `nlls_features`), or `nothing`.
+    # Its concrete type depends on which linear system the problem's structure selects (Schur,
+    # sparse or dense), a run-time choice, so the field holds it abstractly: one dynamic call per
+    # bundle, the solver's loop inside it static.
+    cache::Union{Nothing, _BundleCacheType}
 end
 function _BundleRun{E}(N::Int, data::D) where {E, D}
     problem = NLLSsolver.NLLSProblem(Union{_BundlePose, _BundlePoint{E}}, _BundleRows{E, D})
@@ -166,7 +170,9 @@ function _BundleRun{E}(N::Int, data::D) where {E, D}
         NLLSsolver.addvariable!(problem, _BundlePoint{E}(zero(SVector{3, Float64})))
         NLLSsolver.addcost!(problem, _BundleRows{E, D}(data, i, SVector(1, i + 1)))
     end
-    return _BundleRun{E, D}(data, problem, _BUNDLE_CACHE ? NLLSsolver.OptimizeCache() : nothing)
+    # the internal data (the Schur system's layout) are built now, for this problem's structure
+    cache = _BUNDLE_CACHE ? NLLSsolver.OptimizeCache(problem, nlls_options(; max_iter = 1, ftol = 1.0, xtol = 1.0), nothing) : nothing
+    return _BundleRun{E, D}(data, problem, cache)
 end
 _bundle_run(::Val{E}, N::Int, data::D) where {E, D} =
     task_buffers(_BundleRun{E, D}, () -> _BundleRun{E}(N, data), (N,))

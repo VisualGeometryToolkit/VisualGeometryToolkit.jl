@@ -472,14 +472,14 @@ end
 # and differentiates in the position. Two lookups with two contracts, not one
 # with a flag.
 
-# The texel position of a Dual is chosen on its value; the weights carry its partials.
-@inline _texel_value(x::ForwardDiff.Dual) = _texel_value(ForwardDiff.value(x))
-@inline _texel_value(x) = x
+# The value part of a (nested) Dual: a texel is chosen on it, the weights carry the partials.
+@inline _value_part(x::ForwardDiff.Dual) = _value_part(ForwardDiff.value(x))
+@inline _value_part(x) = x
 
 @inline function _bilinear_setup(H::Int, W::Int, uv::StaticVector{2})
     h = one(eltype(uv)) / 2
     x = uv[1] * W - h; y = uv[2] * H - h
-    xv = _texel_value(x); yv = _texel_value(y)
+    xv = _value_part(x); yv = _value_part(y)
     Tv = typeof(xv)
     isfinite(xv) || (x = zero(x); xv = zero(Tv))        # a non-finite position reads the corner texel
     isfinite(yv) || (y = zero(y); yv = zero(Tv))

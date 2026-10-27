@@ -59,6 +59,20 @@ Private = false
 Pages = ["numerics/thin_plate_spline.jl"]
 ```
 
+## Special functions
+
+Device-safe scalar functions — pure arithmetic, generic over `Real`, so they
+compile in a KernelAbstractions kernel at any float width and ForwardDiff
+`Dual`s flow through: log Γ and the digamma/trigamma series of the Student-t
+adaptation kernels, the normal CDF [`normcdf_as`](@ref) (Abramowitz & Stegun
+7.1.26) and the dilogarithm [`dilog`](@ref).
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore]
+Private = false
+Pages = ["numerics/special.jl"]
+```
+
 ## Index
 
 ```@index

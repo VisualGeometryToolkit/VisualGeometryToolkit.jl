@@ -268,6 +268,37 @@ end
     end
 end
 
+# The bundle runs a task keeps: the kept problems found in its task-local
+# storage, however they are stored (a slot holding one, or a Dict of them).
+function _kept_bundle_runs()
+    runs = Any[]
+    for v in values(task_local_storage()), x in (v isa AbstractDict ? values(v) : (v,))
+        if x isa VisualGeometryToolkitEstimation._BundleRun
+            push!(runs, x)
+        elseif hasproperty(x, :run) && getproperty(x, :run) isa VisualGeometryToolkitEstimation._BundleRun
+            push!(runs, getproperty(x, :run))
+        end
+    end
+    return runs
+end
+
+@testset "RelposeBundle: one kept problem per task, whatever the sizes, holding no caller array" begin
+    # An eval sweep calls the bundle with a different N per pair: the task
+    # keeps ONE problem (the last size's), not one per size, and the run owns
+    # its data — the caller's arrays are not referenced after the call.
+    fetch(@async begin                          # a fresh task: empty task-local storage
+        for N in (100, 120, 100, 150)
+            R0, t0, u1, u2 = _harness_scene(N)
+            cs = csponds(u1, u2)
+            @test bundle_refine_relpose(rigid(R0, t0), KP1, KP2, cs) !== nothing
+            runs = _kept_bundle_runs()
+            @test length(runs) == 1
+            d = only(runs).data
+            @test d.u1 !== VgtkCore.sources(cs) && d.u2 !== VgtkCore.targets(cs) && d.u1 !== u1 && d.u2 !== u2
+        end
+    end)
+end
+
 @testset "RelposeBundle: noiseless recovery is exact" begin
     rng = StableRNG(3); N = 30
     Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.0)

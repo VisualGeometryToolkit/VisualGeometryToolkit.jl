@@ -103,7 +103,9 @@ end
 const _BundleCacheType = _BUNDLE_CACHE ? NLLSsolver.OptimizeCache : Nothing
 
 # The data of the current call — the calibrations, the two views and the
-# √weights — shared by every residual block, replaced per call.
+# √weights — shared by every residual block. The run OWNS the three vectors
+# (sized N, overwritten per call): it never keeps a reference to a caller's
+# arrays after the call.
 mutable struct _BundleData{T1, T2, TS}
     K1::SMatrix{3, 3, Float64, 9}
     K2::SMatrix{3, 3, Float64, 9}
@@ -111,6 +113,11 @@ mutable struct _BundleData{T1, T2, TS}
     u2::T2
     sqrtw::TS
 end
+const _BundleOwnedData = _BundleData{Vector{SVector{2, Float64}}, Vector{SVector{2, Float64}}, Vector{Float64}}
+_BundleOwnedData(N::Int) = _BundleOwnedData(
+    zero(SMatrix{3, 3, Float64, 9}), zero(SMatrix{3, 3, Float64, 9}),
+    Vector{SVector{2, Float64}}(undef, N), Vector{SVector{2, Float64}}(undef, N), Vector{Float64}(undef, N)
+)
 
 # Point i's four rows, √wᵢ times its two-view reprojection error
 # [π(K₁X) − u₁; π(K₂(RX + t)) − u₂] — camera 1 fixed, so image 1 depends on
@@ -147,13 +154,20 @@ function NLLSsolver.computeresjac(_varflags, r::_BundleRows, pose::_BundlePose, 
     return w * e, w * J
 end
 
-# The kept problem of one point count (and data and point type): built once
-# per (task, N) and reused by every later bundle of that size on that task —
-# its residual blocks read the call's data through `data`, its variables are
-# reset per call, and NLLSsolver's internal data (the Schur system's layout)
-# is kept in `cache`. Without the cache a call rebuilds them (measured
-# 2026-10-27: 0.88 / 1.04 / 1.00× FastLevenbergMarquardt's time at N = 100 /
-# 1000 / 10000 with it, 1.78 / 1.49 / 1.44× without).
+# The kept problem: ONE per task (and point type `E`), for the point count of
+# the task's last bundle — reused by every later bundle of that size on that
+# task and rebuilt, the old one released, when the size changes, so a sweep
+# over pairs of many sizes keeps one problem per task, not one per size. Its
+# residual blocks read the call's data through `data` (owned buffers), its
+# variables are reset per call, and NLLSsolver's internal data (the Schur
+# system's layout) is kept in `cache`, built for the one options type the
+# bundle calls with (`nlls_options`'s). Without the cache a call rebuilds them
+# (measured 2026-10-27: 0.88 / 1.04 / 1.00× FastLevenbergMarquardt's time at
+# N = 100 / 1000 / 10000 with it, 1.78 / 1.49 / 1.44× without).
+#
+# NOT REENTRANT: a bundle started from inside the NLLSsolver `callback` of a
+# bundle on the same task overwrites the running problem's data and
+# variables (the internal `callback` keyword; no production caller passes one).
 struct _BundleRun{E, D}
     data::D
     problem::NLLSsolver.NLLSProblem{Union{_BundlePose, _BundlePoint{E}}, _BundleRows{E, D}}
@@ -174,8 +188,20 @@ function _BundleRun{E}(N::Int, data::D) where {E, D}
     cache = _BUNDLE_CACHE ? NLLSsolver.OptimizeCache(problem, nlls_options(; max_iter = 1, ftol = 1.0, xtol = 1.0), nothing) : nothing
     return _BundleRun{E, D}(data, problem, cache)
 end
-_bundle_run(::Val{E}, N::Int, data::D) where {E, D} =
-    task_buffers(_BundleRun{E, D}, () -> _BundleRun{E}(N, data), (N,))
+# The task's slot for its one run of point type `E`.
+mutable struct _BundleSlot{E}
+    run::Union{Nothing, _BundleRun{E, _BundleOwnedData}}
+end
+_bundle_size(run::_BundleRun) = length(run.problem.variables) - 1
+function _bundle_run(::Val{E}, N::Int) where {E}
+    slot = task_buffers(_BundleSlot{E}, () -> _BundleSlot{E}(nothing), ())
+    run = slot.run
+    run !== nothing && _bundle_size(run) == N && return run
+    slot.run = nothing                        # the old size's problem is released before the new is built
+    new = _BundleRun{E}(N, _BundleOwnedData(N))
+    slot.run = new
+    return new
+end
 
 # The stacked 4N × (5 + 3N) Jacobian and residual of the problem at its current
 # variables (the stall postcondition's input; sparse, the arrowhead pattern).
@@ -347,7 +373,8 @@ end
 # allocation-lean: the RANSAC refit (`refine!` below) calls it with the
 # problem's stored K⁻¹ and the √weights it builds. `schur = false` or
 # `cache = false` take the upstream path where the fork is loaded (the
-# fallback test runs it); `callback` is NLLSsolver's per-iteration callback.
+# fallback test runs it); `callback` is NLLSsolver's per-iteration callback
+# (the task's kept run is not reentrant from it: see `_BundleRun`).
 # -----------------------------------------------------------------------------
 function _bundle_refine_relpose(
         R₀::AbstractMatrix, t₀::AbstractVector,
@@ -357,27 +384,32 @@ function _bundle_refine_relpose(
         sqrtw::AbstractVector; max_iter::Int = _RELPOSE_BUNDLE_MAX_ITER,
         ftol::Float64 = _RELPOSE_BUNDLE_FTOL, retcode::Bool = false,
         stationarity_tol::Float64 = _RELPOSE_BUNDLE_STATIONARITY_TOL,
-        schur::Bool = _BUNDLE_SCHUR, cache::Bool = true, callback = NLLSsolver.nullcallback
-    )
+        schur::Bool = _BUNDLE_SCHUR, cache::Bool = true, callback::F = NLLSsolver.nullcallback
+    ) where {F}
+    # (`::F`: a Function-typed argument only passed on is not specialized,
+    # which made the call below a dynamic one, boxing every argument)
     N = length(u1)
     N >= 5 || return nothing
     Rb = SMatrix{3, 3, Float64, 9}(R₀); tb = Vec3{Float64}(normalize(SVector{3, Float64}(t₀)))
-    data = _BundleData(SMatrix{3, 3, Float64, 9}(K1), SMatrix{3, 3, Float64, 9}(K2), u1, u2, sqrtw)
     E = schur && _BUNDLE_SCHUR
-    return E ? _bundle_optimize(Val(true), N, data, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, cache, callback) :
-        _bundle_optimize(Val(false), N, data, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, cache, callback)
+    return E ? _bundle_optimize(Val(true), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, cache, callback) :
+        _bundle_optimize(Val(false), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, cache, callback)
 end
 
 function _bundle_optimize(
-        v::Val{E}, N, data::D, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, cache, callback
-    ) where {E, D}
-    run = _bundle_run(v, N, data)
+        v::Val{E}, N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, cache, callback
+    ) where {E}
+    run = _bundle_run(v, N)
     d = run.data
-    d.K1 = data.K1; d.K2 = data.K2; d.u1 = data.u1; d.u2 = data.u2; d.sqrtw = data.sqrtw
+    d.K1 = SMatrix{3, 3, Float64, 9}(K1); d.K2 = SMatrix{3, 3, Float64, 9}(K2)
+    for i in 1:N                              # the call's data copied into the run's own buffers (bounds-checked: the caller's lengths)
+        d.u1[i] = SVector{2, Float64}(u1[i][1], u1[i][2]); d.u2[i] = SVector{2, Float64}(u2[i][1], u2[i][2])
+        d.sqrtw[i] = sqrtw[i]
+    end
     problem = run.problem
     problem.variables[1] = EssentialManifold5(Rb, tb)::_BundlePose
     @inbounds for i in 1:N
-        X = _triangulate_rays(iK1, iK2, data.u1[i], data.u2[i], Rb, tb)
+        X = _triangulate_rays(iK1, iK2, d.u1[i], d.u2[i], Rb, tb)
         problem.variables[i + 1] = _BundlePoint{E}(SVector{3, Float64}(X[1], X[2], X[3]))
     end
     # The stack's knob map (VGC `nlls_options`): Marquardt's DᵀD damping, as

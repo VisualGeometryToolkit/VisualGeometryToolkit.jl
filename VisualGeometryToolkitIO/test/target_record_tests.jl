@@ -357,3 +357,56 @@ end
         @test roundtrip(rig, dir, m).members == rig.members            # a metre file holds it
     end
 end
+
+@testitem "rig/v5, target/v2: a planar target's canvas and its texture — present and absent" setup = [VGIoFixtures, TargetRecordFixtures] begin
+    using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, Board, Canvas, CanvasTexture, canvas, board, Rig, PosedTarget,
+        TargetFrame, Rigid
+    using VisualGeometryToolkitIO: content_id
+    bd = Board(Size2(width = mmq(150.0), height = mmq(77.25)), SVector(mmq(-13.9), mmq(0.0)))
+    sha = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    tex = CanvasTexture("textures/board.png", sha, Size2(width = mmq(190.0), height = mmq(97.25)), SVector(mmq(-23.9), mmq(-10.0)))
+    cv_tex = Canvas(Size2(width = mmq(210.0), height = mmq(120.5)), SVector(mmq(-30.0), mmq(-20.125)); texture = tex)
+    cv_bare = Canvas(Size2(width = mmq(210.0), height = mmq(120.5)), SVector(mmq(-30.0), mmq(-20.125)))
+    ident = EuclideanMap(QuatRotation(1.0, 0.0, 0.0, 0.0, false), SVector(mmq(0.0), mmq(0.0), mmq(0.0)))   # the gauge target
+    mktempdir() do dir
+        p = joinpath(dir, "t.json"); r = joinpath(dir, "rig.json")
+        for cv in (cv_tex, cv_bare, nothing), u in (mm, m)
+            t = PlanarTarget(nothing, design_points(), Rigid(), bd, cv)
+            save(p, t; length_unit = u)
+            d = parse_json(read(p, String))
+            @test haskey(d.target, :canvas) == (cv !== nothing)
+            if cv !== nothing && u == mm
+                @test d.target.canvas.size.width == 210.0 && d.target.canvas.origin == [-30.0, -20.125]
+                cv.texture === nothing || @test d.target.canvas.texture.path == "textures/board.png" && d.target.canvas.texture.sha256 == sha &&
+                    d.target.canvas.texture.size.height == 97.25
+            end
+            back = load(AbstractTarget, p)
+            @test back == t && canvas(back) == cv                          # bit for bit, the texture included
+            cv === nothing || @test canvas(back).size.width === cv.size.width && canvas(back).origin === cv.origin
+            # a referenced design keeps its canvas; and inside a rig, with its identity
+            ref = PlanarTarget(:b76e, nothing, Rigid(), bd, cv)
+            save(p, ref; length_unit = u)
+            @test load(AbstractTarget, p) == ref
+            rig = Rig{TargetFrame{:a}}(Dict(:a => PosedTarget(t, ident)))
+            save(r, rig; length_unit = u)
+            @test load(Rig, r).members == rig.members
+            @test content_id(r) == content_id(rig)
+        end
+        # the canvas is part of the identity; without one the identity is the board-only one
+        rig_of(cv) = Rig{TargetFrame{:a}}(Dict(:a => PosedTarget(PlanarTarget(nothing, design_points(), Rigid(), bd, cv), ident)))
+        @test length(unique(content_id.([rig_of(cv_tex), rig_of(cv_bare), rig_of(nothing)]))) == 3
+        # malformed canvases are refused by the validator, a board off the page by Core
+        save(p, PlanarTarget(nothing, design_points(), Rigid(), bd, cv_tex))
+        dd = JSON.parse(read(p, String); dicttype = Dict{String, Any})
+        q = joinpath(dir, "e.json")
+        refused(f) = (x = deepcopy(dd); f(x); write(q, JSON.json(x)); e = try load(AbstractTarget, q); nothing catch e; e end; e)
+        @test refused(x -> (x["target"]["canvas"]["texture"]["sha256"] = "ABC")) isa ArgumentError
+        @test refused(x -> (x["target"]["canvas"]["texture"]["path"] = "/abs/board.png")) isa ArgumentError
+        @test refused(x -> (x["target"]["canvas"]["size"]["width"] = -1.0)) isa ArgumentError
+        @test refused(x -> (x["target"]["canvas"]["extra"] = 1)) isa ArgumentError
+        e = refused(x -> (x["target"]["canvas"]["size"] = Dict("width" => 50.0, "height" => 50.0)))
+        @test e isa ArgumentError && occursin("off the canvas", e.msg)
+        pt = deepcopy(dd); pt["target"] = Dict("type" => "points", "points" => [[0, 0, 0]], "canvas" => dd["target"]["canvas"])
+        write(q, JSON.json(pt)); @test (try load(AbstractTarget, q); nothing catch e; e end) isa ArgumentError
+    end
+end

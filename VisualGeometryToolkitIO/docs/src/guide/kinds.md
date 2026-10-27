@@ -103,6 +103,16 @@ sheet): its size in the `Size2` form and its lower-left corner in the design
 chart, `"board": {"size": {"width": w, "height": h}, "origin": [u, v]}`, every
 number a length in the file's unit. It is absent when the target has none.
 
+It may also state its `canvas` (VGC's `Canvas`), the printed page the board
+lies on, and the image printed on it: `"canvas": {"size": {…}, "origin": [u,
+v], "texture": {"path": p, "sha256": h, "size": {…}, "origin": [u, v]}}`. The
+board, the canvas and the texture are rectangles of one chart, the design
+chart of the nominal points, each its lower-left corner and size in the file's
+unit; the board's placement on the page is `board.origin − canvas.origin`,
+derived, not stored. The texture's `path` is relative to the file that names
+it and `sha256` is the image file's digest; the readers never open the image.
+`texture` is optional, and `canvas` is absent when the target has none.
+
 A target file may also carry a `calibration_record`, the record of how the
 calibration was obtained (the keys of a camera's `calibration` block: `tool`,
 `source`, `date`, `reprojection_rms`, `n_images`, `n_points`, `note`). In

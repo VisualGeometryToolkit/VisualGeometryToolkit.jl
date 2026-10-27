@@ -52,6 +52,17 @@ end
 #   {"type": "planar", "reference": "<reference>", "calibration": {calibration}}     PlanarTarget of a referenced design
 #   {"type": "planar", "nominal": [[x, y], …], "calibration": {calibration}}         PlanarTarget of explicit points
 #   … "board": {"size": {"width": w, "height": h}, "origin": [u, v]}               (optional) its physical board
+#   … "canvas": {"size": {"width": w, "height": h}, "origin": [u, v],              (optional) the printed page,
+#                "texture": {"path": "<relative path>", "sha256": "<hex>",          its printed image (optional):
+#                            "size": {"width": w, "height": h}, "origin": [u, v]}}  the file and the rectangle it covers
+#
+# The board, the canvas and the texture are rectangles of ONE chart, the
+# design chart of the nominal points (VGC's `Canvas` states it): each is its
+# lower-left corner and its size, lengths in the file's `length_unit`; the
+# board's placement on the page is `board.origin − canvas.origin`, derived and
+# never stored. A texture's `path` is relative to the file that names it and
+# `sha256` is the image file's digest; VGIo never opens the image — resolving
+# and checking it is the consumer's.
 #
 # Points and nominal points in the file's `length_unit` (written in mm unless
 # the writer is given another), lengths in metres in memory, in the
@@ -165,20 +176,34 @@ const _BOARD = _Obj(
     :origin => _XY,
 )
 
+const _SIZE_WH = _Obj(:width => _Real(), :height => _Real())
+const _CANVAS_TEXTURE = _Checked(
+    _Obj(
+        :path => _Named(p -> !isempty(p) && !isabspath(p), "a path relative to the file that names it"),
+        :sha256 => _Named(s -> occursin(r"^[0-9a-f]{64}$", s), "a SHA-256 hex digest (64 lowercase hex digits)"),
+        :size => _SIZE_WH, :origin => _XY,
+    ),
+    z -> (z[:size][:width] > 0 && z[:size][:height] > 0) ? nothing : "a canvas texture's width and height are > 0",
+)
+const _CANVAS = _Checked(
+    _Obj(Pair{Symbol, _Spec}[:size => _SIZE_WH, :origin => _XY], Pair{Symbol, _Spec}[:texture => _CANVAS_TEXTURE]),
+    z -> (z[:size][:width] >= 0 && z[:size][:height] >= 0) ? nothing : "a canvas's width and height are ≥ 0",
+)
+
 const _TARGET_BODY = _Checked(
     _Obj(
         Pair{Symbol, _Spec}[:type => _NonEmpty()],
         Pair{Symbol, _Spec}[
             :points => _TARGET_POINTS, :point_covariances => _Vec(_Vec(_Vec(_Real()))),
             :reference => _NonEmpty(), :nominal => _Vec(_Vec(_Real(), 2)), :calibration => _TARGET_CALIBRATION,
-            :board => _BOARD,
+            :board => _BOARD, :canvas => _CANVAS,
         ],
     ),
     function (t)
         ty = t[:type]
         if ty == "points"
             haskey(t, :points) || return "a points target states its `points`"
-            any(k -> haskey(t, k), (:reference, :nominal, :calibration, :board)) && return "a points target has `points` (and `point_covariances`) only"
+            any(k -> haskey(t, k), (:reference, :nominal, :calibration, :board, :canvas)) && return "a points target has `points` (and `point_covariances`) only"
             haskey(t, :point_covariances) && return _point_covariances_check(t[:points], t[:point_covariances])
             return nothing
         elseif ty == "planar"
@@ -285,6 +310,7 @@ target_json(t::PlanarTarget, unit::_LeafUnit = mm) = merge(
         (type = "planar", nominal = [_lengths_json(p, unit, "a planar target's nominal point") for p in t.nominal], calibration = _calibration_record(calibration(t), unit)) :
         (type = "planar", reference = String(reference(t)), calibration = _calibration_record(calibration(t), unit)),
     _board_json(board(t), unit),
+    _canvas_json(canvas(t), unit),
 )
 
 # The board ↔ its record. VGC's `Board` holds its size as lengths (metres) and
@@ -300,6 +326,28 @@ end
 function _board_from_json(x, u::Units)
     o = x.origin::Vector{Any}
     return Board(from_json(Size2, x.size, UnitContract(u); kind = :length), SVector(_read_power(o[1]::Real, u, 1), _read_power(o[2]::Real, u, 1)))
+end
+
+# The canvas ↔ its record: the board's rule for each rectangle (sizes by
+# `write_length`/`read_length`, corners as plain metres in the file's unit),
+# the texture's path and digest as stored.
+_rect_json(r, u::_LeafUnit) = (
+    size = (width = _leaf_length(r.size.width, u), height = _leaf_length(r.size.height, u)),
+    origin = [_metres_json(x, u) for x in r.origin],
+)
+_rect_from_json(x, u::Units) = (
+    Size2(width = read_length(x.size.width::Real, u), height = read_length(x.size.height::Real, u)),
+    SVector(_read_power(x.origin[1]::Real, u, 1), _read_power(x.origin[2]::Real, u, 1)),
+)
+_canvas_json(::Nothing, ::_LeafUnit) = (;)
+function _canvas_json(cv::Canvas, u::_LeafUnit)
+    has_units(cv) || _refuse_plain("a target's canvas")
+    tx = cv.texture === nothing ? (;) : (texture = merge((path = cv.texture.path, sha256 = cv.texture.sha256), _rect_json(cv.texture, u)),)
+    return (canvas = merge(_rect_json(cv, u), tx),)
+end
+function _canvas_from_json(x, u::Units)
+    tx = haskey(x, :texture) ? CanvasTexture(x.texture.path::String, x.texture.sha256::String, _rect_from_json(x.texture, u)...) : nothing
+    return Canvas(_rect_from_json(x, u)...; texture = tx)
 end
 
 """
@@ -319,12 +367,13 @@ function target_from_json(t, unit::AbstractString; resolve = nothing)
     end
     c = _target_calibration_from_json(t.calibration, u)
     bd = haskey(t, :board) ? _board_from_json(t.board, u) : nothing
-    haskey(t, :nominal) && return PlanarTarget(nothing, _points_from_json(t.nominal::Vector{Any}, u), c, bd)
+    cv = haskey(t, :canvas) ? _canvas_from_json(t.canvas, u) : nothing
+    haskey(t, :nominal) && return PlanarTarget(nothing, _points_from_json(t.nominal::Vector{Any}, u), c, bd, cv)
     ref = Symbol(t.reference::String)
     nominal = resolve === nothing ? nothing : resolve(ref)
     (nominal === nothing || isempty(nominal) || has_units(nominal)) ||
         _refuse_plain("resolve($(repr(ref))): the design's nominal points")
-    return PlanarTarget(ref, nominal, c, bd)
+    return PlanarTarget(ref, nominal, c, bd, cv)
 end
 
 # -----------------------------------------------------------------------------
@@ -573,7 +622,7 @@ file format does: a rig, every file written from it in any decimal
 `length_unit`, the rig loaded back from such a file, and a migration of the
 file to the next rig version have one identity. A relabeled provenance does
 not change it; a target's calibration kind, its parameters, its covariance
-and its board do.
+its board and its canvas (with its texture reference) do.
 
 The identity is of the persisted representation; a value and the file written
 from it hash equal by construction. Every length enters as the number a file in
@@ -606,7 +655,10 @@ The identity tree, fixed (a test pins it for a rig of every target kind):
                 "directions": row-major [[x, y, z], …], "points": row-major [[m, m, m], …] (non-central)}
     target     {"kind": "points", "points": [[m, …], …], "point_covariances": per point d×d rows, m² (iff Uncertain)}
              | {"kind": "planar", "reference": <id> | "nominal": [[m, m], …], "calibration": <calibration>,
-                "board": {"size": [width, height] (m), "origin": [m, m]}  (iff the target has a board)}
+                "board": {"size": [width, height] (m), "origin": [m, m]}  (iff the target has a board),
+                "canvas": {"size": [width, height] (m), "origin": [m, m],
+                           "texture": {"path", "sha256", "size": [width, height] (m), "origin": [m, m]} (iff it has one)}
+                                                                          (iff the target has a canvas)}
     calibration {"kind": <the kind's tag>, "parameters": parameter_vector (lengths in m),
                  "nodes": [[m, m], …] (thin-plate kinds), "members": [<calibration>, …] (a chain),
                  "covariance": rows over the parameters, m^(lᵢ+lⱼ) (iff Uncertain)}
@@ -633,7 +685,7 @@ end
 _id_sensor(rig, i, id) =      # (as the writer's `_sensor_json`: the rig untyped here)
     _Id("id" => String(id), "camera" => _id_camera(sensor_rig(rig).members[i]), "extrinsics" => _lower(pose_json(extrinsics(sensor_rig(rig), i), _PERSISTED)))
 _id_targets(tr) = Any[
-    _Id("id" => String(id), "target" => _id_kind!(_id_board!(_lower(target_json(tr[id].target, _PERSISTED)))), "pose" => _lower(pose_json(pose(tr, id), _PERSISTED)))
+    _Id("id" => String(id), "target" => _id_kind!(_id_canvas!(_id_board!(_lower(target_json(tr[id].target, _PERSISTED))))), "pose" => _lower(pose_json(pose(tr, id), _PERSISTED)))
         for id in sort!(collect(ids(tr)))
 ]
 # a record's `type` (a target's, a calibration's and its members') is the identity's `kind`.
@@ -644,6 +696,14 @@ function _id_kind!(d::_Id)
     d["kind"] = pop!(d, "type")
     haskey(d, "calibration") && _id_kind!(d["calibration"])
     foreach(_id_kind!, get(d, "members", ()))
+    return d
+end
+# a canvas's and its texture's sizes are [width, height], as the board's
+_id_size!(r) = (s = r["size"]; r["size"] = Any[s["width"], s["height"]]; r)
+function _id_canvas!(d::_Id)
+    haskey(d, "canvas") || return d
+    _id_size!(d["canvas"])
+    haskey(d["canvas"], "texture") && _id_size!(d["canvas"]["texture"])
     return d
 end
 # a board's size is [width, height]

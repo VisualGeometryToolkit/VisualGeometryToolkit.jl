@@ -71,6 +71,14 @@
         for l in (Lens(Perspective(), Radial((-0.2,))), Division(-0.3, 0.05), KannalaBrandt(-0.1), FoldingLens())
             @test image_circle(mk(800.0, 800.0, 640.0, 480.0, l)) isa Ellipse
         end
+        # the double sphere's FOV bound is its own limit even where it reaches
+        # past the sphere's edge π − 10⁻³: ξ = 1, α = ½ (w₂ = 1) images all but
+        # the backward axis, its rim the disc of normalized radius 2
+        ds = Lens(DoubleSphere(1.0, 0.5))
+        @test π - 1.0e-3 < view_angle_limit(ds) < π
+        qd = image_circle(mk(800.0, 800.0, 640.0, 480.0, ds))
+        @test qd isa Ellipse
+        @test qd.a ≈ 800 * 2 rtol = 1.0e-5
         qu = image_circle(mk(800.0, 800.0, 640.0, 480.0, FoldingLens()))
         @test qu.a ≈ 800 * sqrt(10 / 3) * (2 / 3) rtol = 1.0e-3   # the scan's fold, to its grid
         # the whole plane restricts nothing

@@ -110,7 +110,7 @@ end
 # node sampler (generic_models.jl) read it here.
 function _lens_circle_radius(l::AbstractLensModel)
     θ = Float64(view_angle_limit(l))
-    θ < _view_angle_edge(l) || return nothing   # the edge is a cap: no limit of its own
+    _own_view_angle_limit(l, θ) || return nothing   # the edge is a cap: no limit of its own
     ρ = _inscribed_radius(l, θ)
     isfinite(ρ) || throw(
         ArgumentError(
@@ -120,6 +120,14 @@ function _lens_circle_radius(l::AbstractLensModel)
     )
     return ρ
 end
+
+# Whether `view_angle_limit` reported the lens's own limit rather than the edge
+# it stops at. The double sphere's limit is always its own — its FOV bound,
+# `acos(−w₂)` less 10⁻⁶, which reaches past the sphere's edge `π − 10⁻³` as w₂
+# nears 1 (ξ = 1, α ≤ ½ images the whole sphere but the backward axis, and its
+# rim conic is finite: radius 2).
+_own_view_angle_limit(l::AbstractLensModel, θ) = θ < _view_angle_edge(l)
+_own_view_angle_limit(::Lens{<:DoubleSphere, Nothing}, θ) = true
 
 # The pixel image of the normalized disc of radius ρ through the camera's K:
 # the conic K⁻ᵀ·diag(1, 1, −ρ²)·K⁻¹ as an Ellipse.

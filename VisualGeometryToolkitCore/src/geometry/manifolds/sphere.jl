@@ -26,7 +26,10 @@ struct SphereManifold{N, D, T, L, F} <: Manifold
     B::SMatrix{N, D, T, L}
     embed::F
 end
-function SphereManifold(q::StaticVector{N}, embed = identity) where {N}
+# `embed::F`: a Function argument that is only handed on is not specialized on by
+# default, and the unspecialized call boxed u, B and the result (176 bytes per
+# recenter at N = 3, 624 at N = 6).
+function SphereManifold(q::StaticVector{N}, embed::F = identity) where {N, F}
     T = float(eltype(q))
     u = SVector{N, T}(q) / norm(q)
     return SphereManifold(u, _householder_complement(u), embed)

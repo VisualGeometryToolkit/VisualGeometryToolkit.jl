@@ -23,7 +23,13 @@ struct SubsetManifold{C <: Manifold, D, M} <: Manifold
     idx::SVector{M, Int}
     function SubsetManifold(manifold::C, idx::SVector{M, Int}) where {C <: Manifold, M}
         D = tangent_size(manifold)
-        (issorted(idx; lt = <) && allunique(idx)) ||
+        # strictly ascending, pair by pair: `allunique(idx)` collected the SVector
+        # into an Array on Julia 1.12 (64 bytes per recenter at M = 4)
+        ascending = true
+        for j in 1:(M - 1)
+            ascending &= idx[j] < idx[j + 1]
+        end
+        ascending ||
             throw(ArgumentError("restrict: coordinate indices must be ascending and distinct, got $idx"))
         all(i -> 1 <= i <= D, idx) || throw(ArgumentError("restrict: coordinate indices $idx outside 1:$D"))
         return new{C, D, M}(manifold, idx)

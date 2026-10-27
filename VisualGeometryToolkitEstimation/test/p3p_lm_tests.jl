@@ -1,27 +1,32 @@
 @testitem "p3p_lm" setup = [P3PScenes, Cameras] begin
     import VisualGeometryToolkitEstimation as VgtkEstimation
+    import VisualGeometryToolkitCore as VgtkCore
 # =============================================================================
 # p3p_lm_tests.jl — the P3P NonlinLsq refit: the FAMILY workspace mechanism
 # (ManifoldLmWorkspace{6}, threaded like the essential/fundmat/homography
-# refits) solved by the stack's chart LM, VGC's `lmsolve_chart!` —
-# FastLevenbergMarquardt's in-place `lmsolve!`. Gated across a size sweep:
-#   (1) RESULTS AGREE WITH FLM's STATIC `lmsolve` — the same algorithm on
-#       value-returning residuals, computed in the same process. The in-place
-#       run forms g = J'f and J'J by `mul!` into static buffers and D by a
-#       column sum where the static run forms them by value, so the agreement
-#       is a TOLERANCE: measured 2026-10-01 over this sweep, ‖Δx‖ ≤ 1.87e-10
-#       (n = 20, 30 vs 28 iterations; ≤ 2e-15 at the other sizes) against
-#       ‖x‖ = 9.4e-3. Re-measured 2026-10-09 on the lens-family projections
-#       (K+ merged with feat/lens-families; last-ulp shifts in the camera's
-#       projection): ‖Δx‖ = 6.6e-10 at n = 20 against ‖x‖ = 1.3e-2, so gated
-#       at atol 1e-9, rtol 1e-9. (The retired hand-rolled
-#       core agreed to 7.5e-13 under rtol 1e-9, atol 1e-12.) Under --check-bounds both
-#       paths' compiled results shift by last-ulp amounts, so the gate loosens
-#       there. The problems are deliberately WELL-CONDITIONED (convergence in
-#       tens of iterations, guarded below): a fit that crawls for ~100
-#       iterations amplifies benign ulp differences and would test the compiler.
-#   (2) NO ALLOCATION — the 2n residual/Jacobian buffers, the static iterate
-#       and the static solver are the workspace's (the ~926 MB/frame hotspot).
+# refits) solved by the stack's chart LM, VGC's `lmsolve_chart!` — NLLSsolver
+# with the adapter's static Gram (`computecostgradhess`). Gated across a size
+# sweep:
+#   (1) RESULTS AGREE WITH NLLSsolver's OWN LAYOUT — a fresh NLLSsolver problem
+#       on the same rows through `computeresjac`, NLLSsolver forming Jᵀr and
+#       JᵀJ itself (`jac' * jac`), no cache: the same algorithm, an
+#       independent Gram, computed in the same process. The two sum the Gram
+#       in different orders, so the agreement is a TOLERANCE: measured
+#       2026-10-27 over this sweep (Julia 1.13), ‖Δx‖∞ = 1.2e-11 / 8.2e-12 / 5.3e-16 /
+#       1.3e-12 (n = 8 / 20 / 100 / 400; 4 / 5 / 4 / 4 iterations both)
+#       against ‖x‖∞ = 9.4e-3 / 1.3e-2 / 4.2e-3 / 2.8e-3, gated at atol 1e-9, rtol 1e-9 (the gate FastLevenbergMarquardt's
+#       static `lmsolve` reference had until it left the stack, 2026-10-27).
+#       The problems are deliberately WELL-CONDITIONED (convergence in tens of
+#       iterations, guarded below): a fit that crawls amplifies benign ulp
+#       differences and would test the compiler.
+#   (2) ALLOCATION FLAT IN n — the 2n residual/Jacobian buffers, the static
+#       iterate and Gram and the NLLSsolver problem are the workspace's (the
+#       ~926 MB/frame hotspot this guards). FastLevenbergMarquardt's run
+#       allocated nothing; NLLSsolver's `optimize!` through its `OptimizeCache`
+#       allocates a few small objects per call (the cache holds its internal
+#       data untyped): measured 2026-10-27, 5 allocations at every n of the
+#       sweep. Gated: the same count at
+#       every n, at most ALLOCS_BOUND.
 # `sqrtw` uses the family per-ROW convention (length 2n, a point's weight
 # duplicated across its two rows).
 # =============================================================================
@@ -33,44 +38,59 @@ using VisualGeometryToolkitCore: sqrt_weights   # VGC accessor (public)
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitCore: LeftRigidManifold6   # the PnP refit chart (public)
 using VisualGeometryToolkitEstimation: _lm_state, residual_rows!, residual_jacobian_rows!
-using VisualGeometryToolkitEstimation.FastLevenbergMarquardt: lmsolve
+import NLLSsolver
 
-@testset "P3P LM refit — family workspace, FLM chart LM" begin
-    x0 = zero(SVector{6, Float64})
+# The reference layout: one residual block of all the rows, its Jacobian
+# through `computeresjac` (NLLSsolver forms Jᵀr, JᵀJ).
+struct _RefRows{L} <: NLLSsolver.AbstractResidual
+    lm::L
+    r::Vector{Float64}
+    J::Matrix{Float64}
+end
+NLLSsolver.ndeps(::_RefRows) = NLLSsolver.static(1)
+NLLSsolver.nres(c::_RefRows) = length(c.r)
+NLLSsolver.varindices(::_RefRows) = SVector(1)
+NLLSsolver.getvars(::_RefRows, vars::Vector) = (vars[1]::SVector{6, Float64},)
+Base.eltype(::_RefRows) = Float64
+NLLSsolver.computeresidual(c::_RefRows, x) = residual_rows!(c.r, c.lm, x)
+NLLSsolver.computeresjac(_vf, c::_RefRows, x) = (residual_rows!(c.r, c.lm, x), residual_jacobian_rows!(c.J, c.lm, x))
+function _reference_run(lm, n, stationarity_tol)
+    problem = NLLSsolver.NLLSProblem(SVector{6, Float64}, _RefRows{typeof(lm)})
+    NLLSsolver.addvariable!(problem, zero(SVector{6, Float64}))
+    NLLSsolver.addcost!(problem, _RefRows(lm, zeros(2n), zeros(2n, 6)))
+    result = NLLSsolver.optimize!(problem, VgtkCore.nlls_options(; max_iter = 1000, ftol = eps(), xtol = 1.0e-10), 1)
+    return problem.variables[1], result.niterations
+end
+
+@testset "P3P LM refit — family workspace, NLLSsolver chart LM" begin
     stationarity_tol = VgtkEstimation._CHART_LM_STATIONARITY_TOL   # configs/default.toml [chart_lm]
-    bounds_checked = Base.JLOptions().check_bounds == 1
+    ALLOCS_BOUND = 8
+    allocs = Int[]
     for (n, seed) in ((8, 1), (20, 13), (100, 7), (400, 99))
         rng = StableRNG(seed)
         R₀, t₀, prob, sw = p3p_scene(rng, IDCAM, n; σ = 0.001)
         ch = LeftRigidManifold6(R₀, t₀)
-        data = _lm_state(prob, ch, sw)
-
-        # reference: FLM's static `lmsolve`, fresh residual Vector per evaluation
-        res(x, d) = residual_rows!(Vector{Float64}(undef, 2n), d, x)
-        Ja = Matrix{Float64}(undef, 2n, 6)
-        jaca(x, d) = residual_jacobian_rows!(Ja, d, x)
-        out_a = lmsolve(res, jaca, x0, data)
-
-        # conditioning guard: a crawling fit would amplify compiler-level ulp
-        # variation into visible drift and gate nothing meaningful
-        @test out_a[4] ≤ 60
 
         # what `_refine!` runs: the family workspace + VGC's chart LM
         ews = ManifoldLmWorkspace(2n, 6)
         copyto!(sqrt_weights(ews), sw)
         lm = _lm_state(prob, ch, sqrt_weights(ews))
-        x_b, _, _ = lmsolve_chart!(ews, lm; stationarity_tol)
+        x_b, _, _, iters = lmsolve_chart!(ews, lm; stationarity_tol)
 
-        # (1) agreement with the static FLM run at the measured level (see header)
-        if bounds_checked
-            @test isapprox(x_b, out_a[1]; rtol = 1.0e-6, atol = 1.0e-10)
-        else
-            @test isapprox(x_b, out_a[1]; rtol = 1.0e-9, atol = 1.0e-9)
-        end
+        # reference: NLLSsolver's own layout on a fresh problem
+        x_a, iters_a = _reference_run(_lm_state(prob, ch, copy(sw)), n, stationarity_tol)
 
-        # (2) the run allocates nothing at any size
+        # conditioning guard: a crawling fit would amplify compiler-level ulp
+        # variation into visible drift and gate nothing meaningful
+        @test iters_a ≤ 60 && iters ≤ 60
+
+        # (1) agreement with the reference layout at the measured level (see header)
+        @test isapprox(x_b, x_a; rtol = 1.0e-9, atol = 1.0e-9)
+
+        # (2) the run's allocations do not grow with n
         lmsolve_chart!(ews, lm; stationarity_tol)                 # warm
-        @test (@allocated lmsolve_chart!(ews, lm; stationarity_tol)) == 0
+        push!(allocs, @allocations lmsolve_chart!(ews, lm; stationarity_tol))
     end
+    @test allequal(allocs) && first(allocs) <= ALLOCS_BOUND
 end
 end

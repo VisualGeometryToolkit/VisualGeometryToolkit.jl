@@ -266,7 +266,7 @@ end
 
 # ------------------------------------------------------------------------------
 # The regression's least squares — the stack's chart LM (VGC's
-# `lmsolve_chart!`: FastLevenbergMarquardt's `lmsolve!`) over the
+# `lmsolve_chart!`: NLLSsolver) over the
 # `residual_rows!` protocol
 # ------------------------------------------------------------------------------
 

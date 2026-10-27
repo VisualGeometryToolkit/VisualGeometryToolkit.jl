@@ -2,25 +2,25 @@
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 # =============================================================================
-# RelposeBundleProblem — camera-aware full-3D two-view bundle adjustment with
-# Schur-reduced FLM solve.  Validates: (1) SchurSolver step == dense damped
-# solve; (2) the analytic arrowhead Jacobian (fixed-pattern sparse) ==
-# ForwardDiff (K≠I); (3) representation independence — the sparse Schur run and
-# a dense run (ForwardDiff Jacobian, FLM's own Cholesky) reach the same pose —
-# and 0 allocations per LM iteration on the sparse path; (4) noiseless recovery
-# is machine-exact (canonical frame); (5) noisy refinement improves a perturbed
-# seed; (6) optimal-triangulation `residuals!` ≤ DLT reprojection; (7) the
-# 5-dof chart reaches the retired 6-dof chart's optimum, stationary, ‖t‖ = 1.
+# RelposeBundleProblem — camera-aware full-3D two-view bundle adjustment on
+# NLLSsolver, structure eliminated by the Schur complement. Validates: (1) the
+# closed-form block Jacobian == ForwardDiff (K≠I); (2) the fork's Schur system
+# and the upstream sparse path (the fallback a registered NLLSsolver takes)
+# reach the same pose; (3) allocations per call flat in N (the kept problem);
+# (4) noiseless recovery is machine-exact (canonical frame); (5) noisy
+# refinement improves a perturbed seed; (6) optimal-triangulation `residuals!`
+# ≤ DLT reprojection; (7) the 5-dof chart reaches the retired 6-dof chart's
+# optimum, stationary, ‖t‖ = 1.
 # =============================================================================
 using Test, LinearAlgebra, Random, StaticArrays, Rotations
 using StableRNGs
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitEstimation: SchurSolver, bundle_refine_relpose, _RelposeBundleLm,
-    residual_rows!, residual_jacobian_rows!, _triangulate_optimal, _reprojection_error,
-    _arrowhead_jacobian, recenter_pose, _POSE_DOF
-using VisualGeometryToolkitCore: EssentialManifold5, is_stationary
-using VisualGeometryToolkitCore: lmsolve_rows!, lm_retcode
+using VisualGeometryToolkitEstimation: bundle_refine_relpose, _bundle_refine_relpose, _BundleData, _BundleRows,
+    _BundlePoint, _BundlePose, _triangulate_optimal, _reprojection_error, _POSE_DOF, _inv3
+using VisualGeometryToolkitCore: EssentialManifold5, recenter_pose
+import NLLSsolver
+using ForwardDiff: ForwardDiff
 using VisualGeometryToolkitCore: CameraModel, Point2, Point3, Vec3, calibration_matrix, csponds, Csponds, project,
     rotation, translation, EssentialMat
 using VisualGeometryToolkitCore.Synthetic: pose_error
@@ -43,7 +43,6 @@ function _dlt_reference_triangulation(u1, u2, K1, K2, R, t)
     h = svd(Matrix(A)).V[:, 4]
     return Point3(h[1] / h[4], h[2] / h[4], h[3] / h[4])
 end
-import FastLevenbergMarquardt as FLM
 
 # canonical-scale intrinsics (image-size-normalized: fx≈1, cx≈0.5) — the regime
 # the eval pipeline runs in (NOT raw pixels, which are badly LM-conditioned).
@@ -73,73 +72,46 @@ _seed(rng, Rgt, tgt; δ, s) = (
     Vec3{Float64}(normalize(tgt + s * SVector(randn(rng), randn(rng), randn(rng)))),
 )
 
-@testset "RelposeBundle: SchurSolver == dense damped solve" begin
-    rng = StableRNG(1); N = 7
-    Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.003)
-    R0, t0 = _seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
-    Xi = reduce(vcat, [_dlt_reference_triangulation(u1[i], u2[i], KC1, KC2, R0, t0) for i in 1:N])
-    x = vcat(0.02 * randn(rng, _POSE_DOF), Xi .+ 0.01 * randn(rng, 3N))
-    J = _arrowhead_jacobian(N); residual_jacobian_rows!(J, _RelposeBundleLm(R0, t0, KC1, KC2, u1, u2, ones(N), N), x)
-    Jd = Matrix(J)                                             # the dense reference
-    r = zeros(4N); residual_rows!(r, _RelposeBundleLm(R0, t0, KC1, KC2, u1, u2, ones(N), N), x)
-    g = Jd' * r; D = diag(Jd' * Jd) .+ 1.0e-9; λ = 0.41
-    L = FLM.LMWorkspace(copy(x), copy(r), J)                  # FLM's workspace: the J, g, D and p the solver reads
-    copyto!(L.g, g); copyto!(L.D, D)
-    s = FLM.init!(SchurSolver(N), r, L)                       # FLM forms the blocks once per Jacobian
-    FLM.solve!(s, λ, r, L)
-    @test isapprox(L.p, (Jd' * Jd + λ * Diagonal(D)) \ g; rtol = 1.0e-8)
-    # the blocks are reused across damping values (FLM re-solves per LM iteration)
-    FLM.solve!(s, 10λ, r, L)
-    @test isapprox(L.p, (Jd' * Jd + 10λ * Diagonal(D)) \ g; rtol = 1.0e-8)
-    @test (@allocated FLM.solve!(s, λ, r, L)) == 0
-    @test (@allocated FLM.init!(s, r, L)) == 0
-end
-
-@testset "RelposeBundle: analytic Jacobian == ForwardDiff (K≠I)" begin
+@testset "RelposeBundle: closed-form block Jacobian == ForwardDiff (K≠I)" begin
+    # Point i's 4 × 8 block — pose columns along the chart the variable's
+    # `update` steps in (VGC `recenter_pose`), then the point's — against
+    # ForwardDiff of the same rows; non-unit weights.
     rng = StableRNG(2); N = 9
     Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.003)
-    R0, t0 = SMatrix{3, 3, Float64, 9}(Rgt), Vec3{Float64}(tgt)
-    Xi = reduce(vcat, [_dlt_reference_triangulation(u1[i], u2[i], KC1, KC2, R0, t0) for i in 1:N])
-    x = vcat(0.03 * randn(rng, _POSE_DOF), Xi .+ 0.01 * randn(rng, 3N))
-    lm = _RelposeBundleLm(R0, t0, KC1, KC2, u1, u2, ones(N), N)
-    @test VgtkCore.check_rows_jacobian(lm, x, 4N; rtol = 1.0e-6, atol = 1.0e-9, jacobian = _arrowhead_jacobian(N))
+    R0, t0 = _seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
+    sw = sqrt.(0.5 .+ 0.5 .* rand(rng, N))
+    data = _BundleData(KC1, KC2, u1, u2, sw)
+    pose = EssentialManifold5(R0, t0)::_BundlePose
+    for i in 1:N
+        X = SVector{3, Float64}(_dlt_reference_triangulation(u1[i], u2[i], KC1, KC2, R0, t0)) + 0.01 * randn(rng, SVector{3, Float64})
+        rows = _BundleRows{true, typeof(data)}(data, i, SVector(1, i + 1))
+        e, J = NLLSsolver.computeresjac(NLLSsolver.static(3), rows, pose, _BundlePoint{true}(X))
+        f(δ) = (Rt = recenter_pose(pose, SVector{5}(δ[1], δ[2], δ[3], δ[4], δ[5]));
+            sw[i] * _reprojection_error(KC1, KC2, Rt[1], Rt[2], X + SVector(δ[6], δ[7], δ[8]), u1[i], u2[i]))
+        @test e ≈ f(zeros(8)) rtol = 1.0e-12
+        @test isapprox(J, ForwardDiff.jacobian(f, zeros(8)); rtol = 1.0e-9, atol = 1.0e-12)
+    end
 end
 
-@testset "RelposeBundle: sparse and dense Jacobians reach the same pose; 0 allocations" begin
-    # The same LM (VGC's `lmsolve_rows!`) on the same rows in two
-    # representations: the fixed-pattern sparse J with the Schur solver (what
-    # the bundle runs), and a dense J — VGC's ForwardDiff default — with FLM's
-    # own Cholesky on the full (5 + 3N)² normal equations. Both are run to a
-    # tight step tolerance, so the comparison is the representation, not where
-    # each LM stops.
+@testset "RelposeBundle: the Schur system and the upstream path reach the same pose (fallback)" begin
+    # The fork's Schur-complement system with its OptimizeCache (what a
+    # checkout runs) and the upstream path — NLLSsolver's sparse LDL over all
+    # 5 + 3N unknowns, no cache: what a registered NLLSsolver runs, forced here
+    # through `schur = false, cache = false` — on the same rows, run to a tight
+    # tolerance so the comparison is the linear system, not where each LM
+    # stops. Measured 2026-10-27 (Julia 1.13): rotation entries within 2.8e-11,
+    # translation within 4.6e-11, cost 6.4e-15 relative (14 and 12 iterations).
     rng = StableRNG(11); N = 25
     Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.002)
     R0, t0 = _seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
-    iK1 = inv(KC1); iK2 = inv(KC2)
-    Xi = reduce(vcat, [Vector(_triangulate_rays(iK1, iK2, u1[i], u2[i], R0, t0)) for i in 1:N])
+    iK1 = _inv3(KC1); iK2 = _inv3(KC2)
     sw = sqrt.(0.5 .+ 0.5 .* rand(rng, N))
-    lm = _RelposeBundleLm(R0, t0, KC1, KC2, u1, u2, sw, N)
-    tol::Float64 = VgtkEstimation._dflt("relpose_bundle", "stationarity_tol")
-    function bundle_pose(J, solver)
-        buffers = FLM.LMWorkspace(vcat(zeros(_POSE_DOF), Xi), zeros(4N), J)
-        x, F, code, _ = lmsolve_rows!(buffers, solver, lm; maxit = 500, xtol = 1.0e-15, stationarity_tol = tol)
-        R, t = recenter_pose(lm.ch, x)
-        return SMatrix{3, 3, Float64, 9}(R), SVector{3, Float64}(t), F, lm_retcode(code)
-    end
-    Rs, ts, Fs, cs = bundle_pose(_arrowhead_jacobian(N), SchurSolver(N))
-    Rd, td, Fd, cd = bundle_pose(zeros(4N, _POSE_DOF + 3N), FLM.CholeskySolver(_POSE_DOF + 3N))
-    @test cs === :converged && cd === :converged
-    @test maximum(abs, Rs - Rd) < 1.0e-8 && maximum(abs, ts - td) < 1.0e-8
-    @test isapprox(Fs, Fd; rtol = 1.0e-10)
-    # The sparse run allocates nothing: FLM's iterations, the Jacobian fill,
-    # the Schur solve and the stall postcondition reuse the buffers.
-    # (a function barrier: the test item's locals are globals)
-    x0 = vcat(zeros(_POSE_DOF), Xi)
-    buffers = FLM.LMWorkspace(copy(x0), zeros(4N), _arrowhead_jacobian(N)); solver = SchurSolver(N)
-    rerun!(b, s, lm, x0, tol, k) = (copyto!(b.x, x0); lmsolve_rows!(b, s, lm; maxit = k, stationarity_tol = tol))
-    rerun!(buffers, solver, lm, x0, tol, 100)
-    @test (@allocated rerun!(buffers, solver, lm, x0, tol, 100)) == 0
-    @test (@allocated rerun!(buffers, solver, lm, x0, tol, 1)) == 0
+    run(; kw...) = _bundle_refine_relpose(R0, t0, KC1, KC2, iK1, iK2, u1, u2, sw; max_iter = 500, ftol = 1.0e-15, retcode = true, kw...)
+    fast = run(); slow = run(; schur = false, cache = false)
+    @test VgtkCore.nlls_features().schur     # the checkout's fork: the fast path is the Schur system
+    @test fast.retcode === :converged && slow.retcode === :converged
+    @test maximum(abs, fast.R - slow.R) < 1.0e-8 && maximum(abs, fast.t - slow.t) < 1.0e-8
+    @test isapprox(fast.result.bestcost, slow.result.bestcost; rtol = 1.0e-10)
 end
 
 # The A/B harness's scene (2026-10-27, nlls-schur): pixel cameras at ~800 px focal,
@@ -170,34 +142,28 @@ function _harness_scene(N; seed = 1, σ = 0.5)
     return R0, t0, u1, u2
 end
 
-# FLM's solver hook around the Schur solver, recording ‖f‖² at every LM
-# iteration (FLM has no callback): the cost trajectory of a production run.
-struct _CostRecorder <: FLM.AbstractSolver
-    s::SchurSolver
+# NLLSsolver's per-iteration callback, recording ‖f‖² after every iteration:
+# the cost trajectory of a production run.
+struct _CostLog
     F::Vector{Float64}
 end
-FLM.init!(r::_CostRecorder, f::AbstractVector, L) = (FLM.init!(r.s, f, L); r)
-FLM.update!(r::_CostRecorder, f::AbstractVector, L) = (FLM.update!(r.s, f, L); r)
-FLM.solve!(r::_CostRecorder, λ::Real, f::AbstractVector, L) = (push!(r.F, sum(abs2, f)); FLM.solve!(r.s, λ, f, L))
+(cb::_CostLog)(cost, problem, data, iteratedata) = (push!(cb.F, 2cost); (cost, 0))
 
-# `_bundle_refine_relpose`'s run, step for step (unit weights), with the cost
-# trajectory: (x, F, FLM code, LM iterations, the first iteration within 1e-6
-# of the final cost, the linearization state). The seed is read from the pose
-# exactly as the public entry reads it.
+# `_bundle_refine_relpose`'s run (unit weights), with the cost trajectory:
+# (R, t, F, retcode, NLLSsolver iterations, the first iteration within 1e-6 of
+# the final cost). The seed is read from the pose exactly as the public entry
+# reads it.
 function _recorded_bundle(seed, u1, u2, tol)
     N = length(u1)
     R0 = SMatrix{3, 3, Float64, 9}(rotation(seed)); t0 = Vec3{Float64}(normalize(SVector{3, Float64}(translation(seed))))
-    iK1 = SMatrix{3, 3, Float64, 9}(inv(KP1)); iK2 = SMatrix{3, 3, Float64, 9}(inv(KP2))
-    Xi = reduce(vcat, [Vector(_triangulate_rays(iK1, iK2, u1[i], u2[i], R0, t0)) for i in 1:N])
-    lm = _RelposeBundleLm(R0, t0, KP1, KP2, u1, u2, ones(N), N)
-    buffers = FLM.LMWorkspace(vcat(zeros(_POSE_DOF), Xi), zeros(4N), _arrowhead_jacobian(N))
-    rec = _CostRecorder(SchurSolver(N), Float64[])
-    x, F, code, iters = lmsolve_rows!(
-        buffers, rec, lm; maxit = VgtkEstimation._dflt("relpose_bundle", "max_iter"), stationarity_tol = tol,
-        ftol = VgtkEstimation._dflt("relpose_bundle", "ftol")
+    log = _CostLog(Float64[])
+    out = _bundle_refine_relpose(
+        R0, t0, KP1, KP2, _inv3(KP1), _inv3(KP2), u1, u2, ones(N);
+        retcode = true, stationarity_tol = tol, callback = log
     )
-    k1e6 = findfirst(Fk -> abs(Fk - F) <= 1.0e-6 * F, vcat(rec.F, F)) - 1   # rec.F[1] is the start
-    return copy(x), F, code, iters, k1e6, lm
+    F = 2 * out.result.bestcost
+    k1e6 = findfirst(Fk -> abs(Fk - F) <= 1.0e-6 * F, vcat(2 * out.result.startcost, log.F)) - 1   # [1] is the start
+    return out.R, out.t, F, out.retcode, out.result.niterations, k1e6
 end
 
 @testset "RelposeBundle: the 5-dof chart reaches the 6-dof chart's optimum" begin
@@ -208,10 +174,12 @@ end
     # rotation and 2.9e-11° in translation direction of it), is the baseline:
     # the cost agrees to 1e-12 relative and the pose to 1e-6°.
     #
-    # WHY 1e-6°: the bundle stops at `[relpose_bundle] ftol = 1e-10` (FLM code
-    # 1), one step short of the cost's rounding floor; measured there (Julia
-    # 1.13): cost ≤ 4.6e-14 relative, rotation ≤ 1.8e-8°, translation direction
-    # ≤ 1.6e-7°. The statistical pose uncertainty on these scenes is ~3e-2° /
+    # WHY 1e-6°: the bundle stops at `[relpose_bundle] ftol = 1e-10`
+    # (NLLSsolver's relative cost-decrease stop, until 2026-10-27
+    # FastLevenbergMarquardt's code 1), one step short of the cost's rounding
+    # floor; measured there (Julia 1.13, NLLSsolver): cost ≤ 6.2e-14 relative,
+    # rotation ≤ 2.1e-8°, translation direction ≤ 1.8e-7° (FastLevenbergMarquardt:
+    # 4.6e-14, 1.8e-8°, 1.6e-7°). The statistical pose uncertainty on these scenes is ~3e-2° /
     # 8e-3° / 3e-3° (N = 100 / 1000 / 10000; the A/B harness's covariance
     # table), so 1e-6° is a numerical-agreement bound orders below what the
     # data determines — not a precision claim. No `ftol` both stops early and
@@ -248,29 +216,25 @@ end
         @test rotdeg(R, SMatrix{3, 3, Float64, 9}(b.R)) <= 1.0e-6
         @test dirdeg(t, SVector(b.t)) <= 1.0e-6
         @test abs(norm(t) - 1) <= 4eps()                     # the chart keeps ‖t‖ = 1; nothing renormalizes it
-        x, F, code, iters, k1e6, lm = _recorded_bundle(seed, u1, u2, tol)
-        Rr, tr = recenter_pose(lm.ch, x)
+        Rr, tr, F, retcode, iters, k1e6 = _recorded_bundle(seed, u1, u2, tol)
         # The recorded run is the public entry's code compiled in another
         # context (StaticArrays' `muladd`s may fuse differently), so it agrees
         # with the public entry to the same numerical bound, not bit for bit.
         @test rotdeg(SMatrix{3, 3, Float64, 9}(Rr), R) <= 1.0e-6
         @test dirdeg(SVector{3, Float64}(tr), t) <= 1.0e-6
         @test abs(F - b.F) <= 1.0e-12 * b.F
-        # converged at exit (FLM's cost-tolerance stop), and stationary
-        @test lm_retcode(code) === :converged
-        J = _arrowhead_jacobian(N); residual_jacobian_rows!(J, lm, x)
-        f = zeros(4N); residual_rows!(f, lm, x)
-        @test is_stationary(J, f; tol, ftol = eps())
+        # converged at exit: NLLSsolver's cost-tolerance stop, and stationary
+        # (VGC `nlls_retcode`: the stall postcondition on the stacked rows)
+        @test retcode === :converged
         iterations_to_stop[N] = (iters, k1e6)
     end
     # The run stops when the cost has converged: within 1e-6 of its final value
-    # by iteration 3, stopped at iteration 5 (FLM code 1) on every scene. At
-    # FLM's default `ftol = eps` it ran 21–34 (Julia 1.13: 34 / 21 / 26; the
-    # 6-dof chart 20 / 23 / 28): at the rounding floor every candidate step is
-    # rejected and the step-size test waits for λ to climb back
-    # (configs/default.toml [relpose_bundle]). The count itself (5 at every N,
-    # Julia 1.12 and 1.13) is not tested: it can move with the compilation
-    # context.
+    # by iteration 3, stopped at iteration 5 (NLLSsolver's relative
+    # cost-decrease stop) on every scene. At NLLSsolver's default tolerance
+    # (1e-15) it runs 8 / 8 / 7 — every one a full linearization — and at
+    # FastLevenbergMarquardt's eps the former driver ran 21–34
+    # (configs/default.toml [relpose_bundle]). The count itself is not tested:
+    # it can move with the compilation context.
     for N in (100, 1000, 10000)
         iters, k1e6 = iterations_to_stop[N]
         @test k1e6 <= 4
@@ -280,11 +244,13 @@ end
 
 @testset "RelposeBundle: allocations per call do not grow with N" begin
     # The public entry, Base.@allocations (BenchmarkTools is not a test
-    # dependency). ALLOCS_BOUND is the 6-dof chart's count at 750e174
-    # (BenchmarkTools: 61 at N = 100, 62 at 1000 and 10000); the 5-dof chart's,
-    # with the [relpose_bundle] settings read once, is 53 / 54 / 54
-    # (BenchmarkTools and Base.@allocations alike), with 6% fewer bytes.
-    ALLOCS_BOUND = 62
+    # dependency), on the second call of each size: the NLLSsolver problem and
+    # its internal data are kept per (task, N), so a call allocates the seed
+    # structure's √weights and a few small solver objects, flat in N. Measured
+    # 2026-10-27 (NLLSsolver, the fork's Schur system and cache):
+    # 31 / 34 / 34 at N = 100 / 1000 / 10000. Until then FastLevenbergMarquardt's
+    # call built its buffers per call: 53 / 54 / 54 (the bound was 62).
+    ALLOCS_BOUND = 40
     counts = map((100, 1000, 10000)) do N
         R0, t0, u1, u2 = _harness_scene(N)
         cs = csponds(u1, u2); seed = rigid(R0, t0)

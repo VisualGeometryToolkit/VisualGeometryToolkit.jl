@@ -136,7 +136,7 @@ src/
 │   │   ├── epipolar_lm.jl         # Shared dof-generic Sampson LM plumbing
 │   │   ├── fundmat.jl             # FundMatProblem
 │   │   ├── essential.jl           # EssentialProblem
-│   │   ├── relpose_bundle.jl      # RelposeBundleProblem, SchurSolver
+│   │   ├── relpose_bundle.jl      # RelposeBundleProblem, the bundle on NLLSsolver
 │   │   ├── line.jl                # LineFittingProblem, InhomLineFittingProblem
 │   │   ├── hand_eye.jl             # HandEyeProblem
 │   │   ├── pool.jl                # the pool-frame problems of a pool record; PoolPair(rng, problem, raw)

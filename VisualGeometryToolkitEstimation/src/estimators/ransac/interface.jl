@@ -471,7 +471,7 @@ struct NoRefit <: RefitKind end
 THE chart-LM refit every chart problem runs: the underdetermined guard, the
 chart at θ (`_refit_chart`), the workspace (one reuse policy), the √weights for
 each datum's rows, the state (`_refit_state`) and VGC's chart LM
-(`lmsolve_chart!`: FastLevenbergMarquardt's `lmsolve!` on the state's rows), the
+(`lmsolve_chart!`: NLLSsolver on the state's rows), the
 NaN guard, and the exit — the chart re-anchored at the solution by its own
 `recenter` (the one gauge every model the stack returns is in: the lift
 re-anchors every step the same way) and read as a model (`_model_at`). The LM's
@@ -491,7 +491,7 @@ function _refine!(::NonlinLsq, lo_ws, p::AbstractRansacProblem, θ, weights::Abs
     return _model_at(p, recenter(ch, x))
 end
 
-# `lmsolve_chart!` (FastLevenbergMarquardt's `lmsolve!` on one linearization
+# `lmsolve_chart!` (NLLSsolver on one linearization
 # state's rows) and `fill_sqrt_weights!` are VGC's (robust/lm_core.jl).
 
 # =============================================================================

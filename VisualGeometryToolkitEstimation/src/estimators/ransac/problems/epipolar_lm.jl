@@ -1,8 +1,8 @@
 # =============================================================================
 # epipolar_lm.jl — the chart-LM workspace's resize hook.
 #
-# The chart LM (ManifoldLmWorkspace{N} + `lmsolve_chart!`, FastLevenbergMarquardt's
-# in-place `lmsolve!`) is VisualGeometryToolkitCore's (src/robust/lm_core.jl); every
+# The chart LM (ManifoldLmWorkspace{N} + `lmsolve_chart!`, NLLSsolver on the
+# rows) is VisualGeometryToolkitCore's (src/robust/lm_core.jl); every
 # chart problem plugs its rows in through the
 # `ChartLm` state (interface.jl) and VGC's `residual_rows!` /
 # `residual_jacobian_rows!` protocol.

@@ -7,7 +7,7 @@ import VisualGeometryToolkitCore as VgtkCore
 # =============================================================================
 
 using LinearAlgebra: LinearAlgebra, I, dot, norm, normalize, cross, svd,
-    Cholesky, Diagonal, Symmetric, cholesky, diag, issuccess, lu,  # the relpose bundle's Schur solver
+    Diagonal, Symmetric,
     eigen                                                          # refine_ellipse's axes frame
 using StaticArrays: StaticArrays, MVector, SA, SMatrix, SVector, StaticVector
 using FixedSizeArrays: FixedSizeArray
@@ -141,7 +141,7 @@ using VisualGeometryToolkitCore: StoppingCriterion
 # chart-LM protocol is `import`ed so every problem's linearization state adds
 # its methods to VGC's functions.
 using VisualGeometryToolkitCore: RowsWorkspace, rows_workspace, task_buffers, point_norms!,
-    ManifoldLmWorkspace, lm_workspace_type, lmsolve_chart!, lmsolve_rows!, fill_sqrt_weights!, Incumbent, keep_best
+    ManifoldLmWorkspace, lm_workspace_type, lmsolve_chart!, fill_sqrt_weights!, Incumbent, keep_best
 import VisualGeometryToolkitCore: residual_rows!, residual_jacobian_rows!
 import VisualGeometryToolkitCore: rows_provider, lift_init, lift_refresh!, lift_jacobian!, lift_retract,
     lift_model, lift_valid, lift_rows, lift_residuals, lift_size
@@ -175,7 +175,7 @@ using VisualGeometryToolkitCore: AbstractLossShape, GaussianShape, WelschShape,
 # is a consensus threshold or just a scale (scoring_glue.jl `is_inlier`).
 using VisualGeometryToolkitCore: deploy, DeployedLoss, sq_loss_width, bounded
 using VisualGeometryToolkitCore: EssentialManifold5,
-    FundMatManifold7, HomographyManifold8, recenter_pose, pose_action_jacobian,   # the relpose bundle's pose chart
+    FundMatManifold7, HomographyManifold8, pose_action_jacobian,   # the relpose bundle's pose chart
     LeftRigidManifold6, recenter, retract, retract_jacobian, action_jacobian,
     minimal_manifold, signed_sampson_jacobian,   # the radial-camera chart and its rows
     RigidExpManifold6, local_coordinates,   # the hand-eye and robot-world chart (the reported covariances'; the hand-eye constraint)
@@ -216,10 +216,10 @@ using VisualGeometryToolkitCore: PerspectiveMap, transform_deriv
 # 2026-09-21, where its VGC compat could make the test env unresolvable), so the
 # PoseLibSolver paths are exercised by PoseLib's and VGC's suites, not this one.
 using ForwardDiff: ForwardDiff
-import FastLevenbergMarquardt   # relpose_bundle.jl's Schur solver: qualified AbstractSolver/init!/update!/solve!, LMWorkspace
-import NLLSsolver   # refine_robot_world_hand_eye's block-structured LM: qualified NLLSProblem/optimize! and its residual protocol
+import NLLSsolver   # the block-structured LMs (the relpose bundle, refine_robot_world_hand_eye): qualified NLLSProblem/optimize! and its residual protocol
 using VisualGeometryToolkitCore: nlls_retcode   # NLLSsolver's termination bits + the stall postcondition, as a retcode
-using SparseArrays: SparseMatrixCSC, nonzeros   # relpose_bundle.jl's fixed-pattern arrowhead Jacobian
+using VisualGeometryToolkitCore: nlls_options, nlls_features   # the stack's one LM knob map; the fork's additions, detected
+using SparseArrays: sparse   # the relpose bundle's stacked Jacobian (its stall postcondition)
 
 
 # =============================================================================
@@ -309,7 +309,7 @@ public lo_loss, strategy_loss, plain_scale_multiple, deployed_shape, lo_width_va
 # The division-camera step, its state, the lift constraint and the lens fit's metadata.
 public division_camera_step, DivisionCameraState, division_coeffs, board_sq_residuals,
     RadialLift, LensFitMetadata
-public bundle_refine_relpose, SchurSolver, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
+public bundle_refine_relpose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
 public EllipseFitMetadata
 # Configuration: configs/default.toml is the config of record; these select a
 # strategy by tag and write a config value back as a table.

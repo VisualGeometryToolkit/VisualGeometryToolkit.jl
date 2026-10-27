@@ -129,7 +129,6 @@ extent_trait
 ```@docs
 RelposeBundleProblem
 bundle_refine_relpose
-SchurSolver
 ```
 
 ## Configuration and Results

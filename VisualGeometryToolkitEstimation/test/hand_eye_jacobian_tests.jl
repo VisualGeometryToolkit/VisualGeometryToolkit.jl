@@ -13,10 +13,10 @@ using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitEstimation: data_size, ChartLm
 
 # Hand-eye uses an exact ForwardDiff Jacobian (constraint_with_jacobians' Gθ is only
-# the near-optimum GN approximation), so we validate the FLM refit end-to-end:
+# the near-optimum GN approximation), so we validate the chart-LM refit end-to-end:
 # synthesize a solvable AX=XB scene, perturb the true X, and check the
 # posterior-weighted residual drops after the pose-LM refit.
-@testset "Hand-eye LO (NonlinLsq FLM) reduces residual" begin
+@testset "Hand-eye LO (NonlinLsq chart LM) reduces residual" begin
     rng = StableRNG(19)
     sc = robot_world_hand_eye_scene(rng; N = 8, Y = (ang_max = π / 2,), X = (ang_max = π / 2,), A = (ang_max = π / 2,))
     Xtrue = only(sc.X); A = sc.A

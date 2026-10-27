@@ -18,8 +18,8 @@
 #
 # TWO DISTINCT relpose refit PATHS — not redundant (they solve different
 # objectives and serve different consumers):
-#   • `bundle_refine_relpose` (THIS file; VGC's `lmsolve_rows!` on FastLevenbergMarquardt
-#     with the Schur-complemented arrowhead structure): the RelposeBundleProblem's
+#   • `bundle_refine_relpose` (THIS file; NLLSsolver, the stack's LM, with
+#     the structure eliminated through the Schur complement): the RelposeBundleProblem's
 #     own refit — the EXACT full-3D two-view reprojection MLE (per-point 3D
 #     landmarks jointly optimized then profiled out via Schur). Live consumer:
 #     the `bundle=true` Schur-reprojection refit path (eval build_pair_ctx →
@@ -47,130 +47,149 @@
 #   spokes, pose↔structure coupling only through image 2.
 #
 # Schur: H̃ = H_pp − Σᵢ H_pXᵢ H_XᵢXᵢ⁻¹ H_Xᵢp (5×5, full rank); solve δpose,
-# back-substitute δXᵢ.  Hooked into `FastLevenbergMarquardt` via `SchurSolver
-# <: AbstractSolver` — FLM owns the LM outer loop (λ schedule, step
-# accept/reject, convergence), we own only the damped linear solve.
+# back-substitute δXᵢ. The bundle is an NLLSsolver problem — the pose and the
+# N points its variables, one 4-row residual block per point with its
+# closed-form 4 × 8 Jacobian — and NLLSsolver owns the LM (Marquardt's DᵀD
+# damping, step accept/reject, convergence: VGC `nlls_options`) and, where the
+# loaded NLLSsolver has it (the stack's fork, VGC `nlls_features`), the Schur
+# complement: its `MultiVariateLSschur` eliminates every point
+# (`iseliminable`). On a registered NLLSsolver the same problem runs on its
+# sparse LDL over all 5 + 3N unknowns — the same optimum, slower.
 #
-# Until 2026-10-27 the pose block was `RigidManifold6` (MRP ⊕ free ℝ³ t): one
-# gauge direction, ‖t‖, which only the Marquardt damping held, renormalized at
-# exit. The minimal chart reaches the same optimum (on the A/B scenes — 800 px,
-# σ = 0.5 px, N = 100 / 1000 / 10000 — cost to ≤ 5.5e-15 relative, pose to
-# ≤ 7.4e-12° of the 6-dof chart's tightly converged one) with the same
-# allocations. The run's length is set by its cost tolerance, not the chart:
-# at FLM's default `ftol = eps` either chart ran 20–35 LM iterations after the
-# cost had converged by iteration 3 (at the rounding floor every candidate step
-# is rejected and FLM's per-element step test waits for λ to climb back);
-# `[relpose_bundle] ftol = 1e-10`, the chart LM's, stops it in 5.
-#
-# The Jacobian is a `SparseArrays.SparseMatrixCSC` with the FIXED arrowhead
-# pattern (`_arrowhead_jacobian`): 22N stored entries — a 4 × 3 structure block
-# per point, a 2 × 5 pose block per image-2 pair — built once per call; the
-# Jacobian fill writes their values in place and the Schur solver reads its
-# blocks at precomputed offsets into the values (`_pose_nz`, `_point_nz`). The
-# two operations FLM applies to J itself, `g = J'f` and the column scaling
-# `sum!(abs2, D', J)`, are SparseArrays' O(nnz), allocation-free methods.
-# Until 2026-10-01 J was FLM's DENSE 4N × (6 + 3N) matrix (the 6-dof chart's) — O(N²) to fill,
-# multiply and hold. Measured against it 2026-10-01 (one full bundle solve,
-# @benchmark median, the same driver, Schur solver and stall postcondition;
-# two-view scenes at 800 px focal, σ = 1 px, a 1° / 0.03 seed, soft weights):
-#     N            10     20     50    100    200    500   1000   2000
-#     dense  ms  0.058  0.081  0.331  0.761   3.20   22.5    148    964
-#     sparse ms  0.059  0.077  0.212  0.384  0.661   1.73   3.06   5.04
-#     dense  MB  0.018  0.053  0.267  0.989   3.81   23.2   92.3    368
-#     sparse MB  0.012  0.021  0.049  0.095  0.187  0.464  0.925   1.85
-# The sparse path is never materially slower — N = 10 is the one size it
-# loses, by 1 µs in 55 (minimum of repeated runs: 56.4 vs 55.3 µs), and that
-# run takes 51 LM iterations to dense's 49 — so it is the ONE path. The two
-# reach the same pose (the representation-independence test).
+# Until 2026-10-27 the LM was FastLevenbergMarquardt's, on a stacked
+# fixed-pattern sparse Jacobian (22N stored entries) with this file's own
+# Schur solver (`SchurSolver <: FastLevenbergMarquardt.AbstractSolver`), the
+# pose block a FIXED chart anchored at the seed. NLLSsolver re-anchors the
+# pose variable at every accepted step (VGC's manifold `update` is
+# `recenter`); both reach the same optimum (measured 2026-10-27 on the A/B
+# scenes — 800 px, σ = 0.5 px, N = 100 / 1000 / 10000 — cost to ≤ 3e-14
+# relative, rotation to ≤ 6e-11°). Before 2026-10-01 J was dense, O(N²); before
+# 2026-10-27 the pose block was `RigidManifold6` (MRP ⊕ free ℝ³ t, one gauge
+# direction held by the damping): the minimal chart reaches its optimum (cost
+# ≤ 5.5e-15 relative, pose ≤ 7.4e-12°).
 #
 # Robustness: per-point weight wᵢ (the outer IRLS reweight's — the Student-t
 # posterior weight under LocalOptimizationDoneRight's `StudentTUniform`) scales all four of point i's residual rows.
-# =============================================================================
 
 # -----------------------------------------------------------------------------
-# Schur solver — the FastLevenbergMarquardt `AbstractSolver` hook.  Solves the
-# damped arrowhead normal equations (J'J + λ·diag(D)) p = g = J'f by eliminating
-# the 3×3 structure blocks. Column layout: 1:5 pose (`_POSE_DOF`), then
-# 5+3i-2 : 5+3i for point i. FLM calls `init!`/`update!` once per Jacobian (the start and every
-# accepted step) and `solve!` once per LM iteration (accepted or rejected), so
-# the undamped blocks of J'J — the 5×5 pose block, each point's 5×3 coupling
-# and 3×3 structure block — are formed in `update!` and only the damping, the
-# per-point Cholesky and the 5×5 reduced solve run per iteration. Every block is
-# a static array in a buffer the solver owns: nothing is allocated per call.
+# The bundle as an NLLSsolver problem: the pose and the N points are its
+# variables, one 4-row residual block per point.
 # -----------------------------------------------------------------------------
-"""
-    SchurSolver(npts) <: FastLevenbergMarquardt.AbstractSolver
+# The pose variable: VGC's `EssentialManifold5`, an NLLSsolver variable through
+# VGC's manifold protocol (`nvars` = 5, `update` = `recenter`), concrete in
+# Float64 — a `Vector{Union{…}}` of the UnionAll alias would box every element.
+const _BundlePose = typeof(EssentialManifold5(SMatrix{3, 3, Float64, 9}(I), SVector(0.0, 0.0, 1.0)))
+# The pose block's dimension: `EssentialManifold5`'s tangent size.
+const _POSE_DOF = 5
 
-The linear solver of [`bundle_refine_relpose`](@ref)'s Levenberg–Marquardt
-iterations. It solves the damped normal equations of the relative pose and
-`npts` structure points by eliminating each point's 3×3 block (the Schur
-complement), so a solve costs one 5×5 system plus `npts` 3×3 ones and
-allocates nothing.
-"""
-struct SchurSolver <: FastLevenbergMarquardt.AbstractSolver
-    npts::Int
-    Hpp::Base.RefValue{SMatrix{5, 5, Float64, 25}}       # Σᵢ J_pᵢᵀ J_pᵢ
-    HpX::Vector{SMatrix{5, 3, Float64, 15}}               # J_pᵢᵀ J_Xᵢ
-    HXX::Vector{SMatrix{3, 3, Float64, 9}}                # J_Xᵢᵀ J_Xᵢ (undamped)
-    CX::Vector{Cholesky{Float64, SMatrix{3, 3, Float64, 9}}}   # chol(J_XᵢᵀJ_Xᵢ + λD_Xᵢ), per solve
-    gX::Vector{SVector{3, Float64}}                       # the reduced right-hand sides' point parts
+# A structure point, free in ℝ³. `E` says whether NLLSsolver may eliminate it
+# (the fork's Schur-complement linear system); `_BundlePoint{false}` is the
+# upstream path — NLLSsolver's sparse LDL over every unknown — which a
+# registered NLLSsolver takes and the fallback test forces.
+struct _BundlePoint{E}
+    X::SVector{3, Float64}
 end
-SchurSolver(npts::Int) = SchurSolver(
-    npts, Ref(zero(SMatrix{5, 5, Float64, 25})),
-    Vector{SMatrix{5, 3, Float64, 15}}(undef, npts), Vector{SMatrix{3, 3, Float64, 9}}(undef, npts),
-    Vector{Cholesky{Float64, SMatrix{3, 3, Float64, 9}}}(undef, npts), Vector{SVector{3, Float64}}(undef, npts)
-)
+NLLSsolver.nvars(::_BundlePoint) = NLLSsolver.static(3)
+NLLSsolver.update(p::_BundlePoint{E}, δ, start = 1) where {E} =
+    _BundlePoint{E}(p.X + SVector(δ[start], δ[start + 1], δ[start + 2]))
 
-# FLM's workspace with the `_arrowhead_jacobian` buffer — the one J this solver reads.
-const _ArrowheadLm = FastLevenbergMarquardt.LMWorkspace{<:Any, <:Any, SparseMatrixCSC{Float64, Int}}
-
-function FastLevenbergMarquardt.init!(s::SchurSolver, ::AbstractVector, L::_ArrowheadLm)
-    nz = nonzeros(L.J)
-    N = s.npts
-    Hpp = zero(SMatrix{5, 5, Float64, 25})
-    @inbounds for i in 1:N
-        # point i's 2 × 5 pose block (its image-2 rows) and 4 × 3 structure block
-        Jp = SMatrix{2, 5, Float64, 10}(ntuple(q -> nz[_pose_nz(N, i, 1 + (q - 1) ÷ 2) + 1 + (q - 1) % 2], Val(10)))
-        o = _point_nz(N, i, 1)
-        JX = SMatrix{4, 3, Float64, 12}(ntuple(q -> nz[o + q], Val(12)))
-        JX2 = SMatrix{2, 3, Float64, 6}(JX[3, 1], JX[4, 1], JX[3, 2], JX[4, 2], JX[3, 3], JX[4, 3])
-        Hpp += Jp' * Jp
-        s.HpX[i] = Jp' * JX2
-        s.HXX[i] = JX' * JX
-    end
-    s.Hpp[] = Hpp
-    return s
+# The fork's additions, detected once (VGC `nlls_features`): the Schur
+# complement (`iseliminable`, #60) and the internal-data cache (#62).
+const _BUNDLE_SCHUR = nlls_features().schur
+const _BUNDLE_CACHE = nlls_features().cache
+if _BUNDLE_SCHUR
+    NLLSsolver.iseliminable(::Type{_BundlePoint{true}}) = NLLSsolver.static(true)
 end
-FastLevenbergMarquardt.update!(s::SchurSolver, f::AbstractVector, L::_ArrowheadLm) = FastLevenbergMarquardt.init!(s, f, L)
+const _BundleCache = _BUNDLE_CACHE ? NLLSsolver.OptimizeCache : Nothing
 
-function FastLevenbergMarquardt.solve!(s::SchurSolver, λ::Real, ::AbstractVector, L)
-    g, D, p = L.g, L.D, L.p
-    Htil = s.Hpp[] + Diagonal(SVector{5, Float64}(ntuple(k -> λ * D[k], Val(5))))
-    gtil = SVector{5, Float64}(ntuple(k -> g[k], Val(5)))
-    @inbounds for i in 1:s.npts
-        c = 2 + 3i
-        H = s.HXX[i] + Diagonal(SVector(λ * D[c + 1], λ * D[c + 2], λ * D[c + 3]))
-        C = cholesky(Symmetric(H); check = false)
-        issuccess(C) || return p, 1                          # a non-PD point block → reject the step
-        gXi = SVector(g[c + 1], g[c + 2], g[c + 3])
-        B = s.HpX[i]
-        Htil -= B * (C \ B')
-        gtil -= B * (C \ gXi)
-        s.CX[i] = C; s.gX[i] = gXi
+# The data of the current call — the calibrations, the two views and the
+# √weights — shared by every residual block, replaced per call.
+mutable struct _BundleData{T1, T2, TS}
+    K1::SMatrix{3, 3, Float64, 9}
+    K2::SMatrix{3, 3, Float64, 9}
+    u1::T1
+    u2::T2
+    sqrtw::TS
+end
+
+# Point i's four rows, √wᵢ times its two-view reprojection error
+# [π(K₁X) − u₁; π(K₂(RX + t)) − u₂] — camera 1 fixed, so image 1 depends on
+# the point alone.
+struct _BundleRows{E, D} <: NLLSsolver.AbstractResidual
+    data::D
+    i::Int
+    varind::SVector{2, Int}
+end
+NLLSsolver.ndeps(::_BundleRows) = NLLSsolver.static(2)
+NLLSsolver.nres(::_BundleRows) = NLLSsolver.static(4)
+NLLSsolver.varindices(r::_BundleRows) = r.varind
+NLLSsolver.getvars(r::_BundleRows{E}, vars::Vector) where {E} =
+    (vars[r.varind[1]]::_BundlePose, vars[r.varind[2]]::_BundlePoint{E})
+Base.eltype(::_BundleRows) = Float64
+function NLLSsolver.computeresidual(r::_BundleRows, pose::_BundlePose, p::_BundlePoint)
+    d = r.data; i = r.i
+    R = SMatrix{3, 3, Float64, 9}(pose.R); t = SVector{3, Float64}(pose.t)
+    return d.sqrtw[i] * _reprojection_error(d.K1, d.K2, R, t, p.X, d.u1[i], d.u2[i])
+end
+# The closed-form 4 × 8 Jacobian, pose columns (VGC's `pose_action_jacobian`
+# at the variable's own anchor, the derivative of its `update`) then point
+# columns. Every variable is free in this problem (`optimize!` over all), so
+# NLLSsolver asks for both blocks' columns: `varflags` = 0b11.
+function NLLSsolver.computeresjac(_varflags, r::_BundleRows, pose::_BundlePose, p::_BundlePoint)
+    d = r.data; i = r.i; w = d.sqrtw[i]
+    R = SMatrix{3, 3, Float64, 9}(pose.R); t = SVector{3, Float64}(pose.t); X = p.X
+    e = _reprojection_error(d.K1, d.K2, R, t, X, d.u1[i], d.u2[i])
+    A1 = _Dproj(d.K1 * X) * d.K1                        # ∂(img1)/∂X, 2×3
+    D2K2 = _Dproj(d.K2 * (R * X + t)) * d.K2            # 2×3
+    A2 = D2K2 * R                                       # ∂(img2)/∂X
+    P = D2K2 * pose_action_jacobian(pose, X)            # ∂(img2)/∂(ω, τ): VGC's closed form
+    J = vcat(hcat(zero(SMatrix{2, _POSE_DOF, Float64}), A1), hcat(P, A2))
+    return w * e, w * J
+end
+
+# The kept problem of one point count (and data and point type): built once
+# per (task, N) and reused by every later bundle of that size on that task —
+# its residual blocks read the call's data through `data`, its variables are
+# reset per call, and NLLSsolver's internal data (the Schur system's layout)
+# is kept in `cache`. Without the cache a call rebuilds them (measured
+# 2026-10-27: 0.88 / 1.04 / 1.00× FastLevenbergMarquardt's time at N = 100 /
+# 1000 / 10000 with it, 1.78 / 1.49 / 1.44× without).
+struct _BundleRun{E, D}
+    data::D
+    problem::NLLSsolver.NLLSProblem{Union{_BundlePose, _BundlePoint{E}}, _BundleRows{E, D}}
+    cache::_BundleCache
+end
+function _BundleRun{E}(N::Int, data::D) where {E, D}
+    problem = NLLSsolver.NLLSProblem(Union{_BundlePose, _BundlePoint{E}}, _BundleRows{E, D})
+    NLLSsolver.addvariable!(problem, EssentialManifold5(SMatrix{3, 3, Float64, 9}(I), SVector(0.0, 0.0, 1.0))::_BundlePose)
+    for i in 1:N
+        NLLSsolver.addvariable!(problem, _BundlePoint{E}(zero(SVector{3, Float64})))
+        NLLSsolver.addcost!(problem, _BundleRows{E, D}(data, i, SVector(1, i + 1)))
     end
-    F = lu(Htil; check = false)
-    any(iszero, diag(F.U)) && return p, 1                    # singular reduced system → reject
-    pp = F \ gtil
-    all(isfinite, pp) || return p, 1
-    @inbounds for k in 1:5
-        p[k] = pp[k]
+    return _BundleRun{E, D}(data, problem, _BUNDLE_CACHE ? NLLSsolver.OptimizeCache() : nothing)
+end
+_bundle_run(::Val{E}, N::Int, data::D) where {E, D} =
+    task_buffers(_BundleRun{E, D}, () -> _BundleRun{E}(N, data), (N,))
+
+# The stacked 4N × (5 + 3N) Jacobian and residual of the problem at its current
+# variables (the stall postcondition's input; sparse, the arrowhead pattern).
+function _bundle_jacobian(run::_BundleRun{E}) where {E}
+    problem = run.problem
+    N = length(problem.variables) - 1
+    pose = problem.variables[1]::_BundlePose
+    Is = Int[]; Js = Int[]; Vs = Float64[]
+    f = zeros(4N)
+    for i in 1:N
+        rows = _BundleRows{E, typeof(run.data)}(run.data, i, SVector(1, i + 1))
+        e, Ji = NLLSsolver.computeresjac(NLLSsolver.static(3), rows, pose, problem.variables[i + 1]::_BundlePoint{E})
+        f[(4i - 3):(4i)] = e
+        for a in 1:4, b in 1:(_POSE_DOF + 3)
+            push!(Is, 4i - 4 + a)
+            push!(Js, b <= _POSE_DOF ? b : _POSE_DOF + 3(i - 1) + b - _POSE_DOF)
+            push!(Vs, Ji[a, b])
+        end
     end
-    @inbounds for i in 1:s.npts
-        c = 2 + 3i
-        δX = s.CX[i] \ (s.gX[i] - s.HpX[i]' * pp)
-        p[c + 1] = δX[1]; p[c + 2] = δX[2]; p[c + 3] = δX[3]
-    end
-    return p, 0
+    return sparse(Is, Js, Vs, 4N, _POSE_DOF + 3N), f
 end
 
 # -----------------------------------------------------------------------------
@@ -270,106 +289,6 @@ function _cheiral_relpose(E, iK1, iK2, u1, u2)
     return R, Vec3{Float64}(t)
 end
 
-# -----------------------------------------------------------------------------
-# Augmented residual (4N) + arrowhead Jacobian (4N × 5+3N), in-place.
-# x = [ω(3); τ(2); X₁(3); …]; the pose block in the chart anchored at the FIXED
-# base (R₀, t₀).
-# -----------------------------------------------------------------------------
-# The pose block's dimension: `EssentialManifold5`'s tangent size.
-const _POSE_DOF = 5
-
-# The linearization state of one relative-pose bundle call: the pose chart
-# (anchored at the base pose, ‖t₀‖ = 1), the two calibrations, the two pixel
-# views, the √weights and the point count.
-struct _RelposeBundleLm{C, T1, T2, TS}
-    ch::C
-    K1::SMatrix{3, 3, Float64, 9}
-    K2::SMatrix{3, 3, Float64, 9}
-    u1::T1
-    u2::T2
-    sqrtw::TS
-    N::Int
-end
-function _RelposeBundleLm(R₀, t₀, K1, K2, u1, u2, sqrtw, N)
-    ch = EssentialManifold5(SMatrix{3, 3, Float64, 9}(R₀), normalize(SVector{3, Float64}(t₀)))
-    return _RelposeBundleLm{typeof(ch), typeof(u1), typeof(u2), typeof(sqrtw)}(
-        ch, SMatrix{3, 3, Float64, 9}(K1), SMatrix{3, 3, Float64, 9}(K2), u1, u2, sqrtw, N
-    )
-end
-
-# √w-weighted reprojection rows in the pose chart at `x` (`residual_rows!`).
-function residual_rows!(r, lm::_RelposeBundleLm, x)
-    K1 = lm.K1; K2 = lm.K2; u1 = lm.u1; u2 = lm.u2; sqrtw = lm.sqrtw; N = lm.N
-    T = eltype(x)
-    R, t = recenter_pose(lm.ch, x)   # the pose block's chart (x[1:5]); ‖t‖ = 1
-    @inbounds for i in 1:N
-        c = _POSE_DOF + 3i; X = Point3{T}(x[c - 2], x[c - 1], x[c]); w = sqrtw[i]
-        e = _reprojection_error(K1, K2, R, t, X, u1[i], u2[i])
-        r[4i - 3] = w * e[1]; r[4i - 2] = w * e[2]
-        r[4i - 1] = w * e[3]; r[4i] = w * e[4]
-    end
-    return r
-end
-
-# The arrowhead Jacobian's FIXED pattern, column-major (CSC): pose column
-# k ∈ 1:5 holds every point's two image-2 rows (4i − 1, 4i) — 2N entries each,
-# 10N in all — and point i's three columns 5 + 3(i − 1) + (1:3) its four rows
-# 4i − 3 : 4i, so its 4 × 3 block is 12 CONTIGUOUS values, column-major. The
-# offsets into `nonzeros(J)` of point i's entries:
-@inline _pose_nz(N, i, k) = (k - 1) * 2N + 2(i - 1)          # + a, a ∈ 1:2: rows 4i − 1, 4i of pose column k
-@inline _point_nz(N, i, j) = 2_POSE_DOF * N + 12(i - 1) + 4(j - 1)   # + r, r ∈ 1:4: rows 4i − 3 … 4i of point column j
-
-# The 4N × (5 + 3N) Jacobian buffer with that pattern, values zero.
-function _arrowhead_jacobian(N::Int)
-    nnz = (2_POSE_DOF + 12) * N
-    colptr = Vector{Int}(undef, _POSE_DOF + 1 + 3N)
-    rowval = Vector{Int}(undef, nnz)
-    for k in 1:_POSE_DOF
-        colptr[k] = _pose_nz(N, 1, k) + 1
-        for i in 1:N, a in 1:2
-            rowval[_pose_nz(N, i, k) + a] = 4i - 2 + a
-        end
-    end
-    for i in 1:N, j in 1:3
-        colptr[_POSE_DOF + 3(i - 1) + j] = _point_nz(N, i, j) + 1
-        for r in 1:4
-            rowval[_point_nz(N, i, j) + r] = 4i - 4 + r
-        end
-    end
-    colptr[end] = nnz + 1
-    return SparseMatrixCSC(4N, _POSE_DOF + 3N, colptr, rowval, zeros(nnz))
-end
-
-# The closed-form Jacobian into the pattern's values; every stored entry is
-# written, so the buffer is never zeroed. A dense buffer takes VGC's default
-# instead (ForwardDiff through `residual_rows!`) — the representation-
-# independence test.
-function residual_jacobian_rows!(J::SparseMatrixCSC{Float64, Int}, lm::_RelposeBundleLm, x)
-    K1 = lm.K1; K2 = lm.K2; u1 = lm.u1; u2 = lm.u2; sqrtw = lm.sqrtw; N = lm.N
-    ch = lm.ch
-    R, t = recenter_pose(ch, x)                        # the residual's pose, same chart
-    v = SVector{_POSE_DOF, Float64}(x[1], x[2], x[3], x[4], x[5])
-    nz = nonzeros(J)
-    @inbounds for i in 1:N
-        c = _POSE_DOF + 3i; w = sqrtw[i]
-        X = Point3{Float64}(x[c - 2], x[c - 1], x[c])
-        A1 = w .* (_Dproj(K1 * X) * K1)                                 # ∂(img1)/∂X, 2×3
-        Y = R * X + t
-        D2K2 = _Dproj(K2 * Y) * K2                                      # 2×3
-        A2 = w .* (D2K2 * R)                                            # ∂(img2)/∂X
-        P = w .* (D2K2 * pose_action_jacobian(ch, X, v))                # ∂(img2)/∂(ω, τ): VGC's closed form
-        for j in 1:3
-            o = _point_nz(N, i, j)
-            nz[o + 1] = A1[1, j]; nz[o + 2] = A1[2, j]; nz[o + 3] = A2[1, j]; nz[o + 4] = A2[2, j]
-        end
-        for k in 1:_POSE_DOF
-            o = _pose_nz(N, i, k)
-            nz[o + 1] = P[1, k]; nz[o + 2] = P[2, k]
-        end
-    end
-    return J
-end
-
 """
     bundle_refine_relpose(pose::PlainEuclideanMap{3}, K1, K2, cs; max_iter)   # default: configs/default.toml [relpose_bundle]
         -> Union{EuclideanMap{3}, Nothing}
@@ -407,16 +326,22 @@ function bundle_refine_relpose(
         K1, K2, _inv3(K1), _inv3(K2), u1, u2, sqrtw; max_iter
     )
     res === nothing && return nothing
-    R, t = res
-    return EuclideanMap(RotMatrix{3, Float64}(R), t; check = false)
+    return EuclideanMap(RotMatrix{3, Float64}(res.R), res.t; check = false)
 end
 
 # -----------------------------------------------------------------------------
 # Core routine: robust full-3D two-view BA (camera-aware).  Seed pose (R₀,t₀) +
 # intrinsics K₁,K₂ and their inverses + image points u₁,u₂ (in the K frame) +
-# per-point √weights → refined (R, t) (‖t‖=1).  `nothing` on failure.
-# Positional and allocation-lean: the RANSAC refit (`_refine!` below) calls it
-# with the problem's stored K⁻¹ and the √weights it builds.
+# per-point √weights → `(; R, t, result, retcode)`: the refined (R, t) (‖t‖=1),
+# NLLSsolver's result, and the retcode (VGC `nlls_retcode`, the stall
+# postcondition at `stationarity_tol`) when `retcode = true` — `nothing`
+# otherwise: no production caller reads it (a `:stalled` bundle's pose is still
+# scored by the caller, the LO's acceptance, as a converged one is), and it
+# costs a sweep over the rows. `nothing` on failure. Positional and
+# allocation-lean: the RANSAC refit (`refine!` below) calls it with the
+# problem's stored K⁻¹ and the √weights it builds. `schur = false` or
+# `cache = false` take the upstream path where the fork is loaded (the
+# fallback test runs it); `callback` is NLLSsolver's per-iteration callback.
 # -----------------------------------------------------------------------------
 function _bundle_refine_relpose(
         R₀::AbstractMatrix, t₀::AbstractVector,
@@ -424,40 +349,57 @@ function _bundle_refine_relpose(
         iK1::SMatrix{3, 3, Float64, 9}, iK2::SMatrix{3, 3, Float64, 9},
         u1::AbstractVector, u2::AbstractVector,
         sqrtw::AbstractVector; max_iter::Int = _RELPOSE_BUNDLE_MAX_ITER,
+        ftol::Float64 = _RELPOSE_BUNDLE_FTOL, retcode::Bool = false,
         stationarity_tol::Float64 = _RELPOSE_BUNDLE_STATIONARITY_TOL,
-        ftol::Float64 = _RELPOSE_BUNDLE_FTOL
+        schur::Bool = _BUNDLE_SCHUR, cache::Bool = true, callback = NLLSsolver.nullcallback
     )
     N = length(u1)
     N >= 5 || return nothing
     Rb = SMatrix{3, 3, Float64, 9}(R₀); tb = Vec3{Float64}(normalize(SVector{3, Float64}(t₀)))
-    Xi = Vector{Float64}(undef, 3N)
+    data = _BundleData(SMatrix{3, 3, Float64, 9}(K1), SMatrix{3, 3, Float64, 9}(K2), u1, u2, sqrtw)
+    E = schur && _BUNDLE_SCHUR
+    return E ? _bundle_solve(Val(true), N, data, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, cache, callback) :
+        _bundle_solve(Val(false), N, data, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, cache, callback)
+end
+
+function _bundle_solve(
+        v::Val{E}, N, data::D, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, cache, callback
+    ) where {E, D}
+    run = _bundle_run(v, N, data)
+    d = run.data
+    d.K1 = data.K1; d.K2 = data.K2; d.u1 = data.u1; d.u2 = data.u2; d.sqrtw = data.sqrtw
+    problem = run.problem
+    problem.variables[1] = EssentialManifold5(Rb, tb)::_BundlePose
     @inbounds for i in 1:N
-        X = _triangulate_rays(iK1, iK2, u1[i], u2[i], Rb, tb)
-        Xi[3i - 2] = X[1]; Xi[3i - 1] = X[2]; Xi[3i] = X[3]
+        X = _triangulate_rays(iK1, iK2, data.u1[i], data.u2[i], Rb, tb)
+        problem.variables[i + 1] = _BundlePoint{E}(SVector{3, Float64}(X[1], X[2], X[3]))
     end
-    # FLM's buffers (the 4N × (5 + 3N) Jacobian in its fixed sparse pattern: see
-    # the header) and the Schur solver's blocks, allocated once per call and
-    # reused by every LM iteration; the run is VGC's one LM call site. Its
-    # retcode is not read: a `:stalled` bundle's pose is still scored by the
-    # caller (the LO's acceptance), as a converged one is.
-    buffers = FastLevenbergMarquardt.LMWorkspace(vcat(zeros(_POSE_DOF), Xi), zeros(4N), _arrowhead_jacobian(N))
-    lm = _RelposeBundleLm(Rb, tb, K1, K2, u1, u2, sqrtw, N)
-    out = try
-        lmsolve_rows!(buffers, SchurSolver(N), lm; maxit = max_iter, stationarity_tol, ftol)
+    # The stack's knob map (VGC `nlls_options`): Marquardt's DᵀD damping, as
+    # the bundle's FastLevenbergMarquardt run had; `xtol` FLM's default.
+    options = nlls_options(; max_iter, ftol, xtol = 1.0e-10)
+    c = run.cache
+    result = try
+        if cache && c !== nothing
+            NLLSsolver.optimize!(problem, options, nothing, callback, c)
+        else
+            NLLSsolver.optimize!(problem, options, nothing, callback)
+        end
     catch
         return nothing
     end
-    x = out[1]
-    any(isnan, x) && return nothing
-    # POSE BLOCK via the EssentialManifold5 retraction (so(3) ⊕ T_tS²), the
-    # chart the residual and the arrowhead Jacobian's pose block step in: the
-    # translation is unit by construction (the retraction normalizes it — an
-    # invariant of the chart, checked by Core's `test_manifold_contract`),
-    # nothing to renormalize. The N point blocks are free-R³ updates Xᵢ + δ (no
-    # product-manifold covariance object: no consumer needs per-landmark
-    # covariance).
-    R, t = recenter_pose(lm.ch, x)
-    return SMatrix{3, 3, Float64, 9}(R), Vec3{Float64}(t)
+    pose = problem.variables[1]::_BundlePose
+    R = SMatrix{3, 3, Float64, 9}(pose.R); t = Vec3{Float64}(pose.t)
+    (all(isfinite, R) && all(isfinite, t)) || return nothing
+    code = retcode ? _bundle_retcode(run, result, stationarity_tol) : nothing
+    return (; R, t, result, retcode = code)
+end
+
+# The bundle's retcode: NLLSsolver's termination bits and the stall
+# postcondition on the stacked rows (`nlls_retcode`; its exact-fit test at
+# FastLevenbergMarquardt's eps, as the bundle's former run had).
+function _bundle_retcode(run::_BundleRun, result, tol)
+    J, f = _bundle_jacobian(run)
+    return nlls_retcode(result, J, f; tol, ftol = eps())
 end
 
 # =============================================================================
@@ -521,6 +463,5 @@ function refine!(_ws, p::RelposeBundleProblem, θ::EssentialMat, weights::Abstra
     sqrtw = fill_sqrt_weights!(Vector{Float64}(undef, length(weights)), weights, length(weights))
     res = _bundle_refine_relpose(R₀, t₀, p.K1, p.K2, p.iK1, p.iK2, u1, u2, sqrtw)
     res === nothing && return nothing
-    R, t = res
-    return EssentialMat(R, t)
+    return EssentialMat(res.R, res.t)
 end

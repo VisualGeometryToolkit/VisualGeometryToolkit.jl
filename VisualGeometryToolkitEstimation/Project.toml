@@ -4,7 +4,6 @@ version = "0.2.0"
 authors = ["James Pritts <jbpritts@gmail.com>"]
 
 [deps]
-FastLevenbergMarquardt = "7a0df574-e128-4d35-8cbd-3d84502bf7ce"
 FixedSizeArrays = "3821ddf9-e5b5-40d5-8e25-6813ab96b5e2"
 FlexUnits = "76e01b6b-c995-4ce6-8559-91e72a3d4e95"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
@@ -19,7 +18,6 @@ TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
 
 [compat]
-FastLevenbergMarquardt = "0.1.0"
 FixedSizeArrays = "1.4"
 FlexUnits = "0.6.11"
 ForwardDiff = "1.4"

@@ -223,9 +223,11 @@ function _refine_robot_world_hand_eye(
     problem = NLLSsolver.NLLSProblem(_RwPose, _RwPointResidual{C})
     foreach(ch -> NLLSsolver.addvariable!(problem, ch), poses0)
     foreach(c -> NLLSsolver.addcost!(problem, c), costs)
-    # One thread: a threaded cost sum would make the result depend on the
-    # thread count. No time cap (NLLSsolver's default is 30 s).
-    options = NLLSsolver.NLLSOptions(; maxiters = max_iter, maxtime = 1.0e6, numthreads = NLLSsolver.static(1))
+    # The stack's one knob map (VGC `nlls_options`: one thread, so the result
+    # does not depend on the thread count; no time cap) with this fit's own
+    # settings: the plain λ·I damping and NLLSsolver's default tolerances
+    # (relative cost decrease and step 1e-15), which it has always run with.
+    options = nlls_options(; max_iter, ftol = 1.0e-15, xtol = 1.0e-15, iterator = :levenbergmarquardt)
     result = NLLSsolver.optimize!(problem, options)
     charts = collect(problem.variables)   # each anchored at its estimate
     poses = map(model, charts)
@@ -235,7 +237,7 @@ function _refine_robot_world_hand_eye(
     r, J = _rw_rows_and_jacobian(costs, charts)
     # NLLSsolver's own stops (a small relative or absolute cost decrease, a
     # small step) do not prove convergence; the stall postcondition does —
-    # FastLevenbergMarquardt's refits test the same one (VGC `lmsolve_rows!`).
+    # the chart LM tests the same one (VGC `lmsolve_chart!`).
     retcode = nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol = _HAND_EYE_FTOL)
     # The covariance's blocks are the ELEMENTS — one rig pose's features, whose
     # points are contiguous (flattened element by element) — each a dense view

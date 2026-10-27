@@ -443,17 +443,18 @@ _static_gauge_names(::Type{Rigid}) = ()
 _static_gauge_names(::Type{<:Affine}) = (:translation_x, :translation_y, :rotation, :scale)
 _static_gauge_names(::Type{<:ThinPlateSpline}) = (:fx_1, :fx_u, :fx_v, :fy_1, :fy_u, :fy_v)
 _static_gauge_names(::Type{<:HeightField}) = (:piston, :tilt_x, :tilt_y)
-# a kind's tag, from the one registry (TARGET_CALIBRATION_TAGS, below the kinds)
-_static_tag(::Type{T}) where {T} =
-    any(K -> T <: K, values(TARGET_CALIBRATION_TAGS)) ? tag_of(TARGET_CALIBRATION_TAGS, T) : nothing
 # A literal tuple per type, so a NamedTuple over the names is inferred.
 @generated parameter_names(c::Union{ThinPlateSpline, HeightField}) = QuoteNode(_static_parameter_names(c))
+# A chain of shipped kinds: its prefixed names as a literal tuple. `nothing` when
+# a member is a downstream kind: a generator may not call a method defined after
+# it (a downstream kind's `parameter_names` and `calibration_tag`), so such a
+# chain builds its names at run time instead.
 function _static_chain_names(f, ::Type{C}) where {C <: Tuple}
     out = Symbol[]
     for M in fieldtypes(C)
-        names, tag = f(M), _static_tag(M)
-        (names === nothing || tag === nothing) && return nothing
-        append!(out, (Symbol(tag, :_, n) for n in names))
+        names = f(M)
+        (names === nothing || !_is_shipped_kind(M)) && return nothing
+        append!(out, (Symbol(calibration_tag(M), :_, n) for n in names))
     end
     return Tuple(out)
 end
@@ -492,7 +493,7 @@ struct CalibrationChain{C <: Tuple} <: TargetCalibration
             c isa HeightField && i < length(members) &&
                 throw(ArgumentError("CalibrationChain: a HeightField is the last member (the others act on plane points); it is member $i of $(length(members))"))
         end
-        tags = map(_calibration_tag, members)
+        tags = map(c -> calibration_tag(typeof(c)), members)
         allunique(tags) || throw(ArgumentError("CalibrationChain: one member of each kind; got $(join(tags, ", "))"))
         withlengths = [c for c in members if _has_lengths(c)]
         isempty(withlengths) || allequal(map(has_units, withlengths)) ||
@@ -514,10 +515,21 @@ by VisualGeometryToolkitIO's target record (`"type": "affine"`): `"rigid"`,
 const TARGET_CALIBRATION_TAGS = TagRegistry(:target_calibration, "",
     "rigid" => Rigid, "affine" => Affine, "thin_plate_spline" => ThinPlateSpline,
     "height_field" => HeightField, "calibration_chain" => CalibrationChain)
-# a calibration's tag: the registry's reverse lookup for a shipped kind; for a
-# kind another package defines (which the registry does not hold), the tag
-# rule's spelling of its type name, so a chain holding one still constructs
-_calibration_tag(c::TargetCalibration) = _calibration_tag(typeof(c))
+_is_shipped_kind(::Type{T}) where {T} = any(K -> T <: K, values(TARGET_CALIBRATION_TAGS))
+
+"""
+    calibration_tag(::Type{C}) -> String
+
+The tag of the calibration kind `C`: the prefix of its parameter and gauge
+names in a [`CalibrationChain`](@ref) (`:affine_a11`) and the `type` of its
+record. A shipped kind's is its [`TARGET_CALIBRATION_TAGS`](@ref) tag. A kind
+another package defines declares its own (the tag rule's spelling of its type
+name, `snake_case`), as it declares `parameter_names`; without one it cannot be
+a chain member (an `ArgumentError` naming this method).
+"""
+function calibration_tag end
+calibration_tag(::Type{T}) where {T <: TargetCalibration} = _is_shipped_kind(T) ? tag_of(TARGET_CALIBRATION_TAGS, T) :
+    throw(ArgumentError("the calibration kind $(nameof(T)) has no tag: declare `calibration_tag(::Type{<:$(nameof(T))}) = \"$(snake_case(nameof(T)))\"`"))
 
 # A Rigid calibration has no parameters, so nothing for a covariance to be
 # over: `Uncertain(Rigid(), Σ)` is refused at construction (the target record
@@ -525,8 +537,6 @@ _calibration_tag(c::TargetCalibration) = _calibration_tag(typeof(c))
 (::Type{Attributed})(::Rigid, ::Union{CovMat, PrecMat}) = throw(
     ArgumentError("a Rigid target calibration has no parameters, so no covariance: Uncertain(Rigid(), Σ) is refused — use Rigid()")
 )
-_calibration_tag(::Type{T}) where {T <: TargetCalibration} =
-    any(K -> T <: K, values(TARGET_CALIBRATION_TAGS)) ? tag_of(TARGET_CALIBRATION_TAGS, T) : snake_case(nameof(T))
 
 _apply(c::CalibrationChain, q) = _apply_members(c.members, q)
 _apply_members(::Tuple{}, q) = q
@@ -543,7 +553,7 @@ parameter_vector(c::CalibrationChain) = vcat(map(parameter_vector, c.members)...
 end
 _prefixed_names(f, ::Tuple{}) = ()
 _prefixed_names(f, cs::Tuple) =
-    (_prefixed(_calibration_tag(first(cs)), f(first(cs)))..., _prefixed_names(f, Base.tail(cs))...)
+    (_prefixed(calibration_tag(typeof(first(cs))), f(first(cs)))..., _prefixed_names(f, Base.tail(cs))...)
 _prefixed(tag, names::Tuple) = map(n -> Symbol(tag, :_, n), names)
 function with_parameters(c::CalibrationChain, θ::AbstractVector)
     length(θ) == sum(x -> length(parameter_vector(x)), c.members) || _refuse_length(c, θ)

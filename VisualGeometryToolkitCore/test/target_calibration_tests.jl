@@ -438,6 +438,8 @@ end
     end
     VgtkCore.parameter_vector(c::DownstreamShift) = SVector(c.dx, c.dy)
     VgtkCore.parameter_names(::DownstreamShift) = (:dx, :dy)
+    VgtkCore.calibration_tag(::Type{DownstreamShift}) = "downstream_shift"   # its tag, declared (no fallback)
+    struct UntaggedShift <: TargetCalibration end                              # one that declares none
 
     nodes = grid_nodes(3; lo = 0.0, hi = 100.0)
     A = Affine([1.001 0.0; 0.0 0.999], [0.5, -0.25])
@@ -481,9 +483,11 @@ end
         @test e isa ArgumentError && occursin("no parameters, so no covariance", e.msg)
     end
 
-    @testset "a chain with a downstream member constructs, its names prefixed by the tag rule" begin
+    @testset "a chain with a downstream member constructs, its names prefixed by its declared tag" begin
         @test parameter_names(CalibrationChain(A, DownstreamShift(0.1, 0.2)))[7:8] == (:downstream_shift_dx, :downstream_shift_dy)
-        @test VgtkCore.Cameras._calibration_tag(DownstreamShift(0.0, 0.0)) == "downstream_shift"
+        @test VgtkCore.calibration_tag(DownstreamShift) == "downstream_shift"
+        @test VgtkCore.calibration_tag(Affine) == "affine" && VgtkCore.calibration_tag(typeof(C)) == "calibration_chain"
+        @test_throws ArgumentError CalibrationChain(A, UntaggedShift())          # a downstream kind declares its tag
     end
 
     @testset "hash agrees with ==" begin

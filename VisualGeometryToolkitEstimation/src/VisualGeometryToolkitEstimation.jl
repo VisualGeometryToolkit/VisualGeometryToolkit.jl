@@ -175,7 +175,7 @@ using VisualGeometryToolkitCore: AbstractLossShape, GaussianShape, WelschShape,
 # is a consensus threshold or just a scale (scoring_glue.jl `is_inlier`).
 using VisualGeometryToolkitCore: deploy, DeployedLoss, sq_loss_width, bounded
 using VisualGeometryToolkitCore: EssentialManifold5,
-    FundMatManifold7, HomographyManifold8, RigidManifold6, recenter_pose,
+    FundMatManifold7, HomographyManifold8, recenter_pose, pose_action_jacobian,   # the relpose bundle's pose chart
     LeftRigidManifold6, recenter, retract, retract_jacobian, action_jacobian,
     minimal_manifold, signed_sampson_jacobian,   # the radial-camera chart and its rows
     RigidExpManifold6, local_coordinates,   # the hand-eye and robot-world chart (the reported covariances'; the hand-eye constraint)

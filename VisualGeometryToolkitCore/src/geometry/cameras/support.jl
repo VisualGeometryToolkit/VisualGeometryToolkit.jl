@@ -109,3 +109,19 @@ function cubic_bspline_footprint(center, spacing)
     h = SVector{2, Float64}(spacing[1], spacing[2])
     return Rect2{Float64}(c - 2h, 4h)
 end
+
+# -----------------------------------------------------------------------------
+# Core's generic grid models: a uniform cubic B-spline lattice over the
+# calibrated area
+# -----------------------------------------------------------------------------
+
+support_trait(::Type{<:_GenericModel}) = LocalSupport()
+nodes(m::_GenericModel) = CartesianIndices(_grid_size(m))
+node_position(m::_GenericModel, i::CartesianIndex{2}) = Point2{Float64}(_node_pixel(m, i[2], i[1]))
+# A node's footprint, clipped to the calibrated area the model is defined on.
+function support(m::_GenericModel, i::CartesianIndex{2})
+    gh, gw = _grid_size(m)
+    spacing = ((m.calib_max_x + 1 - m.calib_min_x) / (gw - 3), (m.calib_max_y + 1 - m.calib_min_y) / (gh - 3))
+    area = Rect2{Float64}(m.calib_min_x, m.calib_min_y, m.calib_max_x + 1 - m.calib_min_x, m.calib_max_y + 1 - m.calib_min_y)
+    return intersect(cubic_bspline_footprint(node_position(m, i), spacing), area)
+end

@@ -103,10 +103,11 @@ Initialize FROM a parametric model. `init = :interpolate` (default) solves
 the cubic-prefilter tridiagonal system per axis so the spline INTERPOLATES
 the source's backprojection at the grid nodes — the true approximation
 floor; `init = :sample` is quasi-interpolation (control = sample), which
-smooths curvature by (h²/6)·f″. `max_radius_px` clamps NODE SAMPLING to
-the source's lit field (default: just inside the lens's horizon when it
-has one) — beyond it nodes sample at the radially-clamped pixel, so the
-global prefilter solve never rings against near-fold curvature or unlit
+smooths curvature by (h²/6)·f″. Node sampling is clamped to the source's
+lit field — `sampling_margin` (default 0.97) times its [`image_circle`](@ref)
+when the lens has one, otherwise times its imaging domain — so beyond it
+nodes sample at the radially-clamped pixel, and the global prefilter solve
+never rings against near-fold curvature or unlit
 extrapolation. The bridge from the parametric zoo into the generic
 family.
 """
@@ -570,41 +571,39 @@ function _prefilter_matrix(n::Int)
     return LinearAlgebra.Tridiagonal(dl, d, du)
 end
 
-# Default node-sampling clamp: just inside the source lens's horizon (the
-# pole radius of the division family; Inf for lenses without one). Node
-# samples beyond it would carry the near-fold curvature — and, in the
-# corners of a circular fisheye's bounding box, the model's unlit
-# extrapolation — which the GLOBAL prefilter solve amplifies into ringing
-# (measured: 41 px at the rim vs 1e-4 px interior). Clamped, the spline
-# sees a smooth radial plateau beyond the horizon instead.
-# `horizon_radius` is `Inf` for a lens with no fold; such a lens may still image
-# only a bounded disc (an equidistant fisheye stops at θ = π, a double-sphere
-# lens earlier), and a node sampled past it backprojects to NaN, which the
-# global prefilter spreads to every control. So the clamp is also kept inside
-# the IMAGING domain (`_imaging_domain_radius`, normalized), scaled by the
-# smaller focal length: fx ≠ fy makes the domain an ellipse in pixels, and its
-# smaller semi-axis is the safe radius.
-# Not `image_circle`: a sampling clamp for the spline prefilter, 0.97 of the horizon or of the imaging domain, isotropic in the smaller focal length.
-function _default_sampling_clamp(model::CameraModel)
-    r = horizon_radius(model)
-    isfinite(r) && return 0.97 * r
-    K = calibration_matrix(model)
-    f = min(abs(Float64(K[1, 1])), abs(Float64(K[2, 2])))
-    return 0.97 * f * Float64(_imaging_domain_radius(lens(model)))
+# Node-sampling clamp: the source lens's lit field, as a normalized radius about
+# the principal point — its image circle (`_lens_circle_radius`, image_circle.jl:
+# the one owner of the circle) when the lens has a limit of its own, otherwise
+# its imaging domain (`_imaging_domain_radius`: a lens with no fold may still
+# image only a bounded disc — an equidistant fisheye stops at θ = π — and a node
+# sampled past it backprojects to NaN, which the global prefilter spreads to
+# every control). `Inf` for a lens that images the whole plane. A node outside
+# `sampling_margin` times that disc samples at the radially clamped pixel.
+#
+# The margin is load-bearing: at the circle itself the source's profile folds
+# (its curvature is unbounded) and at the domain's edge `backproject` turns
+# NaN, so a node sampled ON the boundary would carry the near-fold curvature,
+# or a NaN, into the GLOBAL prefilter solve, which spreads it as ringing
+# (measured: 41 px at the rim vs 1e-4 px interior). 0.97 keeps every sample
+# strictly inside; it is the sampler's `sampling_margin` keyword.
+function _sampling_radius(model::CameraModel)
+    ρ = _lens_circle_radius(lens(model))
+    return ρ === nothing ? Float64(_imaging_domain_radius(lens(model))) : ρ
 end
 
 function _directions_from(
         model::CameraModel, m::_GenericModel, ::Type{T};
-        init::Symbol, max_radius_px::Real   # both callers supply both; the public defaults live on the constructors
+        init::Symbol, sampling_margin::Real   # both callers supply both; the public defaults live on the constructors
     ) where {T}
     gh, gw = _grid_size(m)
-    K = model.intrinsics.K
-    pp = SVector(Float64(K[1, 3]), Float64(K[2, 3]))
+    Ki = inv(SMatrix{3, 3, Float64}(calibration_matrix(model)))
+    pp = SVector{2, Float64}(_principal_point(model))
+    rmax = sampling_margin * _sampling_radius(model)          # normalized radius
     function _node_sample(gx, gy)
         px = _node_pixel(m, gx, gy)
-        v = SVector(px[1], px[2]) - pp
-        ρ = norm(v)
-        ρ > max_radius_px && (px = pp + (max_radius_px / ρ) * v)
+        x = Ki * SVector(px[1], px[2], 1.0)
+        ρ = hypot(x[1], x[2])                                 # the node's normalized radius
+        ρ > rmax && (px = pp + (rmax / ρ) * (SVector(px[1], px[2]) - pp))   # K is affine about pp: the same ray scaled
         return normalize(SVector{3, Float64}(backproject(model, px)))
     end
     S = [_node_sample(gx, gy) for gy in 1:gh, gx in 1:gw]
@@ -627,7 +626,7 @@ function CentralGenericModel(
         calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
             (0, 0, _generic_size(size)[1] - 1, _generic_size(size)[2] - 1),
         init::Symbol = :interpolate,
-        max_radius_px::Real = _default_sampling_clamp(model),
+        sampling_margin::Real = 0.97,
     )
     W, H = _generic_size(size)
     area = _area_bounds(calib_area)
@@ -637,7 +636,7 @@ function CentralGenericModel(
     )
     return CentralGenericModel{Float64}(
         W, H, area...,
-        _directions_from(model, seed, Float64; init, max_radius_px)
+        _directions_from(model, seed, Float64; init, sampling_margin)
     )
 end
 
@@ -647,7 +646,7 @@ function NoncentralGenericModel(
         calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
             (0, 0, _generic_size(size)[1] - 1, _generic_size(size)[2] - 1),
         init::Symbol = :interpolate,
-        max_radius_px::Real = _default_sampling_clamp(model),
+        sampling_margin::Real = 0.97,
     )
     W, H = _generic_size(size)
     area = _area_bounds(calib_area)
@@ -655,7 +654,7 @@ function NoncentralGenericModel(
     seed = CentralGenericModel{Float64}(
         W, H, area..., fill(Vec3{Float64}(0, 0, 1), gh, gw)
     )
-    dirs = _directions_from(model, seed, Float64; init, max_radius_px)
+    dirs = _directions_from(model, seed, Float64; init, sampling_margin)
     return NoncentralGenericModel{Float64}(
         W, H, area..., dirs, fill(Vec3{Float64}(0, 0, 0), gh, gw)
     )

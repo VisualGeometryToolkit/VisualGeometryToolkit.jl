@@ -223,18 +223,21 @@ function _registered(::Type{RegisteredSceneSplit}, d, inherited, path)
     return out
 end
 
-# TODO(after the rebase onto the Core simplify branch): read the table through VisualGeometryToolkitCore's public `read_table`.
+# The field walk is VGC's `read_table` (the writer's `fieldnames`/`toml_key`
+# walk); what stays here is the layering it does not do. Every key is handed
+# to it as the pair (config value, inherited value), so it visits every field
+# in field order, and `_read_field` reads the pair: a nested table layered
+# over its own default, a leaf from the config or else the default, absent
+# from both an error naming the key path. No type here skips a field, so the
+# struct is built positionally from the walk.
 function _read_struct(::Type{C}, d, dflt, path, tagged::Bool, inherit::Bool) where {C}
     d === nothing && dflt === nothing && throw(ArgumentError("[$path]: missing table"))
     d === nothing || d isa AbstractDict || throw(ArgumentError("[$path]: expected a table, got $(repr(d))"))
     d === nothing || VGC.check_keys(d, VGC.allowed_keys(C, (tagged ? ("type",) : ())...), path)
-    args = Any[]
-    for f in fieldnames(C)
-        key = VGC.toml_key(C, f)
-        u = d === nothing ? nothing : get(d, key, nothing)
-        v = dflt === nothing ? nothing : get(dflt, key, nothing)
-        push!(args, _read_field(fieldtype(C, f), u, v, "$path.$key", inherit))
-    end
+    layered = Dict{String,Any}(key => (d === nothing ? nothing : get(d, key, nothing),
+                                       dflt === nothing ? nothing : get(dflt, key, nothing)) for key in VGC.allowed_keys(C))
+    from_toml(::Type{C}, ::Val{F}, (u, v)) where {F} = _read_field(fieldtype(C, F), u, v, "$path.$(VGC.toml_key(C, F))", inherit)
+    args = Any[v for (_, v) in VGC.read_table(C, layered; from_toml)]
     try
         return C(args...)
     catch e

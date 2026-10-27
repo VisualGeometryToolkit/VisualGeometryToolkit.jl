@@ -11,20 +11,22 @@
 # directory, read back through `load_pool` and compared bit for bit with the
 # original (`migrate_pool`), and nothing is written. With --apply each verified
 # format-5 file is staged in a fresh directory beside the original (the same
-# filesystem) and renamed over it; the original is replaced only once its
-# migration is verified, and only by that rename. A pool's residuals file is
-# left as it is: it is bound by `pool_key`, which the migration keeps.
+# filesystem; VisualGeometryToolkitIO's `write_staged`) and renamed over it; the
+# original is replaced only once its migration is verified, and only by that
+# rename. A pool's residuals file is left as it is: it is bound by `pool_key`,
+# which the migration keeps.
 #
 # One line per file: `verified`, `migrated`, `current` (already format 5),
 # `skipped` (a file that opens and is not a light pool: a residuals file, a
 # sample-starts file, another artifact) or `FAILED` with the reason (a file
 # that does not open is FAILED, not skipped); a failure does not stop the others,
-# and the exit code is 1 when any file failed. `migrate_pool` writes its
+# and the exit code is 1 when any file failed. A dry run writes its
 # verification copy under the system's temporary directory, so that directory
 # needs room for the largest pool.
 
 using JLD2: JLD2
 using VisualGeometryToolkitEval.Pools: migrate_pool
+using VisualGeometryToolkitIO: write_staged
 
 # The light pool's format stamp; `nothing` for a file that opens and is not a
 # light pool. A file that does not open (corrupt, truncated, unreadable) is an
@@ -66,21 +68,15 @@ function migrate_pools(root::AbstractString; apply::Bool = false, io::IO = stdou
             continue
         end
         try
-            if !apply
-                r = migrate_pool(path; out = joinpath(dir, ".pool_v5_dry_run"), dry_run = true)
-                println(io, "verified  ", path, ": format $v → 5, ", r.n_pairs, " pairs (dry run; --apply to migrate)")
-                n = bump(n, :verified)
-                continue
+            # migrated into a staging directory beside the original, and the
+            # verified format-5 file renamed over it (the staged residuals copy
+            # goes with the staging directory)
+            r = write_staged(path => basename(path); dry_run = !apply) do staged
+                migrate_pool(path; out = dirname(staged), dry_run = !apply)
             end
-            stage = mktempdir(dir; prefix = ".pool_v5_")      # beside the original: one filesystem, so a rename
-            try
-                r = migrate_pool(path; out = stage)
-                mv(r.path, path; force = true)                 # the verified format-5 file replaces the original
-                println(io, "migrated  ", path, ": format $v → 5, ", r.n_pairs, " pairs")
-                n = bump(n, :migrated)
-            finally
-                rm(stage; recursive = true, force = true)      # the staged residuals copy, and anything left on failure
-            end
+            println(io, apply ? "migrated  " : "verified  ", path, ": format $v → 5, ", r.n_pairs, " pairs",
+                apply ? "" : " (dry run; --apply to migrate)")
+            n = bump(n, apply ? :migrated : :verified)
         catch e
             e isa ArgumentError || rethrow()
             println(io, "FAILED    ", path, ": ", e.msg)

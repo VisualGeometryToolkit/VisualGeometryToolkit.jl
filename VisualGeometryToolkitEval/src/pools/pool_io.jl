@@ -351,11 +351,11 @@ end
 # Format 5 renamed one pair key, the destination map's: its former name is
 # retired from the stack, so the migration finds that key by its PLACE in the
 # format-4 pair (the slot `destination_map` holds in format 5; every other key
-# is format 5's), never by name. Like VisualGeometryToolkitIO's migrations it
-# READS the format-4 file, WRITES the format-5 file to a temporary directory
-# through the writer, READS it back through the reader, COMPARES every stored
-# value with what it read — and only then, unless it is a dry run, writes it to
-# `out`. The original is never touched.
+# is format 5's), never by name. By VisualGeometryToolkitIO's migration pattern
+# (`write_staged`) it READS the format-4 file, WRITES the format-5 file to a
+# staging directory beside `out` through the writer, READS it back through the
+# reader, COMPARES every stored value with what it read — and only then, unless
+# it is a dry run, renames it into `out`. The original is never touched.
 
 const _DESTINATION_SLOT = findfirst(==(:destination_map), _PAIR_FIELDS)
 
@@ -388,12 +388,15 @@ is derived data kept in a writable tree, never beside the pool, so the pool's
 path does not name it; it is bound by the same unchanged `pool_key` and reads
 against the migrated pool where it is. Both destinations, the pool's and its
 residuals', are checked before anything is written: an existing one is an
-`ArgumentError`, and a failed copy removes what it wrote.
+`ArgumentError`, and a migration that fails before its renames leaves `out` as
+it was.
 
 The migration is verified before anything is written to `out`: the format-5
-file, written to a temporary directory through [`save_pool`](@ref), must read
-back through [`load_pool`](@ref), hold the same keys, and store every value of
-the original bit for bit. With `dry_run` nothing is written. A file of another
+file, written through [`save_pool`](@ref) to a staging directory beside `out`
+(a dry run's: a temporary one), must read back through [`load_pool`](@ref)'s
+checks, hold the same keys, and store every value of the original bit for bit;
+only then are the residuals copy and the pool renamed into `out`, the pool
+last. With `dry_run` nothing is written. A file of another
 format is refused with an `ArgumentError`: a format-5 one needs nothing, an
 older one is converted first (see [`load_pool`](@ref)'s refusal). Returns
 `(; path, residuals, n_pairs)`, the output paths `nothing` in a dry run.
@@ -414,10 +417,15 @@ function migrate_pool(path::AbstractString; out::AbstractString, dry_run::Bool =
     raw = JLD2.load(path)
     pairs = [_format5_pair(nt, path, i) for (i, nt) in enumerate(raw["pairs"])]
     pool = _pool_from_raw(merge(raw, Dict{String, Any}("pairs" => pairs)), path)
-    return mktempdir() do tmp
-        t = save_pool(joinpath(tmp, basename(path)), pool)
-        load_pool(t)                                                   # reads back through the reader
+    has_r = isfile(r)
+    # renamed into `out` once verified, the residuals first and the pool last:
+    # a pool file at `dst` is a whole migration
+    outs = has_r ? (rdst => basename(rdst), dst => basename(dst)) : (dst => basename(dst),)
+    write_staged(outs...; dry_run) do staged...
+        t = save_pool(last(staged), pool)
+        _check_artifact_format(t, :pool)
         back = JLD2.load(t)
+        _pool_from_raw(back, t)                                        # reads back through the reader's checks
         _verify(ok, what) = ok || throw(
             ArgumentError("$path: the format-5 file does not read back as the file read ($what); nothing was written"))
         _verify(Set(keys(back)) == Set(keys(raw)), "its keys")
@@ -429,19 +437,10 @@ function migrate_pool(path::AbstractString; out::AbstractString, dry_run::Bool =
         for (i, (a, b)) in enumerate(zip(raw["pairs"], back["pairs"]))
             _verify(keys(b) == _PAIR_FIELDS && all(_same_bits(x, y) for (x, y) in zip(values(a), values(b))), "pair $i")
         end
-        dry_run && return (; path = nothing, residuals = nothing, n_pairs = length(pairs))
-        mkpath(abspath(out))
-        # the residuals first, the pool last: a pool file at `dst` is a whole migration
-        has_r = isfile(r)
-        try
-            has_r && cp(r, rdst)
-            cp(t, dst)
-        catch
-            rm(dst; force = true); has_r && rm(rdst; force = true)
-            rethrow()
-        end
-        return (; path = dst, residuals = has_r ? rdst : nothing, n_pairs = length(pairs))
+        (has_r && !dry_run) && cp(r, first(staged))
     end
+    dry_run && return (; path = nothing, residuals = nothing, n_pairs = length(pairs))
+    return (; path = dst, residuals = has_r ? rdst : nothing, n_pairs = length(pairs))
 end
 
 # =============================================================================

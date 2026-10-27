@@ -28,6 +28,7 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
 VisualGeometryToolkitEval = "86c88899-11c8-4b8e-8d7a-f01a8ab99b28"
+VisualGeometryToolkitIO = "0a7ae7e7-e931-45f8-9bba-03d07899cebc"
 
 [sources]
 VisualGeometryToolkitEval = {path = ".."}
@@ -60,3 +61,4 @@ Statistics = "1"
 Test = "1"
 TOML = "1.0.3"
 VisualGeometryToolkitCore = "0.2"
+VisualGeometryToolkitIO = "0.2"

@@ -402,13 +402,19 @@ format is refused with an `ArgumentError`: a format-5 one needs nothing, an
 older one is converted first (see [`load_pool`](@ref)'s refusal). Returns
 `(; path, residuals, n_pairs)`, the output paths `nothing` in a dry run.
 """
+# Whether two paths name one directory: resolved (`realpath`: links, `..`, a
+# trailing slash) where they exist, normalised (`normpath`, no trailing slash)
+# where they do not.
+_directory_key(p::AbstractString) = ispath(p) ? realpath(p) : (q = normpath(abspath(p)); length(q) > 1 ? rstrip(q, '/') : q)
+_same_directory(a::AbstractString, b::AbstractString) = _directory_key(a) == _directory_key(b)
+
 function migrate_pool(path::AbstractString; out::AbstractString, dry_run::Bool = false)
     isfile(path) || throw(ArgumentError("$path: no such pool artifact"))
     cur = ARTIFACT_FORMATS.pool.version
     v = JLD2.jldopen(f -> _artifact_format(f, :pool), path, "r")
     v == cur && throw(ArgumentError("$path: already a format-$cur pool; nothing to migrate"))
     v == 4 || throw(ArgumentError("$path: pool format v$v; migrate_pool reads format 4 — $(ARTIFACT_FORMATS.pool.remedy)"))
-    abspath(out) == dirname(abspath(path)) && throw(ArgumentError(
+    _same_directory(out, dirname(abspath(path))) && throw(ArgumentError(
         "migrate_pool: `out` is the original's directory ($(abspath(out))); the original is never overwritten — name another"))
     dst = joinpath(abspath(out), basename(path))
     r, rdst = residuals_path(path), residuals_path(dst)

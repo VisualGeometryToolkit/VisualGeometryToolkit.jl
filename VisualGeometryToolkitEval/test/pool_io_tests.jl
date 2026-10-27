@@ -148,6 +148,9 @@
         # a sample-starts file is not copied: it binds by pool_key, which the migration keeps
         @test readdir(out) == sort([basename(r.path), basename(r.residuals)])
         @test occursin("never overwritten", errmsg(() -> migrate_pool(v4; out = v4dir)))
+        for same_dir in (v4dir * "/", joinpath(v4dir, "..", "v4"), joinpath(v4dir, "."))   # the same directory, spelled otherwise
+            @test occursin("never overwritten", errmsg(() -> migrate_pool(v4; out = same_dir)))
+        end
         @test occursin("nothing to migrate", errmsg(() -> migrate_pool(path; out = joinpath(dir, "v5b"))))
         v3 = joinpath(v4dir, "v3.jld2"); JLD2.jldsave(v3; pool_format = 3, pairs = [1])
         @test occursin("convert_pools_v4", errmsg(() -> migrate_pool(v3; out = joinpath(dir, "v5c"))))

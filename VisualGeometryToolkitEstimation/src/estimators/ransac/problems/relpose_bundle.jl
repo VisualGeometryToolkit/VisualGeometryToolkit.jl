@@ -100,7 +100,7 @@ const _BUNDLE_CACHE = nlls_features().cache
 if _BUNDLE_SCHUR
     NLLSsolver.iseliminable(::Type{_BundlePoint{true}}) = NLLSsolver.static(true)
 end
-const _BundleCache = _BUNDLE_CACHE ? NLLSsolver.OptimizeCache : Nothing
+const _BundleCache = _BUNDLE_CACHE ? typeof(NLLSsolver.OptimizeCache()) : Nothing   # concrete (see VGC lm_core.jl)
 
 # The data of the current call — the calibrations, the two views and the
 # √weights — shared by every residual block, replaced per call.

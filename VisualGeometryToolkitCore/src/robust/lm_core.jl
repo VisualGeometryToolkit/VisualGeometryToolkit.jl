@@ -253,7 +253,9 @@ function NLLSsolver.computecostgradhess(_varflags, c::_ChartRows{N}, x) where {N
     return _finite_cost(0.5 * s), SVector(g), SMatrix(H)
 end
 
-const _NllsCache = _NLLS_HAS_CACHE ? NLLSsolver.OptimizeCache : Nothing
+# The concrete type of an untyped cache (`OptimizeCache` is parametric once the
+# fork's typed cache lands: `typeof` keeps this field concrete either way).
+const _NllsCache = _NLLS_HAS_CACHE ? typeof(NLLSsolver.OptimizeCache()) : Nothing
 _nlls_cache() = _NLLS_HAS_CACHE ? NLLSsolver.OptimizeCache() : nothing
 
 # The kept NLLSsolver problem of one linearization-state type, its state slot

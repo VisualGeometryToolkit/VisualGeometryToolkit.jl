@@ -16,7 +16,9 @@ import VisualGeometryToolkitCore as VgtkCore
 include(joinpath(pkgdir(VgtkCore), "test", "fixtures", "pixel_lm", "problems.jl"))
 lines = readlines(joinpath(pkgdir(VgtkCore), "test", "fixtures", "pixel_lm", "reference.txt"))
 ps = pixel_lm_problems()
-@test pixel_lm_problems_checksum(ps) == parse(Float64, lines[1])    # the same problems as recorded
+# the same problems as recorded (a different random stream would move the sum by far more than
+# the last-ulp difference Julia 1.12's `randn` gives: 126791.93677324119 vs 1.13's …412)
+@test isapprox(pixel_lm_problems_checksum(ps), parse(Float64, lines[1]); rtol = 1.0e-12)
 ref = [Tuple(parse.(Float64, split(l))) for l in lines[2:end]]
 dmax = 0.0; ndiff = 0; flags_equal = true
 for (q, (rx, ry, rF)) in zip(ps, ref)

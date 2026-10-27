@@ -156,12 +156,6 @@ const _TARGET_CALIBRATION = _Checked(
     x -> _target_calibration_check(x, false),
 )
 
-# The keys the previous records had: refused by name, with the migration.
-const _MIGRATED_TARGET_KEYS = (:warp => "calibration", :design => "reference")
-_migrated_key_message(old, new) =
-    "`$(old)` is a vgio/target/v1 and vgio/rig/v4 key; $(_schema("target")) and $(_schema("rig")) name it `$(new)`. " *
-    "Migrate the file once with vgio_migrate (bin/vgio_migrate.jl target|rig FILE)"
-
 const _BOARD = _Obj(
     :size => _Checked(_Obj(:width => _Real(), :height => _Real()), z -> (z[:width] > 0 && z[:height] > 0) ? nothing : "a board's width and height are > 0"),
     :origin => _XY,
@@ -174,13 +168,9 @@ const _TARGET_BODY = _Checked(
             :points => _TARGET_POINTS, :point_covariances => _Vec(_Vec(_Vec(_Real()))),
             :reference => _NonEmpty(), :nominal => _Vec(_Vec(_Real(), 2)), :calibration => _TARGET_CALIBRATION,
             :board => _BOARD,
-            :warp => _Free(), :design => _Str(),      # the v1 keys: refused below, naming the migration
         ],
     ),
     function (t)
-        for (old, new) in _MIGRATED_TARGET_KEYS
-            haskey(t, old) && return _migrated_key_message(old, new)
-        end
         ty = t[:type]
         if ty == "points"
             haskey(t, :points) || return "a points target states its `points`"
@@ -251,8 +241,7 @@ _calibration_record(c::TargetCalibration, ::Units) = throw(
     ArgumentError("save: a $(nameof(typeof(c))) target calibration has no record in $(_schema("target")) (its kinds: $(join(keys(TARGET_CALIBRATION_TAGS), ", ")))")
 )
 
-_target_calibration_json(c::TargetCalibration, u::Units) = _calibration_record(c, u)
-function _target_calibration_json(c::Uncertain{<:TargetCalibration}, u::Units)
+function _calibration_record(c::Uncertain{<:TargetCalibration}, u::Units)
     g = geom(c)
     dims = _length_dims(g)
     Σ = cov(c)
@@ -293,23 +282,19 @@ end
 
 """
     target_json(target, unit = mm) -> NamedTuple
-    target_from_json(body, unit; resolve = nothing) -> AbstractTarget
 
 The target body every target-carrying kind embeds (see rig_schema.jl), its
-points (lengths) and its calibration's lengths written in the length `unit`,
-and back from a file in length `unit` (a unit name), as lengths in metres. A
-target of plain points, or a plain calibration with lengths, is an
-`ArgumentError` (attach the unit, `p .* m`). A `PlanarTarget` of a referenced
-design is written by its reference alone and read back unresolved, unless
-`resolve(reference::Symbol)` — the design owner's resolver — returns its
-nominal points (lengths). Building blocks for a package serializing its own
-kind.
+points (lengths) and its calibration's lengths written in the length `unit`;
+[`target_from_json`](@ref) reads it back. A target of plain points, or a plain
+calibration with lengths, is an `ArgumentError` (attach the unit, `p .* m`). A
+`PlanarTarget` of a referenced design is written by its reference alone.
+Building blocks for a package serializing its own kind.
 """
 target_json(t::PointTarget, unit::Units = mm) = merge((type = "points",), _points_json("a points target", points(t), unit))
 target_json(t::PlanarTarget, unit::Units = mm) = merge(
     reference(t) === nothing ?
-        (type = "planar", nominal = [_lengths_json(p, unit, "a planar target's nominal point") for p in t.nominal], calibration = _target_calibration_json(calibration(t), unit)) :
-        (type = "planar", reference = String(reference(t)), calibration = _target_calibration_json(calibration(t), unit)),
+        (type = "planar", nominal = [_lengths_json(p, unit, "a planar target's nominal point") for p in t.nominal], calibration = _calibration_record(calibration(t), unit)) :
+        (type = "planar", reference = String(reference(t)), calibration = _calibration_record(calibration(t), unit)),
     _board_json(board(t), unit),
 )
 
@@ -772,13 +757,4 @@ function _check_resolves(observations, rigs)
         )
     end
     return nothing
-end
-
-# A per-frame name (a sensor, an image): one for every frame, or a map that must
-# cover every frame — what the v1 migration requires of its caller.
-_per_frame(x::AbstractString, frames, what) = Dict(t => String(x) for t in frames)
-function _per_frame(x::AbstractDict, frames, what)
-    missing_ = [t for t in frames if !haskey(x, t)]
-    isempty(missing_) || throw(ArgumentError("`$(what)` names no value for frame(s) $(missing_)"))
-    return Dict(t => String(x[t]) for t in frames)
 end

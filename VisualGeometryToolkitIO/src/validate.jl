@@ -9,7 +9,7 @@
 #
 #   _Obj(required, optional)   an object with EXACTLY these keys — a missing
 #                              required key and an unknown key are refused alike
-#   _Str / _NonEmpty           a string / a non-empty string
+#   _NonEmpty                  a non-empty string
 #   _Tok(v)                    one exact value (a declaration token)
 #   _Int / _PosInt / _Real     an integer / a positive integer / a finite real
 #   _Vec(elem, n)              an array of `elem`, length `n` (-1: any)
@@ -28,7 +28,6 @@
 
 abstract type _Spec end
 
-struct _Str <: _Spec end
 struct _NonEmpty <: _Spec end
 struct _Tok{T} <: _Spec
     value::T
@@ -84,7 +83,6 @@ function _validate(s::_Obj, x, file, at)
     end
     return nothing
 end
-_validate(::_Str, x, file, at) = (x isa AbstractString || _refuse(file, at, "expected a string"); nothing)
 _validate(::_NonEmpty, x, file, at) =
     ((x isa AbstractString && !isempty(x)) || _refuse(file, at, "expected a non-empty string"); nothing)
 _validate(s::_Tok, x, file, at) =

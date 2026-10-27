@@ -294,9 +294,9 @@ end
         @test refused(dd -> (dd["targets"][1]["target"]["type"] = "spline"), "unknown target type")
         @test refused(dd -> (dd["targets"][1]["target"]["calibration"] = Dict("type" => "warp")), "unknown calibration type")
         @test refused(dd -> delete!(dd["targets"][1]["target"], "calibration"), "states its `calibration`")
-        # the v1 keys, refused by name with the migration
-        @test refused(dd -> (dd["targets"][1]["target"]["warp"] = Dict("type" => "rigid")), "vgio_migrate")
-        @test refused(dd -> (dd["targets"][1]["target"]["design"] = "a"), "vgio_migrate")
+        # the v1 keys are unknown keys of the current record
+        @test refused(dd -> (dd["targets"][1]["target"]["warp"] = Dict("type" => "rigid")), "target.warp: unknown key")
+        @test refused(dd -> (dd["targets"][1]["target"]["design"] = "a"), "target.design: unknown key")
         @test refused(dd -> (dd["targets"][1]["target"] = Dict("type" => "points", "points" => [[1, 2], [1, 2, 3]])), "2-vectors")
         @test refused(dd -> push!(dd["targets"], deepcopy(dd["targets"][1])), "unique")
         # plain and uncertain points are not mixed in one target

@@ -171,12 +171,12 @@ end
         # a downstream calibration kind (not in the registry) is refused at save, naming it
         e = try save(q, PlanarTarget(design_points(); calibration = AnotherKind())); nothing catch e; e end
         @test e isa ArgumentError && occursin("AnotherKind", e.msg) && !isfile(q)
-        # the v1 keys and version name the migration
+        # a v1 key is an unknown key of the current record; the v1 version names the migration
         dd = deepcopy(good)
         dd["target"]["warp"] = pop!(dd["target"], "calibration")
         write(p, JSON.json(dd))
         e = try load(AbstractTarget, p); nothing catch e; e end
-        @test e isa ArgumentError && occursin("`warp`", e.msg) && occursin("vgio_migrate", e.msg)
+        @test e isa ArgumentError && occursin("target.warp: unknown key", e.msg)
         dd = deepcopy(good)
         dd["schema"] = "vgio/target/v1"
         write(p, JSON.json(dd))

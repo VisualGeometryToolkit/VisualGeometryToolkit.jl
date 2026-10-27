@@ -164,6 +164,16 @@ end
         r = rt(nu)
         @test typeof(r) == typeof(nu) && size(cov(getfield(r, :value))) == (N, N) && all(isnan, cov(getfield(r, :value)))
     end
+    # a length frame's covariance (m² in memory) is written in the declared unit squared, and read back to the same value
+    L(x) = VisualGeometryToolkitIO.read_length(x, mm)
+    Σmm = (0.25, 0.01, 0.0, 0.01, 0.16, -0.002, 0.0, -0.002, 0.0123)                 # mm², column order
+    Σm = CovMat{3, Float64, 9}(map(x -> VisualGeometryToolkitIO._read_power(x, mm, 2), Σmm))
+    ul = Attributed(Uncertain(Disc(Point2(L(10.5), L(20.25)), L(3.0)), Σm), (response = 1.0,))
+    s = JSON.json(json_value(ul, MM_PX; kind = :length))
+    @test s == """{"frame":{"center":[10.5,20.25],"σ":3.0},"cov":[0.25,0.01,0.0,0.01,0.16,-0.002,0.0,-0.002,0.0123],"response":1.0}"""
+    rl = from_json(AbstractDetection, JSON.parse(s), MM_PX; kind = :length)
+    @test getfield(rl, :value) == getfield(ul, :value) && cov(getfield(rl, :value)) === cov(getfield(ul, :value))
+    @test cov(getfield(rt(ul; kind = :length), :value)) == Σm
     # a cov of another size than its frame's is refused
     @test_throws ArgumentError from_json(AbstractDetection, JSON.parse("""{"frame":{"center":[1.0,2.0],"σ":3.0,"θ":0.5},"cov":[1.0,0.0,0.0,1.0]}"""), MM_PX; kind = :plain)
     # the wire format of a plain detection is the one stored files hold

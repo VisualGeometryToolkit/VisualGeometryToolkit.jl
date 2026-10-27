@@ -364,12 +364,17 @@ end
 
 # An uncertain frame writes its covariance as `cov`, the matrix's entries in
 # column order — or `null` when it is not finite (an unrefined keypoint's),
-# which JSON cannot hold.
+# which JSON cannot hold. A frame of `kind = :length` (every parameter a
+# length: a Disc's center and σ) holds its covariance in base units, m², and
+# writes it in the declared length unit squared, as it writes its center; any
+# other kind's entries are written as they are (pixels are dimensionless).
+_cov_entry_json(x::Float64, contract::UnitContract, kind::Symbol) = kind === :length ? _write_power(x, role_unit(contract), 2) : x
+_cov_entry_from_json(x::Real, contract::UnitContract, kind::Symbol) = kind === :length ? _read_power(x, role_unit(contract), 2) : Float64(x)
 function json_value(d::Attributed{<:Uncertain{<:FeatureFrame, <:CovMat}}, contract::UnitContract; kind::Symbol)
     u = getfield(d, :value)
     meta = _metadata_value(getfield(d, :attributes))
     Σ = cov(u)
-    c = all(isfinite, Σ) ? vec(collect(Float64, Σ)) : nothing
+    c = all(isfinite, Σ) ? Float64[_cov_entry_json(Float64(x), contract, kind) for x in vec(Σ)] : nothing
     return (frame = json_value(geom(u), contract; kind), cov = c, pairs(meta)...)
 end
 
@@ -399,7 +404,7 @@ function from_json(::Type{<:AbstractDetection}, d::_JSONObject, contract::UnitCo
     N = _cov_size(fr)
     (c === nothing || length(c) == N * N) ||
         throw(ArgumentError("a $(nameof(typeof(fr))) detection's `cov` has $(N * N) entries ($(N)×$(N)), got $(length(c))"))
-    Σ = c === nothing ? fill(NaN, N, N) : reshape(Float64.(collect(c)), N, N)
+    Σ = c === nothing ? fill(NaN, N, N) : reshape(Float64[_cov_entry_from_json(x, contract, kind) for x in c], N, N)
     return Attributed(Uncertain(fr, CovMat{N, Float64, N * N}(Tuple(Σ))), meta)
 end
 # The size of a frame's covariance, its number of parameters — the frame's

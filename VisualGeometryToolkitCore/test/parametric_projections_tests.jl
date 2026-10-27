@@ -12,7 +12,7 @@
         undistort_stage, FramedLensProjection, ray_map, DistortedFrame, Serial, Threaded
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: _precision
-    using VisualGeometryToolkitCore.Cameras: _ds_w2
+    using VisualGeometryToolkitCore.Cameras: _ds_end_cos
     using StaticArrays: SVector
     using FiniteDiff: FiniteDiff
     using ForwardDiff: ForwardDiff
@@ -97,161 +97,71 @@
         b = backproject(lens_b, SVector(2.0, 0.0))
         @test all(isfinite, b) && b[3] < 0
         @test all(isnan, undistort_normalized(lens_b, SVector(2.0, 0.0)))
-        # w₂ matches the paper's split at α = 1/2
-        @test _ds_w2(DoubleSphere(0.0, 0.5)) ≈ 1.0 atol = 1.0e-12
+        # at α = 1/2 the profile's end is its pole at θ = π
+        @test first(_ds_end_cos(DoubleSphere(0.0, 0.5))) == -1.0
         @test undistort_normalized(lens, SVector(2.0, 0.0)) isa Vec2
         # the unified model with ξ > 1 images a bounded disc; past it, NaN
         @test all(isnan, backproject(Lens(Unified(1.3)), SVector(3.0, 0.0)))
         @test all(isnan, project(Lens(Unified(0.6)), SVector(0.0, 0.0, -1.0)))
     end
 
-    @testset "double sphere: backproject without the FOV bound (fov_bound = false)" begin
-        # The closed-form lift (eq. 46-51), clamped radicands, no domain test at all.
-        function ds_lift(ξ, α, m)
-            r2 = m[1]^2 + m[2]^2
-            mz = (1 - α^2 * r2) / (α * sqrt(max(1 - (2α - 1) * r2, 0)) + 1 - α)
-            s = (mz * ξ + sqrt(max(mz^2 + (1 - ξ^2) * r2, 0))) / (mz^2 + r2)
-            return SVector(s * m[1], s * m[2], s * mz - ξ)
-        end
-        # The algebraic domain alone: the unprojection radius and the second radicand.
-        function ds_algebraic(ξ, α, m)
-            r2 = m[1]^2 + m[2]^2
-            disc = 1 - (2α - 1) * r2
-            mz = (1 - α^2 * r2) / (α * sqrt(max(disc, 0)) + 1 - α)
-            return (α <= 0.5 || disc >= 0) && mz^2 + (1 - ξ^2) * r2 >= 0
-        end
-        grid = [SVector(u, v) for u in range(-2.3, 2.3; length = 47) for v in range(-2.3, 2.3; length = 47)]
-        lenses = (
-            DS_A, DS_B, DS_C, Lens(DoubleSphere(-0.6, 0.6)), Lens(DoubleSphere(0.6, 0.3)),
-            Lens(DoubleSphere(-0.2, 0.55), Radial((-0.05, 0.01))),
-        )
-        generic = Tuple{Lens, SVector{2, Float64}}
-        for lens in lenses, x in grid
-            # the default is the lens contract's answer, bit for bit (the generic Lens method)
-            ref = invoke(backproject, generic, lens, x)
-            @test isequal(backproject(lens, x), ref)
-            @test isequal(backproject(lens, x; fov_bound = true), ref)
-            # where the bound holds the unchecked form is that same answer
-            all(isfinite, ref) && @test isequal(backproject(lens, x; fov_bound = false), ref)
-        end
-
-        # ξ = −0.6, α = 0.6: past the paper's bound (≈ 95.1°) yet inside the algebraic
-        # domain (r ≤ √5) — points a caller with only the algebraic domain accepts.
-        ξ, α = -0.6, 0.6
-        lens = Lens(DoubleSphere(ξ, α))
-        past = [x for x in grid if ds_algebraic(ξ, α, x) && all(isnan, backproject(lens, x))]
-        radial_past = [SVector(ρ * cos(ψ), ρ * sin(ψ)) for ρ in (2.21, 2.22, 2.23, 2.236) for ψ in (0.0, 0.7, 2.0, -2.9)]
-        @test !isempty(past)
-        for x in vcat(past, radial_past)
-            @test ds_algebraic(ξ, α, x)
-            @test all(isnan, backproject(lens, x))
-            b = backproject(lens, x; fov_bound = false)
-            @test b ≈ ds_lift(ξ, α, x) atol = 1.0e-12
-            @test norm(b) ≈ 1 atol = 1.0e-12
-            @test all(isnan, project(lens, b))            # project keeps the bound
-        end
-        # the algebraic domain still yields NaN (r > √5)
-        @test all(isnan, backproject(lens, SVector(2.3, 0.0); fov_bound = false))
-        # inside the bound, unchecked == checked == the closed form
-        for x in (SVector(0.3, -0.2), SVector(1.5, 0.9), SVector(-2.0, 0.5))
-            @test isequal(backproject(lens, x; fov_bound = false), backproject(lens, x))
-            @test backproject(lens, x) ≈ ds_lift(ξ, α, x) atol = 1.0e-12
-        end
-
-        # ForwardDiff through the unchecked form, past the bound: w.r.t. the point
-        # and w.r.t. (ξ, α), against central differences. The point sits near the
-        # algebraic edge (√(1 − (2α − 1)r²) ≈ 0.12), where a Float64 difference's
-        # step error reaches 1e-6, so the differences run in 256-bit BigFloat.
-        x0 = SVector(2.22 * cos(0.4), 2.22 * sin(0.4))
-        @test all(isnan, backproject(lens, x0))
-        fxp(v) = Vector(backproject(Lens(DoubleSphere(v[3], v[4])), SVector(v[1], v[2]); fov_bound = false))
-        v0 = [x0[1], x0[2], ξ, α]
-        J = ForwardDiff.jacobian(fxp, v0)
-        @test all(isfinite, J)
-        Jref = setprecision(BigFloat, 256) do
-            h = big"1e-25"
-            reduce(hcat, [(fxp(big.(v0) .+ h .* (1:4 .== j)) .- fxp(big.(v0) .- h .* (1:4 .== j))) ./ (2h) for j in 1:4])
-        end
-        @test J ≈ Float64.(Jref) rtol = 1.0e-10
-
-        # Float32: same answer at Float32 precision, Float32 out, no allocation
-        lens32 = Lens(DoubleSphere(Float32(ξ), Float32(α)))
-        x32 = SVector{2, Float32}(x0)
-        b32 = backproject(lens32, x32; fov_bound = false)
-        @test eltype(b32) === Float32
-        @test b32 ≈ backproject(lens, x0; fov_bound = false) atol = 1.0f-5
-        @test all(isnan, backproject(lens32, x32))
-        bp(l, x) = backproject(l, x; fov_bound = false)
-        bp(lens32, x32)
-        @test (@allocated bp(lens32, x32)) == 0
-        @test isbitstype(typeof(lens32))
-    end
-
-    @testset "double sphere: project without the FOV bound (fov_bound = false)" begin
-        # The closed-form forward map (eq. 40-45), no domain test at all.
+    @testset "double sphere: the domain is the fold of its radial profile" begin
+        # Independent reference: the closed-form forward map (eq. 40-45), no domain
+        # test, and its radius along a view-angle scan — the first angle where the
+        # radius stops increasing (a fold) or turns non-finite or negative (a pole).
         function ds_project(ξ, α, X)
             d1 = sqrt(X[1]^2 + X[2]^2 + X[3]^2)
             zs = ξ * d1 + X[3]
             den = α * sqrt(X[1]^2 + X[2]^2 + zs^2) + (1 - α) * zs
             return SVector(X[1] / den, X[2] / den)
         end
-        rays = [ray(θ; ψ) for θ in range(0, π; length = 61) for ψ in range(-π, π; length = 13)]
-        push!(rays, SVector(0.0, 0.0, 0.0), SVector(0.0, 0.0, -1.0), 3.7 * ray(1.9))
-        lenses = (
-            DS_A, DS_B, DS_C, Lens(DoubleSphere(-0.6, 0.6)), Lens(DoubleSphere(0.6, 0.3)),
-            Lens(DoubleSphere(-0.2, 0.55), Radial((-0.05, 0.01))),
-        )
-        # A structural reference, not the compiled generic method: the paper's bound
-        # (eq. 34-36), the closed form, and the one distortion here, Radial((−0.05,
-        # 0.01)), whose profile never folds. To 4 eps: the reference orders its
-        # operations differently (x/den, not inv(den)·x).
-        function ds_reference(lens, X)
-            ξ, α = lens.projection.xi, lens.projection.alpha
-            d1 = norm(X)
-            inside = (X[3] > 0 && ξ >= 0 && 0 <= α <= 1) || X[3] > -_ds_w2(lens.projection) * d1
-            inside || return SVector(NaN, NaN)
-            x = ds_project(ξ, α, X)
-            lens.distortion === nothing && return x
-            s = x[1]^2 + x[2]^2
-            return (1 - 0.05s + 0.01s^2) * x
+        function scanned_end(ξ, α)
+            θs = range(1.0e-4, π - 1.0e-9; length = 200001)
+            r = [norm(ds_project(ξ, α, ray(θ))) * sign(ds_project(ξ, α, ray(θ))[1]) for θ in θs]
+            k = findfirst(i -> !(isfinite(r[i + 1]) && r[i + 1] > r[i] && r[i] > 0), 1:(length(θs) - 1))
+            return k === nothing ? Float64(π) : θs[k], maximum(r[1:something(k, length(r))])
         end
-        same(a, b) = isequal(isnan.(a), isnan.(b)) && isapprox(a, b; rtol = 4 * eps(), nans = true)
-        for lens in lenses, X in rays
-            iszero(X) && continue
-            # the default is the lens contract's answer
-            @test same(project(lens, X), ds_reference(lens, X))
-            @test isequal(project(lens, X; fov_bound = true), project(lens, X))
-            # where the bound holds the unchecked form is that same answer
-            all(isfinite, project(lens, X)) && @test isequal(project(lens, X; fov_bound = false), project(lens, X))
-        end
-        # the zero vector is still no ray
-        @test all(isnan, project(DS_A, SVector(0.0, 0.0, 0.0); fov_bound = false))
-
-        # where the check fails, the unchecked form is the closed form
-        nfailed = 0
-        for (ξ, α) in ((-0.2, 0.55), (0.3, 0.4), (0.1, 0.7), (-0.6, 0.6), (0.6, 0.3)), X in rays
+        params = ((-0.6, 0.6), (0.5, 0.6), (0.6, 0.3), (-0.2, 0.55), (0.1, 0.7), (0.3, 0.4), (1.3, 0.6), (1.3, 0.3), (0.9, 0.6), (-0.9, 0.2))
+        for (ξ, α) in params
             lens = Lens(DoubleSphere(ξ, α))
-            (iszero(X) || all(isfinite, project(lens, X))) && continue
-            ref = ds_project(ξ, α, X)
-            all(isfinite, ref) || continue
-            nfailed += 1
-            @test isapprox(project(lens, X; fov_bound = false), ref; rtol = 1.0e-12)
+            θ_end, r_end = scanned_end(ξ, α)
+            # the end of the profile and view_angle_limit (1e-6 inside it), to the scan's step (1.6e-5 rad)
+            @test acos(first(_ds_end_cos(lens.projection))) ≈ θ_end atol = 2.0e-5
+            @test view_angle_limit(lens) ≈ θ_end atol = 2.0e-5
+            # the imaged disc: the fold radius (or unbounded at a pole)
+            r_dom = VgtkCore.Cameras._imaging_domain_radius(lens)
+            r_end < 1.0e4 ? (@test r_dom ≈ r_end rtol = 1.0e-6) : (@test r_dom == Inf)
+            # project is finite exactly inside the fold, and backproject inverts it there — the whole domain
+            for θ in range(0.0, π; length = 721), ψ in (0.3, 2.0, -2.6)
+                abs(θ - θ_end) < 1.0e-4 && continue
+                X = ray(θ; ψ)
+                u = project(lens, X)
+                @test all(isfinite, u) == (θ < θ_end)
+                θ < θ_end || continue
+                @test u ≈ ds_project(ξ, α, X) rtol = 1.0e-12
+                @test backproject(lens, u) ≈ X atol = (θ_end - θ < 1.0e-2 ? 1.0e-6 : 1.0e-10)
+            end
+            # past the fold radius no point is imaged
+            isfinite(r_dom) && @test all(isnan, backproject(lens, SVector(1.001 * r_dom, 0.0)))
         end
-        @test nfailed > 100
-
-        # ξ = −0.6, α = 0.6: between the paper's bound (≈ 95.1°) and the algebraic edge
-        # (≈ 105.3°) the map is still one-to-one, so the two unchecked forms round-trip
+        # the probe's case: the paper's bound (95.1°) cut the injective profile, which reaches 105.2°
         lens = Lens(DoubleSphere(-0.6, 0.6))
-        for θ in (1.67, 1.72, 1.78, 1.83), ψ in (0.0, 1.1, -2.5)
-            X = ray(θ; ψ)
-            @test all(isnan, project(lens, X))
-            u = project(lens, X; fov_bound = false)
-            @test backproject(lens, u; fov_bound = false) ≈ X atol = 1.0e-9
+        X = ray(deg2rad(104.0))
+        @test all(isfinite, project(lens, X))
+        @test backproject(lens, project(lens, X)) ≈ X atol = 1.0e-9
+        @test rad2deg(view_angle_limit(lens)) ≈ 105.245 atol = 1.0e-3
+        @test all(isnan, project(lens, ray(deg2rad(106.0))))           # past the fold: two rays would share a point
+        # a distortion in the frame: the round trip still holds inside the fold
+        ld = Lens(DoubleSphere(-0.2, 0.55), Radial((-0.05, 0.01)))
+        for θ in (0.2, 0.9, 1.6, 2.1)
+            X = ray(θ)
+            u = project(ld, X)
+            all(isfinite, u) && @test backproject(ld, u) ≈ X atol = 1.0e-9
         end
 
-        # ForwardDiff through the unchecked form past the bound, w.r.t. the ray and
-        # (ξ, α), against 256-bit BigFloat central differences
-        fxp(v) = Vector(project(Lens(DoubleSphere(v[4], v[5])), SVector(v[1], v[2], v[3]); fov_bound = false))
+        # ForwardDiff through project and backproject past the paper's bound, w.r.t.
+        # the ray / point and (ξ, α), against 256-bit BigFloat central differences
+        fxp(v) = Vector(project(Lens(DoubleSphere(v[4], v[5])), SVector(v[1], v[2], v[3])))
         X0 = ray(1.75; ψ = 0.4)
         v0 = [X0[1], X0[2], X0[3], -0.6, 0.6]
         J = ForwardDiff.jacobian(fxp, v0)
@@ -261,17 +171,29 @@
             reduce(hcat, [(fxp(big.(v0) .+ h .* (1:5 .== j)) .- fxp(big.(v0) .- h .* (1:5 .== j))) ./ (2h) for j in 1:5])
         end
         @test J ≈ Float64.(Jref) rtol = 1.0e-10
+        bxp(v) = Vector(backproject(Lens(DoubleSphere(v[3], v[4])), SVector(v[1], v[2])))
+        x0 = project(lens, X0)
+        w0 = [x0[1], x0[2], -0.6, 0.6]
+        Jb = ForwardDiff.jacobian(bxp, w0)
+        Jbref = setprecision(BigFloat, 256) do
+            h = big"1e-25"
+            reduce(hcat, [(bxp(big.(w0) .+ h .* (1:4 .== j)) .- bxp(big.(w0) .- h .* (1:4 .== j))) ./ (2h) for j in 1:4])
+        end
+        @test Jb ≈ Float64.(Jbref) rtol = 1.0e-9
 
         # Float32: same answer at Float32 precision, Float32 out, no allocation
         lens32 = Lens(DoubleSphere(-0.6f0, 0.6f0))
         X32 = SVector{3, Float32}(X0)
-        u32 = project(lens32, X32; fov_bound = false)
+        u32 = project(lens32, X32)
         @test eltype(u32) === Float32
-        @test u32 ≈ project(lens, X0; fov_bound = false) rtol = 1.0f-5
-        @test all(isnan, project(lens32, X32))
-        pj(l, X) = project(l, X; fov_bound = false)
-        pj(lens32, X32)
-        @test (@allocated pj(lens32, X32)) == 0
+        @test u32 ≈ project(lens, X0) rtol = 1.0f-5
+        b32 = backproject(lens32, u32)
+        @test eltype(b32) === Float32
+        @test b32 ≈ X0 atol = 1.0f-4
+        project(lens32, X32); backproject(lens32, u32)
+        @test (@allocated project(lens32, X32)) == 0
+        @test (@allocated backproject(lens32, u32)) == 0
+        @test isbitstype(typeof(lens32))
     end
 
     @testset "a batch through pointwise!: every policy the same" begin
@@ -321,12 +243,12 @@
             @test chain(X) ≈ SVector(legacy[1], legacy[2]) atol = 1.0e-12
             @test_throws MethodError inv(chain)
         end
-        # past the gnomonic frame's reach and refused beyond the w₂ bound
+        # past the gnomonic frame's reach and refused beyond the fold
         proj = FramedLensProjection(DS_A)
-        w2 = _ds_w2(DS_A.projection)
-        @test isfinite(proj(SVector(1.0, 0.0, -0.5 * w2))[1])
+        c_end = first(_ds_end_cos(DS_A.projection))
+        @test isfinite(proj(SVector(1.0, 0.0, 0.5 * c_end / sqrt(1 - c_end^2)))[1])
         bad = SVector(1.0, 0.0, -2.0)
-        @test bad[3] / norm(bad) < -w2
+        @test bad[3] / norm(bad) < c_end
         @test all(isnan, proj(bad))
     end
 end

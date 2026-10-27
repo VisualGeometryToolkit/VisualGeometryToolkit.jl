@@ -247,8 +247,10 @@ function _nan_onset(imaged, edge)
     end
     return lo
 end
+# The double sphere: just inside the fold (or pole) of its radial profile, in
+# closed form (`_ds_end_cos`, lens_rays.jl).
 view_angle_limit(l::Lens{<:DoubleSphere, Nothing}; cap::Real = Inf) =
-    min(acos(clamp(-_ds_w2(l.projection), -1.0, 1.0)) - 1.0e-6, float(cap))
+    min(acos(first(_ds_end_cos(l.projection))) - 1.0e-6, float(cap))
 # The radius where a lift first folds (its view angle stops increasing), ignoring
 # the 90° pole; Inf when it never folds — the factor's stored `u_fold`, in the
 # lens's own precision (the end its backproject compares against).
@@ -285,20 +287,17 @@ _frame_domain(p::AbstractProjection) =
     (C = projection_frame(p); C === nothing ? _bisected_domain_radius(Lens(p)) : _frame_radius(C))
 # The same edge in the squared radius, for a fixed projection: a ray cannot leave the sphere.
 _frame_cap(p::AbstractProjection) = (C = projection_frame(p); C === nothing ? Inf : float(_frame_radius(C))^2)
-# The double sphere: the smaller of the unprojection's radius bound
-# r² ≤ 1/(2α − 1) (α > 1/2) and the image of the FOV-limiting ray z = −w₂ on the
-# unit sphere, √(1 − w₂²)/(α·d₂ + (1 − α)·z_s) with z_s = ξ − w₂ and
-# d₂ = √(1 − w₂² + z_s²) — unbounded when that denominator is not positive (the
-# pinhole ξ = α = 0 reaches z = 0). For ξ > 1, outside the paper's range, the
-# true edge lies slightly beyond this bound, which stays inside it.
+# The double sphere: the image radius where its profile ends (`_ds_end_cos`).
+# At the second stage's end it is that stage's fold radius 1/√(2α − 1) for
+# α > 1/2, and unbounded at its pole (α ≤ 1/2); at the first sphere's fold
+# (ξ > 1) it is the forward map's radius there.
 function _frame_domain(p::DoubleSphere)
     ξ, α = Float64(p.xi), Float64(p.alpha)
-    r_unproject = α > 0.5 ? 1 / sqrt(2α - 1) : Inf
-    w2 = Float64(_ds_w2(p))
-    zs = ξ - w2
-    den = α * sqrt(1 - w2^2 + zs^2) + (1 - α) * zs
-    r_fov = den > 0 ? sqrt(1 - w2^2) / den : Inf
-    return min(r_unproject, r_fov)
+    c, second_stage = _ds_end_cos(p)
+    second_stage && return α > 0.5 ? 1 / sqrt(2α - 1) : Inf
+    s = sqrt(1 - c^2)
+    zs = ξ + c
+    return s / (α * sqrt(s^2 + zs^2) + (1 - α) * zs)
 end
 
 # The imaging-domain radius of a lens whose `backproject` is a numerical inverse

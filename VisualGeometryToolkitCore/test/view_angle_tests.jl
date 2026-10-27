@@ -89,8 +89,8 @@
             (Lens(Perspective(), Radial((-0.3, 0.1, 0.0))), 1.5697963267948967, Inf),
             (Lens(Perspective(), Tangential(0.0, 0.1)), 1.5697963267948967, Inf),
             (Lens(Equidistant(), Additive(Radial((-0.02, 0.004, -0.0009, 0.0001)), Tangential(0.0006, -0.0004), ThinPrism((0.0002,), (-0.0001,)))), 3.1405926535897932, 4.0081918874704305),
-            (Lens(DoubleSphere(-0.2, 0.55)), 2.392403240346484, Inf),
-            (Lens(DoubleSphere(-0.2, 0.55), Radial((-0.05, 0.01))), 2.3915406423718952, Inf),
+            (Lens(DoubleSphere(-0.2, 0.55)), 2.413790054662646, Inf),          # the fold, 138.30° (was the paper's bound, 137.07°)
+            (Lens(DoubleSphere(-0.2, 0.55), Radial((-0.05, 0.01))), 2.4130298394150316, Inf),
             (Lens(Unified(0.6)), 2.2134872954430507, Inf),
             (Division(-0.1), 3.1415826535897935, 3.162277660166941),
             (Division(-0.3, 0.05), 1.2806865643649843, 1.941358962420542),

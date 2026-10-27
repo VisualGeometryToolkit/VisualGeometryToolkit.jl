@@ -253,6 +253,10 @@ mask or by name (`restrict(ch, (:k1, :k2))`).
 const LensManifold{L <: AbstractLensModel} = ParameterManifold{L}
 LensManifold(l::AbstractLensModel) = ParameterManifold(l)
 
+# The models a parameter manifold is anchored at (narrow enough to leave the
+# matrix-model methods of `local_coordinates` unambiguous).
+const _ParametricModel = Union{AbstractLensModel, AbstractIntrinsics, AbstractCamera}
+
 # A lens rebuilds through the generated walk (no length check: the length is
 # the lens's own); any other model through its `with_parameters`.
 @inline _rebuild(l::AbstractLensModel, θ) = _with_parameters(l, θ)
@@ -366,7 +370,7 @@ function _parameter_jacobian(m::CameraModel, X)
     Xf = _float_static(X)
     return _jacobian(q -> project(with_parameters(m, q), Xf), parameter_vector(m))
 end
-function local_coordinates(ch::ParameterManifold, x)
+function local_coordinates(ch::ParameterManifold, x::_ParametricModel)
     _same_structure(ch.model, x) || throw(
         ArgumentError("local_coordinates: a $(_structure_name(x)) is not on the manifold of $(_structure_name(ch.model))")
     )
@@ -375,7 +379,7 @@ function local_coordinates(ch::ParameterManifold, x)
     lo, hi = parameter_bounds(ch.model)
     return map(_bounded_offset, θ, θ0, lo, hi)
 end
-local_coordinates(rc::SubsetManifold{<:ParameterManifold}, x) = local_coordinates(rc.manifold, x)[rc.idx]
+local_coordinates(rc::SubsetManifold{<:ParameterManifold}, x::_ParametricModel) = local_coordinates(rc.manifold, x)[rc.idx]
 
 # Same structure: the same model type up to the coefficient number type.
 _same_structure(a, b) = typeof(_structure(a)) === typeof(_structure(b))

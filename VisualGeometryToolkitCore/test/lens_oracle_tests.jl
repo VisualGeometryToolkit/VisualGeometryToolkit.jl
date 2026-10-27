@@ -96,10 +96,44 @@
     @test VgtkCore.monotone_radius(tpf) == VgtkCore.monotone_radius(Lens(Equidistant(), radial(tpf)))
     @test isfinite(VgtkCore.monotone_radius(tpf))
 
+    # The double sphere's domain is the fold of its radial profile (Core-11), not
+    # the paper's conservative bound the oracle was recorded with: rays between
+    # the two are now imaged. Each such moved answer — a ray the oracle had NaN
+    # and `project` now images, a point the oracle had NaN and `backproject` now
+    # lifts — must lie inside the closed-form fold and round-trip; nothing the
+    # oracle imaged may be lost; and `view_angle_limit` is the fold, past the old
+    # bound. Returns the moved counts, per map.
+    ds_cases = ("double_sphere", "double_sphere_low")
+    function ds_moved(name)
+        d = oracle[name]
+        lens = lens_from_record(d["lens"])
+        θ_end = acos(first(VgtkCore.Cameras._ds_end_cos(lens.projection)))
+        moved_p = moved_b = 0
+        for (X, o) in zip(_pairs(d["rays"], 3), _pairs(d["project"], 2))
+            u = project(lens, X)
+            isnan(u[1]) && (@test isnan(o[1]); continue)
+            isnan(o[1]) || continue
+            moved_p += 1
+            @test acos(X[3] / norm(X)) < θ_end && isapprox(backproject(lens, u), X / norm(X); atol = 1.0e-9)
+        end
+        for (x, o) in zip(_pairs(d["points"], 2), _pairs(d["backproject"], 3))
+            b = backproject(lens, x)
+            isnan(b[1]) && (@test isnan(o[1]); continue)
+            isnan(o[1]) || continue
+            moved_b += 1
+            @test acos(b[3]) < θ_end && isapprox(project(lens, b), x; atol = 1.0e-9)
+        end
+        @test view_angle_limit(lens) > d["view_angle_limit"] && isapprox(view_angle_limit(lens), θ_end; atol = 1.0e-5)
+        return moved_p, moved_b
+    end
+    @test ds_moved("double_sphere")[1] == 1 && ds_moved("double_sphere_low")[1] == 2      # the rays the fold gains (2 and 4 NaN components)
+    @test 2 * ds_moved("double_sphere")[1] == res["double_sphere"]["project"].nan && 2 * ds_moved("double_sphere_low")[1] == res["double_sphere_low"]["project"].nan
+
     for (name, r) in sort(collect(res); by = first)
         @testset "$name" begin
             for q in forward
                 haskey(r, q) || continue
+                q == "project" && name in ds_cases && continue                          # moved: ds_moved
                 q == "monotone_radius" && name == "thin_prism_fisheye" && continue     # below
                 @test r[q].nan == 0
                 @test r[q].ulps <= 8 || r[q].abs <= 1.0e-13
@@ -108,11 +142,12 @@
                 @test r[q].nan == 0
                 @test r[q].ulps <= 8
             end
-            @test r["view_angle_limit"].abs <= π / 1024
+            name in ds_cases || @test r["view_angle_limit"].abs <= π / 1024     # moved: ds_moved
             ok, gained = no_worse(name)
             @test ok
             # every NaN mismatch is a gained point (2 components undistorted, 3 back-projected)
-            @test r["undistort"].nan == 2 * gained && r["backproject"].nan == 3 * gained
+            gained_b = name in ds_cases ? ds_moved(name)[2] : gained
+            @test r["undistort"].nan == 2 * gained && r["backproject"].nan == 3 * gained_b
             @test gained == get(Dict("opencv4" => 7, "opencv8" => 8, "opencv12_tamron" => 4, "tangential_only" => 4), name, 0)
             # Float32 inverses: within the Float32 solve tolerance of the old ones; old
             # non-converged points now converge (opencv8 one at ρ ≈ 80, opencv4 two at

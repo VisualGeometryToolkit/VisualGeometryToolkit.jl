@@ -21,16 +21,12 @@ code.
   model's field of view), never throw, never allocate, and are generic in the
   number type: `Float32` for GPU kernels, ForwardDiff `Dual`s for Jacobians in
   the point and in the lens parameters.
-- One domain is the caller's choice: a [`DoubleSphere`](@ref) lens takes
-  `backproject(lens, x_d; fov_bound = false)`, the closed-form lift without the
-  paper's field-of-view bound (NaN only outside the algebraic domain), and
-  `project(lens, X; fov_bound = false)`, the closed-form forward map without it
-  (NaN only for the zero vector). Both are bit-identical to the default where
-  the bound holds. Past the bound there is no round-trip guarantee — the
-  default of either keeps the bound, and the unchecked forms need not invert
-  each other — and a point need not have only one preimage (the forward map
-  can run through a pole, or fold back past the algebraic edge); the default
-  keeps the bound.
+- A [`DoubleSphere`](@ref) lens's domain is the fold of its radial profile,
+  in closed form: the rays out to the angle where the image radius stops
+  increasing (a fold) or runs to infinity (a pole) — wider than the paper's
+  conservative field-of-view bound (ξ = −0.6, α = 0.6: 105.2° against 95.1°),
+  and never past the fold, where two rays would share a point. `project` and
+  `backproject` invert each other on the whole of it.
 
 A [`Lens`](@ref) — a projection plus a distortion in the projection's frame —
 gets both maps from one generic body; a [`LiftLens`](@ref) (the division

@@ -737,38 +737,53 @@ end
 
 # --- double sphere (Usenko, Demmel & Cremers 2018) ----------------------------
 #
-# The paper's FOV bound (eq. 34-36): the projection is valid for rays with
-# z > −w₂·d₁, where w₂ = (w₁ + ξ)/√(2·w₁·ξ + ξ² + 1) and
-# w₁ = α/(1−α) for α ≤ 1/2, (1−α)/α otherwise.
-# w = α/(1 − α) (α ≤ 1/2) or (1 − α)/α (α > 1/2): the extended unified model's bound, the double sphere's w₁.
+# The domain is the fold of the radial profile, in closed form. On the unit
+# sphere (c = cos θ, s = sin θ) the image radius is r = s/D with
+# z_s = ξ + c, d₂ = √(1 + 2ξc + ξ²), D = α·d₂ + (1 − α)·z_s, and
+#   dr/dθ · D²·d₂ = (1 + ξc)·(α·z_s + (1 − α)·d₂),
+# so r increases from the axis until the first of: the first sphere's fold
+# 1 + ξc = 0 (only for ξ > 1), the second stage's fold α·z_s + (1 − α)·d₂ = 0
+# (α > 1/2) or its pole D = 0 (α < 1/2). Both second-stage ends are
+# −z_s/d₂ = w with w = min(α/(1 − α), (1 − α)/α) (the extended unified model's
+# bound, at the second stage's input), and −z_s/d₂ grows with θ while
+# 1 + ξc > 0. So a ray is imaged, the map one-to-one there, exactly when
+#   z_s > −w·d₂   and   d₁ + ξ·z > 0,
+# a test at the ray itself. The paper's bound z > −w₂·d₁ (eq. 43) is this
+# condition transported to the first sphere by an approximation: it is exact
+# at ξ = 0 and conservative otherwise (ξ = −0.6, α = 0.6: 95.1° against the
+# fold's 105.2°).
 @inline _eucm_w(α) = α <= one(α) / 2 ? α / (1 - α) : (1 - α) / α
-@inline function _ds_w2(p::DoubleSphere)
-    ξ, w1 = p.xi, _eucm_w(p.alpha)
-    return (w1 + ξ) / sqrt(2 * w1 * ξ + ξ * ξ + 1)
+@inline function _ds_inside(p::DoubleSphere, X, d1, zs, d2)
+    return (zs > -_eucm_w(p.alpha) * d2) & (d1 + p.xi * X[3] > 0)
 end
 
-# For ξ ≥ 0 and α ∈ [0, 1] the bound w₂ is non-negative, so a ray with z > 0 is
-# inside it and `_ds_w2` is evaluated only where the bound can bind.
-@inline _ds_forward_inside(p::DoubleSphere, z) =
-    (z > 0) & (p.xi >= 0) & (p.alpha >= 0) & (p.alpha <= 1)
+# The cosine of the view angle where the profile ends (the fold or pole above):
+# the larger of the second stage's end — the root of −z_s/d₂ = w, i.e. of
+# c² + 2ξ(1 − w²)c + ξ²(1 − w²) − w² = 0 with z_s ≤ 0 — and the first sphere's
+# fold −1/ξ (ξ > 1); −1 when the profile reaches θ = π.
+function _ds_end_cos(p::DoubleSphere)
+    ξ, w = Float64(p.xi), Float64(_eucm_w(p.alpha))
+    q = 1 - ξ * ξ * (1 - w * w)
+    c_ab = q >= 0 ? -ξ * (1 - w * w) - w * sqrt(q) : -1.0
+    (q >= 0 && ξ + c_ab <= 0) || (c_ab = -1.0)
+    c_ucm = ξ > 1 ? -1 / ξ : -1.0
+    return clamp(max(c_ab, c_ucm), -1.0, 1.0), c_ab >= c_ucm
+end
 
-# The projection (eq. 40-45), with the FOV bound when `fov_bound`; the point is the
-# same either way, only the flag differs.
-@inline _project_ray(p::DoubleSphere, X::StaticVector{3}) = _project_ray(p, X, true)
-@inline function _project_ray(p::DoubleSphere, X::StaticVector{3}, fov_bound::Bool)
+# The projection (eq. 40-45), NaN past the fold.
+@inline function _project_ray(p::DoubleSphere, X::StaticVector{3})
     x, y, z = X[1], X[2], X[3]
     d1 = sqrt(x * x + y * y + z * z)
     zs = p.xi * d1 + z
     d2 = sqrt(x * x + y * y + zs * zs)
     s = inv(p.alpha * d2 + (1 - p.alpha) * zs)
-    return Vec2(s * x, s * y), !fov_bound || _ds_forward_inside(p, z) || (z > -_ds_w2(p) * d1)
+    return Vec2(s * x, s * y), _ds_inside(p, X, d1, zs, d2)
 end
 
-# The unprojection (eq. 46-51): the ray s·(m_x, m_y, m_z) − (0, 0, ξ), already unit,
-# with the paper's domains — r² ≤ 1/(2α − 1) for α > 1/2 and, when `fov_bound`,
-# the FOV bound. The ray is the same either way; only the flag differs.
-@inline _lift_point(p::DoubleSphere, xd::StaticVector{2}) = _lift_point(p, xd, true)
-@inline function _lift_point(p::DoubleSphere, xd::StaticVector{2}, fov_bound::Bool)
+# The unprojection (eq. 46-51): the ray s·(m_x, m_y, m_z) − (0, 0, ξ), already
+# unit, where its radicands are real (r² ≤ 1/(2α − 1) for α > 1/2) and the ray
+# is inside the fold — the projection's own domain, so the two round-trip on it.
+@inline function _lift_point(p::DoubleSphere, xd::StaticVector{2})
     ξ, α = p.xi, p.alpha
     mx, my = xd[1], xd[2]
     r2 = mx * mx + my * my
@@ -777,10 +792,11 @@ end
     mz = (1 - α * α * r2) / (α * sqrt(max(disc, zero(disc))) + 1 - α)
     a = mz * mz + (1 - ξ * ξ) * r2                         # negative only for ξ > 1, outside the domain
     s = (mz * ξ + sqrt(max(a, zero(a)))) / (mz * mz + r2)
-    zr = s * mz - ξ
-    fov_ok = !fov_bound || _ds_forward_inside(p, zr) || (zr > -_ds_w2(p) * sqrt(s * s * r2 + zr * zr))
-    ok = dom & fov_ok & (a >= 0)
-    return Vec3(s * mx, s * my, zr), ok
+    X = Vec3(s * mx, s * my, s * mz - ξ)
+    d1 = sqrt(X[1] * X[1] + X[2] * X[2] + X[3] * X[3])
+    zs = ξ * d1 + X[3]
+    ok = dom & (a >= 0) & _ds_inside(p, X, d1, zs, sqrt(X[1] * X[1] + X[2] * X[2] + zs * zs))
+    return X, ok
 end
 
 # --- unified (Mei & Rives 2007) -----------------------------------------------
@@ -886,82 +902,6 @@ consequences:
     ray, ok = _lift_point(l.projection, x)
     return _nan_unless(ok, Vec3(ray))
 end
-
-"""
-    backproject(lens::Lens{<:DoubleSphere}, xd::StaticVector{2}; fov_bound::Bool = true) -> Vec3
-
-The double sphere's [`backproject`](@ref), with the choice of domain in the
-caller's hands. By default (`fov_bound = true`) it is the lens contract's
-answer: NaN outside the closed-form inverse's domain (`r² ≤ 1/(2α − 1)` for
-`α > 1/2`, a non-negative second radicand) AND outside the paper's
-field-of-view bound `z > −w₂·‖X‖` (Usenko, Demmel & Cremers 2018, eq. 34-36),
-which [`project`](@ref) keeps too.
-
-`fov_bound = false` drops only the field-of-view bound: the closed-form lift
-(eq. 46-51) is returned wherever it is defined, NaN still outside the
-algebraic domain. It is the same ray where the bound holds, so the default and
-the unchecked form agree there bit for bit; the Dual and Float32 behaviour is
-the default's (closed form, no allocation).
-
-Past the bound the ray has a weaker meaning, which is why the default keeps it:
-- `project(lens, ray)` returns NaN for it — the default keeps the bound — so
-  the pair no longer round-trips through the lens contract; the unchecked
-  `project(lens, ray; fov_bound = false)` gives the point back only where the
-  forward map is still one-to-one;
-- for `|ξ| < 1` the ray still solves the projection's closed-form forward
-  equation `x = X₁₂ / (α·d₂ + (1 − α)·z_s)`, but past the bound it is ONE
-  preimage of the frame point (the lift's `+` root), not necessarily the only
-  one: for `ξ = 0.6`, `α = 0.3` the forward map runs through a pole and a
-  second ray, on the opposite azimuth, images the same point. For `ξ = −0.6`,
-  `α = 0.6` the map stays monotone in the view angle out to the algebraic edge
-  `r = 1/√(2α − 1)` (θ ≈ 105.3°), the bound being merely conservative before
-  it, and folds back past it, where two rays share a point;
-- at `|ξ| ≥ 1`, the edge of or outside the paper's range, the ray need not
-  solve the forward equation at all (it can sit on its 0/0).
-"""
-@inline function backproject(l::Lens{<:DoubleSphere}, xd::StaticVector{2}; fov_bound::Bool = true)
-    x = _undistort_in_frame(l, xd)
-    ray, ok = _lift_point(l.projection, x, fov_bound)
-    return _nan_unless(ok, Vec3(ray))
-end
-
-"""
-    project(lens::Lens{<:DoubleSphere}, X::StaticVector{3}; fov_bound::Bool = true) -> Vec2
-
-The double sphere's [`project`](@ref), with the choice of domain in the
-caller's hands — the forward twin of the double sphere's
-[`backproject`](@ref)`(lens, xd; fov_bound)`.
-By default (`fov_bound = true`) it is the lens contract's answer: NaN for a ray
-outside the paper's field-of-view bound `z > −w₂·‖X‖` (Usenko, Demmel & Cremers
-2018, eq. 34-36).
-
-`fov_bound = false` drops the bound: the closed-form forward map
-`x = X₁₂ / (α·d₂ + (1 − α)·z_s)`, `d₂ = ‖(X₁, X₂, ξ‖X‖ + X₃)‖`, `z_s = ξ‖X‖ + X₃`
-(eq. 40-45), for every ray but the zero vector. It is the same point where the
-bound holds, so the default and the unchecked form agree there bit for bit; a
-distortion in the frame is applied as usual. The Dual and Float32 behaviour is
-the default's (closed form, no allocation).
-
-Past the bound the point has a weaker meaning, which is why the default keeps
-it:
-- `backproject(lens, x)` returns NaN for it, and even
-  `backproject(lens, x; fov_bound = false)` need not return the ray: there is
-  NO round-trip guarantee past the bound;
-- the map need not be one-to-one there: for `ξ = 0.6`, `α = 0.3` it runs
-  through a pole at θ ≈ 148.2° (the denominator `α·d₂ + (1 − α)·z_s` reaches
-  0, the point is infinite), and a ray beyond it lands on the opposite
-  azimuth, on a point another ray already images; for `ξ = −0.6`, `α = 0.6`
-  the radius rises monotonically in the view angle up to the algebraic edge
-  `r = 1/√(2α − 1)` (θ ≈ 105.3°, the bound being merely conservative before
-  it) and folds back past it, where two rays share a point.
-"""
-@inline function project(l::Lens{<:DoubleSphere}, X::StaticVector{3}; fov_bound::Bool = true)
-    x, ok = _project_ray(l.projection, X, fov_bound)
-    ok || return _nan_vec2(one(float(promote_type(eltype(X), _coeff_type(l)))) * X[1])
-    return Vec2(_distort_in_frame(l, x))
-end
-
-
 
 # -----------------------------------------------------------------------------
 # Scalar solves shared by the maps, and the radial profile read off them

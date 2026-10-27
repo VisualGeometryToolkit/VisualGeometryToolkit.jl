@@ -26,7 +26,7 @@ using VisualGeometryToolkitEstimation
 import VisualGeometryToolkitCore
 # A width-carrying strategy's scale multiple (its `ScaleMultiple` width mode).
 sm(lo) = VgtkCore.lo_width(lo).value
-using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, _allowed_keys, NoLocalOptimization
+using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, NoLocalOptimization
 
 @testset "TOML configuration" begin
 

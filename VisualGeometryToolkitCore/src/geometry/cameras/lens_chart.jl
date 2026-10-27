@@ -350,7 +350,7 @@ end
 # A leaf from its payload: one entry per field, a number or a list of numbers.
 function _leaf(::Type{T}, tag, v) where {T}
     X = _LEAVES[tag]
-    n = length(fieldnames(X))
+    n = _param_fields(X)
     entry_ok(e) = e isa Real || (e isa AbstractVector && all(x -> x isa Real, e))
     (v isa AbstractVector && length(v) == n && all(entry_ok, v)) || throw(
         ArgumentError("lens record: \"$tag\" takes $n entries, each a number or a list of numbers; got $(repr(v))")

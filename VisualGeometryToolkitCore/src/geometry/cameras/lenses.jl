@@ -158,11 +158,29 @@ represented as the ray `(x_d·N, D)` — the division model, BabelCalib's ration
 model, Scaramuzza's polynomial.
 
 Coefficient names: `k1…kP` then `d1…dQ`.
+
+The constructor also stores where the factor's imaged branch ends, in the basis
+variable `u` (`ρ²` for `Even`): `u_fold`, the first positive root of the
+profile's derivative (the fold), and `u_end`, the smaller of the fold and the
+pole (the first positive root of `D`); `Inf` when there is none. Both follow
+from the coefficients, so equal coefficients give equal factors; they are not
+parameters, and a per-point branch test is one comparison against them.
 """
 struct Radial{B, P, Q, T <: Real} <: AbstractDistortionTerm
     k::NTuple{P, T}
     d::NTuple{Q, T}
+    u_fold::T
+    u_end::T
+    function Radial{B, P, Q, T}(k::Tuple, d::Tuple) where {B, P, Q, T <: Real}
+        kT, dT = convert(NTuple{P, T}, k), convert(NTuple{Q, T}, d)
+        return new{B, P, Q, T}(kT, dT, _radial_branch_ends(B, T, kT, dT)...)
+    end
+    # the ends carried over, not recomputed: only `_with_own_parameters`, whose
+    # coefficients have the primal values the ends were computed from
+    Radial{B, P, Q, T}(k::NTuple{P, T}, d::NTuple{Q, T}, u_fold::T, u_end::T, ::Val{:carried}) where {B, P, Q, T <: Real} =
+        new{B, P, Q, T}(k, d, u_fold, u_end)
 end
+Base.show(io::IO, r::Radial) = (show(io, typeof(r)); print(io, "("); show(io, r.k); print(io, ", "); show(io, r.d); print(io, ")"))
 
 """
     Tangential(p1, p2)
@@ -365,7 +383,11 @@ Scaramuzza(a::Real...) = LiftLens(Radial{Full}((), a))
 # The leaves of a lens are its projection, then its distortion depth-first, left
 # to right — parameter order.
 
-@generated _fields(x) = Expr(:tuple, (:(getfield(x, $i)) for i in 1:fieldcount(x))...)
+# A leaf's parameters are its first `_param_fields(X)` fields: a Radial's branch
+# ends after them are derived from its coefficients, never parameters.
+_param_fields(::Type{X}) where {X} = length(fieldnames(X))
+_param_fields(::Type{<:Radial}) = 2
+@generated _fields(x) = Expr(:tuple, (:(getfield(x, $i)) for i in 1:_param_fields(x))...)
 @generated _flatmap(f, t::Tuple) = Expr(:tuple, (Expr(:..., :(f(t[$i]))) for i in 1:fieldcount(t))...)
 
 @inline _leaves(::Nothing) = ()
@@ -377,7 +399,7 @@ Scaramuzza(a::Real...) = LiftLens(Radial{Full}((), a))
 @inline _coefficients_of(x) = _flatmap(_coefficients, _leaves(x))
 @generated function coefficient_names(::Type{X}) where {X}
     names = Symbol[]
-    for (n, F) in zip(fieldnames(X), fieldtypes(X))
+    for (n, F) in zip(fieldnames(X)[1:_param_fields(X)], fieldtypes(X))
         F <: Tuple ? append!(names, (Symbol(n, i) for i in 1:fieldcount(F))) : push!(names, n)
     end
     return Tuple(names)
@@ -392,11 +414,15 @@ _coefficient_names_of(x) = _flatmap(leaf -> coefficient_names(typeof(leaf)), _le
 # generated once per type: every offset and every result type is static. A leaf
 # takes the number type T of its new coefficients (`nothing`: keeps its own); a
 # node takes its children's types. `coef(i, T)` is the expression of coefficient i.
+# With `src`, the expression of the part being rebuilt, a Radial keeps that part's
+# branch ends instead of sweeping for them: only for coefficients whose primal
+# values are the part's own.
 _is_node(X) = X <: Union{AbstractLensModel, Additive, Chain}
-function _rebuild_expr(X, T, coef, o = Ref(0))
+function _rebuild_expr(X, T, coef, o = Ref(0), src = nothing)
     X === Nothing && return :nothing, Nothing
     if X <: Tuple || _is_node(X)
-        parts = [_rebuild_expr(F, T, coef, o) for F in fieldtypes(X)]
+        sub(j) = src === nothing ? nothing : :(getfield($src, $j))
+        parts = [_rebuild_expr(F, T, coef, o, sub(j)) for (j, F) in enumerate(fieldtypes(X))]
         X <: Tuple && return Expr(:tuple, first.(parts)...), Tuple{last.(parts)...}
         Y = X.name.wrapper{last.(parts)...}               # a node's parameters are its fields' types
         return :($Y($(first.(parts)...))), Y
@@ -405,11 +431,16 @@ function _rebuild_expr(X, T, coef, o = Ref(0))
     S = T === nothing ? X.parameters[end] : T
     Y = X.name.wrapper{X.parameters[1:(end - 1)]..., S}
     num() = coef(o[] += 1, S)
-    args = [F <: Tuple ? Expr(:tuple, (num() for _ in 1:fieldcount(F))...) : num() for F in fieldtypes(X)]
+    args = [F <: Tuple ? Expr(:tuple, (num() for _ in 1:fieldcount(F))...) : num() for F in fieldtypes(X)[1:_param_fields(X)]]
+    (src !== nothing && X <: Radial) &&
+        push!(args, :($S(_primal($src.u_fold))), :($S(_primal($src.u_end))), :(Val(:carried)))
     return :($Y($(args...))), Y
 end
 _number_type_of(C) = (T = C <: Tuple ? promote_type(fieldtypes(C)...) : eltype(C); T === Union{} ? Float64 : float(T))
 @generated _with_parameters(x, c) = first(_rebuild_expr(x, _number_type_of(c), (i, S) -> :($S(c[$i]))))
+# `x` with coefficients `c` whose primal values are x's own (its Duals, or its
+# primal): its radial factors keep their branch ends — no sweep per evaluation.
+@generated _with_own_parameters(x, c) = first(_rebuild_expr(x, _number_type_of(c), (i, S) -> :($S(c[$i])), Ref(0), :x))
 
 # Names must be unique within a lens, so a coefficient is addressable by name.
 function _checked_names(x)

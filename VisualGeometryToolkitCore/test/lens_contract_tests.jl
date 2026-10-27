@@ -633,7 +633,7 @@
             end
             # a lift that folds before 90°: finite inside its field, NaN past the fold
             tam = LiftLens(Radial((), (-0.17114550341263696, 0.029918349030169777)))
-            θfold = C.view_angle(tam, C._fold_radius(tam))
+            θfold = C.view_angle(tam, C._fold_radius(tam) * (1 - 1.0e-12))      # the branch is closed at its stored end, which ρ² may round past
             @test θfold < π / 2
             @test isfinite(C.projected_radius(tam, θfold * 0.9))
             @test isnan(C.projected_radius(tam, θfold * 1.05))

@@ -40,7 +40,7 @@ _primal_float(::Type{T}) where {T} = _is_dual_type(T) ? _primal_float(ForwardDif
 
 
 # A lens, or any part of one, with its coefficients stripped to primal values.
-@inline _primal(x) = _is_dual_type(_coeff_type(x)) ? _with_parameters(x, map(_primal, _coefficients_of(x))) : x
+@inline _primal(x) = _is_dual_type(_coeff_type(x)) ? _with_own_parameters(x, map(_primal, _coefficients_of(x))) : x
 
 # A NaN of the same type, unless `ok`.
 @inline _nan_unless(ok::Bool, v::StaticVector) = ok ? v : v * eltype(v)(NaN)
@@ -258,8 +258,9 @@ _radius_at(::Radial{Full}, u) = u
 # m = 2 for u = ρ² and 1 for u = ρ. Its first positive root is where the profile
 # stops increasing. The same polynomial is a lift's monotonicity test: with
 # θ(ρ) = atan(ρN, D), dθ/dρ ∝ it. The pole is D's first positive root.
-@inline function _fold_coeffs(r::Radial{B, P, Q, T}) where {B, P, Q, T}
-    a, b = _ucoeffs(B, r.k, T), _ucoeffs(B, r.d, T)
+@inline _fold_coeffs(r::Radial{B, P, Q, T}) where {B, P, Q, T} = _fold_coeffs(B, r.k, r.d, T)
+@inline function _fold_coeffs(::Type{B}, k::Tuple, d::Tuple, ::Type{T}) where {B, T}
+    a, b = _ucoeffs(B, k, T), _ucoeffs(B, d, T)
     NA, NB = length(a), length(b)
     m = B === Even ? 2 : 1
     return SVector{NA + NB - 1, T}(
@@ -274,12 +275,25 @@ _radius_at(::Radial{Full}, u) = u
     )
 end
 
-# On the radial factor's imaged branch: before its fold and its pole; and the
-# branch's end in u, capped at `cap`.
+# The radial factor's imaged branch is the one interval [0, u_end] of its basis
+# variable: N and D are 1 at 0, and nothing past the fold or the pole is a
+# projection. `_branch_end` is its end capped at `cap`; the constructor stores
+# the uncapped ends (`_radial_branch_ends`: `u_end == _branch_end(r, Inf)`), so
+# the per-point test is a comparison. A lift's branch ends at the fold alone
+# (its pole is the 90° ray): `u <= r.u_fold`.
 @inline _pole_coeffs(r::Radial{B, P, Q, T}) where {B, P, Q, T} = _ucoeffs(B, r.d, T)
-@inline _on_radial_branch(r::Radial, u) = _on_branch(_fold_coeffs(r), u) && _on_branch(_pole_coeffs(r), u)
-@inline _on_radial_branch(r::Radial{B, P, 0}, u) where {B, P} = _on_branch(_fold_coeffs(r), u)   # no pole
+@inline _on_radial_branch(r::Radial, u) = u <= r.u_end
 @inline _branch_end(r::Radial, cap) = min(_fold_point(_fold_coeffs(r), cap), _fold_point(_pole_coeffs(r), cap))
+
+# (u_fold, u_end) of the coefficients, by the sweep `_branch_end` runs: computed on
+# the primal values (a Dual factor's branch is its primal's) and stored in T.
+function _radial_branch_ends(::Type{B}, ::Type{T}, k::Tuple, d::Tuple) where {B, T}
+    S = float(_primal_float(T))
+    kp, dp = map(x -> S(_primal(x)), k), map(x -> S(_primal(x)), d)
+    fold = _fold_point(_fold_coeffs(B, kp, dp, S), Inf)
+    return T(fold), T(min(fold, _fold_point(_ucoeffs(B, dp, S), Inf)))
+end
+
 
 # -----------------------------------------------------------------------------
 # Distortion in the frame: forward
@@ -462,7 +476,7 @@ end
     ρd = sqrt(t)
     prof(ρ) = ρ * radial_ratio(r, ρ * ρ)
     dprof(ρ) = (w = ρ * ρ; radial_ratio(r, w) + 2 * w * _dratio(r, w))
-    hi = S(sqrt(_branch_end(r, S(cap))))
+    hi = S(sqrt(min(r.u_end, S(cap))))                # the stored end, capped: no sweep per point
     (ρd > 0) || return one(S), false, false
     # At a pole the rounded end can land just past it, where the profile is
     # negative (measured: Float32, prof = −7·10⁷ one rounding past the pole, which
@@ -1098,9 +1112,6 @@ end
     return p >= top ? T(hi) : p
 end
 
-# Is `t` on the branch — before the fold of the profile whose derivative is `c`?
-@inline _on_branch(c::SVector{N, T}, t::Real) where {N, T} = _positive_prefix(c, t) >= T(t)
-
 
 
 """
@@ -1174,7 +1185,7 @@ exactly, so a point past a second fold is NaN too: the same branch
     r isa Radial{Full} && iszero(_primal(s)) && return normalize(Vec3(xd[1], xd[2], one(xd[1])))
     u = first(_basis(r, one(s), s))
     N = _num(r, u)
-    on_branch = _on_branch(_fold_coeffs(_primal(r)), _primal(u))
+    on_branch = _primal(u) <= _primal(r.u_fold)
     return _nan_unless(on_branch, Vec3(normalize(SVector(xd[1] * N, xd[2] * N, _den(r, u)))))
 end
 
@@ -1240,7 +1251,7 @@ end
         Δρ = _h(r, ρ, one(S), rr, z) / dh
         ρ -= Δρ
         ((ρ >= 0) & isfinite(ρ)) || break
-        _newton_settled(Δρ * Δρ, ρ * ρ, S) && return ρ, _on_branch(_fold_coeffs(r), first(_basis(r, ρ, one(S))))
+        _newton_settled(Δρ * Δρ, ρ * ρ, S) && return ρ, first(_basis(r, ρ, one(S))) <= r.u_fold
     end
     return ρ, false
 end
@@ -1266,7 +1277,7 @@ end
 
 @noinline function _radius_bracketed(r::Radial, rr::S, z::S, ρ0::S) where {S <: AbstractFloat}
     h = ρ -> _h(r, ρ, one(S), rr, z)
-    hi = _lift_bracket(h, ρ0, S(_radius_at(r, _fold_point(_fold_coeffs(r), Inf))))
+    hi = _lift_bracket(h, ρ0, S(_radius_at(r, r.u_fold)))
     h(hi) < 0 && return S(NaN), false
     return _radial_solve(h, ρ -> _dh(r, ρ, one(S), rr, z), zero(S), hi, Val(16))
 end
@@ -1317,7 +1328,7 @@ inverses carry their derivatives by one Newton step at the root, so no Dual
 runs through a solve. NaN wherever `project` is.
 """
 @inline transform_deriv_params(lens::AbstractLensModel, X::StaticVector{3}) =
-    (Xf = _float_static(X); _jacobian(q -> project(with_parameters(lens, q), Xf), parameter_vector(lens)))
+    (Xf = _float_static(X); _jacobian(q -> project(_with_own_parameters(lens, q), Xf), parameter_vector(lens)))
 
 """
     project_with_jacobians(lens, X::StaticVector{3}) -> (u, ∂u/∂X, ∂u/∂p)
@@ -1338,7 +1349,7 @@ analogue is what a `CostFunction::Evaluate` fills.
     T = eltype(w0)
     u, J = _value_and_jacobian(
         w -> SVector{2}(
-            Tuple(project(with_parameters(lens, SVector{N}(ntuple(i -> w[3 + i], Val(N)))), SVector{3}(w[1], w[2], w[3])))
+            Tuple(project(_with_own_parameters(lens, SVector{N}(ntuple(i -> w[3 + i], Val(N)))), SVector{3}(w[1], w[2], w[3])))
         ),
         w0
     )
@@ -1390,7 +1401,7 @@ end
     _pointwise_jacobian(z -> undistort_normalized(m.lens, z), xd)
 
 @inline transform_deriv_params(lens::AbstractLensModel, x::StaticVector{2}) =
-    (xf = _float_static(x); _pointwise_jacobian(q -> distort_normalized(with_parameters(lens, q), xf), x, parameter_vector(lens)))
+    (xf = _float_static(x); _pointwise_jacobian(q -> distort_normalized(_with_own_parameters(lens, q), xf), x, parameter_vector(lens)))
 # -----------------------------------------------------------------------------
 # A lens over a batch of points
 # -----------------------------------------------------------------------------

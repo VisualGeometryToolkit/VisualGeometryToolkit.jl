@@ -185,8 +185,9 @@ result is a full `CameraModel`: `K` scaled by `s`, principal point kept.
 
 Returns a `FitResult{CameraModel, LensFitMetadata}`: `estimate` is the
 fitted camera (rescaled K + the fitted lens), `retcode` the LM's
-(`:converged`, `:max_iterations`, or `:stalled` — stopped on its step size at
-a non-stationary point; VGC `lm_retcode`), `rms` the weighted profile
+(VGC `lm_retcode`: `:converged`, `:max_iterations`, `:max_time`, `:stalled` —
+stopped on its step size at a non-stationary point — or `:solve_failed`, the
+cost or the step non-finite outside a step-size stop), `rms` the weighted profile
 RMS in px, and the metadata carries `s`, the angular domains, `max_px`,
 the fit `direction` and `weight`; `clipped` is true when the target family
 or `fov` cut the source's own domain (warned).

@@ -91,6 +91,12 @@ end
         lmsolve_chart!(ews, lm; stationarity_tol)                 # warm
         push!(allocs, @allocations lmsolve_chart!(ews, lm; stationarity_tol))
     end
-    @test all(<=(ALLOCS_BOUND), allocs)    # one bound over a 50× range of n: flat
+    # The bound is the fork's cache path (a checkout); on a registered NLLSsolver the
+    # solver's internal data are rebuilt per refit, unmeasured here: no assertion.
+    if VgtkCore.nlls_features().cache
+        @test all(<=(ALLOCS_BOUND), allocs)    # one bound over a 50× range of n: flat
+    else
+        @test_skip all(<=(ALLOCS_BOUND), allocs)
+    end
 end
 end

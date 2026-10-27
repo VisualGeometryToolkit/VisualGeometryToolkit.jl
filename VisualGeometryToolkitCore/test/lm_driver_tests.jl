@@ -86,6 +86,8 @@ end
     @test code((1 << 2) | (1 << 6)) == 2
     @test code((1 << 3) | (1 << 6)) == 2
     @test code((1 << 6) | (1 << 7)) == 2
+    # maxfails outranks the caps (it is a stop of the run, the caps are budgets)
+    @test code((1 << 7) | (1 << 8)) == 4 && code((1 << 7) | (1 << 9)) == 4
     # a tolerance outranks a cap; a non-finite trial at a step stop is a step stop
     @test code((1 << 8) | (1 << 2)) == 1 && code((1 << 8) | (1 << 6)) == 2
     @test code((1 << 0) | (1 << 6)) == 2 && code((1 << 1) | (1 << 6)) == 2

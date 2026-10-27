@@ -283,7 +283,7 @@ end
 # (its pole is the 90° ray): `u <= r.u_fold`.
 @inline _pole_coeffs(r::Radial{B, P, Q, T}) where {B, P, Q, T} = _ucoeffs(B, r.d, T)
 @inline _on_radial_branch(r::Radial, u) = u <= r.u_end
-@inline _branch_end(r::Radial{B, P, Q, T}, cap) where {B, P, Q, T} = min(r.u_end, T(cap))
+@inline _branch_end(r::Radial{B, P, Q, T}, cap) where {B, P, Q, T} = min(r.u_end, float(T)(cap))   # an integer Radial: the cap in its float
 
 # THE sweep for the ends, run once per factor by its constructor: (u_fold, u_end)
 # of the coefficients, computed on their primal values in float precision (a

@@ -96,6 +96,9 @@
         r = Radial{C.Even, 1, 0, Int}((-1,), ())                              # ρ(1 − ρ²) folds at u = 1/3
         @test r.u_fold == 0 && r.u_end == 0
         @test Radial((-1,), ()).u_fold ≈ 1 / 3
+        # the capped end reads the cap in the float of the lens's precision
+        @test C._branch_end(Radial{C.Even, 1, 0, Int}((1,), ()), Inf) === Float64(typemax(Int))   # uncapped: the stored end
+        @test C._branch_end(Radial{C.Even, 1, 0, Int}((1,), ()), 0.5) === 0.5
     end
 
     # Both precisions, the lift and radial families: the view-angle limit is finite

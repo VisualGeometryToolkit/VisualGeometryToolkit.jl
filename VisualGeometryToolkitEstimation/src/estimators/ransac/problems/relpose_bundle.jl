@@ -138,6 +138,9 @@ function NLLSsolver.computeresidual(r::_BundleRows, pose::_BundlePose, p::_Bundl
     R = SMatrix{3, 3, Float64, 9}(pose.R); t = SVector{3, Float64}(pose.t)
     return d.sqrtw[i] * _reprojection_error(d.K1, d.K2, R, t, p.X, d.u1[i], d.u2[i])
 end
+# The block's cost as the LM reads it: non-finite is +Inf (`_finite_cost`).
+NLLSsolver.computecost(vars::AbstractVector, r::_BundleRows) =
+    _finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
 # The closed-form 4 × 8 Jacobian, pose columns (VGC's `pose_action_jacobian`
 # at the variable's own anchor, the derivative of its `update`) then point
 # columns. Every variable is free in this problem (`optimize!` over all), so

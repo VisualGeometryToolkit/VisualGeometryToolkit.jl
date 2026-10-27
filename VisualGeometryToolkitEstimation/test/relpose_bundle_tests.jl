@@ -116,6 +116,24 @@ end
     @test isapprox(fast.result.bestcost, slow.result.bestcost; rtol = 1.0e-10)
 end
 
+# A NaN wall for the bundle rows: camera 2's K, applied to a camera-2 point Y,
+# answers NaN once s·Y₁ passes `wall` (a lens's answer outside its domain).
+# The rows read K₂ only through `K₂ * Y` and `∂π * K₂`.
+struct _WallK
+    M::SMatrix{3, 3, Float64, 9}
+    wall::Float64
+    s::Float64
+end
+Base.:*(k::_WallK, v::SVector{3, Float64}) = k.s * v[1] > k.wall ? SVector(NaN, NaN, NaN) : k.M * v
+Base.:*(A::SMatrix{2, 3, Float64, 6}, k::_WallK) = A * k.M
+mutable struct _WallData{T1, T2, TS}
+    K1::SMatrix{3, 3, Float64, 9}
+    K2::_WallK
+    u1::T1
+    u2::T2
+    sqrtw::TS
+end
+
 # The A/B harness's scene (2026-10-27, nlls-schur): pixel cameras at ~800 px focal,
 # σ = 0.5 px, N points in a 8 × 6 × (6…12) box, the seed 1° (rotation) and 2°
 # (translation direction) off; the seed structure is the bundle's own ray
@@ -247,11 +265,14 @@ end
 @testset "RelposeBundle: allocations per call do not grow with N" begin
     # The public entry, Base.@allocations (BenchmarkTools is not a test
     # dependency), on the second call of each size: the NLLSsolver problem and
-    # its internal data are kept per (task, N), so a call allocates the seed
-    # structure's √weights and a few small solver objects, flat in N. Measured
-    # 2026-10-27 (NLLSsolver, the fork's Schur system and TYPED cache, stack
-    # b0f800c): 26 / 28 / 28 at N = 100 / 1000 / 10000 on Julia 1.13 (the
-    # untyped cache: 31 / 34 / 34). The bound is the fork's: on a registered
+    # its internal data are kept per task (rebuilt when N changes), so a call
+    # allocates the seed structure's √weights and a few small solver objects,
+    # flat in N. Measured 2026-10-27 (NLLSsolver, the fork's Schur system and
+    # TYPED cache, stack b0f800c): 26 / 28 / 28 at N = 100 / 1000 / 10000 on
+    # Julia 1.13 (the untyped cache: 31 / 34 / 34); 19 / 20 / 20 since the
+    # callback keyword is specialized (the call into the run no longer boxes
+    # its arguments). Flat is asserted directly (max − min ≤ 4), the bound
+    # kept as the ceiling. The bound is the fork's: on a registered
     # NLLSsolver (no cache) the assertion is skipped. Until then FastLevenbergMarquardt's
     # call built its buffers per call: 53 / 54 / 54 (the bound was 62).
     ALLOCS_BOUND = 28
@@ -297,6 +318,51 @@ end
             @test d.u1 !== VgtkCore.sources(cs) && d.u2 !== VgtkCore.targets(cs) && d.u1 !== u1 && d.u2 !== u2
         end
     end)
+end
+
+@testset "RelposeBundle: a NaN past a wall is a rejected trial (registry and fork alike)" begin
+    # A registered NLLSsolver accepts a trial whose cost is not greater than
+    # the best, which NaN is not; the block's cost reads a non-finite value as
+    # +Inf, so the fit stops at the wall with a finite cost on every path.
+    rng = StableRNG(11); N = 25
+    Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.002)
+    R0, t0 = _seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
+    t0 = normalize(SVector{3, Float64}(t0))
+    iK1 = _inv3(KC1); iK2 = _inv3(KC2)
+    sw = ones(N)
+    extent(p, s) = (pose = p.variables[1]; maximum(i -> s * (SMatrix{3, 3}(pose.R) * p.variables[i + 1].X + pose.t)[1], 1:N))
+    function wall_fit(E, wall, s, cache)
+        data = _WallData(SMatrix{3, 3, Float64, 9}(KC1), _WallK(SMatrix{3, 3, Float64, 9}(KC2), wall, s), u1, u2, sw)
+        run = VisualGeometryToolkitEstimation._BundleRun{E}(N, data)
+        p = run.problem
+        p.variables[1] = EssentialManifold5(SMatrix{3, 3, Float64, 9}(R0), t0)::_BundlePose
+        for i in 1:N
+            X = _triangulate_rays(iK1, iK2, u1[i], u2[i], R0, t0)
+            p.variables[i + 1] = _BundlePoint{E}(SVector{3, Float64}(X[1], X[2], X[3]))
+        end
+        e0 = (extent(p, 1.0), extent(p, -1.0))
+        opts = VgtkCore.nlls_options(; max_iter = 200, ftol = 1.0e-15, xtol = 1.0e-10)
+        res = cache && run.cache !== nothing ? NLLSsolver.optimize!(p, opts, nothing, NLLSsolver.nullcallback, run.cache) :
+            NLLSsolver.optimize!(p, opts, nothing, NLLSsolver.nullcallback)
+        # the guard itself: a block past the wall costs +Inf, not NaN
+        pose = p.variables[1]
+        bad = _BundlePoint{E}(SVector(s * (wall + 1.0), 0.0, 5.0))
+        rows = _BundleRows{E, typeof(data)}(data, 1, SVector(1, 2))
+        @test NLLSsolver.computecost([EssentialManifold5(SMatrix{3, 3, Float64, 9}(I), SVector(0.0, 0.0, 1.0))::_BundlePose, bad], rows) == Inf
+        return res, e0, (extent(p, 1.0), extent(p, -1.0))
+    end
+    # the free fit (no wall): which side of camera 2 its optimum moves out on
+    free, e0, e1 = wall_fit(true, Inf, 1.0, true)
+    s = e1[1] - e0[1] >= e1[2] - e0[2] ? 1.0 : -1.0
+    k = s == 1.0 ? 1 : 2
+    @test e1[k] > e0[k]
+    wall = (e0[k] + e1[k]) / 2                 # crossed by the free optimum, not by the seed
+    for (E, cache) in ((true, true), (true, false), (false, false))
+        res, _, e = wall_fit(E, wall, s, cache)
+        @test isfinite(res.bestcost)
+        @test e[k] <= wall                     # stopped at the wall
+        @test res.bestcost > free.bestcost     # short of the free optimum
+    end
 end
 
 @testset "RelposeBundle: noiseless recovery is exact" begin

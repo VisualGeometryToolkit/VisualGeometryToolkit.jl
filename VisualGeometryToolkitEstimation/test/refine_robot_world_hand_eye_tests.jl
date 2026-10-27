@@ -19,6 +19,7 @@ using VisualGeometryToolkitCore: estimate, retcode, rotation, translation   # VG
 using VisualGeometryToolkitCore.Synthetic: run_calibration, is_calibrated   # VGC's MC calibration harness (public)
 using VisualGeometryToolkitEstimation: refine_robot_world_hand_eye, RobotWorldHandEyeCalibration
 import VisualGeometryToolkitEstimation as VgtkEstimation
+import NLLSsolver
 
 # A marker: a 5×5 grid of points (spacing 3 cm) in its own z = 0 plane.
 _grid(s = 0.03) = [SVector(s * (i - 3), s * (j - 3), 0.0) for i in 1:5 for j in 1:5]
@@ -212,5 +213,18 @@ end
         rP = run_calibration(rw_trial(:joint; M, layout = :grid, rot = 0.1, tr = 0.1), StableRNG(seed + 20), 100, d)
         @test is_calibrated(rP) && rP.nfail == 0
     end
+end
+
+@testset "a point behind the camera costs +Inf, not NaN (the LM rejects the trial)" begin
+    # A registered NLLSsolver accepts a NaN trial cost (not greater than the
+    # best); the block's cost reads it as +Inf, as the fork and the chart LM do.
+    camera = CameraModel(; focal = 600.0, pp = (400.0, 300.0))
+    ch = RigidExpManifold6(rigid(RotMatrix{3}(1.0I), SVector(0.0, 0.0, 0.0)))
+    R = SMatrix{3, 3, Float64, 9}(I); t = zero(SVector{3, Float64})
+    front = VgtkEstimation._RwPointResidual{typeof(camera)}(SVector(1, 2), R, t, SVector(0.1, 0.0, 1.0), SVector(400.0, 300.0), camera)
+    behind = VgtkEstimation._RwPointResidual{typeof(camera)}(SVector(1, 2), R, t, SVector(0.1, 0.0, -1.0), SVector(400.0, 300.0), camera)
+    @test !all(isfinite, NLLSsolver.computeresidual(behind, ch, ch))
+    @test NLLSsolver.computecost([ch, ch], behind) == Inf
+    @test NLLSsolver.computecost([ch, ch], front) ≈ 0.5 * 60.0^2
 end
 end

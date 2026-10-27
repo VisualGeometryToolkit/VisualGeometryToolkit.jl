@@ -177,6 +177,9 @@ _rw_jacobian(r::_RwPointResidual, chY, chX) = ForwardDiff.jacobian(
     z -> _rw_point_residual(z, chY, chX, r.RA, r.tA, r.X, r.u, r.camera), zero(SVector{12, Float64})
 )
 NLLSsolver.computeresidual(r::_RwPointResidual, Y::_RwPose, X::_RwPose) = _rw_residual(r, Y, X)
+# The block's cost as the LM reads it: non-finite is +Inf (`_finite_cost`).
+NLLSsolver.computecost(vars::AbstractVector, r::_RwPointResidual) =
+    _finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
 # Every pose is free in this refinement (`optimize!` over all variables), so
 # NLLSsolver asks for both blocks' columns: `varflags` = 0b11.
 function NLLSsolver.computeresjac(varflags, r::_RwPointResidual, Y::_RwPose, X::_RwPose)

@@ -221,6 +221,15 @@
         @test ws.prepared == ws.refined == 6                    # one workspace per (pair, template, refiner)
         # the frame the external workspace is built from: the pair's two-view geometry
         @test ws.frame.Kc1 == ctx.geom.Kc1 && ws.frame.Kc2 == ctx.geom.Kc2 && ws.frame.cs == ctx.geom.cs
+        # a guarded external arm is routed, prepared and refined as the bare arm,
+        # on the bare arm's workspace (the guard is native-only: unguarded here)
+        g = ScoreGuarded(lo)
+        @test VgtkCore.RefitFamily(g) === VgtkCore.ExternalRefit() && consumed_axis(g) === LossWidth()
+        @test first(refit_imc!(ctx, g, seed, 0.005; on_fail = NaN)) === first(refit_imc!(ctx, lo, seed, 0.005; on_fail = NaN))
+        @test first(refit_imc!(ctx, g, seed, 0.123; on_fail = NaN, s2 = 0.005^2)) === first(refit_imc!(ctx, lo, seed, 0.005; on_fail = NaN))
+        @test ws.prepared == ws.refined == 10
+        @test refit_imc!(ctx, ScoreGuarded(RefusingRefit()), seed, 0.01) === (model_imc(seed, ctx), Int64(0))
+        @test VgtkCore.RefitFamily(ScoreGuarded(irls())) === VgtkCore.NativeRefit()
         # a declined preparation is no refit and no call
         @test refit_imc!(ctx, RefusingRefit(), seed, 0.01) === (model_imc(seed, ctx), Int64(0))
         @test isnan(first(refit_imc!(ctx, RefusingRefit(), seed, 0.01; on_fail = NaN)))

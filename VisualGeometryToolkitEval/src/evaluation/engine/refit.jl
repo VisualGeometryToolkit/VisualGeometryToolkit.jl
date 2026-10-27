@@ -30,11 +30,24 @@ The inner LO runs unchanged, but the refined model is kept only if its SELECTION
 same marginal that seeded it) does not drop below the seed's
 (VisualGeometryToolkitEstimation's `score_guard`). It preserves score monotonicity while
 the optimizer descends a different objective.
+
+Its `RefitFamily` and the external-refit bracket (`external_workspace`,
+`prepare_external!`, `refine_external!`) are `inner`'s, as on
+VisualGeometryToolkitEstimation's `CountedLO` and `TerminalLO`: a guarded external
+arm is routed, prepared and refined as the bare arm. The guard is
+`score_guard` on the native path, so an external refit is forwarded unguarded.
 """
 struct ScoreGuarded{L<:AbstractLocalOptimization} <: AbstractLocalOptimization
     inner::L
 end
-VgtkCore.RefitFamily(::ScoreGuarded) = NativeRefit()
+VgtkCore.RefitFamily(g::ScoreGuarded) = RefitFamily(g.inner)
+VgtkCore.external_workspace(g::ScoreGuarded, problem, frame, scoring) =
+    external_workspace(g.inner, problem, frame, scoring)
+VgtkCore.prepare_external!(ws, g::ScoreGuarded, problem, θ, width, scoring) =
+    prepare_external!(ws, g.inner, problem, θ, width, scoring)
+# (A fixed noise scale reaches the `LossWidth` method through VGC's `FixedS2` default.)
+VgtkCore.refine_external!(ws, g::ScoreGuarded, problem, θ, width::LossWidth, scoring) =
+    refine_external!(ws, g.inner, problem, θ, width, scoring)
 # Identity + interface traits are forwarded to the guarded strategy.
 VgtkCore.optimization_path(g::ScoreGuarded) = optimization_path(g.inner)
 VgtkCore.scale_interface(g::ScoreGuarded) = scale_interface(g.inner)
@@ -65,9 +78,9 @@ truncated loss's width (`LossWidth()`).
 consumed_axis(lo::AbstractLocalOptimization) = consumed_axis(RefitFamily(lo), lo)
 consumed_axis(::NativeRefit, lo) = OutlierHalfwidth()
 consumed_axis(::ExternalRefit, lo) = LossWidth()
-# VisualGeometryToolkitEstimation's wrappers consume what their inner strategy
-# does (a strategy may state its own axis, not only its family's)
-consumed_axis(lo::Union{CountedLO, TerminalLO}) = consumed_axis(lo.inner)
+# VisualGeometryToolkitEstimation's wrappers and ScoreGuarded consume what their
+# inner strategy does (a strategy may state its own axis, not only its family's)
+consumed_axis(lo::Union{CountedLO, TerminalLO, ScoreGuarded}) = consumed_axis(lo.inner)
 
 """
     consumed_native(lo, axis::NativeAxis, native::Real;
@@ -233,7 +246,7 @@ function refit_imc!(ctx, ::ExternalRefit, lo, seed, nat′, scoring, fallback, b
     prob = ctx.ep
     width = s2 === nothing ? LossWidth(Float64(nat′)) : FixedS2(Float64(s2))
     ws = get!(() -> external_workspace(lo, prob, ctx.geom, scoring), ctx.lo_ws,
-              Symbol(:ext_, _template_tag(ctx, scoring), :_, nameof(typeof(lo))))
+              Symbol(:ext_, _template_tag(ctx, scoring), :_, nameof(typeof(_unwrap_lo(lo)))))
     prepare_external!(ws, lo, prob, seed, width, scoring) || return (fallback, Int64(0))
     guarded_refit(() -> refine_external!(ws, lo, prob, seed, width, scoring),
                   m -> model_imc(m, ctx), fallback; warn_label = "external refine ($(nameof(typeof(lo))))")

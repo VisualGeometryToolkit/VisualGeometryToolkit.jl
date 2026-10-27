@@ -111,16 +111,19 @@ number for number, and only then renamed into place, one atomic `rename`; it
 goes beside the original (`<stem>.migrated.json`), or over it with
 `out = path` (`--in-place`), the original untouched until the rename.
 
-A rig's content identity changes with this migration (the identity is now
-version-free, so it will not again). `vgio_migrate` reports the rig's
-`old_ids` — the v4 identity of the file as written, and the one v4 minted for
-the value in millimetres when the file is in another unit — and its `new_id`.
-`repoint_targets` re-points a measurement file, refusing any identity that is
-neither mapped nor a given rig's. `vgio_migrate_tree` does both for a
-directory: it persists the identity map in `vgio_migrate_ids.json` before it
-writes anything, so a run interrupted after its rigs were migrated re-points
-correctly when rerun; a rerun of a migrated tree is idempotent, and every file
-it leaves as it is gets a log line saying why.
+A rig's content identity changes with this migration, once: the v4 identity
+hashed the record's format, and the identity is now version-free, so it will
+not change again. `vgio_migrate` reports the rig's `old_ids` — the v4 identity
+of the file as written, and the one v4 minted for the value in millimetres
+when the file is in another unit — and its `new_id`. Re-pointing the
+measurement files that name a migrated rig is a step of that one-time
+migration: `vgio_migrate_tree` migrates a directory's files and re-points its
+measurement files at its current rigs, refusing any identity that is neither
+mapped nor a current rig's (the command's `repoint` does it for one file). It
+persists the identity map in `vgio_migrate_ids.json` before it puts a rig in
+place, so a run interrupted after its rigs were migrated re-points correctly
+when rerun; a rerun of a migrated tree is idempotent, and every file it leaves
+as it is gets a log line saying why.
 
 A schema's owner extends the migration to its own files by adding a method of
 `VisualGeometryToolkitIO.migrate_schema(::Val{Symbol("<schema>")}, src, dst)`,

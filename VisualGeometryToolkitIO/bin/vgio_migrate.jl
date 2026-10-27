@@ -12,7 +12,7 @@
 #     julia --project=<path to VisualGeometryToolkitIO> bin/vgio_migrate.jl target|rig|file|tree|repoint --help
 #
 # The logic lives in VisualGeometryToolkitIO (`migrate_opencv`, `migrate_matlab`,
-# `vgio_migrate`, `vgio_migrate_tree`, `repoint_targets` and the command behind
+# `vgio_migrate`, `vgio_migrate_tree` and the command behind
 # this script), so it is tested with the package.
 import VisualGeometryToolkitIO as VgtkIO
 using VisualGeometryToolkitIO

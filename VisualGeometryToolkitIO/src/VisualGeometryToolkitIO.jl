@@ -184,7 +184,7 @@ export save_correspondences           # export: measurements + targets → exter
 export save_tum_trajectory, save_euroc_trajectory, save_bop_scene, save_trc   # exporters to the community formats
 export ros_pose_covariance, pose_covariance_from_ros   # the pose covariance in ROS PoseWithCovariance order
 export migrate_opencv, migrate_matlab # a third-party OpenCV / MATLAB calibration → native v3 camera + image-named poses
-export vgio_migrate, vgio_migrate_tree, repoint_targets   # an earlier schema version → the current one, once; measurements re-pointed at migrated rigs
+export vgio_migrate, vgio_migrate_tree   # an earlier schema version → the current one, once; a tree's measurements re-pointed at its migrated rigs
 export append_jsonl
 export canonical_json, sha256_hex
 

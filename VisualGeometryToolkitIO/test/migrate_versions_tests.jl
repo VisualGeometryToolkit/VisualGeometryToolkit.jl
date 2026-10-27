@@ -102,14 +102,14 @@ end
         @test load(Rig, sensors).members == load(Rig, units_fixture("rig.json")).members
         # re-pointing: guarded, the measurements otherwise unchanged
         ids = Dict(r.old_id => r.new_id)
-        d = repoint_targets(obs, ids, [r.out]; dry_run = true)
+        d = VgtkIO._repoint_targets(obs, ids, [r.out]; dry_run = true)
         @test d.out === nothing && d.repointed == 1 && d.unchecked == 0
-        d = repoint_targets(obs, ids, [r.out])
+        d = VgtkIO._repoint_targets(obs, ids, [r.out])
         @test read(d.out, String) == read(units_fixture("target_points2d.json"), String)
         @test load(TargetPoints2D, d.out).frames == load(TargetPoints2D, obs).frames
         # refused: a new identity none of the rigs has; a rig that does not hold the measured targets
-        @test_throws ArgumentError repoint_targets(obs, Dict(v4_id => "0"^64), [r.out]; out = joinpath(dir, "x.json"))
-        @test_throws ArgumentError repoint_targets(obs, Dict(v4_id => rs.new_id), [sensors]; out = joinpath(dir, "y.json"))
+        @test_throws ArgumentError VgtkIO._repoint_targets(obs, Dict(v4_id => "0"^64), [r.out]; out = joinpath(dir, "x.json"))
+        @test_throws ArgumentError VgtkIO._repoint_targets(obs, Dict(v4_id => rs.new_id), [sensors]; out = joinpath(dir, "y.json"))
         @test !isfile(joinpath(dir, "x.json")) && !isfile(joinpath(dir, "y.json"))
     end
 end
@@ -171,9 +171,9 @@ end
         tree = mkpath(joinpath(dir, "tree"))
         old_copy(tree, "rig_targets.json", as_v4_rig)
         obs = as_v4_measurements(tree)
-        # repoint_targets: an identity neither mapped nor a given rig's is refused, naming the file and the id
+        # re-pointing: an identity neither mapped nor a given rig's is refused, naming the file and the id
         rig = vgio_migrate(joinpath(tree, "rig_targets.json"); out = joinpath(dir, "rig_v5.json"))
-        e = try repoint_targets(obs, Dict{String, String}(), [rig.out]; out = joinpath(dir, "x.json")); nothing catch e; e end
+        e = try VgtkIO._repoint_targets(obs, Dict{String, String}(), [rig.out]; out = joinpath(dir, "x.json")); nothing catch e; e end
         @test e isa ArgumentError && occursin(obs, e.msg) && occursin(V4_ID, e.msg) && !isfile(joinpath(dir, "x.json"))
         rm(rig.out)
         # a tree whose run was interrupted after its rigs were migrated in place: the

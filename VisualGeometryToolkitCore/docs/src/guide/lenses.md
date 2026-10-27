@@ -150,6 +150,32 @@ lit = filter(n -> n ∈ domain, nodes)
 
 The whole example, runnable, is `examples/image_circle.jl`.
 
+## Which parameters a camera can see
+
+A camera images a region of its sensor, [`imaged_region`](@ref)`(camera)` =
+`Rect(extent) ∩ image_circle(camera)`. Each parameter of a model has a
+support on the sensor; it is free when its support meets the imaged region
+and frozen otherwise. A global model (a parametric lens, `K`) has the whole
+plane as every parameter's support, so [`free_nodes`](@ref) answers `Colon()`
+(all of them); a node model such as the generic grid model is `LocalSupport`
+and only the nodes whose footprint meets the lit region are free.
+
+```@example imagecircle
+fish = CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = KannalaBrandt(k))
+g = CentralGenericModel(fish, (1280, 960); grid_size = (20, 16))
+R = imaged_region(BoundedCamera(fish, Size2(1280, 960)))
+mask = node_mask(g, R)                                  # in the grid's shape
+(size(mask), count(mask), length(mask) - count(mask), free_nodes(fish, R))   # free, frozen; a lens: all
+```
+
+A lattice model declares its supports through two contract generics:
+`support_trait(::Type{<:MyLattice}) = LocalSupport()`, then
+`VisualGeometryToolkitCore.nodes(m)` (the node ids, `CartesianIndices` of the
+lattice) and `VisualGeometryToolkitCore.support(m, i)` (the node's region on the
+sensor in pixels — for a uniform cubic B-spline lattice
+[`cubic_bspline_footprint`](@ref VisualGeometryToolkitCore.Cameras.cubic_bspline_footprint)`(center, spacing)`);
+[`free_nodes`](@ref) and [`node_mask`](@ref) then work unchanged.
+
 ## The lens record
 
 [`lens_record`](@ref) writes a lens as a self-describing record, the form

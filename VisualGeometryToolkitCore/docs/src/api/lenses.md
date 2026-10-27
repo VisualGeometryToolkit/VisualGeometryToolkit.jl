@@ -18,7 +18,7 @@ launch); it is the conversion the batched and fused kernels apply. See the
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false
-Pages = ["cameras/lenses.jl", "cameras/projections.jl", "cameras/image_circle.jl"]
+Pages = ["cameras/lenses.jl", "cameras/projections.jl", "cameras/image_circle.jl", "cameras/support.jl"]
 ```
 
 ## The Lens Contract, Coefficients and Batches

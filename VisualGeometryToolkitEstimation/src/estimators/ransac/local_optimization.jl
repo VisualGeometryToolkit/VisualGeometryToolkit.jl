@@ -303,9 +303,11 @@ end
 Instrumentation wrapper: counts the `locally_optimize!` invocations (`calls[]`)
 and the iterations they report (`iterations[]`, the sum of
 `iterations(result)`), and answers every hook the RANSAC loop, the scorer
-composition check and the reporting read on a strategy exactly as `inner`
-does, so a run with `CountedLO(inner)` returns the model a run with `inner`
-returns. It is not a registered strategy (no TOML tag): it carries counters,
+composition check, the reporting and an external refit read on a strategy
+exactly as `inner` does — its `RefitFamily`, placement and external-refit
+bracket included — so a run with `CountedLO(inner)` returns the model a run
+with `inner` returns. An external refit (`refine_external!`) is forwarded
+uncounted. It is not a registered strategy (no TOML tag): it carries counters,
 not configuration. A counter is shared by every run that is handed the same
 wrapper — the counters are `Threads.Atomic{Int}`, so runs on several threads
 (a threaded sweep over pairs) add up exactly; build a fresh one per measurement.
@@ -364,3 +366,16 @@ VgtkCore.optimization_path(lo::_WrappedLO) = VgtkCore.optimization_path(lo.inner
 VgtkCore.scale_interface(lo::_WrappedLO) = VgtkCore.scale_interface(lo.inner)
 VgtkCore.loss_family(lo::_WrappedLO) = VgtkCore.loss_family(lo.inner)
 VgtkCore.lo_marker(lo::_WrappedLO) = VgtkCore.lo_marker(lo.inner)
+# The refit family and the external-refit bracket (VGC `lo_contract.jl`): an
+# external strategy (PoseLib's LM/LZ arms) wrapped is routed, prepared and
+# refined as `inner` is, so the wrapper returns the model `inner` returns.
+# `CountedLO` counts `locally_optimize!` only: an external refit is forwarded
+# uncounted. (A fixed noise scale reaches the `LossWidth` method through VGC's
+# `FixedS2` default.)
+VgtkCore.RefitFamily(lo::_WrappedLO) = VgtkCore.RefitFamily(lo.inner)
+VgtkCore.external_workspace(lo::_WrappedLO, problem, frame, scoring) =
+    VgtkCore.external_workspace(lo.inner, problem, frame, scoring)
+VgtkCore.prepare_external!(ws, lo::_WrappedLO, problem, θ, width, scoring) =
+    VgtkCore.prepare_external!(ws, lo.inner, problem, θ, width, scoring)
+VgtkCore.refine_external!(ws, lo::_WrappedLO, problem, θ, width::LossWidth, scoring) =
+    VgtkCore.refine_external!(ws, lo.inner, problem, θ, width, scoring)

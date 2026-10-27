@@ -26,6 +26,15 @@ function make_homography_data(; n_inliers = 100, n_outliers = 30, noise = 0.5, s
     return source_pts, target_pts, H_TRUE, n_inliers
 end
 
+# An external strategy (the `ExternalRefit` family, as PoseLib's LM/LZ arms):
+# its bracket records each step in its workspace, so a wrapper that does not
+# forward a hook is visible.
+struct _ExternalArm <: VgtkCore.AbstractLocalOptimization end
+VgtkCore.RefitFamily(::_ExternalArm) = VgtkCore.ExternalRefit()
+VgtkCore.external_workspace(::_ExternalArm, _problem, _frame, _scoring) = Ref(0)
+VgtkCore.prepare_external!(ws, ::_ExternalArm, _problem, _θ, _width, _scoring) = (ws[] += 1; true)
+VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth, _scoring) = (ws[] += 10; θ)
+
 @testset "RANSAC Homography" begin
 
     @testset "_orientation_preserving — uniform-sign rule" begin
@@ -382,6 +391,23 @@ end
         # A seeded refine has no race: it runs the inner strategy.
         @test estimate(locally_optimize(problem, estimate(r0); local_optimization = t, scoring = sc)) ==
             estimate(seeded)
+    end
+
+    @testset "the wrappers forward the refit family and the external-refit bracket" begin
+        arm = _ExternalArm()
+        θ = H_TRUE
+        for w in (VgtkEstimation.CountedLO(arm), VgtkEstimation.TerminalLO(arm), VgtkEstimation.CountedLO(VgtkEstimation.TerminalLO(arm)))
+            @test VgtkCore.RefitFamily(w) === VgtkCore.RefitFamily(arm) === VgtkCore.ExternalRefit()
+            ws = VgtkCore.external_workspace(w, nothing, nothing, nothing)
+            @test ws isa Base.RefValue{Int}                                      # the inner's workspace
+            @test VgtkCore.prepare_external!(ws, w, nothing, θ, VgtkCore.LossWidth(2.0), nothing) && ws[] == 1
+            @test VgtkCore.refine_external!(ws, w, nothing, θ, VgtkCore.LossWidth(2.0), nothing) === θ && ws[] == 11
+            @test VgtkCore.refine_external!(ws, w, nothing, θ, VgtkCore.FixedS2(4.0), nothing) === θ && ws[] == 21
+        end
+        @test VgtkEstimation.CountedLO(arm).calls[] == 0                          # an external refit is not counted
+        native = Irls{WelschShape}(scale_multiple = 1.5)
+        @test VgtkCore.RefitFamily(VgtkEstimation.CountedLO(native)) === VgtkCore.RefitFamily(native) === VgtkCore.NativeRefit()
+        @test VgtkEstimation.lo_placement(VgtkEstimation.CountedLO(VgtkEstimation.TerminalLO(arm))) === VgtkEstimation.TerminalPlacement()
     end
 
     @testset "PROSAC with scored correspondences" begin

@@ -55,7 +55,7 @@ using VisualGeometryToolkitCore.Synthetic: imc_pose_error, optimistic_pose_error
 using VisualGeometryToolkitCore.Pools: PoolPair, num_points, num_models, pool_imc, gt_pose, pool_frame_calibrations
 using VisualGeometryToolkitEstimation: EssentialProblem, FundMatProblem, HomographyProblem, RelposeBundleProblem,
     locally_optimize, ransac, RansacConfig, RansacWorkspace, NoLocalOptimization, fixed_width,
-    locally_optimize_rescored!, AbstractRansacProblem
+    locally_optimize_rescored!, AbstractRansacProblem, CountedLO, TerminalLO
 import VisualGeometryToolkitEstimation: reset!   # the running-best selectors' reset
 
 import .._config_default   # configs/default.toml (config_defaults.jl)

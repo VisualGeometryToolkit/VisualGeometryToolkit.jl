@@ -53,8 +53,9 @@ an `ArgumentError`: the guard is a per-candidate acceptance rule and the
 terminal placement has no candidate to accept. A seeded `locally_optimize`
 with a `TerminalLO` runs `inner` (a seed has no race).
 
-Every hook the loop, the composition check and the reporting read answers as
-`inner`'s (width, scale interface, loss family, path, marker, workspace), except
+Every hook the loop, the composition check, the reporting and an external
+refit read answers as `inner`'s (width, scale interface, loss family, path,
+marker, workspace, `RefitFamily` and the external-refit bracket), except
 the label, `"<inner label> (terminal)"`, so result records tell the
 placements apart. TOML: `{ type = "terminal_lo", inner = { … } }`, the inner
 table any registered strategy's. Counting: `CountedLO(TerminalLO(inner))` and

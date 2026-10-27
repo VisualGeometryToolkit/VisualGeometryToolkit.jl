@@ -65,6 +65,9 @@ truncated loss's width (`LossWidth()`).
 consumed_axis(lo::AbstractLocalOptimization) = consumed_axis(RefitFamily(lo), lo)
 consumed_axis(::NativeRefit, lo) = OutlierHalfwidth()
 consumed_axis(::ExternalRefit, lo) = LossWidth()
+# VisualGeometryToolkitEstimation's wrappers consume what their inner strategy
+# does (a strategy may state its own axis, not only its family's)
+consumed_axis(lo::Union{CountedLO, TerminalLO}) = consumed_axis(lo.inner)
 
 """
     consumed_native(lo, axis::NativeAxis, native::Real;

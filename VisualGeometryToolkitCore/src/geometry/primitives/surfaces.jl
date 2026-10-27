@@ -98,8 +98,9 @@ design chart: the target's in-plane calibration (`Rigid` or `Affine`, or a
 chain of them) is the quad's affine, so [`chart`](@ref) of a hit is the
 nominal coordinates it shows. Its rectangle, in that chart, is
 `Rect(`[`board`](@ref)`(t))` when the target has a [`Board`](@ref), else the
-design bounding box grown by 16 eps (of its coordinates), so a ray at a design
-point on the box's edge is a hit.
+design bounding box — either grown by 16 eps of its coordinates, the margin
+within which `PlanarTarget` accepts a point on its board, so a ray at a point
+on the edge is a hit (up to the chart's own rounding).
 
 - A planar calibration (`Rigid`, `Affine` and chains of them) gives a `Quad`.
 - A [`HeightField`](@ref), alone or last in a [`CalibrationChain`](@ref) after

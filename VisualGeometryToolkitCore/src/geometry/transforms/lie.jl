@@ -17,8 +17,9 @@
 # Float32 and Float64 variants existed as separate copies; here they are one
 # generic implementation. The Rodrigues coefficients are functions of θ² —
 # `_sinc` = sin θ/θ, `_cosc` = (1 − cos θ)/θ², `_sinc3` = (θ − sin θ)/θ³ —
-# each with its own series switch (below), shared by `exp_so3` and
-# `left_jacobian`.
+# each with its own series switch (below): `exp_so3` reads `_sinc` (its second
+# coefficient keeps its own closed form, see there), `left_jacobian` `_cosc` and
+# `_sinc3`.
 # =============================================================================
 
 # Taylor-vs-trig switch on θ². Must be at least eps(T): below θ² ≈ eps(T),

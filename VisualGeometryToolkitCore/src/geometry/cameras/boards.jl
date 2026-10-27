@@ -29,7 +29,8 @@ Board(Size2(width = 297.0, height = 210.0), [-10.0, -10.0])              # a uni
 
 `Rect(board)` is the board's domain in the design chart in the board's own
 numbers (plain metres when physical) — what a target's [`surface`](@ref) is
-bounded by, as `Rect(sensor)` is the image's domain in pixels. `ustrip(u, board)`
+bounded by (grown by a 16-eps rounding margin), as `Rect(sensor)` is the
+image's domain in pixels. `ustrip(u, board)`
 and [`with_unit`](@ref)`(board, u)` move it between the two forms, as they move
 a target's points.
 

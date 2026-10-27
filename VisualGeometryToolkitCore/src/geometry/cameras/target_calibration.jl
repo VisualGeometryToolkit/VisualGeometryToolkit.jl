@@ -104,7 +104,8 @@ true)` (`A` dimensionless, `b` lengths); [`ThinPlateSpline`](@ref) and
 [`HeightField`](@ref): every entry; a [`CalibrationChain`](@ref): its members'
 in order. A covariance over `θ` moves with a unit change by this mask; a
 record of the calibration states its lengths by it. A downstream kind with
-lengths adds a method.
+lengths adds a method — required before it can be an `Uncertain` calibration's
+member, whose covariance moves by the mask.
 """
 function length_mask end
 length_mask(c::TargetCalibration) = length_mask(typeof(c))

@@ -151,7 +151,8 @@ camera's [`Sensor`](@ref): `Rect(board)` is the printed domain in the design
 chart, and [`surface`](@ref) bounds the target's primitive by it. The board
 is in the points' form — lengths for physical points, plain numbers for plain
 ones (FlexUnits' `DimensionError` otherwise) — and the points lie inside
-`Rect(board)` (an `ArgumentError` otherwise). Being in the design chart, the
+`Rect(board)` to within a rounding margin of 16 eps of its coordinates, the
+margin `surface` grows the board by (an `ArgumentError` otherwise). Being in the design chart, the
 board is the same rectangle under any calibration. [`board`](@ref)`(t)`
 reads it; `ustrip` and `with_unit` move it with the points.
 """

@@ -350,8 +350,8 @@ end
         # one ulp off the decimal-nearest 0.142 — and no millimetre file number
         # reads back to it (lengths.jl). Fixed upstream by FlexUnits PR
         # Deduction42/FlexUnits.jl#131 (a correctly rounded decimal scale, so
-        # `142mm` is the decimal-nearest value); this flips to an unexpected
-        # pass, to be promoted to @test, the day that fix is adopted.
+        # `142mm` is the decimal-nearest value); the day that fix is adopted
+        # this broken test succeeds, Test reports it, and it is promoted to @test.
         rig = rig_of(Board(Size2(width = 142mm, height = 100mm)))
         @test_broken roundtrip(rig, dir, mm).members == rig.members   # FlexUnits #131
         @test roundtrip(rig, dir, m).members == rig.members            # a metre file holds it

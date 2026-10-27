@@ -24,8 +24,9 @@ BlobBoards build on it.
   fundamental-matrix solvers) and the manifolds their models are refined on.
 - The robust-loss family (`AbstractLossShape`, `deploy`), the block-coordinate-descent/LO interface
   shared with VisualGeometryToolkitEstimation, and `FitResult`, the one fit return type.
-- Numerics: the B-spline kernels and the thin-plate spline (`ThinPlateSplineSystem`,
-  `tps_coefficients`, `tps_evaluate`, `tps_gradient`), public, not exported.
+- Numerics: the B-spline kernels, the thin-plate spline (`ThinPlateSplineSystem`,
+  `tps_coefficients`, `tps_evaluate`, `tps_gradient`) and the spherical spline
+  (`SphericalSplineSystem`), public, not exported.
 - Units: FlexUnits as shipped, plus the registered `px`, `pd`, `dpi` and `pt` (`mm`, `px`, `dpi`, `Size2`).
 
 Plotting loads as a package extension with any Makie backend.
@@ -196,6 +197,7 @@ public evaluate_bspline_4d, bspline_4d_partial, contract_basis_4d_weighted
 # host-side solver object and the isbits, allocation-free evaluator and gradient.
 public ThinPlateSplineSystem, tps_radial_basis, grid_nodes, tps_coefficients
 public tps_evaluate, tps_gradient, nodal_weights, bending_energy, bending_factor
+public SphericalSplineSystem, spherical_spline_kernel, spherical_spline_coefficients, spherical_spline_evaluate   # the spherical spline (Wahba)
 
 # Coordinate conversions
 export to_homogeneous, to_affine, to_euclidean

@@ -198,6 +198,7 @@ end
 
 """
     bending_energy(tps::ThinPlateSplineSystem, values) -> scalar
+    bending_energy(sys::SphericalSplineSystem, values) -> scalar
 
 The bending energy `valuesᵀ Q values` of the spline through the nodal values
 `values` (`= wᵀ K w` with `K = [U(𝐩ᵢ, 𝐩ⱼ)]` the radial basis between the
@@ -208,6 +209,7 @@ bending_energy(tps::ThinPlateSplineSystem, t::AbstractVector) = dot(t, tps.Q * t
 
 """
     bending_factor(tps::ThinPlateSplineSystem{N}) -> Matrix{Float64}
+    bending_factor(sys::SphericalSplineSystem{N}) -> Matrix{Float64}
 
 A factor `L` (`N × N`) of the bending-energy form: `‖L · values‖² =`
 [`bending_energy`](@ref)`(tps, values)` to rounding, so `L · values` are a
@@ -219,5 +221,113 @@ so only `LᵀL` is defined — never compare the rows one by one.
 """
 function bending_factor(tps::ThinPlateSplineSystem)
     F = LinearAlgebra.eigen(LinearAlgebra.Symmetric(tps.Q))
+    return LinearAlgebra.Diagonal(sqrt.(max.(F.values, 0.0))) * F.vectors'
+end
+
+# =============================================================================
+# Spherical spline on scattered directions (hoisted from RadiometricCamera
+# src/camera/focus_charts.jl, `wahba_kernel` and `sphere_spline_system`, the
+# arithmetic unchanged) — the thin-plate spline's analogue on the unit sphere:
+#
+#   f(d) = a₁ + Σᵢ wᵢ R(d · dᵢ),   R(z) = 1 − π²/6 + Li₂((1 + z)/2)
+#
+# Wahba's m = 2 reproducing kernel (Wahba 1981), with (w; a₁) the solution of
+# [K 1; 1ᵀ 0] (w; a₁) = (values; 0), K = [R(dᵢ · dⱼ)]. As for the plane: the
+# system's inverse is formed once (`inv`, as RadiometricCamera forms it), the
+# solver object stays host-side, the evaluator takes isbits inputs.
+# =============================================================================
+
+"""
+    spherical_spline_kernel(d, e) -> scalar
+
+Wahba's `m = 2` spherical-spline kernel between unit directions `d` and `e`,
+`R(z) = 1 − π²/6 + Li₂((1 + z)/2)` with `z = d · e`, evaluated from the chord
+(`1 − (1 + z)/2 = ‖d − e‖²/4`) so it stays accurate for nearby directions:
+`R(1) = 1` (with zero partials at coincidence, as the planar
+[`tps_radial_basis`](@ref) at `r = 0`), `R(−1) = 1 − π²/6`. Isbits, generic
+over `Real` ([`dilog`](@ref)'s series).
+"""
+@inline function spherical_spline_kernel(d::StaticVector{3}, e::StaticVector{3})
+    y = ((d[1] - e[1])^2 + (d[2] - e[2])^2 + (d[3] - e[3])^2) / 4      # 1 − x = sin²(γ/2)
+    y > 0 || return one(y)
+    x = 1 - y
+    return x >= 0.5 ? 1 - log(x) * log(y) - _dilog_series(y) : (1 - oftype(y, π^2 / 6)) + _dilog_series(max(x, zero(x)))
+end
+
+"""
+    SphericalSplineSystem(directions) -> SphericalSplineSystem{N}
+
+The solver object of a spherical spline through `N` unit directions — the
+[`ThinPlateSplineSystem`](@ref)'s analogue on the sphere, with Wahba's kernel
+[`spherical_spline_kernel`](@ref) and a constant in place of the affine part:
+the directions, the `(N + 1) × N` matrix `coeff` that maps nodal values to the
+weights and the constant, `(w; a₁) = coeff · values`, and the `N × N`
+bending-energy form `Q` (`valuesᵀ Q values = wᵀ K w`). `coeff` is the first
+`N` columns of the inverted system matrix `[K 1; 1ᵀ 0]`, formed with `inv`
+as RadiometricCamera forms it. The directions are normalized on entry.
+"""
+struct SphericalSplineSystem{N}
+    nodes::SVector{N, SVector{3, Float64}}
+    coeff::Matrix{Float64}      # (N+1) × N
+    Q::Matrix{Float64}          # N × N
+end
+
+function SphericalSplineSystem(directions::AbstractVector{<:StaticVector{3}})
+    N = length(directions)
+    dirs = [normalize(SVector{3, Float64}(d)) for d in directions]
+    Kmat = [spherical_spline_kernel(dirs[i], dirs[j]) for i in 1:N, j in 1:N]
+    A = [Kmat ones(N); ones(N)' 0.0]
+    Ainv = inv(A)   # `inv`, as RadiometricCamera forms it
+    coeff = Ainv[:, 1:N]
+    Cw = coeff[1:N, :]
+    Q = Matrix(Symmetric(Cw' * Kmat * Cw))
+    return SphericalSplineSystem{N}(SVector{N}(dirs), coeff, Q)
+end
+
+"""
+    spherical_spline_coefficients(sys::SphericalSplineSystem{N}, values) -> (w::SVector{N}, a₁)
+
+The spline's weights and constant through the nodal values (length `N`);
+linear in them and generic in their element type, as
+[`tps_coefficients`](@ref).
+"""
+function spherical_spline_coefficients(sys::SphericalSplineSystem{N}, t::AbstractVector{T}) where {N, T}
+    length(t) == N || throw(DimensionMismatch("expected $N nodal values, got $(length(t))"))
+    wa = sys.coeff * t
+    return SVector{N, T}(ntuple(i -> wa[i], Val(N))), T(wa[N + 1])
+end
+
+"""
+    spherical_spline_evaluate(nodes, w, a₁, d) -> scalar
+    spherical_spline_evaluate(sys::SphericalSplineSystem, w, a₁, d) -> scalar
+
+The spline at the unit direction `d`: `a₁ + Σᵢ wᵢ R(d · dᵢ)`. The first form
+takes isbits inputs (`nodes::SVector{N, <:StaticVector{3}}`) and allocates
+nothing; generic in the element type (Float32, ForwardDiff `Dual`s).
+"""
+@inline function spherical_spline_evaluate(nodes::SVector{N, <:StaticVector{3}}, w::StaticVector{N}, a1, d::StaticVector{3}) where {N}
+    s = a1 + zero(eltype(d))
+    for i in 1:N
+        s += w[i] * spherical_spline_kernel(d, nodes[i])
+    end
+    return s
+end
+spherical_spline_evaluate(sys::SphericalSplineSystem, w, a1, d) = spherical_spline_evaluate(sys.nodes, w, a1, d)
+
+"""
+    nodal_weights(sys::SphericalSplineSystem{N}, d) -> SVector{N, Float64}
+
+`∂f(d)/∂valuesᵢ` of the spherical spline at the direction `d`: node `i`'s
+weight `Σ_r coeff[r, i] φ_r(d)`, `φ = (R(d · d₁) … R(d · d_N), 1)`.
+"""
+function nodal_weights(sys::SphericalSplineSystem{N}, d::StaticVector{3}) where {N}
+    φ = ntuple(r -> r <= N ? Float64(spherical_spline_kernel(d, sys.nodes[r])) : 1.0, Val(N + 1))
+    c = sys.coeff
+    return SVector{N}(ntuple(i -> sum(ntuple(r -> c[r, i] * φ[r], Val(N + 1))), Val(N)))
+end
+
+bending_energy(sys::SphericalSplineSystem, t::AbstractVector) = dot(t, sys.Q * t)
+function bending_factor(sys::SphericalSplineSystem)
+    F = LinearAlgebra.eigen(LinearAlgebra.Symmetric(sys.Q))
     return LinearAlgebra.Diagonal(sqrt.(max.(F.values, 0.0))) * F.vectors'
 end

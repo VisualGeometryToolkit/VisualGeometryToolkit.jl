@@ -213,3 +213,60 @@ end
     end
     @test VgtkCore._NODAL_STATIC_MAX < 25 && nodal_weights(ThinPlateSplineSystem(grid_nodes(5)), SVector(0.1, 0.2)) isa SVector{25, Float64}
 end
+
+# The spherical spline (Wahba's kernel), hoisted from RadiometricCamera's
+# focus charts: the kernel's known values, interpolation of the samples, the
+# constant reproduced with zero bending, and the evaluator's types.
+@testitem "spherical spline" begin
+    using Test, StaticArrays, LinearAlgebra, Random
+    using ForwardDiff: ForwardDiff
+    using QuadGK: quadgk
+    using VisualGeometryToolkitCore: SphericalSplineSystem, spherical_spline_kernel, spherical_spline_coefficients,
+        spherical_spline_evaluate, nodal_weights, bending_energy, bending_factor
+
+    # R(z) = 1 − π²/6 + Li₂((1 + z)/2), Li₂ by its defining integral in BigFloat
+    li2(x) = setprecision(BigFloat, 256) do
+        Float64(-first(quadgk(t -> log1p(-t) / t, big(0), big(x); rtol = big(1.0e-40))))
+    end
+    R(z) = 1 - π^2 / 6 + li2((1 + z) / 2)
+    e = SVector(0.0, 0.0, 1.0)
+    @test spherical_spline_kernel(e, e) == 1
+    @test spherical_spline_kernel(e, -e) ≈ 1 - π^2 / 6 rtol = 4 * eps()
+    @test spherical_spline_kernel(e, SVector(1.0, 0.0, 0.0)) ≈ 1 - π^2 / 12 - log(2)^2 / 2 rtol = 4 * eps()   # z = 0: Li₂(½)
+    for γ in (1.0e-4, 0.3, 1.2, 2.0, 3.0)
+        d = SVector(sin(γ), 0.0, cos(γ))
+        @test spherical_spline_kernel(e, d) ≈ R(cos(γ)) rtol = 8 * eps() atol = 8 * eps()
+    end
+    @test ForwardDiff.gradient(d -> spherical_spline_kernel(d, e), e) == zeros(3)     # flat at coincidence
+
+    rng = MersenneTwister(3)
+    dirs = [normalize(SVector(randn(rng), randn(rng), randn(rng) + 2.0)) for _ in 1:30]
+    sys = SphericalSplineSystem(dirs)
+    @test size(sys.coeff) == (31, 30) && size(sys.Q) == (30, 30)
+    vals = [d[1]^2 - 0.3 * d[2] + 0.1 * d[3] for d in dirs]
+    w, a1 = spherical_spline_coefficients(sys, vals)
+    # interpolation: the spline reproduces its samples
+    @test maximum(abs(spherical_spline_evaluate(sys, w, a1, dirs[i]) - vals[i]) for i in eachindex(dirs)) <= 1.0e-10
+    @test sum(w) ≈ 0 atol = 1.0e-10                                                      # the side condition 1ᵀw = 0
+    # nodal weights: the sensitivity, exact (the spline is linear in its values), summing to one (constants reproduced)
+    q = normalize(SVector(0.2, -0.1, 1.0))
+    nw = nodal_weights(sys, q)
+    @test dot(nw, vals) ≈ spherical_spline_evaluate(sys, w, a1, q) rtol = 1.0e-12
+    @test sum(nw) ≈ 1 atol = 1.0e-10
+    # a constant has zero bending and is reproduced everywhere; the factor's rows give the energy
+    c = fill(2.5, 30)
+    wc, ac = spherical_spline_coefficients(sys, c)
+    @test spherical_spline_evaluate(sys, wc, ac, q) ≈ 2.5 rtol = 1.0e-10
+    @test abs(bending_energy(sys, c)) <= 1.0e-9 && bending_energy(sys, vals) > 0
+    L = bending_factor(sys)
+    @test sum(abs2, L * vals) ≈ bending_energy(sys, vals) rtol = 1.0e-9
+    # the evaluator: isbits, allocation-free, Float32 and Duals
+    ev(n, w, a, d) = @allocated spherical_spline_evaluate(n, w, a, d)
+    ev(sys.nodes, w, a1, q)
+    @test ev(sys.nodes, w, a1, q) == 0
+    @test spherical_spline_evaluate(SVector{30}(SVector{3, Float32}.(sys.nodes)), Float32.(w), Float32(a1), SVector{3, Float32}(q)) isa Float32
+    g = ForwardDiff.gradient(d -> spherical_spline_evaluate(sys, w, a1, d), q)
+    h = 1.0e-6
+    fd = [(spherical_spline_evaluate(sys, w, a1, q + h * I[1:3, k]) - spherical_spline_evaluate(sys, w, a1, q - h * I[1:3, k])) / 2h for k in 1:3]
+    @test g ≈ fd rtol = 1.0e-6
+end

@@ -53,6 +53,13 @@ f = tps_evaluate(tps.nodes, w, a, SVector(0.1, -0.2))
 ∇f = tps_gradient(tps.nodes, w, a, SVector(0.1, -0.2))
 ```
 
+Its analogue on the unit sphere, [`SphericalSplineSystem`](@ref) (Wahba's
+`m = 2` kernel [`spherical_spline_kernel`](@ref), a constant in place of the
+affine part; also hoisted from RadiometricCamera), has the same shape:
+[`spherical_spline_coefficients`](@ref), the isbits evaluator
+[`spherical_spline_evaluate`](@ref), and the shared `nodal_weights`,
+`bending_energy` and `bending_factor`.
+
 ```@autodocs
 Modules = [VisualGeometryToolkitCore]
 Private = false

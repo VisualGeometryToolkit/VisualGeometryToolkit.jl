@@ -403,8 +403,16 @@ kind). `BoundedCamera(PosedCamera(model(bc), pose), bc.extent)` is its posed
 counterpart; the pose accessors of an unposed one are an `ArgumentError`.
 [`is_posed`](@ref) is the wrapped camera's.
 
+# The bound
+`BoundedCamera(camera, extent::Size2)` bounds by a pixel extent;
+`BoundedCamera(camera, sensor::Sensor)` by the physical sensor, whose
+resolution is the extent and whose pitch (a length per pixel) carries a
+lens datasheet's millimetres into pixels ([`image_circle`](@ref)). Either way
+[`extent`](@ref)`(bc)` is the `Size2{Int}` pixel extent; [`sensor`](@ref)`(bc)`
+is the `Sensor`, or `nothing` for the extent form.
+
 # Field access
-- `bc.camera`, `bc.extent` — direct fields.
+- `bc.camera`, `bc.extent` — direct fields (`bc.extent` in both forms).
 
 # Method delegation (via `MacroTools.@forward`)
 The standard PosedCamera accessors (`intrinsics`, `lens`, `pose`, `extrinsics`,
@@ -428,7 +436,33 @@ extent(bc)         # same, via trait-dispatched accessor
 struct BoundedCamera{C <: AbstractCamera} <: AbstractCamera
     camera::C
     extent::Size2{Int}
+    sensor::Union{Nothing, Sensor{Quantity{Float64, Dimensions{FixRat32}}, Quantity{Float64, Dimensions{FixRat32}}}}
 end
+
+# The bound is a pixel extent, or the physical sensor whose resolution is that
+# extent. The extent field is kept in both forms, so `bc.extent` and `extent(bc)`
+# read the same `Size2{Int}` whichever bound was supplied.
+BoundedCamera(camera::C, extent::Size2) where {C <: AbstractCamera} =
+    BoundedCamera{C}(camera, convert(Size2{Int}, extent), nothing)
+function BoundedCamera(camera::C, s::Sensor) where {C <: AbstractCamera}
+    r = Rect(s)
+    return BoundedCamera{C}(camera, Size2(r.widths[1], r.widths[2]), Sensor(s.resolution, s.pitch))
+end
+
+"""
+    sensor(camera::BoundedCamera) -> Union{Sensor, Nothing}
+
+The physical [`Sensor`](@ref) a camera is bounded by — its resolution is the
+camera's [`extent`](@ref), its pitch the length per pixel — or `nothing` for a
+camera bounded by a bare pixel extent. The one-argument accessor beside the
+two-argument database lookup `sensor(manufacturer, model)`: both answer a
+`Sensor`.
+"""
+sensor(bc::BoundedCamera) = bc.sensor
+
+# The same bound around another camera: what a rebuild of the wrapped camera
+# (new extrinsics, new model, a unit change) keeps.
+_rebound(bc::BoundedCamera, camera::C) where {C <: AbstractCamera} = BoundedCamera{C}(camera, bc.extent, bc.sensor)
 
 # Trait opt-in — instance form (matches VGC convention: see has_boundary(::Ellipse) etc.)
 bounds_trait(::BoundedCamera) = HasBounds()
@@ -516,7 +550,7 @@ the produced form. An unposed camera (a model, or a `BoundedCamera` of one)
 holds no length, so both verbs return it unchanged.
 """
 FlexUnits.ustrip(u::Units, c::PosedCamera) = _rebuilt(c, ustrip(u, c.extrinsics))
-FlexUnits.ustrip(u::Units, c::BoundedCamera) = BoundedCamera(ustrip(u, c.camera), c.extent)
+FlexUnits.ustrip(u::Units, c::BoundedCamera) = _rebound(c, ustrip(u, c.camera))
 with_unit(c::PosedCamera, u::Units) = _rebuilt(c, _attach_unit(c.extrinsics, u))
 # an unposed camera holds no length: nothing to strip or attach
 FlexUnits.ustrip(u::Units, c::AbstractCamera) = is_posed(c) ? throw(MethodError(ustrip, (u, c))) : c
@@ -550,7 +584,7 @@ FlexUnits.ustrip(u::Units, c::PosedCamera{<:NoncentralGenericModel}) =
     u == m ? _rebuilt(c, ustrip(u, c.extrinsics)) : _refuse_noncentral_unit("ustrip", u)
 with_unit(c::PosedCamera{<:NoncentralGenericModel}, u::Units) =
     u == m ? _rebuilt(c, _attach_unit(c.extrinsics, u)) : _refuse_noncentral_unit("with_unit", u)
-with_unit(c::BoundedCamera, u::Units) = BoundedCamera(with_unit(c.camera, u), c.extent)
+with_unit(c::BoundedCamera, u::Units) = _rebound(c, with_unit(c.camera, u))
 
 """
     extent(cam) -> Size2{Int}

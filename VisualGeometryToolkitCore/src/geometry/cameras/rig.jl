@@ -56,7 +56,7 @@ _view_id(::EuclideanMap{3, T, R, V, S, ViewFrame{b}}) where {T, R, V, S, b} = b
 _with_extrinsics(c::PosedCamera, X::EuclideanMap{3}) = PosedCamera(c.model, X)
 _with_extrinsics(m::AbstractCamera, X::EuclideanMap{3}) = PosedCamera(m, X)   # posing an unposed camera (PosedCamera refuses a posed one)
 _with_extrinsics(c::BoundedCamera, X::EuclideanMap{3}) =
-    BoundedCamera(_with_extrinsics(c.camera, X), c.extent)
+    _rebound(c, _with_extrinsics(c.camera, X))
 
 # The identity check of a gauge member's pose: the rig frame IS that member's
 # frame, so its stored map must be the identity to construction accuracy (a
@@ -557,7 +557,7 @@ function with_model(c::AbstractCamera, model::AbstractCamera)
     return model
 end
 with_model(c::BoundedCamera, model::AbstractCamera) =
-    BoundedCamera(with_model(c.camera, model), c.extent)
+    _rebound(c, with_model(c.camera, model))
 
 function with_model(rig::Rig{F, <:Tuple}, im::Pair{<:Integer, <:AbstractCamera}) where {F}
     i, m = im

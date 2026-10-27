@@ -13,7 +13,7 @@
 #
 #   project(camera, X)             sampson_distance(F, u₁, u₂)
 #   distance(plane, p)             undistort(model, img, rect)
-#   boundary_point(ellipse, θ)     focal_length_for_fov(sensor, θ)
+#   boundary_point(ellipse, θ)     focal_length(sensor, θ)
 #
 # A given model leads in task verbs too (`localize(camera, detections)`); a
 # required tool leads (`pairwise_matrix(metric, d1, d2)`), a defaulted policy

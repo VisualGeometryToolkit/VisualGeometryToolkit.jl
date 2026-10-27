@@ -48,7 +48,7 @@ Throws an error if no valid configuration is found after max_retries attempts.
 # Setup camera
 s = sensor("Sony", "IMX174")
 sensor_bounds = Rect(s)
-f = focal_length_for_fov(s, deg2rad(40.0); dimension=:horizontal)
+f = focal_length(s, deg2rad(40.0); dimension=:horizontal)
 pp = centroid(sensor_bounds) .* px
 model = CameraModel(f, s.pitch, pp)
 

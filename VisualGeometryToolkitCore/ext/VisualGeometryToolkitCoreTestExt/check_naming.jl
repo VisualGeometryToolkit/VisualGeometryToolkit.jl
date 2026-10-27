@@ -339,6 +339,9 @@ const RETIRED_NAMES = String[
     # record dropped its "warp" key (vgio/target/v2), but the bare word stays
     # unretired: it is also the image warp (`image_warp`) across the stack
     "Abstract" * "Warp", "warp" * "_jacobian", "warp" * " = Rigid",
+    # the focal length a field of view implies is a method of the accessor,
+    # `focal_length(sensor, θ; dimension)` (2026-10-27); its inverse is `fov`
+    "focal_length" * "_for_fov",
 ]
 
 # Rule 10: the width quantities are bound by their full names. One name per

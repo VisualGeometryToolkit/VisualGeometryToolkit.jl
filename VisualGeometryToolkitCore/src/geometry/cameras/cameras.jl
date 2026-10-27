@@ -32,7 +32,7 @@ using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore.Cameras
 
 s = sensor("Sony", "IMX174")
-f = focal_length_for_fov(s, deg2rad(40.0))
+f = focal_length(s, deg2rad(40.0))
 model = CameraModel(f, s.pitch, centroid(Rect(s)) .* px)
 camera = PosedCamera(model, lookat(...))
 ```
@@ -1019,7 +1019,7 @@ export backproject_with_jacobian   # the bearing AND its pixel Jacobian: calibra
 # -----------------------------------------------------------------------------
 # 7. CAMERA ACCESSORS - Extract camera properties
 # -----------------------------------------------------------------------------
-export focal_length, focal_length_for_fov, calibration_matrix
+export focal_length, calibration_matrix
 export pose, extrinsics, is_in_front, default_frustum_depth
 
 # -----------------------------------------------------------------------------

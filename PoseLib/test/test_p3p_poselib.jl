@@ -194,7 +194,7 @@ using VisualGeometryToolkitCore
 
         # Setup camera
         s = sensor("Sony", "IMX174")
-        f = focal_length_for_fov(s, deg2rad(40.0); dimension=:horizontal)
+        f = focal_length(s, deg2rad(40.0); dimension=:horizontal)
         pp = s.resolution ./ 2
         model = CameraModel(f, s.pitch, pp)
 

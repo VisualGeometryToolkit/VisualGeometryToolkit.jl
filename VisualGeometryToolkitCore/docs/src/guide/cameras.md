@@ -45,7 +45,7 @@ using VisualGeometryToolkitCore
 s = sensor("Sony", "IMX174")
 
 # Focal length from field of view
-f = focal_length_for_fov(s, deg2rad(40.0); dimension=:horizontal)
+f = focal_length(s, deg2rad(40.0); dimension=:horizontal)
 
 # Principal point at the image center (Rect(s) is COLMAP convention)
 pp = centroid(Rect(s)) .* px

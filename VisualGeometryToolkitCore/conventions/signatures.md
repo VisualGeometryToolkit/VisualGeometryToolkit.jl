@@ -11,7 +11,7 @@ against, then parameters.**
 | `is_in_front(camera, X)` | camera | `X` | |
 | `undistort(model, img, rect; scale)` | model | `img` | `rect`, `scale` |
 | `boundary_point(ellipse, θ)` | ellipse | | `θ` |
-| `focal_length_for_fov(sensor, θ)` | sensor | | `θ` |
+| `focal_length(sensor, θ)` | sensor | | `θ` |
 | `centroid(ellipse)` | ellipse | | |
 
 The first argument names what the function belongs to, in the math's order

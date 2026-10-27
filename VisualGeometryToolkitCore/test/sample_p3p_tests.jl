@@ -4,7 +4,7 @@
 @testitem "sample_p3p" begin
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: sample_p3p, sensor, focal_length_for_fov, CameraModel, PosedCamera, project, centroid, px, Plane3D
+    using VisualGeometryToolkitCore: sample_p3p, sensor, focal_length, CameraModel, PosedCamera, project, centroid, px, Plane3D
     using GeometryBasics: Rect, Point3, widths
     using StaticArrays: SVector
     using LinearAlgebra: norm
@@ -12,7 +12,7 @@
 
     s = sensor("Sony", "IMX174")
     bounds = Rect(s)
-    model = CameraModel(focal_length_for_fov(s, deg2rad(40.0); dimension = :horizontal), s.pitch, centroid(bounds) .* px)
+    model = CameraModel(focal_length(s, deg2rad(40.0); dimension = :horizontal), s.pitch, centroid(bounds) .* px)
     rng = Xoshiro(2)
     X = [Point3(200 * randn(rng), 200 * randn(rng), 0.0) for _ in 1:40]
     X3 = SVector{3}(X[1], X[2], X[3])

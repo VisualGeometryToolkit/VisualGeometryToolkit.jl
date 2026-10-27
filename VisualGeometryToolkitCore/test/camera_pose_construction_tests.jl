@@ -106,7 +106,7 @@
             @test is_in_front(c, [front[1], back[1]], [front[2], back[2]], [front[3], back[3]]) == [true, false]
         end
         @test_throws MethodError is_in_front(front, cam)
-        @test_throws MethodError focal_length_for_fov(deg2rad(40.0), Size2(width = 640px, height = 480px))
+        @test_throws MethodError focal_length(deg2rad(40.0), Size2(width = 640px, height = 480px))
     end
 
     @testset "CameraModel(K): the pinhole camera of a static 3×3 K" begin

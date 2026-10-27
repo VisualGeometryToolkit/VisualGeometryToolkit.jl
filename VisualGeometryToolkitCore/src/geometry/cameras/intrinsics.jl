@@ -305,6 +305,11 @@ Get focal lengths (fx, fy) from LogicalIntrinsics K matrix (unitless, in pixels)
 Returns a tuple (fx, fy) extracted from the calibration matrix K.
 For square pixels, fx ≈ fy.
 
+The other forms answer the focal length a FULL field of view `θ` implies:
+`focal_length(resolution::Size2, θ; dimension = :horizontal)` in pixels and
+`focal_length(sensor::Sensor, θ; dimension = :horizontal)` as a length (see
+their docstrings); [`fov`](@ref) is their inverse for a camera.
+
 # Example
 ```julia
 intrinsics = LogicalIntrinsics(K)

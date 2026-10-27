@@ -3,10 +3,12 @@
 # ==============================================================================
 
 """
-    focal_length_for_fov(resolution::Size2, θ::Real; dimension=:horizontal)
+    focal_length(resolution::Size2, θ::Real; dimension=:horizontal)
 
-The focal length a field of view implies: in pixels from field of view angle (plain radians —
-angles carry no dimension in the VGC unit system) and resolution.
+The focal length a field of view implies: in pixels from the FULL field of view angle (plain radians —
+angles carry no dimension in the VGC unit system) and resolution. Its inverse, for a
+camera, is [`fov`](@ref). The other forms: `focal_length(sensor::Sensor, θ)` (a
+length) and the accessor `focal_length(intrinsics)` (`(fx, fy)` in pixels).
 
 # Arguments
 - `resolution::Size2`: Image resolution (width, height) in pixels: plain numbers or
@@ -19,11 +21,11 @@ angles carry no dimension in the VGC unit system) and resolution.
 
 # Examples
 ```julia
-focal_length_for_fov(Size2(width=1280px, height=960px), 0.698)
-focal_length_for_fov(Size2(width=1280px, height=960px), deg2rad(40.0))
+focal_length(Size2(width=1280px, height=960px), 0.698)
+focal_length(Size2(width=1280px, height=960px), deg2rad(40.0))
 ```
 """
-function focal_length_for_fov(resolution::Size2, θ::Real; dimension = :horizontal)
+function focal_length(resolution::Size2, θ::Real; dimension = :horizontal)
     if dimension === :horizontal
         f = 0.5 * _check_pixels(resolution.width)
     elseif dimension === :vertical
@@ -36,12 +38,13 @@ function focal_length_for_fov(resolution::Size2, θ::Real; dimension = :horizont
 end
 
 """
-    focal_length_for_fov(sensor, θ::Real; dimension=:horizontal)
+    focal_length(sensor::Sensor, θ::Real; dimension=:horizontal)
 
-The physical focal length from field of view angle and sensor specifications.
+The physical focal length from the FULL field of view angle and the sensor:
+`focal_length(sensor.resolution, θ)` pixels times the pitch of that axis.
 
 # Arguments
-- `sensor`: Sensor with `resolution` and `pitch` fields
+- `sensor::Sensor`: the sensor (its `resolution` and `pitch`)
 - `θ::Real`: Field of view angle in radians
 - `dimension::Symbol`: Which dimension the FOV applies to (`:horizontal` or `:vertical`)
 
@@ -51,12 +54,12 @@ The physical focal length from field of view angle and sensor specifications.
 # Examples
 ```julia
 s = sensor("Sony", "IMX174")
-f_mm = focal_length_for_fov(s, deg2rad(40.0))
+f_mm = focal_length(s, deg2rad(40.0))
 ```
 """
-function focal_length_for_fov(sensor, θ::Real; dimension = :horizontal)
+function focal_length(sensor::Sensor, θ::Real; dimension = :horizontal)
     # Get focal length in pixels
-    f_px = focal_length_for_fov(sensor.resolution, θ; dimension = dimension)
+    f_px = focal_length(sensor.resolution, θ; dimension = dimension)
 
     # Convert to physical length using pixel pitch
     # Use width pitch for horizontal FOV, height pitch for vertical FOV
@@ -253,7 +256,7 @@ the core solver.
 # Setup camera
 s = sensor("Sony", "IMX174")
 sensor_bounds = Rect(s)
-f = focal_length_for_fov(s, deg2rad(40.0); dimension=:horizontal)
+f = focal_length(s, deg2rad(40.0); dimension=:horizontal)
 pp = centroid(sensor_bounds) .* px
 model = CameraModel(f, s.pitch, pp)
 

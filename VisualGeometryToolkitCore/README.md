@@ -80,7 +80,7 @@ lp_patch = image_warp!(Matrix{Float32}(undef, 256, 256), w, img)
 ```julia
 # Setup camera from sensor specs
 s = sensor("Sony", "IMX174")
-f = focal_length_for_fov(s, deg2rad(40.0); dimension=:horizontal)
+f = focal_length(s, deg2rad(40.0); dimension=:horizontal)
 model = CameraModel(f, s.pitch, centroid(Rect(s)) .* px)   # Rect(s) is COLMAP convention
 
 # Posed camera

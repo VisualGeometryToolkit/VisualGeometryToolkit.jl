@@ -13,7 +13,7 @@ using StaticArrays: SVector
     @testset "P3P with random synthetic correspondences" begin
         # Setup camera model (following pose_from_correspondences.jl pattern)
         s = sensor("Sony", "IMX174")
-        f = focal_length_for_fov(s, deg2rad(40.0); dimension=:horizontal)
+        f = focal_length(s, deg2rad(40.0); dimension=:horizontal)
         pp = s.resolution ./ 2
         model = CameraModel(f, s.pitch, pp)
 
@@ -78,7 +78,7 @@ using StaticArrays: SVector
     @testset "P3P with degenerate configurations" begin
         # Setup camera model
         s = sensor("Sony", "IMX174")
-        f = focal_length_for_fov(s, deg2rad(40.0); dimension=:horizontal)
+        f = focal_length(s, deg2rad(40.0); dimension=:horizontal)
         pp = s.resolution ./ 2
         model = CameraModel(f, s.pitch, pp)
 
@@ -121,7 +121,7 @@ using StaticArrays: SVector
         # Test that we can disambiguate using reprojection error
 
         s = sensor("Sony", "IMX174")
-        f = focal_length_for_fov(s, deg2rad(40.0); dimension=:horizontal)
+        f = focal_length(s, deg2rad(40.0); dimension=:horizontal)
         pp = s.resolution ./ 2
         model = CameraModel(f, s.pitch, pp)
 
@@ -164,7 +164,7 @@ using StaticArrays: SVector
     @testset "P3P scale invariance" begin
         # P3P should work correctly regardless of world coordinate scale
         s = sensor("Sony", "IMX174")
-        f = focal_length_for_fov(s, deg2rad(40.0); dimension=:horizontal)
+        f = focal_length(s, deg2rad(40.0); dimension=:horizontal)
         pp = s.resolution ./ 2
         model = CameraModel(f, s.pitch, pp)
 

@@ -15,7 +15,7 @@
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: px, mm, μm, ustrip, strip_or_bare, Size2, Disc, Point2,
         DimensionError, DiagonalNormalization, CameraCalibrationMat, aspect_ratio, Rect
-    using VisualGeometryToolkitCore.Cameras: Sensor, sensor, focal_length_for_fov, LogicalIntrinsics
+    using VisualGeometryToolkitCore.Cameras: Sensor, sensor, focal_length, LogicalIntrinsics
 
     Q = Quantity{Float64, Dimensions{FixRat32}}
 
@@ -35,15 +35,15 @@
         @test_throws DimensionError Sensor(Size2(width = 1920mm, height = 1200mm), Size2(width = 5.86μm, height = 5.86μm))
     end
 
-    @testset "focal_length_for_fov: pixels from a resolution, a length from a sensor" begin
+    @testset "focal_length: pixels from a resolution, a length from a sensor" begin
         θ = deg2rad(40.0)
-        f_plain = focal_length_for_fov(Size2(width = 1280, height = 960), θ)
+        f_plain = focal_length(Size2(width = 1280, height = 960), θ)
         @test f_plain == 640 / tan(θ / 2)
-        f_px = focal_length_for_fov(Size2(width = 1280px, height = 960px), θ)
+        f_px = focal_length(Size2(width = 1280px, height = 960px), θ)
         @test ustrip(px, f_px) == f_plain
-        @test ustrip(px, focal_length_for_fov(Size2(width = 1280px, height = 960px), θ; dimension = :vertical)) == 480 / tan(θ / 2)
-        @test_throws DimensionError focal_length_for_fov(Size2(width = 1280mm, height = 960mm), θ)
-        f_mm = focal_length_for_fov(sensor("Sony", "IMX174"), θ)
+        @test ustrip(px, focal_length(Size2(width = 1280px, height = 960px), θ; dimension = :vertical)) == 480 / tan(θ / 2)
+        @test_throws DimensionError focal_length(Size2(width = 1280mm, height = 960mm), θ)
+        f_mm = focal_length(sensor("Sony", "IMX174"), θ)
         @test ustrip(mm, f_mm) ≈ 960 / tan(θ / 2) * 5.86e-3
     end
 

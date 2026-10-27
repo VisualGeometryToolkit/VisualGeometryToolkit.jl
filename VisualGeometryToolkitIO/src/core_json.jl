@@ -396,7 +396,15 @@ function from_json(::Type{<:AbstractDetection}, d::_JSONObject, contract::UnitCo
     meta = NamedTuple{names}(vals)
     _has_key(d, "cov") || return Attributed(fr, meta)
     c = _get_key(d, "cov")
-    N = c === nothing ? 3 : isqrt(length(c))
-    Σ = c === nothing ? fill(NaN, 3, 3) : reshape(Float64.(collect(c)), N, N)
+    N = _cov_size(fr)
+    (c === nothing || length(c) == N * N) ||
+        throw(ArgumentError("a $(nameof(typeof(fr))) detection's `cov` has $(N * N) entries ($(N)×$(N)), got $(length(c))"))
+    Σ = c === nothing ? fill(NaN, N, N) : reshape(Float64.(collect(c)), N, N)
     return Attributed(Uncertain(fr, CovMat{N, Float64, N * N}(Tuple(Σ))), meta)
 end
+# The size of a frame's covariance, its number of parameters — the frame's
+# type decides it, also for a `null` covariance, which states no size.
+_cov_size(::Disc) = 3            # center, σ
+_cov_size(::OrientedDisc) = 4    # center, σ, θ
+_cov_size(::EllipticFrame) = 5   # center, S (symmetric)
+_cov_size(::AffineFrame) = 6     # center, A

@@ -158,6 +158,14 @@ end
     n = Attributed(Uncertain(frames[1], CovMat{3, Float64, 9}(ntuple(_ -> NaN, 9))), meta)
     @test occursin("\"cov\":null", JSON.json(json_value(n, MM_PX; kind = :plain)))
     @test all(isnan, cov(getfield(rt(n), :value)))
+    # a null covariance comes back with its frame's size: the type round-trips
+    for (f, N) in zip(frames, (3, 4, 5, 6))
+        nu = Attributed(Uncertain(f, CovMat{N, Float64, N * N}(ntuple(_ -> NaN, N * N))), meta)
+        r = rt(nu)
+        @test typeof(r) == typeof(nu) && size(cov(getfield(r, :value))) == (N, N) && all(isnan, cov(getfield(r, :value)))
+    end
+    # a cov of another size than its frame's is refused
+    @test_throws ArgumentError from_json(AbstractDetection, JSON.parse("""{"frame":{"center":[1.0,2.0],"σ":3.0,"θ":0.5},"cov":[1.0,0.0,0.0,1.0]}"""), MM_PX; kind = :plain)
     # the wire format of a plain detection is the one stored files hold
     @test JSON.json(json_value(Attributed(Disc(10.5, 20.25, 3.0), meta), MM_PX; kind = :plain)) ==
         """{"frame":{"center":[10.5,20.25],"σ":3.0},"response":0.25,"edge_score":0.0,"laplacian_scale_score":1.0,"warp_idx":7}"""

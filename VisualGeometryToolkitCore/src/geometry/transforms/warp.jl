@@ -458,3 +458,71 @@ hoisted verbatim from BlobBoards' adaptation kernels (2026-09).
     b = v10 + (v11 - v10) * tx
     return (true, a + (b - a) * ty)
 end
+
+# -----------------------------------------------------------------------------
+# A texture lookup: bilinear in the half-texel chart, extended at the edges
+# (hoisted from RadiometricCamera src/board/board.jl, `bilinear` and
+# `_bilinear_setup`, its arithmetic unchanged)
+# -----------------------------------------------------------------------------
+#
+# Not `bilinear_sample_clamped`'s policy: that one addresses 1-based array
+# positions, rejects a position off the image and is exact at integers (a scan
+# over pixels); this one addresses the unit square of the texture, never
+# rejects (a position off it reads the edge), returns several channels at once
+# and differentiates in the position. Two lookups with two contracts, not one
+# with a flag.
+
+# The texel position of a Dual is chosen on its value; the weights carry its partials.
+@inline _texel_value(x::ForwardDiff.Dual) = _texel_value(ForwardDiff.value(x))
+@inline _texel_value(x) = x
+
+@inline function _bilinear_setup(H::Int, W::Int, uv::StaticVector{2})
+    h = one(eltype(uv)) / 2
+    x = uv[1] * W - h; y = uv[2] * H - h
+    xv = _texel_value(x); yv = _texel_value(y)
+    Tv = typeof(xv)
+    isfinite(xv) || (x = zero(x); xv = zero(Tv))        # a non-finite position reads the corner texel
+    isfinite(yv) || (y = zero(y); yv = zero(Tv))
+    xv = clamp(xv, zero(Tv), Tv(W - 1)); yv = clamp(yv, zero(Tv), Tv(H - 1))
+    x0 = min(floor(Int, xv), W - 2); y0 = min(floor(Int, yv), H - 2)
+    x0 = max(x0, 0); y0 = max(y0, 0)
+    fx = clamp(x - x0, zero(x), one(x)); fy = clamp(y - y0, zero(y), one(y))
+    return x0 + 1, y0 + 1, fx, fy          # 1-based indices of the lower-left texel
+end
+
+"""
+    bilinear_sample(img::AbstractMatrix, uv::StaticVector{2}) -> value
+    bilinear_sample(img::AbstractArray{T, 3}, Val(C), uv::StaticVector{2}) -> SVector{C}
+
+Bilinear lookup of a texture at `uv` in its unit-square chart, the
+half-texel convention: `img[i, j]` (row `i` of `H`, column `j` of `W`) is the
+texel centred at `uv = ((j − ½)/W, (i − ½)/H)`, so `(0, 0)` is the outer
+corner of `img[1, 1]` and `(1, 1)` that of `img[H, W]`. A position off the
+centres' rectangle EXTENDS the edge (clamp to edge, never a rejection), and a
+non-finite position reads the corner texel `img[1, 1]`. The image needs at
+least 2 × 2 texels.
+
+A matrix returns one value (any element type that scales and adds: numbers,
+`SVector`s); a 3-D array `(H, W, C)` returns its first `C` channels as an
+`SVector{C}` — RGB, or a signed distance and its orientation tensor.
+Allocation-free and generic: under ForwardDiff the texel is chosen on the
+position's value and the derivative flows through the weights, which are
+continuous across texels (the value is C⁰).
+
+The other bilinear lookup, [`bilinear_sample_clamped`](@ref), addresses
+1-based array positions and rejects positions off the image.
+"""
+@inline function bilinear_sample(img::AbstractMatrix, uv::StaticVector{2})
+    H, W = size(img)
+    i, j, fx, fy = _bilinear_setup(H, W, uv)
+    @inbounds return (1 - fx) * (1 - fy) * img[j, i] + fx * (1 - fy) * img[j, i + 1] +
+        (1 - fx) * fy * img[j + 1, i] + fx * fy * img[j + 1, i + 1]
+end
+@inline function bilinear_sample(img::AbstractArray{T, 3}, ::Val{C}, uv::StaticVector{2}) where {T, C}
+    H, W = size(img, 1), size(img, 2)
+    i, j, fx, fy = _bilinear_setup(H, W, uv)
+    w00 = (1 - fx) * (1 - fy); w10 = fx * (1 - fy); w01 = (1 - fx) * fy; w11 = fx * fy
+    @inbounds return SVector{C}(
+        ntuple(c -> w00 * img[j, i, c] + w10 * img[j, i + 1, c] + w01 * img[j + 1, i, c] + w11 * img[j + 1, i + 1, c], Val(C))
+    )
+end

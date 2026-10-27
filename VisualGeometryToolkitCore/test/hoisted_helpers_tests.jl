@@ -107,6 +107,43 @@
         @test bilinear_sample_clamped(Float64, img, 1.0, 4.0, H, W) == (false, 0.0)
     end
 
+    @testset "bilinear_sample: the half-texel chart, extended at the edges" begin
+        using VisualGeometryToolkitCore: bilinear_sample
+        using ForwardDiff: ForwardDiff
+        using StaticArrays: SVector
+        a, b, c, d = 1.0, 2.0, 4.0, 8.0
+        img = [a b; c d]                                   # row 1 = (a, b): the texels at v = 1/4
+        @test bilinear_sample(img, SVector(0.25, 0.25)) == a   # texel centres
+        @test bilinear_sample(img, SVector(0.75, 0.25)) == b
+        @test bilinear_sample(img, SVector(0.25, 0.75)) == c
+        @test bilinear_sample(img, SVector(0.75, 0.75)) == d
+        @test bilinear_sample(img, SVector(0.5, 0.5)) == (a + b + c + d) / 4
+        @test bilinear_sample(img, SVector(0.5, 0.25)) == (a + b) / 2
+        # off the centres' rectangle: the edge extends
+        @test bilinear_sample(img, SVector(0.0, 0.0)) == a && bilinear_sample(img, SVector(-1.0, 2.0)) == c
+        @test bilinear_sample(img, SVector(1.0, 0.5)) == (b + d) / 2
+        @test bilinear_sample(img, SVector(NaN, 0.25)) == a                       # a non-finite position: the corner texel
+        # hand-computed weights and their derivative
+        uv = SVector(0.4, 0.6)
+        fx, fy = 0.4 * 2 - 0.5, 0.6 * 2 - 0.5
+        @test bilinear_sample(img, uv) ≈ (1 - fx) * (1 - fy) * a + fx * (1 - fy) * b + (1 - fx) * fy * c + fx * fy * d
+        g = ForwardDiff.gradient(q -> bilinear_sample(img, q), uv)
+        @test g ≈ SVector(2 * ((1 - fy) * (b - a) + fy * (d - c)), 2 * ((1 - fx) * (c - a) + fx * (d - b))) rtol = 1.0e-14
+        @test ForwardDiff.gradient(q -> bilinear_sample(img, q), SVector(-0.3, 0.6))[1] == 0      # extended: flat across the edge
+        # several channels: each channel is the one-channel lookup
+        rgb = cat(img, 2 .* img, img .+ 1; dims = 3)
+        v = bilinear_sample(rgb, Val(3), uv)
+        @test v isa SVector{3, Float64}
+        @test v ≈ SVector(bilinear_sample(img, uv), bilinear_sample(2 .* img, uv), bilinear_sample(img .+ 1, uv))
+        @test ForwardDiff.jacobian(q -> bilinear_sample(rgb, Val(3), q), uv)[2, :] ≈ 2 .* g
+        # a matrix of SVector texels is several channels too; Float32 stays Float32; no allocation
+        @test bilinear_sample(map(x -> SVector(x, 2x), img), uv) ≈ SVector(1, 2) .* bilinear_sample(img, uv)
+        @test bilinear_sample(Float32.(img), SVector(0.4f0, 0.6f0)) isa Float32
+        alloc(im, q) = @allocated bilinear_sample(im, Val(3), q)
+        alloc(rgb, uv)
+        @test alloc(rgb, uv) == 0
+    end
+
     @testset "raster overlays" begin
         img = zeros(Int, 20, 20)
         put_pixel!(img, 5, 7, 1; w = 1)         # x = col 5, y = row 7

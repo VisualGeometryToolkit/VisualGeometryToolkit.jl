@@ -715,7 +715,7 @@ public present_kwargs, check_keys, toml_skip_fields, toml_key, toml_value,
     toml_field, toml_table, allowed_keys, read_table, convert_field, toml_default, write_toml,
     toml_field_name, parse_defaults
 public lgamma_lanczos, digamma_stirling, trigamma_stirling, lu_solve!, tree_sum!,
-    bilinear_sample_clamped
+    bilinear_sample_clamped, bilinear_sample
 public draw_ellipse!, draw_projected_ellipse!, draw_polyline!
 # Reached by qualified access or explicit import from the family's packages
 # (VisualGeometryToolkitEstimation, VisualGeometryToolkitEval, RANSACScoringDoneRight, BlobBoards,

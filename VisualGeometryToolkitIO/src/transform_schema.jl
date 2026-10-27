@@ -87,11 +87,11 @@ iff `Uncertain`. Its frames are not written: they are given by where it sits.
 A plain translation is an `ArgumentError` (attach its unit,
 `EuclideanMap(rotation(X), t .* m)`). The inverse is [`pose_from_json`](@ref).
 """
-function pose_json(X::EuclideanMap{3}, unit::Units = mm)
+function pose_json(X::EuclideanMap{3}, unit::_LeafUnit = mm)
     t = _lengths_json(X.t, unit, "a pose's translation")
     return (rotation = collect(_qvec(X.R)), translation = t)
 end
-function pose_json(u::Uncertain{<:EuclideanMap{3}}, unit::Units = mm)
+function pose_json(u::Uncertain{<:EuclideanMap{3}}, unit::_LeafUnit = mm)
     body = pose_json(geom(u), unit)
     return merge(body, (covariance = _length_cov_json(SMatrix{6, 6, Float64, 36}(cov(u)), unit, _POSE_COV_DIMS),))
 end

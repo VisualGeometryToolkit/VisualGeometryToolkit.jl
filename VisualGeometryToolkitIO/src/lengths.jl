@@ -192,6 +192,18 @@ end
 # have one identity.
 _persisted(y::Real, n::Int = 1) = _read_power(_write_power(Float64(y), mm, n), mm, n)
 
+# Where a writer puts a length leaf: a file's unit (`Units`), or `_PERSISTED`,
+# the identity tree's (`content_id`) persisted metre value. The target, pose and
+# covariance writers take either, so the identity is built by the writer's own
+# walk and converts at the leaves only.
+struct _Persisted end
+const _PERSISTED = _Persisted()
+const _LeafUnit = Union{Units, _Persisted}
+_leaf_power(y::Float64, u::Units, n::Int) = _write_power(y, u, n)
+_leaf_power(y::Float64, ::_Persisted, n::Int) = _persisted(y, n)
+_leaf_length(q, u::Units) = write_length(q, u)
+_leaf_length(q, ::_Persisted) = _persisted(ustrip(m, q))
+
 # -----------------------------------------------------------------------------
 # The schemas' use of the pair: vectors of lengths, and their covariances
 # -----------------------------------------------------------------------------
@@ -200,9 +212,9 @@ _persisted(y::Real, n::Int = 1) = _read_power(_write_power(Float64(y), mm, n), m
 _refuse_plain(what) = throw(ArgumentError("$(what) holds plain numbers; attach its unit, e.g. t .* m"))
 
 # A vector of lengths as the file's numbers in `u`; plain numbers are refused.
-function _lengths_json(v::AbstractVector, u::Units, what)
+function _lengths_json(v::AbstractVector, u::_LeafUnit, what)
     (!isempty(v) && !has_units(v)) && _refuse_plain(what)
-    return Float64[write_length(q, u) for q in v]
+    return Float64[_leaf_length(q, u) for q in v]
 end
 
 # The file's numbers in `u` as a static vector of lengths (metres).
@@ -213,7 +225,7 @@ _lengths_from_json(::Val{N}, v::AbstractVector, u::Units) where {N} =
 # `dims[i] + dims[j]`, each `dims` 0 or 1) as the wire's rows in `u`, and back.
 # `_cov_rows` applies `f(entry, dimension)` to every entry, row by row.
 _cov_rows(f, Σ::AbstractMatrix, dims) = [Float64[f(Float64(Σ[i, j]), dims[i] + dims[j]) for j in axes(Σ, 2)] for i in axes(Σ, 1)]
-_length_cov_json(Σ::AbstractMatrix, u::Units, dims) = _cov_rows((x, n) -> _write_power(x, u, n), Σ, dims)
+_length_cov_json(Σ::AbstractMatrix, u::_LeafUnit, dims) = _cov_rows((x, n) -> _leaf_power(x, u, n), Σ, dims)
 _length_cov_from_json(c, n::Int, u::Units, dims) = SMatrix{n, n, Float64}(
     ntuple(k -> (i = (k - 1) % n + 1; j = (k - 1) ÷ n + 1; _read_power(c[i][j]::Real, u, dims[i] + dims[j])), n * n)
 )

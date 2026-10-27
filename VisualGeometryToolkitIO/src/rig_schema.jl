@@ -191,7 +191,7 @@ const _TARGET_BODY = _Checked(
 # A target's points on the wire: the geometric values, and their covariances
 # iff every point is `Uncertain` (plain and uncertain points are not mixed in
 # one target — the file could not say which is which).
-function _points_json(what, pts, unit::Units)
+function _points_json(what, pts, unit::_LeafUnit)
     vals = [_lengths_json(geom(p), unit, "$(what): a point") for p in pts]
     n_u = count(p -> p isa Uncertain, pts)
     n_u == 0 && return (points = vals,)
@@ -221,27 +221,27 @@ _length_dims(c::Union{ThinPlateSpline, HeightField}) = ones(Int, length(paramete
 _length_dims(c::CalibrationChain) = reduce(vcat, map(_length_dims, c.members); init = Int[])
 
 # A plain metre value (a calibration's stored length) as the file's number in `u`.
-_metres_json(x::Real, u::Units) = write_length(_metre_quantity(x), u)
-_nodes_json(c, u::Units) = [[_metres_json(p[1], u), _metres_json(p[2], u)] for p in c.system.nodes]
+_metres_json(x::Real, u::_LeafUnit) = _leaf_power(Float64(x), u, 1)
+_nodes_json(c, u::_LeafUnit) = [[_metres_json(p[1], u), _metres_json(p[2], u)] for p in c.system.nodes]
 
 _tag(c::TargetCalibration) = tag_of(TARGET_CALIBRATION_TAGS, c)
 # A calibration with lengths is stored physical: plain numbers are refused, as
 # a target's plain points are.
 _physical(c::TargetCalibration) = (has_units(c) || _refuse_plain("a $(nameof(typeof(c))) target calibration"); c)
 
-_calibration_record(c::Rigid, ::Units) = (type = _tag(c),)
-function _calibration_record(c::Affine, u::Units)
+_calibration_record(c::Rigid, ::_LeafUnit) = (type = _tag(c),)
+function _calibration_record(c::Affine, u::_LeafUnit)
     θ = parameter_vector(_physical(c))
     return (type = _tag(c), parameters = [Float64(θ[1]), Float64(θ[2]), Float64(θ[3]), Float64(θ[4]), _metres_json(θ[5], u), _metres_json(θ[6], u)])
 end
-_calibration_record(c::Union{ThinPlateSpline, HeightField}, u::Units) =
+_calibration_record(c::Union{ThinPlateSpline, HeightField}, u::_LeafUnit) =
     (type = _tag(_physical(c)), nodes = _nodes_json(c, u), parameters = [_metres_json(v, u) for v in parameter_vector(c)])
-_calibration_record(c::CalibrationChain, u::Units) = (type = _tag(c), members = [_calibration_record(x, u) for x in c.members])
-_calibration_record(c::TargetCalibration, ::Units) = throw(
+_calibration_record(c::CalibrationChain, u::_LeafUnit) = (type = _tag(c), members = [_calibration_record(x, u) for x in c.members])
+_calibration_record(c::TargetCalibration, ::_LeafUnit) = throw(
     ArgumentError("save: a $(nameof(typeof(c))) target calibration has no record in $(_schema("target")) (its kinds: $(join(keys(TARGET_CALIBRATION_TAGS), ", ")))")
 )
 
-_calibration_record(c::Uncertain{<:TargetCalibration}, u::Units) =
+_calibration_record(c::Uncertain{<:TargetCalibration}, u::_LeafUnit) =
     merge(_calibration_record(geom(c), u), (covariance = _length_cov_json(cov(c), u, _length_dims(geom(c))),))
 
 _read_metres(x, u::Units) = read_length(x::Real, u)
@@ -282,8 +282,8 @@ calibration with lengths, is an `ArgumentError` (attach the unit, `p .* m`). A
 `PlanarTarget` of a referenced design is written by its reference alone.
 Building blocks for a package serializing its own kind.
 """
-target_json(t::PointTarget, unit::Units = mm) = merge((type = "points",), _points_json("a points target", points(t), unit))
-target_json(t::PlanarTarget, unit::Units = mm) = merge(
+target_json(t::PointTarget, unit::_LeafUnit = mm) = merge((type = "points",), _points_json("a points target", points(t), unit))
+target_json(t::PlanarTarget, unit::_LeafUnit = mm) = merge(
     reference(t) === nothing ?
         (type = "planar", nominal = [_lengths_json(p, unit, "a planar target's nominal point") for p in t.nominal], calibration = _calibration_record(calibration(t), unit)) :
         (type = "planar", reference = String(reference(t)), calibration = _calibration_record(calibration(t), unit)),
@@ -294,10 +294,11 @@ target_json(t::PlanarTarget, unit::Units = mm) = merge(
 # its lower-left corner as plain metres (a physical target's; a unitless one is
 # in no file). Both are written in the file's unit, the size in the Size2 form,
 # decimal-exactly; read back, the size is lengths and the corner plain metres.
-_board_json(::Nothing, ::Units) = (;)
-function _board_json(bd::Board, u::Units)
+_board_json(::Nothing, ::_LeafUnit) = (;)
+function _board_json(bd::Board, u::_LeafUnit)
     has_units(bd) || _refuse_plain("a target's board")
-    return (board = (size = json_value(bd.size, UnitContract(u); kind = :length), origin = [_metres_json(x, u) for x in bd.origin]),)
+    size = (width = _leaf_length(bd.size.width, u), height = _leaf_length(bd.size.height, u))
+    return (board = (size = size, origin = [_metres_json(x, u) for x in bd.origin]),)
 end
 function _board_from_json(x, u::Units)
     o = x.origin::Vector{Any}
@@ -557,10 +558,10 @@ end
 The identity a measurement file (`target_points2d`, `target_points3d`) names a
 target definition by — `targets` a `Rig` or a `vgio/rig/v5` path: the SHA-256
 of the canonical JSON (`canonical_json`) of the rig's IDENTITY TREE. The tree
-is built from the in-memory value under the fixed names below — names of the
-identity's own, independent of any record's key spellings — every length in
-metres (base units), the targets sorted by id, and no schema version,
-declaration or provenance. The identity therefore does not change when the
+is built from the in-memory value by the record writer's own walk, under the
+fixed names below — names of the identity's own, which a later record format
+must keep mapping to — every length in metres (base units), the targets sorted
+by id, and no schema version, declaration or provenance. The identity therefore does not change when the
 file format does: a rig, every file written from it in any decimal
 `length_unit`, the rig loaded back from such a file, and a migration of the
 file to the next rig version have one identity. A relabeled provenance does
@@ -608,36 +609,38 @@ content_id(x::Union{Rig, AbstractString}) = _targets_hash(x)
 _targets_hash(path::AbstractString) = _targets_hash(_rig_from_record(_read_store(path, "rig", _RIG_SPEC)))   # a referenced design stays a reference
 _targets_hash(rig::Rig) = sha256_hex(canonical_json(_identity_tree(rig)))
 
-# The identity tree (content_id's docstring), from the value. Every number is a
-# Float64 (base units), an extent or grid size an Int; a name is a String.
+# The identity tree (content_id's docstring). Its targets and poses are the
+# writer's own records (`target_json`, `pose_json`), built with every length
+# leaf as its persisted metre value (`_PERSISTED`) instead of a file's number,
+# under the identity's names: `kind` for a record's `type`, a board's size as
+# [width, height]. Every number is a Float64 (base units), an extent or grid
+# size an Int; a name is a String.
 const _Id = Dict{String, Any}
-_id_metres(q) = _persisted(ustrip(m, q))
-_id_lengths(v) = Any[_id_metres(q) for q in v]
-# covariance rows, entry (i, j) of length dimension `dims[i] + dims[j]`, persisted
-_id_rows(Σ, dims) = _cov_rows(_persisted, Σ, dims)
 
 function _identity_tree(rig::Rig)
     d = _Id("frame" => frame_name(reference_frame(rig)))
-    sensors, targets = _id_sensors(rig), _id_targets(rig)
-    sensors === nothing || (d["sensors"] = sensors)
-    targets === nothing || (d["targets"] = targets)
+    _has_sensors(rig) && (d["sensors"] = Any[_id_sensor(rig, i, id) for (i, id) in enumerate(ids(sensor_rig(rig)))])
+    _has_targets(rig) && (d["targets"] = _id_targets(target_rig(rig)))
     return d
 end
-_id_sensors(::Rig{F, <:AbstractDict}) where {F <: Frame{3}} = nothing
-_id_sensors(rig::Rig) = Any[_id_sensor(rig, i, id) for (i, id) in enumerate(ids(sensor_rig(rig)))]
 _id_sensor(rig, i, id) =      # (as the writer's `_sensor_json`: the rig untyped here)
-    _Id("id" => String(id), "camera" => _id_camera(sensor_rig(rig).members[i]), "extrinsics" => _id_pose(extrinsics(sensor_rig(rig), i)))
-_id_targets(::Rig{F, <:Tuple}) where {F <: Frame{3}} = nothing
-_id_targets(rig::Rig) = Any[
-    _Id("id" => String(id), "target" => _id_target(target_rig(rig)[id].target), "pose" => _id_pose(pose(target_rig(rig), id)))
-        for id in sort!(collect(ids(target_rig(rig))))
+    _Id("id" => String(id), "camera" => _id_camera(sensor_rig(rig).members[i]), "extrinsics" => _lower(pose_json(extrinsics(sensor_rig(rig), i), _PERSISTED)))
+_id_targets(tr) = Any[
+    _Id("id" => String(id), "target" => _id_kind!(_id_board!(_lower(target_json(tr[id].target, _PERSISTED)))), "pose" => _lower(pose_json(pose(tr, id), _PERSISTED)))
+        for id in sort!(collect(ids(tr)))
 ]
-
-# the rotation as persisted: `_qvec`, the writer's own conversion (assemble.jl)
-_id_pose(X::EuclideanMap{3}) = _Id("rotation" => Any[Float64(x) for x in _qvec(X.R)], "translation" => _id_lengths(X.t))
-function _id_pose(u::Uncertain{<:EuclideanMap{3}})
-    d = _id_pose(geom(u))
-    d["covariance"] = _id_rows(cov(u), _POSE_COV_DIMS)
+# a record's `type` (a target's, a calibration's and its members') is the identity's `kind`
+function _id_kind!(d::_Id)
+    d["kind"] = pop!(d, "type")
+    haskey(d, "calibration") && _id_kind!(d["calibration"])
+    foreach(_id_kind!, get(d, "members", ()))
+    return d
+end
+# a board's size is [width, height]
+function _id_board!(d::_Id)
+    haskey(d, "board") || return d
+    s = d["board"]["size"]
+    d["board"]["size"] = Any[s["width"], s["height"]]
     return d
 end
 
@@ -648,14 +651,13 @@ function _id_camera(c)
         e = extent(c)
         return _Id(
             "intrinsics" => Any[Float64(K[1, 1]), Float64(K[2, 2]), Float64(K[1, 3]), Float64(K[2, 3]), Float64(K[1, 2])],
-            "extent" => Any[Int(e.width), Int(e.height)], "lens" => _lower(_parse_json(_json(_lens_json(mdl.lens)))),
+            "extent" => Any[Int(e.width), Int(e.height)], "lens" => _lower(_lens_json(mdl.lens)),
         )
     end
     return _id_grid_model(mdl)
 end
 _id_grid(g) = Any[Any[Float64(v[k]) for k in 1:3] for gy in 1:size(g, 1) for v in (g[gy, :]...,)]
 _id_grid_metres(g) = Any[Any[_persisted(v[k]) for k in 1:3] for gy in 1:size(g, 1) for v in (g[gy, :]...,)]
-_persisted_if(x, n::Int) = n == 0 ? Float64(x) : _persisted(x, n)
 function _id_grid_header(gm, grid)
     return _Id(
         "extent" => Any[Int(gm.width), Int(gm.height)],
@@ -669,45 +671,7 @@ _id_grid_model(gm::NoncentralGenericModel) = merge(
     _Id("grid_model" => "noncentral", "directions" => _id_grid(gm.directions), "points" => _id_grid_metres(gm.points)),   # plain metres
 )
 
-function _id_target(t::PointTarget)
-    pts = points(t)
-    d = _Id("kind" => "points", "points" => Any[_id_lengths(geom(p)) for p in pts])
-    any(p -> p isa Uncertain, pts) && (d["point_covariances"] = Any[_id_rows(cov(p), _point_cov_dims(size(cov(p), 1))) for p in pts])
-    return d
-end
-function _id_target(t::PlanarTarget)
-    d = _Id("kind" => "planar", "calibration" => _id_calibration(calibration(t)))
-    ref, nominal = reference(t), t.nominal
-    if ref !== nothing
-        d["reference"] = String(ref)            # a referenced design: its points are its owner's
-    elseif nominal !== nothing
-        d["nominal"] = Any[_id_lengths(p) for p in nominal]
-    end
-    bd = board(t)
-    bd === nothing ||
-        (d["board"] = _Id("size" => Any[_id_metres(bd.size.width), _id_metres(bd.size.height)], "origin" => Any[_persisted(x) for x in bd.origin]))
-    return d
-end
-
-# A calibration's numbers are stored as plain metres (a physical kind) or plain
-# numbers (an unphysical one, which no record holds: refused as the writer does).
-function _id_calibration(c::TargetCalibration)
-    d = _Id("kind" => _tag(c))
-    if c isa CalibrationChain
-        d["members"] = Any[_id_calibration(x) for x in c.members]
-    elseif !(c isa Rigid)
-        _physical(c)
-        d["parameters"] = Any[_persisted_if(x, n) for (x, n) in zip(parameter_vector(c), _length_dims(c))]
-        (c isa ThinPlateSpline || c isa HeightField) && (d["nodes"] = Any[Any[_persisted(p[1]), _persisted(p[2])] for p in c.system.nodes])
-    end
-    return d
-end
-function _id_calibration(u::Uncertain{<:TargetCalibration})
-    d = _id_calibration(geom(u))
-    d["covariance"] = _id_rows(cov(u), _length_dims(geom(u)))
-    return d
-end
-
+_lower(x::NamedTuple) = Dict{String, Any}(String(k) => _lower(v) for (k, v) in pairs(x))
 _lower(x::AbstractDict) = Dict{String, Any}(String(k) => _lower(v) for (k, v) in x)
 _lower(x::AbstractVector) = Any[_lower(v) for v in x]
 _lower(x) = x

@@ -1,0 +1,81 @@
+{
+    "schema": "vgio/rig/v5",
+    "pixel_frame": "colmap",
+    "length_unit": "mm",
+    "rotation_encoding": "quaternion_wxyz_hamilton",
+    "transform_convention": "x_to = R * x_from + t",
+    "frame": "view:fisheye",
+    "sensors": [
+        {
+            "id": "fisheye",
+            "camera": {
+                "width": 2448,
+                "height": 2048,
+                "K": {
+                    "fx": 1270.0,
+                    "fy": 1270.0,
+                    "cx": 1224.0,
+                    "cy": 1024.0,
+                    "skew": 0.0
+                },
+                "lens": {
+                    "equidistant": [],
+                    "radial": [
+                        [
+                            -0.1351,
+                            0.002
+                        ],
+                        []
+                    ]
+                },
+                "pitch": [
+                    0.00345,
+                    0.00345
+                ]
+            },
+            "extrinsics": {
+                "rotation": [
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "translation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            }
+        },
+        {
+            "id": "cam",
+            "camera": {
+                "width": 1280,
+                "height": 960,
+                "K": {
+                    "fx": 900.0,
+                    "fy": 900.0,
+                    "cx": 640.0,
+                    "cy": 480.0,
+                    "skew": 0.0
+                },
+                "lens": {
+                    "perspective": []
+                }
+            },
+            "extrinsics": {
+                "rotation": [
+                    0.9233805168766387,
+                    0.10259783520851541,
+                    -0.3077935056255462,
+                    0.20519567041703082
+                ],
+                "translation": [
+                    251.9,
+                    -144.4,
+                    904.1
+                ]
+            }
+        }
+    ]
+}

@@ -30,6 +30,12 @@ argument, because the value already carries it.
 | `vgio/generic_camera/v2` (Schöps grid models) | `CentralGenericModel`, `NoncentralGenericModel` | `load(CentralGenericModel, path)`, `load(NoncentralGenericModel, path)` | `save(path, m)` |
 | `vgio/correspondences/v2` (flat 2D–3D pairs per frame and target) | an export of a `TargetPoints2D` and its target rigs; there is no reader | — | `save_correspondences([to_frame,] path, obs, targets...; resolve)` |
 
+A rig sensor bounded by its physical sensor (`BoundedCamera(camera, sensor::Sensor)`)
+carries the sensor's pixel pitch in its camera body, `"pitch": [width, height]`,
+a length per pixel in the rig's `length_unit`; the reader restores the `Sensor`
+bound, and the rig's `content_id` covers the pitch. A sensor bounded by a bare
+pixel extent has no `pitch` key.
+
 ## The foreign formats
 
 | Format | Value | Read | Write |

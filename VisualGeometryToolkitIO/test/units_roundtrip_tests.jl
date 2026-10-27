@@ -18,6 +18,7 @@
     fixtures = joinpath(@__DIR__, "fixtures", "units")
     kinds = Dict(
         "transforms.json" => Vector{EuclideanMap}, "rig.json" => Rig, "rig_targets.json" => Rig,
+        "rig_pitch.json" => Rig,
         "target_points.json" => AbstractTarget, "target_planar.json" => AbstractTarget,
         "trajectory.json" => Trajectory, "target_poses.json" => TargetPoses,
         "target_points3d.json" => TargetPoints3D, "generic_camera.json" => NoncentralGenericModel,

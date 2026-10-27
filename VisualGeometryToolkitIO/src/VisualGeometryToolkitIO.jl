@@ -91,7 +91,7 @@ using VisualGeometryToolkitCore: parse_unit, unit_string, mm, m, px, dpi, has_un
     Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Chain, Even,
     lens_record, lens_from_record,
     EuclideanMap, Size2, Vec3, PixelFrame,
-    Rig, PosedTarget, BoundedCamera, PosedCamera, Attributed, sensor_rig, target_rig,
+    Rig, PosedTarget, BoundedCamera, PosedCamera, Attributed, sensor_rig, target_rig, Sensor, sensor,
     AbstractTarget, PointTarget, PlanarTarget, TargetCalibration, calibration, reference, is_resolved, Board, board,
     Rigid, Affine, ThinPlateSpline, HeightField, CalibrationChain, TARGET_CALIBRATION_TAGS, tag_of, parameter_vector, length_mask,
     Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D, TargetPoint2D, TargetPoint3D,

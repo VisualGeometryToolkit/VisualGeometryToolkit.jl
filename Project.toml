@@ -12,6 +12,7 @@ projects = [
 # Pkg merges [sources] per UUID across workspace projects, so these paths also
 # apply where a member depends on a sibling (VisualGeometryToolkitIO → VisualGeometryToolkitCore, …).
 [deps]
+NLLSsolver = "50b5cf9e-bf7a-4e29-8981-4280cbba70cb"
 PoseLib = "a8c7e0b4-3d2f-4f1c-9a1e-7b2d9c8f4a3b"
 VisualGeometryToolkitEstimation = "9a478df9-9a37-4dc7-9070-58617efe7573"
 VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
@@ -26,6 +27,16 @@ VisualGeometryToolkitCore = {path = "VisualGeometryToolkitCore"}
 VisualGeometryToolkitEval = {path = "VisualGeometryToolkitEval"}
 VisualGeometryToolkitFeatures = {path = "VisualGeometryToolkitFeatures"}
 VisualGeometryToolkitIO = {path = "VisualGeometryToolkitIO"}
+# The stack's Levenberg–Marquardt driver, NLLSsolver, from our fork's `stack`
+# branch: the latest upstream release plus our unmerged pull requests (#60 the
+# Schur complement, #61 allocation-free variable copies, #62 `OptimizeCache`,
+# #63 the trial-point linear-system reuse) and the static retained blocks. Policy: `stack` is
+# rebased onto each upstream release; this line is deleted when an upstream
+# release contains the pull requests. A checkout only: the registered packages
+# name the registered NLLSsolver (compat "5.2") and detect the fork's additions
+# (VisualGeometryToolkitCore src/robust/lm_core.jl), so a registry install is
+# correct on the release and slower (RELEASING.md).
+NLLSsolver = {url = "https://github.com/prittjam/NLLSsolver.jl", rev = "stack"}
 
 [compat]
 julia = "1.12"

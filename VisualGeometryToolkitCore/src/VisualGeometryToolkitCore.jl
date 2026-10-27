@@ -60,6 +60,7 @@ using SpecialFunctions: loggamma, digamma, trigamma   # the Student-t normaliser
 using QuadGK: quadgk   # a loss shape's truncated normaliser (robust/normaliser.jl)
 using Random: Random
 import FastLevenbergMarquardt as FLM   # the stack's Levenberg–Marquardt (robust/lm_core.jl)
+import NLLSsolver   # NLLSsolver's variable and robustifier protocols on Core's manifolds and losses (robust/lm_core.jl)
 
 
 # Units and physical quantities — FlexUnits as shipped (see base/units.jl)
@@ -483,7 +484,7 @@ public tangent_size, EssentialManifold6, SubsetManifold, restrict, retract, rece
     recenter_pose, retract_jacobian, action_jacobian, pose_action_jacobian, retract_directions, s2_tangent_basis,
     SL3_BASIS
 public anchor_svd   # FundMatManifold7's anchor (U, σ, V)
-public tangent_part   # a manifold's coordinates in a stacked tangent vector (product parts; NLLSsolver variables, the NLLSsolver extension)
+public tangent_part   # a manifold's coordinates in a stacked tangent vector (product parts; NLLSsolver variables, robust/lm_core.jl)
 public LeftRigidManifold6   # the left-perturbation pose chart constraint_with_jacobians(pose, …) differentiates
 public RigidExpManifold6    # the decoupled pose chart: exp on R from the left, t free (hand-eye)
 public RigidChart, RotationParam, MRPParam, ExpParam, TranslationCoupling, FreeT, CarriedT   # the rigid chart family the three pose charts alias

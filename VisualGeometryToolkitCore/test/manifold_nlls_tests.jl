@@ -1,5 +1,5 @@
 @testitem "Manifolds as NLLSsolver variables, and is_stationary" begin
-# Every Manifold is an NLLSsolver variable (the NLLSsolver extension): its size
+# Every Manifold is an NLLSsolver variable (robust/lm_core.jl): its size
 # static for every manifold family; `recenter`'s element-type rule (a step of
 # the manifold's own float type returns its own type, inferred; a Dual step a
 # Dual-valued manifold whose derivative is the retraction's), which is what

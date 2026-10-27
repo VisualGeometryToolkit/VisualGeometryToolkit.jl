@@ -321,10 +321,17 @@ consecutive-failure cap (7), the callback (16) — does not prove convergence:
 the stall postcondition does, so it is `:converged` when
 [`is_stationary`](@ref)`(J, r; tol, ftol)` holds and `:stalled` otherwise — the
 same postcondition [`lm_retcode`](@ref) applies to FastLevenbergMarquardt's
-stops. The method lives in the NLLSsolver extension, which reads the bits;
-this function is the stub it extends.
+stops.
 """
-function nlls_retcode end
+function nlls_retcode(result::NLLSsolver.NLLSResult, J::AbstractMatrix, r::AbstractVector; tol::Real, ftol::Real)
+    bits = result.termination
+    for bit in (0, 1, 4, 5, 10)
+        bits & (1 << bit) != 0 && return :solve_failed
+    end
+    bits & (1 << 9) != 0 && return :max_time
+    bits & (1 << 8) != 0 && return :max_iterations
+    return is_stationary(J, r; tol, ftol) ? :converged : :stalled
+end
 
 """
     loss_robustifier(shape::AbstractLossShape, loss_width::Real)
@@ -334,7 +341,34 @@ NLLSsolver's robustifier (an `NLLSsolver.AbstractRobustifier`) for the loss
 norm `cost` and reads `robustify(k, cost) = ρ` and
 `robustifydcost(k, cost) = (ρ, ρ′, ρ″)`; here ρ is Core's [`ρ`](@ref)`(shape,
 cost, loss_width²)` in the stack's convention `ρ′(0) = w_max` (no factor ½), ρ′
-its [`weight`](@ref) and ρ″ the derivative of that weight. The method lives in
-the NLLSsolver extension; this function is the stub it extends.
+its [`weight`](@ref) and ρ″ the derivative of that weight (Core has no closed ρ″
+per shape; ForwardDiff differentiates the weight).
 """
-function loss_robustifier end
+loss_robustifier(shape::AbstractLossShape, loss_width::Real) = LossRobustifier(shape, Float64(loss_width)^2)
+
+struct LossRobustifier{S <: AbstractLossShape, T <: Real} <: NLLSsolver.AbstractRobustifier
+    shape::S
+    sq_loss_width::T
+end
+NLLSsolver.robustify(k::LossRobustifier, cost) = ρ(k.shape, cost, k.sq_loss_width)
+function NLLSsolver.robustifydcost(k::LossRobustifier, cost)
+    ρ′ = weight(k.shape, cost, k.sq_loss_width)
+    ρ″ = ForwardDiff.derivative(s -> weight(k.shape, s, k.sq_loss_width), cost)
+    return ρ(k.shape, cost, k.sq_loss_width), ρ′, ρ″
+end
+
+# =============================================================================
+# Manifolds as NLLSsolver variables
+# =============================================================================
+#
+# NLLSsolver's variable protocol on Core's `Manifold` (base/manifold.jl): a
+# variable's size is the manifold's `tangent_size` (a constant of its type, so
+# static) and an update re-anchors the manifold at the stepped point
+# (`recenter`), reading the variable's `tangent_part` of the solver's
+# increment. NLLSsolver's automatic Jacobian differentiates `update`, so
+# `recenter` accepts a Dual increment and returns a Dual-valued manifold; a
+# residual on manifold variables then needs only `computeresidual`, written
+# generic in the variables' element type. A residual may still supply
+# `computeresjac` when a hand-written Jacobian is faster.
+NLLSsolver.nvars(m::Manifold) = NLLSsolver.static(tangent_size(m))
+NLLSsolver.update(m::Manifold, δ, start = 1) = recenter(m, tangent_part(m, δ, start - 1))

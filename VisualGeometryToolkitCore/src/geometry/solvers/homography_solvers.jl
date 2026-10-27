@@ -997,9 +997,16 @@ The Sampson distance ([`sampson_distance`](@ref)) of every correspondence
 of `models` — `FundMat`s, `EssentialMat`s or `HomographyMat`s in the points'
 frame, or anything `sampson_distance` takes — as `Float32` into the
 `length(u₁) × length(models)` matrix `R`, model `j` in column `j`: a pool's
-residual matrix. `models` is iterated once.
+residual matrix. `models` is iterated once and has a length. A buffer of
+another size, or `u₁` and `u₂` of different lengths, is a `DimensionMismatch`.
 """
 function sampson_residuals!(R::AbstractMatrix{Float32}, models, u₁::AbstractVector, u₂::AbstractVector)
+    length(u₂) == length(u₁) ||
+        throw(DimensionMismatch("sampson_residuals!: $(length(u₁)) source points and $(length(u₂)) target points"))
+    size(R) == (length(u₁), length(models)) || throw(
+        DimensionMismatch("sampson_residuals!: R is $(size(R, 1)) × $(size(R, 2)); $(length(u₁)) points × $(length(models)) models need $(length(u₁)) × $(length(models))")
+    )
+    axes(R, 1) == eachindex(u₁) == eachindex(u₂) || throw(DimensionMismatch("sampson_residuals!: R's rows and the points are indexed differently"))
     @inbounds for (j, M) in enumerate(models), i in eachindex(u₁)
         R[i, j] = Float32(sampson_distance(M, SVector{2, Float64}(u₁[i]), SVector{2, Float64}(u₂[i])))
     end

@@ -15,9 +15,10 @@
 #
 # Hoisted from RayTracedCalibration's se3.jl (masters-thesis), where the
 # Float32 and Float64 variants existed as separate copies; here they are one
-# generic implementation. The small-angle thresholds are preserved PER TYPE
-# (1f-8 for Float32, 1e-16 for Float64) so results are bit-identical to the
-# originals — do not "clean up" the two constants into one.
+# generic implementation. The Rodrigues coefficients are functions of θ² —
+# `_sinc` = sin θ/θ, `_cosc` = (1 − cos θ)/θ², `_sinc3` = (θ − sin θ)/θ³ —
+# each with its own series switch (below), shared by `exp_so3` and
+# `left_jacobian`.
 # =============================================================================
 
 # Taylor-vs-trig switch on θ². Must be at least eps(T): below θ² ≈ eps(T),
@@ -27,6 +28,35 @@
 # every previously-correct input on its old branch (bit-identical) and moves
 # only the broken window onto the Taylor series.
 _small_angle_sq(::Type{T}) where {T <: Real} = eps(T)   # a ForwardDiff Dual answers its value type's eps
+
+# sin θ/θ of θ²: no cancellation, so the closed form is accurate down to the
+# switch, and the two-term series below it (θ² < eps(T)) is exact to rounding.
+@inline function _sinc(θ²::T) where {T <: Real}
+    θ² < _small_angle_sq(T) && return one(T) - θ² / T(6)
+    θ = sqrt(θ²)
+    return sin(θ) / θ
+end
+
+# Series-vs-closed-form switch of `_cosc` and `_sinc3` on θ² (θ = 1/4): below
+# it the closed forms lose digits to cancellation (thousands of eps at θ =
+# 1e-5); the six-term series is within 4 eps there (lie_tests.jl, against a
+# 300-bit reference), and above it the closed forms are exact to rounding.
+const _left_jacobian_series_sq = 1 // 16
+
+# (1 − cos θ)/θ² of θ²: Σₖ (−θ²)ᵏ/(2k+2)!, k = 0:5, by Horner, below the switch.
+@inline function _cosc(θ²::T) where {T <: Real}
+    θ² < _left_jacobian_series_sq && return T(1 // 2) + θ² * (-T(1 // 24) + θ² * (T(1 // 720) +
+        θ² * (-T(1 // 40320) + θ² * (T(1 // 3628800) - θ² * T(1 // 479001600)))))
+    return (one(T) - cos(sqrt(θ²))) / θ²
+end
+
+# (θ − sin θ)/θ³ of θ²: Σₖ (−θ²)ᵏ/(2k+3)!, k = 0:5, by Horner, below the switch.
+@inline function _sinc3(θ²::T) where {T <: Real}
+    θ² < _left_jacobian_series_sq && return T(1 // 6) + θ² * (-T(1 // 120) + θ² * (T(1 // 5040) +
+        θ² * (-T(1 // 362880) + θ² * (T(1 // 39916800) - θ² * T(1 // 6227020800)))))
+    θ = sqrt(θ²)
+    return (θ - sin(θ)) / (θ² * θ)
+end
 
 """
     exp_so3(ω::SVector{3,T}) -> SMatrix{3,3,T,9}
@@ -48,19 +78,14 @@ first argument here.
 function exp_so3(ω::SVector{3, T}) where {T <: Real}
     θ² = ω[1] * ω[1] + ω[2] * ω[2] + ω[3] * ω[3]
     K = skew(ω)
-    if θ² < _small_angle_sq(T)
-        a = one(T) - θ² / T(6)
-        b = T(0.5) - θ² / T(24)
-    else
-        θ = sqrt(θ²)
-        a = sin(θ) / θ
-        b = (one(T) - cos(θ)) / θ²
-    end
+    a = _sinc(θ²)
+    # b is (1 − cos θ)/θ² by its closed form down to θ² = eps(T), NOT `_cosc`:
+    # RadiometricCamera's goldens pin exp_so3's bits. The closed form's relative
+    # error near the switch (~eps/θ²) is invisible in R, where b multiplies
+    # [ω]×², of size θ².
+    b = θ² < _small_angle_sq(T) ? T(0.5) - θ² / T(24) : (one(T) - cos(sqrt(θ²))) / θ²
     return SMatrix{3, 3, T, 9}(I) + a * K + b * (K * K)
 end
-
-# Series-vs-closed-form switch of `left_jacobian` on θ² (θ = 1/4): see its docstring.
-const _left_jacobian_series_sq = 1 // 16
 
 """
     SO3
@@ -77,7 +102,9 @@ struct SO3 end
 Left Jacobian of SO(3): `J = I + a·[ω]× + b·[ω]×²` with
 `a = (1−cosθ)/θ²`, `b = (θ−sinθ)/θ³`. Maps a
 rotation-vector perturbation to the translation part of the SE(3)
-exponential: `t = J(ω)·ρ`. Not provided by Rotations.jl.
+exponential: `t = J(ω)·ρ`. Not provided by Rotations.jl. Below `θ = 1/4`, where
+the closed forms cancel, `a` and `b` are their six-term Taylor series (within
+4 eps of the exact value); above it the closed forms.
 
 This is Sophus' `SO3::leftJacobian`. **GTSAM's `Rot3::ExpmapDerivative` is
 its TRANSPOSE**, the RIGHT Jacobian `Jr(ω) = Jl(ω)ᵀ = Jl(−ω)`, because GTSAM
@@ -89,18 +116,7 @@ one is off by 1.8e-6, and `Jl(ω) = Jl(−ω)ᵀ` to 0.0.
 function left_jacobian(::Type{SO3}, ω::SVector{3, T}) where {T <: Real}
     θ² = ω[1] * ω[1] + ω[2] * ω[2] + ω[3] * ω[3]
     K = skew(ω)
-    if θ² < _left_jacobian_series_sq
-        # Σₖ (−θ²)ᵏ/(2k+2)! and Σₖ (−θ²)ᵏ/(2k+3)!, k = 0:5, by Horner.
-        a = T(1 // 2) + θ² * (-T(1 // 24) + θ² * (T(1 // 720) + θ² * (-T(1 // 40320) +
-            θ² * (T(1 // 3628800) - θ² * T(1 // 479001600)))))
-        b = T(1 // 6) + θ² * (-T(1 // 120) + θ² * (T(1 // 5040) + θ² * (-T(1 // 362880) +
-            θ² * (T(1 // 39916800) - θ² * T(1 // 6227020800)))))
-    else
-        θ = sqrt(θ²)
-        a = (one(T) - cos(θ)) / θ²
-        b = (θ - sin(θ)) / (θ² * θ)
-    end
-    return SMatrix{3, 3, T, 9}(I) + a * K + b * (K * K)
+    return SMatrix{3, 3, T, 9}(I) + _cosc(θ²) * K + _sinc3(θ²) * (K * K)
 end
 
 """

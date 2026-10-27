@@ -177,3 +177,66 @@ end
         @test maximum(abs.(Float64.(J) .- Float64.(reference(Float64.(ω))))) ≤ 4 * eps(Float32)
     end
 end
+
+@testitem "exp_so3 and log_so3 bits" begin
+    using Test
+    using StaticArrays
+    using Random
+    using LinearAlgebra: I, normalize
+    using VisualGeometryToolkitCore: exp_so3, log_so3, skew
+
+    # exp_so3 and log_so3 as they were before the Rodrigues coefficients became
+    # shared helpers (2026-10): RadiometricCamera's goldens pin exp_so3's bits,
+    # so a refactor of either must reproduce these exactly.
+    function exp_so3_frozen(ω::SVector{3, T}) where {T}
+        θ² = ω[1] * ω[1] + ω[2] * ω[2] + ω[3] * ω[3]
+        K = skew(ω)
+        if θ² < eps(T)
+            a = one(T) - θ² / T(6)
+            b = T(0.5) - θ² / T(24)
+        else
+            θ = sqrt(θ²)
+            a = sin(θ) / θ
+            b = (one(T) - cos(θ)) / θ²
+        end
+        return SMatrix{3, 3, T, 9}(I) + a * K + b * (K * K)
+    end
+    function log_so3_frozen(R::SMatrix{3, 3, T, 9}) where {T}
+        r11, r21, r31, r12, r22, r32, r13, r23, r33 = Tuple(R)
+        tr = r11 + r22 + r33
+        if tr >= r11 && tr >= r22 && tr >= r33
+            w = sqrt(1 + tr) / 2; d = 4w
+            x = (r32 - r23) / d; y = (r13 - r31) / d; z = (r21 - r12) / d
+        elseif r11 >= r22 && r11 >= r33
+            x = sqrt(1 + r11 - r22 - r33) / 2; d = 4x
+            w = (r32 - r23) / d; y = (r12 + r21) / d; z = (r13 + r31) / d
+        elseif r22 >= r33
+            y = sqrt(1 - r11 + r22 - r33) / 2; d = 4y
+            w = (r13 - r31) / d; x = (r12 + r21) / d; z = (r23 + r32) / d
+        else
+            z = sqrt(1 - r11 - r22 + r33) / 2; d = 4z
+            w = (r21 - r12) / d; x = (r13 + r31) / d; y = (r23 + r32) / d
+        end
+        if w < 0
+            w, x, y, z = -w, -x, -y, -z
+        end
+        s² = x * x + y * y + z * z
+        f = s² < eps(T) ? 2 / w * (1 - s² / (3 * w * w)) : 2 * atan(sqrt(s²), w) / sqrt(s²)
+        return SVector{3, T}(f * x, f * y, f * z)
+    end
+
+    for T in (Float64, Float32)
+        rng = Random.Xoshiro(20261027)
+        same_exp = same_log = 0
+        n = 10^4
+        for _ in 1:n
+            θ = exp(log(1.0e-12) + (log(Float64(π)) - log(1.0e-12)) * rand(rng))   # log-uniform on [1e-12, π]
+            ω = SVector{3, T}(θ * normalize(randn(rng, SVector{3, Float64})))
+            R = exp_so3(ω)
+            same_exp += R === exp_so3_frozen(ω)
+            same_log += log_so3(R) === log_so3_frozen(R)
+        end
+        @test same_exp == n
+        @test same_log == n
+    end
+end

@@ -227,14 +227,23 @@ _grid_size(m::NoncentralGenericModel) = size(m.directions)
     )
 end
 
+# The lattice's cell size in pixels along each axis — the calibrated span over
+# `grid − 3` cells, `1/_grid_scale` — and the calibrated area as a closed
+# rectangle `[min, max + 1]` (`_in_calibrated_area` is its half-open test). The
+# ONE spelling of the lattice geometry: the node pixels below and the nodes'
+# supports (support.jl) read them.
+@inline function _lattice_spacing(m::_GenericModel)
+    gh, gw = _grid_size(m)
+    return ((m.calib_max_x + 1 - m.calib_min_x) / (gw - 3), (m.calib_max_y + 1 - m.calib_min_y) / (gh - 3))
+end
+_calibrated_rect(m::_GenericModel) =
+    Rect2{Float64}(m.calib_min_x, m.calib_min_y, m.calib_max_x + 1 - m.calib_min_x, m.calib_max_y + 1 - m.calib_min_y)
+
 # Grid node (Julia 1-based control index) → pixel: inverse of `_grid_coords`
 # at integer grid coordinate `j₁ - 1` (the C++ 0-based control index).
 @inline function _node_pixel(m::_GenericModel, gx1::Integer, gy1::Integer)
-    gh, gw = _grid_size(m)
-    return SVector(
-        m.calib_min_x + (gx1 - 2) * (m.calib_max_x + 1 - m.calib_min_x) / (gw - 3),
-        m.calib_min_y + (gy1 - 2) * (m.calib_max_y + 1 - m.calib_min_y) / (gh - 3),
-    )
+    hx, hy = _lattice_spacing(m)
+    return SVector(m.calib_min_x + (gx1 - 2) * hx, m.calib_min_y + (gy1 - 2) * hy)
 end
 
 # The four uniform-cubic window weights at frac x ∈ [3, 4) — the reference's
@@ -587,8 +596,19 @@ end
 # (measured: 41 px at the rim vs 1e-4 px interior). 0.97 keeps every sample
 # strictly inside; it is the sampler's `sampling_margin` keyword.
 function _sampling_radius(model::CameraModel)
-    ρ = _lens_circle_radius(lens(model))
-    return ρ === nothing ? Float64(_imaging_domain_radius(lens(model))) : ρ
+    l = lens(model)
+    ρ = try
+        _lens_circle_radius(l)
+    catch e
+        e isa ArgumentError || rethrow()
+        throw(
+            ArgumentError(
+                "generic model from a $(nameof(typeof(l))) camera: the node sampler clamps to the lens's lit " *
+                    "field, but its image circle is undefined — $(e.msg)"
+            )
+        )
+    end
+    return ρ === nothing ? Float64(_imaging_domain_radius(l)) : ρ
 end
 
 function _directions_from(

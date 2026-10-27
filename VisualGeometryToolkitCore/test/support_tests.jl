@@ -5,7 +5,10 @@
     using Test
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: KannalaBrandt, Pinhole, WholePlane, RegionIntersection, SupportTrait,
-        GlobalSupport, LocalSupport, support_trait, nodes, support, node_position, cubic_bspline_footprint, CONTRACT_GENERICS
+        GlobalSupport, LocalSupport, support_trait, nodes, support, node_position, cubic_bspline_footprint, CONTRACT_GENERICS,
+        Division, AbstractLensModel, spline_support, window_indices
+    using StaticArrays
+    using LinearAlgebra: normalize, dot
 
     cam(f, l) = CameraModel(; focal = f, pp = (640.0, 480.0), lens = l)
     fold = KannalaBrandt(-4 / (3π^2))                      # a 180° fisheye, r(90°) = π/3
@@ -29,7 +32,9 @@
         # a global model: every parameter is free, one support covering everything
         R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960)))
         @test free_nodes(fold, R) === Colon()
-        @test node_mask(fold, R) == trues() && ndims(node_mask(fold, R)) == 0
+        @test node_mask(fold, R) === Colon()
+        θ = collect(1.0:5.0)
+        @test θ[free_nodes(fold, R)] == θ[node_mask(fold, R)] == θ          # one answer, usable as an index
         # the uniform cubic B-spline footprint: center ± 2 cells
         @test cubic_bspline_footprint((100.0, 50.0), (10.0, 5.0)) == Rect2(80.0, 40.0, 40.0, 20.0)
     end
@@ -65,8 +70,64 @@
         # every node of the circular fisheye's grid backprojects finitely, outside the circle too
         g = CentralGenericModel(cam(250.0, fold), (1280, 960); grid_size = (20, 16))
         @test all(v -> all(isfinite, v), g.grid)
-        # the margin is a keyword: at 1 the corner nodes sample at the fold itself
+        # the margin is a keyword (0.97 by default; 1 would sample the corner nodes AT the fold, which rings)
         g1 = CentralGenericModel(cam(250.0, fold), (1280, 960); grid_size = (20, 16), sampling_margin = 0.9)
         @test g1.grid != g.grid
+    end
+
+    @testset "a lift that never folds: sampled past 90°, finite and accurate" begin
+        src = cam(300.0, Division(-0.3))                      # images the whole plane: no clamp
+        @test image_circle(src) === WholePlane()
+        g = CentralGenericModel(src, (1280, 960); grid_size = (20, 16))
+        @test all(v -> all(isfinite, v), g.grid)
+        worst = 0.0                                           # angular error × f, in px
+        for x in 5:20:1275, y in 5:20:955
+            d0 = normalize(SVector{3, Float64}(backproject(src, SVector(x + 0.0, y + 0.0))))
+            d1 = normalize(SVector{3, Float64}(backproject(g, SVector(x + 0.0, y + 0.0))))
+            worst = max(worst, acos(clamp(dot(d0, d1), -1, 1)) * 300)
+        end
+        @test worst < 0.2                                     # measured 0.13 px
+    end
+
+    @testset "a lens whose circle is undefined: the sampler names itself" begin
+        struct BlindLens <: AbstractLensModel end             # images nothing
+        VisualGeometryToolkitCore.project(::BlindLens, X::StaticVector{3}) = SVector(NaN, NaN)
+        e = try
+            CentralGenericModel(cam(300.0, BlindLens()), (640, 480); grid_size = (8, 6)); nothing
+        catch err
+            err
+        end
+        @test e isa ArgumentError
+        @test occursin("generic model", e.msg) && occursin("BlindLens", e.msg) && occursin("sampler", e.msg)
+    end
+
+    @testset "a node's support is the spline window's footprint" begin
+        # every pixel's 16 window controls have the pixel in their support, and no
+        # node outside the window has the pixel strictly inside its support —
+        # on the default calibrated area and on a non-default one
+        for g in (
+                CentralGenericModel(cam(250.0, fold), (1280, 960); grid_size = (20, 16)),
+                CentralGenericModel(cam(250.0, fold), (1280, 960); grid_size = (9, 7), calib_area = (100, 50, 1099, 899)),
+            )
+            missing_from_footprint = 0
+            outside_window = 0
+            for x in 0.5:37.3:1279.0, y in 0.5:29.1:959.0
+                w = spline_support(g, SVector(x, y))
+                w === nothing && continue
+                win = Set(window_indices(g, w...))
+                for I in nodes(g)
+                    s = support(g, I)
+                    closed = minimum(s)[1] <= x <= maximum(s)[1] && minimum(s)[2] <= y <= maximum(s)[2]
+                    strict = minimum(s)[1] < x < maximum(s)[1] && minimum(s)[2] < y < maximum(s)[2]
+                    (I in win && !closed) && (missing_from_footprint += 1)
+                    (strict && !(I in win)) && (outside_window += 1)
+                end
+            end
+            @test missing_from_footprint == 0
+            @test outside_window == 0
+        end
+        # the clip matters on a smaller calibrated area: no support reaches outside it
+        g = CentralGenericModel(cam(250.0, fold), (1280, 960); grid_size = (9, 7), calib_area = (100, 50, 1099, 899))
+        @test all(I -> minimum(support(g, I))[1] >= 100 && maximum(support(g, I))[1] <= 1100, nodes(g))
     end
 end

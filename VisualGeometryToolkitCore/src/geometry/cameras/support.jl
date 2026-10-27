@@ -77,7 +77,9 @@ The parameters of `m` free under the imaged `region` (an
 the nodes whose [`support`](@ref) meets the region,
 `[i for i in nodes(m) if intersects(region, support(m, i))]`; for a
 `GlobalSupport` model every parameter, `Colon()` — an index that selects them
-all (`θ[free_nodes(m, region)]`).
+all (`θ[free_nodes(m, region)]`), the same answer [`node_mask`](@ref) gives. A
+consumer that needs to iterate nodes asks a `LocalSupport` model
+(`support_trait(m) isa LocalSupport`).
 """
 free_nodes(m, region) = _free_nodes(support_trait(m), m, region)
 _free_nodes(::GlobalSupport, m, region) = Colon()
@@ -87,11 +89,12 @@ _free_nodes(::LocalSupport, m, region) = [i for i in nodes(m) if intersects(regi
     node_mask(m, region) -> BitArray
 
 [`free_nodes`](@ref) as a mask in the shape of [`nodes`](@ref)`(m)` (`true` =
-free), for assembling a Levenberg–Marquardt system. A `GlobalSupport` model is
-one support covering everything: a 0-dimensional `trues()`.
+free), for assembling a Levenberg–Marquardt system. For a `GlobalSupport`
+model `Colon()`, as `free_nodes` answers: an index meaning "every parameter",
+so `θ[node_mask(m, region)]` reads the same for every model.
 """
 node_mask(m, region) = _node_mask(support_trait(m), m, region)
-_node_mask(::GlobalSupport, m, region) = trues()
+_node_mask(::GlobalSupport, m, region) = Colon()
 _node_mask(::LocalSupport, m, region) = BitArray(map(i -> intersects(region, support(m, i)), nodes(m)))
 
 """
@@ -119,9 +122,7 @@ support_trait(::Type{<:_GenericModel}) = LocalSupport()
 nodes(m::_GenericModel) = CartesianIndices(_grid_size(m))
 node_position(m::_GenericModel, i::CartesianIndex{2}) = Point2{Float64}(_node_pixel(m, i[2], i[1]))
 # A node's footprint, clipped to the calibrated area the model is defined on.
-function support(m::_GenericModel, i::CartesianIndex{2})
-    gh, gw = _grid_size(m)
-    spacing = ((m.calib_max_x + 1 - m.calib_min_x) / (gw - 3), (m.calib_max_y + 1 - m.calib_min_y) / (gh - 3))
-    area = Rect2{Float64}(m.calib_min_x, m.calib_min_y, m.calib_max_x + 1 - m.calib_min_x, m.calib_max_y + 1 - m.calib_min_y)
-    return intersect(cubic_bspline_footprint(node_position(m, i), spacing), area)
-end
+# (The closed meet, Core's one rect-meet convention: a footprint always overlaps
+# the area by at least a cell, so it is never empty.)
+support(m::_GenericModel, i::CartesianIndex{2}) =
+    _closed_meet(cubic_bspline_footprint(node_position(m, i), _lattice_spacing(m)), _calibrated_rect(m))

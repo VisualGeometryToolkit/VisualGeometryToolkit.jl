@@ -11,7 +11,14 @@
 # extend a Base function over it, the deliberate glue the quality gates'
 # piracy allowlist records (`GeometryBasics.HyperRectangle` in `treat_as_own`,
 # test/quality_tests.jl) — the stack owns rect semantics. Rect ∩ Rect stays
-# GeometryBasics' own method (an eager `Rect`).
+# GeometryBasics' own method (an eager `Rect`), but Core meets rectangles by ONE
+# convention, the CLOSED meet `_closed_meet` (below): rectangles that share an
+# edge or a corner meet. GeometryBasics' strict `intersect` calls that empty;
+# Core chooses closed because a region and its supports are closed sets — a
+# node whose footprint touches the lit region at its edge is free, and a
+# region's bounding box must contain every rectangle `intersects` says it
+# meets. `intersects`, a node's `support` clip and `Rect2(::RegionIntersection)`
+# all read `_closed_meet`.
 
 """
     RegionIntersection{A, B}
@@ -75,12 +82,12 @@ GeometryBasics.Rect2(::WholePlane; snap_to_grid::Bool = false) =
     Rect2(s::RegionIntersection; snap_to_grid = false) -> Rect2
 
 The bounding box of an intersection: the intersection of its two parts'
-boxes (each snapped outward to the pixel grid first when `snap_to_grid`). An
-empty intersection of boxes is GeometryBasics' empty `Rect` (infinite origin,
-negative widths).
+boxes (each snapped outward to the pixel grid first when `snap_to_grid`),
+closed: boxes that share only an edge meet in it. Disjoint boxes give
+GeometryBasics' empty `Rect` (infinite origin, negative widths).
 """
 GeometryBasics.Rect2(s::RegionIntersection; snap_to_grid::Bool = false) =
-    intersect(_region_box(s.a, snap_to_grid), _region_box(s.b, snap_to_grid))
+    something(_closed_meet(_region_box(s.a, snap_to_grid), _region_box(s.b, snap_to_grid)), GeometryBasics.Rect2{Float64}())
 
 _region_box(r::Rect{2}, snap::Bool) =
     (b = GeometryBasics.Rect2{Float64}(r); snap ? _make_rect2(Float64, minimum(b), maximum(b), true) : b)
@@ -122,11 +129,13 @@ end
 intersects(r::Rect{2}, s::RegionIntersection) = intersects(s, r)
 
 # The rectangle clipped by every Rect part of a (nested) intersection.
-# (`nothing` once empty). Closed rectangles: touching edges meet, unlike
-# GeometryBasics' `Rect ∩ Rect`, which calls a shared edge empty.
+# (`nothing` once empty), by the closed meet.
 _clip_by_rects(s::RegionIntersection, r) = (c = _clip_by_rects(s.a, r); c === nothing ? nothing : _clip_by_rects(s.b, c))
 _clip_by_rects(p::Rect{2}, r) = _closed_meet(p, r)
 _clip_by_rects(_, r) = r
+# The closed meet of two rectangles, `nothing` when they are disjoint — Core's one
+# rect-meet convention (see the header): unlike GeometryBasics' `Rect ∩ Rect`, a
+# shared edge or corner meets.
 function _closed_meet(a::Rect{2}, b::Rect{2})
     lo = max.(Float64.(minimum(a)), Float64.(minimum(b)))
     hi = min.(Float64.(maximum(a)), Float64.(maximum(b)))

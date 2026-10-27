@@ -11,7 +11,7 @@
 # conversion of a file's text is the IO layer's `read_length`/`write_length`).
 # =============================================================================
 
-@testitem "units carriers" begin
+@testitem "units carriers" setup = [UnitHelpers] begin
     using Test
     using StaticArrays, Rotations, LinearAlgebra, Statistics
     using FlexUnits: Quantity
@@ -20,12 +20,6 @@
         relabel, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, Uncertain, CovMat, geom,
         has_units, with_unit, PointTarget, PlanarTarget, PosedTarget, Rig, PosedCamera, BoundedCamera, CameraModel,
         CameraCalibrationMat, Trajectory, TargetPoses, TargetPoints3D, Size2, project, pose, extrinsics, points
-
-    within_ulp(a::Number, b::Number) = abs(a - b) <= eps(abs(b))
-    within_ulp(a, b) = length(a) == length(b) && all(within_ulp(x, y) for (x, y) in zip(a, b))
-    # a millimetre text read as a length
-    from_mm(x::Real) = parse(Float64, "$(repr(Float64(x)))e-3") * m
-    from_mm(v::AbstractVector) = SVector{length(v)}(map(from_mm, v))
 
     maps_close(A, B) = rotation(A) == rotation(B) && within_ulp(translation(A), translation(B))
     pose_close(A::EuclideanMap, B::EuclideanMap) = maps_close(A, B)

@@ -26,8 +26,8 @@ using VisualGeometryToolkitEstimation: find_absolute_pose, find_hand_eye, fit_ro
     refine_robot_world_hand_eye, RobotWorldHandEyeCalibration, AbsolutePoseProblem, HandEyeProblem,
     find_homography, fit_radial_camera, fit_division_camera
 
-# A plain pose with its translation read in `u` (construction: the attachment).
-phys(E, u = m) = EuclideanMap(rotation(E), translation(E) .* u)
+# A plain pose with its translation read in `u`: Core's attachment.
+phys(E, u = m) = VgtkCore.with_unit(E, u)
 phys(E::AbstractVector, u = m) = phys.(E, Ref(u))
 same_pose(a, b) = rotation(a) == rotation(b) && translation(a) == translation(b)
 # The parts of two RANSAC results that must agree bit for bit (the model apart).

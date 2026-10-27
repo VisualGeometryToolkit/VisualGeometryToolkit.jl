@@ -6,7 +6,7 @@
 # A unitful map meeting plain numbers raises `DimensionError`, never promotes.
 # =============================================================================
 
-@testitem "euclidean map units" begin
+@testitem "euclidean map units" setup = [UnitHelpers] begin
     using Test
     using StaticArrays, Rotations, LinearAlgebra, ForwardDiff, Statistics
     using FlexUnits: Dimensions, FixRat32, Quantity
@@ -16,8 +16,6 @@
         PlainEuclideanMap, UnitfulEuclideanMap
 
     Q = Quantity{Float64, Dimensions{FixRat32}}
-    # within one unit in the last place, elementwise
-    within_ulp(a, b) = all(abs(x - y) <= eps(abs(y)) for (x, y) in zip(a, b))
 
     R = RotMatrix{3, Float64}(RotXYZ(0.1, -0.2, 0.3))
     R2 = RotMatrix{3, Float64}(RotXYZ(-0.4, 0.05, 0.2))

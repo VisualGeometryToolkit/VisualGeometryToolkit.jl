@@ -17,8 +17,8 @@ module VisualGeometryToolkitCoreNLLSsolverExt
 
 using ForwardDiff: ForwardDiff
 using NLLSsolver: NLLSsolver
-using VisualGeometryToolkitCore: AbstractLossShape, Manifold, recenter, tangent_part, tangent_size, weight, ρ
-import VisualGeometryToolkitCore: loss_robustifier   # the stub this extension adds its method to
+using VisualGeometryToolkitCore: AbstractLossShape, Manifold, recenter, tangent_part, tangent_size, weight, ρ, is_stationary
+import VisualGeometryToolkitCore: loss_robustifier, nlls_retcode   # the stubs this extension adds its methods to
 
 NLLSsolver.nvars(m::Manifold) = NLLSsolver.static(tangent_size(m))
 NLLSsolver.update(m::Manifold, δ, start = 1) = recenter(m, tangent_part(m, δ, start - 1))
@@ -32,6 +32,19 @@ struct LossRobustifier{S <: AbstractLossShape, T <: Real} <: NLLSsolver.Abstract
 end
 loss_robustifier(shape::AbstractLossShape, loss_width::Real) =
     LossRobustifier(shape, Float64(loss_width)^2)
+
+# The retcode of an NLLSsolver fit from its termination bits (documented at
+# the stub): a failure outranks the time cap, the time cap the iteration cap;
+# any other stop is `:converged` only when the stall postcondition holds.
+function nlls_retcode(result::NLLSsolver.NLLSResult, J::AbstractMatrix, r::AbstractVector; tol::Real, ftol::Real)
+    bits = result.termination
+    for bit in (0, 1, 4, 5, 10)
+        bits & (1 << bit) != 0 && return :solve_failed
+    end
+    bits & (1 << 9) != 0 && return :max_time
+    bits & (1 << 8) != 0 && return :max_iterations
+    return is_stationary(J, r; tol, ftol) ? :converged : :stalled
+end
 
 NLLSsolver.robustify(k::LossRobustifier, cost) = ρ(k.shape, cost, k.sq_loss_width)
 function NLLSsolver.robustifydcost(k::LossRobustifier, cost)

@@ -236,7 +236,7 @@ function _refine_robot_world_hand_eye(
     # NLLSsolver's own stops (a small relative or absolute cost decrease, a
     # small step) do not prove convergence; the stall postcondition does —
     # FastLevenbergMarquardt's refits test the same one (VGC `lmsolve_rows!`).
-    retcode = nlls_retcode(result.termination, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol = eps())
+    retcode = nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol = _HAND_EYE_FTOL)
     # The covariance's blocks are the ELEMENTS — one rig pose's features, whose
     # points are contiguous (flattened element by element) — each a dense view
     # of its rows of J with measurement Jacobian −I: the same (JᵀJ)⁻¹ as per-

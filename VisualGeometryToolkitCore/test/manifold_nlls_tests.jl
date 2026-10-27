@@ -149,19 +149,21 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         r_opt = J * x̂ - y
         r_off = J * (x̂ .+ 0.1) - y
         kw = (; tol = 1.0e-6, ftol = eps())
-        @test nlls_retcode(1 << 1, J, r_opt; kw...) === :solve_failed
+        # an NLLSsolver result whose only meaningful field is its termination bits
+        res(bits) = NLLSsolver.NLLSResult(0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, bits, NLLSsolver.levenbergmarquardt, 0, 0, 0, 0)
+        @test nlls_retcode(res(1 << 1), J, r_opt; kw...) === :solve_failed
         for b in (0, 1, 4, 5, 10)
-            @test nlls_retcode(1 << b, J, r_opt; kw...) === :solve_failed
+            @test nlls_retcode(res(1 << b), J, r_opt; kw...) === :solve_failed
         end
-        @test nlls_retcode((1 << 1) | (1 << 9) | (1 << 8), J, r_opt; kw...) === :solve_failed   # failure outranks the caps
-        @test nlls_retcode((1 << 9) | (1 << 8), J, r_opt; kw...) === :max_time                  # time outranks iterations
-        @test nlls_retcode(1 << 9, J, r_opt; kw...) === :max_time
-        @test nlls_retcode((1 << 8) | (1 << 2), J, r_opt; kw...) === :max_iterations
-        @test nlls_retcode((1 << 8) | (1 << 3), J, r_opt; kw...) === :max_iterations
-        @test nlls_retcode(1 << 2, J, r_opt; kw...) === :converged
-        @test nlls_retcode(1 << 2, J, r_off; kw...) === :stalled        # a cost-decrease stop is no proof
-        @test nlls_retcode(1 << 7, J, r_off; kw...) === :stalled
-        @test nlls_retcode(1 << 7, J, r_opt; kw...) === :converged
+        @test nlls_retcode(res((1 << 1) | (1 << 9) | (1 << 8)), J, r_opt; kw...) === :solve_failed   # failure outranks the caps
+        @test nlls_retcode(res((1 << 9) | (1 << 8)), J, r_opt; kw...) === :max_time                  # time outranks iterations
+        @test nlls_retcode(res(1 << 9), J, r_opt; kw...) === :max_time
+        @test nlls_retcode(res((1 << 8) | (1 << 2)), J, r_opt; kw...) === :max_iterations
+        @test nlls_retcode(res((1 << 8) | (1 << 3)), J, r_opt; kw...) === :max_iterations
+        @test nlls_retcode(res(1 << 2), J, r_opt; kw...) === :converged
+        @test nlls_retcode(res(1 << 2), J, r_off; kw...) === :stalled        # a cost-decrease stop is no proof
+        @test nlls_retcode(res(1 << 7), J, r_off; kw...) === :stalled
+        @test nlls_retcode(res(1 << 7), J, r_opt; kw...) === :converged
 
         # The oracle: CaliBlobs' production WelschRobustifier, written out.
         w2 = 2.0^2

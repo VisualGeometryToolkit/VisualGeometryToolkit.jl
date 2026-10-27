@@ -65,6 +65,9 @@ _dflt(table::AbstractString, key::AbstractString) = toml_default(_TOML_DEFAULTS,
 const _CHART_LM_MAX_ITER = _dflt("chart_lm", "max_iter")::Int
 const _CHART_LM_STATIONARITY_TOL = _dflt("chart_lm", "stationarity_tol")::Float64
 const _CHART_LM_FTOL = _dflt("chart_lm", "ftol")::Float64
+# `refine_robot_world_hand_eye`'s exact-fit test of the same postcondition
+# (configs/default.toml [refine_robot_world_hand_eye]).
+const _HAND_EYE_FTOL = _dflt("refine_robot_world_hand_eye", "ftol")::Float64
 
 # The relative-pose bundle's iteration cap, stall tolerance and cost tolerance
 # (configs/default.toml [relpose_bundle]), read once: a lookup per call cost the

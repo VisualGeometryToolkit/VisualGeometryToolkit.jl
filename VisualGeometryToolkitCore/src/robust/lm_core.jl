@@ -302,34 +302,29 @@ lm_retcode(converged::Int) =
     converged == -1 ? :max_iterations : converged == _LM_STALLED ? :stalled : :converged
 
 """
-    nlls_retcode(termination::Integer, J::AbstractMatrix, r::AbstractVector; tol, ftol) -> Symbol
+    nlls_retcode(result, J::AbstractMatrix, r::AbstractVector; tol, ftol) -> Symbol
 
-The retcode of a fit run by NLLSsolver, from `termination` (the bit set of
-`NLLSResult.termination`) and the Jacobian `J` and residual `r` at the returned
-estimate. NLLSsolver 5.x's bits (unchanged since 0.1; bits 0–10 and 16, `optimizeloop!`, src/optimize.jl): 0 the cost
-is infinite, 1 the cost is NaN, 2 the relative decrease in cost is too small,
-3 the absolute decrease in cost is too small, 4 an infinity in the step, 5 a
-NaN in the step, 6 the max of the step size is too small, 7 the maximum number
-of consecutive failed iterations (iterations whose cost is higher than the
-current best, `maxfails`) is reached, 8 the maximum number of iterations is
-reached, 9 the maximum amount of time is exceeded, 10 the cost computations do
-not agree, 16 terminated by the user callback. Checked in this order: any of
-bits 0, 1, 4, 5, 10 is `:solve_failed`; bit 9 is `:max_time`; bit 8 is
-`:max_iterations`. Every other stop — a small cost decrease (2, 3) or step (6),
-the consecutive-failure cap (7), the callback (16) — does not prove
-convergence: the stall postcondition does, so it is `:converged` when
+The retcode of a fit run by NLLSsolver, from its `NLLSsolver.NLLSResult` and the
+Jacobian `J` and residual `r` at the returned estimate. NLLSsolver's
+termination bits (`result.termination`; NLLSsolver 5.x, unchanged since 0.1,
+`optimizeloop!` in src/optimize.jl): 0 the cost is infinite, 1 the cost is
+NaN, 2 the relative decrease in cost is too small, 3 the absolute decrease in
+cost is too small, 4 an infinity in the step, 5 a NaN in the step, 6 the max
+of the step size is too small, 7 the maximum number of consecutive failed
+iterations (iterations whose cost is higher than the current best,
+`maxfails`) is reached, 8 the maximum number of iterations is reached, 9 the
+maximum amount of time is exceeded, 10 the cost computations do not agree, 16
+terminated by the user callback. Checked in this order: any of bits 0, 1, 4,
+5, 10 is `:solve_failed`; bit 9 is `:max_time`; bit 8 is `:max_iterations`.
+Every other stop — a small cost decrease (2, 3) or step (6), the
+consecutive-failure cap (7), the callback (16) — does not prove convergence:
+the stall postcondition does, so it is `:converged` when
 [`is_stationary`](@ref)`(J, r; tol, ftol)` holds and `:stalled` otherwise — the
 same postcondition [`lm_retcode`](@ref) applies to FastLevenbergMarquardt's
-stops. Pure Core: it reads the bits and does not load NLLSsolver.
+stops. The method lives in the NLLSsolver extension, which reads the bits;
+this function is the stub it extends.
 """
-function nlls_retcode(termination::Integer, J::AbstractMatrix, r::AbstractVector; tol::Real, ftol::Real)
-    for bit in (0, 1, 4, 5, 10)
-        termination & (1 << bit) != 0 && return :solve_failed
-    end
-    termination & (1 << 9) != 0 && return :max_time
-    termination & (1 << 8) != 0 && return :max_iterations
-    return is_stationary(J, r; tol, ftol) ? :converged : :stalled
-end
+function nlls_retcode end
 
 """
     loss_robustifier(shape::AbstractLossShape, loss_width::Real)

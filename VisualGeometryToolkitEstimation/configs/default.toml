@@ -79,6 +79,11 @@ min_rel_angle_deg = 5.0          # relative motions below this are degenerate fo
 
 [refine_robot_world_hand_eye]
 max_iter = 100                   # the reprojection LM's iteration cap
+# The stall postcondition's exact-fit test (VGC `is_stationary`: F < ftol, F the
+# squared residual norm), beside [chart_lm]'s stationarity_tol for its gradient
+# test. eps (2.220446049250313e-16): NLLSsolver states no cost tolerance of its
+# own to share, so only a cost at the rounding floor counts as an exact fit.
+ftol = 2.220446049250313e-16
 
 [chart_lm]
 # The LO refit every chart problem runs (`refine!` → VGC's `_lmsolve_chart!`,

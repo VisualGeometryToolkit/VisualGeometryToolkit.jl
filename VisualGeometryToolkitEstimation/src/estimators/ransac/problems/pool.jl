@@ -250,19 +250,12 @@ end
 # E: the tangent Sampson of the metric `E = Kc₂ᵀ·F·Kc₁` on the record's
 # `EssentialProblem(pair)` (`residuals!`), the residual a pool-frame LO scores
 # refits with. F and H: the plane Sampson of the pool-frame model through VGC
-# `sampson_distance` per point, NOT the problem's `residuals!`: it is the
-# residual RSDR's `pixel_residuals` recomputes, and this route is kept for
+# `sampson_residuals!`, NOT the problem's `residuals!`: it is the
+# residual VGC's `pixel_residuals` recomputes (the same function), and this route is kept for
 # bitwise equality with pools already written. Stored as `Float32(|r|)`.
 
-function _pool_residuals!(R::AbstractMatrix{Float32}, ::Union{FundMatProblem, HomographyProblem}, pair::PoolPair)
-    cs = pair.csponds
-    src = sources(cs); dst = targets(cs)
-    @inbounds for j in eachindex(pair.models), i in eachindex(src)
-        R[i, j] = Float32(sampson_distance(pair.models[j],
-            SVector{2, Float64}(src[i]), SVector{2, Float64}(dst[i])))
-    end
-    return R
-end
+_pool_residuals!(R::AbstractMatrix{Float32}, ::Union{FundMatProblem, HomographyProblem}, pair::PoolPair) =
+    sampson_residuals!(R, pair.models, sources(pair.csponds), targets(pair.csponds))
 function _pool_residuals!(R::AbstractMatrix{Float32}, ::EssentialProblem, pair::PoolPair)
     ep = EssentialProblem(pair)
     Kc1, Kc2 = pool_frame_calibrations(pair)

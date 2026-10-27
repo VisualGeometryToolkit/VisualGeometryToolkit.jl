@@ -989,6 +989,23 @@ function sampson_rss(M, u₁::AbstractVector, u₂::AbstractVector, mask = nothi
     return sum(_foreach_row!(_sampson_sq_row!, d², length(u₁), M, u₁, u₂, mask))
 end
 
+"""
+    sampson_residuals!(R::AbstractMatrix{Float32}, models, u₁, u₂) -> R
+
+The Sampson distance ([`sampson_distance`](@ref)) of every correspondence
+`u₁[i] => u₂[i]` (each point read as an `SVector{2, Float64}`) under every model
+of `models` — `FundMat`s, `EssentialMat`s or `HomographyMat`s in the points'
+frame, or anything `sampson_distance` takes — as `Float32` into the
+`length(u₁) × length(models)` matrix `R`, model `j` in column `j`: a pool's
+residual matrix. `models` is iterated once.
+"""
+function sampson_residuals!(R::AbstractMatrix{Float32}, models, u₁::AbstractVector, u₂::AbstractVector)
+    @inbounds for (j, M) in enumerate(models), i in eachindex(u₁)
+        R[i, j] = Float32(sampson_distance(M, SVector{2, Float64}(u₁[i]), SVector{2, Float64}(u₂[i])))
+    end
+    return R
+end
+
 # --- Correspondence (Pair) overloads ---
 
 @inline constraint_with_jacobians(H::HomographyMat, c::Pair{<:StaticVector{2}, <:StaticVector{2}}) =

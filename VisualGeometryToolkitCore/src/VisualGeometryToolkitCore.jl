@@ -585,6 +585,7 @@ public signed_sampson_jacobian, signed_sampson_row, sampson_rows!, sampson_jacob
 public signed_tangent_sampson_row   # the bearing per-row form (E + M₁/M₂); the rows! methods dispatch to it
 public TransferForm, transfer_whitening!, transfer_rows!, transfer_jacobian_rows!   # the whitened homography transfer rows
 public sampson_rss   # Σ sampson_distance² of a correspondence set (σ̂² = RSS/dof)
+public sampson_residuals!   # the n × M Float32 matrix of sampson_distance, models by points (a pool's residuals)
 public radial_transfer_rows!, radial_transfer_jacobian_rows!   # the division-model transfer LM rows
 # Slot-labeled epipolar forms (0.8, geometry/forms.jl): the forms layer.
 # `EpipolarForm` labels the two argument SLOTS of the bilinear form

@@ -67,7 +67,7 @@ using VisualGeometryToolkitCore: CspondNormalization   # the correspondence norm
 import VisualGeometryToolkitCore.Pools: PoolPair
 using VisualGeometryToolkitCore.Pools: StereoRawPair, pair_csponds, pair_snn, pair_K1, pair_K2,
     pair_R_gt, pair_t_gt, pair_gt_inliers, pool_normalization, pool_frame_calibrations, pool_pixel_scale
-using VisualGeometryToolkitCore: sampson_distance, sampson_rss, homography_dlt, test_dlt_conditioning
+using VisualGeometryToolkitCore: sampson_residuals!, sampson_rss, homography_dlt, test_dlt_conditioning
 using VisualGeometryToolkitCore.Synthetic: optimistic_pose_error
 # VGC state is read through its accessors, never by field name (a by-field read
 # breaks at RUNTIME here when VGC renames the field; an accessor breaks at load).

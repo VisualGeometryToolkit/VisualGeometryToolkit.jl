@@ -409,14 +409,5 @@ function pixel_residuals(pair::PoolPair)
     S, D = source_map(N), destination_map(N)
     iD = inv(D)
     px = pixel_csponds(pair)
-    u = [SVector{2,Float64}(x) for x in sources(px)]
-    v = [SVector{2,Float64}(x) for x in targets(px)]
-    out = Matrix{Float32}(undef, n, M)
-    @inbounds for (j, m) in enumerate(pair.models)
-        mp = iD ∘ m ∘ S
-        for i in 1:n
-            out[i, j] = Float32(sampson_distance(mp, u[i], v[i]))
-        end
-    end
-    return out
+    return sampson_residuals!(Matrix{Float32}(undef, n, M), (iD ∘ m ∘ S for m in pair.models), sources(px), targets(px))
 end

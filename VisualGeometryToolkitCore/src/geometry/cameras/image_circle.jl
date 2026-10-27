@@ -122,10 +122,11 @@ function _lens_circle_radius(l::AbstractLensModel)
 end
 
 # Whether `view_angle_limit` reported the lens's own limit rather than the edge
-# it stops at. The double sphere's limit is always its own — its FOV bound,
-# `acos(−w₂)` less 10⁻⁶, which reaches past the sphere's edge `π − 10⁻³` as w₂
-# nears 1 (ξ = 1, α ≤ ½ images the whole sphere but the backward axis, and its
-# rim conic is finite: radius 2).
+# it stops at. The double sphere's limit is always its own — the end of its
+# radial profile in closed form (`_ds_end_cos`) less 10⁻⁶, which reaches past
+# the sphere's edge `π − 10⁻³` when the profile runs to θ = π (ξ = 1 images the
+# whole sphere but the backward axis, and its rim conic is finite: radius 1/α,
+# 2 at α = ½).
 _own_view_angle_limit(l::AbstractLensModel, θ) = θ < _view_angle_edge(l)
 _own_view_angle_limit(::Lens{<:DoubleSphere, Nothing}, θ) = true
 

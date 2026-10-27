@@ -345,18 +345,18 @@ with_unit(t::PlanarTarget, u::Units) = PlanarTarget(
     _move_board((u, bd) -> with_unit(bd, u), u, t.board, false), _move_board((u, cv) -> with_unit(cv, u), u, t.canvas, false), _UnitMove()
 )
 # The one-form rule's view of a planar target (`_check_one_form`): its nominal
-# points', calibration's and board's forms, which its constructor already
-# holds to one — read from the stored parts, never by applying the
-# calibration. An unresolved target whose calibration or board carries lengths
-# has their form, so a plain pose on it is refused as on a resolved one.
+# points', calibration's, board's and canvas's forms, which its constructor
+# already holds to one — read from the stored parts, never by applying the
+# calibration. An unresolved target whose calibration, board or canvas carries
+# lengths has their form, so a plain pose on it is refused as on a resolved one.
 function _unit_form(t::PlanarTarget)
     n = t.nominal
-    forms = (n === nothing || isempty(n) ? :none : _unit_form(first(n)), _unit_form(geom(t.calibration)), _unit_form(t.board))
+    forms = (n === nothing || isempty(n) ? :none : _unit_form(first(n)), _unit_form(geom(t.calibration)), _unit_form(t.board), _unit_form(t.canvas))
     return :physical in forms ? :physical : :plain in forms ? :plain : :none
 end
 _form_sample(t::PlanarTarget) = _form_sample(
     t.nominal !== nothing && !isempty(t.nominal) ? first(t.nominal) :
-        _unit_form(geom(t.calibration)) !== :none ? geom(t.calibration) : t.board
+        _unit_form(geom(t.calibration)) !== :none ? geom(t.calibration) : t.board !== nothing ? t.board : t.canvas
 )
 _move_board(_, _, ::Nothing, _) = nothing
 _move_board(f, u, bd::Union{Board, Canvas}, from_physical::Bool) = has_units(bd) == from_physical ? f(u, bd) : bd

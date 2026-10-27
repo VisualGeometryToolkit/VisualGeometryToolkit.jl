@@ -84,15 +84,16 @@
         # a unitful pose on plain points, or the reverse, never promotes
         @test_throws DimensionError PosedTarget(PlanarTarget(pts2_mm), E_u)
         @test_throws DimensionError PosedTarget(PlanarTarget(from_mm.(pts2_mm)), E_mm)
-        # an UNRESOLVED target is held to the form of its calibration's and
-        # board's lengths, without applying the calibration: a plain pose on a
+        # an UNRESOLVED target is held to the form of its calibration's,
+        # board's and canvas's lengths, without applying the calibration: a plain pose on a
         # physical calibration or board is refused as on physical points
         R0 = rotation(E_mm)
         cal_u = VgtkCore.Affine(SMatrix{2, 2}(1.0, 0.0, 0.0, 1.0), SVector(1mm, 2mm))
         board_u = VgtkCore.Board(Size2(width = 100mm, height = 100mm))
+        canvas_u = VgtkCore.Canvas(Size2(width = 200mm, height = 200mm))
         for tgt in (PlanarTarget(:x; calibration = cal_u, board = board_u), PlanarTarget(:x; calibration = cal_u),
-                PlanarTarget(:x; board = board_u))
-            @test has_units(tgt) || tgt.board !== nothing
+                PlanarTarget(:x; board = board_u), PlanarTarget(:x; canvas = canvas_u))
+            @test has_units(tgt) || tgt.board !== nothing || tgt.canvas !== nothing
             @test_throws DimensionError PosedTarget(tgt, EuclideanMap(R0, SVector(0, 0, 500.0)))
             @test has_units(PosedTarget(tgt, EuclideanMap(R0, SVector(0, 0, 500.0) .* mm)))
         end

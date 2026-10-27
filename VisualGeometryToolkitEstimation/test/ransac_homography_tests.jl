@@ -410,6 +410,28 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         @test VgtkEstimation.lo_placement(VgtkEstimation.CountedLO(VgtkEstimation.TerminalLO(arm))) === VgtkEstimation.TerminalPlacement()
     end
 
+    @testset "TerminalLO — a thin incumbent comes back unrefined, :thin_partition" begin
+        # five exact correspondences of a homography among scattered outliers:
+        # the incumbent's consensus is m + 1 = 5 points, no residual dof
+        rng = StableRNG(3)
+        H = @SMatrix [1.1 0.05 3.0; -0.02 0.95 -2.0; 1.0e-4 2.0e-4 1.0]
+        ap(x) = (y = H * SVector(x[1], x[2], 1.0); SVector(y[1] / y[3], y[2] / y[3]))
+        src = [SVector(100rand(rng), 100rand(rng)) for _ in 1:5]
+        dst = ap.(src)
+        for _ in 1:12
+            push!(src, SVector(100rand(rng), 100rand(rng))); push!(dst, SVector(100rand(rng), 100rand(rng)))
+        end
+        problem = HomographyProblem(csponds(src, dst))
+        sc = MsacScoring(problem; threshold = 0.5)
+        cfg = RansacConfig(max_trials = 5000, min_trials = 3000)
+        r0 = ransac(problem, sc; local_optimization = NoLocalOptimization(), config = cfg, rng = StableRNG(1))
+        rt = ransac(problem, sc; local_optimization = VgtkEstimation.TerminalLO(Irls{WelschShape}(scale_multiple = 1.5)),
+            config = cfg, rng = StableRNG(1))
+        @test sum(rt.inlier_mask) == 5
+        @test rt.lo_retcode === :thin_partition
+        @test estimate(rt) == estimate(r0)
+    end
+
     @testset "PROSAC with scored correspondences" begin
         source_pts, target_pts, H_true, n_inliers = make_homography_data(
             n_inliers = 100, n_outliers = 30, noise = 0.5, seed = 42

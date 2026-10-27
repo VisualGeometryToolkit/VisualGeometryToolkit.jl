@@ -745,10 +745,12 @@ correspondences `X => u` with the world points `X` lengths. Both are stripped in
 metres once, the plain refinement runs, and the refined pose comes back with its
 translation in metres: equal, after `ustrip(m, ·)`, to the plain refinement's
 on the inputs' `ustrip(m, ·)`. `u`, `K` and `loss_width` stay in pixels. A
-physical seed with plain points, or the reverse, is an `ArgumentError`.
+labeled seed (an estimate's `CameraExtrinsics`, world → camera) is read
+unlabeled; the refined pose comes back unlabeled. A physical seed with plain
+points, or the reverse, is an `ArgumentError`.
 """
 function refine_absolute_pose(pose::UnitfulEuclideanMap{3}, K::AbstractMatrix, cs::_PhysicalPoints3; kwargs...)
-    seed = convert(Rigid3, ustrip(VgtkCore.m, pose))
+    seed = convert(Rigid3, VgtkCore.unlabel(ustrip(VgtkCore.m, pose)))   # a labeled pose (an estimate's CameraExtrinsics) too
     plain = [_metres_point(first(c)) => last(c) for c in cs]
     refined = refine_absolute_pose(seed, K, plain; kwargs...)
     # rebuilt through the checked constructor (the refined rotation is verified, as

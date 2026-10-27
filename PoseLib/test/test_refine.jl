@@ -262,6 +262,12 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
         plainm = VgtkCore.ustrip(VgtkCore.m, phys)
         @test plainm.R == pix.R && plainm.t == pix.t
         @test [Y .* VgtkCore.m for Y in X] == Xm                      # the inputs are not touched
+        # a labeled physical seed — what `estimate(find_absolute_pose(cam, X .* m .=> u))`
+        # returns, a CameraExtrinsics (world → camera) — is read unlabeled
+        labeled = VgtkCore.CameraExtrinsics(seedm)
+        @test labeled isa VgtkCore.CameraExtrinsics && VgtkCore.has_units(labeled)
+        physl = refine_absolute_pose(labeled, K1, Csponds(Xm, upix); max_iter = 25, loss_width = f * calibrated_loss_width)
+        @test VgtkCore.ustrip(VgtkCore.m, physl).R == pix.R && VgtkCore.ustrip(VgtkCore.m, physl).t == pix.t
         # mixed forms are refused, naming the fix
         @test_throws ArgumentError refine_absolute_pose(seedm, K1, Csponds(X, upix); max_iter = 25, loss_width = 1.0)
         @test_throws ArgumentError refine_absolute_pose(seed, K1, Csponds(Xm, upix); max_iter = 25, loss_width = 1.0)

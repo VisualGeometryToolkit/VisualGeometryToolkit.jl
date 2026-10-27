@@ -19,8 +19,12 @@ pairs `cs` (`aᵢ => bᵢ`, `StaticVector{3}` each side; any
 [`sources`](@ref)/[`targets`](@ref) container, a [`Csponds`](@ref)
 preferred): one closed-form step, `Rotations.nearest_rotation` of the
 cross-covariance `Σ bᵢaᵢᵀ` (an SVD with the determinant-sign correction).
-The vectors are used as given, NOT centred: centre (and weight) them at the
-call site when aligning point clouds rather than directions.
+A `weights` attribute column (`withattrs(cs; weights = w)`, `data-arguments.md`)
+weighs the pairs, `Σᵢ wᵢ‖bᵢ − R·aᵢ‖²` and the cross-covariance `Σ wᵢbᵢaᵢᵀ`
+(Wahba's problem): fixed, finite, non-negative weights, one per pair (an
+`ArgumentError` otherwise); a zero weight drops its pair. The vectors are
+used as given, NOT centred: centre them at the call site when aligning point
+clouds rather than directions.
 
 Physical pairs (lengths on both sides) are stripped in metres at entry; the
 rotation is unit-free, so it comes back the same either way.
@@ -28,14 +32,19 @@ rotation is unit-free, so it comes back the same either way.
 Throws `ArgumentError` on fewer than 2 pairs (a single pair leaves a
 one-parameter family of solutions).
 """
-kabsch(cs::AbstractVector{<:Pair{<:StaticVector{3, <:Quantity}, <:StaticVector{3, <:Quantity}}}) =
-    kabsch([strip_metres(first(p)) => strip_metres(last(p)) for p in cs])
+function kabsch(cs::AbstractVector{<:Pair{<:StaticVector{3, <:Quantity}, <:StaticVector{3, <:Quantity}}})
+    stripped = [strip_metres(first(p)) => strip_metres(last(p)) for p in cs]
+    w = weights_column(cs)
+    return kabsch(w === nothing ? stripped : withattrs(Csponds(sources(stripped), targets(stripped)); weights = w))
+end
 function kabsch(cs::AbstractVector{<:Pair{<:StaticVector{3}, <:StaticVector{3}}})
     length(cs) >= 2 ||
         throw(ArgumentError("need at least 2 vector pairs, got $(length(cs))"))
     as = sources(cs); bs = targets(cs)
+    w = check_weights(weights_column(cs), length(cs))
     T = promote_type(eltype(eltype(as)), eltype(eltype(bs)))
-    H = sum(SVector{3, T}(b) * SVector{3, T}(a)' for (a, b) in zip(as, bs))
+    H = w === nothing ? sum(SVector{3, T}(b) * SVector{3, T}(a)' for (a, b) in zip(as, bs)) :
+        sum(w[i] * (SVector{3, T}(bs[i]) * SVector{3, T}(as[i])') for i in eachindex(as, bs, w))
     return Rotations.nearest_rotation(H)
 end
 

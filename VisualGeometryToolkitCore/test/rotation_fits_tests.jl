@@ -102,3 +102,35 @@
         @test rotation_angle(RotMatrix{3}(mf.R' * frontal.R)) < 1.0e-10
     end
 end
+
+# kabsch with a `weights` attribute column (Wahba's weighted problem), against
+# an SVD reference: unit weights are the unweighted fit, a zero weight drops its
+# pair, invalid weights are refused.
+@testitem "kabsch: a weights column" begin
+    using Test, StaticArrays, LinearAlgebra, Random
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: kabsch, exp_so3, mm, Csponds, withattrs
+
+    rng = MersenneTwister(11)
+    Rt = exp_so3(SVector(0.2, 0.5, -0.3))
+    as = [normalize(SVector(randn(rng), randn(rng), randn(rng))) for _ in 1:30]
+    bs = [normalize(Rt * a + 0.01 * SVector(randn(rng), randn(rng), randn(rng))) for a in as]
+    w = rand(rng, 30) .+ 0.1
+    cs = Csponds(as, bs)
+    # the weighted reference: R = U·diag(1, 1, det(UVᵀ))·Vᵀ of Σ wᵢ bᵢ aᵢᵀ
+    B = sum(w[i] * (bs[i] * as[i]') for i in 1:30)
+    F = svd(Matrix(B))
+    Rref = F.U * Diagonal([1.0, 1.0, sign(det(F.U * F.Vt))]) * F.Vt
+    @test SMatrix{3, 3}(kabsch(withattrs(cs; weights = w))) ≈ Rref atol = 1.0e-14
+    @test kabsch(withattrs(cs; weights = ones(30))) ≈ kabsch(cs) atol = 1.0e-15        # unit weights: the unweighted fit
+    # a gross outlier with zero weight is ignored
+    bad = withattrs(Csponds(vcat(as, [SVector(1.0, 0.0, 0.0)]), vcat(bs, [SVector(0.0, 0.0, -1.0)])); weights = vcat(ones(30), 0.0))
+    @test kabsch(bad) ≈ kabsch(cs) atol = 1.0e-14
+    @test !(kabsch(withattrs(bad; weights = ones(31))) ≈ kabsch(cs))
+    # invalid weights: the caller's error
+    @test_throws ArgumentError kabsch(withattrs(cs; weights = vcat(-1.0, ones(29))))
+    @test_throws ArgumentError kabsch(withattrs(cs; weights = vcat(NaN, ones(29))))
+    # physical pairs keep their weights
+    csm = withattrs(Csponds([a .* mm for a in as], [b .* mm for b in bs]); weights = w)
+    @test SMatrix{3, 3}(kabsch(csm)) ≈ Rref atol = 1.0e-14
+end

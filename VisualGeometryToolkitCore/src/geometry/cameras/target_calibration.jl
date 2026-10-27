@@ -341,7 +341,9 @@ length_mask(::Type{<:ThinPlateSpline{K}}) where {K} = SVector{2K}(ntuple(_ -> tr
 # A unit move to or from metres leaves the stored nodes and values as they are
 # (lengths are stored as plain metres): the spline's solver, coefficients and
 # bending factor are reused, only the form flips. Any other unit refits them.
-_in_metres(u::Units) = _metre_factor(u) == 1
+# (A unit of another dimension is not metres: it takes the rebuild, which refuses it
+# with FlexUnits' `DimensionError`.)
+_in_metres(u::Units) = dimension(u) == dimension(m) && _metre_factor(u) == 1
 function FlexUnits.ustrip(u::Units, c::ThinPlateSpline{K, T}) where {K, T}
     c.physical || _refuse_strip(c)
     _in_metres(u) && return ThinPlateSpline{K, T}(c.system, c.fx, c.fy, c.wx, c.ax, c.wy, c.ay, c.bending, false)

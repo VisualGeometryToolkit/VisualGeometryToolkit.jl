@@ -586,3 +586,17 @@ end
     @test (@inferred length_mask(typeof(C))) == vcat(length_mask(A), length_mask(T), length_mask(H))
     @test length(length_mask(C)) == length(parameter_vector(C))
 end
+
+@testitem "target calibration: with_unit of a non-length unit" begin
+    using Test, StaticArrays
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: grid_nodes, with_unit, px
+    using FlexUnits: DimensionError, ConversionError
+    # A thin-plate kind refuses a unit that is not a length with FlexUnits'
+    # DimensionError, as at 0.2's base (the metre shortcut checks the dimension
+    # before it converts); an Affine raises ConversionError, as it always did.
+    nodes = grid_nodes(3; lo = 0.0, hi = 1.0)
+    @test_throws DimensionError with_unit(ThinPlateSpline(nodes), px)
+    @test_throws DimensionError with_unit(HeightField(nodes), px)
+    @test_throws ConversionError with_unit(Affine([1.0 0.0; 0.0 1.0], [0.0, 0.0]), px)
+end

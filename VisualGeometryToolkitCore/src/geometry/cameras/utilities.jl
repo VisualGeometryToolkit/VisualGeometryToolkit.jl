@@ -73,11 +73,12 @@ end
     fov(camera::BoundedCamera; dimension = :horizontal) -> θ
 
 The angle of view of a bounded camera: the FULL angle, in radians, that its
-pixel extent subtends in `dimension` — the inverse of
-[`focal_length`](@ref)`(sensor, θ; dimension)`, which takes the same full angle. (The lens's
+pixel extent subtends in `dimension` — for a pinhole with a centred principal
+point, the inverse of [`focal_length`](@ref)`(resolution, θ; dimension)`, which
+takes the same full angle (`focal_length(sensor, θ)` is its metric form). (The lens's
 own limit, [`view_angle_limit`](@ref), is a HALF angle from the optical axis.)
 
-The angle is read through the camera's `K⁻¹` and lens ([`backproject`](@ref)),
+The angle is read through the camera's own [`backproject`](@ref) (`K⁻¹`, then the lens),
 so a distorted or fisheye lens answers its true angle, and an anisotropic `K`
 uses the focal length of that axis:
 
@@ -88,7 +89,10 @@ uses the focal length of that axis:
 
 The answer is twice the SMALLEST of those points' view angles — the nearer
 edge when the principal point is off-centre, so the cone of that full angle
-about the optical axis is imaged inside the extent in that dimension.
+about the optical axis is imaged inside the extent in that dimension. For a
+lens that is not radially symmetric the image circle is inscribed, so an edge
+point between it and the true lit boundary counts as the lens's limit: the
+answer can then overstate the angle slightly.
 
 Clipping: a point outside the lens's [`image_circle`](@ref) (or one the lens
 does not image) counts as the lens's own limit, so when the image circle clips
@@ -101,11 +105,10 @@ fov(cam; dimension = :diagonal)
 ```
 """
 function fov(camera::BoundedCamera; dimension = :horizontal)
-    l = lens(camera)
-    K = SMatrix{3, 3, Float64}(calibration_matrix(camera))
-    Ki = inv(K)
+    m = model(camera)
+    K = calibration_matrix(m)
     w, h = Float64(extent(camera).width), Float64(extent(camera).height)
-    cx, cy = K[1, 3], K[2, 3]
+    cx, cy = Float64(K[1, 3]), Float64(K[2, 3])
     pts = if dimension === :horizontal
         (SVector(0.0, cy), SVector(w, cy))
     elseif dimension === :vertical
@@ -115,12 +118,11 @@ function fov(camera::BoundedCamera; dimension = :horizontal)
     else
         throw(ArgumentError("fov: dimension must be :horizontal, :vertical or :diagonal, got $(repr(dimension))"))
     end
-    θ_lim = Float64(view_angle_limit(l))
-    q = image_circle(model(camera))
+    θ_lim = Float64(view_angle_limit(lens(m)))
+    q = image_circle(m)
     θ = minimum(pts) do u
-        (q === nothing || Point2(u) ∈ q) || return θ_lim
-        x = Ki * SVector(u[1], u[2], 1.0)
-        b = backproject(l, SVector(x[1] / x[3], x[2] / x[3]))
+        Point2(u) ∈ q || return θ_lim          # outside the circle: past the lens's limit (or on its folded branch)
+        b = backproject(m, u)                  # the camera's own pixel → bearing
         θu = atan(hypot(b[1], b[2]), b[3])
         isfinite(θu) ? min(θu, θ_lim) : θ_lim
     end

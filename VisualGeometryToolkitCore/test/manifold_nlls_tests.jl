@@ -13,7 +13,7 @@ using LinearAlgebra: I, norm
 using StaticArrays
 using NLLSsolver: NLLSsolver
 using ForwardDiff: ForwardDiff
-using Rotations: RotMatrix, RotXYZ
+using Rotations: QuatRotation, RotMatrix, RotXYZ
 import VisualGeometryToolkitCore as VgtkCore
 using VisualGeometryToolkitCore: DoubleSphere, EssentialManifold5, EssentialManifold6, EuclideanManifold, EuclideanMap,
     FundMatManifold7, HomographyManifold8, LeftRigidManifold6, Lens, LensManifold, Pinhole, PlanarTarget,
@@ -34,7 +34,7 @@ NLLSsolver.ndeps(::_PointResidual) = NLLSsolver.static(1)
 NLLSsolver.nres(::_PointResidual) = NLLSsolver.static(3)
 NLLSsolver.varindices(::_PointResidual) = SVector(1)
 NLLSsolver.getvars(::_PointResidual, vars::Vector) = (vars[1],)
-NLLSsolver.computeresidual(r::_PointResidual, ch::RigidExpManifold6) = model(ch)(r.x) - r.y
+NLLSsolver.computeresidual(r::_PointResidual, ch::VgtkCore.Manifold) = model(ch)(r.x) - r.y
 Base.eltype(::_PointResidual) = Float64
 
 nvars_of(ch) = NLLSsolver.nvars(ch)
@@ -65,6 +65,11 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         VgtkCore.test_manifold_contract(restrict(SphereManifold(SVector(0.0, 0.6, 0.8)), SVector(false, true)))
         VgtkCore.test_manifold_contract(SphereManifold(SVector(0.1, -0.6, 0.8, 0.2, 0.3, -0.4)))
         VgtkCore.test_manifold_contract(LeftRigidManifold6(SMatrix{3, 3, Float32}(R0), Float32.(t0)); atol = 1.0e-5)
+        # the chart of a pose as IO loads it (a QuatRotation) and of a
+        # mixed-eltype pose: recenter keeps the rotation's representation and
+        # the translation's own eltype
+        VgtkCore.test_manifold_contract(VgtkCore.minimal_manifold(EuclideanMap(QuatRotation(RotXYZ(0.3, -0.2, 0.5)), t0)))
+        VgtkCore.test_manifold_contract(VgtkCore.minimal_manifold(EuclideanMap(RotMatrix{3}(R0), Float32.(t0))); atol = 1.0e-6)
     end
 
     @testset "the size is static for every manifold family" begin
@@ -141,6 +146,24 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         result = NLLSsolver.optimize!(problem, NLLSsolver.NLLSOptions(; numthreads = NLLSsolver.static(1)))
         @test result.bestcost < 1.0e-20
         @test norm(local_coordinates(problem.variables[1], truth)) < 1.0e-9
+    end
+
+    @testset "a fit whose variable is the chart of a loaded (QuatRotation) pose" begin
+        # NLLSsolver's update stores `recenter`'s result into the variable
+        # vector: the chart's type must survive it
+        truth = pose((0.3, -0.1, 0.2), (0.5, -0.2, 1.0))
+        xs = [SVector(sin(i), cos(2i), 0.1i) for i in 1:12]
+        for start in (EuclideanMap(QuatRotation(RotXYZ(0.1, 0.0, 0.05)), SVector(0.4, -0.1, 0.9)),
+                EuclideanMap(RotMatrix{3}(RotXYZ(0.1, 0.0, 0.05)), SVector{3, Float32}(0.4, -0.1, 0.9)))
+            ch₀ = VgtkCore.minimal_manifold(start)
+            problem = NLLSsolver.NLLSProblem(typeof(ch₀), _PointResidual)
+            NLLSsolver.addvariable!(problem, ch₀)
+            foreach(x -> NLLSsolver.addcost!(problem, _PointResidual(x, truth(x))), xs)
+            result = NLLSsolver.optimize!(problem, NLLSsolver.NLLSOptions(; numthreads = NLLSsolver.static(1)))
+            @test problem.variables[1] isa typeof(ch₀)
+            @test result.bestcost < result.startcost
+            @test norm(local_coordinates(problem.variables[1], truth)) < (eltype(ch₀.t) === Float32 ? 1.0e-5 : 1.0e-9)
+        end
     end
 
     @testset "is_stationary" begin

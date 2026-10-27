@@ -59,7 +59,10 @@ Local coordinate system anchored at a model iterate. Contract:
   the manifold's own float type returns the manifold's own type (what a solver
   stepping a manifold variable holds), and a step of ForwardDiff Duals returns
   a Dual-valued manifold, so automatic differentiation through `recenter`
-  works (NLLSsolver's, through `update`);
+  works (NLLSsolver's, through `update`). A step that does not widen the
+  manifold's element type keeps its storage types exactly — a rotation's
+  representation and each part's own element type — so the type a solver
+  holds never changes under an update;
 - `retract_jacobian(ch, v = 0)` — T(v) = ∂vec(retract(ch, v))/∂v (9 × D for
   3×3 models): at the anchor by default, at any `v` for an optimizer that
   iterates in the manifold instead of re-anchoring. Named after the function
@@ -103,7 +106,8 @@ function recenter end
 
 # `recenter`'s element-type rule: the manifold's element type `S` promoted with
 # the step's (`promote_type(S, eltype(v))`), and a static storage type `A` rebuilt
-# in it (a `RotMatrix` keeps its type: its method is beside the rigid charts).
+# in it (a rotation keeps its representation: its methods are beside the rigid
+# charts, which also keep every storage type for a step that does not widen).
 _storage_with_eltype(::Type{A}, ::Type{T}) where {A <: StaticArray, T} = similar_type(A, T)
 
 """

@@ -185,11 +185,20 @@ end
 # lie.jl) — and keeps the anchor's storage types in the contract's element type
 # (base/manifold.jl): a step of the chart's own float type gives back the type
 # a solver stepping a chart variable holds, a Dual step a Dual-valued chart.
+# The chart's element type is its parts' promoted; a step that does not widen
+# it keeps BOTH storage types exactly — the rotation's representation (a pose
+# read from a file holds a `QuatRotation`) and the translation's own eltype (a
+# Float64 rotation over a Float32 translation keeps the Float32): the step is
+# converted into the storage, never promoted per part. A wider step (a Dual, a
+# Float64 step of a Float32 chart) rebuilds both parts in the promoted type,
+# each in its own representation.
 _storage_with_eltype(::Type{<:RotMatrix{3}}, ::Type{T}) where {T} = RotMatrix{3, T, 9}
+_storage_with_eltype(::Type{R}, ::Type{T}) where {R <: Rotation{3}, T} = Base.typename(R).wrapper{T}
 function recenter(ch::RigidChart{P, C, Rot, Tr}, v) where {P, C, Rot, Tr}
     R, t = recenter_pose(ch, v)
-    T = promote_type(eltype(Rot), eltype(Tr), eltype(v))
-    RotT, TrT = _storage_with_eltype(Rot, T), _storage_with_eltype(Tr, T)
+    S = promote_type(eltype(Rot), eltype(Tr))
+    T = promote_type(S, eltype(v))
+    RotT, TrT = T === S ? (Rot, Tr) : (_storage_with_eltype(Rot, T), _storage_with_eltype(Tr, T))
     return RigidChart{P, C, RotT, TrT}(RotT(_reproject_so3(R)), TrT(t))
 end
 

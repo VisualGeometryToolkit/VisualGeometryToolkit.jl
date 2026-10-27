@@ -43,6 +43,8 @@ covers the pitch. A camera bounded by a bare pixel extent has no `pitch` key.
 |---|---|---|---|
 | COLMAP model directory (`.bin` or `.txt`) | `ColmapModel`, an adapter; `camera_model` and `rigid_transform(image, contract)` convert its records | `load(ColmapModel, dir; contract)`; supply `contract = UnknownScale()` for an SfM model with no metric scale | `save(dir, m; format)` |
 | OpenCV or MATLAB calibration export | `ExternalCalibration`, an adapter holding VGC values | `load_opencv_calibration([file_frame,] path; file_unit)`, `load_matlab_calibration([file_frame,] path; file_unit)`; `migrate_opencv` and `migrate_matlab` convert one to native files | `save_opencv_calibration([to_frame,] path, cal; to_unit, images)` |
+| Schöps et al.'s camera_calibration `intrinsics0.yaml` | `CentralGenericModel`, `NoncentralGenericModel` (VGC's own types; the file's corner pixel convention is `SCHOEPS_PIXEL_FRAME`, COLMAP's) | `load(CentralGenericModel, path)`, `load(NoncentralGenericModel, path; file_unit)`: the form is told from the content; the point grid's unit is the caller's | read-only (`save` writes `vgio/generic_camera/v2`) |
+| Schöps et al.'s camera_calibration `dataset.bin` (`calib_data` v0) | `TargetPoints2D{SCHOEPS_PIXEL_FRAME}`: per image, `(target, feature id + 1, xy, 1.0)` | `load(TargetPoints2D, path; target)`: the target the ids index is the caller's | read-only |
 | COLMAP `database.db` | a lazy read handle | `ColmapDatabase(path)`, with the accessors `keypoints`, `descriptors`, `matches`, `verified_matches` and others (public, so qualify them) | read-only |
 
 See [Third-Party Calibrations](third-party.md) for the OpenCV and MATLAB

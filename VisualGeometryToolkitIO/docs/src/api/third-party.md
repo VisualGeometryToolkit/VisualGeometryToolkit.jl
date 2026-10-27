@@ -1,7 +1,7 @@
 # Third-Party Calibrations
 
 The OpenCV and Kalibr lens conventions, the OpenCV and MATLAB calibration
-readers, the OpenCV-shaped writer, the migrations to native files, and the
+readers, the Schöps camera_calibration readers, the OpenCV-shaped writer, the migrations to native files, and the
 migration of an earlier schema version (`vgio_migrate`, `vgio_migrate_tree`,
 `migrate_schema`).
 
@@ -11,5 +11,5 @@ CurrentModule = VisualGeometryToolkitIO
 
 ```@autodocs
 Modules = [VisualGeometryToolkitIO]
-Pages = ["conventions.jl", "external_calibration.jl", "migrate.jl"]
+Pages = ["conventions.jl", "external_calibration.jl", "schoeps.jl", "migrate.jl"]
 ```

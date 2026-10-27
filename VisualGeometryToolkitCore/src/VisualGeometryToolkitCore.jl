@@ -332,6 +332,7 @@ public lift   # not exported: Makie exports its own `lift`
 # Unit constants; px, pd, dpi and pt are registered into FlexUnits' registry at
 # `__init__` (base/units.jl).
 export px, dpi, pt, mm, cm, μm, m, inch, ft
+public BaseQuantity   # FlexUnits' concrete stored form of a base quantity (base/units.jl)
 export ustrip, uconvert, dimension, DimensionError, ConversionError
 export @ud_str, uparse, qparse
 export parse_unit, unit_string, strip_or_bare

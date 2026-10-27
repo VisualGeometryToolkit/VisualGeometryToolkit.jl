@@ -61,7 +61,7 @@ configs/default.toml (`"gt.eth3d.splg"`; `metric_tol_mm` in millimetres).
 """
 Base.@kwdef struct GTConfig
     gt_method     :: Symbol
-    metric_tol    :: Quantity{Float64, Dimensions{FixRat32}}
+    metric_tol    :: BaseQuantity
     rel_tol       :: Float64
     bidirectional :: Bool
 end

@@ -33,6 +33,19 @@ const pt = Units("pt" => (1 / 72) * inch)
 const dpi = Units("dpi" => px / inch)
 const _pd = Units("pd" => px)   # the board JSONs' unit name for a pixel (print dot), equal to px
 
+"""
+    BaseQuantity
+
+FlexUnits' concrete stored form of a base quantity, computed once as
+`typeof(ubase(1.0mm))` (today `Quantity{Float64, Dimensions{FixRat32}}`): the
+type a struct field holds after its constructor `ubase`s a quantity, so a
+container of mixed dimensions is concrete. It is NOT a stack quantity type —
+public signatures take any FlexUnits `Quantity` and convert — and it is named
+here only so the stack spells FlexUnits' stored form once instead of
+restating its parameters (see conventions/units.md).
+"""
+const BaseQuantity = typeof(ubase(1.0mm))
+
 # The stack's units, registered into FlexUnits' registry by `__init__`.
 const _STACK_UNITS = (px, _pd, dpi, pt)
 

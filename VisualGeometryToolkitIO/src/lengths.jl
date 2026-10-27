@@ -219,7 +219,7 @@ end
 
 # The file's numbers in `u` as a static vector of lengths (metres).
 _lengths_from_json(::Val{N}, v::AbstractVector, u::Units) where {N} =
-    SVector{N, Quantity{Float64, Dimensions{FixRat32}}}(ntuple(i -> read_length(v[i]::Real, u), Val(N)))
+    SVector{N, BaseQuantity}(ntuple(i -> read_length(v[i]::Real, u), Val(N)))
 
 # A covariance in base units (entry (i, j) of length dimension
 # `dims[i] + dims[j]`, each `dims` 0 or 1, or false or true as in a

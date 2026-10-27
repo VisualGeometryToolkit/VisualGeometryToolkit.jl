@@ -55,9 +55,9 @@ _board_number(x::Quantity) = ustrip(m, x)
 _board_number(x::Real) = Float64(x)
 
 # Constructors: a FlexUnits length in, stored in FlexUnits' base form
-# `Quantity{Float64, Dimensions{FixRat32}}` (metres); plain numbers as Float64.
+# `BaseQuantity` (metres); plain numbers as Float64.
 function Board(size::Size2{<:Quantity}, origin::AbstractVector = SVector(0.0, 0.0))
-    Q = Quantity{Float64, Dimensions{FixRat32}}
+    Q = BaseQuantity
     return Board{Q}(Size2{Q}(map(q -> _check_length(q), size)), _board_origin(origin))
 end
 function Board(size::Size2{<:Real}, origin::AbstractVector = SVector(0.0, 0.0))

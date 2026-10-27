@@ -33,15 +33,14 @@ struct Sensor{TR <: Quantity, TP <: Quantity}
 end
 
 # Constructors: any FlexUnits quantity in, stored in FlexUnits' base form
-# `Quantity{Float64, Dimensions{FixRat32}}` (`5.86μm / px` is a unit-carrying
-# quantity; `convert` takes it to the base form).
+# `BaseQuantity` (`5.86μm / px` is a unit-carrying quantity; `convert` takes it
+# to the base form) — the stored form every outer constructor produces and a
+# `BoundedCamera` holds, `Sensor{BaseQuantity, BaseQuantity}`.
 Sensor(res::Size2{<:Integer}, pitch::Quantity) = Sensor(Size2(width = res.width * px, height = res.height * px), pitch)
 Sensor(res::Size2{<:Quantity}, pitch::Quantity) = Sensor(res, Size2(width = pitch / px, height = pitch / px))
-# The stored form every outer constructor produces (and a `BoundedCamera` holds).
-const _StoredSensor = Sensor{Quantity{Float64, Dimensions{FixRat32}}, Quantity{Float64, Dimensions{FixRat32}}}
 function Sensor(res::Size2{<:Quantity}, pitch::Size2{<:Quantity})
-    Q = Quantity{Float64, Dimensions{FixRat32}}
-    return _StoredSensor(Size2{Q}(res), Size2{Q}(pitch))
+    Q = BaseQuantity
+    return Sensor{Q, Q}(Size2{Q}(res), Size2{Q}(pitch))
 end
 
 # Accessors

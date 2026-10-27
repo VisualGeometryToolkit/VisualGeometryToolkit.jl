@@ -114,9 +114,8 @@ import ..VisualGeometryToolkitCore: bounds_trait, extent           # extend the 
 using Base: ImmutableDict
 
 # Import types and macros defined in core and geometry
-using ..VisualGeometryToolkitCore: Size2, Quantity, px, mm, μm, m
+using ..VisualGeometryToolkitCore: Size2, Quantity, BaseQuantity, px, mm, μm, m
 using ..VisualGeometryToolkitCore: _check_pixels, _strip_pixels   # pixel-sized values: refuse a length (base/units.jl)
-using FlexUnits: Dimensions, FixRat32   # FlexUnits' base-form quantity, `Quantity{Float64, Dimensions{FixRat32}}`
 using ..VisualGeometryToolkitCore: EuclideanMap, CameraPose, CameraExtrinsics, to_affine, to_homogeneous, image_warp, image_warp!
 import ..VisualGeometryToolkitCore: has_units, with_unit   # extended on the carriers: targets, mounts, rigs, cameras, captures
 import ..VisualGeometryToolkitCore: _unit_form, _form_sample   # the one-form rule's view of each carrier (euclidean_map.jl `_check_one_form`)
@@ -439,7 +438,7 @@ extent(bc)         # same, via trait-dispatched accessor
 struct BoundedCamera{C <: AbstractCamera} <: AbstractCamera
     camera::C
     extent::Size2{Int}
-    sensor::Union{Nothing, _StoredSensor}   # the Sensor's stored form (sensors.jl)
+    sensor::Union{Nothing, Sensor{BaseQuantity, BaseQuantity}}   # the Sensor's stored form (sensors.jl)
 end
 
 # The bound is a pixel extent, or the physical sensor whose resolution is that

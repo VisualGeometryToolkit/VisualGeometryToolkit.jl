@@ -98,8 +98,11 @@ units: pixels in px, lengths in mm.
 `μm`, `m`, `inch`, `ft`, `pt`, `dpi`) are FlexUnits' dynamic units, so
 `10mm`, `3px` and `300dpi` share FlexUnits' base-form type
 `Quantity{Float64, Dimensions{FixRat32}}`, a bits type. A struct that holds
-quantities stores that type, spelled out (there is no alias), and needs no
-unit type parameter, and a mixed-dimension container is concrete. Static
+quantities stores that type, named once in VisualGeometryToolkitCore as the
+computed constant `BaseQuantity = typeof(ubase(1.0mm))` — FlexUnits' stored
+form, not a stack quantity type: no signature takes it, every boundary takes
+any `Quantity` — and needs no unit type parameter, and a mixed-dimension
+container is concrete. Static
 units (`u"…"`) are not used in struct fields.
 
 **Boundaries accept any quantity and convert.** A quantity combined with a

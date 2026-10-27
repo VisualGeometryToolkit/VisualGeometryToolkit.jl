@@ -22,7 +22,7 @@ _qvec(R) = canonical_qvec(SVector{4, Float64}(params(QuatRotation(RotMatrix{3, F
 # the stored unit quaternion — not renormalized, not converted to a matrix —
 # and whose translation is lengths in metres, the static vector VGC's own
 # physical constructor stores.
-_quat_map(q, t::SVector{3, Quantity{Float64, Dimensions{FixRat32}}}) =
+_quat_map(q, t::SVector{3, BaseQuantity}) =
     EuclideanMap{3, Float64, QuatRotation{Float64}, typeof(t)}(
     QuatRotation(Float64(q[1]), Float64(q[2]), Float64(q[3]), Float64(q[4]), false), t,
 )

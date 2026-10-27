@@ -159,7 +159,7 @@ Units are FlexUnits.jl as it ships, with no stack quantity type, dimension set o
 
 Key types and helpers:
 - `Size2{T}` - width/height with optional units (`src/base/size2.jl`)
-- `Quantity{Float64, Dimensions{FixRat32}}` - FlexUnits' base-form quantity, held in structs; boundaries accept any FlexUnits `Quantity` and `ubase` it
+- `BaseQuantity` (`typeof(ubase(1.0mm))`, i.e. `Quantity{Float64, Dimensions{FixRat32}}`) - FlexUnits' base-form quantity, held in structs; boundaries accept any FlexUnits `Quantity` and `ubase` it
 - `@ud_str`, `uparse`, `qparse` - FlexUnits' registry parsers, re-exported; a unit name from outside is read ONLY by `parse_unit` (the guarded `uparse`) and written by `unit_string` — `check_naming` R11
 - `strip_or_bare(u, x)` - a quantity (or frame) stripped in `u`, plain numbers as they are
 - `dimension(q) == dimension(u)` - the dimension check at constructor boundaries

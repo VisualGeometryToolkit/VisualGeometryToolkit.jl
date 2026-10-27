@@ -51,7 +51,7 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore, Size2, FundMat, Esse
     centroid, model, extent, extrinsics, source, destination, project, unproject, csponds, Point3, Vec3,
     PosedCamera, BoundedCamera, CameraModel, CameraCalibrationMat, EuclideanMap, StereoRig,
     validate_gt_inliers, m, mm, ustrip
-using FlexUnits: Quantity, Dimensions, FixRat32
+using VisualGeometryToolkitCore: BaseQuantity   # FlexUnits' stored form of a base quantity
 using VisualGeometryToolkitCore.Pools: Pools, StereoRawPair
 import VisualGeometryToolkitIO
 using VisualGeometryToolkitIO: read_length, write_length, UnknownScale, camera_model, UnitContract, ColmapModel, ColmapCamera, ColmapImage

@@ -121,7 +121,7 @@ function left_jacobian(::Type{SO3}, ω::SVector{3, T}) where {T <: Real}
 end
 
 """
-    exp_se3(ω::SVector{3,T}, ρ::SVector{3,T}) -> EuclideanMap
+    exp_se3(ω::SVector{3}, ρ::SVector{3}) -> EuclideanMap
 
 SE(3) exponential of the twist `(ω, ρ)`:
 `(exp_so3(ω), left_jacobian(SO3, ω)·ρ)` as an [`EuclideanMap`](@ref)
@@ -131,10 +131,16 @@ floating-point precision by construction).
 GTSAM's `Pose3::Expmap` (`log_se3` is `Pose3::Logmap`), Sophus' `SE3::exp`,
 Manifolds.jl's `exp_lie`. Note the twist ORDER differs between libraries —
 ours is `(ω, ρ)`, rotation first.
+
+Generic over `Real`: the two parts are promoted to one float type, so
+ForwardDiff `Dual`s flow through it (a pose retraction `exp_se3(ω, ρ) ∘ T`
+differentiated by an NLLS solver), as through `exp_so3` and `left_jacobian`.
 """
-function exp_se3(ω::SVector{3, T}, ρ::SVector{3, T}) where {T <: AbstractFloat}
-    R = exp_so3(ω)
-    t = left_jacobian(SO3, ω) * ρ
+function exp_se3(ω::SVector{3, <:Real}, ρ::SVector{3, <:Real})
+    T = float(promote_type(eltype(ω), eltype(ρ)))
+    ωT, ρT = SVector{3, T}(ω), SVector{3, T}(ρ)
+    R = exp_so3(ωT)
+    t = left_jacobian(SO3, ωT) * ρT
     return EuclideanMap(RotMatrix{3, T}(R), t; check = false)
 end
 

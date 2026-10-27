@@ -240,3 +240,33 @@ end
         @test same_log == n
     end
 end
+
+# exp_se3 on Real element types: ForwardDiff Duals through the twist (a pose
+# retraction differentiated by an NLLS solver), against central differences;
+# mixed element types promote; Float64 is unchanged.
+@testitem "exp_se3 under ForwardDiff" begin
+    using Test, StaticArrays, LinearAlgebra
+    using ForwardDiff: ForwardDiff
+    using FiniteDiff: FiniteDiff
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: exp_se3, exp_so3, left_jacobian, SO3, rotation, translation
+
+    flat(E) = vcat(vec(SMatrix{3, 3}(rotation(E))), SVector{3}(translation(E)))
+    f(v) = flat(exp_se3(SVector(v[1], v[2], v[3]), SVector(v[4], v[5], v[6])))
+    for v0 in (SVector(0.3, -0.2, 0.1, 0.4, -0.5, 0.2), SVector(1.0e-9, 2.0e-9, -1.0e-9, 0.1, 0.2, 0.3), SVector(2.5, 0.4, -0.3, 1.0, 0.0, -2.0))
+        J = ForwardDiff.jacobian(f, v0)
+        Jfd = FiniteDiff.finite_difference_jacobian(w -> Vector(f(SVector{6}(w))), Vector(v0), Val(:central))
+        @test J ≈ Jfd rtol = 1.0e-7 atol = 1.0e-9
+        @test f(v0) == flat(exp_se3(SVector{3}(v0[1:3]), SVector{3}(v0[4:6])))         # the Float64 values unchanged by the Duals' path
+    end
+    # the retraction exp_se3(ω, ρ) ∘ T of a camera-to-world pose, differentiated (RadiometricCamera's `retract`)
+    T0 = EuclideanMap(VisualGeometryToolkitCore.RotMatrix{3}(exp_so3(SVector(0.3, -0.2, 0.1))), SVector(0.1, 0.2, 1.0))
+    g(v) = flat(exp_se3(SVector(v[1], v[2], v[3]), SVector(v[4], v[5], v[6])) ∘ T0)
+    Jg = ForwardDiff.jacobian(g, zeros(SVector{6}))
+    @test Jg ≈ FiniteDiff.finite_difference_jacobian(w -> Vector(g(SVector{6}(w))), zeros(6), Val(:central)) rtol = 1.0e-7 atol = 1.0e-9
+    # mixed element types promote; Float32 stays Float32
+    @test eltype(translation(exp_se3(SVector(0.1, 0.2, 0.3), SVector(1, 2, 3)))) === Float64
+    @test eltype(translation(exp_se3(SVector(0.1f0, 0.2f0, 0.3f0), SVector(1.0f0, 2.0f0, 3.0f0)))) === Float32
+    E = exp_se3(SVector(0.1, 0.2, 0.3), SVector(1.0, 2.0, 3.0))
+    @test SVector{3}(translation(E)) == left_jacobian(SO3, SVector(0.1, 0.2, 0.3)) * SVector(1.0, 2.0, 3.0)
+end

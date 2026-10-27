@@ -111,11 +111,15 @@ _calibration_keys(::Type{ThinPlateSpline}) = (:nodes, :parameters)
 _calibration_keys(::Type{HeightField}) = (:nodes, :parameters)
 _calibration_keys(::Type{CalibrationChain}) = (:members,)
 _calibration_keys(::Type) = nothing      # a kind without a record (a downstream one)
-_n_parameters(::Type{Rigid}, x) = 0
-_n_parameters(::Type{Affine}, x) = 6
-_n_parameters(::Type{ThinPlateSpline}, x) = 2 * length(x[:nodes])
-_n_parameters(::Type{HeightField}, x) = length(x[:nodes])
-_n_parameters(::Type{CalibrationChain}, x) = sum(r -> _n_parameters(TARGET_CALIBRATION_TAGS[r[:type]], r), x[:members])
+# The count is VGC's: the length of `length_mask` of the kind the record
+# describes, as far as its parameter count depends on the record (its node
+# count, a chain's members).
+_record_kind(K::Type, x) = K
+_record_kind(::Type{ThinPlateSpline}, x) = ThinPlateSpline{length(x[:nodes])}
+_record_kind(::Type{HeightField}, x) = HeightField{length(x[:nodes])}
+_record_kind(::Type{CalibrationChain}, x) =
+    CalibrationChain{Tuple{(_record_kind(TARGET_CALIBRATION_TAGS[r[:type]], r) for r in x[:members])...}}
+_n_parameters(K::Type, x) = length(length_mask(_record_kind(K, x)))
 
 function _target_calibration_check(x, member::Bool)
     ty = x[:type]
@@ -213,14 +217,6 @@ function _points_from_json(vals, unit::Units, covs = nothing)
     return [Uncertain(p, CovMat(_length_cov_from_json(c, n, unit, _point_cov_dims(n)))) for (p, c) in zip(pts, covs)]
 end
 
-# The length dimension (0 or 1) of each parameter of a calibration, in
-# `parameter_vector` order: the record's statement of which numbers are lengths.
-# TODO(after the rebase onto the Core simplify branch): read VisualGeometryToolkitCore's public `length_mask` here and in the validator (`_calibration_keys`/`_n_parameters`).
-_length_dims(::Rigid) = Int[]
-_length_dims(::Affine) = [0, 0, 0, 0, 1, 1]
-_length_dims(c::Union{ThinPlateSpline, HeightField}) = ones(Int, length(parameter_vector(c)))
-_length_dims(c::CalibrationChain) = reduce(vcat, map(_length_dims, c.members); init = Int[])
-
 # A plain metre value (a calibration's stored length) as the file's number in `u`.
 _metres_json(x::Real, u::_LeafUnit) = _leaf_power(Float64(x), u, 1)
 _nodes_json(c, u::_LeafUnit) = [[_metres_json(p[1], u), _metres_json(p[2], u)] for p in c.system.nodes]
@@ -243,7 +239,7 @@ _calibration_record(c::TargetCalibration, ::_LeafUnit) = throw(
 )
 
 _calibration_record(c::Uncertain{<:TargetCalibration}, u::_LeafUnit) =
-    merge(_calibration_record(geom(c), u), (covariance = _length_cov_json(cov(c), u, _length_dims(geom(c))),))
+    merge(_calibration_record(geom(c), u), (covariance = _length_cov_json(cov(c), u, length_mask(geom(c))),))
 
 _read_metres(x, u::Units) = read_length(x::Real, u)
 _nodes_from_json(x, u::Units) = [SVector(_read_metres(p[1], u), _read_metres(p[2], u)) for p in x.nodes::Vector{Any}]
@@ -269,7 +265,7 @@ _calibration_from_record(::Type{CalibrationChain}, x, u::Units) =
 function _target_calibration_from_json(x, u::Units)
     c = _calibration_from_record(TARGET_CALIBRATION_TAGS[x.type::String], x, u)
     haskey(x, :covariance) || return c
-    dims = _length_dims(c)
+    dims = length_mask(c)
     return Uncertain(c, CovMat(_length_cov_from_json(x.covariance::Vector{Any}, length(dims), u, dims)))
 end
 

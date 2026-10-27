@@ -222,7 +222,8 @@ _lengths_from_json(::Val{N}, v::AbstractVector, u::Units) where {N} =
     SVector{N, Quantity{Float64, Dimensions{FixRat32}}}(ntuple(i -> read_length(v[i]::Real, u), Val(N)))
 
 # A covariance in base units (entry (i, j) of length dimension
-# `dims[i] + dims[j]`, each `dims` 0 or 1) as the wire's rows in `u`, and back.
+# `dims[i] + dims[j]`, each `dims` 0 or 1, or false or true as in a
+# calibration's `length_mask`) as the wire's rows in `u`, and back.
 # `_cov_rows` applies `f(entry, dimension)` to every entry, row by row.
 _cov_rows(f, Σ::AbstractMatrix, dims) = [Float64[f(Float64(Σ[i, j]), dims[i] + dims[j]) for j in axes(Σ, 2)] for i in axes(Σ, 1)]
 _length_cov_json(Σ::AbstractMatrix, u::_LeafUnit, dims) = _cov_rows((x, n) -> _leaf_power(x, u, n), Σ, dims)

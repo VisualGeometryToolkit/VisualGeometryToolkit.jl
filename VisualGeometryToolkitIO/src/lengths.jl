@@ -211,8 +211,9 @@ _lengths_from_json(::Val{N}, v::AbstractVector, u::Units) where {N} =
 
 # A covariance in base units (entry (i, j) of length dimension
 # `dims[i] + dims[j]`, each `dims` 0 or 1) as the wire's rows in `u`, and back.
-_length_cov_json(Σ::StaticMatrix, u::Units, dims) =
-    [Float64[_write_power(Float64(Σ[i, j]), u, dims[i] + dims[j]) for j in axes(Σ, 2)] for i in axes(Σ, 1)]
+# `_cov_rows` applies `f(entry, dimension)` to every entry, row by row.
+_cov_rows(f, Σ::AbstractMatrix, dims) = [Float64[f(Float64(Σ[i, j]), dims[i] + dims[j]) for j in axes(Σ, 2)] for i in axes(Σ, 1)]
+_length_cov_json(Σ::AbstractMatrix, u::Units, dims) = _cov_rows((x, n) -> _write_power(x, u, n), Σ, dims)
 _length_cov_from_json(c, n::Int, u::Units, dims) = SMatrix{n, n, Float64}(
     ntuple(k -> (i = (k - 1) % n + 1; j = (k - 1) ÷ n + 1; _read_power(c[i][j]::Real, u, dims[i] + dims[j])), n * n)
 )

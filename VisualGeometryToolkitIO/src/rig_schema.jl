@@ -241,13 +241,8 @@ _calibration_record(c::TargetCalibration, ::Units) = throw(
     ArgumentError("save: a $(nameof(typeof(c))) target calibration has no record in $(_schema("target")) (its kinds: $(join(keys(TARGET_CALIBRATION_TAGS), ", ")))")
 )
 
-function _calibration_record(c::Uncertain{<:TargetCalibration}, u::Units)
-    g = geom(c)
-    dims = _length_dims(g)
-    Σ = cov(c)
-    rows = [Float64[_write_power(Float64(Σ[i, j]), u, dims[i] + dims[j]) for j in eachindex(dims)] for i in eachindex(dims)]
-    return merge(_calibration_record(g, u), (covariance = rows,))
-end
+_calibration_record(c::Uncertain{<:TargetCalibration}, u::Units) =
+    merge(_calibration_record(geom(c), u), (covariance = _length_cov_json(cov(c), u, _length_dims(geom(c))),))
 
 _read_metres(x, u::Units) = read_length(x::Real, u)
 _nodes_from_json(x, u::Units) = [SVector(_read_metres(p[1], u), _read_metres(p[2], u)) for p in x.nodes::Vector{Any}]
@@ -274,10 +269,7 @@ function _target_calibration_from_json(x, u::Units)
     c = _calibration_from_record(TARGET_CALIBRATION_TAGS[x.type::String], x, u)
     haskey(x, :covariance) || return c
     dims = _length_dims(c)
-    n = length(dims)
-    rows = x.covariance::Vector{Any}
-    Σ = [_read_power(rows[i][j]::Real, u, dims[i] + dims[j]) for i in 1:n, j in 1:n]
-    return Uncertain(c, CovMat(SMatrix{n, n, Float64}(Σ)))
+    return Uncertain(c, CovMat(_length_cov_from_json(x.covariance::Vector{Any}, length(dims), u, dims)))
 end
 
 """
@@ -622,7 +614,7 @@ const _Id = Dict{String, Any}
 _id_metres(q) = _persisted(ustrip(m, q))
 _id_lengths(v) = Any[_id_metres(q) for q in v]
 # covariance rows, entry (i, j) of length dimension `dims[i] + dims[j]`, persisted
-_id_rows(Σ, dims) = Any[Any[_persisted(Σ[i, j], dims[i] + dims[j]) for j in axes(Σ, 2)] for i in axes(Σ, 1)]
+_id_rows(Σ, dims) = _cov_rows(_persisted, Σ, dims)
 
 function _identity_tree(rig::Rig)
     d = _Id("frame" => frame_name(reference_frame(rig)))

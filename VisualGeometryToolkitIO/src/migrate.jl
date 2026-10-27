@@ -710,12 +710,13 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
     return results
 end
 
-# One file's step of a tree, its refusal (an `ArgumentError`: a read-back
-# that differs, an existing destination, a measurement that does not resolve)
-# logged FAILED and collected in `failed`, the tree going on: `nothing` then.
-function _refused(step, failed::AbstractVector, f::AbstractString, io::IO)
+# One file's migration or re-pointing in a tree, `work()`, its refusal (an
+# `ArgumentError`: a read-back that differs, an existing destination, a
+# measurement that does not resolve) logged FAILED and collected in `failed`,
+# the tree going on: `nothing` then.
+function _refused(work, failed::AbstractVector, f::AbstractString, io::IO)
     try
-        return step()
+        return work()
     catch e
         e isa ArgumentError || rethrow()
         println(io, "FAILED    ", f, ": ", e.msg)

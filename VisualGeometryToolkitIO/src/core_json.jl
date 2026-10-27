@@ -277,6 +277,8 @@ function from_json(::Type{UnitContract}, d::_JSONObject)
     ls = _get_key(d, "lengths")
     ls isa _JSONObject || throw(ArgumentError("a units declaration's `lengths` is an object of role => unit name, got $(repr(ls))"))
     lengths = NamedTuple(Symbol(k) => parse_unit(String(_get_key(ls, String(k)))) for k in _key_names(ls))
+    haskey(lengths, :world) && throw(ArgumentError(
+        "a units declaration names `world` twice: at its top level and under `lengths` (the file holds `world` top level only)"))
     return UnitContract(world, density; lengths)
 end
 

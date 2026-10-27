@@ -268,6 +268,13 @@ end
     for k in (c, MM_PX, UnitContract(m), UnitContract(pt, dpi; lengths = (pattern = mm, ruler_tick = inch)))
         @test from_json(UnitContract, JSON.parse(JSON.json(json_value(k)))) == k
     end
+    # the declaration read back directly (no JSON text in between) is the keyword-built contract
+    kw = UnitContract(; world = pt, density = dpi, lengths = (pattern = mm, ruler_tick = inch))
+    @test from_json(UnitContract, json_value(kw)) == kw
+    @test from_json(UnitContract, json_value(c)) == UnitContract(; world = mm, density = dpi, lengths = (pattern = pt,))
+    # a file that names world twice is refused in the file's terms, not a constructor argument's
+    e = try from_json(UnitContract, JSON.parse("{\"world\": \"mm\", \"lengths\": {\"world\": \"pt\"}}")); nothing catch e; e end
+    @test e isa ArgumentError && occursin("top level", e.msg) && !occursin("positional", e.msg) && !occursin("argument", e.msg)
     @test JSON.json(json_value(UnitContract(pt, dpi; lengths = (pattern = mm,)))) ==
         """{"world":"pt","density":"dpi","lengths":{"pattern":"mm"}}"""
     @test_throws ArgumentError UnitContract(lengths = (pattern = dpi,))    # a role is a length

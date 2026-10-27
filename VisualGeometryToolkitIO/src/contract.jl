@@ -18,6 +18,9 @@ _other_roles(lengths::NamedTuple) = NamedTuple{filter(!=(:world), keys(lengths))
     UnitContract(; world = mm, density = dpi, lengths = (;))
     UnitContract(density, lengths::NamedTuple)
 
+`world`, `density` and every role's unit are FlexUnits dynamic units (`mm`,
+`pt`, `dpi`, or `parse_unit` of a name).
+
 Declares the units a file's magnitudes are expressed in: `lengths`, a table of
 LENGTH ROLES, each a named length unit; and `density`, a unit of pixels per
 length (dimension 1/length, since a pixel is dimensionless), for print and
@@ -72,7 +75,7 @@ struct UnitContract{R <: NamedTuple}
 end
 
 function UnitContract(world::Units, density::Units = dpi; lengths::NamedTuple = (;))
-    haskey(lengths, :world) && throw(ArgumentError("`world` is named twice: as the positional unit and in `lengths`"))
+    haskey(lengths, :world) && throw(ArgumentError("`world` is named twice: as the first argument and in `lengths`"))
     return UnitContract(density, merge((world = world,), lengths))
 end
 

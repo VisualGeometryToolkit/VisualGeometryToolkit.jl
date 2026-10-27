@@ -913,7 +913,7 @@ export zhang_intrinsics                # Zhang IAC regression from plane homogra
 # 3. LENS MODELS - Projection + distortion
 # -----------------------------------------------------------------------------
 export AbstractLensModel
-export LensManifold                       # the lens family's Manifold: parameter_vector coordinates as offsets from an anchor
+export ParameterManifold, LensManifold    # a parametric model's Manifold (inside its parameter_bounds); its name for a lens
 export Pinhole                         # Ideal perspective (no distortion)
 export Lens, LiftLens, Division, KannalaBrandt, radial_ratio   # the two lens kinds and the named models
 export Scaramuzza                      # Scaramuzza's omnidirectional polynomial lift (MATLAB fisheyeIntrinsics)

@@ -86,13 +86,22 @@ convention's function exactly — live in VisualGeometryToolkitIO.
 
 [`parameter_vector`](@ref)`(lens)` is the coefficient vector — projection first,
 then the distortion's terms depth-first, left to right;
-[`parameter_names`](@ref) names it, [`parameter_bounds`](@ref) bounds it
-(unbounded, but the double sphere's `α` in `(0, 1)`), [`parameters`](@ref) pairs the names and values
+[`parameter_names`](@ref) names it, [`parameter_bounds`](@ref) states its
+domain (unbounded, but the double sphere's `ξ > −1` and `α ∈ [0, 1]`, the
+unified models' `ξ > −1`, `α ∈ [0, 1]` and `β ≥ 0`, the field-of-view `ω ∈ [0, π)`),
+[`parameters`](@ref) pairs the names and values
 in a `NamedTuple`, and [`with_parameters`](@ref) rebuilds the same structure
-from a vector of any number type. The same three functions describe a
-calibratable target, its [`TargetCalibration`](@ref) and a `LogicalIntrinsics`. [`LensManifold`](@ref) moves the coefficients
-(a bounded one, the double sphere's `α`, through its logit), and
-`restrict(LensManifold(lens), names)` frees a subset by name.
+from a vector of any number type. The same functions describe a
+calibratable target, its [`TargetCalibration`](@ref), a `LogicalIntrinsics`
+(`f, aspect, skew, cx, cy`, with `f, aspect > 0`) and a parametric
+[`CameraModel`](@ref) — the intrinsics' coordinates followed by the lens's.
+[`ParameterManifold`](@ref) (a lens's [`LensManifold`](@ref),
+`minimal_manifold(lens)` or `minimal_manifold(camera)`) moves the coefficients
+inside their bounds — a log for a one-sided bound, a scaled logit for an
+interval — and `restrict(ch, names)` frees a subset by name: a camera's
+`restrict(minimal_manifold(camera), (:f, :cx, :cy, :k1))` fixes its skew and
+aspect. An optimizer's search box is not a model fact; it stays the solver's
+option, keyed by `parameter_names`.
 
 [`radial`](@ref)`(lens)` is the lens's radially symmetric factor — its folds and
 poles bound what the lens images ([`view_angle_limit`](@ref),

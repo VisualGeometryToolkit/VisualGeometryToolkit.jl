@@ -187,10 +187,12 @@ end
 
     @testset "parameter_bounds" begin
         lo, hi = parameter_bounds(Lens(DoubleSphere(0.1, 0.5)))
-        @test lo == SVector(-Inf, 0.0) && hi == SVector(Inf, 1.0)
-        @test (lo[2], hi[2]) == (0.0, 1.0)                           # α's bound
+        @test lo == SVector(-1.0, 0.0) && hi == SVector(Inf, 1.0)    # ξ > −1, α ∈ [0, 1]
         lo, hi = parameter_bounds(Lens(Unified(0.7), Additive(Radial((-0.1,)), Tangential(1.0e-3, 0.0))))
-        @test all(==(-Inf), lo) && all(==(Inf), hi) && length(lo) == 4
+        @test lo == SVector(-1.0, -Inf, -Inf, -Inf) && all(==(Inf), hi)   # ξ > −1, the terms unbounded
+        @test parameter_bounds(Lens(ExtendedUnified(0.5, 1.2))) == (SVector(0.0, 0.0), SVector(1.0, Inf))
+        @test parameter_bounds(Lens(Perspective(), FieldOfView(0.9))) == (SVector(0.0), SVector(Float64(π)))
+        @test parameter_bounds(KannalaBrandt(-0.02, 0.003)) == (SVector(-Inf, -Inf), SVector(Inf, Inf))
         lo32, hi32 = parameter_bounds(Lens(DoubleSphere(0.1f0, 0.5f0)))
         @test eltype(lo32) === Float32 && hi32[2] === 1.0f0
         @test parameter_bounds(Pinhole()) == (SVector{0, Float64}(), SVector{0, Float64}())
@@ -198,7 +200,7 @@ end
         @test parameter_bounds(t) == (SVector{0, Float64}(), SVector{0, Float64}())
         K = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(800.0, 0, 0, 1.5, 1000.0, 0, 320.0, 240.0, 1)))
         lo, hi = parameter_bounds(K)
-        @test all(==(-Inf), lo) && all(==(Inf), hi) && length(lo) == 5
+        @test lo == SVector(0.0, 0.0, -Inf, -Inf, -Inf) && all(==(Inf), hi)   # f > 0, aspect > 0
     end
 
     @testset "LogicalIntrinsics" begin
@@ -216,13 +218,29 @@ end
         @test eltype(parameter_vector(K32)) === Float32 && with_parameters(K32, parameter_vector(K32)) isa LogicalIntrinsics{Float32}
     end
 
-    @testset "LensManifold reads parameter_bounds, unchanged values" begin
+    @testset "LensManifold reads parameter_bounds: the chart of each kind of bound" begin
+        # ξ ∈ (−1, ∞): ξ = −1 + (ξ₀ + 1)·exp(v); α ∈ (0, 1): α = logistic(logit(α₀) + v) — the values the
+        # logit chart of α had before the general bounds, bit for bit
         ds = Lens(DoubleSphere(0.1, 0.5)); ch = LensManifold(ds); v = SVector(0.01, 0.2)
-        @test parameter_vector(retract(ch, v)) == SVector(0.11, 0.549833997312478)
-        @test retract_jacobian(ch) == [1.0 0.0; 0.0 0.25]
-        @test retract_jacobian(ch, v) == [1.0 0.0; 0.0 0.24751657271185995]
-        @test local_coordinates(ch, retract(ch, v)) == SVector(0.009999999999999995, 0.20000000000000018)
+        @test parameter_vector(retract(ch, v)) == SVector(-1.0 + 1.1 * exp(0.01), 0.549833997312478)
+        @test retract_jacobian(ch) == [1.1 0.0; 0.0 0.25]
+        @test retract_jacobian(ch, v) ≈ [1.1 * exp(0.01) 0.0; 0.0 0.24751657271185995] rtol = 1.0e-15
+        @test retract_jacobian(ch, v)[2, 2] == 0.24751657271185995
+        @test local_coordinates(ch, retract(ch, v)) ≈ v rtol = 1.0e-13
         @test parameter_vector(model(LensManifold(Lens(DoubleSphere(0.0, 0.0))))) == SVector(0.0, 1.0e-6)   # a boundary value anchors inside
+        @test parameter_vector(model(LensManifold(Lens(DoubleSphere(-1.0, 0.5)))))[1] == -1.0 + 1.0e-6      # a one-sided bound too
+        # a finite interval (a, b) ≠ (0, 1): the scaled logit, ω ∈ (0, π)
+        fv = LensManifold(Lens(Perspective(), FieldOfView(0.9)))
+        ω(d) = parameter_vector(retract(fv, SVector(d)))[1]
+        @test ω(0.0) ≈ 0.9 rtol = 1.0e-15
+        @test 0 < ω(-50.0) < 1.0e-12 && π - 1.0e-12 < ω(50.0) < π
+        @test retract_jacobian(fv)[1, 1] ≈ 0.9 * (π - 0.9) / π rtol = 1.0e-15
+        @test retract_jacobian(fv, SVector(0.3))[1, 1] ≈ (ω(0.3 + 1.0e-6) - ω(0.3 - 1.0e-6)) / 2.0e-6 rtol = 1.0e-7
+        @test local_coordinates(fv, retract(fv, SVector(0.3)))[1] ≈ 0.3 rtol = 1.0e-12
+        # a one-sided bound: β ∈ (0, ∞), β = β₀·exp(v), never ≤ 0
+        eu = LensManifold(Lens(ExtendedUnified(0.6, 1.2)))
+        @test parameter_vector(retract(eu, SVector(0.0, -40.0)))[2] > 0
+        @test parameter_vector(retract(eu, SVector(0.0, 0.5)))[2] ≈ 1.2 * exp(0.5) rtol = 1.0e-15
         kb = LensManifold(KannalaBrandt(-0.02, 0.003))
         @test parameter_vector(retract(kb, SVector(0.001, -0.002))) == SVector(-0.019, 0.001)
     end
@@ -243,9 +261,9 @@ end
 
     struct _OddBounds <: VgtkCore.AbstractLensModel end
     VgtkCore.parameter_names(::_OddBounds) = (:a, :b)
-    VgtkCore.parameter_bounds(::_OddBounds) = (SVector(0.0, -Inf), SVector(2.0, Inf))
+    VgtkCore.parameter_bounds(::_OddBounds) = (SVector(2.0, -Inf), SVector(0.0, Inf))
 
-    @testset "LensManifold refuses a bound it cannot honor" begin
+    @testset "LensManifold refuses a bound that is no interval" begin
         @test_throws ArgumentError LensManifold(_OddBounds())
         @test LensManifold(KannalaBrandt(-0.02)) isa LensManifold   # unbounded: accepted
     end
@@ -306,4 +324,88 @@ end
     end
     @eval VgtkCore.convert_eltype(::Type{T}, l::_TaggedLens) where {T <: AbstractFloat} = _TaggedLens(T(l.k + 1))
     @test VgtkCore._precision(Float32, _TaggedLens(1.0)) === _TaggedLens(2.0f0)
+end
+
+# The parameter protocol on a parametric camera (intrinsics, then lens) and the
+# ParameterManifold on every lens type: round trips, the chart inside the
+# bounds, and ForwardDiff through with_parameters against finite differences.
+@testitem "parameter_protocol: CameraModel and every lens's manifold" begin
+    using Test, StaticArrays, LinearAlgebra
+    using ForwardDiff: ForwardDiff
+    using FiniteDiff: FiniteDiff
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: ParameterManifold, LensManifold, CONTRACT_GENERICS, retract, recenter, retract_jacobian,
+        local_coordinates, tangent_size, model, restrict, action_jacobian, minimal_manifold, parameters
+
+    @test all(f -> f in CONTRACT_GENERICS, (parameter_vector, parameter_names, parameter_bounds, with_parameters))
+    opencv = Lens(Perspective(), Additive(Radial((-0.2, 0.05, -0.01), (0.03, -0.004, 0.001)), Tangential(0.002, -0.001), ThinPrism((-5.5e-3, 7.0e-4), (2.2e-3, -1.2e-3))))
+    lenses = Any[
+        Pinhole(), Division(-0.1667, 0.0291), LiftLens(Radial((0.05, -0.01), (-0.2, 0.04, 0.003))), opencv,
+        KannalaBrandt(-0.02, 0.003, -0.0004, 0.0001),
+        Lens(Equidistant(), Chain(Radial((0.1, -0.02, 0.003)), Additive(Tangential(0.0003, -0.0002), ThinPrism((0.001,), (-0.0005,))))),
+        Lens(DoubleSphere(-0.2, 0.6)), Lens(Unified(0.8)), Lens(ExtendedUnified(0.6, 1.1)),
+        Lens(Unified(0.7), Additive(Radial((-0.1, 0.01)), Tangential(1.0e-3, -2.0e-3))),
+        Lens(Perspective(), FieldOfView(0.9)),
+        Lens(Perspective(), Chain(Additive(Radial((-0.1,)), Tangential(1.0e-3, 0.0)), Tilt(0.01, -0.02))),
+        Scaramuzza(-0.1664, -0.0063, 0.035), Lens(Stereographic()),
+    ]
+    K = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(400.0, 0, 0, 0.5, 395.0, 0, 320.0, 240.0, 1)))
+    X = SVector(0.2, -0.1, 1.0)
+
+    @testset "a CameraModel: the intrinsics' coordinates, then the lens's" begin
+        for lens in lenses
+            cam = CameraModel(K, lens)
+            θ = parameter_vector(cam)
+            @test θ isa SVector && θ == vcat(parameter_vector(K), parameter_vector(lens))
+            @test parameter_names(cam) == (:f, :aspect, :skew, :cx, :cy, parameter_names(lens)...) && allunique(parameter_names(cam))
+            lo, hi = parameter_bounds(cam)
+            @test lo == vcat(parameter_bounds(K)[1], parameter_bounds(lens)[1]) && hi == vcat(parameter_bounds(K)[2], parameter_bounds(lens)[2])
+            @test all(lo .<= θ .<= hi)
+            rt = with_parameters(cam, θ)
+            @test typeof(rt) === typeof(cam) && with_parameters(cam, collect(θ)) isa typeof(cam)
+            @test parameter_vector(rt) ≈ θ rtol = 1.0e-15
+            @test values(parameters(cam)) == Tuple(θ)
+            @test_throws ArgumentError with_parameters(cam, θ[1:(end - 1)])
+            # ForwardDiff through with_parameters and project, against central differences
+            f(q) = project(with_parameters(cam, q), X)
+            J = ForwardDiff.jacobian(f, θ)
+            Jn = FiniteDiff.finite_difference_jacobian(q -> Vector(f(SVector{length(θ)}(q))), Vector(θ), Val(:central))
+            @test J ≈ Jn rtol = 1.0e-6 atol = 1.0e-7
+            # the manifold: minimal_manifold(camera), the chart's action Jacobian is the parameter Jacobian through it
+            ch = minimal_manifold(cam)
+            @test ch isa ParameterManifold && tangent_size(ch) == length(θ) && model(ch) == cam
+            @test action_jacobian(ch, X) ≈ J * retract_jacobian(ch) rtol = 1.0e-12
+            v = SVector{length(θ)}(ntuple(i -> 1.0e-3 * (-1)^i, length(θ)))
+            @test local_coordinates(ch, retract(ch, v)) ≈ v rtol = 1.0e-8 atol = 1.0e-12
+            @test parameter_vector(model(recenter(ch, v))) ≈ parameter_vector(retract(ch, v))
+        end
+        # skew (and aspect) fixed by name, through restrict
+        cam = CameraModel(K, KannalaBrandt(-0.02, 0.003))
+        r = restrict(minimal_manifold(cam), (:f, :cx, :cy, :k1, :k2))
+        @test tangent_size(r) == 5
+        moved = retract(r, SVector(0.1, 1.0, -1.0, 0.001, 0.0))
+        @test parameters(moved).skew == 0.5 && parameters(moved).aspect ≈ 395 / 400 && parameters(moved).f ≈ 400 * exp(0.1)
+        @test_throws ArgumentError restrict(minimal_manifold(cam), (:f, :nope))
+        # the focal's chart keeps it positive
+        @test parameters(retract(minimal_manifold(cam), SVector(-60.0, 0, 0, 0, 0, 0, 0))).f > 0
+    end
+
+    @testset "every lens's manifold stays inside its bounds and round-trips" begin
+        for lens in lenses
+            ch = LensManifold(lens)
+            n = tangent_size(ch)
+            n == 0 && continue
+            lo, hi = parameter_bounds(lens)
+            for scale in (1.0e-3, 1.0, 30.0)
+                v = SVector{n}(ntuple(i -> scale * (-1)^i, n))
+                θ = parameter_vector(retract(ch, v))
+                @test all(lo .< θ .< hi) || any(isinf, θ)      # never past a finite bound
+            end
+            v = SVector{n}(ntuple(i -> 0.01 * (-1)^i, n))
+            @test local_coordinates(ch, retract(ch, v)) ≈ v rtol = 1.0e-8
+            Jfd = ForwardDiff.jacobian(w -> parameter_vector(retract(ch, w)), v)
+            @test retract_jacobian(ch, v) ≈ Jfd rtol = 1.0e-12
+            @test retract_jacobian(ch) ≈ ForwardDiff.jacobian(w -> parameter_vector(retract(ch, w)), zero(v)) rtol = 1.0e-12
+        end
+    end
 end

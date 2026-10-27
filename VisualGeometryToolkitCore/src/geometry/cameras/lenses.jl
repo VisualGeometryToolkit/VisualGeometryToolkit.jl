@@ -91,8 +91,8 @@ Usenko, Demmel & Cremers' double-sphere projection (3DV 2018): with
 `d₁ = ‖X‖`, `z_s = ξ·d₁ + X₃` and `d₂ = √(X₁² + X₂² + z_s²)`,
 `x = X₁₂ / (α·d₂ + (1 − α)·z_s)`. `ξ = α = 0` is the perspective projection.
 Valid for rays inside the paper's field-of-view bound; the closed-form
-inverse has the paper's domain. `α` moves through its logit in
-[`LensManifold`](@ref).
+inverse has the paper's domain. The coefficients' domain is `ξ > −1`, `α ∈ [0, 1]`
+([`parameter_bounds`](@ref)), which [`LensManifold`](@ref) keeps.
 """
 struct DoubleSphere{T <: Real} <: AbstractProjection
     xi::T

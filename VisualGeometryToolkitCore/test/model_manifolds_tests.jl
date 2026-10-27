@@ -137,13 +137,13 @@
             @test size(action_jacobian(LensManifold(Pinhole()), P)) == (2, 0)
         end
 
-        @testset "lens manifold: DoubleSphere's α moves through its logit" begin
+        @testset "lens manifold: DoubleSphere's ξ through a log, α through its logit" begin
             P = SVector(0.5, 0.3, 1.0)
             ds = Lens(DoubleSphere(-0.2, 0.6))
             ch = LensManifold(ds)
             @test tangent_size(ch) == 2
             l = retract(ch, SVector(0.1, 8.0))                      # a large step stays in (0, 1)
-            @test parameters(l).xi ≈ -0.1 && 0 < parameters(l).alpha < 1
+            @test parameters(l).xi ≈ -1 + 0.8 * exp(0.1) && 0 < parameters(l).alpha < 1   # ξ > −1: ξ = −1 + (ξ₀ + 1)·exp(v)
             @test local_coordinates(ch, l) ≈ SVector(0.1, 8.0) rtol = 1.0e-9
             @test retract_jacobian(ch) ≈ ForwardDiff.jacobian(v -> parameter_vector(retract(ch, v)), zero(SVector{2, Float64})) atol = 1.0e-12
             @test action_jacobian(ch, P) ≈ _fd_action(ch, P, (m, y) -> VgtkCore.project(m, y)) rtol = 1.0e-8

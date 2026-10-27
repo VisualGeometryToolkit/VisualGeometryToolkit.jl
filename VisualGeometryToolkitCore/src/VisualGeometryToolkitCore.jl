@@ -291,7 +291,7 @@ public SupportTrait, GlobalSupport, LocalSupport, support_trait, nodes, support,
 public radial_part      # a lens's radially symmetric part (shared with VisualGeometryToolkitEstimation's fit_lens)
 export parameter_vector, parameter_names, parameter_bounds, with_parameters  # the lens parameter chart
 public convert_eltype                     # a camera, lens or intrinsics rebuilt in another float type
-public LensManifold                       # the lens family's Manifold (minimal_manifold(lens)); restrict it to a target's free coefficients
+public ParameterManifold, LensManifold    # a parametric model's Manifold, inside its parameter_bounds (minimal_manifold(lens or camera)); restrict it to the free coefficients
 export CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models
 export default_generic_grid  # the grid model's window interface (0.22.2)
 public spline_support, spline_weights, window_controls, window_indices, direction_tangents

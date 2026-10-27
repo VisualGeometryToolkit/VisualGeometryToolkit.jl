@@ -215,6 +215,7 @@ end
 
 # The length dimension (0 or 1) of each parameter of a calibration, in
 # `parameter_vector` order: the record's statement of which numbers are lengths.
+# TODO(after the rebase onto the Core simplify branch): read VisualGeometryToolkitCore's public `length_mask` here and in the validator (`_calibration_keys`/`_n_parameters`).
 _length_dims(::Rigid) = Int[]
 _length_dims(::Affine) = [0, 0, 0, 0, 1, 1]
 _length_dims(c::Union{ThinPlateSpline, HeightField}) = ones(Int, length(parameter_vector(c)))

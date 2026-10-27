@@ -45,7 +45,7 @@ using VisualGeometryToolkitCore: LineConfidenceBand, band_boundary
 using VisualGeometryToolkitCore: canonical_basis, centroid
 using VisualGeometryToolkitCore: FeatureFrame
 using VisualGeometryToolkitCore.Cameras: PosedCamera, CameraModel, unproject, pose
-using VisualGeometryToolkitCore.Cameras: _principal_point   # the one principal-point read (camera_models.jl; plotting/rectification.jl)
+using VisualGeometryToolkitCore.Cameras: _principal_point   # the one principal-point read, defined in cameras/camera_models.jl (used by plotting/rectification.jl)
 using VisualGeometryToolkitCore: EuclideanMap, has_units   # a physical pose or camera is drawn in mm (plotting/geometry.jl)
 using VisualGeometryToolkitCore: is_posed   # cameraplot! draws a posed camera only (plotting/camera_recipe.jl)
 using VisualGeometryToolkitCore: DEFAULT_MAX_FOV   # plot_rectification's field-of-view default (plotting/rectification.jl)

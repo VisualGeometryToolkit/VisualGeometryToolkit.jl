@@ -8,7 +8,7 @@
 # Every conversion READS the foreign file, WRITES the native kinds to a
 # staging directory through the writers' validation, READS them back and
 # COMPARES them with what it read — and only then, unless it is a dry run,
-# renames them beside the original (or to `out`): `_staged`. The original is
+# renames them beside the original (or to `out`): `write_staged`. The original is
 # never touched.
 
 # The one refusal of every guarded conversion: what it wrote does not read back
@@ -141,7 +141,7 @@ function _migrate_external(cal::ExternalCalibration, source::AbstractString, pat
     counts = (n_posed = length(posed), n_unposed = length(names) - length(posed))
     # staged beside `out` and renamed into place once verified (a dry run: in a
     # temporary directory, removed when this returns)
-    _staged(cams_out => basename(cams_out), poses_out => basename(poses_out); dry_run) do cams_tmp, poses_tmp
+    write_staged(cams_out => basename(cams_out), poses_out => basename(poses_out); dry_run) do cams_tmp, poses_tmp
         save(
             cams_tmp, Dict(Symbol(stem) => BoundedCamera(cal.camera, Size2(w, h)));
             provenance = merge(prov, (reprojection_error = cal.reprojection_error, error_statistic = String(cal.error_statistic))),
@@ -275,21 +275,29 @@ function _vgio_migrate(path::AbstractString; out::AbstractString, dry_run::Bool,
     (dry_run || in_place || !ispath(out)) || throw(ArgumentError("$(out) exists; refusing to overwrite it"))
     _has_migration(s) ||
         throw(ArgumentError("$(path): no migration for a $(s) file (no method of VisualGeometryToolkitIO.migrate_schema for it)"))
-    return _staged(out => basename(path); dry_run) do staged
+    return write_staged(out => basename(path); dry_run) do staged
         r = merge((; path = String(path), out = dry_run ? nothing : String(out), from = String(s)), migrate_schema(Val(Symbol(s)), String(path), staged))
         before_rename(r)
         r
     end
 end
 
-# Build files in a fresh directory BESIDE their destinations (one filesystem),
-# with `f(staged...)` — one staged path per `out => name`, named `name` — and,
-# unless a dry run, put each at its `out` by one `rename`, atomic on POSIX: an
-# original at `out` is untouched until the rename, and nothing is ever moved
-# across filesystems. The destinations share a directory. The staging
-# directory goes when this returns, whatever happened.
+"""
+    write_staged(f, out => name, …; dry_run) -> f's result
+
+Write files through a staging directory, the guarded pattern of every
+migration: `f(staged...)` is called with one path per `out => name` (each
+named `name`, in a fresh directory BESIDE the destinations, so on their
+filesystem) and builds and verifies the files there; then, unless a
+`dry_run`, each is put at its `out` by one `rename`, in the order given —
+atomic on POSIX, so an original at `out` is untouched until its rename, and
+nothing is moved across filesystems. The destinations share one directory,
+created if missing. A dry run stages in a temporary directory and puts
+nothing anywhere. The staging directory goes when this returns, whatever
+happened, so an `f` that throws leaves the destinations as they were.
+"""
 const _STAGE_PREFIX = ".vgio_migrate_"
-function _staged(f, outs::Pair{<:AbstractString, <:AbstractString}...; dry_run::Bool)
+function write_staged(f, outs::Pair{<:AbstractString, <:AbstractString}...; dry_run::Bool)
     dir = dirname(abspath(first(first(outs))))
     dry_run || mkpath(dir)
     stage = dry_run ? mktempdir() : mktempdir(dir; prefix = _STAGE_PREFIX)
@@ -461,7 +469,7 @@ function _repoint_targets(
     repointed = count(t -> haskey(map_, t), obs.targets)
     named = [r for (r, h) in zip(rig_list, hashes) if h in targets]   # the rigs the measurements resolve in
     unchecked = _check_resolves_by_id(obs, _target_rigs(named; resolve), path)
-    return _staged(out => basename(path); dry_run) do staged
+    return write_staged(out => basename(path); dry_run) do staged
         save(staged, typeof(obs)(obs.frames; images = obs.images, sensors = obs.sensors, times = obs.times, time_origin = obs.time_origin, targets); _resave_kwargs(old)...)
         new = _raw_tree(staged)
         _verify(load(T, staged).targets == targets, path, "its targets")
@@ -605,7 +613,7 @@ function _map_ids!(ids::AbstractDict, r, idsfile, dry_run::Bool)
 end
 
 # The `.json` files of a tree, sorted, without the identity map and without
-# what is under a staging directory (`.vgio_migrate_*`, `_staged`'s): one left
+# what is under a staging directory (`.vgio_migrate_*`, `write_staged`'s): one left
 # by an interrupted migration is logged, never walked.
 function _tree_json(dir; io::IO = stdout)
     out = String[]

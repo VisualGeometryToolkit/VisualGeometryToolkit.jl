@@ -206,6 +206,7 @@ public read_length, write_length   # a file length <-> metres, decimal-exact (po
 public read_quantity, write_quantity, json_value, from_json, ScalarOrQuantity, role_unit   # the quantity JSON format (core_json.jl); a contract's length roles
 public validate                       # check any vgio file against its kind's table
 public migrate_schema, CONTRACT_GENERICS   # the per-schema migration a schema owner extends (its declared extension points)
+public write_staged                   # files written through a staging directory beside them, renamed into place once verified
 public pixel_frame_name, pixel_frame_from_name   # a pixel frame's serialized name, and back (VGC decides which exist)
 public pose_json, pose_from_json, pose_declarations, camera_json, camera_from_json,
     target_json, target_from_json     # building blocks for a package's own kind (a calibration pipeline's session)

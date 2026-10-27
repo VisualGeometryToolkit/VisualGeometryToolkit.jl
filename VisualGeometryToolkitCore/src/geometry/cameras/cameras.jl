@@ -437,7 +437,7 @@ extent(bc)         # same, via trait-dispatched accessor
 struct BoundedCamera{C <: AbstractCamera} <: AbstractCamera
     camera::C
     extent::Size2{Int}
-    sensor::Union{Nothing, Sensor{Quantity{Float64, Dimensions{FixRat32}}, Quantity{Float64, Dimensions{FixRat32}}}}
+    sensor::Union{Nothing, _StoredSensor}   # the Sensor's stored form (sensors.jl)
 end
 
 # The bound is a pixel extent, or the physical sensor whose resolution is that

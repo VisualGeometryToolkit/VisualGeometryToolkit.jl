@@ -323,12 +323,18 @@ _has_lengths(::ThinPlateSpline) = true
 has_units(c::ThinPlateSpline) = c.physical
 _length_sample(c::ThinPlateSpline) = first(first(_node_lengths(c.system, c.physical)))
 _length_mask(::ThinPlateSpline{K}) where {K} = SVector{2K}(ntuple(_ -> true, Val(2K)))
-function FlexUnits.ustrip(u::Units, c::ThinPlateSpline)
+# A unit move to or from metres leaves the stored nodes and values as they are
+# (lengths are stored as plain metres): the spline's solver, coefficients and
+# bending factor are reused, only the form flips. Any other unit refits them.
+_in_metres(u::Units) = _metre_factor(u) == 1
+function FlexUnits.ustrip(u::Units, c::ThinPlateSpline{K, T}) where {K, T}
     c.physical || _refuse_strip(c)
+    _in_metres(u) && return ThinPlateSpline{K, T}(c.system, c.fx, c.fy, c.wx, c.ax, c.wy, c.ay, c.bending, false)
     return ThinPlateSpline([map(x -> _from_metres(x, u), p) for p in c.system.nodes], map(x -> _from_metres(x, u), c.fx), map(x -> _from_metres(x, u), c.fy))
 end
-function with_unit(c::ThinPlateSpline, u::Units)
+function with_unit(c::ThinPlateSpline{K, T}, u::Units) where {K, T}
     c.physical && _refuse_attach(c)
+    _in_metres(u) && return ThinPlateSpline{K, T}(c.system, c.fx, c.fy, c.wx, c.ax, c.wy, c.ay, c.bending, true)
     to(x) = _attach_length(x, u)
     return ThinPlateSpline([map(to, p) for p in c.system.nodes], map(to, c.fx), map(to, c.fy))
 end
@@ -404,12 +410,14 @@ _has_lengths(::HeightField) = true
 has_units(c::HeightField) = c.physical
 _length_sample(c::HeightField) = first(first(_node_lengths(c.system, c.physical)))
 _length_mask(::HeightField{K}) where {K} = SVector{K}(ntuple(_ -> true, Val(K)))
-function FlexUnits.ustrip(u::Units, c::HeightField)
+function FlexUnits.ustrip(u::Units, c::HeightField{K, T}) where {K, T}
     c.physical || _refuse_strip(c)
+    _in_metres(u) && return HeightField{K, T}(c.system, c.h, c.w, c.a, c.bending, false)
     return HeightField([map(x -> _from_metres(x, u), p) for p in c.system.nodes], map(x -> _from_metres(x, u), c.h))
 end
-function with_unit(c::HeightField, u::Units)
+function with_unit(c::HeightField{K, T}, u::Units) where {K, T}
     c.physical && _refuse_attach(c)
+    _in_metres(u) && return HeightField{K, T}(c.system, c.h, c.w, c.a, c.bending, true)
     to(x) = _attach_length(x, u)
     return HeightField([map(to, p) for p in c.system.nodes], map(to, c.h))
 end

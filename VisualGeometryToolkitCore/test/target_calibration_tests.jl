@@ -517,3 +517,32 @@ end
         @test a.calibration_record == (; tool = "a ruler", n_images = 3)  # the attribute: who calibrated it
     end
 end
+
+@testitem "target calibration: a metre move keeps the thin-plate solver" begin
+    using Test, StaticArrays
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: grid_nodes, m, mm, with_unit, surface
+    using FlexUnits: ustrip
+    using Rotations: RotMatrix
+    # Lengths are stored in metres, so a strip to (or attachment of) metres leaves
+    # the nodes and values as they are: the solver, the coefficients and the
+    # bending factor are the same objects, not a refit.
+    nodes = grid_nodes(5; lo = 0.0, hi = 0.2)
+    T = with_unit(ThinPlateSpline(nodes, fill(1.0e-4, 25), fill(-1.0e-4, 25)), m)
+    H = with_unit(HeightField(nodes, fill(1.0e-4, 25)), m)
+    for c in (T, H)
+        p = ustrip(m, c)
+        @test p.system === c.system && p.bending === c.bending && !p.physical
+        q = with_unit(p, m)
+        @test q.system === c.system && q == c
+        @test ustrip(mm, c).system !== c.system            # another unit moves the nodes: a refit
+    end
+    # surface() of a physical target strips its calibration to metres: no refit
+    # (a 5 × 5 refit forms and inverts a 28 × 28 system and an eigendecomposition)
+    pts = [SVector(x, y) for x in 0.0:0.05:0.2 for y in 0.0:0.05:0.2]
+    X = EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, 1.0))
+    Hplain = ustrip(m, H)
+    pt = with_unit(PosedTarget(PlanarTarget(pts; calibration = Hplain), X), m)
+    surface(pt)
+    @test (@allocated surface(pt)) < 16_384
+end

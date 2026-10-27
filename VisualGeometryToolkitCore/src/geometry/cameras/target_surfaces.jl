@@ -34,10 +34,10 @@ function _design_rect(t::PlanarTarget, physical::Bool)
     bd = board(t)
     bd === nothing || return Rect(bd)
     is_resolved(t) || throw(ArgumentError("surface: the target $(repr(reference(t))) is unresolved and has no board to bound its chart"))
-    ps = physical ? [_ustrip_point(m, p) for p in t.nominal] : t.nominal
-    isempty(ps) && throw(ArgumentError("surface: the target has no design points and no board to bound its chart"))
-    lo = reduce((p, q) -> min.(p, q), ps)
-    hi = reduce((p, q) -> max.(p, q), ps)
+    isempty(t.nominal) && throw(ArgumentError("surface: the target has no design points and no board to bound its chart"))
+    plain(p) = physical ? _ustrip_point(m, p) : p     # no copy of the points
+    lo = mapreduce(plain, (p, q) -> min.(p, q), t.nominal)
+    hi = mapreduce(plain, (p, q) -> max.(p, q), t.nominal)
     # grown by a rounding margin: a ray at a design point on the box's edge
     # meets it, whatever the last bit of chart(s, x) = A⁻¹(m − b)
     δ = 16 * eps(Float64) * max(maximum(abs, lo), maximum(abs, hi), hi[1] - lo[1], hi[2] - lo[2])

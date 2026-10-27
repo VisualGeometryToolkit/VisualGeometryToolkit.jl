@@ -29,20 +29,29 @@ function surface(pt::PosedTarget{<:PlanarTarget})
     return _surface(Val(is_planar(typeof(c))), c, quad)
 end
 
-# The rectangle in the design chart: the board, or the nominal points' box.
+# The rectangle in the design chart: the board, or the nominal points' box —
+# grown by the rounding margin (`_grown_rect`), the one `PlanarTarget` checks
+# its points against the board with.
 function _design_rect(t::PlanarTarget, physical::Bool)
     bd = board(t)
-    bd === nothing || return Rect(bd)
+    bd === nothing || return _grown_rect(Rect(bd))
     is_resolved(t) || throw(ArgumentError("surface: the target $(repr(reference(t))) is unresolved and has no board to bound its chart"))
     isempty(t.nominal) && throw(ArgumentError("surface: the target has no design points and no board to bound its chart"))
     plain(p) = physical ? _ustrip_point(m, p) : p     # no copy of the points
     lo = mapreduce(plain, (p, q) -> min.(p, q), t.nominal)
     hi = mapreduce(plain, (p, q) -> max.(p, q), t.nominal)
-    # grown by a rounding margin: a ray at a design point on the box's edge
-    # meets it, whatever the last bit of chart(s, x) = A⁻¹(m − b)
+    return _grown_rect(lo, hi)
+end
+
+# The rectangle [lo, hi] grown by a rounding margin, 16 eps of its coordinates:
+# a ray at a design point on its edge meets it, whatever the last bit of
+# chart(s, x) = A⁻¹(m − b), and a point a unit round trip moved by an ulp is
+# still on it.
+function _grown_rect(lo::StaticVector{2}, hi::StaticVector{2})
     δ = 16 * eps(Float64) * max(maximum(abs, lo), maximum(abs, hi), hi[1] - lo[1], hi[2] - lo[2])
     return Rect2(lo[1] - δ, lo[2] - δ, hi[1] - lo[1] + 2δ, hi[2] - lo[2] + 2δ)
 end
+_grown_rect(r::Rect2) = _grown_rect(SVector{2}(r.origin), SVector{2}(r.origin + r.widths))
 
 # The in-plane calibration as the chart's affine, m = A c + b, read off the
 # calibration itself (`is_affine`): b its image of the design origin, A its

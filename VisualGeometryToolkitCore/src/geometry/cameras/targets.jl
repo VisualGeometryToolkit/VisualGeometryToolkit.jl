@@ -156,24 +156,28 @@ struct PlanarTarget{C <: TargetCalibration, N <: Union{Nothing, Vector{<:SVector
     nominal::N
     calibration::S
     board::Union{Nothing, Board}
+    # `on_board = false`: the points are known to lie on the board — a unit
+    # move of a target that held them there (`ustrip`, `with_unit`), whose
+    # rounding must not refuse it.
     function PlanarTarget(
             reference::Union{Nothing, Symbol}, nominal, calibration::Union{TargetCalibration, Uncertain{<:TargetCalibration}},
-            board::Union{Nothing, Board} = nothing
+            board::Union{Nothing, Board} = nothing, on_board::Bool = true
         )
         (reference === nothing && nominal === nothing) &&
             throw(ArgumentError("a planar target has a design reference, nominal points, or both"))
         n = nominal === nothing ? nothing : _nominal_points(nominal)
         _check_calibration(n, calibration)
-        _check_board(n, board, calibration)
+        _check_board(n, board, calibration, on_board)
         return new{typeof(geom(calibration)), typeof(n), typeof(calibration)}(reference, n, calibration, board)
     end
 end
 # The board is in the points' form, and they lie on it (in the design chart:
 # metres when physical).
 # An unresolved target's board is in its calibration's form when that carries
-# lengths. A point on the edge is on the board within 16 eps of the board's
-# coordinates (a unit round trip moves the edge by an ulp), as surface()'s box.
-function _check_board(nominal, bd, c)
+# lengths. A point on the edge is on the board within the rounding margin of
+# `_grown_rect` (target_surfaces.jl) — the rectangle `surface` bounds the
+# target's primitive by, so a point the constructor accepts is one a ray meets.
+function _check_board(nominal, bd, c, on_board::Bool = true)
     bd === nothing && return nothing
     if nominal === nothing || isempty(nominal)
         cc = geom(c)
@@ -181,13 +185,12 @@ function _check_board(nominal, bd, c)
         return nothing
     end
     has_units(first(nominal)) == has_units(bd) || throw(DimensionError(first(nominal), bd.size.width))
-    r = Rect(bd)
-    δ = 16 * eps(Float64) * max(maximum(abs, r.origin), maximum(abs, r.origin + r.widths), maximum(r.widths))
-    lo, hi = r.origin .- δ, r.origin + r.widths .+ δ
+    on_board || return nothing
+    r = _grown_rect(Rect(bd))
     for p in nominal
         q = has_units(bd) ? strip_metres(p) : p
-        (lo[1] <= q[1] <= hi[1] && lo[2] <= q[2] <= hi[2]) || throw(
-            ArgumentError("PlanarTarget: the nominal point $(Tuple(q)) lies off the board, $(Tuple(lo)) to $(Tuple(hi))")
+        _in_rect(r, q) || throw(
+            ArgumentError("PlanarTarget: the nominal point $(Tuple(q)) lies off the board, $(Tuple(r.origin)) to $(Tuple(r.origin + r.widths))")
         )
     end
     return nothing
@@ -303,11 +306,11 @@ Base.hash(t::PlanarTarget, h::UInt) =
 has_units(t::PlanarTarget) = is_resolved(t) ? has_units(t.nominal) : has_units(geom(t.calibration))
 FlexUnits.ustrip(u::Units, t::PlanarTarget) = PlanarTarget(
     t.reference, is_resolved(t) ? [_ustrip_point(u, p) for p in t.nominal] : nothing, _ustrip_calibration(u, t.calibration),
-    _move_board(ustrip, u, t.board, true)
+    _move_board(ustrip, u, t.board, true), false
 )
 with_unit(t::PlanarTarget, u::Units) = PlanarTarget(
     t.reference, is_resolved(t) ? [_attach_point(u, p) for p in t.nominal] : nothing, _attach_calibration(u, t.calibration),
-    _move_board((u, bd) -> with_unit(bd, u), u, t.board, false)
+    _move_board((u, bd) -> with_unit(bd, u), u, t.board, false), false
 )
 _move_board(_, _, ::Nothing, _) = nothing
 _move_board(f, u, bd::Board, from_physical::Bool) = has_units(bd) == from_physical ? f(u, bd) : bd

@@ -100,7 +100,7 @@ import ..VisualGeometryToolkitCore: toml_value   # extended on lenses (lens_char
 using ..VisualGeometryToolkitCore: pointwise!, ExecutionPolicy, Auto   # a lens over a batch of points (lens_rays.jl)
 import ..VisualGeometryToolkitCore: aspect_ratio  # Extend interface stub (shared with Primitives)
 import ..VisualGeometryToolkitCore: surface   # a posed target's primitive (target_surfaces.jl)
-using ..VisualGeometryToolkitCore: Quad, HeightSurface, Rect2, rotation
+using ..VisualGeometryToolkitCore: Quad, HeightSurface, Rect2, rotation, _in_rect   # _in_rect: the surface containment test, the board check's too
 using ..VisualGeometryToolkitCore: _check_length   # a length, or a DimensionError (euclidean_map.jl)
 using ..VisualGeometryToolkitCore: Attributed, csponds  # composition primitives (depth-attributed points, correspondence sets)
 using ..VisualGeometryToolkitCore: sources, targets, centroid  # correspondence access protocol (#21)

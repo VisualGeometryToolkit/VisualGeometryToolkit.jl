@@ -396,7 +396,8 @@ end
         t = PlanarTarget(pts_mm; calibration = Am, board = bd)
         @test board(t) === bd && Rect(bd) ≈ Rect2(-0.6, -0.4, 1.2, 0.8)
         s = surface(PosedTarget(t, EuclideanMap(R, tr .* 1000 .* mm)))
-        @test s isa Quad && bounds(s) == Rect(bd)
+        @test s isa Quad && bounds(s) == VisualGeometryToolkitCore.Cameras._grown_rect(Rect(bd))   # the board, grown by the rounding margin
+        @test bounds(s).origin[1] < Rect(bd).origin[1] && bounds(s).widths[1] - Rect(bd).widths[1] < 1.0e-14
         # a ray to the board's margin, outside the design points: a hit
         XP = X(SVector((A.A * SVector(0.55, 0.35) + A.b)..., 0.0))
         tt, x = intersection(s, XP + R * SVector(0.0, 0.0, 1.0), -R[:, 3])
@@ -478,8 +479,22 @@ end
     @test Board(Size2(width = 297, height = 210)) == Board(Size2(width = 297.0, height = 210.0))
     @test_throws DimensionError PlanarTarget(pts_mm; board = bu)                       # physical points, a plain board
     @test_throws ArgumentError Board(Size2(width = 297.0, height = 210.0), [-10.0mm, -5.0mm])   # a mix
+
+    # a point off the board's edge by less than the rounding margin is on the
+    # board — for the constructor and for the surface's bounds alike — and a
+    # unit round trip of the target keeps it (the move takes no second check)
+    edge = SVector(287.0 * (1 + 8eps()), 100.0)                           # bu's right edge is at 287
+    te = PlanarTarget([SVector(0.0, 0.0), edge]; board = bu)
+    X0 = VisualGeometryToolkitCore.EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, 0.0))
+    posed(t) = PosedTarget(t, VisualGeometryToolkitCore.has_units(t) ? VisualGeometryToolkitCore.with_unit(X0, m) : X0)   # a physical target, a physical pose
+    hit(t, p) = VisualGeometryToolkitCore.intersection(VisualGeometryToolkitCore.surface(posed(t)), SVector(p[1], p[2], 1.0), SVector(0.0, 0.0, -1.0))
+    @test isfinite(first(hit(te, edge)))
+    tm = VisualGeometryToolkitCore.with_unit(te, mm)
+    @test isfinite(first(hit(tm, edge ./ 1000)))
+    @test ustrip(mm, VisualGeometryToolkitCore.with_unit(ustrip(m, tm), m)) isa PlanarTarget        # m ↔ mm moves: no refusal
+    @test_throws ArgumentError PlanarTarget([SVector(287.0 * (1 + 1.0e-12), 100.0)]; board = bu)   # beyond the margin: off
     q = VisualGeometryToolkitCore.surface(PosedTarget(tu, EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, 1000.0))))
-    @test VisualGeometryToolkitCore.bounds(q) == Rect(bu)
+    @test VisualGeometryToolkitCore.bounds(q) == VisualGeometryToolkitCore.Cameras._grown_rect(Rect(bu))   # the board, grown by the rounding margin
     # a point on the board's edge stays on it through mm ↔ m round trips (a unit
     # conversion moves the edge by an ulp; the check allows 16 eps)
     for (w, h, ox, oy) in ((297.3, 210.7, -10.1, -5.3), (420.0, 297.0, -0.7, -0.3), (1189.9, 841.1, -33.3, -11.1))

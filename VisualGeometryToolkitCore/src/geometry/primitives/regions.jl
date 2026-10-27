@@ -19,7 +19,7 @@
 The intersection `a ∩ b` of two 2-D regions, held lazily: a point is in it
 when it is in both (`p ∈ s ⟺ p ∈ s.a && p ∈ s.b`), and its bounding box is
 the intersection of the two bounding boxes, `Rect2(s) == Rect2(s.a) ∩ Rect2(s.b)`
-(so [`bbox`](@ref) works on it). Built by `Base.intersect` (`∩`) of a `Rect`, an
+(so [`bbox`](@ref VisualGeometryToolkitCore.bbox) works on it). Built by `Base.intersect` (`∩`) of a `Rect`, an
 [`Ellipse`](@ref) or another intersection, in any order and nesting:
 
 ```julia
@@ -30,7 +30,7 @@ Rect2(domain)                    # the rect clipped to the ellipse's box
 ```
 
 A `Rect` intersected with `nothing` is the `Rect` itself: `nothing` is "no
-constraint" (what [`image_circle`](@ref) answers for a lens with no image
+constraint" (what [`image_circle`](@ref VisualGeometryToolkitCore.Cameras.image_circle) answers for a lens with no image
 circle of its own).
 """
 struct RegionIntersection{A, B}

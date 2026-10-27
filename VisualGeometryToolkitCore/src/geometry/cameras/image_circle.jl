@@ -51,7 +51,7 @@ diameter is a limit). A [`BoundedCamera`](@ref) bounded by its physical
 `ArgumentError` (it has no pitch).
 
 The consumer's domain is `Rect(extent(camera)) ∩ image_circle(camera)` (a lazy
-[`RegionIntersection`](@ref VisualGeometryToolkitCore.RegionIntersection):
+[`RegionIntersection`](@ref VisualGeometryToolkitCore.Primitives.RegionIntersection):
 `p ∈ domain`). Only a LOCAL lens model needs it — a grid lens whose nodes
 outside the circle would have no observations; a global parametric lens is
 defined everywhere by its formula and needs no restriction.

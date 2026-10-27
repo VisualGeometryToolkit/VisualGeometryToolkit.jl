@@ -16,7 +16,7 @@ using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: LeftRigidManifold6, project
 using VisualGeometryToolkitCore: estimate, rotation, translation   # VGC accessors (public)
 using VisualGeometryToolkitEstimation
-const RVGL = VisualGeometryToolkitEstimation
+const VgtkEstimation = VisualGeometryToolkitEstimation
 
 # A 4240×2832 frame, f = 950 px, a division lens whose 90° pole sits ~1330 px
 # from the centre (the hallway's Sigma 8 mm), and a board tilted towards the rim.
@@ -53,11 +53,11 @@ end
     prob = AbsolutePoseProblem(cam, StructArray(src .=> dst))
     @test prob.context.model === cam
     # scoring: the raw-pixel reprojection through the lens — zero at the truth (up to noise)
-    r = zeros(length(src)); RVGL.residuals!(r, prob, EuclideanMap(R_gt, t_gt))
+    r = zeros(length(src)); VgtkEstimation.residuals!(r, prob, EuclideanMap(R_gt, t_gt))
     @test maximum(r[gt]) < 1.5 && minimum(r[.!gt]) > 5.0
     arms = (
-        "Irls{TLS} (default)" => RVGL.Irls{RVGL.TLSShape}(),
-        "Irls{Welsch}" => RVGL.Irls{RVGL.WelschShape}(scale_multiple = 1.5),
+        "Irls{TLS} (default)" => VgtkEstimation.Irls{VgtkEstimation.TLSShape}(),
+        "Irls{Welsch}" => VgtkEstimation.Irls{VgtkEstimation.WelschShape}(scale_multiple = 1.5),
     )   # the Student-t + uniform IRLS and the Welsch HQ lift: LocalOptimizationDoneRight's suite
     @testset "$lo_name" for (lo_name, lo) in arms
         est = find_absolute_pose(cam, src .=> dst; threshold = 5.0, local_optimization = lo, rng = StableRNG(3))
@@ -73,14 +73,14 @@ end
     n = length(src)
     R₀ = RotMatrix(RotXYZ(0.02, -0.03, 0.01)) * R_gt; t₀ = t_gt + Vec3{Float64}(-5.0, 5.0, 5.0)
     δ0 = SVector(0.01, -0.02, 0.005, 1.0, -2.0, 0.5)
-    lm = RVGL._lm_state(prob, LeftRigidManifold6(R₀, t₀), ones(2n))
+    lm = VgtkEstimation._lm_state(prob, LeftRigidManifold6(R₀, t₀), ones(2n))
     @test VgtkCore.check_rows_jacobian(lm, δ0, 2n; rtol = 1.0e-4, reference = (f, θ) -> FiniteDiff.finite_difference_jacobian(f, θ, Val(:central)))
     # the chart rows' refresh/Jacobian through the provider protocol (VGC's rows contract)
     seed = EuclideanMap(R₀, t₀)
     prov = VgtkCore.rows_provider(prob)
     θ = VgtkCore.lift_init(prov, seed)
     VgtkCore.lift_refresh!(prov, θ)
-    rr = zeros(n); RVGL.residuals!(rr, prob, VgtkCore.lift_model(prov, θ))
+    rr = zeros(n); VgtkEstimation.residuals!(rr, prob, VgtkCore.lift_model(prov, θ))
     @test maximum(abs.(VgtkCore.lift_residuals(prov)[1:n] .- rr)) < 1.0e-9   # one currency: the rows' norms ARE the scoring residuals
     VgtkCore.lift_jacobian!(prov, θ)
     Jl = copy(VgtkCore.lift_rows(prov).J[1:2n, :])
@@ -102,7 +102,7 @@ end
     dst = [Point2{Float64}(project(cam, SVector(s) + SVector(0.0, 0.0, 300.0))...) for s in src]
     prob = AbsolutePoseProblem(cam, StructArray(src .=> dst))
     r = zeros(4)
-    RVGL.residuals!(r, prob, EuclideanMap(RotMatrix{3, Float64}(one(SMatrix{3, 3, Float64})), Vec3{Float64}(0.0, 0.0, -300.0)))   # behind the camera
+    VgtkEstimation.residuals!(r, prob, EuclideanMap(RotMatrix{3, Float64}(one(SMatrix{3, 3, Float64})), Vec3{Float64}(0.0, 0.0, -300.0)))   # behind the camera
     @test all(==(VgtkCore.OUT_OF_FIELD_RESIDUAL), r)
 end
 end

@@ -68,7 +68,7 @@ maa_threshold() = Float64(_config_default("metrics", "maa_threshold_deg"))
     eligible_maa(errors, eligible = nothing; T = maa_threshold()) -> Float64
 
 The mAA@`T` of a set of pairs under the eligibility rule: the continuous AUC
-(VGC `mean_average_accuracy`) over the ELIGIBLE pairs, where a non-finite
+(VgtkCore `mean_average_accuracy`) over the ELIGIBLE pairs, where a non-finite
 error (a run that yielded no model) scores 0 and stays in the denominator,
 and an ineligible pair (`eligible[i] == false`: no ground truth, or fewer
 valid correspondences than a minimal sample) is excluded. `eligible =

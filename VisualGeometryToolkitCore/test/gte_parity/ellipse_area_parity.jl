@@ -10,7 +10,7 @@
 # near-tangency cases, where the double root classification may legitimately
 # flip).
 #
-# VGC ships no C++ — the oracle is built here, on demand, from an upstream
+# VgtkCore ships no C++ — the oracle is built here, on demand, from an upstream
 # Geometric Tools checkout (github.com/davideberly/GeometricTools). Provide:
 #   ELLIPSE_AREA_ORACLE — path to a prebuilt libellipse_area.so, OR
 #   GTE_DIR — path to a directory whose Mathematics/ holds the GTE headers
@@ -21,8 +21,8 @@ using VisualGeometryToolkitCore
 using Random
 using Printf
 
-const VGC = VisualGeometryToolkitCore
-const _native = VGC.Primitives._native_ellipse_intersection_area
+const VgtkCore = VisualGeometryToolkitCore
+const _native = VgtkCore.Primitives._native_ellipse_intersection_area
 
 # C entry points mirrored by the native port (the retired FFI contract).
 const _WRAPPER_CPP = raw"""

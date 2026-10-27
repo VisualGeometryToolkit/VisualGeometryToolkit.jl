@@ -6,7 +6,7 @@
 using GLMakie
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: CampixelImshow
-import VisualGeometryToolkitCore as VGC   # VGC.poly! — Makie exports its own poly!
+import VisualGeometryToolkitCore as VgtkCore   # VgtkCore.poly! — Makie exports its own poly!
 using Colors: Gray
 import GLMakie.Makie.SpecApi as S
 
@@ -17,9 +17,9 @@ img = [Gray(0.5 + 0.45 * sin(i / 25) * cos(j / 40)) for i in 1:480, j in 1:640]
 fig, ax, plt = imshow(img)
 scatter!(ax, [160.0, 480.0], [120.0, 360.0]; color = :red, markersize = 12)
 e = Ellipse(Point2(320.0, 240.0), 90.0, 45.0, π / 6)
-VGC.poly!(ax, e; strokecolor = :cyan, strokewidth = 2)          # Ellipse → polygon recipe
+VgtkCore.poly!(ax, e; strokecolor = :cyan, strokewidth = 2)          # Ellipse → polygon recipe
 d = Disc(Point2(160.0, 120.0), 20.0)
-VGC.poly!(ax, region(d, 3.0); strokecolor = :yellow, strokewidth = 2)   # 3σ circle
+VgtkCore.poly!(ax, region(d, 3.0); strokecolor = :yellow, strokewidth = 2)   # 3σ circle
 display(fig)
 
 # ── 2. SpecApi scene with a campixel camera; overlays are PlotSpecs ─────

@@ -3,11 +3,11 @@
 # redesigned families are gated against it (`test/lens_oracle_tests.jl`). Runs
 # only against that version — it names the retired types. Kept for provenance.
 #
-#   julia --project=<VGC 1.0.0 checkout> generate.jl
+#   julia --project=<VgtkCore 1.0.0 checkout> generate.jl
 using VisualGeometryToolkitCore, StaticArrays, Random, TOML
-const VGC = VisualGeometryToolkitCore
+const VgtkCore = VisualGeometryToolkitCore
 # the 1.0.0 lens types, by name (they are retired names now: spelled indirectly)
-_old(parts...) = getfield(VGC, Symbol(parts...))
+_old(parts...) = getfield(VgtkCore, Symbol(parts...))
 const OLD = (BC = _old("Brown", "Conrady"), RR = _old("Rational", "Radial"), EF = _old("Equidistant", "Fisheye"),
     SF = _old("Stereographic", "Fisheye"), QF = _old("Equisolid", "Fisheye"), OF = _old("Orthographic", "Fisheye"),
     TPF = _old("ThinPrism", "Fisheye"), AB = _old("Additive", "Bundle"))
@@ -72,11 +72,11 @@ function probe(lens, rng)
     und = [undistort_normalized(lens, x) for x in pts]
     J = [transform_deriv(lens, X) for X in rays[1:8]]
     Jp = [transform_deriv_params(lens, X) for X in rays[1:8]]
-    l32 = VGC._precision(Float32, lens)
+    l32 = VgtkCore._precision(Float32, lens)
     p32 = [project(l32, SVector{3, Float32}(X)) for X in rays[1:16]]
     b32 = [backproject(l32, SVector{2, Float32}(x)) for x in pts[1:min(16, end)]]
     return Dict(
-        "monotone_radius" => Float64(VGC.monotone_radius(lens)), "view_angle_limit" => θmax,
+        "monotone_radius" => Float64(VgtkCore.monotone_radius(lens)), "view_angle_limit" => θmax,
         "rays" => flat(rays), "project" => flat(proj),
         "points" => flat(pts), "backproject" => flat(back),
         "persp" => flat(persp), "distort" => flat(dist), "undistort" => flat(und),

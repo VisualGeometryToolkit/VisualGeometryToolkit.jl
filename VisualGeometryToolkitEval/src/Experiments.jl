@@ -51,7 +51,7 @@ constants.
 """
 module Experiments
 
-using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VGC   # check_keys (run_records.jl)
+using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore   # check_keys (run_records.jl)
 using ..Tuning: resolve_tuning!, _toml_hash
 import ..cli_option   # src/cli.jl: stages.jl reads `--stage=` through it
 

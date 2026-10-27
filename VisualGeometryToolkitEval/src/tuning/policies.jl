@@ -183,7 +183,7 @@ struct MeanAverageAccuracy <: TuningCriterion
         return new(Float64(max_error))
     end
 end
-# Through `eligible_maa`, not VGC's `mean_average_accuracy` directly: Stats
+# Through `eligible_maa`, not VgtkCore's `mean_average_accuracy` directly: Stats
 # declares the mAA rule — "every figure path computes mAA through
 # `eligible_maa`" — and a tuning objective that called the statistic itself
 # would be a second path whose failure/eligibility convention could drift from

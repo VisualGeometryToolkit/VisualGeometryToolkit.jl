@@ -17,7 +17,7 @@
 #                          (`with_width` returns that `MsacScoring`, the refit
 #                          scoring), and as a selection scorer it scores as that
 #                          MSAC. A stand-in for a paper's Student-t marginal,
-#                          whose outlier-half-width axis VGC and RVG do not ship.
+#                          whose outlier-half-width axis VgtkCore and VgtkEstimation do not ship.
 #   WidthRefit(max_iter)   an ExternalRefit strategy on the external-refit
 #                          contract: its workspace keeps the two-view frame it
 #                          was built from; its refine is VisualGeometryToolkitEstimation's
@@ -46,7 +46,7 @@
         tuning_table, ScaleMultipleWindow, PairUnit
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation, Irls, NoLocalOptimization, EssentialProblem, FundMatProblem,
         HomographyProblem, RelposeBundleProblem, fixed_width
-    import VisualGeometryToolkitCore as VGC
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: AbstractScoring, AbstractLocalOptimization, ExternalRefit, NativeRefit, RefitFamily,
         MsacScoring, TLSShape, ScaleMultiple, LossWidth, OutlierHalfwidth, EssentialMat, FundMat,
         width_axis_name, with_width, outlier_halfwidth, outlier_halfwidth_to_loss_width, loss_width,
@@ -61,12 +61,12 @@
     end
     HalfwidthMsac(dg::Integer, outlier_halfwidth::Real) = HalfwidthMsac{Int(dg)}(Float64(outlier_halfwidth))
     msac_of(s::HalfwidthMsac{DG}) where {DG} = MsacScoring(DG; threshold = s.outlier_halfwidth)
-    VGC.outlier_halfwidth(s::HalfwidthMsac) = s.outlier_halfwidth
-    VGC.width_axis(::HalfwidthMsac) = OutlierHalfwidth()
-    VGC.with_width(::HalfwidthMsac{DG}, a::OutlierHalfwidth{Float64}) where {DG} = MsacScoring(DG; threshold = a.value)
-    VGC.codimension(::HalfwidthMsac{DG}) where {DG} = DG
-    VGC.scoring_workspace(s::HalfwidthMsac, n::Int, d_g::Int) = scoring_workspace(msac_of(s), n, d_g)
-    VGC.score!(ws, s::HalfwidthMsac, scores, r, n; kw...) = VGC.score!(ws, msac_of(s), scores, r, n; kw...)
+    VgtkCore.outlier_halfwidth(s::HalfwidthMsac) = s.outlier_halfwidth
+    VgtkCore.width_axis(::HalfwidthMsac) = OutlierHalfwidth()
+    VgtkCore.with_width(::HalfwidthMsac{DG}, a::OutlierHalfwidth{Float64}) where {DG} = MsacScoring(DG; threshold = a.value)
+    VgtkCore.codimension(::HalfwidthMsac{DG}) where {DG} = DG
+    VgtkCore.scoring_workspace(s::HalfwidthMsac, n::Int, d_g::Int) = scoring_workspace(msac_of(s), n, d_g)
+    VgtkCore.score!(ws, s::HalfwidthMsac, scores, r, n; kw...) = VgtkCore.score!(ws, msac_of(s), scores, r, n; kw...)
 
     # A threshold scorer on the loss-width axis that is no grid family's: at
     # width w it is MSAC at threshold w.
@@ -74,8 +74,8 @@
         w::Float64
     end
     ThresholdMsac(dg::Integer, w::Real) = ThresholdMsac{Int(dg)}(Float64(w))
-    VGC.width_axis(::ThresholdMsac) = LossWidth()
-    VGC.with_width(::ThresholdMsac{DG}, w::LossWidth{NTuple{2, Float64}}) where {DG} = MsacScoring(DG; threshold = loss_width(w))
+    VgtkCore.width_axis(::ThresholdMsac) = LossWidth()
+    VgtkCore.with_width(::ThresholdMsac{DG}, w::LossWidth{NTuple{2, Float64}}) where {DG} = MsacScoring(DG; threshold = loss_width(w))
 
     struct WidthRefit <: AbstractLocalOptimization
         max_iter::Int
@@ -85,21 +85,21 @@
         prepared::Int
         refined::Int
     end
-    VGC.RefitFamily(::WidthRefit) = ExternalRefit()
-    VGC.external_workspace(::WidthRefit, _problem, frame, _scoring) = WidthRefitWs(frame, 0, 0)
-    VGC.prepare_external!(ws::WidthRefitWs, ::WidthRefit, _problem, _θ, _width, _scoring) =
+    VgtkCore.RefitFamily(::WidthRefit) = ExternalRefit()
+    VgtkCore.external_workspace(::WidthRefit, _problem, frame, _scoring) = WidthRefitWs(frame, 0, 0)
+    VgtkCore.prepare_external!(ws::WidthRefitWs, ::WidthRefit, _problem, _θ, _width, _scoring) =
         (ws.prepared += 1; true)
-    function VGC.refine_external!(ws::WidthRefitWs, lo::WidthRefit, problem, θ, w::LossWidth, _scoring)
+    function VgtkCore.refine_external!(ws::WidthRefitWs, lo::WidthRefit, problem, θ, w::LossWidth, _scoring)
         ws.refined += 1
         lw = loss_width(w)
         return refit_model(problem, θ, Irls{TLSShape}(lo.max_iter, LossWidth(lw)),
-                           MsacScoring(VGC.codimension(problem); threshold = lw))
+                           MsacScoring(VgtkCore.codimension(problem); threshold = lw))
     end
 
     struct RefusingRefit <: AbstractLocalOptimization end
-    VGC.RefitFamily(::RefusingRefit) = ExternalRefit()
-    VGC.prepare_external!(_ws, ::RefusingRefit, _problem, _θ, _width, _scoring) = false
-    VGC.refine_external!(_ws, ::RefusingRefit, _problem, _θ, _width, _scoring) = error("never called")
+    VgtkCore.RefitFamily(::RefusingRefit) = ExternalRefit()
+    VgtkCore.prepare_external!(_ws, ::RefusingRefit, _problem, _θ, _width, _scoring) = false
+    VgtkCore.refine_external!(_ws, ::RefusingRefit, _problem, _θ, _width, _scoring) = error("never called")
 
     struct ThrowingRefit <: AbstractLocalOptimization end   # a native refiner with no locally_optimize!
 
@@ -127,7 +127,7 @@
 
     @testset "the test-local template is a refit template" begin
         t = template(0.02)
-        @test outlier_halfwidth(t) == 0.02 && VGC.width_axis(t) === OutlierHalfwidth()
+        @test outlier_halfwidth(t) == 0.02 && VgtkCore.width_axis(t) === OutlierHalfwidth()
         @test with_width(t, OutlierHalfwidth(0.05)) == MsacScoring(1; threshold = 0.05)
         @test RefitFamily(WidthRefit(5)) isa ExternalRefit && RefitFamily(irls()) isa NativeRefit
     end
@@ -162,7 +162,7 @@
         @test length(f1) == length(f2) == num_points(pair) && all(x -> norm(x) ≈ 1, f1)
         @test_throws ArgumentError essential_bearings(build_pair_ctx(FundMatProblem, pair))
         # the basin perturbation is reproducible from its rng
-        R0, t0 = VGC.Pools.gt_pose(pair)
+        R0, t0 = VgtkCore.Pools.gt_pose(pair)
         @test perturbed_seed_E(MersenneTwister(1), R0, t0, 0.1) == perturbed_seed_E(MersenneTwister(1), R0, t0, 0.1)
     end
 
@@ -191,7 +191,7 @@
         @test first(refit_imc!(ctx, irls_sm(), seed, a; s2 = 400 * s2)) !== e_s2
         # the guard keeps the refit or the seed
         @test first(refit_imc!(ctx, ScoreGuarded(irls()), seed, a)) in (e, model_imc(seed, ctx))
-        @test VGC.optimization_path(ScoreGuarded(irls())) === VGC.optimization_path(irls())
+        @test VgtkCore.optimization_path(ScoreGuarded(irls())) === VgtkCore.optimization_path(irls())
         # fallbacks: a throwing refine → the seed's imc, or the caller's on_fail
         e_fail, _ = @test_logs (:warn,) match_mode = :any refit_imc!(ctx, ThrowingRefit(), seed, a)
         @test e_fail === model_imc(seed, ctx)
@@ -547,7 +547,7 @@
         @test !isempty(warm[1]) && isempty(events[1])      # j = 0 saw the warm-up only
         @test warm[2:end] == events[2:end]                 # the pairs' records are the warm-up-free ones
         # finalize: extras only when asked, one per pair, in the pair's slot
-        fin = run(; finalize = (j, r) -> (j, VGC.converged(r)))
+        fin = run(; finalize = (j, r) -> (j, VgtkCore.converged(r)))
         @test fin.err == base.err && fin.extras == [(j, true) for j in 1:8]
         # the guard is forwarded to ransac and still yields a model per pair
         guarded = run(; score_guard = true)
@@ -572,7 +572,7 @@
         loss_widths = grid(1.0e-3, 0.1, LinearCount(5))
         # Both grids are test-local scorers on the `:pool` staging, so the
         # generic fallback runs whatever else is loaded (VisualGeometryToolkitEstimation
-        # loads RANSACScoringDoneRight, whose grid families stage `:rsdr`; VGC's
+        # loads RANSACScoringDoneRight, whose grid families stage `:rsdr`; VgtkCore's
         # MSAC at a threshold is none of them).
         hwsc, msac = template(), ThresholdMsac(1, 1.0)
         @test selection_staging(hwsc) === selection_staging(msac) === :pool

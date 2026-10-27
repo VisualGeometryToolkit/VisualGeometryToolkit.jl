@@ -22,7 +22,7 @@
     using VisualGeometryToolkitEval.Tuning: MedianError, FiniteMedian, SceneMeanMedian,
         SceneMeanLowerMedian, MeanAverageAccuracy, tune_objective, tuning_criterion_label
 
-    @testset "tuning objectives: mAA is VGC's" begin
+    @testset "tuning objectives: mAA is VgtkCore's" begin
         e = [0.5, 2.0, 7.5, 12.0, 3.25]
         maa = MeanAverageAccuracy
         @test tune_objective(maa(10.0), e) === -mean_average_accuracy(e; T = 10.0)

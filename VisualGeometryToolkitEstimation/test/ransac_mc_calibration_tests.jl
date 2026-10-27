@@ -1,7 +1,7 @@
 @testitem "ransac_mc_calibration" setup = [PoseScenes, DivisionBoards, Cameras] begin
     import VisualGeometryToolkitCore as VgtkCore
 # =============================================================================
-# Monte Carlo calibration of RVG's covariance-bearing paths, through VGC's
+# Monte Carlo calibration of VgtkEstimation's covariance-bearing paths, through VGC's
 # harness (`VisualGeometryToolkitCore.Synthetic`): seeded scenes, KNOWN per-point
 # noise, and the harness's z = 4 gates (`is_calibrated`: NEES mean within 4 SE
 # of dof AND every χ² coverage within 4 binomial SE; `containment_nominal`).
@@ -15,7 +15,7 @@
 #       OUTPUT-domain containment of the same refits (Criminisi's H transfer
 #       ellipse, the H–Z epipolar band for E/F, a held-out point's
 #       reprojection for the pose). The covariance a refit is SCORED with is
-#       RVG's `solver_covariance` on its consensus set — the same constraint
+#       VgtkEstimation's `solver_covariance` on its consensus set — the same constraint
 #       sandwich these cells gate.
 #   (b) PREDICTIVE scoring (`score!` on an `Uncertain` model): a held-out
 #       point's whitened residual rᵢ under the minimal hypothesis — tracked
@@ -66,7 +66,7 @@ using VisualGeometryToolkitCore: solver_covariance   # the constraint-problem co
 using VisualGeometryToolkitEstimation: HomographyProblem, FundMatProblem, EssentialProblem,
     AbsolutePoseProblem, HandEyeProblem, refine!, board_sq_residuals
 using VisualGeometryToolkitCore: CameraModel, px
-const RVG = VisualGeometryToolkitEstimation
+const VgtkEstimation = VisualGeometryToolkitEstimation
 
 _unit_scale(M::T) where {T} = T(Tuple(SMatrix{3, 3, Float64, 9}(M) / norm(SMatrix{3, 3, Float64, 9}(M))))
 
@@ -78,7 +78,7 @@ _to_fcal(cs, T) = [
 ]
 
 # ---------------------------------------------------------------------------
-# (a) RVG's production refit as the harness trials' `estimate`: the problem `P`
+# (a) VgtkEstimation's production refit as the harness trials' `estimate`: the problem `P`
 # built on the noisy sample in the trial's working frame, refit from the
 # chart anchor. The pose trial works in calibrated coordinates, so its
 # problem's camera is the identity camera (calibrated coordinates as pixels).
@@ -90,7 +90,7 @@ _to_fcal(cs, T) = [
 _refit(P) = (ch, csn) -> refine!(nothing, P(csn), model(ch), ones(length(csn)))
 _pose_problem(camera) = pairs -> AbsolutePoseProblem(camera, pairs)
 
-# … and the covariance a refit is SCORED with — RVG's one `solver_covariance`
+# … and the covariance a refit is SCORED with — VgtkEstimation's one `solver_covariance`
 # (the constraint sandwich) on the trial's full set — as the trials' `covariance`,
 # so the cells gate the emitted object. H/F/E return vec(M) coordinates: carried
 # into the trial's (same) minimal chart by its differential; the pose is already in its chart.
@@ -232,19 +232,19 @@ function _predictive_trial_hand_eye(; σ, m = 12, L = 0.5)
             δa = σ * randn(rng, 3); δt = σ * randn(rng, 3)
             RA′ = exp_so3(SVector{3}(δa ./ L)) * RA
             tA′ = tA + SVector{3}(δt) - (RA′ - RA) * tX           # g(X) = (δa, δt) exactly
-            (convert(RVG.Rigid3, EuclideanMap(RotMatrix{3}(RA′), tA′)), convert(RVG.Rigid3, B))
+            (convert(VgtkEstimation.Rigid3, EuclideanMap(RotMatrix{3}(RA′), tA′)), convert(VgtkEstimation.Rigid3, B))
         end
-        s = RVG._build_sampler(length(motions), 2, nothing)
+        s = VgtkEstimation._build_sampler(length(motions), 2, nothing)
         p = try                                                  # the constructor's rotation gate
-            HandEyeProblem{typeof(s)}(motions, L, deg2rad(RVG._dflt("robot_world_hand_eye", "min_rel_angle_deg")), s)
+            HandEyeProblem{typeof(s)}(motions, L, deg2rad(VgtkEstimation._dflt("robot_world_hand_eye", "min_rel_angle_deg")), s)
         catch err
             err isa ArgumentError || rethrow()
             return nothing
         end
-        RVG.test_sample(p, [1, 2]) || return nothing
-        hyp = RVG.solve(p, [1, 2])
+        VgtkEstimation.test_sample(p, [1, 2]) || return nothing
+        hyp = VgtkEstimation.solve(p, [1, 2])
         hyp.count == 0 && return nothing
-        X̂ = RVG.fit_hypothesis(p, first(hyp), [1, 2])          # the hypothesis RANSAC scores
+        X̂ = VgtkEstimation.fit_hypothesis(p, first(hyp), [1, 2])          # the hypothesis RANSAC scores
         X̂ === nothing && return nothing
         return _held_out(rng, p, X̂, [1, 2], 2, m, σ)
     end
@@ -463,11 +463,11 @@ end
     # count the `nothing`s over seeded scenes × random minimal samples.
     rng = StableRNG(701)
     function degenerate_count(p, k, nsamples)
-        n = RVG.data_size(p); cnt = 0; seen = 0
+        n = VgtkEstimation.data_size(p); cnt = 0; seen = 0
         for _ in 1:nsamples
             idx = randperm(rng, n)[1:k]
-            RVG.test_sample(p, idx) || continue
-            for θ in RVG.solve(p, idx)
+            VgtkEstimation.test_sample(p, idx) || continue
+            for θ in VgtkEstimation.solve(p, idx)
                 seen += 1
                 solver_covariance(p, θ, idx) === nothing && (cnt += 1)
             end
@@ -509,7 +509,7 @@ end
     end
     # the estimate in the chart of the true line n·x + d = 0: (normal angle, offset)
     _line_error(est, nv, d) = Vector(local_coordinates(Line2DManifold(Line2D(nv[1], nv[2], d)), VgtkCore.geom(est)))
-    _weighted_fit(pts, Σ̃) = RVG.fit_line([Uncertain(pts[i], CovMat(Σ̃[i])) for i in eachindex(pts)])
+    _weighted_fit(pts, Σ̃) = VgtkEstimation.fit_line([Uncertain(pts[i], CovMat(Σ̃[i])) for i in eachindex(pts)])
     # The reported covariance is s²·(JᵀWJ)⁻¹ with s² estimated on ν = n − 2, so
     # its NEES is 2·F(2, ν), not χ²₂ (mean 2ν/(ν−2) = 2.154 at n = 30: the χ²
     # gate fails it at ~3000 trials — measured 2.214, 1.4 SE from the F law).
@@ -552,9 +552,9 @@ end
     function line_problem_residual_trial(; σ = 0.02, n = 20)
         return function (rng)
             nv, d, pts, Σ̃ = _hetero_line(rng, n, σ)
-            p = RVG.LineFittingProblem([Uncertain(pts[i], CovMat(Σ̃[i])) for i in 1:n])
+            p = VgtkEstimation.LineFittingProblem([Uncertain(pts[i], CovMat(Σ̃[i])) for i in 1:n])
             r = zeros(n)
-            RVG.residuals!(r, p, Line2D{Float64}(SVector(nv[1], nv[2], d)))
+            VgtkEstimation.residuals!(r, p, Line2D{Float64}(SVector(nv[1], nv[2], d)))
             return r, σ^2 * Matrix(1.0I, n, n)
         end
     end
@@ -562,9 +562,9 @@ end
         return function (rng)
             _, _, pts, Σ̃ = _hetero_line(rng, n + 1, σ)
             upts = [Uncertain(pts[i], CovMat(Σ̃[i])) for i in 1:(n + 1)]
-            est = estimate(RVG.fit_line(upts[1:n]))
+            est = estimate(VgtkEstimation.fit_line(upts[1:n]))
             l̂ = VgtkCore.geom(est); Σθ = SMatrix{2, 2}(VgtkCore.cov(est))
-            r, Gw, _ = whiten(constraint_with_jacobians(RVG.LineFittingProblem(upts), l̂, n + 1)...)
+            r, Gw, _ = whiten(constraint_with_jacobians(VgtkEstimation.LineFittingProblem(upts), l̂, n + 1)...)
             return [r], fill(σ^2 + dot(Gw, Σθ * Gw), 1, 1)
         end
     end
@@ -578,8 +578,8 @@ end
             a, b = randn(rng), randn(rng)
             xs = 4 .* rand(rng, 12) .- 2
             pts = [SVector(x, a + b * x + σ * randn(rng)) for x in xs]
-            p = RVG.InhomLineFittingProblem(pts)
-            hyp = RVG.solve(p, [1, 2]); hyp.count == 0 && return nothing
+            p = VgtkEstimation.InhomLineFittingProblem(pts)
+            hyp = VgtkEstimation.solve(p, [1, 2]); hyp.count == 0 && return nothing
             θ̂ = first(hyp)
             Σ̃ = solver_covariance(p, θ̂, [1, 2]); Σ̃ === nothing && return nothing
             predictive || return Vector(θ̂ - SVector(a, b)), σ^2 .* Matrix(Σ̃)
@@ -675,9 +675,9 @@ end
     # a stack whose iteration has no system to solve is a failed fit, like one that diverged
     function _dc_fit(Hs, boards; focal_seed = nothing)
         return try
-            RVG.fit_division_camera(Hs, boards; image_size = _DC_SIZE, focal_seed)
+            VgtkEstimation.fit_division_camera(Hs, boards; image_size = _DC_SIZE, focal_seed)
         catch e
-            e isa RVG.DivisionCameraError || rethrow()
+            e isa VgtkEstimation.DivisionCameraError || rethrow()
             nothing
         end
     end

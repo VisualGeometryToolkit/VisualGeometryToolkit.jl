@@ -18,7 +18,7 @@ using VisualGeometryToolkitCore: RigidExpManifold6, local_coordinates   # the de
 using VisualGeometryToolkitCore: estimate, retcode, rotation, translation   # VGC accessors (public)
 using VisualGeometryToolkitCore.Synthetic: run_calibration, is_calibrated   # VGC's MC calibration harness (public)
 using VisualGeometryToolkitEstimation: refine_robot_world_hand_eye, RobotWorldHandEyeCalibration
-import VisualGeometryToolkitEstimation as RVG
+import VisualGeometryToolkitEstimation as VgtkEstimation
 
 # A marker: a 5×5 grid of points (spacing 3 cm) in its own z = 0 plane.
 _grid(s = 0.03) = [SVector(s * (i - 3), s * (j - 3), 0.0) for i in 1:5 for j in 1:5]
@@ -99,7 +99,7 @@ function rw_heldout_trial(; N = 12, M = 3, f = 600.0, σ = 0.5)
         i, m, cs = held[rand(rng, 1:length(held))]
         P, u = cs[rand(rng, 1:length(cs))]
         RA, tA = SMatrix{3, 3, Float64, 9}(rotation(sc.A[i])), SVector{3, Float64}(translation(sc.A[i]))
-        g(z) = RVG._rw_point_residual(z, RigidExpManifold6(cal.Y), RigidExpManifold6(cal.X[m]), RA, tA, P, u, sc.camera)
+        g(z) = VgtkEstimation._rw_point_residual(z, RigidExpManifold6(cal.Y), RigidExpManifold6(cal.X[m]), RA, tA, P, u, sc.camera)
         G = ForwardDiff.jacobian(g, zero(SVector{12, Float64}))
         idx = vcat(1:6, (6m + 1):(6m + 6))
         Σ = SMatrix{12, 12}(res.cov[idx, idx])

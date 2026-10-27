@@ -6,23 +6,23 @@
 # =============================================================================
 
 @testsetup module StyleFixtures
-    import VisualGeometryToolkitCore as VGC
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitEval.Render: PaperStyle, arm_style_records
 
     export ProbeLO, probe_style
 
     "A probe strategy: its loss family, optimization path, label and scale interface."
-    struct ProbeLO <: VGC.AbstractLocalOptimization
+    struct ProbeLO <: VgtkCore.AbstractLocalOptimization
         family::Symbol
         path::Symbol
         label::String
         fixed::Bool
     end
     ProbeLO(family, path, label) = ProbeLO(family, path, label, false)
-    VGC.loss_family(p::ProbeLO) = p.family
-    VGC.optimization_path(p::ProbeLO) = p.path
-    VGC.lo_label(p::ProbeLO) = p.label
-    VGC.scale_interface(p::ProbeLO) = p.fixed ? VGC.FixedScale() : VGC.ConsensusAnchored()
+    VgtkCore.loss_family(p::ProbeLO) = p.family
+    VgtkCore.optimization_path(p::ProbeLO) = p.path
+    VgtkCore.lo_label(p::ProbeLO) = p.label
+    VgtkCore.scale_interface(p::ProbeLO) = p.fixed ? VgtkCore.FixedScale() : VgtkCore.ConsensusAnchored()
 
     "A PaperStyle over `probes` (`arm => ProbeLO`) and their `table` rows."
     probe_style(probes, table; colors = Pair{String,String}[], grid = "xmajorgrids, ymajorgrids") =

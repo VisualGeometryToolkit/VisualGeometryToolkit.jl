@@ -27,7 +27,6 @@ using VisualGeometryToolkitCore: data_size, minimal_sample_size   # the constrai
 using VisualGeometryToolkitCore: MsacScoring   # owned and exported by VisualGeometryToolkitCore
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
-const RVG = VisualGeometryToolkitEstimation
 
 
 
@@ -122,7 +121,7 @@ const RVG = VisualGeometryToolkitEstimation
         lo = Irls{HuberShape}(scale_multiple = 1.345)
         ws = RansacWorkspace(prob, sc, lo)
         _, k = VgtkCore.score_model!(ws.buf, sc, prob, θ₀)
-        est = RVG._lo_on_partition!(ws, prob, θ₀, sc, k, lo)
+        est = VgtkEstimation._lo_on_partition!(ws, prob, θ₀, sc, k, lo)
         @test iterations(est) > 2
         @test retcode(est) in (:converged, :max_iterations)
         @test abs(distance(estimate(est), Point2(28.0, 0.0))) < abs(distance(θ₀, Point2(28.0, 0.0)))

@@ -39,7 +39,7 @@ struct RomaPair <: StereoRawPair
     t_gt     :: SVector{3,Float64}
 end
 
-# The first-version files predate the current VGC types (Unitful-era, before the
+# The first-version files predate the current VgtkCore types (Unitful-era, before the
 # frame tags), so JLD2 reconstructs every entry opaquely; the reader rebuilds a
 # RomaPair field by field from the reconstructed properties and never touches a
 # unit conversion. Layout (verified 2026-10-06 on one file of each of the

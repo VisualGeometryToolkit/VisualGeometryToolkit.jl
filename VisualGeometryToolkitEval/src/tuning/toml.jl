@@ -32,7 +32,7 @@
 "The path of the shipped tuning defaults of record, configs/tuning.toml."
 const TUNING_DEFAULTS_PATH = normpath(joinpath(@__DIR__, "..", "..", "configs", "tuning.toml"))
 "The shipped tuning defaults of record (configs/tuning.toml, parsed at precompile)."
-const TUNING_DEFAULTS = VGC.parse_defaults(TUNING_DEFAULTS_PATH)
+const TUNING_DEFAULTS = VgtkCore.parse_defaults(TUNING_DEFAULTS_PATH)
 
 # -----------------------------------------------------------------------------
 # The tag registries: TOML tag → strategy type, per family.
@@ -46,21 +46,21 @@ Every tagged strategy family of a `[tuning]` spec and its tag registry
 the type's name minus the family's suffix; retired tags name their successor).
 A tagged table names its type with the key `type`.
 """
-const TUNING_TAGS = Dict{String,VGC.TagRegistry}(
-    "spacing"   => VGC.TagRegistry(:spacing, "", "log_per_decade" => LogPerDecade, "log_per_octave" => LogPerOctave,
+const TUNING_TAGS = Dict{String,VgtkCore.TagRegistry}(
+    "spacing"   => VgtkCore.TagRegistry(:spacing, "", "log_per_decade" => LogPerDecade, "log_per_octave" => LogPerOctave,
                                    "log_count" => LogCount, "linear_count" => LinearCount),
-    "window"    => VGC.TagRegistry(:window, "Window", "fixed" => FixedWindow, "standardized" => StandardizedWindow,
+    "window"    => VgtkCore.TagRegistry(:window, "Window", "fixed" => FixedWindow, "standardized" => StandardizedWindow,
                                    "coverage" => CoverageWindow, "centered" => CenteredWindow),
-    "axis"      => VGC.TagRegistry(:axis, "Axis", "spaced" => SpacedAxis, "listed" => ListedAxis),
-    "grid"      => VGC.TagRegistry(:grid, "Grid", "spaced" => SpacedGrid, "listed" => ListedGrid),
-    "criterion" => VGC.TagRegistry(:criterion, "", "median_error" => MedianError, "finite_median" => FiniteMedian,
+    "axis"      => VgtkCore.TagRegistry(:axis, "Axis", "spaced" => SpacedAxis, "listed" => ListedAxis),
+    "grid"      => VgtkCore.TagRegistry(:grid, "Grid", "spaced" => SpacedGrid, "listed" => ListedGrid),
+    "criterion" => VgtkCore.TagRegistry(:criterion, "", "median_error" => MedianError, "finite_median" => FiniteMedian,
                                    "scene_mean_lower_median" => SceneMeanLowerMedian,
                                    "scene_mean_median" => SceneMeanMedian,
                                    "mean_average_accuracy" => MeanAverageAccuracy),
-    "scheme"    => VGC.TagRegistry(:scheme, "", "coarse_fine" => CoarseFine, "joint_coarse_fine" => JointCoarseFine,
+    "scheme"    => VgtkCore.TagRegistry(:scheme, "", "coarse_fine" => CoarseFine, "joint_coarse_fine" => JointCoarseFine,
                                    "windowed_bootstrap" => WindowedBootstrap, "factorial" => Factorial),
-    "scene_split"   => VGC.TagRegistry(:scene_split, "SceneSplit", "registered" => RegisteredSceneSplit),
-    "unit_sampling" => VGC.TagRegistry(:unit_sampling, "Sampling", "exhaustive" => ExhaustiveSampling,
+    "scene_split"   => VgtkCore.TagRegistry(:scene_split, "SceneSplit", "registered" => RegisteredSceneSplit),
+    "unit_sampling" => VgtkCore.TagRegistry(:unit_sampling, "Sampling", "exhaustive" => ExhaustiveSampling,
                                        "stratified" => StratifiedSampling, "uniform" => UniformSampling;
                                        retired = ("all" => "exhaustive", "simple_random" => "uniform")),
 )
@@ -88,7 +88,7 @@ function _tag_type(fam::String, tag, path)
     tag isa AbstractString || throw(ArgumentError("[$path]: `type` must name a $fam, got $(repr(tag))"))
     reg = TUNING_TAGS[fam]
     haskey(reg, tag) && return reg[tag]
-    for (old, new) in VGC.retired_tags(reg)
+    for (old, new) in VgtkCore.retired_tags(reg)
         old == tag && throw(ArgumentError("[$path]: $fam type $(repr(tag)) was renamed $(repr(new))"))
     end
     throw(ArgumentError("[$path]: unknown $fam type $(repr(tag)); known: $(sort(collect(keys(reg))))"))
@@ -118,7 +118,7 @@ const _TABLE_TYPES = Union{GridSpacing, WindowRule, TuningAxis, GridSpec, Tuning
 _table_value(x::Union{_TABLE_TYPES,TuningCriterion}) = tuning_table(x)
 _table_value(x::AbstractVector) = Any[_table_value(v) for v in x]
 _table_value(x::AbstractDict) = Dict{String,Any}(String(k) => _table_value(v) for (k, v) in x)
-_table_value(x) = VGC.toml_value(x)
+_table_value(x) = VgtkCore.toml_value(x)
 
 """
     tuning_table(x) -> Dict{String,Any}
@@ -131,7 +131,7 @@ value.
 """
 function tuning_table(x::Union{_TABLE_TYPES,TuningCriterion})
     T = typeof(x)
-    t = Dict{String,Any}(VGC.toml_key(T, f) => _table_value(getfield(x, f)) for f in fieldnames(T)
+    t = Dict{String,Any}(VgtkCore.toml_key(T, f) => _table_value(getfield(x, f)) for f in fieldnames(T)
                          if getfield(x, f) !== nothing)   # an absent optional table (an incumbent) is not written
     _tagged(x) && (t["type"] = _tag(x))
     return t
@@ -223,7 +223,7 @@ function _registered(::Type{RegisteredSceneSplit}, d, inherited, path)
     return out
 end
 
-# The field walk is VGC's `read_table` (the writer's `fieldnames`/`toml_key`
+# The field walk is VgtkCore's `read_table` (the writer's `fieldnames`/`toml_key`
 # walk); what stays here is the layering it does not do. Every key is handed
 # to it as the pair (config value, inherited value), so it visits every field
 # in field order, and `_read_field` reads the pair: a nested table layered
@@ -233,11 +233,13 @@ end
 function _read_struct(::Type{C}, d, dflt, path, tagged::Bool, inherit::Bool) where {C}
     d === nothing && dflt === nothing && throw(ArgumentError("[$path]: missing table"))
     d === nothing || d isa AbstractDict || throw(ArgumentError("[$path]: expected a table, got $(repr(d))"))
-    d === nothing || VGC.check_keys(d, VGC.allowed_keys(C, (tagged ? ("type",) : ())...), path)
+    d === nothing || VgtkCore.check_keys(d, VgtkCore.allowed_keys(C, (tagged ? ("type",) : ())...), path)
     layered = Dict{String,Any}(key => (d === nothing ? nothing : get(d, key, nothing),
-                                       dflt === nothing ? nothing : get(dflt, key, nothing)) for key in VGC.allowed_keys(C))
-    from_toml(::Type{C}, ::Val{F}, (u, v)) where {F} = _read_field(fieldtype(C, F), u, v, "$path.$(VGC.toml_key(C, F))", inherit)
-    args = Any[v for (_, v) in VGC.read_table(C, layered; from_toml)]
+                                       dflt === nothing ? nothing : get(dflt, key, nothing)) for key in VgtkCore.allowed_keys(C))
+    from_toml(::Type{C}, ::Val{F}, (u, v)) where {F} = _read_field(fieldtype(C, F), u, v, "$path.$(VgtkCore.toml_key(C, F))", inherit)
+    # `Any` on purpose: the fields of `C` have different types, so a narrower element type is a Union JET
+    # reports against each positional field type of `C(args...)`; the constructor checks them.
+    args = Any[v for (_, v) in VgtkCore.read_table(C, layered; from_toml)]
     try
         return C(args...)
     catch e
@@ -316,7 +318,7 @@ function tuning_spec(cfg::AbstractDict, name::AbstractString; under::AbstractDic
     tag = entry["type"]
     T = _tag_type("scheme", tag, "tuning.$name")
     if !isempty(under) || !isempty(over)
-        fields = Set(VGC.allowed_keys(T))
+        fields = Set(VgtkCore.allowed_keys(T))
         kept = Dict{String,Any}(String(k) => v for (k, v) in under if String(k) in fields)
         entry = layer_tuning(layer_tuning(kept, entry), over)
         tag = entry["type"]   # `over` may replace the scheme: its table then replaces the entry

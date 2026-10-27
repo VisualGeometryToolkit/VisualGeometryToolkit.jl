@@ -31,7 +31,7 @@
 
 using BenchmarkTools, FlexUnits, Rotations, StaticArrays
 using Rotations: QuatRotation
-import VisualGeometryToolkitIO as VgtkIo
+import VisualGeometryToolkitIO as VgtkIO
 import VisualGeometryToolkitCore as VgtkCore
 using VisualGeometryToolkitCore: EuclideanMap, m, mm
 
@@ -61,7 +61,7 @@ const poses = [
 const records = [
     (
             rotation = Vector{Any}(r.rotation), translation = Vector{Any}(r.translation),
-        ) for r in (VgtkIo.pose_json(X, unit) for X in poses)
+        ) for r in (VgtkIO.pose_json(X, unit) for X in poses)
 ]
 
 # Today's decode and encode of one record: the translation through the multiply.
@@ -75,9 +75,9 @@ function old_pose_from_json(p)
 end
 old_pose_json(X) = (rotation = Float64[Rotations.params(QuatRotation(X.R))...], translation = old_translation_json(X.t, unit))
 
-new_decode(recs) = [VgtkIo.pose_from_json(r, unit_name) for r in recs]
+new_decode(recs) = [VgtkIO.pose_from_json(r, unit_name) for r in recs]
 old_decode(recs) = [old_pose_from_json(r) for r in recs]
-new_encode(ps) = [VgtkIo.pose_json(X, unit) for X in ps]
+new_encode(ps) = [VgtkIO.pose_json(X, unit) for X in ps]
 old_encode(ps) = [old_pose_json(X) for X in ps]
 
 # Both paths agree to a few ulp (the old multiply is the inexact one).
@@ -107,12 +107,12 @@ const trajectory = Trajectory(
     times = Dict(i => 0.04i for i in 1:1000), time_origin = "2026-05-27T00:00:00",
 )
 const path = tempname() * ".json"
-VgtkIo.save(path, trajectory; length_unit = unit)
-@assert length(VgtkIo.load(Trajectory, path)) == 1000
+VgtkIO.save(path, trajectory; length_unit = unit)
+@assert length(VgtkIO.load(Trajectory, path)) == 1000
 
 const FILE_CASES = [
-    ("save trajectory file", "E2E_BASELINE_SAVE", @benchmark(VgtkIo.save($path, $trajectory; length_unit = $unit))),
-    ("load trajectory file", "E2E_BASELINE_LOAD", @benchmark(VgtkIo.load(Trajectory, $path))),
+    ("save trajectory file", "E2E_BASELINE_SAVE", @benchmark(VgtkIO.save($path, $trajectory; length_unit = $unit))),
+    ("load trajectory file", "E2E_BASELINE_LOAD", @benchmark(VgtkIO.load(Trajectory, $path))),
 ]
 
 const GATE = 1.5

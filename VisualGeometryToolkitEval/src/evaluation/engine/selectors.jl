@@ -8,7 +8,7 @@
 # oracle is just another "method" column, not a special-cased array.
 #
 # All pose errors are `model_imc` (degrees), dispatched on the pool model's type:
-# for E/F the COHERENT max(Δr, Δt) over the single best decomposition (VGC
+# for E/F the COHERENT max(Δr, Δt) over the single best decomposition (VgtkCore
 # `imc_pose_error`); for H the decomposition rotation error.
 # =============================================================================
 
@@ -90,7 +90,7 @@ function update! end
 end
 
 @inline function update!(s::OracleSelector, geom::PairGeom, pair, R::AbstractMatrix, j::Integer, col_j, n::Integer)
-    # Prune: the stored lower bound on the imc (VGC `pool_imc`) — a model whose
+    # Prune: the stored lower bound on the imc (VgtkCore `pool_imc`) — a model whose
     # bound can't beat the running best needs no decomposition.
     lb = pool_imc(pair, j)
     (isfinite(lb) && lb < s.best_imc) || return nothing

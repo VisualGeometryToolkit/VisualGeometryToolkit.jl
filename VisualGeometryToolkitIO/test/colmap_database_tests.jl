@@ -8,7 +8,7 @@
 
 @testitem "colmap database" setup = [VGIoFixtures] begin
     using SQLite: SQLite
-    import VisualGeometryToolkitIO as VGIo
+    import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitIO: ColmapDatabase
 
     const _DBI = SQLite.DBInterface
@@ -44,17 +44,17 @@
         m17 = UInt32[0 1; 2 0]                                        # 2×2, 0-based
         _DBI.execute(
             db, "INSERT INTO matches VALUES (?, 2, 2, ?)",
-            (VGIo.pair_id(1, 7), _blob(m17))
+            (VgtkIO.pair_id(1, 7), _blob(m17))
         )
         # an EMPTY match row (rows=0) — must not count as a partner
         _DBI.execute(
             db, "INSERT INTO matches VALUES (?, 0, 2, NULL)",
-            (VGIo.pair_id(2, 7),)
+            (VgtkIO.pair_id(2, 7),)
         )
         # verified subset in the PRE-3.x table
         _DBI.execute(
             db, "INSERT INTO inlier_matches VALUES (?, 1, 2, ?, 2)",
-            (VGIo.pair_id(1, 7), _blob(UInt32[0 1;]))
+            (VgtkIO.pair_id(1, 7), _blob(UInt32[0 1;]))
         )
         _DBI.close!(db)
         return (; kp1, kp2, d1, m17)
@@ -65,45 +65,45 @@
     cdb = ColmapDatabase(path)
 
     @testset "pair-id codec" begin
-        @test VGIo.pair_id(2, 4480) == 4294971774          # from aachen.db
-        @test VGIo.pair_image_ids(4294971774) == (2, 4480)
-        @test VGIo.pair_id(4480, 2) == VGIo.pair_id(2, 4480)  # order-insensitive
-        @test VGIo.pair_image_ids(VGIo.pair_id(7, 1)) == (1, 7)
+        @test VgtkIO.pair_id(2, 4480) == 4294971774          # from aachen.db
+        @test VgtkIO.pair_image_ids(4294971774) == (2, 4480)
+        @test VgtkIO.pair_id(4480, 2) == VgtkIO.pair_id(2, 4480)  # order-insensitive
+        @test VgtkIO.pair_image_ids(VgtkIO.pair_id(7, 1)) == (1, 7)
     end
 
     @testset "image table" begin
-        @test VGIo.n_images(cdb) == 3
-        @test VGIo.image_names(cdb) == ["db/a.jpg", "db/b.jpg", "query/q.jpg"]
-        @test VGIo.image_id(cdb, "query/q.jpg") == 7
-        @test VGIo.image_name(cdb, 2) == "db/b.jpg"
-        @test_throws ArgumentError VGIo.image_id(cdb, "nope.jpg")
-        @test_throws ArgumentError VGIo.image_name(cdb, 99)
+        @test VgtkIO.n_images(cdb) == 3
+        @test VgtkIO.image_names(cdb) == ["db/a.jpg", "db/b.jpg", "query/q.jpg"]
+        @test VgtkIO.image_id(cdb, "query/q.jpg") == 7
+        @test VgtkIO.image_name(cdb, 2) == "db/b.jpg"
+        @test_throws ArgumentError VgtkIO.image_id(cdb, "nope.jpg")
+        @test_throws ArgumentError VgtkIO.image_name(cdb, 99)
     end
 
     @testset "keypoints / descriptors" begin
-        @test VGIo.keypoints(cdb, 1) == ref.kp1
-        @test VGIo.keypoints(cdb, 2) == ref.kp2
-        @test size(VGIo.keypoints(cdb, 7)) == (0, 4)       # NULL blob, 0 rows
-        @test VGIo.descriptors(cdb, 1) == ref.d1
-        @test_throws ArgumentError VGIo.keypoints(cdb, 99)
+        @test VgtkIO.keypoints(cdb, 1) == ref.kp1
+        @test VgtkIO.keypoints(cdb, 2) == ref.kp2
+        @test size(VgtkIO.keypoints(cdb, 7)) == (0, 4)       # NULL blob, 0 rows
+        @test VgtkIO.descriptors(cdb, 1) == ref.d1
+        @test_throws ArgumentError VgtkIO.keypoints(cdb, 99)
     end
 
     @testset "matched_pairs" begin
-        @test VGIo.matched_pairs(cdb, 7) == [1]     # rows=0 pair (2,7) excluded
-        @test VGIo.matched_pairs(cdb, 1) == [7]
-        @test VGIo.matched_pairs(cdb, 2) == Int[]
+        @test VgtkIO.matched_pairs(cdb, 7) == [1]     # rows=0 pair (2,7) excluded
+        @test VgtkIO.matched_pairs(cdb, 1) == [7]
+        @test VgtkIO.matched_pairs(cdb, 2) == Int[]
     end
 
     @testset "matches" begin
-        @test VGIo.matches(cdb, 1, 7) == ref.m17
+        @test VgtkIO.matches(cdb, 1, 7) == ref.m17
         # caller order reversed ⇒ columns swapped
-        @test VGIo.matches(cdb, 7, 1) == ref.m17[:, [2, 1]]
+        @test VgtkIO.matches(cdb, 7, 1) == ref.m17[:, [2, 1]]
         # absent pair ⇒ 0×2, not an error
-        @test size(VGIo.matches(cdb, 1, 2)) == (0, 2)
+        @test size(VgtkIO.matches(cdb, 1, 2)) == (0, 2)
         # verified table auto-detected as the pre-3.x name
         @test cdb.verified_table == "inlier_matches"
-        @test VGIo.verified_matches(cdb, 1, 7) == UInt32[0 1;]
-        @test VGIo.verified_matches(cdb, 7, 1) == UInt32[1 0;]
+        @test VgtkIO.verified_matches(cdb, 1, 7) == UInt32[0 1;]
+        @test VgtkIO.verified_matches(cdb, 7, 1) == UInt32[1 0;]
     end
 
     close(cdb)

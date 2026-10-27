@@ -65,7 +65,7 @@ _pair_csponds(pair) = Csponds(Point2{Float64}.(sources(pair.csponds)),
 # function for pool models (selector checkpoints, the oracle), refit seeds and
 # refit results alike:
 #   EssentialMat — a metric essential: max(Δr, Δt) [deg] of its best
-#                  decomposition (VGC `imc_pose_error`);
+#                  decomposition (VgtkCore `imc_pose_error`);
 #   FundMat      — a pool-frame fundamental (the E and F pools' storage): the
 #                  same metric after the pool-frame calibration upgrade
 #                  E = Kc₂ᵀ·F·Kc₁ (`imc_pose_error(F, Kc1, Kc2, R, t)`);
@@ -80,7 +80,7 @@ _pair_csponds(pair) = Csponds(Point2{Float64}.(sources(pair.csponds)),
 # 2026-09-21 the HEB pools stored the inverse motion and this metric decomposed
 # Hᵀ to match; the pools were migrated (`gt_convention` stamp).
 #
-# The stored per-model errors are VGC's `pool_imc(pair, j)` — for H exactly this
+# The stored per-model errors are VgtkCore's `pool_imc(pair, j)` — for H exactly this
 # rotation error, for E/F the max of the per-axis minima, a lower bound on the
 # imc here (the oracle prunes on it).
 # -----------------------------------------------------------------------------

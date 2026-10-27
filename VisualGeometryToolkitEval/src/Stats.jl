@@ -3,7 +3,7 @@
 # variant, the validation reference scale and its robust extremes, the eligibility-ruled mAA with its
 # outcome counts, the BCa bootstrap CI, the mean-of-scene-median row
 # emitter, the stable seed derivation of every random sample and `POOL_RNG`,
-# the stream algorithm of every pool. mAA itself is VGC's
+# the stream algorithm of every pool. mAA itself is VgtkCore's
 # `Synthetic.mean_average_accuracy`, called directly. Loaded FIRST: every other
 # module (Evaluation's tuner included) takes its statistics from here.
 # =============================================================================

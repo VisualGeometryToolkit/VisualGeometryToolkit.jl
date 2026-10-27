@@ -35,7 +35,7 @@ module Tuning
 
 using Random: shuffle
 using StableRNGs: StableRNG
-using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VGC   # the TOML key helpers (toml.jl, sampling.jl)
+using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore   # the TOML key helpers (toml.jl, sampling.jl)
 using SHA: sha256
 using TOML: TOML
 using JLD2: JLD2

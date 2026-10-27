@@ -7,9 +7,9 @@
 @testitem "config_defaults" begin
     using Test, TOML
     using VisualGeometryToolkitEval
-    const RE = VisualGeometryToolkitEval
+    const VgtkEval = VisualGeometryToolkitEval
 
-    src = normpath(joinpath(pkgdir(RE), "src"))
+    src = normpath(joinpath(pkgdir(VgtkEval), "src"))
     text = join((read(joinpath(d, f), String) for (d, _, fs) in walkdir(src) for f in fs if endswith(f, ".jl")), "\n")
     # every `_config_default(<table expr>, "<key>")` call site
     calls = [(m[1], m[2]) for m in eachmatch(r"_config_default\(([^,()]+),\s*\"([A-Za-z0-9_]+)\"\)", text)]
@@ -21,13 +21,13 @@
     walk(d, path) = for (k, v) in d
         v isa AbstractDict ? walk(v, isempty(path) ? k : "$path.$k") : push!(leaves, (path, k))
     end
-    walk(RE._TOML_DEFAULTS, "")
+    walk(VgtkEval._TOML_DEFAULTS, "")
 
     @testset "every literal _config_default call names a declared key" begin
         for (t, k) in calls
             tbl = literal(t)
             tbl === nothing && continue          # a computed table: covered by the runtime checks below
-            @test (RE._config_default(tbl, k); true)
+            @test (VgtkEval._config_default(tbl, k); true)
         end
     end
 
@@ -45,7 +45,7 @@
     end
 
     @testset "the readers resolve against the file" begin
-        @test_throws KeyError RE._config_default("pool.heb", "no_such_key")
-        @test_throws KeyError RE._config_default("no_such_table", "target")
+        @test_throws KeyError VgtkEval._config_default("pool.heb", "no_such_key")
+        @test_throws KeyError VgtkEval._config_default("no_such_table", "target")
     end
 end

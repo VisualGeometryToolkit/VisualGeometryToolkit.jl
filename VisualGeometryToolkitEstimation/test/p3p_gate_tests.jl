@@ -5,14 +5,14 @@
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitEstimation
 
-    const VGC = VisualGeometryToolkitCore
-    const RVG = VisualGeometryToolkitEstimation
+    const VgtkCore = VisualGeometryToolkitCore
+    const VgtkEstimation = VisualGeometryToolkitEstimation
 
     # =========================================================================
     # Drift pin for P3P's coincidence tolerances
     # =========================================================================
     #
-    # `test_sample(::AbsolutePoseProblem, idx)` calls VGC's shared
+    # `test_sample(::AbsolutePoseProblem, idx)` calls VgtkCore's shared
     # `_are_points_distinct` in TWO domains that are not pixels:
     #
     #   X — world control points, in the CALLER's units (m, mm, …)
@@ -46,61 +46,61 @@
     const THIRD = 0.04
 
     function p3p_sample(; world_sep, img_sep)
-        cam = VGC.CameraModel(800VGC.px, SA[320.0VGC.px, 240.0VGC.px])
+        cam = VgtkCore.CameraModel(800VGC.px, SA[320.0VGC.px, 240.0VGC.px])
         X1 = SA[0.0, 0.0, 2.0]
         X2 = X1 + SA[world_sep, 0.0, 0.0]
         X3 = SA[0.0, THIRD, 2.0]
-        u1 = VGC.project(cam, X1)
-        u3 = VGC.project(cam, X3)
-        u2 = u1 + VGC.Point2(img_sep, 0.0)
+        u1 = VgtkCore.project(cam, X1)
+        u3 = VgtkCore.project(cam, X3)
+        u2 = u1 + VgtkCore.Point2(img_sep, 0.0)
         pairs = [
-            VGC.Point3(X1) => u1,
-            VGC.Point3(X2) => u2,
-            VGC.Point3(X3) => u3,
+            VgtkCore.Point3(X1) => u1,
+            VgtkCore.Point3(X2) => u2,
+            VgtkCore.Point3(X3) => u3,
         ]
-        return RVG.AbsolutePoseProblem(cam, pairs)
+        return VgtkEstimation.AbsolutePoseProblem(cam, pairs)
     end
 
     @testset "world tolerance is honoured, and is the deciding check" begin
         # Below the world tolerance: rejected. The other three checks succeed at
         # this geometry, so the rejection can only come from world coincidence.
         p_near = p3p_sample(world_sep = 5.0e-4, img_sep = 0.2)
-        @test !RVG.test_sample(p_near, [1, 2, 3])
+        @test !VgtkEstimation.test_sample(p_near, [1, 2, 3])
 
         # Above it: admitted. THIS is the assertion that catches a reverted or
         # un-forwarded tolerance — if P3P falls back to COINCIDENT_PX = 0.1,
         # a 2e-3 m separation is a hundredfold inside it and this flips to
         # rejected. It is the whole point of the pin.
         p_far = p3p_sample(world_sep = 2.0e-3, img_sep = 0.8)
-        @test RVG.test_sample(p_far, [1, 2, 3])
+        @test VgtkEstimation.test_sample(p_far, [1, 2, 3])
     end
 
     @testset "the world constant is the one the gate actually uses" begin
         # Straddle the CONSTANT rather than a literal, so the pin follows the
         # value if it is ever deliberately changed, and fails if the gate stops
         # reading it.
-        coincident = RVG._P3P_COINCIDENT_WORLD
-        @test !RVG.test_sample(p3p_sample(world_sep = 0.5coincident, img_sep = 0.2), [1, 2, 3])
-        @test RVG.test_sample(p3p_sample(world_sep = 4.0coincident, img_sep = 0.8), [1, 2, 3])
+        coincident = VgtkEstimation._P3P_COINCIDENT_WORLD
+        @test !VgtkEstimation.test_sample(p3p_sample(world_sep = 0.5coincident, img_sep = 0.2), [1, 2, 3])
+        @test VgtkEstimation.test_sample(p3p_sample(world_sep = 4.0coincident, img_sep = 0.8), [1, 2, 3])
     end
 
     @testset "a distorting lens: coplanar RAYS, not collinear pixels, are the degeneracy" begin
-        K = VGC.CameraCalibrationMat(950.0VGC.px, [2120.0VGC.px, 1416.0VGC.px])
-        cam = VGC.CameraModel(VGC.LogicalIntrinsics(K), VGC.Division(-0.3, -0.08))
+        K = VgtkCore.CameraCalibrationMat(950.0VGC.px, [2120.0VGC.px, 1416.0VGC.px])
+        cam = VgtkCore.CameraModel(VgtkCore.LogicalIntrinsics(K), VgtkCore.Division(-0.3, -0.08))
         # three points on the plane y = z/2 through the centre: their rays are
         # coplanar, a P3P degeneracy, but the lens bends their line into a curve
         Xs = (SA[-1.0, 0.5, 1.0], SA[0.0, 1.0, 2.0], SA[1.5, 0.5, 1.0])
-        u = map(X -> VGC.Point2{Float64}(VGC.project(cam, X)...), Xs)
-        @test VGC.thin_ratio(u...) > RVG._P3P_DEGENERACY_TOL           # the pixels alone look healthy
-        coplanar = RVG.AbsolutePoseProblem(cam, [VGC.Point3(Xs[i]) => u[i] for i in 1:3])
-        @test !RVG.test_sample(coplanar, [1, 2, 3])                       # the rays decide
+        u = map(X -> VgtkCore.Point2{Float64}(VgtkCore.project(cam, X)...), Xs)
+        @test VgtkCore.thin_ratio(u...) > VgtkEstimation._P3P_DEGENERACY_TOL           # the pixels alone look healthy
+        coplanar = VgtkEstimation.AbsolutePoseProblem(cam, [VgtkCore.Point3(Xs[i]) => u[i] for i in 1:3])
+        @test !VgtkEstimation.test_sample(coplanar, [1, 2, 3])                       # the rays decide
         # lift the middle point off the plane: a genuine triangle of rays is admitted
         X2 = SA[0.0, 1.6, 2.0]
-        u2 = VGC.Point2{Float64}(VGC.project(cam, X2)...)
-        spread = RVG.AbsolutePoseProblem(cam, [VGC.Point3(Xs[1]) => u[1], VGC.Point3(X2) => u2, VGC.Point3(Xs[3]) => u[3]])
-        @test RVG.test_sample(spread, [1, 2, 3])
+        u2 = VgtkCore.Point2{Float64}(VgtkCore.project(cam, X2)...)
+        spread = VgtkEstimation.AbsolutePoseProblem(cam, [VgtkCore.Point3(Xs[1]) => u[1], VgtkCore.Point3(X2) => u2, VgtkCore.Point3(Xs[3]) => u[3]])
+        @test VgtkEstimation.test_sample(spread, [1, 2, 3])
         # a Pinhole keeps the pixel test, bit for bit (collinear pixels ⟺ coplanar rays)
-        @test RVG.test_sample(p3p_sample(world_sep = 2.0e-3, img_sep = 0.8), [1, 2, 3])
+        @test VgtkEstimation.test_sample(p3p_sample(world_sep = 2.0e-3, img_sep = 0.8), [1, 2, 3])
     end
 
     # NO PIN FOR THE IMAGE TOLERANCE, deliberately — it is unreachable.

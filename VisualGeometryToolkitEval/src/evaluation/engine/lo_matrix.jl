@@ -186,7 +186,7 @@ end
 # decomposition metric on an H pool, the E/F pose metric otherwise). NOT the
 # raw sweep errs — the LO rows score through `model_imc` too, so selection is
 # on the identical metric. Until
-# 2026-09-21 this row always took the E/F metric: on an H pool VGC's loose
+# 2026-09-21 this row always took the E/F metric: on an H pool VgtkCore's loose
 # `EssentialMat(::AbstractMatrix, K1, K2)` wrapped the homography as a
 # fundamental matrix and scored nonsense.
 function _apply_refit_row!(M::Matrix{Float64}, ctx::PairCtx, lo::NoLocalOptimization,

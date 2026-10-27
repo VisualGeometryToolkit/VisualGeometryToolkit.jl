@@ -4,9 +4,9 @@
 # solver_covariance for E / F / H — the one constraint covariance
 #
 # For the matrix models it returns the UNIT-SCALE ambient 9×9 shape propagated from
-# the covariance in the minimal chart (estimators/ransac/covariance.jl: VGC
+# the covariance in the minimal chart (estimators/ransac/covariance.jl: VgtkCore
 # implicit_covariance on the constraint rows). Contract tests here, plus the minimal-E smoke
-# through VGC's Monte Carlo calibration harness (`VisualGeometryToolkitCore.Synthetic`).
+# through VgtkCore's Monte Carlo calibration harness (`VisualGeometryToolkitCore.Synthetic`).
 # =============================================================================
 
 using Test
@@ -14,17 +14,17 @@ using LinearAlgebra
 using Random
 using StableRNGs
 using StaticArrays
-using VisualGeometryToolkitCore: solver_covariance, provides_solver_covariance   # the constraint-problem contract (VGC)
+using VisualGeometryToolkitCore: solver_covariance, provides_solver_covariance   # the constraint-problem contract (VgtkCore)
 using VisualGeometryToolkitEstimation: BoundedProblem, RelposeBundleProblem
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: dof, model, estimate, converged, retcode, FixedModels, Uncertain, CovMat, WelschShape,
     transform_covariance, EuclideanManifold
-const VGC = VisualGeometryToolkitCore
+const VgtkCore = VisualGeometryToolkitCore
 
 using VisualGeometryToolkitCore.Synthetic: sample_homography_scene, sample_twoview_scene, projective_distance,
     make_point_covs, perturb_pairs, essential_trial, epipolar_band_trial,
-    run_calibration, is_calibrated, run_containment   # VGC's MC calibration harness (public)
+    run_calibration, is_calibrated, run_containment   # VgtkCore's MC calibration harness (public)
 
 # The E problems take the calibrated points in ECAM's pixels (`ecs`,
 # EpipolarScenes), so the gate's PIXEL tolerance stays meaningful.
@@ -61,9 +61,9 @@ end
     Σ9 = solver_covariance(p, Ĥ, idx)
     @test Σ9 !== nothing
     Σv = _check_provider_contract(Σ9, Ĥ, 8)
-    # matches VGC's implicit covariance in the minimal chart directly
-    ch = VGC.minimal_manifold(Ĥ)
-    Σv_direct = VGC.implicit_covariance(ch, csn)
+    # matches VgtkCore's implicit covariance in the minimal chart directly
+    ch = VgtkCore.minimal_manifold(Ĥ)
+    Σv_direct = VgtkCore.implicit_covariance(ch, csn)
     @test Matrix(Σv) ≈ Σv_direct rtol = 1.0e-8
 end
 
@@ -138,8 +138,8 @@ _model_term(G::AbstractMatrix, Σ) = G * Σ * G'
             Σc = solver_covariance(p, θc, collect(1:k))
             @test Matrix(Σc) ≈ c^2 .* Matrix(Σ) rtol = 1.0e-9
             for i in (k + 1):length(p.cs)
-                _, G, _ = VGC.whiten(VgtkEstimation.constraint_with_jacobians(p, θ, i)...)
-                _, Gc, _ = VGC.whiten(VgtkEstimation.constraint_with_jacobians(p, θc, i)...)
+                _, G, _ = VgtkCore.whiten(VgtkEstimation.constraint_with_jacobians(p, θ, i)...)
+                _, Gc, _ = VgtkCore.whiten(VgtkEstimation.constraint_with_jacobians(p, θc, i)...)
                 @test _model_term(Gc, Σc) ≈ _model_term(G, Σ) rtol = 1.0e-9
             end
         end

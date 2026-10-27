@@ -14,7 +14,7 @@
         CameraFrame, CentralGenericModel, NoncentralGenericModel, Vec3, relabel, Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D
     using Rotations: RotXYZ, RotationVec
     import VisualGeometryToolkitCore
-    const V = VisualGeometryToolkitIO
+    const VgtkIO = VisualGeometryToolkitIO
 
     tomutable(x::AbstractDict) = Dict{Symbol, Any}(Symbol(k) => tomutable(v) for (k, v) in x)
     tomutable(x::AbstractVector) = Any[tomutable(v) for v in x]
@@ -27,8 +27,8 @@
         walk!(out, spec, doc, Any[])
         return out
     end
-    walk!(out, s::V._Checked, x, at) = walk!(out, s.inner, x, at)
-    function walk!(out, s::V._Obj, x, at)
+    walk!(out, s::VgtkIO._Checked, x, at) = walk!(out, s.inner, x, at)
+    function walk!(out, s::VgtkIO._Obj, x, at)
         x isa AbstractDict || return nothing
         for (k, sk) in s.required
             haskey(x, k) || continue
@@ -40,9 +40,9 @@
         end
         return nothing
     end
-    walk!(out, s::V._Vec, x, at) = (x isa AbstractVector && !isempty(x)) ? walk!(out, s.elem, x[1], [at; 1]) : nothing
-    walk!(out, s::V._OrNull, x, at) = x === nothing ? nothing : walk!(out, s.inner, x, at)
-    walk!(out, s::V._Either, x, at) = foreach(p -> haskey(x, p.first) && walk!(out, p.second, x, at), s.alts)
+    walk!(out, s::VgtkIO._Vec, x, at) = (x isa AbstractVector && !isempty(x)) ? walk!(out, s.elem, x[1], [at; 1]) : nothing
+    walk!(out, s::VgtkIO._OrNull, x, at) = x === nothing ? nothing : walk!(out, s.inner, x, at)
+    walk!(out, s::VgtkIO._Either, x, at) = foreach(p -> haskey(x, p.first) && walk!(out, p.second, x, at), s.alts)
     walk!(out, s, x, at) = nothing
 
     getpath(x, path) = foldl((v, k) -> v[k], path; init = x)
@@ -51,7 +51,7 @@
 
     function refusal(doc, dir, name; units = false)
         target = units ? mkpath(joinpath(dir, "sidecar_$(name)")) : joinpath(dir, "bad_$(name).json")
-        write(units ? joinpath(target, V.UNITS_SIDECAR) : target, JSON.json(doc))
+        write(units ? joinpath(target, VgtkIO.UNITS_SIDECAR) : target, JSON.json(doc))
         return try
             validate(target)
             nothing
@@ -74,7 +74,7 @@
         files = Dict{String, String}()
         at!(name, base) = (files[name] = joinpath(dir, base))
         files["units"] = mkpath(joinpath(dir, "model"))
-        V.save_units_sidecar(files["units"], MM_PX)
+        VgtkIO.save_units_sidecar(files["units"], MM_PX)
         save(at!("transforms", "transforms.json"), [relabel(TargetFrame{:a}, BodyFrame{:b}, pose(3.0mm))])
         save(at!("cameras", "cameras.json"), Dict(:c => Attributed(BoundedCamera(CameraModel(K; lens = bc, image_origin = :colmap), Size2(4240, 2832)), (; calibration = (; tool = "t")))))
         save(at!("generic_camera", "central.json"), gc)
@@ -108,16 +108,16 @@
         save(at!("target_points2d", "target_points2d.json"), obs)
         save_correspondences(at!("correspondences", "correspondences.json"), obs, files["rig_targets"])
         specs = Dict(
-            "units" => V._UNITS_SPEC, "transforms" => V._TRANSFORMS_SPEC, "cameras" => V._CAMERAS_SPEC,
-            "generic_camera" => V._GENERIC_CAMERA_SPEC, "generic_noncentral" => V._GENERIC_CAMERA_SPEC,
-            "rig" => V._RIG_SPEC, "rig_generic" => V._RIG_SPEC, "rig_targets" => V._RIG_SPEC, "target" => V._TARGET_SPEC,
-            "trajectory" => V._TRAJECTORY_SPEC, "target_points2d" => V._TARGET_POINTS2D_SPEC,
-            "target_poses" => V._TARGET_POSES_SPEC, "target_points3d" => V._TARGET_POINTS3D_SPEC,
-            "correspondences" => V._CORRESPONDENCES_SPEC,
+            "units" => VgtkIO._UNITS_SPEC, "transforms" => VgtkIO._TRANSFORMS_SPEC, "cameras" => VgtkIO._CAMERAS_SPEC,
+            "generic_camera" => VgtkIO._GENERIC_CAMERA_SPEC, "generic_noncentral" => VgtkIO._GENERIC_CAMERA_SPEC,
+            "rig" => VgtkIO._RIG_SPEC, "rig_generic" => VgtkIO._RIG_SPEC, "rig_targets" => VgtkIO._RIG_SPEC, "target" => VgtkIO._TARGET_SPEC,
+            "trajectory" => VgtkIO._TRAJECTORY_SPEC, "target_points2d" => VgtkIO._TARGET_POINTS2D_SPEC,
+            "target_poses" => VgtkIO._TARGET_POSES_SPEC, "target_points3d" => VgtkIO._TARGET_POINTS3D_SPEC,
+            "correspondences" => VgtkIO._CORRESPONDENCES_SPEC,
         )
         for (name, path) in sort!(collect(files))
             units = name == "units"
-            file = units ? joinpath(path, V.UNITS_SIDECAR) : path
+            file = units ? joinpath(path, VgtkIO.UNITS_SIDECAR) : path
             doc = tomutable(parse_json(read(file, String)))
             @test validate(path) == get(Dict("generic_noncentral" => "generic_camera", "rig_generic" => "rig", "rig_targets" => "rig"), name, name)
             paths = required_paths(specs[name], doc)

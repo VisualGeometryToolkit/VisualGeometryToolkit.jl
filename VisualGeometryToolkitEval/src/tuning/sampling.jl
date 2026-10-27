@@ -91,7 +91,7 @@ end
 "The path of the scene-split registry of record, configs/splits.toml."
 const SPLIT_REGISTRY_PATH = normpath(joinpath(@__DIR__, "..", "..", "configs", "splits.toml"))
 "The scene-split registry of record: every scene list of the stack (configs/splits.toml, parsed at precompile)."
-const SPLIT_REGISTRY = VGC.parse_defaults(SPLIT_REGISTRY_PATH)
+const SPLIT_REGISTRY = VgtkCore.parse_defaults(SPLIT_REGISTRY_PATH)
 
 """
     registered_split(name) -> RegisteredSceneSplit
@@ -105,7 +105,7 @@ function registered_split(name::AbstractString)
     haskey(splits, name) ||
         throw(ArgumentError("configs/splits.toml has no [splits.$name] (has: $(sort(collect(String, keys(splits)))))"))
     d = splits[name]
-    VGC.check_keys(d, ("validation_scenes", "test_scenes"), "splits.$name")
+    VgtkCore.check_keys(d, ("validation_scenes", "test_scenes"), "splits.$name")
     for k in ("validation_scenes", "test_scenes")
         haskey(d, k) || throw(ArgumentError("[splits.$name] has no `$k`"))
     end

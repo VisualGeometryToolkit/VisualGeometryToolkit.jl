@@ -17,7 +17,7 @@
 #                    dashed black!55.
 #
 # DERIVATION (trait rewrite, 2026-07-18; two-axis rewrite 2026-09-06): label / marker / family / path / scale
-# DERIVE from the RVG strategy types via the VGC identity traits (lo_label /
+# DERIVE from the VgtkEstimation strategy types via the VgtkCore identity traits (lo_label /
 # lo_marker / loss_family / optimization_path / scale_interface) probed on one instance per deployed
 # arm — the same ctors the paper's roster deploys, so legends cannot drift
 # from the production strategies. Colors and the scale interface

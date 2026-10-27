@@ -184,7 +184,7 @@ function load_run_config(path::AbstractString)
     # skipped, reusing the old panel. Silently, at the default.
     for (sec, allowed) in RUN_CONFIG_KEYS
         d = _config_table(cfg, sec)
-        d === nothing || VGC.check_keys(d, allowed, "$path $sec")
+        d === nothing || VgtkCore.check_keys(d, allowed, "$path $sec")
     end
     return cfg
 end

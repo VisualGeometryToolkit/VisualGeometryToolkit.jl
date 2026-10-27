@@ -15,7 +15,7 @@ using VisualGeometryToolkitCore.Synthetic: projective_distance
 using VisualGeometryToolkitCore: FundMatManifold7, retract   # the F chart (public)
 using VisualGeometryToolkitCore: MsacScoring   # owned and exported by VisualGeometryToolkitCore
 using VisualGeometryToolkitEstimation
-const RVGF = VisualGeometryToolkitEstimation
+const VgtkEstimation = VisualGeometryToolkitEstimation
 
 @testset "Bartoli–Sturm orthonormal F refit" begin
     rng = StableRNG(42)
@@ -35,27 +35,27 @@ const RVGF = VisualGeometryToolkitEstimation
     u1, u2 = calibrated_pairs(rng, R, t; n = 60, σ = 0.001)
     n = length(u1)
     w = ones(n); sqrtw = sqrt.(w)
-    prob = RVGF.FundMatProblem(u1 .=> u2)
+    prob = VgtkEstimation.FundMatProblem(u1 .=> u2)
 
     # Analytic Jacobian vs ForwardDiff at a nonzero chart point.
     a0 = SVector(0.02, -0.01, 0.03, 0.015, -0.02, 0.01, -0.05)
-    @test VgtkCore.check_rows_jacobian(RVGF.ChartLm(ch, prob, sqrtw), a0, n; atol = 1.0e-8)
+    @test VgtkCore.check_rows_jacobian(VgtkEstimation.ChartLm(ch, prob, sqrtw), a0, n; atol = 1.0e-8)
 
     # Refit from a perturbed seed strictly reduces the weighted Sampson cost.
-    F_seed = RVGF.FundMat(Tuple(F_gt + 0.05 * SMatrix{3, 3, Float64}(randn(rng, 3, 3))))
-    cost(F) = VgtkCore.rows_cost(RVGF.ChartLm(RVGF._chart(prob, F), prob, sqrtw), zero(SVector{7, Float64}), n)
-    F_ref = RVGF._refine!(RVGF.NonlinLsq(), nothing, prob, F_seed, w)
+    F_seed = VgtkEstimation.FundMat(Tuple(F_gt + 0.05 * SMatrix{3, 3, Float64}(randn(rng, 3, 3))))
+    cost(F) = VgtkCore.rows_cost(VgtkEstimation.ChartLm(VgtkEstimation._chart(prob, F), prob, sqrtw), zero(SVector{7, Float64}), n)
+    F_ref = VgtkEstimation._refine!(VgtkEstimation.NonlinLsq(), nothing, prob, F_seed, w)
     @test F_ref !== nothing
     @test cost(F_ref) < 0.5 * cost(F_seed)
-    @test cost(F_ref) < 1.5 * cost(RVGF.FundMat(Tuple(F_gt)))   # near the GT optimum
+    @test cost(F_ref) < 1.5 * cost(VgtkEstimation.FundMat(Tuple(F_gt)))   # near the GT optimum
 
     # The core's static Welsch IRLS on the same chart: locally_optimize must run
     # on FundMatProblem and improve the cost from the perturbed seed. (The
     # joint-(θ,z) Welsch HQ lift on F is LocalOptimizationDoneRight's test.)
     sc = MsacScoring(typeof(prob); threshold = 0.05)   # outlier-free scene: wide enough for the perturbed seed's consensus
-    ws = RVGF.RansacWorkspace(prob, sc)
-    rlift = RVGF.locally_optimize(
-        prob, F_seed; local_optimization = RVGF.Irls{RVGF.WelschShape}(max_iter = 25, scale_multiple = 1.5),
+    ws = VgtkEstimation.RansacWorkspace(prob, sc)
+    rlift = VgtkEstimation.locally_optimize(
+        prob, F_seed; local_optimization = VgtkEstimation.Irls{VgtkEstimation.WelschShape}(max_iter = 25, scale_multiple = 1.5),
         scoring = sc, workspace = ws
     )
     @test estimate(rlift) !== nothing

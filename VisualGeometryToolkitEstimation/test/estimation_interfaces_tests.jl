@@ -34,8 +34,7 @@ using VisualGeometryToolkitEstimation: PosteriorLikelihood   # public, not expor
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitEstimation: RansacWorkspace   # workspace type is unexported (eval imports it explicitly too)
 using VisualGeometryToolkitCore: s_hat_sq   # the posterior-weight toolkit's accessor (VGC)
-const RVGI = VisualGeometryToolkitEstimation
-const V = VisualGeometryToolkitCore
+const VgtkEstimation = VisualGeometryToolkitEstimation
 
 # Local strategy for the constructor-extension routing test (the pattern the
 # eval refit layer uses: a foreign concrete type declares its family by
@@ -74,7 +73,7 @@ _contract_problem(; n_in = 40, n_out = 10, noise = 0.3, seed = 7) =
     @test cs isa ConsensusSet
     @test inlier_count(cs) == k && is_fresh(cs, buf.epoch) && is_fresh(cs, buf)
     @test isfinite(scale_s2(cs)) && scale_s2(cs) > 0
-    state = RVGI._seeded_irls_state!(ws.lo_ws, problem, model, cs, buf, scoring, 20.0)   # must not throw
+    state = VgtkEstimation._seeded_irls_state!(ws.lo_ws, problem, model, cs, buf, scoring, 20.0)   # must not throw
     @test s_hat_sq(state.rws) > 0
 
     # Stale read: any subsequent score bumps the epoch and invalidates
@@ -82,12 +81,12 @@ _contract_problem(; n_in = 40, n_out = 10, noise = 0.3, seed = 7) =
     stale = fresh()
     score_model!(buf, scoring, problem, model)            # epoch bump
     @test !is_fresh(stale, buf.epoch)
-    @test_throws ArgumentError RVGI._seeded_irls_state!(ws.lo_ws, problem, model, stale, buf, scoring, 20.0)
+    @test_throws ArgumentError VgtkEstimation._seeded_irls_state!(ws.lo_ws, problem, model, stale, buf, scoring, 20.0)
     @test_throws ArgumentError check_fresh(stale, buf.epoch)
     # the fresh set's scale is what the score hands a consensus-anchored
     # strategy — through the owner, VGC's `loss_at` (here via `lo_loss`)
     cs = fresh()
-    @test scale_s2(RVGI.lo_loss(Irls{WelschShape}(scale_multiple = 1.0), cs, scoring, buf)) == max(scale_s2(cs), eps())
+    @test scale_s2(VgtkEstimation.lo_loss(Irls{WelschShape}(scale_multiple = 1.0), cs, scoring, buf)) == max(scale_s2(cs), eps())
 end
 
 @testset "weight-policy verbs available per adapter" begin
@@ -96,14 +95,14 @@ end
             # One row: `update_nuisance!`/`update_weights!` are declared on the bare
             # `LossPlainWeights`, so the deployed-shape parameter is
             # dispatch-irrelevant and three spellings tested one method.
-            RVGI.LossPlainWeights,
+            VgtkEstimation.LossPlainWeights,
         )   # the moved strategies' policies: LocalOptimizationDoneRight's suite
         @test hasmethod(update_nuisance!, Tuple{T})
         @test hasmethod(update_weights!, Tuple{T})
     end
     # The verbs ARE the VGC verbs (one generic across the stack).
-    @test RVGI.update_nuisance! === VgtkCore.update_nuisance!
-    @test RVGI.update_weights! === VgtkCore.update_weights!
+    @test VgtkEstimation.update_nuisance! === VgtkCore.update_nuisance!
+    @test VgtkEstimation.update_weights! === VgtkCore.update_weights!
 end
 
 @testset "NormalizedWeightPolicy membership (the ρ(∞)=∞ boundary)" begin
@@ -115,7 +114,7 @@ end
     end
     # Loss-derived reweighting rules (bounded potentials / frozen scale): no.
     for T in (
-            RVGI.LossPlainWeights,
+            VgtkEstimation.LossPlainWeights,
         )
         @test T <: AbstractWeightPolicy
         @test !(T <: NormalizedWeightPolicy)
@@ -141,7 +140,7 @@ end
     # VGC default: every strategy is NativeRefit unless it declares otherwise.
     @test RefitFamily(NoLocalOptimization()) isa NativeRefit
     @test RefitFamily(Irls{WelschShape}(scale_multiple = 1.5)) isa NativeRefit
-    @test RefitFamily(Irls{V.TLSShape}()) isa NativeRefit
+    @test RefitFamily(Irls{VgtkCore.TLSShape}()) isa NativeRefit
     # Constructor-extension pattern (what eval's engines do): dispatches.
     @test RefitFamily(_ContractTestLO()) isa ExternalRefit
 end
@@ -201,7 +200,7 @@ end
     @test inlier_count(cs) == 45                                   # the planted inliers, no outliers
     @test is_fresh(cs, buf.epoch)
     # a TLS strategy that follows the scorer deploys TLS at the scorer's threshold
-    @test sq_loss_width(RVGI.lo_loss(Irls{V.TLSShape}(), cs, scoring, buf)) == 9.0
+    @test sq_loss_width(VgtkEstimation.lo_loss(Irls{VgtkCore.TLSShape}(), cs, scoring, buf)) == 9.0
 end
 
 end

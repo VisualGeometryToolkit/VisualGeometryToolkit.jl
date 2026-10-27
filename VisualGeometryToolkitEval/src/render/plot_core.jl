@@ -117,7 +117,7 @@ y_minor_subdiv)`. `y_spacing` is the major-tick (labeled) gradation on a
 linear y-axis (NaN = off); `y_minor_subdiv` the number of minor ticks BETWEEN
 majors (0 = none). `eR_mean` is a legacy id: for E and F the metric is the imc
 POSE error `max(Δrot,Δtrans)`; a homography's imc is the decomposition's
-rotation alone (VGC `pool_imc` on an H pool), so an H panel overrides the
+rotation alone (VgtkCore `pool_imc` on an H pool), so an H panel overrides the
 label (`build_axis(...; ylabel)`).
 """
 const PANELS = (

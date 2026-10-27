@@ -43,7 +43,7 @@ minimal:
 - every value has ONE authority: a pose's frames are given by where it sits,
   and a value derivable from another stored one is not stored beside it;
 - one validator per kind (`validate.jl`) checks a file on read AND before it
-  is written; `provenance` is the only free-form object, and VGIo never reads
+  is written; `provenance` is the only free-form object, and VgtkIO never reads
   it;
 - frame names go through one grammar (`frame_names.jl`), so a file's frames
   read back as types;
@@ -108,7 +108,7 @@ import VisualGeometryToolkitCore
 #
 # DELIBERATELY UNEXPORTED. FileIO and downstream packages (BlobBoards) export
 # `load`; qualify as `VisualGeometryToolkitIO.load` (or alias the module:
-# `import VisualGeometryToolkitIO as VGIo; VGIo.load(...)`).
+# `import VisualGeometryToolkitIO as VgtkIO; VgtkIO.load(...)`).
 #
 # The typed load is an ASSERTION OF INTENT: `load(Trajectory, path)` on a
 # transforms file errors instead of guessing, and the return type is what you
@@ -198,7 +198,7 @@ export ExternalCalibration, load_opencv_calibration, load_matlab_calibration
 export save_opencv_calibration        # the inverse of load_opencv_calibration: our camera in the foreign shape
 
 # Public but UNEXPORTED — reached qualified (`VisualGeometryToolkitIO.load`, or
-# `import VisualGeometryToolkitIO as VGIo`), because the names are generic enough to
+# `import VisualGeometryToolkitIO as VgtkIO`), because the names are generic enough to
 # collide with FileIO's, BlobBoards' or a caller's own.
 public load, save                     # the two-verb I/O surface (see the top of this file)
 public ColmapModel                    # a COLMAP model directory's contents + its unit contract

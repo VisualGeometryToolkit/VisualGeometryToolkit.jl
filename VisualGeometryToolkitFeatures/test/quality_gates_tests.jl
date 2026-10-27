@@ -9,15 +9,15 @@
 
 @testitem "Aqua" begin
     using Aqua
-    import VisualGeometryToolkitCore as VGC
+    import VisualGeometryToolkitCore as VgtkCore
     Aqua.test_all(
         VisualGeometryToolkitFeatures;
         # its own item below: it precompiles a throwaway package, the slowest check
         persistent_tasks = false,
-        # Glue by design, not new piracy. Detection is an alias of VGC's
+        # Glue by design, not new piracy. Detection is an alias of VgtkCore's
         # Attributed, so its constructors, property forwarding and geometry
-        # conversions extend VGC functions on VGC types. The fix is to move
-        # the type into VGC. (The JSON serialization of VGC frames, Size2 and
+        # conversions extend VgtkCore functions on VgtkCore types. The fix is to move
+        # the type into VgtkCore. (The JSON serialization of VgtkCore frames, Size2 and
         # FlexUnits quantities left for VisualGeometryToolkitIO, as explicit
         # functions rather than JSON.jl methods.) A pirated method on anything
         # else fails this test. (Distributions'
@@ -25,8 +25,8 @@
         # which nothing called.)
         piracies = (;
             treat_as_own = [
-                VGC.Attributed, VGC.AbstractDetection, VGC.FeatureFrame,
-                VGC.Disc, VGC.OrientedDisc, VGC.EllipticFrame, VGC.AffineFrame, VGC.Ellipse,
+                VgtkCore.Attributed, VgtkCore.AbstractDetection, VgtkCore.FeatureFrame,
+                VgtkCore.Disc, VgtkCore.OrientedDisc, VgtkCore.EllipticFrame, VgtkCore.AffineFrame, VgtkCore.Ellipse,
             ],
         ),
     )

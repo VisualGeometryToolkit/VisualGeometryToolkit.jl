@@ -22,7 +22,7 @@
     import VisualGeometryToolkitCore
     using VisualGeometryToolkitCore.Pools: PoolPair
     const T = VgtkEval.Tuning
-    const VGC = VisualGeometryToolkitCore
+    const VgtkCore = VisualGeometryToolkitCore
 
     cfg(name, table) = Dict{String,Any}("tuning" => Dict{String,Any}(name => with_cross_validation(table)))
     spec_of(table; name = "t") = fixture_spec(table; name)
@@ -291,7 +291,7 @@
         append!(concrete, collect(keys(T._TYPE_KEYS)))
         # every field has its TOML key — the reader's keys ARE the field names
         for C in concrete
-            @test Set(VGC.allowed_keys(C)) == Set(String.(fieldnames(C)))
+            @test Set(VgtkCore.allowed_keys(C)) == Set(String.(fieldnames(C)))
         end
         # every key of the defaults file is a field of the type it defaults (no dead default)
         bad = String[]

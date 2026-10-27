@@ -584,6 +584,7 @@ end
 # the IMAGING domain (`_imaging_domain_radius`, normalized), scaled by the
 # smaller focal length: fx ≠ fy makes the domain an ellipse in pixels, and its
 # smaller semi-axis is the safe radius.
+# Not `image_circle`: a sampling clamp for the spline prefilter, 0.97 of the horizon or of the imaging domain, isotropic in the smaller focal length.
 function _default_sampling_clamp(model::CameraModel)
     r = horizon_radius(model)
     isfinite(r) && return 0.97 * r

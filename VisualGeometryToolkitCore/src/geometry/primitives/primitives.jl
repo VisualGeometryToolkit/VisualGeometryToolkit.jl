@@ -192,7 +192,7 @@ export Ellipse, Circle
 export homogeneous_w, maps_within
 export best_iou_match
 export is_ellipse, classify_conic, gradient
-export RegionIntersection      # `a ∩ b` of two 2-D regions, lazily (regions.jl)
+export RegionIntersection, WholePlane   # `a ∩ b` of two 2-D regions, lazily, and the identity of ∩ (regions.jl)
 
 # -----------------------------------------------------------------------------
 # 2. FEATURE FRAMES - Blob primitives with increasing DOF

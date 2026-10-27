@@ -4,7 +4,7 @@
 @testitem "regions" begin
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: RegionIntersection
+    using VisualGeometryToolkitCore: RegionIntersection, WholePlane
 
     grid = [Point2(x, y) for x in range(-20.0, 120.0; length = 57), y in range(-30.0, 90.0; length = 49)]
 
@@ -47,8 +47,26 @@
         @test Rect2(n) == intersect(Rect2{Float64}(r), Rect2(d))
     end
 
-    @testset "nothing is no constraint" begin
+    @testset "the whole plane: the identity of ∩" begin
         r = Rect(0, 0, 100, 60)
-        @test (r ∩ nothing) === r
+        e = Ellipse(Point2(50.0, 30.0), 70.0, 25.0, 0.3)
+        w = WholePlane()
+        @test (r ∩ w) === r && (w ∩ r) === r
+        @test (e ∩ w) === e && (w ∩ e) === e
+        @test (w ∩ w) === w
+        d = r ∩ e
+        @test (d ∩ w) === d && (w ∩ d) === d
+        @test all(p -> p ∈ w, grid)
+        @test r ∈ w
+        @test_throws ArgumentError Rect2(w)
+    end
+
+    @testset "a rectangle in an intersection: in both parts" begin
+        r = Rect(0, 0, 100, 60)
+        e = Ellipse(Point2(50.0, 30.0), 70.0, 25.0, 0.0)
+        d = r ∩ e
+        @test Rect(40, 25, 20, 10) ∈ d                    # inside both
+        @test Rect(0, 0, 10, 10) ∉ d                      # in the rect, a corner outside the ellipse
+        @test Rect(90, 25, 20, 10) ∉ d                    # past the rect's edge
     end
 end

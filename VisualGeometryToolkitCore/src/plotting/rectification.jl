@@ -15,6 +15,7 @@ _principal_point(camera::CameraModel) = (K = calibration_matrix(camera); Point2(
 # Centre and 180° radius of a camera's pixel frame. `monotone_radius` returns
 # `Inf` for a lens with no pole, so `isfinite(r_inf)` is the test for "this lens
 # has a horizon to draw".
+# (`horizon_radius` is the perspective-monotone horizon, not `image_circle`; see its definition.)
 _horizon(camera::CameraModel) = (_principal_point(camera), horizon_radius(camera))
 
 # The raw panel's per-camera overlay: the 180° horizon circle (when the lens has

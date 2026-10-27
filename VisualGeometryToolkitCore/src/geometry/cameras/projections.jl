@@ -91,6 +91,7 @@ lens whose profile never folds.
   tests — read as above at that stage's output; the stages around it do not
   enter (for a stage behind a tilt, the frame's edge caps the stage's input).
 """
+# Not `image_circle`'s ρ: the perspective-undistortion bound of the radial factor alone (capped at the frame edge, Inf without a fold), a normalized distorted radius; it equals ρ only for a radially symmetric folding lens.
 function monotone_radius(l::AbstractLensModel)
     lf = _precision(Float64, l)
     r = _bounding_radial(lf)
@@ -165,7 +166,7 @@ function view_angle_limit(l::Lens; cap::Real = Inf)
     scan(c) = invoke(view_angle_limit, Tuple{AbstractLensModel}, l; cap = c)
     C = projection_frame(l.projection)
     C === nothing && return scan(min(float(cap), _SPHERE_EDGE))
-    edge = min(float(cap), C <: Union{GnomonicFrame, OrthographicFrame} ? _PERSPECTIVE_EDGE : _SPHERE_EDGE)
+    edge = min(float(cap), _view_angle_edge(l))
     r = radial(_precision(Float64, l))
     l.distortion isa Chain && return _chain_view_angle_limit(l, edge)
     r === nothing && return l.distortion === nothing ? edge : scan(edge)
@@ -173,6 +174,15 @@ function view_angle_limit(l::Lens; cap::Real = Inf)
     isfinite(u) || return edge
     b = _frame_backproject(C, SVector(sqrt(u), 0.0))
     return min(atan(b[1], b[3]) * (1 - 1.0e-9), edge)
+end
+# The edge `view_angle_limit` stops at when the lens has no limit of its own: the
+# frame's edge less a margin (`π/2 − 10⁻³` for the perspective and orthographic
+# frames), the sphere's (`π − 10⁻³`) for any other lens — the generic scan's
+# default cap. A limit below it is the lens's own (a fold, a pole, a bound).
+_view_angle_edge(::AbstractLensModel) = _SPHERE_EDGE
+function _view_angle_edge(l::Lens)
+    C = projection_frame(l.projection)
+    return C !== nothing && C <: Union{GnomonicFrame, OrthographicFrame} ? _PERSPECTIVE_EDGE : _SPHERE_EDGE
 end
 # A Chain with a radial stage: the stage is tested at its own input, so the angle
 # where `project` first turns NaN has no closed form here. Along one azimuth it
@@ -191,26 +201,33 @@ function _chain_view_angle_limit(l::Lens, edge)
     _is_radial(first(l.distortion.stages)) &&
         return _nan_onset(θ -> isfinite(projected_radius(l, θ)), edge)
     onset(ψ) = _nan_onset(θ -> all(isfinite, project(l, SVector(sin(θ) * cos(ψ), sin(θ) * sin(ψ), cos(θ)))), edge)
-    n = 36
+    return _azimuth_minimum(onset, 36)
+end
+# The minimum of a function of the azimuth ψ: `n` samples around the circle, the
+# least refined by a golden-section search between its neighbours (`iters`
+# steps); the smallest value evaluated. The one azimuthal minimizer: the chain's
+# view-angle limit above and the image circle's inscribed radius
+# (image_circle.jl).
+function _azimuth_minimum(f, n::Int; iters::Int = 40)
     ψs = range(0, 2π; length = n + 1)[1:n]
-    θs = map(onset, ψs)
-    k = argmin(θs)
+    vs = map(f, ψs)
+    k = argmin(vs)
     a, b = ψs[k] - 2π / n, ψs[k] + 2π / n
     g = (sqrt(5) - 1) / 2
     c, d = b - g * (b - a), a + g * (b - a)
-    fc, fd = onset(c), onset(d)
-    for _ in 1:40
+    fc, fd = f(c), f(d)
+    for _ in 1:iters
         if fc < fd
             b, d, fd = d, c, fc
             c = b - g * (b - a)
-            fc = onset(c)
+            fc = f(c)
         else
             a, c, fc = c, d, fd
             d = a + g * (b - a)
-            fd = onset(d)
+            fd = f(d)
         end
     end
-    return min(θs[k], fc, fd)
+    return min(vs[k], fc, fd)
 end
 # The last angle at which `imaged` holds, scanning [10⁻⁴, edge] and bisecting the
 # first failure to rounding; `edge` when it never fails.
@@ -254,6 +271,7 @@ radial_part(l::LiftLens) = l
 # projection; for a distorted lens, whose `backproject` inverts numerically, the
 # smaller of its extents along the two image axes. `Inf` for a lens that images
 # the whole plane.
+# Not `image_circle`: where `backproject` turns NaN (π for an undistorted equidistant lens, to which `image_circle` answers the whole plane).
 _imaging_domain_radius(l::AbstractLensModel) =
     l isa LiftLens ? Inf : l.distortion === nothing ? _frame_domain(l.projection) : _bisected_domain_radius(l)
 _frame_domain(p::AbstractProjection) =

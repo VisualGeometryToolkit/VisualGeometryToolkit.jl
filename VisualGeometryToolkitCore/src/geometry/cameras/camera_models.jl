@@ -983,6 +983,7 @@ from the pole: for a 927 px fisheye with a 1419 px horizon, 92% of it is
 θ ≈ 89.7°, `tan θ ≈ 199`, and the rectified plane comes out 369 000 px wide.
 Bound the ANGLE instead — see `undistorted_rect`'s `max_fov`.
 """
+# Not `image_circle`: fx · the radial factor's perspective-monotone radius (fx only, decentering ignored, Inf without a fold) — equal to its radius only for an isotropic K and a radially symmetric folding lens.
 horizon_radius(model::CameraModel) =
     Float64(calibration_matrix(model)[1, 1]) * Float64(monotone_radius(lens(model)))
 

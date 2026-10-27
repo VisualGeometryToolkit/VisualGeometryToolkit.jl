@@ -27,7 +27,7 @@ println("the routes agree to ", abs(q.a - qd.a), " px")
 println("fisheye lights the whole sensor: ", Rect(extent(cam)) ∈ q)
 println("fisheye fov: ", rad2deg(fov(cam)), "° horizontal, ", rad2deg(fov(cam; dimension = :diagonal)), "° diagonal")
 
-# ── 5. A rectilinear lens on the same sensor has no image circle: nothing to restrict
+# ── 5. A rectilinear lens on the same sensor has no image circle: the whole plane, nothing to restrict
 rcam = BoundedCamera(CameraModel(; focal = 2000.0, pp = (1224.0, 1024.0), lens = Pinhole()), s)
 println("rectilinear image circle: ", image_circle(rcam))
 println("rectilinear fov: ", rad2deg(fov(rcam)), "° horizontal, ", rad2deg(fov(rcam; dimension = :diagonal)), "° diagonal")

@@ -113,9 +113,12 @@ the sensor's pitch, and both routes return the same primitive.
 - For a lens that is not radially symmetric (a [`Chain`](@ref) with a tilt
   stage, or tangential terms) it is an inscribed bound: every point inside is
   imaged, and the true lit region may be slightly larger.
-- A lens with no limit of its own (a perspective lens) answers `nothing`, and
-  `Rect ∩ nothing` is the `Rect`; a global parametric lens is defined everywhere
-  by its formula and needs no restriction at all.
+- A lens with no limit of its own (a perspective lens, an undistorted
+  equidistant lens: `view_angle_limit` reports only its chart's or the
+  sphere's edge, a cap) answers the [`WholePlane`](@ref VisualGeometryToolkitCore.Primitives.WholePlane),
+  the identity of `∩`, so `Rect ∩ image_circle(cam)` is the `Rect`; its circle,
+  if any, comes from the datasheet. A global parametric lens is defined
+  everywhere by its formula and needs no restriction at all.
 
 ```@example imagecircle
 using VisualGeometryToolkitCore

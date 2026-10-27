@@ -72,7 +72,7 @@ using ..Primitives: rect_edges, EdgeGrid, Closed   # its edges on a closed grid:
 using ..VisualGeometryToolkitCore: block_order   # grouped data: the sorted-key block order (base/cspond_set.jl)
 using ..VisualGeometryToolkitCore: TagRegistry, tag_of, snake_case   # the target calibration kinds' tags (quality/tag_registry.jl)
 using ..VisualGeometryToolkitCore: Circle, Ellipse, Circle3D, is_ellipse, boundary_points
-using ..VisualGeometryToolkitCore: HomEllipseMat   # the conic matrix an image circle is built from (image_circle.jl)
+using ..VisualGeometryToolkitCore: HomEllipseMat, WholePlane   # the conic matrix an image circle is built from, and the whole plane (image_circle.jl)
 import ..VisualGeometryToolkitCore: HomographyMap  # Import (not using) to extend the labeled camera lift
 
 using ..VisualGeometryToolkitCore: Plane3D, distance  # For chirality-filtered P3P

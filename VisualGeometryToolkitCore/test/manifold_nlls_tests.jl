@@ -97,6 +97,23 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         @test typeof(NLLSsolver.update(ch, δ)) === typeof(ch)        # the type the variable vector holds
     end
 
+    @testset "the update infers its own type and allocates nothing, for any increment container" begin
+        # NLLSsolver hands the update a Vector and an offset; a static or mutable
+        # static increment is the in-place case. The UnionAll `EssentialManifold5`
+        # (its float type free) cannot infer concretely, so a bundle names the
+        # concrete type its variables hold.
+        bytes_of_update(m, δ, start) = @allocated NLLSsolver.update(m, δ, start)
+        for m in (EssentialManifold5(R0, t0 / norm(t0)), RigidManifold6(RotMatrix{3}(R0), t0), LeftRigidManifold6(R0, t0))
+            D = tangent_size(m)
+            for (δ, start) in ((SVector{D}(ntuple(i -> 0.01i, D)), 1), (MVector{D}(ntuple(i -> 0.01i, D)), 1),
+                    ([0.01i for i in 1:(D + 2)], 3))
+                @test (@inferred NLLSsolver.update(m, δ, start)) isa typeof(m)
+                bytes_of_update(m, δ, start)                                    # warm-up
+                @test bytes_of_update(m, δ, start) == 0
+            end
+        end
+    end
+
     @testset "a pose fit on NLLSsolver's automatic Jacobian, the manifold as its variable" begin
         truth = pose((0.3, -0.1, 0.2), (0.5, -0.2, 1.0))
         xs = [SVector(sin(i), cos(2i), 0.1i) for i in 1:12]

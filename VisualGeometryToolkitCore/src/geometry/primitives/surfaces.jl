@@ -280,6 +280,32 @@ Base.hash(s::HeightSurface, h::UInt) = hash(_height_surface_fields(s), hash(:Hei
 bounds(s::HeightSurface) = bounds(s.quad)
 chart(s::HeightSurface, x::StaticVector{3}) = chart(s.quad, x)
 @inline _height(s::HeightSurface, m::StaticVector{2}) = tps_evaluate(s.nodes, s.w, s.a, m)
+# The height and its gradient at `m` computed together, one r² and one log per
+# node: `tps_evaluate`'s value and `tps_gradient`'s gradient term for
+# term, in their operation order (the nodes converted to the gradient's element
+# type, as `tps_gradient` converts them: the same r² as `tps_evaluate`'s for the
+# surface's own element type), so Newton's iterates keep their bits.
+@inline function _height_and_gradient(s::HeightSurface{K}, m::StaticVector{2}) where {K}
+    w, a = s.w, s.a
+    S = promote_type(eltype(w), eltype(m))
+    h = a[1] + a[2] * m[1] + a[3] * m[2]
+    g1 = zero(S); g2 = zero(S)
+    @inbounds for i in 1:K
+        n = s.nodes[i]
+        d1 = m[1] - S(n[1]); d2 = m[2] - S(n[2])
+        r2 = d1 * d1 + d2 * d2
+        if r2 > 0
+            l = log(r2)
+            h += w[i] * (r2 * l / 2)
+            f = w[i] * (l + 1)
+        else
+            h += w[i] * zero(r2)
+            f = zero(S)
+        end
+        g1 += f * d1; g2 += f * d2
+    end
+    return h, SVector(a[2] + g1, a[3] + g2)
+end
 @inline function surface_point(s::HeightSurface, uv::StaticVector{2})
     q = s.quad
     m = q.A * uv + q.b
@@ -296,6 +322,13 @@ end
 const _HEIGHT_NEWTON_ITERATIONS = 4
 const _HEIGHT_NEWTON_MAX_ITER = 20
 
+# Newton's g(t) = t den − s0 − h(m(x)) and g′(t) = den − ∇h·cd at the ray point
+# x = o + t d, the height and its gradient computed together.
+@inline function _newton_terms(s::HeightSurface, den, s0, cd, t, x)
+    h, ∇h = _height_and_gradient(s, _plane_coordinates(s.quad, x))
+    return t * den - s0 - h, den - dot(∇h, cd)
+end
+
 @inline function intersection(s::HeightSurface, o::StaticVector{3}, d::StaticVector{3})
     q = s.quad
     n = normal(q)
@@ -304,9 +337,7 @@ const _HEIGHT_NEWTON_MAX_ITER = 20
     t, x = _plane_hit(q, o, d)            # the seed
     cd = SVector(dot(d, q.e_u), dot(d, q.e_v))   # the plane velocity of the ray
     for _ in 1:_HEIGHT_NEWTON_ITERATIONS
-        m = _plane_coordinates(q, x)
-        g = t * den - s0 - _height(s, m)
-        gp = den - dot(tps_gradient(s.nodes, s.w, s.a, m), cd)
+        g, gp = _newton_terms(s, den, s0, cd, t, x)
         t -= g / gp
         x = o + t * d
     end
@@ -318,9 +349,7 @@ const _HEIGHT_NEWTON_MAX_ITER = 20
     converged = false
     last = oftype(abs(t), Inf)
     for _ in (_HEIGHT_NEWTON_ITERATIONS + 1):_HEIGHT_NEWTON_MAX_ITER
-        m = _plane_coordinates(q, x)
-        g = t * den - s0 - _height(s, m)
-        gp = den - dot(tps_gradient(s.nodes, s.w, s.a, m), cd)
+        g, gp = _newton_terms(s, den, s0, cd, t, x)
         Δ = g / gp
         scale = L + abs(t) * nd
         if abs(Δ) * nd <= 64 * ε * scale

@@ -410,7 +410,7 @@ public lo_workspace, locally_optimize!, lo_estimate, LoInfo, lo_width, loss_at,
 # Selection over a benchmark pool record (robust/pool_selection.jl).
 public best_pool_model, selection_staging, stage_selection, select_on_grid!
 # The contract conformance helpers (ext/VisualGeometryToolkitCoreTestExt with Test).
-public test_scoring_contract, test_local_optimization_contract, test_constraint_problem
+public test_scoring_contract, test_local_optimization_contract, test_constraint_problem, test_manifold_contract
 # The MAP inlier rule on a posterior membership weight (posterior > ½), the one
 # definition every posterior decision in the stack calls.
 export is_map_inlier

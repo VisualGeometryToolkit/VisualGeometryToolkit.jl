@@ -451,11 +451,12 @@ function _bundle_refine_relpose(
     any(isnan, x) && return nothing
     # POSE BLOCK via the EssentialManifold5 retraction (so(3) ⊕ T_tS²), the
     # chart the residual and the arrowhead Jacobian's pose block step in: the
-    # translation is unit by construction, nothing to renormalize. The N point
-    # blocks are free-R³ updates Xᵢ + δ (no product-manifold covariance
-    # object: no consumer needs per-landmark covariance).
+    # translation is unit by construction (the retraction normalizes it — an
+    # invariant of the chart, checked by Core's `test_manifold_contract`),
+    # nothing to renormalize. The N point blocks are free-R³ updates Xᵢ + δ (no
+    # product-manifold covariance object: no consumer needs per-landmark
+    # covariance).
     R, t = recenter_pose(lm.ch, x)
-    @assert abs(norm(t) - 1) <= 4eps() "the essential chart's translation left the unit sphere: ‖t‖ = $(norm(t))"
     return SMatrix{3, 3, Float64, 9}(R), Vec3{Float64}(t)
 end
 

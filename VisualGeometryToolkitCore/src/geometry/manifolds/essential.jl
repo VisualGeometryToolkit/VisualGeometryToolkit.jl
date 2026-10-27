@@ -75,7 +75,7 @@ end
 """
     EssentialManifold5(R, t) <: Manifold
 
-The PRODUCTION 5-dof essential-matrix lift chart, `EssentialManifold{S2TangentT{Float64}}`:
+The PRODUCTION 5-dof essential-matrix lift chart, `EssentialManifold{<:S2TangentT}`:
 `so(3) ⊕ T_tS²`, gauge-fixed. Anchored at `(R, t)` with `|t| = 1` and an
 orthonormal tangent basis `(b1, b2)` of `S²` at `t` frozen at the anchor;
 coordinates `v = (ω₁, ω₂, ω₃, τ₁, τ₂)` act as `R(v) = RotMatrix(MRP(ω))·R`,
@@ -83,7 +83,12 @@ coordinates `v = (ω₁, ω₂, ω₃, τ₁, τ₂)` act as `R(v) = RotMatrix(M
 (rank 5, no gauge nullity). See [`EssentialManifold6`](@ref) for the
 deliberately non-minimal eval companion.
 """
-const EssentialManifold5 = EssentialManifold{S2TangentT{Float64}}
+const EssentialManifold5 = EssentialManifold{<:S2TangentT}
+# A UnionAll over every float type: the chart of a Float32 anchor keeps a Float64
+# tangent basis and a Dual one a Dual basis, so no single `{T}` names them all.
+# A concrete chart's type is `typeof(EssentialManifold5(R, t))`.
+EssentialManifold5(R::AbstractMatrix, t::AbstractVector) = EssentialManifold{S2TangentT}(R, t)
+EssentialManifold5(E::EssentialMat) = EssentialManifold{S2TangentT}(E)
 
 """
     EssentialManifold6(R, t) <: Manifold

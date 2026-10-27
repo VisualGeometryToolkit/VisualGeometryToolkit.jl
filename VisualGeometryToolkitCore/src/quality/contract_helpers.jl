@@ -34,6 +34,21 @@ warm-up (`allocations = true`). Implemented by VisualGeometryToolkitCoreTestExt.
 function test_local_optimization_contract end
 
 """
+    test_manifold_contract(m::Manifold; atol = 1e-12, allocations = true)
+
+The manifold contract on `m`, as tests — what an optimizer that holds `m` as
+its variable relies on: the tangent size a constant of the type
+([`zero_tangent`](@ref) inferred, static); [`recenter`](@ref) inferred to
+`typeof(m)` for a step of `m`'s own float type in any static container
+(`SVector`, `MVector`) and allocation-free (`allocations = true`); [`retract_jacobian`](@ref) at the
+anchor and at a step equal to ForwardDiff through [`retract`](@ref) within
+`atol`; and the chart's own invariants (the essential chart's translation on
+the unit sphere after a step). Run it on every manifold family a package
+defines. Implemented by VisualGeometryToolkitCoreTestExt.
+"""
+function test_manifold_contract end
+
+"""
     test_constraint_problem(problem, θ)
 
 The constraint-problem protocol on `problem` at the model `θ`, as tests:

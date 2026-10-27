@@ -8,6 +8,34 @@ using VisualGeometryToolkitCore: scoring_workspace, score!, inlier_count, consen
     lo_workspace, locally_optimize!, LoInfo, FitResult, estimate, residuals!, data_size,
     codimension, minimal_sample_size, whitened_residual, residual_context, model_type, check_workspace
 
+using VisualGeometryToolkitCore: Manifold, EssentialManifold, tangent_size, zero_tangent, recenter, retract,
+    retract_jacobian, ambient_coordinates
+using StaticArrays: SVector, MVector, StaticVector
+using LinearAlgebra: norm
+
+function test_manifold_contract(m::Manifold; atol::Real = 1.0e-12, allocations::Bool = true)
+    return Test.@testset "manifold contract: $(nameof(typeof(m)))" begin
+        D = tangent_size(m)
+        z = Test.@inferred zero_tangent(m)                        # the size is a constant of the type
+        Test.@test z isa StaticVector && length(z) == D
+        if D > 0
+            δ = SVector{D}(ntuple(i -> oftype(float(eltype(z))(1), 0.01i), D))
+            for v in (δ, MVector(δ))
+                Test.@test (Test.@inferred recenter(m, v)) isa typeof(m)   # what a solver's variable holds
+            end
+            allocations && Test.@test (@allocated recenter(m, δ)) == 0
+            fd(v) = ForwardDiff.jacobian(w -> ambient_coordinates(retract(m, w)), v)
+            Test.@test isapprox(retract_jacobian(m), fd(z); atol)
+            Test.@test isapprox(retract_jacobian(m, δ), fd(δ); atol)
+            _test_chart_invariants(m, δ)
+        end
+    end
+end
+# A chart's own invariants after a step: none by default; the essential chart's
+# translation stays on the unit sphere (its retraction normalizes it).
+_test_chart_invariants(m::Manifold, δ) = nothing
+_test_chart_invariants(m::EssentialManifold, δ) = Test.@test abs(norm(recenter(m, δ).t) - 1) <= 4 * eps(Float64)
+
 # A workspace no scorer builds: every scorer's `check_workspace` must refuse it.
 struct _ForeignWorkspace end
 

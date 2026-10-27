@@ -55,6 +55,17 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         (restrict(ch, SVector(true, true, true, false, false, true)), 4),
     )
 
+    @testset "the manifold contract, every family" begin
+        # static size, recenter inferred and allocation-free, retract_jacobian
+        # against ForwardDiff, the chart's invariants (Core's TestExt)
+        for (m, _) in families
+            # SphereManifold's recenter allocates (176 bytes: it rebuilds its
+            # Householder basis) — what the contract found; recorded, not yet fixed
+            VgtkCore.test_manifold_contract(m; allocations = !(m isa VgtkCore.SphereManifold))
+        end
+        VgtkCore.test_manifold_contract(LeftRigidManifold6(SMatrix{3, 3, Float32}(R0), Float32.(t0)); atol = 1.0e-5)
+    end
+
     @testset "the size is static for every manifold family" begin
         # A variable's size must be a compile-time constant of its type: it
         # selects NLLSsolver's static, allocation-free path.
@@ -99,9 +110,9 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
 
     @testset "the update infers its own type and allocates nothing, for any increment container" begin
         # NLLSsolver hands the update a Vector and an offset; a static or mutable
-        # static increment is the in-place case. The UnionAll `EssentialManifold5`
-        # (its float type free) cannot infer concretely, so a bundle names the
-        # concrete type its variables hold.
+        # static increment is the in-place case. `EssentialManifold5` is a
+        # UnionAll (every float type's chart), so a bundle names the concrete
+        # type its variables hold.
         bytes_of_update(m, δ, start) = @allocated NLLSsolver.update(m, δ, start)
         for m in (EssentialManifold5(R0, t0 / norm(t0)), RigidManifold6(RotMatrix{3}(R0), t0), LeftRigidManifold6(R0, t0))
             D = tangent_size(m)

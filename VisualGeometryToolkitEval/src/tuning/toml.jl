@@ -303,8 +303,11 @@ tags are an `ArgumentError` naming the key path.
 by every entry, such as a `cross_validation`) is layered beneath the entry,
 keeping only the keys that are fields of the entry's scheme, so one table
 serves entries of different schemes; `over` (a cell's overrides) is layered
-above it, unfiltered (an `over` that names another scheme `type` replaces the
-entry, as `layer_tuning` does). With both empty (the default) the entry is read as it is.
+above it, unfiltered. An `over` that names another scheme `type` replaces the
+entry, as [`layer_tuning`](@ref) replaces a nested table: the new scheme keeps
+none of the entry's keys (not even those both schemes have, such as
+`cross_validation` or `criterion`), and `under` is filtered against the new
+scheme's fields. With both empty (the default) the entry is read as it is.
 """
 function tuning_spec(cfg::AbstractDict, name::AbstractString; under::AbstractDict = Dict{String,Any}(),
                      over::AbstractDict = Dict{String,Any}())
@@ -318,11 +321,18 @@ function tuning_spec(cfg::AbstractDict, name::AbstractString; under::AbstractDic
     tag = entry["type"]
     T = _tag_type("scheme", tag, "tuning.$name")
     if !isempty(under) || !isempty(over)
+        # an `over` naming another scheme replaces the entry, as `layer_tuning`
+        # replaces a nested table whose type changes: the new scheme inherits
+        # none of the entry's parameters, not even the keys both share, and
+        # `under` is filtered against the NEW scheme's fields
+        replaced = haskey(over, "type") && over["type"] != tag
+        if replaced
+            tag = over["type"]
+            T = _tag_type("scheme", tag, "tuning.$name")
+        end
         fields = Set(VgtkCore.allowed_keys(T))
         kept = Dict{String,Any}(String(k) => v for (k, v) in under if String(k) in fields)
-        entry = layer_tuning(layer_tuning(kept, entry), over)
-        tag = entry["type"]   # `over` may replace the scheme: its table then replaces the entry
-        _tag_type("scheme", tag, "tuning.$name")
+        entry = layer_tuning(layer_tuning(kept, replaced ? Dict{String,Any}() : entry), over)
     end
     dflt = get(get(TUNING_DEFAULTS, "schemes", Dict()), String(tag), nothing)
     dflt === nothing && throw(ArgumentError("configs/tuning.toml has no [schemes.$tag] defaults"))

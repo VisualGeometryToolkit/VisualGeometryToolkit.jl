@@ -167,6 +167,23 @@
         @test tuning_table(s)["scale_multiple_window"]["lo"] == 1.5
         @test_throws ArgumentError tuning_spec(cfg, "t"; under = Dict("cross_validation" => cv),
                                                over = Dict("typo_key" => 1))
+        # an `over` naming another scheme replaces the entry: none of its keys is
+        # inherited, not even those both schemes share, and `under` is filtered
+        # against the NEW scheme's fields
+        cv2 = Dict{String,Any}("scene_split" => Dict{String,Any}("type" => "registered", "name" => "eth3d"))
+        cf = Dict{String,Any}("type" => "coarse_fine", "criterion" => Dict{String,Any}("type" => "median_error"), "cross_validation" => cv)
+        cfg_cf = Dict{String,Any}("tuning" => Dict{String,Any}("c" => cf))
+        to_joint = Dict{String,Any}("type" => "joint_coarse_fine")
+        joint(cvx) = tuning_spec(Dict{String,Any}("tuning" => Dict{String,Any}("c" => Dict{String,Any}("type" => "joint_coarse_fine", "cross_validation" => cvx))), "c")
+        e = try tuning_spec(cfg_cf, "c"; over = to_joint); nothing catch e; e end
+        @test e isa ArgumentError && occursin("cross_validation", e.msg)   # the entry's is not inherited
+        under_cf = Dict{String,Any}("cross_validation" => cv2, "fine" => Dict{String,Any}("type" => "log_count"))   # `fine`: coarse_fine's only
+        s = tuning_spec(cfg_cf, "c"; under = under_cf, over = to_joint)
+        @test s == joint(cv2) && s.scheme isa VgtkEval.Tuning.JointCoarseFine
+        @test s.scheme.criterion isa VgtkEval.Tuning.FiniteMedian           # the joint default, not the entry's median_error
+        @test tuning_spec(cfg_cf, "c"; over = merge(to_joint, Dict{String,Any}("cross_validation" => cv))) == joint(cv)
+        # a nested table whose type changes is replaced the same way (layer_tuning)
+        @test layer_tuning(Dict{String,Any}("c" => cf), Dict{String,Any}("c" => to_joint))["c"] == to_joint
         # a file path takes the keywords too
         mktempdir() do dir
             f = joinpath(dir, "c.toml")

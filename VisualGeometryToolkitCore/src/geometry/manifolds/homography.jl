@@ -59,6 +59,8 @@ tangent_size(::HomographyManifold8) = 8
         v[7] * SL3_BASIS[7] + v[8] * SL3_BASIS[8]
     return HomographyMat(Tuple(ch.H0 * M))
 end
+# any other vector of local coordinates: read as the static 8-vector
+retract(ch::HomographyManifold8, v::AbstractVector) = retract(ch, SVector{8}(v))
 
 # Re-anchoring normalizes to unit Frobenius norm: the chart is first order, so a run
 # of steps drifts the representative's scale (never its projective meaning — the

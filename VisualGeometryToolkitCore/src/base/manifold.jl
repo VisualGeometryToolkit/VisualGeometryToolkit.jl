@@ -135,7 +135,11 @@ Public, not exported; VisualGeometryToolkitEstimation builds its LM and covarian
 on it.
 """
 retract_jacobian(ch::Manifold) = retract_jacobian(ch, zero_tangent(ch))
-retract_jacobian(ch::Manifold, v::AbstractVector) = _retract_jacobian_fd(ch, v)
+# A non-static `v` is read as the chart's static tangent and dispatched again, so a
+# chart's closed form (its `::StaticVector` method) answers it; only a chart with
+# none differentiates.
+retract_jacobian(ch::Manifold, v::AbstractVector) =
+    v isa StaticVector ? _retract_jacobian_fd(ch, v) : retract_jacobian(ch, SVector{tangent_size(ch)}(v))
 
 function local_coordinates end
 
@@ -195,8 +199,6 @@ end
 # contract tests). The default of `retract_jacobian`.
 _retract_jacobian_fd(ch::Manifold, v::StaticVector) =
     ForwardDiff.jacobian(w -> ambient_coordinates(retract(ch, w)), v)
-# a non-static `v`: the chart's static tangent (charts retract static steps)
-_retract_jacobian_fd(ch::Manifold, v::AbstractVector) = _retract_jacobian_fd(ch, SVector{tangent_size(ch)}(v))
 
 """
     transform_covariance(from::Manifold, to::Manifold, Σ) -> Matrix

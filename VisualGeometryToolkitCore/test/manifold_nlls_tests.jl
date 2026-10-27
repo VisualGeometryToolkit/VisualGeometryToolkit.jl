@@ -59,10 +59,11 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         # static size, recenter inferred and allocation-free, retract_jacobian
         # against ForwardDiff, the chart's invariants (Core's TestExt)
         for (m, _) in families
-            # What the contract found, recorded, not yet fixed: SphereManifold's
+            # What the contract found, recorded broken, not yet fixed: SphereManifold's
             # recenter allocates (176 bytes: it rebuilds its Householder basis),
             # and a SubsetManifold's 96 bytes on Julia 1.12 (none on 1.13)
-            VgtkCore.test_manifold_contract(m; allocations = !(m isa Union{VgtkCore.SphereManifold, VgtkCore.SubsetManifold}))
+            known = m isa VgtkCore.SphereManifold || (m isa VgtkCore.SubsetManifold && VERSION < v"1.13")
+            VgtkCore.test_manifold_contract(m; allocations = !known)
         end
         VgtkCore.test_manifold_contract(LeftRigidManifold6(SMatrix{3, 3, Float32}(R0), Float32.(t0)); atol = 1.0e-5)
     end

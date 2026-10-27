@@ -23,10 +23,14 @@ function test_manifold_contract(m::Manifold; atol::Real = 1.0e-12, allocations::
             for v in (δ, MVector(δ))
                 Test.@test (Test.@inferred recenter(m, v)) isa typeof(m)   # what a solver's variable holds
             end
-            allocations && Test.@test (@allocated recenter(m, δ)) == 0
+            Test.@test recenter(m, collect(δ)) isa typeof(m)               # any AbstractVector, a plain Vector too
+            # a known allocation (`allocations = false`) is recorded broken, so its fix shows
+            allocations ? Test.@test((@allocated recenter(m, δ)) == 0) : Test.@test_broken((@allocated recenter(m, δ)) == 0)
             fd(v) = ForwardDiff.jacobian(w -> ambient_coordinates(retract(m, w)), v)
             Test.@test isapprox(retract_jacobian(m), fd(z); atol)
             Test.@test isapprox(retract_jacobian(m, δ), fd(δ); atol)
+            # a plain Vector is the static tangent: the chart's own method answers, bit for bit
+            Test.@test isequal(retract_jacobian(m, collect(δ)), retract_jacobian(m, δ))
             _test_chart_invariants(m, δ)
         end
     end

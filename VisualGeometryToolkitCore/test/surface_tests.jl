@@ -493,6 +493,10 @@ end
     @test isfinite(first(hit(tm, edge ./ 1000)))
     @test ustrip(mm, VisualGeometryToolkitCore.with_unit(ustrip(m, tm), m)) isa PlanarTarget        # m ↔ mm moves: no refusal
     @test_throws ArgumentError PlanarTarget([SVector(287.0 * (1 + 1.0e-12), 100.0)]; board = bu)   # beyond the margin: off
+    # the positional form is checked too, and the unchecked route of a unit move is private
+    @test_throws ArgumentError PlanarTarget(nothing, [SVector(300.0, 0.0)], Rigid(), bu)
+    @test !hasmethod(PlanarTarget, Tuple{Any, Any, Any, Any, Any})
+    @test !hasmethod(PlanarTarget, Tuple{Nothing, Vector{SVector{2, Float64}}, Rigid, typeof(bu), Bool})
     q = VisualGeometryToolkitCore.surface(PosedTarget(tu, EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, 1000.0))))
     @test VisualGeometryToolkitCore.bounds(q) == VisualGeometryToolkitCore.Cameras._grown_rect(Rect(bu))   # the board, grown by the rounding margin
     # a point on the board's edge stays on it through mm ↔ m round trips (a unit

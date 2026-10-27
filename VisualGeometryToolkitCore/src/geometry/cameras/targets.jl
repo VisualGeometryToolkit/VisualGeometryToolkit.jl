@@ -115,6 +115,10 @@ with_unit(t::PointTarget, u::Units) = PointTarget([_attach_point(u, p) for p in 
 # PlanarTarget
 # ------------------------------------------------------------------------------
 
+# The construction routes of a PlanarTarget (private): checked, or a unit move.
+struct _Checked end
+struct _UnitMove end
+
 """
     PlanarTarget(nominal; calibration = Rigid(), board = nothing)                  a design given by its points
     PlanarTarget(design::Symbol; nominal = nothing, calibration = Rigid(), board = nothing)   a content-addressed design
@@ -156,12 +160,13 @@ struct PlanarTarget{C <: TargetCalibration, N <: Union{Nothing, Vector{<:SVector
     nominal::N
     calibration::S
     board::Union{Nothing, Board}
-    # `on_board = false`: the points are known to lie on the board — a unit
-    # move of a target that held them there (`ustrip`, `with_unit`), whose
-    # rounding must not refuse it.
+    # The private `_UnitMove()` route skips the board containment check: the
+    # points are known to lie on the board — a unit move of a target that held
+    # them there (`ustrip`, `with_unit`), whose rounding must not refuse it.
+    # Every public construction is `_Checked()`.
     function PlanarTarget(
             reference::Union{Nothing, Symbol}, nominal, calibration::Union{TargetCalibration, Uncertain{<:TargetCalibration}},
-            board::Union{Nothing, Board} = nothing, on_board::Bool = true
+            board::Union{Nothing, Board}, route::Union{_Checked, _UnitMove}
         )
         (reference === nothing && nominal === nothing) &&
             throw(ArgumentError("a planar target has a design reference, nominal points, or both"))
@@ -169,10 +174,13 @@ struct PlanarTarget{C <: TargetCalibration, N <: Union{Nothing, Vector{<:SVector
         _check_calibration(n, calibration)
         # the points, the calibration's lengths and the board: one form
         _check_one_form((n === nothing || isempty(n) ? nothing : first(n), geom(calibration), board))
-        _check_board(n, board, calibration, on_board)
+        _check_board(n, board, calibration, route isa _Checked)
         return new{typeof(geom(calibration)), typeof(n), typeof(calibration)}(reference, n, calibration, board)
     end
 end
+# The public positional form (the board optional): always checked.
+PlanarTarget(reference::Union{Nothing, Symbol}, nominal, calibration::Union{TargetCalibration, Uncertain{<:TargetCalibration}},
+             board::Union{Nothing, Board} = nothing) = PlanarTarget(reference, nominal, calibration, board, _Checked())
 # The board is in the points' form, and they lie on it (in the design chart:
 # metres when physical).
 # An unresolved target's board is in its calibration's form when that carries
@@ -297,11 +305,11 @@ Base.hash(t::PlanarTarget, h::UInt) =
 has_units(t::PlanarTarget) = is_resolved(t) ? has_units(t.nominal) : has_units(geom(t.calibration))
 FlexUnits.ustrip(u::Units, t::PlanarTarget) = PlanarTarget(
     t.reference, is_resolved(t) ? [_ustrip_point(u, p) for p in t.nominal] : nothing, _ustrip_calibration(u, t.calibration),
-    _move_board(ustrip, u, t.board, true), false
+    _move_board(ustrip, u, t.board, true), _UnitMove()
 )
 with_unit(t::PlanarTarget, u::Units) = PlanarTarget(
     t.reference, is_resolved(t) ? [_attach_point(u, p) for p in t.nominal] : nothing, _attach_calibration(u, t.calibration),
-    _move_board((u, bd) -> with_unit(bd, u), u, t.board, false), false
+    _move_board((u, bd) -> with_unit(bd, u), u, t.board, false), _UnitMove()
 )
 _move_board(_, _, ::Nothing, _) = nothing
 _move_board(f, u, bd::Board, from_physical::Bool) = has_units(bd) == from_physical ? f(u, bd) : bd

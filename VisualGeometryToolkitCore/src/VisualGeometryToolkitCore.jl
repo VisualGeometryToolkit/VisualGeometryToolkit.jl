@@ -261,6 +261,7 @@ export undistort, undistort!, distortion_map
 export CameraCalibrationMat
 export project, backproject, unproject, transfer
 export focal_length, calibration_matrix  # Unit accessors; `focal_length(sensor, θ)` the focal a field of view implies
+export fov   # the angle of view a bounded camera's extent subtends (its inverse)
 export intrinsics, lens, model  # Camera component accessors
 export aspect_ratio
 # `depth_transfer` (0.8): the renamed unit-depth transfer closure formerly

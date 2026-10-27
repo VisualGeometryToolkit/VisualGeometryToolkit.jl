@@ -70,6 +70,64 @@ function focal_length(sensor::Sensor, θ::Real; dimension = :horizontal)
 end
 
 """
+    fov(camera::BoundedCamera; dimension = :horizontal) -> θ
+
+The angle of view of a bounded camera: the FULL angle, in radians, that its
+pixel extent subtends in `dimension` — the inverse of
+[`focal_length`](@ref)`(sensor, θ; dimension)`, which takes the same full angle. (The lens's
+own limit, [`view_angle_limit`](@ref), is a HALF angle from the optical axis.)
+
+The angle is read through the camera's `K⁻¹` and lens ([`backproject`](@ref)),
+so a distorted or fisheye lens answers its true angle, and an anisotropic `K`
+uses the focal length of that axis:
+
+- `:horizontal`: the two edge points on the principal point's row, `(0, c_y)`
+  and `(width, c_y)`;
+- `:vertical`: the two on its column, `(c_x, 0)` and `(c_x, height)`;
+- `:diagonal`: the four corners of the extent.
+
+The answer is twice the SMALLEST of those points' view angles — the nearer
+edge when the principal point is off-centre, so the cone of that full angle
+about the optical axis is imaged inside the extent in that dimension.
+
+Clipping: a point outside the lens's [`image_circle`](@ref) (or one the lens
+does not image) counts as the lens's own limit, so when the image circle clips
+the sensor in that dimension the answer is `2 · view_angle_limit(lens)`.
+
+```julia
+cam = BoundedCamera(CameraModel(K; lens = Lens(Equidistant())), sensor("Sony", "IMX250"))
+fov(cam)                          # horizontal, full angle in radians
+fov(cam; dimension = :diagonal)
+```
+"""
+function fov(camera::BoundedCamera; dimension = :horizontal)
+    l = lens(camera)
+    K = SMatrix{3, 3, Float64}(calibration_matrix(camera))
+    Ki = inv(K)
+    w, h = Float64(extent(camera).width), Float64(extent(camera).height)
+    cx, cy = K[1, 3], K[2, 3]
+    pts = if dimension === :horizontal
+        (SVector(0.0, cy), SVector(w, cy))
+    elseif dimension === :vertical
+        (SVector(cx, 0.0), SVector(cx, h))
+    elseif dimension === :diagonal
+        (SVector(0.0, 0.0), SVector(w, 0.0), SVector(0.0, h), SVector(w, h))
+    else
+        throw(ArgumentError("fov: dimension must be :horizontal, :vertical or :diagonal, got $(repr(dimension))"))
+    end
+    θ_lim = Float64(view_angle_limit(l))
+    q = image_circle(model(camera))
+    θ = minimum(pts) do u
+        (q === nothing || Point2(u) ∈ q) || return θ_lim
+        x = Ki * SVector(u[1], u[2], 1.0)
+        b = backproject(l, SVector(x[1] / x[3], x[2] / x[3]))
+        θu = atan(hypot(b[1], b[2]), b[3])
+        isfinite(θu) ? min(θu, θ_lim) : θ_lim
+    end
+    return 2θ
+end
+
+"""
     lookat(eye::StaticVector{3, <:Quantity}, target::StaticVector{3, <:Quantity}, up::StaticVector{3, <:Real};
            convention::Symbol = :cv)
 

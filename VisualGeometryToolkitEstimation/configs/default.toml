@@ -87,6 +87,13 @@ ftol = 2.220446049250313e-16
 
 [refine_absolute_pose]
 max_iter = 100                   # the bearing pose LM's cap on ACCEPTED iterations (NLLSsolver's count; see [chart_lm])
+[fit_rotation]
+# The reweighted Kabsch of `fit_rotation`. The loss's width follows the robust
+# scale of the residual angles at every iteration (`scale_multiple` × σ̂, the
+# shape's efficiency constant at codimension 2 unless a caller gives one).
+loss     = "huber"               # a LOSS_TAGS tag
+max_iter = 50                    # reweight-and-solve iterations at most
+tol      = 1.0e-12               # rad: converged when an iteration moves the rotation by less
 [chart_lm]
 # The LO refit every chart problem runs (`refine!` → VGC's `lmsolve_chart!`,
 # NLLSsolver's Levenberg–Marquardt with Marquardt's DᵀD damping; VGC

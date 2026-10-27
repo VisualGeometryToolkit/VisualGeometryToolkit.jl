@@ -23,3 +23,14 @@ back-projection Jacobians (an `M` column) whiten its residuals into pixels.
 refine_absolute_pose
 AbsolutePoseRefineMetadata
 ```
+
+## Rotation from direction pairs
+
+`fit_rotation` is the robust rotation `R` with `b ≈ R·a` from direction pairs
+with gross outliers: VisualGeometryToolkitCore's `kabsch`, reweighted by a stack
+loss shape at a width that follows the robust scale of the residual angles.
+
+```@docs
+fit_rotation
+RotationFitMetadata
+```

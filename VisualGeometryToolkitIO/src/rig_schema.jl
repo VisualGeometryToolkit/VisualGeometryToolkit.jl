@@ -86,7 +86,7 @@ end
 # its `size`, a `Size2` of lengths in the established Size2 form (`width`,
 # `height`), and its lower-left corner in the design chart, `origin`, every
 # number a length in the file's unit; absent when the target has none.
-# (`Rect(board)` is the target's extent.)
+# (`Rect(board)` is the target's domain in the design chart.)
 
 const _TARGET_POINTS = _Checked(
     _Vec(_Vec(_Real())),
@@ -310,29 +310,22 @@ target_json(t::PlanarTarget, unit::Units = mm) = merge(
     reference(t) === nothing ?
         (type = "planar", nominal = [_lengths_json(p, unit, "a planar target's nominal point") for p in t.nominal], calibration = _target_calibration_json(calibration(t), unit)) :
         (type = "planar", reference = String(reference(t)), calibration = _target_calibration_json(calibration(t), unit)),
-    _board_json(_target_board(t), unit),
+    _board_json(board(t), unit),
 )
 
-# The board ↔ its record. A board is held as its two parts, `size` (a `Size2` of
-# lengths) and `origin` (a 2-vector of lengths): `_board_parts` reads them from
-# the board VGC's PlanarTarget holds in its field `board` (decided by the type,
-# at compile time; `nothing` for a target without one).
-@generated _target_board(t::PlanarTarget) = hasfield(t, :board) ? :(_board_parts(t.board)) : :nothing
-_board_parts(::Nothing) = nothing
-_board_parts(p) = (size = p.size, origin = p.origin)
+# The board ↔ its record. VGC's `Board` holds its size as lengths (metres) and
+# its lower-left corner as plain metres (a physical target's; a unitless one is
+# in no file). Both are written in the file's unit, the size in the Size2 form,
+# decimal-exactly; read back, the size is lengths and the corner plain metres.
 _board_json(::Nothing, ::Units) = (;)
-function _board_json(p::NamedTuple{(:size, :origin)}, u::Units)
-    has_units(p.size) || _refuse_plain("a target's board")
-    return (board = (size = json_value(p.size, UnitContract(u); kind = :length), origin = _lengths_json(p.origin, u, "a target's board")),)
+function _board_json(bd::Board, u::Units)
+    has_units(bd) || _refuse_plain("a target's board")
+    return (board = (size = json_value(bd.size, UnitContract(u); kind = :length), origin = [_metres_json(x, u) for x in bd.origin]),)
 end
-_board_from_json(x, u::Units) =
-    (size = from_json(Size2, x.size, UnitContract(u); kind = :length), origin = _lengths_from_json(Val(2), x.origin::Vector{Any}, u))
-# A target read with its board. This VisualGeometryToolkitCore's PlanarTarget
-# holds none, so a file stating one is refused rather than read without it.
-_with_board(t::PlanarTarget, ::Nothing) = t
-_with_board(t::PlanarTarget, board) = throw(
-    ArgumentError("the target states a `board`, which this VisualGeometryToolkitCore's PlanarTarget does not hold ($(board))")
-)
+function _board_from_json(x, u::Units)
+    o = x.origin::Vector{Any}
+    return Board(from_json(Size2, x.size, UnitContract(u); kind = :length), SVector(_read_power(o[1]::Real, u, 1), _read_power(o[2]::Real, u, 1)))
+end
 
 """
     target_from_json(body, unit; resolve = nothing) -> AbstractTarget
@@ -350,13 +343,13 @@ function target_from_json(t, unit::AbstractString; resolve = nothing)
         return PointTarget(_points_from_json(t.points::Vector{Any}, u, haskey(t, :point_covariances) ? t.point_covariances::Vector{Any} : nothing))
     end
     c = _target_calibration_from_json(t.calibration, u)
-    board = haskey(t, :board) ? _board_from_json(t.board, u) : nothing
-    haskey(t, :nominal) && return _with_board(PlanarTarget(_points_from_json(t.nominal::Vector{Any}, u); calibration = c), board)
+    bd = haskey(t, :board) ? _board_from_json(t.board, u) : nothing
+    haskey(t, :nominal) && return PlanarTarget(nothing, _points_from_json(t.nominal::Vector{Any}, u), c, bd)
     ref = Symbol(t.reference::String)
     nominal = resolve === nothing ? nothing : resolve(ref)
     (nominal === nothing || isempty(nominal) || has_units(nominal)) ||
         _refuse_plain("resolve($(repr(ref))): the design's nominal points")
-    return _with_board(PlanarTarget(ref; nominal, calibration = c), board)
+    return PlanarTarget(ref, nominal, c, bd)
 end
 
 # -----------------------------------------------------------------------------
@@ -609,7 +602,8 @@ The identity tree, fixed (a test pins it for a rig of every target kind):
                 "calibrated_area": [min_x, min_y, max_x, max_y], "grid": [width, height],
                 "directions": row-major [[x, y, z], …], "points": row-major [[m, m, m], …] (non-central)}
     target     {"kind": "points", "points": [[m, …], …], "point_covariances": per point d×d rows, m² (iff Uncertain)}
-             | {"kind": "planar", "reference": <id> | "nominal": [[m, m], …], "calibration": <calibration>}
+             | {"kind": "planar", "reference": <id> | "nominal": [[m, m], …], "calibration": <calibration>,
+                "board": {"size": [width, height] (m), "origin": [m, m]}  (iff the target has a board)}
     calibration {"kind": <the kind's tag>, "parameters": parameter_vector (lengths in m),
                  "nodes": [[m, m], …] (thin-plate kinds), "members": [<calibration>, …] (a chain),
                  "covariance": rows over the parameters, m^(lᵢ+lⱼ) (iff Uncertain)}
@@ -690,6 +684,9 @@ function _id_target(t::PlanarTarget)
     elseif nominal !== nothing
         d["nominal"] = Any[_id_lengths(p) for p in nominal]
     end
+    bd = board(t)
+    bd === nothing ||
+        (d["board"] = _Id("size" => Any[_id_metres(bd.size.width), _id_metres(bd.size.height)], "origin" => Any[Float64(x) for x in bd.origin]))
     return d
 end
 

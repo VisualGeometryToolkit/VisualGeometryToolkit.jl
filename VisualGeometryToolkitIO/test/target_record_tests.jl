@@ -9,7 +9,7 @@
     using Statistics: cov
     using StaticArrays: SVector, SMatrix
     using LinearAlgebra: Diagonal
-    using Rotations: QuatRotation
+    using Rotations: QuatRotation, RotMatrix
     import VisualGeometryToolkitIO as VgtkIO
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: mm
@@ -34,18 +34,21 @@
     # A rig of targets of every kind — rigid, affine, thin-plate, height field,
     # a chain, Uncertain calibrations, a point target with covariances, an
     # Uncertain pose — its numbers file-born: content_id's pin.
-    function identity_rig()
+    function identity_rig(; boards::Bool = false)
         k = kinds()
-        X(t) = VgtkCore.EuclideanMap(QuatRotation(0.9128709291752769, 0.18257418583505536, 0.36514837167011072, 0.0, false), SVector(mmq(t[1]), mmq(t[2]), mmq(t[3])))
+        bd = boards ? VgtkCore.Board(VgtkCore.Size2(width = mmq(150.0), height = mmq(77.25)), SVector(mmq(-13.9), mmq(0.0))) : nothing
+        # (rotation matrices: the pin was minted when EuclideanMap stored every
+        # rotation as a RotMatrix; it now keeps a QuatRotation as given)
+        X(t) = VgtkCore.EuclideanMap(RotMatrix{3, Float64}(QuatRotation(0.9128709291752769, 0.18257418583505536, 0.36514837167011072, 0.0, false)), SVector(mmq(t[1]), mmq(t[2]), mmq(t[3])))
         I6 = VgtkCore.CovMat(SMatrix{6, 6, Float64}(Diagonal([1.0e-6, 1.0e-6, 1.0e-6, 2.5e-7, 2.5e-7, 4.0e-7])))
-        ident = VgtkCore.EuclideanMap(QuatRotation(1.0, 0.0, 0.0, 0.0, false), SVector(mmq(0.0), mmq(0.0), mmq(0.0)))
+        ident = VgtkCore.EuclideanMap(RotMatrix{3, Float64}(QuatRotation(1.0, 0.0, 0.0, 0.0, false)), SVector(mmq(0.0), mmq(0.0), mmq(0.0)))
         pt = VgtkCore.PointTarget([VgtkCore.Uncertain(SVector(mmq(0.0), mmq(1.5), mmq(-2.0)), VgtkCore.CovMat(SMatrix{3, 3, Float64}(Diagonal([1.0e-8, 1.0e-8, 4.0e-8]))))])
         members = Dict(
-            :a_rigid => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(design_points()), ident),
+            :a_rigid => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(nothing, design_points(), Rigid(), bd), ident),
             :b_affine => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(design_points(); calibration = uncertain(k.affine)), X((10.0, 0.0, 900.0))),
             :c_tps => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(:c_tps; calibration = k.thin_plate_spline), X((-200.0, 15.5, 850.0))),
             :d_height => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(design_points(); calibration = k.height_field), VgtkCore.Uncertain(X((0.0, 120.0, 910.0)), I6)),
-            :e_chain => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(design_points(); calibration = uncertain(k.calibration_chain)), X((300.0, -40.25, 1000.0))),
+            :e_chain => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(nothing, design_points(), uncertain(k.calibration_chain), bd), X((300.0, -40.25, 1000.0))),
             :f_points => VgtkCore.PosedTarget(pt, X((5.0, 5.0, 700.0))),
         )
         return VgtkCore.Rig{VgtkCore.TargetFrame{:a_rigid}}(members)
@@ -229,13 +232,20 @@ end
     @test content_id(joinpath(fixtures, "rig.json")) == "5cdb12271e474c04c68ac5ea539f509a720449fcf42b79d8cc4a506cddcf9fe0"   # sensors
     # a rig of every target kind, Uncertain calibrations and poses, a point target
     rig = identity_rig()
-    @test content_id(rig) == "99835c0bedb6e885ea05eb5dca28ab9967a1a59515be04a27b03c6bc169a9d4a"
+    @test content_id(rig) == "99835c0bedb6e885ea05eb5dca28ab9967a1a59515be04a27b03c6bc169a9d4a"   # no board: unchanged by the Board
+    # a rig whose targets carry boards: the board is part of the identity
+    brig = identity_rig(; boards = true)
+    @test content_id(brig) == "137089247e995c1aff2126078dd3b39dcbaf725d4159f4b1c2692a70e2b49fab"
+    @test content_id(brig) != content_id(rig)
+    tb = VgtkIO._identity_tree(brig)
+    @test only(x for x in tb["targets"] if x["id"] == "a_rigid")["target"]["board"] ==
+        Dict("size" => [0.15, 0.07725], "origin" => [-0.0139, 0.0])
     # the identity is the value's: every unit, and a file read back, agree
     mktempdir() do dir
-        for u in (mm, m)
+        for r in (rig, brig), u in (mm, m)
             p = joinpath(dir, "rig_$(u).json")
-            save(p, rig; length_unit = u)
-            @test content_id(p) == content_id(rig) == content_id(load(Rig, p))
+            save(p, r; length_unit = u)
+            @test content_id(p) == content_id(r) == content_id(load(Rig, p))
         end
     end
     # its names are the identity's own, not the record's
@@ -248,35 +258,58 @@ end
 
 @testitem "target/v2: a planar target's board — present and absent" setup = [VGIoFixtures, TargetRecordFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget
-    # The record of the board a target is printed on (the board proper, inside the sheet's margin) (VGC's PlanarTarget gains a
-    # `Board` on the primitives branch): its size in the Size2 form and its
-    # lower-left corner `origin` in the design chart, lengths in the file's
-    # unit, exact; absent when the target has none.
-    board = (size = Size2(width = mmq(150.0), height = mmq(77.25)), origin = SVector(mmq(-13.9), mmq(0.0)))
-    for u in (mm, m)
-        j = VgtkIO._board_json(board, u)
-        @test j.board.size.width == (u == mm ? 150.0 : 0.15) && j.board.size.height == (u == mm ? 77.25 : 0.07725)
-        @test j.board.origin == (u == mm ? [-13.9, 0.0] : [-0.0139, 0.0])
-        back = VgtkIO._board_from_json(parse_json(JSON.json(j.board)), u)
-        @test back.size == board.size && back.origin == board.origin
-    end
-    @test VgtkIO._board_json(nothing, mm) == (;)
-    @test VgtkIO._target_board(PlanarTarget(design_points())) === nothing    # (until VGC's PlanarTarget holds a board)
-    @test_throws ArgumentError VgtkIO._board_json((size = Size2(width = 1.0, height = 1.0), origin = SVector(0.0, 0.0)), mm)   # plain numbers
+    using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, Board, board, Rig, PosedTarget, TargetFrame, Uncertain
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: inch
+    # The board a target is printed on (VGC's Board: the board proper, inside the
+    # sheet's margin): its size in the Size2 form and its lower-left corner in
+    # the design chart, lengths in the file's unit, exact; absent when none.
+    bd = Board(Size2(width = mmq(150.0), height = mmq(77.25)), SVector(mmq(-13.9), mmq(0.0)))
+    k = kinds()
+    # An inch file holds every number the value has only when the value is
+    # inch-born (lengths.jl: a metre value the inch grid skips is written within
+    # an ulp), as an mm file does for mm-born values: each case is born in its unit.
+    iq(x) = VgtkIO.read_length(x, inch)
+    bd_inch = Board(Size2(width = iq(5.9), height = iq(3.0)), SVector(iq(-0.5), iq(0.0)))
+    pts_inch = [SVector(iq(0.0), iq(0.0)), SVector(iq(2.5), iq(0.0)), SVector(iq(-0.5), iq(1.625)), SVector(iq(1.2), iq(3.0))]
     mktempdir() do dir
         p = joinpath(dir, "t.json")
+        # (the calibrations' numbers are mm-born, so the inch file carries a rigid one)
+        cases = [[(c, u, bd, design_points()) for c in (k.rigid, k.affine, uncertain(k.calibration_chain)) for u in (mm, m)];
+                 [(k.rigid, inch, bd_inch, pts_inch)]]
+        for (c, u, bd, pts) in cases
+            t = PlanarTarget(nothing, pts, c, bd)
+            save(p, t; length_unit = u)
+            d = parse_json(read(p, String))
+            @test haskey(d.target, :board) && sort(collect(keys(d.target.board))) == [:origin, :size]
+            u == mm && @test d.target.board.size.width == 150.0 && d.target.board.size.height == 77.25 && d.target.board.origin == [-13.9, 0.0]
+            back = load(AbstractTarget, p)
+            @test back == t && board(back) == bd                                   # the Board included, bit for bit
+            @test board(back).origin === bd.origin && board(back).size.width === bd.size.width
+            # a referenced design keeps its board too
+            r = PlanarTarget(:b76e, nothing, c, bd)
+            save(p, r; length_unit = u)
+            @test load(AbstractTarget, p) == r
+        end
+        # absent when the target has none
         save(p, PlanarTarget(design_points()))
-        d = JSON.parse(read(p, String); dicttype = Dict{String, Any})
-        @test !haskey(d["target"], "board")                           # absent when the target has none
+        @test !haskey(parse_json(read(p, String)).target, :board) && board(load(AbstractTarget, p)) === nothing
+        # malformed boards are refused
         q = joinpath(dir, "e.json")
-        refused(f) = (dd = deepcopy(d); f(dd); write(q, JSON.json(dd)); e = try load(AbstractTarget, q); nothing catch e; e end; e)
-        e = refused(dd -> (dd["target"]["board"] = Dict("size" => Dict("width" => 150, "height" => 0), "origin" => [0, 0])))
+        dd = JSON.parse(read(p, String); dicttype = Dict{String, Any})
+        refused(f) = (x = deepcopy(dd); f(x); write(q, JSON.json(x)); e = try load(AbstractTarget, q); nothing catch e; e end; e)
+        e = refused(x -> (x["target"]["board"] = Dict("size" => Dict("width" => 150, "height" => 0), "origin" => [0, 0])))
         @test e isa ArgumentError && occursin("are > 0", e.msg)
-        e = refused(dd -> (dd["target"]["board"] = Dict("size" => Dict("width" => 150, "height" => 77))))
+        e = refused(x -> (x["target"]["board"] = Dict("size" => Dict("width" => 150, "height" => 77))))
         @test e isa ArgumentError && occursin("origin", e.msg)
-        # validated, then read into the target (refused while VGC's PlanarTarget holds no board)
-        e = refused(dd -> (dd["target"]["board"] = Dict("size" => Dict("width" => 150, "height" => 77), "origin" => [0, 0])))
-        @test e isa ArgumentError && (hasfield(PlanarTarget, :board) || occursin("board", e.msg))
+        # a point off the board: Core's check, at read
+        e = refused(x -> (x["target"]["board"] = Dict("size" => Dict("width" => 10, "height" => 10), "origin" => [0, 0])))
+        @test e isa ArgumentError && occursin("off the board", e.msg)
+        # in a rig, round trip and identity
+        rig = Rig{TargetFrame{:a}}(Dict(:a => PosedTarget(PlanarTarget(nothing, pts_inch, k.rigid, bd_inch),
+            VgtkCore.EuclideanMap(QuatRotation(1.0, 0.0, 0.0, 0.0, false), SVector(mmq(0.0), mmq(0.0), mmq(0.0))))))
+        rp = joinpath(dir, "rig.json")
+        save(rp, rig; length_unit = inch)
+        @test load(Rig, rp)[:a].target == rig[:a].target && content_id(rp) == content_id(rig)
     end
 end

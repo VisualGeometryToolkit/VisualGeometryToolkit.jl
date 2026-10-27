@@ -75,7 +75,7 @@ intervals, so they have `d·p + 1` points.
 
 ### `window`: `WindowRule`
 
-`window(rule; scale_multiple_window, native, s2, center)` returns `(lo, hi)`.
+`window_bounds(rule; scale_multiple_window, native, s2, center)` returns `(lo, hi)`.
 A rule refuses a context it needs and is not given.
 
 | tag | type | parameters | window |

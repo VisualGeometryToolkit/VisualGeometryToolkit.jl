@@ -45,10 +45,10 @@ end
     grid_spec(axis::TuningAxis; context...) -> GridSpec
 
 The realized, persistable grid spec of `axis`: the window its rule evaluates
-to under `context` ([`window`](@ref)) with its spacing, unextended; or the
+to under `context` ([`window_bounds`](@ref)) with its spacing, unextended; or the
 listed values.
 """
-grid_spec(a::SpacedAxis; context...) = SpacedGrid(window(a.window; context...)..., a.spacing)
+grid_spec(a::SpacedAxis; context...) = SpacedGrid(window_bounds(a.window; context...)..., a.spacing)
 grid_spec(a::ListedAxis; _...) = ListedGrid(a.values)
 
 # -----------------------------------------------------------------------------

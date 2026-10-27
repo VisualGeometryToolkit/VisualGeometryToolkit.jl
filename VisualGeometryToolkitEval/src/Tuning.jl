@@ -56,7 +56,7 @@ export
     GridSpec, SpacedGrid, ListedGrid, extend, extension_offset, nearest_column,
     # windows.jl — the cutoff band and window rules
     ScaleMultipleWindow, WindowRule, FixedWindow, StandardizedWindow, CoverageWindow,
-    CenteredWindow, window,
+    CenteredWindow, window_bounds,
     # policies.jl — axes, the boundary rule, objectives
     TuningAxis, SpacedAxis, ListedAxis, grid_spec, GridExtension,
     TuningCriterion, MedianError, FiniteMedian, SceneMeanLowerMedian, SceneMeanMedian,

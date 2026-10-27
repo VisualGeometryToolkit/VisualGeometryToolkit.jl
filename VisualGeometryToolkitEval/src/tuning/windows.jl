@@ -33,7 +33,7 @@ end
 
 How an axis's window `(lo, hi)` is found: [`FixedWindow`](@ref),
 [`StandardizedWindow`](@ref), [`CoverageWindow`](@ref),
-[`CenteredWindow`](@ref). `window(rule; context...)` evaluates it; each rule
+[`CenteredWindow`](@ref). `window_bounds(rule; context...)` evaluates it; each rule
 takes only the context it needs and refuses a missing one.
 
 Factored, a window is STATED or PLACED, and the placed ones differ only in
@@ -129,10 +129,10 @@ struct CenteredWindow <: WindowRule
 end
 
 _need(x, what, rule) = x === nothing ?
-    throw(ArgumentError("window: the $(nameof(typeof(rule))) rule needs `$what`")) : x
+    throw(ArgumentError("window_bounds: the $(nameof(typeof(rule))) rule needs `$what`")) : x
 
 """
-    window(rule::WindowRule; scale_multiple_window = nothing, native = nothing,
+    window_bounds(rule::WindowRule; scale_multiple_window = nothing, native = nothing,
            s2 = nothing, center = nothing) -> (lo, hi)
 
 Evaluate a window rule. `scale_multiple_window` is the run's
@@ -141,10 +141,10 @@ native map (the caller's `native_map(axis; d_g)`), `s2` the validation pool's
 per-pair `σ̂²`, `center` the axis's centre; a rule refuses a context it needs
 and is not given.
 """
-window(r::FixedWindow; _...) = (r.lo, r.hi)
-window(r::StandardizedWindow; scale_multiple_window = nothing, _...) =
+window_bounds(r::FixedWindow; _...) = (r.lo, r.hi)
+window_bounds(r::StandardizedWindow; scale_multiple_window = nothing, _...) =
     (w = _need(scale_multiple_window, :scale_multiple_window, r); (w.lo, w.hi))
-function window(r::CoverageWindow; scale_multiple_window = nothing, native = nothing, s2 = nothing, _...)
+function window_bounds(r::CoverageWindow; scale_multiple_window = nothing, native = nothing, s2 = nothing, _...)
     w = _need(scale_multiple_window, :scale_multiple_window, r)
     f = _need(native, :native, r); v = _need(s2, :s2, r)
     scale_min, scale_max = scale_bounds(v, (r.q_lo, r.q_hi))
@@ -152,5 +152,5 @@ function window(r::CoverageWindow; scale_multiple_window = nothing, native = not
     return (exp(log(Float64(f(w.lo, scale_min / ζ))) - r.log_margin),
             exp(log(Float64(f(w.hi, scale_max * ζ))) + r.log_margin))
 end
-window(r::CenteredWindow; center = nothing, _...) =
+window_bounds(r::CenteredWindow; center = nothing, _...) =
     (x = Float64(_need(center, :center, r)); (x / r.factor, x * r.factor))

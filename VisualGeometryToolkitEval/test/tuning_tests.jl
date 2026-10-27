@@ -103,13 +103,13 @@
 
     @testset "window rules" begin
         w = ScaleMultipleWindow(1.0, 3.3)
-        @test window(FixedWindow(2.0, 5.0)) == (2.0, 5.0)
-        @test window(StandardizedWindow(); scale_multiple_window = w) == (1.0, 3.3)
-        @test window(CenteredWindow(10.0); center = 2.0) == (0.2, 20.0)
+        @test window_bounds(FixedWindow(2.0, 5.0)) == (2.0, 5.0)
+        @test window_bounds(StandardizedWindow(); scale_multiple_window = w) == (1.0, 3.3)
+        @test window_bounds(CenteredWindow(10.0); center = 2.0) == (0.2, 20.0)
         loss_width_map(m, s) = m * s
         s2 = fill(4.0, 10)                                                  # ŝ = 2 at every quantile
-        @test all(window(CoverageWindow(0.02, 0.98, 0.0, 0.0); scale_multiple_window = w, native = loss_width_map, s2) .≈ (2.0, 6.6))
-        lo, hi = window(CoverageWindow(0.02, 0.98, 0.1, 1.0); scale_multiple_window = w, native = loss_width_map, s2)
+        @test all(window_bounds(CoverageWindow(0.02, 0.98, 0.0, 0.0); scale_multiple_window = w, native = loss_width_map, s2) .≈ (2.0, 6.6))
+        lo, hi = window_bounds(CoverageWindow(0.02, 0.98, 0.1, 1.0); scale_multiple_window = w, native = loss_width_map, s2)
         @test lo ≈ 1.0 * exp(-0.1) && hi ≈ 13.2 * exp(0.1)                 # ζ = 2 widening + margin
         # q_lo == q_hi is the ONE-ANCHOR case: both sides anchor on the same
         # √quantile(σ̂², q), and at q = 0.5 that is `reference_scale(s2)`. So
@@ -117,14 +117,14 @@
         # scale-multiple window and nothing more — which is why a separate rule
         # for it (`StandardizedNativeWindow`) was deleted rather than kept.
         s2v = [1.0, 4.0, 9.0, 16.0, 25.0]                                   # median 9 ⇒ s0 = 3
-        @test all(window(CoverageWindow(0.5, 0.5, 0.0, 0.0); scale_multiple_window = w,
+        @test all(window_bounds(CoverageWindow(0.5, 0.5, 0.0, 0.0); scale_multiple_window = w,
                          native = loss_width_map, s2 = s2v) .≈ (3.0, 9.9))
         # and it is not accidentally equal to a spread band on the same σ̂²
-        @test !all(window(CoverageWindow(0.02, 0.98, 0.0, 0.0); scale_multiple_window = w,
+        @test !all(window_bounds(CoverageWindow(0.02, 0.98, 0.0, 0.0); scale_multiple_window = w,
                           native = loss_width_map, s2 = s2v) .≈ (3.0, 9.9))
-        @test occursin("needs `scale_multiple_window`", errmsg(() -> window(StandardizedWindow())))
-        @test occursin("needs `s2`", errmsg(() -> window(CoverageWindow(0.1, 0.9, 0.0, 0.0); scale_multiple_window = w, native = loss_width_map)))
-        @test occursin("needs `center`", errmsg(() -> window(CenteredWindow(2.0))))
+        @test occursin("needs `scale_multiple_window`", errmsg(() -> window_bounds(StandardizedWindow())))
+        @test occursin("needs `s2`", errmsg(() -> window_bounds(CoverageWindow(0.1, 0.9, 0.0, 0.0); scale_multiple_window = w, native = loss_width_map)))
+        @test occursin("needs `center`", errmsg(() -> window_bounds(CenteredWindow(2.0))))
         @test_throws ArgumentError ScaleMultipleWindow(3.3, 1.0)
         @test_throws ArgumentError CoverageWindow(0.9, 0.1, 0.0, 0.0)
         @test_throws ArgumentError CenteredWindow(1.0)

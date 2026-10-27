@@ -324,19 +324,8 @@ function locally_optimize!(L, lo::CountedLO, problem, model, cs::ConsensusSet, b
     return r
 end
 
-lo_workspace(::Type{P}, ::Type{T}, lo::CountedLO, n::Int) where {P <: AbstractRansacProblem, T} =
-    lo_workspace(P, T, lo.inner, n)
-lo_width(lo::CountedLO) = lo_width(lo.inner)
-deployed_scale_multiple(lo::CountedLO, shape, m::Float64, s2, scoring) =
-    deployed_scale_multiple(lo.inner, shape, m, s2, scoring)
-deployed_shape(lo::CountedLO) = deployed_shape(lo.inner)
-strategy_loss(::Type{<:CountedLO{L}}) where {L} = strategy_loss(L)
 VgtkCore.with_width(lo::CountedLO, w) = CountedLO(VgtkCore.with_width(lo.inner, w), lo.calls, lo.iterations)
-VgtkCore.optimization_path(lo::CountedLO) = VgtkCore.optimization_path(lo.inner)
-VgtkCore.scale_interface(lo::CountedLO) = VgtkCore.scale_interface(lo.inner)
-VgtkCore.loss_family(lo::CountedLO) = VgtkCore.loss_family(lo.inner)
 VgtkCore.lo_label(lo::CountedLO) = VgtkCore.lo_label(lo.inner)
-VgtkCore.lo_marker(lo::CountedLO) = VgtkCore.lo_marker(lo.inner)
 # A counter around a terminal placement is terminal, and counts the terminal call (its `locally_optimize!` counts, then forwards).
 lo_placement(lo::CountedLO) = lo_placement(lo.inner)
 
@@ -350,16 +339,28 @@ lo_placement(lo::CountedLO) = lo_placement(lo.inner)
 
 locally_optimize!(L, lo::TerminalLO, problem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring) =
     locally_optimize!(L, lo.inner, problem, model, cs, buf, scoring)
-lo_workspace(::Type{P}, ::Type{T}, lo::TerminalLO, n::Int) where {P <: AbstractRansacProblem, T} =
-    lo_workspace(P, T, lo.inner, n)
-lo_width(lo::TerminalLO) = lo_width(lo.inner)
-deployed_scale_multiple(lo::TerminalLO, shape, m::Float64, s2, scoring) =
-    deployed_scale_multiple(lo.inner, shape, m, s2, scoring)
-deployed_shape(lo::TerminalLO) = deployed_shape(lo.inner)
-strategy_loss(::Type{<:TerminalLO{L}}) where {L} = strategy_loss(L)
 VgtkCore.with_width(lo::TerminalLO, w) = TerminalLO(VgtkCore.with_width(lo.inner, w))
-VgtkCore.optimization_path(lo::TerminalLO) = VgtkCore.optimization_path(lo.inner)
-VgtkCore.scale_interface(lo::TerminalLO) = VgtkCore.scale_interface(lo.inner)
-VgtkCore.loss_family(lo::TerminalLO) = VgtkCore.loss_family(lo.inner)
 VgtkCore.lo_label(lo::TerminalLO) = VgtkCore.lo_label(lo.inner) * " (terminal)"
-VgtkCore.lo_marker(lo::TerminalLO) = VgtkCore.lo_marker(lo.inner)
+
+# =============================================================================
+# The two wrappers' identity hooks — every one is `inner`'s
+# =============================================================================
+#
+# What the loop, the composition check and the reporting read on a strategy
+# (workspace, width, scale interface, loss family, path, marker), answered for
+# `CountedLO` and `TerminalLO` alike by their `inner`; each wrapper's own
+# methods above (`locally_optimize!`, `with_width`, `lo_label`, `lo_placement`)
+# are where they differ.
+const _WrappedLO = Union{CountedLO, TerminalLO}
+lo_workspace(::Type{P}, ::Type{T}, lo::_WrappedLO, n::Int) where {P <: AbstractRansacProblem, T} =
+    lo_workspace(P, T, lo.inner, n)
+lo_width(lo::_WrappedLO) = lo_width(lo.inner)
+deployed_scale_multiple(lo::_WrappedLO, shape, m::Float64, s2, scoring) =
+    deployed_scale_multiple(lo.inner, shape, m, s2, scoring)
+deployed_shape(lo::_WrappedLO) = deployed_shape(lo.inner)
+strategy_loss(::Type{<:CountedLO{L}}) where {L} = strategy_loss(L)
+strategy_loss(::Type{<:TerminalLO{L}}) where {L} = strategy_loss(L)
+VgtkCore.optimization_path(lo::_WrappedLO) = VgtkCore.optimization_path(lo.inner)
+VgtkCore.scale_interface(lo::_WrappedLO) = VgtkCore.scale_interface(lo.inner)
+VgtkCore.loss_family(lo::_WrappedLO) = VgtkCore.loss_family(lo.inner)
+VgtkCore.lo_marker(lo::_WrappedLO) = VgtkCore.lo_marker(lo.inner)

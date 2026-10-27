@@ -30,7 +30,7 @@
 # its types.
 using TOML: TOML
 using VisualGeometryToolkitCore: present_kwargs, check_keys, toml_table,
-    allowed_keys, convert_field, toml_field_name
+    allowed_keys, convert_field, toml_field_name, tag_of
 import VisualGeometryToolkitCore: toml_key, toml_skip_fields, toml_field
 
 # RETIRED keys: knobs removed because nothing read them, which recorded run
@@ -133,8 +133,6 @@ const LOSS_TAGS = TagRegistry(:loss, "Shape", (tag => K for (K, tag) in _LOSS_TA
 # strategy type its `toml_skip_fields` (the width is written and read as its
 # two keys, `scale_multiple` | `loss_width`, never as `width`).
 
-const _LOSS_TAG_OF = Dict{Type, String}(shape => tag for (tag, shape) in LOSS_TAGS)
-_loss_tag(::Type{K}) where {K <: AbstractLossShape} = _LOSS_TAG_OF[K]
 # The width keys a strategy's table may carry: both for a width-carrying one
 # (the least-squares arm takes neither), none for another.
 _width_keys(::Type{C}) where {C} = _lo_takes_width(C) ? ("scale_multiple", "loss_width") : ()
@@ -289,7 +287,7 @@ function lo_config_dict(lo::AbstractLocalOptimization)
     T = typeof(lo)
     d = toml_table(lo)
     d["type"] = lo_tag(T)
-    lo_parametric(T) && (d["loss"] = _loss_tag(strategy_loss(lo)))
+    lo_parametric(T) && (d["loss"] = tag_of(LOSS_TAGS, strategy_loss(lo)))
     _lo_takes_width(T) && _width_to_toml!(d, lo.width)
     return d
 end

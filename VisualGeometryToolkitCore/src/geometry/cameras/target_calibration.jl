@@ -81,7 +81,7 @@ regularizer(::Rigid) = SVector{0, Float64}()
 #
 # `_has_lengths(c)`: whether a kind carries lengths at all (Rigid does not);
 # `has_units(c)`: whether they are physical. `_length_sample(c)`: one of them in
-# its own form, to name the mismatch in a `DimensionError`. `_length_mask(c)`:
+# its own form, to name the mismatch in a `DimensionError`. `length_mask(c)`:
 # which entries of θ are lengths (they scale with a unit change; the rest are
 # dimensionless).
 # A kind another package defines states its lengths through the public
@@ -92,7 +92,23 @@ _has_lengths(::TargetCalibration) = false   # Rigid, and a downstream kind
 _unit_form(c::TargetCalibration) = _has_lengths(c) ? (has_units(c) ? :physical : :plain) : :none
 _form_sample(c::TargetCalibration) = _length_sample(c)
 has_units(::Rigid) = false
-_length_mask(::Rigid) = SVector{0, Bool}()
+"""
+    length_mask(::Type{C}) -> SVector{n, Bool}
+    length_mask(c::TargetCalibration) -> SVector{n, Bool}
+
+Which entries of [`parameter_vector`](@ref)`(c)` are lengths: `true` for an
+entry that scales with a unit change (stored in metres for a physical
+calibration), `false` for a dimensionless one — a function of the TYPE.
+[`Rigid`](@ref): none; [`Affine`](@ref): `(false, false, false, false, true,
+true)` (`A` dimensionless, `b` lengths); [`ThinPlateSpline`](@ref) and
+[`HeightField`](@ref): every entry; a [`CalibrationChain`](@ref): its members'
+in order. A covariance over `θ` moves with a unit change by this mask; a
+record of the calibration states its lengths by it. A downstream kind with
+lengths adds a method.
+"""
+function length_mask end
+length_mask(c::TargetCalibration) = length_mask(typeof(c))
+length_mask(::Type{Rigid}) = SVector{0, Bool}()
 FlexUnits.ustrip(::Units, c::Rigid) = c
 with_unit(c::Rigid, ::Units) = c
 
@@ -103,12 +119,12 @@ _attach_calibration(u::Units, c::TargetCalibration) = _has_lengths(c) ? with_uni
 function _ustrip_calibration(u::Units, c::Uncertain{<:TargetCalibration})
     g = geom(c)
     _has_lengths(g) || return c
-    return Uncertain(ustrip(u, g), _scale_length_form(getfield(c, :attributes), _length_mask(g), _metre_factor(u), *))
+    return Uncertain(ustrip(u, g), _scale_length_form(getfield(c, :attributes), length_mask(g), _metre_factor(u), *))
 end
 function _attach_calibration(u::Units, c::Uncertain{<:TargetCalibration})
     g = geom(c)
     _has_lengths(g) || return c
-    return Uncertain(with_unit(g, u), _scale_length_form(getfield(c, :attributes), _length_mask(g), _metre_factor(u), /))
+    return Uncertain(with_unit(g, u), _scale_length_form(getfield(c, :attributes), length_mask(g), _metre_factor(u), /))
 end
 
 # A point in plain numbers (a physical one in metres), and a plain result put
@@ -206,7 +222,7 @@ regularizer(::Affine) = SVector{0, Float64}()
 _has_lengths(::Affine) = true
 has_units(c::Affine) = c.physical
 _length_sample(c::Affine) = c.physical ? _attach_length(c.b[1], m) : c.b[1]
-_length_mask(::Affine) = SVector(false, false, false, false, true, true)
+length_mask(::Type{<:Affine}) = SVector(false, false, false, false, true, true)
 FlexUnits.ustrip(u::Units, c::Affine{T}) where {T} =
     c.physical ? Affine{T}(c.A, map(x -> _from_metres(x, u), c.b), false) : _refuse_strip(c)
 with_unit(c::Affine{T}, u::Units) where {T} =
@@ -321,7 +337,7 @@ regularizer(c::ThinPlateSpline) = vcat(_bending_rows(c.bending, c.fx), _bending_
 _has_lengths(::ThinPlateSpline) = true
 has_units(c::ThinPlateSpline) = c.physical
 _length_sample(c::ThinPlateSpline) = first(first(_node_lengths(c.system, c.physical)))
-_length_mask(::ThinPlateSpline{K}) where {K} = SVector{2K}(ntuple(_ -> true, Val(2K)))
+length_mask(::Type{<:ThinPlateSpline{K}}) where {K} = SVector{2K}(ntuple(_ -> true, Val(2K)))
 # A unit move to or from metres leaves the stored nodes and values as they are
 # (lengths are stored as plain metres): the spline's solver, coefficients and
 # bending factor are reused, only the form flips. Any other unit refits them.
@@ -408,7 +424,7 @@ regularizer(c::HeightField) = _bending_rows(c.bending, c.h)
 _has_lengths(::HeightField) = true
 has_units(c::HeightField) = c.physical
 _length_sample(c::HeightField) = first(first(_node_lengths(c.system, c.physical)))
-_length_mask(::HeightField{K}) where {K} = SVector{K}(ntuple(_ -> true, Val(K)))
+length_mask(::Type{<:HeightField{K}}) where {K} = SVector{K}(ntuple(_ -> true, Val(K)))
 function FlexUnits.ustrip(u::Units, c::HeightField{K, T}) where {K, T}
     c.physical || _refuse_strip(c)
     _in_metres(u) && return HeightField{K, T}(c.system, c.h, c.w, c.a, c.bending, false)
@@ -582,7 +598,7 @@ function _length_sample(c::CalibrationChain)
     end
     throw(ArgumentError("a $(nameof(typeof(c))) without lengths has no length to name"))
 end
-_length_mask(c::CalibrationChain) = vcat(map(_length_mask, c.members)...)
+length_mask(::Type{CalibrationChain{C}}) where {C} = vcat(map(length_mask, fieldtypes(C))...)
 function FlexUnits.ustrip(u::Units, c::CalibrationChain)
     has_units(c) || _refuse_strip(c)
     return CalibrationChain(map(x -> _ustrip_calibration(u, x), c.members))

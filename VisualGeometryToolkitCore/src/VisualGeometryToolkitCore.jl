@@ -641,7 +641,7 @@ public lm_workspace_type, lmsolve_chart!, lmsolve_rows!, fill_sqrt_weights!, man
 # the dependency allow-list, the private-name scan and the extension points
 # (quality/stack_contracts.jl). Reached qualified; the quality gates
 # (ext/VisualGeometryToolkitCoreQualityExt) run them over every stack package.
-public snake_case, TagRegistry, tag_of, expected_tag, tag_rule_violations, SCALE_INTERFACE_TAGS, TARGET_CALIBRATION_TAGS, calibration_tag,
+public snake_case, TagRegistry, tag_of, expected_tag, tag_rule_violations, SCALE_INTERFACE_TAGS, TARGET_CALIBRATION_TAGS, calibration_tag, length_mask,
     tag_family, tag_paths, retired_tags, tag_registries,
     tag_table_violations, config_tag_violations
 public stack_dependencies, stack_dependency_violations, private_name_violations,

@@ -570,3 +570,19 @@ end
     @test M == A.A && b == A.b
     @test_throws ArgumentError VgtkCore.Cameras._chart_affine(T)
 end
+
+@testitem "target calibration: length_mask" begin
+    using Test, StaticArrays
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: grid_nodes, length_mask, parameter_vector
+    nodes = grid_nodes(2; lo = 0.0, hi = 1.0)
+    A = Affine([1.0 0.0; 0.0 1.0], [0.0, 0.0])
+    T = ThinPlateSpline(nodes)
+    H = HeightField(nodes)
+    @test length_mask(Rigid()) == SVector{0, Bool}()
+    @test length_mask(A) === SVector(false, false, false, false, true, true) === length_mask(typeof(A))
+    @test length_mask(T) == trues(8) && length_mask(H) == trues(4)
+    C = CalibrationChain(A, T, H)
+    @test (@inferred length_mask(typeof(C))) == vcat(length_mask(A), length_mask(T), length_mask(H))
+    @test length(length_mask(C)) == length(parameter_vector(C))
+end

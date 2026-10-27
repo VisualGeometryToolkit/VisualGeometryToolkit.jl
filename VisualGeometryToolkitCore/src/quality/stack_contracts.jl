@@ -156,7 +156,7 @@ const CONTRACT_GENERICS = (
     parameter_vector, parameter_names, parameter_bounds, with_parameters,
     # the target-calibration protocol a downstream calibration kind or target
     # implements (geometry/cameras/target_calibration.jl, targets.jl)
-    calibration_jacobian, regularizer, calibration_tag, is_planar, is_affine, gauge_names, gauge_directions, calibration, design,
+    calibration_jacobian, regularizer, calibration_tag, length_mask, is_planar, is_affine, gauge_names, gauge_directions, calibration, design,
     # the surface a ray meets (geometry/primitives/surfaces.jl): a downstream
     # surface primitive answers the queries, a downstream calibration kind `surface`
     intersection, normal, chart, bounds, surface_point, surface,

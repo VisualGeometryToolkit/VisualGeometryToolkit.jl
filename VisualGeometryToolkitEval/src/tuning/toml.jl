@@ -223,6 +223,7 @@ function _registered(::Type{RegisteredSceneSplit}, d, inherited, path)
     return out
 end
 
+# TODO(after the rebase onto the Core simplify branch): read the table through VisualGeometryToolkitCore's public `read_table`.
 function _read_struct(::Type{C}, d, dflt, path, tagged::Bool, inherit::Bool) where {C}
     d === nothing && dflt === nothing && throw(ArgumentError("[$path]: missing table"))
     d === nothing || d isa AbstractDict || throw(ArgumentError("[$path]: expected a table, got $(repr(d))"))
@@ -312,7 +313,7 @@ function tuning_spec(cfg::AbstractDict, name::AbstractString; under::AbstractDic
     tag = entry["type"]
     T = _tag_type("scheme", tag, "tuning.$name")
     if !isempty(under) || !isempty(over)
-        fields = Set(VGC.toml_key(T, f) for f in fieldnames(T))
+        fields = Set(VGC.allowed_keys(T))
         kept = Dict{String,Any}(String(k) => v for (k, v) in under if String(k) in fields)
         entry = layer_tuning(layer_tuning(kept, entry), over)
         tag = entry["type"]   # `over` may replace the scheme: its table then replaces the entry

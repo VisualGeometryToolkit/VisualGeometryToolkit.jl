@@ -239,7 +239,7 @@ _calibration_record(c::Union{ThinPlateSpline, HeightField}, u::_LeafUnit) =
     (type = _tag(_physical(c)), nodes = _nodes_json(c, u), parameters = [_metres_json(v, u) for v in parameter_vector(c)])
 _calibration_record(c::CalibrationChain, u::_LeafUnit) = (type = _tag(c), members = [_calibration_record(x, u) for x in c.members])
 _calibration_record(c::TargetCalibration, ::_LeafUnit) = throw(
-    ArgumentError("save: a $(nameof(typeof(c))) target calibration has no record in $(_schema("target")) (its kinds: $(join(keys(TARGET_CALIBRATION_TAGS), ", ")))")
+    ArgumentError("a $(nameof(typeof(c))) target calibration has no record in $(_schema("target")) (its kinds: $(join(keys(TARGET_CALIBRATION_TAGS), ", ")))")
 )
 
 _calibration_record(c::Uncertain{<:TargetCalibration}, u::_LeafUnit) =
@@ -630,7 +630,10 @@ _id_targets(tr) = Any[
     _Id("id" => String(id), "target" => _id_kind!(_id_board!(_lower(target_json(tr[id].target, _PERSISTED)))), "pose" => _lower(pose_json(pose(tr, id), _PERSISTED)))
         for id in sort!(collect(ids(tr)))
 ]
-# a record's `type` (a target's, a calibration's and its members') is the identity's `kind`
+# a record's `type` (a target's, a calibration's and its members') is the identity's `kind`.
+# The identity is built from the writer's records, so a writer key renamed or
+# added changes every content_id unless it is mapped back here; the pinned-tree
+# test ("rig/v5: content_id is pinned on a fixed canonical tree") is the guard.
 function _id_kind!(d::_Id)
     d["kind"] = pop!(d, "type")
     haskey(d, "calibration") && _id_kind!(d["calibration"])

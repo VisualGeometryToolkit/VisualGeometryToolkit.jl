@@ -229,7 +229,8 @@ const RETIRED_NAMES = String[
     "SEVEN_SCENES_TEST" * "_SPLITS", "SEVEN_SCENES_TRAIN" * "_SPLITS",
     "WMG" * "_NG",
     # the hand-rolled Levenberg–Marquardt cores, replaced by FastLevenbergMarquardt
-    # (2026-10-01): the chart LM is `lmsolve_chart!` on VGC's `lmsolve_rows!`
+    # (2026-10-01), itself replaced by NLLSsolver (2026-10-27): the chart LM is
+    # VGC's `lmsolve_chart!`
     "_lmsolve" * "_manifold!",               # VisualGeometryToolkitCore's copy of FLM's static loop
     "_lm" * "_cholsolve!",                   # its copy of FLM's unrolled Cholesky
     "_lmsolve" * "_p3p!",                    # VisualGeometryToolkitEstimation's P3P copy of the same loop

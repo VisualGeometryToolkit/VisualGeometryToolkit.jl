@@ -336,7 +336,7 @@ Signed Sampson distance of a codimension-1 model `M` (fundamental / essential)
 at the correspondence `u => v`: `g / ‖∂g‖` — [`whiten`](@ref)'s residual of
 [`constraint_with_jacobians`](@ref), whose magnitude is [`sampson_distance`](@ref).
 The **sign** encodes which side of the epipolar line the point falls on.
-Keeping it signed is what makes an FLM residual smooth and its Jacobian
+Keeping it signed is what makes an LM residual smooth and its Jacobian
 sign-consistent.
 
 DEGENERATE (the point gradient vanishes to rounding): the unsigned distance's

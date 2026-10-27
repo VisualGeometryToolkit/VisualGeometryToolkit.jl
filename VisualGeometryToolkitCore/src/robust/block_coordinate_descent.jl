@@ -52,7 +52,7 @@ function block_coordinate_result end
 post_iteration!(state, ::AbstractBlockCoordinateMethod, prob, θ, iter) = nothing
 
 # Trust region is the OPTIMIZER's responsibility, not the framework's: the
-# `update_model!` returns an accepted update (DLT is the exact minimizer; FLM owns its
+# `update_model!` returns an accepted update (DLT is the exact minimizer; NLLSsolver owns its
 # LM damping). So there is no trust-region hook — the loop takes the solver's
 # result directly.
 

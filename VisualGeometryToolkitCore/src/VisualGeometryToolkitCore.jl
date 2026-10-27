@@ -59,8 +59,7 @@ using LogExpFunctions: xlogx, logit, log1pexp   # the Welsch conjugate's w·log(
 using SpecialFunctions: loggamma, digamma, trigamma   # the Student-t normaliser and the ν M-step (robust/mixture.jl)
 using QuadGK: quadgk   # a loss shape's truncated normaliser (robust/normaliser.jl)
 using Random: Random
-import FastLevenbergMarquardt as FLM   # the stack's Levenberg–Marquardt (robust/lm_core.jl)
-import NLLSsolver   # NLLSsolver's variable and robustifier protocols on Core's manifolds and losses (robust/lm_core.jl)
+import NLLSsolver   # the stack's Levenberg–Marquardt: the chart LM's driver, the variable and robustifier protocols (robust/lm_core.jl)
 
 
 # Units and physical quantities — FlexUnits as shipped (see base/units.jl)
@@ -521,12 +520,14 @@ public initialize_solver!, step_solver!, stop_solver!,
     Recorded, current_cost, current_s2
 # Best-tracking of an instance that claims descent (robust/block_coordinate_descent.jl).
 public Incumbent, keep_best
-# The chart LM (robust/lm_core.jl): FastLevenbergMarquardt's `lmsolve!` on the
-# row protocol below; `lmsolve_rows!` / `lmsolve_chart!` stay internal
-# (import-by-name), the workspace type is public.
+# The chart LM (robust/lm_core.jl): NLLSsolver on the row protocol below;
+# `lmsolve_chart!` stays internal (import-by-name), the workspace type is public.
 public ManifoldLmWorkspace
 # The chart-LM protocol a caller's linearization state implements (robust/lm_core.jl).
 public residual_rows!, residual_jacobian_rows!, lm_retcode, is_stationary, nlls_retcode, loss_robustifier
+# The one map of the stack's LM knobs onto NLLSsolver's options, and which of the
+# fork's additions the loaded NLLSsolver has (robust/lm_core.jl).
+public nlls_options, nlls_features
 # The stack's naming checker (ext/VisualGeometryToolkitCoreTestExt; loads with Test): every stack package's
 # quality test runs it on itself; reached qualified.
 public check_naming, NamingViolation, naming_scope
@@ -640,7 +641,7 @@ public _propagate_scalar
 # the covariance block rows, the radial-H centred ray, the correspondence
 # attribute columns, the weights checks and the whitened constraint residual):
 # public, unexported — reached qualified or by explicit import.
-public lm_workspace_type, lmsolve_chart!, lmsolve_rows!, fill_sqrt_weights!, manifold_parts,
+public lm_workspace_type, lmsolve_chart!, fill_sqrt_weights!, manifold_parts,
     kabsch_stationarity, chordal_mean_stationarity, rescale_radial_coeff, pnp_pixel_whitening,
     block_rows, radial_ray, attrs_of, attribute_column, cd_pair, sigma_max, check_weights,
     weights_column, sq_norm, whitened_constraint_residual, whitened_distance, zero_sample!
@@ -739,7 +740,7 @@ include("base/manifold.jl")      # the Manifold CONTRACT (retraction + covarianc
 # FileCache moved to VisualGeometryToolkitFeatures
 
 # Robust estimation core: losses, the shared RANSAC/LO interfaces, the generic
-# block-coordinate-descent loop, the chart-rows contract and the chart LM (FastLevenbergMarquardt).
+# block-coordinate-descent loop, the chart-rows contract and the chart LM (NLLSsolver).
 # NOTE: No dependencies on other VisualGeometryToolkitCore modules.
 # The RANSAC engine and the model problems live in VisualGeometryToolkitEstimation.jl.
 include("robust/losses.jl")       # unified robust-loss family + GR-lift facet (LOSSES.md)
@@ -747,7 +748,7 @@ include("robust/width_axes.jl")   # WidthAxis tags + to_native(::LossWidth) (use
 include("robust/estimation.jl")   # shared RANSAC/LO interface hierarchy (types + contracts only)
 include("robust/block_coordinate_descent.jl") # generic loop (block_coordinate_descent! + extension verbs; hoisted from RVG)
 include("robust/rows.jl")         # the chart-rows contract + RowsWorkspace + task_buffers
-include("robust/lm_core.jl")      # the chart LM: FastLevenbergMarquardt `lmsolve!` on the row protocol (ManifoldLmWorkspace)
+include("robust/lm_core.jl")      # the chart LM: NLLSsolver on the row protocol (ManifoldLmWorkspace)
 # The contracts the RANSAC framework composes through (K+): the constraint-problem
 # protocol, the robust-statistics toolkit (scale, the Student-t + uniform mixture,
 # the posterior-weight state), the scoring contract with the baseline scorers,

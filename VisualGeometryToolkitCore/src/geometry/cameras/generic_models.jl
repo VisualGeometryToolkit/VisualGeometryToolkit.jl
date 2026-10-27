@@ -20,7 +20,7 @@
 # small Levenberg–Marquardt in PIXEL space (two unknowns, bounded by the
 # calibrated area), minimizing the direction mismatch (central) or the
 # tangent-plane point-to-line residual (noncentral). The residuals and the
-# bounds mirror the C++; the LM is FastLevenbergMarquardt's static `lmsolve`
+# bounds mirror the C++; the LM is a device-safe two-unknown bounded LM
 # (`_pixel_lm`), one solve for both models; the unprojection Jacobians the
 # reference generates as C code are obtained here by ForwardDiff through the
 # same scalar spline window — identical totals.
@@ -927,22 +927,118 @@ function _central_project(
     return _pixel_lm(res, jac, x0, y0, minx, miny, maxx, maxy, maxiter, tol2)
 end
 
-# THE pixel-space Levenberg–Marquardt of the generic models:
-# FastLevenbergMarquardt's static `lmsolve` on `res(p, _)` and its Jacobian
-# `jac(p, _)` from (x0, y0), the pixel bounded to `[min, max + 0.999]` (FLM's
-# box bounds: a step is clipped at the bound), for at most `maxiter` LM
-# iterations; converged means a final cost below `tol2`. Device-safe — static
-# arrays only, no allocation, no Union return — so the batched kernel runs it
-# per ray.
+# THE pixel-space Levenberg–Marquardt of the generic models: two unknowns,
+# `res(p, _)` and its Jacobian `jac(p, _)` from (x0, y0), the pixel bounded to
+# `[min, max + 0.999]` (a step is clipped at the bound), for at most `maxiter`
+# LM iterations; converged means a final cost below `tol2`. Device-safe —
+# static arrays only, no allocation, no Union return — so the batched kernel
+# runs it per ray, which is why it is not the stack's LM driver (NLLSsolver
+# builds heap problems and cannot run in a KernelAbstractions kernel). It is
+# FastLevenbergMarquardt 0.1's static bounded `lmsolve` (MIT), the routine this
+# function called until FastLevenbergMarquardt left the stack (2026-10-27),
+# restated for N = 2 with its defaults and every floating-point operation in
+# its order — Marquardt's damping (λ₀ = 1e-6, ×1/13 on ρ > 0.75, ×3 on
+# ρ < 1e-3 or a rejected step, clamped to [1e-28, 1e32]), the running-maximum
+# DᵀD clamped to [1e-12, 1e16], its unrolled 2 × 2 Cholesky, the ftol = gtol =
+# eps and xtol = 1e-10 stops — so a projection is the same to the bit.
 @inline function _pixel_lm(
         res::R, jac::J, x0, y0, minx::Float64, miny::Float64, maxx::Float64, maxy::Float64,
         maxiter::Int, tol2::Float64
     ) where {R, J}
-    p, cost, _ = FLM.lmsolve(
-        res, jac, SVector(Float64(x0), Float64(y0)), nothing,
-        SVector(minx, miny), SVector(maxx + 0.999, maxy + 0.999); maxit = maxiter
-    )
-    return p, cost < tol2
+    ϵ = eps(Float64)
+    ϵx = 1.0e-10
+    λ = 1.0e-6
+    lb = SVector(minx, miny)
+    ub = SVector(maxx + 0.999, maxy + 0.999)
+    x = min.(max.(SVector(Float64(x0), Float64(y0)), lb), ub)
+    f = res(x, nothing)
+    F = sum(abs2, f)
+    F < ϵ && return x, F < tol2
+    Jx = jac(x, nothing)
+    g = Jx' * f
+    norm(g, Inf) < ϵ && return x, F < tol2
+    JtJ = Jx' * Jx
+    DtD = clamp.(diag(JtJ), 1.0e-12, Inf)
+    iter = 0
+    while iter < maxiter
+        iter += 1
+        accepted = false
+        ac = 0.0
+        pr = 0.0
+        ρ = 0.0
+        xk = x
+        fk = f
+        Fk = F
+        p, info = _pixel_lm_increment(JtJ, λ, DtD, g)
+        # a step clipped to zero by either bound is rejected, as a failed solve is
+        clipped = false
+        if info == 0
+            p = min.(x .- lb, p)
+            clipped = all(iszero, p)
+            if !clipped
+                p = max.(x .- ub, p)
+                clipped = all(iszero, p)
+            end
+        end
+        if info == 0 && !clipped
+            xk = x .- p
+            fk = res(xk, nothing)
+            Fk = sum(abs2, fk)
+            if Fk < F
+                ac = F - Fk
+                pr = dot(p, (@. λ * DtD * p + g))
+                ρ = ac / pr
+                accepted = true
+            end
+            if all(>(0), (@. abs(p) < ϵx * (ϵx + abs(x))))
+                if accepted
+                    x, f, F = xk, fk, Fk
+                end
+                break
+            end
+        end
+        if accepted
+            x = xk
+            f = fk
+            Fold = F
+            F = Fk
+            # FLM's ftol test reads its swapped buffers: `Fk` is then the old F
+            abs(ac) < ϵ * Fold && pr < ϵ * Fold && ρ < 2 && break
+            Jx = jac(x, nothing)
+            g = Jx' * f
+            norm(g, Inf) < ϵ && break
+            JtJ = Jx' * Jx
+            DtD = clamp.(diag(JtJ), DtD, 1.0e16)
+            if ρ > 0.75
+                λ *= 1 / 13
+            elseif ρ < 1.0e-3
+                λ *= 3
+            end
+        else
+            λ *= 3
+        end
+        λ = clamp(λ, 1.0e-28, 1.0e32)
+    end
+    return x, F < tol2
+end
+
+# FastLevenbergMarquardt's unrolled Cholesky solve of (JᵀJ + λ·DᵀD) p = g at
+# N = 2, its operations in its order; `info` ≠ 0 when a damped diagonal is
+# negative (a rejected step).
+@inline function _pixel_lm_increment(JtJ, λ, DtD, g)
+    x1 = g[1]
+    x2 = g[2]
+    A11 = muladd(λ, DtD[1], JtJ[1, 1])
+    A11 >= zero(A11) || return zero(SVector{2, Float64}), 1
+    A21 = JtJ[2, 1]
+    A22 = muladd(λ, DtD[2], JtJ[2, 2])
+    A22 >= zero(A22) || return zero(SVector{2, Float64}), 2
+    A22 = muladd(-A21, A21 / A11, A22)
+    x2 = muladd(-x1, A21 / A11, x2)
+    x2 /= A22
+    x1 = muladd(-x2, A21, x1)
+    x1 /= A11
+    return SVector(x1, x2), 0
 end
 
 

@@ -44,7 +44,7 @@ public coefficient_names  # a lens leaf type's coefficient names (the stack's le
 
 # Import general Julia packages directly (not through parent)
 using StaticArrays: StaticArrays, SVector, SMatrix, StaticVector, StaticMatrix
-using LinearAlgebra: LinearAlgebra, normalize, cross, norm, det, svd
+using LinearAlgebra: LinearAlgebra, normalize, cross, norm, det, svd, dot, diag
 using Statistics: Statistics   # cov of an Uncertain point (targets.jl, captures.jl)
 using LogExpFunctions: logit, logistic   # DoubleSphere's α chart (lens_chart.jl)
 using Random: Random, randperm
@@ -62,7 +62,6 @@ using Adapt: adapt   # device upload of the grid and rays (generic_models.jl)
 
 # Import from parent module (VisualGeometryToolkitCore-specific types only)
 import KernelAbstractions as KA   # batched generic-model projection kernel
-import FastLevenbergMarquardt as FLM   # the generic models' pixel-space LM (generic_models.jl `_pixel_lm`)
 using ..VisualGeometryToolkitCore: _bilinear_sample, _store, _sample_type   # the one bilinear sampler (warp.jl): the grid remap's dense kernel
 using ..VisualGeometryToolkitCore: _pixel_extent   # a size in pixels, plain or `px` (homography_solvers.jl)
 using ..VisualGeometryToolkitCore: _pushforward, _pullback   # the constant-Jacobian transport laws (propagate_framed.jl)

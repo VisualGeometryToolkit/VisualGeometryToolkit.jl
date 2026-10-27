@@ -1,86 +1,129 @@
 # =============================================================================
-# lm_core.jl — the stack's Levenberg–Marquardt: FastLevenbergMarquardt's
-# in-place `lmsolve!` on the chart-LM row protocol.
+# lm_core.jl — the stack's Levenberg–Marquardt: NLLSsolver on the chart-LM row
+# protocol.
 #
-# Every nonlinear least-squares refit of the stack runs FastLevenbergMarquardt
-# (FLM) `lmsolve!` on the √w-weighted rows of one linearization state —
-# `residual_rows!` / `residual_jacobian_rows!` below — through ONE call site,
-# `lmsolve_rows!`. The chart LM `lmsolve_chart!` is its static-N form: the
-# iterate is the N-dimensional chart update x, started at zero (a chart is
+# Every nonlinear least-squares fit of the stack runs NLLSsolver. A refit on a
+# chart — the √w-weighted rows of one linearization state, `residual_rows!` /
+# `residual_jacobian_rows!` below — runs through ONE adapter, `lmsolve_chart!`:
+# the iterate is the N-dimensional chart update x, started at zero (a chart is
 # local, centred at the base model) and returned as an `SVector{N}`; the chart
 # is fixed for the run and the caller re-centres it once, at the solution.
 # VisualGeometryToolkitEstimation's LO refits (H: N = 8, F: 7, E: 5, PnP and hand-eye: 6,
-# the radial homography: 9, the radial camera: 5) and its `fit_lens` run the
-# chart LM; its relative-pose bundle runs `lmsolve_rows!` with its own
-# Schur-complement solver. A step-size stop is checked for stationarity before
-# it is called converged (`_lm_stationary`; retcode `:stalled` otherwise) —
-# the same postcondition `is_stationary` states for a block-structured solver
-# (Estimation's `refine_robot_world_hand_eye`, on NLLSsolver).
+# the radial homography: 9, the radial camera: 5), its `fit_lens` and its
+# `refine_ellipse` run the chart LM; its block-structured fits (the
+# relative-pose bundle, `refine_robot_world_hand_eye`) build their own
+# NLLSsolver problems and share the adapter's knob map (`nlls_options`) and
+# stop decoding (`nlls_retcode`, the stall postcondition `is_stationary`).
 #
-# The buffers — FLM's `LMWorkspace` around an `MVector{N}` iterate, and its
-# Cholesky solver — live in a `ManifoldLmWorkspace` allocated once per (task,
-# size), so a refit allocates nothing (a fresh residual vector + n×N Jacobian
-# per LM iteration was ~1.1 MB of GC pressure per `locally_optimize` call).
+# The adapter presents a linearization state as an NLLSsolver problem: one
+# variable, the chart vector (an `SVector{N}`, NLLSsolver's `EuclideanVector`),
+# and one residual block of all the rows, whose cost, gradient and Gauss–Newton
+# Hessian it supplies through NLLSsolver's `computecostgradhess` hook as static
+# arrays (Jᵀr and JᵀJ accumulated in one sweep over the rows: measured
+# 2026-10-27 on 317 captured E refits, 0.84× FastLevenbergMarquardt's time to
+# convergence, against 0.97× with NLLSsolver forming JᵀJ itself). The problem
+# is built once per (workspace, linearization-state type) and kept in the
+# workspace with NLLSsolver's `OptimizeCache`, so a refit reuses the problem
+# and the solver's internal data.
+#
+# The fork's additions (github.com/prittjam/NLLSsolver.jl, branch `stack`:
+# upstream pull requests #60–#63 and the static retained blocks) are DETECTED,
+# never assumed: `OptimizeCache` here, the Schur-complement linear system in
+# VisualGeometryToolkitEstimation's bundle (`nlls_features`). On the registered
+# NLLSsolver every fit takes the upstream path — the same results, slower.
 # =============================================================================
 
-# The chart LM's normal-equation solver at N unknowns. Up to N = 12 FLM solves
-# with its unrolled static Cholesky on an `MMatrix` (its `CholeskySolver`
-# limit); above, an `MMatrix` would take StaticArrays' generic factorization —
-# compiled per N, allocating past N = 24 — so the solver is a `Matrix` and FLM
-# factors it with LAPACK. Measured 2026-10-01 on `refine_robot_world_hand_eye`'s LM
-# (median per solve, MVector iterate; MMatrix vs Matrix solver):
-#   N = 12: 1.80 vs 1.72 ms, both 0 allocations
-#   N = 18: 3.70 ms + 105 allocations vs 3.81 ms, 0
-#   N = 24: 5.88 ms + 111 allocations vs 5.69 ms, 0   (first call 2.6 vs 0.3 s)
-#   N = 30: 8.83 ms + 252 allocations (431 KB) vs 8.67 ms, 0   (first call 5.5 vs 0.3 s)
-# and at the LO sizes the MMatrix is the faster (PnP N = 6, n = 500: 159 vs
-# 175 µs; E N = 5, n = 1000: 855 vs 939 µs).
-const _LM_STATIC_SOLVE_MAX = 12
-_lm_solver_type(::Val{N}) where {N} =
-    N <= _LM_STATIC_SOLVE_MAX ? FLM.CholeskySolver{MMatrix{N, N, Float64, N * N}} : FLM.CholeskySolver{Matrix{Float64}}
-_lm_solver(::Val{N}) where {N} =
-    N <= _LM_STATIC_SOLVE_MAX ? FLM.CholeskySolver(zeros(MMatrix{N, N, Float64}), zeros(MMatrix{N, N, Float64})) :
-    FLM.CholeskySolver(N)
+"""
+    nlls_features() -> (; cache::Bool, schur::Bool)
 
-# FLM's workspace around an `MVector{N}` iterate (its p, g, x̃ and D are
-# `similar` to it) with heap residual and Jacobian buffers.
-const _LmBuffers{N} = FLM.LMWorkspace{
-    MVector{N, Float64}, Vector{Float64}, Matrix{Float64},
-    MVector{N, Float64}, MVector{N, Float64}, MVector{N, Float64}, MVector{N, Float64},
-}
+Which of the additions of the stack's NLLSsolver fork the loaded NLLSsolver
+has: `cache`, `NLLSsolver.OptimizeCache` (reuse of a problem's internal data
+across `optimize!` calls; upstream pull request #62); `schur`, the
+Schur-complement linear system for eliminable variables
+(`NLLSsolver.MultiVariateLSschur`, `NLLSsolver.iseliminable`; #60). Every fit
+of the stack is correct without them and uses them when they are there; a
+checkout of the stack pins the fork, a registry install does not (see the
+README's "Recovering the full speed of the LM driver").
+"""
+nlls_features() = (; cache = _NLLS_HAS_CACHE, schur = _NLLS_HAS_SCHUR)
+const _NLLS_HAS_CACHE = isdefined(NLLSsolver, :OptimizeCache)
+const _NLLS_HAS_SCHUR = isdefined(NLLSsolver, :MultiVariateLSschur) && isdefined(NLLSsolver, :iseliminable)
+
+# NLLSsolver's consecutive-failure cap (its default, `maxfails = 3`) and no time
+# cap (NLLSsolver's default is 30 s; 1e6 s never fires, and a fit that hits it
+# would read as an iteration cap).
+const _NLLS_MAXFAILS = 3
+const _NLLS_NO_TIME_CAP = 1.0e6
 
 """
-    ManifoldLmWorkspace{N, S}
+    nlls_options(; max_iter, ftol, xtol, iterator = :levenbergmarquardt_dtd) -> NLLSsolver.NLLSOptions
+
+THE map of the stack's documented LM knobs onto NLLSsolver's options, the one
+place they meet:
+
+| stack knob | meaning | NLLSsolver |
+|---|---|---|
+| `max_iter` (`maxit`) | the LM iteration cap | `maxiters`: outer iterations, one accepted step each (FastLevenbergMarquardt counted rejected trials too) |
+| `ftol` | relative cost tolerance: stop once a step lowers the cost by less than `ftol`·F | `reldcost` |
+| `xtol` | step-size tolerance (FastLevenbergMarquardt's default `1e-10`) | `dstep`: the step's max-norm (chart units) |
+| — | absolute cost decrease | `absdcost = 0`: the stack has no such knob |
+| — | consecutive failed iterations | `maxfails = 3`, NLLSsolver's default |
+| — | time cap | none (1e6 s) |
+| `iterator` | the damping | `:levenbergmarquardt_dtd`, λ·DᵀD with DᵀD the running maximum of diag(JᵀJ) — Marquardt's scaling, which every former FastLevenbergMarquardt fit used — or `:levenbergmarquardt`, λ·I |
+
+Single-threaded (`numthreads = 1`): a fit runs inside the caller's threads.
+FastLevenbergMarquardt's `gtol` (`‖Jᵀf‖∞ < eps`) has no counterpart: a zero
+gradient gives a zero step, which the step test stops and the stall
+postcondition reads as stationary. Its initial damping, `1e-6`, is
+NLLSsolver's λ₀ for `:levenbergmarquardt_dtd`; neither is a stack knob.
+"""
+nlls_options(; max_iter::Integer, ftol::Real, xtol::Real, iterator::Symbol = :levenbergmarquardt_dtd) =
+    _nlls_options(NLLSsolver.static(iterator), max_iter, ftol, xtol)
+# The map itself, on a static iterator: the chart LM calls it per refit with the
+# constant `_DTD`, so the options are inferred and allocate nothing (a runtime
+# Symbol made `static(iterator)` a dynamic call, three allocations per refit).
+@inline _nlls_options(iterator, max_iter::Integer, ftol::Real, xtol::Real) =
+    NLLSsolver.NLLSOptions(
+        Float64(ftol), 0.0, Float64(xtol), _NLLS_MAXFAILS, Int(max_iter), UInt64(round(_NLLS_NO_TIME_CAP * 1.0e9)),
+        iterator, NLLSsolver.static(1)
+    )
+const _DTD = NLLSsolver.static(:levenbergmarquardt_dtd)
+
+"""
+    ManifoldLmWorkspace{N}
     ManifoldLmWorkspace(n, N)
 
 The buffers of the chart LM ([`lmsolve_chart!`](@ref)) at `n` residual rows
 and an `N`-dimensional chart: the per-row √weights the caller's refit fills,
-FastLevenbergMarquardt's `LMWorkspace` (an `MVector{N}` iterate, the residual
-and candidate-residual vectors, the `n × N` Jacobian) and its Cholesky solver
-`S` (static up to N = 12, LAPACK above) — allocated once per problem instead of
-per LM iteration. `N` is the model manifold's tangent size (essential 5,
-fundamental 7, homography 8 in VisualGeometryToolkitEstimation). The residual SEMANTICS
-come entirely from the caller's linearization state — Sampson distance for
-E/F, whitened transfer error for H, calibrated reprojection for P3P — which is
-why the type is named for the manifold, not the distance.
+the residual and `n × N` Jacobian buffers the rows are evaluated into, the
+stall postcondition's scratch, and the NLLSsolver problem the adapter builds
+on first use (and keeps, with NLLSsolver's internal data, for every later
+refit on a linearization state of the same type) — allocated once per problem
+instead of per LM iteration. `N` is the model manifold's tangent size
+(essential 5, fundamental 7, homography 8 in VisualGeometryToolkitEstimation). The
+residual SEMANTICS come entirely from the caller's linearization state —
+Sampson distance for E/F, whitened transfer error for H, calibrated
+reprojection for P3P — which is why the type is named for the manifold, not
+the distance.
 """
-struct ManifoldLmWorkspace{N, S <: FLM.CholeskySolver}
-    sqrtw::Vector{Float64}   # per-row √weights — filled by VisualGeometryToolkitEstimation's LO refits, not read here
-    buffers::_LmBuffers{N}   # FLM's iterate, residual, candidate and Jacobian buffers
-    solver::S                # FLM's normal-equation solver (`_lm_solver`)
+mutable struct ManifoldLmWorkspace{N}
+    const sqrtw::Vector{Float64}   # per-row √weights — filled by VisualGeometryToolkitEstimation's LO refits, not read here
+    const r::Vector{Float64}       # the rows at the iterate
+    const J::Matrix{Float64}       # their n × N Jacobian
+    const g::MVector{N, Float64}   # the stall postcondition's Jᵀr …
+    const w::MVector{N, Float64}   # … and squared column norms
+    run::Any                       # the `_ChartRun` of the last linearization-state type, or `nothing`
 end
 "The per-row √weight buffer of a [`ManifoldLmWorkspace`](@ref), filled by the caller's refit."
 sqrt_weights(ws::ManifoldLmWorkspace) = ws.sqrtw
 
 # The concrete workspace type at N unknowns (a caller that type-asserts a
-# memoized workspace names this, not the partial `ManifoldLmWorkspace{N}`).
-lm_workspace_type(v::Val{N}) where {N} = ManifoldLmWorkspace{N, _lm_solver_type(v)}
+# memoized workspace names this).
+lm_workspace_type(::Val{N}) where {N} = ManifoldLmWorkspace{N}
 
 ManifoldLmWorkspace(n::Integer, N::Integer) = ManifoldLmWorkspace(Int(n), Val(Int(N)))
-function ManifoldLmWorkspace(n::Int, v::Val{N}) where {N}
-    buffers = FLM.LMWorkspace(zeros(MVector{N, Float64}), zeros(n), zeros(n, N))
-    return lm_workspace_type(v)(zeros(n), buffers, _lm_solver(v))
-end
+ManifoldLmWorkspace(n::Int, ::Val{N}) where {N} =
+    ManifoldLmWorkspace{N}(zeros(n), zeros(n), zeros(n, N), zeros(MVector{N, Float64}), zeros(MVector{N, Float64}), nothing)
 
 # =============================================================================
 # The chart-LM protocol — the rows a caller's linearization state fills
@@ -91,7 +134,7 @@ end
     residual_jacobian_rows!(J, lm, θ) -> J
 
 THE CHART-LM PROTOCOL — one pair for every model: the residual and Jacobian
-rows FastLevenbergMarquardt minimizes in [`lmsolve_rows!`](@ref).
+rows the chart LM, NLLSsolver, minimizes in [`lmsolve_chart!`](@ref).
 
 `lm` is the per-call LINEARIZATION STATE a refit builds once: the anchor the
 chart is centred on, the whitening frozen there, the data views and the
@@ -142,97 +185,212 @@ residual_jacobian_rows!(J, lm, θ) =
 end
 
 # =============================================================================
-# The LM run — FastLevenbergMarquardt's `lmsolve!` on a linearization state
+# The adapter — a linearization state as an NLLSsolver problem
 # =============================================================================
 
-# FLM's callbacks are `fun!(f, x, data)` / `jac!(J, x, data)`; the protocol's
-# are `residual_rows!(r, lm, θ)` / `residual_jacobian_rows!(J, lm, θ)`. A static
-# iterate reaches the rows as an `SVector` (FLM's is an `MVector` it mutates).
-_flm_rows!(f, x, lm) = residual_rows!(f, lm, _flm_point(x))
-_flm_jacobian!(J, x, lm) = residual_jacobian_rows!(J, lm, _flm_point(x))
-@inline _flm_point(x::StaticVector) = SVector(x)
-@inline _flm_point(x) = x
+# The linearization state of the current refit: the problem's one residual
+# block reads it, and each refit replaces it (the problem itself is kept).
+mutable struct _ChartState{L}
+    lm::L
+end
 
-"""
-    lmsolve_rows!(buffers::FastLevenbergMarquardt.LMWorkspace, solver, lm; stationarity_tol, kw...)
-        -> (x, F, converged, iterations)
+# The one residual block: every row of the state at the chart vector x,
+# evaluated into the workspace's buffers.
+struct _ChartRows{N, L} <: NLLSsolver.AbstractResidual
+    state::_ChartState{L}
+    r::Vector{Float64}
+    J::Matrix{Float64}
+end
+NLLSsolver.ndeps(::_ChartRows) = NLLSsolver.static(1)
+NLLSsolver.nres(c::_ChartRows) = length(c.r)
+NLLSsolver.varindices(::_ChartRows) = SVector(1)
+NLLSsolver.getvars(::_ChartRows{N}, vars::Vector) where {N} = (vars[1]::SVector{N, Float64},)
+Base.eltype(::_ChartRows) = Float64
+NLLSsolver.computeresidual(c::_ChartRows, x) = residual_rows!(c.r, c.state.lm, x)
 
-THE stack's LM run: FastLevenbergMarquardt's in-place `lmsolve!` minimizing
-`‖r(x)‖²` with `r` the [`residual_rows!`](@ref) of the linearization state `lm`
-and its Jacobian [`residual_jacobian_rows!`](@ref), from `buffers.x`, with
-FLM's normal-equation `solver` (a `CholeskySolver`, or a caller's
-`FastLevenbergMarquardt.AbstractSolver`). `stationarity_tol` is the stall
-postcondition's tolerance (`_lm_stationary`) — required: the caller's
-configuration owns it. The other keywords are FLM's (`maxit`, `ftol`, `xtol`,
-`gtol`, …; FLM's defaults). `x` IS `buffers.x`, overwritten by the next run on
-these buffers; `converged` is FLM's code, or `_LM_STALLED` when the
-postcondition fails ([`lm_retcode`](@ref) reads either), and `iterations` its
-LM iteration count (accepted and rejected steps alike; 0 when the start
-already meets a tolerance).
-
-THE STALL POSTCONDITION. FLM's step-size stop does not prove convergence: in
-FLM 0.1.0 its test runs on REJECTED steps too, so a run whose damping grew
-until no step could reduce the cost (a wrong-sign Jacobian; a NaN wall the
-minimizer lies behind) stops with code `2` at a non-stationary point, and the
-upstream fix (FastLevenbergMarquardt.jl issue #4 / PR #5) reports that case as
-code `4`. So when the code is `2` or `4` — and only then, the one extra
-Jacobian evaluation is paid by those runs alone — stationarity is TESTED at
-the returned `x` (`_lm_stationary`, with FLM's `ftol`).
-"""
-function lmsolve_rows!(buffers::FLM.LMWorkspace, solver, lm; stationarity_tol::Real, kw...)
-    x, F, converged, iterations, _, _ = FLM.lmsolve!(_flm_rows!, _flm_jacobian!, buffers, lm; solver, kw...)
-    if converged == 2 || converged == 4
-        ftol = get(kw, :ftol, eps(eltype(buffers.x)))     # FLM's own default
-        _lm_stationary(buffers, lm, stationarity_tol, ftol) || (converged = _LM_STALLED)
+# The cost ½‖r‖², the one sum both callbacks below take (same order, so the
+# cost NLLSsolver reads at a trial point and at a linearization agree to the
+# bit). A non-finite cost is +Inf: a candidate step whose rows are NaN (a step
+# past a NaN or discontinuity wall — the radial-camera, radial-homography and
+# lens rows have them) is a REJECTED step, as it was for FastLevenbergMarquardt,
+# which compared F(x + p) < F(x); NLLSsolver accepts any trial whose cost is
+# not greater than the best, which NaN is not, and would stop there.
+@inline _finite_cost(c::Float64) = isfinite(c) ? c : Inf
+function NLLSsolver.computecost(c::_ChartRows, x)
+    r = residual_rows!(c.r, c.state.lm, x)
+    s = 0.0
+    @inbounds for i in eachindex(r)
+        s += r[i] * r[i]
     end
-    return x, F, converged, iterations
+    return _finite_cost(0.5 * s)
+end
+
+# The cost, the gradient Jᵀr and the Gauss–Newton Hessian JᵀJ in one sweep over
+# the rows, as static arrays: NLLSsolver's own `jac' * jac` on a dynamic n × N
+# Jacobian was the one NLLSsolver-specific cost of a refit (10% of its
+# samples), and this layout is the measured 0.84× (lm_core.jl header).
+function NLLSsolver.computecostgradhess(_varflags, c::_ChartRows{N}, x) where {N}
+    lm = c.state.lm
+    r = residual_rows!(c.r, lm, x)
+    J = residual_jacobian_rows!(c.J, lm, x)
+    g = zero(MVector{N, Float64})
+    H = zero(MMatrix{N, N, Float64})
+    s = 0.0
+    @inbounds for i in eachindex(r)
+        ri = r[i]
+        s += ri * ri
+        for a in 1:N
+            Jia = J[i, a]
+            g[a] += Jia * ri
+            for b in 1:a
+                H[a, b] += Jia * J[i, b]
+            end
+        end
+    end
+    @inbounds for a in 1:N, b in (a + 1):N
+        H[a, b] = H[b, a]
+    end
+    return _finite_cost(0.5 * s), SVector(g), SMatrix(H)
+end
+
+const _NllsCache = _NLLS_HAS_CACHE ? NLLSsolver.OptimizeCache : Nothing
+_nlls_cache() = _NLLS_HAS_CACHE ? NLLSsolver.OptimizeCache() : nothing
+
+# The kept NLLSsolver problem of one linearization-state type, its state slot
+# and its internal-data cache.
+struct _ChartRun{N, L}
+    state::_ChartState{L}
+    problem::NLLSsolver.NLLSProblem{SVector{N, Float64}, _ChartRows{N, L}}
+    cache::_NllsCache
+end
+function _ChartRun(ews::ManifoldLmWorkspace{N}, lm::L) where {N, L}
+    state = _ChartState{L}(lm)
+    problem = NLLSsolver.NLLSProblem(SVector{N, Float64}, _ChartRows{N, L})
+    NLLSsolver.addvariable!(problem, zero(SVector{N, Float64}))
+    NLLSsolver.addcost!(problem, _ChartRows{N, L}(state, ews.r, ews.J))
+    return _ChartRun{N, L}(state, problem, _nlls_cache())
+end
+
+# The workspace's run for this state type: the kept one, or a new one kept in
+# its place (a workspace serves one state type at a time; the LO's never
+# changes type).
+@inline function _chart_run(ews::ManifoldLmWorkspace{N}, lm::L) where {N, L}
+    run = ews.run
+    run isa _ChartRun{N, L} && return run
+    new = _ChartRun(ews, lm)
+    ews.run = new
+    return new
+end
+
+# =============================================================================
+# The chart LM — NLLSsolver on a linearization state, and its stop codes
+# =============================================================================
+
+# The chart LM's stop code from NLLSsolver's termination bits (`nlls_retcode`
+# lists them), in the codes FastLevenbergMarquardt used and `lm_retcode`
+# reads: a relative or absolute cost-decrease stop (bits 2, 3) is `1`, the
+# analogue of FLM's ftol stop, converged; a step-size stop (6) is `2`, FLM's
+# xtol stop; the iteration or time cap (8, 9) is `-1`; every other stop — a
+# non-finite cost or step (0, 1, 4, 5), the consecutive-failure cap (7), a
+# cost disagreement (10) — is `4`, a stop without a tolerance. A tolerance
+# stop outranks a cap, as in FLM's loop (it tested its tolerances first). `2`
+# and `4` prove nothing: the stall postcondition decides them.
+function _lm_code(bits::Integer)
+    bits & ((1 << 2) | (1 << 3)) != 0 && return 1
+    bits & (1 << 6) != 0 && return 2
+    bits & ((1 << 8) | (1 << 9)) != 0 && return -1
+    return 4
 end
 
 """
     _LM_STALLED
 
-The code [`lmsolve_rows!`](@ref) returns in place of FastLevenbergMarquardt's
-step-size stop (`2`, or upstream's `4`) when the returned point fails the
-stationarity test: `-2`, outside FLM's codes (`1`–`4`, `-1`).
-[`lm_retcode`](@ref) maps it to `:stalled`.
+The code [`lmsolve_chart!`](@ref) returns in place of a step-size or
+tolerance-free stop (`2`, `4`) when the returned point fails the stationarity
+test: `-2`. [`lm_retcode`](@ref) maps it to `:stalled`.
 """
 const _LM_STALLED = -2
 
 """
-    _lm_stationary(buffers::FastLevenbergMarquardt.LMWorkspace, lm, tol, ftol) -> Bool
+    lmsolve_chart!(ews::ManifoldLmWorkspace{N}, lm; maxit = 1000, ftol = eps(), xtol = 1e-10, stationarity_tol, cache = true)
+        -> (x::SVector{N}, F, converged, iterations)
 
-Whether `buffers.x` is a stationary point of `F = ‖r(x)‖²`. Two ways it is:
+THE chart LM: NLLSsolver's Levenberg–Marquardt (Marquardt's DᵀD damping)
+minimizing `‖r(x)‖²`, with `r` the [`residual_rows!`](@ref) of the
+linearization state `lm` and its Jacobian [`residual_jacobian_rows!`](@ref),
+from the chart origin `x = 0`. `x` is the solution chart vector, `F` the final
+cost `‖r(x)‖²`, [`lm_retcode`](@ref)`(converged)` the estimator's retcode and
+`iterations` NLLSsolver's iteration count (one accepted step each; 0 never: a
+start at a stationary point takes one zero step).
 
-1. `F < ftol` — the cost is ZERO by FastLevenbergMarquardt's own test (its
-   early exit: a run started there stops at once with code `1`). A zero-
-   residual fit ends with `f` at its rounding floor, which points in no
+`maxit`, `ftol` and `xtol` are the stack's LM knobs, mapped once by
+[`nlls_options`](@ref); their defaults are FastLevenbergMarquardt's, which the
+stack documented its configurations against. `stationarity_tol` is the stall
+postcondition's tolerance — required: the caller's configuration owns it.
+`cache = false` takes the upstream path where the fork's `OptimizeCache` is
+loaded (`nlls_features`; the fallback test runs it): the same iterates, the
+solver's internal data rebuilt per call.
+
+THE STALL POSTCONDITION. A stop on the step size (`2`) or without a tolerance
+(`4`) does not prove convergence: a run whose damping grew until no step could
+reduce the cost (a wrong-sign Jacobian; a NaN wall the minimizer lies behind)
+stops there, at a non-stationary point. So for those stops — and only those,
+the extra Jacobian evaluation is paid by them alone — stationarity is TESTED
+at the returned `x` (`_lm_stationary`, with `ftol` as the exact-fit test),
+and `converged` is `_LM_STALLED` when it fails. A cost-decrease stop (`1`) is
+converged, as FastLevenbergMarquardt's ftol stop was.
+"""
+function lmsolve_chart!(
+        ews::ManifoldLmWorkspace{N}, lm; maxit::Integer = 1000, ftol::Real = eps(Float64), xtol::Real = 1.0e-10,
+        stationarity_tol::Real, cache::Bool = true
+    ) where {N}
+    run = _chart_run(ews, lm)
+    run.state.lm = lm
+    problem = run.problem
+    problem.variables[1] = zero(SVector{N, Float64})
+    options = _nlls_options(_DTD, maxit, ftol, xtol)
+    c = run.cache
+    result = if cache && c !== nothing
+        NLLSsolver.optimize!(problem, options, 1, NLLSsolver.nullcallback, c)
+    else
+        NLLSsolver.optimize!(problem, options, 1)
+    end
+    x = problem.variables[1]
+    F = 2 * result.bestcost
+    converged = _lm_code(result.termination)
+    if converged == 2 || converged == 4
+        _lm_stationary(ews, lm, x, stationarity_tol, ftol) || (converged = _LM_STALLED)
+    end
+    return x, F, converged, result.niterations
+end
+
+"""
+    _lm_stationary(ews::ManifoldLmWorkspace, lm, x, tol, ftol) -> Bool
+
+Whether `x` is a stationary point of `F = ‖r(x)‖²`. Two ways it is:
+
+1. `F < ftol` — the cost is ZERO by the cost tolerance's own scale. A zero-
+   residual fit ends with `r` at its rounding floor, which points in no
    particular direction, so the cosine below says nothing there: measured
    2026-10-01, exact fits (robot-world, lens, relative-pose, essential) ended
    at `F ≤ 4e-23` with cosines up to 0.62.
 2. Every column `Jⱼ` of the Jacobian is (numerically) orthogonal to the
-   residual `f`:
+   residual `r`:
 
-       max_j |Jⱼᵀ f| / (‖Jⱼ‖ ‖f‖) ≤ tol,
+       max_j |Jⱼᵀ r| / (‖Jⱼ‖ ‖r‖) ≤ tol,
 
    a cosine — invariant to the scale of the residuals and of each unknown, so
    one `tol` serves every problem. An all-zero column (an unknown no row
    depends on) is skipped; a NaN anywhere fails.
 
-It evaluates `J` at `x` once, into `buffers.J`, and uses FLM's own scratch
-(`buffers.g` for `Jᵀf`, `buffers.w` for the column norms) with the two
-operations FLM itself applies to `J` (`mul!(g, J', f)`, `sum!(abs2, w', J)`),
-so it is allocation-free for every Jacobian representation FLM accepts
-(dense, sparse, static). `buffers.f` is FLM's residual at `x` (its documented
-guarantee).
+It evaluates `r` and `J` at `x` once, into the workspace's buffers, and the
+cosine on the workspace's scratch: allocation-free.
 """
-_lm_stationary(buffers::FLM.LMWorkspace, lm, tol::Real, ftol::Real) =
-    sum(abs2, buffers.f) < ftol || _lm_residual_cosine(buffers, lm) <= tol
-
-# The left side of test 2 at `buffers.x`: the Jacobian evaluated there once,
-# the cosine on FLM's own scratch.
-function _lm_residual_cosine(buffers::FLM.LMWorkspace, lm)
-    J = _flm_jacobian!(buffers.J, buffers.x, lm)
-    return _residual_cosine!(buffers.g, buffers.w, J, buffers.f)
+function _lm_stationary(ews::ManifoldLmWorkspace, lm, x, tol::Real, ftol::Real)
+    r = residual_rows!(ews.r, lm, x)
+    sum(abs2, r) < ftol && return true
+    J = residual_jacobian_rows!(ews.J, lm, x)
+    return _residual_cosine!(ews.g, ews.w, J, r) <= tol
 end
 
 # max_j |Jⱼᵀ f| / (‖Jⱼ‖ ‖f‖), with `g` and `w` scratch of length size(J, 2)
@@ -254,15 +412,15 @@ end
 """
     is_stationary(J::AbstractMatrix, f::AbstractVector; tol, ftol) -> Bool
 
-The stall postcondition of [`lmsolve_rows!`](@ref) for a solver other than
-FastLevenbergMarquardt: whether the point at which the residual `f` and its
-Jacobian `J` were evaluated is a stationary point of `F = ‖f‖²` —
-`F < ftol` (an exact fit, whose residual points in no particular direction),
-or every column `Jⱼ` numerically orthogonal to `f`,
-`max_j |Jⱼᵀ f| / (‖Jⱼ‖ ‖f‖) ≤ tol` (scale-invariant in the residuals and in
-each unknown; an all-zero column is skipped, a NaN fails). A refit whose
-solver stopped without this holding stopped where its damping grew, not at a
-minimizer: its retcode is `:stalled`.
+The stall postcondition of [`lmsolve_chart!`](@ref) for a fit the chart LM
+does not run (a block-structured NLLSsolver problem, [`nlls_retcode`](@ref)):
+whether the point at which the residual `f` and its Jacobian `J` were
+evaluated is a stationary point of `F = ‖f‖²` — `F < ftol` (an exact fit,
+whose residual points in no particular direction), or every column `Jⱼ`
+numerically orthogonal to `f`, `max_j |Jⱼᵀ f| / (‖Jⱼ‖ ‖f‖) ≤ tol`
+(scale-invariant in the residuals and in each unknown; an all-zero column is
+skipped, a NaN fails). A fit whose solver stopped without this holding stopped
+where its damping grew, not at a minimizer: its retcode is `:stalled`.
 """
 function is_stationary(J::AbstractMatrix, f::AbstractVector; tol::Real, ftol::Real)
     sum(abs2, f) < ftol && return true
@@ -271,32 +429,16 @@ function is_stationary(J::AbstractMatrix, f::AbstractVector; tol::Real, ftol::Re
 end
 
 """
-    lmsolve_chart!(ews::ManifoldLmWorkspace{N}, lm; kw...) -> (x::SVector{N}, F, converged, iterations)
-
-The chart LM: [`lmsolve_rows!`](@ref) on the linearization state `lm` in the
-workspace's buffers, from the chart origin `x = 0`. `x` is the solution chart
-vector (a copy — the buffers are reused), `F` the final cost `‖r(x)‖²`,
-[`lm_retcode`](@ref)`(converged)` the estimator's retcode and `iterations` the
-LM iteration count. Keywords are `lmsolve_rows!`'s: the required
-`stationarity_tol` and FastLevenbergMarquardt's (`maxit`, …).
-"""
-function lmsolve_chart!(ews::ManifoldLmWorkspace{N}, lm; kw...) where {N}
-    fill!(ews.buffers.x, 0.0)
-    x, F, converged, iterations = lmsolve_rows!(ews.buffers, ews.solver, lm; kw...)
-    return SVector{N, Float64}(x), F, converged, iterations
-end
-
-"""
     lm_retcode(converged::Int) -> Symbol
 
-The retcode of an LM refit from the code [`lmsolve_rows!`](@ref) returns:
-`:max_iterations` when it stopped at `maxit` (FastLevenbergMarquardt's `-1`);
-`:stalled` when FLM stopped on its step size at a point that is NOT stationary
-(`_LM_STALLED`: the damping grew until no step reduced the cost — the
-estimate is wherever the run stopped, not a minimizer); `:converged` for FLM's
-tolerance stops (`1` ftol: actual and predicted reductions below it; `3` gtol:
-the gradient below it; `2` xtol and upstream's `4`, a step below it, once the
-stationarity postcondition holds).
+The retcode of a chart-LM refit from the code [`lmsolve_chart!`](@ref)
+returns: `:max_iterations` when it stopped at `maxit` (`-1`); `:stalled` when
+it stopped on its step size, or without a tolerance, at a point that is NOT
+stationary (`_LM_STALLED`: the damping grew until no step reduced the cost —
+the estimate is wherever the run stopped, not a minimizer); `:converged` for
+the tolerance stops (`1` a cost decrease below ftol·F; `2` a step below xtol
+and `4` a stop without a tolerance, once the stationarity postcondition
+holds).
 """
 lm_retcode(converged::Int) =
     converged == -1 ? :max_iterations : converged == _LM_STALLED ? :stalled : :converged
@@ -320,8 +462,8 @@ Every other stop — a small cost decrease (2, 3) or step (6), the
 consecutive-failure cap (7), the callback (16) — does not prove convergence:
 the stall postcondition does, so it is `:converged` when
 [`is_stationary`](@ref)`(J, r; tol, ftol)` holds and `:stalled` otherwise — the
-same postcondition [`lm_retcode`](@ref) applies to FastLevenbergMarquardt's
-stops.
+same postcondition the chart LM applies to its step-size stops
+([`lm_retcode`](@ref)).
 """
 function nlls_retcode(result::NLLSsolver.NLLSResult, J::AbstractMatrix, r::AbstractVector; tol::Real, ftol::Real)
     bits = result.termination

@@ -61,7 +61,7 @@ include("robust/width_axes.jl")     # WidthAxis tags, width_axis ⇄ width_axis_
 include("robust/estimation.jl")     # RANSAC/LO interface hierarchy (types + contracts)
 include("robust/block_coordinate_descent.jl") # block_coordinate_descent! + extension verbs
 include("robust/rows.jl")           # the chart-rows contract (rows_provider, lift_* verbs), RowsWorkspace, task_buffers
-include("robust/lm_core.jl")        # the chart LM: FastLevenbergMarquardt lmsolve! (ManifoldLmWorkspace)
+include("robust/lm_core.jl")        # the chart LM: NLLSsolver on the row protocol (ManifoldLmWorkspace)
 include("robust/problem.jl")          # the constraint-problem protocol (residuals!, refine!)
 include("robust/scale.jl")            # IGPrior, fit_scale, the consensus Student-t scale
 include("robust/mixture.jl")          # StudentTMixture, GauInlier, decision_threshold

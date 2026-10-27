@@ -304,7 +304,7 @@ filesystem) and builds and verifies the files there; then, unless a
 `dry_run`, each is put at its `out` by one `rename`, in the order given —
 atomic on POSIX, so an original at `out` is untouched until its rename, and
 nothing is moved across filesystems. The destinations share one directory,
-created if missing. A dry run stages in a temporary directory and puts
+created if missing (an `ArgumentError` otherwise, before anything is written). A dry run stages in a temporary directory and puts
 nothing anywhere. The staging directory goes when this returns, whatever
 happened. On a failure — `f` throws, or a rename does — the destinations are
 left as they were: a destination that did not exist and was already renamed
@@ -313,6 +313,11 @@ stays so), and a directory this call created for them is removed.
 """
 function write_staged(f, outs::Pair{<:AbstractString, <:AbstractString}...; dry_run::Bool)
     dir = dirname(abspath(first(first(outs))))
+    for (out, _) in outs
+        dirname(abspath(out)) == dir || throw(
+            ArgumentError("write_staged: the destinations share one directory (the staging is beside them, each put by one rename); $(out) is not in $(dir)")
+        )
+    end
     created = dry_run ? nothing : _first_missing_dir(dir)   # the outermost directory mkpath creates, if any
     dry_run || mkpath(dir)
     fresh = [!ispath(abspath(out)) for (out, _) in outs]

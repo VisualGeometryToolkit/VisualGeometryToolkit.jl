@@ -386,5 +386,18 @@ end
             write(sc, "C"); write(sd, "D")
         end
         @test !ispath(joinpath(out2, "c.txt")) && isdir(blocker) && isempty(staging(out2))
+        # destinations in two directories: refused before anything is staged or written
+        other = mkpath(joinpath(dir, "other"))
+        called = Ref(false)
+        e = try
+            write_staged(joinpath(out2, "e.txt") => "e.txt", joinpath(other, "f.txt") => "f.txt"; dry_run = false) do se, sf
+                called[] = true; write(se, "E"); write(sf, "F")
+            end
+            nothing
+        catch e
+            e
+        end
+        @test e isa ArgumentError && occursin("one directory", e.msg) && !called[]
+        @test !ispath(joinpath(out2, "e.txt")) && isempty(readdir(other)) && isempty(staging(out2))
     end
 end

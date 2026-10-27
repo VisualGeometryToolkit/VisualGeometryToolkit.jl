@@ -402,7 +402,8 @@ function _target_manifold(t::PlanarTarget, fixed_gauges::Vector{Symbol}, fixed::
     names = parameter_names(c)
     n = length(names)
     free_axes = [i for i in 1:n if !(names[i] in fixed)]
-    E = Matrix{Float64}(LinearAlgebra.I, n, n)[:, free_axes]
+    E = zeros(n, length(free_axes))                                    # the free parameter axes
+    foreach(((j, i),) -> E[i, j] = 1.0, enumerate(free_axes))
     B = if isempty(fixed_gauges) || isempty(free_axes)
         E
     else
@@ -445,7 +446,23 @@ retract(ch::TargetManifold, v) = with_parameters(ch.target, parameter_vector(ch.
 recenter(ch::TargetManifold, v) = TargetManifold(retract(ch, v), ch.basis, ch.fixed_gauges, ch.fixed)
 retract_jacobian(ch::TargetManifold) = ch.basis
 retract_jacobian(ch::TargetManifold, ::AbstractVector) = ch.basis
-action_jacobian(ch::TargetManifold{<:PlanarTarget}, x) = calibration_jacobian(geom(ch.target.calibration), x) * ch.basis
+action_jacobian(ch::TargetManifold{<:PlanarTarget}, x) = _calibration_action(geom(ch.target.calibration), x, ch.basis)
+# ∂C(x)/∂θ · B, multiplying only the rows and columns the calibration's Jacobian
+# can have nonzero: a height field moves only z, a thin-plate spline's two rows
+# each depend on one of its two value blocks.
+_calibration_action(c::TargetCalibration, x, B) = calibration_jacobian(c, x) * B
+# (Each kept row is a 1 × K matrix times the K rows of B it meets: the product
+# kernel the full Jacobian's rows went through, so the entries keep their bits.)
+function _calibration_action(c::HeightField{K}, x, B) where {K}
+    z = SMatrix{1, K}(Tuple(nodal_weights(c.system, _plain_point(x)))) * B
+    return vcat(zero(z), zero(z), z)
+end
+function _calibration_action(c::ThinPlateSpline{K}, x, B) where {K}
+    n = SMatrix{1, K}(Tuple(nodal_weights(c.system, _plain_point(x))))
+    return vcat(n * _row_block(B, 0, Val(K)), n * _row_block(B, K, Val(K)))
+end
+_row_block(B::StaticMatrix{R, M}, o, ::Val{K}) where {R, M, K} = B[SVector{K}(ntuple(i -> o + i, Val(K))), StaticArrays.SOneTo(M)]
+_row_block(B::AbstractMatrix, o, ::Val{K}) where {K} = B[(o + 1):(o + K), :]
 local_coordinates(ch::TargetManifold, t::AbstractTarget) = ch.basis' * (parameter_vector(t) - parameter_vector(ch.target))
 
 """

@@ -195,3 +195,21 @@
         end
     end
 end
+
+@testitem "thin_plate_spline: nodal_weights' loop form" begin
+    using Test, StaticArrays, Random
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: ThinPlateSplineSystem, grid_nodes, nodal_weights
+    # Past `_NODAL_STATIC_MAX` nodes the weights run as loops instead of an
+    # unrolled N(N + 3)-term tuple; both fold left to right, so they agree bit
+    # for bit wherever both apply.
+    rng = Xoshiro(11)
+    for n in (2, 3, 4)
+        tps = ThinPlateSplineSystem(grid_nodes(n; lo = -1.0, hi = 1.0))
+        for _ in 1:50
+            p = SVector(2rand(rng) - 1, 2rand(rng) - 1)
+            @test VgtkCore._nodal_weights_loop(tps, p) === nodal_weights(tps, p)
+        end
+    end
+    @test VgtkCore._NODAL_STATIC_MAX < 25 && nodal_weights(ThinPlateSplineSystem(grid_nodes(5)), SVector(0.1, 0.2)) isa SVector{25, Float64}
+end

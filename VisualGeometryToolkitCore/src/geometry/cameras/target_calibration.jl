@@ -538,7 +538,7 @@ _prefixed_names(f, cs::Tuple) =
     (_prefixed(_calibration_tag(first(cs)), f(first(cs)))..., _prefixed_names(f, Base.tail(cs))...)
 _prefixed(tag, names::Tuple) = map(n -> Symbol(tag, :_, n), names)
 function with_parameters(c::CalibrationChain, θ::AbstractVector)
-    length(θ) == length(parameter_vector(c)) || _refuse_length(c, θ)
+    length(θ) == sum(x -> length(parameter_vector(x)), c.members) || _refuse_length(c, θ)
     return CalibrationChain(_with_members(c.members, θ, 0))
 end
 _with_members(::Tuple{}, θ, o) = ()

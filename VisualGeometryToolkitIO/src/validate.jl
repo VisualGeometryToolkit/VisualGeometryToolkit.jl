@@ -305,9 +305,8 @@ end
 # Write `body` as a v2 file after validating the very bytes that land on disk
 # against `spec`: a writer cannot produce a file its own reader refuses.
 function _write_store(path::AbstractString, spec::_Spec, body)
-    _refuse_nonfinite_body(path, body)        # NaN/Inf: by its field, before the one serialization
     text = _json_text(body)                   # serialized once: these bytes are validated and written
-    _validate(spec, _parse_json(text), path, "")
+    _validate(spec, _parse_vgio_text(text, path), path, "")   # (a NaN/Inf refused by its field)
     write(path, text)
     return nothing
 end

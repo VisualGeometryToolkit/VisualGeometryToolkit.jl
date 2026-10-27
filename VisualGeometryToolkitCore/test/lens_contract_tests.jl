@@ -731,3 +731,67 @@
         end
     end
 end
+
+# The default backproject of a lens that defines only `project` (hoisted from
+# RadiometricCamera's NewtonInverse): on every lens family of this package,
+# wrapped so that only `project` is visible, it agrees with the lens's own
+# inverse in the lens's domain — past 90° for the fisheye families — and is NaN
+# where the lens's own is.
+@testitem "lens_contract: the default backproject inverts project" begin
+    using Test, StaticArrays, LinearAlgebra
+    using ForwardDiff: ForwardDiff
+    using VisualGeometryToolkitCore
+    import VisualGeometryToolkitCore as VgtkCore
+
+    struct ProjectOnly{L} <: VgtkCore.AbstractLensModel
+        lens::L
+    end
+    VgtkCore.project(p::ProjectOnly, X::StaticVector{3}) = project(p.lens, X)
+
+    lenses = (
+        Pinhole(), Division(-0.1667, 0.0291), KannalaBrandt(-0.02, 0.003, -0.0004, 0.0001),
+        Lens(Perspective(), Additive(Radial((-0.2, 0.05)), Tangential(0.002, -0.001))),
+        Lens(Equidistant(), Additive(Radial((-0.02, 0.004)), Tangential(0.0006, -0.0004))),
+        Lens(DoubleSphere(-0.2, 0.6)), Lens(DoubleSphere(-0.6, 0.6)), Lens(Unified(0.8)), Lens(ExtendedUnified(0.6, 1.1)),
+        Lens(Perspective(), FieldOfView(0.9)), Lens(Stereographic()), Lens(Equisolid()),
+        Scaramuzza(-0.1664, -0.0063, 0.035),
+    )
+    ray(θ, ψ) = SVector(sin(θ) * cos(ψ), sin(θ) * sin(ψ), cos(θ))
+    for lens in lenses
+        p = ProjectOnly(lens)
+        θmax = min(view_angle_limit(lens), deg2rad(150.0))
+        n = 0
+        for θ in range(0.0, 0.95 * θmax; length = 25), ψ in (0.0, 0.9, 2.3, -1.7)
+            x = project(lens, ray(θ, ψ))
+            (all(isfinite, x) && norm(x) < 20) || continue          # a sensor's reach (radius 20: 87° on a pinhole)
+            ref = backproject(lens, x)
+            all(isfinite, ref) || continue
+            n += 1
+            @test backproject(p, x) ≈ ref atol = 1.0e-9
+        end
+        @test n > 40
+        # nearer the limit it may give up (NaN), never answer wrongly
+        for θ in range(0.95 * θmax, θmax; length = 6), ψ in (0.0, 2.3)
+            x = project(lens, ray(θ, ψ))
+            b = backproject(p, x)
+            all(isfinite, b) && all(isfinite, backproject(lens, x)) && @test b ≈ backproject(lens, x) atol = 1.0e-8
+        end
+        # Float32 at its precision
+        x32 = SVector{2, Float32}(project(lens, ray(0.6 * θmax, 0.4)))
+        b32 = backproject(ProjectOnly(VgtkCore.convert_eltype(Float32, lens)), x32)
+        @test eltype(b32) === Float32
+        @test b32 ≈ backproject(lens, SVector{2, Float64}(x32)) atol = 1.0f-4
+    end
+    # NaN where nothing is imaged: past the perspective plane's reach, past the double sphere's fold
+    @test all(isnan, backproject(ProjectOnly(Lens(DoubleSphere(0.1, 0.7))), SVector(2.0, 0.0)))
+    # ForwardDiff through the default: the derivative of the inverse is the inverse of the forward Jacobian
+    lens = KannalaBrandt(-0.02, 0.003)
+    x = project(lens, ray(1.9, 0.3))
+    Jb = ForwardDiff.jacobian(z -> backproject(ProjectOnly(lens), z), x)
+    @test Jb ≈ ForwardDiff.jacobian(z -> backproject(lens, z), x) rtol = 1.0e-8
+    # allocation-free
+    p = ProjectOnly(lens)
+    alloc(p, x) = @allocated backproject(p, x)
+    alloc(p, x)
+    @test alloc(p, x) == 0
+end

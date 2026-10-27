@@ -1138,6 +1138,67 @@ exactly, so a point past a second fold is NaN too: the same branch
     return _nan_unless(on_branch, Vec3(normalize(SVector(xd[1] * N, xd[2] * N, _den(r, u)))))
 end
 
+# --- the default inverse: a lens that defines only `project` ------------------
+#
+# Hoisted from RadiometricCamera's `NewtonInverse` (src/camera/geometric_camera.jl):
+# Newton on the equidistant chart m = θ·(cos φ, sin φ) of the ray, a fixed trip
+# count, the 2 × 2 Jacobian by ForwardDiff of the forward map, a vanishing
+# determinant replaced by ±eps. The chart reaches every ray but the antipode,
+# so a lens imaging past 90° is inverted there too. Two changes, measured on
+# 900 rays of twelve lens families (up to 98% of each lens's view-angle limit,
+# 150° at most): RC's seed m = x_d (the image point read as an equidistant
+# chart point) and unlimited steps failed 162 of them — a perspective point
+# at 60° already reads as θ > π — while the pinhole ray's chart point
+# atan(|x_d|)·x̂_d and steps capped at 0.3 rad over 30 trips fail 12, each
+# within 2% of a fold.
+const _DEFAULT_INVERSE_TRIPS = 30
+const _DEFAULT_INVERSE_STEP = 0.3
+
+"""
+    backproject(lens::AbstractLensModel, xd::StaticVector{2}) -> Vec3
+
+The default [`backproject`](@ref) of a lens that defines only
+[`project`](@ref): Newton's method on `project(lens, X(m)) = x_d` over the
+equidistant chart `m = θ·(cos φ, sin φ)` of the ray `X(m) = (sin θ·m̂, cos θ)`
+— so view angles past 90° are reached — started at the pinhole ray's chart
+point `atan(|x_d|)·x̂_d`, each step capped at 0.3 rad, a fixed 30 trips
+(kernel-safe: no throw, no allocation), the 2 × 2 Jacobian by forward-mode
+differentiation of `project`. The unit ray, or NaN unless the iterate
+converged (the residual within the solve tolerance of its precision), the
+forward map keeps orientation there (`det J > 0`) and `θ < π`. Generic in
+the number type: Float32 and ForwardDiff Duals.
+
+Every lens of this package has its own inverse (closed form, or a solver that
+follows the imaged branch), which takes precedence; this one is for a
+downstream lens type, and agrees with each of them in its domain (tested to
+95% of each lens's [`view_angle_limit`](@ref); within a few percent of a fold
+Newton converges too slowly and the answer is NaN).
+"""
+@inline function backproject(l::AbstractLensModel, xd::StaticVector{2})
+    F = float(eltype(xd))
+    p = SVector{2, F}(xd[1], xd[2])
+    resid(m) = project(l, _frame_backproject(EquidistantFrame, m)) - p
+    ρ = sqrt(p[1] * p[1] + p[2] * p[2])
+    m = _primal(ρ) > 0 ? p * (atan(ρ) / ρ) : p
+    J = SMatrix{2, 2}(one(m[1]), zero(m[1]), zero(m[1]), one(m[1]))
+    cap = oftype(_primal(ρ), _DEFAULT_INVERSE_STEP)
+    for _ in 1:_DEFAULT_INVERSE_TRIPS
+        r = resid(m)
+        J = ForwardDiff.jacobian(resid, m)
+        dt = J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1]
+        dt = abs(dt) > eps(typeof(dt)) ? dt : (dt >= 0 ? eps(typeof(dt)) : -eps(typeof(dt)))
+        Δ = SVector(J[2, 2] * r[1] - J[1, 2] * r[2], -J[2, 1] * r[1] + J[1, 1] * r[2]) / dt
+        n = sqrt(_primal(Δ[1] * Δ[1] + Δ[2] * Δ[2]))
+        m = n > cap ? m - Δ * (cap / n) : m - Δ
+    end
+    S = typeof(_primal(p[1]))
+    θ2 = _primal(m[1] * m[1] + m[2] * m[2])
+    fm = map(_primal, project(l, _frame_backproject(EquidistantFrame, m)))
+    ok = isfinite(θ2) && _residual_ok(fm, SVector{2, S}(_primal(p[1]), _primal(p[2]))) &&
+        _primal(J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1]) > 0 && θ2 < S(π)^2
+    return _nan_unless(ok, Vec3(_frame_backproject(EquidistantFrame, m)))
+end
+
 """
     project(lens::LiftLens, X) -> Vec2
 

@@ -34,6 +34,11 @@ family, the rational lift, Scaramuzza's polynomial) lifts the image point to
 its ray in closed form and projects by a root on the ray. See
 [Lens Families](lenses.md).
 
+A downstream lens type that defines only `project` gets a default
+`backproject`: Newton's method over the equidistant chart of the ray (so past
+90°), a fixed 30 trips from the pinhole ray, NaN unless it converged where the
+map keeps orientation.
+
 ## Derived for every lens
 
 - **Perspective views.** [`distort_normalized`](@ref)`(lens, x) =

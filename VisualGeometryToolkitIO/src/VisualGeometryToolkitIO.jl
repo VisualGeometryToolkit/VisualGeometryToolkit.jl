@@ -84,7 +84,7 @@ using Statistics: cov
 using Rotations: QuatRotation, RotMatrix, RotationVec, RotZ, params
 using JSON: JSON
 using SQLite: SQLite
-using FlexUnits: Units, Quantity, ustrip, dimension, uscale
+using FlexUnits: Units, Quantity, ustrip, dimension, uscale, quantity
 using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, px, dpi, has_units,
     CameraModel, CameraCalibrationMat, AbstractLensModel, Lens, Pinhole, Division, KannalaBrandt, Scaramuzza,
     Perspective, Equidistant, DoubleSphere, Unified, ExtendedUnified,

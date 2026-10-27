@@ -445,19 +445,64 @@ end
 
 # The content identities a vgio/rig/v4 rig had. v4 hashed the record without
 # its provenance: `content_id(path)` the record as the file holds it (its parsed
-# tree, hashed here) and
-# `content_id(rig)` the record of the value in MILLIMETRES, which differs for a
-# rig whose file is in another unit and is what a producer that named the rig
-# by its value put in its measurement files. Both are mapped.
+# tree, hashed here) and `content_id(rig)` the record of the value in
+# MILLIMETRES, which differs for a rig whose file is in another unit and is
+# what a producer that named the rig by its value put in its measurement
+# files. Both are mapped.
 _rig_v4_id(old::AbstractDict) =
     sha256_hex(canonical_json(Dict{String, Any}(k => v for (k, v) in old if k != "provenance")))
+
+# v4's in-memory value held millimetre numbers, converted from the file's unit
+# by FlexUnits at load — `ustrip(mm, quantity(x, unit))` per length, a
+# covariance scaled by mm-per-unit to its power — and `content_id(rig)` hashed
+# them as written. That arithmetic is reproduced here, leaf for leaf, from the
+# file's own numbers: the decimal-exact pair (`read_length`/`write_length`)
+# gives another millimetre number for about a quarter of 6-digit metre values,
+# and so another identity. The rest of the record (order, rotations, cameras)
+# is the current writer's re-emission of the value in millimetres, which v4's
+# writer agrees with.
+_v4_mm(x::Real, u::Units) = Float64(ustrip(mm, quantity(Float64(x), u)))
+_v4_mm_points(v, u) = Any[Any[_v4_mm(c, u) for c in p] for p in v]
 function _rig_v4_id_mm(value, old::AbstractDict, dst::AbstractString)
     old["length_unit"] == "mm" && return _rig_v4_id(old)
     p = dst * ".mm.json"
     save(p, value; length_unit = mm)
-    mmrec = _raw_tree(p)
+    rec = _rig_v5_to_v4(_raw_tree(p), old)
     rm(p)
-    return _rig_v4_id(_rig_v5_to_v4(mmrec, old))
+    u = parse_unit(old["length_unit"]::String)
+    s = _v4_mm(1.0, u)                                                    # mm per unit, as v4 scaled a covariance
+    rec["length_unit"] = "mm"
+    for (key, fix!) in (("sensors", _v4_mm_sensor!), ("targets", _v4_mm_member!))
+        haskey(rec, key) || continue
+        olds = Dict(x["id"] => x for x in old[key])
+        for x in rec[key]
+            fix!(x, olds[x["id"]], u, s)
+        end
+    end
+    return _rig_v4_id(rec)
+end
+function _v4_mm_pose!(p, o, u, s)
+    p["translation"] = Any[_v4_mm(c, u) for c in o["translation"]]
+    if haskey(o, "covariance")
+        d = (1.0, 1.0, 1.0, s, s, s)
+        p["covariance"] = Any[Any[Float64(o["covariance"][i][j]) * (d[i] * d[j]) for j in 1:6] for i in 1:6]
+    end
+    return nothing
+end
+function _v4_mm_sensor!(x, o, u, s)
+    _v4_mm_pose!(x["extrinsics"], o["extrinsics"], u, s)
+    haskey(o["camera"], "point_grid") && (x["camera"]["point_grid"] = _v4_mm_points(o["camera"]["point_grid"], u))
+    return nothing
+end
+function _v4_mm_member!(x, o, u, s)
+    _v4_mm_pose!(x["pose"], o["pose"], u, s)
+    t, ot = x["target"], o["target"]
+    for k in ("points", "nominal")
+        haskey(ot, k) && (t[k] = _v4_mm_points(ot[k], u))
+    end
+    haskey(ot, "point_covariances") &&
+        (t["point_covariances"] = Any[Any[Any[Float64(c) * s^2 for c in r] for r in Σ] for Σ in ot["point_covariances"]])
+    return nothing
 end
 
 # =============================================================================

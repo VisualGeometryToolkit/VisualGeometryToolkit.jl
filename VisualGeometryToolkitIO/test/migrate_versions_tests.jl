@@ -164,6 +164,24 @@ end
     end
 end
 
+@testitem "vgio_migrate: a v4 rig in metres keeps both v4 identities, as v4 computed them" setup = [VGIoFixtures, MigrateFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    # fixtures/v4/rig_metres.json: units/rig.json as a v4 file in metres, plus
+    # a non-central generic sensor, with 6-digit metre values whose millimetre
+    # number v4 computed differently from the decimal shift (0.0139 m was
+    # 13.899999999999999 mm). Its identities were recorded by v4's own code:
+    # `content_id(path)` and `content_id(load(Rig, path))`, run with
+    # VisualGeometryToolkitIO at main ddc1bbe (FlexUnits 0.6.12).
+    path_id = "1d3efbb1c7c7ceba0be3d5df04979f744829c8c12ecb41340d08d52391b8898e"
+    value_id = "e20468bffbcb556f221c68cae447edc7b2bc368f33dabb1009c36a4c7a929d14"
+    mktempdir() do dir
+        src = joinpath(dir, "rig.json")
+        cp(joinpath(@__DIR__, "fixtures", "v4", "rig_metres.json"), src)
+        r = vgio_migrate(src)
+        @test r.old_ids == [path_id, value_id] && r.new_id == content_id(r.out)
+    end
+end
+
 @testitem "vgio_migrate: the command, and a tree" setup = [VGIoFixtures, MigrateFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     mktempdir() do dir

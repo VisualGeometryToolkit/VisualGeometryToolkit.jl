@@ -6,7 +6,8 @@ problem, wire up scoring and local optimization, and return a
 kept for fits that are not a RANSAC search — iterative, reweighted or
 repeated (`fit_division_camera` and its model-block update `division_camera_step`,
 `fit_radial_camera`, `fit_lens`, `fit_robot_world_hand_eye`, `fit_line`) — and
-`refine_*` for polishing a given model (`refine_robot_world_hand_eye`). One-step
+`refine_*` for polishing a given model (`refine_robot_world_hand_eye`,
+`refine_absolute_pose`). One-step
 algebraic algorithms keep their algorithm's name and live in
 VisualGeometryToolkitCore (`homography_dlt`, `kabsch`, `tls_line`, …).
 

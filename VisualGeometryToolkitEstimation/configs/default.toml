@@ -85,6 +85,8 @@ max_iter = 100                   # the reprojection LM's cap on ACCEPTED iterati
 # own to share, so only a cost at the rounding floor counts as an exact fit.
 ftol = 2.220446049250313e-16
 
+[refine_absolute_pose]
+max_iter = 100                   # the bearing pose LM's cap on ACCEPTED iterations (NLLSsolver's count; see [chart_lm])
 [chart_lm]
 # The LO refit every chart problem runs (`refine!` → VGC's `lmsolve_chart!`,
 # NLLSsolver's Levenberg–Marquardt with Marquardt's DᵀD damping; VGC

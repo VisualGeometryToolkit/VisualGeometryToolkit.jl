@@ -98,6 +98,55 @@ calibratable target, its [`TargetCalibration`](@ref) and a `LogicalIntrinsics`. 
 poles bound what the lens images ([`view_angle_limit`](@ref),
 `monotone_radius`) — and [`radial_part`](@ref) the lens with only that factor.
 
+## The image circle
+
+A local lens model — a grid of nodes rather than a formula — has observations
+only where the lens lights the sensor, so its domain is
+`Rect(extent(camera)) ∩ image_circle(camera)`. [`image_circle`](@ref) predicts
+that region; nothing is segmented from an image. It is built either from the
+fitted lens (the cone of [`view_angle_limit`](@ref) through the radial
+projection and `K`) or from a lens datasheet's image-circle diameter through
+the sensor's pitch, and both routes return the same primitive.
+
+- The circle is a conic, an [`Ellipse`](@ref) in pixels about the principal
+  point: an ellipse proper for an anisotropic `K` or pitch.
+- For a lens that is not radially symmetric (a [`Chain`](@ref) with a tilt
+  stage, or tangential terms) it is an inscribed bound: every point inside is
+  imaged, and the true lit region may be slightly larger.
+- A lens with no limit of its own (a perspective lens) answers `nothing`, and
+  `Rect ∩ nothing` is the `Rect`; a global parametric lens is defined everywhere
+  by its formula and needs no restriction at all.
+
+```@example imagecircle
+using VisualGeometryToolkitCore
+using VisualGeometryToolkitCore: Pinhole, KannalaBrandt
+s = sensor("Sony", "IMX250")                            # 2448 × 2048 @ 3.45 μm
+k = -4 / (3π^2)                                         # r = θ(1 + kθ²) folds at 90°, r = (2/3)θ
+f = ustrip(px, 6.0mm / (2 * s.pitch.width)) / (π / 3)   # a 180° lens drawing a 6 mm circle
+cam = BoundedCamera(CameraModel(; focal = f, pp = (1224.0, 1024.0), lens = KannalaBrandt(k)), s)
+q = image_circle(cam)                                   # from the lens
+(centroid(q), q.a, q.b)
+```
+
+```@example imagecircle
+qd = image_circle(cam, 6.0mm)                           # from the datasheet, through the pitch
+(q.a - qd.a, Rect(extent(cam)) ∈ q, rad2deg(fov(cam)), rad2deg(fov(cam; dimension = :diagonal)))
+```
+
+```@example imagecircle
+rcam = BoundedCamera(CameraModel(; focal = 2000.0, pp = (1224.0, 1024.0), lens = Pinhole()), s)
+(image_circle(rcam), rad2deg(fov(rcam)), rad2deg(fov(rcam; dimension = :diagonal)))
+```
+
+```@example imagecircle
+domain = Rect(extent(cam)) ∩ q                          # a grid lens's domain
+nodes = [Point2(x, y) for x in range(0.0, 2448.0; length = 25), y in range(0.0, 2048.0; length = 21)]
+lit = filter(n -> n ∈ domain, nodes)
+(length(lit), length(nodes) - length(lit))              # lit, outside
+```
+
+The whole example, runnable, is `examples/image_circle.jl`.
+
 ## The lens record
 
 [`lens_record`](@ref) writes a lens as a self-describing record, the form

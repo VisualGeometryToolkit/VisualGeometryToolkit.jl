@@ -69,7 +69,8 @@ model's: on a `PosedTarget` they are an `ArgumentError` naming `model(pt)`.
 abstract type AbstractTarget end
 
 # A target point stored: plain numbers as Float64, lengths in metres (FlexUnits
-# base form); an `Uncertain` one keeps its covariance (m² for a physical point).
+# base form); an `Uncertain` one keeps its covariance as given — m² for a
+# physical point (units.md: values in base units), never rescaled here.
 _target_point(p::StaticVector{2}) = _stored_point(Val(2), p)
 _target_point(p::StaticVector{3}) = _stored_point(Val(3), p)
 _target_point(p::AbstractVector) = length(p) == 2 ? _stored_point(Val(2), p) : length(p) == 3 ? _stored_point(Val(3), p) :
@@ -88,8 +89,10 @@ plane's) or 3-vectors, all of one dimension, plain or `Uncertain` (an
 estimated constellation with its covariances). A motion-capture body's
 marker constellation, or a board whose calibration was resolved to measured points.
 
-A physical target's points are lengths, stored in metres (its covariances in
-m²); plain points are stored as `Float64`. All are one form or the other
+A physical target's points are lengths, stored in metres, and an `Uncertain`
+physical point's covariance is in m²: values are held in base units, and the
+covariance is stored as given, never rescaled — supply it in m², not in the
+squared unit the point was written in. Plain points are stored as `Float64`. All are one form or the other
 ([`has_units`](@ref)); `ustrip(u, t)` and [`with_unit`](@ref)`(t, u)` move
 between them.
 """

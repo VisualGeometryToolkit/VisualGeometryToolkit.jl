@@ -211,7 +211,8 @@ const UncertainPixel = Uncertain{SVector{2, Float64}, CovMat{2, Float64, 4, Unla
     UncertainPoint3 = Uncertain{SVector{3, Float64}, CovMat{3, Float64, 9, UnlabeledFrame{3}}}
 
 A measured plain 3D point with its 3×3 covariance (in the point's units
-squared). A physical one holds metres, its covariance in m².
+squared). A physical one holds metres, its covariance in m² — stored as given,
+never rescaled from the unit the point was written in.
 """
 const UncertainPoint3 = Uncertain{SVector{3, Float64}, CovMat{3, Float64, 9, UnlabeledFrame{3}}}
 
@@ -232,12 +233,14 @@ const TargetPoint2D = @NamedTuple{target::Symbol, index::Int, xy::Union{SVector{
 One measured 3D position of a target point (a motion-capture marker): point
 `index` of target `target`, at `xyz` (in the frame of the
 [`TargetPoints3D`](@ref) holding it), plain or `Uncertain`: plain numbers
-stored as `Float64`, or lengths stored in metres.
+stored as `Float64`, or lengths stored in metres. An `Uncertain` physical
+point's covariance is in m², stored as given (never rescaled): supply it in m².
 """
 const TargetPoint3D = @NamedTuple{target::Symbol, index::Int, xyz::Union{SVector{3}, Uncertain{<:SVector{3}}}}
 
 _pixel(xy::Uncertain) = Uncertain(SVector{2, Float64}(geom(xy)), CovMat(SMatrix{2, 2, Float64, 4}(Statistics.cov(xy))))
 _pixel(xy) = SVector{2, Float64}(xy)
+# the covariance as given: m² for a physical point (base units), never rescaled
 _point3(p::Uncertain) = Uncertain(_stored_point(Val(3), geom(p)), CovMat(SMatrix{3, 3, Float64, 9}(Statistics.cov(p))))
 _point3(p) = _stored_point(Val(3), p)
 
@@ -295,7 +298,7 @@ in the 3D frame `F` (`WorldFrame` for a tracker's room), millimetres. A
 motion-capture system's markers: a point is (body, marker index), the body's
 constellation its target definition. `sensors`, `images`, `times`,
 `targets` as for [`TargetPoints2D`](@ref). A physical capture holds lengths
-in metres ([`has_units`](@ref)); `ustrip(u, x)` and [`with_unit`](@ref)`(x, u)`
+in metres and an uncertain point's covariance in m², as supplied ([`has_units`](@ref)); `ustrip(u, x)` and [`with_unit`](@ref)`(x, u)`
 move every point.
 """
 struct TargetPoints3D{F <: Frame{3}} <: AbstractDict{Int, Vector{TargetPoint3D}}

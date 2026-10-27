@@ -10,66 +10,92 @@
 # names are VisualGeometryToolkitCore's `parse_unit` (the stack's one guarded
 # `uparse`) and `unit_string` (FlexUnits' printing of a registered unit).
 
-"""
-    UnitContract(; world = mm, density = dpi, lengths = (;))
-    UnitContract(world, density = dpi; lengths = (;))
+# The roles of a table beyond `world`, in order.
+_other_roles(lengths::NamedTuple) = NamedTuple{filter(!=(:world), keys(lengths))}(lengths)
 
-Declares the units a file's magnitudes are expressed in: `world`, a length
-unit, for translations, 3D points and every other length; `density`, a unit
-of pixels per length (dimension 1/length, since a pixel is dimensionless), for
-print and sensor densities; and `lengths`, further LENGTH ROLES, each a named
-length unit (`lengths = (pattern = pt,)`), for a record whose lengths are
-declared in more than one unit — a board's canvas in mm and its pattern in pt,
-each written decimal-exactly in its own unit. A field read or written in a
-role names it ([`read_quantity`](@ref)`(x, :length, c; role = :pattern)`);
-`:world` is the default role and names `world`. Pixel counts need no
-declaration: pixels are the only image unit. Persisted with the data it
-governs — inline fields in vgio JSON records (`"units": {"world": "mm",
-"density": "dpi", "lengths": {"pattern": "pt"}}`, written by
-[`json_value`](@ref)`(contract)` and read by `from_json(UnitContract, d)`), a
-`vgio_units.json` sidecar for COLMAP model directories (world and density
-only) — so files stay self-describing. The roles are a CLOSED set, the ones
-the contract declares: an `ArgumentError` for a `world` or a role that is not
-a length, a role named `world` or `density`, a role name that is not
-snake_case, a `density` that is not pixels per length, and (on use) a role
-the contract does not declare.
+"""
+    UnitContract(world, density = dpi; lengths = (;))
+    UnitContract(; world = mm, density = dpi, lengths = (;))
+    UnitContract(density, lengths::NamedTuple)
+
+Declares the units a file's magnitudes are expressed in: `lengths`, a table of
+LENGTH ROLES, each a named length unit; and `density`, a unit of pixels per
+length (dimension 1/length, since a pixel is dimensionless), for print and
+sensor densities. The role `world` is REQUIRED and is the default role: the
+unit of translations, 3D points and every other length. Further roles
+(`pattern = pt`) serve a record whose lengths are declared in more than one
+unit — a board's canvas in mm and its pattern in pt, each written
+decimal-exactly in its own unit. A field read or written in a role names it
+([`read_quantity`](@ref)`(x, :length, c; role = :pattern)`). Pixel counts need
+no declaration: pixels are the only image unit.
+
+In memory the contract is that table, `world` first:
+`UnitContract(mm, dpi; lengths = (pattern = pt,)).lengths == (world = mm,
+pattern = pt)`. The first two forms are conveniences that merge `world` into
+the table (the keyword form also reads a `world` already in `lengths`; naming
+it twice is an error); the third is the canonical one and refuses a table
+without `world`.
+
+The FILE layout is separate and unchanged: the serialiser alone knows it.
+Inline fields in vgio JSON records hold `"units": {"world": "mm", "density":
+"dpi", "lengths": {"pattern": "pt"}}` — `world` top level, the other roles
+under `lengths` — written by [`json_value`](@ref)`(contract)` and read by
+`from_json(UnitContract, d)`; a `vgio_units.json` sidecar for COLMAP model
+directories holds world and density only. Files stay self-describing. The
+roles are a CLOSED set, the ones the contract declares: an `ArgumentError` for
+a missing `world`, a role that is not a length, a role named `density`, a role
+name that is not snake_case, a `density` that is not pixels per length, and
+(on use) a role the contract does not declare.
 """
 struct UnitContract{R <: NamedTuple}
-    world::typeof(mm)     # a FlexUnits dynamic unit
-    density::typeof(mm)   # likewise; dimension 1/length (px is dimensionless)
-    lengths::R            # role => length unit beyond `world`, a closed set the record declares (empty for most)
+    density::typeof(mm)   # a FlexUnits dynamic unit; dimension 1/length (px is dimensionless)
+    lengths::R            # role => length unit, a closed set the record declares; `world` is required and first
 
-    function UnitContract(world::Units, density::Units = dpi; lengths::NamedTuple = (;))
-        dimension(world) == dimension(m) ||
-            throw(ArgumentError("the world unit must be a length, got $(world)"))
+    function UnitContract(density::Units, lengths::NamedTuple)
+        haskey(lengths, :world) ||
+            throw(ArgumentError("the units declare no `world` length role (the default role: translations, 3D points); roles given: $(keys(lengths))"))
         dimension(density) == dimension(dpi) ||
             throw(ArgumentError("the density unit must be pixels per length (like dpi), got $(density)"))
         for (r, u) in pairs(lengths)
-            r === :world && throw(ArgumentError("`world` is the contract's own length role; name another"))
             r === :density && throw(ArgumentError("`density` is the contract's pixels-per-length unit, not a length role; name another"))
             name = String(r)
             (occursin(r"^[a-z][a-z0-9_]*$", name) && VgtkCore.snake_case(name) == name) ||
-                throw(ArgumentError("a length role is named in snake_case (`pattern`, `ruler_tick`), got $(repr(name))"))
+                throw(ArgumentError("a length role is named in snake_case (`world`, `pattern`, `ruler_tick`), got $(repr(name))"))
             (u isa typeof(mm) && dimension(u) == dimension(m)) ||
                 throw(ArgumentError("the length role $(r) must be a length unit, got $(u)"))
         end
-        ls = NamedTuple{keys(lengths)}(Tuple(typeof(mm)[u for u in values(lengths)]))
-        return new{typeof(ls)}(world, density, ls)
+        rest = _other_roles(lengths)   # `world` first, whatever the caller's order
+        ls = merge((world = lengths.world,), rest)
+        ls = NamedTuple{keys(ls)}(Tuple(typeof(mm)[u for u in values(ls)]))
+        return new{typeof(ls)}(density, ls)
     end
 end
 
-UnitContract(; world = mm, density = dpi, lengths::NamedTuple = (;)) = UnitContract(world, density; lengths)
+function UnitContract(world::Units, density::Units = dpi; lengths::NamedTuple = (;))
+    haskey(lengths, :world) && throw(ArgumentError("`world` is named twice: as the positional unit and in `lengths`"))
+    return UnitContract(density, merge((world = world,), lengths))
+end
+
+function UnitContract(; world = nothing, density = dpi, lengths::NamedTuple = (;))
+    if world === nothing
+        haskey(lengths, :world) || (world = mm)   # the stack's default world, as MM_PX
+    elseif haskey(lengths, :world)
+        throw(ArgumentError("`world` is named twice: as a keyword and in `lengths`"))
+    end
+    return world === nothing ? UnitContract(density, lengths) : UnitContract(world, density; lengths)
+end
 
 """
     role_unit(contract::UnitContract, role::Symbol = :world) -> Units
 
-The unit `contract` declares for the lengths of `role`: `world` for `:world`,
-the named role's otherwise; an `ArgumentError` for a role it does not declare.
+The unit `contract` declares for the lengths of `role`: `contract.lengths[role]`;
+an `ArgumentError` listing the declared roles for a role it does not declare.
+Every read of a contract's length unit goes through it (the unit of
+`:world`, the default, included).
 """
 function role_unit(c::UnitContract, role::Symbol = :world)
-    role === :world && return c.world
     haskey(c.lengths, role) || throw(
-        ArgumentError("the units declare no length role $(repr(role)) (world$(join((", $(k)" for k in keys(c.lengths)))))")
+        ArgumentError("the units declare no length role $(repr(role)); declared: $(join(keys(c.lengths), ", "))")
     )
     return c.lengths[role]
 end
@@ -100,8 +126,8 @@ struct UnknownScale end
 
 # The world unit a metric conversion needs. It is the ONE place an unknown
 # scale refuses, so every metric use of a contract goes through it rather than
-# reading `contract.world`.
-_world_unit(c::UnitContract) = c.world
+# reading the contract's `world` role directly.
+_world_unit(c::UnitContract) = role_unit(c)
 _world_unit(::UnknownScale) = throw(
     ArgumentError(
         "the world scale is unknown (UnknownScale: a structure-from-motion gauge) — " *
@@ -117,7 +143,7 @@ const UNITS_SIDECAR = "vgio_units.json"
 # A sidecar's `world` is a unit name, or this word for an UnknownScale model —
 # not a unit, so `parse_unit` (and every older reader) refuses it loudly.
 const _UNKNOWN_SCALE_NAME = "unknown"
-_world_name(c::UnitContract) = unit_string(c.world)
+_world_name(c::UnitContract) = unit_string(role_unit(c))
 _world_name(::UnknownScale) = _UNKNOWN_SCALE_NAME
 
 # {"schema": "vgio/units/v2", "world": "mm" | "m" | … | "unknown"}
@@ -139,7 +165,7 @@ _sidecar_body(c::UnitContract) = c.density == dpi ? (schema = _schema("units"), 
 _sidecar_body(c::UnknownScale) = (schema = _schema("units"), world = _world_name(c))
 
 function save_units_sidecar(dir::AbstractString, contract::Union{UnitContract, UnknownScale})
-    (contract isa UnitContract && !isempty(contract.lengths)) && throw(
+    (contract isa UnitContract && length(contract.lengths) > 1) && throw(
         ArgumentError("a COLMAP model's units sidecar declares its world and density only; this contract has length roles $(keys(contract.lengths))")
     )
     return _write_store(joinpath(dir, UNITS_SIDECAR), _UNITS_SPEC, _sidecar_body(contract))

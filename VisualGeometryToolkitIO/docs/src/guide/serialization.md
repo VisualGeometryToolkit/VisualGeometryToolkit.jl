@@ -100,7 +100,12 @@ A record whose lengths are declared in more than one unit — a board's canvas
 in millimetres and its pattern in points — names each further unit as a
 LENGTH ROLE of its contract: `UnitContract(world = mm, lengths = (pattern =
 pt,))`, declared `"units": {"world": "mm", "density": "dpi", "lengths":
-{"pattern": "pt"}}`. A length field read or written in a role names it
+{"pattern": "pt"}}`. In memory the contract is the table of its roles, with
+`world` an ordinary, required entry of it
+(`c.lengths == (world = mm, pattern = pt)`; `role_unit(c, role)` reads one and
+lists the declared roles when asked for another); only the serialiser knows
+the file layout above, `world` at the top level and the other roles under
+`"lengths"`. A length field read or written in a role names it
 (`role = :pattern`; `:world` is the default), so each number is decimal-exact
 in its own unit: a point value has no exact millimetre decimal.
 

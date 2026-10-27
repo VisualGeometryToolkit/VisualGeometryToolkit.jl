@@ -77,7 +77,7 @@ _snap_integer(v::AbstractFloat) = (isinteger(v) && abs(v) < maxintfloat(Float64)
     write_quantity(q::Quantity, contract::UnitContract; role = :world) -> Real
 
 The number a JSON record holds for the quantity `q` under `contract`: a length
-in the unit of the contract's length `role` (`contract.world` for `:world`, a
+in the unit of the contract's length `role` (`:world` is the default role, a
 named role's otherwise; through [`write_length`](@ref), decimal-exact), a pixel
 count (a dimensionless quantity: px is dimensionless) as its number of pixels,
 a density in `contract.density`. A pixel count or a density is an integer when
@@ -128,7 +128,7 @@ _number(x, what) = (x isa Real && !(x isa Bool)) ? x : _refuse_quantity(x, what)
 
 The quantity a JSON record holds as `x`, a NUMBER in a field of `kind` —
 `:length`, `:pixel` or `:density` — under `contract`: a length in the unit of
-the contract's length `role` (`contract.world` for `:world`, the default),
+the contract's length `role` (`:world`, the default),
 through [`read_length`](@ref); a pixel count in pixels; a density in
 `contract.density`. An `ArgumentError` for an unknown kind, a role the
 contract does not declare (or one given for a pixel count or a density), and
@@ -228,9 +228,11 @@ julia> VgtkIO.json_value(UnitContract(world = mm, lengths = (pattern = pt,)))
 ```
 """
 function json_value(c::UnitContract)
-    base = (world = unit_string(c.world), density = unit_string(c.density))
-    isempty(c.lengths) && return base
-    return merge(base, (lengths = map(unit_string, c.lengths),))
+    # The file layout, known here alone: `world` top level, the other roles under `lengths`.
+    base = (world = unit_string(role_unit(c)), density = unit_string(c.density))
+    rest = _other_roles(c.lengths)
+    isempty(rest) && return base
+    return merge(base, (lengths = map(unit_string, rest),))
 end
 
 """

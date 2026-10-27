@@ -251,7 +251,25 @@ end
     c = UnitContract(world = mm, density = dpi, lengths = (pattern = pt,))
     @test role_unit(c, :world) == mm && role_unit(c, :pattern) == pt
     @test_throws ArgumentError role_unit(c, :ruler)
-    @test_throws ArgumentError UnitContract(lengths = (world = pt,))       # world is the contract's own
+    @test_throws ArgumentError UnitContract(lengths = (world = mm,), world = mm)   # world named twice
+    @test_throws ArgumentError UnitContract(mm, dpi; lengths = (world = mm,))
+    @test_throws ArgumentError from_json(UnitContract, JSON.parse("{\"world\": \"mm\", \"lengths\": {\"world\": \"pt\"}}"))
+    # world is an ordinary, required entry of the role table in memory; the file layout is unchanged
+    @test UnitContract(mm, dpi; lengths = (pattern = pt,)).lengths == (world = mm, pattern = pt)
+    @test UnitContract(; density = dpi, lengths = (pattern = pt, world = m)).lengths == (world = m, pattern = pt)
+    @test UnitContract(; density = dpi, lengths = (world = m,)) == UnitContract(m)
+    @test UnitContract(dpi, (world = mm,)) == MM_PX
+    e = try UnitContract(dpi, (pattern = pt,)); nothing catch e; e end        # a contract without world
+    @test e isa ArgumentError && occursin("world", e.msg)
+    @test_throws ArgumentError UnitContract(dpi, (;))
+    @test_throws ArgumentError UnitContract(; world = dpi)                    # every role, world included, is a length
+    e = try role_unit(c, :ruler); nothing catch e; e end
+    @test e isa ArgumentError && occursin("world", e.msg) && occursin("pattern", e.msg) && occursin("ruler", e.msg)
+    for k in (c, MM_PX, UnitContract(m), UnitContract(pt, dpi; lengths = (pattern = mm, ruler_tick = inch)))
+        @test from_json(UnitContract, JSON.parse(JSON.json(json_value(k)))) == k
+    end
+    @test JSON.json(json_value(UnitContract(pt, dpi; lengths = (pattern = mm,)))) ==
+        """{"world":"pt","density":"dpi","lengths":{"pattern":"mm"}}"""
     @test_throws ArgumentError UnitContract(lengths = (pattern = dpi,))    # a role is a length
     e = try UnitContract(lengths = (density = mm,)); nothing catch e; e end  # the contract's density is not a length role
     @test e isa ArgumentError && occursin("not a length role", e.msg)
@@ -259,7 +277,7 @@ end
         e = try UnitContract(lengths = NamedTuple{(bad,)}((pt,))); nothing catch e; e end
         @test e isa ArgumentError && occursin("snake_case", e.msg)
     end
-    @test isconcretetype(typeof(c)) && fieldtype(typeof(c), :lengths) == NamedTuple{(:pattern,), Tuple{typeof(mm)}}
+    @test isconcretetype(typeof(c)) && fieldtype(typeof(c), :lengths) == NamedTuple{(:world, :pattern), Tuple{typeof(mm), typeof(mm)}}
     @test_throws ArgumentError from_json(UnitContract, JSON.parse("{\"world\": \"mm\", \"lengths\": {\"density\": \"mm\"}}"))
     canvas = Size2(width = VgtkIO.read_length(150, mm), height = VgtkIO.read_length(77, mm))
     min_scale = VgtkIO.read_length(2.12598425197, pt)         # file-born pt numbers (BlobBoards' v4 pattern config)

@@ -72,6 +72,7 @@ using ..Primitives: rect_edges, EdgeGrid, Closed   # its edges on a closed grid:
 using ..VisualGeometryToolkitCore: block_order   # grouped data: the sorted-key block order (base/cspond_set.jl)
 using ..VisualGeometryToolkitCore: TagRegistry, tag_of, snake_case   # the target calibration kinds' tags (quality/tag_registry.jl)
 using ..VisualGeometryToolkitCore: Circle, Ellipse, Circle3D, is_ellipse, boundary_points
+using ..VisualGeometryToolkitCore: HomEllipseMat   # the conic matrix an image circle is built from (image_circle.jl)
 import ..VisualGeometryToolkitCore: HomographyMap  # Import (not using) to extend the labeled camera lift
 
 using ..VisualGeometryToolkitCore: Plane3D, distance  # For chirality-filtered P3P
@@ -878,6 +879,7 @@ include("captures.jl")  # Trajectory, TargetPoses, TargetPoints2D/3D: per-frame 
 include("stereo.jl")
 include("rectify.jl")    # stereo rectification on the rig types (0.16)
 include("utilities.jl")
+include("image_circle.jl")  # the image circle: predicted from the lens or a datasheet through the pitch
 include("random.jl")
 
 # Include planar homography (depends on PosedCamera)
@@ -981,6 +983,7 @@ export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3
 export convert_frame                      # the one way to change the pixel frame of pixel data
 export rectify                            # stereo rectification: rectified pinhole rig + FramedImage pair
 export view_angle_limit                   # honest θ-domains
+export image_circle                       # the lit region of the sensor, from the lens or a datasheet
 export radial_part                         # a lens's radially symmetric part
 export CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models (Schöps et al.)
 export spline_support, spline_weights, window_controls, window_indices, direction_tangents, default_generic_grid  # the grid model's window interface (0.22.2)

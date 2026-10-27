@@ -283,6 +283,7 @@ export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3
 export convert_frame   # the one way to change the pixel frame of pixel data
 export rectify             # stereo rectification (rig types + fused warp)
 export view_angle_limit  # the honest θ-domain of a lens
+export image_circle      # the lit region of the sensor: from the lens, or a datasheet through the pitch
 public radial_part      # a lens's radially symmetric part (shared with VisualGeometryToolkitEstimation's fit_lens)
 export parameter_vector, parameter_names, parameter_bounds, with_parameters  # the lens parameter chart
 public convert_eltype                     # a camera, lens or intrinsics rebuilt in another float type

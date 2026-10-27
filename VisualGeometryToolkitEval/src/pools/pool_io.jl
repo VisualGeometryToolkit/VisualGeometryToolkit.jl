@@ -388,8 +388,9 @@ is derived data kept in a writable tree, never beside the pool, so the pool's
 path does not name it; it is bound by the same unchanged `pool_key` and reads
 against the migrated pool where it is. Both destinations, the pool's and its
 residuals', are checked before anything is written: an existing one is an
-`ArgumentError`, and a migration that fails before its renames leaves `out` as
-it was.
+`ArgumentError`, and a migration that fails leaves `out` as it was: a
+residuals file already renamed into it is removed, and so is an `out` the
+migration created.
 
 The migration is verified before anything is written to `out`: the format-5
 file, written through [`save_pool`](@ref) to a staging directory beside `out`

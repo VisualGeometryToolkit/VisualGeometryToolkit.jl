@@ -240,6 +240,27 @@
         @test norm(chH.H0) ≈ 1 atol = 1.0e-15
     end
 
+    @testset "pose_action_jacobian: the essential charts' pose acting on a point" begin
+        # ∂(R(v)·x + t(v))/∂v against ForwardDiff through recenter_pose, at the
+        # anchor and away from it, for both translation kinds; at the anchor the
+        # rotation columns are RigidManifold6's (the same MRP increment).
+        rng = Random.Xoshiro(12)
+        R0 = RotMatrix{3, Float64}(RotXYZ(0.3, -0.2, 0.5)); t0 = Vec3{Float64}(normalize(SVector(1.0, -2.0, 3.0)))
+        x = SVector(0.4, -1.1, 5.0)
+        for ch in (EssentialManifold5(R0, t0), EssentialManifold6(R0, t0))
+            D = tangent_size(ch)
+            for v in (zero(SVector{D, Float64}), SVector{D}(0.07 * randn(rng, D)))
+                Jp = VgtkCore.pose_action_jacobian(ch, x, v)
+                @test Jp isa SMatrix{3, D, Float64}
+                fd = ForwardDiff.jacobian(w -> ((R, t) = VgtkCore.recenter_pose(ch, w); SMatrix{3, 3}(R) * x + t), v)
+                @test Jp ≈ fd atol = 1.0e-13
+            end
+            @test VgtkCore.pose_action_jacobian(ch, x)[:, SVector(1, 2, 3)] ≈ action_jacobian(RigidManifold6(R0, t0), x)[:, SVector(1, 2, 3)] atol = 1.0e-14
+            # the translation columns are tangent to S² at t: the chart keeps ‖t‖ = 1
+            @test norm(t0' * VgtkCore.pose_action_jacobian(ch, x)[:, SVector{D - 3}(4:D)]) < 1.0e-15
+        end
+    end
+
     @testset "LeftRigidManifold6: the chart of the pose constraint's left perturbation" begin
         R0 = RotMatrix{3, Float64}(RotXYZ(0.3, -0.2, 0.5)); t0 = SVector(1.0, -2.0, 3.0)
         ch = LeftRigidManifold6(R0, t0)

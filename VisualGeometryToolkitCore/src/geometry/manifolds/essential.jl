@@ -152,6 +152,38 @@ tangent_size(::EssentialManifold{G}) where {G} = 3 + _t_dof(G)
 @noinline recenter_pose(ch::EssentialManifold, v) =
     (RotMatrix(Rotations.MRP(v[1], v[2], v[3])) * ch.R, _t_increment(ch.g, ch.t, v))
 
+"""
+    pose_action_jacobian(ch::EssentialManifold, x, v = zero_tangent(ch)) -> SMatrix{3, tangent_size(ch)}
+
+The Jacobian `∂(R(v)·x + t(v))/∂v` of the chart's POSE acting on a point `x`,
+with `(R(v), t(v)) = recenter_pose(ch, v)`: 3 × 5 for
+[`EssentialManifold5`](@ref), 3 × 6 for [`EssentialManifold6`](@ref). Closed
+form: the rotation columns are `−[R(v)·x]×·L(ω)` (`L` the MRP's left Jacobian,
+`4·I₃` at `ω = 0`, as for [`RigidManifold6`](@ref)), the translation columns
+`(I − t̂t̂ᵀ)/‖s‖` times the increment's basis (`[b1 b2]`, or `I₃`), `s` the
+translation before normalization and `t̂ = s/‖s‖`. Where
+[`action_jacobian`](@ref) differentiates the model `E(v)` acting on a point,
+this differentiates the rigid motion the chart carries: a relative pose with
+unit translation, the two-view bundle's pose block. Neither Ceres nor GTSAM
+has the counterpart (neither has a gauge-fixed relative-pose chart).
+"""
+function pose_action_jacobian(ch::EssentialManifold, x::AbstractVector, v::StaticVector = zero_tangent(ch))
+    ω = SVector(v[1], v[2], v[3])
+    y = SMatrix{3, 3}(RotMatrix(Rotations.MRP(v[1], v[2], v[3]))) * (SMatrix{3, 3}(ch.R) * x)
+    return hcat(-skew(y) * _rot_left_jacobian(MRPParam(), ω), _t_increment_jacobian(ch.g, ch.t, v))
+end
+
+# ∂t(v)/∂τ: the normalization's differential (I − t̂t̂ᵀ)/‖s‖ times the increment's basis.
+@inline function _t_increment_jacobian(g::S2TangentT, t, v)
+    P = _normalize_jacobian(t + v[4] * g.b1 + v[5] * g.b2)
+    return hcat(P * SVector{3}(g.b1), P * SVector{3}(g.b2))
+end
+@inline _t_increment_jacobian(::RenormalizedT, t, v) = _normalize_jacobian(t + Vec3(v[4], v[5], v[6]))
+@inline function _normalize_jacobian(s)
+    n = norm(s); ŝ = SVector{3}(s) / n
+    return (I - ŝ * ŝ') / n
+end
+
 function retract(ch::EssentialManifold, v::StaticVector)
     R, t = recenter_pose(ch, v)
     return EssentialMat(Tuple(skew(t) * R))

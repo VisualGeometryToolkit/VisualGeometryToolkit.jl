@@ -473,7 +473,7 @@ export BarronShape
 export Manifold, EssentialManifold5, FundMatManifold7, HomographyManifold8, RigidManifold6,
     transform_covariance
 public tangent_size, EssentialManifold6, SubsetManifold, restrict, retract, recenter,
-    recenter_pose, retract_jacobian, action_jacobian, retract_directions, s2_tangent_basis,
+    recenter_pose, retract_jacobian, action_jacobian, pose_action_jacobian, retract_directions, s2_tangent_basis,
     SL3_BASIS
 public anchor_svd   # FundMatManifold7's anchor (U, σ, V)
 public tangent_part   # a manifold's coordinates in a stacked tangent vector (product parts; NLLSsolver variables, the NLLSsolver extension)

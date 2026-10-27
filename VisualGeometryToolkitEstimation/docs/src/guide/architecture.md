@@ -170,7 +170,7 @@ minimal chart anchored at `θ`:
 
 - `HomographyProblem`: 8-dof sl(3) chart, whitened transfer residual with
   the Sampson shape `Σ̃_{gᵢ}` computed from the current `θ` and frozen for
-  the solve; VisualGeometryToolkitCore's chart LM, FastLevenbergMarquardt's `lmsolve!` (workspace:
+  the solve; VisualGeometryToolkitCore's chart LM, NLLSsolver through `lmsolve_chart!` (workspace:
   `ManifoldLmWorkspace{8}`, `refine_workspace(P, n)`, held in the local
   optimizer's workspace).
 - `FundMatProblem`: 7-dof Bartoli–Sturm chart, signed Sampson residual; the

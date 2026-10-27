@@ -1,7 +1,7 @@
 # Robust Statistics and Solvers API
 
 The robust-statistics toolkit, the generic block-coordinate-descent loop, the
-chart-rows contract and the chart LM (FastLevenbergMarquardt `lmsolve!`): the
+chart-rows contract and the chart LM (NLLSsolver, through one adapter): the
 shared machinery under the contracts of the
 [Robust Estimation API](estimators.md) page.
 

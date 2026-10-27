@@ -78,6 +78,15 @@ Pkg.add("VisualGeometryToolkitEstimation")      # pulls VisualGeometryToolkitCor
 Manifests record each package by UUID, version and tree hash, never by
 registry, so an environment resolves the same from either registry.
 
+**Recovering the full speed of the LM driver.** The stack's Levenberg–Marquardt driver is NLLSsolver. Until the upstream release that contains our pull requests ([#60](https://github.com/ojwoodford/NLLSsolver.jl/pull/60) Schur complement, [#61](https://github.com/ojwoodford/NLLSsolver.jl/pull/61), [#62](https://github.com/ojwoodford/NLLSsolver.jl/pull/62), [#63](https://github.com/ojwoodford/NLLSsolver.jl/pull/63)), a registry install resolves the published NLLSsolver, on which everything is correct but the relative-pose bundle runs about 2× slower and local-optimisation refits about 1.2× slower than with our fork. A checkout of this repository already pins the fork through `[sources]`. For an environment built from the registry, pin it yourself, once, in that environment:
+
+```julia
+using Pkg
+Pkg.add(PackageSpec(url = "https://github.com/prittjam/NLLSsolver.jl", rev = "stack"))
+```
+
+`stack` is the latest upstream release plus the unmerged pull requests, rebased onto each new release. Verify with `using NLLSsolver; isdefined(NLLSsolver, :MultiVariateLSschur)` → `true`. For a run that feeds a figure, replace `rev = "stack"` by the commit sha so every machine resolves the same tree. When the upstream release lands, `Pkg.free("NLLSsolver")` returns the environment to the registry and this note is removed.
+
 ## Development
 
 ```bash

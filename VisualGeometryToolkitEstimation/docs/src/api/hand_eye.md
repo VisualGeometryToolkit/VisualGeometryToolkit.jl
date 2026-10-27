@@ -62,7 +62,7 @@ chart about the current `X` — `R_X = exp(δω)·R₀` plus an additive update
 `t_X = t₀ + δt` (VisualGeometryToolkitCore's `RigidExpManifold6`, the chart of
 `constraint_with_jacobians`' `Gθ` and of the solver covariance) — minimizing
 `Σᵢ wᵢ ‖gᵢ‖²` over the stacked 6-vectors. It runs VisualGeometryToolkitCore's chart LM
-(FastLevenbergMarquardt's `lmsolve!`) with a ForwardDiff Jacobian of the explicit residual: that
+(NLLSsolver, through `lmsolve_chart!`) with a ForwardDiff Jacobian of the explicit residual: that
 `Gθ` is only the near-optimum approximation of `∂g/∂δ`, so the refit does not
 use it. Each RANSAC hypothesis is Tsai–Lenz fitted on its own two motions by
 the same refit (`fit_hypothesis`), the estimator the solver covariance

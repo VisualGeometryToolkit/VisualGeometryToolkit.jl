@@ -7,6 +7,20 @@ version and tree hash, never the registry, so an environment resolves the same
 from either. Users add CauRegistry until a package is in General (README,
 "Installation").
 
+## NLLSsolver from the fork (`[sources]`)
+
+The stack's LM driver is NLLSsolver. The workspace root's `Project.toml` pins
+our fork (`[sources] NLLSsolver = {url = "https://github.com/prittjam/NLLSsolver.jl", rev = "stack"}`:
+the latest upstream release plus our open pull requests #60–#63, rebased onto
+each upstream release) — a development-only line: no registered package carries
+it, and each names the registered NLLSsolver in `[compat]` (`"5.2"`), detecting
+the fork's additions at load (VisualGeometryToolkitCore's `nlls_features`). A
+registry install is therefore correct and slower; the README's "Recovering the
+full speed of the LM driver" tells a user how to pin the fork. Registering a
+release that REQUIRES the fork's speed waits for the upstream release that
+contains the pull requests; when it lands, raise the `[compat]` floor to it,
+delete the `[sources]` line and that README note.
+
 ## Registration
 
 1. All checks green on `main` (CI, Nightly, Docs).

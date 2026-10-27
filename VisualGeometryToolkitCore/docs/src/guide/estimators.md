@@ -209,9 +209,18 @@ and `test_constraint_problem` (loaded with `Test`) check an implementation.
   what a lifted local optimizer reads of a chart problem: its whitened rows,
   their Jacobian and per-point norms. The lifts and their continuation
   schedules are LocalOptimizationDoneRight's.
-- **Chart LM** (`ManifoldLmWorkspace`) — the stack's Levenberg–Marquardt:
-  FastLevenbergMarquardt's in-place `lmsolve!` on a linearization state's
-  `residual_rows!` / `residual_jacobian_rows!`, in buffers allocated once.
+- **Chart LM** (`ManifoldLmWorkspace`, `lmsolve_chart!`) — the stack's
+  Levenberg–Marquardt: NLLSsolver (Marquardt's DᵀD damping) on a
+  linearization state's `residual_rows!` / `residual_jacobian_rows!`, the
+  problem and the solver's internal data kept in buffers allocated once. The
+  stack's LM knobs (`max_iter`, `ftol`, `xtol`) map onto NLLSsolver's options
+  in one place, `nlls_options`; block-structured fits (the
+  relative-pose bundle, the robot-world refinement) build their own NLLSsolver
+  problems and share that map and the stall postcondition
+  (`nlls_retcode`). The fork's additions (the Schur complement, the
+  internal-data cache) are used when the loaded NLLSsolver has them
+  (`nlls_features`); see "Recovering the full speed of the LM driver"
+  in [Getting Started](getting-started.md).
 
 ## Model manifolds and covariance
 

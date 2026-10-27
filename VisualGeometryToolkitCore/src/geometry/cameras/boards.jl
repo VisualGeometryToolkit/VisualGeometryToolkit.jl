@@ -67,7 +67,7 @@ Board(size::Size2, origin::AbstractVector = SVector(0.0, 0.0)) = _refuse_board_m
 @noinline _refuse_board_mix(size, origin) = throw(
     ArgumentError("Board: the size and the corner are all lengths or all plain numbers; got $(Tuple(size)) and $(Tuple(origin))")
 )
-_board_origin(o::AbstractVector{<:Quantity}) = SVector{2, Float64}(map(q -> ustrip(m, _check_length(q)), Tuple(SVector{2}(o))))
+_board_origin(o::AbstractVector{<:Quantity}) = SVector{2, Float64}(strip_metres(map(_check_length, SVector{2}(o))))
 _board_origin(o::AbstractVector{<:Real}) = SVector{2, Float64}(o)
 _board_origin(o::AbstractVector) = _refuse_board_mix((), o)
 

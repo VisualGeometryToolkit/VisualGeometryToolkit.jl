@@ -176,12 +176,22 @@ function with_unit end
 # another dimension is FlexUnits' `ConversionError`.
 _metre_factor(u::Units) = ustrip(u, Quantity(1.0, dimension(m)))
 
-# One length vector as plain metres, refusing plain numbers where a physical
-# value is meant (a unitful pose meeting a plain point): the strip at a public
-# boundary. FlexUnits' `DimensionError`, as the arithmetic would raise.
-_strip_metres(x::StaticVector{N, <:Quantity}) where {N} = map(q -> ustrip(m, q), x)
-_strip_metres(x::AbstractVector{<:Quantity}) = ustrip.(m, x)
-_strip_metres(x::AbstractVector) = throw(DimensionError(x, m))
+"""
+    strip_metres(x) -> plain numbers
+
+A length, or a vector of lengths, as plain metres: the one strip at a public
+boundary that takes physical values and computes on plain numbers (a pose's
+translation, a 3D point, a threshold given beside physical data). It refuses
+plain numbers where a length is meant — a unit the caller did not state — with
+FlexUnits' `DimensionError`, as the arithmetic would raise; a quantity of
+another dimension is FlexUnits' `ConversionError`. A static vector stays
+static. Values are stored in metres, so the strip is exact.
+"""
+strip_metres(q::Quantity) = ustrip(m, q)
+strip_metres(x::Real) = throw(DimensionError(x, m))
+strip_metres(x::StaticVector{N, <:Quantity}) where {N} = map(q -> ustrip(m, q), x)
+strip_metres(x::AbstractVector{<:Quantity}) = ustrip.(m, x)
+strip_metres(x::AbstractVector) = throw(DimensionError(x, m))
 
 # -----------------------------------------------------------------------------
 # Pixel-sized values: the length check that survives a dimensionless px

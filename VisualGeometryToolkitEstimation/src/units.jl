@@ -28,12 +28,11 @@ const _PhysicalPose3 = UnitfulEuclideanMap{3}
 # a noise scale), as plain metres. A plain number there is a unit the caller did
 # not state: FlexUnits' `DimensionError`, as the arithmetic would raise.
 _metres(::Nothing) = nothing
-_metres(q::Quantity) = ustrip(VgtkCore.m, q)
-_metres(x::Real) = throw(DimensionError(x, VgtkCore.m))
+_metres(x::Union{Real, Quantity}) = VgtkCore.strip_metres(x)
 
 # A physical value as plain metres.
 _plain_metres(E::_PhysicalPose3) = ustrip(VgtkCore.m, E)
-_plain_metres(X::_PhysicalPoint3) = map(q -> ustrip(VgtkCore.m, q), X)
+_plain_metres(X::_PhysicalPoint3) = VgtkCore.strip_metres(X)
 _plain_metres(r::HyperRectangle{2, <:Quantity}) = ustrip(VgtkCore.m, r)
 
 # A plain pose read as metres: Core's `with_unit`, the one attachment — the

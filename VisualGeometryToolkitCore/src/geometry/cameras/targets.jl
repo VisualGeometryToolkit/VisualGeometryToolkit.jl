@@ -185,7 +185,7 @@ function _check_board(nominal, bd, c)
     δ = 16 * eps(Float64) * max(maximum(abs, r.origin), maximum(abs, r.origin + r.widths), maximum(r.widths))
     lo, hi = r.origin .- δ, r.origin + r.widths .+ δ
     for p in nominal
-        q = has_units(bd) ? map(x -> ustrip(m, x), p) : p
+        q = has_units(bd) ? strip_metres(p) : p
         (lo[1] <= q[1] <= hi[1] && lo[2] <= q[2] <= hi[2]) || throw(
             ArgumentError("PlanarTarget: the nominal point $(Tuple(q)) lies off the board, $(Tuple(lo)) to $(Tuple(hi))")
         )

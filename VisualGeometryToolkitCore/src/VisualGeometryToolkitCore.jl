@@ -328,7 +328,7 @@ export px, dpi, pt, mm, cm, μm, m, inch, ft
 export ustrip, uconvert, dimension, DimensionError, ConversionError
 export @ud_str, uparse, qparse
 export parse_unit, unit_string, strip_or_bare
-public has_units, with_unit   # plain or unitful; with_unit is ustrip's inverse on the stack's carriers
+public has_units, with_unit, strip_metres   # plain or unitful; with_unit is ustrip's inverse on the stack's carriers, strip_metres the boundary's strip
 export Size2
 export Gray, N0f8, N0f16  # Image types
 public filter_kwargs, validate_dir

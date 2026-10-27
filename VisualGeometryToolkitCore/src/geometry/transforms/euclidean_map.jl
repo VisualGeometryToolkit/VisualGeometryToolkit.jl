@@ -723,7 +723,7 @@ vector is (numerically) zero.
 """
 function translation_angle(t1::AbstractVector, t2::AbstractVector)
     # lengths are compared in metres (a length against a plain vector is a DimensionError)
-    (has_units(t1) || has_units(t2)) && return translation_angle(_strip_metres(t1), _strip_metres(t2))
+    (has_units(t1) || has_units(t2)) && return translation_angle(strip_metres(t1), strip_metres(t2))
     (norm(t1) < 1.0e-15 || norm(t2) < 1.0e-15) && return 0.0
     a = SVector{3}(t1[1], t1[2], t1[3]); b = SVector{3}(t2[1], t2[2], t2[3])
     return atan(norm(cross(a, b)), dot(a, b))
@@ -846,7 +846,7 @@ end
 
 # A physical map's translation as plain metres, a plain one's as it is: what a
 # public function reads where it only compares or measures a translation.
-_translation_metres(E::EuclideanMap) = has_units(E) ? _strip_metres(translation(E)) : translation(E)
+_translation_metres(E::EuclideanMap) = has_units(E) ? strip_metres(translation(E)) : translation(E)
 
 # -----------------------------------------------------------------------------
 # Units of a point — a target's, a capture's: the same moves as a map's

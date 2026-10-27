@@ -734,7 +734,7 @@ end
 const _PhysicalPoints3 = AbstractVector{<:Cspond{<:StaticVector{3, <:Quantity}, <:StaticVector{2}}}
 const _PlainPoints3 = AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}
 
-_metres_point(X::StaticVector{3, <:Quantity}) = SVector{3, Float64}(ustrip(VgtkCore.m, X[1]), ustrip(VgtkCore.m, X[2]), ustrip(VgtkCore.m, X[3]))
+_metres_point(X::StaticVector{3, <:Quantity}) = SVector{3, Float64}(VgtkCore.strip_metres(X))
 
 """
     refine_absolute_pose(pose::UnitfulEuclideanMap{3}, K, cs; max_iter, loss = TLSShape(), loss_width)
@@ -751,7 +751,7 @@ function refine_absolute_pose(pose::UnitfulEuclideanMap{3}, K::AbstractMatrix, c
     seed = convert(Rigid3, ustrip(VgtkCore.m, pose))
     plain = [_metres_point(first(c)) => last(c) for c in cs]
     refined = refine_absolute_pose(seed, K, plain; kwargs...)
-    return EuclideanMap(refined.R, refined.t .* VgtkCore.m)
+    return VgtkCore.with_unit(refined, VgtkCore.m)
 end
 
 refine_absolute_pose(::UnitfulEuclideanMap{3}, ::AbstractMatrix, ::_PlainPoints3; kwargs...) = throw(ArgumentError(

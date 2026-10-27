@@ -59,7 +59,7 @@ using VisualGeometryToolkitCore: FitResult, estimate, retcode, converged, iterat
 # estimator strips a physical input in metres at entry and reattaches metres at
 # exit; the inner loop takes plain maps (`PlainEuclideanMap`) and plain points.
 using FlexUnits: Quantity
-using VisualGeometryToolkitCore: PlainEuclideanMap, UnitfulEuclideanMap, ustrip, DimensionError, rms, metadata
+using VisualGeometryToolkitCore: PlainEuclideanMap, UnitfulEuclideanMap, ustrip, rms, metadata
 using VisualGeometryToolkitCore: CspondNormalization   # the correspondence normalization, chosen per model (VGC solver layer)
 # The benchmark pool record and the raw-pair interface (VGC Pools): RVG writes
 # the record (`PoolPair(rng, problem, raw)`, a constructor method on VGC's type

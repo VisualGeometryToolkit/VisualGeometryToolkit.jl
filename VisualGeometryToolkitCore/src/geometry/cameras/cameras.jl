@@ -118,7 +118,7 @@ using FlexUnits: Dimensions, FixRat32   # FlexUnits' base-form quantity, `Quanti
 using ..VisualGeometryToolkitCore: EuclideanMap, CameraPose, CameraExtrinsics, to_affine, to_homogeneous, image_warp, image_warp!
 import ..VisualGeometryToolkitCore: has_units, with_unit   # extended on the carriers: targets, mounts, rigs, cameras, captures
 using ..VisualGeometryToolkitCore: translation, UnitfulEuclideanMap, _attach_unit, _ustrip_point, _attach_point, _stored_point,
-    _check_one_form, _strip_metres, _translation_metres,   # the one strip/attach of maps and points (euclidean_map.jl)
+    _check_one_form, strip_metres, _translation_metres,   # the one strip/attach of maps and points (euclidean_map.jl)
     _strip_length, _attach_length, _metre_factor, _scale_length_form   # one length's strip/attach, a unit's metre factor (a calibration's lengths)
 using ..VisualGeometryToolkitCore: ThinPlateSplineSystem, tps_coefficients, tps_evaluate, tps_gradient, nodal_weights, bending_factor   # the thin-plate calibration kinds (target_calibration.jl)
 using FlexUnits: Units, DimensionError
@@ -608,7 +608,7 @@ mask = is_in_front.(Ref(camera), world_points)
 """
 is_in_front(c::PosedCamera, p::Point3) = extrinsics(c)(p)[3] > 0
 # a physical camera: the test in metres, the point a length (a plain one is a DimensionError)
-is_in_front(c::_UnitfulPosedCamera, p::Point3) = is_in_front(ustrip(m, c), Point3(_strip_metres(p)))
+is_in_front(c::_UnitfulPosedCamera, p::Point3) = is_in_front(ustrip(m, c), Point3(strip_metres(p)))
 
 """
     is_in_front(camera, x, y, z) -> AbstractArray{Bool}
@@ -629,7 +629,7 @@ function is_in_front(
     return z_cam .> zero(eltype(z_cam))
 end
 is_in_front(c::_UnitfulPosedCamera, x::AbstractArray, y::AbstractArray, z::AbstractArray) =
-    is_in_front(ustrip(m, c), _strip_metres(x), _strip_metres(y), _strip_metres(z))
+    is_in_front(ustrip(m, c), strip_metres(x), strip_metres(y), strip_metres(z))
 
 """
     focal_length(camera::PosedCamera)
@@ -733,7 +733,7 @@ u = project(camera, X_world)
 # A physical camera strips at entry, in metres: exactly the plain camera's call
 # on the point in metres (a plain point is a `DimensionError`).
 @inline project(camera::_UnitfulPosedCamera, X::AbstractVector) =
-    project(camera.model, ustrip(m, camera.extrinsics)(_strip_metres(X)))
+    project(camera.model, ustrip(m, camera.extrinsics)(strip_metres(X)))
 
 """
     project(camera::PosedCamera, shape::Union{Circle, Ellipse}) -> Ellipse or Polygon
@@ -790,7 +790,7 @@ end
 # A physical camera: the origin and the displacement are lengths, stripped in
 # metres with the camera (a plain one is a `DimensionError`).
 project(camera::_UnitfulPosedCamera, origin::GeometryBasics.Point3, dir::GeometryBasics.Vec3) =
-    project(ustrip(m, camera), Point3{Float64}(_strip_metres(origin)), Vec3{Float64}(_strip_metres(dir)))
+    project(ustrip(m, camera), Point3{Float64}(strip_metres(origin)), Vec3{Float64}(strip_metres(dir)))
 
 """
     backproject(camera::PosedCamera, u::StaticVector{2, Float64}) -> Vec3

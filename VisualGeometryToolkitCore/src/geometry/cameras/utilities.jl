@@ -97,7 +97,7 @@ extrinsics = lookat(SVector(0.0mm, 0.0mm, 0.0mm), SVector(0.0mm, 0.0mm, 1000.0mm
 ```
 """
 lookat(eye::StaticVector{3}, target::StaticVector{3}, up::StaticVector{3, <:Real}; convention::Symbol = :cv) =
-    _attach_unit(lookat(Point3{Float64}(_strip_metres(eye)), Point3{Float64}(_strip_metres(target)), up; convention), m)
+    _attach_unit(lookat(Point3{Float64}(strip_metres(eye)), Point3{Float64}(strip_metres(target)), up; convention), m)
 
 """
     lookat(eye::StaticVector{3, <:Real}, target::StaticVector{3, <:Real}, up::StaticVector{3, <:Real};
@@ -216,7 +216,7 @@ end
 # A physical pose: `eye` and `target` lengths, computed in metres, the pose's
 # translation read back in metres.
 lookat_pose(eye::StaticVector{3}, target::StaticVector{3}, up::StaticVector{3, <:Real}; convention::Symbol = :cv) =
-    _attach_unit(lookat_pose(Point3{Float64}(_strip_metres(eye)), Point3{Float64}(_strip_metres(target)), up; convention), m)
+    _attach_unit(lookat_pose(Point3{Float64}(strip_metres(eye)), Point3{Float64}(strip_metres(target)), up; convention), m)
 
 # =============================================================================
 # P3P Pose Sampling - Moved to random.jl

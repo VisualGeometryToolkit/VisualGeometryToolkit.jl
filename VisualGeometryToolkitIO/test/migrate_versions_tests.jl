@@ -266,6 +266,32 @@ end
     end
 end
 
+@testitem "vgio_migrate_tree: every refusal is logged and listed; the other files are migrated" setup = [VGIoFixtures, MigrateFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    mktempdir() do dir
+        # sorted first, so a refusal that aborted the walk would leave the good file unmigrated
+        bad = joinpath(dir, "a_bad.json")                    # the current reader refuses it (an asymmetric covariance)
+        write(bad, """{"schema": "vgio/target/v1", "length_unit": "mm", "target": {"type": "points", "points": [[0.0, 0.0, 0.0]],
+            "point_covariances": [[[1.0, 0.5, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]]}}""")
+        taken = joinpath(dir, "b_taken.json")                # its .migrated.json exists and is not a current file
+        write(taken, as_v1_target(read(units_fixture("target_points.json"), String)))
+        write(VgtkIO._migrated_path(taken), "not a vgio file")
+        stray = joinpath(dir, "c_stray.json")                # names an identity no rig of the tree has
+        write(stray, replace(read(units_fixture("target_points2d.json"), String), current_id() => "0"^64))
+        good = old_copy(dir, "target_planar.json", as_v1_target)
+        io = IOBuffer()
+        e = try vgio_migrate_tree(dir; io); nothing catch e; e end
+        out = String(take!(io))
+        @test e isa ArgumentError && occursin("3 file(s) refused", e.msg)
+        for f in (bad, taken, stray)
+            @test occursin("FAILED    $(f): ", out) && occursin(f, e.msg)
+        end
+        @test read(VgtkIO._migrated_path(good), String) == read(units_fixture("target_planar.json"), String)
+        @test !isfile(VgtkIO._migrated_path(bad)) && !isfile(VgtkIO._migrated_path(stray))
+        @test read(VgtkIO._migrated_path(taken), String) == "not a vgio file"
+    end
+end
+
 @testitem "vgio_migrate: staged beside the file, renamed in place; a refusal leaves the original" setup = [VGIoFixtures, MigrateFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     mktempdir() do dir

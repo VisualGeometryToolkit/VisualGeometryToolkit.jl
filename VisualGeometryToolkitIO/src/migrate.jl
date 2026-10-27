@@ -614,9 +614,12 @@ rig's old identities map to its new one. The map is PERSISTED in
 `dir/vgio_migrate_ids.json` before a rig is put in place, and read by a later
 run, so a run that fails after its rigs were migrated in place re-points
 correctly when rerun; a rerun of a migrated tree is idempotent (every file
-current, logged so). A measurement file naming an identity that is neither
-mapped nor a current rig's of the tree is refused (logged `FAILED`, nothing
-written for it), and the run ends in an `ArgumentError` listing every refusal.
+current, logged so). A file the migration refuses — its migration does not
+read back, its `<stem>.migrated.json` exists and is not current, a measurement
+file names an identity that is neither mapped nor a current rig's of the tree,
+or a measurement does not resolve in its rigs — is logged `FAILED` with the
+reason, nothing is written for it, and the run goes on with the other files;
+it then ends in ONE `ArgumentError` listing every refusal.
 """
 function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run::Bool = false, io::IO = stdout)
     idsfile = joinpath(dir, _IDS_SIDECAR)
@@ -625,7 +628,7 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
     results = NamedTuple[]
     ids = _read_ids(idsfile)
     rigs = String[]                                                    # the current rigs of the tree
-    failed = String[]
+    failed = Pair{String, String}[]                                    # file => why it was refused
     for f in files
         s = schemas[f]
         if !(s isa String && _has_migration(s))
@@ -646,7 +649,10 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
             continue
         end
         # verified, its identities mapped (and persisted before it is put in place)
-        r = _vgio_migrate(f; out, dry_run, before_rename = r -> _map_ids!(ids, r, idsfile, dry_run))
+        r = _refused(failed, f, io) do
+            _vgio_migrate(f; out, dry_run, before_rename = r -> _map_ids!(ids, r, idsfile, dry_run))
+        end
+        r === nothing && continue
         (!dry_run && r.to == _schema("rig")) && push!(rigs, out)
         push!(results, r)
         println(io, dry_run ? "verified  " : "migrated  ", f, ": ", s, " → ", r.to,
@@ -670,8 +676,9 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
         end
         stale = [t for t in ts if !(t in current) && !(haskey(ids, t) && (dry_run || ids[t] in current))]
         if !isempty(stale)
-            println(io, "FAILED    ", f, ": names targets identit$(length(stale) == 1 ? "y" : "ies") $(join(stale, ", ")), neither re-pointed nor a current rig's")
-            push!(failed, f)
+            msg = "names targets identit$(length(stale) == 1 ? "y" : "ies") $(join(stale, ", ")), neither re-pointed nor a current rig's"
+            println(io, "FAILED    ", f, ": ", msg)
+            push!(failed, f => msg)
             continue
         end
         out = in_place ? f : _migrated_path(f)
@@ -683,13 +690,33 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
             println(io, "would re-point  ", f, " (once the rigs are written)")
             continue
         end
-        r = _repoint_targets(f, ids, rigs; out, hashes, old)
+        r = _refused(() -> _repoint_targets(f, ids, rigs; out, hashes, old), failed, f, io)
+        r === nothing && continue
         push!(results, r)
         println(io, "re-pointed  ", f, ": ", r.repointed, " targets identit$(r.repointed == 1 ? "y" : "ies")",
             r.unchecked > 0 ? " ($(r.unchecked) measurements of referenced targets checked by id)" : "")
     end
-    isempty(failed) || throw(ArgumentError("vgio_migrate_tree($(dir)): $(length(failed)) measurement file(s) name identities no rig of the tree has: $(join(failed, ", "))"))
+    isempty(failed) || throw(
+        ArgumentError(
+            "vgio_migrate_tree($(dir)): $(length(failed)) file(s) refused, nothing written for them:\n" *
+                join(("  $(f): $(msg)" for (f, msg) in failed), "\n")
+        )
+    )
     return results
+end
+
+# One file's step of a tree, its refusal (an `ArgumentError`: a read-back
+# that differs, an existing destination, a measurement that does not resolve)
+# logged FAILED and collected in `failed`, the tree going on: `nothing` then.
+function _refused(step, failed::AbstractVector, f::AbstractString, io::IO)
+    try
+        return step()
+    catch e
+        e isa ArgumentError || rethrow()
+        println(io, "FAILED    ", f, ": ", e.msg)
+        push!(failed, f => e.msg)
+        return nothing
+    end
 end
 
 # A migrated rig's old → new identities, into the tree's map — persisted,

@@ -284,6 +284,7 @@ end
     end
     if VgtkCore.nlls_features().cache
         @test all(<=(ALLOCS_BOUND), counts)
+        @test maximum(counts) - minimum(counts) <= 4     # flat in N
     else
         @test_skip all(<=(ALLOCS_BOUND), counts)
     end

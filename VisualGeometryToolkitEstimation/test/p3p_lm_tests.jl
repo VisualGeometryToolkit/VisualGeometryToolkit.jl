@@ -93,7 +93,8 @@ end
     # The bound is the fork's cache path (a checkout); on a registered NLLSsolver the
     # solver's internal data are rebuilt per refit, unmeasured here: no assertion.
     if VgtkCore.nlls_features().cache
-        @test all(<=(ALLOCS_BOUND), allocs)    # one bound over a 50× range of n: flat
+        @test all(<=(ALLOCS_BOUND), allocs)    # one bound over a 50× range of n
+        @test maximum(allocs) - minimum(allocs) <= 4   # flat in n
     else
         @test_skip all(<=(ALLOCS_BOUND), allocs)
     end

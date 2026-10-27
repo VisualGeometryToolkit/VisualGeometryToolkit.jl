@@ -123,7 +123,7 @@ import VisualGeometryToolkitCore
 #   load(TargetPoses, path)                      vgio/target_poses/v1
 #   load(TargetPoints2D, path)                   vgio/target_points2d/v1
 #   load(TargetPoints3D, path)                   vgio/target_points3d/v1
-#   load(CentralGenericModel | NoncentralGenericModel, path)   the Schöps grid models
+#   load(CentralGenericModel | NoncentralGenericModel, path)   the Schöps grid models (vgio JSON, or Schöps' intrinsics0.yaml)
 #   load(ColmapModel, dir; contract = nothing)   COLMAP model directory (foreign)
 #   ColmapDatabase(dbpath)                       COLMAP sqlite database (lazy handle, read-only)
 #
@@ -161,6 +161,7 @@ include("camera_schema.jl")
 include("generic_camera_schema.jl")  # the Schöps grid models (must precede rig_schema: sensors embed it)
 include("rig_schema.jl")
 include("captures_schema.jl")  # trajectory/v3, target_poses/v1, target_points2d/v1, target_points3d/v1: VGC's captures
+include("schoeps.jl")      # Schöps et al.'s camera_calibration files (intrinsics0.yaml, dataset.bin), read through `load`
 include("correspondences.jl")  # export: measurements + targets → per-(frame, target) point arrays for external calibrators
 include("assemble.jl")
 include("conventions.jl")  # OpenCV's and Kalibr's lens models as VGC lenses, exactly
@@ -201,6 +202,7 @@ export save_opencv_calibration        # the inverse of load_opencv_calibration: 
 # `import VisualGeometryToolkitIO as VgtkIO`), because the names are generic enough to
 # collide with FileIO's, BlobBoards' or a caller's own.
 public load, save                     # the two-verb I/O surface (see the top of this file)
+public SCHOEPS_PIXEL_FRAME            # the pixel frame of Schöps' camera_calibration files (COLMAP's)
 public ColmapModel                    # a COLMAP model directory's contents + its unit contract
 public read_length, write_length   # a file length <-> metres, decimal-exact (power-of-ten units shift the exponent)
 public read_quantity, write_quantity, json_value, from_json, ScalarOrQuantity, role_unit   # the quantity JSON format (core_json.jl); a contract's length roles

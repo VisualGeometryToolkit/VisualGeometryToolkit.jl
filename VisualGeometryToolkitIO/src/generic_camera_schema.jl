@@ -151,14 +151,33 @@ end
 
 """
     load(CentralGenericModel, path) -> CentralGenericModel
-    load(NoncentralGenericModel, path) -> NoncentralGenericModel
+    load(NoncentralGenericModel, path; file_unit = nothing) -> NoncentralGenericModel
 
 Read a `vgio/generic_camera/v2` file (a non-central point grid into plain
-metres). The typed load is an assertion of intent: loading a central record as
+metres), or the reference implementation's own `intrinsics0.yaml` (Schöps et
+al.'s camera_calibration; the form is decided by the file's content, see
+schoeps.jl). The typed load is an assertion of intent: loading a central record as
 non-central (or vice versa) errors.
+
+The YAML is in [`SCHOEPS_PIXEL_FRAME`](@ref), which is the COLMAP frame the
+models are defined in: its numbers are read as stored. A non-central YAML does
+not record the length unit of its `point_grid`, so the caller states it,
+`file_unit` (a length unit, e.g. `m`); a vgio file declares its own, and a
+`file_unit` beside it, or beside a central model (which has no lengths), is
+refused.
 """
-load(::Type{T}, path::AbstractString) where {T <: Union{CentralGenericModel, NoncentralGenericModel}} =
-    _typed_generic(T, _load_generic(path), path)
+function load(
+        ::Type{T}, path::AbstractString; file_unit::Union{Nothing, Units} = nothing
+    ) where {T <: Union{CentralGenericModel, NoncentralGenericModel}}
+    if _file_form(path) !== :json
+        (T === CentralGenericModel && file_unit !== nothing) &&
+            throw(ArgumentError("$(path): a CentralGenericModel has no lengths; `file_unit` does not apply"))
+        return _load_schoeps_model(T, path, file_unit)
+    end
+    file_unit === nothing ||
+        throw(ArgumentError("$(path): a vgio file declares its own length_unit; `file_unit` is for a Schöps YAML"))
+    return _typed_generic(T, _load_generic(path), path)
+end
 
 function _load_generic(path::AbstractString)
     d = _read_store(path, "generic_camera", _GENERIC_CAMERA_SPEC)

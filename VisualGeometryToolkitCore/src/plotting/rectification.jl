@@ -8,9 +8,8 @@
 # that forwards to these.
 # =============================================================================
 
-# The principal point of a camera's pixel frame — the one read every panel's
-# cross and title are drawn from.
-_principal_point(camera::CameraModel) = (K = calibration_matrix(camera); Point2(K[1, 3], K[2, 3]))
+# The principal point of a camera's pixel frame (every panel's cross and title)
+# is Cameras' `_principal_point`, imported by the extension.
 
 # Centre and 180° radius of a camera's pixel frame. `monotone_radius` returns
 # `Inf` for a lens with no pole, so `isfinite(r_inf)` is the test for "this lens

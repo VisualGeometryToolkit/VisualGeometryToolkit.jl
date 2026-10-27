@@ -984,6 +984,7 @@ export convert_frame                      # the one way to change the pixel fram
 export rectify                            # stereo rectification: rectified pinhole rig + FramedImage pair
 export view_angle_limit                   # honest θ-domains
 export image_circle                       # the lit region of the sensor, from the lens or a datasheet
+export imaged_region                      # Rect(extent) ∩ image_circle: what the camera images
 export radial_part                         # a lens's radially symmetric part
 export CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models (Schöps et al.)
 export spline_support, spline_weights, window_controls, window_indices, direction_tangents, default_generic_grid  # the grid model's window interface (0.22.2)

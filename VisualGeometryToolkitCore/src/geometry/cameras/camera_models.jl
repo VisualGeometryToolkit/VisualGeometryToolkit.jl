@@ -236,6 +236,10 @@ function calibration_matrix(model::CameraModel)
     return SMatrix{3, 3, T, 9}(K)
 end
 
+# The principal point of a camera's pixel frame, in Float64 — the one read the
+# image circle, `fov` and the rectification panels make.
+_principal_point(camera::CameraModel) = (K = calibration_matrix(camera); Point2{Float64}(K[1, 3], K[2, 3]))
+
 # ============================================================================
 # Projection and Backprojection Methods
 # ============================================================================

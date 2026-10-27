@@ -106,9 +106,8 @@ fov(cam; dimension = :diagonal)
 """
 function fov(camera::BoundedCamera; dimension = :horizontal)
     m = model(camera)
-    K = calibration_matrix(m)
     w, h = Float64(extent(camera).width), Float64(extent(camera).height)
-    cx, cy = Float64(K[1, 3]), Float64(K[2, 3])
+    cx, cy = _principal_point(m)
     pts = if dimension === :horizontal
         (SVector(0.0, cy), SVector(w, cy))
     elseif dimension === :vertical

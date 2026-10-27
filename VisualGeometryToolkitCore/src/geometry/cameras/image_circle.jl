@@ -82,27 +82,14 @@ domain = Rect(extent(cam)) ∩ q              # where a local lens model lives
 ```
 """
 function image_circle(camera::CameraModel)
-    l = lens(camera)
-    θ = Float64(view_angle_limit(l))
-    θ < _view_angle_edge(l) || return WholePlane()   # the edge is a cap: no limit of its own
-    ρ = _inscribed_radius(l, θ)
-    isfinite(ρ) || throw(
-        ArgumentError(
-            "image_circle: the lens $(nameof(typeof(l))) images no ray at its view-angle limit θ = $(θ); " *
-                "its view_angle_limit and project disagree"
-        )
-    )
-    K = SMatrix{3, 3, Float64}(calibration_matrix(camera))
-    Ki = inv(K)
-    C = transpose(Ki) * SMatrix{3, 3, Float64}(1, 0, 0, 0, 1, 0, 0, 0, -ρ^2) * Ki
-    return Ellipse(HomEllipseMat{Float64}(Tuple(C)))
+    ρ = _lens_circle_radius(lens(camera))
+    return ρ === nothing ? WholePlane() : _pixel_disc(camera, ρ)
 end
 function image_circle(camera::CameraModel, sensor::Sensor, diameter::Quantity)
     dimension(diameter) == dimension(mm) || throw(DimensionError(diameter, mm))
-    K = calibration_matrix(camera)
     a = Float64(ustrip(px, diameter / (2 * sensor.pitch.width)))
     b = Float64(ustrip(px, diameter / (2 * sensor.pitch.height)))
-    return Ellipse(Point2{Float64}(K[1, 3], K[2, 3]), a, b, 0.0)
+    return Ellipse(_principal_point(camera), a, b, 0.0)
 end
 image_circle(c::Union{PosedCamera, BoundedCamera}) = image_circle(model(c))
 image_circle(c::Union{PosedCamera, BoundedCamera}, s::Sensor, diameter::Quantity) = image_circle(model(c), s, diameter)
@@ -117,14 +104,59 @@ function image_circle(bc::BoundedCamera, diameter::Quantity)
     return image_circle(model(bc), s, diameter)
 end
 
+# The lens's image circle as a normalized radius ρ (the radius of the disc the
+# θ_max cone images, inscribed), or `nothing` when the lens has no limit of its
+# own. The one owner of that radius: `image_circle` and the generic models'
+# node sampler (generic_models.jl) read it here.
+function _lens_circle_radius(l::AbstractLensModel)
+    θ = Float64(view_angle_limit(l))
+    θ < _view_angle_edge(l) || return nothing   # the edge is a cap: no limit of its own
+    ρ = _inscribed_radius(l, θ)
+    isfinite(ρ) || throw(
+        ArgumentError(
+            "image_circle: the lens $(nameof(typeof(l))) images no ray at its view-angle limit θ = $(θ); " *
+                "its view_angle_limit and project disagree"
+        )
+    )
+    return ρ
+end
+
+# The pixel image of the normalized disc of radius ρ through the camera's K:
+# the conic K⁻ᵀ·diag(1, 1, −ρ²)·K⁻¹ as an Ellipse.
+function _pixel_disc(camera::CameraModel, ρ::Real)
+    K = SMatrix{3, 3, Float64}(calibration_matrix(camera))
+    Ki = inv(K)
+    C = transpose(Ki) * SMatrix{3, 3, Float64}(1, 0, 0, 0, 1, 0, 0, 0, -Float64(ρ)^2) * Ki
+    return Ellipse(HomEllipseMat{Float64}(Tuple(C)))
+end
+
 # The image radius of the θ cone: its minimum over the azimuths (`_azimuth_minimum`,
 # projections.jl: 360 samples, golden-section refined), less a relative margin of
 # 10⁻⁹ for what the refinement leaves, so the disc of that radius lies inside
 # the image of the cone. An azimuth the lens does not image counts as Inf.
 function _inscribed_radius(l::AbstractLensModel, θ::Float64)
-    function r(ψ)
-        v = _radius(project(l, SVector(sin(θ) * cos(ψ), sin(θ) * sin(ψ), cos(θ))))
-        return isfinite(v) ? Float64(v) : Inf
+    rim(t) = ψ -> (v = _radius(project(l, SVector(sin(t) * cos(ψ), sin(t) * sin(ψ), cos(t)))); isfinite(v) ? Float64(v) : Inf)
+    ρ = _azimuth_minimum(rim(θ), 360)
+    if !isfinite(ρ)
+        # `project` inverts some lenses numerically (a lift) and may fail just
+        # short of a fold the closed form reports; retreat to the last angle it
+        # answers (bisected), whose disc is smaller and so still inscribed
+        θ = _nan_onset(t -> isfinite(projected_radius(l, t)), θ)
+        ρ = _azimuth_minimum(rim(θ), 360)
     end
-    return _azimuth_minimum(r, 360) * (1 - 1.0e-9)
+    return ρ * (1 - 1.0e-9)
 end
+
+"""
+    imaged_region(camera::BoundedCamera) -> Union{RegionIntersection, Rect}
+
+The region of the sensor the camera images, in pixels in its pixel frame:
+`Rect(extent(camera)) ∩ image_circle(camera)` — the one place the extent and
+the image circle are combined. A lazy
+[`RegionIntersection`](@ref VisualGeometryToolkitCore.Primitives.RegionIntersection)
+of the extent and the circle, or the extent's `Rect` itself when the circle is
+the whole plane (`∩` returns it). The pixel mask of any residual is
+`u ∈ imaged_region(camera)`; the free parameters of a local model are
+[`free_nodes`](@ref)`(model, imaged_region(camera))`.
+"""
+imaged_region(camera::BoundedCamera) = Rect(0, 0, extent(camera)...) ∩ image_circle(camera)

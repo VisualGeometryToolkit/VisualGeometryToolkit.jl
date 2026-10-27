@@ -125,3 +125,42 @@ function _load_schoeps_model(::Type{T}, path::AbstractString, file_unit) where {
     pts = _schoeps_grid(yml, "point_grid", gw, gh, path; scale = x -> _read_power(x, file_unit, 1))   # plain metres
     return NoncentralGenericModel(hdr..., dirs, pts)
 end
+
+# -----------------------------------------------------------------------------
+# dataset.bin (calib_data, version 0)
+# -----------------------------------------------------------------------------
+#
+# MIXED ENDIANNESS, as the reference writes it: every u32/i32 big-endian
+# (htonl), every float32 in the machine's (little-endian) order.
+
+_be_u32(io) = Int(ntoh(read(io, UInt32)))
+_be_i32(io) = Int(ntoh(read(io, Int32)))
+
+function _load_schoeps_dataset(path::AbstractString, target::Symbol)
+    frames = Dict{Int, Vector{TargetPoint2D}}()
+    images = Dict{Int, String}()
+    open(path, "r") do io
+        String(read(io, 10)) == "calib_data" || throw(ArgumentError("$(path): not a Schöps calib_data file"))
+        version = _be_u32(io)
+        version == 0 || throw(ArgumentError("$(path): calib_data version $(version); version 0 is read"))
+        ncam = _be_u32(io)
+        ncam == 1 || throw(ArgumentError("$(path): $(ncam) cameras; one camera's detections are read"))
+        _be_u32(io); _be_u32(io)                       # the camera's width, height
+        nsets = _be_u32(io)
+        for t in 1:nsets
+            images[t] = String(read(io, _be_u32(io)))
+            nf = _be_u32(io)
+            points = Vector{TargetPoint2D}(undef, nf)
+            for k in 1:nf
+                x = Float64(ltoh(read(io, Float32))); y = Float64(ltoh(read(io, Float32))); id = _be_i32(io)
+                (isfinite(x) && isfinite(y)) || throw(ArgumentError("$(path): image $(images[t]): a non-finite feature position"))
+                id >= 0 || throw(ArgumentError("$(path): image $(images[t]): negative feature id $(id)"))
+                points[k] = (target = target, index = id + 1, xy = SVector{2, Float64}(x, y), weight = 1.0)
+            end
+            frames[t] = points
+        end
+        # The known pattern geometries that may follow are the pattern's, not
+        # the detections'; they are not read.
+    end
+    return TargetPoints2D{SCHOEPS_PIXEL_FRAME}(frames; images)
+end

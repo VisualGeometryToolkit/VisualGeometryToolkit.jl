@@ -321,14 +321,29 @@ function _pixel_from_json(o)
 end
 
 """
-    load(TargetPoints2D, path) -> TargetPoints2D{F}
+    load(TargetPoints2D, path; target = nothing) -> TargetPoints2D{F}
 
 Read a `vgio/target_points2d/v1` file: per frame index, the measured pixels
 typed in the pixel frame `F` the file declares, exactly as stored, with the
 frames' images, sensors and times and the targets identities. Change the frame
 with `convert_frame`.
+
+A Schöps et al. camera_calibration `dataset.bin` (recognized by its
+`calib_data` magic, see schoeps.jl) is read too: frame `t` is the file's
+`t`-th image (its name in `images`), each detection a point of `target` —
+which the file does not name, so the caller states it — with `index` the
+feature id + 1 (the ids are 0-based) and weight 1, typed in
+[`SCHOEPS_PIXEL_FRAME`](@ref). A `target` beside a vgio file is refused (it
+names its own).
 """
-function load(::Type{TargetPoints2D}, path::AbstractString)
+function load(::Type{TargetPoints2D}, path::AbstractString; target::Union{Nothing, Symbol} = nothing)
+    if _file_form(path) === :calib_data
+        target === nothing && throw(
+            ArgumentError("$(path): a Schöps dataset.bin does not name the target its feature ids index; state it: `target = :board`")
+        )
+        return _load_schoeps_dataset(path, target)
+    end
+    target === nothing || throw(ArgumentError("$(path): `target` is for a Schöps dataset.bin; a vgio file names its targets"))
     d = _read_store(path, "target_points2d", _TARGET_POINTS2D_SPEC)
     frames = Dict{Int, Vector{TargetPoint2D}}()
     images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()

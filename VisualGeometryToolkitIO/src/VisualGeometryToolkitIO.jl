@@ -121,7 +121,7 @@ import VisualGeometryToolkitCore
 #   load(AbstractTarget, path; resolve = nothing) vgio/target/v2     one target (+ its calibration record)
 #   load(Trajectory, path)                       vgio/trajectory/v3  a body's pose over time
 #   load(TargetPoses, path)                      vgio/target_poses/v1
-#   load(TargetPoints2D, path)                   vgio/target_points2d/v1
+#   load(TargetPoints2D, path)                   vgio/target_points2d/v1 (or a Schöps dataset.bin; `target`)
 #   load(TargetPoints3D, path)                   vgio/target_points3d/v1
 #   load(CentralGenericModel | NoncentralGenericModel, path)   the Schöps grid models (vgio JSON, or Schöps' intrinsics0.yaml)
 #   load(ColmapModel, dir; contract = nothing)   COLMAP model directory (foreign)

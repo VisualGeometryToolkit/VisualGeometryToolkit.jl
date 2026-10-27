@@ -96,3 +96,26 @@ end
     @test worst_d < 1.0e-12
     @test worst_o < 1.0e-12
 end
+
+@testitem "schoeps: dataset.bin to TargetPoints2D" setup = [VGIoFixtures, SchoepsReference] begin
+    using VisualGeometryToolkitCore: TargetPoints2D, convert_frame
+    using VisualGeometryToolkitIO: SCHOEPS_PIXEL_FRAME
+    path = joinpath(FIXTURES, "dataset.bin")
+    @test_throws ArgumentError load(TargetPoints2D, path)                     # the target is the caller's to state
+    obs = load(TargetPoints2D, path; target = :pattern)
+    @test obs isa TargetPoints2D{SCHOEPS_PIXEL_FRAME}
+    @test sort(collect(keys(obs))) == [1, 2]
+    @test obs.images == Dict(1 => "image000.png", 2 => "image001.png")
+    @test [(p.target, p.index, p.xy, p.weight) for p in obs[1]] ==
+        [(:pattern, 1, SVector(0.5, 0.5), 1.0), (:pattern, 8, SVector(10.25, 20.75), 1.0), (:pattern, 42, SVector(63.5, 47.5), 1.0)]
+    @test only(obs[2]).xy == SVector(32.0, 24.0) && only(obs[2]).index == 4
+    # The corner convention's (0.5, 0.5) is the top-left pixel's centre: (0, 0) in OpenCV's frame.
+    @test first(convert_frame(PixelFrame{:opencv}, obs)[1]).xy == SVector(0.0, 0.0)
+    # Not a dataset.bin, and not a target beside a vgio file.
+    mktempdir() do dir
+        out = joinpath(dir, "points.json")
+        @test_throws ArgumentError load(TargetPoints2D, joinpath(FIXTURES, "central_intrinsics0.yaml"); target = :pattern)
+        bad = joinpath(dir, "v1.bin"); b = read(path); b[14] = 0x01; write(bad, b)     # version 1
+        @test_throws ArgumentError load(TargetPoints2D, bad; target = :pattern)
+    end
+end

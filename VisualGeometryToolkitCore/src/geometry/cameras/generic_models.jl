@@ -88,62 +88,95 @@ end
 """
     CentralGenericModel{T} <: AbstractCamera
 
-The central generic camera model: a `grid` of UNIT observation directions
+The central generic camera model: a `grid` of observation-direction CONTROLS
 (`Matrix{Vec3{T}}`, indexed `[gy, gx]`), interpolated by a uniform cubic
 B-spline over the calibrated image area `(calib_min_x, calib_min_y)`–
 `(calib_max_x, calib_max_y)` (inclusive integer pixel indices, COLMAP
 frame). `backproject` is the normalized spline value; `project` is the
 reference implementation's pixel-space LM (initialized at the calibrated
-area's center, or at `init`). Directions are re-normalized at construction
-(the reference's Read() behavior).
+area's center, or at `init`).
 
-    CentralGenericModel(model::CameraModel, (width, height); grid_size, calib_area)
+    CentralGenericModel(width, height, min_x, min_y, max_x, max_y, grid;
+                        unit_controls = true, nominal = nothing, domain = WholePlane())
 
-Initialize FROM a parametric model. `init = :interpolate` (default) solves
-the cubic-prefilter tridiagonal system per axis so the spline INTERPOLATES
-the source's backprojection at the grid nodes — the true approximation
-floor; `init = :sample` is quasi-interpolation (control = sample), which
-smooths curvature by (h²/6)·f″. Node sampling is clamped to the source's
-lit field — `sampling_margin` (default 0.97) times its [`image_circle`](@ref)
-when the lens has one, otherwise times its imaging domain — so beyond it
-nodes sample at the radially-clamped pixel, and the global prefilter solve
-never rings against near-fold curvature or unlit
-extrapolation. The bridge from the parametric zoo into the generic
-family.
+`unit_controls = true` re-normalizes every control at construction (the
+reference's Read() behavior: its optimizer keeps the controls on the sphere).
+`false` keeps them as given: the spline value is normalized by `backproject`
+anyway, so a control's norm is a weight in the interpolation, not a gauge — a
+quasi-interpolated start or an optimizer stepping in each control's tangent
+plane has controls off the sphere. `nominal` is a pinhole
+`LogicalIntrinsics` the model reports with (the parametric camera it was
+built from; [`nominal_intrinsics`](@ref)) — projection never reads it.
+`domain` is the region of the sensor (pixels) the model's source images;
+[`imaged_region`](@ref)`(m)` is the calibrated area ∩ `domain`.
+
+    CentralGenericModel(source, (width, height); grid_size, calib_area, init, ...)
+
+Initialize FROM a source camera — see the initialization section below:
+`init = :interpolate` (default) solves the cubic-prefilter tridiagonal system
+per axis so the spline INTERPOLATES the source's backprojection at the grid
+nodes; `init = :sample` takes each node's sample as its control (Schoenberg's
+variation-diminishing approximation, which smooths curvature by (h²/6)·f″);
+`init = :quasi_interpolate` is the 4th-order local quasi-interpolant on a
+lattice extended one node past the area ([`quasi_interpolant`](@ref)), with its
+border rule for a source whose domain ends near or inside the area. The first
+two clamp node sampling to the source's lit field — `sampling_margin`
+(default 0.97) times its [`image_circle`](@ref) when the lens has one,
+otherwise times its imaging domain — so the global prefilter solve never rings
+against near-fold curvature or unlit extrapolation. The bridge from the
+parametric zoo into the generic family.
+
+The grid may be any matrix of `Vec3{T}` (a device array inside a kernel,
+through `Adapt`); `T` is the float type of the controls.
 """
-struct CentralGenericModel{T <: AbstractFloat} <: AbstractCamera
+struct CentralGenericModel{T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, I, D} <: AbstractCamera
     width::Int
     height::Int
     calib_min_x::Int
     calib_min_y::Int
     calib_max_x::Int
     calib_max_y::Int
-    grid::Matrix{Vec3{T}}
+    grid::G
+    nominal::I
+    domain::D
 
-    function CentralGenericModel{T}(
+    function CentralGenericModel{T, G, I, D}(
             width::Integer, height::Integer,
             cminx::Integer, cminy::Integer, cmaxx::Integer, cmaxy::Integer,
-            grid::Matrix{Vec3{T}}
-        ) where {T <: AbstractFloat}
+            grid::G, nominal::I, domain::D
+        ) where {T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, I, D}
         _check_generic_area(width, height, cminx, cminy, cmaxx, cmaxy, size(grid))
-        return new{T}(width, height, cminx, cminy, cmaxx, cmaxy, _unit_or_normalize.(grid))
+        return new{T, G, I, D}(width, height, cminx, cminy, cmaxx, cmaxy, grid, nominal, domain)
     end
+end
+function CentralGenericModel{T}(
+        w::Integer, h::Integer, a::Integer, b::Integer, c::Integer, d::Integer, grid::AbstractMatrix;
+        unit_controls::Bool = true, nominal = nothing, domain = WholePlane()
+    ) where {T <: AbstractFloat}
+    g = _controls(T, grid, unit_controls)
+    return CentralGenericModel{T, typeof(g), typeof(nominal), typeof(domain)}(w, h, a, b, c, d, g, nominal, domain)
 end
 CentralGenericModel(
     w::Integer, h::Integer, a::Integer, b::Integer, c::Integer, d::Integer,
-    grid::Matrix{Vec3{T}}
-) where {T} = CentralGenericModel{T}(w, h, a, b, c, d, grid)
+    grid::AbstractMatrix{<:StaticVector{3, T}}; kwargs...
+) where {T <: AbstractFloat} = CentralGenericModel{T}(w, h, a, b, c, d, grid; kwargs...)
+
+# The controls as a `Vec3{T}` matrix: re-normalized (`unit`) or exactly as given.
+# A matrix that already is a `Vec3{T}` matrix and is kept as given is not copied.
+_controls(::Type{T}, grid::AbstractMatrix{Vec3{T}}, unit::Bool) where {T} = unit ? _unit_or_normalize.(grid) : grid
+_controls(::Type{T}, grid::AbstractMatrix, unit::Bool) where {T} =
+    (g = Matrix{Vec3{T}}(map(v -> Vec3{T}(v[1], v[2], v[3]), grid)); unit ? _unit_or_normalize.(g) : g)
 
 """
     NoncentralGenericModel{T} <: AbstractCamera
 
 The non-central generic camera model: per-grid-point observation LINES —
-`directions` (unit, re-normalized at construction) and `points` (a point on
-each line), both `Matrix{Vec3{T}}` indexed `[gy, gx]` and interpolated by
-the same uniform cubic B-spline. `backproject` returns a [`Ray3`](@ref);
-`project` is the pixel-space LM (`_pixel_lm`) on the reference's tangent-plane
-point-to-line residual. With an all-zero `points` grid the model is exactly
-central.
+`directions` (direction controls, re-normalized at construction unless
+`unit_controls = false`) and `points` (a point on each line), both
+`Matrix{Vec3{T}}` indexed `[gy, gx]` and interpolated by the same uniform
+cubic B-spline. `backproject` returns a [`Ray3`](@ref); `project` is the
+pixel-space LM (`_pixel_lm`) on the reference's tangent-plane point-to-line
+residual. With an all-zero `points` grid the model is exactly central.
 
 The `points` are plain metres in the camera frame. This is an exception to the
 units layering that the type forces: its grid of `Vec3{T}` is interpolated in
@@ -155,26 +188,30 @@ a plain extrinsics is an `ArgumentError`, since it would be read in the
 caller's unit against the grid's metres. `ustrip(m, camera)` is the plain
 camera, in metres only.
 
-    NoncentralGenericModel(model::CameraModel, (width, height); grid_size, calib_area)
+    NoncentralGenericModel(width, height, min_x, min_y, max_x, max_y, directions, points;
+                           unit_controls = true, nominal = nothing, domain = WholePlane())
+    NoncentralGenericModel(source, (width, height); grid_size, calib_area, init, ...)
 
-Initialize from a parametric (central) model: directions by
-quasi-interpolation, points all zero.
+The keywords as for [`CentralGenericModel`](@ref). From a (central) source:
+directions as the central model's `init`, points all zero.
 """
-struct NoncentralGenericModel{T <: AbstractFloat} <: AbstractCamera
+struct NoncentralGenericModel{T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, I, D} <: AbstractCamera
     width::Int
     height::Int
     calib_min_x::Int
     calib_min_y::Int
     calib_max_x::Int
     calib_max_y::Int
-    directions::Matrix{Vec3{T}}
-    points::Matrix{Vec3{T}}
+    directions::G
+    points::G
+    nominal::I
+    domain::D
 
-    function NoncentralGenericModel{T}(
+    function NoncentralGenericModel{T, G, I, D}(
             width::Integer, height::Integer,
             cminx::Integer, cminy::Integer, cmaxx::Integer, cmaxy::Integer,
-            directions::Matrix{Vec3{T}}, points::Matrix{Vec3{T}}
-        ) where {T <: AbstractFloat}
+            directions::G, points::G, nominal::I, domain::D
+        ) where {T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, I, D}
         size(directions) == size(points) || throw(
             ArgumentError(
                 "NoncentralGenericModel: direction and point grids must have equal size, " *
@@ -182,29 +219,153 @@ struct NoncentralGenericModel{T <: AbstractFloat} <: AbstractCamera
             )
         )
         _check_generic_area(width, height, cminx, cminy, cmaxx, cmaxy, size(directions))
-        return new{T}(width, height, cminx, cminy, cmaxx, cmaxy, _unit_or_normalize.(directions), points)
+        return new{T, G, I, D}(width, height, cminx, cminy, cmaxx, cmaxy, directions, points, nominal, domain)
     end
+end
+function NoncentralGenericModel{T}(
+        w::Integer, h::Integer, a::Integer, b::Integer, c::Integer, d::Integer,
+        directions::AbstractMatrix, points::AbstractMatrix;
+        unit_controls::Bool = true, nominal = nothing, domain = WholePlane()
+    ) where {T <: AbstractFloat}
+    dirs = _controls(T, directions, unit_controls)
+    pts = _controls(T, points, false)
+    if typeof(dirs) !== typeof(pts)                       # one array type for both grids: materialize them
+        dirs = Matrix{Vec3{T}}(dirs)
+        pts = Matrix{Vec3{T}}(pts)
+    end
+    return NoncentralGenericModel{T, typeof(dirs), typeof(nominal), typeof(domain)}(w, h, a, b, c, d, dirs, pts, nominal, domain)
 end
 NoncentralGenericModel(
     w::Integer, h::Integer, a::Integer, b::Integer, c::Integer, d::Integer,
-    directions::Matrix{Vec3{T}}, points::Matrix{Vec3{T}}
-) where {T} =
-    NoncentralGenericModel{T}(w, h, a, b, c, d, directions, points)
+    directions::AbstractMatrix{<:StaticVector{3, T}}, points::AbstractMatrix{<:StaticVector{3}}; kwargs...
+) where {T <: AbstractFloat} =
+    NoncentralGenericModel{T}(w, h, a, b, c, d, directions, points; kwargs...)
 
 const _GenericModel = Union{CentralGenericModel, NoncentralGenericModel}
 
+"""
+    nominal_intrinsics(m) -> LogicalIntrinsics | nothing
+
+The pinhole a generic grid model reports with — the parametric camera it was
+initialized from, or what its builder named — or `nothing`. The model's
+projection never reads it: a generic model has no K/lens split.
+"""
+nominal_intrinsics(m::_GenericModel) = m.nominal
+
+"""
+    imaged_region(m::Union{CentralGenericModel, NoncentralGenericModel}) -> region
+
+The region of the sensor a generic grid model images, in pixels: its
+calibrated area (the closed rectangle `[min, max + 1]`) ∩ its `domain`
+(`WholePlane()` unless the model was built with the domain of its source).
+`free_nodes(m, imaged_region(m))` are the nodes that can reach an imaged pixel.
+"""
+imaged_region(m::_GenericModel) = _calibrated_rect(m) ∩ m.domain
+
+# ------------------------------------------------------------------------------
+# A window: a view onto a block of a model's controls
+# ------------------------------------------------------------------------------
+
+"""
+    GenericModelWindow
+
+A view onto a rectangular block of a generic grid model's controls: the
+model's lattice (its image and calibrated area, its FULL grid size) with only
+the controls of rows `offset[1] + 1 : offset[1] + size(directions, 1)` and
+columns `offset[2] + 1 : …` present, possibly replaced (`window(m, rows, cols;
+directions, points)`). Every evaluation of the model's spline that reads only
+controls inside the block — `interpolated_direction`, `interpolated_point`,
+`spline_support`, `spline_weights` — gives the same bits on the window as on a
+model holding those controls. It is what a per-tile cost block of a
+refinement evaluates: a few hundred controls instead of the whole grid. Not a
+camera (it projects nothing); `points` is `nothing` for a central model's
+window.
+"""
+struct GenericModelWindow{T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, P <: Union{Nothing, G}}
+    width::Int
+    height::Int
+    calib_min_x::Int
+    calib_min_y::Int
+    calib_max_x::Int
+    calib_max_y::Int
+    grid_size::NTuple{2, Int}       # (rows, cols) of the FULL grid
+    offset::NTuple{2, Int}          # 0-based (row, col) of directions[1, 1] in the full grid
+    directions::G
+    points::P
+end
+
+"""
+    window(m, rows, cols; directions = m's controls, points = m's points) -> GenericModelWindow
+
+The block `rows × cols` (unit ranges into `m`'s grid, `[gy, gx]`) of a
+generic grid model as a [`GenericModelWindow`](@ref); `directions` (and, for
+a non-central model, `points`) replace the model's controls of the block —
+equal-size matrices of 3-vectors, kept exactly as given.
+"""
+function window(
+        m::_GenericModel, rows::AbstractUnitRange{<:Integer}, cols::AbstractUnitRange{<:Integer};
+        directions::Union{Nothing, AbstractMatrix} = nothing,
+        points::Union{Nothing, AbstractMatrix} = nothing
+    )
+    gh, gw = _grid_size(m)
+    (1 <= first(rows) && last(rows) <= gh && 1 <= first(cols) && last(cols) <= gw) ||
+        throw(ArgumentError("window: rows $rows × cols $cols outside the $gh × $gw grid"))
+    m isa CentralGenericModel && points !== nothing &&
+        throw(ArgumentError("window: points belong to a non-central model's window, and only there"))
+    directions = directions === nothing ? view(_directions(m), rows, cols) : directions
+    points = m isa NoncentralGenericModel && points === nothing ? view(m.points, rows, cols) : points
+    size(directions) == (length(rows), length(cols)) ||
+        throw(DimensionMismatch("window: $(size(directions)) controls for a $(length(rows)) × $(length(cols)) block"))
+    T = eltype(eltype(_directions(m)))
+    d = _controls(T, directions, false)
+    p = points === nothing ? nothing : _controls(T, points, false)
+    size(d) == (p === nothing ? size(d) : size(p)) || throw(DimensionMismatch("window: directions and points differ in size"))
+    if p !== nothing && typeof(d) !== typeof(p)           # one array type for both grids: materialize them
+        d = Matrix{Vec3{T}}(d)
+        p = Matrix{Vec3{T}}(p)
+    end
+    return GenericModelWindow{T, typeof(d), typeof(p)}(
+        m.width, m.height, m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y,
+        (gh, gw), (first(rows) - 1, first(cols) - 1), d, p
+    )
+end
+
+# What every lattice evaluation reads, for a model and a window alike.
+const _GenericLattice = Union{CentralGenericModel, NoncentralGenericModel, GenericModelWindow}
+
+_directions(m::CentralGenericModel) = m.grid
+_directions(m::Union{NoncentralGenericModel, GenericModelWindow}) = m.directions
 _grid_size(m::CentralGenericModel) = size(m.grid)
 _grid_size(m::NoncentralGenericModel) = size(m.directions)
+_grid_size(w::GenericModelWindow) = w.grid_size
+_offset(::_GenericModel) = (0, 0)
+_offset(w::GenericModelWindow) = w.offset
+
+Adapt.adapt_structure(to, m::CentralGenericModel{T}) where {T} =
+    (g = Adapt.adapt(to, m.grid); dom = _device_domain(m.domain);
+     CentralGenericModel{T, typeof(g), typeof(m.nominal), typeof(dom)}(
+        m.width, m.height, m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y, g, m.nominal, dom))
+Adapt.adapt_structure(to, m::NoncentralGenericModel{T}) where {T} =
+    (d = Adapt.adapt(to, m.directions); p = Adapt.adapt(to, m.points); dom = _device_domain(m.domain);
+     NoncentralGenericModel{T, typeof(d), typeof(m.nominal), typeof(dom)}(
+        m.width, m.height, m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y, d, p, m.nominal, dom))
+Adapt.adapt_structure(to, w::GenericModelWindow{T}) where {T} =
+    (d = Adapt.adapt(to, w.directions); p = w.points === nothing ? nothing : Adapt.adapt(to, w.points);
+     GenericModelWindow{T, typeof(d), typeof(p)}(
+        w.width, w.height, w.calib_min_x, w.calib_min_y, w.calib_max_x, w.calib_max_y, w.grid_size, w.offset, d, p))
+# The domain is a host-side region (masks, node supports): an isbits one travels,
+# anything else is left behind as the whole plane.
+_device_domain(d) = isbitstype(typeof(d)) ? d : WholePlane()
 
 # ------------------------------------------------------------------------------
 # Area & grid mapping (verbatim from the reference; COLMAP frame throughout)
 # ------------------------------------------------------------------------------
 
-@inline _in_calibrated_area(m::_GenericModel, x, y) =
+@inline _in_calibrated_area(m::_GenericLattice, x, y) =
     x >= m.calib_min_x && y >= m.calib_min_y &&
     x < m.calib_max_x + 1 && y < m.calib_max_y + 1
 
-@inline _area_center(m::_GenericModel) = SVector(
+@inline _area_center(m::_GenericLattice) = SVector(
     (m.calib_min_x + m.calib_max_x + 1) / 2.0,
     (m.calib_min_y + m.calib_max_y + 1) / 2.0,
 )
@@ -215,11 +376,15 @@ _grid_size(m::NoncentralGenericModel) = size(m.directions)
 # and the device kernel (the host once wrote `(g − 3)·(x − min)/range`, which
 # rounds differently, so `spline_support` and `spline_weights` disagreed in the
 # last ulp for the same pixel).
+# The arithmetic runs in the pixel's own float type (a Float32 device evaluation
+# stays Float32); for a Float64 pixel `T(g − 3) / T(span)` is the `Int / Int`
+# it always was.
 @inline _grid_scale(m_min, m_max, gdim) = (gdim - 3) / (m_max + 1 - m_min)
-@inline _grid_coord(x, m_min, m_max, gdim) = 1 + _grid_scale(m_min, m_max, gdim) * (x - m_min)
+@inline _lattice_coord(x, lo, span, gdim) = (T = typeof(x); 1 + (T(gdim - 3) / T(span)) * (x - T(lo)))
+@inline _grid_coord(x, m_min, m_max, gdim) = _lattice_coord(x, m_min, m_max + 1 - m_min, gdim)
 
 # Pixel (COLMAP) → grid coordinates.
-@inline function _grid_coords(m::_GenericModel, x, y)
+@inline function _grid_coords(m::_GenericLattice, x, y)
     gh, gw = _grid_size(m)
     return (
         _grid_coord(x, m.calib_min_x, m.calib_max_x, gw),
@@ -232,16 +397,16 @@ end
 # rectangle `[min, max + 1]` (`_in_calibrated_area` is its half-open test). The
 # ONE spelling of the lattice geometry: the node pixels below and the nodes'
 # supports (support.jl) read them.
-@inline function _lattice_spacing(m::_GenericModel)
+@inline function _lattice_spacing(m::_GenericLattice)
     gh, gw = _grid_size(m)
     return ((m.calib_max_x + 1 - m.calib_min_x) / (gw - 3), (m.calib_max_y + 1 - m.calib_min_y) / (gh - 3))
 end
-_calibrated_rect(m::_GenericModel) =
+_calibrated_rect(m::_GenericLattice) =
     Rect2{Float64}(m.calib_min_x, m.calib_min_y, m.calib_max_x + 1 - m.calib_min_x, m.calib_max_y + 1 - m.calib_min_y)
 
 # Grid node (Julia 1-based control index) → pixel: inverse of `_grid_coords`
 # at integer grid coordinate `j₁ - 1` (the C++ 0-based control index).
-@inline function _node_pixel(m::_GenericModel, gx1::Integer, gy1::Integer)
+@inline function _node_pixel(m::_GenericLattice, gx1::Integer, gy1::Integer)
     hx, hy = _lattice_spacing(m)
     return SVector(m.calib_min_x + (gx1 - 2) * hx, m.calib_min_y + (gy1 - 2) * hy)
 end
@@ -277,18 +442,18 @@ end
     return ix, iy, wx, wy
 end
 
-# 4×4 tensor-window evaluation of one Vec3 control grid. C++ 0-based window
-# columns ix-3 … ix map to Julia columns ix-2 … ix+1 (rows likewise). Any
-# matrix — the host grid or its device copy inside a kernel.
-@inline function _eval_window(grid::AbstractMatrix{Vec3{T}}, ix, iy, wx, wy) where {T}
-    S = promote_type(T, typeof(wx[1]))
-    acc = zero(Vec3{S})
-    @inbounds for r in 1:4
-        row = wx[1] * grid[iy - 3 + r, ix - 2] + wx[2] * grid[iy - 3 + r, ix - 1] +
-            wx[3] * grid[iy - 3 + r, ix] + wx[4] * grid[iy - 3 + r, ix + 1]
-        acc += wy[r] * row
-    end
-    return acc
+# 4×4 tensor-window evaluation of one control grid. C++ 0-based window
+# columns ix-3 … ix map to Julia columns ix-2 … ix+1 (rows likewise); a
+# window's controls start at `off` (0-based row, col) of the full grid. Any
+# matrix and any control type with + and scalar * (3-vectors, scalars) — the
+# host grid or its device copy inside a kernel. The rows are summed in order,
+# r = 1 … 4 (the `zero + row₁` start of the accumulator is exact).
+@inline function _eval_window(grid::AbstractMatrix, ix, iy, wx, wy, off::NTuple{2, Int} = (0, 0))
+    jx = ix - off[2]
+    jy = iy - off[1]
+    @inline row(r) = @inbounds wx[1] * grid[jy - 3 + r, jx - 2] + wx[2] * grid[jy - 3 + r, jx - 1] +
+        wx[3] * grid[jy - 3 + r, jx] + wx[4] * grid[jy - 3 + r, jx + 1]
+    return ((wy[1] * row(1) + wy[2] * row(2)) + wy[3] * row(3)) + wy[4] * row(4)
 end
 
 # d/dx of the four window weights — the same cubic pieces differentiated, in
@@ -336,15 +501,103 @@ end
 # `d̂(u) = t`). Exposed as plain functions on the model's geometry so no
 # consumer re-derives the grid mapping or the cubic pieces.
 
-"""
-    spline_support(m::CentralGenericModel, pixel) -> (ix, iy) | nothing
+# The window a pixel reads when the model is continued past its calibrated
+# area: the window index is clamped to the grid and the local coordinate runs
+# on, so outside the area the outermost cell's cubic pieces continue (the
+# natural extension of the model over a margin the calibration did not cover).
+# Inside the area it is `_spline_window`, bit for bit. A NaN pixel gives NaN
+# weights, never an error (`unsafe_trunc`: device-safe).
+@inline function _continued_window(gx, gy, gw::Integer, gh::Integer)
+    x = gx + 2
+    y = gy + 2
+    ix = clamp(unsafe_trunc(Int, floor(x)), 3, gw - 1)
+    iy = clamp(unsafe_trunc(Int, floor(y)), 3, gh - 1)
+    return ix, iy, _cubic_weights(x - (ix - 3)), _cubic_weights(y - (iy - 3))
+end
 
-The window `pixel` (COLMAP frame) reads: the 4×4 controls
-`m.grid[iy - 3 + r, ix - 3 + c]`, `r, c ∈ 1:4` (row = y tap, column = x
-tap) — the index pair [`spline_weights`](@ref) takes. `nothing` outside the
-calibrated area.
+@inline function _continued_window(m::_GenericLattice, x, y)
+    gh, gw = _grid_size(m)
+    gx, gy = _grid_coords(m, x, y)
+    return _continued_window(gx, gy, gw, gh)
+end
+
 """
-function spline_support(m::CentralGenericModel, pixel)
+    spline_window(m, pixel) -> (ix, iy, wx, wy)
+    spline_window(area::Rect2, grid_size, pixel) -> (ix, iy, wx, wy)
+
+The window `pixel` reads on the lattice of a generic grid model (or a
+[`GenericModelWindow`](@ref)), or on the uniform cubic lattice of `grid_size =
+(rows, cols)` controls laid over the closed rectangle `area` (cells =
+`size − 3` per axis, the models' convention): the controls `[iy - 3 + r, ix -
+3 + c]`, `r, c ∈ 1:4`, of the FULL grid and the four weights per axis (`wx[c]`
+along x, `wy[r]` along y; `w[r, c] = wy[r] * wx[c]`, [`spline_weights`](@ref)'
+matrix). Outside the area the outermost cell's cubic pieces continue — the
+same continuation [`interpolated_direction`](@ref) evaluates.
+"""
+spline_window(m::_GenericLattice, pixel) = _continued_window(m, pixel[1], pixel[2])
+function spline_window(area::GeometryBasics.HyperRectangle{2}, grid_size::NTuple{2, Integer}, pixel)
+    o = GeometryBasics.origin(area); w = GeometryBasics.widths(area)
+    gh, gw = grid_size
+    return _continued_window(
+        _lattice_coord(pixel[1], o[1], w[1], gw), _lattice_coord(pixel[2], o[2], w[2], gh), gw, gh
+    )
+end
+
+"""
+    spline_value(controls, area::Rect2, pixel)
+
+The uniform cubic B-spline surface of `controls` (any matrix of values with
+`+` and scalar `*`: scalars, 3-vectors) laid over the closed rectangle `area`
+as a generic model lays its grid (`[gy, gx]`, cells = `size − 3` per axis),
+at `pixel`, continued past the area as [`spline_window`](@ref). The generic
+models' evaluation, for a lattice that is not a camera (a per-position
+aperture radius, a field over the image).
+"""
+function spline_value(controls::AbstractMatrix, area::GeometryBasics.HyperRectangle{2}, pixel)
+    ix, iy, wx, wy = spline_window(area, size(controls), pixel)
+    return _eval_window(controls, ix, iy, wx, wy)
+end
+
+"""
+    interpolated_direction(m, pixel)
+
+The direction spline of a generic grid model or a [`GenericModelWindow`](@ref)
+at `pixel` (COLMAP frame), NOT normalized — `backproject` is its
+normalization inside the calibrated area. Outside the area the outermost
+cell's cubic pieces continue ([`spline_window`](@ref)) instead of the
+`nothing` of `backproject`. Generic in the element types (Float32 on a
+device, any control matrix the model holds) and allocation-free.
+"""
+@inline function interpolated_direction(m::_GenericLattice, pixel)
+    ix, iy, wx, wy = _continued_window(m, pixel[1], pixel[2])
+    return _eval_window(_directions(m), ix, iy, wx, wy, _offset(m))
+end
+
+"""
+    interpolated_point(m, pixel)
+
+The point spline of a [`NoncentralGenericModel`](@ref) (or its window) at
+`pixel`: the interpolated point of the pixel's observation line, plain metres
+in the camera frame, continued past the area as
+[`interpolated_direction`](@ref).
+"""
+@inline function interpolated_point(m::Union{NoncentralGenericModel, GenericModelWindow}, pixel)
+    m isa GenericModelWindow && m.points === nothing &&
+        throw(ArgumentError("interpolated_point: a central model's window has no points"))
+    ix, iy, wx, wy = _continued_window(m, pixel[1], pixel[2])
+    return _eval_window(m.points, ix, iy, wx, wy, _offset(m))
+end
+
+"""
+    spline_support(m, pixel) -> (ix, iy) | nothing
+
+The window `pixel` (COLMAP frame) reads on a generic grid model or a
+[`GenericModelWindow`](@ref): the 4×4 controls
+`grid[iy - 3 + r, ix - 3 + c]`, `r, c ∈ 1:4` (row = y tap, column = x tap) of
+the FULL grid — the index pair [`spline_weights`](@ref) takes. `nothing`
+outside the calibrated area.
+"""
+function spline_support(m::_GenericLattice, pixel)
     x, y = float(pixel[1]), float(pixel[2])
     _in_calibrated_area(m, x, y) || return nothing
     gx, gy = _grid_coords(m, x, y)
@@ -353,7 +606,7 @@ function spline_support(m::CentralGenericModel, pixel)
 end
 
 """
-    spline_weights(m::CentralGenericModel, ix, iy, pixel)
+    spline_weights(m, ix, iy, pixel)
         -> (w::SMatrix{4, 4}, wx::SMatrix{4, 4}, wy::SMatrix{4, 4})
 
 The weights of window `(ix, iy)`'s 16 controls at `pixel` — `w[r, c]`
@@ -364,7 +617,7 @@ which is what a refinement holding the support fixed between rebuilds needs.
 `sum(w .* grid_window)` is the unnormalized direction `backproject`
 normalizes.
 """
-function spline_weights(m::CentralGenericModel, ix::Integer, iy::Integer, pixel)
+function spline_weights(m::_GenericLattice, ix::Integer, iy::Integer, pixel)
     x, y = float(pixel[1]), float(pixel[2])
     gh, gw = _grid_size(m)
     sx = _grid_scale(m.calib_min_x, m.calib_max_x, gw)      # ∂gx/∂x
@@ -640,43 +893,169 @@ function _directions_from(
     return [Vec3{T}(C[1][gy, gx], C[2][gy, gx], C[3][gy, gx]) for gy in 1:gh, gx in 1:gw]
 end
 
+# ---- :quasi_interpolate — the 4th-order local quasi-interpolant on an extended lattice ----
+
+"""
+    quasi_interpolant(samples::AbstractMatrix) -> controls
+
+The separable 4th-order quasi-interpolant of uniform cubic B-splines: node
+samples `f` (a matrix of values with `+` and scalar `*`, laid out `[gy, gx]`
+as a generic model's grid) become controls `c_j = (−f_{j−1} + 8 f_j −
+f_{j+1}) / 6`, along x (the second index) first, then along y; at the border
+the outermost sample is replicated. Exact for cubics at interior nodes, local
+(each control reads three samples per axis), no linear solve. The stencil of
+`init = :quasi_interpolate`, where the samples extend one node past the grid on
+every side so that no grid control reads a replicated sample.
+"""
+function quasi_interpolant(samples::AbstractMatrix)
+    F = Matrix{eltype(samples)}(samples)
+    qi(v) = [(-v[max(j - 1, 1)] + 8 * v[j] - v[min(j + 1, end)]) / 6 for j in eachindex(v)]
+    for gy in axes(F, 1)
+        F[gy, :] = qi(F[gy, :])
+    end
+    for gx in axes(F, 2)
+        F[:, gx] = qi(F[:, gx])
+    end
+    return F
+end
+
+# The direction a source gives at a pixel, normalized, NaN where it images
+# nothing: a camera's backprojection, a central generic model's interpolated
+# direction (continued past its area, `interpolated_direction`), or a
+# function `pixel -> direction` (`nothing` or a non-finite vector = not
+# imaged).
+_source_direction(f, px) = (v = f(px); v === nothing ? SVector(NaN, NaN, NaN) : normalize(SVector{3, Float64}(v[1], v[2], v[3])))
+_source_direction(c::CameraModel, px) = (v = backproject(c, px); v === nothing ? SVector(NaN, NaN, NaN) : normalize(SVector{3, Float64}(v)))
+_source_direction(m::CentralGenericModel, px) = normalize(SVector{3, Float64}(interpolated_direction(m, px)))
+
+# The direction controls of `init = :quasi_interpolate` on the lattice of `m`.
+#
+# The node of 1-based index j along an axis sits at cell coordinate t = j − 2
+# (pixel `min + t·h`): the outermost node on each side lies one cell OUTSIDE
+# the calibrated area and samples the source there, and its quasi-interpolation
+# stencil needs one more ring, so the source is sampled on the extended lattice
+# t = −2 … C + 1 (C = grid − 3 cells) and the stencil's border rows are cut off
+# afterwards. Measured reasons (RadiometricCamera, the Kannala–Brandt fit of the
+# AprilGrid photos): clamping the outer nodes to the area's boundary sample
+# flattened the spline over the outermost cell — 1.8 px median / 3 px max of
+# direction error within 50 px of the border; replicating the outermost sample
+# in the stencil instead left 1 px at the border and a 7.7 % error of the local
+# pixel pitch there; and a Schöps calibration resampled with its nodes clamped
+# onto the calibrated box (constant extrapolation) had up to 15 px of error in an
+# 11-px margin and 0.5 px over the first cell.
+#
+# Where the source does not image a sample (outside its domain: no ray, a
+# non-finite direction) the sample is the linear extrapolation, per axis, of
+# the two samples inward of it (from the nearest sample inside the area).
+# Where those are not imaged either — the source's domain ends INSIDE the area
+# (a lens returns no ray past its fold or image circle) — the sample is the
+# linear extrapolation of the first two imaged samples on the way from the node
+# towards the area's centre; a node with no imaged sample on that way is an
+# `ArgumentError`. Those made-up samples carry a smooth continuation, not a
+# ray: the model's `domain` (the source's imaged region) says where it images.
+function _quasi_interpolation_directions(source, m::_GenericLattice)
+    gh, gw = _grid_size(m)
+    Cx, Cy = gw - 3, gh - 3
+    hx, hy = _lattice_spacing(m)
+    f(tx, ty) = _source_direction(source, SVector(m.calib_min_x + tx * hx, m.calib_min_y + ty * hy))
+    valid(tx, ty) = all(isfinite, f(tx, ty))
+    function node(tx, ty)
+        v = f(tx, ty)
+        all(isfinite, v) && return v
+        cx, cy = clamp(tx, 0, Cx), clamp(ty, 0, Cy)
+        ix = tx < 0 ? 1 : (tx > Cx ? -1 : 0)
+        iy = ty < 0 ? 1 : (ty > Cy ? -1 : 0)
+        f0 = f(cx, cy)
+        e = normalize(f0 + abs(tx - cx) * (f0 - f(cx + ix, cy)) + abs(ty - cy) * (f0 - f(cx, cy + iy)))
+        all(isfinite, e) && return e
+        dx, dy = Cx / 2 - tx, Cy / 2 - ty
+        L = hypot(dx, dy)
+        ux, uy = dx / L, dy / L                                # unit cell step towards the area's centre
+        for k in 1:floor(Int, L)
+            a = (tx + k * ux, ty + k * uy)
+            b = (tx + (k + 1) * ux, ty + (k + 1) * uy)
+            if valid(a...) && valid(b...)
+                fa = f(a...)
+                return normalize(fa + k * (fa - f(b...)))
+            end
+        end
+        throw(
+            ArgumentError(
+                "generic model (:quasi_interpolate): the source images no sample on the way from the node at " *
+                    "cell ($tx, $ty) to the area's centre"
+            )
+        )
+    end
+    F = [node(tx, ty) for ty in -2:(gh - 1), tx in -2:(gw - 1)]
+    return quasi_interpolant(F)[2:(end - 1), 2:(end - 1)]
+end
+
+# Default nominal pinhole and domain of a model built from a source.
+_default_nominal(c::CameraModel) = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(calibration_matrix(c))))
+_default_nominal(m::_GenericModel) = m.nominal
+_default_nominal(_) = nothing
+function _default_domain(c::CameraModel)
+    return try
+        image_circle(c)
+    catch e
+        e isa ArgumentError || rethrow()
+        WholePlane()              # no image circle defined for the lens: nothing is claimed
+    end
+end
+_default_domain(m::_GenericModel) = m.domain
+_default_domain(_) = WholePlane()
+
+function _init_directions(source, seed::_GenericModel, init::Symbol, sampling_margin::Real)
+    init === :quasi_interpolate && return _quasi_interpolation_directions(source, seed)
+    source isa CameraModel || throw(
+        ArgumentError(
+            "generic model init :$init samples a camera model's lit field; a $(nameof(typeof(source))) source " *
+                "takes init = :quasi_interpolate"
+        )
+    )
+    return _directions_from(source, seed, Float64; init, sampling_margin)
+end
+
+const _GenericSource = Union{CameraModel, CentralGenericModel, Function}
+
 function CentralGenericModel(
-        model::CameraModel, size::Union{Tuple{Integer, Integer}, Size2};
+        source::_GenericSource, size::Union{Tuple{Integer, Integer}, Size2};
         grid_size::Tuple{Integer, Integer} = default_generic_grid(_generic_size(size)...),
         calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
             (0, 0, _generic_size(size)[1] - 1, _generic_size(size)[2] - 1),
         init::Symbol = :interpolate,
         sampling_margin::Real = 0.97,
+        unit_controls::Bool = init !== :quasi_interpolate,
+        nominal = _default_nominal(source),
+        domain = _default_domain(source),
     )
     W, H = _generic_size(size)
     area = _area_bounds(calib_area)
     gw, gh = grid_size
-    seed = CentralGenericModel{Float64}(
-        W, H, area..., fill(Vec3{Float64}(0, 0, 1), gh, gw)
-    )
+    seed = CentralGenericModel{Float64}(W, H, area..., fill(Vec3{Float64}(0, 0, 1), gh, gw))
     return CentralGenericModel{Float64}(
-        W, H, area...,
-        _directions_from(model, seed, Float64; init, sampling_margin)
+        W, H, area..., _init_directions(source, seed, init, sampling_margin); unit_controls, nominal, domain
     )
 end
 
 function NoncentralGenericModel(
-        model::CameraModel, size::Union{Tuple{Integer, Integer}, Size2};
+        source::_GenericSource, size::Union{Tuple{Integer, Integer}, Size2};
         grid_size::Tuple{Integer, Integer} = default_generic_grid(_generic_size(size)...),
         calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
             (0, 0, _generic_size(size)[1] - 1, _generic_size(size)[2] - 1),
         init::Symbol = :interpolate,
         sampling_margin::Real = 0.97,
+        unit_controls::Bool = init !== :quasi_interpolate,
+        nominal = _default_nominal(source),
+        domain = _default_domain(source),
     )
     W, H = _generic_size(size)
     area = _area_bounds(calib_area)
     gw, gh = grid_size
-    seed = CentralGenericModel{Float64}(
-        W, H, area..., fill(Vec3{Float64}(0, 0, 1), gh, gw)
-    )
-    dirs = _directions_from(model, seed, Float64; init, sampling_margin)
+    seed = CentralGenericModel{Float64}(W, H, area..., fill(Vec3{Float64}(0, 0, 1), gh, gw))
+    dirs = _init_directions(source, seed, init, sampling_margin)
     return NoncentralGenericModel{Float64}(
-        W, H, area..., dirs, fill(Vec3{Float64}(0, 0, 0), gh, gw)
+        W, H, area..., dirs, fill(Vec3{Float64}(0, 0, 0), gh, gw); unit_controls, nominal, domain
     )
 end
 
@@ -684,16 +1063,22 @@ end
 # Precision conversion: `convert_eltype`, and the warp chain's `_precision`
 # bridge to it
 # ------------------------------------------------------------------------------
+# The controls convert as they are (a conversion does not re-normalize them:
+# a model with off-sphere controls keeps its spline); nominal and domain travel.
 convert_eltype(::Type{T}, m::CentralGenericModel) where {T <: AbstractFloat} =
     CentralGenericModel{T}(
     m.width, m.height, m.calib_min_x, m.calib_min_y,
-    m.calib_max_x, m.calib_max_y, Vec3{T}.(m.grid)
+    m.calib_max_x, m.calib_max_y, Vec3{T}.(m.grid); unit_controls = false, m.nominal, m.domain
 )
 convert_eltype(::Type{T}, m::NoncentralGenericModel) where {T <: AbstractFloat} =
     NoncentralGenericModel{T}(
     m.width, m.height, m.calib_min_x, m.calib_min_y,
-    m.calib_max_x, m.calib_max_y, Vec3{T}.(m.directions), Vec3{T}.(m.points)
+    m.calib_max_x, m.calib_max_y, Vec3{T}.(m.directions), Vec3{T}.(m.points); unit_controls = false, m.nominal, m.domain
 )
+convert_eltype(::Type{T}, w::GenericModelWindow) where {T <: AbstractFloat} =
+    (d = Vec3{T}.(w.directions); p = w.points === nothing ? nothing : Vec3{T}.(w.points);
+     GenericModelWindow{T, typeof(d), typeof(p)}(
+        w.width, w.height, w.calib_min_x, w.calib_min_y, w.calib_max_x, w.calib_max_y, w.grid_size, w.offset, d, p))
 
 # The one bridge from transforms/warp.jl's private `_precision` (the fused
 # image_warp chain and the batched kernels) to the public conversion: a lens

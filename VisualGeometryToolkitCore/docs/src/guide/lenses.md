@@ -176,6 +176,40 @@ sensor in pixels — for a uniform cubic B-spline lattice
 [`cubic_bspline_footprint`](@ref VisualGeometryToolkitCore.Cameras.cubic_bspline_footprint)`(center, spacing)`);
 [`free_nodes`](@ref) and [`node_mask`](@ref) then work unchanged.
 
+## A generic model in a refinement
+
+A refinement of the generic grid models reads them through a few primitives
+of the same lattice. The controls of a model may be kept off the sphere
+(`unit_controls = false`): `backproject` normalizes the spline value, so a
+control's norm is an interpolation weight, not a gauge — an optimizer stepping
+in each control's tangent plane ([`direction_tangents`](@ref VisualGeometryToolkitCore.Cameras.direction_tangents))
+leaves them there. [`interpolated_direction`](@ref VisualGeometryToolkitCore.Cameras.interpolated_direction)
+is the raw spline (generic in the element type, Float32 on a device),
+continued past the calibrated area by the outermost cells' cubic pieces; a
+per-tile cost block evaluates a [`window`](@ref VisualGeometryToolkitCore.Cameras.window)
+— a view onto a block of controls, possibly replaced, that evaluates bit for
+bit as the model; [`spline_window`](@ref VisualGeometryToolkitCore.Cameras.spline_window)
+gives the 4 × 4 controls and weights a pixel reads, for the Jacobian's fan-out
+onto the controls; and [`spline_value`](@ref VisualGeometryToolkitCore.Cameras.spline_value)
+lays the same lattice under any control type (a scalar field over the image).
+
+`init = :quasi_interpolate` builds a model from any source — a camera, a
+generic model (continued past its area), or a function `pixel -> direction`
+(`nothing` where it images nothing) — by the local 4th-order
+[`quasi_interpolant`](@ref VisualGeometryToolkitCore.Cameras.quasi_interpolant)
+on a lattice extended one node past the area, linearly extrapolating per axis
+where the source images nothing and inward from the area's centre where its
+domain ends inside the area. The model keeps the source's pinhole as its
+[`nominal_intrinsics`](@ref VisualGeometryToolkitCore.Cameras.nominal_intrinsics)
+and the source's image circle as its `domain`, so
+`free_nodes(m, imaged_region(m))` are the nodes that can reach a lit pixel.
+
+```julia
+m = CentralGenericModel(fish, (1280, 960); grid_size = (35, 25), init = :quasi_interpolate)
+w = window(m, 5:14, 15:24)                        # rows (y) × cols (x) of the grid
+interpolated_direction(w, SVector(700.0, 400.0)) == interpolated_direction(m, SVector(700.0, 400.0))
+```
+
 ## The lens record
 
 [`lens_record`](@ref) writes a lens as a self-describing record, the form

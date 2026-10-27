@@ -58,7 +58,7 @@ using Rotations: Rotations, RotMatrix
 using GeometryBasics: GeometryBasics
 using MacroTools: MacroTools
 using KernelAbstractions: KernelAbstractions, @kernel, @index, @Const, get_backend
-using Adapt: adapt   # device upload of the grid and rays (generic_models.jl)
+using Adapt: Adapt, adapt   # device upload of the grid and rays; the models' and windows' `adapt_structure` (generic_models.jl)
 
 # Import from parent module (VisualGeometryToolkitCore-specific types only)
 import KernelAbstractions as KA   # batched generic-model projection kernel
@@ -991,6 +991,8 @@ export free_nodes, node_mask, cubic_bspline_footprint
 export radial_part                         # a lens's radially symmetric part
 export CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models (Schöps et al.)
 export spline_support, spline_weights, window_controls, window_indices, direction_tangents, default_generic_grid  # the grid model's window interface (0.22.2)
+export GenericModelWindow, window, nominal_intrinsics, interpolated_direction, interpolated_point   # a view onto a block of controls; the raw splines
+export spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice as a primitive (any control type); the 4th-order quasi-interpolant
 export with_model                         # same camera/rig, new model — rebuilds through the validating constructor
 export reference_frame                    # rig/target-rig reference-frame type (submodule-level only:
 #   the top module deliberately does not re-export it — import explicitly)

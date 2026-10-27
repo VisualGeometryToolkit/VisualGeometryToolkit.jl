@@ -241,24 +241,20 @@ function NLLSsolver.computecostgradhess(_varflags, c::_ChartRows{N}, x) where {N
     lm = c.state.lm
     r = residual_rows!(c.r, lm, x)
     J = residual_jacobian_rows!(c.J, lm, x)
-    g = zero(MVector{N, Float64})
-    H = zero(MMatrix{N, N, Float64})
+    # Immutable accumulators: an `MMatrix` here escaped to the heap under
+    # `--check-bounds=yes` on Julia 1.12 (22 allocations per refit), the
+    # static values stay on the stack in every mode.
+    g = zero(SVector{N, Float64})
+    H = zero(SMatrix{N, N, Float64})
     s = 0.0
     @inbounds for i in eachindex(r)
         ri = r[i]
         s += ri * ri
-        for a in 1:N
-            Jia = J[i, a]
-            g[a] += Jia * ri
-            for b in 1:a
-                H[a, b] += Jia * J[i, b]
-            end
-        end
+        Ji = SVector{N, Float64}(ntuple(a -> J[i, a], Val(N)))
+        g += Ji * ri
+        H += Ji * Ji'
     end
-    @inbounds for a in 1:N, b in (a + 1):N
-        H[a, b] = H[b, a]
-    end
-    return _finite_cost(0.5 * s), SVector(g), SMatrix(H)
+    return _finite_cost(0.5 * s), g, H
 end
 
 # The kept NLLSsolver problem of one linearization-state type, its state slot

@@ -46,7 +46,7 @@
     const THIRD = 0.04
 
     function p3p_sample(; world_sep, img_sep)
-        cam = VgtkCore.CameraModel(800VGC.px, SA[320.0VGC.px, 240.0VGC.px])
+        cam = VgtkCore.CameraModel(800VgtkCore.px, SA[320.0VgtkCore.px, 240.0VgtkCore.px])
         X1 = SA[0.0, 0.0, 2.0]
         X2 = X1 + SA[world_sep, 0.0, 0.0]
         X3 = SA[0.0, THIRD, 2.0]
@@ -85,7 +85,7 @@
     end
 
     @testset "a distorting lens: coplanar RAYS, not collinear pixels, are the degeneracy" begin
-        K = VgtkCore.CameraCalibrationMat(950.0VGC.px, [2120.0VGC.px, 1416.0VGC.px])
+        K = VgtkCore.CameraCalibrationMat(950.0VgtkCore.px, [2120.0VgtkCore.px, 1416.0VgtkCore.px])
         cam = VgtkCore.CameraModel(VgtkCore.LogicalIntrinsics(K), VgtkCore.Division(-0.3, -0.08))
         # three points on the plane y = z/2 through the centre: their rays are
         # coplanar, a P3P degeneracy, but the lens bends their line into a curve

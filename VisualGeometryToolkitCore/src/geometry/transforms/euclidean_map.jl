@@ -660,23 +660,28 @@ frames kept exactly. The inverse of [`ustrip`](@ref)`(u, E)`; an
 """
 with_unit(E::EuclideanMap, u::Units) = _attach_unit(E, u)
 
-# The 6×6 pose form with its translation rows and columns (4–6) scaled by `f`:
-# `op = *` multiplies a covariance's (Σ ↦ DΣD, D = diag(1, 1, 1, f, f, f)),
-# `op = /` divides it; a precision moves the opposite way (Λ ↦ D⁻¹ΛD⁻¹). Each
-# entry is scaled once by the product of its row and column factors (1, f or
-# f·f), so a strip and its attach are inverse to within an ulp.
-function _scale_translation_block(M::CovMat{6, T, 36, C}, f, op) where {T, C}
-    return CovMat{6, T, 36, C}(ntuple(k -> _scaled_entry(M[k], k, f, op), Val(36)))
+# A covariance (or precision) over a vector some of whose entries are lengths
+# (`mask`), moved with a unit change by `f` (`ustrip`: `f` = units of `u` per
+# metre): `op = *` multiplies a covariance (Σ ↦ DΣD, D = diag(f^lᵢ)), `op = /`
+# divides it; a precision moves the opposite way (Λ ↦ D⁻¹ΛD⁻¹). Each entry is
+# scaled once by the product of its row and column factors (1, f or f·f), so a
+# strip and its attach are inverse to within an ulp. The one rule for a pose
+# (`_POSE_LENGTHS`), a point (every entry) and a target calibration's θ.
+function _scale_length_form(M::CovMat{N, T, L, C}, mask, f, op) where {N, T, L, C}
+    return CovMat{N, T, L, C}(ntuple(k -> _length_entry(M[k], k, N, mask, f, op), Val(L)))
 end
-function _scale_translation_block(M::PrecMat{6, T, 36, C}, f, op) where {T, C}
-    return PrecMat{6, T, 36, C}(ntuple(k -> _scaled_entry(M[k], k, f, _opposite(op)), Val(36)))
+function _scale_length_form(M::PrecMat{N, T, L, C}, mask, f, op) where {N, T, L, C}
+    return PrecMat{N, T, L, C}(ntuple(k -> _length_entry(M[k], k, N, mask, f, _opposite(op)), Val(L)))
 end
-@inline function _scaled_entry(x, k, f, op)
-    n = (mod1(k, 6) > 3) + ((k - 1) ÷ 6 + 1 > 3)
+@inline function _length_entry(x, k, N, mask, f, op)
+    n = mask[mod1(k, N)] + mask[(k - 1) ÷ N + 1]
     return n == 0 ? x : op(x, n == 1 ? f : f * f)
 end
 _opposite(::typeof(*)) = /
 _opposite(::typeof(/)) = *
+# The 6×6 pose form, rotation first (the `RigidExpManifold6` chart): its
+# translation rows and columns (4–6) are the lengths.
+const _POSE_LENGTHS = SVector(false, false, false, true, true, true)
 
 """
     ustrip(u::Units, X::Uncertain{<:EuclideanMap{3}}) -> Uncertain
@@ -688,11 +693,11 @@ the rotation–translation block in `rad·u`. The inverse is
 [`with_unit`](@ref)`(X, u)`.
 """
 FlexUnits.ustrip(u::Units, X::Uncertain{<:EuclideanMap{3}}) = Uncertain(
-    ustrip(u, geom(X)), _scale_translation_block(getfield(X, :attributes), _metre_factor(u), *)
+    ustrip(u, geom(X)), _scale_length_form(getfield(X, :attributes), _POSE_LENGTHS, _metre_factor(u), *)
 )
 
 with_unit(X::Uncertain{<:EuclideanMap{3}}, u::Units) = Uncertain(
-    _attach_unit(geom(X), u), _scale_translation_block(getfield(X, :attributes), _metre_factor(u), /)
+    _attach_unit(geom(X), u), _scale_length_form(getfield(X, :attributes), _POSE_LENGTHS, _metre_factor(u), /)
 )
 
 # =============================================================================
@@ -860,9 +865,8 @@ _attach_point(u::Units, p::Uncertain) =
     Uncertain(_attach_point(u, geom(p)), _scale_point_form(getfield(p, :attributes), _metre_factor(u), /))
 _attach_point(::Units, p) = throw(ArgumentError("with_unit: the point $(p) already has units"))
 
-_scale_point_form(M::CovMat{N, T, L, C}, f, op) where {N, T, L, C} = CovMat{N, T, L, C}(map(x -> op(x, f * f), Tuple(M)))
-_scale_point_form(M::PrecMat{N, T, L, C}, f, op) where {N, T, L, C} =
-    PrecMat{N, T, L, C}(map(x -> _opposite(op)(x, f * f), Tuple(M)))
+# every entry of a point is a length
+_scale_point_form(M::Union{CovMat{N}, PrecMat{N}}, f, op) where {N} = _scale_length_form(M, ntuple(_ -> true, Val(N)), f, op)
 
 # A point's stored form: plain numbers as `Float64` (today's storage), lengths in
 # metres. For the containers that hold either (targets, 3D target points).

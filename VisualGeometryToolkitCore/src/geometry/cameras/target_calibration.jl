@@ -95,8 +95,7 @@ FlexUnits.ustrip(::Units, c::Rigid) = c
 with_unit(c::Rigid, ::Units) = c
 
 # A calibration's form moves with its unit: an uncertain one's covariance
-# scales with it, each length entry by `f` (`ustrip`: `f` = units of `u` per
-# metre) — Σᵢⱼ by f^(lᵢ + lⱼ), a precision the opposite way.
+# scales with it over its length entries (`_scale_length_form`, euclidean_map.jl).
 _ustrip_calibration(u::Units, c::TargetCalibration) = _has_lengths(c) ? ustrip(u, c) : c
 _attach_calibration(u::Units, c::TargetCalibration) = _has_lengths(c) ? with_unit(c, u) : c
 function _ustrip_calibration(u::Units, c::Uncertain{<:TargetCalibration})
@@ -108,16 +107,6 @@ function _attach_calibration(u::Units, c::Uncertain{<:TargetCalibration})
     g = geom(c)
     _has_lengths(g) || return c
     return Uncertain(with_unit(g, u), _scale_length_form(getfield(c, :attributes), _length_mask(g), _metre_factor(u), /))
-end
-function _scale_length_form(M::CovMat{N, T, L, C}, mask, f, op) where {N, T, L, C}
-    return CovMat{N, T, L, C}(ntuple(k -> _length_entry(M[k], k, N, mask, f, op), Val(L)))
-end
-function _scale_length_form(M::PrecMat{N, T, L, C}, mask, f, op) where {N, T, L, C}
-    return PrecMat{N, T, L, C}(ntuple(k -> _length_entry(M[k], k, N, mask, f, _opposite(op)), Val(L)))
-end
-@inline function _length_entry(x, k, N, mask, f, op)
-    n = mask[mod1(k, N)] + mask[(k - 1) ÷ N + 1]
-    return n == 0 ? x : op(x, n == 1 ? f : f * f)
 end
 
 # A point in plain numbers (a physical one in metres), and a plain result put

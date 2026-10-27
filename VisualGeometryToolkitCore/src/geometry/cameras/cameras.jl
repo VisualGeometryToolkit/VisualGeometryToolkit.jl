@@ -119,7 +119,7 @@ using ..VisualGeometryToolkitCore: EuclideanMap, CameraPose, CameraExtrinsics, t
 import ..VisualGeometryToolkitCore: has_units, with_unit   # extended on the carriers: targets, mounts, rigs, cameras, captures
 using ..VisualGeometryToolkitCore: translation, UnitfulEuclideanMap, _attach_unit, _ustrip_point, _attach_point, _stored_point,
     _check_one_form, _strip_metres, _translation_metres,   # the one strip/attach of maps and points (euclidean_map.jl)
-    _strip_length, _attach_length, _metre_factor, _opposite   # one length's strip/attach, a unit's metre factor (a calibration's lengths)
+    _strip_length, _attach_length, _metre_factor, _scale_length_form   # one length's strip/attach, a unit's metre factor (a calibration's lengths)
 using ..VisualGeometryToolkitCore: ThinPlateSplineSystem, tps_coefficients, tps_evaluate, tps_gradient, nodal_weights   # the thin-plate calibration kinds (target_calibration.jl)
 using FlexUnits: Units, DimensionError
 using ..VisualGeometryToolkitCore: TargetPlaneFrame, PixelFrame, UnlabeledFrame, relabel, unlabel, Frame

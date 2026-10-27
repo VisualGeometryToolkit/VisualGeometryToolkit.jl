@@ -212,9 +212,10 @@ end
 # same guarded pattern as the third-party conversions above. `vgio_migrate`
 # finds the file's schema and calls the method of `migrate_schema` for it,
 # which reads the old record, builds the current value, WRITES it through the
-# current writer (its validation) to a temporary directory, READS it back with
-# the current reader and COMPARES every number with the old file — only then
-# does `vgio_migrate` move the result to `out`. Nothing is written when any
+# current writer (its validation) to a staging directory beside `out`
+# (`write_staged`), READS it back with the current reader and COMPARES every
+# number with the old file — only then does `vgio_migrate` rename the result to
+# `out`. Nothing is written when any
 # check fails, and the original is untouched unless `out` is the original's
 # own path (an in-place migration, replaced only after the verification).
 #
@@ -228,8 +229,8 @@ end
     migrate_schema(::Val{schema}, src, dst) -> NamedTuple
 
 The migration of a file of the (old) `schema` — a `Symbol`, `Val(Symbol("vgio/rig/v4"))` —
-at `src` into its kind's current schema, written to `dst` (a path in a
-temporary directory [`vgio_migrate`](@ref) owns). A method reads `src`, writes
+at `src` into its kind's current schema, written to `dst` (a path in the
+staging directory [`vgio_migrate`](@ref) owns). A method reads `src`, writes
 the current file to `dst` through its writer, reads `dst` back with the
 current reader and compares every number with `src`, throwing an
 `ArgumentError` on any difference; it returns a summary `NamedTuple` with at
@@ -282,6 +283,8 @@ function _vgio_migrate(path::AbstractString; out::AbstractString, dry_run::Bool,
     end
 end
 
+const _STAGE_PREFIX = ".vgio_migrate_"
+
 """
     write_staged(f, out => name, …; dry_run) -> f's result
 
@@ -294,21 +297,43 @@ atomic on POSIX, so an original at `out` is untouched until its rename, and
 nothing is moved across filesystems. The destinations share one directory,
 created if missing. A dry run stages in a temporary directory and puts
 nothing anywhere. The staging directory goes when this returns, whatever
-happened, so an `f` that throws leaves the destinations as they were.
+happened. On a failure — `f` throws, or a rename does — the destinations are
+left as they were: a destination that did not exist and was already renamed
+into place is removed again (one that existed was replaced by its rename and
+stays so), and a directory this call created for them is removed.
 """
-const _STAGE_PREFIX = ".vgio_migrate_"
 function write_staged(f, outs::Pair{<:AbstractString, <:AbstractString}...; dry_run::Bool)
     dir = dirname(abspath(first(first(outs))))
+    created = dry_run ? nothing : _first_missing_dir(dir)   # the outermost directory mkpath creates, if any
     dry_run || mkpath(dir)
+    fresh = [!ispath(abspath(out)) for (out, _) in outs]
+    renamed = 0
     stage = dry_run ? mktempdir() : mktempdir(dir; prefix = _STAGE_PREFIX)
     try
         staged = [joinpath(stage, name) for (_, name) in outs]
         r = f(staged...)
-        dry_run || foreach((p, (out, _)) -> Base.Filesystem.rename(p, abspath(out)), staged, outs)
+        if !dry_run
+            for (p, (out, _)) in zip(staged, outs)
+                Base.Filesystem.rename(p, abspath(out))
+                renamed += 1
+            end
+        end
         return r
+    catch
+        for i in 1:renamed
+            fresh[i] && rm(abspath(first(outs[i])); force = true)
+        end
+        created === nothing || rm(created; recursive = true, force = true)
+        rethrow()
     finally
         rm(stage; recursive = true, force = true)
     end
+end
+# The outermost ancestor of `dir` (itself included) that does not exist, or `nothing`.
+function _first_missing_dir(dir::AbstractString)
+    ispath(dir) && return nothing
+    parent = dirname(dir)
+    return (parent == dir || ispath(parent)) ? dir : _first_missing_dir(parent)
 end
 _migrated_path(path) = ((stem, ext) = splitext(path); string(stem, ".migrated", ext))
 
@@ -794,8 +819,10 @@ function _migrate_version_cli(kind::AbstractString, args::AbstractVector{<:Abstr
             return 0
         end
         s = _peek_schema(file)
-        want = Dict(k => v for (v, k) in _MIGRATIONS_TO_CURRENT)       # the command's kind → the schema it migrates
-        (kind == "file" || s == want[kind]) || throw(ArgumentError("$(file) is a $(repr(s)) file, not a $(want[kind]) one"))
+        # the command's kind migrates every old schema `_MIGRATIONS_TO_CURRENT` names it for
+        (kind == "file" || get(_MIGRATIONS_TO_CURRENT, s, nothing) == kind) || throw(
+            ArgumentError("$(file) is a $(repr(s)) file, not a $(join(sort!([o for (o, k) in _MIGRATIONS_TO_CURRENT if k == kind]), " or ")) one")
+        )
         r = vgio_migrate(file; out = dest, dry_run = !apply)
         println(
             io, apply ? "migrated  " : "verified  ", file, ": ", r.from, " → ", r.to,

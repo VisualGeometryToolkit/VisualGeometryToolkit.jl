@@ -243,3 +243,52 @@ end
         @test occursin("SKIPPED   $(joinpath(tree, "old_rig.json")): vgio/rig/v3 has no migration", out)
     end
 end
+
+@testitem "write_staged: renamed into place once f returns; a failure leaves the destinations as they were" setup = [VGIoFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitIO: write_staged
+    staging(d) = filter(f -> startswith(f, ".vgio_migrate_"), readdir(d))
+    mktempdir() do dir
+        # success: two files, in a directory created for them, no staging left
+        out = joinpath(dir, "new", "deeper")
+        a, b = joinpath(out, "a.txt"), joinpath(out, "b.txt")
+        seen = String[]
+        r = write_staged(a => "a.txt", b => "b.txt"; dry_run = false) do sa, sb
+            push!(seen, sa, sb)
+            write(sa, "A"); write(sb, "B")
+            :ok
+        end
+        @test r === :ok && read(a, String) == "A" && read(b, String) == "B"
+        @test all(p -> dirname(p) != out && !ispath(p), seen) && isempty(staging(out)) && sort(readdir(out)) == ["a.txt", "b.txt"]
+        # a dry run creates nothing anywhere
+        dry = joinpath(dir, "dry")
+        @test write_staged(joinpath(dry, "x.txt") => "x.txt"; dry_run = true) do sx
+            write(sx, "X"); isfile(sx)
+        end
+        @test !ispath(dry)
+        # failure in f: the error propagates; an existing destination is untouched, nothing staged remains
+        e = try
+            write_staged(a => "a.txt"; dry_run = false) do sa
+                write(sa, "changed"); error("refused")
+            end
+            nothing
+        catch e
+            e
+        end
+        @test e isa ErrorException && e.msg == "refused" && read(a, String) == "A" && isempty(staging(out))
+        # failure in f, the destination directory new: it is removed again (with what mkpath created)
+        fresh = joinpath(dir, "fresh", "sub")
+        @test_throws ErrorException write_staged(joinpath(fresh, "f.txt") => "f.txt"; dry_run = false) do sf
+            write(sf, "F"); error("no")
+        end
+        @test !ispath(joinpath(dir, "fresh"))
+        # a failing rename after an earlier one: the new file already renamed is removed again
+        out2 = mkpath(joinpath(dir, "two"))
+        blocker = joinpath(out2, "d.txt")
+        mkpath(joinpath(blocker, "occupied"))          # a non-empty directory: renaming a file onto it fails
+        @test_throws Exception write_staged(joinpath(out2, "c.txt") => "c.txt", blocker => "d.txt"; dry_run = false) do sc, sd
+            write(sc, "C"); write(sd, "D")
+        end
+        @test !ispath(joinpath(out2, "c.txt")) && isdir(blocker) && isempty(staging(out2))
+    end
+end

@@ -64,10 +64,20 @@ the in-memory rig under names of the identity's own, fixed once in
 `content_id`'s docstring and independent of any record's key spellings, every
 length in metres, the targets sorted by id, with no schema version, no
 declaration and no provenance. The identity does not change when the file
-format does: a rig, the file written from it in any `length_unit`, the rig
-loaded back from that file and a migration of the file to the next rig
-version have one identity. A target's calibration kind, its parameters and
-its covariance are part of it. A test pins it for a rig of every target kind;
+format does: a rig, the file written from it in any decimal `length_unit`,
+the rig loaded back from that file and a migration of the file to the next rig
+version have one identity. A target's calibration kind, its parameters, its
+covariance and its board are part of it.
+
+The identity is of the persisted representation. A rotation enters as the
+quaternion the writer stores, so a rig held with matrix rotations, its file
+and the rig loaded from it share one identity; but a rotation converted
+matrix → quaternion → matrix is not bit-exact, so two in-memory rigs built
+from the same matrix by different routes can differ in the last ulp — mint an
+identity from what you save. A decimal length unit (mm, cm, m, μm) is
+decimal-exact; a non-decimal one (inch) is exact only for numbers born in it,
+so an inch file of millimetre-born numbers reads back within an ulp, and its
+identity differs from the value's. A test pins it for a rig of every target kind;
 a change to the tree re-ids every rig and must migrate the measurement files
 that name them.
 

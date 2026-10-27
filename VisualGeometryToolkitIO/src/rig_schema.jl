@@ -584,10 +584,24 @@ is built from the in-memory value under the fixed names below — names of the
 identity's own, independent of any record's key spellings — every length in
 metres (base units), the targets sorted by id, and no schema version,
 declaration or provenance. The identity therefore does not change when the
-file format does: a rig, every file written from it in any `length_unit`, the
-rig loaded back from such a file, and a migration of the file to the next rig
-version have one identity. A relabeled provenance does not change it; a
-target's calibration kind, its parameters and its covariance do.
+file format does: a rig, every file written from it in any decimal
+`length_unit`, the rig loaded back from such a file, and a migration of the
+file to the next rig version have one identity. A relabeled provenance does
+not change it; a target's calibration kind, its parameters, its covariance
+and its board do.
+
+The identity is of the PERSISTED representation. A pose's rotation enters as
+the quaternion the writer stores (one conversion, shared by the writer and the
+tree: w-x-y-z, w ≥ 0; a `QuatRotation` as held, any other rotation converted
+once), so a rig held with `RotMatrix` poses, the file written from it and the
+rig loaded back have one identity. A rotation converted matrix → quaternion →
+matrix is not bit-exact, so two in-memory rigs built from the same matrix by
+different routes can differ in the last ulp, and so can their identities:
+mint an identity from what you save. Lengths likewise: a decimal unit (mm,
+cm, m, μm) holds every metre value exactly, so its files share the value's
+identity; a non-decimal unit (inch) is exact only for numbers born in it, so
+an inch file of mm-born numbers reads back within an ulp and its identity
+differs from the value's.
 
 The identity tree, fixed (a test pins it for a rig of every target kind):
 
@@ -637,6 +651,7 @@ _id_targets(rig::Rig) = Any[
         for id in sort!(collect(ids(target_rig(rig))))
 ]
 
+# the rotation as persisted: `_qvec`, the writer's own conversion (assemble.jl)
 _id_pose(X::EuclideanMap{3}) = _Id("rotation" => Any[Float64(x) for x in _qvec(X.R)], "translation" => _id_lengths(X.t))
 function _id_pose(u::Uncertain{<:EuclideanMap{3}})
     d = _id_pose(geom(u))

@@ -222,3 +222,24 @@ end
         @test read(o, String) == as_v1_target(read(units_fixture("target_planar.json"), String))
     end
 end
+
+@testitem "vgio_migrate: a tree logs what it skips — a staging directory, an unreadable file, an unknown version" setup = [VGIoFixtures, MigrateFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    mktempdir() do dir
+        tree = mkpath(joinpath(dir, "tree"))
+        stage = mkpath(joinpath(tree, ".vgio_migrate_left"))           # left by an interrupted migration
+        inside = old_copy(stage, "target_planar.json", as_v1_target)
+        before = read(inside, String)
+        write(joinpath(tree, "notes.json"), "{\"no\": \"schema\"}")
+        write(joinpath(tree, "broken.json"), "{ not json")
+        write(joinpath(tree, "old_rig.json"), "{\"schema\": \"vgio/rig/v3\"}")
+        io = IOBuffer()
+        vgio_migrate_tree(tree; in_place = true, io)
+        out = String(take!(io))
+        @test occursin("SKIPPED   $(stage): a staging directory", out)
+        @test read(inside, String) == before                            # never walked
+        @test occursin("SKIPPED   $(joinpath(tree, "notes.json")): no readable schema", out)
+        @test occursin("SKIPPED   $(joinpath(tree, "broken.json")): no readable schema", out)
+        @test occursin("SKIPPED   $(joinpath(tree, "old_rig.json")): vgio/rig/v3 has no migration", out)
+    end
+end

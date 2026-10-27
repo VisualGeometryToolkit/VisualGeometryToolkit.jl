@@ -276,10 +276,11 @@ end
 # one `rename`, atomic on POSIX: an original at `out` is untouched until the
 # rename, and nothing is ever moved across filesystems. The staging directory
 # goes when this returns, whatever happened.
+const _STAGE_PREFIX = ".vgio_migrate_"
 function _staged(f, out::AbstractString, name::AbstractString; dry_run::Bool)
     dir = dirname(abspath(out))
     dry_run || mkpath(dir)
-    stage = dry_run ? mktempdir() : mktempdir(dir; prefix = ".vgio_migrate_")
+    stage = dry_run ? mktempdir() : mktempdir(dir; prefix = _STAGE_PREFIX)
     try
         staged = joinpath(stage, name)
         r = f(staged)
@@ -513,7 +514,7 @@ is refused (logged `FAILED`, nothing written for it), and the run ends in an
 """
 function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run::Bool = false, io::IO = stdout)
     idsfile = joinpath(dir, _IDS_SIDECAR)
-    files = sort!([joinpath(r, f) for (r, _, fs) in walkdir(dir) for f in fs if endswith(f, ".json") && f != _IDS_SIDECAR])
+    files = _tree_json(dir; io)
     schemas = Dict(f => _try_schema(f) for f in files)
     results = NamedTuple[]
     ids = _read_ids(idsfile)
@@ -521,7 +522,13 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
     for f in files
         s = schemas[f]
         if !(s isa String && _has_migration(s))
-            s isa String && _is_current(s) && !haskey(_MEASUREMENT_KINDS, s) && println(io, "current   ", f, ": ", s)
+            if s === nothing
+                println(io, "SKIPPED   ", f, ": no readable schema")
+            elseif _is_current(s)
+                haskey(_MEASUREMENT_KINDS, s) || println(io, "current   ", f, ": ", s)   # (a measurement file: below)
+            else
+                println(io, "SKIPPED   ", f, ": ", s, " has no migration (a retired version, or a schema no package migrates)")
+            end
             continue
         end
         out = in_place ? f : _migrated_path(f)
@@ -544,8 +551,7 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
         dry_run && haskey(r, :old_ids) && foreach(o -> (ids[o] = r.new_id), r.old_ids)
     end
     # the current rigs of the tree, and their identities
-    rigs = String[f for f in sort!([joinpath(r, f) for (r, _, fs) in walkdir(dir) for f in fs if endswith(f, ".json")])
-        if _try_schema(f) == _schema("rig")]
+    rigs = String[f for f in _tree_json(dir; io = devnull) if _try_schema(f) == _schema("rig")]
     current = Set(content_id(r) for r in rigs)
     for f in files
         s = schemas[f]
@@ -581,6 +587,23 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
     end
     isempty(failed) || throw(ArgumentError("vgio_migrate_tree($(dir)): $(length(failed)) measurement file(s) name identities no rig of the tree has: $(join(failed, ", "))"))
     return results
+end
+
+# The `.json` files of a tree, sorted, without the identity map and without
+# what is under a staging directory (`.vgio_migrate_*`, `_staged`'s): one left
+# by an interrupted migration is logged, never walked.
+function _tree_json(dir; io::IO = stdout)
+    out = String[]
+    for (r, dirs, fs) in walkdir(dir)
+        staged = any(c -> startswith(c, _STAGE_PREFIX), splitpath(relpath(r, dir)))
+        staged && continue                                          # inside a staging directory
+        for d in dirs
+            startswith(d, _STAGE_PREFIX) &&
+                println(io, "SKIPPED   ", joinpath(r, d), ": a staging directory left by an interrupted migration (remove it)")
+        end
+        append!(out, joinpath(r, f) for f in fs if endswith(f, ".json") && !(r == dir && f == _IDS_SIDECAR))
+    end
+    return sort!(out)
 end
 
 # The persisted old → new identity map of a tree's migration.

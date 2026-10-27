@@ -34,14 +34,15 @@
     # A rig of targets of every kind — rigid, affine, thin-plate, height field,
     # a chain, Uncertain calibrations, a point target with covariances, an
     # Uncertain pose — its numbers file-born: content_id's pin.
-    function identity_rig(; boards::Bool = false)
+    # rotation = :quat builds the poses as the reader returns them (QuatRotation);
+    # :matrix as RotMatrix; :quat_of_matrix as QuatRotation(RotMatrix(...)).
+    function identity_rig(; boards::Bool = false, rotation::Symbol = :quat)
         k = kinds()
         bd = boards ? VgtkCore.Board(VgtkCore.Size2(width = mmq(150.0), height = mmq(77.25)), SVector(mmq(-13.9), mmq(0.0))) : nothing
-        # (rotation matrices: the pin was minted when EuclideanMap stored every
-        # rotation as a RotMatrix; it now keeps a QuatRotation as given)
-        X(t) = VgtkCore.EuclideanMap(RotMatrix{3, Float64}(QuatRotation(0.9128709291752769, 0.18257418583505536, 0.36514837167011072, 0.0, false)), SVector(mmq(t[1]), mmq(t[2]), mmq(t[3])))
+        rot(q) = rotation === :quat ? q : rotation === :matrix ? RotMatrix{3, Float64}(q) : QuatRotation(RotMatrix{3, Float64}(q))
+        X(t) = VgtkCore.EuclideanMap(rot(QuatRotation(0.9128709291752769, 0.18257418583505536, 0.36514837167011072, 0.0, false)), SVector(mmq(t[1]), mmq(t[2]), mmq(t[3])))
         I6 = VgtkCore.CovMat(SMatrix{6, 6, Float64}(Diagonal([1.0e-6, 1.0e-6, 1.0e-6, 2.5e-7, 2.5e-7, 4.0e-7])))
-        ident = VgtkCore.EuclideanMap(RotMatrix{3, Float64}(QuatRotation(1.0, 0.0, 0.0, 0.0, false)), SVector(mmq(0.0), mmq(0.0), mmq(0.0)))
+        ident = VgtkCore.EuclideanMap(rot(QuatRotation(1.0, 0.0, 0.0, 0.0, false)), SVector(mmq(0.0), mmq(0.0), mmq(0.0)))
         pt = VgtkCore.PointTarget([VgtkCore.Uncertain(SVector(mmq(0.0), mmq(1.5), mmq(-2.0)), VgtkCore.CovMat(SMatrix{3, 3, Float64}(Diagonal([1.0e-8, 1.0e-8, 4.0e-8]))))])
         members = Dict(
             :a_rigid => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(nothing, design_points(), Rigid(), bd), ident),
@@ -232,10 +233,21 @@ end
     @test content_id(joinpath(fixtures, "rig.json")) == "5cdb12271e474c04c68ac5ea539f509a720449fcf42b79d8cc4a506cddcf9fe0"   # sensors
     # a rig of every target kind, Uncertain calibrations and poses, a point target
     rig = identity_rig()
-    @test content_id(rig) == "99835c0bedb6e885ea05eb5dca28ab9967a1a59515be04a27b03c6bc169a9d4a"   # no board: unchanged by the Board
+    @test content_id(rig) == "eac2ee11c635ca73bdbb4dcbb2087784d3d364331a77c5f712b6a8c6c1622a99"   # poses as the reader returns them
+    # The identity is of the PERSISTED rotation, the quaternion the writer
+    # stores (one conversion, `_qvec`, shared by the writer and the tree): a
+    # rig held with RotMatrix poses, the same rig built from
+    # QuatRotation(RotMatrix(...)), the files written from either and the rig
+    # loaded back all have one identity.
+    rm_rig, qm_rig = identity_rig(; rotation = :matrix), identity_rig(; rotation = :quat_of_matrix)
+    mktempdir() do dir
+        a, b = joinpath(dir, "a.json"), joinpath(dir, "b.json")
+        save(a, rm_rig); save(b, qm_rig)
+        @test content_id(rm_rig) == content_id(qm_rig) == content_id(a) == content_id(b) == content_id(load(Rig, a)) == content_id(load(Rig, b))
+    end
     # a rig whose targets carry boards: the board is part of the identity
     brig = identity_rig(; boards = true)
-    @test content_id(brig) == "137089247e995c1aff2126078dd3b39dcbaf725d4159f4b1c2692a70e2b49fab"
+    @test content_id(brig) == "da15d512e982ab0247a51d71c37da499eaefcf5a4bd4b9276b0d87cc61e95176"
     @test content_id(brig) != content_id(rig)
     tb = VgtkIO._identity_tree(brig)
     @test only(x for x in tb["targets"] if x["id"] == "a_rigid")["target"]["board"] ==
@@ -305,6 +317,9 @@ end
         # a point off the board: Core's check, at read
         e = refused(x -> (x["target"]["board"] = Dict("size" => Dict("width" => 10, "height" => 10), "origin" => [0, 0])))
         @test e isa ArgumentError && occursin("off the board", e.msg)
+        # a unitless board (on a reference-only, rigid target: no points to give it a form) is refused at save
+        e = try save(q, PlanarTarget(:b76e, nothing, k.rigid, Board(Size2(width = 150.0, height = 77.0)))); nothing catch e; e end
+        @test e isa ArgumentError && occursin("board", e.msg) && occursin("plain numbers", e.msg)
         # in a rig, round trip and identity
         rig = Rig{TargetFrame{:a}}(Dict(:a => PosedTarget(PlanarTarget(nothing, pts_inch, k.rigid, bd_inch),
             VgtkCore.EuclideanMap(QuatRotation(1.0, 0.0, 0.0, 0.0, false), SVector(mmq(0.0), mmq(0.0), mmq(0.0))))))

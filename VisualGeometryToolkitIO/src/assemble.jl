@@ -12,6 +12,9 @@
 # canonical by exact negation), so file → value → file is byte-identical and a
 # value read from a file round-trips `==`. Any other rotation (a `RotMatrix`
 # computed in memory) is converted once, and reads back as the quaternion.
+# The ONE conversion of a rotation to what is persisted: the pose writer and
+# the content identity's tree (rig_schema.jl) both use it, so an identity is of
+# the stored quaternion.
 _qvec(R::QuatRotation) = canonical_qvec(SVector{4, Float64}(params(R)))
 _qvec(R) = canonical_qvec(SVector{4, Float64}(params(QuatRotation(RotMatrix{3, Float64}(R)))))
 

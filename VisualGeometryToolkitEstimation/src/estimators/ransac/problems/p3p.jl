@@ -78,8 +78,13 @@ const _P3P_COINCIDENT_IMAGE = 1.0e-3   # pixels — uncalibrated; see note above
 
 Reject degenerate P3P minimal samples. Four checks, distinctness and
 collinearity in each of the two spaces:
-- **world**: the 3 control points distinct (`_P3P_COINCIDENT_WORLD`, in the
-  problem's world unit: metres for physical input, else the caller's) and non-collinear (`thin_ratio` > `_P3P_DEGENERACY_TOL`).
+- **world**: the 3 control points distinct (`_P3P_COINCIDENT_WORLD` = 1e-3 in
+  the problem's world unit: **1 mm for physical input**, which
+  `find_absolute_pose` strips in metres, and **1e-3 of the caller's own unit
+  for plain input** — 1 μm for plain millimetres; the two forms of one
+  millimetre dataset can therefore reject different samples, but only samples
+  with two control points within 1 mm, which a fixture spread over metres
+  never draws) and non-collinear (`thin_ratio` > `_P3P_DEGENERACY_TOL`).
   Collinear control points ⇒ no unique P3P solution; this one earns its place.
 - **image**: the 3 image points distinct (`_P3P_COINCIDENT_IMAGE`, pixels) and
   their RAYS not coplanar (thinness > `_P3P_DEGENERACY_TOL`). P3P degenerates

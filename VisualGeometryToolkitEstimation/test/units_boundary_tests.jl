@@ -57,6 +57,14 @@ same_diagnostics(a, b) = retcode(a) === retcode(b) && iterations(a) == iteration
     stored = find_absolute_pose(cam, [map(q -> ustrip(m, q), x) for x in Xmm] .=> u; rng = StableRNG(1))
     @test same_pose(ustrip(m, estimate(from_mm)), estimate(stored))
     @test isapprox(translation(estimate(stored)), translation(estimate(plain)); rtol = 1.0e-9)
+    # plain millimetres and physical millimetres: the P3P coincidence gate is
+    # 1e-3 in the problem's world unit (1 mm for physical input, stripped in
+    # metres; 1 μm for plain millimetres), which no sample of a fixture spread
+    # over metres meets — the same samples, the same answer in either form
+    plain_mm = find_absolute_pose(cam, [1000 .* x for x in X] .=> u; rng = StableRNG(1))
+    @test plain_mm.inlier_mask == from_mm.inlier_mask && iterations(plain_mm) == iterations(from_mm)
+    @test isapprox(rotation(estimate(plain_mm)), rotation(estimate(from_mm)); atol = 1.0e-12)
+    @test isapprox(translation(estimate(plain_mm)), 1000 .* translation(ustrip(m, estimate(from_mm))); rtol = 1.0e-9)
 
     # a Csponds keeps its columns: the PROSAC score orders the same samples
     s = collect(range(1.0, 0.1; length = length(X)))

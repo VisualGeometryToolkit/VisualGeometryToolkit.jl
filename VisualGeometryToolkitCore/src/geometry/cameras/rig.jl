@@ -94,6 +94,7 @@ uncertain pose, whose covariance does not invert by relabeling), and
 `PosedTarget` is an `ArgumentError`, as posing a posed camera is.
 
 A physical pose (a translation in metres) holds a physical target (points in
+metres; for an unresolved planar target, a calibration or board with lengths in
 metres), a plain pose a plain one: a unitful pose on plain points, or the
 reverse, is FlexUnits' `DimensionError` at construction, never a promotion.
 `ustrip(u, m)` and [`with_unit`](@ref)`(m, u)` move both together.
@@ -139,8 +140,9 @@ TargetManifold(m::PosedTarget; free = ()) = _refuse_posed_protocol("TargetManifo
 points(m::PosedTarget) = points(m.target)
 Base.:(==)(a::PosedTarget, b::PosedTarget) = a.target == b.target && a.pose == b.pose
 
-# A target model's form is its points' (a target without points, an unresolved
-# design, takes either pose); a posed target's, its pose's.
+# A target model's form is its points' (a target without points takes either
+# pose; a planar target answers from its stored parts, targets.jl); a posed
+# target's, its pose's.
 _unit_form(t::AbstractTarget) = (is_resolved(t) && !isempty(points(t))) ? (has_units(t) ? :physical : :plain) : :none
 _form_sample(t::AbstractTarget) = geom(first(points(t)))
 has_units(m::PosedTarget) = has_units(pose(m))

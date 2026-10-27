@@ -79,7 +79,9 @@ bijection — the bound a whole-extent perspective undistortion clips to
 Beyond it the view folds or diverges and [`project`](@ref) answers NaN. The
 profile's first fold or pole, whichever comes first, mapped to the distorted
 radius; both are found exactly, as first positive polynomial roots. `Inf` for a
-lens whose profile never folds.
+lens whose profile never folds. A point EXACTLY at this radius can be NaN (it
+rounds onto the closed end of the branch); a caller that needs a finite value
+steps inside, as the rect builders' margin does.
 
 - the radial factor ([`radial`](@ref)) of a forward lens: the fold or pole of
   its profile `r ↦ r·F(r²)` in the projection's frame, capped at the frame's
@@ -140,7 +142,9 @@ stage precedes the radial one (a tilt) that angle depends on the azimuth, and
 the limit is its minimum over azimuths, so every ray within it is imaged; a
 lens whose bound is radially symmetric reads it at azimuth 0. `cap` bounds the answer: the generic
 scan runs to it (default `π − 10⁻³`); the closed forms clamp to it (default
-none).
+none). A ray projected EXACTLY at the limit can be NaN (a lift's root there is
+√eps-conditioned); a caller that needs a finite value steps inside, as the
+image circle's inscribed radius and the generic models' sampler do.
 """
 function view_angle_limit(lens::AbstractLensModel; cap::Real = _SPHERE_EDGE)
     θs = range(1.0e-4, float(cap); length = 1024)

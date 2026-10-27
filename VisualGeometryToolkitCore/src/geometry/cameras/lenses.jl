@@ -174,8 +174,11 @@ factor seen at Float64 keeps its own branch (and `_primal` of a Float64
 differentiation of a Float32 lens is `_precision(Float64, lens)`); such a factor
 can differ from one constructed at Float64 from the same coefficients by the
 narrow precision's rounding of the end. A narrowing conversion recomputes them.
-An integer factor (the outer constructors float their input) stores them
-rounded down, `typemax` for `Inf`.
+An integer factor is not a supported stored form: the outer constructors and
+every rebuild float their coefficients, and only a direct call of the inner
+`Radial{B, P, Q, <:Integer}` reaches one; it constructs (the ends stored rounded
+down, `typemax` for `Inf`) but is internal only — the lens contract and the
+branch readers (`_branch_end`) take float factors.
 """
 struct Radial{B, P, Q, T <: Real} <: AbstractDistortionTerm
     k::NTuple{P, T}

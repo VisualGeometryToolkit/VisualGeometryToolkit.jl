@@ -140,8 +140,11 @@ them too.
 Public, not exported; a downstream camera or lens type adds its own method.
 """
 function convert_eltype end
+# Widening keeps the radial factors' branch ends, cast (see `Radial`); narrowing
+# recomputes them from the rounded coefficients.
 convert_eltype(::Type{T}, l::AbstractLensModel) where {T <: AbstractFloat} =
-    _with_parameters(l, map(T, parameter_vector(l)))
+    _widens(T, _coeff_type(l)) ? _with_own_parameters(l, map(T, parameter_vector(l))) : _with_parameters(l, map(T, parameter_vector(l)))
+_widens(::Type{T}, ::Type{C}) where {T, C} = C === Union{} || promote_type(T, C) === T
 convert_eltype(::Type{T}, intr::LogicalIntrinsics) where {T <: AbstractFloat} =
     LogicalIntrinsics(CameraCalibrationMat{T}(intr.K))
 convert_eltype(::Type{T}, m::CameraModel) where {T <: AbstractFloat} =

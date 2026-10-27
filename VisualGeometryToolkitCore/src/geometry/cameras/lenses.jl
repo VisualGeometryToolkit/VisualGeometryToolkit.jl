@@ -162,9 +162,20 @@ Coefficient names: `k1…kP` then `d1…dQ`.
 The constructor also stores where the factor's imaged branch ends, in the basis
 variable `u` (`ρ²` for `Even`): `u_fold`, the first positive root of the
 profile's derivative (the fold), and `u_end`, the smaller of the fold and the
-pole (the first positive root of `D`); `Inf` when there is none. Both follow
-from the coefficients, so equal coefficients give equal factors; they are not
-parameters, and a per-point branch test is one comparison against them.
+pole (the first positive root of `D`); `Inf` when there is none. They are not
+parameters, and a per-point branch test is one comparison against them; every
+other reader of the branch's end (`monotone_radius`, `view_angle_limit`, the
+inverses' brackets) reads them too.
+
+The ends follow from the coefficients in the precision they were built in. A
+WIDENING rebuild — `convert_eltype` to a wider type, the Duals of a parameter
+Jacobian and their primal — casts them instead of sweeping again, so a Float32
+factor seen at Float64 keeps its own branch (and `_primal` of a Float64
+differentiation of a Float32 lens is `_precision(Float64, lens)`); such a factor
+can differ from one constructed at Float64 from the same coefficients by the
+narrow precision's rounding of the end. A narrowing conversion recomputes them.
+An integer factor (the outer constructors float their input) stores them
+rounded down, `typemax` for `Inf`.
 """
 struct Radial{B, P, Q, T <: Real} <: AbstractDistortionTerm
     k::NTuple{P, T}

@@ -283,16 +283,25 @@ end
 # (its pole is the 90° ray): `u <= r.u_fold`.
 @inline _pole_coeffs(r::Radial{B, P, Q, T}) where {B, P, Q, T} = _ucoeffs(B, r.d, T)
 @inline _on_radial_branch(r::Radial, u) = u <= r.u_end
-@inline _branch_end(r::Radial, cap) = min(_fold_point(_fold_coeffs(r), cap), _fold_point(_pole_coeffs(r), cap))
+@inline _branch_end(r::Radial{B, P, Q, T}, cap) where {B, P, Q, T} = min(r.u_end, T(cap))
 
-# (u_fold, u_end) of the coefficients, by the sweep `_branch_end` runs: computed on
-# the primal values (a Dual factor's branch is its primal's) and stored in T.
+# THE sweep for the ends, run once per factor by its constructor: (u_fold, u_end)
+# of the coefficients, computed on their primal values in float precision (a
+# Dual factor's branch is its primal's) and stored in T.
 function _radial_branch_ends(::Type{B}, ::Type{T}, k::Tuple, d::Tuple) where {B, T}
     S = float(_primal_float(T))
     kp, dp = map(x -> S(_primal(x)), k), map(x -> S(_primal(x)), d)
     fold = _fold_point(_fold_coeffs(B, kp, dp, S), Inf)
-    return T(fold), T(min(fold, _fold_point(_ucoeffs(B, dp, S), Inf)))
+    return _stored_end(T, fold), _stored_end(T, min(fold, _fold_point(_ucoeffs(B, dp, S), Inf)))
 end
+_stored_end(::Type{T}, u) where {T} = T(u)
+_stored_end(::Type{T}, u) where {T <: Integer} = isfinite(u) ? floor(T, u) : typemax(T)
+
+# The relative step inside a stored end that a reader evaluating AT the end takes:
+# ρ = √u and ρ² round a few ulps past a closed end in the lens's own precision
+# (1e-9 at Float64, as before; 8 ulps at Float32).
+_end_margin(::Type{T}) where {T} = max(1.0e-9, 8 * Float64(eps(float(_primal_float(T)))))
+_end_margin(::Type{Union{}}) = 1.0e-9
 
 
 # -----------------------------------------------------------------------------

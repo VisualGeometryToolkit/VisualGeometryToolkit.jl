@@ -173,7 +173,7 @@ function view_angle_limit(l::Lens; cap::Real = Inf)
     u = _branch_end(r, _frame_cap(l.projection))
     isfinite(u) || return edge
     b = _frame_backproject(C, SVector(sqrt(u), 0.0))
-    return min(atan(b[1], b[3]) * (1 - 1.0e-9), edge)
+    return min(atan(b[1], b[3]) * (1 - _end_margin(_coeff_type(l))), edge)
 end
 # The edge `view_angle_limit` stops at when the lens has no limit of its own: the
 # frame's edge less a margin (`π/2 − 10⁻³` for the perspective and orthographic
@@ -246,12 +246,15 @@ end
 view_angle_limit(l::Lens{<:DoubleSphere, Nothing}; cap::Real = Inf) =
     min(acos(clamp(-_ds_w2(l.projection), -1.0, 1.0)) - 1.0e-6, float(cap))
 # The radius where a lift first folds (its view angle stops increasing), ignoring
-# the 90° pole; Inf when it never folds — at Float64, in the coefficient type.
-_fold_radius(l::LiftLens) = (r = _precision(Float64, l).radial; _coeff_type(l)(_radius_at(r, _fold_point(_fold_coeffs(r), Inf))))
-# A lift: the view angle just inside its first fold, or far out along one that never folds.
+# the 90° pole; Inf when it never folds — the factor's stored `u_fold`, in the
+# lens's own precision (the end its backproject compares against).
+_fold_radius(l::LiftLens) = (r = l.radial; _coeff_type(l)(_radius_at(r, r.u_fold)))
+# A lift: the view angle just inside its first fold (a precision-scaled step, see
+# `_end_margin`), or far out along one that never folds.
 function view_angle_limit(l::LiftLens; cap::Real = Inf)
     ρ = _fold_radius(l)
-    return min(Float64(view_angle(l, isfinite(ρ) ? ρ * (1 - 1.0e-9) : 1.0e6)), float(cap))
+    T = _coeff_type(l)
+    return min(Float64(view_angle(l, isfinite(ρ) ? ρ * (1 - T(_end_margin(T))) : 1.0e6)), float(cap))
 end
 
 """

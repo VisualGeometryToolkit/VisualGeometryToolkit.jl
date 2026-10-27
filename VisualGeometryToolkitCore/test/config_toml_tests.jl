@@ -4,7 +4,7 @@
     using TOML: TOML
     using VisualGeometryToolkitCore: present_kwargs, check_keys, toml_skip_fields, toml_key, toml_value,
         toml_field, toml_table, allowed_keys, convert_field, toml_default, write_toml,
-        toml_field_name, parse_defaults
+        toml_field_name, parse_defaults, read_table
     import VisualGeometryToolkitCore
 
     # A config type with every non-mechanical case the packages hit: a renamed
@@ -47,6 +47,18 @@
             @test kw == [:max_n => 7]
             @test convert_field(Symbol, "fast") === :fast
             @test convert_field(Float64, 1) === 1.0
+        end
+        @testset "read_table — the reader's half of the field walk" begin
+            d = Dict("mu" => 2, "flag" => false, "camera" => "ignored", "max_n" => 5)
+            # present keys only, in field order, Greek field from its ASCII key; a skipped field never read
+            @test read_table(_Outer, d) == [:μ => 2.0, :max_n => 5, :flag => false]
+            @test read_table(_Outer, d; skip = (:max_n,)) == [:μ => 2.0, :flag => false]
+            @test read_table(_Outer, Dict{String, Any}()) == Pair{Symbol, Any}[]
+            # a per-field converter (a package's hook)
+            conv(::Type, ::Val{:flag}, v) = !v
+            conv(::Type{T}, ::Val{F}, v) where {T, F} = convert_field(fieldtype(T, F), v)
+            @test read_table(_Outer, d; from_toml = conv) == [:μ => 2.0, :max_n => 5, :flag => true]
+            @test _Outer(; read_table(_Outer, d)...).μ === 2.0
         end
         @testset "check_keys refuses typos, tolerates retired keys" begin
             @test check_keys(Dict("scale" => 1), allowed_keys(_Inner), "inner") === nothing

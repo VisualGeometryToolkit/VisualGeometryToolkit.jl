@@ -192,6 +192,32 @@ allowed_keys(::Type{T}, extra...) where {T} = String[
 ]
 
 """
+    read_table(::Type{T}, d::AbstractDict; skip = (), from_toml) -> Vector{Pair{Symbol, Any}}
+
+The reader's half of [`toml_table`](@ref): the keyword overrides of a `[T]`
+table `d`, one `f => from_toml(T, Val(f), d[toml_key(T, f)])` for every field
+`f` of `T` whose key is PRESENT in `d`, in field order — the same
+`fieldnames` / [`toml_skip_fields`](@ref) / [`toml_key`](@ref) walk the writer
+emits, minus the fields in `skip` the caller reads itself. An absent key
+yields nothing, so the field falls through to the struct's own default:
+`T(; read_table(T, d)...)`. `from_toml(T, Val(f), v)` converts one value
+(a package's per-field hook); the default is [`convert_field`](@ref) to the
+field's type. Unknown keys are [`check_keys`](@ref)' job, with [`allowed_keys`](@ref).
+"""
+function read_table(::Type{T}, d::AbstractDict; skip = (), from_toml = _convert_from_toml) where {T}
+    kw = Pair{Symbol, Any}[]
+    for f in fieldnames(T)
+        (f in skip || f in toml_skip_fields(T)) && continue
+        k = toml_key(T, f)
+        haskey(d, k) && push!(kw, f => from_toml(T, Val(f), d[k]))
+    end
+    return kw
+end
+
+# read_table's default converter: the value in its field's type.
+_convert_from_toml(::Type{T}, ::Val{F}, v) where {T, F} = convert_field(fieldtype(T, F), v)
+
+"""
     convert_field(::Type{T}, v)
 
 A TOML value → the field type (`Float64(v)`, `Int(v)`, `Bool(v)`, `Symbol(v)`):

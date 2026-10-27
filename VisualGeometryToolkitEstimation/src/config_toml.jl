@@ -29,8 +29,8 @@
 # package's: the retired-key set, the tag registries and the hook methods for
 # its types.
 using TOML: TOML
-using VisualGeometryToolkitCore: present_kwargs, check_keys, toml_table,
-    allowed_keys, convert_field, toml_field_name, tag_of
+using VisualGeometryToolkitCore: check_keys, toml_table, read_table,
+    allowed_keys, convert_field, tag_of
 import VisualGeometryToolkitCore: toml_key, toml_skip_fields, toml_field
 
 # RETIRED keys: knobs removed because nothing read them, which recorded run
@@ -46,26 +46,17 @@ const _RETIRED_KEYS = Set{Tuple{String, String}}()
 _check_keys(d::AbstractDict, allowed, section::AbstractString) =
     check_keys(d, allowed, section; retired = _RETIRED_KEYS)
 
-# Allowed keys are the struct's fields — derived, never hand-listed. A
-# strategy's width field is spelled by its two keys, `scale_multiple` and
-# `loss_width` (the strategy types' hook methods follow the tag registry below).
-_allowed_keys(::Type{T}, extra::String...) where {T} = allowed_keys(T, extra...)
+# Allowed keys are the struct's fields (VGC's `allowed_keys`) — derived, never
+# hand-listed. A strategy's width field is spelled by its two keys,
+# `scale_multiple` and `loss_width` (the strategy types' hook methods follow the
+# tag registry below).
 
-# The READER's half of VGC's field walk: typed per-key overrides — only the keys
+# The READER's half of VGC's field walk is VGC's `read_table`: only the keys
 # PRESENT in the table become keywords, so absent ones fall through to the
-# struct's default (the shipped file), and ASCII spellings map back to the Greek
-# field names (`toml_field_name`) — through a `present_kwargs` spec derived from
-# the same `fieldnames` / `toml_skip_fields` / `toml_key` walk `toml_table`
-# writes with, each value converted by its field's type (`_from_toml`, the
-# one per-field hook), minus the fields in `skip` the caller supplies itself.
-# Every section reader goes through it — nothing hand-lists a key.
-function _table_kwargs(::Type{T}, d::AbstractDict; skip = ()) where {T}
-    spec = [
-        toml_key(T, f) => (v -> _from_toml(T, Val(f), v))
-            for f in fieldnames(T) if !(f in skip) && !(f in toml_skip_fields(T))
-    ]
-    return present_kwargs(d, spec...; field_of = toml_field_name)
-end
+# struct's default (the shipped file), each value converted by `_from_toml`, the
+# one per-field hook of this package's types. Every section reader goes through
+# it — nothing hand-lists a key.
+_table_kwargs(::Type{T}, d::AbstractDict; skip = ()) where {T} = read_table(T, d; skip, from_toml = _from_toml)
 _from_toml(::Type{T}, ::Val{F}, v) where {T, F} = convert_field(fieldtype(T, F), v)
 
 # -----------------------------------------------------------------------------
@@ -94,7 +85,7 @@ function RansacConfig(path::AbstractString)
 end
 
 function _ransac_from_toml(d::AbstractDict)
-    _check_keys(d, _allowed_keys(RansacConfig), "ransac")
+    _check_keys(d, allowed_keys(RansacConfig), "ransac")
     return RansacConfig(; _table_kwargs(RansacConfig, d)...)
 end
 
@@ -216,7 +207,7 @@ function lo_from_toml(T::Type, d::AbstractDict; class::Symbol, section::Abstract
     sec = "$section.$tag"
     # The concrete strategy type and the keys the table may carry beyond its fields.
     C, extra = lo_concrete(T, d, sec; tags)
-    _check_keys(d, _allowed_keys(C, extra..., _width_keys(C)...), sec)
+    _check_keys(d, allowed_keys(C, extra..., _width_keys(C)...), sec)
     # The ONE presence check: a key the defaults have no value for is
     # required. (No width: follow the scorer.)
     defaults = lo_defaults(C)
@@ -416,7 +407,7 @@ absent keys inherit `configs/default.toml`'s `[mixture_em]`, and an unknown
 key, tag or tag field is an `ArgumentError`.
 """
 function mixture_em_from_toml(d::AbstractDict; section::AbstractString = "mixture_em")
-    _check_keys(d, _allowed_keys(MixtureEmConfig), section)
+    _check_keys(d, allowed_keys(MixtureEmConfig), section)
     return MixtureEmConfig(; _table_kwargs(MixtureEmConfig, d)...)
 end
 

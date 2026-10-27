@@ -72,6 +72,7 @@ using ..Primitives: rect_edges, EdgeGrid, Closed   # its edges on a closed grid:
 using ..VisualGeometryToolkitCore: block_order   # grouped data: the sorted-key block order (base/cspond_set.jl)
 using ..VisualGeometryToolkitCore: TagRegistry, tag_of, snake_case   # the target calibration kinds' tags (quality/tag_registry.jl)
 using ..VisualGeometryToolkitCore: Circle, Ellipse, Circle3D, is_ellipse, boundary_points
+using ..VisualGeometryToolkitCore: intersects   # a node's support against the imaged region (support.jl)
 using ..VisualGeometryToolkitCore: HomEllipseMat, WholePlane   # the conic matrix an image circle is built from, and the whole plane (image_circle.jl)
 import ..VisualGeometryToolkitCore: HomographyMap  # Import (not using) to extend the labeled camera lift
 
@@ -178,6 +179,7 @@ include("camera_models.jl")
 include("lens_rays.jl")       # THE lens contract: project/backproject on rays + the derived Jacobians
 include("lens_chart.jl") # parameter chart, ∂lens/∂θ, TOML lens registry (0.22.1)
 include("generic_models.jl") # Schöps et al. central/non-central generic grid models (0.16)
+include("support.jl")         # supports on the sensor: which parameters a camera can see (the generic models' lattice)
 include("imaging_chain.jl")   # framed stages between image frames + imaging_chain mint (0.10)
 
 # ==============================================================================
@@ -985,6 +987,8 @@ export rectify                            # stereo rectification: rectified pinh
 export view_angle_limit                   # honest θ-domains
 export image_circle                       # the lit region of the sensor, from the lens or a datasheet
 export imaged_region                      # Rect(extent) ∩ image_circle: what the camera images
+export SupportTrait, GlobalSupport, LocalSupport, support_trait, nodes, support, node_position   # supports on the sensor (support.jl)
+export free_nodes, node_mask, cubic_bspline_footprint
 export radial_part                         # a lens's radially symmetric part
 export CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models (Schöps et al.)
 export spline_support, spline_weights, window_controls, window_indices, direction_tangents, default_generic_grid  # the grid model's window interface (0.22.2)

@@ -152,6 +152,8 @@ const CONTRACT_GENERICS = (
     # geometry and camera accessors other packages implement for their own types
     centroid, region, moment_matrix, feature_frame, geom, csponds, focal_length,
     intrinsics, lens, model, extent, bounds_trait, is_posed, Pools.pair_scene,
+    # the support protocol a node model implements (geometry/cameras/support.jl)
+    support_trait, nodes, support, node_position,
     # the parameter protocol downstream lenses and target calibrations implement (geometry/cameras/lens_chart.jl)
     parameter_vector, parameter_names, parameter_bounds, with_parameters,
     # the target-calibration protocol a downstream calibration kind or target

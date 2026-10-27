@@ -73,6 +73,19 @@ Private = false
 Pages = ["numerics/special.jl"]
 ```
 
+## Quadrature
+
+The probabilists' Gauss–Hermite rule [`gauss_hermite_prob`](@ref) (an
+expectation over `N(0, 1)`, exact to degree `2n − 1`) and the Hammersley
+points [`hammersley`](@ref) (a kernel's own low-discrepancy sample from its
+index).
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore]
+Private = false
+Pages = ["numerics/quadrature.jl"]
+```
+
 ## Index
 
 ```@index

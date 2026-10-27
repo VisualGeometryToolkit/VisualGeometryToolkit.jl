@@ -41,3 +41,33 @@
     @test dilog(0.3f0) ≈ Float32(li2_ref(0.3)) rtol = 4 * eps(Float32)
     @test dilog(0.8f0) ≈ Float32(li2_ref(0.8)) rtol = 8 * eps(Float32)
 end
+
+# The quadrature rules hoisted from RadiometricCamera (numerics/quadrature.jl).
+@testitem "quadrature: gauss_hermite_prob and hammersley" begin
+    using Test
+    using VisualGeometryToolkitCore: gauss_hermite_prob, hammersley
+
+    # E[X^k] of N(0, 1): 0 for odd k, (k − 1)!! for even k — exact to degree 2n − 1
+    moment(k) = isodd(k) ? 0.0 : Float64(prod(1:2:(k - 1); init = 1))
+    for n in 1:10
+        x, w = gauss_hermite_prob(n)
+        @test length(x) == n == length(w) && issorted(x) && all(>(0), w)
+        @test sum(w) ≈ 1 atol = 1.0e-14
+        for k in 0:(2n - 1)
+            @test sum(w .* x .^ k) ≈ moment(k) atol = 1.0e-13 * max(1, sum(w .* abs.(x) .^ k))   # rounding of the terms summed
+        end
+        @test !(sum(w .* x .^ (2n)) ≈ moment(2n))                                  # and not beyond
+    end
+    @test_throws ArgumentError gauss_hermite_prob(0)
+    x3, w3 = gauss_hermite_prob(3)
+    @test x3 == [-sqrt(3.0), 0.0, sqrt(3.0)] && w3 == [1 / 6, 2 / 3, 1 / 6]
+
+    # Hammersley: u₁ = (i − ½)/N, u₂ the radical inverse of i − 1 in base 2
+    N = 8
+    @test [hammersley(i, N) for i in 1:N] == [((i - 0.5) / N, r) for (i, r) in zip(1:N, (0.0, 0.5, 0.25, 0.75, 0.125, 0.625, 0.375, 0.875))]
+    @test hammersley(Float32, 3, 4) === (0.625f0, 0.25f0)
+    @test sort([hammersley(i, 64)[2] for i in 1:64]) == [(k - 1) / 64 for k in 1:64]   # a stratified permutation
+    alloc() = @allocated hammersley(Float32, 7, 16)
+    alloc()
+    @test alloc() == 0
+end

@@ -188,6 +188,7 @@ public ExecutionPolicy, Auto, Serial, Threaded, THREADED_MIN_LENGTH
 # Iterative Cox–de Boor B-spline kernels (0.14; hoisted from
 # RayTracedCalibration): broadcast-fused basis/surface/4D evaluation with
 # derivative surfaces; the rrules live in the ChainRulesCore extension.
+public gauss_hermite_prob, hammersley   # a quadrature rule for N(0, 1) and low-discrepancy points
 public bspline_basis, clamped_uniform_knots   # the scalar Cox–de Boor basis (isbits, any eltype, kernel-safe) and its knots
 public bspline_basis_iterative, evaluate_bspline_surface, bspline_surface_partial
 public evaluate_bspline_4d, bspline_4d_partial, contract_basis_4d_weighted
@@ -823,6 +824,7 @@ include("geometry/transforms/pointwise.jl")
 # rrules attach in the ChainRulesCore extension.
 include("numerics/bspline.jl")
 include("numerics/special.jl")    # device-safe lgamma/digamma/trigamma (adaptation kernels)
+include("numerics/quadrature.jl") # Gauss–Hermite (probabilists') and Hammersley points
 include("numerics/small_lu.jl")   # in-register partial-pivot LU for fixed-size systems
 include("numerics/ka_reduce.jl")  # KernelAbstractions workgroup tree reduction
 include("numerics/thin_plate_spline.jl")   # thin-plate spline: host-side solver, isbits allocation-free evaluator

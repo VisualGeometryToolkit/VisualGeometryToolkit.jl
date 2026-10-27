@@ -38,10 +38,10 @@ function test_local_optimization_contract end
 
 The manifold contract on `m`, as tests — what an optimizer that holds `m` as
 its variable relies on: the tangent size a constant of the type
-([`zero_tangent`](@ref) inferred, static); [`recenter`](@ref) inferred to
+([`zero_tangent`](@ref) inferred, static); `recenter` inferred to
 `typeof(m)` for a step of `m`'s own float type in any static container
 (`SVector`, `MVector`) and allocation-free (`allocations = true`); [`retract_jacobian`](@ref) at the
-anchor and at a step equal to ForwardDiff through [`retract`](@ref) within
+anchor and at a step equal to ForwardDiff through `retract` within
 `atol`; and the chart's own invariants (the essential chart's translation on
 the unit sphere after a step). Run it on every manifold family a package
 defines. Implemented by VisualGeometryToolkitCoreTestExt.

@@ -39,7 +39,11 @@ VgtkCore.residual_jacobian_rows!(J, w::_NaNBeyond, x) = VgtkCore.residual_jacobi
 
 @testset "the fork's additions, detected" begin
     f = nlls_features()
-    @test f.cache === isdefined(NLLSsolver, :OptimizeCache)
+    # the shipped rule: the TYPED cache constructor, not the name alone (an
+    # older fork with only the untyped `OptimizeCache()` takes the path
+    # without a cache)
+    @test f.cache === (isdefined(NLLSsolver, :OptimizeCache) &&
+        hasmethod(NLLSsolver.OptimizeCache, Tuple{NLLSsolver.NLLSProblem, NLLSsolver.NLLSOptions, Any}))
     @test f.schur === (isdefined(NLLSsolver, :MultiVariateLSschur) && isdefined(NLLSsolver, :iseliminable))
     # A checkout pins the fork (the workspace's [sources]); a registry install
     # resolves the published NLLSsolver. Either is correct: the suite asserts
@@ -54,13 +58,19 @@ end
     # iterates: measured 2026-10-27 on the fork, bit-identical x, F and
     # iteration counts on every fit below. On a registered NLLSsolver both
     # calls take that path (`cache` is then inert) and agree trivially.
+    # ONE workspace serves the three problems in sequence, as the LO's does:
+    # the second and third fits reuse the run (and its typed cache) the first
+    # built, so nothing the cache carries from one fit may reach the next;
+    # each is compared against a fresh workspace without a cache.
     s = collect(range(0.0, 2.0; length = 40))
+    ws = ManifoldLmWorkspace(length(s), 4)
+    run₁ = nothing
     for (k, ptrue) in enumerate((SVector(1.5, -0.8, 0.3, 0.2), SVector(0.4, 1.1, -0.5, 1.0), SVector(2.0, 0.2, 0.0, -1.0)))
         y = [ptrue[1] * exp(ptrue[2] * si) + ptrue[3] * si + ptrue[4] + 1.0e-3 * sin(7k * si) for si in s]
         lm = _ExpFitLm(s, y, SVector(1.0, 0.0, 0.0, 0.0))
-        ws = ManifoldLmWorkspace(length(s), 4)
         x1, F1, c1, it1 = lmsolve_chart!(ws, lm; stationarity_tol = 0.05, ftol = 1.0e-10)
-        x2, F2, c2, it2 = lmsolve_chart!(ws, lm; stationarity_tol = 0.05, ftol = 1.0e-10, cache = false)
+        k == 1 ? (run₁ = ws.run; @test(run₁ !== nothing)) : @test(ws.run === run₁)   # the run is reused
+        x2, F2, c2, it2 = lmsolve_chart!(ManifoldLmWorkspace(length(s), 4), lm; stationarity_tol = 0.05, ftol = 1.0e-10, cache = false)
         @test lm_retcode(c1) === :converged && lm_retcode(c2) === :converged
         @test isapprox(x1, x2; rtol = 1.0e-10, atol = 1.0e-12)
         @test isapprox(F1, F2; rtol = 1.0e-10)

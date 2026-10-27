@@ -147,6 +147,9 @@ include("mvnormal_geometry.jl")
 # Spatial queries: containment tests
 include("containment.jl")
 
+# Lazy region intersections: `a ∩ b` of a Rect, an Ellipse or another intersection
+include("regions.jl")
+
 # Geometric operators: overlap_area, IoU, dilate, coverage
 # NOTE: Uses Ellipse, Circle for area computations
 # Native GTE ellipse-ellipse intersection area (pure-Julia port; used by
@@ -189,6 +192,7 @@ export Ellipse, Circle
 export homogeneous_w, maps_within
 export best_iou_match
 export is_ellipse, classify_conic, gradient
+export RegionIntersection      # `a ∩ b` of two 2-D regions, lazily (regions.jl)
 
 # -----------------------------------------------------------------------------
 # 2. FEATURE FRAMES - Blob primitives with increasing DOF

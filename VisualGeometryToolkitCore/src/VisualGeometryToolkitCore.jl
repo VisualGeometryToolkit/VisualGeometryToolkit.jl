@@ -91,6 +91,7 @@ using StructArrays: StructArrays
 # -----------------------------------------------------------------------------
 export Point2, Point3, Point2f, Vec2, Vec3, Rect, Rect2, HyperRectangle
 export Circle, Ellipse, AbstractConic3D, Ellipse3D, Circle3D
+public RegionIntersection   # `a ∩ b` of two 2-D regions, held lazily (primitives/regions.jl)
 export boundary_point, boundary_points
 export centroid, area
 export moment_matrix, characteristic_scale

@@ -69,7 +69,7 @@ Pages = ["primitives/conic.jl", "primitives/circle3d.jl", "primitives/ellipse3d.
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false
-Pages = ["primitives/operators.jl", "primitives/containment.jl", "primitives/traits.jl", "primitives/bbox.jl"]
+Pages = ["primitives/operators.jl", "primitives/containment.jl", "primitives/regions.jl", "primitives/traits.jl", "primitives/bbox.jl"]
 ```
 
 ## Index

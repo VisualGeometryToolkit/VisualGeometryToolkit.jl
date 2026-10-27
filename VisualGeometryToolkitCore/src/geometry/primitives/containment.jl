@@ -23,6 +23,22 @@ function Base.in(e::Ellipse, r::Rect)
 end
 
 """
+    Base.in(r::Rect, e::Ellipse) -> Bool
+
+The reverse containment: does the rectangle lie inside the ellipse? The
+ellipse is convex, so the closed rectangle lies inside it exactly when its four
+corners ([`rect_corners`](@ref)) do. `Rect(extent) ∈ image_circle(camera)` asks
+whether a camera's whole pixel extent is lit.
+
+# Example
+```julia
+Rect(0, 0, 4, 3) ∈ Ellipse(Point2(2.0, 1.5), 3.0, 3.0, 0.0)   # true: the corners are 2.5 from the centre
+Rect(0, 0, 4, 3) ∈ Ellipse(Point2(2.0, 1.5), 2.0, 2.0, 0.0)   # false
+```
+"""
+Base.in(r::Rect{2}, e::Ellipse) = all(c -> Point2(c) ∈ e, rect_corners(r))
+
+"""
     Base.in(p::Point2, e::Ellipse) -> Bool
 
 Check if point `p` is inside ellipse `e`. Enables `p ∈ e` syntax.

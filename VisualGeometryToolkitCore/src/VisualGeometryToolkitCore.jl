@@ -192,7 +192,7 @@ public evaluate_bspline_4d, bspline_4d_partial, contract_basis_4d_weighted
 # Thin-plate spline (hoisted from RadiometricCamera, arithmetic unchanged): the
 # host-side solver object and the isbits, allocation-free evaluator and gradient.
 public ThinPlateSplineSystem, tps_radial_basis, grid_nodes, tps_coefficients
-public tps_evaluate, tps_gradient, nodal_weights, bending_energy
+public tps_evaluate, tps_gradient, nodal_weights, bending_energy, bending_factor
 
 # Coordinate conversions
 export to_homogeneous, to_affine, to_euclidean

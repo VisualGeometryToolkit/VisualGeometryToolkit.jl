@@ -183,3 +183,19 @@ nodes; zero for affine values up to rounding); a quadratic regularizer on the
 values.
 """
 bending_energy(tps::ThinPlateSplineSystem, t::AbstractVector) = dot(t, tps.Q * t)
+
+"""
+    bending_factor(tps::ThinPlateSplineSystem{N}) -> Matrix{Float64}
+
+A factor `L` (`N × N`) of the bending-energy form: `‖L · values‖² =`
+[`bending_energy`](@ref)`(tps, values)` to rounding, so `L · values` are a
+regularizer's residual rows. `Q` is positive semidefinite with the affine
+values in its null space, so it has no Cholesky factor: `L = Λ₊^½ Vᵀ` from the
+eigendecomposition `Q = V Λ Vᵀ`, `Λ₊` the eigenvalues clamped at zero (the null
+space's rounding residue may come out negative). An eigenbasis is not unique,
+so only `LᵀL` is defined — never compare the rows one by one.
+"""
+function bending_factor(tps::ThinPlateSplineSystem)
+    F = LinearAlgebra.eigen(LinearAlgebra.Symmetric(tps.Q))
+    return LinearAlgebra.Diagonal(sqrt.(max.(F.values, 0.0))) * F.vectors'
+end

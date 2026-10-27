@@ -269,20 +269,11 @@ is_resolved(::AbstractTarget) = true
 is_posed(::AbstractTarget) = false   # an unposed target; `PosedTarget` (rig.jl) answers true
 
 # The camera parallel (cameras.jl `_unposed_only`): an unposed target is its own
-# model, and the posed-only verbs refuse it by name. A posed target type answers
-# them with its own methods, so on one that lacks them this is the MethodError
-# it would have been.
-@noinline _refuse_unposed_target(what, t) = throw(
-    ArgumentError(
-        "$(what): the target is unposed (a $(nameof(typeof(t))), `is_posed` is false) — pose it: " *
-            "`PosedTarget(model, X)`"
-    )
-)
-_unposed_target_only(f, what, t, args...) =
-    is_posed(t) ? throw(MethodError(f, (t, args...))) : _refuse_unposed_target(what, t)
+# model, and the posed-only verbs refuse it by name.
+_pose_hint(::AbstractTarget) = ("target", "`PosedTarget(model, X)`")
 model(t::AbstractTarget) = is_posed(t) ? throw(MethodError(model, (t,))) : t
-pose(t::AbstractTarget) = _unposed_target_only(pose, "pose", t)
-extrinsics(t::AbstractTarget) = _unposed_target_only(extrinsics, "extrinsics", t)
+pose(t::AbstractTarget) = _unposed_only(pose, "pose", t)
+extrinsics(t::AbstractTarget) = _unposed_only(extrinsics, "extrinsics", t)
 is_resolved(t::PlanarTarget) = t.nominal !== nothing
 
 @noinline _refuse_unresolved(t) = throw(

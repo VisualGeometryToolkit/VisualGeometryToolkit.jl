@@ -148,8 +148,7 @@ function _check_pose_units(target, pose)
 end
 has_units(m::PosedTarget) = has_units(pose(m))
 FlexUnits.ustrip(u::Units, m::PosedTarget) = PosedTarget(ustrip(u, m.target), ustrip(u, pose(m)))
-with_unit(m::PosedTarget, u::Units) = PosedTarget(with_unit(m.target, u), _with_unit_pose(pose(m), u))
-_with_unit_pose(X, u::Units) = with_unit(X, u)   # a plain pose or an uncertain one: rotation and frames kept
+with_unit(m::PosedTarget, u::Units) = PosedTarget(with_unit(m.target, u), with_unit(pose(m), u))
 
 # A stored pose minted with its labels; an uncertain one keeps its covariance.
 _mint(::Type{S}, ::Type{D}, m) where {S, D} = relabel(S, D, m)
@@ -483,14 +482,10 @@ pose(rig::Rig{F, <:_MixedStorage}, id::Symbol) where {F} =
 
 # A target's own point lifted to 3D: a planar board's point sits on its plane
 # z = 0; a 3-vector (a solid target's, or a height field's) is taken as it is.
-# Plain points as Float64 (today's numbers); lengths keep their quantities.
-_lift3(p::StaticVector{2, <:Real}) = SVector{3, Float64}(p[1], p[2], 0.0)
-_lift3(p::StaticVector{3, <:Real}) = SVector{3, Float64}(p[1], p[2], p[3])
-_lift3(p::StaticVector{2, <:Quantity}) = SVector{3}(p[1], p[2], zero(p[1]))
-_lift3(p::StaticVector{3, <:Quantity}) = SVector{3}(p[1], p[2], p[3])
-# a world point stored: plain as Float64, lengths in metres
-_world_point(X::StaticVector{3, <:Real}) = SVector{3, Float64}(X)
-_world_point(X::StaticVector{3, <:Quantity}) = SVector{3}(X)
+# The world point is then stored as a target's is (`_stored_point`: plain as
+# Float64, lengths in metres).
+_lift3(p::StaticVector{2}) = SVector(p[1], p[2], zero(p[1]))
+_lift3(p::StaticVector{3}) = SVector{3}(p[1], p[2], p[3])
 
 """
     points(rig::Rig, id::Symbol) -> Vector{SVector{3}}
@@ -511,7 +506,7 @@ function points(rig::Rig{F, <:Union{_TargetStorage, _MixedStorage}}, id::Symbol)
         ArgumentError("points: target $(repr(id)) is unresolved — a design reference without its points")
     )
     P = geom(pose(rig, id))
-    return [_world_point(P(_lift3(geom(p)))) for p in points(m)]
+    return [_stored_point(Val(3), P(_lift3(geom(p)))) for p in points(m)]
 end
 function points(rig::Rig{F, <:Union{_TargetStorage, _MixedStorage}}) where {F}
     W = [id => points(rig, id) for id in block_order(_targets(rig)) if is_resolved(_targets(rig)[id].target)]

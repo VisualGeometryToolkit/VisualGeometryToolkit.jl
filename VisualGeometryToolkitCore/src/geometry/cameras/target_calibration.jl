@@ -87,8 +87,7 @@ regularizer(::Rigid) = SVector{0, Float64}()
 # A kind another package defines states its lengths through the public
 # protocol only (`has_units`, `ustrip`, `with_unit`); the chain's length-form
 # check (one form across members) covers the kinds shipped here.
-_has_lengths(::TargetCalibration) = false
-_has_lengths(::Rigid) = false
+_has_lengths(::TargetCalibration) = false   # Rigid, and a downstream kind
 has_units(::Rigid) = false
 _length_mask(::Rigid) = SVector{0, Bool}()
 FlexUnits.ustrip(::Units, c::Rigid) = c
@@ -238,10 +237,6 @@ Base.hash(c::Affine, h::UInt) = hash(c.physical, hash(c.b, hash(c.A, hash(:Affin
 # bending energy to rounding, not a biased one; the rows along the null
 # space are zero.
 
-function _bending_factor(system::ThinPlateSplineSystem)
-    F = LinearAlgebra.eigen(LinearAlgebra.Symmetric(system.Q))
-    return LinearAlgebra.Diagonal(sqrt.(max.(F.values, 0.0))) * F.vectors'
-end
 _bending_rows(L::Matrix{Float64}, v::SVector{K}) where {K} = SVector{K}(L * v)
 _node_lengths(system, physical) = physical ? [map(x -> _attach_length(x, m), p) for p in system.nodes] : collect(system.nodes)
 # 2 × 2K: (nᵀ, 0) over (0, nᵀ) — the two splines' nodal weights
@@ -294,13 +289,13 @@ function ThinPlateSpline(nodes::AbstractVector, fx::AbstractVector, fy::Abstract
     py_ == physical || _refuse_form("ThinPlateSpline", first(fy), physical)
     system = ThinPlateSplineSystem(ns)
     T = float(promote_type(eltype(vx), eltype(vy)))
-    return _thin_plate_spline(system, _bending_factor(system), SVector{K, T}(vx), SVector{K, T}(vy), physical)
+    return _thin_plate_spline(system, bending_factor(system), SVector{K, T}(vx), SVector{K, T}(vy), physical)
 end
 function ThinPlateSpline(nodes::AbstractVector)
     ns, physical = _node_points(nodes)
     K = length(ns)
     system = ThinPlateSplineSystem(ns)
-    return _thin_plate_spline(system, _bending_factor(system), zero(SVector{K, Float64}), zero(SVector{K, Float64}), physical)
+    return _thin_plate_spline(system, bending_factor(system), zero(SVector{K, Float64}), zero(SVector{K, Float64}), physical)
 end
 _apply(c::ThinPlateSpline, q) =
     q + SVector(tps_evaluate(c.system.nodes, c.wx, c.ax, q), tps_evaluate(c.system.nodes, c.wy, c.ay, q))
@@ -379,12 +374,12 @@ function HeightField(nodes::AbstractVector, heights::AbstractVector)
     v, ph = _lengths(collect(heights))
     ph == physical || _refuse_form("HeightField", first(heights), physical)
     system = ThinPlateSplineSystem(ns)
-    return _height_field(system, _bending_factor(system), SVector{K, float(eltype(v))}(v), physical)
+    return _height_field(system, bending_factor(system), SVector{K, float(eltype(v))}(v), physical)
 end
 function HeightField(nodes::AbstractVector)
     ns, physical = _node_points(nodes)
     system = ThinPlateSplineSystem(ns)
-    return _height_field(system, _bending_factor(system), zero(SVector{length(ns), Float64}), physical)
+    return _height_field(system, bending_factor(system), zero(SVector{length(ns), Float64}), physical)
 end
 _apply(c::HeightField, q) = SVector(q[1], q[2], tps_evaluate(c.system.nodes, c.w, c.a, q))
 function _point_jacobian(c::HeightField, q)

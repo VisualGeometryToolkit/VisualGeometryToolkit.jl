@@ -120,7 +120,7 @@ import ..VisualGeometryToolkitCore: has_units, with_unit   # extended on the car
 using ..VisualGeometryToolkitCore: translation, UnitfulEuclideanMap, _attach_unit, _ustrip_point, _attach_point, _stored_point,
     _check_one_form, _strip_metres, _translation_metres,   # the one strip/attach of maps and points (euclidean_map.jl)
     _strip_length, _attach_length, _metre_factor, _scale_length_form   # one length's strip/attach, a unit's metre factor (a calibration's lengths)
-using ..VisualGeometryToolkitCore: ThinPlateSplineSystem, tps_coefficients, tps_evaluate, tps_gradient, nodal_weights   # the thin-plate calibration kinds (target_calibration.jl)
+using ..VisualGeometryToolkitCore: ThinPlateSplineSystem, tps_coefficients, tps_evaluate, tps_gradient, nodal_weights, bending_factor   # the thin-plate calibration kinds (target_calibration.jl)
 using FlexUnits: Units, DimensionError
 using ..VisualGeometryToolkitCore: TargetPlaneFrame, PixelFrame, UnlabeledFrame, relabel, unlabel, Frame
 using ..VisualGeometryToolkitCore: FramedImage   # rect-form undistort return currency (warp layer)
@@ -452,16 +452,15 @@ is_posed(b::BoundedCamera) = is_posed(b.camera)
 _check_camera_model(c::AbstractCamera, what) = is_posed(c) ? _refuse_posed_model(what, c) : nothing
 _check_camera_model(::BoundedCamera, what) = _refuse_bounded_model(what)
 
-# The posed-only verbs on an unposed camera: refused by name. A posed camera
-# type answers them with its own methods, so on one that lacks them this is the
-# MethodError it would have been.
-@noinline _refuse_unposed(what, c) = throw(
-    ArgumentError(
-        "$(what): the camera is unposed (a $(nameof(typeof(c))), `is_posed` is false) — pose it: " *
-            "`PosedCamera(model, X)`, or `BoundedCamera(PosedCamera(model(bc), X), bc.extent)`"
-    )
+# The posed-only verbs on an unposed camera or target: refused by name, with
+# the way to pose it (`_pose_hint`, one method per kind; the target's is in
+# targets.jl). A posed type answers them with its own methods, so on one that
+# lacks them this is the MethodError it would have been.
+@noinline _refuse_unposed(what, x) = throw(
+    ArgumentError("$(what): the $(_pose_hint(x)[1]) is unposed (a $(nameof(typeof(x))), `is_posed` is false) — pose it: $(_pose_hint(x)[2])")
 )
-_unposed_only(f, what, c, args...) = is_posed(c) ? throw(MethodError(f, (c, args...))) : _refuse_unposed(what, c)
+_pose_hint(::AbstractCamera) = ("camera", "`PosedCamera(model, X)`, or `BoundedCamera(PosedCamera(model(bc), X), bc.extent)`")
+_unposed_only(f, what, x, args...) = is_posed(x) ? throw(MethodError(f, (x, args...))) : _refuse_unposed(what, x)
 
 # Method delegation to the wrapped camera (`bc.camera`).  Uses MacroTools.@forward
 # to generate the per-method overloads so we don't hand-roll one line per accessor.

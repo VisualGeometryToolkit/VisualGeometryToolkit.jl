@@ -122,7 +122,7 @@ _map_poses(f, tr::Trajectory{S, D}) where {S, D} = Trajectory{S, D}(
     images = tr.images, times = tr.times, time_origin = tr.time_origin, recovered = tr.recovered,
 )
 FlexUnits.ustrip(u::Units, tr::Trajectory) = _map_poses(X -> ustrip(u, X), tr)
-with_unit(tr::Trajectory, u::Units) = _map_poses(X -> _with_unit_pose(X, u), tr)
+with_unit(tr::Trajectory, u::Units) = _map_poses(X -> with_unit(X, u), tr)
 
 # ------------------------------------------------------------------------------
 # TargetPoses
@@ -194,7 +194,7 @@ _map_poses(f, tp::TargetPoses{F}) where {F} = TargetPoses{F}(
     images = tp.images, sensors = tp.sensors, times = tp.times, time_origin = tp.time_origin,
 )
 FlexUnits.ustrip(u::Units, tp::TargetPoses) = _map_poses(X -> ustrip(u, X), tp)
-with_unit(tp::TargetPoses, u::Units) = _map_poses(X -> _with_unit_pose(X, u), tp)
+with_unit(tp::TargetPoses, u::Units) = _map_poses(X -> with_unit(X, u), tp)
 
 # ------------------------------------------------------------------------------
 # TargetPoints2D / TargetPoints3D

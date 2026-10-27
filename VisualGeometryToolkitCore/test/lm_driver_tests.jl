@@ -100,11 +100,11 @@ _refit_allocations(ws, lm) = @allocations _refit!(ws, lm)
 end
 
 @testset "the stop codes: one decoder, one order" begin
-    # NLLSsolver's termination bits → `_nlls_stop`, the one decoder the chart
+    # NLLSsolver's termination bits → `nlls_stop_code`, the one decoder the chart
     # LM and `nlls_retcode` read: failure without a step stop −3; step stop
     # (6) 2; cost-decrease stop (2, 3) 1; maxfails (7) 4; time cap −4;
     # iteration cap −1; anything else 4.
-    code = VgtkCore._nlls_stop
+    code = VgtkCore.nlls_stop_code
     @test code(1 << 2) == 1 && code(1 << 3) == 1
     @test code(1 << 6) == 2
     @test code(1 << 8) == -1 && code(1 << 9) == -4 && code((1 << 8) | (1 << 9)) == -4
@@ -124,6 +124,12 @@ end
     @test code((1 << 1) | (1 << 8) | (1 << 9)) == -3
     @test lm_retcode(4) === :converged               # once the postcondition holds
     @test lm_retcode(-3) === :solve_failed && lm_retcode(-4) === :max_time
+    # public, with the bits named
+    @test Base.ispublic(VgtkCore, :nlls_stop_code) && Base.ispublic(VgtkCore, :nlls_stop_reasons)
+    @test VgtkCore.nlls_stop_reasons(0) == Symbol[]
+    @test VgtkCore.nlls_stop_reasons((1 << 2) | (1 << 8)) == [:relative_cost_decrease, :max_iterations]
+    @test VgtkCore.nlls_stop_reasons((1 << 0) | (1 << 6) | (1 << 16)) == [:cost_infinite, :delta_size, :callback]
+    @test length(VgtkCore.nlls_stop_reasons(typemax(Int32))) == 12                # every named bit (0–10, 16)
 end
 
 @testset "a NaN wall at the production cost tolerance" begin

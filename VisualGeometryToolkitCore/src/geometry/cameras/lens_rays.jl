@@ -1152,7 +1152,7 @@ end
 # atan(|x_d|)·x̂_d and steps capped at 0.3 rad over 30 trips fail 12, each
 # within 2% of a fold.
 const _DEFAULT_INVERSE_TRIPS = 30
-const _DEFAULT_INVERSE_STEP = 0.3
+const _DEFAULT_INVERSE_MAX_DELTA = 0.3
 
 """
     backproject(lens::AbstractLensModel, xd::StaticVector{2}) -> Vec3
@@ -1181,7 +1181,7 @@ Newton converges too slowly and the answer is NaN).
     ρ = sqrt(p[1] * p[1] + p[2] * p[2])
     m = _primal(ρ) > 0 ? p * (atan(ρ) / ρ) : p
     J = SMatrix{2, 2}(one(m[1]), zero(m[1]), zero(m[1]), one(m[1]))
-    cap = oftype(_primal(ρ), _DEFAULT_INVERSE_STEP)
+    cap = oftype(_primal(ρ), _DEFAULT_INVERSE_MAX_DELTA)
     for _ in 1:_DEFAULT_INVERSE_TRIPS
         r = resid(m)
         J = ForwardDiff.jacobian(resid, m)

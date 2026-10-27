@@ -534,7 +534,7 @@ public ManifoldLmWorkspace
 public residual_rows!, residual_jacobian_rows!, lm_retcode, is_stationary, nlls_retcode, loss_robustifier
 # The one map of the stack's LM knobs onto NLLSsolver's options, and which of the
 # fork's additions the loaded NLLSsolver has (robust/lm_core.jl).
-public nlls_options, nlls_features
+public nlls_options, nlls_features, nlls_stop_code, nlls_stop_reasons   # NLLSsolver's knobs, its fork's additions, its termination bits decoded
 # The stack's naming checker (ext/VisualGeometryToolkitCoreTestExt; loads with Test): every stack package's
 # quality test runs it on itself; reached qualified.
 public check_naming, NamingViolation, naming_scope

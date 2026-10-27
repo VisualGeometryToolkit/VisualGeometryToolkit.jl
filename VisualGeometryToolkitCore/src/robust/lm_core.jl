@@ -298,12 +298,14 @@ end
 # =============================================================================
 
 """
-    _nlls_stop(bits::Integer) -> Int
+    nlls_stop_code(bits::Integer) -> Int
 
 THE decoder of NLLSsolver's termination bits (`result.termination`, listed at
-[`nlls_retcode`](@ref)) — the one both the chart LM's code (`lmsolve_chart!`,
-read by [`lm_retcode`](@ref)) and `nlls_retcode` are views of. One order, the
-first that applies:
+[`nlls_retcode`](@ref)) into one stop code — the one both the chart LM's code
+(`lmsolve_chart!`, read by [`lm_retcode`](@ref)) and `nlls_retcode` are views
+of, and the one a caller running its own `NLLSsolver.optimize!` reads (with
+[`nlls_stop_reasons`](@ref) for every bit that is set). One order, the first
+that applies:
 
 1. a failure — a non-finite cost (0, 1) or step (4, 5), a cost disagreement
    (10) — WITHOUT a step-size stop: `-3`, `:solve_failed`;
@@ -320,7 +322,7 @@ first that applies:
 A non-finite TRIAL at a step-size stop (bits 0 or 1 with 6: the chart LM's
 NaN wall, its non-finite cost read as +Inf) is a step-size stop, not a failure.
 """
-function _nlls_stop(bits::Integer)
+function nlls_stop_code(bits::Integer)
     bit(k) = bits & (1 << k) != 0
     any(bit, (0, 1, 4, 5, 10)) && !bit(6) && return _LM_FAILED
     bit(6) && return 2
@@ -330,6 +332,29 @@ function _nlls_stop(bits::Integer)
     bit(8) && return -1
     return 4
 end
+
+# NLLSsolver's termination bits by name (NLLSsolver 5.x, `optimizeloop!`).
+const _NLLS_STOP_BITS = (
+    (0, :cost_infinite), (1, :cost_nan), (2, :relative_cost_decrease), (3, :absolute_cost_decrease),
+    (4, :delta_infinite), (5, :delta_nan), (6, :delta_size), (7, :max_consecutive_rejections),
+    (8, :max_iterations), (9, :max_time), (10, :cost_disagreement), (16, :callback),
+)
+
+"""
+    nlls_stop_reasons(bits::Integer) -> Vector{Symbol}
+
+Every reason NLLSsolver's termination bits (`result.termination`) state, in
+bit order: `:cost_infinite` (0), `:cost_nan` (1), `:relative_cost_decrease`
+(2, below `reldcost`), `:absolute_cost_decrease` (3, below `absdcost`),
+`:delta_infinite` (4), `:delta_nan` (5), `:delta_size` (6, the LM update δ below `dstep`),
+`:max_consecutive_rejections` (7, `maxfails` iterations whose cost exceeded the
+best), `:max_iterations` (8), `:max_time` (9), `:cost_disagreement` (10, the
+residual and the residual-Jacobian evaluations disagree), `:callback` (16).
+A report of the stop; [`nlls_stop_code`](@ref) is the one decision read from
+the same bits.
+"""
+nlls_stop_reasons(bits::Integer) = Symbol[name for (b, name) in _NLLS_STOP_BITS if (bits >> b) & 1 == 1]
+
 # The decoder's two codes outside FastLevenbergMarquardt's numbering
 # (`lm_retcode` reads them): a failed solve and the time cap.
 const _LM_FAILED = -3
@@ -390,7 +415,7 @@ function lmsolve_chart!(
     end
     x = problem.variables[1]
     F = 2 * result.bestcost
-    converged = _nlls_stop(result.termination)
+    converged = nlls_stop_code(result.termination)
     if converged == 2 || converged == 4
         _lm_stationary(ews, lm, x, stationarity_tol, ftol) || (converged = _LM_STALLED)
     end
@@ -465,7 +490,7 @@ end
     lm_retcode(converged::Int) -> Symbol
 
 The retcode of a chart-LM refit from the code [`lmsolve_chart!`](@ref)
-returns (`_nlls_stop`'s): `:max_iterations` when it stopped at `maxit`
+returns (`nlls_stop_code`'s): `:max_iterations` when it stopped at `maxit`
 (`-1`); `:max_time` at the time cap (`-4`); `:solve_failed` when the cost or
 the step went non-finite outside a step-size stop (`-3`); `:stalled` when it
 stopped on its step size, or without a tolerance, at a point that is NOT
@@ -492,7 +517,7 @@ of the step size is too small, 7 the maximum number of consecutive failed
 iterations (iterations whose cost is higher than the current best,
 `maxfails`) is reached, 8 the maximum number of iterations is reached, 9 the
 maximum amount of time is exceeded, 10 the cost computations do not agree, 16
-terminated by the user callback. Decoded by the one order of `_nlls_stop`
+terminated by the user callback. Decoded by the one order of `nlls_stop_code`
 (the chart LM reads the same): a failure (0, 1, 4, 5, 10) without a step-size
 stop is `:solve_failed`; a step-size stop (6) is `:converged` when
 [`is_stationary`](@ref)`(J, r; tol, ftol)` holds and `:stalled` otherwise; a
@@ -501,7 +526,7 @@ and any other stop (16) take the stall postcondition as the step stop does;
 then `:max_time` (9) and `:max_iterations` (8). A tolerance outranks a cap.
 """
 function nlls_retcode(result::NLLSsolver.NLLSResult, J::AbstractMatrix, r::AbstractVector; tol::Real, ftol::Real)
-    code = _nlls_stop(result.termination)
+    code = nlls_stop_code(result.termination)
     (code == 2 || code == 4) && return is_stationary(J, r; tol, ftol) ? :converged : :stalled
     return lm_retcode(code)
 end

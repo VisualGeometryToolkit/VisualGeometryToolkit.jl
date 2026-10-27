@@ -197,7 +197,7 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         @test nlls_retcode(res((1 << 1) | (1 << 9) | (1 << 8)), J, r_opt; kw...) === :solve_failed   # failure outranks the caps
         @test nlls_retcode(res((1 << 9) | (1 << 8)), J, r_opt; kw...) === :max_time                  # time outranks iterations
         @test nlls_retcode(res(1 << 9), J, r_opt; kw...) === :max_time
-        # The one order (VGC `_nlls_stop`, ruled 2026-10-27; until then this
+        # The one order (VGC `nlls_stop_code`, ruled 2026-10-27; until then this
         # decoder tested the caps before the cost tolerance and ran the
         # postcondition on a cost-decrease stop): a cost-decrease stop is
         # converged and outranks a cap; a step stop is checked first and takes

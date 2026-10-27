@@ -139,7 +139,7 @@ function NLLSsolver.computeresidual(r::_BundleRows, pose::_BundlePose, p::_Bundl
     return d.sqrtw[i] * _reprojection_error(d.K1, d.K2, R, t, p.X, d.u1[i], d.u2[i])
 end
 # The block's cost as the LM reads it: non-finite is +Inf (`_finite_cost`).
-NLLSsolver.computecost(vars::AbstractVector, r::_BundleRows) =
+NLLSsolver.computecost(vars::Vector{Union{_BundlePose, _BundlePoint{E}}}, r::_BundleRows{E}) where {E} =
     _finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
 # The closed-form 4 × 8 Jacobian, pose columns (VGC's `pose_action_jacobian`
 # at the variable's own anchor, the derivative of its `update`) then point
@@ -170,7 +170,7 @@ end
 #
 # NOT REENTRANT: a bundle started from inside the NLLSsolver `callback` of a
 # bundle on the same task overwrites the running problem's data and
-# variables (the internal `callback` keyword; no production caller passes one).
+# variables (the internal `callback` keyword; no production caller supplies one).
 struct _BundleRun{E, D}
     data::D
     problem::NLLSsolver.NLLSProblem{Union{_BundlePose, _BundlePoint{E}}, _BundleRows{E, D}}
@@ -389,7 +389,7 @@ function _bundle_refine_relpose(
         stationarity_tol::Float64 = _RELPOSE_BUNDLE_STATIONARITY_TOL,
         schur::Bool = _BUNDLE_SCHUR, cache::Bool = true, callback::F = NLLSsolver.nullcallback
     ) where {F}
-    # (`::F`: a Function-typed argument only passed on is not specialized,
+    # (`::F`: a Function-typed argument only handed on is not specialized,
     # which made the call below a dynamic one, boxing every argument)
     N = length(u1)
     N >= 5 || return nothing

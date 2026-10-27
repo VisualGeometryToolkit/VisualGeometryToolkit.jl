@@ -215,8 +215,8 @@ end
     end
 end
 
-@testset "a point behind the camera costs +Inf, not NaN (the LM rejects the trial)" begin
-    # A registered NLLSsolver accepts a NaN trial cost (not greater than the
+@testset "a point behind the camera costs +Inf, not NaN (the LM rejects the step)" begin
+    # A registered NLLSsolver accepts a NaN step cost (not greater than the
     # best); the block's cost reads it as +Inf, as the fork and the chart LM do.
     camera = CameraModel(; focal = 600.0, pp = (400.0, 300.0))
     ch = RigidExpManifold6(rigid(RotMatrix{3}(1.0I), SVector(0.0, 0.0, 0.0)))

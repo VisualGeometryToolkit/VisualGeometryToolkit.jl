@@ -117,7 +117,7 @@ end
 end
 
 # A NaN wall for the bundle rows: camera 2's K, applied to a camera-2 point Y,
-# answers NaN once s·Y₁ passes `wall` (a lens's answer outside its domain).
+# answers NaN once s·Y₁ crosses `wall` (a lens's answer outside its domain).
 # The rows read K₂ only through `K₂ * Y` and `∂π * K₂`.
 struct _WallK
     M::SMatrix{3, 3, Float64, 9}
@@ -321,8 +321,8 @@ end
     end)
 end
 
-@testset "RelposeBundle: a NaN past a wall is a rejected trial (registry and fork alike)" begin
-    # A registered NLLSsolver accepts a trial whose cost is not greater than
+@testset "RelposeBundle: a NaN past a wall is a rejected step (registry and fork alike)" begin
+    # A registered NLLSsolver accepts a step whose cost is not greater than
     # the best, which NaN is not; the block's cost reads a non-finite value as
     # +Inf, so the fit stops at the wall with a finite cost on every path.
     rng = StableRNG(11); N = 25
@@ -349,7 +349,7 @@ end
         pose = p.variables[1]
         bad = _BundlePoint{E}(SVector(s * (wall + 1.0), 0.0, 5.0))
         rows = _BundleRows{E, typeof(data)}(data, 1, SVector(1, 2))
-        @test NLLSsolver.computecost([EssentialManifold5(SMatrix{3, 3, Float64, 9}(I), SVector(0.0, 0.0, 1.0))::_BundlePose, bad], rows) == Inf
+        @test NLLSsolver.computecost(Union{_BundlePose, _BundlePoint{E}}[EssentialManifold5(SMatrix{3, 3, Float64, 9}(I), SVector(0.0, 0.0, 1.0)), bad], rows) == Inf
         return res, e0, (extent(p, 1.0), extent(p, -1.0))
     end
     # the free fit (no wall): which side of camera 2 its optimum moves out on

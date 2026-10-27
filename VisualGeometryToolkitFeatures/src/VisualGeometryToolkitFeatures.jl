@@ -23,7 +23,8 @@ using StaticArrays: SVector, SMatrix
 using ImageCore: channelview
 using StructArrays: StructArray
 using FixedPointNumbers: N0f8
-using Colors: Gray, Colorant
+using Colors: Gray, Colorant, RGB
+using PNGFiles: PNGFiles     # load_linear_image: a PNG read without gamma re-encoding
 
 # VisualGeometryToolkitCore (geometry primitives, units, the correspondence layer)
 import KernelAbstractions as KA   # KA devices are the backend dispatch tokens
@@ -64,6 +65,7 @@ import VisualGeometryToolkitCore: centroid, moment_matrix, feature_frame, region
 
 include("detection_types.jl")
 include("image_input.jl")    # gray_f32 / gray_u8 — the input ladders (hoisted from BlobBoards)
+include("linear_image.jl")   # load_linear_image — a PNG as linear radiance (hoisted from RadiometricCamera)
 include("batching.jl")       # batched_rows — the describe backends' chunking skeleton
 include("asift/pyramid.jl")
 include("asift/warp.jl")
@@ -126,6 +128,8 @@ export AsiftPlan, ImasFeatureKA
 export clear_asift_plans!, set_max_cached_plans!
 export FeatureCovariance            # keypoint uncertainty: asift_detect(img; uncertainty = FeatureCovariance())
 export gray_f32, gray_u8        # the input ladders every detector-side entry point uses
+export load_linear_image        # a PNG as linear radiance: no gamma re-encoding, optional sRGB decode, box downsample
+public srgb_to_linear, box_downsample
 export batched_rows             # the describe backends' chunking skeleton
 
 # -----------------------------------------------------------------------------

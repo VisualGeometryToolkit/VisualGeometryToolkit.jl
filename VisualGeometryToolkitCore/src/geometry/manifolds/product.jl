@@ -78,7 +78,6 @@ retract(p::ProductManifold, v) = p.embed(map(retract, p.charts, manifold_parts(p
 recenter(p::ProductManifold, v) = ProductManifold(map(recenter, p.charts, manifold_parts(p, v)), p.embed)
 retract_jacobian(p::ProductManifold) = _blockdiag(map(retract_jacobian, p.charts))
 retract_jacobian(p::ProductManifold, v::AbstractVector) = _blockdiag(map(retract_jacobian, p.charts, manifold_parts(p, v)))
-retract_jacobian(p::ProductManifold, v::StaticVector) = _blockdiag(map(retract_jacobian, p.charts, manifold_parts(p, v)))   # beside the generic default
 local_coordinates(p::ProductManifold, parts::Tuple) = vcat(map(local_coordinates, p.charts, parts)...)
 
 # The coordinates of each part: consecutive `tangent_part`s of v, each statically

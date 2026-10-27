@@ -445,7 +445,6 @@ retract(ch::TargetManifold, v) = with_parameters(ch.target, parameter_vector(ch.
 recenter(ch::TargetManifold, v) = TargetManifold(retract(ch, v), ch.basis, ch.fixed_gauges, ch.fixed)
 retract_jacobian(ch::TargetManifold) = ch.basis
 retract_jacobian(ch::TargetManifold, ::AbstractVector) = ch.basis
-retract_jacobian(ch::TargetManifold, ::StaticVector) = ch.basis     # (the Manifold default's signature: no ambiguity)
 action_jacobian(ch::TargetManifold{<:PlanarTarget}, x) = calibration_jacobian(geom(ch.target.calibration), x) * ch.basis
 local_coordinates(ch::TargetManifold, t::AbstractTarget) = ch.basis' * (parameter_vector(t) - parameter_vector(ch.target))
 

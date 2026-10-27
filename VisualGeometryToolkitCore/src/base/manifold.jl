@@ -108,7 +108,7 @@ _storage_with_eltype(::Type{A}, ::Type{T}) where {A <: StaticArray, T} = similar
 
 """
     retract_jacobian(ch::Manifold) -> SMatrix
-    retract_jacobian(ch::Manifold, v::StaticVector) -> SMatrix
+    retract_jacobian(ch::Manifold, v::AbstractVector) -> SMatrix
 
 The RETRACTION DIFFERENTIAL: `∂vec(retract(ch, v))/∂v`, the ambient model's
 derivative with respect to the chart coordinates — at the anchor (`v = 0`) in
@@ -126,12 +126,16 @@ does not override it is `_retract_jacobian_fd`, ForwardDiff through `retract`
 — exact to first order with no hand-derivation risk, and every closed-form
 override is pinned against it in the manifold contract tests. A linear chart
 (`LensManifold`) returns the identity. The default needs only `retract` and the
-model's `ambient_coordinates`.
+model's `ambient_coordinates`. A chart overrides the two-argument form for
+any `AbstractVector` `v` (one method; a constant differential ignores `v`), and
+the one-argument form when its anchor's differential is cheaper than
+evaluating at `zero_tangent(ch)`.
 
 Public, not exported; VisualGeometryToolkitEstimation builds its LM and covariance steps
 on it.
 """
-retract_jacobian(ch::Manifold, v::StaticVector = zero_tangent(ch)) = _retract_jacobian_fd(ch, v)
+retract_jacobian(ch::Manifold) = retract_jacobian(ch, zero_tangent(ch))
+retract_jacobian(ch::Manifold, v::AbstractVector) = _retract_jacobian_fd(ch, v)
 
 function local_coordinates end
 
@@ -191,6 +195,8 @@ end
 # contract tests). The default of `retract_jacobian`.
 _retract_jacobian_fd(ch::Manifold, v::StaticVector) =
     ForwardDiff.jacobian(w -> ambient_coordinates(retract(ch, w)), v)
+# a non-static `v`: the chart's static tangent (charts retract static steps)
+_retract_jacobian_fd(ch::Manifold, v::AbstractVector) = _retract_jacobian_fd(ch, SVector{tangent_size(ch)}(v))
 
 """
     transform_covariance(from::Manifold, to::Manifold, Σ) -> Matrix

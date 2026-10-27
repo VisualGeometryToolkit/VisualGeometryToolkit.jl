@@ -184,6 +184,14 @@ function write_length(q::Quantity, u::Units)
     return _write_scaled(Float64(ustrip(m, q)), scale, 1)
 end
 
+# The PERSISTED form of a plain base-unit number of length dimension `n`: what a
+# file in millimetres (the default file unit) holds for it and reads back as,
+# `read(write(y))`. It is idempotent: a loaded value is its own persisted form.
+# The identity tree (`content_id`) hashes this form, so a value built in code
+# (`v * mm`, one ulp off the nearest decimal of `v`) and the file written from it
+# have one identity.
+_persisted(y::Real, n::Int = 1) = _read_power(_write_power(Float64(y), mm, n), mm, n)
+
 # -----------------------------------------------------------------------------
 # The schemas' use of the pair: vectors of lengths, and their covariances
 # -----------------------------------------------------------------------------

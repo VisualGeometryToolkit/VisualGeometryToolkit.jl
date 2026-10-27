@@ -590,7 +590,11 @@ file to the next rig version have one identity. A relabeled provenance does
 not change it; a target's calibration kind, its parameters, its covariance
 and its board do.
 
-The identity is of the PERSISTED representation. A pose's rotation enters as
+The identity is of the persisted representation; a value and the file written
+from it hash equal by construction. Every length enters as the number a file in
+millimetres holds for it and reads back as (`read(write(x))`, idempotent), so a
+quantity built in code as `v * mm`, which sits an ulp from the nearest decimal
+of `v`, hashes as the file written from it. A pose's rotation enters as
 the quaternion the writer stores (one conversion, shared by the writer and the
 tree: w-x-y-z, w ≥ 0; a `QuatRotation` as held, any other rotation converted
 once), so a rig held with `RotMatrix` poses, the file written from it and the
@@ -630,9 +634,10 @@ _targets_hash(rig::Rig) = sha256_hex(canonical_json(_identity_tree(rig)))
 # The identity tree (content_id's docstring), from the value. Every number is a
 # Float64 (base units), an extent or grid size an Int; a name is a String.
 const _Id = Dict{String, Any}
-_id_metres(q) = Float64(ustrip(m, q))
+_id_metres(q) = _persisted(ustrip(m, q))
 _id_lengths(v) = Any[_id_metres(q) for q in v]
-_id_rows(Σ) = Any[Any[Float64(Σ[i, j]) for j in axes(Σ, 2)] for i in axes(Σ, 1)]
+# covariance rows, entry (i, j) of length dimension `dims[i] + dims[j]`, persisted
+_id_rows(Σ, dims) = Any[Any[_persisted(Σ[i, j], dims[i] + dims[j]) for j in axes(Σ, 2)] for i in axes(Σ, 1)]
 
 function _identity_tree(rig::Rig)
     d = _Id("frame" => frame_name(reference_frame(rig)))
@@ -655,7 +660,7 @@ _id_targets(rig::Rig) = Any[
 _id_pose(X::EuclideanMap{3}) = _Id("rotation" => Any[Float64(x) for x in _qvec(X.R)], "translation" => _id_lengths(X.t))
 function _id_pose(u::Uncertain{<:EuclideanMap{3}})
     d = _id_pose(geom(u))
-    d["covariance"] = _id_rows(cov(u))
+    d["covariance"] = _id_rows(cov(u), _POSE_COV_DIMS)
     return d
 end
 
@@ -672,6 +677,8 @@ function _id_camera(c)
     return _id_grid_model(mdl)
 end
 _id_grid(g) = Any[Any[Float64(v[k]) for k in 1:3] for gy in 1:size(g, 1) for v in (g[gy, :]...,)]
+_id_grid_metres(g) = Any[Any[_persisted(v[k]) for k in 1:3] for gy in 1:size(g, 1) for v in (g[gy, :]...,)]
+_persisted_if(x, n::Int) = n == 0 ? Float64(x) : _persisted(x, n)
 function _id_grid_header(gm, grid)
     return _Id(
         "extent" => Any[Int(gm.width), Int(gm.height)],
@@ -682,13 +689,13 @@ end
 _id_grid_model(gm::CentralGenericModel) = merge(_id_grid_header(gm, gm.grid), _Id("grid_model" => "central", "directions" => _id_grid(gm.grid)))
 _id_grid_model(gm::NoncentralGenericModel) = merge(
     _id_grid_header(gm, gm.directions),
-    _Id("grid_model" => "noncentral", "directions" => _id_grid(gm.directions), "points" => _id_grid(gm.points)),   # plain metres
+    _Id("grid_model" => "noncentral", "directions" => _id_grid(gm.directions), "points" => _id_grid_metres(gm.points)),   # plain metres
 )
 
 function _id_target(t::PointTarget)
     pts = points(t)
     d = _Id("kind" => "points", "points" => Any[_id_lengths(geom(p)) for p in pts])
-    any(p -> p isa Uncertain, pts) && (d["point_covariances"] = Any[_id_rows(cov(p)) for p in pts])
+    any(p -> p isa Uncertain, pts) && (d["point_covariances"] = Any[_id_rows(cov(p), _point_cov_dims(size(cov(p), 1))) for p in pts])
     return d
 end
 function _id_target(t::PlanarTarget)
@@ -701,7 +708,7 @@ function _id_target(t::PlanarTarget)
     end
     bd = board(t)
     bd === nothing ||
-        (d["board"] = _Id("size" => Any[_id_metres(bd.size.width), _id_metres(bd.size.height)], "origin" => Any[Float64(x) for x in bd.origin]))
+        (d["board"] = _Id("size" => Any[_id_metres(bd.size.width), _id_metres(bd.size.height)], "origin" => Any[_persisted(x) for x in bd.origin]))
     return d
 end
 
@@ -713,14 +720,14 @@ function _id_calibration(c::TargetCalibration)
         d["members"] = Any[_id_calibration(x) for x in c.members]
     elseif !(c isa Rigid)
         _physical(c)
-        d["parameters"] = Any[Float64(x) for x in parameter_vector(c)]
-        (c isa ThinPlateSpline || c isa HeightField) && (d["nodes"] = Any[Any[Float64(p[1]), Float64(p[2])] for p in c.system.nodes])
+        d["parameters"] = Any[_persisted_if(x, n) for (x, n) in zip(parameter_vector(c), _length_dims(c))]
+        (c isa ThinPlateSpline || c isa HeightField) && (d["nodes"] = Any[Any[_persisted(p[1]), _persisted(p[2])] for p in c.system.nodes])
     end
     return d
 end
 function _id_calibration(u::Uncertain{<:TargetCalibration})
     d = _id_calibration(geom(u))
-    d["covariance"] = _id_rows(cov(u))
+    d["covariance"] = _id_rows(cov(u), _length_dims(geom(u)))
     return d
 end
 

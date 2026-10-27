@@ -259,3 +259,37 @@ end
     X = SVector(0.0, 0.0, 1000.0) .* mm
     @test project(cam, X) == project(ustrip(m, cam), ustrip.(m, X))
 end
+
+@testitem "units: a rig built in code, its file and the rig loaded from it have one identity" setup = [VGIoFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    using Random: Xoshiro
+    using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, TargetFrame
+    # `v * mm` is `v * 0.001`, an ulp from the nearest decimal of `v` for about a quarter of
+    # values, while a file holds (and reads) the decimal: the identity is of the persisted form.
+    R = one(RotMatrix{3, Float64})
+    rng = Xoshiro(3)
+    n_fail = Ref(0)
+    mktempdir() do dir
+        p = joinpath(dir, "rig.json")
+        for _ in 1:10_000
+            t = [round(rand(rng) * 1000 - 500; sigdigits = rand(rng, 15:17)) * mm for _ in 1:3]
+            board = [round(rand(rng) * 100; sigdigits = rand(rng, 15:17)) * mm for _ in 1:2]
+            rig = Rig{TargetFrame{:a}}(
+                Dict(
+                    :a => PosedTarget(PlanarTarget([board, [0.0mm, 0.0mm]]), EuclideanMap(R, [0.0mm, 0.0mm, 0.0mm])),
+                    :b => PosedTarget(PlanarTarget([board, [1.0mm, 2.0mm]]), EuclideanMap(R, t)),
+                )
+            )
+            save(p, rig)
+            n_fail[] += !(content_id(rig) == content_id(p) == content_id(load(Rig, p)))
+        end
+    end
+    @test n_fail[] == 0
+    # the persisted form is idempotent, and the same in a file of any decimal unit
+    for _ in 1:10_000
+        y = (rand(rng) - 0.5) * 10.0^rand(rng, -4:1)
+        c = VgtkIO._persisted(y)
+        @test VgtkIO._persisted(c) === c
+        @test abs(c - y) <= 2 * eps(abs(y))
+    end
+end

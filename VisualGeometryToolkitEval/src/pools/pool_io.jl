@@ -374,6 +374,12 @@ _same_bits(a::NamedTuple, b::NamedTuple) = keys(a) == keys(b) && all(_same_bits(
 _same_bits(a::AbstractDict, b::AbstractDict) = isequal(a, b)
 _same_bits(a, b) = a === b || isequal(a, b)
 
+# Whether two paths name one directory: resolved (`realpath`: links, `..`, a
+# trailing slash) where they exist, normalised (`normpath`, no trailing slash)
+# where they do not.
+_directory_key(p::AbstractString) = ispath(p) ? realpath(p) : (q = normpath(abspath(p)); length(q) > 1 ? rstrip(q, '/') : q)
+_same_directory(a::AbstractString, b::AbstractString) = _directory_key(a) == _directory_key(b)
+
 """
     migrate_pool(path; out, dry_run = false) -> NamedTuple
 
@@ -402,12 +408,6 @@ format is refused with an `ArgumentError`: a format-5 one needs nothing, an
 older one is converted first (see [`load_pool`](@ref)'s refusal). Returns
 `(; path, residuals, n_pairs)`, the output paths `nothing` in a dry run.
 """
-# Whether two paths name one directory: resolved (`realpath`: links, `..`, a
-# trailing slash) where they exist, normalised (`normpath`, no trailing slash)
-# where they do not.
-_directory_key(p::AbstractString) = ispath(p) ? realpath(p) : (q = normpath(abspath(p)); length(q) > 1 ? rstrip(q, '/') : q)
-_same_directory(a::AbstractString, b::AbstractString) = _directory_key(a) == _directory_key(b)
-
 function migrate_pool(path::AbstractString; out::AbstractString, dry_run::Bool = false)
     isfile(path) || throw(ArgumentError("$path: no such pool artifact"))
     cur = ARTIFACT_FORMATS.pool.version

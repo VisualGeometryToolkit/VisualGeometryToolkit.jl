@@ -426,22 +426,15 @@ end
 # its extrinsics are a plain-typed `EuclideanMap` (never `Uncertain`); a target pose
 # may be `Uncertain`. Every translation and point is a length.
 
-# A sensor bounded by its physical `Sensor` carries the sensor's pixel pitch
-# beside the camera body: `"pitch": [width, height]`, a length per pixel in the
-# rig's `length_unit` (px is dimensionless, so a pitch IS a length per pixel;
-# the rig already declares the unit, as for every other length). Absent, the
-# body is the bare extent's, byte for byte, and so is the identity. Additive in
-# rig/v5, which is unreleased: no version moves.
-const _PITCH = _Checked(
-    _Vec(_Real(), 2),
-    x -> all(v -> v > 0 && isfinite(v), x) ? nothing :
-        "a pixel pitch is [width, height], two positive lengths per pixel in the rig's length_unit",
-)
+# A sensor bounded by its physical `Sensor` carries the pixel pitch in its
+# camera body (`_PITCH`, camera_schema.jl), in the rig's `length_unit`. Additive
+# in rig/v5, which is unreleased: no version moves.
 const _RIG_CAMERA_BODY = _Obj(_CAMERA_BODY_FIELDS, Pair{Symbol, _Spec}[:pitch => _PITCH])
+const _RIG_GENERIC_BODY = _Checked(_Obj(_GENERIC_BODY_FIELDS, Pair{Symbol, _Spec}[:point_grid => _GRID, :pitch => _PITCH]), _generic_check)
 
 const _SENSOR_RECORD = _Obj(
     :id => _NonEmpty(),
-    :camera => _Either(Pair{Symbol, _Spec}[:lens => _RIG_CAMERA_BODY, :type => _GENERIC_BODY]),
+    :camera => _Either(Pair{Symbol, _Spec}[:lens => _RIG_CAMERA_BODY, :type => _RIG_GENERIC_BODY]),
     :extrinsics => _POSE,
 )
 const _MEMBER_RECORD = _Obj(Pair{Symbol, _Spec}[:id => _NonEmpty(), :target => _TARGET_BODY, :pose => _UPOSE], Pair{Symbol, _Spec}[])
@@ -479,14 +472,14 @@ function _sensor_json(rig, i, id, unit::Units)
         )
         _with_pitch(_camera_body(m, extent(c)), sensor(c), unit)
     else
-        _generic_body(m, unit)      # generic grid model: carries its own extent
+        _with_pitch(_generic_body(m, unit), _sensor_of(c), unit)      # generic grid model: carries its own extent
     end
     return (id = String(id), camera = body, extrinsics = pose_json(extrinsics(sensor_rig(rig), i), unit))   # <rig frame> → view:<id>
 end
 
-# the pitch key iff the camera is bounded by its physical sensor
-_with_pitch(body, ::Nothing, ::_LeafUnit) = body
-_with_pitch(body, s::Sensor, unit::_LeafUnit) = merge(body, (pitch = [_leaf_length(s.pitch.width, unit), _leaf_length(s.pitch.height, unit)],))
+# a rig member's physical sensor, if it is bounded by one
+_sensor_of(c::BoundedCamera) = sensor(c)
+_sensor_of(c) = nothing
 
 _has_sensors(::Rig{F, <:AbstractDict}) where {F <: Frame{3}} = false
 _has_sensors(::Rig) = true
@@ -558,19 +551,12 @@ function _load_sensors(d, ::Type{F}, unit::String) where {F}
         Xl = relabel(F, ViewFrame{Symbol(s.id::String)}, pose_from_json(s.extrinsics, unit))
         if haskey(s.camera, :type)
             gm = _generic_from_body(s.camera, parse_unit(unit))
-            BoundedCamera(PosedCamera(gm, Xl), Size2(gm.width, gm.height))
+            BoundedCamera(PosedCamera(gm, Xl), _bound_from_body(s.camera, Size2(gm.width, gm.height), parse_unit(unit)))
         else
             cm, ext = _camera_from_body(s.camera, pframe)
-            BoundedCamera(PosedCamera(cm, Xl), _bound_from_body(s.camera, ext, unit))
+            BoundedCamera(PosedCamera(cm, Xl), _bound_from_body(s.camera, ext, parse_unit(unit)))
         end
     end
-end
-
-# The extent, or the physical sensor when the body carries a pitch.
-_bound_from_body(b, ext::Size2, unit::String) = haskey(b, :pitch) ? _sensor_from_pitch(b.pitch, ext, parse_unit(unit)) : ext
-function _sensor_from_pitch(p, ext::Size2, u::Units)
-    pw, ph = read_length(p[1]::Real, u), read_length(p[2]::Real, u)
-    return Sensor(Size2(width = ext.width * px, height = ext.height * px), Size2(width = pw / px, height = ph / px))
 end
 
 """
@@ -679,12 +665,11 @@ function _id_camera(c)
             _id_pitch(c)...,
         )
     end
-    return _id_grid_model(mdl)
+    return merge(_id_grid_model(mdl), _Id(_id_pitch(c)...))
 end
 # the pitch iff the camera is bounded by its sensor: the writer's own `_with_pitch`,
 # its leaves the persisted metre values
-_id_pitch(c::BoundedCamera) = (s = sensor(c); s === nothing ? () : ("pitch" => _lower(_with_pitch((;), s, _PERSISTED).pitch),))
-_id_pitch(c) = ()
+_id_pitch(c) = (s = _sensor_of(c); s === nothing ? () : ("pitch" => _lower(_with_pitch((;), s, _PERSISTED).pitch),))
 _id_grid(g) = Any[Any[Float64(v[k]) for k in 1:3] for gy in 1:size(g, 1) for v in (g[gy, :]...,)]
 _id_grid_metres(g) = Any[Any[_persisted(v[k]) for k in 1:3] for gy in 1:size(g, 1) for v in (g[gy, :]...,)]
 function _id_grid_header(gm, grid)

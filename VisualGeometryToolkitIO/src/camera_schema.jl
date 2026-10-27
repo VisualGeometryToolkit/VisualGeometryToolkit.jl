@@ -140,6 +140,26 @@ const _K = _Obj(:fx => _Real(), :fy => _Real(), :cx => _Real(), :cy => _Real(), 
 const _CAMERA_BODY_FIELDS = Pair{Symbol, _Spec}[:width => _PosInt(), :height => _PosInt(), :K => _K, :lens => _LENS]
 const _CAMERA_BODY = _Obj(_CAMERA_BODY_FIELDS, Pair{Symbol, _Spec}[])
 
+# A camera bounded by its physical `Sensor` carries the sensor's pixel pitch
+# beside its body: `"pitch": [width, height]`, a length per pixel in the file's
+# declared `length_unit` (px is dimensionless, so a pitch IS a length;
+# `write_length`/`read_length`, decimal-exact). Absent, the body is the bare
+# extent's, byte for byte. Written by the rig (sensor bodies, parametric and
+# generic) and by the camera store; never dropped.
+const _PITCH = _Checked(
+    _Vec(_Real(), 2),
+    x -> all(v -> v > 0 && isfinite(v), x) ? nothing :
+        "a pixel pitch is [width, height], two positive lengths per pixel in the file's length_unit",
+)
+_with_pitch(body, ::Nothing, ::_LeafUnit) = body
+_with_pitch(body, s::Sensor, unit::_LeafUnit) = merge(body, (pitch = [_leaf_length(s.pitch.width, unit), _leaf_length(s.pitch.height, unit)],))
+# The extent, or the physical sensor when the body carries a pitch.
+_bound_from_body(b, ext::Size2, u::Units) = haskey(b, :pitch) ? _sensor_from_pitch(b.pitch, ext, u) : ext
+function _sensor_from_pitch(p, ext::Size2, u::Units)
+    pw, ph = read_length(p[1]::Real, u), read_length(p[2]::Real, u)
+    return Sensor(Size2(width = ext.width * px, height = ext.height * px), Size2(width = pw / px, height = ph / px))
+end
+
 # Written from a CameraModel, whose K is canonical by construction, in the
 # pixel frame the enclosing file declares (`frame`; the canonical one unless a
 # frame-typed container is written in another, when its principal point moves
@@ -284,29 +304,34 @@ const _CAMERAS_SPEC = _Checked(
     _Obj(
         Pair{Symbol, _Spec}[
             :schema => _schema_tok("cameras"), :pixel_frame => _PIXEL_FRAME,
-            :cameras => _Vec(_Obj(Pair{Symbol, _Spec}[:name => _NonEmpty(), _CAMERA_BODY_FIELDS...], Pair{Symbol, _Spec}[:calibration => _CALIBRATION])),
+            :cameras => _Vec(_Obj(Pair{Symbol, _Spec}[:name => _NonEmpty(), _CAMERA_BODY_FIELDS...], Pair{Symbol, _Spec}[:calibration => _CALIBRATION, :pitch => _PITCH])),
         ],
-        _PROVENANCE,
+        Pair{Symbol, _Spec}[_PROVENANCE..., :length_unit => _LENGTH_UNIT],
     ),
-    x -> allunique(c[:name] for c in x[:cameras]) ? nothing :
-        "camera names must be unique — they are the identity configs refer to",
+    function (x)
+        allunique(c[:name] for c in x[:cameras]) || return "camera names must be unique — they are the identity configs refer to"
+        any(c -> haskey(c, :pitch), x[:cameras]) == haskey(x, :length_unit) ||
+            return "`length_unit` is declared iff a camera carries a pitch"
+        return nothing
+    end,
 )
 
 _bounded(c::BoundedCamera) = c
 _bounded(c::Attributed) = getfield(c, :value)
 
-function _camera_entry(name::Symbol, c::_StoredCamera)
+function _camera_entry(name::Symbol, c::_StoredCamera, unit::Units)
     bc = _bounded(c)
-    e = merge((name = String(name),), _camera_body(bc.camera, bc.extent))
+    e = merge((name = String(name),), _with_pitch(_camera_body(bc.camera, bc.extent), sensor(bc), unit))
     return c isa Attributed ? merge(e, (calibration = _calibration_json(c.calibration),)) : e
 end
 
 """
-    save(path, cameras::AbstractDict{Symbol}; provenance = (;))
+    save(path, cameras::AbstractDict{Symbol}; length_unit = mm, provenance = (;))
 
 Write a camera store — name → `BoundedCamera` of a `CameraModel`, or an
 `Attributed` one carrying its `calibration` block — as a `vgio/cameras/v3`
-file, cameras sorted by name. `provenance` is the file's one free-form object,
+file, cameras sorted by name. A camera bounded by its physical `Sensor`
+carries the sensor's `pitch` in `length_unit`, which the file then declares. `provenance` is the file's one free-form object,
 which VGIo never reads back.
 
 JSON only, deliberately: cameras are configuration-adjacent (referenced by
@@ -314,7 +339,7 @@ name from a TOML, hand-inspected, diffed on recalibration), the payload is
 kilobytes at rig scale, and Julia prints Float64 in its shortest
 round-trippable form so nothing is lost.
 """
-function save(path::AbstractString, cameras::AbstractDict{Symbol}; provenance::NamedTuple = (;))
+function save(path::AbstractString, cameras::AbstractDict{Symbol}; length_unit::Units = mm, provenance::NamedTuple = (;))
     for (name, c) in cameras
         c isa _StoredCamera || throw(
             ArgumentError(
@@ -324,9 +349,11 @@ function save(path::AbstractString, cameras::AbstractDict{Symbol}; provenance::N
         )
         isempty(String(name)) && throw(ArgumentError("a camera name is non-empty — it is the identity a config refers to"))
     end
-    body = (
-        schema = _schema("cameras"), pixel_frame = pixel_frame_name(CANONICAL_PIXEL_FRAME),
-        cameras = [_camera_entry(k, cameras[k]) for k in sort!(collect(keys(cameras)))],
+    pitched = any(c -> sensor(_bounded(c)) !== nothing, values(cameras))
+    body = merge(
+        (schema = _schema("cameras"), pixel_frame = pixel_frame_name(CANONICAL_PIXEL_FRAME)),
+        pitched ? (length_unit = unit_string(length_unit),) : (;),
+        (cameras = [_camera_entry(k, cameras[k], length_unit) for k in sort!(collect(keys(cameras)))],),
     )
     _write_store(path, _CAMERAS_SPEC, _with_provenance(body, provenance))
     return nothing
@@ -345,7 +372,8 @@ function load(::Type{Dict{Symbol, BoundedCamera}}, path::AbstractString)
     frame = pixel_frame_from_name(d.pixel_frame::String)
     out = Dict{Symbol, _StoredCamera}()
     for c in d.cameras::Vector{Any}
-        bc = BoundedCamera(_camera_from_body(c, frame)...)
+        cm, ext = _camera_from_body(c, frame)
+        bc = BoundedCamera(cm, haskey(c, :pitch) ? _bound_from_body(c, ext, parse_unit(d.length_unit::String)) : ext)
         out[Symbol(c.name::String)] = haskey(c, :calibration) ?
             Attributed(bc, (; calibration = _calibration_from_json(c.calibration::AbstractDict))) : bc
     end

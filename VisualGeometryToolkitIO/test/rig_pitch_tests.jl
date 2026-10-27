@@ -72,3 +72,57 @@
         end
     end
 end
+
+@testitem "rig/v5: a generic grid sensor keeps its pitch" setup = [VGIoFixtures] begin
+    using VisualGeometryToolkitCore: Rig, PosedCamera, BoundedCamera, ViewFrame, Vec3, Sensor, sensor, relabel, model, μm
+    using VisualGeometryToolkitIO: content_id
+    using Rotations: RotXYZ
+
+    dirs = [Vec3{Float64}(0.01 * gx, 0.02 * gy, 1.0) for gy in 1:4, gx in 1:5]
+    gc = CentralGenericModel(64, 48, 0, 0, 63, 47, dirs)
+    Xl = relabel(ViewFrame{:g}, ViewFrame{:g}, EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.0, 0.0, 0.0)), [0.0mm, 0.0mm, 0.0mm]))
+    s = Sensor(Size2(width = 64px, height = 48px), 3.45μm)
+    pitched = Rig{ViewFrame{:g}}((BoundedCamera(PosedCamera(gc, Xl), s),))
+    bare = Rig{ViewFrame{:g}}((PosedCamera(gc, Xl),))
+    mktempdir() do dir
+        p = joinpath(dir, "rig.json"); save(p, pitched)
+        d = parse_json(read(p, String))
+        @test d.sensors[1].camera.pitch == [0.00345, 0.00345]
+        back = load(Rig, p)
+        @test model(back[1]) isa CentralGenericModel
+        @test ustrip(μm, sensor(back[1]).pitch.width) ≈ 3.45
+        @test content_id(back) == content_id(pitched) == content_id(p)
+        @test content_id(pitched) != content_id(bare)
+        pb = joinpath(dir, "bare.json"); save(pb, bare)
+        @test !occursin("pitch", read(pb, String))
+        @test sensor(load(Rig, pb)[1]) === nothing
+    end
+end
+
+@testitem "cameras/v3: the store keeps a camera's pitch" setup = [VGIoFixtures] begin
+    using VisualGeometryToolkitCore: BoundedCamera, Sensor, sensor, model, μm, CMOS_SENSORS
+
+    m = CameraModel(CameraCalibrationMat(SMatrix{3, 3, Float64}(1270.0, 0, 0, 0, 1270.0, 0, 1224.0, 1024.0, 1)); lens = KannalaBrandt(-0.1351))
+    s = CMOS_SENSORS["Sony"]["IMX250"]
+    mktempdir() do dir
+        p = joinpath(dir, "cameras.json")
+        save(p, Dict(:fish => BoundedCamera(m, s), :plain => BoundedCamera(m, Size2(640, 480))))
+        d = parse_json(read(p, String))
+        @test d.length_unit == "mm"                                       # declared iff a camera carries a pitch
+        @test d.cameras[1].pitch == [0.00345, 0.00345] && !haskey(d.cameras[2], :pitch)
+        store = load(Dict{Symbol, BoundedCamera}, p)
+        @test ustrip(μm, sensor(store[:fish]).pitch.width) ≈ 3.45 && ustrip(μm, sensor(store[:fish]).pitch.height) ≈ 3.45
+        @test extent(store[:fish]) == Size2(2448, 2048)
+        @test sensor(store[:plain]) === nothing
+        p2 = joinpath(dir, "again.json"); save(p2, store)
+        @test read(p2, String) == read(p, String)
+        # a store with no pitch declares no length unit: today's bytes
+        p3 = joinpath(dir, "plain.json"); save(p3, Dict(:plain => BoundedCamera(m, Size2(640, 480))))
+        @test !occursin("length_unit", read(p3, String)) && !occursin("pitch", read(p3, String))
+        # a pitch without a declared unit, or a unit without a pitch, is refused
+        raw = read(p, String)
+        bad = joinpath(dir, "bad.json")
+        write(bad, replace(raw, "\"length_unit\": \"mm\",\n" => ""; count = 1))
+        @test_throws ArgumentError load(Dict{Symbol, BoundedCamera}, bad)
+    end
+end

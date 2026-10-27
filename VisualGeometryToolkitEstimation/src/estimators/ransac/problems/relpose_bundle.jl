@@ -56,11 +56,11 @@
 # exit. The minimal chart reaches the same optimum (on the A/B scenes — 800 px,
 # σ = 0.5 px, N = 100 / 1000 / 10000 — cost to ≤ 5.5e-15 relative, pose to
 # ≤ 7.4e-12° of the 6-dof chart's tightly converged one) with the same
-# allocations. It does NOT make the run stop sooner: either chart's cost is
-# within 1e-6 of its final value by iteration 3, and either runs ~20–35 LM
-# iterations, because FLM's per-element relative step test fails on chart
-# coordinates near zero at the cost's rounding floor until λ has climbed back
-# (an FLM-side matter; the bundle test's change detector tracks it).
+# allocations. The run's length is set by its cost tolerance, not the chart:
+# at FLM's default `ftol = eps` either chart ran 20–35 LM iterations after the
+# cost had converged by iteration 3 (at the rounding floor every candidate step
+# is rejected and FLM's per-element step test waits for λ to climb back);
+# `[relpose_bundle] ftol = 1e-10`, the chart LM's, stops it in 5.
 #
 # The Jacobian is a `SparseArrays.SparseMatrixCSC` with the FIXED arrowhead
 # pattern (`_arrowhead_jacobian`): 22N stored entries — a 4 × 3 structure block
@@ -392,7 +392,7 @@ physical seed is stripped by the caller in any unit (`ustrip(m, pose)`).
 """
 function bundle_refine_relpose(
         pose::PlainEuclideanMap{3}, K1::AbstractMatrix, K2::AbstractMatrix,
-        cs::AbstractVector{<:Pair}; max_iter::Int = _dflt("relpose_bundle", "max_iter")
+        cs::AbstractVector{<:Pair}; max_iter::Int = _RELPOSE_BUNDLE_MAX_ITER
     )
     u1 = sources(cs); u2 = targets(cs)
     N = length(u1)
@@ -423,8 +423,9 @@ function _bundle_refine_relpose(
         K1::AbstractMatrix, K2::AbstractMatrix,
         iK1::SMatrix{3, 3, Float64, 9}, iK2::SMatrix{3, 3, Float64, 9},
         u1::AbstractVector, u2::AbstractVector,
-        sqrtw::AbstractVector; max_iter::Int = _dflt("relpose_bundle", "max_iter"),
-        stationarity_tol::Float64 = _dflt("relpose_bundle", "stationarity_tol")
+        sqrtw::AbstractVector; max_iter::Int = _RELPOSE_BUNDLE_MAX_ITER,
+        stationarity_tol::Float64 = _RELPOSE_BUNDLE_STATIONARITY_TOL,
+        ftol::Float64 = _RELPOSE_BUNDLE_FTOL
     )
     N = length(u1)
     N >= 5 || return nothing
@@ -442,7 +443,7 @@ function _bundle_refine_relpose(
     buffers = FastLevenbergMarquardt.LMWorkspace(vcat(zeros(_POSE_DOF), Xi), zeros(4N), _arrowhead_jacobian(N))
     lm = _RelposeBundleLm(Rb, tb, K1, K2, u1, u2, sqrtw, N)
     out = try
-        lmsolve_rows!(buffers, SchurSolver(N), lm; maxit = max_iter, stationarity_tol)
+        lmsolve_rows!(buffers, SchurSolver(N), lm; maxit = max_iter, stationarity_tol, ftol)
     catch
         return nothing
     end

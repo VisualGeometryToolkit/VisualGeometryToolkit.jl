@@ -113,6 +113,16 @@ stationarity_tol = 0.05
 [relpose_bundle]
 max_iter = 100                   # the relative-pose bundle's LM iteration cap (its `refine!` and `bundle_refine_relpose`)
 stationarity_tol = 0.05         # its stall postcondition (see [chart_lm]; its own fits measured ≤ 1e-9 at convergence)
+# Its relative cost tolerance (FLM `ftol`, as [chart_lm]'s). FLM's default, eps,
+# cannot fire here: at the cost's rounding floor the actual reduction is
+# rounding noise of 1e-15–5e-14 relative (0.5 px residuals of ~600 px
+# coordinates), so every candidate step is rejected and the run waits for the
+# step-size test while λ climbs back. Measured 2026-10-27 on the A/B scenes
+# (800 px, σ = 0.5 px, N = 100 / 1000 / 10000): 21–34 LM iterations at eps,
+# the cost within 1e-6 of its final value by iteration 3; at 1e-10 every N
+# stops in 5 with FLM code 1, the cost within 4.2e-14 relative and the pose
+# within 6e-9 chart units of the eps run.
+ftol = 1.0e-10
 
 [fit_lens]
 max_iter = 100                   # the lens regression's LM iteration cap

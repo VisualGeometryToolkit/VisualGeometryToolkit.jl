@@ -192,7 +192,10 @@ function _recorded_bundle(seed, u1, u2, tol)
     lm = _RelposeBundleLm(R0, t0, KP1, KP2, u1, u2, ones(N), N)
     buffers = FLM.LMWorkspace(vcat(zeros(_POSE_DOF), Xi), zeros(4N), _arrowhead_jacobian(N))
     rec = _CostRecorder(SchurSolver(N), Float64[])
-    x, F, code, iters = lmsolve_rows!(buffers, rec, lm; maxit = VgtkEstimation._dflt("relpose_bundle", "max_iter"), stationarity_tol = tol)
+    x, F, code, iters = lmsolve_rows!(
+        buffers, rec, lm; maxit = VgtkEstimation._dflt("relpose_bundle", "max_iter"), stationarity_tol = tol,
+        ftol = VgtkEstimation._dflt("relpose_bundle", "ftol")
+    )
     k1e6 = findfirst(Fk -> abs(Fk - F) <= 1.0e-6 * F, vcat(rec.F, F)) - 1   # rec.F[1] is the start
     return copy(x), F, code, iters, k1e6, lm
 end
@@ -203,9 +206,18 @@ end
     # optimum on these scenes, recorded at 750e174 with that chart run TIGHTLY
     # (xtol = 1e-15, maxit = 500; its default stop is within 3.5e-12° in
     # rotation and 2.9e-11° in translation direction of it), is the baseline:
-    # the cost agrees to 1e-12 relative and the pose to 1e-9°. Measured with the
-    # 5-dof chart: cost ≤ 5.5e-15 relative, rotation ≤ 8.2e-13°, translation
-    # direction ≤ 7.4e-12°.
+    # the cost agrees to 1e-12 relative and the pose to 1e-6°.
+    #
+    # WHY 1e-6°: the bundle stops at `[relpose_bundle] ftol = 1e-10` (FLM code
+    # 1), one step short of the cost's rounding floor; measured there (Julia
+    # 1.13): cost ≤ 4.6e-14 relative, rotation ≤ 1.8e-8°, translation direction
+    # ≤ 1.6e-7°. The statistical pose uncertainty on these scenes is ~3e-2° /
+    # 8e-3° / 3e-3° (N = 100 / 1000 / 10000; the A/B harness's covariance
+    # table), so 1e-6° is a numerical-agreement bound orders below what the
+    # data determines — not a precision claim. No `ftol` both stops early and
+    # agrees to 1e-9°: even 1e-12 lands ~4e-9° away, the rounding-floor jitter,
+    # where the endpoint depends on the compilation context (Pkg.test's
+    # --check-bounds=yes, how StaticArrays' `muladd`s fuse) and not on the chart.
     BASELINE = Dict(
         100 => (
             F = 21.272658798665393,
@@ -233,51 +245,45 @@ end
         seed = rigid(R0, t0)
         res = bundle_refine_relpose(seed, KP1, KP2, csponds(u1, u2))
         R = SMatrix{3, 3, Float64, 9}(rotation(res)); t = SVector{3, Float64}(translation(res))
-        @test rotdeg(R, SMatrix{3, 3, Float64, 9}(b.R)) <= 1.0e-9
-        @test dirdeg(t, SVector(b.t)) <= 1.0e-9
+        @test rotdeg(R, SMatrix{3, 3, Float64, 9}(b.R)) <= 1.0e-6
+        @test dirdeg(t, SVector(b.t)) <= 1.0e-6
         @test abs(norm(t) - 1) <= 4eps()                     # the chart keeps ‖t‖ = 1; nothing renormalizes it
         x, F, code, iters, k1e6, lm = _recorded_bundle(seed, u1, u2, tol)
         Rr, tr = recenter_pose(lm.ch, x)
         # The recorded run is the public entry's code compiled in another
-        # context: StaticArrays' `muladd`s fuse differently, and below the
-        # cost's rounding floor the two walk apart (N = 100: 23 public vs 34
-        # recorded LM iterations, the translations 1e-10 apart, 6e-9°). The
-        # pose is determined only to that floor, so they agree to 1e-8°.
-        @test rotdeg(SMatrix{3, 3, Float64, 9}(Rr), R) <= 1.0e-8
-        @test dirdeg(SVector{3, Float64}(tr), t) <= 1.0e-8
+        # context (StaticArrays' `muladd`s may fuse differently), so it agrees
+        # with the public entry to the same numerical bound, not bit for bit.
+        @test rotdeg(SMatrix{3, 3, Float64, 9}(Rr), R) <= 1.0e-6
+        @test dirdeg(SVector{3, Float64}(tr), t) <= 1.0e-6
         @test abs(F - b.F) <= 1.0e-12 * b.F
-        # stationary at exit: the stall postcondition holds after the step-size stop
+        # converged at exit (FLM's cost-tolerance stop), and stationary
         @test lm_retcode(code) === :converged
         J = _arrowhead_jacobian(N); residual_jacobian_rows!(J, lm, x)
         f = zeros(4N); residual_rows!(f, lm, x)
         @test is_stationary(J, f; tol, ftol = eps())
         iterations_to_stop[N] = (iters, k1e6)
     end
-    # CHANGE DETECTOR, not a requirement: the run does NOT stop when the cost has
-    # converged. The cost is within 1e-6 of its final value by iteration 3 on
-    # every scene, yet FLM stops at 21–34 iterations (the recorded runs, N =
-    # 100 / 1000 / 10000, Julia 1.13: 34 / 21 / 26; the 6-dof chart's: 20 / 23 /
-    # 28; the count below the floor depends on rounding, see above). The cause is FLM's
-    # step-size stop, not the chart (measured 2026-10-27, nlls-schur
-    # bundle-chart-report.md): at the cost's rounding floor every candidate step is
-    # rejected, the Gauss–Newton step stays ~1e-12, and the per-element relative
-    # `xtol` test (|pₖ| < xtol·(xtol + |xₖ|)) fails on coordinates near zero (the
-    # chart offsets start at 0) until λ has climbed back from ~1e-14 at ×3 per
-    # rejection. When the FLM-side fix lands, these succeed unexpectedly (an error):
-    # make them `@test`s.
+    # The run stops when the cost has converged: within 1e-6 of its final value
+    # by iteration 3, stopped at iteration 5 (FLM code 1) on every scene. At
+    # FLM's default `ftol = eps` it ran 21–34 (Julia 1.13: 34 / 21 / 26; the
+    # 6-dof chart 20 / 23 / 28): at the rounding floor every candidate step is
+    # rejected and the step-size test waits for λ to climb back
+    # (configs/default.toml [relpose_bundle]). The count itself (5 at every N,
+    # Julia 1.12 and 1.13) is not tested: it can move with the compilation
+    # context.
     for N in (100, 1000, 10000)
         iters, k1e6 = iterations_to_stop[N]
         @test k1e6 <= 4
-        @test_broken iters <= k1e6 + 3
+        @test iters <= k1e6 + 3
     end
 end
 
 @testset "RelposeBundle: allocations per call do not grow with N" begin
     # The public entry, Base.@allocations (BenchmarkTools is not a test
     # dependency). ALLOCS_BOUND is the 6-dof chart's count at 750e174
-    # (BenchmarkTools: 61 at N = 100, 62 at 1000 and 10000); the 5-dof chart's
-    # is the same (61 / 62 / 62, BenchmarkTools and Base.@allocations alike),
-    # with 6% fewer bytes.
+    # (BenchmarkTools: 61 at N = 100, 62 at 1000 and 10000); the 5-dof chart's,
+    # with the [relpose_bundle] settings read once, is 53 / 54 / 54
+    # (BenchmarkTools and Base.@allocations alike), with 6% fewer bytes.
     ALLOCS_BOUND = 62
     counts = map((100, 1000, 10000)) do N
         R0, t0, u1, u2 = _harness_scene(N)

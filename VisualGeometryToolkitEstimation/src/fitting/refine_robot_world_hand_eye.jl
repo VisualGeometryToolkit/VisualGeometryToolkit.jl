@@ -63,7 +63,8 @@ camera at frame i). Function names do not encode frames.
   marker of the guess is a parameter of this refinement and is refined.
 
 # Keywords
-- `max_iter` — the LM's iteration cap.
+- `max_iter` — the LM's cap on ACCEPTED iterations (NLLSsolver's count; one
+  may hide ~8–10 rejected candidate steps).
 
 Any number of markers: the LM is NLLSsolver's, one pose block per marker and one
 residual block per point, with nothing compiled per marker count. Its retcode is

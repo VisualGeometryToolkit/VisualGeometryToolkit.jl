@@ -156,6 +156,8 @@ circle.
 
 The estimate carries the covariance of the log-shape chart vector, `s²·(JᵀJ)⁻¹`
 with `s² = Σdᵢ²/(n−5)`, `J` the Jacobian of the distances at the solution.
+`max_iter` caps the LM's ACCEPTED iterations (NLLSsolver's count; one may
+hide ~8–10 rejected candidate steps, which FastLevenbergMarquardt counted too).
 `retcode` is the LM's (`:converged`, `:max_iterations` or `:stalled`). Throws
 `ArgumentError` for fewer than 6 points, or when the default start does not
 exist (`direct_ellipse` returns `nothing`).

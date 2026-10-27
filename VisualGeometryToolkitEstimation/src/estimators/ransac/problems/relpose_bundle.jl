@@ -358,11 +358,11 @@ function _bundle_refine_relpose(
     Rb = SMatrix{3, 3, Float64, 9}(R₀); tb = Vec3{Float64}(normalize(SVector{3, Float64}(t₀)))
     data = _BundleData(SMatrix{3, 3, Float64, 9}(K1), SMatrix{3, 3, Float64, 9}(K2), u1, u2, sqrtw)
     E = schur && _BUNDLE_SCHUR
-    return E ? _bundle_solve(Val(true), N, data, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, cache, callback) :
-        _bundle_solve(Val(false), N, data, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, cache, callback)
+    return E ? _bundle_optimize(Val(true), N, data, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, cache, callback) :
+        _bundle_optimize(Val(false), N, data, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, cache, callback)
 end
 
-function _bundle_solve(
+function _bundle_optimize(
         v::Val{E}, N, data::D, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, cache, callback
     ) where {E, D}
     run = _bundle_run(v, N, data)

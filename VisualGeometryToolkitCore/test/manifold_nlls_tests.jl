@@ -5,8 +5,8 @@
 # Dual-valued manifold whose derivative is the retraction's), which is what
 # NLLSsolver's automatic Jacobian differentiates; the update; a pose fit on the
 # automatic Jacobian — tangent_part, the slice both the update and a product
-# manifold cut — and is_stationary, the LM stall postcondition for a solver
-# other than FLM.
+# manifold cut — and is_stationary, the LM stall postcondition of a
+# block-structured fit.
 
 using Test
 using LinearAlgebra: I, norm
@@ -175,10 +175,19 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         @test nlls_retcode(res((1 << 1) | (1 << 9) | (1 << 8)), J, r_opt; kw...) === :solve_failed   # failure outranks the caps
         @test nlls_retcode(res((1 << 9) | (1 << 8)), J, r_opt; kw...) === :max_time                  # time outranks iterations
         @test nlls_retcode(res(1 << 9), J, r_opt; kw...) === :max_time
-        @test nlls_retcode(res((1 << 8) | (1 << 2)), J, r_opt; kw...) === :max_iterations
-        @test nlls_retcode(res((1 << 8) | (1 << 3)), J, r_opt; kw...) === :max_iterations
+        # The one order (VGC `_nlls_stop`, ruled 2026-10-27; until then this
+        # decoder tested the caps before the cost tolerance and ran the
+        # postcondition on a cost-decrease stop): a cost-decrease stop is
+        # converged and outranks a cap; a step stop is checked first and takes
+        # the postcondition.
+        @test nlls_retcode(res((1 << 8) | (1 << 2)), J, r_opt; kw...) === :converged
+        @test nlls_retcode(res((1 << 8) | (1 << 3)), J, r_opt; kw...) === :converged
+        @test nlls_retcode(res(1 << 8), J, r_opt; kw...) === :max_iterations
         @test nlls_retcode(res(1 << 2), J, r_opt; kw...) === :converged
-        @test nlls_retcode(res(1 << 2), J, r_off; kw...) === :stalled        # a cost-decrease stop is no proof
+        @test nlls_retcode(res(1 << 2), J, r_off; kw...) === :converged
+        @test nlls_retcode(res((1 << 2) | (1 << 6)), J, r_off; kw...) === :stalled   # the step stop first
+        @test nlls_retcode(res(1 << 6), J, r_opt; kw...) === :converged
+        @test nlls_retcode(res((1 << 1) | (1 << 6)), J, r_off; kw...) === :stalled   # a NaN trial at a step stop
         @test nlls_retcode(res(1 << 7), J, r_off; kw...) === :stalled
         @test nlls_retcode(res(1 << 7), J, r_opt; kw...) === :converged
 

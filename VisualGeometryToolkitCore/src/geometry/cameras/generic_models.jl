@@ -927,20 +927,31 @@ function _central_project(
     return _pixel_lm(res, jac, x0, y0, minx, miny, maxx, maxy, maxiter, tol2)
 end
 
-# THE pixel-space Levenberg–Marquardt of the generic models: two unknowns,
-# `res(p, _)` and its Jacobian `jac(p, _)` from (x0, y0), the pixel bounded to
-# `[min, max + 0.999]` (a step is clipped at the bound), for at most `maxiter`
-# LM iterations; converged means a final cost below `tol2`. Device-safe —
-# static arrays only, no allocation, no Union return — so the batched kernel
-# runs it per ray, which is why it is not the stack's LM driver (NLLSsolver
-# builds heap problems and cannot run in a KernelAbstractions kernel). It is
-# FastLevenbergMarquardt 0.1's static bounded `lmsolve` (MIT), the routine this
-# function called until FastLevenbergMarquardt left the stack (2026-10-27),
-# restated for N = 2 with its defaults and every floating-point operation in
-# its order — Marquardt's damping (λ₀ = 1e-6, ×1/13 on ρ > 0.75, ×3 on
-# ρ < 1e-3 or a rejected step, clamped to [1e-28, 1e32]), the running-maximum
-# DᵀD clamped to [1e-12, 1e16], its unrolled 2 × 2 Cholesky, the ftol = gtol =
-# eps and xtol = 1e-10 stops — so a projection is the same to the bit.
+# THE two-unknown pixel LM kernel of the generic models: `res(p, _)` and its
+# Jacobian `jac(p, _)` from (x0, y0), the pixel bounded to `[min, max + 0.999]`
+# (a step is clipped at the bound), for at most `maxiter` LM iterations;
+# converged means a final cost below `tol2`. Device-safe — static arrays only,
+# no allocation, no Union return — so the batched kernel runs it per ray.
+#
+# It is the ONE device-side exception to the stack's one LM driver: NLLSsolver
+# builds heap problems and cannot run inside a KernelAbstractions kernel, so
+# this kernel is the stated single instance the retired-names rule allows
+# (`check_naming`'s RETIRED_NAMES: the hand-rolled LM cores stay retired).
+#
+# Derived from FastLevenbergMarquardt 0.1's static bounded `lmsolve`, which this
+# function called until FastLevenbergMarquardt left the stack (2026-10-27):
+# Copyright (c) 2023 kamesy, MIT License. Its algorithm for N = 2 with its
+# defaults and operations in its order — Marquardt's damping (λ₀ = 1e-6,
+# ×1/13 on ρ > 0.75, ×3 on ρ < 1e-3 or a rejected step, clamped to
+# [1e-28, 1e32]), the running-maximum DᵀD clamped to [1e-12, 1e16], the
+# unrolled 2 × 2 Cholesky, the ftol = gtol = eps and xtol = 1e-10 stops. NOT
+# the same bits: `muladd` and StaticArrays' small products fuse as LLVM decides
+# per compilation context (FLM's own answer moves by ulps between contexts).
+# Measured against a recorded FLM run on 1000 seeded problems
+# (test/fixtures/pixel_lm): at most 5.5e-12 px (Julia 1.13) / 4.5e-8 px (1.12)
+# apart, 1.8e-6 px on the review's 20 000-problem probe, converged flags
+# identical; gated at 2e-6 px (pixel_lm_reference_tests.jl). The generic-model
+# goldens (the C++ reference projections) hold unchanged at their tolerances.
 @inline function _pixel_lm(
         res::R, jac::J, x0, y0, minx::Float64, miny::Float64, maxx::Float64, maxy::Float64,
         maxiter::Int, tol2::Float64

@@ -78,7 +78,7 @@ outlier_halfwidth = 20.0         # px — the uniform outlier half-width, NOT th
 min_rel_angle_deg = 5.0          # relative motions below this are degenerate for the init
 
 [refine_robot_world_hand_eye]
-max_iter = 100                   # the reprojection LM's iteration cap
+max_iter = 100                   # the reprojection LM's cap on ACCEPTED iterations (NLLSsolver's count; see [chart_lm])
 # The stall postcondition's exact-fit test (VGC `is_stationary`: F < ftol, F the
 # squared residual norm), beside [chart_lm]'s stationarity_tol for its gradient
 # test. eps (2.220446049250313e-16): NLLSsolver states no cost tolerance of its
@@ -89,11 +89,17 @@ ftol = 2.220446049250313e-16
 # The LO refit every chart problem runs (`refine!` → VGC's `lmsolve_chart!`,
 # NLLSsolver's Levenberg–Marquardt with Marquardt's DᵀD damping; VGC
 # `nlls_options` maps these knobs onto NLLSsolver's options, once): its LM
-# iteration cap per refit — NLLSsolver's outer iterations, one accepted step
-# each. The value is FastLevenbergMarquardt's documented default
-# (`maxit = 1000`, which counted rejected steps too), the driver until
-# 2026-10-27, recorded here rather than inherited; the step tolerance (that
-# driver's default `xtol = 1e-10`, NLLSsolver's `dstep`) is not restated.
+# iteration cap per refit — NLLSsolver's outer iterations, one ACCEPTED step
+# each; an iteration's internal damping loop may reject ~8–10 candidate steps
+# before it accepts one (λ grows ×2, ×4, ×8 … until the step falls below
+# `dstep`), so the cap bounds accepted steps, not work. The value is
+# FastLevenbergMarquardt's documented default (`maxit = 1000`, which counted
+# rejected steps too), the driver until 2026-10-27, recorded here rather than
+# inherited. The step tolerance is that driver's default `xtol = 1e-10`, not
+# restated, and its MEANING CHANGED with the driver: FastLevenbergMarquardt's
+# test was relative per component (|pᵢ| < xtol·(xtol + |xᵢ|)), NLLSsolver's
+# `dstep` is absolute (max|pᵢ| < 1e-10, chart units) — stricter far from the
+# origin, looser near it (a chart LM starts at x = 0).
 max_iter = 1000
 # The LO refit's relative cost tolerance (NLLSsolver's `reldcost`: stop once a
 # step lowers the cost by less than ftol·F; FastLevenbergMarquardt's `ftol`
@@ -125,7 +131,10 @@ ftol = 1.0e-10
 stationarity_tol = 0.05
 
 [relpose_bundle]
-max_iter = 100                   # the relative-pose bundle's LM iteration cap (its `refine!` and `bundle_refine_relpose`)
+# the relative-pose bundle's LM cap (its `refine!` and `bundle_refine_relpose`) on
+# ACCEPTED iterations: NLLSsolver's count, each one possibly hiding ~8–10 rejected
+# candidate steps (FastLevenbergMarquardt, until 2026-10-27, counted those too); see [chart_lm]
+max_iter = 100
 stationarity_tol = 0.05         # its stall postcondition (see [chart_lm]; its own fits measured ≤ 1e-9 at convergence)
 # Its relative cost tolerance (NLLSsolver's `reldcost`, as [chart_lm]'s). Set
 # 2026-10-27 for FastLevenbergMarquardt, whose default, eps, could not fire
@@ -145,7 +154,9 @@ stationarity_tol = 0.05         # its stall postcondition (see [chart_lm]; its o
 ftol = 1.0e-10
 
 [fit_lens]
-max_iter = 100                   # the lens regression's LM iteration cap
+# the lens regression's LM cap on ACCEPTED iterations (NLLSsolver's count, each
+# possibly hiding ~8–10 rejected candidate steps; see [chart_lm])
+max_iter = 100
 
 # The EM of the Student-t + uniform mixture (`MixtureEmConfig`): what an
 # iteration does to the model, and to each part of the noise model. Under

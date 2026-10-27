@@ -25,8 +25,8 @@
 #       allocated nothing; NLLSsolver's `optimize!` through its `OptimizeCache`
 #       allocates a few small objects per call (the cache holds its internal
 #       data untyped): measured 2026-10-27, 5 allocations at every n of the
-#       sweep on Julia 1.13, 9 / 10 / 9 / 9 on 1.12. Gated: at most
-#       ALLOCS_BOUND at every n.
+#       sweep on Julia 1.13, 9 / 10 / 9 / 9 on 1.12. Gated at the measured
+#       maximum, ALLOCS_BOUND = 10, at every n.
 # `sqrtw` uses the family per-ROW convention (length 2n, a point's weight
 # duplicated across its two rows).
 # =============================================================================
@@ -64,7 +64,7 @@ end
 
 @testset "P3P LM refit — family workspace, NLLSsolver chart LM" begin
     stationarity_tol = VgtkEstimation._CHART_LM_STATIONARITY_TOL   # configs/default.toml [chart_lm]
-    ALLOCS_BOUND = 12
+    ALLOCS_BOUND = 10   # the measured maximum: 10 on Julia 1.12 (9 / 10 / 9 / 9), 5 on 1.13
     allocs = Int[]
     for (n, seed) in ((8, 1), (20, 13), (100, 7), (400, 99))
         rng = StableRNG(seed)

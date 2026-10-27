@@ -63,9 +63,9 @@ place they meet:
 
 | stack knob | meaning | NLLSsolver |
 |---|---|---|
-| `max_iter` (`maxit`) | the LM iteration cap | `maxiters`: outer iterations, one accepted step each (FastLevenbergMarquardt counted rejected trials too) |
+| `max_iter` (`maxit`) | the LM iteration cap | `maxiters`: outer iterations, one ACCEPTED step each; an iteration's damping loop may reject ~8–10 candidate steps first (λ ×2, ×4, ×8 … until the step is below `dstep`), so the cap bounds accepted steps, not work (FastLevenbergMarquardt counted rejected trials too) |
 | `ftol` | relative cost tolerance: stop once a step lowers the cost by less than `ftol`·F | `reldcost` |
-| `xtol` | step-size tolerance (FastLevenbergMarquardt's default `1e-10`) | `dstep`: the step's max-norm (chart units) |
+| `xtol` | step-size tolerance (FastLevenbergMarquardt's default `1e-10`) | `dstep`: ABSOLUTE, the step's max-norm in chart units (max|pᵢ| < xtol); FastLevenbergMarquardt's test was RELATIVE per component, |pᵢ| < xtol·(xtol + |xᵢ|) — the same value is stricter far from the origin and looser near it |
 | — | absolute cost decrease | `absdcost = 0`: the stack has no such knob |
 | — | consecutive failed iterations | `maxfails = 3`, NLLSsolver's default |
 | — | time cap | none (1e6 s) |
@@ -286,21 +286,43 @@ end
 # The chart LM — NLLSsolver on a linearization state, and its stop codes
 # =============================================================================
 
-# The chart LM's stop code from NLLSsolver's termination bits (`nlls_retcode`
-# lists them), in the codes FastLevenbergMarquardt used and `lm_retcode`
-# reads: a relative or absolute cost-decrease stop (bits 2, 3) is `1`, the
-# analogue of FLM's ftol stop, converged; a step-size stop (6) is `2`, FLM's
-# xtol stop; the iteration or time cap (8, 9) is `-1`; every other stop — a
-# non-finite cost or step (0, 1, 4, 5), the consecutive-failure cap (7), a
-# cost disagreement (10) — is `4`, a stop without a tolerance. A tolerance
-# stop outranks a cap, as in FLM's loop (it tested its tolerances first). `2`
-# and `4` prove nothing: the stall postcondition decides them.
-function _lm_code(bits::Integer)
-    bits & ((1 << 2) | (1 << 3)) != 0 && return 1
-    bits & (1 << 6) != 0 && return 2
-    bits & ((1 << 8) | (1 << 9)) != 0 && return -1
+"""
+    _nlls_stop(bits::Integer) -> Int
+
+THE decoder of NLLSsolver's termination bits (`result.termination`, listed at
+[`nlls_retcode`](@ref)) — the one both the chart LM's code (`lmsolve_chart!`,
+read by [`lm_retcode`](@ref)) and `nlls_retcode` are views of. One order, the
+first that applies:
+
+1. a failure — a non-finite cost (0, 1) or step (4, 5), a cost disagreement
+   (10) — WITHOUT a step-size stop: `-3`, `:solve_failed`;
+2. the step-size stop (6): `2`, the stall postcondition decides it (checked
+   before the cost tolerance, as FastLevenbergMarquardt tested its xtol before
+   its ftol: a tiny last step at a wall also shows a tiny cost decrease);
+3. a relative or absolute cost-decrease stop (2, 3): `1`, converged (the
+   analogue of FastLevenbergMarquardt's ftol stop; a tolerance outranks a cap);
+4. the consecutive-failure cap (7): `4`, the postcondition decides it;
+5. the time cap (9): `-4`, `:max_time`; then the iteration cap (8): `-1`,
+   `:max_iterations`;
+6. anything else (16, a user callback): `4`.
+
+A non-finite TRIAL at a step-size stop (bits 0 or 1 with 6: the chart LM's
+NaN wall, its non-finite cost read as +Inf) is a step-size stop, not a failure.
+"""
+function _nlls_stop(bits::Integer)
+    bit(k) = bits & (1 << k) != 0
+    any(bit, (0, 1, 4, 5, 10)) && !bit(6) && return _LM_FAILED
+    bit(6) && return 2
+    (bit(2) || bit(3)) && return 1
+    bit(7) && return 4
+    bit(9) && return _LM_MAX_TIME
+    bit(8) && return -1
     return 4
 end
+# The decoder's two codes outside FastLevenbergMarquardt's numbering
+# (`lm_retcode` reads them): a failed solve and the time cap.
+const _LM_FAILED = -3
+const _LM_MAX_TIME = -4
 
 """
     _LM_STALLED
@@ -323,7 +345,7 @@ cost `‖r(x)‖²`, [`lm_retcode`](@ref)`(converged)` the estimator's retcode a
 `iterations` NLLSsolver's iteration count (one accepted step each; 0 never: a
 start at a stationary point takes one zero step).
 
-`maxit`, `ftol` and `xtol` are the stack's LM knobs, mapped once by
+`maxit` (accepted iterations), `ftol` and `xtol` (absolute) are the stack's LM knobs, mapped once by
 [`nlls_options`](@ref); their defaults are FastLevenbergMarquardt's, which the
 stack documented its configurations against. `stationarity_tol` is the stall
 postcondition's tolerance — required: the caller's configuration owns it.
@@ -357,7 +379,7 @@ function lmsolve_chart!(
     end
     x = problem.variables[1]
     F = 2 * result.bestcost
-    converged = _lm_code(result.termination)
+    converged = _nlls_stop(result.termination)
     if converged == 2 || converged == 4
         _lm_stationary(ews, lm, x, stationarity_tol, ftol) || (converged = _LM_STALLED)
     end
@@ -432,8 +454,10 @@ end
     lm_retcode(converged::Int) -> Symbol
 
 The retcode of a chart-LM refit from the code [`lmsolve_chart!`](@ref)
-returns: `:max_iterations` when it stopped at `maxit` (`-1`); `:stalled` when
-it stopped on its step size, or without a tolerance, at a point that is NOT
+returns (`_nlls_stop`'s): `:max_iterations` when it stopped at `maxit`
+(`-1`); `:max_time` at the time cap (`-4`); `:solve_failed` when the cost or
+the step went non-finite outside a step-size stop (`-3`); `:stalled` when it
+stopped on its step size, or without a tolerance, at a point that is NOT
 stationary (`_LM_STALLED`: the damping grew until no step reduced the cost —
 the estimate is wherever the run stopped, not a minimizer); `:converged` for
 the tolerance stops (`1` a cost decrease below ftol·F; `2` a step below xtol
@@ -441,7 +465,8 @@ and `4` a stop without a tolerance, once the stationarity postcondition
 holds).
 """
 lm_retcode(converged::Int) =
-    converged == -1 ? :max_iterations : converged == _LM_STALLED ? :stalled : :converged
+    converged == -1 ? :max_iterations : converged == _LM_STALLED ? :stalled :
+    converged == _LM_FAILED ? :solve_failed : converged == _LM_MAX_TIME ? :max_time : :converged
 
 """
     nlls_retcode(result, J::AbstractMatrix, r::AbstractVector; tol, ftol) -> Symbol
@@ -456,23 +481,18 @@ of the step size is too small, 7 the maximum number of consecutive failed
 iterations (iterations whose cost is higher than the current best,
 `maxfails`) is reached, 8 the maximum number of iterations is reached, 9 the
 maximum amount of time is exceeded, 10 the cost computations do not agree, 16
-terminated by the user callback. Checked in this order: any of bits 0, 1, 4,
-5, 10 is `:solve_failed`; bit 9 is `:max_time`; bit 8 is `:max_iterations`.
-Every other stop — a small cost decrease (2, 3) or step (6), the
-consecutive-failure cap (7), the callback (16) — does not prove convergence:
-the stall postcondition does, so it is `:converged` when
-[`is_stationary`](@ref)`(J, r; tol, ftol)` holds and `:stalled` otherwise — the
-same postcondition the chart LM applies to its step-size stops
-([`lm_retcode`](@ref)).
+terminated by the user callback. Decoded by the one order of `_nlls_stop`
+(the chart LM reads the same): a failure (0, 1, 4, 5, 10) without a step-size
+stop is `:solve_failed`; a step-size stop (6) is `:converged` when
+[`is_stationary`](@ref)`(J, r; tol, ftol)` holds and `:stalled` otherwise; a
+cost-decrease stop (2, 3) is `:converged`; the consecutive-failure cap (7)
+and any other stop (16) take the stall postcondition as the step stop does;
+then `:max_time` (9) and `:max_iterations` (8). A tolerance outranks a cap.
 """
 function nlls_retcode(result::NLLSsolver.NLLSResult, J::AbstractMatrix, r::AbstractVector; tol::Real, ftol::Real)
-    bits = result.termination
-    for bit in (0, 1, 4, 5, 10)
-        bits & (1 << bit) != 0 && return :solve_failed
-    end
-    bits & (1 << 9) != 0 && return :max_time
-    bits & (1 << 8) != 0 && return :max_iterations
-    return is_stationary(J, r; tol, ftol) ? :converged : :stalled
+    code = _nlls_stop(result.termination)
+    (code == 2 || code == 4) && return is_stationary(J, r; tol, ftol) ? :converged : :stalled
+    return lm_retcode(code)
 end
 
 """

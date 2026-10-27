@@ -41,15 +41,19 @@ VgtkCore.residual_jacobian_rows!(J, w::_NaNBeyond, x) = VgtkCore.residual_jacobi
     f = nlls_features()
     @test f.cache === isdefined(NLLSsolver, :OptimizeCache)
     @test f.schur === (isdefined(NLLSsolver, :MultiVariateLSschur) && isdefined(NLLSsolver, :iseliminable))
-    # a checkout pins the fork (the workspace's [sources]): both are there
-    @test f.cache && f.schur
+    # A checkout pins the fork (the workspace's [sources]); a registry install
+    # resolves the published NLLSsolver. Either is correct: the suite asserts
+    # only that the detection is consistent, and the fork-vs-fallback
+    # comparisons below run whichever paths the loaded NLLSsolver has.
+    @test f.cache === f.schur      # the fork has both, a release neither
 end
 
 @testset "the upstream path gives the fast path's results (fallback)" begin
     # `cache = false` is the path a registered NLLSsolver takes (no
     # OptimizeCache: the solver's internal data rebuilt per call). Same
-    # iterates: measured 2026-10-27, bit-identical x, F and iteration counts
-    # on every fit below; gated at the LM's tolerance.
+    # iterates: measured 2026-10-27 on the fork, bit-identical x, F and
+    # iteration counts on every fit below. On a registered NLLSsolver both
+    # calls take that path (`cache` is then inert) and agree trivially.
     s = collect(range(0.0, 2.0; length = 40))
     for (k, ptrue) in enumerate((SVector(1.5, -0.8, 0.3, 0.2), SVector(0.4, 1.1, -0.5, 1.0), SVector(2.0, 0.2, 0.0, -1.0)))
         y = [ptrue[1] * exp(ptrue[2] * si) + ptrue[3] * si + ptrue[4] + 1.0e-3 * sin(7k * si) for si in s]
@@ -65,20 +69,39 @@ end
     end
 end
 
-@testset "the stop codes" begin
-    # NLLSsolver's termination bits → the chart LM's codes (FastLevenbergMarquardt's
-    # numbering, which `lm_retcode` reads): a cost-decrease stop is 1, a step
-    # stop 2, the caps −1, any other stop 4; a tolerance outranks a cap.
-    code = VgtkCore._lm_code
+@testset "the stop codes: one decoder, one order" begin
+    # NLLSsolver's termination bits → `_nlls_stop`, the one decoder the chart
+    # LM and `nlls_retcode` read: failure without a step stop −3; step stop
+    # (6) 2; cost-decrease stop (2, 3) 1; maxfails (7) 4; time cap −4;
+    # iteration cap −1; anything else 4.
+    code = VgtkCore._nlls_stop
     @test code(1 << 2) == 1 && code(1 << 3) == 1
     @test code(1 << 6) == 2
-    @test code(1 << 8) == -1 && code(1 << 9) == -1
-    @test code((1 << 8) | (1 << 2)) == 1 && code((1 << 8) | (1 << 6)) == 2
-    for bit in (0, 1, 4, 5, 7, 10, 16)
-        @test code(1 << bit) == 4
+    @test code(1 << 8) == -1 && code(1 << 9) == -4 && code((1 << 8) | (1 << 9)) == -4
+    @test code(1 << 7) == 4 && code(1 << 16) == 4
+    for bit in (0, 1, 4, 5, 10)
+        @test code(1 << bit) == -3
     end
-    @test code((1 << 0) | (1 << 6)) == 2             # a non-finite trial at a step-size stop
+    # the step stop is checked before the cost tolerance (FLM tested xtol first)
+    @test code((1 << 2) | (1 << 6)) == 2
+    @test code((1 << 3) | (1 << 6)) == 2
+    @test code((1 << 6) | (1 << 7)) == 2
+    # a tolerance outranks a cap; a non-finite trial at a step stop is a step stop
+    @test code((1 << 8) | (1 << 2)) == 1 && code((1 << 8) | (1 << 6)) == 2
+    @test code((1 << 0) | (1 << 6)) == 2 && code((1 << 1) | (1 << 6)) == 2
+    @test code((1 << 1) | (1 << 8) | (1 << 9)) == -3
     @test lm_retcode(4) === :converged               # once the postcondition holds
+    @test lm_retcode(-3) === :solve_failed && lm_retcode(-4) === :max_time
+end
+
+@testset "a NaN wall at the production cost tolerance" begin
+    # The LO's ftol (1e-10, configs [chart_lm]): near the wall the last steps'
+    # cost decrease and step size shrink together; the step stop is decoded
+    # first, so the stall postcondition runs and the stop is :stalled.
+    lm_wall = _NaNBeyond(_ExpFitLm([0.0, 1.0, 2.0, 3.0, 4.0], [1.0 + 2si for si in [0.0, 1.0, 2.0, 3.0, 4.0]], SVector(0.0, 0.0, 1.0, 1.0)))
+    x, F, c, _ = lmsolve_chart!(ManifoldLmWorkspace(5, 4), lm_wall; stationarity_tol = 0.05, ftol = 1.0e-10)
+    @test isfinite(F) && x[3] <= 0.25
+    @test lm_retcode(c) === :stalled
 end
 
 @testset "the knob map" begin

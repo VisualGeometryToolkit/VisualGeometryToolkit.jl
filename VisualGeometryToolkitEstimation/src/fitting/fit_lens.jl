@@ -179,6 +179,9 @@ result is a full `CameraModel`: `K` scaled by `s`, principal point kept.
   default when the target replaces the source on the same camera),
   `:solid_angle` (`sin θ`), or `:uniform`.
 - `fix_focal`: freeze `s = 1`.
+- `max_iter`: the LM's cap on ACCEPTED iterations (NLLSsolver's count; one
+  accepted iteration may hide ~8–10 rejected candidate steps, which
+  FastLevenbergMarquardt, the driver until 2026-10-27, counted too).
 
 Returns a `FitResult{CameraModel, LensFitMetadata}`: `estimate` is the
 fitted camera (rescaled K + the fitted lens), `retcode` the LM's

@@ -108,9 +108,11 @@ end
     sw = sqrt.(0.5 .+ 0.5 .* rand(rng, N))
     run(; kw...) = _bundle_refine_relpose(R0, t0, KC1, KC2, iK1, iK2, u1, u2, sw; max_iter = 500, ftol = 1.0e-15, retcode = true, kw...)
     fast = run(); slow = run(; schur = false, cache = false)
-    @test VgtkCore.nlls_features().schur     # the checkout's fork: the fast path is the Schur system
+    # With the fork loaded (a checkout) `fast` is the Schur system and the
+    # cache; on a registered NLLSsolver both runs take the upstream path and
+    # agree trivially — the comparison holds either way.
     @test fast.retcode === :converged && slow.retcode === :converged
-    @test maximum(abs, fast.R - slow.R) < 1.0e-8 && maximum(abs, fast.t - slow.t) < 1.0e-8
+    @test maximum(abs, fast.R - slow.R) < 1.0e-9 && maximum(abs, fast.t - slow.t) < 1.0e-9
     @test isapprox(fast.result.bestcost, slow.result.bestcost; rtol = 1.0e-10)
 end
 

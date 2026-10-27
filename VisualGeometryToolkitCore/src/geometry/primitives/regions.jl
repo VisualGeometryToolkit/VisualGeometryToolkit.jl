@@ -85,3 +85,54 @@ GeometryBasics.Rect2(s::RegionIntersection; snap_to_grid::Bool = false) =
 _region_box(r::Rect{2}, snap::Bool) =
     (b = GeometryBasics.Rect2{Float64}(r); snap ? _make_rect2(Float64, minimum(b), maximum(b), true) : b)
 _region_box(x, snap::Bool) = GeometryBasics.Rect2(x; snap_to_grid = snap)
+
+# -----------------------------------------------------------------------------
+# Does a region meet a rectangle? (the support test of a local model's node)
+# -----------------------------------------------------------------------------
+
+"""
+    intersects(region::Union{RegionIntersection, WholePlane}, r::Rect) -> Bool
+    intersects(a::Rect, b::Rect) -> Bool
+
+Do the closed region and the closed rectangle share a point? The whole plane
+meets every rectangle. Two rectangles meet when their intersection is not
+empty (touching edges count).
+
+For an intersection the rectangle is first clipped by every `Rect` part of the
+region (closed: a shared edge or corner counts); an empty clip is `false`. What remains
+is tested against the curved parts:
+
+- no curved part: `true` (exact);
+- ONE curved part, an `Ellipse` — the imaged region `Rect(extent) ∩ circle`,
+  and any nesting of it with more rectangles: `intersects(ellipse, clipped)`,
+  exact, since the clipped rectangle lies inside every rectangle part;
+- several curved parts (`Ellipse ∩ Ellipse`): each tested against the clipped
+  rectangle separately — CONSERVATIVE: it may answer `true` when the parts meet
+  the rectangle in disjoint places. A node judged free that way only costs a
+  parameter; a node judged frozen is always outside the region.
+"""
+intersects(::WholePlane, ::Rect{2}) = true
+intersects(r::Rect{2}, w::WholePlane) = intersects(w, r)
+intersects(a::Rect{2}, b::Rect{2}) = _closed_meet(a, b) !== nothing
+function intersects(s::RegionIntersection, r::Rect{2})
+    c = _clip_by_rects(s, GeometryBasics.Rect2{Float64}(r))
+    c === nothing && return false
+    return all(p -> intersects(p, c), _curved_parts(s))
+end
+intersects(r::Rect{2}, s::RegionIntersection) = intersects(s, r)
+
+# The rectangle clipped by every Rect part of a (nested) intersection.
+# (`nothing` once empty). Closed rectangles: touching edges meet, unlike
+# GeometryBasics' `Rect ∩ Rect`, which calls a shared edge empty.
+_clip_by_rects(s::RegionIntersection, r) = (c = _clip_by_rects(s.a, r); c === nothing ? nothing : _clip_by_rects(s.b, c))
+_clip_by_rects(p::Rect{2}, r) = _closed_meet(p, r)
+_clip_by_rects(_, r) = r
+function _closed_meet(a::Rect{2}, b::Rect{2})
+    lo = max.(Float64.(minimum(a)), Float64.(minimum(b)))
+    hi = min.(Float64.(maximum(a)), Float64.(maximum(b)))
+    return all(lo .<= hi) ? GeometryBasics.Rect2{Float64}(lo, hi .- lo) : nothing
+end
+# The parts that are not rectangles, flattened.
+_curved_parts(s::RegionIntersection) = (_curved_parts(s.a)..., _curved_parts(s.b)...)
+_curved_parts(::Rect{2}) = ()
+_curved_parts(p) = (p,)

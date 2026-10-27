@@ -188,6 +188,7 @@ public ExecutionPolicy, Auto, Serial, Threaded, THREADED_MIN_LENGTH
 # Iterative Cox–de Boor B-spline kernels (0.14; hoisted from
 # RayTracedCalibration): broadcast-fused basis/surface/4D evaluation with
 # derivative surfaces; the rrules live in the ChainRulesCore extension.
+public bspline_basis, clamped_uniform_knots   # the scalar Cox–de Boor basis (isbits, any eltype, kernel-safe) and its knots
 public bspline_basis_iterative, evaluate_bspline_surface, bspline_surface_partial
 public evaluate_bspline_4d, bspline_4d_partial, contract_basis_4d_weighted
 # Thin-plate spline (hoisted from RadiometricCamera, arithmetic unchanged): the

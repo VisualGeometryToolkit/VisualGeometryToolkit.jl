@@ -1,20 +1,21 @@
 # =============================================================================
-# Iterative Cox–de Boor B-spline kernels (0.14; hoisted from
-# RayTracedCalibration src/bspline.jl)
+# B-spline kernels: the scalar basis (hoisted from RadiometricCamera) and the
+# broadcast kernels (0.14; hoisted from RayTracedCalibration src/bspline.jl)
 #
-# Broadcast-fused B-spline evaluation for structure-of-arrays inputs: the
-# iterative (non-recursive) Cox–de Boor basis, the tensor-product surface and
+# The scalar Cox–de Boor basis `bspline_basis` (isbits, any element type) and,
+# for structure-of-arrays inputs, its broadcast, the tensor-product surface and
 # its derivative surfaces, and the 4D tensor-product spline with its
 # memory-disciplined GEMM factorization. Backends come from the array type
 # via KernelAbstractions/Adapt — no vendor package is referenced (the CUDA
 # import of the pre-hoist copy is gone; the kernels always ran through the
 # generic broadcast/GEMM path).
 #
-# Precision: the kernels are deliberately Float32-typed end to end — they are
-# the render currency of the downstream GPU calibration pipeline, whose
-# fixed-seed gradient tests pin the arithmetic bit-for-bit. Generalizing the
-# eltype would have to thread `T` through every allocation and literal, and
-# is deferred until a consumer needs it.
+# Precision: the array kernels are Float32-typed end to end — they are the
+# render currency of the downstream GPU calibration pipeline. Their basis is
+# the scalar one, broadcast (one Cox–de Boor, exact against the recursion);
+# it replaced a separate broadcast recursion that clamped u to
+# knots[end] − 1e-8 and read zero left of the knots, which moved values by up
+# to 1.2e-7 at Float32.
 #
 # The ChainRulesCore rrules of `evaluate_bspline_surface` and
 # `evaluate_bspline_4d` live in the VisualGeometryToolkitCoreChainRulesCoreExt
@@ -23,64 +24,114 @@
 
 using Adapt: adapt
 
+# ---------------------------------------------------------------------------
+# The scalar basis (hoisted from RadiometricCamera src/camera/bspline.jl,
+# `N_ip` and `clamped_uniform_knots`, its arithmetic unchanged): Cox–de Boor
+# (Piegl & Tiller 1997) on a static knot vector,
+#
+#   N_{i,0}(x) = 1 if k_i ≤ x < k_{i+1}, else 0
+#   N_{i,p}(x) = (x − k_i)/(k_{i+p} − k_i)·N_{i,p−1}(x)
+#              + (k_{i+p+1} − x)/(k_{i+p+1} − k_{i+1})·N_{i+1,p−1}(x)
+#
+# with 0/0 := 0 and the last non-empty span closed on the right, so the
+# partition of unity holds on the closed interval. Fully unrolled for the
+# degree: isbits in, an SVector out, no closures or loops over tuples — it
+# infers on the CPU and in a GPU kernel alike, in any element type (Float32,
+# Float64, ForwardDiff Duals).
+# ---------------------------------------------------------------------------
+
+"""
+    clamped_uniform_knots(n, p, lo, hi) -> SVector{n + p + 1}
+
+The clamped uniform knot vector of `n` control points of degree `p` on
+`[lo, hi]`: `lo` repeated `p + 1` times, `n − p − 1` uniform interior knots,
+`hi` repeated `p + 1` times. An `ArgumentError` unless `n > p`.
+"""
+function clamped_uniform_knots(n_cp::Integer, p::Integer, lo::Real, hi::Real)
+    n_cp > p || throw(ArgumentError("clamped_uniform_knots: need more than p = $p control points, got $n_cp"))
+    n_int = n_cp - p - 1                               # interior knots
+    interior = [lo + (hi - lo) * k / (n_int + 1) for k in 1:n_int]
+    return SVector{n_cp + p + 1}(vcat(fill(float(lo), p + 1), interior, fill(float(hi), p + 1)))
+end
+
+"""
+    bspline_basis(knots::SVector{K}, Val(p), x) -> SVector{K − p − 1}
+    bspline_basis(knots::SVector{K}, p::Integer, x)
+
+Every degree-`p` B-spline basis function on `knots` at `x`,
+`N_{1,p}(x), …, N_{K−p−1,p}(x)` (Cox–de Boor, Piegl & Tiller 1997): `0/0` is
+`0`, and the last non-empty knot span is closed on the right, so the values
+sum to one on the whole closed interval `[knots[1], knots[K]]`. `x` outside
+it is clamped onto it (constant extrapolation).
+
+The basis (its knots and degree) leads, the point follows (`signatures.md`).
+The degree is a `Val` so the result's size is static and nothing allocates;
+the `Integer` form is the convenience. Scalar, isbits and generic in the
+element type (`promote_type` of `x`'s and the knots'): it runs inside a
+KernelAbstractions kernel, in `Float32`, and under ForwardDiff.
+[`bspline_basis_iterative`](@ref) is its broadcast over an array.
+"""
+@inline bspline_basis(knots::SVector, p::Integer, x) = bspline_basis(knots, Val(Int(p)), x)
+
+@generated function bspline_basis(knots::SVector{K, TK}, ::Val{p}, x) where {p, K, TK}
+    # fully unrolled Cox–de Boor (no closures/tuple loops — inferred on CPU and GPU alike)
+    n1 = K - p - 1
+    ex = Expr[]
+    for i in 1:(K - 1)
+        push!(ex, :($(Symbol(:N0_, i)) = ((knots[$i] <= xc < knots[$(i + 1)]) || (xc == hi && $i == last_span)) ? one(T) : zero(T)))
+    end
+    for d in 1:p, i in 1:(K - 1 - d)
+        prev1 = Symbol(:N, d - 1, :_, i)
+        prev2 = Symbol(:N, d - 1, :_, i + 1)
+        push!(
+            ex, quote
+                den1 = knots[$(i + d)] - knots[$i]
+                den2 = knots[$(i + d + 1)] - knots[$(i + 1)]
+                $(Symbol(:N, d, :_, i)) = (den1 > 0 ? (xc - knots[$i]) / den1 * $prev1 : zero(T)) +
+                    (den2 > 0 ? (knots[$(i + d + 1)] - xc) / den2 * $prev2 : zero(T))
+            end
+        )
+    end
+    outs = [Symbol(:N, p, :_, i) for i in 1:n1]
+    return quote
+        T = promote_type(typeof(x), TK)
+        lo = knots[1]; hi = knots[K]
+        xc = clamp(x, lo, hi)
+        last_span = _last_span(knots)
+        $(ex...)
+        return SVector{$n1, T}($(outs...))
+    end
+end
+
+# The index of the last non-empty knot span (for the right-end closure).
+@inline function _last_span(knots::SVector{K}) where {K}
+    i = K - 1
+    while i > 1 && !(knots[i] < knots[i + 1])
+        i -= 1
+    end
+    return i
+end
+
 """
     bspline_basis_iterative(u, degree, knots) -> Vector{<:AbstractArray{Float32}}
 
-Cox–de Boor basis evaluation: for each of the `n_basis = length(knots) -
-degree - 1` basis functions, return the values evaluated at every point of
-the broadcasted device array `u`. The recursion is iterative (no recursive
-function calls) so the kernel fuses cleanly on GPU.
+For each of the `n_basis = length(knots) − degree − 1` basis functions, its
+values at every point of the device array `u`: [`bspline_basis`](@ref)
+broadcast over `u` (on `u`'s backend) in `Float32`, split per basis function
+— the structure-of-arrays form the tensor-product kernels below consume. `u`
+outside the knots is clamped onto them, as by `bspline_basis`.
 
 Validated against `BSplineKit.BSplineBasis` on the downstream demo's actual
 θ knot vector — see `test/bspline_tests.jl`.
 """
 function bspline_basis_iterative(u, degree, knots)
-    u = min.(u, knots[end] - 1.0f-8)
-
+    k = SVector{length(knots)}(Float32.(Array(knots)))
+    B = bspline_basis.(Ref(k), Ref(Val(Int(degree))), u)
     n_basis = length(knots) - degree - 1
-
     N = Vector{AbstractArray{Float32}}(undef, n_basis)
-
     for i in 1:n_basis
-        cond = (u .>= knots[i]) .& (u .< knots[i + 1])
-
-        if i == n_basis
-            cond = cond .| (abs.(u .- knots[end]) .< 1.0f-6)
-        end
-
-        N[i] = Float32.(cond)
+        N[i] = getindex.(B, i)
     end
-
-
-    for k in 1:degree
-        N_new = Vector{AbstractArray{Float32}}(undef, n_basis)
-
-        for i in 1:n_basis
-            denom1 = (i + k <= length(knots)) ? (knots[i + k] - knots[i]) : 0.0f0
-            denom2 = (i + k + 1 <= length(knots)) ? (knots[i + k + 1] - knots[i + 1]) : 0.0f0
-
-            term1 = KernelAbstractions.zeros(get_backend(u), Float32, size(u)...)
-            if denom1 != 0.0f0
-                term1 .= ((u .- knots[i]) ./ denom1) .* N[i]
-            end
-
-            term2 = KernelAbstractions.zeros(get_backend(u), Float32, size(u)...)
-            if denom2 != 0.0f0 && (i + 1 <= n_basis)
-                term2 .= ((knots[i + k + 1] .- u) ./ denom2) .* N[i + 1]
-            end
-
-            N_new[i] = term1 .+ term2
-        end
-
-        N = N_new
-    end
-
-    # Fix last knot edge case
-    if !isempty(N)
-        is_last = abs.(u .- knots[end]) .< 1.0f-6
-        N[end] .= ifelse.(is_last, 1.0f0, N[end])
-    end
-
     return N
 end
 

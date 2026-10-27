@@ -188,3 +188,58 @@
         end
     end
 end
+
+# The scalar basis, exact against the recursive Cox–de Boor definition (an
+# independent reference: the textbook recursion with 0/0 := 0 and the last
+# non-empty span closed on the right) at Float32 and Float64, with the
+# partition of unity, and the broadcast form equal to it.
+@testitem "bspline: the scalar basis against the recursion" begin
+    using Test, StaticArrays
+    using ForwardDiff: ForwardDiff
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: bspline_basis, clamped_uniform_knots, bspline_basis_iterative
+
+    function cdb(i, p, x, k)
+        if p == 0
+            last = findlast(j -> k[j] < k[j + 1], 1:(length(k) - 1))
+            return (k[i] <= x < k[i + 1]) || (x == k[end] && i == last) ? one(x) : zero(x)
+        end
+        a = k[i + p] - k[i] > 0 ? (x - k[i]) / (k[i + p] - k[i]) * cdb(i, p - 1, x, k) : zero(x)
+        b = k[i + p + 1] - k[i + 1] > 0 ? (k[i + p + 1] - x) / (k[i + p + 1] - k[i + 1]) * cdb(i + 1, p - 1, x, k) : zero(x)
+        return a + b
+    end
+
+    kn = clamped_uniform_knots(7, 3, -0.5, 0.5)
+    @test kn == SVector(-0.5, -0.5, -0.5, -0.5, -0.25, 0.0, 0.25, 0.5, 0.5, 0.5, 0.5)
+    @test_throws ArgumentError clamped_uniform_knots(3, 3, 0.0, 1.0)
+    nonuniform = SVector(0.0, 0.0, 0.0, 0.1, 0.35, 0.4, 0.9, 1.0, 1.0, 1.0)   # degree 2, a near-double interior
+    xs = vcat(collect(range(-0.5, 0.5; length = 101)), [-0.25, 0.0, 0.25])     # the knots themselves included
+    for T in (Float64, Float32)
+        for (k, p, pts) in ((kn, 3, xs), (nonuniform, 2, collect(range(0.0, 1.0; length = 101))), (clamped_uniform_knots(5, 1, 0.0, 2.0), 1, collect(range(0.0, 2.0; length = 41))))
+            kT = SVector{length(k), T}(k)
+            for x in T.(pts)
+                N = bspline_basis(kT, Val(p), x)
+                @test N isa SVector{length(k) - p - 1, T}
+                @test N == [cdb(i, p, x, collect(kT)) for i in 1:(length(k) - p - 1)]     # exact: the same operations
+                @test abs(sum(N) - 1) <= 4 * eps(T)
+            end
+        end
+    end
+    @test bspline_basis(kn, 3, 0.1) == bspline_basis(kn, Val(3), 0.1)
+    @test bspline_basis(kn, Val(3), 0.7) == bspline_basis(kn, Val(3), 0.5)           # clamped onto the interval
+    @test bspline_basis(kn, Val(3), 0.5)[end] == 1                                    # the closed right end
+    # allocation-free and inferred; ForwardDiff: the derivative is the differenced-basis one
+    @inferred bspline_basis(kn, Val(3), 0.1)
+    alloc(k, x) = @allocated bspline_basis(k, Val(3), x)
+    alloc(kn, 0.1)
+    @test alloc(kn, 0.1) == 0
+    d = ForwardDiff.derivative(x -> bspline_basis(kn, Val(3), x), 0.13)
+    kd = SVector{9}(kn[2:(end - 1)])
+    lower = bspline_basis(kd, Val(2), 0.13)
+    ref = [3 * ((i >= 2 ? lower[i - 1] / (kn[i + 3] - kn[i]) : 0.0) - (i <= 6 ? lower[i] / (kn[i + 4] - kn[i + 1]) : 0.0)) for i in 1:7]
+    @test d ≈ ref rtol = 1.0e-12
+    # the broadcast form is the scalar basis at every point
+    u = Float32.(range(-0.5, 0.5; length = 37))
+    Nb = bspline_basis_iterative(u, 3, Float32.(collect(kn)))
+    @test all(Nb[i][j] == bspline_basis(SVector{11, Float32}(kn), Val(3), u[j])[i] for i in 1:7, j in eachindex(u))
+end

@@ -18,8 +18,18 @@ Pages = ["transforms/pointwise.jl"]
 
 ## B-spline Kernels
 
-The iterative Cox–de Boor basis and the tensor-product surface/4D spline
-kernels; the `ChainRulesCore` rrules attach via the package extension.
+The scalar Cox–de Boor basis [`bspline_basis`](@ref)`(knots, Val(p), x)` —
+an `SVector` of every basis function at `x`, isbits and generic in the element
+type, so it runs in a kernel and under ForwardDiff (hoisted from
+RadiometricCamera, its arithmetic unchanged) — with
+[`clamped_uniform_knots`](@ref); its broadcast over an array, and the
+tensor-product surface/4D spline kernels built on it; the `ChainRulesCore`
+rrules attach via the package extension.
+
+```julia
+knots = clamped_uniform_knots(7, 3, -0.5, 0.5)   # 7 cubic control points on [-½, ½]
+N = bspline_basis(knots, Val(3), 0.12)           # SVector{7}, sum(N) == 1
+```
 
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]

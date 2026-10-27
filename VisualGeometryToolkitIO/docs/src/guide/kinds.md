@@ -116,7 +116,11 @@ unless `--apply`). The new file is written to a staging directory beside its
 destination (the same filesystem), read back and compared with the old one
 number for number, and only then renamed into place, one atomic `rename`; it
 goes beside the original (`<stem>.migrated.json`), or over it with
-`out = path` (`--in-place`), the original untouched until the rename.
+`out = path` (`--in-place`), the original untouched until the rename. The
+comparison is of values: every number comes back bit for bit, except that a
+length written at full precision (16–17 digits; a computed value) may come
+back up to 2 ulp away in the file, as the same metre value — the length
+conversion's guarantee (see [Conventions](conventions.md#Lengths-cross-the-file-boundary-decimal-exactly)).
 
 A rig's content identity changes with this migration, once: the v4 identity
 hashed the record's format, and the identity is now version-free, so it will

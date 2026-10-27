@@ -24,7 +24,10 @@ end
 # unit other than metres may have no number for (lengths.jl) — its rotation to
 # the encoding's precision (bit for bit when a quaternion reads back to it
 # exactly — `_qvec` — and within a few ulp otherwise).
-_same_length(a, b) = (x = ustrip(m, a); y = ustrip(m, b); abs(x - y) <= 2 * eps(abs(x)))
+_same_length(a, b) = _same_metres(Float64(ustrip(m, a)), Float64(ustrip(m, b)))
+# Two metre values (or m², a covariance entry's) within the length conversion's
+# guarantee: 2 ulp, the sign of a zero kept.
+_same_metres(x::Float64, y::Float64) = x === y || (signbit(x) == signbit(y) && abs(x - y) <= 2 * eps(abs(x)))
 _same_pose(a::EuclideanMap, b::EuclideanMap) =
     all(map(_same_length, a.t, b.t)) && maximum(abs, Matrix(a.R) - Matrix(b.R)) <= 8 * eps()
 
@@ -232,8 +235,9 @@ The migration of a file of the (old) `schema` — a `Symbol`, `Val(Symbol("vgio/
 at `src` into its kind's current schema, written to `dst` (a path in the
 staging directory [`vgio_migrate`](@ref) owns). A method reads `src`, writes
 the current file to `dst` through its writer, reads `dst` back with the
-current reader and compares every number with `src`, throwing an
-`ArgumentError` on any difference; it returns a summary `NamedTuple` with at
+current reader and compares every number with `src` (a length as its value,
+within the length conversion's 2-ulp guarantee), throwing an `ArgumentError` on
+any difference; it returns a summary `NamedTuple` with at
 least `to`, the schema written (and whatever the owner reports: a rig's
 `old_id` and `new_id`).
 
@@ -255,7 +259,12 @@ kind's current one, by the method of [`migrate_schema`](@ref) for that schema
 is written through the current writer to a staging directory BESIDE `out`
 (the same filesystem), read back with the current reader and compared with the
 original, number for number; only then is it renamed to `out`, one atomic
-`rename`. The original is untouched unless `out == path` (an in-place
+`rename`. Every number comes back bit for bit except a length (or a
+covariance entry of lengths) the file holds at full precision, 16 or 17
+digits: no metre value writes back to every such number, so the migrated file
+may hold one that differs by at most 2 ulp — reading back as the same metre
+value, within the length conversion's 2-ulp guarantee ([`read_length`](@ref)).
+A number of at most 15 significant digits is rewritten as its own text. The original is untouched unless `out == path` (an in-place
 migration, replaced by that rename only once verified); an existing `out` is
 otherwise refused. With `dry_run` the migration is verified and nothing is
 written. Returns `(; path, out, from, to, …)`, `out` `nothing` in a dry run,
@@ -354,11 +363,22 @@ _resave_kwargs(old::AbstractDict) = merge(
 
 # Two parsed trees, number for number: the same keys, the same strings, and
 # every number the same Float64 (an integer `0` and `0.0` agree; the sign of a
-# zero must).
-_same_tree(a::AbstractDict, b::AbstractDict) = Set(keys(a)) == Set(keys(b)) && all(k -> _same_tree(a[k], b[k]), keys(a))
-_same_tree(a::AbstractVector, b::AbstractVector) = length(a) == length(b) && all(i -> _same_tree(a[i], b[i]), eachindex(a))
-_same_tree(a::Real, b::Real) = !(a isa Bool) && !(b isa Bool) ? (Float64(a) === Float64(b)) : a === b
-_same_tree(a, b) = isequal(a, b)
+# zero must) — or, in a file that declares its length unit `u`, the same LENGTH:
+# a full-precision file number has no metre value that writes back to its own
+# text (lengths.jl), so its rewrite may differ in the file by up to 2 ulp; it
+# then reads as the same metre value (or m², a covariance entry), within the
+# conversion's 2-ulp guarantee. The values are compared, not the text. A number
+# that is not a length is written from the identical Float64 by every writer,
+# so it comes back bit for bit.
+_same_tree(a::AbstractDict, b::AbstractDict, u = nothing) = Set(keys(a)) == Set(keys(b)) && all(k -> _same_tree(a[k], b[k], u), keys(a))
+_same_tree(a::AbstractVector, b::AbstractVector, u = nothing) = length(a) == length(b) && all(i -> _same_tree(a[i], b[i], u), eachindex(a))
+_same_tree(a::Real, b::Real, u = nothing) = !(a isa Bool) && !(b isa Bool) ? _same_file_number(Float64(a), Float64(b), u) : a === b
+_same_tree(a, b, u = nothing) = isequal(a, b)
+_same_file_number(x::Float64, y::Float64, ::Nothing) = x === y
+_same_file_number(x::Float64, y::Float64, u::Units) =
+    x === y || (isfinite(x) && isfinite(y) && any(n -> _same_metres(_read_power(x, u, n), _read_power(y, u, n)), (1, 2)))
+# The length unit a parsed file declares, or `nothing`.
+_file_unit(d::AbstractDict) = haskey(d, "length_unit") ? parse_unit(d["length_unit"]::String) : nothing
 
 # The old record's keys renamed to the new, and back. A target body's `warp`
 # (v1: rigid only, `{"type": "rigid"}` — already the v2 calibration record) is
@@ -403,7 +423,7 @@ function _migrate_record(::Type{T}, spec, src::AbstractString, dst::AbstractStri
     rm(staged)
     save(dst, value; _resave_kwargs(old)...)
     load(T, dst)
-    _verify(_same_tree(backward(_raw_tree(dst), old), old), src, what)
+    _verify(_same_tree(backward(_raw_tree(dst), old), old, _file_unit(old)), src, what)
     return old, value
 end
 
@@ -424,9 +444,8 @@ function migrate_schema(::Val{Symbol("vgio/rig/v4")}, src::AbstractString, dst::
 end
 
 # The content identities a vgio/rig/v4 rig had. v4 hashed the record without
-# its provenance: `content_id(path)` the record its loaded rig writes in the
-# FILE's unit — which, for a file this migration accepts (it re-writes to the
-# file's own numbers), is the record as written, hashed here — and
+# its provenance: `content_id(path)` the record as the file holds it (its parsed
+# tree, hashed here) and
 # `content_id(rig)` the record of the value in MILLIMETRES, which differs for a
 # rig whose file is in another unit and is what a producer that named the rig
 # by its value put in its measurement files. Both are mapped.
@@ -500,7 +519,7 @@ function _repoint_targets(
         _verify(load(T, staged).targets == targets, path, "its targets")
         back = copy(new)
         haskey(old, "targets") && (back["targets"] = old["targets"])
-        _verify(_same_tree(back, old), path, "the measurements")
+        _verify(_same_tree(back, old, _file_unit(old)), path, "the measurements")
         (; path = String(path), out = dry_run ? nothing : String(out), repointed, unchecked)
     end
 end
@@ -538,7 +557,9 @@ Migrate every `.json` file under `dir` whose schema has a migration (a
 `vgio/target/v1`, a `vgio/rig/v4`, and any schema whose owner added a
 [`migrate_schema`](@ref) method), then re-point the measurement files under
 `dir` (`vgio/target_points2d/v1`, `vgio/target_points3d/v1`) at the current
-rigs of the tree, each by the guarded pattern, with one line per file to `io`
+rigs of the tree, each by the guarded pattern of [`vgio_migrate`](@ref) (a
+full-precision length may be rewritten within 2 ulp, as the same metre value),
+with one line per file to `io`
 — a file left as it is says why (`current`, or no `targets`). Written beside
 each original as `<stem>.migrated.json`, or over it with `in_place`.
 

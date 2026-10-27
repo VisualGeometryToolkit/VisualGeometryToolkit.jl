@@ -69,15 +69,65 @@ end
     end
 end
 
-@testitem "vgio_migrate: a number that cannot come back refuses the migration" setup = [VGIoFixtures, MigrateFixtures] begin
+@testitem "vgio_migrate: a full-precision length migrates, as the same metre value within 2 ulp" setup = [VGIoFixtures, MigrateFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
-    # 287.15788802842013 mm has no metre value that writes back to it: the
-    # migration cannot reproduce the file's numbers, so it writes nothing.
+    # 287.15788802842013 mm has no metre value that writes back to its own
+    # text: the migration compares values, so it migrates, the file's number
+    # moved by at most 2 ulp and read as the identical metre value.
+    x = 287.15788802842013
     mktempdir() do dir
-        src = old_copy(dir, "target_planar.json", t -> replace(as_v1_target(t), "1234.5" => "287.15788802842013"))
-        e = try vgio_migrate(src); nothing catch e; e end
-        @test e isa ArgumentError && occursin("does not read back", e.msg) && occursin("nothing was written", e.msg)
-        @test !isfile(VgtkIO._migrated_path(src))
+        src = old_copy(dir, "target_planar.json", t -> replace(as_v1_target(t), "1234.5" => repr(x)))
+        r = vgio_migrate(src)
+        c = JSON.parsefile(r.out)["target"]["nominal"][4][1]
+        @test c !== x && abs(c - x) <= 2 * eps(x)
+        @test VgtkIO.read_length(c, mm) === VgtkIO.read_length(x, mm)
+    end
+end
+
+@testitem "vgio_migrate: a few hundred random full-precision lengths and covariances all migrate" setup = [VGIoFixtures, MigrateFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    using Random: Xoshiro
+    rng = Xoshiro(20261027)
+    n = 300
+    pts = [[(rand(rng) - 0.5) * 10.0^rand(rng, 0:3) for _ in 1:3] for _ in 1:n]
+    covs = [[[i == j ? rand(rng) * 10.0^rand(rng, -3:1) : 0.0 for j in 1:3] for i in 1:3] for _ in 1:n]
+    num(x) = repr(x)                                          # full precision: the shortest text that is x
+    vec_(v) = "[" * join(num.(v), ", ") * "]"
+    text = """{"schema": "vgio/target/v1", "length_unit": "mm", "target": {"type": "points",
+        "points": [$(join(vec_.(pts), ", "))],
+        "point_covariances": [$(join(["[" * join(vec_.(c), ", ") * "]" for c in covs], ", "))]}}"""
+    mktempdir() do dir
+        src = joinpath(dir, "target.json")
+        write(src, text)
+        r = vgio_migrate(src)
+        d = JSON.parsefile(r.out)["target"]
+        moved = 0
+        for (i, p) in enumerate(pts), k in 1:3
+            c = d["points"][i][k]
+            moved += c !== p[k]
+            @test abs(c - p[k]) <= 2 * eps(abs(p[k])) && VgtkIO.read_length(c, mm) === VgtkIO.read_length(p[k], mm)
+            c2 = d["point_covariances"][i][k][k]
+            moved += c2 !== covs[i][k][k]
+            @test abs(c2 - covs[i][k][k]) <= 2 * eps(covs[i][k][k]) && VgtkIO._read_power(c2, mm, 2) === VgtkIO._read_power(covs[i][k][k], mm, 2)
+        end
+        @test moved > 0                                           # the numbers the text check refused are in the set
+    end
+end
+
+@testitem "_repoint_targets: a target_points3d file of full-precision lengths re-points, its values kept" setup = [VGIoFixtures, MigrateFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    xs = (287.15788802842013, -1319.0000000000002, 0.30000000000000004)
+    mktempdir() do dir
+        obs = joinpath(dir, "points3d.json")
+        write(obs, """{"schema": "vgio/target_points3d/v1", "length_unit": "mm", "frame": "world", "point_index_base": 1,
+            "targets": ["$(V4_ID)"],
+            "frames": [{"t": 1, "sensor": "mocap", "points": [{"target": "a1f2", "index": 2, "xyz": [$(join(repr.(xs), ", "))]}]}]}""")
+        r = VgtkIO._repoint_targets(obs, Dict(V4_ID => current_id()), [units_fixture("rig_targets.json")])
+        d = JSON.parsefile(r.out)
+        @test r.repointed == 1 && d["targets"] == [current_id()]
+        c = d["frames"][1]["points"][1]["xyz"]
+        @test any(i -> c[i] !== xs[i], 1:3)
+        @test all(i -> abs(c[i] - xs[i]) <= 2 * eps(abs(xs[i])) && VgtkIO.read_length(c[i], mm) === VgtkIO.read_length(xs[i], mm), 1:3)
     end
 end
 
@@ -201,8 +251,10 @@ end
 @testitem "vgio_migrate: staged beside the file, renamed in place; a refusal leaves the original" setup = [VGIoFixtures, MigrateFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     mktempdir() do dir
-        # a migration that cannot reproduce the file's numbers: refused, the original byte for byte, nothing left beside it
-        src = old_copy(dir, "target_planar.json", t -> replace(as_v1_target(t), "1234.5" => "287.15788802842013"))
+        # a migration the current reader refuses (an asymmetric point covariance): the original byte for byte, nothing left beside it
+        src = joinpath(dir, "target_planar.json")
+        write(src, """{"schema": "vgio/target/v1", "length_unit": "mm", "target": {"type": "points", "points": [[0.0, 0.0, 0.0]],
+            "point_covariances": [[[1.0, 0.5, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]]}}""")
         before = read(src, String)
         @test_throws ArgumentError vgio_migrate(src; out = src)
         @test read(src, String) == before && readdir(dir) == ["target_planar.json"]

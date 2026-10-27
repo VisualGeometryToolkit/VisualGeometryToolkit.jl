@@ -937,6 +937,7 @@ export AbstractTarget, PointTarget, PlanarTarget, resolve, is_resolved   # the t
 export TargetCalibration, Rigid, Affine, ThinPlateSpline, HeightField, CalibrationChain   # a planar target's calibration kinds
 export calibration_jacobian, calibration, design, reference, is_planar   # design, reference: public, not exported, at the top level
 export gauge_names, gauge_directions        # a calibration's gauges (public, not exported, at the top level)
+export is_affine                         # the surface chart's trait (public, not exported, at the top level)
 export PlanarCalibration                 # the shipped planar kinds as one type (public, not exported, at the top level)
 export TARGET_CALIBRATION_TAGS           # the kinds' tag registry (public, not exported, at the top level)
 export regularizer, TargetManifold      # the calibratable-target protocol

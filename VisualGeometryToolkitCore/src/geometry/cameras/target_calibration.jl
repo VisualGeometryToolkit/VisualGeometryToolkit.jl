@@ -616,6 +616,29 @@ is_planar(c::TargetCalibration) = is_planar(typeof(c))
 is_planar(u::Uncertain{<:TargetCalibration}) = is_planar(typeof(geom(u)))
 
 """
+    is_affine(::Type{C}) -> Bool
+    is_affine(c::TargetCalibration) -> Bool
+
+Whether a calibration's IN-PLANE part — where it takes a design point in the
+target's plane, a height field's lift aside — is an affine map of the design,
+`p ↦ A p + b`: a function of the TYPE, `true` for [`Rigid`](@ref),
+[`Affine`](@ref), [`HeightField`](@ref) (it leaves the plane point where it is)
+and a [`CalibrationChain`](@ref) of them, `false` for a
+[`ThinPlateSpline`](@ref) and, by default, a downstream kind. A planar target's
+[`surface`](@ref) reads its chart's affine off such a calibration (its image of
+the design origin and its point Jacobian there) and refuses any other.
+"""
+function is_affine end
+is_affine(::Type{<:TargetCalibration}) = false
+is_affine(::Type{Rigid}) = true
+is_affine(::Type{<:Affine}) = true
+is_affine(::Type{<:HeightField}) = true
+is_affine(::Type{CalibrationChain{C}}) where {C} = _all_affine(C)
+@inline _all_affine(::Type{Tuple{}}) = true
+@inline _all_affine(::Type{C}) where {C <: Tuple} = is_affine(Base.tuple_type_head(C)) && _all_affine(Base.tuple_type_tail(C))
+is_affine(c::TargetCalibration) = is_affine(typeof(c))
+
+"""
     PlanarCalibration
 
 The planar calibration kinds this package ships — [`Rigid`](@ref),

@@ -546,3 +546,23 @@ end
     surface(pt)
     @test (@allocated surface(pt)) < 16_384
 end
+
+@testitem "target calibration: is_affine, and the surface chart read off it" begin
+    using Test, StaticArrays
+    using VisualGeometryToolkitCore
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: grid_nodes, is_affine
+    nodes = grid_nodes(3; lo = 0.0, hi = 1.0)
+    A = Affine([1.01 0.002; -0.003 0.99], [0.004, -0.002])
+    H = HeightField(nodes, fill(1.0e-3, 9))
+    T = ThinPlateSpline(nodes)
+    @test is_affine(Rigid()) && is_affine(A) && is_affine(H) && is_affine(CalibrationChain(A, H))
+    @test !is_affine(T) && !is_affine(CalibrationChain(A, T)) && !is_affine(CalibrationChain(A, T, H))
+    @test is_affine(typeof(CalibrationChain(A, H)))                       # a function of the type
+    # the chart's affine: the calibration's image of the design origin and its point Jacobian there
+    @test VgtkCore.Cameras._chart_affine(A) == (A.A, A.b)
+    @test VgtkCore.Cameras._chart_affine(H) == (SMatrix{2, 2}(1.0, 0.0, 0.0, 1.0), SVector(0.0, 0.0))
+    M, b = VgtkCore.Cameras._chart_affine(CalibrationChain(A, H))
+    @test M == A.A && b == A.b
+    @test_throws ArgumentError VgtkCore.Cameras._chart_affine(T)
+end

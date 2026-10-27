@@ -243,7 +243,8 @@ four iterations unconditionally (RadiometricCamera's count, so a ray that
 has converged by then is bit-identical to it), then up to sixteen more while
 the update is above rounding. The update `Δt` counts as rounding when
 `|Δt|·‖d‖ ≤ 64 eps(T) · (L + |t|‖d‖)` (it is then not applied), `L` the
-diagonal of [`bounds`](@ref) — a length scale of the surface; the iteration
+diagonal of [`bounds`](@ref) in metric plane coordinates (the quad's affine
+applied to its widths) — a length scale of the surface; the iteration
 also counts as converged if its last applied update was below
 `√eps(T) · (L + |t|‖d‖)` (rounding amplified at grazing incidence).
 Otherwise the ray is a miss (`NaN`), as is one whose final surface point is
@@ -344,7 +345,8 @@ end
     # the continuation: stop at a rounding-level update, which is not applied
     # (a converged ray keeps RadiometricCamera's four-iteration bits)
     nd = norm(d)
-    L = hypot(q.rect.widths[1], q.rect.widths[2])
+    w = q.A * q.rect.widths               # the bounds' widths in metric plane coordinates
+    L = hypot(w[1], w[2])
     ε = eps(typeof(t))                   # a Dual's is its value type's (ForwardDiff)
     converged = false
     last = oftype(abs(t), Inf)

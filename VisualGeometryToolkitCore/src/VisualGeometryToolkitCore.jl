@@ -272,6 +272,7 @@ export sensor_rig, target_rig             # the two halves of a rig carrying bot
 export AbstractTarget, PointTarget, PlanarTarget, resolve, is_resolved   # the target as a model (targets.jl)
 export TargetCalibration, Rigid, Affine, ThinPlateSpline, HeightField, CalibrationChain   # a planar target's calibration kinds
 export calibration_jacobian, calibration, is_planar
+public is_affine   # a calibration's in-plane part is an affine of the design (the surface chart's)
 export regularizer   # the calibratable-target protocol
 public design, reference, board   # a planar target's design, its reference and its board (not exported: common words)
 public PlanarCalibration, gauge_names, gauge_directions   # the shipped planar kinds as one type; a calibration's gauges

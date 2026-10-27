@@ -751,7 +751,9 @@ function refine_absolute_pose(pose::UnitfulEuclideanMap{3}, K::AbstractMatrix, c
     seed = convert(Rigid3, ustrip(VgtkCore.m, pose))
     plain = [_metres_point(first(c)) => last(c) for c in cs]
     refined = refine_absolute_pose(seed, K, plain; kwargs...)
-    return VgtkCore.with_unit(refined, VgtkCore.m)
+    # rebuilt through the checked constructor (the refined rotation is verified, as
+    # before), then read in metres
+    return VgtkCore.with_unit(EuclideanMap(refined.R, refined.t), VgtkCore.m)
 end
 
 refine_absolute_pose(::UnitfulEuclideanMap{3}, ::AbstractMatrix, ::_PlainPoints3; kwargs...) = throw(ArgumentError(

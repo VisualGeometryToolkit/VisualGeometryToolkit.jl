@@ -72,9 +72,15 @@ _chain_of(members::Tuple) = CalibrationChain(members)
         _has_thin_plate(c) ?
             "surface: an in-plane ThinPlateSpline calibration is not supported by the ray primitives yet " *
             "(their chart is an affine of the design); the target's calibration has one" :
-            "surface: no ray primitive for a $(nameof(typeof(c))) calibration"
+            "surface: no ray primitive for a $(nameof(typeof(_not_affine(c)))) calibration"
     )
 )
+# the member a chain's refusal names (a chain is refused for one of its members)
+_not_affine(c::TargetCalibration) = c
+function _not_affine(c::CalibrationChain)
+    i = findfirst(x -> !is_affine(x), c.members)
+    return i === nothing ? c : c.members[i]
+end
 _has_thin_plate(c::TargetCalibration) = c isa ThinPlateSpline
 _has_thin_plate(c::CalibrationChain) = any(_has_thin_plate, c.members)
 

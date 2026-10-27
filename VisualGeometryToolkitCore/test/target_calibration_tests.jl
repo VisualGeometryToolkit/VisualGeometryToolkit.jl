@@ -556,6 +556,9 @@ end
     using VisualGeometryToolkitCore
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: grid_nodes, is_affine
+    struct NotAffineKind <: TargetCalibration end                     # a downstream kind, not affine
+    VgtkCore.calibration_tag(::Type{NotAffineKind}) = "not_affine_kind"
+    VgtkCore.parameter_vector(::NotAffineKind) = SVector{0, Float64}()
     nodes = grid_nodes(3; lo = 0.0, hi = 1.0)
     A = Affine([1.01 0.002; -0.003 0.99], [0.004, -0.002])
     H = HeightField(nodes, fill(1.0e-3, 9))
@@ -569,6 +572,9 @@ end
     M, b = VgtkCore.Cameras._chart_affine(CalibrationChain(A, H))
     @test M == A.A && b == A.b
     @test_throws ArgumentError VgtkCore.Cameras._chart_affine(T)
+    # a chain is refused for its member, by the member's kind
+    e = try VgtkCore.Cameras._chart_affine(CalibrationChain(A, NotAffineKind())); nothing catch err; err end
+    @test e isa ArgumentError && occursin("NotAffineKind", e.msg)
 end
 
 @testitem "target calibration: length_mask" begin

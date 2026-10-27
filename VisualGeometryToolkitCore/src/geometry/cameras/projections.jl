@@ -69,6 +69,7 @@ has_distortion(::Pinhole) = false
 # Pupil trait — exit-pupil geometry of a lens model
 # =============================================================================
 
+# Not `image_circle`'s ρ: the perspective-undistortion bound of the radial factor alone (capped at the frame edge, Inf without a fold), a normalized distorted radius; it equals ρ only for a radially symmetric folding lens.
 """
     monotone_radius(lens) -> Real
 
@@ -91,7 +92,6 @@ lens whose profile never folds.
   tests — read as above at that stage's output; the stages around it do not
   enter (for a stage behind a tilt, the frame's edge caps the stage's input).
 """
-# Not `image_circle`'s ρ: the perspective-undistortion bound of the radial factor alone (capped at the frame edge, Inf without a fold), a normalized distorted radius; it equals ρ only for a radially symmetric folding lens.
 function monotone_radius(l::AbstractLensModel)
     lf = _precision(Float64, l)
     r = _bounding_radial(lf)

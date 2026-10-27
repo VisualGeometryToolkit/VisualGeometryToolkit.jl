@@ -78,6 +78,7 @@ Base.hash(bd::Board, h::UInt) = hash(bd.origin, hash(bd.size, hash(:Board, h)))
 # `u` (its corner from metres); a plain one's numbers become lengths in `u`.
 has_units(::Board{<:Quantity}) = true
 has_units(::Board) = false
+_form_sample(bd::Board) = bd.size.width
 FlexUnits.ustrip(u::Units, bd::Board{<:Quantity}) =
     Board(Size2(width = ustrip(u, bd.size.width), height = ustrip(u, bd.size.height)), map(x -> _from_metres(x, u), bd.origin))
 FlexUnits.ustrip(::Units, ::Board) = throw(ArgumentError("ustrip: the board is plain numbers already; `with_unit` attaches a unit"))

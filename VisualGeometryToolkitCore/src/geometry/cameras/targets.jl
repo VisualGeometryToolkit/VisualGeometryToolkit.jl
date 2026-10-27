@@ -99,7 +99,7 @@ struct PointTarget{P} <: AbstractTarget
         ps = map(_target_point, pts)
         isempty(ps) || allequal(length(geom(p)) for p in ps) ||
             throw(ArgumentError("a target's points are all 2-vectors or all 3-vectors"))
-        _check_one_form(ps, "PointTarget")
+        _check_one_form(ps)
         P = isempty(ps) ? SVector{3, Float64} : typejoin(map(typeof, ps)...)
         return new{P}(Vector{P}(ps))
     end
@@ -167,6 +167,8 @@ struct PlanarTarget{C <: TargetCalibration, N <: Union{Nothing, Vector{<:SVector
             throw(ArgumentError("a planar target has a design reference, nominal points, or both"))
         n = nominal === nothing ? nothing : _nominal_points(nominal)
         _check_calibration(n, calibration)
+        # the points, the calibration's lengths and the board: one form
+        _check_one_form((n === nothing || isempty(n) ? nothing : first(n), geom(calibration), board))
         _check_board(n, board, calibration, on_board)
         return new{typeof(geom(calibration)), typeof(n), typeof(calibration)}(reference, n, calibration, board)
     end
@@ -178,14 +180,7 @@ end
 # `_grown_rect` (target_surfaces.jl) — the rectangle `surface` bounds the
 # target's primitive by, so a point the constructor accepts is one a ray meets.
 function _check_board(nominal, bd, c, on_board::Bool = true)
-    bd === nothing && return nothing
-    if nominal === nothing || isempty(nominal)
-        cc = geom(c)
-        (_has_lengths(cc) && has_units(cc) != has_units(bd)) && throw(DimensionError(_length_sample(cc), bd.size.width))
-        return nothing
-    end
-    has_units(first(nominal)) == has_units(bd) || throw(DimensionError(first(nominal), bd.size.width))
-    on_board || return nothing
+    (bd === nothing || nominal === nothing || isempty(nominal) || !on_board) && return nothing
     r = _grown_rect(Rect(bd))
     for p in nominal
         q = has_units(bd) ? strip_metres(p) : p
@@ -197,21 +192,17 @@ function _check_board(nominal, bd, c, on_board::Bool = true)
 end
 # The nominal points stored (an empty design is a plain one, as before).
 function _nominal_points(nominal)
-    ps = _check_one_form([_stored_point(Val(2), geom(p)) for p in nominal], "PlanarTarget")
+    ps = _check_one_form([_stored_point(Val(2), geom(p)) for p in nominal])
     return isempty(ps) ? SVector{2, Float64}[] : ps
 end
-# An uncertain calibration's form covers its parameters; a calibration with
-# lengths is in the form of the points it moves.
+# An uncertain calibration's covariance is over its parameters.
 function _check_calibration(nominal, c)
-    if c isa Uncertain
-        n = length(parameter_vector(geom(c)))
-        size(Statistics.cov(c)) == (n, n) || throw(
-            DimensionMismatch("an uncertain calibration's covariance is $(n) × $(n) (its parameters); got $(size(Statistics.cov(c)))")
-        )
-    end
-    (nominal === nothing || isempty(nominal) || !_has_lengths(geom(c))) && return nothing
-    has_units(first(nominal)) == has_units(geom(c)) && return nothing
-    throw(DimensionError(first(nominal), _length_sample(geom(c))))
+    c isa Uncertain || return nothing
+    n = length(parameter_vector(geom(c)))
+    size(Statistics.cov(c)) == (n, n) || throw(
+        DimensionMismatch("an uncertain calibration's covariance is $(n) × $(n) (its parameters); got $(size(Statistics.cov(c)))")
+    )
+    return nothing
 end
 PlanarTarget(nominal::AbstractVector; calibration = Rigid(), board = nothing) = PlanarTarget(nothing, nominal, calibration, board)
 PlanarTarget(reference::Symbol; nominal = nothing, calibration = Rigid(), board = nothing) =

@@ -873,11 +873,23 @@ _scale_point_form(M::Union{CovMat{N}, PrecMat{N}}, f, op) where {N} = _scale_len
 _stored_point(::Val{N}, p::AbstractVector{<:Quantity}) where {N} = SVector{N}(map(q -> _check_length(ubase(q)), Tuple(SVector{N}(p))))
 _stored_point(::Val{N}, p::AbstractVector) where {N} = SVector{N, Float64}(p)
 
-# The containers hold one form: all plain or all lengths. A mix is FlexUnits'
-# `DimensionError`, as for the containers of poses (rig.jl's
-# `_check_one_pose_form`), named by one point of each form.
-function _check_one_form(ps, what)
-    hs = [has_units(geom(p)) for p in ps]
-    (isempty(hs) || allequal(hs)) && return ps
-    throw(DimensionError(geom(ps[findfirst(hs)]), geom(ps[findfirst(!, hs)])))
+# ONE FORM, the rule behind every carrier's constructor: of `parts`, those
+# that carry lengths are all physical or all plain — a container's points or
+# poses, a posed target's pose and points, a planar target's points,
+# calibration and board, a calibration's members and length entries. A part
+# without lengths (`_unit_form` :none: `nothing`, a Rigid calibration, an
+# unresolved design) sits with either. A mix is FlexUnits' `DimensionError`,
+# named by one part of each form (`_form_sample`, a carrier's own length).
+# Returns `parts`.
+@inline function _check_one_form(parts)
+    forms = map(_unit_form, parts)
+    i, j = findfirst(==(:physical), forms), findfirst(==(:plain), forms)
+    (i === nothing || j === nothing) && return parts
+    _refuse_mixed_forms(parts[i], parts[j])
 end
+@noinline _refuse_mixed_forms(a, b) = throw(DimensionError(_form_sample(a), _form_sample(b)))
+_unit_form(::Nothing) = :none
+_unit_form(x) = has_units(x) ? :physical : :plain
+_form_sample(x) = geom(x)                       # a point, plain or `Uncertain`
+_form_sample(x::Number) = x
+_form_sample(X::Union{EuclideanMap, Uncertain{<:EuclideanMap}}) = translation(geom(X))

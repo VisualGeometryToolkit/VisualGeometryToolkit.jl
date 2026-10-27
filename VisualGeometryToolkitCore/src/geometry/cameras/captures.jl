@@ -91,7 +91,7 @@ struct Trajectory{S <: Frame{3}, D <: Frame{3}, P} <: AbstractDict{Int, P}
         (S <: UnlabeledFrame || D <: UnlabeledFrame) &&
             throw(ArgumentError("a trajectory names both frames it maps between (e.g. BodyFrame{:rig} → WorldFrame)"))
         labeled = Dict{Int, Any}(Int(t) => _label_pose(S, D, X) for (t, X) in poses)
-        _check_one_pose_form(collect(values(labeled)), _pose_translation)   # all plain or all physical
+        _check_one_form(collect(values(labeled)))   # all plain or all physical
         P = isempty(labeled) ? EuclideanMap{3} : typejoin(map(typeof, values(labeled))...)
         rec = Set{Int}(Int(t) for t in recovered)
         imgs, tms = _frame_strings(images, "images"), _frame_times(times)
@@ -158,7 +158,7 @@ struct TargetPoses{F <: Frame{3}, P} <: AbstractDict{Int, Dict{Symbol, P}}
                 for (t, ps) in frames
         )
         vals = [X for ps in values(fr) for X in values(ps)]
-        _check_one_pose_form(vals, _pose_translation)   # all plain or all physical
+        _check_one_form(vals)   # all plain or all physical
         P = isempty(vals) ? EuclideanMap{3} : typejoin(map(typeof, vals)...)
         imgs, sens, tms = _frame_strings(images, "images"), _frame_names(sensors, keys(fr)), _frame_times(times)
         _check_stamps(keys(fr), imgs, tms, time_origin, sens)
@@ -314,7 +314,7 @@ struct TargetPoints3D{F <: Frame{3}} <: AbstractDict{Int, Vector{TargetPoint3D}}
         ) where {F <: Frame{3}}
         F <: UnlabeledFrame && throw(ArgumentError("3D target points name the frame they are measured in (e.g. WorldFrame)"))
         fr = Dict{Int, Vector{TargetPoint3D}}(Int(t) => TargetPoint3D[_target_point3d(o, t) for o in os] for (t, os) in frames)
-        _check_one_form([p.xyz for ps in values(fr) for p in ps], "TargetPoints3D")
+        _check_one_form([p.xyz for ps in values(fr) for p in ps])
         imgs, sens, tms = _frame_strings(images, "images"), _frame_names(sensors, keys(fr)), _frame_times(times)
         _check_stamps(keys(fr), imgs, tms, time_origin, sens)
         allunique(targets) || throw(ArgumentError("`targets` names a target definition twice"))

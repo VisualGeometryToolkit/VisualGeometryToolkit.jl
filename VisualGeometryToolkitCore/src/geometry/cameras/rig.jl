@@ -109,7 +109,7 @@ struct PosedTarget{T <: AbstractTarget, X <: Union{EuclideanMap{3}, Uncertain{<:
                     "`PosedTarget(model(target), X)`"
             )
         )
-        _check_pose_units(target, pose)
+        _check_one_form((pose, target))   # a pose and its target's points: one form
         X = unlabel(pose)
         return new{T, typeof(X)}(target, X)
     end
@@ -139,14 +139,13 @@ TargetManifold(m::PosedTarget; free = ()) = _refuse_posed_protocol("TargetManifo
 points(m::PosedTarget) = points(m.target)
 Base.:(==)(a::PosedTarget, b::PosedTarget) = a.target == b.target && a.pose == b.pose
 
-# A pose and its target's points are one form; a target without points (an
-# unresolved design) takes either pose.
-function _check_pose_units(target, pose)
-    (is_resolved(target) && !isempty(points(target))) || return nothing
-    has_units(pose) == has_units(target) && return nothing
-    throw(DimensionError(translation(geom(pose)), geom(first(points(target)))))
-end
+# A target model's form is its points' (a target without points, an unresolved
+# design, takes either pose); a posed target's, its pose's.
+_unit_form(t::AbstractTarget) = (is_resolved(t) && !isempty(points(t))) ? (has_units(t) ? :physical : :plain) : :none
+_form_sample(t::AbstractTarget) = geom(first(points(t)))
 has_units(m::PosedTarget) = has_units(pose(m))
+_unit_form(m::PosedTarget) = has_units(m) ? :physical : :plain
+_form_sample(m::PosedTarget) = translation(geom(pose(m)))
 FlexUnits.ustrip(u::Units, m::PosedTarget) = PosedTarget(ustrip(u, m.target), ustrip(u, pose(m)))
 with_unit(m::PosedTarget, u::Units) = PosedTarget(with_unit(m.target, u), with_unit(pose(m), u))
 
@@ -205,7 +204,7 @@ struct Rig{F <: Frame{3}, M}
     # A physical rig: every sensor's extrinsics is labeled F → ViewFrame{id}.
     function Rig{F}(members::M) where {F <: Frame{3}, M <: Tuple{Vararg{AbstractCamera}}}
         _check_sensors(F, members)
-        _check_one_pose_form(collect(Any, members), _member_translation)
+        _check_one_form(members)
         return new{F, M}(members)
     end
 
@@ -214,7 +213,7 @@ struct Rig{F <: Frame{3}, M}
     # mixing target types has a `where`-typed value.
     function Rig{F}(members::M) where {F <: Frame{3}, M <: AbstractDict{Symbol}}
         _check_targets(F, members)
-        _check_one_pose_form(collect(Any, values(members)), _member_translation)
+        _check_one_form(collect(Any, values(members)))
         return new{F, M}(members)
     end
 
@@ -222,7 +221,7 @@ struct Rig{F <: Frame{3}, M}
     function Rig{F}(sensors::S, targets::D) where {F <: Frame{3}, S <: Tuple{Vararg{AbstractCamera}}, D <: AbstractDict{Symbol}}
         _check_sensors(F, sensors; gauge = !(F <: TargetFrame))
         _check_targets(F, targets; gauge = !(F <: ViewFrame))
-        _check_one_pose_form(Any[sensors..., values(targets)...], _member_translation)
+        _check_one_form(Any[sensors..., values(targets)...])
         vids = map(c -> _view_id(_raw_extrinsics(c)), sensors)
         isempty(intersect(vids, keys(targets))) ||
             throw(ArgumentError("Rig: a sensor and a target share the id(s) $(collect(intersect(vids, keys(targets))))"))
@@ -231,17 +230,8 @@ struct Rig{F <: Frame{3}, M}
     end
 end
 
-# A container of poses holds one form: all plain or all physical. A mix is
-# FlexUnits' `DimensionError` (as for a `PosedTarget`), named by one member of each.
-function _check_one_pose_form(xs, translation_of)
-    hs = [has_units(x) for x in xs]
-    (isempty(hs) || allequal(hs)) && return nothing
-    a, b = xs[findfirst(hs)], xs[findfirst(!, hs)]
-    throw(DimensionError(translation_of(a), translation_of(b)))
-end
-_member_translation(c::AbstractCamera) = translation(_raw_extrinsics(c))
-_member_translation(m::PosedTarget) = translation(geom(pose(m)))
-_pose_translation(X) = translation(geom(X))
+# A rig's members are one form (`_check_one_form`), a camera's by its extrinsics.
+_form_sample(c::AbstractCamera) = translation(_raw_extrinsics(c))
 
 function _check_sensors(::Type{F}, members; gauge::Bool = true) where {F}
     isempty(members) && throw(ArgumentError("Rig: at least one sensor required"))

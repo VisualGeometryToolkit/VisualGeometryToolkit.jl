@@ -88,6 +88,9 @@ regularizer(::Rigid) = SVector{0, Float64}()
 # protocol only (`has_units`, `ustrip`, `with_unit`); the chain's length-form
 # check (one form across members) covers the kinds shipped here.
 _has_lengths(::TargetCalibration) = false   # Rigid, and a downstream kind
+# the one-form rule's view of a calibration (euclidean_map.jl `_check_one_form`)
+_unit_form(c::TargetCalibration) = _has_lengths(c) ? (has_units(c) ? :physical : :plain) : :none
+_form_sample(c::TargetCalibration) = _length_sample(c)
 has_units(::Rigid) = false
 _length_mask(::Rigid) = SVector{0, Bool}()
 FlexUnits.ustrip(::Units, c::Rigid) = c
@@ -122,10 +125,7 @@ function (c::TargetCalibration)(p::StaticVector)
     _check_point_form(c, p)
     return _restore_point(_apply(c, _plain_point(p)), p)
 end
-@inline function _check_point_form(c, p)
-    (_has_lengths(c) && has_units(c) != has_units(p)) || return nothing
-    throw(DimensionError(p, _length_sample(c)))
-end
+@inline _check_point_form(c, p) = (_check_one_form((c, p)); nothing)
 _apply(::Rigid, q) = q
 # ∂c(q)/∂q, the chain rule's factor; `Rigid` moves nothing.
 _point_jacobian(::Rigid, q) = SMatrix{2, 2, Float64}(LinearAlgebra.I)
@@ -134,9 +134,8 @@ _point_jacobian(::Rigid, q) = SMatrix{2, 2, Float64}(LinearAlgebra.I)
 # metres), and which.
 function _lengths(xs::AbstractVector)
     isempty(xs) && return (Float64[], false)
-    hs = map(has_units, xs)
-    allequal(hs) || throw(DimensionError(xs[findfirst(hs)], xs[findfirst(!, hs)]))
-    return first(hs) ? ([_strip_length(m, q) for q in xs], true) : (collect(xs), false)
+    _check_one_form(xs)
+    return has_units(first(xs)) ? ([_strip_length(m, q) for q in xs], true) : (collect(xs), false)
 end
 # Node positions: 2-vectors, plain or lengths, as plain `Float64` (metres).
 function _node_points(nodes::AbstractVector)
@@ -495,9 +494,7 @@ struct CalibrationChain{C <: Tuple} <: TargetCalibration
         end
         tags = map(c -> calibration_tag(typeof(c)), members)
         allunique(tags) || throw(ArgumentError("CalibrationChain: one member of each kind; got $(join(tags, ", "))"))
-        withlengths = [c for c in members if _has_lengths(c)]
-        isempty(withlengths) || allequal(map(has_units, withlengths)) ||
-            throw(DimensionError(_length_sample(withlengths[findfirst(has_units, withlengths)]), _length_sample(withlengths[findfirst(!has_units, withlengths)])))
+        _check_one_form(members)
         return new{C}(members)
     end
 end

@@ -519,3 +519,67 @@ end
     @test board(PlanarTarget(:b; calibration = Affine([1.0 0.0; 0.0 1.0], [0.0, 0.0] .* mm), board = bd)) === bd
     @test board(PlanarTarget(:b; board = bu)) === bu                                     # Rigid has no lengths: either form
 end
+
+@testitem "surfaces: a planar target's Canvas and its texture" begin
+    using Test, StaticArrays
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: board, canvas, points, has_units, with_unit, with_parameters, parameter_vector, mm, m, px
+    using FlexUnits: DimensionError, ustrip
+
+    sha = repeat("0123456789abcdef", 4)
+    # the canvas: the board's length rule — lengths stored in metres, the corner in the design chart
+    tex = CanvasTexture("textures/canvas.png", sha, Size2(width = 320mm, height = 240mm), [-20.0mm, -15.0mm])
+    cv = Canvas(Size2(width = 320mm, height = 240mm), [-20.0mm, -15.0mm]; texture = tex)
+    @test cv.origin == SVector(-0.02, -0.015) && ustrip(mm, cv.size.width) ≈ 320 && cv.texture === tex
+    @test Rect(cv) ≈ Rect2(-0.02, -0.015, 0.32, 0.24) && Rect(tex) ≈ Rect(cv) && has_units(cv) && has_units(tex)
+    @test tex.path == "textures/canvas.png" && tex.sha256 == sha
+    @test Canvas(Size2(width = 0.32m, height = 0.24m), SVector(-0.02, -0.015); texture = tex) == cv     # plain metres for the corner
+    @test hash(Canvas(Size2(width = 0.32m, height = 0.24m), SVector(-0.02, -0.015); texture = tex)) == hash(cv)
+    @test cv != Canvas(Size2(width = 320mm, height = 240mm), [-20.0mm, -15.0mm])                     # the texture counts
+    @test tex != CanvasTexture("textures/other.png", sha, Size2(width = 320mm, height = 240mm), [-20.0mm, -15.0mm])
+    @test Canvas(Size2(width = 1.0m, height = 2.0m)).texture === nothing && Rect(Canvas(Size2(width = 1.0m, height = 2.0m))) == Rect2(0.0, 0.0, 1.0, 2.0)
+    # units enforced
+    @test_throws DimensionError Canvas(Size2(width = 320px, height = 240px))
+    @test_throws DimensionError CanvasTexture("a.png", sha, Size2(width = 320px, height = 240px))
+    @test_throws ArgumentError Canvas(Size2(width = -1.0mm, height = 240mm))
+    @test_throws ArgumentError CanvasTexture("a.png", sha, Size2(width = 0.0mm, height = 240mm))       # an image covers some area
+    @test_throws ArgumentError Canvas(Size2(width = 320.0, height = 240.0), [-20.0mm, -15.0mm])       # a mix
+    # the reference: a relative path and a SHA-256 hex digest
+    @test_throws ArgumentError CanvasTexture("/abs/canvas.png", sha, Size2(width = 1.0m, height = 1.0m))
+    @test_throws ArgumentError CanvasTexture("", sha, Size2(width = 1.0m, height = 1.0m))
+    @test_throws ArgumentError CanvasTexture("a.png", uppercase(sha), Size2(width = 1.0m, height = 1.0m))
+    @test_throws ArgumentError CanvasTexture("a.png", sha[1:63], Size2(width = 1.0m, height = 1.0m))
+    # plain numbers allowed, for a unitless design; the texture in the canvas's form
+    texu = CanvasTexture("canvas.png", sha, Size2(width = 320.0, height = 240.0), [-20.0, -15.0])
+    cu = Canvas(Size2(width = 320.0, height = 240.0), [-20.0, -15.0]; texture = texu)
+    @test !has_units(cu) && Rect(cu) == Rect2(-20.0, -15.0, 320.0, 240.0) && Rect(texu) == Rect(cu)
+    @test Canvas(Size2(width = 320, height = 240)) == Canvas(Size2(width = 320.0, height = 240.0))
+    @test_throws DimensionError Canvas(Size2(width = 320mm, height = 240mm); texture = texu)
+    # ustrip / with_unit move the canvas and its texture together
+    @test ustrip(mm, cv) == Canvas(Size2(width = 320.0, height = 240.0), [-20.0, -15.0];
+                                   texture = CanvasTexture("textures/canvas.png", sha, Size2(width = 320.0, height = 240.0), [-20.0, -15.0]))
+    @test with_unit(ustrip(mm, cv), mm) == cv
+    @test_throws ArgumentError ustrip(mm, cu)
+    @test_throws ArgumentError with_unit(cv, mm)
+
+    # carried by a PlanarTarget beside its board, the points, units and equality unaffected
+    bd = Board(Size2(width = 297mm, height = 210mm), [-10.0mm, -5.0mm])
+    pts = [SVector(0.0, 0.0) .* mm, SVector(250.0, 180.0) .* mm]
+    t = PlanarTarget(pts; board = bd, canvas = cv)
+    t0 = PlanarTarget(pts; board = bd)
+    @test canvas(t) === cv && canvas(t0) === nothing && board(t) === bd
+    @test points(t) == points(t0) && has_units(t) == has_units(t0)
+    @test t == PlanarTarget(pts; board = bd, canvas = cv) && hash(t) == hash(PlanarTarget(pts; board = bd, canvas = cv))
+    @test t != t0 && t != PlanarTarget(pts; board = bd, canvas = Canvas(Size2(width = 320mm, height = 240mm), [-20.0mm, -15.0mm]))
+    @test canvas(resolve(PlanarTarget(:b; board = bd, canvas = cv), pts)) === cv
+    @test canvas(with_parameters(t, parameter_vector(t))) === cv
+    @test PlanarTarget(nothing, pts, Rigid(), bd, cv) == t                                           # the positional form
+    tp = ustrip(mm, t)
+    @test canvas(tp) == ustrip(mm, cv) && with_unit(tp, mm) == t
+    @test canvas(ustrip(mm, PlanarTarget(:b; canvas = cv))) == ustrip(mm, cv)                        # unresolved: the canvas moves too
+    @test_throws DimensionError PlanarTarget(pts; canvas = cu)                                       # physical points, a plain canvas
+    @test_throws ArgumentError PlanarTarget(pts; board = bd, canvas = Canvas(Size2(width = 100mm, height = 100mm)))   # the board off the canvas
+    @test PlanarTarget(pts; board = bd, canvas = Canvas(bd.size, [-10.0mm, -5.0mm])) isa PlanarTarget  # a board filling its canvas
+    tu = PlanarTarget([SVector(0.0, 0.0), SVector(250.0, 180.0)]; canvas = cu)
+    @test canvas(tu) === cu && !has_units(tu)
+end

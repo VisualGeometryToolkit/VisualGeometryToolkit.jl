@@ -896,7 +896,9 @@ include("calibration.jl")  # zhang_intrinsics — Zhang IAC regression from plan
 # -----------------------------------------------------------------------------
 export Sensor, sensor                  # Sensor type and lookup
 export Board                            # the board a planar target's pattern is printed on (boards.jl)
+export Canvas, CanvasTexture             # the printed page a board lies on, and the image printed on it (boards.jl)
 export board                            # a planar target's board (targets.jl; public, not exported, at the top level)
+export canvas                           # a planar target's canvas (targets.jl; public, not exported, at the top level)
 export CMOS_SENSORS                    # Database of common sensors
 
 # -----------------------------------------------------------------------------

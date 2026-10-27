@@ -123,8 +123,8 @@ struct _Checked end
 struct _UnitMove end
 
 """
-    PlanarTarget(nominal; calibration = Rigid(), board = nothing)                  a design given by its points
-    PlanarTarget(design::Symbol; nominal = nothing, calibration = Rigid(), board = nothing)   a content-addressed design
+    PlanarTarget(nominal; calibration = Rigid(), board = nothing, canvas = nothing)                  a design given by its points
+    PlanarTarget(design::Symbol; nominal = nothing, calibration = Rigid(), board = nothing, canvas = nothing)   a content-addressed design
 
 A planar target: a DESIGN — its nominal plane points, and/or the reference
 `design` they are resolved from (a BlobBoards board uid) — and a
@@ -158,33 +158,53 @@ ones (FlexUnits' `DimensionError` otherwise) — and the points lie inside
 margin `surface` grows the board by (an `ArgumentError` otherwise). Being in the design chart, the
 board is the same rectangle under any calibration. [`board`](@ref)`(t)`
 reads it; `ustrip` and `with_unit` move it with the points.
+
+`canvas` is the printed page the board lies on, a [`Canvas`](@ref) (its size,
+its corner in the design chart and optionally the printed image, a
+[`CanvasTexture`](@ref)), or `nothing`: the record of what was printed, which
+the points, the calibration and [`surface`](@ref) never read. It is in the
+points' form like the board, and the board lies on it to within the same
+rounding margin (an `ArgumentError` otherwise). [`canvas`](@ref)`(t)` reads it;
+`ustrip` and `with_unit` move it with the points.
 """
 struct PlanarTarget{C <: TargetCalibration, N <: Union{Nothing, Vector{<:SVector{2}}}, S <: Union{C, Uncertain{C}}} <: AbstractTarget
     reference::Union{Nothing, Symbol}
     nominal::N
     calibration::S
     board::Union{Nothing, Board}
+    canvas::Union{Nothing, Canvas}
     # The private `_UnitMove()` route skips the board containment check: the
     # points are known to lie on the board — a unit move of a target that held
     # them there (`ustrip`, `with_unit`), whose rounding must not refuse it.
     # Every public construction is `_Checked()`.
     function PlanarTarget(
             reference::Union{Nothing, Symbol}, nominal, calibration::Union{TargetCalibration, Uncertain{<:TargetCalibration}},
-            board::Union{Nothing, Board}, route::Union{_Checked, _UnitMove}
+            board::Union{Nothing, Board}, canvas::Union{Nothing, Canvas}, route::Union{_Checked, _UnitMove}
         )
         (reference === nothing && nominal === nothing) &&
             throw(ArgumentError("a planar target has a design reference, nominal points, or both"))
         n = nominal === nothing ? nothing : _nominal_points(nominal)
         _check_calibration(n, calibration)
         # the points, the calibration's lengths and the board: one form
-        _check_one_form((n === nothing || isempty(n) ? nothing : first(n), geom(calibration), board))
+        _check_one_form((n === nothing || isempty(n) ? nothing : first(n), geom(calibration), board, canvas))
         _check_board(n, board, calibration, route isa _Checked)
-        return new{typeof(geom(calibration)), typeof(n), typeof(calibration)}(reference, n, calibration, board)
+        route isa _Checked && _check_canvas(board, canvas)
+        return new{typeof(geom(calibration)), typeof(n), typeof(calibration)}(reference, n, calibration, board, canvas)
     end
 end
-# The public positional form (the board optional): always checked.
+# The public positional form (the board and the canvas optional): always checked.
 PlanarTarget(reference::Union{Nothing, Symbol}, nominal, calibration::Union{TargetCalibration, Uncertain{<:TargetCalibration}},
-             board::Union{Nothing, Board} = nothing) = PlanarTarget(reference, nominal, calibration, board, _Checked())
+             board::Union{Nothing, Board} = nothing, canvas::Union{Nothing, Canvas} = nothing) =
+    PlanarTarget(reference, nominal, calibration, board, canvas, _Checked())
+# The board lies on the canvas, within the rounding margin of `_grown_rect`.
+function _check_canvas(bd, cv)
+    (bd === nothing || cv === nothing) && return nothing
+    b, r = Rect(bd), _grown_rect(Rect(cv))
+    (_in_rect(r, b.origin) && _in_rect(r, b.origin + b.widths)) || throw(
+        ArgumentError("PlanarTarget: the board, $(Tuple(b.origin)) to $(Tuple(b.origin + b.widths)), lies off the canvas, $(Tuple(r.origin)) to $(Tuple(r.origin + r.widths))")
+    )
+    return nothing
+end
 # The board is in the points' form, and they lie on it (in the design chart:
 # metres when physical).
 # An unresolved target's board is in its calibration's form when that carries
@@ -216,9 +236,10 @@ function _check_calibration(nominal, c)
     )
     return nothing
 end
-PlanarTarget(nominal::AbstractVector; calibration = Rigid(), board = nothing) = PlanarTarget(nothing, nominal, calibration, board)
-PlanarTarget(reference::Symbol; nominal = nothing, calibration = Rigid(), board = nothing) =
-    PlanarTarget(reference, nominal, calibration, board)
+PlanarTarget(nominal::AbstractVector; calibration = Rigid(), board = nothing, canvas = nothing) =
+    PlanarTarget(nothing, nominal, calibration, board, canvas)
+PlanarTarget(reference::Symbol; nominal = nothing, calibration = Rigid(), board = nothing, canvas = nothing) =
+    PlanarTarget(reference, nominal, calibration, board, canvas)
 
 """
     calibration(t::PlanarTarget) -> TargetCalibration or Uncertain
@@ -258,12 +279,20 @@ design chart, plain metres.
 board(t::PlanarTarget) = t.board
 
 """
+    canvas(t::PlanarTarget) -> Union{Nothing, Canvas}
+
+The page the target's board is printed on ([`Canvas`](@ref), with its printed
+image when it carries one), or `nothing` when the target does not carry one.
+"""
+canvas(t::PlanarTarget) = t.canvas
+
+"""
     resolve(t::PlanarTarget, nominal) -> PlanarTarget
 
 The target with its design's nominal points supplied — what the design's
 owner returns for the reference `reference(t)`.
 """
-resolve(t::PlanarTarget, nominal::AbstractVector) = PlanarTarget(t.reference, nominal, t.calibration, t.board)
+resolve(t::PlanarTarget, nominal::AbstractVector) = PlanarTarget(t.reference, nominal, t.calibration, t.board, t.canvas)
 
 """
     is_resolved(t) -> Bool
@@ -298,9 +327,9 @@ points(t::PlanarTarget) = _calibrated_points(t, geom(t.calibration), t.nominal)
 _calibrated_points(t, _, ::Nothing) = _refuse_unresolved(t)
 _calibrated_points(_, c, nominal) = [c(p) for p in nominal]
 Base.:(==)(a::PlanarTarget, b::PlanarTarget) =
-    a.reference === b.reference && isequal(a.nominal, b.nominal) && a.calibration == b.calibration && a.board == b.board
+    a.reference === b.reference && isequal(a.nominal, b.nominal) && a.calibration == b.calibration && a.board == b.board && a.canvas == b.canvas
 Base.hash(t::PlanarTarget, h::UInt) =
-    hash(t.board, hash(t.calibration, hash(t.nominal, hash(t.reference, hash(:PlanarTarget, h)))))
+    hash(t.canvas, hash(t.board, hash(t.calibration, hash(t.nominal, hash(t.reference, hash(:PlanarTarget, h))))))
 
 # Units: a resolved target's nominal points move, and with them a calibration
 # that has lengths; an unresolved one moves only its calibration.
@@ -309,11 +338,11 @@ Base.hash(t::PlanarTarget, h::UInt) =
 has_units(t::PlanarTarget) = is_resolved(t) ? has_units(t.nominal) : has_units(geom(t.calibration))
 FlexUnits.ustrip(u::Units, t::PlanarTarget) = PlanarTarget(
     t.reference, is_resolved(t) ? [_ustrip_point(u, p) for p in t.nominal] : nothing, _ustrip_calibration(u, t.calibration),
-    _move_board(ustrip, u, t.board, true), _UnitMove()
+    _move_board(ustrip, u, t.board, true), _move_board(ustrip, u, t.canvas, true), _UnitMove()
 )
 with_unit(t::PlanarTarget, u::Units) = PlanarTarget(
     t.reference, is_resolved(t) ? [_attach_point(u, p) for p in t.nominal] : nothing, _attach_calibration(u, t.calibration),
-    _move_board((u, bd) -> with_unit(bd, u), u, t.board, false), _UnitMove()
+    _move_board((u, bd) -> with_unit(bd, u), u, t.board, false), _move_board((u, cv) -> with_unit(cv, u), u, t.canvas, false), _UnitMove()
 )
 # The one-form rule's view of a planar target (`_check_one_form`): its nominal
 # points', calibration's and board's forms, which its constructor already
@@ -330,7 +359,7 @@ _form_sample(t::PlanarTarget) = _form_sample(
         _unit_form(geom(t.calibration)) !== :none ? geom(t.calibration) : t.board
 )
 _move_board(_, _, ::Nothing, _) = nothing
-_move_board(f, u, bd::Board, from_physical::Bool) = has_units(bd) == from_physical ? f(u, bd) : bd
+_move_board(f, u, bd::Union{Board, Canvas}, from_physical::Bool) = has_units(bd) == from_physical ? f(u, bd) : bd
 
 # --- the calibratable-target protocol ------------------------------------------------
 
@@ -340,7 +369,7 @@ _move_board(f, u, bd::Board, from_physical::Bool) = has_units(bd) == from_physic
 parameter_vector(t::PlanarTarget) = parameter_vector(geom(t.calibration))
 
 parameter_names(t::PlanarTarget) = parameter_names(geom(t.calibration))
-with_parameters(t::PlanarTarget, θ::AbstractVector) = PlanarTarget(t.reference, t.nominal, with_parameters(geom(t.calibration), θ), t.board)
+with_parameters(t::PlanarTarget, θ::AbstractVector) = PlanarTarget(t.reference, t.nominal, with_parameters(geom(t.calibration), θ), t.board, t.canvas)
 parameters(t::PlanarTarget) = NamedTuple{parameter_names(t)}(Tuple(parameter_vector(t)))
 regularizer(t::PlanarTarget) = regularizer(geom(t.calibration))
 is_planar(::PlanarTarget{C}) where {C} = is_planar(C)

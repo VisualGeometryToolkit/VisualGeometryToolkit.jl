@@ -328,3 +328,32 @@ end
         @test load(Rig, rp)[:a].target == rig[:a].target && content_id(rp) == content_id(rig)
     end
 end
+
+@testitem "rig/v5, target/v2: a code-built board size round-trips bit for bit" setup = [VGIoFixtures] begin
+    # Board sizes built in code (`297mm`, `0.142m`), written in mm and in m and
+    # read back: every one is the identical quantity. The size is written by
+    # `write_length` and read through the same decimal shift (`read_length`).
+    using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, Board, board, Rig, PosedTarget, TargetFrame
+    rig_of(bd) = Rig{TargetFrame{:a}}(Dict(:a => PosedTarget(
+        PlanarTarget([SVector(1.0mm, 1.0mm), SVector(50.0mm, 1.0mm), SVector(1.0mm, 50.0mm)]; board = bd),
+        EuclideanMap(QuatRotation(1.0, 0.0, 0.0, 0.0, false), SVector(0.0m, 0.0m, 0.0m)),
+    )))
+    roundtrip(rig, dir, u) = (p = joinpath(dir, "rig.json"); save(p, rig; length_unit = u); load(Rig, p))
+    mktempdir() do dir
+        for (w, h) in ((297mm, 210mm), (100mm, 62.8mm), (0.142m, 0.1m)), u in (mm, m)
+            rig = rig_of(Board(Size2(width = w, height = h)))
+            back = roundtrip(rig, dir, u)
+            @test back.members == rig.members                  # (a Rig has no ==: its members are the value)
+            @test board(back[:a].target).size.width === w && board(back[:a].target).size.height === h
+        end
+        # `142mm` is FlexUnits' multiply, 142 × 0.001 = 0.14200000000000002 m —
+        # one ulp off the decimal-nearest 0.142 — and no millimetre file number
+        # reads back to it (lengths.jl). Fixed upstream by FlexUnits PR
+        # Deduction42/FlexUnits.jl#131 (a correctly rounded decimal scale, so
+        # `142mm` is the decimal-nearest value); this flips to an unexpected
+        # pass, to be promoted to @test, the day that fix is adopted.
+        rig = rig_of(Board(Size2(width = 142mm, height = 100mm)))
+        @test_broken roundtrip(rig, dir, mm).members == rig.members   # FlexUnits #131
+        @test roundtrip(rig, dir, m).members == rig.members            # a metre file holds it
+    end
+end

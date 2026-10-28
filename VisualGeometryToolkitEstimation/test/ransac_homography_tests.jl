@@ -403,8 +403,9 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
             @test VgtkCore.prepare_external!(ws, w, nothing, θ, VgtkCore.LossWidth(2.0), nothing) && ws[] == 1
             @test VgtkCore.refine_external!(ws, w, nothing, θ, VgtkCore.LossWidth(2.0), nothing) === θ && ws[] == 11
             @test VgtkCore.refine_external!(ws, w, nothing, θ, VgtkCore.FixedS2(4.0), nothing) === θ && ws[] == 21
+            # an external refit is not counted: the wrapper that ran the bracket counts nothing
+            w isa VgtkEstimation.CountedLO && @test w.calls[] == 0 && w.iterations[] == 0
         end
-        @test VgtkEstimation.CountedLO(arm).calls[] == 0                          # an external refit is not counted
         native = Irls{WelschShape}(scale_multiple = 1.5)
         @test VgtkCore.RefitFamily(VgtkEstimation.CountedLO(native)) === VgtkCore.RefitFamily(native) === VgtkCore.NativeRefit()
         @test VgtkEstimation.lo_placement(VgtkEstimation.CountedLO(VgtkEstimation.TerminalLO(arm))) === VgtkEstimation.TerminalPlacement()

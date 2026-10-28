@@ -1433,14 +1433,19 @@ read by line-level approximations rather than parsers:
 Rule R8 (the hook names of `block_coordinate_descent!`) is Julia's alone.
 
 Rule R11 keeps units in one place: VisualGeometryToolkitCore's units module
-(`src/base/units.jl`: the stack's four units registered into FlexUnits'
-registry, `parse_unit` — the stack's one guarded `uparse` — and `unit_string`)
-and FlexUnits itself. Anywhere else, in Julia code (comments and strings are
-prose), it flags a call to `uparse`, `qparse` or `register_unit`, a reach into
-`UnitRegistry.UNITS`, `convert(Quantity{…}, q)` (FlexUnits' `ubase`), a
-`x isa Quantity ? ustrip(…)` branch (`strip_or_bare`), a literal
-holding two or more unit names (a unit table: `("mm", "px")`, `Dict("mm" => …)`),
-and, outside `test/`, the hand-written conversion factor `25.4`. It also keeps
+(`src/base/units.jl`: the stack's registry `StackUnits`, built with FlexUnits'
+`RegistryTools` from exact rational scales, `parse_unit` — the stack's one
+guarded `uparse` — `unit_string` and `base_quantity`) and FlexUnits itself.
+Anywhere else, in Julia code (comments and strings are prose), it flags a call
+to `uparse`, `qparse` or `register_unit`, a unit or registry built by hand (a
+call to `Units`, `AffineTransform`, `PermanentDict`, `register_unit!` or
+`registry_defaults!`), a reach into `UnitRegistry.UNITS`,
+`convert(Quantity{…}, q)` (`base_quantity`), a `x isa Quantity ? ustrip(…)`
+branch (`strip_or_bare`), a literal holding two or more unit names (a unit
+table: `("mm", "px")`, `Dict("mm" => …)`), and, outside `test/`, a
+hand-written conversion factor (`25.4`, `0.0254`, `304.8`, `0.3048`, or an
+inch ratio such as `127//5000`) and a bare `ubase(…)` (a stored quantity is
+`base_quantity(q)`: `ubase` keeps the exact `Rational` of `142mm`). It also keeps
 the units layering. A pose or a target's points (`EuclideanMap`,
 `PlanarTarget`, `PointTarget`, `TargetPoints3D`) built with a `ustrip(…)` or a
 `ustrip.(…)` in its arguments is flagged: a physical value is built from
@@ -1600,7 +1605,11 @@ const _UNIT_NAME_STRINGS = Set([
     "mm", "cm", "m", "um", "μm", "inch", "in", "ft", "pt", "px", "pd", "dpi",
     "mm/px", "μm/px", "um/px", "px/mm",
 ])
-const _CONVERSION_FACTORS = (25.4,)   # mm per inch
+const _CONVERSION_FACTORS = (25.4, 0.0254, 304.8, 0.3048)   # mm or m per inch and per foot
+# the registry's exact ratios, spelled as Rational literals (inch, its inverse, foot, point)
+const _RATIONAL_FACTORS = ((127, 5000), (5000, 127), (381, 1250), (127, 360000))
+# the RegistryTools constructors a unit or a registry is built with
+const _REGISTRY_BUILDERS = (:Units, :AffineTransform, :PermanentDict, :register_unit!, :registry_defaults!)
 
 _unit_rule_callee(f::Symbol) = f
 _unit_rule_callee(f::GlobalRef) = f.name
@@ -1679,6 +1688,10 @@ function _unit_rules!(out, f, ex, in_test::Bool)
                 _constructor_name(x.args[1]) in _PHYSICAL_CONSTRUCTORS && any(_holds_ustrip, x.args[2:end]) &&
                     flag(string(_constructor_name(x.args[1]), "(… ustrip …)"))
                 name in (:uparse, :qparse, :register_unit) && flag(string(name, "(…)"))
+                _constructor_name(x.args[1]) in _REGISTRY_BUILDERS && flag(string(_constructor_name(x.args[1]), "(…)"))
+                !in_test && name === :ubase && flag("ubase(…)")
+                !in_test && name === :// && length(x.args) == 3 && (x.args[2], x.args[3]) in _RATIONAL_FACTORS &&
+                    flag(string(x.args[2], "//", x.args[3]))
                 name === :convert && length(x.args) >= 2 && _is_quantity_type(x.args[2]) && flag("convert(Quantity{…}, …)")
                 name in (:Dict, :tuple) && _unit_name_count(x) >= 2 && flag("a table of unit names")
             elseif x.head in (:tuple, :vect)

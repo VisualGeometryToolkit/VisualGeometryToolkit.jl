@@ -328,6 +328,15 @@ end
         @test rules("src/a.jl" => "const D = Dict(\"mm\" => 1, \"inch\" => 2)\n") == [:R11]
         @test rules("src/a.jl" => "const C = ((\"mm\", 1), (\"mm/px\", 2))\n") == [:R11]
         @test rules("src/a.jl" => "f(x) = x * 25.4\n") == [:R11]
+        @test rules("src/a.jl" => "f(x) = x * 0.3048\n") == [:R11]
+        @test rules("src/a.jl" => "f(x) = x * (127 // 5000)\n") == [:R11]
+        # a unit or a registry is built in the units module, from RegistryTools, and nowhere else
+        @test rules("src/a.jl" => "const furlong = Units(\"furlong\" => 201.168 * m)\n") == [:R11]
+        @test rules("src/a.jl" => "t = AffineTransform{Rational{Int}}(scale = 1 // 1000)\n") == [:R11]
+        @test rules("test/a.jl" => "R = PermanentDict{Symbol, U}()\nregistry_defaults!(R)\n") == [:R11]
+        @test rules("ext/a.jl" => "FlexUnits.RegistryTools.register_unit!(R, \"px\" => d)\n") == [:R11]
+        # a stored quantity is base_quantity(q), never a bare ubase (which keeps 142mm's Rational)
+        @test rules("src/a.jl" => "q = ubase(q)\n") == [:R11]
         # a pose or a target is built from quantities, never from stripped numbers
         one_r11(files::Pair...) = map(v -> v.rule, findings(files...)) == [:R11]
         @test one_r11("src/a.jl" => "X = EuclideanMap(R, ustrip.(mm, t))\n")
@@ -347,7 +356,8 @@ end
         # must NOT flag: a test stating an expected value, prose, the units
         # module's own verbs, one unit name
         @test quiet("test/a.jl" => "@test ustrip(mm, 1.0inch) ≈ 25.4\n")
-        @test quiet("src/a.jl" => "# uparse(\"mm\") is the registry's\nu = parse_unit(s)\nq = ubase(q)\nv = strip_or_bare(px, x)\n")
+        @test quiet("src/a.jl" => "# uparse(\"mm\") is the registry's\nu = parse_unit(s)\nq = base_quantity(q)\nv = strip_or_bare(px, x)\n")
+        @test quiet("test/a.jl" => "@test ubase(142mm) == 71 // 500 * m\n@test uscale(inch) === 127 // 5000\n")
         @test quiet("src/a.jl" => "d = Dict(\"value\" => 1.0, \"unit\" => \"px\")\n")
         # the units module itself is the rule's home
         @test quiet(

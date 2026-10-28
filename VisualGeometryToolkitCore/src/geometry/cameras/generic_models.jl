@@ -705,6 +705,30 @@ function backproject(m::CentralGenericModel, pixel)
 end
 
 """
+    backproject_with_jacobian(m::CentralGenericModel, u) -> (f, M)
+
+The unit bearing `f` of the pixel `u` (COLMAP frame) and its back-projection
+Jacobian `M = ∂f/∂u` (3×2), the derivative of the normalized spline value —
+tangent to the sphere (`fᵀM = 0`) by construction. The parametric cameras'
+[`backproject_with_jacobian`](@ref) for the generic model: what puts a bearing
+residual's threshold in pixels (the essential and rotation problems'
+`M₁`/`M₂` columns). `(NaN, NaN)` outside the calibrated area; never throws.
+"""
+function backproject_with_jacobian(m::CentralGenericModel, u::StaticVector{2})
+    x = SVector{2, Float64}(u[1], u[2])
+    nanf = SVector{3, Float64}(NaN, NaN, NaN)
+    nanM = SMatrix{3, 2, Float64, 6}(ntuple(_ -> NaN, Val(6)))
+    _in_calibrated_area(m, x[1], x[2]) || return nanf, nanM
+    function dir(p)
+        gx, gy = _grid_coords(m, p[1], p[2])
+        d = _eval_window(m.grid, _spline_window(gx, gy)...)
+        return SVector{3}(d) / norm(d)
+    end
+    f, M = _value_and_jacobian(dir, x)
+    return SVector{3, Float64}(f), SMatrix{3, 2, Float64, 6}(M)
+end
+
+"""
     backproject(m::NoncentralGenericModel, pixel) -> Ray3 | nothing
 
 The observation LINE of `pixel`: both grids evaluated with the same spline

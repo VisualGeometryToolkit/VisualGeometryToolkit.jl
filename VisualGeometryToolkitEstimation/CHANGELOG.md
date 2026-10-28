@@ -7,8 +7,9 @@
 - **`RotationProblem` and `find_rotation`**: the pure rotation between two
   calibrated views (the infinite homography) by RANSAC on unit bearings with
   their back-projection Jacobians — VisualGeometryToolkitCore's `Rotation2pt`,
-  the two-sided bearing transfer Sampson residual in pixels, the chart-LM refit
-  on the rotation block of `LeftRigidManifold6` through the transfer rows;
+  the Sampson distance of the joint measurement (`Σ = I`) to the bearing
+  transfer constraint, in pixels, the chart-LM refit
+  on VisualGeometryToolkitCore's `SO3Manifold` through the transfer rows;
   `[pipelines.rotation]` (1 px, the essential problem's convention). The
   bearing checks and the sub-detector half-width refusal of the essential
   problem are shared (`_BearingProblem`).

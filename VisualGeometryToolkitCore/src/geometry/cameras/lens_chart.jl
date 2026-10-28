@@ -268,11 +268,13 @@ function _parameter_manifold(x, box, scale = nothing)
 end
 
 """
-    coordinate_scale(ch::ParameterManifold) -> SVector{N, Float64} or nothing
+    coordinate_scale(ch::ParameterManifold) -> SVector{N, T} or nothing
 
 The coordinate scales of a [`ParameterManifold`](@ref) built with `scale`,
 entry by entry over [`parameter_vector`](@ref) (`1` for a name the scale does
-not list); `nothing` for a manifold without one (every scale `1`).
+not list), in the float type of the scales given (`Float32` scales keep a
+retraction of `Float32` coordinates in `Float32`); `nothing` for a manifold
+without one (every scale `1`).
 """
 coordinate_scale(ch::ParameterManifold) = ch.scale
 
@@ -287,7 +289,8 @@ function _resolved_scale(x, scale::NamedTuple)
         (isfinite(scale[k]) && scale[k] > 0) || throw(ArgumentError("ParameterManifold: the scale of $(repr(k)) is $(scale[k]), not a positive number"))
     end
     N = length(names)
-    return SVector{N, Float64}(ntuple(i -> haskey(scale, names[i]) ? Float64(scale[names[i]]) : 1.0, Val(N)))
+    T = float(promote_type(map(typeof, values(scale))...))      # the scales' own float type: a Float32 retraction stays Float32
+    return SVector{N, T}(ntuple(i -> haskey(scale, names[i]) ? T(scale[names[i]]) : one(T), Val(N)))
 end
 # A coordinate vector in chart offsets (× the scale), and back.
 @inline _scaled_offsets(::Nothing, v) = v

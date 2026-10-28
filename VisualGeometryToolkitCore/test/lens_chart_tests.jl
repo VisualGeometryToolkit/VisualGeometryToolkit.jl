@@ -461,7 +461,7 @@ end
     using Test, StaticArrays, LinearAlgebra
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: ParameterManifold, coordinate_scale, retract, recenter, restrict, model, parameters,
-                                     retract_jacobian, action_jacobian, local_coordinates
+                                     retract_jacobian, action_jacobian, local_coordinates, parameter_vector
     W, H = 640, 480
     lens = KannalaBrandt(-0.03, 0.002, 0.0005, -0.0001)
     Kp = SMatrix{3, 3, Float64}(310.0, 0, 0, 0.4, 312.0, 0, 322.0, 236.0, 1)                  # pixels (a small skew)
@@ -490,4 +490,9 @@ end
     # restrict keeps it
     r = restrict(ch, (:f, :cx, :cy, :k1))
     @test coordinate_scale(r.manifold) == coordinate_scale(ch)
+    # Float32 scales keep a Float32 model's retraction in Float32 (a GPU kernel's camera)
+    cam32 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float32}(Kp))), KannalaBrandt(-0.03f0, 0.002f0, 0.0005f0, -0.0001f0))
+    ch32 = ParameterManifold(cam32; scale = (; skew = Float32(W), cx = Float32(W), cy = Float32(H)))
+    @test eltype(coordinate_scale(ch32)) === Float32 && eltype(coordinate_scale(ch)) === Float64
+    @test eltype(parameter_vector(retract(ch32, Float32.(v)))) === Float32
 end

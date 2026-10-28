@@ -144,6 +144,14 @@
             # past the fold radius no point is imaged
             isfinite(r_dom) && @test all(isnan, backproject(lens, SVector(1.001 * r_dom, 0.0)))
         end
+        # ξ = 1: both ends are the antipode, where the forward map is 0/0; the radius is its limit 1/α (the scan's
+        # supremum), not the second stage's fold radius 1/√(2α − 1) (α > ½) nor Inf (α ≤ ½)
+        for α in (0.7, 0.5, 0.3)
+            _, r_end = scanned_end(1.0, α)
+            r_dom = VgtkCore.Cameras._imaging_domain_radius(Lens(DoubleSphere(1.0, α)))
+            @test r_dom == 1 / α
+            @test r_dom ≈ r_end rtol = 1.0e-4
+        end
         # the probe's case: the paper's bound (95.1°) cut the injective profile, which reaches 105.2°
         lens = Lens(DoubleSphere(-0.6, 0.6))
         X = ray(deg2rad(104.0))

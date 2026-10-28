@@ -290,10 +290,14 @@ _frame_cap(p::AbstractProjection) = (C = projection_frame(p); C === nothing ? In
 # The double sphere: the image radius where its profile ends (`_ds_end_cos`).
 # At the second stage's end it is that stage's fold radius 1/√(2α − 1) for
 # α > 1/2, and unbounded at its pole (α ≤ 1/2); at the first sphere's fold
-# (ξ > 1) it is the forward map's radius there.
+# (ξ > 1) it is the forward map's radius there. At ξ = 1 both ends are the
+# antipode θ = π, where the forward map is 0/0: its limit there, r → 1/α
+# (s ≈ ε, z_s ≈ ε²/2, d₂ ≈ ε as θ = π − ε), is the radius — not the second
+# stage's fold radius, which the profile never reaches.
 function _frame_domain(p::DoubleSphere)
     ξ, α = Float64(p.xi), Float64(p.alpha)
     c, second_stage = _ds_end_cos(p)
+    ξ == 1 && return 1 / α
     second_stage && return α > 0.5 ? 1 / sqrt(2α - 1) : Inf
     s = sqrt(1 - c^2)
     zs = ξ + c

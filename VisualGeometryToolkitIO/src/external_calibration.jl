@@ -426,14 +426,14 @@ end
 function _kalibr_field(block::AbstractString, key::AbstractString, path)
     mt = match(Regex("^\\s+$(key)\\s*:\\s*(.*?)\\s*\$", "m"), block)
     mt === nothing && throw(ArgumentError("$(path): the camera has no `$(key)`"))
-    return mt.captures[1]
+    return String(something(mt.captures[1]))
 end
 function _kalibr_numbers(block::AbstractString, key::AbstractString, path)
     s = _kalibr_field(block, key, path)
     mt = match(r"^\[(.*)\]$", s)
     mt === nothing && throw(ArgumentError("$(path): `$(key)` is not a flow list, `[a, b, …]`"))
     out = Float64[]
-    for x in split(mt.captures[1], ','; keepempty = false)
+    for x in split(something(mt.captures[1]), ','; keepempty = false)
         v = tryparse(Float64, strip(x))
         (v === nothing || !isfinite(v)) && throw(ArgumentError("$(path): `$(key)` holds `$(strip(x))`, not a finite number"))
         push!(out, v)

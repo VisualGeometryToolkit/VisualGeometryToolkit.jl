@@ -110,6 +110,8 @@
         for p in (SVector(10.0, 20.0), SVector(633.3, 471.9), SVector(-25.0, 300.0), SVector(700.0, -40.0), SVector(W, H))
             @test spline_value(C, area, p) ≈ lin(p...) atol = 1e-12
         end
+        # an integer pixel reads as the same float pixel
+        @test spline_value(C, Rect2(0.5, 0.5, 100, 100), SVector(10, 10)) == spline_value(C, Rect2(0.5, 0.5, 100, 100), SVector(10.0, 10.0))
         m = CentralGenericModel(W, H, 0, 0, W - 1, H - 1, G; unit_controls = false)
         for p in inside[1:50]
             ix, iy, wx, wy = spline_window(m, p)

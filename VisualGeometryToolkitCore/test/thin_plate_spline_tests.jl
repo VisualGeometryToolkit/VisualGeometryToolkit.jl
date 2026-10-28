@@ -257,6 +257,10 @@ end
     c = fill(2.5, 30)
     wc, ac = spherical_spline_coefficients(sys, c)
     @test spherical_spline_evaluate(sys, wc, ac, q) ≈ 2.5 rtol = 1.0e-10
+    # integer nodal values: float coefficients, the same as the values as floats
+    vi = collect(1:30)
+    wi, ai = spherical_spline_coefficients(sys, vi)
+    @test eltype(wi) === Float64 && (wi, ai) == spherical_spline_coefficients(sys, Float64.(vi))
     @test abs(bending_energy(sys, c)) <= 1.0e-9 && bending_energy(sys, vals) > 0
     L = bending_factor(sys)
     @test sum(abs2, L * vals) ≈ bending_energy(sys, vals) rtol = 1.0e-9

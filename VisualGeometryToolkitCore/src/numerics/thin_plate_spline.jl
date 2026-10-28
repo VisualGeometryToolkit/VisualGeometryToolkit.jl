@@ -299,8 +299,9 @@ linear in them and generic in their element type, as
 """
 function spherical_spline_coefficients(sys::SphericalSplineSystem{N}, t::AbstractVector{T}) where {N, T}
     length(t) == N || throw(DimensionMismatch("expected $N nodal values, got $(length(t))"))
+    F = float(T)                                       # integer nodal values give float coefficients
     wa = sys.coeff * t
-    return SVector{N, T}(ntuple(i -> wa[i], Val(N))), T(wa[N + 1])
+    return SVector{N, F}(ntuple(i -> wa[i], Val(N))), F(wa[N + 1])
 end
 
 """

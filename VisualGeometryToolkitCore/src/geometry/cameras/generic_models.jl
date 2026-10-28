@@ -383,7 +383,7 @@ _device_domain(d) = isbitstype(typeof(d)) ? d : WholePlane()
 # stays Float32); for a Float64 pixel `T(g − 3) / T(span)` is the `Int / Int`
 # it always was.
 @inline _grid_scale(m_min, m_max, gdim) = (gdim - 3) / (m_max + 1 - m_min)
-@inline _lattice_coord(x, lo, span, gdim) = (T = typeof(x); 1 + (T(gdim - 3) / T(span)) * (x - T(lo)))
+@inline _lattice_coord(x, lo, span, gdim) = (T = float(typeof(x)); 1 + (T(gdim - 3) / T(span)) * (x - T(lo)))   # an integer pixel reads as a float
 @inline _grid_coord(x, m_min, m_max, gdim) = _lattice_coord(x, m_min, m_max + 1 - m_min, gdim)
 
 # Pixel (COLMAP) → grid coordinates.

@@ -117,6 +117,20 @@ end
         @test_throws ArgumentError load(TargetPoints2D, joinpath(FIXTURES, "central_intrinsics0.yaml"); target = :pattern)
         bad = joinpath(dir, "v1.bin"); b = read(path); b[14] = 0x01; write(bad, b)     # version 1
         @test_throws ArgumentError load(TargetPoints2D, bad; target = :pattern)
+        # a corrupt length or a truncated file: an ArgumentError naming it, never a short read or an EOFError
+        b = read(path)
+        nname = Int(ntoh(reinterpret(UInt32, b[31:34])[1]))         # image set 1's name length (big-endian), after the 30-byte header
+        nf_at = 35 + nname                                            # its feature count
+        for (desc, c) in (
+                "truncated in the features" => b[1:(nf_at + 3 + 6)],
+                "truncated in the header" => b[1:20],
+                "a name length past the end" => (c = copy(b); c[31:34] .= 0x7f; c),
+                "a feature count past the end" => (c = copy(b); c[nf_at:(nf_at + 3)] .= 0x7f; c),
+            )
+            p2 = joinpath(dir, "bad.bin"); write(p2, c)
+            e = try load(TargetPoints2D, p2; target = :pattern); nothing catch e; e end
+            @test e isa ArgumentError && occursin("calib_data", e.msg)
+        end
     end
 end
 

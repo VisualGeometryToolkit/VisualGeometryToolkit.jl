@@ -139,10 +139,20 @@ end
 _be_u32(io) = Int(ntoh(read(io, UInt32)))
 _be_i32(io) = Int(ntoh(read(io, Int32)))
 
+# A length read from the file is checked against the bytes left before
+# anything is read or allocated by it: a corrupt length is an ArgumentError
+# naming the field, never a short read or an EOFError deeper in.
+function _check_left(io, nbytes::Integer, path, what)
+    left = filesize(io) - position(io)
+    (0 <= nbytes <= left) || throw(ArgumentError("$(path): truncated or corrupt calib_data: $(what) needs $(nbytes) bytes, $(left) left"))
+    return nothing
+end
+
 function _load_schoeps_dataset(path::AbstractString, target::Symbol)
     frames = Dict{Int, Vector{TargetPoint2D}}()
     images = Dict{Int, String}()
     open(path, "r") do io
+        _check_left(io, 10 + 5 * 4, path, "the header")
         String(read(io, 10)) == "calib_data" || throw(ArgumentError("$(path): not a Schöps calib_data file"))
         version = _be_u32(io)
         version == 0 || throw(ArgumentError("$(path): calib_data version $(version); version 0 is read"))
@@ -150,9 +160,14 @@ function _load_schoeps_dataset(path::AbstractString, target::Symbol)
         ncam == 1 || throw(ArgumentError("$(path): $(ncam) cameras; one camera's detections are read"))
         _be_u32(io); _be_u32(io)                       # the camera's width, height
         nsets = _be_u32(io)
+        _check_left(io, 8 * nsets, path, "$(nsets) image sets")
         for t in 1:nsets
-            images[t] = String(read(io, _be_u32(io)))
+            _check_left(io, 4, path, "image set $(t)'s name length")
+            nname = _be_u32(io)
+            _check_left(io, nname + 4, path, "image set $(t)'s name ($(nname) bytes) and feature count")
+            images[t] = String(read(io, nname))
             nf = _be_u32(io)
+            _check_left(io, 12 * nf, path, "image $(images[t])'s $(nf) features")
             points = Vector{TargetPoint2D}(undef, nf)
             for k in 1:nf
                 x = Float64(ltoh(read(io, Float32))); y = Float64(ltoh(read(io, Float32))); id = _be_i32(io)

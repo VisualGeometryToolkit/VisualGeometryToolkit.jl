@@ -78,7 +78,7 @@ module VisualGeometryToolkitIO
 
 import VisualGeometryToolkitCore as VgtkCore
 
-using StaticArrays: SMatrix, SVector, StaticMatrix
+using StaticArrays: SMatrix, SVector, StaticMatrix, StaticVector
 using LinearAlgebra: norm
 using Statistics: cov
 using Rotations: QuatRotation, RotMatrix, RotationVec, RotZ, params

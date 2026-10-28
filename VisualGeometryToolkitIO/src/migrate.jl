@@ -366,24 +366,57 @@ _resave_kwargs(old::AbstractDict) = merge(
     haskey(old, "length_unit") ? (; length_unit = parse_unit(old["length_unit"]::String)) : (;), (; provenance = _provenance_of(old)),
 )
 
-# Two parsed trees, number for number: the same keys, the same strings, and
-# every number the same Float64 (an integer `0` and `0.0` agree; the sign of a
-# zero must) — or, in a file that declares its length unit `u`, the same LENGTH:
-# a full-precision file number has no metre value that writes back to its own
-# text (lengths.jl), so its rewrite may differ in the file by up to 2 ulp; it
-# then reads as the same metre value (or m², a covariance entry), within the
-# conversion's 2-ulp guarantee. The values are compared, not the text. A number
-# that is not a length is written from the identical Float64 by every writer,
-# so it comes back bit for bit.
-_same_tree(a::AbstractDict, b::AbstractDict, u = nothing) = Set(keys(a)) == Set(keys(b)) && all(k -> _same_tree(a[k], b[k], u), keys(a))
-_same_tree(a::AbstractVector, b::AbstractVector, u = nothing) = length(a) == length(b) && all(i -> _same_tree(a[i], b[i], u), eachindex(a))
-_same_tree(a::Real, b::Real, u = nothing) = !(a isa Bool) && !(b isa Bool) ? _same_file_number(Float64(a), Float64(b), u) : a === b
-_same_tree(a, b, u = nothing) = isequal(a, b)
-_same_file_number(x::Float64, y::Float64, ::Nothing) = x === y
-_same_file_number(x::Float64, y::Float64, u::Units) =
-    x === y || (isfinite(x) && isfinite(y) && any(n -> _same_metres(_read_power(x, u, n), _read_power(y, u, n)), (1, 2)))
-# The length unit a parsed file declares, or `nothing`.
-_file_unit(d::AbstractDict) = haskey(d, "length_unit") ? parse_unit(d["length_unit"]::String) : nothing
+# The migration's comparison is of TYPED records: the old file read by the
+# migration's reader and the new file read by the current reader are compared
+# value for value. A length — a quantity of dimension length or length², or a
+# covariance entry whose two parameters' length powers add up to 1 or 2 — is
+# compared as its metre value within the length conversion's guarantee (2 ulp,
+# `_same_metres`): a full-precision file number has no metre value that writes
+# back to its own text (lengths.jl). Every other number — a rotation, a
+# quaternion, a focal length or principal point, a lens coefficient, a pixel, a
+# time, a dimensionless quantity — is written from the identical Float64 by
+# every writer and must come back bit for bit (`===`).
+_same_value(a::Quantity, b::Quantity) =
+    dimension(a) == dimension(b) &&
+    (dimension(a) in (dimension(m), dimension(m * m)) ? _same_metres(Float64(ustrip(a)), Float64(ustrip(b))) : ustrip(a) === ustrip(b))
+_same_value(a::AbstractFloat, b::AbstractFloat) = a === b
+_same_value(a::Union{Number, AbstractString, Symbol, Nothing, Missing}, b) = typeof(a) === typeof(b) && isequal(a, b)
+_same_value(a::AbstractDict, b::AbstractDict) = typeof(a) === typeof(b) && Set(keys(a)) == Set(keys(b)) && all(k -> _same_value(a[k], b[k]), keys(a))
+_same_value(a::AbstractArray, b) = typeof(a) === typeof(b) && size(a) == size(b) && all(i -> _same_value(a[i], b[i]), eachindex(a))
+_same_value(a::Union{Tuple, NamedTuple}, b) = typeof(a) === typeof(b) && all(i -> _same_value(a[i], b[i]), 1:length(a))
+function _same_value(a::Uncertain, b::Uncertain)
+    typeof(a) === typeof(b) && _same_value(geom(a), geom(b)) || return false
+    Σa, Σb = cov(a), cov(b)
+    p = _cov_length_powers(geom(a))
+    return size(Σa) == size(Σb) && all(
+        CartesianIndices(Σa)) do I
+            n = p === nothing ? 0 : p[I[1]] + p[I[2]]
+            n == 0 ? Σa[I] === Σb[I] : _same_metres(Float64(Σa[I]), Float64(Σb[I]))
+        end
+end
+# A non-central model's points are plain metres (its directions are not lengths).
+_same_value(a::NoncentralGenericModel, b::NoncentralGenericModel) =
+    typeof(a) === typeof(b) && all(f -> f === :points ?
+        all(map((p, q) -> all(map(_same_metres, Float64.(p), Float64.(q))), getfield(a, f), getfield(b, f))) && size(a.points) == size(b.points) :
+        _same_value(getfield(a, f), getfield(b, f)), fieldnames(typeof(a)))
+# Any other value: field by field.
+function _same_value(a, b)
+    typeof(a) === typeof(b) || return false
+    isempty(fieldnames(typeof(a))) && return isequal(a, b)
+    return all(f -> _same_value(getfield(a, f), getfield(b, f)), fieldnames(typeof(a)))
+end
+# The length power of each parameter a covariance is over: a pose's (rotation
+# then translation), a point's (every coordinate a length), a target
+# calibration's (`length_mask`); `nothing` (every entry compared bit for bit)
+# for anything else.
+_cov_length_powers(::EuclideanMap) = _POSE_COV_DIMS
+_cov_length_powers(x::StaticVector) = ntuple(_ -> 1, length(x))
+_cov_length_powers(x) = applicable(length_mask, x) ? Tuple(Int.(length_mask(x))) : nothing
+
+# What the file holds beside its value: the length unit it declares and its
+# provenance (which no value carries), compared as they are.
+_same_file_extras(new::AbstractDict, old::AbstractDict) =
+    all(k -> isequal(get(new, k, nothing), get(old, k, nothing)), ("length_unit", "provenance"))
 
 # The old record's keys renamed to the new, and back. A target body's `warp`
 # (v1: rigid only, `{"type": "rigid"}` — already the v2 calibration record) is
@@ -408,33 +441,28 @@ function _target_v1_to_v2(old)
     body["target"] = _body_v1_to_v2(old["target"])
     return body
 end
-function _target_v2_to_v1(new, old)
-    back = _renamed(new, ("calibration_record" => "calibration",))
-    back["schema"] = old["schema"]
-    back["target"] = _body_v2_to_v1(new["target"])
-    return back
-end
 
 # The guarded migration of a VGIo record: the old tree at `src` renamed into the
 # current record (`forward(old)`), read by the current reader as a `T` (validated
 # there), written by the current writer to `dst` in the old file's unit and with
-# its provenance, read back, and every number compared with the old file once
-# renamed back (`backward(new, old)`). Returns the old tree and the value.
-function _migrate_record(::Type{T}, spec, src::AbstractString, dst::AbstractString, forward, backward, what) where {T}
+# its provenance, read back as a `T` and compared with the old value
+# (`_same_value`: a length within the conversion's guarantee, every other
+# number bit for bit), its unit and provenance with the old file's. Returns the
+# old tree and the value.
+function _migrate_record(::Type{T}, spec, src::AbstractString, dst::AbstractString, forward, what) where {T}
     old = _raw_tree(src)
     staged = dst * ".staged.json"
     _write_store(staged, spec, forward(old))
     value = load(T, staged)
     rm(staged)
     save(dst, value; _resave_kwargs(old)...)
-    load(T, dst)
-    _verify(_same_tree(backward(_raw_tree(dst), old), old, _file_unit(old)), src, what)
+    _verify(_same_value(value, load(T, dst)) && _same_file_extras(_raw_tree(dst), old), src, what)
     return old, value
 end
 
 # vgio/target/v1 → vgio/target/v2
 function migrate_schema(::Val{Symbol("vgio/target/v1")}, src::AbstractString, dst::AbstractString)
-    _migrate_record(AbstractTarget, _TARGET_SPEC, src, dst, _target_v1_to_v2, _target_v2_to_v1, "the target record")
+    _migrate_record(AbstractTarget, _TARGET_SPEC, src, dst, _target_v1_to_v2, "the target record")
     return (; to = _schema("target"))
 end
 
@@ -443,7 +471,7 @@ end
 # hash); both are reported, so the measurement files naming the rig are
 # re-pointed (`vgio_migrate_tree`).
 function migrate_schema(::Val{Symbol("vgio/rig/v4")}, src::AbstractString, dst::AbstractString)
-    old, value = _migrate_record(Rig, _RIG_SPEC, src, dst, _rig_v4_to_v5, _rig_v5_to_v4, "the rig record")
+    old, value = _migrate_record(Rig, _RIG_SPEC, src, dst, _rig_v4_to_v5, "the rig record")
     old_ids = unique!([_rig_v4_id(old), _rig_v4_id_mm(value, old, dst)])
     return (; to = _schema("rig"), old_id = first(old_ids), old_ids, new_id = content_id(dst))
 end
@@ -565,11 +593,10 @@ function _repoint_targets(
     unchecked = _check_resolves_by_id(obs, _target_rigs(named; resolve), path)
     return write_staged(out => basename(path); dry_run) do staged
         save(staged, typeof(obs)(obs.frames; images = obs.images, sensors = obs.sensors, times = obs.times, time_origin = obs.time_origin, targets); _resave_kwargs(old)...)
-        new = _raw_tree(staged)
-        _verify(load(T, staged).targets == targets, path, "its targets")
-        back = copy(new)
-        haskey(old, "targets") && (back["targets"] = old["targets"])
-        _verify(_same_tree(back, old, _file_unit(old)), path, "the measurements")
+        re = load(T, staged)
+        _verify(re.targets == targets, path, "its targets")
+        _verify(all(f -> f === :targets || _same_value(getfield(re, f), getfield(obs, f)), fieldnames(typeof(obs))) &&
+            _same_file_extras(_raw_tree(staged), old), path, "the measurements")
         (; path = String(path), out = dry_run ? nothing : String(out), repointed, unchecked)
     end
 end

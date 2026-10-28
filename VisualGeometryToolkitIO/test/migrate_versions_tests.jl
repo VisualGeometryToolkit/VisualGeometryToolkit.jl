@@ -84,6 +84,35 @@ end
     end
 end
 
+@testitem "the migration compares typed records: a length within its guarantee, every other number bit for bit" setup = [VGIoFixtures, MigrateFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: Rig
+    # the old file and a "new" file in mm that differs in one number by one ulp: a length is accepted (the
+    # conversion's 2-ulp guarantee), a quaternion component or a focal length is refused — the former file-tree
+    # comparison gave every number under a declared unit the length tolerance
+    text = read(units_fixture("rig.json"), String)
+    q, t, f = 0.9233805168766387, "251.9", "\"fx\": 900.0"
+    @test occursin(repr(q), text) && occursin(t, text) && occursin(f, text)
+    mktempdir() do dir
+        rd(s) = (p = joinpath(dir, "r$(hash(s)).json"); write(p, s); load(Rig, p))
+        old = rd(text)
+        @test VgtkIO._same_value(old, rd(text))
+        @test VgtkIO._same_value(old, rd(replace(text, t => repr(nextfloat(251.9)))))                     # a length: accepted
+        @test !VgtkIO._same_value(old, rd(replace(text, repr(q) => repr(nextfloat(q)))))                 # a quaternion: refused
+        @test !VgtkIO._same_value(old, rd(replace(text, f => "\"fx\": $(repr(nextfloat(900.0)))")))     # a focal length: refused
+        @test !VgtkIO._same_value(old, rd(replace(text, t => "252.0")))                                  # a length beyond 2 ulp: refused
+    end
+    # a covariance entry by its parameters' length powers: a pose's rotation block bit for bit, its translation block within 2 ulp
+    using VisualGeometryToolkitCore: EuclideanMap, Uncertain, CovMat
+    using LinearAlgebra: I, Diagonal
+    P = EuclideanMap(RotMatrix{3}(Matrix(1.0I, 3, 3)), SVector(1.0, 2.0, 3.0) .* VisualGeometryToolkitCore.m)
+    Σ = Matrix(Diagonal(fill(1.0e-4, 6)))
+    U(Σ) = Uncertain(P, CovMat{6, Float64, 36}(Tuple(Σ)))
+    Σt = copy(Σ); Σt[5, 5] = nextfloat(Σt[5, 5])
+    Σr = copy(Σ); Σr[2, 2] = nextfloat(Σr[2, 2])
+    @test VgtkIO._same_value(U(Σ), U(Σt)) && !VgtkIO._same_value(U(Σ), U(Σr))
+end
+
 @testitem "vgio_migrate: a few hundred random full-precision lengths and covariances all migrate" setup = [VGIoFixtures, MigrateFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     using Random: Xoshiro

@@ -95,8 +95,11 @@ end
 
 # OpenCV's camera (calibrateCamera's `K` in its own pixel frame, `PixelFrame{:opencv}`: the top-left pixel
 # centre at (0, 0), and the distortion vector) ↔ a VGC camera in the canonical COLMAP frame. The principal
-# point moves by VGC's frame map, never by a hand-written half pixel; the round trip is bit-exact wherever
-# the half-pixel shift is (|c| ≥ ½ px, every real principal point).
+# point moves by VGC's frame map, never by a hand-written half pixel. The round trip is bit-exact wherever
+# the shift c + ½ is exact, which for c ≥ ½ fails only when c + ½ crosses into the next binade with one bit
+# fewer: c ∈ [2ᵏ − ½, 2ᵏ) with the last mantissa bit of c set (511.75000000000006, 2047.5000000000002 — a
+# 1024- or 4096-wide sensor's cx ≈ W/2 − ½); there the rounded c + ½ (ties to even) comes back one ulp of c
+# away. The reverse shift c′ − ½ is always exact.
 
 """
     opencv_camera([file_frame = PixelFrame{:opencv},] K, dist) -> CameraModel
@@ -107,6 +110,15 @@ OpenCV's own frame by default; no skew) and the distortion vector `dist`
 `CameraModel(LogicalIntrinsics(K′), lens)` with `K′`'s principal point in the
 canonical COLMAP frame, moved by `EuclideanMap(file_frame, PixelFrame{:colmap})`.
 Inverse of [`opencv_parameters`](@ref).
+
+The round trip `opencv_parameters(opencv_camera(K, dist))` returns `K` and
+`dist` bit for bit, with one exception that floating point forces: a principal
+point coordinate `c ≥ ½` in `[2ᵏ − ½, 2ᵏ)` whose last mantissa bit is set
+(such as `511.75000000000006` or `2047.5000000000002`) has no exact `c + ½`
+(the sum needs one bit more than its binade holds), and comes back within one
+ulp of `c` (`abs(c′ − c) == eps(c)`). Every other `c ≥ ½` — `511.5`, `2047.5`,
+any `c` with its last bit clear — comes back exactly. A file in another frame
+(`PixelFrame{:julia}`, whose map shifts by −½) round-trips exactly.
 """
 opencv_camera(K::AbstractMatrix{<:Real}, dist::AbstractVector{<:Real}) = opencv_camera(PixelFrame{:opencv}, K, dist)
 function opencv_camera(file_frame::Type{<:PixelFrame}, K::AbstractMatrix{<:Real}, dist::AbstractVector{<:Real})

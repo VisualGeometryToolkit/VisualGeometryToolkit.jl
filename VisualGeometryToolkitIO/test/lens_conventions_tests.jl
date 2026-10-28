@@ -87,12 +87,31 @@ end
     p = opencv_parameters(cam)
     @test p.K == K && p.dist == dist
     @test opencv_parameters(PixelFrame{:julia}, opencv_camera(PixelFrame{:julia}, K, dist)).K == K
+    # the principal point: exact unless c + ½ needs one bit more than its binade holds — c ∈ [2ᵏ − ½, 2ᵏ) with
+    # its last mantissa bit set — and then within one ulp of c (the documented exception)
+    lossy(c) = (k = exponent(c + 0.5); c >= 2.0^k - 0.5 && c < 2.0^k && isodd(reinterpret(UInt64, c)))
+    rtc(c) = opencv_parameters(opencv_camera([1000.0 0.0 c; 0.0 1000.0 c; 0.0 0.0 1.0], dist)).K[1, 3]
+    @test rtc(511.5) === 511.5 && rtc(2047.5) === 2047.5 && rtc(511.75) === 511.75 && rtc(1023.5) === 1023.5   # exact halves
+    for c in (511.75000000000006, 2047.5000000000002, prevfloat(512.0), prevfloat(1024.0), prevfloat(4096.0))
+        @test lossy(c) && rtc(c) != c && abs(rtc(c) - c) == eps(c)                     # the boundary cases: one ulp
+    end
+    for c in (nextfloat(511.75, 2), nextfloat(2047.5, 2), nextfloat(512.0), 0.5, 1.0, 1000.25, 3071.9999999999995)
+        @test !lossy(c) && rtc(c) === c
+    end
+    @test count(lossy, (511.75000000000006, 511.5, 2047.5000000000002, 2047.5)) == 2
+    # every other entry, any c, is the documented guarantee
     rng = MersenneTwister(7)
     for _ in 1:1000
         Kr = [100 + 4000rand(rng) 0.0 1 + 6000rand(rng); 0.0 100 + 4000rand(rng) 1 + 4000rand(rng); 0.0 0.0 1.0]
         dr = 0.1 .* randn(rng, rand(rng, (4, 5, 8, 12, 14)))
         q = opencv_parameters(opencv_camera(Kr, dr))
-        @test q.K == Kr && q.dist == dr
+        @test q.dist == dr && all(q.K[i] == Kr[i] for i in (1, 2, 3, 4, 5, 6, 9))
+        @test all(c -> lossy(c[2]) ? abs(c[1] - c[2]) == eps(c[2]) : c[1] === c[2], ((q.K[1, 3], Kr[1, 3]), (q.K[2, 3], Kr[2, 3])))
+    end
+    # another frame: the shift is −½ and the round trip exact at the boundary cases too
+    for c in (511.75000000000006, 2047.5000000000002, prevfloat(512.0))
+        Kj = [1000.0 0.0 c; 0.0 1000.0 c; 0.0 0.0 1.0]
+        @test opencv_parameters(PixelFrame{:julia}, opencv_camera(PixelFrame{:julia}, Kj, dist)).K == Kj
     end
     # refused: a skewed or non-pinhole K, a lens OpenCV does not compute, a camera without a calibration matrix
     @test_throws ArgumentError opencv_camera([1000.0 1.0 500.0; 0.0 1000.0 400.0; 0.0 0.0 1.0], dist)

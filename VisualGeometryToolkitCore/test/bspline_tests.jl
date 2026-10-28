@@ -197,7 +197,10 @@ end
     using Test, StaticArrays
     using ForwardDiff: ForwardDiff
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: bspline_basis, clamped_uniform_knots, bspline_basis_iterative
+    using VisualGeometryToolkitCore: bspline_basis, bspline_basis_iterative
+    using BSplineKit: BSplineKit, BSplineBasis, BSplineOrder, evaluate_all, knots
+    # a clamped uniform knot vector: BSplineKit's (`n` control points of degree `p` on [lo, hi]), as the static vector a kernel takes
+    clamped_uniform_knots(n, p, lo, hi) = SVector{n + p + 1}(knots(BSplineBasis(BSplineOrder(p + 1), range(lo, hi; length = n - p + 1))))
 
     function cdb(i, p, x, k)
         if p == 0
@@ -211,7 +214,6 @@ end
 
     kn = clamped_uniform_knots(7, 3, -0.5, 0.5)
     @test kn == SVector(-0.5, -0.5, -0.5, -0.5, -0.25, 0.0, 0.25, 0.5, 0.5, 0.5, 0.5)
-    @test_throws ArgumentError clamped_uniform_knots(3, 3, 0.0, 1.0)
     nonuniform = SVector(0.0, 0.0, 0.0, 0.1, 0.35, 0.4, 0.9, 1.0, 1.0, 1.0)   # degree 2, a near-double interior
     xs = vcat(collect(range(-0.5, 0.5; length = 101)), [-0.25, 0.0, 0.25])     # the knots themselves included
     for T in (Float64, Float32)
@@ -238,37 +240,97 @@ end
     lower = bspline_basis(kd, Val(2), 0.13)
     ref = [3 * ((i >= 2 ? lower[i - 1] / (kn[i + 3] - kn[i]) : 0.0) - (i <= 6 ? lower[i] / (kn[i + 4] - kn[i + 1]) : 0.0)) for i in 1:7]
     @test d ≈ ref rtol = 1.0e-12
+    # the scalar basis IS BSplineKit's on the same knots (the test that justifies a kernel's copy)
+    for (k, p) in ((kn, 3), (nonuniform, 2), (clamped_uniform_knots(9, 3, 0.0, 4.0), 3))
+        B = BSplineBasis(BSplineOrder(p + 1), collect(k); augment = Val(false))
+        for x in range(first(k), last(k); length = 57)
+            i, vals = evaluate_all(B, x)
+            ref = zeros(length(k) - p - 1)
+            for (m, v) in enumerate(vals)
+                ref[i - m + 1] = v
+            end
+            @test bspline_basis(k, Val(p), x) ≈ ref atol = 1.0e-14
+        end
+    end
     # the broadcast form is the scalar basis at every point
     u = Float32.(range(-0.5, 0.5; length = 37))
     Nb = bspline_basis_iterative(u, 3, Float32.(collect(kn)))
     @test all(Nb[i][j] == bspline_basis(SVector{11, Float32}(kn), Val(3), u[j])[i] for i in 1:7, j in eachindex(u))
 end
 
-@testitem "bspline: second_difference_rows" begin
-    using Test
-    using VisualGeometryToolkitCore: second_difference_rows, second_difference_stencils
-    using LinearAlgebra: rank, I
-    # a sequence: rows (1, −2, 1); an affine sequence has no roughness, a parabola a constant one
-    D = second_difference_rows(5)
-    @test size(D) == (3, 5)
-    @test D[1, 1:3] == [1.0, -2.0, 1.0] && D[3, 3:5] == [1.0, -2.0, 1.0]
-    @test D * collect(2.0 .+ 3.0 .* (1:5)) ≈ zeros(3) atol = 1e-12
-    @test D * collect(Float64, (1:5) .^ 2) ≈ fill(2.0, 3)
-    @test size(second_difference_rows(2)) == (0, 2) && size(second_difference_rows(1)) == (0, 1)
-    # a lattice (column-major vec): the first index's differences, then the second's; null space 1, i, j, i·j
-    nx, ny = 4, 3
-    L = second_difference_rows(nx, ny)
-    @test size(L) == ((nx - 2) * ny + nx * (ny - 2), nx * ny)
-    @test nx * ny - rank(L) == 4
-    for f in ((i, j) -> 1.0, (i, j) -> i, (i, j) -> j, (i, j) -> i * j)
-        @test L * vec([f(i, j) for i in 1:nx, j in 1:ny]) ≈ zeros(size(L, 1)) atol = 1e-12
+@testitem "bspline: the bending energy and the natural boundary condition (BSplineKit)" begin
+    using Test, StaticArrays, LinearAlgebra
+    using VisualGeometryToolkitCore: cubic_lattice_basis, bending_gram, bending_rows, bending_stencils, natural_extrapolation
+    using BSplineKit: BSplineKit, Spline, Derivative, BSplineBasis, BSplineOrder, boundaries
+    using QuadGK: gauss
+    using Random: Xoshiro
+
+    rng = Xoshiro(11)
+    nx, ny, hx, hy = 7, 6, 12.5, 9.0
+    Bx, By = cubic_lattice_basis(nx; spacing = hx), cubic_lattice_basis(ny; spacing = hy)
+    @test length(Bx) == nx && boundaries(Bx) == (0.0, (nx - 3) * hx)
+    G = bending_gram(Bx, By)
+    @test size(G) == (nx * ny, nx * ny) && G ≈ G'
+    # the inside row of a cubic's ∫ f''² (unit cells): (1/6, 0, −3/2, 8/3, −3/2, 0, 1/6)
+    @test bending_gram(cubic_lattice_basis(10))[5, 2:8] ≈ [1 / 6, 0, -3 / 2, 8 / 3, -3 / 2, 0, 1 / 6] atol = 1.0e-12
+    # against quadrature of the squared second derivatives of a random surface (BSplineKit's derivative splines, Gauss–Legendre per cell)
+    c = randn(rng, nx, ny)
+    basisfun(B, i, r) = (e = zeros(length(B)); e[i] = 1; r == 0 ? Spline(B, e) : Derivative(r) * Spline(B, e))
+    D(B, r) = [basisfun(B, i, r) for i in 1:length(B)]
+    Dx = [D(Bx, r) for r in 0:2]; Dy = [D(By, r) for r in 0:2]
+    f(rx, ry, x, y) = sum(c[i, j] * Dx[rx + 1][i](x) * Dy[ry + 1][j](y) for i in 1:nx, j in 1:ny)
+    ξ, ω = gauss(4)
+    E = 0.0
+    for cx in 0:(nx - 4), cy in 0:(ny - 4), (a, wa) in zip(ξ, ω), (b, wb) in zip(ξ, ω)
+        x = (cx + (a + 1) / 2) * hx; y = (cy + (b + 1) / 2) * hy
+        E += wa * wb * (hx / 2) * (hy / 2) * (f(2, 0, x, y)^2 + 2 * f(1, 1, x, y)^2 + f(0, 2, x, y)^2)
     end
-    # each half equals the sequence operator applied along its index
-    @test L[1:((nx - 2) * ny), :] ≈ kron(Matrix{Float64}(I, ny, ny), second_difference_rows(nx))
-    @test L[((nx - 2) * ny + 1):end, :] ≈ kron(second_difference_rows(ny), Matrix{Float64}(I, nx, nx))
-    @test_throws ArgumentError second_difference_rows(-1)
-    # the stencils are the rows' nonzeros, in row order
-    st = second_difference_stencils(nx, ny)
-    @test length(st) == size(L, 1)
-    @test all(findall(!iszero, L[r, :]) == sort(collect(st[r])) && L[r, st[r][2]] == -2 for r in eachindex(st))
+    @test dot(vec(c), G * vec(c)) ≈ E rtol = 1.0e-10
+    # affine surfaces bend nothing
+    aff = [1.0 + 0.3 * i - 0.7 * j for i in 1:nx, j in 1:ny]
+    @test abs(dot(vec(aff), G * vec(aff))) < 1.0e-10 * norm(G)
+    # invariant under refinement of the lattice (the same surface on cells of half the size: dyadic subdivision)
+    function subdivide(n)
+        S = zeros(2n - 3, n)
+        for j in 1:(2n - 3)
+            if iseven(j)                                       # at old node i = j/2 + 1: (c_{i−1} + 6c_i + c_{i+1})/8
+                i = j ÷ 2 + 1; S[j, i - 1] = 1 / 8; S[j, i] = 6 / 8; S[j, i + 1] = 1 / 8
+            else                                               # between old nodes i and i + 1, i = (j + 1)/2
+                i = (j + 1) ÷ 2; S[j, i] = 1 / 2; S[j, i + 1] = 1 / 2
+            end
+        end
+        return S
+    end
+    cf = subdivide(nx) * c * subdivide(ny)'
+    Gf = bending_gram(cubic_lattice_basis(2nx - 3; spacing = hx / 2), cubic_lattice_basis(2ny - 3; spacing = hy / 2))
+    @test dot(vec(cf), Gf * vec(cf)) ≈ dot(vec(c), G * vec(c)) rtol = 1.0e-10
+    # rows: ‖L c‖² = cᵀGc; the per-cell stencils sum to the same energy
+    L = bending_rows(G)
+    @test norm(L * vec(c))^2 ≈ dot(vec(c), G * vec(c)) rtol = 1.0e-10
+    @test size(L, 1) == nx * ny - 3
+    st = bending_stencils(nx, ny; spacing = (hx, hy))
+    @test length(st.windows) == (nx - 3) * (ny - 3) && size(st.L, 2) == 16
+    @test sum(norm(st.L * vec(c)[collect(w)])^2 for w in st.windows) ≈ dot(vec(c), G * vec(c)) rtol = 1.0e-10
+    # the natural boundary condition: BSplineKit's recombination is c₀ = 2c₁ − c₂, and it makes f'' vanish at the border knot
+    w₁, w₂ = natural_extrapolation()
+    @test w₁ ≈ 2 && w₂ ≈ -1
+    B1 = cubic_lattice_basis(9)
+    cc = randn(rng, 9); cc[1] = w₁ * cc[2] + w₂ * cc[3]
+    @test abs((Derivative(2) * Spline(B1, cc))(0.0)) < 1.0e-12
+end
+
+@testitem "bspline: the device surface kernel equals BSplineKit" begin
+    using Test
+    using VisualGeometryToolkitCore: evaluate_bspline_surface
+    using BSplineKit: BSplineBasis, BSplineOrder, Spline, knots
+    using Random: Xoshiro
+    rng = Xoshiro(5)
+    Bu, Bv = BSplineBasis(BSplineOrder(3), range(0.0, 1.0; length = 4)), BSplineBasis(BSplineOrder(4), range(0.0, 2.0; length = 3))
+    cp = randn(rng, Float32, length(Bu), length(Bv))
+    u = Float32.(rand(rng, 40)); v = 2 .* Float32.(rand(rng, 40))
+    S = evaluate_bspline_surface(u, v, 2, 3, Float32.(knots(Bu)), Float32.(knots(Bv)), cp)
+    e(B, i) = (z = zeros(length(B)); z[i] = 1; Spline(B, z))
+    Nu = [e(Bu, i) for i in 1:length(Bu)]; Nv = [e(Bv, j) for j in 1:length(Bv)]
+    ref = [sum(cp[i, j] * Nu[i](Float64(u[k])) * Nv[j](Float64(v[k])) for i in 1:length(Bu), j in 1:length(Bv)) for k in eachindex(u)]
+    @test S ≈ ref atol = 1.0e-5                                   # Float32 kernel against BSplineKit in Float64
 end

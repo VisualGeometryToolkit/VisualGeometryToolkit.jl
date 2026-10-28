@@ -2,6 +2,14 @@
 # B-spline kernels: the scalar basis (hoisted from RadiometricCamera) and the
 # broadcast kernels (0.14; hoisted from RayTracedCalibration src/bspline.jl)
 #
+# ONLY what BSplineKit cannot give a GPU kernel lives here: the isbits scalar
+# basis on a static knot vector and the device-side Float32 surface and 4-D
+# evaluations, each tested EQUAL to BSplineKit on the same knots. Everything
+# that runs on the CPU — knot vectors (`BSplineBasis`), evaluation and
+# derivatives, the Galerkin (Gram) matrices of the bending energy, the natural
+# boundary condition (`RecombinedBSplineBasis`) — is BSplineKit's, read
+# through bspline_energy.jl.
+#
 # The scalar Cox–de Boor basis `bspline_basis` (isbits, any element type) and,
 # for structure-of-arrays inputs, its broadcast, the tensor-product surface and
 # its derivative surfaces, and the 4D tensor-product spline with its
@@ -26,7 +34,7 @@ using Adapt: adapt
 
 # ---------------------------------------------------------------------------
 # The scalar basis (hoisted from RadiometricCamera src/camera/bspline.jl,
-# `N_ip` and `clamped_uniform_knots`, its arithmetic unchanged): Cox–de Boor
+# `N_ip`, its arithmetic unchanged; its knot helper is BSplineKit's): Cox–de Boor
 # (Piegl & Tiller 1997) on a static knot vector,
 #
 #   N_{i,0}(x) = 1 if k_i ≤ x < k_{i+1}, else 0
@@ -39,20 +47,6 @@ using Adapt: adapt
 # infers on the CPU and in a GPU kernel alike, in any element type (Float32,
 # Float64, ForwardDiff Duals).
 # ---------------------------------------------------------------------------
-
-"""
-    clamped_uniform_knots(n, p, lo, hi) -> SVector{n + p + 1}
-
-The clamped uniform knot vector of `n` control points of degree `p` on
-`[lo, hi]`: `lo` repeated `p + 1` times, `n − p − 1` uniform interior knots,
-`hi` repeated `p + 1` times. An `ArgumentError` unless `n > p`.
-"""
-function clamped_uniform_knots(n_cp::Integer, p::Integer, lo::Real, hi::Real)
-    n_cp > p || throw(ArgumentError("clamped_uniform_knots: need more than p = $p control points, got $n_cp"))
-    n_int = n_cp - p - 1                               # interior knots
-    interior = [lo + (hi - lo) * k / (n_int + 1) for k in 1:n_int]
-    return SVector{n_cp + p + 1}(vcat(fill(float(lo), p + 1), interior, fill(float(hi), p + 1)))
-end
 
 """
     bspline_basis(knots::SVector{K}, Val(p), x) -> SVector{K − p − 1}
@@ -68,7 +62,10 @@ The basis (its knots and degree) leads, the point follows (`signatures.md`).
 The degree is a `Val` so the result's size is static and nothing allocates;
 the `Integer` form is the convenience. Scalar, isbits and generic in the
 element type (`promote_type` of `x`'s and the knots'): it runs inside a
-KernelAbstractions kernel, in `Float32`, and under ForwardDiff.
+KernelAbstractions kernel, in `Float32`, and under ForwardDiff. Why it is
+Core's and not BSplineKit's: a kernel needs an isbits basis on a static
+knot vector with a static result; on the CPU, BSplineKit's `evaluate_all`
+gives the same values (the tests check it).
 [`bspline_basis_iterative`](@ref) is its broadcast over an array.
 """
 @inline bspline_basis(knots::SVector, p::Integer, x) = bspline_basis(knots, Val(Int(p)), x)
@@ -121,8 +118,9 @@ broadcast over `u` (on `u`'s backend) in `Float32`, split per basis function
 — the structure-of-arrays form the tensor-product kernels below consume. `u`
 outside the knots is clamped onto them, as by `bspline_basis`.
 
-Validated against `BSplineKit.BSplineBasis` on the downstream demo's actual
-θ knot vector — see `test/bspline_tests.jl`.
+Kept because the tensor-product kernels below run on the device array's
+backend; validated against `BSplineKit.BSplineBasis` on the downstream demo's
+actual θ knot vector — see `test/bspline_tests.jl`.
 """
 function bspline_basis_iterative(u, degree, knots)
     k = SVector{length(knots)}(Float32.(Array(knots)))
@@ -139,7 +137,9 @@ end
 """
     evaluate_bspline_surface(u, v, degree_u, degree_v, knots_u, knots_v, control_points)
 
-Tensor-product B-spline surface evaluation on the compute device. Inputs
+Tensor-product B-spline surface evaluation on the compute device (kept for
+the device: BSplineKit evaluates on the CPU; tested equal to its `Spline`
+evaluation on the same knots). Inputs
 `u, v` are broadcasted device arrays of equal shape; the surface is
 evaluated point-wise and an array of the same shape is returned.
 Differentiable wrt `u`, `v`, and the control points via the ChainRulesCore
@@ -331,61 +331,4 @@ function bspline_4d_partial(
         cp_d, kd = _derivative_cp_4d(control_points, degrees[4], k4, 4)
         return evaluate_bspline_4d(u1, u2, u3, u4, (degrees[1], degrees[2], degrees[3], degrees[4] - 1), k1, k2, k3, kd, cp_d)
     end
-end
-
-# ---------------------------------------------------------------------------
-# The P-spline roughness penalty of a uniform B-spline's control values
-# ---------------------------------------------------------------------------
-
-"""
-    second_difference_rows(n) -> Matrix{Float64}
-    second_difference_rows(nx, ny) -> Matrix{Float64}
-
-The second-difference operator `D` of the control values of a uniform
-B-spline: of a sequence of `n` values, the `(n − 2) × n` rows `(1, −2, 1)`;
-of an `nx × ny` lattice (values in column-major `vec` order), the second
-differences along the first index (`(nx − 2) · ny` rows) followed by those
-along the second (`nx · (ny − 2)` rows). `‖D c‖²` is the P-spline roughness
-penalty (Eilers & Marx 1996), the discrete bending energy of the control
-lattice; its null space is the affine functions of the index (`2` per sequence,
-`4` per lattice: `1`, `i`, `j`, `i·j`).
-
-A regularizer of a lattice of parameters reads it as rows of a least-squares
-problem, `√w · D (c − c₀)`; a lattice of vector-valued controls applies it per
-component. The rows are [`second_difference_stencils`](@ref)'s, dense; a
-lattice too large for a dense operator reads the stencils.
-"""
-second_difference_rows(n::Integer) = _stencil_rows(second_difference_stencils(n), n)
-second_difference_rows(nx::Integer, ny::Integer) = _stencil_rows(second_difference_stencils(nx, ny), nx * ny)
-function _stencil_rows(st, n)
-    D = zeros(length(st), n)
-    for (r, (a, b, c)) in enumerate(st)
-        D[r, a] = 1; D[r, b] = -2; D[r, c] = 1
-    end
-    return D
-end
-
-"""
-    second_difference_stencils(n) -> Vector{NTuple{3, Int}}
-    second_difference_stencils(nx, ny) -> Vector{NTuple{3, Int}}
-
-The rows of [`second_difference_rows`](@ref) as stencils: per row the linear
-indices `(previous, centre, next)` of its coefficients `(1, −2, 1)`, in the
-same row order (along the first index, then along the second).
-"""
-function second_difference_stencils(n::Integer)
-    n >= 0 || throw(ArgumentError("second_difference_stencils: n = $n < 0"))
-    return [(i - 1, i, i + 1) for i in 2:(n - 1)]
-end
-function second_difference_stencils(nx::Integer, ny::Integer)
-    (nx >= 0 && ny >= 0) || throw(ArgumentError("second_difference_stencils: lattice $nx × $ny"))
-    idx(i, j) = i + (j - 1) * nx
-    st = NTuple{3, Int}[]
-    for j in 1:ny, i in 2:(nx - 1)
-        push!(st, (idx(i - 1, j), idx(i, j), idx(i + 1, j)))
-    end
-    for j in 2:(ny - 1), i in 1:nx
-        push!(st, (idx(i, j - 1), idx(i, j), idx(i, j + 1)))
-    end
-    return st
 end

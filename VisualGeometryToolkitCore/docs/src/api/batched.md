@@ -18,23 +18,44 @@ Pages = ["transforms/pointwise.jl"]
 
 ## B-spline Kernels
 
-The scalar Cox–de Boor basis [`bspline_basis`](@ref)`(knots, Val(p), x)` —
-an `SVector` of every basis function at `x`, isbits and generic in the element
+The B-spline algebra on the CPU is BSplineKit's (knot vectors, evaluation and
+derivatives, Galerkin matrices, recombined bases). Core keeps only what a GPU
+kernel needs and BSplineKit cannot give it: the scalar Cox–de Boor basis
+[`bspline_basis`](@ref)`(knots, Val(p), x)` — an `SVector` of every basis
+function at `x` on a static knot vector, isbits and generic in the element
 type, so it runs in a kernel and under ForwardDiff (hoisted from
-RadiometricCamera, its arithmetic unchanged) — with
-[`clamped_uniform_knots`](@ref); its broadcast over an array, and the
+RadiometricCamera, its arithmetic unchanged; equal to BSplineKit's
+`evaluate_all` on the same knots) — its broadcast over a device array, and the
 tensor-product surface/4D spline kernels built on it; the `ChainRulesCore`
 rrules attach via the package extension.
 
 ```julia
-knots = clamped_uniform_knots(7, 3, -0.5, 0.5)   # 7 cubic control points on [-½, ½]
-N = bspline_basis(knots, Val(3), 0.12)           # SVector{7}, sum(N) == 1
+using BSplineKit: BSplineBasis, BSplineOrder, knots
+k = SVector{11}(knots(BSplineBasis(BSplineOrder(4), range(-0.5, 0.5; length = 5))))   # 7 cubic control points on [-½, ½]
+N = bspline_basis(k, Val(3), 0.12)               # SVector{7}, sum(N) == 1
 ```
 
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false
 Pages = ["numerics/bspline.jl"]
+```
+
+## The bending energy of a B-spline
+
+[`bending_gram`](@ref) is `∫∫ f_xx² + 2 f_xy² + f_yy²` of a tensor-product
+B-spline as a quadratic form in its coefficients, from BSplineKit's Galerkin
+matrices; [`bending_rows`](@ref) factors it into a regularizer's rows and
+[`bending_stencils`](@ref) gives it cell by cell on a large uniform lattice
+([`cubic_lattice_basis`](@ref), Core's generic-model lattice). The natural
+boundary condition `f'' = 0` of BSplineKit's recombined basis is
+[`natural_extrapolation`](@ref), the rule [`BoundaryRule`](@ref) applies to
+a lattice's nodes outside an imaged region.
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore]
+Private = false
+Pages = ["numerics/bspline_energy.jl"]
 ```
 
 ## Thin-plate spline

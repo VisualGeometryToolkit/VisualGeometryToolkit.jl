@@ -190,8 +190,8 @@ public ExecutionPolicy, Auto, Serial, Threaded, THREADED_MIN_LENGTH
 # RayTracedCalibration): broadcast-fused basis/surface/4D evaluation with
 # derivative surfaces; the rrules live in the ChainRulesCore extension.
 public gauss_hermite_prob, hammersley, square_rule, unit_disc_rule   # quadrature rules (N(0, 1), the square, the unit disc), low-discrepancy points
-public bspline_basis, clamped_uniform_knots   # the scalar Cox–de Boor basis (isbits, any eltype, kernel-safe) and its knots
-public second_difference_rows, second_difference_stencils   # the P-spline roughness penalty of a uniform B-spline's control values (a sequence or a lattice)
+public bspline_basis   # the scalar Cox–de Boor basis (isbits, any eltype, kernel-safe; on the CPU BSplineKit's)
+public cubic_lattice_basis, bending_gram, bending_rows, bending_stencils, natural_extrapolation   # the bending energy and the natural boundary condition (BSplineKit)
 public bspline_basis_iterative, evaluate_bspline_surface, bspline_surface_partial
 public evaluate_bspline_4d, bspline_4d_partial, contract_basis_4d_weighted
 # Thin-plate spline (hoisted from RadiometricCamera, arithmetic unchanged): the
@@ -832,6 +832,7 @@ include("geometry/transforms/pointwise.jl")
 # RayTracedCalibration). Uses the KernelAbstractions imports of warp.jl;
 # rrules attach in the ChainRulesCore extension.
 include("numerics/bspline.jl")
+include("numerics/bspline_energy.jl")   # the bending energy and the natural boundary condition of a B-spline (BSplineKit)
 include("numerics/special.jl")    # device-safe lgamma/digamma/trigamma (adaptation kernels)
 include("numerics/quadrature.jl") # Gauss–Hermite (probabilists') and Hammersley points
 include("numerics/small_lu.jl")   # in-register partial-pivot LU for fixed-size systems

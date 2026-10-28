@@ -135,10 +135,13 @@ support(m::_GenericModel, i::CartesianIndex{2}) =
 # Under an imaged region the parameters of a lattice model are its interior nodes
 # (`free_nodes(m, region)`, the nodes whose support meets the region). Every other
 # node is neither a parameter nor frozen at a start value: it is defined from the
-# interior by the natural boundary condition — zero second difference of the
-# correction across the region's border, the linear extrapolation of the correction
-# outward. That is the rule the `:quasi_interpolate` initialization applies to the
-# source's samples past its domain, made the model's rule for every later change.
+# interior by the natural boundary condition f'' = 0 of the correction across the
+# region's border — BSplineKit's `RecombinedBSplineBasis(B, Natural())`, whose
+# recombination on a uniform cubic lattice is the linear extrapolation of the
+# correction outward (`natural_extrapolation`), applied ring by ring so it holds
+# for a border of any shape. That is the rule the `:quasi_interpolate`
+# initialization applies to the source's samples past its domain, made the
+# model's rule for every later change.
 # Every imaged pixel's window holds interior nodes only (a node whose basis is
 # nonzero at an imaged pixel has that pixel in its support), so the rule changes no
 # value inside the region and the interior's weights sum to one there; what it fixes
@@ -151,9 +154,11 @@ The boundary rule of the lattice model `m` (a `LocalSupport` model whose
 [`nodes`](@ref) are the `CartesianIndices` of a 2-D lattice) under the imaged
 `region`: its `interior` nodes ([`node_mask`](@ref)`(m, region)`, the
 parameters) and, per dependent node, the linear combination of interior nodes
-its CORRECTION is — the linear extrapolation outward, ring by ring
-(Chebyshev rings around the interior): along each lattice axis on which the
-two nodes inward are already defined, `2 c₁ − c₂`, averaged over those axes;
+its CORRECTION is — the natural boundary condition `f'' = 0` across the
+border, the outermost coefficient of BSplineKit's natural recombination
+([`natural_extrapolation`](@ref), `w₁ c₁ + w₂ c₂ = 2 c₁ − c₂`), applied
+outward ring by ring (Chebyshev rings around the interior): along each lattice
+axis on which the two nodes inward are already defined, averaged over those axes;
 with none, the same along the diagonals; with none of those either, the mean
 of the defined neighbours (constant extrapolation). The coefficients of each
 dependent node sum to one. [`extend_controls`](@ref) applies the rule;
@@ -184,6 +189,7 @@ function BoundaryRule(interior::AbstractMatrix{Bool})
     I = CartesianIndices(interior)
     coef = Dict{CartesianIndex{2}, Dict{CartesianIndex{2}, Float64}}(n => Dict(n => 1.0) for n in I if interior[n])
     known = copy(interior)
+    w₁, w₂ = natural_extrapolation()
     axes_ = (CartesianIndex(1, 0), CartesianIndex(-1, 0), CartesianIndex(0, 1), CartesianIndex(0, -1))
     diags = (CartesianIndex(1, 1), CartesianIndex(1, -1), CartesianIndex(-1, 1), CartesianIndex(-1, -1))
     isknown(n) = checkbounds(Bool, known, n) && known[n]
@@ -205,7 +211,7 @@ function BoundaryRule(interior::AbstractMatrix{Bool})
             if !isempty(lin)
                 w = 1.0 / length(lin)
                 for s in lin
-                    combine!(acc, ((2w, n + s), (-w, n + s + s)))
+                    combine!(acc, ((w₁ * w, n + s), (w₂ * w, n + s + s)))
                 end
             else
                 nb = [n + s for s in (axes_..., diags...) if isknown(n + s)]

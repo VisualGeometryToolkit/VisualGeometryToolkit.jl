@@ -7,7 +7,7 @@
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: KannalaBrandt, Pinhole, WholePlane, RegionIntersection, GenericModelWindow, window,
         interpolated_direction, interpolated_point, nominal_intrinsics, spline_window, spline_value, spline_support,
-        spline_weights, quasi_interpolant, convert_eltype, LogicalIntrinsics
+        spline_weights, quasi_interpolant, convert_eltype, LogicalIntrinsics, CameraCalibrationMat
     using StaticArrays
     using LinearAlgebra: normalize, norm, dot
     using Statistics: median
@@ -74,6 +74,30 @@
         @test convert_eltype(Float32, wn).points == Vec3{Float32}.(wn.points)
         @test Adapt.adapt(Array, w).directions == w.directions && Adapt.adapt(Array, m).grid == m.grid
         @test isbits(window(m, rows, cols; directions = SMatrix{length(rows), length(cols)}(G[rows, cols])))
+    end
+
+    @testset "a pixel whose support leaves the block is not imaged by the window" begin
+        # a 20 × 16 grid, the 4 × 4 block 5:8 × 5:8 (one window index), a pixel far off it: the evaluation is NaN and
+        # `spline_support` says `nothing` — never a read past the block (replaced controls: uninitialised memory;
+        # the default view: the parent's other controls, a plausible but wrong direction)
+        K = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3}(300.0, 0, 0, 0, 300.0, 0, 320.0, 240.0, 1.0)))
+        m = CentralGenericModel(CameraModel(K), (640, 480); grid_size = (20, 16))
+        nc = NoncentralGenericModel(CameraModel(K), (640, 480); grid_size = (20, 16))
+        far = SVector(600.0, 400.0)
+        for w in (window(m, 5:8, 5:8; directions = fill(SVector(0.0, 0.0, 1.0), 4, 4)), window(m, 5:8, 5:8), window(nc, 5:8, 5:8))
+            @test all(isnan, interpolated_direction(w, far))
+            @test spline_support(w, far) === nothing
+            ix, iy = spline_support(m, far)
+            @test_throws ArgumentError spline_weights(w, ix, iy, far)
+        end
+        @test all(isnan, interpolated_point(window(nc, 5:8, 5:8), far))
+        # the one pixel cell the block covers still evaluates as the model
+        w = window(m, 5:8, 5:8)
+        hx, hy = 640 / 17, 480 / 13                                        # cell size: (W, H) over (gw − 3, gh − 3) cells
+        inblock = SVector(4.5 * hx, 4.5 * hy)                              # cell (4.5, 4.5): the window (ix, iy) = (7, 7) of controls 5:8
+        @test spline_support(w, inblock) == spline_support(m, inblock) == (7, 7)
+        @test interpolated_direction(w, inblock) === interpolated_direction(m, inblock)
+        @test all(isfinite, interpolated_direction(m, far))                 # the model itself images the pixel
     end
 
     @testset "the lattice as a primitive; the spline continued past the area" begin

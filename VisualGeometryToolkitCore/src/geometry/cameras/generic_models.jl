@@ -276,7 +276,10 @@ columns `offset[2] + 1 : …` present, possibly replaced (`window(m, rows, cols;
 directions, points)`). Every evaluation of the model's spline that reads only
 controls inside the block — `interpolated_direction`, `interpolated_point`,
 `spline_support`, `spline_weights` — gives the same bits on the window as on a
-model holding those controls. It is what a per-tile cost block of a
+model holding those controls. A pixel whose 4×4 support leaves the block is
+not imaged by the window: `interpolated_direction` and `interpolated_point`
+are NaN there, `spline_support` is `nothing` and `spline_weights` of such a
+support is an `ArgumentError` — never a read of controls outside the block. It is what a per-tile cost block of a
 refinement evaluates: a few hundred controls instead of the whole grid. Not a
 camera (it projects nothing); `points` is `nothing` for a central model's
 window.
@@ -566,12 +569,30 @@ at `pixel` (COLMAP frame), NOT normalized — `backproject` is its
 normalization inside the calibrated area. Outside the area the outermost
 cell's cubic pieces continue ([`spline_window`](@ref)) instead of the
 `nothing` of `backproject`. Generic in the element types (Float32 on a
-device, any control matrix the model holds) and allocation-free.
+device, any control matrix the model holds) and allocation-free. On a
+window, a pixel whose 4×4 support leaves the window's block is not imaged by
+that window: the result is NaN (the controls it would read are not the
+window's).
 """
 @inline function interpolated_direction(m::_GenericLattice, pixel)
     ix, iy, wx, wy = _continued_window(m, pixel[1], pixel[2])
-    return _eval_window(_directions(m), ix, iy, wx, wy, _offset(m))
+    grid = _directions(m)
+    _in_block(m, grid, ix, iy) || return _nan_control(grid)
+    return _eval_window(grid, ix, iy, wx, wy, _offset(m))
 end
+
+# Whether window `(ix, iy)`'s 4×4 support lies inside the controls a lattice
+# holds. A model holds its whole grid and the window index is clamped to it; a
+# window holds one block, and a pixel whose support leaves the block is not
+# imaged by that window — its evaluation is NaN, never a read past the block
+# (the controls there are not the window's: a view's parent holds other ones).
+@inline _in_block(::_GenericModel, grid, ix, iy) = true
+@inline function _in_block(w::GenericModelWindow, grid::AbstractMatrix, ix, iy)
+    jx = ix - w.offset[2]
+    jy = iy - w.offset[1]
+    return 3 <= jx && jx + 1 <= size(grid, 2) && 3 <= jy && jy + 1 <= size(grid, 1)
+end
+@inline _nan_control(grid::AbstractMatrix) = (z = zero(eltype(grid)); z .+ eltype(z)(NaN))
 
 """
     interpolated_point(m, pixel)
@@ -579,12 +600,14 @@ end
 The point spline of a [`NoncentralGenericModel`](@ref) (or its window) at
 `pixel`: the interpolated point of the pixel's observation line, plain metres
 in the camera frame, continued past the area as
-[`interpolated_direction`](@ref).
+[`interpolated_direction`](@ref); NaN on a window where the pixel's support
+leaves the window's block.
 """
 @inline function interpolated_point(m::Union{NoncentralGenericModel, GenericModelWindow}, pixel)
     m isa GenericModelWindow && m.points === nothing &&
         throw(ArgumentError("interpolated_point: a central model's window has no points"))
     ix, iy, wx, wy = _continued_window(m, pixel[1], pixel[2])
+    _in_block(m, m.points, ix, iy) || return _nan_control(m.points)
     return _eval_window(m.points, ix, iy, wx, wy, _offset(m))
 end
 
@@ -595,13 +618,15 @@ The window `pixel` (COLMAP frame) reads on a generic grid model or a
 [`GenericModelWindow`](@ref): the 4×4 controls
 `grid[iy - 3 + r, ix - 3 + c]`, `r, c ∈ 1:4` (row = y tap, column = x tap) of
 the FULL grid — the index pair [`spline_weights`](@ref) takes. `nothing`
-outside the calibrated area.
+outside the calibrated area, and on a window when that support leaves the
+window's block (the pixel is not imaged by the window).
 """
 function spline_support(m::_GenericLattice, pixel)
     x, y = float(pixel[1]), float(pixel[2])
     _in_calibrated_area(m, x, y) || return nothing
     gx, gy = _grid_coords(m, x, y)
     ix, iy, _, _ = _spline_window(gx, gy)
+    _in_block(m, _directions(m), ix, iy) || return nothing
     return (ix, iy)
 end
 
@@ -615,9 +640,12 @@ respect to the pixel's x and y. The window is the caller's: for a pixel that
 has drifted off the window's own cell the cubic pieces extrapolate smoothly,
 which is what a refinement holding the support fixed between rebuilds needs.
 `sum(w .* grid_window)` is the unnormalized direction `backproject`
-normalizes.
+normalizes. On a window, a window `(ix, iy)` whose support leaves the
+window's block is an `ArgumentError`.
 """
 function spline_weights(m::_GenericLattice, ix::Integer, iy::Integer, pixel)
+    _in_block(m, _directions(m), ix, iy) ||
+        throw(ArgumentError("spline_weights: window ($ix, $iy) reads controls outside the window's block"))
     x, y = float(pixel[1]), float(pixel[2])
     gh, gw = _grid_size(m)
     sx = _grid_scale(m.calib_min_x, m.calib_max_x, gw)      # ∂gx/∂x

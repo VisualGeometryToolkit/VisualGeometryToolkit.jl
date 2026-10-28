@@ -22,6 +22,10 @@ Private = false
 Pages = ["base/units.jl", "base/size2.jl"]
 ```
 
+```@docs
+VisualGeometryToolkitCore.StackUnits
+```
+
 ## Utilities
 
 ```@autodocs

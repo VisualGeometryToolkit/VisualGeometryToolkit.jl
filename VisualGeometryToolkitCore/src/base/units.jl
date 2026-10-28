@@ -52,7 +52,7 @@ and nothing else:
 | `dpi` | 5000//127 | `px/inch`, of dimension 1/m |
 
 Its generated `uparse`, `qparse` and `@ud_str` are VisualGeometryToolkitCore's;
-a name from outside is read with [`parse_unit`](@ref), never `uparse`.
+a name from outside is read with [`parse_unit`](@ref VisualGeometryToolkitCore.parse_unit), never `uparse`.
 """
 module StackUnits
 using FlexUnits.RegistryTools: RegistryTools, PermanentDict, register_unit!, @generate_registry_exports,

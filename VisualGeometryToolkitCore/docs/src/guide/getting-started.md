@@ -87,12 +87,17 @@ julia> x_coord = 100.0px;                       # pixels (logical)
 julia> ustrip(mm, 2.5cm)                        # strip in a named unit
 25.0
 
-julia> ustrip(px, 25.4mm * 300dpi)              # a length times a density is pixels
-300.0
+julia> ustrip(px, 1inch * 300dpi)               # a length times a density is pixels
+300//1
+
+julia> VisualGeometryToolkitCore.base_quantity(142mm)   # an integer literal is exact; stored as Float64
+0.142 m
 ```
 
 Values are stored in base units (metres): strip in a named unit,
-`ustrip(mm, distance) == 50.0`. `ud"…"` and `uparse` parse unit strings, and
+`ustrip(mm, distance) == 50.0`. The registry's scales are exact rationals, so
+`142mm` is exactly 71/500 m until a constructor stores its Float64 form
+(`base_quantity`). `ud"…"` and `uparse` parse unit strings, and
 `dimension(q) == dimension(mm)` checks a dimension at an API boundary (a
 pixel is dimensionless, so `dimension(px)` is also an angle's or a ratio's).
 

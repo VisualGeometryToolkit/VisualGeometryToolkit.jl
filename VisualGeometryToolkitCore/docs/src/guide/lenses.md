@@ -39,6 +39,10 @@ radial basis is `radial_full`).
 `Lens(projection)` alone is the pure projection; [`Pinhole`](@ref) is
 `Lens(Perspective())`.
 
+The whole sphere of directions onto the (longitude, latitude) rectangle — a
+panorama raster, a sky map — is [`Equirectangular`](@ref): not a lens (it has
+no radial profile), a projection of its own with `project`/`backproject`.
+
 ## Terms and how they combine
 
 | term | kind | function of the frame point `x`, `r² = ‖x‖²` | names |

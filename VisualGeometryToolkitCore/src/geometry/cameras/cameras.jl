@@ -178,6 +178,7 @@ include("lenses.jl")         # the lens families: Lens/LiftLens, projections, te
 include("projections.jl")
 include("camera_models.jl")
 include("lens_rays.jl")       # THE lens contract: project/backproject on rays + the derived Jacobians
+include("equirectangular.jl") # the latitude/longitude projection of directions (panoramas, sky maps)
 include("lens_chart.jl") # parameter chart, ∂lens/∂θ, TOML lens registry (0.22.1)
 include("generic_models.jl") # Schöps et al. central/non-central generic grid models (0.16)
 include("support.jl")         # supports on the sensor: which parameters a camera can see (the generic models' lattice)
@@ -934,6 +935,7 @@ export Lens, LiftLens, Division, KannalaBrandt, radial_ratio   # the two lens ki
 export Scaramuzza                      # Scaramuzza's omnidirectional polynomial lift (MATLAB fisheyeIntrinsics)
 export AbstractProjection, Perspective, Equidistant, Stereographic, Equisolid, Orthographic
 export DoubleSphere, Unified, ExtendedUnified   # the parametric projections
+export Equirectangular   # the latitude/longitude projection of directions (equirectangular.jl)
 export AbstractDistortionTerm, Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Chain, Even, Full
 export radial, isdelta, projection_frame, parameters, lens_record, lens_from_record
 export division_bounded, undistorted_rect, valid_rect, horizon_radius, fov_radius, DEFAULT_MAX_FOV   # whole-extent undistortion

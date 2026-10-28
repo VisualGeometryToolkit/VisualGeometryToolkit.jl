@@ -5,6 +5,11 @@
 Behaviour changes a caller can observe, stated here because the commits that
 introduced them did not state them all.
 
+- **`Equirectangular`**, the latitude/longitude projection of directions
+  (`project` → `(λ, φ)` in radians, `backproject` → the unit direction), in
+  the camera frame's axes: longitude 0 forward and +π/2 right, latitude +π/2
+  up (−y). A projection beside the lens families, not a lens.
+
 - **`parameter_bounds` states which endpoints are closed, and a closed
   endpoint is a mirror in `ParameterManifold`'s chart.** The closed endpoints
   are the values a model takes: the double sphere's `α = 0` and `α = 1`, the

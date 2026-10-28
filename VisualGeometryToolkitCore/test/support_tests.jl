@@ -131,3 +131,65 @@
         @test all(I -> minimum(support(g, I))[1] >= 100 && maximum(support(g, I))[1] <= 1100, nodes(g))
     end
 end
+
+@testitem "support: the boundary rule — dependent nodes outside the imaged region" begin
+    using Test
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: KannalaBrandt, Pinhole, BoundaryRule, extend_controls, boundary_rule_jacobian, nodes,
+        spline_support, spline_weights, interpolated_direction
+    using StaticArrays, ForwardDiff
+    using Random: Xoshiro
+
+    cam(f, l) = CameraModel(; focal = f, pp = (640.0, 480.0), lens = l)
+    fold = KannalaBrandt(-4 / (3π^2))                      # a 180° fisheye: its image circle lies inside the sensor
+    g = CentralGenericModel(cam(250.0, fold), (1280, 960); grid_size = (20, 16))
+    R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960)))
+    rule = BoundaryRule(g, R)
+    @test rule.interior == node_mask(g, R) && count(rule.interior) == 108
+    @test sort(vcat(findall(rule.interior), rule.dependent)) == vec(collect(nodes(g)))
+    @test all(tm -> sum(last, tm) ≈ 1 && all(k -> rule.interior[first(k)], tm), rule.terms)
+    J = boundary_rule_jacobian(rule)
+    @test size(J) == (320, 108) && all(sum(J; dims = 2) .≈ 1)
+    # zero second difference across the border: an affine correction of the lattice is extended exactly
+    ref = g.grid
+    aff = [ref[i] + SVector(0.01 * i[1] - 0.02 * i[2], 0.003 * i[2], 0.002 * i[1] + 0.001) for i in nodes(g)]
+    @test extend_controls(rule, aff, ref) ≈ aff
+    @test extend_controls(rule, ref, ref) == ref
+
+    # a refined interior: the region's pixels read interior nodes only — whatever the dependent nodes hold —
+    # and the interior weights sum to one at every imaged pixel (partition of unity in the last cells)
+    rng = Xoshiro(3)
+    θ = [rule.interior[i] ? ref[i] + 0.02 * (SVector{3}(rand(rng, 3)) .- 0.5) : ref[i] for i in nodes(g)]
+    full = extend_controls(rule, θ, ref)
+    junk = [rule.interior[i] ? θ[i] : SVector(5.0, -3.0, 1.0) for i in nodes(g)]
+    gm(grid) = CentralGenericModel(g.width, g.height, g.calib_min_x, g.calib_min_y, g.calib_max_x, g.calib_max_y, grid; unit_controls = false)
+    mf, mj = gm(full), gm(junk)
+    q = image_circle(BoundedCamera(cam(250.0, fold), Size2(1280, 960)))
+    rim = [SVector{2, Float64}(q.center + 0.9999 * (SVector{2, Float64}(boundary_point(q, t)) - q.center)) for t in range(0, 2π; length = 721)]
+    imaged = vcat([SVector(x, y) for x in 0.5:9:1279.5, y in 0.5:9:959.5 if Point2(x, y) ∈ R], filter(p -> Point2(p...) ∈ R, rim))
+    @test length(imaged) > 2000 + 700                                      # a raster and the circle's rim
+    @test all(p -> interpolated_direction(mf, p) == interpolated_direction(mj, p), imaged)
+    for p in imaged
+        ix, iy = spline_support(g, p)
+        w, _, _ = spline_weights(g, ix, iy, p)
+        @test sum(w[r, c] for r in 1:4, c in 1:4 if rule.interior[iy - 3 + r, ix - 3 + c]) ≈ 1 atol = 1.0e-12
+    end
+
+    # the Jacobian w.r.t. the interior chains through the rule: ForwardDiff through extend_controls at pixels past the circle
+    inner = findall(rule.interior)
+    outside = [SVector(30.0, 40.0), SVector(1250.0, 900.0), SVector(640.0, 12.0)]
+    @test all(p -> Point2(p...) ∉ R, outside)
+    for p in outside, comp in 1:3
+        ix, iy = spline_support(g, p)
+        w, _, _ = spline_weights(g, ix, iy, p)
+        val(t) = (c = extend_controls(rule, (z = [x[comp] for x in θ]; zz = Matrix{eltype(t)}(z); zz[inner] .= t; zz), [x[comp] for x in ref]);
+                  sum(w[r, c2] * c[iy - 3 + r, ix - 3 + c2] for r in 1:4, c2 in 1:4))
+        wfull = zeros(320); L = LinearIndices(rule.interior)
+        for r in 1:4, c2 in 1:4
+            wfull[L[iy - 3 + r, ix - 3 + c2]] += w[r, c2]
+        end
+        @test ForwardDiff.gradient(val, [θ[k][comp] for k in inner]) ≈ J' * wfull rtol = 1.0e-12
+    end
+    # the region must meet the lattice
+    @test_throws ArgumentError BoundaryRule(falses(4, 4))
+end

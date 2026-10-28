@@ -126,3 +126,149 @@ node_position(m::_GenericModel, i::CartesianIndex{2}) = Point2{Float64}(_node_pi
 # the area by at least a cell, so it is never empty.)
 support(m::_GenericModel, i::CartesianIndex{2}) =
     _closed_meet(cubic_bspline_footprint(node_position(m, i), _lattice_spacing(m)), _calibrated_rect(m))
+
+# -----------------------------------------------------------------------------
+# The boundary rule of a lattice under an imaged region: the nodes outside it are
+# DEPENDENT, defined from the interior
+# -----------------------------------------------------------------------------
+#
+# Under an imaged region the parameters of a lattice model are its interior nodes
+# (`free_nodes(m, region)`, the nodes whose support meets the region). Every other
+# node is neither a parameter nor frozen at a start value: it is defined from the
+# interior by the natural boundary condition — zero second difference of the
+# correction across the region's border, the linear extrapolation of the correction
+# outward. That is the rule the `:quasi_interpolate` initialization applies to the
+# source's samples past its domain, made the model's rule for every later change.
+# Every imaged pixel's window holds interior nodes only (a node whose basis is
+# nonzero at an imaged pixel has that pixel in its support), so the rule changes no
+# value inside the region and the interior's weights sum to one there; what it fixes
+# is the lattice outside, which follows the interior instead of keeping the start.
+
+"""
+    BoundaryRule(m, region)
+
+The boundary rule of the lattice model `m` (a `LocalSupport` model whose
+[`nodes`](@ref) are the `CartesianIndices` of a 2-D lattice) under the imaged
+`region`: its `interior` nodes ([`node_mask`](@ref)`(m, region)`, the
+parameters) and, per dependent node, the linear combination of interior nodes
+its CORRECTION is — the linear extrapolation outward, ring by ring
+(Chebyshev rings around the interior): along each lattice axis on which the
+two nodes inward are already defined, `2 c₁ − c₂`, averaged over those axes;
+with none, the same along the diagonals; with none of those either, the mean
+of the defined neighbours (constant extrapolation). The coefficients of each
+dependent node sum to one. [`extend_controls`](@ref) applies the rule;
+[`boundary_rule_jacobian`](@ref) is its Jacobian. An `ArgumentError` when the
+region meets no node's support.
+"""
+struct BoundaryRule
+    interior::BitMatrix
+    dependent::Vector{CartesianIndex{2}}
+    terms::Vector{Vector{Tuple{CartesianIndex{2}, Float64}}}
+end
+
+function BoundaryRule(m, region)
+    support_trait(m) isa LocalSupport || throw(ArgumentError("BoundaryRule: $(typeof(m)) is not a lattice model (GlobalSupport)"))
+    interior = BitMatrix(node_mask(m, region))
+    return BoundaryRule(interior)
+end
+
+"""
+    BoundaryRule(interior::AbstractMatrix{Bool})
+
+The boundary rule of a lattice whose interior nodes are `interior` (`true`),
+the rest dependent ([`BoundaryRule`](@ref)`(m, region)` with the mask given).
+"""
+function BoundaryRule(interior::AbstractMatrix{Bool})
+    any(interior) || throw(ArgumentError("BoundaryRule: no interior node (the region meets no node's support)"))
+    interior = BitMatrix(interior)
+    I = CartesianIndices(interior)
+    coef = Dict{CartesianIndex{2}, Dict{CartesianIndex{2}, Float64}}(n => Dict(n => 1.0) for n in I if interior[n])
+    known = copy(interior)
+    axes_ = (CartesianIndex(1, 0), CartesianIndex(-1, 0), CartesianIndex(0, 1), CartesianIndex(0, -1))
+    diags = (CartesianIndex(1, 1), CartesianIndex(1, -1), CartesianIndex(-1, 1), CartesianIndex(-1, -1))
+    isknown(n) = checkbounds(Bool, known, n) && known[n]
+    function combine!(acc, pairs)
+        for (w, n) in pairs, (k, c) in coef[n]
+            acc[k] = get(acc, k, 0.0) + w * c
+        end
+        return acc
+    end
+    dependent = CartesianIndex{2}[]
+    while !all(known)
+        ring = [n for n in I if !known[n] && any(isknown(n + s) for s in (axes_..., diags...))]
+        isempty(ring) && break
+        new = Dict{CartesianIndex{2}, Dict{CartesianIndex{2}, Float64}}()
+        for n in ring
+            acc = Dict{CartesianIndex{2}, Float64}()
+            lin = [s for s in axes_ if isknown(n + s) && isknown(n + s + s)]
+            isempty(lin) && (lin = [s for s in diags if isknown(n + s) && isknown(n + s + s)])
+            if !isempty(lin)
+                w = 1.0 / length(lin)
+                for s in lin
+                    combine!(acc, ((2w, n + s), (-w, n + s + s)))
+                end
+            else
+                nb = [n + s for s in (axes_..., diags...) if isknown(n + s)]
+                combine!(acc, ((1.0 / length(nb), k) for k in nb))
+            end
+            filter!(kv -> kv[2] != 0, acc)
+            new[n] = acc
+        end
+        for (n, acc) in new
+            coef[n] = acc; known[n] = true; push!(dependent, n)
+        end
+    end
+    sort!(dependent)
+    terms = [sort!([(k, c) for (k, c) in coef[n]]; by = first) for n in dependent]
+    return BoundaryRule(interior, dependent, terms)
+end
+
+"""
+    extend_controls(rule::BoundaryRule, controls, reference) -> matrix
+
+The full lattice of controls under `rule`: the interior nodes of `controls`
+as given, each dependent node its `reference` control plus the extrapolated
+correction, `reference[j] + Σ cₖ (controls[k] − reference[k])` over its
+interior terms. `controls` and `reference` are matrices of the lattice's size
+(the dependent entries of `controls` are not read) of any control type with
+`+`, `-` and scalar `*` (3-vectors, scalars, duals). With `controls ==
+reference` the result is `reference`.
+"""
+function extend_controls(rule::BoundaryRule, controls::AbstractMatrix, reference::AbstractMatrix)
+    size(controls) == size(reference) == size(rule.interior) ||
+        throw(DimensionMismatch("extend_controls: controls $(size(controls)), reference $(size(reference)), lattice $(size(rule.interior))"))
+    out = Matrix{promote_type(eltype(controls), eltype(reference))}(undef, size(controls))
+    for n in eachindex(IndexCartesian(), out)
+        out[n] = rule.interior[n] ? controls[n] : reference[n]
+    end
+    for (j, tm) in zip(rule.dependent, rule.terms)
+        acc = reference[j]
+        for (k, c) in tm
+            acc += c * (controls[k] - reference[k])
+        end
+        out[j] = acc
+    end
+    return out
+end
+
+"""
+    boundary_rule_jacobian(rule::BoundaryRule) -> Matrix{Float64}
+
+The Jacobian of [`extend_controls`](@ref) with respect to the interior
+controls, per scalar component: row = a node of the lattice (linear index),
+column = an interior node in linear-index order (`findall(rule.interior)`).
+An interior node's row is its unit vector, a dependent node's its
+coefficients; every row sums to one.
+"""
+function boundary_rule_jacobian(rule::BoundaryRule)
+    L = LinearIndices(rule.interior)
+    col = Dict(n => k for (k, n) in enumerate(findall(rule.interior)))
+    J = zeros(Float64, length(rule.interior), length(col))
+    for (n, k) in col
+        J[L[n], k] = 1.0
+    end
+    for (j, tm) in zip(rule.dependent, rule.terms), (k, c) in tm
+        J[L[j], col[k]] += c
+    end
+    return J
+end

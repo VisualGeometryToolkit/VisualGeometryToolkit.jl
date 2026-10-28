@@ -1005,6 +1005,7 @@ export image_circle                       # the lit region of the sensor, from t
 export imaged_region                      # Rect(extent) ∩ image_circle: what the camera images
 export SupportTrait, GlobalSupport, LocalSupport, support_trait, nodes, support, node_position   # supports on the sensor (support.jl)
 export free_nodes, node_mask, cubic_bspline_footprint
+export BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent nodes of a lattice outside an imaged region (support.jl)
 export radial_part                         # a lens's radially symmetric part
 export CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models (Schöps et al.)
 export spline_support, spline_weights, window_controls, window_indices, direction_tangents, default_generic_grid  # the grid model's window interface (0.22.2)

@@ -23,7 +23,8 @@ using StaticArrays: SVector, SMatrix
 using ImageCore: channelview
 using StructArrays: StructArray
 using FixedPointNumbers: N0f8
-using Colors: Gray, Colorant, RGB
+using Colors: Gray, Colorant, RGB, gray
+using ImageMorphology: MaxTree, areas   # the component tree behind detect_mser
 using PNGFiles: PNGFiles     # load_linear_image: a PNG read without gamma re-encoding
 
 # VisualGeometryToolkitCore (geometry primitives, units, the correspondence layer)
@@ -46,6 +47,7 @@ import VisualGeometryToolkitCore: centroid, moment_matrix, feature_frame, region
 #
 #   detection_types.jl  Detection{F,M}, polarity traits
 #   image_input.jl      gray_f32 / gray_u8 input ladders
+#   mser.jl             detect_mser, MserRegion, region_mask, boundary_contours
 #   batching.jl         batched_rows chunking for the describe backends
 #   asift/              KernelAbstractions ASIFT (IMAS-25) — THE detector.
 #                       Identity-only tilt schedule ≡ plain DoG-SIFT.
@@ -65,6 +67,7 @@ import VisualGeometryToolkitCore: centroid, moment_matrix, feature_frame, region
 
 include("detection_types.jl")
 include("image_input.jl")    # gray_f32 / gray_u8 — the input ladders (hoisted from BlobBoards)
+include("mser.jl")           # detect_mser — VLFeat's MSER selection on ImageMorphology's MaxTree
 include("linear_image.jl")   # load_linear_image — a PNG as linear radiance (hoisted from RadiometricCamera)
 include("batching.jl")       # batched_rows — the describe backends' chunking skeleton
 include("asift/pyramid.jl")
@@ -131,6 +134,8 @@ export gray_f32, gray_u8        # the input ladders every detector-side entry po
 export load_linear_image        # a PNG as linear radiance: no gamma re-encoding, optional sRGB decode, box downsample
 public srgb_to_linear, box_downsample, gaussian_blur   # gaussian_blur: the (masked) separable Gaussian of a linear image
 export batched_rows             # the describe backends' chunking skeleton
+export detect_mser, region_mask   # MSER (VLFeat's selection on ImageMorphology's MaxTree)
+public MserRegion, boundary_contours
 
 # -----------------------------------------------------------------------------
 # 3. MATCHING - strategies, metrics, NN matching on any KA backend

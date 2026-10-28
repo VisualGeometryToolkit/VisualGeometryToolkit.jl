@@ -14,7 +14,7 @@ reader (`load_linear_image`).
 
 ```@autodocs
 Modules = [VisualGeometryToolkitFeatures]
-Pages = ["detection_types.jl", "image_input.jl", "linear_image.jl", "batching.jl", "asift/api.jl", "asift/driver.jl",
+Pages = ["detection_types.jl", "image_input.jl", "mser.jl", "linear_image.jl", "batching.jl", "asift/api.jl", "asift/driver.jl",
          "asift/backproject.jl", "asift/uncertainty.jl", "asift/pyramid.jl", "asift/warp.jl",
          "asift/crosswarp.jl"]
 ```

@@ -243,3 +243,32 @@ end
     Nb = bspline_basis_iterative(u, 3, Float32.(collect(kn)))
     @test all(Nb[i][j] == bspline_basis(SVector{11, Float32}(kn), Val(3), u[j])[i] for i in 1:7, j in eachindex(u))
 end
+
+@testitem "bspline: second_difference_rows" begin
+    using Test
+    using VisualGeometryToolkitCore: second_difference_rows, second_difference_stencils
+    using LinearAlgebra: rank, I
+    # a sequence: rows (1, −2, 1); an affine sequence has no roughness, a parabola a constant one
+    D = second_difference_rows(5)
+    @test size(D) == (3, 5)
+    @test D[1, 1:3] == [1.0, -2.0, 1.0] && D[3, 3:5] == [1.0, -2.0, 1.0]
+    @test D * collect(2.0 .+ 3.0 .* (1:5)) ≈ zeros(3) atol = 1e-12
+    @test D * collect(Float64, (1:5) .^ 2) ≈ fill(2.0, 3)
+    @test size(second_difference_rows(2)) == (0, 2) && size(second_difference_rows(1)) == (0, 1)
+    # a lattice (column-major vec): the first index's differences, then the second's; null space 1, i, j, i·j
+    nx, ny = 4, 3
+    L = second_difference_rows(nx, ny)
+    @test size(L) == ((nx - 2) * ny + nx * (ny - 2), nx * ny)
+    @test nx * ny - rank(L) == 4
+    for f in ((i, j) -> 1.0, (i, j) -> i, (i, j) -> j, (i, j) -> i * j)
+        @test L * vec([f(i, j) for i in 1:nx, j in 1:ny]) ≈ zeros(size(L, 1)) atol = 1e-12
+    end
+    # each half equals the sequence operator applied along its index
+    @test L[1:((nx - 2) * ny), :] ≈ kron(Matrix{Float64}(I, ny, ny), second_difference_rows(nx))
+    @test L[((nx - 2) * ny + 1):end, :] ≈ kron(second_difference_rows(ny), Matrix{Float64}(I, nx, nx))
+    @test_throws ArgumentError second_difference_rows(-1)
+    # the stencils are the rows' nonzeros, in row order
+    st = second_difference_stencils(nx, ny)
+    @test length(st) == size(L, 1)
+    @test all(findall(!iszero, L[r, :]) == sort(collect(st[r])) && L[r, st[r][2]] == -2 for r in eachindex(st))
+end

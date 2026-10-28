@@ -332,3 +332,60 @@ function bspline_4d_partial(
         return evaluate_bspline_4d(u1, u2, u3, u4, (degrees[1], degrees[2], degrees[3], degrees[4] - 1), k1, k2, k3, kd, cp_d)
     end
 end
+
+# ---------------------------------------------------------------------------
+# The P-spline roughness penalty of a uniform B-spline's control values
+# ---------------------------------------------------------------------------
+
+"""
+    second_difference_rows(n) -> Matrix{Float64}
+    second_difference_rows(nx, ny) -> Matrix{Float64}
+
+The second-difference operator `D` of the control values of a uniform
+B-spline: of a sequence of `n` values, the `(n − 2) × n` rows `(1, −2, 1)`;
+of an `nx × ny` lattice (values in column-major `vec` order), the second
+differences along the first index (`(nx − 2) · ny` rows) followed by those
+along the second (`nx · (ny − 2)` rows). `‖D c‖²` is the P-spline roughness
+penalty (Eilers & Marx 1996), the discrete bending energy of the control
+lattice; its null space is the affine functions of the index (`2` per sequence,
+`4` per lattice: `1`, `i`, `j`, `i·j`).
+
+A regularizer of a lattice of parameters reads it as rows of a least-squares
+problem, `√w · D (c − c₀)`; a lattice of vector-valued controls applies it per
+component. The rows are [`second_difference_stencils`](@ref)'s, dense; a
+lattice too large for a dense operator reads the stencils.
+"""
+second_difference_rows(n::Integer) = _stencil_rows(second_difference_stencils(n), n)
+second_difference_rows(nx::Integer, ny::Integer) = _stencil_rows(second_difference_stencils(nx, ny), nx * ny)
+function _stencil_rows(st, n)
+    D = zeros(length(st), n)
+    for (r, (a, b, c)) in enumerate(st)
+        D[r, a] = 1; D[r, b] = -2; D[r, c] = 1
+    end
+    return D
+end
+
+"""
+    second_difference_stencils(n) -> Vector{NTuple{3, Int}}
+    second_difference_stencils(nx, ny) -> Vector{NTuple{3, Int}}
+
+The rows of [`second_difference_rows`](@ref) as stencils: per row the linear
+indices `(previous, centre, next)` of its coefficients `(1, −2, 1)`, in the
+same row order (along the first index, then along the second).
+"""
+function second_difference_stencils(n::Integer)
+    n >= 0 || throw(ArgumentError("second_difference_stencils: n = $n < 0"))
+    return [(i - 1, i, i + 1) for i in 2:(n - 1)]
+end
+function second_difference_stencils(nx::Integer, ny::Integer)
+    (nx >= 0 && ny >= 0) || throw(ArgumentError("second_difference_stencils: lattice $nx × $ny"))
+    idx(i, j) = i + (j - 1) * nx
+    st = NTuple{3, Int}[]
+    for j in 1:ny, i in 2:(nx - 1)
+        push!(st, (idx(i - 1, j), idx(i, j), idx(i + 1, j)))
+    end
+    for j in 2:(ny - 1), i in 1:nx
+        push!(st, (idx(i, j - 1), idx(i, j), idx(i, j + 1)))
+    end
+    return st
+end

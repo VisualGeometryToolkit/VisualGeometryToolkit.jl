@@ -191,6 +191,7 @@ public ExecutionPolicy, Auto, Serial, Threaded, THREADED_MIN_LENGTH
 # derivative surfaces; the rrules live in the ChainRulesCore extension.
 public gauss_hermite_prob, hammersley, square_rule, unit_disc_rule   # quadrature rules (N(0, 1), the square, the unit disc), low-discrepancy points
 public bspline_basis, clamped_uniform_knots   # the scalar Cox–de Boor basis (isbits, any eltype, kernel-safe) and its knots
+public second_difference_rows, second_difference_stencils   # the P-spline roughness penalty of a uniform B-spline's control values (a sequence or a lattice)
 public bspline_basis_iterative, evaluate_bspline_surface, bspline_surface_partial
 public evaluate_bspline_4d, bspline_4d_partial, contract_basis_4d_weighted
 # Thin-plate spline (hoisted from RadiometricCamera, arithmetic unchanged): the

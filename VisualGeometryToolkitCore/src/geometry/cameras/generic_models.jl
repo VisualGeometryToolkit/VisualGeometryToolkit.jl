@@ -725,6 +725,87 @@ differentiated residual is never promoted.
     return t1, t2
 end
 
+"""
+    ControlPatchManifold(directions[, points]) <: Manifold
+
+A patch of a generic grid model's controls as a manifold: a `PX × PY` block of
+its direction controls (`SMatrix` of 3-vectors, `[gy, gx]` like the model's
+grid) and, for a non-central model, the matching block of its point controls —
+the block a per-tile refinement moves (an NLLSsolver variable through the
+manifold adapter). A direction control `d` moves on its own sphere by the
+reference's chart,
+
+    ‖d‖ · normalize(d + δ₁t₁ + δ₂t₂),   (t₁, t₂) = direction_tangents(d / ‖d‖),
+
+2 coordinates that keep its norm (the norm is a weight of the spline's blend,
+not a gauge) and whose derivative at δ = 0 is `(t₁, t₂)`; a point control moves
+additively, 3 coordinates. The coordinates are per control, column-major over
+the block: `(δ₁, δ₂)` each, or `(δ₁, δ₂, Δx, Δy, Δz)` with points —
+[`restrict`](@ref) them by mask to hold some fixed (a pupil-plane model's `Δz`).
+`model(ch)` is `(; directions, points)` (`points` is `nothing` for a central
+patch); `retract_jacobian(ch)` is block diagonal, `(t₁ t₂)` per direction and
+the identity per point.
+"""
+struct ControlPatchManifold{PX, PY, L, T <: Real, P <: Union{Nothing, SMatrix{PX, PY, SVector{3, T}, L}}} <: Manifold
+    directions::SMatrix{PX, PY, SVector{3, T}, L}
+    points::P
+end
+ControlPatchManifold(directions::SMatrix{PX, PY, <:StaticVector{3}}) where {PX, PY} =
+    (T = float(eltype(eltype(directions))); ControlPatchManifold(SMatrix{PX, PY, SVector{3, T}}(directions), nothing))
+
+_control_coordinates(::ControlPatchManifold{PX, PY, L, T, Nothing}) where {PX, PY, L, T <: Real} = 2
+_control_coordinates(::ControlPatchManifold) = 5
+tangent_size(ch::ControlPatchManifold{PX, PY, L}) where {PX, PY, L} = _control_coordinates(ch) * L
+model(ch::ControlPatchManifold) = (; directions = ch.directions, points = ch.points)
+
+# One direction control stepped on its sphere (the reference's chart), its norm kept.
+@inline function _control_step(d::SVector{3}, δ₁, δ₂)
+    t1, t2 = direction_tangents(normalize(d))
+    return norm(d) * normalize(d + δ₁ * t1 + δ₂ * t2)
+end
+function _stepped(ch::ControlPatchManifold{PX, PY, L, T, Nothing}, v) where {PX, PY, L, T <: Real}
+    dirs = SMatrix{PX, PY}(ntuple(n -> _control_step(ch.directions[n], v[2n - 1], v[2n]), Val(L)))
+    return dirs, nothing
+end
+function _stepped(ch::ControlPatchManifold{PX, PY, L}, v) where {PX, PY, L}
+    dirs = SMatrix{PX, PY}(ntuple(n -> _control_step(ch.directions[n], v[5n - 4], v[5n - 3]), Val(L)))
+    pts = SMatrix{PX, PY}(ntuple(n -> ch.points[n] + SVector(v[5n - 2], v[5n - 1], v[5n]), Val(L)))
+    return dirs, pts
+end
+retract(ch::ControlPatchManifold, v) = (s = _stepped(ch, v); (; directions = s[1], points = s[2]))
+recenter(ch::ControlPatchManifold, v) = (s = _stepped(ch, v); s[2] === nothing ? ControlPatchManifold(s[1]) : ControlPatchManifold(s[1], s[2]))
+function retract_jacobian(ch::ControlPatchManifold{PX, PY, L, T}) where {PX, PY, L, T}
+    k = _control_coordinates(ch)
+    J = zeros(T, 3 * L * (k == 2 ? 1 : 2), k * L)
+    for n in 1:L
+        t1, t2 = direction_tangents(normalize(ch.directions[n]))
+        r = 3 * (k == 2 ? n - 1 : 2n - 2)
+        J[(r + 1):(r + 3), k * (n - 1) + 1] = t1
+        J[(r + 1):(r + 3), k * (n - 1) + 2] = t2
+        k == 5 && for i in 1:3
+            J[r + 3 + i, k * (n - 1) + 2 + i] = one(T)
+        end
+    end
+    return J
+end
+# The coordinates of a block of controls: per direction, the step's tangent
+# coordinates (its sphere's chart inverted — the norm is the anchor's), per point
+# the offset.
+function local_coordinates(ch::ControlPatchManifold{PX, PY, L}, x::NamedTuple) where {PX, PY, L}
+    k = _control_coordinates(ch)
+    out = zeros(promote_type(eltype(eltype(ch.directions)), eltype(eltype(x.directions))), k * L)
+    for n in 1:L
+        d = ch.directions[n]; d̂ = normalize(d)
+        t1, t2 = direction_tangents(d̂)
+        y = normalize(x.directions[n])
+        s = norm(d) / dot(y, d̂)                     # s·y = d + δ₁t₁ + δ₂t₂, and t ⟂ d̂
+        out[k * (n - 1) + 1] = s * dot(y, t1)
+        out[k * (n - 1) + 2] = s * dot(y, t2)
+        k == 5 && (out[(k * (n - 1) + 3):(k * n)] = x.points[n] - ch.points[n])
+    end
+    return out
+end
+
 # Noncentral tangent-plane residual of a candidate pixel against target X.
 @inline function _noncentral_residual(m::NoncentralGenericModel, p::SVector{2}, X::SVector{3})
     gx, gy = _grid_coords(m, p[1], p[2])

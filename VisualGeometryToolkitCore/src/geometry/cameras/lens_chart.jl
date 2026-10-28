@@ -250,7 +250,9 @@ interval (of `max(1, |a|)` for a one-sided bound); an anchor past a closed end
 is clamped onto it; a mirrored coordinate (`ω`, whose sign is not part of the
 map) is anchored at `|ω|`. `ω = 0` is a stationary point of the field-of-view
 model itself — its map is even in `ω`, so `∂project/∂ω = 0` there whatever the
-chart — so a fit of `ω` starts at a small `ω ≠ 0`.
+chart — so a fit of `ω` starts at a small `ω ≠ 0`. A zero chart offset is the
+anchor's value bit for bit, so a coordinate [`restrict`](@ref) holds fixed
+never drifts across recenters.
 [`restrict`](@ref) it to the free coefficients by mask or by name
 (`restrict(ch, (:k1, :k2))`; a camera's `restrict(ch, (:f, :cx, :cy, :k1))`
 fixes its skew and aspect). `minimal_manifold(lens)` and
@@ -416,6 +418,7 @@ end
     return one(promote_type(typeof(t0), typeof(d)))
 end
 @inline function _bounded_value(t0, d, a, b, k)
+    iszero(d) && return oftype(t0 + d, t0)       # no step: the anchor, bit for bit (a fixed coordinate never drifts)
     oa, ob = _open_ends(a, b, k)
     t = _open_chart_value(t0, d, a, b, oa, ob)
     k[1] && t < a && return zero(t) + a

@@ -170,7 +170,8 @@ end
     using Test, StaticArrays, LinearAlgebra
     using VisualGeometryToolkitCore
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: LensManifold, retract, recenter, retract_jacobian, local_coordinates, tangent_size, model
+    using VisualGeometryToolkitCore: LensManifold, retract, recenter, retract_jacobian, local_coordinates, tangent_size, model,
+        restrict, parameters
 
     @testset "values are what the retired getters returned" begin
         opencv = Lens(Perspective(), Additive(Radial((-0.2, 0.05, -0.01), (0.03, -0.004, 0.001)), Tangential(0.002, -0.001), ThinPrism((-5.5e-3, 7.0e-4), (2.2e-3, -1.2e-3))))
@@ -233,7 +234,7 @@ end
         # ω ∈ [0, π): closed at 0 (the identity), open at π — ω = π − (π − ω₀)·exp(−v), clamped at 0
         fv = LensManifold(Lens(Perspective(), FieldOfView(0.9)))
         ω(d) = parameter_vector(retract(fv, SVector(d)))[1]
-        @test ω(0.0) ≈ 0.9 rtol = 1.0e-15
+        @test ω(0.0) === 0.9
         @test ω(0.3) ≈ π - (π - 0.9) * exp(-0.3) rtol = 1.0e-15
         @test ω(-50.0) === 0.0 && π - 1.0e-12 < ω(50.0) < π
         @test retract_jacobian(fv)[1, 1] ≈ π - 0.9 rtol = 1.0e-15
@@ -255,6 +256,17 @@ end
         @test parameter_vector(retract(eu, SVector(0.0, 0.5)))[2] == 1.2 + 0.5
         e0 = LensManifold(Lens(ExtendedUnified(0.0, 1.0)))
         @test parameter_vector(model(e0)) == SVector(0.0, 1.0) && retract_jacobian(e0) == [1.0 0.0; 0.0 1.0]
+        # a coordinate restrict holds fixed is the anchor, bit for bit, across recenters (log and logit charts too)
+        rs = restrict(LensManifold(Lens(DoubleSphere(0.1, 0.5))), (:alpha,))
+        for _ in 1:10
+            rs = recenter(rs, SVector(0.01))
+        end
+        @test parameters(model(rs)).xi === 0.1
+        ru = restrict(LensManifold(Lens(Unified(0.37), Radial((-0.1,)))), (:k1,))
+        for _ in 1:10
+            ru = recenter(ru, SVector(1.0e-3))
+        end
+        @test parameter_vector(model(ru))[1] === 0.37
         kb = LensManifold(KannalaBrandt(-0.02, 0.003))
         @test parameter_vector(retract(kb, SVector(0.001, -0.002))) == SVector(-0.019, 0.001)
     end

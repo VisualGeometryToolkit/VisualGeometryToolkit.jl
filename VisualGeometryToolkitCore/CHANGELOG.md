@@ -26,3 +26,8 @@ introduced them did not state them all.
 - **`ω = 0` is a stationary point of the field-of-view model itself.** Its map
   is even in `ω`, so `∂project/∂ω = 0` there whatever the chart is. Start a
   fit of `ω` at a small `ω ≠ 0`.
+- **A coordinate with no step keeps its value exactly.** `retract` with a zero
+  chart offset returns the anchor's value bit for bit, so a coordinate that
+  `restrict` holds fixed never drifts across recenters. Before, a fixed
+  coordinate under a log or logit chart moved by an ulp on each recenter:
+  `ξ = 0.1` became `0.10000000000000009`.

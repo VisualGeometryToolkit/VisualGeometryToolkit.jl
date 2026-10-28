@@ -49,9 +49,12 @@ top-left corner of the top-left pixel, so pixel `(i, j)`'s centre is
 const SCHOEPS_PIXEL_FRAME = PixelFrame{:colmap}
 
 # The form of a file, by its content: `:json` (a vgio file), `:calib_data` (a
-# Schöps dataset.bin) or `:yaml` (anything else: a Schöps intrinsics YAML).
+# Schöps dataset.bin) or `:yaml` (anything else: a Schöps intrinsics YAML). A
+# UTF-8 byte-order mark is skipped first.
 function _file_form(path::AbstractString)
     open(path, "r") do io
+        bom = read(io, 3)
+        bom == UInt8[0xef, 0xbb, 0xbf] || seekstart(io)
         magic = read(io, 10)
         magic == codeunits("calib_data") && return :calib_data
         for b in magic

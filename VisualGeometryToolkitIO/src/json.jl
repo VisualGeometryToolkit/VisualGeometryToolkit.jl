@@ -33,7 +33,9 @@ _json(x; allownan::Bool = false) = JSON.json(x; allownan)
 # `allownan` reads NaN / Infinity as the value it names. It also reads EVERY
 # number as a Float64 (an integer field included), so it is used only to
 # locate a non-finite number the strict parse refused, and name its field.
-_parse_json(s::AbstractString; allownan::Bool = false) = JSON.parse(s; allownan)
+_parse_json(s::AbstractString; allownan::Bool = false) = JSON.parse(_strip_bom(s); allownan)
+# A UTF-8 byte-order mark (an editor's, on Windows) is not part of the JSON text.
+_strip_bom(s::AbstractString) = startswith(s, '\ufeff') ? SubString(s, nextind(s, 1)) : s
 
 _write_json(path::AbstractString, body) = open(path, "w") do io
     JSON.json(io, body; pretty = 4)

@@ -119,3 +119,16 @@ end
         @test_throws ArgumentError load(TargetPoints2D, bad; target = :pattern)
     end
 end
+
+@testitem "content dispatch: a UTF-8 byte-order mark is not content" setup = [VGIoFixtures] begin
+    using VisualGeometryToolkitCore: NoncentralGenericModel
+    # a vgio file an editor saved with a BOM is read as the vgio file it is, not sent to the Schöps YAML parser
+    src = joinpath(@__DIR__, "fixtures", "units", "generic_camera.json")
+    mktempdir() do dir
+        p = joinpath(dir, "bom.json")
+        write(p, vcat(UInt8[0xef, 0xbb, 0xbf], read(src)))
+        @test VisualGeometryToolkitIO._file_form(p) === :json
+        a, b = load(NoncentralGenericModel, p), load(NoncentralGenericModel, src)
+        @test a.directions == b.directions && a.points == b.points
+    end
+end

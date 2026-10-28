@@ -29,8 +29,8 @@ clouds rather than directions.
 Physical pairs (lengths on both sides) are stripped in metres at entry; the
 rotation is unit-free, so it comes back the same either way.
 
-Throws `ArgumentError` on fewer than 2 pairs (a single pair leaves a
-one-parameter family of solutions).
+Throws `ArgumentError` on fewer than 2 pairs, or fewer than 2 of positive
+weight (a single pair leaves a one-parameter family of solutions).
 """
 function kabsch(cs::AbstractVector{<:Pair{<:StaticVector{3, <:Quantity}, <:StaticVector{3, <:Quantity}}})
     stripped = [strip_metres(first(p)) => strip_metres(last(p)) for p in cs]
@@ -42,6 +42,9 @@ function kabsch(cs::AbstractVector{<:Pair{<:StaticVector{3}, <:StaticVector{3}}}
         throw(ArgumentError("need at least 2 vector pairs, got $(length(cs))"))
     as = sources(cs); bs = targets(cs)
     w = check_weights(weights_column(cs), length(cs))
+    # a zero weight drops its pair: the ≥ 2 counts the pairs that carry weight
+    (w === nothing || count(>(0), w) >= 2) ||
+        throw(ArgumentError("need at least 2 vector pairs of positive weight, got $(count(>(0), w)) of $(length(cs))"))
     T = promote_type(eltype(eltype(as)), eltype(eltype(bs)))
     H = w === nothing ? sum(SVector{3, T}(b) * SVector{3, T}(a)' for (a, b) in zip(as, bs)) :
         sum(w[i] * (SVector{3, T}(bs[i]) * SVector{3, T}(as[i])') for i in eachindex(as, bs, w))

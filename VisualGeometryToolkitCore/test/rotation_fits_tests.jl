@@ -11,7 +11,7 @@
     using Rotations: RotMatrix, RotationVec, RotXYZ, rotation_angle
     using VisualGeometryToolkitCore: EuclideanMap
     using FiniteDiff: FiniteDiff
-    using VisualGeometryToolkitCore: kabsch, chordal_mean
+    using VisualGeometryToolkitCore: kabsch, chordal_mean, withattrs, Csponds
 
     @testset "rotation fits" begin
         rng = MersenneTwister(20260806)
@@ -39,6 +39,11 @@
             @test rotation_angle(RotMatrix{3}(kabsch((as .+ Ref(o)) .=> (bs .+ Ref(o)))' * Rgt)) > 1.0e-3
 
             @test_throws ArgumentError kabsch(as[1:1] .=> bs[1:1])
+            # a zero weight drops its pair: fewer than 2 of positive weight is refused, not an arbitrary rotation
+            w1 = zeros(40); w1[7] = 1.0
+            @test_throws ArgumentError kabsch(withattrs(Csponds(as, bs); weights = w1))
+            w2 = zeros(40); w2[7] = 1.0; w2[11] = 2.0
+            @test rotation_angle(RotMatrix{3}(kabsch(withattrs(Csponds(as, bs); weights = w2))' * Rgt)) < 1.0e-6
             @test_throws MethodError kabsch(as, bs)                   # correspondences only
         end
 

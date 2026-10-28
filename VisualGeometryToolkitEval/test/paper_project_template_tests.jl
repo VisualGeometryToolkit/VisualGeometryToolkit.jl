@@ -22,6 +22,11 @@
     @test Base.active_project() == prev            # initialize_project's activation is undone
     @test isfile(joinpath(root, "scripts", "example_stage.jl")) && !isfile(joinpath(root, "scripts", "intro.jl"))
     @test isdir(joinpath(root, ".git"))
+    # `.tex` keeps `text` and loses git's built-in tex diff driver, whose regex libgit2 cannot compile on macOS
+    # (an illegal byte sequence that failed `LibGit2.add!` on every .tex path); the paper is committed
+    attrs = read(joinpath(root, ".gitattributes"), String)
+    @test !occursin("diff=tex", attrs) && occursin(r"^\*\.tex\s+text\s*$"m, attrs)
+    @test success(`git -C $root ls-files --error-unmatch paper/main.tex`) && isempty(read(`git -C $root status --porcelain`, String))
     # Before its stage has run, the paper reads assets that do not exist yet.
     @test Set(x.rule for x in paper_project_violations(root)) == Set(["missing_asset"])
 

@@ -65,9 +65,26 @@ function new_paper_project(path::AbstractString; name::AbstractString = basename
     for f in ("scripts/intro.jl", "src/dummy_src_file.jl", "Manifest.toml")
         rm(joinpath(path, f); force = true)
     end
+    _drop_tex_diff_driver!(joinpath(path, ".gitattributes"))
     _populate!(path; name, papers, authors)
     git && _commit_all(path, "Paper project setup (VisualGeometryToolkitEval new_paper_project)")
     return path
+end
+
+# DrWatson's `.gitattributes` assigns `*.tex` git's built-in `tex` diff driver
+# (`diff=tex`). libgit2 compiles that driver's word regex — which holds raw
+# bytes in \x80–\xff — with the platform's POSIX `regcomp`; on macOS, in a
+# UTF-8 locale, those bytes are an illegal byte sequence, so staging any `.tex`
+# path failed there (`GitError(Code:ERROR, Class:Regex, illegal byte
+# sequence)` from `LibGit2.add!`, reported on aarch64 Julia 1.12.7). A paper
+# project's `.tex` files keep `text` and lose the driver: git diffs them as
+# plain text, everywhere. A file without the line is left as it is.
+function _drop_tex_diff_driver!(attributes::AbstractString)
+    isfile(attributes) || return nothing
+    text = read(attributes, String)
+    fixed = replace(text, r"^(\*\.tex\s+text)\s+diff=tex[ \t]*$"m => s"\1")
+    fixed == text || write(attributes, fixed)
+    return nothing
 end
 
 # The generated files of a paper project at `path` (the directories exist or

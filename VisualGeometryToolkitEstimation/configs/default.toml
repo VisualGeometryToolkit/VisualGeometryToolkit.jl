@@ -44,6 +44,10 @@ local_optimization = { type = "irls", loss = "tls" }
 threshold          = 1.0         # px — a convention (OpenCV findEssentialMat's threshold), not a tuned value
 local_optimization = { type = "irls", loss = "tls" }
 
+[pipelines.rotation]
+threshold          = 1.0         # px — the essential problem's convention: both are bearing residuals whitened into pixels
+local_optimization = { type = "irls", loss = "tls" }
+
 [pipelines.absolute_pose]
 threshold          = 8.0         # px — a convention (OpenCV solvePnPRansac's reprojectionError), not a tuned value
 local_optimization = { type = "irls", loss = "tls" }

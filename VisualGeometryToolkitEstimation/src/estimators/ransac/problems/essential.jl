@@ -73,15 +73,15 @@ const _CALIBRATED_PIXEL_RAD = 0.1
 # The largest angle one pixel subtends anywhere in either view: the largest
 # singular value of the back-projection Jacobian (VGC's `sigma_max`, the same
 # conversion the E sample gate makes), ≈ 1/f at a pinhole's principal point.
-_pixel_angle(p::EssentialProblem) =
+_pixel_angle(p::_BearingProblem) =
     maximum(VgtkCore.sigma_max, Iterators.flatten((p.cs.M₁, p.cs.M₂)); init = 0.0)
 
-_check_scoring(p::EssentialProblem, scoring::AbstractScoring) = _check_halfwidth(p, outlier_halfwidth(scoring))
+_check_scoring(p::_BearingProblem, scoring::AbstractScoring) = _check_halfwidth(p, outlier_halfwidth(scoring))
 # A threshold scorer's threshold is in pixels too, under the same floor.
-_check_scoring(p::EssentialProblem, scoring::Union{MsacScoring{<:Any, Float64}, RansacScoring{<:Any, Float64}}) =
+_check_scoring(p::_BearingProblem, scoring::Union{MsacScoring{<:Any, Float64}, RansacScoring{<:Any, Float64}}) =
     _check_halfwidth(p, inlier_threshold(scoring, nothing), "threshold")
-_check_halfwidth(::EssentialProblem, ::Nothing, _what = "") = nothing
-function _check_halfwidth(p::EssentialProblem, halfwidth::Float64, what::AbstractString = "outlier half-width")
+_check_halfwidth(::_BearingProblem, ::Nothing, _what = "") = nothing
+function _check_halfwidth(p::_BearingProblem, halfwidth::Float64, what::AbstractString = "outlier half-width")
     (halfwidth >= _ESSENTIAL_HALFWIDTH_FLOOR_PX || _pixel_angle(p) > _CALIBRATED_PIXEL_RAD) ||
         throw(ArgumentError(
         "$what $(round(halfwidth; sigdigits = 4)) is below " *

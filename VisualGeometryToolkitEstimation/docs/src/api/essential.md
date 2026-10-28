@@ -33,3 +33,22 @@ LocalOptimizationDoneRight's tuning constants (`tuning_constant`,
 `WELSCH_HQ_SCALE_MULTIPLE_ESSENTIAL`, …) and are supplied with its strategy:
 `find_essential(cam1, cam2, cs; scoring = …, local_optimization =
 HQ{WelschShape}(scale_multiple = WELSCH_HQ_SCALE_MULTIPLE_ESSENTIAL))`.
+
+## The Pure Rotation
+
+A camera that only rotates between two views induces the infinite homography,
+a rotation `R` with `f₂ ∥ R·f₁` on unit bearings. `RotationProblem` is the
+bearing problem of that model, built like the essential problem from the
+cameras' back-projection with the `M₁`/`M₂` Jacobian columns (the whole field
+of a fisheye takes part, past 90°): VisualGeometryToolkitCore's `Rotation2pt`
+on two pairs, the residual the two-sided transfer Sampson error on bearings in
+pixels (VisualGeometryToolkitCore's `constraint_with_jacobians(TransferForm(H),
+f₁, f₂; M₁, M₂)` at `H = R`), and the chart-LM refit on the rotation block of
+`LeftRigidManifold6` through the homography's transfer rows. `find_rotation`
+is its RANSAC; a scorer or a lift from another package plugs in as for
+`find_essential`.
+
+```@docs
+RotationProblem
+find_rotation
+```

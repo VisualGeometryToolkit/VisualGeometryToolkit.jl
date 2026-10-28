@@ -140,6 +140,24 @@ const FundMatProblem = MinimalSolveProblem{FundMat{T}, 7, T} where {T <: Abstrac
 const EssentialProblem = MinimalSolveProblem{EssentialMat{T}, 5, T} where {T <: AbstractFloat}
 const AbsolutePoseProblem = MinimalSolveProblem{Extrinsics3, 3, Float64}
 
+"""
+    RotationProblem
+
+The RANSAC problem of a pure rotation between two calibrated views: the
+`MinimalSolveProblem` whose model is a `RotMatrix{3, Float64}` `R` with
+`f₂ ∥ R·f₁` for unit bearings `f₁ => f₂` (the infinite homography). Minimal
+sample 2 (VisualGeometryToolkitCore's `Rotation2pt`), codimension 2, a 3-dof
+chart. Build it with `RotationProblem(camera1, camera2, pixel_cs)` or from a
+bearing `Csponds` carrying `M₁`/`M₂` columns; the public estimator is
+[`find_rotation`](@ref).
+"""
+const RotationProblem = MinimalSolveProblem{RotMatrix{3, Float64, 9}, 2, Float64}
+
+# The problems on unit BEARINGS with their back-projection Jacobians (`M₁`/`M₂`
+# columns): what reads those columns — the pixel unit of a threshold, the
+# coincidence gate — is written once for both.
+const _BearingProblem = Union{EssentialProblem, RotationProblem}
+
 # Internal union alias for the 2D-2D (two-view) families — the former
 # `RelativeProblem` struct. Methods written against it apply to H/F/E but
 # not to the pose family.
@@ -637,7 +655,7 @@ function EssentialProblem(
     ))
 end
 
-function _assert_unit_bearings(fs, which::AbstractString)
+function _assert_unit_bearings(fs, which::AbstractString, who::AbstractString = "EssentialProblem")
     worst = 0.0; at = 0
     @inbounds for i in eachindex(fs)
         f = fs[i]
@@ -645,7 +663,7 @@ function _assert_unit_bearings(fs, which::AbstractString)
         # camera cannot back-project, e.g. past a fisheye's fold) sailed through
         # the norm test below and poisoned every LO it entered.
         all(isfinite, f) || throw(ArgumentError(
-            "EssentialProblem needs finite bearings; the $which at index $i is " *
+            "$who needs finite bearings; the $which at index $i is " *
                 "$(Tuple(f)). A camera returns NaN for a pixel it cannot " *
                 "back-project (e.g. past a fisheye's fold) — drop that " *
                 "correspondence before building the problem."
@@ -654,22 +672,22 @@ function _assert_unit_bearings(fs, which::AbstractString)
         d > worst && (worst = d; at = i)
     end
     worst <= 1.0e-6 || throw(ArgumentError(
-        "EssentialProblem needs UNIT bearings; the $which at index $at has norm " *
+        "$who needs UNIT bearings; the $which at index $at has norm " *
             "$(round(norm(fs[at]), digits = 6)). A z = 1 chart point satisfies the " *
             "3-vector signature but is not a bearing — its norm is 1 only on the " *
             "optical axis, ~1.41 at 45° off it, and it does not exist at all at " *
             "90°. Back-project with the camera: " *
-            "`EssentialProblem(camera1, camera2, pixel_cs)`."
+            "`$who(camera1, camera2, pixel_cs)`."
     ))
     return nothing
 end
 
 # The back-projection Jacobians carry every tolerance into pixels, so a
 # non-finite one is as poisonous as a non-finite bearing.
-function _assert_finite_jacobians(Ms, name::AbstractString)
+function _assert_finite_jacobians(Ms, name::AbstractString, who::AbstractString = "EssentialProblem")
     @inbounds for i in eachindex(Ms)
         all(isfinite, Ms[i]) || throw(ArgumentError(
-            "EssentialProblem needs finite back-projection Jacobians; `$name` at " *
+            "$who needs finite back-projection Jacobians; `$name` at " *
                 "index $i is not finite. Drop that correspondence before building " *
                 "the problem."
         ))

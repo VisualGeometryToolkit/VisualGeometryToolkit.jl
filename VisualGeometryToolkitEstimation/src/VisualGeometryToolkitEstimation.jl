@@ -243,7 +243,7 @@ using SparseArrays: sparse   # the relpose bundle's stacked Jacobian (its stall 
 # 1. PIPELINES — robust estimation end to end
 # -----------------------------------------------------------------------------
 export find_homography, find_fundmat, find_essential, find_absolute_pose,
-    find_hand_eye, find_radial_homography, find_radial_camera
+    find_hand_eye, find_radial_homography, find_radial_camera, find_rotation
 export fit_robot_world_hand_eye, refine_robot_world_hand_eye, fit_division_camera
 export fit_residual_mixture   # the inlier/outlier classification of a held model's residuals
 export refine_ellipse         # the orthogonal-distance ellipse from a start value (direct_ellipse by default)
@@ -261,7 +261,7 @@ export ransac, locally_optimize, RansacConfig, RansacEstimate
 # -----------------------------------------------------------------------------
 # 3. PROBLEMS a user builds
 # -----------------------------------------------------------------------------
-export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem,
+export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem, RotationProblem,
     HandEyeProblem, LineFittingProblem, InhomLineFittingProblem,
     RadialHomographyProblem, RadialCameraProblem, RelposeBundleProblem
 
@@ -361,6 +361,7 @@ include("estimators/ransac/problems/radial_camera.jl")    # the 1-D radial camer
 include("estimators/ransac/problems/epipolar_lm.jl")
 include("estimators/ransac/problems/fundmat.jl")
 include("estimators/ransac/problems/essential.jl")
+include("estimators/ransac/problems/rotation.jl")   # the pure rotation on bearings (the infinite homography): Rotation2pt + the bearing transfer rows
 include("estimators/ransac/problems/relpose_bundle.jl")
 include("estimators/ransac/problems/line.jl")
 include("estimators/ransac/problems/hand_eye.jl")
@@ -384,6 +385,7 @@ include("fitting/division_camera_step.jl")     # one iteration of the stacked li
 include("fitting/fit_division_camera.jl")       # iterated Sampson-whitened, Student-t re-weighted focal stack (IRLS under block_coordinate_descent!)
 include("fitting/fit_lens.jl")                  # model-to-model lens regression on the radial profile (moved from VGC)
 include("fitting/essential.jl")
+include("fitting/rotation.jl")
 include("fitting/pose.jl")
 include("fitting/fundmat.jl")
 include("fitting/hand_eye.jl")

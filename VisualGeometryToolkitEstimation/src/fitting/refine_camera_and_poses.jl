@@ -74,7 +74,7 @@ NLLSsolver.computecost(vars::AbstractVector, r::_CameraPoseResidual) =
 
 """
     refine_camera_and_poses(camera::CameraModel, poses, views; free, box = nothing,
-                            max_iter, ftol, xtol)   # defaults: configs/default.toml [refine_camera_and_poses]
+                            max_iter, ftol, xtol, max_time = nothing)   # defaults: configs/default.toml [refine_camera_and_poses]
         -> FitResult{<:NamedTuple{(:camera, :poses)}, CameraPosesRefineMetadata}
 
 Refine a camera and one pose per view jointly against the reprojection error of
@@ -105,7 +105,9 @@ scratch and the camera keeps its family (its lens type).
   (VisualGeometryToolkitCore's `ParameterManifold(camera; box)`), or `nothing`.
 - `max_iter` — the LM's cap on ACCEPTED iterations (NLLSsolver's count);
   `ftol` — its relative cost decrease and the stall postcondition's exact-fit
-  test; `xtol` — its step tolerance (chart units).
+  test; `xtol` — its step tolerance (chart units); `max_time` — its
+  wall-clock cap in seconds (`nothing` or `Inf`: none), for a camera whose
+  projection makes an iteration slow; it stops with `:max_time`.
 
 The estimate is `(; camera, poses)`: the refined camera, and the refined poses
 keyed like the input (a `Dict` by the same keys, or a vector in view order,
@@ -195,6 +197,7 @@ function _refine_camera_and_poses(
         max_iter::Integer = _dflt("refine_camera_and_poses", "max_iter"),
         ftol::Real = _dflt("refine_camera_and_poses", "ftol"),
         xtol::Real = _dflt("refine_camera_and_poses", "xtol"),
+        max_time::Union{Nothing, Real} = nothing,
     )
     V = length(views)
     V >= 1 || throw(ArgumentError("refine_camera_and_poses: no views"))
@@ -225,7 +228,7 @@ function _refine_camera_and_poses(
     chc === nothing || NLLSsolver.addvariable!(problem, chc)
     foreach(ch -> NLLSsolver.addvariable!(problem, ch), pose_charts)
     foreach(c -> NLLSsolver.addcost!(problem, c), costs)
-    result = NLLSsolver.optimize!(problem, nlls_options(; max_iter, ftol, xtol))
+    result = NLLSsolver.optimize!(problem, nlls_options(; max_iter, ftol, xtol, max_time))
     chc_out = chc === nothing ? nothing : problem.variables[1]
     poses_out = [problem.variables[o + v] for v in 1:V]
     camera_out = chc_out === nothing ? camera : model(chc_out)

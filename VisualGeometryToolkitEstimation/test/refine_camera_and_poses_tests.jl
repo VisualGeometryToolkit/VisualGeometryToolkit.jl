@@ -135,4 +135,8 @@ end
     @test_throws ArgumentError refine_camera_and_poses(cam0, poses0, views; free = (:f, :k1))
     @test_throws ArgumentError refine_camera_and_poses(cam0, [EuclideanMap(Es[1].R, SVector(0.0, 0.0, -50.0)); poses0[2:3]], views)   # behind the camera
     @test_throws ArgumentError refine_camera_and_poses(cam0, poses0[1:1], [views[1][1:2]])   # underdetermined
+    # the wall-clock cap reaches the LM: a zero cap stops after the first iteration, :max_time; Inf is no cap
+    rt = refine_camera_and_poses(cam0, poses0, views; max_time = 0.0)
+    @test retcode(rt) === :max_time && rt.iterations <= 1
+    @test estimate(refine_camera_and_poses(cam0, poses0, views; max_time = Inf)).camera == estimate(rv).camera
 end

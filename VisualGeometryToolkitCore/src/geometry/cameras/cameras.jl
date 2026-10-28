@@ -49,7 +49,7 @@ using Statistics: Statistics   # cov of an Uncertain point (targets.jl, captures
 using LogExpFunctions: logit, logistic   # DoubleSphere's α chart (lens_chart.jl)
 using Random: Random, randperm
 import FlexUnits
-using FlexUnits: ustrip, dimension, ubase
+using FlexUnits: ustrip, dimension
 using StructArrays: StructArrays, StructArray
 using IntervalSets: IntervalSets
 using CoordinateTransformations: CoordinateTransformations, AffineMap, Translation
@@ -116,7 +116,7 @@ import ..VisualGeometryToolkitCore: bounds_trait, extent           # extend the 
 using Base: ImmutableDict
 
 # Import types and macros defined in core and geometry
-using ..VisualGeometryToolkitCore: Size2, Quantity, BaseQuantity, px, mm, μm, m
+using ..VisualGeometryToolkitCore: Size2, Quantity, BaseQuantity, base_quantity, strip_or_bare, px, mm, μm, m
 using ..VisualGeometryToolkitCore: _check_pixels, _strip_pixels   # pixel-sized values: refuse a length (base/units.jl)
 using ..VisualGeometryToolkitCore: EuclideanMap, CameraPose, CameraExtrinsics, to_affine, to_homogeneous, image_warp, image_warp!
 import ..VisualGeometryToolkitCore: has_units, with_unit   # extended on the carriers: targets, mounts, rigs, cameras, captures
@@ -878,7 +878,7 @@ chosen metric unit, e.g. mm) and `LogicalIntrinsics` (unitless pixels;
 # A physical camera takes a depth that is a length and returns the point in
 # metres: the plain call in metres, its result read back in metres.
 unproject(camera::_UnitfulPosedCamera, u::AbstractVector{Float64}, depth::Quantity) =
-    _attach_point(m, unproject(ustrip(m, camera), u, ustrip(m, depth)))
+    _attach_point(m, unproject(ustrip(m, camera), u, strip_metres(depth)))
 
 # ============================================================================
 # Camera Accessor Functions

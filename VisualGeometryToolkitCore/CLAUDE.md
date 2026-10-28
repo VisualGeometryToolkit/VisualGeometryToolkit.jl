@@ -159,8 +159,9 @@ Units are FlexUnits.jl as it ships, with no stack quantity type, dimension set o
 
 Key types and helpers:
 - `Size2{T}` - width/height with optional units (`src/base/size2.jl`)
-- `BaseQuantity` (`typeof(ubase(1.0mm))`, i.e. `Quantity{Float64, Dimensions{FixRat32}}`) - FlexUnits' base-form quantity, held in structs; boundaries accept any FlexUnits `Quantity` and `ubase` it
-- `@ud_str`, `uparse`, `qparse` - FlexUnits' registry parsers, re-exported; a unit name from outside is read ONLY by `parse_unit` (the guarded `uparse`) and written by `unit_string` — `check_naming` R11
+- `BaseQuantity` (`typeof(ubase(1.0mm))`, i.e. `Quantity{Float64, Dimensions{FixRat32}}`) - FlexUnits' base-form quantity, held in structs; boundaries accept any FlexUnits `Quantity` and store `base_quantity(q)` (= `float(ubase(q))`: `142mm` is an exact Rational until stored)
+- `StackUnits` - the stack's unit registry (FlexUnits' `RegistryTools`, `AffineTransform{Rational{Int}}`): every scale an exact rational (mm = 1//1000, inch = 127//5000); `registry_defaults!` is not used
+- `@ud_str`, `uparse`, `qparse` - `StackUnits`' generated parsers, re-exported; a unit name from outside is read ONLY by `parse_unit` (the guarded `uparse`) and written by `unit_string` — `check_naming` R11
 - `strip_or_bare(u, x)` - a quantity (or frame) stripped in `u`, plain numbers as they are
 - `dimension(q) == dimension(u)` - the dimension check at constructor boundaries
 - `ustrip(u, q)` - strip in a target unit; a px ↔ length crossing is a product with a density (`q * 300dpi`)
@@ -463,7 +464,7 @@ include("blob_types.jl")
 | `src/base/interface.jl` | Loads `traits.jl` + `interface_functions.jl`; camera/detection interface stubs |
 | `src/base/traits.jl` | Holy Traits definitions |
 | `src/base/types.jl` | Loads interface.jl, defines `AbstractDetection`, `Uncertain`, conic matrices |
-| `src/base/units.jl` | unit constants, the stack's four units registered into FlexUnits' registry, `parse_unit`/`unit_string` (`Size2` in `size2.jl`) |
+| `src/base/units.jl` | the registry `StackUnits` (exact rational scales), unit constants, `base_quantity`, `parse_unit`/`unit_string` (`Size2` in `size2.jl`) |
 | `src/geometry/transforms/matrices.jl` | Transform matrices + abstract hierarchy (composition promotion) |
 | `src/geometry/transforms/euclidean_map.jl` | `EuclideanMap` for camera poses |
 | `src/geometry/transforms/homography_map.jl` | `HomographyMap` for points/lines/conics |

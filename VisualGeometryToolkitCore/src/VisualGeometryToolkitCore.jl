@@ -63,11 +63,10 @@ using Random: Random
 import NLLSsolver   # the stack's Levenberg–Marquardt: the chart LM's driver, the variable and robustifier protocols (robust/lm_core.jl)
 
 
-# Units and physical quantities — FlexUnits as shipped (see base/units.jl)
+# Units and physical quantities — FlexUnits, with the stack's registry (see base/units.jl)
 import FlexUnits
-using FlexUnits: Quantity, Units, UnitRegistry, ustrip, uconvert, dimension, ubase,
+using FlexUnits: Quantity, Units, ustrip, uconvert, dimension, ubase,
     DimensionError, ConversionError
-using FlexUnits.UnitRegistry: @ud_str, uparse, qparse
 
 # Data structures
 # JSON3/StructTypes serialization moved to VisualGeometryToolkitFeatures
@@ -342,10 +341,11 @@ public lift   # not exported: Makie exports its own `lift`
 # -----------------------------------------------------------------------------
 # 5. UNITS AND UTILITIES
 # -----------------------------------------------------------------------------
-# Unit constants; px, pd, dpi and pt are registered into FlexUnits' registry at
-# `__init__` (base/units.jl).
+# Unit constants of the stack's registry, StackUnits: exact rational scales (base/units.jl).
 export px, dpi, pt, mm, cm, μm, m, inch, ft
+public StackUnits     # the registry (FlexUnits' RegistryTools): uparse, qparse, @u_str, @ud_str over exact scales
 public BaseQuantity   # FlexUnits' concrete stored form of a base quantity (base/units.jl)
+public base_quantity  # the one conversion a constructor applies to a quantity it stores
 export ustrip, uconvert, dimension, DimensionError, ConversionError
 export @ud_str, uparse, qparse
 export parse_unit, unit_string, strip_or_bare
@@ -734,7 +734,8 @@ public Cameras, Primitives, Synthetic, Pools, SpatialQueries, reference_frame, i
     poly!, thin_ratio, is_orientation_preserving,
     rect_corners, is_convex_quad   # the extent checks' corner order and winding test
 
-include("base/units.jl")    # unit constants px, mm, dpi, …; the stack units registered at __init__ - no dependencies
+include("base/units.jl")    # the stack's unit registry (exact scales) and constants px, mm, dpi, … - no dependencies
+using .StackUnits: @ud_str, uparse, qparse
 include("base/size2.jl")    # Size2
 include("base/feature_coords.jl")   # _strip_coords: the feature-coordinate compute boundary
 include("base/frames.jl")   # Frame{N} tag hierarchy — BEFORE types.jl (CovMat/PrecMat frame params)
@@ -894,12 +895,5 @@ const SCALE_INTERFACE_TAGS = TagRegistry(:scale_interface, "",
 include("quality/stack_contracts.jl")
 include("quality/agent_docs.jl")
 include("quality/conventions.jl")
-
-# FlexUnits' registry is filled at load: a registration made while precompiling
-# does not persist into the loaded image.
-function __init__()
-    _register_stack_units()
-    return nothing
-end
 
 end # module VisualGeometryToolkitCore

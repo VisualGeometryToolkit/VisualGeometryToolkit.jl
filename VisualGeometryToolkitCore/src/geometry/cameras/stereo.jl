@@ -582,7 +582,7 @@ function _gt_inliers_metric(
     )
     # Residuals are in metres (ETH3D world scale): strip the tolerance in metres
     # (a ConversionError unless it is a length).
-    tol_m = ustrip(m, metric_tol)
+    tol_m = strip_metres(metric_tol)
     @inbounds for i in eachindex(valid)
         valid[i] || continue
         r = residuals[i]

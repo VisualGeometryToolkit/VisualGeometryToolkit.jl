@@ -15,7 +15,7 @@
 _strip_coords(::Tuple{}) = ()   # both methods below would match the empty tuple
 function _strip_coords(xs::NTuple{N, Quantity}) where {N}
     u = _coord_unit(xs[1])
-    return map(x -> ustrip(u, x), xs)   # each component's dimension is checked against `u`
+    return map(x -> strip_or_bare(u, x), xs)   # a float; each component's dimension is checked against `u`
 end
 # The unit a feature coordinate strips in: px for pixels (dimensionless), mm for a length.
 function _coord_unit(x::Quantity)

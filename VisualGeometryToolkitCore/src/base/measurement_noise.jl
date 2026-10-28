@@ -55,7 +55,7 @@ exact(p::StaticVector{N, T}) where {N, T <: Real} =
 # A physical point (lengths, stored in metres): the zero covariance is in m²,
 # the unit an `Uncertain` physical point's covariance carries.
 function exact(p::StaticVector{N, <:Quantity}) where {N}
-    q = map(x -> _check_length(ubase(x)), p)
+    q = map(x -> _check_length(base_quantity(x)), p)
     T = float(typeof(ustrip(first(q))))
     return Uncertain(q, CovMat{N, T, N * N}(ntuple(_ -> zero(T), Val(N * N))))
 end

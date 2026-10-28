@@ -165,8 +165,8 @@ end
     DimensionError(x, physical ? "a length (the nodes are lengths)" : "a plain number (the nodes are plain)")
 )
 # One plain length moved between metres and a unit `u` (FlexUnits' conversion).
-@inline _to_metres(x::Real, u::Units) = ustrip(m, x * u)
-@inline _from_metres(x::Real, u::Units) = ustrip(u, x * m)
+@inline _to_metres(x::Real, u::Units) = strip_metres(Quantity(x, u))
+@inline _from_metres(x::Real, u::Units) = strip_or_bare(u, Quantity(x, m))
 @noinline _refuse_strip(c) = throw(ArgumentError("ustrip: the $(nameof(typeof(c))) is plain numbers already; `with_unit` attaches a unit"))
 @noinline _refuse_attach(c) = throw(ArgumentError("with_unit: the $(nameof(typeof(c))) already has units"))
 @noinline _refuse_length(c, θ) = throw(ArgumentError("$(nameof(typeof(c))) takes $(length(parameter_vector(c))) parameters; got $(length(θ))"))

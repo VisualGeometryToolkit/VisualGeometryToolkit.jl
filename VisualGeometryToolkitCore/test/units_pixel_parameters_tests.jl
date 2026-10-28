@@ -64,7 +64,10 @@
     end
 
     @testset "image sizes: Size2 stripping and the diagonal normalization" begin
-        @test ustrip.(px, Size2(width = 800px, height = 600px)) === Size2(800.0, 600.0)
+        # an integer-built quantity is exact: FlexUnits' strip keeps its Rational, the stack's strips are floats
+        @test ustrip.(px, Size2(width = 800px, height = 600px)) === Size2(800 // 1, 600 // 1)
+        @test strip_or_bare.(px, Size2(width = 800px, height = 600px)) === Size2(800.0, 600.0)
+        @test ustrip.(px, Size2(width = 800.0px, height = 600.0px)) === Size2(800.0, 600.0)
         @test strip_or_bare(px, 3.0px) === 3.0 && strip_or_bare(px, 3.0) === 3.0
         for size in (Size2(width = 640, height = 480), Size2(width = 640px, height = 480px), (640, 480))
             d = DiagonalNormalization(size)

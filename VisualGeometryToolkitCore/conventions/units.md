@@ -1,12 +1,30 @@
 ## Units
 
-Units are FlexUnits.jl as it ships: no stack quantity type, dimension set or
-registry. The stack's unit code lives in VisualGeometryToolkitCore's
-`src/base/units.jl`: the unit constants, four units registered into FlexUnits'
-own registry (`FlexUnits.UnitRegistry`) at `__init__` — `px` (a dimensionless
-pixel count), `pd = px`, `dpi = px/inch` and `pt = inch/72` — and the stack's
-one guarded parse. Parsing (`ud"…"`, `uparse`, `qparse`), printing, conversion
-and dimension errors are FlexUnits'.
+Units are FlexUnits.jl: no stack quantity type or dimension set. The stack's
+unit code lives in VisualGeometryToolkitCore's `src/base/units.jl`: its own
+unit registry, `StackUnits`, built with FlexUnits' `RegistryTools` exactly as
+FlexUnits documents for a registry of another transform type — a
+`PermanentDict` of `Units{Dimensions{FixRat32}, AffineTransform{Rational{Int}}}`
+filled by `register_unit!` and exposed by `@generate_registry_exports` — the
+unit constants, `base_quantity`, and the stack's one guarded parse. Parsing
+(`ud"…"`, `uparse`, `qparse`), printing, conversion and dimension errors are
+FlexUnits'.
+
+**Scales are exact rationals.** Every registered scale is written as an exact
+ratio of base units and handed to `register_unit!` as data: `mm = 1//1000`,
+`cm = 1//100`, `μm = 1//1000000`, `km = 1000`, `inch = 127//5000` (25.4 mm),
+`ft = 12 inch`, `pt = inch/72`, `px` and `pd` dimensionless with scale 1,
+`dpi = px/inch`, and the SI base units (m, kg, s, A, K, cd, mol) at 1. The
+registry holds those and nothing else. FlexUnits' `registry_defaults!` is not
+called: in a Rational registry it converts its Float64 scales to their binary
+values (`Rational(0.001)` = 1152921504606847//1152921504606846976). So a length
+built from an integer is exact — `142mm` is 71//500 m, whose Float64 is the
+decimal-nearest 0.142 (FlexUnits' Float64 `mm` gave 0.14200000000000002) —
+and a float literal is FlexUnits' promotion, `142.0mm` = `142.0 * 0.001`,
+within 1 ulp of the decimal, until FlexUnits applies a rational scale to a
+float as `x * num / den` (Deduction42/FlexUnits.jl#131). An exact quantity
+compares exactly: `ustrip(m, 142mm) == 0.142` is false (the double 0.142 is
+not 71/500), while `ustrip(m, base_quantity(142mm)) === 0.142`.
 
 ### The layering: units at the boundary, plain numbers inside
 
@@ -80,12 +98,16 @@ quotient or power of them (`"mm/px"`) — and written with `unit_string(u)`,
 FlexUnits' printing of a registered unit. `uparse` evaluates what it parses,
 so nothing else calls it. A dimension check is `dimension(q) == dimension(u)`.
 `check_naming` enforces this everywhere (rule R11): no package outside the
-units module calls `uparse`/`qparse`/`register_unit`, reaches into the
-registry, writes a table of unit names, converts with `convert(Quantity{…}, q)`
-(FlexUnits' `ubase`), branches `x isa Quantity ? ustrip(…)` (`strip_or_bare(u, x)`) or
-writes a conversion factor such as 25.4; what FlexUnits lacks, or arithmetic
-that must stay bit-identical to stored values, is allowed by file with its
-reason (`_UNIT_RULE_ALLOW`).
+units module calls `uparse`/`qparse`/`register_unit`, builds a unit or a
+registry (`Units`, `AffineTransform`, `PermanentDict`, `register_unit!`,
+`registry_defaults!`), reaches into the registry, writes a table of unit
+names, converts with `convert(Quantity{…}, q)` or a bare `ubase(q)` in source
+(`base_quantity(q)`), branches `x isa Quantity ? ustrip(…)`
+(`strip_or_bare(u, x)`) or writes a conversion factor (25.4, 0.0254, 304.8,
+0.3048, 127//5000); what FlexUnits lacks, or arithmetic that must stay
+bit-identical to stored values, is allowed by file with its reason
+(`_UNIT_RULE_ALLOW`). The one hand-rolled conversion is VisualGeometryToolkitIO's
+`read_length` (below), until FlexUnits rounds a rational scale once.
 
 **Values are stored in base units.** A length is held in metres, a pixel count
 as a plain dimensionless value, so a bare `ustrip(q)` of a length is in metres. Code that wants a unit
@@ -95,10 +117,11 @@ geometry (`Disc`, `Circle`, …) strips through one boundary that names its
 units: pixels in px, lengths in mm.
 
 **Dynamic quantities in structs.** The exported constants (`px`, `mm`, `cm`,
-`μm`, `m`, `inch`, `ft`, `pt`, `dpi`) are FlexUnits' dynamic units, so
-`10mm`, `3px` and `300dpi` share FlexUnits' base-form type
-`Quantity{Float64, Dimensions{FixRat32}}`, a bits type. A struct that holds
-quantities stores that type, named once in VisualGeometryToolkitCore as the
+`μm`, `m`, `inch`, `ft`, `pt`, `dpi`) are the registry's dynamic units, so
+`10.0mm`, `3.0px` and `300.0dpi` share FlexUnits' base-form type
+`Quantity{Float64, Dimensions{FixRat32}}`, a bits type; `10mm` (an integer
+times an exact scale) is a `Quantity{Rational{Int}, …}` until it is stored. A
+struct that holds quantities stores the Float64 form, named once in VisualGeometryToolkitCore as the
 computed constant `BaseQuantity = typeof(ubase(1.0mm))` — FlexUnits' stored
 form, not a stack quantity type: no signature takes it, every boundary takes
 any `Quantity` — and needs no unit type parameter, and a mixed-dimension
@@ -108,9 +131,11 @@ units (`u"…"`) are not used in struct fields.
 **Boundaries accept any quantity and convert.** A quantity combined with a
 unit keeps that unit (`5.86μm / px` is a `Quantity{Float64, Units{…}}`), and
 `uconvert` returns that form too. Public signatures therefore take
-FlexUnits' `Quantity`, and a constructor that stores one converts it to
-base units with FlexUnits' `ubase(q)` (`ubase.(s)` for a `Size2`, which
-FlexUnits broadcasts over as it does `ustrip.(u, s)`). A pixel–length crossing is a product with
+FlexUnits' `Quantity`, and a constructor that stores one converts it with
+`base_quantity(q)` = `float(ubase(q))` (`base_quantity.(s)` for a `Size2`,
+which FlexUnits broadcasts over as it does `ustrip.(u, s)`), or by converting
+into a `BaseQuantity` field. A `Rational` never reaches a struct field or a
+kernel: the stack's strips (`strip_metres`, `strip_or_bare`) return floats. A pixel–length crossing is a product with
 a density (`q * 300dpi` is in px); there is no density-taking conversion
 verb. A dimension mismatch raises `DimensionError` (arithmetic) or
 `ConversionError` (`ustrip`/`uconvert` into a unit of the wrong dimension).
@@ -152,11 +177,12 @@ decimal-exact in its own. The `{"value": v, "unit": u}` objects that
 VisualGeometryToolkitFeatures once wrote, and that BlobBoards' boards hold,
 are not read: their owner migrates such files once (`vgio_migrate`).
 
-**A length built in code has already rounded.** `[62.8, 1.3] .* mm` multiplies
-by the scale when it is stored in metres. `1.3mm` is held as
-`0.0013000000000000002` m, and a file written from it holds the 17-digit text
-`1.3000000000000003`. To build an exact length from a decimal in code, read it
-the way a file is read: `VisualGeometryToolkitIO.read_length(1.3, mm)`.
+**A float length built in code has already rounded.** `[62.8, 1.3] .* mm`
+multiplies by the Float64 of the scale when it is stored in metres. `1.3mm` is
+held as `0.0013000000000000002` m, and a file written from it holds the
+17-digit text `1.3000000000000003`. An integer length is exact (`142mm`,
+`210mm`). To build an exact length from a decimal in code, read it the way a
+file is read: `VisualGeometryToolkitIO.read_length(1.3, mm)`.
 
 **Covariances follow the same split.** In memory a covariance is in base units:
 for a pose, rad² in the rotation block, m² in the translation block and m·rad

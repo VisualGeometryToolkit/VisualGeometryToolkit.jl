@@ -174,7 +174,7 @@ _stored_rotation(R::Rotation{N, T}) where {N, T} = RotMatrix{N, T}(R)
 
 # The length every physical translation is: a quantity of another dimension is
 # FlexUnits' `DimensionError`. (Untyped: FlexUnits' arithmetic may infer to any
-# of its quantity types before `ubase` settles the base form.)
+# of its quantity types before `base_quantity` settles the base form.)
 @inline function _check_length(q)
     dimension(q) == dimension(m) || throw(DimensionError(q, m))
     return q
@@ -185,7 +185,7 @@ end
 
 A PHYSICAL map: every component of `t` a length, in any length unit (a
 quantity of another dimension is a `DimensionError`), stored as FlexUnits'
-base-form quantities — metres (`ubase`). A `RotMatrix` or `QuatRotation` rotation
+base-form quantities — metres (`base_quantity`). A `RotMatrix` or `QuatRotation` rotation
 is stored as given; any other `Rotation` as a `RotMatrix` of its own eltype.
 """
 function EuclideanMap(
@@ -194,7 +194,7 @@ function EuclideanMap(
     ) where {N, T}
     check && _assert_rotation(R)
     R_typed = _stored_rotation(R)
-    t_m = SVector{N}(map(q -> _check_length(ubase(q)), Tuple(SVector{N}(t))))
+    t_m = SVector{N}(map(q -> _check_length(base_quantity(q)), Tuple(SVector{N}(t))))
     return EuclideanMap{N, T, typeof(R_typed), typeof(t_m)}(R_typed, t_m)
 end
 
@@ -384,7 +384,7 @@ _translation3(t::AbstractVector) = Vec{3, Float64}(t[1], t[2], t[3])
 
 # Per-component translation (R, tx, ty, tz) of lengths: stored in metres
 EuclideanMap(R::Rotation{3, T}, tx::Quantity, ty::Quantity, tz::Quantity) where {T} =
-    EuclideanMap(R, SVector(ubase(tx), ubase(ty), ubase(tz)))
+    EuclideanMap(R, SVector(base_quantity(tx), base_quantity(ty), base_quantity(tz)))
 
 EuclideanMap(R::Rotation{3, T}, tx::Real, ty::Real, tz::Real) where {T} =
     EuclideanMap(R, Vec{3, Float64}(tx, ty, tz))
@@ -614,12 +614,12 @@ const CameraExtrinsics{T, R <: Rotation{3, T}, V <: StaticVector{3}} =
 # columns (4–6) carry the length unit: they move with it, once, here.
 #
 # Every length crosses between the forms through one pair, `_strip_length` and
-# `_attach_length` (FlexUnits' `ustrip` and `ubase`), so the conversion is
+# `_attach_length` (FlexUnits' `ustrip` and `base_quantity`), so the conversion is
 # stated once for maps, points and every carrier built on them.
 
 # One length, plain in `u`; one plain number in `u`, as a length in metres.
-@inline _strip_length(u::Units, q::Quantity) = ustrip(u, q)
-@inline _attach_length(x::Real, u::Units) = _check_length(ubase(x * u))
+@inline _strip_length(u::Units, q::Quantity) = strip_or_bare(u, q)
+@inline _attach_length(x::Real, u::Units) = _check_length(base_quantity(Quantity(x, u)))
 
 has_units(::EuclideanMap{N, T, R, V}) where {N, T, R, V} = eltype(V) <: Quantity
 has_units(u::Attributed) = has_units(getfield(u, :value))
@@ -895,7 +895,7 @@ _scale_point_form(M::Union{CovMat{N}, PrecMat{N}}, f, op) where {N} = _scale_len
 
 # A point's stored form: plain numbers as `Float64` (today's storage), lengths in
 # metres. For the containers that hold either (targets, 3D target points).
-_stored_point(::Val{N}, p::AbstractVector{<:Quantity}) where {N} = SVector{N}(map(q -> _check_length(ubase(q)), Tuple(SVector{N}(p))))
+_stored_point(::Val{N}, p::AbstractVector{<:Quantity}) where {N} = SVector{N}(map(q -> _check_length(base_quantity(q)), Tuple(SVector{N}(p))))
 _stored_point(::Val{N}, p::AbstractVector) where {N} = SVector{N, Float64}(p)
 
 # ONE FORM, the rule behind every carrier's constructor: of `parts`, those

@@ -1,6 +1,6 @@
 # =============================================================================
-# Unit system: FlexUnits as shipped (px, pd, dpi and pt registered into its
-# registry), quantity conversions, Size2, per-type strip, and the unitless
+# Unit system: FlexUnits with the stack's registry of exact scales
+# (StackUnits), quantity conversions, Size2, per-type strip, and the unitless
 # origin-conversion Translation.
 #
 # This is the unit-boundary contract of the package (audit #16): units are
@@ -18,14 +18,16 @@
         dimension, DimensionError, ConversionError,
         @ud_str, uparse, qparse, parse_unit, unit_string, strip_or_bare, Size2, Disc, EllipticFrame, aspect_ratio, area
     using FlexUnits: Dimensions, FixRat32, Quantity, UnitRegistry
-    using FlexUnits.UnitRegistry: @u_str
+    using VisualGeometryToolkitCore.StackUnits: StackUnits, @u_str
     using GeometryBasics: Point2, Rect2
     using CoordinateTransformations: Translation
 
     @testset "Unit system" begin
-        @testset "FlexUnits' registry: px is a dimensionless count" begin
-            @test haskey(UnitRegistry.UNITS, :px) && haskey(UnitRegistry.UNITS, :pd)
+        @testset "the stack's registry: px is a dimensionless count" begin
+            @test haskey(StackUnits.UNITS, :px) && haskey(StackUnits.UNITS, :pd)
             @test dimension(px) == dimension(UnitRegistry.UNITS[:rad])   # the accepted loss
+            # the stack registers nothing into FlexUnits' own registry
+            @test !haskey(UnitRegistry.UNITS, :px) && !haskey(UnitRegistry.UNITS, :dpi)
             # the constants are the registry's dynamic units
             @test px == ud"px" && mm == ud"mm" && dpi == ud"dpi" && pt == ud"pt"
             @test uparse("px/inch") == dpi
@@ -106,9 +108,6 @@
             @test parse_unit("mm") == mm && parse_unit("inch") == inch && parse_unit("px") == px
             @test parse_unit("dpi") == dpi && parse_unit("pd") == px && parse_unit("in") == inch
             @test_throws ArgumentError parse_unit("mm/px")                    # an expression needs compound
-            # a stack unit name already bound to another unit is an error at load, not a skip
-            @test VisualGeometryToolkitCore._check_registered("pt", pt, pt) === nothing
-            @test_throws ErrorException VisualGeometryToolkitCore._check_registered("pt", mm, pt)
             @test_throws ArgumentError parse_unit("furlong")
             @test_throws ArgumentError parse_unit("MM")                       # the registry is case-sensitive
             # compound: registered symbols with *, / and integer ^ only, checked before uparse evaluates

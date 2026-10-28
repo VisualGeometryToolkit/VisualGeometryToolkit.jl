@@ -286,7 +286,7 @@ function AprilGrid(; tag_rows::Integer, tag_cols::Integer, tag_size::Number, tag
         all(q -> dimension(q) == dimension(mm), (tag_size, tag_spacing)) ||
             throw(ArgumentError("AprilGrid: the tag size and spacing are lengths; got $(tag_size) and $(tag_spacing)"))
     end
-    s, g = tag_size isa Quantity ? (ubase(tag_size), ubase(tag_spacing)) : float.(promote(tag_size, tag_spacing))
+    s, g = tag_size isa Quantity ? (base_quantity(tag_size), base_quantity(tag_spacing)) : float.(promote(tag_size, tag_spacing))
     return AprilGrid{promote_type(typeof(s), typeof(g))}(tag_rows, tag_cols, promote(s, g)...)
 end
 
@@ -372,7 +372,7 @@ function SchoepsPattern(; squares_x::Integer, squares_y::Integer, square_length:
     if square_length isa Quantity
         dimension(square_length) == dimension(mm) || throw(ArgumentError("SchoepsPattern: the square length is a length; got $(square_length)"))
     end
-    s = square_length isa Quantity ? ubase(square_length) : float(square_length)
+    s = square_length isa Quantity ? base_quantity(square_length) : float(square_length)
     tags = NTuple{4, Int}[(Int(t.x), Int(t.y), Int(t.width), Int(t.height)) for t in apriltags]
     return SchoepsPattern{typeof(s)}(squares_x, squares_y, s, tags)
 end

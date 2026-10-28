@@ -29,6 +29,12 @@ the physical target. A target whose geometry an estimator refines implements
 the calibratable-target protocol (`parameter_vector`, `with_parameters`,
 `minimal_manifold`, `regularizer`, `calibration_jacobian`).
 
+A standard layout is a constructor: Kalibr's AprilGrid is
+`AprilGrid(; tag_rows, tag_cols, tag_size, tag_spacing)` (lengths, the spacing
+the gap between two tags), `PlanarTarget(grid; board, canvas)` its tag
+corners in Kalibr's point order and frame, and `point_index(grid, tag, corner)`
+the point of a detected corner.
+
 ### Target calibration
 
 What a target calibration estimates about the physical target, as a camera

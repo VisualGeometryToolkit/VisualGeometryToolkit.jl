@@ -49,7 +49,7 @@ using Statistics: Statistics   # cov of an Uncertain point (targets.jl, captures
 using LogExpFunctions: logit, logistic   # DoubleSphere's α chart (lens_chart.jl)
 using Random: Random, randperm
 import FlexUnits
-using FlexUnits: ustrip, dimension
+using FlexUnits: ustrip, dimension, ubase
 using StructArrays: StructArrays, StructArray
 using IntervalSets: IntervalSets
 using CoordinateTransformations: CoordinateTransformations, AffineMap, Translation
@@ -974,6 +974,7 @@ export model                            # CameraModel accessor on PosedCamera/Ab
 export Rig, PosedTarget, source, destination, target_frames  # one Rig for sensors and targets: (model, pose) members; StereoRig = 2-tuple alias
 export sensor_rig, target_rig             # the two halves of a rig carrying both
 export AbstractTarget, PointTarget, PlanarTarget, resolve, is_resolved   # the target as a model (targets.jl)
+export AprilGrid, point_index                 # Kalibr's AprilGrid layout as a PlanarTarget (public, not exported, at the top level)
 export TargetCalibration, Rigid, Affine, ThinPlateSpline, HeightField, CalibrationChain   # a planar target's calibration kinds
 export calibration_jacobian, calibration, design, reference, is_planar   # design, reference: public, not exported, at the top level
 export gauge_names, gauge_directions        # a calibration's gauges (public, not exported, at the top level)

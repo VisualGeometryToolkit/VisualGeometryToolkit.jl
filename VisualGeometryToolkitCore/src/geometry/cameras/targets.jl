@@ -242,6 +242,79 @@ PlanarTarget(reference::Symbol; nominal = nothing, calibration = Rigid(), board 
     PlanarTarget(reference, nominal, calibration, board, canvas)
 
 """
+    AprilGrid(; tag_rows, tag_cols, tag_size, tag_spacing)
+
+The layout of an AprilGrid, Kalibr's grid of AprilTags (the `aprilgrid` target
+of Kalibr's target YAML: `tagRows`, `tagCols`, `tagSize`, `tagSpacing`):
+`tag_rows × tag_cols` square tags of side `tag_size`, `tag_spacing` apart — the
+gap between two neighbouring tags, a length like the side (Kalibr's
+`tagSpacing` is the ratio `tag_spacing / tag_size`). Both are lengths
+(`90mm`, `27mm`) or both plain numbers. Tag `i` (0-based: the family id less
+the grid's first id) sits in row `i ÷ tag_cols`, column `i % tag_cols`.
+
+`PlanarTarget(grid; board = nothing, canvas = nothing)` is the target of its
+tag corners in Kalibr's point order and frame: the `2tag_rows × 2tag_cols`
+corners row by row, point `r·2tag_cols + c` (0-based, `r` and `c` 0-based) at
+
+    x = (c ÷ 2)(tag_size + tag_spacing) + (c % 2)·tag_size
+    y = (r ÷ 2)(tag_size + tag_spacing) + (r % 2)·tag_size
+
+— tag 0's first corner at the origin, x along the columns and y along the
+rows: the design chart (`TargetFrame`), x right and y up as the print is seen
+from the front. [`point_index`](@ref)`(grid, tag, corner)` is the point of a
+tag's corner. The points are in the layout's form (lengths, stored in metres,
+or plain numbers); a `board` or `canvas` is in that form too, and a page whose
+lower-left corner is not tag 0's first corner says so by its origin
+(`Canvas(size, origin)`).
+"""
+struct AprilGrid{T <: Number}
+    tag_rows::Int
+    tag_cols::Int
+    tag_size::T
+    tag_spacing::T
+    function AprilGrid{T}(tag_rows::Integer, tag_cols::Integer, tag_size::T, tag_spacing::T) where {T <: Number}
+        (tag_rows >= 1 && tag_cols >= 1) || throw(ArgumentError("AprilGrid: $(tag_rows) × $(tag_cols) tags; a grid has at least one"))
+        zero(tag_size) < tag_size || throw(ArgumentError("AprilGrid: the tag size is $(tag_size), not positive"))
+        zero(tag_spacing) <= tag_spacing || throw(ArgumentError("AprilGrid: the tag spacing is $(tag_spacing), negative"))
+        return new{T}(Int(tag_rows), Int(tag_cols), tag_size, tag_spacing)
+    end
+end
+function AprilGrid(; tag_rows::Integer, tag_cols::Integer, tag_size::Number, tag_spacing::Number)
+    (tag_size isa Quantity) == (tag_spacing isa Quantity) ||
+        throw(ArgumentError("AprilGrid: the tag size and the tag spacing are both lengths or both plain numbers; got $(tag_size) and $(tag_spacing)"))
+    if tag_size isa Quantity
+        all(q -> dimension(q) == dimension(mm), (tag_size, tag_spacing)) ||
+            throw(ArgumentError("AprilGrid: the tag size and spacing are lengths; got $(tag_size) and $(tag_spacing)"))
+    end
+    s, g = tag_size isa Quantity ? (ubase(tag_size), ubase(tag_spacing)) : float.(promote(tag_size, tag_spacing))
+    return AprilGrid{promote_type(typeof(s), typeof(g))}(tag_rows, tag_cols, promote(s, g)...)
+end
+
+"""
+    point_index(grid::AprilGrid, tag, corner) -> Int
+
+The 1-based index, in `PlanarTarget(grid)`'s points, of corner `corner` of tag
+`tag` (both 0-based: Kalibr's tag id less the grid's first id, and its corner
+order 0 (min column, min row), 1 (max column, min row), 2 (max column, max
+row), 3 (min column, max row)) — Kalibr's `GridCalibrationTargetAprilgrid`
+point of a detected corner.
+"""
+function point_index(grid::AprilGrid, tag::Integer, corner::Integer)
+    (0 <= tag < grid.tag_rows * grid.tag_cols) || throw(ArgumentError("point_index: no tag $(tag) in a $(grid.tag_rows) × $(grid.tag_cols) grid (0-based)"))
+    (0 <= corner <= 3) || throw(ArgumentError("point_index: a tag's corners are 0 … 3, not $(corner)"))
+    ncols = 2 * grid.tag_cols
+    base = 2 * (tag ÷ grid.tag_cols) * ncols + 2 * (tag % grid.tag_cols)
+    return 1 + base + (0, 1, ncols + 1, ncols)[corner + 1]
+end
+
+function PlanarTarget(grid::AprilGrid; board = nothing, canvas = nothing)
+    pitch = grid.tag_size + grid.tag_spacing
+    along(i) = (i ÷ 2) * pitch + (i % 2) * grid.tag_size
+    nominal = [SVector(along(c), along(r)) for r in 0:(2 * grid.tag_rows - 1) for c in 0:(2 * grid.tag_cols - 1)]
+    return PlanarTarget(nothing, nominal, Rigid(), board, canvas)
+end
+
+"""
     calibration(t::PlanarTarget) -> TargetCalibration or Uncertain
 
 The target's calibration as stored: a [`TargetCalibration`](@ref), or an

@@ -276,6 +276,7 @@ export lookat, lookat_pose, pose, extrinsics, is_in_front, StereoRig, depth_tran
 export Rig, PosedTarget, source, destination, target_frames  # one Rig for sensors and targets: (model, pose) members; the frame is the gauge
 export sensor_rig, target_rig             # the two halves of a rig carrying both
 export AbstractTarget, PointTarget, PlanarTarget, resolve, is_resolved   # the target as a model (targets.jl)
+public AprilGrid, point_index   # Kalibr's AprilGrid layout: PlanarTarget(grid) its tag corners, point_index(grid, tag, corner) their order
 export TargetCalibration, Rigid, Affine, ThinPlateSpline, HeightField, CalibrationChain   # a planar target's calibration kinds
 export calibration_jacobian, calibration, is_planar
 public is_affine   # a calibration's in-plane part is an affine of the design (the surface chart's)

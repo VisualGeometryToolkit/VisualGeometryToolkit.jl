@@ -1194,6 +1194,7 @@ Newton converges too slowly and the answer is NaN).
     S = typeof(_primal(p[1]))
     θ2 = _primal(m[1] * m[1] + m[2] * m[2])
     fm = map(_primal, project(l, _frame_backproject(EquidistantFrame, m)))
+    J = ForwardDiff.jacobian(resid, m)           # orientation AT the returned iterate, not the last step's start
     ok = isfinite(θ2) && _residual_ok(fm, SVector{2, S}(_primal(p[1]), _primal(p[2]))) &&
         _primal(J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1]) > 0 && θ2 < S(π)^2
     return _nan_unless(ok, Vec3(_frame_backproject(EquidistantFrame, m)))

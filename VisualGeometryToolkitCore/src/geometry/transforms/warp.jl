@@ -476,7 +476,12 @@ end
 @inline _value_part(x::ForwardDiff.Dual) = _value_part(ForwardDiff.value(x))
 @inline _value_part(x) = x
 
+# The documented minimum, checked once per lookup before any texel is read (a
+# 1-wide or 1-high image has no second texel to blend with: the clamped index
+# would read past it).
+@noinline _too_small_texture(H, W) = throw(ArgumentError("bilinear_sample: the image needs at least 2 × 2 texels; got $H × $W"))
 @inline function _bilinear_setup(H::Int, W::Int, uv::StaticVector{2})
+    (H >= 2 && W >= 2) || _too_small_texture(H, W)
     h = one(eltype(uv)) / 2
     x = uv[1] * W - h; y = uv[2] * H - h
     xv = _value_part(x); yv = _value_part(y)
@@ -500,7 +505,7 @@ texel centred at `uv = ((j − ½)/W, (i − ½)/H)`, so `(0, 0)` is the outer
 corner of `img[1, 1]` and `(1, 1)` that of `img[H, W]`. A position off the
 centres' rectangle EXTENDS the edge (clamp to edge, never a rejection), and a
 non-finite position reads the corner texel `img[1, 1]`. The image needs at
-least 2 × 2 texels.
+least 2 × 2 texels (an `ArgumentError` otherwise).
 
 A matrix returns one value (any element type that scales and adds: numbers,
 `SVector`s); a 3-D array `(H, W, C)` returns its first `C` channels as an

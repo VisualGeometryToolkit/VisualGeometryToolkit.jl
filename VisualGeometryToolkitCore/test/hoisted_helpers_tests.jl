@@ -123,6 +123,10 @@
         @test bilinear_sample(img, SVector(0.0, 0.0)) == a && bilinear_sample(img, SVector(-1.0, 2.0)) == c
         @test bilinear_sample(img, SVector(1.0, 0.5)) == (b + d) / 2
         @test bilinear_sample(img, SVector(NaN, 0.25)) == a                       # a non-finite position: the corner texel
+        # fewer than 2 × 2 texels: refused, never a read past the image
+        @test_throws ArgumentError bilinear_sample(ones(1, 4), SVector(0.5, 0.5))
+        @test_throws ArgumentError bilinear_sample(ones(4, 1), SVector(0.5, 0.5))
+        @test_throws ArgumentError bilinear_sample(ones(1, 3, 2), Val(2), SVector(0.5, 0.5))
         # hand-computed weights and their derivative
         uv = SVector(0.4, 0.6)
         fx, fy = 0.4 * 2 - 0.5, 0.6 * 2 - 0.5

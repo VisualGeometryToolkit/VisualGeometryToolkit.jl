@@ -158,9 +158,11 @@ function NLLSsolver.computeresjac(_varflags, r::_BundleRows, pose::_BundlePose, 
 end
 
 # The kept problem: ONE per task (and point type `E`), for the point count of
-# the task's last bundle — reused by every later bundle of that size on that
+# the task's last bundle — reused by consecutive calls of the same size on that
 # task and rebuilt, the old one released, when the size changes, so a sweep
-# over pairs of many sizes keeps one problem per task, not one per size. Its
+# over pairs of many sizes keeps one problem per task, not one per size (a
+# sweep that interleaves sizes rebuilds it on every call, and pays the
+# uncached time below). Its
 # residual blocks read the call's data through `data` (owned buffers), its
 # variables are reset per call, and NLLSsolver's internal data (the Schur
 # system's layout) is kept in `cache`, built for the one options type the

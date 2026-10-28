@@ -65,4 +65,11 @@ end
     @test rotation_angle(estimate(resp) * R') < 5.0e-4
     # RC's width (Huber at 3 × 1.4826 × median-of-angles) as a scale_multiple
     @test rotation_angle(estimate(fit_rotation(cs; loss = HuberShape(), scale_multiple = 3 * 1.4826 * 1.1774)) * R') < 1.0e-3
+    # a loss that is no M-estimator (TLS, a hard cutoff): no efficiency default, so its width multiple is required —
+    # an ArgumentError naming `scale_multiple` without one; with one, the fit runs and rejects the outliers
+    e = try fit_rotation(cs; loss = TLSShape()); nothing catch e; e end
+    @test e isa ArgumentError && occursin("scale_multiple", e.msg) && occursin("TLSShape", e.msg)
+    rest = fit_rotation(cs; loss = TLSShape(), scale_multiple = 3.0)
+    @test retcode(rest) === :converged && rotation_angle(estimate(rest) * R') < 5.0e-4
+    @test all(iszero, rest.weights[out])
 end

@@ -56,7 +56,9 @@ weights of `loss` (an `AbstractLossShape`, e.g. `HuberShape()`) at width
 
 - `loss` — the robust loss shape (default the TOML's, Huber).
 - `scale_multiple` — the width as a multiple of σ̂; `nothing` takes the shape's
-  efficiency constant at codimension 2 (`deploy`'s default).
+  efficiency constant at codimension 2 (`deploy`'s default), which only an
+  M-estimator (`AbstractMEstimator`) has: any other shape (`TLSShape()`)
+  requires it, an `ArgumentError` naming `scale_multiple` otherwise.
 - `max_iter`, `tol` — at most `max_iter` iterations; converged when one moves
   `R` by less than `tol` radians (defaults: configs/default.toml [fit_rotation]).
 - A `weights` column on `cs` (`withattrs(cs; weights)`) multiplies every pair's
@@ -82,6 +84,9 @@ function fit_rotation(
     )
     n = length(cs)
     n >= 2 || throw(ArgumentError("fit_rotation needs at least 2 direction pairs, got $n"))
+    loss isa VgtkCore.AbstractMEstimator || scale_multiple !== nothing || throw(
+        ArgumentError("fit_rotation: the loss $(nameof(typeof(loss))) has no efficiency default; give its width as `scale_multiple`")
+    )
     as = SVector{3, Float64}[_unit_direction(a, i) for (i, a) in enumerate(sources(cs))]
     bs = SVector{3, Float64}[_unit_direction(b, i) for (i, b) in enumerate(targets(cs))]
     w_col = VgtkCore.weights_column(cs)
@@ -101,7 +106,7 @@ function fit_rotation(
             retcode = :converged
             break
         end
-        L = isnothing(scale_multiple) ? deploy(loss, σ^2; codim = 2) : deploy(loss, σ^2; codim = 2, scale_multiple)
+        L = _rotation_loss(loss, σ^2, scale_multiple)
         c² = VgtkCore.sq_loss_width(L)
         @inbounds for i in 1:n
             w[i] = prior[i] * weight(loss, r[i]^2, c²)
@@ -118,6 +123,13 @@ function fit_rotation(
     end
     return FitResult(R, retcode, iter, sqrt(sum(abs2, r) / n), n, RotationFitMetadata(w, r, σ))
 end
+
+# The loss at the noise scale s2: an M-estimator's width from its efficiency at
+# codimension 2 (or the given multiple); any other shape at the given multiple
+# (it has no efficiency, so no codimension: `fit_rotation` requires the multiple).
+_rotation_loss(loss::VgtkCore.AbstractMEstimator, s2, ::Nothing) = deploy(loss, s2; codim = 2)
+_rotation_loss(loss::VgtkCore.AbstractMEstimator, s2, k::Real) = deploy(loss, s2; codim = 2, scale_multiple = k)
+_rotation_loss(loss::VgtkCore.AbstractLossShape, s2, k::Real) = deploy(loss, s2; scale_multiple = k)
 
 function _unit_direction(v, i)
     x = SVector{3, Float64}(v)

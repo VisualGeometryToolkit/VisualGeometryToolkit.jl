@@ -65,6 +65,19 @@ end
     @test rotation_angle(estimate(resp) * R') < 5.0e-4
     # RC's width (Huber at 3 × 1.4826 × median-of-angles) as a scale_multiple
     @test rotation_angle(estimate(fit_rotation(cs; loss = HuberShape(), scale_multiple = 3 * 1.4826 * 1.1774)) * R') < 1.0e-3
+    # the metadata is at the RETURNED rotation, also when the fit stops at max_iter: the residuals, σ̂ and the weights
+    # recomputed from the estimate agree with the result's (they came from the previous iterate before)
+    using VisualGeometryToolkitCore: chisq_median, deploy, sq_loss_width, weight, angle_between
+    for k in (1, 2, 50)
+        res = fit_rotation(cs; loss = WelschShape(), max_iter = k)
+        Rr = estimate(res)
+        r = [angle_between(Rr * a, b) for (a, b) in zip(as, bs)]
+        σr = sum(sort(r)[n ÷ 2:(n ÷ 2 + 1)]) / 2 / sqrt(chisq_median(2))
+        c² = sq_loss_width(deploy(WelschShape(), σr^2; codim = 2))
+        @test res.residuals ≈ r rtol = 1.0e-9                  # (the fit normalizes the directions again: ulps)
+        @test res.sigma ≈ σr rtol = 1.0e-9
+        @test res.weights ≈ [weight(WelschShape(), x^2, c²) for x in r] rtol = 1.0e-9
+    end
     # a loss that is no M-estimator (TLS, a hard cutoff): no efficiency default, so its width multiple is required —
     # an ArgumentError naming `scale_multiple` without one; with one, the fit runs and rejects the outliers
     e = try fit_rotation(cs; loss = TLSShape()); nothing catch e; e end

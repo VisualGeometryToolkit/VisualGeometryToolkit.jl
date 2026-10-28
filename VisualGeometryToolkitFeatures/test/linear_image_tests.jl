@@ -66,3 +66,26 @@ end
     @test box_downsample(C, 1) == C
     @test_throws ArgumentError box_downsample(C, 0)
 end
+
+@testitem "gaussian_blur: unit mass, the separable Gaussian, the masked (normalized) convolution" begin
+    using Test
+    using VisualGeometryToolkitFeatures: gaussian_blur
+    # a constant image stays constant everywhere (the border renormalization); σ = 0 is a copy
+    A = fill(0.7, 30, 40, 2)
+    @test all(isapprox.(gaussian_blur(A, 2.5), 0.7; rtol = 1.0e-14))
+    @test gaussian_blur(A, 0) == A
+    # an impulse far from the border spreads to the normalized Gaussian, separable
+    B = zeros(41, 41, 1); B[21, 21, 1] = 1
+    σ = 2.0; G = gaussian_blur(B, σ)[:, :, 1]
+    g = [exp(-t^2 / (2σ^2)) for t in -20:20]; g[abs.(-20:20) .> 6] .= 0; g ./= sum(g)
+    @test G ≈ g * g' rtol = 1.0e-12
+    @test sum(G) ≈ 1 rtol = 1.0e-12
+    # masked: the outside never bleeds in; zero outside the mask; a constant inside stays constant
+    C = fill(1.0, 20, 20, 1); C[:, 11:end, 1] .= 100.0
+    m = zeros(20, 20); m[:, 1:10] .= 1
+    D = gaussian_blur(C, 3.0, m)
+    @test all(isapprox.(D[:, 1:10, 1], 1.0; rtol = 1.0e-14))
+    @test all(iszero, D[:, 11:end, 1])
+    @test_throws DimensionMismatch gaussian_blur(C, 1.0, zeros(3, 3))
+    @test_throws ArgumentError gaussian_blur(C, -1.0)
+end

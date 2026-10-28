@@ -77,3 +77,64 @@ function load_linear_image(path::AbstractString; srgb::Bool = false, downsample:
     srgb && (img .= srgb_to_linear.(img))
     return downsample == 1 ? img : box_downsample(img, downsample)
 end
+
+"""
+    gaussian_blur(img::AbstractArray{<:Real, 3}, σ[, mask]) -> Array{Float64, 3}
+
+The `H × W × C` image convolved per channel with the separable Gaussian of
+standard deviation `σ` pixels, truncated at `⌈3σ⌉` pixels and normalized to
+unit sum; at the image border the kernel is renormalized over the pixels
+inside it (no padding value enters).
+
+With a `mask` (an `H × W` array of weights, `0` outside the support — a
+fisheye's image circle) it is the NORMALIZED convolution
+`blur(img·mask) / blur(mask)`: pixels outside the mask do not bleed in, and a
+pixel where the mask is zero is `0`. `σ = 0` returns a `Float64` copy (masked
+to zero outside the mask). Edge-safe smoothing of a linear image before it is
+sampled (the rooftop vignetting chain's cell samples).
+"""
+function gaussian_blur(img::AbstractArray{<:Real, 3}, σ::Real, mask::Union{Nothing, AbstractMatrix{<:Real}} = nothing)
+    σ >= 0 || throw(ArgumentError("gaussian_blur: σ must be non-negative, got $σ"))
+    H, W, C = size(img)
+    mask === nothing || size(mask) == (H, W) ||
+        throw(DimensionMismatch("gaussian_blur: an $(H)×$(W) image and a $(join(size(mask), '×')) mask"))
+    m = mask === nothing ? ones(H, W) : Float64.(mask)
+    out = zeros(Float64, H, W, C)
+    if iszero(σ)
+        for c in 1:C
+            out[:, :, c] .= ifelse.(m .> 0, img[:, :, c], 0.0)
+        end
+        return out
+    end
+    r = ceil(Int, 3σ)
+    k = [exp(-t^2 / (2σ^2)) for t in (-r):r]
+    den = _separable_blur(m, k, r)
+    for c in 1:C
+        num = _separable_blur(Float64.(view(img, :, :, c)) .* m, k, r)
+        out[:, :, c] .= ifelse.(den .> 0, num ./ den, 0.0)
+        mask === nothing || (out[:, :, c] .*= (m .> 0))
+    end
+    return out
+end
+
+# The separable convolution of `a` with the kernel `k` (half-width r) along both
+# axes, each axis renormalized by the kernel mass inside the image.
+function _separable_blur(a::AbstractMatrix{Float64}, k::Vector{Float64}, r::Int)
+    H, W = size(a)
+    tmp = similar(a); out = similar(a)
+    @inbounds for j in 1:W, i in 1:H
+        s = 0.0; w = 0.0
+        for t in max(-r, 1 - i):min(r, H - i)
+            s += k[t + r + 1] * a[i + t, j]; w += k[t + r + 1]
+        end
+        tmp[i, j] = s / w
+    end
+    @inbounds for j in 1:W, i in 1:H
+        s = 0.0; w = 0.0
+        for t in max(-r, 1 - j):min(r, W - j)
+            s += k[t + r + 1] * tmp[i, j + t]; w += k[t + r + 1]
+        end
+        out[i, j] = s / w
+    end
+    return out
+end

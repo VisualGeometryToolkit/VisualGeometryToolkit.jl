@@ -129,7 +129,7 @@ export clear_asift_plans!, set_max_cached_plans!
 export FeatureCovariance            # keypoint uncertainty: asift_detect(img; uncertainty = FeatureCovariance())
 export gray_f32, gray_u8        # the input ladders every detector-side entry point uses
 export load_linear_image        # a PNG as linear radiance: no gamma re-encoding, optional sRGB decode, box downsample
-public srgb_to_linear, box_downsample
+public srgb_to_linear, box_downsample, gaussian_blur   # gaussian_blur: the (masked) separable Gaussian of a linear image
 export batched_rows             # the describe backends' chunking skeleton
 
 # -----------------------------------------------------------------------------

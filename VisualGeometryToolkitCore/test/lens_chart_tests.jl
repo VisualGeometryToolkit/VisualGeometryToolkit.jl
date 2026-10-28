@@ -468,6 +468,18 @@ end
         @test parameters(model(n)).cx == 0.3 && n == recenter(r, SVector(0.0, 5.0, 0.0, 0.0, 0.0))
         @test parameter_vector(model(NLLSsolver.update(r, zeros(5)))) ≈ parameter_vector(model(r)) rtol = 1.0e-15   # a zero step: the chart's round trip
     end
+
+    @testset "a coordinate restrict holds fixed is the anchor as given, never clamped into the box" begin
+        l = Lens(Perspective(), Radial((0.3, 0.02)))                                # k1 = 0.3, outside the box below
+        bx = ParameterManifold(l; box = (; k1 = (-0.1, 0.1), k2 = (-0.05, 0.05)))
+        r = restrict(bx, (:k2,))
+        n = recenter(r, SVector(0.01))
+        @test parameters(model(n)).k1 === 0.3 && parameters(model(n)).k2 == 0.03      # k1 fixed: kept; k2 free: stepped
+        @test parameters(model(recenter(r, SVector(1.0)))).k2 == 0.05                 # a free one past the box: on its face
+        @test parameters(model(recenter(n, SVector(0.0)))).k1 === 0.3                  # and again
+        @test parameters(model(recenter(bx, SVector(0.0, 0.01)))).k1 == 0.1           # unrestricted, k1 is free: clamped
+        @test parameters(model(NLLSsolver.update(r, [0.01]))).k1 === 0.3              # as an NLLSsolver variable
+    end
 end
 
 # A coordinate's scale (`ParameterManifold(x; scale)`): the coordinate v moves the chart by s·v. A pixel camera of a W × H image with

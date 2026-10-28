@@ -267,7 +267,8 @@ option `parameter_bounds` leaves out (a prior range such as a focal length
 between 0.1 and 50, not a model fact): a `NamedTuple` of `(lo, hi)` intervals
 keyed by [`parameter_names`](@ref), a name not listed unboxed. The box is
 intersected with the domain and acts at the step: [`recenter`](@ref)
-clamps the stepped parameters into it, so an NLLSsolver variable on the
+clamps the stepped free parameters into it (a coordinate [`restrict`](@ref)
+holds fixed is never clamped), so an NLLSsolver variable on the
 manifold (or a [`restrict`](@ref)ion of it) never leaves it; `retract` is the
 chart's alone. The anchor is taken as given. [`parameter_box`](@ref) reads
 the intersected box.
@@ -486,14 +487,21 @@ function retract(ch::ParameterManifold, v)
     return _rebuild(ch.model, map(_bounded_value, θ0, d, lo, hi, _bound_kinds(ch.model)))
 end
 recenter(ch::ParameterManifold{M, Nothing}, v) where {M} = _parameter_manifold(retract(ch, v), nothing, ch.scale)
-# with a box: the stepped model, then its parameters clamped into the box (rebuilt only when one moved)
-function recenter(ch::ParameterManifold, v)
+# with a box: the stepped model, then its FREE parameters clamped into the box
+# (rebuilt only when one moved) — a fixed one (`restrict`) is the anchor as
+# given, never clamped
+recenter(ch::ParameterManifold, v) = _recenter_in_box(ch, v, map(_ -> true, ch.box[1]))
+function _recenter_in_box(ch::ParameterManifold, v, free)
     m = _interior(retract(ch, v))
     θ = parameter_vector(m)
     lo, hi = ch.box
     T = eltype(θ)
-    θc = map((t, a, b) -> clamp(t, T(a), T(b)), θ, lo, hi)
+    θc = map((t, a, b, f) -> f ? clamp(t, T(a), T(b)) : t, θ, lo, hi, free)
     return _parameter_manifold(θc == θ ? m : _rebuild(m, θc), ch.box, ch.scale)
+end
+function recenter(rc::SubsetManifold{<:ParameterManifold{<:Any, <:Tuple}, D}, v) where {D}
+    free = SVector{D, Bool}(ntuple(i -> i in rc.idx, Val(D)))
+    return SubsetManifold(_recenter_in_box(rc.manifold, _lift(rc, v), free), rc.idx)
 end
 function retract_jacobian(ch::ParameterManifold)
     n = tangent_size(ch)

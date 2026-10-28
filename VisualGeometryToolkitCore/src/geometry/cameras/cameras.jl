@@ -97,6 +97,7 @@ import ..VisualGeometryToolkitCore: intrinsics, lens, model
 import ..VisualGeometryToolkitCore: Manifold, SubsetManifold, retract, recenter, retract_jacobian, action_jacobian,
     local_coordinates, minimal_manifold, restrict, tangent_size   # the lens manifold (lens_chart.jl) extends the contract
 using ..VisualGeometryToolkitCore: SphereManifold   # RadialCamera's minimal manifold (calibration.jl)
+using ..VisualGeometryToolkitCore: _lift            # a restriction's coordinates lifted (lens_chart.jl's boxed recenter)
 import ..VisualGeometryToolkitCore: constraint_dim, _measurement_dim, ambient_coordinates   # … and its place in the covariance machinery
 import ..VisualGeometryToolkitCore: _precision, _has_division  # image_warp chain hooks: lens precision, a lens consumes a ray
 import ..VisualGeometryToolkitCore: toml_value   # extended on lenses (lens_chart.jl): a lens writes as its record

@@ -403,3 +403,67 @@ function load_matlab_calibration(
         :matlab, camera, poses, Float64(_need(d, :mean_error, path, what)::Real), :mean, String(path)
     )
 end
+
+# -----------------------------------------------------------------------------
+# Kalibr camchain (camchain.yaml), load-only
+# -----------------------------------------------------------------------------
+#
+# Kalibr writes one block per camera (kalibr_common/ConfigReader.py,
+# CameraChainParameters): `camN:` and, indented under it, `camera_model`,
+# `intrinsics`, `distortion_model`, `distortion_coeffs`, `resolution` (and
+# fields this reader does not need: `cam_overlaps`, `rostopic`, `T_cn_cnm1`).
+# Its principal point is in OpenCV's pixel frame (Kalibr projects with
+# OpenCV's conventions; the file does not say so) — the default `file_frame`.
+
+# The block of `camN:` — its lines up to the next top-level key.
+function _kalibr_block(yml::AbstractString, cam::AbstractString, path)
+    lines = split(yml, '\n')
+    i = findfirst(l -> occursin(Regex("^$(cam)\\s*:\\s*\$"), rstrip(l)), lines)
+    i === nothing && throw(ArgumentError("$(path): no camera `$(cam)` — not a Kalibr camchain (or another camera name)"))
+    j = findnext(l -> !isempty(strip(l)) && !startswith(l, ' ') && !startswith(l, '\t') && !startswith(strip(l), '#'), lines, i + 1)
+    return join(lines[(i + 1):(j === nothing ? end : j - 1)], '\n')
+end
+function _kalibr_field(block::AbstractString, key::AbstractString, path)
+    mt = match(Regex("^\\s+$(key)\\s*:\\s*(.*?)\\s*\$", "m"), block)
+    mt === nothing && throw(ArgumentError("$(path): the camera has no `$(key)`"))
+    return mt.captures[1]
+end
+function _kalibr_numbers(block::AbstractString, key::AbstractString, path)
+    s = _kalibr_field(block, key, path)
+    mt = match(r"^\[(.*)\]$", s)
+    mt === nothing && throw(ArgumentError("$(path): `$(key)` is not a flow list, `[a, b, …]`"))
+    out = Float64[]
+    for x in split(mt.captures[1], ','; keepempty = false)
+        v = tryparse(Float64, strip(x))
+        (v === nothing || !isfinite(v)) && throw(ArgumentError("$(path): `$(key)` holds `$(strip(x))`, not a finite number"))
+        push!(out, v)
+    end
+    return out
+end
+
+"""
+    load_kalibr_camchain([file_frame = PixelFrame{:opencv},] path; camera = "cam0") -> BoundedCamera
+
+One camera of a Kalibr camchain (`camchain.yaml` of `kalibr_calibrate_cameras`):
+its `camera_model` × `distortion_model` as [`kalibr_lens`](@ref) maps them, its
+`intrinsics` (focal lengths and principal point) and its `resolution`, as a
+`BoundedCamera` in VGC's canonical (COLMAP) pixel frame. `file_frame` is the
+pixel frame of the file's principal point, which Kalibr does not write: its
+projection is OpenCV's, `PixelFrame{:opencv}`, the default. The extrinsics of a
+multi-camera chain (`T_cn_cnm1`) are not read.
+"""
+load_kalibr_camchain(path::AbstractString; kwargs...) = load_kalibr_camchain(PixelFrame{:opencv}, path; kwargs...)
+
+function load_kalibr_camchain(file_frame::Type{<:PixelFrame}, path::AbstractString; camera::AbstractString = "cam0")
+    block = _kalibr_block(read(path, String), camera, path)
+    fx, fy, cx, cy, lens = kalibr_lens(
+        _kalibr_field(block, "camera_model", path), _kalibr_numbers(block, "intrinsics", path),
+        _kalibr_field(block, "distortion_model", path), _kalibr_numbers(block, "distortion_coeffs", path),
+    )
+    res = _kalibr_numbers(block, "resolution", path)
+    (length(res) == 2 && all(r -> r > 0 && isinteger(r), res)) ||
+        throw(ArgumentError("$(path): `resolution` is $(res), not two positive integers"))
+    K = CameraCalibrationMat(SMatrix{3, 3, Float64}(fx, 0, 0, 0, fy, 0, cx, cy, 1))
+    model = CameraModel(K; lens, image_origin = pixel_origin(file_frame))
+    return BoundedCamera(model, Size2(Int(res[1]), Int(res[2])))
+end

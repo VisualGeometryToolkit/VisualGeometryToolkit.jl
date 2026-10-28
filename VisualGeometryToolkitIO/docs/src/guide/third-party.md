@@ -62,6 +62,12 @@ foreign-format adapter holding VGC values: the camera as a `CameraModel`, and
 the poses as `EuclideanMap`s labeled `TargetFrame{target} → CameraFrame`. The
 migration relabels them `→ ViewFrame{image}`.
 
+`load_kalibr_camchain([file_frame,] path; camera = "cam0")` reads one camera
+of a Kalibr `camchain.yaml` as a `BoundedCamera`: its camera and distortion
+models through `kalibr_lens`, its resolution as the extent, and its principal
+point moved from OpenCV's pixel frame (Kalibr's, which the file does not
+state) to COLMAP's.
+
 `save_opencv_calibration` writes one of our cameras back out in the OpenCV
 shape. It is the one place where a pixel frame is a conversion target
 (`to_frame`) rather than a statement about a file.

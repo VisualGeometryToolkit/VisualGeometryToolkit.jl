@@ -339,3 +339,58 @@
         )
     end
 end
+
+# A Kalibr camchain: each camera block read through `kalibr_lens`, the principal point moved from OpenCV's pixel frame to COLMAP's,
+# the resolution the extent. Checked against Kalibr's equidistant projection written out (OpenCV's fisheye model) in OpenCV pixels.
+@testitem "Kalibr camchain (load_kalibr_camchain)" begin
+    using VisualGeometryToolkitIO: load_kalibr_camchain
+    using VisualGeometryToolkitCore: BoundedCamera, Lens, Equidistant, Radial, DoubleSphere, PixelFrame, project
+    using StaticArrays
+    k = [-0.0137, 0.0021, -0.0009, 0.00012]
+    yml = """
+    cam0:
+      cam_overlaps: [1]
+      camera_model: pinhole
+      distortion_coeffs: [$(join(k, ", "))]
+      distortion_model: equidistant
+      intrinsics: [931.8, 932.4, 2603.2, 1737.6]
+      resolution: [5208, 3476]
+      rostopic: /cam0/image_raw
+    cam1:
+      T_cn_cnm1:
+      - [1.0, 0.0, 0.0, 0.1]
+      - [0.0, 1.0, 0.0, 0.0]
+      - [0.0, 0.0, 1.0, 0.0]
+      - [0.0, 0.0, 0.0, 1.0]
+      camera_model: ds
+      distortion_coeffs: []
+      distortion_model: none
+      intrinsics: [-0.2, 0.59, 800.0, 810.0, 320.0, 240.0]
+      resolution: [640, 480]
+      rostopic: /cam1/image_raw
+    """
+    mktempdir() do dir
+        p = joinpath(dir, "camchain.yaml"); write(p, yml)
+        c0 = load_kalibr_camchain(p)
+        @test c0 isa BoundedCamera && (c0.extent.width, c0.extent.height) == (5208, 3476)
+        K = c0.camera.intrinsics.K
+        @test (K[1, 1], K[2, 2]) == (931.8, 932.4)
+        @test K[1, 3] ≈ 2603.7 atol = 1.0e-12
+        @test K[2, 3] ≈ 1738.1 atol = 1.0e-12
+        @test c0.camera.lens === Lens(Equidistant(), Radial(Tuple(k)))
+        for X in (SVector(0.3, -0.2, 1.0), SVector(-1.1, 0.4, 0.6), SVector(0.05, 0.9, 0.3))     # beyond 60° off axis too
+            r = hypot(X[1], X[2]); θ = atan(r, X[3]); θd = θ * (1 + k[1] * θ^2 + k[2] * θ^4 + k[3] * θ^6 + k[4] * θ^8)
+            u_cv = SVector(931.8 * θd * X[1] / r + 2603.2, 932.4 * θd * X[2] / r + 1737.6)       # Kalibr / OpenCV fisheye, OpenCV px
+            @test project(c0.camera, X) ≈ u_cv .+ 0.5 atol = 1.0e-9                               # COLMAP = OpenCV + ½
+        end
+        c1 = load_kalibr_camchain(p; camera = "cam1")
+        @test c1.camera.lens === Lens(DoubleSphere(-0.2, 0.59)) && (c1.extent.width, c1.extent.height) == (640, 480)
+        c1c = load_kalibr_camchain(PixelFrame{:colmap}, p; camera = "cam1")        # a file in COLMAP's frame: no shift
+        @test c1c.camera.intrinsics.K[1, 3] == 320.0 && c1.camera.intrinsics.K[1, 3] == 320.5
+        @test_throws ArgumentError load_kalibr_camchain(p; camera = "cam2")
+        write(p, replace(yml, "resolution: [5208, 3476]" => "resolution: [5208.5, 3476]"))
+        @test_throws ArgumentError load_kalibr_camchain(p)
+        write(p, replace(yml, "distortion_model: equidistant" => "distortion_model: fov"))
+        @test_throws ArgumentError load_kalibr_camchain(p)
+    end
+end

@@ -196,7 +196,7 @@ export colmap_model, colmap_params
 export opencv_lens, opencv_coefficients, kalibr_lens   # the OpenCV and Kalibr lens conventions
 
 # Third-party calibration exports (load-only): OpenCV and MATLAB files
-export ExternalCalibration, load_opencv_calibration, load_matlab_calibration
+export ExternalCalibration, load_opencv_calibration, load_matlab_calibration, load_kalibr_camchain
 export save_opencv_calibration        # the inverse of load_opencv_calibration: our camera in the foreign shape
 
 # Public but UNEXPORTED — reached qualified (`VisualGeometryToolkitIO.load`, or

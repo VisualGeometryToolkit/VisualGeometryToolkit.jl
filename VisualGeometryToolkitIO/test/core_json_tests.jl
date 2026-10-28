@@ -20,10 +20,10 @@
     @test read_quantity(2.5, :length, MM_PX) == 2.5mm
     @test read_quantity(0.0025, :length, UnitContract(world = m)) == 2.5mm
     @test read_quantity(640, :pixel, MM_PX) == 640px
-    @test read_quantity(300, :density, MM_PX) == 300dpi
+    @test read_quantity(300, :density, MM_PX) == 300.0dpi   # (300dpi is the exact Rational 1500000//127 px/m; a file number reads as a float)
     px_per_mm = parse_unit("px/mm"; compound = true)
     @test read_quantity(12, :density, UnitContract(density = px_per_mm)) == 12 * px_per_mm
-    @test write_quantity(300dpi, UnitContract(density = px_per_mm)) === ustrip(px_per_mm, 300dpi)
+    @test write_quantity(300dpi, UnitContract(density = px_per_mm)) === Float64(ustrip(px_per_mm, 300dpi))
     # the retired {value, unit} object is refused, naming the migration
     for x in (Dict("value" => 2.5, "unit" => "mm"), JSON.parse("""{"value": 1.3, "unit": "cm"}"""), (value = 2.5, unit = "mm"))
         e = try read_quantity(x, :length, MM_PX); nothing catch e; e end
@@ -35,7 +35,7 @@
     @test_throws ArgumentError read_quantity(true, :pixel, MM_PX)
     # a round trip through every kind and both world units
     for c in (MM_PX, UnitContract(world = m), UnitContract(world = inch)), (q, kind) in
-            ((62.8mm, :length), (5.86μm, :length), (1.0inch, :length), (640px, :pixel), (480.25px, :pixel), (300dpi, :density))
+            ((62.8mm, :length), (5.86μm, :length), (1.0inch, :length), (640px, :pixel), (480.25px, :pixel), (300.0dpi, :density))
         @test read_quantity(write_quantity(q, c), kind, c) == q
     end
 end
@@ -352,7 +352,7 @@ end
     c2 = from_json(UnitContract, d["units"])
     @test c2 == c
     @test from_json(Size2, d["canvas_size"], c2; kind = :length) == canvas
-    @test read_quantity(d["print_density"], :density, c2) == 1200dpi
+    @test read_quantity(d["print_density"], :density, c2) == 1200.0dpi
     @test read_quantity(d["frame_width"], :length, c2) === VgtkIO.read_length(11.25, mm)
     @test read_quantity(d["pattern"]["min_scale"], :length, c2; role = :pattern) === min_scale
     @test read_quantity(d["pattern"]["max_scale"], :length, c2; role = :pattern) === max_scale

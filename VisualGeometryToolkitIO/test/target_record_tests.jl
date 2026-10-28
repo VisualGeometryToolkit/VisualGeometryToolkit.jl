@@ -350,7 +350,7 @@ end
     # Board sizes built in code (`297mm`, `0.142m`), written in mm and in m and
     # read back: every one is the identical quantity. The size is written by
     # `write_length` and read through the same decimal shift (`read_length`).
-    using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, Board, board, Rig, PosedTarget, TargetFrame
+    using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, Board, board, Rig, PosedTarget, TargetFrame, base_quantity
     rig_of(bd) = Rig{TargetFrame{:a}}(Dict(:a => PosedTarget(
         PlanarTarget([SVector(1.0mm, 1.0mm), SVector(50.0mm, 1.0mm), SVector(1.0mm, 50.0mm)]; board = bd),
         EuclideanMap(QuatRotation(1.0, 0.0, 0.0, 0.0, false), SVector(0.0m, 0.0m, 0.0m)),
@@ -361,16 +361,17 @@ end
             rig = rig_of(Board(Size2(width = w, height = h)))
             back = roundtrip(rig, dir, u)
             @test back.members == rig.members                  # (a Rig has no ==: its members are the value)
-            @test board(back[:a].target).size.width === w && board(back[:a].target).size.height === h
+            # the board stores the Float64 base form (`297mm` is an exact Rational until stored)
+            @test board(back[:a].target).size.width === base_quantity(w) && board(back[:a].target).size.height === base_quantity(h)
         end
-        # `142mm` is FlexUnits' multiply, 142 × 0.001 = 0.14200000000000002 m —
-        # one ulp off the decimal-nearest 0.142 — and no millimetre file number
-        # reads back to it (lengths.jl). Fixed upstream by FlexUnits PR
-        # Deduction42/FlexUnits.jl#131 (a correctly rounded decimal scale, so
-        # `142mm` is the decimal-nearest value); the day that fix is adopted
-        # this broken test succeeds, Test reports it, and it is promoted to @test.
+        # `142mm` is exact: VisualGeometryToolkitCore's registry scales are rationals
+        # (mm = 1//1000), so the stored length is the correctly rounded 71//500 m,
+        # the decimal-nearest 0.142, and a millimetre file holds it. (With
+        # FlexUnits' Float64 scales it was 142 × 0.001 = 0.14200000000000002 m,
+        # which no millimetre file number reads back to.)
         rig = rig_of(Board(Size2(width = 142mm, height = 100mm)))
-        @test_broken roundtrip(rig, dir, mm).members == rig.members   # FlexUnits #131
+        @test board(rig[:a].target).size.width === 0.142m
+        @test roundtrip(rig, dir, mm).members == rig.members
         @test roundtrip(rig, dir, m).members == rig.members            # a metre file holds it
     end
 end

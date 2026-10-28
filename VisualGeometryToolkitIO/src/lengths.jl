@@ -5,9 +5,20 @@
 # A file holds a length in a human unit (62.8 mm); memory holds metres. For a
 # power-of-ten unit the conversion is a SHIFT OF THE DECIMAL EXPONENT, not a
 # multiplication: `62.8` read as millimetres is the metre value nearest the
-# decimal 0.0628, and writing that value back prints `62.8`. Multiplying by
-# the scale (`62.8 * 0.001`) lands one ulp away for a few percent of inputs,
-# and the round trip then prints `62.800000000000004`.
+# decimal 0.0628, and writing that value back prints `62.8`. FlexUnits'
+# conversion of a float file number (`62.8 * mm`) multiplies by the Float64 of
+# the unit's exact rational scale (`62.8 * 0.001`) and lands one ulp away for
+# about one decimal in seven; the round trip then prints `62.800000000000004`.
+#
+# The two halves have different futures. READING is the one hand-rolled
+# conversion of the stack (rule R11 names it): it goes once FlexUnits applies a
+# rational scale to a float as `x * num / den`, rounded once (the rule asked
+# for in Deduction42/FlexUnits.jl#131). WRITING stays a search under any
+# rounding of FlexUnits': a correctly rounded `ustrip(mm, q)` of a value read
+# from a decimal file number gives the number back for only about three
+# quarters of them (measured: 1 - 50 552/200 000 at 15 digits), because the
+# metre and millimetre grids differ, so `write_length` returns the number that
+# READS BACK to the stored value, not the converted one.
 #
 # `read_length` and `write_length` are the ONE pair every schema reads and
 # writes a file length through; a covariance entry, a length squared or a
@@ -84,7 +95,8 @@ function _shift_exponent_exact(s::String, k::Integer)
     return negative ? -v : v
 end
 
-# The k of a unit whose scale is exactly 10^k metres, or `nothing`.
+# The k of a unit whose scale is exactly 10^k metres, or `nothing` (the
+# registry's exact 1//1000 converts to the double nearest 10^-3, as `_ten_to`).
 function _decimal_exponent(scale::Real)
     scale > 0 || return nothing
     k = round(Int, log10(scale))
@@ -161,6 +173,13 @@ value nearest the decimal 0.0628 and `write_length` returns `62.8` exactly;
 other units (`inch`, `ft`, `pt`) multiply by the unit's scale. Any Float64
 crosses — negative, ±0 with its sign, NaN, ±Inf; an integer is read as its
 Float64. An `ArgumentError` for a unit that is not a length.
+
+This is the stack's one hand-rolled unit conversion: FlexUnits' own
+`x * u` of a float `x` multiplies by the Float64 of the unit's exact
+rational scale, one ulp off the decimal for about one number in seven. It is
+removed — `read_length(x, u)` becoming `base_quantity(x * u)` — when
+FlexUnits applies a rational scale to a float as `x * num / den`, rounded
+once (Deduction42/FlexUnits.jl#131).
 """
 read_length(x::Real, u::Units) = _metre_quantity(_read_power(x, u, 1))
 
@@ -176,6 +195,11 @@ power-of-ten unit shifts the decimal exponent of the metre value; any other
 unit takes the fewest significant digits (1 to 17) that `read_length` maps back
 to the identical `q`. NaN and ±Inf are written as they are. An `ArgumentError`
 for a unit that is not a length, or a quantity that is not one.
+
+The search is not a conversion and stays: FlexUnits' `ustrip(u, q)`, even
+correctly rounded, gives back the file's own number for only about three
+quarters of decimal file numbers, since the stored metre value is on a
+different grid; `write_length` returns the number that reads back to `q`.
 """
 function write_length(q::Quantity, u::Units)
     scale = _length_scale(u)
@@ -189,7 +213,10 @@ end
 # `read(write(y))`. It is idempotent: a loaded value is its own persisted form.
 # The identity tree (`content_id`) hashes this form, so a value built in code
 # (`v * mm`, one ulp off the nearest decimal of `v`) and the file written from it
-# have one identity.
+# have one identity. With the registry's exact scales it is the identity on a
+# length built from an integer (`142mm` is the decimal-nearest 0.142 m) and on
+# any loaded value; it still moves a float-built one (`14.2mm`, about one
+# decimal in seven) and a computed one.
 _persisted(y::Real, n::Int = 1) = _read_power(_write_power(Float64(y), mm, n), mm, n)
 
 # Where a writer puts a length leaf: a file's unit (`Units`), or `_PERSISTED`,

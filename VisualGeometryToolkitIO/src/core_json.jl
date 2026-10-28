@@ -138,7 +138,7 @@ a value that is not a number (a `{"value": v, "unit": u}` object is not read).
 julia> VgtkIO.read_quantity(2.5, :length, MM_PX) == 2.5mm
 true
 
-julia> VgtkIO.read_quantity(300, :density, MM_PX) == 300dpi
+julia> VgtkIO.read_quantity(300, :density, MM_PX) == 300.0dpi
 true
 ```
 """

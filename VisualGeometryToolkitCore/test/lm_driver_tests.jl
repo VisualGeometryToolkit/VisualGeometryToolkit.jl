@@ -147,6 +147,9 @@ end
     @test o.maxiters == 7 && o.reldcost == 1.0e-9 && o.dstep == 1.0e-11 && o.absdcost == 0.0 && o.maxfails == 3
     @test NLLSsolver.dynamic(o.iterator) === :levenbergmarquardt_dtd
     @test NLLSsolver.dynamic(nlls_options(; max_iter = 1, ftol = 0.0, xtol = 0.0, iterator = :levenbergmarquardt).iterator) === :levenbergmarquardt
+    @test o.maxtime == UInt64(1.0e6 * 1.0e9)                                     # no time cap by default
+    @test nlls_options(; max_iter = 1, ftol = 0.0, xtol = 0.0, max_time = 2.5).maxtime == UInt64(2.5e9)
+    @test typeof(nlls_options(; max_iter = 1, ftol = 0.0, xtol = 0.0, max_time = 2.5)) === typeof(o)
 end
 
 @testset "a NaN trial is a rejected step" begin

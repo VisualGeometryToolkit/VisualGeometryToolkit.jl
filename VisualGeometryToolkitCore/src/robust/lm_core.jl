@@ -62,7 +62,7 @@ const _NLLS_MAXFAILS = 3
 const _NLLS_NO_TIME_CAP = 1.0e6
 
 """
-    nlls_options(; max_iter, ftol, xtol, iterator = :levenbergmarquardt_dtd) -> NLLSsolver.NLLSOptions
+    nlls_options(; max_iter, ftol, xtol, iterator = :levenbergmarquardt_dtd, max_time = nothing) -> NLLSsolver.NLLSOptions
 
 THE map of the stack's documented LM knobs onto NLLSsolver's options, the one
 place they meet:
@@ -74,7 +74,7 @@ place they meet:
 | `xtol` | step-size tolerance (FastLevenbergMarquardt's default `1e-10`) | `dstep`: ABSOLUTE, the step's max-norm in chart units (max|pᵢ| < xtol); FastLevenbergMarquardt's test was RELATIVE per component, |pᵢ| < xtol·(xtol + |xᵢ|) — the same value is stricter far from the origin and looser near it |
 | — | absolute cost decrease | `absdcost = 0`: the stack has no such knob |
 | — | consecutive failed iterations | `maxfails = 3`, NLLSsolver's default |
-| — | time cap | none (1e6 s) |
+| `max_time` | wall-clock cap in seconds, for a fit whose iterations take minutes (a rendering calibration) | `maxtime`; `nothing` (the default): none (1e6 s) |
 | `iterator` | the damping | `:levenbergmarquardt_dtd`, λ·DᵀD with DᵀD the running maximum of diag(JᵀJ) — Marquardt's scaling, which every former FastLevenbergMarquardt fit used — or `:levenbergmarquardt`, λ·I |
 
 Single-threaded (`numthreads = 1`): a fit runs inside the caller's threads.
@@ -83,14 +83,14 @@ gradient gives a zero step, which the step test stops and the stall
 postcondition reads as stationary. Its initial damping, `1e-6`, is
 NLLSsolver's λ₀ for `:levenbergmarquardt_dtd`; neither is a stack knob.
 """
-nlls_options(; max_iter::Integer, ftol::Real, xtol::Real, iterator::Symbol = :levenbergmarquardt_dtd) =
-    _nlls_options(NLLSsolver.static(iterator), max_iter, ftol, xtol)
+nlls_options(; max_iter::Integer, ftol::Real, xtol::Real, iterator::Symbol = :levenbergmarquardt_dtd, max_time::Union{Nothing, Real} = nothing) =
+    _nlls_options(NLLSsolver.static(iterator), max_iter, ftol, xtol, max_time === nothing ? _NLLS_NO_TIME_CAP : Float64(max_time))
 # The map itself, on a static iterator: the chart LM calls it per refit with the
 # constant `_DTD`, so the options are inferred and allocate nothing (a runtime
 # Symbol made `static(iterator)` a dynamic call, three allocations per refit).
-@inline _nlls_options(iterator, max_iter::Integer, ftol::Real, xtol::Real) =
+@inline _nlls_options(iterator, max_iter::Integer, ftol::Real, xtol::Real, max_time::Float64 = _NLLS_NO_TIME_CAP) =
     NLLSsolver.NLLSOptions(
-        Float64(ftol), 0.0, Float64(xtol), _NLLS_MAXFAILS, Int(max_iter), UInt64(round(_NLLS_NO_TIME_CAP * 1.0e9)),
+        Float64(ftol), 0.0, Float64(xtol), _NLLS_MAXFAILS, Int(max_iter), UInt64(round(max_time * 1.0e9)),
         iterator, NLLSsolver.static(1)
     )
 const _DTD = NLLSsolver.static(:levenbergmarquardt_dtd)

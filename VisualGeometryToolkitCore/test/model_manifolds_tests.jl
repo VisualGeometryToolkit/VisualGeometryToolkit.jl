@@ -137,7 +137,7 @@
             @test size(action_jacobian(LensManifold(Pinhole()), P)) == (2, 0)
         end
 
-        @testset "lens manifold: DoubleSphere's ξ through a log, α ∈ [0, 1] a box" begin
+        @testset "lens manifold: DoubleSphere's ξ through a log, α ∈ [0, 1] mirrored at its ends" begin
             P = SVector(0.5, 0.3, 1.0)
             ds = Lens(DoubleSphere(-0.2, 0.6))
             ch = LensManifold(ds)
@@ -145,7 +145,9 @@
             l = retract(ch, SVector(0.1, 0.3))
             @test parameters(l).xi ≈ -1 + 0.8 * exp(0.1) && parameters(l).alpha == 0.6 + 0.3   # ξ > −1: ξ = −1 + (ξ₀ + 1)·exp(v); α additive
             @test local_coordinates(ch, l) ≈ SVector(0.1, 0.3) rtol = 1.0e-9
-            @test parameters(retract(ch, SVector(0.0, 8.0))).alpha == 1.0                       # a large step stops at the closed end
+            a8 = parameters(retract(ch, SVector(0.0, 8.0))).alpha                                # a large step folds back inside
+            @test 0 <= a8 <= 1
+            @test a8 ≈ 0.6 atol = 1.0e-12                                                       # 0.6 + 8, period 2
             @test retract_jacobian(ch) ≈ ForwardDiff.jacobian(v -> parameter_vector(retract(ch, v)), zero(SVector{2, Float64})) atol = 1.0e-12
             @test action_jacobian(ch, P) ≈ _fd_action(ch, P, (m, y) -> VgtkCore.project(m, y)) rtol = 1.0e-8
             @test action_jacobian(restrict(ch, (:alpha,)), P) ≈ action_jacobian(ch, P)[:, SVector(2)]
@@ -158,8 +160,8 @@
             @test retract_jacobian(ch0)[2, 2] == 1                           # α moves at unit rate
             @test local_coordinates(ch0, Lens(DoubleSphere(0.0, 0.0))) == SVector(0.0, 0.0)
             @test parameters(retract(ch0, SVector(0.0, 0.2))).alpha == 0.2
-            @test parameters(retract(ch0, SVector(0.0, -0.5))).alpha === 0.0                   # clamped at the closed end
-            @test retract_jacobian(ch0, SVector(0.0, -0.5))[2, 2] == 0                         # slope 0 past it
+            @test parameters(retract(ch0, SVector(0.0, -0.5))).alpha === 0.5                   # reflected at the closed end
+            @test retract_jacobian(ch0, SVector(0.0, -0.5))[2, 2] == -1                        # the mirrored slope past it
             @test all(isfinite, action_jacobian(ch0, P))
             @test parameters(model(LensManifold(Lens(DoubleSphere(0.1, 1.0))))).alpha === 1.0
         end

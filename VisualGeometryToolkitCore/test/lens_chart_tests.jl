@@ -168,6 +168,7 @@ end
 # recorded from the per-family getters and name functions this protocol replaced.
 @testitem "parameter_protocol" begin
     using Test, StaticArrays, LinearAlgebra
+    using ForwardDiff: ForwardDiff
     using VisualGeometryToolkitCore
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: LensManifold, retract, recenter, retract_jacobian, local_coordinates, tangent_size, model,
@@ -220,26 +221,31 @@ end
     end
 
     @testset "LensManifold reads parameter_bounds: the chart of each kind of bound" begin
-        # ξ ∈ (−1, ∞): ξ = −1 + (ξ₀ + 1)·exp(v); α ∈ [0, 1], both ends models: the additive chart clamped (a box)
+        # ξ ∈ (−1, ∞): ξ = −1 + (ξ₀ + 1)·exp(v); α ∈ [0, 1], both ends models: the additive chart mirrored at its ends
         ds = Lens(DoubleSphere(0.1, 0.5)); ch = LensManifold(ds); v = SVector(0.01, 0.2)
         @test parameter_vector(retract(ch, v)) == SVector(-1.0 + 1.1 * exp(0.01), 0.7)
         @test retract_jacobian(ch) == [1.1 0.0; 0.0 1.0]
         @test retract_jacobian(ch, v) ≈ [1.1 * exp(0.01) 0.0; 0.0 1.0] rtol = 1.0e-15
-        @test retract_jacobian(ch, SVector(0.0, 0.6)) == [1.1 0.0; 0.0 0.0]                        # past α = 1: clamped, slope 0
-        @test parameter_vector(retract(ch, SVector(0.0, 0.6)))[2] === 1.0
+        @test retract_jacobian(ch, SVector(0.0, 0.6)) == [1.1 0.0; 0.0 -1.0]                       # past α = 1: the mirrored slope
+        @test parameter_vector(retract(ch, SVector(0.0, 0.6)))[2] ≈ 0.9 atol = 1.0e-15             # 1.1 folds back to 0.9
+        @test retract_jacobian(ch, SVector(0.0, 0.6)) ≈ ForwardDiff.jacobian(w -> parameter_vector(retract(ch, w)), SVector(0.0, 0.6)) rtol = 1.0e-12
+        @test parameter_vector(retract(ch, SVector(0.0, 2.6)))[2] ≈ 0.9 atol = 1.0e-12              # 3.1: two closed ends, period 2
+        # in range the value is the plain additive chart's, bit for bit
+        @test all(d -> parameter_vector(retract(ch, SVector(0.0, d)))[2] === 0.5 + d, (-0.5, -0.3, 0.1, 0.25, 0.5))
         @test local_coordinates(ch, retract(ch, v)) ≈ v rtol = 1.0e-13
         @test parameter_vector(model(LensManifold(Lens(DoubleSphere(0.0, 0.0))))) == SVector(0.0, 0.0)      # a closed end is a model: kept
         @test parameter_vector(model(LensManifold(Lens(DoubleSphere(-1.0, 0.5)))))[1] == -1.0 + 1.0e-6      # an open end anchors inside
         @test parameter_vector(model(LensManifold(Lens(DoubleSphere(0.0, 1.3))))) == SVector(0.0, 1.0)      # past a closed end: clamped onto it
-        # ω ∈ [0, π): closed at 0 (the identity), open at π — ω = π − (π − ω₀)·exp(−v), clamped at 0
+        # ω ∈ [0, π): closed at 0 (the identity), open at π — ω = π − (π − ω₀)·exp(−v), mirrored at 0
         fv = LensManifold(Lens(Perspective(), FieldOfView(0.9)))
         ω(d) = parameter_vector(retract(fv, SVector(d)))[1]
         @test ω(0.0) === 0.9
         @test ω(0.3) ≈ π - (π - 0.9) * exp(-0.3) rtol = 1.0e-15
-        @test ω(-50.0) === 0.0 && π - 1.0e-12 < ω(50.0) < π
+        @test 0 <= ω(-50.0) < π && π - 1.0e-12 < ω(50.0) < π
+        @test ω(-0.5) ≈ -(π - (π - 0.9) * exp(0.5)) rtol = 1.0e-15                                   # past 0: the mirror, the same map
+        @test retract_jacobian(fv, SVector(-0.5))[1, 1] ≈ -(π - 0.9) * exp(0.5) rtol = 1.0e-14
         @test retract_jacobian(fv)[1, 1] ≈ π - 0.9 rtol = 1.0e-15
         @test retract_jacobian(fv, SVector(0.3))[1, 1] ≈ (ω(0.3 + 1.0e-6) - ω(0.3 - 1.0e-6)) / 2.0e-6 rtol = 1.0e-7
-        @test retract_jacobian(fv, SVector(-50.0))[1, 1] == 0
         @test local_coordinates(fv, retract(fv, SVector(0.3)))[1] ≈ 0.3 rtol = 1.0e-12
         # ω = 0, the identity, is the anchor with slope π (not 10⁻⁶·π); ω and −ω are one map: −0.3 anchors at 0.3, the same lens
         f0 = LensManifold(Lens(Perspective(), FieldOfView(0.0)))
@@ -252,7 +258,7 @@ end
         @test local_coordinates(LensManifold(Lens(Perspective(), FieldOfView(0.3))), neg) == SVector(0.0)
         # β ≥ 0, closed at 0 (β = 0 a model): additive, never below 0; α ∈ [0, 1] (α = 0 the pinhole) anchored on it
         eu = LensManifold(Lens(ExtendedUnified(0.6, 1.2)))
-        @test parameter_vector(retract(eu, SVector(0.0, -40.0)))[2] === 0.0
+        @test parameter_vector(retract(eu, SVector(0.0, -40.0)))[2] ≈ 38.8 rtol = 1.0e-14            # reflected at 0, never below
         @test parameter_vector(retract(eu, SVector(0.0, 0.5)))[2] == 1.2 + 0.5
         e0 = LensManifold(Lens(ExtendedUnified(0.0, 1.0)))
         @test parameter_vector(model(e0)) == SVector(0.0, 1.0) && retract_jacobian(e0) == [1.0 0.0; 0.0 1.0]

@@ -240,8 +240,12 @@ statement of the model's domain:
 | `a` and `b` | `t = a + (b − a)·logistic(logit((t₀ − a)/(b − a)) + v)` |
 
 and a CLOSED endpoint — a value the model takes, such as `α = 0` or `ω = 0`
-([`parameter_bounds`](@ref) lists them) — is a box: the open ends' chart (the
-plain `t₀ + v` when it has none) clamped at it, slope 0 past it. So no step
+([`parameter_bounds`](@ref) lists them) — is a mirror: the open ends' chart
+(the plain `t₀ + v` when it has none) reflected at it, so a value past it
+folds back inside (with two closed ends, a fold of period `2(b − a)`) and the
+slope keeps its magnitude with its sign flipped per reflection — never the
+flat residual of a clamp, at which a fixed-chart LM that overshot the end
+would stall. In range the value is the plain chart's, bit for bit. So no step
 leaves the domain and every fitter (VisualGeometryToolkitEstimation's `fit_lens`,
 a calibration bundle) keeps the model valid without knowing why, and an anchor
 at a closed endpoint moves with slope 1, not from the far end of a logit. An
@@ -420,17 +424,37 @@ end
 @inline function _bounded_value(t0, d, a, b, k)
     iszero(d) && return oftype(t0 + d, t0)       # no step: the anchor, bit for bit (a fixed coordinate never drifts)
     oa, ob = _open_ends(a, b, k)
-    t = _open_chart_value(t0, d, a, b, oa, ob)
-    k[1] && t < a && return zero(t) + a
-    k[2] && t > b && return zero(t) + b
-    return t
+    return first(_fold_closed(_open_chart_value(t0, d, a, b, oa, ob), a, b, k))
 end
 @inline function _bounded_slope(t0, d, a, b, k)
     oa, ob = _open_ends(a, b, k)
-    g = _open_chart_slope(t0, d, a, b, oa, ob)
-    t = _open_chart_value(t0, d, a, b, oa, ob)
-    ((k[1] & (t < a)) | (k[2] & (t > b))) && return zero(g)
-    return g
+    _, sgn = _fold_closed(_open_chart_value(t0, d, a, b, oa, ob), a, b, k)
+    return sgn * _open_chart_slope(t0, d, a, b, oa, ob)
+end
+# A closed end is a mirror: a value past it folds back inside (two closed ends:
+# a fold of period 2(b − a)), so no step leaves the interval and none stalls
+# past it — the slope keeps its magnitude, its sign flips per reflection (a
+# clamp's zero slope would leave a fixed-chart LM stuck at the end it
+# overshot). Returns the value and the sign (0 in the one case it cannot
+# fold: a value reflected past an OPEN end, held just inside it).
+@inline function _fold_closed(t, a, b, k)
+    one_t = one(_primal(t))
+    (k[1] | k[2]) && a <= _primal(t) <= b && return (t, one_t)      # inside: the value itself, bit for bit
+    if k[1] & k[2]
+        L = b - a
+        n = floor(_primal((t - a) / (2L)))
+        u = (t - a) - 2L * n
+        return _primal(u) <= L ? (a + u, one_t) : (a + (2L - u), -one_t)
+    elseif k[1] && _primal(t) < a
+        r = 2a - t
+        isfinite(b) && _primal(r) >= b && return (zero(t) + (b - oftype(_primal(t), _UNIT_MARGIN) * (b - a)), zero(one_t))
+        return (r, -one_t)
+    elseif k[2] && _primal(t) > b
+        r = 2b - t
+        isfinite(a) && _primal(r) <= a && return (zero(t) + (a + oftype(_primal(t), _UNIT_MARGIN) * (b - a)), zero(one_t))
+        return (r, -one_t)
+    end
+    return (t, one_t)
 end
 # at the anchor, in closed form: the logistic's slope there is (t0 − a)(b − t0)/(b − a)
 @inline function _bounded_slope_at_anchor(t0, a, b, k)

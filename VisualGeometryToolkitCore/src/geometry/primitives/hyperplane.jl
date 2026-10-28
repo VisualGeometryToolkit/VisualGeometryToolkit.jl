@@ -64,9 +64,13 @@ struct Hyperplane{M, N, T}
     function Hyperplane{M, N, T}(v::AbstractVector) where {M, N, T}
         N == M + 1 || throw(ArgumentError("N must equal M+1 for Hyperplane{M,N,T}"))
         length(v) == N || throw(DimensionMismatch("Expected $N coefficients for Hyperplane{$M,$N}, got $(length(v))"))
-        n_norm = norm(SVector{M, T}(v[1:M]))
+        # A static slice, not `v[1:M]`: on an SVector that is a heap Vector whose SVector conversion carries an
+        # interpolated error message, and Julia 1.12's codegen leaves those string-runtime calls in a GPU kernel
+        # that builds a plane (RadiometricCamera promotes a Float32 Quad to Dual on the device).
+        c = SVector{N, T}(v)
+        n_norm = norm(SVector{M, T}(ntuple(i -> c[i], Val(M))))
         n_norm > 0 || throw(ArgumentError("Normal vector cannot be zero"))
-        return new{M, N, T}(SVector{N, T}(v) / n_norm)
+        return new{M, N, T}(c / n_norm)
     end
 end
 

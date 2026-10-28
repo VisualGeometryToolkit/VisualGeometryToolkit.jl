@@ -11,6 +11,14 @@
     using StaticArrays: SVector
     using LinearAlgebra: dot
     import ChainRulesCore
+    import ForwardDiff
+    import KernelAbstractions as KA
+
+    KA.@kernel function _dual_plane_kernel!(out, @Const(c), x)
+        i = KA.@index(Global)
+        d = ForwardDiff.Dual{Nothing}(x[i], 1.0f0)
+        out[i] = ForwardDiff.value(Plane3D{typeof(d)}(c).coeffs[4] * d)
+    end
 
     @testset "shared-origin form: hits on the plane, correct parameter" begin
         plane = Plane3D(Point3(0.0, 0.0, 2.0), Vec3(0.0, 0.0, 1.0))   # z = 2
@@ -68,5 +76,26 @@
         val, pb = out
         @test val == Primitives._plane_constants(plane)
         @test pb(one.(val))[2] isa ChainRulesCore.NoTangent
+    end
+    @testset "a Dual plane from Float32 coefficients builds on the device (availability-gated)" begin
+        # `v[1:M]` on an SVector was a heap Vector whose conversion carries an interpolated message; Julia 1.12
+        # left those string-runtime calls in any GPU kernel that builds a plane (RadiometricCamera promotes a
+        # Float32 Quad to Dual on the device): InvalidIRError, an external C call. 1.13 compiled it.
+        c = SVector(0.0f0, 3.0f0, 4.0f0, -10.0f0)
+        @test Plane3D{Float64}(c).coeffs == SVector{4, Float64}(c) / 5
+        cuda = try
+            m = Base.require(Main, :CUDA)
+            (m !== nothing && Base.invokelatest(getproperty(m, :functional))) ? m : nothing
+        catch
+            nothing
+        end
+        if cuda === nothing
+            @test_skip cuda !== nothing      # CUDA is in the test target: no functional GPU here
+        else
+            x = Base.invokelatest(getproperty(cuda, :CuArray), Float32[1, 2, 3])
+            out = Base.invokelatest(similar, x)
+            Base.invokelatest(_dual_plane_kernel!(Base.invokelatest(getproperty(cuda, :CUDABackend)), 3), out, c, x; ndrange = 3)
+            @test Base.invokelatest(Array, out) ≈ Float32[-2, -4, -6]
+        end
     end
 end

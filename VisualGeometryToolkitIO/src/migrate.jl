@@ -489,15 +489,20 @@ _rig_v4_id(old::AbstractDict) =
 # by FlexUnits at load — `ustrip(mm, quantity(x, unit))` per length, a
 # covariance scaled by mm-per-unit to its power — and `content_id(rig)` hashed
 # them as written. That arithmetic is reproduced here, leaf for leaf, from the
-# file's own numbers: the decimal-exact pair (`read_length`/`write_length`)
-# gives another millimetre number for about a quarter of 6-digit metre values,
-# and so another identity. The rest of the record (order, rotations, cameras)
-# is the current writer's re-emission of the value in millimetres, which v4's
-# writer agrees with.
+# file's own numbers, for every unit (mm included: v4 converted an mm file
+# through the same arithmetic): the decimal-exact pair (`read_length`/
+# `write_length`) gives another millimetre number for about a quarter of
+# 6-digit metre values, and so another identity. v4's value also differed
+# from the file where v4's reader changed a number: a quaternion was
+# canonicalized to w ≥ 0 (`canonical_qvec`, which the current pose reader
+# shares), and a generic model's direction controls were renormalized unless
+# unit to 1e-12 (VisualGeometryToolkitCore 0.1's `_unit_or_normalize`, which
+# the current reader no longer applies: `_v4_direction`). The rest of the
+# record (order, rotations, cameras) is the current writer's re-emission of
+# the value in millimetres, which v4's writer agrees with.
 _v4_mm(x::Real, u::Units) = Float64(ustrip(mm, quantity(Float64(x), u)))
 _v4_mm_points(v, u) = Any[Any[_v4_mm(c, u) for c in p] for p in v]
 function _rig_v4_id_mm(value, old::AbstractDict, dst::AbstractString)
-    old["length_unit"] == "mm" && return _rig_v4_id(old)
     p = dst * ".mm.json"
     save(p, value; length_unit = mm)
     rec = _rig_v5_to_v4(_raw_tree(p), old)
@@ -525,8 +530,12 @@ end
 function _v4_mm_sensor!(x, o, u, s)
     _v4_mm_pose!(x["extrinsics"], o["extrinsics"], u, s)
     haskey(o["camera"], "point_grid") && (x["camera"]["point_grid"] = _v4_mm_points(o["camera"]["point_grid"], u))
+    haskey(o["camera"], "direction_grid") && (x["camera"]["direction_grid"] = Any[collect(_v4_direction(d)) for d in o["camera"]["direction_grid"]])
     return nothing
 end
+# A direction control as VisualGeometryToolkitCore 0.1 held it: kept when unit
+# to 1e-12, else normalized (its `_unit_or_normalize`).
+_v4_direction(d) = (v = Vec3{Float64}(Float64.(d)...); abs(norm(v) - 1) < 1.0e-12 ? v : normalize(v))
 function _v4_mm_member!(x, o, u, s)
     _v4_mm_pose!(x["pose"], o["pose"], u, s)
     t, ot = x["target"], o["target"]

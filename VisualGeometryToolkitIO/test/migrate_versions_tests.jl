@@ -211,6 +211,30 @@ end
     end
 end
 
+@testitem "vgio_migrate: v4's value identity where v4's reader changed a number — a w < 0 quaternion, non-unit directions" setup = [VGIoFixtures, MigrateFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    # fixtures/v4/rig_canonical_m.json: rig_metres.json with sensor `cam`'s quaternion negated (w < 0, the same
+    # rotation) and three of the generic sensor's direction controls scaled by 1.1 (v4's reader renormalized them)
+    # and one by 1 + 1e-13 (unit to 1e-12: v4 kept it); rig_canonical_mm.json the same numbers declared in mm (v4
+    # converted an mm file through the same FlexUnits arithmetic). The identities were recorded by v4's own code:
+    # `content_id(path)` and `content_id(load(Rig, path))`, run with VisualGeometryToolkitIO at main ddc1bbe
+    # (FlexUnits 0.6.12) — the same run reproduced rig_metres.json's recorded pair.
+    ids = Dict(
+        "rig_canonical_m.json" => ("c94b8452e03947e1802da593e27069d3b2626039de9e9c9acf2fcac82f5f23b6",
+            "fa7ea9e17d2a21ac0d78b774c1f27a476b67402fbd728347b85a6e5a9834a6f5"),
+        "rig_canonical_mm.json" => ("0cdbe8e109ede4618e44ba18b93f3fdb6bd8df767d3006887ec73fe7edff502e",
+            "b92649c972750df333f7621cf68c90cd76f4ca8b98d96887d5ae5258ab8351c6"),
+    )
+    mktempdir() do dir
+        for (name, (path_id, value_id)) in ids
+            src = joinpath(dir, name)
+            cp(joinpath(@__DIR__, "fixtures", "v4", name), src)
+            r = vgio_migrate(src)
+            @test r.old_ids == [path_id, value_id] && r.new_id == content_id(r.out)
+        end
+    end
+end
+
 @testitem "vgio_migrate: the command, and a tree" setup = [VGIoFixtures, MigrateFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     mktempdir() do dir

@@ -8,7 +8,7 @@ repeated (`fit_division_camera` and its model-block update `division_camera_step
 `fit_radial_camera`, `fit_lens`, `fit_robot_world_hand_eye`, `fit_line`,
 `fit_rotation`) — and
 `refine_*` for polishing a given model (`refine_robot_world_hand_eye`,
-`refine_absolute_pose`). One-step
+`refine_absolute_pose`, `refine_camera_and_poses`). One-step
 algebraic algorithms keep their algorithm's name and live in
 VisualGeometryToolkitCore (`homography_dlt`, `kabsch`, `tls_line`, …).
 

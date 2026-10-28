@@ -38,6 +38,20 @@ division_coeffs
 board_sq_residuals
 ```
 
+## Camera and poses
+
+`refine_camera_and_poses` refines a camera — its intrinsics and lens, on
+VisualGeometryToolkitCore's `ParameterManifold` — jointly with one pose per
+view (`LeftRigidManifold6`) against the reprojection error of 3D → 2D
+correspondences, from a guess of both: the bundle of a calibration with a known
+target, for any lens the camera's family holds (a fisheye's rays past 90° are
+ordinary data). `free = ()` holds the camera and refines the poses alone.
+
+```@docs
+refine_camera_and_poses
+CameraPosesRefineMetadata
+```
+
 ## Lens fitting
 
 ```@docs

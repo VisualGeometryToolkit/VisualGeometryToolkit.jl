@@ -268,7 +268,7 @@ model's parameter Jacobian of its action on `x` through the chart: the lens's
 option `parameter_bounds` leaves out (a prior range such as a focal length
 between 0.1 and 50, not a model fact): a `NamedTuple` of `(lo, hi)` intervals
 keyed by [`parameter_names`](@ref), a name not listed unboxed. The box is
-intersected with the domain and acts at the step: [`recenter`](@ref)
+intersected with the domain and acts at the step: `recenter`
 clamps the stepped free parameters into it (a coordinate [`restrict`](@ref)
 holds fixed is never clamped), so an NLLSsolver variable on the
 manifold (or a [`restrict`](@ref)ion of it) never leaves it; `retract` is the

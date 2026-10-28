@@ -31,7 +31,11 @@
 # GENERALIZED (non-central) cameras: an `origins` column gives each ray's
 # origin o in the camera frame (a non-central model's per-pixel line, e.g.
 # VGC's `NoncentralGenericModel`); the predicted ray is then from o to the
-# point. Without the column every origin is the camera centre.
+# point. Without the column every origin is the camera centre. The pixel
+# whitening then holds o fixed: (BᵀM)⁻¹ maps the ray DIRECTION's error to
+# pixels and ignores ∂o/∂u, the origin's motion with the pixel, so for a
+# non-central camera the "pixel" residual is first order in the direction
+# only (an origin Jacobian column is a later extension).
 #
 # THE CHART is VGC's `LeftRigidManifold6` on the extrinsics,
 # (R, t) ← (exp(δω)·R, exp(δω)·t + δt), the perturbation the stack's pose
@@ -122,7 +126,11 @@ Optional attribute COLUMNS of `cs` (a `Csponds`, `withattrs(cs; …)`):
 - `M` — each bearing's back-projection Jacobian (3 × 2, from
   `backproject_with_jacobian(camera, u)`), which must be tangent (`fᵀM = 0`,
   checked): each residual is whitened into PIXELS, `(BᵀM)⁻¹·r`. Absent, the
-  residuals are in radians.
+  residuals are in radians. With `origins` (a generalized camera) the
+  whitening is an approximation: it maps the ray direction's error and holds
+  each origin fixed, ignoring how the origin moves with the pixel
+  (`∂o/∂u`), so the residual is a pixel residual to first order in the
+  direction only.
 - `weights` — fixed per-correspondence weights (finite, non-negative).
 
 `max_iter` caps the LM's accepted iterations. `retcode` is the chart LM's

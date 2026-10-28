@@ -127,7 +127,11 @@ against near-fold curvature or unlit extrapolation. The bridge from the
 parametric zoo into the generic family.
 
 The grid may be any matrix of `Vec3{T}` (a device array inside a kernel,
-through `Adapt`); `T` is the float type of the controls.
+through `Adapt`); `T` is the float type of the controls. `Adapt` carries the
+`domain` to the device only when it is an isbits region; any other (a mask,
+a region holding arrays) is replaced by `WholePlane()` on the device copy —
+the domain is a host-side bookkeeping region (node supports, `imaged_region`),
+which no device evaluation reads.
 """
 struct CentralGenericModel{T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, I, D} <: AbstractCamera
     width::Int

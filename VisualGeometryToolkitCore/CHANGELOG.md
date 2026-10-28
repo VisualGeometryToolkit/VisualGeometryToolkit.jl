@@ -31,3 +31,7 @@ introduced them did not state them all.
   `restrict` holds fixed never drifts across recenters. Before, a fixed
   coordinate under a log or logit chart moved by an ulp on each recenter:
   `ξ = 0.1` became `0.10000000000000009`.
+- **`Adapt.adapt` of a generic grid model replaces a domain that is not isbits
+  with `WholePlane()` on the device copy.** An isbits domain, such as an
+  ellipse or a rectangle, travels with the model. The domain is host-side
+  bookkeeping that no device evaluation reads.

@@ -16,6 +16,22 @@ using Artifacts: load_artifacts_toml
     # Every julia block of the README runs as written.
     include("readme_tests.jl")
 
+    @testset "the library unavailable: the package loads, the first call that needs it says why" begin
+        lib = PoseLib.libposelib_jl
+        @test PoseLib.is_available() && Base.ispublic(PoseLib, :is_available)
+        try
+            PoseLib._bind_library!(nothing)            # what __init__ does on a platform without binaries
+            @test !PoseLib.is_available()
+            rays = [Vec3(normalize([0.1i, -0.2, 1.0])) for i in 1:3]
+            X = [Point3(1.0, 0.5, 5.0), Point3(-0.5, 1.0, 4.0), Point3(0.0, -0.5, 6.0)]
+            e = try VgtkCore.p3p(PoseLibSolver(), rays, X); nothing catch e; e end
+            @test e isa ErrorException && occursin("not available on this platform", e.msg) && occursin("PoseLib_jll", e.msg)
+        finally
+            PoseLib._bind_library!(lib)
+        end
+        @test PoseLib.is_available()
+    end
+
     @testset "smoke" begin
         # Identity pose with 3 known 3D points → P3P should recover it.
         X = [Point3(1.0, 0.5, 5.0), Point3(-0.5, 1.0, 4.0), Point3(0.0, -0.5, 6.0)]

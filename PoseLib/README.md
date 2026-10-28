@@ -32,8 +32,9 @@ Pkg.add(["PoseLib", "VisualGeometryToolkitCore"])
 
 PoseLib.jl requires Julia 1.12 or later. The C++ library is downloaded
 prebuilt when the package is installed, so no compiler is needed. For now the
-binaries cover Linux only. On macOS and Windows the package installs but
-refuses to load; see
+binaries cover Linux only. On macOS and Windows the package installs and
+loads, `PoseLib.is_available()` is `false` and the first solver call raises an
+error; see
 [Platforms and binaries](https://visualgeometrytoolkit.github.io/PoseLib/dev/guide/binaries/).
 
 ## Quick start

@@ -42,20 +42,45 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
 
 # Every `ccall` goes to `libposelib_jl`, the library in this package's `PoseLib`
 # artifact, resolved at load time so a relocated depot or an `Overrides.toml`
-# entry (docs: Developer notes) is honoured; nothing here
-# probes. The artifact is Linux-only until the `PoseLib_jll` release (docs:
-# "Platforms and binaries"); elsewhere loading stops here, with that reason.
+# entry (docs: Developer notes) is honoured; nothing here probes. The artifact
+# is Linux-only until the `PoseLib_jll` release (docs: "Platforms and
+# binaries"). Elsewhere the package still loads — so does everything that
+# depends on it — and [`is_available`](@ref) is false: the first call that
+# needs the library raises the reason (`_require_library`).
 libposelib_jl::String = ""
+const _UNAVAILABLE = "PoseLib.jl ships binaries for Linux only until the PoseLib_jll release, so the PoseLib library is not available on this platform; see https://visualgeometrytoolkit.github.io/PoseLib/stable/guide/binaries/"
 
 function __init__()
     @static if Sys.islinux()
-        global libposelib_jl = joinpath(artifact"PoseLib", "lib", "libposelib_jl.$(dlext)")
-        dlopen(libposelib_jl)
+        _bind_library!(joinpath(artifact"PoseLib", "lib", "libposelib_jl.$(dlext)"))
     else
-        error("PoseLib.jl ships binaries for Linux only until the PoseLib_jll release; see https://visualgeometrytoolkit.github.io/PoseLib/stable/guide/binaries/")
+        _bind_library!(nothing)
     end
     return nothing
 end
+
+# Bind the library at `path` (opened now), or mark it unavailable (`nothing`):
+# what `__init__` does per platform, and the switch the suite marks the library
+# unavailable with.
+function _bind_library!(path::Union{Nothing, AbstractString})
+    path === nothing || dlopen(path)
+    global libposelib_jl = path === nothing ? "" : String(path)
+    return nothing
+end
+
+"""
+    is_available() -> Bool
+
+Whether the PoseLib library is loaded on this platform (the package's
+binaries are Linux-only until the PoseLib_jll release). Without it, every
+function that calls into the library raises an error stating why; the
+package itself loads everywhere.
+"""
+is_available() = !isempty(libposelib_jl)
+
+# The guard before every `ccall`: the library, or the reason it is missing.
+@inline _require_library() = (is_available() || _library_unavailable(); nothing)
+@noinline _library_unavailable() = error(_UNAVAILABLE)
 
 # -----------------------------------------------------------------------------
 # Helpers
@@ -150,6 +175,7 @@ function VgtkCore.homography_4pt(::PoseLibSolver,
     p1 = _pack_points3(x1)
     p2 = _pack_points3(x2)
     H_buf = Ref(ntuple(_ -> 0.0, Val(9)))
+    _require_library()
     n = ccall((:poselib_homography_4pt, libposelib_jl), Cint,
               (Ref{NTuple{12,Float64}}, Ref{NTuple{12,Float64}},
                Ref{NTuple{9,Float64}}, Cint),
@@ -183,6 +209,7 @@ function VgtkCore.fundamental_7pt(::PoseLibSolver, cs, idx::AbstractVector{<:Int
     p1 = _pack_points3(x1)
     p2 = _pack_points3(x2)
     F_buf = MVector{27, Float64}(undef)
+    _require_library()
     n = ccall((:poselib_relpose_7pt, libposelib_jl), Cint,
               (Ref{NTuple{21,Float64}}, Ref{NTuple{21,Float64}},
                Ptr{Float64}, Cint),
@@ -204,6 +231,7 @@ function VgtkCore.p3p(::PoseLibSolver,
     px = _pack_points3((Vec3{Float64}(x[1]),   Vec3{Float64}(x[2]),   Vec3{Float64}(x[3])))
     pX = _pack_points3((Point3{Float64}(X[1]), Point3{Float64}(X[2]), Point3{Float64}(X[3])))
     pose_buf = MVector{48, Float64}(undef)
+    _require_library()
     n = ccall((:poselib_p3p, libposelib_jl), Cint,
               (Ref{NTuple{9,Float64}}, Ref{NTuple{9,Float64}},
                Ptr{Float64}, Cint),
@@ -258,6 +286,7 @@ function VgtkCore.essential_5pt(::PoseLibSolver, x1::_Bearings5, x2::_Bearings5)
     bufs.p1[] = _pack_points3(Tuple(x1))
     bufs.p2[] = _pack_points3(Tuple(x2))
     E_buf = bufs.E
+    _require_library()
     n = ccall((:poselib_relpose_5pt, libposelib_jl), Cint,
               (Ref{NTuple{15,Float64}}, Ref{NTuple{15,Float64}},
                Ptr{Float64}, Cint),
@@ -308,6 +337,7 @@ function VgtkCore.essential_dlt(::PoseLibSolver,
     @assert n >= 8
     buf1, buf2 = _pack(cs)
     E_buf = MVector{9, Float64}(undef)
+    _require_library()
     ccall((:poselib_essential_8pt, libposelib_jl), Cint,
           (Ptr{Float64}, Ptr{Float64}, Cint, Ptr{Float64}),
           buf1, buf2, n, pointer(E_buf))
@@ -323,6 +353,7 @@ end
 # =============================================================================
 
 export refine_relpose
+public is_available
 export LeZachTruncation
 
 # Relative-pose currency: a cam1→cam2 motion is NOT a world-to-camera
@@ -519,6 +550,7 @@ function refine_relpose(pose::Rigid3, K1::AbstractMatrix, K2::AbstractMatrix,
     cam1 = Float64[(K1[1,1] + K1[2,2]) / 2, K1[1,3], K1[2,3]]   # focal, cx, cy
     cam2 = Float64[(K2[1,1] + K2[2,2]) / 2, K2[1,3], K2[2,3]]
     R_out = MVector{9, Float64}(undef); t_out = MVector{3, Float64}(undef)
+    _require_library()
     ccall((:poselib_refine_relpose_cam, libposelib_jl), Cint,
           (Ptr{Float64}, Ptr{Float64}, Cint, Ptr{Float64}, Ptr{Float64},
            Ptr{Float64}, Ptr{Float64}, Float64, Cint, Cint, Ptr{Float64}, Ptr{Float64}),
@@ -589,6 +621,7 @@ function refine_relpose(pose::Rigid3,
     end
     tin = Float64[t0[1], t0[2], t0[3]]
     R_out = MVector{9, Float64}(undef); t_out = MVector{3, Float64}(undef)
+    _require_library()
     ccall((:poselib_refine_relpose_bearing, libposelib_jl), Cint,
           (Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Cint,
            Ptr{Float64}, Ptr{Float64},
@@ -630,6 +663,7 @@ function refine_fundamental(F::AbstractMatrix,
         Fin[3(j-1)+i] = F[i, j]                # column-major (Eigen layout)
     end
     F_out = MVector{9, Float64}(undef)
+    _require_library()
     ccall((:poselib_refine_fundamental, libposelib_jl), Cint,
           (Ptr{Float64}, Ptr{Float64}, Cint, Ptr{Float64},
            Float64, Cint, Cint, Ptr{Float64}),
@@ -711,6 +745,7 @@ function refine_absolute_pose(pose::Rigid3, K::AbstractMatrix,
     tin = Float64[t0[1], t0[2], t0[3]]
     cam = Float64[(K[1,1] + K[2,2]) / 2, K[1,3], K[2,3]]        # focal, cx, cy
     R_out = MVector{9, Float64}(undef); t_out = MVector{3, Float64}(undef)
+    _require_library()
     ccall((:poselib_bundle_adjust_cam, libposelib_jl), Cint,
           (Ptr{Float64}, Ptr{Float64}, Cint, Ptr{Float64}, Ptr{Float64},
            Ptr{Float64}, Float64, Cint, Cint, Ptr{Float64}, Ptr{Float64}),
@@ -815,6 +850,7 @@ function refine_homography(H::AbstractMatrix,
         Hin[3(j-1)+i] = H[i, j]                # column-major (Eigen layout)
     end
     H_out = MVector{9, Float64}(undef)
+    _require_library()
     ccall((:poselib_refine_homography, libposelib_jl), Cint,
           (Ptr{Float64}, Ptr{Float64}, Cint, Ptr{Float64},
            Float64, Cint, Cint, Ptr{Float64}),

@@ -14,8 +14,9 @@ For now the artifact covers Linux only:
 - x86_64, aarch64, i686, armv6l and armv7l, with glibc or musl;
 - powerpc64le and riscv64, with glibc.
 
-On macOS and Windows the package installs but refuses to load, with an error
-that points to this page.
+On macOS and Windows the package installs and loads — so does every package
+that depends on it — but `PoseLib.is_available()` is `false`, and the first
+call that needs the library raises an error that points to this page.
 
 The binaries are built with
 [BinaryBuilder](https://github.com/JuliaPackaging/BinaryBuilder.jl), the

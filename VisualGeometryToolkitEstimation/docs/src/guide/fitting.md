@@ -6,7 +6,7 @@ problem, wire up scoring and local optimization, and return a
 kept for fits that are not a RANSAC search — iterative, reweighted or
 repeated (`fit_division_camera` and its model-block update `division_camera_step`,
 `fit_radial_camera`, `fit_lens`, `fit_robot_world_hand_eye`, `fit_line`,
-`fit_rotation`) — and
+`fit_rotation`, `fit_linear`) — and
 `refine_*` for polishing a given model (`refine_robot_world_hand_eye`,
 `refine_absolute_pose`, `refine_camera_and_poses`). One-step
 algebraic algorithms keep their algorithm's name and live in

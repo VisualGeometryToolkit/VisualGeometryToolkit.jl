@@ -250,6 +250,7 @@ export refine_ellipse         # the orthogonal-distance ellipse from a start val
 export refine_absolute_pose   # a camera pose from points and their unit bearings (central or generalized; any field of view)
 export refine_camera_and_poses   # a camera (intrinsics + lens) and one pose per view from 3D → 2D correspondences
 export fit_rotation           # the robust rotation between two sets of directions
+export fit_linear             # the robust coefficients of a linear model (reweighted least squares)
 export fit_radial_camera, fit_lens, DivisionCameraError   # moved from VisualGeometryToolkitCore (estimator taxonomy v2)
 
 # -----------------------------------------------------------------------------
@@ -314,7 +315,7 @@ public lo_loss, strategy_loss, plain_scale_multiple, deployed_shape, lo_width_va
 public division_camera_step, DivisionCameraState, division_coeffs, board_sq_residuals,
     RadialLift, LensFitMetadata
 public bundle_refine_relpose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
-public EllipseFitMetadata, AbsolutePoseRefineMetadata, RotationFitMetadata, CameraPosesRefineMetadata
+public EllipseFitMetadata, AbsolutePoseRefineMetadata, RotationFitMetadata, LinearFitMetadata, CameraPosesRefineMetadata
 # Configuration: configs/default.toml is the config of record; these select a
 # strategy by tag and write a config value back as a table.
 public default_config_path, local_optimization_from_toml, lo_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS,
@@ -391,6 +392,7 @@ include("fitting/refine_robot_world_hand_eye.jl")   # reprojection refinement of
 include("fitting/refine_absolute_pose.jl")   # the bearing (tangent-plane) pose refinement, central and generalized (chart LM)
 include("fitting/refine_camera_and_poses.jl")   # a camera and one pose per view from 3D → 2D correspondences (NLLSsolver on VGC's parameter and pose charts)
 include("fitting/fit_rotation.jl")           # the robust rotation between direction pairs (reweighted Kabsch)
+include("fitting/fit_linear.jl")             # the robust coefficients of a linear model (reweighted least squares)
 include("fitting/residual_mixture.jl")     # fit_residual_mixture: a held model's residuals → mixture EM → MAP labels
 # TOML loaders, the strategy-tag registry and the writer — dispatches on every
 # config-carrying type, so it is included last.

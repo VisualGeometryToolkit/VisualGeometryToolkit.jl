@@ -2,6 +2,14 @@
 
 ## 0.2.0 (unreleased)
 
+### Added
+
+- **`fit_linear(A, y[, prior])`**, the robust coefficients of a linear model:
+  a reweighted least squares under a loss shape (default Huber at its
+  efficiency constant 1.345) at the residuals' MAD scale, with fixed prior row
+  weights; `configs/default.toml` `[fit_linear]`. Hoisted from
+  RadiometricCamera's rooftop vignetting fit.
+
 ### Known limits
 
 - **`refine_absolute_pose` whitens a generalized camera's residuals only

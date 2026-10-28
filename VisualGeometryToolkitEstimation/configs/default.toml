@@ -101,6 +101,13 @@ xtol = 1.0e-12
 loss     = "huber"               # a LOSS_TAGS tag
 max_iter = 50                    # reweight-and-solve iterations at most
 tol      = 1.0e-12               # rad: converged when an iteration moves the rotation by less
+[fit_linear]
+# The reweighted least squares of `fit_linear`. The loss's width follows the
+# robust (MAD) scale of the residuals at every iteration (`scale_multiple` × σ̂,
+# the shape's efficiency constant at codimension 1 unless a caller gives one).
+loss     = "huber"               # a LOSS_TAGS tag
+max_iter = 50                    # reweight-and-solve iterations at most
+tol      = 1.0e-12               # converged when an iteration moves x by less (max-norm, relative to max(1, ‖x‖∞))
 [chart_lm]
 # The LO refit every chart problem runs (`refine!` → VGC's `lmsolve_chart!`,
 # NLLSsolver's Levenberg–Marquardt with Marquardt's DᵀD damping; VGC

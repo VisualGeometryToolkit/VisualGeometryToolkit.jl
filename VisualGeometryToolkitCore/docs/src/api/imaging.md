@@ -33,7 +33,10 @@ A standard layout is a constructor: Kalibr's AprilGrid is
 `AprilGrid(; tag_rows, tag_cols, tag_size, tag_spacing)` (lengths, the spacing
 the gap between two tags), `PlanarTarget(grid; board, canvas)` its tag
 corners in Kalibr's point order and frame, and `point_index(grid, tag, corner)`
-the point of a detected corner.
+the point of a detected corner. Schöps et al.'s tagged star pattern is
+`SchoepsPattern(; squares_x, squares_y, square_length, apriltags)`, and
+`PlanarTarget(pattern; board, canvas)` its star features in Schöps' feature
+order (feature id `k` is point `k + 1`).
 
 ### Target calibration
 

@@ -315,6 +315,74 @@ function PlanarTarget(grid::AprilGrid; board = nothing, canvas = nothing)
 end
 
 """
+    SchoepsPattern(; squares_x, squares_y, square_length, apriltags)
+
+The layout of a tagged star pattern of Schöps et al.'s camera_calibration
+(their `create_calibration_pattern.py`; the pattern YAML's `squares_x`,
+`squares_y`, `square_length_in_meters` and `apriltags`): a `squares_x ×
+squares_y` grid of squares of side `square_length` — a length (`8mm`) or a
+plain number — with a star feature at every inner corner, and AprilTags, each
+covering `width × height` squares from square `(x, y)` (the YAML's `tag_x`,
+`tag_y`, `width`, `height`: 0-based squares, x to the right and y DOWN as the
+pattern is printed). `apriltags` is a collection of `(; x, y, width, height)`
+(other fields, such as the tag's `index`, are not read); each tag lies on the
+pattern.
+
+`PlanarTarget(pattern; board = nothing, canvas = nothing)` is the target of
+its star features in Schöps' feature order
+(`FeatureDetectorTaggedPattern::GetCorners`): the inner corners `(gx, gy)`,
+`gx ∈ 0:squares_x − 2`, `gy ∈ 0:squares_y − 2`, row by row (`gy` outer), the
+corners next to a tag left out (`IsValidFeatureCoord`: `x − 1 ≤ gx ≤ x − 1 +
+width` and `y − 1 ≤ gy ≤ y − 1 + height` for some tag), so feature id `k`
+(0-based, Schöps' and a `dataset.bin`'s) is point `k + 1`, at
+
+    square_length · (gx + 1, squares_y − 1 − gy)
+
+— the design chart (`TargetFrame`): the pattern's lower-left corner at the
+origin, x right and y up as the print is seen from the front. Schöps' own
+geometry (`KnownGeometry`: `cell_length_in_meters · (gx, gy, 0)`, y down) is the
+same points under a half turn about x and a shift of one square, a rigid
+motion the pose absorbs. The points are in the layout's form (lengths, stored
+in metres, or plain numbers); a `board` or `canvas` is in that form too, and a
+page whose lower-left corner is not the pattern's says so by its origin
+(`Canvas(size, origin)`).
+"""
+struct SchoepsPattern{T <: Number}
+    squares_x::Int
+    squares_y::Int
+    square_length::T
+    apriltags::Vector{NTuple{4, Int}}   # (x, y, width, height) in squares
+    function SchoepsPattern{T}(squares_x::Integer, squares_y::Integer, square_length::T, apriltags::Vector{NTuple{4, Int}}) where {T <: Number}
+        (squares_x >= 2 && squares_y >= 2) ||
+            throw(ArgumentError("SchoepsPattern: $(squares_x) × $(squares_y) squares; a pattern has an inner corner, at least 2 × 2"))
+        zero(square_length) < square_length || throw(ArgumentError("SchoepsPattern: the square length is $(square_length), not positive"))
+        for (x, y, w, h) in apriltags
+            (w >= 1 && h >= 1 && x >= 0 && y >= 0 && x + w <= squares_x && y + h <= squares_y) || throw(
+                ArgumentError("SchoepsPattern: a $(w) × $(h) tag at square ($(x), $(y)) does not lie on the $(squares_x) × $(squares_y) pattern")
+            )
+        end
+        return new{T}(Int(squares_x), Int(squares_y), square_length, apriltags)
+    end
+end
+function SchoepsPattern(; squares_x::Integer, squares_y::Integer, square_length::Number, apriltags)
+    if square_length isa Quantity
+        dimension(square_length) == dimension(mm) || throw(ArgumentError("SchoepsPattern: the square length is a length; got $(square_length)"))
+    end
+    s = square_length isa Quantity ? ubase(square_length) : float(square_length)
+    tags = NTuple{4, Int}[(Int(t.x), Int(t.y), Int(t.width), Int(t.height)) for t in apriltags]
+    return SchoepsPattern{typeof(s)}(squares_x, squares_y, s, tags)
+end
+
+# Schöps' IsValidFeatureCoord: an inner corner not next to a tag.
+_schoeps_feature(p::SchoepsPattern, gx, gy) = !any(((x, y, w, h),) -> x - 1 <= gx <= x - 1 + w && y - 1 <= gy <= y - 1 + h, p.apriltags)
+
+function PlanarTarget(p::SchoepsPattern; board = nothing, canvas = nothing)
+    s = p.square_length
+    nominal = [SVector((gx + 1) * s, (p.squares_y - 1 - gy) * s) for gy in 0:(p.squares_y - 2) for gx in 0:(p.squares_x - 2) if _schoeps_feature(p, gx, gy)]
+    return PlanarTarget(nothing, nominal, Rigid(), board, canvas)
+end
+
+"""
     calibration(t::PlanarTarget) -> TargetCalibration or Uncertain
 
 The target's calibration as stored: a [`TargetCalibration`](@ref), or an

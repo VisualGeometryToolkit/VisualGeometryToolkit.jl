@@ -40,9 +40,9 @@
 # carries that camera's pinhole, `nominal_intrinsics`, and its imaged region,
 # `domain` — an `Ellipse` (an image circle) or the whole plane. Neither is
 # derivable from the grid, so both are stored when present (the same five
-# numbers as a camera's `intrinsics`; the ellipse's centre, semi-axes and
-# angle), and read back bit for bit; a domain of any other region type is
-# refused by the writer. Schöps' YAML carries neither: its models read with
+# numbers as a camera's `intrinsics`, focal lengths positive; the ellipse's
+# centre, semi-axes — positive, the major first — and angle), and read back bit
+# for bit; a domain of any other region type is refused by the writer. Schöps' YAML carries neither: its models read with
 # none and the whole plane.
 
 const _GRID = _Vec(_XYZ)
@@ -69,6 +69,19 @@ function _generic_check(x)
         return "direction_grid has $(length(x[:direction_grid])) entries, expected grid_width × grid_height = $(n)"
     (noncentral && length(x[:point_grid]) != n) &&
         return "point_grid has $(length(x[:point_grid])) entries, expected grid_width × grid_height = $(n)"
+    # the domain ellipse as Core's `Ellipse` holds it — semi-axes positive, the
+    # major first — so it reads back as the numbers the file holds; the nominal
+    # pinhole's focal lengths positive (K maps the image the right way up, K⁻¹
+    # is finite)
+    if haskey(x, :domain)
+        e = x[:domain][:ellipse]
+        (e[3] > 0 && e[4] > 0) || return "the domain ellipse's semi-axes are positive; got a = $(e[3]), b = $(e[4])"
+        e[3] >= e[4] || return "the domain ellipse is stored major semi-axis first (a ≥ b, θ the angle of a); got a = $(e[3]) < b = $(e[4])"
+    end
+    if haskey(x, :nominal_intrinsics)
+        v = x[:nominal_intrinsics]
+        (v[1] > 0 && v[2] > 0) || return "nominal_intrinsics' focal lengths fx, fy are positive; got fx = $(v[1]), fy = $(v[2])"
+    end
     return nothing
 end
 

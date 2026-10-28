@@ -35,6 +35,21 @@
         @test !occursin("nominal_intrinsics", read(pb, String)) && !occursin("domain", read(pb, String))
         bb = load(CentralGenericModel, pb)
         @test nominal_intrinsics(bb) === nothing && bb.domain === WholePlane()
+        # malformed values are refused by the reader (they would not read back as the file's numbers, or give an
+        # infinite K⁻¹): an ellipse stored minor axis first, a semi-axis ≤ 0, a focal length 0; the valid file re-saves
+        # bit for bit
+        text = read(p, String)
+        for (desc, f!) in (
+                "a < b" => t -> (t[:domain][:ellipse][3] = t[:domain][:ellipse][4] / 2),
+                "b ≤ 0" => t -> (t[:domain][:ellipse][4] = 0.0),
+                "fx = 0" => t -> (t[:nominal_intrinsics][1] = 0.0),
+            )
+            t = parse_json(text); f!(t)
+            bad = joinpath(dir, "bad.json"); write(bad, JSON.json(t))
+            @test_throws ArgumentError load(CentralGenericModel, bad)
+        end
+        p2 = joinpath(dir, "g2.json"); save(p2, back)
+        @test read(p2, String) == text
         # a domain of another region type is refused by the writer
         odd = CentralGenericModel(64, 48, 0, 0, 63, 47, gc.grid; unit_controls = false, domain = Rect2{Float64}(0, 0, 64, 48) ∩ gc.domain)
         @test_throws ArgumentError save(joinpath(dir, "odd.json"), odd)

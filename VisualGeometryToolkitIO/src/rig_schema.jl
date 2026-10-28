@@ -652,7 +652,9 @@ The identity tree, fixed (a test pins it for a rig of every target kind):
                 "extent": [width, height] (px), "lens": VGC's lens_record of the lens}
              | {"grid_model": "central" | "noncentral", "extent": [width, height],
                 "calibrated_area": [min_x, min_y, max_x, max_y], "grid": [width, height],
-                "directions": row-major [[x, y, z], …], "points": row-major [[m, m, m], …] (non-central)}
+                "directions": row-major [[x, y, z], …], "points": row-major [[m, m, m], …] (non-central),
+                "nominal_intrinsics": [fx, fy, cx, cy, skew] (px)               (iff the model has one),
+                "domain": {"ellipse": [cx, cy, a, b, θ]} (px, a ≥ b, rad)       (iff not the whole plane)}
     target     {"kind": "points", "points": [[m, …], …], "point_covariances": per point d×d rows, m² (iff Uncertain)}
              | {"kind": "planar", "reference": <id> | "nominal": [[m, m], …], "calibration": <calibration>,
                 "board": {"size": [width, height] (m), "origin": [m, m]}  (iff the target has a board),
@@ -746,8 +748,18 @@ _id_grid_model(gm::NoncentralGenericModel) = merge(
     _Id("grid_model" => "noncentral", "directions" => _id_grid(gm.directions), "points" => _id_grid_metres(gm.points)),   # plain metres
     _id_grid_extras(gm),
 )
-# the nominal pinhole and the domain iff the model has them: the writer's own leaves
-_id_grid_extras(gm) = _Id((String(k) => _lower(v) for (k, v) in pairs(_generic_extras(gm)))...)
+# the nominal pinhole and the domain iff the model has them, under the
+# identity's own names (fixed: a writer key renamed does not re-id a rig)
+function _id_grid_extras(gm)
+    d = _Id()
+    n = nominal_intrinsics(gm)
+    n === nothing || (K = n.K; d["nominal_intrinsics"] = Any[Float64(K[1, 1]), Float64(K[2, 2]), Float64(K[1, 3]), Float64(K[2, 3]), Float64(K[1, 2])])
+    e = gm.domain
+    e isa WholePlane || (e isa Ellipse ?
+        (d["domain"] = _Id("ellipse" => Any[Float64(e.center[1]), Float64(e.center[2]), Float64(e.a), Float64(e.b), Float64(e.θ)])) :
+        throw(ArgumentError("content_id: a generic model's domain is an Ellipse or the whole plane; got a $(nameof(typeof(e)))")))
+    return d
+end
 
 _lower(x::NamedTuple) = Dict{String, Any}(String(k) => _lower(v) for (k, v) in pairs(x))
 _lower(x::AbstractDict) = Dict{String, Any}(String(k) => _lower(v) for (k, v) in x)

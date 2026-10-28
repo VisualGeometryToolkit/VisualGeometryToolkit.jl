@@ -266,6 +266,23 @@ end
     e = only(x for x in t["targets"] if x["id"] == "e_chain")
     @test e["target"]["kind"] == "planar" && e["target"]["calibration"]["kind"] == "calibration_chain" &&
         haskey(e["target"]["calibration"], "covariance") && [x["kind"] for x in e["target"]["calibration"]["members"]] == ["affine", "thin_plate_spline", "height_field"]
+    # a generic sensor with a nominal pinhole and a domain: both enter under the identity's own names
+    using VisualGeometryToolkitCore: PosedCamera, ViewFrame, relabel, CentralGenericModel, NoncentralGenericModel, KannalaBrandt,
+        EuclideanMap, Vec3, CameraModel, Ellipse
+    using Rotations: RotXYZ
+    src = CameraModel(; focal = 31.7, pp = (32.25, 23.875), lens = KannalaBrandt(-4 / (3π^2)))
+    gc = CentralGenericModel(src, (64, 48); grid_size = (8, 7), init = :quasi_interpolate)
+    P = [Vec3{Float64}(1e-3 * gx, -2e-3 * gy, 0.0) for gy in 1:7, gx in 1:8]
+    nc = NoncentralGenericModel(64, 48, 0, 0, 63, 47, gc.grid, P; unit_controls = false, gc.nominal, gc.domain)
+    Xl = relabel(ViewFrame{:g}, ViewFrame{:g}, EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.0, 0.0, 0.0)), [0.0mm, 0.0mm, 0.0mm]))
+    grig = Rig{ViewFrame{:g}}((PosedCamera(gc, Xl),))
+    @test content_id(grig) == "dbbdd3f0f0d26b39fa6aaa377e062b33a4d4545fcefa1e0f3c04adf004599426"
+    @test content_id(Rig{ViewFrame{:g}}((PosedCamera(nc, Xl),))) == "5349a44b940aa6ac1937013f31d794bfcfa926a4eec95dc3a22887b82d9c4773"
+    cam = only(VgtkIO._identity_tree(grig)["sensors"])["camera"]
+    K, ell = VisualGeometryToolkitCore.nominal_intrinsics(gc).K, gc.domain
+    @test cam["nominal_intrinsics"] == [K[1, 1], K[2, 2], K[1, 3], K[2, 3], K[1, 2]]
+    @test cam["domain"] == Dict("ellipse" => [ell.center[1], ell.center[2], ell.a, ell.b, ell.θ])
+    @test sort!(collect(keys(cam))) == ["calibrated_area", "directions", "domain", "extent", "grid", "grid_model", "nominal_intrinsics"]
 end
 
 @testitem "target/v2: a planar target's board — present and absent" setup = [VGIoFixtures, TargetRecordFixtures] begin

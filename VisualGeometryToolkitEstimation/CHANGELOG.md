@@ -4,6 +4,11 @@
 
 ### Added
 
+- **`fit_rotation_averaging(relative[, prior])`**, robust rotation averaging on
+  a view graph: VisualGeometryToolkitCore's `spectral_rotation_averaging` seed,
+  then the Lie-algebra IRLS of Chatterjee & Govindu over every edge (a sparse
+  linear solve per iteration, a stack loss shape at the χ²₃-median scale);
+  `[fit_rotation_averaging]`.
 - **`RotationProblem` and `find_rotation`**: the pure rotation between two
   calibrated views (the infinite homography) by RANSAC on unit bearings with
   their back-projection Jacobians — VisualGeometryToolkitCore's `Rotation2pt`,

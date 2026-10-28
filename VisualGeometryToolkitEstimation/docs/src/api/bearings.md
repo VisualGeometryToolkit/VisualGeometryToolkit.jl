@@ -34,3 +34,13 @@ loss shape at a width that follows the robust scale of the residual angles.
 fit_rotation
 RotationFitMetadata
 ```
+
+`fit_rotation_averaging` is the absolute rotations of a set of frames from the
+relative rotations of a view graph, some of them wrong: VisualGeometryToolkitCore's
+spectral seed, then a reweighted first-order Lie-algebra least squares over
+every edge (Chatterjee & Govindu), each a sparse linear solve.
+
+```@docs
+fit_rotation_averaging
+RotationAveragingMetadata
+```

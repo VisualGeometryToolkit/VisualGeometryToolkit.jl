@@ -220,7 +220,7 @@ using ForwardDiff: ForwardDiff
 import NLLSsolver   # the block-structured LMs (the relpose bundle, refine_robot_world_hand_eye): qualified NLLSProblem/optimize! and its residual protocol
 using VisualGeometryToolkitCore: nlls_retcode   # NLLSsolver's termination bits + the stall postcondition, as a retcode
 using VisualGeometryToolkitCore: nlls_options, nlls_features   # the stack's one LM knob map; the fork's additions, detected
-using SparseArrays: sparse   # the relpose bundle's stacked Jacobian (its stall postcondition)
+using SparseArrays: sparse   # the relpose bundle's stacked Jacobian (its stall postcondition); the rotation averaging's update
 
 
 # =============================================================================
@@ -251,6 +251,7 @@ export refine_absolute_pose   # a camera pose from points and their unit bearing
 export refine_camera_and_poses   # a camera (intrinsics + lens) and one pose per view from 3D → 2D correspondences
 export fit_rotation           # the robust rotation between two sets of directions
 export fit_linear             # the robust coefficients of a linear model (reweighted least squares)
+export fit_rotation_averaging # robust rotation averaging on a view graph (spectral seed, Lie-algebra IRLS)
 export fit_radial_camera, fit_lens, DivisionCameraError   # moved from VisualGeometryToolkitCore (estimator taxonomy v2)
 
 # -----------------------------------------------------------------------------
@@ -315,7 +316,7 @@ public lo_loss, strategy_loss, plain_scale_multiple, deployed_shape, lo_width_va
 public division_camera_step, DivisionCameraState, division_coeffs, board_sq_residuals,
     RadialLift, LensFitMetadata
 public bundle_refine_relpose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
-public EllipseFitMetadata, AbsolutePoseRefineMetadata, RotationFitMetadata, LinearFitMetadata, CameraPosesRefineMetadata
+public EllipseFitMetadata, AbsolutePoseRefineMetadata, RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata
 # Configuration: configs/default.toml is the config of record; these select a
 # strategy by tag and write a config value back as a table.
 public default_config_path, local_optimization_from_toml, lo_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS,
@@ -395,6 +396,7 @@ include("fitting/refine_absolute_pose.jl")   # the bearing (tangent-plane) pose 
 include("fitting/refine_camera_and_poses.jl")   # a camera and one pose per view from 3D → 2D correspondences (NLLSsolver on VGC's parameter and pose charts)
 include("fitting/fit_rotation.jl")           # the robust rotation between direction pairs (reweighted Kabsch)
 include("fitting/fit_linear.jl")             # the robust coefficients of a linear model (reweighted least squares)
+include("fitting/fit_rotation_averaging.jl") # robust rotation averaging on a view graph (spectral seed, Lie-algebra IRLS)
 include("fitting/residual_mixture.jl")     # fit_residual_mixture: a held model's residuals → mixture EM → MAP labels
 # TOML loaders, the strategy-tag registry and the writer — dispatches on every
 # config-carrying type, so it is included last.

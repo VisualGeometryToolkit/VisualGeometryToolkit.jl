@@ -11,7 +11,7 @@
 
     @testset "root ladder" begin
         dir = mktempdir()
-        withenv("CAU_DATA_ROOT" => nothing, "CAU_RESULTS_ROOT" => nothing) do
+        withenv("VGTK_DATA_ROOT" => nothing, "VGTK_RESULTS_ROOT" => nothing) do
             E.set_project_root!(dir)
             @test E.project_root() == dir
             @test_throws ErrorException E.data_root()
@@ -34,7 +34,7 @@
             # results: created only when the project asks
             E.set_project_root!(dir; create_results = true)
             @test E.results_root() == joinpath(dir, "data", "exp_pro") && isdir(E.results_root())
-            withenv("CAU_DATA_ROOT" => "/x/data", "CAU_RESULTS_ROOT" => "/x/res") do
+            withenv("VGTK_DATA_ROOT" => "/x/data", "VGTK_RESULTS_ROOT" => "/x/res") do
                 E.set_project_root!(dir)
                 @test E.data_root() == "/x/data" && E.results_root() == "/x/res"
             end
@@ -51,7 +51,7 @@
                        download_info = [("https://zenodo.org/records/1/files/tier_a.tar.gz", "0"^64)])
         bind_artifact!(toml, "tier_b", h2; lazy = true,
                        download_info = [("https://zenodo.org/records/ZENODO_RECORD_X/files/tier_b.tar.gz", "0"^64)])
-        withenv("CAU_DATA_ROOT" => nothing) do
+        withenv("VGTK_DATA_ROOT" => nothing) do
             E.set_project_root!(dir; artifacts = E.ArtifactView(toml; mount = n -> "sub", default = ["tier_a"]))
             root = E.data_root()
             @test root == joinpath(dir, "data", "exp_raw")              # the view IS the project's datadir("exp_raw")
@@ -75,7 +75,7 @@
 
     @testset "input write guard" begin
         data = mktempdir(); res = joinpath(data, "results", "proj"); mkpath(res)
-        withenv("CAU_DATA_ROOT" => data, "CAU_RESULTS_ROOT" => res) do
+        withenv("VGTK_DATA_ROOT" => data, "VGTK_RESULTS_ROOT" => res) do
             @test_throws ErrorException E.assert_not_input(joinpath(data, "pools", "new"))
             @test E.assert_not_input(joinpath(data, "pools", "new"); producer = true) === nothing
             @test E.assert_not_input(joinpath(res, "cell", "run")) === nothing        # results nested in the data root
@@ -85,7 +85,7 @@
             @test_throws ErrorException E.cached_result(_ -> Dict("a" => 1), "p", Dict("k" => 1), joinpath(data, "c"))
             @test !ispath(joinpath(data, "x")) && !ispath(joinpath(data, "c"))
         end
-        withenv("CAU_DATA_ROOT" => nothing) do
+        withenv("VGTK_DATA_ROOT" => nothing) do
             E.set_project_root!(mktempdir())
             @test E.assert_not_input(mktempdir()) === nothing                         # no data root bound: nothing to guard
             E.set_project_root!("")
@@ -95,7 +95,7 @@
     @testset "provenance record" begin
         repo = gitrepo()
         data = mktempdir(); res = mktempdir()
-        withenv("CAU_DATA_ROOT" => data, "CAU_RESULTS_ROOT" => res) do
+        withenv("VGTK_DATA_ROOT" => data, "VGTK_RESULTS_ROOT" => res) do
             E.set_project_root!(repo)
             out = joinpath(res, "cell", "run-abc")
             p = E.write_provenance(out, Dict("run_key" => "abc", "n_frames" => 3, "note" => nothing);

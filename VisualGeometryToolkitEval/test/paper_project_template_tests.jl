@@ -46,7 +46,7 @@
         include(joinpath($(repr(root)), "test", "runtests.jl"))
         """
     env = copy(ENV)
-    for k in ("CAU_DATA_ROOT", "CAU_RESULTS_ROOT", "JULIA_PROJECT")
+    for k in ("VGTK_DATA_ROOT", "VGTK_RESULTS_ROOT", "JULIA_PROJECT")
         delete!(env, k)
     end
     env["JULIA_PKG_OFFLINE"] = "true"

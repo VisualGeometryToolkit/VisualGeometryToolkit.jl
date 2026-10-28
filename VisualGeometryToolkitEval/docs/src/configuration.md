@@ -18,6 +18,20 @@ an edit takes effect after Julia restarts.
 Every random sample is seeded by [`stable_seed`](@ref) from a spec's seed and
 a name, such as a scene name. See [The experimental protocol](@ref).
 
+## Environment variables
+
+Two environment variables bind a paper project's data trees elsewhere than
+the project's own `data/` directory. Nothing else in the package reads the
+environment.
+
+| Variable | Binds | Otherwise |
+|---|---|---|
+| `VGTK_DATA_ROOT` | [`data_root`](@ref): the read-only input tree | the project's `data/exp_raw` (a link, a directory or the artifact view), then the project's fallback, then its [`ArtifactView`](@ref) |
+| `VGTK_RESULTS_ROOT` | [`results_root`](@ref): the add-only results tree, one directory per run key | the project's `data/exp_pro` |
+
+The prefix is the stack's shorthand (VisualGeometryToolkit). The names
+`CAU_DATA_ROOT` and `CAU_RESULTS_ROOT` of earlier versions are not read.
+
 ## Artifact formats
 
 Every persisted artifact carries a format stamp, the key `"<kind>_format"` in

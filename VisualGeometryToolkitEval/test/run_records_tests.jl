@@ -68,13 +68,13 @@
         dir = mktempdir()
         RR.set_project_root!(dir)
         @test RR.project_root() == dir
-        withenv("CAU_DATA_ROOT" => nothing, "CAU_RESULTS_ROOT" => nothing) do
+        withenv("VGTK_DATA_ROOT" => nothing, "VGTK_RESULTS_ROOT" => nothing) do
             @test_throws ErrorException RR.data_root()
             mkpath(joinpath(dir, "data", "exp_raw")); mkpath(joinpath(dir, "data", "exp_pro"))
             @test RR.data_root() == joinpath(dir, "data", "exp_raw")
             @test RR.results_root() == joinpath(dir, "data", "exp_pro")
         end
-        withenv("CAU_RESULTS_ROOT" => "/tmp/x") do
+        withenv("VGTK_RESULTS_ROOT" => "/tmp/x") do
             @test RR.results_root() == "/tmp/x"
             cfg = Dict("experiment" => Dict("dataset" => "pt", "matcher" => "sift", "problem" => "E"))
             @test RR.experiment_dir(cfg) == joinpath("/tmp/x", "pt", "sift", "E")

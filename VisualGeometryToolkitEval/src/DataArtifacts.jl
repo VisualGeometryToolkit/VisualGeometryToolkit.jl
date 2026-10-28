@@ -343,9 +343,9 @@ end
 # ---- the consumer side ------------------------------------------------------------
 
 # The data view, or `nothing` when a data root is bound some other way (it wins:
-# CAU_DATA_ROOT, or an author's data/exp_raw link or directory, is never written).
+# VGTK_DATA_ROOT, or an author's data/exp_raw link or directory, is never written).
 function _data_view!()
-    haskey(ENV, "CAU_DATA_ROOT") && return nothing
+    haskey(ENV, "VGTK_DATA_ROOT") && return nothing
     view = joinpath(project_root(), "data", "exp_raw")
     (islink(view) || (isdir(view) && !is_artifact_view(view))) && return nothing
     mkpath(view)
@@ -358,7 +358,7 @@ end
 
 # The results root; the project's data/exp_pro is created when nothing binds one.
 function _results_dir!()
-    haskey(ENV, "CAU_RESULTS_ROOT") && return String(ENV["CAU_RESULTS_ROOT"])
+    haskey(ENV, "VGTK_RESULTS_ROOT") && return String(ENV["VGTK_RESULTS_ROOT"])
     link = joinpath(project_root(), "data", "exp_pro")
     (islink(link) || isdir(link)) || mkpath(link)
     return results_root()
@@ -371,7 +371,7 @@ Install `names` ([`Experiments.install_artifact`](@ref VisualGeometryToolkitEval
 unpack into the depot; a placeholder URL is refused with the way out) and link
 each tree into its mount root: `data` artifacts into the project's
 `data/exp_raw` as an artifact view — skipped when a data root is already bound
-(CAU_DATA_ROOT, or an author's own data/exp_raw) — and `results` artifacts
+(VGTK_DATA_ROOT, or an author's own data/exp_raw) — and `results` artifacts
 into results_root() (data/exp_pro is created when nothing binds one).
 Idempotent. One `(; name, tree, mount, dst, linked)` per artifact; `dst` is
 `nothing` where nothing was linked. A split entry

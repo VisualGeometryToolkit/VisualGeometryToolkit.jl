@@ -13,10 +13,10 @@ julia --project=. scripts/<driver>.jl            # run the pending stages
 
 ## Data
 
-Inputs are read from `data_root()` (read-only: `CAU_DATA_ROOT`, else
+Inputs are read from `data_root()` (read-only: `VGTK_DATA_ROOT`, else
 `data/exp_raw`, else the artifact view of the published data, see
 `configs/data_artifacts.toml`); results are written under `results_root()`
-(`CAU_RESULTS_ROOT`, else `data/exp_pro`), one directory per run key, each
+(`VGTK_RESULTS_ROOT`, else `data/exp_pro`), one directory per run key, each
 with its `_config.toml` and `_provenance.toml`.
 
 ## Asset index

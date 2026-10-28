@@ -9,7 +9,7 @@
 #   set_project_root!(root)  the project the drivers run from (default DrWatson's
 #                            projectdir()): data/results and the git record
 #                            resolve against it (experiments/data.jl)
-#   data_root()/results_root()  ENV (CAU_DATA_ROOT / CAU_RESULTS_ROOT) →
+#   data_root()/results_root()  ENV (VGTK_DATA_ROOT / VGTK_RESULTS_ROOT) →
 #                            <project>/data/exp_raw | data/exp_pro (DrWatson's
 #                            datadir) → the project's fallback / artifact view
 #   load_run_config(path)    TOML.parsefile + [experiment] table sanity

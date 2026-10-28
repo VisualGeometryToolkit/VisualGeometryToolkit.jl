@@ -10,9 +10,9 @@
 # DrWatson's `datadir` puts them — `data/exp_raw` (inputs, read-only) and
 # `data/exp_pro` (results). Per machine those two are bound by
 #
-#   data_root():    ENV CAU_DATA_ROOT    → <project>/data/exp_raw → the project's
+#   data_root():    ENV VGTK_DATA_ROOT    → <project>/data/exp_raw → the project's
 #                   fallback rung (e.g. a package preference) → its artifact view
-#   results_root(): ENV CAU_RESULTS_ROOT → <project>/data/exp_pro
+#   results_root(): ENV VGTK_RESULTS_ROOT → <project>/data/exp_pro
 #
 # The artifact view is a DIRECTORY of per-file links into installed Julia
 # artifacts (Pkg.Artifacts, sha256- and tree-hash-pinned), marked by
@@ -102,7 +102,7 @@ is_artifact_view(dir::AbstractString) = isfile(joinpath(dir, ARTIFACT_VIEW_MARKE
 # The rungs that need no download: ENV, the project's data/exp_raw (a link, a
 # directory or an artifact view), the project's fallback. `nothing` when none binds.
 function _bound_data_root()
-    haskey(ENV, "CAU_DATA_ROOT") && return String(ENV["CAU_DATA_ROOT"])
+    haskey(ENV, "VGTK_DATA_ROOT") && return String(ENV["VGTK_DATA_ROOT"])
     link = joinpath(project_root(), "data", "exp_raw")
     if _BINDING.resolve_links
         ispath(link) && return realpath(link)
@@ -120,7 +120,7 @@ end
 """
     data_root(; tiers = nothing) -> String
 
-The project's input tree (read-only): `ENV["CAU_DATA_ROOT"]` → the project's
+The project's input tree (read-only): `ENV["VGTK_DATA_ROOT"]` → the project's
 `data/exp_raw` (DrWatson `datadir("exp_raw")`; a link, a directory, or the
 artifact view) → the project's fallback rung → its [`ArtifactView`](@ref),
 installing `tiers` (default: the view's `default`). Configs state input paths
@@ -135,25 +135,25 @@ function data_root(; tiers::Union{Nothing,AbstractVector} = nothing)
         (av !== nothing && tiers !== nothing && r == _view_dir(av)) && artifact_view!(av, tiers)
         return r
     end
-    av === nothing && error("no data root: set CAU_DATA_ROOT or create the data/exp_raw link under $(project_root())")
+    av === nothing && error("no data root: set VGTK_DATA_ROOT or create the data/exp_raw link under $(project_root())")
     return artifact_view!(av, tiers === nothing ? av.default : tiers)
 end
 
 """
     results_root() -> String
 
-The project's results tree: `ENV["CAU_RESULTS_ROOT"]` → the project's
+The project's results tree: `ENV["VGTK_RESULTS_ROOT"]` → the project's
 `data/exp_pro` (DrWatson `datadir("exp_pro")`), created when the project binds
 `create_results = true`, an error otherwise.
 """
 function results_root()
-    root = haskey(ENV, "CAU_RESULTS_ROOT") ? String(ENV["CAU_RESULTS_ROOT"]) :
+    root = haskey(ENV, "VGTK_RESULTS_ROOT") ? String(ENV["VGTK_RESULTS_ROOT"]) :
            joinpath(project_root(), "data", "exp_pro")
     if _BINDING.create_results
         mkpath(root)
-    elseif !haskey(ENV, "CAU_RESULTS_ROOT")
+    elseif !haskey(ENV, "VGTK_RESULTS_ROOT")
         islink(root) || isdir(root) || error(
-            "no results root: set CAU_RESULTS_ROOT or create the data/exp_pro symlink under $(project_root())")
+            "no results root: set VGTK_RESULTS_ROOT or create the data/exp_pro symlink under $(project_root())")
     end
     return root
 end
@@ -175,7 +175,7 @@ packagers) call this first: an artifact view is read-only.
 """
 assert_primary_copy(what::AbstractString) = is_primary_copy() || error(
     "$what writes into the data tree, which requires the primary copy; data_root() is the " *
-    "read-only artifact view here. Set CAU_DATA_ROOT (or bind data/exp_raw) to a writable data root.")
+    "read-only artifact view here. Set VGTK_DATA_ROOT (or bind data/exp_raw) to a writable data root.")
 
 # ---- the artifact view ------------------------------------------------------------
 
@@ -197,12 +197,12 @@ function install_artifact(name::AbstractString, toml::AbstractString)
     url = meta[name]["download"][1]["url"]
     _published(url) || error(
         "artifact '$name' is not published yet ($toml carries the placeholder URL $url) and no data " *
-        "root is bound: set CAU_DATA_ROOT or link data/exp_raw at the data tree.")
+        "root is bound: set VGTK_DATA_ROOT or link data/exp_raw at the data tree.")
     try
         ensure_artifact_installed(name, toml)
     catch err
         error("downloading artifact '$name' failed. If its Zenodo record ($toml) is still an UNPUBLISHED " *
-              "draft its file URLs are not live yet — bind a data root (CAU_DATA_ROOT or data/exp_raw) " *
+              "draft its file URLs are not live yet — bind a data root (VGTK_DATA_ROOT or data/exp_raw) " *
               "until publication. Underlying error: $(sprint(showerror, err))")
     end
     return artifact_path(hash)

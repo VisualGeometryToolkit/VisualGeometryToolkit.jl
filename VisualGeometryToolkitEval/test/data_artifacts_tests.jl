@@ -99,7 +99,7 @@
         provenance = "test"
         """)
 
-    withenv("CAU_DATA_ROOT" => author_data, "CAU_RESULTS_ROOT" => author_results,
+    withenv("VGTK_DATA_ROOT" => author_data, "VGTK_RESULTS_ROOT" => author_results,
             "VGE_TEST_ARTIFACTS_TOML" => nothing) do
         E.set_project_root!(proj)
         cat = D.load_catalog(catalog)
@@ -152,7 +152,7 @@
                 fresh = mktempdir()
                 mkpath(joinpath(fresh, "configs"))
                 cp(catalog, joinpath(fresh, "configs", "data_artifacts.toml"))
-                withenv("CAU_DATA_ROOT" => nothing, "CAU_RESULTS_ROOT" => nothing,
+                withenv("VGTK_DATA_ROOT" => nothing, "VGTK_RESULTS_ROOT" => nothing,
                         "VGE_TEST_ARTIFACTS_TOML" => joinpath(stage, "local.toml")) do
                     with_artifacts_directory(mktempdir()) do      # never the depot
                         E.set_project_root!(fresh)
@@ -174,7 +174,7 @@
                     end
                 end
                 # an unpublished record is refused with the way out
-                withenv("CAU_DATA_ROOT" => nothing, "VGE_TEST_ARTIFACTS_TOML" => nothing) do
+                withenv("VGTK_DATA_ROOT" => nothing, "VGE_TEST_ARTIFACTS_TOML" => nothing) do
                     with_artifacts_directory(mktempdir()) do
                         E.set_project_root!(mktempdir())
                         err = try D.fetch_artifacts!(cat, ["t_extra"]); nothing catch e; e end
@@ -227,7 +227,7 @@
             what = "pools"
             provenance = "test"
             """)
-        withenv("CAU_DATA_ROOT" => author_data, "VGE_TEST_ARTIFACTS_TOML" => nothing) do
+        withenv("VGTK_DATA_ROOT" => author_data, "VGE_TEST_ARTIFACTS_TOML" => nothing) do
             E.set_project_root!(proj)
             cat = D.load_catalog(catalog)
             parts = D.artifact_parts(cat, "t_pools")
@@ -258,7 +258,7 @@
             fresh = mktempdir(); mkpath(joinpath(fresh, "configs"))
             cp(catalog, joinpath(fresh, "configs", "data_artifacts.toml"))
             cp(joinpath(proj, "configs", "heb_pools.toml"), joinpath(fresh, "configs", "heb_pools.toml"))
-            withenv("CAU_DATA_ROOT" => nothing, "VGE_TEST_ARTIFACTS_TOML" => joinpath(stage, "local.toml")) do
+            withenv("VGTK_DATA_ROOT" => nothing, "VGE_TEST_ARTIFACTS_TOML" => joinpath(stage, "local.toml")) do
                 with_artifacts_directory(mktempdir()) do
                     E.set_project_root!(fresh)
                     fcat = D.load_catalog(joinpath(fresh, "configs", "data_artifacts.toml"))
@@ -319,7 +319,7 @@
             what = "pools"
             provenance = "test"
             """)
-        withenv("CAU_DATA_ROOT" => author_data, "VGE_TEST_ARTIFACTS_TOML" => nothing) do
+        withenv("VGTK_DATA_ROOT" => author_data, "VGE_TEST_ARTIFACTS_TOML" => nothing) do
             E.set_project_root!(proj)
             cat = D.load_catalog(catalog)
             parts = D.artifact_parts(cat, "t_pools")
@@ -346,7 +346,7 @@
             fresh = mktempdir(); mkpath(joinpath(fresh, "configs"))
             cp(catalog, joinpath(fresh, "configs", "data_artifacts.toml"))
             cp(joinpath(proj, "configs", "heb_pools.toml"), joinpath(fresh, "configs", "heb_pools.toml"))
-            withenv("CAU_DATA_ROOT" => nothing, "VGE_TEST_ARTIFACTS_TOML" => joinpath(stage, "local.toml")) do
+            withenv("VGTK_DATA_ROOT" => nothing, "VGE_TEST_ARTIFACTS_TOML" => joinpath(stage, "local.toml")) do
                 with_artifacts_directory(mktempdir()) do
                     E.set_project_root!(fresh)
                     fcat = D.load_catalog(joinpath(fresh, "configs", "data_artifacts.toml"))

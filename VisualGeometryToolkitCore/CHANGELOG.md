@@ -43,7 +43,7 @@ Every nonlinear least-squares fit now runs on NLLSsolver, through
 dependency. What changed for a caller:
 
 - `max_iter` counts **accepted** iterations. The previous driver also counted
-  rejected trial steps.
+  rejected candidate steps.
 - `xtol` is **absolute**: the max-norm of the step in chart units, `max|pᵢ| <
   xtol`. The previous driver's test was relative per component, `|pᵢ| <
   xtol·(xtol + |xᵢ|)`. The same value is now stricter far from the origin and

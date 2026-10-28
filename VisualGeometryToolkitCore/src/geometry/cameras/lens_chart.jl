@@ -493,8 +493,8 @@ recenter(ch::ParameterManifold{M, Nothing}, v) where {M} = _parameter_manifold(r
 # with a box: the stepped model, then its FREE parameters clamped into the box
 # (rebuilt only when one moved) — a fixed one (`restrict`) is the anchor as
 # given, never clamped
-recenter(ch::ParameterManifold, v) = _recenter_in_box(ch, v, map(_ -> true, ch.box[1]))
-function _recenter_in_box(ch::ParameterManifold, v, free)
+recenter(ch::ParameterManifold{M, <:Tuple}, v) where {M} = _recenter_in_box(ch, v, map(_ -> true, ch.box[1]))
+function _recenter_in_box(ch::ParameterManifold{M, <:Tuple}, v, free) where {M}
     m = _interior(retract(ch, v))
     θ = parameter_vector(m)
     lo, hi = ch.box

@@ -162,7 +162,7 @@ struct CanvasTexture{T <: Number}
         all(x -> _board_number(x) > 0, size) || throw(ArgumentError("a canvas texture's size is positive, got $size"))
         isempty(path) && throw(ArgumentError("CanvasTexture: the image path is empty"))
         isabspath(path) && throw(ArgumentError("CanvasTexture: the image path is relative to the file that names it; got the absolute path $(repr(path))"))
-        occursin(r"^[0-9a-f]{64}$", sha256) ||
+        occursin(r"\A[0-9a-f]{64}\z", sha256) ||
             throw(ArgumentError("CanvasTexture: sha256 is 64 lowercase hex digits; got $(repr(sha256))"))
         return new{T}(String(path), String(sha256), size, origin)
     end

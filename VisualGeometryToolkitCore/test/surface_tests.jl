@@ -549,6 +549,8 @@ end
     @test_throws ArgumentError CanvasTexture("", sha, Size2(width = 1.0m, height = 1.0m))
     @test_throws ArgumentError CanvasTexture("a.png", uppercase(sha), Size2(width = 1.0m, height = 1.0m))
     @test_throws ArgumentError CanvasTexture("a.png", sha[1:63], Size2(width = 1.0m, height = 1.0m))
+    @test_throws ArgumentError CanvasTexture("a.png", sha * "\n", Size2(width = 1.0m, height = 1.0m))   # a digest read from a file, newline kept
+    @test_throws ArgumentError CanvasTexture("a.png", "\n" * sha, Size2(width = 1.0m, height = 1.0m))
     # plain numbers allowed, for a unitless design; the texture in the canvas's form
     texu = CanvasTexture("canvas.png", sha, Size2(width = 320.0, height = 240.0), [-20.0, -15.0])
     cu = Canvas(Size2(width = 320.0, height = 240.0), [-20.0, -15.0]; texture = texu)

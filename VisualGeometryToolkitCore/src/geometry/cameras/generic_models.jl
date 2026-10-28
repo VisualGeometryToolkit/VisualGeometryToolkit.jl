@@ -759,21 +759,21 @@ tangent_size(ch::ControlPatchManifold{PX, PY, L}) where {PX, PY, L} = _control_c
 model(ch::ControlPatchManifold) = (; directions = ch.directions, points = ch.points)
 
 # One direction control stepped on its sphere (the reference's chart), its norm kept.
-@inline function _control_step(d::SVector{3}, δ₁, δ₂)
+@inline function _retracted_direction(d::SVector{3}, δ₁, δ₂)
     t1, t2 = direction_tangents(normalize(d))
     return norm(d) * normalize(d + δ₁ * t1 + δ₂ * t2)
 end
-function _stepped(ch::ControlPatchManifold{PX, PY, L, T, Nothing}, v) where {PX, PY, L, T <: Real}
-    dirs = SMatrix{PX, PY}(ntuple(n -> _control_step(ch.directions[n], v[2n - 1], v[2n]), Val(L)))
+function _retracted_controls(ch::ControlPatchManifold{PX, PY, L, T, Nothing}, v) where {PX, PY, L, T <: Real}
+    dirs = SMatrix{PX, PY}(ntuple(n -> _retracted_direction(ch.directions[n], v[2n - 1], v[2n]), Val(L)))
     return dirs, nothing
 end
-function _stepped(ch::ControlPatchManifold{PX, PY, L}, v) where {PX, PY, L}
-    dirs = SMatrix{PX, PY}(ntuple(n -> _control_step(ch.directions[n], v[5n - 4], v[5n - 3]), Val(L)))
+function _retracted_controls(ch::ControlPatchManifold{PX, PY, L}, v) where {PX, PY, L}
+    dirs = SMatrix{PX, PY}(ntuple(n -> _retracted_direction(ch.directions[n], v[5n - 4], v[5n - 3]), Val(L)))
     pts = SMatrix{PX, PY}(ntuple(n -> ch.points[n] + SVector(v[5n - 2], v[5n - 1], v[5n]), Val(L)))
     return dirs, pts
 end
-retract(ch::ControlPatchManifold, v) = (s = _stepped(ch, v); (; directions = s[1], points = s[2]))
-recenter(ch::ControlPatchManifold, v) = (s = _stepped(ch, v); s[2] === nothing ? ControlPatchManifold(s[1]) : ControlPatchManifold(s[1], s[2]))
+retract(ch::ControlPatchManifold, v) = (s = _retracted_controls(ch, v); (; directions = s[1], points = s[2]))
+recenter(ch::ControlPatchManifold, v) = (s = _retracted_controls(ch, v); s[2] === nothing ? ControlPatchManifold(s[1]) : ControlPatchManifold(s[1], s[2]))
 function retract_jacobian(ch::ControlPatchManifold{PX, PY, L, T}) where {PX, PY, L, T}
     k = _control_coordinates(ch)
     J = zeros(T, 3 * L * (k == 2 ? 1 : 2), k * L)

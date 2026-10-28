@@ -631,7 +631,7 @@ export motion
 export translation_angle, angle_between, skew   # angle_between(u, v): the well-conditioned atan(‖u × v‖, u · v)
 export exp_so3, log_so3, left_jacobian, exp_se3, log_se3
 public SO3        # group tag: the type-argument slot of left_jacobian(SO3, ω)
-export kabsch, chordal_mean, chordal_averaging, mirror   # SO(3) projection is Rotations.nearest_rotation
+export kabsch, chordal_mean, spectral_rotation_averaging, mirror   # SO(3) projection is Rotations.nearest_rotation
 
 # PoseLib-only solvers (no native VGC implementation)
 export essential_dlt

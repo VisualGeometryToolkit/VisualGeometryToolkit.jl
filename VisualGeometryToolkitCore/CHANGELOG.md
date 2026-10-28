@@ -21,10 +21,12 @@ introduced them did not state them all.
   `transfer_jacobian_rows!(J, H, dH, W, f₁, f₂, sqrtw)` beside the pixel ones
   (`transfer_rows!` takes bearings as it is). The pixel rows' internal row
   function now takes `u₂` (unread for pixels).
-- **`chordal_averaging(relative[, weights])`**, chordal L2 rotation averaging:
-  the absolute rotations of a set of frames from their relative rotations
-  (`f_j = R_ij f_i`), one linear least squares gauged at the first frame and
-  projected onto SO(3) — the start of a rotation bundle.
+- **`spectral_rotation_averaging(relative[, weights])`**, spectral chordal
+  rotation averaging: the absolute rotations of a set of frames from their
+  relative rotations (`f_j = R_ij f_i`), the leading eigenvectors of the
+  degree-normalized block matrix projected onto SO(3), gauged at the first
+  frame — the seed of a robust rotation averaging (it replaces the gauged
+  linear `chordal_averaging` of this release).
 - **`RotationChart{P, Rot}` and `SO3Manifold`**, the 3-dof rotation member of the
   rigid chart family (`R(ω) = ΔR(ω)·R`, over the family's increment, logarithm
   and left Jacobian; `SO3Manifold = RotationChart{ExpParam}`), with closed-form

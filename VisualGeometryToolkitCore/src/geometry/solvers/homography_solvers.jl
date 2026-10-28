@@ -962,7 +962,8 @@ The transfer rows on UNIT BEARINGS `f₁[i] => f₂[i]` (3-vectors) — the infi
 homography of a calibrated camera, a rotation under a pure rotation: the
 residual is the tangent-plane form of
 `constraint_with_jacobians(TransferForm(H), f₁, f₂; M₁, M₂)`, whitened by the
-frozen two-sided Sampson factor `L⁻¹` of `Σ_g = G_x G_xᵀ` (both images noisy,
+frozen Sampson factor `L⁻¹` of `Σ_g = G_x Σ G_xᵀ` (the joint measurement of both images' pixels, `Σ = I` assumed —
+keypoint covariances are a planned extension;
 `M₁`/`M₂` the back-projection Jacobians carrying it into PIXELS), and its
 Jacobian along the chart directions `dH` is `W[i]·D·dH_q·f₁`. The pixel methods'
 row functions, with the bearing parts in place of the perspective divide;

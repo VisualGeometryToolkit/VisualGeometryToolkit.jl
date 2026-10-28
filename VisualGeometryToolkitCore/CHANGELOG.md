@@ -16,7 +16,7 @@ introduced them did not state them all.
   `constraint_with_jacobians(TransferForm(H), f₁, f₂; M₁, M₂)` — the infinite
   homography (a rotation under a pure rotation) as the transferred ray in
   `f₂`'s tangent plane, `G_x` in pixels through the back-projection Jacobians
-  (the two-sided Sampson covariance), `G_θ` w.r.t. `vec(H)`; and the bearing
+  (the Sampson distance of the joint measurement, `Σ = I`), `G_θ` w.r.t. `vec(H)`; and the bearing
   methods `transfer_whitening!(W, H, f₁, f₂; M₁, M₂)` and
   `transfer_jacobian_rows!(J, H, dH, W, f₁, f₂, sqrtw)` beside the pixel ones
   (`transfer_rows!` takes bearings as it is). The pixel rows' internal row
@@ -25,6 +25,11 @@ introduced them did not state them all.
   the absolute rotations of a set of frames from their relative rotations
   (`f_j = R_ij f_i`), one linear least squares gauged at the first frame and
   projected onto SO(3) — the start of a rotation bundle.
+- **`RotationChart{P, Rot}` and `SO3Manifold`**, the 3-dof rotation member of the
+  rigid chart family (`R(ω) = ΔR(ω)·R`, over the family's increment, logarithm
+  and left Jacobian; `SO3Manifold = RotationChart{ExpParam}`), with closed-form
+  `retract_jacobian`, `action_jacobian` and `local_coordinates`;
+  `minimal_manifold` of a rotation.
 
 - **`parameter_bounds` states which endpoints are closed, and a closed
   endpoint is a mirror in `ParameterManifold`'s chart.** The closed endpoints

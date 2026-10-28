@@ -53,6 +53,7 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         (TargetManifold(PlanarTarget(:board)), 0),
         (ProductManifold(ch, EuclideanManifold(t0)), 9),
         (restrict(ch, SVector(true, true, true, false, false, true)), 4),
+        (VgtkCore.SO3Manifold(R0), 3),
     )
 
     @testset "the manifold contract, every family" begin

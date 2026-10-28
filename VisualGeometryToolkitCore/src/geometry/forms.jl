@@ -511,9 +511,11 @@ infinite homography of a calibrated camera (under a pure rotation `H = R`):
 
 - `G_x = [D·H·M₁  −P·M₂]` (2×4) in PIXEL coordinates, `M₁`/`M₂` the 3×2
   back-projection Jacobians of [`backproject_with_jacobian`](@ref) and
-  `D = P·(I − ĥĥᵀ)/‖H f₁‖`; both images noisy, so `G_x Gₓᵀ =
+  `D = P·(I − ĥĥᵀ)/‖H f₁‖`, the derivative of `g` along the joint measurement
+  (both images' pixels), so that at `Σ = I` (assumed by the rows; keypoint
+  covariances are a planned extension) the Sampson denominator `G_x G_xᵀ =
   P(H̄M₁M₁ᵀH̄ᵀ + M₂M₂ᵀ)Pᵀ` (`H̄` the normalized transfer, `R` for a rotation) is the
-  two-sided Sampson covariance in `f₂`'s tangent plane. The `f₂` block is the
+  Sampson covariance in `f₂`'s tangent plane. The `f₂` block is the
   first-order derivative at `ĥ = f₂` (Sampson's linearization at the
   measurement), exact there.
 - `G_θ = D·(f₁ᵀ ⊗ I₃)` (2×9, ∂g/∂vec(H) column-major) — the pixel form's

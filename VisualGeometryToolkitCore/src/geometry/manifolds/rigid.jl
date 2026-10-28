@@ -232,6 +232,83 @@ function action_jacobian(ch::RigidChart, x::AbstractVector, v::StaticVector)
     return hcat(-skew(y) * _rot_left_jacobian(_param(ch), ω), SMatrix{3, 3, eltype(y), 9}(I))
 end
 
+# =============================================================================
+# The rotation chart — the 3-dof member of the family
+# =============================================================================
+
+"""
+    RotationChart{P <: RotationParam, Rot} <: Manifold
+
+The 3-dof rotation chart of the rigid family, anchored at `R::Rot`: coordinates
+`ω` act on the left, `R(ω) = ΔR(ω)·R`, `ΔR` the increment of `P`
+([`MRPParam`](@ref), [`ExpParam`](@ref)) — the rotation block of
+[`RigidChart`](@ref), written over the same per-parameterization facts (the
+increment, its logarithm, its left Jacobian, the anchor scale). `retract`
+returns a `RotMatrix{3}`, the ambient vectorization is `vec(R) ∈ R⁹`,
+`recenter` re-projects onto SO(3) and keeps the anchor's storage type,
+`local_coordinates` is closed form (`ω` the coordinates of `R·R₀ᵀ`), the
+retraction differential is closed form: `∂vec(R(ω))/∂ω_q = vec([L(ω)e_q]×·R(ω))`.
+Full rank, no gauge. [`SO3Manifold`](@ref) is the rotation-vector member,
+`minimal_manifold(R)` of a rotation.
+"""
+struct RotationChart{P <: RotationParam, Rot} <: Manifold
+    R::Rot
+end
+
+"""
+    SO3Manifold(R) <: Manifold
+
+The rotation-vector chart of SO(3), `RotationChart{ExpParam}`: `R(ω) = exp_so3(ω)·R`
+(the left perturbation, ω in radians) — the rotation block of
+[`LeftRigidManifold6`](@ref) and [`RigidExpManifold6`](@ref), and
+`minimal_manifold` of a rotation. Float-typed storage (`SMatrix{3, 3, T}`).
+"""
+const SO3Manifold{T} = RotationChart{ExpParam, SMatrix{3, 3, T, 9}}
+SO3Manifold(R::AbstractMatrix) = (T = float(eltype(R)); SO3Manifold{T}(SMatrix{3, 3, T, 9}(R)))
+
+_param(::RotationChart{P}) where {P} = P()
+
+tangent_size(::RotationChart) = 3
+zero_tangent(ch::RotationChart) = zero(SVector{3, float(eltype(ch.R))})
+
+@inline _rotated_anchor(ch::RotationChart, v) = SMatrix{3, 3}(_rot_increment(_param(ch), SVector(v[1], v[2], v[3]))) * SMatrix{3, 3}(ch.R)
+retract(ch::RotationChart, v) = RotMatrix{3}(_rotated_anchor(ch, v))
+model(ch::RotationChart) = RotMatrix{3}(SMatrix{3, 3}(ch.R))
+
+function recenter(ch::RotationChart{P, Rot}, v) where {P, Rot}
+    S = eltype(Rot)
+    T = promote_type(S, eltype(v))
+    RotT = T === S ? Rot : _storage_with_eltype(Rot, T)
+    return RotationChart{P, RotT}(RotT(_reproject_so3(_rotated_anchor(ch, v))))
+end
+
+"""
+    local_coordinates(ch::RotationChart, R) -> SVector{3}
+
+The rotation chart's inverse retraction: the coordinates of `R·R₀ᵀ` (its MRP or
+`log_so3`). Closed form and exact.
+"""
+function local_coordinates(ch::RotationChart, R::AbstractMatrix)
+    T = float(eltype(ch.R))
+    return _rot_log(_param(ch), SMatrix{3, 3, T, 9}(R) * SMatrix{3, 3, T, 9}(ch.R)')
+end
+
+# ∂vec(ΔR(ω)·R₀)/∂ω: column q is vec([L(ω)·e_q]×·R(ω)), L the increment's left Jacobian.
+function retract_jacobian(ch::RotationChart, v::StaticVector)
+    ω = SVector(v[1], v[2], v[3])
+    Rv = _rotated_anchor(ch, ω)
+    L = _rot_left_jacobian(_param(ch), ω)
+    cols = ntuple(q -> SVector{9}(Tuple(skew(L[:, q]) * Rv)), Val(3))
+    return hcat(cols...)
+end
+
+# The action on a direction, R(ω)·x: at the anchor `−s·[R·x]×` (s the anchor scale), at ω `−[R(ω)·x]×·L(ω)`.
+action_jacobian(ch::RotationChart, x::AbstractVector) = -_rot_anchor_scale(_param(ch)) * skew(SMatrix{3, 3}(ch.R) * x)
+function action_jacobian(ch::RotationChart, x::AbstractVector, v::StaticVector)
+    ω = SVector(v[1], v[2], v[3])
+    return -skew(_rotated_anchor(ch, ω) * x) * _rot_left_jacobian(_param(ch), ω)
+end
+
 """
     local_coordinates(ch::RigidChart, pose::EuclideanMap{3}) -> SVector{6}
 

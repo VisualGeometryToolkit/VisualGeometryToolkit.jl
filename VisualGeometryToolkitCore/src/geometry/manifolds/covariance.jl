@@ -86,6 +86,7 @@ RigidManifold6`, `RadialHomography →` sl(3) ⊕ k (a `ProductManifold`),
 `LensManifold` (cameras/lens_chart.jl).
 """
 minimal_manifold(T::PlainEuclideanMap{3}) = RigidManifold6(T.R, T.t)
+minimal_manifold(R::Rotation{3}) = SO3Manifold(R)
 minimal_manifold(F::FundMat) = FundMatManifold7(SMatrix{3, 3, Float64, 9}(F))
 minimal_manifold(H::HomographyMat) = HomographyManifold8(SMatrix{3, 3, Float64, 9}(H))
 function minimal_manifold(E::EssentialMat)

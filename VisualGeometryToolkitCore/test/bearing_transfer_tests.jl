@@ -1,7 +1,7 @@
 # =============================================================================
 # The transfer constraint on unit bearings (geometry/forms.jl,
 # geometry/solvers/homography_solvers.jl): zero on exact rotations at any field
-# angle, its Jacobians against ForwardDiff, the two-sided Sampson covariance,
+# angle, its Jacobians against ForwardDiff, the Sampson covariance (Σ = I),
 # and the bearing rows against the constraint and ForwardDiff.
 # =============================================================================
 
@@ -29,7 +29,7 @@
         g2(δ) = first(constraint_with_jacobians(TransferForm(H(R)), f₁, normalize(f₂ + M₂ * δ); M₁, M₂))
         @test G_x[:, 1:2] ≈ ForwardDiff.jacobian(g1, zeros(SVector{2})) rtol = 1.0e-9
         @test G_x[:, 3:4] ≈ ForwardDiff.jacobian(g2, zeros(SVector{2})) rtol = 1.0e-9
-        # the two-sided Sampson covariance P(R M₁M₁ᵀRᵀ + M₂M₂ᵀ)Pᵀ
+        # the Sampson covariance at Σ = I: P(R M₁M₁ᵀRᵀ + M₂M₂ᵀ)Pᵀ
         b = s2_tangent_basis(f₂); P = vcat(b[1]', b[2]')
         @test G_x * G_x' ≈ P * (R * M₁ * M₁' * R' + M₂ * M₂') * P' rtol = 1.0e-10
         # an antipodal transfer is not cheiral: g is small but the parts say so

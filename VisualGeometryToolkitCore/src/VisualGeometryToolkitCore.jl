@@ -499,6 +499,7 @@ public tangent_size, EssentialManifold6, SubsetManifold, restrict, retract, rece
     SL3_BASIS
 public anchor_svd   # FundMatManifold7's anchor (U, σ, V)
 public tangent_part   # a manifold's coordinates in a stacked tangent vector (product parts; NLLSsolver variables, robust/lm_core.jl)
+public RotationChart, SO3Manifold   # the 3-dof rotation chart of the rigid family (minimal_manifold of a rotation)
 public LeftRigidManifold6   # the left-perturbation pose chart constraint_with_jacobians(pose, …) differentiates
 public RigidExpManifold6    # the decoupled pose chart: exp on R from the left, t free (hand-eye)
 public RigidChart, RotationParam, MRPParam, ExpParam, TranslationCoupling, FreeT, CarriedT   # the rigid chart family the three pose charts alias

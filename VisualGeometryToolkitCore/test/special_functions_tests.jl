@@ -71,3 +71,34 @@ end
     alloc()
     @test alloc() == 0
 end
+
+@testitem "square_rule and unit_disc_rule: the 2-D product rules" begin
+    using Test, StaticArrays
+    using QuadGK: gauss
+    using VisualGeometryToolkitCore: square_rule, unit_disc_rule, gauss_hermite_prob
+
+    # the tensor rule over [−½, ½]² of Gauss–Legendre: Σw = 1, exact for x^a y^b up to a, b ≤ 2n − 1 (odd moments 0, x² → 1/12)
+    x, w = gauss(3); x = x ./ 2; w = w ./ 2
+    nodes, weights = square_rule(x, w)
+    @test length(nodes) == 9 && nodes[2] == SVector(x[2], x[1]) && weights[2] == w[2] * w[1]      # the first coordinate fastest
+    @test sum(weights) ≈ 1
+    m(a, b) = sum(wi * p[1]^a * p[2]^b for (p, wi) in zip(nodes, weights))
+    @test m(2, 0) ≈ 1 / 12 && m(2, 2) ≈ 1 / 144 && m(4, 0) ≈ 1 / 80 && abs(m(1, 3)) < 1e-16
+    # of the Gauss–Hermite rule: the standard bivariate normal's moments
+    xh, wh = gauss_hermite_prob(4)
+    nh, wh2 = square_rule(xh, wh)
+    @test sum(wh2) ≈ 1 && sum(wi * p[1]^2 * p[2]^2 for (p, wi) in zip(nh, wh2)) ≈ 1 && sum(wi * p[1]^4 for (p, wi) in zip(nh, wh2)) ≈ 3
+    @test_throws DimensionMismatch square_rule(x, w[1:2])
+
+    # the polar rule over the unit disc: Σw = π (the area); ∫ρ² = π/2, ∫x² = π/4, ∫x²y² = π/24, ∫ρ⁴ = π/3; odd moments vanish
+    nd, wd = unit_disc_rule(4, 12)
+    @test length(nd) == 48 && all(p -> sum(abs2, p) < 1, nd)
+    @test sum(wd) ≈ π
+    d(f) = sum(wi * f(p) for (p, wi) in zip(nd, wd))
+    @test d(p -> p[1]^2 + p[2]^2) ≈ π / 2 && d(p -> p[1]^2) ≈ π / 4 && d(p -> p[1]^2 * p[2]^2) ≈ π / 24 && d(p -> (p[1]^2 + p[2]^2)^2) ≈ π / 3
+    @test abs(d(p -> p[1])) < 1e-14 && abs(d(p -> p[1] * p[2]^2)) < 1e-14
+    # radius-major: node (k − 1)·n_φ + j at radius ρ_k, angle 2π(j − ½)/n_φ
+    xr, wr = gauss(4); ρ = (xr .+ 1) ./ 2
+    @test nd[12 + 3] ≈ ρ[2] .* SVector(cos(2π * 2.5 / 12), sin(2π * 2.5 / 12)) && wd[12 + 3] ≈ ρ[2] * wr[2] / 2 * 2π / 12
+    @test_throws ArgumentError unit_disc_rule(0, 4)
+end

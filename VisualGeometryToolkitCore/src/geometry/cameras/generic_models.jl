@@ -729,8 +729,9 @@ end
     ControlPatchManifold(directions[, points]) <: Manifold
 
 A patch of a generic grid model's controls as a manifold: a `PX × PY` block of
-its direction controls (`SMatrix` of 3-vectors, `[gy, gx]` like the model's
-grid) and, for a non-central model, the matching block of its point controls —
+its direction controls (an `SMatrix` of 3-vectors, in the caller's layout:
+the coordinates follow its column-major order) and, for a non-central model, the
+matching block of its point controls —
 the block a per-tile refinement moves (an NLLSsolver variable through the
 manifold adapter). A direction control `d` moves on its own sphere by the
 reference's chart,

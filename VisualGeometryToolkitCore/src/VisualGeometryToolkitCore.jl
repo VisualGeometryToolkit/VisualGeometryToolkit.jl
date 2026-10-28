@@ -58,7 +58,7 @@ using CoordinateTransformations:
 using Rotations: Rotations, RotMatrix, RotationVec, Rotation, QuatRotation
 using LogExpFunctions: xlogx, logit, log1pexp   # the Welsch conjugate's w·log(w); the mixture's log-odds and softplus
 using SpecialFunctions: loggamma, digamma, trigamma   # the Student-t normaliser and the ν M-step (robust/mixture.jl)
-using QuadGK: quadgk   # a loss shape's truncated normaliser (robust/normaliser.jl)
+using QuadGK: quadgk, gauss   # a loss shape's truncated normaliser (robust/normaliser.jl)
 using Random: Random
 import NLLSsolver   # the stack's Levenberg–Marquardt: the chart LM's driver, the variable and robustifier protocols (robust/lm_core.jl)
 
@@ -189,7 +189,7 @@ public ExecutionPolicy, Auto, Serial, Threaded, THREADED_MIN_LENGTH
 # Iterative Cox–de Boor B-spline kernels (0.14; hoisted from
 # RayTracedCalibration): broadcast-fused basis/surface/4D evaluation with
 # derivative surfaces; the rrules live in the ChainRulesCore extension.
-public gauss_hermite_prob, hammersley   # a quadrature rule for N(0, 1) and low-discrepancy points
+public gauss_hermite_prob, hammersley, square_rule, unit_disc_rule   # quadrature rules (N(0, 1), the square, the unit disc), low-discrepancy points
 public bspline_basis, clamped_uniform_knots   # the scalar Cox–de Boor basis (isbits, any eltype, kernel-safe) and its knots
 public bspline_basis_iterative, evaluate_bspline_surface, bspline_surface_partial
 public evaluate_bspline_4d, bspline_4d_partial, contract_basis_4d_weighted

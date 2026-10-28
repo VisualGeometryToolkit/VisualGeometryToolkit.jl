@@ -47,3 +47,47 @@ index); the type argument leads, as in `rand(T, …)`.
     end
     return u1, r
 end
+
+"""
+    square_rule(x, w) -> (nodes::Vector{SVector{2, Float64}}, weights::Vector{Float64})
+
+The tensor-product rule over a square of a one-dimensional rule (nodes `x`,
+weights `w`, e.g. QuadGK's `gauss(n)` or [`gauss_hermite_prob`](@ref)): node
+`(x[i], x[j])` with weight `w[i]·w[j]`, the first coordinate fastest. The
+weights sum to the square of the 1-D rule's sum; it integrates exactly the
+products of the polynomials the 1-D rule integrates exactly.
+"""
+function square_rule(x::AbstractVector, w::AbstractVector)
+    length(x) == length(w) || throw(DimensionMismatch("square_rule: $(length(x)) nodes, $(length(w)) weights"))
+    n = length(x)
+    nodes = SVector{2, Float64}[]; weights = Float64[]
+    for j in 1:n, i in 1:n
+        push!(nodes, SVector{2, Float64}(x[i], x[j]))
+        push!(weights, w[i] * w[j])
+    end
+    return nodes, weights
+end
+
+"""
+    unit_disc_rule(n_ρ, n_φ) -> (nodes::Vector{SVector{2, Float64}}, weights::Vector{Float64})
+
+The polar product rule over the unit disc `‖x‖ ≤ 1`: Gauss–Legendre in the
+radius `ρ ∈ [0, 1]` (`n_ρ` nodes, QuadGK's `gauss` mapped from [−1, 1]) times
+`n_φ` equally spaced angles `φ_j = 2π(j − ½)/n_φ`; node `(ρ cos φ, ρ sin φ)`
+with weight `ρ·w_ρ·2π/n_φ` (the polar area element), radius-major (node
+`(k − 1)·n_φ + j`). The weights sum to π, the disc's area: `Σ wᵢ f(xᵢ)`
+approximates `∫ f` over the disc, exactly for `ρ^a cos(mφ), ρ^a sin(mφ)` with
+`a + 1 ≤ 2n_ρ − 1` and `|m| < n_φ`.
+"""
+function unit_disc_rule(n_ρ::Integer, n_φ::Integer)
+    (n_ρ >= 1 && n_φ >= 1) || throw(ArgumentError("unit_disc_rule: n_ρ, n_φ ≥ 1, got $(n_ρ), $(n_φ)"))
+    x, w = gauss(n_ρ)
+    ρ = (x .+ 1) ./ 2; wρ = w ./ 2                    # [−1, 1] → [0, 1]
+    φ = [2π * (j - 0.5) / n_φ for j in 1:n_φ]
+    nodes = SVector{2, Float64}[]; weights = Float64[]
+    for k in 1:n_ρ, j in 1:n_φ
+        push!(nodes, SVector{2, Float64}(ρ[k] * cos(φ[j]), ρ[k] * sin(φ[j])))
+        push!(weights, ρ[k] * wρ[k] * 2π / n_φ)
+    end
+    return nodes, weights
+end

@@ -230,14 +230,54 @@ model's parameter Jacobian of its action on `x` through the chart: the lens's
 (ForwardDiff).
 
 [`LensManifold`](@ref) is its name for a lens.
+
+# A solver's box
+`ParameterManifold(x; box)` adds an optimizer's search box — the solver
+option `parameter_bounds` leaves out (a prior range such as a focal length
+between 0.1 and 50, not a model fact): a `NamedTuple` of `(lo, hi)` intervals
+keyed by [`parameter_names`](@ref), a name not listed unboxed. The box is
+intersected with the domain and acts at the step: [`recenter`](@ref)
+clamps the stepped parameters into it, so an NLLSsolver variable on the
+manifold (or a [`restrict`](@ref)ion of it) never leaves it; `retract` is the
+chart's alone. The anchor is taken as given. [`parameter_box`](@ref) reads
+the intersected box.
 """
-struct ParameterManifold{M} <: Manifold
+struct ParameterManifold{M, B <: Union{Nothing, Tuple{SVector, SVector}}} <: Manifold
     model::M
-    ParameterManifold{M}(x::M) where {M} = new{M}(x)
+    box::B
+    ParameterManifold{M, B}(x::M, box::B) where {M, B} = new{M, B}(x, box)
 end
-function ParameterManifold(x)
+ParameterManifold(x; box::Union{Nothing, NamedTuple} = nothing) = _parameter_manifold(x, _resolved_box(x, box))
+function _parameter_manifold(x, box)
     _check_bounds(x)
-    return ParameterManifold{typeof(x)}(_interior(x))
+    return ParameterManifold{typeof(x), typeof(box)}(_interior(x), box)
+end
+
+"""
+    parameter_box(ch::ParameterManifold) -> (lo::SVector{N, Float64}, hi::SVector{N, Float64}) or nothing
+
+The search box of a [`ParameterManifold`](@ref) built with `box`, entry by
+entry over [`parameter_vector`](@ref) and intersected with the model's
+[`parameter_bounds`](@ref) (an entry the box does not name is its domain);
+`nothing` for a manifold without one.
+"""
+parameter_box(ch::ParameterManifold) = ch.box
+
+# The box by name → per coordinate, within the domain.
+_resolved_box(x, ::Nothing) = nothing
+function _resolved_box(x, box::NamedTuple)
+    names = parameter_names(x)
+    for k in keys(box)
+        k in names || throw(
+            ArgumentError("ParameterManifold: the box names $(repr(k)); the model's parameters are $(join(String.(names), ", "))")
+        )
+    end
+    dlo, dhi = parameter_bounds(x)
+    N = length(names)
+    lo = SVector{N, Float64}(ntuple(i -> haskey(box, names[i]) ? max(Float64(box[names[i]][1]), Float64(dlo[i])) : Float64(dlo[i]), Val(N)))
+    hi = SVector{N, Float64}(ntuple(i -> haskey(box, names[i]) ? min(Float64(box[names[i]][2]), Float64(dhi[i])) : Float64(dhi[i]), Val(N)))
+    all(lo .<= hi) || throw(ArgumentError("ParameterManifold: the box is empty within the model's parameter_bounds for $(join(String.(names[findall(lo .> hi)]), ", "))"))
+    return (lo, hi)
 end
 
 """
@@ -344,7 +384,16 @@ function retract(ch::ParameterManifold, v)
     lo, hi = parameter_bounds(ch.model)
     return _rebuild(ch.model, map(_bounded_value, θ0, v, lo, hi))
 end
-recenter(ch::ParameterManifold, v) = ParameterManifold(retract(ch, v))
+recenter(ch::ParameterManifold{M, Nothing}, v) where {M} = ParameterManifold(retract(ch, v))
+# with a box: the stepped model, then its parameters clamped into the box (rebuilt only when one moved)
+function recenter(ch::ParameterManifold, v)
+    m = _interior(retract(ch, v))
+    θ = parameter_vector(m)
+    lo, hi = ch.box
+    T = eltype(θ)
+    θc = map((t, a, b) -> clamp(t, T(a), T(b)), θ, lo, hi)
+    return _parameter_manifold(θc == θ ? m : _rebuild(m, θc), ch.box)
+end
 function retract_jacobian(ch::ParameterManifold)
     n = tangent_size(ch)
     _has_bound(ch.model) || return SMatrix{n, n, Float64}(LinearAlgebra.I)

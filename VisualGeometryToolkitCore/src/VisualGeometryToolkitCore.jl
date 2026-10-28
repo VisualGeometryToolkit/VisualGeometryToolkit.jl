@@ -297,6 +297,7 @@ public radial_part      # a lens's radially symmetric part (shared with VisualGe
 export parameter_vector, parameter_names, parameter_bounds, with_parameters  # the lens parameter chart
 public convert_eltype                     # a camera, lens or intrinsics rebuilt in another float type
 public ParameterManifold, LensManifold    # a parametric model's Manifold, inside its parameter_bounds (minimal_manifold(lens or camera)); restrict it to the free coefficients
+public parameter_box                      # a ParameterManifold's solver search box (`box` keyword), within parameter_bounds
 export CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models
 export default_generic_grid  # the grid model's window interface (0.22.2)
 public spline_support, spline_weights, window_controls, window_indices, direction_tangents

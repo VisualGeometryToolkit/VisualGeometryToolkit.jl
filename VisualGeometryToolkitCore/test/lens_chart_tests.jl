@@ -409,3 +409,47 @@ end
         end
     end
 end
+
+# A solver's search box on the parameter manifold (`ParameterManifold(x; box)`): keyed by the parameter names, within the domain,
+# applied at the step (recenter), kept by restrict and by the manifold's NLLSsolver variable.
+@testitem "ParameterManifold: a solver's box by name, applied at the step" begin
+    using Test, StaticArrays
+    import NLLSsolver
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: ParameterManifold, parameter_box, retract, recenter, restrict, model, parameters, tangent_size
+
+    K = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(1.2, 0, 0, 0, 1.8, 0, 0.01, -0.02, 1)))   # a chart camera
+    cam = CameraModel(K, Lens(DoubleSphere(-0.2, 0.6)))
+    names = parameter_names(cam)                                                     # f, aspect, skew, cx, cy, xi, alpha
+    box = (; f = (0.1, 50.0), aspect = (0.1, 10.0), cx = (-0.3, 0.3), xi = (-0.95, 1.5), alpha = (-1.0e3, 1.0e3))
+    ch = ParameterManifold(cam; box)
+
+    @testset "the box by name, intersected with the domain; unnamed parameters keep their domain" begin
+        lo, hi = parameter_box(ch)
+        @test lo == SVector(0.1, 0.1, -Inf, -0.3, -Inf, -0.95, 0.0) && hi == SVector(50.0, 10.0, Inf, 0.3, Inf, 1.5, 1.0)
+        @test parameter_box(ParameterManifold(cam)) === nothing
+        @test model(ch) == model(ParameterManifold(cam))                                # the anchor as given
+        @test_throws ArgumentError ParameterManifold(cam; box = (; nope = (0.0, 1.0)))
+        @test_throws ArgumentError ParameterManifold(cam; box = (; alpha = (2.0, 3.0)))   # empty within α ∈ [0, 1]
+    end
+
+    @testset "a step inside the box is the unboxed step, bit for bit; one past it lands on the face" begin
+        v = SVector(0.01, -0.02, 0.0, 0.003, 0.004, 0.01, -0.05)
+        @test model(recenter(ch, v)) == model(recenter(ParameterManifold(cam), v))
+        big = SVector(10.0, 0.0, 0.0, 1.0, 0.0, -50.0, 0.0)                          # f × e¹⁰, cx + 1, ξ toward −1
+        p = parameters(model(recenter(ch, big)))
+        @test p.f == 50.0 && p.cx == 0.3 && p.xi == -0.95 && p.cy == -0.02
+        q = parameters(retract(ch, big))                                              # the chart alone: the domain only
+        @test q.f > 50.0 && q.cx > 0.3 && -1.0 <= q.xi < -0.95
+        @test parameter_box(recenter(ch, big)) == parameter_box(ch)                    # the box travels with the anchor
+    end
+
+    @testset "restrict keeps the box; the manifold as an NLLSsolver variable steps inside it" begin
+        r = restrict(ch, (:f, :cx, :cy, :xi, :alpha))
+        @test tangent_size(r) == 5
+        u = [0.0, 0.0, 0.0, 0.0, 5.0, 0.0, 0.0, 0.0, 0.0]                            # from index 4 (f, cx, cy, ξ, α): cx + 5
+        n = NLLSsolver.update(r, u, 4)
+        @test parameters(model(n)).cx == 0.3 && n == recenter(r, SVector(0.0, 5.0, 0.0, 0.0, 0.0))
+        @test parameter_vector(model(NLLSsolver.update(r, zeros(5)))) ≈ parameter_vector(model(r)) rtol = 1.0e-15   # a zero step: the chart's round trip
+    end
+end

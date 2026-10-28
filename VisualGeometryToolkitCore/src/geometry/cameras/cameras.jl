@@ -386,11 +386,11 @@ end
 # split no longer denotes anything.
 
 # ============================================================================
-# BoundedCamera{C} — wrap any AbstractCamera with pixel-space image bounds
+# BoundedCamera{C, S} — wrap any AbstractCamera with pixel-space image bounds
 # ============================================================================
 
 """
-    BoundedCamera{C<:AbstractCamera} <: AbstractCamera
+    BoundedCamera{C<:AbstractCamera, S} <: AbstractCamera
 
 A wrapper around any `AbstractCamera` that adds pixel-space image bounds
 (width × height) without disturbing the underlying camera's intrinsics or
@@ -426,6 +426,14 @@ projection verbs are forwarded to the wrapped `camera`, so
 `bounds_trait(::BoundedCamera) = HasBounds()` — methods that need image
 extent dispatch on `BoundsTrait`.  See `extent(::BoundedCamera) = bc.extent`.
 
+# A device kernel's camera
+The bound's kind is the type parameter `S` (`Nothing` for an extent, the
+stored `Sensor` type for a sensor), so a bounded camera is `isbits` whenever
+the wrapped camera is (a `CameraModel` of an isbits lens): it travels into a
+GPU kernel as it is, its `backproject`/`project` the wrapped camera's.
+[`convert_eltype`](@ref)`(Float32, bc)` converts the wrapped camera and keeps
+the bound.
+
 # Example
 ```julia
 inner = PosedCamera(CameraModel(K; lens=Pinhole()), pose)
@@ -435,20 +443,21 @@ bc.extent          # Size2(6048, 4032) — direct field
 extent(bc)         # same, via trait-dispatched accessor
 ```
 """
-struct BoundedCamera{C <: AbstractCamera} <: AbstractCamera
+struct BoundedCamera{C <: AbstractCamera, S <: Union{Nothing, Sensor{BaseQuantity, BaseQuantity}}} <: AbstractCamera
     camera::C
     extent::Size2{Int}
-    sensor::Union{Nothing, Sensor{BaseQuantity, BaseQuantity}}   # the Sensor's stored form (sensors.jl)
+    sensor::S                  # nothing, or the Sensor's stored form (sensors.jl): a type parameter, so the struct is isbits with its camera
 end
 
 # The bound is a pixel extent, or the physical sensor whose resolution is that
 # extent. The extent field is kept in both forms, so `bc.extent` and `extent(bc)`
 # read the same `Size2{Int}` whichever bound was supplied.
 BoundedCamera(camera::C, extent::Size2) where {C <: AbstractCamera} =
-    BoundedCamera{C}(camera, convert(Size2{Int}, extent), nothing)
+    BoundedCamera{C, Nothing}(camera, convert(Size2{Int}, extent), nothing)
 function BoundedCamera(camera::C, s::Sensor) where {C <: AbstractCamera}
     r = Rect(s)
-    return BoundedCamera{C}(camera, Size2(r.widths[1], r.widths[2]), Sensor(s.resolution, s.pitch))
+    st = Sensor(s.resolution, s.pitch)
+    return BoundedCamera{C, typeof(st)}(camera, Size2(r.widths[1], r.widths[2]), st)
 end
 
 """
@@ -464,7 +473,9 @@ sensor(bc::BoundedCamera) = bc.sensor
 
 # The same bound around another camera: what a rebuild of the wrapped camera
 # (new extrinsics, new model, a unit change) keeps.
-_rebound(bc::BoundedCamera, camera::C) where {C <: AbstractCamera} = BoundedCamera{C}(camera, bc.extent, bc.sensor)
+_rebound(bc::BoundedCamera{<:Any, S}, camera::C) where {C <: AbstractCamera, S} = BoundedCamera{C, S}(camera, bc.extent, bc.sensor)
+# a bounded camera in another element type: the wrapped camera converted, the bound kept (a device kernel's Float32 camera)
+convert_eltype(::Type{T}, bc::BoundedCamera) where {T <: AbstractFloat} = _rebound(bc, convert_eltype(T, bc.camera))
 
 # Trait opt-in — instance form (matches VGC convention: see has_boundary(::Ellipse) etc.)
 bounds_trait(::BoundedCamera) = HasBounds()
@@ -915,6 +926,7 @@ export zhang_intrinsics                # Zhang IAC regression from plane homogra
 export AbstractLensModel
 export ParameterManifold, LensManifold    # a parametric model's Manifold (inside its parameter_bounds); its name for a lens
 export parameter_box                      # its solver search box (public, not exported, at the top level)
+export coordinate_scale                   # its coordinate scales (public, not exported, at the top level)
 export Pinhole                         # Ideal perspective (no distortion)
 export Lens, LiftLens, Division, KannalaBrandt, radial_ratio   # the two lens kinds and the named models
 export Scaramuzza                      # Scaramuzza's omnidirectional polynomial lift (MATLAB fisheyeIntrinsics)

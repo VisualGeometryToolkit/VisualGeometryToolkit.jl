@@ -583,3 +583,12 @@ end
     tu = PlanarTarget([SVector(0.0, 0.0), SVector(250.0, 180.0)]; canvas = cu)
     @test canvas(tu) === cu && !has_units(tu)
 end
+
+@testitem "grid_nodes over a rect" begin
+    using Test, StaticArrays
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: grid_nodes
+    n = grid_nodes(5, Rect(0, 0, 640, 480))
+    @test length(n) == 25 && n[1] == SVector(0.0, 0.0) && n[5] == SVector(640.0, 0.0) && n[21] == SVector(0.0, 480.0) && n[13] == SVector(320.0, 240.0)
+    @test grid_nodes(3, Rect(-0.5, -0.5, 1.0, 1.0)) == grid_nodes(3)
+end

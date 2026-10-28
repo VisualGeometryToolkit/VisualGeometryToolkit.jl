@@ -453,3 +453,41 @@ end
         @test parameter_vector(model(NLLSsolver.update(r, zeros(5)))) ≈ parameter_vector(model(r)) rtol = 1.0e-15   # a zero step: the chart's round trip
     end
 end
+
+# A coordinate's scale (`ParameterManifold(x; scale)`): the coordinate v moves the chart by s·v. A pixel camera of a W × H image with
+# the principal point (and the skew) scaled by the image size steps exactly like the camera of the normalized image [−½, ½]²: its
+# action Jacobian is the normalized camera's, times (W, H) on the projected point.
+@testitem "ParameterManifold: a coordinate's scale" begin
+    using Test, StaticArrays, LinearAlgebra
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: ParameterManifold, coordinate_scale, retract, recenter, restrict, model, parameters,
+                                     retract_jacobian, action_jacobian, local_coordinates
+    W, H = 640, 480
+    lens = KannalaBrandt(-0.03, 0.002, 0.0005, -0.0001)
+    Kp = SMatrix{3, 3, Float64}(310.0, 0, 0, 0.4, 312.0, 0, 322.0, 236.0, 1)                  # pixels (a small skew)
+    N = SMatrix{3, 3, Float64}(1 / W, 0, 0, 0, 1 / H, 0, -0.5, -0.5, 1)                         # pixels → the normalized image
+    cam_px = CameraModel(LogicalIntrinsics(CameraCalibrationMat(Kp)), lens)
+    cam_n = CameraModel(LogicalIntrinsics(CameraCalibrationMat(N * Kp)), lens)
+    scale = (; skew = W, cx = W, cy = H)
+    ch = ParameterManifold(cam_px; scale)
+    @test coordinate_scale(ch) == SVector(1.0, 1.0, W, W, H, 1.0, 1.0, 1.0, 1.0) && coordinate_scale(ParameterManifold(cam_px)) === nothing
+    @test_throws ArgumentError ParameterManifold(cam_px; scale = (; nope = 2.0))
+    @test_throws ArgumentError ParameterManifold(cam_px; scale = (; cx = 0.0))
+    # the coordinate v is the unscaled chart's coordinate s·v
+    v = SVector(0.01, -0.02, 1.0e-4, 0.003, -0.002, 0.01, 0.0, -0.001, 0.0)
+    @test model(recenter(ch, v)) == model(recenter(ParameterManifold(cam_px), coordinate_scale(ch) .* v))
+    @test local_coordinates(ch, retract(ch, v)) ≈ v rtol = 1.0e-12
+    @test coordinate_scale(recenter(ch, v)) == coordinate_scale(ch)                           # the scale travels with the anchor
+    @test coordinate_scale(recenter(ParameterManifold(cam_px; box = (; f = (10.0, 1.0e4)), scale), v)) == coordinate_scale(ch)
+    @test retract_jacobian(ch) ≈ retract_jacobian(ParameterManifold(cam_px)) * Diagonal(coordinate_scale(ch))
+    @test retract_jacobian(ch, v) ≈ retract_jacobian(ParameterManifold(cam_px), coordinate_scale(ch) .* v) * Diagonal(coordinate_scale(ch))
+    # the pixel camera with the image-size scale is the normalized camera's chart, column for column
+    for X in (SVector(0.1, -0.2, 1.0), SVector(-0.8, 0.5, 0.6), SVector(1.5, 0.3, 0.4))
+        Jp = action_jacobian(ch, X)
+        Jn = action_jacobian(ParameterManifold(cam_n), X)
+        @test Jp ≈ Diagonal(SVector(W, H)) * Jn rtol = 1.0e-10
+    end
+    # restrict keeps it
+    r = restrict(ch, (:f, :cx, :cy, :k1))
+    @test coordinate_scale(r.manifold) == coordinate_scale(ch)
+end

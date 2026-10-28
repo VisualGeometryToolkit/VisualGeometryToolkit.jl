@@ -41,3 +41,21 @@
         @test extent(ustrip(mm, bu)) == Size2(2448, 2048)
     end
 end
+
+# The bound's kind is a type parameter: a bounded camera of an isbits camera model is itself isbits — a device kernel takes it as it
+# is — and `convert_eltype` converts the wrapped camera, keeping the bound.
+@testitem "sensor bound: isbits, convert_eltype" begin
+    using Test
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: model, convert_eltype
+    using StaticArrays
+    K = @SMatrix [930.0 0.0 1224.0; 0.0 930.0 1024.0; 0.0 0.0 1.0]
+    cm = CameraModel(LogicalIntrinsics(CameraCalibrationMat(K)), KannalaBrandt(-0.04, 0.0004, 0.0002, -0.00008))
+    s = CMOS_SENSORS["Sony"]["IMX250"]
+    for bc in (BoundedCamera(cm, s), BoundedCamera(cm, Size2(2448, 2048)))
+        @test isbits(bc)
+        b32 = convert_eltype(Float32, bc)
+        @test isbits(b32) && eltype(calibration_matrix(b32)) === Float32 && extent(b32) == extent(bc) && sensor(b32) == sensor(bc)
+        @test backproject(b32, SVector(1500.0f0, 900.0f0)) ≈ backproject(bc, SVector(1500.0, 900.0)) rtol = 1.0e-5
+    end
+end

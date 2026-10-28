@@ -241,17 +241,59 @@ clamps the stepped parameters into it, so an NLLSsolver variable on the
 manifold (or a [`restrict`](@ref)ion of it) never leaves it; `retract` is the
 chart's alone. The anchor is taken as given. [`parameter_box`](@ref) reads
 the intersected box.
+
+# A coordinate's scale
+`ParameterManifold(x; scale)` scales coordinates — a `NamedTuple` of positive
+factors keyed by [`parameter_names`](@ref), a name not listed `1`: the
+coordinate `v` of a parameter with scale `s` moves its chart by `s·v`
+(`t = t₀ + s·v` unbounded, `t = a + (t₀ − a)·exp(s·v)` bounded below, …), so
+`retract_jacobian` carries the factor and `local_coordinates` divides by it.
+The manifold is the same set; only the units of its coordinates change. An
+optimizer that damps every coordinate alike (`λ·I`) needs them comparable: a
+pixel camera's principal point (pixels, with `scale = (; cx = W, cy = H)` one
+coordinate per image width) next to its log-charted focal length and its
+unit-free lens coefficients. [`coordinate_scale`](@ref) reads it.
 """
-struct ParameterManifold{M, B <: Union{Nothing, Tuple{SVector, SVector}}} <: Manifold
+struct ParameterManifold{M, B <: Union{Nothing, Tuple{SVector, SVector}}, S <: Union{Nothing, SVector}} <: Manifold
     model::M
     box::B
-    ParameterManifold{M, B}(x::M, box::B) where {M, B} = new{M, B}(x, box)
+    scale::S
+    ParameterManifold{M, B, S}(x::M, box::B, scale::S) where {M, B, S} = new{M, B, S}(x, box, scale)
 end
-ParameterManifold(x; box::Union{Nothing, NamedTuple} = nothing) = _parameter_manifold(x, _resolved_box(x, box))
-function _parameter_manifold(x, box)
+ParameterManifold(x; box::Union{Nothing, NamedTuple} = nothing, scale::Union{Nothing, NamedTuple} = nothing) =
+    _parameter_manifold(x, _resolved_box(x, box), _resolved_scale(x, scale))
+function _parameter_manifold(x, box, scale = nothing)
     _check_bounds(x)
-    return ParameterManifold{typeof(x), typeof(box)}(_interior(x), box)
+    return ParameterManifold{typeof(x), typeof(box), typeof(scale)}(_interior(x), box, scale)
 end
+
+"""
+    coordinate_scale(ch::ParameterManifold) -> SVector{N, Float64} or nothing
+
+The coordinate scales of a [`ParameterManifold`](@ref) built with `scale`,
+entry by entry over [`parameter_vector`](@ref) (`1` for a name the scale does
+not list); `nothing` for a manifold without one (every scale `1`).
+"""
+coordinate_scale(ch::ParameterManifold) = ch.scale
+
+# The scale by name → per coordinate (positive, finite).
+_resolved_scale(x, ::Nothing) = nothing
+function _resolved_scale(x, scale::NamedTuple)
+    names = parameter_names(x)
+    for k in keys(scale)
+        k in names || throw(
+            ArgumentError("ParameterManifold: the scale names $(repr(k)); the model's parameters are $(join(String.(names), ", "))")
+        )
+        (isfinite(scale[k]) && scale[k] > 0) || throw(ArgumentError("ParameterManifold: the scale of $(repr(k)) is $(scale[k]), not a positive number"))
+    end
+    N = length(names)
+    return SVector{N, Float64}(ntuple(i -> haskey(scale, names[i]) ? Float64(scale[names[i]]) : 1.0, Val(N)))
+end
+# A coordinate vector in chart offsets (× the scale), and back.
+@inline _scaled_offsets(::Nothing, v) = v
+@inline _scaled_offsets(s::SVector, v) = map(*, s, v)
+@inline _unscaled_offsets(::Nothing, d) = d
+@inline _unscaled_offsets(s::SVector, d) = map(/, d, s)
 
 """
     parameter_box(ch::ParameterManifold) -> (lo::SVector{N, Float64}, hi::SVector{N, Float64}) or nothing
@@ -380,11 +422,12 @@ tangent_size(ch::ParameterManifold) = length(parameter_vector(ch.model))
 model(ch::ParameterManifold) = ch.model
 function retract(ch::ParameterManifold, v)
     θ0 = parameter_vector(ch.model)
-    _has_bound(ch.model) || return _rebuild(ch.model, θ0 + v)
+    d = _scaled_offsets(ch.scale, v)
+    _has_bound(ch.model) || return _rebuild(ch.model, θ0 + d)
     lo, hi = parameter_bounds(ch.model)
-    return _rebuild(ch.model, map(_bounded_value, θ0, v, lo, hi))
+    return _rebuild(ch.model, map(_bounded_value, θ0, d, lo, hi))
 end
-recenter(ch::ParameterManifold{M, Nothing}, v) where {M} = ParameterManifold(retract(ch, v))
+recenter(ch::ParameterManifold{M, Nothing}, v) where {M} = _parameter_manifold(retract(ch, v), nothing, ch.scale)
 # with a box: the stepped model, then its parameters clamped into the box (rebuilt only when one moved)
 function recenter(ch::ParameterManifold, v)
     m = _interior(retract(ch, v))
@@ -392,26 +435,29 @@ function recenter(ch::ParameterManifold, v)
     lo, hi = ch.box
     T = eltype(θ)
     θc = map((t, a, b) -> clamp(t, T(a), T(b)), θ, lo, hi)
-    return _parameter_manifold(θc == θ ? m : _rebuild(m, θc), ch.box)
+    return _parameter_manifold(θc == θ ? m : _rebuild(m, θc), ch.box, ch.scale)
 end
 function retract_jacobian(ch::ParameterManifold)
     n = tangent_size(ch)
-    _has_bound(ch.model) || return SMatrix{n, n, Float64}(LinearAlgebra.I)
+    if !_has_bound(ch.model)
+        ch.scale === nothing && return SMatrix{n, n, Float64}(LinearAlgebra.I)
+        return SMatrix{n, n, Float64}(LinearAlgebra.Diagonal(ch.scale))
+    end
     θ = parameter_vector(ch.model)
     lo, hi = parameter_bounds(ch.model)
-    d = map((t, a, b) -> Float64(_bounded_slope_at_anchor(t, a, b)), θ, lo, hi)
+    d = _scaled_offsets(ch.scale, map((t, a, b) -> Float64(_bounded_slope_at_anchor(t, a, b)), θ, lo, hi))
     return SMatrix{n, n, Float64}(LinearAlgebra.Diagonal(d))
 end
-# at coordinates v the slope is the chart's there
+# at coordinates v the slope is the chart's there (times the scale)
 function retract_jacobian(ch::ParameterManifold, v::StaticVector)
     _has_bound(ch.model) || return retract_jacobian(ch)     # the chart is linear: constant differential
     n = tangent_size(ch)
     θ = parameter_vector(ch.model)
     lo, hi = parameter_bounds(ch.model)
-    return SMatrix{n, n}(LinearAlgebra.Diagonal(map(_bounded_slope, θ, v, lo, hi)))
+    return SMatrix{n, n}(LinearAlgebra.Diagonal(_scaled_offsets(ch.scale, map(_bounded_slope, θ, _scaled_offsets(ch.scale, v), lo, hi))))
 end
 action_jacobian(ch::ParameterManifold, x) =
-    _has_bound(ch.model) ? _parameter_jacobian(ch.model, x) * retract_jacobian(ch) : _parameter_jacobian(ch.model, x)
+    (_has_bound(ch.model) || ch.scale !== nothing) ? _parameter_jacobian(ch.model, x) * retract_jacobian(ch) : _parameter_jacobian(ch.model, x)
 # The model's own parameter Jacobian of its action: a lens's closed-form route,
 # a camera's ForwardDiff through `project`.
 _parameter_jacobian(l::AbstractLensModel, x) = transform_deriv_params(l, x)
@@ -424,9 +470,9 @@ function local_coordinates(ch::ParameterManifold, x::_ParametricModel)
         ArgumentError("local_coordinates: a $(_structure_name(x)) is not on the manifold of $(_structure_name(ch.model))")
     )
     θ, θ0 = parameter_vector(x), parameter_vector(ch.model)
-    _has_bound(x) || return θ - θ0
+    _has_bound(x) || return _unscaled_offsets(ch.scale, θ - θ0)
     lo, hi = parameter_bounds(ch.model)
-    return map(_bounded_offset, θ, θ0, lo, hi)
+    return _unscaled_offsets(ch.scale, map(_bounded_offset, θ, θ0, lo, hi))
 end
 local_coordinates(rc::SubsetManifold{<:ParameterManifold}, x::_ParametricModel) = local_coordinates(rc.manifold, x)[rc.idx]
 

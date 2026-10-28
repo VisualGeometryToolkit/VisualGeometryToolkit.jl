@@ -81,15 +81,21 @@ end
 
 """
     grid_nodes(n; lo = -0.5, hi = 0.5) -> Vector{SVector{2, Float64}}
+    grid_nodes(n, r::Rect) -> Vector{SVector{2, Float64}}
 
-The `n × n` equally spaced nodes over the square `[lo, hi]²`, column-major
-(`x` fastest). The default square `[-½, ½]²` is RadiometricCamera's SENSOR
-chart (its focus surface); a spline over another domain — a target's chart,
-say — supplies its own `lo` and `hi`.
+The `n × n` equally spaced nodes over the square `[lo, hi]²`, or over the
+rectangle `r` (its corners included: a sensor's `Rect(sensor)` in pixels),
+column-major (`x` fastest).
 """
 function grid_nodes(n::Integer; lo::Real = -0.5, hi::Real = 0.5)
     g = range(lo, hi; length = n)
     return [SVector(float(g[i]), float(g[j])) for j in 1:n for i in 1:n]
+end
+function grid_nodes(n::Integer, r::Rect{2})
+    o, w = r.origin, r.widths
+    gx = range(Float64(o[1]), Float64(o[1] + w[1]); length = n)
+    gy = range(Float64(o[2]), Float64(o[2] + w[2]); length = n)
+    return [SVector(gx[i], gy[j]) for j in 1:n for i in 1:n]
 end
 
 """

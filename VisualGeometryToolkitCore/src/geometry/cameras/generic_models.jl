@@ -711,12 +711,17 @@ end
 
 The reference's orthonormal tangent basis of the unit direction `d` — the
 2-dof chart a grid control moves in (`normalize(d + δ₁t1 + δ₂t2)`), and the
-plane a direction residual is measured in.
+plane a direction residual is measured in. Generic in the element type: the
+basis is in `d`'s type (a `Float32` direction gives `Float32` tangents, a
+`ForwardDiff.Dual` direction dual tangents), so a device kernel or a
+differentiated residual is never promoted.
 """
 @inline function direction_tangents(d)
-    axis = abs(d[1]) > 0.9 ? SVector(0.0, 1.0, 0.0) : SVector(1.0, 0.0, 0.0)
-    t1 = normalize(cross(SVector{3}(d), axis))
-    t2 = cross(SVector{3}(d), t1)
+    v = SVector{3}(d)
+    o, z = one(eltype(v)), zero(eltype(v))
+    axis = abs(v[1]) > 9 * o / 10 ? SVector(z, o, z) : SVector(o, z, z)
+    t1 = normalize(cross(v, axis))
+    t2 = cross(v, t1)
     return t1, t2
 end
 

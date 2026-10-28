@@ -11,6 +11,7 @@
     using LinearAlgebra: norm, normalize, dot
     using Random: MersenneTwister
     using BSplineKit: BSplineBasis, BSplineOrder, Spline
+    using ForwardDiff: ForwardDiff
 
     # =============================================================================
     # Generic camera models (Schöps et al. CVPR 2020) — the grid models
@@ -254,6 +255,23 @@
         @test spline_support(g, SVector(-5.0, 10.0)) === nothing
         t1, t2 = direction_tangents(SVector(0.0, 0.0, 1.0))
         @test norm(t1) ≈ 1 && norm(t2) ≈ 1 && abs(dot(t1, t2)) < 1.0e-12 && abs(dot(t1, SVector(0.0, 0.0, 1.0))) < 1.0e-12
+        # the basis keeps the direction's element type: Float32 stays Float32 (a device kernel is not promoted), and a dual
+        # direction gives dual tangents whose derivative is the derivative of the basis (central differences, off the branch switch)
+        d32 = normalize(SVector(0.3f0, -0.2f0, 0.9f0))
+        f1, f2 = direction_tangents(d32)
+        @test eltype(f1) === Float32 && eltype(f2) === Float32
+        @test abs(dot(f1, f2)) < 1.0f-6 && abs(dot(f1, d32)) < 1.0f-6 && norm(f1) ≈ 1 && norm(f2) ≈ 1
+        for i in 1:3                                         # each branch at Float32, the same basis as at Float64
+            d = normalize(SVector(i == 1 ? 0.95 : 0.2, 0.1, 0.3))
+            g1, g2 = direction_tangents(Float32.(d))
+            h1, h2 = direction_tangents(d)
+            @test maximum(abs, g1 - h1) < 1.0f-6 && maximum(abs, g2 - h2) < 1.0f-6
+        end
+        dir(s) = normalize(SVector(0.3 + s, -0.2 + 2s, 0.9 - s))
+        J = ForwardDiff.derivative(s -> vcat(direction_tangents(dir(s))...), 0.0)
+        Jc = (vcat(direction_tangents(dir(1.0e-6))...) - vcat(direction_tangents(dir(-1.0e-6))...)) / 2.0e-6
+        @test eltype(direction_tangents(dir(ForwardDiff.Dual(0.0, 1.0)))[1]) <: ForwardDiff.Dual
+        @test maximum(abs, J - Jc) < 1.0e-8
     end
 
     @testset "projection through a degenerate grid fails, never throws" begin

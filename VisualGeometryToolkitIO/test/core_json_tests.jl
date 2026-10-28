@@ -127,7 +127,7 @@ end
 @testitem "quantity JSON: detections round trip, every frame type, all metadata" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitIO: MM_PX, json_value, from_json
     using VisualGeometryToolkitCore: Disc, OrientedDisc, EllipticFrame, AffineFrame, Point2, Attributed,
-        AbstractDetection, Uncertain, CovMat
+        AbstractDetection, Uncertain, CovMat, geom
     using Statistics: cov
     rt(d; kind = :plain) = from_json(AbstractDetection, JSON.parse(JSON.json(json_value(d, MM_PX; kind))), MM_PX; kind)
     meta = (response = 0.25, edge_score = 0.0, laplacian_scale_score = 1.0, warp_idx = 7)
@@ -156,14 +156,39 @@ end
     ru = rt(u)
     @test ru isa AbstractDetection && cov(getfield(ru, :value)) == cov(getfield(u, :value))
     n = Attributed(Uncertain(frames[1], CovMat{3, Float64, 9}(ntuple(_ -> NaN, 9))), meta)
-    @test occursin("\"cov\":null", JSON.json(json_value(n, MM_PX; kind = :plain)))
+    @test occursin("\"cov\":null,\"cov_size\":3", JSON.json(json_value(n, MM_PX; kind = :plain)))
     @test all(isnan, cov(getfield(rt(n), :value)))
-    # a null covariance comes back with its frame's size: the type round-trips
-    for (f, N) in zip(frames, (3, 4, 5, 6))
-        nu = Attributed(Uncertain(f, CovMat{N, Float64, N * N}(ntuple(_ -> NaN, N * N))), meta)
-        r = rt(nu)
-        @test typeof(r) == typeof(nu) && size(cov(getfield(r, :value))) == (N, N) && all(isnan, cov(getfield(r, :value)))
+    @test getfield(rt(n), :attributes) == meta                  # `cov_size` is not metadata
+    # the covariance's size is the VALUE's, not the frame's: every frame with
+    # every size round-trips type-exactly, finite and null
+    for f in frames, N in (3, 4, 5, 6)
+        fin = Attributed(Uncertain(f, CovMat{N, Float64, N * N}(Tuple(Float64(i) / 7 for i in 1:(N * N)))), meta)
+        nan = Attributed(Uncertain(f, CovMat{N, Float64, N * N}(ntuple(_ -> NaN, N * N))), meta)
+        rf, rn = rt(fin), rt(nan)
+        @test typeof(rf) == typeof(fin) && cov(getfield(rf, :value)) === cov(getfield(fin, :value))
+        @test typeof(rn) == typeof(nan) && all(isnan, cov(getfield(rn, :value)))
     end
+    # VisualGeometryToolkitFeatures' ASIFT output (`asift_detections(feats, covs)`):
+    # an EllipticFrame with a 3×3 covariance over (x, y, log σ), finite or not
+    Σa = CovMat{3, Float64, 9}(Tuple([0.04 0.002 0.001; 0.002 0.05 -0.003; 0.001 -0.003 0.0025]))
+    ameta = (response = -0.03, edge_score = 0.0, laplacian_scale_score = -1.0, warp_idx = 4)
+    a = Attributed(Uncertain(EllipticFrame([100.5, 50.5], [4.0 0.5; 0.5 3.0]), Σa), ameta)
+    ra = rt(a)
+    @test typeof(ra) == typeof(a) && geom(getfield(ra, :value)) == geom(getfield(a, :value)) &&
+        cov(getfield(ra, :value)) === Σa && getfield(ra, :attributes) == ameta
+    an = Attributed(Uncertain(EllipticFrame([100.5, 50.5], [4.0 0.5; 0.5 3.0]), CovMat{3, Float64, 9}(ntuple(_ -> NaN, 9))), ameta)
+    @test typeof(rt(an)) == typeof(an)
+    # an OrientedDisc's 4×4 covariance, NaN (written null) and finite
+    on = Attributed(Uncertain(frames[2], CovMat{4, Float64, 16}(ntuple(_ -> NaN, 16))), meta)
+    @test occursin("\"cov\":null,\"cov_size\":4", JSON.json(json_value(on, MM_PX; kind = :plain)))
+    @test typeof(rt(on)) == typeof(on) && size(cov(getfield(rt(on), :value))) == (4, 4)
+    # a `cov` that is no square matrix's entries, or disagrees with its size, is refused;
+    # IO v0.1.0's null without a size reads 3×3, as v0.1.0 read it
+    bad(c; extra...) = Dict{String, Any}("frame" => Dict("center" => [1.0, 2.0], "σ" => 3.0), "cov" => c, (String(k) => v for (k, v) in extra)...)
+    @test_throws ArgumentError from_json(AbstractDetection, bad(collect(1.0:8.0)), MM_PX; kind = :plain)
+    @test_throws ArgumentError from_json(AbstractDetection, bad(collect(1.0:9.0); cov_size = 4), MM_PX; kind = :plain)
+    @test_throws ArgumentError from_json(AbstractDetection, bad(nothing; cov_size = 0), MM_PX; kind = :plain)
+    @test size(cov(getfield(from_json(AbstractDetection, bad(nothing), MM_PX; kind = :plain), :value))) == (3, 3)
     # a length frame's covariance (m² in memory) is written in the declared unit squared, and read back to the same value
     L(x) = VisualGeometryToolkitIO.read_length(x, mm)
     Σmm = (0.25, 0.01, 0.0, 0.01, 0.16, -0.002, 0.0, -0.002, 0.0123)                 # mm², column order
@@ -174,8 +199,6 @@ end
     rl = from_json(AbstractDetection, JSON.parse(s), MM_PX; kind = :length)
     @test getfield(rl, :value) == getfield(ul, :value) && cov(getfield(rl, :value)) === cov(getfield(ul, :value))
     @test cov(getfield(rt(ul; kind = :length), :value)) == Σm
-    # a cov of another size than its frame's is refused
-    @test_throws ArgumentError from_json(AbstractDetection, JSON.parse("""{"frame":{"center":[1.0,2.0],"σ":3.0,"θ":0.5},"cov":[1.0,0.0,0.0,1.0]}"""), MM_PX; kind = :plain)
     # the wire format of a plain detection is the one stored files hold
     @test JSON.json(json_value(Attributed(Disc(10.5, 20.25, 3.0), meta), MM_PX; kind = :plain)) ==
         """{"frame":{"center":[10.5,20.25],"σ":3.0},"response":0.25,"edge_score":0.0,"laplacian_scale_score":1.0,"warp_idx":7}"""

@@ -75,8 +75,12 @@ one JSON object. Its frame is under `frame`, and every metadata field is under
 its own name; the frame's type is read off its keys. A detection with an
 `Uncertain` frame (from `uncertainty = FeatureCovariance()`) also has `cov`, the
 covariance's entries in column order, or `null` when the covariance is not
-finite (a keypoint the detector could not refine); reading it back makes the
-frame `Uncertain` again. On reading, the documented metadata fields
+finite (a keypoint the detector could not refine), written with the matrix's
+size N under `cov_size`; reading it back makes the frame `Uncertain` again,
+with the same N×N covariance. The size is the value's, not the frame's: an
+ASIFT `EllipticFrame` carries a 3×3 covariance over (x, y, log σ). A `null`
+without `cov_size` (IO v0.1.0's record) reads as 3×3, as v0.1.0 read it, and
+`cov_size` is not a metadata name. On reading, the documented metadata fields
 (`response`, `edge_score`, `laplacian_scale_score`) come first and as
 `Float64`, and the other fields follow, sorted by name, as they were parsed.
 Metadata has no declared kind, so a quantity in it is refused on writing.

@@ -196,7 +196,9 @@ S21, S12, S22]}`, column order), `AffineFrame` (`… "A": …`) and a detection 
 an `Attributed` feature frame, VisualGeometryToolkitCore's
 `AbstractDetection` — written as its frame under `frame`, an `Uncertain`
 frame's covariance entries (column order) under `cov` (`null` when not
-finite), and each metadata field under its own name.
+finite, with the matrix's size N under `cov_size`: the size is the value's, an
+ASIFT `EllipticFrame`'s covariance is 3×3), and each metadata field under its
+own name.
 
 `kind`, required, declares what the numbers of the value are — `:plain`
 (plain numbers), `:length` or `:pixel` — the same `kind` its reader gives
@@ -364,7 +366,10 @@ end
 
 # An uncertain frame writes its covariance as `cov`, the matrix's entries in
 # column order — or `null` when it is not finite (an unrefined keypoint's),
-# which JSON cannot hold. A frame of `kind = :length` (every parameter a
+# which JSON cannot hold, with the matrix's size N under `cov_size`. The size
+# is the VALUE's, not the frame type's: an ASIFT `EllipticFrame` carries a 3×3
+# covariance over (x, y, log σ) (VisualGeometryToolkitFeatures' `asift_detections`),
+# not one over its five frame parameters. A frame of `kind = :length` (every parameter a
 # length: a Disc's center and σ) holds its covariance in base units, m², and
 # writes it in the declared length unit squared, as it writes its center; any
 # other kind's entries are written as they are (pixels are dimensionless).
@@ -374,7 +379,8 @@ function json_value(d::Attributed{<:Uncertain{<:FeatureFrame, <:CovMat}}, contra
     u = getfield(d, :value)
     meta = _metadata_value(getfield(d, :attributes))
     Σ = cov(u)
-    c = all(isfinite, Σ) ? Float64[_cov_entry_json(Float64(x), contract, kind) for x in vec(Σ)] : nothing
+    all(isfinite, Σ) || return (frame = json_value(geom(u), contract; kind), cov = nothing, cov_size = size(Σ, 1), pairs(meta)...)
+    c = Float64[_cov_entry_json(Float64(x), contract, kind) for x in vec(Σ)]
     return (frame = json_value(geom(u), contract; kind), cov = c, pairs(meta)...)
 end
 
@@ -395,21 +401,32 @@ function from_json(::Type{<:AbstractDetection}, d::_JSONObject, contract::UnitCo
     # Every key but `frame` and `cov` is metadata: the documented fields first,
     # as Float64 (a writer may print 1.0 as 1), then the others sorted by name,
     # so the result does not depend on the key order of the input.
-    present = Symbol[Symbol(k) for k in _key_names(d) if k ∉ ("frame", "cov")]
+    present = Symbol[Symbol(k) for k in _key_names(d) if k ∉ ("frame", "cov", "cov_size")]
     names = (filter(in(present), collect(_FLOAT_METADATA))..., sort!(setdiff(present, _FLOAT_METADATA))...)
     vals = Tuple(n in _FLOAT_METADATA ? Float64(_get_key(d, String(n))) : _get_key(d, String(n)) for n in names)
     meta = NamedTuple{names}(vals)
     _has_key(d, "cov") || return Attributed(fr, meta)
     c = _get_key(d, "cov")
-    N = _cov_size(fr)
-    (c === nothing || length(c) == N * N) ||
-        throw(ArgumentError("a $(nameof(typeof(fr))) detection's `cov` has $(N * N) entries ($(N)×$(N)), got $(length(c))"))
+    N = _cov_size(c, d)
     Σ = c === nothing ? fill(NaN, N, N) : reshape(Float64[_cov_entry_from_json(x, contract, kind) for x in c], N, N)
     return Attributed(Uncertain(fr, CovMat{N, Float64, N * N}(Tuple(Σ))), meta)
 end
-# The size of a frame's covariance, its number of parameters — the frame's
-# type decides it, also for a `null` covariance, which states no size.
-_cov_size(::Disc) = 3            # center, σ
-_cov_size(::OrientedDisc) = 4    # center, σ, θ
-_cov_size(::EllipticFrame) = 5   # center, S (symmetric)
-_cov_size(::AffineFrame) = 6     # center, A
+# The size N of a detection's covariance is the value's, not the frame type's
+# (an ASIFT EllipticFrame's is 3×3): an N×N matrix's N² entries, or, for a
+# `null` covariance, the `cov_size` written with it. A `null` without a size
+# is IO v0.1.0's record, which v0.1.0 read as 3×3.
+function _cov_size(c, d::_JSONObject)
+    if c === nothing
+        _has_key(d, "cov_size") || return 3
+        N = _get_key(d, "cov_size")
+        (N isa Integer && N > 0) ||
+            throw(ArgumentError("a null `cov` states its size `cov_size` as a positive integer, got $(repr(N))"))
+        return Int(N)
+    end
+    N = isqrt(length(c))
+    N * N == length(c) && N > 0 ||
+        throw(ArgumentError("a detection's `cov` holds an N×N matrix's N² entries, got $(length(c))"))
+    _has_key(d, "cov_size") && _get_key(d, "cov_size") != N &&
+        throw(ArgumentError("a detection's `cov` has $(length(c)) entries, its `cov_size` says $(_get_key(d, "cov_size"))"))
+    return N
+end

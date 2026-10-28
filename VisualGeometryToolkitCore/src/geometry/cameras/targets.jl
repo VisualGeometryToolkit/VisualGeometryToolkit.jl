@@ -333,8 +333,12 @@ its star features in Schöps' feature order
 (`FeatureDetectorTaggedPattern::GetCorners`): the inner corners `(gx, gy)`,
 `gx ∈ 0:squares_x − 2`, `gy ∈ 0:squares_y − 2`, row by row (`gy` outer), the
 corners next to a tag left out (`IsValidFeatureCoord`: `x − 1 ≤ gx ≤ x − 1 +
-width` and `y − 1 ≤ gy ≤ y − 1 + height` for some tag), so feature id `k`
-(0-based, Schöps' and a `dataset.bin`'s) is point `k + 1`, at
+width` and `y − 1 ≤ gy ≤ y − 1 + height` for some tag), so for a YAML's
+first pattern (pattern index 0) feature id `k` (0-based, Schöps' and a
+`dataset.bin`'s) is point `k + 1`. `GetCorners` numbers the features of a
+YAML with several patterns across them, in order: pattern `i`'s feature id
+`k` is point `k + 1 − (n₀ + … + nᵢ₋₁)` of its own target, `nⱼ` the number of
+points of pattern `j`'s target. Each point is at
 
     square_length · (gx + 1, squares_y − 1 − gy)
 

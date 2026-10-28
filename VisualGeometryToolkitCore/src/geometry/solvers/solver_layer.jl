@@ -293,6 +293,45 @@ function solve(s::P3P, cs, idx::AbstractVector{<:Integer})
     return p3p(s.backend, x, X)
 end
 
+# --- Rotation2pt ---------------------------------------------------------------
+
+"""
+    Rotation2pt()
+
+Minimal 2-point rotation solver: the rotation `R` with `vᵢ ≈ R·uᵢ` from two
+pairs of **bearing vectors** (`StaticVector{3}`, any nonzero length — a
+direction is its unit vector) — the infinite homography of a calibrated
+camera under a pure rotation, or any two direction pairs. [`kabsch`](@ref) on
+the two unit pairs (`solve` verb); `sample_size` 2, `max_solutions` 1.
+
+The rotation is exact on two consistent pairs (the two bearings of a view
+span a plane, and their cross product completes the frame). A sample whose
+two bearings are parallel or antiparallel in either view (sine of their
+angle below `1e-12`) leaves a one-parameter family of rotations and returns
+`count == 0`. Two pairs whose angles differ (inconsistent with any rotation)
+still give the least-squares rotation; the residuals judge it.
+
+Deliberately NOT entered in the [`minimal_solvers`](@ref) registry: its
+correspondence type, bearing ↔ bearing, is [`Essential5pt`](@ref)'s too, and
+the registry answers one model per element-type pair.
+"""
+struct Rotation2pt <: MinimalSolver{RotMatrix{3, Float64, 9}} end
+sample_size(::Rotation2pt) = 2
+max_solutions(::Rotation2pt) = 1
+
+const _ROTATION2PT_PARALLEL = 1.0e-12
+
+function solve(::Rotation2pt, cs, idx::AbstractVector{<:Integer})
+    M = RotMatrix{3, Float64, 9}
+    u = sources(cs); v = targets(cs)
+    u1 = normalize(_bearing(@inbounds u[idx[1]])); u2 = normalize(_bearing(@inbounds u[idx[2]]))
+    v1 = normalize(_bearing(@inbounds v[idx[1]])); v2 = normalize(_bearing(@inbounds v[idx[2]]))
+    ok = all(isfinite, u1) && all(isfinite, u2) && all(isfinite, v1) && all(isfinite, v2) &&
+        norm(cross(u1, u2)) > _ROTATION2PT_PARALLEL && norm(cross(v1, v2)) > _ROTATION2PT_PARALLEL
+    ok || return FixedModels{1, M}(0, (one(M),))
+    return FixedModels{1, M}(1, (M(kabsch([u1 => v1, u2 => v2])),))
+end
+
 # -----------------------------------------------------------------------------
 # Induced-model registry
 # -----------------------------------------------------------------------------

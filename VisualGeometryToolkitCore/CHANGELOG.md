@@ -9,6 +9,9 @@ introduced them did not state them all.
   (`project` → `(λ, φ)` in radians, `backproject` → the unit direction), in
   the camera frame's axes: longitude 0 forward and +π/2 right, latitude +π/2
   up (−y). A projection beside the lens families, not a lens.
+- **`Rotation2pt`**, the minimal 2-point rotation solver on bearing pairs
+  (`solve(Rotation2pt(), cs, idx)`: `kabsch` on the two unit pairs; a
+  parallel or antiparallel pair in either view is `count == 0`).
 
 - **`parameter_bounds` states which endpoints are closed, and a closed
   endpoint is a mirror in `ParameterManifold`'s chart.** The closed endpoints

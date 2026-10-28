@@ -566,6 +566,7 @@ public sample_size
 public max_solutions
 export solve
 export Homography4pt, Homography5ptRadial, Fundamental7pt, Essential5pt, P3P
+export Rotation2pt   # the 2-point rotation of bearing pairs (kabsch on the minimal sample)
 # Public, not exported (2026-09-15 audit): the solver registry is consumed only by tests.
 public minimal_solvers, minimal_solver, induced_models
 

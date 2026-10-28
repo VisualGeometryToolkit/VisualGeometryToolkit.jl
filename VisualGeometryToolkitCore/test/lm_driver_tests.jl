@@ -150,6 +150,11 @@ end
     @test o.maxtime == UInt64(1.0e6 * 1.0e9)                                     # no time cap by default
     @test nlls_options(; max_iter = 1, ftol = 0.0, xtol = 0.0, max_time = 2.5).maxtime == UInt64(2.5e9)
     @test typeof(nlls_options(; max_iter = 1, ftol = 0.0, xtol = 0.0, max_time = 2.5)) === typeof(o)
+    # Inf is no cap, as `nothing` is; a negative or NaN cap is refused
+    @test nlls_options(; max_iter = 1, ftol = 0.0, xtol = 0.0, max_time = Inf).maxtime == nlls_options(; max_iter = 1, ftol = 0.0, xtol = 0.0).maxtime
+    @test nlls_options(; max_iter = 1, ftol = 0.0, xtol = 0.0, max_time = 0).maxtime == 0
+    @test_throws ArgumentError nlls_options(; max_iter = 1, ftol = 0.0, xtol = 0.0, max_time = -1.0)
+    @test_throws ArgumentError nlls_options(; max_iter = 1, ftol = 0.0, xtol = 0.0, max_time = NaN)
 end
 
 @testset "a NaN trial is a rejected step" begin

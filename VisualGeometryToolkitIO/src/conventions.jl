@@ -93,6 +93,49 @@ function _opencv_vector(r, t, s, tilt)
     return v[1:n]
 end
 
+# OpenCV's camera (calibrateCamera's `K` in its own pixel frame, `PixelFrame{:opencv}`: the top-left pixel
+# centre at (0, 0), and the distortion vector) ↔ a VGC camera in the canonical COLMAP frame. The principal
+# point moves by VGC's frame map, never by a hand-written half pixel; the round trip is bit-exact wherever
+# the half-pixel shift is (|c| ≥ ½ px, every real principal point).
+
+"""
+    opencv_camera([file_frame = PixelFrame{:opencv},] K, dist) -> CameraModel
+
+OpenCV's calibration — the camera matrix `K` (pixels, `cx, cy` in `file_frame`,
+OpenCV's own frame by default; no skew) and the distortion vector `dist`
+([`opencv_lens`](@ref): 4, 5, 8, 12 or 14 entries) — as a VGC
+`CameraModel(LogicalIntrinsics(K′), lens)` with `K′`'s principal point in the
+canonical COLMAP frame, moved by `EuclideanMap(file_frame, PixelFrame{:colmap})`.
+Inverse of [`opencv_parameters`](@ref).
+"""
+opencv_camera(K::AbstractMatrix{<:Real}, dist::AbstractVector{<:Real}) = opencv_camera(PixelFrame{:opencv}, K, dist)
+function opencv_camera(file_frame::Type{<:PixelFrame}, K::AbstractMatrix{<:Real}, dist::AbstractVector{<:Real})
+    size(K) == (3, 3) || throw(ArgumentError("opencv_camera: K is 3 × 3; got $(size(K))"))
+    (iszero(K[1, 2]) && iszero(K[2, 1]) && iszero(K[3, 1]) && iszero(K[3, 2]) && isone(K[3, 3])) ||
+        throw(ArgumentError("opencv_camera: OpenCV's camera matrix is [fx 0 cx; 0 fy cy; 0 0 1]; got $(K)"))
+    c = EuclideanMap(file_frame, CANONICAL_PIXEL_FRAME)(SVector{2, Float64}(K[1, 3], K[2, 3]))
+    K′ = CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0, 0, 0, K[2, 2], 0, c[1], c[2], 1))
+    return CameraModel(LogicalIntrinsics(K′), opencv_lens(dist))
+end
+
+"""
+    opencv_parameters([to_frame = PixelFrame{:opencv},] camera) -> (; K, dist)
+
+OpenCV's camera matrix `K` (`cx, cy` in `to_frame`, OpenCV's own by default)
+and distortion vector `dist` ([`opencv_coefficients`](@ref)) of a VGC camera
+whose lens OpenCV computes. Inverse of [`opencv_camera`](@ref); a skewed `K`
+or a lens OpenCV does not compute is refused.
+"""
+opencv_parameters(camera::CameraModel) = opencv_parameters(PixelFrame{:opencv}, camera)
+function opencv_parameters(to_frame::Type{<:PixelFrame}, camera::CameraModel)
+    camera.intrinsics isa LogicalIntrinsics ||
+        throw(ArgumentError("opencv_parameters: a camera with a calibration matrix (LogicalIntrinsics); got $(typeof(camera.intrinsics))"))
+    K = SMatrix{3, 3, Float64}(camera.intrinsics.K)
+    iszero(K[1, 2]) || throw(ArgumentError("opencv_parameters: OpenCV's camera matrix has no skew; the camera's K carries skew = $(K[1, 2])"))
+    c = EuclideanMap(CANONICAL_PIXEL_FRAME, to_frame)(SVector(K[1, 3], K[2, 3]))
+    return (; K = SMatrix{3, 3, Float64}(K[1, 1], 0, 0, 0, K[2, 2], 0, c[1], c[2], 1), dist = opencv_coefficients(VgtkCore.lens(camera)))
+end
+
 # -----------------------------------------------------------------------------
 # Kalibr (camchain YAML): camera_model × distortion_model
 # -----------------------------------------------------------------------------

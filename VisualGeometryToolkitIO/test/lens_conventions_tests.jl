@@ -63,3 +63,40 @@
     @test_throws ArgumentError opencv_coefficients(KannalaBrandt(0.1))
     @test_throws ArgumentError opencv_coefficients(Lens(Perspective(), Radial((0.1, 0.2, 0.3, 0.4))))
 end
+
+@testitem "OpenCV's camera matrix ↔ a camera in the COLMAP frame" setup = [VGIoFixtures] begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitIO: opencv_camera, opencv_parameters, opencv_lens
+    using VisualGeometryToolkitCore: CameraModel, CameraCalibrationMat, LogicalIntrinsics, PixelFrame, project, KannalaBrandt
+    using Random: MersenneTwister
+
+    K = [1210.5 0.0 1011.25; 0.0 1208.75 763.5; 0.0 0.0 1.0]
+    dist = [-0.15, -0.05, 0.002, 0.006, 0.024, 0.19, 0.026, -0.0013, -0.0016, -0.00097, -0.00076, 0.0021, -0.0099, -0.0062]
+    cam = opencv_camera(K, dist)
+    @test cam.intrinsics isa LogicalIntrinsics && VgtkCore.lens(cam) == opencv_lens(dist)
+    # OpenCV's pixel centre (0, 0) is COLMAP's (½, ½): the principal point moves by half a pixel, the focal lengths stay
+    Kc = cam.intrinsics.K
+    @test (Kc[1, 1], Kc[2, 2], Kc[1, 3], Kc[2, 3]) == (1210.5, 1208.75, 1011.75, 764.0)
+    # the same camera as Core's own origin-shifted construction: equal projections
+    ref = CameraModel(CameraCalibrationMat(SMatrix{3, 3, Float64}(K)); lens = opencv_lens(dist), image_origin = :opencv)
+    X = SVector(0.3, -0.2, 1.0)
+    @test project(cam, X) ≈ project(ref, X) atol = 1e-12
+    # another declared frame of the file: MATLAB's (1, 1) centre
+    @test opencv_camera(PixelFrame{:julia}, K, dist).intrinsics.K[1, 3] == 1010.75
+    # the round trip is bit-exact: K and dist back out, in OpenCV's frame or another
+    p = opencv_parameters(cam)
+    @test p.K == K && p.dist == dist
+    @test opencv_parameters(PixelFrame{:julia}, opencv_camera(PixelFrame{:julia}, K, dist)).K == K
+    rng = MersenneTwister(7)
+    for _ in 1:1000
+        Kr = [100 + 4000rand(rng) 0.0 1 + 6000rand(rng); 0.0 100 + 4000rand(rng) 1 + 4000rand(rng); 0.0 0.0 1.0]
+        dr = 0.1 .* randn(rng, rand(rng, (4, 5, 8, 12, 14)))
+        q = opencv_parameters(opencv_camera(Kr, dr))
+        @test q.K == Kr && q.dist == dr
+    end
+    # refused: a skewed or non-pinhole K, a lens OpenCV does not compute, a camera without a calibration matrix
+    @test_throws ArgumentError opencv_camera([1000.0 1.0 500.0; 0.0 1000.0 400.0; 0.0 0.0 1.0], dist)
+    @test_throws ArgumentError opencv_camera([1000.0 0.0 500.0; 0.0 1000.0 400.0; 0.0 0.0 2.0], dist)
+    @test_throws ArgumentError opencv_parameters(CameraModel(LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(K))), KannalaBrandt(0.1, 0.0, 0.0, 0.0)))
+    @test_throws ArgumentError opencv_parameters(CameraModel(LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(1000.0, 0, 0, 2.0, 1000.0, 0, 500.0, 400.0, 1))), opencv_lens(dist)))
+end

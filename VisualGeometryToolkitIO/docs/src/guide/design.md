@@ -16,7 +16,10 @@ Every COLMAP 4.0 camera model reads as the VGC lens that computes COLMAP's own
 function, and `colmap_model(lens)` names the COLMAP model a lens is written as
 (`nothing` when no COLMAP model computes it). The OpenCV conventions
 (`opencv_lens`, `opencv_coefficients`) and the Kalibr convention
-(`kalibr_lens`) are exact adapters of the same kind. `camera_model(Float32, c)`
+(`kalibr_lens`) are exact adapters of the same kind; `opencv_camera` and
+`opencv_parameters` move OpenCV's whole calibration (its camera matrix in its
+own pixel frame and the distortion vector) to a camera in the COLMAP frame and
+back, bit-exactly, through VGC's pixel-frame map. `camera_model(Float32, c)`
 gives single-precision values in memory; the wire stays Float64.
 
 Pixel data carries its frame in its type, and every stored label is derived

@@ -194,6 +194,7 @@ export canonical_json, sha256_hex
 export camera_model, colmap_camera, colmap_image, rigid_transform
 export colmap_model, colmap_params
 export opencv_lens, opencv_coefficients, kalibr_lens   # the OpenCV and Kalibr lens conventions
+export opencv_camera, opencv_parameters                 # OpenCV's camera matrix (its pixel frame) ↔ a camera in the COLMAP frame
 
 # Third-party calibration exports (load-only): OpenCV and MATLAB files
 export ExternalCalibration, load_opencv_calibration, load_matlab_calibration, load_kalibr_camchain

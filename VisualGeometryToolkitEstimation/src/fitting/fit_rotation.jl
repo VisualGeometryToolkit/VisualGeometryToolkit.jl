@@ -140,8 +140,8 @@ end
 # codimension 2 (or the given multiple); any other shape at the given multiple
 # (it has no efficiency, so no codimension: `fit_rotation` requires the multiple).
 _rotation_loss(loss::VgtkCore.AbstractMEstimator, s2, ::Nothing) = deploy(loss, s2; codim = 2)
-_rotation_loss(loss::VgtkCore.AbstractMEstimator, s2, k::Real) = deploy(loss, s2; codim = 2, scale_multiple = k)
-_rotation_loss(loss::VgtkCore.AbstractLossShape, s2, k::Real) = deploy(loss, s2; scale_multiple = k)
+_rotation_loss(loss::VgtkCore.AbstractMEstimator, s2, scale_multiple::Real) = deploy(loss, s2; codim = 2, scale_multiple)
+_rotation_loss(loss::VgtkCore.AbstractLossShape, s2, scale_multiple::Real) = deploy(loss, s2; scale_multiple)
 
 function _unit_direction(v, i)
     x = SVector{3, Float64}(v)

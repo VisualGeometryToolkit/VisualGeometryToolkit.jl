@@ -21,6 +21,10 @@ introduced them did not state them all.
   `transfer_jacobian_rows!(J, H, dH, W, f₁, f₂, sqrtw)` beside the pixel ones
   (`transfer_rows!` takes bearings as it is). The pixel rows' internal row
   function now takes `u₂` (unread for pixels).
+- **`chordal_averaging(relative[, weights])`**, chordal L2 rotation averaging:
+  the absolute rotations of a set of frames from their relative rotations
+  (`f_j = R_ij f_i`), one linear least squares gauged at the first frame and
+  projected onto SO(3) — the start of a rotation bundle.
 
 - **`parameter_bounds` states which endpoints are closed, and a closed
   endpoint is a mirror in `ParameterManifold`'s chart.** The closed endpoints

@@ -67,6 +67,80 @@ function chordal_mean(Rs::AbstractVector{<:Union{Rotation{3}, StaticMatrix{3, 3}
     return Rotations.nearest_rotation(sum(SMatrix{3, 3, T, 9}(R) for R in Rs))
 end
 
+"""
+    chordal_averaging(relative[, weights]) -> Dict{K, RotMatrix{3, Float64}}
+
+Chordal L2 rotation averaging (Martinec & Pajdla 2007; Hartley et al. 2013): the
+absolute rotations `R_k` of a set of frames from their relative rotations,
+`relative` an `AbstractDict` keyed by frame pairs `(i, j)` whose value `R_ij`
+takes frame `i`'s directions into frame `j`'s (`f_j = R_ij·f_i`), so that with
+`d = R_k·f_k` a direction in the common frame, `R_i = R_j·R_ij`. One linear least
+squares over the 9 entries of every `R_k`, `Σ w_ij ‖R_i − R_j R_ij‖²_F`, the
+gauge fixed by `R_k = I` for the first frame of the sorted keys (the frame
+the result's directions are in), then each block projected onto SO(3)
+(`Rotations.nearest_rotation`). `weights` (an `AbstractDict` with the same
+keys, non-negative) weigh the pairs; all ones by default.
+
+An algorithm (one solve, no iteration): the start of a rotation bundle, not a
+robust estimator — a wrong relative rotation pulls every frame. Frames that no
+pair connects to the gauge frame are an `ArgumentError`. Returns the frames in
+a `Dict` keyed like the pairs' frames, the gauge frame's `R` the identity.
+"""
+function chordal_averaging(relative::AbstractDict{<:Tuple{K, K}}, weights::Union{Nothing, AbstractDict} = nothing) where {K}
+    isempty(relative) && throw(ArgumentError("chordal_averaging: no relative rotations"))
+    frames = sort!(unique!(collect(Iterators.flatten(keys(relative)))))
+    _check_connected(frames, keys(relative))
+    gauge = first(frames)
+    col = Dict(k => 9 * (n - 2) for (n, k) in enumerate(frames) if k != gauge)    # the 9 unknowns of R_k start after col[k]
+    m = 9 * length(relative); nunk = 9 * (length(frames) - 1)
+    A = zeros(m, nunk); b = zeros(m)
+    row = 0
+    for ((i, j), Rij) in relative
+        w = weights === nothing ? 1.0 : Float64(weights[(i, j)])
+        w >= 0 || throw(ArgumentError("chordal_averaging: weight $w of the pair $((i, j)) is negative"))
+        sw = sqrt(w); M = SMatrix{3, 3, Float64, 9}(Rij)
+        for c in 1:3, r in 1:3                       # (R_i − R_j M)[r, c] = 0, column-major vec
+            row += 1
+            if i == gauge
+                b[row] -= sw * (r == c)
+            else
+                A[row, col[i] + 3 * (c - 1) + r] += sw
+            end
+            for q in 1:3                             # (R_j M)[r, c] = Σ_q R_j[r, q] M[q, c]
+                if j == gauge
+                    b[row] += sw * (r == q) * M[q, c]
+                else
+                    A[row, col[j] + 3 * (q - 1) + r] -= sw * M[q, c]
+                end
+            end
+        end
+    end
+    x = A \ b
+    out = Dict{K, RotMatrix{3, Float64, 9}}(gauge => one(RotMatrix{3, Float64, 9}))
+    for k in frames
+        k == gauge && continue
+        out[k] = RotMatrix{3, Float64, 9}(Rotations.nearest_rotation(SMatrix{3, 3, Float64, 9}(view(x, (col[k] + 1):(col[k] + 9)))))
+    end
+    return out
+end
+
+# Every frame reachable from the first through the pairs (either direction).
+function _check_connected(frames, pairs)
+    adj = Dict(k => Set{eltype(frames)}() for k in frames)
+    for (i, j) in pairs
+        push!(adj[i], j); push!(adj[j], i)
+    end
+    seen = Set([first(frames)]); stack = [first(frames)]
+    while !isempty(stack)
+        for n in adj[pop!(stack)]
+            n in seen || (push!(seen, n); push!(stack, n))
+        end
+    end
+    length(seen) == length(frames) ||
+        throw(ArgumentError("chordal_averaging: the frames $(setdiff(frames, seen)) are not connected to $(first(frames)) by any pair"))
+    return nothing
+end
+
 # -----------------------------------------------------------------------------
 # Their stationarity conditions — what the implicit-function theorem
 # differentiates for the covariance of an estimator with a Kabsch or a

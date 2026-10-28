@@ -9,8 +9,8 @@
 #   parameter_names(x)      the coefficients' names, so a configuration can
 #                           free or fix them by name
 #   parameter_bounds(x)     the interval each coefficient may take (the ONE
-#                           source of bounds; the lens manifold's logit chart
-#                           reads it)
+#                           source of bounds, its closed ends in the same
+#                           table; the parameter manifold's chart reads it)
 #   with_parameters(x, θ)   the same structure rebuilt from a vector
 #   parameters(x)           names and values, as a NamedTuple
 #
@@ -55,6 +55,13 @@ extended unified model's `α ∈ [0, 1]` and `β ≥ 0`, the field-of-view term'
 `ω ∈ [0, π)`, a [`LogicalIntrinsics`](@ref)'s `f > 0` and `aspect > 0`; a
 [`CameraModel`](@ref)'s are its intrinsics' then its lens's.
 
+An endpoint is open unless the model is defined there, as written above:
+the closed ones are the double sphere's `α = 0` and `α = 1`, the extended
+unified model's `α = 0` (the pinhole), `α = 1` and `β = 0`, and the
+field-of-view term's `ω = 0` (the identity). `ω` and `−ω` are one map, so a
+`FieldOfView(ω)` with `ω < 0` is the lens `FieldOfView(|ω|)`, which is how
+[`ParameterManifold`](@ref) anchors it.
+
 This is the only place a bound is stated: [`ParameterManifold`](@ref) (a
 lens's [`LensManifold`](@ref)) reads it, so no step leaves the domain. An
 optimizer's box — a prior range a solver searches, such as a focal length
@@ -92,24 +99,39 @@ parameter_names(l::AbstractLensModel) = _coefficient_names_of(l)
 
 # The bounds, per leaf: an interval for each coefficient (Float64 constants,
 # converted to the lens's number type in `parameter_bounds`) — the leaf's
-# domain, where its map is defined and orientation-preserving at the axis:
+# domain, where its map is defined and orientation-preserving at the axis —
+# with each endpoint's openness and whether the map is mirrored about the
+# lower end (t and 2a − t one map), as `(a, b, a_closed, b_closed, mirrored)`:
 # - DoubleSphere: ξ > −1 (the first sphere's profile ∝ 1 + ξ cos θ is
-#   increasing at the axis), α ∈ [0, 1] (the second stage's weight);
+#   increasing at the axis), α ∈ [0, 1] (the second stage's weight; both ends
+#   are models);
 # - Unified: ξ > −1, the same factor;
-# - ExtendedUnified: α ∈ [0, 1], β ≥ 0 (d = √(β r² + z²) is real);
-# - FieldOfView: ω ∈ [0, π) (tan(ω/2) finite; ω and −ω are one map).
+# - ExtendedUnified: α ∈ [0, 1] (α = 0 the pinhole), β ≥ 0 (d = √(β r² + z²)
+#   is real; β = 0 a model);
+# - FieldOfView: ω ∈ [0, π) (ω = 0 the identity; tan(ω/2) finite; ω and −ω
+#   are one map, so ω < 0 is read as |ω|).
 # Every other coefficient is unbounded.
-@inline _bound_pairs(leaf) = map(_ -> (-Inf, Inf), _coefficients(leaf))
-@inline _bound_pairs(::DoubleSphere) = ((-1.0, Inf), (0.0, 1.0))
-@inline _bound_pairs(::Unified) = ((-1.0, Inf),)
-@inline _bound_pairs(::ExtendedUnified) = ((0.0, 1.0), (0.0, Inf))
-@inline _bound_pairs(::FieldOfView) = ((0.0, Float64(π)),)
+@inline _bound_spec(leaf) = map(_ -> (-Inf, Inf, false, false, false), _coefficients(leaf))
+@inline _bound_spec(::DoubleSphere) = ((-1.0, Inf, false, false, false), (0.0, 1.0, true, true, false))
+@inline _bound_spec(::Unified) = ((-1.0, Inf, false, false, false),)
+@inline _bound_spec(::ExtendedUnified) = ((0.0, 1.0, true, true, false), (0.0, Inf, true, false, false))
+@inline _bound_spec(::FieldOfView) = ((0.0, Float64(π), true, false, true),)
 
 @inline function parameter_bounds(l::AbstractLensModel)
-    pairs = _flatmap(_bound_pairs, _leaves(l))
+    spec = _flatmap(_bound_spec, _leaves(l))
     T = _bounds_eltype(l)
-    return (SVector(map(p -> T(p[1]), pairs)), SVector(map(p -> T(p[2]), pairs)))
+    return (SVector(map(p -> T(p[1]), spec)), SVector(map(p -> T(p[2]), spec)))
 end
+
+# Per coordinate, `(a_closed, b_closed, mirrored)` of `parameter_bounds`' interval
+# (the same table): a model states its closed endpoints here, every other
+# endpoint is open. A function of the model's type alone, so it constant-folds.
+@inline function _bound_kinds(x)
+    lo, _ = parameter_bounds(x)
+    return map(_ -> (false, false, false), lo)
+end
+@inline _bound_kinds(l::AbstractLensModel) = SVector(map(p -> (p[3], p[4], p[5]), _flatmap(_bound_spec, _leaves(l))))
+@inline _bound_kinds(m::CameraModel) = vcat(_bound_kinds(m.intrinsics), _bound_kinds(m.lens))
 @inline _bounds_eltype(l) = (T = _coeff_type(l); T === Union{} ? Float64 : T)
 
 """
@@ -210,17 +232,25 @@ then lens) — anchored at `x`: [`parameter_vector`](@ref)'s coordinates, each
 moved by a chart that keeps it inside its [`parameter_bounds`](@ref), the one
 statement of the model's domain:
 
-| bound | chart coordinate `v` of the value `t` (anchor `t₀`) |
+| bound (open ends) | chart coordinate `v` of the value `t` (anchor `t₀`) |
 |---|---|
-| `(-Inf, Inf)` | `t = t₀ + v` |
-| `(a, Inf)` | `t = a + (t₀ − a)·exp(v)` |
-| `(-Inf, b)` | `t = b − (b − t₀)·exp(−v)` |
-| `(a, b)` | `t = a + (b − a)·logistic(logit((t₀ − a)/(b − a)) + v)` |
+| none finite | `t = t₀ + v` |
+| `a` | `t = a + (t₀ − a)·exp(v)` |
+| `b` | `t = b − (b − t₀)·exp(−v)` |
+| `a` and `b` | `t = a + (b − a)·logistic(logit((t₀ − a)/(b − a)) + v)` |
 
-so no step leaves the domain and every fitter (VisualGeometryToolkitEstimation's
-`fit_lens`, a calibration bundle) keeps the model valid without knowing why. A
-bound is open in the chart: an anchor on (or past) one is moved inside it by a
-margin of 10⁻⁶ of the interval (of `max(1, |a|)` for a one-sided bound).
+and a CLOSED endpoint — a value the model takes, such as `α = 0` or `ω = 0`
+([`parameter_bounds`](@ref) lists them) — is a box: the open ends' chart (the
+plain `t₀ + v` when it has none) clamped at it, slope 0 past it. So no step
+leaves the domain and every fitter (VisualGeometryToolkitEstimation's `fit_lens`,
+a calibration bundle) keeps the model valid without knowing why, and an anchor
+at a closed endpoint moves with slope 1, not from the far end of a logit. An
+anchor on (or past) an OPEN end is moved inside it by a margin of 10⁻⁶ of the
+interval (of `max(1, |a|)` for a one-sided bound); an anchor past a closed end
+is clamped onto it; a mirrored coordinate (`ω`, whose sign is not part of the
+map) is anchored at `|ω|`. `ω = 0` is a stationary point of the field-of-view
+model itself — its map is even in `ω`, so `∂project/∂ω = 0` there whatever the
+chart — so a fit of `ω` starts at a small `ω ≠ 0`.
 [`restrict`](@ref) it to the free coefficients by mask or by name
 (`restrict(ch, (:k1, :k2))`; a camera's `restrict(ch, (:f, :cx, :cy, :k1))`
 fixes its skew and aspect). `minimal_manifold(lens)` and
@@ -368,53 +398,78 @@ end
 _has_bound(x) = any(_bounded_mask(x))
 
 # The chart of one coordinate (the table above): its value at chart offset d
-# from the anchor t0, the derivative of that value in d, and the inverse.
-@inline function _bounded_value(t0, d, a, b)
-    fa, fb = isfinite(a), isfinite(b)
-    fa & fb && return a + (b - a) * logistic(logit((t0 - a) / (b - a)) + d)
-    fa && return a + (t0 - a) * exp(d)
-    fb && return b - (b - t0) * exp(-d)
+# from the anchor t0, the derivative of that value in d, and the inverse. `k`
+# is the coordinate's `(a_closed, b_closed, mirrored)` (`_bound_kinds`): the
+# open finite ends choose the chart, the closed ends clamp it (a box).
+@inline _open_ends(a, b, k) = (isfinite(a) & !k[1], isfinite(b) & !k[2])
+@inline function _open_chart_value(t0, d, a, b, oa, ob)
+    oa & ob && return a + (b - a) * logistic(logit((t0 - a) / (b - a)) + d)
+    oa && return a + (t0 - a) * exp(d)
+    ob && return b - (b - t0) * exp(-d)
     return t0 + d
 end
-@inline function _bounded_slope(t0, d, a, b)
-    fa, fb = isfinite(a), isfinite(b)
-    fa & fb && return (s = logistic(logit((t0 - a) / (b - a)) + d); (b - a) * s * (1 - s))
-    fa && return (t0 - a) * exp(d)
-    fb && return (b - t0) * exp(-d)
+@inline function _open_chart_slope(t0, d, a, b, oa, ob)
+    oa & ob && return (s = logistic(logit((t0 - a) / (b - a)) + d); (b - a) * s * (1 - s))
+    oa && return (t0 - a) * exp(d)
+    ob && return (b - t0) * exp(-d)
     return one(promote_type(typeof(t0), typeof(d)))
 end
+@inline function _bounded_value(t0, d, a, b, k)
+    oa, ob = _open_ends(a, b, k)
+    t = _open_chart_value(t0, d, a, b, oa, ob)
+    k[1] && t < a && return zero(t) + a
+    k[2] && t > b && return zero(t) + b
+    return t
+end
+@inline function _bounded_slope(t0, d, a, b, k)
+    oa, ob = _open_ends(a, b, k)
+    g = _open_chart_slope(t0, d, a, b, oa, ob)
+    t = _open_chart_value(t0, d, a, b, oa, ob)
+    ((k[1] & (t < a)) | (k[2] & (t > b))) && return zero(g)
+    return g
+end
 # at the anchor, in closed form: the logistic's slope there is (t0 − a)(b − t0)/(b − a)
-@inline function _bounded_slope_at_anchor(t0, a, b)
-    fa, fb = isfinite(a), isfinite(b)
-    fa & fb && return (t0 - a) * (b - t0) / (b - a)
-    fa && return t0 - a
-    fb && return b - t0
+@inline function _bounded_slope_at_anchor(t0, a, b, k)
+    oa, ob = _open_ends(a, b, k)
+    oa & ob && return (t0 - a) * (b - t0) / (b - a)
+    oa && return t0 - a
+    ob && return b - t0
     return one(t0)
 end
-@inline function _bounded_offset(t, t0, a, b)
-    fa, fb = isfinite(a), isfinite(b)
-    t = _interior_value(t, a, b)
-    fa & fb && return logit((t - a) / (b - a)) - logit((t0 - a) / (b - a))
-    fa && return log((t - a) / (t0 - a))
-    fb && return log((b - t0) / (b - t))
+@inline function _bounded_offset(t, t0, a, b, k)
+    oa, ob = _open_ends(a, b, k)
+    t = _interior_value(t, a, b, k)
+    oa & ob && return logit((t - a) / (b - a)) - logit((t0 - a) / (b - a))
+    oa && return log((t - a) / (t0 - a))
+    ob && return log((b - t0) / (b - t))
     return t - t0
 end
 
-# A boundary value — 0 is a natural default for α — sits at the chart's ±∞,
-# where no step could move it: the manifold anchors inside the interval.
+# An OPEN boundary value sits at the chart's ±∞, where no step could move it:
+# the manifold anchors inside the interval. A closed one is a value of the
+# model and is kept (a value past it is clamped onto it); a mirrored
+# coordinate is first reflected onto [a, ∞) — the same map.
 const _UNIT_MARGIN = 1.0e-6
-@inline function _interior_value(t, a, b)
+@inline function _interior_value(t, a, b, k)
+    k[3] && (t = a + abs(t - a))
     fa, fb = isfinite(a), isfinite(b)
-    fa & fb && return clamp(t, a + oftype(t, _UNIT_MARGIN) * (b - a), b - oftype(t, _UNIT_MARGIN) * (b - a))
-    fa && return max(t, a + oftype(t, _UNIT_MARGIN) * max(one(t), abs(a)))
-    fb && return min(t, b - oftype(t, _UNIT_MARGIN) * max(one(t), abs(b)))
+    m = fa & fb ? oftype(t, _UNIT_MARGIN) * (b - a) : zero(t)
+    if fa
+        lo = k[1] ? oftype(t, a) : a + (fb ? m : oftype(t, _UNIT_MARGIN) * max(one(t), abs(a)))
+        t = max(t, lo)
+    end
+    if fb
+        hi = k[2] ? oftype(t, b) : b - (fa ? m : oftype(t, _UNIT_MARGIN) * max(one(t), abs(b)))
+        t = min(t, hi)
+    end
     return t
 end
 function _interior(x)
     _has_bound(x) || return x
     θ = parameter_vector(x)
     lo, hi = parameter_bounds(x)
-    return _rebuild(x, map(_interior_value, θ, lo, hi))
+    θi = map(_interior_value, θ, lo, hi, _bound_kinds(x))
+    return θi == θ ? x : _rebuild(x, θi)
 end
 
 minimal_manifold(l::AbstractLensModel) = LensManifold(l)
@@ -428,7 +483,7 @@ function retract(ch::ParameterManifold, v)
     d = _scaled_offsets(ch.scale, v)
     _has_bound(ch.model) || return _rebuild(ch.model, θ0 + d)
     lo, hi = parameter_bounds(ch.model)
-    return _rebuild(ch.model, map(_bounded_value, θ0, d, lo, hi))
+    return _rebuild(ch.model, map(_bounded_value, θ0, d, lo, hi, _bound_kinds(ch.model)))
 end
 recenter(ch::ParameterManifold{M, Nothing}, v) where {M} = _parameter_manifold(retract(ch, v), nothing, ch.scale)
 # with a box: the stepped model, then its parameters clamped into the box (rebuilt only when one moved)
@@ -448,7 +503,7 @@ function retract_jacobian(ch::ParameterManifold)
     end
     θ = parameter_vector(ch.model)
     lo, hi = parameter_bounds(ch.model)
-    d = _scaled_offsets(ch.scale, map((t, a, b) -> Float64(_bounded_slope_at_anchor(t, a, b)), θ, lo, hi))
+    d = _scaled_offsets(ch.scale, map((t, a, b, k) -> Float64(_bounded_slope_at_anchor(t, a, b, k)), θ, lo, hi, _bound_kinds(ch.model)))
     return SMatrix{n, n, Float64}(LinearAlgebra.Diagonal(d))
 end
 # at coordinates v the slope is the chart's there (times the scale)
@@ -457,7 +512,7 @@ function retract_jacobian(ch::ParameterManifold, v::StaticVector)
     n = tangent_size(ch)
     θ = parameter_vector(ch.model)
     lo, hi = parameter_bounds(ch.model)
-    return SMatrix{n, n}(LinearAlgebra.Diagonal(_scaled_offsets(ch.scale, map(_bounded_slope, θ, _scaled_offsets(ch.scale, v), lo, hi))))
+    return SMatrix{n, n}(LinearAlgebra.Diagonal(_scaled_offsets(ch.scale, map(_bounded_slope, θ, _scaled_offsets(ch.scale, v), lo, hi, _bound_kinds(ch.model)))))
 end
 action_jacobian(ch::ParameterManifold, x) =
     (_has_bound(ch.model) || ch.scale !== nothing) ? _parameter_jacobian(ch.model, x) * retract_jacobian(ch) : _parameter_jacobian(ch.model, x)
@@ -475,7 +530,7 @@ function local_coordinates(ch::ParameterManifold, x::_ParametricModel)
     θ, θ0 = parameter_vector(x), parameter_vector(ch.model)
     _has_bound(x) || return _unscaled_offsets(ch.scale, θ - θ0)
     lo, hi = parameter_bounds(ch.model)
-    return _unscaled_offsets(ch.scale, map(_bounded_offset, θ, θ0, lo, hi))
+    return _unscaled_offsets(ch.scale, map(_bounded_offset, θ, θ0, lo, hi, _bound_kinds(ch.model)))
 end
 local_coordinates(rc::SubsetManifold{<:ParameterManifold}, x::_ParametricModel) = local_coordinates(rc.manifold, x)[rc.idx]
 

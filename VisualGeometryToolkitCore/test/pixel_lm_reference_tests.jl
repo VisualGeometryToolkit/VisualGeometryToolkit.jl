@@ -1,15 +1,15 @@
-@testitem "pixel LM kernel vs FastLevenbergMarquardt reference" begin
+@testitem "pixel LM kernel: within 2e-6 px of the recorded reference LM, the same converged flags" begin
 # The generic models' two-unknown pixel LM kernel (`Cameras._pixel_lm`, device-side: the one
-# LM that is not NLLSsolver) against the routine it derives from, FastLevenbergMarquardt 0.1's
-# static bounded `lmsolve`, recorded on 1000 seeded problems (test/fixtures/pixel_lm:
-# problems.jl, generate.jl, reference.txt). The same algorithm, NOT the same bits: both
-# loops lean on `muladd` and StaticArrays' small products, whose fusion LLVM decides per
-# compilation context — FLM's own result for one problem moves by ulps between a script and
-# a function (2026-10-27) — so a pixel may differ in its last digits. Measured 2026-10-27
+# LM that is not NLLSsolver) against the routine it derives from — a static bounded
+# Levenberg–Marquardt `lmsolve` with Marquardt's scaling — recorded on 1000 seeded problems
+# (test/fixtures/pixel_lm: problems.jl, generate.jl, reference.txt). The same algorithm, NOT
+# the same bits: both loops lean on `muladd` and StaticArrays' small products, whose fusion
+# LLVM decides per compilation context — the reference's own result for one problem moves by
+# ulps between a script and a function (2026-10-27) — so a pixel may differ in its last digits. Measured 2026-10-27
 # (script context, the fixture's problems): 35 of 1000 pixels differ, by at most 5.5e-12 px,
 # on Julia 1.13; 73 of 1000, at most 4.5e-8 px, on 1.12; the review's 20 000-problem probe
 # (another context): 1 887 differ, at most 1.8e-6 px; the converged flags identical
-# everywhere. Gated: every pixel within 2e-6 px of FLM's, and the
+# everywhere. Gated: every pixel within 2e-6 px of the reference's, and the
 # converged flag (F < tol2) the same at every tolerance the projections use.
 using Test, LinearAlgebra, StaticArrays, Random
 import VisualGeometryToolkitCore as VgtkCore
@@ -29,7 +29,7 @@ for (q, (rx, ry, rF)) in zip(ps, ref)
         global flags_equal &= ok == (rF < tol2)
     end
 end
-@info "pixel LM vs FLM reference" ndiff dmax
+@info "pixel LM vs the recorded reference" ndiff dmax
 @test dmax <= 2.0e-6
 @test flags_equal
 end

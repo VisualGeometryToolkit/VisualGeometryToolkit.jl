@@ -252,12 +252,12 @@ end
     x1, _, conv1, it1 = lmsolve_chart!(ManifoldLmWorkspace(12, 3), lm; maxit = 1, stationarity_tol)
     @test lm_retcode(conv1) === :max_iterations && it1 == 1
 
-    # The stall postcondition: FastLevenbergMarquardt 0.1.0 reports its xtol
-    # stop (2) when the damping grew until no step reduced the cost. Both
-    # reproductions of FastLevenbergMarquardt.jl issue #4 are `:stalled`, not
-    # `:converged`: f(x) = x − 3 with a wrong-sign Jacobian (no step descends;
-    # the run ends at the start), and with the true Jacobian but a NaN wall at
-    # x > 0.5 (the minimizer x = 3 is behind it; the run ends at the wall).
+    # The stall postcondition: an LM reports a step-size stop (2) when the
+    # damping grew until no step reduced the cost, which is not convergence.
+    # Both ways to get there are `:stalled`, not `:converged`: f(x) = x − 3 with
+    # a wrong-sign Jacobian (no step descends; the run ends at the start), and
+    # with the true Jacobian but a NaN wall at x > 0.5 (the minimizer x = 3 is
+    # behind it; the run ends at the wall).
     struct _WrongSignLm end
     VgtkCore.residual_rows!(f, ::_WrongSignLm, x) = (f[1] = x[1] - 3.0; f)
     VgtkCore.residual_jacobian_rows!(J, ::_WrongSignLm, x) = (J[1, 1] = -1.0; J)
@@ -265,10 +265,10 @@ end
     VgtkCore.residual_rows!(f, ::_NanWallLm, x) = (f[1] = x[1] > 0.5 ? NaN : x[1] - 3.0; f)
     VgtkCore.residual_jacobian_rows!(J, ::_NanWallLm, x) = (J[1, 1] = 1.0; J)
     xw, Fw, cw, _ = lmsolve_chart!(ManifoldLmWorkspace(1, 1), _WrongSignLm(); stationarity_tol)
-    @test cw == VgtkCore._LM_STALLED     # FLM's own code is 2 (upstream: 4); the postcondition rewrites it
+    @test cw == VgtkCore._LM_STALLED     # the stop's code is 2 (the step-size stop); the postcondition rewrites it
     @test xw == SVector(0.0) && Fw == 9.0 && lm_retcode(cw) === :stalled
     xn, Fn, cn, _ = lmsolve_chart!(ManifoldLmWorkspace(1, 1), _NanWallLm(); stationarity_tol)
     @test 0.0 < xn[1] <= 0.5 && Fn > 6.0 && lm_retcode(cn) === :stalled
-    # the same runs WITHOUT the stall are what FLM itself reports: `:converged`
+    # the stop codes themselves, without the postcondition, read `:converged`
     @test lm_retcode(2) === :converged && lm_retcode(4) === :converged && lm_retcode(-1) === :max_iterations
 end

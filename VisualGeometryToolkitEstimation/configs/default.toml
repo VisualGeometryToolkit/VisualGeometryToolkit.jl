@@ -108,27 +108,16 @@ tol      = 1.0e-12               # rad: converged when an iteration moves the ro
 # iteration cap per refit — NLLSsolver's outer iterations, one ACCEPTED step
 # each; an iteration's internal damping loop may reject ~8–10 candidate steps
 # before it accepts one (λ grows ×2, ×4, ×8 … until the step falls below
-# `dstep`), so the cap bounds accepted steps, not work. The value is
-# FastLevenbergMarquardt's documented default (`maxit = 1000`, which counted
-# rejected steps too), the driver until 2026-10-27, recorded here rather than
-# inherited. The step tolerance is that driver's default `xtol = 1e-10`, not
-# restated, and its MEANING CHANGED with the driver: FastLevenbergMarquardt's
-# test was relative per component (|pᵢ| < xtol·(xtol + |xᵢ|)), NLLSsolver's
-# `dstep` is absolute (max|pᵢ| < 1e-10, chart units) — stricter far from the
-# origin, looser near it (a chart LM starts at x = 0).
+# `dstep`), so the cap bounds accepted steps, not work. The value is recorded
+# here rather than inherited. The step tolerance is `lmsolve_chart!`'s default
+# `xtol = 1e-10`, not restated: NLLSsolver's `dstep`, absolute (max|pᵢ| < 1e-10,
+# chart units; a chart LM starts at x = 0).
 max_iter = 1000
 # The LO refit's relative cost tolerance (NLLSsolver's `reldcost`: stop once a
-# step lowers the cost by less than ftol·F; FastLevenbergMarquardt's `ftol`
-# until 2026-10-27: an accepted step's actual and predicted reductions both
-# below ftol·F). That driver's default was eps, which ran every refit to its
-# rounding floor: measured 2026-10-07 on the PhotoTourism E replay (360
-# Welsch-IRLS LO calls), 28.6 residual and 8.0 Jacobian sweeps per refit, ~20
-# of them rejected steps at the floor. At 1e-10: 5.6 and 4.1, the refit 2.3×
-# faster, the returned E within 7.8e-7 (unit Frobenius, max over the 360) of
-# the eps run. On NLLSsolver at 1e-10 (measured 2026-10-27 on 317 captured E
-# refits of that replay): the same returned chart vector as
-# FastLevenbergMarquardt's within 2.0e-7 (max-norm; the median refit's
-# ‖x‖∞ is 1.8e-3) and the cost within 2.0e-11 relative, every refit converged. Also the stall postcondition's exact-fit test (its case 1, F < ftol).
+# step lowers the cost by less than ftol·F). eps runs every refit to its
+# rounding floor; 1e-10 stops it once the cost has settled (the measurements
+# that set it: VisualGeometryToolkitCore's CHANGELOG.md, the LM driver). Also
+# the stall postcondition's exact-fit test (its case 1, F < ftol).
 ftol = 1.0e-10
 # The stall postcondition (VGC `_lm_stationary`): a step-size stop, or one
 # without a tolerance (a non-finite trial, the consecutive-failure cap), is
@@ -142,31 +131,26 @@ ftol = 1.0e-10
 # residual's rounding floor — the noiseless hand-eye fit, whose rotation log
 # is accurate to ~√eps — 0.0045–0.037; real stalls — a NaN or discontinuity
 # wall in the radial-camera, radial-homography and lens rows (no step along
-# −Jᵀf lowers F) — 0.084–0.42, and both FastLevenbergMarquardt issue #4
-# reproductions 1.0. The value sits in the gap between the last two.
+# −Jᵀf lowers F) — 0.084–0.42, and the two stall reproductions of the suite
+# (a wrong-sign Jacobian, a NaN wall) 1.0. The value sits in the gap between
+# the last two.
 stationarity_tol = 0.05
 
 [relpose_bundle]
 # the relative-pose bundle's LM cap (its `refine!` and `bundle_refine_relpose`) on
 # ACCEPTED iterations: NLLSsolver's count, each one possibly hiding ~8–10 rejected
-# candidate steps (FastLevenbergMarquardt, until 2026-10-27, counted those too); see [chart_lm]
+# candidate steps; see [chart_lm]
 max_iter = 100
 stationarity_tol = 0.05         # its stall postcondition (see [chart_lm]; its own fits measured ≤ 1e-9 at convergence)
-# Its relative cost tolerance (NLLSsolver's `reldcost`, as [chart_lm]'s). Set
-# 2026-10-27 for FastLevenbergMarquardt, whose default, eps, could not fire
-# here: at the cost's rounding floor the actual reduction is rounding noise of
-# 1e-15–5e-14 relative (0.5 px residuals of ~600 px coordinates), so every
-# candidate step was rejected and the run waited for the step-size test while
-# λ climbed back — measured on the A/B scenes (800 px, σ = 0.5 px, N = 100 /
-# 1000 / 10000): 21–34 LM iterations at eps, the cost within 1e-6 of its final
-# value by iteration 3; at 1e-10 every N stopped in 5 (FLM code 1), the cost
-# within 4.2e-14 relative and the pose within 6e-9 chart units of the eps run.
-# KEPT on NLLSsolver (2026-10-27), which accepts a step whose cost does not
-# rise, so at the floor its iterations are accepted, each a full
-# linearization: at NLLSsolver's default (1e-15) and at eps the same scenes
-# take 8 / 8 / 7 iterations instead of 5 (60% more linearizations and Schur
-# solves), the cost within 2.3e-14 relative and the rotation within 1e-9 of
-# the 1e-10 run; at 1e-10 it stops in 5, as the former driver did.
+# Its relative cost tolerance (NLLSsolver's `reldcost`, as [chart_lm]'s). At the
+# cost's rounding floor the reduction is rounding noise of 1e-15–5e-14
+# relative (0.5 px residuals of ~600 px coordinates), and NLLSsolver accepts a
+# step whose cost does not rise, so below the floor every iteration is a full
+# linearization that buys nothing: measured 2026-10-27 on the A/B scenes
+# (800 px, σ = 0.5 px, N = 100 / 1000 / 10000), at NLLSsolver's default
+# (1e-15) and at eps the bundle takes 8 / 8 / 7 iterations, at 1e-10 it stops
+# in 5 (60% fewer linearizations and Schur solves), the cost within 2.3e-14
+# relative and the rotation within 1e-9 of the longer runs.
 ftol = 1.0e-10
 
 [fit_lens]

@@ -228,14 +228,13 @@ const RETIRED_NAMES = String[
     "KITTI_ODOMETRY" * "_SEQUENCES",
     "SEVEN_SCENES_TEST" * "_SPLITS", "SEVEN_SCENES_TRAIN" * "_SPLITS",
     "WMG" * "_NG",
-    # the hand-rolled Levenberg–Marquardt cores, replaced by FastLevenbergMarquardt
-    # (2026-10-01), itself replaced by NLLSsolver (2026-10-27): the chart LM is
-    # VGC's `lmsolve_chart!`. The rule stands with ONE stated exception: the
+    # the hand-rolled Levenberg–Marquardt cores, replaced by one LM driver
+    # (NLLSsolver): the chart LM is VGC's `lmsolve_chart!`. The rule stands with ONE stated exception: the
     # generic models' device-side two-unknown pixel LM kernel
     # (`Cameras._pixel_lm`, `_pixel_lm_increment`; NLLSsolver cannot run in a
     # KernelAbstractions kernel). No other hand-rolled LM loop is allowed.
-    "_lmsolve" * "_manifold!",               # VisualGeometryToolkitCore's copy of FLM's static loop
-    "_lm" * "_cholsolve!",                   # its copy of FLM's unrolled Cholesky
+    "_lmsolve" * "_manifold!",               # a hand-rolled copy of a static LM loop
+    "_lm" * "_cholsolve!",                   # its unrolled Cholesky
     "_lmsolve" * "_p3p!",                    # VisualGeometryToolkitEstimation's P3P copy of the same loop
     "_REFINE_ROBOT_WORLD" * "_MAX_MARKERS",  # VisualGeometryToolkitEstimation: the robot-world refinement's 4-marker cap, removed (2026-10-01)
     # robot-world/hand-eye calibration is named as such (VisualGeometryToolkitEstimation,

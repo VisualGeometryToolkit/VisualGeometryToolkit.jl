@@ -17,7 +17,7 @@
 #
 # The estimate is the staged linear solve — Kabsch on pooled relative-motion
 # axes → chordal means per marker → one joint linear translation solve. An
-# NLLS refinement (FLM on the stacked MRP ⊕ t increment) was implemented and
+# NLLS refinement (an LM on the stacked MRP ⊕ t increment) was implemented and
 # REMOVED (2026-08): on the motivating 260527 data the pose-residual MLE
 # absorbed an unmodeled systematic (~0.17°, ≈17σ) along a weakly constrained
 # direction and extrapolated WORSE than this initializer (3.3/6.3/10.4 vs

@@ -535,9 +535,9 @@
         run(; kw...) = live_runs(sc, irls(), ctxs; problem_of, seed_of = j -> 7 + j, warmup = false, kw...)
         base = run()
         # Recorded before the hooks existed; the IRLS errors agree to ~1e-8 across
-        # Julia 1.12 and 1.13. Re-recorded 2026-10-27 when the chart LM's driver
-        # became NLLSsolver (FastLevenbergMarquardt before): the errors moved by
-        # at most 3.1e-6 relative (1.1e-5 absolute, pair 1), the trials not at all.
+        # Julia 1.12 and 1.13. Re-recorded 2026-10-27 at the LM-driver switch
+        # (VisualGeometryToolkitCore's CHANGELOG.md): the errors moved by at most
+        # 3.1e-6 relative (1.1e-5 absolute, pair 1), the trials not at all.
         @test isapprox(base.err, [3.585192544941499, 7.8158303756689165, 3.756885131040827, 2.618813358802281, 3.063642202290347, 0.6688221826884202, 1.9706137748617432, 5.398874293686337]; rtol = 1.0e-6) && base.trials == [100, 100, 100, 100, 100, 100, 100, 100]
         @test propertynames(base) == (:err, :trials, :wall_s)
         # lo_of overriding with the same strategy, a callback and the guard off: same outputs

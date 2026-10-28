@@ -1,4 +1,4 @@
-# The 1000 seeded problems of the pixel-LM reference (generate.jl writes FLM's answers,
+# The 1000 seeded problems of the pixel-LM reference (generate.jl writes the reference's answers,
 # pixel_lm_reference_tests.jl reads them): three nonlinear residuals in two bounded
 # unknowns, starts inside and outside the box, maxit ∈ {3, 10, 50, 200}. Generated from a
 # fixed Xoshiro seed; `pixel_lm_problems_checksum` guards the random stream.

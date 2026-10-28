@@ -56,17 +56,11 @@
 # (`iseliminable`). On a registered NLLSsolver the same problem runs on its
 # sparse LDL over all 5 + 3N unknowns — the same optimum, slower.
 #
-# Until 2026-10-27 the LM was FastLevenbergMarquardt's, on a stacked
-# fixed-pattern sparse Jacobian (22N stored entries) with this file's own
-# Schur solver (`SchurSolver <: FastLevenbergMarquardt.AbstractSolver`), the
-# pose block a FIXED chart anchored at the seed. NLLSsolver re-anchors the
-# pose variable at every accepted step (VGC's manifold `update` is
-# `recenter`); both reach the same optimum (measured 2026-10-27 on the A/B
-# scenes — 800 px, σ = 0.5 px, N = 100 / 1000 / 10000 — cost to ≤ 3e-14
-# relative, rotation to ≤ 6e-11°). Before 2026-10-01 J was dense, O(N²); before
-# 2026-10-27 the pose block was `RigidManifold6` (MRP ⊕ free ℝ³ t, one gauge
-# direction held by the damping): the minimal chart reaches its optimum (cost
-# ≤ 5.5e-15 relative, pose ≤ 7.4e-12°).
+# NLLSsolver re-anchors the pose variable at every accepted step (VGC's
+# manifold `update` is `recenter`). The pose block is the minimal chart
+# `EssentialManifold5`; a `RigidManifold6` pose (MRP ⊕ free ℝ³ t, one gauge
+# direction held by the damping) reaches the same optimum (cost ≤ 5.5e-15
+# relative, pose ≤ 7.4e-12°, measured 2026-10-27).
 #
 # Robustness: per-point weight wᵢ (the outer IRLS reweight's — the Student-t
 # posterior weight under LocalOptimizationDoneRight's `StudentTUniform`) scales all four of point i's residual rows.
@@ -167,8 +161,8 @@ end
 # variables are reset per call, and NLLSsolver's internal data (the Schur
 # system's layout) is kept in `cache`, built for the one options type the
 # bundle calls with (`nlls_options`'s). Without the cache a call rebuilds them
-# (measured 2026-10-27: 0.88 / 1.04 / 1.00× FastLevenbergMarquardt's time at
-# N = 100 / 1000 / 10000 with it, 1.78 / 1.49 / 1.44× without).
+# (measured 2026-10-27: 2.0 / 1.4 / 1.4× the cached call's time at N = 100 /
+# 1000 / 10000).
 #
 # NOT REENTRANT: a bundle started from inside the NLLSsolver `callback` of a
 # bundle on the same task overwrites the running problem's data and
@@ -417,8 +411,8 @@ function _bundle_optimize(
         X = _triangulate_rays(iK1, iK2, d.u1[i], d.u2[i], Rb, tb)
         problem.variables[i + 1] = _BundlePoint{E}(SVector{3, Float64}(X[1], X[2], X[3]))
     end
-    # The stack's knob map (VGC `nlls_options`): Marquardt's DᵀD damping, as
-    # the bundle's FastLevenbergMarquardt run had; `xtol` FLM's default.
+    # The stack's knob map (VGC `nlls_options`): Marquardt's DᵀD damping; `xtol`
+    # the chart LM's default.
     options = nlls_options(; max_iter, ftol, xtol = 1.0e-10)
     c = run.cache
     result = try
@@ -439,7 +433,7 @@ end
 
 # The bundle's retcode: NLLSsolver's termination bits and the stall
 # postcondition on the stacked rows (`nlls_retcode`; its exact-fit test at
-# FastLevenbergMarquardt's eps, as the bundle's former run had).
+# eps).
 function _bundle_retcode(run::_BundleRun, result, tol)
     J, f = _bundle_jacobian(run)
     return nlls_retcode(result, J, f; tol, ftol = eps())

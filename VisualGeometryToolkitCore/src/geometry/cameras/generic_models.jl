@@ -1442,19 +1442,19 @@ end
 # this kernel is the stated single instance the retired-names rule allows
 # (`check_naming`'s RETIRED_NAMES: the hand-rolled LM cores stay retired).
 #
-# Derived from FastLevenbergMarquardt 0.1's static bounded `lmsolve`, which this
-# function called until FastLevenbergMarquardt left the stack (2026-10-27):
-# Copyright (c) 2023 kamesy, MIT License. Its algorithm for N = 2 with its
-# defaults and operations in its order — Marquardt's damping (λ₀ = 1e-6,
+# Levenberg's and Marquardt's damped Gauss–Newton (Levenberg 1944; Marquardt
+# 1963) with Marquardt's diagonal scaling, specialized to N = 2 and derived
+# from a static bounded `lmsolve` (Copyright (c) 2023 kamesy, MIT License),
+# with its defaults and operations in its order — the damping (λ₀ = 1e-6,
 # ×1/13 on ρ > 0.75, ×3 on ρ < 1e-3 or a rejected step, clamped to
 # [1e-28, 1e32]), the running-maximum DᵀD clamped to [1e-12, 1e16], the
 # unrolled 2 × 2 Cholesky, the ftol = gtol = eps and xtol = 1e-10 stops. NOT
-# the same bits: `muladd` and StaticArrays' small products fuse as LLVM decides
-# per compilation context (FLM's own answer moves by ulps between contexts).
-# Measured against a recorded FLM run on 1000 seeded problems
-# (test/fixtures/pixel_lm): at most 5.5e-12 px (Julia 1.13) / 4.5e-8 px (1.12)
-# apart, 1.8e-6 px on the review's 20 000-problem probe, converged flags
-# identical; gated at 2e-6 px (pixel_lm_reference_tests.jl). The generic-model
+# the same bits as a run of that routine: `muladd` and StaticArrays' small
+# products fuse as LLVM decides per compilation context. Measured against a
+# recorded run of it on 1000 seeded problems (test/fixtures/pixel_lm): at most
+# 5.5e-12 px (Julia 1.13) / 4.5e-8 px (1.12) apart, 1.8e-6 px on the review's
+# 20 000-problem probe, converged flags identical; gated at 2e-6 px
+# (pixel_lm_reference_tests.jl). The generic-model
 # goldens (the C++ reference projections) hold unchanged at their tolerances.
 @inline function _pixel_lm(
         res::R, jac::J, x0, y0, minx::Float64, miny::Float64, maxx::Float64, maxy::Float64,
@@ -1517,7 +1517,7 @@ end
             f = fk
             Fold = F
             F = Fk
-            # FLM's ftol test reads its swapped buffers: `Fk` is then the old F
+            # the reference routine's ftol test reads its swapped buffers: `Fk` is then the old F
             abs(ac) < ϵ * Fold && pr < ϵ * Fold && ρ < 2 && break
             Jx = jac(x, nothing)
             g = Jx' * f
@@ -1537,8 +1537,8 @@ end
     return x, F < tol2
 end
 
-# FastLevenbergMarquardt's unrolled Cholesky solve of (JᵀJ + λ·DᵀD) p = g at
-# N = 2, its operations in its order; `info` ≠ 0 when a damped diagonal is
+# The unrolled Cholesky solve of (JᵀJ + λ·DᵀD) p = g at N = 2, the reference
+# routine's operations in its order; `info` ≠ 0 when a damped diagonal is
 # negative (a rejected step).
 @inline function _pixel_lm_increment(JtJ, λ, DtD, g)
     x1 = g[1]

@@ -14,8 +14,7 @@
 #       in different orders, so the agreement is a TOLERANCE: measured
 #       2026-10-27 over this sweep (Julia 1.13), ‖Δx‖∞ = 1.2e-11 / 8.2e-12 / 5.3e-16 /
 #       1.3e-12 (n = 8 / 20 / 100 / 400; 4 / 5 / 4 / 4 iterations both)
-#       against ‖x‖∞ = 9.4e-3 / 1.3e-2 / 4.2e-3 / 2.8e-3, gated at atol 1e-9, rtol 1e-9 (the gate FastLevenbergMarquardt's
-#       static `lmsolve` reference had until it left the stack, 2026-10-27).
+#       against ‖x‖∞ = 9.4e-3 / 1.3e-2 / 4.2e-3 / 2.8e-3, gated at atol 1e-9, rtol 1e-9.
 #       The problems are deliberately WELL-CONDITIONED (convergence in tens of
 #       iterations, guarded below): a fit that crawls amplifies benign ulp
 #       differences and would test the compiler.

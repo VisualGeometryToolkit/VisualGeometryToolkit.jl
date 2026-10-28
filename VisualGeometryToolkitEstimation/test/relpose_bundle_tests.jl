@@ -195,11 +195,9 @@ end
     # the cost agrees to 1e-12 relative and the pose to 1e-6°.
     #
     # WHY 1e-6°: the bundle stops at `[relpose_bundle] ftol = 1e-10`
-    # (NLLSsolver's relative cost-decrease stop, until 2026-10-27
-    # FastLevenbergMarquardt's code 1), one step short of the cost's rounding
-    # floor; measured there (Julia 1.13, NLLSsolver): cost ≤ 6.2e-14 relative,
-    # rotation ≤ 2.1e-8°, translation direction ≤ 1.8e-7° (FastLevenbergMarquardt:
-    # 4.6e-14, 1.8e-8°, 1.6e-7°). The statistical pose uncertainty on these scenes is ~3e-2° /
+    # (NLLSsolver's relative cost-decrease stop), one step short of the cost's
+    # rounding floor; measured there (Julia 1.13): cost ≤ 6.2e-14 relative,
+    # rotation ≤ 2.1e-8°, translation direction ≤ 1.8e-7°. The statistical pose uncertainty on these scenes is ~3e-2° /
     # 8e-3° / 3e-3° (N = 100 / 1000 / 10000; the A/B harness's covariance
     # table), so 1e-6° is a numerical-agreement bound orders below what the
     # data determines — not a precision claim. No `ftol` both stops early and
@@ -251,8 +249,7 @@ end
     # The run stops when the cost has converged: within 1e-6 of its final value
     # by iteration 3, stopped at iteration 5 (NLLSsolver's relative
     # cost-decrease stop) on every scene. At NLLSsolver's default tolerance
-    # (1e-15) it runs 8 / 8 / 7 — every one a full linearization — and at
-    # FastLevenbergMarquardt's eps the former driver ran 21–34
+    # (1e-15) it runs 8 / 8 / 7 — every one a full linearization
     # (configs/default.toml [relpose_bundle]). The count itself is not tested:
     # it can move with the compilation context.
     for N in (100, 1000, 10000)
@@ -273,8 +270,7 @@ end
     # callback keyword is specialized (the call into the run no longer boxes
     # its arguments). Flat is asserted directly (max − min ≤ 4), the bound
     # kept as the ceiling. The bound is the fork's: on a registered
-    # NLLSsolver (no cache) the assertion is skipped. Until then FastLevenbergMarquardt's
-    # call built its buffers per call: 53 / 54 / 54 (the bound was 62).
+    # NLLSsolver (no cache) the assertion is skipped.
     ALLOCS_BOUND = 28
     counts = map((100, 1000, 10000)) do N
         R0, t0, u1, u2 = _harness_scene(N)

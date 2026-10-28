@@ -19,9 +19,9 @@
 # variable, the chart vector (an `SVector{N}`, NLLSsolver's `EuclideanVector`),
 # and one residual block of all the rows, whose cost, gradient and Gauss–Newton
 # Hessian it supplies through NLLSsolver's `computecostgradhess` hook as static
-# arrays (Jᵀr and JᵀJ accumulated in one sweep over the rows: measured
-# 2026-10-27 on 317 captured E refits, 0.84× FastLevenbergMarquardt's time to
-# convergence, against 0.97× with NLLSsolver forming JᵀJ itself). The problem
+# arrays (Jᵀr and JᵀJ accumulated in one sweep over the rows: 13% faster to
+# convergence than NLLSsolver forming JᵀJ itself, measured 2026-10-27 on 317
+# captured E refits; CHANGELOG.md, the LM driver). The problem
 # is built once per (workspace, linearization-state type) and kept in the
 # workspace with NLLSsolver's `OptimizeCache`, so a refit reuses the problem
 # and the solver's internal data.
@@ -69,18 +69,17 @@ place they meet:
 
 | stack knob | meaning | NLLSsolver |
 |---|---|---|
-| `max_iter` (`maxit`) | the LM iteration cap | `maxiters`: outer iterations, one ACCEPTED step each; an iteration's damping loop may reject ~8–10 candidate steps first (λ ×2, ×4, ×8 … until the step is below `dstep`), so the cap bounds accepted steps, not work (FastLevenbergMarquardt counted rejected trials too) |
+| `max_iter` (`maxit`) | the LM iteration cap | `maxiters`: outer iterations, one ACCEPTED step each; an iteration's damping loop may reject ~8–10 candidate steps first (λ ×2, ×4, ×8 … until the step is below `dstep`), so the cap bounds accepted steps, not work |
 | `ftol` | relative cost tolerance: stop once a step lowers the cost by less than `ftol`·F | `reldcost` |
-| `xtol` | step-size tolerance (FastLevenbergMarquardt's default `1e-10`) | `dstep`: ABSOLUTE, the step's max-norm in chart units (max|pᵢ| < xtol); FastLevenbergMarquardt's test was RELATIVE per component, |pᵢ| < xtol·(xtol + |xᵢ|) — the same value is stricter far from the origin and looser near it |
+| `xtol` | step-size tolerance (default `1e-10`) | `dstep`: ABSOLUTE, the step's max-norm in chart units (max|pᵢ| < xtol) |
 | — | absolute cost decrease | `absdcost = 0`: the stack has no such knob |
 | — | consecutive failed iterations | `maxfails = 3`, NLLSsolver's default |
 | `max_time` | wall-clock cap in seconds, for a fit whose iterations take minutes (a rendering calibration) | `maxtime`; `nothing` (the default) or `Inf`: none (1e6 s); negative or NaN: an `ArgumentError` |
-| `iterator` | the damping | `:levenbergmarquardt_dtd`, λ·DᵀD with DᵀD the running maximum of diag(JᵀJ) — Marquardt's scaling, which every former FastLevenbergMarquardt fit used — or `:levenbergmarquardt`, λ·I |
+| `iterator` | the damping | `:levenbergmarquardt_dtd`, λ·DᵀD with DᵀD the running maximum of diag(JᵀJ) — Marquardt's scaling, every fit's — or `:levenbergmarquardt`, λ·I |
 
 Single-threaded (`numthreads = 1`): a fit runs inside the caller's threads.
-FastLevenbergMarquardt's `gtol` (`‖Jᵀf‖∞ < eps`) has no counterpart: a zero
-gradient gives a zero step, which the step test stops and the stall
-postcondition reads as stationary. Its initial damping, `1e-6`, is
+There is no gradient tolerance: a zero gradient gives a zero step, which the
+step test stops and the stall postcondition reads as stationary. Its initial damping, `1e-6`, is
 NLLSsolver's λ₀ for `:levenbergmarquardt_dtd`; neither is a stack knob.
 """
 nlls_options(; max_iter::Integer, ftol::Real, xtol::Real, iterator::Symbol = :levenbergmarquardt_dtd, max_time::Union{Nothing, Real} = nothing) =
@@ -225,10 +224,9 @@ NLLSsolver.computeresidual(c::_ChartRows, x) = residual_rows!(c.r, c.state.lm, x
 # cost NLLSsolver reads at a trial point and at a linearization agree to the
 # bit). A non-finite cost is +Inf: a candidate step whose rows are NaN (a step
 # past a NaN or discontinuity wall — the radial-camera, radial-homography and
-# lens rows have them) is a REJECTED step, as it was for FastLevenbergMarquardt,
-# which compared F(x + p) < F(x); a released NLLSsolver accepts any trial
-# whose cost is not greater than the best, which NaN is not, and would stop
-# there. The fork rejects NaN trials itself (`stack`, upstream PR #64); the rule
+# lens rows have them) is a REJECTED step: a released NLLSsolver accepts any
+# trial whose cost is not greater than the best, which NaN is not, and would
+# stop there. The fork rejects NaN trials itself (`stack`, upstream PR #64); the rule
 # stays for the registry path.
 @inline _finite_cost(c::Float64) = isfinite(c) ? c : Inf
 function NLLSsolver.computecost(c::_ChartRows, x)
@@ -317,10 +315,10 @@ that applies:
 1. a failure — a non-finite cost (0, 1) or step (4, 5), a cost disagreement
    (10) — WITHOUT a step-size stop: `-3`, `:solve_failed`;
 2. the step-size stop (6): `2`, the stall postcondition decides it (checked
-   before the cost tolerance, as FastLevenbergMarquardt tested its xtol before
-   its ftol: a tiny last step at a wall also shows a tiny cost decrease);
-3. a relative or absolute cost-decrease stop (2, 3): `1`, converged (the
-   analogue of FastLevenbergMarquardt's ftol stop; a tolerance outranks a cap);
+   before the cost tolerance: a tiny last step at a wall also shows a tiny
+   cost decrease);
+3. a relative or absolute cost-decrease stop (2, 3): `1`, converged (a
+   tolerance outranks a cap);
 4. the consecutive-failure cap (7): `4`, the postcondition decides it;
 5. the time cap (9): `-4`, `:max_time`; then the iteration cap (8): `-1`,
    `:max_iterations`;
@@ -362,8 +360,8 @@ the same bits.
 """
 nlls_stop_reasons(bits::Integer) = Symbol[name for (b, name) in _NLLS_STOP_BITS if (bits >> b) & 1 == 1]
 
-# The decoder's two codes outside FastLevenbergMarquardt's numbering
-# (`lm_retcode` reads them): a failed solve and the time cap.
+# The decoder's two codes beyond the stop codes 1, 2, 4 and −1 (`lm_retcode`
+# reads them): a failed solve and the time cap.
 const _LM_FAILED = -3
 const _LM_MAX_TIME = -4
 
@@ -389,8 +387,8 @@ cost `‖r(x)‖²`, [`lm_retcode`](@ref)`(converged)` the estimator's retcode a
 start at a stationary point takes one zero step).
 
 `maxit` (accepted iterations), `ftol` and `xtol` (absolute) are the stack's LM knobs, mapped once by
-[`nlls_options`](@ref); their defaults are FastLevenbergMarquardt's, which the
-stack documented its configurations against. `stationarity_tol` is the stall
+[`nlls_options`](@ref); their defaults (1000, `eps()`, `1e-10`) are the ones the
+stack documents its configurations against. `stationarity_tol` is the stall
 postcondition's tolerance — required: the caller's configuration owns it.
 `cache = false` takes the upstream path where the fork's `OptimizeCache` is
 loaded (`nlls_features`; the fallback test runs it): the same iterates, the
@@ -403,7 +401,7 @@ stops there, at a non-stationary point. So for those stops — and only those,
 the extra Jacobian evaluation is paid by them alone — stationarity is TESTED
 at the returned `x` (`_lm_stationary`, with `ftol` as the exact-fit test),
 and `converged` is `_LM_STALLED` when it fails. A cost-decrease stop (`1`) is
-converged, as FastLevenbergMarquardt's ftol stop was.
+converged.
 """
 function lmsolve_chart!(
         ews::ManifoldLmWorkspace{N}, lm; maxit::Integer = 1000, ftol::Real = eps(Float64), xtol::Real = 1.0e-10,

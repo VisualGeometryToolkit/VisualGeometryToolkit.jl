@@ -112,7 +112,7 @@ end
     for bit in (0, 1, 4, 5, 10)
         @test code(1 << bit) == -3
     end
-    # the step stop is checked before the cost tolerance (FLM tested xtol first)
+    # the step stop is checked before the cost tolerance
     @test code((1 << 2) | (1 << 6)) == 2
     @test code((1 << 3) | (1 << 6)) == 2
     @test code((1 << 6) | (1 << 7)) == 2
@@ -158,9 +158,9 @@ end
 end
 
 @testset "a NaN trial is a rejected step" begin
-    # FastLevenbergMarquardt compared F(x + p) < F(x), so a NaN trial was
-    # rejected; NLLSsolver accepts a trial whose cost is not greater than the
-    # best, which NaN is not. The adapter reads a non-finite cost as +Inf.
+    # NLLSsolver accepts a trial whose cost is not greater than the best, which
+    # NaN is not; the adapter reads a non-finite cost as +Inf, so a NaN trial is
+    # rejected.
     lm2 = _ExpFitLm([0.0, 1.0, 2.0, 3.0, 4.0], [1.0 + 2si for si in [0.0, 1.0, 2.0, 3.0, 4.0]], SVector(0.0, 0.0, 1.0, 1.0))   # optimum at c = 2: x[3] = 1, behind the wall
     x, F, c, _ = lmsolve_chart!(ManifoldLmWorkspace(5, 4), _NaNBeyond(lm2); stationarity_tol = 0.05)
     @test isfinite(F) && x[3] <= 0.25

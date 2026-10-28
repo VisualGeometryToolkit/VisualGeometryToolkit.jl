@@ -157,7 +157,7 @@ circle.
 The estimate carries the covariance of the log-shape chart vector, `s²·(JᵀJ)⁻¹`
 with `s² = Σdᵢ²/(n−5)`, `J` the Jacobian of the distances at the solution.
 `max_iter` caps the LM's ACCEPTED iterations (NLLSsolver's count; one may
-hide ~8–10 rejected candidate steps, which FastLevenbergMarquardt counted too).
+hide ~8–10 rejected candidate steps).
 `retcode` is the LM's (VGC `lm_retcode`: `:converged`, `:max_iterations`,
 `:max_time`, `:stalled`, or `:solve_failed` when the cost or the step went
 non-finite outside a step-size stop). Throws

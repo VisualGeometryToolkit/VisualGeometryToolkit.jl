@@ -232,13 +232,13 @@ function _refine_camera_and_poses(
     chc_out = chc === nothing ? nothing : problem.variables[1]
     poses_out = [problem.variables[o + v] for v in 1:V]
     camera_out = chc_out === nothing ? camera : model(chc_out)
-    all(ch -> all(isfinite, ch.R) && all(isfinite, ch.t), poses_out) && all(isfinite, parameter_vector(camera_out)) ||
+    all(ch -> all(isfinite, rotation(model(ch))) && all(isfinite, translation(model(ch))), poses_out) && all(isfinite, parameter_vector(camera_out)) ||
         throw(ErrorException("refine_camera_and_poses: the LM step is not finite"))
 
     r, J = _camera_poses_rows_and_jacobian(costs, chc_out, poses_out, nd)
     code = nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol)
     S = sum(abs2, r)
     ν = 2n - p
-    out = [relabel(_frames(p0)..., EuclideanMap(RotMatrix{3, Float64}(ch.R), SVector{3, Float64}(ch.t))) for (p0, ch) in zip(poses, poses_out)]
+    out = [relabel(_frames(p0)..., EuclideanMap(RotMatrix{3, Float64}(rotation(model(ch))), SVector{3, Float64}(translation(model(ch))))) for (p0, ch) in zip(poses, poses_out)]
     return (; camera = camera_out, poses = out), code, result.niterations, sqrt(S / n), n, CameraPosesRefineMetadata(r, S / ν, ν, free)
 end

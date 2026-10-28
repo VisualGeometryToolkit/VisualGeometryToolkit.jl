@@ -479,7 +479,7 @@ end
 # camera body (`_PITCH`, camera_schema.jl), in the rig's `length_unit`. Additive
 # in rig/v5, which is unreleased: no version moves.
 const _RIG_CAMERA_BODY = _Obj(_CAMERA_BODY_FIELDS, Pair{Symbol, _Spec}[:pitch => _PITCH])
-const _RIG_GENERIC_BODY = _Checked(_Obj(_GENERIC_BODY_FIELDS, Pair{Symbol, _Spec}[:point_grid => _GRID, :pitch => _PITCH]), _generic_check)
+const _RIG_GENERIC_BODY = _Checked(_Obj(_GENERIC_BODY_FIELDS, Pair{Symbol, _Spec}[:point_grid => _GRID, :pitch => _PITCH, _GENERIC_OPTIONAL...]), _generic_check)
 
 const _SENSOR_RECORD = _Obj(
     :id => _NonEmpty(),
@@ -739,11 +739,15 @@ function _id_grid_header(gm, grid)
         "grid" => Any[size(grid, 2), size(grid, 1)],
     )
 end
-_id_grid_model(gm::CentralGenericModel) = merge(_id_grid_header(gm, gm.grid), _Id("grid_model" => "central", "directions" => _id_grid(gm.grid)))
+_id_grid_model(gm::CentralGenericModel) =
+    merge(_id_grid_header(gm, gm.grid), _Id("grid_model" => "central", "directions" => _id_grid(gm.grid)), _id_grid_extras(gm))
 _id_grid_model(gm::NoncentralGenericModel) = merge(
     _id_grid_header(gm, gm.directions),
     _Id("grid_model" => "noncentral", "directions" => _id_grid(gm.directions), "points" => _id_grid_metres(gm.points)),   # plain metres
+    _id_grid_extras(gm),
 )
+# the nominal pinhole and the domain iff the model has them: the writer's own leaves
+_id_grid_extras(gm) = _Id((String(k) => _lower(v) for (k, v) in pairs(_generic_extras(gm)))...)
 
 _lower(x::NamedTuple) = Dict{String, Any}(String(k) => _lower(v) for (k, v) in pairs(x))
 _lower(x::AbstractDict) = Dict{String, Any}(String(k) => _lower(v) for (k, v) in x)

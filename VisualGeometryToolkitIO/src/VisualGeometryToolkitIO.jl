@@ -96,7 +96,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     Canvas, CanvasTexture, canvas,
     Rigid, Affine, ThinPlateSpline, HeightField, CalibrationChain, TARGET_CALIBRATION_TAGS, tag_of, parameter_vector, length_mask,
     Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D, TargetPoint2D, TargetPoint3D,
-    CentralGenericModel, NoncentralGenericModel,
+    CentralGenericModel, NoncentralGenericModel, nominal_intrinsics, LogicalIntrinsics, Ellipse, WholePlane,
     Frame, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, UnlabeledFrame,
     Uncertain, CovMat, geom,
     Point2, FeatureFrame, Disc, OrientedDisc, EllipticFrame, AffineFrame, AbstractDetection,

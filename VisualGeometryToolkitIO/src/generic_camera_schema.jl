@@ -16,6 +16,8 @@
 #  "grid_width": …, "grid_height": …, "grid_layout": "row_major",
 #  "direction_grid": [[x, y, z], …],               entry y·grid_width + x
 #  "point_grid":     [[x, y, z], …],               non-central only
+#  "nominal_intrinsics": [fx, fy, cx, cy, skew],   (optional) the pinhole the model reports with, px
+#  "domain": {"ellipse": [cx, cy, a, b, θ]},       (optional) the source's imaged region, px; absent = the whole plane
 #  "provenance": {…}}                               (optional)
 #
 # The pixel frame is COLMAP's because VGC's generic models are defined in it —
@@ -33,6 +35,15 @@
 # physical camera's extrinsics in to apply its model — and the file's
 # `length_unit` (mm unless the writer is given another) on disk, through
 # `read_length` / `write_length`.
+#
+# A model built from a source camera (Core's `init = :quasi_interpolate`)
+# carries that camera's pinhole, `nominal_intrinsics`, and its imaged region,
+# `domain` — an `Ellipse` (an image circle) or the whole plane. Neither is
+# derivable from the grid, so both are stored when present (the same five
+# numbers as a camera's `intrinsics`; the ellipse's centre, semi-axes and
+# angle), and read back bit for bit; a domain of any other region type is
+# refused by the writer. Schöps' YAML carries neither: its models read with
+# none and the whole plane.
 
 const _GRID = _Vec(_XYZ)
 const _GENERIC_TYPES = ("CentralGenericModel", "NoncentralGenericModel")
@@ -61,7 +72,9 @@ function _generic_check(x)
     return nothing
 end
 
-const _GENERIC_BODY = _Checked(_Obj(_GENERIC_BODY_FIELDS, Pair{Symbol, _Spec}[:point_grid => _GRID]), _generic_check)
+const _GENERIC_DOMAIN = _Obj(:ellipse => _Vec(_Real(), 5))
+const _GENERIC_OPTIONAL = Pair{Symbol, _Spec}[:nominal_intrinsics => _Vec(_Real(), 5), :domain => _GENERIC_DOMAIN]
+const _GENERIC_BODY = _Checked(_Obj(_GENERIC_BODY_FIELDS, Pair{Symbol, _Spec}[:point_grid => _GRID, _GENERIC_OPTIONAL...]), _generic_check)
 const _GENERIC_CAMERA_SPEC = _Checked(
     _Obj(
         Pair{Symbol, _Spec}[
@@ -69,7 +82,7 @@ const _GENERIC_CAMERA_SPEC = _Checked(
             :pixel_frame => _Tok(pixel_frame_name(CANONICAL_PIXEL_FRAME)),
             _GENERIC_BODY_FIELDS...,
         ],
-        Pair{Symbol, _Spec}[:length_unit => _LENGTH_UNIT, :point_grid => _GRID, _PROVENANCE...],
+        Pair{Symbol, _Spec}[:length_unit => _LENGTH_UNIT, :point_grid => _GRID, _GENERIC_OPTIONAL..., _PROVENANCE...],
     ),
     x -> something(
         _generic_check(x),
@@ -97,7 +110,28 @@ function _grid_from_json(a, gw::Int, gh::Int; unit::Units = mm, is_points::Bool 
     return g
 end
 
-_generic_body(m::CentralGenericModel, ::Units = mm) = (
+# The optional nominal pinhole and domain of a model (empty when it has none).
+function _generic_extras(m)
+    n = nominal_intrinsics(m)
+    nom = n === nothing ? (;) : (K = n.K;
+        (nominal_intrinsics = Float64[K[1, 1], K[2, 2], K[1, 3], K[2, 3], K[1, 2]],))
+    d = m.domain
+    dom = d isa WholePlane ? (;) : d isa Ellipse ?
+        (domain = (ellipse = Float64[d.center[1], d.center[2], d.a, d.b, d.θ],),) :
+        throw(ArgumentError("save: a generic model's domain is stored as an Ellipse or the whole plane; got a $(nameof(typeof(d)))"))
+    return merge(nom, dom)
+end
+function _generic_extras_from(d)
+    nominal = haskey(d, :nominal_intrinsics) ? (v = Float64.(d.nominal_intrinsics::Vector{Any});
+        LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(v[1], 0, 0, v[5], v[2], 0, v[3], v[4], 1)))) : nothing
+    domain = haskey(d, :domain) ? (e = Float64.(d.domain.ellipse::Vector{Any}); Ellipse(Point2{Float64}(e[1], e[2]), e[3], e[4], e[5])) :
+        WholePlane()
+    return (; nominal, domain)
+end
+
+_generic_body(m::CentralGenericModel, u::Units = mm) = merge(_generic_body_core(m, u), _generic_extras(m))
+_generic_body(m::NoncentralGenericModel, u::Units = mm) = merge(_generic_body_core(m, u), _generic_extras(m))
+_generic_body_core(m::CentralGenericModel, ::Units = mm) = (
     type = "CentralGenericModel",
     width = m.width, height = m.height,
     calibration_min_x = m.calib_min_x, calibration_min_y = m.calib_min_y,
@@ -106,7 +140,7 @@ _generic_body(m::CentralGenericModel, ::Units = mm) = (
     direction_grid = _grid_json(m.grid),
 )
 # The point grid (plain metres) is written in the file's `unit`.
-_generic_body(m::NoncentralGenericModel, unit::Units = mm) = (
+_generic_body_core(m::NoncentralGenericModel, unit::Units = mm) = (
     type = "NoncentralGenericModel",
     width = m.width, height = m.height,
     calibration_min_x = m.calib_min_x, calibration_min_y = m.calib_min_y,
@@ -126,8 +160,12 @@ function _generic_from_body(d, unit::Units)
         Int(d.calibration_min_x::Integer), Int(d.calibration_min_y::Integer),
         Int(d.calibration_max_x::Integer), Int(d.calibration_max_y::Integer),
     )
-    d.type == "CentralGenericModel" && return CentralGenericModel(args..., dirs)
-    return NoncentralGenericModel(args..., dirs, _grid_from_json(d.point_grid::Vector{Any}, gw, gh; unit, is_points = true))
+    # the controls as stored (a model's controls may be off the sphere — a quasi-interpolated start, a tangent-plane optimizer's
+    # result — and a re-normalization would change its spline; a unit grid reads back unit either way)
+    x = _generic_extras_from(d)
+    d.type == "CentralGenericModel" && return CentralGenericModel(args..., dirs; unit_controls = false, x...)
+    return NoncentralGenericModel(args..., dirs, _grid_from_json(d.point_grid::Vector{Any}, gw, gh; unit, is_points = true);
+                                  unit_controls = false, x...)
 end
 
 """

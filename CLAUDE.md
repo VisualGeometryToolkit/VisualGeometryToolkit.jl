@@ -47,7 +47,7 @@ julia --project=VisualGeometryToolkitCore -e 'using Pkg; Pkg.test(; julia_args =
 julia --project=VisualGeometryToolkitCore/docs --startup-file=no VisualGeometryToolkitCore/docs/make.jl
 
 # Workspace checks (CI runs them on every PR)
-julia --project=ci ci/registration_lint.jl   # versions, compat, names, no tracked Manifest, allow-list
+julia --project=ci ci/registration_lint.jl --subsequent   # versions, compat, names, no tracked Manifest, allow-list
 julia --project=ci ci/agent_docs.jl          # the agent-docs policy over every tracked agent file
 julia --startup-file=no ci/affected.jl origin/main HEAD   # packages a change touches, with dependents
 ```

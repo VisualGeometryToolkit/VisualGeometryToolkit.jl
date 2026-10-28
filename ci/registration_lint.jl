@@ -2,9 +2,13 @@
 #
 #   julia --project=ci ci/registration_lint.jl [--subsequent]
 #
-# By default the rules of the FIRST registration apply: every version is the
-# standard initial version 0.1.0 and no package's name or UUID is in General
-# yet. After wave 1, CI passes --subsequent (drop those two rules).
+# By default the rules of a package's FIRST registration apply to every
+# package General does not hold yet: its version is the standard initial
+# version 0.1.0 and its name is not within DL distance 2 of another's. A
+# package General holds under its UUID is never a first registration, so those
+# rules never apply to it. `--subsequent` drops them for every package: CI and
+# the release run it, since every stack package has a first registration in
+# General merged or filed (a filed one is invisible here until it merges).
 #
 # Per package directory:
 #   - Project.toml: name = directory, a UUID, a version; name rules (ASCII
@@ -109,6 +113,9 @@ end
 
 function check_package(pkg, general, initial)
     dir = joinpath(ROOT, pkg)
+    uuid0 = get(TOML.parsefile(joinpath(dir, "Project.toml")), "uuid", nothing)
+    # a package General holds under its UUID is past its first registration
+    general !== nothing && any(((u, e),) -> e.name == pkg && string(u) == uuid0, general.pkgs) && (initial = false)
     path = joinpath(dir, "Project.toml")
     isfile(path) || return err(pkg, "no Project.toml")
     proj = TOML.parsefile(path)

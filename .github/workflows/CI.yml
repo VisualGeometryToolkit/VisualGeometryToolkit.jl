@@ -72,6 +72,6 @@ jobs:
       - uses: julia-actions/cache@v2
       - run: julia --project=ci -e 'using Pkg; Pkg.instantiate()'
       - name: Registration rules (versions, compat, names, licenses, allow-list, no tracked Manifest)
-        run: julia --project=ci ci/registration_lint.jl
+        run: julia --project=ci ci/registration_lint.jl --subsequent
       - name: Agent docs policy (public patterns)
         run: julia --project=ci ci/agent_docs.jl

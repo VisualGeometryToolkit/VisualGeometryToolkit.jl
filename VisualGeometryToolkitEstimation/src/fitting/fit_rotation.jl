@@ -50,7 +50,8 @@ The robust rotation `R` with `bᵢ ≈ R·aᵢ` from direction pairs `cs` (`aᵢ
 fraction of the pairs gross outliers. A fit — it seeds itself with
 VisualGeometryToolkitCore's [`kabsch`](@ref) — iterating a reweighted Kabsch:
 residual angles `rᵢ = ∠(R·aᵢ, bᵢ)`, the robust scale
-`σ̂ = median(r) / √chisq_median(2)` (the median of a 2-D residual norm), the
+`σ̂ = median(r) / √chisq_median(2)` (the median of a 2-D residual norm, over
+the pairs of positive prior weight), the
 weights of `loss` (an `AbstractLossShape`, e.g. `HuberShape()`) at width
 `scale_multiple · σ̂`, and the weighted Kabsch.
 
@@ -118,11 +119,12 @@ function fit_rotation(
     return FitResult(R, retcode, iter, sqrt(sum(abs2, r) / n), n, RotationFitMetadata(w, r, σ))
 end
 
-# σ̂ at residuals `r` — the Rayleigh median — and the loss's IRLS weights
-# times the prior into `w`; the prior itself on an exact fit (σ̂ = 0).
-# Returns σ̂.
+# σ̂ at residuals `r` — the Rayleigh median over the pairs the caller weights
+# (prior > 0; an excluded pair's residual does not widen the loss) — and the
+# loss's IRLS weights times the prior into `w`; the prior itself on an exact
+# fit (σ̂ = 0). Returns σ̂.
 function _rotation_weights!(w, r, prior, loss, scale_multiple)
-    σ = Statistics.median(r) / sqrt(VgtkCore.chisq_median(2))
+    σ = Statistics.median(r[i] for i in eachindex(r) if prior[i] > 0) / sqrt(VgtkCore.chisq_median(2))
     if iszero(σ)
         w .= prior
         return σ

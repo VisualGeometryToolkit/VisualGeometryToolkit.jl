@@ -78,6 +78,13 @@ end
         @test res.sigma ≈ σr rtol = 1.0e-9
         @test res.weights ≈ [weight(WelschShape(), x^2, c²) for x in r] rtol = 1.0e-9
     end
+    # σ̂ is over the pairs the caller weights: with 60% of the pairs excluded as outliers (prior 0), σ̂ stays the
+    # inliers' scale (the median over all pairs is the outliers')
+    many = [i % 5 in (1, 2, 3) for i in 1:n]
+    bsx = copy(bs); for i in findall(many); bsx[i] = normalize(randn(rng, SVector{3, Float64})); end
+    priorx = Float64.(.!many)
+    resx = fit_rotation(withattrs(Csponds(as, bsx); weights = priorx); loss = HuberShape())
+    @test resx.sigma < 2σ && rotation_angle(estimate(resx) * R') < 1.0e-3
     # a loss that is no M-estimator (TLS, a hard cutoff): no efficiency default, so its width multiple is required —
     # an ArgumentError naming `scale_multiple` without one; with one, the fit runs and rejects the outliers
     e = try fit_rotation(cs; loss = TLSShape()); nothing catch e; e end

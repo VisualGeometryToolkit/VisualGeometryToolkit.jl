@@ -265,6 +265,7 @@ export project!, backproject!, distort_normalized!, undistort_normalized!
 export undistort, undistort!, distortion_map
 export CameraCalibrationMat
 export project, backproject, unproject, transfer
+public backproject_with_jacobian   # the bearing and its 3×2 pixel Jacobian (a parametric camera, a generic grid model): the M columns of a bearing problem
 export focal_length, calibration_matrix  # Unit accessors; `focal_length(sensor, θ)` the focal a field of view implies
 export fov   # the angle of view a bounded camera's extent subtends (its inverse)
 export intrinsics, lens, model  # Camera component accessors

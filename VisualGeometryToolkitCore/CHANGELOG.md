@@ -12,6 +12,15 @@ introduced them did not state them all.
 - **`Rotation2pt`**, the minimal 2-point rotation solver on bearing pairs
   (`solve(Rotation2pt(), cs, idx)`: `kabsch` on the two unit pairs; a
   parallel or antiparallel pair in either view is `count == 0`).
+- **The transfer constraint on unit bearings**:
+  `constraint_with_jacobians(TransferForm(H), f₁, f₂; M₁, M₂)` — the infinite
+  homography (a rotation under a pure rotation) as the transferred ray in
+  `f₂`'s tangent plane, `G_x` in pixels through the back-projection Jacobians
+  (the two-sided Sampson covariance), `G_θ` w.r.t. `vec(H)`; and the bearing
+  methods `transfer_whitening!(W, H, f₁, f₂; M₁, M₂)` and
+  `transfer_jacobian_rows!(J, H, dH, W, f₁, f₂, sqrtw)` beside the pixel ones
+  (`transfer_rows!` takes bearings as it is). The pixel rows' internal row
+  function now takes `u₂` (unread for pixels).
 
 - **`parameter_bounds` states which endpoints are closed, and a closed
   endpoint is a mirror in `ParameterManifold`'s chart.** The closed endpoints

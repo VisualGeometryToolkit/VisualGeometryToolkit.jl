@@ -475,6 +475,64 @@ only: `u₁`, `u₂` are 2-vectors, and a 3-vector (a bearing) is a `MethodError
     return g, G_x, _transfer_params_jacobian(Jπ, x1)
 end
 
+# The transfer constraint on UNIT BEARINGS — the infinite homography of a
+# calibrated camera (`H = R` under a pure rotation, `K₂ R K₁⁻¹` in pixels) on
+# rays, where the z = 1 chart and its perspective divide do not exist past 90°.
+# The parts every bearing-transfer route reads, in ONE arithmetic order: the
+# transferred ray `ĥ = H f₁ / ‖H f₁‖`, the residual `g = P·ĥ` in `f₂`'s tangent
+# plane (`P` the 2×3 orthonormal basis of `s2_tangent_basis(f₂)`, so `P f₂ = 0`),
+# the normalization's derivative `Jn = (I − ĥĥᵀ)/‖H f₁‖` and `D = P·Jn`, the
+# derivative of `g` along the transferred point `H f₁` — what the pixel form's
+# `Jπ` is to its perspective divide. `cheiral`: the transferred ray is in `f₂`'s
+# hemisphere (`ĥ·f₂ > 0`); an antipodal pair has a small `g` too, so a scorer
+# reads this verdict rather than the residual alone.
+@inline function _bearing_transfer_parts(H, f₁::StaticVector{3}, f₂::StaticVector{3})
+    T = float(promote_type(eltype(H), eltype(f₁), eltype(f₂)))
+    Hm = SMatrix{3, 3, T, 9}(H)
+    s = SVector{3, T}(f₁[1], f₁[2], f₁[3])
+    d = SVector{3, T}(f₂[1], f₂[2], f₂[3])
+    h = Hm * s
+    nh = norm(h)
+    ĥ = h / nh
+    b1, b2 = s2_tangent_basis(d)
+    P = SMatrix{2, 3, T, 6}(b1[1], b2[1], b1[2], b2[2], b1[3], b2[3])
+    D = P * ((SMatrix{3, 3, T, 9}(I) - ĥ * ĥ') / nh)
+    return (; g = P * ĥ, P, D, s, Hm, cheiral = dot(ĥ, d) > 0)
+end
+
+"""
+    constraint_with_jacobians(f::TransferForm, f₁, f₂; M₁, M₂) -> (g, G_x, G_θ)
+
+The transfer constraint of the wrapped homography on UNIT BEARINGS — the
+infinite homography of a calibrated camera (under a pure rotation `H = R`):
+`g = P·(H f₁/‖H f₁‖)`, the transferred ray in the tangent plane of `f₂` (`P` the
+2×3 orthonormal basis of [`s2_tangent_basis`](@ref)`(f₂)`), zero when `f₂ ∥ H f₁`
+— the constraint `f₂ × H f₁ = 0` at codimension 2. Its Jacobians:
+
+- `G_x = [D·H·M₁  −P·M₂]` (2×4) in PIXEL coordinates, `M₁`/`M₂` the 3×2
+  back-projection Jacobians of [`backproject_with_jacobian`](@ref) and
+  `D = P·(I − ĥĥᵀ)/‖H f₁‖`; both images noisy, so `G_x Gₓᵀ =
+  P(H̄M₁M₁ᵀH̄ᵀ + M₂M₂ᵀ)Pᵀ` (`H̄` the normalized transfer, `R` for a rotation) is the
+  two-sided Sampson covariance in `f₂`'s tangent plane. The `f₂` block is the
+  first-order derivative at `ĥ = f₂` (Sampson's linearization at the
+  measurement), exact there.
+- `G_θ = D·(f₁ᵀ ⊗ I₃)` (2×9, ∂g/∂vec(H) column-major) — the pixel form's
+  `_transfer_params_jacobian` with `D` in the place of `Jπ`.
+
+The pixel sibling `constraint_with_jacobians(f, u₁, u₂)` is the same constraint in
+the z = 1 chart. An antipodal pair (`ĥ·f₂ < 0`) also gives a small `g`; a
+scorer must refuse it separately (the hemisphere of the transferred ray).
+"""
+@inline function constraint_with_jacobians(
+        f::TransferForm, f₁::StaticVector{3}, f₂::StaticVector{3};
+        M₁::StaticMatrix{3, 2}, M₂::StaticMatrix{3, 2}
+    )
+    p = _bearing_transfer_parts(f.mat, f₁, f₂)
+    T = eltype(p.g)
+    G_x = hcat(p.D * p.Hm * SMatrix{3, 2, T, 6}(M₁), -(p.P * SMatrix{3, 2, T, 6}(M₂)))
+    return p.g, G_x, _transfer_params_jacobian(p.D, p.s)
+end
+
 # -----------------------------------------------------------------------------
 # TransferForm ↔ HomographyMap — the frame change is `∘` on the map
 # -----------------------------------------------------------------------------

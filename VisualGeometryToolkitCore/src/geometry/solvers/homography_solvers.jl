@@ -867,18 +867,30 @@ Base.@propagate_inbounds function _transfer_whitening_row!(W, i, H, u₁, Σ₁,
     W[i] = whitening_factor(G_x, pair_covariance(_side_covariance(Σ₁, i), _side_covariance(Σ₂, i)))
     return nothing
 end
+# The transfer residual of one correspondence: the pixel form's `π(H ũ₁) − u₂`, or
+# the bearing form's tangent-plane residual (`_bearing_transfer_parts`).
+@inline _transfer_residual(H, u₁::StaticVector{2}, u₂::StaticVector{2}) = first(constraint_with_jacobians(TransferForm(H), u₁, u₂))
+@inline _transfer_residual(H, f₁::StaticVector{3}, f₂::StaticVector{3}) = _bearing_transfer_parts(H, f₁, f₂).g
+# The derivative of the residual along the transferred point `H x`, and `x`: the
+# perspective derivative `Jπ` at `H ũ₁` and `ũ₁` for pixels (u₂ unread), `D` and
+# `f₁` for bearings — so `∂g/∂θ_q = D·(dH_q·x)` is one row function for both.
+@inline function _transfer_point_derivative(H, u₁::StaticVector{2}, _u₂)
+    T = float(promote_type(eltype(H), eltype(u₁)))
+    x1 = _lift_image_point(u₁, T)
+    return transform_deriv(PerspectiveMap(), SMatrix{3, 3, T, 9}(H) * x1), x1
+end
+@inline _transfer_point_derivative(H, f₁::StaticVector{3}, f₂::StaticVector{3}) =
+    (p = _bearing_transfer_parts(H, f₁, f₂); (p.D, p.s))
 Base.@propagate_inbounds function _transfer_rows!(r, i, H, W, u₁, u₂, sqrtw)
-    g, _, _ = constraint_with_jacobians(TransferForm(H), u₁[i], u₂[i])
+    g = _transfer_residual(H, u₁[i], u₂[i])
     e = W[i] * g
     r[2i - 1] = sqrtw[2i - 1] * e[1]
     r[2i] = sqrtw[2i] * e[2]
     return nothing
 end
-Base.@propagate_inbounds function _transfer_jacobian_rows!(J, i, H, dH, W, u₁, sqrtw)
-    u = u₁[i]
-    T = float(promote_type(eltype(H), eltype(u)))
-    x1 = _lift_image_point(u, T)
-    D = W[i] * transform_deriv(PerspectiveMap(), SMatrix{3, 3, T, 9}(H) * x1)
+Base.@propagate_inbounds function _transfer_jacobian_rows!(J, i, H, dH, W, u₁, u₂, sqrtw)
+    Dp, x1 = _transfer_point_derivative(H, u₁[i], u₂[i])
+    D = W[i] * Dp
     for q in 1:length(dH)
         d = D * (dH[q] * x1)
         J[2i - 1, q] = sqrtw[2i - 1] * d[1]
@@ -928,8 +940,41 @@ function transfer_rows!(r::AbstractVector, H::HomographyMat, W::AbstractVector, 
     return _foreach_row!(_transfer_rows!, r, length(u₁), H, W, u₁, u₂, sqrtw)
 end
 
-function transfer_jacobian_rows!(J::AbstractMatrix, H::HomographyMat, dH::Tuple, W::AbstractVector, u₁::AbstractVector, sqrtw::AbstractVector)
-    return _foreach_row!(_transfer_jacobian_rows!, J, length(u₁), H, dH, W, u₁, sqrtw)
+function transfer_jacobian_rows!(J::AbstractMatrix, H::HomographyMat, dH::Tuple, W::AbstractVector, u₁::AbstractVector{<:StaticVector{2}}, sqrtw::AbstractVector)
+    return _foreach_row!(_transfer_jacobian_rows!, J, length(u₁), H, dH, W, u₁, u₁, sqrtw)   # the pixel rows read no u₂ (a bearing set is a MethodError: it has no u₂ here)
+end
+
+# The BEARING transfer (the infinite homography on unit bearings with their
+# back-projection Jacobians): the same row functions, the parts of
+# `constraint_with_jacobians(TransferForm(H), f₁, f₂; M₁, M₂)`.
+Base.@propagate_inbounds function _bearing_transfer_whitening_row!(W, i, H, f₁, f₂, M₁, M₂)
+    _, G_x, _ = constraint_with_jacobians(TransferForm(H), f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i])
+    W[i] = whitening_factor(G_x)
+    return nothing
+end
+
+"""
+    transfer_whitening!(W, H, f₁, f₂; M₁, M₂) -> W
+    transfer_rows!(r, H, W, f₁, f₂, sqrtw) -> r
+    transfer_jacobian_rows!(J, H, dH, W, f₁, f₂, sqrtw) -> J
+
+The transfer rows on UNIT BEARINGS `f₁[i] => f₂[i]` (3-vectors) — the infinite
+homography of a calibrated camera, a rotation under a pure rotation: the
+residual is the tangent-plane form of
+`constraint_with_jacobians(TransferForm(H), f₁, f₂; M₁, M₂)`, whitened by the
+frozen two-sided Sampson factor `L⁻¹` of `Σ_g = G_x G_xᵀ` (both images noisy,
+`M₁`/`M₂` the back-projection Jacobians carrying it into PIXELS), and its
+Jacobian along the chart directions `dH` is `W[i]·D·dH_q·f₁`. The pixel methods'
+row functions, with the bearing parts in place of the perspective divide;
+`transfer_rows!` is the pixel method itself (its row reads the element type).
+"""
+function transfer_whitening!(W::AbstractVector, H::HomographyMat, f₁::AbstractVector{<:StaticVector{3}}, f₂::AbstractVector{<:StaticVector{3}};
+                             M₁::AbstractVector, M₂::AbstractVector)
+    return _foreach_row!(_bearing_transfer_whitening_row!, W, length(f₁), H, f₁, f₂, M₁, M₂)
+end
+function transfer_jacobian_rows!(J::AbstractMatrix, H::HomographyMat, dH::Tuple, W::AbstractVector, f₁::AbstractVector{<:StaticVector{3}},
+                                 f₂::AbstractVector{<:StaticVector{3}}, sqrtw::AbstractVector)
+    return _foreach_row!(_transfer_jacobian_rows!, J, length(f₁), H, dH, W, f₁, f₂, sqrtw)
 end
 
 # The homography's rounding scales (`constraint_rounding_scale`): its

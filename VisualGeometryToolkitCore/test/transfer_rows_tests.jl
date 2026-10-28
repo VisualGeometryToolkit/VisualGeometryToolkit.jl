@@ -95,7 +95,7 @@
         Wk = similar(W); rk = zeros(2n); Jk = zeros(2n, 8)
         VgtkCore._row_kernel!(KA.CPU())(VgtkCore._transfer_whitening_row!, Wk, H, u₁; ndrange = n)
         VgtkCore._row_kernel!(KA.CPU())(VgtkCore._transfer_rows!, rk, Hv, W, u₁, u₂, sqrtw; ndrange = n)
-        VgtkCore._row_kernel!(KA.CPU())(VgtkCore._transfer_jacobian_rows!, Jk, Hv, dH, W, u₁, sqrtw; ndrange = n)
+        VgtkCore._row_kernel!(KA.CPU())(VgtkCore._transfer_jacobian_rows!, Jk, Hv, dH, W, u₁, u₁, sqrtw; ndrange = n)   # the pixel rows read no u₂
         KA.synchronize(KA.CPU())
         # ELEMENTWISE, AT THE MEASURED MARGIN. Each side runs the same per-row
         # scalar function under a different driver (KA kernel vs the CPU fast

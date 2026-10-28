@@ -710,23 +710,48 @@ with_unit(X::Uncertain{<:EuclideanMap{3}}, u::Units) = Uncertain(
 # formula's `acos` loses half the digits).
 
 """
+    angle_between(u, v) -> Real
+
+The angle between two vectors of 2 or 3 entries, in radians in `[0, π]`:
+`θ = atan(‖u × v‖, u · v)` (for 2-vectors `‖u × v‖ = |u₁v₂ − u₂v₁|`). Neither
+vector need be unit: the form is scale-free. Accurate at every angle, where
+the `acos` of the normalized dot product loses half the digits near 0 and π
+(its derivative is unbounded there): two unit vectors 1e-8 rad apart have a dot
+product that rounds to 1, so `acos` returns 0 (or 1.5e-8 a few ulps away), and
+this form returns the angle to full precision. `0` when either vector is zero;
+NaN in, NaN out. Generic in the element type (ForwardDiff duals flow through
+away from θ = 0, where `‖u × v‖` has no derivative). The angle between two
+bearings, two rotation axes, a predicted and an observed ray; for two
+translations up to scale, lengths included, [`translation_angle`](@ref).
+"""
+function angle_between(u::AbstractVector, v::AbstractVector)
+    n = length(u)
+    length(v) == n || throw(DimensionMismatch("angle_between: a $(n)-vector and a $(length(v))-vector"))
+    if n == 3
+        a = SVector{3}(u[1], u[2], u[3]); b = SVector{3}(v[1], v[2], v[3])
+        return atan(norm(cross(a, b)), dot(a, b))
+    elseif n == 2
+        return atan(abs(u[1] * v[2] - u[2] * v[1]), u[1] * v[1] + u[2] * v[2])
+    end
+    throw(DimensionMismatch("angle_between: the angle of two 2- or 3-vectors; got two $(n)-vectors"))
+end
+
+"""
     translation_angle(t1, t2) -> Float64
 
 Angular distance (radians) between two translation directions — plain
 vectors, or lengths (compared in metres).
 
 Since translation is only recoverable up to scale from epipolar geometry,
-this compares directions, scale-free: `θ = atan(‖t₁ × t₂‖, t₁ · t₂)`, accurate
-at every angle (the `acos` of the normalized dot product it replaced loses half
-the digits near 0 and π). Also the angle between two bearings. `0` when either
-vector is (numerically) zero.
+this compares directions, scale-free: [`angle_between`](@ref)`(t₁, t₂)`,
+`atan(‖t₁ × t₂‖, t₁ · t₂)`, accurate at every angle. `0` when either vector is
+(numerically) zero.
 """
 function translation_angle(t1::AbstractVector, t2::AbstractVector)
     # lengths are compared in metres (a length against a plain vector is a DimensionError)
     (has_units(t1) || has_units(t2)) && return translation_angle(strip_metres(t1), strip_metres(t2))
     (norm(t1) < 1.0e-15 || norm(t2) < 1.0e-15) && return 0.0
-    a = SVector{3}(t1[1], t1[2], t1[3]); b = SVector{3}(t2[1], t2[2], t2[3])
-    return atan(norm(cross(a, b)), dot(a, b))
+    return angle_between(SVector{3}(t1[1], t1[2], t1[3]), SVector{3}(t2[1], t2[2], t2[3]))
 end
 
 # =============================================================================

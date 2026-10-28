@@ -133,7 +133,7 @@ function _weighted_kabsch(as, bs, w)
     return RotMatrix{3, Float64}(kabsch([w[i] * as[i] => bs[i] for i in eachindex(as) if w[i] > 0]))
 end
 
-_rotation_residuals(R, as, bs) = [atan(norm(cross(R * a, b)), dot(R * a, b)) for (a, b) in zip(as, bs)]
+_rotation_residuals(R, as, bs) = [angle_between(R * a, b) for (a, b) in zip(as, bs)]   # VGC's atan(‖Ra × b‖, Ra · b)
 
 _rotation_degenerate(n, w) =
     FitResult(one(RotMatrix{3, Float64}), :degenerate, 0, NaN, n, RotationFitMetadata(collect(Float64, w), fill(NaN, n), NaN))

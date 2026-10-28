@@ -71,6 +71,7 @@ using VisualGeometryToolkitCore: sampson_residuals!, sampson_rss, homography_dlt
 using VisualGeometryToolkitCore.Synthetic: optimistic_pose_error
 # VGC state is read through its accessors, never by field name (a by-field read
 # breaks at RUNTIME here when VGC renames the field; an accessor breaks at load).
+using VisualGeometryToolkitCore: angle_between                 # the angle of two vectors (atan form)
 using VisualGeometryToolkitCore: rotation, translation,        # EuclideanMap
     Translation,                                         # a frame's origin shift, composed onto a pose
     homography, division_coeff, center,                  # RadialHomography (center: RadialCamera too)

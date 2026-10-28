@@ -186,6 +186,7 @@ end
         "RANSACScoringDoneRight" => ["VisualGeometryToolkitCore"],
         "LocalOptimizationDoneRight" => ["VisualGeometryToolkitCore", "VisualGeometryToolkitEstimation", "PoseLib"],
         "BlobBoards" => bb,
+        "PanoramaStitching" => ["VisualGeometryToolkitCore", "VisualGeometryToolkitFeatures", "VisualGeometryToolkitEstimation"],
         "accv2026" => ["LocalOptimizationDoneRight", "RANSACScoringDoneRight", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "VisualGeometryToolkitCore", "VisualGeometryToolkitIO", "PoseLib"],
         "neurips2026" => ["RANSACScoringDoneRight", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "VisualGeometryToolkitCore"],
         "bmvc2026" => vcat(bb[1:3], "VisualGeometryToolkitEval", bb[4:end], "BlobBoards"),

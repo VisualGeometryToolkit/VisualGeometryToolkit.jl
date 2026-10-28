@@ -18,6 +18,8 @@ RANSACScoringDoneRight = ["VisualGeometryToolkitCore"]
 # PoseLib is a weak dependency here.
 LocalOptimizationDoneRight = ["VisualGeometryToolkitCore", "VisualGeometryToolkitEstimation", "PoseLib"]
 BlobBoards = ["VisualGeometryToolkitCore", "VisualGeometryToolkitIO", "VisualGeometryToolkitFeatures", "VisualGeometryToolkitEstimation", "RANSACScoringDoneRight", "LocalOptimizationDoneRight"]
+# The panorama stitching of a pure-rotation sequence (the register chain, the world cells, the panorama).
+PanoramaStitching = ["VisualGeometryToolkitCore", "VisualGeometryToolkitFeatures", "VisualGeometryToolkitEstimation"]
 accv2026 = ["LocalOptimizationDoneRight", "RANSACScoringDoneRight", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "VisualGeometryToolkitCore", "VisualGeometryToolkitIO", "PoseLib"]
 neurips2026 = ["RANSACScoringDoneRight", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "VisualGeometryToolkitCore"]
 bmvc2026 = ["VisualGeometryToolkitCore", "VisualGeometryToolkitIO", "VisualGeometryToolkitFeatures", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "RANSACScoringDoneRight", "LocalOptimizationDoneRight", "BlobBoards"]

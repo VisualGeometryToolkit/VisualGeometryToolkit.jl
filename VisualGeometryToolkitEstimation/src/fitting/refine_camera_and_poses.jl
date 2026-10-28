@@ -102,7 +102,8 @@ scratch and the camera keeps its family (its lens type).
 - `free` — the camera parameters refined, by name (every parameter but the
   skew by default); `()` holds the camera fixed and refines the poses alone.
 - `box` — a solver search box on the camera's parameters by name
-  (VisualGeometryToolkitCore's `ParameterManifold(camera; box)`), or `nothing`.
+  (VisualGeometryToolkitCore's `ParameterManifold(camera; box)`), or `nothing`;
+  with `free = ()` (nothing to bound) a box is an `ArgumentError`.
 - `max_iter` — the LM's cap on ACCEPTED iterations (NLLSsolver's count);
   `ftol` — its relative cost decrease and the stall postcondition's exact-fit
   test; `xtol` — its step tolerance (chart units); `max_time` — its
@@ -205,6 +206,8 @@ function _refine_camera_and_poses(
     for p in free
         p in names || throw(ArgumentError("refine_camera_and_poses: the camera has no parameter $(repr(p)); its parameters are $(join(String.(names), ", "))"))
     end
+    isempty(free) && box !== nothing &&
+        throw(ArgumentError("refine_camera_and_poses: a `box` bounds the camera's free parameters, and `free = ()` frees none"))
     chc = isempty(free) ? nothing : restrict(ParameterManifold(camera; box), free)
     nd = chc === nothing ? 0 : tangent_size(chc)
     pose_charts = _CameraPosePose[LeftRigidManifold6(SMatrix{3, 3, Float64, 9}(rotation(p)), SVector{3, Float64}(translation(p))) for p in poses]

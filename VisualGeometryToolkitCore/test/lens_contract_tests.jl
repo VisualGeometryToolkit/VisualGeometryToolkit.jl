@@ -770,11 +770,23 @@ end
             @test backproject(p, x) ≈ ref atol = 1.0e-9
         end
         @test n > 40
-        # nearer the limit it may give up (NaN), never answer wrongly
+        # nearer the limit it may give up (NaN), never answer wrongly: a finite ray where the lens's own inverse
+        # says nothing is imaged is a wrong answer, and so is one that differs from it
         for θ in range(0.95 * θmax, θmax; length = 6), ψ in (0.0, 2.3)
             x = project(lens, ray(θ, ψ))
             b = backproject(p, x)
-            all(isfinite, b) && all(isfinite, backproject(lens, x)) && @test b ≈ backproject(lens, x) atol = 1.0e-8
+            all(isfinite, b) || continue
+            ref = backproject(lens, x)
+            @test all(isfinite, ref)
+            all(isfinite, ref) && @test b ≈ ref atol = 1.0e-8
+        end
+        # past the disc the lens images, its own inverse is NaN: so is the default
+        r_dom = VgtkCore.Cameras._imaging_domain_radius(lens)
+        if isfinite(r_dom)
+            for s in (1.02, 1.3), ψ in (0.0, 2.3)
+                x = s * r_dom * SVector(cos(ψ), sin(ψ))
+                all(isnan, backproject(lens, x)) && @test all(isnan, backproject(p, x))
+            end
         end
         # Float32 at its precision
         x32 = SVector{2, Float32}(project(lens, ray(0.6 * θmax, 0.4)))

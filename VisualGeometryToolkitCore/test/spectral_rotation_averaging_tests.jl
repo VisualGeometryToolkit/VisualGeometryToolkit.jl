@@ -27,4 +27,10 @@
     @test err(spectral_rotation_averaging(bad, w)) < 1.0e-10
     @test_throws ArgumentError spectral_rotation_averaging(Dict((1, 2) => rel(1, 2), (3, 4) => rel(3, 4)))
     @test_throws ArgumentError spectral_rotation_averaging(Dict{Tuple{Int, Int}, RotMatrix{3, Float64, 9}}())
+    # a zero-weight bridge splits the graph: refused, not a degenerate eigenspace
+    # (the chain (1,2),(2,3),(3,4) with w(2,3) = 0 once came back 180° off)
+    chain = Dict((k, k + 1) => rel(k, k + 1) for k in 1:3)
+    bridge = Dict(p => (p == (2, 3) ? 0.0 : 1.0) for p in keys(chain))
+    @test_throws ArgumentError spectral_rotation_averaging(chain, bridge)
+    @test_throws ArgumentError spectral_rotation_averaging(chain, Dict(p => -1.0 for p in keys(chain)))
 end

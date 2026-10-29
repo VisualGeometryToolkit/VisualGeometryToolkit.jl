@@ -166,3 +166,48 @@ end
     @test isfinite(F) && x[3] <= 0.25
 end
 end
+
+@testitem "robust lmsolve_chart!: F is Σρ, the workspace keeps the rows at x" begin
+    # The robustified chart LM (Triggs): its cost is Σᵢ ρ(‖rᵢ‖²) (NLLSsolver's
+    # ½ρ doubled), and neither the solve nor its stall postcondition leaves the
+    # workspace's rows scaled by √ρ′ — they are the rows at the returned x. A
+    # redescending loss with every datum past its cutoff is a plateau, not a fit.
+    import VisualGeometryToolkitCore as VgtkCore
+    using Test, LinearAlgebra, StaticArrays
+    using VisualGeometryToolkitCore: ManifoldLmWorkspace, lmsolve_chart!, loss_robustifier, WelschShape, TLSShape
+    import NLLSsolver
+
+    struct _RobustCircleLm
+        pts::Vector{SVector{2, Float64}}
+    end
+    function VgtkCore.residual_rows!(f, lm::_RobustCircleLm, x)
+        c = SVector(1.0 + x[1], -2.0 + x[2]); ρ = 3.0 + x[3]
+        for (i, p) in enumerate(lm.pts)
+            f[i] = norm(p - c) - ρ
+        end
+        return f
+    end
+    pts = [SVector(1.5 + 2.5cos(θ), -1.8 + 2.5sin(θ)) for θ in range(0, 2π; length = 13)[1:12]]
+    append!(pts, [SVector(9.0, 9.0), SVector(-8.0, 7.0), SVector(6.0, -9.0)])   # three gross outliers
+    lm = _RobustCircleLm(pts)
+    n = length(pts)
+    rows_at(x) = VgtkCore.residual_rows!(zeros(n), lm, x)
+    k = loss_robustifier(WelschShape(), 0.1)
+    ws = ManifoldLmWorkspace(n, 3)
+    x, F, _, _ = lmsolve_chart!(ws, lm, k, Val(1); stationarity_tol = 0.05, ftol = 1.0e-12)
+    @test x ≈ SVector(0.5, 0.2, -0.5) atol = 1.0e-6
+    @test ws.r == rows_at(x)
+    @test F ≈ sum(r -> NLLSsolver.robustify(k, r^2), rows_at(x)) rtol = 1.0e-10
+    # the stall postcondition, taken directly: stationary, rows untouched
+    S = VgtkCore._RobustChartState{3, typeof(lm), typeof(k)}
+    state = S(lm, k, zero(SVector{3, Float64}), false, false, ws.r, ws.J)
+    @test VgtkCore._robust_stationary(ws, state, x, Val(1), 0.05, 1.0e-12)
+    @test ws.r == rows_at(x)
+    @test !VgtkCore._robust_stationary(ws, state, x + SVector(0.05, 0.0, 0.0), Val(1), 0.05, 1.0e-12)
+    @test ws.r == rows_at(x + SVector(0.05, 0.0, 0.0))
+    # every datum past a TLS cutoff: ρ′ = 0 throughout, the exact-fit test reads the rows themselves
+    kt = loss_robustifier(TLSShape(), 1.0e-3)
+    St = VgtkCore._RobustChartState{3, typeof(lm), typeof(kt)}
+    tstate = St(lm, kt, zero(SVector{3, Float64}), false, false, ws.r, ws.J)
+    @test !VgtkCore._robust_stationary(ws, tstate, SVector(5.0, 5.0, 0.0), Val(1), 0.05, 1.0e-12)
+end

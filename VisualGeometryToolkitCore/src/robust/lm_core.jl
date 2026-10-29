@@ -500,10 +500,13 @@ NLLSsolver `robustifier` — a stack loss through
 [`loss_robustifier`](@ref)`(shape, loss_width)`. NLLSsolver applies the
 robustifier per datum with Triggs' second-order correction (the ρ″ term of its
 Gauss–Newton Hessian), so one solve is the robust M-estimate — no reweighting
-loop. `F` is `2·Σᵢ ρ(‖rᵢ‖²)` at `x`; the knobs, the returned code and its
-retcode ([`lm_retcode`](@ref)) are the plain chart LM's, its stall
-postcondition taken on the rows scaled by `√ρ′` (the robust gradient's
-weights).
+loop. `F` is `Σᵢ ρ(‖rᵢ‖²)` at `x` (NLLSsolver's cost is `½ρ`); the knobs, the
+returned code and its retcode ([`lm_retcode`](@ref)) are the plain chart LM's,
+its stall postcondition the cosine of the rows weighted by `ρ′` (the robust
+gradient's weights); its exact-fit test passes on the unweighted cost, or on
+the weighted cost when some datum carries weight (every datum past a
+redescending cutoff is a plateau, not a fit). On return the workspace's `r`
+holds the unweighted rows at `x`.
 """
 function lmsolve_chart!(
         ews::ManifoldLmWorkspace{N}, lm, robustifier, ::Val{C}; maxit::Integer = 1000, ftol::Real = eps(Float64),
@@ -525,32 +528,51 @@ function lmsolve_chart!(
     if converged == 2 || converged == 4
         _robust_stationary(ews, state, x, Val(C), stationarity_tol, ftol) || (converged = _LM_STALLED)
     end
+    _robust_rows!(state, x)            # the solver's last evaluation may have been a rejected trial
     return x, F, converged, result.niterations
 end
 
-# The stall postcondition of the robustified LM: the plain test on the rows and
-# Jacobian scaled per datum by √ρ′(‖rᵢ‖²) — at a robust minimizer Σᵢ ρ′ᵢJᵢᵀrᵢ = 0,
-# exactly the stationarity of those scaled rows.
+# The stall postcondition of the robustified LM: at a robust minimizer
+# Σᵢ ρ′ᵢJᵢᵀrᵢ = 0, so the plain cosine test is taken on the rows and Jacobian
+# weighted per datum by √ρ′(‖rᵢ‖²) — formed in the workspace's `g`/`w` scratch,
+# never by scaling the rows in place (the workspace keeps the rows at `x`). The
+# exact-fit test: the unweighted cost below `ftol`, or the weighted cost below it
+# with at least one datum carrying weight (the inliers fit exactly, the outliers
+# past the cutoff). A redescending loss with EVERY datum past its cutoff has
+# ρ′ = 0 throughout — a plateau, not a fit — and fails.
 function _robust_stationary(ews::ManifoldLmWorkspace, s::_RobustChartState, x, ::Val{C}, tol::Real, ftol::Real) where {C}
     r = _robust_rows!(s, x)
     J = _robust_jacobian!(s, x)
+    sum(abs2, r) < ftol && return true
+    g = ews.g; w = ews.w
+    fill!(g, 0.0); fill!(w, 0.0)
+    f2 = 0.0; carried = false
     @inbounds for i in 1:(length(r) ÷ C)
         o = C * (i - 1)
         sq = 0.0
         for k in 1:C
             sq += r[o + k]^2
         end
-        w = sqrt(max(NLLSsolver.robustifydcost(s.kernel, sq)[2], 0.0))
-        for k in 1:C
-            r[o + k] *= w
-            for q in axes(J, 2)
-                J[o + k, q] *= w
+        ρ′ = max(NLLSsolver.robustifydcost(s.kernel, sq)[2], 0.0)
+        f2 += ρ′ * sq; carried |= ρ′ > 0
+        for q in axes(J, 2)
+            jr = 0.0; jj = 0.0
+            for k in 1:C
+                jr += J[o + k, q] * r[o + k]; jj += J[o + k, q]^2
             end
+            g[q] += ρ′ * jr; w[q] += ρ′ * jj
         end
     end
-    s.rows = false
-    sum(abs2, r) < ftol && return true
-    return _residual_cosine!(ews.g, ews.w, J, r) <= tol
+    carried || return false
+    f2 < ftol && return true
+    fn = sqrt(f2)
+    isnan(fn) && return false
+    c = 0.0
+    @inbounds for j in eachindex(g, w)
+        iszero(w[j]) && continue
+        c = max(c, abs(g[j]) / (sqrt(w[j]) * fn))
+    end
+    return c <= tol
 end
 
 """

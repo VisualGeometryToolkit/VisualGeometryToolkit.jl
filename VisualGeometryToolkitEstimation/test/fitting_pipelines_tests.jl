@@ -158,8 +158,9 @@ using VisualGeometryToolkitEstimation
         for class in (:homography, :fundmat, :essential, :rotation, :absolute_pose, :radial_homography, :radial_camera, :hand_eye)
             @test VgtkEstimation._dflt_lo(class) == Irls{TLSShape}()
         end
-        # the circle's is the robustified LM (configs/default.toml [pipelines.circle])
+        # the circle's and the ellipse's are the robustified LM (configs/default.toml [pipelines.circle], [pipelines.ellipse])
         @test VgtkEstimation._dflt_lo(:circle) == Triggs{CauchyShape}(scale_multiple = 2.5)
+        @test VgtkEstimation._dflt_lo(:ellipse) == Triggs{CauchyShape}(scale_multiple = 2.5)
     end
 
 end

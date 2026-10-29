@@ -52,10 +52,16 @@ local_optimization = { type = "irls", loss = "tls" }
 threshold          = 1.0         # px — the Sampson distance to the circle (≈ the geometric one); a convention of this package for points located to a pixel, not a tuned value
 # The robustified LM (Triggs): one NLLSsolver LM under the Cauchy loss (the
 # Student-t loss at ν = 1), Triggs-corrected, its width scale_multiple·ŝ at the
-# hypothesis's Student-t scale. Triggs has NO default multiple; 2.5 is the
-# stack's one operating multiple of a consensus-anchored LM width
-# (LocalOptimizationDoneRight's [local_optimization.poselib_adapt]
-# operating_scale_multiple), not tuned for this class.
+# hypothesis's Student-t scale. Triggs has NO default multiple.
+# 2.5: owner-decided (2026-10-29), the stack's operating multiple of a
+# consensus-anchored LM width (LocalOptimizationDoneRight's poselib_adapt).
+local_optimization = { type = "triggs", loss = "cauchy", scale_multiple = 2.5 }
+
+[pipelines.ellipse]
+threshold          = 1.0         # px — the Sampson distance to the ellipse (≈ the geometric one); the circle's convention
+# The circle's robustified LM (Triggs). 2.5: owner-decided (2026-10-29), the
+# stack's operating multiple of a consensus-anchored LM width
+# (LocalOptimizationDoneRight's poselib_adapt).
 local_optimization = { type = "triggs", loss = "cauchy", scale_multiple = 2.5 }
 
 [pipelines.absolute_pose]

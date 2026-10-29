@@ -244,7 +244,7 @@ using SparseArrays: sparse   # the relpose bundle's stacked Jacobian (its stall 
 # 1. PIPELINES — robust estimation end to end
 # -----------------------------------------------------------------------------
 export find_homography, find_fundmat, find_essential, find_absolute_pose,
-    find_hand_eye, find_radial_homography, find_radial_camera, find_rotation, find_circle
+    find_hand_eye, find_radial_homography, find_radial_camera, find_rotation, find_circle, find_ellipse
 export fit_robot_world_hand_eye, refine_robot_world_hand_eye, fit_division_camera
 export fit_residual_mixture   # the inlier/outlier classification of a held model's residuals
 export refine_ellipse         # the orthogonal-distance ellipse from a start value (direct_ellipse by default)
@@ -263,7 +263,7 @@ export ransac, locally_optimize, RansacConfig, RansacEstimate
 # -----------------------------------------------------------------------------
 # 3. PROBLEMS a user builds
 # -----------------------------------------------------------------------------
-export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem, RotationProblem, CircleProblem,
+export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem, RotationProblem, CircleProblem, EllipseProblem,
     HandEyeProblem, LineFittingProblem, InhomLineFittingProblem,
     RadialHomographyProblem, RadialCameraProblem, RelposeBundleProblem
 
@@ -364,6 +364,7 @@ include("estimators/ransac/problems/epipolar_lm.jl")
 include("estimators/ransac/problems/fundmat.jl")
 include("estimators/ransac/problems/essential.jl")
 include("estimators/ransac/problems/circle.jl")     # the 2D circle through points: Circle3pt + the point-on-circle Sampson rows
+include("estimators/ransac/problems/ellipse.jl")    # the 2D ellipse through points: Ellipse5pt + the point-on-ellipse Sampson rows
 include("estimators/ransac/problems/rotation.jl")   # the pure rotation on bearings (the infinite homography): Rotation2pt + the bearing transfer rows
 include("estimators/ransac/problems/relpose_bundle.jl")
 include("estimators/ransac/problems/line.jl")
@@ -379,7 +380,7 @@ include("fitting/_pipeline.jl")
 # Provides `fit_line` and the covariance-weighted line step `_weighted_line`,
 # which problems/line.jl's LO-RANSAC `refine!` calls.
 include("fitting/line.jl")
-include("fitting/ellipse.jl")      # refine_ellipse: the orthogonal-distance ellipse (chart LM on the log-shape chart)
+include("fitting/ellipse.jl")      # refine_ellipse: the orthogonal-distance ellipse (chart LM on the log-shape chart); find_ellipse
 include("fitting/homography.jl")
 include("fitting/radial_homography.jl")
 include("fitting/radial_camera.jl")

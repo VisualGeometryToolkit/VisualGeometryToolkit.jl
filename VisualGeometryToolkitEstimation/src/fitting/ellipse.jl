@@ -186,3 +186,51 @@ function _direct_start(points)
     e === nothing && throw(ArgumentError("refine_ellipse: the points admit no direct_ellipse start value; supply `init`"))
     return e
 end
+
+# =============================================================================
+# find_ellipse — the 2D ellipse through contaminated points by RANSAC
+# =============================================================================
+#
+#   find_ellipse — thin wrapper around ransac() on the `EllipseProblem`
+#                  (problems/ellipse.jl): the 5-point ellipse, the Sampson
+#                  distance of the point-on-ellipse constraint in pixels, the
+#                  chart-LM refit — as `find_circle` (circle.jl).
+# =============================================================================
+
+"""
+    find_ellipse(points; threshold = 1.0,
+        max_trials = 10000, min_trials = 100,
+        local_optimization = Triggs{CauchyShape}(scale_multiple = 2.5),
+        scoring = nothing, config = nothing)
+
+Robust estimation of a 2D ellipse through points (a contour, edge points) by
+RANSAC on the [`EllipseProblem`](@ref): 5-point samples (VisualGeometryToolkitCore's
+`Ellipse5pt`, the conic through them when it is an ellipse), MSAC scoring of the
+Sampson distance of `(x − c)ᵀ Q (x − c) − 1` — the geometric distance to the
+ellipse to first order — and, as local optimization, the robustified LM
+([`Triggs`](@ref)) on the centre and log shape: one Levenberg–Marquardt solve
+from the hypothesis over all the points under the Cauchy loss at
+`scale_multiple·ŝ`, ŝ the Student-t scale of the hypothesis's Sampson errors.
+Every default shown is `configs/default.toml`'s (`[ransac]`,
+`[pipelines.ellipse]`); a keyword overrides. The circle's counterpart is
+[`find_circle`](@ref).
+
+Returns a `RansacEstimate` (its `estimate` an `Ellipse{Float64}`) or `nothing`
+if fewer than 5 points. `iterations(result)` is the number of trials (hypotheses
+drawn); test `converged(result)` before reading the model (see
+[`RansacEstimate`](@ref)). From a start value instead of contaminated data, the
+orthogonal-distance [`refine_ellipse`](@ref).
+
+# Arguments
+- `points`: 2D points, `AbstractVector` of `StaticVector{2}` (`Point2{Float64}`
+  storage canonicalized internally), plain: unit isotropic noise.
+- `threshold`: **in PIXELS** (the points' unit), as [`find_homography`](@ref).
+- `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace(EllipseProblem, n_data[, T])`.
+- `local_optimization`: default `Triggs{CauchyShape}(scale_multiple = 2.5)`; any
+  other strategy as [`find_homography`](@ref).
+- the other keywords as [`find_homography`](@ref).
+"""
+function find_ellipse(points::AbstractVector{<:StaticArrays.StaticVector{2, <:Real}}; kwargs...)
+    _holds_minimal_sample(EllipseProblem, length(points)) || return nothing
+    return _ransac_pipeline(EllipseProblem(points), :ellipse; kwargs...)
+end

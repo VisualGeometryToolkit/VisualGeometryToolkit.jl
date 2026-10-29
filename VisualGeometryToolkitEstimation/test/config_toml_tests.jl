@@ -40,11 +40,11 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, NoLocalO
         @test Irls{WelschShape}(scale_multiple = 1.0).max_iter == _dflt("local_optimization.irls", "max_iter")
         @test Irls{TLSShape}().max_iter == _dflt("local_optimization.irls", "max_iter")
         # Every pipeline deploys the file's strategy: the core's TLS IRLS,
-        # following the scorer — the circle the robustified LM at its stated
-        # multiple. (The strategies' tables and their cross-validated operating
+        # following the scorer — the circle and the ellipse the robustified LM
+        # at its stated multiple. (The strategies' tables and their cross-validated operating
         # points are LocalOptimizationDoneRight's.)
         for class in Symbol.(keys(_TOML_DEFAULTS["pipelines"]))
-            @test _dflt_lo(class) == (class === :circle ? Triggs{CauchyShape}(scale_multiple = 2.5) : Irls{TLSShape}())
+            @test _dflt_lo(class) == (class in (:circle, :ellipse) ? Triggs{CauchyShape}(scale_multiple = 2.5) : Irls{TLSShape}())
         end
         @test !haskey(_TOML_DEFAULTS, "tuning_constants")
     end

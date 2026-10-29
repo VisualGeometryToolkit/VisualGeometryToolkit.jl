@@ -42,6 +42,9 @@
     write(joinpath(author_results, "stored", "sweep", "sub", "zeta.jld2"), "z")
     mkpath(joinpath(author_data, "extra"))
     write(joinpath(author_data, "extra", "notes.txt"), "n")
+    for f in ("tiers/a/b.png", "tiers/a/c.txt", "tiers/skip/d.png", "tiers/a/deep/e.png")
+        mkpath(dirname(joinpath(author_data, f))); write(joinpath(author_data, f), f)
+    end
     mkpath(joinpath(proj, "configs"))
     write(joinpath(proj, "configs", "heb_pools.toml"), """
         [experiment]
@@ -121,8 +124,29 @@
             @test_throws ErrorException D.artifact_files(cat, "t_zz")
         end
 
+        @testset "a tree's filter" begin
+            g(p) = D._glob_regex(p)
+            @test occursin(g("**/*.ARW"), "a/b/c.ARW") && occursin(g("**/*.ARW"), "c.ARW")
+            @test !occursin(g("**/*.ARW"), "a/b/c.ARWX") && !occursin(g("*.ARW"), "a/c.ARW")
+            @test occursin(g("x/*/gt/**"), "x/r/gt/images/V01.png") && !occursin(g("x/*/gt/**"), "x/r/s/gt/a")
+            @test occursin(g("v/flat_measured.*"), "v/flat_measured.json") && !occursin(g("v/flat_measured.*"), "v/flat_measured/a")
+            @test occursin(g("a?c.(1)+"), "abc.(1)+") && !occursin(g("a?c.(1)+"), "a/c.(1)+")      # `?` one character, the rest literal
+            tree(dir, filter...) = Dict{String,Any}("kind" => "tree", "dir" => dir, "mount" => "data", "record" => "inputs", "required" => false,
+                                                    "what" => "w", "provenance" => "p", (isempty(filter) ? () : ("filter" => collect(filter),))...)
+            fcat = D.DataCatalog(cat.path, cat.artifacts_toml, cat.configs, cat.records,
+                                 Dict{String,Any}(cat.artifacts..., "t_all" => tree("tiers"),
+                                                  "t_root" => tree(".", "tiers/**/*.png", "**/notes.txt", "!tiers/skip/**"),
+                                                  "t_excl" => tree("tiers", "!**/*.txt"), "t_none" => tree("tiers", "nothing/**")))
+            @test D.artifact_files(fcat, "t_all").files == ["tiers/a/b.png", "tiers/a/c.txt", "tiers/a/deep/e.png", "tiers/skip/d.png"]
+            @test D.artifact_files(fcat, "t_root").files == ["extra/notes.txt", "tiers/a/b.png", "tiers/a/deep/e.png"]   # dir "." is the root
+            @test D.artifact_files(fcat, "t_excl").files == ["tiers/a/b.png", "tiers/a/deep/e.png", "tiers/skip/d.png"]  # no include: every file
+            @test isempty(D.artifact_files(fcat, "t_none").files)
+        end
+
         @testset "pack, bind, check" begin
             stage = mktempdir()
+            header = "# The bindings of the test project.\n# A comment header, which Pkg's writer drops.\n\n"
+            write(cat.artifacts_toml, header)
             built = D.pack_artifacts(cat; stage, record_ids = Dict("inputs" => "12345"),
                                      local_toml = joinpath(stage, "local.toml"))
             @test sort([b.name for b in built]) == ["t_extra", "t_heb_val", "t_stored"]
@@ -138,9 +162,20 @@
             @test D.zenodo_url(withid, "t_extra") == "https://zenodo.org/records/12345/files/t_extra.tar.gz?download=1"
             @test D.zenodo_url(withid, "t_extra"; record_ids = Dict("inputs" => "9")) == "https://zenodo.org/records/9/files/t_extra.tar.gz?download=1"
             # placeholder URLs satisfy the check; a file:// URL in the committed bindings does not
+            @test startswith(read(cat.artifacts_toml, String), header * "[")                # the header kept
             D.pack_artifacts(cat; stage)      # reuses the staged tarballs (listings current)
+            @test startswith(read(cat.artifacts_toml, String), header * "[") && count(header, read(cat.artifacts_toml, String)) == 1
             @test occursin("ZENODO_RECORD_INPUTS", only(TOML.parsefile(cat.artifacts_toml)["t_extra"]["download"])["url"])
             @test isempty(D.catalog_violations(cat))
+            # a filter only on a tree, and a non-empty list of globs
+            tree(dir; kw...) = Dict{String,Any}("kind" => "tree", "dir" => dir, "mount" => "data", "record" => "inputs", "required" => false,
+                                                "what" => "w", "provenance" => "p", (String(k) => v for (k, v) in kw)...)
+            v = D.catalog_violations(D.DataCatalog(cat.path, cat.artifacts_toml, cat.configs, cat.records,
+                                                   Dict{String,Any}(cat.artifacts..., "t_bad" => tree("tiers"; filter = ["!"]),
+                                                                    "t_empty" => tree("tiers"; filter = []),
+                                                                    "t_heb_val" => merge(cat.artifacts["t_heb_val"], Dict("filter" => ["**"])))))
+            @test any(contains("t_bad: filter must be"), v) && any(contains("t_empty: filter must be"), v)
+            @test any(contains("t_heb_val: filter needs kind tree"), v)
             withenv("VGE_TEST_ARTIFACTS_TOML" => joinpath(stage, "local.toml")) do
                 @test !isempty(D.catalog_violations(D.load_catalog(catalog)))
             end

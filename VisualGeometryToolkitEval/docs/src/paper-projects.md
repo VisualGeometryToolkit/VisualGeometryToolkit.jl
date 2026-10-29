@@ -158,7 +158,14 @@ The kinds of artifact and their keys:
 | `pool_sources` | `config`, `splits` | the raw files that the pool producer `config` reads for the scenes of `splits` |
 | `pools` | `config`, `splits` | the pool tree that `config` writes |
 | `stored` | `config` | the directory that the `[stored]` table of `config` names |
-| `tree` | `dir` | every file under `dir` |
+| `tree` | `dir`, optional `filter` | every file under `dir`; with `filter`, a list of globs over paths relative to the mount root, the files an include glob matches (every file when there is none) and no `!` glob matches |
+
+A `filter` glob uses `*` for a run of characters other than `/`, `?` for one of
+them, `**/` for any run of whole directories (none included) and a trailing
+`/**` for everything below; every other character is literal. For example
+`filter = ["**/*.ARW", "!archive/**"]` with `dir = "."` selects every raw file
+outside `archive/`. [`pack_artifacts`](@ref) keeps the comment header of
+Artifacts.toml (its leading comment lines), which Pkg's writer drops.
 
 An entry too large to upload as one file can set `split_by = "scene"` (kinds
 `pool_sources` and `pools`). It is then bound as one artifact per scene,

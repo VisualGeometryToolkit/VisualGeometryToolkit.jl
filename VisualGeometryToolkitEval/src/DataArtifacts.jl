@@ -25,7 +25,14 @@
 #                                    reads for the scenes of `splits`
 #     pools         config, splits   the pool tree `config` writes
 #     stored        config           the directory `config`'s [stored] dir names
-#     tree          dir              every file under `dir`
+#     tree          dir, filter?     every file under `dir`; with `filter` (a list of
+#                                    globs over paths relative to the mount root),
+#                                    those matched by an include glob (every file
+#                                    when there is none) and by no `!` glob.
+#                                    Globs: `*` a run of characters but `/`, `?` one
+#                                    of them, `**/` any run of whole directories
+#                                    (none included), a trailing `/**` everything
+#                                    below; any other character is literal.
 #   split_by = "scene"   (pool_sources, pools; optional) bind the entry as one
 #                        artifact PER SCENE, `<name>_<scene>`, plus `<name>_meta`
 #                        for the files no scene owns (a pool tree's run records,
@@ -186,6 +193,47 @@ function _scene_files(kind, cfg, scenes, root)
     return shared, [s => [joinpath(pd, "$s.jld2"), joinpath(pd, "$s.residuals.jld2")] for s in scenes]
 end
 
+"""
+    _glob_regex(glob) -> Regex
+
+The whole-path regex of a `tree` entry's `filter` glob over `/`-separated
+relative paths: `**/` any run of whole directories (none included), a trailing
+`/**` everything below, `*` any run of characters but `/`, `?` one of them;
+every other character literal.
+"""
+function _glob_regex(g::AbstractString)
+    out = IOBuffer(); i = 1; c = collect(g)
+    while i <= length(c)
+        if c[i] == '*' && i < length(c) && c[i + 1] == '*'
+            if i + 1 < length(c) && c[i + 2] == '/'
+                print(out, "(?:.*/)?"); i += 3
+            else
+                print(out, ".*"); i += 2
+            end
+        elseif c[i] == '*'
+            print(out, "[^/]*"); i += 1
+        elseif c[i] == '?'
+            print(out, "[^/]"); i += 1
+        else
+            print(out, occursin(c[i], "\\.^\$|()[]{}+") ? "\\" * c[i] : c[i]); i += 1
+        end
+    end
+    return Regex("^" * String(take!(out)) * "\$")
+end
+
+# The files of a `tree` entry: every file under `dir`, as paths relative to the
+# mount root (`dir = "."` is the whole root), narrowed by `filter` when the
+# entry has one: an include glob matches (every file when there is none) and no
+# `!` glob does.
+function _tree_files(root, a)
+    files = normpath.(_files_under(root, String(a["dir"])))
+    haskey(a, "filter") || return files
+    pats = String.(a["filter"])
+    inc = [_glob_regex(p) for p in pats if !startswith(p, "!")]
+    exc = [_glob_regex(p[2:end]) for p in pats if startswith(p, "!")]
+    return filter(f -> (isempty(inc) || any(re -> occursin(re, f), inc)) && !any(re -> occursin(re, f), exc), files)
+end
+
 function _kind_files(kind, cfg, a, root)
     if kind in SPLIT_KINDS
         shared, per = _scene_files(kind, cfg, _scenes(a["splits"]), root)
@@ -193,7 +241,7 @@ function _kind_files(kind, cfg, a, root)
     elseif kind == "stored"
         return _files_under(root, String(cfg["stored"]["dir"]))
     elseif kind == "tree"
-        return _files_under(root, String(a["dir"]))
+        return _tree_files(root, a)
     end
     error("unknown artifact kind $kind")
 end
@@ -497,6 +545,19 @@ function _pack(cat, name, stage, kinds)
             raw = sum(p -> p.len, pieces; init = 0))
 end
 
+# The comment header of a TOML file: its leading comment and blank lines up to
+# the first other line, ending in one blank line ("" when it has none).
+function _comment_header(path)
+    isfile(path) || return ""
+    lines = String[]
+    for l in eachline(path)
+        (startswith(l, "#") || isempty(strip(l))) || break
+        push!(lines, l)
+    end
+    while !isempty(lines) && isempty(strip(lines[end])); pop!(lines); end
+    return isempty(lines) ? "" : join(lines, "\n") * "\n\n"
+end
+
 """
     pack_artifacts(cat, names = sort(collect(keys(cat.artifacts))); stage,
                    record_ids = Dict(), local_toml = "", kinds = Dict()) -> Vector{NamedTuple}
@@ -506,8 +567,9 @@ AUTHOR-SIDE: pack each artifact from the author's data/results roots
 artifacts directory under `stage` (never the depot), `archive_artifact` to
 `<stage>/tarballs/<name>.tar.gz` — concurrently, then `bind_artifact!` each
 into the catalog's Artifacts.toml (`lazy = true`, the tree hash, the tarball's
-sha256, [`zenodo_url`](@ref)). A staged tarball whose file listing is current
-is reused. `local_toml` also writes a copy of the bindings with `file://` URLs
+sha256, [`zenodo_url`](@ref)). The file's comment header (its leading comment
+and blank lines), which Pkg's writer drops, is kept. A staged tarball whose
+file listing is current is reused. `local_toml` also writes a copy of the bindings with `file://` URLs
 to the staged tarballs (the fresh-machine test's; never committed).
 """
 function pack_artifacts(cat::DataCatalog, names::AbstractVector = sort(collect(keys(cat.artifacts)));
@@ -519,9 +581,14 @@ function pack_artifacts(cat::DataCatalog, names::AbstractVector = sort(collect(k
     built = with_artifacts_directory(joinpath(stage, "artifacts")) do
         fetch.([Threads.@spawn _pack(cat, n, stage, kinds) for n in _bound_names(cat, names)])
     end
+    header = _comment_header(cat.artifacts_toml)
     for b in built
         bind_artifact!(cat.artifacts_toml, b.name, b.hash;
                        download_info = [(zenodo_url(cat, b.name; record_ids), b.sha)], lazy = true, force = true)
+    end
+    if !isempty(header) && isfile(cat.artifacts_toml)
+        body = read(cat.artifacts_toml, String)
+        startswith(body, header) || write(cat.artifacts_toml, header * body)
     end
     if !isempty(local_toml)
         meta = TOML.parsefile(cat.artifacts_toml)
@@ -540,7 +607,7 @@ end
 Every inconsistency between the catalog and its Artifacts.toml, empty when
 none (a project's test, in one line): the two name the same artifacts; each
 entry has the common keys, a known kind (or one of the project's `kinds`), a
-known mount, a defined record and an existing config; each record has a
+`filter` only on a `tree` entry and as a non-empty list of globs, a known mount, a defined record and an existing config; each record has a
 placeholder and, once it exists, a numeric `id`; each binding is lazy,
 hash-pinned and downloads from its record on Zenodo — the record's `id` when it
 has one, else its placeholder; never a local path.
@@ -570,6 +637,12 @@ function catalog_violations(cat::DataCatalog; kinds = String[])
         kind in ("pool_sources", "pools", "stored") && !haskey(a, "config") && push!(v, "$n: kind $kind needs `config`")
         kind in ("pool_sources", "pools") && !haskey(a, "splits") && push!(v, "$n: kind $kind needs `splits`")
         kind == "tree" && !haskey(a, "dir") && push!(v, "$n: kind tree needs `dir`")
+        if haskey(a, "filter")
+            kind == "tree" || push!(v, "$n: filter needs kind tree")
+            f = a["filter"]
+            (f isa AbstractVector && !isempty(f) && all(g -> g isa AbstractString && !isempty(lstrip(g, '!')), f)) ||
+                push!(v, "$n: filter must be a non-empty list of globs (a `!` glob excludes)")
+        end
         haskey(a, "max_part_bytes") && !_is_split(a) && push!(v, "$n: max_part_bytes needs split_by")
         get(a, "mount", "") in MOUNTS || push!(v, "$n: mount must be data | results")
         haskey(a, "config") && !isfile(joinpath(cat.configs, a["config"] * ".toml")) &&

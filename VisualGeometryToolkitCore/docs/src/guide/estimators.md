@@ -46,12 +46,24 @@ per-correspondence weights as its `weights` column.
 | Division camera (focal and distortion) from boards | `fit_division_camera` (over `division_camera_step`) | fit | RVG |
 | A lens model re-expressed in another family | `fit_lens` | fit | RVG |
 | Line through points carrying covariances | `fit_line` | fit | RVG |
+| A `find_*`'s model refined from a given one (its local optimization alone) | `refine_homography`, `refine_absolute_pose`, `refine_circle`, `refine_ellipse`, … | refine | RVG |
 | Robot–world / hand–eye from a guess | `refine_robot_world_hand_eye` | refine | RVG |
-| Ellipse by orthogonal distance, with its covariance | `refine_ellipse` | refine | RVG |
 
 The kind fixes how a call can fail: an algorithm is one deterministic computation
 and can only be degenerate; a fit can fail to converge; a find is randomized;
 a refine can end in a local minimum.
+
+### `find_*` = sampling + `refine_*`
+
+Every RVG `find_*` is RANSAC's sampling around one local-optimization step, and
+its `refine_*` is that step alone, run once from a given model (guess first,
+then the data as the `find_*` takes them): the guess is scored as a hypothesis
+is, a consensus-anchored strategy reads its scale off the guess's consensus
+set, and the refined model comes back as the same `RansacEstimate`. The two
+share the class's defaults and the strategy keywords — `threshold`, `scoring`,
+`local_optimization`, `workspace` — so any strategy of the local-optimization
+contract plugs into both; only the sampling keywords (`max_trials`,
+`min_trials`, `config`, `rng`) are the `find_*`'s alone.
 
 ## The robust-loss family
 

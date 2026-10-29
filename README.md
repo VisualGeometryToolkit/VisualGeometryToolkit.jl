@@ -63,16 +63,23 @@ Each package builds on the ones above it (direct dependencies; edges implied thr
 
 ## Installation
 
-Every package is registered in [CauRegistry](https://github.com/prittjam/CauRegistry.jl)
-and submitted to the General registry. Until it is in General, add both
-registries once per depot (General first: Pkg adds it on its own only to an
-empty depot), then add packages as usual:
+VisualGeometryToolkitCore, VisualGeometryToolkitIO, VisualGeometryToolkitFeatures
+and VisualGeometryToolkitEstimation are in the General registry:
 
 ```julia
 using Pkg
+Pkg.add("VisualGeometryToolkitEstimation")      # pulls VisualGeometryToolkitCore
+```
+
+VisualGeometryToolkitEval and PoseLib are in
+[CauRegistry](https://github.com/prittjam/CauRegistry.jl) until their General
+registrations merge. For them, add both registries once per depot (General
+first: Pkg adds it on its own only to an empty depot):
+
+```julia
 Pkg.Registry.add("General")
 Pkg.Registry.add(url = "https://github.com/prittjam/CauRegistry.jl")
-Pkg.add("VisualGeometryToolkitEstimation")      # pulls VisualGeometryToolkitCore
+Pkg.add("VisualGeometryToolkitEval")
 ```
 
 Manifests record each package by UUID, version and tree hash, never by

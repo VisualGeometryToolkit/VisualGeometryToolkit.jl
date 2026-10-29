@@ -1,11 +1,20 @@
 # Releasing
 
-Every package is registered from a subdirectory of this repository in
-[CauRegistry](https://github.com/prittjam/CauRegistry.jl) (public), and
-submitted to General. Releases never wait for General: a Manifest records UUID,
-version and tree hash, never the registry, so an environment resolves the same
-from either. Users add CauRegistry until a package is in General (README,
-"Installation").
+Every package is registered from a subdirectory of this repository in exactly
+ONE registry: General once the package is there, and
+[CauRegistry](https://github.com/prittjam/CauRegistry.jl) (public) until then.
+A package leaves CauRegistry when its first General version merges (its folder
+and its `Registry.toml` line removed in one registry commit, after General holds
+every version CauRegistry had). One registry per package means one release step
+and no version that is in one registry and not the other; nothing installed
+breaks when an entry moves, since a Manifest records UUID, version and tree hash,
+never the registry. Users add CauRegistry only for the packages not yet in
+General (README, "Installation").
+
+In General since 2026-10-29: VisualGeometryToolkitCore, VisualGeometryToolkitIO,
+VisualGeometryToolkitFeatures, VisualGeometryToolkitEstimation. In CauRegistry
+until their General registrations merge: VisualGeometryToolkitEval (#173735),
+PoseLib (#173741, waiting for PoseLib_jll).
 
 ## NLLSsolver
 
@@ -22,13 +31,15 @@ The stack's LM driver is NLLSsolver, from the registry: `[compat] NLLSsolver = "
    - Strict run: `Pkg.test(; julia_args = ["--depwarn=error"])` for each package.
 3. Bump `version` in `<Package>/Project.toml`; widen dependents' compat in the
    same commit if the bump is breaking.
-4. CauRegistry: register the bumped package from a clean checkout of that commit
-   (`LocalRegistry.register("<Package>"; registry = "CauRegistry", repo =
-   "https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl.git")`;
-   the subdirectory is detected), then push the registry.
-5. General: comment on the same commit `@JuliaRegistrator register subdir=<Package>`
-   (one comment per package, dependency order — VisualGeometryToolkitCore first). Nothing
-   waits for the merge.
+4. A package in General: comment on that commit `@JuliaRegistrator register
+   subdir=<Package>` (one comment per package, dependency order —
+   VisualGeometryToolkitCore first), with release notes for a breaking version
+   (AutoMerge requires them). A dependent's release waits for the merge.
+5. A package not yet in General: register it in CauRegistry from a clean checkout
+   of that commit (`LocalRegistry.register("<Package>"; registry = "CauRegistry",
+   repo = "https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl.git")`;
+   the subdirectory is detected), push the registry, and submit it to General the
+   same way; when General merges its first version, remove it from CauRegistry.
 6. TagBot tags `<Package>-v<version>` and creates the GitHub release; the tag
    push builds that package's docs into `gh-pages/<Package>/v<version>`.
 7. Zenodo archives the whole repository at that release as a new version of the

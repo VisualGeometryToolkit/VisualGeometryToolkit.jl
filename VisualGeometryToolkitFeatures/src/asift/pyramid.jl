@@ -41,18 +41,11 @@ function sift_sep_sigmas(seed_sigma::Real, input_blur::Real, nb_scales::Integer)
     return seps
 end
 
-# One-sided normalized Gaussian taps `[k0, k1, …, kr]` (center + r taps) for
-# blur σ, normalized so k0 + 2·Σ kᵢ = 1. The pyramid blur (`gaussian_taps`) and
-# the σ_aa pre-blur (`sigma_aa_taps`, warp.jl) differ only in the radius rule.
-function _gauss_taps(σ::Float32, r::Int)
-    k = Vector{Float32}(undef, r + 1)
-    k[1] = 1.0f0
-    @inbounds for i in 1:r
-        k[i + 1] = exp(-Float32(i)^2 / (2.0f0 * σ^2))
-    end
-    k ./= (k[1] + 2.0f0 * sum(@view k[2:end]))
-    return k
-end
+# One-sided Gaussian taps `[k0, k1, …, kr]` normalized so k0 + 2·Σ kᵢ = 1. The
+# taps are the package's one builder's (`_gaussian_profile`, linear_image.jl);
+# the pyramid blur (`gaussian_taps`) and the σ_aa pre-blur (`sigma_aa_taps`,
+# warp.jl) differ only in the radius rule.
+_unit_sum_taps(k::Vector{Float32}) = k ./= (k[1] + 2.0f0 * sum(@view k[2:end]))
 
 """
     gaussian_taps(sep_sigma) -> Vector{Float32}
@@ -60,10 +53,7 @@ end
 One-sided normalized Gaussian taps `[k0, k1, …, kr]` (center + r taps), with
 r = max(1, ceil(4·sep_sigma)). Normalized so k0 + 2·Σ kᵢ = 1.
 """
-function gaussian_taps(sep_sigma::Real)
-    σ = Float32(sep_sigma)
-    return _gauss_taps(σ, max(1, ceil(Int, 4.0f0 * σ)))
-end
+gaussian_taps(sep_sigma::Real) = _unit_sum_taps(_gaussian_profile(Float32(sep_sigma), 4; min_radius = 1))
 
 # ----- pyramid border rule ---------------------------------------------------
 

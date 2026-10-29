@@ -84,7 +84,10 @@ end
 The `H × W × C` image convolved per channel with the separable Gaussian of
 standard deviation `σ` pixels, truncated at `⌈3σ⌉` pixels and normalized to
 unit sum; at the image border the kernel is renormalized over the pixels
-inside it (no padding value enters).
+inside it (no padding value enters). The taps are the package's one Gaussian
+taps builder's, at truncation 3 — not ASIFT's pyramid's 4σ with a mirrored
+border: the vignetting chain this smooths for was reproduced with this
+truncation and border rule, so they stay as they are.
 
 With a `mask` (an `H × W` array of weights, `0` outside the support — a
 fisheye's image circle) it is the NORMALIZED convolution
@@ -106,8 +109,9 @@ function gaussian_blur(img::AbstractArray{<:Real, 3}, σ::Real, mask::Union{Noth
         end
         return out
     end
-    r = ceil(Int, 3σ)
-    k = [exp(-t^2 / (2σ^2)) for t in (-r):r]
+    g = _gaussian_profile(σ, 3)                    # [g(0), …, g(r)], r = ⌈3σ⌉
+    k = Vector{Float64}([reverse(@view g[2:end]); g])
+    r = length(g) - 1
     den = _separable_blur(m, k, r)
     for c in 1:C
         num = _separable_blur(Float64.(view(img, :, :, c)) .* m, k, r)
@@ -115,6 +119,20 @@ function gaussian_blur(img::AbstractArray{<:Real, 3}, σ::Real, mask::Union{Noth
         mask === nothing || (out[:, :, c] .*= (m .> 0))
     end
     return out
+end
+
+# THE Gaussian taps builder of the package: the one-sided profile
+# `[g(0), g(1), …, g(r)]`, `g(i) = exp(−i²/(2σ²))`, unnormalized, at the
+# radius `r = ⌈truncation·σ⌉` clamped to `min_radius:max_radius`, in `σ`'s own
+# arithmetic (a `Float32` σ gives `Float32` taps). `gaussian_blur` takes it at
+# truncation 3 and renormalizes per pixel; ASIFT's pyramid (`gaussian_taps`) at
+# truncation 4, at least one tap, and its σ_aa pre-blur (`sigma_aa_taps`) at 4
+# capped at 16 taps, both normalized to unit sum (`_unit_sum_taps`).
+function _gaussian_profile(σ::Real, truncation::Real; min_radius::Integer = 0, max_radius::Integer = typemax(Int))
+    r = clamp(ceil(Int, truncation * σ), min_radius, max_radius)
+    g = [exp(-i^2 / (2σ^2)) for i in 0:r]
+    g[1] = 1                                       # the centre, exactly (σ = 0 included)
+    return g
 end
 
 # The separable convolution of `a` with the kernel `k` (half-width r) along both

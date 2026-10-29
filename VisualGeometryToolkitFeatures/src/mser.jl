@@ -51,23 +51,18 @@ One maximally stable extremal region, as [`detect_mser`](@ref) returns it.
   `CartesianIndices(img)[s + 1]`, and ours is VLFeat's index
   `LinearIndices(img)[seed] - 1`.
 - `level::UInt8`: the region's level in the input image: a `:dark` region is
-  the 8-connected component of `img .<= level` holding `seed`, a `:bright` one
+  the 8-connected component of `img .<= level` holding `seed`, a `:light` one
   that of `img .>= level`. `img[seed] == level`.
 - `area::Int`: its number of pixels.
 - `variation::Float32`: VLFeat's (in)stability `(|R₊Δ| − |R|) / |R|`.
-- `polarity::Symbol`: `:dark` or `:bright`.
-- `pixels::Vector{CartesianIndex{2}}`: the region's pixels (VLFeat's
-  `vl_erfill`), in ascending linear order.
-- `contours::Vector{Vector{Point2{Float64}}}`: the boundary of the pixel set
-  as closed polygons on the pixel edges (the last vertex joins the first), the
-  outer boundary first and one per hole after it, in image order — `x` along
-  the columns, `y` along the rows — and the COLMAP pixel origin
-  (`conventions/pixel-origins.md`): the pixel `img[r, c]` is the square
-  `[c − 1, c] × [r − 1, r]`, centred at `(c − 0.5, r − 0.5)`, so every vertex
-  is a pixel corner with integer coordinates. See [`boundary_contours`](@ref).
+- `polarity::Symbol`: `:dark` or `:light`.
 
-[`is_dark`](@ref) and [`is_light`](@ref) read the polarity, [`region_mask`](@ref)
-the pixels as a mask.
+The seed and level determine the region, so its pixels and boundary are not
+stored (nested regions would hold every pixel many times over): they are
+formed on demand from the image the region was detected in —
+[`region_mask`](@ref)`(region, img)` the pixels as a mask (VLFeat's
+`vl_erfill`), [`boundary_contours`](@ref)`(region, img)` their boundary as
+closed polygons. [`is_dark`](@ref) and [`is_light`](@ref) read the polarity.
 """
 struct MserRegion
     seed::CartesianIndex{2}
@@ -75,12 +70,10 @@ struct MserRegion
     area::Int
     variation::Float32
     polarity::Symbol
-    pixels::Vector{CartesianIndex{2}}
-    contours::Vector{Vector{Point2{Float64}}}
 end
 
 is_dark(r::MserRegion) = r.polarity === :dark
-is_light(r::MserRegion) = r.polarity === :bright
+is_light(r::MserRegion) = r.polarity === :light
 
 """
     detect_mser(img; delta = 5, min_area = 3 / length(img), max_area = 0.75,
@@ -109,8 +102,11 @@ filtered, largest first:
   surviving enclosing region by less than `min_diversity` times the latter's
   area is a duplicate and is dropped (`min_diversity = 1` turns this off).
 
+An image of fewer than three pixels has no region (VLFeat returns none):
+`MserRegion[]`, the area fractions not checked.
+
 `dark_on_bright` returns the dark regions (`polarity = :dark`) and
-`bright_on_dark` the bright ones (`:bright`), the components of `img .>= l`:
+`bright_on_dark` the light ones (`:light`), the components of `img .>= l`:
 VLFeat runs the same on `255 .- img`, whose `<=` level sets these are. Dark
 regions come first; each polarity is ordered as VLFeat orders it, by level
 (darkest first, resp. brightest first), then by seed.
@@ -124,11 +120,13 @@ the regions are cut at are the caller's choice.
 ```jldoctest
 julia> using VisualGeometryToolkitFeatures
 
+julia> using VisualGeometryToolkitFeatures: boundary_contours
+
 julia> img = fill(0xc8, 40, 60); img[11:20, 21:35] .= 0x28;   # a dark rectangle
 
 julia> r = only(detect_mser(img; bright_on_dark = false));
 
-julia> r.polarity, r.area, Tuple.(only(r.contours))
+julia> r.polarity, r.area, Tuple.(only(boundary_contours(r, img)))
 (:dark, 150, [(20.0, 10.0), (35.0, 10.0), (35.0, 20.0), (20.0, 20.0)])
 ```
 """
@@ -137,28 +135,54 @@ function detect_mser(
         max_area::Real = 0.75, max_variation::Real = 0.25, min_diversity::Real = 0.2,
         bright_on_dark::Bool = true, dark_on_bright::Bool = true
     )
+    levels = _mser_levels(img)
     0 <= delta <= 255 || throw(ArgumentError("delta must be in 0:255, got $delta"))
-    0 <= min_area <= 1 || throw(ArgumentError("min_area is a fraction of the image area in [0, 1], got $min_area"))
-    0 <= max_area <= 1 || throw(ArgumentError("max_area is a fraction of the image area in [0, 1], got $max_area"))
     max_variation >= 0 || throw(ArgumentError("max_variation must be non-negative, got $max_variation"))
     0 <= min_diversity <= 1 || throw(ArgumentError("min_diversity must be in [0, 1], got $min_diversity"))
-    levels = _mser_levels(img)
+    length(levels) < 3 && return MserRegion[]   # no region; the default min_area (3 pixels) exceeds the image
+    0 <= min_area <= 1 || throw(ArgumentError("min_area is a fraction of the image area in [0, 1], got $min_area"))
+    0 <= max_area <= 1 || throw(ArgumentError("max_area is a fraction of the image area in [0, 1], got $max_area"))
     config = (; delta = Int(delta), min_area, max_area, max_variation, min_diversity)
     regions = MserRegion[]
     dark_on_bright && _mser!(regions, levels, :dark, config)
-    bright_on_dark && _mser!(regions, levels, :bright, config)
+    bright_on_dark && _mser!(regions, levels, :light, config)
     return regions
 end
 
 """
     region_mask(region::MserRegion, img) -> BitMatrix
 
-The pixels of `region`, an MSER of `img`, as a mask the size of `img`
-(VLFeat's `vl_erfill`).
+The pixels of `region`, an MSER of `img`, as a mask the size of `img`: the
+8-connected component of `img .<= region.level` (`:dark`; `.>=` for `:light`)
+holding `region.seed`, filled from the seed as VLFeat's `vl_erfill` fills it.
+`findall` of it lists the pixels in ascending linear order. `img` must be the
+image the region was detected in: a seed outside it, a level other than
+`img[seed]` or a fill of another area than `region.area` is an
+`ArgumentError`.
 """
 function region_mask(region::MserRegion, img::AbstractMatrix)
-    mask = falses(size(img))
-    mask[region.pixels] .= true
+    levels = _mser_levels(img)
+    s = region.seed
+    (checkbounds(Bool, levels, s) && levels[s] == region.level) || throw(ArgumentError(
+        "region_mask: the region (seed $(Tuple(s)), level $(Int(region.level))) is not one of this $(join(size(levels), '×')) image"))
+    mask = falses(size(levels))
+    dark = region.polarity === :dark
+    within(v) = dark ? v <= region.level : v >= region.level
+    H, W = size(levels)
+    mask[s] = true; n = 1
+    stack = [s]
+    while !isempty(stack)
+        r, c = Tuple(pop!(stack))
+        for dc in -1:1, dr in -1:1
+            q = CartesianIndex(r + dr, c + dc)
+            (1 <= r + dr <= H && 1 <= c + dc <= W) || continue
+            (!mask[q] && within(levels[q])) || continue
+            mask[q] = true; n += 1
+            push!(stack, q)
+        end
+    end
+    n == region.area || throw(ArgumentError(
+        "region_mask: the region's fill in this image has $n pixels, not its area $(region.area): not the image it was detected in"))
     return mask
 end
 
@@ -223,53 +247,35 @@ function _mser!(regions::Vector{MserRegion}, levels::AbstractMatrix{UInt8}, pola
         end
     end
 
-    # The survivors, in VLFeat's order; each region's pixels are its subtree.
-    children = _children(parent)
+    # The survivors, in VLFeat's order; a region is its seed and level (its
+    # pixels, the node's subtree, are the fill `region_mask` forms on demand).
     cart = CartesianIndices(levels)
     for i in sort!([i for i in nodes if stable[i]]; by = i -> (lev(i), i))
-        pixels = sort!(cart[_subtree(children, i)])
-        push!(regions, MserRegion(cart[i], levels[i], area[i], variation[i], polarity, pixels, boundary_contours(pixels)))
+        push!(regions, MserRegion(cart[i], levels[i], area[i], variation[i], polarity))
     end
     return regions
 end
 
-# The children of every pixel of the parent-link tree, packed: the children
-# of `q` are `kids[first[q]:first[q + 1] - 1]`.
-function _children(parent::AbstractArray{Int})
-    first = [1; zeros(Int, length(parent))]
-    for (p, q) in pairs(vec(parent))
-        p != q && (first[q + 1] += 1)
-    end
-    cumsum!(first, first)
-    kids, fill = Vector{Int}(undef, length(parent) - 1), copy(first)
-    for (p, q) in pairs(vec(parent))
-        p != q && (kids[fill[q]] = p; fill[q] += 1)
-    end
-    return kids, first
-end
-
-function _subtree((kids, first), root::Int)
-    members = [root]
-    for p in members              # grows as it goes: a breadth-first walk
-        append!(members, view(kids, first[p]:(first[p + 1] - 1)))
-    end
-    return members
-end
-
 """
     boundary_contours(pixels) -> Vector{Vector{Point2{Float64}}}
+    boundary_contours(region::MserRegion, img) -> Vector{Vector{Point2{Float64}}}
 
-The boundary of a set of pixels (`CartesianIndex{2}` `(row, column)`, or a
-`Bool` mask), traced along the pixel edges: one closed polygon per boundary
-curve (the last vertex joins the first), vertices only where the boundary
-turns, in image order (`x` = column, `y` = row) and the COLMAP pixel origin,
-so the pixel `(r, c)` is the square `[c − 1, c] × [r − 1, r]`. The outer
-boundaries come first, with positive shoelace area (clockwise on screen), then
-the holes, negative. Diagonal neighbours are connected (8-connectivity, the
-connectivity of an MSER), so where two pixels of the set meet at a corner one
-curve runs through it; holes are 4-connected.
+The boundary of a set of pixels (`CartesianIndex{2}` `(row, column)`, a
+`Bool` mask, or an MSER of `img` — its [`region_mask`](@ref)), traced along
+the pixel edges: one closed polygon per boundary curve (the last vertex joins
+the first), vertices only where the boundary turns, with `x` along the columns
+and `y` along the rows in the COLMAP pixel origin
+(`conventions/pixel-origins.md`), so the pixel `(r, c)` is the square
+`[c − 1, c] × [r − 1, r]` and every vertex is a pixel corner with integer
+coordinates. The polygons are sorted by signed shoelace area, descending: the
+outer boundaries first (positive, clockwise on screen), the largest first,
+then the holes (negative), the smallest first and the largest last.
+Diagonal neighbours are connected (8-connectivity, the connectivity of an
+MSER), so where two pixels of the set meet at a corner one curve runs through
+it; holes are 4-connected.
 """
 boundary_contours(mask::AbstractMatrix{Bool}) = boundary_contours(findall(mask))
+boundary_contours(region::MserRegion, img::AbstractMatrix) = boundary_contours(region_mask(region, img))
 
 function boundary_contours(pixels::AbstractVector{CartesianIndex{2}})
     isempty(pixels) && return Vector{Point2{Float64}}[]

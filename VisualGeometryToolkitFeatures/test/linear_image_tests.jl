@@ -89,3 +89,25 @@ end
     @test_throws DimensionMismatch gaussian_blur(C, 1.0, zeros(3, 3))
     @test_throws ArgumentError gaussian_blur(C, -1.0)
 end
+
+@testitem "the one Gaussian taps builder: each user's truncation, bit for bit" begin
+    # gaussian_blur (3σ, renormalized per pixel at the border) and ASIFT's pyramid
+    # (4σ, at least one tap) and σ_aa pre-blur (4σ, at most 16 taps), unit sum,
+    # build their taps with `_gaussian_profile`; these are the formulas they had.
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    using Test
+    function unit(σ::Float32, r)
+        k = [i == 0 ? 1.0f0 : exp(-Float32(i)^2 / (2.0f0 * σ^2)) for i in 0:r]
+        return k ./= (k[1] + 2.0f0 * sum(@view k[2:end]))
+    end
+    for s in (0.0, 0.3, 0.8, 1.2263, 1.6, 2.5, 3.9, 4.01, 7.7)
+        σ = Float32(s)
+        @test VgtkFeatures.gaussian_taps(s) == unit(σ, max(1, ceil(Int, 4.0f0 * σ)))
+        @test VgtkFeatures.sigma_aa_taps(s) == unit(σ, min(ceil(Int, 4.0f0 * σ), 16))
+    end
+    for σ in (0.5, 1, 1.7, 3 // 2, 6.25)
+        r = ceil(Int, 3σ)
+        @test [reverse(VgtkFeatures._gaussian_profile(σ, 3)[2:end]); VgtkFeatures._gaussian_profile(σ, 3)] ==
+              [exp(-t^2 / (2σ^2)) for t in (-r):r]
+    end
+end

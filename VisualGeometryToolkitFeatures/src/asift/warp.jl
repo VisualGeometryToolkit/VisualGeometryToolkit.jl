@@ -34,7 +34,4 @@ function imas_rotated_canvas(nx::Integer, ny::Integer, θ::Real)
 end
 
 # ----- σ_aa tap builder (PreBlur1D / GaussBlur1DStorage: cap radius at 16) ----
-function sigma_aa_taps(σ::Real)
-    σf = Float32(σ)
-    return _gauss_taps(σf, min(ceil(Int, 4.0f0 * σf), 16))
-end
+sigma_aa_taps(σ::Real) = _unit_sum_taps(_gaussian_profile(Float32(σ), 4; max_radius = 16))

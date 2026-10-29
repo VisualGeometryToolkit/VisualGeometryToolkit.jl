@@ -4,8 +4,11 @@
 #       VisualGeometryToolkitFeatures/validation/mser_vlfeat.jl [--freeze] [libvl.so] [image]
 #
 # libvl defaults to $VLFEAT_ROOT/bin/glnxa64/libvl.so (VLFEAT_ROOT defaults to
-# ~/src/vlfeat); the real image to the BlobBoards Office fisheye frame, read as
-# 8-bit gray and averaged over 4 × 4 blocks (4240 × 2832 → 1060 × 708). libvl is
+# ~/src/vlfeat). The real image has no default: without one only the synthetic
+# images are compared, and `--freeze` (whose fixture holds a 64 × 96 crop of it)
+# requires one. It is read as 8-bit gray and averaged over 4 × 4 blocks; the
+# frozen fixture's crop came from a 4240 × 2832 fisheye frame of the BlobBoards
+# Office capture (DSC03004.JPG, 4240 × 2832 → 1060 × 708). libvl is
 # not a dependency of the package: this script is the comparison, and
 # `--freeze` writes test/data/mser_vlfeat.toml, VLFeat's output on the small
 # images, which the package suite checks detect_mser against without libvl.
@@ -13,7 +16,7 @@
 # What is compared, per image, polarity and parameter set:
 #   - the number of regions;
 #   - the regions as PIXEL SETS: each VLFeat seed filled as vl_erfill fills it
-#     (ported below), against detect_mser's `pixels`. The component tree is
+#     (ported below), against detect_mser's regions filled by `region_mask`. The component tree is
 #     unique, so the sets must be identical; the pixel a tree names a region by
 #     is not (VLFeat's union-find and ImageMorphology's MaxTree pick different
 #     pixels of a plateau), so seed coincidence is only counted;
@@ -32,8 +35,9 @@ using Printf: @sprintf
 
 const POSITIONAL = filter(a -> !startswith(a, "--"), ARGS)
 const LIBVL = get(POSITIONAL, 1, joinpath(get(ENV, "VLFEAT_ROOT", joinpath(homedir(), "src", "vlfeat")), "bin", "glnxa64", "libvl.so"))
-const REAL_IMAGE = get(POSITIONAL, 2, "/mnt/informatik/Datasets/20251028_BlobBoards_Office/sonyfx3_sigma8mm_fisheye_f8/jpeg/DSC03004.JPG")
+const REAL_IMAGE = get(POSITIONAL, 2, nothing)
 const FREEZE = "--freeze" in ARGS
+FREEZE && REAL_IMAGE === nothing && error("--freeze needs the real image (the fixture holds a crop of it): mser_vlfeat.jl --freeze libvl.so image")
 
 # -----------------------------------------------------------------------------
 # libvl. The parameter setters are inline in mser.h, so the filter's fields are
@@ -171,7 +175,7 @@ function compare(name, levels, polarity, pname, params)
     seeds = vlfeat_mser(levels, polarity; params...)
     theirs = Set(erfill(levels, s, polarity === :bright) for s in seeds)
     mine = detect_mser(levels; params..., dark_on_bright = polarity === :dark, bright_on_dark = polarity === :bright)
-    ours = Set(sort!(LinearIndices(levels)[r.pixels] .- 1) for r in mine)
+    ours = Set(LinearIndices(levels)[findall(region_mask(r, levels))] .- 1 for r in mine)
     same_seed = count(r -> LinearIndices(levels)[r.seed] - 1 in seeds, mine)
     # our region's level is the level VLFeat's erfill fills at
     levels_ok = all(r -> levels[r.seed] == r.level, mine)
@@ -185,7 +189,7 @@ function main()
         "disc_surround_48x64" => disc_surround(),
         ("bumps_$(k)_$(h)x$(w)" => bumps(h, w, k) for (k, (h, w)) in enumerate([(20, 30), (33, 17), (40, 40), (25, 60)]))...,
     ]
-    real = isfile(REAL_IMAGE) ? real_image(REAL_IMAGE) : nothing
+    real = REAL_IMAGE === nothing ? nothing : real_image(REAL_IMAGE)
     if real !== nothing
         push!(images, "real_crop_64x96" => real[301:364, 501:596])
         push!(images, "real_$(size(real, 1))x$(size(real, 2))" => real)
@@ -196,7 +200,7 @@ function main()
     s = only(vlfeat_mser(a, :bright; min_area = 0.0))
     r = only(detect_mser(a; min_area = 0.0, dark_on_bright = false))
     mapping_ok = s == 31 && r.seed == CartesianIndex(2, 7) && LinearIndices(a)[r.seed] - 1 == s &&
-        Tuple.(only(r.contours)) == [(6.0, 1.0), (7.0, 1.0), (7.0, 2.0), (6.0, 2.0)]
+        Tuple.(only(VgtkFeatures.boundary_contours(r, a))) == [(6.0, 1.0), (7.0, 1.0), (7.0, 2.0), (6.0, 2.0)]
 
     rows = []
     for (name, img) in images, polarity in (:dark, :bright), (pname, params) in PARAMS

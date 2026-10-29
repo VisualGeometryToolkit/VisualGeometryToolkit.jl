@@ -45,11 +45,9 @@ VgtkCore.residual_jacobian_rows!(J, w::_NaNBeyond, x) = VgtkCore.residual_jacobi
     @test f.cache === (isdefined(NLLSsolver, :OptimizeCache) &&
         hasmethod(NLLSsolver.OptimizeCache, Tuple{NLLSsolver.NLLSProblem, NLLSsolver.NLLSOptions, Any}))
     @test f.schur === (isdefined(NLLSsolver, :MultiVariateLSschur) && isdefined(NLLSsolver, :iseliminable))
-    # A checkout pins the fork (the workspace's [sources]); a registry install
-    # resolves the published NLLSsolver. Either is correct: the suite asserts
-    # only that the detection is consistent, and the fork-vs-fallback
-    # comparisons below run whichever paths the loaded NLLSsolver has.
-    @test f.cache === f.schur      # the fork has both, a release neither
+    # NLLSsolver 5.3 has the cache (#62) but not the Schur system (#60, open);
+    # our fork has both. Each is detected on its own; the comparisons below run
+    # whichever paths the loaded NLLSsolver has.
 end
 
 @testset "the upstream path gives the fast path's results (fallback)" begin

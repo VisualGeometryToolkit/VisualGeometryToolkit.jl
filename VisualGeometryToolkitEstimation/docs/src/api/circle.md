@@ -12,7 +12,7 @@ point-on-circle constraint `constraint_with_jacobians(c, x)` with
 `g = ‖x − c‖² − r²`, and the chart `CircleManifold` (the centre and log r).
 The residual is the family's Sampson distance `g/‖∂g/∂x‖ = (d² − r²)/(2d)`, the
 geometric distance `d − r` to first order, in the points' units (pixels).
-`find_circle` is its RANSAC, with the robustified LM ([`RobustLm`](@ref)) as
+`find_circle` is its RANSAC, with the robustified LM ([`TriggsLM`](@ref)) as
 its local optimization.
 
 ```@docs

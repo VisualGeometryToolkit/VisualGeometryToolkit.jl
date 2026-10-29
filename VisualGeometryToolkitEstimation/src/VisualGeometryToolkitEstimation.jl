@@ -270,7 +270,7 @@ export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem,
 # -----------------------------------------------------------------------------
 # 4. LOCAL-OPTIMIZATION strategies a user picks
 # -----------------------------------------------------------------------------
-export Irls, RobustLm, NoLocalOptimization
+export Irls, TriggsLM, NoLocalOptimization
 public CountedLO   # instrumentation: counts a strategy's locally_optimize! calls and iterations
 # The terminal placement (one LO of a raw race's incumbent) and the placement trait.
 public TerminalLO, lo_placement, InLoopPlacement, TerminalPlacement

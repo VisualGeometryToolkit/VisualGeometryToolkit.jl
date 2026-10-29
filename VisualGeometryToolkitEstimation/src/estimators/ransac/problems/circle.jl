@@ -20,7 +20,7 @@
 # refit is the family's chart LM (`refine!` → `_refine!(::NonlinLsq, …)`) on the
 # rows below — the same constraint, whitened the same way — and every local
 # optimization of the family runs on them: `find_circle`'s, the robustified LM
-# (`RobustLm`), and the IRLS and the lifts alike.
+# (`TriggsLM`), and the IRLS and the lifts alike.
 #
 # DATA: the circle's datum is one point of one image; there is no second view
 # and so no correspondence. The problem stores the canonical points

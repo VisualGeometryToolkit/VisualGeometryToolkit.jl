@@ -11,14 +11,14 @@
 """
     find_circle(points; threshold = 1.0,
         max_trials = 10000, min_trials = 100,
-        local_optimization = RobustLm{CauchyShape}(scale_multiple = 2.5),
+        local_optimization = TriggsLM{CauchyShape}(scale_multiple = 2.5),
         scoring = nothing, config = nothing)
 
 Robust estimation of a 2D circle through points (a contour, edge points) by
 RANSAC on the [`CircleProblem`](@ref): 3-point samples (VisualGeometryToolkitCore's
 `Circle3pt`, the circumcircle), MSAC scoring of the Sampson distance of
 `‖x − c‖² − r²` — the geometric distance to the circle to first order — and,
-as local optimization, the robustified LM ([`RobustLm`](@ref)) on the centre
+as local optimization, the robustified LM ([`TriggsLM`](@ref)) on the centre
 and log radius: one Levenberg–Marquardt solve from the hypothesis over all the
 points under the Cauchy loss at `scale_multiple·ŝ`, ŝ the Student-t scale of the
 hypothesis's Sampson errors. Every default
@@ -35,7 +35,7 @@ drawn); test `converged(result)` before reading the model (see
   storage canonicalized internally), plain: unit isotropic noise.
 - `threshold`: **in PIXELS** (the points' unit), as [`find_homography`](@ref).
 - `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace(CircleProblem, n_data[, T])`.
-- `local_optimization`: default `RobustLm{CauchyShape}(scale_multiple = 2.5)`; any
+- `local_optimization`: default `TriggsLM{CauchyShape}(scale_multiple = 2.5)`; any
   other strategy as [`find_homography`](@ref).
 - the other keywords as [`find_homography`](@ref).
 """

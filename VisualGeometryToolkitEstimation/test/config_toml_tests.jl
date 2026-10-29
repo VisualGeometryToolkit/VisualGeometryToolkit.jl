@@ -44,7 +44,7 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, NoLocalO
         # multiple. (The strategies' tables and their cross-validated operating
         # points are LocalOptimizationDoneRight's.)
         for class in Symbol.(keys(_TOML_DEFAULTS["pipelines"]))
-            @test _dflt_lo(class) == (class === :circle ? RobustLm{CauchyShape}(scale_multiple = 2.5) : Irls{TLSShape}())
+            @test _dflt_lo(class) == (class === :circle ? TriggsLM{CauchyShape}(scale_multiple = 2.5) : Irls{TLSShape}())
         end
         @test !haskey(_TOML_DEFAULTS, "tuning_constants")
     end

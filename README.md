@@ -21,14 +21,18 @@ registered package with its own version, tests and documentation.
 | [VisualGeometryToolkitEval](VisualGeometryToolkitEval) | Evaluation protocol, benchmark pools, tuning, reproducible paper projects | [docs](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitEval/) |
 | [PoseLib](PoseLib) | Julia wrapper of the PoseLib minimal solvers (prebuilt binaries as package artifacts) | [docs](https://visualgeometrytoolkit.github.io/PoseLib/) |
 
-Related packages in their own repositories:
-[RANSACScoringDoneRight.jl](https://github.com/VisualGeometryToolkit/RANSACScoringDoneRight.jl)
-(scale-free marginal RANSAC scoring),
-[LocalOptimizationDoneRight.jl](https://github.com/VisualGeometryToolkit/LocalOptimizationDoneRight.jl)
-(local optimization for RANSAC) and
-[BlobBoards.jl](https://github.com/VisualGeometryToolkit/BlobBoards.jl)
-(fiducial blob-board targets). All documentation is aggregated at
-<https://visualgeometrytoolkit.github.io>.
+### Built on the toolkit (separate repositories)
+
+Public packages that build on these and live in their own repositories:
+
+| Package | Role | Repository |
+|---|---|---|
+| RANSACScoringDoneRight | Scale-free marginal RANSAC scoring | [VisualGeometryToolkit/RANSACScoringDoneRight.jl](https://github.com/VisualGeometryToolkit/RANSACScoringDoneRight.jl) |
+| LocalOptimizationDoneRight | Local optimization for RANSAC | [VisualGeometryToolkit/LocalOptimizationDoneRight.jl](https://github.com/VisualGeometryToolkit/LocalOptimizationDoneRight.jl) |
+| BlobBoards | Fiducial blob-board targets: design, detection and tracking | [VisualGeometryToolkit/BlobBoards.jl](https://github.com/VisualGeometryToolkit/BlobBoards.jl) |
+| PanoramaStitching | Rotation-only panoramas: feature matching on unit bearings, robust rotation averaging and a rotation bundle | [VisualGeometryToolkit/PanoramaStitching.jl](https://github.com/VisualGeometryToolkit/PanoramaStitching.jl) |
+
+All documentation is aggregated at <https://visualgeometrytoolkit.github.io>.
 
 ## Package stack
 
@@ -39,10 +43,13 @@ graph TD
     VGIO["VisualGeometryToolkitIO"]
     RVG["VisualGeometryToolkitEstimation"]
     PL["PoseLib"]
-    RSDR["RANSACScoringDoneRight"]
-    LODR["LocalOptimizationDoneRight"]
     VGE["VisualGeometryToolkitEval"]
-    BB["BlobBoards"]
+    subgraph separate["separate repositories"]
+        RSDR["RANSACScoringDoneRight"]
+        LODR["LocalOptimizationDoneRight"]
+        BB["BlobBoards"]
+        PS["PanoramaStitching"]
+    end
 
     VGC --> VGF
     VGC --> VGIO
@@ -57,6 +64,8 @@ graph TD
     VGIO --> BB
     RSDR --> BB
     LODR --> BB
+    VGF --> PS
+    RVG --> PS
 ```
 
 Each package builds on the ones above it (direct dependencies; edges implied through another package are omitted). Dashed: optional (package extension).

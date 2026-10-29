@@ -252,23 +252,31 @@ end
     lx, ly = @index(Local, NTuple)
     g = @index(Group, Linear)
     ox, oy, l = _tile_origin(tiles, g)
-    W = size(src, 1); H = size(src, 2)
     I = ox + lx
     for q in 0:3
         J = oy + ly + 8q
         @inbounds if I <= size(dst, 1) && J <= size(dst, 2)
-            # Clamping the CONTINUOUS coordinate (not the index) is what makes the
-            # edge replicate exactly: I=1 → u=1 → fu=0 → src[1].
-            u = clamp(0.5f0 * Float32(I), 1.0f0, Float32(W))
-            v = clamp(0.5f0 * Float32(J), 1.0f0, Float32(H))
-            i0 = unsafe_trunc(Int32, u); j0 = unsafe_trunc(Int32, v)
-            fu = u - Float32(i0); fv = v - Float32(j0)
-            i1 = min(i0 + Int32(1), Int32(W)); j1 = min(j0 + Int32(1), Int32(H))
-            dst[I, J, l] =
-                (1.0f0 - fv) * ((1.0f0 - fu) * src[i0, j0, l] + fu * src[i1, j0, l]) +
-                fv * ((1.0f0 - fu) * src[i0, j1, l] + fu * src[i1, j1, l])
+            dst[I, J, l] = _upsample_sample(src, I, J, l)
         end
     end
+end
+
+# THE 2× upsampling of the package (the ASIFT seed above, `detect_foerstner`'s
+# doubling): the doubled pixel (I, J), 1-based, is the bilinear sample of slice
+# `l` of `src` at input position (I/2, J/2), in `src`'s element type. Clamping
+# the CONTINUOUS coordinate (not the index) is what makes the edge replicate
+# exactly: I=1 → u=1 → fu=0 → src[1]. In COLMAP pixel centres the doubled
+# position x′ is input position (x′ − 1/2)/2.
+@inline function _upsample_sample(src, I, J, l)
+    T = eltype(src)
+    W = size(src, 1); H = size(src, 2)
+    u = clamp(T(I) / 2, one(T), T(W))
+    v = clamp(T(J) / 2, one(T), T(H))
+    i0 = unsafe_trunc(Int32, u); j0 = unsafe_trunc(Int32, v)
+    fu = u - T(i0); fv = v - T(j0)
+    i1 = min(i0 + Int32(1), Int32(W)); j1 = min(j0 + Int32(1), Int32(H))
+    @inbounds return (one(T) - fv) * ((one(T) - fu) * src[i0, j0, l] + fu * src[i1, j0, l]) +
+        fv * ((one(T) - fu) * src[i0, j1, l] + fu * src[i1, j1, l])
 end
 
 # `a` beats `b` in the extremum test: strictly for a neighbour that precedes

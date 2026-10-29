@@ -25,6 +25,7 @@ using StructArrays: StructArray
 using FixedPointNumbers: N0f8
 using Colors: Gray, Colorant, RGB, gray
 using ImageMorphology: MaxTree, areas   # the component tree behind detect_mser
+using Distributions: FDist, quantile   # the F-test of detect_foerstner
 using PNGFiles: PNGFiles     # load_linear_image: a PNG read without gamma re-encoding
 
 # VisualGeometryToolkitCore (geometry primitives, units, the correspondence layer)
@@ -32,7 +33,7 @@ import KernelAbstractions as KA   # KA devices are the backend dispatch tokens
 using VisualGeometryToolkitCore: Point2
 using VisualGeometryToolkitCore: Csponds  # #21 correspondence layer
 using VisualGeometryToolkitCore: default_device   # the family's one KA backend resolver — never a hardcoded KA.CPU()
-using VisualGeometryToolkitCore: AbstractDetection, FeatureFrame, OrientedDisc, AffineFrame
+using VisualGeometryToolkitCore: AbstractDetection, FeatureFrame, OrientedDisc, AffineFrame, PointFrame
 using VisualGeometryToolkitCore: characteristic_scale
 using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain, implicit_covariance, propagate   # keypoint uncertainty
 import VisualGeometryToolkitCore: cov, geom   # extended for Detections of an Uncertain frame
@@ -48,6 +49,7 @@ import VisualGeometryToolkitCore: centroid, moment_matrix, feature_frame, region
 #   detection_types.jl  Detection{F,M}, polarity traits
 #   image_input.jl      gray_f32 / gray_u8 input ladders
 #   mser.jl             detect_mser, MserRegion, region_mask, boundary_contours
+#   foerstner.jl        detect_foerstner (Förstner/Gülch, Köthe; after ip_fop.m)
 #   batching.jl         batched_rows chunking for the describe backends
 #   asift/              KernelAbstractions ASIFT (IMAS-25) — THE detector.
 #                       Identity-only tilt schedule ≡ plain DoG-SIFT.
@@ -80,6 +82,7 @@ include("asift/api.jl")
 include("matching.jl")
 include("nn_match.jl")
 include("matching_ka.jl")   # the one matcher: KA kernels on the CPU and any GPU
+include("foerstner.jl")      # detect_foerstner — the Förstner interest operator (after ip_fop.m); after asift/ and matching_ka.jl, whose upsampling and upload it uses
 include("matching_stacked_ka.jl")   # stacked multi-gallery matcher (hoisted from BlobBoards)
 include("described_feature.jl")
 include("loma.jl")
@@ -136,6 +139,7 @@ public srgb_to_linear, box_downsample, gaussian_blur   # gaussian_blur: the (mas
 export batched_rows             # the describe backends' chunking skeleton
 export detect_mser, region_mask   # MSER (VLFeat's selection on ImageMorphology's MaxTree)
 public MserRegion, boundary_contours
+export detect_foerstner        # the Förstner interest operator: labelled corner / circular points
 
 # -----------------------------------------------------------------------------
 # 3. MATCHING - strategies, metrics, NN matching on any KA backend

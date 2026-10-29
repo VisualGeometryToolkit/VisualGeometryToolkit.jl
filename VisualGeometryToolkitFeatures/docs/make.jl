@@ -6,6 +6,10 @@
 
 using Documenter
 using VisualGeometryToolkitFeatures
+using DocumenterCitations
+
+# Literature: `[Key](@cite)` against docs/src/refs.bib, listed on the References page.
+const BIB = CitationBibliography(joinpath(@__DIR__, "src", "refs.bib"); style = :authoryear)
 
 # The index is GENERATED from the package README (docs/src/index.md is ignored
 # by git), so the two never drift.
@@ -20,6 +24,7 @@ makedocs(;
     modules = [VisualGeometryToolkitFeatures],
     authors = "James Pritts <jbpritts@gmail.com>",
     sitename = "VisualGeometryToolkitFeatures.jl",
+    plugins = [BIB],
     repo = Documenter.Remotes.GitHub("VisualGeometryToolkit", "VisualGeometryToolkit.jl"),
     format = Documenter.HTML(;
         prettyurls = get(ENV, "CI", "false") == "true",
@@ -36,6 +41,7 @@ makedocs(;
         "Getting Started" => "guide/getting-started.md",
         "User Guide" => [
             "Detection" => "guide/detection.md",
+            "The Förstner operator" => "guide/foerstner.md",
             "Matching" => "guide/matching.md",
         ],
         "API Reference" => [
@@ -44,6 +50,7 @@ makedocs(;
             "Cache and Visualization" => "api/cache.md",
         ],
         "Developer Notes" => "developer.md",
+        "References" => "references.md",
     ],
 )
 

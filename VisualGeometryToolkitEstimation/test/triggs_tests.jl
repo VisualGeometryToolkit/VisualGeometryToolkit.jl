@@ -6,9 +6,9 @@
 
 @testitem "Triggs: strategy identity and configuration" begin
     using Test
-    using VisualGeometryToolkitCore: CauchyShape, WelschShape, ScaleMultiple, LossWidth, lo_width, with_width,
-        optimization_path, scale_interface, ConsensusAnchored, lo_label, lo_marker
-    using VisualGeometryToolkitEstimation: Triggs, LO_TAGS, local_optimization_from_toml, config_dict
+    using VisualGeometryToolkitCore: CauchyShape, WelschShape, GaussianShape, ScaleMultiple, LossWidth, lo_width, with_width,
+        optimization_path, scale_interface, ConsensusAnchored, FixedScale, lo_label, lo_marker
+    using VisualGeometryToolkitEstimation: Triggs, Irls, LO_TAGS, local_optimization_from_toml, config_dict, fixed_width
     lo = Triggs{CauchyShape}(scale_multiple = 2.5)
     @test lo_width(lo) == ScaleMultiple(2.5) && optimization_path(lo) == :triggs && scale_interface(lo) == ConsensusAnchored()
     # its own path: the Loss-Path label and the path's marker, beside IRLS's
@@ -21,6 +21,15 @@
     # the multiple is required, and the width is always a scale multiple
     @test_throws UndefKeywordError Triggs{CauchyShape}()
     @test_throws ArgumentError Triggs{CauchyShape}(loss_width = 2.0)
+    @test_throws ArgumentError local_optimization_from_toml(Dict{String, Any}("type" => "triggs", "loss" => "cauchy", "loss_width" => 2.0);
+                                                            class = :circle)
+    # fixed_width's freeze is the one absolute width it takes: the consensus
+    # scale held at s2, the anchored strategy's loss, and back
+    frozen = with_width(lo, fixed_width(lo, 4.0))
+    @test frozen isa Triggs{CauchyShape} && lo_width(frozen) == fixed_width(lo, 4.0)
+    @test lo_width(frozen) isa LossWidth && scale_interface(frozen) == FixedScale()
+    @test with_width(frozen, lo_width(lo)) == lo
+    @test_throws ArgumentError with_width(Triggs{GaussianShape}(), fixed_width(Irls{CauchyShape}(scale_multiple = 2.5), 4.0))
 end
 
 @testitem "Triggs: the homography and the circle refit with it" setup = [HomographyScenes] begin

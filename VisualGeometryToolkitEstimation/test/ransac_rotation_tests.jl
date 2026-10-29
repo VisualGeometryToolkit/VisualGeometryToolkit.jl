@@ -59,9 +59,12 @@ end
     i = 7; Rp = RotMatrix(RotationVec(0.3, -0.5, 0.21))
     g, G_x, _ = VgtkEstimation.constraint_with_jacobians(p, Rp, i)
     @test VgtkEstimation.whitened_residual(p, Rp, i) ≈ sqrt(g' * ((G_x * G_x') \ g)) rtol = 1.0e-10
-    # an antipodal transfer is an outlier however small its tangent residual
-    @test VgtkEstimation.whitened_residual(p, RotMatrix(RotationVec(π, 0.0, 0.0)) * first(sol), i) == Inf ||
-          dot(RotMatrix(RotationVec(π, 0.0, 0.0)) * first(sol) * sources(p.cs)[i], targets(p.cs)[i]) > 0
+    # an antipodal transfer is an outlier however small its tangent residual: an
+    # explicit datum f₂ = −R·f₁ (its tangent residual is zero) is gated to Inf
+    f₁ = sources(p.cs)[i]; M₁ = p.cs.M₁[i]
+    pa = RotationProblem(withattrs(Csponds([f₁, f₁], [-(R * f₁), R * f₁]); M₁ = [M₁, M₁], M₂ = [R * M₁, R * M₁]))
+    @test VgtkEstimation.whitened_residual(pa, R, 1) == Inf
+    @test VgtkEstimation.whitened_residual(pa, R, 2) < 1.0e-9           # the same datum, not antipodal
     # the coincidence gate refuses a sample of one detection twice
     cs2 = Csponds(vcat(sources(cs)[1:2], [sources(cs)[1]]), vcat(targets(cs)[1:2], [targets(cs)[1]]))
     p2 = RotationProblem(FISHEYE, FISHEYE, cs2)

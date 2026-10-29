@@ -184,7 +184,10 @@ errors of all the data — over θ's consensus partition (VisualGeometryToolkitC
 consensus-anchored strategy reads. `scale_multiple` is REQUIRED (but for the
 Gaussian shape): the stack has no established multiple for this strategy, so a
 configuration states one; an absolute `loss_width` or no width is an
-`ArgumentError`.
+`ArgumentError` from a keyword or a TOML table. An absolute width reaches it
+only through `with_width`, for `fixed_width`'s freeze —
+`with_width(lo, fixed_width(lo, s2))`, the loss the consensus-anchored strategy
+would deploy at ŝ² = `s2` (the role-isolated controls).
 
 `K` is any shape [`Irls`](@ref) admits — the zero-argument shape tags: Welsch
 (the pipelines' default), Geman–McClure, Cauchy, smooth TLS, TLS, Huber and
@@ -522,10 +525,15 @@ lo_width_value(w) = throw(
     )
 )
 VgtkCore.with_width(lo::Irls{K}, w) where {K} = Irls{K}(lo.max_iter, lo_width_value(w))
-# The robustified LM's width mode — always a scale multiple, always supplied.
+# The robustified LM's width mode — a scale multiple, always supplied, at the
+# keyword and TOML boundary (`lo_field`); `with_width` also takes the absolute
+# width `fixed_width` freezes it at, which no caller spells.
 VgtkCore.lo_width(lo::Triggs) = lo.width
 VgtkCore.scale_interface(lo::Triggs) = width_scale_interface(lo.width)
-VgtkCore.with_width(::Triggs{K}, w) where {K} = Triggs{K}(lo_field(Triggs{K}, Val(:width), w))
+VgtkCore.with_width(::Triggs{K}, w) where {K} = Triggs{K}(_triggs_width(Triggs{K}, w))
+_triggs_width(::Type{T}, w) where {T <: Triggs} = lo_field(T, Val(:width), w)
+_triggs_width(::Type{<:Triggs}, w::LossWidth{NTuple{2, Float64}}) = w
+_triggs_width(::Type{T}, ::LossWidth{NTuple{2, Float64}}) where {T <: Triggs{GaussianShape}} = _no_width(T)
 # The least-squares arm consumes no width (whatever its mode).
 VgtkCore.scale_interface(::Union{Irls{GaussianShape}, Triggs{GaussianShape}}) = NoScale()
 

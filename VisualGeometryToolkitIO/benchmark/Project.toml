@@ -15,7 +15,7 @@ VisualGeometryToolkitIO = {path = ".."}
 
 [compat]
 BenchmarkTools = "1"
-FlexUnits = "0.6.11"
+FlexUnits = "0.6.16"
 Rotations = "1.7"
 SHA = "0.7, 1"
 StaticArrays = "1.9"

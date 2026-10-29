@@ -23,7 +23,7 @@ VisualGeometryToolkitIO = {path = ".."}
 [compat]
 Aqua = "0.8.18"
 ExplicitImports = "1.15"
-FlexUnits = "0.6.11"
+FlexUnits = "0.6.16"
 JET = "0.12.3"
 JSON = "1.12"
 julia = "1.12"

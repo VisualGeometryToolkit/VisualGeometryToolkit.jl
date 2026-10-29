@@ -12,7 +12,7 @@ VisualGeometryToolkitCore = {path = ".."}
 
 [compat]
 BenchmarkTools = "1"
-FlexUnits = "0.6.11"
+FlexUnits = "0.6.16"
 Rotations = "1.7"
 StaticArrays = "1.9"
 VisualGeometryToolkitCore = "0.2"

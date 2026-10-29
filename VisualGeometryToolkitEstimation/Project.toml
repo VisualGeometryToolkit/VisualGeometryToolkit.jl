@@ -19,7 +19,7 @@ VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
 
 [compat]
 FixedSizeArrays = "1.4"
-FlexUnits = "0.6.11"
+FlexUnits = "0.6.16"
 ForwardDiff = "1.4"
 LinearAlgebra = "1"
 NLLSsolver = "5.2"

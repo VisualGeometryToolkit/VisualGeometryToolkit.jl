@@ -15,7 +15,7 @@ VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
 [compat]
 Artifacts = "1"
 CompilerSupportLibraries_jll = "1"
-FlexUnits = "0.6.11"
+FlexUnits = "0.6.16"
 Libdl = "1"
 Rotations = "1.7"
 StaticArrays = "1.9"

@@ -17,7 +17,7 @@ using Random
 using StableRNGs
 using StaticArrays
 using VisualGeometryToolkitCore: converged, estimate, iterations   # VGC accessors (public)
-using VisualGeometryToolkitCore: AbstractLocalOptimization, CauchyShape, HuberShape, TLSShape, WelschShape   # owned and exported by VisualGeometryToolkitCore
+using VisualGeometryToolkitCore: AbstractLocalOptimization, CauchyShape, GaussianShape, HuberShape, TLSShape, WelschShape   # owned and exported by VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: HomographyMat
 using VisualGeometryToolkitCore: MsacScoring   # owned and exported by VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: toml_key   # public (the TOML key of a field)
@@ -44,7 +44,8 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, NoLocalO
         # at its stated multiple. (The strategies' tables and their cross-validated operating
         # points are LocalOptimizationDoneRight's.)
         for class in Symbol.(keys(_TOML_DEFAULTS["pipelines"]))
-            @test _dflt_lo(class) == (class in (:circle, :ellipse) ? Triggs{WelschShape}(scale_multiple = 2.5) : Irls{TLSShape}())
+            @test _dflt_lo(class) == (class in (:circle, :ellipse) ? Triggs{WelschShape}(scale_multiple = 2.5) :
+                                      class === :bearing_pose ? Irls{GaussianShape}() : Irls{TLSShape}())
         end
         @test !haskey(_TOML_DEFAULTS, "tuning_constants")
     end

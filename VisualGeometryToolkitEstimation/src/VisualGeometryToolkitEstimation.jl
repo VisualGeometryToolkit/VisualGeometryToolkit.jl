@@ -6,7 +6,7 @@ import VisualGeometryToolkitCore as VgtkCore
 # DEPENDENCIES
 # =============================================================================
 
-using LinearAlgebra: LinearAlgebra, I, dot, norm, normalize, cross, svd,
+using LinearAlgebra: LinearAlgebra, I, dot, norm, normalize, cross, svd, opnorm,
     Diagonal, Symmetric,
     eigen                                                          # the ellipse refit rows' axes frame
 using StaticArrays: StaticArrays, MVector, SA, SMatrix, SVector, StaticVector
@@ -264,7 +264,7 @@ export ransac, locally_optimize, RansacConfig, RansacEstimate
 # -----------------------------------------------------------------------------
 # 3. PROBLEMS a user builds
 # -----------------------------------------------------------------------------
-export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem, RotationProblem, CircleProblem, EllipseProblem,
+export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem, BearingPoseProblem, RotationProblem, CircleProblem, EllipseProblem,
     HandEyeProblem, LineFittingProblem, InhomLineFittingProblem,
     RadialHomographyProblem, RadialCameraProblem, RelposeBundleProblem
 
@@ -284,7 +284,7 @@ export ransac!
 # Problem plumbing and RVG's own RANSAC-interface verbs. `Rigid3` is the
 # unlabeled EuclideanMap alias find_hand_eye returns (generic enough to collide:
 # PoseLib has its own), `refine!` the LO refit an extender implements.
-public AbstractRansacProblem, AbstractCspondProblem, MinimalSolveProblem, PoseContext,
+public AbstractRansacProblem, AbstractCspondProblem, MinimalSolveProblem, PoseContext, BearingPoseContext,
     BoundedProblem, ExtentTrait, NoExtent, WithExtent, extent_trait, Rigid3,
     refine!, fit_hypothesis, draw_sample!, residual_dof, oracle_residual_dof
 # Benchmark pools: the hypothesis generator, and how a pool record's σ̂² is
@@ -358,6 +358,7 @@ include("estimators/ransac/extent_traits.jl")
 # RANSAC problem implementations
 include("estimators/ransac/problems/cspond.jl")
 include("estimators/ransac/problems/p3p.jl")
+include("estimators/ransac/problems/bearing_pose.jl")   # the absolute pose on caller-supplied bearings (central or generalized): the tangent-plane rows
 include("estimators/ransac/problems/homography.jl")
 include("estimators/ransac/problems/radial_homography.jl")
 include("estimators/ransac/problems/radial_camera.jl")    # the 1-D radial camera of a board: distortion-free verification

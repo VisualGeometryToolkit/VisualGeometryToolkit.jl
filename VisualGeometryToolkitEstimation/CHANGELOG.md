@@ -57,11 +57,24 @@
   step on the `AbsolutePoseProblem` rows, `X => u` pixel pairs through the
   camera (any lens; rays past 90°). On clean data it returns the same pose as
   the bearing form did (both to 1e-15); on 0.3 px noise the two differ by
-  ≤ 6e-7.
+  ≤ 6e-7. The refined pose carries the guess's frame labels (frames.md rule 1),
+  in both forms.
+- **`refine_absolute_pose(pose, bearings; kwargs...)`** keeps its bearing and
+  generalized (ray-origin) forms, now inside the refine interface: `X => f`
+  unit bearings with optional `origins`, `M` (pixel whitening) and `weights`
+  columns, on the new **`BearingPoseProblem`** (the `MinimalSolveProblem` of
+  `Extrinsics3` with a `BearingPoseContext`; `AbsolutePoseProblem` is now the
+  one with a `PoseContext`) whose rows are the old whitened tangent-plane
+  residual. Defaults `[pipelines.bearing_pose]`: least squares over every
+  correspondence (`Irls{GaussianShape}()`, the threshold a fraction of the
+  residual's bound), the same pose as the previous bearing form to ≤ 8e-14 on
+  pinhole, 110° fisheye and non-central scenes, clean and at 0.3 px; any
+  strategy plugs in (`Triggs`, `Irls{K}`). Refine-only for a non-central
+  camera (no generalized minimal solver: `solve` refuses it). `max_iter` is
+  gone (the cap is the strategy's): drop it from the call.
 
 ### Removed
 
-- The bearing and generalized (ray-origin) forms of `refine_absolute_pose`,
-  its `max_iter` and `[refine_absolute_pose]`, and `AbsolutePoseRefineMetadata`;
-  `EllipseFitMetadata`. A non-central camera's pose has no problem to host it
-  yet.
+- `refine_absolute_pose`'s `max_iter` and `[refine_absolute_pose]`, and
+  `AbsolutePoseRefineMetadata` (its result is a `RansacEstimate`);
+  `EllipseFitMetadata`.

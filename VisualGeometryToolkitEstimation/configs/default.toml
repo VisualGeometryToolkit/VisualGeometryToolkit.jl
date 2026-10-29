@@ -72,6 +72,19 @@ local_optimization = { type = "triggs", loss = "welsch", scale_multiple = 2.5 }
 threshold          = 8.0         # px — a convention (OpenCV solvePnPRansac's reprojectionError), not a tuned value
 local_optimization = { type = "irls", loss = "tls" }
 
+[pipelines.bearing_pose]
+# refine_absolute_pose on caller-supplied bearings (a BearingPoseProblem; refine
+# only — no find_*). threshold is UNIT-FREE here: a fraction of the residual's
+# bound, π (the largest angle between two rays) times the largest pixel
+# whitening gain, so the default 1.0 admits every correspondence to the
+# consensus set. With Irls{GaussianShape} the default refine is least squares
+# over every correspondence at the caller's weights — the form's behaviour
+# since it was hoisted from RadiometricCamera (2026-10-27). A caller's
+# `threshold` keyword is in the residual's unit (radians, or pixels with an
+# `M` column).
+threshold          = 1.0         # × π·max‖(BᵀM)⁻¹‖ (dimensionless)
+local_optimization = { type = "irls", loss = "gaussian" }
+
 [pipelines.radial_homography]
 threshold          = 3.0         # px — a convention (the homography class's), not a tuned value
 local_optimization = { type = "irls", loss = "tls" }

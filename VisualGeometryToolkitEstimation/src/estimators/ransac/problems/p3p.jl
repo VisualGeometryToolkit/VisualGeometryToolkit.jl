@@ -235,7 +235,7 @@ end
     e, _, G_θ, valid = _pnp_pixel_row(p, pose, i)
     return (e, G_θ, valid)
 end
-@inline function _pnp_row(::VgtkCore.Pinhole, p::AbsolutePoseProblem, pose, i::Int, A)
+@inline function _pnp_row(::VgtkCore.Pinhole, p::AbsolutePoseProblem, pose::EuclideanMap{3}, i::Int, A)
     X = @inbounds sources(p.cs)[i]; ray = @inbounds p.context.rays[i]
     g, G_x, G_θ = VgtkCore.constraint_with_jacobians(pose, X, ray)
     valid = dot(rotation(pose) * X + translation(pose), ray) > 0.0

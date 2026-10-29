@@ -43,6 +43,12 @@ one a consensus-anchored strategy reads its scale from; the strategy runs from
 it; the refined model is re-scored and returned as a `RansacEstimate`, or the
 given model if the refined one fails the problem's consensus test.
 
+One `refine_*` has no `find_*`: `refine_absolute_pose(pose, bearings)` on a
+[`BearingPoseProblem`](@ref) — a camera given by its rays, possibly with
+per-ray origins (a non-central camera, for which there is no minimal solver).
+Its defaults (`[pipelines.bearing_pose]`) are least squares over every
+correspondence.
+
 Both read the same `[pipelines.<class>]` defaults and share the strategy
 keywords — `threshold`, `scoring`, `local_optimization`, `workspace` — so any
 strategy plugs into either: `Irls{K}`, `Triggs{K}`, `NoLocalOptimization()`,

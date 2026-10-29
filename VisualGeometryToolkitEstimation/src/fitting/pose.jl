@@ -84,6 +84,8 @@ end
     refine_absolute_pose(pose, camera_model, correspondences; threshold = 8.0,
         extent = nothing, local_optimization = Irls{TLSShape}(),
         scoring = nothing, workspace = nothing) -> RansacEstimate
+    refine_absolute_pose(pose, bearing_correspondences; threshold, local_optimization = Irls{GaussianShape}(),
+        scoring = nothing, workspace = nothing) -> RansacEstimate
 
 The camera extrinsics `pose` (world → camera, `x_c = R·X + t`) refined against
 `X => u` pairs (world point => raw pixel) of the camera `camera_model`:
@@ -100,10 +102,32 @@ above every residual. Every default is `find_absolute_pose`'s
 of every `refine_*`, documented on [`refine_homography`](@ref). `nothing` for
 fewer than 3 correspondences.
 
-# Units
-As [`find_absolute_pose`](@ref): world points (and the pose's translation) are
-plain numbers or lengths, all one form; physical ones are read in metres and
-the pose comes back physical, in metres. The residuals are pixels either way.
+# Bearings: a camera given by its rays (central or generalized)
+The second form takes `X => f` pairs of world points and the camera-frame UNIT
+bearings observing them (`StaticVector{3}` both), for a camera the stack holds
+no `CameraModel` of — the caller back-projects; optional attribute columns
+`origins` (each ray's origin in the camera frame: a non-central camera), `M`
+(each bearing's back-projection Jacobian: residuals whitened into pixels,
+else radians) and `weights` (fixed per-correspondence weights). Its problem is
+a [`BearingPoseProblem`](@ref): the tangent-plane residual of bearings.md,
+whose norm is the angle between the rays, on the same `LeftRigidManifold6`
+chart; rays at and past 90° and behind the camera are data like any other.
+Its defaults (`[pipelines.bearing_pose]`) are least squares over every
+correspondence — `Irls{GaussianShape}()`, at a `threshold` (the residual's
+unit) that by default admits every correspondence: π times the largest
+whitening gain. A robust strategy (`Irls{K}`, `Triggs{K}`) and a `threshold`
+of the caller's are taken as in the camera form. It has no `find_*`: a
+generalized camera has no minimal solver here. The guess's ray origins must
+not coincide with their points (`ArgumentError`). The keywords are the shared
+refine set; there is no `max_iter` (the cap is the strategy's).
+
+# Frames and units
+The refined pose comes back with the guess's frame labels, its translation an
+`SVector{3, Float64}` (plain) or lengths. As [`find_absolute_pose`](@ref):
+world points (and the pose's translation) — and ray origins — are plain
+numbers or lengths, all one form; physical ones are read in metres and the
+pose comes back physical, in metres. The residuals are pixels (radians for
+bearings without `M`) either way.
 """
 function refine_absolute_pose(
         pose::PlainEuclideanMap{3}, camera_model::CameraModel,
@@ -113,7 +137,7 @@ function refine_absolute_pose(
     )
     _holds_minimal_sample(AbsolutePoseProblem, length(pairs)) || return nothing
     problem = _with_extent(AbsolutePoseProblem(camera_model, pairs), extent)
-    return _refine_pipeline(problem, :absolute_pose, unlabel(pose); kwargs...)
+    return _with_frames(_refine_pipeline(problem, :absolute_pose, unlabel(pose); kwargs...), pose)
 end
 
 # Physical pose and world points: stripped in metres once, the plain
@@ -128,4 +152,42 @@ function refine_absolute_pose(
     result = refine_absolute_pose(_plain_metres(pose)::PlainEuclideanMap{3}, camera_model, plain;
         extent = extent === nothing ? nothing : _plain_metres(extent), kwargs...)
     return result === nothing ? nothing : _in_metres(result)
+end
+
+function refine_absolute_pose(
+        pose::PlainEuclideanMap{3},
+        cs::AbstractVector{<:Pair{<:StaticVector{3, <:Real}, <:StaticVector{3, <:Real}}};
+        kwargs...
+    )
+    _holds_minimal_sample(BearingPoseProblem, length(cs)) || return nothing
+    problem = BearingPoseProblem(cs)
+    θ₀ = unlabel(pose)
+    R0 = rotation(θ₀); t0 = translation(θ₀); o = problem.context.origins
+    for i in 1:data_size(problem)
+        iszero(norm(R0 * sources(problem.cs)[i] + t0 - o[i])) &&
+            throw(ArgumentError("refine_absolute_pose: point $i coincides with its ray's origin at the guess"))
+    end
+    return _with_frames(_refine_pipeline(problem, :bearing_pose, θ₀; kwargs...), pose)
+end
+
+# Physical pose, points and origins: in metres once, the plain refinement, the
+# pose read back in metres once.
+function refine_absolute_pose(
+        pose::_PhysicalPose3, cs::AbstractVector{<:Pair{<:_PhysicalPoint3, <:StaticVector{3, <:Real}}}; kwargs...
+    )
+    plain = _map_csponds(_plain_metres, identity, cs)
+    if plain isa VgtkCore.Csponds && VgtkCore.hasattr(plain, :origins)
+        plain = withattrs(plain; origins = map(_plain_metres, plain.origins))
+    end
+    result = refine_absolute_pose(_plain_metres(pose)::PlainEuclideanMap{3}, plain; kwargs...)
+    return result === nothing ? nothing : _in_metres(result)
+end
+
+# frames.md rule 1, frame in = frame out: the refined pose carries the guess's
+# frame labels (the problem's workspace labels its models `Extrinsics3`'s own).
+_with_frames(::Nothing, _pose) = nothing
+function _with_frames(r::FitResult{<:EuclideanMap{3}}, pose::EuclideanMap{3})
+    E = estimate(r)
+    out = relabel(_frames(pose)..., EuclideanMap(RotMatrix{3, Float64}(rotation(E)), SVector{3, Float64}(translation(E))))
+    return FitResult(out, retcode(r), iterations(r), rms(r), r.n, metadata(r))
 end

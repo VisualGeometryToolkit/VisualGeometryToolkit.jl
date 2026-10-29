@@ -8,9 +8,22 @@ Estimators whose data are DIRECTIONS — unit bearings from a camera's
 back-projection, star or gravity directions — rather than pixels. They work on
 the sphere throughout (VisualGeometryToolkitCore `conventions/bearings.md`), so
 rays at and past 90° from the optical axis, as a fisheye or omnidirectional
-camera sees them, are ordinary data. (A camera pose from a guess is
-[`refine_absolute_pose`](@ref), on the PnP problem's pixel rows — [P3P and
-Absolute Pose](p3p.md).)
+camera sees them, are ordinary data. (A camera pose from a guess and pixels is
+[`refine_absolute_pose`](@ref)`(pose, camera, pairs)`, on the PnP problem's
+pixel rows — [P3P and Absolute Pose](p3p.md).)
+
+## Camera pose from bearings
+
+`refine_absolute_pose(pose, cs)` with `cs` world points paired with UNIT
+bearings is the pose of a camera the caller back-projects itself — a grid or
+non-central lens the stack holds no `CameraModel` of — on the tangent-plane
+residual of the sphere, optionally from per-ray origins (a generalized camera)
+and whitened into pixels by the back-projection Jacobians. Its problem:
+
+```@docs
+BearingPoseProblem
+BearingPoseContext
+```
 
 ## Rotation from direction pairs
 

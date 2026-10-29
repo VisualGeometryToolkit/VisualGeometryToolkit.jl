@@ -130,6 +130,7 @@ src/
 │   ├── problems/
 │   │   ├── cspond.jl              # AbstractCspondProblem, MinimalSolveProblem + its aliases (Homography/FundMat/Essential/AbsolutePoseProblem)
 │   │   ├── p3p.jl                 # AbsolutePoseProblem gates, residuals, PnP chart-LM refit
+│   │   ├── bearing_pose.jl        # BearingPoseProblem: pose from unit bearings (+ ray origins, pixel whitening), refine-only if non-central
 │   │   ├── homography.jl          # HomographyProblem
 │   │   ├── radial_homography.jl   # RadialHomographyProblem
 │   │   ├── radial_camera.jl       # RadialCameraProblem (distortion-free board verification)

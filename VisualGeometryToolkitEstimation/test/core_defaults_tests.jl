@@ -256,8 +256,11 @@ end
                    find_rotation => refine_rotation, find_circle => refine_circle, find_ellipse => refine_ellipse,
                    find_radial_homography => VgtkEstimation.refine_radial_homography,
                    find_radial_camera => VgtkEstimation.refine_radial_camera, find_hand_eye => refine_hand_eye)
-        @test Set(kw.(methods(g))) == Set(setdiff(k, sampling_only) for k in kw.(methods(f)))
+        # (refine_absolute_pose's bearing form has no find_*: its keywords are the shared set alone)
+        gm = g === refine_absolute_pose ? [m for m in methods(g) if m.nargs == 4] : collect(methods(g))
+        @test Set(kw.(gm)) == Set(setdiff(k, sampling_only) for k in kw.(methods(f)))
         @test all(m -> Symbol("kwargs...") in kw(m), methods(g))
+        g === refine_absolute_pose && @test all(m -> kw(m) == Set([Symbol("kwargs...")]), setdiff(methods(g), gm))
     end
     # every shared keyword is accepted, with the meaning it has in find_*
     pts, _ = circle_scene(Xoshiro(33), 300; outl = 0.3)

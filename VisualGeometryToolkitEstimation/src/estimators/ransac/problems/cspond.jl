@@ -138,7 +138,12 @@ end
 const HomographyProblem = MinimalSolveProblem{HomographyMat{T}, 4, T} where {T <: AbstractFloat}
 const FundMatProblem = MinimalSolveProblem{FundMat{T}, 7, T} where {T <: AbstractFloat}
 const EssentialProblem = MinimalSolveProblem{EssentialMat{T}, 5, T} where {T <: AbstractFloat}
-const AbsolutePoseProblem = MinimalSolveProblem{Extrinsics3, 3, Float64}
+# The absolute pose takes a camera model: its context is a `PoseContext`. (The
+# `Extrinsics3` problem on caller-supplied bearings, `BearingPoseProblem`, is
+# the same struct with a `BearingPoseContext`, bearing_pose.jl.)
+const AbsolutePoseProblem = MinimalSolveProblem{
+    Extrinsics3, 3, Float64, <:Any, <:Any, <:Any, <:Any, <:VgtkCore.MinimalSolver, <:PoseContext,
+}
 
 """
     RotationProblem

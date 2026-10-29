@@ -38,6 +38,12 @@
 
 ### Changed
 
+- **`Triggs` defaults to Welsch** in `[pipelines.circle]` and
+  `[pipelines.ellipse]` (`Triggs{WelschShape}(scale_multiple = 2.5)`, was
+  Cauchy; the multiple in Welsch's own currency): on a fisheye image circle's
+  contour the Cauchy ellipse sat ~0.9 px from the inliers' least squares, the
+  Welsch one on it. `Triggs{K}` admits exactly the shapes `Irls{K}` does, and
+  `Triggs{GaussianShape}` is the plain chart LM, with no width.
 - **`refine_ellipse(ellipse, points; kwargs...)`** (was `refine_ellipse(points,
   init = direct_ellipse(points); max_iter)`): the guess is required (a
   self-seeding refine is a fit) and the result is a `RansacEstimate`. The

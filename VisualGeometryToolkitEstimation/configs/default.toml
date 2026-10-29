@@ -50,19 +50,23 @@ local_optimization = { type = "irls", loss = "tls" }
 
 [pipelines.circle]
 threshold          = 1.0         # px — the Sampson distance to the circle (≈ the geometric one); a convention of this package for points located to a pixel, not a tuned value
-# The robustified LM (Triggs): one NLLSsolver LM under the Cauchy loss (the
-# Student-t loss at ν = 1), Triggs-corrected, its width scale_multiple·ŝ at the
-# hypothesis's Student-t scale. Triggs has NO default multiple.
+# The robustified LM (Triggs): one NLLSsolver LM under the Welsch loss,
+# Triggs-corrected, its width scale_multiple·ŝ at the hypothesis's Student-t
+# scale — the multiple read in Welsch's own currency (plain_scale_multiple: the
+# plain multiple, loss_width = scale_multiple·ŝ), as for Irls{WelschShape}.
+# Triggs has NO default multiple. Welsch (owner-decided 2026-10-29, was Cauchy):
+# a redescending loss, so far outliers lose all influence — on a fisheye image
+# circle's contour the Cauchy fit sat ~0.9 px from the inliers' least squares.
 # 2.5: owner-decided (2026-10-29), the stack's operating multiple of a
 # consensus-anchored LM width (LocalOptimizationDoneRight's poselib_adapt).
-local_optimization = { type = "triggs", loss = "cauchy", scale_multiple = 2.5 }
+local_optimization = { type = "triggs", loss = "welsch", scale_multiple = 2.5 }
 
 [pipelines.ellipse]
 threshold          = 1.0         # px — the Sampson distance to the ellipse (≈ the geometric one); the circle's convention
-# The circle's robustified LM (Triggs). 2.5: owner-decided (2026-10-29), the
+# The circle's robustified LM (Triggs{WelschShape}). 2.5: owner-decided (2026-10-29), the
 # stack's operating multiple of a consensus-anchored LM width
 # (LocalOptimizationDoneRight's poselib_adapt).
-local_optimization = { type = "triggs", loss = "cauchy", scale_multiple = 2.5 }
+local_optimization = { type = "triggs", loss = "welsch", scale_multiple = 2.5 }
 
 [pipelines.absolute_pose]
 threshold          = 8.0         # px — a convention (OpenCV solvePnPRansac's reprojectionError), not a tuned value

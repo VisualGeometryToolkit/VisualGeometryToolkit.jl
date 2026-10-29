@@ -20,7 +20,7 @@
 """
     find_ellipse(points; threshold = 1.0,
         max_trials = 10000, min_trials = 100,
-        local_optimization = Triggs{CauchyShape}(scale_multiple = 2.5),
+        local_optimization = Triggs{WelschShape}(scale_multiple = 2.5),
         scoring = nothing, config = nothing)
 
 Robust estimation of a 2D ellipse through points (a contour, edge points) by
@@ -30,7 +30,7 @@ Sampson distance of `(x − c)ᵀ Q (x − c) − 1` — the geometric distance 
 ellipse to first order — and, as local optimization, the robustified LM
 ([`Triggs`](@ref)) on the centre and log shape of the points' ORTHOGONAL
 distances to the ellipse (the problem's refit rows): one Levenberg–Marquardt
-solve from the hypothesis over all the points under the Cauchy loss at
+solve from the hypothesis over all the points under the Welsch loss at
 `scale_multiple·ŝ`, ŝ the Student-t scale of the hypothesis's Sampson errors.
 Every default shown is `configs/default.toml`'s (`[ransac]`,
 `[pipelines.ellipse]`); a keyword overrides. The circle's counterpart is
@@ -47,7 +47,7 @@ sampling: [`refine_ellipse`](@ref).
   storage canonicalized internally), plain: unit isotropic noise.
 - `threshold`: **in PIXELS** (the points' unit), as [`find_homography`](@ref).
 - `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace(EllipseProblem, n_data[, T])`.
-- `local_optimization`: default `Triggs{CauchyShape}(scale_multiple = 2.5)`; any
+- `local_optimization`: default `Triggs{WelschShape}(scale_multiple = 2.5)`; any
   other strategy as [`find_homography`](@ref).
 - the other keywords as [`find_homography`](@ref).
 """
@@ -58,7 +58,7 @@ end
 
 """
     refine_ellipse(ellipse, points; threshold = 1.0,
-        local_optimization = Triggs{CauchyShape}(scale_multiple = 2.5),
+        local_optimization = Triggs{WelschShape}(scale_multiple = 2.5),
         scoring = nothing, workspace = nothing) -> RansacEstimate
 
 The 2D ellipse through `points` refined from the given `ellipse`:

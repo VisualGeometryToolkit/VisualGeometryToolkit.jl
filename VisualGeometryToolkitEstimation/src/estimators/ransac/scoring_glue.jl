@@ -169,24 +169,36 @@ Irls{K}(max_iter::Integer, width::W) where {K, W} = Irls{K, W}(Int(max_iter), wi
 
 The ROBUSTIFIED LEVENBERG–MARQUARDT local optimization of every chart problem
 (the [`MinimalSolveProblem`](@ref) family): from the hypothesis θ, ONE chart LM
-over all the data minimizing `Σᵢ ρ(‖rᵢ‖²)` — the problem's own refit rows (its
-Sampson distance) on its own chart, robustified per datum by loss `K` through
+over all the data minimizing `Σᵢ ρ(‖rᵢ‖²)` — the problem's own refit rows on
+its own chart, robustified per datum by loss `K` through
 VisualGeometryToolkitCore's `loss_robustifier`. NLLSsolver applies the loss with
 Triggs' second-order correction (the ρ″ term of the Gauss–Newton Hessian), so
 there is no reweighting loop and no inlier set inside the refit: θ is the
 initial guess and the loss decides each datum's influence.
 
 The loss width is `loss_width = scale_multiple·ŝ` (in the loss's currency,
-[`plain_scale_multiple`](@ref)), frozen at the start of the call: ŝ is the
-Student-t marginal scale of θ's residuals — the Sampson errors of all the data —
-over θ's consensus partition (VisualGeometryToolkitCore's `partition_student_t`,
-the scorer's `scale_s2`), the scale every consensus-anchored strategy reads.
-`scale_multiple` is REQUIRED: the stack has no established multiple for this
-strategy, so a configuration states one; an absolute `loss_width` or no width
-is an `ArgumentError`.
+[`plain_scale_multiple`](@ref), as for [`Irls`](@ref)), frozen at the start of
+the call: ŝ is the Student-t marginal scale of θ's residuals — the Sampson
+errors of all the data — over θ's consensus partition (VisualGeometryToolkitCore's
+`partition_student_t`, the scorer's `scale_s2`), the scale every
+consensus-anchored strategy reads. `scale_multiple` is REQUIRED (but for the
+Gaussian shape): the stack has no established multiple for this strategy, so a
+configuration states one; an absolute `loss_width` or no width is an
+`ArgumentError`.
+
+`K` is any shape [`Irls`](@ref) admits — the zero-argument shape tags: Welsch
+(the pipelines' default), Geman–McClure, Cauchy, smooth TLS, TLS, Huber and
+Gaussian; Barron, whose shape carries its α, is refused by both.
+`Triggs{GaussianShape}` is the plain chart LM over every datum: like
+`Irls{GaussianShape}` it has no width and takes no `scale_multiple`. For TLS
+and Huber ρ″ is zero (TLS: everywhere but the cutoff), so the Triggs term
+vanishes there and the step is the Gauss–Newton one with the loss's weights
+(TLS: the data inside the width at that evaluation); the LM's acceptance test
+still descends the robust cost, measured to the noise level on a circle.
 
 # Fields
-- `width::ScaleMultiple{Float64}`: the width mode, set by `scale_multiple = m`
+- `width`: the width mode, set by `scale_multiple = m` (`ScaleMultiple`);
+  `nothing` for `Triggs{GaussianShape}`
 """
 struct Triggs{K <: AbstractLossShape, W} <: AbstractLocalOptimization
     width::W
@@ -325,7 +337,8 @@ least-squares arm has no scale and no width: it deploys at `s2 = Inf`,
 `scale_multiple = 1` (its weights are unit whatever the width).
 """
 lo_loss(lo::AbstractLocalOptimization, cs::ConsensusSet, scoring, buf) = loss_at(lo, strategy_loss(lo)(), cs, scoring, buf)
-lo_loss(::Irls{GaussianShape}, ::ConsensusSet, _scoring, _buf) = deploy(GaussianShape(), Inf; scale_multiple = 1.0)
+lo_loss(::Union{Irls{GaussianShape}, Triggs{GaussianShape}}, ::ConsensusSet, _scoring, _buf) =
+    deploy(GaussianShape(), Inf; scale_multiple = 1.0)
 
 """
     deployed_shape(lo) -> AbstractLossShape | nothing
@@ -514,7 +527,7 @@ VgtkCore.lo_width(lo::Triggs) = lo.width
 VgtkCore.scale_interface(lo::Triggs) = width_scale_interface(lo.width)
 VgtkCore.with_width(::Triggs{K}, w) where {K} = Triggs{K}(lo_field(Triggs{K}, Val(:width), w))
 # The least-squares arm consumes no width (whatever its mode).
-VgtkCore.scale_interface(::Irls{GaussianShape}) = NoScale()
+VgtkCore.scale_interface(::Union{Irls{GaussianShape}, Triggs{GaussianShape}}) = NoScale()
 
 # =============================================================================
 # THE strategy machinery — one row of facts per strategy, one keyword
@@ -626,6 +639,10 @@ lo_field(::Type, ::Val{:width}, w) = lo_width_value(w)
 lo_field(::Type{<:Triggs}, ::Val{:width}, w::ScaleMultiple{Float64}) = w
 lo_field(::Type{T}, ::Val{:width}, w) where {T <: Triggs} = throw(ArgumentError(
     "$T: the loss width is scale_multiple·ŝ — give `scale_multiple`, got $w"))
+# The plain LM has no width at all.
+lo_field(::Type{T}, ::Val{:width}, w::ScaleMultiple{Float64}) where {T <: Triggs{GaussianShape}} = _no_width(T)
+lo_field(::Type{T}, ::Val{:width}, w) where {T <: Triggs{GaussianShape}} = w === nothing ? nothing : _no_width(T)
+_no_width(T) = throw(ArgumentError("$T is the plain chart LM: it has no width, so it takes no `scale_multiple` or `loss_width`"))
 
 """
     lo_field_from_toml(T, Val(f), v)
@@ -655,6 +672,7 @@ function lo_absent(::Type{T}, ::Val{F}; defaults::AbstractDict) where {T, F}
 end
 lo_absent(::Type, ::Val{:width}; defaults::AbstractDict) = nothing
 lo_absent(::Type{<:Triggs}, ::Val{:width}; defaults::AbstractDict) = throw(UndefKeywordError(:scale_multiple))
+lo_absent(::Type{<:Triggs{GaussianShape}}, ::Val{:width}; defaults::AbstractDict) = nothing
 
 """
     lo_validate(lo) -> lo
@@ -725,6 +743,7 @@ _lo_scale_multiple(::Type{<:Irls{GaussianShape}}, _) = throw(
             "so it takes no `scale_multiple`"
     )
 )
+_lo_scale_multiple(::Type{T}, _) where {T <: Triggs{GaussianShape}} = _no_width(T)
 
 """
     lo_scale_multiple_shape(T) -> Type{<:AbstractLossShape}

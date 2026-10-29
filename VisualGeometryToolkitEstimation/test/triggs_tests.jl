@@ -1,7 +1,8 @@
 # Triggs — the robustified chart LM (one NLLSsolver LM under a loss with
 # Triggs' second-order correction, width scale_multiple·ŝ): its strategy
-# identity and configuration, and that it serves every chart problem — the
-# circle (its pipeline default) and the homography.
+# identity and configuration, that it serves every chart problem — the circle
+# (its pipeline default, Welsch) and the homography — and that it admits exactly
+# the loss shapes Irls admits.
 
 @testitem "Triggs: strategy identity and configuration" begin
     using Test
@@ -58,4 +59,42 @@ end
                 rng = StableRNG(45))
     c = estimate(rc)
     @test converged(rc) && norm(SVector(c.center...) - SVector(100.0, 80.0)) < 0.2 && abs(c.r - 50) < 0.2   # 0.3 px on 60 points: σ/√30 ≈ 0.05 px
+end
+
+@testitem "Triggs: admits exactly the shapes Irls admits, each refines a circle" begin
+    using Test, StableRNGs, LinearAlgebra, StaticArrays
+    using VisualGeometryToolkitCore: GaussianShape, Point2, Circle, estimate, converged
+    using VisualGeometryToolkitEstimation: Triggs, Irls, refine_circle, local_optimization_from_toml, config_dict
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    admits(f) = try
+        f(); true
+    catch e
+        e isa ArgumentError || rethrow()
+        false
+    end
+    rng = StableRNG(51)
+    C₀ = SVector(200.0, 150.0); R₀ = 80.0
+    pts = [Point2{Float64}(C₀ + R₀ * SVector(cos(t), sin(t)) + 0.3 * randn(rng, SVector{2})) for t in 2π .* rand(rng, 200)]
+    g = Circle(Point2(C₀ + SVector(1.0, -0.8)), R₀ + 1.2)
+    n_admitted = 0
+    for (K, tag) in VgtkEstimation._LOSS_TABLE
+        # the same set as Irls: no narrower, no wider (Barron, whose shape carries its α, is refused by both)
+        width = K === GaussianShape ? (;) : (; scale_multiple = 2.5)
+        @test admits(() -> Irls{K}()) == admits(() -> Triggs{K}(; width...))
+        admits(() -> Irls{K}()) || (@test_throws "$(nameof(K))" Triggs{K}(; width...); continue)
+        n_admitted += 1
+        lo = Triggs{K}(; width...)
+        toml = Dict{String, Any}("type" => "triggs", "loss" => tag, (K === GaussianShape ? () : ("scale_multiple" => 2.5,))...)
+        @test local_optimization_from_toml(toml; class = :circle) == lo
+        @test local_optimization_from_toml(config_dict(lo); class = :circle) == lo
+        # outlier-free points at σ = 0.3 px: to the noise level (σ/√100 ≈ 0.03 px)
+        r = refine_circle(g, pts; local_optimization = lo)
+        c = estimate(r)
+        @test converged(r) && r.lo_retcode === :converged
+        @test norm(SVector(c.center...) - C₀) < 0.1 && abs(c.r - R₀) < 0.1
+    end
+    @test n_admitted == 7
+    # the plain LM has no width
+    @test_throws ArgumentError Triggs{GaussianShape}(scale_multiple = 2.5)
+    @test_throws ArgumentError Triggs{GaussianShape}(loss_width = 2.0)
 end

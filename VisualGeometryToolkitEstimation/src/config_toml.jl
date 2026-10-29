@@ -127,7 +127,7 @@ const LOSS_TAGS = TagRegistry(:loss, "Shape", (tag => K for (K, tag) in _LOSS_TA
 # The width keys a strategy's table may carry: both for a width-carrying one
 # (the least-squares arm takes neither), none for another.
 _width_keys(::Type{C}) where {C} = _lo_takes_width(C) ? ("scale_multiple", "loss_width") : ()
-_width_keys(::Type{<:Irls{GaussianShape}}) = ()
+_width_keys(::Type{<:Union{Irls{GaussianShape}, Triggs{GaussianShape}}}) = ()
 
 # A strategy's TOML values convert through its hook.
 _from_toml(::Type{T}, ::Val{F}, v) where {T <: AbstractLocalOptimization, F} = lo_field_from_toml(T, Val(F), v)

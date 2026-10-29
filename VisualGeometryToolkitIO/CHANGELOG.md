@@ -1,6 +1,6 @@
 # VisualGeometryToolkitIO changelog
 
-## 0.2.0 (unreleased)
+## 0.2.0 (2026-10-29)
 
 - **A `:length` detection's covariance is written in the declared unit
   squared.** Example: a `Disc` detection's `cov` under `kind = :length`. Under

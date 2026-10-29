@@ -1,6 +1,11 @@
 # VisualGeometryToolkitCore changelog
 
-## 0.2.0 (unreleased)
+## 0.2.1 (2026-10-29)
+
+- `conventions_dir()` is resolved from the package's source location instead of
+  `pkgdir`, which may be `nothing`; the result is the same folder.
+
+## 0.2.0 (2026-10-29)
 
 Behaviour changes a caller can observe, stated here because the commits that
 introduced them did not state them all.

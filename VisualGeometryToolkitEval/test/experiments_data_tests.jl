@@ -248,9 +248,18 @@
                     ("D3", "src/bad.jl", 5), ("D3", "src/bad.jl", 6), ("D3", "src/bad.jl", 7),
                     ("D4", "src/bad.jl", 10), ("D4", "src/bad.jl", 11),
                     ("D1", "scripts/slurm/x.sbatch", 1)])
+        # a log line's `timestamp` is not a wall-clock stamp in a path; real stamps still are
+        write(joinpath(root, "src", "stamps.jl"), """
+            timestamp = Dates.format(now(), "yyyy-mm-dd")
+            run_stamp = Dates.format(now(), "yyyy")
+            f(; stamp = now()) = 1
+            ts = Dates.format(Dates.now(), "HH") * "_TimeStamp"
+            """)
+        v3 = E.data_policy_violations(root)
+        @test sort([x.line for x in v3 if x.file == "src/stamps.jl"]) == [2, 3, 4]
         allow = [E.DataPolicyAllow("D3", "src/bad.jl", "miscal-sel-v5"), E.DataPolicyAllow("D1", "src/ok.jl", "nothing here")]
         v2 = E.data_policy_violations(root; allow)
-        @test length(v2) == length(v) - 1 + 1
+        @test length(v2) == length(v3) - 1 + 1
         @test any(x -> x.rule == "STALE" && x.file == "src/ok.jl", v2)
         @test !any(x -> x.rule == "D3" && x.line == 5, v2)
     end

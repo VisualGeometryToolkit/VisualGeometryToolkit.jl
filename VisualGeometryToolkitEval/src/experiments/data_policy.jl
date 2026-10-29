@@ -43,12 +43,15 @@ const _D1 = r"(?<![\w.$}])/(raid|home|mnt|scratch|Users|nfs|net)/"
 const _D2_WRITE = r"\b(mkpath|mkdir|write|open|jldsave|wsave|tagsave|safesave|save|cp|mv|symlink|touch)\(\s*joinpath\(\s*(data_root\(\)|EXP_DATA_ROOT|datadir\(\s*\"exp_raw\")"
 const _D4 = r"(?<![\w\"])(artifact\"|@artifact_str\b)"
 const _D2_OUTDIR = r"joinpath\(\s*(data_root\(\)|EXP_DATA_ROOT|datadir\(\s*\"exp_raw\"\s*\))\s*,\s*\"results\""
+# `stamp` as a whole identifier token (`_`-separated, CamelCase split): `STAMP`,
+# `eval_stamp`, `TimeStamp` match; `timestamp` does not.
+const _D3_STAMP = r"(?<![A-Za-z0-9])[Ss][Tt][Aa][Mm][Pp](?![A-Za-z0-9])|(?<=[a-z0-9])Stamp(?![a-z])"
 # D3: a wall-clock stamp in an output path; a hand-bumped version literal; a
 # `-smoke` sibling of a keyed directory (a smoke run belongs in DrWatson's
 # datadir("sims")); an unkeyed file every run rewrites at the top of the
 # results tree (oracle_floors_path() is the package's one such file).
 _d3(line) =
-    (occursin(r"Dates\.now\(\)|\bnow\(\)", line) && occursin(r"(?i)stamp|joinpath|outdir", line)) ||
+    (occursin(r"Dates\.now\(\)|\bnow\(\)", line) && (occursin(_D3_STAMP, line) || occursin(r"(?i)joinpath|outdir", line))) ||
     occursin(r"\"[\w.-]*[-_]v\d+\"", line) ||
     (occursin(r"[\w)\]}\"]-smoke\b", line) && !occursin("sims", line)) ||
     occursin(r"\boracle_floors_path\(", line) ||

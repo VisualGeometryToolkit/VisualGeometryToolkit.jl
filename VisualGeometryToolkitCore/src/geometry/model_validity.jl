@@ -88,8 +88,9 @@ end
 
 # The thinness (`thin_ratio`) at or below which a minimal sample's triangle is
 # (near-)collinear: ≈ 0.1% of its longest side. A ratio, so it is the same in
-# every frame. THE one value both point-sample gates read — the homography's
-# (`_not_collinear`) and the circle's (`test_sample(::Type{<:Circle}, …)`).
+# every frame. THE one value the point-sample gates read — the homography's
+# (`_not_collinear`), the circle's (`test_sample(::Type{<:Circle}, …)`) and the
+# ellipse's (`test_sample(::Type{<:Ellipse}, …)`).
 const _COLLINEAR_THIN_RATIO = 1.0e-3
 
 # True when no 3 of the 4 points are (near-)collinear within `tol` (a 4-pt
@@ -321,6 +322,23 @@ and so frame-free. An inner-loop gate, run before [`Circle3pt`](@ref)'s solve.
 @inline function test_sample(::Type{<:Circle}, points, idx::AbstractVector{<:Integer})
     @inbounds a, b, c = points[idx[1]], points[idx[2]], points[idx[3]]
     return thin_ratio(SVector{2, Float64}(a), SVector{2, Float64}(b), SVector{2, Float64}(c)) > _COLLINEAR_THIN_RATIO
+end
+
+"""
+    test_sample(::Type{<:Ellipse}, points, idx) -> Bool
+
+Reject a degenerate 5-point ellipse sample: three (near-)collinear points among
+the five — a repeated point among them — whose conic is a line pair. The test is
+the homography and circle gates' collinearity ratio (`thin_ratio` of every
+triple above the same ≈ 0.1% of its longest side), a ratio and so frame-free.
+An inner-loop gate, run before [`Ellipse5pt`](@ref)'s solve.
+"""
+@inline function test_sample(::Type{<:Ellipse}, points, idx::AbstractVector{<:Integer})
+    p = ntuple(k -> SVector{2, Float64}(@inbounds points[idx[k]]), Val(5))
+    for i in 1:3, j in (i + 1):4, k in (j + 1):5
+        thin_ratio(p[i], p[j], p[k]) > _COLLINEAR_THIN_RATIO || return false
+    end
+    return true
 end
 
 """

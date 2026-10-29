@@ -39,8 +39,9 @@ per-correspondence weights as its `weights` column.
 | Essential matrix from 5 bearing pairs | `solve(`[`Essential5pt`](@ref)`(), cs, idx)` | minimal | VGC |
 | Absolute pose from 3 point–bearing pairs | `solve(`[`P3P`](@ref)`(), cs, idx)` | minimal | VGC |
 | Circle through 3 points | `solve(`[`Circle3pt`](@ref)`(), points, idx)` | minimal | VGC |
+| Ellipse through 5 points | `solve(`[`Ellipse5pt`](@ref)`(), points, idx)` | minimal | VGC |
 | Radial camera from 5 plane–pixel pairs | `solve(`[`RadialCamera5pt`](@ref)`(; center), cs, idx)` | minimal | VGC |
-| A model from contaminated correspondences | `find_homography`, `find_absolute_pose`, `find_radial_camera`, `find_circle`, … | find (RANSAC) | RVG |
+| A model from contaminated correspondences | `find_homography`, `find_absolute_pose`, `find_radial_camera`, `find_circle`, `find_ellipse`, … | find (RANSAC) | RVG |
 | Radial camera of one board, whitened iterations | `fit_radial_camera` | fit | RVG |
 | Division camera (focal and distortion) from boards | `fit_division_camera` (over `division_camera_step`) | fit | RVG |
 | A lens model re-expressed in another family | `fit_lens` | fit | RVG |

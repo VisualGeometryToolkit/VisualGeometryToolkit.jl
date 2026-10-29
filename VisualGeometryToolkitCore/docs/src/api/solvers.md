@@ -71,7 +71,7 @@ Pages = ["geometry/solvers/circle_3pt.jl"]
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false
-Pages = ["geometry/solvers/direct_ellipse.jl"]
+Pages = ["geometry/solvers/ellipse_5pt.jl", "geometry/solvers/direct_ellipse.jl"]
 ```
 
 ## Model Validity

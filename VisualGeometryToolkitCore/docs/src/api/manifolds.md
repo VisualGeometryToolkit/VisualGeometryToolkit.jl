@@ -24,6 +24,7 @@ Pages = ["base/manifold.jl", "geometry/manifolds/essential.jl",
          "geometry/manifolds/rigid.jl", "geometry/manifolds/subset.jl",
          "geometry/manifolds/sphere.jl", "geometry/manifolds/product.jl",
          "geometry/manifolds/line.jl", "geometry/manifolds/circle.jl",
+         "geometry/manifolds/ellipse.jl",
          "geometry/manifolds/covariance.jl"]
 ```
 

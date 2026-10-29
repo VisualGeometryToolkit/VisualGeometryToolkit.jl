@@ -6,7 +6,6 @@
 ```
 P/PoseLib/build_tarballs.jl                   the recipe
 P/PoseLib/bundled/wrapper/julia_wrapper.cpp   copy of wrapper/julia_wrapper.cpp
-P/PoseLib/bundled/LICENSE                     copy of PoseLib.jl's LICENSE (MIT)
 ```
 
 What the JLL ships: one shared library, `libposelib_jl`, which is upstream

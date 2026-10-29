@@ -64,11 +64,10 @@ function main(args)
     artifacts_toml = abspath(get(opts, "artifacts", joinpath(ROOT, "Artifacts.toml")))
     products = joinpath(workdir, "products")
 
-    # The recipe compiles its bundled copies; they must be the package's own.
-    for f in ("wrapper/julia_wrapper.cpp", "LICENSE")
-        read(joinpath(RECIPE, "bundled", f)) == read(joinpath(ROOT, f)) ||
-            error("yggdrasil/P/PoseLib/bundled/$f differs from $f; refresh the bundle first")
-    end
+    # The recipe compiles its bundled copy; it must be the package's own.
+    f = "wrapper/julia_wrapper.cpp"
+    read(joinpath(RECIPE, "bundled", f)) == read(joinpath(ROOT, f)) ||
+        error("yggdrasil/P/PoseLib/bundled/$f differs from $f; refresh the bundle first")
 
     if !haskey(opts, "skip-build")
         recipe = joinpath(workdir, "recipe")

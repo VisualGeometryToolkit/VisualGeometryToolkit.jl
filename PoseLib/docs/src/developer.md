@@ -12,7 +12,7 @@ repository.
 | `src/PoseLib.jl` | the bindings: every `ccall` and its Julia types |
 | `wrapper/julia_wrapper.cpp` | the flat C interface that every `ccall` targets |
 | `yggdrasil/P/PoseLib/build_tarballs.jl` | the BinaryBuilder recipe that builds the library |
-| `yggdrasil/P/PoseLib/bundled/` | copies of the wrapper and `LICENSE` that the recipe builds from |
+| `yggdrasil/P/PoseLib/bundled/` | the copy of the wrapper that the recipe builds from |
 | `yggdrasil/SUBMIT.md` | how the recipe is submitted to Yggdrasil as `PoseLib_jll` |
 | `scripts/build_binaries.jl` | runs the recipe and writes `Artifacts.toml` |
 | `Artifacts.toml` | the prebuilt tarballs, one per platform |
@@ -27,8 +27,8 @@ julia --project=PoseLib -e 'using Pkg; Pkg.test()'
 ```
 
 The suite is plain `Test.@testset` in `test/runtests.jl` and runs as a whole.
-Besides the solvers and refiners, it checks that the bundled copies match
-`wrapper/julia_wrapper.cpp` and `LICENSE`, that `Artifacts.toml` matches the
+Besides the solvers and refiners, it checks that the bundled copy matches
+`wrapper/julia_wrapper.cpp`, that `Artifacts.toml` matches the
 recipe's version, and that every julia block of the README runs.
 
 ## Building the wrapper from source

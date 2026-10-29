@@ -55,14 +55,13 @@ using Artifacts: load_artifacts_toml
     end
 
     # The recipe (which builds this package's artifact and is submitted to
-    # Yggdrasil) carries the wrapper and LICENSE as bundled copies until it can
-    # take them from a PoseLib.jl tag; they must not drift.
+    # Yggdrasil) carries the wrapper as a bundled copy until it can take it from
+    # a PoseLib.jl tag; it must not drift.
     @testset "recipe bundle matches the wrapper" begin
         root = pkgdir(PoseLib)
         bundled = joinpath(root, "yggdrasil", "P", "PoseLib", "bundled")
-        for f in ("wrapper/julia_wrapper.cpp", "LICENSE")
-            @test read(joinpath(bundled, f)) == read(joinpath(root, f))
-        end
+        f = "wrapper/julia_wrapper.cpp"
+        @test read(joinpath(bundled, f)) == read(joinpath(root, f))
     end
 
     # Artifacts.toml binds the tarballs of the recipe's version, one per

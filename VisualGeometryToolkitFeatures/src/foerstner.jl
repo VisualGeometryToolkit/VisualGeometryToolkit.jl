@@ -53,12 +53,12 @@ is a point's 1σ error ellipse (`ip_errell.m`'s default).
 [`gray_f32`](@ref) as grey values in `[0, 1]` (an 8-bit image as `value/255`,
 as MATLAB's `im2double`); it is not stretched to its own range. The image-wide
 steps run on `device`, any KernelAbstractions backend, in precision `T`
-(the reference computes in `Float64`; pass `Float64` for that).
+(the reference computes in `Float64`; supply `Float64` for that).
 
 # Keywords (defaults: the values the reference's CODE runs with)
 - `method`: `:foerstner` — windows where the roundness `4 det/tr² > roundness_threshold`
   and the precision `det/tr > (σₙ / precision_threshold)²`, ranked by `det/tr`;
-  `:koethe` — windows passing the precision test, ranked by the smaller eigenvalue.
+  `:koethe` — windows whose precision test succeeds, ranked by the smaller eigenvalue.
 - `noise_sigma`: the standard deviation of the (constant) image noise, in GREY
   LEVELS OF AN 8-BIT IMAGE (0–255), as the reference's for a `uint8` image;
   `σₙ = noise_sigma / 255` on the `[0, 1]` image.

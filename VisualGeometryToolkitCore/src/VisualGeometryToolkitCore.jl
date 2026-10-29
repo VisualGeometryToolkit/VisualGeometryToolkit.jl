@@ -510,6 +510,7 @@ public ambient_coordinates   # a model's ambient coordinates, which a manifold's
 public SphereManifold       # S^{N−1}: a model up to scale and sign (minimal_manifold(::RadialCamera))
 public EuclideanManifold, ProductManifold   # a plain vector; a model of independent parts (minimal_manifold(::RadialHomography))
 public Line2DManifold       # a 2D line: normal angle ⊕ offset (minimal_manifold(::Line2D))
+public CircleManifold       # a 2D circle: centre ⊕ log radius (minimal_manifold(::Circle))
 # Implicit-function solver covariance in the manifold coordinates
 # (geometry/manifolds/covariance.jl): ONE function, `implicit_covariance` — the
 # square solve Σ̃_v = J·Σ̃_x·Jᵀ, J = −(∂_v g)⁻¹·∂_x g, and the whitened-constraint
@@ -569,6 +570,7 @@ public max_solutions
 export solve
 export Homography4pt, Homography5ptRadial, Fundamental7pt, Essential5pt, P3P
 export Rotation2pt   # the 2-point rotation of bearing pairs (kabsch on the minimal sample)
+export Circle3pt    # the circle through three points (the circumcircle)
 # Public, not exported (2026-09-15 audit): the solver registry is consumed only by tests.
 public minimal_solvers, minimal_solver, induced_models
 
@@ -824,10 +826,12 @@ include("geometry/manifolds/rigid.jl")       # RigidManifold6 — the rigid-pose
 include("geometry/manifolds/sphere.jl")      # SphereManifold — S^{N−1}, the chart of a model known up to scale (RadialCamera's rows)
 include("geometry/manifolds/product.jl")     # EuclideanManifold, ProductManifold — a model of independent parts (sl(3) ⊕ k)
 include("geometry/manifolds/line.jl")        # Line2DManifold — a 2D line's normal angle and offset
+include("geometry/manifolds/circle.jl")      # CircleManifold — a 2D circle's centre and log radius; the point-on-circle constraint
 include("geometry/manifolds/covariance.jl")  # implicit-function solver covariance in the manifold coordinates
 include("geometry/confidence_regions.jl")          # image-domain confidence regions (confidence ellipses, epipolar bands)
 include("geometry/model_validity.jl")              # test_sample/test_model/test_consensus per model class
 include("geometry/solvers/solver_layer.jl")                # CspondNormalization + the MinimalSolver protocol + registry (#21)
+include("geometry/solvers/circle_3pt.jl")                  # Circle3pt: the circle through three points
 
 # Core warping API - builders returning BoundedMap with image-side conventions baked in
 include("geometry/transforms/warp.jl")

@@ -86,11 +86,16 @@ end
     ))
 end
 
+# The thinness (`thin_ratio`) at or below which a minimal sample's triangle is
+# (near-)collinear: ≈ 0.1% of its longest side. A ratio, so it is the same in
+# every frame. THE one value both point-sample gates read — the homography's
+# (`_not_collinear`) and the circle's (`test_sample(::Type{<:Circle}, …)`).
+const _COLLINEAR_THIN_RATIO = 1.0e-3
+
 # True when no 3 of the 4 points are (near-)collinear within `tol` (a 4-pt
 # homography solve needs no triple collinear, else its 3×3 LU systems are
-# rank-deficient and produce a NaN-filled H). Tested in normalized coords so
-# `tol = 1e-3` ≈ 0.1% of the longest side.
-@inline function _not_collinear(pts::NTuple{4, <:StaticVector{2}}, tol::Float64 = 1.0e-3)
+# rank-deficient and produce a NaN-filled H).
+@inline function _not_collinear(pts::NTuple{4, <:StaticVector{2}}, tol::Float64 = _COLLINEAR_THIN_RATIO)
     @inbounds a, b, c, d = pts
     return thin_ratio(a, b, c) > tol &&
         thin_ratio(a, b, d) > tol &&
@@ -302,6 +307,20 @@ function test_sample(
     return _orientation_preserving(src, dst) &&
         _are_points_distinct(src; tol_px) && _are_points_distinct(dst; tol_px) &&
         _not_collinear(src) && _not_collinear(dst)
+end
+
+"""
+    test_sample(::Type{<:Circle}, points, idx) -> Bool
+
+Reject a degenerate 3-point circle sample: three (near-)collinear points — a
+repeated point among them — whose circle does not exist or runs off to an
+unbounded radius. The test is the homography gate's collinearity ratio
+(`thin_ratio(p₁, p₂, p₃)` above the same ≈ 0.1% of the longest side), a ratio
+and so frame-free. An inner-loop gate, run before [`Circle3pt`](@ref)'s solve.
+"""
+@inline function test_sample(::Type{<:Circle}, points, idx::AbstractVector{<:Integer})
+    @inbounds a, b, c = points[idx[1]], points[idx[2]], points[idx[3]]
+    return thin_ratio(SVector{2, Float64}(a), SVector{2, Float64}(b), SVector{2, Float64}(c)) > _COLLINEAR_THIN_RATIO
 end
 
 """

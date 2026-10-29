@@ -23,7 +23,8 @@ Pages = ["base/manifold.jl", "geometry/manifolds/essential.jl",
          "geometry/manifolds/fundmat.jl", "geometry/manifolds/homography.jl",
          "geometry/manifolds/rigid.jl", "geometry/manifolds/subset.jl",
          "geometry/manifolds/sphere.jl", "geometry/manifolds/product.jl",
-         "geometry/manifolds/line.jl", "geometry/manifolds/covariance.jl"]
+         "geometry/manifolds/line.jl", "geometry/manifolds/circle.jl",
+         "geometry/manifolds/covariance.jl"]
 ```
 
 ## Confidence Regions

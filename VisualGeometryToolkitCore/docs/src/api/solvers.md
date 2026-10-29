@@ -58,6 +58,14 @@ Private = false
 Pages = ["geometry/solvers/tls_line.jl"]
 ```
 
+## Circles
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
+Private = false
+Pages = ["geometry/solvers/circle_3pt.jl"]
+```
+
 ## Ellipses
 
 ```@autodocs

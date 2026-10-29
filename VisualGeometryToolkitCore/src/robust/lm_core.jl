@@ -427,6 +427,132 @@ function lmsolve_chart!(
     return x, F, converged, result.niterations
 end
 
+# =============================================================================
+# The ROBUSTIFIED chart LM — the same rows, one NLLSsolver residual per datum
+# =============================================================================
+#
+# The chart LM above minimizes ‖r‖² with the rows as ONE residual block. A
+# robust loss acts per datum — on the squared norm of that datum's `C` rows —
+# so the robustified LM hands NLLSsolver one residual per datum carrying the
+# loss as its robustifier (`loss_robustifier`). NLLSsolver then forms each
+# datum's cost ρ(‖rᵢ‖²), its gradient ρ′Jᵢᵀrᵢ and its Hessian with Triggs'
+# second-order correction from ρ″ (`computerescostgradhess`, NLLSsolver's
+# residual.jl): nothing of the robust Newton update is restated here.
+#
+# The rows are still evaluated by the state's ONE `residual_rows!` /
+# `residual_jacobian_rows!` sweep: the first datum NLLSsolver asks for at a
+# chart vector fills the rows (and, for a linearization, the Jacobian) of all
+# of them into the workspace, and every other datum at the same vector reads
+# its slice — NLLSsolver evaluates every residual at one vector before moving.
+
+mutable struct _RobustChartState{N, L, K}
+    lm::L
+    kernel::K
+    x::SVector{N, Float64}       # the chart vector `r` (and `J` when `jac`) hold the rows at
+    rows::Bool
+    jac::Bool
+    const r::Vector{Float64}
+    const J::Matrix{Float64}
+end
+
+@inline function _robust_rows!(s::_RobustChartState, x)
+    (s.rows && x == s.x) && return s.r
+    residual_rows!(s.r, s.lm, x)
+    s.x = x; s.rows = true; s.jac = false
+    return s.r
+end
+@inline function _robust_jacobian!(s::_RobustChartState, x)
+    _robust_rows!(s, x)
+    s.jac && return s.J
+    residual_jacobian_rows!(s.J, s.lm, x)
+    s.jac = true
+    return s.J
+end
+
+# One datum: its `C` rows of the state, robustified by the state's kernel.
+struct _DatumRows{N, C, S} <: NLLSsolver.AbstractResidual
+    state::S
+    i::Int
+end
+NLLSsolver.ndeps(::_DatumRows) = NLLSsolver.static(1)
+NLLSsolver.nres(::_DatumRows{N, C}) where {N, C} = NLLSsolver.static(C)
+NLLSsolver.varindices(::_DatumRows) = SVector(1)
+NLLSsolver.getvars(::_DatumRows{N}, vars::Vector) where {N} = (vars[1]::SVector{N, Float64},)
+Base.eltype(::_DatumRows) = Float64
+NLLSsolver.robustkernel(d::_DatumRows) = d.state.kernel
+@inline _datum_rows(r, ::Val{C}, i) where {C} = SVector{C, Float64}(ntuple(k -> @inbounds(r[C * (i - 1) + k]), Val(C)))
+NLLSsolver.computeresidual(d::_DatumRows{N, C}, x) where {N, C} = _datum_rows(_robust_rows!(d.state, x), Val(C), d.i)
+function NLLSsolver.computeresjac(_varflags, d::_DatumRows{N, C}, x) where {N, C}
+    J = _robust_jacobian!(d.state, x)
+    o = C * (d.i - 1)
+    Ji = SMatrix{C, N, Float64}(ntuple(k -> @inbounds(J[o + (k - 1) % C + 1, (k - 1) ÷ C + 1]), Val(C * N)))
+    return _datum_rows(d.state.r, Val(C), d.i), Ji
+end
+
+"""
+    lmsolve_chart!(ews::ManifoldLmWorkspace{N}, lm, robustifier, ::Val{C}; maxit = 1000, ftol = eps(), xtol = 1e-10, stationarity_tol)
+        -> (x, F, converged, iterations)
+
+The ROBUSTIFIED chart LM: NLLSsolver's Levenberg–Marquardt minimizing
+`Σᵢ ρ(‖rᵢ(x)‖²)` from the chart origin, `rᵢ` datum `i`'s `C` consecutive rows
+of the state's [`residual_rows!`](@ref) (`C` the codimension) and `ρ` the
+NLLSsolver `robustifier` — a stack loss through
+[`loss_robustifier`](@ref)`(shape, loss_width)`. NLLSsolver applies the
+robustifier per datum with Triggs' second-order correction (the ρ″ term of its
+Gauss–Newton Hessian), so one solve is the robust M-estimate — no reweighting
+loop. `F` is `2·Σᵢ ρ(‖rᵢ‖²)` at `x`; the knobs, the returned code and its
+retcode ([`lm_retcode`](@ref)) are the plain chart LM's, its stall
+postcondition taken on the rows scaled by `√ρ′` (the robust gradient's
+weights).
+"""
+function lmsolve_chart!(
+        ews::ManifoldLmWorkspace{N}, lm, robustifier, ::Val{C}; maxit::Integer = 1000, ftol::Real = eps(Float64),
+        xtol::Real = 1.0e-10, stationarity_tol::Real
+    ) where {N, C}
+    rows = length(ews.r)
+    rows % C == 0 || throw(ArgumentError("lmsolve_chart!: $rows rows are not a whole number of $C-row data"))
+    S = _RobustChartState{N, typeof(lm), typeof(robustifier)}
+    state = S(lm, robustifier, zero(SVector{N, Float64}), false, false, ews.r, ews.J)
+    problem = NLLSsolver.NLLSProblem(SVector{N, Float64}, _DatumRows{N, C, S})
+    NLLSsolver.addvariable!(problem, zero(SVector{N, Float64}))
+    for i in 1:(rows ÷ C)
+        NLLSsolver.addcost!(problem, _DatumRows{N, C, S}(state, i))
+    end
+    result = NLLSsolver.optimize!(problem, _nlls_options(_DTD, maxit, ftol, xtol), 1)
+    x = problem.variables[1]
+    F = 2 * result.bestcost
+    converged = nlls_stop_code(result.termination)
+    if converged == 2 || converged == 4
+        _robust_stationary(ews, state, x, Val(C), stationarity_tol, ftol) || (converged = _LM_STALLED)
+    end
+    return x, F, converged, result.niterations
+end
+
+# The stall postcondition of the robustified LM: the plain test on the rows and
+# Jacobian scaled per datum by √ρ′(‖rᵢ‖²) — at a robust minimizer Σᵢ ρ′ᵢJᵢᵀrᵢ = 0,
+# exactly the stationarity of those scaled rows.
+function _robust_stationary(ews::ManifoldLmWorkspace, s::_RobustChartState, x, ::Val{C}, tol::Real, ftol::Real) where {C}
+    r = _robust_rows!(s, x)
+    J = _robust_jacobian!(s, x)
+    @inbounds for i in 1:(length(r) ÷ C)
+        o = C * (i - 1)
+        sq = 0.0
+        for k in 1:C
+            sq += r[o + k]^2
+        end
+        w = sqrt(max(NLLSsolver.robustifydcost(s.kernel, sq)[2], 0.0))
+        for k in 1:C
+            r[o + k] *= w
+            for q in axes(J, 2)
+                J[o + k, q] *= w
+            end
+        end
+    end
+    s.rows = false
+    sum(abs2, r) < ftol && return true
+    return _residual_cosine!(ews.g, ews.w, J, r) <= tol
+end
+
 """
     _lm_stationary(ews::ManifoldLmWorkspace, lm, x, tol, ftol) -> Bool
 

@@ -349,15 +349,18 @@ Base.eltype(::Type{FixedModels{N, M}}) where {N, M} = M
 `f` applied to each of `fm`'s `length(fm)` models, the count kept: the one way
 to carry a solver's candidates through a per-model transform (a frame change
 by composition, an eltype change). `M′` is `f`'s inferred return type on `M` and must
-be concrete; the unused slots are `zero(M′)`, as the builder pads them. `f` is
-never called on a padding slot.
+be concrete; the unused slots keep `fm`'s padding when `M′ == M` and are
+`zero(M′)` otherwise, as the builder pads them (so a model type without a
+`zero`, a `Circle`, maps within its own type). `f` is never called on a
+padding slot.
 """
 function Base.map(f::F, fm::FixedModels{N, M}) where {F, N, M}
     M′ = Base.promote_op(f, M)
     isconcretetype(M′) || throw(ArgumentError("map(f, ::FixedModels{$N, $M}): f's return type $M′ is not concrete"))
-    z = zero(M′)
-    return FixedModels{N, M′}(fm.count, ntuple(i -> i <= fm.count ? convert(M′, f(@inbounds fm.data[i])) : z, Val(N)))
+    return FixedModels{N, M′}(fm.count, ntuple(i -> i <= fm.count ? convert(M′, f(@inbounds fm.data[i])) : _padding(M′, @inbounds fm.data[i]), Val(N)))
 end
+@inline _padding(::Type{M}, x::M) where {M} = x
+@inline _padding(::Type{M′}, _) where {M′} = zero(M′)
 
 # =============================================================================
 # Solver-output validity + FixedModels-from-builder constructor

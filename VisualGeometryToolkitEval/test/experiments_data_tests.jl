@@ -68,6 +68,12 @@
                            download_info = [("https://zenodo.org/records/ZENODO_RECORD_X/files/c.tar.gz", "0"^64)])
             err = try E.install_artifact("tier_c", toml); nothing catch e; e end
             @test err isa ErrorException && occursin("not published", err.msg)
+            bind_artifact!(toml, "tier_d", Base.SHA1("2"^40); lazy = true, force = true,     # the same on Hugging Face
+                           download_info = [("https://huggingface.co/datasets/lab/data/resolve/HF_REVISION_X/d.tar.gz", "0"^64)])
+            err = try E.install_artifact("tier_d", toml); nothing catch e; e end
+            @test err isa ErrorException && occursin("not published", err.msg)
+            @test E._published("https://huggingface.co/datasets/lab/data/resolve/$("ab"^20)/d.tar.gz") &&
+                  E._published("https://zenodo.org/records/12345/files/c.tar.gz?download=1")
             @test_throws ErrorException E.install_artifact("tier_zz", toml)
             E.set_project_root!("")
         end

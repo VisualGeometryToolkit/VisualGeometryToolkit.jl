@@ -142,14 +142,29 @@ julia --project=. test/runtests.jl              # zero violations
 artifacts_toml     = "../Artifacts.toml"     # the bindings, relative to the catalog
 artifacts_toml_env = "ACCV2026_ARTIFACTS_TOML"   # a variable naming another copy
 
-[records.<group>]      # one Zenodo record: title, placeholder, id, license
+[records.<group>]      # one hosted record: title, placeholder, license, host (zenodo | huggingface) and its keys
 [artifacts.<name>]     # kind, mount, record, required, what, provenance, and the kind's keys
 ```
 
 The variable named by `artifacts_toml_env` points to another copy of the
 bindings, with other URLs and the same hashes; the fresh-machine test uses it
-for a `file://` copy. A record has an `id` once it exists on Zenodo and a
-`placeholder` until then.
+for a `file://` copy. A record's `host` is where its tarballs are downloaded
+from. On Zenodo (the default) it has an `id` once the record exists; on Hugging
+Face it names its dataset `repo` and, once the tarballs are uploaded, the
+`revision` — a commit, never a branch, so a binding stays immutable while the
+dataset is edited. Until then the record carries its `placeholder`, an
+UPPER_CASE token that `fetch_artifacts!` refuses to download. A typical use:
+Hugging Face while the evaluation data is still changing, Zenodo (with its DOI)
+at publication — the bindings' hashes are the same on both, only the URLs move:
+
+```toml
+[records.rc]
+title = "…"
+license = "CC-BY-4.0"
+host = "huggingface"
+repo = "radiometric-camera/radiometric-camera-data"
+placeholder = "HF_REVISION_RC"
+```
 
 The kinds of artifact and their keys:
 

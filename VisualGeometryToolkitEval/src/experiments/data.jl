@@ -179,15 +179,18 @@ assert_primary_copy(what::AbstractString) = is_primary_copy() || error(
 
 # ---- the artifact view ------------------------------------------------------------
 
-_published(url) = !occursin("ZENODO_RECORD_", url)
+# A record not yet published or uploaded binds its placeholder, an UPPER_CASE token, where the Zenodo id
+# or the Hugging Face revision goes (DataArtifacts).
+_published(url) = !occursin(r"/[A-Z][A-Z0-9]*(_[A-Z0-9]+)+/", url)
 
 """
     install_artifact(name, toml) -> String
 
 Install artifact `name` of `toml` (download, verify sha256 and git-tree-sha1,
 unpack into the depot) unless present, and return its tree. A placeholder URL
-(`ZENODO_RECORD_…`: the record is not published) and a failed download (an
-unpublished Zenodo draft) are refused with the way out — bind a data root.
+(an UPPER_CASE token in place of the Zenodo id or the Hugging Face revision: the
+record is not published or uploaded) and a failed download (an unpublished
+Zenodo draft, a private dataset) are refused with the way out — bind a data root.
 """
 function install_artifact(name::AbstractString, toml::AbstractString)
     meta = TOML.parsefile(toml)
@@ -201,9 +204,9 @@ function install_artifact(name::AbstractString, toml::AbstractString)
     try
         ensure_artifact_installed(name, toml)
     catch err
-        error("downloading artifact '$name' failed. If its Zenodo record ($toml) is still an UNPUBLISHED " *
-              "draft its file URLs are not live yet — bind a data root (VGTK_DATA_ROOT or data/exp_raw) " *
-              "until publication. Underlying error: $(sprint(showerror, err))")
+        error("downloading artifact '$name' failed. If its record ($toml) is still an UNPUBLISHED Zenodo " *
+              "draft or a private Hugging Face dataset its file URLs are not live yet — bind a data root " *
+              "(VGTK_DATA_ROOT or data/exp_raw) until publication. Underlying error: $(sprint(showerror, err))")
     end
     return artifact_path(hash)
 end

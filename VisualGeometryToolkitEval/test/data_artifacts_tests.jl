@@ -161,6 +161,23 @@
             @test isempty(D.catalog_violations(withid))
             @test D.zenodo_url(withid, "t_extra") == "https://zenodo.org/records/12345/files/t_extra.tar.gz?download=1"
             @test D.zenodo_url(withid, "t_extra"; record_ids = Dict("inputs" => "9")) == "https://zenodo.org/records/9/files/t_extra.tar.gz?download=1"
+            # a Hugging Face record: the dataset repo at a commit (download_url picks the host)
+            rev = repeat("ab", 20)
+            hf(r) = D.DataCatalog(cat.path, cat.artifacts_toml, cat.configs, Dict{String,Any}("inputs" => Dict{String,Any}(r...)), cat.artifacts)
+            onhf = hf(("host" => "huggingface", "repo" => "lab/data", "placeholder" => "HF_REVISION_INPUTS", "revision" => rev))
+            @test D.download_url(onhf, "t_extra") == "https://huggingface.co/datasets/lab/data/resolve/$rev/t_extra.tar.gz"
+            @test D.download_url(onhf, "t_extra"; record_ids = Dict("inputs" => repeat("cd", 20))) ==
+                  "https://huggingface.co/datasets/lab/data/resolve/$(repeat("cd", 20))/t_extra.tar.gz"
+            @test D.download_url(withid, "t_extra") == D.zenodo_url(withid, "t_extra")      # zenodo is the default host
+            @test occursin("/resolve/HF_REVISION_INPUTS/", D.download_url(hf(("host" => "huggingface", "repo" => "lab/data", "placeholder" => "HF_REVISION_INPUTS")), "t_extra"))
+            # its bindings must name its URLs, a revision is a commit (never a branch), the repo is owner/name
+            v = D.catalog_violations(onhf)
+            @test any(contains("is not its record's"), v)                                   # the bindings still name Zenodo
+            @test any(contains("is not a commit"), D.catalog_violations(hf(("host" => "huggingface", "repo" => "lab/data", "placeholder" => "HF_REVISION_INPUTS", "revision" => "main"))))
+            @test any(contains("needs `repo`"), D.catalog_violations(hf(("host" => "huggingface", "placeholder" => "HF_REVISION_INPUTS"))))
+            @test any(contains("is not one of"), D.catalog_violations(hf(("host" => "dropbox", "placeholder" => "X_Y"))))
+            @test any(contains("UPPER_CASE"), D.catalog_violations(hf(("placeholder" => "pending",))))
+            @test_throws ArgumentError D.download_url(hf(("host" => "huggingface", "placeholder" => "HF_REVISION_INPUTS")), "t_extra")
             # placeholder URLs satisfy the check; a file:// URL in the committed bindings does not
             @test startswith(read(cat.artifacts_toml, String), header * "[")                # the header kept
             D.pack_artifacts(cat; stage)      # reuses the staged tarballs (listings current)

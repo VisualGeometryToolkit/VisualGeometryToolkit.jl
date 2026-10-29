@@ -16,9 +16,12 @@
 #   artifacts_toml_env = "ACCV2026_ARTIFACTS_TOML"  a variable naming another
 #                                     copy (other URLs, same hashes: the
 #                                     fresh-machine test's file:// copy)
-#   [records.<group>]   title, placeholder, id?, license?   one Zenodo record
-#                       each; `id` once the record exists (the bindings then
-#                       name it), `placeholder` until then
+#   [records.<group>]   title, placeholder, license?, host?   one hosted record
+#                       each, where its tarballs are downloaded from: `host =
+#                       "zenodo"` (the default; `id` once the record exists) or
+#                       "huggingface" (`repo`, a dataset repo, and `revision`, the
+#                       commit holding the tarballs, once uploaded); the bindings
+#                       name the id or revision, `placeholder` until then
 #   [artifacts.<name>]  kind, mount, record, required, what, provenance,
 #                       + the kind's keys:
 #     pool_sources  config, splits   the raw files the pool producer `config`
@@ -80,7 +83,9 @@ using ..Tuning: registered_split
 using ..Datasets: PtRawTrees, pt_scene_files
 
 export DataCatalog, load_catalog, required_artifacts, split_scenes, artifact_files, artifact_parts,
-    fetch_artifacts!, pack_artifacts, zenodo_url, catalog_violations
+    fetch_artifacts!, pack_artifacts, download_url, zenodo_url, huggingface_url, catalog_violations
+
+const HOSTS = ("zenodo", "huggingface")
 
 const KINDS = ("pool_sources", "pools", "stored", "tree")
 const MOUNTS = ("data", "results")
@@ -478,19 +483,54 @@ _bound_names(cat, names) = unique(reduce(vcat,
 # ---- the author side ----------------------------------------------------------------
 
 """
+    download_url(cat, name; record_ids = Dict()) -> String
+
+The download URL of artifact `name` on its record's host: [`zenodo_url`](@ref)
+for a `host = "zenodo"` record (the default), [`huggingface_url`](@ref) for a
+`host = "huggingface"` one. `record_ids` maps a record group to its Zenodo id or
+its Hugging Face revision (the author's rebind after an upload); without one,
+the record's `id`/`revision`, else its `placeholder` (which
+[`fetch_artifacts!`](@ref) refuses to download). A part of a split entry is
+hosted in its entry's record under its own name.
+"""
+function download_url(cat::DataCatalog, name::AbstractString; record_ids::AbstractDict = Dict{String,String}())
+    g, r = _record_of(cat, name)
+    host = get(r, "host", "zenodo")
+    host == "zenodo" && return zenodo_url(cat, name; record_ids)
+    host == "huggingface" && return huggingface_url(cat, name; record_ids)
+    throw(ArgumentError("record $g: host $(repr(host)) is not one of $(HOSTS)"))
+end
+
+_record_of(cat::DataCatalog, name::AbstractString) = (g = cat.artifacts[first(_entry_of(cat, name))]["record"]; (g, cat.records[g]))
+
+"""
     zenodo_url(cat, name; record_ids = Dict()) -> String
 
-The download URL of artifact `name`:
+The Zenodo URL of artifact `name`:
 `https://zenodo.org/records/<id>/files/<name>.tar.gz?download=1`, with the id
 `record_ids` gives the entry's record group, else the group's `id`, else its
-`placeholder` (which [`fetch_artifacts!`](@ref) refuses to download). A part
-of a split entry is hosted in its entry's record under its own name.
+`placeholder`.
 """
 function zenodo_url(cat::DataCatalog, name::AbstractString; record_ids::AbstractDict = Dict{String,String}())
-    g = cat.artifacts[first(_entry_of(cat, name))]["record"]
-    r = cat.records[g]
+    g, r = _record_of(cat, name)
     id = get(record_ids, g, get(r, "id", r["placeholder"]))
     return "https://zenodo.org/records/$id/files/$name.tar.gz?download=1"
+end
+
+"""
+    huggingface_url(cat, name; record_ids = Dict()) -> String
+
+The Hugging Face URL of artifact `name` in its record's dataset repo `repo`:
+`https://huggingface.co/datasets/<repo>/resolve/<revision>/<name>.tar.gz`, with
+the revision `record_ids` gives the entry's record group, else the group's
+`revision`, else its `placeholder`. The revision is a commit, never a branch: a
+binding pins its bytes (its sha256), and a branch moves while the data is edited.
+"""
+function huggingface_url(cat::DataCatalog, name::AbstractString; record_ids::AbstractDict = Dict{String,String}())
+    g, r = _record_of(cat, name)
+    haskey(r, "repo") || throw(ArgumentError("record $g: a huggingface record needs `repo` (the dataset repo, \"<owner>/<name>\")"))
+    rev = get(record_ids, g, get(r, "revision", r["placeholder"]))
+    return "https://huggingface.co/datasets/$(r["repo"])/resolve/$rev/$name.tar.gz"
 end
 
 _listing(root, pieces) = join(("$(p.dst)\t$(p.src)\t$(p.offset)\t$(p.len)\t$(filesize(joinpath(root, p.src)))\t$(mtime(joinpath(root, p.src)))"
@@ -567,7 +607,7 @@ AUTHOR-SIDE: pack each artifact from the author's data/results roots
 artifacts directory under `stage` (never the depot), `archive_artifact` to
 `<stage>/tarballs/<name>.tar.gz` — concurrently, then `bind_artifact!` each
 into the catalog's Artifacts.toml (`lazy = true`, the tree hash, the tarball's
-sha256, [`zenodo_url`](@ref)). The file's comment header (its leading comment
+sha256, its record's [`download_url`](@ref)). The file's comment header (its leading comment
 and blank lines), which Pkg's writer drops, is kept. A staged tarball whose
 file listing is current is reused. `local_toml` also writes a copy of the bindings with `file://` URLs
 to the staged tarballs (the fresh-machine test's; never committed).
@@ -584,7 +624,7 @@ function pack_artifacts(cat::DataCatalog, names::AbstractVector = sort(collect(k
     header = _comment_header(cat.artifacts_toml)
     for b in built
         bind_artifact!(cat.artifacts_toml, b.name, b.hash;
-                       download_info = [(zenodo_url(cat, b.name; record_ids), b.sha)], lazy = true, force = true)
+                       download_info = [(download_url(cat, b.name; record_ids), b.sha)], lazy = true, force = true)
     end
     if !isempty(header) && isfile(cat.artifacts_toml)
         body = read(cat.artifacts_toml, String)
@@ -608,9 +648,11 @@ Every inconsistency between the catalog and its Artifacts.toml, empty when
 none (a project's test, in one line): the two name the same artifacts; each
 entry has the common keys, a known kind (or one of the project's `kinds`), a
 `filter` only on a `tree` entry and as a non-empty list of globs, a known mount, a defined record and an existing config; each record has a
-placeholder and, once it exists, a numeric `id`; each binding is lazy,
-hash-pinned and downloads from its record on Zenodo — the record's `id` when it
-has one, else its placeholder; never a local path.
+placeholder (`A_TOKEN_LIKE_THIS`), a known `host` and its keys — on Zenodo, once it
+exists, a numeric `id`; on Hugging Face a `repo` and, once uploaded, a 40-hex commit
+`revision`; each binding is lazy, hash-pinned and downloads from its record's
+host ([`download_url`](@ref)) — the record's id or revision when it has one,
+else its placeholder; never a local path.
 """
 function catalog_violations(cat::DataCatalog; kinds = String[])
     v = String[]
@@ -626,7 +668,19 @@ function catalog_violations(cat::DataCatalog; kinds = String[])
     isempty(required_artifacts(cat)) && push!(v, "no artifact is required")
     for (g, r) in cat.records
         haskey(r, "placeholder") || push!(v, "record $g: no placeholder")
-        haskey(r, "id") && !occursin(r"^[0-9]+$", string(r["id"])) && push!(v, "record $g: id $(repr(r["id"])) is not a Zenodo record number")
+        haskey(r, "placeholder") && !occursin(r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)+$", string(r["placeholder"])) &&
+            push!(v, "record $g: placeholder $(repr(r["placeholder"])) is not an UPPER_CASE token")
+        host = get(r, "host", "zenodo")
+        if host == "zenodo"
+            haskey(r, "id") && !occursin(r"^[0-9]+$", string(r["id"])) && push!(v, "record $g: id $(repr(r["id"])) is not a Zenodo record number")
+        elseif host == "huggingface"
+            occursin(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$", string(get(r, "repo", ""))) ||
+                push!(v, "record $g: a huggingface record needs `repo` = \"<owner>/<name>\"")
+            haskey(r, "revision") && !occursin(r"^[0-9a-f]{40}$", string(r["revision"])) &&
+                push!(v, "record $g: revision $(repr(r["revision"])) is not a commit (40 hex digits; never a branch)")
+        else
+            push!(v, "record $g: host $(repr(host)) is not one of $(HOSTS)")
+        end
     end
     for (n, a) in sort(collect(cat.artifacts); by = first)
         for k in ENTRY_KEYS
@@ -659,8 +713,8 @@ function catalog_violations(cat::DataCatalog; kinds = String[])
                 push!(v, "$p: expected one download")
             else
                 occursin(r"^[0-9a-f]{64}$", get(dl[1], "sha256", "")) || push!(v, "$p: no sha256")
-                want = zenodo_url(cat, p)
-                get(dl[1], "url", "") == want || push!(v, "$p: download URL $(repr(get(dl[1], "url", ""))) is not its Zenodo record's ($want)")
+                want = try download_url(cat, p) catch e; sprint(showerror, e) end
+                get(dl[1], "url", "") == want || push!(v, "$p: download URL $(repr(get(dl[1], "url", ""))) is not its record's ($want)")
             end
         end
     end

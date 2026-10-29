@@ -34,7 +34,7 @@
 
 The paper-generic experiment-codification framework: the [`Stage`](@ref)
 table + [`run_stages`](@ref) entrypoint (`--plan`/`--stage`/`--force`), the
-[`run_driver`](@ref) shell-out, [`require_input`](@ref)/[`fresher`](@ref)
+[`run_driver`](@ref) shell-out and its in-process form [`run_isolated`](@ref), [`require_input`](@ref)/[`fresher`](@ref)
 declarations, the run records (the configuration-of-record layer), the
 executable codification contract ([`contract_violations`](@ref)) and the one
 data layer of every paper project: the root ladder and artifact view
@@ -55,7 +55,7 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore   # check
 using ..Tuning: resolve_tuning!, _toml_hash
 import ..cli_option   # src/cli.jl: stages.jl reads `--stage=` through it
 
-export Stage, run_stages, run_driver, set_driver_context!, require_input,
+export Stage, run_stages, run_driver, run_isolated, set_driver_context!, require_input,
        fresher, contract_violations,
        # run records (experiments/run_records.jl): the configuration-of-record layer
        load_run_config, run_key, RUN_KEY_EXCLUDED, RUN_CONFIG_KEYS, experiment_dir,
@@ -150,6 +150,48 @@ function run_driver(script::AbstractString, args...;
     flush(stdout)
     run(setenv(cmd, merge(copy(ENV), Dict(String(k) => String(v) for (k, v) in env))))
     return nothing
+end
+
+"""
+    run_isolated(path; args = String[], env = Dict{String,String}(),
+                 bindings = Dict{Symbol,Any}()) -> Module
+
+Include the script `path` in a fresh module of its own, in this process: a
+paper driver defines top-level constants meant for a process of its own, so
+several drivers included into one session collide, while a throwaway module
+gives each the clean top level it expects and keeps the loaded packages warm
+(no new process, no recompilation). While the script's top level runs,
+`ARGS` is `args` and the environment holds `env` (both restored afterwards,
+also on error); `bindings` are constants defined in the module first (a name
+the script uses unqualified). The module's `exit` throws instead of ending the
+session. Returns the module: the functions the script defined live in a newer
+world, so call them through `Base.invokelatest`. A separate process
+([`run_driver`](@ref)) is the other way to run a driver.
+"""
+function run_isolated(path::AbstractString; args::AbstractVector{<:AbstractString} = String[],
+                      env::AbstractDict = Dict{String,String}(), bindings::AbstractDict = Dict{Symbol,Any}())
+    m = Module(gensym(splitext(basename(path))[1]))
+    # The module's own `include` and `eval` (a bare Module has neither), built as expressions: a literal
+    # `include(p)` here would read, to a static analysis of this package (ExplicitImports), as an include of
+    # an unknown file.
+    Core.eval(m, Expr(:(=), Expr(:call, :include, :p), :(Base.include($m, p))))
+    Core.eval(m, Expr(:(=), Expr(:call, :eval, :x), :(Core.eval($m, x))))
+    Core.eval(m, :(exit(code::Integer = 0) = error("script called exit(", code, ")")))
+    for (name, value) in bindings
+        Core.eval(m, Expr(:const, Expr(:(=), Symbol(name), value)))
+    end
+    saved = copy(ARGS)
+    try
+        empty!(ARGS)
+        append!(ARGS, args)
+        withenv((String(k) => String(v) for (k, v) in env)...) do
+            Base.include(m, path)
+        end
+    finally
+        empty!(ARGS)
+        append!(ARGS, saved)
+    end
+    return m
 end
 
 # =============================================================================

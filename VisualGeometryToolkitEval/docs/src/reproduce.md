@@ -62,5 +62,40 @@ foreach(println, vs)
   prose. This check is best effort. A coincidence is exempted with
   `% reproduce: literal-ok` on its line.
 
-`src/reproduce/reproduce_index.jl` depends on Base only, so an environment that
-cannot load this package can include it by path.
+A paper built outside its own directory — a `main.tex` in `paper/src/`
+compiled from `paper/` that writes `\input{src/sec/intro}` — resolves its
+references through `search_dirs` (project-relative), the build's compile
+directory and TEXINPUTS: `reproduce_index_violations(dir; papers, search_dirs =
+["paper"])`, or `paper_project_violations(dir; papers, reproduce = (; search_dirs
+= ["paper"]))`.
+
+## Verify, deploy and the numbers file
+
+A generator renders into its results, never into the paper. The last stages of
+a regeneration compare each render with the submitted copy and replace a
+submitted asset only with the author's sign-off:
+
+```julia
+using VisualGeometryToolkitEval.Reproduce
+
+verify_assets(outdir, paperdir, names)          # writes outdir/verify.tsv, prints each verdict
+deploy_assets(outdir, paperdir, names;          # verifies first; a differing submitted copy is
+              replace_submitted = false)        # refused unless signed off
+```
+
+A `.tex` asset is compared by its numbers as well as its bytes
+([`compare_fragments`](@ref): its pgfplots `coordinates` and its macros), so a
+reformatted fragment reports "same numbers". The numbers file is one more asset
+under the same rule: [`gather_numbers`](@ref) writes it beside the generator's
+results from the drivers' fragments, one `\newcommand` per number, and
+`deploy_assets` puts it into the paper. [`uncited_macros`](@ref) lists the
+numbers the paper defines but never cites, over the files the paper reads
+(the ones [`paper_asset_graph`](@ref) visits), with an allow table of reasons.
+
+A driver defines top-level constants meant for a process of its own;
+[`run_isolated`](@ref) includes it in a module of its own, so one regeneration
+script can run every driver in one warm session.
+
+`src/reproduce/reproduce_index.jl` and `src/reproduce/paper_assets.jl` depend on
+Base only, so an environment that cannot load this package can include them by
+path.

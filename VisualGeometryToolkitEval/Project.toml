@@ -1,6 +1,6 @@
 name = "VisualGeometryToolkitEval"
 uuid = "86c88899-11c8-4b8e-8d7a-f01a8ab99b28"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["James Pritts <jbpritts@gmail.com>"]
 
 [deps]

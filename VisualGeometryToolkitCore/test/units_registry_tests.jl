@@ -65,9 +65,10 @@
 
     @test ustrip(mm, 12.0pt) ≈ 4.2333333333333325
     # 600 px at 300 dpi: two inches. The float path divides by rounded scales
-    # (300 × 5000/127, then ÷ 0.001) and happens to land on 50.8 exactly; the
-    # integer path is exact by construction.
-    @test ustrip(mm, (600.0px) / (300.0dpi)) === 50.8
+    # (300 × 5000/127, then ÷ 0.001), so it is within 1 ulp of 50.8, not exactly
+    # on it (FlexUnits 0.6.13 happened to land on 50.8, 0.6.16 one ulp above);
+    # the integer path is exact by construction.
+    @test abs(ustrip(mm, (600.0px) / (300.0dpi)) - 50.8) <= eps(50.8)
     @test ustrip(mm, 600px / 300dpi) === 254 // 5
 
     # parse_unit and unit_string round trip every registered symbol

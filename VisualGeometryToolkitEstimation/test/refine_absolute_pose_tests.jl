@@ -196,7 +196,8 @@ end
     cs = withattrs(Csponds(Xs, fs); origins = os, M = Ms)
     ls = estimate(refine_absolute_pose(E, withattrs(Csponds(Xs[good], fs[good]); origins = os[good], M = Ms[good])))
     guess = EuclideanMap(RotMatrix{3, Float64}(exp_so3(SVector(0.002, -0.0015, 0.002)) * E.R), E.t + SVector(0.004, -0.003, 0.003))
-    @test pose_errors(estimate(refine_absolute_pose(guess, cs)), E)[1] > 0.1          # least squares is ruined
+    # least squares is ruined: over ten times the inliers' own least-squares error
+    @test pose_errors(estimate(refine_absolute_pose(guess, cs)), E)[1] > 10 * pose_errors(ls, E)[1]
     for lo in (Triggs{CauchyShape}(scale_multiple = 2.5), Triggs{WelschShape}(scale_multiple = 2.5))
         r = refine_absolute_pose(guess, cs; local_optimization = lo, threshold = 8.0)   # px
         @test converged(r) && r.lo_retcode === :converged

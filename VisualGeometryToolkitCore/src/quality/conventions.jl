@@ -25,7 +25,7 @@ signatures, data arguments, coordinate frames and normalization, pixel origins,
 bearings, measurement noise, Jacobians, units, stack contracts). A downstream
 package finds the installed text here rather than carrying a copy.
 """
-conventions_dir() = joinpath(pkgdir(@__MODULE__), "conventions")
+conventions_dir() = normpath(joinpath(@__DIR__, "..", "..", "conventions"))   # src/quality → the package root
 
 """
     convention_files() -> Vector{String}

@@ -45,7 +45,7 @@ julia> print(read(path, String))
                 0.0
             ],
             "translation": [
-                0.0,
+                -0.0,
                 0.0,
                 500.0
             ]

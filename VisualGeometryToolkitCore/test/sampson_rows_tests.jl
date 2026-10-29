@@ -89,8 +89,10 @@
             # Same fma/inlining reason as the row-vs-distance check above: the
             # kernel weights inside its own row function, the right-hand side
             # weights outside it. Measured over 60: 14 differ, worst 40 ulps =
-            # 4.7e-15 relative = 21.2 eps.
-            @test r[i] ≈ sqrtw[i] * d rtol = 1.0e-13
+            # 4.7e-15 relative = 21.2 eps. A row near zero is a cancellation, so
+            # its relative error is unbounded: CI's runner measured 9.4e-18 absolute
+            # on a 4.8e-6 row (2e-12 relative). Hence the absolute floor.
+            @test r[i] ≈ sqrtw[i] * d rtol = 1.0e-13 atol = 1.0e-15
             @test J[i, :] ≈ sqrtw[i] * ∂d rtol = 1.0e-14      # the kernel compiles its own fma choices
         end
         # the device kernels themselves, launched on KA.CPU() (the public functions take

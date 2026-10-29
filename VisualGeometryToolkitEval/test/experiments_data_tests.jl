@@ -75,6 +75,14 @@
             @test E._published("https://huggingface.co/datasets/lab/data/resolve/$("ab"^20)/d.tar.gz") &&
                   E._published("https://zenodo.org/records/12345/files/c.tar.gz?download=1")
             @test_throws ErrorException E.install_artifact("tier_zz", toml)
+            # the Hugging Face token: HF_TOKEN first, else the file `hf auth login` writes under HF_HOME
+            hf_home = mktempdir()
+            withenv("HF_TOKEN" => nothing, "HF_HOME" => hf_home) do
+                @test E.huggingface_token() === nothing
+                write(joinpath(hf_home, "token"), "hf_file\n")
+                @test E.huggingface_token() == "hf_file"
+                withenv(() -> (@test E.huggingface_token() == "hf_env"), "HF_TOKEN" => " hf_env ")
+            end
             E.set_project_root!("")
         end
     end

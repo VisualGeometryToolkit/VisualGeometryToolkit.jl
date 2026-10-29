@@ -68,8 +68,9 @@ function run_stages(experiment::AbstractString, stages::Vector{Stage}; argv = AR
     only  = let s = cli_option(argv, "stage", ""); isempty(s) ? String[] : split(s, ',') end
     println("== experiment $experiment  ($(length(stages)) stages)  " *
             Dates.format(Dates.now(), "yyyy-mm-dd HH:MM:SS"))
-    for st in stages
-        println("   ", rpad(String(st.name), 16), _stage_done(st) ? "DONE     " : "pending  ", st.desc)
+    width = maximum(st -> length(String(st.name)), stages; init = 0)
+    for st in stages   # the name, its status and its description, always separated (a long name never runs into its status)
+        println("   ", rpad(String(st.name), width), "  ", _stage_done(st) ? "DONE     " : "pending  ", st.desc)
     end
     plan && (println("== plan only (--plan) — nothing run"); return nothing)
     for st in stages

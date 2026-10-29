@@ -58,6 +58,8 @@
         | `tab:t` | `papers/figures/curve.dat` | generated | `scripts/make_curve.jl` | results | |
         """
 
+    kinds(vs) = sort!(unique(getfield.(vs, :kind)))
+
     @testset "paper_asset_graph" begin
         root = fixture(; index = good_index)
         g = paper_asset_graph([joinpath(root, "papers", "main.tex")]; root)
@@ -74,6 +76,42 @@
         @test "papers/figures/table.tex" in g.tex_files
     end
 
+    @testset "search_dirs: a paper built outside its own directory" begin
+        # main.tex in papers/src, built from papers/ with src/ on TEXINPUTS: some
+        # references are papers/-relative, some src-relative
+        root = mktempdir()
+        for (p, s) in (
+                "papers/src/main.tex" => "\\input{preamble}\n\\input{src/sec/intro}\n\\includegraphics{src/fig/p.png}\n",
+                "papers/src/preamble.tex" => "",
+                "papers/src/sec/intro.tex" => "\\begin{figure}\\includegraphics{src/fig/q}\\label{fig:q}\\end{figure}\n",
+                "papers/src/fig/p.png" => "", "papers/src/fig/q.pdf" => "",
+                "REPRODUCE.md" => """
+                    | label | asset | kind | generator | data | provenance |
+                    |---|---|---|---|---|---|
+                    | — | `papers/src/preamble.tex` | static | — | — | the template |
+                    | — | `papers/src/sec/intro.tex` | static | — | — | the authors' prose |
+                    | — | `papers/src/fig/p.png` | static | — | — | drawn by hand |
+                    | `fig:q` | `papers/src/fig/q.pdf` | static | — | — | drawn by hand |
+                    """)
+            mkpath(dirname(joinpath(root, p)))
+            write(joinpath(root, p), s)
+        end
+        main = joinpath(root, "papers", "src", "main.tex")
+        g0 = paper_asset_graph([main]; root)
+        @test Set(a.path for a in g0.assets if !a.exists) == Set(["papers/src/src/sec/intro.tex", "papers/src/src/fig/p.png"])
+        for dirs in (["papers"], [joinpath(root, "papers")])   # project-relative or absolute
+            g = paper_asset_graph([main]; root, search_dirs = dirs)
+            @test all(a -> a.exists, g.assets)
+            @test Set(a.path for a in g.assets) == Set(["papers/src/preamble.tex", "papers/src/sec/intro.tex",
+                "papers/src/fig/p.png", "papers/src/fig/q.pdf"])
+            @test "papers/src/sec/intro.tex" in g.tex_files                       # followed, and its figure found
+            @test only(filter(a -> a.path == "papers/src/fig/q.pdf", g.assets)).labels == ["fig:q"]
+        end
+        papers = ["papers/src/main.tex"]
+        @test :missing_asset in kinds(reproduce_index_violations(root; papers))
+        @test isempty(reproduce_index_violations(root; papers, search_dirs = ["papers"]))
+    end
+
     @testset "read_reproduce_index" begin
         root = fixture(; index = good_index)
         es = read_reproduce_index(joinpath(root, "REPRODUCE.md"))
@@ -84,8 +122,6 @@
         @test tex_macro_values(joinpath(root, "papers", "figures", "stats.tex")) ==
             ["bbResid" => "0.68", "bbCaptures" => "56", "bbOne" => "3"]
     end
-
-    kinds(vs) = sort!(unique(getfield.(vs, :kind)))
 
     @testset "a compliant project" begin
         root = fixture(; index = good_index, prose = "We report \\bbResid~mm on \\bbCaptures captures, 3 times.")

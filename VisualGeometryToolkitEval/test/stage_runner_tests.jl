@@ -41,4 +41,17 @@
             @test isempty(ran)
         end
     end
+
+    @testset "the plan separates a stage's name from its status" begin
+        stages = [Stage(:panorama_stitching, "a long name", () -> false, () -> nothing),
+                  Stage(:a, "a short one", () -> true, () -> nothing)]
+        out = mktemp() do path, io
+            redirect_stdout(() -> run_stages("t", stages; argv = ["--plan"]), io)
+            close(io)
+            read(path, String)
+        end
+        @test occursin(r"^\s+panorama_stitching\s+pending\s+a long name$"m, out)
+        @test occursin(r"^\s+a\s+DONE\s+a short one$"m, out)
+        @test !occursin("stitchingpending", out)
+    end
 end

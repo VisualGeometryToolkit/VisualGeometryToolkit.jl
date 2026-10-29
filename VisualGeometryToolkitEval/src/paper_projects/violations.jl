@@ -265,7 +265,8 @@ The checks (`checks` selects; [`PAPER_PROJECT_CHECKS`](@ref) by default,
   `D2` writes into the input tree, `D3` unkeyed outputs, `D4` `artifact"…"`
   in code); `data_policy` forwards its keywords (`dirs`, `exts`).
 - `:reproduce` — Reproduce `reproduce_index_violations` (rule = its kind);
-  `reproduce` forwards its keywords (`check_literals`, `ignore_macros`, …).
+  `reproduce` forwards its keywords (`search_dirs` for a paper built outside
+  its own directory, `check_literals`, `ignore_macros`, …).
 - `:configs` — `C1` a producing script reads no config of record; `C2` it
   holds a data constant (a literal seed, name list, numeric table or range,
   data path); `C3` a script names a config under `configs/` that does not exist.

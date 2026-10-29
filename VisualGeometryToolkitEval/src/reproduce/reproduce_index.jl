@@ -181,21 +181,27 @@ function _resolve(base::AbstractString, ref::AbstractString, exts, search_dirs)
 end
 
 """
-    paper_asset_graph(tex_files; root = dirname(first(tex_files))) -> PaperAssetGraph
+    paper_asset_graph(tex_files; root = dirname(first(tex_files)), search_dirs = String[]) -> PaperAssetGraph
 
 Every file a paper reads, found by following `\\input`/`\\include`/
 `\\subfile`/`\\includestandalone` (recursively), `\\includegraphics` (with the
 `\\graphicspath` directories and the default extensions tried in LaTeX's
 order), and pgfplots/tikz data files (`\\addplot table {file}`,
 `\\pgfplotstableread{file}`, `\\pgfplotstabletypeset{file}`). Paths resolve
-against the directory of the top-level file (the compile directory) and are
-reported relative to `root` (the project directory). Comments are ignored; a
+against the directory of the top-level file, then against each of
+`search_dirs` in order (the compile directory and the TEXINPUTS of a build run
+elsewhere, e.g. `["paper"]` for a `main.tex` in `paper/src/` built from
+`paper/` that writes `\\input{src/sec/intro}`; a relative entry is relative to
+`root`), and are reported relative to `root` (the project directory). Graphics
+try the `\\graphicspath` directories before `search_dirs`. Comments are ignored; a
 reference whose path holds a macro or a `#` parameter is recorded in
 `unresolved`, not guessed.
 """
 function paper_asset_graph(tex_files::AbstractVector{<:AbstractString};
-        root::AbstractString = dirname(abspath(first(tex_files))))
+        root::AbstractString = dirname(abspath(first(tex_files))),
+        search_dirs::AbstractVector{<:AbstractString} = String[])
     root = abspath(root)
+    search = String[abspath(root, d) for d in search_dirs]
     rel(p) = relpath(abspath(p), root)
     assets = PaperAsset[]
     visited = String[]
@@ -207,7 +213,7 @@ function paper_asset_graph(tex_files::AbstractVector{<:AbstractString};
         # \graphicspath is a preamble setting in practice: once seen, it
         # applies to every later \includegraphics of this document
         graphicspath = String[]
-        _walk_tex(top, base, String[], visited, assets, labels, unresolved, graphicspath, rel)
+        _walk_tex(top, base, String[], visited, assets, labels, unresolved, graphicspath, search, rel)
     end
     # A file reached from several places is one asset per reference; keep them
     # all (the locations matter for messages) but dedupe exact repeats.
@@ -215,7 +221,7 @@ function paper_asset_graph(tex_files::AbstractVector{<:AbstractString};
     return PaperAssetGraph(root, unique!(visited), assets, labels, unresolved)
 end
 
-function _walk_tex(file, base, inherited, visited, assets, labels, unresolved, graphicspath, rel)
+function _walk_tex(file, base, inherited, visited, assets, labels, unresolved, graphicspath, search, rel)
     rel(file) in visited && return nothing
     push!(visited, rel(file))
     text = _strip_comments(read(file, String))
@@ -240,10 +246,10 @@ function _walk_tex(file, base, inherited, visited, assets, labels, unresolved, g
             continue
         end
         exts = _cap(m, 1) == "includestandalone" ? (".tex", ".pdf") : (".tex",)
-        path, ok = _resolve(base, ref, exts, String[])
+        path, ok = _resolve(base, ref, exts, search)
         push!(assets, PaperAsset(rel(path), :tex, src, line, labs(m.offset), ok))
         ok && endswith(path, ".tex") &&
-            _walk_tex(path, base, labs(m.offset), visited, assets, labels, unresolved, graphicspath, rel)
+            _walk_tex(path, base, labs(m.offset), visited, assets, labels, unresolved, graphicspath, search, rel)
     end
     # \includegraphics
     for m in eachmatch(r"\\includegraphics\*?\s*(\[[^\]]*\])?\s*\{([^}]*)\}", text)
@@ -252,7 +258,7 @@ function _walk_tex(file, base, inherited, visited, assets, labels, unresolved, g
             push!(unresolved, (src, line, String(m.match)))
             continue
         end
-        path, ok = _resolve(base, ref, _GRAPHICS_EXTS, graphicspath)
+        path, ok = _resolve(base, ref, _GRAPHICS_EXTS, vcat(graphicspath, search))
         push!(assets, PaperAsset(rel(path), :graphics, src, line, labs(m.offset), ok))
     end
     # pgfplots / tikz data files
@@ -263,7 +269,7 @@ function _walk_tex(file, base, inherited, visited, assets, labels, unresolved, g
         for m in eachmatch(re, text)
             ref = _cap(m, 1)
             _looks_like_data_file(ref) || continue
-            path, ok = _resolve(base, ref, ("",), String[])
+            path, ok = _resolve(base, ref, ("",), search)
             push!(assets, PaperAsset(rel(path), :data, src, _line_of(text, m.offset), labs(m.offset), ok))
         end
     end
@@ -402,8 +408,11 @@ end
 The argument-free macros a tex file defines (`\\newcommand`, `\\renewcommand`,
 `\\providecommand`, `\\def`), as `name => value`.
 """
-function tex_macro_values(path::AbstractString)
-    text = _strip_comments(read(path, String))
+tex_macro_values(path::AbstractString) = _macro_values(read(path, String))
+
+# The argument-free macro definitions of a tex text (comments ignored), as `name => value`.
+function _macro_values(source::AbstractString)
+    text = _strip_comments(source)
     out = Pair{String, String}[]
     for m in eachmatch(r"\\(?:re|provide)?newcommand\*?\s*\{?\\([A-Za-z@]+)\}?\s*(\[\d\])?\s*\{", text)
         m.captures[2] === nothing || continue
@@ -493,12 +502,15 @@ end
 """
     reproduce_index_violations(project_dir; papers, index = "REPRODUCE.md", check_literals = true,
                                ignore_macros = String[], min_integer_digits = 3,
-                               require_config = false) -> Vector{ReproduceViolation}
+                               require_config = false, search_dirs = String[]) -> Vector{ReproduceViolation}
 
 The reproducible-figures contract of a paper project, as a list of violations
 (empty = compliant). `papers` are the top-level tex files and `index` the
 REPRODUCE.md, both relative to `project_dir`; every asset path in the index is
-project-relative. Violation kinds:
+project-relative. `search_dirs` (project-relative) are the directories a
+reference that does not resolve against a paper's own directory is looked up
+in ([`paper_asset_graph`](@ref)): the compile directory of a build run outside
+the paper's directory. Violation kinds:
 
 - `:unindexed_asset` — the paper reads a file no index entry covers
 - `:missing_asset` — the paper reads a file that does not exist
@@ -524,7 +536,7 @@ project-relative. Violation kinds:
 function reproduce_index_violations(project_dir::AbstractString;
         papers::AbstractVector{<:AbstractString}, index::AbstractString = "REPRODUCE.md",
         check_literals::Bool = true, ignore_macros = String[], min_integer_digits::Integer = 3,
-        require_config::Bool = false)
+        require_config::Bool = false, search_dirs::AbstractVector{<:AbstractString} = String[])
     root = abspath(project_dir)
     out = ReproduceViolation[]
     idxpath = joinpath(root, index)
@@ -532,7 +544,7 @@ function reproduce_index_violations(project_dir::AbstractString;
         push!(out, ReproduceViolation(:missing_index, index, "no asset index", index))
         return out
     end
-    graph = paper_asset_graph(joinpath.(root, papers); root)
+    graph = paper_asset_graph(joinpath.(root, papers); root, search_dirs)
     entries = read_reproduce_index(idxpath)
     loc(e::IndexEntry) = "$index:$(e.line)"
     loc(a::PaperAsset) = "$(a.source):$(a.line)"

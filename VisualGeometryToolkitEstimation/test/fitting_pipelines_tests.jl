@@ -159,7 +159,7 @@ using VisualGeometryToolkitEstimation
             @test VgtkEstimation._dflt_lo(class) == Irls{TLSShape}()
         end
         # the circle's is the robustified LM (configs/default.toml [pipelines.circle])
-        @test VgtkEstimation._dflt_lo(:circle) == TriggsLM{CauchyShape}(scale_multiple = 2.5)
+        @test VgtkEstimation._dflt_lo(:circle) == Triggs{CauchyShape}(scale_multiple = 2.5)
     end
 
 end

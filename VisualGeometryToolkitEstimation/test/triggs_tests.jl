@@ -1,35 +1,37 @@
-# TriggsLM — the robustified chart LM (one NLLSsolver LM under a loss with
+# Triggs — the robustified chart LM (one NLLSsolver LM under a loss with
 # Triggs' second-order correction, width scale_multiple·ŝ): its strategy
 # identity and configuration, and that it serves every chart problem — the
 # circle (its pipeline default) and the homography.
 
-@testitem "TriggsLM: strategy identity and configuration" begin
+@testitem "Triggs: strategy identity and configuration" begin
     using Test
     using VisualGeometryToolkitCore: CauchyShape, WelschShape, ScaleMultiple, LossWidth, lo_width, with_width,
-        optimization_path, scale_interface, ConsensusAnchored, lo_label
-    using VisualGeometryToolkitEstimation: TriggsLM, LO_TAGS, local_optimization_from_toml, config_dict
-    lo = TriggsLM{CauchyShape}(scale_multiple = 2.5)
-    @test lo_width(lo) == ScaleMultiple(2.5) && optimization_path(lo) == :irls && scale_interface(lo) == ConsensusAnchored()
-    @test LO_TAGS["triggs_lm"] === TriggsLM
-    @test local_optimization_from_toml(Dict{String, Any}("type" => "triggs_lm", "loss" => "cauchy", "scale_multiple" => 2.5);
+        optimization_path, scale_interface, ConsensusAnchored, lo_label, lo_marker
+    using VisualGeometryToolkitEstimation: Triggs, LO_TAGS, local_optimization_from_toml, config_dict
+    lo = Triggs{CauchyShape}(scale_multiple = 2.5)
+    @test lo_width(lo) == ScaleMultiple(2.5) && optimization_path(lo) == :triggs && scale_interface(lo) == ConsensusAnchored()
+    # its own path: the Loss-Path label and the path's marker, beside IRLS's
+    @test endswith(lo_label(lo), "-Triggs") && lo_marker(lo) === :square
+    @test LO_TAGS["triggs"] === Triggs
+    @test local_optimization_from_toml(Dict{String, Any}("type" => "triggs", "loss" => "cauchy", "scale_multiple" => 2.5);
                                        class = :circle) == lo
     @test local_optimization_from_toml(config_dict(lo); class = :circle) == lo
-    @test with_width(lo, ScaleMultiple(3.0)) == TriggsLM{CauchyShape}(scale_multiple = 3.0)
+    @test with_width(lo, ScaleMultiple(3.0)) == Triggs{CauchyShape}(scale_multiple = 3.0)
     # the multiple is required, and the width is always a scale multiple
-    @test_throws UndefKeywordError TriggsLM{CauchyShape}()
-    @test_throws ArgumentError TriggsLM{CauchyShape}(loss_width = 2.0)
+    @test_throws UndefKeywordError Triggs{CauchyShape}()
+    @test_throws ArgumentError Triggs{CauchyShape}(loss_width = 2.0)
 end
 
-@testitem "TriggsLM: the homography and the circle refit with it" setup = [HomographyScenes] begin
+@testitem "Triggs: the homography and the circle refit with it" setup = [HomographyScenes] begin
     using Test, StableRNGs, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitCore: CauchyShape, WelschShape, MsacScoring, estimate, converged, csponds, Point2
     using VisualGeometryToolkitCore.Synthetic: projective_distance
-    using VisualGeometryToolkitEstimation: TriggsLM, HomographyProblem, CircleProblem, ransac, locally_optimize,
+    using VisualGeometryToolkitEstimation: Triggs, HomographyProblem, CircleProblem, ransac, locally_optimize,
         find_homography, RansacConfig
     import VisualGeometryToolkitEstimation as VgtkEstimation
     src, dst = homography_pairs(StableRNG(41), H_PX; n_in = 150, n_out = 60, σ = 0.5, source = gaussian_source)
     pairs = src .=> dst
-    lo = TriggsLM{CauchyShape}(scale_multiple = 2.5)
+    lo = Triggs{CauchyShape}(scale_multiple = 2.5)
     res = find_homography(pairs; local_optimization = lo, rng = StableRNG(42))
     irls = find_homography(pairs; rng = StableRNG(42))                    # the class default, Irls{TLSShape}
     err(H) = projective_distance(SMatrix{3, 3}(estimate(H)), SMatrix{3, 3}(H_PX))
@@ -43,7 +45,7 @@ end
     @test converged(r)
     @test err(r) < 1.0e-2
     # the Welsch loss runs through the same strategy (any shape the robustifier takes)
-    @test converged(find_homography(pairs; local_optimization = TriggsLM{WelschShape}(scale_multiple = 2.0), rng = StableRNG(44)))
+    @test converged(find_homography(pairs; local_optimization = Triggs{WelschShape}(scale_multiple = 2.0), rng = StableRNG(44)))
     # a codimension-1 problem through the same method: the circle. The Cauchy
     # loss's influence decays as loss_width²/r, never to zero, so far outliers
     # pull the M-estimate by ~loss_width²·n_out/(n_in·r_out): measured 0.006 px

@@ -131,11 +131,11 @@ function lift_init(p::ManifoldLiftProvider{<:RadialHomographyProblem}, m::VgtkCo
 end
 
 # =============================================================================
-# TriggsLM — the robustified chart LM of every chart problem (scoring_glue.jl)
+# Triggs — the robustified chart LM of every chart problem (scoring_glue.jl)
 # =============================================================================
 
 """
-    locally_optimize!(L, lo::TriggsLM, problem::LiftableProblem, model, cs, buf, scoring) -> FitResult
+    locally_optimize!(L, lo::Triggs, problem::LiftableProblem, model, cs, buf, scoring) -> FitResult
 
 The robustified chart LM: the loss the width mode deploys (`lo_loss`:
 `scale_multiple·ŝ` at θ's Student-t scale), frozen, as VisualGeometryToolkitCore's
@@ -148,7 +148,7 @@ formed. The model comes back through the chart's `recenter` and `_model_at`,
 as from `refine!`.
 """
 function locally_optimize!(
-        L::LoBuffers, lo::TriggsLM, problem::LiftableProblem, model,
+        L::LoBuffers, lo::Triggs, problem::LiftableProblem, model,
         cs::ConsensusSet, buf::ScoreBuffers, scoring
     )
     loss = lo_loss(lo, cs, scoring, buf)

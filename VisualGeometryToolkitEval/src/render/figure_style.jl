@@ -82,7 +82,7 @@ const FAMILY_ORDER = (:tls, :welsch, :gm)
 # Within a facet the TLS-objective arms stay contiguous (IRLS, HQ, GNC, then the
 # classical fixed-loss-width LO); the Stu-tU BCD control closes the facet.
 "The within-family sort rank of each optimization path (`arm_style_records`' `path`)."
-const PATH_RANK = Dict(:seed => 0, :irls => 1, :hq => 2, :gnc => 3, :classical_lo => 4, :bcd => 5)
+const PATH_RANK = Dict(:seed => 0, :irls => 1, :hq => 2, :gnc => 3, :classical_lo => 4, :bcd => 5, :triggs => 6)
 "Within-family optimization-path sort rank of arm `key` of `style`."
 path_rank(style, key) = PATH_RANK[style.arms[key].path]
 # The within-facet arm order (curves and legend entries): the paper's ramp step

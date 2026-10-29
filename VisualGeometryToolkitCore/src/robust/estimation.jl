@@ -199,6 +199,11 @@ The paper's optimization-path axis — the column of the design table:
                     Le–Zach's relaxed TLS tightened by a μ-schedule)
 - `:bcd`          — block-coordinate ascent on the scoring objective itself
                     over partition, scale and model (Stu-tU-BCD)
+- `:triggs`       — the fixed loss minimized DIRECTLY: one robust
+                    Levenberg–Marquardt solve whose Gauss–Newton Hessian carries
+                    Triggs' second-order (ρ″) curvature correction, no reweighting
+                    loop (Cauchy-Triggs). IRLS keeps only ρ′ (the weights); both
+                    stop where Σ ρ′Jᵀr = 0, they differ in the steps
 - `:classical_lo` — classical LO-RANSAC inner refinement (TLS-LO, TLS-LO⁺)
 - `:seed`         — no local optimization (the seed hypothesis is returned)
 
@@ -211,13 +216,13 @@ optimization_path(::AbstractLocalOptimization) = :unspecified
 "The display suffix of an optimization path (the `-IRLS` / `-HQ` / `-GNC` / `-BCD` / `-LO` half of a method name)."
 path_suffix(path::Symbol) =
     path === :irls ? "IRLS" : path === :hq ? "HQ" : path === :gnc ? "GNC" :
-    path === :bcd ? "BCD" : path === :classical_lo ? "LO" : path === :seed ? "seed" :
-    error("optimization_path $path has no display suffix (declare one of :irls/:hq/:gnc/:bcd/:classical_lo/:seed)")
+    path === :bcd ? "BCD" : path === :triggs ? "Triggs" : path === :classical_lo ? "LO" : path === :seed ? "seed" :
+    error("optimization_path $path has no display suffix (declare one of :irls/:hq/:gnc/:bcd/:triggs/:classical_lo/:seed)")
 
 "The PGFPlots marker of an optimization path — the figure grammar's `shape = path` rule."
 path_marker(path::Symbol) =
     path === :irls ? :o : path === :hq ? :triangle : path === :gnc ? :diamond :
-    path === :bcd ? :oplus : path === :classical_lo ? Symbol("pentagon*") :
+    path === :bcd ? :oplus : path === :triggs ? :square : path === :classical_lo ? Symbol("pentagon*") :
     path === :seed ? :asterisk : :o
 
 """

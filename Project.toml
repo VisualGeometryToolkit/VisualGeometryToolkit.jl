@@ -27,16 +27,6 @@ VisualGeometryToolkitCore = {path = "VisualGeometryToolkitCore"}
 VisualGeometryToolkitEval = {path = "VisualGeometryToolkitEval"}
 VisualGeometryToolkitFeatures = {path = "VisualGeometryToolkitFeatures"}
 VisualGeometryToolkitIO = {path = "VisualGeometryToolkitIO"}
-# The stack's Levenberg–Marquardt driver, NLLSsolver, from our fork's `stack`
-# branch: the latest upstream release plus our unmerged pull requests (#60 the
-# Schur complement, #61 allocation-free variable copies, #62 `OptimizeCache`,
-# #63 the trial-point linear-system reuse) and the static retained blocks. Policy: `stack` is
-# rebased onto each upstream release; this line is deleted when an upstream
-# release contains the pull requests. A checkout only: the registered packages
-# name the registered NLLSsolver (compat "5.2") and detect the fork's additions
-# (VisualGeometryToolkitCore src/robust/lm_core.jl), so a registry install is
-# correct on the release and slower (RELEASING.md).
-NLLSsolver = {url = "https://github.com/prittjam/NLLSsolver.jl", rev = "stack"}
 
 [compat]
 julia = "1.12"

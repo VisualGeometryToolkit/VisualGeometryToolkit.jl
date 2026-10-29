@@ -21,8 +21,10 @@ values (`Rational(0.001)` = 1152921504606847//1152921504606846976). So a length
 built from an integer is exact — `142mm` is 71//500 m, whose Float64 is the
 decimal-nearest 0.142 (FlexUnits' Float64 `mm` gave 0.14200000000000002) —
 and a float literal is FlexUnits' promotion, `142.0mm` = `142.0 * 0.001`,
-within 1 ulp of the decimal, until FlexUnits applies a rational scale to a
-float as `x * num / den` (Deduction42/FlexUnits.jl#131). An exact quantity
+correctly rounded since FlexUnits 0.6.16 (Deduction42/FlexUnits.jl#131: a float
+times a rational scale as `x * num / den`) — which rounds the BINARY value of the float, so a decimal read from text can still land one ulp from
+the decimal's nearest double; VisualGeometryToolkitIO's `read_length`/`write_length` (decimal-exact,
+by exponent shift) remain the stack's one documented exception for that case. An exact quantity
 compares exactly: `ustrip(m, 142mm) == 0.142` is false (the double 0.142 is
 not 71/500), while `ustrip(m, base_quantity(142mm)) === 0.142`.
 

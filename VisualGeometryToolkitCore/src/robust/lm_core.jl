@@ -97,7 +97,7 @@ end
 @inline _nlls_options(iterator, max_iter::Integer, ftol::Real, xtol::Real, max_time::Float64 = _NLLS_NO_TIME_CAP) =
     NLLSsolver.NLLSOptions(
         Float64(ftol), 0.0, Float64(xtol), _NLLS_MAXFAILS, Int(max_iter), UInt64(round(max_time * 1.0e9)),
-        iterator, NLLSsolver.static(1)
+        iterator, NLLSsolver.static(1), NLLSsolver.static(false)   # NLLSsolver ≥ 5.3: no callback of ours changes the problem's state
     )
 const _DTD = NLLSsolver.static(:levenbergmarquardt_dtd)
 

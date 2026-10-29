@@ -74,7 +74,7 @@ LogExpFunctions = "1.0"
 MacroTools = "0.5.16"
 QuadGK = "2.11"
 Makie = "0.24.16"
-NLLSsolver = "5.2"
+NLLSsolver = "5.3"
 Random = "1"
 Rotations = "1.7"
 # The fork-only queries live in VisualGeometryToolkitCore.SpatialQueries; the

@@ -43,9 +43,11 @@ const _D1 = r"(?<![\w.$}])/(raid|home|mnt|scratch|Users|nfs|net)/"
 const _D2_WRITE = r"\b(mkpath|mkdir|write|open|jldsave|wsave|tagsave|safesave|save|cp|mv|symlink|touch)\(\s*joinpath\(\s*(data_root\(\)|EXP_DATA_ROOT|datadir\(\s*\"exp_raw\")"
 const _D4 = r"(?<![\w\"])(artifact\"|@artifact_str\b)"
 const _D2_OUTDIR = r"joinpath\(\s*(data_root\(\)|EXP_DATA_ROOT|datadir\(\s*\"exp_raw\"\s*\))\s*,\s*\"results\""
-# `stamp` as a whole identifier token (`_`-separated, CamelCase split): `STAMP`,
-# `eval_stamp`, `TimeStamp` match; `timestamp` does not.
-const _D3_STAMP = r"(?<![A-Za-z0-9])[Ss][Tt][Aa][Mm][Pp](?![A-Za-z0-9])|(?<=[a-z0-9])Stamp(?![a-z])"
+# `stamp`, `stamps` or `stamped` as a whole identifier token (`_`-separated,
+# CamelCase split, an uppercase run ending where a capitalized word begins):
+# `STAMP`, `eval_stamp`, `stamps`, `stamped`, `TimeStamp`, `UTCStamp` and
+# `stampDir` match; `timestamp` and `timestamps` do not.
+const _D3_STAMP = r"(?:(?<![A-Za-z0-9])[Ss]tamp(?:s|ed)?|(?<=[A-Za-z0-9])Stamp(?:s|ed)?)(?![a-z0-9])|(?<![A-Za-z0-9])STAMP(?:S|ED)?(?![A-Za-z0-9])"
 # D3: a wall-clock stamp in an output path; a hand-bumped version literal; a
 # `-smoke` sibling of a keyed directory (a smoke run belongs in DrWatson's
 # datadir("sims")); an unkeyed file every run rewrites at the top of the

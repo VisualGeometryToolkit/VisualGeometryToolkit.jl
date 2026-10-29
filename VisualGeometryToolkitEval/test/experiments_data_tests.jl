@@ -254,13 +254,20 @@
             run_stamp = Dates.format(now(), "yyyy")
             f(; stamp = now()) = 1
             ts = Dates.format(Dates.now(), "HH") * "_TimeStamp"
+            stamps = [Dates.format(now(), "yyyy")]
+            was_stamped = Dates.format(now(), "HH")
+            u = Dates.format(now(), "HH") * "_UTCStamp"
+            stampDir = Dates.format(now(), "yyyy")
+            RUN_STAMPS = Dates.format(now(), "yyyy")
+            timestamps = Dates.format(now(), "yyyy")
+            Timestamp = now()
             """)
         v3 = E.data_policy_violations(root)
-        @test sort([x.line for x in v3 if x.file == "src/stamps.jl"]) == [2, 3, 4]
+        @test sort([x.line for x in v3 if x.file == "src/stamps.jl"]) == [2, 3, 4, 5, 6, 7, 8, 9]
         allow = [E.DataPolicyAllow("D3", "src/bad.jl", "miscal-sel-v5"), E.DataPolicyAllow("D1", "src/ok.jl", "nothing here")]
         v2 = E.data_policy_violations(root; allow)
         @test length(v2) == length(v3) - 1 + 1
         @test any(x -> x.rule == "STALE" && x.file == "src/ok.jl", v2)
-        @test !any(x -> x.rule == "D3" && x.line == 5, v2)
+        @test !any(x -> x.rule == "D3" && x.file == "src/bad.jl" && x.line == 5, v2)
     end
 end

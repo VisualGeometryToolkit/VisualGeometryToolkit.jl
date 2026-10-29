@@ -88,6 +88,7 @@ makedocs(;
             "Scoring & LO Contracts" => "api/scoring.md",
             "RANSAC" => "api/ransac.md",
             "Line Fitting" => "api/line.md",
+            "Circle Fitting" => "api/circle.md",
             "Homography" => "api/homography.md",
             "Essential Matrix" => "api/essential.md",
             "Fundamental Matrix" => "api/fundmat.md",

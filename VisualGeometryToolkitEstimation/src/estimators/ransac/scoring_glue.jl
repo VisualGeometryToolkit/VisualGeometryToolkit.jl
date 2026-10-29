@@ -165,6 +165,35 @@ struct Irls{K <: AbstractLossShape, W} <: AbstractLocalOptimization
 end
 Irls{K}(max_iter::Integer, width::W) where {K, W} = Irls{K, W}(Int(max_iter), width)
 """
+    RobustLm{K<:AbstractLossShape} <: AbstractLocalOptimization
+
+The ROBUSTIFIED LEVENBERG–MARQUARDT local optimization of every chart problem
+(the [`MinimalSolveProblem`](@ref) family): from the hypothesis θ, ONE chart LM
+over all the data minimizing `Σᵢ ρ(‖rᵢ‖²)` — the problem's own refit rows (its
+Sampson distance) on its own chart, robustified per datum by loss `K` through
+VisualGeometryToolkitCore's `loss_robustifier`. NLLSsolver applies the loss with
+Triggs' second-order correction (the ρ″ term of the Gauss–Newton Hessian), so
+there is no reweighting loop and no inlier set inside the refit: θ is the
+initial guess and the loss decides each datum's influence.
+
+The loss width is `loss_width = scale_multiple·ŝ` (in the loss's currency,
+[`plain_scale_multiple`](@ref)), frozen at the start of the call: ŝ is the
+Student-t marginal scale of θ's residuals — the Sampson errors of all the data —
+over θ's consensus partition (VisualGeometryToolkitCore's `partition_student_t`,
+the scorer's `scale_s2`), the scale every consensus-anchored strategy reads.
+`scale_multiple` is REQUIRED: the stack has no established multiple for this
+strategy, so a configuration states one; an absolute `loss_width` or no width
+is an `ArgumentError`.
+
+# Fields
+- `width::ScaleMultiple{Float64}`: the width mode, set by `scale_multiple = m`
+"""
+struct RobustLm{K <: AbstractLossShape, W} <: AbstractLocalOptimization
+    width::W
+end
+RobustLm{K}(width::W) where {K, W} = RobustLm{K, W}(width)
+
+"""
     lo_admits_shape(T, K) -> nothing
 
 Construction-time admission of loss shape `K` by strategy type `T` (named in
@@ -222,6 +251,7 @@ families add methods: LocalOptimizationDoneRight's `HQ{K}`, `Gnc{S}`). Read
 off the TYPE, so a wrapper recurses into its inner strategy.
 """
 strategy_loss(::Type{<:Irls{K}}) where {K} = K
+strategy_loss(::Type{<:RobustLm{K}}) where {K} = K
 strategy_loss(lo::AbstractLocalOptimization) = strategy_loss(typeof(lo))
 
 # Loss-Path labels (Welsch-IRLS, Huber-IRLS, …); marker shape = optimization
@@ -233,6 +263,10 @@ VgtkCore.lo_label(lo::Irls) =
 VgtkCore.lo_label(::Irls{GaussianShape}) = raw"$\ell_2$"
 VgtkCore.lo_marker(::Irls{GaussianShape}) = :x
 VgtkCore.loss_family(lo::Irls) = loss_family(strategy_loss(lo))
+# The robustified LM is a static loss on the IRLS path (the paper's TLS-LM is
+# that path's truncated member); its label names the solver.
+VgtkCore.lo_label(lo::RobustLm) = loss_label(strategy_loss(lo)) * "-LM"
+VgtkCore.loss_family(lo::RobustLm) = loss_family(strategy_loss(lo))
 
 # -----------------------------------------------------------------------------
 # The scale-multiple CURRENCY — ONE table, `plain_scale_multiple(shape, m)`
@@ -279,7 +313,7 @@ end
 
 # VisualGeometryToolkitCore's `deployed_scale_multiple` (the LO contract's currency
 # hook, read by `loss_at` under a `ScaleMultiple` width mode).
-VgtkCore.deployed_scale_multiple(::Irls, shape, m::Float64, _s2, _scoring) = plain_scale_multiple(shape, m)
+VgtkCore.deployed_scale_multiple(::Union{Irls, RobustLm}, shape, m::Float64, _s2, _scoring) = plain_scale_multiple(shape, m)
 
 """
     lo_loss(lo, cs::ConsensusSet, scoring, buf) -> DeployedLoss
@@ -303,7 +337,7 @@ loss-parametric strategy, `nothing` (the default) for a strategy whose currency
 reads no shape. A downstream fixed-loss arm adds its method.
 """
 deployed_shape(::AbstractLocalOptimization) = nothing
-deployed_shape(lo::Irls) = strategy_loss(lo)()
+deployed_shape(lo::Union{Irls, RobustLm}) = strategy_loss(lo)()
 
 """
     fixed_width(lo, s2) -> LossWidth
@@ -476,6 +510,10 @@ lo_width_value(w) = throw(
     )
 )
 VgtkCore.with_width(lo::Irls{K}, w) where {K} = Irls{K}(lo.max_iter, lo_width_value(w))
+# The robustified LM's width mode — always a scale multiple, always supplied.
+VgtkCore.lo_width(lo::RobustLm) = lo.width
+VgtkCore.scale_interface(lo::RobustLm) = width_scale_interface(lo.width)
+VgtkCore.with_width(::RobustLm{K}, w) where {K} = RobustLm{K}(lo_field(RobustLm{K}, Val(:width), w))
 # The least-squares arm consumes no width (whatever its mode).
 VgtkCore.scale_interface(::Irls{GaussianShape}) = NoScale()
 
@@ -586,6 +624,9 @@ field of its type is ambiguous with the `Val{:width}` catch-all below.
 """
 lo_field(::Type{T}, ::Val{F}, v) where {T, F} = convert(fieldtype(T, F), v)
 lo_field(::Type, ::Val{:width}, w) = lo_width_value(w)
+lo_field(::Type{<:RobustLm}, ::Val{:width}, w::ScaleMultiple{Float64}) = w
+lo_field(::Type{T}, ::Val{:width}, w) where {T <: RobustLm} = throw(ArgumentError(
+    "$T: the loss width is scale_multiple·ŝ — give `scale_multiple`, got $w"))
 
 """
     lo_field_from_toml(T, Val(f), v)
@@ -614,6 +655,7 @@ function lo_absent(::Type{T}, ::Val{F}; defaults::AbstractDict) where {T, F}
     return lo_field_from_toml(T, Val(F), _lo_table(T, defaults)[lo_key(T, Val(F))])
 end
 lo_absent(::Type, ::Val{:width}; defaults::AbstractDict) = nothing
+lo_absent(::Type{<:RobustLm}, ::Val{:width}; defaults::AbstractDict) = throw(UndefKeywordError(:scale_multiple))
 
 """
     lo_validate(lo) -> lo
@@ -771,6 +813,7 @@ end
 const _LO_REGISTRY = (
     (NoLocalOptimization, "no_local_optimization", :seed, NoScale(),     :none,   raw"seed",                nothing,           false),
     (Irls,                "irls",                  :irls, nothing,       nothing, nothing,                  nothing,           true),
+    (RobustLm,            "robust_lm",             :irls, nothing,       nothing, nothing,                  nothing,           true),
     # Every identity fact of the terminal placement is its inner strategy's
     # (local_optimization.jl, beside CountedLO).
     (TerminalLO,          "terminal_lo",           nothing, nothing,     nothing, nothing,                  nothing,           false),

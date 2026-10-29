@@ -17,7 +17,7 @@ using Random
 using StableRNGs
 using StaticArrays
 using VisualGeometryToolkitCore: converged, estimate, iterations   # VGC accessors (public)
-using VisualGeometryToolkitCore: AbstractLocalOptimization, HuberShape, TLSShape, WelschShape   # owned and exported by VisualGeometryToolkitCore
+using VisualGeometryToolkitCore: AbstractLocalOptimization, CauchyShape, HuberShape, TLSShape, WelschShape   # owned and exported by VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: HomographyMat
 using VisualGeometryToolkitCore: MsacScoring   # owned and exported by VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: toml_key   # public (the TOML key of a field)
@@ -40,10 +40,11 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, NoLocalO
         @test Irls{WelschShape}(scale_multiple = 1.0).max_iter == _dflt("local_optimization.irls", "max_iter")
         @test Irls{TLSShape}().max_iter == _dflt("local_optimization.irls", "max_iter")
         # Every pipeline deploys the file's strategy: the core's TLS IRLS,
-        # following the scorer. (The strategies' tables and their cross-validated
-        # operating points are LocalOptimizationDoneRight's.)
+        # following the scorer — the circle the robustified LM at its stated
+        # multiple. (The strategies' tables and their cross-validated operating
+        # points are LocalOptimizationDoneRight's.)
         for class in Symbol.(keys(_TOML_DEFAULTS["pipelines"]))
-            @test _dflt_lo(class) == Irls{TLSShape}()
+            @test _dflt_lo(class) == (class === :circle ? RobustLm{CauchyShape}(scale_multiple = 2.5) : Irls{TLSShape}())
         end
         @test !haskey(_TOML_DEFAULTS, "tuning_constants")
     end

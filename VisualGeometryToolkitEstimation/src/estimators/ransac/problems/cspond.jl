@@ -475,11 +475,11 @@ _needs_normalization(::Type) = true
 # canonical data.
 function MinimalSolveProblem{M, K}(
         cs, cs_hartley, cs_solve, normalization, solver, context, sampler,
-        src_frame_map = _identity_map(eltype(eltype(sources(cs)))),
+        src_frame_map = _identity_map(_problem_scalar(cs)),
         dst_frame_map = src_frame_map;
         coincident_tol::Real = VgtkCore.COINCIDENT_PX
     ) where {M, K}
-    T = eltype(eltype(sources(cs)))
+    T = _problem_scalar(cs)
     coincident_tol > 0 || throw(ArgumentError("coincident_tol must be positive, got $(coincident_tol)"))
     return MinimalSolveProblem{
         M, K, T, typeof(cs), typeof(cs_hartley), typeof(cs_solve),
@@ -490,6 +490,12 @@ function MinimalSolveProblem{M, K}(
         src_frame_map, dst_frame_map, sampler, T(coincident_tol),
     )
 end
+
+# The problem scalar `T`, read off the canonical data: the correspondences'
+# coordinates, or — a model of ONE image's points, the circle's (circle.jl) —
+# the points' own.
+_problem_scalar(cs) = eltype(eltype(sources(cs)))
+_problem_scalar(points::AbstractVector{<:StaticArrays.StaticVector{2}}) = eltype(eltype(points))
 
 function _make_minimal_problem(
         ::Type{M}, ::Val{K}, pairs;

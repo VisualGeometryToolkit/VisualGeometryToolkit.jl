@@ -48,6 +48,16 @@ local_optimization = { type = "irls", loss = "tls" }
 threshold          = 1.0         # px — the essential problem's convention: both are bearing residuals whitened into pixels
 local_optimization = { type = "irls", loss = "tls" }
 
+[pipelines.circle]
+threshold          = 1.0         # px — the Sampson distance to the circle (≈ the geometric one); a convention of this package for points located to a pixel, not a tuned value
+# The robustified LM (RobustLm): one NLLSsolver LM under the Cauchy loss (the
+# Student-t loss at ν = 1), Triggs-corrected, its width scale_multiple·ŝ at the
+# hypothesis's Student-t scale. RobustLm has NO default multiple; 2.5 is the
+# stack's one operating multiple of a consensus-anchored LM width
+# (LocalOptimizationDoneRight's [local_optimization.poselib_adapt]
+# operating_scale_multiple), not tuned for this class.
+local_optimization = { type = "robust_lm", loss = "cauchy", scale_multiple = 2.5 }
+
 [pipelines.absolute_pose]
 threshold          = 8.0         # px — a convention (OpenCV solvePnPRansac's reprojectionError), not a tuned value
 local_optimization = { type = "irls", loss = "tls" }

@@ -81,6 +81,13 @@ function radial_camera_scene()
     p = RadialCameraProblem(pairs; center = c)
     return p, fitted(p, 3.0)
 end
+function circle_scene()
+    rng = StableRNG(29)
+    pts = [Point2{Float64}(300.0 + 120cos(t) + 0.3randn(rng), 200.0 + 120sin(t) + 0.3randn(rng)) for t in 2π .* rand(rng, 80)]
+    append!(pts, [Point2{Float64}(600rand(rng), 400rand(rng)) for _ in 1:20])
+    p = CircleProblem(pts)
+    return p, fitted(p, 1.0)
+end
 function line_scenes()
     rng = StableRNG(23)
     pts = [Point2{Float64}(10 * rand(rng) - 5, 0.0) for _ in 1:60]
@@ -115,7 +122,7 @@ end
 @testset "constraint-problem protocol: every problem with a scene" begin
     (pe, θe), (pf, θf) = epipolar_scenes()
     (pl, θl), (pih, θi) = line_scenes()
-    for (p, θ) in (h_scene(), radial_homography_scene(), radial_camera_scene(), (pl, θl), (pih, θi), hand_eye_scene(), pnp_scene())
+    for (p, θ) in (h_scene(), radial_homography_scene(), radial_camera_scene(), circle_scene(), (pl, θl), (pih, θi), hand_eye_scene(), pnp_scene())
         test_constraint_problem(p, θ)
     end
     # E and F: `residuals!` (the batch rows) and `whitened_residual` (the
@@ -179,13 +186,15 @@ end
 # the chart round trip.
 # =============================================================================
 # Models agree up to the representative: projectively for the matrix models,
-# by rows for the radial camera, exactly (to rounding) for a pose.
+# by rows for the radial camera, exactly (to rounding) for a pose and a circle.
 same_model(a::VgtkCore.EuclideanMap, b) = norm(SMatrix{3, 3}(rotation(a)) - SMatrix{3, 3}(rotation(b))) < 1.0e-10 &&
     norm(translation(a) - translation(b)) < 1.0e-10 * max(1.0, norm(translation(b)))
 same_model(a::RadialCamera, b::RadialCamera) = projective_distance(radial_rows(a), radial_rows(b)) < 1.0e-10
 same_model(a::RadialHomography, b::RadialHomography) =
     projective_distance(SMatrix{3, 3}(homography(a)), SMatrix{3, 3}(homography(b))) < 1.0e-10 &&
     isapprox(division_coeff(a), division_coeff(b); rtol = 1.0e-10)
+same_model(a::VgtkCore.Circle, b::VgtkCore.Circle) =
+    norm(VgtkCore.ambient_coordinates(a) - VgtkCore.ambient_coordinates(b)) < 1.0e-10 * norm(VgtkCore.ambient_coordinates(b))
 same_model(a, b) = projective_distance(SMatrix{3, 3, Float64}(a), SMatrix{3, 3, Float64}(b)) < 1.0e-10
 
 rows_dims(::RowsWorkspace{D, C}) where {D, C} = (D, C)
@@ -267,6 +276,7 @@ end
             ("absolute_pose", pnp_scene()),
             ("radial_homography", radial_homography_scene()),
             ("radial_camera", radial_camera_scene()),
+            ("circle", circle_scene()),
         )
         @testset "$name" begin
             check_rows_provider(p, θ)

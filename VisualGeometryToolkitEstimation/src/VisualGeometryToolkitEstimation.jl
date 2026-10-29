@@ -142,7 +142,8 @@ using VisualGeometryToolkitCore: StoppingCriterion
 # chart-LM protocol is `import`ed so every problem's linearization state adds
 # its methods to VGC's functions.
 using VisualGeometryToolkitCore: RowsWorkspace, rows_workspace, task_buffers, point_norms!,
-    ManifoldLmWorkspace, lm_workspace_type, lmsolve_chart!, fill_sqrt_weights!, Incumbent, keep_best
+    ManifoldLmWorkspace, lm_workspace_type, lmsolve_chart!, fill_sqrt_weights!, Incumbent, keep_best,
+    lm_retcode, loss_robustifier
 import VisualGeometryToolkitCore: residual_rows!, residual_jacobian_rows!
 import VisualGeometryToolkitCore: rows_provider, lift_init, lift_refresh!, lift_jacobian!, lift_retract,
     lift_model, lift_valid, lift_rows, lift_residuals, lift_size
@@ -243,7 +244,7 @@ using SparseArrays: sparse   # the relpose bundle's stacked Jacobian (its stall 
 # 1. PIPELINES — robust estimation end to end
 # -----------------------------------------------------------------------------
 export find_homography, find_fundmat, find_essential, find_absolute_pose,
-    find_hand_eye, find_radial_homography, find_radial_camera, find_rotation
+    find_hand_eye, find_radial_homography, find_radial_camera, find_rotation, find_circle
 export fit_robot_world_hand_eye, refine_robot_world_hand_eye, fit_division_camera
 export fit_residual_mixture   # the inlier/outlier classification of a held model's residuals
 export refine_ellipse         # the orthogonal-distance ellipse from a start value (direct_ellipse by default)
@@ -262,14 +263,14 @@ export ransac, locally_optimize, RansacConfig, RansacEstimate
 # -----------------------------------------------------------------------------
 # 3. PROBLEMS a user builds
 # -----------------------------------------------------------------------------
-export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem, RotationProblem,
+export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem, RotationProblem, CircleProblem,
     HandEyeProblem, LineFittingProblem, InhomLineFittingProblem,
     RadialHomographyProblem, RadialCameraProblem, RelposeBundleProblem
 
 # -----------------------------------------------------------------------------
 # 4. LOCAL-OPTIMIZATION strategies a user picks
 # -----------------------------------------------------------------------------
-export Irls, NoLocalOptimization
+export Irls, RobustLm, NoLocalOptimization
 public CountedLO   # instrumentation: counts a strategy's locally_optimize! calls and iterations
 # The terminal placement (one LO of a raw race's incumbent) and the placement trait.
 public TerminalLO, lo_placement, InLoopPlacement, TerminalPlacement
@@ -362,6 +363,7 @@ include("estimators/ransac/problems/radial_camera.jl")    # the 1-D radial camer
 include("estimators/ransac/problems/epipolar_lm.jl")
 include("estimators/ransac/problems/fundmat.jl")
 include("estimators/ransac/problems/essential.jl")
+include("estimators/ransac/problems/circle.jl")     # the 2D circle through points: Circle3pt + the point-on-circle Sampson rows
 include("estimators/ransac/problems/rotation.jl")   # the pure rotation on bearings (the infinite homography): Rotation2pt + the bearing transfer rows
 include("estimators/ransac/problems/relpose_bundle.jl")
 include("estimators/ransac/problems/line.jl")
@@ -387,6 +389,7 @@ include("fitting/fit_division_camera.jl")       # iterated Sampson-whitened, Stu
 include("fitting/fit_lens.jl")                  # model-to-model lens regression on the radial profile (moved from VGC)
 include("fitting/essential.jl")
 include("fitting/rotation.jl")
+include("fitting/circle.jl")
 include("fitting/pose.jl")
 include("fitting/fundmat.jl")
 include("fitting/hand_eye.jl")

@@ -155,9 +155,11 @@ using VisualGeometryToolkitEstimation
         # Every pipeline's shipped default follows the scorer's inlier threshold.
         # (The paper's per-class Welsch HQ recipes, the defaults before
         # 2026-10, and their tuning constants are LocalOptimizationDoneRight's.)
-        for class in (:homography, :fundmat, :essential, :absolute_pose, :radial_homography, :radial_camera, :hand_eye)
+        for class in (:homography, :fundmat, :essential, :rotation, :absolute_pose, :radial_homography, :radial_camera, :hand_eye)
             @test VgtkEstimation._dflt_lo(class) == Irls{TLSShape}()
         end
+        # the circle's is the robustified LM (configs/default.toml [pipelines.circle])
+        @test VgtkEstimation._dflt_lo(:circle) == RobustLm{CauchyShape}(scale_multiple = 2.5)
     end
 
 end

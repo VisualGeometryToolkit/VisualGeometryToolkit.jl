@@ -77,8 +77,11 @@ NormalizedWeightPolicy
 
 A strategy implements VisualGeometryToolkitCore's local-optimization contract
 (`lo_workspace`, `locally_optimize!`, returning `lo_estimate`). The core
-strategies are [`NoLocalOptimization`](@ref) and [`Irls`](@ref); every other
-strategy is LocalOptimizationDoneRight's. A width-carrying strategy's loss is
+strategies are [`NoLocalOptimization`](@ref), [`Irls`](@ref) and
+[`RobustLm`](@ref) — the robustified chart LM: one NLLSsolver solve under a
+loss with Triggs' second-order correction, its width `scale_multiple·ŝ` at the
+hypothesis's Student-t scale, for every chart problem; every other strategy is
+LocalOptimizationDoneRight's. A width-carrying strategy's loss is
 resolved by `loss_at` from its width mode (`lo_width`, set by `with_width`):
 no width follows the scorer's `inlier_threshold`, `ScaleMultiple(m)` anchors
 it at the consensus scale, `LossWidth(w)` fixes it.
@@ -95,6 +98,7 @@ VisualGeometryToolkitCore.ScaleMultiple
 VisualGeometryToolkitCore.LossWidth
 NoLocalOptimization
 Irls
+RobustLm
 default_local_optimization
 ```
 

@@ -129,3 +129,37 @@ function lift_init(p::ManifoldLiftProvider{<:RadialHomographyProblem}, m::VgtkCo
     gate = 3 * Statistics.median(view(rn, 1:p.n))
     return _radial_seed_chart(p.problem, m, [rn[i] <= gate ? 1.0 : 0.0 for i in 1:p.n])
 end
+
+# =============================================================================
+# RobustLm — the robustified chart LM of every chart problem (scoring_glue.jl)
+# =============================================================================
+
+"""
+    locally_optimize!(L, lo::RobustLm, problem::LiftableProblem, model, cs, buf, scoring) -> FitResult
+
+The robustified chart LM: the loss the width mode deploys (`lo_loss`:
+`scale_multiple·ŝ` at θ's Student-t scale), frozen, as VisualGeometryToolkitCore's
+`loss_robustifier`, and ONE `lmsolve_chart!` from `model` over every datum at
+unit weight, on the chart-LM refit's own chart and state (`_chart`,
+`_refit_state`: the rows `refine!` descends) in its workspace (`L.refine`, the
+one reuse policy) at its LM settings (`[chart_lm]`). NLLSsolver's Triggs
+correction carries the loss; nothing is reweighted here and no inlier set is
+formed. The model comes back through the chart's `recenter` and `_model_at`,
+as from `refine!`.
+"""
+function locally_optimize!(
+        L::LoBuffers, lo::RobustLm, problem::LiftableProblem, model,
+        cs::ConsensusSet, buf::ScoreBuffers, scoring
+    )
+    loss = lo_loss(lo, cs, scoring, buf)
+    ch = _chart(problem, model)
+    rows, dof = _lm_size(problem)
+    ews = _lm_workspace(L.refine, rows, dof)
+    fill!(sqrt_weights(ews), 1.0)
+    lm = _refit_state(problem, ch, sqrt_weights(ews))
+    robustifier = loss_robustifier(strategy_loss(lo)(), sqrt(sq_loss_width(loss)))
+    x, _, code, n_iter = lmsolve_chart!(ews, lm, robustifier, Val(codimension(problem));
+        maxit = _CHART_LM_MAX_ITER, stationarity_tol = _CHART_LM_STATIONARITY_TOL, ftol = _CHART_LM_FTOL)
+    any(isnan, x) && return lo_estimate(model, :solve_failed)
+    return lo_estimate(_model_at(problem, recenter(ch, x)), lm_retcode(code); iterations = n_iter)
+end

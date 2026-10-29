@@ -1,7 +1,7 @@
 # EllipseProblem / find_ellipse — the 2D ellipse as one more model of the RANSAC
 # family, as the circle (ransac_circle_tests.jl): the minimal solver through the
-# problem, the residual against the geometric distance, the chart rows against
-# ForwardDiff, the chart-LM refit, the recovery under 40% outliers (a straight
+# problem, the residual against the geometric distance, the chart rows (the
+# orthogonal distances) against finite differences, the chart-LM refit, the recovery under 40% outliers (a straight
 # run and clutter), and the keyword set shared with the other `find_*` pipelines.
 
 @testsetup module EllipseScene
@@ -28,7 +28,6 @@ end
 
 @testitem "EllipseProblem: minimal solver, residual, chart rows, refit" setup = [EllipseScene] begin
     using Test, Random, LinearAlgebra, StaticArrays
-    import ForwardDiff
     using VisualGeometryToolkitCore: Point2, Ellipse, residual_rows!, residual_jacobian_rows!, ambient_coordinates, boundary_point
     using VisualGeometryToolkitEstimation: EllipseProblem
     import VisualGeometryToolkitEstimation as VgtkEstimation
@@ -63,15 +62,20 @@ end
     near = [Point2{Float64}(SVector(boundary_point(E₀, t)...) + s * 0.5 * nrm(t)) for t in ts for s in (1, -1)]
     rn = zeros(26); VgtkEstimation.residuals!(rn, EllipseProblem(near), E₀)
     @test maximum(abs, rn .- repeat([0.5, -0.5], 13)) < 0.5^2 * E₀.a / E₀.b^2   # second order in δ, the curvature at most a/b²
-    # the chart rows against ForwardDiff, at random weights
+    # the chart rows — the orthogonal distances, whose foot point is a root solve
+    # AD must not see — against central differences, at random weights
     pn, _ = ellipse_scene(rng, 100; σ = 1.0, outl = 0.0)
     pp = EllipseProblem(pn)
     e₀ = Ellipse(Point2((centre(E₀) .+ SVector(2.0, -1.5))...), E₀.a + 3, E₀.b - 2, E₀.θ + 0.01)
     lm = VgtkEstimation._lm_state(pp, VgtkEstimation._chart(pp, e₀), rand(rng, 100))
     a0 = SVector(0.3, -0.2, 1.0e-3, -2.0e-3, 5.0e-4)
     J = zeros(100, 5); residual_jacobian_rows!(J, lm, a0)
-    rows(a) = (out = zeros(eltype(a), 100); residual_rows!(out, lm, SVector{5}(a)); out)
-    @test J ≈ ForwardDiff.jacobian(rows, Vector(a0)) rtol = 1.0e-8
+    rows(a) = residual_rows!(zeros(100), lm, SVector{5}(a))
+    h = 1.0e-6
+    Jfd = reduce(hcat, [(rows(a0 + h * SVector{5}(k .== 1:5)) - rows(a0 - h * SVector{5}(k .== 1:5))) / 2h for k in 1:5])
+    @test J ≈ Jfd rtol = 1.0e-5
+    # the rows ARE the orthogonal distances (√w-weighted) at the anchor
+    @test abs(rows(zero(a0))[7] / lm.sqrtw[7]) ≈ minimum(φ -> norm(SVector(pn[7]...) - SVector(boundary_point(e₀, φ)...)), range(0, 2π, 200_001)) atol = 1.0e-5
     # the chart-LM refit (refine!) from a perturbed ellipse lands at the noise floor
     ws = VgtkEstimation.refine_workspace(typeof(pp), 100)
     e₁ = VgtkEstimation.refine!(ws, pp, e₀, ones(100))

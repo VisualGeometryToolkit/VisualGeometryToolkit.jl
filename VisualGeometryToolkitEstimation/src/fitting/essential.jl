@@ -84,3 +84,23 @@ function find_essential(
     return _ransac_pipeline(EssentialProblem(camera1, camera2, pixel_cs), :essential; kwargs...)
 end
 
+
+"""
+    refine_essential(E, camera1, camera2, pixel_cs; threshold = 1.0,
+        local_optimization = Irls{TLSShape}(), scoring = nothing, workspace = nothing)
+        -> RansacEstimate
+
+The essential matrix `E` refined against the PIXEL correspondences `pixel_cs`
+of the cameras `camera1`, `camera2`: [`find_essential`](@ref)'s step without the
+sampling, on the same bearing problem (each view back-projected with its own
+camera; the threshold in pixels, sub-detector values refused).
+`local_optimization` is the essential matrix's RANSAC local-optimization step,
+run here alone from the given model (no sampling). Every default is
+`find_essential`'s (`[pipelines.essential]`); the keywords are those of every
+`refine_*`, documented on [`refine_homography`](@ref). `nothing` for fewer than
+5 correspondences.
+"""
+function refine_essential(E, camera1, camera2, pixel_cs; kwargs...)
+    _holds_minimal_sample(EssentialProblem, length(pixel_cs)) || return nothing
+    return _refine_pipeline(EssentialProblem(camera1, camera2, pixel_cs), :essential, E; kwargs...)
+end

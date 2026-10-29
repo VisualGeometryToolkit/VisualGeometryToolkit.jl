@@ -24,12 +24,38 @@
   weights; `configs/default.toml` `[fit_linear]`. Hoisted from
   RadiometricCamera's rooftop vignetting fit.
 
-### Known limits
+- **A `refine_*` for every `find_*`** — `refine_homography`, `refine_fundmat`,
+  `refine_essential`, `refine_absolute_pose`, `refine_rotation`,
+  `refine_radial_homography`, `refine_radial_camera`, `refine_hand_eye`,
+  `refine_circle`, `refine_ellipse`: the `find_*`'s local optimization alone,
+  run once from a given model (`locally_optimize` with the class's
+  `[pipelines.<class>]` defaults). The model leads, then the `find_*`'s data;
+  the keywords are the `find_*`'s strategy keywords (`threshold`, `scoring`,
+  `local_optimization`, `workspace`, and its model-specific ones) without the
+  sampling ones, so any local-optimization strategy plugs in.
+- `EllipseProblem` provides the one model covariance (`solver_covariance`),
+  so predictive scoring and an ellipse's covariance on its inliers.
 
-- **`refine_absolute_pose` whitens a generalized camera's residuals only
-  approximately.** This applies to the generalized form (an `origins`
-  column) with pixel whitening (an `M` column). The whitening maps the error
-  in each ray's direction to pixels and holds the ray's origin fixed. It
-  ignores `∂o/∂u`, how the origin moves with the pixel. For a non-central
-  camera the residual is therefore a pixel residual to first order in the
-  direction only. A column for each origin's Jacobian is a later extension.
+### Changed
+
+- **`refine_ellipse(ellipse, points; kwargs...)`** (was `refine_ellipse(points,
+  init = direct_ellipse(points); max_iter)`): the guess is required (a
+  self-seeding refine is a fit) and the result is a `RansacEstimate`. The
+  orthogonal (foot-point) distance it minimized is now the `EllipseProblem`'s
+  refit rows, so `find_ellipse` and every strategy descend it; the Sampson
+  distance still scores. Plain least squares is `local_optimization =
+  Irls{GaussianShape}()` at a threshold above every residual; the covariance
+  is `s²·solver_covariance(EllipseProblem(points), e, inliers)`.
+- **`refine_absolute_pose(pose, camera, pairs; kwargs...)`** (was
+  `refine_absolute_pose(pose, bearings; max_iter)`): `find_absolute_pose`'s
+  step on the `AbsolutePoseProblem` rows, `X => u` pixel pairs through the
+  camera (any lens; rays past 90°). On clean data it returns the same pose as
+  the bearing form did (both to 1e-15); on 0.3 px noise the two differ by
+  ≤ 6e-7.
+
+### Removed
+
+- The bearing and generalized (ray-origin) forms of `refine_absolute_pose`,
+  its `max_iter` and `[refine_absolute_pose]`, and `AbsolutePoseRefineMetadata`;
+  `EllipseFitMetadata`. A non-central camera's pose has no problem to host it
+  yet.

@@ -19,4 +19,5 @@ FundMatProblem
 
 ```@docs
 find_fundmat
+refine_fundmat
 ```

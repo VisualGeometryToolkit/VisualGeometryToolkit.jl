@@ -14,6 +14,7 @@ AbsolutePoseProblem
 
 ```@docs
 find_absolute_pose
+refine_absolute_pose
 ```
 
 ## Result Types

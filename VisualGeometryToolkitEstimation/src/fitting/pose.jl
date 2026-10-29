@@ -79,3 +79,53 @@ function find_absolute_pose(
     result = find_absolute_pose(camera_model, plain; extent = extent === nothing ? nothing : _plain_metres(extent), kwargs...)
     return result === nothing ? nothing : _in_metres(result)
 end
+
+"""
+    refine_absolute_pose(pose, camera_model, correspondences; threshold = 8.0,
+        extent = nothing, local_optimization = Irls{TLSShape}(),
+        scoring = nothing, workspace = nothing) -> RansacEstimate
+
+The camera extrinsics `pose` (world → camera, `x_c = R·X + t`) refined against
+`X => u` pairs (world point => raw pixel) of the camera `camera_model`:
+[`find_absolute_pose`](@ref)'s step without the sampling, on the same
+[`AbsolutePoseProblem`](@ref) — the raw-pixel reprojection error through the
+full camera, on the `LeftRigidManifold6` chart; any lens, rays at and past 90°
+included. `local_optimization` is the pose's RANSAC local-optimization step, run
+here alone from the given model (no sampling): `pose` is scored, its consensus
+set under the scorer is the one a consensus-anchored strategy reads its scale
+from, and the strategy runs once from it. Plain least squares over every
+correspondence is `local_optimization = Irls{GaussianShape}()` at a `threshold`
+above every residual. Every default is `find_absolute_pose`'s
+(`[pipelines.absolute_pose]`), `extent` included; the other keywords are those
+of every `refine_*`, documented on [`refine_homography`](@ref). `nothing` for
+fewer than 3 correspondences.
+
+# Units
+As [`find_absolute_pose`](@ref): world points (and the pose's translation) are
+plain numbers or lengths, all one form; physical ones are read in metres and
+the pose comes back physical, in metres. The residuals are pixels either way.
+"""
+function refine_absolute_pose(
+        pose::PlainEuclideanMap{3}, camera_model::CameraModel,
+        pairs::AbstractVector{<:Pair{<:StaticVector{3, <:Real}, <:StaticVector{2}}};
+        extent::Union{Nothing, HyperRectangle{2, <:Real}} = nothing,
+        kwargs...
+    )
+    _holds_minimal_sample(AbsolutePoseProblem, length(pairs)) || return nothing
+    problem = _with_extent(AbsolutePoseProblem(camera_model, pairs), extent)
+    return _refine_pipeline(problem, :absolute_pose, unlabel(pose); kwargs...)
+end
+
+# Physical pose and world points: stripped in metres once, the plain
+# refinement, the pose read back in metres once.
+function refine_absolute_pose(
+        pose::_PhysicalPose3, camera_model::CameraModel,
+        pairs::AbstractVector{<:Pair{<:_PhysicalPoint3, <:StaticVector{2}}};
+        extent::Union{Nothing, HyperRectangle{2, <:Quantity}} = nothing,
+        kwargs...
+    )
+    plain = _map_csponds(_plain_metres, identity, pairs)::AbstractVector{<:Pair{<:StaticVector{3, <:Real}}}
+    result = refine_absolute_pose(_plain_metres(pose)::PlainEuclideanMap{3}, camera_model, plain;
+        extent = extent === nothing ? nothing : _plain_metres(extent), kwargs...)
+    return result === nothing ? nothing : _in_metres(result)
+end

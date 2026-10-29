@@ -67,3 +67,31 @@ function find_radial_homography(
     problem = _with_extent(RadialHomographyProblem(pairs; center, extra_check, minimal), extent)
     return _ransac_pipeline(problem, :radial_homography; kwargs...)
 end
+
+"""
+    refine_radial_homography(model, correspondences; threshold = 3.0, extent = nothing,
+        local_optimization = Irls{TLSShape}(), scoring = nothing, workspace = nothing)
+        -> RansacEstimate
+
+The radially distorted homography `model` (VisualGeometryToolkitCore
+`RadialHomography`: `H`, `k` and the distortion centre, in the data frame)
+refined against `correspondences`: [`find_radial_homography`](@ref)'s step
+without the sampling. The problem's distortion centre is the model's own
+(`center(model)`); `minimal` and `extra_check` choose `find_radial_homography`'s
+hypotheses and have no meaning here. `local_optimization` is the radial
+homography's RANSAC local-optimization step, run here alone from the given model
+(no sampling). Every default is `find_radial_homography`'s
+(`[pipelines.radial_homography]`), `extent` included; the keywords are those of
+every `refine_*`, documented on [`refine_homography`](@ref). `nothing` for fewer
+than 5 correspondences.
+"""
+function refine_radial_homography(
+        model::VgtkCore.RadialHomography, pairs::AbstractVector{<:Pair{<:_PlanePoint, <:_PlanePoint}};
+        extent::Union{Nothing, HyperRectangle{2}} = nothing,
+        kwargs...
+    )
+    _refuse_physical_plane(pairs, "refine_radial_homography")
+    _holds_minimal_sample(_radial_sample_size(:radial), length(pairs)) || return nothing
+    problem = _with_extent(RadialHomographyProblem(pairs; center = center(model)), extent)
+    return _refine_pipeline(problem, :radial_homography, model; kwargs...)
+end

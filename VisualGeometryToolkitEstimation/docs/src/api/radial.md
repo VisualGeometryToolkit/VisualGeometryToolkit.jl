@@ -12,6 +12,7 @@ between planar calibration boards and their images.
 ```@docs
 RadialHomographyProblem
 find_radial_homography
+refine_radial_homography
 ```
 
 ## Radial camera
@@ -19,6 +20,7 @@ find_radial_homography
 ```@docs
 RadialCameraProblem
 find_radial_camera
+refine_radial_camera
 fit_radial_camera
 ```
 

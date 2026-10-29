@@ -42,3 +42,28 @@ function find_radial_camera(
     problem = _with_extent(RadialCameraProblem(pairs; center), extent)
     return _ransac_pipeline(problem, :radial_camera; kwargs...)
 end
+
+"""
+    refine_radial_camera(model, correspondences; threshold = 3.0, extent = nothing,
+        local_optimization = Irls{TLSShape}(), scoring = nothing, workspace = nothing)
+        -> RansacEstimate
+
+The 1-D radial camera `model` (VisualGeometryToolkitCore `RadialCamera`, about its
+distortion centre) refined against `plane_point => raw_pixel` correspondences:
+[`find_radial_camera`](@ref)'s step without the sampling. The problem's centre
+is the model's own (`center(model)`). `local_optimization` is the radial
+camera's RANSAC local-optimization step, run here alone from the given model (no
+sampling). Every default is `find_radial_camera`'s (`[pipelines.radial_camera]`),
+`extent` included; the keywords are those of every `refine_*`, documented on
+[`refine_homography`](@ref). `nothing` for fewer than 5 correspondences.
+"""
+function refine_radial_camera(
+        model::VgtkCore.RadialCamera, pairs::AbstractVector{<:Pair{<:_PlanePoint, <:_PlanePoint}};
+        extent::Union{Nothing, HyperRectangle{2}} = nothing,
+        kwargs...
+    )
+    _refuse_physical_plane(pairs, "refine_radial_camera")
+    _holds_minimal_sample(RadialCameraProblem, length(pairs)) || return nothing
+    problem = _with_extent(RadialCameraProblem(pairs; center = center(model)), extent)
+    return _refine_pipeline(problem, :radial_camera, model; kwargs...)
+end

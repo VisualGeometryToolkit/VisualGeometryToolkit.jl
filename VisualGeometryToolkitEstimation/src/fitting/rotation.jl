@@ -49,3 +49,26 @@ function find_rotation(bearings::VgtkCore.Csponds; kwargs...)
     _holds_minimal_sample(RotationProblem, length(bearings)) || return nothing
     return _ransac_pipeline(RotationProblem(bearings), :rotation; kwargs...)
 end
+
+"""
+    refine_rotation(R, camera1, camera2, pixel_cs; threshold = 1.0,
+        local_optimization = Irls{TLSShape}(), scoring = nothing, workspace = nothing)
+    refine_rotation(R, bearings::Csponds; kwargs...)
+        -> RansacEstimate
+
+The rotation `R` of a camera that only rotated, refined against its
+correspondences: [`find_rotation`](@ref)'s step without the sampling, on the
+same [`RotationProblem`](@ref) (the forms of `find_rotation`). `local_optimization`
+is the rotation's RANSAC local-optimization step, run here alone from the given
+model (no sampling). Every default is `find_rotation`'s (`[pipelines.rotation]`);
+the keywords are those of every `refine_*`, documented on
+[`refine_homography`](@ref). `nothing` for fewer than 2 correspondences.
+"""
+function refine_rotation(R, camera1, camera2, pixel_cs; kwargs...)
+    _holds_minimal_sample(RotationProblem, length(pixel_cs)) || return nothing
+    return _refine_pipeline(RotationProblem(camera1, camera2, pixel_cs), :rotation, R; kwargs...)
+end
+function refine_rotation(R, bearings::VgtkCore.Csponds; kwargs...)
+    _holds_minimal_sample(RotationProblem, length(bearings)) || return nothing
+    return _refine_pipeline(RotationProblem(bearings), :rotation, R; kwargs...)
+end

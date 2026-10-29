@@ -102,3 +102,44 @@ function find_hand_eye(
     plain = _map_csponds(_plain_metres, _plain_metres, cs)::AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}
     return _in_metres(find_hand_eye(plain; threshold = _metres(threshold), char_length = _metres(char_length), kwargs...))
 end
+
+"""
+    refine_hand_eye(X, cs; threshold = 0.01·L, motion_pairs = :consecutive,
+        char_length = nothing, min_rel_angle, local_optimization = Irls{TLSShape}(),
+        scoring = nothing, workspace = nothing) -> RansacEstimate
+
+The hand-eye transform `X = T_RP` refined against the `A_i => B_i` pose
+correspondences `cs`: [`find_hand_eye`](@ref)'s step without the sampling, on the
+same [`HandEyeProblem`](@ref) (`motion_pairs`, `char_length` and `min_rel_angle`
+build it, as there). `local_optimization` is the hand-eye RANSAC
+local-optimization step, run here alone from the given model (no sampling); the
+problem has no chart lift, so its weighted refit is the strategy's M-step
+(`Irls`; [`Triggs`](@ref) and the lifts are refused, as inside `find_hand_eye`).
+Every default is `find_hand_eye`'s (`[pipelines.hand_eye]`); the keywords are
+those of every `refine_*`, documented on [`refine_homography`](@ref).
+
+# Units
+As [`find_hand_eye`](@ref): plain or physical poses, all one form (`X` too);
+physical ones are read in metres and `X` comes back in metres, a supplied
+`threshold` or `char_length` then a length.
+"""
+function refine_hand_eye(
+        X::PlainEuclideanMap{3}, cs::AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}};
+        motion_pairs::Symbol = Symbol(_dflt("pipelines.hand_eye", "motion_pairs")),
+        char_length::Union{Nothing, Real} = nothing,
+        min_rel_angle::Real = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg")),
+        kwargs...
+    )
+    problem = HandEyeProblem(cs; motion_pairs, char_length, min_rel_angle)
+    return _refine_pipeline(problem, :hand_eye, X; kwargs...)
+end
+
+# Physical poses: stripped in metres once (with the lengths beside them), the
+# plain refinement, `X` read back in metres once.
+function refine_hand_eye(
+        X::_PhysicalPose3, cs::AbstractVector{<:Cspond{<:_PhysicalPose3, <:_PhysicalPose3}};
+        threshold = nothing, char_length = nothing, kwargs...
+    )
+    plain = _map_csponds(_plain_metres, _plain_metres, cs)::AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}
+    return _in_metres(refine_hand_eye(_plain_metres(X)::PlainEuclideanMap{3}, plain; threshold = _metres(threshold), char_length = _metres(char_length), kwargs...))
+end

@@ -19,4 +19,5 @@ HomographyProblem
 
 ```@docs
 find_homography
+refine_homography
 ```

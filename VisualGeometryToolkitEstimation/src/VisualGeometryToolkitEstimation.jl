@@ -8,7 +8,7 @@ import VisualGeometryToolkitCore as VgtkCore
 
 using LinearAlgebra: LinearAlgebra, I, dot, norm, normalize, cross, svd,
     Diagonal, Symmetric,
-    eigen                                                          # refine_ellipse's axes frame
+    eigen                                                          # the ellipse refit rows' axes frame
 using StaticArrays: StaticArrays, MVector, SA, SMatrix, SVector, StaticVector
 using FixedSizeArrays: FixedSizeArray
 using Random: Random
@@ -44,7 +44,7 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
     s2_tangent_basis,                        # the tangent chart of the P3P ray-coplanarity gate
     tls_line,                                # fit_line's unweighted seed direction
     tls_line_statistics,                     # the fixed-weight TLS step fit_line / the line LO reweight
-    Ellipse, direct_ellipse, ellipse_log_shape, ellipse_from_log_shape   # refine_ellipse: its start value and its chart
+    ellipse_log_shape   # the ellipse refit rows' chart (problems/ellipse.jl)
 
 # Shared robust-estimation interfaces (VGC src/robust/estimation.jl): the
 # LO-strategy root, the paper's two classification traits (optimization_path,
@@ -245,10 +245,11 @@ using SparseArrays: sparse   # the relpose bundle's stacked Jacobian (its stall 
 # -----------------------------------------------------------------------------
 export find_homography, find_fundmat, find_essential, find_absolute_pose,
     find_hand_eye, find_radial_homography, find_radial_camera, find_rotation, find_circle, find_ellipse
+# Each find_*'s local-optimization step alone, from a given model (no sampling).
+export refine_homography, refine_fundmat, refine_essential, refine_absolute_pose,
+    refine_hand_eye, refine_radial_homography, refine_radial_camera, refine_rotation, refine_circle, refine_ellipse
 export fit_robot_world_hand_eye, refine_robot_world_hand_eye, fit_division_camera
 export fit_residual_mixture   # the inlier/outlier classification of a held model's residuals
-export refine_ellipse         # the orthogonal-distance ellipse from a start value (direct_ellipse by default)
-export refine_absolute_pose   # a camera pose from points and their unit bearings (central or generalized; any field of view)
 export refine_camera_and_poses   # a camera (intrinsics + lens) and one pose per view from 3D → 2D correspondences
 export fit_rotation           # the robust rotation between two sets of directions
 export fit_linear             # the robust coefficients of a linear model (reweighted least squares)
@@ -317,7 +318,7 @@ public lo_loss, strategy_loss, plain_scale_multiple, deployed_shape, lo_width_va
 public division_camera_step, DivisionCameraState, division_coeffs, board_sq_residuals,
     RadialLift, LensFitMetadata
 public bundle_refine_relpose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
-public EllipseFitMetadata, AbsolutePoseRefineMetadata, RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata
+public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata
 # Configuration: configs/default.toml is the config of record; these select a
 # strategy by tag and write a config value back as a table.
 public default_config_path, local_optimization_from_toml, lo_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS,
@@ -380,7 +381,7 @@ include("fitting/_pipeline.jl")
 # Provides `fit_line` and the covariance-weighted line step `_weighted_line`,
 # which problems/line.jl's LO-RANSAC `refine!` calls.
 include("fitting/line.jl")
-include("fitting/ellipse.jl")      # refine_ellipse: the orthogonal-distance ellipse (chart LM on the log-shape chart); find_ellipse
+include("fitting/ellipse.jl")      # find_ellipse and refine_ellipse
 include("fitting/homography.jl")
 include("fitting/radial_homography.jl")
 include("fitting/radial_camera.jl")
@@ -396,7 +397,6 @@ include("fitting/fundmat.jl")
 include("fitting/hand_eye.jl")
 include("fitting/robot_world_hand_eye.jl")
 include("fitting/refine_robot_world_hand_eye.jl")   # reprojection refinement of a RobotWorldHandEyeCalibration (static-N chart LM; uses robot_world_hand_eye.jl's type)
-include("fitting/refine_absolute_pose.jl")   # the bearing (tangent-plane) pose refinement, central and generalized (chart LM)
 include("fitting/refine_camera_and_poses.jl")   # a camera and one pose per view from 3D → 2D correspondences (NLLSsolver on VGC's parameter and pose charts)
 include("fitting/fit_rotation.jl")           # the robust rotation between direction pairs (reweighted Kabsch)
 include("fitting/fit_linear.jl")             # the robust coefficients of a linear model (reweighted least squares)

@@ -87,3 +87,56 @@ function find_homography(
     _holds_minimal_sample(HomographyProblem, length(pairs)) || return nothing
     return _ransac_pipeline(_with_extent(HomographyProblem(pairs), extent), :homography; kwargs...)
 end
+
+"""
+    refine_homography(H, correspondences; threshold = 3.0, extent = nothing,
+        local_optimization = Irls{TLSShape}(), scoring = nothing, workspace = nothing)
+        -> RansacEstimate
+
+The homography `H` refined against `correspondences`: [`find_homography`](@ref)'s
+step without the sampling. Every `refine_*` is its `find_*`'s RANSAC
+local-optimization step run ONCE from a given model — [`locally_optimize`](@ref)
+with the `find_*`'s defaults — so the guess is required and leads (a refine: the
+model family is kept), and the data follow as the `find_*` takes them.
+
+`local_optimization` is the homography's RANSAC local-optimization step, run
+here alone from the given model (no sampling): `H` is scored under the scorer,
+ITS consensus set is the one a consensus-anchored strategy reads its scale ŝ
+from (the scale-multiple widths, [`Triggs`](@ref)), exactly as the RANSAC loop
+scores a hypothesis, and the strategy runs once from `H`. The refined model is
+re-scored and kept when it succeeds at the problem's consensus test; otherwise
+`H` comes back. When `H` holds no consensus beyond a minimal sample, nothing is
+refined. `lo_retcode` on the result is the strategy's stop reason.
+
+Returns a `RansacEstimate` (one trial; `retcode` `:converged`, the consensus
+set, residuals and weights of the returned model under the scorer) or `nothing`
+for fewer than 4 correspondences.
+
+# Keywords — shared by every `refine_*`
+- `threshold`: the MSAC inlier threshold of the default scoring, in the
+  problem's residual unit (here PIXELS), as [`find_homography`](@ref);
+  supplying it with `scoring` is an `ArgumentError`, and so is the retired
+  `outlier_halfwidth`.
+- `local_optimization`: any `AbstractLocalOptimization` the problem hosts —
+  `Irls{K}`, `Triggs{K}`, `NoLocalOptimization()`, LocalOptimizationDoneRight's
+  half-quadratic lifts and GNC; a strategy the problem cannot host fails as it
+  would inside `find_*`. Default: the class's `[pipelines.<class>]` strategy.
+  The strategy's own knobs are its own (`Irls`'s `max_iter`; the chart LM's
+  cap is `[chart_lm]`): a `refine_*` has no `max_iter`.
+- `scoring`: any scorer of VisualGeometryToolkitCore's contract (default MSAC at
+  `threshold`).
+- `workspace`: a `RansacWorkspace` to reuse, as [`find_homography`](@ref).
+
+The sampling keywords of `find_*` (`max_trials`, `min_trials`, `config`, `rng`)
+have no meaning here and are not accepted. Model-specific keywords are those of
+the `find_*` (here `extent`).
+"""
+function refine_homography(
+        H, pairs::AbstractVector{<:Pair{<:_PlanePoint, <:_PlanePoint}};
+        extent::Union{Nothing, HyperRectangle{2}} = nothing,
+        kwargs...
+    )
+    _refuse_physical_plane(pairs, "refine_homography")
+    _holds_minimal_sample(HomographyProblem, length(pairs)) || return nothing
+    return _refine_pipeline(_with_extent(HomographyProblem(pairs), extent), :homography, H; kwargs...)
+end

@@ -287,11 +287,19 @@ end
             ("radial_homography", radial_homography_scene()),
             ("radial_camera", radial_camera_scene()),
             ("circle", circle_scene()),
-            ("ellipse", ellipse_scene()),
         )
         @testset "$name" begin
             check_rows_provider(p, θ)
         end
+    end
+    @testset "ellipse" begin
+        # its rows are the ORTHOGONAL distances, the scoring's Sampson distance to
+        # first order: the currency is compared on the inliers, as the homography's
+        # — their difference is second order, δ²·κ/2 with the curvature κ ≤ a/b²
+        # (0.019 here): ≤ 0.01 at |δ| < 1 px, measured 5.1e-3
+        pl, θl = ellipse_scene()
+        rl = zeros(data_size(pl)); residuals!(rl, pl, θl)
+        check_rows_provider(pl, θl; inliers = abs.(rl) .< 1, currency_tol = 1.0e-2)
     end
 end
 end

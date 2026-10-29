@@ -7,8 +7,8 @@ kept for fits that are not a RANSAC search — iterative, reweighted or
 repeated (`fit_division_camera` and its model-block update `division_camera_step`,
 `fit_radial_camera`, `fit_lens`, `fit_robot_world_hand_eye`, `fit_line`,
 `fit_rotation`, `fit_linear`) — and
-`refine_*` for polishing a given model (`refine_robot_world_hand_eye`,
-`refine_absolute_pose`, `refine_camera_and_poses`). One-step
+`refine_*` for polishing a given model (one per `find_*`, and the bundles
+`refine_robot_world_hand_eye` and `refine_camera_and_poses`). One-step
 algebraic algorithms keep their algorithm's name and live in
 VisualGeometryToolkitCore (`homography_dlt`, `kabsch`, `tls_line`, …).
 
@@ -29,6 +29,31 @@ tuned values:
 `scoring = …` replaces the scorer (then `threshold` is an `ArgumentError`) and
 `local_optimization = …` the strategy; an `outlier_halfwidth` keyword is
 refused — it is a marginal scorer's parameter and goes into that scorer.
+
+## `find_*` and `refine_*`: the same local optimization, with or without the search
+
+A `find_*` is sampling plus a refine: RANSAC draws minimal samples, scores each
+hypothesis, and runs the class's local optimization from the hypotheses it
+keeps. The matching `refine_*` is that local optimization alone, run once from
+a model the caller gives — `refine_homography(H, pairs)`,
+`refine_circle(circle, points)`, `refine_absolute_pose(pose, camera, pairs)`, …,
+the model first, then the data as the `find_*` takes them. The given model is
+scored exactly as a hypothesis is; its consensus set under the scorer is the
+one a consensus-anchored strategy reads its scale from; the strategy runs from
+it; the refined model is re-scored and returned as a `RansacEstimate`, or the
+given model if the refined one fails the problem's consensus test.
+
+Both read the same `[pipelines.<class>]` defaults and share the strategy
+keywords — `threshold`, `scoring`, `local_optimization`, `workspace` — so any
+strategy plugs into either: `Irls{K}`, `Triggs{K}`, `NoLocalOptimization()`,
+LocalOptimizationDoneRight's half-quadratic lifts and GNC. A strategy a
+problem cannot host (`Triggs` or a lift on the hand-eye problem, which has no
+chart) is refused by both with the same error. The `find_*` sampling keywords
+(`max_trials`, `min_trials`, `config`, `rng`) are not `refine_*` keywords, and
+neither is a `max_iter`: an iteration cap is the strategy's own (`Irls`'s
+`max_iter`; the chart LM's `[chart_lm]` cap). The bundles
+(`refine_robot_world_hand_eye`, `refine_camera_and_poses`) are not RANSAC
+problems and keep their own non-robust LM and keywords.
 
 ## Homography
 

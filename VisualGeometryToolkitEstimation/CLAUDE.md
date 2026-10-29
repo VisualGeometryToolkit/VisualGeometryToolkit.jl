@@ -143,19 +143,19 @@ src/
 │   │   └── manifold_providers.jl  # ManifoldLiftProvider: the chart problems' VGC chart-rows contract (rows_provider, lift_*) (included after covariance.jl)
 │   └── covariance.jl          # solver_covariance: the one constraint-sandwich covariance (included after problems/hand_eye.jl)
 ├── fitting/
-│   ├── _pipeline.jl           # _ransac_pipeline — shared body of every find_*
+│   ├── _pipeline.jl           # _ransac_pipeline / _refine_pipeline — shared bodies of every find_* / refine_*
 │   ├── line.jl                # fit_line
-│   ├── homography.jl          # find_homography
-│   ├── radial_homography.jl   # find_radial_homography
-│   ├── radial_camera.jl       # find_radial_camera
+│   ├── homography.jl          # find_homography, refine_homography
+│   ├── radial_homography.jl   # find_radial_homography, refine_radial_homography
+│   ├── radial_camera.jl       # find_radial_camera, refine_radial_camera
 │   ├── fit_radial_camera.jl   # fit_radial_camera
 │   ├── division_camera_step.jl # division_camera_step, DivisionCameraState, DivisionCameraError
 │   ├── fit_division_camera.jl # fit_division_camera
 │   ├── fit_lens.jl            # fit_lens
-│   ├── essential.jl           # find_essential
-│   ├── pose.jl                # find_absolute_pose
-│   ├── fundmat.jl             # find_fundmat
-│   ├── hand_eye.jl             # find_hand_eye
+│   ├── essential.jl           # find_essential, refine_essential
+│   ├── pose.jl                # find_absolute_pose, refine_absolute_pose
+│   ├── fundmat.jl             # find_fundmat, refine_fundmat
+│   ├── hand_eye.jl             # find_hand_eye, refine_hand_eye
 │   ├── robot_world_hand_eye.jl          # fit_robot_world_hand_eye, RobotWorldHandEyeCalibration
 │   ├── refine_robot_world_hand_eye.jl  # refine_robot_world_hand_eye
 │   └── residual_mixture.jl    # fit_residual_mixture, MixtureEmConfig (a held model's residuals → mixture EM → MAP labels)

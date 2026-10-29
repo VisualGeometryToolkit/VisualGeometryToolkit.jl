@@ -40,12 +40,45 @@ function _ransac_pipeline(
         workspace = nothing,
         rng::Random.AbstractRNG = Random.default_rng()
     )
+    scoring = _class_scoring(problem, class, scoring, threshold, outlier_halfwidth)
+    config = something(config, RansacConfig(; max_trials, min_trials))
+    return ransac(problem, scoring; config, local_optimization, workspace, rng)
+end
+
+"""
+    _refine_pipeline(problem, class::Symbol, θ₀; threshold, local_optimization,
+                     scoring, workspace) -> RansacEstimate
+
+The shared body of every `refine_*`: the class's RANSAC local-optimization step
+run ONCE from the given model `θ₀` — what the loop runs on its hypothesis, with
+no sampling ([`locally_optimize`](@ref): score θ₀, take ITS consensus set under
+the scorer, `locally_optimize!` from θ₀, re-score, `test_consensus`; the seed
+comes back when the refined model is not kept). The defaults are the class's
+`find_*`'s, read from the same `[pipelines.<class>]` table (`threshold`,
+`local_optimization`); the keywords are `_ransac_pipeline`'s minus the
+sampling ones (`max_trials`, `min_trials`, `config` — a `RansacConfig` is the
+trial schedule and nothing else — and `rng`: no local optimization draws from
+the loop's generator; `locally_optimize!` takes none).
+"""
+function _refine_pipeline(
+        problem, class::Symbol, θ₀;
+        threshold::Union{Real, Nothing} = nothing,
+        outlier_halfwidth::Union{Real, Nothing} = nothing,   # refused (`_default_scoring`), with the way to say it
+        local_optimization::AbstractLocalOptimization = _dflt_lo(class),
+        scoring::Union{AbstractScoring, Nothing} = nothing,
+        workspace = nothing
+    )
+    scoring = _class_scoring(problem, class, scoring, threshold, outlier_halfwidth)
+    return locally_optimize(problem, θ₀; local_optimization, scoring, workspace)
+end
+
+# The scoring both pipelines run: the caller's, or MSAC at the caller's
+# `threshold`, else at the class's file value in the problem's residual unit.
+function _class_scoring(problem, class::Symbol, scoring, threshold, outlier_halfwidth)
     scoring === nothing && outlier_halfwidth === nothing && (
         threshold = something(threshold, _dflt("pipelines.$class", "threshold") * _threshold_unit(problem))
     )
-    scoring = _default_scoring(problem, scoring, threshold, outlier_halfwidth)
-    config = something(config, RansacConfig(; max_trials, min_trials))
-    return ransac(problem, scoring; config, local_optimization, workspace, rng)
+    return _default_scoring(problem, scoring, threshold, outlier_halfwidth)
 end
 
 # The unit of a class's file `threshold`: the problem's residual unit (pixels)

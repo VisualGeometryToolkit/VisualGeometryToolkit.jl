@@ -18,4 +18,5 @@ its local optimization.
 ```@docs
 CircleProblem
 find_circle
+refine_circle
 ```

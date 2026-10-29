@@ -245,3 +245,6 @@ function _refine_camera_and_poses(
     out = [relabel(_frames(p0)..., EuclideanMap(RotMatrix{3, Float64}(rotation(model(ch))), SVector{3, Float64}(translation(model(ch))))) for (p0, ch) in zip(poses, poses_out)]
     return (; camera = camera_out, poses = out), code, result.niterations, sqrt(S / n), n, CameraPosesRefineMetadata(r, S / ν, ν, free)
 end
+
+# The frame labels of a pose, to put back on the refined one.
+_frames(::EuclideanMap{3, T, R, V, S, D}) where {T, R, V, S, D} = (S, D)

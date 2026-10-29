@@ -14,6 +14,7 @@ HandEyeProblem
 
 ```@docs
 find_hand_eye
+refine_hand_eye
 ```
 
 ## Result Type

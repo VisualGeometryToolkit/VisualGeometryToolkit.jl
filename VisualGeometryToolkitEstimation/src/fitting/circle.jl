@@ -43,3 +43,22 @@ function find_circle(points::AbstractVector{<:StaticArrays.StaticVector{2, <:Rea
     _holds_minimal_sample(CircleProblem, length(points)) || return nothing
     return _ransac_pipeline(CircleProblem(points), :circle; kwargs...)
 end
+
+"""
+    refine_circle(circle, points; threshold = 1.0,
+        local_optimization = Triggs{CauchyShape}(scale_multiple = 2.5),
+        scoring = nothing, workspace = nothing) -> RansacEstimate
+
+The 2D circle through `points` refined from the given `circle`:
+[`find_circle`](@ref)'s step without the sampling. `local_optimization` is the
+circle's RANSAC local-optimization step, run here alone from the given model (no
+sampling): `circle` is scored, its consensus set under the scorer is the one a
+consensus-anchored strategy reads its scale from, and the strategy runs once
+from it. Every default is `find_circle`'s (`[pipelines.circle]`); the keywords
+are those of every `refine_*`, documented on [`refine_homography`](@ref).
+`nothing` if fewer than 3 points.
+"""
+function refine_circle(circle::VgtkCore.Circle, points::AbstractVector{<:StaticArrays.StaticVector{2, <:Real}}; kwargs...)
+    _holds_minimal_sample(CircleProblem, length(points)) || return nothing
+    return _refine_pipeline(CircleProblem(points), :circle, circle; kwargs...)
+end

@@ -105,8 +105,6 @@ max_iter = 100                   # the reprojection LM's cap on ACCEPTED iterati
 # own to share, so only a cost at the rounding floor counts as an exact fit.
 ftol = 2.220446049250313e-16
 
-[refine_absolute_pose]
-max_iter = 100                   # the bearing pose LM's cap on ACCEPTED iterations (NLLSsolver's count; see [chart_lm])
 [refine_camera_and_poses]
 max_iter = 100                   # the camera + poses LM's cap on ACCEPTED iterations (NLLSsolver's count; see [chart_lm])
 # NLLSsolver's relative cost decrease and step tolerance (chart units), and the
@@ -158,8 +156,8 @@ ftol = 1.0e-10
 # without a tolerance (a non-finite trial, the consecutive-failure cap), is
 # `:converged` only when the cost is zero by the cost tolerance (F < ftol) or
 # max_j |J_jᵀf| / (‖J_j‖‖f‖) ≤ this at the returned point; `:stalled`
-# otherwise. Shared by every chart LM — the LO refits, `fit_lens`,
-# `refine_ellipse` — and by `refine_robot_world_hand_eye` (VGC
+# otherwise. Shared by every chart LM — the LO refits and `fit_lens` — and by
+# `refine_robot_world_hand_eye` (VGC
 # `nlls_retcode`). Measured 2026-10-01 (the cosine at every step-size stop):
 # genuine convergence on noisy data ≤ 6.2e-7 (218 346 LO refits of the LM
 # benchmark scenes; the RVG suite's noisy fits ≤ 4e-8); convergence at a

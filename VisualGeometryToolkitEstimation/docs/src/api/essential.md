@@ -21,6 +21,7 @@ EssentialProblem
 
 ```@docs
 find_essential
+refine_essential
 ```
 
 ## Thresholds and operating points
@@ -51,4 +52,5 @@ is its RANSAC; a scorer or a lift from another package plugs in as for
 ```@docs
 RotationProblem
 find_rotation
+refine_rotation
 ```

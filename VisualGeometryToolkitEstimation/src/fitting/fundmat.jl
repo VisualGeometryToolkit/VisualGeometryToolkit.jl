@@ -31,3 +31,23 @@ function find_fundmat(
     _holds_minimal_sample(FundMatProblem, length(pairs)) || return nothing
     return _ransac_pipeline(FundMatProblem(pairs), :fundmat; kwargs...)
 end
+
+"""
+    refine_fundmat(F, correspondences; threshold = 3.0,
+        local_optimization = Irls{TLSShape}(), scoring = nothing, workspace = nothing)
+        -> RansacEstimate
+
+The fundamental matrix `F` refined against `correspondences`:
+[`find_fundmat`](@ref)'s step without the sampling. `local_optimization` is the
+fundamental matrix's RANSAC local-optimization step, run here alone from the
+given model (no sampling). Every default is `find_fundmat`'s
+(`[pipelines.fundmat]`); the keywords are those of every `refine_*`, documented
+on [`refine_homography`](@ref). `nothing` for fewer than 7 correspondences.
+"""
+function refine_fundmat(
+        F, pairs::AbstractVector{<:Pair{<:StaticArrays.StaticVector{2}, <:StaticArrays.StaticVector{2}}};
+        kwargs...
+    )
+    _holds_minimal_sample(FundMatProblem, length(pairs)) || return nothing
+    return _refine_pipeline(FundMatProblem(pairs), :fundmat, F; kwargs...)
+end

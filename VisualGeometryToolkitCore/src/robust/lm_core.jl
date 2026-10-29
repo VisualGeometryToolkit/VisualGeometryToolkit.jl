@@ -503,7 +503,7 @@ Gauss–Newton Hessian), so one solve is the robust M-estimate — no reweightin
 loop. `F` is `Σᵢ ρ(‖rᵢ‖²)` at `x` (NLLSsolver's cost is `½ρ`); the knobs, the
 returned code and its retcode ([`lm_retcode`](@ref)) are the plain chart LM's,
 its stall postcondition the cosine of the rows weighted by `ρ′` (the robust
-gradient's weights); its exact-fit test passes on the unweighted cost, or on
+gradient's weights); its exact-fit test succeeds on the unweighted cost, or on
 the weighted cost when some datum carries weight (every datum past a
 redescending cutoff is a plateau, not a fit). On return the workspace's `r`
 holds the unweighted rows at `x`.

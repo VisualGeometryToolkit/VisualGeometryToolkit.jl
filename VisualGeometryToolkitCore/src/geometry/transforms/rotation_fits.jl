@@ -118,7 +118,7 @@ function spectral_rotation_averaging(relative::AbstractDict{<:Tuple{K, K}}, weig
 end
 
 # Every frame reachable from the first through the pairs (either direction);
-# the caller passes only the pairs that carry weight.
+# the caller supplies only the pairs that carry weight.
 function _check_connected(frames, pairs)
     adj = Dict(k => Set{eltype(frames)}() for k in frames)
     for (i, j) in pairs

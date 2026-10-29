@@ -68,3 +68,39 @@ end
     sp0 = Makie.convert_arguments(Makie.Plot{Makie.plot}, plain; extent = 3.0)
     @test sp.args[1] == sp0.args[1] == Circle.(discs, Ref(3.0))
 end
+
+# PointFrame: the scale-free point feature — a detection of a point and its
+# 2×2 position covariance, whose ellipse is the error ellipse.
+@testitem "PointFrame: a point feature with a position covariance" begin
+    using Test
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: Attributed, Uncertain, CovMat, Point2, PointFrame, FeatureFrame,
+        AbstractDetection, feature_frame, centroid, geom, cov, center
+
+    p = PointFrame(10.0, 20.0)
+    @test p isa FeatureFrame{Float64} && p.center == Point2(10.0, 20.0) && center(p) == p.center
+    @test PointFrame(Point2(10.0, 20.0)) === p === PointFrame([10.0, 20.0]) === PointFrame(p)
+    @test PointFrame(1, 2.5) isa PointFrame{Float64}
+    @test PointFrame{Float32}(p) === PointFrame(Point2(10.0f0, 20.0f0))
+    @test convert(PointFrame{Float32}, p) isa PointFrame{Float32}
+
+    Σ = CovMat{2, Float64}(4.0, 1.0, 1.0, 2.0)
+    u = Uncertain(p, Σ)
+    det = Attributed(u, (label = :corner,))
+    @test det isa AbstractDetection && u isa AbstractDetection
+    @test feature_frame(det) === p && cov(det.value) === Σ && geom(u) === p
+    @test det.center == p.center && det.label === :corner && centroid(det) == p.center
+
+    # the error ellipse is the bare point's, at every sigma
+    for s in (1, 3)
+        e, e_point = Ellipse(u; sigma = s), Ellipse(Uncertain(p.center, Σ); sigma = s)
+        @test e.center == p.center && (e.a, e.b, e.θ) == (e_point.a, e_point.b, e_point.θ)
+    end
+    @test Ellipse(det; sigma = 2) == Ellipse(u; sigma = 2)                     # a detection's: the same
+    @test Ellipse(Attributed(Uncertain(p, inv(Σ)), (;)); sigma = 2).a ≈ Ellipse(u; sigma = 2).a
+    e = Ellipse(Uncertain(p, CovMat{2, Float64}(4.0, 0.0, 0.0, 1.0)); sigma = 1)
+    @test (e.a, e.b) == (2.0, 1.0)
+    @test Ellipse(Uncertain(p, inv(Σ)); sigma = 1).a ≈ Ellipse(u; sigma = 1).a   # a stored precision
+    # no scale: no region
+    @test_throws MethodError Ellipse(p)
+end

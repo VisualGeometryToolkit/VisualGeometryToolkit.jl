@@ -67,6 +67,65 @@ Disc(d::Disc) = d
 # Properties
 scale(d::Disc) = d.σ
 
+# =============================================================================
+# PointFrame (2 DOF) - a point feature with no scale
+# =============================================================================
+
+"""
+    PointFrame{T} <: FeatureFrame{T}
+
+A point feature: a position and nothing else — no scale, no orientation, no
+shape. What a detector that locates points without a size estimate returns (a
+corner, the centre of a rotationally symmetric pattern). Its uncertainty is a
+2×2 position covariance, `Uncertain(PointFrame(c), CovMat{2}(…))`, whose
+[`Ellipse`](@ref) is the error ellipse — and so is a detection's of one,
+`Ellipse(Attributed(Uncertain(PointFrame(c), Σ), metadata))`.
+
+With no scale, a `PointFrame` has no region, `AffineMap` or characteristic scale:
+those methods of the scaled frames do not apply.
+
+# Fields
+- `center::Point2{T}`: the position in image coordinates
+
+# Example
+```jldoctest
+julia> using VisualGeometryToolkitCore
+
+julia> p = Uncertain(PointFrame(10.0, 20.0), CovMat{2, Float64}(4.0, 0.0, 0.0, 1.0));
+
+julia> e = Ellipse(p; sigma = 1);   # the 1σ error ellipse
+
+julia> (e.center, e.a, e.b)
+([10.0, 20.0], 2.0, 1.0)
+```
+
+See also: [`Disc`](@ref)
+"""
+struct PointFrame{T} <: FeatureFrame{T}
+    center::Point2{T}
+end
+
+PointFrame(x::Real, y::Real) = PointFrame(Point2(promote(x, y)...))
+PointFrame(center::AbstractVector) = PointFrame(Point2(center...))
+PointFrame(p::PointFrame) = p
+PointFrame{T}(p::PointFrame) where {T} = PointFrame{T}(Point2{T}(p.center))
+Base.convert(::Type{PointFrame{T}}, p::PointFrame) where {T} = PointFrame{T}(p)
+
+"""
+    Ellipse(p::Uncertain{<:PointFrame, <:Union{CovMat{2}, PrecMat{2}}}; sigma=3) -> Ellipse
+
+The `sigma`-σ error ellipse of an uncertain point frame: the bare point's
+`Ellipse(Uncertain(center, Σ); sigma)` at the frame's centre.
+"""
+Ellipse(p::Uncertain{<:PointFrame, <:Union{CovMat{2}, PrecMat{2}}}; sigma::Real = 3) =
+    Ellipse(Uncertain(getfield(p, :value).center, getfield(p, :attributes)); sigma)
+
+# A detection of an uncertain point frame: its error ellipse (a point frame has
+# no region). One method per statistical form, so neither overlaps the scaled
+# frames' `Ellipse(::Attributed{<:Uncertain{<:FeatureFrame, <:CovMat}}; cutoff)`.
+Ellipse(d::Attributed{<:Uncertain{<:PointFrame, <:CovMat{2}}}; sigma::Real = 3) = Ellipse(getfield(d, :value); sigma)
+Ellipse(d::Attributed{<:Uncertain{<:PointFrame, <:PrecMat{2}}}; sigma::Real = 3) = Ellipse(getfield(d, :value); sigma)
+
 """
     Base.extrema(d::Disc) -> (Point2, Point2)
 

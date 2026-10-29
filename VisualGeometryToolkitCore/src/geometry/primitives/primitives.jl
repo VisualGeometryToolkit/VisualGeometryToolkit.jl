@@ -66,7 +66,7 @@ import ..VisualGeometryToolkitCore: HomEllipseMat, HomCircleMat, Conic
 
 # Import detection types (needed for Circle construction)
 using ..VisualGeometryToolkitCore: AbstractDetection, FeatureFrame, feature_frame
-using ..VisualGeometryToolkitCore: Uncertain, PrecMat, CovMat, cov
+using ..VisualGeometryToolkitCore: Uncertain, PrecMat, CovMat, cov, Attributed
 using ..VisualGeometryToolkitCore: px, _strip_coords, _coord_unit   # the feature-coordinate compute boundary (base/feature_coords.jl)
 import ..VisualGeometryToolkitCore: strip_or_bare   # extended for the feature frames (base/units.jl)
 using ..VisualGeometryToolkitCore: propagate   # the congruence A^{-T}·Q·A^{-1} (base/propagate.jl)
@@ -198,6 +198,7 @@ export RegionIntersection, WholePlane   # `a ∩ b` of two 2-D regions, lazily, 
 # 2. FEATURE FRAMES - Blob primitives with increasing DOF
 # -----------------------------------------------------------------------------
 export FeatureFrame            # Abstract base type
+export PointFrame              # 2 DOF: center only (no scale)
 export Disc                    # 3 DOF: center + σ (isotropic)
 export OrientedDisc            # 4 DOF: + orientation
 export EllipticFrame           # 5 DOF: + aspect ratio (a, b, θ)

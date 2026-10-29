@@ -99,7 +99,7 @@ export iou, overlap_area, coverage, best_iou_match
 public overlap_method, geom_rank
 
 # Feature frames (transformation-based geometric primitives)
-export FeatureFrame, Disc, OrientedDisc, EllipticFrame, AffineFrame
+export FeatureFrame, PointFrame, Disc, OrientedDisc, EllipticFrame, AffineFrame
 export Paraboloid3D, coeffs
 export is_valid_shape
 public DEFAULT_MAX_ASPECT_RATIO   # the default `is_valid_shape` bound, reached qualified

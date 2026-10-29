@@ -107,8 +107,9 @@ quasi-interpolated start or an optimizer stepping in each control's tangent
 plane has controls off the sphere. `nominal` is a pinhole
 `LogicalIntrinsics` the model reports with (the parametric camera it was
 built from; [`nominal_intrinsics`](@ref)) — projection never reads it.
-`domain` is the region of the sensor (pixels) the model's source images;
-[`imaged_region`](@ref)`(m)` is the calibrated area ∩ `domain`.
+`domain` is the region of the sensor (pixels) the camera images — a supplied
+image circle (a datasheet's [`image_circle`](@ref) or a measured one), or the
+`WholePlane()`; [`imaged_region`](@ref)`(m)` is the calibrated area ∩ `domain`.
 
     CentralGenericModel(source, (width, height); grid_size, calib_area, init, ...)
 
@@ -120,11 +121,14 @@ variation-diminishing approximation, which smooths curvature by (h²/6)·f″);
 `init = :quasi_interpolate` is the 4th-order local quasi-interpolant on a
 lattice extended one node past the area ([`quasi_interpolant`](@ref)), with its
 border rule for a source whose domain ends near or inside the area. The first
-two clamp node sampling to the source's lit field — `sampling_margin`
-(default 0.97) times its [`image_circle`](@ref) when the lens has one,
-otherwise times its imaging domain — so the global prefilter solve never rings
-against near-fold curvature or unlit extrapolation. The bridge from the
-parametric zoo into the generic family.
+two clamp node sampling to where the source can be evaluated — `sampling_margin`
+(default 0.97) times its lens model's [`valid_domain`](@ref) when the lens has
+a limit, otherwise times its imaging domain — so the global prefilter solve
+never rings against near-fold curvature or extrapolation past the formula. A
+model built from a parametric camera does NOT inherit that valid domain as its
+`domain` (where the formula holds is not where light falls): its `domain` is
+the one supplied, `WholePlane()` by default; one built from a generic model keeps
+that model's. The bridge from the parametric zoo into the generic family.
 
 The grid may be any matrix of `Vec3{T}` (a device array inside a kernel,
 through `Adapt`); `T` is the float type of the controls. `Adapt` carries the
@@ -261,7 +265,8 @@ nominal_intrinsics(m::_GenericModel) = m.nominal
 
 The region of the sensor a generic grid model images, in pixels: its
 calibrated area (the closed rectangle `[min, max + 1]`) ∩ its `domain`
-(`WholePlane()` unless the model was built with the domain of its source).
+(`WholePlane()` unless the model was built with a `domain`, or from a generic
+model that had one).
 `free_nodes(m, imaged_region(m))` are the nodes that can reach an imaged pixel.
 """
 imaged_region(m::_GenericModel) = _calibrated_rect(m) ∩ m.domain
@@ -976,16 +981,18 @@ function _prefilter_matrix(n::Int)
     return LinearAlgebra.Tridiagonal(dl, d, du)
 end
 
-# Node-sampling clamp: the source lens's lit field, as a normalized radius about
-# the principal point — its image circle (`_lens_circle_radius`, image_circle.jl:
-# the one owner of the circle) when the lens has a limit of its own, otherwise
+# Node-sampling clamp: where the source lens can be EVALUATED, as a normalized
+# radius about the principal point — its valid domain (`_valid_domain_radius`,
+# image_circle.jl: the one owner of that radius) when the lens has a limit of its
+# own. This is legitimately the model's validity, not where light falls: a node
+# sampled past the fold reads the folded branch, whatever the sensor sees. Otherwise
 # its imaging domain (`_imaging_domain_radius`: a lens with no fold may still
 # image only a bounded disc — an equidistant fisheye stops at θ = π — and a node
 # sampled past it backprojects to NaN, which the global prefilter spreads to
 # every control). `Inf` for a lens that images the whole plane. A node outside
 # `sampling_margin` times that disc samples at the radially clamped pixel.
 #
-# The margin is load-bearing: at the circle itself the source's profile folds
+# The margin is load-bearing: at the valid domain's edge the source's profile folds
 # (its curvature is unbounded) and at the domain's edge `backproject` turns
 # NaN, so a node sampled ON the boundary would carry the near-fold curvature,
 # or a NaN, into the GLOBAL prefilter solve, which spreads it as ringing
@@ -994,13 +1001,13 @@ end
 function _sampling_radius(model::CameraModel)
     l = lens(model)
     ρ = try
-        _lens_circle_radius(l)
+        _valid_domain_radius(l)
     catch e
         e isa ArgumentError || rethrow()
         throw(
             ArgumentError(
-                "generic model from a $(nameof(typeof(l))) camera: the node sampler clamps to the lens's lit " *
-                    "field, but its image circle is undefined — $(e.msg)"
+                "generic model from a $(nameof(typeof(l))) camera: the node sampler clamps to the lens model's " *
+                    "valid domain, which is undefined — $(e.msg)"
             )
         )
     end
@@ -1091,11 +1098,11 @@ _source_direction(m::CentralGenericModel, px) = normalize(SVector{3, Float64}(in
 # non-finite direction) the sample is the linear extrapolation, per axis, of
 # the two samples inward of it (from the nearest sample inside the area).
 # Where those are not imaged either — the source's domain ends INSIDE the area
-# (a lens returns no ray past its fold or image circle) — the sample is the
+# (a lens returns no ray past its fold, the edge of its valid domain) — the sample is the
 # linear extrapolation of the first two imaged samples on the way from the node
 # towards the area's centre; a node with no imaged sample on that way is an
 # `ArgumentError`. Those made-up samples carry a smooth continuation, not a
-# ray: the model's `domain` (the source's imaged region) says where it images.
+# ray: the model's `domain` (a supplied image circle) says where it images.
 function _quasi_interpolation_directions(source, m::_GenericLattice)
     gh, gw = _grid_size(m)
     Cx, Cy = gw - 3, gh - 3
@@ -1133,18 +1140,12 @@ function _quasi_interpolation_directions(source, m::_GenericLattice)
     return quasi_interpolant(F)[2:(end - 1), 2:(end - 1)]
 end
 
-# Default nominal pinhole and domain of a model built from a source.
+# Default nominal pinhole and domain of a model built from a source. A parametric
+# camera gives no domain: its lens's valid domain says where the formula holds,
+# not where light falls, so the whole plane unless the caller supplies a circle.
 _default_nominal(c::CameraModel) = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(calibration_matrix(c))))
 _default_nominal(m::_GenericModel) = m.nominal
 _default_nominal(_) = nothing
-function _default_domain(c::CameraModel)
-    return try
-        image_circle(c)
-    catch e
-        e isa ArgumentError || rethrow()
-        WholePlane()              # no image circle defined for the lens: nothing is claimed
-    end
-end
 _default_domain(m::_GenericModel) = m.domain
 _default_domain(_) = WholePlane()
 
@@ -1152,7 +1153,7 @@ function _init_directions(source, seed::_GenericModel, init::Symbol, sampling_ma
     init === :quasi_interpolate && return _quasi_interpolation_directions(source, seed)
     source isa CameraModel || throw(
         ArgumentError(
-            "generic model init :$init samples a camera model's lit field; a $(nameof(typeof(source))) source " *
+            "generic model init :$init samples a camera model inside its valid domain; a $(nameof(typeof(source))) source " *
                 "takes init = :quasi_interpolate"
         )
     )

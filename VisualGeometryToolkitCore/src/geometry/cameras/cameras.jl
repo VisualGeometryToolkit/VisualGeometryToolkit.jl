@@ -74,7 +74,7 @@ using ..VisualGeometryToolkitCore: natural_extrapolation   # the natural boundar
 using ..VisualGeometryToolkitCore: TagRegistry, tag_of, snake_case   # the target calibration kinds' tags (quality/tag_registry.jl)
 using ..VisualGeometryToolkitCore: Circle, Ellipse, Circle3D, is_ellipse, boundary_points
 using ..VisualGeometryToolkitCore: intersects   # a node's support against the imaged region (support.jl)
-using ..VisualGeometryToolkitCore: HomEllipseMat, WholePlane   # the conic matrix an image circle is built from, and the whole plane (image_circle.jl)
+using ..VisualGeometryToolkitCore: HomEllipseMat, WholePlane   # the conic matrix a valid domain is built from, and the whole plane (image_circle.jl)
 import ..VisualGeometryToolkitCore: HomographyMap  # Import (not using) to extend the labeled camera lift
 
 using ..VisualGeometryToolkitCore: Plane3D, distance  # For chirality-filtered P3P
@@ -894,7 +894,7 @@ include("captures.jl")  # Trajectory, TargetPoses, TargetPoints2D/3D: per-frame 
 include("stereo.jl")
 include("rectify.jl")    # stereo rectification on the rig types (0.16)
 include("utilities.jl")
-include("image_circle.jl")  # the image circle: predicted from the lens or a datasheet through the pitch
+include("image_circle.jl")  # the lens model's valid domain, and the image circle from a datasheet through the pitch
 include("random.jl")
 
 # Include planar homography (depends on PosedCamera)
@@ -1005,8 +1005,9 @@ export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3
 export convert_frame                      # the one way to change the pixel frame of pixel data
 export rectify                            # stereo rectification: rectified pinhole rig + FramedImage pair
 export view_angle_limit                   # honest θ-domains
-export image_circle                       # the lit region of the sensor, from the lens or a datasheet
-export imaged_region                      # Rect(extent) ∩ image_circle: what the camera images
+export valid_domain                       # where the lens MODEL is valid, not where light falls
+export image_circle                       # the lit region of the sensor, from a datasheet through the pitch
+export imaged_region                      # Rect(extent) ∩ a supplied image circle: what the camera images
 export SupportTrait, GlobalSupport, LocalSupport, support_trait, nodes, support, node_position   # supports on the sensor (support.jl)
 export free_nodes, node_mask, cubic_bspline_footprint
 export BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent nodes of a lattice outside an imaged region (support.jl)

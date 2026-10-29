@@ -27,7 +27,7 @@ end
 
 The reverse containment: does the rectangle lie inside the ellipse? The
 ellipse is convex, so the closed rectangle lies inside it exactly when its four
-corners ([`rect_corners`](@ref)) do. `Rect(extent) ∈ image_circle(camera)` asks
+corners ([`rect_corners`](@ref)) do. `Rect(extent) ∈ image_circle(camera, diameter)` asks
 whether a camera's whole pixel extent is lit.
 
 # Example

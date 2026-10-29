@@ -3,7 +3,7 @@
 # =============================================================================
 #
 # A generic model built from a source camera carries the source's pinhole
-# (`nominal_intrinsics`) and imaged region (`domain`: an image circle). Both
+# (`nominal_intrinsics`) and the image circle it is given (`domain`). Both
 # travel in the model's body, optional and additive in the unreleased schemas,
 # bit for bit; absent, the body and the identity are the bare grid's.
 
@@ -15,7 +15,8 @@
     using Rotations: RotXYZ
 
     src = CameraModel(; focal = 31.7, pp = (32.25, 23.875), lens = KannalaBrandt(-4 / (3π^2)))
-    gc = CentralGenericModel(src, (64, 48); grid_size = (8, 7), init = :quasi_interpolate)
+    circle = Ellipse(Point2(32.25, 23.875), 33.2, 33.2, 0.0)   # the image circle, supplied (a lens model's fold is not one)
+    gc = CentralGenericModel(src, (64, 48); grid_size = (8, 7), init = :quasi_interpolate, domain = circle)
     @test nominal_intrinsics(gc) isa LogicalIntrinsics && gc.domain isa Ellipse
     P = [Vec3{Float64}(1e-3 * gx, -2e-3 * gy, 0.0) for gy in 1:7, gx in 1:8]
     nc = NoncentralGenericModel(64, 48, 0, 0, 63, 47, gc.grid, P; unit_controls = false, gc.nominal, gc.domain)

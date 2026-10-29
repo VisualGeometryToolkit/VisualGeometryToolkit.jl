@@ -90,13 +90,15 @@ uses the focal length of that axis:
 The answer is twice the SMALLEST of those points' view angles — the nearer
 edge when the principal point is off-centre, so the cone of that full angle
 about the optical axis is imaged inside the extent in that dimension. For a
-lens that is not radially symmetric the image circle is inscribed, so an edge
-point between it and the true lit boundary counts as the lens's limit: the
+lens that is not radially symmetric the [`valid_domain`](@ref) is inscribed, so
+an edge point between it and the true limit counts as the lens's limit: the
 answer can then overstate the angle slightly.
 
-Clipping: a point outside the lens's [`image_circle`](@ref) (or one the lens
-does not image) counts as the lens's own limit, so when the image circle clips
-the sensor in that dimension the answer is `2 · view_angle_limit(lens)`.
+Clipping: a point outside the lens model's [`valid_domain`](@ref) (or one the
+lens does not image) counts as the lens's own limit, so when the valid domain
+clips the sensor in that dimension the answer is `2 · view_angle_limit(lens)`.
+This is the model's field of view; where light falls (a datasheet's
+[`image_circle`](@ref)) does not enter.
 
 ```julia
 cam = BoundedCamera(CameraModel(K; lens = Lens(Equidistant())), sensor("Sony", "IMX250"))
@@ -118,9 +120,9 @@ function fov(camera::BoundedCamera; dimension = :horizontal)
         throw(ArgumentError("fov: dimension must be :horizontal, :vertical or :diagonal, got $(repr(dimension))"))
     end
     θ_lim = Float64(view_angle_limit(lens(m)))
-    q = image_circle(m)
+    q = valid_domain(m)
     θ = minimum(pts) do u
-        Point2(u) ∈ q || return θ_lim          # outside the circle: past the lens's limit (or on its folded branch)
+        Point2(u) ∈ q || return θ_lim          # outside the valid domain: past the lens's limit (or on its folded branch)
         b = backproject(m, u)                  # the camera's own pixel → bearing
         θu = atan(hypot(b[1], b[2]), b[3])
         isfinite(θu) ? min(θu, θ_lim) : θ_lim

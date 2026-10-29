@@ -120,8 +120,8 @@
                 # imaged just inside a limit of the lens's own (exactly AT a lift's
                 # fold, the ray's root is √eps-conditioned and may land past it)
                 θ < C._view_angle_edge(l) && @test isfinite(C.projected_radius(l, θ * (1 - 1.0e-6)))
-                ρc = C._lens_circle_radius(l)
-                @test (ρc === nothing) == (C._lens_circle_radius(l64) === nothing)
+                ρc = C._valid_domain_radius(l)
+                @test (ρc === nothing) == (C._valid_domain_radius(l64) === nothing)
                 ρc === nothing || @test isfinite(ρc) && ρc > 0
             end
         end

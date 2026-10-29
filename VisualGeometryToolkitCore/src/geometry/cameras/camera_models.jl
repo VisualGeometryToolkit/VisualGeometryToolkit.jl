@@ -237,7 +237,7 @@ function calibration_matrix(model::CameraModel)
 end
 
 # The principal point of a camera's pixel frame, in Float64 — the one read the
-# image circle, `fov` and the rectification panels make.
+# valid domain, the datasheet image circle, `fov` and the rectification panels make.
 _principal_point(camera::CameraModel) = (K = calibration_matrix(camera); Point2{Float64}(K[1, 3], K[2, 3]))
 
 # ============================================================================
@@ -971,7 +971,7 @@ function undistorted_rect(
     return Rect(xmin, ymin, xmax - xmin, ymax - ymin)
 end
 
-# Not `image_circle`: fx · the radial factor's perspective-monotone radius (fx only, decentering ignored, Inf without a fold) — equal to its radius only for an isotropic K and a radially symmetric folding lens.
+# Not `valid_domain`: fx · the radial factor's perspective-monotone radius (fx only, decentering ignored, Inf without a fold) — equal to its radius only for an isotropic K and a radially symmetric folding lens.
 """
     horizon_radius(model) -> Float64
 

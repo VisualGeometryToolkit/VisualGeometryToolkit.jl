@@ -159,12 +159,17 @@
         @test qf.grid == Vec3{Float64}.(quasi_interpolant(Se)[2:(end - 1), 2:(end - 1)])
         @test maximum(p -> acos(min(1.0, dot(backproject(qf, p), backproject(pin, p)))), inside) < 2e-3
         # a lens whose domain ends INSIDE the area (a 180° fisheye's fold): every control finite (the centre-ward extrapolation
-        # fills the nodes past the fold), the domain is the lens's image circle, and inside it the model follows the lens
+        # fills the nodes past the fold), and inside the fold the model follows the lens. The fold is the lens MODEL's valid
+        # domain, not where light falls: the model does not inherit it (the whole plane), and keeps a supplied image circle
         fish = cam(150.0, KannalaBrandt(-4 / (3π^2)))
-        qk = CentralGenericModel(fish, (W, H); grid_size = (20, 16), init = :quasi_interpolate)
+        circ = Ellipse(Point2(320.0, 240.0), 150π / 3, 150π / 3, 0.0)                  # its image circle, supplied
+        @test CentralGenericModel(fish, (W, H); grid_size = (20, 16), init = :quasi_interpolate).domain === WholePlane()
+        @test CentralGenericModel(fish, (W, H); grid_size = (20, 16)).domain === WholePlane()
+        @test NoncentralGenericModel(fish, (W, H); grid_size = (20, 16)).domain === WholePlane()
+        qk = CentralGenericModel(fish, (W, H); grid_size = (20, 16), init = :quasi_interpolate, domain = circ)
         @test all(v -> all(isfinite, v), qk.grid)
-        @test qk.domain == image_circle(fish) && imaged_region(qk) isa RegionIntersection
-        circ = image_circle(fish)
+        @test qk.domain == circ && imaged_region(qk) isa RegionIntersection
+        @test CentralGenericModel(qk, (W, H); grid_size = (20, 16), init = :quasi_interpolate).domain == circ   # a generic source carries it over
         lit = [p for p in inside if norm(p - SVector(320.0, 240.0)) < 0.7 * circ.a]
         @test length(lit) > 200
         errs = [acos(min(1.0, dot(backproject(qk, p), backproject(fish, p)))) for p in lit]

@@ -150,6 +150,9 @@ const RETIRED_NAMES = String[
     "Lift" * "Family",                       # `LiftLens`
     "lens" * "_tag", "lens_from" * "_toml",  # the lens record: `lens_record`, `lens_from_record`
     "FramedDoubleSphere" * "Projection",     # `FramedLensProjection`
+    # the fold is the lens model's VALID DOMAIN, not its image circle (VisualGeometryToolkitCore,
+    # 2026-10-29): `valid_domain(camera)`; `image_circle` keeps only the datasheet form
+    "_lens" * "_circle_radius",              # `_valid_domain_radius`
     # one per-point function per batch (VisualGeometryToolkitCore, 2026-10-08): `pointwise!`
     "Batched" * "Map", "ComposedBatched" * "Map", "FramedBatched" * "Stage",
     "Batched" * "Distort", "Batched" * "Undistort", "undistort" * "_points!",

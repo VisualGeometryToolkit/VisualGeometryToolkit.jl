@@ -1,6 +1,8 @@
 # Supports on the sensor (cameras/support.jl): which of a model's parameters a
 # camera can see. A global model is all free; a lattice's node is free when its
-# footprint meets the imaged region `Rect(extent) ∩ image_circle`.
+# footprint meets the imaged region `Rect(extent) ∩ circle`, the image circle
+# supplied (here the disc the 180° fisheye's fold bounds, given as a measured
+# circle would be: where light falls is never predicted from the lens model).
 @testitem "support" begin
     using Test
     using VisualGeometryToolkitCore
@@ -12,14 +14,15 @@
 
     cam(f, l) = CameraModel(; focal = f, pp = (640.0, 480.0), lens = l)
     fold = KannalaBrandt(-4 / (3π^2))                      # a 180° fisheye, r(90°) = π/3
+    lit = Ellipse(Point2(640.0, 480.0), 250π / 3, 250π / 3, 0.0)   # its image circle at f = 250, supplied
 
-    @testset "imaged_region: the extent ∩ the image circle" begin
+    @testset "imaged_region: the extent ∩ the supplied image circle" begin
         bc = BoundedCamera(cam(250.0, fold), Size2(1280, 960))
-        R = imaged_region(bc)
+        R = imaged_region(bc, lit)
         @test R isa RegionIntersection
-        @test R.a == Rect(0, 0, 1280, 960) && R.b == image_circle(bc)
+        @test R.a == Rect(0, 0, 1280, 960) && R.b == lit
         @test Point2(640.0, 480.0) ∈ R && Point2(5.0, 5.0) ∉ R
-        @test imaged_region(BoundedCamera(cam(800.0, Pinhole()), Size2(1280, 960))) === Rect(0, 0, 1280, 960)
+        @test imaged_region(BoundedCamera(cam(800.0, Pinhole()), Size2(1280, 960)), WholePlane()) === Rect(0, 0, 1280, 960)
     end
 
     @testset "the trait and its contract" begin
@@ -30,7 +33,7 @@
         @test all(f -> any(g -> g === f, CONTRACT_GENERICS), (support_trait, nodes, support, node_position))
         @test node_position(fold, 1) === nothing
         # a global model: every parameter is free, one support covering everything
-        R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960)))
+        R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960)), lit)
         @test free_nodes(fold, R) === Colon()
         @test node_mask(fold, R) === Colon()
         θ = collect(1.0:5.0)
@@ -41,14 +44,14 @@
 
     @testset "a circular fisheye's grid model: nodes frozen where the footprint misses the circle" begin
         g = CentralGenericModel(cam(250.0, fold), (1280, 960); grid_size = (20, 16))
-        R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960)))
+        R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960)), lit)
         @test nodes(g) == CartesianIndices((16, 20))
         m = node_mask(g, R)
         @test size(m) == size(g.grid) == (16, 20)
         @test sum(m) == 108                                    # of 320
         @test free_nodes(g, R) == [i for i in nodes(g) if m[i]]
         # frozen exactly where the footprint misses the circle: brute-force sampling of each footprint
-        q = image_circle(BoundedCamera(cam(250.0, fold), Size2(1280, 960)))
+        q = lit
         for i in nodes(g)
             s = support(g, i)
             pts = [Point2(x, y) for x in range(minimum(s)[1], maximum(s)[1]; length = 31), y in range(minimum(s)[2], maximum(s)[2]; length = 31)]
@@ -63,11 +66,11 @@
         @test node_mask(gn, R) == m
         # a rectilinear lens images the whole extent: no node is frozen
         gr = CentralGenericModel(cam(800.0, Pinhole()), (1280, 960); grid_size = (20, 16))
-        @test all(node_mask(gr, imaged_region(BoundedCamera(cam(800.0, Pinhole()), Size2(1280, 960)))))
+        @test all(node_mask(gr, imaged_region(BoundedCamera(cam(800.0, Pinhole()), Size2(1280, 960)), WholePlane())))
     end
 
-    @testset "the sampler clamps nodes inside the lit field" begin
-        # every node of the circular fisheye's grid backprojects finitely, outside the circle too
+    @testset "the sampler clamps nodes inside the lens model's valid domain" begin
+        # every node of the circular fisheye's grid backprojects finitely, outside the valid domain too
         g = CentralGenericModel(cam(250.0, fold), (1280, 960); grid_size = (20, 16))
         @test all(v -> all(isfinite, v), g.grid)
         # the margin is a keyword (0.97 by default; 1 would sample the corner nodes AT the fold, which rings)
@@ -77,7 +80,7 @@
 
     @testset "a lift that never folds: sampled past 90°, finite and accurate" begin
         src = cam(300.0, Division(-0.3))                      # images the whole plane: no clamp
-        @test image_circle(src) === WholePlane()
+        @test valid_domain(src) === WholePlane()
         g = CentralGenericModel(src, (1280, 960); grid_size = (20, 16))
         @test all(v -> all(isfinite, v), g.grid)
         worst = 0.0                                           # angular error × f, in px
@@ -89,7 +92,7 @@
         @test worst < 0.2                                     # measured 0.13 px
     end
 
-    @testset "a lens whose circle is undefined: the sampler names itself" begin
+    @testset "a lens whose valid domain is undefined: the sampler names itself" begin
         struct BlindLens <: AbstractLensModel end             # images nothing
         VisualGeometryToolkitCore.project(::BlindLens, X::StaticVector{3}) = SVector(NaN, NaN)
         e = try
@@ -142,8 +145,9 @@ end
 
     cam(f, l) = CameraModel(; focal = f, pp = (640.0, 480.0), lens = l)
     fold = KannalaBrandt(-4 / (3π^2))                      # a 180° fisheye: its image circle lies inside the sensor
+    lit = Ellipse(Point2(640.0, 480.0), 250π / 3, 250π / 3, 0.0)   # that circle at f = 250, supplied
     g = CentralGenericModel(cam(250.0, fold), (1280, 960); grid_size = (20, 16))
-    R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960)))
+    R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960)), lit)
     rule = BoundaryRule(g, R)
     @test rule.interior == node_mask(g, R) && count(rule.interior) == 108
     @test sort(vcat(findall(rule.interior), rule.dependent)) == vec(collect(nodes(g)))
@@ -164,7 +168,7 @@ end
     junk = [rule.interior[i] ? θ[i] : SVector(5.0, -3.0, 1.0) for i in nodes(g)]
     gm(grid) = CentralGenericModel(g.width, g.height, g.calib_min_x, g.calib_min_y, g.calib_max_x, g.calib_max_y, grid; unit_controls = false)
     mf, mj = gm(full), gm(junk)
-    q = image_circle(BoundedCamera(cam(250.0, fold), Size2(1280, 960)))
+    q = lit
     rim = [SVector{2, Float64}(q.center + 0.9999 * (SVector{2, Float64}(boundary_point(q, t)) - q.center)) for t in range(0, 2π; length = 721)]
     imaged = vcat([SVector(x, y) for x in 0.5:9:1279.5, y in 0.5:9:959.5 if Point2(x, y) ∈ R], filter(p -> Point2(p...) ∈ R, rim))
     @test length(imaged) > 2000 + 700                                      # a raster and the circle's rim

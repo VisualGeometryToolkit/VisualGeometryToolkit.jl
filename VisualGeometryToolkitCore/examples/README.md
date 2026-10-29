@@ -13,7 +13,7 @@ julia --project=. examples/imshow_demo.jl      # needs GLMakie in the environmen
 | File | Surface |
 |---|---|
 | `camera_demo.jl` | `CameraModel`, lens models, `PosedCamera` with a pose, `project` / `backproject`, normalized distortion |
-| `image_circle.jl` | `image_circle` from the lens and from a datasheet through the sensor's pitch, `Rect(extent) ∈ circle`, `fov`, and a grid lens's domain `Rect(extent) ∩ image_circle` |
+| `image_circle.jl` | `valid_domain` (where the lens model holds) and `image_circle` from a datasheet through the sensor's pitch (where light falls), `Rect(extent) ∈ circle`, `fov`, and a grid lens's domain `imaged_region(camera, circle)` |
 | `ellipse_transforms_demo.jl` | `Ellipse`, conic matrices, and covariant transforms under CoordinateTransformations maps |
 | `imshow_demo.jl` | `imshow` (Axis-based) and `CampixelImshow` + `poly!` overlays through the Makie extension |
 

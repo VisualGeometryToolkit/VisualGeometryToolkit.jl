@@ -69,7 +69,7 @@ has_distortion(::Pinhole) = false
 # Pupil trait — exit-pupil geometry of a lens model
 # =============================================================================
 
-# Not `image_circle`'s ρ: the perspective-undistortion bound of the radial factor alone (capped at the frame edge, Inf without a fold), a normalized distorted radius; it equals ρ only for a radially symmetric folding lens.
+# Not `valid_domain`'s ρ: the perspective-undistortion bound of the radial factor alone (capped at the frame edge, Inf without a fold), a normalized distorted radius; it equals ρ only for a radially symmetric folding lens.
 """
     monotone_radius(lens) -> Real
 
@@ -144,7 +144,7 @@ lens whose bound is radially symmetric reads it at azimuth 0. `cap` bounds the a
 scan runs to it (default `π − 10⁻³`); the closed forms clamp to it (default
 none). A ray projected EXACTLY at the limit can be NaN (a lift's root there is
 √eps-conditioned); a caller that needs a finite value steps inside, as the
-image circle's inscribed radius and the generic models' sampler do.
+valid domain's inscribed radius and the generic models' sampler do.
 """
 function view_angle_limit(lens::AbstractLensModel; cap::Real = _SPHERE_EDGE)
     θs = range(1.0e-4, float(cap); length = 1024)
@@ -210,7 +210,7 @@ end
 # The minimum of a function of the azimuth ψ: `n` samples around the circle, the
 # least refined by a golden-section search between its neighbours (`iters`
 # steps); the smallest value evaluated. The one azimuthal minimizer: the chain's
-# view-angle limit above and the image circle's inscribed radius
+# view-angle limit above and the valid domain's inscribed radius
 # (image_circle.jl).
 function _azimuth_minimum(f, n::Int; iters::Int = 40)
     ψs = range(0, 2π; length = n + 1)[1:n]
@@ -280,7 +280,7 @@ radial_part(l::LiftLens) = l
 # projection; for a distorted lens, whose `backproject` inverts numerically, the
 # smaller of its extents along the two image axes. `Inf` for a lens that images
 # the whole plane.
-# Not `image_circle`: where `backproject` turns NaN (π for an undistorted equidistant lens, to which `image_circle` answers the whole plane).
+# Not `valid_domain`: where `backproject` turns NaN (π for an undistorted equidistant lens, to which `valid_domain` answers the whole plane).
 _imaging_domain_radius(l::AbstractLensModel) =
     l isa LiftLens ? Inf : l.distortion === nothing ? _frame_domain(l.projection) : _bisected_domain_radius(l)
 _frame_domain(p::AbstractProjection) =

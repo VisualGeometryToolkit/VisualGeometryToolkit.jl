@@ -111,27 +111,29 @@ option, keyed by `parameter_names`.
 poles bound what the lens images ([`view_angle_limit`](@ref),
 `monotone_radius`) — and [`radial_part`](@ref) the lens with only that factor.
 
-## The image circle
+## The valid domain and the image circle
 
-A local lens model — a grid of nodes rather than a formula — has observations
-only where the lens lights the sensor, so its domain is
-`Rect(extent(camera)) ∩ image_circle(camera)`. [`image_circle`](@ref) predicts
-that region; nothing is segmented from an image. It is built either from the
-fitted lens (the cone of [`view_angle_limit`](@ref) through the radial
-projection and `K`) or from a lens datasheet's image-circle diameter through
-the sensor's pitch, and both routes return the same primitive.
+Two regions of the sensor, easy to confuse and never interchangeable:
 
-- The circle is a conic, an [`Ellipse`](@ref) in pixels about the principal
-  point: an ellipse proper for an anisotropic `K` or pitch.
+- [`valid_domain`](@ref)`(camera)` is where the lens MODEL is valid: the image
+  of the cone of [`view_angle_limit`](@ref) through the radial projection and
+  `K`, inside which the lens's radial profile is finite and strictly increasing.
+  It is a property of the formula and says nothing about light: a fitted
+  Kannala–Brandt profile can fold far outside the lit disc.
+- [`image_circle`](@ref)`(camera, diameter)` is where light falls, from a lens
+  datasheet's image-circle diameter through the sensor's pitch. A circle
+  measured from images serves equally; it is never predicted from the model.
+
+Both are an [`Ellipse`](@ref) in pixels about the principal point (an ellipse
+proper for an anisotropic `K` or pitch), so the region algebra treats them
+alike.
+
 - For a lens that is not radially symmetric (a [`Chain`](@ref) with a tilt
-  stage, or tangential terms) it is an inscribed bound: every point inside is
-  imaged, and the true lit region may be slightly larger.
+  stage, or tangential terms) the valid domain is an inscribed bound.
 - A lens with no limit of its own (a perspective lens, an undistorted
   equidistant lens: `view_angle_limit` reports only its chart's or the
-  sphere's edge, a cap) answers the [`WholePlane`](@ref VisualGeometryToolkitCore.Primitives.WholePlane),
-  the identity of `∩`, so `Rect ∩ image_circle(cam)` is the `Rect`; its circle,
-  if any, comes from the datasheet. A global parametric lens is defined
-  everywhere by its formula and needs no restriction at all.
+  sphere's edge, a cap) has the [`WholePlane`](@ref VisualGeometryToolkitCore.Primitives.WholePlane)
+  as its valid domain, the identity of `∩`.
 
 ```@example imagecircle
 using VisualGeometryToolkitCore
@@ -140,22 +142,29 @@ s = sensor("Sony", "IMX250")                            # 2448 × 2048 @ 3.45 μ
 k = -4 / (3π^2)                                         # r = θ(1 + kθ²) folds at 90°, r = (2/3)θ
 f = ustrip(px, 6.0mm / (2 * s.pitch.width)) / (π / 3)   # a 180° lens drawing a 6 mm circle
 cam = BoundedCamera(CameraModel(; focal = f, pp = (1224.0, 1024.0), lens = KannalaBrandt(k)), s)
-q = image_circle(cam)                                   # from the lens
-(centroid(q), q.a, q.b)
+v = valid_domain(cam)                                   # where the lens formula holds
+(centroid(v), v.a, v.b)
 ```
 
 ```@example imagecircle
-qd = image_circle(cam, 6.0mm)                           # from the datasheet, through the pitch
-(q.a - qd.a, Rect(extent(cam)) ∈ q, rad2deg(fov(cam)), rad2deg(fov(cam; dimension = :diagonal)))
+q = image_circle(cam, 6.0mm)                            # where light falls: the datasheet, through the pitch
+(v.a - q.a, Rect(extent(cam)) ∈ q, rad2deg(fov(cam)), rad2deg(fov(cam; dimension = :diagonal)))
 ```
+
+Here the lens was chosen so the two coincide; for a fitted lens they need not.
+[`fov`](@ref) is the model's field of view, clipped by its valid domain.
 
 ```@example imagecircle
 rcam = BoundedCamera(CameraModel(; focal = 2000.0, pp = (1224.0, 1024.0), lens = Pinhole()), s)
-(image_circle(rcam), rad2deg(fov(rcam)), rad2deg(fov(rcam; dimension = :diagonal)))
+(valid_domain(rcam), rad2deg(fov(rcam)), rad2deg(fov(rcam; dimension = :diagonal)))
 ```
 
+A local lens model — a grid of nodes rather than a formula — has observations
+only where light falls, so its domain is `Rect(extent(camera)) ∩ circle` with
+the image circle supplied:
+
 ```@example imagecircle
-domain = Rect(extent(cam)) ∩ q                          # a grid lens's domain
+domain = imaged_region(cam, q)                          # a grid lens's domain
 nodes = [Point2(x, y) for x in range(0.0, 2448.0; length = 25), y in range(0.0, 2048.0; length = 21)]
 lit = filter(n -> n ∈ domain, nodes)
 (length(lit), length(nodes) - length(lit))              # lit, outside
@@ -165,8 +174,8 @@ The whole example, runnable, is `examples/image_circle.jl`.
 
 ## Which parameters a camera can see
 
-A camera images a region of its sensor, [`imaged_region`](@ref)`(camera)` =
-`Rect(extent) ∩ image_circle(camera)`. Each parameter of a model has a
+A camera images a region of its sensor, [`imaged_region`](@ref)`(camera, circle)` =
+`Rect(extent) ∩ circle`, the image circle supplied. Each parameter of a model has a
 support on the sensor; it is free when its support meets the imaged region
 and frozen otherwise. A global model (a parametric lens, `K`) has the whole
 plane as every parameter's support, so [`free_nodes`](@ref) answers `Colon()`
@@ -176,7 +185,8 @@ and only the nodes whose footprint meets the lit region are free.
 ```@example imagecircle
 fish = CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = KannalaBrandt(k))
 g = CentralGenericModel(fish, (1280, 960); grid_size = (20, 16))
-R = imaged_region(BoundedCamera(fish, Size2(1280, 960)))
+circle = Ellipse(Point2(640.0, 480.0), 250.0, 250.0, 0.0)   # a measured image circle, 250 px
+R = imaged_region(BoundedCamera(fish, Size2(1280, 960)), circle)
 mask = node_mask(g, R)                                  # in the grid's shape
 (size(mask), count(mask), length(mask) - count(mask), free_nodes(fish, R))   # free, frozen; a lens: all
 ```
@@ -214,7 +224,8 @@ on a lattice extended one node past the area, linearly extrapolating per axis
 where the source images nothing and inward from the area's centre where its
 domain ends inside the area. The model keeps the source's pinhole as its
 [`nominal_intrinsics`](@ref VisualGeometryToolkitCore.Cameras.nominal_intrinsics)
-and the source's image circle as its `domain`, so
+and the `domain` it is given — a supplied image circle, the whole plane by
+default; a generic source carries its own over — so
 `free_nodes(m, imaged_region(m))` are the nodes that can reach a lit pixel.
 
 ```julia

@@ -37,8 +37,8 @@ Rect2(domain)                    # the rect clipped to the ellipse's box
 ```
 
 The identity of `∩` is [`WholePlane`](@ref VisualGeometryToolkitCore.Primitives.WholePlane):
-`r ∩ WholePlane() === r` (what [`image_circle`](@ref VisualGeometryToolkitCore.Cameras.image_circle)
-answers for a lens with no image circle of its own).
+`r ∩ WholePlane() === r` (what [`valid_domain`](@ref VisualGeometryToolkitCore.Cameras.valid_domain)
+answers for a lens with no limit of its own).
 """
 struct RegionIntersection{A, B}
     a::A
@@ -52,9 +52,11 @@ The whole plane as a 2-D region: the identity of `∩`. Every point is in it
 (`p ∈ WholePlane()`), every rectangle lies inside it (`r ∈ WholePlane()`), and
 `a ∩ WholePlane() === a` for any region `a` (in either order). It has no
 bounding box: `Rect2(WholePlane())` is an `ArgumentError`. It is what
-[`image_circle`](@ref VisualGeometryToolkitCore.Cameras.image_circle) answers for a
-lens with no limit of its own, so `Rect(extent) ∩ image_circle(camera)` and
-`Rect(extent) ∈ image_circle(camera)` read the same for every lens.
+[`valid_domain`](@ref VisualGeometryToolkitCore.Cameras.valid_domain) answers for a
+lens with no limit of its own, so `Rect(extent) ∩ valid_domain(camera)` and
+`Rect(extent) ∈ valid_domain(camera)` read the same for every lens, and what
+[`imaged_region`](@ref VisualGeometryToolkitCore.Cameras.imaged_region) is given
+when no image circle is known.
 """
 struct WholePlane end
 

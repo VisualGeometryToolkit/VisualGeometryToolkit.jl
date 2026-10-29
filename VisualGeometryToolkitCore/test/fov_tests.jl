@@ -22,7 +22,7 @@
     @testset "a circular fisheye: the lens's own limit" begin
         fold = KannalaBrandt(-4 / (3π^2))                # folds at 90°, r = π/3 there
         c = BoundedCamera(mk(400.0, 400.0, 960.0, 600.0, fold), s)
-        @test image_circle(c).a < 600                    # 419 px: inside the sensor
+        @test valid_domain(c).a < 600                    # 419 px: the fold, inside the sensor
         θl = view_angle_limit(lens(c))
         @test fov(c) == 2θl
         @test fov(c; dimension = :diagonal) == 2θl
@@ -30,7 +30,7 @@
         # the fold between the edges: the horizontal edge (960 px) lies past the
         # fold (733 px) and clips to the limit; the vertical edge (600 px) is read
         p = BoundedCamera(mk(700.0, 700.0, 960.0, 600.0, fold), s)
-        @test 600 < image_circle(p).a < 960
+        @test 600 < valid_domain(p).a < 960
         @test fov(p) == 2view_angle_limit(fold)
         @test fov(p; dimension = :vertical) ≈ 2view_angle(fold, 600 / 700) rtol = 1.0e-9
         # off-centre: one edge inside the circle, the other past it — the nearer one is read

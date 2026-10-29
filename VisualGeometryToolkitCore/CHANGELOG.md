@@ -9,6 +9,17 @@ introduced them did not state them all.
   (`project` → `(λ, φ)` in radians, `backproject` → the unit direction), in
   the camera frame's axes: longitude 0 forward and +π/2 right, latitude +π/2
   up (−y). A projection beside the lens families, not a lens.
+- **`valid_domain(camera)`, `image_circle(camera, sensor, diameter)` and
+  `imaged_region(camera, circle)`: where a lens model is valid is not where
+  light falls.** `valid_domain` is the image of the lens's
+  `view_angle_limit` cone (its fold, pole or bound; an `Ellipse`, inscribed for
+  a lens that is not radially symmetric, the `WholePlane` without a limit):
+  where the MODEL is radially injective and finite. `image_circle` is only the
+  datasheet diameter through the pitch; there is no form that predicts it from
+  the lens. `imaged_region` takes the image circle (a datasheet's or a
+  measured one) as an argument. A generic grid model built from a parametric
+  camera no longer takes the lens's fold as its `domain`: it takes the
+  `domain` keyword, `WholePlane()` by default.
 - **`Rotation2pt`**, the minimal 2-point rotation solver on bearing pairs
   (`solve(Rotation2pt(), cs, idx)`: `kabsch` on the two unit pairs; a
   parallel or antiparallel pair in either view is `count == 0`).

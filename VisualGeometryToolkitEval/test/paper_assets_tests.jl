@@ -64,8 +64,18 @@
         @test quietly(() -> deploy_assets(outdir, paperdir, ["p.png", "f.tex"]; replace_submitted = true)) == ["p.png", "f.tex"]
         @test assets_deployed(outdir, paperdir, ["p.png", "f.tex"])
 
+        # per-asset sign-off: one call, one report with every row; only the named asset may replace its submitted copy
+        write(joinpath(outdir, "p.png"), UInt8[5])
+        write(joinpath(outdir, "f.tex"), "\\addplot coordinates {(1,3)};\n")
+        err = refusal(() -> deploy_assets(outdir, paperdir, ["p.png", "f.tex"]; replace_submitted = ["p.png"]))
+        @test err isa ErrorException && occursin("f.tex", err.msg) && !occursin("p.png:", err.msg)
+        @test length(readlines(report)) == 3                                   # the header and both rows
+        @test read(joinpath(paperdir, "p.png")) != UInt8[5]                    # refused: nothing copied
+        @test quietly(() -> deploy_assets(outdir, paperdir, ["p.png", "f.tex"]; replace_submitted = Set(["p.png", "f.tex"]))) ==
+              ["p.png", "f.tex"]
+
         # formatting only: same numbers, still not the submitted bytes, so still signed off
-        write(joinpath(outdir, "f.tex"), "\\addplot coordinates {(1, 2.5)};\n")
+        write(joinpath(outdir, "f.tex"), "\\addplot coordinates {(1, 3)};\n")
         r = only(quietly(() -> verify_assets(outdir, paperdir, ["f.tex"])))
         @test !r.identical && r.same_numbers
         @test refusal(() -> deploy_assets(outdir, paperdir, ["f.tex"])) isa ErrorException

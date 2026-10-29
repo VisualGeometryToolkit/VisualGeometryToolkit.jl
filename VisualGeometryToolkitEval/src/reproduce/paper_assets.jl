@@ -140,21 +140,25 @@ assets_deployed(outdir::AbstractString, paperdir::AbstractString, names) =
     deploy_assets(outdir, paperdir, names; replace_submitted = false) -> Vector{String}
 
 Copy each rendered `outdir/<name>` into `paperdir` when the paper has no copy
-or holds a different one, after verifying them all ([`verify_assets`](@ref)
-writes a fresh `outdir/verify.tsv` first). A submitted copy that differs is
-replaced only with `replace_submitted = true`, the author's sign-off on the
-difference the report states; without it the deploy is refused, as an error
-naming each differing asset and the report, and copies nothing. Returns the
-assets copied (an identical one is not copied).
+or holds a different one, after verifying them all in one report
+([`verify_assets`](@ref) writes a fresh `outdir/verify.tsv` first). A submitted
+copy that differs is replaced only with the author's sign-off on the
+difference the report states: `replace_submitted = true` signs off every asset
+of the call, a collection of names only those (per-asset sign-off, so one call
+deploys every asset and the report keeps every row). Without it the deploy is
+refused, as an error naming each differing asset and the report, and copies
+nothing. Returns the assets copied (an identical one is not copied).
 """
-function deploy_assets(outdir::AbstractString, paperdir::AbstractString, names; replace_submitted::Bool = false)
+function deploy_assets(outdir::AbstractString, paperdir::AbstractString, names;
+        replace_submitted::Union{Bool, AbstractVector{<:AbstractString}, AbstractSet{<:AbstractString}} = false)
+    signed(asset) = replace_submitted === true || (!(replace_submitted isa Bool) && asset in replace_submitted)
     rows = verify_assets(outdir, paperdir, names)
     report = joinpath(outdir, VERIFY_REPORT)
-    refused = [r for r in rows if r.submitted && !r.identical]
-    if !replace_submitted && !isempty(refused)
+    refused = [r for r in rows if r.submitted && !r.identical && !signed(r.asset)]
+    if !isempty(refused)
         error("deploy: the regenerated asset(s) differ from the submitted one(s) in $paperdir:\n" *
               join(("  " * r.asset * ": " * _verdict(r) for r in refused), "\n") *
-              "\nsee $report. Deploy with replace_submitted = true once the difference is signed off.")
+              "\nsee $report. Deploy with replace_submitted (true, or the asset's name) once the difference is signed off.")
     end
     deployed = String[]
     for r in rows

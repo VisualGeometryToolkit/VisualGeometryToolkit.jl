@@ -25,8 +25,12 @@ Loading the package does two things:
 
 ## Installation
 
+PoseLib is in [CauRegistry](https://github.com/prittjam/CauRegistry.jl) until
+its General registration merges; VisualGeometryToolkitCore is in General.
+
 ```julia
 using Pkg
+Pkg.Registry.add(url = "https://github.com/prittjam/CauRegistry.jl")   # once
 Pkg.add(["PoseLib", "VisualGeometryToolkitCore"])
 ```
 

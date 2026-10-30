@@ -30,6 +30,7 @@ its General registration merges; VisualGeometryToolkitCore is in General.
 
 ```julia
 using Pkg
+Pkg.Registry.add("General")
 Pkg.Registry.add(url = "https://github.com/prittjam/CauRegistry.jl")   # once
 Pkg.add(["PoseLib", "VisualGeometryToolkitCore"])
 ```

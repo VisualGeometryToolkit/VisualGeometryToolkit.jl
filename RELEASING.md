@@ -14,7 +14,7 @@ General (README, "Installation").
 In General since 2026-10-29: VisualGeometryToolkitCore, VisualGeometryToolkitIO,
 VisualGeometryToolkitFeatures, VisualGeometryToolkitEstimation. In CauRegistry
 until their General registrations merge: VisualGeometryToolkitEval (#173735),
-PoseLib (#173741, waiting for PoseLib_jll).
+PoseLib (0.1.2, its binaries from PoseLib_jll).
 
 ## NLLSsolver
 

@@ -18,7 +18,7 @@ name, the Registrator `subdir`, the TagBot tag prefix `<Name>-v…` and the docs
 | `VisualGeometryToolkitFeatures/` | feature detection and matching | VisualGeometryToolkitCore |
 | `VisualGeometryToolkitEstimation/` | the RANSAC loop and robust estimators | VisualGeometryToolkitCore |
 | `VisualGeometryToolkitEval/` | evaluation protocol, pools, paper-project template | VisualGeometryToolkitCore, VisualGeometryToolkitIO, VisualGeometryToolkitEstimation |
-| `PoseLib/` | wrapper of the PoseLib C++ solvers (binaries: its `Artifacts.toml`) | VisualGeometryToolkitCore |
+| `PoseLib/` | wrapper of the PoseLib C++ solvers (binaries: `PoseLib_jll`) | VisualGeometryToolkitCore |
 | `ci/` | workspace tooling; a workspace member, never registered | — |
 
 The stack dependency law is the allow-list

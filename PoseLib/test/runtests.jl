@@ -7,7 +7,6 @@ using VisualGeometryToolkitCore: HomographyMat, EssentialMat, FundMat, Extrinsic
                           PoseLibSolver, Vec3, Point3, Essential5pt
 using StaticArrays: SVector, SMatrix
 using Rotations: RotMatrix
-using Artifacts: load_artifacts_toml
 
 @testset "PoseLib" begin
 
@@ -16,20 +15,8 @@ using Artifacts: load_artifacts_toml
     # Every julia block of the README runs as written.
     include("readme_tests.jl")
 
-    @testset "the library unavailable: the package loads, the first call that needs it says why" begin
-        lib = PoseLib.libposelib_jl
+    @testset "the library comes from PoseLib_jll" begin
         @test PoseLib.is_available() && Base.ispublic(PoseLib, :is_available)
-        try
-            PoseLib._bind_library!(nothing)            # what __init__ does on a platform without binaries
-            @test !PoseLib.is_available()
-            rays = [Vec3(normalize([0.1i, -0.2, 1.0])) for i in 1:3]
-            X = [Point3(1.0, 0.5, 5.0), Point3(-0.5, 1.0, 4.0), Point3(0.0, -0.5, 6.0)]
-            e = try VgtkCore.p3p(PoseLibSolver(), rays, X); nothing catch e; e end
-            @test e isa ErrorException && occursin("not available on this platform", e.msg) && occursin("PoseLib_jll", e.msg)
-        finally
-            PoseLib._bind_library!(lib)
-        end
-        @test PoseLib.is_available()
     end
 
     @testset "smoke" begin
@@ -52,36 +39,6 @@ using Artifacts: load_artifacts_toml
                                                                 d[1], d[2], d[3], d[4])
         @test H isa HomographyMat{Float64}
 
-    end
-
-    # The recipe (which builds this package's artifact and is submitted to
-    # Yggdrasil) carries the wrapper as a bundled copy until it can take it from
-    # a PoseLib.jl tag; it must not drift.
-    @testset "recipe bundle matches the wrapper" begin
-        root = pkgdir(PoseLib)
-        bundled = joinpath(root, "yggdrasil", "P", "PoseLib", "bundled")
-        f = "wrapper/julia_wrapper.cpp"
-        @test read(joinpath(bundled, f)) == read(joinpath(root, f))
-    end
-
-    # Artifacts.toml binds the tarballs of the recipe's version, one per
-    # platform, at that version's release (scripts/build_binaries.jl writes it).
-    # Until the PoseLib_jll release it binds a Linux subset of the recipe's
-    # platforms (the script's default); the recipe keeps Yggdrasil's full list.
-    @testset "artifact matches the recipe" begin
-        root = pkgdir(PoseLib)
-        recipe = read(joinpath(root, "yggdrasil", "P", "PoseLib", "build_tarballs.jl"), String)
-        v = match(r"^version = v\"([^\"]+)\""m, recipe)[1]
-        entries = load_artifacts_toml(joinpath(root, "Artifacts.toml"))["PoseLib"]
-        @test !isempty(entries)
-        for e in entries
-            @test e["os"] == "linux"
-            url = only(e["download"])["url"]
-            @test occursin("/releases/download/PoseLib-binaries-v$v/PoseLib.v$v.", url)
-            @test occursin(r"-linux-[a-z]+-cxx11\.tar\.gz$", url)
-            @test occursin(Regex("PoseLib\\.v$v\\.$(e["arch"])-"), url)
-        end
-        @test isfile(PoseLib.libposelib_jl)
     end
 
     # P3P solver tests (moved from VisualGeometryToolkitCore.jl when p3p became PoseLib-only).

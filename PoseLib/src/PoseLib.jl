@@ -17,18 +17,16 @@ Loading this package extends VisualGeometryToolkitCore:
   seed model and its correspondences, and returns the refined model in the
   caller's frame.
 
-The C++ library and its flat C wrapper ship prebuilt as this package's
-`PoseLib` artifact, on Linux only for now. The manual's "Platforms and
-binaries" page says how to run against a library built from source.
+The C++ library and its flat C wrapper ship prebuilt as the binary package
+`PoseLib_jll`. The manual's "Platforms and binaries" page says how to run
+against a library built from source.
 """
 module PoseLib
     import VisualGeometryToolkitCore as VgtkCore
 
 using StaticArrays: MVector, SVector, SMatrix, StaticVector, StaticMatrix
 using Rotations: RotMatrix
-using Artifacts: @artifact_str
-using Libdl: dlopen, dlext
-using CompilerSupportLibraries_jll: CompilerSupportLibraries_jll  # libstdc++/libgcc_s, as the recipe declares
+using PoseLib_jll: PoseLib_jll, libposelib_jl
 using FlexUnits: Quantity
 
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
@@ -40,43 +38,20 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
     homography_4pt, fundamental_7pt, p3p,
     essential_5pt, essential_dlt, motion
 
-# Every `ccall` goes to `libposelib_jl`, the library in this package's `PoseLib`
-# artifact, resolved at load time so a relocated depot or an `Overrides.toml`
-# entry (docs: Developer notes) is honoured; nothing here probes. The artifact
-# is Linux-only until the `PoseLib_jll` release (docs: "Platforms and
-# binaries"). Elsewhere the package still loads — so does everything that
-# depends on it — and [`is_available`](@ref) is false: the first call that
-# needs the library raises the reason (`_require_library`).
-libposelib_jl::String = ""
-const _UNAVAILABLE = "PoseLib.jl ships binaries for Linux only until the PoseLib_jll release, so the PoseLib library is not available on this platform; see https://visualgeometrytoolkit.github.io/PoseLib/stable/guide/binaries/"
-
-function __init__()
-    @static if Sys.islinux()
-        _bind_library!(joinpath(artifact"PoseLib", "lib", "libposelib_jl.$(dlext)"))
-    else
-        _bind_library!(nothing)
-    end
-    return nothing
-end
-
-# Bind the library at `path` (opened now), or mark it unavailable (`nothing`):
-# what `__init__` does per platform, and the switch the suite marks the library
-# unavailable with.
-function _bind_library!(path::Union{Nothing, AbstractString})
-    path === nothing || dlopen(path)
-    global libposelib_jl = path === nothing ? "" : String(path)
-    return nothing
-end
+# Every `ccall` goes to `libposelib_jl`, the library product of `PoseLib_jll`.
+# On a platform Yggdrasil does not build for, the package still loads — so does
+# everything that depends on it — and [`is_available`](@ref) is false: the first
+# call that needs the library raises the reason (`_require_library`).
+const _UNAVAILABLE = "PoseLib_jll has no build of the PoseLib library for this platform; see https://visualgeometrytoolkit.github.io/PoseLib/stable/guide/binaries/"
 
 """
     is_available() -> Bool
 
-Whether the PoseLib library is loaded on this platform (the package's
-binaries are Linux-only until the PoseLib_jll release). Without it, every
-function that calls into the library raises an error stating why; the
-package itself loads everywhere.
+Whether `PoseLib_jll` provides the PoseLib library on this platform. Without
+it, every function that calls into the library raises an error stating why;
+the package itself loads everywhere.
 """
-is_available() = !isempty(libposelib_jl)
+is_available() = PoseLib_jll.is_available()
 
 # The guard before every `ccall`: the library, or the reason it is missing.
 @inline _require_library() = (is_available() || _library_unavailable(); nothing)

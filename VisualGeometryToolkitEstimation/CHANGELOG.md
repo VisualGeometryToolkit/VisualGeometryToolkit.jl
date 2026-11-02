@@ -5,14 +5,19 @@
 - Follows VisualGeometryToolkitCore's Sampson layers: the essential problem's
   residual is `only(sampson_residual(E, f₁, f₂; M₁, M₂))` and the division
   lift's `‖g‖²` is `constraint(m, X, x)`.
-- One Sampson path: the circle and radial-camera chart rows are
-  `sampson_residual` and `sampson_residual_with_jacobian` (the models'
-  `measurement_gradient_jacobian`), the F/E chart rows VisualGeometryToolkitCore's
-  `sampson_rows!`/`sampson_jacobian_rows!` over it.
-- Breaking: `fit_radial_camera`, `fit_division_camera` and
-  `division_camera_step` take `whitened::Bool = true` in place of the
-  whitening-policy keyword; whitened rows are the constraint's algebraic rows
-  times its frozen `whitening_factor`.
+- One Sampson path: the circle, radial-camera and F/E chart rows are
+  VisualGeometryToolkitCore's `sampson_rows!`/`sampson_jacobian_rows!` (the
+  models' `measurement_gradient_jacobian`).
+- Every problem's constraint is `(g, G_x, G_θ)`: a correspondence's noise is its
+  `measurement_covariance(problem, i)` (the `Σ₁`/`Σ₂` columns; a line fit's
+  per-point shapes) and its rounding scale `constraint_rounding_scale(problem,
+  model, i)` (H, F, E, circle, ellipse, radial camera). The homography's
+  data-frame model is its `residual_context`, formed once per model.
+- Breaking: the whitening-policy keyword of `fit_radial_camera`,
+  `fit_division_camera` and `division_camera_step` is removed with no
+  replacement: the fits always whiten (the rows' frozen `whitening_factor`)
+  from their second iteration; `fit_radial_camera(…; iterations = 1)` is the
+  algebraic solve.
 - Results: every `find_*`/`fit_*` agrees with 0.2 to ≤ 7e-14 relative except
   where a chart LM stops at its tolerance on rows now rounded in another order
   (`find_fundmat`: ≤ 7e-8 px on any residual, the inlier set unchanged).

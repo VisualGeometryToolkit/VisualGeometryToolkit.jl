@@ -13,16 +13,26 @@ Breaking: ONE Sampson path. Nothing outside `base/sampson.jl` computes
   (`∂G_x/∂θ`), implemented by `FundMat`/`EssentialMat` (plane and bearings),
   `Circle`, `RadialCamera`, `Conic` and `Ellipse`. A degenerate measurement has
   a zero row. ForwardDiff-safe and allocation-free.
-- **`whitened_constraint_rows(cd)` → `(r, J_w)`**: a constraint tuple
-  `(g, G_x, G_θ[, Σ_x[, ρ]])` as a least-squares row — its whitened residual and
-  its model rows under the same factor, held fixed — with the degeneracy rule at
-  the tuple's rounding scale (zero rows when degenerate; residual 0 when the
-  constraint vanishes). What a predictive scorer reads per point.
+- **A problem's constraint is `(g, G_x, G_θ)`, as a model's**: the problem
+  protocol gains two hooks, **`measurement_covariance(problem, i)`** (the point's
+  noise, `I` by default; a contract generic) and
+  **`constraint_rounding_scale(problem, model, i)`** (its rounding scales,
+  `nothing` by default). The 4- and 5-tuples that carried them are gone.
+- **`whitened_constraint_residual(problem, model, i)`** and
+  **`whitened_constraint_rows(problem, model, i)` → `(r, J_w)`** replace the
+  tuple forms: the point's constraint whitened by its `measurement_covariance`
+  (one Cholesky of `G_x·Σ·G_xᵀ`), with the degeneracy rule at its rounding
+  scale; the rows are its model rows under the same factor, held fixed (zero
+  rows when degenerate; residual 0 when the constraint vanishes). What a
+  predictive scorer reads per point. `whitened_residual`'s default is the first.
 - **`whiten(s_N, N, J, Σ)` → `(r, J_w)`**: rows whitened with the residual by
   the same factor. `whiten` selects `Σ = I` by dispatch.
 - **`sampson_rows!(r, M, u₁, u₂, sqrtw; columns...)` and
   `sampson_jacobian_rows!(J, M, directions, u₁, u₂, sqrtw; columns...)`** are
-  that function per correspondence (one KernelAbstractions kernel each);
+  that function per correspondence, and `sampson_rows!(r, M, x, sqrtw)` /
+  `sampson_jacobian_rows!(J, M, directions, x, sqrtw)` per point (a conic, a
+  circle) — one KernelAbstractions kernel each; `directions` is a matrix or a
+  tuple of models (never `nothing`);
   per-point keyword columns (`M₁`, `M₂` on bearings) reach the constraint.
   The image-plane and tangent epipolar row functions that restated the
   residual and its contracted Jacobian, the public per-row forms and the
@@ -34,8 +44,16 @@ Breaking: ONE Sampson path. Nothing outside `base/sampson.jl` computes
   whitening (an iteratively reweighted fit's rows, a Gauss–Newton row) is
   `whitening_factor(G_x[, Σ_x])` — now also for a scalar constraint's
   gradient, a number — times the algebraic rows; the whitened residual of a
-  constraint tuple is `whitened_constraint_residual`, which reads a 4- or
-  5-tuple's `Σ_x` and rounding scale as before.
+  problem's point is `whitened_constraint_residual(problem, model, i)`.
+- **The epipolar and homography constraints promote** a model and points of
+  different element types themselves (the Sampson layers' private promotion
+  hook is gone); `EpipolarForm` forwards `measurement_gradient_jacobian`.
+- **Rounding scales** for `Circle` and `RadialCamera` (relative to their
+  entries; the exact-zero default stays for `Line2D`, whose gradient is a unit
+  normal, and `TransferForm`, whose gradient blows up rather than vanishes); a
+  `Conic`'s reuses the epipolar bilinear bound. `gradient(::Conic, p)` is the
+  point-on-conic constraint's `G_x`.
+- Removed (private): `_propagate_scalar`.
 - Removed: `sampson_residual_jacobian`, `sampson_residual_row`,
   `tangent_sampson_residual_row` (all three are `sampson_residual_with_jacobian`);
   `epipolar_rounding` (`constraint_rounding_scale`); `WhiteningPolicy`,

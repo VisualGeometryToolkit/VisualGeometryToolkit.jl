@@ -34,7 +34,7 @@
         # the exactly determined case: the least-squares null vector of five rows
         # agrees with VGC's minimal solve of the same five
         P5 = radial_camera_5pt(pts[[1, 5, 8, 21, 25]])
-        Pn = estimate(fit_radial_camera(pts[[1, 5, 8, 21, 25]]; center = o, whitened = false, iterations = 1))
+        Pn = estimate(fit_radial_camera(pts[[1, 5, 8, 21, 25]]; center = o, iterations = 1))
         @test projective_distance(radial_rows(P5), radial_rows(Pn)) < sqrt(2.0e-9)
         # the centre rides on the camera: RAW pixels about c give the SAME P, every
         # line goes through c, and the homography carries the translation
@@ -53,10 +53,10 @@
         @test SMatrix{3, 3, Float64}(HomographyMat(Pr))[1:2, 3] ≈ sign(dot(vec(radial_rows(Pr)), a)) * radial_rows(Pc)[:, 3] + c
         # degenerate: collinear plane points leave more than one null direction
         col = [SVector(t, 2t) => pts[1][2] .* (1 + 0.1t) for t in 1.0:5.0]
-        rd = fit_radial_camera(col; center = o, whitened = false, iterations = 1)
+        rd = fit_radial_camera(col; center = o, iterations = 1)
         @test retcode(rd) === :degenerate && all(isnan, radial_rows(estimate(rd))) && isnan(rms(rd))
-        # whitening is a parameter; on noise-free data both currencies agree
-        Pu = estimate(fit_radial_camera(pts; center = o, whitened = false))
+        # on noise-free data the algebraic (one-iteration) and whitened fits agree
+        Pu = estimate(fit_radial_camera(pts; center = o, iterations = 1))
         @test projective_distance(radial_rows(Pu), a) < sqrt(2.0e-9)
         # per-correspondence weights are the `weights` column: a gross outlier
         # weighted to zero leaves the noise-free camera exact
@@ -75,8 +75,8 @@
         m = RadialLift{2, Float64}(SMatrix{3, 3, Float64}(RotXYZ(0.3, -0.2, 0.1)), SVector(0.4, -0.3), 1.2, SVector(-0.3, 0.05), 2.5)
         Xl = SVector(0.2, -0.35); xl = SVector(0.31, 0.22)
         g2, Gx2, Gθ2 = constraint_with_jacobians(m, Xl, xl)
-        gxl(v) = constraint_with_jacobians(m, Xl, v)[1]
-        gθl(θ) = constraint_with_jacobians(RadialLift{2, eltype(θ)}(m.R, m.t12, θ[1], SVector(θ[2], θ[3]), θ[4]), Xl, xl)[1]
+        gxl(v) = VgtkCore.constraint(m, Xl, v)
+        gθl(θ) = VgtkCore.constraint(RadialLift{2, eltype(θ)}(m.R, m.t12, θ[1], SVector(θ[2], θ[3]), θ[4]), Xl, xl)
         @test ForwardDiff.jacobian(gxl, xl) ≈ Gx2 atol = 1.0e-9
         @test ForwardDiff.jacobian(gθl, SVector(m.f, m.λ[1], m.λ[2], m.t3)) ≈ Gθ2 atol = 1.0e-9
         # linear in θ: g = G_θ θ + c₀

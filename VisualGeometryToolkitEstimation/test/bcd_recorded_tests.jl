@@ -64,11 +64,11 @@ function division_arm()
     prior = VgtkEstimation._point_weights(bs)
     N = VgtkEstimation._division_normalization(bs, VgtkEstimation._shared_center(Hs), prior)
     state0 = VgtkEstimation._division_camera_step(N, Hs, bs; ncoef = 1, k = nothing, point_weights = prior,
-                                     whiten_at = 2500.0, whitened = true)
+                                     whiten_at = 2500.0)
     n = sum(length, bs)
     rws = VgtkEstimation.median_seeded_posterior(VgtkEstimation._focal_sq!(Vector{Float64}(undef, n), state0), n;
                                     outlier_halfwidth = 50.0, codimension = 2)
-    method = VgtkEstimation.DivisionCameraIrls(Hs, bs, prior, 1, nothing, true, N, false)
+    method = VgtkEstimation.DivisionCameraIrls(Hs, bs, prior, 1, nothing, N, false)
     return VgtkEstimation.DivisionCameraIrlsState(state0, rws, n, Inf, 0), VgtkEstimation.PosteriorLikelihood(rws, n), method,
         nothing, state0, 40
 end

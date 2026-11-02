@@ -7,7 +7,7 @@
 
 """
     fit_radial_camera(cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}};
-                      center, whitened = true, iterations = 2)
+                      center, iterations = 2)
         -> FitResult{RadialCamera{Float64}, Nothing}
 
 The radial camera of one board from its `plane_point => image_point`
@@ -21,19 +21,20 @@ Each pair gives one linear constraint on the six entries of `P`
 radial camera's normalization, `CspondNormalization(RadialCamera, cs; center)`
 (Hartley at the plane centroid, Hartley about `center` on the image side — the
 same strategy `find_radial_camera`'s problem solves in), and composed back into
-pixels. Each iteration re-solves; from the second on, when `whitened`, every
+pixels. Each iteration re-solves; from the second on every
 row is divided by the constraint's measurement-gradient norm at the previous
 iteration's solution ([`whitening_factor`](@ref), the Sampson normalizer held
 fixed — the algebraic error becomes the exact point–radial-line distance); a
 `weights` column on `cs` (a `Csponds` attribute, e.g. `withattrs(cs; weights)`)
-multiplies on top, the row weight being √w. This is how the BabelCalib back-end
+multiplies on top, the row weight being √w. `iterations = 1` is the plain
+algebraic (unwhitened) solve. This is how the BabelCalib back-end
 obtains the radial camera when no homography is available; when one is, its
 rows 1–2 are the same object (`RadialCamera(H)`). Five correspondences
 determine `P` (five degrees of freedom).
 
 The `FitResult`'s estimate is the camera, `retcode` `:solved` after `iterations`
 iterations (its `iterations` field), and `rms` the point–radial-line distance (px) of the `n` pairs at the
-fit, whitened or not. When the constraint rows leave more than
+fit, whatever the iteration count. When the constraint rows leave more than
 one null direction (a degenerate configuration — the plane points on a line,
 or a pixel on the centre) the retcode is `:degenerate`, the camera NaN and the
 rms NaN.
@@ -46,7 +47,7 @@ unit the rest of your plain data uses — metres, as the stack's boundaries stri
 """
 function fit_radial_camera(
         cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}}; center,
-        whitened::Bool = true, iterations::Int = 2
+        iterations::Int = 2
     )
     _refuse_physical_plane(cs, "fit_radial_camera")
     iterations >= 1 || throw(ArgumentError("fit_radial_camera: iterations must be ≥ 1 (0 would return the unfitted seed), got $iterations"))
@@ -67,7 +68,7 @@ function fit_radial_camera(
             _, G_x, row = constraint_with_jacobians(P, Xn[i], xn[i])
             # iteration 1 has no solution to whiten at; from iteration 2 the
             # previous solution's frozen Sampson factor (zero when degenerate)
-            (whitened && iter > 1) && (row = row * whitening_factor(G_x))
+            iter > 1 && (row = row * whitening_factor(G_x))
             weights === nothing || (row = row * sqrt(Float64(weights[i])))
             A[i, :] .= row
         end
@@ -82,8 +83,7 @@ function fit_radial_camera(
     # the exact datum (the minimal solve's `_candidate`)
     P = _candidate(p, P)
     # the reported residual is the point–radial-line distance in px (the
-    # problem's scoring residual), one currency whether or not the iterations
-    # were whitened
+    # problem's scoring residual), one currency whatever the iteration count
     ss = sum(abs2, residuals!(Vector{Float64}(undef, n), p, P))
     return FitResult(P, :solved, iterations, sqrt(ss / n), n, nothing)
 end

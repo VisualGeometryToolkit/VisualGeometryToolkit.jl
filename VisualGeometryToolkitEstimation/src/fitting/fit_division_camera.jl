@@ -41,7 +41,6 @@ struct DivisionCameraIrls <: VgtkCore.AbstractBlockCoordinateMethod
     prior::Union{Nothing, Vector{Vector{Float64}}}   # the views' `weights` columns (row priors), in `ids` order
     ncoef::Int
     k::Union{Nothing, Float64}                        # pixels
-    whitened::Bool
     normalization::CspondNormalization                # the stack's one normalization (every iteration applies it)
     verbose::Bool
 end
@@ -94,7 +93,7 @@ function _next_model(st::DivisionCameraIrlsState, m::DivisionCameraIrls; audit::
     return try
         _division_camera_step(
             m.normalization, m.Hs, m.boards; ncoef = m.ncoef, k = m.k,
-            point_weights = pw, whiten_at = st.state, whitened = m.whitened, audit
+            point_weights = pw, whiten_at = st.state, audit
         )
     catch e
         e isa DivisionCameraError || rethrow()
@@ -192,7 +191,7 @@ _with_weights(cs, w) = VgtkCore.Csponds(sources(cs), targets(cs); weights = w)
 """
     fit_division_camera(radial_cameras::AbstractDict{K}, views::AbstractDict{K};
                         image_size = nothing, focal_seed = nothing, ncoef, k = nothing, max_iter, outlier_halfwidth,   # defaults: configs/default.toml [fit_division_camera]
-                        whitened = true, verbose = false)
+                        verbose = false)
         -> FitResult{CameraModel, DivisionCameraMetadata}
 
 The BabelCalib linear focal solve as an iterated, gradient-whitened, robustly
@@ -205,7 +204,7 @@ VALIDATED inliers (the cameras carry the pencil's shared centre) — the inputs 
 prior row weight: iteration 0 is weighted by it and each later iteration by it times the
 posterior. `k` fixes the division coefficient (centred pixels); otherwise
 `ncoef` are estimated. Each iteration whitens every row at the previous solution
-(when `whitened`, the default: the row's Sampson factor held fixed) and weights it by the Student-t/uniform posterior of the
+(the row's Sampson factor held fixed) and weights it by the Student-t/uniform posterior of the
 previous iteration's whitened residuals.
 
 INPUT CONTRACT: each view is that board's VALIDATED correspondences — the
@@ -319,7 +318,6 @@ function fit_division_camera(
         ncoef::Int = _dflt("fit_division_camera", "ncoef"), k::Union{Nothing, Real} = nothing,
         max_iter::Int = _dflt("fit_division_camera", "max_iter"),
         outlier_halfwidth::Real = _dflt("fit_division_camera", "outlier_halfwidth"),
-        whitened::Bool = true,
         verbose::Bool = false
     ) where {K}
     focal_seed === nothing || (focal_seed > 0 && isfinite(focal_seed)) ||
@@ -336,11 +334,11 @@ function fit_division_camera(
     kk = k === nothing ? nothing : Float64(k)
     fseed = Float64(focal_seed === nothing ? hypot(image_size[1], image_size[2]) / 2 : focal_seed)   # pixels; default: a 90° diagonal FOV
     # iteration 0: whitened at the seed (weights only), robustly unweighted
-    state0 = _division_camera_step(N, Hs, boards; ncoef, k = kk, point_weights = prior, whiten_at = fseed, whitened)
+    state0 = _division_camera_step(N, Hs, boards; ncoef, k = kk, point_weights = prior, whiten_at = fseed)
     n = sum(length, boards)
     sq0 = _focal_sq!(Vector{Float64}(undef, n), state0)
     rws = median_seeded_posterior(sq0, n; outlier_halfwidth, codimension = 2)
-    method = DivisionCameraIrls(Hs, boards, prior, ncoef, kk, whitened, N, verbose)
+    method = DivisionCameraIrls(Hs, boards, prior, ncoef, kk, N, verbose)
     st = DivisionCameraIrlsState(state0, rws, n, Inf, 0)
     verbose && _print_iteration(0, state0, rws, Inf)
     lh = PosteriorLikelihood(rws, n)

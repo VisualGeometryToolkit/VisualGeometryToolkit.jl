@@ -140,9 +140,11 @@
                 @test r[q].ulps <= 8 || r[q].abs <= 1.0e-13
             end
             # The Jacobian against BigFloat truth, per row in eps·‖row‖: ≤ 8 for every
-            # case but Kannala–Brandt's 179° ray (66, the factor atan(r, z)/r ≈ 105 and
-            # its derivative ≈ −3500 summed to an entry of 30)
-            @test jacobian_accuracy(lens_from_record(oracle[name]["lens"]), _pairs(oracle[name]["rays"], 3)[1:8]) <= 128
+            # case (measured ≤ 7.4) but Kannala–Brandt, whose 179° ray reaches 66 — its
+            # factor atan(r, z)/r ≈ 105 and the factor's derivative ≈ −3500 summed to
+            # an entry of 30, under ForwardDiff's quotient rule
+            bound = name == "kannala_brandt" ? 128 : 8
+            @test jacobian_accuracy(lens_from_record(oracle[name]["lens"]), _pairs(oracle[name]["rays"], 3)[1:8]) <= bound
             for q in ("project32",)
                 @test r[q].nan == 0
                 @test r[q].ulps <= 8

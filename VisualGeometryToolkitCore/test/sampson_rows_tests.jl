@@ -222,6 +222,28 @@ end
             @test allocs(J, retract(ch, a), retract_jacobian(ch, a), xs) == 0
         end
     end
+    @testset "the 1 × 1 and 2 × 2 whitening factors are StaticArrays' Cholesky (IEEE sqrt)" begin
+        for _ in 1:200
+            A = randn(rng, SMatrix{2, 2, Float64}); P = A * A' + 1.0e-3I
+            C, _, ok = VgtkCore._whitening_cholesky(P)
+            @test ok && SMatrix{2, 2}(C.L) == SMatrix{2, 2}(cholesky(Symmetric(P)).L)
+            p1 = SMatrix{1, 1}(abs(randn(rng)) + 0.1)
+            @test SMatrix{1, 1}(VgtkCore._whitening_cholesky(p1)[1].L) == SMatrix{1, 1}(cholesky(Symmetric(p1)).L)
+        end
+        @test !VgtkCore._whitening_cholesky(SMatrix{2, 2}(1.0, 2.0, 2.0, 1.0))[3]      # indefinite: refused, no throw
+        @test !VgtkCore._whitening_cholesky(SMatrix{1, 1}(-1.0))[3]
+    end
+
+    @testset "sampson_distances! reads the constraint keywords (E on bearings)" begin
+        E = EssentialMat(SMatrix{3, 3}(VgtkCore.skew(normalize(SVector(1.0, 0.2, -0.1)))))
+        f₁ = [normalize(randn(rng, SVector{3, Float64}) + SVector(0, 0, 3.0)) for _ in 1:20]
+        f₂ = [normalize(randn(rng, SVector{3, Float64}) + SVector(0, 0, 3.0)) for _ in 1:20]
+        M₁ = [SMatrix{3, 2}(randn(rng, 3, 2)) for _ in 1:20]; M₂ = [SMatrix{3, 2}(randn(rng, 3, 2)) for _ in 1:20]
+        R = zeros(20, 1); sampson_distances!(R, [E], withattrs(Csponds(f₁, f₂); M₁, M₂))
+        @test R[:, 1] ≈ [sampson_distance(E, f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i]) for i in 1:20] rtol = 4eps()   # inlined: muladd fusion may differ by an ulp
+        @test_throws ArgumentError sampson_distances!(R, [E], Csponds(f₁, f₂))
+    end
+
     @testset "the residual rows are the one-element verbs" begin
         xs = Csponds(u₁, u₂); r = zeros(2n); sampson_residuals!(r, H, xs)
         @test r ≈ reduce(vcat, [sampson_residual(H, u₁[i], u₂[i]) for i in 1:n]) rtol = 1.0e-14

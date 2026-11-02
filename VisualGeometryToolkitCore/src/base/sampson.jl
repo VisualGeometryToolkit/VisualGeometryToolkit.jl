@@ -509,19 +509,25 @@ whitened_jacobian_rows!(J::AbstractMatrix, M, directions::Union{StaticMatrix, Tu
 
 The `length(xs) × length(models)` matrix of [`sampson_distance`](@ref)s, model
 `j` in column `j`, cast to `R`'s element type at storage: a pool's residual
-matrix (Float32). `models` is iterated once and has a length. The distance of
-each element through the one path; a buffer of another size is a
-`DimensionMismatch`.
+matrix (Float32). `models` is iterated once and has a length; a model's
+[`constraint_keywords`](@ref) columns (`M₁`, `M₂` for an essential matrix on
+bearings) are read from `xs`. The distance of each element through the one path — one KernelAbstractions kernel per model
+column on the backend that owns `R`, a plain loop on the CPU; a buffer of
+another size is a `DimensionMismatch`.
 """
 function sampson_distances!(R::AbstractMatrix, models, xs::AbstractVector)
     size(R) == (length(xs), length(models)) || throw(
         DimensionMismatch("sampson_distances!: R is $(size(R, 1)) × $(size(R, 2)); $(length(xs)) elements × $(length(models)) models need $(length(xs)) × $(length(models))")
     )
     cols = _measurement_columns(xs)
-    @inbounds for (j, M) in enumerate(models), i in eachindex(xs)
-        R[i, j] = eltype(R)(sampson_distance(M, _measurements_at(cols, i)...))
+    for (j, M) in enumerate(models)
+        _foreach_row!(_distance_row!, view(R, :, j), length(xs), M, cols, constraint_keywords(M, xs))
     end
     return R
+end
+Base.@propagate_inbounds function _distance_row!(d, i, M, cols, kws)
+    d[i] = eltype(d)(sampson_distance(M, _measurements_at(cols, i)...; _columns_at(kws, i)...))
+    return nothing
 end
 
 """

@@ -87,6 +87,34 @@ end
 # absolute threshold, which a model's homogeneous scale would decide. A barely-PSD
 # Σ_g whose determinant rounds to ≤ 0 (measured: −7e-18 on a clean focal stack)
 # is the same case; never `log` a non-positive number.
+# The 1 × 1 and 2 × 2 factors (every constraint of the stack has dg ≤ 2) written
+# out: StaticArrays' Cholesky with IEEE `sqrt`. Its own takes
+# `Base.FastMath.sqrt_fast`, an IEEE square root on the CPU but an approximate
+# one on a GPU (measured on CUDA: Float32-accurate factors, 5e-5 relative on a
+# homography's Sampson residual), so a device kernel and the CPU loop over the
+# same row function disagreed. The operations are StaticArrays' own, in its order
+# (L₂₁ = A₁₂·L₁₁⁻¹, L₂₂² = A₂₂ − L₂₁²), so the CPU factors are bit-identical. A
+# non-positive pivot is a failed factorization (`ok = false`), its factor
+# finite and unread.
+@inline function _whitening_cholesky(Σ_g::StaticMatrix{1, 1, T}) where {T}
+    d = det(Σ_g)
+    a = Σ_g[1, 1]
+    pd = a > zero(a)
+    L = LinearAlgebra.LowerTriangular(SMatrix{1, 1, T}(sqrt(ifelse(pd, a, one(a)))))
+    return (; L), d, pd && d > 8 * eps(T) * a
+end
+@inline function _whitening_cholesky(Σ_g::StaticMatrix{2, 2, T}) where {T}
+    d = det(Σ_g)
+    a = Σ_g[1, 1]
+    pd₁ = a > zero(a)
+    l₁₁ = sqrt(ifelse(pd₁, a, one(a)))
+    l₂₁ = Σ_g[1, 2] * inv(l₁₁)
+    b = muladd(-l₂₁, l₂₁', Σ_g[2, 2])
+    pd₂ = b > zero(b)
+    l₂₂ = sqrt(ifelse(pd₂, b, one(b)))
+    L = LinearAlgebra.LowerTriangular(SMatrix{2, 2, T}(l₁₁, l₂₁, zero(T), l₂₂))
+    return (; L), d, pd₁ && pd₂ && d > 8 * eps(T) * (Σ_g[1, 1] * Σ_g[2, 2])
+end
 @inline function _whitening_cholesky(Σ_g::AbstractMatrix{T}) where {T}
     d = det(Σ_g)
     C = cholesky(Symmetric(Σ_g); check = false)

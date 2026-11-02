@@ -42,7 +42,9 @@ Breaking: ONE Sampson path. Nothing outside `base/sampson.jl` computes
   KernelAbstractions kernel over the per-element function; a degenerate
   element is zero (LM-safe). The whitened rows differentiate the noise's
   Cholesky factor with the model: exact. Reductions compose — the RSS is
-  `sum(abs2, …)`, the pool matrix **`sampson_distances!(R, models, xs)`**.
+  `sum(abs2, …)`, the pool matrix **`sampson_distances!(R, models, xs)`** (one
+  kernel per model column; it reads a model's `constraint_keywords` columns, so
+  an essential matrix on bearings takes its `M₁`/`M₂`).
   The image-plane and tangent epipolar row functions that restated the
   residual and its contracted Jacobian, the public per-row forms and the
   generic Sampson-Jacobian helper are removed; the bilinear contraction lives
@@ -69,6 +71,11 @@ Breaking: ONE Sampson path. Nothing outside `base/sampson.jl` computes
 - Removed: `sampson_rows!` (the parallel-array forms; `sampson_residuals!` over
   a set), `sampson_rss` (`sum(abs2, …)` of the batch), the n × M
   `sampson_residuals!(R, models, u₁, u₂)` (`sampson_distances!`).
+- **GPU**: the 1 × 1 and 2 × 2 whitening Cholesky factors are written out with
+  IEEE `sqrt` (StaticArrays' takes `Base.FastMath.sqrt_fast`, approximate on
+  CUDA: a homography's Sampson residual was off by 5e-5 relative on the
+  device); the CPU factors are StaticArrays' bit for bit. On an RTX 4090 every
+  batch function agrees with the CPU to ≤ 4e-14 (Float64) for F, E, H and a conic.
 - Removed (private): `_propagate_scalar`.
 - Removed: `sampson_residual_jacobian`, `sampson_residual_row`,
   `tangent_sampson_residual_row` (all three are `sampson_residual_with_jacobian`);

@@ -52,7 +52,8 @@ using SpatialIndexing: SpatialIndexing
 # Import from parent module (VisualGeometryToolkitCore-specific types only)
 using ..VisualGeometryToolkitCore: GeometryBasics, Point, Point2, Point3
 using ..VisualGeometryToolkitCore: Rect, Rect2, Vec2, Vec3
-using ..VisualGeometryToolkitCore: to_affine, to_euclidean, _cross2d   # base/coordinates.jl
+using ..VisualGeometryToolkitCore: to_euclidean, _cross2d   # base/coordinates.jl
+using ..VisualGeometryToolkitCore: constraint_with_jacobians   # the point-on-conic constraint's gradient (`gradient`)
 import ..VisualGeometryToolkitCore: Circle  # Import to extend
 import ..VisualGeometryToolkitCore: center  # ONE `center` generic (geometry/radial_models.jl); FeatureFrame extends it
 

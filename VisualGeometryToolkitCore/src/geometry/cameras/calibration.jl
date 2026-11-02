@@ -336,6 +336,19 @@ were measured in and no caller pre-centres them.
     return g, G_x, G_θ
 end
 
+# The radial camera's rounding scales (`constraint_rounding_scale`), as the
+# epipolar models': each `pₖ = Pₖ·X̃` is rounding below |P|·|X̃|, so the
+# gradient (p₂, −p₁) is degenerate there — a plane point the camera sends to its
+# centre — and `g = x₁p₂ − x₂p₁` vanishes below that times the centred pixel's
+# |x| + |c|. Relative to P's entries, so its homogeneous scale never decides.
+@inline function constraint_rounding_scale(P::RadialCamera, X::StaticVector{2}, x::StaticVector{2})
+    T = float(promote_type(eltype(P.P), eltype(X), eltype(x)))
+    nPX = sum(abs, P.P) * (abs(X[1]) + abs(X[2]) + one(T))
+    tol = 8 * eps(T)
+    nx = abs(x[1]) + abs(x[2]) + abs(P.center[1]) + abs(P.center[2])
+    return (; gradient = tol * nPX, value = tol * nPX * nx)
+end
+
 # ∂G_x/∂vec(P) of the radial constraint: G_x = (p₂·X̃, −p₁·X̃) is linear in P
 # and independent of the pixel (column-major vec(P): P₁₁, P₂₁, P₁₂, P₂₂, P₁₃, P₂₃).
 @inline function measurement_gradient_jacobian(::RadialCamera, X::StaticVector{2}, ::StaticVector{2})

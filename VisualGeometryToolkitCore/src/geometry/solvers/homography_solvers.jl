@@ -975,7 +975,7 @@ function transfer_jacobian_rows!(J::AbstractMatrix, H::HomographyMat, dH::Tuple,
 end
 
 # The homography's rounding scales (`constraint_rounding_scale`): its
-# degenerate gradient is `whiten`'s own relative Cholesky verdict (C = G_x·G_xᵀ
+# degenerate gradient is the Sampson factor's relative Cholesky verdict (C = G_x·G_xᵀ
 # losing rank relative to its diagonal — a point mapped to the line at
 # infinity), so no gradient scale; each constraint row's value is rounding below
 # its term-by-term bound |H[i,·]·x̃| + |x′ᵢ|·|H[3,·]·x̃|.

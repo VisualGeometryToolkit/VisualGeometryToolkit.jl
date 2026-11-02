@@ -391,7 +391,8 @@ the Sampson layer strips the covariance.
 """
 @inline constraint_with_jacobians(f::EpipolarForm, x₁, x₂) = constraint_with_jacobians(f.mat, x₁, x₂)
 @inline constraint_rounding_scale(f::EpipolarForm, x₁, x₂) = constraint_rounding_scale(f.mat, x₁, x₂)
-@inline _sampson_arguments(f::EpipolarForm, x₁, x₂) = _sampson_arguments(f.mat, x₁, x₂)
+@inline measurement_gradient_jacobian(f::EpipolarForm, x₁, x₂) = measurement_gradient_jacobian(f.mat, x₁, x₂)
+@inline _normal_rate(f::EpipolarForm, G_x, x₁, x₂) = _normal_rate(f.mat, G_x, x₁, x₂)
 @inline function _check_measurements(f::EpipolarForm{S1, S2}, x₁, x₂) where {S1, S2}
     (_junction_ok(S1, _meas_frame(x₁)) && _junction_ok(S2, _meas_frame(x₂))) ||
         throw(MethodError(sampson_residual_with_normal, (f, x₁, x₂)))

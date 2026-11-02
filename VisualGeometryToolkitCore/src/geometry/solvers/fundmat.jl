@@ -284,19 +284,24 @@ function cheiral_pose_fast(E, f₁::AbstractVector, f₂::AbstractVector)
 end
 
 # =============================================================================
-# The Sampson distance's measurements: one element type
+# The epipolar and homography constraints' measurements: one element type
 # =============================================================================
 
-# The epipolar and homography constraints take the model and both points in ONE
-# element type; base/sampson.jl's layers hand them the measurements through this
-# hook, so a Float32 model meets Float64 points (and a Dual meets a Float64) in
-# the promoted type, its rounding scales included. The points are typed
-# 2-vectors: a 3-vector bearing is refused (MethodError), never read as its first
-# two components — the bearing form is `EssentialMat` with `M₁`, `M₂`.
-@inline function _sampson_arguments(M::Union{AbstractFundMat, HomographyMat}, u₁::StaticVector{2}, u₂::StaticVector{2})
+# The epipolar and homography constraints compute in ONE element type: a model
+# and points of different types (a Float32 model and Float64 points, a Dual and
+# a Float64) are promoted by the constraint itself, so every caller — the
+# Sampson layers, a scorer, a test — meets the same promotion; the rounding
+# scales promote alike. The points are typed 2-vectors: a 3-vector bearing is
+# refused (MethodError), never read as its first two components — the bearing
+# form is `EssentialMat` with `M₁`, `M₂`.
+@inline function _promoted_plane(M, u₁::StaticVector{2}, u₂::StaticVector{2})
     T = float(promote_type(eltype(M), eltype(u₁), eltype(u₂)))
     return (_with_eltype(M, T), _plane_point(T, u₁), _plane_point(T, u₂))
 end
+@inline constraint_with_jacobians(F::AbstractFundMat, u₁::StaticVector{2}, u₂::StaticVector{2}) =
+    constraint_with_jacobians(_promoted_plane(F, u₁, u₂)...)
+@inline constraint_with_jacobians(H::HomographyMat, u₁::StaticVector{2}, u₂::StaticVector{2}) =
+    constraint_with_jacobians(_promoted_plane(H, u₁, u₂)...)
 # A plane measurement as the model's 2-vector.
 @inline _plane_point(::Type{T}, u::StaticVector{2}) where {T} = SVector{2, T}(u[1], u[2])
 # A model matrix in the element type T (the same wrapper).
@@ -509,19 +514,18 @@ end
 # the arithmetic of the dense 4×9 product (equal to it, pinned in the tests).
 @inline function _normal_rate(F::AbstractFundMat, G_x, u₁::StaticVector{2}, u₂::StaticVector{2})
     T = eltype(G_x); z = zero(T)
-    s = _lift_image_point(u₁, T); d = _lift_image_point(u₂, T)
-    b = SVector(G_x[1], G_x[2], z); a = SVector(G_x[3], G_x[4], z)
-    return vec(d * b' + a * s')
+    return _bilinear_rate(_lift_image_point(u₁, T), _lift_image_point(u₂, T), SVector(G_x[1], G_x[2], z), SVector(G_x[3], G_x[4], z))
 end
 # On bearings the pixel gradients come back to bearings through M₁, M₂.
-@inline function _normal_rate(E::EssentialMat, G_x, f₁::StaticVector{3}, f₂::StaticVector{3}; M₁, M₂)
-    b = M₁ * SVector(G_x[1], G_x[2]); a = M₂ * SVector(G_x[3], G_x[4])
-    return vec(f₂ * b' + a * f₁')
-end
+@inline _normal_rate(E::EssentialMat, G_x, f₁::StaticVector{3}, f₂::StaticVector{3}; M₁, M₂) =
+    _bilinear_rate(f₁, f₂, M₁ * SVector(G_x[1], G_x[2]), M₂ * SVector(G_x[3], G_x[4]))
+# vec(d·bᵀ + a·sᵀ): the contraction of a bilinear constraint dᵀ M s at the source
+# and target points `s`, `d` with their gradients `b`, `a` lifted to 3-vectors.
+@inline _bilinear_rate(s, d, b, a) = vec(d * b' + a * s')
 @inline function measurement_gradient_jacobian(
-        E::EssentialMat{T}, f₁::StaticVector{3}, f₂::StaticVector{3};
+        E::EssentialMat, f₁::StaticVector{3}, f₂::StaticVector{3};
         M₁::StaticMatrix{3, 2}, M₂::StaticMatrix{3, 2}
-    ) where {T}
+    )
     return SMatrix{4, 9}(ntuple(Val(36)) do k
         m = (k - 1) ÷ 4 + 1; r = (k - 1) % 4 + 1
         i = (m - 1) % 3 + 1; j = (m - 1) ÷ 3 + 1

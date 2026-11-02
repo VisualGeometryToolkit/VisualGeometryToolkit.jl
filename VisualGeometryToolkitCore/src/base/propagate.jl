@@ -66,9 +66,8 @@ GTSAM equivalent: a function's `OptionalJacobian` `H`, with the caller forming
 # so they cannot disagree.
 @inline _degenerate_sampson(vanishes::Bool) = ifelse(vanishes, 0.0, Inf)
 
-# The two verdicts of the rule at a rounding scale ρ (`nothing`: exact zeros).
-@inline _gradient_degenerate(::Nothing, G_x) = false
-@inline _gradient_degenerate(ρ::NamedTuple, G_x) = sum(abs2, G_x) <= ρ.gradient^2
+# The value verdict of the rule at a rounding scale ρ (`nothing`: exact zeros);
+# the gradient one is `_gradient_bound²` (base/sampson.jl).
 @inline _vanishes(::Nothing, g) = all(iszero, g)
 @inline _vanishes(ρ::NamedTuple, g::Real) = abs(g) <= ρ.value
 @inline _vanishes(ρ::NamedTuple, g::StaticVector) = all(abs.(g) .<= ρ.value)
@@ -80,14 +79,6 @@ GTSAM equivalent: a function's `OptionalJacobian` `H`, with the caller forming
 @inline function _signed_degenerate(gᵢ, vanishes::Bool)
     z = oftype(gᵢ, _degenerate_sampson(vanishes))
     return ifelse(gᵢ < 0, -z, z)
-end
-
-# The whitening of a vector constraint and its degeneracy verdict: Σ_g's
-# Cholesky, its determinant and `ok` — Σ_g keeps its rank and the gradient is
-# above the rounding scale ρ.
-@inline function _vector_whitening(G_x, Σ_x, ρ)
-    C, d, ok = _whitening_cholesky(propagate(G_x, Σ_x))   # static for any Σ_x storage
-    return C, d, ok && !_gradient_degenerate(ρ, G_x)
 end
 
 # The Cholesky of a propagated constraint covariance and the ONE whitening
@@ -111,7 +102,7 @@ factor frozen once (at a seed, or at the previous iteration's model of an
 iteratively reweighted fit) where [`whiten`](@ref) re-derives it per call — the
 Gauss–Newton currency of a constraint whose LM row holds its whitening fixed. A
 scalar constraint's gradient (an `SVector`) gives the number `1/√(G_x·Σ_x·G_xᵀ)`.
-A degenerate `Σ_g` ([`whiten`](@ref)'s rule) is a ZERO factor — its rows drop
+A degenerate `Σ_g` (its relative rank verdict) is a ZERO factor — its rows drop
 out of a solve; NaN propagates.
 """
 @inline function whitening_factor(G_x::StaticMatrix{dg, nx, T}, Σ_x = I) where {dg, nx, T}
@@ -139,7 +130,3 @@ end
 # epipolar model is A = H₂⁻ᵀ, B = H₁⁻¹; of a homography A = D₂, B = D₁⁻¹.
 # Private until the composition API that states the conjugation lands.
 @inline _conjugation_jacobian(A::StaticMatrix, B::StaticMatrix) = kron(transpose(B), A)
-
-@inline _propagate_scalar(v::StaticVector, ::UniformScaling{Bool}) = dot(v, v)
-@inline _propagate_scalar(v::StaticVector, Σ::UniformScaling) = Σ.λ * dot(v, v)
-@inline _propagate_scalar(v::StaticVector, Σ) = dot(v, Σ * v)

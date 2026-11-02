@@ -56,7 +56,8 @@ The point-on-circle constraint `g = ‖x − c‖² − r²` with `G_x = 2(x −
 ([`CircleManifold`](@ref)'s). Its Sampson distance `g/‖G_x‖ = (d² − r²)/(2d)`,
 `d = ‖x − c‖`, is the geometric distance `d − r` to first order (the ratio is
 `(d + r)/(2d)`). A point at the centre has `G_x = 0` — the one Sampson
-degeneracy (VisualGeometryToolkitCore's `whiten`).
+degeneracy (base/sampson.jl), judged at the circle's
+[`constraint_rounding_scale`](@ref).
 """
 @inline function constraint_with_jacobians(c::Circle, x::StaticVector{2})
     o = GeometryBasics.origin(c); r = radius(c)
@@ -68,5 +69,16 @@ end
 @inline function measurement_gradient_jacobian(c::Circle, ::StaticVector{2})
     T = float(eltype(GeometryBasics.origin(c)))
     return SMatrix{2, 3, T}(-2, 0, 0, -2, 0, 0)
+end
+# The circle's rounding scales (`constraint_rounding_scale`), as the
+# ellipse's: `e = x − c` carries the rounding of |x| + |c|, so the gradient
+# `2e` is rounding below 2·that, and `g = ‖e‖² − r²` below ‖e‖² + r² — a point at
+# the centre is DEGENERATE (the one rule's Inf) whatever the circle's size.
+@inline function constraint_rounding_scale(c::Circle, x::StaticVector{2})
+    o = GeometryBasics.origin(c); r = radius(c)
+    T = float(promote_type(eltype(o), eltype(x)))
+    e1 = x[1] - o[1]; e2 = x[2] - o[2]
+    tol = 8 * eps(T)
+    return (; gradient = tol * 2 * (abs(x[1]) + abs(x[2]) + abs(o[1]) + abs(o[2])), value = tol * (e1^2 + e2^2 + r^2))
 end
 minimal_manifold(c::Circle) = CircleManifold(c)

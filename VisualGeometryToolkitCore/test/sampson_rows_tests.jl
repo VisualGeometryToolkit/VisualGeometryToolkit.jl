@@ -43,7 +43,10 @@
             M = retract(ch, v); A = retract_jacobian(ch, v)
             for i in (1, 7, 30)
                 s, ∂s = sampson_residual_with_jacobian(M, u₁[i], u₂[i]; directions = A)
-                @test s == sampson_residual(M, u₁[i], u₂[i])          # the one path's residual
+                # the one path's residual, to rounding: the constraint's StaticArrays
+                # products are `muladd`s, which LLVM may contract differently once inlined
+                # beside the Jacobian, and g = dᵀFs cancels (measured 1.9e-15 relative)
+                @test s ≈ sampson_residual(M, u₁[i], u₂[i]) rtol = 1.0e-13
                 fd = FiniteDiff.finite_difference_gradient(w -> dist(ch, SVector{length(v)}(w), i), Vector(v))   # retract takes an SVector
                 @test vec(∂s) ≈ fd rtol = 1.0e-5 atol = 1.0e-9
                 # the directions as the models they move to (`retract_directions`): the same row
@@ -88,9 +91,9 @@
         # the CPU fast path there): the same per-row function, the same rows
         KA = VgtkCore.KA
         rk = zeros(n); Jk = zeros(n, 6)
-        VgtkCore._row_kernel!(KA.CPU())(VgtkCore._sampson_residual_row!, rk, M, u₁, u₂, sqrtw, NamedTuple(); ndrange = n)
+        VgtkCore._row_kernel!(KA.CPU())(VgtkCore._sampson_residual_row!, rk, M, (u₁, u₂), sqrtw, NamedTuple(); ndrange = n)
         VgtkCore._row_kernel!(KA.CPU())(VgtkCore._sampson_jacobian_row!, Jk, M,
-            VgtkCore._direction_rows(dM), u₁, u₂, sqrtw, NamedTuple(); ndrange = n)
+            VgtkCore._direction_rows(dM), (u₁, u₂), sqrtw, NamedTuple(); ndrange = n)
         KA.synchronize(KA.CPU())
         # The CPU loop vectorizes across rows; its fma contraction differs from the kernel's.
         @test rk ≈ r rtol = 1.0e-14
@@ -107,6 +110,19 @@
         f(M, u, w, A) = sampson_residual_with_jacobian(M, u, w; directions = A)
         allocs(M, u, w, A) = (f(M, u, w, A); @allocated f(M, u, w, A))
         @test allocs(M, u₁[1], u₂[1], A) == 0
+    end
+
+    @testset "one measurement per row: a conic's rows" begin
+        C = VgtkCore.Conic(SMatrix{3, 3}(0.002, 0.0003, -0.5, 0.0003, 0.003, -0.4, -0.5, -0.4, 150.0))
+        xs = [SVector(210.0 + 7k, 180.0 + 11k) for k in 1:12]; w = collect(range(0.5, 1.5; length = 12))
+        D = SMatrix{6, 2}(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0)
+        r1 = zeros(12); J1 = zeros(12, 2)
+        sampson_rows!(r1, C, xs, w); sampson_jacobian_rows!(J1, C, D, xs, w)
+        for i in eachindex(xs)
+            s, ∂s = sampson_residual_with_jacobian(C, xs[i]; directions = D)
+            @test r1[i] ≈ w[i] * only(s) rtol = 1.0e-14
+            @test J1[i, :] ≈ w[i] * vec(∂s) rtol = 1.0e-14
+        end
     end
 
     @testset "the one degeneracy rule: a zero row, never a floor" begin

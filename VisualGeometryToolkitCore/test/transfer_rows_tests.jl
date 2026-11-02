@@ -42,7 +42,7 @@
             gθ(θ) = VgtkCore.constraint(HomographyMat{eltype(θ)}(Tuple(θ)), SVector{2, eltype(θ)}(u), SVector{2, eltype(θ)}(v))
             @test Gx ≈ ForwardDiff.jacobian(gz, SVector(u[1], u[2], v[1], v[2])) rtol = 1.0e-12
             @test Gθ ≈ ForwardDiff.jacobian(gθ, SVector{9}(Tuple(Hs))) rtol = 1.0e-12
-            @test sum(abs2, VgtkCore.whitened_constraint_residual((g, Gx, Gθ))) ≈ sampson_distance(H, u, v)^2 rtol = 1.0e-10
+            @test sum(abs2, cholesky(Symmetric(Gx * Gx')).L \ g) ≈ sampson_distance(H, u, v)^2 rtol = 1.0e-10
         end
     end
 
@@ -64,7 +64,6 @@
         @test W ≈ inv(SMatrix{2, 2}(cholesky(Symmetric(A * A' + I)).L)) rtol = 8eps()
         g = VgtkCore.constraint(TransferForm(H), u₁[5], u₂[5])
         # the frozen factor whitens the constraint to its Sampson residual at the model
-        @test W * g ≈ VgtkCore.whitened_constraint_residual((g, Gx, Gθ)) rtol = 1.0e-12
         @test W * g ≈ sampson_residual(TransferForm(H), u₁[5], u₂[5]) rtol = 1.0e-12
         @test whitening_factor(zero(SMatrix{2, 4, Float64})) == zero(SMatrix{2, 2, Float64})   # degenerate: a zero factor
         @test all(isnan, whitening_factor(fill(NaN, SMatrix{2, 4, Float64})))

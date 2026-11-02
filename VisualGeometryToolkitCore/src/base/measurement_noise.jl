@@ -107,11 +107,17 @@ end
 # `Uncertain` or `exact`): the pair's block diagonal, refused when both are exact.
 @inline function _pair_covariance(u₁, u₂)
     Σ₁ = _point_covariance(u₁); Σ₂ = _point_covariance(u₂)
-    _both_exact(Σ₁, Σ₂) && throw(ArgumentError(_BOTH_EXACT))
+    (_all_exact(Σ₁) && _all_exact(Σ₂)) && throw(ArgumentError(_BOTH_EXACT))
     return pair_covariance(Σ₁, Σ₂)
 end
-@inline _both_exact(_, _) = false
-@inline _both_exact(Σ₁::AbstractMatrix, Σ₂::AbstractMatrix) = iszero(Σ₁) && iszero(Σ₂)
+# One measurement's covariance as its constraint's: an exact one is refused.
+@inline function _measurement_noise(Σ)
+    _all_exact(Σ) && throw(ArgumentError("an exact measurement has no noise to whiten: give it a covariance (Uncertain) or a plain point"))
+    return Σ
+end
+# An exact (zero) covariance; a plain point's `I` never is.
+@inline _all_exact(_) = false
+@inline _all_exact(Σ::AbstractMatrix) = iszero(Σ)
 
 const _BOTH_EXACT =
     "both endpoints of a correspondence are exact (zero covariance): its constraint " *

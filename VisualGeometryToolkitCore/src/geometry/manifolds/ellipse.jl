@@ -93,7 +93,7 @@ Its Sampson distance `g/‖G_x‖` is the geometric distance to the ellipse to
 first order, and at a circle of radius `r` the circle's `(‖d‖² − r²)/(2‖d‖)`
 (VisualGeometryToolkitCore's `constraint_with_jacobians(::Circle, x)`). A
 point at the centre has `G_x = 0` — the one Sampson degeneracy
-(VisualGeometryToolkitCore's `whiten`).
+(base/sampson.jl), at the ellipse's [`constraint_rounding_scale`](@ref).
 """
 @inline function constraint_with_jacobians(e::Ellipse, x::StaticVector{2})
     Q = _ellipse_form(e)
@@ -144,7 +144,7 @@ part (the centre of a central conic) has `G_x = 0`: the one Sampson degeneracy.
 @inline function constraint_with_jacobians(c::Conic, x::StaticVector{2})
     T = float(promote_type(eltype(c.Q), eltype(x)))
     C = SMatrix{3, 3, T, 9}(c.Q)
-    xh = SVector{3, T}(x[1], x[2], one(T))
+    xh = _lift_image_point(x, T)
     Cx = C * xh
     g = dot(xh, Cx)
     return g, SVector(2 * Cx[1], 2 * Cx[2]),
@@ -160,14 +160,13 @@ end
     return SMatrix{2, 6, T}(2 * x[1], z, 2 * x[2], 2 * x[1], z, 2 * x[2], 2 * o, z, z, 2 * o, z, z)
 end
 
-# A conic's rounding scales (`constraint_rounding_scale`), as the epipolar
-# models': every term of `C x̃` is bounded by |C|·|x̃| and of `x̃ᵀCx̃` by
-# |x̃|ᵀ|C||x̃|, so a homogeneous scale of `C` never decides.
+# A conic's rounding scales (`constraint_rounding_scale`): the epipolar models'
+# bilinear bounds (`_epipolar_rounding`) at x̃ on both sides, the gradient's
+# doubled (`G_x = 2(C x̃)₁,₂`), so a homogeneous scale of `C` never decides.
 @inline function constraint_rounding_scale(c::Conic, x::StaticVector{2})
     T = float(promote_type(eltype(c.Q), eltype(x)))
-    nC = sum(abs, c.Q)
-    nx = abs(x[1]) + abs(x[2]) + one(T)
-    tol = 8 * eps(T)
-    return (; gradient = tol * 2 * nC * nx, value = tol * nC * nx^2)
+    xh = _lift_image_point(x, T)
+    gradient, value = _epipolar_rounding(SMatrix{3, 3, T, 9}(c.Q), xh, xh)
+    return (; gradient = 2 * gradient, value)
 end
 minimal_manifold(e::Ellipse) = EllipseManifold(e)

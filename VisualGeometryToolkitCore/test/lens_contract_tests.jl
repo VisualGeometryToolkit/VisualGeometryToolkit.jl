@@ -10,7 +10,7 @@
     import ForwardDiff
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: monotone_radius, source_map, destination_map, radial_ratio, calibration_stage, whitening_factor,
-        sampson_residual_with_jacobian, measurement_gradient_jacobian, whitened_constraint_residual   # public, not exported
+        sampson_residual_with_jacobian, measurement_gradient_jacobian   # public, not exported
     using VisualGeometryToolkitCore: project_with_jacobians, radial_camera_5pt   # kernel: public, not exported
 
     @testset "monotone_radius agrees with the fold view_angle_limit reports" begin
@@ -373,8 +373,8 @@
             Pm = RadialCamera{Float64}(SMatrix{2, 3, Float64}(0.9, 0.1, -0.2, 1.1, 3.0, -2.0))
             X = SVector(12.0, -7.0); x = SVector(300.0, -150.0)
             g, G_x, G_θ = constraint_with_jacobians(Pm, X, x)
-            gx(v) = constraint_with_jacobians(Pm, X, v)[1]
-            gθ(v) = constraint_with_jacobians(RadialCamera{eltype(v)}(SMatrix{2, 3}(v[1], v[2], v[3], v[4], v[5], v[6])), X, x)[1]
+            gx(v) = VgtkCore.constraint(Pm, X, v)
+            gθ(v) = VgtkCore.constraint(RadialCamera{eltype(v)}(SMatrix{2, 3}(v[1], v[2], v[3], v[4], v[5], v[6])), X, x)
             @test ForwardDiff.gradient(gx, x) ≈ G_x atol = 1.0e-9
             @test ForwardDiff.gradient(gθ, SVector(vec(Pm.P))) ≈ G_θ atol = 1.0e-9
             # the Sampson residual is the point–radial-line distance, its frozen
@@ -394,7 +394,7 @@
             Gθ2 = SMatrix{2, 4}(0.7, -0.1, 0.2, 1.3, -0.6, 0.4, 0.05, 0.8)
             Σg = Gx2 * Gx2'
             W2 = whitening_factor(Gx2)
-            r2 = whitened_constraint_residual((g2, Gx2, Gθ2)); J2 = W2 * Gθ2
+            r2 = W2 * g2; J2 = W2 * Gθ2          # the lift's frozen factor, on the residual and the rows alike
             @test dot(r2, r2) ≈ dot(g2, Σg \ g2) rtol = 1.0e-12
             @test J2' * J2 ≈ Gθ2' * (Σg \ Gθ2) rtol = 1.0e-12
             @test J2' * r2 ≈ Gθ2' * (Σg \ g2) rtol = 1.0e-12

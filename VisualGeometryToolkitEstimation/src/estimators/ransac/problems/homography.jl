@@ -75,15 +75,18 @@ test_consensus(p::MinimalSolveProblem{<:HomographyMat}, H::HomographyMat, mask::
 # minimal with no ‖H‖=1 constraint and no fixed-entry singularity, and the
 # affine chart has EXACT constant Jacobians ∂H/∂xᵢ = H₀Gᵢ — no dexp.
 #
-# Residuals are codimension-2 whitened transfer errors in the DATA frame:
-# rᵢ = √wᵢ · Lᵢ⁻¹ (π(H x₁ᵢ) − x₂ᵢ), Σ̃ᵢ = (Jπ·H₁₂)Σ₁ᵢ(Jπ·H₁₂)ᵀ + Σ₂ᵢ the first-order
-# (Sampson) constraint covariance under the endpoints' measurement noise
-# (`I₂` for a plain point; conventions/measurement-noise.md) and Lᵢ its Cholesky factor, FROZEN at the
-# anchor (classic Sampson approximation — keeps the analytic Jacobian exact).
-# VGC's `transfer_whitening!` freezes the per-point L⁻¹ and `transfer_rows!` /
-# `transfer_jacobian_rows!` apply it along the chart directions
-# (`retract_directions`) — one KernelAbstractions kernel each on a GPU
-# backend, a plain loop on the CPU. The chart lives in the data frame (the
+# Residuals are the codimension-2 whitened algebraic constraint in the DATA
+# frame — EXACTLY what scoring computes: rᵢ = √wᵢ · Lᵢ⁻¹gᵢ with LᵢLᵢᵀ =
+# G_x·Σᵢ·G_xᵀ under the endpoints' measurement noise (`I` for plain points;
+# conventions/measurement-noise.md: an exact source gives the transfer error in
+# target pixels), the factor re-evaluated at every iterate and its derivative
+# carried — the Sampson-constraint problems' one chart-rows method
+# (sampson_lm.jl, VGC's `whitened_residuals!` / `whitened_jacobian_rows!` with
+# the homography's `measurement_gradient_jacobian`), one KernelAbstractions
+# kernel each on a GPU backend, a plain loop on the CPU. (Until 0.4 the rows
+# whitened the TRANSFER form with a factor frozen at the chart's anchor: a
+# second function, equal to scoring's only at the anchor, whose fixed point is
+# not the Sampson cost's minimum.) The chart lives in the data frame (the
 # scoring currency); a mapped problem's model-frame H is composed in by
 # `_chart` and out by `_model_at`. The same chart and rows drive the chart-LM
 # refit and, at unit weights, the HQ/GNC lift (problems/manifold_providers.jl).
@@ -108,36 +111,3 @@ function _model_at(p::HomographyProblem, ch::HomographyManifold8)
     return HomographyMat{Float64}(Tuple(unit_normalize(SMatrix{3, 3, Float64, 9}(Hm))))
 end
 
-# The per-point whitening blocks, frozen at the chart's anchor, into ONE buffer
-# per (task, n) under the one reuse policy (VGC `task_buffers`) — the refit's
-# state and the HQ/GNC lift (manifold_providers.jl) both read it.
-# The endpoints' measurement noise (the problem's `Σ₁`/`Σ₂` columns, `nothing`
-# for a unit isotropic side) enters the factor, as it enters scoring
-# (`constraint_with_jacobians`): an exact source freezes L⁻¹ = I, the plain
-# transfer error in the target's units.
-_freeze_whitening!(W, ch::HomographyManifold8, p::HomographyProblem) = transfer_whitening!(
-    W, HomographyMat(Tuple(ch.H0)), sources(p.cs),
-    VgtkCore.attribute_column(p.cs, :Σ₁), VgtkCore.attribute_column(p.cs, :Σ₂)
-)
-_transfer_whitening_buffer(n::Int) = task_buffers(
-    Vector{SMatrix{2, 2, Float64, 4}}, () -> Vector{SMatrix{2, 2, Float64, 4}}(undef, n), (:rvg_h_W, n)
-)
-
-# The refit's state: the whitening frozen at the anchor, carried as the `aux`.
-function _lm_state(p::HomographyProblem, ch::HomographyManifold8, sqrtw)
-    W = _transfer_whitening_buffer(data_size(p))
-    _freeze_whitening!(W, ch, p)
-    return ChartLm(ch, p, sqrtw, W)
-end
-
-# √w-weighted transfer rows in the sl(3) chart at `a` (VGC's `residual_rows!`).
-function residual_rows!(r::AbstractVector, lm::ChartLm{<:HomographyManifold8, <:HomographyProblem}, a)
-    cs = lm.problem.cs
-    return transfer_rows!(r, retract(lm.ch, a), lm.aux, sources(cs), targets(cs), lm.sqrtw)
-end
-
-function residual_jacobian_rows!(J::AbstractMatrix, lm::ChartLm{<:HomographyManifold8, <:HomographyProblem}, a)
-    return transfer_jacobian_rows!(
-        J, retract(lm.ch, a), VgtkCore.retract_directions(lm.ch, a), lm.aux, sources(lm.problem.cs), lm.sqrtw
-    )
-end

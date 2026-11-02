@@ -140,10 +140,23 @@ function _oracle_fundmat(raw::StereoRawPair, N::CspondNormalization)
     return destination_map(N) ∘ F_px ∘ inv(source_map(N))
 end
 
+# Σ sampson_distance² of a model over pool-frame points `src[i] => dst[i]`
+# (where `mask`, when given): the residual sum of squares of a σ̂² = RSS/dof
+# estimate, composed from the one Sampson distance.
+function _sampson_rss(M, src, dst, mask = nothing)
+    rss = 0.0
+    for i in eachindex(src)
+        _taken(mask, i) && (rss += Float64(sampson_distance(M, src[i], dst[i]))^2)
+    end
+    return rss
+end
+_taken(::Nothing, _) = true
+_taken(mask, i) = @inbounds mask[i]
+
 # RSS of the oracle model over pool-frame points `src[i] => dst[i]` (optionally
 # only where `mask`), in the SAME residual the family's stored distances are.
 _oracle_rss(::FundMatProblem, raw::StereoRawPair, draft, src, dst, mask...) =
-    sampson_rss(_oracle_fundmat(raw, pool_normalization(raw)), src, dst, mask...)
+    _sampson_rss(_oracle_fundmat(raw, pool_normalization(raw)), src, dst, mask...)
 function _oracle_rss(::EssentialProblem, raw::StereoRawPair, draft, src, dst, mask...)
     Kc1, Kc2 = pool_frame_calibrations(draft)
     ep = EssentialProblem(CameraModel(Kc1), CameraModel(Kc2),
@@ -187,7 +200,7 @@ function _pool_variance(v::InlierVariance, problem::HomographyProblem, raw::Ster
     ws = SvdWorkspace{Float64}(2 * length(cs), 9)
     H = homography_dlt(cs; mask, svd_ws = ws)
     (H === nothing || !test_dlt_conditioning(ws)) && return NaN
-    rss = sampson_rss(H, sources(cs), targets(cs), mask)
+    rss = _sampson_rss(H, sources(cs), targets(cs), mask)
     return _rss_variance(rss, residual_dof(problem, n_in))
 end
 
@@ -250,12 +263,12 @@ end
 # E: the tangent Sampson of the metric `E = Kc₂ᵀ·F·Kc₁` on the record's
 # `EssentialProblem(pair)` (`residuals!`), the residual a pool-frame LO scores
 # refits with. F and H: the plane Sampson of the pool-frame model through VGC
-# `sampson_residuals!`, NOT the problem's `residuals!`: it is the
+# `sampson_distances!`, NOT the problem's `residuals!`: it is the
 # residual VGC's `pixel_residuals` recomputes (the same function), and this route is kept for
 # bitwise equality with pools already written. Stored as `Float32(|r|)`.
 
 _pool_residuals!(R::AbstractMatrix{Float32}, ::Union{FundMatProblem, HomographyProblem}, pair::PoolPair) =
-    sampson_residuals!(R, pair.models, sources(pair.csponds), targets(pair.csponds))
+    sampson_distances!(R, pair.models, pair.csponds)
 function _pool_residuals!(R::AbstractMatrix{Float32}, ::EssentialProblem, pair::PoolPair)
     ep = EssentialProblem(pair)
     Kc1, Kc2 = pool_frame_calibrations(pair)

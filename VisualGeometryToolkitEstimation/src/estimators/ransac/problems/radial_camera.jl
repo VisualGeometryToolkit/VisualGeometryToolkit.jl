@@ -104,22 +104,9 @@ function _refit_chart(::RadialCameraProblem, θ::VgtkCore.RadialCamera, _weights
     return minimal_manifold(θ)
 end
 
-# √w-weighted point–radial-line distances in the chart at `a` (VGC's
-# `residual_rows!`): VGC's Sampson rows, a degenerate pair a zero row.
-function residual_rows!(f, lm::ChartLm{<:Any, <:RadialCameraProblem}, a)
-    cs = lm.problem.cs
-    P = retract(lm.ch, SVector{5}(a[1], a[2], a[3], a[4], a[5]))
-    return VgtkCore.sampson_rows!(f, P, sources(cs), targets(cs), lm.sqrtw)
-end
-
-# ∂d/∂a: VGC's Sampson Jacobian rows (the radial camera's
-# `measurement_gradient_jacobian`) along the chart directions A = ∂vec(P)/∂a
-# (the sphere's `retract_jacobian`, the normalization included).
-function residual_jacobian_rows!(J, lm::ChartLm{<:Any, <:RadialCameraProblem}, a)
-    cs = lm.problem.cs
-    av = SVector{5}(a[1], a[2], a[3], a[4], a[5])
-    return VgtkCore.sampson_jacobian_rows!(J, retract(lm.ch, av), retract_jacobian(lm.ch, av), sources(cs), targets(cs), lm.sqrtw)
-end
+# The chart rows are the Sampson-constraint problems' one method (sampson_lm.jl):
+# the point–radial-line Sampson rows at the chart's camera, along the sphere's
+# `retract_jacobian` (the normalization included); a degenerate pair a zero row.
 
 # A radial camera fixes directions only: there is no quad to wind, so the
 # extent gate is the inner problem's consensus — nothing to add.

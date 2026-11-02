@@ -30,8 +30,8 @@
 # stays exactly on the essential manifold with no gauge direction. The rows
 # are the TANGENT Sampson of E on bearings, whitened by the per-view
 # back-projection Jacobians `M₁`/`M₂` — the SAME implementation `residuals!`
-# scores through (VGC's `sampson_rows!` / `sampson_jacobian_rows!` with
-# M₁/M₂), with the chart's directions ∂vec(E)/∂v from VGC's `retract_jacobian`.
+# scores through (VGC's batch rows over the problem's set, its M₁/M₂ columns),
+# with the chart's directions ∂vec(E)/∂v from VGC's `retract_jacobian`.
 # The chart-LM refit and the HQ/GNC lifts (LocalOptimizationDoneRight) share
 # the chart and the rows (interface.jl `ChartLm`). Until 2026-09-30 the refit
 # ran on the 6-dof EssentialManifold6 (a gauge direction τ ∥ t absorbed by the
@@ -41,11 +41,11 @@
 chart_dof(::Type{<:EssentialProblem}) = 5
 _chart(::EssentialProblem, E::EssentialMat) = EssentialManifold5(E)
 
-# The rows read the problem's columns — sources with `M₁`, targets with `M₂` —
-# through the epipolar family's one method (epipolar_lm.jl) with these per-view
-# Jacobians, so a swap here is a swap everywhere, and the assembly canary in
+# The rows read the problem's columns — sources with `M₁`, targets with `M₂`
+# (VGC's `constraint_keywords` of a bearing E) — through the Sampson-constraint
+# problems' one method (sampson_lm.jl), the columns scoring reads, so a swap here
+# is a swap everywhere, and the assembly canary in
 # test/ransac_essential_tests.jl builds its state through the same `_lm_state`.
-_sampson_columns(p::EssentialProblem) = (; M₁ = p.cs.M₁, M₂ = p.cs.M₂)
 
 # =============================================================================
 # The half-width unit guard — one check, every entry

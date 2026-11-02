@@ -74,20 +74,6 @@ test_sample(p::CircleProblem, idx::AbstractVector{Int}) = test_sample(model_type
 @inline constraint_rounding_scale(p::CircleProblem, c::VgtkCore.Circle, i::Int) =
     @inbounds VgtkCore.constraint_rounding_scale(c, p.cs[i])
 
-# =============================================================================
-# The chart rows — VGC's CircleManifold, the default `minimal_manifold(c)`
-# =============================================================================
-
-# √w-weighted signed Sampson distances at chart coordinates `a`: the scoring's
-# own residual, VGC's Sampson rows. A point at the centre (G_x = 0) is a zero row.
-function residual_rows!(f, lm::ChartLm{<:VgtkCore.CircleManifold, <:CircleProblem}, a)
-    c = retract(lm.ch, SVector{3}(a[1], a[2], a[3]))
-    return VgtkCore.sampson_rows!(f, c, lm.problem.cs, lm.sqrtw)
-end
-
-# ∂d/∂a: VGC's Sampson Jacobian rows (the circle's `measurement_gradient_jacobian`)
-# along the chart directions A = ∂(c, r)/∂a (`retract_jacobian`).
-function residual_jacobian_rows!(J, lm::ChartLm{<:VgtkCore.CircleManifold, <:CircleProblem}, a)
-    av = SVector{3}(a[1], a[2], a[3])
-    return VgtkCore.sampson_jacobian_rows!(J, retract(lm.ch, av), retract_jacobian(lm.ch, av), lm.problem.cs, lm.sqrtw)
-end
+# The chart rows are the Sampson-constraint problems' one method (sampson_lm.jl):
+# VGC's CircleManifold, the default `minimal_manifold(c)`, and its
+# `retract_jacobian` — a point at the centre (G_x = 0) is a zero row.

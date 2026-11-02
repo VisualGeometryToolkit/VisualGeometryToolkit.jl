@@ -25,7 +25,7 @@ const VgtkEstimation = VisualGeometryToolkitEstimation
     w = ones(n)
     sqrtw = ones(2n)
 
-    # The rows at a general chart point, the whitening frozen at the anchor H_gt.
+    # The rows at a general chart point: exact (the whitening moves with the model).
     lm = VgtkEstimation._lm_state(prob, HomographyManifold8(SMatrix{3, 3, Float64, 9}(H_gt)), sqrtw)
     a0 = SVector{8, Float64}(0.01, -0.02, 0.015, 0.01, -0.005, 0.02, -0.01, 0.008)
     @test VgtkCore.check_rows_jacobian(lm, a0, 2n; atol = 1.0e-8)

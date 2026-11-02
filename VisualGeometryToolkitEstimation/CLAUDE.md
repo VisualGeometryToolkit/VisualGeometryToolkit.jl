@@ -134,9 +134,9 @@ src/
 │   │   ├── homography.jl          # HomographyProblem
 │   │   ├── radial_homography.jl   # RadialHomographyProblem
 │   │   ├── radial_camera.jl       # RadialCameraProblem (distortion-free board verification)
-│   │   ├── epipolar_lm.jl         # Shared dof-generic Sampson LM plumbing
 │   │   ├── fundmat.jl             # FundMatProblem
 │   │   ├── essential.jl           # EssentialProblem
+│   │   ├── sampson_lm.jl          # the chart-LM rows of every Sampson-constraint problem (F, E, H, circle, radial camera, rotation)
 │   │   ├── relpose_bundle.jl      # RelposeBundleProblem, the bundle on NLLSsolver
 │   │   ├── line.jl                # LineFittingProblem, InhomLineFittingProblem
 │   │   ├── hand_eye.jl             # HandEyeProblem
@@ -172,8 +172,9 @@ Include order in `src/VisualGeometryToolkitEstimation.jl` is dependency-aware:
 3. **estimators/ransac/** — framework (types → samplers → interface →
    scoring_glue → loop → local_optimization → hypotheses → extent_traits)
 4. **estimators/ransac/problems/** — RANSAC problem implementations (cspond →
-   p3p → homography → radial_homography → radial_camera → epipolar_lm →
-   fundmat → essential → relpose_bundle → line → hand_eye → pool), then
+   p3p → homography → radial_homography → radial_camera → fundmat →
+   essential → circle → ellipse → rotation → sampson_lm → relpose_bundle →
+   line → hand_eye → pool), then
    **estimators/ransac/covariance.jl** (its `solver_covariance` dispatches on
    the problem types above), then **problems/manifold_providers.jl** (needs
    the per-problem chart/residual helpers)

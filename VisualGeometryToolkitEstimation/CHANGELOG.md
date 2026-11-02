@@ -5,9 +5,27 @@
 - Follows VisualGeometryToolkitCore's Sampson layers: the essential problem's
   residual is `only(sampson_residual(E, f₁, f₂; M₁, M₂))` and the division
   lift's `‖g‖²` is `constraint(m, X, x)`.
-- One Sampson path: the circle, radial-camera and F/E chart rows are
-  VisualGeometryToolkitCore's `sampson_rows!`/`sampson_jacobian_rows!` (the
-  models' `measurement_gradient_jacobian`).
+- One Sampson path, ONE chart-rows method: every chart problem whose residual
+  is its constraint's whitened Sampson residual — F, E, H, the circle, the
+  radial camera and the rotation — descends VisualGeometryToolkitCore's
+  `whitened_residuals!`/`whitened_jacobian_rows!` over its `cs` (its noise and
+  keyword columns, the LM's √w as `sqrt_weights`), at the chart's model, along
+  its `retract_jacobian`; the per-problem row methods and the epipolar stamping
+  are gone (`_constraint_model(problem, chart, a)` is the one per-problem fact,
+  the rotation's bearing transfer form).
+- Breaking in results: **the homography's and the rotation's LM descend the
+  exact rows** of the residual they are scored with — the algebraic constraint
+  whitened by the endpoints' noise for H (an exact source: the transfer error),
+  the bearing transfer form for the rotation — with the whitening re-evaluated
+  at every iterate and its derivative carried, instead of a transfer whitening
+  frozen at the chart's anchor (a different function away from the anchor,
+  whose fixed point is not the Sampson cost's minimum). Measured: H's refined
+  models move ≤ 1.3e-5 relative (Frobenius, unit-normalized), the transfer RMS
+  on the inliers by ≤ 3e-7 px, the inlier sets unchanged, the Sampson cost at
+  the new fixed point lower (10.1491997 vs 10.1492046 on the test scene); the
+  rotation ≤ 4.1e-7; an exact-source board homography unchanged (5e-16).
+- The pool record's residual matrix is `sampson_distances!` and its RSS a
+  composition of `sampson_distance`.
 - Every problem's constraint is `(g, G_x, G_θ)`: a correspondence's noise is its
   `measurement_covariance(problem, i)` (the `Σ₁`/`Σ₂` columns; a line fit's
   per-point shapes) and its rounding scale `constraint_rounding_scale(problem,

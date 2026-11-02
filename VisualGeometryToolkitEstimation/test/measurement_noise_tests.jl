@@ -12,7 +12,7 @@
     using StableRNGs
     using Rotations: RotMatrix, RotX
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: csponds, exact, Uncertain, CovMat, pair_covariance, transfer_whitening!,
+    using VisualGeometryToolkitCore: csponds, exact, Uncertain, CovMat, pair_covariance, whitened_residuals!,
         source_map, destination_map, sampson_distance, mahalanobis_distance, residuals!,
         converged, estimate, MsacScoring, TLSShape
     using VisualGeometryToolkitEstimation
@@ -43,12 +43,12 @@
         r = residuals!(zeros(n), p, H)
         @test maximum(abs.(r .- transfer) ./ transfer) < 1.0e-10
         @test [mahalanobis_distance(H, exact(board[i]), pix[i]) for i in 1:n] ≈ r rtol = 1.0e-12
-        # analytically: G₂ = −c·I, so Σ̃ = c²I and r = g/|c| — and the transfer
-        # form's frozen whitening is the identity
-        W = Vector{SMatrix{2, 2, Float64, 4}}(undef, n)
-        transfer_whitening!(W, H, board, p.cs.Σ₁, nothing)
-        @test all(w == SMatrix{2, 2}(1.0, 0.0, 0.0, 1.0) for w in W)
-        @test (@allocated transfer_whitening!(W, H, board, p.cs.Σ₁, nothing)) == 0
+        # analytically: G₂ = −c·I, so Σ̃ = c²I and r = g/|c| — the LM's
+        # whitened rows of the problem's set are the same transfer error
+        rr = zeros(2n); whitened_residuals!(rr, H, p.cs)
+        @test [norm(rr[2i-1:2i]) for i in 1:n] ≈ r rtol = 1.0e-12
+        wallocs(rr, H, cs) = (whitened_residuals!(rr, H, cs); @allocated whitened_residuals!(rr, H, cs))
+        @test wallocs(rr, H, p.cs) == 0
         @test (@allocated residuals!(r, p, H)) == 0
         # the chart-LM refit and its lift descend the same pixel residual
         Hs = HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(H) .* (1 .+ 1.0e-3 .* SMatrix{3, 3, Float64, 9}(1, -2, 1, 2, -1, 1, -1, 1, 0))))

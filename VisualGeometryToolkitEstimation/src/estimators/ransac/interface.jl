@@ -367,7 +367,7 @@ function refine! end
 #
 # and, where the default does not hold: `_refit_chart(p, θ, w)` (a weight-aware
 # seed: the radial homography's k, the radial camera's guard), `_lm_state(p, ch,
-# sqrtw)` (a state that needs an `aux`: H's whitening, PnP's pixel block),
+# sqrtw)` (a state that needs an `aux`: PnP's pixel block),
 # `_refit_state` (a refit-only weight adjustment: PnP's out-of-reach points),
 # `_model_at(p, ch)` (the model a chart stands for, in the problem's frame and
 # type; default `model(ch)`). The residual row count is `codimension(P)` rows
@@ -391,8 +391,9 @@ chart_dof(p::AbstractRansacProblem) = chart_dof(typeof(p))
 THE linearization state of every chart LM and chart lift: the chart `ch` the
 iterate lives in (anchored at the current model), the problem whose rows it
 evaluates, the per-row √weights and the one per-problem extra `aux` (`nothing`
-unless the rows need one — H's frozen transfer whitening, PnP's pixel block and
-participation buffer). Each chart problem adds VGC's `residual_rows!` /
+unless the rows need one — PnP's pixel block and
+participation buffer). A Sampson-constraint problem's rows are the one method on
+`ChartLm` below; a problem with another residual adds VGC's `residual_rows!` /
 `residual_jacobian_rows!` on `ChartLm{<:Any, <:ItsProblemType}`.
 """
 struct ChartLm{C, P, S, A}
@@ -413,6 +414,7 @@ _refit_chart(p, θ, _weights) = _chart(p, θ)
 _lm_state(p, ch, sqrtw) = ChartLm(ch, p, sqrtw)
 _refit_state(p, ch, sqrtw) = _lm_state(p, ch, sqrtw)
 _model_at(_p, ch) = model(ch)
+
 
 # =============================================================================
 # LO buffers — ONE reuse policy, ONE chart-LM skeleton

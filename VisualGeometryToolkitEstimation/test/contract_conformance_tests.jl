@@ -229,11 +229,11 @@ function rows_jacobian_fd(prov, ch, J)
 end
 
 # `inliers`: the points the comparison with the scoring residual and with the
-# differenced refresh is restricted to — every point, except for the
-# homography, whose rows FREEZE their transfer whitening at the anchor: its
-# currency is the scoring residual to first order, and a refresh at a moved
-# anchor re-whitens, which the frozen-whitening Jacobian does not see — both
-# differences scale with the residual, so they are measured on the inliers.
+# differenced refresh is restricted to — every point, except for the ellipse,
+# whose rows are a different (orthogonal) distance: equal to the scoring
+# residual only to first order, so measured on its inliers. (Until 0.4 the
+# homography's rows froze their transfer whitening at the anchor and needed the
+# same allowance; they are now the exact rows of the scoring residual.)
 function check_rows_provider(p, θ; inliers = trues(data_size(p)), currency_tol = 1.0e-10, jacobian_tol = 1.0e-5)
     n = data_size(p)
     prov = rows_provider(p)
@@ -261,8 +261,8 @@ function check_rows_provider(p, θ; inliers = trues(data_size(p)), currency_tol 
     # the participation mask: every point, unless the problem masks some (PnP)
     valid = lift_valid(prov)
     @test valid === nothing || (valid isa AbstractVector{Bool} && length(valid) >= n)
-    # the Jacobian at the anchor (its rows refreshed first: H freezes its
-    # whitening there) against the differenced refresh
+    # the Jacobian at the anchor (its rows refreshed first) against the
+    # differenced refresh
     lift_refresh!(prov, ch)
     lift_jacobian!(prov, ch)
     J = copy(rws.J)
@@ -275,12 +275,8 @@ end
 @testset "chart-rows contract: every chart problem's provider" begin
     (pe, θe), (pf, θf) = epipolar_scenes()
     ph, θh = h_scene()
-    rh = zeros(data_size(ph)); residuals!(rh, ph, θh)
-    @testset "homography" begin
-        # measured on this scene's 80 inliers: currency 1.6e-4 relative, Jacobian 1.1e-3
-        check_rows_provider(ph, θh; inliers = abs.(rh) .< 3, currency_tol = 1.0e-3, jacobian_tol = 1.0e-2)
-    end
     for (name, (p, θ)) in (
+            ("homography", (ph, θh)),
             ("essential", (pe, θe)),
             ("fundmat", (pf, θf)),
             ("absolute_pose", pnp_scene()),
@@ -294,8 +290,7 @@ end
     end
     @testset "ellipse" begin
         # its rows are the ORTHOGONAL distances, the scoring's Sampson distance to
-        # first order: the currency is compared on the inliers, as the homography's
-        # — their difference is second order, δ²·κ/2 with the curvature κ ≤ a/b²
+        # first order: the currency is compared on the inliers — their difference is second order, δ²·κ/2 with the curvature κ ≤ a/b²
         # (0.019 here): ≤ 0.01 at |δ| < 1 px, measured 5.1e-3
         pl, θl = ellipse_scene()
         rl = zeros(data_size(pl)); residuals!(rl, pl, θl)

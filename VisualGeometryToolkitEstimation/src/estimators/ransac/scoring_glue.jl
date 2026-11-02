@@ -172,7 +172,8 @@ The ROBUSTIFIED LEVENBERG–MARQUARDT local optimization of every chart problem
 over all the data minimizing `Σᵢ ρ(‖rᵢ‖²)` — the problem's own refit rows on
 its own chart, robustified per datum by loss `K` through
 VisualGeometryToolkitCore's `loss_robustifier`. NLLSsolver applies the loss with
-Triggs' second-order correction (the ρ″ term of the Gauss–Newton Hessian), so
+Triggs' second-order correction (the ρ″ term of the Gauss–Newton Hessian;
+Ceres' `Corrector`), so
 there is no reweighting loop and no inlier set inside the refit: θ is the
 initial guess and the loss decides each datum's influence.
 

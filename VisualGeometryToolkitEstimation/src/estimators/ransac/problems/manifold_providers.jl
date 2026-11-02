@@ -21,8 +21,7 @@
 #   lift_model(prov, ch)        -> the RANSAC model                 (`_model_at`)
 #   lift_valid(prov)            participation mask (default `nothing`)
 #   lift_rows / lift_residuals / lift_size
-# The exceptions: H freezes its transfer whitening at each anchor (refresh),
-# PnP carries its pixel block and participation mask (`_lift_aux`,
+# The exceptions: PnP carries its pixel block and participation mask (`_lift_aux`,
 # `_lift_state`, `lift_valid`), F re-anchors by the SVD (`lift_retract`), and a
 # plain-homography hypothesis seeds the radial homography's k (`lift_init`).
 # =============================================================================
@@ -94,13 +93,6 @@ function lift_jacobian!(p::ManifoldLiftProvider, ch)
 end
 @inline lift_retract(::ManifoldLiftProvider, ch, Δθ) = recenter(ch, Δθ)
 lift_model(p::ManifoldLiftProvider, ch) = _model_at(p.problem, ch)
-
-# H — the transfer whitening is frozen at each anchor: the refresh computes it
-# into the refit's buffer (the one reuse policy, `_transfer_whitening_buffer`),
-# the Jacobian at the same anchor reuses it.
-const _HProvider = ManifoldLiftProvider{<:HomographyProblem}
-_lift_state(p::_HProvider, ch) = ChartLm(ch, p.problem, p.lws.onev, _transfer_whitening_buffer(p.n))
-lift_refresh!(p::_HProvider, ch) = (_freeze_whitening!(_transfer_whitening_buffer(p.n), ch, p.problem); _refresh_rows!(p, ch))
 
 # PnP — the frozen pixel block (aux) and the per-iteration participation mask,
 # written by the rows (a point the lens cannot place: out-of-field rows, masked

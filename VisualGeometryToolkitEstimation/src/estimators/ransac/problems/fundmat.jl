@@ -23,6 +23,5 @@
 
 chart_dof(::Type{<:FundMatProblem}) = 7
 
-# The chart rows are the epipolar family's one method (epipolar_lm.jl): pixel
-# columns, no per-view Jacobians.
-_sampson_columns(::FundMatProblem) = (;)
+# The chart rows are the Sampson-constraint problems' one method (sampson_lm.jl):
+# pixel correspondences, no per-view Jacobians.

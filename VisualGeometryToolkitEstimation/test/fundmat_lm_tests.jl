@@ -63,5 +63,5 @@ const VgtkEstimation = VisualGeometryToolkitEstimation
 end
 
 # The rows' degeneracy rule (a zero row, never a floor) is VGC's
-# `sampson_rows!` / `sampson_jacobian_rows!`, pinned in VGC's sampson_rows_tests.
+# batch rows (`sampson_residuals!` / `sampson_jacobian_rows!`), pinned in VGC's sampson_rows_tests.
 end

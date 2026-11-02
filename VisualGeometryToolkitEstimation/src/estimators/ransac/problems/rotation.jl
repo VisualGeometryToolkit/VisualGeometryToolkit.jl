@@ -20,10 +20,10 @@
 # Sampson distance of that measurement to the constraint variety, Σ = I assumed
 # (Σ_g = P(R M₁M₁ᵀRᵀ + M₂M₂ᵀ)Pᵀ; keypoint covariances are a planned extension). Scoring
 # whitens it through VGC's Sampson layer (the default `whitened_residual`, behind a
-# hemisphere gate), the chart LM and the lifts read VGC's transfer rows with the
-# whitening frozen at the anchor (`transfer_whitening!` / `transfer_rows!` /
-# `transfer_jacobian_rows!`, their bearing methods) — exactly the homography's
-# chart rows (homography.jl) on bearings. Nothing here restates g/‖∇g‖.
+# hemisphere gate), and the chart LM and the lifts descend the same residual
+# through the Sampson-constraint problems' one chart-rows method (sampson_lm.jl:
+# VGC's batch rows, the whitening re-evaluated at every iterate and its
+# derivative carried). Nothing here restates g/‖∇g‖.
 #
 # The chart is VGC's `SO3Manifold` (the rotation member of the rigid chart
 # family), the left exp perturbation R(ω) = exp(ω)·R.
@@ -116,31 +116,16 @@ end
 # `_check_scoring` on `_BearingProblem`), in the same pixel unit.
 
 # =============================================================================
-# The chart — VGC's SO3Manifold — and the transfer rows
+# The chart — VGC's SO3Manifold — and its rows
 # =============================================================================
 
 # The chart is the family default, `minimal_manifold(R)` — VGC's `SO3Manifold`,
 # R(ω) = exp(ω)·R — and its model read-out `model(ch)` (`_chart`, `_model_at`).
-# The rotation at chart coordinates `a` as the transfer form's matrix, and its
-# directions ∂R/∂ω_q there (VGC's `retract_directions`).
+# The rows are the Sampson-constraint problems' one method (sampson_lm.jl): the
+# constraint's model at chart coordinates `a` is the bearing transfer form of
+# the rotation, whose `G_θ` is over vec(H) = vec(R), so the chart's
+# `retract_jacobian` (∂vec(R)/∂ω) is its directions; the transfer whitening is
+# re-evaluated at every iterate and its derivative carried, so the LM descends
+# exactly the pixel residual scoring computes.
 @inline _rotation_at(ch, a) = _transfer_homography(retract(ch, a))
-
-# The per-point whitening blocks frozen at the chart's anchor (the homography's
-# policy), one buffer per (task, n) under the one reuse policy.
-_rotation_whitening_buffer(n::Int) = task_buffers(
-    Vector{SMatrix{2, 2, Float64, 4}}, () -> Vector{SMatrix{2, 2, Float64, 4}}(undef, n), (:rvg_rotation_W, n)
-)
-function _lm_state(p::RotationProblem, ch, sqrtw)
-    W = _rotation_whitening_buffer(data_size(p))
-    transfer_whitening!(W, _rotation_at(ch, VgtkCore.zero_tangent(ch)), sources(p.cs), targets(p.cs); M₁ = p.cs.M₁, M₂ = p.cs.M₂)
-    return ChartLm(ch, p, sqrtw, W)
-end
-
-function residual_rows!(r::AbstractVector, lm::ChartLm{<:VgtkCore.RotationChart, <:RotationProblem}, a)
-    cs = lm.problem.cs
-    return transfer_rows!(r, _rotation_at(lm.ch, a), lm.aux, sources(cs), targets(cs), lm.sqrtw)
-end
-function residual_jacobian_rows!(J::AbstractMatrix, lm::ChartLm{<:VgtkCore.RotationChart, <:RotationProblem}, a)
-    cs = lm.problem.cs
-    return transfer_jacobian_rows!(J, _rotation_at(lm.ch, a), VgtkCore.retract_directions(lm.ch, a), lm.aux, sources(cs), targets(cs), lm.sqrtw)
-end
+_constraint_model(::RotationProblem, ch, a) = VgtkCore.TransferForm(_rotation_at(ch, a))

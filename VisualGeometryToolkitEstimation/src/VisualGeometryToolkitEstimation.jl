@@ -39,7 +39,7 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
     # imported back for the P3P degeneracy check.
     thin_ratio, _are_points_distinct,
     normal, skew, whitening_factor,   # the frozen whitening of the reweighted fits (radial camera, division lift)
-    sampson_rows!, sampson_jacobian_rows!,   # the E/F LM rows (one KA kernel each; CPU loop)
+    whitened_residuals!, whitened_jacobian_rows!,   # the chart LM rows of every Sampson-constraint problem (one KA kernel each)
     kabsch, chordal_mean, log_so3,   # SO(3) log (hand-eye, robot-world)
     s2_tangent_basis,                        # the tangent chart of the P3P ray-coplanarity gate
     tls_line,                                # fit_line's unweighted seed direction
@@ -67,7 +67,7 @@ using VisualGeometryToolkitCore: CspondNormalization   # the correspondence norm
 import VisualGeometryToolkitCore.Pools: PoolPair
 using VisualGeometryToolkitCore.Pools: StereoRawPair, pair_csponds, pair_snn, pair_K1, pair_K2,
     pair_R_gt, pair_t_gt, pair_gt_inliers, pool_normalization, pool_frame_calibrations, pool_pixel_scale
-using VisualGeometryToolkitCore: sampson_residuals!, sampson_rss, homography_dlt, test_dlt_conditioning
+using VisualGeometryToolkitCore: sampson_distances!, sampson_distance, homography_dlt, test_dlt_conditioning
 using VisualGeometryToolkitCore.Synthetic: optimistic_pose_error
 # VGC state is read through its accessors, never by field name (a by-field read
 # breaks at RUNTIME here when VGC renames the field; an accessor breaks at load).
@@ -171,13 +171,12 @@ using VisualGeometryToolkitCore: AbstractLossShape, GaussianShape, WelschShape,
 # is a consensus threshold or just a scale (scoring_glue.jl `is_inlier`).
 using VisualGeometryToolkitCore: deploy, DeployedLoss, sq_loss_width, bounded
 using VisualGeometryToolkitCore: EssentialManifold5,
-    FundMatManifold7, HomographyManifold8, pose_action_jacobian,   # the relpose bundle's pose chart
+    HomographyManifold8, pose_action_jacobian,   # the relpose bundle's pose chart
     LeftRigidManifold6, recenter, retract, retract_jacobian, action_jacobian,
     minimal_manifold,   # the circle and radial-camera charts
     RigidExpManifold6, local_coordinates,   # the hand-eye and robot-world chart (the reported covariances'; the hand-eye constraint)
     Line2DManifold,   # the line's Hesse chart (LineFittingProblem)
     implicit_covariance, block_rows,   # the one model covariance and its block rows (estimators/ransac/covariance.jl)
-    transfer_whitening!, transfer_rows!, transfer_jacobian_rows!,   # the H LM rows (one KA kernel each; CPU loop)
     radial_transfer_rows!, radial_transfer_jacobian_rows!,          # the radial-H LM rows (likewise)
     radial_ray                                                     # the radial-H centred ray T₋c·H·s̃ (k seed, extent gate)
 # RVG defines no methods on any of these — it only CALLS them — so `using`, not
@@ -358,12 +357,12 @@ include("estimators/ransac/problems/bearing_pose.jl")   # the absolute pose on c
 include("estimators/ransac/problems/homography.jl")
 include("estimators/ransac/problems/radial_homography.jl")
 include("estimators/ransac/problems/radial_camera.jl")    # the 1-D radial camera of a board: distortion-free verification
-include("estimators/ransac/problems/epipolar_lm.jl")
 include("estimators/ransac/problems/fundmat.jl")
 include("estimators/ransac/problems/essential.jl")
 include("estimators/ransac/problems/circle.jl")     # the 2D circle through points: Circle3pt + the point-on-circle Sampson rows
 include("estimators/ransac/problems/ellipse.jl")    # the 2D ellipse through points: Ellipse5pt + the point-on-ellipse Sampson rows
 include("estimators/ransac/problems/rotation.jl")   # the pure rotation on bearings (the infinite homography): Rotation2pt + the bearing transfer rows
+include("estimators/ransac/problems/sampson_lm.jl")   # the chart-LM rows of every Sampson-constraint problem (F, E, H, circle, radial camera, rotation)
 include("estimators/ransac/problems/relpose_bundle.jl")
 include("estimators/ransac/problems/line.jl")
 include("estimators/ransac/problems/hand_eye.jl")

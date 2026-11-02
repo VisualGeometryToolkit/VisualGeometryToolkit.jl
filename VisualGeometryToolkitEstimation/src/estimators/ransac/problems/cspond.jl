@@ -120,6 +120,7 @@ struct MinimalSolveProblem{
     # constructor. Unlabeled constructions carry `UnlabeledFrame` wildcards.
     src_frame_map::H1
     dst_frame_map::H2
+    mapped::Bool    # the maps are not both the identity (`_has_measurement_maps`), decided once at construction
     _sampler::S
     # The sample gate's coincidence tolerance in the units of the cameras' image
     # frame (E only; H and F read the scale-free `_COINCIDENT_NORMALIZED`).
@@ -175,10 +176,10 @@ Non-identity `src_map`/`dst_map` ⇒ the DATA frame is not the model's metric
 (solver) frame. Minimal solvers must then map the points before solving —
 residuals/scoring/LO all conjugate through the maps, and a solve that ignores
 them enforces the model class's frame-specific constraints in the wrong frame
-(the 2026-07-19 canonical-scored-E bug). Cheap 18-compare, allocation-free.
+(the 2026-07-19 canonical-scored-E bug). Decided once, at construction (the
+18-compare of the maps against the identity), and read per point.
 """
-@inline _has_measurement_maps(p::MinimalSolveProblem{M, K, T}) where {M, K, T} =
-    !(to_homogeneous(p.src_frame_map) == SMatrix{3, 3, T, 9}(I) && to_homogeneous(p.dst_frame_map) == SMatrix{3, 3, T, 9}(I))
+@inline _has_measurement_maps(p::MinimalSolveProblem) = p.mapped
 
 # =============================================================================
 # Trait methods
@@ -486,13 +487,14 @@ function MinimalSolveProblem{M, K}(
     ) where {M, K}
     T = _problem_scalar(cs)
     coincident_tol > 0 || throw(ArgumentError("coincident_tol must be positive, got $(coincident_tol)"))
+    mapped = !(to_homogeneous(src_frame_map) == SMatrix{3, 3, T, 9}(I) && to_homogeneous(dst_frame_map) == SMatrix{3, 3, T, 9}(I))
     return MinimalSolveProblem{
         M, K, T, typeof(cs), typeof(cs_hartley), typeof(cs_solve),
         typeof(normalization), typeof(solver), typeof(context), typeof(sampler),
         typeof(src_frame_map), typeof(dst_frame_map),
     }(
         cs, cs_hartley, cs_solve, normalization, solver, context,
-        src_frame_map, dst_frame_map, sampler, T(coincident_tol),
+        src_frame_map, dst_frame_map, mapped, sampler, T(coincident_tol),
     )
 end
 
@@ -991,17 +993,17 @@ test_sample(p::MinimalSolveProblem{<:EssentialMat}, idx::AbstractVector{Int}) =
 # reads the `M₁`/`M₂` columns), at a Float64 E — the arithmetic is in E's
 # eltype, so the two scoring routes agree at every problem eltype.
 #
-# Every H/F/E constraint carries its model's rounding scale
-# (`constraint_rounding_scale`) as the 5th value, with the isotropic noise
-# shape `I` as the 4th: `whiten(cd...)` then applies the ONE Sampson degeneracy
-# rule at the scale `sampson_distance` and the LM rows use, so a
-# rounding-level pair is judged the same by every scorer.
-@inline _with_rounding(cd::Tuple, ρ) = (cd[1], cd[2], cd[3], I, ρ)
-
+# Every H/F/E problem answers its model's rounding scale
+# (`constraint_rounding_scale(problem, model, i)`): VGC's whitened residual
+# then applies the ONE Sampson degeneracy rule at the scale `sampson_distance`
+# and the LM rows use, so a rounding-level pair is judged the same by every
+# scorer.
 @inline function constraint_with_jacobians(p::MinimalSolveProblem{<:EssentialMat}, model::EssentialMat, i::Int)
-    E = EssentialMat{Float64}(Tuple(model))
-    ρ = @inbounds VgtkCore.constraint_rounding_scale(E, sources(p.cs)[i], targets(p.cs)[i]; M₁ = p.cs.M₁[i], M₂ = p.cs.M₂[i])
-    return _with_rounding(@inbounds(VgtkCore.cd_pair(E, p.cs, i)), ρ)
+    @inbounds return VgtkCore.cd_pair(EssentialMat{Float64}(Tuple(model)), p.cs, i)
+end
+@inline function constraint_rounding_scale(p::MinimalSolveProblem{<:EssentialMat}, model::EssentialMat, i::Int)
+    @inbounds return VgtkCore.constraint_rounding_scale(EssentialMat{Float64}(Tuple(model)), sources(p.cs)[i], targets(p.cs)[i];
+        M₁ = p.cs.M₁[i], M₂ = p.cs.M₂[i])
 end
 
 # H, F and E carry constraint rows, so predictive scoring admits them
@@ -1027,29 +1029,59 @@ provides_solver_covariance(::Type{<:RelativeProblem}) = true
 # mapped problem scored `g`, `G_x` and `G_θ` in mismatched frames, and it
 # survived review because it looked right on paper.
 #
-# H and F share the unmapped body (`_data_frame_constraint`): the data frame IS
-# the model frame. F takes no measurement maps (refused at construction).
-@inline _data_frame_constraint(model, c) =
-    _with_rounding(VgtkCore.cd_pair(model, c), VgtkCore.constraint_rounding_scale(model, c.first, c.second))
+# H and F share the unmapped body: the data frame IS the model frame. F takes no
+# measurement maps (refused at construction).
 @inline constraint_with_jacobians(p::MinimalSolveProblem{<:FundMat}, model::FundMat, i::Int) =
-    _data_frame_constraint(model, @inbounds p.cs[i])
-#
-# The 4th value is the correspondence's measurement covariance (VGC
-# `pair_covariance`, the measurement-noise rule): `I` for plain points — the
-# isotropic Sampson error as always — and the endpoints' own from the problem's
-# `Σ₁`/`Σ₂` columns, in the data frame where this constraint lives. An `exact`
-# source makes the residual the transfer error in the target's units.
-@inline function constraint_with_jacobians(p::RelativeProblem, model::HomographyMat, i::Int)
+    VgtkCore.cd_pair(model, @inbounds p.cs[i])
+@inline function constraint_rounding_scale(p::MinimalSolveProblem{<:FundMat}, model::FundMat, i::Int)
     c = @inbounds p.cs[i]
-    _has_measurement_maps(p) || return _with_noise(_data_frame_constraint(model, c), p.cs, i)
-    Hm = inv(p.dst_frame_map) ∘ model ∘ p.src_frame_map         # the DATA frame (VGC `∘` on the matrix)
-    g, G_x, G_θ = VgtkCore.constraint_with_jacobians(Hm, c)
-    # The chain-rule factor: the composition's own derivative (VGC `compose_jacobian`,
-    # ∂vec(H_data)/∂vec(H) = kron(C₁ᵀ, C₂⁻¹)), a RIGHT factor of the 2×9 G_θ.
-    J = VgtkCore.compose_jacobian(inv(p.dst_frame_map), HomographyMap(model), p.src_frame_map)
-    return (g, G_x, G_θ * J, _noise(p.cs, i), VgtkCore.constraint_rounding_scale(Hm, c.first, c.second))
+    return VgtkCore.constraint_rounding_scale(model, c.first, c.second)
 end
-@inline _with_noise(cd::Tuple, cs, i::Int) = (cd[1], cd[2], cd[3], _noise(cs, i), cd[5])
+#
+# The per-model part — the homography in the DATA frame, where the constraint
+# lives (VGC `∘` on the matrix), and the chain-rule factor back to the model's
+# coordinates (VGC `compose_jacobian`, ∂vec(H_data)/∂vec(H) = kron(C₁ᵀ, C₂⁻¹), a
+# RIGHT factor of the 2×9 G_θ; `nothing` unmapped) — is the problem's
+# `residual_context`, formed once per model; the per-point constraint and its
+# rounding scale read it.
+struct _DataFrameHomography{T, J}
+    model::HomographyMat{T}
+    jacobian::J
+end
+residual_context(p::HomographyProblem, model::HomographyMat) =
+    _has_measurement_maps(p) ? _mapped_context(p, model) : _DataFrameHomography(model, nothing)
+_mapped_context(p::HomographyProblem, model::HomographyMat) =
+    _DataFrameHomography(inv(p.dst_frame_map) ∘ model ∘ p.src_frame_map,
+        VgtkCore.compose_jacobian(inv(p.dst_frame_map), HomographyMap(model), p.src_frame_map))
+# A caller with the model itself (a scorer reading one point): the unmapped
+# problem's data frame IS the model's; a mapped one composes per call.
+@inline function constraint_with_jacobians(p::HomographyProblem, model::HomographyMat, i::Int)
+    _has_measurement_maps(p) || return VgtkCore.cd_pair(model, @inbounds p.cs[i])
+    return constraint_with_jacobians(p, _mapped_context(p, model), i)
+end
+@inline function constraint_rounding_scale(p::HomographyProblem, model::HomographyMat, i::Int)
+    c = @inbounds p.cs[i]
+    _has_measurement_maps(p) || return VgtkCore.constraint_rounding_scale(model, c.first, c.second)
+    return constraint_rounding_scale(p, _mapped_context(p, model), i)
+end
+@inline function constraint_with_jacobians(p::HomographyProblem, ctx::_DataFrameHomography, i::Int)
+    g, G_x, G_θ = VgtkCore.cd_pair(ctx.model, @inbounds p.cs[i])
+    return (g, G_x, _pulled_back(G_θ, ctx.jacobian))
+end
+@inline function constraint_rounding_scale(p::HomographyProblem, ctx::_DataFrameHomography, i::Int)
+    c = @inbounds p.cs[i]
+    return VgtkCore.constraint_rounding_scale(ctx.model, c.first, c.second)
+end
+# G_θ in the model's coordinates: the data frame's, pulled back by the chain-rule factor.
+@inline _pulled_back(G_θ, ::Nothing) = G_θ
+@inline _pulled_back(G_θ, J) = G_θ * J
+#
+# A correspondence's measurement covariance (VGC `pair_covariance`, the
+# measurement-noise rule): `I` for plain points — the isotropic Sampson error as
+# always — and the endpoints' own from the problem's `Σ₁`/`Σ₂` columns, in the
+# data frame where the constraint lives. An `exact` source makes the residual the
+# transfer error in the target's units.
+@inline measurement_covariance(p::RelativeProblem, i::Int) = _noise(p.cs, i)
 @inline _noise(::_PointCsponds, ::Int) = I
 @inline _noise(cs, i::Int) = VgtkCore.pair_covariance(cs, i)
 

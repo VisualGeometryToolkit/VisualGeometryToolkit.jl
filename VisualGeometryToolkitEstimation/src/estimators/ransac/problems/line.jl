@@ -68,8 +68,9 @@ function solve(p::LineFittingProblem, idx::AbstractVector{Int})
     return FixedModels{1, typeof(line)}(1, (line,))
 end
 
-# `residuals!` is VisualGeometryToolkitCore's default: the whitened constraint from
-# `constraint_with_jacobians` below through VGC's `whiten` — the stack's one
+# `residuals!` is VisualGeometryToolkitCore's default: the constraint from
+# `constraint_with_jacobians` below whitened by the point's `measurement_covariance`
+# (VGC's `whitened_constraint_residual`) — the stack's one
 # Sampson degeneracy rule (a vanishing projected variance nᵀΣn gives 0 or Inf),
 # not the `max(σᵢ, eps)` floor this problem carried until 2026-09-22.
 
@@ -105,21 +106,19 @@ end
 #
 # VGC's point-on-line constraint (`constraint_with_jacobians(::Line2D, x)`: g = n·x + d,
 # G_x = n) with the model row in the line's Hesse chart (φ, d) — VGC's
-# `action_jacobian(Line2DManifold(l), x)` = (t·x, 1) — plus the point's
-# covariance shape as the 4th value, so whiten(splat...) weighs by it.
+# `action_jacobian(Line2DManifold(l), x)` = (t·x, 1); the point's covariance
+# shape is its `measurement_covariance`, which VGC's whitened residual weighs by.
 @inline function constraint_with_jacobians(
         p::LineFittingProblem{T},
         model::Line2D{T}, i::Int
     ) where {T}
-    @inbounds begin
-        pt = p.points[i]
-        Σ̃_x = p.cov_shapes[i]
-    end
+    pt = @inbounds p.points[i]
     x = SVector{2, T}(T(pt[1]), T(pt[2]))
     g, G_x, _ = VgtkCore.constraint_with_jacobians(model, x)
     ∂_θg = SVector{2, T}(action_jacobian(Line2DManifold(model), x))
-    return (g, Vec2{T}(G_x), ∂_θg, Σ̃_x)
+    return (g, Vec2{T}(G_x), ∂_θg)
 end
+@inline measurement_covariance(p::LineFittingProblem, i::Int) = @inbounds p.cov_shapes[i]
 provides_solver_covariance(::Type{<:LineFittingProblem}) = true   # predictive scoring (covariance.jl)
 
 # =============================================================================

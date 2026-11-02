@@ -34,19 +34,18 @@ _model_directions(_p, _θ) = nothing
 
 # One index's block (Aᵢ, Bᵢ[, Σ̃ₓ]): the constraint's model rows in the
 # covariance's coordinates, its measurement rows (VGC's `block_rows`, the form
-# `implicit_covariance` reads), and the per-point noise shape Σ̃ₓ when the
-# constraint carries one (its 4th value) — the problem's own noise model, the
-# one `residuals!` whitens by. `noise_weighted = true` below makes the estimator
-# the (BᵢΣ̃ₓBᵢᵀ)⁻¹-weighted one `residuals!` scores (VGC folds Σ̃ₓ into Bᵢ).
+# `implicit_covariance` reads), and the point's noise shape Σ̃ₓ (the problem's
+# `measurement_covariance`, the one `residuals!` whitens by) when it is not
+# isotropic. `noise_weighted = true` below makes the estimator the
+# (BᵢΣ̃ₓBᵢᵀ)⁻¹-weighted one `residuals!` scores (VGC folds Σ̃ₓ into Bᵢ).
 @inline _model_rows(::Nothing, Gθ) = block_rows(Gθ)
 @inline _model_rows(T, Gθ) = block_rows(Gθ) * T
-@inline function _constraint_block(T, cd::Tuple)
+@inline function _constraint_block(T, cd::Tuple, Σ̃ₓ)
     A = _model_rows(T, cd[3])
     B = block_rows(cd[2])
-    return _with_noise_shape(A, B, length(cd) >= 4 ? cd[4] : I)
+    return _with_noise_shape(A, B, Σ̃ₓ)
 end
-# The isotropic shape (`I`, and a constraint without a 4th value) adds nothing;
-# the rounding scale a 5th value carries is the scorers', not the covariance's.
+# The isotropic shape (`I`) adds nothing.
 @inline _with_noise_shape(A, B, ::LinearAlgebra.UniformScaling) = (A, B)
 @inline _with_noise_shape(A, B, Σ̃ₓ) = (A, B, SMatrix{size(B, 2), size(B, 2)}(Σ̃ₓ))
 
@@ -82,7 +81,7 @@ function solver_covariance(p::AbstractRansacProblem, θ, idx::AbstractVector{Int
         return invoke(solver_covariance, Tuple{AbstractConstraintProblem, Any, AbstractVector{Int}}, p, θ, idx)
     _holds_minimal_sample(p, length(idx)) || return nothing
     T = _model_directions(p, θ)
-    block(i) = _constraint_block(T, constraint_with_jacobians(p, θ, i))
+    block(i) = _constraint_block(T, constraint_with_jacobians(p, θ, i), measurement_covariance(p, i))
     Σ = implicit_covariance(block, idx; noise_weighted = true)
     Σ === nothing && return nothing
     return _in_model_coordinates(T, _static(Σ, Val(size(first(block(first(idx))), 2))))

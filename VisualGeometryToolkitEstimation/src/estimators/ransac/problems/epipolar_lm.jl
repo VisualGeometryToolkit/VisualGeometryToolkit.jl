@@ -18,7 +18,7 @@ _set_n!(::ManifoldLmWorkspace, ::Int) = nothing
 #
 # ONE method for both: the √w-weighted signed Sampson rows of the chart's model
 # at `a` (VGC `retract`) and their Jacobian along the chart directions (VGC
-# `retract_directions`). The families differ only in the columns the Sampson
+# `retract_jacobian`, 9 × N over vec(M)). The families differ only in the columns the Sampson
 # form reads, `_sampson_columns(problem)`: none for F's pixels, the per-view
 # back-projection Jacobians `M₁`/`M₂` for E's bearings (fundmat.jl, essential.jl).
 #
@@ -50,7 +50,7 @@ for LM in (:(ChartLm{<:FundMatManifold7, <:FundMatProblem}), :(ChartLm{<:Essenti
     @eval function residual_jacobian_rows!(J::AbstractMatrix, lm::$LM, a)
         cs = lm.problem.cs
         return sampson_jacobian_rows!(
-            J, retract(lm.ch, a), VgtkCore.retract_directions(lm.ch, a),
+            J, retract(lm.ch, a), retract_jacobian(lm.ch, a),
             sources(cs), targets(cs), lm.sqrtw; _sampson_columns(lm.problem)...
         )
     end

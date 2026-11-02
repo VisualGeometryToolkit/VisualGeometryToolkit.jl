@@ -126,7 +126,7 @@ function _held_out(rng, p, θ̂, idx, k, m, σ; naive = false)
     Σ̃ = solver_covariance(p, θ̂, idx)
     Σ̃ === nothing && return nothing
     i = k + rand(rng, 1:m)
-    r, Gw = whitened_constraint_rows(constraint_with_jacobians(p, θ̂, i))
+    r, Gw = whitened_constraint_rows(p, θ̂, i)
     return _predicted(r, Gw, Σ̃, σ, naive)
 end
 _predicted(r::Real, Gw, Σ̃, σ, naive) = [r], fill(σ^2 * (naive ? 1.0 : 1.0 + dot(Gw, Σ̃ * Gw)), 1, 1)
@@ -396,7 +396,7 @@ end
     C₂ = SMatrix{3, 3, Float64, 9}(1 / 240, 0, 0, 0, 1 / 225, 0, -1.10, -1.35, 1)
     pm = HomographyProblem(cs; src_map = C₁, dst_map = C₂)
     Hm = SMatrix{3, 3, Float64, 9}(H)
-    _g(M) = constraint_with_jacobians(pm, HomographyMat{Float64}(Tuple(M)), 1)[1]
+    _g(M) = VgtkCore.constraint(pm, HomographyMat{Float64}(Tuple(M)), 1)
     _, _, G_θ = constraint_with_jacobians(pm, HomographyMat{Float64}(Tuple(Hm)), 1)
     # STEP SIZE 1e-4, deliberately, and not to be shrunk "for accuracy". This
     # scene's transfer residuals run to ~1.6e4, so the central difference is
@@ -564,7 +564,7 @@ end
             upts = [Uncertain(pts[i], CovMat(Σ̃[i])) for i in 1:(n + 1)]
             est = estimate(VgtkEstimation.fit_line(upts[1:n]))
             l̂ = VgtkCore.geom(est); Σθ = SMatrix{2, 2}(VgtkCore.cov(est))
-            r, Gw = whitened_constraint_rows(constraint_with_jacobians(VgtkEstimation.LineFittingProblem(upts), l̂, n + 1))
+            r, Gw = whitened_constraint_rows(VgtkEstimation.LineFittingProblem(upts), l̂, n + 1)
             return [r], fill(σ^2 + dot(Gw, Σθ * Gw), 1, 1)
         end
     end
@@ -583,7 +583,7 @@ end
             θ̂ = first(hyp)
             Σ̃ = solver_covariance(p, θ̂, [1, 2]); Σ̃ === nothing && return nothing
             predictive || return Vector(θ̂ - SVector(a, b)), σ^2 .* Matrix(Σ̃)
-            r, Gw = whitened_constraint_rows(constraint_with_jacobians(p, θ̂, 3))
+            r, Gw = whitened_constraint_rows(p, θ̂, 3)
             return [r], fill(σ^2 * (1 + dot(Gw, Σ̃ * Gw)), 1, 1)
         end
     end

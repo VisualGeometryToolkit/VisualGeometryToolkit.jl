@@ -31,7 +31,7 @@
 # are the TANGENT Sampson of E on bearings, whitened by the per-view
 # back-projection Jacobians `M₁`/`M₂` — the SAME implementation `residuals!`
 # scores through (VGC's `sampson_rows!` / `sampson_jacobian_rows!` with
-# M₁/M₂), with the chart's directions ∂E/∂v from VGC's `retract_directions`.
+# M₁/M₂), with the chart's directions ∂vec(E)/∂v from VGC's `retract_jacobian`.
 # The chart-LM refit and the HQ/GNC lifts (LocalOptimizationDoneRight) share
 # the chart and the rows (interface.jl `ChartLm`). Until 2026-09-30 the refit
 # ran on the 6-dof EssentialManifold6 (a gauge direction τ ∥ t absorbed by the

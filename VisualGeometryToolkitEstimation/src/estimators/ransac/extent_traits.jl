@@ -198,3 +198,5 @@ solver_covariance(p::BoundedProblem, model, idx::AbstractVector{Int}) =
     solver_covariance(p.inner, model, idx)
 constraint_with_jacobians(p::BoundedProblem, model, i::Int) =
     constraint_with_jacobians(p.inner, model, i)
+constraint_rounding_scale(p::BoundedProblem, model, i::Int) = constraint_rounding_scale(p.inner, model, i)
+measurement_covariance(p::BoundedProblem, i::Int) = measurement_covariance(p.inner, i)

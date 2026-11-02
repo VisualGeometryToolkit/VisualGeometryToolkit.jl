@@ -18,7 +18,7 @@
 #
 # Its construction, sampler and RANSAC wiring are the family's (cspond.jl), as
 # the circle's. The residual is VGC's default `residuals!` — the Sampson
-# distance g/‖G_x‖ through VGC's `whiten`: the geometric distance to the ellipse
+# distance g/‖G_x‖ (VGC's Sampson layer): the geometric distance to the ellipse
 # to first order, in PIXELS. The refit is the family's chart LM on the rows
 # below — the EXACT orthogonal distances, not the Sampson approximation (why:
 # the rows' section) — and every local optimization of the family runs on them:
@@ -68,6 +68,8 @@ test_sample(p::EllipseProblem, idx::AbstractVector{Int}) = test_sample(model_typ
 # VGC's default through it (the Sampson distance, VGC's one degeneracy rule).
 @inline constraint_with_jacobians(p::EllipseProblem, e::VgtkCore.Ellipse, i::Int) =
     @inbounds VgtkCore.constraint_with_jacobians(e, p.cs[i])
+@inline constraint_rounding_scale(p::EllipseProblem, e::VgtkCore.Ellipse, i::Int) =
+    @inbounds VgtkCore.constraint_rounding_scale(e, p.cs[i])
 # The one model covariance (covariance.jl) on those rows: an ellipse's
 # covariance on its inliers, in its ambient coordinates (c, Q₁₁, Q₁₂, Q₂₂), and
 # predictive scoring.

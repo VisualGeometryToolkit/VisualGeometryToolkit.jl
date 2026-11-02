@@ -138,8 +138,8 @@ _model_term(G::AbstractMatrix, Σ) = G * Σ * G'
             Σc = solver_covariance(p, θc, collect(1:k))
             @test Matrix(Σc) ≈ c^2 .* Matrix(Σ) rtol = 1.0e-9
             for i in (k + 1):length(p.cs)
-                _, G = VgtkCore.whitened_constraint_rows(VgtkEstimation.constraint_with_jacobians(p, θ, i))
-                _, Gc = VgtkCore.whitened_constraint_rows(VgtkEstimation.constraint_with_jacobians(p, θc, i))
+                _, G = VgtkCore.whitened_constraint_rows(p, θ, i)
+                _, Gc = VgtkCore.whitened_constraint_rows(p, θc, i)
                 @test _model_term(Gc, Σc) ≈ _model_term(G, Σ) rtol = 1.0e-9
             end
         end

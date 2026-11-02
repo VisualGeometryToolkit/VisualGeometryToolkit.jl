@@ -409,7 +409,7 @@ public ConsensusSet, consensus_score, is_fresh, check_fresh, NativeRefit, Extern
 # -----------------------------------------------------------------------------
 # The constraint-problem protocol.
 public AbstractConstraintProblem, data_size, codimension, minimal_sample_size, residuals!,
-    residual_context, whitened_residual, solver_covariance, provides_solver_covariance,
+    residual_context, whitened_residual, measurement_covariance, solver_covariance, provides_solver_covariance,
     refine!, refine_workspace
 # The robust-statistics toolkit.
 public IGPrior, JeffreysPrior, seed_posterior!, reset_posterior!, fit_scale, partition_student_t, partition_rss, weighted_rss,
@@ -612,7 +612,7 @@ export sampson_distance, sampson_residual, mahalanobis_distance   # geometric (S
 public sampson_residual_with_normal   # the Sampson residual and its normal basis: what `whiten` takes
 public constraint   # g alone: the `<f>` of `constraint_with_jacobians` (algebraic, not a distance)
 export triangulate   # ray-domain triangulation: the point AND both ray depths (cheirality is λ > 0, not z > 0)
-public constraint_rounding_scale   # a model's rounding scales at a correspondence: what `whiten` needs to apply that rule
+public constraint_rounding_scale   # a model's rounding scales at a measurement: what the Sampson degeneracy rule reads
 public sampson_residual_with_jacobian, measurement_gradient_jacobian   # the Sampson residual's exact model Jacobian (scalar constraints) and the model protocol it reads
 public sampson_rows!, sampson_jacobian_rows!   # √w-weighted Sampson rows over a set: one KA kernel each, the per-row function the one path
 public TransferForm, transfer_whitening!, transfer_rows!, transfer_jacobian_rows!   # the whitened homography transfer rows
@@ -651,9 +651,6 @@ public SvdWorkspace, svd_nullvec!
 # Covariance propagation: propagate(J, Σ) = J * Σ * J'
 export propagate, whiten
 public whitening_factor   # L⁻¹ of the propagated constraint covariance, frozen once
-# The scalar kernel gᵀΣg behind `whiten`: public, not exported (an underscore
-# name has no place in `using`); RANSACScoringDoneRight imports it by name.
-public _propagate_scalar
 
 # -----------------------------------------------------------------------------
 # 9. STACK QUALITY CONTRACTS - tag registries, package boundaries

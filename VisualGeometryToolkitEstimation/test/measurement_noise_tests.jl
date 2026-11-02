@@ -13,7 +13,7 @@
     using Rotations: RotMatrix, RotX
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: csponds, exact, Uncertain, CovMat, pair_covariance, transfer_whitening!,
-        constraint_rounding_scale, source_map, destination_map, sampson_distance, mahalanobis_distance, residuals!,
+        source_map, destination_map, sampson_distance, mahalanobis_distance, residuals!,
         converged, estimate, MsacScoring, TLSShape
     using VisualGeometryToolkitEstimation
     using VisualGeometryToolkitEstimation: Irls, locally_optimize, RadialHomographyProblem
@@ -31,12 +31,7 @@
         @test isempty(keys(p.cs.attrs))
         @test all(pair_covariance(p.cs, i) === I for i in 1:n)
         r = residuals!(zeros(n), p, H)
-        # the unchanged isotropic whitening, bit for bit
-        ref = map(1:n) do i
-            g, Gx, Gθ = VgtkCore.constraint_with_jacobians(H, board[i], pix[i])
-            norm(first(VgtkCore._sampson_factor(g, Gx, constraint_rounding_scale(H, board[i], pix[i]))))
-        end
-        @test r == ref
+        # the unchanged isotropic whitening, bit for bit: the Sampson distance
         @test r == [sampson_distance(H, board[i], pix[i]) for i in 1:n]
         @test maximum(r) < 1.0e-3                     # metres: the unit the rule removes
     end

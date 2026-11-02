@@ -9,7 +9,10 @@
 #   data_size(p)                           — number of data points
 #   codimension(p)                         — constraint codimension d_g
 #   minimal_sample_size(p)                 — model DOF m (for ν = (k−m)·d_g)
-#   constraint_with_jacobians(p, model, i) — (g, ∂ₓg, ∂_θg[, Σ̃_x[, ρ]]) at point i
+#   constraint_with_jacobians(p, model, i) — (g, ∂ₓg, ∂_θg) at point i
+#   measurement_covariance(p, i)           — Σ̃_x of point i's measurements (default I)
+#   constraint_rounding_scale(p, model, i) — the rounding scales at point i (default
+#                                            `nothing`: the exact-zero degeneracy rule)
 #   solver_covariance(p, model, idx)       — Σ̃_θ of the model estimated from the points
 #                                            idx; REQUIRED for predictive scoring (the
 #                                            fallback throws), `nothing` = degenerate sample
@@ -29,7 +32,9 @@
 
 Supertype of a problem that scoring and local optimization can run on.
 Implementors provide `data_size`, `codimension`, `minimal_sample_size`, and
-`constraint_with_jacobians`; optionally `solver_covariance` with
+`constraint_with_jacobians`; optionally `measurement_covariance` and
+`constraint_rounding_scale` (the point's noise and its degeneracy scales),
+`solver_covariance` with
 `provides_solver_covariance` (predictive scoring), `residual_context` with
 `whitened_residual` (a Jacobian-free residual path), and `refine!` with
 `refine_workspace` (the weighted refit local optimizations call).
@@ -115,9 +120,11 @@ where `LLᵀ = Σ̃_{gᵢ} = ∂ₓgᵢ·Σ̃_x·∂ₓgᵢᵀ`, so that its squ
 distance `gᵢᵀ Σ̃_{gᵢ}⁻¹ gᵢ` (`~ χ²(d_g)` under H₀). SIGNED for a scalar
 constraint (`d_g = 1`: `gᵢ/√Σ̃_{gᵢ}`), the non-negative norm for a vector one.
 
-The default is the Sampson residual of `constraint_with_jacobians(problem,
-model, i)` (the geometry layer of [`sampson_residual_with_normal`](@ref), at
-the problem's own currency of `G_x`) — the stack's one Sampson path and its one
+The default is [`whitened_constraint_residual`](@ref)`(problem, model, i)`: the
+Sampson residual of `constraint_with_jacobians(problem, model, i)` (the geometry
+layer of [`sampson_residual_with_normal`](@ref), at the problem's own currency
+of `G_x` and its `constraint_rounding_scale`), whitened by the point's
+`measurement_covariance` — the stack's one Sampson path and its one
 degeneracy rule (`±Inf`
 for an unsatisfiable degenerate point, `0` for one that vanishes exactly). A
 problem overrides it when a cheaper Jacobian-free route to the SAME quantity
@@ -125,7 +132,7 @@ exists; the override must keep the sign contract. [`residuals!`](@ref) is this
 per point, at `ctx = `[`residual_context`](@ref)`(problem, model)`.
 """
 @inline whitened_residual(p::AbstractConstraintProblem, model, i::Int) =
-    _mahalanobis(constraint_with_jacobians(p, model, i))
+    whitened_distance(whitened_constraint_residual(p, model, i))
 
 """
     residuals!(r, problem, model)
@@ -144,53 +151,56 @@ function residuals!(r::AbstractVector, p::AbstractConstraintProblem, model)
     return r
 end
 
-# The whitened residual of a constraint `(g, G_x, G_θ[, Σ_x[, ρ]])` from
-# `constraint_with_jacobians`, in the constraint's shape (a number for a scalar
-# constraint): its Sampson residual (base/sampson.jl's geometry layer, the
-# exact-zero degeneracy rule), whitened by the measurement covariance `Σ_x` a
-# heteroscedastic problem returns as a fourth element.
-@inline whitened_constraint_residual(cd::Tuple) = _constraint_shape(cd[1], _whitened_constraint(cd...))
-@inline _whitened_constraint(g, G_x, G_θ) = first(_sampson_factor(g, G_x, nothing))
-@inline _whitened_constraint(g, G_x, G_θ, Σ_x) = _whitened_constraint(g, G_x, G_θ, Σ_x, nothing)
-# ... and a fifth element, the constraint's rounding scale (`constraint_rounding_scale`)
-@inline function _whitened_constraint(g, G_x, G_θ, Σ_x, ρ)
-    s, N, _, _ = _sampson_factor(g, G_x, ρ)
-    return whiten(s, N, Σ_x)
+"""
+    measurement_covariance(problem, i) -> Σ̃_x
+
+The covariance of data point `i`'s measurements, over the coordinates its
+constraint's `G_x` differentiates (a correspondence's pair block): what
+[`whitened_constraint_residual`](@ref) whitens by. A problem's measurements
+carry their noise (conventions/measurement-noise.md) — `I` for plain points,
+the default — and a problem that stores covariances (a correspondence set's
+`Σ₁`/`Σ₂` columns, a line fit's per-point shapes) returns point `i`'s.
+"""
+measurement_covariance(::AbstractConstraintProblem, ::Int) = I
+
+"""
+    whitened_constraint_residual(problem, model, i) -> T | SVector{dg}
+
+Data point `i`'s constraint (`constraint_with_jacobians(problem, model, i)`) as
+a whitened residual, in the constraint's shape (a number for a scalar
+constraint): its Sampson residual at the problem's
+[`constraint_rounding_scale`](@ref)`(problem, model, i)` (base/sampson.jl's
+geometry layer and its one degeneracy rule), whitened by the point's
+[`measurement_covariance`](@ref) (one Cholesky of `G_x·Σ̃_x·G_xᵀ`).
+"""
+@inline function whitened_constraint_residual(p::AbstractConstraintProblem, model, i::Int)
+    g, G_x, G_θ = constraint_with_jacobians(p, model, i)
+    s, _ = _whitened_constraint(g, G_x, G_θ, constraint_rounding_scale(p, model, i), measurement_covariance(p, i), nothing)
+    return _constraint_shape(g, s)
 end
 
 """
-    whitened_constraint_rows(cd::Tuple) -> (r, J_w)
+    whitened_constraint_rows(problem, model, i) -> (r, J_w)
 
-A constraint `(g, G_x, G_θ[, Σ_x[, ρ]])` from `constraint_with_jacobians` as a
-least-squares row: its whitened residual (`whitened_constraint_residual`'s —
-the Sampson residual at the rounding scale `ρ`, whitened by `Σ_x`) and its model
-rows `L_Σ⁻¹·G_θ` under the SAME factor, held fixed (the Gauss–Newton row of a
-frozen whitening; `L_Σ L_Σᵀ = G_x·Σ_x·G_xᵀ`). In the constraint's shape: a
-number and an `SVector` row for a scalar constraint, an `SVector` and a matrix
-for a vector one. Degenerate (the gradient vanishes at `ρ`, or `Σ_x` is
+Data point `i`'s constraint as a least-squares row: its
+[`whitened_constraint_residual`](@ref) and its model rows `L_Σ⁻¹·G_θ` under the
+SAME factor, held fixed (the Gauss–Newton row of a frozen whitening;
+`L_Σ L_Σᵀ = G_x·Σ̃_x·G_xᵀ`). In the constraint's shape: a number and an
+`SVector` row for a scalar constraint, an `SVector` and a matrix for a vector
+one. Degenerate (the gradient vanishes at the rounding scale, or `Σ̃_x` is
 singular along the normal): the rule's residual (`0` when the constraint
 vanishes, else `±Inf`) and ZERO rows. What a predictive scorer reads per point:
 the residual and the rows the model covariance is propagated through.
 """
-@inline whitened_constraint_rows(cd::Tuple) = _whitened_constraint_rows(cd...)
-@inline _whitened_constraint_rows(g, G_x, G_θ) = _whitened_constraint_rows(g, G_x, G_θ, I, nothing)
-@inline _whitened_constraint_rows(g, G_x, G_θ, Σ_x) = _whitened_constraint_rows(g, G_x, G_θ, Σ_x, nothing)
-@inline function _whitened_constraint_rows(g, G_x, G_θ, Σ_x, ρ)
-    s, N, L, ok = _sampson_factor(g, G_x, ρ)
-    r, J = whiten(s, N, _as_rows(_sampson_rows(L, G_θ, ok)), Σ_x)
-    return _constraint_shape(g, r), _rows_shape(G_θ, J)
+@inline function whitened_constraint_rows(p::AbstractConstraintProblem, model, i::Int)
+    g, G_x, G_θ = constraint_with_jacobians(p, model, i)
+    s, J = _whitened_constraint(g, G_x, G_θ, constraint_rounding_scale(p, model, i), measurement_covariance(p, i), _as_row(G_θ))
+    return _constraint_shape(g, s), _rows_shape(G_θ, J)
 end
-# L⁻¹G_θ at the Sampson factor (a number ‖G_x‖ for a scalar constraint, the
-# Cholesky factor for a vector one); zero when degenerate (a value decision).
-@inline _sampson_rows(n::Real, G_θ, ok::Bool) = ifelse(ok, G_θ / n, zero(G_θ))
-@inline _sampson_rows(L, G_θ, ok::Bool) = ok ? L \ G_θ : zero(G_θ)
-# Rows as a `dg × nθ` matrix for `whiten`, and back in `G_θ`'s shape.
-@inline _as_rows(J::StaticVector{n, T}) where {n, T} = SMatrix{1, n, T}(Tuple(J))
-@inline _as_rows(J::StaticMatrix) = J
+# Rows back in `G_θ`'s shape.
 @inline _rows_shape(::StaticVector{n}, J::StaticMatrix{1, n, T}) where {n, T} = SVector{n, T}(Tuple(J))
 @inline _rows_shape(::StaticMatrix, J::StaticMatrix) = J
 
-@inline _mahalanobis(cd::Tuple) = whitened_distance(whitened_constraint_residual(cd))
 @inline whitened_distance(r::Real) = r
 @inline whitened_distance(r::StaticVector) = norm(r)
 

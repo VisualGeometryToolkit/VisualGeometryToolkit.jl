@@ -634,9 +634,9 @@ depending on pattern distance, foreshortening, image-area, etc.). With
 \tag{26}
 ```
 
-The framework supports this directly: return a 4-tuple
-``(\boldsymbol{g}_i, \partial_{\boldsymbol{x}}\boldsymbol{g}_i, \partial_{\theta}\boldsymbol{g}_i, \Sigma_{x_i})``
-from `constraint_with_jacobians`, and the default `residuals!` computes
+The framework supports this directly: return ``\Sigma_{x_i}`` from the problem's
+`measurement_covariance(problem, i)` beside its `constraint_with_jacobians`, and
+the default `residuals!` computes
 ``\sqrt{\boldsymbol{g}_i^{\!\top}\,\tilde\Sigma_{g,i}^{-1}\,\boldsymbol{g}_i}``.
 
 *Strengths.* Textbook-correct heteroscedastic weighting; a far-away

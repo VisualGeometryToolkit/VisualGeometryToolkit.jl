@@ -173,7 +173,7 @@ using VisualGeometryToolkitCore: deploy, DeployedLoss, sq_loss_width, bounded
 using VisualGeometryToolkitCore: EssentialManifold5,
     FundMatManifold7, HomographyManifold8, pose_action_jacobian,   # the relpose bundle's pose chart
     LeftRigidManifold6, recenter, retract, retract_jacobian, action_jacobian,
-    minimal_manifold, sampson_residual_with_jacobian,   # the circle and radial-camera charts and their rows
+    minimal_manifold,   # the circle and radial-camera charts
     RigidExpManifold6, local_coordinates,   # the hand-eye and robot-world chart (the reported covariances'; the hand-eye constraint)
     Line2DManifold,   # the line's Hesse chart (LineFittingProblem)
     implicit_covariance, block_rows,   # the one model covariance and its block rows (estimators/ransac/covariance.jl)
@@ -191,6 +191,8 @@ import VisualGeometryToolkitCore:
     test_sample, # RANSAC problems extend; delegate to VGC model-class methods
     test_consensus, # RANSAC problems extend; delegate to VGC model-class methods
     constraint_with_jacobians, # RANSAC problems add (problem, model, i) methods
+    constraint_rounding_scale, # ... and their rounding scales (problem, model, i)
+    measurement_covariance,    # ... and their points' noise (problem, i)
     solve, model_type        # #21 solver-layer verbs — problems add `solve`/`model_type` methods
 # #21 solver/correspondence layer: the consolidated MinimalSolveProblem is
 # built on VGC's correspondence protocol (solver instances carry the

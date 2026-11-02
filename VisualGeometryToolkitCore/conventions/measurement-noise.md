@@ -108,6 +108,10 @@ of the correspondence set, `Σ₁` (sources) and `Σ₂` (targets), static 2×2
 matrices in the caller's frame; a side whose endpoints are all plain has NO
 column (unit isotropic). An estimator's constructor calls it once; the inner
 loop reads the columns ([`pair_covariance`](@ref)`(cs, i)`,
-[`transfer_whitening!`](@ref)) and never an `Uncertain` value. `exact` is an
+[`transfer_whitening!`](@ref)) and never an `Uncertain` value. A RANSAC
+problem hands its point's covariance to the scorers through ONE hook,
+[`measurement_covariance`](@ref)`(problem, i)` (`I` by default), never as a
+slot of its constraint tuple: `constraint_with_jacobians(problem, model, i)` is
+`(g, G_x, G_θ)` for every problem, as for every model. `exact` is an
 ordinary zero `CovMat`: its four numbers per point cost nothing past the
 constructor.

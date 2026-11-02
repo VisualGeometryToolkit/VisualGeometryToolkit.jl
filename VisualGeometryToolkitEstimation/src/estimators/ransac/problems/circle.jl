@@ -15,7 +15,7 @@
 #
 # Its construction, sampler and RANSAC wiring are the family's (cspond.jl). The
 # residual is VGC's default `residuals!` — the Sampson distance g/‖G_x‖ of the
-# constraint through VGC's `whiten`, (d² − r²)/(2d) for a point at distance d
+# constraint (VGC's Sampson layer), (d² − r²)/(2d) for a point at distance d
 # from the centre: the geometric distance d − r to first order, in PIXELS. The
 # refit is the family's chart LM (`refine!` → `_refine!(::NonlinLsq, …)`) on the
 # rows below — the same constraint, whitened the same way — and every local
@@ -71,37 +71,23 @@ test_sample(p::CircleProblem, idx::AbstractVector{Int}) = test_sample(model_type
 # VGC's default through it (the Sampson distance, VGC's one degeneracy rule).
 @inline constraint_with_jacobians(p::CircleProblem, c::VgtkCore.Circle, i::Int) =
     @inbounds VgtkCore.constraint_with_jacobians(c, p.cs[i])
+@inline constraint_rounding_scale(p::CircleProblem, c::VgtkCore.Circle, i::Int) =
+    @inbounds VgtkCore.constraint_rounding_scale(c, p.cs[i])
 
 # =============================================================================
 # The chart rows — VGC's CircleManifold, the default `minimal_manifold(c)`
 # =============================================================================
 
 # √w-weighted signed Sampson distances at chart coordinates `a`: the scoring's
-# own residual (VGC `sampson_residual`). A point at the centre (G_x = 0, ±Inf
-# under the rule) contributes a zero row.
+# own residual, VGC's Sampson rows. A point at the centre (G_x = 0) is a zero row.
 function residual_rows!(f, lm::ChartLm{<:VgtkCore.CircleManifold, <:CircleProblem}, a)
-    pts = lm.problem.cs; sqrtw = lm.sqrtw
     c = retract(lm.ch, SVector{3}(a[1], a[2], a[3]))
-    @inbounds for i in eachindex(pts)
-        d = only(VgtkCore.sampson_residual(c, pts[i]))
-        f[i] = isinf(d) ? 0.0 : sqrtw[i] * d
-    end
-    return f
+    return VgtkCore.sampson_rows!(f, c, lm.problem.cs, lm.sqrtw)
 end
 
-# ∂d/∂a: the Sampson residual's model Jacobian (VGC
-# `sampson_residual_with_jacobian`, the circle's `measurement_gradient_jacobian`)
+# ∂d/∂a: VGC's Sampson Jacobian rows (the circle's `measurement_gradient_jacobian`)
 # along the chart directions A = ∂(c, r)/∂a (`retract_jacobian`).
 function residual_jacobian_rows!(J, lm::ChartLm{<:VgtkCore.CircleManifold, <:CircleProblem}, a)
-    pts = lm.problem.cs; sqrtw = lm.sqrtw
     av = SVector{3}(a[1], a[2], a[3])
-    c = retract(lm.ch, av)
-    A = retract_jacobian(lm.ch, av)
-    @inbounds for i in eachindex(pts)
-        _, row = sampson_residual_with_jacobian(c, pts[i]; directions = A)
-        for q in 1:3
-            J[i, q] = sqrtw[i] * row[1, q]
-        end
-    end
-    return J
+    return VgtkCore.sampson_jacobian_rows!(J, retract(lm.ch, av), retract_jacobian(lm.ch, av), lm.problem.cs, lm.sqrtw)
 end

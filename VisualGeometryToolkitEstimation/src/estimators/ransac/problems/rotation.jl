@@ -19,7 +19,7 @@
 # Jacobian of the joint measurement (both images' pixels): the residual is the
 # Sampson distance of that measurement to the constraint variety, Σ = I assumed
 # (Σ_g = P(R M₁M₁ᵀRᵀ + M₂M₂ᵀ)Pᵀ; keypoint covariances are a planned extension). Scoring
-# whitens it through VGC's `whiten` (the default `whitened_residual`, behind a
+# whitens it through VGC's Sampson layer (the default `whitened_residual`, behind a
 # hemisphere gate), the chart LM and the lifts read VGC's transfer rows with the
 # whitening frozen at the anchor (`transfer_whitening!` / `transfer_rows!` /
 # `transfer_jacobian_rows!`, their bearing methods) — exactly the homography's
@@ -97,19 +97,19 @@ test_sample(p::RotationProblem, idx::AbstractVector{Int}) =
 # The infinite homography of a rotation: the transfer form's matrix.
 @inline _transfer_homography(R) = HomographyMat(Tuple(SMatrix{3, 3}(R)))   # eltype-generic (ForwardDiff through the chart)
 
-# The scoring constraint — VGC's bearing transfer form at H = R (its rounding
-# scale is the exact-zero rule: no 5th value).
+# The scoring constraint — VGC's bearing transfer form at H = R (the transfer
+# form's degeneracy is its Cholesky rank verdict: the exact-zero rounding default).
 @inline function constraint_with_jacobians(p::RotationProblem, R::RotMatrix, i::Int)
     @inbounds return VgtkCore.constraint_with_jacobians(
         VgtkCore.TransferForm(_transfer_homography(R)), sources(p.cs)[i], targets(p.cs)[i]; M₁ = p.cs.M₁[i], M₂ = p.cs.M₂[i])
 end
 
-# The whitened residual: VGC's default (`whiten` of the constraint above, in
-# pixels) behind the hemisphere gate — the transferred ray must be in f₂'s
+# The whitened residual: VGC's default (`whitened_constraint_residual` of the
+# constraint above, in pixels) behind the hemisphere gate — the transferred ray must be in f₂'s
 # hemisphere, since an antipodal pair also has a small tangent residual.
 @inline function whitened_residual(p::RotationProblem, R::RotMatrix, i::Int)
     @inbounds dot(R * sources(p.cs)[i], targets(p.cs)[i]) > 0 || return Inf
-    return VgtkCore.whitened_distance(VgtkCore.whitened_constraint_residual(constraint_with_jacobians(p, R, i)))   # VGC's default, behind the gate
+    return VgtkCore.whitened_distance(VgtkCore.whitened_constraint_residual(p, R, i))   # VGC's default, behind the gate
 end
 
 # The sub-detector half-width refusal is the bearing problems' (essential.jl

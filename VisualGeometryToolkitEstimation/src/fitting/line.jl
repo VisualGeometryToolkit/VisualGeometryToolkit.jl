@@ -79,7 +79,7 @@ information `JᵀWJ`, all at the final normal.
 
 `nothing` when a point with positive prior weight has no variance along the
 normal (`σᵢ² ≤ 0`): its weight would be infinite. That is the stack's one
-Sampson degeneracy rule (VGC `whiten`), which the scorer reads as an exact or
+Sampson degeneracy rule (VGC's Sampson layer), which the scorer reads as an exact or
 impossible point — never an `eps` floor, which would weigh the point by an
 arbitrary 1/eps instead.
 """

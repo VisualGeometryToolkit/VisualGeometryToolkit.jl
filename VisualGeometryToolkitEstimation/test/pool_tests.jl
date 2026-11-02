@@ -108,7 +108,11 @@ end
             @test R[:, j] == Float32.(abs.(r))
         else
             # to Float32 rounding: the same sampson_distance, inlined into the pool's
-            # loop, may round its last Float64 bit differently and cross a Float32 boundary
+            # loop. The constraint's 3×3 products are StaticArrays' `muladd`s, which
+            # LLVM may contract to an fma in one inlining context and not another
+            # (seen on a fresh-clone gate, not locally): the last Float64 bit can
+            # differ and cross a Float32 boundary. Making the two bit-identical by
+            # construction would mean un-contractible products in every constraint.
             @test isapprox(R[:, j], [Float32(sampson_distance(pair.models[j], SVector{2, Float64}(a), SVector{2, Float64}(b)))
                                      for (a, b) in zip(sources(pair.csponds), targets(pair.csponds))]; rtol = eps(Float32))
         end

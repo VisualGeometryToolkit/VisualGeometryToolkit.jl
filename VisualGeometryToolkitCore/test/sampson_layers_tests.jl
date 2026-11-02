@@ -56,7 +56,7 @@
 
     @testset "a conic and its ellipse agree; an ellipse's centre is degenerate" begin
         e = Ellipse(SVector(320.0, 240.0), 90.0, 40.0, 0.4)
-        C = Conic(SMatrix{3, 3, Float64}(VgtkCore.HomEllipseMat(e)))
+        C = Conic(e)
         for p in (SVector(420.0, 250.0), SVector(300.0, 290.0), SVector(330.0, 230.0))
             @test sampson_distance(C, p) ≈ sampson_distance(e, p) rtol = 1.0e-10
             @test sampson_distance(Conic(-3.0 * C.Q), p) ≈ sampson_distance(C, p) rtol = 1.0e-12     # homogeneous
@@ -144,43 +144,44 @@ end
     @test isinf(only(sc)) && all(iszero, Jc)
 end
 
-# A constraint tuple as a least-squares row (`whitened_constraint_rows`): the
+# A problem's point as a least-squares row (`whitened_constraint_rows`): the
 # whitened residual and the frozen-whitened model row under ONE factor, the
-# degeneracy rule at the tuple's rounding scale — what a predictive scorer reads.
-@testitem "whitened_constraint_rows" begin
+# degeneracy rule at the point's rounding scale — what a predictive scorer reads.
+@testitem "whitened_constraint_rows" setup = [ConstraintTuples] begin
     import VisualGeometryToolkitCore as VgtkCore
     using Test
     using LinearAlgebra
     using StaticArrays
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: whitened_constraint_rows, whitened_constraint_residual, whitening_factor,
+    using VisualGeometryToolkitCore: whitening_factor,
         constraint_with_jacobians, constraint_rounding_scale, whiten, sampson_residual_with_normal, pair_covariance
 
     F = FundMat(SMatrix{3, 3, Float64}(0.0, 1.0e-6, -2.0e-4, -1.0e-6, 0.0, 3.0e-3, 1.0e-4, -3.0e-3, 0.02))
     u, v = SVector(310.0, 205.0), SVector(330.0, 190.0)
     g, G_x, G_θ = constraint_with_jacobians(F, u, v)
     # plain: the Sampson residual and G_θ/‖G_x‖, the number and the row a scalar constraint gives
-    r, J = whitened_constraint_rows((g, G_x, G_θ))
-    @test r == whitened_constraint_residual((g, G_x, G_θ))
+    r, J = rows_of((g, G_x, G_θ))
+    @test r == whitened_of((g, G_x, G_θ))
     @test r ≈ g / norm(G_x) rtol = 1.0e-14
     @test J isa SVector{9}
     @test J ≈ G_θ / norm(G_x) rtol = 1.0e-14
     # with a covariance and the rounding scale: the same factor as whitening_factor
     Σ = pair_covariance(SMatrix{2, 2}(2.0, 0.3, 0.3, 1.0), SMatrix{2, 2}(0.5, 0.0, 0.0, 0.8))
     ρ = constraint_rounding_scale(F, u, v)
-    rΣ, JΣ = whitened_constraint_rows((g, G_x, G_θ, Σ, ρ))
+    rΣ, JΣ = rows_of((g, G_x, G_θ); Σ, ρ)
+    @test rΣ ≈ only(whiten(sampson_residual_with_normal(F, u, v)..., Σ)) rtol = 1.0e-12   # one Cholesky of G_xΣG_xᵀ = whiten of (s_N, N)
     @test rΣ ≈ whitening_factor(G_x, Σ) * g rtol = 1.0e-12
     @test JΣ ≈ whitening_factor(G_x, Σ) * G_θ rtol = 1.0e-12
     # a vector constraint (H's two rows): a vector residual and a 2 × 9 row
     H = HomographyMat(SMatrix{3, 3, Float64}(1.1, 0.02, 1.0e-4, -0.03, 0.95, 2.0e-4, 12.0, -7.0, 1.0))
     gH, GxH, GθH = constraint_with_jacobians(H, u, v)
-    rH, JH = whitened_constraint_rows((gH, GxH, GθH))
+    rH, JH = rows_of((gH, GxH, GθH))
     @test rH ≈ whitening_factor(GxH) * gH rtol = 1.0e-12
     @test JH ≈ whitening_factor(GxH) * GθH rtol = 1.0e-12
     # degenerate at the rounding scale: 0 when the constraint vanishes, ±Inf otherwise; zero rows either way
     Z = zero(SVector{4, Float64}); ρ0 = (; gradient = 1.0, value = 1.0e-3)
-    @test whitened_constraint_rows((1.0e-4, Z, G_θ, I, ρ0)) == (0.0, zero(G_θ))
-    r∞, J∞ = whitened_constraint_rows((0.7, Z, G_θ, I, ρ0))
+    @test rows_of((1.0e-4, Z, G_θ); ρ = ρ0) == (0.0, zero(G_θ))
+    r∞, J∞ = rows_of((0.7, Z, G_θ); ρ = ρ0)
     @test r∞ == Inf && all(iszero, J∞)
     # `whiten` with rows: the identity by dispatch on Σ = I, the same factor otherwise
     s, N = sampson_residual_with_normal(F, u, v)
@@ -191,6 +192,7 @@ end
     @test vec(Jw) ≈ JΣ rtol = 1.0e-12
     allocs(s, N, Σ) = (whiten(s, N, Σ); @allocated whiten(s, N, Σ))
     @test allocs(s, N, Σ) == 0 && allocs(s, N, I) == 0
-    rows_allocs(cd) = (whitened_constraint_rows(cd); @allocated whitened_constraint_rows(cd))
-    @test rows_allocs((g, G_x, G_θ, Σ, ρ)) == 0
+    pΣ = CDProblem([(g, G_x, G_θ)], [Σ], [ρ])
+    rows_allocs(p) = (VgtkCore.whitened_constraint_rows(p, nothing, 1); @allocated VgtkCore.whitened_constraint_rows(p, nothing, 1))
+    @test rows_allocs(pΣ) == 0
 end

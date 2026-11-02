@@ -17,7 +17,7 @@ using VisualGeometryToolkitCore: inlier_threshold   # the scoring contract (VGC)
 using VisualGeometryToolkitEstimation: RansacConfig, ransac,
     RansacWorkspace,
     data_size, minimal_sample_size, model_type, constraint_with_jacobians
-using VisualGeometryToolkitCore: whitened_constraint_rows
+using VisualGeometryToolkitCore: whitened_constraint_rows, constraint
 
 # =============================================================================
 # The owner's minimal solve and constraint, as functions ForwardDiff can
@@ -27,11 +27,11 @@ using VisualGeometryToolkitCore: whitened_constraint_rows
 # (x₁, y₁, x₂, y₂) → (a, b) of the line y = a + b·x through the two points.
 _solved(x) = first(solve(InhomLineFittingProblem([SVector(x[1], x[2]), SVector(x[3], x[4])]), [1, 2]))
 # the constraint g of point i, as a function of the model and of that point's y
-_g_of_θ(pts, θ, i) = constraint_with_jacobians(InhomLineFittingProblem([SVector{2, eltype(θ)}(p) for p in pts]), SVector{2}(θ[1], θ[2]), i)[1]
-_g_of_y(pts, model, y, i) = constraint_with_jacobians(
+_g_of_θ(pts, θ, i) = constraint(InhomLineFittingProblem([SVector{2, eltype(θ)}(p) for p in pts]), SVector{2}(θ[1], θ[2]), i)
+_g_of_y(pts, model, y, i) = constraint(
     InhomLineFittingProblem([j == i ? SVector(typeof(y)(p[1]), y) : SVector{2, typeof(y)}(p) for (j, p) in enumerate(pts)]),
     SVector{2, typeof(y)}(model), i
-)[1]
+)
 
 # =============================================================================
 # Tests
@@ -169,7 +169,7 @@ _g_of_y(pts, model, y, i) = constraint_with_jacobians(
             @test G_θ ≈ ForwardDiff.gradient(θ -> _g_of_θ(pts, θ, i), Vector(model)) atol = 1.0e-14
 
             # the Sampson residual and the frozen-whitened rows are the identity (‖G_x‖ = 1)
-            r, J_w = whitened_constraint_rows((g, G_x, G_θ))
+            r, J_w = whitened_constraint_rows(prob, model, i)
             @test r ≈ g atol = 1.0e-14
             @test J_w ≈ G_θ atol = 1.0e-14
         end

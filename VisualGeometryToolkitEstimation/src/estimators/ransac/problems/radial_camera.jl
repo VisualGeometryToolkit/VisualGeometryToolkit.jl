@@ -68,6 +68,8 @@ _with_datum(p::RadialCameraProblem, P::VgtkCore.RadialCamera) =
 # whitening, degeneracy rule included (0 / ±Inf where the gradient vanishes).
 @inline constraint_with_jacobians(p::RadialCameraProblem, P::VgtkCore.RadialCamera, i::Int) =
     @inbounds VgtkCore.constraint_with_jacobians(P, sources(p.cs)[i], targets(p.cs)[i])
+@inline constraint_rounding_scale(p::RadialCameraProblem, P::VgtkCore.RadialCamera, i::Int) =
+    @inbounds VgtkCore.constraint_rounding_scale(P, sources(p.cs)[i], targets(p.cs)[i])
 provides_solver_covariance(::Type{<:RadialCameraProblem}) = true   # predictive scoring (covariance.jl)
 
 # =============================================================================
@@ -102,33 +104,21 @@ function _refit_chart(::RadialCameraProblem, θ::VgtkCore.RadialCamera, _weights
     return minimal_manifold(θ)
 end
 
-# √w-weighted point–radial-line distances in the chart at `a` (VGC's `residual_rows!`).
+# √w-weighted point–radial-line distances in the chart at `a` (VGC's
+# `residual_rows!`): VGC's Sampson rows, a degenerate pair a zero row.
 function residual_rows!(f, lm::ChartLm{<:Any, <:RadialCameraProblem}, a)
-    cs = lm.problem.cs; plane = sources(cs); pixel = targets(cs); sqrtw = lm.sqrtw
+    cs = lm.problem.cs
     P = retract(lm.ch, SVector{5}(a[1], a[2], a[3], a[4], a[5]))
-    @inbounds for i in 1:length(cs)
-        d = only(VgtkCore.sampson_residual(P, plane[i], pixel[i]))
-        f[i] = isinf(d) ? 0.0 : sqrtw[i] * d
-    end
-    return f
+    return VgtkCore.sampson_rows!(f, P, sources(cs), targets(cs), lm.sqrtw)
 end
 
-# ∂d/∂a: the Sampson residual's model Jacobian (VGC
-# `sampson_residual_with_jacobian`, the radial camera's
+# ∂d/∂a: VGC's Sampson Jacobian rows (the radial camera's
 # `measurement_gradient_jacobian`) along the chart directions A = ∂vec(P)/∂a
 # (the sphere's `retract_jacobian`, the normalization included).
 function residual_jacobian_rows!(J, lm::ChartLm{<:Any, <:RadialCameraProblem}, a)
-    cs = lm.problem.cs; plane = sources(cs); pixel = targets(cs); sqrtw = lm.sqrtw
+    cs = lm.problem.cs
     av = SVector{5}(a[1], a[2], a[3], a[4], a[5])
-    P = retract(lm.ch, av)
-    A = retract_jacobian(lm.ch, av)                                  # 6×5
-    @inbounds for i in 1:length(cs)
-        _, row = sampson_residual_with_jacobian(P, plane[i], pixel[i]; directions = A)
-        for q in 1:5
-            J[i, q] = sqrtw[i] * row[1, q]
-        end
-    end
-    return J
+    return VgtkCore.sampson_jacobian_rows!(J, retract(lm.ch, av), retract_jacobian(lm.ch, av), sources(cs), targets(cs), lm.sqrtw)
 end
 
 # A radial camera fixes directions only: there is no quad to wind, so the

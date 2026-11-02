@@ -79,7 +79,11 @@ function test_scoring_contract(scoring, residuals::AbstractVector; n::Integer = 
     end
 end
 
-function test_local_optimization_contract(lo, problem, θ, scoring; T::Type = Float64, allocations::Bool = true)
+# The element type is the optional leading type argument (conventions/signatures.md,
+# slot 4), never a keyword.
+test_local_optimization_contract(lo, problem, θ, scoring; allocations::Bool = true) =
+    test_local_optimization_contract(Float64, lo, problem, θ, scoring; allocations)
+function test_local_optimization_contract(::Type{T}, lo, problem, θ, scoring; allocations::Bool = true) where {T}
     return Test.@testset "local-optimization contract: $(nameof(typeof(lo))) on $(nameof(typeof(problem)))" begin
         n = data_size(problem)
         d_g = codimension(problem)

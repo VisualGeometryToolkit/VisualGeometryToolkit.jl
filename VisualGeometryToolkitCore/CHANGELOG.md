@@ -28,6 +28,9 @@ second layer over it.
 - `whitened_rows(SampsonWhitening(), g, G_x, G_θ, Σ_x)` whitens a
   heteroscedastic constraint; `whitened_constraint_residual` reads a 4- or
   5-tuple's `Σ_x` and rounding scale as before.
+- `test_local_optimization_contract([T = Float64,] lo, problem, θ, scoring;
+  allocations)`: the element type is an optional leading positional (slot 4 of
+  the signature rule), no longer the keyword `T`.
 - Retired: `signed_sampson_distance` (`only(sampson_residual(M, x...))`), the
   `Σ` keyword of the essential matrix's distance (`whiten(sampson_residual_with_normal(E, f₁, f₂; M₁, M₂)..., Σ)`),
   `signed_sampson_jacobian` → `sampson_residual_jacobian`,

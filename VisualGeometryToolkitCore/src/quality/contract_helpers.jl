@@ -22,10 +22,11 @@ Implemented by VisualGeometryToolkitCoreTestExt.
 function test_scoring_contract end
 
 """
-    test_local_optimization_contract(lo, problem, θ, scoring; T = Float64, allocations = true)
+    test_local_optimization_contract([T = Float64,] lo, problem, θ, scoring; allocations = true)
 
 The local-optimization contract on `lo` for `problem` from the hypothesis `θ`
-under `scoring`, as tests: [`lo_workspace`](@ref) built once,
+under `scoring`, in the element type `T` (the workspace's and score buffers'),
+as tests: [`lo_workspace`](@ref) built once,
 [`locally_optimize!`](@ref) type-stable, returning a [`lo_estimate`](@ref)
 result of the problem's model type, honest about `residuals_current` (the
 buffers then hold the refined model's residuals), allocation-free after

@@ -60,6 +60,7 @@ using LogExpFunctions: xlogx, logit, log1pexp   # the Welsch conjugate's w·log(
 using SpecialFunctions: loggamma, digamma, trigamma   # the Student-t normaliser and the ν M-step (robust/mixture.jl)
 using QuadGK: quadgk, gauss   # a loss shape's truncated normaliser (robust/normaliser.jl)
 using Random: Random
+import ForwardDiff   # the transfer form's mixed derivative ∂G_x/∂θ (geometry/forms.jl)
 import NLLSsolver   # the stack's Levenberg–Marquardt: the chart LM's driver, the variable and robustifier protocols (robust/lm_core.jl)
 
 
@@ -334,7 +335,7 @@ export Cspond, csponds, ScoredCspond
 # Columnar correspondence collection + access protocol + lazy lifts (#21).
 # NOTE: `Csponds` (collection of pair-correspondences) is distinct from
 # VGF's `CspondSet` (ONE n-tuple of mutually corresponding elements).
-export Csponds, sources, targets, hasattr, withattrs
+export Csponds, PointSet, sources, targets, hasattr, withattrs
 public block_order, split_blocks   # grouped data: the sorted-key block order (key sets checked); a block-ordered vector back per group
 export points
 public planar_lift, MappedColumn
@@ -613,11 +614,11 @@ public sampson_residual_with_normal   # the Sampson residual and its normal basi
 public constraint   # g alone: the `<f>` of `constraint_with_jacobians` (algebraic, not a distance)
 export triangulate   # ray-domain triangulation: the point AND both ray depths (cheirality is λ > 0, not z > 0)
 public constraint_rounding_scale   # a model's rounding scales at a measurement: what the Sampson degeneracy rule reads
-public sampson_residual_with_jacobian, measurement_gradient_jacobian   # the Sampson residual's exact model Jacobian (scalar constraints) and the model protocol it reads
-public sampson_rows!, sampson_jacobian_rows!   # √w-weighted Sampson rows over a set: one KA kernel each, the per-row function the one path
-public TransferForm, transfer_whitening!, transfer_rows!, transfer_jacobian_rows!   # the whitened homography transfer rows
-public sampson_rss   # Σ sampson_distance² of a correspondence set (σ̂² = RSS/dof)
-public sampson_residuals!   # the n × M Float32 matrix of sampson_distance, models by points (a pool's residuals)
+public sampson_residual_with_jacobian, measurement_gradient_jacobian   # the Sampson residual's exact model Jacobian and the model protocol it reads
+public sampson_residuals!, whitened_residuals!, sampson_jacobian_rows!, whitened_jacobian_rows!   # over a measurement set (columns: noise, keywords, sqrt_weights): one KA kernel each
+public constraint_keywords   # the attribute columns a model's constraint takes as keywords (M₁, M₂ on bearings)
+public sampson_distances!   # the n × M matrix of sampson_distance, models by elements (a pool's residuals)
+public TransferForm   # the homography's transfer constraint
 public radial_transfer_rows!, radial_transfer_jacobian_rows!   # the division-model transfer LM rows
 # Slot-labeled epipolar forms (0.8, geometry/forms.jl): the forms layer.
 # `EpipolarForm` labels the two argument SLOTS of the bilinear form

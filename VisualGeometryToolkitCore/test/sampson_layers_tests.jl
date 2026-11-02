@@ -183,13 +183,9 @@ end
     @test rows_of((1.0e-4, Z, G_θ); ρ = ρ0) == (0.0, zero(G_θ))
     r∞, J∞ = rows_of((0.7, Z, G_θ); ρ = ρ0)
     @test r∞ == Inf && all(iszero, J∞)
-    # `whiten` with rows: the identity by dispatch on Σ = I, the same factor otherwise
+    # `whiten`: the identity by dispatch on Σ = I
     s, N = sampson_residual_with_normal(F, u, v)
     @test whiten(s, N, I) === s
-    @test whiten(s, N, transpose(G_θ / norm(G_x)) |> SMatrix{1, 9}, I) == (s, SMatrix{1, 9}(transpose(G_θ / norm(G_x))))
-    rw, Jw = whiten(s, N, SMatrix{1, 9}(transpose(G_θ / norm(G_x))), Σ)
-    @test rw == whiten(s, N, Σ)
-    @test vec(Jw) ≈ JΣ rtol = 1.0e-12
     allocs(s, N, Σ) = (whiten(s, N, Σ); @allocated whiten(s, N, Σ))
     @test allocs(s, N, Σ) == 0 && allocs(s, N, I) == 0
     pΣ = CDProblem([(g, G_x, G_θ)], [Σ], [ρ])

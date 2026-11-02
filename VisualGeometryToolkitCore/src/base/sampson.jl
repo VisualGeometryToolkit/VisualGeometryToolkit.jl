@@ -187,22 +187,29 @@ correspondence may be given as a `Pair`.
 Geometric only: a measurement's covariance does not enter. The noise-whitened
 (Mahalanobis) distance is [`mahalanobis_distance`](@ref). Degenerate
 measurements follow [`sampson_residual_with_normal`](@ref)'s rule (`0` or `Inf`).
+
+NOT SQUARED: this is `‖δ‖`, the length of the first-order correction.
+Hartley & Zisserman's "Sampson error" and OpenCV's `cv::sampsonDistance` are
+its square, `‖δ‖² = gᵀ(G_x G_xᵀ)⁻¹g`.
 """
 @inline sampson_distance(M, x...; kw...) = _residual_norm(sampson_residual(M, x...; kw...))
 
 """
-    measurement_gradient_jacobian(M, x...; kw...) -> SMatrix{nx, nθ}
+    measurement_gradient_jacobian(M, x...; kw...) -> SMatrix{dg·nx, nθ}
 
-The derivative of a SCALAR constraint's measurement gradient `G_x`
-([`constraint_with_jacobians`](@ref)'s second return) along the model
-coordinates of its `G_θ`: `∂G_x/∂θ`, the mixed second derivative `∂²g/∂x∂θ`.
-It is what the Sampson residual's model Jacobian adds to `G_θ`: the normalizer
-`‖G_x‖` moves with the model ([`sampson_residual_with_jacobian`](@ref)). A
-model implements it beside its constraint — `FundMat` and `EssentialMat` on
-image-plane points and `EssentialMat` on bearings (with `M₁`, `M₂`), an
-`EpipolarForm` (its matrix's), `Circle`, `RadialCamera`, `Conic`, `Ellipse`.
-GTSAM and Ceres have no counterpart: they differentiate an explicit residual,
-not an implicit constraint's gradient.
+The derivative of a constraint's measurement gradient `G_x`
+([`constraint_with_jacobians`](@ref)'s second return, `dg × nx`) along the model
+coordinates of its `G_θ`: `∂vec(G_x)/∂θ` (column-major `vec`; `nx × nθ` for a
+scalar constraint), the mixed second derivative `∂²g/∂x∂θ`. It is what the
+Sampson residual's model Jacobian adds to `G_θ`: the normalizer `L`
+(`LLᵀ = G_x·G_xᵀ`) moves with the model
+([`sampson_residual_with_jacobian`](@ref)). A model implements it beside its
+constraint — `FundMat` and `EssentialMat` on image-plane points and
+`EssentialMat` on bearings (with `M₁`, `M₂`), an `EpipolarForm` (its
+matrix's), `HomographyMat`, a `TransferForm`, `Circle`, `RadialCamera`,
+`Conic`, `Ellipse`. GTSAM and Ceres have no counterpart: they differentiate an
+explicit residual, not an implicit constraint's gradient; it is the term the
+FNS-type exact Sampson Jacobians (Chojnacki et al.) carry.
 """
 function measurement_gradient_jacobian end
 
@@ -230,105 +237,292 @@ end
 
 """
     sampson_residual_with_jacobian(M, x...; directions = nothing, kw...)
-        -> (s_N::SVector{1}, J::SMatrix{1, N})
+        -> (s_N::SVector{dg}, J::SMatrix{dg, N})
 
-The Sampson residual of a SCALAR constraint ([`sampson_residual`](@ref)) and
-its exact derivative along the model: with `g`, `G_x`, `G_θ` from
-[`constraint_with_jacobians`](@ref) and `∂G_x/∂θ` from
-[`measurement_gradient_jacobian`](@ref),
+The Sampson residual ([`sampson_residual`](@ref)) and its EXACT derivative
+along the model: with `g`, `G_x`, `G_θ` from [`constraint_with_jacobians`](@ref)
+and `∂G_x/∂θ` from [`measurement_gradient_jacobian`](@ref), `s_N = L⁻¹g`
+(`LLᵀ = G_x·G_xᵀ`) differentiates as
 
-    ∂(g/‖G_x‖)/∂θ = (G_θ − (g/‖G_x‖²)·(∂G_x/∂θ)ᵀG_x) / ‖G_x‖,
+    ∂s_N/∂θ_q = L⁻¹·∂g/∂θ_q − Φ(L⁻¹·∂P/∂θ_q·L⁻ᵀ)·s_N,   ∂P/∂θ_q = 2 sym(∂G_x/∂θ_q·G_xᵀ),
 
-carried along the chart `directions` (`nθ × N`, e.g. `retract_jacobian(ch, a)`;
-`nothing` keeps the model's own coordinates, `N = nθ`). The residual an LM
-descends and the row it descends it with, from the one Sampson path: the
-residual's degeneracy rule is [`sampson_residual_with_normal`](@ref)'s, and a
-degenerate measurement has a ZERO row (a least-squares row cannot carry `±Inf`).
-Keywords are forwarded to the constraint (`M₁`, `M₂` for an `EssentialMat` on
-bearings). Element-type generic and device-safe; [`sampson_jacobian_rows!`](@ref)
-runs it per measurement.
+`Φ` the lower triangle with its diagonal halved (the Cholesky factor's
+derivative) — for a scalar constraint `(G_θ − (g/‖G_x‖²)·(∂G_x/∂θ)ᵀG_x)/‖G_x‖`.
+The normalizer moves with the model and its derivative is carried, so a
+Gauss–Newton or LM step descends exactly the residual that is scored (a
+whitening frozen at an anchor descends a different function away from it).
+Carried along the chart `directions` (`nθ × N`, e.g. `retract_jacobian(ch, a)`,
+or the models `dM = (∂M/∂θ₁, …)` of `retract_directions`; `nothing` keeps the
+model's own coordinates, `N = nθ`). A degenerate measurement (the rule of
+[`sampson_residual_with_normal`](@ref)) has ZERO rows: a least-squares row
+cannot carry `±Inf`. Keywords are forwarded to the constraint (`M₁`, `M₂` for
+an `EssentialMat` on bearings). Element-type generic and device-safe;
+[`sampson_jacobian_rows!`](@ref) runs it over a measurement set.
 
-A vector constraint (a homography's two rows) has no such row here: its LM
-whitens frozen ([`whitening_factor`](@ref), the transfer rows).
+Ceres and GTSAM differentiate an explicit residual (`CostFunction::Evaluate`,
+a factor's `unwhitenedError` Jacobians); this is the Jacobian of the Sampson
+residual of an implicit constraint, as Chojnacki et al.'s FNS differentiate
+the Sampson cost, which neither library forms.
 """
 @inline function sampson_residual_with_jacobian(M, x...; directions = nothing, kw...)
-    s, Bv, n⁻¹ = _sampson_jacobian_terms(M, _direction_rows(directions), x...; kw...)
-    return s, _as_row(Bv * n⁻¹)
+    s, rows, scale = _sampson_jacobian_terms(M, _direction_rows(directions), I, x...; kw...)
+    return s, _as_row(rows) * scale
 end
 @inline sampson_residual_with_jacobian(M, c::Pair; kw...) = sampson_residual_with_jacobian(M, c.first, c.second; kw...)
-# The row's parts: the residual, the unnormalized row B·(G_θ − c·rate) and
-# 1/‖G_x‖, kept apart so a √w-weighted row scales once (`√w·‖G_x‖⁻¹`).
-# Branch-free (a branch in the row stops a row loop vectorizing): a degenerate
-# measurement scales its row by zero and takes no step through the rate. The
-# rate's coefficient g/‖G_x‖² is formed from ‖G_x‖² itself, so it does not wait
-# on the square root.
-@inline function _sampson_jacobian_terms(M, B, x...; kw...)
+
+# The residual and its model rows at measurement noise Σ (`I`: the Sampson
+# residual), as (r, rows, scale): the exact rows are `rows·scale`, kept apart so
+# a √w-weighted row scales once. ONE derivation; a scalar constraint at Σ = I
+# takes its closed form (the rate's coefficient g/‖G_x‖² formed from ‖G_x‖²
+# itself, so it does not wait on the square root), every other case the
+# Cholesky factor's derivative. Branch-free where it is hot: a degenerate
+# measurement scales its rows by zero.
+@inline function _sampson_jacobian_terms(M, B, Σ, x...; kw...)
     y, g, G_x, G_θ, ρ = _sampson_inputs(M, x...; kw...)
+    return _jacobian_terms(M, B, Σ, g, G_x, G_θ, ρ, y...; kw...)
+end
+@inline function _jacobian_terms(M, B, ::UniformScaling{Bool}, g::Real, G_x::StaticVector, G_θ, ρ, y...; kw...)
     s, _, n, ok = _sampson_factor(g, G_x, ρ)
     n⁻¹ = ifelse(ok, inv(n), zero(n))                 # one division per row (0 when degenerate)
     c = ifelse(ok, g / sum(abs2, G_x), zero(n))       # g/‖G_x‖²
     v = G_θ - c * _normal_rate(M, G_x, y...; kw...)
     return s, _along(v, B), n⁻¹
 end
-# A vector as a `1 × n` row, and a matrix as it is.
+@inline function _jacobian_terms(M, B, Σ, g, G_x, G_θ, ρ, y...; kw...)
+    gv = SVector(Tuple(_as_vector(g)))                 # a Vec constraint: the residual is an SVector
+    Gx = _as_row(G_x); Gθ = _as_row(G_θ)
+    T = eltype(gv)
+    ΣGt = _noise_times(Σ, transpose(Gx))               # Σ·G_xᵀ
+    C, d, okc = _whitening_cholesky(Gx * ΣGt)          # L·Lᵀ = G_x·Σ·G_xᵀ
+    good = okc & !(sum(abs2, G_x) <= _gradient_bound²(ρ, T))
+    L⁻¹ = _inv_lower(C.L)
+    r = L⁻¹ * gv
+    K = _noise_rate(M, ΣGt, y...; kw...)              # (dg·dg) × nθ: vec(∂G_x/∂θ · Σ·G_xᵀ)
+    rows = _along_columns(L⁻¹ * Gθ - _factor_rate(L⁻¹, K, r), B)   # model rows first, then the directions once
+    isnan(d) && return r, rows, one(T)                 # NaN in, NaN out
+    # Value decisions: a degenerate measurement keeps the rule's residual (0 or
+    # ±Inf) and has zero rows.
+    return ifelse(good, r, _degenerate_residual(gv, _vanishes(ρ, gv))), ifelse(good, rows, zero(rows)), one(T)
+end
+# Σ·Gᵀ, the identity by dispatch.
+@inline _noise_times(::UniformScaling{Bool}, Gt) = Gt
+@inline _noise_times(Σ, Gt) = Σ * Gt
+# The inverse of a lower-triangular Cholesky factor (dg ≤ 2 here: closed form).
+@inline _inv_lower(L::LinearAlgebra.LowerTriangular{T, <:StaticMatrix{1, 1}}) where {T} = SMatrix{1, 1, T}(inv(L[1, 1]))
+@inline function _inv_lower(L::LinearAlgebra.LowerTriangular{T, <:StaticMatrix{2, 2}}) where {T}
+    a, b, c = inv(L[1, 1]), L[2, 1], inv(L[2, 2])
+    return SMatrix{2, 2, T}(a, -b * a * c, zero(T), c)
+end
+@inline _inv_lower(L::LinearAlgebra.LowerTriangular) = inv(SMatrix(L))
+# The contraction of the measurement gradient's derivative with Σ·G_xᵀ, per
+# model coordinate: K[(i, j), θ] = Σₖ ∂G_x[i, k]/∂θ · (Σ·G_xᵀ)[k, j] — what the
+# derivative of the Cholesky factor of G_x·Σ·G_xᵀ reads (its derivative along θ
+# is S + Sᵀ, S = vec⁻¹(K[:, θ])). The scalar constraint's `_normal_rate` is its
+# 1 × 1 case. A model whose ∂G_x/∂θ is structured may compute it directly.
+@inline function _noise_rate(M, ΣGt::StaticMatrix{nx, dg}, x...; kw...) where {nx, dg}
+    dG = measurement_gradient_jacobian(M, x...; kw...)        # (dg·nx) × nθ
+    nθ = size(dG, 2); T = promote_type(eltype(dG), eltype(ΣGt))
+    return SMatrix{dg * dg, nθ, T}(ntuple(Val(dg * dg * nθ)) do m
+        θ = (m - 1) ÷ (dg * dg) + 1; ij = (m - 1) % (dg * dg); i = ij % dg + 1; j = ij ÷ dg + 1
+        sum(dG[i + dg * (k - 1), θ] * ΣGt[k, j] for k in 1:nx)
+    end)
+end
+# Φ(L⁻¹·∂P·L⁻ᵀ)·r along every model coordinate, ∂P = S + Sᵀ, S = vec⁻¹(K[:, θ])
+# — the Cholesky factor's derivative applied to the residual (Φ: the lower
+# triangle, diagonal halved). Linear in K, so a fixed dg × dg² map W·K: for
+# dg = 1, (r/n²)·K; for dg = 2, with L⁻¹ = [a 0; b c], the closed form below
+# (pinned against the general Φ in the tests).
+@inline _factor_rate(L⁻¹::StaticMatrix{1, 1}, K::StaticMatrix, r::StaticVector{1}) = (L⁻¹[1, 1]^2 * r[1]) * K
+@inline function _factor_rate(L⁻¹::StaticMatrix{2, 2, T}, K::StaticMatrix, r::StaticVector{2}) where {T}
+    a, b, c = L⁻¹[1, 1], L⁻¹[2, 1], L⁻¹[2, 2]
+    m = a * c * r[1] + b * c * r[2]
+    W = SMatrix{2, 4, T}(a^2 * r[1], 2 * a * b * r[1] + b^2 * r[2], zero(T), m, zero(T), m, zero(T), c^2 * r[2])
+    return W * K
+end
+@inline function _factor_rate(L⁻¹::StaticMatrix{dg, dg, T}, K::StaticMatrix{m, nθ}, r::StaticVector{dg}) where {dg, T, m, nθ}
+    cols = ntuple(Val(nθ)) do θ
+        S = SMatrix{dg, dg, T}(ntuple(k -> K[k, θ], Val(dg * dg)))
+        _lower_half(L⁻¹ * (S + transpose(S)) * transpose(L⁻¹)) * r
+    end
+    return hcat(cols...)
+end
+# Φ(X): the lower triangle with the diagonal halved — d(chol) = L·Φ(L⁻¹dP L⁻ᵀ).
+@inline _lower_half(X::StaticMatrix{n, n, T}) where {n, T} =
+    SMatrix{n, n, T}(ntuple(k -> (i = (k - 1) % n + 1; j = (k - 1) ÷ n + 1; i > j ? X[i, j] : i == j ? X[i, j] / 2 : zero(T)), Val(n * n)))
+# A model-coordinate matrix (rows over θ) carried along chart directions held as
+# ROWS B (`N × nθ`): columns q = M·B[q, :]ᵀ. `nothing` keeps the coordinates.
+@inline _along_columns(A::StaticMatrix, ::Nothing) = A
+@inline _along_columns(A::StaticMatrix, B::StaticMatrix) = A * transpose(B)
+@inline _along_columns(v::StaticVector{n, T}, B) where {n, T} = _along_columns(SMatrix{n, 1, T}(Tuple(v)), B)
+# A vector as a `1 × n` row (the scalar closed form's B·v), and a matrix as it is.
 @inline _as_row(v::StaticVector{N, T}) where {N, T} = SMatrix{1, N, T}(Tuple(v))
 @inline _as_row(J::StaticMatrix) = J
 
-# The √w-weighted rows of a scalar constraint over a set of measurements, each
-# row from the one path above. `xs` is the tuple of measurement columns (one for
-# a point constraint, two for a correspondence), read at the row's index, as are
-# the per-point keyword columns (`M₁`, `M₂`). A degenerate measurement is a zero
-# row (LM-safe), NaN propagates.
+# =============================================================================
+# Batches — a measurement set
+# =============================================================================
+#
+# A measurement set `xs` holds, per element, what one constraint reads — a point
+# (a `PointSet`, or a plain vector of points) or a correspondence (a `Csponds`,
+# a `StructArray` or vector of `Pair`s) — and its per-element data as ATTRIBUTE
+# COLUMNS (conventions/data-arguments.md), never keywords or positionals: the
+# noise (`Σ` of a point set; `Σ₁`/`Σ₂` of a correspondence set, absent = unit
+# isotropic), the columns a model's constraint takes as keywords (`M₁`/`M₂` of
+# bearings), and the rows' weights `sqrt_weights` (√w, absent = 1). Each
+# batched function is ONE body: a plain loop on the CPU, one KernelAbstractions
+# kernel on a device, over the same per-element function as the one-element
+# verb. Element i's residual takes rows dg(i−1)+1 … dg·i.
+
+@inline _measurement_columns(xs::AbstractVector{<:StaticVector}) = (_points_of(xs),)
+@inline _measurement_columns(xs) = (sources(xs), targets(xs))
+@inline _points_of(xs::PointSet) = getfield(xs, :points)
+@inline _points_of(xs::AbstractVector) = xs
+
+# The noise columns of a set: a point set's `Σ`, a correspondence set's `Σ₁`, `Σ₂`.
+@inline _noise_columns(xs::AbstractVector{<:StaticVector}) = (attribute_column(xs, :Σ),)
+@inline _noise_columns(xs) = (attribute_column(xs, :Σ₁), attribute_column(xs, :Σ₂))
+# Element i's stacked covariance: `I` without columns (and for the geometric
+# layer, `nothing`), a point's own, a correspondence's block diagonal.
+@inline _noise_at(::Nothing, i) = I
+@inline _noise_at(::Tuple{Nothing}, i) = I
+@inline _noise_at(::Tuple{Nothing, Nothing}, i) = I
+@inline _noise_at((Σ,)::Tuple{AbstractVector}, i) = _measurement_noise(@inbounds Σ[i])
+@inline _noise_at((Σ₁, Σ₂)::Tuple{Any, Any}, i) = pair_covariance(_side_covariance(Σ₁, i), _side_covariance(Σ₂, i))
+
+"""
+    constraint_keywords(M, xs) -> NamedTuple
+
+The attribute columns of a measurement set that the constraint of `M` takes as
+keywords, by keyword name, read per element by the batched Sampson functions:
+`(; M₁ = xs.M₁, M₂ = xs.M₂)` — the back-projection Jacobians — for the bearing
+forms of an `EssentialMat` and a `TransferForm` (`xs` of 3-vectors), none
+otherwise. A missing column is an `ArgumentError` naming it.
+"""
+constraint_keywords(M, xs) = (;)
+# A column a constraint requires of a set.
+@inline function _required_column(xs, k::Symbol)
+    c = attribute_column(xs, k)
+    c === nothing && throw(ArgumentError("this constraint reads the `$k` attribute column of its measurement set, which the set does not carry"))
+    return c
+end
 @inline _columns_at(columns::NamedTuple, i) = map(c -> (@inbounds c[i]), columns)
 @inline _measurements_at(xs::Tuple, i) = map(x -> (@inbounds x[i]), xs)
-Base.@propagate_inbounds function _sampson_residual_row!(r, i, M, xs, sqrtw, columns)
-    s, _, _, ok = _sampson_core(M, _measurements_at(xs, i)...; _columns_at(columns, i)...)
-    r[i] = ifelse(ok, eltype(r)(sqrtw[i] * only(s)), zero(eltype(r)))
+@inline _sqrtw_at(::Nothing, i, ::Type{T}) where {T} = one(T)
+@inline _sqrtw_at(w::AbstractVector, i, ::Type{T}) where {T} = T(@inbounds w[i])
+
+# One element's residual at noise Σ: (r, ok) — the geometric Sampson residual at
+# Σ = I, the constraint whitened by Σ (one Cholesky of G_x·Σ·G_xᵀ) otherwise.
+@inline function _element_residual(M, ::UniformScaling{Bool}, x...; kw...)
+    s, _, _, ok = _sampson_core(M, x...; kw...)
+    return s, ok
+end
+@inline function _element_residual(M, Σ, x...; kw...)
+    _, g, G_x, _, ρ = _sampson_inputs(M, x...; kw...)
+    _, _, _, ok = _sampson_factor(g, G_x, ρ)
+    C, d, okc = _whitening_cholesky(propagate(_as_row(G_x), Σ))
+    return C.L \ _as_vector(g), (ok & okc) | isnan(d)
+end
+# The rows, in the uniform `(out, i, args...)` form `_foreach_row!` runs. A
+# degenerate element is a zero residual and zero rows (LM-safe), NaN propagates.
+Base.@propagate_inbounds function _sampson_residual_row!(r, i, M, cols, kws, noise, sqrtw)
+    s, ok = _element_residual(M, _noise_at(noise, i), _measurements_at(cols, i)...; _columns_at(kws, i)...)
+    w = _sqrtw_at(sqrtw, i, eltype(r))
+    o = length(s) * (i - 1)
+    for k in eachindex(s)
+        r[o + k] = ifelse(ok, eltype(r)(w * s[k]), zero(eltype(r)))
+    end
     return nothing
 end
-Base.@propagate_inbounds function _sampson_jacobian_row!(J, i, M, B, xs, sqrtw, columns)
-    _, Bv, n⁻¹ = _sampson_jacobian_terms(M, B, _measurements_at(xs, i)...; _columns_at(columns, i)...)
-    w = sqrtw[i] * n⁻¹
-    for q in 1:size(B, 1)
-        J[i, q] = w * Bv[q]
+Base.@propagate_inbounds function _sampson_jacobian_row!(J, i, M, B, cols, kws, noise, sqrtw)
+    _, rows, scale = _sampson_jacobian_terms(M, B, _noise_at(noise, i), _measurements_at(cols, i)...; _columns_at(kws, i)...)
+    R = _as_row(rows)
+    w = _sqrtw_at(sqrtw, i, eltype(J)) * scale
+    dg = size(R, 1); o = dg * (i - 1)
+    for q in axes(R, 2), k in 1:dg
+        J[o + k, q] = w * R[k, q]
     end
     return nothing
 end
 
 """
-    sampson_rows!(r, M, x, sqrtw; columns...) -> r
-    sampson_rows!(r, M, u₁, u₂, sqrtw; columns...) -> r
+    sampson_residuals!(r, M, xs) -> r
 
-The √w-weighted Sampson residual rows of the scalar constraint of `M` over a
-set of measurements — one point per row (`x[i]`: a conic, an ellipse, a
-circle) or a correspondence (`u₁[i] => u₂[i]`: the epipolar models, the radial
-camera) — `r[i] = sqrtw[i]·only(`[`sampson_residual`](@ref)`(M, …))`. Per-point
-keyword columns go to the constraint at each row: an `EssentialMat` on unit
-bearings takes `M₁`, `M₂`, the backprojection Jacobians that put the residual
-in PIXELS. A degenerate measurement is a zero row. ONE KernelAbstractions kernel
-on the backend that owns `r`, a plain loop over the same row function on the
-CPU; `M` in the measurement frame of the points. The Jacobian rows are
+The Sampson residuals of the model `M` over the measurement set `xs` (a
+`PointSet` or vector of points, a `Csponds` or vector of `Pair`s): element
+`i`'s [`sampson_residual`](@ref) in rows `dg(i−1)+1 … dg·i` of `r`, times
+`√wᵢ` from the set's `sqrt_weights` column (absent: 1). GEOMETRIC: a noise
+column is not read. The constraint's keyword columns ([`constraint_keywords`](@ref):
+`M₁`, `M₂` on bearings) are read per element. A degenerate element is ZERO (the
+row an LM can take; its distance is `±Inf` under the rule). One body: a plain
+loop on the CPU, one KernelAbstractions kernel on the backend that owns `r`.
+Reductions compose: the residual sum of squares is `sum(abs2, r)`. The noise-
+whitened rows are [`whitened_residuals!`](@ref); the model rows
 [`sampson_jacobian_rows!`](@ref).
 """
-sampson_rows!(r::AbstractVector, M, x::AbstractVector, sqrtw::AbstractVector; columns...) =
-    _foreach_row!(_sampson_residual_row!, r, length(x), M, (x,), sqrtw, NamedTuple(columns))
-sampson_rows!(r::AbstractVector, M, u₁::AbstractVector, u₂::AbstractVector, sqrtw::AbstractVector; columns...) =
-    _foreach_row!(_sampson_residual_row!, r, length(u₁), M, (u₁, u₂), sqrtw, NamedTuple(columns))
-"""
-    sampson_jacobian_rows!(J, M, directions, x, sqrtw; columns...) -> J
-    sampson_jacobian_rows!(J, M, directions, u₁, u₂, sqrtw; columns...) -> J
+sampson_residuals!(r::AbstractVector, M, xs::AbstractVector) =
+    _foreach_row!(_sampson_residual_row!, r, length(xs), M, _measurement_columns(xs), constraint_keywords(M, xs), nothing,
+        attribute_column(xs, :sqrt_weights))
 
-The Jacobian rows of [`sampson_rows!`](@ref): `J[i, q] = sqrtw[i]·∂rᵢ/∂a_q`
-along the chart `directions` — an `nθ × N` matrix (`retract_jacobian`) or the
-tuple of models `dM = (∂M/∂θ₁, …)` ([`retract_directions`](@ref)) — each row
-[`sampson_residual_with_jacobian`](@ref)'s; a degenerate measurement is a zero
-row. One KernelAbstractions kernel on the backend that owns `J`, a plain loop on
-the CPU.
 """
-sampson_jacobian_rows!(J::AbstractMatrix, M, directions::Union{StaticMatrix, Tuple}, x::AbstractVector, sqrtw::AbstractVector; columns...) =
-    _foreach_row!(_sampson_jacobian_row!, J, length(x), M, _direction_rows(directions), (x,), sqrtw, NamedTuple(columns))
-sampson_jacobian_rows!(J::AbstractMatrix, M, directions::Union{StaticMatrix, Tuple}, u₁::AbstractVector, u₂::AbstractVector, sqrtw::AbstractVector; columns...) =
-    _foreach_row!(_sampson_jacobian_row!, J, length(u₁), M, _direction_rows(directions), (u₁, u₂), sqrtw, NamedTuple(columns))
+    whitened_residuals!(r, M, xs) -> r
+
+[`sampson_residuals!`](@ref) whitened by the measurements' noise columns
+(`Σ` of a point set, `Σ₁`/`Σ₂` of a correspondence set — conventions/
+measurement-noise.md): element `i`'s constraint `L⁻¹gᵢ`, `LLᵀ = G_x·Σᵢ·G_xᵀ`,
+in σ units (`‖rᵢ‖² ~ χ²(dg)`; an exact source with a plain target is the
+transfer error in the target's units). Without noise columns it IS
+`sampson_residuals!`. GTSAM's `NoiseModelFactor::whitenedError` is this per
+factor (and `unwhitenedError` the constraint); a degenerate element is zero.
+"""
+whitened_residuals!(r::AbstractVector, M, xs::AbstractVector) =
+    _foreach_row!(_sampson_residual_row!, r, length(xs), M, _measurement_columns(xs), constraint_keywords(M, xs), _noise_columns(xs),
+        attribute_column(xs, :sqrt_weights))
+
+"""
+    sampson_jacobian_rows!(J, M, directions, xs) -> J
+
+The model rows of [`sampson_residuals!`](@ref) and [`whitened_residuals!`](@ref):
+element `i`'s EXACT derivative along the chart `directions` (an `nθ × N`
+matrix, `retract_jacobian`, or the models `dM = (∂M/∂θ₁, …)` of
+`retract_directions`) — [`sampson_residual_with_jacobian`](@ref)'s, with the
+noise's Cholesky factor differentiated with the model in the whitened form — in
+rows `dg(i−1)+1 … dg·i`, times `√wᵢ` from `sqrt_weights`. A degenerate element
+has zero rows. One body: a plain loop on the CPU, one KernelAbstractions kernel
+on the backend that owns `J`.
+"""
+sampson_jacobian_rows!(J::AbstractMatrix, M, directions::Union{StaticMatrix, Tuple}, xs::AbstractVector) =
+    _foreach_row!(_sampson_jacobian_row!, J, length(xs), M, _direction_rows(directions), _measurement_columns(xs),
+        constraint_keywords(M, xs), nothing, attribute_column(xs, :sqrt_weights))
+"""
+    whitened_jacobian_rows!(J, M, directions, xs) -> J
+
+The model rows of [`whitened_residuals!`](@ref): [`sampson_jacobian_rows!`](@ref)
+with the measurements' noise columns, the Cholesky factor of `G_x·Σᵢ·G_xᵀ`
+differentiated with the model (exact, not frozen).
+"""
+whitened_jacobian_rows!(J::AbstractMatrix, M, directions::Union{StaticMatrix, Tuple}, xs::AbstractVector) =
+    _foreach_row!(_sampson_jacobian_row!, J, length(xs), M, _direction_rows(directions), _measurement_columns(xs),
+        constraint_keywords(M, xs), _noise_columns(xs), attribute_column(xs, :sqrt_weights))
+
+"""
+    sampson_distances!(R::AbstractMatrix, models, xs) -> R
+
+The `length(xs) × length(models)` matrix of [`sampson_distance`](@ref)s, model
+`j` in column `j`, cast to `R`'s element type at storage: a pool's residual
+matrix (Float32). `models` is iterated once and has a length. The distance of
+each element through the one path; a buffer of another size is a
+`DimensionMismatch`.
+"""
+function sampson_distances!(R::AbstractMatrix, models, xs::AbstractVector)
+    size(R) == (length(xs), length(models)) || throw(
+        DimensionMismatch("sampson_distances!: R is $(size(R, 1)) × $(size(R, 2)); $(length(xs)) elements × $(length(models)) models need $(length(xs)) × $(length(models))")
+    )
+    cols = _measurement_columns(xs)
+    @inbounds for (j, M) in enumerate(models), i in eachindex(xs)
+        R[i, j] = eltype(R)(sampson_distance(M, _measurements_at(cols, i)...))
+    end
+    return R
+end
 
 """
     whiten(s_N, N, Σ) -> SVector{dg}
@@ -348,23 +542,16 @@ measurement exact along the normal) leaves the residual's zero components 0
 and its others ±Inf; a degenerate Sampson residual (zero `N`) is returned unchanged.
 NaN propagates.
 
-A least-squares row of the whitened residual is the Sampson row of
-[`sampson_residual_with_jacobian`](@ref) divided by the same factor, held fixed
-over a step (the Gauss–Newton row: `NᵀΣN` moves with the model only through `N`).
+The least-squares rows of the whitened residual, exact (the factor
+differentiated with the model), are [`whitened_jacobian_rows!`](@ref)'s.
+GTSAM's `noiseModel::Gaussian::whiten(v)` is the same operation on an
+explicit residual (`R·v`, `RᵀR = Σ⁻¹`); here the residual is the Sampson
+residual of an implicit constraint and the noise is the measurements' along its
+normal, so `Σ` enters through `NᵀΣN`.
 """
 @inline whiten(s::StaticVector, ::StaticMatrix, ::UniformScaling{Bool}) = s
 @inline whiten(s::StaticVector, N::StaticMatrix, Σ) = first(_whitened(s, s, N', nothing, Σ))
 
-"""
-    whiten(s_N, N, J, Σ) -> (r, J_w)
-
-The residual of [`whiten`](@ref)`(s_N, N, Σ)` and the rows `J` (`dg × nθ`)
-whitened by the same factor `L_N⁻¹` — held fixed, the Gauss–Newton row: `N`
-moves with the model, and its derivative is not carried. A degenerate `NᵀΣN`
-gives zero rows.
-"""
-@inline whiten(s::StaticVector, ::StaticMatrix, J::StaticMatrix, ::UniformScaling{Bool}) = (s, J)
-@inline whiten(s::StaticVector, N::StaticMatrix, J::StaticMatrix, Σ) = _whitened(s, s, N', J, Σ)
 
 # The noise layer's one body: the value `v` and the rows `J` (or `nothing`)
 # whitened by the Cholesky factor of `G·Σ·Gᵀ`, `G` the constraint's measurement
@@ -431,6 +618,9 @@ distance IS its [`sampson_distance`](@ref)), an [`Uncertain`](@ref) one its
 covariance or precision, an [`exact`](@ref) one zero (not every measurement of
 a constraint: `ArgumentError`). In noise units: `d² ~ χ²(dg)`. A correspondence
 may be given as a `Pair`; keywords are forwarded to the constraint.
+
+GTSAM's `noiseModel::Gaussian::mahalanobisDistance` is the same (not squared);
+its `squaredMahalanobisDistance` is the square.
 """
 @inline function mahalanobis_distance(M, x...; kw...)
     _, g, G_x, G_θ, ρ = _sampson_inputs(M, x...; kw...)

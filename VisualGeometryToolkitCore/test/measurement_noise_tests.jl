@@ -9,7 +9,7 @@
     using Random
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: exact, Uncertain, CovMat, PrecMat, cov, pair_covariance, noise_columns,
-        sampson_distance, mahalanobis_distance, TransferForm, transfer_whitening!, whitening_factor, CspondNormalization,
+        sampson_distance, mahalanobis_distance, TransferForm, whitened_residuals!, whitening_factor, CspondNormalization,
         source_map, destination_map, implicit_covariance, minimal_manifold, constraint_with_jacobians
 
     rng = Xoshiro(11)
@@ -59,25 +59,23 @@
         @test whitening_factor(Gx, pair_covariance(zero(SMatrix{2, 2, Float64, 4}), I)) ≈ I / abs(c)
     end
 
-    @testset "transfer whitening: covariances and the plain fast path" begin
-        W = Vector{SMatrix{2, 2, Float64, 4}}(undef, n); W0 = similar(W)
-        transfer_whitening!(W0, H, b)
-        transfer_whitening!(W, H, b, nothing, nothing)
-        @test W == W0
-        transfer_whitening!(W, H, b, fill(zero(SMatrix{2, 2, Float64, 4}), n), nothing)
-        @test all(w == SMatrix{2, 2, Float64, 4}(I) for w in W)
+    @testset "whitened batch rows: the noise columns, and the plain path" begin
+        r0 = zeros(2n); r = zeros(2n)
+        whitened_residuals!(r0, H, Csponds(b, u))                          # no columns: the Sampson residual
+        @test r0 ≈ reduce(vcat, [sampson_residual(H, b[i], u[i]) for i in 1:n]) rtol = 1.0e-14
+        whitened_residuals!(r, H, withattrs(Csponds(b, u); Σ₁ = fill(zero(SMatrix{2, 2, Float64, 4}), n)))
+        # an exact source: the algebraic constraint whitened is the transfer error (r = g/|c|)
+        tr = [PerspectiveMap()(SMatrix{3, 3}(H) * SVector(b[i][1], b[i][2], 1.0)) - u[i] for i in 1:n]
+        @test [norm(r[2i-1:2i]) for i in 1:n] ≈ norm.(tr) rtol = 1.0e-10
         Σ₁ = [SMatrix{2, 2}(1.0e-6, 2.0e-7, 2.0e-7, 3.0e-6) for _ in 1:n]
         Σ₂ = [SMatrix{2, 2}(2.0, 0.1, 0.1, 0.5) for _ in 1:n]
-        transfer_whitening!(W, H, b, Σ₁, Σ₂)
+        whitened_residuals!(r, H, withattrs(Csponds(b, u); Σ₁, Σ₂))
         for i in 1:n
-            _, Gx, _ = constraint_with_jacobians(TransferForm(H), b[i], u[i])
-            A = Gx[:, SVector(1, 2)]
-            L⁻¹ = W[i]
-            @test L⁻¹ * (A * Σ₁[i] * A' + Σ₂[i]) * L⁻¹' ≈ I atol = 1.0e-10
+            @test norm(r[2i-1:2i]) ≈ mahalanobis_distance(H, Uncertain(b[i], CovMat(Σ₁[i])), Uncertain(u[i], CovMat(Σ₂[i]))) rtol = 1.0e-12
         end
-        let W = W, b = b, Σ₁ = Σ₁, Σ₂ = Σ₂
-            @test (@allocated transfer_whitening!(W, H, b, Σ₁, Σ₂)) == 0
-        end
+        xs = withattrs(Csponds(b, u); Σ₁, Σ₂)
+        allocs(r, H, xs) = (whitened_residuals!(r, H, xs); @allocated whitened_residuals!(r, H, xs))
+        @test allocs(r, H, xs) == 0
     end
 
     @testset "normalization moves the noise with the points" begin

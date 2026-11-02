@@ -191,6 +191,11 @@ one. Degenerate (the gradient vanishes at the rounding scale, or `Σ̃_x` is
 singular along the normal): the rule's residual (`0` when the constraint
 vanishes, else `±Inf`) and ZERO rows. What a predictive scorer reads per point:
 the residual and the rows the model covariance is propagated through.
+
+The residual is GTSAM's `NoiseModelFactor::whitenedError` for this point (its
+`unwhitenedError` is the constraint `g`), with the Sampson residual's noise
+along the constraint's normal; the rows are the frozen-whitening Gauss–Newton
+rows (the LM's exact rows are [`whitened_jacobian_rows!`](@ref)'s).
 """
 @inline function whitened_constraint_rows(p::AbstractConstraintProblem, model, i::Int)
     g, G_x, G_θ = _three(constraint_with_jacobians(p, model, i))

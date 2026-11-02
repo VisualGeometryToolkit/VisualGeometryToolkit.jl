@@ -2,9 +2,9 @@
 # correspondence perturbed by its measurement covariance has a whitened residual
 # distributed N(0, I_{d_g}) to first order — `whiten` of the Sampson residual
 # (vector constraint, a known anisotropic per-point Σx),
-# the epipolar `sampson_rows!` (scalar, isotropic), the frozen transfer
-# whitening of the homography rows, and the heteroscedastic (per-point
-# precision) Mahalanobis distance.
+# the epipolar batch rows (scalar, isotropic), the homography's whitened batch
+# rows under an exact source (the transfer error), and the heteroscedastic
+# (per-point precision) Mahalanobis distance.
 @testitem "whitening_mc" begin
     import VisualGeometryToolkitCore as VgtkCore
     using Test
@@ -12,8 +12,8 @@
     using StaticArrays
     using Random
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: whiten, sampson_rows!,
-        transfer_whitening!, transfer_rows!, sampson_residual_with_normal, mahalanobis_distance, Uncertain, PrecMat
+    using VisualGeometryToolkitCore: whiten, sampson_residuals!, whitened_residuals!, Csponds, withattrs, exact, noise_columns,
+        sampson_residual_with_normal, mahalanobis_distance, Uncertain, PrecMat
     const CHar = VgtkCore.Synthetic
 
     # the noisy correspondence i of `cs` (true pairs), its 4×4 shape scaled by σ²
@@ -32,27 +32,25 @@
         @test CHar.is_calibrated(CHar.run_calibration(trial, MersenneTwister(91), 4000, 2))
     end
 
-    @testset "sampson_rows!: the epipolar row, isotropic → N(0, σ²)" begin
+    @testset "sampson_residuals!: the epipolar row, isotropic → N(0, σ²)" begin
         σ = 0.5
         trial(rng) = begin
             _, _, F, _, cs, _ = CHar.sample_twoview_scene(rng, 1)
             c = noisy(rng, cs[1], σ, SMatrix{4, 4, Float64}(I))
-            r = sampson_rows!(zeros(1), F, [sv(c.first)], [sv(c.second)], ones(1))
+            r = sampson_residuals!(zeros(1), F, Csponds([sv(c.first)], [sv(c.second)]))
             (r / σ, ones(1, 1))
         end
         @test CHar.is_calibrated(CHar.run_calibration(trial, MersenneTwister(92), 4000, 1))
     end
 
-    @testset "transfer rows: the frozen transfer whitening at the true H → N(0, σ²I₂)" begin
+    @testset "whitened rows: an exact source, the target perturbed, at the true H → N(0, σ²I₂)" begin
         σ = 0.5
         trial(rng) = begin
             H, cs = CHar.sample_homography_scene(rng; npts = 1)
             c = noisy(rng, cs[1], σ, SMatrix{4, 4, Float64}(I))
-            u₁ = [sv(c.first)]; u₂ = [sv(c.second)]
-            W = Vector{SMatrix{2, 2, Float64, 4}}(undef, 1)
-            transfer_whitening!(W, H, u₁)
+            u₁ = [sv(cs[1].first)]; u₂ = [sv(c.second)]     # the source exact (unperturbed), the target noisy
             r = zeros(2)
-            transfer_rows!(r, H, W, u₁, u₂, ones(2))
+            whitened_residuals!(r, H, withattrs(Csponds(u₁, u₂); noise_columns(exact.(u₁), u₂)...))
             (r / σ, Matrix(1.0I, 2, 2))
         end
         @test CHar.is_calibrated(CHar.run_calibration(trial, MersenneTwister(93), 4000, 2))

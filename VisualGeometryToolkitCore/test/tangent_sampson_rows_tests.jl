@@ -34,7 +34,8 @@
     using VisualGeometryToolkitCore: EssentialMat, EssentialManifold6, retract, retract_jacobian,
         CameraModel, LogicalIntrinsics, CameraCalibrationMat, Pinhole,
         backproject, project, backproject_with_jacobian, sampson_distance,
-        sampson_rows!, sampson_jacobian_rows!, sampson_residual, measurement_gradient_jacobian, constraint_with_jacobians
+        sampson_residuals!, sampson_jacobian_rows!, sampson_residual, measurement_gradient_jacobian, constraint_with_jacobians,
+        Csponds, withattrs
 
     cam(f, c) = CameraModel(
         LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(f, 0, 0, 0, f, 0, c[1], c[2], 1))),
@@ -63,12 +64,14 @@
     Eᵥ = retract(ch, v₀)                     # an EssentialMat
     dEof(c, v) = VgtkCore.retract_directions(c, v)
     dE = dEof(ch, v₀)
+    # the measurement set: bearings with their per-view Jacobians and the rows' √w as columns
+    bset(a, b, w; src = f₁, dst = f₂) = withattrs(Csponds(src, dst); M₁ = a, M₂ = b, sqrt_weights = w)
 
     @testset "the rows ARE the scalar residual — the canary against a second route" begin
         # Even with a shared core the batched and scalar paths assemble inputs
         # differently, which is exactly how the 446× divergence began.
         r = zeros(n)
-        sampson_rows!(r, E, f₁, f₂, ones(n); M₁, M₂)
+        sampson_residuals!(r, E, bset(M₁, M₂, ones(n)))
         for i in 1:n
             @test abs(r[i]) ≈ sampson_distance(E, f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i]) rtol = 1.0e-12
         end
@@ -83,8 +86,8 @@
 
     @testset "√w weighting, and the per-row form agrees with the batch" begin
         r1 = zeros(n); r2 = zeros(n)
-        sampson_rows!(r1, Eᵥ, f₁, f₂, ones(n); M₁, M₂)
-        sampson_rows!(r2, Eᵥ, f₁, f₂, 2 .* ones(n); M₁, M₂)
+        sampson_residuals!(r1, Eᵥ, bset(M₁, M₂, ones(n)))
+        sampson_residuals!(r2, Eᵥ, bset(M₁, M₂, 2 .* ones(n)))
         @test r2 ≈ 2 .* r1 rtol = 1.0e-12
         for i in (1, 5, 11)
             @test only(sampson_residual(Eᵥ, f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i])) ≈ r1[i] rtol = 1.0e-12
@@ -109,8 +112,8 @@
         # relative error 1.0e-9 at FiniteDiff's default step (6e-6 here; 1.9e-7
         # at a 1e-7 step, where rounding dominates), not a modelling gap.
         J = zeros(n, 6)
-        sampson_jacobian_rows!(J, Eᵥ, dE, f₁, f₂, sqrtw; M₁, M₂)
-        rows(v) = sampson_rows!(zeros(n), retract(ch, v), f₁, f₂, sqrtw; M₁, M₂)
+        sampson_jacobian_rows!(J, Eᵥ, dE, bset(M₁, M₂, sqrtw))
+        rows(v) = sampson_residuals!(zeros(n), retract(ch, v), bset(M₁, M₂, sqrtw))
         fd = FiniteDiff.finite_difference_jacobian(rows, v₀, Val(:central))
         @test maximum(abs.(J .- fd) ./ max.(abs.(fd), 1.0e-6)) < 1.0e-5
     end
@@ -119,13 +122,12 @@
         # The same discipline as the deleted 2-vector lift: refused by TYPE, so
         # no caller's convention can put the wrong data in the wrong method.
         r = zeros(n); J = zeros(n, 6)
-        @test_throws MethodError sampson_rows!(r, SMatrix{3, 3, Float64}(Eᵥ), f₁, f₂, sqrtw)
-        @test_throws MethodError sampson_jacobian_rows!(J, SMatrix{3, 3, Float64}(Eᵥ), dE, f₁, f₂, sqrtw)
-        @test_throws MethodError sampson_rows!(r, Eᵥ, u₁, u₂, sqrtw; M₁, M₂)
-        # …and the bearing signature cannot silently fall through to the
-        # image-plane one by omitting the Jacobians.
-        @test_throws UndefKeywordError sampson_rows!(r, Eᵥ, f₁, f₂, sqrtw)
-        @test_throws UndefKeywordError sampson_jacobian_rows!(J, Eᵥ, dE, f₁, f₂, sqrtw)
+        @test_throws MethodError sampson_residuals!(r, SMatrix{3, 3, Float64}(Eᵥ), bset(M₁, M₂, sqrtw))
+        @test_throws MethodError sampson_jacobian_rows!(J, SMatrix{3, 3, Float64}(Eᵥ), dE, bset(M₁, M₂, sqrtw))
+        # …and a bearing set cannot silently fall through to the image-plane
+        # constraint by omitting the Jacobian columns.
+        @test_throws ArgumentError sampson_residuals!(r, Eᵥ, Csponds(f₁, f₂))
+        @test_throws ArgumentError sampson_jacobian_rows!(J, Eᵥ, dE, Csponds(f₁, f₂))
     end
 
     @testset "a per-view Jacobian SWAP is caught — and needs two focals to be" begin
@@ -136,11 +138,11 @@
         # signature: a cost that failed to improve while the optimiser reported
         # convergence.
         r0 = zeros(n); rs = zeros(n)
-        sampson_rows!(r0, Eᵥ, f₁, f₂, sqrtw; M₁, M₂)
-        sampson_rows!(rs, Eᵥ, f₁, f₂, sqrtw; M₁ = M₂, M₂ = M₁)
+        sampson_residuals!(r0, Eᵥ, bset(M₁, M₂, sqrtw))
+        sampson_residuals!(rs, Eᵥ, bset(M₂, M₁, sqrtw; src = f₁, dst = f₂))
         J0 = zeros(n, 6); Js = zeros(n, 6)
-        sampson_jacobian_rows!(J0, Eᵥ, dE, f₁, f₂, sqrtw; M₁, M₂)
-        sampson_jacobian_rows!(Js, Eᵥ, dE, f₁, f₂, sqrtw; M₁ = M₂, M₂ = M₁)
+        sampson_jacobian_rows!(J0, Eᵥ, dE, bset(M₁, M₂, sqrtw))
+        sampson_jacobian_rows!(Js, Eᵥ, dE, bset(M₂, M₁, sqrtw))
         @test maximum(abs.(Js .- J0) ./ max.(abs.(J0), 1.0e-6)) > 0.5     # measured 3.41
         @test maximum(abs.(rs .- r0) ./ abs.(r0)) > 5.0e-3                # measured 1.8e-2
 
@@ -157,8 +159,8 @@
         fe₁ = [b[1] for b in be1]; Me₁ = [b[2] for b in be1]
         fe₂ = [b[1] for b in be2]; Me₂ = [b[2] for b in be2]
         re0 = zeros(n); res = zeros(n)
-        sampson_rows!(re0, Eᵥ, fe₁, fe₂, sqrtw; M₁ = Me₁, M₂ = Me₂)
-        sampson_rows!(res, Eᵥ, fe₁, fe₂, sqrtw; M₁ = Me₂, M₂ = Me₁)
+        sampson_residuals!(re0, Eᵥ, bset(Me₁, Me₂, sqrtw; src = fe₁, dst = fe₂))
+        sampson_residuals!(res, Eᵥ, bset(Me₂, Me₁, sqrtw; src = fe₁, dst = fe₂))
         @test maximum(abs.(res .- re0) ./ abs.(re0)) < 5.0e-3             # measured 1.9e-3
     end
 
@@ -167,8 +169,8 @@
         # cannot carry the distance's ±Inf.
         Z = [zero(SMatrix{3, 2, Float64}) for _ in 1:n]
         r = ones(n); J = ones(n, 6)
-        sampson_rows!(r, Eᵥ, f₁, f₂, sqrtw; M₁ = Z, M₂ = Z)
-        sampson_jacobian_rows!(J, Eᵥ, dE, f₁, f₂, sqrtw; M₁ = Z, M₂ = Z)
+        sampson_residuals!(r, Eᵥ, bset(Z, Z, sqrtw; src = f₁, dst = f₂))
+        sampson_jacobian_rows!(J, Eᵥ, dE, bset(Z, Z, sqrtw))
         @test all(iszero, r)
         @test all(iszero, J)
     end

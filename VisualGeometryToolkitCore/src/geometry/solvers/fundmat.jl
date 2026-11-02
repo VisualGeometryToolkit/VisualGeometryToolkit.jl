@@ -522,6 +522,9 @@ end
 # vec(d·bᵀ + a·sᵀ): the contraction of a bilinear constraint dᵀ M s at the source
 # and target points `s`, `d` with their gradients `b`, `a` lifted to 3-vectors.
 @inline _bilinear_rate(s, d, b, a) = vec(d * b' + a * s')
+# On bearings the constraint reads the back-projection Jacobians per element.
+constraint_keywords(::EssentialMat, xs::AbstractVector{<:Pair{<:StaticVector{3}, <:StaticVector{3}}}) =
+    (; M₁ = _required_column(xs, :M₁), M₂ = _required_column(xs, :M₂))
 @inline function measurement_gradient_jacobian(
         E::EssentialMat, f₁::StaticVector{3}, f₂::StaticVector{3};
         M₁::StaticMatrix{3, 2}, M₂::StaticMatrix{3, 2}

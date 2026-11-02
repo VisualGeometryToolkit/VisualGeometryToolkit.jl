@@ -848,132 +848,6 @@ ambient covariance `Σθ`, and a chart's `action_jacobian` is this through its
     return _transfer_params_jacobian(transform_deriv(PerspectiveMap(), SMatrix{3, 3, T, 9}(H) * x1), x1)
 end
 
-# The transfer rows of one correspondence, whitened by a frozen factor W:
-# residual W·g and, along chart directions dH, the rows W·Jπ·(dH_q·ũ₁). Each in
-# the uniform `(out, i, args...)` form `_foreach_row!` runs (a plain loop on the
-# CPU, one kernel on a device).
-@inline function _transfer_whitening(H, u₁)
-    _, G_x, _ = constraint_with_jacobians(TransferForm(H), u₁, u₁)   # G_x does not depend on u₂
-    return whitening_factor(G_x)
-end
-Base.@propagate_inbounds function _transfer_whitening_row!(W, i, H, u₁)
-    W[i] = _transfer_whitening(H, u₁[i])
-    return nothing
-end
-# The same factor under the endpoints' covariances (the measurement-noise rule):
-# Σ_g = A·Σ₁·Aᵀ + Σ₂ for G_x = [A −I], a side without a column unit isotropic.
-Base.@propagate_inbounds function _transfer_whitening_row!(W, i, H, u₁, Σ₁, Σ₂)
-    _, G_x, _ = constraint_with_jacobians(TransferForm(H), u₁[i], u₁[i])
-    W[i] = whitening_factor(G_x, pair_covariance(_side_covariance(Σ₁, i), _side_covariance(Σ₂, i)))
-    return nothing
-end
-# The derivative of the residual along the transferred point `H x`, and `x`: the
-# perspective derivative `Jπ` at `H ũ₁` and `ũ₁` for pixels (u₂ unread), `D` and
-# `f₁` for bearings — so `∂g/∂θ_q = D·(dH_q·x)` is one row function for both.
-@inline function _transfer_point_derivative(H, u₁::StaticVector{2}, _u₂)
-    T = float(promote_type(eltype(H), eltype(u₁)))
-    x1 = _lift_image_point(u₁, T)
-    return transform_deriv(PerspectiveMap(), SMatrix{3, 3, T, 9}(H) * x1), x1
-end
-@inline _transfer_point_derivative(H, f₁::StaticVector{3}, f₂::StaticVector{3}) =
-    (p = _bearing_transfer_parts(H, f₁, f₂); (p.D, p.s))
-Base.@propagate_inbounds function _transfer_rows!(r, i, H, W, u₁, u₂, sqrtw)
-    g = constraint(TransferForm(H), u₁[i], u₂[i])   # the pixel form's π(H ũ₁) − u₂, or the bearing tangent residual
-    e = W[i] * g
-    r[2i - 1] = sqrtw[2i - 1] * e[1]
-    r[2i] = sqrtw[2i] * e[2]
-    return nothing
-end
-Base.@propagate_inbounds function _transfer_jacobian_rows!(J, i, H, dH, W, u₁, u₂, sqrtw)
-    Dp, x1 = _transfer_point_derivative(H, u₁[i], u₂[i])
-    D = W[i] * Dp
-    for q in 1:length(dH)
-        d = D * (dH[q] * x1)
-        J[2i - 1, q] = sqrtw[2i - 1] * d[1]
-        J[2i, q] = sqrtw[2i] * d[2]
-    end
-    return nothing
-end
-
-"""
-    transfer_whitening!(W, H, u₁) -> W
-    transfer_whitening!(W, H, u₁, Σ₁, Σ₂) -> W
-
-Per correspondence, the whitening factor `L⁻¹` ([`whitening_factor`](@ref)) of
-the transfer constraint at `H`: `Σ_g = A·Aᵀ + I₂`, `A = Jπ·H₁₂` — the Sampson
-covariance of the transfer error, frozen at the model it is evaluated at.
-With the endpoints' covariance columns `Σ₁`, `Σ₂` (2×2 per point, or `nothing`
-for a unit isotropic side — [`noise_columns`](@ref)) it is
-`Σ_g = A·Σ₁ᵢ·Aᵀ + Σ₂ᵢ`: an exact source (`Σ₁ᵢ = 0`) and a unit target give
-`L⁻¹ = I`, the plain transfer error in the target's units.
-One KernelAbstractions kernel on the backend that owns `W`; a plain loop over the
-same function on the CPU.
-"""
-function transfer_whitening!(W::AbstractVector, H::HomographyMat, u₁::AbstractVector)
-    return _foreach_row!(_transfer_whitening_row!, W, length(u₁), H, u₁)
-end
-transfer_whitening!(W::AbstractVector, H::HomographyMat, u₁::AbstractVector, ::Nothing, ::Nothing) =
-    transfer_whitening!(W, H, u₁)
-function transfer_whitening!(
-        W::AbstractVector, H::HomographyMat, u₁::AbstractVector,
-        Σ₁::Union{Nothing, AbstractVector}, Σ₂::Union{Nothing, AbstractVector}
-    )
-    return _foreach_row!(_transfer_whitening_row!, W, length(u₁), H, u₁, Σ₁, Σ₂)
-end
-
-"""
-    transfer_rows!(r, H, W, u₁, u₂, sqrtw) -> r
-    transfer_jacobian_rows!(J, H, dH, W, u₁, sqrtw) -> J
-
-The √w-weighted whitened transfer rows of the homography `H` over `u₁[i] => u₂[i]`,
-two per correspondence (`r[2i-1:2i] = sqrtw[2i-1:2i] .* (W[i]·g)`, `g` from
-`constraint_with_jacobians(TransferForm(H), …)`), and their Jacobian along the chart
-directions `dH = (∂H/∂θ₁, …)` (`J[2i-1:2i, q] = sqrtw .* (W[i]·Jπ·dH_q·ũ₁)`), with
-the factors `W` frozen by [`transfer_whitening!`](@ref). One kernel each on
-device backends, a plain loop over the same row functions on the CPU.
-"""
-function transfer_rows!(r::AbstractVector, H::HomographyMat, W::AbstractVector, u₁::AbstractVector, u₂::AbstractVector, sqrtw::AbstractVector)
-    return _foreach_row!(_transfer_rows!, r, length(u₁), H, W, u₁, u₂, sqrtw)
-end
-
-function transfer_jacobian_rows!(J::AbstractMatrix, H::HomographyMat, dH::Tuple, W::AbstractVector, u₁::AbstractVector{<:StaticVector{2}}, sqrtw::AbstractVector)
-    return _foreach_row!(_transfer_jacobian_rows!, J, length(u₁), H, dH, W, u₁, u₁, sqrtw)   # the pixel rows read no u₂ (a bearing set is a MethodError: it has no u₂ here)
-end
-
-# The BEARING transfer (the infinite homography on unit bearings with their
-# back-projection Jacobians): the same row functions, the parts of
-# `constraint_with_jacobians(TransferForm(H), f₁, f₂; M₁, M₂)`.
-Base.@propagate_inbounds function _bearing_transfer_whitening_row!(W, i, H, f₁, f₂, M₁, M₂)
-    _, G_x, _ = constraint_with_jacobians(TransferForm(H), f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i])
-    W[i] = whitening_factor(G_x)
-    return nothing
-end
-
-"""
-    transfer_whitening!(W, H, f₁, f₂; M₁, M₂) -> W
-    transfer_rows!(r, H, W, f₁, f₂, sqrtw) -> r
-    transfer_jacobian_rows!(J, H, dH, W, f₁, f₂, sqrtw) -> J
-
-The transfer rows on UNIT BEARINGS `f₁[i] => f₂[i]` (3-vectors) — the infinite
-homography of a calibrated camera, a rotation under a pure rotation: the
-residual is the tangent-plane form of
-`constraint_with_jacobians(TransferForm(H), f₁, f₂; M₁, M₂)`, whitened by the
-frozen Sampson factor `L⁻¹` of `Σ_g = G_x Σ G_xᵀ` (the joint measurement of both images' pixels, `Σ = I` assumed —
-keypoint covariances are a planned extension;
-`M₁`/`M₂` the back-projection Jacobians carrying it into PIXELS), and its
-Jacobian along the chart directions `dH` is `W[i]·D·dH_q·f₁`. The pixel methods'
-row functions, with the bearing parts in place of the perspective divide;
-`transfer_rows!` is the pixel method itself (its row reads the element type).
-"""
-function transfer_whitening!(W::AbstractVector, H::HomographyMat, f₁::AbstractVector{<:StaticVector{3}}, f₂::AbstractVector{<:StaticVector{3}};
-                             M₁::AbstractVector, M₂::AbstractVector)
-    return _foreach_row!(_bearing_transfer_whitening_row!, W, length(f₁), H, f₁, f₂, M₁, M₂)
-end
-function transfer_jacobian_rows!(J::AbstractMatrix, H::HomographyMat, dH::Tuple, W::AbstractVector, f₁::AbstractVector{<:StaticVector{3}},
-                                 f₂::AbstractVector{<:StaticVector{3}}, sqrtw::AbstractVector)
-    return _foreach_row!(_transfer_jacobian_rows!, J, length(f₁), H, dH, W, f₁, f₂, sqrtw)
-end
-
 # The homography's rounding scales (`constraint_rounding_scale`): its
 # degenerate gradient is the Sampson factor's relative Cholesky verdict (C = G_x·G_xᵀ
 # losing rank relative to its diagonal — a point mapped to the line at
@@ -989,70 +863,47 @@ end
     return (; gradient = zero(T), value = SVector{2, T}(tol * r1, tol * r2))
 end
 
-# --- The residual sum of squares of a model's Sampson distances ---
-
-# Typed 2-vector points (a 3-vector bearing is refused, not truncated), taken to
-# the model's eltype so a Float32 model meets Float32 points.
-@inline function _sampson_sq(M, u::StaticVector{2}, v::StaticVector{2})
-    T = float(eltype(M))
-    return Float64(sampson_distance(M, SVector{2, T}(u[1], u[2]), SVector{2, T}(v[1], v[2])))^2
-end
-@inline _taken(::Nothing, i) = true
-@inline _taken(mask, i) = @inbounds mask[i]
-
-# One pair's square in the uniform `(out, i, args...)` row form (0 off the mask).
-Base.@propagate_inbounds function _sampson_sq_row!(d², i, M, u₁, u₂, mask)
-    d²[i] = _taken(mask, i) ? _sampson_sq(M, u₁[i], u₂[i]) : 0.0
-    return nothing
-end
-
-"""
-    sampson_rss(M, u₁, u₂[, mask]) -> Float64
-
-The sum of squared Sampson distances ([`sampson_distance`](@ref)) of the
-correspondences `u₁[i] => u₂[i]` under the model `M` — a `FundMat`, `EssentialMat`
-or `HomographyMat` in the points' frame — over `mask`'s true entries when given:
-the residual sum of squares of a σ̂² = RSS/dof estimate. A degenerate pair is
-`Inf` (the one Sampson rule), and so is the sum. One KernelAbstractions kernel
-(the per-pair squares, summed on the backend) for device arrays; a plain loop
-over the same per-pair function on the CPU.
-"""
-function sampson_rss(M, u₁::AbstractVector, u₂::AbstractVector, mask = nothing)
-    backend = get_backend(u₁)
-    if backend isa KA.CPU
-        rss = 0.0
-        @inbounds for i in eachindex(u₁)
-            _taken(mask, i) && (rss += _sampson_sq(M, u₁[i], u₂[i]))
-        end
-        return rss
-    end
-    # the device: the per-pair squares on the backend that owns the points, summed there
-    d² = KA.allocate(backend, Float64, length(u₁))
-    return sum(_foreach_row!(_sampson_sq_row!, d², length(u₁), M, u₁, u₂, mask))
-end
-
-"""
-    sampson_residuals!(R::AbstractMatrix{Float32}, models, u₁, u₂) -> R
-
-The Sampson distance ([`sampson_distance`](@ref)) of every correspondence
-`u₁[i] => u₂[i]` (each point read as an `SVector{2, Float64}`) under every model
-of `models` — `FundMat`s, `EssentialMat`s or `HomographyMat`s in the points'
-frame, or anything `sampson_distance` takes — as `Float32` into the
-`length(u₁) × length(models)` matrix `R`, model `j` in column `j`: a pool's
-residual matrix. `models` is iterated once and has a length. A buffer of
-another size, or `u₁` and `u₂` of different lengths, is a `DimensionMismatch`.
-"""
-function sampson_residuals!(R::AbstractMatrix{Float32}, models, u₁::AbstractVector, u₂::AbstractVector)
-    length(u₂) == length(u₁) ||
-        throw(DimensionMismatch("sampson_residuals!: $(length(u₁)) source points and $(length(u₂)) target points"))
-    size(R) == (length(u₁), length(models)) || throw(
-        DimensionMismatch("sampson_residuals!: R is $(size(R, 1)) × $(size(R, 2)); $(length(u₁)) points × $(length(models)) models need $(length(u₁)) × $(length(models))")
+# ∂vec(G_x)/∂vec(H) of the algebraic constraint (`measurement_gradient_jacobian`,
+# 8 × 9, both column-major): G_x is linear in H — rows of vec(G_x) over
+# (x₁, y₁, x₂, y₂) per constraint row, columns over vec(H).
+@inline function measurement_gradient_jacobian(H::HomographyMat, u₁::StaticVector{2}, u₂::StaticVector{2})
+    T = float(promote_type(eltype(H), eltype(u₁), eltype(u₂)))
+    x, y = T(u₁[1]), T(u₁[2]); xp, yp = T(u₂[1]), T(u₂[2])
+    o, z = one(T), zero(T)
+    # columns: vec(H) = (H11, H21, H31, H12, H22, H32, H13, H23, H33)
+    return SMatrix{8, 9, T, 72}(
+        o, z, z, z, z, z, z, z,          # H11: ∂G_x[1,1]
+        z, o, z, z, z, z, z, z,          # H21: ∂G_x[2,1]
+        -xp, -yp, z, z, -x, z, z, -x,    # H31: G_x[1,1], G_x[2,1], G_x[1,3], G_x[2,4]
+        z, z, o, z, z, z, z, z,          # H12: ∂G_x[1,2]
+        z, z, z, o, z, z, z, z,          # H22: ∂G_x[2,2]
+        z, z, -xp, -yp, -y, z, z, -y,    # H32: G_x[1,2], G_x[2,2], G_x[1,3], G_x[2,4]
+        z, z, z, z, z, z, z, z,          # H13
+        z, z, z, z, z, z, z, z,          # H23
+        z, z, z, z, -o, z, z, -o,        # H33: G_x[1,3], G_x[2,4]
     )
-    axes(R, 1) == eachindex(u₁) == eachindex(u₂) || throw(DimensionMismatch("sampson_residuals!: R's rows and the points are indexed differently"))
-    @inbounds for (j, M) in enumerate(models), i in eachindex(u₁)
-        R[i, j] = Float32(sampson_distance(M, SVector{2, Float64}(u₁[i]), SVector{2, Float64}(u₂[i])))
-    end
-    return R
+end
+
+# The contraction of that derivative with Σ·G_xᵀ (`_noise_rate`, 4 × 9: rows
+# (i, j) ↦ i + 2(j − 1), columns vec(H)), from its sparsity: the generic
+# product with the dense 8 × 9 `measurement_gradient_jacobian` (pinned equal in
+# the tests) does 288 multiplications for these 24.
+@inline function _noise_rate(H::HomographyMat, ΣGt::StaticMatrix{4, 2}, u₁::StaticVector{2}, u₂::StaticVector{2})
+    T = promote_type(float(eltype(H)), eltype(ΣGt), eltype(u₁), eltype(u₂))
+    x, y = T(u₁[1]), T(u₁[2]); xp, yp = T(u₂[1]), T(u₂[2])
+    s(k, j) = T(ΣGt[k, j])
+    z = zero(T)
+    return SMatrix{4, 9, T, 36}(
+        s(1, 1), z, s(1, 2), z,                                                          # H11
+        z, s(1, 1), z, s(1, 2),                                                          # H21
+        -xp * s(1, 1) - x * s(3, 1), -yp * s(1, 1) - x * s(4, 1), -xp * s(1, 2) - x * s(3, 2), -yp * s(1, 2) - x * s(4, 2),   # H31
+        s(2, 1), z, s(2, 2), z,                                                          # H12
+        z, s(2, 1), z, s(2, 2),                                                          # H22
+        -xp * s(2, 1) - y * s(3, 1), -yp * s(2, 1) - y * s(4, 1), -xp * s(2, 2) - y * s(3, 2), -yp * s(2, 2) - y * s(4, 2),   # H32
+        z, z, z, z,                                                                      # H13
+        z, z, z, z,                                                                      # H23
+        -s(3, 1), -s(4, 1), -s(3, 2), -s(4, 2),                                          # H33
+    )
 end
 
 # --- Correspondence (Pair) overloads ---

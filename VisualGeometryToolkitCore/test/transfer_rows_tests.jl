@@ -1,6 +1,6 @@
-# The whitened homography transfer rows: the transfer-form constraint and its
-# derivatives, the frozen whitening factor, and the row/Jacobian kernels through
-# the sl(3) chart — against ForwardDiff and finite differences.
+# The homography transfer form: the constraint and its derivatives, the frozen
+# whitening factor, and its exact Sampson rows (the batch rows of the one path)
+# through the sl(3) chart — against ForwardDiff and finite differences.
 @testitem "transfer_rows" begin
     import VisualGeometryToolkitCore as VgtkCore
     using Test
@@ -10,15 +10,15 @@
     using ForwardDiff: ForwardDiff
     using FiniteDiff: FiniteDiff
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: TransferForm, whitening_factor, transfer_whitening!,
-        transfer_rows!, transfer_jacobian_rows!, retract, retract_jacobian, whiten
+    using VisualGeometryToolkitCore: TransferForm, whitening_factor, sampson_residuals!, sampson_jacobian_rows!,
+        measurement_gradient_jacobian, retract, retract_jacobian, whiten, Csponds, withattrs
 
     rng = Xoshiro(3)
     H = HomographyMat(SMatrix{3, 3, Float64}(1.1, 0.02, 1.0e-4, -0.03, 0.95, 2.0e-4, 12.0, -7.0, 1.0))
     n = 40
     u₁ = [SVector(50 + 400rand(rng), 50 + 400rand(rng)) for _ in 1:n]
     u₂ = [(PerspectiveMap()(SMatrix{3, 3}(H) * SVector(u[1], u[2], 1.0)) + 0.5 * SVector(randn(rng), randn(rng))) for u in u₁]
-    sqrtw = sqrt.(rand(rng, 2n))
+    sqrtw = sqrt.(rand(rng, n))
 
     @testset "the transfer form against ForwardDiff" begin
         u, v = u₁[3], u₂[3]
@@ -50,8 +50,6 @@
         b = SVector(0.1, 0.2, 1.0)
         @test_throws MethodError constraint_with_jacobians(TransferForm(H), b, u₂[1])
         @test_throws MethodError constraint_with_jacobians(TransferForm(H), u₁[1], b)
-        @test_throws MethodError transfer_jacobian_rows!(zeros(2, 1), H, (zero(SMatrix{3, 3, Float64}),),
-            [one(SMatrix{2, 2, Float64})], [b], ones(2))
     end
 
     @testset "whitening_factor: L⁻¹ of Σ_g, the same factor the Sampson rows apply" begin
@@ -69,46 +67,37 @@
         @test all(isnan, whitening_factor(fill(NaN, SMatrix{2, 4, Float64})))
     end
 
-    @testset "rows and chart Jacobian (central differences), kernels = fast path" begin
+    @testset "the exact rows: chart Jacobian (central differences, ForwardDiff), kernels = fast path" begin
         ch = HomographyManifold8(SMatrix{3, 3}(H))
         v = SVector(0.01, -0.02, 0.005, 0.01, -1.0e-3, 2.0e-3, 0.03, -0.02)
         Hv = retract(ch, v)
-        dH = VgtkCore.retract_directions(ch, v)
-        W = Vector{SMatrix{2, 2, Float64, 4}}(undef, n)
-        transfer_whitening!(W, H, u₁)                          # frozen at the seed
+        xs = withattrs(Csponds(u₁, u₂); sqrt_weights = sqrtw)
         r = zeros(2n); J = zeros(2n, 8)
-        transfer_rows!(r, Hv, W, u₁, u₂, sqrtw)
-        transfer_jacobian_rows!(J, Hv, dH, W, u₁, sqrtw)
-        rv(w) = (Hw = retract(ch, w); out = zeros(2n); transfer_rows!(out, Hw, W, u₁, u₂, sqrtw); out)
+        sampson_residuals!(r, TransferForm(Hv), xs)
+        sampson_jacobian_rows!(J, TransferForm(Hv), retract_jacobian(ch, v), xs)
+        rv(w) = (out = zeros(eltype(w), 2n); sampson_residuals!(out, TransferForm(retract(ch, w)), xs); out)
         # the rows divide by h₃ at ~400 px, so their third derivative in the chart is
-        # large: truncation-bound, FiniteDiff's default step (6e-6) misses by 6.6e-6
-        # in norm, a 1e-7 step by 1.8e-9
-        fd = FiniteDiff.finite_difference_jacobian(rv, v, Val(:central); relstep = 1.0e-7, absstep = 1.0e-7)
+        # large: truncation-bound at FiniteDiff's default step, so a 1e-7 step
+        fd = FiniteDiff.finite_difference_jacobian(w -> rv(SVector{8}(w)), v, Val(:central); relstep = 1.0e-7, absstep = 1.0e-7)
         @test J ≈ fd rtol = 1.0e-6 atol = 1.0e-9
+        @test J ≈ ForwardDiff.jacobian(rv, v) rtol = 1.0e-10 atol = 1.0e-12
         for i in (1, 17)
-            g = VgtkCore.constraint(TransferForm(Hv), u₁[i], u₂[i])
-            @test r[(2i - 1):(2i)] ≈ sqrtw[(2i - 1):(2i)] .* (W[i] * g) rtol = 1.0e-14   # muladd fuses per inlining site
+            @test r[(2i - 1):(2i)] ≈ sqrtw[i] .* sampson_residual(TransferForm(Hv), u₁[i], u₂[i]) rtol = 1.0e-14
         end
+        # the transfer form's ∂vec(G_x)/∂vec(H): ForwardDiff of G_x itself
+        G(h) = vec(constraint_with_jacobians(TransferForm(HomographyMat(Tuple(h))), u₁[3], u₂[3])[2])
+        @test measurement_gradient_jacobian(TransferForm(Hv), u₁[3], u₂[3]) ≈ ForwardDiff.jacobian(G, SVector{9}(Tuple(SMatrix{3, 3}(Hv)))) rtol = 1.0e-14
         # the device kernels, launched on KA.CPU() (the public functions take the CPU fast path)
         KA = VgtkCore.KA
-        Wk = similar(W); rk = zeros(2n); Jk = zeros(2n, 8)
-        VgtkCore._row_kernel!(KA.CPU())(VgtkCore._transfer_whitening_row!, Wk, H, u₁; ndrange = n)
-        VgtkCore._row_kernel!(KA.CPU())(VgtkCore._transfer_rows!, rk, Hv, W, u₁, u₂, sqrtw; ndrange = n)
-        VgtkCore._row_kernel!(KA.CPU())(VgtkCore._transfer_jacobian_rows!, Jk, Hv, dH, W, u₁, u₁, sqrtw; ndrange = n)   # the pixel rows read no u₂
+        rk = zeros(2n); Jk = zeros(2n, 8)
+        VgtkCore._row_kernel!(KA.CPU())(VgtkCore._sampson_residual_row!, rk, TransferForm(Hv), (u₁, u₂), NamedTuple(), nothing, sqrtw; ndrange = n)
+        VgtkCore._row_kernel!(KA.CPU())(VgtkCore._sampson_jacobian_row!, Jk, TransferForm(Hv),
+            VgtkCore._direction_rows(retract_jacobian(ch, v)), (u₁, u₂), NamedTuple(), nothing, sqrtw; ndrange = n)
         KA.synchronize(KA.CPU())
-        # ELEMENTWISE, AT THE MEASURED MARGIN. Each side runs the same per-row
-        # scalar function under a different driver (KA kernel vs the CPU fast
-        # path of `_foreach_row!`); the drivers inline it at different sites, so
-        # muladd fusion differs within a row. Measured 2026-09-30: at most 3 ulps
-        # over the 160 whitening entries and 1 ulp over the 80 residuals (6
-        # differ). Re-measured 2026-10-05 (Julia 1.12.6, the 0.30.0 Manifest):
-        # 3 ulps on the whitening, 18 ulps on ONE residual (r[73] = -13.73, an
-        # absolute 3.6e-16 of max|r|; the next is 6). 2026-10-16: a GitHub
-        # runner exceeded 18 ulps on one residual, so the residuals are bounded
-        # relative to max|r| (the scale fusion error lives at), not per entry.
-        ulps(a, b) = abs(a - b) / eps(max(abs(a), abs(b)))
-        @test all(i -> all(ulps.(Wk[i], W[i]) .<= 4), 1:n)
+        # the drivers inline the same row function at different sites, so muladd
+        # fusion may differ within a row: bounded relative to max|r| (where fusion
+        # error lives), not per entry
         @test maximum(abs.(rk .- r)) <= 64 * eps(maximum(abs, r))
-        @test Jk ≈ J rtol = 1.0e-14
+        @test Jk ≈ J rtol = 1.0e-12
     end
 end

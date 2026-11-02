@@ -536,8 +536,51 @@ scorer must refuse it separately (the hemisphere of the transferred ray).
     return p.g, G_x, _transfer_params_jacobian(p.D, p.s)
 end
 # The bearing transfer residual alone: `g` reads no backprojection Jacobian, so
-# [`constraint`](@ref) needs neither `M₁` nor `M₂` (the transfer rows' residual).
+# [`constraint`](@ref) needs neither `M₁` nor `M₂`.
 @inline constraint(f::TransferForm, f₁::StaticVector{3}, f₂::StaticVector{3}) = _bearing_transfer_parts(f.mat, f₁, f₂).g
+
+# ∂vec(G_x)/∂vec(H) of the transfer form (`measurement_gradient_jacobian`,
+# 8 × 9, both column-major). On pixels G_x goes through the perspective divide,
+# whose second derivative is ForwardDiff's (exact, element-type generic,
+# allocation-free on static arrays; no LM descends the pixel transfer form).
+@inline function measurement_gradient_jacobian(f::TransferForm, x₁::StaticVector{2}, x₂::StaticVector{2})
+    G(v) = vec(constraint_with_jacobians(TransferForm(HomographyMat(Tuple(v))), x₁, x₂)[2])
+    return ForwardDiff.jacobian(G, SVector{9}(Tuple(SMatrix{3, 3}(f.mat))))
+end
+# On bearings, in closed form (the rotation's LM rows): only G_x's first block
+# A = D·H·M₁ moves with H. Along H[a, b] the transferred point moves by
+# dh = s_b·e_a, so dĥ = Q[:, a]·s_b/‖h‖ (Q = I − ĥĥᵀ), d‖h‖ = ĥ_a·s_b, and
+#     dA = −(P·dĥ)(ĥᵀHM₁)/‖h‖ − (P·ĥ)(dĥᵀHM₁)/‖h‖ − A·d‖h‖/‖h‖ + D[:, a]·M₁[b, :],
+# the derivative of D = P·Q/‖h‖ times HM₁ plus D·(∂H)·M₁ (pinned against
+# ForwardDiff in the tests).
+@inline function measurement_gradient_jacobian(
+        f::TransferForm, f₁::StaticVector{3}, f₂::StaticVector{3};
+        M₁::StaticMatrix{3, 2}, M₂::StaticMatrix{3, 2}
+    )
+    p = _bearing_transfer_parts(f.mat, f₁, f₂)
+    T = eltype(p.g)
+    h = p.Hm * p.s
+    nh = norm(h)
+    ĥ = h / nh
+    Q = SMatrix{3, 3, T}(I) - ĥ * ĥ'
+    M1 = SMatrix{3, 2, T}(M₁)
+    HM = p.Hm * M1
+    A = p.D * HM
+    u = HM' * ĥ
+    Pĥ = p.P * ĥ
+    z = zero(T)
+    cols = ntuple(Val(9)) do θ
+        a = (θ - 1) % 3 + 1; b = (θ - 1) ÷ 3 + 1
+        sb = p.s[b]
+        dĥ = Q[:, a] * (sb / nh)
+        dA = -((p.P * dĥ) * u' + Pĥ * (HM' * dĥ)') / nh - A * (ĥ[a] * sb / nh) + p.D[:, a] * M1[b, :]'
+        SVector{8, T}(dA[1, 1], dA[2, 1], dA[1, 2], dA[2, 2], z, z, z, z)
+    end
+    return hcat(cols...)
+end
+# On bearings the constraint reads the back-projection Jacobians per element.
+constraint_keywords(::TransferForm, xs::AbstractVector{<:Pair{<:StaticVector{3}, <:StaticVector{3}}}) =
+    (; M₁ = _required_column(xs, :M₁), M₂ = _required_column(xs, :M₂))
 
 # -----------------------------------------------------------------------------
 # TransferForm ↔ HomographyMap — the frame change is `∘` on the map

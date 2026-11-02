@@ -409,5 +409,5 @@ function pixel_residuals(pair::PoolPair)
     S, D = source_map(N), destination_map(N)
     iD = inv(D)
     px = pixel_csponds(pair)
-    return sampson_residuals!(Matrix{Float32}(undef, n, M), (iD ∘ m ∘ S for m in pair.models), sources(px), targets(px))
+    return sampson_distances!(Matrix{Float32}(undef, n, M), (iD ∘ m ∘ S for m in pair.models), px)
 end

@@ -6,13 +6,16 @@ Breaking: ONE Sampson path. Nothing outside `base/sampson.jl` computes
 `g/‖G_x‖`, its whitening or its model Jacobian.
 
 - **`sampson_residual_with_jacobian(M, x...; directions)` → `(s_N, J)`**, the
-  Sampson residual of a scalar constraint and its EXACT model Jacobian along
-  the chart `directions` (an `nθ × N` matrix, `retract_jacobian`, or the
-  models `retract_directions` returns), from `constraint_with_jacobians` and
-  a new model protocol, **`measurement_gradient_jacobian(M, x...)`**
-  (`∂G_x/∂θ`), implemented by `FundMat`/`EssentialMat` (plane and bearings),
-  `Circle`, `RadialCamera`, `Conic` and `Ellipse`. A degenerate measurement has
-  a zero row. ForwardDiff-safe and allocation-free.
+  Sampson residual of any constraint and its EXACT model Jacobian along the
+  chart `directions` (an `nθ × N` matrix, `retract_jacobian`, or the models
+  `retract_directions` returns) — for a vector constraint (a homography's two
+  rows) the Cholesky factor of `G_x·G_xᵀ` differentiated with the model — from
+  `constraint_with_jacobians` and a new model protocol,
+  **`measurement_gradient_jacobian(M, x...)`** (`∂vec(G_x)/∂θ`), implemented by
+  `FundMat`/`EssentialMat` (plane and bearings), `HomographyMat`,
+  `TransferForm` (pixels and bearings), `Circle`, `RadialCamera`, `Conic` and
+  `Ellipse`. A degenerate measurement has a zero row. ForwardDiff-safe and
+  allocation-free.
 - **A problem's constraint is `(g, G_x, G_θ)`, as a model's**: the problem
   protocol gains two hooks, **`measurement_covariance(problem, i)`** (the point's
   noise, `I` by default; a contract generic) and
@@ -26,15 +29,20 @@ Breaking: ONE Sampson path. Nothing outside `base/sampson.jl` computes
   scale; the rows are its model rows under the same factor, held fixed (zero
   rows when degenerate; residual 0 when the constraint vanishes). What a
   predictive scorer reads per point. `whitened_residual`'s default is the first.
-- **`whiten(s_N, N, J, Σ)` → `(r, J_w)`**: rows whitened with the residual by
-  the same factor. `whiten` selects `Σ = I` by dispatch.
-- **`sampson_rows!(r, M, u₁, u₂, sqrtw; columns...)` and
-  `sampson_jacobian_rows!(J, M, directions, u₁, u₂, sqrtw; columns...)`** are
-  that function per correspondence, and `sampson_rows!(r, M, x, sqrtw)` /
-  `sampson_jacobian_rows!(J, M, directions, x, sqrtw)` per point (a conic, a
-  circle) — one KernelAbstractions kernel each; `directions` is a matrix or a
-  tuple of models (never `nothing`);
-  per-point keyword columns (`M₁`, `M₂` on bearings) reach the constraint.
+- `whiten` selects `Σ = I` by dispatch.
+- **Batches over a MEASUREMENT SET**: `sampson_residuals!(r, M, xs)`,
+  `whitened_residuals!(r, M, xs)`, `sampson_jacobian_rows!(J, M, directions,
+  xs)` and `whitened_jacobian_rows!(J, M, directions, xs)` — `xs` a
+  **`PointSet`** (new: points with attribute columns; `withattrs(points;
+  …)` makes one) or a `Csponds` / vector of `Pair`s, its per-element data
+  ATTRIBUTE COLUMNS: the noise (`Σ`; `Σ₁`/`Σ₂`), the constraint's keyword
+  columns (**`constraint_keywords(M, xs)`**: `M₁`, `M₂` of a bearing
+  `EssentialMat` or `TransferForm`) and the rows' `sqrt_weights`. Element `i`
+  takes rows `dg(i−1)+1 … dg·i`; one body each, a CPU loop or one
+  KernelAbstractions kernel over the per-element function; a degenerate
+  element is zero (LM-safe). The whitened rows differentiate the noise's
+  Cholesky factor with the model: exact. Reductions compose — the RSS is
+  `sum(abs2, …)`, the pool matrix **`sampson_distances!(R, models, xs)`**.
   The image-plane and tangent epipolar row functions that restated the
   residual and its contracted Jacobian, the public per-row forms and the
   generic Sampson-Jacobian helper are removed; the bilinear contraction lives
@@ -54,6 +62,13 @@ Breaking: ONE Sampson path. Nothing outside `base/sampson.jl` computes
   normal, and `TransferForm`, whose gradient blows up rather than vanishes); a
   `Conic`'s reuses the epipolar bilinear bound. `gradient(::Conic, p)` is the
   point-on-conic constraint's `G_x`.
+- **The homography transfer rows with a whitening frozen at the anchor are
+  removed** (`transfer_whitening!`, `transfer_rows!`, `transfer_jacobian_rows!`):
+  an LM on a homography or a rotation descends the exact whitened rows of the
+  constraint it is scored with. `TransferForm` stays, the transfer constraint.
+- Removed: `sampson_rows!` (the parallel-array forms; `sampson_residuals!` over
+  a set), `sampson_rss` (`sum(abs2, …)` of the batch), the n × M
+  `sampson_residuals!(R, models, u₁, u₂)` (`sampson_distances!`).
 - Removed (private): `_propagate_scalar`.
 - Removed: `sampson_residual_jacobian`, `sampson_residual_row`,
   `tangent_sampson_residual_row` (all three are `sampson_residual_with_jacobian`);

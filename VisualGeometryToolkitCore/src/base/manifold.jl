@@ -188,7 +188,7 @@ The first `Q` (default: all) columns of [`retract_jacobian`](@ref)`(ch, v)` —
 `∂M/∂vq` for a chart whose ambient model is a 3×3 matrix (its first nine
 ambient coordinates, column-major) — each reshaped to a 3×3 matrix: the `dM`
 tuple the row Jacobians take (`sampson_jacobian_rows!`,
-`transfer_jacobian_rows!`, `radial_transfer_jacobian_rows!`). For a radial
+`whitened_jacobian_rows!`, `radial_transfer_jacobian_rows!`). For a radial
 homography's `[vec H; k]` chart, `Val(8)` gives the eight sl(3) directions of
 `H`. In the Jacobian's element type.
 """

@@ -165,13 +165,13 @@ end
     @test pixel_residuals(mk(I3s, I3s)) == Dc
 end
 
-@testitem "sampson_residuals!: the buffer's size is checked" begin
+@testitem "sampson_distances!: the buffer's size is checked" begin
     using Test, StaticArrays, LinearAlgebra
-    using VisualGeometryToolkitCore: HomographyMat, sampson_residuals!
+    using VisualGeometryToolkitCore: HomographyMat, sampson_distances!, Csponds
     H = HomographyMat(SMatrix{3, 3, Float64}(I))
     u = [SVector(0.0, 0.0), SVector(1.0, 2.0)]
-    @test_throws DimensionMismatch sampson_residuals!(Matrix{Float32}(undef, 1, 1), [H], u, u)        # too small
-    @test_throws DimensionMismatch sampson_residuals!(Matrix{Float32}(undef, 2, 2), [H], u, u)        # a column too many
-    @test_throws DimensionMismatch sampson_residuals!(Matrix{Float32}(undef, 2, 1), [H], u, u[1:1])   # point counts differ
-    @test sampson_residuals!(Matrix{Float32}(undef, 2, 1), [H], u, u) == zeros(Float32, 2, 1)
+    @test_throws DimensionMismatch sampson_distances!(Matrix{Float32}(undef, 1, 1), [H], Csponds(u, u))        # too small
+    @test_throws DimensionMismatch sampson_distances!(Matrix{Float32}(undef, 2, 2), [H], Csponds(u, u))        # a column too many
+    @test_throws ArgumentError Csponds(u, u[1:1])                                                               # point counts differ
+    @test sampson_distances!(Matrix{Float32}(undef, 2, 1), [H], Csponds(u, u)) == zeros(Float32, 2, 1)
 end

@@ -93,15 +93,18 @@ struct Csponds{S, T, VS <: AbstractVector{S}, VT <: AbstractVector{T}, A <: Name
         n = length(sources)
         length(targets) == n ||
             throw(ArgumentError("sources ($n) and targets ($(length(targets))) must have the same length"))
-        for (k, col) in pairs(attrs)
-            col isa AbstractVector ||
-                throw(ArgumentError("attribute column :$k must be an AbstractVector"))
-            length(col) == n ||
-                throw(ArgumentError("attribute column :$k has length $(length(col)), expected $n"))
-        end
+        _check_columns(attrs, n)
         return new{S, T, VS, VT, A}(sources, targets, attrs)
     end
 end
+
+# Every attribute column a vector of the set's length — unrolled over the
+# columns (a loop over a heterogeneous NamedTuple is type-unstable and
+# allocates, and a set is built per LM evaluation).
+_check_columns(attrs::NamedTuple, n::Int) = (map((k, col) -> _check_column(k, col, n), keys(attrs), values(attrs)); nothing)
+_check_column(k, col::AbstractVector, n) =
+    length(col) == n || throw(ArgumentError("attribute column :$k has length $(length(col)), expected $n"))
+_check_column(k, _, _) = throw(ArgumentError("attribute column :$k must be an AbstractVector"))
 
 Csponds(sources::AbstractVector, targets::AbstractVector; attrs...) =
     Csponds(sources, targets, values(attrs))
@@ -201,15 +204,66 @@ sources(cs::AbstractVector{<:Attributed{<:Pair}}) =
 targets(cs::AbstractVector{<:Attributed{<:Pair}}) =
     MappedColumn(a -> last(getfield(a, :value)), cs)
 
+# -----------------------------------------------------------------------------
+# PointSet — one measurement per element, with attribute columns
+# -----------------------------------------------------------------------------
+
+"""
+    PointSet(points; attrs...)
+
+A set of single-point measurements (a contour's points for a conic, a circle,
+a line) with index-aligned attribute columns, the one-measurement counterpart
+of [`Csponds`](@ref): `xs[i]` is the point, `xs.Σ` (the points' covariances),
+`xs.sqrt_weights` and any other column are reached by property, and
+`xs[mask]` / `view(xs, idx)` subset every column together. What the batched
+Sampson functions ([`sampson_residuals!`](@ref)) read per element; a plain
+vector of points is a `PointSet` with no columns, and
+`withattrs(points; attrs...)` makes one.
+"""
+struct PointSet{P, V <: AbstractVector{P}, A <: NamedTuple} <: AbstractVector{P}
+    points::V
+    attrs::A
+    function PointSet(points::V, attrs::A) where {P, V <: AbstractVector{P}, A <: NamedTuple}
+        _check_columns(attrs, length(points))
+        return new{P, V, A}(points, attrs)
+    end
+end
+PointSet(points::AbstractVector; attrs...) = PointSet(points, values(attrs))
+
+Base.size(xs::PointSet) = size(getfield(xs, :points))
+Base.IndexStyle(::Type{<:PointSet}) = IndexLinear()
+Base.@propagate_inbounds Base.getindex(xs::PointSet, i::Int) = getfield(xs, :points)[i]
+Base.@propagate_inbounds Base.getindex(xs::PointSet, I::AbstractVector) =
+    PointSet(getfield(xs, :points)[I], map(col -> col[I], getfield(xs, :attrs)))
+Base.view(xs::PointSet, I::Union{AbstractVector, Colon}) =
+    PointSet(view(getfield(xs, :points), I), map(col -> view(col, I), getfield(xs, :attrs)))
+function Base.getproperty(xs::PointSet, k::Symbol)
+    k === :points && return getfield(xs, :points)
+    k === :attrs && return getfield(xs, :attrs)
+    return getproperty(getfield(xs, :attrs), k)
+end
+Base.propertynames(xs::PointSet) = (:points, :attrs, keys(getfield(xs, :attrs))...)
+hasattr(xs::PointSet, k::Symbol) = haskey(getfield(xs, :attrs), k)
+
+# Columns merged into a point set (same-name columns replaced), and a set
+# without columns taking them as the container of its kind: a vector of points
+# becomes a `PointSet`, a vector of `Pair`s a `Csponds`.
+withattrs(xs::AbstractVector{<:StaticVector}; attrs...) = _with_point_attrs(xs, values(attrs))
+_with_point_attrs(xs::PointSet, attrs) = PointSet(getfield(xs, :points), merge(getfield(xs, :attrs), attrs))
+_with_point_attrs(xs, attrs) = PointSet(xs, attrs)
+withattrs(cs::AbstractVector{<:Pair}; attrs...) = Csponds(sources(cs), targets(cs); attrs...)
+
 # Attribute columns survive lift(); legacy containers contribute none
 # (their scores are adapted at problem construction, not here).
 attrs_of(cs::Csponds) = getfield(cs, :attrs)
+attrs_of(xs::PointSet) = getfield(xs, :attrs)
 attrs_of(::AbstractVector) = NamedTuple()
 
 # A per-correspondence attribute column by name, `nothing` when the container
 # carries none: the one reader of an optional column (`weights`, a PROSAC
 # `score`, …). The attribute names are in the Csponds type, so the branch folds.
 attribute_column(cs::Csponds, k::Symbol) = hasattr(cs, k) ? getproperty(cs, k) : nothing
+attribute_column(xs::PointSet, k::Symbol) = hasattr(xs, k) ? getproperty(xs, k) : nothing
 attribute_column(::Any, ::Symbol) = nothing
 
 # The per-correspondence `weights` column: the one place an estimator reads

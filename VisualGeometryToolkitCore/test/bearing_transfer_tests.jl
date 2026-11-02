@@ -2,13 +2,13 @@
 # The transfer constraint on unit bearings (geometry/forms.jl,
 # geometry/solvers/homography_solvers.jl): zero on exact rotations at any field
 # angle, its Jacobians against ForwardDiff, the Sampson covariance (Σ = I),
-# and the bearing rows against the constraint and ForwardDiff.
+# and the bearing rows (the one path's batch rows) against the constraint and ForwardDiff.
 # =============================================================================
 
 @testitem "bearing transfer: constraint, Jacobians, rows" begin
     using Test, StaticArrays, LinearAlgebra, Random, Rotations
     using VisualGeometryToolkitCore: TransferForm, HomographyMat, constraint_with_jacobians, s2_tangent_basis,
-        transfer_whitening!, transfer_rows!, transfer_jacobian_rows!, whitening_factor
+        sampson_residuals!, sampson_jacobian_rows!, sampson_residual, Csponds, withattrs
     import ForwardDiff
     import VisualGeometryToolkitCore as VgtkCore
 
@@ -36,34 +36,30 @@
         # an antipodal transfer is not cheiral: g is small but the parts say so
         @test !VisualGeometryToolkitCore._bearing_transfer_parts(H(R), f₁, -f₂).cheiral
     end
-    @testset "the bearing rows: W·g, and their Jacobian along a rotation chart by ForwardDiff" begin
+    @testset "the bearing rows: the Sampson residual, and their exact Jacobian along a rotation chart by ForwardDiff" begin
         n = 40
         R0 = RotMatrix(QuatRotation(normalize(randn(rng, 4))))
         f₁ = [normalize(randn(rng, SVector{3, Float64})) for _ in 1:n]
         f₂ = [normalize(R0 * f + 1.0e-3 * randn(rng, SVector{3, Float64})) for f in f₁]
         M₁ = tangent_M.(f₁); M₂ = tangent_M.(f₂)
-        W = Vector{SMatrix{2, 2, Float64, 4}}(undef, n)
-        transfer_whitening!(W, H(R0), f₁, f₂; M₁, M₂)
-        sqrtw = rand(rng, 2n)
+        sqrtw = rand(rng, n)
+        xs = withattrs(Csponds(f₁, f₂); M₁, M₂, sqrt_weights = sqrtw)
         r = zeros(2n)
-        transfer_rows!(r, H(R0), W, f₁, f₂, sqrtw)
+        sampson_residuals!(r, TransferForm(H(R0)), xs)
         for i in 1:n
-            g, G_x, _ = constraint_with_jacobians(TransferForm(H(R0)), f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i])
-            @test W[i] ≈ whitening_factor(G_x)
-            @test r[2i-1:2i] ≈ sqrtw[2i-1:2i] .* (W[i] * g)
+            @test r[2i-1:2i] ≈ sqrtw[i] .* sampson_residual(TransferForm(H(R0)), f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i])
         end
         Rof(ω) = exp_skew(ω) * R0
         exp_skew(ω) = SMatrix{3, 3}(VisualGeometryToolkitCore.exp_so3(SVector{3}(ω[1], ω[2], ω[3])))
         function rows(ω)
             out = zeros(eltype(ω), 2n)
-            Rω = Rof(ω)
-            Hω = HomographyMat{eltype(ω)}(Tuple(SMatrix{3, 3}(Rω)))
-            transfer_rows!(out, Hω, W, f₁, f₂, sqrtw)
+            Hω = HomographyMat{eltype(ω)}(Tuple(SMatrix{3, 3}(Rof(ω))))
+            sampson_residuals!(out, TransferForm(Hω), xs)
             return out
         end
         dH = ntuple(q -> (e = SVector{3}(ntuple(k -> Float64(k == q), 3)); SMatrix{3, 3}(0, e[3], -e[2], -e[3], 0, e[1], e[2], -e[1], 0) * SMatrix{3, 3}(R0)), 3)
         J = zeros(2n, 3)
-        transfer_jacobian_rows!(J, H(R0), dH, W, f₁, f₂, sqrtw)
+        sampson_jacobian_rows!(J, TransferForm(H(R0)), dH, xs)
         @test J ≈ ForwardDiff.jacobian(rows, zeros(3)) rtol = 1.0e-9
     end
 end

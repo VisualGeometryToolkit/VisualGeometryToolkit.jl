@@ -9,7 +9,7 @@
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: HomographyMat, EssentialMat, SvdWorkspace, homography_dlt,
         fundamental_dlt, dlt_conditioning, whiten, whitening_factor, sampson_residual,
-        sampson_rss, sampson_distance, CentralGenericModel, CameraModel,
+        sampson_distances!, sampson_distance, CentralGenericModel, CameraModel,
         Division
     using StaticArrays, LinearAlgebra, Random
 
@@ -96,12 +96,11 @@
         f₂ = normalize(R * X + t)
         # 3-vectors reach the bearing form, which needs the pixel Jacobians M₁, M₂
         @test_throws UndefKeywordError only(sampson_residual(E, f₁, f₂))
-        @test_throws MethodError sampson_rss(E, [f₁], [f₂])
         u₁, u₂ = PerspectiveMap()(X), PerspectiveMap()(R * X + t)
         @test abs(only(sampson_residual(E, u₁, u₂))) < 1.0e-12
         # a Float32 model scores Float64 points
         H32 = HomographyMat{Float32}(Tuple(Float32.(H0)))
-        @test sampson_rss(H32, first.(hcs), last.(hcs)) < 1.0e-3
+        @test sum(abs2, sampson_distances!(zeros(length(hcs), 1), [H32], hcs)) < 1.0e-3
     end
 
     @testset "tangent Sampson degeneracy is scale-free" begin

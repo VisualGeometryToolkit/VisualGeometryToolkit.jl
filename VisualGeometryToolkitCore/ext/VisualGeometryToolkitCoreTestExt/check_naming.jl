@@ -354,13 +354,19 @@ const RETIRED_NAMES = String[
     "signed" * "_sampson", "signed_tangent" * "_sampson", "_whiten" * "_residual",
     # ONE Sampson path (2026-11-02): the residual's model Jacobian is
     # `sampson_residual_with_jacobian` over the model's
-    # `measurement_gradient_jacobian`, the √w rows `sampson_rows!` /
-    # `sampson_jacobian_rows!` call it per correspondence, a frozen whitening is
+    # `measurement_gradient_jacobian`, the batch rows over a measurement set
+    # call it per element, a frozen whitening is
     # `whitening_factor`, and the epipolar degeneracy scales are the models'
     # `constraint_rounding_scale` — the parallel epipolar rows, the whitening
     # policy types and their verb are gone
     "sampson_residual" * "_jacobian", "sampson_residual" * "_row", "tangent_sampson" * "_residual_row",
     "epipolar" * "_rounding", "whitened" * "_rows", "Whitening" * "Policy", "Sampson" * "Whitening", "No" * "Whitening",
+    # the batch rows take a measurement set whose per-element data are columns
+    # (2026-11-02): `sampson_residuals!` / `whitened_residuals!` /
+    # `sampson_jacobian_rows!` / `whitened_jacobian_rows!`; the RSS and the pool
+    # matrix compose (`sampson_distances!`); the homography's and the rotation's
+    # LM descend the exact rows, not a transfer whitening frozen at the anchor
+    "sampson" * "_rows!", "sampson" * "_rss", "transfer" * "_whitening!", "transfer" * "_rows!", "transfer" * "_jacobian_rows!",
 ]
 
 # Rule 10: the width quantities are bound by their full names. One name per

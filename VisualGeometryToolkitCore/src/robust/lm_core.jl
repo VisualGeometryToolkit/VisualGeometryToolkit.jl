@@ -499,7 +499,8 @@ of the state's [`residual_rows!`](@ref) (`C` the codimension) and `ρ` the
 NLLSsolver `robustifier` — a stack loss through
 [`loss_robustifier`](@ref)`(shape, loss_width)`. NLLSsolver applies the
 robustifier per datum with Triggs' second-order correction (the ρ″ term of its
-Gauss–Newton Hessian), so one solve is the robust M-estimate — no reweighting
+Gauss–Newton Hessian; Ceres' `Corrector`, `internal/ceres/corrector.cc`), so
+one solve is the robust M-estimate — no reweighting
 loop. `F` is `Σᵢ ρ(‖rᵢ‖²)` at `x` (NLLSsolver's cost is `½ρ`); the knobs, the
 returned code and its retcode ([`lm_retcode`](@ref)) are the plain chart LM's,
 its stall postcondition the cosine of the rows weighted by `ρ′` (the robust

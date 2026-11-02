@@ -667,7 +667,7 @@ public _propagate_scalar
 public lm_workspace_type, lmsolve_chart!, fill_sqrt_weights!, manifold_parts,
     kabsch_stationarity, chordal_mean_stationarity, rescale_radial_coeff, pnp_pixel_whitening,
     block_rows, radial_ray, attrs_of, attribute_column, cd_pair, sigma_max, check_weights,
-    weights_column, sq_norm, whitened_constraint_residual, whitened_distance, zero_sample!
+    weights_column, sq_norm, whitened_constraint_residual, whitened_constraint_rows, whitened_distance, zero_sample!
 # The one TOML tag → type map and its spelling rule (quality/tag_registry.jl),
 # the dependency allow-list, the private-name scan and the extension points
 # (quality/stack_contracts.jl). Reached qualified; the quality gates

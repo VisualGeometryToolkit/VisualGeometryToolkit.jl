@@ -93,3 +93,104 @@
         @test VgtkCore.constraint(H, u, v) == first(constraint_with_jacobians(H, u, v))
     end
 end
+
+# A conic's and an ellipse's Sampson rows: `measurement_gradient_jacobian` against
+# ForwardDiff of their constraints' G_x, the exact residual Jacobian against
+# ForwardDiff of the residual, ForwardDiff Duals through the whole path, and no
+# allocation.
+@testitem "sampson_conic_ellipse_rows" begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using Test
+    using LinearAlgebra
+    using StaticArrays
+    using ForwardDiff: ForwardDiff
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: Conic, Ellipse, Point2, constraint_with_jacobians, measurement_gradient_jacobian,
+        sampson_residual, sampson_residual_with_jacobian
+
+    conic(θ) = Conic(SMatrix{3, 3}(θ[1], θ[2], θ[4], θ[2], θ[3], θ[5], θ[4], θ[5], θ[6]))
+    θ₀ = SVector(0.002, 0.0003, 0.003, -0.5, -0.4, 150.0)            # an ellipse's conic, (C₁₁, C₁₂, C₂₂, C₁₃, C₂₃, C₃₃)
+    E = Ellipse(Point2(500.0, 400.0), 300.0, 180.0, 0.6)
+    Q = VgtkCore._ellipse_form(E)
+    θE = SVector(E.center[1], E.center[2], Q[1, 1], Q[1, 2], Q[2, 2])
+    ellipse_g(θ, x) = (d = x - SVector(θ[1], θ[2]); dot(d, SMatrix{2, 2}(θ[3], θ[4], θ[4], θ[5]) * d) - 1)
+    for u in (SVector(210.0, 180.0), SVector(820.0, 395.0), SVector(505.0, 120.0))
+        # the conic: ∂G_x/∂θ and the residual's exact model row
+        @test measurement_gradient_jacobian(conic(θ₀), u) ≈
+            ForwardDiff.jacobian(θ -> constraint_with_jacobians(conic(θ), u)[2], θ₀) rtol = 1.0e-14
+        s, J = sampson_residual_with_jacobian(conic(θ₀), u)
+        @test vec(J) ≈ ForwardDiff.gradient(θ -> only(sampson_residual(conic(θ), u)), θ₀) rtol = 1.0e-12
+        # the ellipse, in its G_θ's coordinates (c₁, c₂, Q₁₁, Q₁₂, Q₂₂)
+        @test constraint_with_jacobians(E, u)[3] ≈ ForwardDiff.gradient(θ -> ellipse_g(θ, u), θE) rtol = 1.0e-13
+        @test measurement_gradient_jacobian(E, u) ≈
+            ForwardDiff.jacobian(θ -> ForwardDiff.gradient(x -> ellipse_g(θ, x), u), θE) rtol = 1.0e-13
+        sE, JE = sampson_residual_with_jacobian(E, u)
+        @test vec(JE) ≈ ForwardDiff.gradient(θ -> (d = u - SVector(θ[1], θ[2]); Qθ = SMatrix{2, 2}(θ[3], θ[4], θ[4], θ[5]);
+            ellipse_g(θ, u) / norm(2 * Qθ * d)), θE) rtol = 1.0e-12
+    end
+    # ForwardDiff Duals through the conic's whole Sampson path (residual and row)
+    u = SVector(210.0, 180.0)
+    d(θ) = (sJ = sampson_residual_with_jacobian(conic(θ), u); only(sJ[1]) + sum(sJ[2]))
+    @test ForwardDiff.gradient(d, θ₀) isa SVector{6, Float64}
+    @test all(isfinite, ForwardDiff.gradient(d, θ₀))
+    # no allocation
+    rows(c, x) = sampson_residual_with_jacobian(c, x)
+    allocs(c, x) = (rows(c, x); @allocated rows(c, x))
+    @test allocs(conic(θ₀), u) == 0
+    @test allocs(E, u) == 0
+    # a conic's centre is degenerate: the residual's Inf and a zero row
+    ctr = SMatrix{2, 2}(θ₀[1], θ₀[2], θ₀[2], θ₀[3]) \ -SVector(θ₀[4], θ₀[5])
+    sc, Jc = sampson_residual_with_jacobian(conic(θ₀), ctr)
+    @test isinf(only(sc)) && all(iszero, Jc)
+end
+
+# A constraint tuple as a least-squares row (`whitened_constraint_rows`): the
+# whitened residual and the frozen-whitened model row under ONE factor, the
+# degeneracy rule at the tuple's rounding scale — what a predictive scorer reads.
+@testitem "whitened_constraint_rows" begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using Test
+    using LinearAlgebra
+    using StaticArrays
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: whitened_constraint_rows, whitened_constraint_residual, whitening_factor,
+        constraint_with_jacobians, constraint_rounding_scale, whiten, sampson_residual_with_normal, pair_covariance
+
+    F = FundMat(SMatrix{3, 3, Float64}(0.0, 1.0e-6, -2.0e-4, -1.0e-6, 0.0, 3.0e-3, 1.0e-4, -3.0e-3, 0.02))
+    u, v = SVector(310.0, 205.0), SVector(330.0, 190.0)
+    g, G_x, G_θ = constraint_with_jacobians(F, u, v)
+    # plain: the Sampson residual and G_θ/‖G_x‖, the number and the row a scalar constraint gives
+    r, J = whitened_constraint_rows((g, G_x, G_θ))
+    @test r == whitened_constraint_residual((g, G_x, G_θ))
+    @test r ≈ g / norm(G_x) rtol = 1.0e-14
+    @test J isa SVector{9}
+    @test J ≈ G_θ / norm(G_x) rtol = 1.0e-14
+    # with a covariance and the rounding scale: the same factor as whitening_factor
+    Σ = pair_covariance(SMatrix{2, 2}(2.0, 0.3, 0.3, 1.0), SMatrix{2, 2}(0.5, 0.0, 0.0, 0.8))
+    ρ = constraint_rounding_scale(F, u, v)
+    rΣ, JΣ = whitened_constraint_rows((g, G_x, G_θ, Σ, ρ))
+    @test rΣ ≈ whitening_factor(G_x, Σ) * g rtol = 1.0e-12
+    @test JΣ ≈ whitening_factor(G_x, Σ) * G_θ rtol = 1.0e-12
+    # a vector constraint (H's two rows): a vector residual and a 2 × 9 row
+    H = HomographyMat(SMatrix{3, 3, Float64}(1.1, 0.02, 1.0e-4, -0.03, 0.95, 2.0e-4, 12.0, -7.0, 1.0))
+    gH, GxH, GθH = constraint_with_jacobians(H, u, v)
+    rH, JH = whitened_constraint_rows((gH, GxH, GθH))
+    @test rH ≈ whitening_factor(GxH) * gH rtol = 1.0e-12
+    @test JH ≈ whitening_factor(GxH) * GθH rtol = 1.0e-12
+    # degenerate at the rounding scale: 0 when the constraint vanishes, ±Inf otherwise; zero rows either way
+    Z = zero(SVector{4, Float64}); ρ0 = (; gradient = 1.0, value = 1.0e-3)
+    @test whitened_constraint_rows((1.0e-4, Z, G_θ, I, ρ0)) == (0.0, zero(G_θ))
+    r∞, J∞ = whitened_constraint_rows((0.7, Z, G_θ, I, ρ0))
+    @test r∞ == Inf && all(iszero, J∞)
+    # `whiten` with rows: the identity by dispatch on Σ = I, the same factor otherwise
+    s, N = sampson_residual_with_normal(F, u, v)
+    @test whiten(s, N, I) === s
+    @test whiten(s, N, transpose(G_θ / norm(G_x)) |> SMatrix{1, 9}, I) == (s, SMatrix{1, 9}(transpose(G_θ / norm(G_x))))
+    rw, Jw = whiten(s, N, SMatrix{1, 9}(transpose(G_θ / norm(G_x))), Σ)
+    @test rw == whiten(s, N, Σ)
+    @test vec(Jw) ≈ JΣ rtol = 1.0e-12
+    allocs(s, N, Σ) = (whiten(s, N, Σ); @allocated whiten(s, N, Σ))
+    @test allocs(s, N, Σ) == 0 && allocs(s, N, I) == 0
+    rows_allocs(cd) = (whitened_constraint_rows(cd); @allocated whitened_constraint_rows(cd))
+    @test rows_allocs((g, G_x, G_θ, Σ, ρ)) == 0
+end

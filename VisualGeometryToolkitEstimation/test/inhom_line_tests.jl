@@ -17,7 +17,7 @@ using VisualGeometryToolkitCore: inlier_threshold   # the scoring contract (VGC)
 using VisualGeometryToolkitEstimation: RansacConfig, ransac,
     RansacWorkspace,
     data_size, minimal_sample_size, model_type, constraint_with_jacobians
-using VisualGeometryToolkitCore: whitening_factor, whitened_constraint_residual
+using VisualGeometryToolkitCore: whitened_constraint_rows
 
 # =============================================================================
 # The owner's minimal solve and constraint, as functions ForwardDiff can
@@ -169,7 +169,7 @@ _g_of_y(pts, model, y, i) = constraint_with_jacobians(
             @test G_θ ≈ ForwardDiff.gradient(θ -> _g_of_θ(pts, θ, i), Vector(model)) atol = 1.0e-14
 
             # the Sampson residual and the frozen-whitened rows are the identity (‖G_x‖ = 1)
-            r, J_w = whitened_constraint_residual((g, G_x, G_θ)), whitening_factor(G_x) * G_θ
+            r, J_w = whitened_constraint_rows((g, G_x, G_θ))
             @test r ≈ g atol = 1.0e-14
             @test J_w ≈ G_θ atol = 1.0e-14
         end

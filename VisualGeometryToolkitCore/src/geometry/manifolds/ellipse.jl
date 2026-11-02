@@ -103,6 +103,17 @@ point at the centre has `G_x = 0` — the one Sampson degeneracy
     return g, 2 * Qd, SVector(-2 * Qd[1], -2 * Qd[2], d[1]^2, 2 * d[1] * d[2], d[2]^2)
 end
 
+# ∂G_x/∂(c₁, c₂, Q₁₁, Q₁₂, Q₂₂) of the point-on-ellipse constraint, the
+# coordinates of its `G_θ`: G_x = 2Q(x − c), so ∂/∂c = −2Q and ∂/∂Q is the
+# symmetric pattern of 2d.
+@inline function measurement_gradient_jacobian(e::Ellipse, x::StaticVector{2})
+    Q = _ellipse_form(e)
+    d = SVector(x[1] - e.center[1], x[2] - e.center[2])
+    z = zero(promote_type(eltype(Q), eltype(d)))
+    return SMatrix{2, 5}(-2 * Q[1, 1], -2 * Q[2, 1], -2 * Q[1, 2], -2 * Q[2, 2],
+        2 * d[1], z, 2 * d[2], 2 * d[1], z, 2 * d[2])
+end
+
 # The ellipse's rounding scales (`constraint_rounding_scale`), relative to its
 # axes: `d = x − c` carries the rounding of |x| + |c|, so the gradient `2Q·d` is
 # rounding below 2·|Q|·that, and `g = dᵀQd − 1` below |Q|·|d|² + 1 — a point at the
@@ -138,6 +149,15 @@ part (the centre of a central conic) has `G_x = 0`: the one Sampson degeneracy.
     g = dot(xh, Cx)
     return g, SVector(2 * Cx[1], 2 * Cx[2]),
         SVector(xh[1]^2, 2 * xh[1] * xh[2], xh[2]^2, 2 * xh[1], 2 * xh[2], one(T))
+end
+
+# ∂G_x/∂(C₁₁, C₁₂, C₂₂, C₁₃, C₂₃, C₃₃) of the point-on-conic constraint (its
+# `G_θ`'s coordinates): G_x = 2(C x̃)₁,₂ is linear in C, so the entries are
+# 2·x̃'s coordinates where an entry meets the row.
+@inline function measurement_gradient_jacobian(c::Conic, x::StaticVector{2})
+    T = float(promote_type(eltype(c.Q), eltype(x)))
+    z = zero(T); o = one(T)
+    return SMatrix{2, 6, T}(2 * x[1], z, 2 * x[2], 2 * x[1], z, 2 * x[2], 2 * o, z, z, 2 * o, z, z)
 end
 
 # A conic's rounding scales (`constraint_rounding_scale`), as the epipolar

@@ -323,21 +323,41 @@ A least-squares row of the whitened residual is the Sampson row of
 [`sampson_residual_with_jacobian`](@ref) divided by the same factor, held fixed
 over a step (the Gauss–Newton row: `NᵀΣN` moves with the model only through `N`).
 """
-@inline function whiten(s::StaticVector, N::StaticMatrix, Σ)
-    Σ isa UniformScaling{Bool} && return s
-    return _whiten_normal(s, N, Σ)
-end
-@inline function _whiten_normal(s::StaticVector{1, T}, N::StaticMatrix{nx, 1}, Σ) where {nx, T}
+@inline whiten(s::StaticVector, ::StaticMatrix, ::UniformScaling{Bool}) = s
+@inline whiten(s::StaticVector, N::StaticMatrix, Σ) = first(_whiten_normal(s, N, nothing, Σ))
+
+"""
+    whiten(s_N, N, J, Σ) -> (r, J_w)
+
+The residual of [`whiten`](@ref)`(s_N, N, Σ)` and the rows `J` (`dg × nθ`)
+whitened by the same factor `L_N⁻¹` — held fixed, the Gauss–Newton row: `N`
+moves with the model, and its derivative is not carried. A degenerate `NᵀΣN`
+gives zero rows.
+"""
+@inline whiten(s::StaticVector, ::StaticMatrix, J::StaticMatrix, ::UniformScaling{Bool}) = (s, J)
+@inline whiten(s::StaticVector, N::StaticMatrix, J::StaticMatrix, Σ) = _whiten_normal(s, N, J, Σ)
+
+# The noise layer's two shapes; `J` is the rows whitened with the residual, or
+# `nothing` (the residual alone). NaN and a covariance singular along the normal
+# are value decisions (early returns), not type ones.
+@inline function _whiten_normal(s::StaticVector{1, T}, N::StaticMatrix{nx, 1}, J, Σ) where {nx, T}
     σ² = _propagate_scalar(SVector{nx}(N), Σ)
-    (σ² > zero(σ²) || isnan(σ²)) || return _degenerate_whitened(s)
-    return s / sqrt(σ²)
+    (σ² > zero(σ²) || isnan(σ²)) || return _degenerate_whitened(s), _zero_rows(J)
+    σ = sqrt(σ²)
+    return s / σ, _scaled_rows(J, σ)
 end
-@inline function _whiten_normal(s::StaticVector{dg, T}, N::StaticMatrix{nx, dg}, Σ) where {dg, nx, T}
+@inline function _whiten_normal(s::StaticVector{dg, T}, N::StaticMatrix{nx, dg}, J, Σ) where {dg, nx, T}
     C, d, ok = _whitening_cholesky(propagate(N', Σ))
-    isnan(d) && return s .* T(NaN)
-    ok || return _degenerate_whitened(s)
-    return C.L \ s
+    isnan(d) && return s .* T(NaN), _scaled_rows(J, T(NaN))
+    ok || return _degenerate_whitened(s), _zero_rows(J)
+    return C.L \ s, _solved_rows(C.L, J)
 end
+@inline _zero_rows(::Nothing) = nothing
+@inline _zero_rows(J) = zero(J)
+@inline _scaled_rows(::Nothing, σ) = nothing
+@inline _scaled_rows(J, σ) = J / σ
+@inline _solved_rows(L, ::Nothing) = nothing
+@inline _solved_rows(L, J) = L \ J
 # A residual whitened by a covariance singular along the normal: zero stays
 # zero (the constraint holds), anything else is unreachable (±Inf), NaN stays.
 @inline _degenerate_whitened(s) = map(x -> (iszero(x) || isnan(x)) ? x : copysign(oftype(x, Inf), x), s)

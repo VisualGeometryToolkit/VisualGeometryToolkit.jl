@@ -158,6 +158,38 @@ end
     return whiten(s, N, Σ_x)
 end
 
+"""
+    whitened_constraint_rows(cd::Tuple) -> (r, J_w)
+
+A constraint `(g, G_x, G_θ[, Σ_x[, ρ]])` from `constraint_with_jacobians` as a
+least-squares row: its whitened residual (`whitened_constraint_residual`'s —
+the Sampson residual at the rounding scale `ρ`, whitened by `Σ_x`) and its model
+rows `L_Σ⁻¹·G_θ` under the SAME factor, held fixed (the Gauss–Newton row of a
+frozen whitening; `L_Σ L_Σᵀ = G_x·Σ_x·G_xᵀ`). In the constraint's shape: a
+number and an `SVector` row for a scalar constraint, an `SVector` and a matrix
+for a vector one. Degenerate (the gradient vanishes at `ρ`, or `Σ_x` is
+singular along the normal): the rule's residual (`0` when the constraint
+vanishes, else `±Inf`) and ZERO rows. What a predictive scorer reads per point:
+the residual and the rows the model covariance is propagated through.
+"""
+@inline whitened_constraint_rows(cd::Tuple) = _whitened_constraint_rows(cd...)
+@inline _whitened_constraint_rows(g, G_x, G_θ) = _whitened_constraint_rows(g, G_x, G_θ, I, nothing)
+@inline _whitened_constraint_rows(g, G_x, G_θ, Σ_x) = _whitened_constraint_rows(g, G_x, G_θ, Σ_x, nothing)
+@inline function _whitened_constraint_rows(g, G_x, G_θ, Σ_x, ρ)
+    s, N, L, ok = _sampson_factor(g, G_x, ρ)
+    r, J = whiten(s, N, _as_rows(_sampson_rows(L, G_θ, ok)), Σ_x)
+    return _constraint_shape(g, r), _rows_shape(G_θ, J)
+end
+# L⁻¹G_θ at the Sampson factor (a number ‖G_x‖ for a scalar constraint, the
+# Cholesky factor for a vector one); zero when degenerate (a value decision).
+@inline _sampson_rows(n::Real, G_θ, ok::Bool) = ifelse(ok, G_θ / n, zero(G_θ))
+@inline _sampson_rows(L, G_θ, ok::Bool) = ok ? L \ G_θ : zero(G_θ)
+# Rows as a `dg × nθ` matrix for `whiten`, and back in `G_θ`'s shape.
+@inline _as_rows(J::StaticVector{n, T}) where {n, T} = SMatrix{1, n, T}(Tuple(J))
+@inline _as_rows(J::StaticMatrix) = J
+@inline _rows_shape(::StaticVector{n}, J::StaticMatrix{1, n, T}) where {n, T} = SVector{n, T}(Tuple(J))
+@inline _rows_shape(::StaticMatrix, J::StaticMatrix) = J
+
 @inline _mahalanobis(cd::Tuple) = whitened_distance(whitened_constraint_residual(cd))
 @inline whitened_distance(r::Real) = r
 @inline whitened_distance(r::StaticVector) = norm(r)

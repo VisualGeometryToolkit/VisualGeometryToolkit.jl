@@ -11,7 +11,15 @@ Breaking: ONE Sampson path. Nothing outside `base/sampson.jl` computes
   models `retract_directions` returns), from `constraint_with_jacobians` and
   a new model protocol, **`measurement_gradient_jacobian(M, x...)`**
   (`∂G_x/∂θ`), implemented by `FundMat`/`EssentialMat` (plane and bearings),
-  `Circle` and `RadialCamera`. A degenerate measurement has a zero row.
+  `Circle`, `RadialCamera`, `Conic` and `Ellipse`. A degenerate measurement has
+  a zero row. ForwardDiff-safe and allocation-free.
+- **`whitened_constraint_rows(cd)` → `(r, J_w)`**: a constraint tuple
+  `(g, G_x, G_θ[, Σ_x[, ρ]])` as a least-squares row — its whitened residual and
+  its model rows under the same factor, held fixed — with the degeneracy rule at
+  the tuple's rounding scale (zero rows when degenerate; residual 0 when the
+  constraint vanishes). What a predictive scorer reads per point.
+- **`whiten(s_N, N, J, Σ)` → `(r, J_w)`**: rows whitened with the residual by
+  the same factor. `whiten` selects `Σ = I` by dispatch.
 - **`sampson_rows!(r, M, u₁, u₂, sqrtw; columns...)` and
   `sampson_jacobian_rows!(J, M, directions, u₁, u₂, sqrtw; columns...)`** are
   that function per correspondence (one KernelAbstractions kernel each);

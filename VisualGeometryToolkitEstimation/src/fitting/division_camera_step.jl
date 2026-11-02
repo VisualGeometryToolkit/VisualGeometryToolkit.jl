@@ -414,6 +414,10 @@ board_sq_residuals(state::DivisionCameraState) = state.sq_residuals
 # radial camera by composition (`D ∘ P ∘ inv(S)`, the normalization's two
 # maps) and the poses by
 # composing its origin shift (`pose ∘ Translation(X̄0)`, t scaled by S).
+# Whether a board has a point to whiten at: a carried pose or a seed depth.
+_has_whitening_point(::Nothing, ::Nothing) = false
+_has_whitening_point(_, _) = true
+
 # The whitening point, dispatched on what `whiten_at` is: nothing (plain rows),
 # a SEED focal (`Float64`: each board at the depth that focal implies), or a
 # previous iteration (its focal, and each board's pose in its branch).
@@ -567,7 +571,7 @@ function _division_camera_solve(
         else
             _lift_model(R, t12, 0.0, ntuple(_ -> 0.0, N), 0.0)
         end
-        at_point = prev !== nothing || t3w !== nothing
+        at_point = _has_whitening_point(prev, t3w)
         for (j, (pt, d)) in enumerate(nboards[i])
             wj = pw_i === nothing ? 1.0 : sqrt(Float64(pw_i[j]))
             wj > 0 || continue                              # a zero-weight row adds nothing — and 0 · Inf is NaN

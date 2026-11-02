@@ -49,7 +49,7 @@
 using Test, LinearAlgebra, Random, StaticArrays
 using StableRNGs
 using Rotations: AngleAxis, RotMatrix
-using VisualGeometryToolkitCore: VisualGeometryToolkitCore, estimate, minimal_manifold, unit_normalize, whitening_factor, whitened_constraint_residual, retract, model,
+using VisualGeometryToolkitCore: VisualGeometryToolkitCore, estimate, minimal_manifold, unit_normalize, whitened_constraint_rows, retract, model,
     constraint_with_jacobians, exp_so3, rotation, translation, HomographyMat, FundMat,
     EuclideanMap, CameraModel, LeftRigidManifold6, Point2, to_euclidean, to_affine,
     transform_covariance, EuclideanManifold, Uncertain, CovMat, Line2D, focal_length, intrinsics
@@ -126,14 +126,9 @@ function _held_out(rng, p, θ̂, idx, k, m, σ; naive = false)
     Σ̃ = solver_covariance(p, θ̂, idx)
     Σ̃ === nothing && return nothing
     i = k + rand(rng, 1:m)
-    r, Gw = _residual_and_frozen_rows(constraint_with_jacobians(p, θ̂, i))
+    r, Gw = whitened_constraint_rows(constraint_with_jacobians(p, θ̂, i))
     return _predicted(r, Gw, Σ̃, σ, naive)
 end
-# A constraint's whitened residual (the one Sampson path, VGC
-# `whitened_constraint_residual`) and its model rows under the same factor,
-# frozen (VGC `whitening_factor`, under the covariance a heteroscedastic
-# problem returns fourth).
-_residual_and_frozen_rows(cd) = (whitened_constraint_residual(cd), whitening_factor(cd[2], length(cd) >= 4 ? cd[4] : I) * cd[3])
 _predicted(r::Real, Gw, Σ̃, σ, naive) = [r], fill(σ^2 * (naive ? 1.0 : 1.0 + dot(Gw, Σ̃ * Gw)), 1, 1)
 function _predicted(r, Gw, Σ̃, σ, naive)
     V = Gw * Σ̃ * Gw'
@@ -569,7 +564,7 @@ end
             upts = [Uncertain(pts[i], CovMat(Σ̃[i])) for i in 1:(n + 1)]
             est = estimate(VgtkEstimation.fit_line(upts[1:n]))
             l̂ = VgtkCore.geom(est); Σθ = SMatrix{2, 2}(VgtkCore.cov(est))
-            r, Gw = _residual_and_frozen_rows(constraint_with_jacobians(VgtkEstimation.LineFittingProblem(upts), l̂, n + 1))
+            r, Gw = whitened_constraint_rows(constraint_with_jacobians(VgtkEstimation.LineFittingProblem(upts), l̂, n + 1))
             return [r], fill(σ^2 + dot(Gw, Σθ * Gw), 1, 1)
         end
     end
@@ -588,7 +583,7 @@ end
             θ̂ = first(hyp)
             Σ̃ = solver_covariance(p, θ̂, [1, 2]); Σ̃ === nothing && return nothing
             predictive || return Vector(θ̂ - SVector(a, b)), σ^2 .* Matrix(Σ̃)
-            r, Gw = _residual_and_frozen_rows(constraint_with_jacobians(p, θ̂, 3))
+            r, Gw = whitened_constraint_rows(constraint_with_jacobians(p, θ̂, 3))
             return [r], fill(σ^2 * (1 + dot(Gw, Σ̃ * Gw)), 1, 1)
         end
     end

@@ -2,6 +2,10 @@
 
 ## 0.4.0 (2026-11-02)
 
+- NLLSsolver ≥ 5.3.1: the relative-pose bundle always uses NLLSsolver's typed
+  `OptimizeCache` (its internal `cache` keyword is gone; `schur = false` still
+  forces the sparse LDL while upstream #60 is open).
+
 - Follows VisualGeometryToolkitCore's Sampson layers: the essential problem's
   residual is `only(sampson_residual(E, f₁, f₂; M₁, M₂))` and the division
   lift's `‖g‖²` is `constraint(m, X, x)`.

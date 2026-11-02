@@ -26,33 +26,24 @@
 # workspace with NLLSsolver's `OptimizeCache`, so a refit reuses the problem
 # and the solver's internal data.
 #
-# The fork's additions (github.com/prittjam/NLLSsolver.jl, branch `stack`:
-# upstream pull requests #60–#63 and the static retained blocks) are DETECTED,
-# never assumed: `OptimizeCache` here, the Schur-complement linear system in
-# VisualGeometryToolkitEstimation's bundle (`nlls_features`). On the registered
-# NLLSsolver every fit takes the upstream path — the same results, slower.
+# NLLSsolver ≥ 5.3.1 has every upstream pull request the stack relies on: the
+# typed `OptimizeCache` (#62), the linear system reused at an accepted trial
+# (#63), a NaN trial rejected (#64) and a non-finite start point stopped (#65).
+# One addition is still open upstream and DETECTED, never assumed: the
+# Schur-complement linear system VisualGeometryToolkitEstimation's bundle uses
+# (`nlls_features`).
 # =============================================================================
 
 """
-    nlls_features() -> (; cache::Bool, schur::Bool)
+    nlls_features() -> (; schur::Bool)
 
-Which of the additions of the stack's NLLSsolver fork the loaded NLLSsolver
-has: `cache`, `NLLSsolver.OptimizeCache` (reuse of a problem's internal data
-across `optimize!` calls; upstream pull request #62); `schur`, the
-Schur-complement linear system for eliminable variables
-(`NLLSsolver.MultiVariateLSschur`, `NLLSsolver.iseliminable`; #60). Every fit
-of the stack is correct without them and uses them when they are there; a
-checkout of the stack pins the fork, a registry install does not (see the
-README's "Recovering the full speed of the LM driver").
+Whether the loaded NLLSsolver has the Schur-complement linear system for
+eliminable variables (`NLLSsolver.MultiVariateLSschur`,
+`NLLSsolver.iseliminable`; upstream pull request #60, open). Until #60 merges a
+registered NLLSsolver lacks it and the bundle takes NLLSsolver's sparse LDL
+over every unknown — the same optimum, slower; the stack's fork has it.
 """
-nlls_features() = (; cache = _NLLS_HAS_CACHE, schur = _NLLS_HAS_SCHUR)
-# The cache is used in its TYPED form, `OptimizeCache(problem, options, unfixed)`
-# (the fork's #62 as merged into `stack`): concretely typed by the problem, so a
-# refit through it allocates nothing. An NLLSsolver without that constructor
-# (a release, or an older fork with only the untyped cache) takes the path
-# without a cache.
-const _NLLS_HAS_CACHE = isdefined(NLLSsolver, :OptimizeCache) &&
-    hasmethod(NLLSsolver.OptimizeCache, Tuple{NLLSsolver.NLLSProblem, NLLSsolver.NLLSOptions, Any})
+nlls_features() = (; schur = _NLLS_HAS_SCHUR)
 const _NLLS_HAS_SCHUR = isdefined(NLLSsolver, :MultiVariateLSschur) && isdefined(NLLSsolver, :iseliminable)
 
 # NLLSsolver's consecutive-failure cap (its default, `maxfails = 3`) and no time
@@ -222,12 +213,13 @@ NLLSsolver.computeresidual(c::_ChartRows, x) = residual_rows!(c.r, c.state.lm, x
 
 # The cost ½‖r‖², the one sum both callbacks below take (same order, so the
 # cost NLLSsolver reads at a trial point and at a linearization agree to the
-# bit). A non-finite cost is +Inf: a candidate step whose rows are NaN (a step
-# past a NaN or discontinuity wall — the radial-camera, radial-homography and
-# lens rows have them) is a REJECTED step: a released NLLSsolver accepts any
-# trial whose cost is not greater than the best, which NaN is not, and would
-# stop there. The fork rejects NaN trials itself (`stack`, upstream PR #64); the rule
-# stays for the registry path.
+# bit). A non-finite cost is +Inf. NLLSsolver (≥ 5.3.1) rejects a NaN trial
+# (#64) and stops at a non-finite start (#65), but it still ACCEPTS a trial at
+# a step below `xtol` whatever its cost, and its per-iteration check
+# `cost == cost_` (optimize.jl) is false for NaN: a step whose rows are NaN (a
+# step past a NaN or discontinuity wall — the radial-camera, radial-homography
+# and lens rows have them) would throw an AssertionError there. +Inf compares
+# equal, and is rejected like NaN everywhere else.
 @inline _finite_cost(c::Float64) = isfinite(c) ? c : Inf
 function NLLSsolver.computecost(c::_ChartRows, x)
     r = residual_rows!(c.r, c.state.lm, x)
@@ -263,8 +255,8 @@ function NLLSsolver.computecostgradhess(_varflags, c::_ChartRows{N}, x) where {N
 end
 
 # The kept NLLSsolver problem of one linearization-state type, its state slot
-# and its internal-data cache (typed by the problem: `C`, `Nothing` without
-# the fork's cache).
+# and its internal-data cache (NLLSsolver's typed `OptimizeCache`, `C`), so a
+# refit through it allocates nothing.
 struct _ChartRun{N, L, C}
     state::_ChartState{L}
     problem::NLLSsolver.NLLSProblem{SVector{N, Float64}, _ChartRows{N, L}}
@@ -275,14 +267,14 @@ _chart_problem_type(::Val{N}, ::Type{L}) where {N, L} = NLLSsolver.NLLSProblem{S
 # The concrete run type of (N, L): the typed cache's type is the constructor's
 # inferred return type (a constant of the two types).
 _chart_run_type(v::Val{N}, ::Type{L}) where {N, L} = _ChartRun{N, L, _chart_cache_type(v, L)}
-_chart_cache_type(v::Val, ::Type{L}) where {L} = _NLLS_HAS_CACHE ?
-    Core.Compiler.return_type(NLLSsolver.OptimizeCache, Tuple{_chart_problem_type(v, L), _CHART_OPTIONS_TYPE, Int}) : Nothing
+_chart_cache_type(v::Val, ::Type{L}) where {L} =
+    Core.Compiler.return_type(NLLSsolver.OptimizeCache, Tuple{_chart_problem_type(v, L), _CHART_OPTIONS_TYPE, Int})
 function _ChartRun(ews::ManifoldLmWorkspace{N}, lm::L) where {N, L}
     state = _ChartState{L}(lm)
     problem = NLLSsolver.NLLSProblem(SVector{N, Float64}, _ChartRows{N, L})
     NLLSsolver.addvariable!(problem, zero(SVector{N, Float64}))
     NLLSsolver.addcost!(problem, _ChartRows{N, L}(state, ews.r, ews.J))
-    cache = _NLLS_HAS_CACHE ? NLLSsolver.OptimizeCache(problem, _nlls_options(_DTD, 1, 1.0, 1.0), 1) : nothing
+    cache = NLLSsolver.OptimizeCache(problem, _nlls_options(_DTD, 1, 1.0, 1.0), 1)
     return _chart_run_type(Val(N), L)(state, problem, cache)
 end
 
@@ -313,7 +305,8 @@ of, and the one a caller running its own `NLLSsolver.optimize!` reads (with
 that applies:
 
 1. a failure — a non-finite cost (0, 1) or step (4, 5), a cost disagreement
-   (10) — WITHOUT a step-size stop: `-3`, `:solve_failed`;
+   (10), a start point whose cost or gradient is not finite (11) — WITHOUT a
+   step-size stop: `-3`, `:solve_failed`;
 2. the step-size stop (6): `2`, the stall postcondition decides it (checked
    before the cost tolerance: a tiny last step at a wall also shows a tiny
    cost decrease);
@@ -329,7 +322,7 @@ NaN wall, its non-finite cost read as +Inf) is a step-size stop, not a failure.
 """
 function nlls_stop_code(bits::Integer)
     bit(k) = bits & (1 << k) != 0
-    any(bit, (0, 1, 4, 5, 10)) && !bit(6) && return _LM_FAILED
+    any(bit, (0, 1, 4, 5, 10, 11)) && !bit(6) && return _LM_FAILED
     bit(6) && return 2
     (bit(2) || bit(3)) && return 1
     bit(7) && return 4
@@ -342,7 +335,7 @@ end
 const _NLLS_STOP_BITS = (
     (0, :cost_infinite), (1, :cost_nan), (2, :relative_cost_decrease), (3, :absolute_cost_decrease),
     (4, :delta_infinite), (5, :delta_nan), (6, :delta_size), (7, :max_consecutive_rejections),
-    (8, :max_iterations), (9, :max_time), (10, :cost_disagreement), (16, :callback),
+    (8, :max_iterations), (9, :max_time), (10, :cost_disagreement), (11, :nonfinite_start), (16, :callback),
 )
 
 """
@@ -354,7 +347,9 @@ bit order: `:cost_infinite` (0), `:cost_nan` (1), `:relative_cost_decrease`
 `:delta_infinite` (4), `:delta_nan` (5), `:delta_size` (6, the LM update δ below `dstep`),
 `:max_consecutive_rejections` (7, `maxfails` iterations whose cost exceeded the
 best), `:max_iterations` (8), `:max_time` (9), `:cost_disagreement` (10, the
-residual and the residual-Jacobian evaluations disagree), `:callback` (16).
+residual and the residual-Jacobian evaluations disagree), `:nonfinite_start`
+(11, the start point's cost or gradient is not finite: no step is tried),
+`:callback` (16).
 A report of the stop; [`nlls_stop_code`](@ref) is the one decision read from
 the same bits.
 """
@@ -383,16 +378,16 @@ minimizing `‖r(x)‖²`, with `r` the [`residual_rows!`](@ref) of the
 linearization state `lm` and its Jacobian [`residual_jacobian_rows!`](@ref),
 from the chart origin `x = 0`. `x` is the solution chart vector, `F` the final
 cost `‖r(x)‖²`, [`lm_retcode`](@ref)`(converged)` the estimator's retcode and
-`iterations` NLLSsolver's iteration count (one accepted step each; 0 never: a
-start at a stationary point takes one zero step).
+`iterations` NLLSsolver's iteration count (one accepted step each; a start at
+a stationary point takes one zero step, and only a start whose cost or
+gradient is not finite stops at 0, `:solve_failed`).
 
 `maxit` (accepted iterations), `ftol` and `xtol` (absolute) are the stack's LM knobs, mapped once by
 [`nlls_options`](@ref); their defaults (1000, `eps()`, `1e-10`) are the ones the
 stack documents its configurations against. `stationarity_tol` is the stall
 postcondition's tolerance — required: the caller's configuration owns it.
-`cache = false` takes the upstream path where the fork's `OptimizeCache` is
-loaded (`nlls_features`; the fallback test runs it): the same iterates, the
-solver's internal data rebuilt per call.
+The workspace keeps the problem and NLLSsolver's `OptimizeCache` for the
+state's type, so a refit rebuilds neither.
 
 THE STALL POSTCONDITION. A stop on the step size (`2`) or without a tolerance
 (`4`) does not prove convergence: a run whose damping grew until no step could
@@ -405,19 +400,14 @@ converged.
 """
 function lmsolve_chart!(
         ews::ManifoldLmWorkspace{N}, lm; maxit::Integer = 1000, ftol::Real = eps(Float64), xtol::Real = 1.0e-10,
-        stationarity_tol::Real, cache::Bool = true
+        stationarity_tol::Real
     ) where {N}
     run = _chart_run(ews, lm)
     run.state.lm = lm
     problem = run.problem
     problem.variables[1] = zero(SVector{N, Float64})
     options = _nlls_options(_DTD, maxit, ftol, xtol)
-    c = run.cache
-    result = if cache && c !== nothing
-        NLLSsolver.optimize!(problem, options, 1, NLLSsolver.nullcallback, c)
-    else
-        NLLSsolver.optimize!(problem, options, 1)
-    end
+    result = NLLSsolver.optimize!(problem, options, 1, NLLSsolver.nullcallback, run.cache)
     x = problem.variables[1]
     F = 2 * result.bestcost
     converged = nlls_stop_code(result.termination)
@@ -663,16 +653,17 @@ lm_retcode(converged::Int) =
 
 The retcode of a fit run by NLLSsolver, from its `NLLSsolver.NLLSResult` and the
 Jacobian `J` and residual `r` at the returned estimate. NLLSsolver's
-termination bits (`result.termination`; NLLSsolver 5.x, unchanged since 0.1,
-`optimizeloop!` in src/optimize.jl): 0 the cost is infinite, 1 the cost is
+termination bits (`result.termination`; NLLSsolver 5.x, `optimizeloop!` in
+src/optimize.jl): 0 the cost is infinite, 1 the cost is
 NaN, 2 the relative decrease in cost is too small, 3 the absolute decrease in
 cost is too small, 4 an infinity in the step, 5 a NaN in the step, 6 the max
 of the step size is too small, 7 the maximum number of consecutive failed
 iterations (iterations whose cost is higher than the current best,
 `maxfails`) is reached, 8 the maximum number of iterations is reached, 9 the
-maximum amount of time is exceeded, 10 the cost computations do not agree, 16
-terminated by the user callback. Decoded by the one order of `nlls_stop_code`
-(the chart LM reads the same): a failure (0, 1, 4, 5, 10) without a step-size
+maximum amount of time is exceeded, 10 the cost computations do not agree, 11
+the start point's cost or gradient is not finite (NLLSsolver ≥ 5.3.1: no step is
+tried), 16 terminated by the user callback. Decoded by the one order of
+`nlls_stop_code` (the chart LM reads the same): a failure (0, 1, 4, 5, 10, 11) without a step-size
 stop is `:solve_failed`; a step-size stop (6) is `:converged` when
 [`is_stationary`](@ref)`(J, r; tol, ftol)` holds and `:stalled` otherwise; a
 cost-decrease stop (2, 3) is `:converged`; the consecutive-failure cap (7)

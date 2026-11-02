@@ -231,10 +231,9 @@ and `test_constraint_problem` (loaded with `Test`) check an implementation.
   in one place, `nlls_options`; block-structured fits (the
   relative-pose bundle, the robot-world refinement) build their own NLLSsolver
   problems and share that map and the stall postcondition
-  (`nlls_retcode`). The fork's additions (the Schur complement, the
-  internal-data cache) are used when the loaded NLLSsolver has them
-  (`nlls_features`); see "Recovering the full speed of the LM driver"
-  in [Getting Started](getting-started.md).
+  (`nlls_retcode`). The Schur complement (NLLSsolver pull request #60, still
+  open) is used when the loaded NLLSsolver has it (`nlls_features`); see "The
+  Schur complement of the LM driver" in [Getting Started](getting-started.md).
 
 ## Model manifolds and covariance
 

@@ -19,12 +19,10 @@
 #       iterations, guarded below): a fit that crawls amplifies benign ulp
 #       differences and would test the compiler.
 #   (2) NO ALLOCATION — the 2n residual/Jacobian buffers, the static iterate
-#       and Gram, the NLLSsolver problem and the fork's TYPED OptimizeCache are
-#       the workspace's (the ~926 MB/frame hotspot this guards): measured
-#       2026-10-27 on the fork's `stack` (b0f800c), 0 allocations at every n
-#       (the untyped cache allocated 5 per refit on 1.13, 9–10 on 1.12). On a
-#       registered NLLSsolver (no cache: the solver's internal data rebuilt
-#       per refit, 4–5 allocations measured) the assertion is skipped.
+#       and Gram, the NLLSsolver problem and its TYPED OptimizeCache (upstream
+#       #62, NLLSsolver ≥ 5.3) are the workspace's (the ~926 MB/frame hotspot
+#       this guards): measured 2026-10-27, 0 allocations at every n (the
+#       untyped cache allocated 5 per refit on 1.13, 9–10 on 1.12).
 # `sqrtw` uses the family per-ROW convention (length 2n, a point's weight
 # duplicated across its two rows).
 # =============================================================================
@@ -62,7 +60,7 @@ end
 
 @testset "P3P LM refit — family workspace, NLLSsolver chart LM" begin
     stationarity_tol = VgtkEstimation._CHART_LM_STATIONARITY_TOL   # configs/default.toml [chart_lm]
-    ALLOCS_BOUND = 0    # with the fork's TYPED cache (stack b0f800c): 0 at every n, Julia 1.13 and 1.12
+    ALLOCS_BOUND = 0    # NLLSsolver's TYPED OptimizeCache (upstream #62): 0 at every n, Julia 1.13 and 1.12
     allocs = Int[]
     for (n, seed) in ((8, 1), (20, 13), (100, 7), (400, 99))
         rng = StableRNG(seed)
@@ -89,13 +87,7 @@ end
         lmsolve_chart!(ews, lm; stationarity_tol)                 # warm
         push!(allocs, @allocations lmsolve_chart!(ews, lm; stationarity_tol))
     end
-    # The bound is the fork's cache path (a checkout); on a registered NLLSsolver the
-    # solver's internal data are rebuilt per refit, unmeasured here: no assertion.
-    if VgtkCore.nlls_features().cache
-        @test all(<=(ALLOCS_BOUND), allocs)    # one bound over a 50× range of n
-        @test maximum(allocs) - minimum(allocs) <= 4   # flat in n
-    else
-        @test_skip all(<=(ALLOCS_BOUND), allocs)
-    end
+    @test all(<=(ALLOCS_BOUND), allocs)    # one bound over a 50× range of n
+    @test maximum(allocs) - minimum(allocs) <= 4   # flat in n
 end
 end

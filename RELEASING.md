@@ -18,7 +18,7 @@ PoseLib (0.1.2, its binaries from PoseLib_jll).
 
 ## NLLSsolver
 
-The stack's LM driver is NLLSsolver, from the registry: `[compat] NLLSsolver = "5.3"` (5.3.0 contains our pull requests #61–#63). The workspace no longer pins our fork. #60 (the Schur complement) is still open; the packages detect it at load (VisualGeometryToolkitCore's `nlls_features`) and fall back to the full linear system without it — correct, slower for the bundles that eliminate variables. A developer who wants it pins the fork in their own environment (README, "The Schur complement of the LM driver"); no registered package and no tracked file names the fork. When #60 is released, raise the `[compat]` floor to that release.
+The stack's LM driver is NLLSsolver, from the registry: `[compat] NLLSsolver = "5.3.1"` (5.3.1 contains our pull requests #61–#65). The workspace no longer pins our fork. #60 (the Schur complement) is still open; the packages detect it at load (VisualGeometryToolkitCore's `nlls_features`) and fall back to the full linear system without it — correct, slower for the bundles that eliminate variables. A developer who wants it pins the fork in their own environment (README, "The Schur complement of the LM driver"); no registered package and no tracked file names the fork. When #60 is released, raise the `[compat]` floor to that release.
 
 ## Registration
 

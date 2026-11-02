@@ -1,8 +1,8 @@
 @testitem "lm_driver" begin
-# The chart LM's driver, NLLSsolver (src/robust/lm_core.jl): the fork's
-# additions are detected, and the upstream path a registered NLLSsolver takes
-# gives the fast path's results (the fallback test); NLLSsolver's termination
-# bits decode to the chart LM's stop codes; a NaN trial is a rejected step.
+# The chart LM's driver, NLLSsolver (src/robust/lm_core.jl): the open upstream
+# addition (#60) is detected, a reused run gives a fresh workspace's results,
+# NLLSsolver's termination bits decode to the chart LM's stop codes, and a NaN
+# trial is a rejected step.
 import VisualGeometryToolkitCore as VgtkCore
 using Test, LinearAlgebra, StaticArrays
 using VisualGeometryToolkitCore: ManifoldLmWorkspace, lmsolve_chart!, lm_retcode, nlls_features, nlls_options
@@ -37,29 +37,17 @@ end
 VgtkCore.residual_rows!(r, w::_NaNBeyond, x) = (VgtkCore.residual_rows!(r, w.lm, x); x[3] > 0.25 ? fill!(r, NaN) : r)
 VgtkCore.residual_jacobian_rows!(J, w::_NaNBeyond, x) = VgtkCore.residual_jacobian_rows!(J, w.lm, x)
 
-@testset "the fork's additions, detected" begin
-    f = nlls_features()
-    # the shipped rule: the TYPED cache constructor, not the name alone (an
-    # older fork with only the untyped `OptimizeCache()` takes the path
-    # without a cache)
-    @test f.cache === (isdefined(NLLSsolver, :OptimizeCache) &&
-        hasmethod(NLLSsolver.OptimizeCache, Tuple{NLLSsolver.NLLSProblem, NLLSsolver.NLLSOptions, Any}))
-    @test f.schur === (isdefined(NLLSsolver, :MultiVariateLSschur) && isdefined(NLLSsolver, :iseliminable))
-    # NLLSsolver 5.3 has the cache (#62) but not the Schur system (#60, open);
-    # our fork has both. Each is detected on its own; the comparisons below run
-    # whichever paths the loaded NLLSsolver has.
+@testset "the open upstream addition, detected" begin
+    # the Schur-complement system (upstream #60, open): detected by name; the
+    # bundle's comparison runs whichever path the loaded NLLSsolver has
+    @test nlls_features() === (; schur = isdefined(NLLSsolver, :MultiVariateLSschur) && isdefined(NLLSsolver, :iseliminable))
 end
 
-@testset "the upstream path gives the fast path's results (fallback)" begin
-    # `cache = false` is the path a registered NLLSsolver takes (no
-    # OptimizeCache: the solver's internal data rebuilt per call). Same
-    # iterates: measured 2026-10-27 on the fork, bit-identical x, F and
-    # iteration counts on every fit below. On a registered NLLSsolver both
-    # calls take that path (`cache` is then inert) and agree trivially.
+@testset "a reused run gives a fresh workspace's results" begin
     # ONE workspace serves the three problems in sequence, as the LO's does:
-    # the second and third fits reuse the run (and its typed cache) the first
-    # built, so nothing the cache carries from one fit may reach the next;
-    # each is compared against a fresh workspace without a cache.
+    # the second and third fits reuse the run (and its typed OptimizeCache)
+    # the first built, so nothing the cache carries from one fit may reach the
+    # next; each is compared against a fresh workspace (a new run and cache).
     s = collect(range(0.0, 2.0; length = 40))
     ws = ManifoldLmWorkspace(length(s), 4)
     run₁ = nothing
@@ -68,7 +56,7 @@ end
         lm = _ExpFitLm(s, y, SVector(1.0, 0.0, 0.0, 0.0))
         x1, F1, c1, it1 = lmsolve_chart!(ws, lm; stationarity_tol = 0.05, ftol = 1.0e-10)
         k == 1 ? (run₁ = ws.run; @test(run₁ !== nothing)) : @test(ws.run === run₁)   # the run is reused
-        x2, F2, c2, it2 = lmsolve_chart!(ManifoldLmWorkspace(length(s), 4), lm; stationarity_tol = 0.05, ftol = 1.0e-10, cache = false)
+        x2, F2, c2, it2 = lmsolve_chart!(ManifoldLmWorkspace(length(s), 4), lm; stationarity_tol = 0.05, ftol = 1.0e-10)
         @test lm_retcode(c1) === :converged && lm_retcode(c2) === :converged
         @test isapprox(x1, x2; rtol = 1.0e-10, atol = 1.0e-12)
         @test isapprox(F1, F2; rtol = 1.0e-10)
@@ -82,19 +70,14 @@ _refit!(ws, lm) = lmsolve_chart!(ws, lm; stationarity_tol = 0.05, ftol = 1.0e-10
 _refit_allocations(ws, lm) = @allocations _refit!(ws, lm)
 
 @testset "a refit through the typed cache allocates nothing" begin
-    # The fork's typed `OptimizeCache(problem, options, unfixed)` (#62 on
-    # `stack`): measured 2026-10-27, 0 allocations per refit (the untyped cache
-    # allocated 5). On a registered NLLSsolver the path without a cache
-    # rebuilds the solver's internal data per refit: not asserted.
+    # NLLSsolver's typed `OptimizeCache(problem, options, unfixed)` (upstream
+    # #62, NLLSsolver ≥ 5.3): 0 allocations per refit (the untyped cache
+    # allocated 5, measured 2026-10-27).
     s = collect(range(0.0, 2.0; length = 40))
     lm = _ExpFitLm(s, [1.5 * exp(-0.8 * si) + 0.3 * si + 0.2 for si in s], SVector(1.0, 0.0, 0.0, 0.0))
     ws = ManifoldLmWorkspace(length(s), 4)
     _refit!(ws, lm); _refit!(ws, lm)
-    if nlls_features().cache
-        @test _refit_allocations(ws, lm) == 0
-    else
-        @test_skip _refit_allocations(ws, lm) == 0
-    end
+    @test _refit_allocations(ws, lm) == 0
 end
 
 @testset "the stop codes: one decoder, one order" begin
@@ -107,7 +90,7 @@ end
     @test code(1 << 6) == 2
     @test code(1 << 8) == -1 && code(1 << 9) == -4 && code((1 << 8) | (1 << 9)) == -4
     @test code(1 << 7) == 4 && code(1 << 16) == 4
-    for bit in (0, 1, 4, 5, 10)
+    for bit in (0, 1, 4, 5, 10, 11)
         @test code(1 << bit) == -3
     end
     # the step stop is checked before the cost tolerance
@@ -127,7 +110,7 @@ end
     @test VgtkCore.nlls_stop_reasons(0) == Symbol[]
     @test VgtkCore.nlls_stop_reasons((1 << 2) | (1 << 8)) == [:relative_cost_decrease, :max_iterations]
     @test VgtkCore.nlls_stop_reasons((1 << 0) | (1 << 6) | (1 << 16)) == [:cost_infinite, :delta_size, :callback]
-    @test length(VgtkCore.nlls_stop_reasons(typemax(Int32))) == 12                # every named bit (0–10, 16)
+    @test length(VgtkCore.nlls_stop_reasons(typemax(Int32))) == 13                # every named bit (0–11, 16)
 end
 
 @testset "a NaN wall at the production cost tolerance" begin
@@ -156,9 +139,10 @@ end
 end
 
 @testset "a NaN trial is a rejected step" begin
-    # NLLSsolver accepts a trial whose cost is not greater than the best, which
-    # NaN is not; the adapter reads a non-finite cost as +Inf, so a NaN trial is
-    # rejected.
+    # NLLSsolver rejects a NaN trial (#64) but accepts any trial at a step below
+    # `xtol`, and its per-iteration `cost == cost_` check is false for NaN; the
+    # adapter reads a non-finite cost as +Inf, so a NaN trial is rejected and a
+    # step at the wall does not throw.
     lm2 = _ExpFitLm([0.0, 1.0, 2.0, 3.0, 4.0], [1.0 + 2si for si in [0.0, 1.0, 2.0, 3.0, 4.0]], SVector(0.0, 0.0, 1.0, 1.0))   # optimum at c = 2: x[3] = 1, behind the wall
     x, F, c, _ = lmsolve_chart!(ManifoldLmWorkspace(5, 4), _NaNBeyond(lm2); stationarity_tol = 0.05)
     @test isfinite(F) && x[3] <= 0.25

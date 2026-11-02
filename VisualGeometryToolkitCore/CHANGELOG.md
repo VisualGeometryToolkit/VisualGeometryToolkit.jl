@@ -5,6 +5,17 @@
 Breaking: ONE Sampson path. Nothing outside `base/sampson.jl` computes
 `g/‖G_x‖`, its whitening or its model Jacobian.
 
+- **NLLSsolver ≥ 5.3.1** (`[compat]`), which contains our pull requests
+  #61–#65. Its typed `OptimizeCache` is always used: the cache detection and
+  the uncached path are gone, and so are `lmsolve_chart!`'s `cache` keyword
+  and the `cache` field of `nlls_features`, which now reports only the Schur
+  system (`(; schur)`, upstream #60, still open). NLLSsolver stops at a
+  non-finite start point (#65); its termination bit 11 is decoded as a failure
+  (`nlls_stop_code` `-3`, `nlls_stop_reasons` `:nonfinite_start`). The chart
+  LM still reads a non-finite cost as `+Inf`: NLLSsolver accepts any trial at a
+  step below `xtol`, and its per-iteration `cost == cost_` check throws an
+  `AssertionError` on NaN.
+
 - **`sampson_residual_with_jacobian(M, x...; directions)` → `(s_N, J)`**, the
   Sampson residual of any constraint and its EXACT model Jacobian along the
   chart `directions` (an `nθ × N` matrix, `retract_jacobian`, or the models

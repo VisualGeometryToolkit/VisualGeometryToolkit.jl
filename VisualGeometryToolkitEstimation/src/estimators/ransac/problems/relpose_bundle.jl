@@ -51,10 +51,10 @@
 # N points its variables, one 4-row residual block per point with its
 # closed-form 4 × 8 Jacobian — and NLLSsolver owns the LM (Marquardt's DᵀD
 # damping, step accept/reject, convergence: VGC `nlls_options`) and, where the
-# loaded NLLSsolver has it (the stack's fork, VGC `nlls_features`), the Schur
-# complement: its `MultiVariateLSschur` eliminates every point
-# (`iseliminable`). On a registered NLLSsolver the same problem runs on its
-# sparse LDL over all 5 + 3N unknowns — the same optimum, slower.
+# loaded NLLSsolver has it (upstream #60, still open: the stack's fork has it;
+# VGC `nlls_features`), the Schur complement: its `MultiVariateLSschur`
+# eliminates every point (`iseliminable`). Without it the same problem runs on
+# NLLSsolver's sparse LDL over all 5 + 3N unknowns — the same optimum, slower.
 #
 # NLLSsolver re-anchors the pose variable at every accepted step (VGC's
 # manifold `update` is `recenter`). The pose block is the minimal chart
@@ -77,9 +77,9 @@ const _BundlePose = typeof(EssentialManifold5(SMatrix{3, 3, Float64, 9}(I), SVec
 const _POSE_DOF = 5
 
 # A structure point, free in ℝ³. `E` says whether NLLSsolver may eliminate it
-# (the fork's Schur-complement linear system); `_BundlePoint{false}` is the
-# upstream path — NLLSsolver's sparse LDL over every unknown — which a
-# registered NLLSsolver takes and the fallback test forces.
+# (the Schur-complement linear system, upstream #60); `_BundlePoint{false}` is
+# NLLSsolver's sparse LDL over every unknown — which an NLLSsolver without #60
+# takes and the fallback test forces.
 struct _BundlePoint{E}
     X::SVector{3, Float64}
 end
@@ -87,14 +87,12 @@ NLLSsolver.nvars(::_BundlePoint) = NLLSsolver.static(3)
 NLLSsolver.update(p::_BundlePoint{E}, δ, start = 1) where {E} =
     _BundlePoint{E}(p.X + SVector(δ[start], δ[start + 1], δ[start + 2]))
 
-# The fork's additions, detected once (VGC `nlls_features`): the Schur
-# complement (`iseliminable`, #60) and the internal-data cache (#62).
+# The Schur complement (`iseliminable`, upstream #60, open), detected once
+# (VGC `nlls_features`) until #60 merges.
 const _BUNDLE_SCHUR = nlls_features().schur
-const _BUNDLE_CACHE = nlls_features().cache
 if _BUNDLE_SCHUR
     NLLSsolver.iseliminable(::Type{_BundlePoint{true}}) = NLLSsolver.static(true)
 end
-const _BundleCacheType = _BUNDLE_CACHE ? NLLSsolver.OptimizeCache : Nothing
 
 # The data of the current call — the calibrations, the two views and the
 # √weights — shared by every residual block. The run OWNS the three vectors
@@ -160,7 +158,7 @@ end
 # residual blocks read the call's data through `data` (owned buffers), its
 # variables are reset per call, and NLLSsolver's internal data (the Schur
 # system's layout) is kept in `cache`, built for the one options type the
-# bundle calls with (`nlls_options`'s). Without the cache a call rebuilds them
+# bundle calls with (`nlls_options`'s). Without it a call would rebuild them
 # (measured 2026-10-27: 2.0 / 1.4 / 1.4× the cached call's time at N = 100 /
 # 1000 / 10000).
 #
@@ -170,11 +168,11 @@ end
 struct _BundleRun{E, D}
     data::D
     problem::NLLSsolver.NLLSProblem{Union{_BundlePose, _BundlePoint{E}}, _BundleRows{E, D}}
-    # The fork's TYPED OptimizeCache built for this problem (VGC `nlls_features`), or `nothing`.
+    # NLLSsolver's TYPED OptimizeCache built for this problem (upstream #62).
     # Its concrete type depends on which linear system the problem's structure selects (Schur,
     # sparse or dense), a run-time choice, so the field holds it abstractly: one dynamic call per
     # bundle, the solver's loop inside it static.
-    cache::Union{Nothing, _BundleCacheType}
+    cache::NLLSsolver.OptimizeCache
 end
 function _BundleRun{E}(N::Int, data::D) where {E, D}
     problem = NLLSsolver.NLLSProblem(Union{_BundlePose, _BundlePoint{E}}, _BundleRows{E, D})
@@ -184,7 +182,7 @@ function _BundleRun{E}(N::Int, data::D) where {E, D}
         NLLSsolver.addcost!(problem, _BundleRows{E, D}(data, i, SVector(1, i + 1)))
     end
     # the internal data (the Schur system's layout) are built now, for this problem's structure
-    cache = _BUNDLE_CACHE ? NLLSsolver.OptimizeCache(problem, nlls_options(; max_iter = 1, ftol = 1.0, xtol = 1.0), nothing) : nothing
+    cache = NLLSsolver.OptimizeCache(problem, nlls_options(; max_iter = 1, ftol = 1.0, xtol = 1.0), nothing)
     return _BundleRun{E, D}(data, problem, cache)
 end
 # The task's slot for its one run of point type `E`.
@@ -370,8 +368,8 @@ end
 # scored by the caller, the LO's acceptance, as a converged one is), and it
 # costs a sweep over the rows. `nothing` on failure. Positional and
 # allocation-lean: the RANSAC refit (`refine!` below) calls it with the
-# problem's stored K⁻¹ and the √weights it builds. `schur = false` or
-# `cache = false` take the upstream path where the fork is loaded (the
+# problem's stored K⁻¹ and the √weights it builds. `schur = false` takes
+# NLLSsolver's sparse LDL where the Schur system (upstream #60) is loaded (the
 # fallback test runs it); `callback` is NLLSsolver's per-iteration callback
 # (the task's kept run is not reentrant from it: see `_BundleRun`).
 # -----------------------------------------------------------------------------
@@ -383,7 +381,7 @@ function _bundle_refine_relpose(
         sqrtw::AbstractVector; max_iter::Int = _RELPOSE_BUNDLE_MAX_ITER,
         ftol::Float64 = _RELPOSE_BUNDLE_FTOL, retcode::Bool = false,
         stationarity_tol::Float64 = _RELPOSE_BUNDLE_STATIONARITY_TOL,
-        schur::Bool = _BUNDLE_SCHUR, cache::Bool = true, callback::F = NLLSsolver.nullcallback
+        schur::Bool = _BUNDLE_SCHUR, callback::F = NLLSsolver.nullcallback
     ) where {F}
     # (`::F`: a Function-typed argument only handed on is not specialized,
     # which made the call below a dynamic one, boxing every argument)
@@ -391,12 +389,12 @@ function _bundle_refine_relpose(
     N >= 5 || return nothing
     Rb = SMatrix{3, 3, Float64, 9}(R₀); tb = Vec3{Float64}(normalize(SVector{3, Float64}(t₀)))
     E = schur && _BUNDLE_SCHUR
-    return E ? _bundle_optimize(Val(true), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, cache, callback) :
-        _bundle_optimize(Val(false), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, cache, callback)
+    return E ? _bundle_optimize(Val(true), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, callback) :
+        _bundle_optimize(Val(false), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, callback)
 end
 
 function _bundle_optimize(
-        v::Val{E}, N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, cache, callback
+        v::Val{E}, N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, callback
     ) where {E}
     run = _bundle_run(v, N)
     d = run.data
@@ -414,13 +412,8 @@ function _bundle_optimize(
     # The stack's knob map (VGC `nlls_options`): Marquardt's DᵀD damping; `xtol`
     # the chart LM's default.
     options = nlls_options(; max_iter, ftol, xtol = 1.0e-10)
-    c = run.cache
     result = try
-        if cache && c !== nothing
-            NLLSsolver.optimize!(problem, options, nothing, callback, c)
-        else
-            NLLSsolver.optimize!(problem, options, nothing, callback)
-        end
+        NLLSsolver.optimize!(problem, options, nothing, callback, run.cache)
     catch
         return nothing
     end

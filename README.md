@@ -94,7 +94,7 @@ Pkg.add("VisualGeometryToolkitEval")
 Manifests record each package by UUID, version and tree hash, never by
 registry, so an environment resolves the same from either registry.
 
-**The Schur complement of the LM driver.** The stack's Levenberg–Marquardt driver is NLLSsolver; release 5.3 contains our pull requests [#61](https://github.com/ojwoodford/NLLSsolver.jl/pull/61)–[#63](https://github.com/ojwoodford/NLLSsolver.jl/pull/63) (allocation-free copies, `OptimizeCache`, the trial-point reuse). One remains open, [#60](https://github.com/ojwoodford/NLLSsolver.jl/pull/60), the Schur-complement linear system for eliminable variables: without it, everything is correct but the bundles that eliminate variables (the relative-pose bundle, PanoramaStitching's rotation bundle) solve the full system and run slower. To use it now, pin our fork once in your environment:
+**The Schur complement of the LM driver.** The stack's Levenberg–Marquardt driver is NLLSsolver; release 5.3.1 contains our pull requests [#61](https://github.com/ojwoodford/NLLSsolver.jl/pull/61)–[#65](https://github.com/ojwoodford/NLLSsolver.jl/pull/65) (allocation-free copies, `OptimizeCache`, the trial-point reuse, a NaN trial rejected, a non-finite start stopped). One remains open, [#60](https://github.com/ojwoodford/NLLSsolver.jl/pull/60), the Schur-complement linear system for eliminable variables: without it, everything is correct but the bundles that eliminate variables (the relative-pose bundle, PanoramaStitching's rotation bundle) solve the full system and run slower. To use it now, pin our fork once in your environment:
 
 ```julia
 using Pkg

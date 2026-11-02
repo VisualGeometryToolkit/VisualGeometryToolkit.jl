@@ -216,8 +216,9 @@ end
 end
 
 @testset "a point behind the camera costs +Inf, not NaN (the LM rejects the step)" begin
-    # A registered NLLSsolver accepts a NaN step cost (not greater than the
-    # best); the block's cost reads it as +Inf, as the fork and the chart LM do.
+    # NLLSsolver's per-iteration `cost == cost_` check is false for NaN (a step
+    # below `xtol` is accepted whatever its cost); the block's cost reads it as
+    # +Inf, as the chart LM does.
     camera = CameraModel(; focal = 600.0, pp = (400.0, 300.0))
     ch = RigidExpManifold6(rigid(RotMatrix{3}(1.0I), SVector(0.0, 0.0, 0.0)))
     R = SMatrix{3, 3, Float64, 9}(I); t = zero(SVector{3, Float64})

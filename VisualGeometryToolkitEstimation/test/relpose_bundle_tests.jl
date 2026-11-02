@@ -4,9 +4,9 @@
 # =============================================================================
 # RelposeBundleProblem — camera-aware full-3D two-view bundle adjustment on
 # NLLSsolver, structure eliminated by the Schur complement. Validates: (1) the
-# closed-form block Jacobian == ForwardDiff (K≠I); (2) the fork's Schur system
-# and the upstream sparse path (the fallback a registered NLLSsolver takes)
-# reach the same pose; (3) allocations per call flat in N (the kept problem);
+# closed-form block Jacobian == ForwardDiff (K≠I); (2) the Schur system
+# (upstream #60, the stack's fork) and NLLSsolver's sparse LDL (what a
+# registered NLLSsolver takes until #60 merges) reach the same pose; (3) allocations per call flat in N (the kept problem);
 # (4) noiseless recovery is machine-exact (canonical frame); (5) noisy
 # refinement improves a perturbed seed; (6) optimal-triangulation `residuals!`
 # ≤ DLT reprojection; (7) the 5-dof chart reaches the retired 6-dof chart's
@@ -94,10 +94,10 @@ _seed(rng, Rgt, tgt; δ, s) = (
 end
 
 @testset "RelposeBundle: the Schur system and the upstream path reach the same pose (fallback)" begin
-    # The fork's Schur-complement system with its OptimizeCache (what a
-    # checkout runs) and the upstream path — NLLSsolver's sparse LDL over all
-    # 5 + 3N unknowns, no cache: what a registered NLLSsolver runs, forced here
-    # through `schur = false, cache = false` — on the same rows, run to a tight
+    # The Schur-complement system (upstream #60, what the stack's fork runs)
+    # and NLLSsolver's sparse LDL over all 5 + 3N unknowns (what a registered
+    # NLLSsolver runs until #60 merges, forced here through `schur = false`) —
+    # on the same rows, run to a tight
     # tolerance so the comparison is the linear system, not where each LM
     # stops. Measured 2026-10-27 (Julia 1.13): rotation entries within 2.8e-11,
     # translation within 4.6e-11, cost 6.4e-15 relative (14 and 12 iterations).
@@ -107,10 +107,9 @@ end
     iK1 = _inv3(KC1); iK2 = _inv3(KC2)
     sw = sqrt.(0.5 .+ 0.5 .* rand(rng, N))
     run(; kw...) = _bundle_refine_relpose(R0, t0, KC1, KC2, iK1, iK2, u1, u2, sw; max_iter = 500, ftol = 1.0e-15, retcode = true, kw...)
-    fast = run(); slow = run(; schur = false, cache = false)
-    # With the fork loaded (a checkout) `fast` is the Schur system and the
-    # cache; on a registered NLLSsolver both runs take the upstream path and
-    # agree trivially — the comparison holds either way.
+    fast = run(); slow = run(; schur = false)
+    # With #60 loaded `fast` is the Schur system; without it both runs take the
+    # sparse LDL and agree trivially — the comparison holds either way.
     @test fast.retcode === :converged && slow.retcode === :converged
     @test maximum(abs, fast.R - slow.R) < 1.0e-9 && maximum(abs, fast.t - slow.t) < 1.0e-9
     @test isapprox(fast.result.bestcost, slow.result.bestcost; rtol = 1.0e-10)
@@ -264,13 +263,12 @@ end
     # dependency), on the second call of each size: the NLLSsolver problem and
     # its internal data are kept per task (rebuilt when N changes), so a call
     # allocates the seed structure's √weights and a few small solver objects,
-    # flat in N. Measured 2026-10-27 (NLLSsolver, the fork's Schur system and
+    # flat in N. Measured 2026-10-27 (NLLSsolver, the Schur system and the
     # TYPED cache, stack b0f800c): 26 / 28 / 28 at N = 100 / 1000 / 10000 on
     # Julia 1.13 (the untyped cache: 31 / 34 / 34); 19 / 20 / 20 since the
     # callback keyword is specialized (the call into the run no longer boxes
     # its arguments). Flat is asserted directly (max − min ≤ 4), the bound
-    # kept as the ceiling. The bound is the fork's: on a registered
-    # NLLSsolver (no cache) the assertion is skipped.
+    # kept as the ceiling.
     ALLOCS_BOUND = 28
     counts = map((100, 1000, 10000)) do N
         R0, t0, u1, u2 = _harness_scene(N)
@@ -278,12 +276,8 @@ end
         bundle_refine_relpose(seed, KP1, KP2, cs)
         Base.@allocations bundle_refine_relpose(seed, KP1, KP2, cs)
     end
-    if VgtkCore.nlls_features().cache
-        @test all(<=(ALLOCS_BOUND), counts)
-        @test maximum(counts) - minimum(counts) <= 4     # flat in N
-    else
-        @test_skip all(<=(ALLOCS_BOUND), counts)
-    end
+    @test all(<=(ALLOCS_BOUND), counts)
+    @test maximum(counts) - minimum(counts) <= 4     # flat in N
 end
 
 # The bundle runs a task keeps: the kept problems found in its task-local
@@ -317,10 +311,10 @@ end
     end)
 end
 
-@testset "RelposeBundle: a NaN past a wall is a rejected step (registry and fork alike)" begin
-    # A registered NLLSsolver accepts a step whose cost is not greater than
-    # the best, which NaN is not; the block's cost reads a non-finite value as
-    # +Inf, so the fit stops at the wall with a finite cost on every path.
+@testset "RelposeBundle: a NaN past a wall is a rejected step (Schur and sparse alike)" begin
+    # NLLSsolver accepts any trial at a step below `xtol`, and its `cost ==
+    # cost_` check is false for NaN; the block's cost reads a non-finite value
+    # as +Inf, so the fit stops at the wall with a finite cost on every path.
     rng = StableRNG(11); N = 25
     Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.002)
     R0, t0 = _seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
@@ -328,7 +322,7 @@ end
     iK1 = _inv3(KC1); iK2 = _inv3(KC2)
     sw = ones(N)
     extent(p, s) = (pose = p.variables[1]; maximum(i -> s * (SMatrix{3, 3}(pose.R) * p.variables[i + 1].X + pose.t)[1], 1:N))
-    function wall_fit(E, wall, s, cache)
+    function wall_fit(E, wall, s)
         data = _WallData(SMatrix{3, 3, Float64, 9}(KC1), _WallK(SMatrix{3, 3, Float64, 9}(KC2), wall, s), u1, u2, sw)
         run = VisualGeometryToolkitEstimation._BundleRun{E}(N, data)
         p = run.problem
@@ -339,8 +333,7 @@ end
         end
         e0 = (extent(p, 1.0), extent(p, -1.0))
         opts = VgtkCore.nlls_options(; max_iter = 200, ftol = 1.0e-15, xtol = 1.0e-10)
-        res = cache && run.cache !== nothing ? NLLSsolver.optimize!(p, opts, nothing, NLLSsolver.nullcallback, run.cache) :
-            NLLSsolver.optimize!(p, opts, nothing, NLLSsolver.nullcallback)
+        res = NLLSsolver.optimize!(p, opts, nothing, NLLSsolver.nullcallback, run.cache)
         # the guard itself: a block past the wall costs +Inf, not NaN
         pose = p.variables[1]
         bad = _BundlePoint{E}(SVector(s * (wall + 1.0), 0.0, 5.0))
@@ -349,13 +342,13 @@ end
         return res, e0, (extent(p, 1.0), extent(p, -1.0))
     end
     # the free fit (no wall): which side of camera 2 its optimum moves out on
-    free, e0, e1 = wall_fit(true, Inf, 1.0, true)
+    free, e0, e1 = wall_fit(true, Inf, 1.0)
     s = e1[1] - e0[1] >= e1[2] - e0[2] ? 1.0 : -1.0
     k = s == 1.0 ? 1 : 2
     @test e1[k] > e0[k]
     wall = (e0[k] + e1[k]) / 2                 # crossed by the free optimum, not by the seed
-    for (E, cache) in ((true, true), (true, false), (false, false))
-        res, _, e = wall_fit(E, wall, s, cache)
+    for E in (true, false)
+        res, _, e = wall_fit(E, wall, s)
         @test isfinite(res.bestcost)
         @test e[k] <= wall                     # stopped at the wall
         @test res.bestcost > free.bestcost     # short of the free optimum

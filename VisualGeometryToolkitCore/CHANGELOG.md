@@ -1,6 +1,6 @@
 # VisualGeometryToolkitCore changelog
 
-## Unreleased
+## 0.3.0 (2026-11-02)
 
 Breaking: the Sampson distance is geometric, and the noise whitening is a
 second layer over it.

@@ -1,6 +1,6 @@
 name = "VisualGeometryToolkitEstimation"
 uuid = "9a478df9-9a37-4dc7-9070-58617efe7573"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["James Pritts <jbpritts@gmail.com>"]
 
 [deps]
@@ -29,7 +29,7 @@ SparseArrays = "1"
 StaticArrays = "1.9"
 Statistics = "1"
 TOML = "1"
-VisualGeometryToolkitCore = "0.2"
+VisualGeometryToolkitCore = "0.3"
 julia = "1.12"
 
 [workspace]

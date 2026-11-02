@@ -1,5 +1,9 @@
 # VisualGeometryToolkitIO changelog
 
+## 0.3.0 (2026-11-02)
+
+- The stack moves to the 0.3 series with VisualGeometryToolkitCore 0.3.0; no change to this package's API.
+
 ## 0.2.0 (2026-10-29)
 
 - **A `:length` detection's covariance is written in the declared unit

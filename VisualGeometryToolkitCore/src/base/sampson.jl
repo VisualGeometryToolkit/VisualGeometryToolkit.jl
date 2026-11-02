@@ -297,6 +297,14 @@ of the points.
 function sampson_rows!(r::AbstractVector, M, u₁::AbstractVector, u₂::AbstractVector, sqrtw::AbstractVector; columns...)
     return _foreach_row!(_sampson_residual_row!, r, length(u₁), M, u₁, u₂, sqrtw, NamedTuple(columns))
 end
+"""
+    sampson_jacobian_rows!(J, M, directions, u₁, u₂, sqrtw; columns...) -> J
+
+The Jacobian rows of [`sampson_rows!`](@ref): `J[i, q] = sqrtw[i]·∂rᵢ/∂a_q`
+along the chart `directions`, each row [`sampson_residual_with_jacobian`](@ref)'s;
+a degenerate pair is a zero row. One KernelAbstractions kernel on the backend
+that owns `J`, a plain loop on the CPU.
+"""
 function sampson_jacobian_rows!(J::AbstractMatrix, M, directions, u₁::AbstractVector, u₂::AbstractVector, sqrtw::AbstractVector; columns...)
     return _foreach_row!(_sampson_jacobian_row!, J, length(u₁), M, _direction_rows(directions), u₁, u₂, sqrtw, NamedTuple(columns))
 end

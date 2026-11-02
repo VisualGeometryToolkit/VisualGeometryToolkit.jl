@@ -49,7 +49,7 @@
 using Test, LinearAlgebra, Random, StaticArrays
 using StableRNGs
 using Rotations: AngleAxis, RotMatrix
-using VisualGeometryToolkitCore: VisualGeometryToolkitCore, estimate, minimal_manifold, unit_normalize, whiten, retract, model,
+using VisualGeometryToolkitCore: VisualGeometryToolkitCore, estimate, minimal_manifold, unit_normalize, whitened_rows, SampsonWhitening, retract, model,
     constraint_with_jacobians, exp_so3, rotation, translation, HomographyMat, FundMat,
     EuclideanMap, CameraModel, LeftRigidManifold6, Point2, to_euclidean, to_affine,
     transform_covariance, EuclideanManifold, Uncertain, CovMat, Line2D, focal_length, intrinsics
@@ -126,7 +126,7 @@ function _held_out(rng, p, θ̂, idx, k, m, σ; naive = false)
     Σ̃ = solver_covariance(p, θ̂, idx)
     Σ̃ === nothing && return nothing
     i = k + rand(rng, 1:m)
-    r, Gw, _ = whiten(constraint_with_jacobians(p, θ̂, i)...)
+    r, Gw = whitened_rows(SampsonWhitening(), constraint_with_jacobians(p, θ̂, i)...)
     return _predicted(r, Gw, Σ̃, σ, naive)
 end
 _predicted(r::Real, Gw, Σ̃, σ, naive) = [r], fill(σ^2 * (naive ? 1.0 : 1.0 + dot(Gw, Σ̃ * Gw)), 1, 1)
@@ -545,7 +545,7 @@ end
         @test abs(rF.nees_mean - μF) < 4 * sqrt(varF / rF.ntrials)
     end
     # LineFittingProblem's whitening: its residuals (RSDR's default `residuals!`
-    # through `constraint_with_jacobians` + `whiten`, weighted by √(nᵀΣ̃ᵢn)) at the
+    # through `constraint_with_jacobians` + `whitened_rows`, weighted by √(nᵀΣ̃ᵢn)) at the
     # TRUE line are N(0, σ²) each — jointly χ²ₙ; and a held-out point's whitened
     # residual under the weighted fit on the other n, against σ² + G_w·Σ_θ·G_wᵀ
     # with Σ_θ the fit's reported covariance (the Hesse chart (φ, d) both use), χ²₁.
@@ -564,7 +564,7 @@ end
             upts = [Uncertain(pts[i], CovMat(Σ̃[i])) for i in 1:(n + 1)]
             est = estimate(VgtkEstimation.fit_line(upts[1:n]))
             l̂ = VgtkCore.geom(est); Σθ = SMatrix{2, 2}(VgtkCore.cov(est))
-            r, Gw, _ = whiten(constraint_with_jacobians(VgtkEstimation.LineFittingProblem(upts), l̂, n + 1)...)
+            r, Gw = whitened_rows(SampsonWhitening(), constraint_with_jacobians(VgtkEstimation.LineFittingProblem(upts), l̂, n + 1)...)
             return [r], fill(σ^2 + dot(Gw, Σθ * Gw), 1, 1)
         end
     end
@@ -583,7 +583,7 @@ end
             θ̂ = first(hyp)
             Σ̃ = solver_covariance(p, θ̂, [1, 2]); Σ̃ === nothing && return nothing
             predictive || return Vector(θ̂ - SVector(a, b)), σ^2 .* Matrix(Σ̃)
-            r, Gw, _ = whiten(constraint_with_jacobians(p, θ̂, 3)...)
+            r, Gw = whitened_rows(SampsonWhitening(), constraint_with_jacobians(p, θ̂, 3)...)
             return [r], fill(σ^2 * (1 + dot(Gw, Σ̃ * Gw)), 1, 1)
         end
     end

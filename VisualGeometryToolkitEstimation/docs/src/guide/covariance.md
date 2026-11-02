@@ -491,15 +491,15 @@ compile-time constant.
 ### 6.3 Connection to Code
 
 Each quantity above is computed by one function of the stack: the problem's
-constraint rows are VisualGeometryToolkitEstimation's, `propagate` and `whiten` are
-VisualGeometryToolkitCore's, and the predictive score is RANSACScoringDoneRight's
+constraint rows are VisualGeometryToolkitEstimation's, `propagate`, `whiten` and
+`whitened_rows` are VisualGeometryToolkitCore's, and the predictive score is RANSACScoringDoneRight's
 (a scorer the loop reaches through `scored_model` and `score!`).
 
 | Math | Function | Returns |
 |:--|:--|:--|
 | ``(\bg_i,\; \partial_{\bx}\bg_i,\; \partial_\theta\bg_i)`` | [`constraint_with_jacobians`](@ref)`(problem, model, i)` | ``(g,\; G_x,\; G_\theta)``, optionally followed by the point's noise shape ``\btSigma_{\bx_i}`` |
 | ``\operatorname{propagate}(A, \bSigma) = A\,\bSigma\,A^\top`` (18) | `propagate(A, Σ)` | ``A\,\bSigma\,A^\top`` |
-| ``\br_i = \mathbf{L}_i^{-1}\bg_i``, ``\partial_\theta\bg_{i,w} = \mathbf{L}_i^{-1}\partial_\theta\bg_i`` (15) | `whiten(g, G_x, G_θ, Σₓ)` | ``(\br_i,\; \partial_\theta\bg_{i,w},\; \log\lvert\btSigma_{\bg_i}^{(\bx)}\rvert)`` |
+| ``\br_i = \mathbf{L}_i^{-1}\bg_i``, ``\partial_\theta\bg_{i,w} = \mathbf{L}_i^{-1}\partial_\theta\bg_i`` (15) | `whitened_rows(SampsonWhitening(), g, G_x, G_θ, Σₓ)`: the Sampson residual, then `whiten(s_N, N, Σₓ)` along its normal | ``(\br_i,\; \partial_\theta\bg_{i,w})`` |
 | ``\lVert\br_i\rVert``, the model-certain residual | [`whitened_residual`](@ref VisualGeometryToolkitCore.whitened_residual)`(problem, ctx, i)`, per point in [`residuals!`](@ref) | ``\lVert\br_i\rVert`` (signed when ``d_g = 1``) |
 | ``\btSigma_\theta`` on an index set ``\cS``: (13) on a minimal sample, (12) on an overdetermined one | [`solver_covariance`](@ref)`(problem, model, idx)` | ``\btSigma_\theta``, unit scale |
 | ``\widetilde{\mathbf{V}}_i = \mathbf{I} + \operatorname{propagate}(\partial_\theta\bg_{i,w},\, \btSigma_\theta)``, ``q_i = \br_i^\top \widetilde{\mathbf{V}}_i^{-1} \br_i`` (17), Remark 2 | RANSACScoringDoneRight's `score_sq_residuals!` with a `StudentTUniformScoring{Predictive}` | ``q_i`` and the penalty ``\log\lvert\widetilde{\mathbf{V}}_i\rvert`` per point, then the sweep |
@@ -512,7 +512,8 @@ derived from it.
 
 **Residuals path (model-certain scoring).** For each observation ``i``,
 `residuals!` writes `whitened_residual(problem, ctx, i)`, which by default
-whitens ``(\bg_i, \partial_{\bx}\bg_i)`` through `whiten`: the norm of
+takes the Sampson residual of ``(\bg_i, \partial_{\bx}\bg_i)`` and whitens it
+by the point's noise shape when the problem returns one: the norm of
 ``\br_i = \mathbf{L}_i^{-1}\bg_i``, whose square is the Mahalanobis distance
 ``\bg_i^\top\bigl(\btSigma_{\bg_i}^{(\bx)}\bigr)^{-1}\bg_i``. A problem may
 override it with a cheaper route to the same quantity.
@@ -522,9 +523,11 @@ uncertainty, the pipeline for observation ``i`` is:
 
 1. `constraint_with_jacobians(problem, model, i)` returns
    ``(\bg_i,\, \partial_{\bx}\bg_i,\, \partial_\theta\bg_i)``.
-2. `whiten` forms
-   ``\btSigma_{\bg_i}^{(\bx)} = \operatorname{propagate}(\partial_{\bx}\bg_i,\, \btSigma_{\bx_i})``,
-   takes its Cholesky factor ``\mathbf{L}_i``, and returns the whitened
+2. `whitened_rows` takes the Sampson residual ``\mathbf{s}_i`` in the normal
+   basis ``\mathbf{N}_i`` of ``\partial_{\bx}\bg_i`` and whitens it by
+   ``\mathbf{N}_i^\top\btSigma_{\bx_i}\mathbf{N}_i``, which factors
+   ``\btSigma_{\bg_i}^{(\bx)} = \operatorname{propagate}(\partial_{\bx}\bg_i,\, \btSigma_{\bx_i})``
+   with Cholesky factor ``\mathbf{L}_i``; it returns the whitened
    residual ``\br_i = \mathbf{L}_i^{-1}\bg_i`` and whitened model Jacobian
    ``\partial_\theta\bg_{i,w} = \mathbf{L}_i^{-1}\partial_\theta\bg_i``.
 3. The predictive score assembles

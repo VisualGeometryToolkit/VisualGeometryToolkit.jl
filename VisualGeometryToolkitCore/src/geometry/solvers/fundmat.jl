@@ -284,88 +284,24 @@ function cheiral_pose_fast(E, f₁::AbstractVector, f₂::AbstractVector)
 end
 
 # =============================================================================
-# Public: Sampson Distance
+# The Sampson distance's measurements: one element type
 # =============================================================================
 
-# THE Sampson distance, of every correspondence model: the whitened residual
-# of `constraint_with_jacobians` (`whiten`) at the model's rounding scales
-# (`constraint_rounding_scale`), so the distance, the scorers that whiten the
-# same constraint, and the one degeneracy rule cannot disagree. Plain points
-# are unit isotropic noise (`Σ_x = I`); an `Uncertain` point carries its own
-# covariance (the Mahalanobis Sampson distance), an `exact` one none
-# (conventions/measurement-noise.md). A model's per-type facts
-# are its `constraint_with_jacobians` and its rounding scales — nothing here.
-"""
-    sampson_distance(F::FundMat, u₁, u₂)
-    sampson_distance(E::EssentialMat, x̂₁, x̂₂)
-    sampson_distance(H::HomographyMat, u₁, u₂)
-    sampson_distance(M, c::Pair)
-
-First-order approximation to the geometric error of the correspondence
-`u₁ => u₂` under the model, model first: the norm of the whitened constraint,
-
-    d = ‖L⁻¹g‖,   LLᵀ = G_x·Σ_x·G_xᵀ,
-
-`g` and `G_x = ∂g/∂(u₁, u₂)` from [`constraint_with_jacobians`](@ref) — for the
-epipolar constraint `u₂ᵀ F u₁ = 0` the familiar
-`|u₂ᵀ F u₁| / sqrt((Fu₁)₁² + (Fu₁)₂² + (Fᵀu₂)₁² + (Fᵀu₂)₂²)`, for a homography
-`√(gᵀC⁻¹g)` over its two transfer rows. Pixel-space inputs for `FundMat` and
-`HomographyMat`, gnomonic ([`GnomonicFrame`](@ref)-coordinate) inputs for
-`EssentialMat`. Accepts plain `Point2`/`SVector{2}` (unit isotropic, `Σ_x = I`),
-[`Uncertain`](@ref) points (Mahalanobis, the per-point covariance or precision)
-and [`exact`](@ref) points (zero covariance; not both endpoints) — the
-measurement-noise rule of [`pair_covariance`](@ref); a 3-vector
-bearing is a `MethodError`, never read as its first two components. The
-frame-checked face is `sampson_distance(::EpipolarForm, x₁, x₂)`.
-
-DEGENERATE (the measurement gradient vanishes to rounding — both points at the
-epipoles, an epipolar line at infinity, a point a homography maps to the line
-at infinity): `0` when the constraint vanishes too (the pair satisfies it
-exactly), `Inf` when it does not (no nearby point can) — the one rule of
-[`whiten`](@ref), at the model's [`constraint_rounding_scale`](@ref), so the
-answer does not depend on the coordinates' scale. NaN propagates.
-"""
-@inline sampson_distance(M::Union{AbstractFundMat, HomographyMat}, u₁, u₂) =
-    _whitened_norm(_sampson_residual(M, u₁, u₂))
-@inline sampson_distance(M::Union{AbstractFundMat, HomographyMat}, c::Pair) = sampson_distance(M, c.first, c.second)
-
-"""
-    signed_sampson_distance(M, u, v) -> T
-
-Signed Sampson distance of a codimension-1 model `M` (fundamental / essential)
-at the correspondence `u => v`: `g / ‖∂g‖` — [`whiten`](@ref)'s residual of
-[`constraint_with_jacobians`](@ref), whose magnitude is [`sampson_distance`](@ref).
-The **sign** encodes which side of the epipolar line the point falls on.
-Keeping it signed is what makes an LM residual smooth and its Jacobian
-sign-consistent.
-
-DEGENERATE (the point gradient vanishes to rounding): the unsigned distance's
-rule, signed — `0` when the constraint vanishes with it, `±Inf` (the sign of
-`g`) when it does not. Both tests are relative ([`epipolar_rounding`](@ref)),
-so a model's homogeneous scale never moves the result.
-"""
-@inline signed_sampson_distance(M::AbstractFundMat, u, v) = _sampson_residual(M, u, v)::Real
-
-# The whitened constraint residual of one correspondence, in the promoted
-# element type of the model and the points.
-@inline function _sampson_residual(M, u₁, u₂)
-    a = geom(u₁); b = geom(u₂)
-    T = float(promote_type(eltype(M), eltype(a), eltype(b)))
-    Mt = _with_eltype(M, T); x₁ = _plane_point(T, a); x₂ = _plane_point(T, b)
-    g, G_x, _ = constraint_with_jacobians(Mt, x₁, x₂)
-    return _whiten_residual(g, G_x, _pair_covariance(u₁, u₂), constraint_rounding_scale(Mt, x₁, x₂))
+# The epipolar and homography constraints take the model and both points in ONE
+# element type; base/sampson.jl's layers hand them the measurements through this
+# hook, so a Float32 model meets Float64 points (and a Dual meets a Float64) in
+# the promoted type, its rounding scales included. The points are typed
+# 2-vectors: a 3-vector bearing is refused (MethodError), never read as its first
+# two components — the bearing form is `EssentialMat` with `M₁`, `M₂`.
+@inline function _sampson_arguments(M::Union{AbstractFundMat, HomographyMat}, u₁::StaticVector{2}, u₂::StaticVector{2})
+    T = float(promote_type(eltype(M), eltype(u₁), eltype(u₂)))
+    return (_with_eltype(M, T), _plane_point(T, u₁), _plane_point(T, u₂))
 end
-# A plane measurement as the model's 2-vector: typed, so a 3-vector is refused.
+# A plane measurement as the model's 2-vector.
 @inline _plane_point(::Type{T}, u::StaticVector{2}) where {T} = SVector{2, T}(u[1], u[2])
 # A model matrix in the element type T (the same wrapper).
 @inline _with_eltype(M::StaticMatrix, ::Type{T}) where {T} =
     eltype(M) === T ? M : Base.typename(typeof(M)).wrapper{T}(Tuple(M))
-# The 4×4 measurement covariance of (u₁, u₂) is `_pair_covariance`
-# (base/measurement_noise.jl): `I` for plain points (the isotropic Sampson
-# distance), the block diagonal of the points' own otherwise, `exact` a zero block.
-# The distance of a whitened residual: its magnitude for a scalar, its norm for a vector.
-@inline _whitened_norm(r::Real) = abs(r)
-@inline _whitened_norm(r::StaticVector) = norm(r)
 
 """
     epipolar_rounding(F, s, d) -> (tol_J, tol_g)
@@ -376,7 +312,7 @@ every point-gradient component (|F|·|s|, |F|ᵀ·|d|) and `tol_g` of the
 constraint value (|d|ᵀ·|F|·|s|), loose by a constant. A correspondence whose
 squared point gradient is `≤ tol_J²` is DEGENERATE, and the one Sampson
 degeneracy rule answers it with `0` when `|g| ≤ tol_g` and `Inf` otherwise
-(see [`sampson_distance`](@ref), [`signed_sampson_distance`](@ref)).
+(see [`sampson_distance`](@ref), [`sampson_residual`](@ref)).
 
 Relative to the model's own entries, so its homogeneous scale never decides.
 """
@@ -538,54 +474,6 @@ in the z = 1 chart. Use that one for `FundMat` and this one for
     return (g, G_x, G_θ)
 end
 
-"""
-    sampson_distance(E::EssentialMat, f₁, f₂; M₁, M₂, Σ = nothing) -> T
-
-The WHITENED TANGENT Sampson distance of a bearing correspondence:
-`g / √(G_x Σ G_xᵀ)` with `g`, `G_x` from
-[`constraint_with_jacobians`](@ref). Because `G_x` is expressed in pixels, the
-result is in PIXELS and the threshold stays a pixel σ — the unit the detector
-actually guarantees — for any lens, including one whose rays the z = 1 chart
-cannot represent.
-
-`Σ` is the 4×4 measurement covariance of `(u₁, u₂)` in pixels, SUPPLIED BY THE
-CALLER and defaulting to the identity (unit isotropic pixel noise). It is not
-baked in on purpose: whitening by raw pixels and whitening through a pool's
-canonical camera differ at FIRST order on any pair whose two images differ in
-size, which is common, so the choice belongs to whoever knows what frame the
-threshold is quoted in.
-
-Degenerate (the gradient vanishes to rounding) follows the plane form's rule:
-`0` when the constraint vanishes with it, `Inf` otherwise.
-
-This is PoseLib's `FixCameraRelativePoseRefiner` residual with `Σ = I`, and to
-first order it agrees with the plane Sampson of the same correspondence on a
-pinhole; they differ at second order, where only this one is defined past 90°.
-"""
-@inline sampson_distance(
-    E::EssentialMat, f₁::StaticVector{3}, f₂::StaticVector{3};
-    M₁::StaticMatrix{3, 2}, M₂::StaticMatrix{3, 2}, Σ = nothing
-) = abs(signed_sampson_distance(E, f₁, f₂; M₁, M₂, Σ))
-
-"""
-    signed_sampson_distance(E::EssentialMat, f₁, f₂; M₁, M₂, Σ = nothing) -> T
-
-The bearing (TANGENT) Sampson distance of [`sampson_distance`](@ref)`(E, f₁, f₂;
-M₁, M₂, Σ)`, signed: `g / √(G_x Σ G_xᵀ)`. Degenerate is the unsigned rule with
-`g`'s sign (`0`, or `±Inf`). The one body: the unsigned form is its `abs`.
-"""
-@inline function signed_sampson_distance(
-        E::EssentialMat, f₁::StaticVector{3}, f₂::StaticVector{3};
-        M₁::StaticMatrix{3, 2}, M₂::StaticMatrix{3, 2}, Σ = nothing
-    )
-    # `whiten`'s residual at the rows' rounding scales (`_tangent_rounding`), so
-    # the scorer and the LO agree on which pairs are degenerate whatever E's
-    # scale or eltype; a singular Σ along G_x is degenerate too
-    g, G_x, _ = constraint_with_jacobians(E, f₁, f₂; M₁, M₂)
-    ρ = constraint_rounding_scale(E, f₁, f₂; M₁, M₂)
-    return _whiten_residual(g, G_x, Σ === nothing ? I : Σ, ρ)
-end
-
 # The bearing form's rounding scales (`constraint_rounding_scale`): the
 # `_tangent_rounding` the residual and Jacobian rows read.
 @inline function constraint_rounding_scale(
@@ -617,7 +505,7 @@ end
 end
 
 """
-    signed_sampson_jacobian(g, G_x, G_θ, ∂G_x, degenerate = iszero(G_x)) -> SVector
+    sampson_residual_jacobian(g, G_x, G_θ, ∂G_x, degenerate = iszero(G_x)) -> SVector
 
 The derivative along model coordinates `θ` of the signed Sampson distance
 `g/‖G_x‖` of a codimension-1 constraint: `g` its value, `G_x` its measurement
@@ -631,7 +519,7 @@ and a zero row is what the reweighting that follows gives it. Generic in the
 element type and device-safe; [`sampson_jacobian_rows!`](@ref) runs it per
 correspondence for the epipolar models.
 """
-@inline function signed_sampson_jacobian(
+@inline function sampson_residual_jacobian(
         g, G_x::StaticVector, G_θ::StaticVector{N}, ∂G_x::StaticMatrix,
         degenerate::Bool = iszero(sum(abs2, G_x))
     ) where {N}
@@ -643,7 +531,7 @@ correspondence for the epipolar models.
 end
 
 """
-    signed_sampson_row(M, dM, u, v) -> (d, ∂d::SVector)
+    sampson_residual_row(M, dM, u, v) -> (d, ∂d::SVector)
 
 One correspondence's signed Sampson distance under the epipolar model `M`
 (fundamental or essential, in the measurement frame of `u`, `v`) and its
@@ -652,7 +540,7 @@ derivative along the chart directions `dM = (∂M/∂θ₁, …)` — e.g. the c
 rule) is `(0, 0)`: LM-safe. Device-safe; the per-row function of
 [`sampson_rows!`](@ref) and [`sampson_jacobian_rows!`](@ref).
 """
-@inline signed_sampson_row(M, dM::Tuple, u, v) = _sampson_row(M, _direction_matrix(dM), u, v)
+@inline sampson_residual_row(M, dM::Tuple, u, v) = _sampson_row(M, _direction_matrix(dM), u, v)
 
 # The chart directions `dM = (∂M/∂θ₁, …, ∂M/∂θ_N)` as the ROWS of an N×9 matrix
 # (row q = vec(∂M/∂θ_q), column-major): every direction's bilinear form
@@ -661,13 +549,13 @@ rule) is `(0, 0)`: LM-safe. Device-safe; the per-row function of
 @inline _direction_matrix(dM::NTuple{N, Any}) where {N} =
     SMatrix{N, 9}(ntuple(k -> dM[(k - 1) % N + 1][(k - 1) ÷ N + 1], Val(9 * N)))
 
-# The signed Sampson row of `signed_sampson_jacobian`, CONTRACTED. Every entry of
+# The signed Sampson row of `sampson_residual_jacobian`, CONTRACTED. Every entry of
 # that formula is a bilinear form in the direction ∂M/∂θ_q:
 #   G_θ[q]              = x₂ᵀ·D_q·x₁
 #   G_xᵀ·∂G_x[:, q]      = aᵀ·D_q·x₁ + x₂ᵀ·D_q·b,   a = (Mx₁)₁,₂ and b = (Mᵀx₂)₁,₂ with a 0 third entry,
 # so the whole row is `B·vec(W) / ‖G_x‖` with ONE 3×3 matrix
 #   W = x₂x₁ᵀ − (g/‖G_x‖²)·(a x₁ᵀ + x₂ bᵀ)
-# — the same algebra as `signed_sampson_jacobian(g, G_x, G_θ, ∂G_x)` (equal to
+# — the same algebra as `sampson_residual_jacobian(g, G_x, G_θ, ∂G_x)` (equal to
 # rounding; pinned in test/sampson_rows_tests.jl), at a third of the
 # arithmetic. Degenerate (the one rule) is `(0, 0)`. `ifelse`, not a branch:
 # a branch in the row stops the CPU loop from vectorizing well (measured 2× on
@@ -734,7 +622,7 @@ end
 
 The √w-weighted Jacobian rows of [`sampson_rows!`](@ref) along the chart
 directions `dM = (∂M/∂θ₁, …, ∂M/∂θ_N)`: `J[i, q] = sqrtw[i]·∂dᵢ/∂θ_q`
-([`signed_sampson_jacobian`](@ref)), a degenerate pair a zero row. One kernel on
+([`sampson_residual_jacobian`](@ref)), a degenerate pair a zero row. One kernel on
 the backend that owns `J`.
 """
 function sampson_jacobian_rows!(
@@ -767,7 +655,7 @@ end
 # gradients come from `constraint_with_jacobians(E, f₁, f₂; M₁, M₂)` — the same
 # scalar the scoring path uses — and the WHITENING DERIVATIVE comes from
 # `_contracted_sampson_terms`, the same function the image-plane rows use (the
-# contracted form of `signed_sampson_jacobian`). Nothing about `g/‖∇g‖` is
+# contracted form of `sampson_residual_jacobian`). Nothing about `g/‖∇g‖` is
 # re-derived here; only the vectors G_x pairs with, which differ because G_x
 # carries the backprojection Jacobians.
 
@@ -795,11 +683,11 @@ end
 end
 
 """
-    signed_tangent_sampson_row(E, dE, f₁, f₂, M₁, M₂) -> (d, ∂d::SVector)
+    tangent_sampson_residual_row(E, dE, f₁, f₂, M₁, M₂) -> (d, ∂d::SVector)
 
 One bearing correspondence's signed TANGENT Sampson distance under `E` and its
 derivative along the chart directions `dE = (∂E/∂θ₁, …)`. The bearing
-counterpart of [`signed_sampson_row`](@ref); `M₁`/`M₂` are the 3×2
+counterpart of [`sampson_residual_row`](@ref); `M₁`/`M₂` are the 3×2
 backprojection Jacobians from [`backproject_with_jacobian`](@ref), which is
 what puts `d` and the rows in PIXELS.
 
@@ -808,7 +696,7 @@ rule the image-plane row uses. Device-safe; the per-row function of the
 bearing methods of [`sampson_rows!`](@ref) and
 [`sampson_jacobian_rows!`](@ref).
 """
-@inline signed_tangent_sampson_row(E::EssentialMat, dE::Tuple, f₁, f₂, M₁, M₂) =
+@inline tangent_sampson_residual_row(E::EssentialMat, dE::Tuple, f₁, f₂, M₁, M₂) =
     _tangent_sampson_row(E, _direction_matrix(dE), f₁, f₂, M₁, M₂)
 
 # The bearing row through the SAME contraction as the plane row
@@ -879,7 +767,7 @@ The √w-weighted Jacobian rows of the bearing [`sampson_rows!`](@ref) along the
 chart directions `dE = (∂E/∂θ₁, …, ∂E/∂θ_N)`: `J[i, q] = sqrtw[i]·∂dᵢ/∂θ_q`, a
 degenerate pair a zero row.
 
-The whitening derivative is the contracted [`signed_sampson_jacobian`](@ref)
+The whitening derivative is the contracted [`sampson_residual_jacobian`](@ref)
 (`_contracted_sampson_terms`) — the SAME function the image-plane rows use — so
 `g/‖∇g‖` has one implementation here and there. What this adds is the pair of
 vectors `G_x` contracts with, which differ only because `G_x` carries the

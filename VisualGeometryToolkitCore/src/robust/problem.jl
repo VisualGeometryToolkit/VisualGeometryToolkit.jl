@@ -115,8 +115,10 @@ where `LLᵀ = Σ̃_{gᵢ} = ∂ₓgᵢ·Σ̃_x·∂ₓgᵢᵀ`, so that its squ
 distance `gᵢᵀ Σ̃_{gᵢ}⁻¹ gᵢ` (`~ χ²(d_g)` under H₀). SIGNED for a scalar
 constraint (`d_g = 1`: `gᵢ/√Σ̃_{gᵢ}`), the non-negative norm for a vector one.
 
-The default derives it from `constraint_with_jacobians` through [`whiten`](@ref)
-— the stack's one whitening path and its one Sampson degeneracy rule (`±Inf`
+The default is the Sampson residual of `constraint_with_jacobians(problem,
+model, i)` (the geometry layer of [`sampson_residual_with_normal`](@ref), at
+the problem's own currency of `G_x`) — the stack's one Sampson path and its one
+degeneracy rule (`±Inf`
 for an unsatisfiable degenerate point, `0` for one that vanishes exactly). A
 problem overrides it when a cheaper Jacobian-free route to the SAME quantity
 exists; the override must keep the sign contract. [`residuals!`](@ref) is this
@@ -142,7 +144,19 @@ function residuals!(r::AbstractVector, p::AbstractConstraintProblem, model)
     return r
 end
 
-@inline whitened_constraint_residual(cd::Tuple) = first(whiten(cd...))
+# The whitened residual of a constraint `(g, G_x, G_θ[, Σ_x[, ρ]])` from
+# `constraint_with_jacobians`, in the constraint's shape (a number for a scalar
+# constraint): its Sampson residual (base/sampson.jl's geometry layer, the
+# exact-zero degeneracy rule), whitened by the measurement covariance `Σ_x` a
+# heteroscedastic problem returns as a fourth element.
+@inline whitened_constraint_residual(cd::Tuple) = _constraint_shape(cd[1], _whitened_constraint(cd...))
+@inline _whitened_constraint(g, G_x, G_θ) = first(_sampson_factor(g, G_x, nothing))
+@inline _whitened_constraint(g, G_x, G_θ, Σ_x) = _whitened_constraint(g, G_x, G_θ, Σ_x, nothing)
+# ... and a fifth element, the constraint's rounding scale (`constraint_rounding_scale`)
+@inline function _whitened_constraint(g, G_x, G_θ, Σ_x, ρ)
+    s, N, _, _ = _sampson_factor(g, G_x, ρ)
+    return whiten(s, N, Σ_x)
+end
 
 @inline _mahalanobis(cd::Tuple) = whitened_distance(whitened_constraint_residual(cd))
 @inline whitened_distance(r::Real) = r

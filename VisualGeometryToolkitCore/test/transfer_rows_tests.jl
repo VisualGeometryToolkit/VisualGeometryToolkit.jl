@@ -38,11 +38,11 @@
             u, v = u₁[i], u₂[i]
             g, Gx, Gθ = constraint_with_jacobians(H, u, v)
             # the owner's constraint g, as a function of the measurement and of vec(H)
-            gz(z) = constraint_with_jacobians(HomographyMat{eltype(z)}(Tuple(Hs)), SVector(z[1], z[2]), SVector(z[3], z[4]))[1]
-            gθ(θ) = constraint_with_jacobians(HomographyMat{eltype(θ)}(Tuple(θ)), SVector{2, eltype(θ)}(u), SVector{2, eltype(θ)}(v))[1]
+            gz(z) = VgtkCore.constraint(HomographyMat{eltype(z)}(Tuple(Hs)), SVector(z[1], z[2]), SVector(z[3], z[4]))
+            gθ(θ) = VgtkCore.constraint(HomographyMat{eltype(θ)}(Tuple(θ)), SVector{2, eltype(θ)}(u), SVector{2, eltype(θ)}(v))
             @test Gx ≈ ForwardDiff.jacobian(gz, SVector(u[1], u[2], v[1], v[2])) rtol = 1.0e-12
             @test Gθ ≈ ForwardDiff.jacobian(gθ, SVector{9}(Tuple(Hs))) rtol = 1.0e-12
-            @test sum(abs2, whiten(g, Gx, Gθ)[1]) ≈ sampson_distance(H, u, v)^2 rtol = 1.0e-10
+            @test sum(abs2, VgtkCore.whitened_constraint_residual((g, Gx, Gθ))) ≈ sampson_distance(H, u, v)^2 rtol = 1.0e-10
         end
     end
 
@@ -54,7 +54,7 @@
             [one(SMatrix{2, 2, Float64})], [b], ones(2))
     end
 
-    @testset "whitening_factor: L⁻¹ of Σ_g, the same factor whiten applies" begin
+    @testset "whitening_factor: L⁻¹ of Σ_g, the same factor the Sampson rows apply" begin
         _, Gx, Gθ = constraint_with_jacobians(TransferForm(H), u₁[5], u₂[5])
         W = whitening_factor(Gx)
         @test W * (Gx * Gx') * W' ≈ I rtol = 1.0e-12
@@ -62,8 +62,8 @@
         # RVG's frozen factor, to the last ulps: bit for bit on x86-64, but FMA on
         # aarch64 rounds the two evaluation orders differently
         @test W ≈ inv(SMatrix{2, 2}(cholesky(Symmetric(A * A' + I)).L)) rtol = 8eps()
-        g, _, _ = constraint_with_jacobians(TransferForm(H), u₁[5], u₂[5])
-        r, Jw, _ = whiten(g, Gx, Gθ)
+        g = VgtkCore.constraint(TransferForm(H), u₁[5], u₂[5])
+        r, Jw = VgtkCore.whitened_rows(VgtkCore.SampsonWhitening(), g, Gx, Gθ)
         @test W * g ≈ r rtol = 1.0e-12
         @test W * Gθ ≈ Jw rtol = 1.0e-12
         @test whitening_factor(zero(SMatrix{2, 4, Float64})) == zero(SMatrix{2, 2, Float64})   # degenerate: a zero factor
@@ -87,7 +87,7 @@
         fd = FiniteDiff.finite_difference_jacobian(rv, v, Val(:central); relstep = 1.0e-7, absstep = 1.0e-7)
         @test J ≈ fd rtol = 1.0e-6 atol = 1.0e-9
         for i in (1, 17)
-            g, _, _ = constraint_with_jacobians(TransferForm(Hv), u₁[i], u₂[i])
+            g = VgtkCore.constraint(TransferForm(Hv), u₁[i], u₂[i])
             @test r[(2i - 1):(2i)] ≈ sqrtw[(2i - 1):(2i)] .* (W[i] * g) rtol = 1.0e-14   # muladd fuses per inlining site
         end
         # the device kernels, launched on KA.CPU() (the public functions take the CPU fast path)

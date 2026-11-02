@@ -73,7 +73,7 @@
             Gθ = SMatrix{2,3,Float64,6}(1.0, 0.0, 0.0, 1.0, 0.5, 0.5)
             Σg = Gx * Gx'
             @test _mahalanobis((g, Gx, Gθ)) ≈ sqrt(dot(g, Σg \ g)) rtol = 1e-12
-            @test _mahalanobis((g, Gx, Gθ)) == norm(first(VgtkCore.whiten(g, Gx, Gθ)))
+            @test _mahalanobis((g, Gx, Gθ)) ≈ norm(cholesky(Symmetric(Gx * Gx')).L \ g) rtol = 1e-14
             # heteroscedastic 4-tuple: Σ̃_x enters
             Σx = Diagonal(SVector(4.0, 1.0, 1.0, 0.25))
             @test _mahalanobis((g, Gx, Gθ, Σx)) ≈ sqrt(dot(g, (Gx * Σx * Gx') \ g)) rtol = 1e-12
@@ -107,7 +107,7 @@
             Gx = SMatrix{2,4,Float64,8}(1.0, 0.2, -0.3, 0.9, 0.5, 0.1, 0.0, -0.4)
             Gθ = SMatrix{2,3,Float64,6}(1.0, 0.0, 0.0, 1.0, 0.5, 0.5)
             pv = _CDProblem([(g, Gx, Gθ)])
-            @test VgtkCore.whitened_residual(pv, nothing, 1) == norm(first(VgtkCore.whiten(g, Gx, Gθ)))
+            @test VgtkCore.whitened_residual(pv, nothing, 1) == _mahalanobis((g, Gx, Gθ))
         end
 
         @testset "residual_context: per-model work once, per-point residual on it" begin
@@ -145,7 +145,7 @@
                 r = zeros(n); VgtkCore.residuals!(r, p, F)
                 d = [VgtkCore.sampson_distance(F, c) for c in cs]
                 @test abs.(r) == d
-                @test r == [VgtkCore.signed_sampson_distance(F, c.first, c.second) for c in cs]
+                @test r == [only(VgtkCore.sampson_residual(F, c.first, c.second)) for c in cs]
             end
             @test VgtkCore.residuals!(zeros(3), _F5Problem(cases[1][2]), F1)[1:2] == [Inf, Inf]
             @test VgtkCore.residuals!(zeros(3), _F5Problem(cases[2][2]), F2)[1:2] == [0.0, 0.0]

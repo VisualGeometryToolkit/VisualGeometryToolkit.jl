@@ -90,7 +90,7 @@ function residual_rows!(f, lm::ChartLm{<:VgtkCore.CircleManifold, <:CircleProble
     return f
 end
 
-# ∂d/∂a: VGC's signed-Sampson derivative (`signed_sampson_jacobian`) along the
+# ∂d/∂a: VGC's signed-Sampson derivative (`sampson_residual_jacobian`) along the
 # chart directions A = ∂(c, r)/∂a (`retract_jacobian`). The constraint's second
 # derivative is constant: G_x = 2(x − c), so ∂G_x/∂(c, r) = [−2I 0].
 const _CIRCLE_∂G_x = SMatrix{2, 3, Float64, 6}(-2.0, 0.0, 0.0, -2.0, 0.0, 0.0)
@@ -102,7 +102,7 @@ function residual_jacobian_rows!(J, lm::ChartLm{<:VgtkCore.CircleManifold, <:Cir
     ∂G_x = _CIRCLE_∂G_x * A
     @inbounds for i in eachindex(pts)
         g, G_x, G_θ = VgtkCore.constraint_with_jacobians(c, pts[i])
-        row = signed_sampson_jacobian(g, G_x, A' * G_θ, ∂G_x)
+        row = sampson_residual_jacobian(g, G_x, A' * G_θ, ∂G_x)
         for q in 1:3
             J[i, q] = sqrtw[i] * row[q]
         end

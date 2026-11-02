@@ -102,4 +102,52 @@ point at the centre has `G_x = 0` — the one Sampson degeneracy
     g = dot(d, Qd) - 1
     return g, 2 * Qd, SVector(-2 * Qd[1], -2 * Qd[2], d[1]^2, 2 * d[1] * d[2], d[2]^2)
 end
+
+# The ellipse's rounding scales (`constraint_rounding_scale`), relative to its
+# axes: `d = x − c` carries the rounding of |x| + |c|, so the gradient `2Q·d` is
+# rounding below 2·|Q|·that, and `g = dᵀQd − 1` below |Q|·|d|² + 1 — a point at the
+# centre is DEGENERATE (G_x = 0, `g = −1`: the one rule's Inf) whatever the
+# ellipse's size.
+@inline function constraint_rounding_scale(e::Ellipse, x::StaticVector{2})
+    Q = _ellipse_form(e)
+    T = float(promote_type(eltype(Q), eltype(x)))
+    nQ = sum(abs, Q)
+    nd = abs(x[1] - e.center[1]) + abs(x[2] - e.center[2])
+    tol = 8 * eps(T)
+    return (; gradient = tol * 2 * nQ * (sum(abs, x) + sum(abs, e.center)), value = tol * (nQ * nd^2 + 1))
+end
+
+"""
+    constraint_with_jacobians(c::Conic, x::StaticVector{2}) -> (g, G_x::SVector{2}, G_θ::SVector{6})
+
+The point-on-conic constraint of a general conic `C` (`c.Q`, symmetric 3×3):
+`g = x̃ᵀ C x̃`, `x̃ = (x, 1)`, with `G_x = 2(C x̃)₁,₂` and `G_θ` over the conic's
+six distinct entries in upper-triangle column-major order,
+`(C₁₁, C₁₂, C₂₂, C₁₃, C₂₃, C₃₃)`: `(x², 2xy, y², 2x, 2y, 1)`. Homogeneous: a
+scaled conic is the same curve and has the same [`sampson_distance`](@ref)
+(the constraint and its gradient scale together), which is the first-order
+distance to the curve — for an ellipse's conic, its
+`constraint_with_jacobians(::Ellipse, x)`'s. A point where `C x̃` has no image
+part (the centre of a central conic) has `G_x = 0`: the one Sampson degeneracy.
+"""
+@inline function constraint_with_jacobians(c::Conic, x::StaticVector{2})
+    T = float(promote_type(eltype(c.Q), eltype(x)))
+    C = SMatrix{3, 3, T, 9}(c.Q)
+    xh = SVector{3, T}(x[1], x[2], one(T))
+    Cx = C * xh
+    g = dot(xh, Cx)
+    return g, SVector(2 * Cx[1], 2 * Cx[2]),
+        SVector(xh[1]^2, 2 * xh[1] * xh[2], xh[2]^2, 2 * xh[1], 2 * xh[2], one(T))
+end
+
+# A conic's rounding scales (`constraint_rounding_scale`), as the epipolar
+# models': every term of `C x̃` is bounded by |C|·|x̃| and of `x̃ᵀCx̃` by
+# |x̃|ᵀ|C||x̃|, so a homogeneous scale of `C` never decides.
+@inline function constraint_rounding_scale(c::Conic, x::StaticVector{2})
+    T = float(promote_type(eltype(c.Q), eltype(x)))
+    nC = sum(abs, c.Q)
+    nx = abs(x[1]) + abs(x[2]) + one(T)
+    tol = 8 * eps(T)
+    return (; gradient = tol * 2 * nC * nx, value = tol * nC * nx^2)
+end
 minimal_manifold(e::Ellipse) = EllipseManifold(e)

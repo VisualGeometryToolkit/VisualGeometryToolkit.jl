@@ -13,7 +13,7 @@
 # ONE IMPLEMENTATION is the design constraint, because that defect is what two
 # routes to one quantity costs. The constraint and its gradients come from the
 # scalar `constraint_with_jacobians(E, f₁, f₂; M₁, M₂)` that the scoring path
-# uses, and the WHITENING DERIVATIVE from `signed_sampson_jacobian`, the same
+# uses, and the WHITENING DERIVATIVE from `sampson_residual_jacobian`, the same
 # family-agnostic function the image-plane rows use. Only `∂G_x/∂θ` is new, and
 # it is finite-differenced below rather than derived and checked against itself.
 #
@@ -32,7 +32,7 @@
     using VisualGeometryToolkitCore: EssentialMat, EssentialManifold6, retract, retract_jacobian,
         CameraModel, LogicalIntrinsics, CameraCalibrationMat, Pinhole,
         backproject, project, backproject_with_jacobian, sampson_distance,
-        sampson_rows!, sampson_jacobian_rows!, signed_tangent_sampson_row
+        sampson_rows!, sampson_jacobian_rows!, tangent_sampson_residual_row
 
     cam(f, c) = CameraModel(
         LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(f, 0, 0, 0, f, 0, c[1], c[2], 1))),
@@ -74,7 +74,7 @@
         scal = [sampson_distance(E, f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i]) for i in 1:n]
         @test maximum(abs.(abs.(r) .- scal) ./ scal) < 1.0e-12
         # the signed bearing distance: the rows' sign, the unsigned one's magnitude
-        sgn = [signed_sampson_distance(E, f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i]) for i in 1:n]
+        sgn = [only(sampson_residual(E, f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i])) for i in 1:n]
         @test abs.(sgn) == scal
         @test all(sign.(sgn) .== sign.(r))
     end
@@ -85,7 +85,7 @@
         sampson_rows!(r2, Eᵥ, f₁, f₂, 2 .* ones(n); M₁, M₂)
         @test r2 ≈ 2 .* r1 rtol = 1.0e-12
         for i in (1, 5, 11)
-            d, _ = signed_tangent_sampson_row(Eᵥ, dE, f₁[i], f₂[i], M₁[i], M₂[i])
+            d, _ = tangent_sampson_residual_row(Eᵥ, dE, f₁[i], f₂[i], M₁[i], M₂[i])
             @test d ≈ r1[i] rtol = 1.0e-12
         end
     end

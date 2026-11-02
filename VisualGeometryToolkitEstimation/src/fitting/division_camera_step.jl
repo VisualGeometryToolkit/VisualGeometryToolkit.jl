@@ -287,7 +287,7 @@ function _branch_residual(R, t12, pts, f, λs::Tuple)
         t3 = d
         m = _lift_model(R, t12, f, λs, t3)
         @inbounds for (j, (X, x)) in enumerate(pts)
-            r²[j] = sum(abs2, first(constraint_with_jacobians(m, X, x)))   # ‖g‖² of the lift
+            r²[j] = sum(abs2, VgtkCore.constraint(m, X, x))   # ‖g‖² of the lift
         end
         refit == 3 && break
         cut = 9 * Statistics.median(r²)

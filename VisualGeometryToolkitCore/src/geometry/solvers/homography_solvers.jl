@@ -867,10 +867,6 @@ Base.@propagate_inbounds function _transfer_whitening_row!(W, i, H, u₁, Σ₁,
     W[i] = whitening_factor(G_x, pair_covariance(_side_covariance(Σ₁, i), _side_covariance(Σ₂, i)))
     return nothing
 end
-# The transfer residual of one correspondence: the pixel form's `π(H ũ₁) − u₂`, or
-# the bearing form's tangent-plane residual (`_bearing_transfer_parts`).
-@inline _transfer_residual(H, u₁::StaticVector{2}, u₂::StaticVector{2}) = first(constraint_with_jacobians(TransferForm(H), u₁, u₂))
-@inline _transfer_residual(H, f₁::StaticVector{3}, f₂::StaticVector{3}) = _bearing_transfer_parts(H, f₁, f₂).g
 # The derivative of the residual along the transferred point `H x`, and `x`: the
 # perspective derivative `Jπ` at `H ũ₁` and `ũ₁` for pixels (u₂ unread), `D` and
 # `f₁` for bearings — so `∂g/∂θ_q = D·(dH_q·x)` is one row function for both.
@@ -882,7 +878,7 @@ end
 @inline _transfer_point_derivative(H, f₁::StaticVector{3}, f₂::StaticVector{3}) =
     (p = _bearing_transfer_parts(H, f₁, f₂); (p.D, p.s))
 Base.@propagate_inbounds function _transfer_rows!(r, i, H, W, u₁, u₂, sqrtw)
-    g = _transfer_residual(H, u₁[i], u₂[i])
+    g = constraint(TransferForm(H), u₁[i], u₂[i])   # the pixel form's π(H ũ₁) − u₂, or the bearing tangent residual
     e = W[i] * g
     r[2i - 1] = sqrtw[2i - 1] * e[1]
     r[2i] = sqrtw[2i] * e[2]

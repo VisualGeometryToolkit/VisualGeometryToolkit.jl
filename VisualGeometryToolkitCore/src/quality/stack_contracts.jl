@@ -122,7 +122,7 @@ const CONTRACT_GENERICS = (
     # the chart LM's row protocol (robust/lm_core.jl)
     residual_rows!, residual_jacobian_rows!,
     # the RANSAC / LO interface (robust/estimation.jl, robust/losses.jl, robust/width_axes.jl)
-    solve, model_type, test_model, test_sample, test_consensus, constraint_with_jacobians,
+    solve, model_type, test_model, test_sample, test_consensus, constraint, constraint_with_jacobians, constraint_rounding_scale,
     inlier_weight, robust_weight, is_inlier,
     loss_family, loss_shape, decision_width, to_native, scale_interface,
     # the loss's half-quadratic lift facet (robust/losses.jl), answered by a tabulated lift too

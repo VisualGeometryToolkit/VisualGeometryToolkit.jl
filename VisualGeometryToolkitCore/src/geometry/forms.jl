@@ -365,7 +365,7 @@ function epipoles(f::EpipolarForm)
 end
 
 # -----------------------------------------------------------------------------
-# sampson_distance — checked overloads delegating to the Mat machinery
+# The epipolar constraint of a form — checked, delegating to the Mat machinery
 # -----------------------------------------------------------------------------
 
 # Measurement-frame accessor for the checked delegation below: an `Uncertain`
@@ -375,28 +375,28 @@ end
 @inline _meas_frame(u::Uncertain{V, <:Union{CovMat{2}, PrecMat{2}}}) where {V} =
     _frame(getfield(u, :attributes))
 
-
 """
-    sampson_distance(f::EpipolarForm, x₁, x₂)
-    sampson_distance(f::EpipolarForm, c::Pair)
+    constraint_with_jacobians(f::EpipolarForm, x₁, x₂) -> (g, G_x, G_θ)
 
-Form-level Sampson distance: delegates to the [`sampson_distance`](@ref)
-machinery on the wrapped Mat, with the slot convention of
-[`EpipolarForm`](@ref) — `x₁` feeds slot 1 (frame `S1`), `x₂` slot 2
-(frame `S2`). Accepts everything the Mat surface accepts (plain points or
-`Uncertain` measurements).
+The epipolar constraint of the wrapped Mat, with the slot convention of
+[`EpipolarForm`](@ref) — `x₁` feeds slot 1 (frame `S1`), `x₂` slot 2 (frame
+`S2`). So a form has everything a constraint gives: [`sampson_distance`](@ref),
+[`sampson_residual`](@ref), [`mahalanobis_distance`](@ref).
 
-Since 0.9 the delegation is CHECKED where a frame is available: an
-`Uncertain` measurement whose `CovMat`/`PrecMat` carries a frame label must
-meet the slot it feeds (standing wildcard truth table — a labeled mismatch
-is a `MethodError`; plain points and unlabeled matrices are the wildcard).
+The delegation is CHECKED where a frame is available: an `Uncertain`
+measurement whose `CovMat`/`PrecMat` carries a frame label must meet the slot
+it feeds (standing wildcard truth table — a labeled mismatch is a
+`MethodError`; plain points and unlabeled matrices are the wildcard), before
+the Sampson layer strips the covariance.
 """
-@inline function sampson_distance(f::EpipolarForm{S1, S2}, x₁, x₂) where {S1, S2}
+@inline constraint_with_jacobians(f::EpipolarForm, x₁, x₂) = constraint_with_jacobians(f.mat, x₁, x₂)
+@inline constraint_rounding_scale(f::EpipolarForm, x₁, x₂) = constraint_rounding_scale(f.mat, x₁, x₂)
+@inline _sampson_arguments(f::EpipolarForm, x₁, x₂) = _sampson_arguments(f.mat, x₁, x₂)
+@inline function _check_measurements(f::EpipolarForm{S1, S2}, x₁, x₂) where {S1, S2}
     (_junction_ok(S1, _meas_frame(x₁)) && _junction_ok(S2, _meas_frame(x₂))) ||
-        throw(MethodError(sampson_distance, (f, x₁, x₂)))
-    return sampson_distance(f.mat, x₁, x₂)
+        throw(MethodError(sampson_residual_with_normal, (f, x₁, x₂)))
+    return nothing
 end
-@inline sampson_distance(f::EpipolarForm, c::Pair) = sampson_distance(f, c.first, c.second)
 
 # NOTE: no `transfer` overload for EpipolarForm — `transfer` is the
 # point ↦ point depth-transport verb (camera models + depth). A correlation
@@ -534,6 +534,9 @@ scorer must refuse it separately (the hemisphere of the transferred ray).
     G_x = hcat(p.D * p.Hm * SMatrix{3, 2, T, 6}(M₁), -(p.P * SMatrix{3, 2, T, 6}(M₂)))
     return p.g, G_x, _transfer_params_jacobian(p.D, p.s)
 end
+# The bearing transfer residual alone: `g` reads no backprojection Jacobian, so
+# [`constraint`](@ref) needs neither `M₁` nor `M₂` (the transfer rows' residual).
+@inline constraint(f::TransferForm, f₁::StaticVector{3}, f₂::StaticVector{3}) = _bearing_transfer_parts(f.mat, f₁, f₂).g
 
 # -----------------------------------------------------------------------------
 # TransferForm ↔ HomographyMap — the frame change is `∘` on the map

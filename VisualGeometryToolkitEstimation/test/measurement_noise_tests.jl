@@ -13,7 +13,7 @@
     using Rotations: RotMatrix, RotX
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: csponds, exact, Uncertain, CovMat, pair_covariance, transfer_whitening!,
-        whiten, constraint_rounding_scale, source_map, destination_map, sampson_distance, residuals!,
+        constraint_rounding_scale, source_map, destination_map, sampson_distance, mahalanobis_distance, residuals!,
         converged, estimate, MsacScoring, TLSShape
     using VisualGeometryToolkitEstimation
     using VisualGeometryToolkitEstimation: Irls, locally_optimize, RadialHomographyProblem
@@ -34,7 +34,7 @@
         # the unchanged isotropic whitening, bit for bit
         ref = map(1:n) do i
             g, Gx, Gθ = VgtkCore.constraint_with_jacobians(H, board[i], pix[i])
-            norm(first(whiten(g, Gx, Gθ, I, constraint_rounding_scale(H, board[i], pix[i]))))
+            norm(first(VgtkCore._sampson_factor(g, Gx, constraint_rounding_scale(H, board[i], pix[i]))))
         end
         @test r == ref
         @test r == [sampson_distance(H, board[i], pix[i]) for i in 1:n]
@@ -47,7 +47,7 @@
         @test all(iszero, p.cs.Σ₁)
         r = residuals!(zeros(n), p, H)
         @test maximum(abs.(r .- transfer) ./ transfer) < 1.0e-10
-        @test [sampson_distance(H, exact(board[i]), pix[i]) for i in 1:n] ≈ r rtol = 1.0e-12
+        @test [mahalanobis_distance(H, exact(board[i]), pix[i]) for i in 1:n] ≈ r rtol = 1.0e-12
         # analytically: G₂ = −c·I, so Σ̃ = c²I and r = g/|c| — and the transfer
         # form's frozen whitening is the identity
         W = Vector{SMatrix{2, 2, Float64, 4}}(undef, n)
@@ -86,7 +86,7 @@
         @test all(p.cs_hartley.Σ₂[i] ≈ A₂ * Σ₂ * A₂' for i in 1:n)
         Hn = HomographyMat(Tuple(SMatrix{3, 3}((destination_map(N) ∘ HomographyMap(H) ∘ inv(source_map(N))).forward)))
         cn = p.cs_hartley
-        rn = [sampson_distance(Hn, Uncertain(sources(cn)[i], CovMat(cn.Σ₁[i])), Uncertain(targets(cn)[i], CovMat(cn.Σ₂[i]))) for i in 1:n]
+        rn = [mahalanobis_distance(Hn, Uncertain(sources(cn)[i], CovMat(cn.Σ₁[i])), Uncertain(targets(cn)[i], CovMat(cn.Σ₂[i]))) for i in 1:n]
         @test rn ≈ r rtol = 1.0e-9
     end
 

@@ -47,44 +47,24 @@ GTSAM equivalent: a function's `OptionalJacobian` `H`, with the caller forming
 @inline propagate(J::StaticMatrix{m, n}, Σ::Diagonal) where {m, n} = J * Diagonal(SVector{n}(Σ.diag)) * J'
 
 # =============================================================================
-# Whitening — Cholesky-whiten constraint + model Jacobian
+# The Sampson degeneracy rule and the whitening Cholesky
 # =============================================================================
 #
-# whiten(g, G_x, G_θ, Σ_x) → (r, J_w, ℓ)
-#
-# Given algebraic constraint g, measurement Jacobian G_x, and model Jacobian
-# G_θ, compute the whitened residual and model Jacobian via Cholesky of the
-# projected measurement covariance Σ_g = G_x Σ_x G_xᵀ.
-#
-# Two methods matching the codimension d_g:
-#   - Vector (d_g ≥ 2): Cholesky forward substitution
-#   - Scalar (d_g = 1):  division by √c
+# The pieces base/sampson.jl's two layers share: the one degeneracy rule, the
+# relative rank verdict of a propagated covariance, and the frozen whitening
+# factor. The layers themselves (sampson_residual_with_normal, whiten) live
+# there, after the measurement-noise rule they read.
 # =============================================================================
 
 # THE ONE SAMPSON DEGENERACY RULE of the estimation stack. A correspondence whose
 # measurement gradient vanishes (to rounding) has Sampson distance 0 when the
 # constraint vanishes with it (it satisfies the constraint exactly) and Inf when
 # it does not (no nearby measurement can). No floor, and no zero row that would
-# score an unsatisfiable correspondence as a perfect inlier. `whiten` applies it
-# to the residual it returns — per component, with the sign of gᵢ — and every
-# Sampson distance is `whiten`'s residual (`sampson_distance`,
-# `signed_sampson_distance`), so they cannot disagree.
+# score an unsatisfiable correspondence as a perfect inlier. The Sampson layer
+# applies it to the residual it returns — per component, with the sign of gᵢ —
+# and every Sampson distance and whitened residual is built on that residual,
+# so they cannot disagree.
 @inline _degenerate_sampson(vanishes::Bool) = vanishes ? 0.0 : Inf
-
-"""
-    constraint_rounding_scale(M, u₁, u₂) -> NamedTuple{(:gradient, :value)} | nothing
-
-The rounding scales of the constraint `g(M; u₁, u₂)` at a correspondence — the
-one input the Sampson degeneracy rule needs beyond `(g, G_x)`: `gradient`, below
-which the measurement gradient `‖G_x‖` is rounding (DEGENERATE), and `value`,
-below which `|gᵢ|` is rounding (the constraint VANISHES; a scalar, or one per
-component). Relative to the model's and the points' own magnitudes, so a
-model's homogeneous scale never decides. [`whiten`](@ref) consumes it; the
-default, `nothing`, makes only an exactly zero gradient degenerate and an
-exactly zero `g` vanishing. The epipolar models return
-[`epipolar_rounding`](@ref)'s scales, a homography its rows' term-by-term bound.
-"""
-constraint_rounding_scale(M, u₁, u₂) = nothing
 
 # The two verdicts of the rule at a rounding scale ρ (`nothing`: exact zeros).
 @inline _gradient_degenerate(::Nothing, G_x) = false
@@ -100,48 +80,6 @@ constraint_rounding_scale(M, u₁, u₂) = nothing
 @inline function _signed_degenerate(gᵢ, vanishes::Bool)
     z = oftype(gᵢ, _degenerate_sampson(vanishes))
     return gᵢ < 0 ? -z : z
-end
-
-"""
-    whiten(g::SVector{dg}, G_x::SMatrix{dg,nx}, G_θ::SMatrix{dg,nθ}, Σ_x = I, ρ = nothing)
-        -> (r::SVector{dg}, J_w::SMatrix{dg,nθ}, ℓ::T)
-
-Cholesky-whiten a vector constraint (d_g ≥ 2).
-
-Returns `(L⁻¹g, L⁻¹G_θ, log|Σ_g|)` where `LLᵀ = Σ_g = propagate(G_x, Σ_x)`.
-A degenerate `Σ_g` (Cholesky fails, or it loses rank to rounding relative to its
-diagonal) follows the one Sampson degeneracy rule: the residual is `0` when `g`
-vanishes and `±Inf` otherwise (no nearby measurement satisfies the
-constraint), the Jacobian rows are zero and `ℓ` is `0`. "Vanishes" is at the
-rounding scale `ρ` ([`constraint_rounding_scale`](@ref)), exactly zero without
-one. A scorer reads it as an outlier; a fit that takes it as an inlier fails
-loudly on the non-finite row.
-"""
-@inline function whiten(
-        g::StaticVector{dg, T}, G_x::StaticMatrix{dg, nx, T},
-        G_θ::StaticMatrix{dg, nθ, T}, Σ_x = I, ρ = nothing
-    ) where {dg, nx, nθ, T}
-    C, d, ok = _vector_whitening(G_x, Σ_x, ρ)
-    isnan(d) && return (g .* T(NaN), G_θ .* T(NaN), T(NaN))   # NaN in, NaN out
-    ok || return (_degenerate_residual(g, _vanishes(ρ, g)), zero(G_θ), zero(T))
-    L = C.L
-    return (L \ g, L \ G_θ, log(d))
-end
-
-# The residual alone, `first(whiten(g, G_x, G_θ, Σ_x, ρ))` without the model
-# Jacobian and log-determinant a distance does not read (a `log` the compiler
-# cannot drop, as it may throw): the Sampson distances' hot path. The verdicts
-# are `whiten`'s own (`_vector_whitening`, `_scalar_whitening`).
-@inline function _whiten_residual(g::StaticVector{dg, T}, G_x::StaticMatrix{dg, nx, T}, Σ_x = I, ρ = nothing) where {dg, nx, T}
-    C, d, ok = _vector_whitening(G_x, Σ_x, ρ)
-    isnan(d) && return g .* T(NaN)
-    ok || return _degenerate_residual(g, _vanishes(ρ, g))
-    return C.L \ g
-end
-@inline function _whiten_residual(g::T, G_x::StaticVector{nx, T}, Σ_x = I, ρ = nothing) where {nx, T <: Real}
-    c, ok = _scalar_whitening(G_x, Σ_x, ρ)
-    ok || return _degenerate_residual(g, _vanishes(ρ, g))
-    return g / sqrt(c)
 end
 
 # The whitening of a vector constraint and its degeneracy verdict: Σ_g's
@@ -187,39 +125,6 @@ function whitening_factor(G_x::AbstractMatrix{T}, Σ_x = I) where {T <: Abstract
     return ok ? Matrix(inv(C.L)) : zeros(T, dg, dg)
 end
 
-"""
-    whiten(g::T, G_x::SVector{nx}, G_θ::SVector{nθ}, Σ_x = I, ρ = nothing)
-        -> (r::T, J_w::SVector{nθ}, ℓ::T)
-
-Scalar whitening for d_g = 1 constraints.
-
-Returns `(g/√c, G_θ/√c, log(c))` where `c = G_xᵀ Σ_x G_x`. When the gradient is
-degenerate — `c` is not positive, or `‖G_x‖` is below the rounding scale `ρ`
-([`constraint_rounding_scale`](@ref)) — the one Sampson degeneracy rule applies,
-as in the vector method: residual `0` when `g` vanishes (at `ρ`; exactly
-without one), `±Inf` otherwise, zero Jacobian, `ℓ = 0`. Without `ρ` a sum of
-squares has no cancellation to measure, so only an exactly vanishing gradient
-is degenerate: a small `c` is a legitimately small (e.g. rescaled) model, whose
-whitened residual is scale-free. NaN propagates. Generic in the element type
-(`T <: Real`), so ForwardDiff duals flow through a scalar constraint's rows.
-"""
-@inline function whiten(
-        g::T, G_x::StaticVector{nx, T},
-        G_θ::StaticVector{nθ, T}, Σ_x = I, ρ = nothing
-    ) where {nx, nθ, T <: Real}
-    c, ok = _scalar_whitening(G_x, Σ_x, ρ)
-    ok || return (_degenerate_residual(g, _vanishes(ρ, g)), zero(G_θ), zero(T))
-    sqrt_c = sqrt(c)
-    return (g / sqrt_c, G_θ / sqrt_c, log(c))
-end
-
-# c = G_xᵀΣ_xG_x and the scalar verdict: `ok` unless c is not positive (NaN
-# propagates) or the gradient is below the rounding scale ρ.
-@inline function _scalar_whitening(G_x, Σ_x, ρ)
-    c = _propagate_scalar(G_x, Σ_x)
-    return c, (c > zero(c) || isnan(c)) && !_gradient_degenerate(ρ, G_x)
-end
-
 # ∂vec(A·M·B)/∂vec(M) = kron(Bᵀ, A) (column-major vec) — the derivative of a
 # model conjugated by fixed maps, M ↦ A·M·B: what a constraint evaluated on the
 # conjugated model pulls its model gradient back through (`Jᵀ·∂g/∂vec(M′)` for a
@@ -249,8 +154,8 @@ error of F/E, the whitened transfer error of H, the point–radial-line
 distance of the radial camera, the pixel currency of the division lift.
 
 - [`NoWhitening`](@ref) — the algebraic rows as they are.
-- [`SampsonWhitening`](@ref) — Cholesky-whiten by the propagated unit
-  isotropic measurement noise `G_x·G_xᵀ`: first-order geometric error.
+- [`SampsonWhitening`](@ref) — the Sampson residual, whitened by `G_x·G_xᵀ`
+  (unit isotropic noise): first-order geometric error.
 """
 abstract type WhiteningPolicy end
 
@@ -262,11 +167,24 @@ struct SampsonWhitening <: WhiteningPolicy end
     whitened_rows(policy::WhiteningPolicy, g, G_x, G_θ) -> (r, J)
 
 The residual `r` and model-Jacobian rows `J` of one constraint under the
-policy: `(g, G_θ)` for `NoWhitening`, `(L⁻¹g, L⁻¹G_θ)` from [`whiten`](@ref)
-otherwise. Scalar (d_g = 1) and vector (d_g ≥ 2) constraints alike.
+policy: `(g, G_θ)` for `NoWhitening`; for `SampsonWhitening` the Sampson
+residual `L⁻¹g` ([`sampson_residual`](@ref)'s, `LLᵀ = G_x·G_xᵀ`) and `L⁻¹G_θ`,
+the whitening held fixed (Gauss–Newton). Scalar (d_g = 1: `r` a number, `J` a
+vector) and vector (d_g ≥ 2) constraints alike; a degenerate constraint (the one
+rule) has the rule's residual and zero rows.
 """
 @inline whitened_rows(::NoWhitening, g, G_x, G_θ) = (g, G_θ)
 @inline function whitened_rows(::SampsonWhitening, g, G_x, G_θ)
-    r, J, _ = whiten(g, G_x, G_θ)
-    return r, J
+    s, _, L, ok = _sampson_factor(g, G_x, nothing)
+    return _constraint_shape(g, s), ok ? L \ G_θ : zero(G_θ)
+end
+# A heteroscedastic constraint `(g, G_x, G_θ, Σ_x)`: the Sampson rows whitened
+# by the measurement covariance along the normal (base/sampson.jl's noise
+# layer), i.e. `L_Σ⁻¹g` and `L_Σ⁻¹G_θ` with `L_Σ L_Σᵀ = G_x·Σ_x·G_xᵀ`.
+@inline whitened_rows(w::SampsonWhitening, g, G_x, G_θ, Σ_x) = whitened_rows(w, g, G_x, G_θ, Σ_x, nothing)
+# ... and a sixth element, the constraint's rounding scale ρ (`constraint_rounding_scale`)
+@inline function whitened_rows(::SampsonWhitening, g, G_x, G_θ, Σ_x, ρ)
+    s, N, L, ok = _sampson_factor(g, G_x, ρ)
+    r, J = _whiten_rows(s, N, ok ? L \ G_θ : zero(G_θ), Σ_x)
+    return _constraint_shape(g, r), J
 end

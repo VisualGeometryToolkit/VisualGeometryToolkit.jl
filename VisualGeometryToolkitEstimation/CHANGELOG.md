@@ -1,5 +1,12 @@
 # VisualGeometryToolkitEstimation changelog
 
+## Unreleased
+
+- Follows VisualGeometryToolkitCore's Sampson layers: the essential problem's
+  residual is `only(sampson_residual(E, f₁, f₂; M₁, M₂))`, the division lift's
+  `‖g‖²` is `constraint(m, X, x)`, and the radial-camera rows use
+  `sampson_residual_jacobian`. Results are unchanged (to ≤ 2e-14 px).
+
 ## 0.2.0 (2026-10-29)
 
 ### Added

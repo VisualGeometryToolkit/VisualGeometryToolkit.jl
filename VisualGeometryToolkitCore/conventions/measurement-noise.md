@@ -20,6 +20,16 @@ propagation of both endpoints and the residual is the constraint whitened by it:
 whose two endpoints are both exact is an error** (`ArgumentError`): `Σ̃ = 0`
 leaves nothing to whiten, and no residual unit exists.
 
+**Two layers, two distances.** The noise never enters the Sampson distance:
+[`sampson_distance`](@ref)`(M, x…)` is GEOMETRIC, the first-order distance from
+the measurements to the model's variety in their own units, whatever covariance
+they carry. Its residual in the constraint's normal basis,
+[`sampson_residual_with_normal`](@ref)`(M, x…) = (s_N, N)`, is what the noise
+layer whitens: `r = `[`whiten`](@ref)`(s_N, N, Σ) = L_N⁻¹·s_N`, `L_N L_Nᵀ = NᵀΣN`,
+which is exactly `L⁻¹·g` above (`G_x = L_g·Nᵀ`, so `Σ̃ = L_g·NᵀΣN·L_gᵀ`).
+[`mahalanobis_distance`](@ref)`(M, x…)` is `‖r‖` with `Σ` read from the
+measurements by this rule: for plain points it equals the Sampson distance.
+
 **What a threshold means.** `r` is in units of the noise. For plain image points
 that is the pixel: a 3 px threshold means 3 px, exactly as before this rule was
 written down. With real covariances `r` is in SIGMAS — `r² ~ χ²(d_g)` — and a

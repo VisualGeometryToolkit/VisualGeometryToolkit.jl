@@ -12,7 +12,7 @@
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: EssentialMat, CameraModel, LogicalIntrinsics,
         CameraCalibrationMat, Pinhole, backproject,
-        backproject_with_jacobian, constraint_with_jacobians, sampson_distance
+        backproject_with_jacobian, constraint_with_jacobians, sampson_distance, sampson_residual_with_normal, whiten
 
     R = RotMatrix(RotXYZ(0.04, -0.07, 0.02)); Rm = SMatrix{3, 3}(R)
     t = normalize(SVector(1.0, 0.2, -0.15))
@@ -117,13 +117,13 @@
         @test isfinite(sampson_distance(E, f₁, f₂; M₁, M₂))
     end
 
-    @testset "caller-supplied Σ scales the residual as a covariance should" begin
+    @testset "a pixel Σ whitens the Sampson residual as a covariance should" begin
         i = 7
         f₁, M₁ = backproject_with_jacobian(cam, pix1[i])
         u2 = pix2[i] + SVector(0.8, -0.3)
         f₂, M₂ = backproject_with_jacobian(cam, u2)
         d1 = sampson_distance(E, f₁, f₂; M₁, M₂)
-        d4 = sampson_distance(E, f₁, f₂; M₁, M₂, Σ = SMatrix{4, 4, Float64}(4I))
+        d4 = norm(whiten(sampson_residual_with_normal(E, f₁, f₂; M₁, M₂)..., SMatrix{4, 4, Float64}(4I)))
         @test d4 ≈ d1 / 2 rtol = 1.0e-12      # σ doubled → distance halved
     end
 end

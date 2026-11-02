@@ -136,7 +136,7 @@ local_coordinates(p::ProductManifold{<:Tuple, <:_RadialHomographyParts}, m::Radi
 @inline cd_pair(M, x::StaticVector) = constraint_with_jacobians(M, x)     # single-point data (a line's points)
 @inline function cd_pair(pose::PlainEuclideanMap{3}, c::Pair{<:Any, <:StaticVector{2}})
     X = SVector{3, Float64}(c.first[1], c.first[2], c.first[3])
-    g, _, _ = constraint_with_jacobians(pose, X, SVector{3, Float64}(c.second[1], c.second[2], 1.0))
+    g = constraint(pose, X, SVector{3, Float64}(c.second[1], c.second[2], 1.0))
     Jπ = transform_deriv(PerspectiveMap(), SMatrix{3, 3, Float64, 9}(pose.R) * X + SVector{3, Float64}(pose.t))
     return g, -SMatrix{2, 2, Float64, 4}(I), Jπ * transform_deriv_params(pose, X)
 end

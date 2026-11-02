@@ -8,7 +8,7 @@
     using Test
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: HomographyMat, EssentialMat, SvdWorkspace, homography_dlt,
-        fundamental_dlt, dlt_conditioning, whiten, whitening_factor, signed_sampson_distance,
+        fundamental_dlt, dlt_conditioning, whiten, whitening_factor, sampson_residual,
         sampson_rss, sampson_distance, CentralGenericModel, CameraModel,
         Division
     using StaticArrays, LinearAlgebra, Random
@@ -80,9 +80,12 @@
         Gx = SMatrix{2, 4}(1, 0.2, -0.3, 1.1, 0.5, 0.4, 0, 0.9)
         Gθ = SMatrix{2, 3}(1, 0, 0.5, 2, -1, 0.3)
         Σ = Diagonal([1, 2, 0.5, 1.5])
-        r = whiten(g, Gx, Gθ, SMatrix{4, 4}(Σ))[1]
-        @test whiten(g, Gx, Gθ, Σ)[1] ≈ r
-        @test whiten(g, Gx, Gθ, Matrix(Σ))[1] ≈ r
+        L = cholesky(Symmetric(Gx * Gx')).L
+        s, N = L \ g, SMatrix{4, 2}((L \ Gx)')        # the Sampson residual and its normal basis
+        r = whiten(s, N, SMatrix{4, 4}(Σ))
+        @test r ≈ cholesky(Symmetric(Gx * Σ * Gx')).L \ g    # = the constraint whitened by G_x·Σ·G_xᵀ
+        @test whiten(s, N, Σ) ≈ r
+        @test whiten(s, N, Matrix(Σ)) ≈ r
         @test whitening_factor(Matrix(Gx)) ≈ whitening_factor(Gx)
     end
 
@@ -92,10 +95,10 @@
         f₁ = normalize(X)
         f₂ = normalize(R * X + t)
         # 3-vectors reach the bearing form, which needs the pixel Jacobians M₁, M₂
-        @test_throws UndefKeywordError signed_sampson_distance(E, f₁, f₂)
+        @test_throws UndefKeywordError only(sampson_residual(E, f₁, f₂))
         @test_throws MethodError sampson_rss(E, [f₁], [f₂])
         u₁, u₂ = PerspectiveMap()(X), PerspectiveMap()(R * X + t)
-        @test abs(signed_sampson_distance(E, u₁, u₂)) < 1.0e-12
+        @test abs(only(sampson_residual(E, u₁, u₂))) < 1.0e-12
         # a Float32 model scores Float64 points
         H32 = HomographyMat{Float32}(Tuple(Float32.(H0)))
         @test sampson_rss(H32, first.(hcs), last.(hcs)) < 1.0e-3

@@ -138,7 +138,7 @@ end
 residual_context(::EssentialProblem, θ::EssentialMat) = EssentialMat{Float64}(Tuple(θ))
 
 @inline whitened_residual(p::EssentialProblem, θ::EssentialMat, i::Int) =
-    @inbounds VgtkCore.signed_sampson_distance(
-    EssentialMat{Float64}(Tuple(θ)), _bearing64(sources(p.cs)[i]), _bearing64(targets(p.cs)[i]);
-    M₁ = _jacobian64(p.cs.M₁[i]), M₂ = _jacobian64(p.cs.M₂[i])
-)
+    @inbounds only(VgtkCore.sampson_residual(
+        EssentialMat{Float64}(Tuple(θ)), _bearing64(sources(p.cs)[i]), _bearing64(targets(p.cs)[i]);
+        M₁ = _jacobian64(p.cs.M₁[i]), M₂ = _jacobian64(p.cs.M₂[i])
+    ))

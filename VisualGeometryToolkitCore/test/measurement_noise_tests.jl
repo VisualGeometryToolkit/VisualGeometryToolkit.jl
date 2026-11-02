@@ -9,7 +9,7 @@
     using Random
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: exact, Uncertain, CovMat, PrecMat, cov, pair_covariance, noise_columns,
-        sampson_distance, TransferForm, transfer_whitening!, whitening_factor, CspondNormalization,
+        sampson_distance, mahalanobis_distance, TransferForm, transfer_whitening!, whitening_factor, CspondNormalization,
         source_map, destination_map, implicit_covariance, minimal_manifold, constraint_with_jacobians
 
     rng = Xoshiro(11)
@@ -42,15 +42,17 @@
         @test pair_covariance(cs, 3) == [zeros(2, 4); zeros(2, 2) I(2)]
     end
 
-    @testset "Sampson distance: exact source is the transfer error" begin
+    @testset "Mahalanobis distance: exact source is the transfer error" begin
         for i in 1:n
             e = norm(warp(b[i]) - u[i])
-            @test sampson_distance(H, exact(b[i]), u[i]) ≈ e rtol = 1.0e-10
+            @test mahalanobis_distance(H, exact(b[i]), u[i]) ≈ e rtol = 1.0e-10
         end
         # plain points: the unit isotropic distance, unchanged — far below the
         # pixel error on a metre source (it is in the source's units)
-        @test sampson_distance(H, b[1], u[1]) < 1.0e-2 * norm(warp(b[1]) - u[1])
-        @test_throws ArgumentError sampson_distance(H, exact(b[1]), exact(u[1]))
+        @test mahalanobis_distance(H, b[1], u[1]) == sampson_distance(H, b[1], u[1]) < 1.0e-2 * norm(warp(b[1]) - u[1])
+        # the Sampson distance is geometric: an attached covariance does not enter
+        @test sampson_distance(H, exact(b[1]), u[1]) == sampson_distance(H, b[1], u[1])
+        @test_throws ArgumentError mahalanobis_distance(H, exact(b[1]), exact(u[1]))
         # analytically, the algebraic constraint's G₂ = −c·I: Σ̃ = c²·I
         g, Gx, _ = constraint_with_jacobians(H, b[1], u[1])
         c = -Gx[1, 3]

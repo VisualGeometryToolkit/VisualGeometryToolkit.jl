@@ -10,6 +10,7 @@
     using VisualGeometryToolkitCore: TransferForm, HomographyMat, constraint_with_jacobians, s2_tangent_basis,
         transfer_whitening!, transfer_rows!, transfer_jacobian_rows!, whitening_factor
     import ForwardDiff
+    import VisualGeometryToolkitCore as VgtkCore
 
     rng = Xoshiro(7)
     tangent_M(f) = (b = s2_tangent_basis(f); hcat(b[1], b[2]) * (SMatrix{2, 2}(randn(rng, 2, 2)) .* 1.0e-3))   # tangent, ~1 mrad/px
@@ -22,11 +23,11 @@
         g, G_x, G_θ = constraint_with_jacobians(TransferForm(H(R)), f₁, f₂; M₁, M₂)
         @test norm(g) < 1.0e-14
         # G_θ: ∂g/∂vec(H) by ForwardDiff
-        gH(h) = first(constraint_with_jacobians(TransferForm(HomographyMat(Tuple(h))), f₁, f₂; M₁, M₂))
+        gH(h) = VgtkCore.constraint(TransferForm(HomographyMat(Tuple(h))), f₁, f₂)
         @test G_θ ≈ ForwardDiff.jacobian(gH, SVector{9}(Tuple(SMatrix{3, 3}(R)))) rtol = 1.0e-10
         # G_x: the f₁ block along f₁(δ) = normalize(f₁ + M₁δ), the f₂ block at ĥ = f₂ (exact there)
-        g1(δ) = first(constraint_with_jacobians(TransferForm(H(R)), normalize(f₁ + M₁ * δ), f₂; M₁, M₂))
-        g2(δ) = first(constraint_with_jacobians(TransferForm(H(R)), f₁, normalize(f₂ + M₂ * δ); M₁, M₂))
+        g1(δ) = VgtkCore.constraint(TransferForm(H(R)), normalize(f₁ + M₁ * δ), f₂)
+        g2(δ) = VgtkCore.constraint(TransferForm(H(R)), f₁, normalize(f₂ + M₂ * δ))
         @test G_x[:, 1:2] ≈ ForwardDiff.jacobian(g1, zeros(SVector{2})) rtol = 1.0e-9
         @test G_x[:, 3:4] ≈ ForwardDiff.jacobian(g2, zeros(SVector{2})) rtol = 1.0e-9
         # the Sampson covariance at Σ = I: P(R M₁M₁ᵀRᵀ + M₂M₂ᵀ)Pᵀ

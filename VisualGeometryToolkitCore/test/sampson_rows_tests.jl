@@ -10,8 +10,8 @@
     using Rotations
     using FiniteDiff: FiniteDiff
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: EssentialManifold6, retract, retract_jacobian, signed_sampson_row,
-        signed_sampson_jacobian, sampson_rows!, sampson_jacobian_rows!, signed_sampson_distance,
+    using VisualGeometryToolkitCore: EssentialManifold6, retract, retract_jacobian, sampson_residual_row,
+        sampson_residual_jacobian, sampson_rows!, sampson_jacobian_rows!, sampson_residual,
         epipolar_rounding
 
     rng = Xoshiro(11)
@@ -25,7 +25,7 @@
 
     # dM from the chart differential at v, reshaped per coordinate
     dMof(ch, v) = (A = retract_jacobian(ch, v); ntuple(q -> SMatrix{3, 3}(A[:, q]), size(A, 2)))
-    dist(ch, v, i) = signed_sampson_distance(retract(ch, v), u₁[i], u₂[i])
+    dist(ch, v, i) = only(sampson_residual(retract(ch, v), u₁[i], u₂[i]))
 
     @testset "anchors: EssentialManifold5/6(E) reproduce E up to scale and sign" begin
         for ch in (EssentialManifold5(E), EssentialManifold6(E))
@@ -42,7 +42,7 @@
             )
             M = retract(ch, v); dM = dMof(ch, v)
             for i in (1, 7, 30)
-                d, ∂d = signed_sampson_row(M, dM, u₁[i], u₂[i])
+                d, ∂d = sampson_residual_row(M, dM, u₁[i], u₂[i])
                 # Not `==`: both are `p.g / sqrt(p.J²)` from the SAME
                 # `_epipolar_parts`, but both are `@inline` and the row also
                 # forms the `D·x₁` / `Dᵀ·x₂` products, so the backend fuses the
@@ -50,17 +50,17 @@
                 # correspondences differ is codegen-dependent. Measured over 120
                 # comparisons (60 pairs × both charts): 26 differ, worst 35 ulps
                 # = 7.0e-15 relative = 31.6 eps. rtol is ~14× that, not 1.4×.
-                @test d ≈ signed_sampson_distance(M, u₁[i], u₂[i]) rtol = 1.0e-13
+                @test d ≈ only(sampson_residual(M, u₁[i], u₂[i])) rtol = 1.0e-13
                 fd = FiniteDiff.finite_difference_gradient(w -> dist(ch, SVector{length(v)}(w), i), Vector(v))   # retract takes an SVector
                 @test ∂d ≈ fd rtol = 1.0e-5 atol = 1.0e-9
             end
         end
     end
 
-    # The rows CONTRACT `signed_sampson_jacobian` (one N×9 product, fundmat.jl
+    # The rows CONTRACT `sampson_residual_jacobian` (one N×9 product, fundmat.jl
     # `_contracted_sampson_terms`); the uncontracted formula, with ∂G_x built
     # direction by direction, must agree to rounding.
-    @testset "contracted row = signed_sampson_jacobian with the explicit ∂G_x" begin
+    @testset "contracted row = sampson_residual_jacobian with the explicit ∂G_x" begin
         for (ch, v) in (
                 (EssentialManifold6(E), SVector(0.01, -0.02, 0.005, 0.03, -0.01, 0.02)),
                 (FundMatManifold7(SMatrix{3, 3}(E)), SVector(0.01, -0.02, 0.005, 0.03, -0.01, 0.02, 0.01)),
@@ -72,8 +72,8 @@
                 G_x = SVector(Fx1[1], Fx1[2], Fᵀx2[1], Fᵀx2[2])
                 G_θ = SVector(map(D -> dot(x2, D * x1), dM))
                 ∂G_x = reduce(hcat, map(D -> (a = D * x1; b = D' * x2; SVector(a[1], a[2], b[1], b[2])), dM))
-                _, ∂d = signed_sampson_row(M, dM, u₁[i], u₂[i])
-                @test ∂d ≈ signed_sampson_jacobian(dot(x2, Fx1), G_x, G_θ, ∂G_x) rtol = 1.0e-12 atol = 1.0e-14
+                _, ∂d = sampson_residual_row(M, dM, u₁[i], u₂[i])
+                @test ∂d ≈ sampson_residual_jacobian(dot(x2, Fx1), G_x, G_θ, ∂G_x) rtol = 1.0e-12 atol = 1.0e-14
             end
         end
     end
@@ -85,7 +85,7 @@
         sampson_rows!(r, M, u₁, u₂, sqrtw)
         sampson_jacobian_rows!(J, M, dM, u₁, u₂, sqrtw)
         for i in 1:n
-            d, ∂d = signed_sampson_row(M, dM, u₁[i], u₂[i])
+            d, ∂d = sampson_residual_row(M, dM, u₁[i], u₂[i])
             # Same fma/inlining reason as the row-vs-distance check above: the
             # kernel weights inside its own row function, the right-hand side
             # weights outside it. Measured over 60: 14 differ, worst 40 ulps =
@@ -121,14 +121,14 @@
         F = FundMat(SMatrix{3, 3, Float64}(0, 1, 0, -1, 0, 0, 0, 0, 1))      # both epipolar lines at infinity at the origin
         o = SVector(0.0, 0.0)
         dM = (SMatrix{3, 3, Float64}(I), SMatrix{3, 3, Float64}(1, 0, 0, 0, 0, 0, 0, 0, 0))
-        d, ∂d = signed_sampson_row(F, dM, o, o)
+        d, ∂d = sampson_residual_row(F, dM, o, o)
         @test d == 0 && all(iszero, ∂d)
-        @test signed_sampson_distance(F, o, o) == Inf                             # the distance keeps its Inf
+        @test only(sampson_residual(F, o, o)) == Inf                             # the distance keeps its Inf
         r = [1.0]; J = ones(1, 2)
         sampson_rows!(r, F, [o], [o], [1.0]); sampson_jacobian_rows!(J, F, dM, [o], [o], [1.0])
         @test r == [0.0] && J == zeros(1, 2)
         # the generic scalar: a vanishing gradient is a zero row
-        @test signed_sampson_jacobian(0.3, zero(SVector{4, Float64}), SVector(1.0, 2.0), zeros(SMatrix{4, 2})) == SVector(0.0, 0.0)
+        @test sampson_residual_jacobian(0.3, zero(SVector{4, Float64}), SVector(1.0, 2.0), zeros(SMatrix{4, 2})) == SVector(0.0, 0.0)
     end
 end
 

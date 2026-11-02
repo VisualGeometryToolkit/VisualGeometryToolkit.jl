@@ -348,6 +348,11 @@ const RETIRED_NAMES = String[
     # the focal length a field of view implies is a method of the accessor,
     # `focal_length(sensor, θ; dimension)` (2026-10-27); its inverse is `fov`
     "focal_length" * "_for_fov",
+    # the Sampson distance is geometric and the whitening a second layer over
+    # it (2026-11-02): `sampson_residual` (signed, an SVector), its rows
+    # `sampson_residual_row`/`sampson_residual_jacobian`, and
+    # `whiten(s_N, N, Σ)` / `mahalanobis_distance` for the noise
+    "signed" * "_sampson", "signed_tangent" * "_sampson", "_whiten" * "_residual",
 ]
 
 # Rule 10: the width quantities are bound by their full names. One name per

@@ -1,5 +1,39 @@
 # VisualGeometryToolkitCore changelog
 
+## Unreleased
+
+Breaking: the Sampson distance is geometric, and the noise whitening is a
+second layer over it.
+
+- **`sampson_residual_with_normal(M, x...)` → `(s_N, N)`**, written once for
+  every model with a `constraint_with_jacobians`: the Sampson residual (always
+  an `SVector{dg}`) in an orthonormal basis `N` of the constraint's normal
+  space, with the one degeneracy rule at the model's `constraint_rounding_scale`
+  (now varargs, `(M, x...; kw...)`, and a contract generic).
+  `sampson_residual` is its first part and **`sampson_distance` its norm, for
+  any such model** (F, E on the plane or on bearings, H, the forms, a `Conic`,
+  an `Ellipse`, a `Circle`, a `Line2D`). **A measurement's covariance no longer
+  enters `sampson_distance`**: an `Uncertain` or `exact` point is read as its
+  point.
+- **`whiten(s_N, N, Σ)`** (was `whiten(g, G_x, G_θ, Σ_x, ρ) -> (r, J, ℓ)`):
+  the Sampson residual whitened by `NᵀΣN`, exactly the constraint whitened by
+  `G_x·Σ·G_xᵀ`. **`mahalanobis_distance(M, x...)`** reads `Σ` from the
+  measurements (plain `I`, `Uncertain` its own, `exact` 0): the distance
+  `sampson_distance` used to return for uncertain points. The log-determinant
+  the old `whiten` returned is gone (nothing in the stack read it).
+- **`constraint(M, x...)`**: `g` alone, the `<f>` of `constraint_with_jacobians`
+  (algebraic, model-scale dependent: not a distance).
+- **`constraint_with_jacobians(c::Conic, x)`** and the rounding scales of a
+  `Conic` and an `Ellipse` (an ellipse's centre is degenerate: `Inf`).
+- `whitened_rows(SampsonWhitening(), g, G_x, G_θ, Σ_x)` whitens a
+  heteroscedastic constraint; `whitened_constraint_residual` reads a 4- or
+  5-tuple's `Σ_x` and rounding scale as before.
+- Retired: `signed_sampson_distance` (`only(sampson_residual(M, x...))`), the
+  `Σ` keyword of the essential matrix's distance (`whiten(sampson_residual_with_normal(E, f₁, f₂; M₁, M₂)..., Σ)`),
+  `signed_sampson_jacobian` → `sampson_residual_jacobian`,
+  `signed_sampson_row` → `sampson_residual_row`,
+  `signed_tangent_sampson_row` → `tangent_sampson_residual_row`.
+
 ## 0.2.1 (2026-10-29)
 
 - `conventions_dir()` is resolved from the package's source location instead of

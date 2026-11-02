@@ -114,7 +114,7 @@ function residual_rows!(f, lm::ChartLm{<:Any, <:RadialCameraProblem}, a)
     return f
 end
 
-# ∂d/∂a: VGC's signed-Sampson derivative (`signed_sampson_jacobian`) along the
+# ∂d/∂a: VGC's signed-Sampson derivative (`sampson_residual_jacobian`) along the
 # chart directions A = ∂vec(P)/∂a (the sphere's `retract_jacobian`, the
 # normalization included). The constraint's own second derivative ∂G_x/∂vec(P)
 # is closed form: G_x = (u, −v) with u = p₂·X̃, v = p₁·X̃.
@@ -130,7 +130,7 @@ function residual_jacobian_rows!(J, lm::ChartLm{<:Any, <:RadialCameraProblem}, a
         ∂G_x = SMatrix{2, 6, Float64, 12}(
             0.0, -X̃[1], X̃[1], 0.0, 0.0, -X̃[2], X̃[2], 0.0, 0.0, -X̃[3], X̃[3], 0.0
         )                                                              # rows ∂u, −∂v over vec(P)
-        row = signed_sampson_jacobian(g, G_x, A' * G_θ, ∂G_x * A, iszero(sum(abs2, G_x)))
+        row = sampson_residual_jacobian(g, G_x, A' * G_θ, ∂G_x * A, iszero(sum(abs2, G_x)))
         for q in 1:5
             J[i, q] = sqrtw[i] * row[q]
         end

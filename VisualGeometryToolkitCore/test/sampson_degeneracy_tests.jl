@@ -1,16 +1,16 @@
 # One degeneracy rule for the Sampson distance, its signed form and whitening:
 # where the measurement gradient vanishes to rounding the distance is 0 when the
 # constraint vanishes with it (the correspondence satisfies it exactly) and Inf when
-# it does not; the signed distance is ±Inf, and `whiten` returns that residual with
-# zero Jacobian rows. Every test is relative, so a homogeneous model's scale never
+# it does not; the Sampson residual is ±Inf, and the whitened rows carry that
+# residual with zero Jacobian rows. Every test is relative, so a homogeneous model's scale never
 # decides it — the absolute `eps` thresholds called every correspondence degenerate
 # for a model scaled by 1e-9, and the signed distance's `+ eps` floor moved it.
 @testitem "sampson_degeneracy" begin
     import VisualGeometryToolkitCore as VgtkCore
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: FundMat, HomographyMat, sampson_distance, signed_sampson_distance,
-        whiten, constraint_with_jacobians
+    using VisualGeometryToolkitCore: FundMat, HomographyMat, sampson_distance, sampson_residual,
+        whitened_rows, SampsonWhitening, whitened_constraint_residual, constraint_with_jacobians
     using StaticArrays: SMatrix, SVector
     using LinearAlgebra: I, norm
 
@@ -50,11 +50,11 @@
         @test sampson_distance(H0, SVector(0.0, 2.0), SVector(5.0, 5.0)) == 0.0  # g = 0 with it
     end
 
-    @testset "whiten: a rescaled model whitens to the same residual" begin
+    @testset "a rescaled model whitens to the same residual" begin
         F = FundMat(SMatrix{3, 3, Float64}(1.0e-6, -2.0e-5, 3.0e-3, 4.0e-5, 1.0e-6, -2.0e-2, -1.0e-3, 2.0e-2, 1.0))
         u, v = SVector(310.0, 205.0), SVector(298.0, 211.0)
-        r1 = whiten(constraint_with_jacobians(F, u, v)...)[1]
-        r9 = whiten(constraint_with_jacobians(FundMat(1.0e-9 * SMatrix{3, 3, Float64}(F)), u, v)...)[1]
+        r1 = whitened_constraint_residual(constraint_with_jacobians(F, u, v))
+        r9 = whitened_constraint_residual(constraint_with_jacobians(FundMat(1.0e-9 * SMatrix{3, 3, Float64}(F)), u, v))
         @test r1 != 0
         @test r9 ≈ r1 rtol = 1.0e-9
     end
@@ -62,76 +62,76 @@
     @testset "signed: the unsigned rule with the sign of g" begin
         F = FundMat(SMatrix{3, 3, Float64}(0, 1, 0, -1, 0, 0, 0, 0, 0))
         o = SVector(0.0, 0.0)
-        @test signed_sampson_distance(F, o, o) == 0.0
+        @test only(sampson_residual(F, o, o)) == 0.0
         Finf = FundMat(SMatrix{3, 3, Float64}(0, 1, 0, -1, 0, 0, 0, 0, 1))
-        @test signed_sampson_distance(Finf, o, o) == Inf
-        @test signed_sampson_distance(FundMat(-SMatrix{3, 3, Float64}(Finf)), o, o) == -Inf
+        @test only(sampson_residual(Finf, o, o)) == Inf
+        @test only(sampson_residual(FundMat(-SMatrix{3, 3, Float64}(Finf)), o, o)) == -Inf
         # scale-free, and |signed| is the unsigned distance
         F = FundMat(SMatrix{3, 3, Float64}(1.0e-6, -2.0e-5, 3.0e-3, 4.0e-5, 1.0e-6, -2.0e-2, -1.0e-3, 2.0e-2, 1.0))
         u, v = SVector(310.0, 205.0), SVector(298.0, 211.0)
-        d = signed_sampson_distance(F, u, v)
+        d = only(sampson_residual(F, u, v))
         @test abs(d) ≈ sampson_distance(F, u, v) rtol = 1.0e-12
         for k in (1.0e-9, 1.0e9)
-            @test signed_sampson_distance(FundMat(k * SMatrix{3, 3, Float64}(F)), u, v) ≈ d rtol = 1.0e-9
+            @test only(sampson_residual(FundMat(k * SMatrix{3, 3, Float64}(F)), u, v)) ≈ d rtol = 1.0e-9
         end
-        @test signed_sampson_distance(FundMat(SMatrix{3, 3, Float32}(F)), Float32.(u), Float32.(v)) isa Float32
+        @test only(sampson_residual(FundMat(SMatrix{3, 3, Float32}(F)), Float32.(u), Float32.(v))) isa Float32
         # the unsigned distance keeps the element type too
         @test sampson_distance(FundMat(SMatrix{3, 3, Float32}(F)), Float32.(u), Float32.(v)) isa Float32
         @test sampson_distance(FundMat(SMatrix{3, 3, Float32}(F)), Float32.(u), Float32.(v)) ≈ abs(d) rtol = 1.0e-4
     end
 
-    @testset "whiten: a degenerate measurement is 0 or Inf with zero Jacobian rows" begin
-        r, J, ℓ = whiten(0.7, SVector(0.0, 0.0, 0.0, 0.0), SVector(1.0, 2.0, 3.0))
-        @test r == Inf && all(iszero, J) && ℓ == 0
-        @test whiten(-0.7, SVector(0.0, 0.0, 0.0, 0.0), SVector(1.0, 2.0, 3.0))[1] == -Inf
-        @test whiten(0.0, SVector(0.0, 0.0, 0.0, 0.0), SVector(1.0, 2.0, 3.0))[1] == 0
+    @testset "whitened rows: a degenerate measurement is 0 or Inf with zero Jacobian rows" begin
+        r, J = whitened_rows(SampsonWhitening(), 0.7, SVector(0.0, 0.0, 0.0, 0.0), SVector(1.0, 2.0, 3.0))
+        @test r == Inf && all(iszero, J)
+        @test whitened_rows(SampsonWhitening(), -0.7, SVector(0.0, 0.0, 0.0, 0.0), SVector(1.0, 2.0, 3.0))[1] == -Inf
+        @test whitened_rows(SampsonWhitening(), 0.0, SVector(0.0, 0.0, 0.0, 0.0), SVector(1.0, 2.0, 3.0))[1] == 0
         g = SVector(0.3, -0.2)
         Gx = SMatrix{2, 4, Float64}(0, 0, 0, 0, 0, 0, 0, 0)
         Gθ = SMatrix{2, 3, Float64}(1, 2, 3, 4, 5, 6)
-        rv, Jv, ℓv = whiten(g, Gx, Gθ)
-        @test rv == SVector(Inf, -Inf) && all(iszero, Jv) && ℓv == 0
-        @test all(iszero, whiten(zero(g), Gx, Gθ)[1])
-        # the degenerate homography pair above: whiten and sampson_distance agree
+        rv, Jv = whitened_rows(SampsonWhitening(), g, Gx, Gθ)
+        @test rv == SVector(Inf, -Inf) && all(iszero, Jv)
+        @test all(iszero, whitened_rows(SampsonWhitening(), zero(g), Gx, Gθ)[1])
+        # the degenerate homography pair above: the rows and sampson_distance agree
         H = HomographyMat(SMatrix{3, 3, Float64}(1, 1, 1, 0, 0, 0, 1, 0, 0))
-        rH = whiten(constraint_with_jacobians(H, SVector(0.0, 2.0), SVector(5.0, 5.0))...)[1]
+        rH = whitened_constraint_residual(constraint_with_jacobians(H, SVector(0.0, 2.0), SVector(5.0, 5.0)))
         @test sqrt(sum(abs2, rH)) == sampson_distance(H, SVector(0.0, 2.0), SVector(5.0, 5.0)) == Inf
     end
 
-    @testset "whiten at the rounding scale: the one rule, whatever route" begin
+    @testset "the rounding scale: the one rule, whatever route" begin
         # A pair whose gradient and value both vanish only to ROUNDING: exact
-        # zeros (whiten's default) call it unsatisfiable, the model's rounding
-        # scale calls it satisfied — the Sampson distance's verdict. Threading
-        # `constraint_rounding_scale` into `whiten` makes the two routes agree.
+        # zeros (a bare constraint's default) call it unsatisfiable, the model's
+        # rounding scale calls it satisfied — the Sampson distance's verdict, which
+        # reads `constraint_rounding_scale`.
         F = FundMat(SMatrix{3, 3, Float64}(0, 1, 0, -1, 0, 0, 0, 0, 1.0e-17))
         o = SVector(0.0, 0.0)
         g, Gx, Gθ = constraint_with_jacobians(F, o, o)
         ρ = VgtkCore.constraint_rounding_scale(F, o, o)
-        @test whiten(g, Gx, Gθ)[1] == Inf                        # exact rule: g ≠ 0
-        @test whiten(g, Gx, Gθ, I, ρ)[1] == 0 == sampson_distance(F, o, o)
-        @test signed_sampson_distance(F, o, o) == 0
+        @test whitened_constraint_residual((g, Gx, Gθ)) == Inf      # exact rule: g ≠ 0
+        @test only(first(VgtkCore._sampson_factor(g, Gx, ρ))) == 0 == sampson_distance(F, o, o)
+        @test only(sampson_residual(F, o, o)) == 0
         # a regular pair: the rounding scale changes nothing
         F = FundMat(SMatrix{3, 3, Float64}(1.0e-6, -2.0e-5, 3.0e-3, 4.0e-5, 1.0e-6, -2.0e-2, -1.0e-3, 2.0e-2, 1.0))
         u, v = SVector(310.0, 205.0), SVector(298.0, 211.0)
         g, Gx, Gθ = constraint_with_jacobians(F, u, v)
         ρ = VgtkCore.constraint_rounding_scale(F, u, v)
-        @test whiten(g, Gx, Gθ, I, ρ) == whiten(g, Gx, Gθ)
-        @test whiten(g, Gx, Gθ)[1] == signed_sampson_distance(F, u, v)
+        @test VgtkCore._sampson_factor(g, Gx, ρ) == VgtkCore._sampson_factor(g, Gx, nothing)
+        @test whitened_constraint_residual((g, Gx, Gθ)) == only(sampson_residual(F, u, v))
         # the homography: its rows' rounding bound decides the degenerate pair's value
         H = HomographyMat(SMatrix{3, 3, Float64}(1, 1, 1, 0, 0, 0, 1, 0, 0))
         a, b = SVector(0.0, 2.0), SVector(5.0, 5.0)
         gH, GxH, GθH = constraint_with_jacobians(H, a, b)
-        @test norm(whiten(gH, GxH, GθH, I, VgtkCore.constraint_rounding_scale(H, a, b))[1]) == sampson_distance(H, a, b)
+        @test norm(first(VgtkCore._sampson_factor(gH, GxH, VgtkCore.constraint_rounding_scale(H, a, b)))) == sampson_distance(H, a, b)
     end
 end
 
-# The scalar whitening is generic in its element type, so a chart's scalar rows
-# (a radial camera's, a Sampson row) differentiate by ForwardDiff: through
-# `whiten` it agrees with central differences, and with Float64 the result is
-# the Float64 path's, bit for bit.
+# The scalar Sampson residual is generic in its element type, so a chart's
+# scalar rows (a radial camera's, a Sampson row) differentiate by ForwardDiff:
+# it agrees with central differences, and with Float64 the result is the
+# Float64 path's, bit for bit.
 @testitem "whiten_ad" begin
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: whiten, _whiten_residual
+    using VisualGeometryToolkitCore: whitened_constraint_residual, _sampson_factor
     using StaticArrays: SVector, SMatrix
     using ForwardDiff: ForwardDiff
     using FiniteDiff: FiniteDiff
@@ -140,12 +140,12 @@ end
     g(θ) = θ[1] * θ[2] - 1
     Gx(θ) = SVector(θ[1], θ[2]^2)
     Gθ(θ) = SVector(θ[2], θ[1])
-    r(θ) = first(whiten(g(θ), Gx(θ), Gθ(θ)))
+    r(θ) = whitened_constraint_residual((g(θ), Gx(θ), Gθ(θ)))
     θ0 = SVector(0.7, 1.9)
     @test ForwardDiff.gradient(r, θ0) ≈ FiniteDiff.finite_difference_gradient(r, Vector(θ0)) rtol = 1.0e-7
-    @test ForwardDiff.gradient(θ -> _whiten_residual(g(θ), Gx(θ)), θ0) ≈ ForwardDiff.gradient(r, θ0)
+    @test ForwardDiff.gradient(θ -> only(first(_sampson_factor(g(θ), Gx(θ), nothing))), θ0) ≈ ForwardDiff.gradient(r, θ0)
     @test r(θ0) ≈ g(θ0) / sqrt(Gx(θ0)[1]^2 + Gx(θ0)[2]^2) rtol = 1.0e-15    # Float64: the plain path
     # the degeneracy rule under duals: a vanishing gradient with g ≠ 0 is ±Inf
-    @test isinf(ForwardDiff.value(first(whiten(ForwardDiff.Dual(1.0, 1.0), SVector(ForwardDiff.Dual(0.0, 0.0), ForwardDiff.Dual(0.0, 0.0)),
+    @test isinf(ForwardDiff.value(whitened_constraint_residual((ForwardDiff.Dual(1.0, 1.0), SVector(ForwardDiff.Dual(0.0, 0.0), ForwardDiff.Dual(0.0, 0.0)),
         SVector(ForwardDiff.Dual(1.0, 0.0), ForwardDiff.Dual(1.0, 0.0))))))
 end

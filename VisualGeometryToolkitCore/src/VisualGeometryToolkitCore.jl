@@ -609,12 +609,14 @@ export tls_line                   # the total-least-squares line with its (φ, d
 export direct_ellipse             # the ellipse-specific algebraic fit (Halir–Flusser), one closed-form step
 public ellipse_log_shape, ellipse_from_log_shape   # the ellipse log-shape chart (cx, cy, S₁₁, S₁₂, S₂₂)
 public tls_line_statistics        # the same step's line, weighted residual sum and (φ, d) information
-export sampson_distance, signed_sampson_distance
+export sampson_distance, sampson_residual, mahalanobis_distance   # geometric (Sampson) and noise-whitened distances
+public sampson_residual_with_normal   # the Sampson residual and its normal basis: what `whiten` takes
+public constraint   # g alone: the `<f>` of `constraint_with_jacobians` (algebraic, not a distance)
 export triangulate   # ray-domain triangulation: the point AND both ray depths (cheirality is λ > 0, not z > 0)
 public epipolar_rounding   # the relative degeneracy scales of the one Sampson rule
 public constraint_rounding_scale   # a model's rounding scales at a correspondence: what `whiten` needs to apply that rule
-public signed_sampson_jacobian, signed_sampson_row, sampson_rows!, sampson_jacobian_rows!   # LM rows: scalar + one KA kernel each
-public signed_tangent_sampson_row   # the bearing per-row form (E + M₁/M₂); the rows! methods dispatch to it
+public sampson_residual_jacobian, sampson_residual_row, sampson_rows!, sampson_jacobian_rows!   # LM rows: scalar + one KA kernel each
+public tangent_sampson_residual_row   # the bearing per-row form (E + M₁/M₂); the rows! methods dispatch to it
 public TransferForm, transfer_whitening!, transfer_rows!, transfer_jacobian_rows!   # the whitened homography transfer rows
 public sampson_rss   # Σ sampson_distance² of a correspondence set (σ̂² = RSS/dof)
 public sampson_residuals!   # the n × M Float32 matrix of sampson_distance, models by points (a pool's residuals)
@@ -760,6 +762,7 @@ include("base/device.jl")   # default_device — the family's one KA backend res
 include("base/svd_workspace.jl")  # SvdWorkspace + svd_nullvec! (used by solvers + RVG)
 include("base/propagate.jl")     # propagate(J, Σ) = J * Σ * J' with specializations
 include("base/measurement_noise.jl")  # exact, pair_covariance, noise_columns: the measurement-noise rule
+include("base/sampson.jl")       # the Sampson residual (geometry) and `whiten` (noise): two layers over constraint_with_jacobians
 include("base/manifold.jl")      # the Manifold CONTRACT (retraction + covariance transport); instances in geometry/manifolds/
 # FileCache moved to VisualGeometryToolkitFeatures
 

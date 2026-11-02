@@ -122,11 +122,6 @@ using VisualGeometryToolkitCore: AbstractConstraintProblem, AbstractScoring, Sco
     square_residuals!, sq_residuals, s_hat_sq, student_t_dof,
     update_scale!, update_nu!, update_inlier_prior!,
     mixture_nll
-# `signed_sampson_distance` is NOT imported: E's scoring moved to the tangent
-# Sampson whitened by M₁/M₂, and it was E's last user here. The quality gate
-# refuses a stale explicit import, which is the right refusal — a port that
-# REMOVES things is exactly what leaves unused references behind, and nothing
-# else in the suite would have noticed.
 # Generic block-coordinate-descent loop (hoisted to VGC
 # robust/block_coordinate_descent.jl): the loop + its extension verbs are VGC generics now — `import`
 # so the RVG problem files' method definitions extend the VGC functions.
@@ -179,7 +174,7 @@ using VisualGeometryToolkitCore: deploy, DeployedLoss, sq_loss_width, bounded
 using VisualGeometryToolkitCore: EssentialManifold5,
     FundMatManifold7, HomographyManifold8, pose_action_jacobian,   # the relpose bundle's pose chart
     LeftRigidManifold6, recenter, retract, retract_jacobian, action_jacobian,
-    minimal_manifold, signed_sampson_jacobian,   # the radial-camera chart and its rows
+    minimal_manifold, sampson_residual_jacobian,   # the radial-camera chart and its rows
     RigidExpManifold6, local_coordinates,   # the hand-eye and robot-world chart (the reported covariances'; the hand-eye constraint)
     Line2DManifold,   # the line's Hesse chart (LineFittingProblem)
     implicit_covariance, block_rows,   # the one model covariance and its block rows (estimators/ransac/covariance.jl)

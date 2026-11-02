@@ -191,7 +191,7 @@ end
 # (`_eligibility(errors, ::Nothing) = trues(...)`), so this is reuse, not a
 # change of objective.
 tune_objective(c::MeanAverageAccuracy, errors) =
-    -eligible_maa(collect(Float64, errors); T = c.max_error)
+    -eligible_maa(collect(Float64, errors); c.max_error)
 tuning_criterion_label(::MeanAverageAccuracy) = "mAA"
 
 # -----------------------------------------------------------------------------

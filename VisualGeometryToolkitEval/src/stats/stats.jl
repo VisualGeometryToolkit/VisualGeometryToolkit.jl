@@ -65,19 +65,19 @@ threshold calls this; none spells the number.
 maa_threshold() = Float64(_config_default("metrics", "maa_threshold_deg"))
 
 """
-    eligible_maa(errors, eligible = nothing; T = maa_threshold()) -> Float64
+    eligible_maa(errors, eligible = nothing; max_error = maa_threshold()) -> Float64
 
-The mAA@`T` of a set of pairs under the eligibility rule: the continuous AUC
+The mAA@`max_error` of a set of pairs under the eligibility rule: the continuous AUC
 (VgtkCore `mean_average_accuracy`) over the ELIGIBLE pairs, where a non-finite
 error (a run that yielded no model) scores 0 and stays in the denominator,
 and an ineligible pair (`eligible[i] == false`: no ground truth, or fewer
 valid correspondences than a minimal sample) is excluded. `eligible =
-nothing` treats every pair as eligible. `NaN` when no pair is eligible. `T`
-defaults to [`maa_threshold`](@ref).
+nothing` treats every pair as eligible. `NaN` when no pair is eligible.
+`max_error` defaults to [`maa_threshold`](@ref).
 """
-function eligible_maa(errors, eligible = nothing; T::Real = maa_threshold())
+function eligible_maa(errors, eligible = nothing; max_error::Real = maa_threshold())
     m = _eligibility(errors, eligible)
-    return mean_average_accuracy(view(collect(errors), m); T)
+    return mean_average_accuracy(view(collect(errors), m); max_error)
 end
 
 """

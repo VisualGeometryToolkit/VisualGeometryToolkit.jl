@@ -50,7 +50,7 @@ using TOML
 # Pose errors in degrees of seven image pairs; NaN marks a pair without a model.
 errors = [0.4, 1.2, NaN, 0.8, 3.5, 0.6, 2.1]
 finite_median(errors)                               # 1.0
-eligible_maa(errors; T = 10.0)                      # mAA up to 10 degrees; NaN counts as 0
+eligible_maa(errors; max_error = 10.0)                      # mAA up to 10 degrees; NaN counts as 0
 bootstrap_ci(finite_median, Xoshiro(1), errors)     # 95% BCa interval of the median
 
 # A tuning specification, as a paper's TOML config states it. The keys left out

@@ -25,8 +25,8 @@
     @testset "tuning objectives: mAA is VgtkCore's" begin
         e = [0.5, 2.0, 7.5, 12.0, 3.25]
         maa = MeanAverageAccuracy
-        @test tune_objective(maa(10.0), e) === -mean_average_accuracy(e; T = 10.0)
-        @test tune_objective(maa(20.0), e) === -mean_average_accuracy(e; T = 20.0)
+        @test tune_objective(maa(10.0), e) === -mean_average_accuracy(e; max_error = 10.0)
+        @test tune_objective(maa(20.0), e) === -mean_average_accuracy(e; max_error = 20.0)
         # the definition: the mean of max(0, 1 − e/T)
         @test -tune_objective(maa(10.0), e) ≈ sum(max.(0, 1 .- e ./ 10)) / length(e) rtol = 1e-15
         # the edges the deleted `_maa` got differently: a non-finite error is a

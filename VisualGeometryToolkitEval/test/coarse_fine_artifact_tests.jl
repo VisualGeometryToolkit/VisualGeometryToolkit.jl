@@ -32,7 +32,7 @@
         @test size(r.translation) == (12, 10) == size(r.rotation)
         @test r.pairs[1] == ("a", "b") && r.units == units
         @test maximum(r.translation) < 1.0e-9 && maximum(r.rotation) < 1.0e-9
-        @test eligible_maa(vec(r.translation); T = 10.0) ≈ 1.0
+        @test eligible_maa(vec(r.translation); max_error = 10.0) ≈ 1.0
     end
 
     @testset "missed pairs are Inf: failures under eligible_maa" begin
@@ -48,7 +48,7 @@
         # Missed pairs count as failures: the all-items mAA is the observed
         # mAA scaled by the observed fraction.
         e = vec(r.translation)
-        @test eligible_maa(e; T = 10.0) ≈ eligible_maa(e, isfinite.(e); T = 10.0) * nfin / length(e)
+        @test eligible_maa(e; max_error = 10.0) ≈ eligible_maa(e, isfinite.(e); max_error = 10.0) * nfin / length(e)
         # The error is translation noise of the relative pose (σ = 1 mm per pose).
         @test 0.5 < median(filter(isfinite, e)) < 3.0
     end
@@ -108,14 +108,14 @@ end
     @testset "unit statistics: the mAA and its bootstrap, exactly" begin
         E = errs((w = 3.0, s = 0.25))
         S = unit_statistics(MeanAverageAccuracy(10.0), E)
-        @test -sum(S[:, 1]) / sum(S[:, 2]) ≈ -eligible_maa(vec(E); T = 10.0)
+        @test -sum(S[:, 1]) / sum(S[:, 2]) ≈ -eligible_maa(vec(E); max_error = 10.0)
         art = load_tuning_artifact(path)
         Es = [errs(p) for p in first.(rec.evaluated)]
         idx = bootstrap_argmin(MeanAverageAccuracy(10.0), art["unit_statistics"], Xoshiro(9); n_resamples = 200)
         rr = Xoshiro(9)
         ref = map(1:200) do _
             rows = rand(rr, 1:40, 40)
-            argmax([eligible_maa(vec(E[rows, :]); T = 10.0) for E in Es])
+            argmax([eligible_maa(vec(E[rows, :]); max_error = 10.0) for E in Es])
         end
         @test idx == ref
     end

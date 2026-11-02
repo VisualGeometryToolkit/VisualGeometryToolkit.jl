@@ -78,13 +78,13 @@ function live_runs(scoring, lo::AbstractLocalOptimization, ctxs::AbstractVector{
 end
 
 """
-    live_row(runs; T) -> NamedTuple
+    live_row(runs; max_error) -> NamedTuple
 
 The summary of one [`live_runs`](@ref) result.
 Its fields are `med` the finite median error
-[deg], `maa` the mAA@`T` under the eligibility rule (VisualGeometryToolkitEval
+[deg], `maa` the mAA@`max_error` under the eligibility rule (VisualGeometryToolkitEval
 `eligible_maa`: every pool pair is eligible, a run without a model scores 0;
-`T` defaults to its `maa_threshold()`), `med_trials` the median
+`max_error` defaults to its `maa_threshold()`), `med_trials` the median
 trials, `med_wall_ms` the median wall [ms], and the outcome counts
 (`n_eligible`, `n_failed`, `n_skipped`).
 """

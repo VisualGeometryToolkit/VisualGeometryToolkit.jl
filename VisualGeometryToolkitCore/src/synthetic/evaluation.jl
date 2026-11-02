@@ -217,39 +217,42 @@ failures in the denominator.
 maa(errors, t::Real) = count(e -> e < t, errors) / max(length(errors), 1)
 
 """
-    mean_average_accuracy(errors; T) -> Float64
+    mean_average_accuracy(errors; max_error) -> Float64
 
-THE canonical mAA@`T` (≡ AUC@`T`): the normalized area under the empirical CDF
-of `errors` from 0 to `T` — `(1/T)∫₀ᵀ F(t)dt`, equivalently
+THE canonical mAA@`max_error` (≡ AUC): the normalized area under the empirical
+CDF of `errors` from 0 to `T = max_error` — `(1/T)∫₀ᵀ F(t)dt`, equivalently
 `mean_p max(0, 1 - min(e_p, T)/T)`. Non-finite entries (failed estimates)
 contribute 0 but stay in the denominator. This is the EXACT AUC; the former
 discrete threshold-average variant is retired — it is strictly coarser (it
 cannot resolve errors below `T`/#thresholds). All consumers use this
 continuous statistic.
 
-`T` is required, in the errors' own units: the threshold is a protocol
-parameter of the caller's benchmark (the IMC pose-error mAA takes `T = 10`
-degrees), never a hidden default.
+`max_error` is required, in the errors' own units: the threshold is a protocol
+parameter of the caller's benchmark (the IMC pose-error mAA takes
+`max_error = 10` degrees), never a hidden default.
 """
-function mean_average_accuracy(errors; T::Real)
+function mean_average_accuracy(errors; max_error::Real)
     n = length(errors); n == 0 && return NaN
     s = 0.0
     @inbounds for e in errors      # sequential sum, as before: `sum` would pair-sum
-        s += maa_score(e; T)
+        s += maa_score(e; max_error)
     end
     return s / n
 end
 
 """
-    maa_score(e; T) -> Float64
+    maa_score(e; max_error) -> Float64
 
 Per-item contribution to the continuous [`mean_average_accuracy`](@ref):
-`max(0, 1 - min(e, T)/T)`, and `0` for non-finite `e`. Use this per-sample form
-for bootstrap resampling; `mean(e -> maa_score(e; T), errors) ==
-mean_average_accuracy(errors; T)`. `T` is required, as for the aggregate.
+`max(0, 1 - min(e, T)/T)` with `T = max_error`, and `0` for non-finite `e`. Use
+this per-sample form for bootstrap resampling; `mean(e -> maa_score(e;
+max_error), errors) == mean_average_accuracy(errors; max_error)`. `max_error`
+is required, as for the aggregate.
 """
-maa_score(e; T::Real) =
-    isfinite(e) ? max(0.0, 1.0 - min(Float64(e), Float64(T)) / Float64(T)) : 0.0
+function maa_score(e; max_error::Real)
+    T = Float64(max_error)
+    return isfinite(e) ? max(0.0, 1.0 - min(Float64(e), T) / T) : 0.0
+end
 
 """
     perturbed_pose(rng, R_gt, t_gt, δ) -> (RotMatrix, Vec3)

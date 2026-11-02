@@ -31,6 +31,9 @@ second layer over it.
 - `test_local_optimization_contract([T = Float64,] lo, problem, θ, scoring;
   allocations)`: the element type is an optional leading positional (slot 4 of
   the signature rule), no longer the keyword `T`.
+- `mean_average_accuracy(errors; max_error)` and `maa_score(e; max_error)`:
+  the threshold keyword `T` is `max_error` (one name per quantity; `T` is the
+  type-parameter letter).
 - Retired: `signed_sampson_distance` (`only(sampson_residual(M, x...))`), the
   `Σ` keyword of the essential matrix's distance (`whiten(sampson_residual_with_normal(E, f₁, f₂; M₁, M₂)..., Σ)`),
   `signed_sampson_jacobian` → `sampson_residual_jacobian`,

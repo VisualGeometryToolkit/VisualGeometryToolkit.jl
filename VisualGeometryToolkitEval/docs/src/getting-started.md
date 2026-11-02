@@ -30,7 +30,7 @@ The mean average accuracy (mAA) instead counts a failed pair as zero accuracy,
 because the pair was eligible to run:
 
 ```@example start
-eligible_maa(errors; T = 10.0)
+eligible_maa(errors; max_error = 10.0)
 ```
 
 [`bootstrap_ci`](@ref) gives a bias-corrected and accelerated (BCa) bootstrap

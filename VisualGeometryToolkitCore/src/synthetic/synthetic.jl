@@ -36,7 +36,7 @@ pts, mask = ellipse_points(; n=100, outlier_frac=0.3, sigma=0.5, seed=42)
 # Evaluation
 ```julia
 err = imc_pose_error(F_est, K, R_gt, t_gt)
-score = mean_average_accuracy(errs; T = 10)   # mAA@10°: the threshold is required
+score = mean_average_accuracy(errs; max_error = 10)   # mAA@10°: the threshold is required
 ```
 
 See also: `VisualGeometryToolkitFeatures` for correspondence generators

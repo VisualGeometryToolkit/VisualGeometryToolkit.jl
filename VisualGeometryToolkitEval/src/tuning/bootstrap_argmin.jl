@@ -15,7 +15,7 @@ other criterion it is the errors themselves.
 """
 unit_statistics(::TuningCriterion, errors::AbstractMatrix) = collect(Float64, errors)
 unit_statistics(c::MeanAverageAccuracy, errors::AbstractMatrix) =
-    hcat([sum(e -> maa_score(e; T = c.max_error), r; init = 0.0) for r in eachrow(errors)],
+    hcat([sum(e -> maa_score(e; c.max_error), r; init = 0.0) for r in eachrow(errors)],
          fill(Float64(size(errors, 2)), size(errors, 1)))
 
 """

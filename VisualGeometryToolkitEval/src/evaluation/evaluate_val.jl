@@ -67,17 +67,17 @@ function evaluate end
 
 """
     bootstrap_trials(method, proto::FlatProtocol, budget::BudgetSampling, n;
-                     T = maa_threshold())
+                     max_error = maa_threshold())
         -> (trial_meds, trial_maas, trial_idxs)
 
 The per-draw bootstrap: each of the `budget.n_draws` draws tunes the
 hyperparameter on `n` val pairs of `proto` (`tune`) and evaluates the tuned
 column on its test pairs (`evaluate`): the draw's median test error (a pair
-without a model counts as `Inf`) and its mAA@`T` (the eligibility
+without a model counts as `Inf`) and its mAA@`max_error` (the eligibility
 rule, `eligible_maa`). Draw `r` uses `budget_rng(budget, n, r)`.
 """
 function bootstrap_trials(method::BootstrapMethod, proto::FlatProtocol, budget::BudgetSampling, n::Int;
-                           T::Real = maa_threshold())
+                           max_error::Real = maa_threshold())
     n_bootstrap = budget.n_draws
     trial_meds = Vector{Float64}(undef, n_bootstrap)
     trial_maas = Vector{Float64}(undef, n_bootstrap)
@@ -89,7 +89,7 @@ function bootstrap_trials(method::BootstrapMethod, proto::FlatProtocol, budget::
         trial_idxs[b] = col
         trial_meds[b], trial_maas[b] = get!(test_stats, col) do
             errors = evaluate(method, proto.test_pair_idx, col)
-            isempty(errors) ? (NaN, NaN) : (tune_objective(MedianError(), errors), eligible_maa(errors; T))
+            isempty(errors) ? (NaN, NaN) : (tune_objective(MedianError(), errors), eligible_maa(errors; max_error))
         end
     end
     return trial_meds, trial_maas, trial_idxs

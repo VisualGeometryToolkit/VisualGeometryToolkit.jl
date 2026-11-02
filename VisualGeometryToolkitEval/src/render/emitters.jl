@@ -349,7 +349,7 @@ function emit_basin_faceted(style::PaperStyle, bundle::AbstractString, out::Abst
     # Conditional-mean masking: when P(e≤succ°) < minsucc too few seeds succeed
     # for the survivor mean to be meaningful (it collapses onto a lucky few).
     cond_mean_m(mi, j) = (succ_rate(mi, j) < minsucc ? NaN : cond_mean(mi, j))
-    maa_rate(mi, j) = eligible_maa(col(mi, j), mask; T = succ)
+    maa_rate(mi, j) = eligible_maa(col(mi, j), mask; max_error = succ)
     # Seed reference: UNCONDITIONAL median error over all refinable pairs. Unlike
     # the survivor mean it is defined at every δ (there are always refinable
     # pairs), so the dashed reference spans the full axis.

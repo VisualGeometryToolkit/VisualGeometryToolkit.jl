@@ -349,10 +349,18 @@ const RETIRED_NAMES = String[
     # `focal_length(sensor, θ; dimension)` (2026-10-27); its inverse is `fov`
     "focal_length" * "_for_fov",
     # the Sampson distance is geometric and the whitening a second layer over
-    # it (2026-11-02): `sampson_residual` (signed, an SVector), its rows
-    # `sampson_residual_row`/`sampson_residual_jacobian`, and
+    # it (2026-11-02): `sampson_residual` (signed, an SVector) and
     # `whiten(s_N, N, Σ)` / `mahalanobis_distance` for the noise
     "signed" * "_sampson", "signed_tangent" * "_sampson", "_whiten" * "_residual",
+    # ONE Sampson path (2026-11-02): the residual's model Jacobian is
+    # `sampson_residual_with_jacobian` over the model's
+    # `measurement_gradient_jacobian`, the √w rows `sampson_rows!` /
+    # `sampson_jacobian_rows!` call it per correspondence, a frozen whitening is
+    # `whitening_factor`, and the epipolar degeneracy scales are the models'
+    # `constraint_rounding_scale` — the parallel epipolar rows, the whitening
+    # policy types and their verb are gone
+    "sampson_residual" * "_jacobian", "sampson_residual" * "_row", "tangent_sampson" * "_residual_row",
+    "epipolar" * "_rounding", "whitened" * "_rows", "Whitening" * "Policy", "Sampson" * "Whitening", "No" * "Whitening",
 ]
 
 # Rule 10: the width quantities are bound by their full names. One name per
@@ -1400,7 +1408,8 @@ function owned outside the stack keeps its owner's name (`Base.step`), and a
 use of such a name is not a binding. Julia comments and strings, and all other
 in-scope files ([`naming_scope`](@ref)), are scanned word by word for the
 banned words and the retired phrases, and every line of every file for the
-retired names. The lists live in this function's file and nowhere else.
+retired names — except a `CHANGELOG.md`, whose job is to record what each
+release removed. The lists live in this function's file and nowhere else.
 
 Rule 7's trial/iteration split is checked both ways. In prose, a retired
 phrase (`RETIRED_PHRASES`, whole words in a contiguous run) names a random
@@ -1568,6 +1577,8 @@ function check_naming(pkgdir::AbstractString)
             for m in eachmatch(_WIDTH_FLAG, text)
                 push!(out, NamingViolation(f, k, m.match, :R10))
             end
+            # a changelog records what each release removed: it names the retired
+            _is_changelog(f) && continue
             occursin(any_retired, text) || continue
             for (r, re) in retired
                 occursin(r, text) && occursin(re, text) && push!(out, NamingViolation(f, k, r, :R9))
@@ -1584,6 +1595,10 @@ function check_naming(pkgdir::AbstractString)
     sort!(out; by = v -> (v.file, v.line, v.rule))
     return out
 end
+
+# A release history (a package's or the repository's CHANGELOG.md): the one
+# kind of file where a retired name is the point — it records the removal.
+_is_changelog(f) = basename(f) == "CHANGELOG.md"
 
 # -----------------------------------------------------------------------------
 # Rule 11: units in one place

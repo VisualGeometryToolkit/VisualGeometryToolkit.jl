@@ -76,35 +76,31 @@ test_sample(p::CircleProblem, idx::AbstractVector{Int}) = test_sample(model_type
 # The chart rows — VGC's CircleManifold, the default `minimal_manifold(c)`
 # =============================================================================
 
-# √w-weighted signed Sampson distances at chart coordinates `a`: the same
-# constraint and whitening as the scoring (VGC `whitened_rows`). A point at the
-# centre (G_x = 0, ±Inf under the rule) contributes a zero row.
+# √w-weighted signed Sampson distances at chart coordinates `a`: the scoring's
+# own residual (VGC `sampson_residual`). A point at the centre (G_x = 0, ±Inf
+# under the rule) contributes a zero row.
 function residual_rows!(f, lm::ChartLm{<:VgtkCore.CircleManifold, <:CircleProblem}, a)
     pts = lm.problem.cs; sqrtw = lm.sqrtw
     c = retract(lm.ch, SVector{3}(a[1], a[2], a[3]))
     @inbounds for i in eachindex(pts)
-        g, G_x, G_θ = VgtkCore.constraint_with_jacobians(c, pts[i])
-        d = first(whitened_rows(SampsonWhitening(), g, G_x, G_θ))
+        d = only(VgtkCore.sampson_residual(c, pts[i]))
         f[i] = isinf(d) ? 0.0 : sqrtw[i] * d
     end
     return f
 end
 
-# ∂d/∂a: VGC's signed-Sampson derivative (`sampson_residual_jacobian`) along the
-# chart directions A = ∂(c, r)/∂a (`retract_jacobian`). The constraint's second
-# derivative is constant: G_x = 2(x − c), so ∂G_x/∂(c, r) = [−2I 0].
-const _CIRCLE_∂G_x = SMatrix{2, 3, Float64, 6}(-2.0, 0.0, 0.0, -2.0, 0.0, 0.0)
+# ∂d/∂a: the Sampson residual's model Jacobian (VGC
+# `sampson_residual_with_jacobian`, the circle's `measurement_gradient_jacobian`)
+# along the chart directions A = ∂(c, r)/∂a (`retract_jacobian`).
 function residual_jacobian_rows!(J, lm::ChartLm{<:VgtkCore.CircleManifold, <:CircleProblem}, a)
     pts = lm.problem.cs; sqrtw = lm.sqrtw
     av = SVector{3}(a[1], a[2], a[3])
     c = retract(lm.ch, av)
     A = retract_jacobian(lm.ch, av)
-    ∂G_x = _CIRCLE_∂G_x * A
     @inbounds for i in eachindex(pts)
-        g, G_x, G_θ = VgtkCore.constraint_with_jacobians(c, pts[i])
-        row = sampson_residual_jacobian(g, G_x, A' * G_θ, ∂G_x)
+        _, row = sampson_residual_with_jacobian(c, pts[i]; directions = A)
         for q in 1:3
-            J[i, q] = sqrtw[i] * row[q]
+            J[i, q] = sqrtw[i] * row[1, q]
         end
     end
     return J

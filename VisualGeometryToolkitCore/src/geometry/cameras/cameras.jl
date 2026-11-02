@@ -161,6 +161,7 @@ using ..VisualGeometryToolkitCore: check_weights
 import ..VisualGeometryToolkitCore: propagate   # extended for FramedAffine (imaging_chain.jl)
 using ..VisualGeometryToolkitCore: CovMat, PrecMat, Uncertain, _junction_ok, _check_junction   # the checked statistical forms and the one frame-junction rule (base/frames.jl)
 import ..VisualGeometryToolkitCore: constraint_with_jacobians   # extended for the radial camera and the division lift (calibration.jl), the full camera (camera_models.jl)
+import ..VisualGeometryToolkitCore: measurement_gradient_jacobian   # extended for the radial camera (calibration.jl): its Sampson row
 import ..VisualGeometryToolkitCore: transfer_ellipse          # extended for the lens camera (ellipse-preserving image of a plane conic)
 import ..VisualGeometryToolkitCore: PerspectiveMap  # From CoordinateTransformations (imported to extend)
 import ..VisualGeometryToolkitCore: p3p  # P3P solver from solvers.jl (imported to extend with correspondence wrapper)

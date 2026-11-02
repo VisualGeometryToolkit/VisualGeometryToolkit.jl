@@ -228,7 +228,6 @@ public DEFAULT_MAX_FOV
 export zhang_intrinsics, RadialCamera5pt, RadialCamera  # calibration.jl
 public radial_camera_5pt   # the positional minimal kernel under RadialCamera5pt (public, not exported)
 public radial_rows   # RadialCamera's rows accessor
-public WhiteningPolicy, NoWhitening, SampsonWhitening, whitened_rows   # residual-currency strategy (base/propagate.jl)
 # The double-sphere model (0.14): central scalar lens, closed-form inverse,
 # served in the framed chain by the fused model-carrying projection (its
 # ξ-parameterized defining frame family is ModelDefined — no frame split).
@@ -613,10 +612,9 @@ export sampson_distance, sampson_residual, mahalanobis_distance   # geometric (S
 public sampson_residual_with_normal   # the Sampson residual and its normal basis: what `whiten` takes
 public constraint   # g alone: the `<f>` of `constraint_with_jacobians` (algebraic, not a distance)
 export triangulate   # ray-domain triangulation: the point AND both ray depths (cheirality is λ > 0, not z > 0)
-public epipolar_rounding   # the relative degeneracy scales of the one Sampson rule
 public constraint_rounding_scale   # a model's rounding scales at a correspondence: what `whiten` needs to apply that rule
-public sampson_residual_jacobian, sampson_residual_row, sampson_rows!, sampson_jacobian_rows!   # LM rows: scalar + one KA kernel each
-public tangent_sampson_residual_row   # the bearing per-row form (E + M₁/M₂); the rows! methods dispatch to it
+public sampson_residual_with_jacobian, measurement_gradient_jacobian   # the Sampson residual's exact model Jacobian (scalar constraints) and the model protocol it reads
+public sampson_rows!, sampson_jacobian_rows!   # √w-weighted Sampson rows over a set: one KA kernel each, the per-row function the one path
 public TransferForm, transfer_whitening!, transfer_rows!, transfer_jacobian_rows!   # the whitened homography transfer rows
 public sampson_rss   # Σ sampson_distance² of a correspondence set (σ̂² = RSS/dof)
 public sampson_residuals!   # the n × M Float32 matrix of sampson_distance, models by points (a pool's residuals)

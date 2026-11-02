@@ -303,30 +303,31 @@ end
 @inline _with_eltype(M::StaticMatrix, ::Type{T}) where {T} =
     eltype(M) === T ? M : Base.typename(typeof(M)).wrapper{T}(Tuple(M))
 
-"""
-    epipolar_rounding(F, s, d) -> (tol_J, tol_g)
-
-The degeneracy scales of the epipolar constraint `dᵀ F s` at the homogeneous
-points `s = (x₁, y₁, 1)`, `d = (x₂, y₂, 1)`: the rounding bound `tol_J` of
-every point-gradient component (|F|·|s|, |F|ᵀ·|d|) and `tol_g` of the
-constraint value (|d|ᵀ·|F|·|s|), loose by a constant. A correspondence whose
-squared point gradient is `≤ tol_J²` is DEGENERATE, and the one Sampson
-degeneracy rule answers it with `0` when `|g| ≤ tol_g` and `Inf` otherwise
-(see [`sampson_distance`](@ref), [`sampson_residual`](@ref)).
-
-Relative to the model's own entries, so its homogeneous scale never decides.
-"""
-@inline function epipolar_rounding(F, s, d)
+# The degeneracy scales of the epipolar constraint `dᵀ F s` at the homogeneous
+# points `s`, `d` (the epipolar models' `constraint_rounding_scale`): the
+# rounding bound of every point-gradient component (|F|·|s|, |F|ᵀ·|d|) and of
+# the constraint value (|d|ᵀ·|F|·|s|), loose by a constant. Relative to the
+# model's own entries, so its homogeneous scale never decides.
+@inline function _epipolar_rounding(F, s, d)
     nF = sum(abs, F); ns = sum(abs, s); nd = sum(abs, d)
     tol = 8 * eps(typeof(nF))
     return tol * nF * max(ns, nd), tol * nF * ns * nd
 end
 
-# The epipolar models' rounding scales (`constraint_rounding_scale`), at the
-# homogeneous points — the verdicts `whiten` and the LM rows both read.
+"""
+    constraint_rounding_scale(F::AbstractFundMat, u₁, u₂)
+    constraint_rounding_scale(E::EssentialMat, f₁, f₂; M₁, M₂)
+
+The epipolar constraint's rounding scales (see the generic method): the
+point-gradient bound |F|·|s|, |F|ᵀ·|d| and the value bound |d|ᵀ·|F|·|s| at the
+homogeneous points, loose by a constant and relative to the model's own
+entries, so its homogeneous scale never decides. On bearings the gradient
+carries the backprojection Jacobians into pixels, so its scale carries their
+1-norm too.
+"""
 @inline function constraint_rounding_scale(M::AbstractFundMat, u::StaticVector{2}, v::StaticVector{2})
     T = float(promote_type(eltype(M), eltype(u), eltype(v)))
-    gradient, value = epipolar_rounding(M, _lift_image_point(u, T), _lift_image_point(v, T))
+    gradient, value = _epipolar_rounding(M, _lift_image_point(u, T), _lift_image_point(v, T))
     return (; gradient, value)
 end
 
@@ -474,313 +475,58 @@ in the z = 1 chart. Use that one for `FundMat` and this one for
     return (g, G_x, G_θ)
 end
 
-# The bearing form's rounding scales (`constraint_rounding_scale`): the
-# `_tangent_rounding` the residual and Jacobian rows read.
 @inline function constraint_rounding_scale(
         E::EssentialMat, f₁::StaticVector{3}, f₂::StaticVector{3};
         M₁::StaticMatrix{3, 2}, M₂::StaticMatrix{3, 2}
     )
-    gradient, value = _tangent_rounding(E, f₁, f₂, M₁, M₂)
-    return (; gradient, value)
-end
-
-# The per-correspondence parts every signed-Sampson form shares, in ONE
-# arithmetic order: the homogeneous points, the two epipolar lines, the
-# constraint value g = x₂ᵀ·M·x₁, the squared point gradient
-# ‖∂ₓg‖² = (M·x₁)₁² + (M·x₁)₂² + (Mᵀ·x₂)₁² + (Mᵀ·x₂)₂², and the verdicts of the
-# one degeneracy rule. Eltype-generic (Float32, ForwardDiff Duals) and
-# device-safe: the distance, the LM rows and their kernels all read these.
-# The points are 2-vectors in the model's measurement frame: typed, so a 3-vector
-# bearing is refused (MethodError) rather than read as its first two components.
-@inline function _epipolar_parts(M, u::StaticVector{2}, v::StaticVector{2})
-    T = float(promote_type(eltype(M), eltype(u), eltype(v)))
-    x1 = _lift_image_point(u, T)
-    x2 = _lift_image_point(v, T)
-    Fx1 = M * x1
-    Fᵀx2 = M' * x2
-    g = dot(x2, Fx1)
-    J² = Fx1[1]^2 + Fx1[2]^2 + Fᵀx2[1]^2 + Fᵀx2[2]^2
-    tol_J, tol_g = epipolar_rounding(M, x1, x2)
-    return (; x1, x2, Fx1, Fᵀx2, g, J², degenerate = J² <= tol_J^2, vanishes = abs(g) <= tol_g)
+    tol_J, value = _epipolar_rounding(E, f₁, f₂)
+    return (; gradient = tol_J * max(sum(abs, M₁), sum(abs, M₂)), value)
 end
 
 """
-    sampson_residual_jacobian(g, G_x, G_θ, ∂G_x, degenerate = iszero(G_x)) -> SVector
+    measurement_gradient_jacobian(F::AbstractFundMat, u₁, u₂) -> SMatrix{4, 9}
+    measurement_gradient_jacobian(E::EssentialMat, f₁, f₂; M₁, M₂) -> SMatrix{4, 9}
 
-The derivative along model coordinates `θ` of the signed Sampson distance
-`g/‖G_x‖` of a codimension-1 constraint: `g` its value, `G_x` its measurement
-gradient, `G_θ = ∂g/∂θ` and `∂G_x = ∂G_x/∂θ` (`length(G_x) × length(G_θ)`),
-
-    ∂(g/‖G_x‖)/∂θ_q = (G_θ[q] − (g/‖G_x‖)·(G_xᵀ·∂G_x[:, q])/‖G_x‖) / ‖G_x‖.
-
-`degenerate` (the one Sampson degeneracy rule, e.g. [`epipolar_rounding`](@ref)'s
-verdict) gives a ZERO row: a least-squares row cannot carry the rule's `±Inf`,
-and a zero row is what the reweighting that follows gives it. Generic in the
-element type and device-safe; [`sampson_jacobian_rows!`](@ref) runs it per
-correspondence for the epipolar models.
+`∂G_x/∂vec(F)` of the epipolar constraint (column-major vec, the coordinates
+of its `G_θ`). The constraint is bilinear, so each entry is one coordinate of a
+point: on the plane `G_x = ((Fᵀd)₁,₂, (Fs)₁,₂)` and `∂(Fs)_k/∂F_ij = δ_ki·s_j`,
+`∂(Fᵀd)_k/∂F_ij = δ_jk·d_i`; on bearings the two pixel gradients are those
+carried by `M₁`, `M₂` (per-point data, constant in the model).
 """
-@inline function sampson_residual_jacobian(
-        g, G_x::StaticVector, G_θ::StaticVector{N}, ∂G_x::StaticMatrix,
-        degenerate::Bool = iszero(sum(abs2, G_x))
-    ) where {N}
-    J² = sum(abs2, G_x)
-    denom = sqrt(J²)
-    samp = g / denom
-    row = SVector(ntuple(q -> (G_θ[q] - samp * (dot(G_x, ∂G_x[:, q]) / denom)) / denom, Val(N)))
-    return degenerate ? zero(row) : row
+@inline function measurement_gradient_jacobian(F::AbstractFundMat, u₁::StaticVector{2}, u₂::StaticVector{2})
+    T = float(promote_type(eltype(F), eltype(u₁), eltype(u₂)))
+    s = _lift_image_point(u₁, T); d = _lift_image_point(u₂, T); z = zero(T)
+    return SMatrix{4, 9, T}(ntuple(Val(36)) do k
+        m = (k - 1) ÷ 4 + 1; r = (k - 1) % 4 + 1        # column m = F[i, j], row r of G_x
+        i = (m - 1) % 3 + 1; j = (m - 1) ÷ 3 + 1
+        r == 1 ? ifelse(j == 1, d[i], z) : r == 2 ? ifelse(j == 2, d[i], z) :
+            r == 3 ? ifelse(i == 1, s[j], z) : ifelse(i == 2, s[j], z)
+    end)
 end
-
-"""
-    sampson_residual_row(M, dM, u, v) -> (d, ∂d::SVector)
-
-One correspondence's signed Sampson distance under the epipolar model `M`
-(fundamental or essential, in the measurement frame of `u`, `v`) and its
-derivative along the chart directions `dM = (∂M/∂θ₁, …)` — e.g. the columns of
-`retract_jacobian(ch, v)` reshaped to 3×3. A degenerate pair (the one
-rule) is `(0, 0)`: LM-safe. Device-safe; the per-row function of
-[`sampson_rows!`](@ref) and [`sampson_jacobian_rows!`](@ref).
-"""
-@inline sampson_residual_row(M, dM::Tuple, u, v) = _sampson_row(M, _direction_matrix(dM), u, v)
-
-# The chart directions `dM = (∂M/∂θ₁, …, ∂M/∂θ_N)` as the ROWS of an N×9 matrix
-# (row q = vec(∂M/∂θ_q), column-major): every direction's bilinear form
-# `xᵀ·(∂M/∂θ_q)·y` is then row q of `B·vec(x yᵀ)`, so one N×9 product replaces
-# N separate 3×3 contractions per correspondence. Loop-invariant over a sweep.
-@inline _direction_matrix(dM::NTuple{N, Any}) where {N} =
-    SMatrix{N, 9}(ntuple(k -> dM[(k - 1) % N + 1][(k - 1) ÷ N + 1], Val(9 * N)))
-
-# The signed Sampson row of `sampson_residual_jacobian`, CONTRACTED. Every entry of
-# that formula is a bilinear form in the direction ∂M/∂θ_q:
-#   G_θ[q]              = x₂ᵀ·D_q·x₁
-#   G_xᵀ·∂G_x[:, q]      = aᵀ·D_q·x₁ + x₂ᵀ·D_q·b,   a = (Mx₁)₁,₂ and b = (Mᵀx₂)₁,₂ with a 0 third entry,
-# so the whole row is `B·vec(W) / ‖G_x‖` with ONE 3×3 matrix
-#   W = x₂x₁ᵀ − (g/‖G_x‖²)·(a x₁ᵀ + x₂ bᵀ)
-# — the same algebra as `sampson_residual_jacobian(g, G_x, G_θ, ∂G_x)` (equal to
-# rounding; pinned in test/sampson_rows_tests.jl), at a third of the
-# arithmetic. Degenerate (the one rule) is `(0, 0)`. `ifelse`, not a branch:
-# a branch in the row stops the CPU loop from vectorizing well (measured 2× on
-# the residual row, 2026-10-07).
-@inline _sampson_row(M, B::SMatrix{N, 9}, u, v) where {N} = _scaled_sampson_row(_sampson_terms(M, B, u, v)...)
-@inline function _sampson_terms(M, B::SMatrix{N, 9}, u, v) where {N}
-    p = _epipolar_parts(M, u, v)
-    z = zero(p.g)
-    a = SVector(p.Fx1[1], p.Fx1[2], z)
-    b = SVector(p.Fᵀx2[1], p.Fᵀx2[2], z)
-    return _contracted_sampson_terms(B, p.g, p.J², p.degenerate, p.x1, p.x2, a, b)
+# The contraction `(∂G_x/∂vec F)ᵀ·G_x` the Sampson Jacobian reads, in the
+# bilinear form's own structure: entry (i, j) is d_i·b_j + a_i·s_j, `a`, `b` the
+# two point gradients (G_x's halves, lifted with a 0) — vec(d·bᵀ + a·sᵀ), half
+# the arithmetic of the dense 4×9 product (equal to it, pinned in the tests).
+@inline function _normal_rate(F::AbstractFundMat, G_x, u₁::StaticVector{2}, u₂::StaticVector{2})
+    T = eltype(G_x); z = zero(T)
+    s = _lift_image_point(u₁, T); d = _lift_image_point(u₂, T)
+    b = SVector(G_x[1], G_x[2], z); a = SVector(G_x[3], G_x[4], z)
+    return vec(d * b' + a * s')
 end
-
-# The shared tail of the plane and tangent rows, as (g, B·vec(W), 1/‖G_x‖) with
-# W = x₂x₁ᵀ − (g/J²)(a x₁ᵀ + x₂ bᵀ): the distance is g/‖G_x‖ and the chart row
-# B·vec(W)/‖G_x‖, the scale 0 when degenerate. The scale is returned apart so
-# a Jacobian row applies it with its √w in one scalar product.
-@inline function _contracted_sampson_terms(B::SMatrix{N, 9}, g, J², degenerate::Bool, x₁, x₂, a, b) where {N}
-    c = ifelse(degenerate, zero(g), g / J²)       # finite when degenerate (J² may be 0): the 0 scale then zeroes the row
-    W = x₂ * (x₁ - c * b)' - (c * a) * x₁'      # x₂x₁ᵀ − c(a x₁ᵀ + x₂ bᵀ), two outer products
-    return g, B * vec(W), ifelse(degenerate, zero(J²), inv(sqrt(J²)))
+# On bearings the pixel gradients come back to bearings through M₁, M₂.
+@inline function _normal_rate(E::EssentialMat, G_x, f₁::StaticVector{3}, f₂::StaticVector{3}; M₁, M₂)
+    b = M₁ * SVector(G_x[1], G_x[2]); a = M₂ * SVector(G_x[3], G_x[4])
+    return vec(f₂ * b' + a * f₁')
 end
-@inline function _scaled_sampson_row(g, row, scale)
-    return ifelse(iszero(scale), zero(g), g * scale), scale * row
-end
-
-# One row each, in the uniform `(out, i, args...)` form `_foreach_row!` runs
-# (a plain loop on the CPU, one kernel on a device). The Jacobian rows take the
-# packed direction matrix `B` (`_direction_matrix`, formed once per sweep).
-Base.@propagate_inbounds function _sampson_residual_row!(r, i, M, u₁, u₂, sqrtw)
-    p = _epipolar_parts(M, u₁[i], u₂[i])
-    r[i] = ifelse(p.degenerate, zero(eltype(r)), eltype(r)(sqrtw[i] * (p.g / sqrt(p.J²))))
-    return nothing
-end
-Base.@propagate_inbounds function _sampson_jacobian_row!(J, i, M, B, u₁, u₂, sqrtw)
-    _, row, scale = _sampson_terms(M, B, u₁[i], u₂[i])
-    w = sqrtw[i] * scale
-    for q in 1:size(B, 1)
-        J[i, q] = w * row[q]
-    end
-    return nothing
-end
-
-"""
-    sampson_rows!(r, M, u₁, u₂, sqrtw) -> r
-
-The √w-weighted signed Sampson residual rows of the epipolar model `M` over the
-correspondences `u₁[i] => u₂[i]`: `r[i] = sqrtw[i]·g/‖∂ₓg‖`, a degenerate pair a
-zero row. ONE KernelAbstractions kernel on the backend that owns `r` (supply device
-arrays for the GPU), a plain loop over the same row function on the CPU; `M` in
-the measurement frame of the points (for framed data `C₂ᵀ·M·C₁`, formed once
-per model).
-"""
-function sampson_rows!(
-        r::AbstractVector, M,
-        u₁::AbstractVector{<:StaticVector{2}}, u₂::AbstractVector{<:StaticVector{2}},
-        sqrtw::AbstractVector
-    )
-    return _foreach_row!(_sampson_residual_row!, r, length(u₁), M, u₁, u₂, sqrtw)
-end
-
-"""
-    sampson_jacobian_rows!(J, M, dM, u₁, u₂, sqrtw) -> J
-
-The √w-weighted Jacobian rows of [`sampson_rows!`](@ref) along the chart
-directions `dM = (∂M/∂θ₁, …, ∂M/∂θ_N)`: `J[i, q] = sqrtw[i]·∂dᵢ/∂θ_q`
-([`sampson_residual_jacobian`](@ref)), a degenerate pair a zero row. One kernel on
-the backend that owns `J`.
-"""
-function sampson_jacobian_rows!(
-        J::AbstractMatrix, M, dM::Tuple,
-        u₁::AbstractVector{<:StaticVector{2}}, u₂::AbstractVector{<:StaticVector{2}},
-        sqrtw::AbstractVector
-    )
-    return _foreach_row!(_sampson_jacobian_row!, J, length(u₁), M, _direction_matrix(dM), u₁, u₂, sqrtw)
-end
-
-# =============================================================================
-# The TANGENT LM rows: E on unit bearings
-# =============================================================================
-#
-# The rows above are the IMAGE-PLANE form: `_epipolar_parts` reads `u[1], u[2]`
-# and lifts to (x, y, 1), so a 3-vector bearing handed to them has its third
-# component DISCARDED and replaced by 1 — a different function, not a scaled
-# one. VisualGeometryToolkitEstimation measured the two disagreeing by up to 446× per
-# point after its scoring path moved to bearings while `_EssentialLm` did not:
-# the optimizer descended something unrelated to what was scored, failed to
-# reduce its own cost (0.006378 → 0.006416), and reported `:converged` while a
-# pose went from a 3.4° seed to 26°. It would have shipped as "the LO
-# converged".
-#
-# Hence BOTH halves of the dispatch are typed: the image-plane rows take
-# `StaticVector{2}` only, these take `StaticVector{3}` plus the per-point
-# Jacobians, and neither can be reached by the other's data.
-#
-# ONE IMPLEMENTATION, which is the whole point. The constraint and its
-# gradients come from `constraint_with_jacobians(E, f₁, f₂; M₁, M₂)` — the same
-# scalar the scoring path uses — and the WHITENING DERIVATIVE comes from
-# `_contracted_sampson_terms`, the same function the image-plane rows use (the
-# contracted form of `sampson_residual_jacobian`). Nothing about `g/‖∇g‖` is
-# re-derived here; only the vectors G_x pairs with, which differ because G_x
-# carries the backprojection Jacobians.
-
-# The degeneracy rule, in the family's own arithmetic. `epipolar_rounding` sizes
-# the bearing-space gradient; G_x is that gradient carried into PIXELS by M, so
-# its rounding scale carries the same factor — measured in the same 1-norm style
-# the rule itself uses, rather than with a new constant.
-@inline function _tangent_rounding(E, f₁, f₂, M₁, M₂)
-    tol_J, tol_g = epipolar_rounding(E, f₁, f₂)
-    s = max(sum(abs, M₁), sum(abs, M₂))
-    return tol_J * s, tol_g
-end
-
-# The per-correspondence parts every tangent-Sampson form shares — the bearing
-# counterpart of `_epipolar_parts`: the constraint `g = f₂ᵀ E f₁`, its pixel
-# gradient `G_x` and model gradient `G_θ` (`constraint_with_jacobians`), the
-# squared gradient `J² = ‖G_x‖²`, and the verdicts of the one degeneracy rule at
-# the `_tangent_rounding` scales. The scalar distance, the residual rows and the
-# Jacobian rows all read these.
-@inline function _tangent_parts(E, f₁, f₂, M₁, M₂)
-    g, G_x, G_θ = constraint_with_jacobians(E, f₁, f₂; M₁, M₂)
-    J² = sum(abs2, G_x)
-    tol_J, tol_g = _tangent_rounding(E, f₁, f₂, M₁, M₂)
-    return (; g, G_x, G_θ, J², degenerate = J² <= tol_J^2, vanishes = abs(g) <= tol_g)
-end
-
-"""
-    tangent_sampson_residual_row(E, dE, f₁, f₂, M₁, M₂) -> (d, ∂d::SVector)
-
-One bearing correspondence's signed TANGENT Sampson distance under `E` and its
-derivative along the chart directions `dE = (∂E/∂θ₁, …)`. The bearing
-counterpart of [`sampson_residual_row`](@ref); `M₁`/`M₂` are the 3×2
-backprojection Jacobians from [`backproject_with_jacobian`](@ref), which is
-what puts `d` and the rows in PIXELS.
-
-Degenerate (the gradient vanishes to rounding) is `(0, 0)`, LM-safe, the same
-rule the image-plane row uses. Device-safe; the per-row function of the
-bearing methods of [`sampson_rows!`](@ref) and
-[`sampson_jacobian_rows!`](@ref).
-"""
-@inline tangent_sampson_residual_row(E::EssentialMat, dE::Tuple, f₁, f₂, M₁, M₂) =
-    _tangent_sampson_row(E, _direction_matrix(dE), f₁, f₂, M₁, M₂)
-
-# The bearing row through the SAME contraction as the plane row
-# (`_contracted_sampson_terms`): G_x carries the backprojection Jacobians, so
-# G_xᵀ·∂G_x[:, q] = f₂ᵀ·D_q·(M₁ G_x₁,₂) + (M₂ G_x₃,₄)ᵀ·D_q·f₁ — `a` and `b` are the
-# two pixel gradients carried back to bearings. M is per-point DATA and does not
-# depend on θ, so it goes through the derivative unchanged.
-@inline _tangent_sampson_row(E::EssentialMat, B::SMatrix{N, 9}, f₁, f₂, M₁, M₂) where {N} =
-    _scaled_sampson_row(_tangent_sampson_terms(E, B, f₁, f₂, M₁, M₂)...)
-@inline function _tangent_sampson_terms(E::EssentialMat, B::SMatrix{N, 9}, f₁, f₂, M₁, M₂) where {N}
-    p = _tangent_parts(E, f₁, f₂, M₁, M₂)
-    s = SVector{3}(f₁[1], f₁[2], f₁[3])
-    d = SVector{3}(f₂[1], f₂[2], f₂[3])
-    a = M₁ * SVector(p.G_x[1], p.G_x[2])
-    b = M₂ * SVector(p.G_x[3], p.G_x[4])
-    # x₁ = f₁, x₂ = f₂; the view-1 gradient pairs with f₂ on the left, so it is the
-    # `b`-slot of the plane form and the view-2 one its `a`-slot.
-    return _contracted_sampson_terms(B, p.g, p.J², p.degenerate, s, d, b, a)
-end
-
-# One row each, in the uniform `(out, i, args...)` form `_foreach_row!` runs
-# (a plain loop on the CPU, one kernel on a device).
-Base.@propagate_inbounds function _tangent_residual_row!(r, i, E, f₁, f₂, M₁, M₂, sqrtw)
-    p = _tangent_parts(E, f₁[i], f₂[i], M₁[i], M₂[i])
-    r[i] = ifelse(p.degenerate, zero(eltype(r)), eltype(r)(sqrtw[i] * (p.g / sqrt(p.J²))))
-    return nothing
-end
-
-Base.@propagate_inbounds function _tangent_jacobian_row!(J, i, E, B, f₁, f₂, M₁, M₂, sqrtw)
-    _, row, scale = _tangent_sampson_terms(E, B, f₁[i], f₂[i], M₁[i], M₂[i])
-    w = sqrtw[i] * scale
-    for q in 1:size(B, 1)
-        J[i, q] = w * row[q]
-    end
-    return nothing
-end
-
-"""
-    sampson_rows!(r, E::EssentialMat, f₁, f₂, sqrtw; M₁, M₂) -> r
-
-The √w-weighted signed TANGENT Sampson residual rows of `E` over the BEARING
-correspondences `f₁[i] => f₂[i]`, with the per-point backprojection Jacobians
-`M₁[i]`, `M₂[i]` (3×2, from [`backproject_with_jacobian`](@ref)) carrying the
-residual into PIXELS — so an LM threshold stays a pixel σ for any lens,
-including one whose rays the z = 1 chart cannot represent.
-
-Positionally identical to the image-plane method so an LM protocol stays
-uniform; the Jacobians ride as keywords exactly as they do on the scalar
-[`sampson_distance`](@ref)`(E, f₁, f₂; M₁, M₂)`, with which these rows agree
-(pinned in `test/tangent_sampson_rows_tests.jl`).
-
-A 2-vector endpoint cannot reach this method and a bearing cannot reach the
-image-plane one — see the section note above for the 446× disagreement that
-made the separation a type rather than a convention.
-"""
-function sampson_rows!(
-        r::AbstractVector, E::EssentialMat,
-        f₁::AbstractVector{<:StaticVector{3}}, f₂::AbstractVector{<:StaticVector{3}},
-        sqrtw::AbstractVector; M₁::AbstractVector, M₂::AbstractVector
-    )
-    return _foreach_row!(_tangent_residual_row!, r, length(f₁), E, f₁, f₂, M₁, M₂, sqrtw)
-end
-
-"""
-    sampson_jacobian_rows!(J, E::EssentialMat, dE, f₁, f₂, sqrtw; M₁, M₂) -> J
-
-The √w-weighted Jacobian rows of the bearing [`sampson_rows!`](@ref) along the
-chart directions `dE = (∂E/∂θ₁, …, ∂E/∂θ_N)`: `J[i, q] = sqrtw[i]·∂dᵢ/∂θ_q`, a
-degenerate pair a zero row.
-
-The whitening derivative is the contracted [`sampson_residual_jacobian`](@ref)
-(`_contracted_sampson_terms`) — the SAME function the image-plane rows use — so
-`g/‖∇g‖` has one implementation here and there. What this adds is the pair of
-vectors `G_x` contracts with, which differ only because `G_x` carries the
-backprojection Jacobians; `M` is per-point data and does not depend on `θ`.
-Finite-differenced against the residual rows in the tests, with two different
-focal lengths, rather than derived and asserted against itself.
-"""
-function sampson_jacobian_rows!(
-        J::AbstractMatrix, E::EssentialMat, dE::Tuple,
-        f₁::AbstractVector{<:StaticVector{3}}, f₂::AbstractVector{<:StaticVector{3}},
-        sqrtw::AbstractVector; M₁::AbstractVector, M₂::AbstractVector
-    )
-    return _foreach_row!(_tangent_jacobian_row!, J, length(f₁), E, _direction_matrix(dE), f₁, f₂, M₁, M₂, sqrtw)
+@inline function measurement_gradient_jacobian(
+        E::EssentialMat{T}, f₁::StaticVector{3}, f₂::StaticVector{3};
+        M₁::StaticMatrix{3, 2}, M₂::StaticMatrix{3, 2}
+    ) where {T}
+    return SMatrix{4, 9}(ntuple(Val(36)) do k
+        m = (k - 1) ÷ 4 + 1; r = (k - 1) % 4 + 1
+        i = (m - 1) % 3 + 1; j = (m - 1) ÷ 3 + 1
+        r <= 2 ? M₁[j, r] * f₂[i] : M₂[i, r - 2] * f₁[j]
+    end)
 end
 
 # =============================================================================

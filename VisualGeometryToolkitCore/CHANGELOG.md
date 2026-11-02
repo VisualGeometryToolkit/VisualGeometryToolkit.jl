@@ -1,5 +1,41 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.4.0 (2026-11-02)
+
+Breaking: ONE Sampson path. Nothing outside `base/sampson.jl` computes
+`g/‖G_x‖`, its whitening or its model Jacobian.
+
+- **`sampson_residual_with_jacobian(M, x...; directions)` → `(s_N, J)`**, the
+  Sampson residual of a scalar constraint and its EXACT model Jacobian along
+  the chart `directions` (an `nθ × N` matrix, `retract_jacobian`, or the
+  models `retract_directions` returns), from `constraint_with_jacobians` and
+  a new model protocol, **`measurement_gradient_jacobian(M, x...)`**
+  (`∂G_x/∂θ`), implemented by `FundMat`/`EssentialMat` (plane and bearings),
+  `Circle` and `RadialCamera`. A degenerate measurement has a zero row.
+- **`sampson_rows!(r, M, u₁, u₂, sqrtw; columns...)` and
+  `sampson_jacobian_rows!(J, M, directions, u₁, u₂, sqrtw; columns...)`** are
+  that function per correspondence (one KernelAbstractions kernel each);
+  per-point keyword columns (`M₁`, `M₂` on bearings) reach the constraint.
+  The image-plane and tangent epipolar row functions that restated the
+  residual and its contracted Jacobian, the public per-row forms and the
+  generic Sampson-Jacobian helper are removed; the bilinear contraction lives
+  on as the epipolar models' way of evaluating `(∂G_x/∂θ)ᵀG_x`.
+- **The epipolar degeneracy scales are the models' `constraint_rounding_scale`**
+  (the separate public scale function is removed).
+- **The whitening-policy types and their row verb are removed.** A frozen
+  whitening (an iteratively reweighted fit's rows, a Gauss–Newton row) is
+  `whitening_factor(G_x[, Σ_x])` — now also for a scalar constraint's
+  gradient, a number — times the algebraic rows; the whitened residual of a
+  constraint tuple is `whitened_constraint_residual`, which reads a 4- or
+  5-tuple's `Σ_x` and rounding scale as before.
+- Removed: `sampson_residual_jacobian`, `sampson_residual_row`,
+  `tangent_sampson_residual_row` (all three are `sampson_residual_with_jacobian`);
+  `epipolar_rounding` (`constraint_rounding_scale`); `WhiteningPolicy`,
+  `NoWhitening`, `SampsonWhitening`, `whitened_rows` (`whitening_factor`,
+  `whitened_constraint_residual`).
+- `check_naming` reads a `CHANGELOG.md` for banned words but not for retired
+  names: a changelog records what each release removed.
+
 ## 0.3.0 (2026-11-02)
 
 Breaking: the Sampson distance is geometric, and the noise whitening is a

@@ -9,7 +9,8 @@
     using FiniteDiff: FiniteDiff
     import ForwardDiff
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: NoWhitening, SampsonWhitening, monotone_radius, source_map, destination_map, radial_ratio, whitened_rows, calibration_stage   # public, not exported
+    using VisualGeometryToolkitCore: monotone_radius, source_map, destination_map, radial_ratio, calibration_stage, whitening_factor,
+        sampson_residual_with_jacobian, measurement_gradient_jacobian, whitened_constraint_residual   # public, not exported
     using VisualGeometryToolkitCore: project_with_jacobians, radial_camera_5pt   # kernel: public, not exported
 
     @testset "monotone_radius agrees with the fold view_angle_limit reports" begin
@@ -376,13 +377,15 @@
             gθ(v) = constraint_with_jacobians(RadialCamera{eltype(v)}(SMatrix{2, 3}(v[1], v[2], v[3], v[4], v[5], v[6])), X, x)[1]
             @test ForwardDiff.gradient(gx, x) ≈ G_x atol = 1.0e-9
             @test ForwardDiff.gradient(gθ, SVector(vec(Pm.P))) ≈ G_θ atol = 1.0e-9
-            # policies: NoWhitening returns the row, Sampson whitens by G_x G_xᵀ (the
-            # division lift's two-row form moved with it to VisualGeometryToolkitEstimation)
-            r0, J0 = whitened_rows(NoWhitening(), g, G_x, G_θ)
-            @test r0 === g && J0 === G_θ
-            rs, Js = whitened_rows(SampsonWhitening(), g, G_x, G_θ)
-            @test rs ≈ g / norm(G_x) atol = 1.0e-12
-            @test Js ≈ G_θ / norm(G_x) atol = 1.0e-12
+            # the Sampson residual is the point–radial-line distance, its frozen
+            # whitening factor 1/‖G_x‖ (the reweighted fit's row scale), and the
+            # exact model Jacobian against ForwardDiff through the residual
+            @test only(sampson_residual(Pm, X, x)) ≈ g / norm(G_x) atol = 1.0e-12
+            @test whitening_factor(G_x) * G_θ ≈ G_θ / norm(G_x) atol = 1.0e-12
+            dθ(v) = only(sampson_residual(RadialCamera{eltype(v)}(SMatrix{2, 3}(v[1], v[2], v[3], v[4], v[5], v[6])), X, x))
+            @test vec(sampson_residual_with_jacobian(Pm, X, x)[2]) ≈ ForwardDiff.gradient(dθ, SVector(vec(Pm.P))) rtol = 1.0e-12
+            @test measurement_gradient_jacobian(Pm, X, x) ≈
+                ForwardDiff.jacobian(v -> constraint_with_jacobians(RadialCamera{eltype(v)}(SMatrix{2, 3}(v[1], v[2], v[3], v[4], v[5], v[6])), X, x)[2], SVector(vec(Pm.P)))
             # A two-row constraint (the division lift's form, VisualGeometryToolkitEstimation's
             # RadialLift): whitened by a factor W of Σ_g⁻¹ = (G_x G_xᵀ)⁻¹ — the
             # rows' Gram matrices are the Mahalanobis forms, whatever W is.
@@ -390,11 +393,11 @@
             g2 = SVector(0.3, -1.2); Gx2 = SMatrix{2, 3}(1.0, 0.2, -0.4, 0.9, 0.3, 0.5)
             Gθ2 = SMatrix{2, 4}(0.7, -0.1, 0.2, 1.3, -0.6, 0.4, 0.05, 0.8)
             Σg = Gx2 * Gx2'
-            r2, J2 = whitened_rows(SampsonWhitening(), g2, Gx2, Gθ2)
+            W2 = whitening_factor(Gx2)
+            r2 = whitened_constraint_residual((g2, Gx2, Gθ2)); J2 = W2 * Gθ2
             @test dot(r2, r2) ≈ dot(g2, Σg \ g2) rtol = 1.0e-12
             @test J2' * J2 ≈ Gθ2' * (Σg \ Gθ2) rtol = 1.0e-12
             @test J2' * r2 ≈ Gθ2' * (Σg \ g2) rtol = 1.0e-12
-            @test whitened_rows(NoWhitening(), g2, Gx2, Gθ2) === (g2, Gθ2)
         end
     end
 

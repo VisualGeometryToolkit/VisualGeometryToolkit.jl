@@ -10,7 +10,7 @@ where an upstream package owns the name.
 | `<f>_with_jacobians` | value plus several, documented | `project_with_jacobians(lens, X) -> (u, J_X, J_p)` |
 | [`constraint_with_jacobians`](@ref) | `(g, G_x, G_θ)` for an implicit constraint | `constraint_with_jacobians(E, f₁, f₂; M₁, M₂)` |
 | [`constraint_jacobians`](@ref) | the Jacobians alone | `constraint_jacobians(M, v, cs)` |
-| `<thing>_jacobian` | the Jacobian alone, named after what it differentiates | [`retract_jacobian`](@ref), [`action_jacobian`](@ref) |
+| `<thing>_jacobian` | the Jacobian alone, named after what it differentiates | [`retract_jacobian`](@ref), [`action_jacobian`](@ref), [`measurement_gradient_jacobian`](@ref) (`∂G_x/∂θ` of a constraint) |
 
 Each docstring names its Ceres or GTSAM equivalent, and says so explicitly where
 they disagree:
@@ -30,7 +30,12 @@ they disagree:
   `Cal3_S2::calibrate`, collides with our task verb `calibrate` (estimating the
   camera).
 - Implicit constraints follow Förstner's `A = ∂g/∂θ`, `B = ∂g/∂x`, since neither
-  Ceres nor GTSAM has the concept.
+  Ceres nor GTSAM has the concept. Their Sampson residual has ONE
+  implementation (VisualGeometryToolkitCore's `base/sampson.jl`): the residual,
+  [`sampson_residual_with_jacobian`](@ref)'s exact model row (from `G_θ` and the
+  model's [`measurement_gradient_jacobian`](@ref)) and the √w rows over a set
+  are built there and nowhere else; a frozen whitening is
+  [`whitening_factor`](@ref).
 
 The stack's Levenberg–Marquardt protocol (VisualGeometryToolkitCore `lm_core.jl`) is `residual_rows!` and
 `residual_jacobian_rows!`, mirroring Ceres' `CostFunction::Evaluate`; its driver

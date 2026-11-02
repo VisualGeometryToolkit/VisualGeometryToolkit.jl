@@ -1,8 +1,8 @@
 # One degeneracy rule for the Sampson distance, its signed form and whitening:
 # where the measurement gradient vanishes to rounding the distance is 0 when the
 # constraint vanishes with it (the correspondence satisfies it exactly) and Inf when
-# it does not; the Sampson residual is ±Inf, and the whitened rows carry that
-# residual with zero Jacobian rows. Every test is relative, so a homogeneous model's scale never
+# it does not; the Sampson residual is ±Inf, a Sampson Jacobian row and a frozen
+# whitening factor are zero there. Every test is relative, so a homogeneous model's scale never
 # decides it — the absolute `eps` thresholds called every correspondence degenerate
 # for a model scaled by 1e-9, and the signed distance's `+ eps` floor moved it.
 @testitem "sampson_degeneracy" begin
@@ -10,7 +10,7 @@
     using Test
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: FundMat, HomographyMat, sampson_distance, sampson_residual,
-        whitened_rows, SampsonWhitening, whitened_constraint_residual, constraint_with_jacobians
+        whitening_factor, whitened_constraint_residual, constraint_with_jacobians, sampson_residual_with_jacobian, Circle
     using StaticArrays: SMatrix, SVector
     using LinearAlgebra: I, norm
 
@@ -80,17 +80,22 @@
         @test sampson_distance(FundMat(SMatrix{3, 3, Float32}(F)), Float32.(u), Float32.(v)) ≈ abs(d) rtol = 1.0e-4
     end
 
-    @testset "whitened rows: a degenerate measurement is 0 or Inf with zero Jacobian rows" begin
-        r, J = whitened_rows(SampsonWhitening(), 0.7, SVector(0.0, 0.0, 0.0, 0.0), SVector(1.0, 2.0, 3.0))
-        @test r == Inf && all(iszero, J)
-        @test whitened_rows(SampsonWhitening(), -0.7, SVector(0.0, 0.0, 0.0, 0.0), SVector(1.0, 2.0, 3.0))[1] == -Inf
-        @test whitened_rows(SampsonWhitening(), 0.0, SVector(0.0, 0.0, 0.0, 0.0), SVector(1.0, 2.0, 3.0))[1] == 0
+    @testset "a degenerate measurement: residual 0 or ±Inf, Jacobian row and frozen factor zero" begin
+        Z4 = SVector(0.0, 0.0, 0.0, 0.0); Gθ3 = SVector(1.0, 2.0, 3.0)
+        @test whitened_constraint_residual((0.7, Z4, Gθ3)) == Inf
+        @test whitened_constraint_residual((-0.7, Z4, Gθ3)) == -Inf
+        @test whitened_constraint_residual((0.0, Z4, Gθ3)) == 0
+        @test whitening_factor(Z4) == 0                                       # the frozen factor: a zero row
         g = SVector(0.3, -0.2)
         Gx = SMatrix{2, 4, Float64}(0, 0, 0, 0, 0, 0, 0, 0)
         Gθ = SMatrix{2, 3, Float64}(1, 2, 3, 4, 5, 6)
-        rv, Jv = whitened_rows(SampsonWhitening(), g, Gx, Gθ)
-        @test rv == SVector(Inf, -Inf) && all(iszero, Jv)
-        @test all(iszero, whitened_rows(SampsonWhitening(), zero(g), Gx, Gθ)[1])
+        @test whitened_constraint_residual((g, Gx, Gθ)) == SVector(Inf, -Inf)
+        @test all(iszero, whitening_factor(Gx) * Gθ)
+        @test all(iszero, whitened_constraint_residual((zero(g), Gx, Gθ)))
+        # the Sampson Jacobian row of a point at a circle's centre (G_x = 0): ±Inf residual, zero row
+        c = Circle(Point2(1.0, 2.0), 3.0)
+        s, ∂s = sampson_residual_with_jacobian(c, SVector(1.0, 2.0))
+        @test only(s) == -Inf && all(iszero, ∂s)
         # the degenerate homography pair above: the rows and sampson_distance agree
         H = HomographyMat(SMatrix{3, 3, Float64}(1, 1, 1, 0, 0, 0, 1, 0, 0))
         rH = whitened_constraint_residual(constraint_with_jacobians(H, SVector(0.0, 2.0), SVector(5.0, 5.0)))

@@ -107,32 +107,25 @@ function residual_rows!(f, lm::ChartLm{<:Any, <:RadialCameraProblem}, a)
     cs = lm.problem.cs; plane = sources(cs); pixel = targets(cs); sqrtw = lm.sqrtw
     P = retract(lm.ch, SVector{5}(a[1], a[2], a[3], a[4], a[5]))
     @inbounds for i in 1:length(cs)
-        g, G_x, G_θ = VgtkCore.constraint_with_jacobians(P, plane[i], pixel[i])
-        d = first(whitened_rows(SampsonWhitening(), g, G_x, G_θ))
+        d = only(VgtkCore.sampson_residual(P, plane[i], pixel[i]))
         f[i] = isinf(d) ? 0.0 : sqrtw[i] * d
     end
     return f
 end
 
-# ∂d/∂a: VGC's signed-Sampson derivative (`sampson_residual_jacobian`) along the
-# chart directions A = ∂vec(P)/∂a (the sphere's `retract_jacobian`, the
-# normalization included). The constraint's own second derivative ∂G_x/∂vec(P)
-# is closed form: G_x = (u, −v) with u = p₂·X̃, v = p₁·X̃.
+# ∂d/∂a: the Sampson residual's model Jacobian (VGC
+# `sampson_residual_with_jacobian`, the radial camera's
+# `measurement_gradient_jacobian`) along the chart directions A = ∂vec(P)/∂a
+# (the sphere's `retract_jacobian`, the normalization included).
 function residual_jacobian_rows!(J, lm::ChartLm{<:Any, <:RadialCameraProblem}, a)
     cs = lm.problem.cs; plane = sources(cs); pixel = targets(cs); sqrtw = lm.sqrtw
     av = SVector{5}(a[1], a[2], a[3], a[4], a[5])
     P = retract(lm.ch, av)
     A = retract_jacobian(lm.ch, av)                                  # 6×5
     @inbounds for i in 1:length(cs)
-        X = plane[i]
-        X̃ = SVector(X[1], X[2], 1.0)
-        g, G_x, G_θ = VgtkCore.constraint_with_jacobians(P, X, pixel[i])
-        ∂G_x = SMatrix{2, 6, Float64, 12}(
-            0.0, -X̃[1], X̃[1], 0.0, 0.0, -X̃[2], X̃[2], 0.0, 0.0, -X̃[3], X̃[3], 0.0
-        )                                                              # rows ∂u, −∂v over vec(P)
-        row = sampson_residual_jacobian(g, G_x, A' * G_θ, ∂G_x * A, iszero(sum(abs2, G_x)))
+        _, row = sampson_residual_with_jacobian(P, plane[i], pixel[i]; directions = A)
         for q in 1:5
-            J[i, q] = sqrtw[i] * row[q]
+            J[i, q] = sqrtw[i] * row[1, q]
         end
     end
     return J

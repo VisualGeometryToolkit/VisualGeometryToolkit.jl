@@ -64,7 +64,7 @@ GTSAM equivalent: a function's `OptionalJacobian` `H`, with the caller forming
 # applies it to the residual it returns — per component, with the sign of gᵢ —
 # and every Sampson distance and whitened residual is built on that residual,
 # so they cannot disagree.
-@inline _degenerate_sampson(vanishes::Bool) = vanishes ? 0.0 : Inf
+@inline _degenerate_sampson(vanishes::Bool) = ifelse(vanishes, 0.0, Inf)
 
 # The two verdicts of the rule at a rounding scale ρ (`nothing`: exact zeros).
 @inline _gradient_degenerate(::Nothing, G_x) = false
@@ -79,7 +79,7 @@ GTSAM equivalent: a function's `OptionalJacobian` `H`, with the caller forming
 @inline _degenerate_residual(g::StaticVector, vanishes::Bool) = map(gᵢ -> _signed_degenerate(gᵢ, vanishes), g)
 @inline function _signed_degenerate(gᵢ, vanishes::Bool)
     z = oftype(gᵢ, _degenerate_sampson(vanishes))
-    return gᵢ < 0 ? -z : z
+    return ifelse(gᵢ < 0, -z, z)
 end
 
 # The whitening of a vector constraint and its degeneracy verdict: Σ_g's
@@ -107,7 +107,10 @@ end
 
 The inverse Cholesky factor `L⁻¹` of the propagated constraint covariance
 `Σ_g = G_x·Σ_x·G_xᵀ = L·Lᵀ`: whitened rows are `L⁻¹·g` and `L⁻¹·G_θ`, the
-factor frozen once (at a seed) where [`whiten`](@ref) re-derives it per call.
+factor frozen once (at a seed, or at the previous iteration's model of an
+iteratively reweighted fit) where [`whiten`](@ref) re-derives it per call — the
+Gauss–Newton currency of a constraint whose LM row holds its whitening fixed. A
+scalar constraint's gradient (an `SVector`) gives the number `1/√(G_x·Σ_x·G_xᵀ)`.
 A degenerate `Σ_g` ([`whiten`](@ref)'s rule) is a ZERO factor — its rows drop
 out of a solve; NaN propagates.
 """
@@ -116,6 +119,10 @@ out of a solve; NaN propagates.
     isnan(d) && return fill(T(NaN), SMatrix{dg, dg, T})
     return ok ? inv(SMatrix{dg, dg, T}(C.L)) : zero(SMatrix{dg, dg, T})
 end
+# A scalar constraint's gradient (an `SVector`): the factor is the number
+# `1/√(G_x·Σ_x·G_xᵀ)`, zero when degenerate.
+@inline whitening_factor(G_x::StaticVector{nx, T}, Σ_x = I) where {nx, T} =
+    only(whitening_factor(SMatrix{1, nx, T}(Tuple(G_x)), Σ_x))
 # A dense G_x (a block of a dense Jacobian, whose size is not a type
 # parameter): the same rule, as a dense factor.
 function whitening_factor(G_x::AbstractMatrix{T}, Σ_x = I) where {T <: AbstractFloat}
@@ -136,55 +143,3 @@ end
 @inline _propagate_scalar(v::StaticVector, ::UniformScaling{Bool}) = dot(v, v)
 @inline _propagate_scalar(v::StaticVector, Σ::UniformScaling) = Σ.λ * dot(v, v)
 @inline _propagate_scalar(v::StaticVector, Σ) = dot(v, Σ * v)
-
-# =============================================================================
-# WhiteningPolicy — the residual-currency STRATEGY of an estimator
-# =============================================================================
-
-"""
-    WhiteningPolicy
-
-How an algebraic constraint `g(θ, x) = 0` with derivatives `(g, G_x, G_θ)`
-from [`constraint_with_jacobians`](@ref) becomes the residual/Jacobian rows a
-least squares sees — the estimator's residual CURRENCY. Orthogonal to the
-robust [`AbstractWeightPolicy`](@ref) (which weights rows by their size); the
-two compose: whiten first (currency), weight second (robustness). One verb,
-[`whitened_rows`](@ref), for every estimator in the family — the Sampson
-error of F/E, the whitened transfer error of H, the point–radial-line
-distance of the radial camera, the pixel currency of the division lift.
-
-- [`NoWhitening`](@ref) — the algebraic rows as they are.
-- [`SampsonWhitening`](@ref) — the Sampson residual, whitened by `G_x·G_xᵀ`
-  (unit isotropic noise): first-order geometric error.
-"""
-abstract type WhiteningPolicy end
-
-"Algebraic rows, unwhitened. See [`WhiteningPolicy`](@ref)."
-struct NoWhitening <: WhiteningPolicy end
-"First-order geometric (Sampson) whitening by G_x·G_xᵀ. See [`WhiteningPolicy`](@ref)."
-struct SampsonWhitening <: WhiteningPolicy end
-"""
-    whitened_rows(policy::WhiteningPolicy, g, G_x, G_θ) -> (r, J)
-
-The residual `r` and model-Jacobian rows `J` of one constraint under the
-policy: `(g, G_θ)` for `NoWhitening`; for `SampsonWhitening` the Sampson
-residual `L⁻¹g` ([`sampson_residual`](@ref)'s, `LLᵀ = G_x·G_xᵀ`) and `L⁻¹G_θ`,
-the whitening held fixed (Gauss–Newton). Scalar (d_g = 1: `r` a number, `J` a
-vector) and vector (d_g ≥ 2) constraints alike; a degenerate constraint (the one
-rule) has the rule's residual and zero rows.
-"""
-@inline whitened_rows(::NoWhitening, g, G_x, G_θ) = (g, G_θ)
-@inline function whitened_rows(::SampsonWhitening, g, G_x, G_θ)
-    s, _, L, ok = _sampson_factor(g, G_x, nothing)
-    return _constraint_shape(g, s), ok ? L \ G_θ : zero(G_θ)
-end
-# A heteroscedastic constraint `(g, G_x, G_θ, Σ_x)`: the Sampson rows whitened
-# by the measurement covariance along the normal (base/sampson.jl's noise
-# layer), i.e. `L_Σ⁻¹g` and `L_Σ⁻¹G_θ` with `L_Σ L_Σᵀ = G_x·Σ_x·G_xᵀ`.
-@inline whitened_rows(w::SampsonWhitening, g, G_x, G_θ, Σ_x) = whitened_rows(w, g, G_x, G_θ, Σ_x, nothing)
-# ... and a sixth element, the constraint's rounding scale ρ (`constraint_rounding_scale`)
-@inline function whitened_rows(::SampsonWhitening, g, G_x, G_θ, Σ_x, ρ)
-    s, N, L, ok = _sampson_factor(g, G_x, ρ)
-    r, J = _whiten_rows(s, N, ok ? L \ G_θ : zero(G_θ), Σ_x)
-    return _constraint_shape(g, r), J
-end

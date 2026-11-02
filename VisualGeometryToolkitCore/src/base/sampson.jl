@@ -53,8 +53,8 @@ component). Relative to the model's and the points' own magnitudes, so a
 model's homogeneous scale never decides. [`sampson_residual_with_normal`](@ref)
 consumes it; the default, `nothing`, makes only an exactly zero gradient
 degenerate and an exactly zero `g` vanishing. The epipolar models return
-[`epipolar_rounding`](@ref)'s scales, a homography its rows' term-by-term
-bound, a conic and an ellipse theirs.
+their entries' rounding bounds (`|F|·|s|`, `|d|ᵀ·|F|·|s|`), a homography its
+rows' term-by-term bound, a conic and an ellipse theirs.
 """
 constraint_rounding_scale(M, x...; kw...) = nothing
 
@@ -71,16 +71,19 @@ constraint_rounding_scale(M, x...; kw...) = nothing
 # The geometry layer's one body, from a constraint value and its measurement
 # gradient at the rounding scale ρ: the Sampson residual `s` (an SVector over
 # the constraint's components), its normal basis `N`, the Cholesky factor `L` of
-# G_x·G_xᵀ (a number for a scalar constraint) the whitened Jacobian rows read,
+# G_x·G_xᵀ (a number for a scalar constraint: ‖G_x‖, the Jacobian's normalizer),
 # and `ok`. Not ok is the degeneracy rule: `s` is 0 or ±Inf per component, `N`
 # is zero. NaN propagates (with `ok`, so the rows carry it too).
+# Branch-free (`ifelse`, both sides computed): a branch here stops a row loop
+# over correspondences from vectorizing (measured 2× on the epipolar rows).
 @inline function _sampson_factor(g::Real, G_x::StaticVector{nx}, ρ) where {nx}
     J² = sum(abs2, G_x)                        # no muladd: the same bits inlined or not
     T = typeof(J²)
-    ok = (J² > zero(J²) || isnan(J²)) && !_gradient_degenerate(ρ, G_x)
-    ok || return SVector(_degenerate_residual(g, _vanishes(ρ, g))), zero(SMatrix{nx, 1, T}), zero(T), false
+    ok = !(J² <= _gradient_bound²(ρ, T))       # one comparison: a NaN gradient is not degenerate, NaN propagates
     n = sqrt(J²)
-    return SVector(g / n), SMatrix{nx, 1}(G_x / n), n, true
+    s = ifelse(ok, g / n, _degenerate_residual(g, _vanishes(ρ, g)))
+    N = ifelse(ok, SMatrix{nx, 1}(G_x / n), zero(SMatrix{nx, 1, T}))
+    return SVector(s), N, ifelse(ok, n, zero(T)), ok
 end
 @inline function _sampson_factor(gv::StaticVector{dg, T}, G_x::StaticMatrix{dg, nx, T}, ρ) where {dg, nx, T}
     g = SVector{dg, T}(gv)                     # a Vec or MVector constraint: the residual is an SVector
@@ -91,8 +94,13 @@ end
     return L \ g, SMatrix{nx, dg, T}((L \ G_x)'), L, true
 end
 
+# The squared gradient at or below which a scalar constraint is degenerate: its
+# rounding scale's, or exactly zero without one.
+@inline _gradient_bound²(::Nothing, ::Type{T}) where {T} = zero(T)
+@inline _gradient_bound²(ρ::NamedTuple, ::Type{T}) where {T} = T(ρ.gradient)^2
+
 # A residual in its constraint's shape: a number for a scalar constraint, the
-# vector for a vector one (the whitened-rows protocol's currency).
+# vector for a vector one (`whitened_constraint_residual`'s currency).
 @inline _constraint_shape(::Real, s::StaticVector{1}) = s[1]
 @inline _constraint_shape(::StaticVector, s::StaticVector) = s
 
@@ -130,11 +138,16 @@ is `0` when the constraint vanishes with it and `±Inf` (the sign of `g`) when
 it does not, and `N` is zero. NaN propagates.
 """
 @inline function sampson_residual_with_normal(M, x...; kw...)
+    s, N, _, _ = _sampson_core(M, x...; kw...)
+    return s, N
+end
+# The geometry layer's one evaluation: the measurements checked and promoted,
+# the constraint, its rounding scales and the factor `(s, N, ‖G_x‖, ok)`.
+@inline function _sampson_core(M, x...; kw...)
     _check_measurements(M, x...)
     args = _sampson_arguments(M, map(geom, x)...)
     g, G_x, _ = constraint_with_jacobians(args...; kw...)
-    s, N, _, _ = _sampson_factor(g, G_x, constraint_rounding_scale(args...; kw...))
-    return s, N
+    return _sampson_factor(g, G_x, constraint_rounding_scale(args...; kw...))
 end
 @inline sampson_residual_with_normal(M, c::Pair; kw...) = sampson_residual_with_normal(M, c.first, c.second; kw...)
 
@@ -168,6 +181,127 @@ measurements follow [`sampson_residual_with_normal`](@ref)'s rule (`0` or `Inf`)
 @inline sampson_distance(M, x...; kw...) = _residual_norm(sampson_residual(M, x...; kw...))
 
 """
+    measurement_gradient_jacobian(M, x...; kw...) -> SMatrix{nx, nθ}
+
+The derivative of a SCALAR constraint's measurement gradient `G_x`
+([`constraint_with_jacobians`](@ref)'s second return) along the model
+coordinates of its `G_θ`: `∂G_x/∂θ`, the mixed second derivative `∂²g/∂x∂θ`.
+It is what the Sampson residual's model Jacobian adds to `G_θ`: the normalizer
+`‖G_x‖` moves with the model ([`sampson_residual_with_jacobian`](@ref)). A
+model implements it beside its constraint — `FundMat` and `EssentialMat` on
+image-plane points and `EssentialMat` on bearings (with `M₁`, `M₂`), `Circle`,
+`RadialCamera`. GTSAM and Ceres have no counterpart: they differentiate an
+explicit residual, not an implicit constraint's gradient.
+"""
+function measurement_gradient_jacobian end
+
+# ½·∂‖G_x‖²/∂θ = (∂G_x/∂θ)ᵀ·G_x: the one contraction of the measurement
+# gradient's derivative the Sampson Jacobian reads. A model whose ∂G_x/∂θ is
+# structured may compute the contraction directly (the bilinear epipolar
+# models, fundmat.jl — pinned equal to this default in the tests).
+@inline _normal_rate(M, G_x, x...; kw...) = transpose(measurement_gradient_jacobian(M, x...; kw...)) * G_x
+
+# A model-coordinate row carried along chart directions, held as ROWS
+# B = Dᵀ (`N × nθ`, row q = ∂θ/∂a_q; formed once per sweep — a transposed
+# product per row costs 2 ns of a 5 ns row): B·v. `nothing` keeps the model's
+# own coordinates.
+@inline _along(v::StaticVector, ::Nothing) = v
+@inline _along(v::StaticVector, B::StaticMatrix) = B * v
+# Directions as given — `nothing`, an `nθ × N` matrix D (`retract_jacobian`),
+# or the models they move to, `dM = (∂M/∂θ₁, …)` (`retract_directions`) — as
+# those rows.
+@inline _direction_rows(::Nothing) = nothing
+@inline _direction_rows(D::StaticMatrix{nθ, N, T}) where {nθ, N, T} = SMatrix{N, nθ, T}(transpose(D))
+@inline function _direction_rows(dM::Tuple{StaticMatrix{p, q}, Vararg{StaticMatrix{p, q}, K}}) where {p, q, K}
+    N = K + 1
+    return SMatrix{N, p * q}(ntuple(k -> dM[(k - 1) % N + 1][(k - 1) ÷ N + 1], Val(N * p * q)))
+end
+
+"""
+    sampson_residual_with_jacobian(M, x...; directions = nothing, kw...)
+        -> (s_N::SVector{1}, J::SMatrix{1, N})
+
+The Sampson residual of a SCALAR constraint ([`sampson_residual`](@ref)) and
+its exact derivative along the model: with `g`, `G_x`, `G_θ` from
+[`constraint_with_jacobians`](@ref) and `∂G_x/∂θ` from
+[`measurement_gradient_jacobian`](@ref),
+
+    ∂(g/‖G_x‖)/∂θ = (G_θ − (g/‖G_x‖²)·(∂G_x/∂θ)ᵀG_x) / ‖G_x‖,
+
+carried along the chart `directions` (`nθ × N`, e.g. `retract_jacobian(ch, a)`;
+`nothing` keeps the model's own coordinates, `N = nθ`). The residual an LM
+descends and the row it descends it with, from the one Sampson path: the
+residual's degeneracy rule is [`sampson_residual_with_normal`](@ref)'s, and a
+degenerate measurement has a ZERO row (a least-squares row cannot carry `±Inf`).
+Keywords are forwarded to the constraint (`M₁`, `M₂` for an `EssentialMat` on
+bearings). Element-type generic and device-safe; [`sampson_jacobian_rows!`](@ref)
+runs it per correspondence.
+
+A vector constraint (a homography's two rows) has no such row here: its LM
+whitens frozen ([`whitening_factor`](@ref), the transfer rows).
+"""
+@inline sampson_residual_with_jacobian(M, x...; directions = nothing, kw...) =
+    _sampson_with_jacobian(M, _direction_rows(directions), x...; kw...)
+@inline sampson_residual_with_jacobian(M, c::Pair; kw...) = sampson_residual_with_jacobian(M, c.first, c.second; kw...)
+@inline function _sampson_with_jacobian(M, B, x...; kw...)
+    _check_measurements(M, x...)
+    args = _sampson_arguments(M, map(geom, x)...)
+    g, G_x, G_θ = constraint_with_jacobians(args...; kw...)
+    return _sampson_jacobian(g, G_x, G_θ, constraint_rounding_scale(args...; kw...), B, args...; kw...)
+end
+# Branch-free (a branch in the row stops a row loop vectorizing): a degenerate
+# measurement scales its row by zero and takes no step through the rate.
+@inline function _sampson_jacobian(g::Real, G_x, G_θ, ρ, B, args...; kw...)
+    s, _, n, ok = _sampson_factor(g, G_x, ρ)
+    n⁻¹ = ifelse(ok, inv(n), zero(n))                 # one division per row (0 when degenerate)
+    v = G_θ - (g * n⁻¹ * n⁻¹) * _normal_rate(args[1], G_x, Base.tail(args)...; kw...)   # g/‖G_x‖²
+    row = _along(v, B) * n⁻¹
+    return s, _as_row(row)
+end
+@inline _as_row(v::StaticVector{N, T}) where {N, T} = SMatrix{1, N, T}(Tuple(v))
+
+# The √w-weighted rows of a two-measurement scalar constraint over a set, each
+# row from the one path above; per-point keyword columns (`M₁`, `M₂`) are read
+# at the row's index. A degenerate pair is a zero row (LM-safe), NaN propagates.
+@inline _columns_at(columns::NamedTuple, i) = map(c -> (@inbounds c[i]), columns)
+Base.@propagate_inbounds function _sampson_residual_row!(r, i, M, u₁, u₂, sqrtw, columns)
+    s, _, _, ok = _sampson_core(M, u₁[i], u₂[i]; _columns_at(columns, i)...)
+    r[i] = ifelse(ok, eltype(r)(sqrtw[i] * only(s)), zero(eltype(r)))
+    return nothing
+end
+Base.@propagate_inbounds function _sampson_jacobian_row!(J, i, M, B, u₁, u₂, sqrtw, columns)
+    _, row = _sampson_with_jacobian(M, B, u₁[i], u₂[i]; _columns_at(columns, i)...)
+    w = sqrtw[i]
+    for q in 1:size(B, 1)
+        J[i, q] = w * row[1, q]
+    end
+    return nothing
+end
+
+"""
+    sampson_rows!(r, M, u₁, u₂, sqrtw; columns...) -> r
+    sampson_jacobian_rows!(J, M, directions, u₁, u₂, sqrtw; columns...) -> J
+
+The √w-weighted Sampson residual rows of the scalar two-measurement constraint
+of `M` over `u₁[i] => u₂[i]` — `r[i] = sqrtw[i]·only(`[`sampson_residual`](@ref)`(M,
+u₁[i], u₂[i]))` — and their Jacobian along the chart `directions`
+(`J[i, q] = sqrtw[i]·∂rᵢ/∂a_q`, [`sampson_residual_with_jacobian`](@ref)):
+`directions` an `nθ × N` matrix or the tuple of models `dM = (∂M/∂θ₁, …)`
+([`retract_directions`](@ref)). Per-point keyword columns go to the constraint
+at each row: an `EssentialMat` on unit bearings takes `M₁`, `M₂`, the
+backprojection Jacobians that put the residual in PIXELS. A degenerate pair is
+a zero row. ONE KernelAbstractions kernel on the backend that owns `r` (`J`), a
+plain loop over the same row function on the CPU; `M` in the measurement frame
+of the points.
+"""
+function sampson_rows!(r::AbstractVector, M, u₁::AbstractVector, u₂::AbstractVector, sqrtw::AbstractVector; columns...)
+    return _foreach_row!(_sampson_residual_row!, r, length(u₁), M, u₁, u₂, sqrtw, NamedTuple(columns))
+end
+function sampson_jacobian_rows!(J::AbstractMatrix, M, directions, u₁::AbstractVector, u₂::AbstractVector, sqrtw::AbstractVector; columns...)
+    return _foreach_row!(_sampson_jacobian_row!, J, length(u₁), M, _direction_rows(directions), u₁, u₂, sqrtw, NamedTuple(columns))
+end
+
+"""
     whiten(s_N, N, Σ) -> SVector{dg}
 
 The noise layer: the Sampson residual `s_N` in the normal basis `N`
@@ -184,36 +318,26 @@ DEGENERATE: `NᵀΣN` losing rank to rounding relative to its diagonal (a
 measurement exact along the normal) leaves the residual's zero components 0
 and its others ±Inf; a degenerate Sampson residual (zero `N`) is returned unchanged.
 NaN propagates.
-"""
-@inline whiten(s::StaticVector, N::StaticMatrix, Σ) = first(_whiten_rows(s, N, nothing, Σ))
 
-# The noise layer on a Sampson residual `s` and, when given, its model-Jacobian
-# rows `J` (L⁻¹G_θ, the whitened-rows protocol's): both whitened by the same
-# L_N, `NᵀΣN = L_N L_Nᵀ` — so the rows of a constraint whitened by `G_x·Σ·G_xᵀ`
-# are `L_N⁻¹L⁻¹g` and `L_N⁻¹L⁻¹G_θ`. Degenerate (NᵀΣN losing rank): the rule's
-# residual and zero rows. `J = nothing` whitens the residual alone.
-@inline function _whiten_rows(s::StaticVector{dg, T}, N::StaticMatrix{nx, dg}, J, Σ) where {dg, nx, T}
-    Σ isa UniformScaling{Bool} && return s, J
-    return _whiten_normal(s, N, J, Σ)
+A least-squares row of the whitened residual is the Sampson row of
+[`sampson_residual_with_jacobian`](@ref) divided by the same factor, held fixed
+over a step (the Gauss–Newton row: `NᵀΣN` moves with the model only through `N`).
+"""
+@inline function whiten(s::StaticVector, N::StaticMatrix, Σ)
+    Σ isa UniformScaling{Bool} && return s
+    return _whiten_normal(s, N, Σ)
 end
-@inline function _whiten_normal(s::StaticVector{1, T}, N::StaticMatrix{nx, 1}, J, Σ) where {nx, T}
+@inline function _whiten_normal(s::StaticVector{1, T}, N::StaticMatrix{nx, 1}, Σ) where {nx, T}
     σ² = _propagate_scalar(SVector{nx}(N), Σ)
-    (σ² > zero(σ²) || isnan(σ²)) || return _degenerate_whitened(s), _zero_rows(J)
-    σ = sqrt(σ²)
-    return s / σ, _scaled_rows(J, σ)
+    (σ² > zero(σ²) || isnan(σ²)) || return _degenerate_whitened(s)
+    return s / sqrt(σ²)
 end
-@inline function _whiten_normal(s::StaticVector{dg, T}, N::StaticMatrix{nx, dg}, J, Σ) where {dg, nx, T}
+@inline function _whiten_normal(s::StaticVector{dg, T}, N::StaticMatrix{nx, dg}, Σ) where {dg, nx, T}
     C, d, ok = _whitening_cholesky(propagate(N', Σ))
-    isnan(d) && return s .* T(NaN), _scaled_rows(J, T(NaN))
-    ok || return _degenerate_whitened(s), _zero_rows(J)
-    return C.L \ s, _solved_rows(C.L, J)
+    isnan(d) && return s .* T(NaN)
+    ok || return _degenerate_whitened(s)
+    return C.L \ s
 end
-@inline _zero_rows(::Nothing) = nothing
-@inline _zero_rows(J) = zero(J)
-@inline _scaled_rows(::Nothing, σ) = nothing
-@inline _scaled_rows(J, σ) = J / σ
-@inline _solved_rows(L, ::Nothing) = nothing
-@inline _solved_rows(L, J) = L \ J
 # A residual whitened by a covariance singular along the normal: zero stays
 # zero (the constraint holds), anything else is unreachable (±Inf), NaN stays.
 @inline _degenerate_whitened(s) = map(x -> (iszero(x) || isnan(x)) ? x : copysign(oftype(x, Inf), x), s)

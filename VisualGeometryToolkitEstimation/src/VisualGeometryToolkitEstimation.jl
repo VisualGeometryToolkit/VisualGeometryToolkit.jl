@@ -38,7 +38,7 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
     # Geometric degeneracy helpers relocated from RVG into VGC's model_validity.jl;
     # imported back for the P3P degeneracy check.
     thin_ratio, _are_points_distinct,
-    normal, skew, whitened_rows, SampsonWhitening,
+    normal, skew, whitening_factor,   # the frozen whitening of the reweighted fits (radial camera, division lift)
     sampson_rows!, sampson_jacobian_rows!,   # the E/F LM rows (one KA kernel each; CPU loop)
     kabsch, chordal_mean, log_so3,   # SO(3) log (hand-eye, robot-world)
     s2_tangent_basis,                        # the tangent chart of the P3P ray-coplanarity gate
@@ -85,14 +85,13 @@ using VisualGeometryToolkitCore: rotation, translation,        # EuclideanMap
 # The division-camera step, the radial-camera fit and the lens regression
 # (moved from VisualGeometryToolkitCore, estimator taxonomy v2) reach VGC through these
 # public names only: lens families and their manifold, the intrinsics, the
-# frame accessors, the whitening policies and the lens-profile queries.
+# frame accessors and the lens-profile queries.
 using VisualGeometryToolkitCore: AbstractLensModel, AbstractRadialModel,
     Lens, LiftLens, DoubleSphere, Equidistant, Pinhole, Division, Perspective,
     Stereographic, Equisolid, Orthographic, radial,
     LensManifold, ParameterManifold, Manifold, restrict, tangent_size, parameter_names,
     CameraCalibrationMat, LogicalIntrinsics, calibration_matrix, parameter_vector,
     RadialCamera, source_map, destination_map,
-    NoWhitening, WhiteningPolicy,
     projected_radius, view_angle, view_angle_limit, radial_part,
     similarity_scale   # a normalization's length ratio: pixel tolerances inside (radial homography)
 import VisualGeometryToolkitCore: AbstractLocalOptimization,
@@ -174,7 +173,7 @@ using VisualGeometryToolkitCore: deploy, DeployedLoss, sq_loss_width, bounded
 using VisualGeometryToolkitCore: EssentialManifold5,
     FundMatManifold7, HomographyManifold8, pose_action_jacobian,   # the relpose bundle's pose chart
     LeftRigidManifold6, recenter, retract, retract_jacobian, action_jacobian,
-    minimal_manifold, sampson_residual_jacobian,   # the radial-camera chart and its rows
+    minimal_manifold, sampson_residual_with_jacobian,   # the circle and radial-camera charts and their rows
     RigidExpManifold6, local_coordinates,   # the hand-eye and robot-world chart (the reported covariances'; the hand-eye constraint)
     Line2DManifold,   # the line's Hesse chart (LineFittingProblem)
     implicit_covariance, block_rows,   # the one model covariance and its block rows (estimators/ransac/covariance.jl)

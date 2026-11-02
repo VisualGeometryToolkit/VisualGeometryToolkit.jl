@@ -115,6 +115,9 @@ end
 # scalar one's (a 9-vector for E/F).
 _model_term(G::AbstractVector, Σ) = dot(G, Σ * G)
 _model_term(G::AbstractMatrix, Σ) = G * Σ * G'
+# A constraint's model rows whitened by its frozen factor (VGC `whitening_factor`,
+# under the measurement covariance a heteroscedastic problem returns fourth).
+_frozen_rows(cd) = VgtkCore.whitening_factor(cd[2], length(cd) >= 4 ? cd[4] : I) * cd[3]
 
 @testset "a covariance follows the scale of its hypothesis" begin
     # H, F and E are homogeneous: the model term of the predictive variance,
@@ -138,8 +141,8 @@ _model_term(G::AbstractMatrix, Σ) = G * Σ * G'
             Σc = solver_covariance(p, θc, collect(1:k))
             @test Matrix(Σc) ≈ c^2 .* Matrix(Σ) rtol = 1.0e-9
             for i in (k + 1):length(p.cs)
-                _, G = VgtkCore.whitened_rows(VgtkCore.SampsonWhitening(), VgtkEstimation.constraint_with_jacobians(p, θ, i)...)
-                _, Gc = VgtkCore.whitened_rows(VgtkCore.SampsonWhitening(), VgtkEstimation.constraint_with_jacobians(p, θc, i)...)
+                G = _frozen_rows(VgtkEstimation.constraint_with_jacobians(p, θ, i))
+                Gc = _frozen_rows(VgtkEstimation.constraint_with_jacobians(p, θc, i))
                 @test _model_term(Gc, Σc) ≈ _model_term(G, Σ) rtol = 1.0e-9
             end
         end

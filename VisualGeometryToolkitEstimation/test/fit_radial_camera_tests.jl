@@ -10,8 +10,7 @@
     using StaticArrays: SVector, SMatrix, @SMatrix
     using Rotations: RotXYZ
     import ForwardDiff
-    using VisualGeometryToolkitCore: RadialCamera, radial_rows, center, HomographyMat, NoWhitening, SampsonWhitening,
-        whitened_rows, radial_camera_5pt, constraint_with_jacobians, estimate, retcode, iterations, rms
+    using VisualGeometryToolkitCore: RadialCamera, radial_rows, center, HomographyMat, radial_camera_5pt, constraint_with_jacobians, estimate, retcode, iterations, rms
     import VisualGeometryToolkitCore
     using VisualGeometryToolkitCore.Synthetic: projective_distance
     using VisualGeometryToolkitCore: Csponds
@@ -35,7 +34,7 @@
         # the exactly determined case: the least-squares null vector of five rows
         # agrees with VGC's minimal solve of the same five
         P5 = radial_camera_5pt(pts[[1, 5, 8, 21, 25]])
-        Pn = estimate(fit_radial_camera(pts[[1, 5, 8, 21, 25]]; center = o, whitening = NoWhitening(), iterations = 1))
+        Pn = estimate(fit_radial_camera(pts[[1, 5, 8, 21, 25]]; center = o, whitened = false, iterations = 1))
         @test projective_distance(radial_rows(P5), radial_rows(Pn)) < sqrt(2.0e-9)
         # the centre rides on the camera: RAW pixels about c give the SAME P, every
         # line goes through c, and the homography carries the translation
@@ -54,10 +53,10 @@
         @test SMatrix{3, 3, Float64}(HomographyMat(Pr))[1:2, 3] ≈ sign(dot(vec(radial_rows(Pr)), a)) * radial_rows(Pc)[:, 3] + c
         # degenerate: collinear plane points leave more than one null direction
         col = [SVector(t, 2t) => pts[1][2] .* (1 + 0.1t) for t in 1.0:5.0]
-        rd = fit_radial_camera(col; center = o, whitening = NoWhitening(), iterations = 1)
+        rd = fit_radial_camera(col; center = o, whitened = false, iterations = 1)
         @test retcode(rd) === :degenerate && all(isnan, radial_rows(estimate(rd))) && isnan(rms(rd))
-        # the whitening policy is a parameter; on noise-free data all currencies agree
-        Pu = estimate(fit_radial_camera(pts; center = o, whitening = NoWhitening()))
+        # whitening is a parameter; on noise-free data both currencies agree
+        Pu = estimate(fit_radial_camera(pts; center = o, whitened = false))
         @test projective_distance(radial_rows(Pu), a) < sqrt(2.0e-9)
         # per-correspondence weights are the `weights` column: a gross outlier
         # weighted to zero leaves the noise-free camera exact
@@ -83,7 +82,7 @@
         # linear in θ: g = G_θ θ + c₀
         θ0 = SVector(m.f, m.λ[1], m.λ[2], m.t3)
         @test gθl(2θ0) ≈ Gθ2 * (2θ0) .+ (g2 .- Gθ2 * θ0) atol = 1.0e-9
-        # (What the whitening policies do to these rows is VGC's `whitened_rows`,
+        # (What the frozen whitening does to these rows is VGC's `whitening_factor`,
         # tested there on this two-row form: lens_contract_tests.jl.)
     end
 end

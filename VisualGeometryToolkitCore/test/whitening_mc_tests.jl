@@ -2,7 +2,7 @@
 # correspondence perturbed by its measurement covariance has a whitened residual
 # distributed N(0, I_{d_g}) to first order — `whiten` of the Sampson residual
 # (vector constraint, a known anisotropic per-point Σx),
-# `whitened_rows(SampsonWhitening(), …)` (scalar, isotropic), the frozen transfer
+# the epipolar `sampson_rows!` (scalar, isotropic), the frozen transfer
 # whitening of the homography rows, and the heteroscedastic (per-point
 # precision) Mahalanobis distance.
 @testitem "whitening_mc" begin
@@ -12,7 +12,7 @@
     using StaticArrays
     using Random
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: whiten, whitened_rows, SampsonWhitening, constraint_with_jacobians,
+    using VisualGeometryToolkitCore: whiten, sampson_rows!,
         transfer_whitening!, transfer_rows!, sampson_residual_with_normal, mahalanobis_distance, Uncertain, PrecMat
     const CHar = VgtkCore.Synthetic
 
@@ -32,14 +32,13 @@
         @test CHar.is_calibrated(CHar.run_calibration(trial, MersenneTwister(91), 4000, 2))
     end
 
-    @testset "whitened_rows(SampsonWhitening()): the epipolar row, isotropic → N(0, σ²)" begin
+    @testset "sampson_rows!: the epipolar row, isotropic → N(0, σ²)" begin
         σ = 0.5
         trial(rng) = begin
             _, _, F, _, cs, _ = CHar.sample_twoview_scene(rng, 1)
             c = noisy(rng, cs[1], σ, SMatrix{4, 4, Float64}(I))
-            g, G_x, G_θ = constraint_with_jacobians(F, sv(c.first), sv(c.second))
-            r, _ = whitened_rows(SampsonWhitening(), g, G_x, G_θ)
-            ([r / σ], ones(1, 1))
+            r = sampson_rows!(zeros(1), F, [sv(c.first)], [sv(c.second)], ones(1))
+            (r / σ, ones(1, 1))
         end
         @test CHar.is_calibrated(CHar.run_calibration(trial, MersenneTwister(92), 4000, 1))
     end

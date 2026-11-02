@@ -60,7 +60,8 @@ point `X` and its RAW centered pixel `x` the constraint is
 
 which is LINEAR in θ: `g = G_θ·θ + c₀`, `c₀ = x·Z`. [`constraint_with_jacobians`](@ref)
 returns `g`, the measurement Jacobian `G_x = ∂g/∂x` (2×2) and `G_θ` (2×(N+2)),
-and `whiten` turns them into pixel-currency rows. A KNOWN k folds `λ₁ = k·f`
+and its frozen whitening factor ([`whitening_factor`](@ref), `L⁻¹` of
+`G_x·G_xᵀ`) turns them into pixel-currency rows. A KNOWN k folds `λ₁ = k·f`
 into the f column (chain rule) — see `_lift_columns`.
 """
 struct RadialLift{N, T <: Real}
@@ -135,14 +136,17 @@ _solved_coeffs(k::Float64, kn, _x, _σ) = ([Float64(kn)], [k])
 
 # Whitened (or plain) constraint rows of one correspondence at the model `m`:
 # returns (row block, rhs). `g = G·θ + c₀` with c₀ = g − G·θ(m) — so the LS is
-# G θ = −c₀; whitening multiplies both by L⁻¹. `m` carries the iteration's
-# whitening point; iteration 1 supplies `nothing` and gets plain rows.
-@inline function _lift_rows(m::RadialLift{N, T}, kmode, X, x, policy::WhiteningPolicy) where {N, T}
+# G θ = −c₀; whitening multiplies both by L⁻¹, the Sampson factor of G_x
+# frozen at `m` (`whitening_factor`; zero when degenerate: the row then adds
+# nothing). `m` carries the iteration's whitening point; `whiten = false`
+# gives the plain rows.
+@inline function _lift_rows(m::RadialLift{N, T}, kmode, X, x, whiten::Bool) where {N, T}
     g, G_x, G_θfull = constraint_with_jacobians(m, X, x)
     G_θ = _lift_columns(G_θfull, kmode)
     θ = _lift_unknowns(m, kmode)
-    r, J = whitened_rows(policy, g, G_x, G_θ)
-    return J, J * θ - r                          # rows and rhs: L⁻¹G θ = −L⁻¹c₀ = L⁻¹(Gθ − g)
+    W = whiten ? whitening_factor(G_x) : SMatrix{2, 2, eltype(G_x), 4}(I)
+    J = W * G_θ
+    return J, J * θ - W * g                      # rows and rhs: L⁻¹G θ = −L⁻¹c₀ = L⁻¹(Gθ − g)
 end
 
 # Build the lift model of one board for a given (f, λ, t₃) in the frame the stack works in.
@@ -190,7 +194,7 @@ function _focal_board_solve(R, t12, pts, kmode)
     A = zeros(Float64, 2n, ns + 1)
     b = Vector{Float64}(undef, 2n)
     for (j, (pt, d)) in enumerate(pts)
-        G, rhs = _lift_rows(m0, kmode, pt, d, NoWhitening())
+        G, rhs = _lift_rows(m0, kmode, pt, d, false)
         A[(2j - 1):2j, :] .= G; b[(2j - 1):2j] .= rhs
     end
     x = A \ b
@@ -430,7 +434,7 @@ function _division_camera_solve(
         # No defaults: the one caller (`_division_camera_step`) supplies every one, and
         # a default here would be a second authority for its keywords'.
         center::Point2{Float64}, point_weights, whiten_at::Union{Nothing, _PositionalDivisionState, Float64},
-        whitening::WhiteningPolicy, audit::Bool
+        whitened::Bool, audit::Bool
     )
     nb = length(Hs)
     nb == length(boards) || throw(ArgumentError("one correspondence set per homography"))
@@ -563,14 +567,13 @@ function _division_camera_solve(
         else
             _lift_model(R, t12, 0.0, ntuple(_ -> 0.0, N), 0.0)
         end
-        whitened = prev !== nothing || t3w !== nothing
+        at_point = prev !== nothing || t3w !== nothing
         for (j, (pt, d)) in enumerate(nboards[i])
             wj = pw_i === nothing ? 1.0 : sqrt(Float64(pw_i[j]))
             wj > 0 || continue                              # a zero-weight row adds nothing — and 0 · Inf is NaN
-            G, rhs = _lift_rows(m, kn, pt, d, whitened ? whitening : NoWhitening())
-            # A degenerate whitening (the measurement Jacobian vanishes at the
-            # whitening point, |z| → 0) has no finite row: it carries no usable
-            # constraint, and a non-finite entry would poison the whole solve.
+            G, rhs = _lift_rows(m, kn, pt, d, whitened && at_point)
+            # A non-finite row (NaN at the whitening point) carries no usable
+            # constraint, and would poison the whole solve.
             (all(isfinite, G) && all(isfinite, rhs)) || continue
             @inbounds for r in 1:2
                 gt = wj * G[r, ns + 1]                      # the depth column entry
@@ -643,9 +646,9 @@ function _division_camera_solve(
         poses[i] = EuclideanMap(R, SVector(t12[1], t12[2], t3n) / S; check = false) ∘ Translation(-X̄0)   # plane units
         m = _lift_model(R, t12, x[1], λn, t3n)
         for (j, (pt, d)) in enumerate(nboards[i])
-            g, G_x, G_θ = constraint_with_jacobians(m, pt, d)
-            gw, _ = whitened_rows(whitening, g, G_x, G_θ)
-            sq[i][j] = (gw[1]^2 + gw[2]^2) / σ^2                     # pixel² (policy currency)
+            cd = constraint_with_jacobians(m, pt, d)
+            gw = whitened ? VgtkCore.whitened_constraint_residual(cd) : cd[1]
+            sq[i][j] = (gw[1]^2 + gw[2]^2) / σ^2                     # pixel² (the fit's currency)
         end
     end
     return _PositionalDivisionState(fpx, collect(Float64, kpx), center, poses, sq)
@@ -724,13 +727,13 @@ function _division_camera_step(
         N::CspondNormalization, Hs::_RadialCameras, boards::AbstractVector;
         ncoef::Int = 1, k::Union{Nothing, Real} = nothing,
         point_weights = nothing, whiten_at::Union{Nothing, _PositionalDivisionState, Real} = nothing,
-        whitening::WhiteningPolicy = SampsonWhitening(), audit::Bool = false
+        whitened::Bool = true, audit::Bool = false
     )
     kk = _coeff_mode(k, ncoef)
     seed = _check_whiten_at(whiten_at, kk, length(boards), audit)
     length(Hs) == length(boards) || throw(ArgumentError("division_camera_step: one correspondence set per radial camera"))
     center = _shared_center(Hs)
-    return _division_camera_solve(Hs, boards, kk, N; center, point_weights, whiten_at = seed, whitening, audit)
+    return _division_camera_solve(Hs, boards, kk, N; center, point_weights, whiten_at = seed, whitened, audit)
 end
 
 # The coefficient mode of the stack (see `_nshared`), checked: without `k`,
@@ -793,7 +796,7 @@ end
 
 """
     division_camera_step(N, radial_cameras::AbstractDict{K}, views::AbstractDict{K};
-                         ncoef = 1, k = nothing, whiten_at, whitening)
+                         ncoef = 1, k = nothing, whiten_at, whitened = true)
         -> DivisionCameraState{K}
 
 A declared INNER-LOOP piece (public, not exported): it takes the estimator's
@@ -831,8 +834,8 @@ estimated (`ncoef` must stay 1); otherwise the stack carries `ncoef ≥ 1` extra
 isotropic scale about the radial cameras' shared centre, its plane side an
 isotropic similarity (`ArgumentError` otherwise). The state is returned in
 pixels regardless.
-`whiten_at` whitens every row under `whitening` (the residual-currency
-policy, `SampsonWhitening()` by default) at
+`whiten_at` whitens every row (when `whitened`, the default: the rows'
+Sampson factor `L⁻¹` of `G_x·G_xᵀ`, [`whitening_factor`](@ref), frozen there) at
 - a previous iteration's `DivisionCameraState` — its solution, each view in the
   branch that iteration chose; or
 - a SEED focal length (a positive `Real`, data units): the pinhole `f`, k₀ = 0
@@ -849,8 +852,9 @@ a `Division{ncoef}` lens re-expressed in that K's normalized frame
 the `CameraModel(model, K′)` constructor).
 
 ONE ITERATION, not an estimator. Without `whiten_at` there is nothing to linearize
-at, so the SOLVE is plain algebraic least squares (`whitening` still sets the
-currency of the returned `sq_residuals`, which the robust driver reweights by).
+at, so the SOLVE is plain algebraic least squares (`whitened` still sets the
+currency of the returned `sq_residuals`, which the robust driver reweights by:
+the Sampson residual, or the algebraic one).
 The robust driver's iteration 0 is this step at its seed,
 
     N = CspondNormalization(DivisionCameraState, views; center)
@@ -871,11 +875,11 @@ function division_camera_step(
         views::AbstractDict{K, <:AbstractVector{<:Cspond}};
         ncoef::Int = 1, k::Union{Nothing, Real} = nothing,
         whiten_at::Union{Nothing, DivisionCameraState{K}, Real} = nothing,
-        whitening::WhiteningPolicy = SampsonWhitening()
+        whitened::Bool = true
     ) where {K}
     ids, Hs, boards = _keyed_views(radial_cameras, views)
     prev = _positional(whiten_at, ids)
-    p = _division_camera_step(N, Hs, boards; ncoef, k, point_weights = _point_weights(boards), whiten_at = prev, whitening)
+    p = _division_camera_step(N, Hs, boards; ncoef, k, point_weights = _point_weights(boards), whiten_at = prev, whitened)
     return _keyed(p, ids)
 end
 

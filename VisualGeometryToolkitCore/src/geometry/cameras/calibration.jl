@@ -336,6 +336,13 @@ were measured in and no caller pre-centres them.
     return g, G_x, G_θ
 end
 
+# ∂G_x/∂vec(P) of the radial constraint: G_x = (p₂·X̃, −p₁·X̃) is linear in P
+# and independent of the pixel (column-major vec(P): P₁₁, P₂₁, P₁₂, P₂₂, P₁₃, P₂₃).
+@inline function measurement_gradient_jacobian(::RadialCamera, X::StaticVector{2}, ::StaticVector{2})
+    z = zero(eltype(X)); o = one(eltype(X))
+    return SMatrix{2, 6}(z, -X[1], X[1], z, z, -X[2], X[2], z, z, -o, o, z)
+end
+
 """
     radial_camera_5pt(pts; center = Point2(0, 0)) -> RadialCamera{Float64} | nothing
 

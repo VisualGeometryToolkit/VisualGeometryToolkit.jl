@@ -4,8 +4,7 @@ using Test, Random, LinearAlgebra
 using StableRNGs
 using StaticArrays: SVector, SMatrix, @SMatrix
 using Rotations: RotXYZ
-using VisualGeometryToolkitCore: HomographyMat, RadialCamera, CameraModel, focal_length, intrinsics, lens,
-    NoWhitening, SampsonWhitening
+using VisualGeometryToolkitCore: HomographyMat, RadialCamera, CameraModel, focal_length, intrinsics, lens
 using VisualGeometryToolkitCore: estimate, parameter_vector, retcode, iterations, rms   # VGC accessors (public)
 using VisualGeometryToolkitCore: Csponds, calibration_matrix, radial_rows, CspondNormalization
 using VisualGeometryToolkitEstimation: DivisionCameraState, DivisionCameraError

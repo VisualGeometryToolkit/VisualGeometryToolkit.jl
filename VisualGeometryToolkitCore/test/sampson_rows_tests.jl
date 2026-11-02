@@ -1,6 +1,8 @@
-# The signed-Sampson LM rows through a chart: the scalar row, the residual and
-# Jacobian kernels, and the E-manifold anchors — against finite differences of
-# the distance along the chart's own retraction.
+# The Sampson LM rows through a chart: `sampson_residual_with_jacobian` (the one
+# path's residual and exact model Jacobian), the residual and Jacobian kernels,
+# the epipolar models' `measurement_gradient_jacobian` and their bilinear
+# contraction of it, and the E-manifold anchors — against finite differences of
+# the residual along the chart's own retraction.
 @testitem "sampson_rows" begin
     import VisualGeometryToolkitCore as VgtkCore
     using Test
@@ -10,9 +12,9 @@
     using Rotations
     using FiniteDiff: FiniteDiff
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: EssentialManifold6, retract, retract_jacobian, sampson_residual_row,
-        sampson_residual_jacobian, sampson_rows!, sampson_jacobian_rows!, sampson_residual,
-        epipolar_rounding
+    using VisualGeometryToolkitCore: EssentialManifold6, retract, retract_jacobian, retract_directions,
+        sampson_residual_with_jacobian, measurement_gradient_jacobian, sampson_rows!, sampson_jacobian_rows!,
+        sampson_residual, constraint_with_jacobians
 
     rng = Xoshiro(11)
     R = RotMatrix(RotXYZ(0.2, -0.1, 0.3)); t = normalize(SVector(1.0, 0.2, -0.3))
@@ -22,9 +24,10 @@
     u₁ = [PerspectiveMap()(x) + 1.0e-3 * SVector(randn(rng), randn(rng)) for x in X]
     u₂ = [PerspectiveMap()(SMatrix{3, 3}(R) * x + t) + 1.0e-3 * SVector(randn(rng), randn(rng)) for x in X]
     sqrtw = sqrt.(rand(rng, n))
-
-    # dM from the chart differential at v, reshaped per coordinate
-    dMof(ch, v) = (A = retract_jacobian(ch, v); ntuple(q -> SMatrix{3, 3}(A[:, q]), size(A, 2)))
+    charts = (
+        (EssentialManifold6(E), SVector(0.01, -0.02, 0.005, 0.03, -0.01, 0.02)),
+        (FundMatManifold7(SMatrix{3, 3}(E)), SVector(0.01, -0.02, 0.005, 0.03, -0.01, 0.02, 0.01)),
+    )
     dist(ch, v, i) = only(sampson_residual(retract(ch, v), u₁[i], u₂[i]))
 
     @testset "anchors: EssentialManifold5/6(E) reproduce E up to scale and sign" begin
@@ -35,100 +38,90 @@
         end
     end
 
-    @testset "row = the distance and its chart derivative (central differences)" begin
-        for (ch, v) in (
-                (EssentialManifold6(E), SVector(0.01, -0.02, 0.005, 0.03, -0.01, 0.02)),
-                (FundMatManifold7(SMatrix{3, 3}(E)), SVector(0.01, -0.02, 0.005, 0.03, -0.01, 0.02, 0.01)),
-            )
-            M = retract(ch, v); dM = dMof(ch, v)
+    @testset "the residual and its chart derivative (central differences)" begin
+        for (ch, v) in charts
+            M = retract(ch, v); A = retract_jacobian(ch, v)
             for i in (1, 7, 30)
-                d, ∂d = sampson_residual_row(M, dM, u₁[i], u₂[i])
-                # Not `==`: both are `p.g / sqrt(p.J²)` from the SAME
-                # `_epipolar_parts`, but both are `@inline` and the row also
-                # forms the `D·x₁` / `Dᵀ·x₂` products, so the backend fuses the
-                # shared part differently at the two inline sites. WHICH
-                # correspondences differ is codegen-dependent. Measured over 120
-                # comparisons (60 pairs × both charts): 26 differ, worst 35 ulps
-                # = 7.0e-15 relative = 31.6 eps. rtol is ~14× that, not 1.4×.
-                @test d ≈ only(sampson_residual(M, u₁[i], u₂[i])) rtol = 1.0e-13
+                s, ∂s = sampson_residual_with_jacobian(M, u₁[i], u₂[i]; directions = A)
+                @test s == sampson_residual(M, u₁[i], u₂[i])          # the one path's residual
                 fd = FiniteDiff.finite_difference_gradient(w -> dist(ch, SVector{length(v)}(w), i), Vector(v))   # retract takes an SVector
-                @test ∂d ≈ fd rtol = 1.0e-5 atol = 1.0e-9
+                @test vec(∂s) ≈ fd rtol = 1.0e-5 atol = 1.0e-9
+                # the directions as the models they move to (`retract_directions`): the same row
+                @test sampson_residual_with_jacobian(M, u₁[i], u₂[i]; directions = A)[2] ≈
+                    VgtkCore._along(sampson_residual_with_jacobian(M, u₁[i], u₂[i])[2][1, :], VgtkCore._direction_rows(retract_directions(ch, v)))' rtol = 1.0e-13
             end
         end
     end
 
-    # The rows CONTRACT `sampson_residual_jacobian` (one N×9 product, fundmat.jl
-    # `_contracted_sampson_terms`); the uncontracted formula, with ∂G_x built
-    # direction by direction, must agree to rounding.
-    @testset "contracted row = sampson_residual_jacobian with the explicit ∂G_x" begin
-        for (ch, v) in (
-                (EssentialManifold6(E), SVector(0.01, -0.02, 0.005, 0.03, -0.01, 0.02)),
-                (FundMatManifold7(SMatrix{3, 3}(E)), SVector(0.01, -0.02, 0.005, 0.03, -0.01, 0.02, 0.01)),
-            )
-            M = SMatrix{3, 3}(retract(ch, v)); dM = dMof(ch, v)
-            for i in 1:n
-                x1 = SVector(u₁[i][1], u₁[i][2], 1.0); x2 = SVector(u₂[i][1], u₂[i][2], 1.0)
-                Fx1 = M * x1; Fᵀx2 = M' * x2
-                G_x = SVector(Fx1[1], Fx1[2], Fᵀx2[1], Fᵀx2[2])
-                G_θ = SVector(map(D -> dot(x2, D * x1), dM))
-                ∂G_x = reduce(hcat, map(D -> (a = D * x1; b = D' * x2; SVector(a[1], a[2], b[1], b[2])), dM))
-                _, ∂d = sampson_residual_row(M, dM, u₁[i], u₂[i])
-                @test ∂d ≈ sampson_residual_jacobian(dot(x2, Fx1), G_x, G_θ, ∂G_x) rtol = 1.0e-12 atol = 1.0e-14
-            end
+    # The epipolar models compute (∂G_x/∂θ)ᵀG_x in the bilinear form's structure
+    # (fundmat.jl `_normal_rate`); it must equal the dense product with
+    # `measurement_gradient_jacobian`, which must equal finite differences of G_x.
+    @testset "measurement_gradient_jacobian and the bilinear contraction" begin
+        F = SMatrix{3, 3}(retract(charts[2]...))
+        Fm = FundMat(F)
+        for i in (1, 7, 30, 60)
+            G_x = constraint_with_jacobians(Fm, u₁[i], u₂[i])[2]
+            Gfd = FiniteDiff.finite_difference_jacobian(θ -> Vector(constraint_with_jacobians(FundMat(SMatrix{3, 3}(θ)), u₁[i], u₂[i])[2]), Vector(vec(F)))
+            @test measurement_gradient_jacobian(Fm, u₁[i], u₂[i]) ≈ Gfd rtol = 1.0e-7 atol = 1.0e-9
+            @test VgtkCore._normal_rate(Fm, G_x, u₁[i], u₂[i]) ≈
+                transpose(measurement_gradient_jacobian(Fm, u₁[i], u₂[i])) * G_x rtol = 1.0e-14 atol = 1.0e-16
         end
     end
 
     @testset "kernels: √w-weighted rows, one per correspondence" begin
-        ch = EssentialManifold6(E); v = SVector(0.01, -0.02, 0.005, 0.03, -0.01, 0.02)
-        M = retract(ch, v); dM = dMof(ch, v)
+        ch, v = charts[1]
+        M = retract(ch, v); dM = retract_directions(ch, v); A = retract_jacobian(ch, v)
         r = zeros(n); J = zeros(n, 6)
         sampson_rows!(r, M, u₁, u₂, sqrtw)
         sampson_jacobian_rows!(J, M, dM, u₁, u₂, sqrtw)
+        J2 = zeros(n, 6); sampson_jacobian_rows!(J2, M, A, u₁, u₂, sqrtw)   # directions as the nθ × N matrix
+        @test J2 ≈ J rtol = 1.0e-14
         for i in 1:n
-            d, ∂d = sampson_residual_row(M, dM, u₁[i], u₂[i])
-            # Same fma/inlining reason as the row-vs-distance check above: the
-            # kernel weights inside its own row function, the right-hand side
-            # weights outside it. Measured over 60: 14 differ, worst 40 ulps =
-            # 4.7e-15 relative = 21.2 eps. A row near zero is a cancellation, so
-            # its relative error is unbounded: CI's runner measured 9.4e-18 absolute
-            # on a 4.8e-6 row (2e-12 relative). Hence the absolute floor.
-            @test r[i] ≈ sqrtw[i] * d rtol = 1.0e-13 atol = 1.0e-15
-            @test J[i, :] ≈ sqrtw[i] * ∂d rtol = 1.0e-14      # the kernel compiles its own fma choices
+            s, ∂s = sampson_residual_with_jacobian(M, u₁[i], u₂[i]; directions = A)
+            # The kernel weights inside its own row function, the right-hand side
+            # outside it (fma contraction differs). A row near zero is a
+            # cancellation, so its relative error is unbounded: hence the absolute floor.
+            @test r[i] ≈ sqrtw[i] * only(s) rtol = 1.0e-13 atol = 1.0e-15
+            @test J[i, :] ≈ sqrtw[i] * vec(∂s) rtol = 1.0e-13 atol = 1.0e-15
         end
         # the device kernels themselves, launched on KA.CPU() (the public functions take
         # the CPU fast path there): the same per-row function, the same rows
         KA = VgtkCore.KA
         rk = zeros(n); Jk = zeros(n, 6)
-        VgtkCore._row_kernel!(KA.CPU())(VgtkCore._sampson_residual_row!, rk, M, u₁, u₂, sqrtw; ndrange = n)
+        VgtkCore._row_kernel!(KA.CPU())(VgtkCore._sampson_residual_row!, rk, M, u₁, u₂, sqrtw, NamedTuple(); ndrange = n)
         VgtkCore._row_kernel!(KA.CPU())(VgtkCore._sampson_jacobian_row!, Jk, M,
-            VgtkCore._direction_matrix(dM), u₁, u₂, sqrtw; ndrange = n)
+            VgtkCore._direction_rows(dM), u₁, u₂, sqrtw, NamedTuple(); ndrange = n)
         KA.synchronize(KA.CPU())
-        # Both sides run the same per-row scalar function. Exact until
-        # 2026-10-07 (0 ulps, 2026-09-22); since the residual row selects its
-        # degenerate zero by `ifelse` rather than a branch, the CPU loop
-        # vectorizes across rows and its fma contraction differs from the
-        # kernel's: measured over the 60 rows, 17 differ, worst 6.9e-17 absolute
-        # = 2.0e-15 relative (~9 ulps). The bound is 5× that.
+        # The CPU loop vectorizes across rows; its fma contraction differs from the kernel's.
         @test rk ≈ r rtol = 1.0e-14
         @test Jk ≈ J rtol = 1.0e-14
         # Float32 storage and points: the same kernel, single precision
         r32 = zeros(Float32, n)
-        sampson_rows!(r32, SMatrix{3, 3, Float32}(M), [Float32.(u) for u in u₁], [Float32.(u) for u in u₂], Float32.(sqrtw))
+        sampson_rows!(r32, FundMat(SMatrix{3, 3, Float32}(M)), [Float32.(u) for u in u₁], [Float32.(u) for u in u₂], Float32.(sqrtw))
         @test r32 ≈ Float32.(r) rtol = 1.0f-3
+        # no allocation in the rows or the per-correspondence Jacobian
+        rows_allocs(r, M, u, w, s) = (sampson_rows!(r, M, u, w, s); @allocated sampson_rows!(r, M, u, w, s))
+        jac_allocs(J, M, dM, u, w, s) = (sampson_jacobian_rows!(J, M, dM, u, w, s); @allocated sampson_jacobian_rows!(J, M, dM, u, w, s))
+        @test rows_allocs(r, M, u₁, u₂, sqrtw) == 0
+        @test jac_allocs(J, M, dM, u₁, u₂, sqrtw) == 0
+        f(M, u, w, A) = sampson_residual_with_jacobian(M, u, w; directions = A)
+        allocs(M, u, w, A) = (f(M, u, w, A); @allocated f(M, u, w, A))
+        @test allocs(M, u₁[1], u₂[1], A) == 0
     end
 
     @testset "the one degeneracy rule: a zero row, never a floor" begin
         F = FundMat(SMatrix{3, 3, Float64}(0, 1, 0, -1, 0, 0, 0, 0, 1))      # both epipolar lines at infinity at the origin
         o = SVector(0.0, 0.0)
         dM = (SMatrix{3, 3, Float64}(I), SMatrix{3, 3, Float64}(1, 0, 0, 0, 0, 0, 0, 0, 0))
-        d, ∂d = sampson_residual_row(F, dM, o, o)
-        @test d == 0 && all(iszero, ∂d)
-        @test only(sampson_residual(F, o, o)) == Inf                             # the distance keeps its Inf
+        s, ∂s = sampson_residual_with_jacobian(F, o, o; directions = SMatrix{9, 2}(transpose(VgtkCore._direction_rows(dM))))
+        @test only(s) == Inf && all(iszero, ∂s)                                   # the residual keeps its Inf, the row is zero
+        @test only(sampson_residual(F, o, o)) == Inf
         r = [1.0]; J = ones(1, 2)
         sampson_rows!(r, F, [o], [o], [1.0]); sampson_jacobian_rows!(J, F, dM, [o], [o], [1.0])
         @test r == [0.0] && J == zeros(1, 2)
-        # the generic scalar: a vanishing gradient is a zero row
-        @test sampson_residual_jacobian(0.3, zero(SVector{4, Float64}), SVector(1.0, 2.0), zeros(SMatrix{4, 2})) == SVector(0.0, 0.0)
+        # NaN propagates through the residual and the row
+        sn, ∂n = sampson_residual_with_jacobian(F, SVector(NaN, 0.0), o; directions = SMatrix{9, 2}(transpose(VgtkCore._direction_rows(dM))))
+        @test isnan(only(sn)) && all(isnan, ∂n)
     end
 end
 

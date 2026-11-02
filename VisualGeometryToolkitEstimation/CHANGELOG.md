@@ -3,9 +3,19 @@
 ## 0.3.0 (2026-11-02)
 
 - Follows VisualGeometryToolkitCore's Sampson layers: the essential problem's
-  residual is `only(sampson_residual(E, f₁, f₂; M₁, M₂))`, the division lift's
-  `‖g‖²` is `constraint(m, X, x)`, and the radial-camera rows use
-  `sampson_residual_jacobian`. Results are unchanged (to ≤ 2e-14 px).
+  residual is `only(sampson_residual(E, f₁, f₂; M₁, M₂))` and the division
+  lift's `‖g‖²` is `constraint(m, X, x)`.
+- One Sampson path: the circle and radial-camera chart rows are
+  `sampson_residual` and `sampson_residual_with_jacobian` (the models'
+  `measurement_gradient_jacobian`), the F/E chart rows VisualGeometryToolkitCore's
+  `sampson_rows!`/`sampson_jacobian_rows!` over it.
+- Breaking: `fit_radial_camera`, `fit_division_camera` and
+  `division_camera_step` take `whitened::Bool = true` in place of the
+  whitening-policy keyword; whitened rows are the constraint's algebraic rows
+  times its frozen `whitening_factor`.
+- Results: every `find_*`/`fit_*` agrees with 0.2 to ≤ 7e-14 relative except
+  where a chart LM stops at its tolerance on rows now rounded in another order
+  (`find_fundmat`: ≤ 7e-8 px on any residual, the inlier set unchanged).
 
 ## 0.2.0 (2026-10-29)
 

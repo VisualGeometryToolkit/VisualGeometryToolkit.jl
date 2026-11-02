@@ -63,9 +63,9 @@
         # aarch64 rounds the two evaluation orders differently
         @test W ≈ inv(SMatrix{2, 2}(cholesky(Symmetric(A * A' + I)).L)) rtol = 8eps()
         g = VgtkCore.constraint(TransferForm(H), u₁[5], u₂[5])
-        r, Jw = VgtkCore.whitened_rows(VgtkCore.SampsonWhitening(), g, Gx, Gθ)
-        @test W * g ≈ r rtol = 1.0e-12
-        @test W * Gθ ≈ Jw rtol = 1.0e-12
+        # the frozen factor whitens the constraint to its Sampson residual at the model
+        @test W * g ≈ VgtkCore.whitened_constraint_residual((g, Gx, Gθ)) rtol = 1.0e-12
+        @test W * g ≈ sampson_residual(TransferForm(H), u₁[5], u₂[5]) rtol = 1.0e-12
         @test whitening_factor(zero(SMatrix{2, 4, Float64})) == zero(SMatrix{2, 2, Float64})   # degenerate: a zero factor
         @test all(isnan, whitening_factor(fill(NaN, SMatrix{2, 4, Float64})))
     end

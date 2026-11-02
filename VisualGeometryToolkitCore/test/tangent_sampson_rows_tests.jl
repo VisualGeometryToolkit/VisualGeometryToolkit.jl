@@ -13,9 +13,11 @@
 # ONE IMPLEMENTATION is the design constraint, because that defect is what two
 # routes to one quantity costs. The constraint and its gradients come from the
 # scalar `constraint_with_jacobians(E, f₁, f₂; M₁, M₂)` that the scoring path
-# uses, and the WHITENING DERIVATIVE from `sampson_residual_jacobian`, the same
-# family-agnostic function the image-plane rows use. Only `∂G_x/∂θ` is new, and
-# it is finite-differenced below rather than derived and checked against itself.
+# uses, and the residual and its model Jacobian from
+# `sampson_residual_with_jacobian`, the same family-agnostic function the
+# image-plane rows use. Only E's `measurement_gradient_jacobian` on bearings is
+# new, and it is finite-differenced below rather than derived and checked
+# against itself.
 #
 # TWO DIFFERENT FOCAL LENGTHS throughout (1200 and 600), and that is load
 # bearing rather than incidental — see the swap canary at the bottom: with one
@@ -32,7 +34,7 @@
     using VisualGeometryToolkitCore: EssentialMat, EssentialManifold6, retract, retract_jacobian,
         CameraModel, LogicalIntrinsics, CameraCalibrationMat, Pinhole,
         backproject, project, backproject_with_jacobian, sampson_distance,
-        sampson_rows!, sampson_jacobian_rows!, tangent_sampson_residual_row
+        sampson_rows!, sampson_jacobian_rows!, sampson_residual, measurement_gradient_jacobian, constraint_with_jacobians
 
     cam(f, c) = CameraModel(
         LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(f, 0, 0, 0, f, 0, c[1], c[2], 1))),
@@ -85,8 +87,19 @@
         sampson_rows!(r2, Eᵥ, f₁, f₂, 2 .* ones(n); M₁, M₂)
         @test r2 ≈ 2 .* r1 rtol = 1.0e-12
         for i in (1, 5, 11)
-            d, _ = tangent_sampson_residual_row(Eᵥ, dE, f₁[i], f₂[i], M₁[i], M₂[i])
-            @test d ≈ r1[i] rtol = 1.0e-12
+            @test only(sampson_residual(Eᵥ, f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i])) ≈ r1[i] rtol = 1.0e-12
+        end
+    end
+
+    @testset "E's measurement_gradient_jacobian on bearings, and its bilinear contraction" begin
+        Em = SMatrix{3, 3, Float64}(Eᵥ)
+        for i in (1, 5, 11)
+            G(θ) = Vector(constraint_with_jacobians(EssentialMat(Tuple(θ)), f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i])[2])
+            Gfd = FiniteDiff.finite_difference_jacobian(G, Vector(vec(Em)))
+            Mg = measurement_gradient_jacobian(Eᵥ, f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i])
+            @test Mg ≈ Gfd rtol = 1.0e-7 atol = 1.0e-6
+            G_x = constraint_with_jacobians(Eᵥ, f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i])[2]
+            @test VgtkCore._normal_rate(Eᵥ, G_x, f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i]) ≈ transpose(Mg) * G_x rtol = 1.0e-13
         end
     end
 

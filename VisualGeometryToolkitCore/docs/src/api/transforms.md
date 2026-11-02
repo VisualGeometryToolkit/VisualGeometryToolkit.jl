@@ -42,6 +42,17 @@ Private = false
 Pages = ["base/propagate.jl", "transforms/propagate_framed.jl"]
 ```
 
+## Sampson Distance and Whitening
+
+The Sampson residual is geometric (a model and its measurement, no noise);
+[`whiten`](@ref) divides it by the measurement's covariance along the normal.
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore]
+Private = false
+Pages = ["base/sampson.jl"]
+```
+
 ## Measurement Noise
 
 A plain point is unit isotropic noise, an [`Uncertain`](@ref) point carries its

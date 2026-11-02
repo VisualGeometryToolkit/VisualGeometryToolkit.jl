@@ -60,3 +60,25 @@ function compare_oracle(path = joinpath(@__DIR__, "lens_oracle.toml"))
     end
     return out
 end
+
+# The forward Jacobian's ACCURACY, not its agreement with the recorded oracle:
+# each entry against Core's own BigFloat evaluation, in units of eps times its
+# row's norm (the scale its terms are summed at, so a row whose entries cancel
+# is held to what the sum can deliver). The oracle's own Jacobian is rounded
+# too (64 ulps at a 179° Kannala–Brandt ray), and "agrees with it to 8 ulps"
+# only held while ForwardDiff rounded the quotient rule as the generator did.
+function jacobian_accuracy(lens, rays)
+    lb = _VGC._precision(BigFloat, lens)
+    worst = 0.0
+    for X in rays
+        J = transform_deriv(lens, X)
+        Jt = transform_deriv(lb, big.(X))
+        all(isfinite, J) && all(isfinite, Jt) || continue
+        for i in axes(J, 1)
+            scale = eps(Float64) * Float64(sqrt(sum(abs2, Jt[i, :])))
+            scale > 0 || continue
+            worst = max(worst, maximum(Float64(abs(J[i, j] - Jt[i, j])) for j in axes(J, 2)) / scale)
+        end
+    end
+    return worst
+end

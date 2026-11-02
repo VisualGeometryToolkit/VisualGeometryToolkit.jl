@@ -107,8 +107,10 @@ end
             r = residuals!(zeros(num_points(pair)), pp, EssentialMat(pair.models[j], Kc1, Kc2))
             @test R[:, j] == Float32.(abs.(r))
         else
-            @test R[:, j] == [Float32(sampson_distance(pair.models[j], SVector{2, Float64}(a), SVector{2, Float64}(b)))
-                              for (a, b) in zip(sources(pair.csponds), targets(pair.csponds))]
+            # to Float32 rounding: the same sampson_distance, inlined into the pool's
+            # loop, may round its last Float64 bit differently and cross a Float32 boundary
+            @test isapprox(R[:, j], [Float32(sampson_distance(pair.models[j], SVector{2, Float64}(a), SVector{2, Float64}(b)))
+                                     for (a, b) in zip(sources(pair.csponds), targets(pair.csponds))]; rtol = eps(Float32))
         end
         ctor = kind === :E ? EssentialProblem : kind === :F ? FundMatProblem : HomographyProblem
         # E: always 0.1 px in pool units; H and F: their gate reads none

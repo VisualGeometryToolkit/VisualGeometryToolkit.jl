@@ -220,14 +220,23 @@ NLLSsolver.computeresidual(c::_ChartRows, x) = residual_rows!(c.r, c.state.lm, x
 # step past a NaN or discontinuity wall — the radial-camera, radial-homography
 # and lens rows have them) would throw an AssertionError there. +Inf compares
 # equal, and is rejected like NaN everywhere else.
-@inline _finite_cost(c::Float64) = isfinite(c) ? c : Inf
+"""
+    finite_cost(c::Float64) -> Float64
+
+A cost as the stack's NLLSsolver fits read it: `c` when finite, `+Inf`
+otherwise. NLLSsolver (≥ 5.3.1) accepts a trial at a step below `xtol` whatever
+its cost and asserts `cost == cost_` per iteration, which NaN fails; +Inf
+compares equal and is rejected like NaN everywhere else. Every NLLSsolver
+residual block of the stack returns its cost through it.
+"""
+@inline finite_cost(c::Float64) = isfinite(c) ? c : Inf
 function NLLSsolver.computecost(c::_ChartRows, x)
     r = residual_rows!(c.r, c.state.lm, x)
     s = 0.0
     @inbounds for i in eachindex(r)
         s += r[i] * r[i]
     end
-    return _finite_cost(0.5 * s)
+    return finite_cost(0.5 * s)
 end
 
 # The cost, the gradient Jᵀr and the Gauss–Newton Hessian JᵀJ in one sweep over
@@ -251,7 +260,7 @@ function NLLSsolver.computecostgradhess(_varflags, c::_ChartRows{N}, x) where {N
         g += Ji * ri
         H += Ji * Ji'
     end
-    return _finite_cost(0.5 * s), g, H
+    return finite_cost(0.5 * s), g, H
 end
 
 # The kept NLLSsolver problem of one linearization-state type, its state slot

@@ -68,9 +68,9 @@ NLLSsolver.computeresidual(r::_CameraPoseResidual{2}, camera_chart, pose_chart) 
     VgtkCore.reprojection_error(model(camera_chart), model(pose_chart), r.X, r.u)
 NLLSsolver.computeresidual(r::_CameraPoseResidual{1}, pose_chart) = VgtkCore.reprojection_error(r.camera, model(pose_chart), r.X, r.u)
 # The block's cost as the LM reads it: non-finite (a candidate update that moves a
-# point off the lens's domain) is +Inf (`_finite_cost`).
+# point off the lens's domain) is +Inf (`finite_cost`).
 NLLSsolver.computecost(vars::AbstractVector, r::_CameraPoseResidual) =
-    _finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
+    finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
 
 """
     refine_camera_and_poses(camera::CameraModel, poses, views; free, box = nothing,

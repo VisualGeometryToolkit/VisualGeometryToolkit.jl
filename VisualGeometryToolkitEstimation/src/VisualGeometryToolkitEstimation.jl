@@ -215,7 +215,7 @@ using VisualGeometryToolkitCore: PerspectiveMap, transform_deriv
 using ForwardDiff: ForwardDiff
 import NLLSsolver   # the block-structured LMs (the relpose bundle, refine_robot_world_hand_eye): qualified NLLSProblem/optimize! and its residual protocol
 using VisualGeometryToolkitCore: nlls_retcode   # NLLSsolver's termination bits + the stall postcondition, as a retcode
-using VisualGeometryToolkitCore: nlls_options, nlls_features   # the stack's one LM knob map; the Schur system (upstream #60), detected
+using VisualGeometryToolkitCore: nlls_options, nlls_features, finite_cost   # the stack's one LM knob map; the Schur system (upstream #60), detected
 using SparseArrays: sparse   # the relpose bundle's stacked Jacobian (its stall postcondition); the rotation averaging's update
 
 

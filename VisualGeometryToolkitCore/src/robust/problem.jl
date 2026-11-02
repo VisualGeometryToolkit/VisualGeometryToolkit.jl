@@ -174,7 +174,7 @@ geometry layer and its one degeneracy rule), whitened by the point's
 [`measurement_covariance`](@ref) (one Cholesky of `G_x·Σ̃_x·G_xᵀ`).
 """
 @inline function whitened_constraint_residual(p::AbstractConstraintProblem, model, i::Int)
-    g, G_x, G_θ = constraint_with_jacobians(p, model, i)
+    g, G_x, G_θ = _three(constraint_with_jacobians(p, model, i))
     s, _ = _whitened_constraint(g, G_x, G_θ, constraint_rounding_scale(p, model, i), measurement_covariance(p, i), nothing)
     return _constraint_shape(g, s)
 end
@@ -193,10 +193,17 @@ vanishes, else `±Inf`) and ZERO rows. What a predictive scorer reads per point:
 the residual and the rows the model covariance is propagated through.
 """
 @inline function whitened_constraint_rows(p::AbstractConstraintProblem, model, i::Int)
-    g, G_x, G_θ = constraint_with_jacobians(p, model, i)
+    g, G_x, G_θ = _three(constraint_with_jacobians(p, model, i))
     s, J = _whitened_constraint(g, G_x, G_θ, constraint_rounding_scale(p, model, i), measurement_covariance(p, i), _as_row(G_θ))
     return _constraint_shape(g, s), _rows_shape(G_θ, J)
 end
+# A problem's constraint is exactly `(g, G_x, G_θ)`: a longer tuple (the retired
+# noise and rounding-scale slots) is refused rather than silently truncated.
+@inline _three(cd::NTuple{3, Any}) = cd
+@noinline _three(cd::Tuple) = throw(ArgumentError(
+    "constraint_with_jacobians(problem, model, i) returns (g, G_x, G_θ), got $(length(cd)) values: " *
+        "a point's noise is `measurement_covariance(problem, i)` and its rounding scale " *
+        "`constraint_rounding_scale(problem, model, i)`"))
 # Rows back in `G_θ`'s shape.
 @inline _rows_shape(::StaticVector{n}, J::StaticMatrix{1, n, T}) where {n, T} = SVector{n, T}(Tuple(J))
 @inline _rows_shape(::StaticMatrix, J::StaticMatrix) = J

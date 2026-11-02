@@ -17,7 +17,8 @@ Breaking: ONE Sampson path. Nothing outside `base/sampson.jl` computes
   protocol gains two hooks, **`measurement_covariance(problem, i)`** (the point's
   noise, `I` by default; a contract generic) and
   **`constraint_rounding_scale(problem, model, i)`** (its rounding scales,
-  `nothing` by default). The 4- and 5-tuples that carried them are gone.
+  `nothing` by default). The 4- and 5-tuples that carried them are gone, and a
+  longer tuple is an `ArgumentError`, never silently truncated.
 - **`whitened_constraint_residual(problem, model, i)`** and
   **`whitened_constraint_rows(problem, model, i)` → `(r, J_w)`** replace the
   tuple forms: the point's constraint whitened by its `measurement_covariance`

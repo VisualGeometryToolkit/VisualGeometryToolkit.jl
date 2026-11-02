@@ -153,6 +153,13 @@
         @test err isa ArgumentError && occursin("CDProblem", err.msg)
     end
 
+    @testset "a 4- or 5-tuple constraint is refused, not truncated" begin
+        g, Gx = 0.3, SVector(0.6, 0.8)
+        p5 = CDProblem([(g, Gx, SVector(1.0, 2.0), I, nothing)])
+        @test_throws ArgumentError VgtkCore.whitened_residual(p5, nothing, 1)
+        @test_throws ArgumentError VgtkCore.whitened_constraint_rows(p5, nothing, 1)
+    end
+
     # The conformance helper every problem's package runs.
     VgtkCore.test_constraint_problem(CDProblem([_scalar((-1.0)^i * 0.05 * i, (0.6, 0.8)) for i in 1:8]), nothing)
     VgtkCore.test_constraint_problem(_CtxProblem(collect(1.0:5), Ref(0)), 2.0)

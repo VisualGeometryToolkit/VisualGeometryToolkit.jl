@@ -1,6 +1,6 @@
 # VisualGeometryToolkitEstimation changelog
 
-## 0.3.0 (2026-11-02)
+## 0.4.0 (2026-11-02)
 
 - Follows VisualGeometryToolkitCore's Sampson layers: the essential problem's
   residual is `only(sampson_residual(E, f₁, f₂; M₁, M₂))` and the division

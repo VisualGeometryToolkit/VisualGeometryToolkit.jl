@@ -182,7 +182,7 @@ unchanged; `r²` is χ²(dg) under Gaussian noise of covariance Σ.
 
 DEGENERATE: `NᵀΣN` losing rank to rounding relative to its diagonal (a
 measurement exact along the normal) leaves the residual's zero components 0
-and its others ±Inf; a degenerate Sampson residual (zero `N`) passes through.
+and its others ±Inf; a degenerate Sampson residual (zero `N`) is returned unchanged.
 NaN propagates.
 """
 @inline whiten(s::StaticVector, N::StaticMatrix, Σ) = first(_whiten_rows(s, N, nothing, Σ))

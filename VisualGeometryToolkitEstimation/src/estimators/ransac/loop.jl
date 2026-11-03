@@ -71,9 +71,8 @@ A [`RansacEstimate`](@ref); `iterations(result)` is the number of trials
 (hypotheses drawn), whether the adaptive stop or `max_trials` ended the loop —
 both return `:converged`. Test it with VisualGeometryToolkitCore's `converged(result)`
 before reading the model: `retcode(result) === :no_model` (`converged` false)
-means NO hypothesis survived — there is no estimate, and `estimate(result)` is a
-`zero(M)` placeholder kept only for type stability, never a model (with
-`quality = -Inf`, an all-false `inlier_mask`, `rms = sigma = NaN`).
+means NO hypothesis survived — there is no estimate: its `estimate` is `nothing`
+(with `quality = -Inf`, an all-false `inlier_mask`, `rms = sigma = NaN`).
 
 # Examples
 ```julia
@@ -642,19 +641,24 @@ end
 # _finalize — the result from the incumbent's buffers
 # =============================================================================
 
+# The result of a search with no model — every sample failed, or (with
+# `trials = 0`, `sar = NaN`) too few data for one sample: no estimate, an
+# all-false mask, zero residuals and weights.
+function _no_model_result(::Type{M}, result::RansacResultBuffers{T}, trials::Int, sar::Float64) where {M, T}
+    fill!(result.inlier_mask, false); fill!(result.residuals, zero(T)); fill!(result.weights, zero(T))
+    return RansacEstimate{M, T}(
+        nothing, :no_model, trials, NaN, 0,
+        RansacMetadata{T}(result.inlier_mask, result.residuals, result.weights, -Inf, NaN, 0, sar, :not_run)
+    )
+end
+
 function _finalize(scoring, ws, problem, best::Tuple, sar, trial, result::RansacResultBuffers)
     M = model_type(problem)
     T = eltype(ws.best_residuals)   # attributes come back in the workspace's storage precision
     p = minimal_sample_size(problem)
     best_score = best[2]
 
-    if !ws.has_best
-        fill!(result.inlier_mask, false); fill!(result.residuals, zero(T)); fill!(result.weights, zero(T))
-        return FitResult(
-            zero(M), :no_model, trial, NaN, 0,
-            RansacMetadata{T}(result.inlier_mask, result.residuals, result.weights, -Inf, NaN, 0, sar, :not_run)
-        )
-    end
+    ws.has_best || return _no_model_result(M, result, trial, sar)
 
     model = ws.best_model
     d_g = codimension(problem)
@@ -673,7 +677,9 @@ function _finalize(scoring, ws, problem, best::Tuple, sar, trial, result::Ransac
     copyto!(result.inlier_mask, ws.best_mask)
     copyto!(result.residuals, ws.best_residuals)
     rms_in = n_in > 0 ? sqrt(RSS / n_in) : NaN
-    return FitResult(
+    # The explicit alias: the outer constructor would infer `P` from the model
+    # and lose the union a failed search needs.
+    return RansacEstimate{M, T}(
         model, :converged, trial, rms_in, n_in,
         RansacMetadata{T}(
             result.inlier_mask, result.residuals, result.weights,

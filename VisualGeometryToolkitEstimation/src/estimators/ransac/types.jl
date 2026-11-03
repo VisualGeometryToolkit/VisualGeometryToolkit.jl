@@ -102,7 +102,7 @@ struct RansacMetadata{T}
 end
 
 """
-    RansacEstimate{M, T} = FitResult{M, RansacMetadata{T}}
+    RansacEstimate{M, T} = FitResult{Union{M, Nothing}, RansacMetadata{T}}
 
 The return type of [`ransac`](@ref) and every `find_*` pipeline. The model and
 the core diagnostics are read through VisualGeometryToolkitCore's accessors —
@@ -112,12 +112,13 @@ and the RANSAC diagnostics of [`RansacMetadata`](@ref) forward as properties:
 `result.inlier_mask`, `result.quality`.
 
 `converged(result)` is THE success predicate. A failed search —
-`retcode(result) === :no_model`, `converged(result) == false` — is not an
-estimate: its `estimate` is a `zero(M)` placeholder (the type stays concrete),
-its `quality` is `-Inf`, its `inlier_mask` all false and `rms`/`sigma` NaN. Every
-`find_*` pipeline returns this type and inherits the rule.
+`retcode(result) === :no_model`, `converged(result) == false` — has no
+estimate: its `estimate` is `nothing` (so `estimate(result)` is
+`Union{M, Nothing}`, Base's `findfirst` idiom), its `quality` is `-Inf`, its
+`inlier_mask` all false and `rms`/`sigma` NaN. Every `find_*` and `refine_*`
+pipeline returns this type on every path and inherits the rule.
 """
-const RansacEstimate{M, T} = FitResult{M, RansacMetadata{T}}
+const RansacEstimate{M, T} = FitResult{Union{M, Nothing}, RansacMetadata{T}}
 
 """
     inlier_ratio(result::RansacEstimate) -> Float64

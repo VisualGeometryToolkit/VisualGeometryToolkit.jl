@@ -105,10 +105,10 @@ end
         @test count(inl[bad]) < 0.05 * length(bad)
     end
     @test find_ellipse([Point2(0.0, 0.0), Point2(1.0, 0.0), Point2(1.0, 1.0), Point2(0.0, 1.0)]) === nothing
-    # no sample gives an ellipse (collinear points): a :no_model result whose estimate is the zero(Ellipse) placeholder,
+    # no sample gives an ellipse (collinear points): a :no_model result whose estimate is nothing,
     # not a MethodError (2026-11-03: `zero(::Type{Ellipse{Float64}})` did not exist)
     none = find_ellipse([Point2(Float64(i), 2.0 * i + 1) for i in 1:10]; rng = Xoshiro(1))
-    @test !converged(none) && retcode(none) === :no_model && estimate(none) == zero(Ellipse{Float64}) && !any(none.inlier_mask)
+    @test !converged(none) && retcode(none) === :no_model && estimate(none) === nothing && !any(none.inlier_mask)
 end
 
 @testitem "find_ellipse: the keywords of every find_* pipeline" setup = [EllipseScene] begin

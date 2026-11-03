@@ -371,7 +371,11 @@ end
     return isempty(ds) ? y : y + _delta_sum(ds, x)
 end
 
-@inline _distort(c::Chain, x::StaticVector{2}) = _chain_distort(c.stages, x)
+@inline _distort(c::ComposedTransformation, x::StaticVector{2}) = _chain_distort(_stages(c), x)
+# A term is a CoordinateTransformations `Transformation`: its call is its
+# distortion of a frame point (a lone delta summed with the point), so CT's
+# `(D₂ ∘ D₁)(x) = D₂(D₁(x))` is the stages in sequence.
+(t::AbstractDistortionTerm)(x::StaticVector{2}) = _distort(t, x)
 @inline _chain_distort(::Tuple{}, x) = x
 @inline _chain_distort(ds::Tuple, x) = _chain_distort(Base.tail(ds), _distort(first(ds), x))
 
@@ -381,7 +385,7 @@ end
     ok = _on_radial_branch(_primal(r), _primal(x[1] * x[1] + x[2] * x[2]))
     return _nan_unless(ok, _distort(l.distortion, x))
 end
-# A Chain has no `radial(lens)` (its radial factor need not lead, and `radial`
+# A composition has no `radial(lens)` (its radial factor need not lead, and `radial`
 # feeds `radial_part` and `view_angle_limit`, which mean the lens's one radially
 # symmetric factor): its forward map tests every radial factor at that stage's
 # own input — the radial half of the inverse's acceptance (`_radial_ok`), so a
@@ -389,7 +393,7 @@ end
 # tested forward (a Jacobian per projected point): a ray where the deltas or the
 # tilt fold maps to a finite point whose `backproject` is the imaged branch's
 # preimage (a different ray), or NaN (see `project`).
-@inline function _distort_in_frame(l::Lens{<:AbstractProjection, <:Chain}, x::StaticVector{2})
+@inline function _distort_in_frame(l::Lens{<:AbstractProjection, <:ComposedTransformation}, x::StaticVector{2})
     ok = _radial_ok(_primal(l.distortion), SVector(_primal(x[1]), _primal(x[2])))
     return _nan_unless(ok, _distort(l.distortion, x))
 end
@@ -404,7 +408,7 @@ end
 #   Additive, a lone delta    OpenCV's undistortPoints fixed point, finished by the
 #                             trust-region 2-D Newton
 #   FieldOfView, Tilt         closed form
-#   anything else (a Chain)   the trust-region 2-D Newton (a Full-basis radial
+#   anything else (a ∘)       the trust-region 2-D Newton (a Full-basis radial
 #                             factor never gets here: the Lens constructor
 #                             refuses one anywhere in the distortion)
 # A 2-D root stands only where the pointwise branch test holds (`_branch_root`);
@@ -549,8 +553,8 @@ end
     return Vec2(v[1] / v[3], v[2] / v[3])
 end
 
-# --- everything else (a Chain) -------------------------------------------------
-@inline _undistort(::AbstractDistortionTerm, l::Lens, xd::StaticVector{2}) =
+# --- everything else (a composition) -------------------------------------------
+@inline _undistort(::Union{AbstractDistortionTerm, ComposedTransformation}, l::Lens, xd::StaticVector{2}) =
     _undistort_2d(_frame_fwd, l, xd) do lp, x0
         f = z -> _distort(lp.distortion, z)
         x, ok, dJ = _newton_solve(f, x0)
@@ -563,7 +567,7 @@ end
 # images the one on the branch connected to the axis. The ACCEPTANCE test of a
 # root is pointwise: the map keeps orientation there (det J > 0) and every
 # radial factor of the distortion is on its own branch at its input (an
-# Additive's radial head at the root; each Radial stage of a Chain, or the
+# Additive's radial head at the root; each Radial stage of a composition, or the
 # radial head of an Additive stage, at that stage's input). The radial test is
 # needed because past a radial profile's fold the determinant turns positive
 # again (measured: OpenCV chains with roots 1.4 to 6.3 fold radii out that the
@@ -581,7 +585,7 @@ end
 @inline _radial_ok(_, x) = true
 @inline _radial_ok(r::Radial{Even}, x) = _on_radial_branch(r, x[1] * x[1] + x[2] * x[2])
 @inline _radial_ok(a::Additive, x) = (h = _head(a); h === nothing || _radial_ok(h, x))
-@inline _radial_ok(c::Chain, x) = _chain_radial_ok(c.stages, x)
+@inline _radial_ok(c::ComposedTransformation, x) = _chain_radial_ok(_stages(c), x)
 @inline _chain_radial_ok(::Tuple{}, x) = true
 @inline function _chain_radial_ok(ds::Tuple, x)
     _radial_ok(first(ds), x) || return false
@@ -687,7 +691,7 @@ _walk_trips(::Type{<:AbstractFloat}) = 24
     return xs, ok && dJ > 0 && _radial_ok(d, xs)
 end
 
-# The radial factor's own root, as the seed of a 2-D solve: in a Chain, the
+# The radial factor's own root, as the seed of a 2-D solve: in a composition, the
 # FIRST radial stage (a Radial, or an Additive led by one) wherever it sits, the
 # stages after it undone where they have a closed form (a Tilt) and taken as the
 # identity otherwise, the factor inverted on its branch (its deltas ignored),
@@ -697,7 +701,7 @@ end
 # x_d, which the first solve started from.
 @inline _radial_seed(d, cap, xd) = (xd, false)
 @inline _radial_seed(a::Additive, cap, xd) = (h = _head(a); h isa Radial{Even} ? _radial_seed(h, cap, xd) : (xd, false))
-@inline _radial_seed(c::Chain, cap, xd) = _chain_seed((), c.stages, cap, xd)
+@inline _radial_seed(c::ComposedTransformation, cap, xd) = _chain_seed((), _stages(c), cap, xd)
 @inline _chain_seed(::Tuple, ::Tuple{}, cap, xd) = (xd, false)
 @inline function _chain_seed(before::Tuple, ds::Tuple, cap, xd)
     s, rest = first(ds), Base.tail(ds)
@@ -855,9 +859,9 @@ solves the image radius as a root on the ray.
 
 A ray past the fold (or pole) of a radial factor is NaN: every [`Radial`](@ref)
 factor is tested at its own input — a lone one, an [`Additive`](@ref)'s head,
-each radial stage of a [`Chain`](@ref). The other folds are NOT tested
+each radial stage of a composed distortion (`∘`). The other folds are NOT tested
 forward, since that would cost a Jacobian per projected point: where the
-deltas of an `Additive` (tangential, thin prism) or a `Chain`'s
+deltas of an `Additive` (tangential, thin prism) or a composition's
 [`Tilt`](@ref) fold the map (det J ≤ 0 inside the radial factor's disk),
 `project` returns a finite point, and [`backproject`](@ref) of that point is
 not the ray — it is the imaged branch's preimage, a different ray, or NaN
@@ -885,7 +889,7 @@ answer is the one on the imaged branch: det J > 0 there and every
 [`Radial`](@ref) factor before its fold, reached from the axis. Two
 consequences:
 - [`project`](@ref) tests only the radial factors, so a ray past a fold of
-  the deltas of an [`Additive`](@ref) or of a [`Chain`](@ref)'s
+  the deltas of an [`Additive`](@ref) or of a composition's
   [`Tilt`](@ref) projects to a finite point whose `backproject` is the
   imaged branch's preimage (a different ray), or NaN — never that ray.
 - The acceptance test is pointwise. Where the map overlaps itself INSIDE the

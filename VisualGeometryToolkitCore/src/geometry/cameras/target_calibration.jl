@@ -35,8 +35,6 @@
 # and attaches metres again; its parameters and Jacobians are plain numbers,
 # the lengths among them in metres.
 
-using CoordinateTransformations: ComposedTransformation
-
 """
     regularizer(c | target) -> SVector
 

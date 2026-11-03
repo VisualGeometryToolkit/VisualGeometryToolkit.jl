@@ -1,8 +1,8 @@
 # =============================================================================
-# vgio/cameras/v3
+# vgio/cameras/v4
 # =============================================================================
 
-@testitem "vgio/cameras/v3" setup = [VGIoFixtures] begin
+@testitem "vgio/cameras/v4" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: BoundedCamera, Attributed, model
@@ -161,7 +161,8 @@
             @test refused(dd -> delete!(dd, :pixel_frame), "pixel_frame")
             @test refused(dd -> (dd[:cameras][1][:width] = 0), "width")
             @test refused(dd -> (dd[:cameras][1][:unit] = "px"), "unit")               # no key the table does not name
-            @test refused(dd -> (dd[:schema] = "vgio/cameras/v4"), "schema")
+            @test refused(dd -> (dd[:schema] = "vgio/cameras/v5"), "schema")                 # a version this reader does not know
+            @test refused(dd -> (dd[:schema] = "vgio/cameras/v3"), "vgio_migrate")           # v3 is migrated (its lens "chain" reversed)
             @test refused(dd -> (dd[:schema] = "vgio/cameras/v2"), "lens records")     # v2 is retired, refused by name
             @test refused(dd -> (dd[:schema] = "vgio/cameras/v1"), "lens records")
         end
@@ -211,7 +212,7 @@
             KannalaBrandt(0.1, -0.02, 0.003, -4.0e-4) => :OPENCV_FISHEYE, tpf => :THIN_PRISM_FISHEYE,
             Lens(Equidistant()) => :FISHEYE, Division(-0.3) => :DIVISION,
             Lens(Perspective(), VgtkCore.FieldOfView(0.9)) => :FOV,
-            Lens(Equidistant(), Chain(Radial((0.1, -0.02, 0.003, 0.0, 0.0, 1.0e-4)), Additive(Tangential(3.0e-4, -2.0e-4), ThinPrism((1.0e-3, 0.0), (-5.0e-4, 2.0e-5))))) => :RAD_TAN_THIN_PRISM_FISHEYE,
+            Lens(Equidistant(), (Additive(Tangential(3.0e-4, -2.0e-4), ThinPrism((1.0e-3, 0.0), (-5.0e-4, 2.0e-5))) ∘ Radial((0.1, -0.02, 0.003, 0.0, 0.0, 1.0e-4)))) => :RAD_TAN_THIN_PRISM_FISHEYE,
             Lens(DoubleSphere(0.5, 0.5)) => nothing, Division(-0.3, 0.01) => nothing,
         ]
         for (l, want) in expressible

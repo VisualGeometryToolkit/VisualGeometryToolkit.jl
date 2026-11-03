@@ -29,8 +29,8 @@
         ((1.29322, 1.18042, 0.0310774, -0.0347893, 1.40468, -0.00298835, 0.103695, -0.0803676, 0.0664061, -2.03318, 0.387737, 0.0918448, -0.0276789, -0.00434197, 0.00567138, -0.00185455, -0.0326923, -0.0250503), 1.0),
         ((1.0814372829625307, 1.0078432705375948, 0.05367441926664141, 0.020059434003556524, -0.36405747836680913, -0.003326126819997479, 0.0037657811228031042, -0.0057581915148212925, 0.042994416425077696, -0.21037524661653864, 0.1316433835242977, -0.003957229171810205, -0.003325159914997237, 0.0025195594077938002, -0.009930701796065578, 0.0019373073031102954, 0.009812759296076286, -0.022888098663893065), 1.0),
     )
-    opencv(θ) = Lens(Perspective(), Chain(Additive(Radial((θ[5], θ[6], θ[9]), (θ[10], θ[11], θ[12])), Tangential(θ[7], θ[8]),
-        ThinPrism((θ[13], θ[14]), (θ[15], θ[16]))), Tilt(θ[17], θ[18])))
+    opencv(θ) = Lens(Perspective(), (Tilt(θ[17], θ[18]) ∘ Additive(Radial((θ[5], θ[6], θ[9]), (θ[10], θ[11], θ[12])), Tangential(θ[7], θ[8]),
+        ThinPrism((θ[13], θ[14]), (θ[15], θ[16])))))
     fwd(lens, x) = project(lens, SVector(x[1], x[2], one(x[1])))
     undist(lens, m) = (r = backproject(lens, m); SVector(r[1] / r[3], r[2] / r[3]))
 
@@ -77,7 +77,7 @@
     # again past ρ = √2.5, where det J > 0 once more (the trust-region Newton from
     # x_d lands there for 233 of these points). Every root lies before the fold;
     # every point well inside the branch's image (radius ≈ 0.79) is imaged.
-    tilted = Lens(Perspective(), Chain(Tilt(0.02, -0.01), Additive(Radial((-0.3, 0.04)), Tangential(1.0e-3, -5.0e-4))))
+    tilted = Lens(Perspective(), (Additive(Radial((-0.3, 0.04)), Tangential(1.0e-3, -5.0e-4)) ∘ Tilt(0.02, -0.01)))
     ρfold = sqrt(2.0)
     for u in range(-1.0, 1.0, length = 41), v in range(-1.0, 1.0, length = 41)
         m = SVector(u, v)
@@ -112,11 +112,10 @@
     # inverted between the undone stages): over this lattice the walk does not
     # finish at 3 points, which were NaN while only a leading radial factor
     # seeded. Every point is imaged, on the axis component.
-    tiltfirst = Lens(Perspective(), Chain(Tilt(-0.01311791766577625, -0.15298652218047473),
-        Additive(Radial((-0.20838301476990476, -0.04982895104626379, 0.024431338010754332),
+    tiltfirst = Lens(Perspective(), (Additive(Radial((-0.20838301476990476, -0.04982895104626379, 0.024431338010754332),
                         (0.11479329358169524, -0.10008971271326406, -0.012296270575612153)),
                  Tangential(-0.010988293802287124, 0.002516452416855112),
-                 ThinPrism((0.005850789615659557, 0.0), (-0.014588143473107572, 0.0)))))
+                 ThinPrism((0.005850789615659557, 0.0), (-0.014588143473107572, 0.0))) ∘ Tilt(-0.01311791766577625, -0.15298652218047473)))
     tf_roots = [(m, undist(tiltfirst, m)) for m in (SVector(u, v) for u in range(-2.0, 2.0, length = 41), v in range(-2.0, 2.0, length = 41))]
     @test all(r -> all(isfinite, r[2]), tf_roots)
     tf_ac = axis_component(x -> fwd(tiltfirst, x), Inf, 2.6, 601)       # fwd is NaN past the radial stage's fold
@@ -125,7 +124,7 @@
     end
     # a Full-basis radial factor has no forward map in a lens's frame, anywhere
     full = VisualGeometryToolkitCore.Cameras.Radial{VisualGeometryToolkitCore.Cameras.Full}((0.1,), ())
-    @test_throws ArgumentError Lens(Perspective(), Chain(Additive(full, Tangential(0.0, 1.0e-3)), Tilt(0.01, 0.0)))
+    @test_throws ArgumentError Lens(Perspective(), (Tilt(0.01, 0.0) ∘ Additive(full, Tangential(0.0, 1.0e-3))))
 
     # Float32 on the CPU, the continuation included: the same points are imaged as in
     # Float64, at the Float32 solve tolerance

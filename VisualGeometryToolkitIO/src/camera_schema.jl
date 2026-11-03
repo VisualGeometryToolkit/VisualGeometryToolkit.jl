@@ -1,8 +1,8 @@
 # =============================================================================
-# vgio/cameras/v3 — the camera store
+# vgio/cameras/v4 — the camera store
 # =============================================================================
 #
-# {"schema": "vgio/cameras/v3", "pixel_frame": "colmap",
+# {"schema": "vgio/cameras/v4", "pixel_frame": "colmap",
 #  "cameras": [{"name": "sony-fx3_tamron-20mm_f22", "width": 4240, "height": 2832,
 #               "K": {"fx": …, "fy": …, "cx": …, "cy": …, "skew": 0.0},
 #               "lens": {"perspective": [],
@@ -329,7 +329,7 @@ end
     save(path, cameras::AbstractDict{Symbol}; length_unit = mm, provenance = (;))
 
 Write a camera store — name → `BoundedCamera` of a `CameraModel`, or an
-`Attributed` one carrying its `calibration` block — as a `vgio/cameras/v3`
+`Attributed` one carrying its `calibration` block — as a `vgio/cameras/v4`
 file, cameras sorted by name. A camera bounded by its physical `Sensor`
 carries the sensor's `pitch` in `length_unit`, which the file then declares. `provenance` is the file's one free-form object,
 which VGIo never reads back.
@@ -362,7 +362,7 @@ end
 """
     load(Dict{Symbol, BoundedCamera}, path) -> Dict{Symbol, Union{BoundedCamera, Attributed{<:BoundedCamera}}}
 
-Read a `vgio/cameras/v3` store: name → `BoundedCamera` of a `CameraModel`
+Read a `vgio/cameras/v4` store: name → `BoundedCamera` of a `CameraModel`
 (its K moved from the file's declared pixel frame into the canonical one), an
 `Attributed` one where the file states the camera's `calibration` block. A v1
 or v2 file is refused by name: nothing reads a retired version.
@@ -384,7 +384,7 @@ end
     load(BoundedCamera, path; name = nothing) -> BoundedCamera
     load(CameraModel,  path; name = nothing) -> CameraModel
 
-Read ONE camera from a `vgio/cameras/v3` store — the bounded camera, or just
+Read ONE camera from a `vgio/cameras/v4` store — the bounded camera, or just
 its model (its `calibration` block, if any, is the store's to read). Without
 `name` the store must hold exactly one camera: a multi-camera store is
 REFUSED with the available names rather than defaulting to the first —

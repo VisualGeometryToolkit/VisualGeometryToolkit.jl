@@ -168,6 +168,11 @@ const _POINT_INDEX_BASE = 1
 # predecessors are MIGRATED, once, by `vgio_migrate` (migrate.jl); no reader
 # reads them.
 #
+# cameras v4 and rig v6 (the lens record, the same change): a lens's distortion
+# stages in sequence (CT's `∘`) are listed in the record's "chain" in CT's
+# order, the outer map first; v3/v5 listed them in application order. Migrated
+# by `vgio_migrate`.
+#
 # target v3 and rig v6 (CoordinateTransformations' composition, 2026-11): a
 # target calibration is CT's `∘` of a height field after one in-plane kind,
 # its record's members listed in CT's order (the outer map first) and its
@@ -180,7 +185,7 @@ const _POINT_INDEX_BASE = 1
 # free-form name is refused, and a pose may carry its covariance. The kinds
 # born after that are v1 (target, target_poses, target_points2d, target_points3d).
 const _SCHEMA_VERSION = Dict(
-    "cameras" => 3, "rig" => 6, "transforms" => 3, "trajectory" => 3,
+    "cameras" => 4, "rig" => 6, "transforms" => 3, "trajectory" => 3,
     "target" => 3, "target_poses" => 1, "target_points2d" => 1, "target_points3d" => 1,
 )
 _schema_version(kind) = get(_SCHEMA_VERSION, kind, 2)
@@ -239,6 +244,7 @@ const _RETIRED_KINDS = Dict(
 # kind argument for each.
 const _MIGRATIONS_TO_CURRENT = Dict(
     "vgio/target/v1" => "target", "vgio/rig/v4" => "rig", "vgio/target/v2" => "target", "vgio/rig/v5" => "rig",
+    "vgio/cameras/v3" => "file",
 )
 
 function _refuse_schema(path, kind::AbstractString, s)

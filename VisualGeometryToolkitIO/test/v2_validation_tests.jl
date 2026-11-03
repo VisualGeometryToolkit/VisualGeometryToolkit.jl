@@ -154,6 +154,12 @@
                 @test occursin("rig/v6", something(refusal(merge(doc, Dict(:schema => "vgio/rig/v3")), dir, "$(name)_v3"; units), ""))
                 @test occursin("vgio_migrate", something(refusal(merge(doc, Dict(:schema => "vgio/rig/v4")), dir, "$(name)_v4"; units), ""))
                 @test occursin("vgio_migrate", something(refusal(merge(doc, Dict(:schema => "vgio/rig/v5")), dir, "$(name)_v5"; units), ""))
+            elseif name == "cameras"
+                # v3 is migrated (its lens records' "chain" reversed); v1 and v2 predate the lens families
+                @test doc[:schema] == "vgio/cameras/v4"
+                @test occursin("vgio_migrate", something(refusal(merge(doc, Dict(:schema => "vgio/cameras/v3")), dir, "$(name)_v3"; units), ""))
+                @test occursin("lens records", something(refusal(merge(doc, Dict(:schema => "vgio/cameras/v2")), dir, "$(name)_v2"; units), ""))
+                @test occursin("lens records", something(refusal(merge(doc, Dict(:schema => v1)), dir, "$(name)_v1"; units), ""))
             elseif endswith(doc[:schema], "/v3")
                 @test occursin("lens records", something(refusal(merge(doc, Dict(:schema => v1)), dir, "$(name)_v1"; units), ""))
                 @test occursin("lens records", something(refusal(merge(doc, Dict(:schema => replace(doc[:schema], "/v3" => "/v2"))), dir, "$(name)_v2"; units), ""))

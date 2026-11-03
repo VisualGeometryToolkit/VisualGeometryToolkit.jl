@@ -35,6 +35,15 @@ chain types, and CT's conventions hold for it.
   RadiometricCamera, and their rebuilds run on ForwardDiff Duals).
 - `Base.hash` of a composition of the stack's kinds agrees with CT's
   structural `==`; equal targets hash equally.
+- **Removed the lens `Chain`**: distortion terms are CT `Transformation`s
+  (`AbstractDistortionTerm <: Transformation`, each callable on a frame
+  point), and terms in sequence are CT's `∘`: `Chain(D₁, D₂)` is `D₂ ∘ D₁`
+  (OpenCV's tilted model `Tilt(τx, τy) ∘ Additive(…)`, Fisheye624
+  `Additive(Tangential(…), ThinPrism(…)) ∘ Radial(…)`). A composed lens's
+  coefficients, names, bounds and Jacobian columns are in CT's order, the
+  outer stage's first; its `lens_record` lists the `"chain"` stages outer
+  first (`lens_from_record` builds the composition right-associated). Every
+  projection, back-projection and Jacobian is bit for bit the chain's.
 
 ## 0.4.0 (2026-11-02)
 

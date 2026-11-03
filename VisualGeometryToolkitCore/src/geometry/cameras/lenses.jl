@@ -1,5 +1,5 @@
 # =============================================================================
-# Lens families — two lens kinds, eight projections, five terms, two combinators
+# Lens families — two lens kinds, eight projections, five terms, a sum and ∘
 # =============================================================================
 #
 #   Lens(projection, distortion)   forward:  x_d = distortion(projection(X))
@@ -10,11 +10,13 @@
 # parametric one such as the double sphere); a distortion is a map in that
 # frame, built from terms: `Radial` (a rational radial factor), `Tangential`,
 # `ThinPrism`, `Tilt`, `FieldOfView`, combined by `Additive` (every term at the
-# same point, summed: OpenCV/COLMAP) and `Chain` (in sequence).
+# same point, summed: OpenCV/COLMAP) and CoordinateTransformations' `∘` (in
+# sequence: a term is a `Transformation`).
 #
 # Projections and terms are LEAVES: structs of numbers and tuples of numbers,
-# whose number type is their last type parameter. Lenses and combinators are
-# NODES, whose type parameters are their fields' types. Everything a lens is
+# whose number type is their last type parameter. Lenses, `Additive` and CT's
+# `ComposedTransformation` are NODES, whose type parameters are their fields'
+# types (a composition's fields `t1`, `t2`: the outer map first, CT's order). Everything a lens is
 # asked — `parameter_vector`, `with_parameters`, `parameter_names`, the zero
 # lens, the v3 record, the manifold, every Jacobian — is derived from the
 # fields by one generic walk; no leaf states anything of its own.
@@ -130,13 +132,16 @@ ExtendedUnified(alpha::Real, beta::Real) = ExtendedUnified(promote(float(alpha),
 # -----------------------------------------------------------------------------
 
 """
-    AbstractDistortionTerm
+    AbstractDistortionTerm <: CoordinateTransformations.Transformation
 
 A distortion term in a projection's frame: a MAP `x ↦ f(x)` ([`Radial`](@ref),
 [`Tilt`](@ref), [`FieldOfView`](@ref)) or a DELTA `x ↦ Δ(x)` added to the
 point ([`Tangential`](@ref), [`ThinPrism`](@ref)) — see [`Additive`](@ref).
+A term is a CoordinateTransformations `Transformation`, callable on a frame
+point (`t(x)`, a delta summed with the point, as a lone [`Additive`](@ref));
+terms applied in sequence are its `∘`, `D₂ ∘ D₁` (`D₁` first).
 """
-abstract type AbstractDistortionTerm end
+abstract type AbstractDistortionTerm <: CoordinateTransformations.Transformation end
 
 "The power basis of a [`Radial`](@ref) factor: `Even` — `ρ², ρ⁴, …` (the default); `Full` — `ρ², ρ³, ρ⁴, …`."
 struct Even end
@@ -278,22 +283,10 @@ struct Additive{D <: Tuple} <: AbstractDistortionTerm
     terms::D
 end
 
-"""
-    Chain(D₁, D₂, …)
-
-Distortions applied in sequence, in the projection's frame: `Dₙ(…D₁(x))`.
-Each stage is a map term or an [`Additive`](@ref). Aria's Fisheye624 (COLMAP
-`RAD_TAN_THIN_PRISM_FISHEYE`) is a radial factor followed by tangential and
-thin-prism deltas of the radially distorted point.
-"""
-struct Chain{D <: Tuple} <: AbstractDistortionTerm
-    stages::D
-end
-
 function Additive(ts::AbstractDistortionTerm...)
     isempty(ts) && throw(ArgumentError("Additive needs at least one term"))
     for (i, t) in enumerate(ts)
-        (t isa Additive || t isa Chain) && throw(ArgumentError("Additive: terms are leaves, not $(nameof(typeof(t)))"))
+        t isa Additive && throw(ArgumentError("Additive: terms are leaves, not $(nameof(typeof(t)))"))
         i > 1 && !isdelta(t) && throw(ArgumentError("Additive: only the first term may be a map; term $i is a $(nameof(typeof(t)))"))
     end
     return _checked_names(Additive(ts))
@@ -306,13 +299,15 @@ end
 @inline _deltas(a::Additive) = isdelta(first(a.terms)) ? a.terms : Base.tail(a.terms)
 @inline _deltas(t) = (t,)
 
-function Chain(ds::AbstractDistortionTerm...)
-    length(ds) >= 2 || throw(ArgumentError("Chain needs at least two stages"))
-    for (i, d) in enumerate(ds)
-        (isdelta(d) || d isa Chain) && throw(ArgumentError("Chain: stage $i must be a map term or an Additive, not a $(nameof(typeof(d)))"))
-    end
-    return _checked_names(Chain(ds))
-end
+# Distortions applied in sequence are CoordinateTransformations' `∘`:
+# `D₂ ∘ D₁` applies `D₁`, then `D₂` — Aria's Fisheye624 (COLMAP
+# `RAD_TAN_THIN_PRISM_FISHEYE`) is `Additive(Tangential(…), ThinPrism(…)) ∘
+# Radial(…)`, the deltas of the radially distorted point; OpenCV's tilted model
+# is `Tilt(…) ∘ Additive(…)`. Each stage is a map term or an `Additive`.
+# `_stages(d)`: a distortion's stages in APPLICATION order (the innermost
+# first), whatever its nesting; a single term is one stage.
+@inline _stages(c::ComposedTransformation) = (_stages(c.t2)..., _stages(c.t1)...)
+@inline _stages(d) = (d,)
 
 # -----------------------------------------------------------------------------
 # Lenses
@@ -323,7 +318,8 @@ end
 
 A forward lens: the ray is projected onto `projection`'s frame and the frame
 point is distorted by `distortion` (`nothing`, a term, an [`Additive`](@ref)
-or a [`Chain`](@ref)). Projection is closed form; back-projection inverts the
+or terms in sequence, CoordinateTransformations' `D₂ ∘ D₁` — each stage a map
+term or an `Additive`). Projection is closed form; back-projection inverts the
 distortion (`backproject`).
 """
 struct Lens{F <: AbstractProjection, D} <: AbstractLensModel
@@ -333,6 +329,16 @@ end
 Lens(p::AbstractProjection) = Lens(p, nothing)
 function Lens(p::AbstractProjection, d::AbstractDistortionTerm)
     # anywhere in the distortion: a Full-basis factor has no forward map in the frame
+    any(t -> t isa Radial{Full}, _leaves(d)) &&
+        throw(ArgumentError("Lens: a forward radial factor uses the Even basis; the Full basis is a LiftLens's"))
+    return _checked_names(Lens{typeof(p), typeof(d)}(p, d))
+end
+function Lens(p::AbstractProjection, d::ComposedTransformation)
+    for (i, s) in enumerate(_stages(d))
+        (s isa AbstractDistortionTerm && !isdelta(s)) || throw(
+            ArgumentError("Lens: a composed distortion's stages are map terms or Additives; stage $i (in application order) is a $(nameof(typeof(s)))")
+        )
+    end
     any(t -> t isa Radial{Full}, _leaves(d)) &&
         throw(ArgumentError("Lens: a forward radial factor uses the Even basis; the Full basis is a LiftLens's"))
     return _checked_names(Lens{typeof(p), typeof(d)}(p, d))
@@ -396,7 +402,8 @@ Scaramuzza(a::Real...) = LiftLens(Radial{Full}((), a))
 # A leaf's coefficients are its fields in order, a tuple field contributing its
 # elements; a coefficient is named by its field, a tuple field `k` as `k1, k2, …`.
 # The leaves of a lens are its projection, then its distortion depth-first, left
-# to right — parameter order.
+# to right — parameter order; a composition's fields are `t1`, `t2`, so its
+# leaves are in CoordinateTransformations' order, the outer map's first.
 
 # A leaf's parameters are its first `_param_fields(X)` fields: a Radial's branch
 # ends after them are derived from its coefficients, never parameters.
@@ -407,7 +414,7 @@ _param_fields(::Type{<:Radial}) = 2
 
 @inline _leaves(::Nothing) = ()
 @inline _leaves(t::Tuple) = _flatmap(_leaves, t)
-@inline _leaves(x::Union{AbstractLensModel, Additive, Chain}) = _leaves(_fields(x))
+@inline _leaves(x::Union{AbstractLensModel, Additive, ComposedTransformation}) = _leaves(_fields(x))
 @inline _leaves(leaf) = (leaf,)
 
 @inline _coefficients(leaf) = _flatmap(f -> f isa Tuple ? f : (f,), _fields(leaf))
@@ -432,7 +439,7 @@ _coefficient_names_of(x) = _flatmap(leaf -> coefficient_names(typeof(leaf)), _le
 # With `src`, the expression of the part being rebuilt, a Radial keeps that part's
 # branch ends instead of sweeping for them: only for coefficients whose primal
 # values are the part's own.
-_is_node(X) = X <: Union{AbstractLensModel, Additive, Chain}
+_is_node(X) = X <: Union{AbstractLensModel, Additive, ComposedTransformation}
 function _rebuild_expr(X, T, coef, o = Ref(0), src = nothing)
     X === Nothing && return :nothing, Nothing
     if X <: Tuple || _is_node(X)

@@ -221,7 +221,7 @@ export Pinhole, Division, KannalaBrandt, Scaramuzza, AbstractLensModel, Lens, Li
 export AbstractProjection, Perspective, Equidistant, Stereographic, Equisolid, Orthographic
 export DoubleSphere, Unified, ExtendedUnified
 export Equirectangular   # the latitude/longitude projection of directions (not a lens)
-export AbstractDistortionTerm, Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Chain
+export AbstractDistortionTerm, Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive
 public Even, Full, isdelta, projection_frame
 export radial, parameters, lens_record, lens_from_record
 export division_bounded, undistorted_rect, valid_rect, horizon_radius, fov_radius

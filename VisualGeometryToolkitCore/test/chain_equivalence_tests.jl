@@ -14,7 +14,7 @@
     include(joinpath(DIR, "corpus.jl"))
     using .ChainEquivalenceCorpus
     include(joinpath(DIR, "core_values.jl"))
-    using VisualGeometryToolkitCore: Chain, calibration_tag, transform_deriv, transform_deriv_params
+    using VisualGeometryToolkitCore: calibration_tag, transform_deriv, transform_deriv_params
     using CoordinateTransformations: AffineMap, ComposedTransformation
     using StaticArrays: SMatrix, SVector
 
@@ -30,18 +30,22 @@
     #   the parameter Jacobian is CT's `transform_deriv_params`, the point
     #   Jacobian CT's `transform_deriv`; a composition has no tag (its record is
     #   written by structure); and the in-plane compositions are retired;
-    # - lenses: unchanged so far.
+    # - lenses: a distortion's stages in sequence are CT's `∘` (the Lens
+    #   `Chain` removed), its parameters, names, bounds and Jacobian columns in
+    #   CT's order, the outer stage first (`lens_ct_order`); the lens record's
+    #   "chain" lists the stages outer first (`legacy_lens_record` reverses it
+    #   back to the goldens' application order).
     const CODE = (
         affine = (A, b) -> AffineMap(SMatrix{2, 2}(A), SVector{2}(b)),
         compose_calibrations = members -> ∘(reverse(members)...),
-        compose_distortions = stages -> Chain(stages...),
+        compose_distortions = stages -> ∘(reverse(stages)...),
         jacobian_theta = transform_deriv_params,
         jacobian_x = transform_deriv,
         tag = c -> c isa ComposedTransformation ? nothing : calibration_tag(typeof(c)),
-        legacy_lens_record = identity,
+        legacy_lens_record = r -> haskey(r, "chain") ? merge(r, Dict{String, Any}("chain" => reverse(r["chain"]))) : r,
         composition_tags = false,
         ct_order = true,
-        lens_ct_order = false,
+        lens_ct_order = true,
         # Two in-plane kinds never compose (a Rigid member is an in-plane kind):
         # the only compositions left are A_H and T_H, a height field after an
         # AffineMap or a ThinPlateSpline. A target refuses every one of these.

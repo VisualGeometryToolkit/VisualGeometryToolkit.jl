@@ -61,10 +61,10 @@ end
 
 Convert a third-party OpenCV calibration export (`calibration_opencv_*.json`:
 `fx, fy, cx, cy`, named distortion coefficients, `rms`, one `{rvec, tvec}` per
-image) into native files (cameras v3, transforms v2), where everything the export leaves implicit is
+image) into native files (cameras v4, transforms v3), where everything the export leaves implicit is
 declared. The original is never touched. Written to `out`:
 
-- `<stem>_cameras.json` — a `vgio/cameras/v3` store holding one camera named
+- `<stem>_cameras.json` — a `vgio/cameras/v4` store holding one camera named
   `<stem>`: `width`/`height` from `image_size`, `K` in the canonical pixel
   frame, and the lens record of `opencv_lens` for the export's distortion
   vector (the terms its length evaluates). The export's reprojection
@@ -493,6 +493,22 @@ function _reversed_composition(c::AbstractDict, key = "type")
     end
     return out
 end
+# A lens record with its "chain" (terms in sequence) reversed: v3/v5 listed
+# the stages in application order, v4/v6 in CT's order (the outer first). Its
+# own inverse; any other lens record as it is.
+_reversed_lens_chain(l::AbstractDict) = haskey(l, "chain") ? merge(Dict{String, Any}(l), Dict{String, Any}("chain" => reverse(l["chain"]))) : l
+_reversed_lens_chain(l) = l
+# a camera body (a store's camera, a rig's sensor camera) with its lens's chain reversed
+_camera_v3_to_v4(c::AbstractDict) = haskey(c, "lens") ? merge(Dict{String, Any}(c), Dict{String, Any}("lens" => _reversed_lens_chain(c["lens"]))) : c
+function _cameras_v3_to_v4(old)
+    t = copy(old)
+    t["schema"] = _schema("cameras")
+    t["cameras"] = Any[_camera_v3_to_v4(c) for c in old["cameras"]]
+    return t
+end
+_map_rig_sensors(f, tree::AbstractDict) = haskey(tree, "sensors") ?
+    merge(Dict{String, Any}(tree), Dict{String, Any}("sensors" => Any[merge(Dict{String, Any}(x), Dict{String, Any}("camera" => f(x["camera"]))) for x in tree["sensors"]])) : tree
+
 _body_v2_to_v3(b::AbstractDict) = haskey(b, "calibration") ? merge(Dict{String, Any}(b), Dict{String, Any}("calibration" => _reversed_composition(b["calibration"]))) : b
 function _target_v2_to_v3(old)
     t = copy(old)
@@ -500,7 +516,13 @@ function _target_v2_to_v3(old)
     t["target"] = _body_v2_to_v3(old["target"])
     return t
 end
-_rig_v5_to_v6(old) = (t = _map_rig_targets(_body_v2_to_v3, old); t["schema"] = _schema("rig"); t)
+_rig_v5_to_v6(old) = (t = _map_rig_sensors(_camera_v3_to_v4, _map_rig_targets(_body_v2_to_v3, old)); t["schema"] = _schema("rig"); t)
+
+# vgio/cameras/v3 → v4: each lens record's "chain" in CT's order
+function migrate_schema(::Val{Symbol("vgio/cameras/v3")}, src::AbstractString, dst::AbstractString)
+    _migrate_record(Dict{Symbol, BoundedCamera}, _CAMERAS_SPEC, src, dst, _cameras_v3_to_v4, "the camera store")
+    return (; to = _schema("cameras"))
+end
 
 function migrate_schema(::Val{Symbol("vgio/target/v2")}, src::AbstractString, dst::AbstractString)
     _migrate_record(AbstractTarget, _TARGET_SPEC, src, dst, _target_v2_to_v3, "the target record")
@@ -515,6 +537,9 @@ function migrate_schema(::Val{Symbol("vgio/rig/v5")}, src::AbstractString, dst::
     tree = _identity_tree(value)
     haskey(tree, "targets") && for x in tree["targets"]
         haskey(x["target"], "calibration") && (x["target"]["calibration"] = _reversed_composition(x["target"]["calibration"], "kind"))
+    end
+    haskey(tree, "sensors") && for x in tree["sensors"]
+        x["camera"] = _camera_v3_to_v4(x["camera"])
     end
     old_id = sha256_hex(canonical_json(tree))
     return (; to = _schema("rig"), old_id, old_ids = [old_id], new_id = content_id(dst))

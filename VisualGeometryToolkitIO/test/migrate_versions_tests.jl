@@ -454,3 +454,47 @@ end
         @test !ispath(joinpath(out2, "e.txt")) && isempty(readdir(other)) && isempty(staging(out2))
     end
 end
+
+@testitem "vgio_migrate: rig/v5 → v6 reverses a sensor lens's chain and a target's composition, and maps the id" setup = [VGIoFixtures] begin
+    # A v5 rig is the v6 text with every composed record's members in
+    # application order (CoordinateTransformations' order reversed): a sensor's
+    # lens "chain" and a target's calibration "members" with its covariance.
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: Rig, BoundedCamera, CameraModel, PosedCamera, PosedTarget, PlanarTarget, HeightField,
+        Lens, Perspective, Additive, Radial, Tangential, Tilt, Size2, ViewFrame, BodyFrame, Uncertain, CovMat, grid_nodes, relabel, mm
+    using CoordinateTransformations: AffineMap
+    using LinearAlgebra: Diagonal
+    using JSON: JSON
+    K = SMatrix{3, 3}(800.0, 0.0, 0.0, 0.0, 810.0, 0.0, 640.0, 480.0, 1.0)
+    lens = Lens(Perspective(), Tilt(0.01, -0.02) ∘ Additive(Radial((-0.12, 0.03)), Tangential(1.0e-3, -5.0e-4)))
+    I3 = EuclideanMap(one(RotMatrix{3, Float64}), [0.0mm, 0.0mm, 0.0mm])
+    cam = BoundedCamera(PosedCamera(CameraModel(K; lens, image_origin = :colmap), relabel(BodyFrame{:camera_rig}, ViewFrame{:cam}, I3)), Size2(1280, 960))
+    nodes = [p .* mm for p in grid_nodes(2; lo = 0.0, hi = 100.0)]
+    c = HeightField(nodes, [0.1, 0.0, -0.1, 0.2] .* mm) ∘ AffineMap(SMatrix{2, 2}(1.001, 0.0, 0.002, 0.999), SVector(0.5, -0.25) .* mm)
+    Σ = CovMat(SMatrix{10, 10, Float64}(Diagonal([1.0e-8 * i for i in 1:10])))
+    t = PlanarTarget([SVector(0.0, 0.0) .* mm, SVector(100.0, 50.0) .* mm]; calibration = Uncertain(c, Σ))
+    rig = Rig{BodyFrame{:camera_rig}}((cam,), Dict(:t => PosedTarget(t, I3)))
+    mktempdir() do dir
+        v6 = joinpath(dir, "rig.json")
+        VgtkIO.save(v6, rig)
+        d = JSON.parse(read(v6, String); dicttype = Dict{String, Any})
+        @test [only(keys(x)) for x in d["sensors"][1]["camera"]["lens"]["chain"]] == ["tilt", "add"]        # the outer first
+        @test [x["type"] for x in d["targets"][1]["target"]["calibration"]["members"]] == ["height_field", "affine"]
+        # the v5 file it migrates from
+        d["schema"] = "vgio/rig/v5"
+        l = d["sensors"][1]["camera"]["lens"]
+        l["chain"] = reverse(l["chain"])
+        cal = d["targets"][1]["target"]["calibration"]
+        cal["members"] = reverse(cal["members"])
+        p = [5, 6, 7, 8, 9, 10, 1, 2, 3, 4]                     # affine (6) then height field (4) ← height field then affine
+        cal["covariance"] = [[cal["covariance"][p[i]][p[j]] for j in 1:10] for i in 1:10]
+        v5 = joinpath(dir, "rig_v5.json")
+        write(v5, JSON.json(d, 2))
+        e = try VgtkIO.load(Rig, v5); nothing catch e; e end
+        @test e isa ArgumentError && occursin("vgio_migrate", e.msg)
+        r = VgtkIO.vgio_migrate(v5; out = joinpath(dir, "rig_migrated.json"))
+        @test r.to == "vgio/rig/v6" && read(r.out) == read(v6)                  # the writer's v6, byte for byte
+        @test r.new_id == VgtkIO.content_id(rig) && r.old_id != r.new_id
+        @test VgtkIO.load(Rig, r.out)[:t].target == rig[:t].target
+    end
+end

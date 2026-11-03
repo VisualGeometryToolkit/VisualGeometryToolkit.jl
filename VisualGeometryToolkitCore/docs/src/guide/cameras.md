@@ -100,7 +100,7 @@ There are two kinds of lens, built from a handful of parts — see
   [`DoubleSphere`](@ref), [`Unified`](@ref), [`ExtendedUnified`](@ref))
   followed by a distortion in that frame ([`Radial`](@ref),
   [`Tangential`](@ref), [`ThinPrism`](@ref), [`Tilt`](@ref),
-  [`FieldOfView`](@ref), combined by [`Additive`](@ref) and [`Chain`](@ref)).
+  [`FieldOfView`](@ref), combined by [`Additive`](@ref) and CoordinateTransformations' `∘`).
   [`Pinhole`](@ref) and [`KannalaBrandt`](@ref) are named instances.
 - [`LiftLens`](@ref)`(radial)` — the image point lifts to its ray in closed
   form: [`Division`](@ref), BabelCalib's rational model,

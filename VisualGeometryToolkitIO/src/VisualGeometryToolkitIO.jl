@@ -89,7 +89,7 @@ using CoordinateTransformations: AffineMap, ComposedTransformation   # a target 
 using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, px, dpi, has_units,
     CameraModel, CameraCalibrationMat, AbstractLensModel, Lens, Pinhole, Division, KannalaBrandt, Scaramuzza,
     Perspective, Equidistant, DoubleSphere, Unified, ExtendedUnified,
-    Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Chain, Even,
+    Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Even,
     lens_record, lens_from_record,
     EuclideanMap, Size2, Vec3, PixelFrame,
     Rig, PosedTarget, BoundedCamera, PosedCamera, Attributed, sensor_rig, target_rig, Sensor, sensor,
@@ -116,7 +116,7 @@ import VisualGeometryToolkitCore
 # transforms file errors instead of guessing, and the return type is what you
 # asked for. `save` needs no type argument; the value already carries it.
 #
-#   load(Dict{Symbol, BoundedCamera}, path)      vgio/cameras/v3     the camera store
+#   load(Dict{Symbol, BoundedCamera}, path)      vgio/cameras/v4     the camera store
 #   load(BoundedCamera | CameraModel, path; name = nothing)          one of its cameras (multi refused unnamed)
 #   load(Vector{EuclideanMap}, path)             vgio/transforms/v3  labeled poses
 #   load(Rig, path; resolve = nothing)           vgio/rig/v6         sensors, targets, or both

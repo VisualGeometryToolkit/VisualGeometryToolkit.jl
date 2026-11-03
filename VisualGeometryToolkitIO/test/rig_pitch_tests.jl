@@ -99,7 +99,7 @@ end
     end
 end
 
-@testitem "cameras/v3: the store keeps a camera's pitch" setup = [VGIoFixtures] begin
+@testitem "cameras/v4: the store keeps a camera's pitch" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitCore: BoundedCamera, Sensor, sensor, model, μm, CMOS_SENSORS
 
     m = CameraModel(CameraCalibrationMat(SMatrix{3, 3, Float64}(1270.0, 0, 0, 0, 1270.0, 0, 1224.0, 1024.0, 1)); lens = KannalaBrandt(-0.1351))

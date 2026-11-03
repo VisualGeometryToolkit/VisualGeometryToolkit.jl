@@ -25,7 +25,8 @@ a [`LogicalIntrinsics`](@ref) — in the order of [`parameter_names`](@ref).
 Inverse of [`with_parameters`](@ref).
 
 A lens's are the projection's, then the distortion's terms depth-first, left to
-right, each term in its own documented order ([`Radial`](@ref): `k…, d…`;
+right — for terms in sequence, `D₂ ∘ D₁`, CoordinateTransformations' order, the
+outer `D₂`'s first — each term in its own documented order ([`Radial`](@ref): `k…, d…`;
 [`Tangential`](@ref): `p1, p2`; [`ThinPrism`](@ref): `sx…, sy…`; …); empty for
 a lens without coefficients. A `PlanarTarget`'s are its calibration's (empty for
 [`Rigid`](@ref)). A `LogicalIntrinsics`'s are `f, aspect, skew, cx, cy` of
@@ -600,7 +601,7 @@ end
 #   lens   := { PROJ: [c…] }                                  a pure projection
 #           | { PROJ: [c…], TERM: payload }                    projection + one term
 #           | { PROJ: [c…], "add":   [ {TERM: payload}, … ] }
-#           | { PROJ: [c…], "chain": [ {TERM | "add": …}, … ] }
+#           | { PROJ: [c…], "chain": [ {TERM | "add": …}, … ] }     terms in sequence (∘), the OUTER first
 #           | { "lift": { "radial" | "radial_full": [[k…], [d…]] } }
 #   payload: radial / radial_full [[k…], [d…]]; tangential [p1, p2];
 #            thin_prism [[sx…], [sy…]]; tilt [tx, ty]; field_of_view [omega]
@@ -621,7 +622,8 @@ toml_value(l::AbstractLensModel) = lens_record(l)     # a lens-valued config fie
 
 _record(::Nothing) = Dict{String, Any}()
 _record(a::Additive) = Dict{String, Any}("add" => Any[_record(t) for t in a.terms])
-_record(c::Chain) = Dict{String, Any}("chain" => Any[_record(t) for t in c.stages])
+# terms in sequence: CoordinateTransformations' order, the outer map first
+_record(c::ComposedTransformation) = Dict{String, Any}("chain" => Any[_record(t) for t in reverse(_stages(c))])
 _record(leaf) = Dict{String, Any}(
     _tag(typeof(leaf)) => any(f -> f isa Tuple, _fields(leaf)) ? Any[collect(Float64, f) for f in _fields(leaf)] :
         collect(Float64, _coefficients(leaf))
@@ -667,7 +669,9 @@ function _from_record(::Type{T}, d) where {T}
     if k == "add" || k == "chain"
         (v isa AbstractVector && !isempty(v)) || throw(ArgumentError("lens record: \"$k\" is a non-empty list of terms"))
         parts = map(x -> _from_record(T, x), v)
-        return k == "add" ? Additive(parts...) : Chain(parts...)
+        k == "add" && return Additive(parts...)
+        length(parts) >= 2 || throw(ArgumentError("lens record: \"chain\" is two or more terms in sequence, the outer first"))
+        return foldr(∘, parts)                     # right-associated: parts[1] ∘ (parts[2] ∘ …)
     end
     (haskey(_LEAVES, k) && !_is_projection_tag(k)) || throw(
         ArgumentError("lens record: unknown key \"$k\"; known: add, chain, $(join(sort(filter(!_is_projection_tag, collect(keys(_LEAVES)))), ", "))")

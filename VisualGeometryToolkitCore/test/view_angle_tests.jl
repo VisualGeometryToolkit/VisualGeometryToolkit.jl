@@ -29,7 +29,7 @@
         # ρ(1 − 0.3ρ² + 0.04ρ⁴) folds at ρ = √2 (output radius ≈ 0.792)
         F(s) = 1 - 0.3s + 0.04s^2
         tilt = Tilt(0.02, -0.01)
-        chain = Lens(Perspective(), Chain(tilt, Additive(Radial((-0.3, 0.04)), Tangential(1.0e-3, -5.0e-4))))
+        chain = Lens(Perspective(), (Additive(Radial((-0.3, 0.04)), Tangential(1.0e-3, -5.0e-4)) ∘ tilt))
         twin = Lens(Perspective(), Additive(Radial((-0.3, 0.04)), Tangential(1.0e-3, -5.0e-4)))
         ray(θ, ψ = 0.0) = SVector(sin(θ) * cos(ψ), sin(θ) * sin(ψ), cos(θ))
         function first_nan(l, ψ = 0.0)          # bisected on project itself
@@ -57,7 +57,7 @@
         @test view_angle_limit(chain) ≈ 0.9404484 atol = 1.0e-6
         @test view_angle_limit(chain) ≈ min_first_nan(chain, 72) atol = 1.0e-4
         @test view_angle_limit(chain) <= min_first_nan(chain, 72)
-        strong = Lens(Perspective(), Chain(Tilt(0.15, -0.1), Additive(Radial((-0.3, 0.04)), Tangential(1.0e-3, -5.0e-4))))
+        strong = Lens(Perspective(), (Additive(Radial((-0.3, 0.04)), Tangential(1.0e-3, -5.0e-4)) ∘ Tilt(0.15, -0.1)))
         @test first_nan(strong) > 0.88                                  # azimuth 0 overstates it by ≈ 3°
         @test view_angle_limit(strong) ≈ 0.8375568 atol = 1.0e-6
         @test view_angle_limit(strong) ≈ min_first_nan(strong, 72) atol = 1.0e-4
@@ -66,11 +66,10 @@
         end
         # a chain whose radial stage leads: the onset at azimuth 0, as before the sweep
         radial_first = (
-            (Lens(Perspective(), Chain(Additive(Radial((-0.3, 0.04)), Tangential(1.0e-3, 0.0)), Tilt(0.01, 0.0))), 0.9553166181245096, 0.7919595949289332),
-            (Lens(Perspective(), Chain(Additive(Radial((-0.150994, -0.0501823, 0.023916), (0.187097, 0.0255086, -0.00128661)),
-                Tangential(0.00244469, 0.00575199), ThinPrism((-0.00157781, -0.000969799), (-0.000762879, 0.00210571))),
-                Tilt(-0.00992587, -0.0062454))), 0.838476342933477, 0.685637031417361),
-            (Lens(Equidistant(), Chain(Radial((-0.02, 0.003)), Tilt(0.05, 0.02))), 3.1405926535897932, 3.439526174339641),
+            (Lens(Perspective(), (Tilt(0.01, 0.0) ∘ Additive(Radial((-0.3, 0.04)), Tangential(1.0e-3, 0.0)))), 0.9553166181245096, 0.7919595949289332),
+            (Lens(Perspective(), (Tilt(-0.00992587, -0.0062454) ∘ Additive(Radial((-0.150994, -0.0501823, 0.023916), (0.187097, 0.0255086, -0.00128661)),
+                Tangential(0.00244469, 0.00575199), ThinPrism((-0.00157781, -0.000969799), (-0.000762879, 0.00210571))))), 0.838476342933477, 0.685637031417361),
+            (Lens(Equidistant(), (Tilt(0.05, 0.02) ∘ Radial((-0.02, 0.003)))), 3.1405926535897932, 3.439526174339641),
         )
         for (l, θ, ρ) in radial_first
             @test view_angle_limit(l) ≈ θ rtol = 1.0e-12

@@ -23,13 +23,13 @@
         KannalaBrandt(-0.02, 0.003, -0.0004, 0.0001),
         KannalaBrandt(-0.02),
         Lens(Equidistant(), Additive(Radial((-0.02, 0.004, -0.0009, 0.0001)), Tangential(0.0006, -0.0004), ThinPrism((0.0002,), (-0.0001,)))),
-        Lens(Equidistant(), Chain(Radial((0.1, -0.02, 0.003, 0.0, 0.0, 0.0001)), Additive(Tangential(0.0003, -0.0002), ThinPrism((0.001, 0.0), (-0.0005, 2.0e-5))))),
+        Lens(Equidistant(), (Additive(Tangential(0.0003, -0.0002), ThinPrism((0.001, 0.0), (-0.0005, 2.0e-5))) ∘ Radial((0.1, -0.02, 0.003, 0.0, 0.0, 0.0001)))),
         Lens(DoubleSphere(-0.2, 0.6)),
         Lens(Unified(0.8)),
         Lens(ExtendedUnified(0.6, 1.1)),
         Lens(Unified(0.7), Additive(Radial((-0.1, 0.01)), Tangential(1.0e-3, -2.0e-3))),
         Lens(Perspective(), FieldOfView(0.9)),
-        Lens(Perspective(), Chain(Additive(Radial((-0.1,)), Tangential(1.0e-3, 0.0)), Tilt(0.01, -0.02))),
+        Lens(Perspective(), (Tilt(0.01, -0.02) ∘ Additive(Radial((-0.1,)), Tangential(1.0e-3, 0.0)))),
         Scaramuzza(-0.1664, -0.0063, 0.035),
         Lens(Equidistant()), Lens(Stereographic()), Lens(Equisolid()), Lens(Orthographic()),
     ]
@@ -66,10 +66,10 @@
         @test parameter_vector(Pinhole()) === SVector{0, Float64}()
         @test parameters(opencv).d3 == 0.001 && parameters(opencv).sy2 == -1.2e-3
         # names must be unique within a lens: two radial factors in one chain are refused
-        @test_throws ArgumentError Lens(Perspective(), Chain(Radial((0.1,)), Radial((0.2,))))
+        @test_throws ArgumentError Lens(Perspective(), (Radial((0.2,)) ∘ Radial((0.1,))))
         # structure is checked where it is built
         @test_throws ArgumentError Additive(Tangential(0.1, 0.0), Radial((0.1,)))          # a map only first
-        @test_throws ArgumentError Chain(Radial((0.1,)), Tangential(0.0, 0.1))           # deltas only in an Additive
+        @test_throws ArgumentError Lens(Perspective(), Tangential(0.0, 0.1) ∘ Radial((0.1,)))   # deltas only in an Additive
         @test_throws ArgumentError Lens(Perspective(), Radial{Full}((), (0.1,)))          # Full is a lift's basis
         @test_throws ArgumentError ThinPrism((0.1,), (0.1, 0.2))
         # the named models are the structures they name
@@ -137,7 +137,7 @@
                 LiftLens(Radial(rnd(P), rnd(Q))), LiftLens(Radial{Full}(rnd(P), rnd(Q))),
                 Lens(Perspective(), Radial(rnd(P), rnd(Q))),
                 Lens(Equidistant(), Additive(Radial(rnd(P), rnd(Q)), Tangential(rnd(2)...), ThinPrism(rnd(Q + 1), rnd(Q + 1)))),
-                Lens(DoubleSphere(rnd(2)...), Chain(Radial(rnd(P), rnd(Q)), Tilt(rnd(2)...))),
+                Lens(DoubleSphere(rnd(2)...), (Tilt(rnd(2)...) ∘ Radial(rnd(P), rnd(Q)))),
             )
             for lens in rl
                 s = repr(lens_record(lens))            # shortest round-trip printing of every Float64
@@ -374,11 +374,11 @@ end
     lenses = Any[
         Pinhole(), Division(-0.1667, 0.0291), LiftLens(Radial((0.05, -0.01), (-0.2, 0.04, 0.003))), opencv,
         KannalaBrandt(-0.02, 0.003, -0.0004, 0.0001),
-        Lens(Equidistant(), Chain(Radial((0.1, -0.02, 0.003)), Additive(Tangential(0.0003, -0.0002), ThinPrism((0.001,), (-0.0005,))))),
+        Lens(Equidistant(), (Additive(Tangential(0.0003, -0.0002), ThinPrism((0.001,), (-0.0005,))) ∘ Radial((0.1, -0.02, 0.003)))),
         Lens(DoubleSphere(-0.2, 0.6)), Lens(Unified(0.8)), Lens(ExtendedUnified(0.6, 1.1)),
         Lens(Unified(0.7), Additive(Radial((-0.1, 0.01)), Tangential(1.0e-3, -2.0e-3))),
         Lens(Perspective(), FieldOfView(0.9)),
-        Lens(Perspective(), Chain(Additive(Radial((-0.1,)), Tangential(1.0e-3, 0.0)), Tilt(0.01, -0.02))),
+        Lens(Perspective(), (Tilt(0.01, -0.02) ∘ Additive(Radial((-0.1,)), Tangential(1.0e-3, 0.0)))),
         Scaramuzza(-0.1664, -0.0063, 0.035), Lens(Stereographic()),
     ]
     K = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(400.0, 0, 0, 0.5, 395.0, 0, 320.0, 240.0, 1)))

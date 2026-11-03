@@ -620,7 +620,7 @@ _rescale_node(t::Tangential, s) = Tangential(t.p1 * s, t.p2 * s)
 _rescale_node(t::ThinPrism{N, T}, s) where {N, T} =
     ThinPrism{N, T}(ntuple(i -> t.sx[i] * s^(2i - 1), Val(N)), ntuple(i -> t.sy[i] * s^(2i - 1), Val(N)))
 _rescale_node(a::Additive, s) = Additive(map(t -> _rescale_node(t, s), a.terms))
-_rescale_node(c::Chain, s) = Chain(map(t -> _rescale_node(t, s), c.stages))
+_rescale_node(c::ComposedTransformation, s) = _rescale_node(c.t1, s) ∘ _rescale_node(c.t2, s)
 _rescale_node(t, s) = _not_scale_covariant(t)
 
 # One authority for "how close to the division model's horizon r_∞ may
@@ -718,7 +718,7 @@ origin, pixel centers at 0.5).
 Each output pixel is sampled through [`project`](@ref), which NaNs a ray past
 a radial factor's fold (the pixel takes the fill value) but does not test the
 other folds: past a fold of an [`Additive`](@ref)'s deltas or a
-[`Chain`](@ref)'s [`Tilt`](@ref) the pixel samples a finite source pixel whose
+composed distortion's [`Tilt`](@ref) the pixel samples a finite source pixel whose
 [`backproject`](@ref) is a different ray, so the output repeats content of
 the imaged branch there. Where the lens overlaps itself over the sensor, no
 undistortion is one-to-one, and a map built from `backproject` may jump

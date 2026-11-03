@@ -38,8 +38,8 @@ the sensor is dark. Where light falls is the lens's
 [`image_circle`](@ref)`(camera, sensor, diameter)` from its datasheet, or a
 measured circle; [`imaged_region`](@ref)`(camera, circle)` takes either.
 
-For a lens that is not radially symmetric — a [`Chain`](@ref) with a tilt
-stage, tangential or thin-prism terms — `ρ` is the smallest image radius of the
+For a lens that is not radially symmetric — a composed distortion (`∘`) with
+a tilt stage, tangential or thin-prism terms — `ρ` is the smallest image radius of the
 `θ_max` cone over the azimuths (360 samples, the least refined by golden
 section) less a relative margin of 10⁻⁹, so the ellipse is INSCRIBED: every
 point inside it is the image of a ray inside the cone.

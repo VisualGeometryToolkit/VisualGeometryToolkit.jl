@@ -78,7 +78,7 @@ rigid_transform(im::ColmapImage, contract::Union{UnitContract, UnknownScale}) =
 #   SIMPLE_RADIAL_FISHEYE, RADIAL_FISHEYE   KannalaBrandt(k), KannalaBrandt(k1, k2)
 #   FOV                            Lens(Perspective(), FieldOfView(ω))
 #   THIN_PRISM_FISHEYE             Lens(Equidistant(), Additive(Radial((k1, …, k4)), Tangential(p1, p2), ThinPrism((sx1,), (sy1,))))
-#   RAD_TAN_THIN_PRISM_FISHEYE     Lens(Equidistant(), Chain(Radial((k0, …, k5)), Additive(Tangential(p1, p0), ThinPrism((s0, s1), (s2, s3)))))
+#   RAD_TAN_THIN_PRISM_FISHEYE     Lens(Equidistant(), Additive(Tangential(p1, p0), ThinPrism((s0, s1), (s2, s3))) ∘ Radial((k0, …, k5)))
 #                                  (Aria's p0 multiplies r² + 2x² in x: OpenCV's p2)
 #   SIMPLE_DIVISION, DIVISION      Division(k)
 #   SIMPLE_FISHEYE, FISHEYE        Lens(Equidistant())
@@ -138,8 +138,8 @@ function _colmap_of(l::Lens{Equidistant, <:Additive{<:Tuple{Radial{Even}, Tangen
     k = _pad(r.k, 4)
     return :THIN_PRISM_FISHEYE => (k[1], k[2], t.p1, t.p2, k[3], k[4], sx, sy)
 end
-function _colmap_of(l::Lens{Equidistant, <:Chain{<:Tuple{Radial{Even}, Additive{<:Tuple{Tangential, ThinPrism}}}}})
-    r, a = l.distortion.stages
+function _colmap_of(l::Lens{Equidistant, <:ComposedTransformation{<:Additive{<:Tuple{Tangential, ThinPrism}}, <:Radial{Even}}})
+    a, r = l.distortion.t1, l.distortion.t2
     t, s = a.terms
     (isempty(r.d) && length(r.k) <= 6 && length(s.sx) <= 2) || return nothing
     sx, sy = _pad(s.sx, 2), _pad(s.sy, 2)
@@ -190,7 +190,7 @@ _colmap_lens_of(::Val{:FOV}, e) = Lens(Perspective(), FieldOfView(e[1]))
 _colmap_lens_of(::Val{:THIN_PRISM_FISHEYE}, e) =
     Lens(Equidistant(), Additive(Radial((e[1], e[2], e[5], e[6])), Tangential(e[3], e[4]), ThinPrism((e[7],), (e[8],))))
 _colmap_lens_of(::Val{:RAD_TAN_THIN_PRISM_FISHEYE}, e) = Lens(
-    Equidistant(), Chain(Radial(Tuple(e[1:6])), Additive(Tangential(e[8], e[7]), ThinPrism((e[9], e[10]), (e[11], e[12]))))
+    Equidistant(), Additive(Tangential(e[8], e[7]), ThinPrism((e[9], e[10]), (e[11], e[12]))) ∘ Radial(Tuple(e[1:6]))
 )
 _colmap_lens_of(::Val{:SIMPLE_DIVISION}, e) = Division(e[1])
 _colmap_lens_of(::Val{:DIVISION}, e) = Division(e[1])

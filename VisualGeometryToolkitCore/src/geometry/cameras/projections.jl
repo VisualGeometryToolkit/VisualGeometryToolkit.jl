@@ -89,7 +89,7 @@ steps inside, as the rect builders' margin does.
   [`view_angle_limit`](@ref).
 - a [`LiftLens`](@ref): the first pole of `D` (the 90° circle) or fold of the
   lift — `1/√|k|` for `Division(k)`.
-- a [`Chain`](@ref) distortion: its FIRST radial stage (a `Radial`, or an
+- a composed distortion (CoordinateTransformations' `∘` of stages): its FIRST radial stage (a `Radial`, or an
   [`Additive`](@ref) led by one), wherever it sits — the stage [`project`](@ref)
   tests — read as above at that stage's output; the stages around it do not
   enter (for a stage behind a tilt, the frame's edge caps the stage's input).
@@ -105,10 +105,10 @@ function monotone_radius(l::AbstractLensModel)
 end
 
 # The radial factor that bounds what a lens images: `radial(lens)`, or for a
-# Chain its first radial stage's factor (`radial` stays `nothing` for a Chain:
+# composed distortion its first radial stage's factor (`radial` stays `nothing` for one:
 # `radial_part` and the fit read it as the lens's ONE radially symmetric factor).
 _bounding_radial(l) = radial(l)
-_bounding_radial(l::Lens{<:AbstractProjection, <:Chain}) = _first_radial_factor(l.distortion.stages)
+_bounding_radial(l::Lens{<:AbstractProjection, <:ComposedTransformation}) = _first_radial_factor(_stages(l.distortion))
 _first_radial_factor(::Tuple{}) = nothing
 _first_radial_factor(ds::Tuple) = _is_radial(first(ds)) ? _radial_factor(first(ds)) : _first_radial_factor(Base.tail(ds))
 _radial_factor(r::Radial) = r
@@ -135,7 +135,7 @@ the frame's own edge). Closed forms where the lens has one — the fold or pole
 of a forward lens's radial factor read through its frame, never past the
 frame's edge (`π/2 − 10⁻³` for the perspective frame); a lift's fold; the
 double sphere's FOV bound — and a monotonicity scan of
-[`projected_radius`](@ref) otherwise. A [`Chain`](@ref) with a radial stage
+[`projected_radius`](@ref) otherwise. A composed distortion (`∘`) with a radial stage
 is bounded by that stage, tested at its own input as [`project`](@ref) tests
 it: the angle where `project` first turns NaN, bisected to rounding. When a
 stage precedes the radial one (a tilt) that angle depends on the azimuth, and
@@ -172,7 +172,7 @@ function view_angle_limit(l::Lens; cap::Real = Inf)
     C === nothing && return scan(min(float(cap), _SPHERE_EDGE))
     edge = min(float(cap), _view_angle_edge(l))
     r = radial(_precision(Float64, l))
-    l.distortion isa Chain && return _chain_view_angle_limit(l, edge)
+    l.distortion isa ComposedTransformation && return _chain_view_angle_limit(l, edge)
     r === nothing && return l.distortion === nothing ? edge : scan(edge)
     u = _branch_end(r, _frame_cap(l.projection))
     isfinite(u) || return edge
@@ -188,7 +188,7 @@ function _view_angle_edge(l::Lens)
     C = projection_frame(l.projection)
     return C !== nothing && C <: Union{GnomonicFrame, OrthographicFrame} ? _PERSPECTIVE_EDGE : _SPHERE_EDGE
 end
-# A Chain with a radial stage: the stage is tested at its own input, so the angle
+# A composition with a radial stage: the stage is tested at its own input, so the angle
 # where `project` first turns NaN has no closed form here. Along one azimuth it
 # is the first NaN of a scan, bisected to rounding — the last imaged angle,
 # `edge` when none is NaN. As for an Additive's radial head, the other terms do
@@ -197,12 +197,12 @@ end
 # at every azimuth (azimuth 0 is read). When a stage comes before it (a tilt),
 # the onset depends on the azimuth, and the limit is its MINIMUM over azimuths
 # — the angle within which every ray is imaged: 36 azimuths, the least refined
-# by a golden-section search between its neighbours. A Chain without a radial
+# by a golden-section search between its neighbours. A composition without a radial
 # stage: the plain scan.
 function _chain_view_angle_limit(l::Lens, edge)
     _bounding_radial(_precision(Float64, l)) === nothing &&
         return invoke(view_angle_limit, Tuple{AbstractLensModel}, l; cap = edge)
-    _is_radial(first(l.distortion.stages)) &&
+    _is_radial(first(_stages(l.distortion))) &&
         return _nan_onset(θ -> isfinite(projected_radius(l, θ)), edge)
     onset(ψ) = _nan_onset(θ -> all(isfinite, project(l, SVector(sin(θ) * cos(ψ), sin(θ) * sin(ψ), cos(θ)))), edge)
     return _azimuth_minimum(onset, 36)

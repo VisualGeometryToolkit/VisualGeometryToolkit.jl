@@ -15,7 +15,7 @@
 #   x·(1 + k1r² + k2r⁴ + k3r⁶)/(1 + k4r² + k5r⁴ + k6r⁶) + tangential(p1, p2) + (s1r² + s2r⁴, s3r² + s4r⁴),
 #
 # then the tilted-sensor projective map of (τx, τy) — every term at the same
-# point, the tilt after: `Lens(Perspective(), Chain(Additive(Radial(…), Tangential(…), ThinPrism(…)), Tilt(…)))`.
+# point, the tilt after: `Lens(Perspective(), Tilt(…) ∘ Additive(Radial(…), Tangential(…), ThinPrism(…)))`.
 # The vector's LENGTH is the model (OpenCV's flags), so the lens carries the
 # terms that length evaluates, zeros included; `cv::fisheye`'s (k1…k4) is
 # `KannalaBrandt`.
@@ -39,7 +39,7 @@ function opencv_lens(c::AbstractVector{<:Real})
     terms = (Radial(k, d), Tangential(v[3], v[4]))
     n >= 12 && (terms = (terms..., ThinPrism((v[9], v[10]), (v[11], v[12]))))
     add = Additive(terms...)
-    return n == 14 ? Lens(Perspective(), Chain(add, Tilt(v[13], v[14]))) : Lens(Perspective(), add)
+    return n == 14 ? Lens(Perspective(), Tilt(v[13], v[14]) ∘ add) : Lens(Perspective(), add)
 end
 
 """
@@ -60,8 +60,8 @@ _not_opencv(l) = throw(ArgumentError("OpenCV's distortion model does not compute
 _opencv_parts(r::Radial{Even}) = (r, nothing, nothing, nothing)
 _opencv_parts(t::Tangential) = (nothing, t, nothing, nothing)
 _opencv_parts(t::Tilt) = (nothing, nothing, nothing, t)
-_opencv_parts(c::Chain{<:Tuple{Additive, Tilt}}) = ((r, t, s, _) = _opencv_parts(c.stages[1]); (r, t, s, c.stages[2]))
-_opencv_parts(c::Chain{<:Tuple{Radial{Even}, Tilt}}) = (c.stages[1], nothing, nothing, c.stages[2])
+_opencv_parts(c::ComposedTransformation{<:Tilt, <:Additive}) = ((r, t, s, _) = _opencv_parts(c.t2); (r, t, s, c.t1))
+_opencv_parts(c::ComposedTransformation{<:Tilt, <:Radial{Even}}) = (c.t2, nothing, nothing, c.t1)
 function _opencv_parts(a::Additive)
     r, t, s = nothing, nothing, nothing
     for (i, term) in enumerate(a.terms)

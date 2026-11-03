@@ -52,7 +52,7 @@ import FlexUnits
 using FlexUnits: ustrip, dimension
 using StructArrays: StructArrays, StructArray
 using IntervalSets: IntervalSets
-using CoordinateTransformations: CoordinateTransformations, AffineMap, Translation
+using CoordinateTransformations: CoordinateTransformations, AffineMap, Translation, ComposedTransformation   # ∘: a lens's distortion stages, a target calibration's height field after its in-plane kind
 import CoordinateTransformations: transform_deriv, transform_deriv_params
 using Rotations: Rotations, RotMatrix
 using GeometryBasics: GeometryBasics
@@ -937,7 +937,7 @@ export Scaramuzza                      # Scaramuzza's omnidirectional polynomial
 export AbstractProjection, Perspective, Equidistant, Stereographic, Equisolid, Orthographic
 export DoubleSphere, Unified, ExtendedUnified   # the parametric projections
 export Equirectangular   # the latitude/longitude projection of directions (equirectangular.jl)
-export AbstractDistortionTerm, Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Chain, Even, Full
+export AbstractDistortionTerm, Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Even, Full
 export radial, isdelta, projection_frame, parameters, lens_record, lens_from_record
 export division_bounded, undistorted_rect, valid_rect, horizon_radius, fov_radius, DEFAULT_MAX_FOV   # whole-extent undistortion
 export undistort, undistort!           # Remove lens distortion from images

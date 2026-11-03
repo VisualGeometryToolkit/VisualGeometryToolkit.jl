@@ -1,9 +1,9 @@
 #!/usr/bin/env julia
 # Migrate a file into the native kinds — a dry run unless --apply:
 #
-#   a third-party OpenCV or MATLAB calibration export (a vgio/cameras/v3 store
+#   a third-party OpenCV or MATLAB calibration export (a vgio/cameras/v4 store
 #   and the image-named poses),
-#   a file of an earlier schema version (vgio/target/v1, vgio/rig/v4, and any
+#   a file of an earlier schema version (vgio/target/v1 and v2, vgio/rig/v4 and v5, vgio/cameras/v3, and any
 #   schema whose owner added a migration), a tree of them, or a measurement
 #   file re-pointed at its migrated rigs.
 #

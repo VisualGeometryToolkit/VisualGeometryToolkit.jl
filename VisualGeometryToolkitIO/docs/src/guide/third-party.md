@@ -5,7 +5,7 @@
 Both functions convert one third-party calibration export into the same two
 native files:
 
-- `<stem>_cameras.json`, a `vgio/cameras/v3` store holding one camera named
+- `<stem>_cameras.json`, a `vgio/cameras/v4` store holding one camera named
   `<stem>`;
 - `<stem>_poses.json`, a `vgio/transforms/v3` file with one pose per posed
   image, labeled `TargetFrame{target} → ViewFrame{image}`, in the export's

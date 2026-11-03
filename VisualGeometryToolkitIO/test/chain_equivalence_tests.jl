@@ -16,7 +16,6 @@
     include(joinpath(DIR, "corpus.jl"))
     using .ChainEquivalenceCorpus
     include(joinpath(DIR, "io_values.jl"))
-    using VisualGeometryToolkitCore: Chain
     using CoordinateTransformations: AffineMap
     using StaticArrays: SMatrix, SVector
 
@@ -34,18 +33,22 @@
     #   composed changes its content id (its members are listed outer map
     #   first): the new ids are pinned here, and the migration must report the
     #   golden id as the rig's old one;
-    # - lenses: unchanged so far.
+    # - lenses: a distortion's stages in sequence are CT's `∘` (the Lens
+    #   `Chain` removed); the camera store is v4, its lens record's "chain"
+    #   listing the stages outer first: a golden v3 store is migrated by
+    #   `vgio_migrate` and must be the writer's v4 output byte for byte. The
+    #   OpenCV and COLMAP exports are unchanged.
     const CODE = (
         affine = (A, b) -> AffineMap(SMatrix{2, 2}(A), SVector{2}(b)),
         compose_calibrations = members -> ∘(reverse(members)...),
-        compose_distortions = stages -> Chain(stages...),
+        compose_distortions = stages -> ∘(reverse(stages)...),
         ct_order = true,
-        lens_ct_order = false,
+        lens_ct_order = true,
         retired = Set([
             "R_H", "R_A", "R_A_H", "R_T", "R_T_H", "A_R", "A_R_H", "A_T", "A_T_H", "T_R", "T_R_H", "T_A", "T_A_H",
             "R_A_T", "R_A_T_H", "R_T_A", "R_T_A_H", "A_R_T", "A_R_T_H", "A_T_R", "A_T_R_H", "T_R_A", "T_R_A_H", "T_A_R", "T_A_R_H",
         ]),
-        migrate = (golden, out) -> occursin(r"^(target|rig)_", basename(golden)) ?
+        migrate = (golden, out) -> occursin(r"^(target|rig|cameras)_", basename(golden)) ?
             VisualGeometryToolkitIO.vgio_migrate(golden; out) : cp(golden, out; force = true),
         new_content_ids = Dict(
             "A_H" => "2112fe43b29998d8ce4cf3ecd0db5559f1f5a7074d86ec1e7b637d90df133f63",

@@ -97,7 +97,7 @@
         rim_min(c, q, n) = (l = lens(c); θ = view_angle_limit(l);
             minimum(ψ -> hypot((project(c, SVector(sin(θ) * cos(ψ), sin(θ) * sin(ψ), cos(θ))) .- centroid(q))...), range(0, 2π; length = n)))
         for l in (
-                Lens(Equidistant(), Chain(Tilt(0.05, 0.02), Radial((-0.05,)))),          # the review's case
+                Lens(Equidistant(), (Radial((-0.05,)) ∘ Tilt(0.05, 0.02))),          # the review's case
                 Lens(Perspective(), Additive(Radial((-0.3, 0.04)), Tangential(1.0e-3, -5.0e-4))),
             )
             c = mk(800.0, 800.0, 640.0, 480.0, l)
@@ -108,7 +108,7 @@
             @test m ≈ q.a rtol = 1.0e-7
         end
         # the review's pin: q.a below 1286.438031 px, the rim's minimum over 20001 azimuths
-        qt = valid_domain(mk(800.0, 800.0, 640.0, 480.0, Lens(Equidistant(), Chain(Tilt(0.05, 0.02), Radial((-0.05,))))))
+        qt = valid_domain(mk(800.0, 800.0, 640.0, 480.0, Lens(Equidistant(), (Radial((-0.05,)) ∘ Tilt(0.05, 0.02)))))
         @test qt.a < 1286.438031
         @test qt.a ≈ 1286.438031 rtol = 1.0e-7
     end

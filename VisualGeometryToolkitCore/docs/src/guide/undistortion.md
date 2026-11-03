@@ -70,7 +70,7 @@ structure and private to the maps:
 | an [`Additive`](@ref) led by a `Radial` (OpenCV's models, COLMAP's thin-prism fisheye) | OpenCV's fixed point `x ← (x_d − ΣΔ(x))/F(r²)`, finished by trust-region Newton where it stops contracting |
 | an `Additive` of deltas, a lone delta | Picard peel `x ← x_d − ΣΔ(x)`, trust-region Newton if it does not certify |
 | [`FieldOfView`](@ref), [`Tilt`](@ref) | closed form |
-| a [`Chain`](@ref), anything else | trust-region 2-D Newton |
+| a composition (`∘` of stages), anything else | trust-region 2-D Newton |
 | a [`LiftLens`](@ref) | `project`: the root of `ρ·N·z − r·D` on the ray, nothing divided by `z`; `backproject`: closed form |
 | the parametric projections | closed forms both ways, with the papers' validity bounds |
 
@@ -91,9 +91,9 @@ directions do not test the same things:
 
 - `project` NaNs a ray past a radial factor's fold, every radial factor at its
   own input (a lone one, an [`Additive`](@ref)'s head, each radial stage of a
-  [`Chain`](@ref)). It does **not** test the determinant, which would cost a
+  composition). It does **not** test the determinant, which would cost a
   Jacobian per projected point. So where the deltas of an `Additive`
-  (tangential, thin prism) or a `Chain`'s [`Tilt`](@ref) fold the map, a ray
+  (tangential, thin prism) or a composition's [`Tilt`](@ref) fold the map, a ray
   past that fold projects to a finite point, and `backproject` of that point
   is the branch's preimage — a different ray — or NaN. The round trip
   `backproject(lens, project(lens, X)) ≈ X/‖X‖` holds on the imaged branch,

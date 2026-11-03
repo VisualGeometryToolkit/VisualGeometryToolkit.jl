@@ -13,6 +13,15 @@ Breaking: the target and rig records bump with VisualGeometryToolkitCore
   members in application order. Every other record is unchanged but for its
   schema. The affine kind reads back as CT's `AffineMap` (its `b` lengths in
   metres).
+- **`vgio/cameras/v4`, and `vgio/rig/v6`'s sensors**: a lens's distortion
+  stages in sequence (CT's `∘`) are listed in the lens record's `"chain"` outer
+  first; v3/v5 listed them in application order. `vgio_migrate` converts a
+  v3 store (and a v5 rig's sensors with its targets); a rig whose sensor lens
+  is composed changes its `content_id`, the migration mapping the old id to
+  the new one. OpenCV's 14-coefficient lens is `Tilt ∘ Additive` and COLMAP's
+  `RAD_TAN_THIN_PRISM_FISHEYE` `Additive ∘ Radial` in `opencv_lens` and the
+  COLMAP assembly; the exported coefficients and COLMAP parameters are
+  unchanged.
 - **`vgio_migrate` converts `vgio/target/v2` and `vgio/rig/v5`** (reversing a
   chain's members and permuting its covariance); a v2/v5 chain of two
   in-plane kinds has no current form and is refused. The readers refuse v2/v5,

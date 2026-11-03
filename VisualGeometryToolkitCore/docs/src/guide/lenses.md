@@ -61,10 +61,14 @@ lift).
 - [`Additive`](@ref)`(m, Δ₁, …)` — every term at the **same** point, summed:
   `m(x) + (Δ₁(x) + …)`, the deltas left to right. OpenCV's `projectPoints` and
   COLMAP's `Distortion()` are of this form.
-- [`Chain`](@ref)`(D₁, D₂, …)` — in sequence, `D₂(D₁(x))`: Aria's Fisheye624
-  (COLMAP `RAD_TAN_THIN_PRISM_FISHEYE`) applies its tangential and thin-prism
-  terms to the radially distorted point; OpenCV's tilt follows its additive
-  model.
+- CoordinateTransformations' `∘` — in sequence, `(D₂ ∘ D₁)(x) = D₂(D₁(x))`
+  (a term is a `Transformation`): Aria's Fisheye624 (COLMAP
+  `RAD_TAN_THIN_PRISM_FISHEYE`) applies its tangential and thin-prism terms to
+  the radially distorted point, `Additive(Tangential(…), ThinPrism(…)) ∘
+  Radial(…)`; OpenCV's tilt follows its additive model, `Tilt(τx, τy) ∘
+  Additive(…)`. Each stage is a map term or an `Additive`. A composition's
+  coefficients are in CT's order, the outer stage's first, and its record lists
+  the stages the same way (`"chain"`, the outer first).
 
 ## Familiar models
 
@@ -72,7 +76,7 @@ lift).
 |---|---|
 | pinhole | [`Pinhole`](@ref)`()` = `Lens(Perspective())` |
 | OpenCV 4/5/8/12 coefficients | `Lens(Perspective(), Additive(Radial((k1, k2, k3), (k4, k5, k6)), Tangential(p1, p2), ThinPrism((s1, s2), (s3, s4))))` — only the terms in use |
-| OpenCV 14 (tilted) | `Lens(Perspective(), Chain(Additive(…), Tilt(τx, τy)))` |
+| OpenCV 14 (tilted) | `Lens(Perspective(), Tilt(τx, τy) ∘ Additive(…))` |
 | OpenCV fisheye, COLMAP `OPENCV_FISHEYE` | [`KannalaBrandt`](@ref)`(k1, k2, k3, k4)` = `Lens(Equidistant(), Radial((k1, k2, k3, k4)))` |
 | COLMAP `SIMPLE_RADIAL`, `RADIAL` | `Lens(Perspective(), Radial((k,)))`, `Radial((k1, k2))` |
 | COLMAP `THIN_PRISM_FISHEYE` | `Lens(Equidistant(), Additive(Radial((k1, …, k4)), Tangential(p1, p2), ThinPrism((sx1,), (sy1,))))` |
@@ -128,7 +132,7 @@ Both are an [`Ellipse`](@ref) in pixels about the principal point (an ellipse
 proper for an anisotropic `K` or pitch), so the region algebra treats them
 alike.
 
-- For a lens that is not radially symmetric (a [`Chain`](@ref) with a tilt
+- For a lens that is not radially symmetric (a composed distortion with a tilt
   stage, or tangential terms) the valid domain is an inscribed bound.
 - A lens with no limit of its own (a perspective lens, an undistorted
   equidistant lens: `view_angle_limit` reports only its chart's or the

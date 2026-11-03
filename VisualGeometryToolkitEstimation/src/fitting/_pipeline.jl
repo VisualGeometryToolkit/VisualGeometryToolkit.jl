@@ -93,10 +93,18 @@ _threshold_unit(problem::HandEyeProblem) = problem.char_length
 # truncated quadratic the default local optimization, `Irls{TLSShape}`, refits.
 _default_scoring_at(problem, τ::Float64) = MsacScoring(problem; threshold = τ)
 
-# The too-little-data rule of the `find_*` pipelines is `_holds_minimal_sample`
-# (estimators/ransac/interface.jl): fewer correspondences than the problem type's minimal
-# sample hold no hypothesis, so the pipeline returns `nothing` rather than let the
-# problem's constructor refuse them.
+# The too-little-data rule of the `find_*` and `refine_*` pipelines is
+# `_holds_minimal_sample` (estimators/ransac/interface.jl): fewer data than the
+# problem type's minimal sample hold no hypothesis, so the pipeline returns the
+# `:no_model` result of a search that drew no trial — `iterations` 0, no
+# sample-acceptance rate — rather than let the problem's constructor refuse them.
+# It is built from the problem TYPE (a constructor may throw on so few data), in
+# the storage eltype of the caller's `workspace`, else `RansacWorkspace`'s
+# default, so it is the type a search on the same data returns.
+_too_few(::Type{P}, n::Int; workspace = nothing, _...) where {P} =
+    _no_model_result(model_type(P), RansacResultBuffers{_storage_eltype(workspace)}(n), 0, NaN)
+_storage_eltype(::Nothing) = Float32   # RansacWorkspace(P, n_data[, T = Float32])
+_storage_eltype(::RansacWorkspace{<:Any, <:Any, T}) where {T} = T
 
 # The `extent` keyword of the `find_*` pipelines: when given, the problem is
 # wrapped in `BoundedProblem`, whose `extent_trait` makes RANSAC's post-IRLS

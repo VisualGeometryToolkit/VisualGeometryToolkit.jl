@@ -31,8 +31,8 @@ root pick fails on boards too small to identify k from alone.
 
 Returns a `RansacEstimate` whose model is
 a `VisualGeometryToolkitCore.RadialHomography` in the DATA (pixel) frame — `H`,
-`k`, and the distortion `center` all carried in the model — or `nothing`
-for fewer than 5 correspondences.
+`k`, and the distortion `center` all carried in the model — the `:no_model` result (`iterations` 0)
+for fewer than a minimal sample (5 correspondences, 4 with `minimal = :homography`).
 `iterations(result)` is the number of trials (hypotheses drawn); test
 `converged(result)` before reading the model (see [`RansacEstimate`](@ref)).
 
@@ -63,7 +63,8 @@ function find_radial_homography(
         kwargs...
     )
     _refuse_physical_plane(pairs, "find_radial_homography")
-    _holds_minimal_sample(_radial_sample_size(minimal), length(pairs)) || return nothing
+    _holds_minimal_sample(_radial_sample_size(minimal), length(pairs)) ||
+        return _too_few(RadialHomographyProblem{_cspond_scalar(pairs), _radial_sample_size(minimal)}, length(pairs); kwargs...)
     problem = _with_extent(RadialHomographyProblem(pairs; center, extra_check, minimal), extent)
     return _ransac_pipeline(problem, :radial_homography; kwargs...)
 end
@@ -82,8 +83,8 @@ hypotheses and have no meaning here. `local_optimization` is the radial
 homography's RANSAC local-optimization step, run here alone from the given model
 (no sampling). Every default is `find_radial_homography`'s
 (`[pipelines.radial_homography]`), `extent` included; the keywords are those of
-every `refine_*`, documented on [`refine_homography`](@ref). `nothing` for fewer
-than 5 correspondences.
+every `refine_*`, documented on [`refine_homography`](@ref). The `:no_model` result (`iterations` 0)
+for fewer than 5 correspondences.
 """
 function refine_radial_homography(
         model::VgtkCore.RadialHomography, pairs::AbstractVector{<:Pair{<:_PlanePoint, <:_PlanePoint}};
@@ -91,7 +92,8 @@ function refine_radial_homography(
         kwargs...
     )
     _refuse_physical_plane(pairs, "refine_radial_homography")
-    _holds_minimal_sample(_radial_sample_size(:radial), length(pairs)) || return nothing
+    _holds_minimal_sample(_radial_sample_size(:radial), length(pairs)) ||
+        return _too_few(RadialHomographyProblem{_cspond_scalar(pairs), _radial_sample_size(:radial)}, length(pairs); kwargs...)
     problem = _with_extent(RadialHomographyProblem(pairs; center = center(model)), extent)
     return _refine_pipeline(problem, :radial_homography, model; kwargs...)
 end

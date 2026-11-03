@@ -49,11 +49,12 @@ _map_csponds(fs, ft, cs::AbstractVector{<:Pair}) = [fs(first(c)) => ft(last(c)) 
 # A result with `f` applied to its estimate, everything else as it was. A
 # RANSAC result's estimate is `Union{M, Nothing}` (`RansacEstimate`): `f` maps a
 # present model, an absent one stays `nothing`, and the result keeps the union
-# over `f`'s image of `M`. Any other fit's estimate is concrete and simply mapped.
-_map_estimate(f, r::FitResult) = FitResult(f(estimate(r)), retcode(r), iterations(r), rms(r), r.n, metadata(r))
-function _map_estimate(f, r::FitResult{Union{M, Nothing}, R}) where {M, R}
-    N = Base.promote_op(f, M)
+# over `f`'s image of `M` (`f` has no method for `nothing`, so its inferred image
+# of `P` is that of `M`). Any other fit's estimate is concrete and simply mapped.
+function _map_estimate(f, r::FitResult{P, R}) where {P, R}
     E = estimate(r)
+    Nothing <: P || return FitResult(f(E), retcode(r), iterations(r), rms(r), r.n, metadata(r))
+    N = Base.promote_op(f, P)
     return FitResult{Union{N, Nothing}, R}(E === nothing ? nothing : f(E), retcode(r), iterations(r), rms(r), r.n, metadata(r))
 end
 

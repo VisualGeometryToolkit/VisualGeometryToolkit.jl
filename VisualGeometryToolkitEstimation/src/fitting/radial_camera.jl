@@ -10,7 +10,7 @@ and to any radially symmetric distortion about the centre) from
 `plane_point => raw_pixel` correspondences, via RANSAC on the linear 5-point
 solve with MSAC scoring on the point–radial-line distance.
 Returns a `RansacEstimate` whose model lives about the distortion centre
-`center` (pixels, REQUIRED), or `nothing` for fewer than 5 correspondences.
+`center` (pixels, REQUIRED), the `:no_model` result (`iterations` 0) for fewer than 5 correspondences.
 `iterations(result)` is the number of trials (hypotheses drawn); test
 `converged(result)` before reading the model (see [`RansacEstimate`](@ref)).
 
@@ -38,7 +38,8 @@ function find_radial_camera(
         kwargs...
     )
     _refuse_physical_plane(pairs, "find_radial_camera")
-    _holds_minimal_sample(RadialCameraProblem, length(pairs)) || return nothing
+    _holds_minimal_sample(RadialCameraProblem, length(pairs)) ||
+        return _too_few(RadialCameraProblem{Float64}, length(pairs); kwargs...)
     problem = _with_extent(RadialCameraProblem(pairs; center), extent)
     return _ransac_pipeline(problem, :radial_camera; kwargs...)
 end
@@ -55,7 +56,7 @@ is the model's own (`center(model)`). `local_optimization` is the radial
 camera's RANSAC local-optimization step, run here alone from the given model (no
 sampling). Every default is `find_radial_camera`'s (`[pipelines.radial_camera]`),
 `extent` included; the keywords are those of every `refine_*`, documented on
-[`refine_homography`](@ref). `nothing` for fewer than 5 correspondences.
+[`refine_homography`](@ref). The `:no_model` result (`iterations` 0) for fewer than 5 correspondences.
 """
 function refine_radial_camera(
         model::VgtkCore.RadialCamera, pairs::AbstractVector{<:Pair{<:_PlanePoint, <:_PlanePoint}};
@@ -63,7 +64,8 @@ function refine_radial_camera(
         kwargs...
     )
     _refuse_physical_plane(pairs, "refine_radial_camera")
-    _holds_minimal_sample(RadialCameraProblem, length(pairs)) || return nothing
+    _holds_minimal_sample(RadialCameraProblem, length(pairs)) ||
+        return _too_few(RadialCameraProblem{Float64}, length(pairs); kwargs...)
     problem = _with_extent(RadialCameraProblem(pairs; center = center(model)), extent)
     return _refine_pipeline(problem, :radial_camera, model; kwargs...)
 end

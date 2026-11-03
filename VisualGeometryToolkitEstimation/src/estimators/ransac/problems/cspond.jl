@@ -228,9 +228,8 @@ const _PointCsponds{T} = VgtkCore.Csponds{
 
 # The problem scalar is promoted from BOTH sides, so neither endpoint type is
 # silently narrowed (a Float64 pixel set against Float32 board points).
-_canonicalize_pairs(pairs) = _canonicalize_pairs(
-    float(promote_type(_point_scalar(eltype(sources(pairs))), _point_scalar(eltype(targets(pairs))))), pairs
-)
+_canonicalize_pairs(pairs) = _canonicalize_pairs(_cspond_scalar(pairs), pairs)
+_cspond_scalar(pairs) = float(promote_type(_point_scalar(eltype(sources(pairs))), _point_scalar(eltype(targets(pairs)))))
 # A plane-point endpoint as the public `find_*` signatures accept it: a 2-vector,
 # plain or with its measurement noise (`Uncertain`, `exact`).
 const _PlanePoint = Union{StaticArrays.StaticVector{2}, VgtkCore.Uncertain{<:StaticArrays.StaticVector{2}}}

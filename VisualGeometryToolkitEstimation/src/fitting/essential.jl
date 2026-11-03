@@ -39,7 +39,7 @@ visible — the same reason an `M`-wiring harness needs two different focal
 lengths. A stereo pair with one camera repeated is written `find_essential(cam,
 cam, cs)`, which costs three characters and keeps the asymmetry available.
 
-Returns a `RansacEstimate` or `nothing` if fewer than 5 correspondences.
+Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer than 5 correspondences.
 `iterations(result)` is the number of trials (hypotheses drawn); test
 `converged(result)` before reading the model (see [`RansacEstimate`](@ref)).
 
@@ -80,7 +80,8 @@ function find_essential(
     )
     # The sub-detector half-width refusal is the problem's (`_check_scoring`,
     # problems/essential.jl), run on whatever scoring the pipeline ends up with.
-    _holds_minimal_sample(EssentialProblem, length(pixel_cs)) || return nothing
+    _holds_minimal_sample(EssentialProblem, length(pixel_cs)) ||
+        return _too_few(EssentialProblem{Float64}, length(pixel_cs); kwargs...)
     return _ransac_pipeline(EssentialProblem(camera1, camera2, pixel_cs), :essential; kwargs...)
 end
 
@@ -97,10 +98,11 @@ camera; the threshold in pixels, sub-detector values refused).
 `local_optimization` is the essential matrix's RANSAC local-optimization step,
 run here alone from the given model (no sampling). Every default is
 `find_essential`'s (`[pipelines.essential]`); the keywords are those of every
-`refine_*`, documented on [`refine_homography`](@ref). `nothing` for fewer than
-5 correspondences.
+`refine_*`, documented on [`refine_homography`](@ref). The `:no_model` result (`iterations` 0) for fewer
+than 5 correspondences.
 """
 function refine_essential(E, camera1, camera2, pixel_cs; kwargs...)
-    _holds_minimal_sample(EssentialProblem, length(pixel_cs)) || return nothing
+    _holds_minimal_sample(EssentialProblem, length(pixel_cs)) ||
+        return _too_few(EssentialProblem{Float64}, length(pixel_cs); kwargs...)
     return _refine_pipeline(EssentialProblem(camera1, camera2, pixel_cs), :essential, E; kwargs...)
 end

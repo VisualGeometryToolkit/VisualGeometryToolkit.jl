@@ -25,7 +25,7 @@ hypothesis's Sampson errors. Every default
 shown is `configs/default.toml`'s (`[ransac]`, `[pipelines.circle]`); a keyword
 overrides.
 
-Returns a `RansacEstimate` (its `estimate` a `Circle{Float64}`) or `nothing` if
+Returns a `RansacEstimate` (its `estimate` a `Circle{Float64}`), the `:no_model` result (`iterations` 0) for
 fewer than 3 points. `iterations(result)` is the number of trials (hypotheses
 drawn); test `converged(result)` before reading the model (see
 [`RansacEstimate`](@ref)).
@@ -40,7 +40,7 @@ drawn); test `converged(result)` before reading the model (see
 - the other keywords as [`find_homography`](@ref).
 """
 function find_circle(points::AbstractVector{<:StaticArrays.StaticVector{2, <:Real}}; kwargs...)
-    _holds_minimal_sample(CircleProblem, length(points)) || return nothing
+    _holds_minimal_sample(CircleProblem, length(points)) || return _too_few(CircleProblem, length(points); kwargs...)
     return _ransac_pipeline(CircleProblem(points), :circle; kwargs...)
 end
 
@@ -56,9 +56,9 @@ sampling): `circle` is scored, its consensus set under the scorer is the one a
 consensus-anchored strategy reads its scale from, and the strategy runs once
 from it. Every default is `find_circle`'s (`[pipelines.circle]`); the keywords
 are those of every `refine_*`, documented on [`refine_homography`](@ref).
-`nothing` if fewer than 3 points.
+The `:no_model` result (`iterations` 0) for fewer than 3 points.
 """
 function refine_circle(circle::VgtkCore.Circle, points::AbstractVector{<:StaticArrays.StaticVector{2, <:Real}}; kwargs...)
-    _holds_minimal_sample(CircleProblem, length(points)) || return nothing
+    _holds_minimal_sample(CircleProblem, length(points)) || return _too_few(CircleProblem, length(points); kwargs...)
     return _refine_pipeline(CircleProblem(points), :circle, circle; kwargs...)
 end

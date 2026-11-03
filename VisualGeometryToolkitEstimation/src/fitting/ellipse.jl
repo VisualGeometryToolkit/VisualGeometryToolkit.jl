@@ -36,8 +36,8 @@ Every default shown is `configs/default.toml`'s (`[ransac]`,
 `[pipelines.ellipse]`); a keyword overrides. The circle's counterpart is
 [`find_circle`](@ref).
 
-Returns a `RansacEstimate` (its `estimate` an `Ellipse{Float64}`) or `nothing`
-if fewer than 5 points. `iterations(result)` is the number of trials (hypotheses
+Returns a `RansacEstimate` (its `estimate` an `Ellipse{Float64}`), the `:no_model` result (`iterations` 0)
+for fewer than 5 points. `iterations(result)` is the number of trials (hypotheses
 drawn); test `converged(result)` before reading the model (see
 [`RansacEstimate`](@ref)). From a given ellipse, the same step without the
 sampling: [`refine_ellipse`](@ref).
@@ -52,7 +52,7 @@ sampling: [`refine_ellipse`](@ref).
 - the other keywords as [`find_homography`](@ref).
 """
 function find_ellipse(points::AbstractVector{<:StaticArrays.StaticVector{2, <:Real}}; kwargs...)
-    _holds_minimal_sample(EllipseProblem, length(points)) || return nothing
+    _holds_minimal_sample(EllipseProblem, length(points)) || return _too_few(EllipseProblem, length(points); kwargs...)
     return _ransac_pipeline(EllipseProblem(points), :ellipse; kwargs...)
 end
 
@@ -71,7 +71,7 @@ ORTHOGONAL distances to the ellipse (the distance to the foot point, the
 closest boundary point), on the log-shape chart (VisualGeometryToolkitCore's
 `EllipseManifold`, smooth at a circle). Every default is `find_ellipse`'s
 (`[pipelines.ellipse]`); the keywords are those of every `refine_*`, documented
-on [`refine_homography`](@ref). `nothing` if fewer than 5 points.
+on [`refine_homography`](@ref). The `:no_model` result (`iterations` 0) for fewer than 5 points.
 
 The maximum-likelihood ellipse under isotropic Gaussian noise on outlier-free
 points is `refine_ellipse(direct_ellipse(points), points; local_optimization =
@@ -81,6 +81,6 @@ covariance is the one model covariance on the inliers,
 (in `ambient_coordinates(e)`), `s² = result.sigma²`.
 """
 function refine_ellipse(ellipse::VgtkCore.Ellipse, points::AbstractVector{<:StaticArrays.StaticVector{2, <:Real}}; kwargs...)
-    _holds_minimal_sample(EllipseProblem, length(points)) || return nothing
+    _holds_minimal_sample(EllipseProblem, length(points)) || return _too_few(EllipseProblem, length(points); kwargs...)
     return _refine_pipeline(EllipseProblem(points), :ellipse, ellipse; kwargs...)
 end

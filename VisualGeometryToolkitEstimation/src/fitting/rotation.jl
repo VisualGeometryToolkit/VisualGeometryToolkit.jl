@@ -38,15 +38,15 @@ LocalOptimizationDoneRight's lifts selected by tag) plugs in through `scoring` a
   VisualGeometryToolkitFeatures' 0.06 px refinement bound are refused.
 
 Returns a `RansacEstimate` (its `estimate` a `RotMatrix{3, Float64}`), or
-`nothing` for fewer than 2 correspondences; test `converged(result)` before
+the `:no_model` result (`iterations` 0) for fewer than 2 correspondences; test `converged(result)` before
 reading the model.
 """
 function find_rotation(camera1, camera2, pixel_cs; kwargs...)
-    _holds_minimal_sample(RotationProblem, length(pixel_cs)) || return nothing
+    _holds_minimal_sample(RotationProblem, length(pixel_cs)) || return _too_few(RotationProblem, length(pixel_cs); kwargs...)
     return _ransac_pipeline(RotationProblem(camera1, camera2, pixel_cs), :rotation; kwargs...)
 end
 function find_rotation(bearings::VgtkCore.Csponds; kwargs...)
-    _holds_minimal_sample(RotationProblem, length(bearings)) || return nothing
+    _holds_minimal_sample(RotationProblem, length(bearings)) || return _too_few(RotationProblem, length(bearings); kwargs...)
     return _ransac_pipeline(RotationProblem(bearings), :rotation; kwargs...)
 end
 
@@ -62,13 +62,13 @@ same [`RotationProblem`](@ref) (the forms of `find_rotation`). `local_optimizati
 is the rotation's RANSAC local-optimization step, run here alone from the given
 model (no sampling). Every default is `find_rotation`'s (`[pipelines.rotation]`);
 the keywords are those of every `refine_*`, documented on
-[`refine_homography`](@ref). `nothing` for fewer than 2 correspondences.
+[`refine_homography`](@ref). The `:no_model` result (`iterations` 0) for fewer than 2 correspondences.
 """
 function refine_rotation(R, camera1, camera2, pixel_cs; kwargs...)
-    _holds_minimal_sample(RotationProblem, length(pixel_cs)) || return nothing
+    _holds_minimal_sample(RotationProblem, length(pixel_cs)) || return _too_few(RotationProblem, length(pixel_cs); kwargs...)
     return _refine_pipeline(RotationProblem(camera1, camera2, pixel_cs), :rotation, R; kwargs...)
 end
 function refine_rotation(R, bearings::VgtkCore.Csponds; kwargs...)
-    _holds_minimal_sample(RotationProblem, length(bearings)) || return nothing
+    _holds_minimal_sample(RotationProblem, length(bearings)) || return _too_few(RotationProblem, length(bearings); kwargs...)
     return _refine_pipeline(RotationProblem(bearings), :rotation, R; kwargs...)
 end

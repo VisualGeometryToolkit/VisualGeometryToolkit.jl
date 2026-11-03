@@ -58,8 +58,10 @@ using VisualGeometryToolkitEstimation
             @test r2.quality == r.quality
         end
 
-        # Below the minimal sample the wrapper returns nothing, it does not throw.
-        @test find_homography(StructArray(src[1:3] .=> dst[1:3]); rng = StableRNG(136)) === nothing
+        # Below the minimal sample the wrapper returns the :no_model result (no trial), it does not throw.
+        @test let r = find_homography(StructArray(src[1:3] .=> dst[1:3]); rng = StableRNG(136))
+            retcode(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
+        end
     end
 
     @testset "find_fundmat" begin
@@ -114,9 +116,9 @@ using VisualGeometryToolkitEstimation
         @test abs(s[1] - s[2]) / s[1] < 1.0e-6
         @test s[3] / s[1] < 1.0e-6
 
-        @test find_essential(
-            ECAM, ECAM, csponds(topx.(u₁[1:4]), topx.(u₂[1:4])); rng = StableRNG(140)
-        ) === nothing
+        @test let r = find_essential(ECAM, ECAM, csponds(topx.(u₁[1:4]), topx.(u₂[1:4])); rng = StableRNG(140))
+            retcode(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
+        end
         # The floor refusal: a threshold carried over in the OLD calibrated
         # units is rejected, not silently honoured 800x too tight.
         @test_throws ArgumentError find_essential(ECAM, ECAM, pxcs; threshold = 0.02)
@@ -143,7 +145,9 @@ using VisualGeometryToolkitEstimation
         @test find_absolute_pose(cam, StructArray(src .=> dst); workspace = ws, rng = StableRNG(142)) !== nothing
         # fewer than the P3P minimal sample: no hypothesis; a minimal sample is
         # searched, and holds no consensus beyond itself
-        @test find_absolute_pose(cam, StructArray(src[1:2] .=> dst[1:2]); rng = StableRNG(143)) === nothing
+        @test let r = find_absolute_pose(cam, StructArray(src[1:2] .=> dst[1:2]); rng = StableRNG(143))
+            retcode(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
+        end
         @test !converged(find_absolute_pose(cam, StructArray(src[1:3] .=> dst[1:3]); rng = StableRNG(143)))
 
         # (PREDICTIVE scoring through the pose family's local optimization —

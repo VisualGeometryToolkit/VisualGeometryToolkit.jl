@@ -23,8 +23,8 @@ Robust absolute pose estimation via P3P + RANSAC with MSAC scoring.
 Every default shown is `configs/default.toml`'s (`[ransac]`,
 `[pipelines.absolute_pose]`); a keyword overrides.
 
-Returns a `RansacEstimate` or `nothing` if fewer than 3 correspondences (the
-P3P minimal sample).
+Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer than 3 correspondences
+(the P3P minimal sample).
 `iterations(result)` is the number of trials (hypotheses drawn); test
 `converged(result)` before reading the model (see [`RansacEstimate`](@ref)).
 
@@ -62,7 +62,7 @@ function find_absolute_pose(
         extent::Union{Nothing, HyperRectangle{2, <:Real}} = nothing,
         kwargs...
     )
-    _holds_minimal_sample(AbsolutePoseProblem, length(pairs)) || return nothing
+    _holds_minimal_sample(AbsolutePoseProblem, length(pairs)) || return _too_few(AbsolutePoseProblem, length(pairs); kwargs...)
     problem = _with_extent(AbsolutePoseProblem(camera_model, pairs), extent)
     return _ransac_pipeline(problem, :absolute_pose; kwargs...)
 end
@@ -98,8 +98,8 @@ from, and the strategy runs once from it. Plain least squares over every
 correspondence is `local_optimization = Irls{GaussianShape}()` at a `threshold`
 above every residual. Every default is `find_absolute_pose`'s
 (`[pipelines.absolute_pose]`), `extent` included; the other keywords are those
-of every `refine_*`, documented on [`refine_homography`](@ref). `nothing` for
-fewer than 3 correspondences.
+of every `refine_*`, documented on [`refine_homography`](@ref). The `:no_model` result (`iterations` 0)
+for fewer than 3 correspondences.
 
 # Bearings: a camera given by its rays (central or generalized)
 The second form takes `X => f` pairs of world points and the camera-frame UNIT
@@ -134,7 +134,7 @@ function refine_absolute_pose(
         extent::Union{Nothing, HyperRectangle{2, <:Real}} = nothing,
         kwargs...
     )
-    _holds_minimal_sample(AbsolutePoseProblem, length(pairs)) || return nothing
+    _holds_minimal_sample(AbsolutePoseProblem, length(pairs)) || return _too_few(AbsolutePoseProblem, length(pairs); kwargs...)
     problem = _with_extent(AbsolutePoseProblem(camera_model, pairs), extent)
     return _with_frames(_refine_pipeline(problem, :absolute_pose, unlabel(pose); kwargs...), pose)
 end
@@ -158,7 +158,7 @@ function refine_absolute_pose(
         cs::AbstractVector{<:Pair{<:StaticVector{3, <:Real}, <:StaticVector{3, <:Real}}};
         kwargs...
     )
-    _holds_minimal_sample(BearingPoseProblem, length(cs)) || return nothing
+    _holds_minimal_sample(BearingPoseProblem, length(cs)) || return _too_few(BearingPoseProblem, length(cs); kwargs...)
     problem = BearingPoseProblem(cs)
     θ₀ = unlabel(pose)
     R0 = rotation(θ₀); t0 = translation(θ₀); o = problem.context.origins

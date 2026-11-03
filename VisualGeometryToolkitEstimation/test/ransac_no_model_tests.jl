@@ -93,3 +93,76 @@ end
     @test iterations(framed) == iterations(r)
     @test VgtkEstimation._map_estimate(identity, r).metadata === r.metadata
 end
+
+@testitem "ransac: too few points is the no-model result" begin
+    using Test, Random, StaticArrays, LinearAlgebra
+    using Rotations: RotMatrix
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: Point2, Circle, Ellipse, CameraModel, Csponds, csponds, HomographyMat, FundMat,
+        EssentialMat, RadialHomography, RadialCamera, Extrinsics3, Vec3, m,
+        estimate, converged, retcode, iterations
+    using VisualGeometryToolkitEstimation: RansacEstimate, RansacWorkspace, CircleProblem,
+        find_homography, refine_homography, find_fundmat, refine_fundmat, find_essential, refine_essential,
+        find_rotation, refine_rotation, find_circle, refine_circle, find_ellipse, refine_ellipse,
+        find_radial_homography, refine_radial_homography, find_radial_camera, refine_radial_camera,
+        find_absolute_pose, refine_absolute_pose
+
+    function too_few(r, n)
+        @test r isa RansacEstimate
+        @test retcode(r) === :no_model
+        @test iterations(r) == 0
+        @test estimate(r) === nothing
+        @test !converged(r)
+        @test length(r.inlier_mask) == n && !any(r.inlier_mask)
+        @test isnan(r.sample_acceptance_rate)
+        @test r.quality == -Inf && isnan(r.sigma) && isnan(r.rms)
+        return r
+    end
+
+    pts(n) = [Point2(100.0 + 10i, 50.0 + 7i^2) for i in 1:n]
+    cs(n) = csponds(pts(n), pts(n) .+ Ref(Point2(1.0, 2.0)))
+    I3 = SMatrix{3, 3, Float64}(I)
+    H = HomographyMat{Float64}(Tuple(I3))
+    X3 = SMatrix{3, 3, Float64}(0, 0, 0, 0, 0, -1, 0, 1, 0)
+    cam = CameraModel(; focal = 800.0, pp = (480.0, 360.0))
+
+    too_few(find_homography(cs(3)), 3)
+    too_few(refine_homography(H, cs(3)), 3)
+    too_few(find_fundmat(cs(6)), 6)
+    too_few(refine_fundmat(FundMat{Float64}(Tuple(X3)), cs(6)), 6)
+    too_few(find_essential(cam, cam, cs(4)), 4)
+    too_few(refine_essential(EssentialMat{Float64}(Tuple(X3)), cam, cam, cs(4)), 4)
+    too_few(find_rotation(cam, cam, cs(1)), 1)
+    too_few(refine_rotation(one(RotMatrix{3, Float64}), cam, cam, cs(1)), 1)
+    b = Csponds([SA[0.0, 0.0, 1.0]], [SA[0.0, 0.0, 1.0]])
+    too_few(find_rotation(b), 1)
+    too_few(refine_rotation(one(RotMatrix{3, Float64}), b), 1)
+    too_few(find_circle(pts(2)), 2)
+    too_few(refine_circle(Circle(Point2(0.0, 0.0), 1.0), pts(2)), 2)
+    too_few(find_ellipse(pts(4)), 4)
+    too_few(refine_ellipse(Ellipse(Point2(0.0, 0.0), 2.0, 1.0, 0.0), pts(4)), 4)
+    c = Point2(500.0, 400.0)
+    too_few(find_radial_homography(cs(4); center = c), 4)
+    too_few(find_radial_homography(cs(3); center = c, minimal = :homography), 3)
+    too_few(refine_radial_homography(RadialHomography{Float64}(H, 0.0), cs(4)), 4)
+    too_few(find_radial_camera(cs(4); center = c), 4)
+    too_few(refine_radial_camera(RadialCamera(H, c), cs(4)), 4)
+
+    X = [SA[0.1, 0.2, 2.0], SA[-0.3, 0.1, 2.5]]
+    u = [SA[400.0, 300.0], SA[500.0, 350.0]]
+    pose = Extrinsics3(RotMatrix{3, Float64}(I3), Vec3{Float64}(0.0, 0.0, 0.0))
+    too_few(find_absolute_pose(cam, X .=> u), 2)
+    too_few(find_absolute_pose(cam, [x .* m for x in X] .=> u), 2)
+    too_few(refine_absolute_pose(pose, cam, X .=> u), 2)
+    too_few(refine_absolute_pose(VgtkCore.with_unit(pose, m), cam, [x .* m for x in X] .=> u), 2)
+    f = [normalize(x) for x in X]
+    too_few(refine_absolute_pose(pose, Csponds(X, f)), 2)
+    too_few(refine_absolute_pose(VgtkCore.with_unit(pose, m), Csponds([x .* m for x in X], f)), 2)
+
+    # the supplied workspace's storage eltype
+    r = too_few(find_circle(pts(2); workspace = RansacWorkspace(CircleProblem, 2, Float64)), 2)
+    @test r.residuals isa Vector{Float64} && r isa RansacEstimate{Circle{Float64}, Float64}
+    @test too_few(find_circle(pts(2)), 2) isa RansacEstimate{Circle{Float64}, Float32}
+    # the too-few result is the same type as a search's
+    @test typeof(find_homography(cs(3))) === typeof(find_homography(cs(8)))
+end

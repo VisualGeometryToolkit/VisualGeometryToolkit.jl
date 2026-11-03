@@ -80,7 +80,9 @@ _pd(a::RadialCamera, b::RadialCamera) = projective_distance(radial_rows(a), radi
     @test est2 !== nothing
     r2 = zeros(length(pairs2)); residuals!(r2, RadialCameraProblem(pairs2; center = _CC), estimate(est2))
     @test median(abs.(r2[gt2])) < 0.5
-    @test find_radial_camera(pairs[1:4]; center = _CC, rng = StableRNG(446)) === nothing
+    @test let r = find_radial_camera(pairs[1:4]; center = _CC, rng = StableRNG(446))
+        VgtkCore.retcode(r) === :no_model && VgtkCore.iterations(r) == 0 && VgtkCore.estimate(r) === nothing
+    end
 end
 
 # The chart rows on the 5-dof complement chart (problems/manifold_providers.jl,

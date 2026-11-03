@@ -97,6 +97,8 @@
     end
 
     @testset "too few points" begin
-        @test refine_ellipse(e0, _points(e0, 4)) === nothing
+        @test let r = refine_ellipse(e0, _points(e0, 4))
+            retcode(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
+        end
     end
 end

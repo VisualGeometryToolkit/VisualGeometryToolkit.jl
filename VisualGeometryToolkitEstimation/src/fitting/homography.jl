@@ -24,7 +24,7 @@ Robust homography estimation via RANSAC with MSAC scoring and least-squares-on-t
 Every default shown is `configs/default.toml`'s (`[ransac]`,
 `[pipelines.homography]`); a keyword overrides.
 
-Returns a `RansacEstimate` or `nothing` if fewer than 4 correspondences.
+Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer than 4 correspondences.
 `iterations(result)` is the number of trials (hypotheses drawn); test
 `converged(result)` before reading the model (see [`RansacEstimate`](@ref)).
 
@@ -84,7 +84,8 @@ function find_homography(
         kwargs...
     )
     _refuse_physical_plane(pairs, "find_homography")
-    _holds_minimal_sample(HomographyProblem, length(pairs)) || return nothing
+    _holds_minimal_sample(HomographyProblem, length(pairs)) ||
+        return _too_few(HomographyProblem{_cspond_scalar(pairs)}, length(pairs); kwargs...)
     return _ransac_pipeline(_with_extent(HomographyProblem(pairs), extent), :homography; kwargs...)
 end
 
@@ -109,7 +110,7 @@ re-scored and kept when it succeeds at the problem's consensus test; otherwise
 refined. `lo_retcode` on the result is the strategy's stop reason.
 
 Returns a `RansacEstimate` (one trial; `retcode` `:converged`, the consensus
-set, residuals and weights of the returned model under the scorer) or `nothing`
+set, residuals and weights of the returned model under the scorer), the `:no_model` result (`iterations` 0)
 for fewer than 4 correspondences.
 
 # Keywords — shared by every `refine_*`
@@ -137,6 +138,7 @@ function refine_homography(
         kwargs...
     )
     _refuse_physical_plane(pairs, "refine_homography")
-    _holds_minimal_sample(HomographyProblem, length(pairs)) || return nothing
+    _holds_minimal_sample(HomographyProblem, length(pairs)) ||
+        return _too_few(HomographyProblem{_cspond_scalar(pairs)}, length(pairs); kwargs...)
     return _refine_pipeline(_with_extent(HomographyProblem(pairs), extent), :homography, H; kwargs...)
 end

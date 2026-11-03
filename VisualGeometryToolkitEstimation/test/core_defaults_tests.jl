@@ -275,7 +275,12 @@ end
     for (k, v) in (:max_trials => 10, :min_trials => 1, :config => RansacConfig(), :rng => StableRNG(1))
         @test_throws MethodError refine_circle(g, pts; (; k => v)...)        # no sampling to configure
     end
-    @test refine_circle(g, pts[1:2]) === nothing && refine_homography(H_PX, h_scene()[1][1:3]) === nothing
+    @test let r = refine_circle(g, pts[1:2])
+        retcode(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
+    end
+    @test let r = refine_homography(H_PX, h_scene()[1][1:3])
+        retcode(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
+    end
 end
 
 @testset "refine_*: from the raw incumbent to find_*'s model, under any strategy the problem hosts" begin

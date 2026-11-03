@@ -31,7 +31,7 @@ max_solutions(::Ellipse5pt) = 1
 
 function solve(::Ellipse5pt, points::AbstractVector, idx::AbstractVector{<:Integer})
     M = Ellipse{Float64}
-    none = FixedModels{1, M}(0, (M(Point2(0.0, 0.0), 1.0, 1.0, 0.0),))
+    none = FixedModels{1, M}(0, (zero(M),))
     p₁ = SVector{2, Float64}(@inbounds points[idx[1]])
     q = ntuple(k -> SVector{2, Float64}(@inbounds points[idx[k + 1]]) - p₁, Val(4))
     # the rows (x², xy, y², x, y) of the four other points about p₁

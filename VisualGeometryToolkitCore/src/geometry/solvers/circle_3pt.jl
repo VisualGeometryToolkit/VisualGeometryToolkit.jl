@@ -35,6 +35,6 @@ function solve(::Circle3pt, points::AbstractVector, idx::AbstractVector{<:Intege
     D = 2 * (a[1] * b[2] - a[2] * b[1])           # four times the triangle's signed area
     o = SVector((b[2] * a² - a[2] * b²) / D, (a[1] * b² - b[1] * a²) / D)   # the centre about p₁
     c = p₁ + o
-    (!iszero(D) && all(isfinite, c)) || return FixedModels{1, M}(0, (M(Point2(0.0, 0.0), 1.0),))
+    (!iszero(D) && all(isfinite, c)) || return FixedModels{1, M}(0, (zero(M),))
     return FixedModels{1, M}(1, (M(Point2{Float64}(c), norm(o)),))
 end

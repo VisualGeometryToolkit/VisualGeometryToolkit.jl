@@ -178,6 +178,12 @@ function Ellipse(c::GeometryBasics.Circle{T}) where {T}
     return Ellipse{T}(c.center, r, r, zero(T))
 end
 
+# The zero conic — the point ellipse/circle at the origin. It is the stack's `zero(M)` placeholder of a model type, which
+# fills an empty minimal-solver slot (`FixedModels`) and the estimate of a RANSAC that finds no model (`:no_model`); it is
+# never read as a model.
+Base.zero(::Type{Ellipse{T}}) where {T} = Ellipse{T}(zero(Point2{T}), zero(T), zero(T), zero(T))
+Base.zero(::Type{GeometryBasics.Circle{T}}) where {T} = GeometryBasics.Circle{T}(zero(Point2{T}), zero(T))
+
 # =============================================================================
 # Ellipse GeometryBasics Interface
 # =============================================================================

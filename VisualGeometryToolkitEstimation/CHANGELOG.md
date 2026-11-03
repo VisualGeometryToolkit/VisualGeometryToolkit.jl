@@ -1,5 +1,28 @@
 # VisualGeometryToolkitEstimation changelog
 
+## 0.5.0 (2026-11-03)
+
+- **Breaking: a failed RANSAC has no estimate.** `RansacEstimate{M, T}` is
+  `FitResult{Union{M, Nothing}, RansacMetadata{T}}`: a search in which no
+  hypothesis survived (`retcode === :no_model`, `converged` false) returns
+  `estimate(result) === nothing`, not a `zero(M)` placeholder that a forgotten
+  `converged` test read as a model (a zero homography, a point ellipse at the
+  origin). `estimate(result)` of a RANSAC result is `Union{M, Nothing}` —
+  Base's `findfirst` idiom; test `converged(result)` before reading it. A
+  converged result has the same type. The other diagnostics of a failed search
+  are kept (its trials, sample-acceptance rate, `quality = -Inf`, an all-false
+  `inlier_mask`, `rms`/`sigma` NaN).
+- **Breaking: too few points is the same failure.** Every `find_*` and
+  `refine_*` given fewer data than a minimal sample returns that `:no_model`
+  result with `iterations == 0` (sample-acceptance rate NaN, the mask as long
+  as the data, in the supplied workspace's storage eltype), not a bare
+  `nothing`: one failure shape, tested with `converged`. A caller's
+  `find_*(…) === nothing` becomes `!converged(r)`.
+- The metre and frame re-wrappers of the physical (unitful) and labelled
+  `find_absolute_pose`, `refine_absolute_pose`, `find_hand_eye` and
+  `refine_hand_eye` forms return a failed result unchanged (no estimate to
+  read back in metres or relabel).
+
 ## 0.4.0 (2026-11-02)
 
 - NLLSsolver ≥ 5.3.1: the relative-pose bundle always uses NLLSsolver's typed

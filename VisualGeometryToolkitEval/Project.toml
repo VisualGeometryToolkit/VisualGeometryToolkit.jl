@@ -1,6 +1,6 @@
 name = "VisualGeometryToolkitEval"
 uuid = "86c88899-11c8-4b8e-8d7a-f01a8ab99b28"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["James Pritts <jbpritts@gmail.com>"]
 
 [deps]
@@ -56,7 +56,7 @@ PNGFiles = "0.4.5"
 Pkg = "1"
 Printf = "1"
 Random = "1"
-VisualGeometryToolkitEstimation = "0.4"
+VisualGeometryToolkitEstimation = "0.5"
 Rotations = "1.7"
 SHA = "0.7, 1"
 StableRNGs = "1.1"

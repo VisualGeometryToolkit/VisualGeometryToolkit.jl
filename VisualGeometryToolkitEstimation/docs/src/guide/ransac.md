@@ -209,7 +209,7 @@ lo = local_optimization_from_toml(Dict("type" => "hq", "loss" => "welsch", "scal
 
 ```julia
 converged(result)      # false ⇔ retcode(result) === :no_model: NO estimate
-estimate(result)       # estimated model (e.g., 3×3 matrix); a zero(M) placeholder when !converged
+estimate(result)       # estimated model (e.g., 3×3 matrix); `nothing` when !converged
 result.inlier_mask  # BitVector of inliers
 result.quality      # quality score
 iterations(result)  # for RANSAC, the number of trials (hypotheses drawn)

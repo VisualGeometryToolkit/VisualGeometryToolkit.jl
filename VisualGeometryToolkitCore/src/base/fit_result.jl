@@ -15,6 +15,14 @@
 # quantities (covariance) are functions computed on demand, never
 # maybe-slots.
 #
+# One exception: a RANSAC's estimate may be absent, its `P` the union of the
+# model type and `Nothing` (VisualGeometryToolkitEstimation's `RansacEstimate`)
+# — a search that finds no model has no estimate, and an absent model is
+# neither runtime metadata variety nor an optional derived quantity. The union
+# is stored inline with a one-byte tag and split, not boxed, and a result never
+# goes to the device (measured 2026-11-03: a `Union{Ellipse{Float64}, Nothing}`
+# field takes 48 bytes against 40). Every other fit keeps a concrete `P`.
+#
 # PROPERTY FORWARDING (2026-09-03): `r.weights` reaches `r.metadata.weights`
 # through a `@generated getproperty` over `fieldnames(M)` — the same
 # mechanism `Attributed` uses, type-stable, resolved at compile time. This

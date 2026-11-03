@@ -54,3 +54,42 @@
     no_model(find_homography(csponds(src, dst); rng = Xoshiro(6)))
     no_model(find_fundmat(csponds(src, dst); rng = Xoshiro(7)))
 end
+
+@testitem "ransac: no model through the metre and frame re-wrappers" begin
+    using Test, Random, StaticArrays
+    using Rotations: RotMatrix, RotX, RotZ
+    import VisualGeometryToolkitCore as VgtkCore
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    using VisualGeometryToolkitCore: CameraModel, EuclideanMap, project, m, estimate, converged, retcode, iterations
+    using VisualGeometryToolkitEstimation: find_absolute_pose, find_hand_eye
+
+    function no_model(r)
+        @test retcode(r) === :no_model
+        @test estimate(r) === nothing
+        @test !converged(r)
+        @test !any(r.inlier_mask)
+        return r
+    end
+
+    # hand-eye: every rig motion turns about z, so every sample's axes are parallel
+    A = [EuclideanMap(RotMatrix(RotZ(0.35i)), SVector(0.1i, 0.05i^2, 0.2)) for i in 1:8]
+    B = [EuclideanMap(RotMatrix(RotX(0.35i)), SVector(0.2, 0.1i, -0.03i)) for i in 1:8]
+    plain = no_model(find_hand_eye(A .=> B; rng = Xoshiro(1)))
+    phy = no_model(find_hand_eye(VgtkCore.with_unit.(A, m) .=> VgtkCore.with_unit.(B, m); rng = Xoshiro(1)))
+    @test iterations(phy) == iterations(plain) > 0
+    @test phy isa VgtkEstimation.RansacEstimate
+
+    # absolute pose: three collinear world points hold no pose
+    cam = CameraModel(; focal = 800.0, pp = (480.0, 360.0))
+    X = [SVector(0.1i, 0.0, 2.0) for i in 1:3]
+    u = [project(cam, x) for x in X]
+    no_model(find_absolute_pose(cam, X .=> u; rng = Xoshiro(2)))
+    no_model(find_absolute_pose(cam, [x .* m for x in X] .=> u; rng = Xoshiro(2)))
+
+    # the frame re-wrapper of refine_absolute_pose keeps a failed result
+    r = find_absolute_pose(cam, X .=> u; rng = Xoshiro(2))
+    pose = VgtkCore.Extrinsics3(RotMatrix{3, Float64}(RotZ(0.1)), VgtkCore.Vec3{Float64}(0.0, 0.0, 1.0))
+    framed = no_model(VgtkEstimation._with_frames(r, pose))
+    @test iterations(framed) == iterations(r)
+    @test VgtkEstimation._map_estimate(identity, r).metadata === r.metadata
+end

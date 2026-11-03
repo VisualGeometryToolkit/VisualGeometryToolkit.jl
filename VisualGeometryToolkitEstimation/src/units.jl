@@ -46,8 +46,19 @@ _map_csponds(fs, ft, cs::VgtkCore.Csponds) =
     VgtkCore.Csponds(map(fs, sources(cs)), map(ft, targets(cs)), VgtkCore.attrs_of(cs))
 _map_csponds(fs, ft, cs::AbstractVector{<:Pair}) = [fs(first(c)) => ft(last(c)) for c in cs]
 
+# A result with `f` applied to its estimate, everything else as it was. A
+# RANSAC result's estimate is `Union{M, Nothing}` (`RansacEstimate`): `f` maps a
+# present model, an absent one stays `nothing`, and the result keeps the union
+# over `f`'s image of `M`. Any other fit's estimate is concrete and simply mapped.
+_map_estimate(f, r::FitResult) = FitResult(f(estimate(r)), retcode(r), iterations(r), rms(r), r.n, metadata(r))
+function _map_estimate(f, r::FitResult{Union{M, Nothing}, R}) where {M, R}
+    N = Base.promote_op(f, M)
+    E = estimate(r)
+    return FitResult{Union{N, Nothing}, R}(E === nothing ? nothing : f(E), retcode(r), iterations(r), rms(r), r.n, metadata(r))
+end
+
 # A RANSAC (or any) result with its model read as metres: everything else as it was.
-_in_metres(r::FitResult) = FitResult(_in_metres(estimate(r)), retcode(r), iterations(r), rms(r), r.n, metadata(r))
+_in_metres(r::FitResult) = _map_estimate(_in_metres, r)
 
 # The plane-model estimators (homography, radial homography, radial camera, the
 # division camera) return a matrix model whose entries carry the unit of the

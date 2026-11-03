@@ -12,6 +12,7 @@
 # =============================================================================
 
 @testitem "units carriers" setup = [UnitHelpers] begin
+    using CoordinateTransformations: AffineMap
     using Test
     using StaticArrays, Rotations, LinearAlgebra, Statistics
     using FlexUnits: Quantity
@@ -88,7 +89,7 @@
         # board's and canvas's lengths, without applying the calibration: a plain pose on a
         # physical calibration or board is refused as on physical points
         R0 = rotation(E_mm)
-        cal_u = VgtkCore.Affine(SMatrix{2, 2}(1.0, 0.0, 0.0, 1.0), SVector(1mm, 2mm))
+        cal_u = AffineMap(SMatrix{2, 2}(1.0, 0.0, 0.0, 1.0), SVector(1mm, 2mm))
         board_u = VgtkCore.Board(Size2(width = 100mm, height = 100mm))
         canvas_u = VgtkCore.Canvas(Size2(width = 200mm, height = 200mm))
         for tgt in (PlanarTarget(:x; calibration = cal_u, board = board_u), PlanarTarget(:x; calibration = cal_u),

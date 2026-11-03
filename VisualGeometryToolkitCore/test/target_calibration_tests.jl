@@ -1,20 +1,23 @@
 # =============================================================================
 # Target calibration (geometry/cameras/target_calibration.jl): the kinds, their
-# protocol, chains, lengths, and an uncertain calibration on a PlanarTarget.
+# protocol, the one composition (HeightField ∘ in-plane, CoordinateTransformations'
+# `∘`), lengths, and an uncertain calibration on a PlanarTarget.
 # =============================================================================
 
 @testitem "target calibration: the kinds and their protocol" begin
     using Test, StaticArrays, LinearAlgebra, Random, ForwardDiff
     using VisualGeometryToolkitCore
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: grid_nodes, ThinPlateSplineSystem, tps_coefficients, tps_evaluate, bending_energy
+    using VisualGeometryToolkitCore: grid_nodes, ThinPlateSplineSystem, tps_coefficients, tps_evaluate, bending_energy,
+        transform_deriv, transform_deriv_params
+    using CoordinateTransformations: AffineMap, ComposedTransformation
 
     rng = Xoshiro(20261026)
     nodes = grid_nodes(4; lo = -0.1, hi = 0.1)                       # a 20 cm board's chart, 16 nodes
-    A = Affine([1.002 0.001; -0.0015 0.998], [0.0004, -0.0003])
+    A = AffineMap(SMatrix{2, 2}(1.002, -0.0015, 0.001, 0.998), SVector(0.0004, -0.0003))
     T = ThinPlateSpline(nodes, 1.0e-4 .* randn(rng, 16), 1.0e-4 .* randn(rng, 16))
     H = HeightField(nodes, 1.0e-3 .* randn(rng, 16))
-    kinds = (A, T, H, CalibrationChain(A, T), CalibrationChain(A, T, H), CalibrationChain(Rigid(), H))
+    kinds = (A, T, H, H ∘ A, H ∘ T)
     xs = [SVector(0.2 * rand(rng) - 0.1, 0.2 * rand(rng) - 0.1) for _ in 1:8]
     push!(xs, SVector(nodes[6]...))                                     # on a node
 
@@ -33,34 +36,49 @@
         @test parameter_vector(A) == SVector(1.002, 0.001, -0.0015, 0.998, 0.0004, -0.0003)
         @test parameter_names(T)[[1, 16, 17, 32]] == (:fx1, :fx16, :fy1, :fy16)
         @test parameter_names(H) == ntuple(i -> Symbol(:h, i), 16)
-        @test parameter_names(CalibrationChain(A, H))[[1, 6, 7, 22]] == (:affine_a11, :affine_by, :height_field_h1, :height_field_h16)
+        # CoordinateTransformations' order: the outer map's (the height field's) first
+        @test parameter_names(H ∘ A)[[1, 16, 17, 22]] == (:height_field_h1, :height_field_h16, :affine_a11, :affine_by)
     end
 
-    @testset "calibration_jacobian is ∂c(x)/∂θ (ForwardDiff)" begin
+    @testset "transform_deriv_params is ∂c(x)/∂θ, transform_deriv ∂c(x)/∂x (ForwardDiff)" begin
         for c in kinds, x in xs
-            J = calibration_jacobian(c, x)
+            J = transform_deriv_params(c, x)
             Jad = ForwardDiff.jacobian(θ -> with_parameters(c, θ)(x), parameter_vector(c))
             @test size(J) == size(Jad)
             @test J ≈ Jad atol = 1.0e-13 rtol = 1.0e-12
+            @test transform_deriv(c, x) ≈ ForwardDiff.jacobian(c, x) atol = 1.0e-13 rtol = 1.0e-12
         end
-        @test size(calibration_jacobian(A, xs[1])) == (2, 6)
-        @test size(calibration_jacobian(T, xs[1])) == (2, 32)
-        @test size(calibration_jacobian(H, xs[1])) == (3, 16)
-        @test size(calibration_jacobian(Rigid(), xs[1])) == (2, 0)
+        @test size(transform_deriv_params(A, xs[1])) == (2, 6)
+        @test size(transform_deriv_params(T, xs[1])) == (2, 32)
+        @test size(transform_deriv_params(H, xs[1])) == (3, 16)
+        @test size(transform_deriv_params(Rigid(), xs[1])) == (2, 0)
     end
 
-    @testset "a chain is the composition of its members" begin
-        C = CalibrationChain(A, T, H)
-        for x in xs
-            @test C(x) == H(T(A(x)))
-            @test CalibrationChain(A, T)(x) == T(A(x))
+    @testset "a composition: CT's ∘, its protocol in CT's order" begin
+        for X in (A, T)
+            C = H ∘ X
+            @test C isa ComposedTransformation && C.t1 === H && C.t2 === X        # nothing merged
+            for x in xs
+                @test C(x) == H(X(x))
+                # the order of the parameter vector is the order of CT's Jacobian: hcat(p1, m1 * p2)
+                # (≈: the spline's nodal weights round differently where the compiler inlines them)
+                @test transform_deriv_params(C, x) ≈ hcat(transform_deriv_params(H, X(x)), transform_deriv(H, X(x)) * transform_deriv_params(X, x)) rtol = 1.0e-13
+            end
+            @test parameter_vector(C) == vcat(parameter_vector(H), parameter_vector(X))
+            @test regularizer(C) == vcat(regularizer(H), regularizer(X))
+            @test with_parameters(C, parameter_vector(C)) == C && hash(with_parameters(C, parameter_vector(C))) == hash(C)
         end
-        @test parameter_vector(C) == vcat(parameter_vector(A), parameter_vector(T), parameter_vector(H))
-        @test regularizer(C) == vcat(regularizer(A), regularizer(T), regularizer(H))
-        @test_throws ArgumentError CalibrationChain(H, A)                       # a height field only last
-        @test_throws ArgumentError CalibrationChain(A, A)                       # one member of each kind
-        @test_throws ArgumentError CalibrationChain(A)                          # at least two
-        @test_throws ArgumentError CalibrationChain(CalibrationChain(A, T), H)  # no nesting
+        # every kind ∘ every other is a ComposedTransformation of the two, unmerged —
+        # but two AffineMaps, which CT multiplies into one (and a target never composes)
+        for a in (Rigid(), A, T, H), b in (Rigid(), A, T, H)
+            a isa AffineMap && b isa AffineMap && continue
+            c = a ∘ b
+            @test c isa ComposedTransformation && c.t1 === a && c.t2 === b
+        end
+        # only HeightField ∘ AffineMap and HeightField ∘ ThinPlateSpline: a target refuses the rest
+        for c in (T ∘ A, A ∘ T, A ∘ H, H ∘ Rigid(), Rigid() ∘ A, H ∘ (T ∘ A), (H ∘ T) ∘ A, H ∘ H)
+            @test_throws ArgumentError PlanarTarget(xs; calibration = c)
+        end
     end
 
     @testset "the regularizer's rows are the bending energy" begin
@@ -90,10 +108,10 @@
         end
     end
 
-    @testset "Rigid, Affine and the identity" begin
+    @testset "Rigid, AffineMap and the identity" begin
         x = xs[1]
         @test Rigid()(x) === x
-        @test Affine([1.0 0.0; 0.0 1.0], [0.0, 0.0])(x) == x
+        @test AffineMap(SMatrix{2, 2}(1.0, 0.0, 0.0, 1.0), SVector(0.0, 0.0))(x) == x
         @test A(x) ≈ SMatrix{2, 2}(1.002, -0.0015, 0.001, 0.998) * x + SVector(0.0004, -0.0003)
         @test ThinPlateSpline(nodes)(x) == x && HeightField(nodes)(x) == SVector(x[1], x[2], 0.0)
     end
@@ -103,15 +121,17 @@ end
     using Test, StaticArrays, LinearAlgebra, Statistics
     using VisualGeometryToolkitCore
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: grid_nodes, mm, m, has_units
+    using VisualGeometryToolkitCore: grid_nodes, mm, m, has_units, transform_deriv_params
     using FlexUnits: DimensionError, ustrip
+    using CoordinateTransformations: AffineMap
+    Aff(A, b) = AffineMap(SMatrix{2, 2}(A), SVector{2}(b))
 
     pts = [SVector(0.0, 0.0), SVector(100.0, 0.0), SVector(0.0, 50.0), SVector(100.0, 50.0)]
     pts_mm = [p .* mm for p in pts]
     nodes_mm = [p .* mm for p in grid_nodes(3; lo = 0.0, hi = 100.0)]
 
     @testset "a physical calibration moves physical points" begin
-        A = Affine([1.001 0.0; 0.0 0.999], [0.5, -0.25] .* mm)
+        A = Aff([1.001 0.0; 0.0 0.999], [0.5, -0.25] .* mm)
         t = PlanarTarget(pts_mm; calibration = A)
         @test has_units(A) && has_units(t)
         @test parameter_vector(A)[5:6] ≈ [0.0005, -0.00025]                 # lengths in θ: metres
@@ -123,7 +143,7 @@ end
         @test [ustrip.(mm, p) for p in points(VgtkCore.with_unit(tp, mm))] ≈ [ustrip.(mm, p) for p in P]
         @test VgtkCore.with_unit(tp, mm) == PlanarTarget(pts_mm; calibration = VgtkCore.with_unit(calibration(tp), mm))
         # one form: a plain calibration on lengths, or the reverse, is refused
-        @test_throws DimensionError PlanarTarget(pts_mm; calibration = Affine([1.0 0.0; 0.0 1.0], [0.5, 0.0]))
+        @test_throws DimensionError PlanarTarget(pts_mm; calibration = Aff([1.0 0.0; 0.0 1.0], [0.5, 0.0]))
         @test_throws DimensionError PlanarTarget(pts; calibration = A)
         @test_throws DimensionError A(pts[2])
         # Rigid has no lengths: it sits with either form
@@ -139,16 +159,16 @@ end
         T = ThinPlateSpline(nodes_mm, fill(0.01mm, 9), fill(-0.01mm, 9))
         @test ustrip.(mm, T(pts_mm[2])) ≈ pts[2] + SVector(0.01, -0.01)
         @test_throws DimensionError HeightField(nodes_mm, fill(0.1, 9))
-        @test_throws DimensionError CalibrationChain(Affine([1.0 0.0; 0.0 1.0], [0.0, 0.0]), H)
+        @test_throws DimensionError PlanarTarget(pts_mm; calibration = H ∘ Aff([1.0 0.0; 0.0 1.0], [0.0, 0.0]))
     end
 
     @testset "Uncertain(calibration, Σ)" begin
-        A = Affine([1.001 0.0; 0.0 0.999], [0.5, -0.25] .* mm)
+        A = calibration(PlanarTarget(pts_mm; calibration = Aff([1.001 0.0; 0.0 0.999], [0.5, -0.25] .* mm)))   # b stored in metres
         Σ = SMatrix{6, 6}(Diagonal([1.0e-8, 1.0e-8, 1.0e-8, 1.0e-8, 1.0e-10, 1.0e-10]))   # b's in m²
         u = Uncertain(A, CovMat(Σ))
         @test geom(u) === A && Statistics.cov(u) == Σ
         @test parameter_vector(u) == parameter_vector(A) && parameter_names(u) == parameter_names(A)
-        @test calibration_jacobian(u, pts[2]) == calibration_jacobian(A, pts[2])
+        @test transform_deriv_params(u, pts[2]) == transform_deriv_params(A, pts[2])
         t = PlanarTarget(pts_mm; calibration = u)
         @test calibration(t) === u && t isa PlanarTarget{typeof(A)}
         @test points(t) == points(PlanarTarget(pts_mm; calibration = A))
@@ -167,31 +187,31 @@ end
     using VisualGeometryToolkitCore
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: grid_nodes, PlanarCalibration, mm
+    using CoordinateTransformations: AffineMap
 
     nodes = grid_nodes(3; lo = 0.0, hi = 100.0)
-    A = Affine([1.0 0.001; 0.0 1.0], [0.1, 0.0])
+    A = AffineMap(SMatrix{2, 2}(1.0, 0.0, 0.001, 1.0), SVector(0.1, 0.0))
     T = ThinPlateSpline(nodes, fill(0.01, 9), fill(-0.01, 9))
     H = HeightField(nodes, [0.0, 0.1, 0.0, 0.2, 0.0, -0.1, 0.0, 0.0, 0.3])
     pts = [SVector(0.0, 0.0), SVector(100.0, 0.0), SVector(0.0, 50.0), SVector(30.0, 40.0)]
 
     @testset "is_planar by type" begin
         @test is_planar(Rigid) && is_planar(typeof(A)) && is_planar(typeof(T)) && !is_planar(typeof(H))
-        @test is_planar(typeof(CalibrationChain(A, T))) && is_planar(typeof(CalibrationChain(Rigid(), A)))
-        @test !is_planar(typeof(CalibrationChain(A, T, H))) && !is_planar(typeof(CalibrationChain(A, H)))
+        @test !is_planar(typeof(H ∘ T)) && !is_planar(typeof(H ∘ A))
         @test is_planar(A) && !is_planar(H) && is_planar(PlanarTarget(pts; calibration = T)) && !is_planar(PlanarTarget(pts; calibration = H))
         @test is_planar(Uncertain(A, CovMat(SMatrix{6, 6}(1.0I)))) && !is_planar(Uncertain(H, CovMat(SMatrix{9, 9}(1.0I))))
-        @test (@inferred is_planar(typeof(CalibrationChain(A, T, H)))) === false
-        @test A isa PlanarCalibration && T isa PlanarCalibration && CalibrationChain(A, T) isa PlanarCalibration
-        @test !(H isa PlanarCalibration) && !(CalibrationChain(A, H) isa PlanarCalibration)
+        @test (@inferred is_planar(typeof(H ∘ T))) === false
+        @test A isa PlanarCalibration && T isa PlanarCalibration && Rigid() isa PlanarCalibration
+        @test !(H isa PlanarCalibration) && !((H ∘ A) isa PlanarCalibration)
     end
 
     @testset "points: SVector{2} when planar, SVector{3} otherwise (inferred)" begin
-        for c in (Rigid(), A, T, CalibrationChain(A, T))
+        for c in (Rigid(), A, T)
             t = PlanarTarget(pts; calibration = c)
             P = @inferred points(t)
             @test eltype(P) === SVector{2, Float64}
         end
-        for c in (H, CalibrationChain(A, H), CalibrationChain(A, T, H))
+        for c in (H, H ∘ A, H ∘ T)
             t = PlanarTarget(pts; calibration = c)
             P = @inferred points(t)
             @test eltype(P) === SVector{3, Float64}
@@ -201,7 +221,7 @@ end
         @test eltype(@inferred points(tmm)) <: SVector{3, <:VgtkCore.Quantity}
         # a method written for the plane refuses a height field by dispatch
         on_plane(t::PlanarTarget{<:PlanarCalibration}) = length(points(t))
-        @test on_plane(PlanarTarget(pts; calibration = CalibrationChain(A, T))) == 4
+        @test on_plane(PlanarTarget(pts; calibration = T)) == 4
         @test_throws MethodError on_plane(PlanarTarget(pts; calibration = H))
     end
 
@@ -217,17 +237,19 @@ end
     using VisualGeometryToolkitCore
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: grid_nodes, TargetManifold, minimal_manifold, tangent_size, retract, recenter,
-        retract_jacobian, action_jacobian, local_coordinates, restrict, gauge_names, gauge_directions, model
+        retract_jacobian, action_jacobian, local_coordinates, restrict, gauge_names, gauge_directions, model, transform_deriv_params
+    using CoordinateTransformations: AffineMap
+    Aff(A, b) = AffineMap(SMatrix{2, 2}(A), SVector{2}(b))
 
     rng = Xoshiro(7)
     nodes = grid_nodes(4; lo = -0.1, hi = 0.1)                         # 16 nodes: an in-plane spline has n = 32
     pts = [SVector(0.2 * rand(rng) - 0.1, 0.2 * rand(rng) - 0.1) for _ in 1:12]
-    A = Affine([1.002 0.001; -0.0015 0.998], [0.0004, -0.0003])
+    A = Aff([1.002 0.001; -0.0015 0.998], [0.0004, -0.0003])
     H = HeightField(nodes, 1.0e-3 .* randn(rng, 16))
     T = ThinPlateSpline(nodes, 1.0e-4 .* randn(rng, 16), 1.0e-4 .* randn(rng, 16))
     unit_cols(D) = D ./ norm.(eachcol(D))'
 
-    @testset "Affine: translation, rotation and scale are fixed; stretch and shear stay" begin
+    @testset "AffineMap: translation, rotation and scale are fixed; stretch and shear stay" begin
         t = PlanarTarget(pts; calibration = A)
         @test gauge_names(A) == (:translation_x, :translation_y, :rotation, :scale) && gauge_names(t) == gauge_names(A)
         D = gauge_directions(A)
@@ -242,7 +264,7 @@ end
         v = SVector{2}(1.0e-4 .* randn(rng, 2))
         Δθ = parameter_vector(retract(ch, v)) - parameter_vector(A)
         @test norm(D' * Δθ) < 1.0e-16 && local_coordinates(ch, retract(ch, v)) ≈ v
-        @test action_jacobian(ch, pts[1]) ≈ calibration_jacobian(A, pts[1]) * B
+        @test action_jacobian(ch, pts[1]) ≈ transform_deriv_params(A, pts[1]) * B
         @test tangent_size(TargetManifold(t; free = :scale)) == 3            # a lone Symbol
         @test tangent_size(TargetManifold(t; free = (:scale, :rotation))) == 4
         ch6 = TargetManifold(t; free = gauge_names(A))                      # a known pose: everything free
@@ -288,17 +310,20 @@ end
         @test tangent_size(TargetManifold(t; free = (:piston, :tilt_x, :tilt_y))) == 16
     end
 
-    @testset "chains: the members' gauges, prefixed" begin
-        C = CalibrationChain(A, T, H)
+    @testset "a composition: the members' gauges, prefixed, the height field's first" begin
+        C = H ∘ T
         t = PlanarTarget(pts; calibration = C)
-        @test gauge_names(C) == (:affine_translation_x, :affine_translation_y, :affine_rotation, :affine_scale,
+        @test gauge_names(C) == (:height_field_piston, :height_field_tilt_x, :height_field_tilt_y,
             :thin_plate_spline_fx_1, :thin_plate_spline_fx_u, :thin_plate_spline_fx_v,
-            :thin_plate_spline_fy_1, :thin_plate_spline_fy_u, :thin_plate_spline_fy_v,
-            :height_field_piston, :height_field_tilt_x, :height_field_tilt_y)
+            :thin_plate_spline_fy_1, :thin_plate_spline_fy_u, :thin_plate_spline_fy_v)
         ch = minimal_manifold(t)
-        @test tangent_size(ch) == 6 + 32 + 16 - 13
+        @test tangent_size(ch) == 16 + 32 - 9
         @test norm(retract_jacobian(ch)' * unit_cols(gauge_directions(C))) < 1.0e-13
-        @test tangent_size(TargetManifold(t; free = :affine_scale)) == 6 + 32 + 16 - 12
+        CA = H ∘ A
+        tA = PlanarTarget(pts; calibration = CA)
+        @test gauge_names(CA)[4:7] == (:affine_translation_x, :affine_translation_y, :affine_rotation, :affine_scale)
+        @test tangent_size(minimal_manifold(tA)) == 16 + 6 - 7
+        @test tangent_size(TargetManifold(tA; free = :affine_scale)) == 16 + 6 - 6
     end
 
     @testset "restrict fixes only the gauge combinations inside the free span" begin
@@ -315,7 +340,7 @@ end
         @test tangent_size(restrict(minimal_manifold(tH), (:h1, :h2, :h3))) == 3
         @test tangent_size(restrict(minimal_manifold(tH), (:h1, :h2, :h3, :h4, :h5))) == 5
         # at a diagonal A the scale (a11, 0, 0, a22) lies in (a11, a22) and bx is a translation: one left
-        tD = PlanarTarget(pts; calibration = Affine([1.002 0.0; 0.0 0.998], [0.0004, -0.0003]))
+        tD = PlanarTarget(pts; calibration = Aff([1.002 0.0; 0.0 0.998], [0.0004, -0.0003]))
         rD = restrict(minimal_manifold(tD), (:a11, :a22, :bx))
         @test tangent_size(rD) == 1 && abs(dot(retract_jacobian(rD)[:, 1], [1.002, 0, 0, 0.998, 0, 0])) < 1.0e-14
         @test_throws ArgumentError restrict(chA, (:h1,))
@@ -334,7 +359,7 @@ end
             Tm = ThinPlateSpline(ns_m, fill(0.0mt, 16), fill(0.0mt, 16))
             @test tangent_size(minimal_manifold(PlanarTarget(pts_m; calibration = Hm))) == tangent_size(minimal_manifold(PlanarTarget(pts; calibration = H)))
             @test tangent_size(minimal_manifold(PlanarTarget(pts_m; calibration = Tm))) == tangent_size(minimal_manifold(PlanarTarget(pts; calibration = T)))
-            Cm = CalibrationChain(Affine([1.0 0.0; 0.0 1.0], [0.0, 0.0] .* mt), Hm)
+            Cm = Hm ∘ Aff([1.0 0.0; 0.0 1.0], [0.0, 0.0] .* mt)
             @test tangent_size(minimal_manifold(PlanarTarget(pts_m; calibration = Cm))) == 6 + 16 - 7
         end
     end
@@ -356,7 +381,7 @@ end
         @test typeof(r) === typeof(big) && only(Base.return_types(recenter, (typeof(big), Vector{Float64}))) === typeof(big)
         @test local_coordinates(big, model(r)) ≈ v
         J = action_jacobian(big, pts[1])
-        @test J isa Matrix{Float64} && size(J) == (2, 44) && J ≈ calibration_jacobian(T5, pts[1]) * B
+        @test J isa Matrix{Float64} && size(J) == (2, 44) && J ≈ transform_deriv_params(T5, pts[1]) * B
         @test norm(B' * gauge_directions(T5)) < 1.0e-13
     end
 end
@@ -370,6 +395,7 @@ end
     using VisualGeometryToolkitCore
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: grid_nodes, minimal_manifold, retract_jacobian, tangent_size
+    using CoordinateTransformations: AffineMap
 
     rng = Xoshiro(1)
     design = [SVector(x, y) for x in range(-0.1, 0.1; length = 6) for y in range(-0.08, 0.08; length = 5)]
@@ -406,22 +432,21 @@ end
         return count(<(1.0e-9 * s[1]), s)
     end
 
-    A = Affine([1.01 0.02; -0.015 0.99], [0.003, -0.002])
+    A = AffineMap(SMatrix{2, 2}(1.01, -0.015, 0.02, 0.99), SVector(0.003, -0.002))
     T = ThinPlateSpline(nodes, 1.0e-4 .* randn(rng, 9), 1.0e-4 .* randn(rng, 9))
     H0 = HeightField(nodes)
     H = HeightField(nodes, 1.0e-3 .* randn(rng, 9))
     cases = (
-        "Affine" => A, "ThinPlateSpline" => T, "HeightField flat" => H0, "HeightField h ≈ 1 mm" => H,
-        "Chain(Affine, TPS at zero displacement)" => CalibrationChain(A, ThinPlateSpline(nodes)),
-        "Chain(Affine, HeightField)" => CalibrationChain(A, H), "Chain(Affine, HeightField flat)" => CalibrationChain(A, H0),
-        "Chain(TPS, HeightField)" => CalibrationChain(T, H),
+        "AffineMap" => A, "ThinPlateSpline" => T, "HeightField flat" => H0, "HeightField h ≈ 1 mm" => H,
+        "HeightField ∘ AffineMap" => H ∘ A, "HeightField flat ∘ AffineMap" => H0 ∘ A,
+        "HeightField ∘ ThinPlateSpline" => H ∘ T, "HeightField ∘ TPS at zero displacement" => H ∘ ThinPlateSpline(nodes),
     )
     for (name, c) in cases
         @testset "$name" begin
             @test nullity_default(c) == 0
         end
     end
-    # the harness can see a gauge: with the Affine's freed, its four come back
+    # the harness can see a gauge: with the AffineMap's freed, its four come back
     @test nullity_default(A; free = VgtkCore.gauge_names(A)) == 4
 end
 
@@ -429,40 +454,35 @@ end
     using Test, StaticArrays, LinearAlgebra, ForwardDiff
     using VisualGeometryToolkitCore
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: grid_nodes, gauge_names, mm, m, Attributed, Uncertain, CovMat
+    using VisualGeometryToolkitCore: grid_nodes, gauge_names, mm, m, Attributed, Uncertain, CovMat, transform_deriv_params
     using FlexUnits: ustrip
-    # a kind another package defines: the public protocol only
-    struct DownstreamShift <: TargetCalibration
-        dx::Float64
-        dy::Float64
-    end
-    VgtkCore.parameter_vector(c::DownstreamShift) = SVector(c.dx, c.dy)
-    VgtkCore.parameter_names(::DownstreamShift) = (:dx, :dy)
-    VgtkCore.calibration_tag(::Type{DownstreamShift}) = "downstream_shift"   # its tag, declared (no fallback)
-    struct UntaggedShift <: TargetCalibration end                              # one that declares none
+    using CoordinateTransformations: AffineMap
 
     nodes = grid_nodes(3; lo = 0.0, hi = 100.0)
-    A = Affine([1.001 0.0; 0.0 0.999], [0.5, -0.25])
+    A = AffineMap(SMatrix{2, 2}(1.001, 0.0, 0.0, 0.999), SVector(0.5, -0.25))
     T = ThinPlateSpline(nodes, fill(0.01, 9), fill(-0.01, 9))
     H = HeightField(nodes, [0.1, 0.0, -0.1, 0.2, 0.0, 0.0, 0.0, 0.3, 0.0])
-    C = CalibrationChain(A, T, H)
+    C = H ∘ T
     pts = [SVector(0.0, 0.0), SVector(100.0, 0.0), SVector(30.0, 40.0)]
 
-    @testset "a chain's names are inferred" begin
-        @test (@inferred parameter_names(C)) == parameter_names(C) && length(parameter_names(C)) == 6 + 18 + 9
+    @testset "a composition's names are inferred" begin
+        @test (@inferred parameter_names(C)) == parameter_names(C) && length(parameter_names(C)) == 9 + 18
         @test (@inferred gauge_names(C)) == gauge_names(C)
-        t = PlanarTarget(pts; calibration = C)
+        t = PlanarTarget(pts; calibration = H ∘ A)
         @test (@inferred VgtkCore.parameters(t)).affine_a11 == 1.001
     end
 
     @testset "one tag registry: TARGET_CALIBRATION_TAGS" begin
         R = VgtkCore.TARGET_CALIBRATION_TAGS
-        @test collect(keys(R)) == ["rigid", "affine", "thin_plate_spline", "height_field", "calibration_chain"]
-        @test isempty(VgtkCore.tag_rule_violations(R))
-        @test [VgtkCore.tag_of(R, c) for c in (Rigid(), A, T, H, C)] == collect(keys(R))
-        @test R["affine"] === Affine && R["calibration_chain"] === CalibrationChain
+        @test collect(keys(R)) == ["rigid", "affine", "thin_plate_spline", "height_field"]
+        @test isempty(VgtkCore.tag_rule_violations(R))                      # `AffineMap`, the suffix `Map` stripped
+        @test [VgtkCore.tag_of(R, c) for c in (Rigid(), A, T, H)] == collect(keys(R))
+        @test R["affine"] === AffineMap
         @test_throws ArgumentError R["warp"]
-        @test parameter_names(C)[1] === :affine_a11 && parameter_names(C)[end] === :height_field_h9   # the chain prefixes are its tags
+        @test_throws ArgumentError R["calibration_chain"]                   # a composition has no tag
+        @test_throws ArgumentError VgtkCore.calibration_tag(typeof(C))
+        @test VgtkCore.calibration_tag(typeof(A)) == "affine"
+        @test parameter_names(C)[1] === :height_field_h1 && parameter_names(C)[end] === :thin_plate_spline_fy9   # the prefixes are the tags
     end
 
     @testset "Attributed: ==, isequal and hash by value and attributes" begin
@@ -470,9 +490,10 @@ end
         uT, uT2 = Uncertain(T, Σ(18)), Uncertain(ThinPlateSpline(nodes, fill(0.01, 9), fill(-0.01, 9)), Σ(18))
         @test uT == uT2 && isequal(uT, uT2) && hash(uT) == hash(uT2) && length(Set([uT, uT2])) == 1
         @test uT != Uncertain(T, CovMat(SMatrix{18, 18, Float64}(2.0e-6I)))
-        # whole targets compare equal, an uncertain thin-plate calibration included
-        t1 = PlanarTarget(pts; calibration = Uncertain(C, Σ(33)))
-        t2 = PlanarTarget(copy(pts); calibration = Uncertain(CalibrationChain(A, T, H), Σ(33)))
+        # whole targets compare equal, an uncertain thin-plate composition included
+        t1 = PlanarTarget(pts; calibration = Uncertain(C, Σ(27)))
+        t2 = PlanarTarget(copy(pts); calibration = Uncertain(HeightField(nodes, [0.1, 0.0, -0.1, 0.2, 0.0, 0.0, 0.0, 0.3, 0.0]) ∘
+            ThinPlateSpline(nodes, fill(0.01, 9), fill(-0.01, 9)), Σ(27)))
         @test t1 == t2 && hash(t1) == hash(t2)
         a = Attributed(t1, (; calibration_record = (; tool = "x")))
         @test a == Attributed(t2, (; calibration_record = (; tool = "x"))) && a != Attributed(t2, (; calibration_record = (; tool = "y")))
@@ -483,36 +504,33 @@ end
         @test e isa ArgumentError && occursin("no parameters, so no covariance", e.msg)
     end
 
-    @testset "a chain with a downstream member constructs, its names prefixed by its declared tag" begin
-        @test parameter_names(CalibrationChain(A, DownstreamShift(0.1, 0.2)))[7:8] == (:downstream_shift_dx, :downstream_shift_dy)
-        @test VgtkCore.calibration_tag(DownstreamShift) == "downstream_shift"
-        @test VgtkCore.calibration_tag(Affine) == "affine" && VgtkCore.calibration_tag(typeof(C)) == "calibration_chain"
-        @test_throws ArgumentError CalibrationChain(A, UntaggedShift())          # a downstream kind declares its tag
-    end
-
     @testset "hash agrees with ==" begin
-        for (x, y) in ((A, Affine([1.001 0.0; 0.0 0.999], [0.5, -0.25])), (T, ThinPlateSpline(nodes, fill(0.01, 9), fill(-0.01, 9))),
-                       (H, HeightField(nodes, [0.1, 0.0, -0.1, 0.2, 0.0, 0.0, 0.0, 0.3, 0.0])), (C, CalibrationChain(A, T, H)),
-                       (PlanarTarget(pts; calibration = H), PlanarTarget(pts; calibration = HeightField(nodes, [0.1, 0.0, -0.1, 0.2, 0.0, 0.0, 0.0, 0.3, 0.0]))))
+        H2() = HeightField(nodes, [0.1, 0.0, -0.1, 0.2, 0.0, 0.0, 0.0, 0.3, 0.0])
+        T2() = ThinPlateSpline(nodes, fill(0.01, 9), fill(-0.01, 9))
+        for (x, y) in ((A, AffineMap(SMatrix{2, 2}(1.001, 0.0, 0.0, 0.999), SVector(0.5, -0.25))), (T, T2()), (H, H2()),
+                       (C, H2() ∘ T2()), (H ∘ A, H2() ∘ A),
+                       (PlanarTarget(pts; calibration = H), PlanarTarget(pts; calibration = H2())),
+                       (PlanarTarget(pts; calibration = C), PlanarTarget(pts; calibration = H2() ∘ T2())))
             @test x == y && hash(x) == hash(y)
             @test length(Set([x, y])) == 1
         end
         @test hash(A) != hash(with_parameters(A, parameter_vector(A) .+ 1.0e-3))
+        @test hash(C) != hash(with_parameters(C, parameter_vector(C) .+ 1.0e-3))
     end
 
     @testset "ForwardDiff through a physical calibration" begin
         pmm = SVector(10.0, 20.0) .* mm
-        for c in (VgtkCore.with_unit(A, mm), VgtkCore.with_unit(H, mm))
+        for c in (VgtkCore.with_unit(A, mm), VgtkCore.with_unit(H, mm), VgtkCore.with_unit(H ∘ A, mm))
             J = ForwardDiff.jacobian(θ -> ustrip.(m, with_parameters(c, θ)(pmm)), Vector(parameter_vector(c)))
-            @test J ≈ calibration_jacobian(c, pmm) atol = 1.0e-14
+            @test J ≈ transform_deriv_params(c, pmm) atol = 1.0e-14
         end
     end
 
     @testset "an uncertain calibration: with_parameters returns the bare kind" begin
         u = Uncertain(A, CovMat(SMatrix{6, 6}(1.0e-6I)))
         θ = parameter_vector(A) .+ 1.0e-4
-        @test with_parameters(u, θ) isa Affine && parameter_vector(with_parameters(u, θ)) == θ
-        @test calibration(with_parameters(PlanarTarget(pts; calibration = u), θ)) isa Affine
+        @test with_parameters(u, θ) isa AffineMap && parameter_vector(with_parameters(u, θ)) == θ
+        @test calibration(with_parameters(PlanarTarget(pts; calibration = u), θ)) isa AffineMap
     end
 
     @testset "an attributed target's calibration record does not shadow its calibration" begin
@@ -556,41 +574,41 @@ end
     using VisualGeometryToolkitCore
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: grid_nodes, is_affine
-    struct NotAffineKind <: TargetCalibration end                     # a downstream kind, not affine
-    VgtkCore.calibration_tag(::Type{NotAffineKind}) = "not_affine_kind"
-    VgtkCore.parameter_vector(::NotAffineKind) = SVector{0, Float64}()
+    using CoordinateTransformations: AffineMap
     nodes = grid_nodes(3; lo = 0.0, hi = 1.0)
-    A = Affine([1.01 0.002; -0.003 0.99], [0.004, -0.002])
+    A = AffineMap(SMatrix{2, 2}(1.01, -0.003, 0.002, 0.99), SVector(0.004, -0.002))
     H = HeightField(nodes, fill(1.0e-3, 9))
     T = ThinPlateSpline(nodes)
-    @test is_affine(Rigid()) && is_affine(A) && is_affine(H) && is_affine(CalibrationChain(A, H))
-    @test !is_affine(T) && !is_affine(CalibrationChain(A, T)) && !is_affine(CalibrationChain(A, T, H))
-    @test is_affine(typeof(CalibrationChain(A, H)))                       # a function of the type
+    @test is_affine(Rigid()) && is_affine(A) && is_affine(H) && is_affine(H ∘ A)
+    @test !is_affine(T) && !is_affine(H ∘ T)
+    @test is_affine(typeof(H ∘ A))                                       # a function of the type
     # the chart's affine: the calibration's image of the design origin and its point Jacobian there
-    @test VgtkCore.Cameras._chart_affine(A) == (A.A, A.b)
+    @test VgtkCore.Cameras._chart_affine(A) == (A.linear, A.translation)
     @test VgtkCore.Cameras._chart_affine(H) == (SMatrix{2, 2}(1.0, 0.0, 0.0, 1.0), SVector(0.0, 0.0))
-    M, b = VgtkCore.Cameras._chart_affine(CalibrationChain(A, H))
-    @test M == A.A && b == A.b
+    M, b = VgtkCore.Cameras._chart_affine(H ∘ A)
+    @test M == A.linear && b == A.translation
     @test_throws ArgumentError VgtkCore.Cameras._chart_affine(T)
-    # a chain is refused for its member, by the member's kind
-    e = try VgtkCore.Cameras._chart_affine(CalibrationChain(A, NotAffineKind())); nothing catch err; err end
-    @test e isa ArgumentError && occursin("NotAffineKind", e.msg)
+    # a composition is refused for its in-plane kind
+    e = try VgtkCore.Cameras._chart_affine(H ∘ T); nothing catch err; err end
+    @test e isa ArgumentError && occursin("ThinPlateSpline", e.msg)
 end
 
 @testitem "target calibration: length_mask" begin
     using Test, StaticArrays
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: grid_nodes, length_mask, parameter_vector
+    using CoordinateTransformations: AffineMap
     nodes = grid_nodes(2; lo = 0.0, hi = 1.0)
-    A = Affine([1.0 0.0; 0.0 1.0], [0.0, 0.0])
+    A = AffineMap(SMatrix{2, 2}(1.0, 0.0, 0.0, 1.0), SVector(0.0, 0.0))
     T = ThinPlateSpline(nodes)
     H = HeightField(nodes)
     @test length_mask(Rigid()) == SVector{0, Bool}()
     @test length_mask(A) === SVector(false, false, false, false, true, true) === length_mask(typeof(A))
     @test length_mask(T) == trues(8) && length_mask(H) == trues(4)
-    C = CalibrationChain(A, T, H)
-    @test (@inferred length_mask(typeof(C))) == vcat(length_mask(A), length_mask(T), length_mask(H))
-    @test length(length_mask(C)) == length(parameter_vector(C))
+    for C in (H ∘ A, H ∘ T)
+        @test (@inferred length_mask(typeof(C))) == vcat(length_mask(H), length_mask(C.t2))
+        @test length(length_mask(C)) == length(parameter_vector(C))
+    end
 end
 
 @testitem "target calibration: with_unit of a non-length unit" begin
@@ -598,11 +616,12 @@ end
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: grid_nodes, with_unit, px
     using FlexUnits: DimensionError, ConversionError
+    using CoordinateTransformations: AffineMap
     # A thin-plate kind refuses a unit that is not a length with FlexUnits'
     # DimensionError, as at 0.2's base (the metre shortcut checks the dimension
-    # before it converts); an Affine raises ConversionError, as it always did.
+    # before it converts); an AffineMap raises ConversionError, as `Affine` did.
     nodes = grid_nodes(3; lo = 0.0, hi = 1.0)
     @test_throws DimensionError with_unit(ThinPlateSpline(nodes), px)
     @test_throws DimensionError with_unit(HeightField(nodes), px)
-    @test_throws ConversionError with_unit(Affine([1.0 0.0; 0.0 1.0], [0.0, 0.0]), px)
+    @test_throws ConversionError with_unit(AffineMap(SMatrix{2, 2}(1.0, 0.0, 0.0, 1.0), SVector(0.0, 0.0)), px)
 end

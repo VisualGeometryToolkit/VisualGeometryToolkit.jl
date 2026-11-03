@@ -16,23 +16,41 @@
     include(joinpath(DIR, "corpus.jl"))
     using .ChainEquivalenceCorpus
     include(joinpath(DIR, "io_values.jl"))
-    using VisualGeometryToolkitCore: CalibrationChain, Chain, Affine
+    using VisualGeometryToolkitCore: Chain
+    using CoordinateTransformations: AffineMap
+    using StaticArrays: SMatrix, SVector
 
     export DIR, CODE, read_goldens, io_values, compare_value, target_cases
 
     # THE ADAPTER — the code at hand (corpus.jl's header), plus how a golden
     # record becomes the code's (`migrate(golden, out)`) and the content ids
-    # the code changes on purpose (`new_content_ids`, name => id). Every field
-    # is the code the goldens were written on: the comparison is the identity,
-    # which proves the harness.
+    # the code changes on purpose (`new_content_ids`, name => id):
+    # - targets (compose with CoordinateTransformations, revision 2): the
+    #   affine kind is CT's `AffineMap`, a composition CT's `∘` with its
+    #   members and covariance in CT's order (`ct_order`); the in-plane
+    #   compositions are retired. Target and rig records are v3/v6: a golden
+    #   v2/v5 file is migrated by `vgio_migrate` and must be the writer's v3/v6
+    #   output byte for byte; a retired case's is refused. A rig whose target is
+    #   composed changes its content id (its members are listed outer map
+    #   first): the new ids are pinned here, and the migration must report the
+    #   golden id as the rig's old one;
+    # - lenses: unchanged so far.
     const CODE = (
-        affine = Affine,
-        compose_calibrations = members -> CalibrationChain(members),
+        affine = (A, b) -> AffineMap(SMatrix{2, 2}(A), SVector{2}(b)),
+        compose_calibrations = members -> ∘(reverse(members)...),
         compose_distortions = stages -> Chain(stages...),
-        ct_order = false,
-        retired = Set{String}(),
-        migrate = (golden, out) -> cp(golden, out; force = true),
-        new_content_ids = Dict{String, String}(),
+        ct_order = true,
+        lens_ct_order = false,
+        retired = Set([
+            "R_H", "R_A", "R_A_H", "R_T", "R_T_H", "A_R", "A_R_H", "A_T", "A_T_H", "T_R", "T_R_H", "T_A", "T_A_H",
+            "R_A_T", "R_A_T_H", "R_T_A", "R_T_A_H", "A_R_T", "A_R_T_H", "A_T_R", "A_T_R_H", "T_R_A", "T_R_A_H", "T_A_R", "T_A_R_H",
+        ]),
+        migrate = (golden, out) -> occursin(r"^(target|rig)_", basename(golden)) ?
+            VisualGeometryToolkitIO.vgio_migrate(golden; out) : cp(golden, out; force = true),
+        new_content_ids = Dict(
+            "A_H" => "2112fe43b29998d8ce4cf3ecd0db5559f1f5a7074d86ec1e7b637d90df133f63",
+            "T_H" => "19438df216311b4c5ba2477832ff9bcaca5e7946262a0113311a6adab18d8efc",
+        ),
     )
 end
 
@@ -62,7 +80,7 @@ end
         @test all(k -> haskey(G, k), keys(actual))
         # the records: every golden file, migrated to the code's version, is
         # byte for byte what the code writes; a retired case's is refused
-        n_files = 0
+        n_files = n_refused = 0
         for (root, _, files) in walkdir(golden_records), f in files
             rel = relpath(joinpath(root, f), golden_records)
             out = joinpath(migrated, rel)
@@ -70,6 +88,7 @@ end
             if retired_file(rel)
                 @test_throws ArgumentError CODE.migrate(joinpath(root, f), out)
                 @test !isfile(joinpath(written, rel))
+                n_refused += 1
                 continue
             end
             CODE.migrate(joinpath(root, f), out)
@@ -78,8 +97,14 @@ end
             @test same
             n_files += 1
         end
+        # a rig whose id moves: its migration maps the golden id to the new one
+        for (name, id) in CODE.new_content_ids
+            r = VisualGeometryToolkitIO.vgio_migrate(joinpath(golden_records, "rig_$name.json"); out = joinpath(dir, "rig_$name.ids.json"))
+            @test r.old_id == G["content_id/$name"] && r.new_id == id
+        end
         n_written = sum(length(fs) for (_, _, fs) in walkdir(written))
         @test n_files == n_written
-        @test n_files >= 50
+        @test n_files + n_refused == sum(length(fs) for (_, _, fs) in walkdir(golden_records))
+        @test n_files >= 30
     end
 end

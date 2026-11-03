@@ -117,7 +117,7 @@ function lens_values(P, V)
         xs = image_points(fisheye ? 1.6 : 0.8)
         θ = parameter_vector(l)
         blocks = lens_blocks(name)
-        p = blocks === nothing ? collect(eachindex(θ)) : block_permutation(blocks, V.ct_order)
+        p = blocks === nothing ? collect(eachindex(θ)) : block_permutation(blocks, V.lens_ct_order)
         δ = P["param/lens/$name/delta"][p]
         emit("$k/names", parameter_names(l))
         emit("$k/theta", collect(θ))

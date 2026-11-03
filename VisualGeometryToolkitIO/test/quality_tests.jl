@@ -51,9 +51,12 @@ end
     # that a NEW non-public dependency fails this testset.
     #
     #   params — Rotations' quaternion accessor.
+    #   ComposedTransformation — CoordinateTransformations' composition type, the
+    #                            type `∘` returns (a target calibration's
+    #                            composition), not declared public by CT.
     @test check_all_explicit_imports_are_public(
         VisualGeometryToolkitIO;
-        ignore = (:params,)
+        ignore = (:params, :ComposedTransformation)
     ) === nothing
 
     #   SQLite.DB, DBInterface.execute/close! — the sqlite handle's user-facing

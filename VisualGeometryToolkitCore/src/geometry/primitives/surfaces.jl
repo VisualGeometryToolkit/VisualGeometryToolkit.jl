@@ -21,7 +21,7 @@
 # m = ((x − o)·e_u, (x − o)·e_v), (e_u, e_v, n) a right-handed orthonormal
 # frame (a posed target's TargetFrame: metres when physical). The CHART is
 # the design's: m = A c + b, an in-plane affine fixed at construction
-# (identity for a rigid target, the print's Affine otherwise), so
+# (identity for a rigid target, the print's AffineMap otherwise), so
 # chart(s, x) = A⁻¹ (m − b) — a pattern lookup uses nominal coordinates and
 # the print's calibration is corrected, not ignored. The bounds are a
 # rectangle in the chart. A HeightSurface's height is a function of m (a
@@ -94,21 +94,21 @@ destination frame: the frame of the [`Quad`](@ref) is the target's
 TargetFrame placed by `pose(pt)` (origin its translation, `e_u`, `e_v` and the
 normal the rotation's columns: the normal is TargetFrame +z, heights are
 positive along it, and nothing is turned towards a viewer). Its CHART is the
-design chart: the target's in-plane calibration (`Rigid` or `Affine`, or a
-chain of them) is the quad's affine, so [`chart`](@ref) of a hit is the
+design chart: the target's in-plane calibration (`Rigid` or an `AffineMap`)
+is the quad's affine, so [`chart`](@ref) of a hit is the
 nominal coordinates it shows. Its rectangle, in that chart, is
 `Rect(`[`board`](@ref)`(t))` when the target has a [`Board`](@ref), else the
 design bounding box — either grown by 16 eps of its coordinates, the margin
 within which `PlanarTarget` accepts a point on its board, so a ray at a point
 on the edge is a hit (up to the chart's own rounding).
 
-- A planar calibration (`Rigid`, `Affine` and chains of them) gives a `Quad`.
-- A [`HeightField`](@ref), alone or last in a [`CalibrationChain`](@ref) after
-  those, gives a [`HeightSurface`](@ref) over that `Quad` with the field's
+- A planar calibration (`Rigid`, an `AffineMap`) gives a `Quad`.
+- A [`HeightField`](@ref), alone or after an `AffineMap` (`HeightField ∘
+  AffineMap`), gives a [`HeightSurface`](@ref) over that `Quad` with the field's
   nodes and heights (in the calibrated plane coordinates, TargetFrame
   `(x, y)`) and the weights the field formed once, when it was built; nothing
   is solved per ray.
-- An in-plane [`ThinPlateSpline`](@ref) member is not supported by the ray
+- An in-plane [`ThinPlateSpline`](@ref) (alone or under a height field) is not supported by the ray
   primitives yet: an `ArgumentError` naming it.
 
 A physical target (metres) gives a primitive in metres, plain numbers. An

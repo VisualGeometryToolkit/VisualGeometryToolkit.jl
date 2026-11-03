@@ -2,8 +2,8 @@
 # surface(::PosedTarget): the primitive a ray meets on a posed planar target
 # =============================================================================
 #
-# A planar calibration (Rigid, Affine, a chain of them) is a Quad, a height
-# field after them a HeightSurface (geometry/primitives/surfaces.jl). The
+# A planar calibration (Rigid, an AffineMap) is a Quad, a height field (alone
+# or after an AffineMap) a HeightSurface (geometry/primitives/surfaces.jl). The
 # kind is chosen by the calibration's TYPE, so code over a rigid target never
 # compiles the Newton loop and nothing tests the heights at run time.
 #
@@ -64,9 +64,7 @@ function _chart_affine(c::TargetCalibration)
 end
 _in_plane(c::TargetCalibration) = c
 _in_plane(::HeightField) = Rigid()
-_in_plane(c::CalibrationChain) = last(c.members) isa HeightField ? _chain_of(Base.front(c.members)) : c
-_chain_of(members::Tuple{TargetCalibration}) = only(members)
-_chain_of(members::Tuple) = CalibrationChain(members)
+_in_plane(c::_LiftedCalibration) = c.t2
 @noinline _refuse_chart(c::TargetCalibration) = throw(
     ArgumentError(
         _has_thin_plate(c) ?
@@ -75,17 +73,14 @@ _chain_of(members::Tuple) = CalibrationChain(members)
             "surface: no ray primitive for a $(nameof(typeof(_not_affine(c)))) calibration"
     )
 )
-# the member a chain's refusal names (a chain is refused for one of its members)
+# the member a composition's refusal names (it is refused for its in-plane kind)
 _not_affine(c::TargetCalibration) = c
-function _not_affine(c::CalibrationChain)
-    i = findfirst(x -> !is_affine(x), c.members)
-    return i === nothing ? c : c.members[i]
-end
+_not_affine(c::_LiftedCalibration) = is_affine(c.t2) ? c : c.t2
 _has_thin_plate(c::TargetCalibration) = c isa ThinPlateSpline
-_has_thin_plate(c::CalibrationChain) = any(_has_thin_plate, c.members)
+_has_thin_plate(c::_LiftedCalibration) = c.t2 isa ThinPlateSpline
 
 _surface(::Val{true}, _, quad) = quad
 _surface(::Val{false}, c, quad) = _height_surface(_last_height_field(c), quad)
 _last_height_field(c::HeightField) = c
-_last_height_field(c::CalibrationChain) = _last_height_field(last(c.members))
+_last_height_field(c::_LiftedCalibration) = c.t1
 _height_surface(h::HeightField{K}, quad) where {K} = HeightSurface(quad, h.system.nodes, h.h, h.w, h.a)

@@ -309,6 +309,7 @@ end
 end
 
 @testitem "surfaces: surface(::PosedTarget) by the calibration's kind" begin
+    using CoordinateTransformations: AffineMap
     using Test, StaticArrays, LinearAlgebra, Random
     using Rotations: RotMatrix, QuatRotation
     using VisualGeometryToolkitCore
@@ -329,7 +330,7 @@ end
     end
     nodes = grid_nodes(3; lo = -0.6, hi = 0.6)
     H = HeightField(nodes, 1.0e-3 .* randn(rng, 9))
-    A = Affine([1.01 0.002; -0.003 0.99], [0.004, -0.002])
+    A = AffineMap(SMatrix{2, 2}(1.01, -0.003, 0.002, 0.99), SVector(0.004, -0.002))
 
     @testset "Rigid: a Quad in the pose's frame" begin
         q = @inferred surface(PosedTarget(PlanarTarget(pts), X))
@@ -342,10 +343,10 @@ end
         @test t ≈ 2 && x ≈ X(p)
     end
 
-    @testset "Affine: a Quad whose chart is the design's" begin
+    @testset "AffineMap: a Quad whose chart is the design's" begin
         t = PlanarTarget(pts; calibration = A)
         q = surface(PosedTarget(t, X))
-        @test q isa Quad && bounds(q) == bbox(pts) && q.A == A.A && q.b == A.b
+        @test q isa Quad && bounds(q) == bbox(pts) && q.A == A.linear && q.b == A.translation
         # a ray at a calibrated point meets it; its chart is the nominal point
         for (p, P) in zip(pts, points(t))
             XP = X(SVector(P[1], P[2], 0.0))
@@ -367,11 +368,11 @@ end
         @test isfinite(t) && abs(y[3] - H(SVector(y[1], y[2]))[3]) < 1.0e-15 && chart(s, x) ≈ y[SOneTo(2)]
     end
 
-    @testset "CalibrationChain(Affine, HeightField): a HeightSurface over the calibrated plane" begin
-        t = PlanarTarget(pts; calibration = CalibrationChain(A, H))
+    @testset "HeightField ∘ AffineMap: a HeightSurface over the calibrated plane" begin
+        t = PlanarTarget(pts; calibration = H ∘ A)
         s = surface(PosedTarget(t, X))
         @test s isa HeightSurface{9, Float64} && s.heights == H.h && s.w === H.w
-        @test bounds(s) == bbox(pts) && s.quad.A == A.A && s.quad.b == A.b
+        @test bounds(s) == bbox(pts) && s.quad.A == A.linear && s.quad.b == A.translation
         # a ray aimed at a calibrated point (a 3-vector: the height applied) meets it; its chart is the nominal point
         for (p, P) in zip(pts, points(t))
             XP = X(P)
@@ -386,20 +387,20 @@ end
     @testset "an in-plane ThinPlateSpline: not supported yet" begin
         T = ThinPlateSpline(nodes, 1.0e-4 .* randn(rng, 9), 1.0e-4 .* randn(rng, 9))
         @test_throws ArgumentError surface(PosedTarget(PlanarTarget(pts; calibration = T), X))
-        @test_throws ArgumentError surface(PosedTarget(PlanarTarget(pts; calibration = CalibrationChain(A, T, H)), X))
+        @test_throws ArgumentError surface(PosedTarget(PlanarTarget(pts; calibration = H ∘ T), X))
     end
 
     @testset "a board bounds the surface" begin
         pts_mm = [p .* 1000 .* mm for p in pts]
         bd = Board(Size2(width = 1200mm, height = 800mm), [-600.0mm, -400.0mm])
-        Am = Affine(A.A, A.b .* 1000 .* mm)                          # the same print error, physical
+        Am = AffineMap(A.linear, A.translation .* 1000 .* mm)        # the same print error, physical
         t = PlanarTarget(pts_mm; calibration = Am, board = bd)
         @test board(t) === bd && Rect(bd) ≈ Rect2(-0.6, -0.4, 1.2, 0.8)
         s = surface(PosedTarget(t, EuclideanMap(R, tr .* 1000 .* mm)))
         @test s isa Quad && bounds(s) == VisualGeometryToolkitCore.Cameras._grown_rect(Rect(bd))   # the board, grown by the rounding margin
         @test bounds(s).origin[1] < Rect(bd).origin[1] && bounds(s).widths[1] - Rect(bd).widths[1] < 1.0e-14
         # a ray to the board's margin, outside the design points: a hit
-        XP = X(SVector((A.A * SVector(0.55, 0.35) + A.b)..., 0.0))
+        XP = X(SVector((A.linear * SVector(0.55, 0.35) + A.translation)..., 0.0))
         tt, x = intersection(s, XP + R * SVector(0.0, 0.0, 1.0), -R[:, 3])
         @test x ≈ XP atol = 1.0e-14
         @test chart(s, x) ≈ SVector(0.55, 0.35) atol = 1.0e-14
@@ -440,6 +441,7 @@ end
 end
 
 @testitem "surfaces: a planar target's Board" begin
+    using CoordinateTransformations: AffineMap
     using Test, StaticArrays
     using Rotations: RotMatrix
     using VisualGeometryToolkitCore
@@ -461,7 +463,7 @@ end
     @test t == PlanarTarget(pts_mm; board = bd) && hash(t) == hash(PlanarTarget(pts_mm; board = bd))
     @test t != PlanarTarget(pts_mm) && t != PlanarTarget(pts_mm; board = Board(Size2(width = 300mm, height = 210mm), [-10.0mm, -5.0mm]))
     @test board(resolve(PlanarTarget(:b; board = bd), pts_mm)) === bd
-    tA = PlanarTarget(pts_mm; calibration = VisualGeometryToolkitCore.with_unit(Affine([1.0 0.0; 0.0 1.0], [0.0, 0.0]), mm), board = bd)
+    tA = PlanarTarget(pts_mm; calibration = VisualGeometryToolkitCore.with_unit(AffineMap(SMatrix{2, 2}(1.0, 0.0, 0.0, 1.0), SVector(0.0, 0.0)), mm), board = bd)
     @test board(with_parameters(tA, parameter_vector(tA))) === bd
     @test_throws DimensionError PlanarTarget([SVector(0.0, 0.0)]; board = bd)            # a board is lengths: the points too
     @test_throws ArgumentError PlanarTarget([SVector(300.0, 0.0) .* mm]; board = bd)     # off the board
@@ -514,9 +516,10 @@ end
         end
     end
     # an unresolved target: the board is in its calibration's form when that carries lengths
-    @test_throws DimensionError PlanarTarget(:b; calibration = Affine([1.0 0.0; 0.0 1.0], [0.0, 0.0]), board = bd)
-    @test_throws DimensionError PlanarTarget(:b; calibration = Affine([1.0 0.0; 0.0 1.0], [0.0, 0.0] .* mm), board = bu)
-    @test board(PlanarTarget(:b; calibration = Affine([1.0 0.0; 0.0 1.0], [0.0, 0.0] .* mm), board = bd)) === bd
+    I2 = SMatrix{2, 2}(1.0, 0.0, 0.0, 1.0)
+    @test_throws DimensionError PlanarTarget(:b; calibration = AffineMap(I2, SVector(0.0, 0.0)), board = bd)
+    @test_throws DimensionError PlanarTarget(:b; calibration = AffineMap(I2, SVector(0.0, 0.0) .* mm), board = bu)
+    @test board(PlanarTarget(:b; calibration = AffineMap(I2, SVector(0.0, 0.0) .* mm), board = bd)) === bd
     @test board(PlanarTarget(:b; board = bu)) === bu                                     # Rigid has no lengths: either form
 end
 

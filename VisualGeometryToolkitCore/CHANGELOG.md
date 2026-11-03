@@ -1,5 +1,41 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.5.0 (unreleased)
+
+Breaking: one composition, CoordinateTransformations' `∘`, replaces the two
+chain types, and CT's conventions hold for it.
+
+- **A target calibration is a CoordinateTransformations `Transformation`.**
+  `TargetCalibration` is now the union of the kinds: `Rigid`, CT's 2-D
+  `AffineMap` (static `A` and `b`), `ThinPlateSpline`, `HeightField`, and the
+  only two compositions, `HeightField ∘ AffineMap` and
+  `HeightField ∘ ThinPlateSpline`. Two in-plane kinds never compose (a
+  `ThinPlateSpline` frees its own stretch and shear by name); a `PlanarTarget`
+  refuses any other composition with an `ArgumentError`. A downstream
+  calibration kind is no longer possible (the union is closed).
+- **Removed `CalibrationChain`**: `CalibrationChain(A, H)` is `H ∘ A`
+  (CoordinateTransformations' `∘`, applied right to left). A composition's
+  parameters, names, bounds, Jacobian columns, gauges, length mask and
+  regularizer rows are in CT's order, the OUTER map's (the height field's)
+  first — the reverse of the chain's application order. Names keep their tag
+  prefixes (`:height_field_h1`, …, `:affine_a11`).
+- **Removed `Affine`**: the affine print error is CT's `AffineMap(A, b)`, `A`
+  a dimensionless `SMatrix{2, 2}`, `b` an `SVector{2}` plain or of lengths
+  (FlexUnits carries them; no `physical` flag). Its parameters
+  `(:a11, :a12, :a21, :a22, :bx, :by)` and gauges are unchanged; a target
+  stores `b` in metres. The registry's tag stays `"affine"`
+  (`TARGET_CALIBRATION_TAGS` strips its family's suffix `Map`); the registry
+  no longer holds `"calibration_chain"`, and `calibration_tag` of a
+  composition is an `ArgumentError`.
+- **Removed `calibration_jacobian`** (retired in `check_naming`): a
+  calibration's parameter Jacobian is CT's `transform_deriv_params(c, x)`, its
+  point Jacobian CT's `transform_deriv(c, x)`. `ThinPlateSpline` and
+  `HeightField` keep their `physical` flag (their spline solver, coefficients
+  and bending factor are plain arrays shared bit for bit with
+  RadiometricCamera, and their rebuilds run on ForwardDiff Duals).
+- `Base.hash` of a composition of the stack's kinds agrees with CT's
+  structural `==`; equal targets hash equally.
+
 ## 0.4.0 (2026-11-02)
 
 Breaking: ONE Sampson path. Nothing outside `base/sampson.jl` computes

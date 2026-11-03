@@ -71,7 +71,7 @@ using ..Primitives: rect_edges, EdgeGrid, Closed   # its edges on a closed grid:
 using ..Primitives: _closed_meet   # Core's one rect-meet convention, closed (primitives/regions.jl): a node's support clip (support.jl)
 using ..VisualGeometryToolkitCore: block_order   # grouped data: the sorted-key block order (base/cspond_set.jl)
 using ..VisualGeometryToolkitCore: natural_extrapolation   # the natural boundary condition of a uniform cubic lattice (numerics/bspline_energy.jl, BSplineKit)
-using ..VisualGeometryToolkitCore: TagRegistry, tag_of, snake_case   # the target calibration kinds' tags (quality/tag_registry.jl)
+using ..VisualGeometryToolkitCore: TagRegistry, tag_of   # the target calibration kinds' tags (quality/tag_registry.jl)
 using ..VisualGeometryToolkitCore: Circle, Ellipse, Circle3D, is_ellipse, boundary_points
 using ..VisualGeometryToolkitCore: intersects   # a node's support against the imaged region (support.jl)
 using ..VisualGeometryToolkitCore: HomEllipseMat, WholePlane   # the conic matrix a valid domain is built from, and the whole plane (image_circle.jl)
@@ -994,11 +994,11 @@ export sensor_rig, target_rig             # the two halves of a rig carrying bot
 export AbstractTarget, PointTarget, PlanarTarget, resolve, is_resolved   # the target as a model (targets.jl)
 export AprilGrid, point_index                 # Kalibr's AprilGrid layout as a PlanarTarget (public, not exported, at the top level)
 export SchoepsPattern                         # Schöps et al.'s tagged star pattern as a PlanarTarget (public, not exported, at the top level)
-export TargetCalibration, Rigid, Affine, ThinPlateSpline, HeightField, CalibrationChain   # a planar target's calibration kinds
-export calibration_jacobian, calibration, design, reference, is_planar   # design, reference: public, not exported, at the top level
+export TargetCalibration, Rigid, ThinPlateSpline, HeightField   # a planar target's calibration kinds (with CT's AffineMap and HeightField ∘ in-plane)
+export calibration, design, reference, is_planar   # design, reference: public, not exported, at the top level
 export gauge_names, gauge_directions        # a calibration's gauges (public, not exported, at the top level)
 export is_affine                         # the surface chart's trait (public, not exported, at the top level)
-export PlanarCalibration                 # the shipped planar kinds as one type (public, not exported, at the top level)
+export PlanarCalibration                 # the planar kinds as one type (public, not exported, at the top level)
 export TARGET_CALIBRATION_TAGS, calibration_tag, length_mask   # the kinds' tag registry and a kind's tag (public, not exported, at the top level)
 export regularizer, TargetManifold      # the calibratable-target protocol
 export Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)

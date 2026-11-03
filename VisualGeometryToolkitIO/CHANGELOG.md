@@ -1,5 +1,28 @@
 # VisualGeometryToolkitIO changelog
 
+## 0.5.0 (unreleased)
+
+Breaking: the target and rig records bump with VisualGeometryToolkitCore
+0.5's composition (CoordinateTransformations' `∘`).
+
+- **`vgio/target/v3` and `vgio/rig/v6`.** A composed calibration —
+  `HeightField ∘ AffineMap` or `HeightField ∘ ThinPlateSpline`, the only two —
+  is written by its structure, `{"type": "calibration_chain", "members":
+  [height_field, affine | thin_plate_spline]}`, its members in CT's order (the
+  outer map first) and its covariance over that order; v2/v5 listed a chain's
+  members in application order. Every other record is unchanged but for its
+  schema. The affine kind reads back as CT's `AffineMap` (its `b` lengths in
+  metres).
+- **`vgio_migrate` converts `vgio/target/v2` and `vgio/rig/v5`** (reversing a
+  chain's members and permuting its covariance); a v2/v5 chain of two
+  in-plane kinds has no current form and is refused. The readers refuse v2/v5,
+  naming the migration. A rig whose target has a composed calibration changes
+  its `content_id` (the identity tree lists the members as the record does);
+  the migration reports the old id and the new one, so `vgio_migrate_tree`
+  re-points the measurement files that name it. Every other rig keeps its id.
+- Depends on CoordinateTransformations (the calibration's `AffineMap` and
+  composition types).
+
 ## 0.4.0 (2026-11-02)
 
 - The stack moves to the 0.4 series with VisualGeometryToolkitCore 0.4.0; no change to this package's API.

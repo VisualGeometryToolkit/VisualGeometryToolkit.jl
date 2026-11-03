@@ -45,19 +45,21 @@ using .ChainEquivalenceCorpus
 include(joinpath(@__DIR__, "core_values.jl"))
 include(joinpath(@__DIR__, "io_values.jl"))
 using StableRNGs: StableRNG
-using VisualGeometryToolkitCore: CalibrationChain, Chain, Affine, calibration_jacobian, calibration_tag
+using VisualGeometryToolkitCore: CalibrationChain, Chain, Affine, calibration_tag
 
 # The adapter of the code the goldens were written on (corpus.jl): chains in
-# application order, the `Affine` kind, `calibration_jacobian`.
+# application order, the `Affine` kind, and that code's parameter Jacobian of a
+# calibration — a name since retired (check_naming), so spelled here by parts.
 const GOLDEN_CODE = (
     affine = Affine,
     compose_calibrations = members -> CalibrationChain(members),
     compose_distortions = stages -> Chain(stages...),
-    jacobian_theta = calibration_jacobian,
+    jacobian_theta = getfield(VgtkCore, Symbol("calibration", "_jacobian")),
     jacobian_x = (c, x) -> VgtkCore.Cameras._point_jacobian(c, x),
     tag = c -> calibration_tag(typeof(c)),
     legacy_lens_record = identity,
     ct_order = false,
+    lens_ct_order = false,
     retired = Set{String}(),
 )
 

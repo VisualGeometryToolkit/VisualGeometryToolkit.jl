@@ -460,13 +460,67 @@ function _migrate_record(::Type{T}, spec, src::AbstractString, dst::AbstractStri
     return old, value
 end
 
-# vgio/target/v1 → vgio/target/v2
+# vgio/target/v1 → the current target (v1 held rigid targets only: no composition)
 function migrate_schema(::Val{Symbol("vgio/target/v1")}, src::AbstractString, dst::AbstractString)
     _migrate_record(AbstractTarget, _TARGET_SPEC, src, dst, _target_v1_to_v2, "the target record")
     return (; to = _schema("target"))
 end
 
-# vgio/rig/v4 → vgio/rig/v5. The rig's content identity changes with the
+# vgio/target/v2 → v3 and vgio/rig/v5 → v6 (CoordinateTransformations'
+# composition, 2026-11): a composed calibration's members are listed in CT's
+# order, the outer map first, and its covariance is over that order — v2/v5
+# listed them in application order. The only compositions v3/v6 hold are a
+# height field after one in-plane kind; any other v2/v5 chain (two in-plane
+# kinds, a Rigid member, three or more members) has no v3 form and is refused
+# (the current reader refuses the reordered record, naming the rule).
+_v2_parameter_count(r) = (t = r["type"]; t == "rigid" ? 0 : t == "affine" ? 6 :
+    t == "thin_plate_spline" ? 2 * length(r["nodes"]) : t == "height_field" ? length(r["nodes"]) :
+    throw(ArgumentError("a calibration record of unknown type $(repr(t))")))
+# A composed calibration record (type key `key`: "type" in a file, "kind" in
+# the identity tree) with its members' order reversed and its covariance
+# permuted with them; any other record as it is. Its own inverse.
+function _reversed_composition(c::AbstractDict, key = "type")
+    get(c, key, nothing) == "calibration_chain" || return c
+    out = copy(c)
+    ms = c["members"]
+    out["members"] = reverse(ms)
+    if haskey(c, "covariance")
+        sizes = [_v2_parameter_count(Dict("type" => r[key], "nodes" => get(r, "nodes", ()))) for r in ms]
+        offsets = cumsum([0; sizes[1:(end - 1)]])
+        p = reduce(vcat, reverse([collect((o + 1):(o + n)) for (o, n) in zip(offsets, sizes)]); init = Int[])
+        Σ = c["covariance"]
+        out["covariance"] = Any[Any[Σ[p[i]][p[j]] for j in eachindex(p)] for i in eachindex(p)]
+    end
+    return out
+end
+_body_v2_to_v3(b::AbstractDict) = haskey(b, "calibration") ? merge(Dict{String, Any}(b), Dict{String, Any}("calibration" => _reversed_composition(b["calibration"]))) : b
+function _target_v2_to_v3(old)
+    t = copy(old)
+    t["schema"] = _schema("target")
+    t["target"] = _body_v2_to_v3(old["target"])
+    return t
+end
+_rig_v5_to_v6(old) = (t = _map_rig_targets(_body_v2_to_v3, old); t["schema"] = _schema("rig"); t)
+
+function migrate_schema(::Val{Symbol("vgio/target/v2")}, src::AbstractString, dst::AbstractString)
+    _migrate_record(AbstractTarget, _TARGET_SPEC, src, dst, _target_v2_to_v3, "the target record")
+    return (; to = _schema("target"))
+end
+
+# The rig's content identity changes where a target's calibration is composed
+# (the identity tree lists its members as the record does): v5's is the
+# current tree with those members back in application order.
+function migrate_schema(::Val{Symbol("vgio/rig/v5")}, src::AbstractString, dst::AbstractString)
+    _, value = _migrate_record(Rig, _RIG_SPEC, src, dst, _rig_v5_to_v6, "the rig record")
+    tree = _identity_tree(value)
+    haskey(tree, "targets") && for x in tree["targets"]
+        haskey(x["target"], "calibration") && (x["target"]["calibration"] = _reversed_composition(x["target"]["calibration"], "kind"))
+    end
+    old_id = sha256_hex(canonical_json(tree))
+    return (; to = _schema("rig"), old_id, old_ids = [old_id], new_id = content_id(dst))
+end
+
+# vgio/rig/v4 → the current rig. The rig's content identity changes with the
 # migration (content_id: the fixed canonical tree replaced the v4 record's
 # hash); both are reported, so the measurement files naming the rig are
 # re-pointed (`vgio_migrate_tree`).

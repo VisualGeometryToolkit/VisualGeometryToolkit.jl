@@ -21,8 +21,8 @@ argument, because the value already carries it.
 |---|---|---|---|
 | `vgio/cameras/v3` (the camera store) | `Dict{Symbol, …}` of name → `BoundedCamera` of a `CameraModel` (unposed, like a COLMAP "camera"), or an `Attributed` one with its `(; calibration)` block | `load(Dict{Symbol, BoundedCamera}, path)`; one camera: `load(BoundedCamera, path; name)` or `load(CameraModel, path; name)` | `save(path, store)` |
 | `vgio/transforms/v3` | `Vector` of labeled `EuclideanMap{3, …, S, D}`, or `Uncertain` ones (mm) | `load(Vector{EuclideanMap}, path)` | `save(path, poses)` |
-| `vgio/rig/v5` | `Rig{F, M}` holding sensors (a tuple of `BoundedCamera`s), targets (a `Dict` of `PosedTarget`s), or both | `load(Rig, path; resolve)` | `save(path, rig)` |
-| `vgio/target/v2` | one `AbstractTarget` (`PointTarget`, `PlanarTarget` of any `TargetCalibration`, `Uncertain` or not), or an `Attributed` one with its `(; calibration_record)` | `load(AbstractTarget, path; resolve)` | `save(path, target)` |
+| `vgio/rig/v6` | `Rig{F, M}` holding sensors (a tuple of `BoundedCamera`s), targets (a `Dict` of `PosedTarget`s), or both | `load(Rig, path; resolve)` | `save(path, rig)` |
+| `vgio/target/v3` | one `AbstractTarget` (`PointTarget`, `PlanarTarget` of any `TargetCalibration`, `Uncertain` or not), or an `Attributed` one with its `(; calibration_record)` | `load(AbstractTarget, path; resolve)` | `save(path, target)` |
 | `vgio/trajectory/v3` | `Trajectory{S, D}`: labeled poses per frame index, with images, times and recovered flags | `load(Trajectory, path)` | `save(path, tr)`; exporters `save_tum_trajectory`, `save_euroc_trajectory` |
 | `vgio/target_poses/v1` | `TargetPoses{F}`: per frame, `TargetFrame{id} → F` poses; `pose(tp, t, id)` | `load(TargetPoses, path)` | `save(path, tp)`; exporter `save_bop_scene` |
 | `vgio/target_points2d/v1` | `TargetPoints2D{F <: PixelFrame}`: per frame, `(target, index, xy, weight)` | `load(TargetPoints2D, path)` | `save(path, obs)`; exporter `save_correspondences` |
@@ -84,16 +84,21 @@ in VGC's `TARGET_CALIBRATION_TAGS`:
 "calibration": {"type": "affine", "parameters": [a11, a12, a21, a22, bx, by]}
 "calibration": {"type": "thin_plate_spline", "nodes": [[u, v], …], "parameters": [fx1, …, fxK, fy1, …, fyK]}
 "calibration": {"type": "height_field", "nodes": [[u, v], …], "parameters": [h1, …, hK]}
-"calibration": {"type": "calibration_chain", "members": [{…}, {…}]}
+"calibration": {"type": "calibration_chain", "members": [{"type": "height_field", …}, {"type": "affine" | "thin_plate_spline", …}]}
 ```
 
 `parameters` are the kind's `parameter_vector` in its `parameter_names` order:
 lengths (an affine's `b`, the displacements, the heights) in the file's
 `length_unit`, the affine's `A` plain. `nodes` are positions in the target's
-plane, in the file's unit. A chain's members are records of their own, in
-order. An `Uncertain` calibration adds `covariance` at the top of the record,
-n × n over `parameter_vector` (a chain's covers every member's parameters, so
-its members carry none), each entry in the file's unit raised to its length
+plane, in the file's unit. A composition — `HeightField ∘ AffineMap` or
+`HeightField ∘ ThinPlateSpline`, CoordinateTransformations' `∘`, the only two
+there are — is written by its structure: its members are records of their own,
+in CoordinateTransformations' order, the outer map (the height field) first
+(`vgio/target/v2` and `vgio/rig/v5` listed a chain's members in application
+order; `vgio_migrate` reverses them, and refuses a chain of two in-plane kinds,
+which has no current form). An `Uncertain` calibration adds `covariance` at
+the top of the record, n × n over `parameter_vector` (a composition's covers
+every member's parameters, in that order, so its members carry none), each entry in the file's unit raised to its length
 dimension. A calibration with lengths in plain numbers is refused, as plain
 points are.
 

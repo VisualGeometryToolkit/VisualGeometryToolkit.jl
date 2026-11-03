@@ -22,9 +22,10 @@
 #   compose_distortions(stages)   the same for a lens's distortion stages
 #   jacobian_theta(c, x)          a calibration's parameter Jacobian at x
 #   jacobian_x(c, x)              its point Jacobian at x
-#   ct_order                      whether a composition's parameters are in
-#                                 CoordinateTransformations' order (outer map
-#                                 first) rather than the goldens' application order
+#   ct_order, lens_ct_order       whether a calibration's / a lens's composed
+#                                 parameters are in CoordinateTransformations'
+#                                 order (outer map first) rather than the
+#                                 goldens' application order
 #   retired                       the target cases the code refuses (names)
 #
 # Golden line format, one value per line:
@@ -45,7 +46,7 @@ using VisualGeometryToolkitCore: Rigid, ThinPlateSpline, HeightField, Lens, Pers
 
 export golden_line, read_goldens, golden_value, target_cases, lens_cases, design_points, physical_points,
     rays, image_points, jacobian_count, KIND_LETTERS, case_members, target_blocks, lens_blocks, block_permutation, ulps,
-    expected_core_value, compare_value, MAX_ULPS
+    expected_core_value, compare_value, scaled_comparison, MAX_ULPS
 
 # -----------------------------------------------------------------------------
 # The line format
@@ -229,24 +230,47 @@ function expected_core_value(key::AbstractString, g, V)
     end
     blocks = lens_blocks(name)
     blocks === nothing && return g
-    p = block_permutation(blocks, V.ct_order)
+    p = block_permutation(blocks, V.lens_ct_order)
     field in _LENS_PARAMETER_FIELDS && return g[p]
     field == "jacobian_theta" && return g[:, p, :]
     return g
 end
 
 """
-    compare_value(expected, actual) -> (ok::Bool, ulps::Int128, why::String)
+    scaled_comparison(key, V) -> Bool
+
+Whether a golden is compared within `MAX_ULPS` ulps of its array's largest
+entry rather than entry by entry: a composition's target-manifold action and
+retraction when the code stacks its parameters in CT's order. Both run through
+the manifold's basis `B`, an SVD of the gauge directions in θ's order; permuting
+θ permutes that SVD's input, which moves the rounding of `B` (by ~1e-16 of
+its scale: an entry that is zero to rounding then has no ulp distance).
+"""
+function scaled_comparison(key::AbstractString, V)
+    parts = split(key, '/'; limit = 3)
+    return parts[1] == "target" && V.ct_order && length(case_members(parts[2])) > 1 &&
+        parts[3] in ("manifold/action", "manifold/retract")
+end
+
+"""
+    compare_value(expected, actual; scaled = false) -> (ok::Bool, ulps::Int128, why::String)
 
 Names, texts and flags exactly; Float64 arrays of the same shape within
 `MAX_ULPS` entry by entry (`ulps` the largest distance found, 0 when bit for
-bit identical).
+bit identical). With `scaled`, within `MAX_ULPS` ulps of the array's largest
+entry instead (`scaled_comparison`): for values whose rounding moves with the
+order of an SVD's input, where an entry that is zero to rounding has no ulp.
 """
-function compare_value(e, a)
+function compare_value(e, a; scaled::Bool = false)
     if e isa AbstractArray{Float64} || e isa Float64
         a isa Union{AbstractArray{<:Real}, Real} || return (false, Int128(0), "a $(typeof(a)) where Float64s are pinned")
         size(e) == size(a) || return (false, Int128(0), "size $(size(a)), the golden's $(size(e))")
         d = isempty(e) ? Int128(0) : maximum(ulps.(Float64.(e), Float64.(a)))
+        if scaled && !isempty(e)
+            δ, s = maximum(abs.(Float64.(e) .- Float64.(a))), maximum(abs, e)
+            ok = δ <= MAX_ULPS * eps(s)
+            return (ok, d, ok ? "" : "off by $(δ), $(δ / eps(s)) ulps of the array's largest entry $(s)")
+        end
         return (d <= MAX_ULPS, d, d <= MAX_ULPS ? "" : "$(d) ulps")
     end
     ea = a isa AbstractArray ? collect(a) : a

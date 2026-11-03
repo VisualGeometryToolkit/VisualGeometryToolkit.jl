@@ -1,5 +1,5 @@
 # =============================================================================
-# vgio_migrate: target/v1 → v2 and rig/v4 → v5 by the guarded pattern, the
+# vgio_migrate: target/v1 → v3 and rig/v4 → v6 (and v2 → v3, v5 → v6) by the guarded pattern, the
 # measurement files re-pointed, the command, and the extension point
 # =============================================================================
 
@@ -10,13 +10,13 @@
     units_fixture(name) = joinpath(@__DIR__, "fixtures", "units", name)
 
     # The fixtures ARE the migration of the files they were (git history before
-    # the target record v2): the v1/v4 text is the v2/v5 text with the renamed
+    # the target record v2): the v1/v4 text is the current (v3/v6) text with the renamed
     # keys put back — `"calibration": {` was `"warp": {` (rigid only),
     # `"reference"` was `"design"`, the target file's `"calibration_record"`
     # was `"calibration"`.
-    as_v4_rig(text) = replace(text, "\"schema\": \"vgio/rig/v5\"" => "\"schema\": \"vgio/rig/v4\"",
+    as_v4_rig(text) = replace(text, "\"schema\": \"vgio/rig/v6\"" => "\"schema\": \"vgio/rig/v4\"",
         "\"calibration\": {" => "\"warp\": {", "\"reference\":" => "\"design\":")
-    as_v1_target(text) = replace(replace(text, "\"schema\": \"vgio/target/v2\"" => "\"schema\": \"vgio/target/v1\"",
+    as_v1_target(text) = replace(replace(text, "\"schema\": \"vgio/target/v3\"" => "\"schema\": \"vgio/target/v1\"",
         "\"calibration\": {" => "\"warp\": {", "\"reference\":" => "\"design\":"), "\"calibration_record\":" => "\"calibration\":")
     # rig_targets.json's identity as vgio/rig/v4 defined it, which the
     # measurements named before the migration, and its identity now
@@ -49,7 +49,7 @@ end
             @test e isa ArgumentError && occursin("vgio_migrate", e.msg)
             # a dry run verifies and writes nothing
             r = vgio_migrate(src; dry_run = true)
-            @test r.out === nothing && r.from == "vgio/target/v1" && r.to == "vgio/target/v2"
+            @test r.out === nothing && r.from == "vgio/target/v1" && r.to == "vgio/target/v3"
             @test !isfile(VgtkIO._migrated_path(src))
             # beside the original, which is untouched
             r = vgio_migrate(src)
@@ -174,7 +174,7 @@ end
         e = try load(Rig, rig); nothing catch e; e end
         @test e isa ArgumentError && occursin("vgio/rig/v4", e.msg) && occursin("vgio_migrate", e.msg)
         r = vgio_migrate(rig)
-        @test r.to == "vgio/rig/v5" && r.old_id == v4_id && r.old_ids == [v4_id] && r.new_id == content_id(r.out) == only(obs_new.targets)   # an mm file: one v4 id
+        @test r.to == "vgio/rig/v6" && r.old_id == v4_id && r.old_ids == [v4_id] && r.new_id == content_id(r.out) == only(obs_new.targets)   # an mm file: one v4 id
         @test read(r.out, String) == read(units_fixture("rig_targets.json"), String)
         rs = vgio_migrate(sensors; out = sensors)
         @test read(sensors, String) == read(units_fixture("rig.json"), String)

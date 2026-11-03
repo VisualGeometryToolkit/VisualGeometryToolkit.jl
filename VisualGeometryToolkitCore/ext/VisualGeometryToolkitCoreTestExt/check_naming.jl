@@ -341,7 +341,7 @@ const RETIRED_NAMES = String[
     # one placement trait for cameras and targets alike: `is_posed` (2026-10-26)
     "has" * "_extrinsics",
     # a planar target's design is moved by its `TargetCalibration` (field and
-    # keyword `calibration`, `calibration_jacobian`) (2026-10-26). The target
+    # keyword `calibration`, and its parameter Jacobian) (2026-10-26). The target
     # record dropped its "warp" key (vgio/target/v2), but the bare word stays
     # unretired: it is also the image warp (`image_warp`) across the stack
     "Abstract" * "Warp", "warp" * "_jacobian", "warp" * " = Rigid",
@@ -367,6 +367,10 @@ const RETIRED_NAMES = String[
     # matrix compose (`sampson_distances!`); the homography's and the rotation's
     # LM descend the exact rows, not a transfer whitening frozen at the anchor
     "sampson" * "_rows!", "sampson" * "_rss", "transfer" * "_whitening!", "transfer" * "_rows!", "transfer" * "_jacobian_rows!",
+    # a target calibration is a CoordinateTransformations `Transformation`
+    # (2026-11-03): its parameter Jacobian is CT's `transform_deriv_params`, its
+    # point Jacobian CT's `transform_deriv` (conventions/jacobians.md)
+    "calibration" * "_jacobian",
 ]
 
 # Rule 10: the width quantities are bound by their full names. One name per

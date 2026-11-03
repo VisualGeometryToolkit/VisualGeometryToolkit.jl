@@ -168,13 +168,20 @@ const _POINT_INDEX_BASE = 1
 # predecessors are MIGRATED, once, by `vgio_migrate` (migrate.jl); no reader
 # reads them.
 #
+# target v3 and rig v6 (CoordinateTransformations' composition, 2026-11): a
+# target calibration is CT's `∘` of a height field after one in-plane kind,
+# its record's members listed in CT's order (the outer map first) and its
+# covariance over that order; v2/v5 listed a chain's members in application
+# order. Migrated by `vgio_migrate`, which refuses a v2/v5 chain with no v3
+# form (two in-plane kinds).
+#
 # transforms and trajectory are v3 since their frames are typed (2026-10): the
 # `from`/`to` names go through the frame grammar (`frame_from_name`), so a
 # free-form name is refused, and a pose may carry its covariance. The kinds
 # born after that are v1 (target, target_poses, target_points2d, target_points3d).
 const _SCHEMA_VERSION = Dict(
-    "cameras" => 3, "rig" => 5, "transforms" => 3, "trajectory" => 3,
-    "target" => 2, "target_poses" => 1, "target_points2d" => 1, "target_points3d" => 1,
+    "cameras" => 3, "rig" => 6, "transforms" => 3, "trajectory" => 3,
+    "target" => 3, "target_poses" => 1, "target_points2d" => 1, "target_points3d" => 1,
 )
 _schema_version(kind) = get(_SCHEMA_VERSION, kind, 2)
 _schema(kind) = "vgio/$(kind)/v$(_schema_version(kind))"
@@ -224,13 +231,15 @@ const _LENS_KINDS = ("cameras", "rig")
 # VGIo), and the producer re-exports.
 const _RETIRED_KINDS = Dict(
     "vgio/observations/v2" => "vgio/target_points2d/v1", "vgio/point_observations/v1" => "vgio/target_points3d/v1",
-    "vgio/targets/v2" => "vgio/rig/v5", "vgio/rig/v3" => "vgio/rig/v5",
+    "vgio/targets/v2" => "vgio/rig/v6", "vgio/rig/v3" => "vgio/rig/v6",
     "vgio/session/v3" => "the calibration pipeline's own session kind (a pipeline's checkpoint is the pipeline's, not VGIo's)",
 )
 
 # The versions `vgio_migrate` converts to the current one, and the command's
 # kind argument for each.
-const _MIGRATIONS_TO_CURRENT = Dict("vgio/target/v1" => "target", "vgio/rig/v4" => "rig")
+const _MIGRATIONS_TO_CURRENT = Dict(
+    "vgio/target/v1" => "target", "vgio/rig/v4" => "rig", "vgio/target/v2" => "target", "vgio/rig/v5" => "rig",
+)
 
 function _refuse_schema(path, kind::AbstractString, s)
     if s isa AbstractString && haskey(_RETIRED_KINDS, s)

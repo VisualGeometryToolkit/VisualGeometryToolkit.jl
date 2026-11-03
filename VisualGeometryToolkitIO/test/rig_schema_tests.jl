@@ -1,5 +1,5 @@
 # =============================================================================
-# rig/v5, target/v2, trajectory/v3, target_poses/v1, target_points2d/v1,
+# rig/v6, target/v3, trajectory/v3, target_poses/v1, target_points2d/v1,
 # target_points3d/v1 round trips, and the correspondences export
 # =============================================================================
 #
@@ -32,7 +32,7 @@
     @test_throws ArgumentError frame_from_name("view:")            # a prefix is not a name
 end
 
-@testitem "rig/v5: a sensor rig" setup = [VGIoFixtures] begin
+@testitem "rig/v6: a sensor rig" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: Rig, StereoRig, BoundedCamera, PosedCamera, ViewFrame,
@@ -55,7 +55,7 @@ end
         path = joinpath(dir, "rig.json")
         save(path, rig; provenance = (name = "test-rig",))
         d = parse_json(read(path, String))
-        @test d.schema == "vgio/rig/v5" && d.pixel_frame == "colmap" && d.length_unit == "mm"
+        @test d.schema == "vgio/rig/v6" && d.pixel_frame == "colmap" && d.length_unit == "mm"
         @test d.frame == "view:left" && d.provenance.name == "test-rig"
         @test !haskey(d, :targets)                                       # omitted, not empty
         # the extrinsics' frames are where they sit — never restated beside them
@@ -127,7 +127,7 @@ end
     end
 end
 
-@testitem "rig/v5: a rig of targets" setup = [VGIoFixtures] begin
+@testitem "rig/v6: a rig of targets" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, PointTarget, is_resolved, resolve,
         WorldFrame, TargetFrame, ids, pose, points, reference_frame, reference
     using Rotations: RotXYZ
@@ -151,7 +151,7 @@ end
         path = joinpath(dir, "targets.json")
         save(path, tr)
         d = parse_json(read(path, String))
-        @test d.schema == "vgio/rig/v5" && !haskey(d, :pixel_frame) && !haskey(d, :sensors)   # pixel_frame iff sensors
+        @test d.schema == "vgio/rig/v6" && !haskey(d, :pixel_frame) && !haskey(d, :sensors)   # pixel_frame iff sensors
         @test [t.id for t in d.targets] == ["a1f2", "b76e", "c9"]      # ids sorted
         @test d.targets[1].target.type == "planar" && haskey(d.targets[1].target, :nominal)
         # a referenced design is written by its reference alone: its points are its owner's
@@ -209,7 +209,7 @@ end
     end
 end
 
-@testitem "rig/v5: sensors and targets — the camera rig with its constellation" setup = [VGIoFixtures] begin
+@testitem "rig/v6: sensors and targets — the camera rig with its constellation" setup = [VGIoFixtures] begin
     using LinearAlgebra: LinearAlgebra
     using VisualGeometryToolkitCore: Rig, PosedTarget, PointTarget, PlanarTarget, AbstractTarget, Attributed, BoundedCamera, PosedCamera,
         BodyFrame, ViewFrame, Uncertain, CovMat, relabel, ids, pose, extrinsics, model, points,
@@ -238,7 +238,7 @@ end
         @test pose(back, :markers) isa Uncertain && cov(pose(back, :markers)) == Σ
         @test ids(sensor_rig(back)) == (:cam,) && ids(target_rig(back)) == [:markers]
         @test content_id(back) == content_id(path)
-        # the same constellation as a lone target, with its calibration record (target/v2)
+        # the same constellation as a lone target, with its calibration record (target/v3)
         tp = joinpath(dir, "constellation.json")
         cal = (; tool = "mean over tracked frames", n_images = 120)
         save(tp, Attributed(markers, (; calibration_record = cal)))
@@ -248,7 +248,7 @@ end
         save(tp, markers)
         @test load(AbstractTarget, tp) == markers
         dt = parse_json(read(tp, String))
-        @test dt.schema == "vgio/target/v2" && !haskey(dt, :calibration_record)
+        @test dt.schema == "vgio/target/v3" && !haskey(dt, :calibration_record)
         @test_throws ArgumentError save(tp, Attributed(markers, (; calibration_record = (; date = "May 2026"))))
         # a posed target is not a target file: refused at save, naming the model and the rig writer, nothing written
         posed = PosedTarget(markers, ident)
@@ -267,7 +267,7 @@ end
     end
 end
 
-@testitem "rig/v5: the validator" setup = [VGIoFixtures] begin
+@testitem "rig/v6: the validator" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, PointTarget, WorldFrame, exact
     pts = [mm_lengths(SVector(0.0, 0.0)), mm_lengths(SVector(10.0, 0.0))]
     X = EuclideanMap(one(RotMatrix{3, Float64}), [10.0mm, 0.0mm, 0.0mm])
@@ -311,8 +311,8 @@ end
         for (schema, T, successor) in (
                 ("vgio/observations/v2", TargetPoints2D, "target_points2d/v1"),
                 ("vgio/point_observations/v1", TargetPoints3D, "target_points3d/v1"),
-                ("vgio/targets/v2", Rig, "rig/v5"),
-                ("vgio/rig/v3", Rig, "rig/v5"),
+                ("vgio/targets/v2", Rig, "rig/v6"),
+                ("vgio/rig/v3", Rig, "rig/v6"),
                 ("vgio/session/v3", Rig, "calibration pipeline's own session kind"),
             )
             p = joinpath(dir, "old.json")

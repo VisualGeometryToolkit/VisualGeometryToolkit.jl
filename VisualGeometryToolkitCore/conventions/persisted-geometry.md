@@ -124,10 +124,12 @@ closed set of keys; the target's own `calibration` is its
 
 **A target's calibration is part of its record.** A [`PlanarTarget`](@ref)'s
 [`TargetCalibration`](@ref) is written in its body as one `calibration` record
-(`vgio/target/v2`, `vgio/rig/v5`): its `type`, the kind's tag in
+(`vgio/target/v3`, `vgio/rig/v6`): its `type`, the kind's tag in
 `TARGET_CALIBRATION_TAGS`; its `parameters` in `parameter_names` order, lengths
-in the file's unit; `nodes` for a thin-plate kind; `members` for a chain; and a
-`covariance` over every parameter iff it is `Uncertain`. A target with a
+in the file's unit; `nodes` for a thin-plate kind; for a composition
+(`HeightField ∘ AffineMap`, `HeightField ∘ ThinPlateSpline`), written by its
+structure, `members` in CoordinateTransformations' order, the outer map first;
+and a `covariance` over every parameter, in that order, iff it is `Uncertain`. A target with a
 `board` (the physical board it is printed on) writes it as
 `{"size": {"width", "height"}, "origin": [u, v]}`, lengths in the file's unit.
 

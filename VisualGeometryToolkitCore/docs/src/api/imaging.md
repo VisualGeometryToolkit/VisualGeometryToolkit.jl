@@ -27,7 +27,8 @@ A calibration target is a MODEL, the analogue of a camera model:
 are resolved from — and a [`TargetCalibration`](@ref) taking the design to
 the physical target. A target whose geometry an estimator refines implements
 the calibratable-target protocol (`parameter_vector`, `with_parameters`,
-`minimal_manifold`, `regularizer`, `calibration_jacobian`).
+`minimal_manifold`, `regularizer`, and CoordinateTransformations'
+`transform_deriv_params`).
 
 A standard layout is a constructor: Kalibr's AprilGrid is
 `AprilGrid(; tag_rows, tag_cols, tag_size, tag_spacing)` (lengths, the spacing
@@ -41,26 +42,34 @@ order (feature id `k` is point `k + 1`).
 ### Target calibration
 
 What a target calibration estimates about the physical target, as a camera
-calibration estimates intrinsics and a lens. The kinds:
+calibration estimates intrinsics and a lens: a CoordinateTransformations
+`Transformation` of the design, its parameter Jacobian CT's
+`transform_deriv_params` and its point Jacobian CT's `transform_deriv`. The
+kinds:
 
 | kind | map | parameters | Jacobian | regularizer | gauges fixed by default |
 |---|---|---|---|---|---|
 | [`Rigid`](@ref) | `p ↦ p` | none | 2 × 0 | none | none |
-| [`Affine`](@ref) | `p ↦ A p + b` | `a11, a12, a21, a22, bx, by` | 2 × 6 | none | `:translation_x, :translation_y, :rotation, :scale` |
+| CT's `AffineMap` (static 2-D) | `p ↦ A p + b` | `a11, a12, a21, a22, bx, by` | 2 × 6 | none | `:translation_x, :translation_y, :rotation, :scale` |
 | [`ThinPlateSpline`](@ref) | `p ↦ p + (f_x(p), f_y(p))` | `fx1…fxK, fy1…fyK` | 2 × 2K | bending energy, 2K rows | its affine part: `:fx_1, :fx_u, :fx_v, :fy_1, :fy_u, :fy_v` |
 | [`HeightField`](@ref) | `p ↦ (p, h(p))` | `h1…hK` | 3 × K | bending energy, K rows | `:piston, :tilt_x, :tilt_y` |
-| [`CalibrationChain`](@ref) | members in order | members', tag-prefixed | chain rule | stacked | members', tag-prefixed |
+| `HeightField ∘ AffineMap`, `HeightField ∘ ThinPlateSpline` (CT's `∘`) | the in-plane kind, then the height | the members', tag-prefixed, the height field's first | CT's chain rule, `hcat(p1, m1 * p2)` | stacked, the height field's first | the members', tag-prefixed |
+
+Those are all: two in-plane kinds never compose (a `ThinPlateSpline` frees its
+own stretch and shear by name), and a [`PlanarTarget`](@ref) refuses any other
+composition with an `ArgumentError`. A composition's parameters, names,
+bounds, Jacobian columns, gauges and regularizer rows are in
+CoordinateTransformations' order, the outer map's first.
 
 The thin-plate kinds are splines over `K` fixed nodes in the target's plane
 (the numerics' [`ThinPlateSplineSystem`](@ref)), their parameters the nodal
 values; a height is `tps_evaluate` of its spline, bit for bit. Lengths (an
-`Affine`'s `b`, nodes, displacements, heights) are in the design's form,
+`AffineMap`'s `b`, nodes, displacements, heights) are in the design's form,
 plain or physical, and move with `ustrip`/`with_unit`. A calibration may be
 `Uncertain(c, CovMat(Σ))`, `Σ` over its parameters, as a pose may be.
 
 **Planarity is in the type.** [`is_planar`](@ref) is true for `Rigid`,
-`Affine`, `ThinPlateSpline` and chains of them, false once a `HeightField` is
-present; `points(t)` is then `SVector{2}`s on `z = 0` or `SVector{3}`s, and the
+`AffineMap` and `ThinPlateSpline`, false once a `HeightField` is present; `points(t)` is then `SVector{2}`s on `z = 0` or `SVector{3}`s, and the
 result type is inferred. A method that assumes the plane takes
 `t::PlanarTarget{<:PlanarCalibration}` and refuses a height field by dispatch.
 
@@ -68,16 +77,16 @@ result type is inferred. A method that assumes the plane takes
 from the same target shifted, turned in its plane or scaled (the pose moving
 with it), nor a height field from the same one plus a plane (a tilted,
 shifted pose). The default [`TargetManifold`](@ref) — `minimal_manifold(t)`,
-which means "the pose is estimated jointly" — holds them fixed: an `Affine`
+which means "the pose is estimated jointly" — holds them fixed: an `AffineMap`
 keeps only its stretch and shear, a `ThinPlateSpline` is a pure residual (its
-affine part is the `Affine`'s; a standalone one carries none), a
+affine part fixed; free it by name to carry a stretch and shear), a
 `HeightField` loses its piston and tilts. The chart is linear on an
 orthonormal basis of the complement of [`gauge_names`](@ref)' directions,
 evaluated once at the anchor. With a known pose (motion capture) free the
 gauges by name; a measured length frees the scale:
 
 ```julia
-t = PlanarTarget(pts; calibration = CalibrationChain(Affine(A, b), ThinPlateSpline(nodes), HeightField(nodes)))
+t = PlanarTarget(pts; calibration = HeightField(nodes) ∘ AffineMap(A, b))   # A, b static
 ch = minimal_manifold(t)                                   # the pose estimated jointly: every gauge fixed
 ch = TargetManifold(t; free = :affine_scale)               # a ruler pins the metric scale
 ch = TargetManifold(t; free = gauge_names(t))              # a known pose: nothing is a gauge
@@ -94,12 +103,12 @@ Pages = ["cameras/target_calibration.jl", "cameras/targets.jl"]
 
 [`surface`](@ref)`(pt)` gives a posed planar target's geometric primitive, in
 the pose's destination frame (metres when physical), with the DESIGN chart as
-its chart — an `Affine` calibration is the primitive's in-plane affine, so a
+its chart — an `AffineMap` calibration is the primitive's in-plane affine, so a
 hit's chart coordinates are the nominal ones it shows — bounded by the
 target's [`Board`](@ref) (`board = …` on [`PlanarTarget`](@ref), `Rect(board)` in
 the design chart) or else by its nominal points: a [`Quad`](@ref) for a
-`Rigid` or `Affine` calibration, a [`HeightSurface`](@ref) for a
-`HeightField` (alone or after those). An in-plane `ThinPlateSpline` is not
+`Rigid` or `AffineMap` calibration, a [`HeightSurface`](@ref) for a
+`HeightField` (alone or after an `AffineMap`). An in-plane `ThinPlateSpline` is not
 supported by the ray primitives yet. The choice is by type, so a
 rigid target's ray caster never compiles the height field's Newton loop. See
 [The Surface a Ray Meets](primitives.md#The-Surface-a-Ray-Meets), where

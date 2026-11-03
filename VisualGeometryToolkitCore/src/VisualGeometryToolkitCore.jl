@@ -280,12 +280,12 @@ export sensor_rig, target_rig             # the two halves of a rig carrying bot
 export AbstractTarget, PointTarget, PlanarTarget, resolve, is_resolved   # the target as a model (targets.jl)
 public AprilGrid, point_index   # Kalibr's AprilGrid layout: PlanarTarget(grid) its tag corners, point_index(grid, tag, corner) their order
 public SchoepsPattern            # Schöps et al.'s tagged star pattern: PlanarTarget(pattern) its star features in Schöps' feature order
-export TargetCalibration, Rigid, Affine, ThinPlateSpline, HeightField, CalibrationChain   # a planar target's calibration kinds
-export calibration_jacobian, calibration, is_planar
+export TargetCalibration, Rigid, ThinPlateSpline, HeightField   # a planar target's calibration kinds (with CT's AffineMap and HeightField ∘ in-plane)
+export calibration, is_planar
 public is_affine   # a calibration's in-plane part is an affine of the design (the surface chart's)
 export regularizer   # the calibratable-target protocol
 public design, reference, board, canvas   # a planar target's design, its reference, its board and its canvas (not exported: common words)
-public PlanarCalibration, gauge_names, gauge_directions   # the shipped planar kinds as one type; a calibration's gauges
+public PlanarCalibration, gauge_names, gauge_directions   # the planar kinds as one type; a calibration's gauges
 public TargetManifold                     # a calibratable target's Manifold (minimal_manifold(target))
 export Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
 export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3

@@ -85,6 +85,7 @@ using Rotations: QuatRotation, RotMatrix, RotationVec, RotZ, params
 using JSON: JSON
 using SQLite: SQLite
 using FlexUnits: Units, Quantity, ustrip, dimension, uscale, quantity
+using CoordinateTransformations: AffineMap, ComposedTransformation   # a target calibration's affine kind and its composition
 using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, px, dpi, has_units,
     CameraModel, CameraCalibrationMat, AbstractLensModel, Lens, Pinhole, Division, KannalaBrandt, Scaramuzza,
     Perspective, Equidistant, DoubleSphere, Unified, ExtendedUnified,
@@ -94,7 +95,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     Rig, PosedTarget, BoundedCamera, PosedCamera, Attributed, sensor_rig, target_rig, Sensor, sensor,
     AbstractTarget, PointTarget, PlanarTarget, TargetCalibration, calibration, reference, is_resolved, Board, board,
     Canvas, CanvasTexture, canvas,
-    Rigid, Affine, ThinPlateSpline, HeightField, CalibrationChain, TARGET_CALIBRATION_TAGS, tag_of, parameter_vector, length_mask,
+    Rigid, ThinPlateSpline, HeightField, TARGET_CALIBRATION_TAGS, tag_of, parameter_vector, length_mask,
     Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D, TargetPoint2D, TargetPoint3D,
     CentralGenericModel, NoncentralGenericModel, nominal_intrinsics, LogicalIntrinsics, Ellipse, WholePlane,
     Frame, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, UnlabeledFrame,
@@ -118,8 +119,8 @@ import VisualGeometryToolkitCore
 #   load(Dict{Symbol, BoundedCamera}, path)      vgio/cameras/v3     the camera store
 #   load(BoundedCamera | CameraModel, path; name = nothing)          one of its cameras (multi refused unnamed)
 #   load(Vector{EuclideanMap}, path)             vgio/transforms/v3  labeled poses
-#   load(Rig, path; resolve = nothing)           vgio/rig/v5         sensors, targets, or both
-#   load(AbstractTarget, path; resolve = nothing) vgio/target/v2     one target (+ its calibration record)
+#   load(Rig, path; resolve = nothing)           vgio/rig/v6         sensors, targets, or both
+#   load(AbstractTarget, path; resolve = nothing) vgio/target/v3     one target (+ its calibration record)
 #   load(Trajectory, path)                       vgio/trajectory/v3  a body's pose over time
 #   load(TargetPoses, path)                      vgio/target_poses/v1
 #   load(TargetPoints2D, path)                   vgio/target_points2d/v1 (or a Schöps dataset.bin; `target`)

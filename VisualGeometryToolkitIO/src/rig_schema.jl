@@ -1,5 +1,5 @@
 # =============================================================================
-# vgio/rig/v5 and vgio/target/v2 — VGC's `Rig` in every storage (sensors,
+# vgio/rig/v6 and vgio/target/v3 — VGC's `Rig` in every storage (sensors,
 # targets, both) and VGC's target model, serialized
 # =============================================================================
 #
@@ -79,16 +79,19 @@ end
 #   {"type": "affine", "parameters": [a11, a12, a21, a22, bx, by]}
 #   {"type": "thin_plate_spline", "nodes": [[u, v], …], "parameters": [fx1, …, fxK, fy1, …, fyK]}
 #   {"type": "height_field", "nodes": [[u, v], …], "parameters": [h1, …, hK]}
-#   {"type": "calibration_chain", "members": [{calibration}, {calibration}, …]}
+#   {"type": "calibration_chain", "members": [{height_field}, {affine | thin_plate_spline}]}
 #
 # `parameters` are the kind's `parameter_vector`, in its `parameter_names`
 # order: lengths in the file's `length_unit` (an affine's `b`, the in-plane
 # displacements, the heights), plain numbers otherwise (an affine's `A`).
 # `nodes` are positions in the target's plane, lengths in the file's unit. A
-# chain's members are records of their own, in order, none of them a chain.
+# composition (`HeightField ∘ AffineMap` or `HeightField ∘ ThinPlateSpline`,
+# CoordinateTransformations' `∘`) is written by its structure, its members
+# records of their own in CT's order — the outer map, the height field, first.
 # `covariance` (optional, top level only) is present iff the calibration is
-# `Uncertain`: n × n over `parameter_vector` (a chain's: every member's, in
-# order — one joint covariance, as `Uncertain(chain, Σ)` holds it), each entry
+# `Uncertain`: n × n over `parameter_vector` (a composition's: every member's,
+# the height field's first — one joint covariance, as `Uncertain(c, Σ)` holds
+# it), each entry
 # in the file's unit raised to its length dimension.
 #
 # THE BOARD (optional, a planar target's): the physical board the design is
@@ -114,48 +117,65 @@ _point_covariances_check(pts, cs) = begin
     nothing
 end
 
+# The record type of a composition, written by its structure (it has no tag in
+# VGC's registry: the tag rule would spell CoordinateTransformations' type).
+const _COMPOSITION_TYPE = "calibration_chain"
+
 # The keys a calibration record of each kind states, and how many parameters
 # it holds — by the kind's TYPE, which the registry gives for its tag.
 _calibration_keys(::Type{Rigid}) = ()
-_calibration_keys(::Type{Affine}) = (:parameters,)
+_calibration_keys(::Type{AffineMap}) = (:parameters,)
 _calibration_keys(::Type{ThinPlateSpline}) = (:nodes, :parameters)
 _calibration_keys(::Type{HeightField}) = (:nodes, :parameters)
-_calibration_keys(::Type{CalibrationChain}) = (:members,)
-_calibration_keys(::Type) = nothing      # a kind without a record (a downstream one)
 # The count is VGC's: the length of `length_mask` of the kind the record
 # describes, as far as its parameter count depends on the record (its node
-# count, a chain's members).
+# count, a composition's members).
 _record_kind(K::Type, x) = K
+_record_kind(::Type{AffineMap}, x) = AffineMap{SMatrix{2, 2, Float64, 4}, SVector{2, Float64}}
 _record_kind(::Type{ThinPlateSpline}, x) = ThinPlateSpline{length(x[:nodes])}
 _record_kind(::Type{HeightField}, x) = HeightField{length(x[:nodes])}
-_record_kind(::Type{CalibrationChain}, x) =
-    CalibrationChain{Tuple{(_record_kind(TARGET_CALIBRATION_TAGS[r[:type]], r) for r in x[:members])...}}
-_n_parameters(K::Type, x) = length(length_mask(_record_kind(K, x)))
+_record_kind(x) = x[:type] == _COMPOSITION_TYPE ?
+    ComposedTransformation{_record_kind(x[:members][1]), _record_kind(x[:members][2])} :
+    _record_kind(TARGET_CALIBRATION_TAGS[x[:type]], x)
+_n_parameters(x) = length(length_mask(_record_kind(x)))
 
 function _target_calibration_check(x, member::Bool)
     ty = x[:type]
+    ty == _COMPOSITION_TYPE && return _composition_check(x, member)
     haskey(TARGET_CALIBRATION_TAGS, ty) ||
-        return "unknown calibration type $(repr(ty)) (one of $(join(keys(TARGET_CALIBRATION_TAGS), ", ")))"
-    K = TARGET_CALIBRATION_TAGS[ty]
-    want = _calibration_keys(K)
-    want === nothing && return "a $(ty) calibration has no record in $(_schema("target"))"
+        return "unknown calibration type $(repr(ty)) (one of $(join(keys(TARGET_CALIBRATION_TAGS), ", ")), $(_COMPOSITION_TYPE))"
+    want = _calibration_keys(TARGET_CALIBRATION_TAGS[ty])
     for k in (:nodes, :parameters, :members)
         (k in want) == haskey(x, k) || return k in want ? "a $(ty) calibration states its `$(k)`" : "a $(ty) calibration has no `$(k)`"
     end
-    if K === CalibrationChain
-        member && return "a chain's member is not a chain (list its members instead)"
-        length(x[:members]) >= 2 || return "a calibration_chain has at least two members"
-        for (i, r) in enumerate(x[:members])
-            msg = _target_calibration_check(r, true)
-            msg === nothing || return "member $(i): $(msg)"
-        end
-    end
     :nodes in want && isempty(x[:nodes]) && return "a $(ty) calibration has at least one node"
-    n = _n_parameters(K, x)
+    n = _n_parameters(x)
     (:parameters in want && length(x[:parameters]) != n) &&
         return "a $(ty) calibration$(:nodes in want ? " over $(length(x[:nodes])) nodes" : "") states $(n) parameters, got $(length(x[:parameters]))"
+    return _covariance_check(x, ty, n, member)
+end
+# A composition: a height field after one in-plane kind, the height field
+# (the outer map) first, as CoordinateTransformations orders `t1 ∘ t2`.
+function _composition_check(x, member::Bool)
+    member && return "a $(_COMPOSITION_TYPE)'s member is not a composition"
+    for k in (:nodes, :parameters)
+        haskey(x, k) && return "a $(_COMPOSITION_TYPE) has no `$(k)` (its members state theirs)"
+    end
+    haskey(x, :members) || return "a $(_COMPOSITION_TYPE) states its `members`"
+    ms = x[:members]
+    for (i, r) in enumerate(ms)
+        msg = _target_calibration_check(r, true)
+        msg === nothing || return "member $(i): $(msg)"
+    end
+    (length(ms) == 2 && ms[1][:type] == "height_field" && ms[2][:type] in ("affine", "thin_plate_spline")) || return (
+        "a $(_COMPOSITION_TYPE) is a height_field after one in-plane kind — the members [height_field, affine] or " *
+            "[height_field, thin_plate_spline], the outer map first; got [$(join((r[:type] for r in ms), ", "))]"
+    )
+    return _covariance_check(x, _COMPOSITION_TYPE, _n_parameters(x), member)
+end
+function _covariance_check(x, ty, n, member::Bool)
     if haskey(x, :covariance)
-        member && return "a chain's member carries no `covariance` (the chain's covers every member's parameters)"
+        member && return "a composition's member carries no `covariance` (the composition's covers every member's parameters)"
         n == 0 && return "a $(ty) calibration has no parameters, so no `covariance`"
         c = x[:covariance]
         (length(c) == n && all(r -> length(r) == n, c)) ||
@@ -246,22 +266,21 @@ end
 _metres_json(x::Real, u::_LeafUnit) = _leaf_power(Float64(x), u, 1)
 _nodes_json(c, u::_LeafUnit) = [[_metres_json(p[1], u), _metres_json(p[2], u)] for p in c.system.nodes]
 
-_tag(c::TargetCalibration) = tag_of(TARGET_CALIBRATION_TAGS, c)
+_tag(c::Union{Rigid, AffineMap, ThinPlateSpline, HeightField}) = tag_of(TARGET_CALIBRATION_TAGS, c)
+_tag(::ComposedTransformation) = _COMPOSITION_TYPE
 # A calibration with lengths is stored physical: plain numbers are refused, as
 # a target's plain points are.
 _physical(c::TargetCalibration) = (has_units(c) || _refuse_plain("a $(nameof(typeof(c))) target calibration"); c)
 
 _calibration_record(c::Rigid, ::_LeafUnit) = (type = _tag(c),)
-function _calibration_record(c::Affine, u::_LeafUnit)
+function _calibration_record(c::AffineMap, u::_LeafUnit)
     θ = parameter_vector(_physical(c))
     return (type = _tag(c), parameters = [Float64(θ[1]), Float64(θ[2]), Float64(θ[3]), Float64(θ[4]), _metres_json(θ[5], u), _metres_json(θ[6], u)])
 end
 _calibration_record(c::Union{ThinPlateSpline, HeightField}, u::_LeafUnit) =
     (type = _tag(_physical(c)), nodes = _nodes_json(c, u), parameters = [_metres_json(v, u) for v in parameter_vector(c)])
-_calibration_record(c::CalibrationChain, u::_LeafUnit) = (type = _tag(c), members = [_calibration_record(x, u) for x in c.members])
-_calibration_record(c::TargetCalibration, ::_LeafUnit) = throw(
-    ArgumentError("a $(nameof(typeof(c))) target calibration has no record in $(_schema("target")) (its kinds: $(join(keys(TARGET_CALIBRATION_TAGS), ", ")))")
-)
+_calibration_record(c::ComposedTransformation, u::_LeafUnit) =
+    (type = _tag(c), members = [_calibration_record(c.t1, u), _calibration_record(c.t2, u)])
 
 _calibration_record(c::Uncertain{<:TargetCalibration}, u::_LeafUnit) =
     merge(_calibration_record(geom(c), u), (covariance = _length_cov_json(cov(c), u, length_mask(geom(c))),))
@@ -270,9 +289,9 @@ _read_metres(x, u::Units) = read_length(x::Real, u)
 _nodes_from_json(x, u::Units) = [SVector(_read_metres(p[1], u), _read_metres(p[2], u)) for p in x.nodes::Vector{Any}]
 
 _calibration_from_record(::Type{Rigid}, x, u::Units) = Rigid()
-function _calibration_from_record(::Type{Affine}, x, u::Units)
+function _calibration_from_record(::Type{AffineMap}, x, u::Units)
     p = x.parameters::Vector{Any}
-    return Affine(SMatrix{2, 2, Float64}(p[1], p[3], p[2], p[4]), [_read_metres(p[5], u), _read_metres(p[6], u)])
+    return AffineMap(SMatrix{2, 2, Float64}(p[1], p[3], p[2], p[4]), SVector(_read_metres(p[5], u), _read_metres(p[6], u)))
 end
 function _calibration_from_record(::Type{ThinPlateSpline}, x, u::Units)
     nodes = _nodes_from_json(x, u)
@@ -282,17 +301,18 @@ function _calibration_from_record(::Type{ThinPlateSpline}, x, u::Units)
 end
 _calibration_from_record(::Type{HeightField}, x, u::Units) =
     HeightField(_nodes_from_json(x, u), [_read_metres(v, u) for v in x.parameters::Vector{Any}])
-_calibration_from_record(::Type{CalibrationChain}, x, u::Units) =
-    CalibrationChain(Tuple(_target_calibration_from_json(r, u) for r in x.members::Vector{Any}))
-
 # A calibration record (validated) back to VGC's kind, `Uncertain` iff it
 # states a covariance (unit^(lᵢ+lⱼ) → m^(lᵢ+lⱼ)).
 function _target_calibration_from_json(x, u::Units)
-    c = _calibration_from_record(TARGET_CALIBRATION_TAGS[x.type::String], x, u)
+    c = _bare_calibration_from_json(x, u)
     haskey(x, :covariance) || return c
     dims = length_mask(c)
     return Uncertain(c, CovMat(_length_cov_from_json(x.covariance::Vector{Any}, length(dims), u, dims)))
 end
+# the calibration without its covariance: a kind, or a composition of two
+_bare_calibration_from_json(x, u::Units) = x.type::String == _COMPOSITION_TYPE ?
+    _bare_calibration_from_json(x.members[1], u) ∘ _bare_calibration_from_json(x.members[2], u) :
+    _calibration_from_record(TARGET_CALIBRATION_TAGS[x.type::String], x, u)
 
 """
     target_json(target, unit = mm) -> NamedTuple
@@ -377,10 +397,10 @@ function target_from_json(t, unit::AbstractString; resolve = nothing)
 end
 
 # -----------------------------------------------------------------------------
-# vgio/target/v2 ↔ one target (AbstractTarget, or one Attributed with its calibration record)
+# vgio/target/v3 ↔ one target (AbstractTarget, or one Attributed with its calibration record)
 # -----------------------------------------------------------------------------
 #
-# {"schema": "vgio/target/v2", "length_unit": "mm", "target": {target body},
+# {"schema": "vgio/target/v3", "length_unit": "mm", "target": {target body},
 #  "calibration_record": {…}}             (optional: who calibrated it — the cameras' block's keys)
 
 const _TARGET_SPEC = _Obj(
@@ -392,7 +412,7 @@ const _TARGET_SPEC = _Obj(
     save(path, target::AbstractTarget; length_unit = mm, provenance = (;))
     save(path, Attributed(target, (; calibration_record)); length_unit = mm, provenance = (;))
 
-Write one physical target as a `vgio/target/v2` file — its body (rig_schema.jl:
+Write one physical target as a `vgio/target/v3` file — its body (rig_schema.jl:
 its points, and a planar target's calibration with its parameters and, when
 `Uncertain`, their covariance) in `length_unit` and, for an `Attributed` one,
 its `calibration_record`: who calibrated it, when, from what (the keys of a
@@ -421,7 +441,7 @@ function save(
     _write_store(path, _TARGET_SPEC, _with_provenance(body, provenance))
     return nothing
 end
-# A `vgio/target/v2` file holds an UNPOSED target: a posed one is refused here,
+# A `vgio/target/v3` file holds an UNPOSED target: a posed one is refused here,
 # before anything is written, rather than deep inside the writer. Its pose is a
 # rig member's, written by the rig writer.
 _refuse_posed_target(path) = throw(
@@ -444,7 +464,7 @@ save(path::AbstractString, ::Attributed{<:PosedTarget, <:NamedTuple{(:calibratio
 """
     load(AbstractTarget, path; resolve = nothing) -> AbstractTarget | Attributed{<:AbstractTarget}
 
-Read a `vgio/target/v2` file: the target, `Attributed` with its
+Read a `vgio/target/v3` file: the target, `Attributed` with its
 `calibration_record` where the file states one. `resolve(reference)` supplies
 a referenced design's nominal points (else the target is returned
 unresolved). A `vgio/target/v1` file is refused, naming its migration
@@ -458,10 +478,10 @@ function load(::Type{AbstractTarget}, path::AbstractString; resolve = nothing)
 end
 
 # -----------------------------------------------------------------------------
-# vgio/rig/v5 ↔ Rig, every storage
+# vgio/rig/v6 ↔ Rig, every storage
 # -----------------------------------------------------------------------------
 #
-# {"schema": "vgio/rig/v5", "pixel_frame": "colmap", <pose declarations>, "frame": "body:camera_rig",
+# {"schema": "vgio/rig/v6", "pixel_frame": "colmap", <pose declarations>, "frame": "body:camera_rig",
 #  "sensors": [{"id": "cam1", "camera": {camera body | generic body},
 #               "extrinsics": {rotation, translation}}],               extrinsics: `frame` → view:<id>
 #  "targets": [{"id": "<uid>", "target": {target body},
@@ -559,7 +579,7 @@ end
 """
     save(path, rig::Rig; length_unit = mm, provenance = (;))
 
-Write a physical VGC `Rig` — sensors, targets, or both — as a `vgio/rig/v5`
+Write a physical VGC `Rig` — sensors, targets, or both — as a `vgio/rig/v6`
 file in `length_unit`: each sensor (a `BoundedCamera`) with its extrinsics
 `frame → view:<id>`, each target (sorted by id) with its body and its pose
 `target:<id> → frame` (a `covariance` iff `Uncertain`). A rig of plain
@@ -572,7 +592,7 @@ save(path::AbstractString, rig::Rig; length_unit::Units = mm, provenance::NamedT
 """
     load(Rig, path; resolve = nothing) -> Rig
 
-Read a `vgio/rig/v5` file back into a fully labeled VGC `Rig` of the storage
+Read a `vgio/rig/v6` file back into a fully labeled VGC `Rig` of the storage
 it holds, its lengths in metres: sensors (each a `BoundedCamera` labeled `frame → ViewFrame{id}`),
 targets (each a `PosedTarget`, minted `TargetFrame{id} → frame` on access), or both.
 `resolve(design)` supplies a referenced planar design's nominal points (see
@@ -612,7 +632,7 @@ end
     content_id(targets) -> String
 
 The identity a measurement file (`target_points2d`, `target_points3d`) names a
-target definition by — `targets` a `Rig` or a `vgio/rig/v5` path: the SHA-256
+target definition by — `targets` a `Rig` or a `vgio/rig/v6` path: the SHA-256
 of the canonical JSON (`canonical_json`) of the rig's IDENTITY TREE. The tree
 is built from the in-memory value by the record writer's own walk, under the
 fixed names below — names of the identity's own, which a later record format
@@ -662,7 +682,7 @@ The identity tree, fixed (a test pins it for a rig of every target kind):
                            "texture": {"path", "sha256", "size": [width, height] (m), "origin": [m, m]} (iff it has one)}
                                                                           (iff the target has a canvas)}
     calibration {"kind": <the kind's tag>, "parameters": parameter_vector (lengths in m),
-                 "nodes": [[m, m], …] (thin-plate kinds), "members": [<calibration>, …] (a chain),
+                 "nodes": [[m, m], …] (thin-plate kinds), "members": [<calibration>, <calibration>] (a composition, the outer map first),
                  "covariance": rows over the parameters, m^(lᵢ+lⱼ) (iff Uncertain)}
 """
 content_id(x::Union{Rig, AbstractString}) = _targets_hash(x)

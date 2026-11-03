@@ -207,4 +207,48 @@ end
     end
     # the region must meet the lattice
     @test_throws ArgumentError BoundaryRule(falses(4, 4))
+    @test rule.order == 2
+end
+
+@testitem "support: the boundary rule's order — Δ²c = 0 extends a linear correction, Δ³c = 0 a quadratic" begin
+    using Test
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: KannalaBrandt, BoundaryRule, extend_controls, boundary_rule_jacobian, nodes
+    using StaticArrays
+
+    lin(i) = 0.01 * i[1] - 0.02 * i[2] + 0.5
+    quad(i) = lin(i) + 0.003 * i[1]^2 - 0.002 * i[1] * i[2] + 0.004 * i[2]^2
+    # a rectangular interior (corners reached along the diagonals) and a disc (axes, diagonals, rings of any shape)
+    rect = falses(14, 12); rect[4:10, 5:9] .= true
+    disc = BitMatrix([hypot(r - 9.5, c - 8.0) < 5.0 for r in 1:18, c in 1:16])
+    for mask in (rect, disc)
+        ref = zeros(size(mask))
+        r2, r3 = BoundaryRule(mask), BoundaryRule(mask; order = 3)
+        @test r2.order == 2 && r3.order == 3
+        @test r3.interior == mask && r3.dependent == r2.dependent
+        for r in (r2, r3)
+            @test all(tm -> sum(last, tm) ≈ 1 && all(k -> mask[first(k)], tm), r.terms)
+            @test all(sum(boundary_rule_jacobian(r); dims = 2) .≈ 1)
+        end
+        L = [lin(i) for i in CartesianIndices(mask)]
+        Q = [quad(i) for i in CartesianIndices(mask)]
+        @test extend_controls(r2, L, ref) ≈ L                # order 2: a linear correction exactly
+        @test !(extend_controls(r2, Q, ref) ≈ Q)             # … but not a quadratic
+        @test extend_controls(r3, L, ref) ≈ L                # order 3: linear and quadratic exactly
+        @test extend_controls(r3, Q, ref) ≈ Q
+        # the Jacobian is the rule: J · interior values = the extended lattice
+        @test boundary_rule_jacobian(r3) * Q[mask] ≈ vec(extend_controls(r3, Q, ref))
+    end
+    # the model form forwards the order (the fisheye lattice of the item above)
+    fold = KannalaBrandt(-4 / (3π^2))
+    c = CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = fold)
+    lit = Ellipse(Point2(640.0, 480.0), 250π / 3, 250π / 3, 0.0)
+    g = CentralGenericModel(c, (1280, 960); grid_size = (20, 16))
+    R = imaged_region(BoundedCamera(c, Size2(1280, 960)), lit)
+    r3 = BoundaryRule(g, R; order = 3)
+    @test r3.order == 3 && r3.interior == node_mask(g, R)
+    Q3 = [g.grid[i] + SVector(quad(i), -quad(i), 0.5 * lin(i)) for i in nodes(g)]
+    @test extend_controls(r3, Q3, g.grid) ≈ Q3
+    @test_throws ArgumentError BoundaryRule(trues(4, 4); order = 4)
+    @test_throws ArgumentError BoundaryRule(g, R; order = 1)
 end

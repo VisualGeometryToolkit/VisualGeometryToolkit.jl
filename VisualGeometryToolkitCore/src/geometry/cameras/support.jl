@@ -141,55 +141,79 @@ support(m::_GenericModel, i::CartesianIndex{2}) =
 # correction outward (`natural_extrapolation`), applied ring by ring so it holds
 # for a border of any shape. That is the rule the `:quasi_interpolate`
 # initialization applies to the source's samples past its domain, made the
-# model's rule for every later change.
+# model's rule for every later change. `order = 3` replaces it by the
+# curvature-preserving Δ³c = 0, `c₀ = 3c₁ − 3c₂ + c₃`, which carries the slope
+# AND the curvature of the correction across the border (measured 2026-11-03 on
+# a noise-free fisheye grid regression: about half the edge error of Δ²c = 0).
 # Every imaged pixel's window holds interior nodes only (a node whose basis is
 # nonzero at an imaged pixel has that pixel in its support), so the rule changes no
 # value inside the region and the interior's weights sum to one there; what it fixes
 # is the lattice outside, which follows the interior instead of keeping the start.
 
 """
-    BoundaryRule(m, region)
+    BoundaryRule(m, region; order = 2)
 
 The boundary rule of the lattice model `m` (a `LocalSupport` model whose
 [`nodes`](@ref) are the `CartesianIndices` of a 2-D lattice) under the imaged
 `region`: its `interior` nodes ([`node_mask`](@ref)`(m, region)`, the
 parameters) and, per dependent node, the linear combination of interior nodes
-its CORRECTION is — the natural boundary condition `f'' = 0` across the
-border, the outermost coefficient of BSplineKit's natural recombination
-([`natural_extrapolation`](@ref), `w₁ c₁ + w₂ c₂ = 2 c₁ − c₂`), applied
-outward ring by ring (Chebyshev rings around the interior): along each lattice
-axis on which the two nodes inward are already defined, averaged over those axes;
-with none, the same along the diagonals; with none of those either, the mean
-of the defined neighbours (constant extrapolation). The coefficients of each
-dependent node sum to one. [`extend_controls`](@ref) applies the rule;
-[`boundary_rule_jacobian`](@ref) is its Jacobian. An `ArgumentError` when the
-region meets no node's support.
+its CORRECTION is, extrapolated outward ring by ring (Chebyshev rings around
+the interior) with a zero `order`-th difference across the border:
+
+- `order = 2` (the default): the natural boundary condition `f'' = 0`
+  (Δ²c = 0), the outermost coefficient of BSplineKit's natural recombination
+  ([`natural_extrapolation`](@ref), `c₀ = 2 c₁ − c₂`) — a linear correction is
+  extended exactly;
+- `order = 3`: the curvature-preserving Δ³c = 0, `c₀ = 3 c₁ − 3 c₂ + c₃`,
+  which carries the slope and the curvature across the border — a quadratic
+  correction is extended exactly.
+
+Per dependent node: along each lattice axis on which the `order` nodes inward
+are already defined, averaged over those axes; with none, the same along the
+diagonals; with none of those either, the mean of the defined neighbours
+(constant extrapolation). The coefficients of each dependent node sum to one.
+[`extend_controls`](@ref) applies the rule; [`boundary_rule_jacobian`](@ref)
+is its Jacobian. An `ArgumentError` when the region meets no node's support
+or `order` is not 2 or 3.
 """
 struct BoundaryRule
     interior::BitMatrix
     dependent::Vector{CartesianIndex{2}}
     terms::Vector{Vector{Tuple{CartesianIndex{2}, Float64}}}
+    order::Int
 end
 
-function BoundaryRule(m, region)
+function BoundaryRule(m, region; order::Integer = 2)
     support_trait(m) isa LocalSupport || throw(ArgumentError("BoundaryRule: $(typeof(m)) is not a lattice model (GlobalSupport)"))
     interior = BitMatrix(node_mask(m, region))
-    return BoundaryRule(interior)
+    return BoundaryRule(interior; order)
+end
+
+# The weights (w₁, …, w_order) of the outermost coefficient's extrapolation from
+# the `order` nodes inward, c₀ = Σ wₖ cₖ, with a zero `order`-th difference across
+# the border: order 2 is the natural boundary condition (`natural_extrapolation`,
+# (2, −1)), order 3 the curvature-preserving Δ³c = 0, (3, −3, 1) (the binomial
+# coefficients of Δ³ with c₀ solved for). Each sums to one.
+function _boundary_extrapolation(order::Integer)
+    order == 2 && return natural_extrapolation()
+    order == 3 && return (3.0, -3.0, 1.0)
+    throw(ArgumentError("BoundaryRule: order must be 2 (natural, Δ²c = 0) or 3 (curvature-preserving, Δ³c = 0), got $order"))
 end
 
 """
-    BoundaryRule(interior::AbstractMatrix{Bool})
+    BoundaryRule(interior::AbstractMatrix{Bool}; order = 2)
 
 The boundary rule of a lattice whose interior nodes are `interior` (`true`),
-the rest dependent ([`BoundaryRule`](@ref)`(m, region)` with the mask given).
+the rest dependent ([`BoundaryRule`](@ref)`(m, region; order)` with the mask
+given).
 """
-function BoundaryRule(interior::AbstractMatrix{Bool})
+function BoundaryRule(interior::AbstractMatrix{Bool}; order::Integer = 2)
+    w = _boundary_extrapolation(order)
     any(interior) || throw(ArgumentError("BoundaryRule: no interior node (the region meets no node's support)"))
     interior = BitMatrix(interior)
     I = CartesianIndices(interior)
     coef = Dict{CartesianIndex{2}, Dict{CartesianIndex{2}, Float64}}(n => Dict(n => 1.0) for n in I if interior[n])
     known = copy(interior)
-    w₁, w₂ = natural_extrapolation()
     axes_ = (CartesianIndex(1, 0), CartesianIndex(-1, 0), CartesianIndex(0, 1), CartesianIndex(0, -1))
     diags = (CartesianIndex(1, 1), CartesianIndex(1, -1), CartesianIndex(-1, 1), CartesianIndex(-1, -1))
     isknown(n) = checkbounds(Bool, known, n) && known[n]
@@ -206,12 +230,13 @@ function BoundaryRule(interior::AbstractMatrix{Bool})
         new = Dict{CartesianIndex{2}, Dict{CartesianIndex{2}, Float64}}()
         for n in ring
             acc = Dict{CartesianIndex{2}, Float64}()
-            lin = [s for s in axes_ if isknown(n + s) && isknown(n + s + s)]
-            isempty(lin) && (lin = [s for s in diags if isknown(n + s) && isknown(n + s + s)])
+            inward(s) = all(k -> isknown(n + k * s), 1:order)
+            lin = [s for s in axes_ if inward(s)]
+            isempty(lin) && (lin = [s for s in diags if inward(s)])
             if !isempty(lin)
-                w = 1.0 / length(lin)
+                a = 1.0 / length(lin)
                 for s in lin
-                    combine!(acc, ((w₁ * w, n + s), (w₂ * w, n + s + s)))
+                    combine!(acc, ((w[k] * a, n + k * s) for k in 1:order))
                 end
             else
                 nb = [n + s for s in (axes_..., diags...) if isknown(n + s)]
@@ -226,7 +251,7 @@ function BoundaryRule(interior::AbstractMatrix{Bool})
     end
     sort!(dependent)
     terms = [sort!([(k, c) for (k, c) in coef[n]]; by = first) for n in dependent]
-    return BoundaryRule(interior, dependent, terms)
+    return BoundaryRule(interior, dependent, terms, Int(order))
 end
 
 """

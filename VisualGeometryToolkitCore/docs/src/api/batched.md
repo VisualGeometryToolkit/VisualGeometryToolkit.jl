@@ -50,7 +50,8 @@ matrices; [`bending_rows`](@ref) factors it into a regularizer's rows and
 ([`cubic_lattice_basis`](@ref), Core's generic-model lattice). The natural
 boundary condition `f'' = 0` of BSplineKit's recombined basis is
 [`natural_extrapolation`](@ref), the rule [`BoundaryRule`](@ref) applies to
-a lattice's nodes outside an imaged region.
+a lattice's nodes outside an imaged region by default (`order = 2`); its
+`order = 3` is the curvature-preserving Δ³c = 0.
 
 ```@autodocs
 Modules = [VisualGeometryToolkitCore]

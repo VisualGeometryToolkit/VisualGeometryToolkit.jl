@@ -16,10 +16,13 @@
 #     suffix, Damerau–Levenshtein distance > 2 from every General name unless
 #     the package is in MANUAL_MERGE)
 #   - [compat] for every [deps] and [weakdeps] entry, stdlibs and julia included;
-#     each entry parses and is bounded (no "*", no ">="); stack packages in the
-#     workspace's stack series: STACK_COMPAT itself, or a raised floor inside it
-#     ("0.1.3") when a package needs a sibling's newer feature (the Downgrade
-#     workflow tests every package at its compat floors)
+#     each entry parses and is bounded (no "*", no ">="); a compat on a stack
+#     package names THAT package's own series — its current breaking series in
+#     the workspace ("0.5" for 0.5.x, "1" for 1.x), or a raised floor inside it
+#     ("0.5.2") when a package needs a sibling's newer feature (the Downgrade
+#     workflow tests every package at its compat floors). Each package is
+#     versioned on its own: a breaking change bumps that package alone
+#     (2026-11-03; the stack no longer moves as one series)
 #   - no [sources], [extras] or [targets] in the registered file (test deps live
 #     in test/Project.toml, which [sources]-links the package as path "..")
 #   - a LICENSE (OSI: MIT) inside the directory — the registered tarball is
@@ -39,9 +42,11 @@ const ROOT = dirname(@__DIR__)
 const ROOT_PROJECT = TOML.parsefile(joinpath(ROOT, "Project.toml"))
 const PACKAGES = filter(!=("ci"), ROOT_PROJECT["workspace"]["projects"])
 const INITIAL_VERSION = v"0.1.0"
-const STACK_COMPAT = "0.4"
-# STACK_COMPAT, or a floor inside the same series: "0.4" or "0.4.N"
-const STACK_SERIES = Regex("^" * replace(STACK_COMPAT, "." => "\\.") * raw"(\.\d+)?$")
+# A package's breaking series, from its version in the workspace: "0.m" below 1.0, "M" from 1.0 on.
+series(v::VersionNumber) = v.major == 0 ? "0.$(v.minor)" : "$(v.major)"
+const STACK_SERIES = Dict(p => series(VersionNumber(TOML.parsefile(joinpath(ROOT, p, "Project.toml"))["version"])) for p in PACKAGES)
+# The series itself, or a floor inside it: "0.5" or "0.5.N"
+in_series(c, s) = occursin(Regex("^" * replace(s, "." => "\\.") * raw"(\.\d+)*$"), c)
 # AutoMerge's name-similarity guideline would fail these; each needs a manual
 # merge by a General maintainer, with the reason recorded here (DESIGN D9).
 const MANUAL_MERGE = Dict("PoseLib" => "DL distance 2 from PDELib; the name of the upstream library and of PoseLib_jll")
@@ -95,8 +100,9 @@ function check_compat(pkg, label, proj; stack_ok = true, skip = ())
         catch e
             err(pkg, "$label: compat $n = \"$c\" does not parse ($(sprint(showerror, e)))")
         end
-        if stack_ok && n in PACKAGES && !occursin(STACK_SERIES, c)
-            err(pkg, "$label: stack compat $n = \"$c\", expected \"$STACK_COMPAT\" or a floor inside it (\"$STACK_COMPAT.N\")")
+        if stack_ok && n in PACKAGES && !in_series(c, STACK_SERIES[n])
+            s = STACK_SERIES[n]
+            err(pkg, "$label: stack compat $n = \"$c\", expected $n's series \"$s\" or a floor inside it (\"$s.N\")")
         end
     end
 end

@@ -179,7 +179,8 @@ The whole example, runnable, is `examples/image_circle.jl`.
 ## Which parameters a camera can see
 
 A camera images a region of its sensor, [`imaged_region`](@ref)`(camera, circle)` =
-`Rect(extent) ∩ circle`, the image circle supplied. Each parameter of a model has a
+`Rect(extent) ∩ circle`, the image circle supplied; [`pixel_mask`](@ref)`(region, width, height)`
+rasterizes it, the pixels whose centres lie in it. Each parameter of a model has a
 support on the sensor; it is free when its support meets the imaged region
 and frozen otherwise. A global model (a parametric lens, `K`) has the whole
 plane as every parameter's support, so [`free_nodes`](@ref) answers `Colon()`
@@ -192,7 +193,8 @@ g = CentralGenericModel(fish, (1280, 960); grid_size = (20, 16))
 circle = Ellipse(Point2(640.0, 480.0), 250.0, 250.0, 0.0)   # a measured image circle, 250 px
 R = imaged_region(BoundedCamera(fish, Size2(1280, 960)), circle)
 mask = node_mask(g, R)                                  # in the grid's shape
-(size(mask), count(mask), length(mask) - count(mask), free_nodes(fish, R))   # free, frozen; a lens: all
+lit = pixel_mask(R, 1280, 960)                          # the pixels it images: 960 × 1280, ≈ π · 250² of them
+(size(mask), count(mask), length(mask) - count(mask), free_nodes(fish, R), count(lit))   # free, frozen; a lens: all
 ```
 
 A lattice model declares its supports through two contract generics:

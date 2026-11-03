@@ -25,6 +25,17 @@
         @test imaged_region(BoundedCamera(cam(800.0, Pinhole()), Size2(1280, 960)), WholePlane()) === Rect(0, 0, 1280, 960)
     end
 
+    @testset "pixel_mask: the pixels whose centres lie in a region" begin
+        R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960)), lit)
+        M = pixel_mask(R, 1280, 960)
+        @test M isa BitMatrix && size(M) == (960, 1280)                          # rows v, columns u (Julia's array layout)
+        @test M[480, 640] && !M[5, 5]
+        @test M == [Point2(u - 0.5, v - 0.5) ∈ R for v in 1:960, u in 1:1280]     # pixel (v, u)'s centre is the COLMAP point (u − ½, v − ½)
+        @test pixel_mask(Rect(0, 0, 4, 3), 4, 3) == trues(3, 4)                 # every centre of the extent lies in it
+        @test isapprox(count(M), π * (250π / 3)^2; rtol = 0.01)                   # the disc's area, wholly inside the extent
+        @test pixel_mask(WholePlane(), 3, 2) == trues(2, 3)
+    end
+
     @testset "the trait and its contract" begin
         @test support_trait(fold) === GlobalSupport() && support_trait(typeof(fold)) === GlobalSupport()
         @test support_trait(cam(800.0, Pinhole())) === GlobalSupport()

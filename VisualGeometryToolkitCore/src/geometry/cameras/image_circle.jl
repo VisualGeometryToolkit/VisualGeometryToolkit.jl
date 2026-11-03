@@ -192,3 +192,20 @@ the free parameters of a local model are
 [`free_nodes`](@ref)`(model, imaged_region(camera, circle))`.
 """
 imaged_region(camera::BoundedCamera, circle) = Rect(0, 0, extent(camera)...) ∩ circle
+
+"""
+    pixel_mask(region, width, height) -> BitMatrix
+
+The pixels of a `width × height` image whose CENTRES lie in `region` (any 2-D region answering `p ∈ region`: an
+[`imaged_region`](@ref), a `Rect`, an [`Ellipse`](@ref), their `∩`, the
+[`WholePlane`](@ref VisualGeometryToolkitCore.Primitives.WholePlane)), as a `height × width` `BitMatrix` in Julia's array
+layout: `mask[v, u]` is pixel `(u, v)`, whose centre is the COLMAP point `(u − ½, v − ½)` — the one place that conversion is
+made for a mask.
+
+```julia
+region = imaged_region(camera, circle)        # the sensor ∩ a supplied image circle (a datasheet's, or a measured Ellipse)
+mask = pixel_mask(region, width, height)      # the pixels the camera images
+```
+"""
+pixel_mask(region, width::Integer, height::Integer) =
+    BitMatrix([Point2{Float64}(u - 0.5, v - 0.5) ∈ region for v in 1:Int(height), u in 1:Int(width)])

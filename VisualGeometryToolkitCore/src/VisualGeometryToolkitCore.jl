@@ -295,6 +295,7 @@ export view_angle_limit  # the honest θ-domain of a lens
 export valid_domain      # where the lens MODEL is valid (its view-angle limit's image), not where light falls
 export image_circle      # the lit region of the sensor, from a datasheet through the pitch
 export imaged_region     # Rect(extent) ∩ a supplied image circle: what a bounded camera images
+export pixel_mask        # the pixels whose centres lie in a region (COLMAP centres, Julia's array layout)
 export free_nodes, node_mask   # which of a model's parameters a camera can see (cameras/support.jl)
 public SupportTrait, GlobalSupport, LocalSupport, support_trait, nodes, support, node_position, cubic_bspline_footprint
 public BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent nodes of a lattice outside an imaged region

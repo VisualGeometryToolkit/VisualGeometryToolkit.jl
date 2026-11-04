@@ -79,7 +79,7 @@ module VisualGeometryToolkitIO
 import VisualGeometryToolkitCore as VgtkCore
 
 using StaticArrays: SMatrix, SVector, StaticMatrix, StaticVector
-using LinearAlgebra: norm, normalize
+using LinearAlgebra: I, norm, normalize
 using Statistics: cov
 using Rotations: QuatRotation, RotMatrix, RotationVec, RotZ, Angle2d, params
 using JSON: JSON

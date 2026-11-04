@@ -554,10 +554,13 @@ end
 # The covariance over the v2 members (application order) as the one over the
 # v3 members (CT's order): Σ′ = J Σ Jᵀ with J the members' block Jacobians
 # (an identity block for a kind carried over as it is), their row blocks
-# reversed.
+# reversed. With no affine member J is a pure reorder: the entries are
+# permuted, exactly (an Inf stays Inf, a -0.0 keeps its sign).
 function _covariance_v2_to_v3(rows, parts)
     Σ = [Float64(rows[i][j]) for i in eachindex(rows), j in eachindex(rows)]
-    J = cat((p.J for p in parts)...; dims = (1, 2))[_block_reverse_perm([p.n for p in parts]), :]
+    perm = _block_reverse_perm([p.n for p in parts])
+    all(p -> p.J == I, parts) && return Any[Any[Σ[perm[i], perm[j]] for j in eachindex(perm)] for i in eachindex(perm)]
+    J = cat((p.J for p in parts)...; dims = (1, 2))[perm, :]
     S = J * Σ * J'
     return Any[Any[i <= j ? S[i, j] : S[j, i] for j in axes(S, 2)] for i in axes(S, 1)]   # exactly symmetric
 end

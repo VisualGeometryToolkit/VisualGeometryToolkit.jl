@@ -686,3 +686,25 @@ end
         end
     end
 end
+
+@testitem "vgio_migrate: a v2 chain with no affine member permutes its covariance exactly, Inf and -0.0 included" begin
+    using Test
+    import VisualGeometryToolkitIO as VgtkIO
+    # every member carried over as it is: a pure reorder of the covariance's
+    # blocks, never J Σ Jᵀ (0·Inf would be NaN, and -0.0 + 0.0 is +0.0)
+    nodes = Any[Any[0.0, 0.0], Any[1.0, 0.0], Any[0.0, 1.0], Any[1.0, 1.0]]
+    tps = Dict{String, Any}("type" => "thin_plate_spline", "nodes" => nodes, "parameters" => Any[zeros(8)...])
+    hf = Dict{String, Any}("type" => "height_field", "nodes" => nodes, "parameters" => Any[zeros(4)...])
+    n = 12
+    Σ = [i == j ? Float64(i) : 0.01 * (i + j) for i in 1:n, j in 1:n]
+    Σ[1, 1] = Inf
+    Σ[2, 9] = Σ[9, 2] = -0.0
+    Σ[10, 3] = Σ[3, 10] = -0.0
+    chain = Dict{String, Any}("type" => "calibration_chain", "members" => Any[tps, hf],   # application order: inner first
+        "covariance" => Any[Any[Σ[i, j] for j in 1:n] for i in 1:n])
+    out = VgtkIO._calibration_v2_to_v3(chain)
+    @test [r["type"] for r in out["compose"]] == ["height_field", "thin_plate_spline"]
+    perm = [9:12; 1:8]                                   # the height field's block first, as it is listed
+    S = out["covariance"]
+    @test all(isequal(S[i][j], Σ[perm[i], perm[j]]) for i in 1:n, j in 1:n)   # bit for bit: Inf stays Inf, -0.0 keeps its sign
+end

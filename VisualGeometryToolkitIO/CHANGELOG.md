@@ -65,7 +65,9 @@ calibration.
   `TARGET_CALIBRATION_ORDER`, `planar_kind`, `is_pure_bending`) instead of
   restating it, and the v2 → v3 migration factors a retired affine with VGC's
   `iwasawa_parameters_with_jacobian`; records, covariances and messages are
-  unchanged (a reflection's refusal is VGC's message, still naming `det A`).
+  unchanged (a reflection's refusal is VGC's message, still naming `det A`; a
+  chain with no affine member still has its covariance permuted exactly, an
+  `Inf` or a `-0.0` entry included, not multiplied through `J Σ Jᵀ`).
 
 ## 0.4.0 (2026-11-02)
 

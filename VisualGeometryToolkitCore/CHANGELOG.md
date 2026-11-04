@@ -9,8 +9,11 @@ Additive.
   KernelAbstractions backend value, so its compiler options hold
   (`CUDABackend(; always_inline = true)`), with an optional fixed workgroup
   size. A device broadcast launches on `get_backend(out)`, a backend with
-  the defaults. The kernel body is the broadcast's (`out[I] = f(xs…[I])`);
-  the launch is asynchronous like a broadcast's. RadiometricCamera's
+  the defaults. Each element is `f(xs…[I])` over inputs of the output's
+  shape; a functor reaches the kernel as its fields (separate kernel
+  arguments, rebuilt on the device), since one large aggregate argument is
+  copied to local memory; the launch is asynchronous like a broadcast's.
+  RadiometricCamera's
   per-pixel flux, linear-block parts and dual Jacobian run through it
   instead of kernels of their own.
 

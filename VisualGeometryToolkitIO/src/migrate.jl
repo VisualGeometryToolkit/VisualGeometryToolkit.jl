@@ -286,7 +286,7 @@ julia> v1 = Dict("schema" => "vgio/cameras/v1", "cameras" => [Dict(
            "size" => Dict("unit" => "px", "width" => 1280, "height" => 960),
            "intrinsics" => Dict("unit" => "px", "fx" => 900.0, "fy" => 900.0,
                                 "cx" => 640.0, "cy" => 480.0, "skew" => 0),
-           "lens" => Dict("model" => "BrownConrady", "params" => [-0.1, 0.01, 0, 0, 0, 0, 0, 0]))]);
+           "lens" => Dict("model" => "KannalaBrandt", "params" => [0.1, -0.02, 0.003, -0.0004]))]);
 
 julia> VgtkIO.migrate_record(v1)["schema"]
 "vgio/cameras/v4"

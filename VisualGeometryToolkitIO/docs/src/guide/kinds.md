@@ -181,7 +181,7 @@ julia> write(path, """
            "schema": "vgio/camera/v1", "name": "left", "pixel_chart": "colmap",
            "size": {"unit": "px", "width": 1280, "height": 960},
            "intrinsics": {"unit": "px", "fx": 900.0, "fy": 900.0, "cx": 640.0, "cy": 480.0, "skew": 0},
-           "lens": {"model": "BrownConrady", "params": [-0.1, 0.01, 0, 0, 0, 0, 0, 0]}}]}
+           "lens": {"model": "KannalaBrandt", "params": [0.1, -0.02, 0.003, -0.0004]}}]}
        """);
 
 julia> camera = VgtkIO.load(BoundedCamera, path; name = :left);

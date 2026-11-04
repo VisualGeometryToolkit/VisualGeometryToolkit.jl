@@ -55,7 +55,7 @@ Pages = ["geometry/solvers/fundmat.jl", "geometry/solvers/solvers.jl", "geometry
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false
-Pages = ["geometry/solvers/tls_line.jl"]
+Pages = ["geometry/solvers/tls_line.jl", "geometry/solvers/nearest_point.jl"]
 ```
 
 ## Circles

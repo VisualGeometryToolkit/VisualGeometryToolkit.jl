@@ -68,6 +68,12 @@ Added:
   kernel on the pixels' backend, bit for bit the scalar form on the CPU, NaN
   outside the calibrated area.
 - `pixel_mask(region, width, height)`: the pixels whose centres lie in a region.
+- **`nearest_point(lines)`**: the least-squares point nearest to N lines,
+  `origin => direction` pairs (a `Csponds` or a vector of `Pair`s, any
+  dimension), the minimizer of `Σ wᵢ‖(I − dᵢdᵢᵀ)(x − oᵢ)‖²` in one closed-form
+  solve about the origins' centroid; per-line weights as the `weights` column;
+  origins that are lengths come back in metres; parallel lines are an
+  `ArgumentError`. The N-line counterpart of the two-view `triangulate`.
 
 Fixed:
 

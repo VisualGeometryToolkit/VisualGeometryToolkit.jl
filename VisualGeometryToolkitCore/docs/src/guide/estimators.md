@@ -29,6 +29,7 @@ per-correspondence weights as its `weights` column.
 | Mean of a set of rotations | [`chordal_mean`](@ref)`(Rs)` | one-step | VGC |
 | Focal lengths from plane homographies | [`zhang_intrinsics`](@ref)`(Hs[, pitch])` | one-step | VGC |
 | Line through 2D points, with its covariance | [`tls_line`](@ref)`(points)` | one-step | VGC |
+| The point nearest to N lines (`origin => direction` pairs) | [`nearest_point`](@ref)`(lines)` | one-step | VGC |
 | Ellipse through 2D points (algebraic, always an ellipse) | [`direct_ellipse`](@ref)`(points)` | one-step | VGC |
 | Normalize points for a solve (centroid, or a known centre) | `AffineMap(`[`HartleyNormalization`](@ref)`(; center), points)` | normalization | VGC |
 | Normalize a correspondence set for a model class | [`CspondNormalization`](@ref VisualGeometryToolkitCore.CspondNormalization)`(M, cs; center)` | normalization | VGC |

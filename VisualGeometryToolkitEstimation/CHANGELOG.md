@@ -44,6 +44,10 @@
     non-central fisheye to 97°, on a 40 × 40 lattice: 7.1e-4 px and 7.9e-9 m at
     most, against 0.39 px and 5.9e-6 m for sampling the source's lines at the
     nodes; `tolerance = 1e-3` chooses 26 × 26 (9.2e-4 px, 5.1e-8 m).
+  The grid targets' held-out direction error skips a held-out pixel where
+  the source's back-projection Jacobian is not finite (counted as
+  `n_held_out_dropped`), as the quadrature skips non-finite samples. The
+  `:image` density differentiates the source's radius exactly (ForwardDiff).
 - **Breaking: removed `fit_lens` and `LensFitMetadata`** (retired in
   `check_naming`). `fit_lens(L, model; max_radius_px = R)` is
   `fit_camera(L, model, Ellipse(pp, R, R, 0.0))` (a disc about the principal

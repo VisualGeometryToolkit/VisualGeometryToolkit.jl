@@ -60,10 +60,13 @@ a `NamedTuple`:
   stride in pixels, the tolerance asked for and the spacing search's fits; the
   errors are the held-out check's;
 - `CentralGenericModel`: `(; penalty, grid_size, stride, tolerance,
-  outer_iterations)`, `grid_size` the chosen lattice's `(rows, columns)`; the
-  errors are the held-out direction error, as the non-central target's (below);
+  outer_iterations, n_held_out_dropped)`, `grid_size` the chosen lattice's
+  `(rows, columns)`; the errors are the held-out direction error, as the
+  non-central target's (below), over the held-out pixels where the source's
+  back-projection Jacobian is finite — `n_held_out_dropped` counts the others;
 - `NoncentralGenericModel`: `(; penalty, grid_size, stride, tolerance,
-  outer_iterations, center, max_offset, rms_offset, max_offset_edge)` —
+  outer_iterations, center, max_offset, rms_offset, max_offset_edge,
+  n_held_out_dropped)` —
   `center` the anchor c* (the
   least-squares point nearest to the source's quadrature lines, in the
   source's frame, plain metres as the grid's points), and the held-out line
@@ -162,7 +165,9 @@ family and the solve:
   its own image.
 
 `source` is a `CameraModel` (bounded or not) or a `CentralGenericModel` (anything
-with a batched `backproject(source, pixels)`), and for the non-central target
+with a batched `backproject(source, pixels)`; for `SplineProjection` also a
+function of the pixel returning its ray or `nothing`, as Core's generic models
+take one), and for the non-central target
 also a `NoncentralGenericModel`. The spline families' quadrature is on the
 image (they take no `weight`). Their per-point steps (the source's
 backprojection, the chart, the design rows, the evaluation, the errors) run as
@@ -325,23 +330,22 @@ _family_limit(::Type{<:Lens{F}}) where {F <: Union{Perspective, Equidistant, Ste
 _family_limit(::Type) = view_angle_limit(Lens(Equidistant()))
 
 # Clenshaw–Curtis nodes on [0, b] of the view angle, the source's radii there
-# and the density w (`:image` differentiates `radius` by central differences,
-# clamped to [0, b]).
+# and the density w (`:image`: r·|dr/dθ|, the radius differentiated exactly,
+# ForwardDiff through the source's `projected_radius`).
 function _forward_samples(srcr, b::Float64, n::Int, weight::Symbol)
     radius(θ) = Float64(projected_radius(srcr, θ))
     ts, qs = _clenshaw_curtis(n, b)
     rA = [radius(t) for t in ts]
-    h = 1.0e-5 * b
     dens = map(eachindex(ts)) do i
         weight === :uniform && return 1.0
         weight === :solid_angle && return sin(ts[i])
         weight === :image || throw(ArgumentError("fit_camera: weight must be :image, :solid_angle or :uniform, got :$weight"))
-        tm, tp = max(ts[i] - h, 0.0), min(ts[i] + h, b)
-        dr = (radius(tp) - radius(tm)) / (tp - tm)
-        return max(rA[i] * abs(dr), 0.0)
+        return max(rA[i] * abs(_radius_derivative(srcr, ts[i])), 0.0)
     end
     return ts, qs, rA, dens
 end
+# dr/dθ of the source's radial profile at θ, exact (forward-mode AD).
+_radius_derivative(srcr, θ::Float64) = Float64(ForwardDiff.derivative(t -> projected_radius(srcr, t), θ))
 
 # The linearization state of the stack's chart LM (VGC's `lmsolve_chart!`, over
 # the `residual_rows!` protocol): the chart `P`, whether the rows are angle
@@ -448,6 +452,12 @@ end
 
 # The source's rays at `pixels`: its batched `backproject`, NaN where it images none.
 _source_rays(source, pixels) = _svectors(backproject(source, pixels))
+# a function source (Core's generic sources: `u -> ray` or `nothing`), pixel by pixel
+_source_rays(source::Function, pixels) = map(p -> _ray_or_nan(source(p)), pixels)
+_ray_or_nan(::Nothing) = SVector(NaN, NaN, NaN)
+_ray_or_nan(r) = SVector{3, Float64}(r)
+_source_ray(source, u) = backproject(source, u)
+_source_ray(source::Function, u) = source(u)
 _svectors(r::AbstractVector{SVector{3, Float64}}) = r
 _svectors(r) = SVector{3, Float64}.(r)
 
@@ -549,7 +559,7 @@ end
 function _chart_quadrature(source, region)
     q = _image_quadrature(source, region)
     c = sum(q.fit_px) / length(q.fit_px)
-    a = backproject(source, c)
+    a = _source_ray(source, c)
     (a === nothing || !all(isfinite, a)) && throw(ArgumentError("fit_camera: the source images no ray at the region's centroid $c"))
     axis = normalize(SVector{3, Float64}(a))
     e1 = cross(SVector(0.0, 1.0, 0.0), axis)
@@ -582,7 +592,7 @@ end
 
 function fit_camera(::Type{SplineProjection}, source, region; tolerance::Real)
     _check_tolerance(tolerance)
-    q = _chart_quadrature(model(source), region)
+    q = _chart_quadrature(_source_model(source), region)
     r, code, n = _spacing_search(cells -> _spline_projection_fit(q, cells), tolerance, _max_cells(q.extent, q.stride))
     return FitResult(
         SplineProjection(q.chart, r.spline, q.region), code, 0, r.errors.rms, length(q.fit_px),
@@ -592,6 +602,12 @@ function fit_camera(::Type{SplineProjection}, source, region; tolerance::Real)
         )
     )
 end
+
+# The source a fit samples: a camera's model (a bounded camera's unbounded
+# model, Core's `model`), and any other source — a function of the pixel, one
+# of Core's generic sources — as it is.
+_source_model(source::AbstractCamera) = model(source)
+_source_model(source) = source
 
 _check_tolerance(tolerance::Real) =
     tolerance > 0 || throw(ArgumentError("fit_camera: tolerance must be positive, got $tolerance"))
@@ -652,7 +668,7 @@ fit_camera(::Type{CentralGenericModel}, source, region; tolerance::Real) =
 function _fit_grid(::Type{G}, source, region, tolerance::Real) where {G}
     _check_tolerance(tolerance)
     W, H = _image_size(source)
-    cam = model(source)
+    cam = _source_model(source)
     q = _image_quadrature(_grid_samples(G), cam, region)
     rhs, anchor = _grid_rhs(G, q)
     B = _rhs_matrix(rhs)
@@ -701,8 +717,10 @@ _grid_model(::Type{CentralGenericModel}, lattice, controls, _, region) = Central
     lattice.width, lattice.height, _lattice_area(lattice)..., Vec3{Float64}.(controls);
     unit_controls = false, nominal = nominal_intrinsics(lattice), domain = region
 )
-_grid_errors(fitted::CentralGenericModel, source, q, _) =
-    (_held_out_errors(_direction_errors(fitted, source, q.held_px, normalize.(q.held_rays)), q.edge), (;))
+function _grid_errors(fitted::CentralGenericModel, source, q, _)
+    e, dropped = _direction_summary(fitted, source, q, normalize.(q.held_rays))
+    return e, (; n_held_out_dropped = dropped)
+end
 
 # The image a grid target's lattice covers: a grid source's own, a bounded
 # camera's extent. A bare camera model has no image.
@@ -751,8 +769,8 @@ _grid_model(::Type{NoncentralGenericModel}, lattice, controls, center, region) =
     unit_controls = false, nominal = nominal_intrinsics(lattice), domain = region
 )
 function _grid_errors(fitted::NoncentralGenericModel, source, q, center)
-    e, offsets = _line_errors(fitted, source, q)
-    return e, (; center, max_offset = offsets.max, rms_offset = offsets.rms, max_offset_edge = offsets.max_edge)
+    e, offsets, dropped = _line_errors(fitted, source, q)
+    return e, (; center, max_offset = offsets.max, rms_offset = offsets.rms, max_offset_edge = offsets.max_edge, n_held_out_dropped = dropped)
 end
 
 # The held-out DIRECTION error of a fitted grid (either target) in pixels: at
@@ -762,16 +780,32 @@ end
 # through the source to first order. Evaluated directly through the fitted
 # spline (`interpolated_direction`, continued past the calibrated area as the
 # fit's design is): no projection, no seed, so no solver tolerance floors it.
+#
+# A held-out pixel where the source's Jacobian is not finite (a source that
+# images the ray but cannot differentiate there) has no pixel error: it is
+# dropped, as a non-finite sample is from the quadrature, and counted
+# (`kept` marks the rest, aligned with `px`). Returns `(errors, kept)`, the
+# errors at the kept pixels only.
 function _direction_errors(fitted, source, px, d_src)
-    return map(eachindex(px)) do i
+    kept = falses(length(px))
+    errors = Float64[]
+    for (k, i) in enumerate(eachindex(px))
         d = d_src[i]
         J = last(backproject_with_jacobian(source, px[i]))
-        all(isfinite, J) || return Inf
+        all(isfinite, J) || continue
+        kept[k] = true
         f = normalize(SVector{3, Float64}(interpolated_direction(fitted, px[i])))
         δ = f - d
         δ -= dot(δ, d) * d
-        norm((transpose(J) * J) \ (transpose(J) * δ))
+        push!(errors, norm((transpose(J) * J) \ (transpose(J) * δ)))
     end
+    any(kept) || throw(ArgumentError("fit_camera: the source's back-projection Jacobian is not finite at any held-out pixel"))
+    return errors, kept
+end
+# The held-out direction errors' summary over the kept pixels, and the count dropped.
+function _direction_summary(fitted, source, q, d_src)
+    e, kept = _direction_errors(fitted, source, q.held_px, d_src)
+    return _held_out_errors(e, q.edge[kept]), count(!, kept)
 end
 
 # The held-out errors of a fitted non-central grid against the source's lines:
@@ -783,11 +817,11 @@ function _line_errors(fitted::NoncentralGenericModel, source, q)
     px = q.held_px
     o_src = first.(q.held_rays)
     d_src = last.(q.held_rays)
-    direction_px = _direction_errors(fitted, source, px, d_src)
+    direction, dropped = _direction_summary(fitted, source, q, d_src)
     offset = map(eachindex(px)) do i
         d = d_src[i]
         Δ = SVector{3, Float64}(interpolated_point(fitted, px[i])) - o_src[i]
         norm(Δ - dot(Δ, d) * d)
     end
-    return _held_out_errors(direction_px, q.edge), _held_out_errors(offset, q.edge)
+    return direction, _held_out_errors(offset, q.edge), dropped
 end

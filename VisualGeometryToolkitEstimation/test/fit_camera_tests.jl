@@ -28,6 +28,24 @@
     @test worst < 1.0e-8                          # measured 2026-11-04: 1.4e-9 (the double sphere past its image circle)
 end
 
+@testitem "fit_camera: the :image density's dr/dθ is exact — the central difference it replaced to its truncation error" setup = [FitCameraLensCases] begin
+    using Test
+    using VisualGeometryToolkitCore: radial_part, lens, projected_radius, view_angle_limit
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    # the replaced rule: h = 1e-5·b central differences (b the domain's edge); its
+    # error O(h²·r‴) + O(eps·r/h) is below 1e-8 here. The fits it weights are the
+    # recorded regressions' above, unchanged to their 1e-6.
+    for (name, (_, m, _, _)) in LENS_CASES
+        srcr = radial_part(lens(m))
+        b = min(Float64(view_angle_limit(srcr)), 1.4) * 0.95
+        h = 1.0e-5 * b
+        for θ in range(0.05b, 0.95b; length = 7)
+            cd = (Float64(projected_radius(srcr, θ + h)) - Float64(projected_radius(srcr, θ - h))) / 2h
+            @test abs(VgtkEstimation._radius_derivative(srcr, θ) - cd) <= 1.0e-8 * max(1.0, abs(cd))
+        end
+    end
+end
+
 @testitem "fit_camera: the profile regression's pieces" setup = [FitCameraLensCases] begin
     using Test
     using StaticArrays: SVector
@@ -221,8 +239,9 @@ end
     interpolated = CentralGenericModel(FISHEYE, (1000, 1000); grid_size = (gw, gh))
     q = VgtkEstimation._image_quadrature(FISHEYE, REGION)
     d = normalize.(q.held_rays)
-    e_fit = VgtkEstimation._direction_errors(g, FISHEYE, q.held_px, d)
-    e_int = VgtkEstimation._direction_errors(interpolated, FISHEYE, q.held_px, d)
+    e_fit, kept_fit = VgtkEstimation._direction_errors(g, FISHEYE, q.held_px, d)
+    e_int, _ = VgtkEstimation._direction_errors(interpolated, FISHEYE, q.held_px, d)
+    @test all(kept_fit) && md.family.n_held_out_dropped == 0
     @test maximum(e_fit) <= maximum(e_int)
     @test maximum(e_fit) ≈ md.max_px
     # the held-out error has no solver floor: a tolerance far below what the finest
@@ -260,6 +279,45 @@ end
     @test_throws r"at least 4 × 4 nodes" VgtkEstimation._penalized_solve(Tuple{SVector{16, Int}, SVector{16, Float64}}[], zeros(0, 2), 3, 9, Val(2))
 end
 
+@testitem "fit_camera: held-out pixels without a finite source Jacobian are dropped and counted" setup = [FitCameraFisheye] begin
+    using Test
+    using StaticArrays: SMatrix
+    using LinearAlgebra: normalize
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: estimate, BoundedCamera, Size2, CentralGenericModel, backproject_with_jacobian
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    using VisualGeometryToolkitEstimation: fit_camera
+    # a source that images every ray but cannot differentiate at a few pixels
+    struct NaNJacobianSource
+        model::Any
+        bad::Set{Any}
+    end
+    VgtkCore.backproject_with_jacobian(s::NaNJacobianSource, u) =
+        u in s.bad ? (first(backproject_with_jacobian(s.model, u)), fill(NaN, SMatrix{3, 2, Float64})) : backproject_with_jacobian(s.model, u)
+    g = estimate(fit_camera(CentralGenericModel, BoundedCamera(FISHEYE, Size2(1000, 1000)), REGION; tolerance = 1.0e-3))
+    q = VgtkEstimation._image_quadrature(FISHEYE, REGION)
+    d = normalize.(q.held_rays)
+    src = NaNJacobianSource(FISHEYE, Set{Any}(q.held_px[[3, 10, 50]]))
+    e_all, kept_all = VgtkEstimation._direction_errors(g, FISHEYE, q.held_px, d)
+    e, kept = VgtkEstimation._direction_errors(g, src, q.held_px, d)
+    @test all(kept_all) && count(!, kept) == 3 && !any(kept[[3, 10, 50]])
+    @test all(isfinite, e)
+    @test e ≈ e_all[kept] rtol = 1.0e-12     # (the wrapper's call compiles apart: the last bits may differ)
+    errors, family = VgtkEstimation._grid_errors(g, src, q, nothing)
+    @test family.n_held_out_dropped == 3 && isfinite(errors.max) && errors.max == maximum(e)
+end
+
+@testitem "fit_camera: a SplineProjection of a source that is not a camera" setup = [FitCameraFisheye] begin
+    using Test
+    using VisualGeometryToolkitCore: metadata, retcode, backproject, SplineProjection
+    using VisualGeometryToolkitEstimation: fit_camera
+    # a function of the pixel (one of Core's generic sources) is passed as it is, not through `model`
+    f = u -> backproject(FISHEYE, u)
+    r = fit_camera(SplineProjection, f, REGION; tolerance = 1.0e-2)
+    rc = fit_camera(SplineProjection, FISHEYE, REGION; tolerance = 1.0e-2)
+    @test retcode(r) === :converged && metadata(r).max_px == metadata(rc).max_px && metadata(r).family == metadata(rc).family
+end
+
 @testitem "fit_camera: a non-central grid from a non-central source" setup = [FitCameraNoncentral] begin
     using Test
     using StaticArrays: SVector
@@ -291,7 +349,7 @@ end
     sampled = NoncentralGenericModel{Float64}(
         1000, 1000, 0, 0, 999, 999, [Vec3{Float64}(l.direction) for l in lines], [Vec3{Float64}(l.origin) for l in lines]
     )
-    e_s, o_s = VgtkEstimation._line_errors(sampled, SOURCE, q)
+    e_s, o_s, _ = VgtkEstimation._line_errors(sampled, SOURCE, q)
     @test md.max_px < e_s.max / 100 && md.family.max_offset < o_s.max / 100
     # the rays at and past 90° (to ~97°): the fitted lines stay on the source's
     # (measured 2.0e-6 rad, 7.2e-9 m)

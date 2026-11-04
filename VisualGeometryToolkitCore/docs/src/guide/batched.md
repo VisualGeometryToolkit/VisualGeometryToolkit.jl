@@ -19,8 +19,8 @@ converted once to the output's number type, so a `Float32` batch computes in
 
 ## Execution policy
 
-The `exec` keyword chooses how a **host** batch runs; a device array is always
-one broadcast kernel.
+The `exec` keyword chooses how a **host** batch runs; a device array is one
+broadcast kernel, or one kernel on the backend [`OnBackend`](@ref) names.
 
 - [`Serial`](@ref)`()` — one loop on the calling task. Use it when the caller
   already parallelizes an outer loop (RANSAC across image pairs), so threads
@@ -29,6 +29,11 @@ one broadcast kernel.
   per thread.
 - [`Auto`](@ref)`()` (the default) — `Serial` below
   [`THREADED_MIN_LENGTH`](@ref) points, `Threaded` above it.
+- [`OnBackend`](@ref)`(backend; workgroupsize)` — one kernel on that backend
+  value, on any array it owns. A broadcast launches on `get_backend(out)`, a
+  backend with the default options; this policy keeps the caller's, such as
+  `CUDABackend(; always_inline = true)`, and a fixed workgroup size. Like a
+  device broadcast it does not wait: synchronize the backend before reading.
 
 Every policy gives bitwise identical results.
 

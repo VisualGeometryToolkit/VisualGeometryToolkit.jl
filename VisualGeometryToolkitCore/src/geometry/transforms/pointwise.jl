@@ -17,7 +17,8 @@
 
 How [`pointwise!`](@ref) runs a host batch: [`Auto`](@ref) (the default),
 [`Serial`](@ref) or [`Threaded`](@ref). A device array (CUDA, Metal, …) is
-always one broadcast kernel, whatever the policy.
+one broadcast kernel under these; [`OnBackend`](@ref) launches one kernel on
+a backend value the caller gives.
 """
 abstract type ExecutionPolicy end
 
@@ -36,6 +37,23 @@ struct Threaded <: ExecutionPolicy end
 struct Auto <: ExecutionPolicy end
 
 """
+    OnBackend(backend; workgroupsize = nothing)
+
+One kernel launched on `backend` itself: the backend value, so its compiler
+options hold (`CUDABackend(; always_inline = true)`), which a broadcast cannot
+give, since it launches on `get_backend(out)`, a backend with the defaults.
+`workgroupsize` fixes the launch's workgroup (`nothing`: the backend's
+choice). `out` and `xs` live on `backend`. The launch is asynchronous, as a
+device broadcast is: `KernelAbstractions.synchronize(backend)` before `out` is
+read on the host. Each element is `f(xs[1][i], …)`, as in every policy.
+"""
+struct OnBackend{B <: KernelAbstractions.Backend, W} <: ExecutionPolicy
+    backend::B
+    workgroupsize::W
+end
+OnBackend(backend::KernelAbstractions.Backend; workgroupsize = nothing) = OnBackend(backend, workgroupsize)
+
+"""
     THREADED_MIN_LENGTH
 
 The batch length from which [`Auto`](@ref) splits a host batch across threads:
@@ -51,7 +69,8 @@ const THREADED_MIN_LENGTH = 1024
 
 `out[i] = f(xs[1][i], xs[2][i], …)` for every index — `out .= f.(xs...)` —
 on the backend that owns `out`: a SIMD loop on host arrays (split across
-threads per `exec`), one broadcast kernel on a GPU array. `f` is any
+threads per `exec`), one broadcast kernel on a GPU array (one kernel on the
+given backend with [`OnBackend`](@ref)). `f` is any
 per-point function; for a GPU array it must be isbits and kernel-lawful (no
 allocation, no throw, no dynamic dispatch), as every lens and camera map is.
 Every policy gives bitwise identical results.
@@ -65,6 +84,20 @@ _policy(::Auto, out) =
         Threads.nthreads() > 1) ? Threaded() : Serial()
 
 _pointwise!(::Serial, f::F, out, xs...) where {F} = (out .= f.(xs...); out)
+
+# The broadcast's own kernel body (GPUArrays'), launched on the policy's backend.
+@kernel function _pointwise_kernel!(out, bc)
+    I = @index(Global, Cartesian)
+    @inbounds out[I] = bc[I]
+end
+function _pointwise!(p::OnBackend, f::F, out, xs...) where {F}
+    isempty(out) && return out
+    bc = Broadcast.instantiate(Broadcast.broadcasted(f, xs...))
+    axes(bc) == axes(out) || throw(DimensionMismatch("pointwise!: the inputs' axes $(axes(bc)) are not the output's $(axes(out))"))
+    kernel = p.workgroupsize === nothing ? _pointwise_kernel!(p.backend) : _pointwise_kernel!(p.backend, p.workgroupsize)
+    kernel(out, bc; ndrange = size(out))
+    return out
+end
 
 function _pointwise!(::Threaded, f::F, out, xs...) where {F}
     KernelAbstractions.get_backend(out) isa KernelAbstractions.CPU || return _pointwise!(Serial(), f, out, xs...)

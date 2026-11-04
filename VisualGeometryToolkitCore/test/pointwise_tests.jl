@@ -7,7 +7,8 @@
 @testitem "pointwise" begin
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: _precision, Serial, Threaded, Auto, THREADED_MIN_LENGTH
+    using VisualGeometryToolkitCore: _precision, Serial, Threaded, Auto, OnBackend, THREADED_MIN_LENGTH
+    using KernelAbstractions: KernelAbstractions
     using StaticArrays: SVector
     using LinearAlgebra: norm
     using Random: Xoshiro
@@ -71,6 +72,18 @@
         # pointwise! itself: any per-point function, several inputs
         a, b = randn(rng, 100), randn(rng, 100)
         @test pointwise!(hypot, similar(a), a, b; exec = Threaded()) == hypot.(a, b)
+        # one kernel on a given backend value (here KernelAbstractions' CPU), with and without a workgroup size, any shape
+        cpu = KernelAbstractions.CPU()
+        for exec in (OnBackend(cpu), OnBackend(cpu; workgroupsize = 16))
+            out = similar(rays, SVector{2, Float64})
+            pointwise!(Base.Fix1(project, KB), out, rays; exec); KernelAbstractions.synchronize(cpu)
+            @test isequal(out, [project(KB, X) for X in rays])
+            A, B = randn(rng, 7, 5), randn(rng, 7, 5)
+            O = pointwise!(hypot, similar(A), A, B; exec); KernelAbstractions.synchronize(cpu)
+            @test O == hypot.(A, B)
+        end
+        @test pointwise!(hypot, Float64[], Float64[], Float64[]; exec = OnBackend(cpu)) == Float64[]
+        @test_throws DimensionMismatch pointwise!(hypot, zeros(3), zeros(4), zeros(4); exec = OnBackend(cpu))
     end
 
     @testset "a Float32 batch stays Float32: the lens converts once" begin
@@ -107,6 +120,17 @@
                 hb = similar(rays); backproject!(hb, lens, host)
                 gb = Base.invokelatest(Array, back)
                 @test all(i -> (all(isnan, gb[i]) && all(isnan, hb[i])) || norm(gb[i] - hb[i]) <= 1.0f-4, eachindex(hb))
+            end
+            # OnBackend: one kernel on the caller's backend value (always_inline, a fixed workgroup) gives the broadcast's values
+            cbe = Base.invokelatest(getproperty(cuda, :CUDABackend); always_inline = true)
+            drays = Base.invokelatest(CuArray, rays)
+            bcast = Base.invokelatest(CuArray, similar(rays, SVector{2, Float32}))
+            Base.invokelatest(project!, bcast, KB, drays)
+            for exec in (OnBackend(cbe), OnBackend(cbe; workgroupsize = 128))
+                dev = Base.invokelatest(CuArray, similar(rays, SVector{2, Float32}))
+                Base.invokelatest(project!, dev, KB, drays; exec)
+                Base.invokelatest(KernelAbstractions.synchronize, cbe)
+                @test isequal(Base.invokelatest(Array, dev), Base.invokelatest(Array, bcast))
             end
             # a strong OpenCV chain out to its branch's edge, where the inverse
             # continues from the axis (the device runs the same fallback)

@@ -189,6 +189,7 @@ export dilate, intersects
 # host batch's threading as an execution policy.
 export pointwise!
 public ExecutionPolicy, Auto, Serial, Threaded, THREADED_MIN_LENGTH
+public OnBackend   # one kernel on a given backend value (its compiler options kept), with an optional workgroup size
 # Iterative Cox–de Boor B-spline kernels (0.14; hoisted from
 # RayTracedCalibration): broadcast-fused basis/surface/4D evaluation with
 # derivative surfaces; the rrules live in the ChainRulesCore extension.

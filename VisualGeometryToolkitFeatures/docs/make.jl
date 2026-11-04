@@ -24,6 +24,10 @@ makedocs(;
         prettyurls = get(ENV, "CI", "false") == "true",
         canonical = "https://visualgeometrytoolkit.github.io/VisualGeometryToolkitFeatures/",
         edit_link = "main",
+        # Raised from the 100 KiB default: api/detection.html measured
+        # 100.01 KiB on 2026-11-04 (the detector, the image input and the RAW
+        # reader on one page). The hard 200 KiB error threshold is kept.
+        size_threshold_warn = 150 * 2^10,
     ),
     # The docs gates (General review, #171997, #173031, #173032): every public
     # docstring is in the manual, the doctests run, every external link

@@ -166,8 +166,9 @@ function ChartPlacement(origin::AbstractVector, side::Number)
     length(origin) == 2 || throw(DimensionMismatch("a chart placement's origin is a 2-vector; got $(length(origin)) entries"))
     (side isa Quantity ? all(x -> x isa Quantity, origin) : !any(x -> x isa Quantity, origin)) ||
         throw(ArgumentError("ChartPlacement: the origin and the side are all lengths or all plain numbers; got $(Tuple(origin)) and $(side)"))
-    side isa Quantity && return ChartPlacement(_board_origin(origin), Float64(strip_metres(_check_length(side))), true)
-    return ChartPlacement(SVector{2, Float64}(origin), Float64(side), false)
+    physical = side isa Quantity
+    o = physical ? _board_origin(origin) : SVector{2, Float64}(origin)
+    return ChartPlacement(o, Float64(strip_or_bare(m, physical ? _check_length(side) : side)), physical)
 end
 
 has_units(P::ChartPlacement) = P.physical
@@ -187,15 +188,11 @@ with_unit(P::ChartPlacement, u::Units) = P.physical ? throw(ArgumentError("with_
 # chart as the design point MOVED by the chart displacement, `p + side·(y − c)`
 # (`= origin + side·y`), so an in-plane identity — a HeightField, Rigid —
 # leaves `p` exactly; a height `y₃` is scaled by `side`.
-@inline _placement_side(P::ChartPlacement) = P.side
-@inline _to_chart(P::ChartPlacement, q::StaticVector{2}) = (q - P.origin) / _placement_side(P)
-@inline function _from_chart(P::ChartPlacement, q::StaticVector{2}, c::StaticVector{2}, y::StaticVector{2})
-    s = _placement_side(P)
-    return SVector(q[1] + s * (y[1] - c[1]), q[2] + s * (y[2] - c[2]))
-end
-@inline function _from_chart(P::ChartPlacement, q::StaticVector{2}, c::StaticVector{2}, y::StaticVector{3})
-    s = _placement_side(P)
-    return SVector(q[1] + s * (y[1] - c[1]), q[2] + s * (y[2] - c[2]), s * y[3])
+@inline _to_chart(P::ChartPlacement, q::StaticVector{2}) = (q - P.origin) / P.side
+@inline function _from_chart(P::ChartPlacement, q::StaticVector{2}, c::StaticVector{2}, y::StaticVector{N}) where {N}
+    s = P.side
+    p = SVector(q[1] + s * (y[1] - c[1]), q[2] + s * (y[2] - c[2]))
+    return N == 2 ? p : SVector(p[1], p[2], s * y[3])
 end
 # A calibration applied to a design point through the placement, the point keeping its form.
 function _placed_point(P::ChartPlacement, c::TargetCalibration, p::StaticVector)
@@ -612,14 +609,17 @@ Base.hash(t::PlanarTarget, h::UInt) =
 has_units(t::PlanarTarget) = is_resolved(t) ? has_units(t.nominal) : has_units(_lengths_part(t))
 # the part that carries the calibration's lengths: the placement, or the calibration
 _lengths_part(t::PlanarTarget) = t.placement === nothing ? geom(t.calibration) : t.placement
+# The calibration as a unit move `f` leaves it: moved, or — placed — as it is
+# (a placed calibration is plain chart numbers; the placement carries the lengths).
+_calibration_unit_move(t::PlanarTarget, f) = t.placement === nothing ? f(t.calibration) : t.calibration
 FlexUnits.ustrip(u::Units, t::PlanarTarget) = PlanarTarget(
     t.reference, is_resolved(t) ? [_ustrip_point(u, p) for p in t.nominal] : nothing,
-    t.placement === nothing ? _ustrip_calibration(u, t.calibration) : t.calibration,
+    _calibration_unit_move(t, c -> _ustrip_calibration(u, c)),
     _move_board(ustrip, u, t.board, true), _move_board(ustrip, u, t.canvas, true), _move_board(ustrip, u, t.placement, true), _UnitMove()
 )
 with_unit(t::PlanarTarget, u::Units) = PlanarTarget(
     t.reference, is_resolved(t) ? [_attach_point(u, p) for p in t.nominal] : nothing,
-    t.placement === nothing ? _attach_calibration(u, t.calibration) : t.calibration,
+    _calibration_unit_move(t, c -> _attach_calibration(u, c)),
     _move_board((u, bd) -> with_unit(bd, u), u, t.board, false), _move_board((u, cv) -> with_unit(cv, u), u, t.canvas, false),
     _move_board((u, P) -> with_unit(P, u), u, t.placement, false), _UnitMove()
 )
@@ -709,16 +709,16 @@ struct TargetManifold{T <: AbstractTarget, B <: AbstractMatrix{Float64}} <: Mani
     basis::B                      # n × m, orthonormal columns: the free directions of θ
     fixed::Vector{Symbol}         # the parameters held fixed (`restrict`)
 end
-TargetManifold(t::PlanarTarget; known::Tuple{Vararg{Symbol}} = ()) = _target_manifold(_check_gauges(t, known), Symbol[])
+TargetManifold(t::PlanarTarget; known::Tuple{Vararg{Symbol}} = ()) = _target_manifold(_check_pose_members(t, known), Symbol[])
 
 # A rigid member and a scale are the jointly estimated pose's gauges: refused
 # unless `known` states the pose (both) or a length (the scale).
 const _TARGET_KNOWN = (:length, :pose)
-function _check_gauges(t::PlanarTarget, known::Tuple{Vararg{Symbol}})
+function _check_pose_members(t::PlanarTarget, known::Tuple{Vararg{Symbol}})
     for k in known
         k in _TARGET_KNOWN || throw(ArgumentError("TargetManifold: known = $(repr(known)) — each entry is :length (a measured length) or :pose (a known pose)"))
     end
-    ms = _members(geom(t.calibration))
+    ms = members(geom(t.calibration))
     gauges = String[]
     any(x -> x isa EuclideanMap, ms) && !(:pose in known) && push!(gauges, "EuclideanMap (the pose's rotation and translation)")
     any(x -> x isa Scale, ms) && isempty(known) && push!(gauges, "Scale (the pose's scale)")
@@ -780,11 +780,21 @@ action_jacobian(ch::TargetManifold{<:PlanarTarget}, x) = _placed_action(ch.targe
 # in-plane rows and height row come back scaled by the placement's side
 # (`x = p + side·(y − c)`, `side·y₃`: ∂x/∂θ = side·∂y/∂θ).
 _placed_action(::Nothing, c, x, B) = _calibration_action(c, x, B)
-_placed_action(P::ChartPlacement, c, x, B) = _placement_side(P) * _calibration_action(c, _to_chart(P, _plain_point(x)), B)
+_placed_action(P::ChartPlacement, c, x, B) = P.side * _calibration_action(c, _to_chart(P, _plain_point(x)), B)
 # ∂C(x)/∂θ · B, multiplying only the rows and columns the calibration's Jacobian
 # can have nonzero: a height field moves only z, a thin-plate spline's two rows
 # each depend on one of its two value blocks.
 _calibration_action(c::TargetCalibration, x, B) = transform_deriv_params(c, x) * B
+# A composition t1 ∘ t2, θ = (θ₁, θ₂): ∂C/∂θ · B = ∂t1/∂θ₁ · B₁ + ∂t1/∂y · (∂t2/∂θ₂ · B₂)
+# at y = t2(x), B₁ and B₂ the rows of B over each member's parameters — each
+# member's own (sparse) action on its own row block, chained through the point
+# Jacobian, never the dense Jacobian of the whole.
+function _calibration_action(c::_CalibrationComposition, x, B)
+    n1, n2 = _parameter_count(typeof(c.t1)), _parameter_count(typeof(c.t2))
+    q = _plain_point(x)
+    y = _apply(c.t2, q)
+    return _calibration_action(c.t1, y, _row_block(B, 0, Val(n1))) + _point_jacobian(c.t1, y) * _calibration_action(c.t2, q, _row_block(B, n1, Val(n2)))
+end
 # (Each kept row is a 1 × K matrix times the K rows of B it meets: the product
 # kernel the full Jacobian's rows went through, so the entries keep their bits.)
 function _calibration_action(c::HeightField{K}, x, B) where {K}

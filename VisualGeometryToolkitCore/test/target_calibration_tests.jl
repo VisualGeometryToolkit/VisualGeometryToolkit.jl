@@ -113,14 +113,32 @@
         # the canonical print error, HeightField ∘ ThinPlateSpline ∘ Aspect ∘ Skew, in any association
         for c in (H ∘ T ∘ A1 ∘ U1, H ∘ (T ∘ (A1 ∘ U1)), (H ∘ T) ∘ (A1 ∘ U1), T ∘ A1 ∘ U1, H ∘ T ∘ E ∘ S1 ∘ A1 ∘ U1)
             s = calibration(PlanarTarget(xs; calibration = c))
-            @test parameter_vector(s) == parameter_vector(c) && s == foldr(ComposedTransformation, VgtkCore.Cameras._members(c))
+            @test parameter_vector(s) == parameter_vector(c) && s == foldr(ComposedTransformation, VgtkCore.members(c))
         end
         # a target stores a composition right-associated, whatever ∘ built
         for c in (E ∘ S1 ∘ A1 ∘ U1, E ∘ (S1 ∘ (A1 ∘ U1)), (E ∘ S1) ∘ (A1 ∘ U1), H ∘ A1 ∘ U1, H ∘ (A1 ∘ U1))
             s = calibration(PlanarTarget(xs; calibration = c))
-            @test s == foldr(ComposedTransformation, VgtkCore.Cameras._members(c))
+            @test s == foldr(ComposedTransformation, VgtkCore.members(c))
             @test parameter_vector(s) == parameter_vector(c) && parameter_names(s) == parameter_names(c)
         end
+        # the structure, public: the members, the canonical order, a kind's planar type
+        @test VgtkCore.members(H ∘ (A1 ∘ U1)) == VgtkCore.members((H ∘ A1) ∘ U1) == (H, A1, U1) && VgtkCore.members(A1) == (A1,)
+        @test map(VgtkCore.calibration_tag, VgtkCore.TARGET_CALIBRATION_ORDER) ==
+            ("height_field", "thin_plate_spline", "euclidean", "scale", "aspect", "skew")
+        @test [length(VgtkCore.length_mask(VgtkCore.planar_kind(K, 4))) for K in VgtkCore.TARGET_CALIBRATION_ORDER] == [4, 8, 3, 1, 1, 1]
+        @test length(VgtkCore.length_mask(VgtkCore.planar_kind(Rigid))) == 0
+        # the Iwasawa parameters: the factors compose back to A; the Jacobian is the parameters' (central differences)
+        for A in (SMatrix{2, 2}(1.001, -0.003, 0.002, 0.999), SMatrix{2, 2}(0.7, 2.1, -1.3, 0.4))
+            θ, J = VgtkCore.iwasawa_parameters_with_jacobian(A)
+            @test θ == VgtkCore.iwasawa_parameters(A)
+            F = EuclideanMap(VgtkCore.Cameras.Angle2d(θ[1]), SVector(0.0, 0.0); check = false) ∘ Scale(θ[2]) ∘ Aspect(θ[3]) ∘ Skew(θ[4])
+            @test F(SVector(0.3, -0.7)) ≈ A * SVector(0.3, -0.7) rtol = 1.0e-14
+            g(a) = VgtkCore.iwasawa_parameters(SMatrix{2, 2}(a[1], a[3], a[2], a[4]))
+            a0 = SVector(A[1, 1], A[1, 2], A[2, 1], A[2, 2])
+            Jfd = reduce(hcat, [(h = 1.0e-6 * SVector(ntuple(i -> Float64(i == k), 4)); (g(a0 + h) - g(a0 - h)) / 2.0e-6) for k in 1:4])
+            @test J ≈ Jfd rtol = 1.0e-7
+        end
+        @test_throws ArgumentError VgtkCore.iwasawa_parameters(SMatrix{2, 2}(1.0, 0.0, 0.0, -1.0))
         # the retired AffineMap kind is refused by name
         e = try PlanarTarget(xs; calibration = VgtkCore.AffineMap(SMatrix{2, 2}(1.0, 0.0, 0.0, 1.0), SVector(0.0, 0.0))); nothing catch err; err end
         @test e isa ArgumentError && occursin("Aspect ∘ Skew", e.msg)
@@ -479,6 +497,11 @@ end
         @test size(action_jacobian(ch, pts[1])) == (3, 13)
         # the basis is reproducible: built twice, bit for bit
         @test retract_jacobian(minimal_manifold(PlanarTarget(pts; calibration = HeightField(nodes, h)))) == B
+        # the public rule: the stored heights are pure bending, a plane added to them is not;
+        # a field built on the system is the field built on its nodes
+        @test VgtkCore.is_pure_bending(H.system, parameter_vector(H))
+        @test !VgtkCore.is_pure_bending(H.system, parameter_vector(H) .+ 0.01 .* first.(H.system.nodes))
+        @test HeightField(H.system, parameter_vector(H); project = false) == HeightField(nodes, parameter_vector(H); project = false)
     end
 
     @testset "a composition: its members' blocks" begin

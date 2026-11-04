@@ -53,7 +53,10 @@ The solver object of a thin-plate spline through `N` nodes in the plane: the
 node positions, the `(N + 3) × N` matrix `coeff` that maps nodal values to the
 spline's weights and affine part, `(w; a) = coeff · values`, and the `N × N`
 bending-energy form `Q` (`valuesᵀ Q values = wᵀ K w`, `K = [U(𝐩ᵢ, 𝐩ⱼ)]`, see
-[`bending_energy`](@ref)).
+[`bending_energy`](@ref)), and, read by the target calibration kinds' pure-bending
+rule ([`is_pure_bending`](@ref)), the `N × 3` plane fields `plane = [1 𝐩_x 𝐩_y]`
+at the nodes and the `3 × N` affine rows of `coeff`, `affine` (`a = affine ·
+values`).
 
 `coeff` is the first `N` columns of the INVERTED system matrix `[K P; Pᵀ 0]`,
 formed with `inv` as RadiometricCamera forms it: its golden tests pin these
@@ -65,6 +68,8 @@ struct ThinPlateSplineSystem{N}
     nodes::SVector{N, SVector{2, Float64}}
     coeff::Matrix{Float64}      # (N+3) × N
     Q::Matrix{Float64}          # N × N
+    plane::Matrix{Float64}      # N × 3: the plane fields [1 x y] at the nodes (the system's P)
+    affine::Matrix{Float64}     # 3 × N: coeff's affine rows, a = affine · values
 end
 
 function ThinPlateSplineSystem(nodes::AbstractVector{<:StaticVector{2}})
@@ -76,7 +81,7 @@ function ThinPlateSplineSystem(nodes::AbstractVector{<:StaticVector{2}})
     coeff = Kinv[:, 1:N]
     Cw = coeff[1:N, :]
     Q = Matrix(Symmetric(Cw' * Umat * Cw))
-    return ThinPlateSplineSystem{N}(SVector{N}(SVector{2, Float64}.(nodes)), coeff, Q)
+    return ThinPlateSplineSystem{N}(SVector{N}(SVector{2, Float64}.(nodes)), coeff, Q, Matrix{Float64}(P), coeff[(N + 1):(N + 3), :])
 end
 
 """

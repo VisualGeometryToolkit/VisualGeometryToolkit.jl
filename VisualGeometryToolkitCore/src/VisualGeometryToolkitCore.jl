@@ -292,6 +292,9 @@ export calibration, is_planar
 export ChartPlacement   # where a target calibration's dimensionless chart lies in the design chart (fixed data, no parameters)
 public placement        # a planar target's chart placement (not exported: a common word)
 public is_affine   # a calibration's in-plane part is an affine of the design (the surface chart's)
+public TARGET_CALIBRATION_ORDER, planar_kind, members   # a calibration composition's canonical order, a kind's planar type, its members outer first
+public is_pure_bending   # the thin-plate kinds' rule: nodal values with no affine term in their interpolant
+public iwasawa_parameters, iwasawa_parameters_with_jacobian   # an affine A = s·R·D·U as (ϑ, log s, a₁, u₁₂), and its Jacobian
 export regularizer   # the calibratable-target protocol
 public design, reference, board, canvas   # a planar target's design, its reference, its board and its canvas (not exported: common words)
 public PlanarCalibration   # the planar kinds as one type

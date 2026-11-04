@@ -21,9 +21,8 @@
 function surface(pt::PosedTarget{<:PlanarTarget})
     t = model(pt)
     physical = has_units(pt)
-    c = geom(calibration(t))
+    c = geom(physical ? _calibration_unit_move(t, c -> _ustrip_calibration(m, c)) : calibration(t))
     P = placement(t)
-    c = physical && P === nothing ? _ustrip_calibration(m, c) : c   # (a placed calibration is plain chart numbers)
     X = geom(pose(pt))
     X = physical ? ustrip(m, X) : X
     P = P === nothing || !has_units(P) ? P : ustrip(m, P)
@@ -38,10 +37,7 @@ end
 # (J − I) o, exactly 0 with J = I when the chart affine is the identity (a
 # height field alone), so its quad is the unplaced one bit for bit.
 _placed_affine(::Nothing, J, β) = (J, β)
-function _placed_affine(P::ChartPlacement, J, β)
-    s = _placement_side(P)
-    return J, s * β - (J - one(J)) * P.origin
-end
+_placed_affine(P::ChartPlacement, J, β) = (J, P.side * β - (J - one(J)) * P.origin)
 # Its height field over the quad's metric plane coordinates m = o + s c, where
 # the height s·f(c) is exactly a thin-plate spline in m: with
 # U(|c − cᵢ|) = U(|m − mᵢ|)/s² − |m − mᵢ|² ln s / s² and the spline's side
@@ -53,7 +49,7 @@ end
 _placed_surface(::Nothing, s) = s
 _placed_surface(::ChartPlacement, q::Quad) = q
 function _placed_surface(P::ChartPlacement, hs::HeightSurface{K}) where {K}
-    s, o = _placement_side(P), P.origin
+    s, o = P.side, P.origin
     c = hs.nodes
     bend = zero(eltype(hs.w))
     for i in 1:K
@@ -112,9 +108,8 @@ _in_plane(c::_CalibrationComposition) = c.t1 isa HeightField ? c.t2 : c
 )
 # the member a composition's refusal names (it is refused for its in-plane kind)
 _not_affine(c::TargetCalibration) = c
-_not_affine(c::_CalibrationComposition) = (ms = _members(c); i = findfirst(l -> !is_affine(l), ms); i === nothing ? c : ms[i])
-_has_thin_plate(c::TargetCalibration) = c isa ThinPlateSpline
-_has_thin_plate(c::_CalibrationComposition) = any(l -> l isa ThinPlateSpline, _members(c))
+_not_affine(c::_CalibrationComposition) = (ms = members(c); i = findfirst(l -> !is_affine(l), ms); i === nothing ? c : ms[i])
+_has_thin_plate(c::TargetCalibration) = any(l -> l isa ThinPlateSpline, members(c))
 
 _surface(::Val{true}, _, quad) = quad
 _surface(::Val{false}, c, quad) = _height_surface(_last_height_field(c), quad)

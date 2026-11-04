@@ -193,6 +193,22 @@ Added:
 - **`noise_sigma(norms, codim)` is public** (not exported): the robust noise
   sigma of residual norms, `median(norms) / √chisq_median(d)`, which
   downstream calibrations call qualified (`VgtkCore.noise_sigma`).
+- **A target calibration composition's structure is public** (not
+  exported): `members(c)`, its leaves outer first in any association;
+  `TARGET_CALIBRATION_ORDER`, the canonical order as the kinds;
+  `planar_kind(K, n_nodes)`, the type a planar target holds for a kind (its
+  `length_mask` the record's parameter layout); `is_pure_bending(system, v)`,
+  the thin-plate kinds' rule on a `ThinPlateSplineSystem`, with
+  `ThinPlateSpline(system, fx, fy)` and `HeightField(system, h)` building on
+  a system already formed; and `iwasawa_parameters(A)` /
+  `iwasawa_parameters_with_jacobian(A)`, an affine's `A = s·R·D·U` as
+  `(ϑ, log s, a₁, u₁₂)` (the factorization VisualGeometryToolkitIO's
+  migration of a retired `"affine"` record held privately). A
+  `ThinPlateSplineSystem` stores its plane fields `[1 x y]` and its affine
+  rows (`plane`, `affine`), which the thin-plate kinds read instead of
+  holding their own copy. Values are unchanged, bit for bit, except a
+  composed target manifold's `action_jacobian`, which applies each member's
+  action to its own rows and chains them (last-ulp differences).
 
 Fixed:
 

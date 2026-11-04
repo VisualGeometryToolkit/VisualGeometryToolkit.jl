@@ -1003,6 +1003,8 @@ export calibration, design, reference, is_planar   # design, reference: public, 
 export is_affine                         # the surface chart's trait (public, not exported, at the top level)
 export PlanarCalibration                 # the planar kinds as one type (public, not exported, at the top level)
 export TARGET_CALIBRATION_TAGS, calibration_tag, length_mask   # the kinds' tag registry and a kind's tag (public, not exported, at the top level)
+export TARGET_CALIBRATION_ORDER, planar_kind, members, is_pure_bending   # the composition's structure (public, not exported, at the top level)
+export iwasawa_parameters, iwasawa_parameters_with_jacobian   # an affine's Iwasawa factors' parameters (public, not exported, at the top level)
 export regularizer, TargetManifold      # the calibratable-target protocol
 export Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
 export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3

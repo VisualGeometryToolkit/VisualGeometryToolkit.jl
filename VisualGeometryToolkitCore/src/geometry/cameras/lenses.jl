@@ -308,6 +308,12 @@ end
 # first), whatever its nesting; a single term is one stage.
 @inline _stages(c::ComposedTransformation) = (_stages(c.t2)..., _stages(c.t1)...)
 @inline _stages(d) = (d,)
+# A composed distortion in its ONE association, right-associated
+# (`D₃ ∘ (D₂ ∘ D₁)`, as `lens_from_record` builds a record's "chain"): Base
+# folds `D₃ ∘ D₂ ∘ D₁` to the left, so without this two equal stage sequences
+# would be two values (unequal, hashed apart, and seen differently by
+# structural dispatch on the lens type).
+_right_associated(c::ComposedTransformation) = foldr(∘, reverse(_stages(c)))
 
 # -----------------------------------------------------------------------------
 # Lenses
@@ -321,6 +327,11 @@ point is distorted by `distortion` (`nothing`, a term, an [`Additive`](@ref)
 or terms in sequence, CoordinateTransformations' `D₂ ∘ D₁` — each stage a map
 term or an `Additive`). Projection is closed form; back-projection inverts the
 distortion (`backproject`).
+
+A composed distortion is stored right-associated, whatever association it was
+built in: `Lens(p, D₃ ∘ D₂ ∘ D₁)` (Base folds `∘` to the left) and
+`Lens(p, D₃ ∘ (D₂ ∘ D₁))` are one value, with `distortion` the latter, the
+form [`lens_from_record`](@ref) builds.
 """
 struct Lens{F <: AbstractProjection, D} <: AbstractLensModel
     projection::F
@@ -341,7 +352,8 @@ function Lens(p::AbstractProjection, d::ComposedTransformation)
     end
     any(t -> t isa Radial{Full}, _leaves(d)) &&
         throw(ArgumentError("Lens: a forward radial factor uses the Even basis; the Full basis is a LiftLens's"))
-    return _checked_names(Lens{typeof(p), typeof(d)}(p, d))
+    c = _right_associated(d)
+    return _checked_names(Lens{typeof(p), typeof(c)}(p, c))
 end
 
 """

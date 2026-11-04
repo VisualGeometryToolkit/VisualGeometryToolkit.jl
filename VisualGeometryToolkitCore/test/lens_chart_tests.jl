@@ -542,3 +542,26 @@ end
     @test eltype(coordinate_scale(ch32)) === Float32 && eltype(coordinate_scale(ch)) === Float64
     @test eltype(parameter_vector(retract(ch32, Float32.(v)))) === Float32
 end
+
+@testitem "lens_record: a composed lens has one association, so its record round-trips ==" begin
+    using Test, StaticArrays
+    using VisualGeometryToolkitCore
+    # three stages in sequence (Radial, then the deltas, then Tilt), built in
+    # each association, and two stages
+    r, a, t = Radial((0.1, -0.02)), Additive(Tangential(3.0e-4, -2.0e-4), ThinPrism((1.0e-3,), (-5.0e-4,))), Tilt(0.01, -0.02)
+    left = Lens(Equidistant(), t ∘ a ∘ r)                   # Base folds left: (t ∘ a) ∘ r
+    right = Lens(Equidistant(), t ∘ (a ∘ r))
+    two = Lens(Perspective(), Tilt(0.01, -0.02) ∘ Additive(Radial((-0.1,)), Tangential(1.0e-3, 0.0)))
+    @test left == right && hash(left) == hash(right) && typeof(left) === typeof(right)
+    @test left.distortion.t1 === t && left.distortion.t2 == a ∘ r       # right-associated
+    for l in (left, right, two)
+        back = lens_from_record(lens_record(l))
+        @test back == l && typeof(back) === typeof(l) && hash(back) == hash(l)
+        @test lens_record(back) == lens_record(l)
+        @test parameter_vector(back) == parameter_vector(l) && parameter_names(back) == parameter_names(l)
+    end
+    @test [only(keys(x)) for x in lens_record(left)["chain"]] == ["tilt", "add", "radial"]   # the outer first
+    # the association does not change what the lens computes
+    x = SVector(0.3, -0.2)
+    @test VisualGeometryToolkitCore.distort_normalized(left, x) == VisualGeometryToolkitCore.distort_normalized(right, x)
+end

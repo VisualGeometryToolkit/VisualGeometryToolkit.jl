@@ -2,7 +2,7 @@
 # shape_transfer_tests.jl — the warping paradigm's two new pieces:
 #   * the full-camera reprojection constraint in RAW pixels for any lens
 #     (`constraint_with_jacobians(model, pose, X, u)`), built on the chain rule
-#     through `imaging_transform` = `AffineMap(K) ∘ lens` (`transform_deriv(lens, X)`
+#     through `imaging_transform` = `affine_part(K) ∘ lens` (`transform_deriv(lens, X)`
 #     on the ray is its leaf; `transform_deriv(::PerspectiveMap)` is kept for
 #     homography chains);
 #   * the ellipse-PRESERVING transfer of a plane conic through any map
@@ -119,7 +119,7 @@
                 else
                     Hp = HomographyMap(PosedCamera(pinhole(cam), _POSE))
                     stages = transfer_ellipse(Hp, shape)
-                    for T in (AffineMap(SMatrix{3, 3, Float64}(cam.intrinsics.K_inv)), cam.lens, VgtkCore.Cameras._pixel_affine(cam.intrinsics))
+                    for T in (VgtkCore.affine_part(SMatrix{3, 3, Float64}(cam.intrinsics.K_inv)), cam.lens, VgtkCore.Cameras._pixel_affine(cam.intrinsics))
                         stages = transfer_ellipse(T, stages)
                     end
                     @test out == stages                       # exactly distortion_map's stages on the transferred conic

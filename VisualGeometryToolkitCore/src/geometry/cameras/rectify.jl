@@ -115,7 +115,7 @@ function _rectify_math(
     )
     ray = HomographyMap(SMatrix{3, 3, Float64, 9}(Qi)' * Kr_inv)
     return CoordinateTransformations.ComposedTransformation(
-        AffineMap(Ki), CoordinateTransformations.ComposedTransformation(model.lens, ray)
+        affine_part(Ki),CoordinateTransformations.ComposedTransformation(model.lens, ray)
     )
 end
 

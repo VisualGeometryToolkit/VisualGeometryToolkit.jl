@@ -66,6 +66,7 @@ using ..VisualGeometryToolkitCore: _bilinear_sample, _store, _sample_type   # th
 using ..VisualGeometryToolkitCore: _pixel_extent   # a size in pixels, plain or `px` (homography_solvers.jl)
 using ..VisualGeometryToolkitCore: _pushforward, _pullback   # the constant-Jacobian transport laws (propagate_framed.jl)
 using ..VisualGeometryToolkitCore: Point2, Point3, Vec2, Vec3
+using ..VisualGeometryToolkitCore: affine_part   # a calibration matrix's pixel affine (transforms/conversions.jl)
 using ..VisualGeometryToolkitCore: _rect_edge_samples   # the one per-edge rect walk (primitives/rectangles.jl)
 using ..Primitives: rect_edges, EdgeGrid, Closed   # its edges on a closed grid: the frame walk (camera_models.jl)
 using ..Primitives: _closed_meet   # Core's one rect-meet convention, closed (primitives/regions.jl): a node's support clip (support.jl)
@@ -307,7 +308,7 @@ function transfer_ellipse(camera::PosedCamera, shape::Union{Circle, Ellipse})
 end
 
 # The lens's part of the transfer: `distortion_map(m)` is a `ComposedTransformation`
-# (`AffineMap(K) ∘ lens ∘ AffineMap(K⁻¹)`), which `transfer_ellipse` walks stage by stage.
+# (`affine_part(K) ∘ lens ∘ affine_part(K⁻¹)`), which `transfer_ellipse` walks stage by stage.
 _lens_ellipse(lens, m, ::Nothing) = nothing
 _lens_ellipse(::Pinhole, m, ep::Ellipse) = ep
 _lens_ellipse(lens, m, ep::Ellipse) = transfer_ellipse(distortion_map(m), ep)
@@ -989,6 +990,7 @@ export AprilGrid, point_index                 # Kalibr's AprilGrid layout as a P
 export SchoepsPattern                         # Schöps et al.'s tagged star pattern as a PlanarTarget (public, not exported, at the top level)
 export TargetCalibration, Rigid, ThinPlateSpline, HeightField   # a planar target's calibration kinds (with the affine factors and their ∘)
 export Aspect, Skew, Scale                    # the affine print error's gauge-free Iwasawa factors (with a planar EuclideanMap)
+export ChartPlacement, placement              # a calibration's dimensionless chart in the design chart (targets.jl; placement public, not exported, at the top level)
 export calibration, design, reference, is_planar   # design, reference: public, not exported, at the top level
 export is_affine                         # the surface chart's trait (public, not exported, at the top level)
 export PlanarCalibration                 # the planar kinds as one type (public, not exported, at the top level)

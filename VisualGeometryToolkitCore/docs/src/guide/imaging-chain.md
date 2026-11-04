@@ -16,7 +16,7 @@ ViewFrame{id} ─ ray-frame projection → ray frame (Gnomonic/Equidistant/…)
 [`imaging_chain`](@ref) mints the fully-typed composite
 `{ViewFrame{id} → ImageFrame{id}}`; the frame-free
 [`imaging_transform`](@ref) is the same map
-without frames, `AffineMap(K) ∘ lens` with the lens applied to the ray. The
+without frames, `affine_part(K) ∘ lens` with the lens applied to the ray. The
 scalar lens math is never reimplemented: the framed stages wrap the lens
 contract's maps.
 

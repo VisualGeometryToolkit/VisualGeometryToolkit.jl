@@ -126,7 +126,7 @@ depth-attributed points between views (see
 [Stereo Rigs and Uncertainty](stereo.md)).
 
 The camera's ray ↦ pixel map is available in two forms: the frame-free
-[`imaging_transform`](@ref), `AffineMap(K) ∘ lens`
+[`imaging_transform`](@ref), `affine_part(K) ∘ lens`
 with the lens applied to the ray (so it is `project(model, X)` for every ray),
 and the fully-typed [`imaging_chain`](@ref) with every junction frame-checked —
 see [The Framed Imaging Chain](imaging-chain.md).

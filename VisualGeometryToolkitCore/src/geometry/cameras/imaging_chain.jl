@@ -21,7 +21,7 @@
 #
 #   * The SCALAR math is untouched: framed stages wrap the lens contract's
 #     maps (`lens_rays.jl`), never reimplement them. The frame-free
-#     `imaging_transform` (`AffineMap(K) ∘ lens`, the lens on the ray) is the
+#     `imaging_transform` (`affine_part(K) ∘ lens`, the lens on the ray) is the
 #     same map without frames; `imaging_chain` is the fully-typed mint.
 #
 #   * Junctions follow the standing wildcard truth table (see `Base.:∘` at
@@ -837,7 +837,7 @@ end
 
 Mint the fully-typed framed imaging composite
 `{ViewFrame{id} → ImageFrame{id}}` — the frame-checked counterpart of
-[`imaging_transform`](@ref)'s frame-free `AffineMap(K) ∘ lens`. Every inner
+[`imaging_transform`](@ref)'s frame-free `affine_part(K) ∘ lens`. Every inner
 junction is checked at construction:
 
     ViewFrame{id} ─ ray-frame projection → distortion_frame(lens){id}

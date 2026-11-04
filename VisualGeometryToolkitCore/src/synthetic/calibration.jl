@@ -395,7 +395,7 @@ function sample_twoview_scene(
     # locates the honest first-order breakdown for them. Geometries whose
     # disparity makes a cell unsatisfiable are resampled wholesale.
     K = _pixel_K(f, f, (c, c))
-    Km = AffineMap(K)             # normalized (z = 1) → pixel
+    Km = affine_part(K)           # normalized (z = 1) → pixel
     Kinv = inv(Km)                # pixel → normalized
     for _ in 1:200   # geometry attempts
         R = RotMatrix(Rotations.AngleAxis(0.17 + 0.05 * randn(rng), normalize(randn(rng, 3))...))

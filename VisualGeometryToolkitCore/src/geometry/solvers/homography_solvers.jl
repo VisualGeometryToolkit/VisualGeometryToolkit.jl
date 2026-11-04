@@ -310,8 +310,8 @@ The forward normalization of the source side and of the destination side
 the normalized source point). The accessors to a frame's sides; its inverses
 are `inv` of these.
 """
-source_map(f::CspondNormalization) = AffineMap(f.src)
-destination_map(f::CspondNormalization) = AffineMap(f.dst)
+source_map(f::CspondNormalization) = affine_part(f.src)
+destination_map(f::CspondNormalization) = affine_part(f.dst)
 
 """
     normalize(N::CspondNormalization, cs) -> Csponds

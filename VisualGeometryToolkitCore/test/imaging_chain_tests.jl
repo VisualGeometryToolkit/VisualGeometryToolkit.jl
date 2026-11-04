@@ -179,7 +179,7 @@
             @test c.stages[1] isa FramedPerspective{ViewFrame{:_}, GnomonicFrame{:_}}
             @test c.stages[2] isa FramedAffine{GnomonicFrame{:_}, ImageFrame{:_}}
             legacy = imaging_transform(pin.intrinsics, pin.lens)
-            @test legacy isa ComposedTransformation   # frame-free: AffineMap(K) ∘ lens
+            @test legacy isa ComposedTransformation   # frame-free: affine_part(K) ∘ lens
             for X in rays
                 got = c(X)
                 want = legacy(X)

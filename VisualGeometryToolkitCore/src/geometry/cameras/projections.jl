@@ -8,16 +8,16 @@
 # Transform Builders - Dispatch on Lens Model
 # ============================================================================
 
-# The pixel-space affine of an intrinsics block is `AffineMap(K)`
+# The pixel-space affine of an intrinsics block is `affine_part(K)`
 # (transforms/conversions.jl); no second spelling here.
-@inline _pixel_affine(intrinsics::AbstractIntrinsics) = AffineMap(intrinsics.K)
+@inline _pixel_affine(intrinsics::AbstractIntrinsics) = affine_part(intrinsics.K)
 
 """
     imaging_transform(intrinsics, lens) -> ComposedTransformation
     imaging_transform(model::CameraModel)
 
 The composed camera-space → pixel-space map as a value:
-`AffineMap(K) ∘ lens`, the lens applied to the ray (its functor is
+`affine_part(K) ∘ lens`, the lens applied to the ray (its functor is
 [`project`](@ref) on 3-vectors). It is `project(model, X)` for every lens and
 every ray — past 90° for a lens that images there, NaN where the lens does not
 (for a `Pinhole`, every `Z ≤ 0`). Its derivative is the chain rule through
@@ -344,7 +344,7 @@ end
 
 # The functor is the lens's projection, on either representative of a ray: a
 # 3-vector X, or a perspective point x standing for the ray (x, 1). So a lens
-# composes after anything that produces rays — `AffineMap(K) ∘ lens` is the
+# composes after anything that produces rays — `affine_part(K) ∘ lens` is the
 # camera, `lens ∘ HomographyMap` a warp that never divides by Z.
 @inline (lens::AbstractLensModel)(X::StaticVector{3}) = project(lens, X)
 @inline (lens::AbstractLensModel)(x::StaticVector{2}) = distort_normalized(lens, x)

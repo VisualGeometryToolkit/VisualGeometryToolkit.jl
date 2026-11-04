@@ -117,7 +117,7 @@ _leaves(f::ComposedTransformation) = (_leaves(f.t1)..., _leaves(f.t2)...)
 # Canonicalize leaves that block CT's affine algebra into forms it merges.
 _canonical(t) = t
 _canonical(::RCSwap) = LinearMap(SMatrix{2, 2, Float64}(0.0, 1.0, 1.0, 0.0))
-_canonical(e::EuclideanMap{2}) = AffineMap(SMatrix{3, 3, Float64}(to_homogeneous(e)))
+_canonical(e::EuclideanMap{2}) = affine_part(SMatrix{3, 3, Float64}(to_homogeneous(e)))
 
 # Matrix-representable leaves: CT's ∘ (affine algebra) or VGC's HomographyMap
 # bridges collapse any adjacent pair of these into ONE link.

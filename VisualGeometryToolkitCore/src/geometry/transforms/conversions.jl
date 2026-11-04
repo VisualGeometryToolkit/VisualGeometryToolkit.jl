@@ -164,9 +164,11 @@ HomAffineMat(C::ComposedFunction) = to_homogeneous(C)
 # ========================================================================
 
 """
-    AffineMap(M::StaticMatrix{3,3}) -> AffineMap
+    affine_part(M::StaticMatrix{3,3}) -> AffineMap
 
 Extract the 2×2 linear part and 2D translation from a 3×3 homogeneous matrix.
+The bottom row is not read; for a camera calibration matrix `K` it is the
+pixel affine of the imaging chain, `affine_part(K) ∘ lens`.
 
 Works with any 3×3 static matrix: `HomAffineMat`, `CameraCalibrationMat`,
 plain `SMatrix{3,3}`, etc.
@@ -174,10 +176,10 @@ plain `SMatrix{3,3}`, etc.
 # Example
 ```julia
 K = CameraCalibrationMat(800.0px, [320.0px, 240.0px])
-am = AffineMap(K)  # AffineMap([800 0; 0 800], [320, 240])
+am = affine_part(K)  # AffineMap([800 0; 0 800], [320, 240])
 ```
 """
-function CoordinateTransformations.AffineMap(M::StaticMatrix{3, 3, T}) where {T}
+function affine_part(M::StaticMatrix{3, 3, T}) where {T}
     A = SMatrix{2, 2, T}(M[1, 1], M[2, 1], M[1, 2], M[2, 2])
     t = SVector{2, T}(M[1, 3], M[2, 3])
     return AffineMap(A, t)

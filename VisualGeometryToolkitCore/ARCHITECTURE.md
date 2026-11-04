@@ -102,7 +102,7 @@ using .Primitives
 
 ### 5. Remaining transforms
 ```julia
-include("geometry/transforms/conversions.jl")      # to_homogeneous, AffineMap(::StaticMatrix)
+include("geometry/transforms/conversions.jl")      # to_homogeneous, affine_part(::StaticMatrix)
 include("geometry/transforms/ct_contravariant.jl") # CT maps callable on Circle/Ellipse/Line2D
 include("geometry/transforms/coord_maps.jl")       # canonical-frame AffineMap constructors
 include("geometry/transforms/region_maps.jl")      # canonical_map, logpolar_map
@@ -321,7 +321,7 @@ extents); the size-form is sugar over the rect-form for the common case.
    (`distort_normalized`, `undistort_normalized`, the functor, `InverseLens`),
    `transform_deriv` / `transform_deriv_params` / `project_with_jacobians`,
    `projected_radius` / `view_angle`, `unproject`, `imaging_transform`
-   (`AffineMap(K) ∘ lens`), the batches (`pointwise!`) and warps, `RayMap`,
+   (`affine_part(K) ∘ lens`), the batches (`pointwise!`) and warps, `RayMap`,
    the framed stages, and — from the leaves — `parameter_vector` /
    `with_parameters` / names / bounds (a leaf with a bounded
    coefficient adds its `_bound_pairs` method), the record, the manifold and `_precision`.

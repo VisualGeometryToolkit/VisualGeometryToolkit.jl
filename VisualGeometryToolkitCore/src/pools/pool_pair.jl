@@ -312,7 +312,7 @@ names frame tags only. The same maps, frame-typed, are
 [`pool_frame_maps`](@ref).
 """
 pool_normalization(pair::PoolPair) =
-    CspondNormalization(AffineMap(pair.source_map), AffineMap(pair.destination_map))   # its own analytic inverses
+    CspondNormalization(affine_part(pair.source_map), affine_part(pair.destination_map))   # its own analytic inverses
 pool_normalization(size1, size2) =
     CspondNormalization(AffineMap(DiagonalNormalization(size1)), AffineMap(DiagonalNormalization(size2)))
 
@@ -334,7 +334,7 @@ function pool_frame_maps(pair::PoolPair)
 end
 
 function _framed_affine(::Type{Src}, ::Type{Dst}, T::SMatrix{3, 3, Float64, 9}) where {Src, Dst}
-    a = AffineMap(T)   # the one homogeneous 3×3 → (linear, translation) split
+    a = affine_part(T)   # the one homogeneous 3×3 → (linear, translation) split
     return FramedAffine{Src, Dst, Float64}(a.linear, a.translation)
 end
 

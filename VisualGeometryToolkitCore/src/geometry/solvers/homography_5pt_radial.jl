@@ -591,7 +591,7 @@ CspondNormalization(::Type{<:AbstractRadialModel}, cs; center, mask = nothing) =
         throw(ArgumentError("∘ on a RadialHomography: the image-side map must be an isotropic similarity (s·x + b); got $D"))
     return RadialHomography{T}(
         HomographyMat{T}(Tuple(D * SMatrix{3, 3}(m.H))), T(rescale_radial_coeff(m.k, inv(s), 1)),
-        Point2{T}(AffineMap(D)(m.center))
+        Point2{T}(affine_part(D)(m.center))
     )
 end
 @inline Base.:∘(m::RadialHomography{T}, b::Union{HomographyMap{3}, _CTLeafTransformation}) where {T} =

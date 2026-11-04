@@ -203,7 +203,7 @@ public tps_evaluate, tps_gradient, nodal_weights, bending_energy, bending_factor
 public SphericalSplineSystem, spherical_spline_kernel, spherical_spline_coefficients, spherical_spline_evaluate   # the spherical spline (Wahba)
 
 # Coordinate conversions
-export to_homogeneous, to_affine, to_euclidean
+export to_homogeneous, to_affine, to_euclidean, affine_part
 public saturation_bounds
 export FitResult, BundleMetadata
 export estimate, retcode, converged, iterations, rms, metadata, weights, dof
@@ -249,7 +249,7 @@ public radial_ratio
 # Framed imaging chain (0.10): the typed composite {ViewFrame{id} →
 # ImageFrame{id}} with every junction checked (imaging_chain), its stage
 # family, and the defining-frame trait. imaging_transform is the frame-free
-# AffineMap(K) ∘ lens.
+# affine_part(K) ∘ lens.
 # Public, not exported (2026-09-15 audit): the framed imaging chain and sphere
 # maps have no consumer outside this package's tests.
 public FramedStage, FramedProjection, FramedPerspective, FramedEquidistantProjection
@@ -288,6 +288,8 @@ public SchoepsPattern            # Schöps et al.'s tagged star pattern: PlanarT
 export TargetCalibration, Rigid, ThinPlateSpline, HeightField   # a planar target's calibration kinds (with the affine factors and their ∘)
 export Aspect, Skew, Scale        # the affine print error's gauge-free Iwasawa factors: Aspect ∘ Skew (Scale ∘ with a ruler, EuclideanMap ∘ Scale ∘ with a known pose)
 export calibration, is_planar
+export ChartPlacement   # where a target calibration's dimensionless chart lies in the design chart (fixed data, no parameters)
+public placement        # a planar target's chart placement (not exported: a common word)
 public is_affine   # a calibration's in-plane part is an affine of the design (the surface chart's)
 export regularizer   # the calibratable-target protocol
 public design, reference, board, canvas   # a planar target's design, its reference, its board and its canvas (not exported: common words)

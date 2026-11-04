@@ -56,7 +56,7 @@ map keeps orientation.
 - **Cameras.** `project(model, X)`, `backproject(model, u)`,
   [`unproject`](@ref)`(model, u, depth)` (Z-depth: NaN where the ray has
   `Z ≤ 0`; a point at distance `d` along any ray is `d · backproject(model, u)`),
-  and `imaging_transform(model) = AffineMap(K) ∘ lens`, the lens applied to
+  and `imaging_transform(model) = affine_part(K) ∘ lens`, the lens applied to
   the ray.
 
 ## Inside the maps

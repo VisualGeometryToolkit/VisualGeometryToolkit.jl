@@ -118,7 +118,7 @@
             @test lens(CameraModel(m2, K1)).radial.d[1] ≈ -4.0e-7 rtol = 1.0e-12
             # the same physical map: pixel → undistorted pixel agrees under either K
             px = SVector(700.0, 300.0)
-            topx(K, n) = AffineMap(K)(n)
+            topx(K, n) = affine_part(K)(n)
             ninv(K) = inv(calibration_stage(LogicalIntrinsics(K)))          # pixel → K⁻¹·pixel
             u1 = topx(K1, undistort_normalized(lens(m1), ninv(K1)(px)))
             u2 = topx(K2, undistort_normalized(lens(m2), ninv(K2)(px)))

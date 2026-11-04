@@ -113,7 +113,7 @@ encodes the principal point. This constructor enables idiomatic composition:
 
 ```julia
 K = CameraCalibrationMat(M)
-model = CameraModel(EuclideanMap(PixelFrame{:opencv}, PixelFrame{:colmap}) ∘ AffineMap(K); lens=lens)
+model = CameraModel(EuclideanMap(PixelFrame{:opencv}, PixelFrame{:colmap}) ∘ affine_part(K); lens=lens)
 ```
 """
 function CameraModel(map::AffineMap; lens::AbstractLensModel = Pinhole())
@@ -151,12 +151,12 @@ function CameraModel(
         # the VGC method, that expression silently matches CT's generic
         # `Translation(x, y)` and builds a `Translation{SVector{2,Symbol}}`
         # (the 0.7.0 leftover bug). Wrapped back into a CT `Translation` (via
-        # `.t`, unitless `Vec2{Float64}`) so `∘ AffineMap(K)` fuses eagerly
+        # `.t`, unitless `Vec2{Float64}`) so `∘ affine_part(K)` fuses eagerly
         # into a plain `AffineMap`, as before.
         origin_shift = Translation(
             EuclideanMap(PixelFrame{image_origin}, PixelFrame{:colmap}).t
         )
-        CameraModel(origin_shift ∘ AffineMap(K); lens)
+        CameraModel(origin_shift ∘ affine_part(K); lens)
     else
         CameraModel(LogicalIntrinsics(K), lens)
     end
@@ -694,14 +694,14 @@ end
 
 Math-space transform mapping undistorted COLMAP pixel coordinates to
 distorted ones: `pixel → K⁻¹ → lens → K → pixel`.  Spelled as a plain
-composition (`AffineMap(K) ∘ lens ∘ AffineMap(K⁻¹)`) so `image_warp`'s
+composition (`affine_part(K) ∘ lens ∘ affine_part(K⁻¹)`) so `image_warp`'s
 `fuse` merges the calibration affines into the COLMAP/Julia index bridges —
 the fused per-pixel path is one affine, the lens polynomial, one affine.
 """
 function distortion_map(model::CameraModel{<:AbstractIntrinsics, <:AbstractLensModel})
     T = eltype(model.intrinsics.K)
-    return AffineMap(SMatrix{3, 3, T}(model.intrinsics.K)) ∘ model.lens ∘
-        AffineMap(SMatrix{3, 3, T}(model.intrinsics.K_inv))
+    return affine_part(SMatrix{3, 3, T}(model.intrinsics.K)) ∘ model.lens ∘
+        affine_part(SMatrix{3, 3, T}(model.intrinsics.K_inv))
 end
 
 """
@@ -1057,7 +1057,7 @@ valid_rect(m::RadialHomography{Float64}, sz; margin::Real = HORIZON_MARGIN) =
     pnp_pixel_whitening(proj) -> SMatrix{2,2,Float64,4}
 
 The frozen pixel whitening of the PnP lift: the constant 2×2 calibration
-block `A = K[1:2,1:2]` of a Pinhole imaging transform (`AffineMap(K) ∘
+block `A = K[1:2,1:2]` of a Pinhole imaging transform (`affine_part(K) ∘
 Pinhole()`), so that `A·g` (with `g` the calibrated constraint of
 `constraint_with_jacobians`) is exactly the pixel reprojection residual the
 scoring pipeline measures. Errors for non-affine (distortion-lens) imaging
@@ -1068,6 +1068,6 @@ pnp_pixel_whitening(proj::CoordinateTransformations.ComposedTransformation{<:Aff
     SMatrix{2, 2, Float64, 4}(proj.t1.linear)
 pnp_pixel_whitening(proj) = error(
     "The PnP loss lift requires a Pinhole camera (affine pixel map " *
-        "AffineMap(K) ∘ Pinhole()); got $(typeof(proj)). Undistort the " *
+        "affine_part(K) ∘ Pinhole()); got $(typeof(proj)). Undistort the " *
         "measurements to a pinhole model, or use an IRLS local optimization."
 )

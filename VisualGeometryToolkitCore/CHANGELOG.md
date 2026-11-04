@@ -15,6 +15,14 @@ chain types, and CT's conventions hold for it.
   composition with an `ArgumentError` and stores a composition
   right-associated, whatever association `∘` built. A downstream calibration
   kind is no longer possible (the union is closed).
+- **`AffineMap(K)` of a 3×3 matrix is `affine_part(K)`** (exported): the
+  method `CoordinateTransformations.AffineMap(::StaticMatrix{3, 3})` was Core's
+  method on CT's function and CT's type (type piracy) and is deleted, with no
+  alias. `affine_part(M)` returns the same `AffineMap` (the 2×2 linear block and
+  the translation column; the bottom row is not read), for a camera calibration
+  matrix, a `HomAffineMat` or any 3×3 static matrix. `AffineMap(A, b)` is CT's
+  own and unchanged. `CoordinateTransformations.AffineMap` leaves Aqua's
+  `treat_as_own` list in the quality test: no piracy of it remains.
 - **Removed `CalibrationChain`**: `CalibrationChain(A, H)` is `H ∘ A`
   (CoordinateTransformations' `∘`, applied right to left). A composition's
   parameters, names, bounds, Jacobian columns, length mask and

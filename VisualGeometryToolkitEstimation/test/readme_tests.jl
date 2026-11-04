@@ -26,7 +26,8 @@
     # The install line adds exactly the packages the examples load.
     install = [m[1] for m in eachmatch(r"^pkg> add (.+)$"m, readme)]
     @test length(install) == 1
-    packages = split(only(install))
+    line = only(install)
+    packages = split(line)
     loaded = Set{String}()
     for code in example, m in eachmatch(r"^(?:using|import)\s+([^:\n]+)"m, code)
         for part in split(m[1], ',')
@@ -35,7 +36,8 @@
     end
     stdlib(name) = isdir(joinpath(Sys.STDLIB, name))
     @test Set(filter(!stdlib, loaded)) == Set(packages)
-    @test occursin("pkg> add $(only(install))", index)
+    @test occursin("pkg> add $line", index)
+    @test occursin("pkg> add $line", read(joinpath(root, "docs", "src", "guide", "getting-started.md"), String))
 
     # The stack packages are developed by path: a released Core need not hold
     # what this checkout's Estimation calls.
@@ -55,11 +57,12 @@
     using Test
     @testset "README example" begin
         # The comments' claims: the 32 true correspondences are the inliers,
-        # and the estimate is the true homography up to scale.
+        # and the estimate is the true homography up to scale. The data are
+        # noise-free, so the 2 px threshold keeps the same inliers.
         @test count(readme.result.inlier_mask) == 32
         @test !any(readme.result.inlier_mask[1:8])
         @test readme.H ./ readme.H[3, 3] ≈ Matrix(readme.H_true)
-        @test readme.result_2px isa typeof(readme.result)
+        @test readme.result_2px.inlier_mask == readme.result.inlier_mask
     end
     """)
     # Base.julia_cmd() carries the test run's flags (--depwarn=error, coverage).

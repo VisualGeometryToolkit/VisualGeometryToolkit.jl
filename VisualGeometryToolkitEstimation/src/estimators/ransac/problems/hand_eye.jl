@@ -24,12 +24,7 @@
 #     RigidExpManifold6 (ForwardDiff Jacobian); default strategy Irls{TLSShape}.
 # =============================================================================
 
-# Hand-eye currency is generic rigid motion (relative motions A_ij, B_ij and
-# the calibration X = T_RP) — NOT camera extrinsics, so the labeled
-# `Extrinsics3` (WorldFrame→CameraFrame) would be semantically wrong and its
-# frame checks would reject the `inv(A[j]) ∘ A[i]` motion algebra. Local
-# UNLABELED concrete alias (same layout as the retired VGC Pose3 alias);
-# honest labels await VGC 0.8 view-identity frames.
+# Honest frame labels for the hand-eye motions await VGC 0.8 view-identity frames.
 """
     Rigid3
 
@@ -37,8 +32,10 @@ The unlabeled rigid motion of hand-eye calibration: a concrete
 `EuclideanMap{3, Float64}` with a `RotMatrix{3}` rotation and a `Vec3`
 translation between two `UnlabeledFrame{3}`s. It is the model type of
 [`HandEyeProblem`](@ref), the currency of its relative motions `(A_ij, B_ij)`,
-and the estimate of [`find_hand_eye`](@ref). The translation is in the caller's
-length unit (the unit of the motions' translations).
+and the estimate of [`find_hand_eye`](@ref) on plain poses. Its translation is a
+plain number in the poses' own length unit; for physical poses (translations in
+lengths) `find_hand_eye` returns the same map with its translation in metres,
+not a `Rigid3`.
 
 Not a camera extrinsics: the motion algebra `inv(A[j]) ∘ A[i]` composes maps
 whose frames a labeled `Extrinsics3` would reject.

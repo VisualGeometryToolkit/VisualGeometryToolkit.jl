@@ -9,9 +9,9 @@ VisualGeometryToolkitEstimation provides robust estimation for geometric
 vision: one generic RANSAC loop and the estimation problems of the
 VisualGeometryToolkit packages, from lines, homographies, fundamental and
 essential matrices and absolute pose to radial cameras and hand-eye
-calibration. Every `find_*` pipeline runs MSAC scoring with a least-squares
-refit on the inliers by default, and other scorers and local optimizers plug
-in by keyword.
+calibration. Every `find_*` pipeline runs MSAC scoring and refits the model on
+the inliers by default (least squares for most problems), and other scorers
+and local optimizers plug in by keyword.
 
 ## Installation
 

@@ -8,9 +8,9 @@ VisualGeometryToolkitEstimation provides robust estimation for geometric
 vision: one generic RANSAC loop and the estimation problems of the
 VisualGeometryToolkit packages, from lines, homographies, fundamental and
 essential matrices and absolute pose to radial cameras and hand-eye
-calibration. Every `find_*` pipeline runs MSAC scoring with a least-squares
-refit on the inliers by default, and other scorers and local optimizers plug
-in by keyword.
+calibration. Every `find_*` pipeline runs MSAC scoring and refits the model on
+the inliers by default (least squares for most problems), and other scorers
+and local optimizers plug in by keyword.
 
 ## What it provides
 
@@ -20,11 +20,14 @@ in by keyword.
   reused [`RansacWorkspace`](@ref). Two-level gating, adaptive trial counts,
   PROSAC ordered sampling. See [RANSAC](guide/ransac.md).
 - **Core defaults**: every `find_*` runs VisualGeometryToolkitCore's MSAC
-  (`MsacScoring(problem; threshold)`) with least squares on the inliers
-  ([`Irls`](@ref)`{TLSShape}`, following the scorer's threshold). The
-  per-class thresholds are pixel conventions (homography, fundamental matrix
-  and the radial classes 3 px, essential matrix 1 px, absolute pose 8 px;
-  hand-eye `0.01·L`). See [Fitting Algorithms](guide/fitting.md).
+  (`MsacScoring(problem; threshold)`) and a local optimization read from
+  `configs/default.toml`: least squares on the inliers
+  ([`Irls`](@ref)`{TLSShape}`, following the scorer's threshold) for most
+  problems, the robustified chart LM [`Triggs`](@ref) for the circle and the
+  ellipse. The per-class thresholds are conventions (homography, fundamental
+  matrix and the radial classes 3 px; essential matrix, rotation, circle and
+  ellipse 1 px; absolute pose 8 px; hand-eye `0.01·L`). See
+  [Fitting Algorithms](guide/fitting.md).
 - **Composition**: bring a scorer and a strategy from other packages by
   keyword — `scoring = StudentTUniformScoring(problem, a)` from
   RANSACScoringDoneRight, `local_optimization = HQ{WelschShape}(…)`,

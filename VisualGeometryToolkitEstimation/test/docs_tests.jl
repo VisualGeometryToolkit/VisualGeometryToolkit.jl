@@ -3,8 +3,8 @@
 # none (`Rigid3` had none), a docstring detached from its definition by a blank
 # or comment line (Julia 1.12 makes it a bare string: `RansacWorkspace`'s
 # constructors lost theirs that way) and a signature line that drifted from the
-# methods (a removed keyword) all pass it. The General registration review asks
-# for every public name to be documented (#173032).
+# methods (a removed keyword) all go unnoticed by it. The General registration
+# review asks for every public name to be documented (#173032).
 #
 # Two lists, kept apart:
 # - EXCEPTIONS: a name that is not documented here ON PURPOSE, with its reason.

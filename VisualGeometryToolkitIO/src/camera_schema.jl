@@ -253,12 +253,29 @@ camera_from_json(body, frame::Type{<:PixelFrame}) = _camera_from_body(body, fram
 #   n_images          how many images the fit used
 #   n_points          how many image points the fit used
 #   note              free text
+#   device            the hardware it was made for: `{"body": {…}, "lens": {…}}`,
+#                     each a VGC `DeviceIdentity` (`make`, `model`, `serial`,
+#                     each stated or omitted); in the value
+#                     `(; body::DeviceIdentity, lens::DeviceIdentity)`
 #
 # Unlike the file's free-form `provenance`, which VGIo never reads, the block
-# is part of the value: an unknown key is refused like any other.
+# is part of the value: an unknown key is refused like any other. A block
+# without `device` (every file before it) reads as it did.
 
-const _CALIBRATION_KEYS = (:tool, :source, :date, :reprojection_rms, :n_images, :n_points, :note)
-const _CALIBRATION_TYPES = (String, String, String, Float64, Int, Int, String)
+const _CALIBRATION_KEYS = (:tool, :source, :date, :reprojection_rms, :n_images, :n_points, :note, :device)
+# Each key's reader, wire value → the value's (a type converts a scalar)
+const _CALIBRATION_READERS = (String, String, String, Float64, Int, Int, String, x -> _device_from_json(x))
+
+# A DeviceIdentity on the wire: its stated fields, the unknown ones omitted.
+const _DEVICE_IDENTITY_FIELDS = Pair{Symbol, _Spec}[:make => _NonEmpty(), :model => _NonEmpty(), :serial => _NonEmpty()]
+const _DEVICE_IDENTITY = _Obj(Pair{Symbol, _Spec}[], _DEVICE_IDENTITY_FIELDS)
+_identity_json(d::DeviceIdentity) =
+    NamedTuple(k => v for (k, v) in ((:make, d.make), (:model, d.model), (:serial, d.serial)) if v !== nothing)
+_identity_from_json(x) = DeviceIdentity(get(x, :make, nothing), get(x, :model, nothing), get(x, :serial, nothing))
+_device_json(d) = (body = _identity_json(d.body), lens = _identity_json(d.lens))
+_device_from_json(x) = (body = _identity_from_json(x.body), lens = _identity_from_json(x.lens))
+const _Device = NamedTuple{(:body, :lens), <:Tuple{DeviceIdentity, DeviceIdentity}}   # a calibration's device, in the value
+_is_device(d) = d isa _Device
 
 # The checks the field types cannot make — on write and on read.
 function _calibration_check(x)
@@ -282,6 +299,9 @@ function _calibration_check(x)
         v = get(x, k, nothing)
         (v isa Integer && v <= 0) && return "`$(k)` is a positive count, got $(v)"
     end
+    d = get(x, :device, nothing)
+    (x isa NamedTuple && d !== nothing && !_is_device(d)) &&
+        return "`device` is `(; body::DeviceIdentity, lens::DeviceIdentity)`, got $(repr(d))"
     return nothing
 end
 
@@ -291,19 +311,21 @@ const _CALIBRATION = _Checked(
         Pair{Symbol, _Spec}[
             :tool => _NonEmpty(), :source => _NonEmpty(), :date => _NonEmpty(), :reprojection_rms => _Real(),
             :n_images => _PosInt(), :n_points => _PosInt(), :note => _NonEmpty(),
+            :device => _Obj(:body => _DEVICE_IDENTITY, :lens => _DEVICE_IDENTITY),
         ],
     ),
     _calibration_check,
 )
 
 # The block as the value holds it: the stated keys in declaration order, typed.
-_calibration_from_json(x) = NamedTuple(
-    k => convert(T, x[k]) for (k, T) in zip(_CALIBRATION_KEYS, _CALIBRATION_TYPES) if haskey(x, k)
-)
+_calibration_from_json(x) = NamedTuple(k => read(x[k]) for (k, read) in zip(_CALIBRATION_KEYS, _CALIBRATION_READERS) if haskey(x, k))
+# …and back: a scalar as it is, a device as its two identities
+_calibration_value_json(v) = v
+_calibration_value_json(d::_Device) = _device_json(d)
 function _calibration_json(c::NamedTuple, what::AbstractString = "a camera's calibration block")
     msg = _calibration_check(c)
     msg === nothing || throw(ArgumentError("$(what): $(msg)"))
-    return NamedTuple(k => getfield(c, k) for k in _CALIBRATION_KEYS if haskey(c, k))
+    return NamedTuple(k => _calibration_value_json(getfield(c, k)) for k in _CALIBRATION_KEYS if haskey(c, k))
 end
 
 # -----------------------------------------------------------------------------

@@ -91,7 +91,10 @@ on any file.
 may carry an optional `calibration` block, and a target a
 `calibration_record`, with the keys `tool`, `source` (a file or record name,
 never a machine path), `date` (`YYYY-MM-DD`), `reprojection_rms` (in px),
-`n_images`, `n_points` and `note`. Each key is omitted when it is unknown. In
+`n_images`, `n_points`, `note` and `device`, the hardware the calibration was
+made for: `{"body": {…}, "lens": {…}}`, each a `DeviceIdentity` (`make`,
+`model`, `serial`; in memory `(; body, lens)`), since a camera model itself
+holds no names. Each key is omitted when it is unknown. In
 memory the block is the value's attribute,
 `Attributed(camera, (; calibration = (; tool = …, …)))` and
 `Attributed(target, (; calibration_record = …))`, and it is read back exactly.

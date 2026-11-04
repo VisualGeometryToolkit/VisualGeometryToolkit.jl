@@ -111,6 +111,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     Point2, FeatureFrame, Disc, OrientedDisc, EllipticFrame, AffineFrame, AbstractDetection,
     relabel, ids, pose, extrinsics, reference_frame, model, extent, points
 import VisualGeometryToolkitCore
+using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings   # capture_settings/v1, a calibration's device
 
 # =============================================================================
 # The I/O surface: TWO verbs, dispatched on the VGC type.
@@ -133,6 +134,7 @@ import VisualGeometryToolkitCore
 #   load(TargetPoses, path)                      vgio/target_poses/v1
 #   load(TargetPoints2D, path)                   vgio/target_points2d/v1 (or a Schöps dataset.bin; `target`)
 #   load(TargetPoints3D, path)                   vgio/target_points3d/v1
+#   load(CaptureSettings, path)                  vgio/capture_settings/v1 (Attributed with its identities' sources)
 #   load(CentralGenericModel | NoncentralGenericModel, path)   the Schöps grid models (vgio JSON, or Schöps' intrinsics0.yaml)
 #   load(ColmapModel, dir; contract = nothing)   COLMAP model directory (foreign)
 #   ColmapDatabase(dbpath)                       COLMAP sqlite database (lazy handle, read-only)
@@ -171,6 +173,7 @@ include("camera_schema.jl")
 include("generic_camera_schema.jl")  # the Schöps grid models (must precede rig_schema: sensors embed it)
 include("rig_schema.jl")
 include("captures_schema.jl")  # trajectory/v3, target_poses/v1, target_points2d/v1, target_points3d/v1: VGC's captures
+include("capture_settings_schema.jl")  # capture_settings/v1: the camera's settings per frame, the body and lens identities
 include("schoeps.jl")      # Schöps et al.'s camera_calibration files (intrinsics0.yaml, dataset.bin), read through `load`
 include("correspondences.jl")  # export: measurements + targets → per-(frame, target) point arrays for external calibrators
 include("assemble.jl")

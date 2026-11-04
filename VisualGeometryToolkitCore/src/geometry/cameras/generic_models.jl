@@ -855,7 +855,11 @@ control `d` at the anchor: 2 coordinates, `(t₁ t₂)` as its block of
 `retract_jacobian`, and `local_coordinates` the offset's dot products with
 `t₁` and `t₂`. A move along the ray leaves the node's line where it is, so this
 chart drops the one coordinate of [`AdditivePoints`](@ref) that does not move
-the line.
+the line: `local_coordinates` of a point moved along its ray is the move's
+projection onto `(t₁, t₂)`, the component along the ray dropped. The tangents
+are off the z = 0 plane where the ray is off axis, so a pupil-plane model's
+points leave their plane under this chart; hold them on it with
+`AdditivePoints` and a `restrict` mask on `Δz`.
 """
 struct RayNormalPoints <: ControlPointChart end
 
@@ -879,7 +883,7 @@ by `point_chart` (a [`ControlPointChart`](@ref)): additively, 3 coordinates
 The coordinates are per control, column-major over the block: `(δ₁, δ₂)` each,
 `(δ₁, δ₂, Δx, Δy, Δz)` with additive points or `(δ₁, δ₂, a, b)` with ray-normal
 points — [`restrict`](@ref) them by mask to hold some fixed (a pupil-plane
-model's `Δz`). `model(ch)` is `(; directions, points)` (`points` is `nothing`
+model's `Δz`, with additive points). `model(ch)` is `(; directions, points)` (`points` is `nothing`
 for a central patch, whose `point_chart` is unused); `retract_jacobian(ch)` is
 block diagonal, `(t₁ t₂)` per direction and the point chart's block per point.
 """

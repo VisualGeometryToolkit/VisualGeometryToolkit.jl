@@ -108,8 +108,9 @@ end
     using Test
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: ChartSpline, SplineProjection, Lens, Equidistant, Backprojection, Equirectangular, Rect2,
-        WholePlane, BoundedMap
+        WholePlane, BoundedMap, Ellipse
     using CoordinateTransformations: LinearMap, AffineMap
+    using GeometryBasics: GeometryBasics
     using Adapt: adapt
     using StaticArrays
     using LinearAlgebra: I
@@ -125,6 +126,11 @@ end
     src = rand(MersenneTwister(5), 1000, 1000)
     host = image_warp!(zeros(64, 64), image_warp(Float64, sp ∘ Backprojection(Equirectangular()) ∘ to_angles, Rect(0, 0, 64, 64)), src)
     @test count(!iszero, host) > 4000                                                  # the warp samples the source
+    # the device form keeps an isbits region and leaves one holding arrays behind (WholePlane)
+    disc = Ellipse(SVector(500.0, 500.0), 400.0, 400.0, 0.0)
+    @test adapt(Array, SplineProjection(chart, sp.spline, disc)).region == disc
+    poly = GeometryBasics.Polygon([GeometryBasics.Point2(0.0, 0.0), GeometryBasics.Point2(1.0, 0.0), GeometryBasics.Point2(1.0, 1.0)])
+    @test adapt(Array, SplineProjection(chart, sp.spline, poly)).region isa WholePlane
 
     cuda = try
         m = Base.require(Main, :CUDA)

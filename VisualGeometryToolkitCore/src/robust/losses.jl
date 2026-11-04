@@ -594,8 +594,10 @@ and not their median, use `noise_sigma(abs.(r), 1)`. ArgumentError for an
 empty `x` (Statistics' `median`).
 """
 function mad_scale(x)
-    m = Statistics.median(x)
-    return Statistics.median!(abs.(x .- m)) / _NORMAL_Q75
+    y = collect(float(eltype(x)), x)     # the one working copy, of any iterable of reals (an SVector, a tuple)
+    m = Statistics.median!(y)
+    y .= abs.(y .- m)                    # median! reorders y; the deviations do not depend on the order
+    return Statistics.median!(y) / _NORMAL_Q75
 end
 const _NORMAL_Q75 = Distributions.quantile(Distributions.Normal(), 0.75)   # Φ⁻¹(3/4), the MAD's consistency constant
 

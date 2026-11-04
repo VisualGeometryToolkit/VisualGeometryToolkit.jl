@@ -59,14 +59,13 @@ extent(::HasBounds, bm::BoundedMap) = bm.rect
 @inline (bm::BoundedMap)(p) = bm.map(p)
 
 # The device form of a warp: each link of the chain adapted (a SplineProjection's
-# control grid to the device), the rect kept. The chain — either spelling, as
-# image_warp's walkers take it — is walked by Core's own helper: an
-# `adapt_structure` method on CoordinateTransformations' `ComposedTransformation`
-# or Base's `ComposedFunction` would be type piracy. Rebuilt link for link, never
-# through `∘`, which would merge adjacent affine links.
+# control grid to the device), the rect kept. The chain is walked by Core's own
+# helper: an `adapt_structure` method on CoordinateTransformations'
+# `ComposedTransformation` would be type piracy. (A map of a BoundedMap is a
+# `Transformation`, so Base's `ComposedFunction` never occurs in one.) Rebuilt
+# link for link, never through `∘`, which would merge adjacent affine links.
 _adapt_chain(to, c::CoordinateTransformations.ComposedTransformation) =
     CoordinateTransformations.ComposedTransformation(_adapt_chain(to, c.t1), _adapt_chain(to, c.t2))
-_adapt_chain(to, c::ComposedFunction) = ComposedFunction(_adapt_chain(to, c.outer), _adapt_chain(to, c.inner))
 _adapt_chain(to, t) = Adapt.adapt(to, t)
 Adapt.adapt_structure(to, bm::BoundedMap) = BoundedMap(_adapt_chain(to, bm.map), bm.rect)
 

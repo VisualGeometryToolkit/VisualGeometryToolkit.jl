@@ -54,6 +54,11 @@
         @test VgtkCore.mad_scale(x) ≈ 0.37 rtol = 0.02                  # a bias cancels
         @test VgtkCore.mad_scale(x .+ 5) ≈ VgtkCore.mad_scale(x) rtol = 1.0e-12
         @test VgtkCore.mad_scale(Float32[1, 2, 3, 4, 100]) ≈ 1.4826 rtol = 2.0e-6
+        @test VgtkCore.mad_scale(SVector(1.0, 2.0, 3.0, 4.0, 100.0)) == VgtkCore.mad_scale((1, 2, 3, 4, 100)) ==
+            VgtkCore.mad_scale([1.0, 2.0, 3.0, 4.0, 100.0])                 # any iterable of reals
+        y = [5.0, 1.0, 4.0]
+        VgtkCore.mad_scale(y)
+        @test y == [5.0, 1.0, 4.0]                                           # the input is not reordered
         @test noise_sigma(abs.(x), 1) > 3 * 0.37                         # the uncentred scale counts the offset as noise
         @test_throws ArgumentError VgtkCore.mad_scale(Float64[])
     end

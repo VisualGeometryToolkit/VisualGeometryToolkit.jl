@@ -108,6 +108,11 @@ is the camera semantics: `nothing` when the ray's chart point lies more than
 one knot cell outside the spline's chart area (where the continuation would
 extrapolate, and can fold back into the region), or when the pixel does not
 lie in `region` (or is not finite).
+
+Its device form (`Adapt.adapt(backend, sp)`) moves the spline's controls to the
+device; an isbits `region` travels with it, any other (one holding arrays) is
+left behind as `WholePlane()`, as a grid model's domain is. `sp(X)` does not
+read the region, so a warp through it is unchanged.
 """
 struct SplineProjection{C, S <: ChartSpline{2}, R} <: CoordinateTransformations.Transformation
     chart::C
@@ -116,7 +121,7 @@ struct SplineProjection{C, S <: ChartSpline{2}, R} <: CoordinateTransformations.
 end
 
 Adapt.adapt_structure(to, sp::SplineProjection) =
-    (s = Adapt.adapt(to, sp.spline); SplineProjection(sp.chart, s, sp.region))
+    (s = Adapt.adapt(to, sp.spline); SplineProjection(sp.chart, s, _device_domain(sp.region)))
 
 (sp::SplineProjection)(X::StaticVector{3, <:Real}) = sp.spline(sp.chart(X))
 

@@ -142,8 +142,12 @@ function save_correspondences(
     if !isempty(obs.targets)
         given = sort!(_target_hashes(list))
         # an old rig file is also named by the identities its version gave it
-        old = Dict(reduce(vcat, [_old_id_map(t) for t in list]; init = Pair{String, String}[]))
-        sort!([get(old, t, t) for t in obs.targets]) == given || throw(
+        named = sort(obs.targets)
+        if named != given
+            old = Dict(reduce(vcat, [_old_id_map(t) for t in list]; init = Pair{String, String}[]))
+            named = sort!([get(old, t, t) for t in obs.targets])
+        end
+        named == given || throw(
             ArgumentError("the measurements resolve against the targets $(sort(obs.targets)); the targets given are $(given)")
         )
     end

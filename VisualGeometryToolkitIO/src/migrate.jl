@@ -265,7 +265,6 @@ function migrate_schema end
 # Whether a schema has a file migration (`vgio_migrate`), a step (the readers).
 _has_migration(s::AbstractString) = hasmethod(migrate_schema, Tuple{Val{Symbol(s)}, String, String})
 _has_record_migration(s::AbstractString) = hasmethod(migrate_schema, Tuple{Val{Symbol(s)}, Dict{String, Any}})
-_has_record_migration(s) = false
 
 """
     migrate_record(tree) -> Dict{String, Any}
@@ -281,8 +280,7 @@ step that does not move the version, and whatever a step refuses.
 """
 function migrate_record(tree::AbstractDict)
     t = _lower(tree)
-    while _has_record_migration(get(t, "schema", nothing))
-        s = t["schema"]
+    while (s = get(t, "schema", nothing)) isa AbstractString && _has_record_migration(s)
         t = _lower(migrate_schema(Val(Symbol(s)), t))
         get(t, "schema", nothing) == s && throw(ArgumentError("the migration step of $(s) returned a $(s) record"))
     end
@@ -465,10 +463,13 @@ _same_file_extras(new::AbstractDict, old::AbstractDict) =
 # `calibration` block its `calibration_record`.
 const _TARGET_BODY_RENAMES = ("warp" => "calibration", "design" => "reference")
 _renamed(d::AbstractDict, renames) = Dict{String, Any}(get(Dict(renames), k, k) => v for (k, v) in d)
+# A version step's refusal of a record holding what only a later version holds
+# (a current record relabeled old): that version did not write it.
+_not_written_by(record, why) = throw(ArgumentError("$(record) $(why), so this record was not written by them"))
 function _body_v1_to_v2(b)
     # a key of the later records was never a v1/v4 body's (its renames would collide)
-    for (_, new) in _TARGET_BODY_RENAMES
-        haskey(b, new) && throw(ArgumentError("a vgio/target/v1 or vgio/rig/v4 target holds no $(repr(new)) (v1 named it by its v1 key), so this record was not written by them"))
+    for (old, new) in _TARGET_BODY_RENAMES
+        haskey(b, new) && _not_written_by("a vgio/target/v1 or vgio/rig/v4 target", "holds no $(repr(new)) (v1 named it $(repr(old)))")
     end
     return _renamed(b, _TARGET_BODY_RENAMES)
 end
@@ -504,7 +505,7 @@ function _check_v1_warp(body::AbstractDict)
 end
 # the v2 target record of a v1 one (v1 held rigid targets only: no composition)
 function _target_v1_to_v2(old)
-    haskey(old, "calibration_record") && throw(ArgumentError("a vgio/target/v1 record holds no \"calibration_record\" (v1 named it \"calibration\"), so this record was not written by them"))
+    haskey(old, "calibration_record") && _not_written_by("a vgio/target/v1 record", "holds no \"calibration_record\" (v1 named it \"calibration\")")
     _check_v1_warp(old["target"])
     body = _renamed(old, ("calibration" => "calibration_record",))
     body["schema"] = "vgio/target/v2"
@@ -583,7 +584,7 @@ end
 # A v2 calibration record (a kind, a chain, an affine) as its v3 record.
 function _calibration_v2_to_v3(c::AbstractDict)
     ty = get(c, "type", nothing)
-    ty == _COMPOSITION_TYPE && throw(ArgumentError("a target v2 / rig v5 calibration is never a \"$(_COMPOSITION_TYPE)\" (v2/v5 held a \"$(_RETIRED_COMPOSITION_TYPE)\"), so this record was not written by them"))
+    ty == _COMPOSITION_TYPE && _not_written_by("a target v2 / rig v5 calibration", "is never a \"$(_COMPOSITION_TYPE)\" (v2/v5 held a \"$(_RETIRED_COMPOSITION_TYPE)\")")
     ty in (_RETIRED_COMPOSITION_TYPE, "affine") || return c
     parts = [_member_v2_to_v3(r) for r in (ty == "affine" ? Any[c] : c["members"])]
     out = Dict{String, Any}(k => v for (k, v) in c if !(k in ("type", "members", "parameters", "covariance")))
@@ -638,8 +639,10 @@ end
 # A lens record in the other form: v3/v5's "chain" (application order) as
 # v4/v6's "compose" (CT's order, the outer first), and back; any other lens
 # record as it is.
-_lens_v3_to_v4(l::AbstractDict) = (_holds_key(l, _COMPOSE_KEY) && throw(ArgumentError("a cameras v3 / rig v5 lens record holds no \"$(_COMPOSE_KEY)\" (v3/v5 listed its stages under \"chain\"), so this record was not written by them"));
-    _relisted(l, "chain", _COMPOSE_KEY))
+function _lens_v3_to_v4(l::AbstractDict)
+    _holds_key(l, _COMPOSE_KEY) && _not_written_by("a cameras v3 / rig v5 lens record", "holds no \"$(_COMPOSE_KEY)\" (v3/v5 listed its stages under \"chain\")")
+    return _relisted(l, "chain", _COMPOSE_KEY)
+end
 _lens_v4_to_v3(l::AbstractDict) = _relisted(l, _COMPOSE_KEY, "chain")
 _lens_v3_to_v4(l) = l
 _lens_v4_to_v3(l) = l
@@ -703,7 +706,7 @@ function _lens_v1_to_v2(l::AbstractDict)
         P, Q = Int(p[1]), Int(p[2])
         length(p) == 2 + P + Q ||
             throw(ArgumentError("a v1 $(model) lens of degrees [$(P), $(Q)] holds $(2 + P + Q) params; got $(length(p))"))
-        names = P == 0 ? ["k$(j)" for j in 1:Q] : vcat(["num$(i)" for i in 1:P], ["den$(j)" for j in 1:Q])
+        names = P == 0 ? _numbered("k", Q) : vcat(_numbered("num", P), _numbered("den", Q))
         return Dict{String, Any}("model" => P == 0 ? "division" : "rational_radial", "params" => _v2_params(names, p[3:end]))
     end
     haskey(_V1_LENS_MODELS, model) || throw(
@@ -720,10 +723,12 @@ end
 # model's (v2's own check); the degrees of the division and rational models
 # are how many it names.
 _count_named(have, prefix) = count(n -> occursin(Regex("^$(prefix)\\d+\$"), n), have)
-_v2_lens_names(tag, have) = tag == "division" ? ["k$(j)" for j in 1:_count_named(have, "k")] :
-    tag == "rational_radial" ? vcat(["num$(i)" for i in 1:_count_named(have, "num")], ["den$(j)" for j in 1:_count_named(have, "den")]) :
-    last(only(v for v in values(_V1_LENS_MODELS) if first(v) == tag))
-const _V2_LENS_TAGS = vcat(sort!([first(v) for v in values(_V1_LENS_MODELS)]), ["division", "rational_radial"])
+_numbered(prefix, n) = ["$(prefix)$(i)" for i in 1:n]
+const _V2_FIXED_LENS_NAMES = Dict(tag => names for (tag, names) in values(_V1_LENS_MODELS))
+_v2_lens_names(tag, have) = tag == "division" ? _numbered("k", _count_named(have, "k")) :
+    tag == "rational_radial" ? vcat(_numbered("num", _count_named(have, "num")), _numbered("den", _count_named(have, "den"))) :
+    _V2_FIXED_LENS_NAMES[tag]
+const _V2_LENS_TAGS = vcat(sort!(collect(keys(_V2_FIXED_LENS_NAMES))), ["division", "rational_radial"])
 function _lens_v2_to_v3(l::AbstractDict)
     (Set(keys(l)) == Set(("model", "params")) && l["params"] isa AbstractDict) ||
         throw(ArgumentError("a vgio/cameras/v2 lens is {\"model\", \"params\": {…}}; got the keys $(sort!(collect(keys(l))))"))
@@ -869,11 +874,12 @@ _old_rig_ids(s, old, value, new_id) =
 # current file.
 _old_id_map(::Rig) = Pair{String, String}[]
 function _old_id_map(p::AbstractString)
-    s = _peek_schema(p)
+    old = _raw_tree(p)
+    s = get(old, "schema", nothing)
     s in ("vgio/rig/v4", "vgio/rig/v5") || return Pair{String, String}[]
     value = load(Rig, p)
     new_id = content_id(value)
-    return [o => new_id for o in _old_rig_ids(s, _raw_tree(p), value, new_id) if o != new_id]
+    return [o => new_id for o in _old_rig_ids(s, old, value, new_id) if o != new_id]
 end
 
 # v5's content identity of a rig: the current tree of its value, but for each
@@ -1239,11 +1245,7 @@ function _write_ids(p, ids::AbstractDict)
     return nothing
 end
 # Whether a schema is its kind's current version.
-function _is_current(s::AbstractString)
-    m_ = match(r"^vgio/([a-z0-9_]+)/v(\d+)$", s)
-    m_ === nothing && return false
-    return s == _schema(String(m_[1]::AbstractString))
-end
+_is_current(s::AbstractString) = (v = _split_schema(s); v !== nothing && s == _schema(v.kind))
 _try_schema(f) = try
     s = _peek_schema(f)
     s isa String ? s : nothing

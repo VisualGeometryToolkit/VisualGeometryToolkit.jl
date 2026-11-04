@@ -300,18 +300,21 @@ function _read_store(path::AbstractString, kind::AbstractString, spec::_Spec)
     d = _read_vgio_json(path)                 # a non-finite number is refused by its field
     d isa AbstractDict || throw(ArgumentError("$(path): not a JSON object"))
     s = get(d, :schema, nothing)
-    (_is_earlier_version(s, kind) && _has_record_migration(s)) && (d = _migrated_on_load(d, path, kind, s))
+    s == _schema(kind) || (_reads_through_migration(s, kind) && (d = _migrated_on_load(d, path, kind, s)))
     get(d, :schema, nothing) == _schema(kind) || _refuse_schema(path, kind, s)
     _refuse_payload(path, d)
     _validate(spec, d, path, "")
     return d
 end
 
-# Whether `s` names an earlier version of `kind`.
-function _is_earlier_version(s, kind::AbstractString)
+# A vgio schema string's kind and version, or `nothing`.
+function _split_schema(s)
     m = s isa AbstractString ? match(r"^vgio/([a-z0-9_]+)/v(\d+)$", s) : nothing
-    return m !== nothing && m[1] == kind && parse(Int, m[2]::AbstractString) < _schema_version(kind)
+    return m === nothing ? nothing : (kind = String(m[1]::AbstractString), version = parse(Int, m[2]::AbstractString))
 end
+# Whether `s` names an earlier version of `kind`, and one its version steps read.
+_is_earlier_version(s, kind::AbstractString) = (v = _split_schema(s); v !== nothing && v.kind == kind && v.version < _schema_version(kind))
+_reads_through_migration(s, kind::AbstractString) = _is_earlier_version(s, kind) && _has_record_migration(s)
 
 # An old file's record through its version steps, parsed again from its JSON
 # text, so the reader meets what it meets in a current file. Silent: an old
@@ -377,15 +380,14 @@ are the exporters'.
 function validate(path::AbstractString)
     file = isdir(path) ? joinpath(path, UNITS_SIDECAR) : path
     s = _peek_schema(file)
-    m = s isa AbstractString ? match(r"^vgio/([a-z0-9_]+)/v(\d+)$", s) : nothing
-    if m !== nothing
-        kind = String(m[1]::AbstractString)
-        spec = _spec(kind)
-        if spec !== nothing && (s == _schema(kind) || (_is_earlier_version(s, kind) && _has_record_migration(s)))
-            _read_store(file, kind, spec)
-            return kind
+    v = _split_schema(s)
+    if v !== nothing
+        spec = _spec(v.kind)
+        if spec !== nothing && (s == _schema(v.kind) || _reads_through_migration(s, v.kind))
+            _read_store(file, v.kind, spec)
+            return v.kind
         end
     end
-    m !== nothing && _spec(String(m[1]::AbstractString)) !== nothing && _refuse_schema(file, String(m[1]::AbstractString), s)
+    v !== nothing && _spec(v.kind) !== nothing && _refuse_schema(file, v.kind, s)
     throw(ArgumentError("$(file): not a vgio file (schema $(repr(s)))"))
 end

@@ -35,6 +35,14 @@
         image_sample!(out, src, pts; fillvalue = 0.25f0)
         @test maximum(abs.(out .- dst)) < 1.0e-6
     end
+    @testset "integer points are floated at entry" begin
+        pts = [SVector(4, 2), SVector(0, 0), SVector(39, 29)]
+        out = zeros(Float32, 3)
+        image_sample!(out, src, pts)
+        ref = zeros(Float32, 3)
+        image_sample!(ref, src, [SVector{2, Float64}(p) for p in pts])
+        @test out == ref
+    end
     @testset "sizes must agree" begin
         @test_throws DimensionMismatch image_sample!(zeros(Float32, 3), src, [SVector(1.0, 1.0)])
         @test image_sample!(Float32[], src, SVector{2, Float64}[]) == Float32[]

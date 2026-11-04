@@ -1,6 +1,6 @@
 # VisualGeometryToolkitIO changelog
 
-## 0.5.0 (unreleased)
+## 0.5.0 (2026-11-04)
 
 Breaking: the target and rig records bump with VisualGeometryToolkitCore
 0.5's composition (CoordinateTransformations' `∘`) and its gauge-free target

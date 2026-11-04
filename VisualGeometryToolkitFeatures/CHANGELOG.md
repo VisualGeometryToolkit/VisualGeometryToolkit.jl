@@ -1,6 +1,6 @@
 # VisualGeometryToolkitFeatures changelog
 
-## 0.4.1 (unreleased)
+## 0.4.1 (2026-11-04)
 
 - **New `load_raw(path; mode, gain = 1, decoder = LibRawDecoder())`**: a camera
   RAW file (any Bayer format LibRaw reads) as exact linear values,

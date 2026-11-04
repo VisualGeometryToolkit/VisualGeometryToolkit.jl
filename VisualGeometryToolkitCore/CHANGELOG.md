@@ -1,6 +1,37 @@
 # VisualGeometryToolkitCore changelog
 
-## 0.5.0 (unreleased)
+## 0.5.1 (2026-11-04)
+
+Additive.
+
+- **`ControlPatchManifold`'s ray-normal point chart.** A trailing
+  `ControlPointChart` argument chooses how a non-central patch's point
+  controls move: `AdditivePoints()` (the default, `p + (Δx, Δy, Δz)`, as
+  before) or the new `RayNormalPoints()`, `p + a·t₁ + b·t₂` with
+  `(t₁, t₂) = direction_tangents(normalize(d))` of the node's own direction
+  control: 4 coordinates per non-central node `(δ₁, δ₂, a, b)`, with
+  `retract`, `retract_jacobian` (`(t₁ t₂)` per point) and `local_coordinates`
+  (the offset's dot products with `t₁`, `t₂`). Public, not exported:
+  `ControlPointChart`, `AdditivePoints`, `RayNormalPoints`.
+- **A grid lens renders on a GPU.** `Adapt.adapt_structure` for `BoundedMap`
+  adapts its map's `ComposedTransformation` chain link by link, so a
+  `SplineProjection` in an `image_warp` chain reaches `image_warp!`'s kernel
+  with its control grid on the device; `ChartSpline`'s device form skips the
+  validating constructor (KernelAbstractions' `@Const` re-adapts inside the
+  kernel, where its error message cannot compile). The device warp equals
+  the host warp.
+- **`cubic_bspline_weights(u)`** (public, not exported): the four weights of
+  a uniform cubic B-spline span at its local coordinate `u ∈ [0, 1)`,
+  kernel-lawful (in `u`'s type, no allocation, no branch). It is the private
+  `_cubic_weights` renamed, whose callers (the grid models' windows,
+  `spline_weights`, `ChartSpline`) form `u` exactly as before: their weights
+  are unchanged, bit for bit.
+- **`mad_scale(x)`** (public, not exported): the centred, normal-consistent
+  median absolute deviation `median(|x − median(x)|) / Φ⁻¹(3/4)` (1.4826·MAD,
+  the constant exact). `noise_sigma` remains the uncentred median of residual
+  norms.
+
+## 0.5.0 (2026-11-04)
 
 Breaking: one composition, CoordinateTransformations' `∘`, replaces the two
 chain types, and CT's conventions hold for it.

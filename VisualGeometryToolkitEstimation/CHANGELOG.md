@@ -1,6 +1,6 @@
 # VisualGeometryToolkitEstimation changelog
 
-## 0.6.0 (unreleased)
+## 0.6.0 (2026-11-04)
 
 - **`fit_camera(T, source, region; …)`: one model-to-model regression** —
   the camera model of type `T` regressed onto `source` over `region` (Core's

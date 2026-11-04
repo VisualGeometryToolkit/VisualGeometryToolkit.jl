@@ -120,5 +120,9 @@
         c = Circle(Point2(50.0, 30.0), 35.0)
         @test all(p -> (SVector(p[1], p[2]) ∈ c) == (p ∈ Ellipse(c)), grid)
         @test SVector(85.0, 30.0) ∈ c && Point2(85.0, 30.0) ∈ c && SVector(85.5, 30.0) ∉ c
+        # one rule at the boundary: bare, through ∩ and as its Ellipse, point for point
+        rim = [Point2(50.0 + 35.0 * cos(t), 30.0 + 35.0 * sin(t)) for t in range(0, 2π; length = 2001)]
+        big = Rect(-100, -100, 300, 300)                                # holds the whole disc
+        @test all(p -> (p ∈ c) == (SVector(p[1], p[2]) ∈ c) == (p ∈ Ellipse(c)) == (p ∈ big ∩ c), rim)
     end
 end

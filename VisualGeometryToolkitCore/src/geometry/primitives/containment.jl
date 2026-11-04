@@ -73,15 +73,16 @@ end
     Base.in(p::StaticVector{2}, c::Circle) -> Bool
 
 Whether the point `p` (any `StaticVector{2}`) lies in the closed disc of `c`:
-`‖p − centre‖ ≤ r`, GeometryBasics' rule for its own `Point`s. GeometryBasics
-defines `in(::Point, ::HyperSphere)` only, so an `SVector` fell through to
-Base's iteration.
+exactly `p ∈ Ellipse(c)`, so a disc classifies a point — its boundary
+included — the same whether it is reached bare or through `∩` (where a
+`Circle` meets a region as its `Ellipse`). GeometryBasics defines
+`in(::Point, ::HyperSphere)` only, so an `SVector` fell through to Base's
+iteration.
 """
-Base.in(p::StaticVector{2}, c::Circle) = _in_disc(p, c)
+Base.in(p::StaticVector{2}, c::Circle) = p ∈ Ellipse(c)
 # `Point2 ∈ Circle` matches both the method above and GeometryBasics'
 # `in(::Point, ::HyperSphere)`; this exact signature only settles that ambiguity.
-Base.in(p::Point{2}, c::Circle) = _in_disc(p, c)
-_in_disc(p, c) = hypot(p[1] - c.center[1], p[2] - c.center[2]) <= GeometryBasics.radius(c)
+Base.in(p::Point{2}, c::Circle) = p ∈ Ellipse(c)
 
 # =============================================================================
 # Homography-mapped containment — the plane-visibility predicate

@@ -293,4 +293,23 @@
         @test default_generic_grid(2570, 2569) == (44, 44)
         @test default_generic_grid(10, 10) == (4, 4)
     end
+
+    @testset "generic_lattice: the constructor's layout, unsampled" begin
+        using VisualGeometryToolkitCore: generic_lattice, spline_window, nominal_intrinsics
+        src = CameraModel(CameraCalibrationMat(300.0px, [320.0px, 240.0px]); lens = Division(-0.2))
+        for G in (CentralGenericModel, NoncentralGenericModel)
+            built = G(src, (640, 480); grid_size = (12, 10), domain = Rect(0, 0, 600, 400))
+            lat = generic_lattice(G, src, (640, 480); grid_size = (12, 10), domain = Rect(0, 0, 600, 400))
+            @test lat isa G
+            @test (lat.width, lat.height, lat.calib_min_x, lat.calib_min_y, lat.calib_max_x, lat.calib_max_y) ==
+                (built.width, built.height, built.calib_min_x, built.calib_min_y, built.calib_max_x, built.calib_max_y)
+            @test nominal_intrinsics(lat) == nominal_intrinsics(built) && lat.domain == built.domain
+            @test all(p -> spline_window(lat, p) == spline_window(built, p), (SVector(3.5, 7.5), SVector(631.0, 470.5), SVector(-20.0, 500.0)))
+        end
+        @test all(==(Vec3(0.0, 0.0, 1.0)), generic_lattice(CentralGenericModel, src, (640, 480)).grid)
+        # a grid source keeps its nominal and domain
+        g = CentralGenericModel(src, (640, 480); grid_size = (12, 10), domain = Rect(0, 0, 600, 400))
+        n = generic_lattice(NoncentralGenericModel, g, (640, 480); grid_size = (8, 8))
+        @test nominal_intrinsics(n) == nominal_intrinsics(g) && n.domain == g.domain && all(iszero, n.points)
+    end
 end

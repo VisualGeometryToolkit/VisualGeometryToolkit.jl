@@ -1173,6 +1173,35 @@ end
 
 const _GenericSource = Union{CameraModel, CentralGenericModel, Function}
 
+"""
+    generic_lattice(G, source, size; grid_size, calib_area, nominal, domain) -> G
+
+The layout a generic model of type `G` (`CentralGenericModel` or
+`NoncentralGenericModel`) built from `source` over an image of `size`
+(`(width, height)` or a `Size2`) takes — the same `grid_size`, `calib_area`,
+`nominal` and `domain`, with the same defaults, as the constructor from a
+source — WITHOUT sampling the source: every direction control is the optical
+axis `(0, 0, 1)` and every point the origin. What a fit that solves for every
+control needs (its [`spline_window`](@ref)s, its nominal pinhole), with none of
+the node interpolation, which it would discard, and none of its failures on a
+source the fit itself handles.
+"""
+function generic_lattice(
+        ::Type{G}, source, size::Union{Tuple{Integer, Integer}, Size2};
+        grid_size::Tuple{Integer, Integer} = default_generic_grid(_generic_size(size)...),
+        calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
+            (0, 0, _generic_size(size)[1] - 1, _generic_size(size)[2] - 1),
+        nominal = _default_nominal(source),
+        domain = _default_domain(source),
+    ) where {G <: _GenericModel}
+    W, H = _generic_size(size)
+    area = _area_bounds(calib_area)
+    gw, gh = grid_size
+    axis = fill(Vec3{Float64}(0, 0, 1), gh, gw)
+    G <: CentralGenericModel && return CentralGenericModel{Float64}(W, H, area..., axis; nominal, domain)
+    return NoncentralGenericModel{Float64}(W, H, area..., axis, fill(Vec3{Float64}(0, 0, 0), gh, gw); nominal, domain)
+end
+
 function CentralGenericModel(
         source::_GenericSource, size::Union{Tuple{Integer, Integer}, Size2};
         grid_size::Tuple{Integer, Integer} = default_generic_grid(_generic_size(size)...),
@@ -1184,12 +1213,10 @@ function CentralGenericModel(
         nominal = _default_nominal(source),
         domain = _default_domain(source),
     )
-    W, H = _generic_size(size)
-    area = _area_bounds(calib_area)
-    gw, gh = grid_size
-    seed = CentralGenericModel{Float64}(W, H, area..., fill(Vec3{Float64}(0, 0, 1), gh, gw))
+    seed = generic_lattice(CentralGenericModel, source, size; grid_size, calib_area, nominal, domain)
     return CentralGenericModel{Float64}(
-        W, H, area..., _init_directions(source, seed, init, sampling_margin); unit_controls, nominal, domain
+        seed.width, seed.height, _area_bounds(calib_area)..., _init_directions(source, seed, init, sampling_margin);
+        unit_controls, nominal, domain
     )
 end
 
@@ -1204,13 +1231,10 @@ function NoncentralGenericModel(
         nominal = _default_nominal(source),
         domain = _default_domain(source),
     )
-    W, H = _generic_size(size)
-    area = _area_bounds(calib_area)
-    gw, gh = grid_size
-    seed = CentralGenericModel{Float64}(W, H, area..., fill(Vec3{Float64}(0, 0, 1), gh, gw))
+    seed = generic_lattice(CentralGenericModel, source, size; grid_size, calib_area, nominal, domain)
     dirs = _init_directions(source, seed, init, sampling_margin)
     return NoncentralGenericModel{Float64}(
-        W, H, area..., dirs, fill(Vec3{Float64}(0, 0, 0), gh, gw); unit_controls, nominal, domain
+        seed.width, seed.height, _area_bounds(calib_area)..., dirs, zero(dirs); unit_controls, nominal, domain
     )
 end
 

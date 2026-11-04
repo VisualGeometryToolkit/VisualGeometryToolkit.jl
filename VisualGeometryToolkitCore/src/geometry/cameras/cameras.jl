@@ -1020,6 +1020,7 @@ export spline_support, spline_weights, window_controls, window_indices, directio
 export ControlPatchManifold              # a block of a grid model's controls as a manifold (public, not exported, at the top level)
 export GenericModelWindow, window, nominal_intrinsics, interpolated_direction, interpolated_point   # a view onto a block of controls; the raw splines
 export spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice as a primitive (any control type); the 4th-order quasi-interpolant
+export generic_lattice                   # a grid model's layout from a source, without sampling it
 export ChartSpline, SplineProjection     # a spline on a 2-D chart; a forward map (ray → pixel) as one on the equidistant direction chart
 export with_model                         # same camera/rig, new model — rebuilds through the validating constructor
 export reference_frame                    # rig/target-rig reference-frame type (submodule-level only:

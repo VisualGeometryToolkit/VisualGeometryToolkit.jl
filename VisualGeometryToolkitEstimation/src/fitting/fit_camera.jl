@@ -124,8 +124,10 @@ family and the solve:
   :max_iterations` with what it reached. `iterations` counts the fits made.
 - **`CentralGenericModel`** (`fit_camera(CentralGenericModel, source, region;
   grid_size, tolerance)`): a grid model in Core's full-image layout — the
-  lattice the node-interpolation constructor `CentralGenericModel(source, size;
-  grid_size)` lays over the whole image, which is the start — with `domain` the
+  lattice the constructor `CentralGenericModel(source, size; grid_size)` lays
+  over the whole image, [`generic_lattice`](@ref
+  VisualGeometryToolkitCore.generic_lattice) (the source is not sampled: the
+  solve sets every control) — with `domain` the
   region, fitted to the source's rays by linear least squares with the P-spline
   penalty. The region restricts the quadrature only, never the lattice: a node
   whose support misses it is held by the penalty. The image is the source's: a
@@ -651,11 +653,9 @@ _lattice_area(m) = (m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y)
 _grid_samples(::Type{CentralGenericModel}) = _source_rays
 _grid_error_name(::Type{CentralGenericModel}) = "grid's held-out round trip"
 
-# The central lattice: the node-interpolation constructor's model (its nominal
-# pinhole), the start.
-_grid_lattice(::Type{CentralGenericModel}, source, size, grid_size, region) = CentralGenericModel(
-    source, size; grid_size, init = source isa CameraModel ? :interpolate : :quasi_interpolate, domain = region
-)
+# The lattice: Core's layout of a grid model from the source (its nominal
+# pinhole), without sampling it — the solve sets every control.
+_grid_lattice(::Type{G}, source, size, grid_size, region) where {G} = generic_lattice(G, source, size; grid_size, domain = region)
 _grid_rhs(::Type{CentralGenericModel}, q) = (q.fit_rays, nothing)
 _grid_model(::Type{CentralGenericModel}, lattice, controls, _, region) = CentralGenericModel{Float64}(
     lattice.width, lattice.height, _lattice_area(lattice)..., Vec3{Float64}.(controls);
@@ -705,7 +705,6 @@ end
 
 _grid_samples(::Type{NoncentralGenericModel}) = _source_lines
 _grid_error_name(::Type{NoncentralGenericModel}) = "non-central grid's held-out direction error"
-_grid_lattice(::Type{NoncentralGenericModel}, source, size, grid_size, region) = _noncentral_lattice(source, size, grid_size, region)
 
 # The right-hand side: the unit direction, and the line's point closest to c*
 # relative to c* (the solve is translation-equivariant: a B-spline's weights sum
@@ -727,20 +726,6 @@ function _grid_errors(fitted::NoncentralGenericModel, source, q, center)
     e, offsets = _line_errors(fitted, source, q)
     return e, (; center, max_offset = offsets.max_px, rms_offset = offsets.rms_px, max_offset_edge = offsets.max_px_edge)
 end
-
-# The non-central target's lattice: Core's full-image layout over the source's
-# image. A central source through the node-interpolation constructor (its
-# nominal pinhole); a non-central grid source keeps its own nominal.
-function _noncentral_lattice(source::NoncentralGenericModel, (W, H), grid_size, region)
-    gw, gh = grid_size
-    return NoncentralGenericModel{Float64}(
-        W, H, 0, 0, W - 1, H - 1, fill(Vec3{Float64}(0, 0, 1), gh, gw), fill(Vec3{Float64}(0, 0, 0), gh, gw);
-        nominal = nominal_intrinsics(source), domain = region
-    )
-end
-_noncentral_lattice(source, size, grid_size, region) = NoncentralGenericModel(
-    source, size; grid_size, init = source isa CameraModel ? :interpolate : :quasi_interpolate, domain = region
-)
 
 # The held-out errors of a fitted non-central grid against the source's lines:
 # the DIRECTION error in pixels — the fitted direction's tangent deviation from

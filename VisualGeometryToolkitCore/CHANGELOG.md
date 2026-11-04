@@ -74,6 +74,13 @@ Added:
   solve about the origins' centroid; per-line weights as the `weights` column;
   origins that are lengths come back in metres; parallel lines are an
   `ArgumentError`. The N-line counterpart of the two-view `triangulate`.
+- **`generic_lattice(G, source, size; grid_size, calib_area, nominal, domain)`**:
+  the layout `CentralGenericModel(source, size; …)` or
+  `NoncentralGenericModel(source, size; …)` takes, with the constructor's
+  defaults, without sampling the source (every direction control the optical
+  axis, every point the origin) — the start of a fit that solves for every
+  control (VisualGeometryToolkitEstimation's `fit_camera` grid targets); the
+  two constructors build their seed through it.
 
 Fixed:
 

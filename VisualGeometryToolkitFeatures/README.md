@@ -83,6 +83,7 @@ is the source of this entry, and GitHub's "Cite this repository" button exports 
   author = {Pritts, James and Sauer, Hendrik},
   title  = {{VisualGeometryToolkit.jl}: Julia Packages for Multiple-View Geometry},
   url    = {https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl},
+  doi    = {10.5281/zenodo.23548372},
   year   = {2026}
 }
 ```

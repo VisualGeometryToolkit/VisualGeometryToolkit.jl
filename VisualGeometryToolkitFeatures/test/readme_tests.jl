@@ -28,7 +28,7 @@
     packages = split(only(install))
     loaded = Set{String}()
     for code in example, m in eachmatch(r"^(?:using|import)\s+([^:\n]+)"m, code)
-        for part in split(m[1], ',')
+        for part in split(replace(m[1], r"#.*" => ""), ',')   # a trailing comment is not a package
             push!(loaded, first(split(strip(part), r"[.\s]")))
         end
     end

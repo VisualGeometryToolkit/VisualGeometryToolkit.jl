@@ -2,15 +2,16 @@
 # `checkdocs = :public` only sees docstrings that exist, so a public name with
 # none, a docstring detached from its definition by a blank or comment line
 # (Julia 1.12 makes it a bare string) and a signature line that drifted from
-# the methods (a removed keyword) all pass it. The General registration review
-# asks for every public name to be documented (#173032).
+# the methods (a removed keyword) all get through it. The General registration
+# review asks for every public name to be documented (#173032).
 #
-# The scans are docs_gates.jl, the same file as VisualGeometryToolkitCore's
-# test/docs_gates.jl. Two lists, kept apart:
+# The scans are docs_gates.jl, VisualGeometryToolkitCore's test/docs_gates.jl
+# but for its header comment (check_naming bans a word the original's uses).
+# Two lists, kept apart:
 # - EXCEPTIONS: a name that is not documented here ON PURPOSE, with its reason.
 # - BACKLOG: names still to document. The list only shrinks: a name documented
 #   must leave it, and a new public name without a docstring fails.
-# The docs pass of 2026-11-04 left both empty.
+# The docs review of 2026-11-04 left both empty.
 
 @testitem "docs: every public name has a docstring, attached, and its signatures match the methods" begin
     using Test, VisualGeometryToolkitFeatures

@@ -43,9 +43,13 @@ One kernel launched on `backend` itself: the backend value, so its compiler
 options hold (`CUDABackend(; always_inline = true)`), which a broadcast cannot
 give, since it launches on `get_backend(out)`, a backend with the defaults.
 `workgroupsize` fixes the launch's workgroup (`nothing`: the backend's
-choice). `out` and `xs` live on `backend`. The launch is asynchronous, as a
-device broadcast is: `KernelAbstractions.synchronize(backend)` before `out` is
-read on the host. Each element is `f(xs[1][i], …)`, as in every policy.
+choice). `out` and `xs` live on `backend` and share one shape (no
+broadcasting). The launch is asynchronous, as a device broadcast is:
+`KernelAbstractions.synchronize(backend)` before `out` is read on the host.
+Each element is `f(xs[1][i], …)`, as in every policy. A functor whose
+fields are each one of its type parameters or an isbits value reaches the
+kernel as its fields, rebuilt on the device: one large argument costs local
+memory there.
 """
 struct OnBackend{B <: KernelAbstractions.Backend, W} <: ExecutionPolicy
     backend::B
@@ -85,17 +89,53 @@ _policy(::Auto, out) =
 
 _pointwise!(::Serial, f::F, out, xs...) where {F} = (out .= f.(xs...); out)
 
-# The broadcast's own kernel body (GPUArrays'), launched on the policy's backend.
-@kernel function _pointwise_kernel!(out, bc)
-    I = @index(Global, Cartesian)
-    @inbounds out[I] = bc[I]
+# OnBackend's kernels. A per-point functor reaches the kernel as its FIELDS, separate kernel arguments, and is rebuilt on the device
+# (`_device_functor`): one aggregate argument holding every field makes the device compiler copy it to local memory once any of its
+# parts is used by reference — RadiometricCamera's per-pixel flux functor (2.3 KB of fields) needed 2800 bytes of local memory as
+# one argument against 2456 as its fields, and ran 5 % slower. A functor whose type cannot be rebuilt from its fields' device types
+# (`_splattable`), or with more fields than the kernels take, goes as one argument.
+const _MAX_FIELDS = 16
+
+# `F`'s fields are each one of its type parameters or an isbits value (which the device conversion keeps): then the device type is
+# `F` with those parameters replaced by the fields' device types.
+_splattable(::Type{F}) where {F} =
+    isconcretetype(F) && !ismutabletype(F) && fieldcount(F) <= _MAX_FIELDS &&
+    all(i -> (T = fieldtype(F, i); any(p -> p === T, F.parameters) || isbitstype(T)), 1:fieldcount(F))
+# The functor of host type `F` from its fields' device values.
+@generated function _device_functor(::Type{F}, fields...) where {F}
+    params = collect(Any, F.parameters)
+    for i in 1:fieldcount(F)
+        j = findfirst(p -> p === fieldtype(F, i), params)
+        j === nothing || (params[j] = fields[i])
+    end
+    T = isempty(params) ? F : F.name.wrapper{params...}
+    return Expr(:new, T, (:(fields[$i]) for i in 1:fieldcount(F))...)
 end
+for n in 0:_MAX_FIELDS
+    as = [Symbol(:a, i) for i in 1:n]
+    @eval @kernel function $(Symbol(:_pointwise_fields_kernel_, n, :!))(out, xs, ::Type{F}, $(as...)) where {F}
+        I = @index(Global, Cartesian)
+        f = _device_functor(F, $(as...))
+        @inbounds out[I] = f(map(x -> @inbounds(x[I]), xs)...)
+    end
+end
+const _POINTWISE_FIELDS_KERNELS = Tuple(getfield(@__MODULE__, Symbol(:_pointwise_fields_kernel_, n, :!)) for n in 0:_MAX_FIELDS)
+# The functor as one argument.
+@kernel function _pointwise_kernel!(out, xs, f)
+    I = @index(Global, Cartesian)
+    @inbounds out[I] = f(map(x -> @inbounds(x[I]), xs)...)
+end
+_launch(p::OnBackend, k) = p.workgroupsize === nothing ? k(p.backend) : k(p.backend, p.workgroupsize)
 function _pointwise!(p::OnBackend, f::F, out, xs...) where {F}
+    all(x -> axes(x) == axes(out), xs) ||
+        throw(DimensionMismatch("pointwise!: the inputs' axes $(map(axes, xs)) are not the output's $(axes(out))"))
     isempty(out) && return out
-    bc = Broadcast.instantiate(Broadcast.broadcasted(f, xs...))
-    axes(bc) == axes(out) || throw(DimensionMismatch("pointwise!: the inputs' axes $(axes(bc)) are not the output's $(axes(out))"))
-    kernel = p.workgroupsize === nothing ? _pointwise_kernel!(p.backend) : _pointwise_kernel!(p.backend, p.workgroupsize)
-    kernel(out, bc; ndrange = size(out))
+    if _splattable(F)
+        _launch(p, _POINTWISE_FIELDS_KERNELS[fieldcount(F) + 1])(out, xs, F, ntuple(i -> getfield(f, i), Val(fieldcount(F)))...;
+                                                                  ndrange = size(out))
+    else
+        _launch(p, _pointwise_kernel!)(out, xs, f; ndrange = size(out))
+    end
     return out
 end
 

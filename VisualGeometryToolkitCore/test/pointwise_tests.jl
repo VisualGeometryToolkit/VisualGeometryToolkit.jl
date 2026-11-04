@@ -9,6 +9,10 @@
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: _precision, Serial, Threaded, Auto, OnBackend, THREADED_MIN_LENGTH
     using KernelAbstractions: KernelAbstractions
+    struct VecAffine
+        w::Vector{Float64}
+    end
+    (a::VecAffine)(x) = a.w[1] * x + a.w[2]
     using StaticArrays: SVector
     using LinearAlgebra: norm
     using Random: Xoshiro
@@ -81,9 +85,15 @@
             A, B = randn(rng, 7, 5), randn(rng, 7, 5)
             O = pointwise!(hypot, similar(A), A, B; exec); KernelAbstractions.synchronize(cpu)
             @test O == hypot.(A, B)
+            # a functor goes as its fields where its type is rebuilt from them, else as one argument: the same values
+            scaled = VecAffine([2.0, -1.0])                            # its field's type, a Vector, is no type parameter: one argument
+            @test VisualGeometryToolkitCore._splattable(typeof(Base.Fix1(project, KB))) && !VisualGeometryToolkitCore._splattable(typeof(scaled))
+            O = pointwise!(scaled, similar(A), A; exec); KernelAbstractions.synchronize(cpu)
+            @test O == scaled.(A)
         end
         @test pointwise!(hypot, Float64[], Float64[], Float64[]; exec = OnBackend(cpu)) == Float64[]
         @test_throws DimensionMismatch pointwise!(hypot, zeros(3), zeros(4), zeros(4); exec = OnBackend(cpu))
+        @test_throws DimensionMismatch pointwise!(hypot, zeros(3), zeros(3), zeros(1); exec = OnBackend(cpu))   # no broadcasting
     end
 
     @testset "a Float32 batch stays Float32: the lens converts once" begin

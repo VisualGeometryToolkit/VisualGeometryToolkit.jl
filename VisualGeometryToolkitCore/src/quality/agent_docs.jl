@@ -36,9 +36,11 @@ function _agent_doc_files(root)
         return filter(_is_agent_doc, readlines(`$git -C $root ls-files`))
     end
     files = String[]
+    # The paths typed: `walkdir`'s tuples infer as `Any` on Julia 1.12, and a
+    # broadcast over `Any` may be a BitVector, so JET saw `_is_agent_doc(::Bool)`.
     for (dir, dirs, names) in walkdir(root)
         filter!(!=(".git"), dirs)
-        append!(files, filter(_is_agent_doc, relpath.(joinpath.(dir, names), root)))
+        append!(files, filter(_is_agent_doc, String[relpath(joinpath(dir, n), root) for n in names]))
     end
     return files
 end

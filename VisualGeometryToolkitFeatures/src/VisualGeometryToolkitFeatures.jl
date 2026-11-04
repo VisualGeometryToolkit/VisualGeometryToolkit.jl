@@ -11,7 +11,10 @@ Feature detection and descriptor matching.
   stacked matcher over many galleries ([`nn_match_stacked`](@ref)).
 - **LoMa:** the learned DeDoDe descriptors and LoMa matchers, from the authors' ONNX
   exports ([`LoMaDescriptor`](@ref), [`LoMaMatcher`](@ref)).
-- **Extensions:** JLD2 backs [`FileCache`](@ref); Makie draws detections and correspondences.
+- **Camera RAW:** [`load_raw`](@ref) reads a Bayer RAW file as exact linear values (2×2
+  quads or the green photosites, saturation flags, true sample positions).
+- **Extensions:** JLD2 backs [`FileCache`](@ref); Makie draws detections and correspondences;
+  LibRaw_jll and PythonCall (rawpy) are the two RAW decoders.
 """
 module VisualGeometryToolkitFeatures
 
@@ -71,6 +74,7 @@ include("detection_types.jl")
 include("image_input.jl")    # gray_f32 / gray_u8 — the input ladders (hoisted from BlobBoards)
 include("mser.jl")           # detect_mser — VLFeat's MSER selection on ImageMorphology's MaxTree
 include("linear_image.jl")   # load_linear_image — a PNG as linear radiance (hoisted from RadiometricCamera)
+include("raw_image.jl")      # load_raw — a camera RAW mosaic as exact linear values (decoders in the LibRaw_jll / PythonCall extensions)
 include("batching.jl")       # batched_rows — the describe backends' chunking skeleton
 include("asift/pyramid.jl")
 include("asift/warp.jl")
@@ -136,6 +140,9 @@ export FeatureCovariance            # keypoint uncertainty: asift_detect(img; un
 export gray_f32, gray_u8        # the input ladders every detector-side entry point uses
 export load_linear_image        # a PNG as linear radiance: no gamma re-encoding, optional sRGB decode, box downsample
 public srgb_to_linear, box_downsample, gaussian_blur   # gaussian_blur: the (masked) separable Gaussian of a linear image
+export load_raw, load_raw_mosaic   # a camera RAW file as exact linear values (:bin2, :green), and its decoded mosaic
+export LinearRaw, RawMosaic, RawDecoder, LibRawDecoder, RawpyDecoder
+public cfa_string
 export batched_rows             # the describe backends' chunking skeleton
 export detect_mser, region_mask   # MSER (VLFeat's selection on ImageMorphology's MaxTree)
 public MserRegion, boundary_contours

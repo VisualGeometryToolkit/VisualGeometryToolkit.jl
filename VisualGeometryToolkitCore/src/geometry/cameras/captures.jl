@@ -210,7 +210,6 @@ with_unit(tp::TargetPoses, u::Units) = _map_poses(X -> with_unit(X, u), tp)
 
 """
     TargetHomographies{F <: PixelFrame}(frames; images, sensors, times, time_origin, targets = String[])
-    TargetHomographies(frames; …)    # F = PixelFrame{:colmap}
 
 Per frame index, the homography of every target seen, each a `HomographyMat`
 taking the target's plane (its chart coordinates, millimetres) to pixels of
@@ -223,8 +222,8 @@ homography type `H`. `targets` names the target definitions the ids resolve
 in by content identity (VisualGeometryToolkitIO's `content_id`: a rig's or a
 single target's), as for `TargetPoints2D`. `images[t]` names the image,
 `sensors[t]` the camera (one name for every frame, or a map), `times[t]`
-seconds since `time_origin`. The form without `F` states `PixelFrame{:colmap}`,
-the stack's canonical pixel frame.
+seconds since `time_origin`.
+The pixel frame is always stated: there is no form without `F`.
 Throws `ArgumentError` for a stamp (`images`, `sensors`, `times`) naming a
 frame index with no value, `times` without a `time_origin`, or a `targets`
 naming a definition twice. Otherwise a Dict: `keys`, `pairs`, iteration.
@@ -255,7 +254,6 @@ struct TargetHomographies{F <: PixelFrame, H <: HomographyMat} <: AbstractDict{I
         )
     end
 end
-TargetHomographies(frames::AbstractDict{<:Integer}; kwargs...) = TargetHomographies{PixelFrame{:colmap}}(frames; kwargs...)
 
 # Equal numbers in different pixel frames are different placements.
 Base.:(==)(a::TargetHomographies{F}, b::TargetHomographies{G}) where {F, G} =

@@ -39,7 +39,7 @@ is unchanged bit for bit: its solver, chart, rows and Jacobians.
   `ArgumentError`.
 - **`TargetHomographies{F, H}`**: per frame, each target's plane → pixel homography,
   a capture like `TargetPoints2D`/`TargetPoints3D`: the pixel frame `F` is part of the
-  type (`TargetHomographies(frames)` states `PixelFrame{:colmap}`) and `targets` names
+  type (`TargetHomographies{F}(frames; …)`; no frame-less form) and `targets` names
   the target definitions by content identity.
 - `division_coeffs` is in `CONTRACT_GENERICS`: another stack package may add a
   method for its own model or state (VisualGeometryToolkitEstimation's

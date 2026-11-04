@@ -4,7 +4,7 @@
 #
 #   vgio/trajectory/v3        ↔ VGC `Trajectory{S, D}`      a body's pose over time
 #   vgio/target_poses/v1      ↔ VGC `TargetPoses{F}`        per frame, the poses of the targets seen
-#   vgio/target_homographies/v1 ↔ VGC `TargetHomographies{H}` per frame, each target's plane → pixel homography
+#   vgio/target_homographies/v1 ↔ VGC `TargetHomographies{F, H}` per frame, each target's plane → pixel homography
 #   vgio/target_points2d/v1   ↔ VGC `TargetPoints2D{F}`     per frame, pixels of target points
 #   vgio/target_points3d/v1   ↔ VGC `TargetPoints3D{F}`     per frame, 3D positions of target points
 #

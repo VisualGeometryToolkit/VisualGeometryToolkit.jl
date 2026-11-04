@@ -13,7 +13,7 @@
     frames = Dict(1 => Dict(:b1 => H1, :b2 => H2), 3 => Dict(:b1 => H3))
     kw = (images = Dict(1 => "a.png", 3 => "c.png"), sensors = "cam")
 
-    tg = TargetHomographies(frames; kw...)
+    tg = TargetHomographies{PixelFrame{:colmap}}(frames; kw...)
     tp = TargetPoses{CameraFrame}(Dict(1 => Dict(:b1 => X, :b2 => X), 3 => Dict(:b1 => X)); kw...)
 
     @testset "Dict surface mirrors TargetPoses" begin
@@ -24,8 +24,8 @@
         @test Set(first.(collect(tg))) == Set(first.(collect(tp)))
         @test haskey(tg, 3) && !haskey(tg, 2)
         @test tg.images == tp.images && tg.sensors == tp.sensors == Dict(1 => "cam", 3 => "cam")
-        @test tg == TargetHomographies(frames; kw...)
-        @test tg != TargetHomographies(frames; images = Dict(1 => "z.png"), sensors = "cam")
+        @test tg == TargetHomographies{PixelFrame{:colmap}}(frames; kw...)
+        @test tg != TargetHomographies{PixelFrame{:colmap}}(frames; images = Dict(1 => "z.png"), sensors = "cam")
     end
 
     @testset "pixel frame and targets are part of the value" begin
@@ -38,6 +38,7 @@
         @test cv == TargetHomographies{PixelFrame{:opencv}}(frames; kw..., targets = ids)
         @test cv != TargetHomographies{PixelFrame{:opencv}}(frames; kw...)   # other targets
         @test_throws ArgumentError TargetHomographies{PixelFrame{:opencv}}(frames; kw..., targets = [ids[1], ids[1]])
+        @test_throws MethodError TargetHomographies(frames; kw...)         # the pixel frame is always stated
     end
 
     @testset "radial_homography" begin
@@ -48,13 +49,13 @@
     @testset "validation refuses what TargetPoses refuses, with its messages" begin
         msg(f) = try; f(); nothing; catch e; e isa ArgumentError ? e.msg : rethrow(); end
         for (a, b) in (
-                (() -> TargetHomographies(frames; images = Dict(2 => "b.png")), () -> TargetPoses{CameraFrame}(Dict(1 => Dict(:b => X)); images = Dict(2 => "b.png"))),
-                (() -> TargetHomographies(frames; times = Dict(1 => 0.0)), () -> TargetPoses{CameraFrame}(Dict(1 => Dict(:b => X)); times = Dict(1 => 0.0))),
-                (() -> TargetHomographies(frames; sensors = Dict(7 => "cam")), () -> TargetPoses{CameraFrame}(Dict(1 => Dict(:b => X)); sensors = Dict(7 => "cam"))),
+                (() -> TargetHomographies{PixelFrame{:colmap}}(frames; images = Dict(2 => "b.png")), () -> TargetPoses{CameraFrame}(Dict(1 => Dict(:b => X)); images = Dict(2 => "b.png"))),
+                (() -> TargetHomographies{PixelFrame{:colmap}}(frames; times = Dict(1 => 0.0)), () -> TargetPoses{CameraFrame}(Dict(1 => Dict(:b => X)); times = Dict(1 => 0.0))),
+                (() -> TargetHomographies{PixelFrame{:colmap}}(frames; sensors = Dict(7 => "cam")), () -> TargetPoses{CameraFrame}(Dict(1 => Dict(:b => X)); sensors = Dict(7 => "cam"))),
             )
             @test msg(a) !== nothing && msg(a) == msg(b)
         end
-        @test TargetHomographies(frames; times = Dict(1 => 0.5), time_origin = "2026-05-27T00:00:00").times == Dict(1 => 0.5)
-        @test isempty(TargetHomographies(Dict{Int, Dict{Symbol, HomographyMat{Float64}}}()))
+        @test TargetHomographies{PixelFrame{:colmap}}(frames; times = Dict(1 => 0.5), time_origin = "2026-05-27T00:00:00").times == Dict(1 => 0.5)
+        @test isempty(TargetHomographies{PixelFrame{:colmap}}(Dict{Int, Dict{Symbol, HomographyMat{Float64}}}()))
     end
 end

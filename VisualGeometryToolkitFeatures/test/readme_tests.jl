@@ -7,12 +7,12 @@
 # The install line is a `pkg>` block (```julia-repl), so it is not run as code:
 # the item checks that it names every non-standard-library package the
 # examples load, and nothing else. The example then runs in a child Julia
-# process in a temporary environment — this package by path, the rest of the
-# install line from the registries — with none of the test run's load path,
+# process in a temporary environment — this package and VisualGeometryToolkitCore
+# by path, the rest of the install line from the registries — with none of the test run's load path,
 # and each statement the README marks `# true` is asserted there.
 
 @testitem "README: the install line names what the examples load; the examples run in a fresh environment" begin
-    using Test, VisualGeometryToolkitFeatures
+    using Test, VisualGeometryToolkitFeatures, VisualGeometryToolkitCore
     root = pkgdir(VisualGeometryToolkitFeatures)
     julia_blocks(text) = [m[1] for m in eachmatch(r"^```julia\n(.*?)^```"ms, text)]
     readme = read(joinpath(root, "README.md"), String)
@@ -38,15 +38,19 @@
 
     @test occursin(r"#\s*true$"m, only(example))     # the example states its claims
 
+    # The stack packages are developed by path, VisualGeometryToolkitCore too
+    # (a dependency the install line does not name): a released Core need not
+    # hold what this checkout's Features calls.
+    developed = [root, pkgdir(VisualGeometryToolkitCore)]
+    registered = filter(!=("VisualGeometryToolkitFeatures"), String.(packages))
     env = mktempdir()
     write(joinpath(env, "readme_example.jl"), only(example))
-    registered = filter(!=("VisualGeometryToolkitFeatures"), String.(packages))
     script = joinpath(env, "run.jl")
     # The child runs the example statement by statement, in one module, and
     # asserts every statement whose last line ends in `# true`.
     write(script, """
     using Pkg
-    Pkg.develop(path = $(repr(root)); io = devnull)
+    Pkg.develop([PackageSpec(path = p) for p in $(repr(developed))]; io = devnull)
     isempty($(repr(registered))) || Pkg.add($(repr(registered)); io = devnull)
     using Test
     readme = Module(:ReadmeSandbox)

@@ -30,6 +30,7 @@
     @test isempty(setdiff(keys(EXCEPTIONS), undocumented))              # a stale exception is removed
 
     @test isempty(detached_docstrings(joinpath(pkgdir(M), "src")))
+    @test isempty(detached_docstrings(joinpath(pkgdir(M), "ext")))     # the extensions document methods too
 
     mismatches = Set(signature_mismatches(M))
     @test isempty(setdiff(mismatches, SIGNATURE_EXCEPTIONS))

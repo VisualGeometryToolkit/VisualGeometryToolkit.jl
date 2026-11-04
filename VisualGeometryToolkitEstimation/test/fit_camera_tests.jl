@@ -22,7 +22,7 @@
         @test agrees(q, p)
         @test abs(metadata(r).family.focal_scale - s) <= 1.0e-6
         @test agrees_px(metadata(r).max_px, max_px)
-        @test rms(r) == metadata(r).rms_px
+        @test 0 <= rms(r) <= metadata(r).max_px
         isempty(p) || (worst = max(worst, maximum(abs.(collect(q) .- collect(p)))))
     end
     @test worst < 1.0e-8                          # measured 2026-11-04: 1.4e-9 (the double sphere past its image circle)
@@ -148,7 +148,7 @@ end
     # the property the bisection relies on, at three spacings (measured 2026-11-04:
     # 5.1e-3, 2.7e-3, 5.4e-4 px at 8, 16, 32 cells)
     q = VgtkEstimation._chart_quadrature(GRID, REGION)
-    errs = [VgtkEstimation._spline_projection_fit(q, c).max_px for c in (8, 16, 32)]
+    errs = [VgtkEstimation._spline_projection_fit(q, c).errors.max for c in (8, 16, 32)]
     @test issorted(errs; rev = true)
     @test errs[3] < 1.0e-3 < errs[1]
 end
@@ -174,7 +174,8 @@ end
     r = fit_camera(SplineProjection, GRID, Rect(0, 0, 1000, 1000); tolerance = 1.0e-3)
     @test retcode(r) === :max_iterations
     @test 1.0e-3 < metadata(r).max_px < 1.0e-2
-    @test_throws ArgumentError fit_camera(SplineProjection, GRID, REGION; tolerance = 1.0e-3, weight = :solid_angle)
+    # the quadrature is on the image: a spline target takes no weight
+    @test_throws MethodError fit_camera(SplineProjection, GRID, REGION; tolerance = 1.0e-3, weight = :image)
 end
 
 @testitem "fit_camera: a grid from a parametric model" setup = [FitCameraFisheye] begin
@@ -223,7 +224,7 @@ end
     using Test
     using StaticArrays: SVector
     using LinearAlgebra: norm, normalize, dot
-    using VisualGeometryToolkitCore: estimate, metadata, retcode, NoncentralGenericModel, Vec3, backproject,
+    using VisualGeometryToolkitCore: estimate, metadata, retcode, rms, NoncentralGenericModel, Vec3, backproject,
         interpolated_direction, interpolated_point, nearest_point
     import VisualGeometryToolkitEstimation as VgtkEstimation
     using VisualGeometryToolkitEstimation: fit_camera
@@ -241,7 +242,7 @@ end
     # max, 5.4e-5 px rms, the max at the edge; line offset 7.9e-9 m max against
     # a 3 mm field) — and far better than sampling the source's lines at the
     # nodes (0.39 px, 5.9e-6 m)
-    @test md.max_px < 5.0e-3 && md.rms_px < 5.0e-4 && md.max_px_edge <= md.max_px
+    @test md.max_px < 5.0e-3 && rms(r) < 5.0e-4 && md.max_px_edge <= md.max_px
     @test md.family.max_offset < 1.0e-7 && md.family.rms_offset < 1.0e-8
     h = 1000 / 37
     lines = [backproject(SOURCE, SVector(clamp((j - 2) * h, 0.0, 999.0), clamp((i - 2) * h, 0.0, 999.0))) for i in 1:40, j in 1:40]
@@ -249,7 +250,7 @@ end
         1000, 1000, 0, 0, 999, 999, [Vec3{Float64}(l.direction) for l in lines], [Vec3{Float64}(l.origin) for l in lines]
     )
     e_s, o_s = VgtkEstimation._line_errors(sampled, SOURCE, q)
-    @test md.max_px < e_s.max_px / 100 && md.family.max_offset < o_s.max_px / 100
+    @test md.max_px < e_s.max / 100 && md.family.max_offset < o_s.max / 100
     # the rays at and past 90° (to ~97°): the fitted lines stay on the source's
     # (measured 2.0e-6 rad, 7.2e-9 m)
     θ = [acos(clamp(d[3], -1, 1)) for (_, d) in q.held_rays]

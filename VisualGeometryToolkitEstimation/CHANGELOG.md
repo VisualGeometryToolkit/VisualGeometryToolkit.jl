@@ -6,8 +6,10 @@
   the camera model of type `T` regressed onto `source` over `region` (Core's
   `imaged_region`, an `Ellipse`, a `Rect`, their `∩`), minimizing the
   integrated squared pixel error of the round trip; `FitResult{…,
-  CameraFitMetadata}` (`max_px`, `rms_px`, `max_px_edge`, the region, and the
-  family's own record). The target type selects the family:
+  CameraFitMetadata}` (`max_px`, `max_px_edge`, the region, and the family's
+  own record; the round trip's rms is the result's `rms`). Only the lens
+  family takes a `weight` (the spline and grid targets' quadrature is on the
+  image). The target type selects the family:
   - a lens family `L` (`fit_camera(L, model, region; weight)`): what
     `fit_lens` did, its radial profile's exact 1-D reduction with the density
     weighted by the region's share of each radius; on `fit_lens`'s cases it

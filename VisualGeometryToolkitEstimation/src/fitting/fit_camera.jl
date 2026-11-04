@@ -44,10 +44,11 @@
     CameraFitMetadata{R, F}
 
 `FitResult` metadata of [`fit_camera`](@ref): the `region` fitted over, the
-`weight` measure, the round trip's error in pixels — `max_px` (its maximum),
-`rms_px` (√ of its mean square: the objective's quantity) and `max_px_edge`
-(its maximum within 100 px of the region's edge) — and the target family's own
-record `family`, a `NamedTuple`:
+`weight` measure (`:image` for every target but a lens family), the round
+trip's error in pixels — `max_px` (its maximum) and `max_px_edge` (its maximum
+within 100 px of the region's edge); √ of its mean square, the objective's
+quantity, is the result's `rms` — and the target family's own record `family`,
+a `NamedTuple`:
 
 - a lens family: `(; focal_scale, θ_max, θ_source, clipped)` — the joint focal
   rescale `s`, the fitted and the source's angular domains (radians), and
@@ -71,7 +72,6 @@ struct CameraFitMetadata{R, F <: NamedTuple}
     region::R
     weight::Symbol
     max_px::Float64
-    rms_px::Float64
     max_px_edge::Float64
     family::F
 end
@@ -85,7 +85,7 @@ const _PROFILE_NODES = 128
 const _REGION_AZIMUTHS = 720
 
 """
-    fit_camera(::Type{T}, source, region; tolerance, weight = :image, …) -> FitResult{<model of T>, CameraFitMetadata}
+    fit_camera(::Type{T}, source, region; …) -> FitResult{<model of T>, CameraFitMetadata}
 
 The camera model of type `T` regressed onto `source` over `region`, a region of
 the source's sensor in its pixel frame (an [`imaged_region`](@ref
@@ -153,16 +153,16 @@ family and the solve:
 
 `source` is a `CameraModel` (bounded or not) or a `CentralGenericModel` (anything
 with a batched `backproject(source, pixels)`), and for the non-central target
-also a `NoncentralGenericModel`. The spline families take `weight = :image` only:
-their quadrature is on the image. Their per-point steps (the source's
+also a `NoncentralGenericModel`. The spline families' quadrature is on the
+image (they take no `weight`). Their per-point steps (the source's
 backprojection, the chart, the design rows, the evaluation, the errors) run as
 batches — Core's KernelAbstractions kernels and [`pointwise!`](@ref
 VisualGeometryToolkitCore.pointwise!) — on the host, and the penalized normal
 equations are solved by a sparse Cholesky factorization.
 
 The metadata ([`CameraFitMetadata`](@ref)) records the region, the round trip's
-`max_px`, `rms_px` and `max_px_edge`, and the family's own record; `rms` is
-`rms_px`.
+`max_px` and `max_px_edge`, and the family's own record; the result's `rms` is
+the round trip's root mean square in pixels.
 
 ```julia
 region = imaged_region(camera, image_circle(camera, 8.0mm))
@@ -221,7 +221,7 @@ function fit_camera(
     max_px_edge = maximum(abs.(Δ[edge])) * fx
     return FitResult(
         out, code, iters, rms_px, length(θs),
-        CameraFitMetadata(region, weight, max_px, rms_px, max_px_edge, (; focal_scale = s, θ_max = float(θ_max), θ_source, clipped))
+        CameraFitMetadata(region, weight, max_px, max_px_edge, (; focal_scale = s, θ_max = float(θ_max), θ_source, clipped))
     )
 end
 
@@ -400,9 +400,6 @@ _coverage(exits, ρ) = count(e -> e >= ρ * (1 - 1.0e-9), exits) / length(exits)
 # The spline families: a quadrature on the image, penalized linear least squares
 # ==============================================================================
 
-_check_image_weight(weight::Symbol) =
-    weight === :image || throw(ArgumentError("fit_camera: a spline target's quadrature is on the image; weight must be :image, got :$weight"))
-
 # The quadrature of the region: the pixel centres (COLMAP) in the region on a
 # lattice of `stride` pixels (Core's `pixel_centres`) — the fit's points, and the
 # held-out check's offset by half a stride — with the source's rays there (a
@@ -508,12 +505,10 @@ function _penalized_solve(rows::AbstractVector, B::Matrix{Float64}, ny::Int, nx:
     return controls, λ
 end
 
-# The round trip's errors at the held-out points: their maximum, rms and edge-band maximum.
+# An error at the held-out points (pixels, or metres for a line offset): its
+# maximum, rms and edge-band maximum.
 function _held_out_errors(err::AbstractVector{Float64}, edge::AbstractVector{Bool})
-    return (;
-        max_px = maximum(err), rms_px = sqrt(sum(abs2, err) / length(err)),
-        max_px_edge = any(edge) ? maximum(err[edge]) : 0.0,
-    )
+    return (; max = maximum(err), rms = sqrt(sum(abs2, err) / length(err)), max_edge = any(edge) ? maximum(err[edge]) : 0.0)
 end
 
 # ------------------------------------------------------------------------------
@@ -555,18 +550,17 @@ function _spline_projection_fit(q, cells::Int)
     controls, λ = _penalized_solve(rows, _rhs_matrix(q.fit_px), ny, nx, Val(2))
     spline = ChartSpline(q.area, controls)
     err = norm.(spline(q.held_charts) .- q.held_px)
-    return (; spline, h, λ, counts = (nx, ny), _held_out_errors(err, q.edge)...)
+    return (; spline, h, λ, counts = (nx, ny), errors = _held_out_errors(err, q.edge))
 end
 
-function fit_camera(::Type{SplineProjection}, source, region; tolerance::Real, weight::Symbol = :image)
-    _check_image_weight(weight)
+function fit_camera(::Type{SplineProjection}, source, region; tolerance::Real)
     tolerance > 0 || throw(ArgumentError("fit_camera: tolerance must be positive, got $tolerance"))
     q = _chart_quadrature(model(source), region)
     # The bracket: from 4 cells along the chart's longer side up to a cell of
     # three quadrature strides (fewer points per cell leave it to the penalty).
     cells_max = max(1, floor(Int, q.extent / (3 * q.stride)))
     fits = 0
-    meets(r) = r.max_px <= tolerance
+    meets(r) = r.errors.max <= tolerance
     # Doubling to the first count that meets the tolerance, then bisection
     # between it and the last that did not: the largest spacing that meets it.
     lower = 0
@@ -597,9 +591,9 @@ function fit_camera(::Type{SplineProjection}, source, region; tolerance::Real, w
 end
 
 _spline_projection_result(q, r, code::Symbol, fits::Int, tolerance::Real) = FitResult(
-    SplineProjection(q.chart, r.spline, q.region), code, fits, r.rms_px, length(q.fit_px),
+    SplineProjection(q.chart, r.spline, q.region), code, fits, r.errors.rms, length(q.fit_px),
     CameraFitMetadata(
-        q.region, :image, r.max_px, r.rms_px, r.max_px_edge,
+        q.region, :image, r.errors.max, r.errors.max_edge,
         (; spacing = r.h, penalty = r.λ, counts = r.counts, stride = q.stride, tolerance = Float64(tolerance))
     )
 )
@@ -617,9 +611,8 @@ _spline_projection_result(q, r, code::Symbol, fits::Int, tolerance::Real) = FitR
 
 function fit_camera(
         ::Type{CentralGenericModel}, source, region;
-        grid_size::Tuple{Integer, Integer}, tolerance::Real, weight::Symbol = :image
+        grid_size::Tuple{Integer, Integer}, tolerance::Real
     )
-    _check_image_weight(weight)
     return _fit_grid(CentralGenericModel, source, region, grid_size, tolerance)
 end
 
@@ -634,12 +627,12 @@ function _fit_grid(::Type{G}, source, region, grid_size, tolerance::Real) where 
     controls, λ = _penalized_solve(rows, _rhs_matrix(rhs), gh, gw, Val(length(eltype(rhs))))
     fitted = _grid_model(G, lattice, controls, anchor, region)
     e, family = _grid_errors(fitted, cam, q, anchor)
-    e.max_px <= tolerance ||
-        @warn "fit_camera: the $(gh) × $(gw) $(_grid_error_name(G)) reaches $(round(e.max_px; sigdigits = 3)) px, over the tolerance $(tolerance) px"
+    e.max <= tolerance ||
+        @warn "fit_camera: the $(gh) × $(gw) $(_grid_error_name(G)) reaches $(round(e.max; sigdigits = 3)) px, over the tolerance $(tolerance) px"
     return FitResult(
-        fitted, :solved, 0, e.rms_px, length(q.fit_px),
+        fitted, :solved, 0, e.rms, length(q.fit_px),
         CameraFitMetadata(
-            region, :image, e.max_px, e.rms_px, e.max_px_edge,
+            region, :image, e.max, e.max_edge,
             (; penalty = λ, grid_size = (gh, gw), stride = q.stride, tolerance = Float64(tolerance), family...)
         )
     )
@@ -696,9 +689,8 @@ end
 
 function fit_camera(
         ::Type{NoncentralGenericModel}, source, region;
-        grid_size::Tuple{Integer, Integer}, tolerance::Real, weight::Symbol = :image
+        grid_size::Tuple{Integer, Integer}, tolerance::Real
     )
-    _check_image_weight(weight)
     return _fit_grid(NoncentralGenericModel, source, region, grid_size, tolerance)
 end
 
@@ -723,7 +715,7 @@ _grid_model(::Type{NoncentralGenericModel}, lattice, controls, center, region) =
 )
 function _grid_errors(fitted::NoncentralGenericModel, source, q, center)
     e, offsets = _line_errors(fitted, source, q)
-    return e, (; center, max_offset = offsets.max_px, rms_offset = offsets.rms_px, max_offset_edge = offsets.max_px_edge)
+    return e, (; center, max_offset = offsets.max, rms_offset = offsets.rms, max_offset_edge = offsets.max_edge)
 end
 
 # The held-out errors of a fitted non-central grid against the source's lines:

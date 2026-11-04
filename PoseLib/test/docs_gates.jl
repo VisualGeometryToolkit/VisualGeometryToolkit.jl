@@ -42,8 +42,8 @@ function signature_lines(text::AbstractString)
     for l in split(text, '\n')
         if startswith(l, "    ")
             push!(lines, strip(l))
-        elseif !isempty(lines) || !isempty(strip(l))
-            break
+        elseif !isempty(strip(l))
+            break        # prose ends the signature block; a blank line between signature groups does not
         end
     end
     return lines
@@ -105,7 +105,10 @@ function signature_mismatches(M::Module)
         isdefined(b.mod, b.var) || continue
         obj = getfield(b.mod, b.var)
         obj isa Function || continue
-        ms = collect(methods(obj))
+        # A method a test item defined (its module is under Main) is not the package's: it
+        # exists only on a worker that ran that item first, so counting it made the
+        # result depend on which items shared the docs item's worker.
+        ms = [m for m in methods(obj) if Base.moduleroot(m.module) !== Main]
         isempty(ms) && continue
         for d in values(multi.docs)
             text = join(string.(d.text))
@@ -145,6 +148,9 @@ function _bare_strings!(out, ex, where)
             push!(out, "$where:$line")
         elseif a isa Expr && a.head === :module
             _bare_strings!(out, a.args[3], where)
+        elseif a isa Expr && a.head === :macrocall && a.args[end] isa Expr && a.args[end].head === :module
+            # a documented module (`"""doc""" module X … end` parses as an @doc call around it): scan its body too
+            _bare_strings!(out, a.args[end].args[3], where)
         elseif a isa Expr && a.head in (:block, :toplevel)
             _bare_strings!(out, a, where)
         end

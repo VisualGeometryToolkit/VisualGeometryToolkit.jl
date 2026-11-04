@@ -41,14 +41,14 @@
 module ChainEquivalenceCorpus
 
 using StaticArrays: SVector, SMatrix
-using LinearAlgebra: normalize
+using LinearAlgebra: normalize, cond
 import VisualGeometryToolkitCore as VgtkCore
 using VisualGeometryToolkitCore: Rigid, ThinPlateSpline, HeightField, Lens, Perspective, Equidistant,
-    Radial, Tangential, ThinPrism, Tilt, Additive, grid_nodes, with_unit, m
+    Radial, Tangential, ThinPrism, Tilt, Additive, grid_nodes, tps_radial_basis, with_unit, m
 
 export golden_line, read_goldens, golden_value, target_cases, lens_cases, design_points, physical_points,
     rays, image_points, jacobian_count, KIND_LETTERS, case_members, target_blocks, lens_blocks, block_permutation, ulps,
-    expected_core_value, compare_value, scaled_comparison, value_precision, printed_value, MAX_ULPS
+    expected_core_value, compare_value, scaled_comparison, solve_condition, value_precision, printed_value, MAX_ULPS
 
 # -----------------------------------------------------------------------------
 # The line format
@@ -122,8 +122,11 @@ const KIND_LETTERS = (R = :rigid, A = :affine, T = :thin_plate_spline, H = :heig
 
 # The four kinds from the stored parameters, plain (lengths as plain metres) or
 # physical (the same lengths in metres).
+# The thin-plate kinds' nodes: a 3 × 3 grid over [0, 0.1]².
+spline_nodes() = grid_nodes(3; lo = 0.0, hi = 0.1)
+
 function kinds(P::AbstractDict, V; physical::Bool = false)
-    nodes = grid_nodes(3; lo = 0.0, hi = 0.1)
+    nodes = spline_nodes()
     A = V.affine === nothing ? nothing : V.affine(SMatrix{2, 2}(P["param/affine/A"]), P["param/affine/b"])
     T = ThinPlateSpline(nodes, P["param/thin_plate_spline/fx"], P["param/thin_plate_spline/fy"])
     H = HeightField(nodes, P["param/height_field/h"])
@@ -270,6 +273,36 @@ function scaled_comparison(key::AbstractString, V)
 end
 
 """
+    solve_condition(key) -> Union{Float64, Nothing}
+
+The condition number κ of the linear system a golden is solved from, when its
+last bits follow the CPU (OpenBLAS's core type); `nothing` for every other
+golden. A single thin-plate kind's parameter Jacobian
+(`target/T/jacobian_theta`, `target/H/jacobian_theta`) is its spline's nodal
+weights, read off `coeff = inv([K P; Pᵀ 0])[:, 1:N]` (`ThinPlateSplineSystem`).
+`inv` is LAPACK's LU and inversion, whose blocking and code path follow the
+OpenBLAS core type, and a backward-stable inverse carries a relative error of
+order κ·eps that moves with it. So these values are compared within
+`MAX_ULPS · κ` ulps of the array's largest entry (`compare_value`'s
+`condition`), not entry by entry. κ ≈ 3.0e3 for `spline_nodes()`.
+
+Measured on Julia 1.12.7: bit-identical under OpenBLAS's native (an
+i9-13900K), Haswell and Zen core types; under Sandybridge 40 and under Prescott
+25 ulps of the largest entry (83712 and 13376 ulps of the worst entry, whose
+magnitude is a tenth of the largest or less); GitHub's ubuntu-26.04 runner
+19200 ulps of the worst entry. The bound, 4κ ≈ 1.2e4 ulps of the largest
+entry, holds all of them with a margin of 300.
+"""
+function solve_condition(key::AbstractString)
+    key in ("target/T/jacobian_theta", "target/H/jacobian_theta") || return nothing
+    nodes = spline_nodes()
+    N = length(nodes)
+    U = [tps_radial_basis(p, q) for p in nodes, q in nodes]
+    P = [ones(N) first.(nodes) last.(nodes)]
+    return cond([U P; P' zeros(3, 3)])
+end
+
+"""
     value_precision(key) -> Type
 
 The precision a golden's numbers were computed in, which its ulps count in:
@@ -291,7 +324,7 @@ printed_value(key::AbstractString) = endswith(key, "/camera/valid_domain")
 const _NUMBER = r"[-+]?(?:\d+\.?\d*(?:[eE][-+]?\d+)?|Inf|NaN)"
 
 """
-    compare_value(expected, actual; scaled = false, precision = Float64, printed = false) -> (ok::Bool, ulps::Int128, why::String)
+    compare_value(expected, actual; scaled = false, condition = nothing, precision = Float64, printed = false) -> (ok::Bool, ulps::Int128, why::String)
 
 Names, texts and flags exactly; Float64 arrays of the same shape within
 `MAX_ULPS` entry by entry, counted in ulps of `precision` (`value_precision`;
@@ -299,7 +332,10 @@ Names, texts and flags exactly; Float64 arrays of the same shape within
 `printed` (`printed_value`), a text's words exactly and its numbers within
 `MAX_ULPS`. With `scaled`, within `MAX_ULPS` ulps of the array's largest entry
 instead (`scaled_comparison`): for values whose rounding moves with the order
-of an SVD's input, where an entry that is zero to rounding has no ulp.
+of an SVD's input, where an entry that is zero to rounding has no ulp. With
+`condition = κ` (`solve_condition`), within `MAX_ULPS · κ` ulps of the
+array's largest entry: for values solved from a system whose LAPACK rounding
+follows the CPU.
 
 The ulp tolerance is the gate's result-accuracy margin, not slack for a
 change: `muladd` (`evalpoly`'s Horner steps) lets LLVM fuse or not, so the
@@ -308,7 +344,8 @@ Julia 1.12 and 1.13 differ there by 2 Float64 ulps in `valid_domain` and by
 1 Float32 ulp (2²⁹ Float64 ulps) in a Float32 lens's `project`; on 1.12 the
 same `project` call returns either Float32 at two call sites of one process.
 """
-function compare_value(e, a; scaled::Bool = false, precision::Type{<:AbstractFloat} = Float64, printed::Bool = false)
+function compare_value(e, a; scaled::Bool = false, condition::Union{Nothing, Real} = nothing,
+        precision::Type{<:AbstractFloat} = Float64, printed::Bool = false)
     if printed && e isa AbstractString && a isa AbstractString && e != a
         ne, na = [m.match for m in eachmatch(_NUMBER, e)], [m.match for m in eachmatch(_NUMBER, a)]
         same_words = replace(e, _NUMBER => "#") == replace(a, _NUMBER => "#") && length(ne) == length(na)
@@ -320,10 +357,11 @@ function compare_value(e, a; scaled::Bool = false, precision::Type{<:AbstractFlo
         a isa Union{AbstractArray{<:Real}, Real} || return (false, Int128(0), "a $(typeof(a)) where Float64s are pinned")
         size(e) == size(a) || return (false, Int128(0), "size $(size(a)), the golden's $(size(e))")
         d = isempty(e) ? Int128(0) : maximum(ulps.(precision.(e), precision.(a)))
-        if scaled && !isempty(e)
+        if (scaled || condition !== nothing) && !isempty(e)
             δ, s = maximum(abs.(Float64.(e) .- Float64.(a))), maximum(abs, e)
-            ok = δ <= MAX_ULPS * eps(s)
-            return (ok, d, ok ? "" : "off by $(δ), $(δ / eps(s)) ulps of the array's largest entry $(s)")
+            bound = condition === nothing ? MAX_ULPS : MAX_ULPS * condition
+            ok = δ <= bound * eps(s)
+            return (ok, d, ok ? "" : "off by $(δ), $(δ / eps(s)) ulps of the array's largest entry $(s) (bound $(bound))")
         end
         return (d <= MAX_ULPS, d, d <= MAX_ULPS ? "" : "$(d) ulps")
     end

@@ -930,7 +930,14 @@ end
     @testset "(b) the reflected page: reflected chart nodes are pure bending, and the same page" begin
         sysc = ThinPlateSplineSystem(chart)
         Mc = [ones(25) [p[1] for p in chart] [p[2] for p in chart]]
-        @test norm(Mc * (sysc.coeff[26:28, :] * zc)) <= 1.0e-14 * norm(zc)   # no affine term on the reflected nodes
+        # No affine term on the reflected nodes, to rounding: coeff is inv([K P; Pᵀ 0]), LAPACK's
+        # LU and inversion, whose last bits follow OpenBLAS's core type, so the plane part of zc
+        # comes out at the order of κ·eps, not of eps. Measured (Julia 1.12.7), as a multiple
+        # of eps·‖zc‖: 42.6 native (i9-13900K), Haswell and Zen; 44.3 Sandybridge; 51.6 Nehalem;
+        # 129 Prescott; about 48 on GitHub's runner, past the earlier fixed 1e-14 (45 eps).
+        # κ ≈ 365 here, so the bound 4κ·eps holds them all with a margin of 11.
+        Kc = [[VgtkCore.tps_radial_basis(p, q) for p in chart, q in chart] Mc; Mc' zeros(3, 3)]
+        @test norm(Mc * (sysc.coeff[26:28, :] * zc)) <= 4 * cond(Kc) * eps() * norm(zc)
         # the same chart translated into [0, 1]² (origin at the page's lower-left corner): the same points
         shifted = [SVector(n[1], 1 - n[2]) for n in rc]
         t2 = PlanarTarget(design; calibration = HeightField(shifted, zc), placement = ChartPlacement(SVector(x0, ytop - s), s))

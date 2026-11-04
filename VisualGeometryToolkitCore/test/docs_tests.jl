@@ -3,12 +3,12 @@
 # none, a docstring detached from its definition by a blank or comment line
 # (Julia 1.12 makes it a bare string: `nearest_point` and `backproject(::CameraModel, u)`
 # lost theirs that way) and a signature line that drifted from the methods (a
-# removed keyword) all pass it. The General registration review asks for every
+# removed keyword) all get through it. The General registration review asks for every
 # public name to be documented (#173032).
 #
 # Two lists, kept apart:
 # - EXCEPTIONS: a name that is not documented here ON PURPOSE, with its reason.
-# - BACKLOG: names still to document (the docs pass of 2026-11-04 stopped at
+# - BACKLOG: names still to document (the docs review of 2026-11-04 stopped at
 #   these). The list only shrinks: a name documented must leave it, and a new
 #   public name without a docstring fails.
 

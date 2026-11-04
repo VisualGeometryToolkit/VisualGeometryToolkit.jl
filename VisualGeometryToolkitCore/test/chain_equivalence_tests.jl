@@ -18,7 +18,7 @@
     using CoordinateTransformations: ComposedTransformation
     using StaticArrays: SMatrix, SVector
 
-    export DIR, CODE, MAX_ULPS, read_goldens, target_values, lens_values, expected_core_value, compare_value, scaled_comparison, target_cases,
+    export DIR, CODE, MAX_ULPS, read_goldens, target_values, lens_values, expected_core_value, compare_value, scaled_comparison, solve_condition, target_cases,
         design_points, case_members, value_precision, printed_value
 
     # THE ADAPTER — the code at hand, as corpus.jl's header describes, and what
@@ -91,7 +91,7 @@ end
             continue
         end
         haskey(actual, key) || (push!(failures, "$key: missing"); continue)
-        ok, d, why = compare_value(e, actual[key]; scaled = scaled_comparison(key, CODE), precision = value_precision(key),
+        ok, d, why = compare_value(e, actual[key]; scaled = scaled_comparison(key, CODE), condition = solve_condition(key), precision = value_precision(key),
             printed = printed_value(key))
         n_compared += 1
         ok || push!(failures, "$key: $why")

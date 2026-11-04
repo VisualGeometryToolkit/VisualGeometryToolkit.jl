@@ -190,6 +190,9 @@ Added:
   tap and boundary at scattered COLMAP points the caller holds, one
   KernelAbstractions kernel on the backend that owns `dst` (a value sampled at
   a point equals a warp landing on it).
+- **`noise_sigma(norms, codim)` is public** (not exported): the robust noise
+  sigma of residual norms, `median(norms) / √chisq_median(d)`, which
+  downstream calibrations call qualified (`VgtkCore.noise_sigma`).
 
 Fixed:
 

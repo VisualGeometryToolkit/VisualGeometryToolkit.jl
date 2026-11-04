@@ -477,6 +477,7 @@ public RowsWorkspace, rows_workspace, task_buffers, point_norms!,
 # natural keyword and variable names at every call site; call them qualified.
 export AbstractMEstimator, efficiency_constant
 public codimension_factor
+public noise_sigma   # the robust noise sigma of residual norms, median(norms) / √chisq_median(d)
 # A DEPLOYED loss carries the width it runs at as `scale_multiple` (the multiple
 # of the noise scale) and `s2` (noise VARIANCE, always supplied by the caller);
 # `AnyLoss` is either a deployed loss or an annealed one, and is what the

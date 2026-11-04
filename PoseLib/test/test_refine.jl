@@ -74,6 +74,8 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
         Fr = refine_fundamental(F0, Csponds(x1, x2); max_iter = 25, loss_width = 2.0)
         @test Fr isa FundMat{Float64}
         @test _proj_dist(Fr, F) < 1e-6 < _proj_dist(F0, F)
+        @test_throws ArgumentError("F must be 3×3, got 2×3") refine_fundamental(
+            Matrix(F0)[1:2, :], Csponds(x1, x2); max_iter = 25, loss_width = 2.0)
     end
 
     @testset "refine_homography" begin
@@ -86,6 +88,8 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
         Hr = refine_homography(H0, Csponds(x1, x2); max_iter = 25, loss_width = 2.0)
         @test Hr isa HomographyMat{Float64}
         @test _proj_dist(Hr, H) < 1e-6 < _proj_dist(H0, H)
+        @test_throws ArgumentError("H must be 3×3, got 2×2") refine_homography(
+            Matrix(H0)[1:2, 1:2], Csponds(x1, x2); max_iter = 25, loss_width = 2.0)
     end
 
     @testset "refine_absolute_pose refuses the z = 1 chart" begin
@@ -244,6 +248,8 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
 
         pix = refine_absolute_pose(seed, K1, Csponds(X, upix); max_iter = 25, loss_width = f * calibrated_loss_width)
         @test _rot_err_deg(pix.R, R) < 1e-3
+        @test_throws ArgumentError("K must be 3×3, got 3×4") refine_absolute_pose(
+            seed, hcat(Matrix(K1), zeros(3)), Csponds(X, upix); max_iter = 25, loss_width = f * calibrated_loss_width)
         @test norm(pix.t - t) < 1e-6
 
         wrong_unit = refine_absolute_pose(seed, K1, Csponds(X, upix); max_iter = 25, loss_width = calibrated_loss_width)
@@ -289,6 +295,9 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
         @test E isa EssentialMat{Float64}
         @test _proj_dist(E, tx * R) < 1e-8
         @test VgtkCore.essential_dlt(PoseLibSolver(), b1[1:20] .=> b2[1:20]) == E
+        # Fewer than eight is an ArgumentError naming the count, before the ccall.
+        @test_throws ArgumentError("essential_dlt needs at least 8 correspondences, got 7") VgtkCore.essential_dlt(
+            Csponds(b1[1:7], b2[1:7]))
     end
 
     # The PoseLib backend of VGC's `Essential5pt`. VGC's `solve` hands the

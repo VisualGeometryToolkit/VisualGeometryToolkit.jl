@@ -350,12 +350,13 @@ inlier. VisualGeometryToolkitCore has no native eight-point solver, so the form
 without a backend runs this one. An algorithm, so it can only be degenerate:
 it returns `nothing` when PoseLib's solution is not finite, but a degenerate
 set (a pure rotation, repeated points) can also give a finite, meaningless `E`
-that nothing flags. Fewer than eight correspondences fail an `@assert`.
+that nothing flags. Fewer than eight correspondences throw an `ArgumentError`
+naming the count.
 """
 function VgtkCore.essential_dlt(::PoseLibSolver,
         cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{3}}})
     n = length(cs)
-    @assert n >= 8
+    n >= 8 || throw(ArgumentError("essential_dlt needs at least 8 correspondences, got $n"))
     buf1, buf2 = _pack(cs)
     E_buf = MVector{9, Float64}(undef)
     _require_library()
@@ -368,6 +369,11 @@ end
 
 @inline VgtkCore.essential_dlt(cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{3}}}) =
     VgtkCore.essential_dlt(PoseLibSolver(), cs)
+
+# The refiners' 3×3 seed check: an `ArgumentError` naming the size it got, run
+# before the matrix is read under `@inbounds` into the ccall's buffer.
+_require_3x3(A::AbstractMatrix, name::String) =
+    size(A) == (3, 3) || throw(ArgumentError("$name must be 3×3, got $(join(size(A), '×'))"))
 
 # =============================================================================
 # refine_relpose  (robust-loss LM refinement of a relative pose — PoseLib LO)
@@ -684,7 +690,7 @@ function refine_fundamental(F::AbstractMatrix,
                             cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}};
                             max_iter::Integer, loss = TLSShape(),
                             loss_width::Union{Real, Nothing} = nothing)
-    @assert size(F) == (3, 3)
+    _require_3x3(F, "F")
     X1, X2 = _pack(cs)
     Fin = Vector{Float64}(undef, 9)
     @inbounds for j in 1:3, i in 1:3
@@ -766,7 +772,7 @@ function refine_absolute_pose(pose::Rigid3, K::AbstractMatrix,
                               cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{2}}};
                               max_iter::Integer, loss = TLSShape(),
                               loss_width::Union{Real, Nothing} = nothing)
-    @assert size(K) == (3, 3)
+    _require_3x3(K, "K")
     Xb, xb = _pack(cs)
     R0 = pose.R; t0 = pose.t
     Rin = Vector{Float64}(undef, 9)
@@ -897,7 +903,7 @@ function refine_homography(H::AbstractMatrix,
                            cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}};
                            max_iter::Integer, loss = TLSShape(),
                            loss_width::Union{Real, Nothing} = nothing)
-    @assert size(H) == (3, 3)
+    _require_3x3(H, "H")
     X1, X2 = _pack(cs)
     Hin = Vector{Float64}(undef, 9)
     @inbounds for j in 1:3, i in 1:3

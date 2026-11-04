@@ -89,7 +89,8 @@
             host = backproject(grid, pix)
             @test maximum(i -> norm(host[i] - dev[i]), eachindex(pix)) < 1.0e-12
             dvals = Base.invokelatest(Array, Base.invokelatest(cs, Base.invokelatest(CuArray, points)))
-            @test maximum(i -> norm(dvals[i] - cs(points[i])), eachindex(points)) < 1.0e-12
+            # FMA contraction on the device: a few ulp of the value
+            @test maximum(i -> norm(dvals[i] - cs(points[i])) / max(1, norm(cs(points[i]))), eachindex(points)) < 1.0e-11
         end
     end
 end

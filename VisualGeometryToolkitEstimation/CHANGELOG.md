@@ -1,5 +1,37 @@
 # VisualGeometryToolkitEstimation changelog
 
+## 0.6.0 (unreleased)
+
+- **`fit_camera(T, source, region; …)`: one model-to-model regression** —
+  the camera model of type `T` regressed onto `source` over `region` (Core's
+  `imaged_region`, an `Ellipse`, a `Rect`, their `∩`), minimizing the
+  integrated squared pixel error of the round trip; `FitResult{…,
+  CameraFitMetadata}` (`max_px`, `rms_px`, `max_px_edge`, the region, and the
+  family's own record). The target type selects the family:
+  - a lens family `L` (`fit_camera(L, model, region; weight)`): what
+    `fit_lens` did, its radial profile's exact 1-D reduction with the density
+    weighted by the region's share of each radius; on `fit_lens`'s cases it
+    reproduces its parameters to 1.4e-9;
+  - `SplineProjection` (`fit_camera(SplineProjection, source, region;
+    tolerance)`): the forward map ray → pixel as Core's `ChartSpline` on the
+    equidistant direction chart, penalized linear least squares (a P-spline,
+    `λ = 1e-8·mean(diag(AᵀA))`) with its knot spacing bisected to the largest
+    whose held-out maximum meets `tolerance` (`:max_iterations` when it cannot);
+  - `CentralGenericModel` (`fit_camera(CentralGenericModel, source, region;
+    grid_size, tolerance)`): a grid on Core's full-image lattice (a
+    `BoundedCamera`'s extent or a grid source's image), the region restricting
+    the quadrature only.
+- **Breaking: removed `fit_lens` and `LensFitMetadata`** (retired in
+  `check_naming`). `fit_lens(L, model; max_radius_px = R)` is
+  `fit_camera(L, model, Ellipse(pp, R, R, 0.0))` (a disc about the principal
+  point), `max_view_angle = θ` the disc of radius `f·r(θ)`; the metadata's `s`,
+  `θ_max`, `θ_source`, `clipped` are `metadata(r).family`'s `focal_scale`,
+  `θ_max`, `θ_source`, `clipped`. `fix_focal` and `n` are gone (the focal
+  rescale is always fitted; the quadrature has 129 nodes), and the `:inverse`
+  direction has no successor (`SplineProjection` is the forward map). The
+  `[fit_lens]` table of `configs/default.toml` is `[fit_camera]`.
+- CoordinateTransformations joins the dependencies (the chart's `LinearMap`).
+
 ## 0.5.0 (2026-11-03)
 
 - **Breaking: a failed RANSAC has no estimate.** `RansacEstimate{M, T}` is

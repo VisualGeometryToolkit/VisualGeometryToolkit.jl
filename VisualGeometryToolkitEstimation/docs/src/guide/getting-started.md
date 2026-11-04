@@ -2,11 +2,12 @@
 
 ## Installation
 
-VisualGeometryToolkitEstimation is registered in the General registry (Julia 1.12+):
+VisualGeometryToolkitEstimation is registered in the General registry (Julia
+1.12+). The examples use the geometry types of VisualGeometryToolkitCore, so
+add both:
 
-```julia
-using Pkg
-Pkg.add("VisualGeometryToolkitEstimation")
+```julia-repl
+pkg> add VisualGeometryToolkitCore VisualGeometryToolkitEstimation
 ```
 
 ## RANSAC Homography

@@ -2,19 +2,26 @@
 # rawpy backend of load_raw — PythonCall, decoding only
 # =============================================================================
 #
-# Python opens the file and hands back, once each, the arrays and levels that
-# RadiometricCamera's convert_raw.py read (rawpy's raw_image_visible,
-# raw_colors_visible, raw_pattern, black_level_per_channel, white_level,
-# daylight_whitebalance) and the EXIF fields it recorded (exifread). The arrays
-# cross as one strided copy each (PyArray); no per-pixel Python call. All
-# processing is in src/raw_image.jl. rawpy and exifread are declared in the
-# package's CondaPkg.toml.
+# Python opens the file once and hands back, once each, the arrays and levels
+# that RadiometricCamera's convert_raw.py read (rawpy's raw_image_visible,
+# raw_pattern, black_level_per_channel, white_level, daylight_whitebalance)
+# and the EXIF fields it recorded (exifread, on the same file object). The
+# photosites cross as one strided copy (PyArray); no per-pixel Python call.
+# rawpy's raw_colors_visible is checked against the pattern tiled from the raw
+# origin (`photosite_colors`), the colours the mosaic derives. All processing
+# is in src/raw_image.jl. rawpy and exifread are declared in the package's
+# CondaPkg.toml.
+#
+# rawpy exposes no spatial black pattern (LibRaw's cblack[4:]) to Python, only
+# black_level_per_channel, which drops one; the shared rule that refuses it
+# (`_per_channel_black`) needs that array, so this decoder cannot apply it —
+# RawpyDecoder's docstring says so.
 # =============================================================================
 
 module VisualGeometryToolkitFeaturesPythonExt
 
 using PythonCall: Py, PyArray, pyconvert, pyimport, pyis, pybuiltins, pystr
-using VisualGeometryToolkitFeatures: VisualGeometryToolkitFeatures, RawpyDecoder, RawMosaic
+using VisualGeometryToolkitFeatures: VisualGeometryToolkitFeatures, RawpyDecoder, RawMosaic, photosite_colors
 
 _none(x::Py) = pyis(x, pybuiltins.None)
 _str(x::Py) = pyconvert(String, pystr(x))
@@ -29,14 +36,9 @@ function _ratio(tag::Py)
     end
 end
 
-function _exif(path::String)
-    exifread = pyimport("exifread")
-    f = pybuiltins.open(path, "rb")
-    tags = try
-        exifread.process_file(f; details = false)
-    finally
-        f.close()
-    end
+# The EXIF fields of the open file `f` (exifread reads from its current position).
+function _exif(f::Py)
+    tags = pyimport("exifread").process_file(f; details = false)
     tag(k) = (t = tags.get(k); _none(t) ? nothing : t)
     t_dt, t_ss = tag("EXIF DateTimeOriginal"), tag("EXIF SubSecTimeOriginal")
     t_exp, t_fn, t_fl = tag("EXIF ExposureTime"), tag("EXIF FNumber"), tag("EXIF FocalLength")
@@ -52,15 +54,25 @@ function _exif(path::String)
     )
 end
 
+# The file is opened once: exifread reads it, then rawpy decodes the same file
+# object from its start (rawpy.imread takes a file-like object).
 function VisualGeometryToolkitFeatures._decode_raw(::RawpyDecoder, path::AbstractString)
-    rawpy = pyimport("rawpy")
-    exif = _exif(String(path))
-    raw = rawpy.imread(String(path))
+    f = pybuiltins.open(String(path), "rb")
+    try
+        exif = _exif(f)
+        f.seek(0)
+        return _mosaic(pyimport("rawpy"), f, exif)
+    finally
+        f.close()
+    end
+end
+
+function _mosaic(rawpy::Py, f::Py, exif::NamedTuple)
+    raw = rawpy.imread(f)
     try
         pattern_py = raw.raw_pattern
         _none(pattern_py) && error("load_raw: not a flat Bayer raw (rawpy returns no raw_pattern)")
         img = Matrix{UInt16}(PyArray{UInt16, 2}(raw.raw_image_visible; copy = false))
-        colors = Matrix{UInt8}(PyArray{UInt8, 2}(raw.raw_colors_visible; copy = false))
         pattern = Matrix{UInt8}(PyArray{UInt8, 2}(pattern_py; copy = false))
         black = pyconvert(Vector{Float64}, raw.black_level_per_channel)
         white = pyconvert(Float64, raw.white_level)
@@ -75,9 +87,13 @@ function VisualGeometryToolkitFeatures._decode_raw(::RawpyDecoder, path::Abstrac
             decoder = "rawpy " * pyconvert(String, rawpy.__version__),
             libraw_version = join(ver, '.'),
         )
-        return RawMosaic(img, colors, pattern, (black[1], black[2], black[3], black[4]), white,
+        m = RawMosaic(img, pattern, (black[1], black[2], black[3], black[4]), white,
             (pyconvert(Int, s.top_margin), pyconvert(Int, s.left_margin)),
             (pyconvert(Int, s.raw_height), pyconvert(Int, s.raw_width)), metadata)
+        # rawpy's own per-photosite colours must be the pattern tiled from the raw origin
+        PyArray{UInt8, 2}(raw.raw_colors_visible; copy = false) == photosite_colors(m) ||
+            error("load_raw: rawpy's raw_colors_visible is not its raw_pattern tiled from the raw origin")
+        return m
     finally
         raw.close()
     end

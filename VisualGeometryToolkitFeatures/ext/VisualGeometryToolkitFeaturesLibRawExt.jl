@@ -295,24 +295,24 @@ function _mosaic(lr::Ptr{Cvoid}, path::AbstractString)
     H, W = Int(sizes.height), Int(sizes.width)
     top + H <= RH && left + W <= RW || error("load_raw: the visible area exceeds the raw frame")
     full = unsafe_wrap(Matrix{UInt16}, raw_image, (RW, RH))     # full[c + 1, r + 1] is photosite (r, c)
-    raw = permutedims(full[(left + 1):(left + W), (top + 1):(top + H)])
+    raw = permutedims(view(full, (left + 1):(left + W), (top + 1):(top + H)))   # one copy, out of LibRaw's buffer
 
     # -- colours: rawpy's raw_pattern (COLOR relative to the visible area, from
-    #    the raw origin), reduced 4×4 → 2×2 when it repeats, tiled from the origin
+    #    the raw origin), reduced 4×4 → 2×2 when it repeats; each photosite's
+    #    index is the pattern tiled from the origin (photosite_colors)
     n = 4
     pat = UInt8[(@ccall libraw.libraw_COLOR(lr::Ptr{Cvoid}, (y - top)::Cint, (x - left)::Cint)::Cint) for y in 0:(n - 1), x in 0:(n - 1)]
     q = pat[1:2, 1:2]
     pattern = (pat[1:2, 3:4] == q && pat[3:4, 3:4] == q && pat[3:4, 1:2] == q) ? q : pat
-    np_ = size(pattern, 1)
-    colors = UInt8[pattern[mod(top + i - 1, np_) + 1, mod(left + j - 1, np_) + 1] for i in 1:H, j in 1:W]
 
-    # -- black levels: rawpy's black_level_per_channel (LibRaw's adjust_bl on rawdata.color)
+    # -- black levels: rawpy's black_level_per_channel (LibRaw's adjust_bl on
+    #    rawdata.color), refusing a spatial pattern it would drop
     cblack = Vector{Int}(undef, CBLACK_SIZE)
     cb_p = Ptr{UInt32}(_fieldptr(rcolor_p, ColorData, :cblack))
     for k in 1:CBLACK_SIZE
         cblack[k] = unsafe_load(cb_p, k)
     end
-    black = _adjust_bl(cblack, Int(_field(rcolor_p, ColorData, :black)), filters, path)
+    black = VisualGeometryToolkitFeatures._per_channel_black(cblack, Int(_field(rcolor_p, ColorData, :black)), filters, path)
     white = Float64(_field(rcolor_p, ColorData, :maximum))
     lin = _field(rcolor_p, ColorData, :linear_max)
     rpre = _field(rcolor_p, ColorData, :pre_mul)
@@ -333,57 +333,11 @@ function _mosaic(lr::Ptr{Cvoid}, path::AbstractString)
         decoder = "LibRaw_jll",
         libraw_version = libraw_version(),
     )
-    return RawMosaic(raw, colors, pattern, Float64.(black), white, (top, left), (RH, RW), metadata)
+    return RawMosaic(raw, pattern, Float64.(black), white, (top, left), (RH, RW), metadata)
 end
 
 # LibRaw's local-time rendering of the timestamp it parsed from the EXIF
 # DateTimeOriginal with mktime: localtime gives the stored fields back.
 _strftime(t::Int64) = Base.Libc.strftime("%Y:%m:%d %H:%M:%S", t)
-
-# LibRaw::adjust_bl as rawpy's data_helper.h copies it: the per-channel black
-# levels cblack[0:3] + black, folding a 2×2 cblack[6+] block into them. A
-# spatial black pattern (cblack[4] × cblack[5] at cblack[6+]) that remains
-# nonzero after the fold — larger than 2×2, or one LibRaw's fold leaves — has
-# no per-channel form: it is refused, naming the file and the pattern's size,
-# never dropped (rawpy's black_level_per_channel drops it silently).
-function _adjust_bl(cb::Vector{Int}, black::Int, filters::UInt32, path::AbstractString)
-    C = copy(cb)                                   # C[k + 1] is cblack[k]
-    FC(row, col) = Int((filters >> ((((row << 1) & 14) | (col & 1)) << 1)) & 3)
-    if filters > 1000 && (C[5] + 1) ÷ 2 == 1 && (C[6] + 1) ÷ 2 == 1
-        clrs = [FC(c ÷ 2, c % 2) for c in 0:3]
-        greens = findall(==(1), clrs)
-        length(greens) > 1 && (clrs[last(greens)] = 3)
-        for c in 0:3
-            C[clrs[c + 1] + 1] += C[6 + (c ÷ 2) % C[5] * C[6] + c % 2 % C[6] + 1]
-        end
-        C[5] = C[6] = 0
-    elseif filters <= 1000 && C[5] == 1 && C[6] == 1
-        for c in 0:3
-            C[c + 1] += C[7]
-        end
-        C[5] = C[6] = 0
-    end
-    i = min(C[4], C[1], C[2], C[3])
-    for c in 1:4
-        C[c] -= i
-    end
-    black += i
-    if C[5] != 0 && C[6] != 0
-        nb = C[5] * C[6]
-        i = minimum(C[7:(6 + nb)])
-        nonz = 0
-        for c in 1:nb
-            C[6 + c] -= i
-            C[6 + c] != 0 && (nonz += 1)
-        end
-        black += i
-        nonz == 0 && (C[5] = C[6] = 0)
-    end
-    C[5] != 0 && C[6] != 0 && error(
-        "load_raw: $path has a $(C[5]) × $(C[6]) spatial black-level pattern (LibRaw cblack[4] × cblack[5]) that " *
-            "per-channel black levels cannot hold; such a file is not supported (its pattern would be dropped)"
-    )
-    return ntuple(c -> C[c] + black, 4)
-end
 
 end # module

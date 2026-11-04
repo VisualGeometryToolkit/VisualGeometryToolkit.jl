@@ -142,7 +142,7 @@ export load_linear_image        # a PNG as linear radiance: no gamma re-encoding
 public srgb_to_linear, box_downsample, gaussian_blur   # gaussian_blur: the (masked) separable Gaussian of a linear image
 export load_raw, load_raw_mosaic   # a camera RAW file as exact linear values (:bin2, :green), and its decoded mosaic
 export LinearRaw, RawMosaic, RawDecoder, LibRawDecoder, RawpyDecoder
-public cfa_string
+public cfa_string, photosite_colors   # the pattern as letters; each photosite's colour index (the pattern tiled)
 export batched_rows             # the describe backends' chunking skeleton
 export detect_mser, region_mask   # MSER (VLFeat's selection on ImageMorphology's MaxTree)
 public MserRegion, boundary_contours

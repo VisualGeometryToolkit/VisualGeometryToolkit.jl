@@ -5,7 +5,7 @@
 # Two layers, kept apart on purpose:
 #
 #   decode   — a RAW file to its mosaic (`RawMosaic`): the visible photosites,
-#              their colour indices, the per-channel black levels, the white
+#              their colour pattern, the per-channel black levels, the white
 #              level and the EXIF fields. A decoder is a weak-dependency
 #              extension, chosen by a token: `LibRawDecoder()` (LibRaw_jll,
 #              ccall, no Python) or `RawpyDecoder()` (PythonCall + rawpy).
@@ -17,8 +17,11 @@
 # Ported from RadiometricCamera's scripts/py/convert_raw.py (modes bin2 and
 # green, 2026-11-04). Its third mode, `fullres` (LibRaw's linear demosaic), is
 # not ported: a demosaic interpolates, and the radiometric chain reads the
-# binned or green-only samples.
+# binned or green-only samples. Each mode is one KernelAbstractions kernel
+# (on the CPU backend of the host mosaic).
 # =============================================================================
+
+using KernelAbstractions: @kernel, @index, @Const
 
 """
     RawDecoder
@@ -44,7 +47,13 @@ struct LibRawDecoder <: RawDecoder end
 
 Decode with rawpy and exifread through PythonCall (`using PythonCall`; the
 Python packages are declared in the package's `CondaPkg.toml`). Python opens the
-file and returns the arrays once; no per-pixel Python call.
+file once and returns the arrays once; no per-pixel Python call.
+
+rawpy reports only LibRaw's per-channel black levels (`black_level_per_channel`),
+not the spatial black pattern behind them, so where [`LibRawDecoder`](@ref)
+refuses a file whose spatial pattern has no per-channel form, this decoder
+cannot see it and returns the per-channel levels (the pattern dropped). Use
+`LibRawDecoder()` where that matters (DNGs with a black-level pattern).
 """
 struct RawpyDecoder <: RawDecoder end
 
@@ -67,10 +76,11 @@ reports it.
 - `raw::Matrix{UInt16}` — the visible photosites, `raw[row, column]`, in the
   sensor's orientation (no EXIF flip): pixel `(row, column)` is the raw's
   COLMAP pixel centred at `(column − ½, row − ½)`.
-- `colors::Matrix{UInt8}` — each photosite's colour index, LibRaw's: `0` R,
-  `1` G, `2` B, `3` the second G of an RGBG pattern.
-- `pattern::Matrix{UInt8}` — the smallest repeating colour pattern, from the
-  raw image's origin (rawpy's `raw_pattern`).
+- `pattern::Matrix{UInt8}` — the smallest repeating colour pattern, square,
+  at most 4 × 4, from the full raw frame's origin (rawpy's `raw_pattern`), in
+  LibRaw's colour indices: `0` R, `1` G, `2` B, `3` the second G of an RGBG
+  pattern. Each photosite's index is [`photosite_colors`](@ref)`(mosaic)`,
+  the pattern tiled from that origin.
 - `black::NTuple{4, Float64}` — the black level per colour index (the common
   and per-channel parts summed, LibRaw's `adjust_bl`).
 - `white::Float64` — the white level (LibRaw's `maximum`): the code at which a
@@ -85,20 +95,38 @@ reports it.
 """
 struct RawMosaic{M <: NamedTuple}
     raw::Matrix{UInt16}
-    colors::Matrix{UInt8}
     pattern::Matrix{UInt8}
     black::NTuple{4, Float64}
     white::Float64
     visible_origin::NTuple{2, Int}
     raw_size::NTuple{2, Int}
     metadata::M
-    function RawMosaic(raw, colors, pattern, black, white, visible_origin, raw_size, metadata::M) where {M <: NamedTuple}
-        size(raw) == size(colors) ||
-            throw(DimensionMismatch("RawMosaic: a $(join(size(raw), '×')) raw image and $(join(size(colors), '×')) colour indices"))
-        all(c -> c <= 3, colors) || throw(ArgumentError("RawMosaic: colour indices are 0 (R), 1 (G), 2 (B) or 3 (G2)"))
+    function RawMosaic(raw, pattern, black, white, visible_origin, raw_size, metadata::M) where {M <: NamedTuple}
+        n = size(pattern, 1)
+        (size(pattern, 2) == n && 1 <= n <= 4) ||
+            throw(ArgumentError("RawMosaic: the colour pattern must be square, at most 4 × 4, got $(join(size(pattern), '×'))"))
+        all(c -> c <= 3, pattern) || throw(ArgumentError("RawMosaic: colour indices are 0 (R), 1 (G), 2 (B) or 3 (G2), got $pattern"))
         all(<(white), black) || throw(ArgumentError("RawMosaic: every black level must be below the white level $white, got $black"))
-        return new{M}(raw, colors, pattern, black, white, visible_origin, raw_size, metadata)
+        return new{M}(raw, pattern, black, white, visible_origin, raw_size, metadata)
     end
+end
+
+"""
+    photosite_colors(mosaic::RawMosaic) -> Matrix{UInt8}
+
+Each visible photosite's colour index (LibRaw's: `0` R, `1` G, `2` B, `3` the
+second G), the size of `mosaic.raw`: the `pattern` tiled from the full raw
+frame's origin, so visible photosite `(row, column)` reads
+`pattern[mod(top + row − 1, n) + 1, mod(left + column − 1, n) + 1]` with
+`(top, left) = visible_origin` — rawpy's `raw_colors_visible`.
+"""
+photosite_colors(m::RawMosaic) = UInt8[_photosite_color(m, i, j) for i in axes(m.raw, 1), j in axes(m.raw, 2)]
+
+# The colour index of visible photosite (i, j): the pattern tiled from the raw origin.
+@inline function _photosite_color(m::RawMosaic, i, j)
+    n = size(m.pattern, 1)
+    top, left = m.visible_origin
+    return @inbounds m.pattern[mod(top + i - 1, n) + 1, mod(left + j - 1, n) + 1]
 end
 
 """
@@ -173,57 +201,136 @@ function LinearRaw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1)
 end
 
 # (raw − black[c]) / (white − black[c]): convert_raw.py's expression, in its
-# order (the gain is applied after the binning's mean, as there).
-@inline _linear(m::RawMosaic, i, j) =
-    (Float64(m.raw[i, j]) - m.black[m.colors[i, j] + 1]) / (m.white - m.black[m.colors[i, j] + 1])
+# order (the gain is applied after the binning's mean, as there), with the
+# black level and the denominator `white − black[c]` taken from per-colour
+# (or per-site) constants computed once — the same two operations on the same
+# values, so the same bits.
+@inline _linear(x::UInt16, black::Float64, den::Float64) = (Float64(x) - black) / den
+
+# A quad's four photosites in column-major order, k = di + 2dj + 1.
+const _QUAD_SITES = ((0, 0), (1, 0), (0, 1), (1, 1))
+
+# Each quad's R, G, B: the planes' photosites (quad-site indices k), their
+# linear values' mean times the gain, and whether ANY photosite is at the
+# white level. One work item per quad.
+@kernel function _bin2_kernel!(img, sat, @Const(raw), planes, black, den, gain::Float64, white::Float64)
+    i, j = @index(Global, NTuple)
+    r0, c0 = 2i - 1, 2j - 1
+    @inbounds begin
+        x = ntuple(k -> raw[r0 + _QUAD_SITES[k][1], c0 + _QUAD_SITES[k][2]], Val(4))
+        v = ntuple(k -> _linear(x[k], black[k], den[k]), Val(4))
+        for p in 1:3
+            ks = planes[p]
+            img[i, j, p] = (foldl((s, k) -> s + v[k], ks; init = 0.0) / length(ks)) * gain
+        end
+        sat[i, j] = x[1] >= white || x[2] >= white || x[3] >= white || x[4] >= white
+    end
+end
 
 function _bin2(m::RawMosaic, gain::Float64)
     H, W = size(m.raw)
     H2, W2 = H ÷ 2, W ÷ 2
     H2 >= 1 && W2 >= 1 || throw(ArgumentError("LinearRaw: a $(H)×$(W) mosaic holds no 2×2 quad"))
     # the quad's colour layout, the same in every quad of a 2×2 Bayer pattern
-    cell = m.colors[1:2, 1:2]
-    all(m.colors[i, j] == cell[mod1(i, 2), mod1(j, 2)] for i in 1:min(H, 4), j in 1:min(W, 4)) ||
-        throw(ArgumentError("LinearRaw: :bin2 needs a 2×2 Bayer pattern, got colour indices $(m.colors[1:min(H, 4), 1:min(W, 4)])"))
+    # (a pattern that repeats with period 2 from the raw origin)
+    n = size(m.pattern, 1)
+    (iseven(n) && all(m.pattern[i, j] == m.pattern[mod1(i, 2), mod1(j, 2)] for i in 1:n, j in 1:n)) ||
+        throw(ArgumentError("LinearRaw: :bin2 needs a 2×2 Bayer pattern, got the colour pattern $(m.pattern)"))
+    cell = ntuple(k -> _photosite_color(m, 1 + _QUAD_SITES[k][1], 1 + _QUAD_SITES[k][2]), Val(4))
     plane(c) = c == 3 ? 2 : Int(c) + 1                         # 0 R, 1 G, 2 B, 3 G2 → planes R, G, B
-    sites = [[(di, dj) for di in 0:1, dj in 0:1 if plane(cell[di + 1, dj + 1]) == p] for p in 1:3]
-    all(length(sites[p]) == n for (p, n) in ((1, 1), (2, 2), (3, 1))) ||
-        throw(ArgumentError("LinearRaw: :bin2 needs one R, two G and one B per quad, got $(cell)"))
+    planes = ntuple(p -> Tuple(k for k in 1:4 if plane(cell[k]) == p), Val(3))
+    map(length, planes) == (1, 2, 1) ||
+        throw(ArgumentError("LinearRaw: :bin2 needs one R, two G and one B per quad, got $([cell[1] cell[3]; cell[2] cell[4]])"))
+    black = ntuple(k -> m.black[cell[k] + 1], Val(4))
+    den = ntuple(k -> m.white - black[k], Val(4))
     img = Array{Float64, 3}(undef, H2, W2, 3)
-    sat = falses(H2, W2)
-    white = m.white
-    @inbounds for j in 1:W2, i in 1:H2
-        r0, c0 = 2i - 1, 2j - 1
-        for p in 1:3
-            s = 0.0
-            for (di, dj) in sites[p]
-                s += _linear(m, r0 + di, c0 + dj)
-            end
-            img[i, j, p] = (s / length(sites[p])) * gain
-        end
-        sat[i, j] = m.raw[r0, c0] >= white || m.raw[r0 + 1, c0] >= white ||
-            m.raw[r0, c0 + 1] >= white || m.raw[r0 + 1, c0 + 1] >= white
-    end
+    sat = Matrix{Bool}(undef, H2, W2)
+    planes_static = (planes[1]::NTuple{1, Int}, planes[2]::NTuple{2, Int}, planes[3]::NTuple{1, Int})
+    backend = KA.get_backend(img)
+    _bin2_kernel!(backend)(img, sat, m.raw, planes_static, black, den, gain, m.white; ndrange = (H2, W2))
+    KA.synchronize(backend)
     # photosite (di, dj) of a quad is at raw COLMAP (2j − 1.5 + dj, 2i − 1.5 + di),
     # the binned point (j − ¾ + dj/2, i − ¾ + di/2): ((dj − ½)/2, (di − ½)/2) from the centre
-    offsets = [sum(SVector((dj - 0.5) / 2, (di - 0.5) / 2) for (di, dj) in sites[p]) / length(sites[p]) for p in 1:3]
-    return LinearRaw(img, trues(H2, W2), sat, offsets, :bin2, gain, m.metadata)
+    offset(k) = SVector((_QUAD_SITES[k][2] - 0.5) / 2, (_QUAD_SITES[k][1] - 0.5) / 2)
+    offsets = [sum(offset, planes[p]) / length(planes[p]) for p in 1:3]
+    return LinearRaw(img, trues(H2, W2), BitMatrix(sat), offsets, :bin2, gain, m.metadata)
+end
+
+# Each photosite's green value (0 at a red or a blue one), whether it is
+# green, and whether it is at the white level. One work item per photosite.
+@kernel function _green_kernel!(img, green, sat, @Const(raw), @Const(pattern), origin, black, den, gain::Float64, white::Float64)
+    i, j = @index(Global, NTuple)
+    @inbounds begin
+        n = size(pattern, 1)
+        c = pattern[mod(origin[1] + i - 1, n) + 1, mod(origin[2] + j - 1, n) + 1]
+        g = c == 0x01 || c == 0x03
+        x = raw[i, j]
+        green[i, j] = g
+        img[i, j, 1] = g ? _linear(x, black[c + 1], den[c + 1]) * gain : 0.0
+        sat[i, j] = g && x >= white
+    end
 end
 
 function _green_sites(m::RawMosaic, gain::Float64)
     H, W = size(m.raw)
-    img = zeros(Float64, H, W, 1)
-    green = falses(H, W)
-    sat = falses(H, W)
-    white = m.white
-    @inbounds for j in 1:W, i in 1:H
-        c = m.colors[i, j]
-        (c == 1 || c == 3) || continue
-        green[i, j] = true
-        img[i, j, 1] = _linear(m, i, j) * gain
-        sat[i, j] = m.raw[i, j] >= white
+    img = Array{Float64, 3}(undef, H, W, 1)
+    green = Matrix{Bool}(undef, H, W)
+    sat = Matrix{Bool}(undef, H, W)
+    den = map(b -> m.white - b, m.black)
+    backend = KA.get_backend(img)
+    _green_kernel!(backend)(img, green, sat, m.raw, m.pattern, m.visible_origin, m.black, den, gain, m.white; ndrange = (H, W))
+    KA.synchronize(backend)
+    return LinearRaw(img, BitMatrix(green), BitMatrix(sat), [SVector(0.0, 0.0)], :green, gain, m.metadata)
+end
+
+# LibRaw::adjust_bl as rawpy's data_helper.h copies it, the black levels per
+# colour index from LibRaw's raw `cblack` array (`cb[k + 1]` is `cblack[k]`:
+# four per-channel parts, then a spatial pattern of `cblack[4] × cblack[5]`
+# entries at `cblack[6+]`) and its common `black`, folding a 2×2 pattern into
+# the four channels. A spatial pattern that remains nonzero after the fold —
+# larger than 2×2, or one LibRaw's fold leaves — has no per-channel form: it is
+# refused, naming the file and the pattern's size, never dropped (rawpy's
+# black_level_per_channel drops it silently). The one rule every decoder that
+# can read `cblack` goes through.
+function _per_channel_black(cb::AbstractVector{<:Integer}, black::Integer, filters::Integer, path::AbstractString)
+    C = Vector{Int}(cb)                            # C[k + 1] is cblack[k]
+    black = Int(black)
+    FC(row, col) = Int((filters >> ((((row << 1) & 14) | (col & 1)) << 1)) & 3)
+    if filters > 1000 && (C[5] + 1) ÷ 2 == 1 && (C[6] + 1) ÷ 2 == 1
+        clrs = [FC(c ÷ 2, c % 2) for c in 0:3]
+        greens = findall(==(1), clrs)
+        length(greens) > 1 && (clrs[last(greens)] = 3)
+        for c in 0:3
+            C[clrs[c + 1] + 1] += C[6 + (c ÷ 2) % C[5] * C[6] + c % 2 % C[6] + 1]
+        end
+        C[5] = C[6] = 0
+    elseif filters <= 1000 && C[5] == 1 && C[6] == 1
+        for c in 0:3
+            C[c + 1] += C[7]
+        end
+        C[5] = C[6] = 0
     end
-    return LinearRaw(img, green, sat, [SVector(0.0, 0.0)], :green, gain, m.metadata)
+    i = min(C[4], C[1], C[2], C[3])
+    for c in 1:4
+        C[c] -= i
+    end
+    black += i
+    if C[5] != 0 && C[6] != 0
+        nb = C[5] * C[6]
+        i = minimum(C[7:(6 + nb)])
+        nonz = 0
+        for c in 1:nb
+            C[6 + c] -= i
+            C[6 + c] != 0 && (nonz += 1)
+        end
+        black += i
+        nonz == 0 && (C[5] = C[6] = 0)
+    end
+    C[5] != 0 && C[6] != 0 && error(
+        "load_raw: $path has a $(C[5]) × $(C[6]) spatial black-level pattern (LibRaw cblack[4] × cblack[5]) that " *
+            "per-channel black levels cannot hold; such a file is not supported (its pattern would be dropped)"
+    )
+    return ntuple(c -> C[c] + black, 4)
 end
 
 """

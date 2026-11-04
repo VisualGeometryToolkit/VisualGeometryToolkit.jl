@@ -16,11 +16,22 @@
   Rounded to 16 bits, `:bin2` equals `convert_raw.py --mode bin2`'s linear PNG
   value for value.
 - **New `load_raw_mosaic`, `RawMosaic`, `LinearRaw(mosaic; mode, gain)`**: the
-  decode and the processing apart; the processing is all Julia.
+  decode and the processing apart; the processing is all Julia, one
+  KernelAbstractions kernel per mode. A `RawMosaic` holds the colour
+  `pattern` (square, at most 4 × 4, validated) and the visible area's origin;
+  each photosite's colour index is `photosite_colors(mosaic)`, the pattern
+  tiled from the raw origin (rawpy's `raw_colors_visible`, which the rawpy
+  decoder checks against it).
+- **Black levels: one rule.** LibRaw's per-channel black levels with a 2×2
+  spatial pattern folded in; a spatial pattern with no per-channel form is
+  refused, naming the file, never dropped. rawpy exposes only the per-channel
+  levels (its `black_level_per_channel` drops such a pattern), so
+  `RawpyDecoder()` cannot apply the rule; its docstring says so.
 - **Two decoders, both weak dependencies**: `LibRawDecoder()` (new extension
   `VisualGeometryToolkitFeaturesLibRawExt` on LibRaw_jll 0.22.2: a `ccall`
   layer whose mirrored `libraw_data_t` layout is checked against LibRaw's
   accessors on every file, refusing a LibRaw other than 0.22) and
   `RawpyDecoder()` (new extension `VisualGeometryToolkitFeaturesPythonExt` on
-  PythonCall; rawpy and exifread declared in the new `CondaPkg.toml`). Without
+  PythonCall; rawpy and exifread declared in the new `CondaPkg.toml`, reading
+  one open file object). Without
   the extension loaded, `load_raw` names the package to load.

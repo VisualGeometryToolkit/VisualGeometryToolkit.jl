@@ -12,12 +12,30 @@
         RGGB = UInt8[0 1; 3 2], BGGR = UInt8[2 1; 3 0],
         GRBG = UInt8[1 0; 2 3], GBRG = UInt8[1 2; 0 3],
     )
-    function mosaic(raw::AbstractMatrix{<:Integer}, cell::Matrix{UInt8}; black = (512.0, 500.0, 520.0, 508.0), white = 16383.0)
+    function mosaic(raw::AbstractMatrix{<:Integer}, cell::Matrix{UInt8}; black = (512.0, 500.0, 520.0, 508.0), white = 16383.0, origin = (0, 0))
         H, W = size(raw)
-        colors = UInt8[cell[mod1(i, 2), mod1(j, 2)] for i in 1:H, j in 1:W]
         meta = (; model = "synthetic")
-        return RawMosaic(Matrix{UInt16}(raw), colors, cell, black, white, (0, 0), (H, W), meta)
+        return RawMosaic(Matrix{UInt16}(raw), cell, black, white, origin, (H + origin[1], W + origin[2]), meta)
     end
+end
+
+@testitem "raw: photosite colours are the pattern tiled from the raw origin" setup = [RawFixtures] begin
+    using VisualGeometryToolkitFeatures: RawMosaic, photosite_colors, LinearRaw
+    raw = fill(UInt16(3000), 4, 6)
+    @test photosite_colors(mosaic(raw, LAYOUTS.RGGB)) == UInt8[LAYOUTS.RGGB[mod1(i, 2), mod1(j, 2)] for i in 1:4, j in 1:6]
+    # an odd visible origin shifts the tiling: RGGB from the raw origin reads B G2 / G R from (1, 1)
+    m = mosaic(raw, LAYOUTS.RGGB; origin = (1, 1))
+    @test photosite_colors(m)[1:2, 1:2] == UInt8[2 3; 1 0]
+    @test photosite_colors(mosaic(raw, LAYOUTS.RGGB; origin = (0, 1)))[1:2, 1:2] == UInt8[1 0; 2 3]
+    @test size(LinearRaw(m; mode = :bin2).image) == (2, 3, 3)
+    # the pattern is validated, not the mosaic: square, at most 4 × 4, indices ≤ 3
+    meta = (; model = "synthetic")
+    @test_throws ArgumentError RawMosaic(raw, UInt8[0 1 2], (0.0, 0.0, 0.0, 0.0), 1.0, (0, 0), (4, 6), meta)
+    @test_throws ArgumentError RawMosaic(raw, zeros(UInt8, 6, 6), (0.0, 0.0, 0.0, 0.0), 1.0, (0, 0), (4, 6), meta)
+    @test_throws ArgumentError RawMosaic(raw, UInt8[0 1; 4 2], (0.0, 0.0, 0.0, 0.0), 1.0, (0, 0), (4, 6), meta)
+    # a 4 × 4 pattern that is not 2-periodic has no 2×2 quad
+    p4 = UInt8[0 1 0 1; 3 2 3 2; 0 1 2 1; 3 2 3 0]
+    @test_throws ArgumentError LinearRaw(RawMosaic(raw, p4, (0.0, 0.0, 0.0, 0.0), 16383.0, (0, 0), (4, 6), meta); mode = :bin2)
 end
 
 @testitem "raw: linear values, gain and the 2×2 binning" setup = [RawFixtures] begin
@@ -87,16 +105,17 @@ end
 end
 
 @testitem "raw: the green photosites on the raw grid" setup = [RawFixtures] begin
-    using VisualGeometryToolkitFeatures: LinearRaw
+    using VisualGeometryToolkitFeatures: LinearRaw, photosite_colors
     for cell in (LAYOUTS.RGGB, LAYOUTS.GRBG)
         raw = UInt16[1000 + 37 * i + 11 * j for i in 1:4, j in 1:6]
         raw[findfirst(c -> c == 1, [cell[mod1(i, 2), mod1(j, 2)] for i in 1:4, j in 1:6])] = 16383
         m = mosaic(raw, cell)
         L = LinearRaw(m; mode = :green, gain = 2)
-        green = (m.colors .== 1) .| (m.colors .== 3)
+        colors = photosite_colors(m)
+        green = (colors .== 1) .| (colors .== 3)
         @test size(L.image) == (4, 6, 1) && L.sampled == green
         @test all(L.image[.!green, 1] .== 0)
-        @test all(L.image[i, j, 1] == (raw[i, j] - m.black[m.colors[i, j] + 1]) / (m.white - m.black[m.colors[i, j] + 1]) * 2
+        @test all(L.image[i, j, 1] == (raw[i, j] - m.black[colors[i, j] + 1]) / (m.white - m.black[colors[i, j] + 1]) * 2
                   for i in 1:4, j in 1:6 if green[i, j])
         @test count(L.saturated) == 1 && all(L.saturated .<= green)
         @test L.plane_offsets == [zeros(2)]
@@ -134,7 +153,7 @@ end
     path = get(ENV, "VGTK_RAW_TEST_FILE", "")
     if isfile(path)
         m = load_raw_mosaic(path; decoder = LibRawDecoder())
-        @test size(m.raw) == size(m.colors) && all(<(m.white), m.black)
+        @test all(<(m.white), m.black)
         @test startswith(m.metadata.libraw_version, "0.22")
         L = LinearRaw(m; mode = :bin2)
         @test size(L.image) == (size(m.raw) .÷ 2..., 3)
@@ -143,27 +162,26 @@ end
     end
 end
 
-@testitem "raw: LibRaw black levels — a spatial pattern is folded or refused, never dropped" begin
+@testitem "raw: black levels — a spatial pattern is folded or refused, never dropped" begin
     import VisualGeometryToolkitFeatures as VgtkFeatures
-    using LibRaw_jll
-    ext = Base.get_extension(VgtkFeatures, :VisualGeometryToolkitFeaturesLibRawExt)
+    adjust = VgtkFeatures._per_channel_black      # the one rule, for every decoder that reads LibRaw's cblack
     filters = 0x94949494                           # RGGB
     cblack(rows, cols, pattern; per_channel = (0, 0, 0, 0)) = begin
-        cb = zeros(Int, ext.CBLACK_SIZE)
+        cb = zeros(Int, 4104)                      # LIBRAW_CBLACK_SIZE
         cb[1:4] .= per_channel
         cb[5], cb[6] = rows, cols
         cb[7:(6 + rows * cols)] .= pattern
         cb
     end
     # no pattern: the per-channel levels plus black
-    @test ext._adjust_bl(cblack(0, 0, Int[]; per_channel = (1, 2, 3, 4)), 100, filters, "a.ARW") == (101, 102, 103, 104)
+    @test adjust(cblack(0, 0, Int[]; per_channel = (1, 2, 3, 4)), 100, filters, "a.ARW") == (101, 102, 103, 104)
     # a 2 × 2 pattern folds into the four channels exactly
-    b = ext._adjust_bl(cblack(2, 2, [10, 20, 30, 40]), 100, filters, "a.ARW")
+    b = adjust(cblack(2, 2, [10, 20, 30, 40]), 100, filters, "a.ARW")
     @test sort(collect(b)) == [110, 120, 130, 140]
     # a uniform 4 × 4 pattern is a constant: it moves into black
-    @test ext._adjust_bl(cblack(4, 4, fill(7, 16)), 100, filters, "a.ARW") == (107, 107, 107, 107)
+    @test adjust(cblack(4, 4, fill(7, 16)), 100, filters, "a.ARW") == (107, 107, 107, 107)
     # a 4 × 4 pattern that varies has no per-channel form: refused, naming the file and the size
-    err = try ext._adjust_bl(cblack(4, 4, collect(1:16)), 100, filters, "/data/b.dng"); nothing catch e; e end
+    err = try adjust(cblack(4, 4, collect(1:16)), 100, filters, "/data/b.dng"); nothing catch e; e end
     @test err isa ErrorException && occursin("/data/b.dng", err.msg) && occursin("4 × 4", err.msg)
 end
 
@@ -176,7 +194,7 @@ end
         # bind to an already-loaded LibRaw_jll library.
         @eval using PythonCall
         m = Base.invokelatest(load_raw_mosaic, path; decoder = RawpyDecoder())
-        @test size(m.raw) == size(m.colors) && all(<(m.white), m.black)
+        @test all(<(m.white), m.black)
         @test startswith(m.metadata.decoder, "rawpy")
     else
         @test_skip "VGTK_RAW_TEST_FILE names no RAW file"

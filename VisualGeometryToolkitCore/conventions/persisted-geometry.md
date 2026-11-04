@@ -135,8 +135,9 @@ and a `covariance` over every parameter, in that order, iff it is `Uncertain`.
 A lens record lists its stages in sequence under the same key, `compose`, in
 the same order. **A list whose order changes changes its key**: the retired
 `calibration_chain` / `members` and lens `chain` listed the same members in
-application order, and a reader refuses them by name rather than read them in
-the new order. A target with a
+application order, and a reader refuses them by name in a current record
+rather than read them in the new order (a file of the version that held them
+is read through that version's migration). A target with a
 `board` (the physical board it is printed on) writes it as
 `{"size": {"width", "height"}, "origin": [u, v]}`, lengths in the file's unit.
 
@@ -153,6 +154,17 @@ VisualGeometryToolkitIO's `content_id`), in base units, its targets in a fixed
 order, with no schema version and no envelope provenance. A rig, every file
 written from it in any unit, and a migration of that file to the next record
 version have one identity; a test pins it for a rig of every target kind.
+
+**A published file keeps loading.** Every earlier schema version a published
+file holds is READ, and only the current version is written: a reader that
+meets an older version migrates it in memory, version by version, to the
+current record (VisualGeometryToolkitIO's `migrate_schema` steps, run by
+`migrate_record`; a schema's owner adds the steps of its own kinds), silently.
+The reason is the published data: a schema change must never force an archive
+on Zenodo or Hugging Face to be uploaded again. Rewriting a file once
+(`vgio_migrate`) is optional, and runs the same steps. A version is refused
+only where no published file holds it, or where it lacks what the current
+record needs (transforms v1/v2's free-form frame names).
 
 **Persisted rotations are quaternions.** A rotation is stored as a Hamilton
 quaternion (w-x-y-z, w ≥ 0) and READ AS ONE: the reader builds a

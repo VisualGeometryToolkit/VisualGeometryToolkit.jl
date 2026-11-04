@@ -13,6 +13,28 @@ ReTestItems: `Pkg.test()` runs every item; `Pkg.test(; test_args =
 ["migrate|v1"])` filters items by name; `RETESTITEMS_NWORKERS=0` runs serially
 for debugging. Check the reported total.
 
+## Schema versions
+
+Every earlier schema version a published file holds is READ; only the
+current version is written. Reason: a schema change must never force the
+published data (Zenodo, Hugging Face; multi-GB archives at ~100 KB/s) to be
+uploaded again, so a published file keeps loading forever.
+
+- Each old version has ONE step, `migrate_schema(::Val{schema}, tree)` (a
+  parsed record → the next version's record), in `src/migrate.jl`. The
+  readers run the steps on load (`_read_store` → `migrate_record`), silently
+  (an `@debug` names the version); `vgio_migrate` rewrites a file with the
+  same steps (the file form `migrate_schema(::Val{schema}, src, dst)`).
+- A schema change adds a step for the version it replaces (and its file
+  form, and a fixture under `test/fixtures/old/` or built in
+  `schema_versions_tests.jl`). Never delete a step whose version a published
+  file holds, and never make a writer write an old version.
+- A version no published file holds, and one that lacks what the current
+  record needs (transforms v1/v2's free-form frame names), keeps a refusal by
+  name.
+- A schema owner (BlobBoards' boards) adds its own steps and calls
+  `migrate_record` in its reader.
+
 ## Git Commit Conventions
 
 - **NEVER** add "Co-Authored-By: Claude" or similar AI attribution to commit messages

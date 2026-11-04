@@ -1,0 +1,39 @@
+{
+    "schema": "vgio/cameras/v1",
+    "converted_from": "pinhole_radtan",
+    "camera_id": "test camera",
+    "lens_id": "test lens",
+    "cameras": [
+        {
+            "schema": "vgio/camera/v1",
+            "name": "radtan",
+            "size": {
+                "unit": "px",
+                "width": 1280,
+                "height": 960
+            },
+            "pixel_chart": "colmap",
+            "intrinsics": {
+                "unit": "px",
+                "fx": 901.25,
+                "fy": 899.5,
+                "cx": 641.375,
+                "cy": 478.125,
+                "skew": 0
+            },
+            "lens": {
+                "model": "BrownConrady",
+                "params": [
+                    -0.15680625941667098,
+                    0.04565665542192153,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    -0.0003527415347489064,
+                    0.0008423616851487834
+                ]
+            }
+        }
+    ]
+}

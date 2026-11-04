@@ -172,15 +172,16 @@ _n_parameters(x) = x[:type] == _COMPOSITION_TYPE ? sum(_n_parameters, x[:compose
 # changed together, so it is never read as the current one.
 const _RETIRED_COMPOSITION_MSG =
     "a \"$(_RETIRED_COMPOSITION_TYPE)\" calibration (its `members` in application order) is the retired " *
-    "target v2 / rig v5 record: migrate the file with vgio_migrate (a composition is " *
-    "{\"type\": \"$(_COMPOSITION_TYPE)\", \"$(_COMPOSE_KEY)\": [outer, …, inner]}, CoordinateTransformations' order)"
+    "target v2 / rig v5 record, which a file of that version is read through its migration for (vgio_migrate " *
+    "rewrites it); a current record holds a composition as " *
+    "{\"type\": \"$(_COMPOSITION_TYPE)\", \"$(_COMPOSE_KEY)\": [outer, …, inner]}, CoordinateTransformations' order"
 # The retired affine kind (CT's AffineMap, six parameters): its print error is
 # the composition of VGC's gauge-free factors.
 const _RETIRED_AFFINE_MSG =
     "an \"affine\" calibration (CoordinateTransformations' AffineMap, [a11, a12, a21, a22, bx, by]) is retired: " *
     "an affine print error is the composition EuclideanMap ∘ Scale ∘ Aspect ∘ Skew (A = s·R·D·U), " *
     "{\"type\": \"$(_COMPOSITION_TYPE)\", \"$(_COMPOSE_KEY)\": [euclidean, scale, aspect, skew]} — a target v2 / " *
-    "rig v5 file is converted by vgio_migrate"
+    "rig v5 file holding one is read through its migration, which converts it (vgio_migrate rewrites the file)"
 
 function _target_calibration_check(x, member::Bool)
     ty = x[:type]
@@ -635,8 +636,8 @@ save(path::AbstractString, ::Attributed{<:PosedTarget, <:NamedTuple{(:calibratio
 Read a `vgio/target/v3` file: the target, `Attributed` with its
 `calibration_record` where the file states one. `resolve(reference)` supplies
 a referenced design's nominal points (else the target is returned
-unresolved). A `vgio/target/v1` file is refused, naming its migration
-(`vgio_migrate`).
+unresolved). A `vgio/target/v1` or `v2` file is read through its version
+steps (`migrate_record`).
 """
 function load(::Type{AbstractTarget}, path::AbstractString; resolve = nothing)
     d = _read_store(path, "target", _TARGET_SPEC)
@@ -765,7 +766,8 @@ it holds, its lengths in metres: sensors (each a `BoundedCamera` labeled `frame 
 targets (each a `PosedTarget`, minted `TargetFrame{id} → frame` on access), or both.
 `resolve(design)` supplies a referenced planar design's nominal points (see
 [`target_from_json`](@ref)). Type-unstable by nature (frame types are minted
-from file data) — load once, dispatch after.
+from file data) — load once, dispatch after. A `vgio/rig/v4` or `v5` file is
+read through its version steps (`migrate_record`).
 """
 load(::Type{Rig}, path::AbstractString; resolve = nothing) = _rig_from_record(_read_store(path, "rig", _RIG_SPEC); resolve)
 

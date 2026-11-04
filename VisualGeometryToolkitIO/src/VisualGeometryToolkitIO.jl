@@ -32,8 +32,8 @@ round-trip is part of the VGC value: a field (a trajectory's per-frame images
 and times) or an `Attributed` attribute (a camera's `calibration` block, a target's
 `calibration_record`; a covariance, as `Uncertain`).
 
-Every vgio file is a versioned schema (`vgio/<kind>/v<n>`: rig v5; cameras,
-transforms and trajectory v3; target v2; target_poses, target_points2d and
+Every vgio file is a versioned schema (`vgio/<kind>/v<n>`: rig v6; cameras
+v4; transforms, trajectory and target v3; target_poses, target_points2d and
 target_points3d v1; the rest v2), and a file is sufficient on its own and
 minimal:
 - every convention a reader needs is DECLARED in the file, once — the pixel
@@ -54,11 +54,18 @@ minimal:
   refused until a kind implements it);
 - a rotation is read as the stored quaternion itself (a `QuatRotation`), so
   file → value → file is exact; any other rotation is converted on write.
-Retired kinds and versions are refused by name, with their successor; nothing
-reads them (their one-shot migrations ran in 2026-10 and live in the git
-history). The version before the current target (v1) and rig (v4) is refused
-naming its migration, `vgio_migrate` (migrate.jl), which a schema's owner
-extends for its own kinds (`migrate_schema`). COLMAP model directories keep COLMAP's own format (world → camera
+EVERY EARLIER VERSION A PUBLISHED FILE HOLDS IS READ, and only the current one
+is written. A schema change must not force the published data (Zenodo, Hugging
+Face; multi-GB archives) to be uploaded again, so a published file keeps
+loading: a reader that meets cameras v1–v3, target v1–v2 or rig v4–v5 runs the
+version steps in memory (`migrate_record`: one `migrate_schema(::Val{schema},
+tree)` step per version, migrate.jl), silently but for an `@debug`, and reads
+the current record they give. `vgio_migrate` rewrites a file once with the same
+steps; a schema's owner adds the steps of its own kinds (`migrate_schema`) and
+calls `migrate_record` in its reader. A version no published file held and no
+step reads — transforms and trajectory v1/v2 (free-form frame names), rig
+v1/v2, generic_camera v1 — and the retired kinds are refused by name, with
+their successor. COLMAP model directories keep COLMAP's own format (world → camera
 poses, pixel centres at 0.5) and get a `vgio_units.json` sidecar declaring
 their world unit.
 =#
@@ -87,7 +94,7 @@ using SQLite: SQLite
 using FlexUnits: Units, Quantity, ustrip, dimension, uscale, quantity
 using CoordinateTransformations: ComposedTransformation   # a target calibration's composition
 using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, px, dpi, has_units,
-    CameraModel, CameraCalibrationMat, AbstractLensModel, Lens, Pinhole, Division, KannalaBrandt, Scaramuzza,
+    CameraModel, CameraCalibrationMat, AbstractLensModel, Lens, LiftLens, Pinhole, Division, KannalaBrandt, Scaramuzza,
     Perspective, Equidistant, DoubleSphere, Unified, ExtendedUnified,
     Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Even,
     lens_record, lens_from_record,
@@ -212,6 +219,7 @@ public read_length, write_length   # a file length <-> metres, decimal-exact (po
 public read_quantity, write_quantity, json_value, from_json, ScalarOrQuantity, role_unit   # the quantity JSON format (core_json.jl); a contract's length roles
 public validate                       # check any vgio file against its kind's table
 public migrate_schema, CONTRACT_GENERICS   # the per-schema migration a schema owner extends (its declared extension points)
+public migrate_record                 # an earlier version's record as the current one, in memory: the version steps a reader runs
 public write_staged                   # files written through a staging directory beside them, renamed into place once verified
 public pixel_frame_name, pixel_frame_from_name   # a pixel frame's serialized name, and back (VGC decides which exist)
 public pose_json, pose_from_json, pose_declarations, camera_json, camera_from_json,
@@ -226,8 +234,9 @@ public n_images, image_names, image_id, image_name, # ColmapDatabase accessors
 VisualGeometryToolkitIO's declared extension points: the functions another
 stack package may add methods to (VisualGeometryToolkitCore's
 `contract_generic_violations` checks it). [`migrate_schema`](@ref): the owner
-of a schema adds the migration of each of its old versions, so
-[`vgio_migrate`](@ref) migrates its files.
+of a schema adds the step of each of its old versions, so its reader reads
+them ([`migrate_record`](@ref)), and the file form, so [`vgio_migrate`](@ref)
+rewrites its files.
 """
 const CONTRACT_GENERICS = (migrate_schema,)
 

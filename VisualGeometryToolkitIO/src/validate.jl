@@ -229,9 +229,6 @@ const _XYZ = _Vec(_Real(), 3)
 # The two file boundaries every v2 kind goes through
 # -----------------------------------------------------------------------------
 
-# The kinds whose records carry a lens, v3 since the lens families.
-const _LENS_KINDS = ("cameras", "rig")
-
 # Kinds retired by the direct-serialization redesign (2026-10): no reader, no
 # migration — each successor started at v1 under its new name (or moved out of
 # VGIo), and the producer re-exports.
@@ -241,11 +238,12 @@ const _RETIRED_KINDS = Dict(
     "vgio/session/v3" => "the calibration pipeline's own session kind (a pipeline's checkpoint is the pipeline's, not VGIo's)",
 )
 
-# The versions `vgio_migrate` converts to the current one, and the command's
-# kind argument for each.
+# The earlier versions read through their version steps (migrate.jl), which
+# `vgio_migrate` rewrites as the current one, and the command's kind argument
+# for each.
 const _MIGRATIONS_TO_CURRENT = Dict(
     "vgio/target/v1" => "target", "vgio/rig/v4" => "rig", "vgio/target/v2" => "target", "vgio/rig/v5" => "rig",
-    "vgio/cameras/v3" => "file",
+    "vgio/cameras/v1" => "file", "vgio/cameras/v2" => "file", "vgio/cameras/v3" => "file",
 )
 
 function _refuse_schema(path, kind::AbstractString, s)
@@ -266,26 +264,13 @@ function _refuse_schema(path, kind::AbstractString, s)
             )
         )
     end
-    # the version before the current one of a kind with a migration: refused,
-    # naming it (`vgio_migrate`, migrate.jl)
-    if s isa AbstractString && haskey(_MIGRATIONS_TO_CURRENT, s)
+    # an earlier version of the kind with no version step (`_read_store` reads
+    # every one that has one): no published file holds it, so nothing reads it
+    if _is_earlier_version(s, kind)
         throw(
             ArgumentError(
-                "$(path) is a $(s) file; VisualGeometryToolkitIO reads only $(_schema(kind)), and there is no reader for it. " *
-                    "Migrate it once with vgio_migrate: `julia --project=<VisualGeometryToolkitIO> bin/vgio_migrate.jl " *
-                    "$(_MIGRATIONS_TO_CURRENT[s]) FILE --apply` (or `VisualGeometryToolkitIO.vgio_migrate(path)`)"
-            )
-        )
-    end
-    # an earlier version of the kind: retired, its stored records migrated once
-    # (2026-10; the tools are in the git history), so nothing reads it
-    m = s isa AbstractString ? match(r"^vgio/([a-z0-9_]+)/v(\d+)$", s) : nothing
-    if m !== nothing && m[1] == kind && parse(Int, m[2]::AbstractString) < _schema_version(kind)
-        why = kind in _LENS_KINDS ? " — its lens records predate the lens families" : ""
-        throw(
-            ArgumentError(
-                "$(path) is a retired $(s) file$(why). VisualGeometryToolkitIO reads only $(_schema(kind)); " *
-                    "there is no reader for it: re-export it from its producer"
+                "$(path) is a retired $(s) file, which no migration reads (VisualGeometryToolkitIO reads " *
+                    "$(_schema(kind)) and the earlier versions a published file holds): re-export it from its producer"
             )
         )
     end
@@ -306,16 +291,42 @@ _refuse_payload(path, d) = haskey(d, _PAYLOAD_KEY) && throw(
     )
 )
 
-# Read a file of `kind`, refusing any other schema (a v1 one by name), and
-# validate it against `spec` before any field is used.
+# Read a file of `kind`, refusing any other schema (a retired one by name), and
+# validate it against `spec` before any field is used. A file of an earlier
+# version of the kind is read through its version steps (`migrate_record`,
+# migrate.jl), in memory: the record they give is validated as the current
+# record and read as one.
 function _read_store(path::AbstractString, kind::AbstractString, spec::_Spec)
     d = _read_vgio_json(path)                 # a non-finite number is refused by its field
     d isa AbstractDict || throw(ArgumentError("$(path): not a JSON object"))
     s = get(d, :schema, nothing)
-    s == _schema(kind) || _refuse_schema(path, kind, s)
+    (_is_earlier_version(s, kind) && _has_record_migration(s)) && (d = _migrated_on_load(d, path, kind, s))
+    get(d, :schema, nothing) == _schema(kind) || _refuse_schema(path, kind, s)
     _refuse_payload(path, d)
     _validate(spec, d, path, "")
     return d
+end
+
+# Whether `s` names an earlier version of `kind`.
+function _is_earlier_version(s, kind::AbstractString)
+    m = s isa AbstractString ? match(r"^vgio/([a-z0-9_]+)/v(\d+)$", s) : nothing
+    return m !== nothing && m[1] == kind && parse(Int, m[2]::AbstractString) < _schema_version(kind)
+end
+
+# An old file's record through its version steps, parsed again from its JSON
+# text, so the reader meets what it meets in a current file. Silent: an old
+# published file is a legitimate input; `@debug` names the version.
+function _migrated_on_load(d, path, kind, s)
+    t = try
+        migrate_record(d)
+    catch e
+        # a step's refusal, or a key its version's record always held, missing
+        e isa Union{ArgumentError, KeyError} || rethrow()
+        why = e isa KeyError ? "the record has no $(repr(e.key)), which every $(s) record held" : e.msg
+        throw(ArgumentError("$(path): a $(s) file, read through its migration to $(_schema(kind)): $(why)"))
+    end
+    @debug "$(path): a $(s) file, read through its migration to $(get(t, "schema", nothing))"
+    return _parse_vgio_text(_json_text(t), path)
 end
 
 # Write `body` as a v2 file after validating the very bytes that land on disk
@@ -356,8 +367,10 @@ Check a vgio v2 file — or a COLMAP model directory's `vgio_units.json`, when
 `path` is the directory — against its kind's table, the check every v2 reader
 runs before using a field and every writer runs before writing, and return
 the kind (`"cameras"`, `"rig"`, …). An `ArgumentError` names the file, the
-offending key and the problem; a retired version is refused by name, a
-retired kind with its successor. Semantic checks that
+offending key and the problem. A file of an earlier version is checked as
+the current record its version steps give (as `load` reads it); a version no
+step reads is refused by name, a retired kind with its successor. Semantic
+checks that
 need more than the one file — that measurements resolve in their targets —
 are the exporters'.
 """
@@ -368,7 +381,7 @@ function validate(path::AbstractString)
     if m !== nothing
         kind = String(m[1]::AbstractString)
         spec = _spec(kind)
-        if spec !== nothing && s == _schema(kind)
+        if spec !== nothing && (s == _schema(kind) || (_is_earlier_version(s, kind) && _has_record_migration(s)))
             _read_store(file, kind, spec)
             return kind
         end

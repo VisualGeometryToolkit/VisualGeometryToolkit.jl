@@ -152,10 +152,19 @@ calibration was obtained (the keys of a camera's `calibration` block: `tool`,
 memory it is the attribute `Attributed(target, (; calibration_record))`, so it
 never shadows the target's `calibration`.
 
-## Migrating an earlier version
+## Reading an earlier version
 
-`vgio/target/v1` and `vgio/rig/v4` files are not read: `load` refuses them,
-naming `vgio_migrate`. `vgio_migrate(path)` converts one file, and
+Every earlier version a published file holds is read: `vgio/cameras/v1`–`v3`,
+`vgio/target/v1`–`v2` and `vgio/rig/v4`–`v5`. `load` runs the file's version
+steps in memory, one per version (`migrate_schema(::Val{schema}, tree)`, run by
+`migrate_record`), and reads the current record they give; the writers write
+only the current version, so a file saved from what an old file loads as is
+current. A load is silent (an `@debug` names the version), and `content_id` of
+an old rig file is that of the value it loads as. The reason is the published
+data: a schema change must not force the archives on Zenodo and Hugging Face
+(several GB each) to be uploaded again, so a published file keeps loading.
+
+`vgio_migrate(path)` rewrites one file with the same steps, and
 `bin/vgio_migrate.jl target|rig|file|tree|repoint` is its command (a dry run
 unless `--apply`). The new file is written to a staging directory beside its
 destination (the same filesystem), read back and compared with the old one
@@ -167,13 +176,14 @@ length written at full precision (16–17 digits; a computed value) may come
 back up to 2 ulp away in the file, as the same metre value — the length
 conversion's guarantee (see [Conventions](conventions.md#Lengths-cross-the-file-boundary-decimal-exactly)).
 
-A rig's content identity changes with this migration, once: the v4 identity
-hashed the record's format, and the identity is now version-free, so it will
-not change again. `vgio_migrate` reports the rig's `old_ids` — the v4 identity
-of the file as written, and the one v4 minted for the value in millimetres
-when the file is in another unit — and its `new_id`. Re-pointing the
-measurement files that name a migrated rig is a step of that one-time
-migration: `vgio_migrate_tree` migrates a directory's files and re-points its
+A v4 rig's content identity was of its record's format; the identity is now
+version-free, so a v4 rig is named by a new one (and so is a v5 rig whose
+target held the retired affine kind, which migrates to its factors).
+Measurement files written beside such a rig name it by its old identity, and
+`save_correspondences` resolves them against the old rig file as they are.
+`vgio_migrate` reports the rig's `old_ids` — the v4 identity of the file as
+written, and the one v4 minted for the value in millimetres when the file is
+in another unit — and its `new_id`, and `vgio_migrate_tree` migrates a directory's files and re-points its
 measurement files at its current rigs, refusing any identity that is neither
 mapped nor a current rig's (the command's `repoint` does it for one file). It
 persists the identity map in `vgio_migrate_ids.json` before it puts a rig in
@@ -181,9 +191,12 @@ place, so a run interrupted after its rigs were migrated re-points correctly
 when rerun; a rerun of a migrated tree is idempotent, and every file it leaves
 as it is gets a log line saying why.
 
-A schema's owner extends the migration to its own files by adding a method of
-`VisualGeometryToolkitIO.migrate_schema(::Val{Symbol("<schema>")}, src, dst)`,
-a declared extension point (`CONTRACT_GENERICS`).
+A schema's owner reads its own old files the same way: it adds a step
+`VisualGeometryToolkitIO.migrate_schema(::Val{Symbol("<schema>")}, tree)` for
+each old version, calls `VisualGeometryToolkitIO.migrate_record(tree)` in its
+reader, and adds the file form `migrate_schema(::Val{Symbol("<schema>")}, src,
+dst)` that `vgio_migrate` runs — a declared extension point
+(`CONTRACT_GENERICS`).
 
 ## Building blocks for other kinds
 

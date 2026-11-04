@@ -235,14 +235,15 @@ end
         q = joinpath(dir, "old_attribute.json")
         e = try save(q, VisualGeometryToolkitCore.Attributed(PlanarTarget(design_points()), (; calibration = (; tool = "t")))); nothing catch e; e end
         @test e isa ArgumentError && occursin("calibration_record", e.msg) && occursin("vgio_migrate", e.msg) && !isfile(q)
-        # a v2 file (a composition in application order) is refused, naming the migration
+        # a v2 file (a composition in application order) is read through its migration, as the v3 record
         dd = deepcopy(good)
         dd["schema"] = "vgio/target/v2"
         dd["target"]["calibration"] = VisualGeometryToolkitIO._composition_v3_to_v2(dd["target"]["calibration"])
         write(p, JSON.json(dd))
-        e = try load(AbstractTarget, p); nothing catch e; e end
-        @test e isa ArgumentError && occursin("vgio/target/v2", e.msg) && occursin("vgio_migrate", e.msg)
-        # a v1 key is an unknown key of the current record; the v1 version names the migration
+        q = joinpath(dir, "good.json")
+        write(q, JSON.json(good))
+        @test VisualGeometryToolkitIO._same_value(load(AbstractTarget, p), load(AbstractTarget, q))
+        # a v1 key is an unknown key of the current record; a current record labeled v1 is refused by the v1 step
         dd = deepcopy(good)
         dd["target"]["warp"] = pop!(dd["target"], "calibration")
         write(p, JSON.json(dd))
@@ -252,7 +253,7 @@ end
         dd["schema"] = "vgio/target/v1"
         write(p, JSON.json(dd))
         e = try load(AbstractTarget, p); nothing catch e; e end
-        @test e isa ArgumentError && occursin("vgio/target/v1", e.msg) && occursin("vgio_migrate", e.msg)
+        @test e isa ArgumentError && occursin("vgio/target/v1", e.msg) && occursin("was not written by them", e.msg)
     end
 end
 

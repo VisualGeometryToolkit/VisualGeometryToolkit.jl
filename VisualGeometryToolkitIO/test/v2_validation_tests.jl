@@ -133,38 +133,42 @@
                 q = first(deep)[1:(end - 1)]
                 @test occursin("bogus", something(refusal(with(doc, [q; :bogus], 1), dir, "$(name)_deepbogus"; units), ""))
             end
-            # a retired schema is refused by name: a lens kind's v1 and v2 for
-            # their lens records (and rig/v3 with its successor), a typed-frame
-            # kind's v1 and v2 for their free-form frame names, any other kind's
-            # earlier version as retired; a kind born at v1 has nothing retired
+            # an earlier version is read through its version steps where a
+            # published file holds it (cameras v1–v3, target v1–v2, rig v4–v5),
+            # and its steps refuse a record that version did not write — a
+            # current record relabeled is one where it holds a later key, and
+            # reads as it is where it does not; any other earlier version is
+            # refused by name: a typed-frame kind's v1 and v2 for their
+            # free-form frame names, rig/v3 with its successor, the rest as
+            # retired; a kind born at v1 has nothing earlier
             v1 = replace(doc[:schema], r"/v\d+$" => "/v1")
+            relabeled(s) = refusal(merge(doc, Dict(:schema => s)), dir, "$(name)_$(basename(s))"; units)
+            not_theirs(msg) = msg === nothing || occursin("was not written by them", msg)
             if name in ("target_poses", "target_points2d", "target_points3d")
                 @test endswith(doc[:schema], "/v1")
             elseif name == "target"
-                # the version before is migrated, not read: the refusal names the migration
                 @test doc[:schema] == "vgio/target/v3"
-                @test occursin("vgio_migrate", something(refusal(merge(doc, Dict(:schema => v1)), dir, "$(name)_v1"; units), ""))
-                @test occursin("vgio_migrate", something(refusal(merge(doc, Dict(:schema => "vgio/target/v2")), dir, "$(name)_v2"; units), ""))
+                @test occursin("was not written by them", something(relabeled(v1), ""))      # its `calibration_record` was v1's `calibration`
+                @test relabeled("vgio/target/v2") === nothing                                 # no composition: a v2 record as well
             elseif name in ("transforms", "trajectory")
-                @test occursin("free strings", something(refusal(merge(doc, Dict(:schema => replace(doc[:schema], "/v3" => "/v2"))), dir, "$(name)_v2"; units), ""))
-                @test occursin("free strings", something(refusal(merge(doc, Dict(:schema => v1)), dir, "$(name)_v1"; units), ""))
+                @test occursin("free strings", something(relabeled(replace(doc[:schema], "/v3" => "/v2")), ""))
+                @test occursin("free strings", something(relabeled(v1), ""))
             elseif startswith(name, "rig")
-                @test occursin("lens records", something(refusal(merge(doc, Dict(:schema => v1)), dir, "$(name)_v1"; units), ""))
-                @test occursin("lens records", something(refusal(merge(doc, Dict(:schema => "vgio/rig/v2")), dir, "$(name)_v2"; units), ""))
-                @test occursin("rig/v6", something(refusal(merge(doc, Dict(:schema => "vgio/rig/v3")), dir, "$(name)_v3"; units), ""))
-                @test occursin("vgio_migrate", something(refusal(merge(doc, Dict(:schema => "vgio/rig/v4")), dir, "$(name)_v4"; units), ""))
-                @test occursin("vgio_migrate", something(refusal(merge(doc, Dict(:schema => "vgio/rig/v5")), dir, "$(name)_v5"; units), ""))
+                @test occursin("re-export", something(relabeled(v1), ""))
+                @test occursin("re-export", something(relabeled("vgio/rig/v2"), ""))
+                @test occursin("rig/v6", something(relabeled("vgio/rig/v3"), ""))
+                @test not_theirs(relabeled("vgio/rig/v4")) && not_theirs(relabeled("vgio/rig/v5"))
+                @test (name == "rig_targets") == (relabeled("vgio/rig/v4") !== nothing)     # a target's `calibration` was v4's `warp`
             elseif name == "cameras"
-                # v3 is migrated (its lens records' "chain" → "compose", reversed); v1 and v2 predate the lens families
                 @test doc[:schema] == "vgio/cameras/v4"
-                @test occursin("vgio_migrate", something(refusal(merge(doc, Dict(:schema => "vgio/cameras/v3")), dir, "$(name)_v3"; units), ""))
-                @test occursin("lens records", something(refusal(merge(doc, Dict(:schema => "vgio/cameras/v2")), dir, "$(name)_v2"; units), ""))
-                @test occursin("lens records", something(refusal(merge(doc, Dict(:schema => v1)), dir, "$(name)_v1"; units), ""))
+                @test relabeled("vgio/cameras/v3") === nothing                                # no composed lens: a v3 record as well
+                @test occursin("vgio/cameras/v2 lens is", something(relabeled("vgio/cameras/v2"), ""))
+                @test occursin("vgio/camera/v1 record", something(relabeled(v1), ""))
             elseif endswith(doc[:schema], "/v3")
-                @test occursin("lens records", something(refusal(merge(doc, Dict(:schema => v1)), dir, "$(name)_v1"; units), ""))
-                @test occursin("lens records", something(refusal(merge(doc, Dict(:schema => replace(doc[:schema], "/v3" => "/v2"))), dir, "$(name)_v2"; units), ""))
+                @test occursin("no migration reads", something(relabeled(v1), ""))
+                @test occursin("no migration reads", something(relabeled(replace(doc[:schema], "/v3" => "/v2")), ""))
             else
-                @test occursin("retired $(v1)", something(refusal(merge(doc, Dict(:schema => v1)), dir, "$(name)_v1"; units), ""))
+                @test occursin("retired $(v1)", something(relabeled(v1), ""))
             end
         end
 

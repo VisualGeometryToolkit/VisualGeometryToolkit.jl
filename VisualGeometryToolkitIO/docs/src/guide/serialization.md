@@ -128,10 +128,12 @@ julia> VgtkIO.json_value(c)
 ## One quantity form
 
 The `{"value": v, "unit": u}` object that VisualGeometryToolkitFeatures'
-JSON.jl hooks once wrote, and that BlobBoards' board files hold, is not read:
-`read_quantity` and every `from_json` refuse it, naming the migration. A file
-that holds it is migrated once by its owner (`vgio_migrate`, extended for the
-owner's schema through `migrate_schema`).
+JSON.jl hooks once wrote, and that BlobBoards' older board files hold, is not
+a current record's: `read_quantity` and every `from_json` refuse it, naming
+the migration. A file of an earlier schema version that holds it is read by
+its owner's version step for that version (`migrate_schema(::Val{schema},
+tree)`, run by `migrate_record` on load), and rewritten once, if the owner
+wants it rewritten, by `vgio_migrate`.
 
 [`ScalarOrQuantity`](@ref) is the type of a field that may hold a plain number
 or a quantity.

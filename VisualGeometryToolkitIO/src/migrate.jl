@@ -211,51 +211,92 @@ end
 # vgio_migrate — a file of an earlier schema version into the current one
 # =============================================================================
 #
-# No reader reads an earlier version: a stored file is MIGRATED once, by the
-# same guarded pattern as the third-party conversions above. `vgio_migrate`
-# finds the file's schema and calls the method of `migrate_schema` for it,
-# which reads the old record, builds the current value, WRITES it through the
-# current writer (its validation) to a staging directory beside `out`
-# (`write_staged`), READS it back with the current reader and COMPARES every
-# number with the old file — only then does `vgio_migrate` rename the result to
-# `out`. Nothing is written when any
-# check fails, and the original is untouched unless `out` is the original's
-# own path (an in-place migration, replaced only after the verification).
+# EVERY EARLIER VERSION A PUBLISHED FILE HOLDS IS READ (2026-11): a schema
+# change must not force the published data (Zenodo, Hugging Face; multi-GB
+# archives) to be uploaded again, so a published file keeps loading. Each
+# version has ONE step, `migrate_schema(::Val{schema}, tree)`: a parsed record
+# of that version, in memory, as the record of the next one. The readers run
+# the steps on load (`_read_store`, through `migrate_record`); the writers
+# write only the current version. `vgio_migrate` rewrites a file with the same
+# steps, by the guarded pattern of the third-party conversions above: the file
+# read (through the steps), its value WRITTEN by the current writer (its
+# validation) to a staging directory beside `out` (`write_staged`), READ back
+# and COMPARED, number for number, with the value — only then renamed to
+# `out`. Nothing is written when any check fails, and the original is
+# untouched unless `out` is the original's own path (an in-place migration,
+# replaced only after the verification).
 #
 # `migrate_schema` is a declared extension point (`CONTRACT_GENERICS`): the
-# owner of a schema adds the method for its old version — VisualGeometryToolkitIO
-# for vgio/target/v1 and vgio/rig/v4, BlobBoards for its boards — and
-# `vgio_migrate` (and the command) then migrates those files too, without this
-# package knowing their schema.
+# owner of a schema adds the step of each of its old versions, and the file
+# form `migrate_schema(::Val{schema}, src, dst)` that `vgio_migrate` runs —
+# VisualGeometryToolkitIO for cameras, targets and rigs, BlobBoards for its
+# boards — and its reader calls `migrate_record`.
 
 """
+    migrate_schema(::Val{schema}, tree::AbstractDict) -> AbstractDict
     migrate_schema(::Val{schema}, src, dst) -> NamedTuple
 
-The migration of a file of the (old) `schema` — a `Symbol`, `Val(Symbol("vgio/rig/v4"))` —
-at `src` into its kind's current schema, written to `dst` (a path in the
-staging directory [`vgio_migrate`](@ref) owns). A method reads `src`, writes
-the current file to `dst` through its writer, reads `dst` back with the
-current reader and compares every number with `src` (a length as its value,
-within the length conversion's 2-ulp guarantee), throwing an `ArgumentError` on
-any difference; it returns a summary `NamedTuple` with at
+The migration of a record of the (old) `schema` — a `Symbol`,
+`Val(Symbol("vgio/rig/v5"))` — in two forms.
+
+The STEP, `migrate_schema(::Val{schema}, tree)`: the parsed record `tree` (a
+`Dict{String, Any}` of that schema) as the record of the next version, its
+`"schema"` that version's. One step per version, and the one implementation
+of it: [`migrate_record`](@ref) runs the steps until the record is current,
+the readers run that on load, and the file form runs it too. A step refuses
+(`ArgumentError`) a record it cannot carry over exactly.
+
+The FILE form, `migrate_schema(::Val{schema}, src, dst)`: the file at `src`
+in its kind's current schema, written to `dst` (a path in the staging
+directory [`vgio_migrate`](@ref) owns). A method reads `src` (through the
+steps), writes the current file to `dst` through its writer, reads `dst` back
+with the current reader and compares every number with `src`'s value (a length
+as its value, within the length conversion's 2-ulp guarantee), throwing an
+`ArgumentError` on any difference; it returns a summary `NamedTuple` with at
 least `to`, the schema written (and whatever the owner reports: a rig's
 `old_id` and `new_id`).
 
 A declared extension point (VisualGeometryToolkitIO's `CONTRACT_GENERICS`): the
-owner of a schema adds the method for each of its old versions.
-VisualGeometryToolkitIO's own: `vgio/target/v1` → `vgio/target/v2` and
-`vgio/rig/v4` → `vgio/rig/v5`.
+owner of a schema adds both forms for each of its old versions.
+VisualGeometryToolkitIO's own: `vgio/cameras/v1` → v2 → v3 → v4,
+`vgio/target/v1` → v2 → v3 and `vgio/rig/v4` → v5 → v6.
 """
 function migrate_schema end
-# Whether a schema has a migration: a method of `migrate_schema` for it.
+# Whether a schema has a file migration (`vgio_migrate`), a step (the readers).
 _has_migration(s::AbstractString) = hasmethod(migrate_schema, Tuple{Val{Symbol(s)}, String, String})
+_has_record_migration(s::AbstractString) = hasmethod(migrate_schema, Tuple{Val{Symbol(s)}, Dict{String, Any}})
+_has_record_migration(s) = false
+
+"""
+    migrate_record(tree) -> Dict{String, Any}
+
+A parsed record (`tree`, an `AbstractDict` as JSON parsed it) of an earlier
+schema version as its kind's current record, in memory: each version's step,
+[`migrate_schema`](@ref)`(::Val{schema}, tree)`, in turn, until no step is
+left for the record's schema. A current record comes back as it is (its keys
+`String`s). VisualGeometryToolkitIO's readers call it on every file of an
+earlier version; the reader of a schema owner's kind calls it before it reads
+a file, so an old file loads as the current version. An `ArgumentError` for a
+step that does not move the version, and whatever a step refuses.
+"""
+function migrate_record(tree::AbstractDict)
+    t = _lower(tree)
+    while _has_record_migration(get(t, "schema", nothing))
+        s = t["schema"]
+        t = _lower(migrate_schema(Val(Symbol(s)), t))
+        get(t, "schema", nothing) == s && throw(ArgumentError("the migration step of $(s) returned a $(s) record"))
+    end
+    return t
+end
 
 """
     vgio_migrate(path; out = <stem>.migrated.json beside path, dry_run = false) -> NamedTuple
 
-Migrate the file at `path` from the earlier schema version it declares to its
-kind's current one, by the method of [`migrate_schema`](@ref) for that schema
-(`vgio/target/v1`, `vgio/rig/v4`, and any a schema owner adds). The migration
+Rewrite the file at `path`, of the earlier schema version it declares, in its
+kind's current one, by the file form of [`migrate_schema`](@ref) for that
+schema (cameras v1–v3, target v1–v2, rig v4–v5, and any a schema owner adds),
+which runs the same version steps a reader runs on load: an old file need not
+be rewritten to be read, and this is how it is rewritten once. The migration
 is written through the current writer to a staging directory BESIDE `out`
 (the same filesystem), read back with the current reader and compared with the
 original, number for number; only then is it renamed to `out`, one atomic
@@ -424,7 +465,13 @@ _same_file_extras(new::AbstractDict, old::AbstractDict) =
 # `calibration` block its `calibration_record`.
 const _TARGET_BODY_RENAMES = ("warp" => "calibration", "design" => "reference")
 _renamed(d::AbstractDict, renames) = Dict{String, Any}(get(Dict(renames), k, k) => v for (k, v) in d)
-_body_v1_to_v2(b) = _renamed(b, _TARGET_BODY_RENAMES)
+function _body_v1_to_v2(b)
+    # a key of the later records was never a v1/v4 body's (its renames would collide)
+    for (_, new) in _TARGET_BODY_RENAMES
+        haskey(b, new) && throw(ArgumentError("a vgio/target/v1 or vgio/rig/v4 target holds no $(repr(new)) (v1 named it by its v1 key), so this record was not written by them"))
+    end
+    return _renamed(b, _TARGET_BODY_RENAMES)
+end
 _body_v2_to_v1(b) = _renamed(b, map(reverse, _TARGET_BODY_RENAMES))
 
 # A rig tree with each target body through `f` (a shallow copy).
@@ -433,8 +480,9 @@ function _map_rig_targets(f, tree::AbstractDict)
     haskey(t, "targets") && (t["targets"] = Any[merge(Dict{String, Any}(x), Dict{String, Any}("target" => f(x["target"]))) for x in tree["targets"]])
     return t
 end
-# (the v5 form of a v4 record; `_rig_v4_to_v6` is the current one)
-_rig_v4_to_v5(old) = (t = _map_rig_targets(_body_v1_to_v2, old); t["schema"] = _schema("rig"); t)
+# the v5 record of a v4 one: its target bodies' keys renamed (v4 listed a
+# lens's stages in application order, as v5 did)
+_rig_v4_to_v5(old) = (t = _map_rig_targets(_body_v1_to_v2, old); t["schema"] = "vgio/rig/v5"; t)
 # a current record back in v4's form: v6 → v5 (the compositions back in
 # application order, under v5's keys) then v5's keys renamed back
 _rig_v6_to_v4(new, old) = (t = _map_rig_targets(_body_v2_to_v1, _rig_v6_to_v5(new)); t["schema"] = old["schema"]; t)
@@ -444,46 +492,38 @@ _rig_v6_to_v4(new, old) = (t = _map_rig_targets(_body_v2_to_v1, _rig_v6_to_v5(ne
 # (`_rig_v4_id_mm`: the record re-emitted in millimetres, rigid warps carrying
 # no lengths) are defined only for rigid warps — so it is refused by name,
 # never migrated as if v4 had written it.
-function _check_v1_warp(body::AbstractDict, src)
+function _check_v1_warp(body::AbstractDict)
     w = get(body, "warp", nothing)
     (w === nothing || w == Dict{String, Any}("type" => "rigid")) && return nothing
     throw(
         ArgumentError(
-            "vgio_migrate: $src is a vgio/target/v1 or vgio/rig/v4 record whose \"warp\" is $(repr(get(w, "type", w))): " *
-                "those records held a rigid warp only ({\"type\": \"rigid\"}), so this file was not written by them; nothing was written"
+            "a vgio/target/v1 or vgio/rig/v4 record whose \"warp\" is $(repr(get(w, "type", w))): " *
+                "those records held a rigid warp only ({\"type\": \"rigid\"}), so this file was not written by them"
         )
     )
 end
+# the v2 target record of a v1 one (v1 held rigid targets only: no composition)
 function _target_v1_to_v2(old)
+    haskey(old, "calibration_record") && throw(ArgumentError("a vgio/target/v1 record holds no \"calibration_record\" (v1 named it \"calibration\"), so this record was not written by them"))
+    _check_v1_warp(old["target"])
     body = _renamed(old, ("calibration" => "calibration_record",))
-    body["schema"] = _schema("target")
+    body["schema"] = "vgio/target/v2"
     body["target"] = _body_v1_to_v2(old["target"])
     return body
 end
 
-# The guarded migration of a VGIo record: the old tree at `src` renamed into the
-# current record (`forward(old)`), read by the current reader as a `T` (validated
-# there), written by the current writer to `dst` in the old file's unit and with
-# its provenance, read back as a `T` and compared with the old value
-# (`_same_value`: a length within the conversion's guarantee, every other
-# number bit for bit), its unit and provenance with the old file's. Returns the
-# old tree and the value.
-function _migrate_record(::Type{T}, spec, src::AbstractString, dst::AbstractString, forward, what) where {T}
-    old = _raw_tree(src)
-    staged = dst * ".staged.json"
-    _write_store(staged, spec, forward(old))
-    value = load(T, staged)
-    rm(staged)
-    save(dst, value; _resave_kwargs(old)...)
-    _verify(_same_value(value, load(T, dst)) && _same_file_extras(_raw_tree(dst), old), src, what)
-    return old, value
-end
-
-# vgio/target/v1 → the current target (v1 held rigid targets only: no composition)
-function migrate_schema(::Val{Symbol("vgio/target/v1")}, src::AbstractString, dst::AbstractString)
-    _check_v1_warp(_raw_tree(src)["target"], src)
-    _migrate_record(AbstractTarget, _TARGET_SPEC, src, dst, _target_v1_to_v2, "the target record")
-    return (; to = _schema("target"))
+# The guarded file migration of a VGIo record: the file at `src` read as a `T`
+# (through the version steps, validated as the current record), written by the
+# current writer to `dst` in the unit and with the provenance of the record the
+# steps give, read back as a `T` and compared with the value (`_same_value`: a
+# length within the conversion's guarantee, every other number bit for bit),
+# its unit and provenance with that record's. Returns the value.
+function _migrate_file(::Type{T}, src::AbstractString, dst::AbstractString, what) where {T}
+    current = migrate_record(_raw_tree(src))
+    value = load(T, src)
+    save(dst, value; _resave_kwargs(current)...)
+    _verify(_same_value(value, load(T, dst)) && _same_file_extras(_raw_tree(dst), current), src, what)
+    return value
 end
 
 # vgio/target/v2 → v3 and vgio/rig/v5 → v6 (CoordinateTransformations'
@@ -543,6 +583,7 @@ end
 # A v2 calibration record (a kind, a chain, an affine) as its v3 record.
 function _calibration_v2_to_v3(c::AbstractDict)
     ty = get(c, "type", nothing)
+    ty == _COMPOSITION_TYPE && throw(ArgumentError("a target v2 / rig v5 calibration is never a \"$(_COMPOSITION_TYPE)\" (v2/v5 held a \"$(_RETIRED_COMPOSITION_TYPE)\"), so this record was not written by them"))
     ty in (_RETIRED_COMPOSITION_TYPE, "affine") || return c
     parts = [_member_v2_to_v3(r) for r in (ty == "affine" ? Any[c] : c["members"])]
     out = Dict{String, Any}(k => v for (k, v) in c if !(k in ("type", "members", "parameters", "covariance")))
@@ -597,7 +638,8 @@ end
 # A lens record in the other form: v3/v5's "chain" (application order) as
 # v4/v6's "compose" (CT's order, the outer first), and back; any other lens
 # record as it is.
-_lens_v3_to_v4(l::AbstractDict) = _relisted(l, "chain", _COMPOSE_KEY)
+_lens_v3_to_v4(l::AbstractDict) = (_holds_key(l, _COMPOSE_KEY) && throw(ArgumentError("a cameras v3 / rig v5 lens record holds no \"$(_COMPOSE_KEY)\" (v3/v5 listed its stages under \"chain\"), so this record was not written by them"));
+    _relisted(l, "chain", _COMPOSE_KEY))
 _lens_v4_to_v3(l::AbstractDict) = _relisted(l, _COMPOSE_KEY, "chain")
 _lens_v3_to_v4(l) = l
 _lens_v4_to_v3(l) = l
@@ -617,10 +659,154 @@ _camera_v3_to_v4(c::AbstractDict) = _camera_lens(_lens_v3_to_v4, c)
 _camera_v4_to_v3(c::AbstractDict) = _camera_lens(_lens_v4_to_v3, c)
 function _cameras_v3_to_v4(old)
     t = copy(old)
-    t["schema"] = _schema("cameras")
+    t["schema"] = "vgio/cameras/v4"
     t["cameras"] = Any[_camera_v3_to_v4(c) for c in old["cameras"]]
     return t
 end
+
+# vgio/cameras/v1 → v2 → v3 (VisualGeometryIo's v1 reader, `v1.jl`, and its v2
+# lens table, `camera_schema.jl`, restored from that package's history):
+# - v1 held one `vgio/camera/v1` record per camera — `size` and `intrinsics`
+#   each declaring `"unit": "px"`, its own `pixel_chart`, and the lens as
+#   `{"model": <VGC 0.x type name>, "params": [...]}`, a flat array in the
+#   type's field order; any other top-level key was its writer's metadata;
+# - v2 declared the pixel frame once, put a camera's size as `width` and
+#   `height`, and named every lens coefficient (`{"model": <tag>, "params":
+#   {"k1": …}}`), the metadata under `provenance`;
+# - v3 holds a lens as VGC's lens record (the lens families).
+# The v1 model names are VGC 0.x type names the stack has retired (the
+# retired-name list of `check_naming`). A v1 file holds them as DATA, so they
+# are spelt here in pieces, as that list spells them: tokens a published file
+# holds, never a name this code binds or calls.
+const _V1_BROWN_CONRADY = "Brown" * "Conrady"
+const _V1_RATIONAL_RADIAL = "Rational" * "Radial"
+const _V1_EQUIDISTANT = "Equidistant" * "Fisheye"
+# A v1 lens model as its v2 tag and parameter names, in v1's order (VGC 0.x's
+# field order and parameter names). A v1 Brown–Conrady lens written before
+# the thin-prism terms holds 8, the same camera with s1 = … = s4 = 0, as v1
+# read it; a rational-radial one holds its degrees `[P, Q]` first.
+const _V1_LENS_MODELS = Dict(
+    "Pinhole" => ("pinhole", String[]),
+    _V1_EQUIDISTANT => ("equidistant_fisheye", String[]),
+    _V1_BROWN_CONRADY => ("brown_conrady", ["k1", "k2", "k3", "k4", "k5", "k6", "p1", "p2", "s1", "s2", "s3", "s4"]),
+    "KannalaBrandt" => ("kannala_brandt", ["k1", "k2", "k3", "k4"]),
+    "DoubleSphere" => ("double_sphere", ["xi", "alpha"]),
+    "Scaramuzza" => ("scaramuzza", ["a2", "a3", "a4"]),
+)
+_v2_params(names, values) = Dict{String, Any}(n => Float64(v) for (n, v) in zip(names, values))
+function _lens_v1_to_v2(l::AbstractDict)
+    Set(keys(l)) == Set(("model", "params")) ||
+        throw(ArgumentError("a vgio/camera/v1 lens is {\"model\", \"params\"}; got the keys $(sort!(collect(keys(l))))"))
+    model, p = l["model"], Any[x for x in l["params"]]
+    if model == _V1_RATIONAL_RADIAL
+        length(p) >= 2 || throw(ArgumentError("a v1 $(model) lens holds its degrees [P, Q] first; got $(length(p)) params"))
+        P, Q = Int(p[1]), Int(p[2])
+        length(p) == 2 + P + Q ||
+            throw(ArgumentError("a v1 $(model) lens of degrees [$(P), $(Q)] holds $(2 + P + Q) params; got $(length(p))"))
+        names = P == 0 ? ["k$(j)" for j in 1:Q] : vcat(["num$(i)" for i in 1:P], ["den$(j)" for j in 1:Q])
+        return Dict{String, Any}("model" => P == 0 ? "division" : "rational_radial", "params" => _v2_params(names, p[3:end]))
+    end
+    haskey(_V1_LENS_MODELS, model) || throw(
+        ArgumentError("unknown vgio/camera/v1 lens model $(repr(model)); v1 held $(join(sort!([collect(keys(_V1_LENS_MODELS)); _V1_RATIONAL_RADIAL]), ", "))")
+    )
+    tag, names = _V1_LENS_MODELS[model]
+    model == _V1_BROWN_CONRADY && length(p) == 8 && append!(p, zeros(4))
+    length(p) == length(names) || throw(ArgumentError("a v1 $(model) lens takes $(length(names)) params; got $(length(p))"))
+    return Dict{String, Any}("model" => tag, "params" => _v2_params(names, p))
+end
+
+# A v2 lens as the lens VGC 0.x built from it, in VGC's lens families: its
+# record. A v2 lens named every coefficient, and the names must be exactly the
+# model's (v2's own check); the degrees of the division and rational models
+# are how many it names.
+_count_named(have, prefix) = count(n -> occursin(Regex("^$(prefix)\\d+\$"), n), have)
+_v2_lens_names(tag, have) = tag == "division" ? ["k$(j)" for j in 1:_count_named(have, "k")] :
+    tag == "rational_radial" ? vcat(["num$(i)" for i in 1:_count_named(have, "num")], ["den$(j)" for j in 1:_count_named(have, "den")]) :
+    last(only(v for v in values(_V1_LENS_MODELS) if first(v) == tag))
+const _V2_LENS_TAGS = vcat(sort!([first(v) for v in values(_V1_LENS_MODELS)]), ["division", "rational_radial"])
+function _lens_v2_to_v3(l::AbstractDict)
+    (Set(keys(l)) == Set(("model", "params")) && l["params"] isa AbstractDict) ||
+        throw(ArgumentError("a vgio/cameras/v2 lens is {\"model\", \"params\": {…}}; got the keys $(sort!(collect(keys(l))))"))
+    tag, p = l["model"], l["params"]
+    tag in _V2_LENS_TAGS || throw(ArgumentError("unknown vgio/cameras/v2 lens model $(repr(tag)); v2 held $(join(_V2_LENS_TAGS, ", "))"))
+    have = String.(collect(keys(p)))
+    names = _v2_lens_names(tag, have)
+    Set(have) == Set(names) ||
+        throw(ArgumentError("a v2 $(tag) lens takes the parameters ($(join(names, ", "))); the record has ($(join(sort!(have), ", ")))"))
+    v = Float64[Float64(p[n]) for n in names]
+    nnum = count(startswith("num"), names)
+    lens = tag == "pinhole" ? Pinhole() :
+        tag == "equidistant_fisheye" ? Lens(Equidistant()) :
+        tag == "brown_conrady" ? _brown_conrady_lens(v) :
+        tag == "kannala_brandt" ? KannalaBrandt(v...) :       # θ_d = θ(1 + k₁θ² + … + k₄θ⁸), VGC 0.x's and VGC's alike
+        tag == "double_sphere" ? Lens(DoubleSphere(v[1], v[2])) :
+        tag == "scaramuzza" ? Scaramuzza(v...) :
+        tag == "division" ? Division(v...) :
+        LiftLens(Radial(Tuple(v[1:nnum]), Tuple(v[(nnum + 1):end])))     # x_u = x_d·P(ρ²)/Q(ρ²)
+    return lens_record(lens)
+end
+# VGC 0.x's Brown–Conrady lens — OpenCV's model with its fields k1…k6, p1, p2,
+# s1…s4 — as `opencv_lens` of OpenCV's vector [k1, k2, p1, p2, k3, k4, k5, k6,
+# s1…s4] cut to the shortest length (4, 5, 8 or 12) that holds every non-zero
+# coefficient: the same map, in the arity VGC's families evaluate (the record
+# BlobBoards' own cameras v3 of these files held).
+function _brown_conrady_lens(v)
+    c = [v[1], v[2], v[7], v[8], v[3], v[4], v[5], v[6], v[9], v[10], v[11], v[12]]
+    n = something(findlast(!iszero, c), 0)
+    return opencv_lens(c[1:first(l for l in (4, 5, 8, 12) if l >= n)])
+end
+
+# A v1 camera record as its v2 body, its principal point in `frame`. v1's
+# reader built each camera in its record's own chart (`CameraModel`'s
+# `image_origin`): a store whose cameras share one chart declares it, every
+# number as it is; one whose cameras do not has each principal point moved into
+# the canonical frame by the pixel frames' map, as that constructor did.
+const _V1_CAMERA_KEYS = ("schema", "name", "size", "pixel_chart", "intrinsics", "lens")
+# A v1 camera record's shape, checked before a field is used (the numbers are
+# checked by the current record's validator, after the steps).
+function _check_v1_camera(c)
+    (c isa AbstractDict && get(c, "schema", nothing) == "vgio/camera/v1") ||
+        throw(ArgumentError("a vgio/cameras/v1 camera is a vgio/camera/v1 record; got $(c isa AbstractDict ? "schema $(repr(get(c, "schema", nothing)))" : repr(c))"))
+    Set(keys(c)) == Set(_V1_CAMERA_KEYS) ||
+        throw(ArgumentError("a vgio/camera/v1 record holds exactly $(join(_V1_CAMERA_KEYS, ", ")); got $(join(sort!(collect(keys(c))), ", "))"))
+    sz, k = c["size"], c["intrinsics"]
+    (sz isa AbstractDict && get(sz, "unit", nothing) == "px" && all(in(keys(sz)), ("width", "height")) &&
+        k isa AbstractDict && get(k, "unit", nothing) == "px" && all(in(keys(k)), ("fx", "fy", "cx", "cy", "skew")) &&
+        c["pixel_chart"] isa AbstractString && c["lens"] isa AbstractDict) ||
+        throw(ArgumentError("camera $(repr(c["name"])): a vgio/camera/v1 record's size (width, height) and intrinsics (fx, fy, cx, cy, skew) are in px"))
+    return nothing
+end
+function _camera_v1_to_v2(c::AbstractDict, frame::Type{<:PixelFrame})
+    sz, k = c["size"], c["intrinsics"]
+    from = pixel_frame_from_name(c["pixel_chart"])
+    cx, cy = from === frame ? (k["cx"], k["cy"]) : EuclideanMap(from, frame)(SVector{2, Float64}(Float64(k["cx"]), Float64(k["cy"])))
+    return Dict{String, Any}(
+        "name" => c["name"], "width" => sz["width"], "height" => sz["height"],
+        "K" => Dict{String, Any}("fx" => k["fx"], "fy" => k["fy"], "cx" => cx, "cy" => cy, "skew" => k["skew"]),
+        "lens" => _lens_v1_to_v2(c["lens"]),
+    )
+end
+function _cameras_v1_to_v2(old)
+    get(old, "cameras", nothing) isa AbstractVector || throw(ArgumentError("a vgio/cameras/v1 store holds its `cameras`, an array"))
+    foreach(_check_v1_camera, old["cameras"])
+    charts = unique(String[c["pixel_chart"] for c in old["cameras"]])
+    frame = length(charts) == 1 ? pixel_frame_from_name(only(charts)) : CANONICAL_PIXEL_FRAME
+    t = Dict{String, Any}(
+        "schema" => "vgio/cameras/v2", "pixel_frame" => pixel_frame_name(frame),
+        "cameras" => Any[_camera_v1_to_v2(c, frame) for c in old["cameras"]],
+    )
+    # v1's other top-level keys were its writer's metadata: the provenance
+    meta = Dict{String, Any}(k => v for (k, v) in old if !(k in ("schema", "cameras")))
+    isempty(meta) || (t["provenance"] = meta)
+    return t
+end
+function _cameras_v2_to_v3(old)
+    t = copy(old)
+    t["schema"] = "vgio/cameras/v3"
+    t["cameras"] = Any[_camera_lens(_lens_v2_to_v3, c) for c in old["cameras"]]
+    return t
+end
+
 _map_rig_sensors(f, tree::AbstractDict) = haskey(tree, "sensors") ?
     merge(Dict{String, Any}(tree), Dict{String, Any}("sensors" => Any[merge(Dict{String, Any}(x), Dict{String, Any}("camera" => f(x["camera"]))) for x in tree["sensors"]])) : tree
 
@@ -629,40 +815,65 @@ _body_v2_to_v3(b::AbstractDict) = _body_calibration(_calibration_v2_to_v3, b)
 _body_v3_to_v2(b::AbstractDict) = _body_calibration(_composition_v3_to_v2, b)
 function _target_v2_to_v3(old)
     t = copy(old)
-    t["schema"] = _schema("target")
+    t["schema"] = "vgio/target/v3"
     t["target"] = _body_v2_to_v3(old["target"])
     return t
 end
 # the v5 → v6 change and back: every sensor lens's and target calibration's
 # composition in the other form
-_rig_v5_to_v6(old) = (t = _map_rig_sensors(_camera_v3_to_v4, _map_rig_targets(_body_v2_to_v3, old)); t["schema"] = _schema("rig"); t)
+_rig_v5_to_v6(old) = (t = _map_rig_sensors(_camera_v3_to_v4, _map_rig_targets(_body_v2_to_v3, old)); t["schema"] = "vgio/rig/v6"; t)
 _rig_v6_to_v5(new) = _map_rig_sensors(_camera_v4_to_v3, _map_rig_targets(_body_v3_to_v2, new))
-# v4 → v5 → v6: v4 listed a lens's stages in application order, as v5 did
-_rig_v4_to_v6(old) = _rig_v5_to_v6(_rig_v4_to_v5(old))
 
-# vgio/cameras/v3 → v4: each lens record's "chain" as "compose", in CT's order
-function migrate_schema(::Val{Symbol("vgio/cameras/v3")}, src::AbstractString, dst::AbstractString)
-    _migrate_record(Dict{Symbol, BoundedCamera}, _CAMERAS_SPEC, src, dst, _cameras_v3_to_v4, "the camera store")
-    return (; to = _schema("cameras"))
-end
+# -----------------------------------------------------------------------------
+# The steps, one per version, and the file migrations that run them
+# -----------------------------------------------------------------------------
 
-function migrate_schema(::Val{Symbol("vgio/target/v2")}, src::AbstractString, dst::AbstractString)
-    _migrate_record(AbstractTarget, _TARGET_SPEC, src, dst, _target_v2_to_v3, "the target record")
-    return (; to = _schema("target"))
-end
+migrate_schema(::Val{Symbol("vgio/cameras/v1")}, t::AbstractDict) = _cameras_v1_to_v2(t)
+migrate_schema(::Val{Symbol("vgio/cameras/v2")}, t::AbstractDict) = _cameras_v2_to_v3(t)
+migrate_schema(::Val{Symbol("vgio/cameras/v3")}, t::AbstractDict) = _cameras_v3_to_v4(t)
+migrate_schema(::Val{Symbol("vgio/target/v1")}, t::AbstractDict) = _target_v1_to_v2(t)
+migrate_schema(::Val{Symbol("vgio/target/v2")}, t::AbstractDict) = _target_v2_to_v3(t)
+migrate_schema(::Val{Symbol("vgio/rig/v4")}, t::AbstractDict) = (foreach(x -> _check_v1_warp(x["target"]), get(t, "targets", ())); _rig_v4_to_v5(t))
+migrate_schema(::Val{Symbol("vgio/rig/v5")}, t::AbstractDict) = _rig_v5_to_v6(t)
 
-# The rig's content identity does not change with the record's order: the
-# identity tree lists a composition's members and a lens's stages in one fixed
-# order (application order, as v5's record did), whatever order the record
-# lists them in. It changes where the VALUE does — a target whose calibration
-# held the retired affine kind now holds its factors — and then v5's identity
-# is reported as the old one (`_v5_id`), so the measurement files naming the
-# rig are re-pointed.
-function migrate_schema(::Val{Symbol("vgio/rig/v5")}, src::AbstractString, dst::AbstractString)
-    old, value = _migrate_record(Rig, _RIG_SPEC, src, dst, _rig_v5_to_v6, "the rig record")
+_migrate_cameras(src, dst) = (_migrate_file(Dict{Symbol, BoundedCamera}, src, dst, "the camera store"); (; to = _schema("cameras")))
+migrate_schema(::Val{Symbol("vgio/cameras/v1")}, src::AbstractString, dst::AbstractString) = _migrate_cameras(src, dst)
+migrate_schema(::Val{Symbol("vgio/cameras/v2")}, src::AbstractString, dst::AbstractString) = _migrate_cameras(src, dst)
+migrate_schema(::Val{Symbol("vgio/cameras/v3")}, src::AbstractString, dst::AbstractString) = _migrate_cameras(src, dst)
+_migrate_target(src, dst) = (_migrate_file(AbstractTarget, src, dst, "the target record"); (; to = _schema("target")))
+migrate_schema(::Val{Symbol("vgio/target/v1")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
+migrate_schema(::Val{Symbol("vgio/target/v2")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
+# A rig: its identity is the current value's, and the identities its old
+# version named it by, where they differ, are reported, so the measurement
+# files naming it are re-pointed (`vgio_migrate_tree`).
+migrate_schema(::Val{Symbol("vgio/rig/v4")}, src::AbstractString, dst::AbstractString) = _migrate_rig("vgio/rig/v4", src, dst)
+migrate_schema(::Val{Symbol("vgio/rig/v5")}, src::AbstractString, dst::AbstractString) = _migrate_rig("vgio/rig/v5", src, dst)
+function _migrate_rig(s, src, dst)
+    value = _migrate_file(Rig, src, dst, "the rig record")
     new_id = content_id(dst)
-    old_id = _v5_id(old, value, new_id)
-    return (; to = _schema("rig"), old_id, old_ids = [old_id], new_id)
+    old_ids = _old_rig_ids(s, _raw_tree(src), value, new_id)
+    return (; to = _schema("rig"), old_id = first(old_ids), old_ids, new_id)
+end
+
+# The identities an old rig file was named by, the one its own version minted
+# first. A v4 identity hashed the record (`_rig_v4_id`: the file as written,
+# and the value in millimetres); a v5 one is the current value's, unless a
+# target held the retired affine kind, which migrates to its factors (`_v5_id`:
+# the identity tree lists a composition's members and a lens's stages in one
+# fixed order, application order, whatever order the record lists them in).
+_old_rig_ids(s, old, value, new_id) =
+    s == "vgio/rig/v4" ? unique!([_rig_v4_id(old), _rig_v4_id_mm(value, old)]) : [_v5_id(old, value, new_id)]
+
+# A targets argument that is an old rig file: each identity its version named
+# it by mapped to its current one, where they differ; none for a rig or a
+# current file.
+_old_id_map(::Rig) = Pair{String, String}[]
+function _old_id_map(p::AbstractString)
+    s = _peek_schema(p)
+    s in ("vgio/rig/v4", "vgio/rig/v5") || return Pair{String, String}[]
+    value = load(Rig, p)
+    new_id = content_id(value)
+    return [o => new_id for o in _old_rig_ids(s, _raw_tree(p), value, new_id) if o != new_id]
 end
 
 # v5's content identity of a rig: the current tree of its value, but for each
@@ -701,17 +912,6 @@ function _v5_identity_calibration(r::AbstractDict, u::Units)
     return out
 end
 
-# vgio/rig/v4 → the current rig. The rig's content identity changes with the
-# migration (content_id: the fixed canonical tree replaced the v4 record's
-# hash); both are reported, so the measurement files naming the rig are
-# re-pointed (`vgio_migrate_tree`).
-function migrate_schema(::Val{Symbol("vgio/rig/v4")}, src::AbstractString, dst::AbstractString)
-    foreach(x -> _check_v1_warp(x["target"], src), get(_raw_tree(src), "targets", ()))
-    old, value = _migrate_record(Rig, _RIG_SPEC, src, dst, _rig_v4_to_v6, "the rig record")
-    old_ids = unique!([_rig_v4_id(old), _rig_v4_id_mm(value, old, dst)])
-    return (; to = _schema("rig"), old_id = first(old_ids), old_ids, new_id = content_id(dst))
-end
-
 # The content identities a vgio/rig/v4 rig had. v4 hashed the record without
 # its provenance: `content_id(path)` the record as the file holds it (its parsed
 # tree, hashed here) and `content_id(rig)` the record of the value in
@@ -738,11 +938,12 @@ _rig_v4_id(old::AbstractDict) =
 # the value in millimetres, which v4's writer agrees with.
 _v4_mm(x::Real, u::Units) = Float64(ustrip(mm, quantity(Float64(x), u)))
 _v4_mm_points(v, u) = Any[Any[_v4_mm(c, u) for c in p] for p in v]
-function _rig_v4_id_mm(value, old::AbstractDict, dst::AbstractString)
-    p = dst * ".mm.json"
-    save(p, value; length_unit = mm)
-    rec = _rig_v6_to_v4(_raw_tree(p), old)
-    rm(p)
+function _rig_v4_id_mm(value, old::AbstractDict)
+    rec = mktempdir() do dir
+        p = joinpath(dir, "rig_mm.json")
+        save(p, value; length_unit = mm)
+        _rig_v6_to_v4(_raw_tree(p), old)
+    end
     u = parse_unit(old["length_unit"]::String)
     s = _v4_mm(1.0, u)                                                    # mm per unit, as v4 scaled a covariance
     rec["length_unit"] = "mm"
@@ -784,13 +985,15 @@ function _v4_mm_member!(x, o, u, s)
 end
 
 # =============================================================================
-# A migrated rig's measurement files, re-pointed — a step of the v4 → v5 rig
-# migration (`vgio_migrate_tree`, the command's `repoint`)
+# A migrated rig's measurement files, re-pointed — a step of rewriting a v4 rig
+# (`vgio_migrate_tree`, the command's `repoint`)
 # =============================================================================
 #
-# The rig identity v4 minted hashed the record's format, so the rig/v4 → v5
-# migration re-ids every rig, ONCE (the v5 identity is version-free), and the
-# measurement files naming a rig follow it. Nothing else re-points.
+# The rig identity v4 minted hashed the record's format, so a v4 rig has a new
+# identity, ONCE (the current identity is version-free), and the measurement
+# files naming a rig follow it when the tree is rewritten. On load they need not:
+# `save_correspondences` resolves an old identity against the old rig file
+# (`_old_id_map`). Nothing else re-points.
 
 const _MEASUREMENT_KINDS = Dict("vgio/target_points2d/v1" => TargetPoints2D, "vgio/target_points3d/v1" => TargetPoints3D)
 
@@ -875,9 +1078,9 @@ end
 """
     vgio_migrate_tree(dir; in_place = false, dry_run = false, io = stdout) -> Vector{NamedTuple}
 
-Migrate every `.json` file under `dir` whose schema has a migration (a
-`vgio/target/v1`, a `vgio/rig/v4`, and any schema whose owner added a
-[`migrate_schema`](@ref) method), then re-point the measurement files under
+Migrate every `.json` file under `dir` whose schema has a migration (cameras
+v1–v3, target v1–v2, rig v4–v5, and any schema whose owner added a
+[`migrate_schema`](@ref) file form), then re-point the measurement files under
 `dir` (`vgio/target_points2d/v1`, `vgio/target_points3d/v1`) at the current
 rigs of the tree, each by the guarded pattern of [`vgio_migrate`](@ref) (a
 full-precision length may be rewritten within 2 ulp, as the same metre value),
@@ -885,9 +1088,10 @@ with one line per file to `io`
 — a file left as it is says why (`current`, or no `targets`). Written beside
 each original as `<stem>.migrated.json`, or over it with `in_place`.
 
-The re-pointing is a one-time consequence of the rig/v4 → v5 migration: the v4
-identity hashed the record's format, the v5 one does not, so each migrated
-rig's old identities map to its new one. The map is PERSISTED in
+The re-pointing is a one-time consequence of the rig/v4 migration (and of a
+v5 rig whose affine calibration became its factors): the v4 identity hashed
+the record's format, the current one does not, so each migrated rig's old
+identities map to its new one. The map is PERSISTED in
 `dir/vgio_migrate_ids.json` before a rig is put in place, and read by a later
 run, so a run that fails after its rigs were migrated in place re-points
 correctly when rerun; a rerun of a migrated tree is idempotent (every file
@@ -1146,8 +1350,8 @@ usage: julia --project=<VisualGeometryToolkitIO> bin/vgio_migrate.jl target|rig|
        julia --project=<VisualGeometryToolkitIO> bin/vgio_migrate.jl repoint [options] FILE
 
 Migrate a file of an earlier schema version into the current one (target:
-vgio/target/v1 → v2; rig: vgio/rig/v4 → v5; file: any schema with a
-migration), every such file under a directory (tree, then re-pointing the
+vgio/target/v1–v2 → v3; rig: vgio/rig/v4–v5 → v6; file: any schema with a
+migration, cameras v1–v3 among them), every such file under a directory (tree, then re-pointing the
 measurement files that name a migrated rig), or re-point one measurement file
 (repoint). A DRY RUN unless --apply: migrated to a temporary directory, read
 back and compared number for number, nothing written. Written beside the

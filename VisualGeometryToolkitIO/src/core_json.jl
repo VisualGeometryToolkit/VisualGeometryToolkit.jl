@@ -117,7 +117,8 @@ _key_names(x::_JSONObject) = (String(k) for k in keys(x))
 _refuse_quantity(x::_JSONObject, what) = throw(
     ArgumentError(
         "$(what) holds an object, $(repr(x)); a quantity is a number in the record's declared unit " *
-            "(the {value, unit} form is not read: its owner migrates such a file once, with vgio_migrate)"
+            "(the {value, unit} form is read only where an earlier schema version held it, by its owner's " *
+            "version step on load; vgio_migrate rewrites such a file)"
     )
 )
 _refuse_quantity(x, what) = throw(ArgumentError("$(what) holds a number, got $(repr(x))"))

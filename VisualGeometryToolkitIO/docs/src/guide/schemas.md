@@ -127,16 +127,22 @@ sidecar is named by the reserved top-level key
 kind implements this yet, and a file that carries `payload` is refused until
 one does.
 
-## Retired versions
+## Earlier versions
 
-Earlier versions are retired, and nothing reads them: `load` refuses each by
-name. Every stored record was migrated once, in 2026-10. The v1 files went
-through a v1 migration. The kinds that carry lenses (cameras and rigs), which
-moved to VGC's lens families at v3, went through a separate lens migration
-that proved each lens computed the same function. Both tools are in the git
-history. A v1 or v2 transforms or trajectory file never had a migration,
-because its free-form frame names have no typed successor. Re-export such a
-file from the program that produced it.
+Every earlier version a published file holds is read, and only the current
+one is written. A schema change must not force the published data (Zenodo,
+Hugging Face; archives of several GB) to be uploaded again, so a published
+file keeps loading: `load` runs the file's version steps in memory, one step
+per version, and reads the current record they give (see
+[The Kinds](kinds.md#Reading-an-earlier-version)). Read this way:
+`cameras/v1`–`v3` (the v1/v2 lenses as VGC's lens families, each the same
+map), `target/v1`–`v2` and `rig/v4`–`v5`.
+
+A version no published file holds, and that no step reads, is refused by
+name. A v1 or v2 transforms or trajectory file never had a migration,
+because its free-form frame names have no typed successor; `rig/v1`–`v2` and
+`generic_camera/v1` have none either. Re-export such a file from the program
+that produced it.
 
 The direct-serialization redesign (2026-10) also retired these kinds, with no
 reader and no migration. Each successor starts at v1 under its new name, and
@@ -146,13 +152,9 @@ the producer re-exports:
 |---|---|
 | `observations/v2` | `target_points2d/v1` |
 | `point_observations/v1` | `target_points3d/v1` |
-| `targets/v2`, `rig/v3` | `rig/v5` |
+| `targets/v2`, `rig/v3` | `rig/v6` |
 | `session/v3` | the calibration pipeline's own session kind |
 
 A pipeline's checkpoint belongs to the pipeline, not to core geometry, which
 is why `session` left this package. A reader refuses each retired kind and
 names its successor.
-
-`target/v1` and `rig/v4` (2026-10-26, the target calibrations) are migrated
-rather than retired: a reader refuses them naming `vgio_migrate`, which
-converts a file once (see [The Kinds](kinds.md#Migrating-an-earlier-version)).

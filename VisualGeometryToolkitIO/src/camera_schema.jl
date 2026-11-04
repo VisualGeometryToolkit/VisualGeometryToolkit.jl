@@ -109,27 +109,31 @@ _plain(x) = x
 
 function _lens_from_json(x)
     x isa AbstractDict || throw(ArgumentError("a lens record is an object"))
-    # the retired v1/v2 lens shape, `{"model": …, "params": …}`: never read here
+    # the v1/v2 lens shape, `{"model": …, "params": …}`: read only in a v1/v2
+    # file, through its version steps, never in a current record
     (haskey(x, "model") || haskey(x, :model)) && throw(
         ArgumentError(
             "a {\"model\", \"params\"} lens is a retired v1/v2 lens record, which predates the lens " *
-                "families; there is no reader for it: re-export the camera from its producer"
+                "families: a current record holds VGC's lens record (a vgio/cameras/v1 or v2 file is read through its migration)"
         )
     )
     # the retired "chain" (terms in sequence in application order, cameras v3 /
     # rig v5): its key and order changed together, so it is never read as "compose"
+    # in a current record (a v3/v5 file is read through its migration)
     _has_chain(x) && throw(
         ArgumentError(
             "a lens record's \"chain\" (its stages in application order) is the retired vgio/cameras/v3 / " *
-                "vgio/rig/v5 form: migrate the file with vgio_migrate (the stages are listed under \"compose\", " *
-                "in CoordinateTransformations' order, the outer first)"
+                "vgio/rig/v5 form, which a file of that version is read through its migration for (vgio_migrate " *
+                "rewrites it): a current record lists the stages under \"compose\", in CoordinateTransformations' order, the outer first"
         )
     )
     return lens_from_record(_plain(x)::Dict{String, Any})
 end
-_has_chain(x::AbstractDict) = haskey(x, "chain") || haskey(x, :chain) || any(_has_chain, values(x))
-_has_chain(x::AbstractVector) = any(_has_chain, x)
-_has_chain(x) = false
+_has_chain(x) = _holds_key(x, "chain")
+# whether a parsed record holds `key` at any depth
+_holds_key(x::AbstractDict, key::String) = haskey(x, key) || haskey(x, Symbol(key)) || any(v -> _holds_key(v, key), values(x))
+_holds_key(x::AbstractVector, key::String) = any(v -> _holds_key(v, key), x)
+_holds_key(x, ::String) = false
 
 # The lens record's own check, run by the validator on read AND write.
 function _lens_check(x)
@@ -376,8 +380,8 @@ end
 
 Read a `vgio/cameras/v4` store: name → `BoundedCamera` of a `CameraModel`
 (its K moved from the file's declared pixel frame into the canonical one), an
-`Attributed` one where the file states the camera's `calibration` block. A v1
-or v2 file is refused by name: nothing reads a retired version.
+`Attributed` one where the file states the camera's `calibration` block. A
+v1, v2 or v3 store is read through its version steps (`migrate_record`).
 """
 function load(::Type{Dict{Symbol, BoundedCamera}}, path::AbstractString)
     d = _read_store(path, "cameras", _CAMERAS_SPEC)

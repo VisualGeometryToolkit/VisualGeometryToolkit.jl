@@ -176,8 +176,14 @@ unit it declares (`"units": {"world": "mm", "density": "dpi"}`), through the
 pair above; a record whose lengths need more than one unit declares each
 further one as a length role (`"lengths": {"pattern": "pt"}`), each number
 decimal-exact in its own. The `{"value": v, "unit": u}` objects that
-VisualGeometryToolkitFeatures once wrote, and that BlobBoards' boards hold,
-are not read: their owner migrates such files once (`vgio_migrate`).
+VisualGeometryToolkitFeatures once wrote, and that BlobBoards' older boards
+hold, are never a current record's: a file of an earlier schema version that
+holds them is read by its owner's version step for that version, on load
+(VisualGeometryToolkitIO's `migrate_schema` and `migrate_record`), and
+`vgio_migrate` rewrites it once if its owner wants it rewritten. Every
+earlier version a published file holds stays readable, and only the current
+one is written: a schema change must not force published data (Zenodo,
+Hugging Face) to be uploaded again.
 
 **A float length built in code has already rounded.** `[62.8, 1.3] .* mm`
 multiplies by the Float64 of the scale when it is stored in metres. `1.3mm` is

@@ -44,9 +44,9 @@ end
             src = old_copy(dir, name, as_v1_target)
             before = read(src, String)
             @test occursin("vgio/target/v1", before) && occursin("\"warp\"", before) == (name == "target_planar.json")
-            # no reader: refused, naming the migration
-            e = try load(AbstractTarget, src); nothing catch e; e end
-            @test e isa ArgumentError && occursin("vgio_migrate", e.msg)
+            # read through its migration, as the committed current file
+            a0, b0 = load(AbstractTarget, src), load(AbstractTarget, units_fixture(name))
+            @test VgtkIO._same_value(a0, b0)
             # a dry run verifies and writes nothing
             r = vgio_migrate(src; dry_run = true)
             @test r.out === nothing && r.from == "vgio/target/v1" && r.to == "vgio/target/v3"
@@ -171,8 +171,9 @@ end
         v4_id = V4_ID
         obs = joinpath(dir, "target_points2d.json")
         write(obs, replace(read(units_fixture("target_points2d.json"), String), only(obs_new.targets) => v4_id))
-        e = try load(Rig, rig); nothing catch e; e end
-        @test e isa ArgumentError && occursin("vgio/rig/v4", e.msg) && occursin("vgio_migrate", e.msg)
+        # read through its migration: the current rig, and its current identity
+        @test load(Rig, rig).members == load(Rig, units_fixture("rig_targets.json")).members
+        @test content_id(rig) == only(obs_new.targets) != v4_id
         r = vgio_migrate(rig)
         @test r.to == "vgio/rig/v6" && r.old_id == v4_id && r.old_ids == [v4_id] && r.new_id == content_id(r.out) == only(obs_new.targets)   # an mm file: one v4 id
         @test read(r.out, String) == read(units_fixture("rig_targets.json"), String)
@@ -605,9 +606,9 @@ end
             "covariance" => Any[Any[Σold[i, j] for j in 1:15] for i in 1:15])
         v5 = joinpath(dir, "rig_v5.json")
         write(v5, JSON.json(d, 2))
-        e = try VgtkIO.load(Rig, v5); nothing catch e; e end
-        @test e isa ArgumentError && occursin("vgio_migrate", e.msg)
         r = VgtkIO.vgio_migrate(v5; out = joinpath(dir, "rig_migrated.json"))
+        @test VgtkIO._same_value(VgtkIO.load(Rig, v5), VgtkIO.load(Rig, r.out))           # read through its migration, as its migrated file
+        @test VgtkIO.content_id(v5) == r.new_id
         @test r.to == "vgio/rig/v6"
         # the value changed kind (affine → its factors), so the identity moves: v5's is reported as the old one
         @test r.new_id == VgtkIO.content_id(r.out) && r.old_id != r.new_id && r.old_ids == [r.old_id]

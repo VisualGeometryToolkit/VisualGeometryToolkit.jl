@@ -1,5 +1,47 @@
 # VisualGeometryToolkitIO changelog
 
+## 0.5.1 (2026-11-04)
+
+Every earlier schema version a published file holds is read again. A reader
+that meets one migrates it in memory, version by version, to its kind's
+current record and reads that; the writers write only the current version.
+The reason: every schema change had forced a re-upload of the published data
+(Zenodo, Hugging Face; multi-GB archives), and a published file must keep
+loading.
+
+- **Read on load**: `vgio/cameras/v1`, `v2` and `v3`; `vgio/target/v1` and
+  `v2`; `vgio/rig/v4` and `v5` (before: refused, naming `vgio_migrate`). A load
+  is silent; an `@debug` names the version migrated. `content_id` of an old rig
+  file is the identity of the value it loads as, which is its migrated file's;
+  `validate` checks an old file as the record it migrates to.
+- **One step per version, shared.** `migrate_schema(::Val{schema}, tree)`, the
+  extension point's new in-memory form, takes a parsed record of `schema` to the
+  next version's record; `migrate_record(tree)` (new, public) runs the steps
+  until the record is current. The readers and `vgio_migrate`, which still
+  rewrites a file (verified, staged, renamed into place), run the same steps. A
+  schema's owner adds the steps of its own kinds and calls `migrate_record` in
+  its reader; `migrate_schema(::Val{schema}, src, dst)`, the file form, stays
+  the owner's migration for `vgio_migrate`.
+- **cameras v1 and v2 restored** (VisualGeometryIo's v1 reader and v2 lens
+  table): v1's per-camera records (each in its own `pixel_chart`) and positional
+  lens parameters, v2's named ones, as VGC's lens families — BrownConrady as
+  `opencv_lens` of OpenCV's shortest vector holding its non-zero coefficients,
+  KannalaBrandt, DoubleSphere, Scaramuzza, the division and RationalRadial
+  models, and the pinhole and EquidistantFisheye lenses, each the same map (the
+  tests check each against VGC 0.x's formula). v1's top-level metadata becomes
+  the provenance.
+- **A version step refuses a record its version did not write** (a current
+  record relabeled old: a v1/v4 target holding `calibration` or `reference`, a
+  v2/v5 `composition`, a v3/v5 lens `compose`), as the readers refused a later
+  key before.
+- **Measurements naming an old rig**: `save_correspondences` resolves the
+  identity a v4 rig file (or a v5 one whose affine calibration became its
+  factors) was named by against that file.
+- Still refused, by name: transforms and trajectory v1/v2 (free-form frame
+  names, which have no typed successor), the retired kinds (`observations/v2`,
+  `point_observations/v1`, `targets/v2`, `rig/v3`, `session/v3`), and `rig`
+  v1/v2 and `generic_camera/v1`, which no published file holds.
+
 ## 0.5.0 (2026-11-04)
 
 Breaking: the target and rig records bump with VisualGeometryToolkitCore

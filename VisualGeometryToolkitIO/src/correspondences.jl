@@ -124,7 +124,10 @@ default. A type, it leads.
 `targets` is one or more rigs or `vgio/rig/v6` paths (one per connected
 component; a target present in several must carry the same points in each;
 `resolve` resolves a referenced planar design read from a path); when `obs` names its targets (`obs.targets`), the given ones must be
-exactly those, by [`content_id`](@ref). Every (target, index) must resolve,
+exactly those, by [`content_id`](@ref) — an old rig file (`vgio/rig/v4`, or a
+`v5` whose calibration held the retired affine kind) also by the identity its
+version named it by, which the measurement files written beside it hold.
+Every (target, index) must resolve,
 and every frame must name its image and sensor.
 """
 save_correspondences(path::AbstractString, obs::TargetPoints2D{F}, targets...; kwargs...) where {F <: PixelFrame} =
@@ -138,7 +141,9 @@ function save_correspondences(
     list = collect(Any, targets)
     if !isempty(obs.targets)
         given = sort!(_target_hashes(list))
-        sort(obs.targets) == given || throw(
+        # an old rig file is also named by the identities its version gave it
+        old = Dict(reduce(vcat, [_old_id_map(t) for t in list]; init = Pair{String, String}[]))
+        sort!([get(old, t, t) for t in obs.targets]) == given || throw(
             ArgumentError("the measurements resolve against the targets $(sort(obs.targets)); the targets given are $(given)")
         )
     end

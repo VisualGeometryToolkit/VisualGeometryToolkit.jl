@@ -1,0 +1,79 @@
+{
+    "schema": "vgio/cameras/v3",
+    "pixel_frame": "colmap",
+    "cameras": [
+        {
+            "name": "radtan",
+            "width": 1280,
+            "height": 960,
+            "K": {
+                "fx": 901.25,
+                "fy": 899.5,
+                "cx": 641.375,
+                "cy": 478.125,
+                "skew": 0
+            },
+            "lens": {
+                "add": [
+                    {
+                        "radial": [
+                            [
+                                -0.15680625941667098,
+                                0.04565665542192153
+                            ],
+                            [
+                            ]
+                        ]
+                    },
+                    {
+                        "tangential": [
+                            -0.0003527415347489064,
+                            0.0008423616851487834
+                        ]
+                    }
+                ],
+                "perspective": [
+                ]
+            }
+        },
+        {
+            "name": "tilted",
+            "width": 640,
+            "height": 480,
+            "K": {
+                "fx": 500.0,
+                "fy": 500.0,
+                "cx": 320.0,
+                "cy": 240.0,
+                "skew": 0
+            },
+            "lens": {
+                "perspective": [
+                ],
+                "chain": [
+                    {
+                        "radial": [
+                            [
+                                0.01,
+                                -0.002
+                            ],
+                            [
+                            ]
+                        ]
+                    },
+                    {
+                        "tilt": [
+                            0.003,
+                            -0.001
+                        ]
+                    }
+                ]
+            }
+        }
+    ],
+    "provenance": {
+        "converted_from": "pinhole_radtan",
+        "camera_id": "test camera",
+        "lens_id": "test lens"
+    }
+}

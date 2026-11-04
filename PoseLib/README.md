@@ -7,86 +7,74 @@
 
 Julia bindings to [PoseLib](https://github.com/PoseLib/PoseLib), the C++
 library of minimal solvers and robust refiners for camera pose estimation by
-Viktor Larsson and contributors. Every solver and refiner reached from this
-package is theirs. PoseLib.jl is a thin binding layer, part of the
-[VisualGeometryToolkit](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl)
-stack.
-
-Loading the package does two things:
-
-- It adds a PoseLib backend, `PoseLibSolver()`, to the minimal solvers of
-  [VisualGeometryToolkitCore](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/):
-  the four-point homography, the seven-point fundamental matrix, the
-  perspective-three-point (P3P) absolute pose and the five-point essential
-  matrix. It also adds the eight-point essential matrix, `essential_dlt`.
-- It exports PoseLib's robust Levenberg–Marquardt (LM) refiners:
-  `refine_homography`, `refine_fundamental`, `refine_relpose` and
-  `refine_absolute_pose`.
+Viktor Larsson and contributors. Loading PoseLib.jl adds a PoseLib backend,
+`PoseLibSolver()`, to the minimal solvers of
+[VisualGeometryToolkitCore](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/stable/),
+and exports PoseLib's robust Levenberg–Marquardt refiners for homographies,
+fundamental matrices, relative poses and absolute poses.
 
 ## Installation
 
-PoseLib is in [CauRegistry](https://github.com/prittjam/CauRegistry.jl) until
-its General registration merges; VisualGeometryToolkitCore is in General.
-
-```julia
-using Pkg
-Pkg.Registry.add("General")
-Pkg.Registry.add(url = "https://github.com/prittjam/CauRegistry.jl")   # once
-Pkg.add(["PoseLib", "VisualGeometryToolkitCore"])
+```julia-repl
+pkg> add PoseLib VisualGeometryToolkitCore
 ```
 
-PoseLib.jl requires Julia 1.12 or later. The C++ library is downloaded
-prebuilt, as the binary package `PoseLib_jll`, when the package is installed,
-so no compiler is needed; see
-[Platforms and binaries](https://visualgeometrytoolkit.github.io/PoseLib/dev/guide/binaries/).
+Julia 1.12 or later. Every dependency is in the General registry. The C++
+library is downloaded prebuilt, as the binary package `PoseLib_jll`, so no
+compiler is needed.
 
-## Quick start
+## Example
 
-Solve a P3P problem with PoseLib's solver. The camera sits at the origin and
-looks down the z axis, so the bearing of each world point is the point scaled
-to unit length.
+The example estimates a camera's pose from three points with PoseLib's P3P
+solver, then refines it on all the points with PoseLib's absolute-pose
+refiner.
 
 ```julia
 using PoseLib, VisualGeometryToolkitCore
 
-X = [Point3(1.0, 0.5, 5.0), Point3(-0.5, 1.0, 4.0), Point3(0.0, -0.5, 6.0)]
+# A camera at the origin looks down the z axis at 25 points on a curved
+# surface, six units away; K is its intrinsic matrix, in pixels.
+K = [800.0 0.0 320.0; 0.0 800.0 240.0; 0.0 0.0 1.0]
+X = [Point3(x, y, 6.0 + 0.5x * y) for x in -1.0:0.5:1.0 for y in -1.0:0.5:1.0]
+pixel(x) = (y = K * x; Point2(y[1] / y[3], y[2] / y[3]))
+u = pixel.(X)
+
+# PoseLib's P3P solver on three of the points and their bearings (unit rays).
 f = [Vec3(x / sqrt(sum(abs2, x))) for x in X]
-poses = solve(P3P(PoseLibSolver()), Csponds(X, f), 1:3)
-length(poses)          # the number of real solutions, at most 4
+poses = solve(P3P(PoseLibSolver()), Csponds(X, f), [1, 13, 25])
+
+# Keep the solution that reprojects all 25 points best, then refine it.
+reprojection(pose) = sum(sum(abs2, pixel(pose(x)) - v) for (x, v) in zip(X, u))
+best = poses[argmin(reprojection.(poses))]
+pose = refine_absolute_pose(unlabel(best), K, Csponds(X, u); max_iter = 50, loss_width = 2.0)
+maximum(abs, pose.t) < 1e-8      # true: the camera is at the origin
 ```
 
-Refine a perturbed homography from point correspondences. The default loss is
-a truncated quadratic, and `loss_width` is the residual in pixels beyond which
-a correspondence counts as an outlier.
-
-```julia
-using PoseLib, VisualGeometryToolkitCore
-
-H = HomographyMat([1.1 0.02 5.0; -0.03 0.95 -3.0; 1e-4 2e-4 1.0])
-map_point(H, x) = (y = H * [x; 1.0]; Point2(y[1] / y[3], y[2] / y[3]))
-x1 = [Point2(u, v) for u in 0.0:100.0:400.0 for v in 0.0:100.0:300.0]
-x2 = [map_point(H, x) for x in x1]
-
-H0 = HomographyMat([1.1 0.02 6.0; -0.03 0.96 -3.0; 1e-4 2e-4 1.0])
-H1 = refine_homography(H0, Csponds(x1, x2); max_iter = 25, loss_width = 2.0)
-H1 / H1[3, 3] ≈ H      # true
-```
+[Getting started](https://visualgeometrytoolkit.github.io/PoseLib/stable/guide/getting-started/)
+continues with the relative-pose and homography refiners.
 
 ## Documentation
 
-- [Stable](https://visualgeometrytoolkit.github.io/PoseLib/stable/) and
-  [development](https://visualgeometrytoolkit.github.io/PoseLib/dev/) manuals:
-  getting started, the minimal-solver backends, the refiners and their loss
-  widths, platforms and binaries, and the API reference.
-- The conventions the whole stack follows (argument order, coordinate frames,
-  bearings) are in VisualGeometryToolkitCore's
-  [Conventions](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/dev/guide/conventions/)
-  page.
+- [Getting started](https://visualgeometrytoolkit.github.io/PoseLib/stable/guide/getting-started/):
+  a P3P solve and each refiner.
+- [Minimal solvers](https://visualgeometrytoolkit.github.io/PoseLib/stable/guide/solvers/)
+  and [Refiners](https://visualgeometrytoolkit.github.io/PoseLib/stable/guide/refiners/):
+  selecting the PoseLib backend, the losses and the unit of `loss_width`.
+- [Platforms and binaries](https://visualgeometrytoolkit.github.io/PoseLib/stable/guide/binaries/):
+  what is downloaded, for which platforms, under which licenses.
+- [API reference](https://visualgeometrytoolkit.github.io/PoseLib/stable/api/).
+
+PoseLib.jl is part of the VisualGeometryToolkit packages. Its inputs and
+outputs are VisualGeometryToolkitCore's types, and VisualGeometryToolkitEstimation's
+RANSAC estimators can select its solver backend. The rules every package of the toolkit
+follows are on VisualGeometryToolkitCore's
+[Conventions](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/stable/guide/conventions/)
+page, and the [portal](https://visualgeometrytoolkit.github.io) links every
+package.
 
 ## Citing
 
-If you use this package in published work, cite PoseLib, and also the
-original publications of the methods you use (PoseLib's
+Cite PoseLib, and the original publications of the methods you use (PoseLib's
 [README](https://github.com/PoseLib/PoseLib#readme) lists them):
 
 ```bibtex

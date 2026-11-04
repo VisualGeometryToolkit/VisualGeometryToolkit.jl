@@ -11,16 +11,19 @@ backends of VisualGeometryToolkitCore's minimal solvers (homography 4-pt, fundam
 ## Testing
 
 Plain `@testset` (`test/runtests.jl`): `Pkg.test()` runs the whole suite; there
-is no per-item filter. `test/readme_tests.jl` runs every julia block of the
-README, so a README example must run as written with only the packages its
-Installation block adds.
+is no per-item filter. `test/readme_tests.jl` runs the README's one julia
+block in a fresh environment built from its `pkg> add` install line, and checks
+that the landing page (`docs/src/index.md`) shows the same line and the same
+block. `test/docs_tests.jl` checks that every public name has an attached
+docstring whose signature lines match the methods.
 
 ## Documentation
 
 The README is for users: purpose, installation, a quick start, links. Reference
 and maintainer material lives in the Documenter pages under `docs/src/`
-(`guide/` for users, `developer.md` for maintainers). `docs/make.jl` treats a
-missing docstring as an error.
+(`guide/` for users, `developer.md` for maintainers). `docs/make.jl` runs with
+`checkdocs = :public`, doctests and linkcheck, and no `warnonly`: any warning
+fails the build.
 
 ## Git Commit Conventions
 

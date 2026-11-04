@@ -172,6 +172,16 @@ end
 # fundamental_7pt  (PoseLib backend)
 # =============================================================================
 
+"""
+    fundamental_7pt(::PoseLibSolver, cs, idx) -> FixedModels{3, FundMat{Float64}}
+
+PoseLib's seven-point fundamental-matrix solver, the `PoseLibSolver` backend of
+VisualGeometryToolkitCore's `fundamental_7pt` kernel. `cs` holds 2D image
+correspondences `x1 => x2` in the caller's frame and `idx` names the seven of
+the sample. Returns every real solution, up to three, in that frame; a
+degenerate sample returns fewer, possibly none. The public entry point is
+`solve(Fundamental7pt(PoseLibSolver()), cs, idx)`.
+"""
 function VgtkCore.fundamental_7pt(::PoseLibSolver, cs, idx::AbstractVector{<:Integer})
     u1 = cs.first; u2 = cs.second
     o = one(Float64)
@@ -198,6 +208,17 @@ end
 # p3p  (PoseLib backend + convenience default)
 # =============================================================================
 
+"""
+    p3p(::PoseLibSolver, x, X) -> FixedModels{4, Extrinsics3}
+
+PoseLib's perspective-three-point solver, the `PoseLibSolver` backend of
+VisualGeometryToolkitCore's `p3p` kernel. `x` holds three unit bearings
+(`StaticVector{3, Float64}`) and `X` the three world points they see. Returns
+every real solution, up to four, as world-to-camera extrinsics in the frame and
+unit of `X`; a degenerate sample returns fewer, possibly none, and inputs of
+any length other than three return `nothing`. The public entry point is
+`solve(P3P(PoseLibSolver()), cs, idx)` with `cs` the correspondences `X => x`.
+"""
 function VgtkCore.p3p(::PoseLibSolver,
              x::AbstractVector{S},
              X::AbstractVector{T}) where {S <: StaticVector{3,Float64},
@@ -256,6 +277,19 @@ _Relpose5ptBuffers() = _Relpose5ptBuffers(Ref{NTuple{15,Float64}}(),
 const _Bearings5 = Union{NTuple{5, <:StaticVector{3, Float64}},
                          StaticVector{5, <:StaticVector{3, Float64}}}
 
+"""
+    essential_5pt(::PoseLibSolver, x1, x2) -> FixedModels{10, EssentialMat{Float64}}
+    essential_5pt(::PoseLibSolver, cs, idx) -> FixedModels{10, EssentialMat{Float64}}
+
+PoseLib's five-point essential-matrix solver, the `PoseLibSolver` backend of
+VisualGeometryToolkitCore's `essential_5pt` kernel. `x1` and `x2` are five unit
+bearings each (an `NTuple` or an `SVector{5}` of `StaticVector{3, Float64}`);
+the second form reads the five correspondences `cs[idx]` of bearings
+`f₁ => f₂`. A 2-vector is a `MethodError`, never lifted to the z = 1 plane.
+Returns every real solution that passes VisualGeometryToolkitCore's
+`is_valid_solution`, up to ten; a degenerate sample returns fewer, possibly
+none. The public entry point is `solve(Essential5pt(PoseLibSolver()), cs, idx)`.
+"""
 function VgtkCore.essential_5pt(::PoseLibSolver, x1::_Bearings5, x2::_Bearings5)
     bufs = _relpose5pt_buffers()
     bufs.p1[] = _pack_points3(Tuple(x1))
@@ -306,6 +340,17 @@ end
 # essential_dlt  (PoseLib only — backend method + no-backend default)
 # =============================================================================
 
+"""
+    essential_dlt(::PoseLibSolver, cs) -> Union{EssentialMat{Float64}, Nothing}
+    essential_dlt(cs) -> Union{EssentialMat{Float64}, Nothing}
+
+PoseLib's eight-point essential matrix: the direct linear transform over eight
+or more correspondences `cs` of unit bearings `f₁ => f₂`, every one taken as an
+inlier. VisualGeometryToolkitCore has no native eight-point solver, so the form
+without a backend runs this one. An algorithm: a degenerate set returns
+`nothing` (a non-finite solution), and fewer than eight correspondences is an
+`AssertionError`.
+"""
 function VgtkCore.essential_dlt(::PoseLibSolver,
         cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{3}}})
     n = length(cs)
@@ -510,6 +555,10 @@ Each `K` reaches PoseLib as its `SIMPLE_PINHOLE` camera model, with focal
 length `(K₁₁ + K₂₂)/2` and principal point `(K₁₃, K₂₃)`. Skew and any
 difference between `K₁₁` and `K₂₂` are dropped, so the model is exact only for
 square pixels and zero skew.
+
+A refiner ends in the local minimum its seed leads to: under a truncated loss,
+a correspondence whose residual at the seed exceeds `loss_width` gets no
+weight. No convergence status comes back.
 """
 function refine_relpose(pose::Rigid3, K1::AbstractMatrix, K2::AbstractMatrix,
                         cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}};
@@ -573,6 +622,8 @@ A width in the wrong unit is off by a factor of the focal length. Nothing
 reports this: a truncated loss simply keeps the wrong inliers.
 
 All arguments are in the caller's frame, and the refined pose comes back in it.
+As every refiner, it ends in the local minimum its seed leads to, and no
+convergence status comes back.
 """
 function refine_relpose(pose::Rigid3,
                         cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{3}}};
@@ -625,7 +676,8 @@ Bartoli–Sturm parametrization of `F`, which keeps the matrix at rank 2.
 `x1 => x2` of 2D image points, in the frame `F` is expressed in (pixels for a
 pixel-frame `F`). `loss_width` is the width of the loss on the Sampson
 residual, in the same unit. `loss` and `loss_width` are as in
-[`refine_homography`](@ref). Returns the refined `FundMat`.
+[`refine_homography`](@ref). Returns the refined `FundMat`. It ends in the
+local minimum its seed leads to, and no convergence status comes back.
 """
 function refine_fundamental(F::AbstractMatrix,
                             cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}};
@@ -705,6 +757,9 @@ pose are refined; `K` stays fixed.
 `(K₁₁ + K₂₂)/2` and principal point `(K₁₃, K₂₃)`. Skew and any difference
 between `K₁₁` and `K₂₂` are dropped, so the model is exact only for square
 pixels and zero skew.
+
+A refiner ends in the local minimum its seed leads to, and no convergence
+status comes back.
 """
 function refine_absolute_pose(pose::Rigid3, K::AbstractMatrix,
                               cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{2}}};
@@ -813,6 +868,28 @@ in the same unit. Returns the refined `HomographyMat`.
 `loss_width` is the width `w` of VisualGeometryToolkitCore's closed form for
 that shape. PoseLib's own `loss_scale` equals it for every loss bound here, so
 it reaches PoseLib unchanged. `max_iter`, the iteration budget, has no default.
+
+A refiner ends in the local minimum its seed leads to: under a truncated loss,
+a correspondence whose residual at the seed exceeds `loss_width` gets no
+weight, so a seed must be close enough that its inliers fall within the width.
+No convergence status comes back (PoseLib's iteration count is discarded).
+Without the library on this platform ([`is_available`](@ref) false) every
+refiner raises an error that says so.
+
+```jldoctest
+julia> using PoseLib, VisualGeometryToolkitCore
+
+julia> H = HomographyMat([1.0 0.0 5.0; 0.0 1.0 -3.0; 0.0 0.0 1.0]);
+
+julia> x1 = [Point2(a, b) for a in 0.0:100.0:300.0 for b in 0.0:100.0:300.0];
+
+julia> x2 = [Point2(x[1] + 5.0, x[2] - 3.0) for x in x1];
+
+julia> H1 = refine_homography(HomographyMat([1.0 0.0 6.0; 0.0 1.0 -3.0; 0.0 0.0 1.0]), Csponds(x1, x2); max_iter = 25, loss_width = 2.0);
+
+julia> H1 / H1[3, 3] ≈ H
+true
+```
 """
 function refine_homography(H::AbstractMatrix,
                            cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}};

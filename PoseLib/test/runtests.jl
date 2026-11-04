@@ -12,8 +12,12 @@ using Rotations: RotMatrix
 
     include("agent_docs.jl")
 
-    # Every julia block of the README runs as written.
+    # The README's example runs as written, in a fresh environment built from
+    # its install line; the docs show the same line and example.
     include("readme_tests.jl")
+
+    # Every public name has an attached docstring whose signatures match.
+    include("docs_tests.jl")
 
     @testset "the library comes from PoseLib_jll" begin
         @test PoseLib.is_available() && Base.ispublic(PoseLib, :is_available)

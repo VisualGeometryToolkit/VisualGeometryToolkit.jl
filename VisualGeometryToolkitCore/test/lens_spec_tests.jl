@@ -186,14 +186,6 @@ end
             err
         end
         @test e isa ArgumentError && occursin("metric, projective", e.msg)
-        if !isdefined(VisualGeometryToolkitCore, :ProjectiveIntrinsics)
-            e = try
-                CameraModelSpec(Dict("intrinsics" => "projective", "lens" => "division", "coefficients" => 2)); nothing
-            catch err
-                err
-            end
-            @test e isa ArgumentError && occursin("ProjectiveIntrinsics", e.msg)
-        end
     end
 
     @testset "show" begin

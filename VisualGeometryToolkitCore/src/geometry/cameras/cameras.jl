@@ -186,7 +186,7 @@ include("camera_models.jl")
 include("lens_rays.jl")       # THE lens contract: project/backproject on rays + the derived Jacobians
 include("equirectangular.jl") # the latitude/longitude projection of directions (panoramas, sky maps)
 include("lens_chart.jl") # parameter chart, ∂lens/∂θ, TOML lens registry (0.22.1)
-include("lens_spec.jl")  # LensSpec: a lens family by name and term counts (the name table reads lens_chart.jl's _LEAVES)
+include("lens_spec.jl")  # LensSpec: a lens family by name and term counts
 include("generic_models.jl") # Schöps et al. central/non-central generic grid models (0.16)
 include("support.jl")         # supports on the sensor: which parameters a camera can see (the generic models' lattice)
 include("chart_spline.jl")    # ChartSpline, SplineProjection: a forward map as the grid models' lattice on a direction chart (uses spline_value, the window)

@@ -5,9 +5,8 @@
 # A model is specified by family name and term counts, `LensSpec(:division;
 # coefficients = 3)`, not by a `lens_record` of zeros. The NAME TABLE below maps
 # each name to a structure built from the existing leaves (the grammar of
-# `lens_record` / `lens_from_record`, lens_chart.jl); `_LEAVES` (lens_chart.jl)
-# names the single-leaf projections. A lens the table does not name is stored as
-# its record.
+# `lens_record` / `lens_from_record`, lens_chart.jl). A lens the table does not
+# name is stored as its record.
 
 # A structure keyword: a term count of at least `min`, or a flag with a default.
 struct _Count
@@ -26,10 +25,7 @@ end
 
 _zeros(n) = ntuple(_ -> 0.0, n)
 
-_projection_families() = Pair{Symbol, _LensFamily}[
-    Symbol(tag) => _LensFamily((;), s -> Lens(P())) for (tag, P) in _LEAVES
-        if P <: AbstractProjection && isconcretetype(P) && hasmethod(P, Tuple{})
-]
+_nokw(P) = _LensFamily((;), s -> Lens(P()))
 
 # The name table. The reference of a family is the member that EQUALS ITS BASE
 # PROJECTION: the polynomial families at all-zero coefficients are perspective
@@ -51,7 +47,11 @@ const _LENS_FAMILIES = Dict{Symbol, _LensFamily}(
     :double_sphere => _LensFamily((;), s -> Lens(DoubleSphere(0.0, 0.0))),
     :unified => _LensFamily((;), s -> Lens(Unified(0.0))),
     :extended_unified => _LensFamily((;), s -> Lens(ExtendedUnified(0.0, 1.0))),
-    _projection_families()...,
+    :perspective => _nokw(Perspective),
+    :equidistant => _nokw(Equidistant),
+    :stereographic => _nokw(Stereographic),
+    :equisolid => _nokw(Equisolid),
+    :orthographic => _nokw(Orthographic),
 )
 
 """
@@ -104,6 +104,11 @@ struct LensSpec
     structure::NamedTuple
     free::Union{Nothing, Tuple{Vararg{Symbol}}}
     record::Union{Nothing, Dict{String, Any}}
+    function LensSpec(family::Symbol, structure::NamedTuple, free, record)
+        (family === :record) == (record !== nothing) ||
+            throw(ArgumentError("LensSpec: the family is :record exactly when a record is given; got :$family and record = $(repr(record))"))
+        return new(family, structure, free, record)
+    end
 end
 
 _known_families() = join(sort!(String.(collect(keys(_LENS_FAMILIES)))), ", ")
@@ -145,9 +150,10 @@ function _free_tuple(free)
     return Tuple(Symbol(x) for x in free)
 end
 
-function _validated(spec::LensSpec)
+# `ref`: the lens of `spec`, when the caller has already built it.
+function _validated(spec::LensSpec, ref = nothing)
     spec.free === nothing && return spec
-    names = parameter_names(lens(spec))
+    names = parameter_names(ref === nothing ? lens(spec) : ref)
     for n in spec.free
         n in names || throw(
             ArgumentError("LensSpec: free name :$n is not a parameter of the lens's chart; its parameter_names are $names")
@@ -168,35 +174,35 @@ _record_spec(record::AbstractDict, free) =
     _validated(LensSpec(:record, (;), _free_tuple(free), _canonical_record(record)))
 
 function LensSpec(l::AbstractLensModel; free = nothing)
-    for (family, fam) in _LENS_FAMILIES
-        structure = _structure_of(family, l)
-        structure === nothing && continue
-        ref = fam.build(structure)
+    named = _named_structure(l)
+    if named !== nothing
+        family, structure = named
+        ref = _reference_lens(family, structure)
         typeof(ref) == typeof(l) && parameter_vector(ref) == parameter_vector(l) &&
-            return _validated(LensSpec(family, structure, _free_tuple(free), nothing))
+            return _validated(LensSpec(family, structure, _free_tuple(free), nothing), ref)
     end
     return _record_spec(lens_record(l), free)
 end
 
-# The structure keywords a lens would have under `family`, from its type and arities (nothing: not that shape).
-_structure_of(::Symbol, ::AbstractLensModel) = nothing
-_structure_of(family::Symbol, l::LiftLens{<:Radial{Even, 0, Q}}) where {Q} =
-    family === :division && Q >= 1 ? (; coefficients = Q) : nothing
-function _structure_of(family::Symbol, l::Lens)
+# The one (family, structure keywords) a lens's type and arities name (nothing: no family has that shape).
+_named_structure(::AbstractLensModel) = nothing
+_named_structure(::LiftLens{<:Radial{Even, 0, Q}}) where {Q} = Q >= 1 ? (:division, (; coefficients = Q)) : nothing
+function _named_structure(l::Lens)
     p, d = l.projection, l.distortion
-    fam = get(_LENS_FAMILIES, family, nothing)
-    fam === nothing && return nothing
     if d === nothing
-        return isempty(fam.keywords) && Symbol(_tag(typeof(p))) === family ? (;) : nothing
+        family = Symbol(_tag(typeof(p)))
+        fam = get(_LENS_FAMILIES, family, nothing)
+        return fam !== nothing && isempty(fam.keywords) ? (family, (;)) : nothing
     elseif d isa Radial{Even}
         n, m = length(d.k), length(d.d)
-        p isa Equidistant && m == 0 && n >= 1 && return family === :kannala_brandt ? (; coefficients = n) : nothing
+        p isa Equidistant && m == 0 && n >= 1 && return (:kannala_brandt, (; coefficients = n))
         p isa Perspective || return nothing
-        m == 0 && n >= 1 && return family === :brown_conrady ? (; radial = n, tangential = false) : nothing
-        m >= 1 && return family === :rational ? (; numerator = n, denominator = m) : nothing
-    elseif d isa Additive && p isa Perspective && family === :brown_conrady && length(d.terms) == 2
+        m == 0 && n >= 1 && return (:brown_conrady, (; radial = n, tangential = false))
+        m >= 1 && return (:rational, (; numerator = n, denominator = m))
+    elseif d isa Additive && p isa Perspective && length(d.terms) == 2
         r, t = d.terms
-        r isa Radial{Even} && isempty(r.d) && !isempty(r.k) && t isa Tangential && return (; radial = length(r.k), tangential = true)
+        r isa Radial{Even} && isempty(r.d) && !isempty(r.k) && t isa Tangential &&
+            return (:brown_conrady, (; radial = length(r.k), tangential = true))
     end
     return nothing
 end
@@ -323,7 +329,7 @@ with the unset keys left out; `CameraModelSpec(table)` reads it back, and
 specification.
 
 Throws an `ArgumentError` for an `intrinsics` other than `metric` or
-`projective`, for `projective` where `ProjectiveIntrinsics` does not exist, for
+`projective` (and `toml_value` for an intrinsics kind with neither name), for
 an unknown `type` or key, and for whatever [`LensSpec`](@ref) or
 [`GenericGridSpec`](@ref) refuses.
 """
@@ -355,26 +361,39 @@ calibration.
 """
 intrinsics_kind(::CameraModelSpec{I}) where {I} = I
 
-_intrinsics_names() = "metric, projective"
+# The TOML names of the intrinsics kinds, name => type: read by the table reader and written by toml_value.
+const _INTRINSICS_KINDS = ("metric" => LogicalIntrinsics, "projective" => ProjectiveIntrinsics)
+
+_intrinsics_names() = join(first.(_INTRINSICS_KINDS), ", ")
 
 function _intrinsics_type(name)
-    name == "metric" && return LogicalIntrinsics
-    if name == "projective"
-        isdefined(@__MODULE__, :ProjectiveIntrinsics) ||
-            throw(ArgumentError("CameraModelSpec: intrinsics = \"projective\" needs ProjectiveIntrinsics, which this version of VisualGeometryToolkitCore does not define"))
-        return getfield(@__MODULE__, :ProjectiveIntrinsics)
+    for (n, I) in _INTRINSICS_KINDS
+        name == n && return I
     end
     throw(ArgumentError("CameraModelSpec: unknown intrinsics $(repr(name)); known: $(_intrinsics_names())"))
 end
+
+function _intrinsics_name(I::Type)
+    for (n, J) in _INTRINSICS_KINDS
+        I === J && return n
+    end
+    throw(ArgumentError("CameraModelSpec: the intrinsics kind $I has no TOML name; known: $(_intrinsics_names())"))
+end
+
+# The fields of a generic grid a table names; the set ones, name => value, in the order they are shown and written.
+const _GRID_KEYS = String.(fieldnames(GenericGridSpec))
+_grid_args(g::GenericGridSpec) =
+    Pair{Symbol, Any}[k => getfield(g, k) for k in fieldnames(GenericGridSpec) if getfield(g, k) !== nothing]
+_grid_text(g::GenericGridSpec) = join(("$k = $v" for (k, v) in _grid_args(g)), ", ")
 
 function CameraModelSpec(table::AbstractDict)
     d = Dict{String, Any}(String(k) => v for (k, v) in table)
     if haskey(d, "type")
         d["type"] == "central_generic" ||
             throw(ArgumentError("CameraModelSpec: unknown type $(repr(d["type"])); known: central_generic"))
-        extra = setdiff(keys(d), ("type", "grid_size", "calib_area"))
-        isempty(extra) || throw(ArgumentError("CameraModelSpec: a central_generic table takes type, grid_size, calib_area; got also $(sort(collect(extra)))"))
-        return CameraModelSpec(:central_generic; grid_size = get(d, "grid_size", nothing), calib_area = get(d, "calib_area", nothing))
+        extra = setdiff(keys(d), ("type", _GRID_KEYS...))
+        isempty(extra) || throw(ArgumentError("CameraModelSpec: a central_generic table takes type, $(join(_GRID_KEYS, ", ")); got also $(sort(collect(extra)))"))
+        return CameraModelSpec(:central_generic; (Symbol(k) => d[k] for k in _GRID_KEYS if haskey(d, k))...)
     end
     name = pop!(d, "intrinsics", "metric")
     return CameraModelSpec(LensSpec(d); intrinsics = _intrinsics_type(name))
@@ -382,15 +401,15 @@ end
 
 function toml_value(spec::CameraModelSpec{I, LensSpec}) where {I}
     d = toml_value(spec.model)
-    d["intrinsics"] = nameof(I) === :ProjectiveIntrinsics ? "projective" : "metric"
+    d["intrinsics"] = _intrinsics_name(I)
     return d
 end
 
 function toml_value(spec::CameraModelSpec{LogicalIntrinsics, GenericGridSpec})
-    g = spec.model
     d = Dict{String, Any}("type" => "central_generic")
-    g.grid_size === nothing || (d["grid_size"] = Any[g.grid_size...])
-    g.calib_area === nothing || (d["calib_area"] = Any[g.calib_area...])
+    for (k, v) in _grid_args(spec.model)
+        d[String(k)] = Any[v...]
+    end
     return d
 end
 
@@ -399,12 +418,7 @@ Base.hash(g::GenericGridSpec, h::UInt) = hash((g.grid_size, g.calib_area), hash(
 Base.:(==)(a::CameraModelSpec{I}, b::CameraModelSpec{J}) where {I, J} = I === J && a.model == b.model
 Base.hash(s::CameraModelSpec{I}, h::UInt) where {I} = hash((I, s.model), hash(:CameraModelSpec, h))
 
-function Base.show(io::IO, g::GenericGridSpec)
-    args = String[]
-    g.grid_size === nothing || push!(args, "grid_size = $(g.grid_size)")
-    g.calib_area === nothing || push!(args, "calib_area = $(g.calib_area)")
-    return print(io, "GenericGridSpec(", join(args, ", "), ")")
-end
+Base.show(io::IO, g::GenericGridSpec) = print(io, "GenericGridSpec(", _grid_text(g), ")")
 
 function Base.show(io::IO, s::CameraModelSpec{I, LensSpec}) where {I}
     print(io, "CameraModelSpec(", s.model)
@@ -413,9 +427,6 @@ function Base.show(io::IO, s::CameraModelSpec{I, LensSpec}) where {I}
 end
 
 function Base.show(io::IO, s::CameraModelSpec{LogicalIntrinsics, GenericGridSpec})
-    g = s.model
-    args = String[]
-    g.grid_size === nothing || push!(args, "grid_size = $(g.grid_size)")
-    g.calib_area === nothing || push!(args, "calib_area = $(g.calib_area)")
-    return print(io, "CameraModelSpec(:central_generic", isempty(args) ? "" : "; " * join(args, ", "), ")")
+    a = _grid_text(s.model)
+    return print(io, "CameraModelSpec(:central_generic", isempty(a) ? "" : "; " * a, ")")
 end

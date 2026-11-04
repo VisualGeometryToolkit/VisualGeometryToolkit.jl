@@ -60,6 +60,9 @@ end
     return SMatrix{3, 3, T, 9}(one(T), zero(T), zero(T), zero(T), one(T), zero(T), -c[1], -c[2], one(T))
 end
 
+# The intrinsics kinds with a pixel matrix at `_K` / `_K_inv`, the ones the shared centred-pixel maps take.
+const _PixelMatrixIntrinsics = Union{LogicalIntrinsics, ProjectiveIntrinsics}
+
 Base.:(==)(a::ProjectiveIntrinsics, b::ProjectiveIntrinsics) = a.center == b.center
 Base.isequal(a::ProjectiveIntrinsics, b::ProjectiveIntrinsics) = isequal(a.center, b.center)
 Base.hash(a::ProjectiveIntrinsics, h::UInt) = hash(a.center, hash(:ProjectiveIntrinsics, h))

@@ -560,7 +560,7 @@ pixel) and a projective division camera: its principal point is the centre, its
 The inverse of [`CameraModel`](@ref)`(m)`.
 """
 function RadialHomography(H::AbstractMatrix, camera::CameraModel{<:ProjectiveIntrinsics, <:Division})
-    λ = camera.lens.radial.d
+    λ = radial(camera.lens).d
     c = principal_point(camera.intrinsics)
     T = float(promote_type(eltype(H), eltype(λ), eltype(c)))
     return RadialHomography{T}(H, λ, c)
@@ -705,7 +705,7 @@ lens's normalized distorted radius; a projective camera's is centred pixels)?
 The general-family form of the coefficient-level predicate above.
 """
 function division_bounded(
-        model::CameraModel{<:Union{LogicalIntrinsics, ProjectiveIntrinsics}, <:LiftLens}, sz; margin::Real = HORIZON_MARGIN
+        model::CameraModel{<:_PixelMatrixIntrinsics, <:LiftLens}, sz; margin::Real = HORIZON_MARGIN
     )
     width, height = sz[1], sz[2]
     K = _K(model.intrinsics)
@@ -948,14 +948,8 @@ function _frame_walk(model::CameraModel, sz, margin::Real)
 end
 
 function undistorted_rect(
-        model::CameraModel{<:Union{LogicalIntrinsics, ProjectiveIntrinsics}, <:AbstractLensModel}, sz;
+        model::CameraModel{<:_PixelMatrixIntrinsics, <:AbstractLensModel}, sz;
         margin::Real = HORIZON_MARGIN, max_fov::Real = Inf
-    )
-    (isfinite(max_fov) && model.intrinsics isa ProjectiveIntrinsics) && throw(
-        ArgumentError(
-            "undistorted_rect: a finite max_fov ($(rad2deg(max_fov))°) needs a metric camera; " *
-                "a ProjectiveIntrinsics camera has no focal length, so no field of view — use max_fov = Inf"
-        )
     )
     Wimg, Himg, cx, cy, undistort_boundary = _frame_walk(model, sz, margin)
     xmin = ymin = Inf; xmax = ymax = -Inf
@@ -1037,9 +1031,19 @@ The UNDISTORTED (perspective-plane) pixel radius of the cone of half-angle
 `θ` radians: `f·tan(θ)`. The companion of [`horizon_radius`](@ref) — one says
 where the lens stops imaging, this says how big a chosen field of view is once
 flattened.
+
+A projective camera (`ProjectiveIntrinsics`) has no focal length, so no field of
+view: its radius is an `ArgumentError` (and so is a finite `max_fov` in
+[`undistorted_rect`](@ref), which reads it).
 """
 fov_radius(model::CameraModel, θ::Real) =
     Float64(calibration_matrix(model)[1, 1]) * tan(Float64(θ))
+fov_radius(::CameraModel{<:ProjectiveIntrinsics}, θ::Real) = throw(
+    ArgumentError(
+        "a finite field of view ($(rad2deg(θ))°) needs a metric camera; " *
+            "a ProjectiveIntrinsics camera has no focal length, so no field of view — use max_fov = Inf"
+    )
+)
 
 """
     valid_rect(m::RadialHomography, (width, height); margin = HORIZON_MARGIN) -> Rect
@@ -1063,7 +1067,7 @@ valid region is unbounded and the clip is the honest cap. Throws when the
 inscribed window is empty (boundary folded past the principal point).
 """
 function valid_rect(
-        model::CameraModel{<:Union{LogicalIntrinsics, ProjectiveIntrinsics}, <:AbstractLensModel}, sz; margin::Real = HORIZON_MARGIN
+        model::CameraModel{<:_PixelMatrixIntrinsics, <:AbstractLensModel}, sz; margin::Real = HORIZON_MARGIN
     )
     Wimg, Himg, _, _, undistort_boundary = _frame_walk(model, sz, margin)
     xlo = ylo = -Inf; xhi = yhi = Inf

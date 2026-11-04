@@ -334,8 +334,7 @@ struct TargetPoints2D{F <: PixelFrame} <: AbstractDict{Int, Vector{TargetPoint2D
             targets::AbstractVector{<:AbstractString} = String[],
         ) where {F <: PixelFrame}
         fr = Dict{Int, Vector{TargetPoint2D}}(Int(t) => TargetPoint2D[_target_point2d(o, t) for o in os] for (t, os) in frames)
-        imgs, sens, tms = _frame_strings(images, "images"), _frame_names(sensors, keys(fr)), _frame_times(times)
-        _check_stamps(keys(fr), imgs, tms, time_origin, sens)
+        imgs, sens, tms = _stamps(keys(fr), images, sensors, times, time_origin)
         allunique(targets) || throw(ArgumentError("`targets` names a target definition twice"))
         return new{F}(fr, imgs, sens, tms, _origin(time_origin), String.(targets))
     end
@@ -371,8 +370,7 @@ struct TargetPoints3D{F <: Frame{3}} <: AbstractDict{Int, Vector{TargetPoint3D}}
         F <: UnlabeledFrame && throw(ArgumentError("3D target points name the frame they are measured in (e.g. WorldFrame)"))
         fr = Dict{Int, Vector{TargetPoint3D}}(Int(t) => TargetPoint3D[_target_point3d(o, t) for o in os] for (t, os) in frames)
         _check_one_form([p.xyz for ps in values(fr) for p in ps])
-        imgs, sens, tms = _frame_strings(images, "images"), _frame_names(sensors, keys(fr)), _frame_times(times)
-        _check_stamps(keys(fr), imgs, tms, time_origin, sens)
+        imgs, sens, tms = _stamps(keys(fr), images, sensors, times, time_origin)
         allunique(targets) || throw(ArgumentError("`targets` names a target definition twice"))
         return new{F}(fr, imgs, sens, tms, _origin(time_origin), String.(targets))
     end

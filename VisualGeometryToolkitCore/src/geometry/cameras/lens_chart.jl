@@ -140,7 +140,8 @@ end
 
 The model's coefficients by name: `parameters(KannalaBrandt(-0.04, 0.01)).k2`.
 """
-parameters(l::AbstractLensModel) = NamedTuple{parameter_names(l)}(Tuple(parameter_vector(l)))
+parameters(x::Union{AbstractLensModel, AbstractIntrinsics, CameraModel}) =
+    NamedTuple{parameter_names(x)}(Tuple(parameter_vector(x)))
 
 # --- LogicalIntrinsics: absolute, reportable coordinates --------------------------
 #
@@ -239,9 +240,6 @@ end
     θl = SVector{nl}(ntuple(k -> θ[ni + k], Val(nl)))
     return CameraModel(with_parameters(m.intrinsics, θi), with_parameters(m.lens, θl))
 end
-parameters(m::CameraModel) = NamedTuple{parameter_names(m)}(Tuple(parameter_vector(m)))
-parameters(intr::LogicalIntrinsics) = NamedTuple{parameter_names(intr)}(Tuple(parameter_vector(intr)))
-parameters(intr::ProjectiveIntrinsics) = NamedTuple{parameter_names(intr)}(Tuple(parameter_vector(intr)))
 
 # --- the parameter manifold ----------------------------------------------------------
 

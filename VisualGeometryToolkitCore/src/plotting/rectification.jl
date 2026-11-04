@@ -38,8 +38,7 @@ function _rectified_panel!(
         max_fov::Real
     )
     H, W = size(img)
-    # a projective camera has no focal length: its kind stands in the title
-    f_txt = camera.intrinsics isa ProjectiveIntrinsics ? "projective" : "f=$(round(calibration_matrix(camera)[1, 1]; digits = 1))"
+    f_txt = _focal_label(camera)
     c = _principal_point(camera)
     # CAPPED BY FIELD OF VIEW, not by a fraction of the horizon: flattening the
     # last degree before the pole is unbounded (`tan θ`), and without this a
@@ -115,7 +114,13 @@ end
 # projective one, which has no field of view (an explicit finite cap on it is
 # `undistorted_rect`'s ArgumentError).
 _panel_max_fov(camera::CameraModel, max_fov::Real) = max_fov
-_panel_max_fov(camera::CameraModel, ::Nothing) = camera.intrinsics isa ProjectiveIntrinsics ? Inf : DEFAULT_MAX_FOV
+_panel_max_fov(camera::CameraModel, ::Nothing) = _default_max_fov(camera)
+_default_max_fov(::CameraModel) = DEFAULT_MAX_FOV
+_default_max_fov(::CameraModel{<:ProjectiveIntrinsics}) = Inf
+
+# The focal text of a panel title: a projective camera has no focal length, so its kind stands in.
+_focal_label(camera::CameraModel) = "f=$(round(calibration_matrix(camera)[1, 1]; digits = 1))"
+_focal_label(::CameraModel{<:ProjectiveIntrinsics}) = "projective"
 
 plot_rectification(camera::CameraModel, img::AbstractMatrix; name::AbstractString = "", kwargs...) =
     plot_rectification([camera], img; names = [isempty(name) ? "rectified" : name], kwargs...)

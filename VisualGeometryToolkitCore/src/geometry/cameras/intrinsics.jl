@@ -4,16 +4,6 @@
 
 abstract type AbstractIntrinsics end
 
-# `_K` / `_K_inv` are the seam where the camera reads its pixel matrix and its
-# inverse for the projective (centred-pixel) maps: `project` (through
-# `_pixel_affine`), `backproject`, `distortion_map` / `undistort` and the
-# undistorted-rect frame walk. An intrinsics block whose K is implicit
-# (`ProjectiveIntrinsics`) adds these two methods and shares those. The metric
-# operations (`calibration_matrix`, `unproject`, `fov`, ...) read the
-# `LogicalIntrinsics` K directly and have no projective method.
-@inline _K(intrinsics::AbstractIntrinsics) = intrinsics.K
-@inline _K_inv(intrinsics::AbstractIntrinsics) = intrinsics.K_inv
-
 # =============================================================================
 # Intrinsics Kind Trait (Holy Trait pattern)
 # =============================================================================
@@ -306,6 +296,16 @@ end
 # Outer constructor: deduce T from K
 LogicalIntrinsics(K::CameraCalibrationMat{T}) where {T <: Real} =
     LogicalIntrinsics{T}(K)
+
+# `_K` / `_K_inv` are the seam where the camera reads its pixel matrix and its
+# inverse for the projective (centred-pixel) maps: `project` (through
+# `_pixel_affine`), `backproject`, `distortion_map` / `undistort` and the
+# undistorted-rect frame walk. `LogicalIntrinsics` stores K; an intrinsics block
+# whose K is implicit (`ProjectiveIntrinsics`) adds these two methods and shares
+# those maps. The metric operations (`calibration_matrix`, `unproject`, `fov`,
+# ...) read the `LogicalIntrinsics` K directly and have no projective method.
+@inline _K(intrinsics::LogicalIntrinsics) = intrinsics.K
+@inline _K_inv(intrinsics::LogicalIntrinsics) = intrinsics.K_inv
 
 """
     focal_length(intrinsics::LogicalIntrinsics) -> Tuple{Float64, Float64}

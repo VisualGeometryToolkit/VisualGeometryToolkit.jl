@@ -1,5 +1,48 @@
 # VisualGeometryToolkitCore changelog
 
+## Unreleased
+
+Breaking (the next release is a minor bump). The `N = 1` `RadialHomography`
+is unchanged bit for bit: its solver, chart, rows and Jacobians.
+
+- **Breaking: `RadialHomography{T, N}`**, `N` division coefficients. The
+  field `k` is now `λ::NTuple{N, T}`; `m.k` still reads `λ₁` through
+  `getproperty` (an `ArgumentError` for `N > 1`), but Accessors' `@set m.k`
+  no longer works. `RadialHomography{T}` is now a UnionAll:
+  `Vector{RadialHomography{Float64}}`, a `Ref{RadialHomography{Float64}}()[]`
+  placeholder and a field annotated `RadialHomography{T}` become abstract (write
+  `RadialHomography{T, 1}` for today's model). `division_coeffs(m)` (public)
+  reads every coefficient; `division_coeff(m)` throws for `N > 1`.
+- **Breaking: `CameraModel(::RadialHomography)` is projective** —
+  `CameraModel(ProjectiveIntrinsics(center(m)), Division(division_coeffs(m)...))`.
+  `calibration_matrix`, `unproject`, `fov`, `image_circle` and the default
+  nominal camera on it are MethodErrors (or a refusal), and a finite `max_fov`
+  (`undistorted_rect`, `fov_radius`) is an `ArgumentError`.
+  `RadialHomography(H, camera)` and `radial_homography(camera, H)` build the
+  model from such a camera.
+- **Breaking: the metric operations are narrowed to `LogicalIntrinsics`**:
+  `calibration_matrix(::CameraModel)` and `unproject(::AbstractIntrinsics, …)`
+  have no method for another intrinsics kind.
+- **Breaking: `plot_rectification`'s `max_fov` defaults to `nothing`**, resolved
+  per camera: `DEFAULT_MAX_FOV` for a metric camera (today's value), no cap for
+  a projective one (a strong fisheye rectifies to the horizon clip).
+- **`ProjectiveIntrinsics(center)`**: the principal point alone, a projective
+  ray frame with no focal length; `principal_point` for both intrinsics kinds.
+  Project, backproject, `distortion_map`/`undistort` and the frame walk serve
+  both kinds through one pixel-matrix seam.
+- **`LensSpec`** (a lens family by name and term counts, or a record form for
+  the rest; `free_names`, public) and **`CameraModelSpec`** (what a calibration
+  is for: an intrinsics kind and a `LensSpec`, or the metric
+  `GenericGridSpec`; `intrinsics_kind`, public), with TOML tables through
+  `toml_value` and `CameraModelSpec(table)`. A `central_generic` table may name
+  `intrinsics = "metric"` (redundant but true); any other kind beside it is an
+  `ArgumentError`.
+- **`TargetHomographies`**: per frame, each target's plane → pixel homography,
+  a capture like `TargetPoints2D`/`TargetPoints3D`.
+- `division_coeffs` is in `CONTRACT_GENERICS`: another stack package may add a
+  method for its own model or state (VisualGeometryToolkitEstimation's
+  `DivisionCameraState` does).
+
 ## 0.5.4 (2026-11-04)
 
 Additive: every model built without a mask is unchanged, bit for bit.

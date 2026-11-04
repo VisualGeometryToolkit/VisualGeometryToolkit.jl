@@ -143,6 +143,30 @@ end
     end
 end
 
+@testitem "raw: LibRaw black levels — a spatial pattern is folded or refused, never dropped" begin
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    using LibRaw_jll
+    ext = Base.get_extension(VgtkFeatures, :VisualGeometryToolkitFeaturesLibRawExt)
+    filters = 0x94949494                           # RGGB
+    cblack(rows, cols, pattern; per_channel = (0, 0, 0, 0)) = begin
+        cb = zeros(Int, ext.CBLACK_SIZE)
+        cb[1:4] .= per_channel
+        cb[5], cb[6] = rows, cols
+        cb[7:(6 + rows * cols)] .= pattern
+        cb
+    end
+    # no pattern: the per-channel levels plus black
+    @test ext._adjust_bl(cblack(0, 0, Int[]; per_channel = (1, 2, 3, 4)), 100, filters, "a.ARW") == (101, 102, 103, 104)
+    # a 2 × 2 pattern folds into the four channels exactly
+    b = ext._adjust_bl(cblack(2, 2, [10, 20, 30, 40]), 100, filters, "a.ARW")
+    @test sort(collect(b)) == [110, 120, 130, 140]
+    # a uniform 4 × 4 pattern is a constant: it moves into black
+    @test ext._adjust_bl(cblack(4, 4, fill(7, 16)), 100, filters, "a.ARW") == (107, 107, 107, 107)
+    # a 4 × 4 pattern that varies has no per-channel form: refused, naming the file and the size
+    err = try ext._adjust_bl(cblack(4, 4, collect(1:16)), 100, filters, "/data/b.dng"); nothing catch e; e end
+    @test err isa ErrorException && occursin("/data/b.dng", err.msg) && occursin("4 × 4", err.msg)
+end
+
 @testitem "raw: rawpy decoder (PythonCall)" begin
     using VisualGeometryToolkitFeatures
     path = get(ENV, "VGTK_RAW_TEST_FILE", "")

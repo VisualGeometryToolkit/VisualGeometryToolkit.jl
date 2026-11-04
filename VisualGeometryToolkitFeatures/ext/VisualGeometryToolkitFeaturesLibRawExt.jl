@@ -244,13 +244,13 @@ function VisualGeometryToolkitFeatures._decode_raw(::LibRawDecoder, path::Abstra
         rc == 0 || error("load_raw: LibRaw cannot open $path: $(_strerror(rc))")
         rc = @ccall libraw.libraw_unpack(lr::Ptr{Cvoid})::Cint
         rc == 0 || error("load_raw: LibRaw cannot unpack $path: $(_strerror(rc))")
-        return _mosaic(lr)
+        return _mosaic(lr, path)
     finally
         @ccall libraw.libraw_close(lr::Ptr{Cvoid})::Cvoid
     end
 end
 
-function _mosaic(lr::Ptr{Cvoid})
+function _mosaic(lr::Ptr{Cvoid}, path::AbstractString)
     # -- locate the structures and check the mirror against the accessors
     sizes_p = lr + sizeof(Ptr{Cvoid})
     idata_p = Ptr{Cvoid}(@ccall libraw.libraw_get_iparams(lr::Ptr{Cvoid})::Ptr{Cvoid})
@@ -312,7 +312,7 @@ function _mosaic(lr::Ptr{Cvoid})
     for k in 1:CBLACK_SIZE
         cblack[k] = unsafe_load(cb_p, k)
     end
-    black = _adjust_bl(cblack, Int(_field(rcolor_p, ColorData, :black)), filters)
+    black = _adjust_bl(cblack, Int(_field(rcolor_p, ColorData, :black)), filters, path)
     white = Float64(_field(rcolor_p, ColorData, :maximum))
     lin = _field(rcolor_p, ColorData, :linear_max)
     rpre = _field(rcolor_p, ColorData, :pre_mul)
@@ -341,8 +341,12 @@ end
 _strftime(t::Int64) = Base.Libc.strftime("%Y:%m:%d %H:%M:%S", t)
 
 # LibRaw::adjust_bl as rawpy's data_helper.h copies it: the per-channel black
-# levels cblack[0:3] + black, folding a 2×2 cblack[6+] block into them.
-function _adjust_bl(cb::Vector{Int}, black::Int, filters::UInt32)
+# levels cblack[0:3] + black, folding a 2×2 cblack[6+] block into them. A
+# spatial black pattern (cblack[4] × cblack[5] at cblack[6+]) that remains
+# nonzero after the fold — larger than 2×2, or one LibRaw's fold leaves — has
+# no per-channel form: it is refused, naming the file and the pattern's size,
+# never dropped (rawpy's black_level_per_channel drops it silently).
+function _adjust_bl(cb::Vector{Int}, black::Int, filters::UInt32, path::AbstractString)
     C = copy(cb)                                   # C[k + 1] is cblack[k]
     FC(row, col) = Int((filters >> ((((row << 1) & 14) | (col & 1)) << 1)) & 3)
     if filters > 1000 && (C[5] + 1) ÷ 2 == 1 && (C[6] + 1) ÷ 2 == 1
@@ -375,6 +379,10 @@ function _adjust_bl(cb::Vector{Int}, black::Int, filters::UInt32)
         black += i
         nonz == 0 && (C[5] = C[6] = 0)
     end
+    C[5] != 0 && C[6] != 0 && error(
+        "load_raw: $path has a $(C[5]) × $(C[6]) spatial black-level pattern (LibRaw cblack[4] × cblack[5]) that " *
+            "per-channel black levels cannot hold; such a file is not supported (its pattern would be dropped)"
+    )
     return ntuple(c -> C[c] + black, 4)
 end
 

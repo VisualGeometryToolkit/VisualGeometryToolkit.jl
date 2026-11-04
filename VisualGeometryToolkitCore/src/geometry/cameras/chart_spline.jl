@@ -45,12 +45,17 @@ struct ChartSpline{K, T <: AbstractFloat, M <: AbstractMatrix{SVector{K, T}}} <:
             throw(ArgumentError("ChartSpline: the chart's area must be a finite rectangle of positive widths, got $area"))
         return new{K, T, M}(area, controls)
     end
+    # A value already validated (its device form): no check, so no string to build.
+    # KernelAbstractions' `@Const` re-adapts a kernel argument inside the kernel,
+    # where the checked constructor's error message cannot compile.
+    ChartSpline{K, T, M}(area::Rect2{Float64}, controls::M, ::Val{:unchecked}) where {K, T <: AbstractFloat, M <: AbstractMatrix{SVector{K, T}}} =
+        new{K, T, M}(area, controls)
 end
 ChartSpline(area::GeometryBasics.HyperRectangle{2}, controls::AbstractMatrix{SVector{K, T}}) where {K, T <: AbstractFloat} =
     ChartSpline{K, T, typeof(controls)}(Rect2{Float64}(area), controls)
 
 Adapt.adapt_structure(to, cs::ChartSpline{K, T}) where {K, T} =
-    (c = Adapt.adapt(to, cs.controls); ChartSpline{K, T, typeof(c)}(cs.area, c))
+    (c = Adapt.adapt(to, cs.controls); ChartSpline{K, T, typeof(c)}(cs.area, c, Val(:unchecked)))
 
 (cs::ChartSpline)(c::StaticVector{2, <:Real}) = spline_value(cs.controls, cs.area, c)
 

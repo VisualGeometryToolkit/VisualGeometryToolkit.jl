@@ -58,6 +58,15 @@ extent(::HasBounds, bm::BoundedMap) = bm.rect
 # Callable forwards to the inner map.
 @inline (bm::BoundedMap)(p) = bm.map(p)
 
+# The device form of a warp: each link of the chain adapted (a SplineProjection's
+# control grid to the device), the rect kept. The chain is walked by Core's own
+# helper: an `adapt_structure` method on CoordinateTransformations'
+# `ComposedTransformation` would be type piracy.
+_adapt_chain(to, c::CoordinateTransformations.ComposedTransformation) =
+    CoordinateTransformations.ComposedTransformation(_adapt_chain(to, c.t1), _adapt_chain(to, c.t2))
+_adapt_chain(to, t) = Adapt.adapt(to, t)
+Adapt.adapt_structure(to, bm::BoundedMap) = BoundedMap(_adapt_chain(to, bm.map), bm.rect)
+
 # Matrix-form forwarding for matrix-backed inners.
 to_homogeneous(bm::BoundedMap{<:AbstractMatrixMap}) = to_homogeneous(bm.map)
 

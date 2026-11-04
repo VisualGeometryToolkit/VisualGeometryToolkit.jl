@@ -103,3 +103,47 @@
         end
     end
 end
+
+@testitem "chart_spline: a SplineProjection's image_warp on the device" begin
+    using Test
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: ChartSpline, SplineProjection, Lens, Equidistant, Backprojection, Equirectangular, Rect2,
+        WholePlane, BoundedMap
+    using CoordinateTransformations: LinearMap, AffineMap
+    using Adapt: adapt
+    using StaticArrays
+    using LinearAlgebra: I
+    using Random: MersenneTwister
+
+    # A grid lens's forward map in a warp: the BoundedMap's chain is adapted link by
+    # link (the spline's control grid to the device), and the spline's device form
+    # skips the validating constructor, which cannot compile inside the kernel.
+    chart = Lens(Equidistant()) ∘ LinearMap(SMatrix{3, 3}(1.0I))
+    pix = [SVector(500.0 + 300 * c[1], 500.0 + 300 * c[2]) for c in [SVector(x, y) for y in range(-1.5, 1.5; length = 7), x in range(-1.5, 1.5; length = 9)]]
+    sp = SplineProjection(chart, ChartSpline(Rect2(-1.2, -1.2, 2.4, 2.4), reshape(pix, 7, 9)), WholePlane())
+    to_angles = AffineMap(SMatrix{2, 2}(0.02, 0.0, 0.0, 0.02), SVector(-0.64, -0.64))     # output pixels → (λ, φ), ±0.64 rad
+    src = rand(MersenneTwister(5), 1000, 1000)
+    host = image_warp!(zeros(64, 64), image_warp(Float64, sp ∘ Backprojection(Equirectangular()) ∘ to_angles, Rect(0, 0, 64, 64)), src)
+    @test count(!iszero, host) > 4000                                                  # the warp samples the source
+
+    cuda = try
+        m = Base.require(Main, :CUDA)
+        (m !== nothing && Base.invokelatest(getproperty(m, :functional))) ? m : nothing
+    catch
+        nothing
+    end
+    if cuda === nothing
+        # CUDA is in the test target, so this skip means no functional GPU here —
+        # recorded as Broken, not as a success, so it shows in the summary
+        @test_skip cuda !== nothing
+    else
+        CuArray = getproperty(cuda, :CuArray)
+        dsp = Base.invokelatest(adapt, Base.invokelatest(getproperty(cuda, :CUDABackend)), sp)
+        @test !(dsp.spline.controls isa Matrix)                                          # the controls on the device
+        bm = image_warp(Float64, dsp ∘ Backprojection(Equirectangular()) ∘ to_angles, Rect(0, 0, 64, 64))
+        @test bm isa BoundedMap
+        dst = Base.invokelatest(CuArray, zeros(64, 64))
+        dev = Base.invokelatest(Array, Base.invokelatest(image_warp!, dst, bm, Base.invokelatest(CuArray, src)))
+        @test maximum(abs, dev - host) < 1.0e-12                                        # FMA contraction on the device at most
+    end
+end

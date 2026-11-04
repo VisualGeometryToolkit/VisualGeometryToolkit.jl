@@ -110,7 +110,7 @@ end
     using StaticArrays: SVector
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore: estimate, metadata, retcode, iterations, rms, ChartSpline, SplineProjection,
-        project, backproject, transform_deriv
+        project, backproject, transform_deriv, WholePlane
     using VisualGeometryToolkitEstimation: fit_camera, CameraFitMetadata
     using FiniteDiff: FiniteDiff
 
@@ -133,6 +133,9 @@ end
     out = backproject(FISHEYE, SVector(500.0 + 495.0, 500.0))
     @test project(sp, out) === nothing
     @test sp(out) isa SVector{2}                                             # the map itself continues
+    # a ray far outside the fitted cone (~97°) is not imaged, wherever the continuation lands
+    @test project(sp, SVector(sind(170.0), 0.0, cosd(170.0))) === nothing
+    @test project(SplineProjection(sp.chart, sp.spline, WholePlane()), SVector(sind(170.0), 0.0, cosd(170.0))) === nothing
     # the Jacobian against central differences
     for p in pts[1:6:end]
         X = backproject(GRID, p)

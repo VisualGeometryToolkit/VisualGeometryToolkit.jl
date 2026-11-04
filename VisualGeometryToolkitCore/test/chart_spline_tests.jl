@@ -3,7 +3,7 @@
     using Test
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: ChartSpline, SplineProjection, CentralGenericModel, KannalaBrandt, Lens, Equidistant,
-        Ellipse, Rect2, spline_value, px
+        Ellipse, Rect2, spline_value, px, WholePlane
     using CoordinateTransformations: LinearMap, transform_deriv
     using StaticArrays
     using LinearAlgebra: I, norm
@@ -52,6 +52,15 @@
         @test project(sp, X) == sp(X)
         @test project(sp, SVector(1.0, 0.0, 0.05)) === nothing        # 87° off axis: its pixel lies outside the disc
         @test sp(SVector(1.0, 0.0, 0.05)) isa SVector{2}                # the map itself continues
+        # a ray far outside the fitted chart area is not imaged even where its
+        # extrapolated pixel lands in the region (the whole plane here); within one
+        # knot cell of the area (0.4 rad) it still is
+        wide = SplineProjection(chart, lattice, WholePlane())
+        far = SVector(sind(170.0), 0.0, cosd(170.0))                     # 170° off axis, the chart at 2.97 rad
+        @test wide(far) isa SVector{2} && project(wide, far) === nothing
+        edge = SVector(sin(1.5), 0.0, cos(1.5))                           # 1.5 rad: 0.3 past the area, inside its cell
+        @test project(wide, edge) == wide(edge)
+        @test project(wide, SVector(sin(1.7), 0.0, cos(1.7))) === nothing   # 0.5 rad past: beyond one cell
         J = transform_deriv(sp, X)
         Jfd = FiniteDiff.finite_difference_jacobian(x -> Vector(sp(SVector{3}(x))), Vector(X))
         @test J ≈ Jfd rtol = 1.0e-6

@@ -99,8 +99,10 @@ pixel frame of the camera it was fitted to (an [`imaged_region`](@ref), an
 A `CoordinateTransformations.Transformation`: `sp(X)` is the pixel (the spline
 continued past its chart area, never `nothing`), `transform_deriv(sp, X)` its
 `2 × 3` Jacobian, so it composes in `image_warp` chains. [`project`](@ref)`(sp, X)`
-is the camera semantics: `nothing` when the pixel does not lie in `region` (or
-is not finite) — a ray outside the fitted region is decided in pixel space.
+is the camera semantics: `nothing` when the ray's chart point lies more than
+one knot cell outside the spline's chart area (where the continuation would
+extrapolate, and can fold back into the region), or when the pixel does not
+lie in `region` (or is not finite).
 """
 struct SplineProjection{C, S <: ChartSpline{2}, R} <: CoordinateTransformations.Transformation
     chart::C
@@ -117,7 +119,22 @@ transform_deriv(sp::SplineProjection, X::StaticVector{3, <:Real}) =
     transform_deriv(sp.spline, sp.chart(X)) * transform_deriv(sp.chart, X)
 
 function project(sp::SplineProjection, X::StaticVector{3, <:Real})
+    _in_fitted_chart(sp.spline, sp.chart(X)) || return nothing
     u = sp(X)
     (all(isfinite, u) && Point2{Float64}(u[1], u[2]) ∈ sp.region) || return nothing
     return u
+end
+
+# Whether a chart point lies within one knot cell of the spline's area: the
+# continuation past the area is the outermost cell's cubic pieces, which far
+# outside can fold back into the region and image a ray far outside the fitted
+# cone at a confident wrong pixel. One cell of margin keeps the region's edge
+# (its held-out points lie up to half a quadrature stride past the fit points'
+# bounding box).
+function _in_fitted_chart(cs::ChartSpline, c::StaticVector{2})
+    o = GeometryBasics.origin(cs.area)
+    w = GeometryBasics.widths(cs.area)
+    gh, gw = size(cs.controls)
+    hx, hy = w[1] / (gw - 3), w[2] / (gh - 3)
+    return o[1] - hx <= c[1] <= o[1] + w[1] + hx && o[2] - hy <= c[2] <= o[2] + w[2] + hy
 end

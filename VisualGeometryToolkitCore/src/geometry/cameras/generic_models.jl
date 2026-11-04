@@ -753,6 +753,30 @@ function backproject(m::NoncentralGenericModel{T}, pixel) where {T}
 end
 
 """
+    backproject_with_jacobian(m::NoncentralGenericModel, u) -> (f, M)
+
+The unit DIRECTION `f` of the pixel `u`'s observation line (COLMAP frame) and
+its Jacobian `M = ∂f/∂u` (3×2), analytic from the direction spline's
+derivative weights — tangent to the sphere (`fᵀM = 0`). The line's point is not
+differentiated: `backproject` gives it. `(NaN, NaN)` outside the calibrated
+area; never throws.
+"""
+function backproject_with_jacobian(m::NoncentralGenericModel, u::StaticVector{2})
+    x, y = Float64(u[1]), Float64(u[2])
+    _in_calibrated_area(m, x, y) ||
+        return SVector{3, Float64}(NaN, NaN, NaN), SMatrix{3, 2, Float64, 6}(ntuple(_ -> NaN, Val(6)))
+    gh, gw = _grid_size(m)
+    gx, gy = _grid_coords(m, x, y)
+    S, Sx, Sy = _eval_window_grad(m.directions, gx, gy)
+    n = norm(S)
+    f = S / n
+    P = (one(SMatrix{3, 3, Float64}) - f * transpose(f)) / n   # ∂(S/‖S‖)/∂S
+    sx = _grid_scale(m.calib_min_x, m.calib_max_x, gw)   # ∂gx/∂x
+    sy = _grid_scale(m.calib_min_y, m.calib_max_y, gh)   # ∂gy/∂y
+    return f, hcat(P * (sx * Sx), P * (sy * Sy))
+end
+
+"""
     unproject(m::CentralGenericModel, pixel, depth) -> SVector{3} | nothing
 
 The 3D point at z-depth `depth` along the pixel's observation direction

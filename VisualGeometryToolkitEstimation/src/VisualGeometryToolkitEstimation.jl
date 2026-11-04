@@ -224,7 +224,8 @@ using LinearAlgebra: cholesky, lu, issuccess, diag
 using CoordinateTransformations: LinearMap
 using VisualGeometryToolkitCore: ChartSpline, SplineProjection, CentralGenericModel, Rect2, spline_window, pixel_mask,
     pointwise!, nominal_intrinsics, project, BoundedCamera, extent, generic_lattice
-using VisualGeometryToolkitCore: NoncentralGenericModel, interpolated_direction, interpolated_point, nearest_point
+using VisualGeometryToolkitCore: NoncentralGenericModel, interpolated_direction, interpolated_point, nearest_point,
+    backproject_with_jacobian
 
 
 # =============================================================================

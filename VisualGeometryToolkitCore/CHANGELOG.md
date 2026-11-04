@@ -81,6 +81,10 @@ Added:
   axis, every point the origin) — the start of a fit that solves for every
   control (VisualGeometryToolkitEstimation's `fit_camera` grid targets); the
   two constructors build their seed through it.
+- **`backproject_with_jacobian(m::NoncentralGenericModel, u)`**: the unit
+  direction of the pixel's observation line and its Jacobian `∂f/∂u`,
+  analytic from the direction spline's derivative weights, tangent to the
+  sphere; NaN outside the calibrated area (the central model's contract).
 
 Fixed:
 

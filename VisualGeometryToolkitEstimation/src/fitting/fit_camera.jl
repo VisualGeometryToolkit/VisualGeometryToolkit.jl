@@ -730,25 +730,20 @@ end
 # The held-out errors of a fitted non-central grid against the source's lines:
 # the DIRECTION error in pixels — the fitted direction's tangent deviation from
 # the source's mapped back through the source's back-projection Jacobian
-# `J = ∂d/∂u`, `‖J⁺δ‖` (the round trip through the source to first order; J by
-# central differences of ±`_JACOBIAN_DIFFERENCE_PX`, one-sided where a side is not
-# imaged) — and the LINE OFFSET `‖(I − ddᵀ)(o_fit − o_src)‖`, the distance
-# from the source's point to the fitted line's point across the source's
-# direction, in the source's length unit (plain metres). Both through the
-# fitted splines (`interpolated_direction`, `interpolated_point`), which
-# continue past the calibrated area as the fit's design does.
-const _JACOBIAN_DIFFERENCE_PX = 0.25
+# `J = ∂d/∂u`, `‖J⁺δ‖` (the round trip through the source to first order; J the
+# source's `backproject_with_jacobian`) — and the LINE OFFSET
+# `‖(I − ddᵀ)(o_fit − o_src)‖`, the distance from the source's point to the
+# fitted line's point across the source's direction, in the source's length
+# unit (plain metres). Both through the fitted splines (`interpolated_direction`,
+# `interpolated_point`), which continue past the calibrated area as the fit's
+# design does.
 function _line_errors(fitted::NoncentralGenericModel, source, q)
     px = q.held_px
     o_src = first.(q.held_rays)
     d_src = last.(q.held_rays)
-    h = _JACOBIAN_DIFFERENCE_PX
-    shifted(s) = last.(_source_lines(source, [p + s for p in px]))
-    dxp, dxm = shifted(SVector(h, 0.0)), shifted(SVector(-h, 0.0))
-    dyp, dym = shifted(SVector(0.0, h)), shifted(SVector(0.0, -h))
     direction_px = map(eachindex(px)) do i
         d = d_src[i]
-        J = hcat(_difference(dxp[i], dxm[i], d, h), _difference(dyp[i], dym[i], d, h))
+        J = last(backproject_with_jacobian(source, px[i]))
         all(isfinite, J) || return Inf
         f = normalize(SVector{3, Float64}(interpolated_direction(fitted, px[i])))
         δ = f - d
@@ -761,14 +756,4 @@ function _line_errors(fitted::NoncentralGenericModel, source, q)
         norm(Δ - dot(Δ, d) * d)
     end
     return _held_out_errors(direction_px, q.edge), _held_out_errors(offset, q.edge)
-end
-
-# A column of the source's back-projection Jacobian from the directions a step
-# `h` either side of `d`'s pixel: central, or one-sided where one side is not
-# imaged (NaN where neither is).
-function _difference(dp, dm, d, h)
-    all(isfinite, dp) && all(isfinite, dm) && return (dp - dm) / 2h
-    all(isfinite, dp) && return (dp - d) / h
-    all(isfinite, dm) && return (d - dm) / h
-    return SVector(NaN, NaN, NaN)
 end

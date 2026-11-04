@@ -538,7 +538,7 @@ with_unit(rig::Rig, u::Units) = _map_members(x -> with_unit(x, u), rig)
     with_model(rig::Rig, i => model) -> Rig
     with_model(rig::Rig, model) -> Rig            (single-sensor convenience)
 
-Rebuild with sensor `i`'s camera MODEL replaced — after a `fit_lens`
+Rebuild with sensor `i`'s camera MODEL replaced — after a `fit_camera`
 regression or a generic-model init — keeping everything geometric: the
 labeled rig-relative extrinsics, the ids, any `BoundedCamera` extent. The
 rig is reconstructed through its validating constructor (never a raw field
@@ -546,7 +546,7 @@ update, which would bypass the frame invariants); a lens/K change is
 metric-neutral to the rigid transforms, so the swap is geometrically exact.
 
 NOTE: swapping the model does NOT re-estimate poses. Poses optimized under
-the old model keep their values; for an APPROXIMATING model (the fit_lens
+the old model keep their values; for an APPROXIMATING model (the fit_camera
 use case) that is the intent — the approximation error is the fit report's
 — while for a refinement the new model is the START of another bundle
 run, not a substitute for one.

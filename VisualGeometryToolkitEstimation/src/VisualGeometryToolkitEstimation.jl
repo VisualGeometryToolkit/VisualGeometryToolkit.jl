@@ -82,12 +82,12 @@ using VisualGeometryToolkitCore: rotation, translation,        # EuclideanMap
     geom,                                                # Uncertain's value
     propagate,                                           # J·Σ·Jᵀ: a chart covariance into vec(M) (covariance.jl)
     loss_shape                                           # DeployedLoss's shape
-# The division-camera step, the radial-camera fit and the lens regression
-# (moved from VisualGeometryToolkitCore, estimator taxonomy v2) reach VGC through these
+# The division-camera step, the radial-camera fit (moved from
+# VisualGeometryToolkitCore, estimator taxonomy v2) and fit_camera reach VGC through these
 # public names only: lens families and their manifold, the intrinsics, the
 # frame accessors and the lens-profile queries.
 using VisualGeometryToolkitCore: AbstractLensModel, AbstractRadialModel,
-    Lens, LiftLens, DoubleSphere, Equidistant, Pinhole, Division, Perspective,
+    Lens, LiftLens, DoubleSphere, Equidistant, Division, Perspective,
     Stereographic, Equisolid, Orthographic, radial,
     LensManifold, ParameterManifold, Manifold, restrict, tangent_size, parameter_names,
     CameraCalibrationMat, LogicalIntrinsics, calibration_matrix, parameter_vector,
@@ -256,7 +256,7 @@ export refine_camera_and_poses   # a camera (intrinsics + lens) and one pose per
 export fit_rotation           # the robust rotation between two sets of directions
 export fit_linear             # the robust coefficients of a linear model (reweighted least squares)
 export fit_rotation_averaging # robust rotation averaging on a view graph (spectral seed, Lie-algebra IRLS)
-export fit_radial_camera, fit_lens, DivisionCameraError   # moved from VisualGeometryToolkitCore (estimator taxonomy v2)
+export fit_radial_camera, DivisionCameraError   # moved from VisualGeometryToolkitCore (estimator taxonomy v2)
 export fit_camera             # one model-to-model regression: a camera model of type T onto a source over a region
 
 # -----------------------------------------------------------------------------
@@ -317,9 +317,9 @@ public PosteriorIrlsMethod, PosteriorIrlsState, WeightedRefine, KeepModel,
 public lo_loss, strategy_loss, plain_scale_multiple, deployed_shape, lo_width_value,
     ManifoldLiftProvider, LiftableProblem
 # Relative-pose bundle and robot-world calibration.
-# The division-camera step, its state, the lift constraint and the lens fit's metadata.
+# The division-camera step, its state, the lift constraint and fit_camera's metadata.
 public division_camera_step, DivisionCameraState, division_coeffs, board_sq_residuals,
-    RadialLift, LensFitMetadata, CameraFitMetadata
+    RadialLift, CameraFitMetadata
 public bundle_refine_relpose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
 public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata
 # Configuration: configs/default.toml is the config of record; these select a
@@ -392,7 +392,6 @@ include("fitting/radial_camera.jl")
 include("fitting/fit_radial_camera.jl")        # one board's radial camera, an iterative whitened fit (moved from VGC)
 include("fitting/division_camera_step.jl")     # one iteration of the stacked linear focal solve + its state and failure (moved from VGC)
 include("fitting/fit_division_camera.jl")       # iterated Sampson-whitened, Student-t re-weighted focal stack (IRLS under block_coordinate_descent!)
-include("fitting/fit_lens.jl")                  # model-to-model lens regression on the radial profile (moved from VGC)
 include("fitting/fit_camera.jl")                # one model-to-model regression: a lens family, a SplineProjection or a grid onto a source over a region
 include("fitting/essential.jl")
 include("fitting/rotation.jl")

@@ -28,19 +28,48 @@
     @test worst < 1.0e-8                          # measured 2026-11-04: 1.4e-9 (the double sphere past its image circle)
 end
 
-@testitem "fit_camera: parametric equivalence with fit_lens (before its removal)" setup = [FitCameraLensCases] begin
+@testitem "fit_camera: the profile regression's pieces" setup = [FitCameraLensCases] begin
     using Test
-    using VisualGeometryToolkitCore: estimate, metadata, lens, parameter_vector
-    using VisualGeometryToolkitEstimation: fit_camera, fit_lens
-    for (name, (L, m, kw, region)) in LENS_CASES
-        a = fit_lens(L, m; kw...)
-        b = fit_camera(L, m, region)
-        pa, _, max_px = RECORDED[name]
-        @test agrees(parameter_vector(lens(estimate(a))), pa) && agrees_px(metadata(a).max_px, max_px)   # the record is fit_lens's
-        @test agrees(parameter_vector(lens(estimate(b))), parameter_vector(lens(estimate(a))))
-        @test agrees_px(metadata(b).max_px, metadata(a).max_px)
-        # a view-angle cap clipped the predecessor's domain; the region is the domain here
-        haskey(kw, :max_view_angle) || @test metadata(b).family.clipped == metadata(a).clipped
+    using StaticArrays: SVector
+    using VisualGeometryToolkitCore: estimate, metadata, rms, lens, parameters, Lens, LiftLens, KannalaBrandt, Division,
+        Orthographic, Equidistant, Perspective, Radial, Additive, Tangential, ThinPrism, Pinhole, radial_part,
+        view_angle_limit, CameraModel
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    using VisualGeometryToolkitEstimation: fit_camera
+    @testset "Clenshaw–Curtis integrates polynomials" begin
+        θ, q = VgtkEstimation._clenshaw_curtis(32, 1.3)
+        @test sum(q) ≈ 1.3 rtol = 1.0e-12
+        @test sum(q .* θ .^ 2) ≈ 1.3^3 / 3 rtol = 1.0e-10
+        @test sum(q .* θ .^ 5) ≈ 1.3^6 / 6 rtol = 1.0e-8
+    end
+    @testset "the family limits are VGC's own view-angle limits" begin
+        @test VgtkEstimation._family_limit(Pinhole) == view_angle_limit(Pinhole()) == π / 2 - 1.0e-3
+        @test VgtkEstimation._family_limit(KB4) == view_angle_limit(Lens(Equidistant())) == π - 1.0e-3
+        @test VgtkEstimation._family_limit(typeof(Lens(Orthographic()))) == view_angle_limit(Lens(Orthographic()))
+        @test VgtkEstimation._family_limit(DSL) == π - 1.0e-3
+    end
+    @testset "a clip by the target family is reported and warned" begin
+        r = @test_logs (:warn, r"cannot represent") match_mode = :any fit_camera(OPENCV3, mdiv, disc(mdiv, rcorner))
+        @test metadata(r).family.clipped
+        @test metadata(r).family.θ_max < π / 2 < metadata(r).family.θ_source
+        @test lens(estimate(r)) isa OPENCV3
+        @test !metadata(fit_camera(KB4, mdiv, disc(mdiv, rcorner))).family.clipped
+    end
+    @testset "decentering: a target holds it at zero, a source's is stripped and warned" begin
+        rd = fit_camera(typeof(Lens(Perspective(), Additive(Radial((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), Tangential(0.0, 0.0)))), mdiv, disc(mdiv, rcorner))
+        cd = parameters(lens(estimate(rd)))
+        @test cd.p1 == 0 && cd.p2 == 0 && cd.d1 == 0 && cd.d3 == 0
+        synthetic = Lens(Perspective(), Additive(Radial((-0.12, 0.03, 0.004), (0.02, -0.001, 0.0003)), Tangential(1.0e-3, -5.0e-4), ThinPrism((-5.5e-3, 7.0e-4), (2.2e-3, -1.2e-3))))
+        @test VgtkEstimation._decentering(synthetic) ≈ hypot(1.0e-3, -5.0e-4, -5.5e-3, 7.0e-4, 2.2e-3, -1.2e-3)
+        @test radial_part(synthetic) === Lens(Perspective(), Radial((-0.12, 0.03, 0.004), (0.02, -0.001, 0.0003)))
+        src = CameraModel(; pp = (960.0, 540.0), focal = 900.0, lens = synthetic)
+        @test_logs (:warn, r"non-radial terms") match_mode = :any fit_camera(OPENCV3, src, disc(src, 500.0))
+    end
+    @testset "Division alone is the one-coefficient model; a type without its arities is refused" begin
+        @test lens(estimate(fit_camera(Division, mdiv, disc(mdiv, rcorner)))) == lens(estimate(fit_camera(Division{1}, mdiv, disc(mdiv, rcorner))))
+        @test_throws ArgumentError fit_camera(LiftLens, mdiv, disc(mdiv, rcorner))
+        @test_throws ArgumentError fit_camera(KannalaBrandt, mdiv, disc(mdiv, rcorner))
+        @test_throws ArgumentError fit_camera(KB4, mdiv, disc(mdiv, rcorner); weight = :pixels)
     end
 end
 

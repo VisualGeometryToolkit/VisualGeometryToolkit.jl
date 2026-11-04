@@ -173,7 +173,7 @@ ftol = 1.0e-10
 # without a tolerance (a non-finite trial, the consecutive-failure cap), is
 # `:converged` only when the cost is zero by the cost tolerance (F < ftol) or
 # max_j |J_jᵀf| / (‖J_j‖‖f‖) ≤ this at the returned point; `:stalled`
-# otherwise. Shared by every chart LM — the LO refits and `fit_lens` — and by
+# otherwise. Shared by every chart LM — the LO refits and `fit_camera`'s lens families — and by
 # `refine_robot_world_hand_eye` (VGC
 # `nlls_retcode`). Measured 2026-10-01 (the cosine at every step-size stop):
 # genuine convergence on noisy data ≤ 6.2e-7 (218 346 LO refits of the LM
@@ -202,11 +202,6 @@ stationarity_tol = 0.05         # its stall postcondition (see [chart_lm]; its o
 # in 5 (60% fewer linearizations and Schur solves), the cost within 2.3e-14
 # relative and the rotation within 1e-9 of the longer runs.
 ftol = 1.0e-10
-
-[fit_lens]
-# the lens regression's LM cap on ACCEPTED iterations (NLLSsolver's count, each
-# possibly hiding ~8–10 rejected candidate steps; see [chart_lm])
-max_iter = 100
 
 [fit_camera]
 # a lens family's regression (`fit_camera(L, source, region)`): the LM cap on

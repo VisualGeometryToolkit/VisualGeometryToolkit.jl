@@ -177,7 +177,7 @@ function fit_camera(
     sw = sqrt.(qs .* dens)
     wsum = sum(qs .* dens)
 
-    P = _regression_manifold(_target_manifold(L), false)
+    P = _regression_manifold(_target_manifold(L))
     lm = _LensRegressionLm(P, L <: LiftLens, θs, rA, sw)
     p, code, iters = _regress_lens(lm, length(θs), Val(tangent_size(P)), max_iter)
 
@@ -197,8 +197,146 @@ function fit_camera(
 end
 
 # `Division` alone names the family, not a degree: fit the one-coefficient model,
-# as `Division(k)` constructs it.
+# as `Division(k)` constructs it. Any other type must carry its arities (`zero(L)`
+# refuses one that does not).
 fit_camera(::Type{Division}, source::CameraModel, region; kwargs...) = fit_camera(Division{1}, source, region; kwargs...)
+
+# ------------------------------------------------------------------------------
+# The radial profile's regression
+# ------------------------------------------------------------------------------
+#
+# Every central radially symmetric lens is characterized by its radial
+# projection function r(θ) (`projected_radius`), so any source that can
+# EVALUATE r_A(θ) regresses onto any target whose parameters can be FIT. The
+# objective is the continuous L² functional
+#
+#     min_{p,s} ∫₀^θmax w(θ) · (s·r_B(θ; p) − r_A(θ))² dθ
+#
+# by Clenshaw–Curtis quadrature on Chebyshev extrema nodes: the rows are
+# e_i = √(q_i·w(θ_i))·Δr(θ_i) with q_i the CC weights, so Σe_i² IS the
+# quadrature of the integral and the LM on e minimizes the integral itself.
+# The nodes cluster at both endpoints, where profiles diverge worst;
+# Clenshaw–Curtis (not Gauss–Chebyshev, whose native weight is 1/√(1−x²))
+# carries the weights of the plain dθ integral and is exponentially accurate
+# on smooth profiles. The region enters as w's factor `_coverage` (above).
+#
+# NON-RADIAL TERMS: tangential/thin-prism decentering has no radial
+# representation in any symmetric target. A SOURCE contributes its radial part
+# (decentering stripped, warned when non-negligible); a forward TARGET moves its
+# projection's coefficients and its radial factor's numerator, its denominator
+# and decentering terms held at zero; a lift TARGET moves every coefficient.
+
+# Clenshaw–Curtis on [0, b]: n+1 Chebyshev extrema nodes + weights for ∫₀ᵇ f dθ.
+function _clenshaw_curtis(n::Int, b::Float64)
+    θ = [b / 2 * (1 - cos(π * i / n)) for i in 0:n]
+    q = Vector{Float64}(undef, n + 1)
+    for i in 0:n
+        s = 1.0
+        for k in 1:fld(n, 2)
+            bk = (2k == n) ? 1.0 : 2.0
+            s -= bk * cos(2k * π * i / n) / (4k * k - 1)
+        end
+        q[i + 1] = ((i == 0 || i == n) ? 1.0 : 2.0) * s / n
+    end
+    q .*= b / 2
+    return θ, q
+end
+
+# The size of what VGC's `radial_part` strips from a lens (its tangential,
+# thin-prism and other non-radial terms; zero for a radially symmetric lens).
+_decentering(l::AbstractLensModel) = sqrt(max(sum(abs2, parameter_vector(l)) - sum(abs2, parameter_vector(radial_part(l))), 0.0))
+
+# The target's anchor: its zero lens (the double sphere at ξ = α = ½, inside
+# the logit's interval), and the coefficients the fit moves — a forward lens's
+# projection coefficients and radial numerator, a lift's every coefficient —
+# as the family's manifold (`LensManifold`, Dual-safe) restricted to them.
+_target_anchor(::Type{L}) where {L} = zero(L)
+_target_anchor(::Type{L}) where {L <: Lens{<:DoubleSphere}} = (z = zero(L); Lens(DoubleSphere(0.5, 0.5), z.distortion))
+function _target_manifold(::Type{L}) where {L <: AbstractLensModel}
+    a = _target_anchor(L)
+    ch = LensManifold(a)
+    a isa LiftLens && return ch
+    r = radial(a)
+    proj = VgtkCore.Cameras.coefficient_names(typeof(a.projection))
+    free = (proj..., (r === nothing ? () : ntuple(i -> Symbol(:k, i), Val(length(r.k))))...)
+    length(free) == tangent_size(ch) && return ch
+    isempty(free) && return restrict(ch, SVector{tangent_size(ch), Bool}(ntuple(_ -> false, Val(tangent_size(ch)))))
+    return restrict(ch, free)
+end
+# The fit's chart: the focal's log-scale (a `EuclideanManifold` at 0, `s = exp`)
+# before the lens family's manifold.
+_regression_manifold(ch::Manifold) = ProductManifold(EuclideanManifold(SVector(0.0)), ch)
+# The focal scale and the lens at chart coordinates `pv`. Dual-safe.
+function _scale_and_lens(P::ProductManifold, pv)
+    parts = retract(P, pv)
+    return exp(first(parts)[1]), last(parts)
+end
+
+# The representable limit of a target FAMILY, before its parameters exist: a
+# family whose domain its parameters do not move (the perspective plane, the
+# fixed fisheye projections) answers VGC's own `view_angle_limit` (the one owner
+# of the edge and its margin); every other family the sphere's.
+_family_limit(::Type{<:Lens{F}}) where {F <: Union{Perspective, Equidistant, Stereographic, Equisolid, Orthographic}} =
+    view_angle_limit(Lens(F()))
+_family_limit(::Type) = view_angle_limit(Lens(Equidistant()))
+
+# Clenshaw–Curtis nodes on [0, b] of the view angle, the source's radii there
+# and the density w (`:image` differentiates `radius` by central differences,
+# clamped to [0, b]).
+function _forward_samples(srcr, b::Float64, n::Int, weight::Symbol)
+    radius(θ) = Float64(projected_radius(srcr, θ))
+    ts, qs = _clenshaw_curtis(n, b)
+    rA = [radius(t) for t in ts]
+    h = 1.0e-5 * b
+    dens = map(eachindex(ts)) do i
+        weight === :uniform && return 1.0
+        weight === :solid_angle && return sin(ts[i])
+        weight === :image || throw(ArgumentError("fit_camera: weight must be :image, :solid_angle or :uniform, got :$weight"))
+        tm, tp = max(ts[i] - h, 0.0), min(ts[i] + h, b)
+        dr = (radius(tp) - radius(tm)) / (tp - tm)
+        return max(rA[i] * abs(dr), 0.0)
+    end
+    return ts, qs, rA, dens
+end
+
+# The linearization state of the stack's chart LM (VGC's `lmsolve_chart!`, over
+# the `residual_rows!` protocol): the chart `P`, whether the rows are angle
+# residuals (the lift families), the nodes, the target radii and the rows' √(q·w).
+struct _LensRegressionLm{TP <: ProductManifold}
+    P::TP
+    angle_residual::Bool
+    θs::Vector{Float64}
+    rA::Vector{Float64}
+    sw::Vector{Float64}
+end
+
+# e_i = √(q_i w_i) · (s·r_B(θ_i; q) − r_A(θ_i)), with r_B the candidate lens's
+# own `projected_radius` (the lens is built from Dual parameters). The lift
+# families — rational and Scaramuzza — fit through their `view_angle` at the
+# source radius instead: the lift is defined there even where a candidate folds
+# inside the fit domain, and the perspective anchor images nothing past 90°
+# while the source may.
+function _lens_rows(lm::_LensRegressionLm, pv)
+    sf, lq = _scale_and_lens(lm.P, pv)
+    θs = lm.θs; rA = lm.rA
+    return map(eachindex(θs)) do i
+        ei = lm.angle_residual ?
+            (view_angle(lq, rA[i] / sf) - θs[i]) * rA[i] :   # angle × r ≈ radius units
+            sf * projected_radius(lq, θs[i]) - rA[i]
+        lm.sw[i] * ei
+    end
+end
+residual_rows!(f, lm::_LensRegressionLm, x) = (f .= _lens_rows(lm, x))
+# The Jacobian is VGC's default: ForwardDiff through `residual_rows!`.
+
+# The chart coordinates of the fit (the anchor is the start: every coordinate at
+# zero), its retcode and its iterations — a function barrier static in the N
+# coordinates (the focal's and the family's).
+function _regress_lens(lm::_LensRegressionLm, rows::Int, ::Val{N}, max_iter::Int) where {N}
+    ews = _lm_workspace(nothing, rows, Val(N))      # the one LO-buffer reuse policy (interface.jl)
+    x, _, conv, iterations = lmsolve_chart!(ews, lm; maxit = max_iter, stationarity_tol = _CHART_LM_STATIONARITY_TOL)
+    return x, VgtkCore.lm_retcode(conv), iterations
+end
 
 # The normalized radius at which the ray from the principal point along each of
 # `_REGION_AZIMUTHS` azimuths of the normalized plane leaves `region` (bisected,

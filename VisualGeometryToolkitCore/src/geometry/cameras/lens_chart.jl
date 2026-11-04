@@ -247,7 +247,7 @@ folds back inside (with two closed ends, a fold of period `2(b − a)`) and the
 slope keeps its magnitude with its sign flipped per reflection — never the
 flat residual of a clamp, at which a fixed-chart LM that overshot the end
 would stall. In range the value is the plain chart's, bit for bit. So no step
-leaves the domain and every fitter (VisualGeometryToolkitEstimation's `fit_lens`,
+leaves the domain and every fitter (VisualGeometryToolkitEstimation's `fit_camera`,
 a calibration bundle) keeps the model valid without knowing why, and an anchor
 at a closed endpoint moves with slope 1, not from the far end of a logit. An
 anchor on (or past) an OPEN end is moved inside it by a margin of 10⁻⁶ of the

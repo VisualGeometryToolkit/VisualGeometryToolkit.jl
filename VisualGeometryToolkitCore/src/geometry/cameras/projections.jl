@@ -117,7 +117,7 @@ _radial_factor(a::Additive) = _head(a)
 # ==============================================================================
 # View-angle limits — the honest θ-domain of each lens (value-dependent) — and
 # the radially symmetric part of a lens, what a regression onto a radially
-# symmetric family (VisualGeometryToolkitEstimation's `fit_lens`) can represent.
+# symmetric family (VisualGeometryToolkitEstimation's `fit_camera`) can represent.
 # ==============================================================================
 
 # The perspective plane's edge and the sphere's, each less the same margin: the

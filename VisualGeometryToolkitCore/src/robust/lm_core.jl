@@ -9,7 +9,7 @@
 # local, centred at the base model) and returned as an `SVector{N}`; the chart
 # is fixed for the run and the caller re-centres it once, at the solution.
 # VisualGeometryToolkitEstimation's LO refits (H: N = 8, F: 7, E: 5, PnP and hand-eye: 6,
-# the radial homography: 9, the radial camera: 5), its `fit_lens` and its
+# the radial homography: 9, the radial camera: 5), its `fit_camera` and its
 # `refine_ellipse` run the chart LM; its block-structured fits (the
 # relative-pose bundle, `refine_robot_world_hand_eye`) build their own
 # NLLSsolver problems and share the adapter's knob map (`nlls_options`) and

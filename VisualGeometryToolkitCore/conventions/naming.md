@@ -17,7 +17,7 @@ decided by its input.
 |------|-------|---------------|-----------------|---------|----------|----------|
 | minimal solver | a minimal sample: `solve(solver, cs, idx)` | no | no | every solution (`FixedModels`) | iterate, weigh, reject | VGC (`Homography4pt`, `P3P`, `RadialCamera5pt`) |
 | one-step solver (algorithm name) | an overdetermined set taken as inliers, optionally with FIXED weights | no | no | the model, plus any statistic a consumer reads | iterate, reweight, reject | VGC (`homography_dlt`, `fundamental_dlt`, `kabsch`, `chordal_mean`, `zhang_intrinsics`, `tls_line`) |
-| `fit` | an overdetermined set taken as inliers | no — it seeds itself | soft weights at most (an IRLS) | one model with residual statistics | sample hypotheses | RVG (`fit_division_camera`, `fit_radial_camera`, `fit_lens`, `fit_line`) |
+| `fit` | an overdetermined set taken as inliers | no — it seeds itself | soft weights at most (an IRLS) | one model with residual statistics | sample hypotheses | RVG (`fit_division_camera`, `fit_radial_camera`, `fit_camera`, `fit_line`) |
 | `find` | contaminated data | no | yes: hypothesize, verify, locally optimize | model + inlier set | require a guess | RVG (`find_homography`, `find_absolute_pose`, `find_radial_camera`) |
 | `refine` | a model and its observations | yes, required | no; continuous reweighting at most | the polished model, same family | re-estimate from scratch; change the family | RVG (`refine_robot_world_hand_eye`); PoseLib.jl's `refine_*` bindings; BlobBoards' board bundle |
 

@@ -1001,7 +1001,7 @@ const _FOLD_TRIPS = 256
 # coefficient inflates to ~1e16. A tolerance of 1e-12·hi then exceeds the first
 # step the lower bound can certify from 0 (~|c_d|^(-1/d)), and the sweep stalled
 # AT the origin — a fold at 0, so a Scaramuzza fitted onto a division source
-# (a₄ ~ 1e-17) reported `view_angle_limit` 0 and `fit_lens` threw. At `a = 0` the
+# (a₄ ~ 1e-17) reported `view_angle_limit` 0 and the lens regression threw. At `a = 0` the
 # sweep halves until it certifies, which it must: c(0) = 1.
 @inline function _positive_prefix(c::SVector{N, T}, hi::Real) where {N, T}
     top = T(hi)

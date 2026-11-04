@@ -5,7 +5,7 @@ problem, wire up scoring and local optimization, and return a
 `RansacEstimate` (a `FitResult{M, RansacMetadata}`). The `fit_*` prefix is
 kept for fits that are not a RANSAC search — iterative, reweighted or
 repeated (`fit_division_camera` and its model-block update `division_camera_step`,
-`fit_radial_camera`, `fit_lens`, `fit_robot_world_hand_eye`, `fit_line`,
+`fit_radial_camera`, `fit_camera`, `fit_robot_world_hand_eye`, `fit_line`,
 `fit_rotation`, `fit_linear`) — and
 `refine_*` for polishing a given model (one per `find_*`, and the bundles
 `refine_robot_world_hand_eye` and `refine_camera_and_poses`). One-step

@@ -54,13 +54,6 @@ refine_camera_and_poses
 CameraPosesRefineMetadata
 ```
 
-## Lens fitting
-
-```@docs
-fit_lens
-LensFitMetadata
-```
-
 ## Camera-model regression
 
 ```@docs

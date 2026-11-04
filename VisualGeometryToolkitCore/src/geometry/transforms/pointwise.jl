@@ -151,13 +151,17 @@ function _pointwise!(p::OnBackend, f::F, out, xs...) where {F}
     all(x -> axes(x) == axes(out), xs) ||
         throw(DimensionMismatch("pointwise!: the inputs' axes $(map(axes, xs)) are not the output's $(axes(out))"))
     isempty(out) && return out
-    fb = Adapt.adapt(p.backend, f)                      # the functor's own adapt rules, before it is taken apart
-    G = typeof(fb)
+    _pointwise_on!(p, Adapt.adapt(p.backend, f), out, xs)   # the functor's own adapt rules, before it is taken apart
+    return out
+end
+# The fields of `f`, as a tuple of exactly its field count.
+@generated _fields(f) = Expr(:tuple, (:(getfield(f, $i)) for i in 1:fieldcount(f))...)
+function _pointwise_on!(p::OnBackend, f::G, out, xs) where {G}
     if _splattable(G)
-        _launch(p, _POINTWISE_FIELDS_KERNELS[fieldcount(G) + 1])(out, xs, G, ntuple(i -> getfield(fb, i), Val(fieldcount(G)))...;
-                                                                  ndrange = size(out))
+        fs = _fields(f)
+        _launch(p, _POINTWISE_FIELDS_KERNELS[length(fs) + 1])(out, xs, G, fs...; ndrange = size(out))
     else
-        _launch(p, _pointwise_kernel!)(out, xs, fb; ndrange = size(out))
+        _launch(p, _pointwise_kernel!)(out, xs, f; ndrange = size(out))
     end
     return out
 end

@@ -158,7 +158,7 @@
                 Base.invokelatest(KernelAbstractions.synchronize, cbe)
                 @test isequal(Base.invokelatest(Array, dev), Base.invokelatest(Array, bcast))
             end
-            # functors holding a device array, passed as their fields: the array arrives as the kernel's form of it, the type
+            # functors holding a device array, launched as their fields: the array arrives as the kernel's form of it, the type
             # parameters bound in their declared order (a parameter no field declares, here equal to the array's type, kept)
             tab = Float32.(1:64) ./ 7; dtab = Base.invokelatest(CuArray, tab); didx = Base.invokelatest(CuArray, collect(1:64))
             for (g, h) in ((Swapped(dtab, 0.5f0), Swapped(tab, 0.5f0)), (Tagged{typeof(dtab), typeof(dtab)}(dtab), Tagged{Nothing, typeof(tab)}(tab)))

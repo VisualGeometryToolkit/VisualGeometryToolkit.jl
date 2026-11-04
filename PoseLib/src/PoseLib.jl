@@ -556,9 +556,8 @@ length `(K₁₁ + K₂₂)/2` and principal point `(K₁₃, K₂₃)`. Skew an
 difference between `K₁₁` and `K₂₂` are dropped, so the model is exact only for
 square pixels and zero skew.
 
-A refiner ends in the local minimum its seed leads to: under a truncated loss,
-a correspondence whose residual at the seed exceeds `loss_width` gets no
-weight. No convergence status comes back.
+It ends in the local minimum its seed leads to, as described for
+[`refine_homography`](@ref).
 """
 function refine_relpose(pose::Rigid3, K1::AbstractMatrix, K2::AbstractMatrix,
                         cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}};
@@ -622,8 +621,8 @@ A width in the wrong unit is off by a factor of the focal length. Nothing
 reports this: a truncated loss simply keeps the wrong inliers.
 
 All arguments are in the caller's frame, and the refined pose comes back in it.
-As every refiner, it ends in the local minimum its seed leads to, and no
-convergence status comes back.
+It ends in the local minimum its seed leads to, as described for
+[`refine_homography`](@ref).
 """
 function refine_relpose(pose::Rigid3,
                         cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{3}}};
@@ -677,7 +676,7 @@ Bartoli–Sturm parametrization of `F`, which keeps the matrix at rank 2.
 pixel-frame `F`). `loss_width` is the width of the loss on the Sampson
 residual, in the same unit. `loss` and `loss_width` are as in
 [`refine_homography`](@ref). Returns the refined `FundMat`. It ends in the
-local minimum its seed leads to, and no convergence status comes back.
+local minimum its seed leads to, as described for `refine_homography`.
 """
 function refine_fundamental(F::AbstractMatrix,
                             cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}};
@@ -758,8 +757,8 @@ pose are refined; `K` stays fixed.
 between `K₁₁` and `K₂₂` are dropped, so the model is exact only for square
 pixels and zero skew.
 
-A refiner ends in the local minimum its seed leads to, and no convergence
-status comes back.
+It ends in the local minimum its seed leads to, as described for
+[`refine_homography`](@ref).
 """
 function refine_absolute_pose(pose::Rigid3, K::AbstractMatrix,
                               cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{2}}};

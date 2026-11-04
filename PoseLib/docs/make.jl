@@ -23,9 +23,9 @@ makedocs(;
     checkdocs = :public,
     doctest = true,
     linkcheck = true,
-    # Rate-limited or bot-blocking hosts that answer a crawler with 403/429
-    # (github.com gave 429 on CITATION.cff, 2026-11-04); lychee
-    # (.github/workflows/Links.yml) checks them with a token.
+    # github.com rate-limits a crawler (429 on CITATION.cff in
+    # VisualGeometryToolkitCore's build, 2026-11-04); lychee
+    # (.github/workflows/Links.yml) checks its links with a token.
     linkcheck_ignore = [r"^https://github\.com/"],
     pages = [
         "Home" => "index.md",

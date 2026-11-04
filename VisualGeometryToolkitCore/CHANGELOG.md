@@ -37,8 +37,10 @@ is unchanged bit for bit: its solver, chart, rows and Jacobians.
   `toml_value` and `CameraModelSpec(table)`. A `central_generic` table may name
   `intrinsics = "metric"` (redundant but true); any other kind beside it is an
   `ArgumentError`.
-- **`TargetHomographies`**: per frame, each target's plane → pixel homography,
-  a capture like `TargetPoints2D`/`TargetPoints3D`.
+- **`TargetHomographies{F, H}`**: per frame, each target's plane → pixel homography,
+  a capture like `TargetPoints2D`/`TargetPoints3D`: the pixel frame `F` is part of the
+  type (`TargetHomographies(frames)` states `PixelFrame{:colmap}`) and `targets` names
+  the target definitions by content identity.
 - `division_coeffs` is in `CONTRACT_GENERICS`: another stack package may add a
   method for its own model or state (VisualGeometryToolkitEstimation's
   `DivisionCameraState` does).

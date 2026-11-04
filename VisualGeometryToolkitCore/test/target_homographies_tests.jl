@@ -28,6 +28,18 @@
         @test tg != TargetHomographies(frames; images = Dict(1 => "z.png"), sensors = "cam")
     end
 
+    @testset "pixel frame and targets are part of the value" begin
+        @test tg isa TargetHomographies{PixelFrame{:colmap}}
+        @test tg.targets == String[]
+        ids = [repeat("a", 64), repeat("b", 64)]
+        cv = TargetHomographies{PixelFrame{:opencv}}(frames; kw..., targets = ids)
+        @test cv isa TargetHomographies{PixelFrame{:opencv}, HomographyMat{Float64}} && cv.targets == ids
+        @test cv != tg                                              # another frame, another measurement
+        @test cv == TargetHomographies{PixelFrame{:opencv}}(frames; kw..., targets = ids)
+        @test cv != TargetHomographies{PixelFrame{:opencv}}(frames; kw...)   # other targets
+        @test_throws ArgumentError TargetHomographies{PixelFrame{:opencv}}(frames; kw..., targets = [ids[1], ids[1]])
+    end
+
     @testset "radial_homography" begin
         cam = CameraModel(ProjectiveIntrinsics(SVector(10.0, 20.0)), Division(-1.0e-5))
         @test radial_homography(cam, tg[1][:b1]) == RadialHomography(H1, cam)

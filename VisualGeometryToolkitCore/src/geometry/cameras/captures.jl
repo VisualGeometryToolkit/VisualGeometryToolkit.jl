@@ -19,7 +19,7 @@
 #
 #   Trajectory{S, D}      the pose S → D per frame index (a body in the world)
 #   TargetPoses{F}        per frame, the pose of every target seen, TargetFrame{id} → F
-#   TargetHomographies{H} per frame, each target's plane → pixel HomographyMat (the projective TargetPoses)
+#   TargetHomographies{F, H} per frame, each target's plane → pixel HomographyMat (the projective TargetPoses)
 #   TargetPoints2D{F}     per frame, the pixels of target points, in the pixel frame F
 #   TargetPoints3D{F}     per frame, the 3D positions of target points, in the 3D frame F
 #
@@ -209,45 +209,58 @@ with_unit(tp::TargetPoses, u::Units) = _map_poses(X -> with_unit(X, u), tp)
 # ------------------------------------------------------------------------------
 
 """
-    TargetHomographies(frames; images = Dict(), sensors = Dict(), times = Dict(), time_origin = nothing)
+    TargetHomographies{F <: PixelFrame}(frames; images, sensors, times, time_origin, targets = String[])
+    TargetHomographies(frames; …)    # F = PixelFrame{:colmap}
 
 Per frame index, the homography of every target seen, each a `HomographyMat`
-taking the target's plane (its chart coordinates) to pixels: `th[t]` is frame
-`t`'s target id → homography. The projective counterpart of
-[`TargetPoses`](@ref): a homography has no 3D frame, so the type carries only
-the homography type `H`. `images[t]` names the image, `sensors[t]` the camera
-(one name for every frame, or a map), `times[t]` seconds since `time_origin`.
+taking the target's plane (its chart coordinates, millimetres) to pixels of
+the pixel frame `F`, part of the TYPE as in [`TargetPoints2D`](@ref):
+`th[t]` is frame `t`'s target id → homography. An `H` is `RadialHomography`'s
+`H`: it acts BEFORE the lens of the camera `sensors[t]` names, about that
+camera's centre. The projective counterpart of [`TargetPoses`](@ref): a
+homography has no 3D frame, so the type carries the pixel frame `F` and the
+homography type `H`. `targets` names the target definitions the ids resolve
+in by content identity (VisualGeometryToolkitIO's `content_id`: a rig's or a
+single target's), as for `TargetPoints2D`. `images[t]` names the image,
+`sensors[t]` the camera (one name for every frame, or a map), `times[t]`
+seconds since `time_origin`. The form without `F` states `PixelFrame{:colmap}`,
+the stack's canonical pixel frame.
 Throws `ArgumentError` for a stamp (`images`, `sensors`, `times`) naming a
-frame index with no value, or `times` without a `time_origin`. Otherwise a
-Dict: `keys`, `pairs`, iteration.
+frame index with no value, `times` without a `time_origin`, or a `targets`
+naming a definition twice. Otherwise a Dict: `keys`, `pairs`, iteration.
 """
-struct TargetHomographies{H <: HomographyMat} <: AbstractDict{Int, Dict{Symbol, H}}
+struct TargetHomographies{F <: PixelFrame, H <: HomographyMat} <: AbstractDict{Int, Dict{Symbol, H}}
     frames::Dict{Int, Dict{Symbol, H}}
     images::Dict{Int, String}
     sensors::Dict{Int, String}
     times::Dict{Int, Float64}
     time_origin::Union{Nothing, String}
+    targets::Vector{String}
 
-    function TargetHomographies(
+    function TargetHomographies{F}(
             frames::AbstractDict{<:Integer}; images::AbstractDict = Dict{Int, String}(),
             sensors::Union{AbstractString, AbstractDict} = Dict{Int, String}(),
-            times::AbstractDict = Dict{Int, Float64}(), time_origin::Union{Nothing, AbstractString} = nothing
-        )
+            times::AbstractDict = Dict{Int, Float64}(), time_origin::Union{Nothing, AbstractString} = nothing,
+            targets::AbstractVector{<:AbstractString} = String[],
+        ) where {F <: PixelFrame}
         fr = Dict{Int, Dict{Symbol, HomographyMat}}(
             Int(t) => Dict{Symbol, HomographyMat}(Symbol(id) => H for (id, H) in hs) for (t, hs) in frames
         )
         vals = [H for hs in values(fr) for H in values(hs)]
         H = isempty(vals) ? HomographyMat{Float64} : typejoin(map(typeof, vals)...)
         imgs, sens, tms = _stamps(keys(fr), images, sensors, times, time_origin)
-        return new{H}(
-            Dict{Int, Dict{Symbol, H}}(t => Dict{Symbol, H}(hs) for (t, hs) in fr), imgs, sens, tms, _origin(time_origin),
+        allunique(targets) || throw(ArgumentError("`targets` names a target definition twice"))
+        return new{F, H}(
+            Dict{Int, Dict{Symbol, H}}(t => Dict{Symbol, H}(hs) for (t, hs) in fr), imgs, sens, tms, _origin(time_origin), String.(targets),
         )
     end
 end
+TargetHomographies(frames::AbstractDict{<:Integer}; kwargs...) = TargetHomographies{PixelFrame{:colmap}}(frames; kwargs...)
 
-Base.:(==)(a::TargetHomographies, b::TargetHomographies) =
-    a.frames == b.frames && a.images == b.images && a.sensors == b.sensors &&
-    a.times == b.times && isequal(a.time_origin, b.time_origin)
+# Equal numbers in different pixel frames are different placements.
+Base.:(==)(a::TargetHomographies{F}, b::TargetHomographies{G}) where {F, G} =
+    F === G && a.frames == b.frames && a.images == b.images && a.sensors == b.sensors &&
+    a.times == b.times && isequal(a.time_origin, b.time_origin) && a.targets == b.targets
 
 # ------------------------------------------------------------------------------
 # TargetPoints2D / TargetPoints3D

@@ -106,7 +106,9 @@ family and the solve:
   integral, and minimized by the stack's chart LM (at most `max_iter` accepted
   iterations; configs/default.toml `[fit_camera]`). The domain is the region's
   farthest radius, capped by the source's and the target family's own view-angle
-  limits — a cut of the source's domain is `clipped` and warned. (The region's
+  limits — a cut of the source's domain is `clipped` and warned, and so is a
+  region reaching past the radii the source images (its domain is then the
+  source's own). (The region's
   extent is measured along 720 azimuths: a corner between two of them is reached
   to within half an azimuth's arc.) `weight` is the
   density: `:image` (uniform on the image), `:solid_angle` (`sin θ`) or
@@ -195,11 +197,16 @@ function fit_camera(
     # inside at a radius is that radius's share of the image-area element.
     exits = _exit_radii(region, K0)
     ρmax = maximum(exits)
-    θ_source = min(Float64(view_angle_limit(srcr)), Float64(view_angle(srcr, ρmax)))
+    # past the source's fold (its profile's largest radius) the region's farthest
+    # radius has no view angle: the domain is the source's own, and the region is cut
+    θ_region = Float64(view_angle(srcr, ρmax))
+    past_source = !isfinite(θ_region)
+    θ_source = past_source ? Float64(view_angle_limit(srcr)) : min(Float64(view_angle_limit(srcr)), θ_region)
+    past_source && @warn "fit_camera: the region reaches past the radii the source $(nameof(typeof(src))) images — fitting θ ∈ [0, $(round(rad2deg(θ_source); digits = 1))°], the source's own domain"
     θ_max = min(θ_source, _family_limit(L))
     θ_max > 0.02 || throw(ArgumentError("fit_camera: empty fit domain (θ_max = $θ_max)"))
-    clipped = θ_max < θ_source * (1 - 1.0e-6)
-    clipped && @warn "fit_camera: target family $(L) cannot represent the source's field — fitting θ ∈ [0, $(round(rad2deg(θ_max); digits = 1))°] of the source's $(round(rad2deg(θ_source); digits = 1))°"
+    clipped = past_source || θ_max < θ_source * (1 - 1.0e-6)
+    θ_max < θ_source * (1 - 1.0e-6) && @warn "fit_camera: target family $(L) cannot represent the source's field — fitting θ ∈ [0, $(round(rad2deg(θ_max); digits = 1))°] of the source's $(round(rad2deg(θ_source); digits = 1))°"
 
     θs, qs, rA, dens = _forward_samples(srcr, float(θ_max), _PROFILE_NODES, weight)
     dens = dens .* map(r -> _coverage(exits, r), rA)

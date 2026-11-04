@@ -105,6 +105,21 @@ end
     @test_throws ArgumentError fit_camera(KB4, mdiv, WholePlane())
 end
 
+@testitem "fit_camera: a region past the source's fold" begin
+    using Test
+    using StaticArrays: SA
+    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, Rect, metadata, retcode, px
+    using VisualGeometryToolkitEstimation: fit_camera
+    # KB(−0.02) at f = 200 px images radii to r(π) ≈ 2.52 (504 px); the frame's
+    # corners lie at 707 px, where the source has no view angle (once a NaN
+    # domain and an ArgumentError): the fit takes the source's own domain, clipped
+    src = CameraModel(200.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
+    r = @test_logs (:warn, r"past the radii the source") match_mode = :any fit_camera(KannalaBrandt{4}, src, Rect(0, 0, 1000, 1000))
+    fam = metadata(r).family
+    @test fam.clipped && isfinite(fam.θ_max) && fam.θ_max == fam.θ_source > 3.1
+    @test retcode(r) === :converged && metadata(r).max_px < 1.0e-9                  # KB4 holds KB1 exactly
+end
+
 @testitem "fit_camera: a SplineProjection of the synthetic fisheye grid" setup = [FitCameraFisheye] begin
     using Test
     using StaticArrays: SVector

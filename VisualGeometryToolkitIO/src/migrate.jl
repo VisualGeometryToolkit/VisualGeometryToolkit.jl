@@ -476,6 +476,8 @@ end
 # height field after one in-plane kind; any other v2/v5 chain (two in-plane
 # kinds, a Rigid member, three or more members) has no v3 form and is refused
 # (the current reader refuses the reordered record, naming the rule).
+# The v2 counts are frozen on purpose, not derived from `length_mask`, so the v2
+# migrator does not follow a later change of a kind's parameter layout.
 _v2_parameter_count(r) = (t = r["type"]; t == "rigid" ? 0 : t == "affine" ? 6 :
     t == "thin_plate_spline" ? 2 * length(r["nodes"]) : t == "height_field" ? length(r["nodes"]) :
     throw(ArgumentError("a calibration record of unknown type $(repr(t))")))

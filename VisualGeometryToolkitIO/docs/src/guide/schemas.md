@@ -27,7 +27,7 @@ that this class of bug cannot be written down:
 
 Every vgio file has a schema tag `vgio/<kind>/v<n>`. The current versions are
 rig v4; cameras, transforms and trajectory v3; target, target_poses,
-target_homographies, target_points2d and target_points3d v1; and v2 for the rest. A file can be
+target_homographies and target_points3d v1; target_points2d v2; and v2 for the rest. A file can be
 read exactly with nothing but itself. The rules that make this true:
 
 **The envelope is about the file; attributes are about the value.** The
@@ -57,8 +57,8 @@ coefficients, centre and counts) are recomputed rather than stored. The
 writer refuses data whose derived values disagree with their source.
 
 **Measurements name their targets by content.** A measurement file
-(`target_points2d`, `target_points3d`) names the rigs that define the targets
-it indexes by their content identity, `content_id(rig)` or
+(`target_points2d`, `target_points3d`) names the rigs (or, for `target_points2d`, a single unposed target)
+that define the targets it indexes by their content identity, `content_id(rig)` or
 `content_id(path)`. This is the SHA-256 of the rig's identity tree: built from
 the in-memory rig under names of the identity's own, fixed once in
 `content_id`'s docstring and independent of any record's key spellings, every
@@ -155,7 +155,7 @@ the producer re-exports:
 
 | Retired | Successor |
 |---|---|
-| `observations/v2` | `target_points2d/v1` |
+| `observations/v2` | `target_points2d/v2` |
 | `point_observations/v1` | `target_points3d/v1` |
 | `targets/v2`, `rig/v3` | `rig/v6` |
 | `session/v3` | the calibration pipeline's own session kind |

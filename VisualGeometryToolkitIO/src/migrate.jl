@@ -913,6 +913,18 @@ migrate_schema(::Val{Symbol("vgio/target/v2")}, t::AbstractDict) = _target_v2_to
 migrate_schema(::Val{Symbol("vgio/rig/v4")}, t::AbstractDict) = (foreach(x -> _check_v1_warp(x["target"]), get(t, "targets", ())); _rig_v4_to_v5(t))
 migrate_schema(::Val{Symbol("vgio/rig/v5")}, t::AbstractDict) = _rig_v5_to_v6(t)
 migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, t::AbstractDict) = _generic_camera_v2_to_v3(t)
+migrate_schema(::Val{Symbol("vgio/target_points2d/v1")}, t::AbstractDict) = _target_points2d_v1_to_v2(t)
+
+# vgio/target_points2d/v1 → v2 (single targets, 2026-11): v2's `targets` hold
+# the content ids of a targets rig (rig/v6) OR of a single unposed target
+# (target/v3), as target_homographies/v1's do. A v1 record names rigs only, and
+# a rig's id is unchanged, so every v1 record is a v2 one as it stands: only the
+# schema token moves, and no number does.
+function _target_points2d_v1_to_v2(old)
+    t = copy(old)
+    t["schema"] = "vgio/target_points2d/v2"
+    return t
+end
 
 # vgio/generic_camera/v2 → v3 (the present nodes, 2026-11): a v2 model held
 # every node of its lattice, row-major; v3 lists the held nodes as runs per
@@ -933,6 +945,8 @@ migrate_schema(::Val{Symbol("vgio/cameras/v3")}, src::AbstractString, dst::Abstr
 _migrate_target(src, dst) = (_migrate_file(AbstractTarget, src, dst, "the target record"); (; to = _schema("target")))
 migrate_schema(::Val{Symbol("vgio/target/v1")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
 migrate_schema(::Val{Symbol("vgio/target/v2")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
+migrate_schema(::Val{Symbol("vgio/target_points2d/v1")}, src::AbstractString, dst::AbstractString) =
+    (_migrate_file(TargetPoints2D, src, dst, "the measurements"); (; to = _schema("target_points2d")))
 migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, src::AbstractString, dst::AbstractString) =
     (_migrate_file(Union{CentralGenericModel, NoncentralGenericModel}, src, dst, "the generic camera record"); (; to = _schema("generic_camera")))
 # A rig: its identity is the current value's, and the identities its old
@@ -1088,12 +1102,18 @@ end
 # `save_correspondences` resolves an old identity against the old rig file
 # (`_old_id_map`). Nothing else re-points.
 
-const _MEASUREMENT_KINDS = Dict("vgio/target_points2d/v1" => TargetPoints2D, "vgio/target_points3d/v1" => TargetPoints3D)
+# (target_points2d/v1 is listed so a v1 file is re-pointed too, and rewritten as v2 by the same
+# guarded write; `vgio_migrate_tree` leaves it to the re-pointing step.)
+const _MEASUREMENT_KINDS = Dict(
+    "vgio/target_points2d/v1" => TargetPoints2D, "vgio/target_points2d/v2" => TargetPoints2D, "vgio/target_points3d/v1" => TargetPoints3D,
+)
+_is_old_measurement(s) = s == "vgio/target_points2d/v1"
 
-# Re-point a measurement file (`vgio/target_points2d/v1`, `vgio/target_points3d/v1`)
+# Re-point a measurement file (`vgio/target_points2d/v1`–`v2`, `vgio/target_points3d/v1`)
 # at the rigs its targets were migrated to: every identity in its `targets`
 # that `ids` (old → new, a rig migration's `old_ids` and `new_id`) maps is
-# replaced; nothing else changes, and the file stays at its version. Every
+# replaced; nothing else changes, and the file is written as its kind's current
+# version (a target_points2d/v1 file becomes v2). Every
 # identity the file names must be mapped or be the `content_id` of one of
 # `rigs` (rigs or `vgio/rig/v5` paths; `hashes` their identities, when the
 # caller has them): any other is an `ArgumentError` naming the file and the
@@ -1113,7 +1133,7 @@ function _repoint_targets(
     )
     s = get(old, "schema", nothing)
     T = get(_MEASUREMENT_KINDS, s, nothing)
-    T === nothing && throw(ArgumentError("$(path): a $(repr(s)) file names no targets to re-point (target_points2d/v1, target_points3d/v1)"))
+    T === nothing && throw(ArgumentError("$(path): a $(repr(s)) file names no targets to re-point (target_points2d/v1–v2, target_points3d/v1)"))
     in_place = abspath(out) == abspath(path)
     (dry_run || in_place || !ispath(out)) || throw(ArgumentError("$(out) exists; refusing to overwrite it"))
     obs = load(T, path)
@@ -1174,7 +1194,7 @@ end
 Migrate every `.json` file under `dir` whose schema has a migration (cameras
 v1–v3, target v1–v2, rig v4–v5, and any schema whose owner added a
 [`migrate_schema`](@ref) file form), then re-point the measurement files under
-`dir` (`vgio/target_points2d/v1`, `vgio/target_points3d/v1`) at the current
+`dir` (`vgio/target_points2d/v1`–`v2`, `vgio/target_points3d/v1`) at the current
 rigs of the tree, each by the guarded pattern of [`vgio_migrate`](@ref) (a
 full-precision length may be rewritten within 2 ulp, as the same metre value),
 with one line per file to `io`
@@ -1205,12 +1225,14 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
     failed = Pair{String, String}[]                                    # file => why it was refused
     for f in files
         s = schemas[f]
-        if !(s isa String && _has_migration(s))
+        if !(s isa String && _has_migration(s)) || haskey(_MEASUREMENT_KINDS, s)   # (a measurement file: below)
             if s === nothing
                 println(io, "SKIPPED   ", f, ": no readable schema")
+            elseif haskey(_MEASUREMENT_KINDS, s)
+                # re-pointed below; a v1 file is rewritten as v2 there
             elseif _is_current(s)
                 s == _schema("rig") && push!(rigs, f)
-                haskey(_MEASUREMENT_KINDS, s) || println(io, "current   ", f, ": ", s)   # (a measurement file: below)
+                println(io, "current   ", f, ": ", s)
             else
                 println(io, "SKIPPED   ", f, ": ", s, " has no migration (a retired version, or a schema no package migrates)")
             end
@@ -1244,7 +1266,7 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
             println(io, "current   ", f, ": names no targets (nothing to re-point)")
             continue
         end
-        if all(in(current), ts)
+        if all(in(current), ts) && !_is_old_measurement(schemas[f])
             println(io, "current   ", f, ": names current rigs")
             continue
         end

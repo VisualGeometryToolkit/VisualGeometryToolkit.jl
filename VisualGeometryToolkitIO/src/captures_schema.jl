@@ -5,7 +5,7 @@
 #   vgio/trajectory/v3        ↔ VGC `Trajectory{S, D}`      a body's pose over time
 #   vgio/target_poses/v1      ↔ VGC `TargetPoses{F}`        per frame, the poses of the targets seen
 #   vgio/target_homographies/v1 ↔ VGC `TargetHomographies{F, H}` per frame, each target's plane → pixel homography
-#   vgio/target_points2d/v1   ↔ VGC `TargetPoints2D{F}`     per frame, pixels of target points
+#   vgio/target_points2d/v2   ↔ VGC `TargetPoints2D{F}`     per frame, pixels of target points
 #   vgio/target_points3d/v1   ↔ VGC `TargetPoints3D{F}`     per frame, 3D positions of target points
 #
 # Every one is a list of `frames`, each named by its index `t` — unique, the
@@ -54,11 +54,15 @@
 #      has no 3D frame, so the pixel frame is the TYPE parameter of the value
 #      (`TargetHomographies{F}`), as for target_points2d, and `targets` its field.
 #
-# {"schema": "vgio/target_points2d/v1", "pixel_frame": "colmap", "point_index_base": 1,
-#  "targets": ["<content id of a targets file>", …],
+# {"schema": "vgio/target_points2d/v2", "pixel_frame": "colmap", "point_index_base": 1,
+#  "targets": ["<content id of a targets rig or of a single target>", …],
 #  "frames": [{"t": 17, "image": "DSC0017.png", "sensor": "cam1", "time": …,
 #              "points": [{"target": "<uid>", "index": 5, "xy": [u, v], "weight": 1.0,
 #                          "covariance": [[…], […]]}]}]}
+#      each `target` names a board inside one of the `targets` — a `content_id` of
+#      EITHER a rig (rig/v6) of boards OR a single unposed target (target/v3), as in
+#      target_homographies/v1; at least one. v2 is v1 with the schema token bumped and
+#      this widening: a v1 file (rig ids only) reads as v2 through its version step.
 #
 # {"schema": "vgio/target_points3d/v1", "length_unit": "mm", "frame": "world", "point_index_base": 1,
 #  "targets": [ … ],                                                   (optional)
@@ -416,7 +420,7 @@ function load(::Type{<:TargetHomographies{F}}, path::AbstractString) where {F <:
 end
 
 # =============================================================================
-# target_points2d/v1 ↔ TargetPoints2D
+# target_points2d/v2 ↔ TargetPoints2D
 # =============================================================================
 
 const _TARGET_POINTS2D_SPEC = _Checked(
@@ -424,7 +428,7 @@ const _TARGET_POINTS2D_SPEC = _Checked(
         Pair{Symbol, _Spec}[
             :schema => _schema_tok("target_points2d"), :pixel_frame => _PIXEL_FRAME,
             :point_index_base => _Tok(_POINT_INDEX_BASE),
-            :targets => _Checked(_Vec(_HEX64), h -> isempty(h) ? "the measurements name at least one targets file" : _unique_check(h, "targets identities")),
+            :targets => _Checked(_Vec(_HEX64), h -> isempty(h) ? "the measurements name at least one targets identity (a rig's or a single target's `content_id`)" : _unique_check(h, "targets identities")),
             :frames => _Vec(
                 _Obj(
                     Pair{Symbol, _Spec}[
@@ -448,11 +452,12 @@ const _TARGET_POINTS2D_SPEC = _Checked(
 """
     save(path, obs::TargetPoints2D{F}; provenance = (;))
 
-Write a VGC `TargetPoints2D` as a `vgio/target_points2d/v1` file whose
+Write a VGC `TargetPoints2D` as a `vgio/target_points2d/v2` file whose
 declared pixel frame is `F`, the value's own type — no pixel is converted and
 none can be written under another frame's label. Every frame must name its
 image and sensor, and the value must name the target definitions its indices
-resolve in (`obs.targets`, their [`content_id`](@ref)s).
+resolve in (`obs.targets`, their [`content_id`](@ref)s: each the identity of a
+rig of boards (`vgio/rig/v6`) or of a single unposed target (`vgio/target/v3`)).
 """
 function save(path::AbstractString, obs::TargetPoints2D{F}; provenance::NamedTuple = (;)) where {F <: PixelFrame}
     frames = map(sort!(collect(keys(obs)))) do t
@@ -482,10 +487,11 @@ end
 """
     load(TargetPoints2D, path; target = nothing) -> TargetPoints2D{F}
 
-Read a `vgio/target_points2d/v1` file: per frame index, the measured pixels
-typed in the pixel frame `F` the file declares, exactly as stored, with the
-frames' images, sensors and times and the targets identities. Change the frame
-with `convert_frame`.
+Read a `vgio/target_points2d/v2` file (a `v1` file reads through its version
+step, as the same value): per frame index, the measured pixels typed in the
+pixel frame `F` the file declares, exactly as stored, with the frames' images,
+sensors and times and the targets identities (each a rig's or a single
+target's `content_id`). Change the frame with `convert_frame`.
 
 A Schöps et al. camera_calibration `dataset.bin` (recognized by its
 `calib_data` magic, see schoeps.jl) is read too: frame `t` is the file's

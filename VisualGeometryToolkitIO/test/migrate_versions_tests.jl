@@ -5,7 +5,7 @@
 
 @testsetup module MigrateFixtures
     import VisualGeometryToolkitIO
-    export units_fixture, as_v1_target, as_v4_rig, old_copy, as_v4_measurements, V4_ID, current_id
+    export units_fixture, as_v1_target, as_v1_points2d, as_v4_rig, old_copy, as_v4_measurements, V4_ID, current_id
 
     units_fixture(name) = joinpath(@__DIR__, "fixtures", "units", name)
 
@@ -18,6 +18,8 @@
         "\"calibration\": {" => "\"warp\": {", "\"reference\":" => "\"design\":")
     as_v1_target(text) = replace(replace(text, "\"schema\": \"vgio/target/v3\"" => "\"schema\": \"vgio/target/v1\"",
         "\"calibration\": {" => "\"warp\": {", "\"reference\":" => "\"design\":"), "\"calibration_record\":" => "\"calibration\":")
+    # target_points2d.json as vgio/target_points2d/v1 held it: the same record, the earlier schema token
+    as_v1_points2d(text) = replace(text, "\"schema\": \"vgio/target_points2d/v2\"" => "\"schema\": \"vgio/target_points2d/v1\"")
     # rig_targets.json's identity as vgio/rig/v4 defined it, which the
     # measurements named before the migration, and its identity now
     const V4_ID = "a19adf2a1b6cb5d352dac3d6f1018f844cf9cf8f413ddf480539652e80957a88"
@@ -708,4 +710,69 @@ end
     perm = [9:12; 1:8]                                   # the height field's block first, as it is listed
     S = out["covariance"]
     @test all(isequal(S[i][j], Σ[perm[i], perm[j]]) for i in 1:n, j in 1:n)   # bit for bit: Inf stays Inf, -0.0 keeps its sign
+end
+
+@testitem "vgio_migrate: target_points2d/v1 reads as v2, rewrites verified, and v2 names single targets" setup = [VGIoFixtures, MigrateFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: TargetPoints2D, Rig
+    mktempdir() do dir
+        src = old_copy(dir, "target_points2d.json", as_v1_points2d)
+        before = read(src, String)
+        @test occursin("vgio/target_points2d/v1", before)
+        # a v1 file loads as the same value as the current fixture (rig ids stay valid ids)
+        a, b = load(TargetPoints2D, src), load(TargetPoints2D, units_fixture("target_points2d.json"))
+        @test VgtkIO._same_value(a, b) && a.targets == b.targets && a.frames == b.frames
+        @test VgtkIO.migrate_record(VgtkIO._raw_tree(src))["schema"] == "vgio/target_points2d/v2"
+        # a dry run verifies and writes nothing; the rewrite is the committed v2 file, byte for byte
+        r = vgio_migrate(src; dry_run = true)
+        @test r.out === nothing && r.from == "vgio/target_points2d/v1" && r.to == "vgio/target_points2d/v2"
+        r = vgio_migrate(src)
+        @test read(src, String) == before && read(r.out, String) == read(units_fixture("target_points2d.json"), String)
+        @test_throws ArgumentError vgio_migrate(src)                        # an existing out is refused
+        # the command's kind argument
+        io = IOBuffer()
+        @test VgtkIO._migrate_version_cli("file", [src, "--out", joinpath(dir, "cli.json"), "--apply"]; io) == 0
+        @test read(joinpath(dir, "cli.json"), String) == read(units_fixture("target_points2d.json"), String)
+    end
+end
+
+@testitem "target_points2d/v2: ids of a rig and of a single target round trip; any other id is refused" setup = [VGIoFixtures, MigrateFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: TargetPoints2D, Rig
+    rig_id = content_id(units_fixture("rig_targets.json"))
+    target_id = content_id(units_fixture("target_planar.json"))
+    @test target_id != rig_id
+    base = load(TargetPoints2D, units_fixture("target_points2d.json"))
+    mktempdir() do dir
+        obs = typeof(base)(base.frames; images = base.images, sensors = base.sensors, times = base.times, time_origin = base.time_origin, targets = [rig_id, target_id])
+        p = joinpath(dir, "mixed.json")
+        save(p, obs)
+        @test VgtkIO._raw_tree(p)["schema"] == "vgio/target_points2d/v2"
+        back = load(TargetPoints2D, p)
+        @test back.targets == [rig_id, target_id] && back.frames == obs.frames
+        save(joinpath(dir, "again.json"), back)
+        @test read(joinpath(dir, "again.json"), String) == read(p, String)
+        # not a content id: refused on load
+        bad = joinpath(dir, "bad.json")
+        write(bad, replace(read(p, String), target_id => "not-a-digest"))
+        @test_throws ArgumentError load(TargetPoints2D, bad)
+        # a well-formed id that is neither the rig's nor a target of the targets given: refused against them
+        stray = typeof(base)(base.frames; images = base.images, sensors = base.sensors, times = base.times, time_origin = base.time_origin, targets = ["0"^64])
+        @test_throws ArgumentError save_correspondences(joinpath(dir, "c.json"), stray, units_fixture("rig_targets.json"))
+        @test !isfile(joinpath(dir, "c.json"))
+    end
+end
+
+@testitem "vgio_migrate_tree: a v1 measurement file is rewritten as v2 and re-pointed" setup = [VGIoFixtures, MigrateFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: TargetPoints2D
+    mktempdir() do dir
+        write(joinpath(dir, "rig_targets.json"), read(units_fixture("rig_targets.json"), String))
+        write(joinpath(dir, "target_points2d.json"), as_v1_points2d(read(units_fixture("target_points2d.json"), String)))
+        out = IOBuffer()
+        rs = vgio_migrate_tree(dir; in_place = true, io = out)
+        @test length(rs) == 1 && rs[1].repointed == 0
+        @test read(joinpath(dir, "target_points2d.json"), String) == read(units_fixture("target_points2d.json"), String)
+        @test !occursin("FAILED", String(take!(out)))
+    end
 end

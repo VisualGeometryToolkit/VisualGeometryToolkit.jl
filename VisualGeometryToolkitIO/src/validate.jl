@@ -184,7 +184,8 @@ const _POINT_INDEX_BASE = 1
 # transforms and trajectory are v3 since their frames are typed (2026-10): the
 # `from`/`to` names go through the frame grammar (`frame_from_name`), so a
 # free-form name is refused, and a pose may carry its covariance. The kinds
-# born after that are v1 (target, target_poses, target_homographies, target_points2d, target_points3d).
+# born after that are v1 (target, target_poses, target_homographies, target_points3d). target_points2d is v2 (2026-11): its
+# `targets` name a rig OR a single unposed target (as target_homographies/v1), and a v1 file reads through its step.
 #
 # generic_camera v3 (the present nodes, 2026-11): a grid model holds the nodes
 # its imaged region reaches, listed as `present` (runs per lattice row), and
@@ -194,7 +195,7 @@ const _POINT_INDEX_BASE = 1
 # written before reads as it did, and rig stays v6.
 const _SCHEMA_VERSION = Dict(
     "cameras" => 4, "rig" => 6, "transforms" => 3, "trajectory" => 3, "generic_camera" => 3,
-    "target" => 3, "target_poses" => 1, "target_homographies" => 1, "target_points2d" => 1, "target_points3d" => 1,
+    "target" => 3, "target_poses" => 1, "target_homographies" => 1, "target_points2d" => 2, "target_points3d" => 1,
     "capture_settings" => 1,
 )
 _schema_version(kind) = get(_SCHEMA_VERSION, kind, 2)
@@ -241,7 +242,7 @@ const _XYZ = _Vec(_Real(), 3)
 # migration — each successor started at v1 under its new name (or moved out of
 # VGIo), and the producer re-exports.
 const _RETIRED_KINDS = Dict(
-    "vgio/observations/v2" => "vgio/target_points2d/v1", "vgio/point_observations/v1" => "vgio/target_points3d/v1",
+    "vgio/observations/v2" => "vgio/target_points2d/v2", "vgio/point_observations/v1" => "vgio/target_points3d/v1",
     "vgio/targets/v2" => "vgio/rig/v6", "vgio/rig/v3" => "vgio/rig/v6",
     "vgio/session/v3" => "the calibration pipeline's own session kind (a pipeline's checkpoint is the pipeline's, not VGIo's)",
 )
@@ -252,7 +253,7 @@ const _RETIRED_KINDS = Dict(
 const _MIGRATIONS_TO_CURRENT = Dict(
     "vgio/target/v1" => "target", "vgio/rig/v4" => "rig", "vgio/target/v2" => "target", "vgio/rig/v5" => "rig",
     "vgio/cameras/v1" => "file", "vgio/cameras/v2" => "file", "vgio/cameras/v3" => "file",
-    "vgio/generic_camera/v2" => "file",
+    "vgio/generic_camera/v2" => "file", "vgio/target_points2d/v1" => "file",
 )
 
 function _refuse_schema(path, kind::AbstractString, s)

@@ -11,7 +11,7 @@
 # file may add a free-form "provenance" object that VGIo never reads.
 #
 # A rig of targets is the DEFINITION the per-frame measurements of
-# target_points2d/v1 and target_points3d/v1 (captures_schema.jl) resolve
+# target_points2d/v2 and target_points3d/v1 (captures_schema.jl) resolve
 # against: a point is named by (target, index), its `point_index_base`-based
 # position in that target's points, and a measurement file names the rig files
 # it resolves in by their content identity ([`content_id`](@ref)).

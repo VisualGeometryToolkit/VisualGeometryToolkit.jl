@@ -151,8 +151,10 @@
             v1 = replace(doc[:schema], r"/v\d+$" => "/v1")
             relabeled(s) = refusal(merge(doc, Dict(:schema => s)), dir, "$(name)_$(basename(s))"; units)
             not_theirs(msg) = msg === nothing || occursin("was not written by them", msg)
-            if name in ("target_poses", "target_homographies", "target_points2d", "target_points3d")
+            if name in ("target_poses", "target_homographies", "target_points3d")
                 @test endswith(doc[:schema], "/v1")
+            elseif name == "target_points2d"
+                @test endswith(doc[:schema], "/v2")                                          # v1 read through its step (migrate_versions_tests)
             elseif name == "target"
                 @test doc[:schema] == "vgio/target/v3"
                 @test occursin("was not written by them", something(relabeled(v1), ""))      # its `calibration_record` was v1's `calibration`

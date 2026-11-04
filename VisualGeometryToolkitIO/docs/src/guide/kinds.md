@@ -156,15 +156,49 @@ never shadows the target's `calibration`.
 
 Every earlier version a published file holds is read: `vgio/cameras/v1`–`v3`,
 `vgio/target/v1`–`v2` and `vgio/rig/v4`–`v5`. `load` runs the file's version
-steps in memory, one per version (`migrate_schema(::Val{schema}, tree)`, run by
-`migrate_record`), and reads the current record they give; the writers write
+steps in memory, one per version
+([`migrate_schema`](@ref VisualGeometryToolkitIO.migrate_schema)`(::Val{schema}, tree)`,
+run by [`migrate_record`](@ref VisualGeometryToolkitIO.migrate_record)), and
+reads the current record they give; the writers write
 only the current version, so a file saved from what an old file loads as is
 current. A load is silent (an `@debug` names the version), and `content_id` of
 an old rig file is that of the value it loads as. The reason is the published
 data: a schema change must not force the archives on Zenodo and Hugging Face
 (several GB each) to be uploaded again, so a published file keeps loading.
 
-`vgio_migrate(path)` rewrites one file with the same steps, and
+A `vgio/cameras/v1` store loads as it is, and `vgio_migrate` rewrites it in
+the current version beside the original:
+
+```jldoctest old_version
+julia> using VisualGeometryToolkitCore, VisualGeometryToolkitIO
+
+julia> import VisualGeometryToolkitIO as VgtkIO
+
+julia> path = joinpath(mktempdir(), "cameras.json");
+
+julia> write(path, """
+       {"schema": "vgio/cameras/v1", "cameras": [{
+           "schema": "vgio/camera/v1", "name": "left", "pixel_chart": "colmap",
+           "size": {"unit": "px", "width": 1280, "height": 960},
+           "intrinsics": {"unit": "px", "fx": 900.0, "fy": 900.0, "cx": 640.0, "cy": 480.0, "skew": 0},
+           "lens": {"model": "BrownConrady", "params": [-0.1, 0.01, 0, 0, 0, 0, 0, 0]}}]}
+       """);
+
+julia> camera = VgtkIO.load(BoundedCamera, path; name = :left);
+
+julia> Tuple(extent(camera))
+(1280, 960)
+
+julia> r = vgio_migrate(path);
+
+julia> (r.from, r.to, basename(r.out))
+("vgio/cameras/v1", "vgio/cameras/v4", "cameras.migrated.json")
+
+julia> VgtkIO.load(BoundedCamera, r.out; name = :left) == camera
+true
+```
+
+[`vgio_migrate`](@ref VisualGeometryToolkitIO.vgio_migrate)`(path)` rewrites one file with the same steps, and
 `bin/vgio_migrate.jl target|rig|file|tree|repoint` is its command (a dry run
 unless `--apply`). The new file is written to a staging directory beside its
 destination (the same filesystem), read back and compared with the old one

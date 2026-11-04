@@ -3,8 +3,9 @@
 #
 #   julia --project=docs --startup-file=no docs/make.jl     # → docs/build/index.html
 #
-# `checkdocs = :public` with no `warnonly`: a public name without a docstring
-# on an API page, a broken cross-reference or a failing doctest stops the build.
+# `checkdocs = :public` with no `warnonly`: a public docstring missing from an
+# API page, a broken cross-reference, a dead link or a failing doctest stops
+# the build.
 
 using Documenter
 using VisualGeometryToolkitIO
@@ -24,9 +25,19 @@ makedocs(;
         prettyurls = get(ENV, "CI", "false") == "true",
         canonical = "https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/",
         edit_link = "main",
-        size_threshold = nothing,
     ),
+    # The docs gates (General review, #171997, #173031, #173032): every public
+    # docstring is in the manual, the doctests run, every external link
+    # resolves, and nothing is warnonly — a warning fails the build. That
+    # every public name HAS a docstring is test/docs_tests.jl's job (the
+    # missing-docs check only sees docstrings that exist).
     checkdocs = :public,
+    doctest = true,
+    linkcheck = true,
+    # Rate-limited or bot-blocking hosts that answer a crawler with 403/429
+    # (github.com gave 429 on CITATION.cff, 2026-11-04); lychee
+    # (.github/workflows/Links.yml) checks them with a token.
+    linkcheck_ignore = [r"^https://github\.com/"],
     pages = [
         "Home" => "index.md",
         "Getting Started" => "guide/getting-started.md",

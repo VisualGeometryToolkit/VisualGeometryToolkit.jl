@@ -48,21 +48,20 @@ const CANONICAL_PIXEL_FRAME = PixelFrame{:colmap}
 
 """
     pixel_frame_name(::Type{<:PixelFrame}) -> String
-    pixel_frame_from_name(name) -> Type{<:PixelFrame}
-    pixel_origin(::Type{<:PixelFrame}) -> Symbol
 
-The serialized spelling of a pixel frame, its inverse, and the origin symbol
-VGC's `image_origin` keyword takes. Parallel to
+The serialized spelling of a pixel frame (`PixelFrame{:colmap}` → `"colmap"`);
+[`pixel_frame_from_name`](@ref) is its inverse. Parallel to
 [`frame_name`](@ref)/[`frame_from_name`](@ref) for 3D frames, deliberately
 separate because the grammars differ: a 3D frame serializes prefixed
 (`"view:cam1"`), a pixel frame bare (`"colmap"`).
 
-`pixel_frame_from_name` validates by constructing the conversion to the
-canonical pixel frame (`colmap`). VGC decides whether a pixel frame exists,
-and its error names the registered set. This only restates that refusal as
-the `ArgumentError` every corrupt record in this package raises.
+```jldoctest
+julia> VgtkIO.pixel_frame_name(PixelFrame{:opencv})
+"opencv"
+```
 """
 pixel_frame_name(::Type{PixelFrame{O}}) where {O} = String(O)
+# The origin symbol VGC's `image_origin` keyword takes (private).
 pixel_origin(::Type{PixelFrame{O}}) where {O} = O
 
 """
@@ -71,6 +70,15 @@ pixel_origin(::Type{PixelFrame{O}}) where {O} = O
 The pixel frame a file names (`"colmap"`, `"opencv"`, `"julia"`), the inverse
 of [`pixel_frame_name`](@ref). VGC decides which pixel frames exist; a name it
 does not know is an `ArgumentError` that quotes VGC's list.
+
+It validates by constructing the conversion to the canonical pixel frame
+(`colmap`), so VGC's error names the registered set; this only restates that
+refusal as the `ArgumentError` every corrupt record in this package raises.
+
+```jldoctest
+julia> VgtkIO.pixel_frame_from_name("julia")
+PixelFrame{:julia}
+```
 """
 function pixel_frame_from_name(name::AbstractString)
     C = PixelFrame{Symbol(name)}

@@ -277,6 +277,20 @@ left for the record's schema. A current record comes back as it is (its keys
 earlier version; the reader of a schema owner's kind calls it before it reads
 a file, so an old file loads as the current version. An `ArgumentError` for a
 step that does not move the version, and whatever a step refuses.
+
+A `vgio/cameras/v1` record, carried through the v2 and v3 steps:
+
+```jldoctest
+julia> v1 = Dict("schema" => "vgio/cameras/v1", "cameras" => [Dict(
+           "schema" => "vgio/camera/v1", "name" => "left", "pixel_chart" => "colmap",
+           "size" => Dict("unit" => "px", "width" => 1280, "height" => 960),
+           "intrinsics" => Dict("unit" => "px", "fx" => 900.0, "fy" => 900.0,
+                                "cx" => 640.0, "cy" => 480.0, "skew" => 0),
+           "lens" => Dict("model" => "BrownConrady", "params" => [-0.1, 0.01, 0, 0, 0, 0, 0, 0]))]);
+
+julia> VgtkIO.migrate_record(v1)["schema"]
+"vgio/cameras/v4"
+```
 """
 function migrate_record(tree::AbstractDict)
     t = _lower(tree)

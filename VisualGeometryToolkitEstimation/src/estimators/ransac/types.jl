@@ -85,7 +85,7 @@ the INLIER set and `n` that set's size — so `rms` is not outlier-dominated
 - `sample_acceptance_rate::Float64`: fraction of trials that succeeded at `test_sample`
   (effective trials / `iterations`); low values mean frequent sample degeneracy
 - `lo_retcode::Symbol`: why the local-optimization loop stopped for the best
-  model (see [`lo_estimate`](@ref)); `:not_run` when no LO ran
+  model (see [`lo_estimate`](@extref VisualGeometryToolkitCore.lo_estimate)); `:not_run` when no LO ran
 
 `quality` and `sigma` are `Float64` regardless of `T`: scalars carry no
 footprint argument, and these are the numbers downstream thresholds compare.

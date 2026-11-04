@@ -4,74 +4,62 @@
 CurrentModule = VisualGeometryToolkitEstimation
 ```
 
-The RANSAC loop scores through VisualGeometryToolkitCore's scoring contract; the
+The RANSAC loop scores through VisualGeometryToolkitCore's scoring contract. The
 contract, its derived verbs and the baseline scorers are VisualGeometryToolkitCore's
-and documented here because the loop is built on them. Paper scorers (the
-Student-t + uniform marginal `StudentTUniformScoring`) are
-RANSACScoringDoneRight's and are documented there.
+and documented in its manual; this page lists them because the loop is built on
+them. Paper scorers (the Student-t + uniform marginal `StudentTUniformScoring`)
+are RANSACScoringDoneRight's and are documented there.
 
 ## The scoring contract
 
 A scorer implements the required verbs; the optional ones default in
-VisualGeometryToolkitCore.
-
-```@docs
-VisualGeometryToolkitCore.AbstractScoring
-VisualGeometryToolkitCore.scoring_workspace
-VisualGeometryToolkitCore.score!
-VisualGeometryToolkitCore.consensus_order
-VisualGeometryToolkitCore.is_predictive
-VisualGeometryToolkitCore.scored_model
-VisualGeometryToolkitCore.scale_prior
-VisualGeometryToolkitCore.outlier_halfwidth
-VisualGeometryToolkitCore.inlier_threshold
-VisualGeometryToolkitCore.has_inlier_threshold
-VisualGeometryToolkitCore.check_workspace
-```
+VisualGeometryToolkitCore:
+[`AbstractScoring`](@extref VisualGeometryToolkitCore.AbstractScoring),
+[`scoring_workspace`](@extref VisualGeometryToolkitCore.scoring_workspace),
+[`score!`](@extref VisualGeometryToolkitCore.score!),
+[`consensus_order`](@extref VisualGeometryToolkitCore.consensus_order),
+[`is_predictive`](@extref VisualGeometryToolkitCore.is_predictive),
+[`scored_model`](@extref VisualGeometryToolkitCore.scored_model),
+[`scale_prior`](@extref VisualGeometryToolkitCore.scale_prior),
+[`outlier_halfwidth`](@extref VisualGeometryToolkitCore.outlier_halfwidth),
+[`inlier_threshold`](@extref VisualGeometryToolkitCore.inlier_threshold),
+[`has_inlier_threshold`](@extref VisualGeometryToolkitCore.has_inlier_threshold) and
+[`check_workspace`](@extref VisualGeometryToolkitCore.check_workspace).
 
 ## Derived verbs and buffers
 
 Stated once in VisualGeometryToolkitCore for every scorer: the loop's one scoring
-path, the consensus set the local optimization starts from, its scale, and
-the result's soft weights.
-
-```@docs
-VisualGeometryToolkitCore.ScoreBuffers
-VisualGeometryToolkitCore.score_model!
-VisualGeometryToolkitCore.ConsensusSet
-VisualGeometryToolkitCore.inlier_count
-VisualGeometryToolkitCore.consensus_set
-VisualGeometryToolkitCore.consensus_s2
-VisualGeometryToolkitCore.inlier_probabilities!
-```
+path ([`ScoreBuffers`](@extref VisualGeometryToolkitCore.ScoreBuffers),
+[`score_model!`](@extref VisualGeometryToolkitCore.score_model!)), the consensus
+set the local optimization starts from
+([`ConsensusSet`](@extref VisualGeometryToolkitCore.ConsensusSet),
+[`inlier_count`](@extref VisualGeometryToolkitCore.inlier_count),
+[`consensus_set`](@extref VisualGeometryToolkitCore.consensus_set)), its scale
+([`consensus_s2`](@extref VisualGeometryToolkitCore.consensus_s2)), and the
+result's soft weights
+([`inlier_probabilities!`](@extref VisualGeometryToolkitCore.inlier_probabilities!)).
 
 ## Baseline scorers
 
-MSAC and RANSAC at a threshold. `MsacScoring(problem; threshold)` is the
-default scorer of every `find_*` pipeline.
-
-```@docs
-VisualGeometryToolkitCore.MsacScoring
-VisualGeometryToolkitCore.RansacScoring
-VisualGeometryToolkitCore.residual_quality
-```
+MSAC and RANSAC at a threshold,
+[`MsacScoring`](@extref VisualGeometryToolkitCore.MsacScoring) and
+[`RansacScoring`](@extref VisualGeometryToolkitCore.RansacScoring), with their
+[`residual_quality`](@extref VisualGeometryToolkitCore.residual_quality).
+`MsacScoring(problem; threshold)` is the default scorer of every `find_*`
+pipeline.
 
 ## Scale priors
 
 The prior a scorer's consensus scale is computed under (`scale_prior`,
-Jeffreys by default).
-
-```@docs
-VisualGeometryToolkitCore.IGPrior
-VisualGeometryToolkitCore.JeffreysPrior
-```
+Jeffreys by default):
+[`IGPrior`](@extref VisualGeometryToolkitCore.IGPrior) and
+[`JeffreysPrior`](@extref VisualGeometryToolkitCore.JeffreysPrior).
 
 ## Weight policies
 
-```@docs
-AbstractWeightPolicy
-NormalizedWeightPolicy
-```
+[`AbstractWeightPolicy`](@extref VisualGeometryToolkitCore.AbstractWeightPolicy)
+and [`NormalizedWeightPolicy`](@extref VisualGeometryToolkitCore.NormalizedWeightPolicy)
+are VisualGeometryToolkitCore's.
 
 ## Local Optimization
 
@@ -86,16 +74,19 @@ resolved by `loss_at` from its width mode (`lo_width`, set by `with_width`):
 no width follows the scorer's `inlier_threshold`, `ScaleMultiple(m)` anchors
 it at the consensus scale, `LossWidth(w)` fixes it.
 
+The contract is VisualGeometryToolkitCore's:
+[`AbstractLocalOptimization`](@extref VisualGeometryToolkitCore.AbstractLocalOptimization),
+[`lo_workspace`](@extref VisualGeometryToolkitCore.lo_workspace),
+[`lo_width`](@extref VisualGeometryToolkitCore.lo_width),
+[`with_width`](@extref VisualGeometryToolkitCore.with_width),
+[`loss_at`](@extref VisualGeometryToolkitCore.loss_at),
+[`check_composition`](@extref VisualGeometryToolkitCore.check_composition),
+[`ScaleMultiple`](@extref VisualGeometryToolkitCore.ScaleMultiple) and
+[`LossWidth`](@extref VisualGeometryToolkitCore.LossWidth). The methods of
+`locally_optimize!` for this package's strategies are documented here.
+
 ```@docs
-VisualGeometryToolkitCore.AbstractLocalOptimization
-VisualGeometryToolkitCore.lo_workspace
 VisualGeometryToolkitCore.locally_optimize!
-VisualGeometryToolkitCore.lo_width
-VisualGeometryToolkitCore.with_width
-VisualGeometryToolkitCore.loss_at
-VisualGeometryToolkitCore.check_composition
-VisualGeometryToolkitCore.ScaleMultiple
-VisualGeometryToolkitCore.LossWidth
 NoLocalOptimization
 Irls
 Triggs

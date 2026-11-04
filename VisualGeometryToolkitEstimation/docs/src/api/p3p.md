@@ -19,14 +19,10 @@ refine_absolute_pose
 
 ## Result Types
 
-**Model type** — [`Extrinsics3`](@ref), VisualGeometryToolkitCore's world→camera rigid
-pose (import it from VisualGeometryToolkitCore). It replaces the retired `Pose3`
-alias. Do not confuse it with RVG's `Rigid3`, the *unlabeled* alias the
-hand-eye problem uses — a different type.
-
-```@docs
-Extrinsics3
-```
+**Model type** — [`Extrinsics3`](@extref VisualGeometryToolkitCore.Extrinsics3),
+VisualGeometryToolkitCore's world→camera rigid pose (import it from
+VisualGeometryToolkitCore). Do not confuse it with [`Rigid3`](@ref), the
+*unlabeled* alias the hand-eye problem uses — a different type.
 
 `model_type(::AbsolutePoseProblem) = Extrinsics3` and `solve` returns `FixedModels{4, Extrinsics3} | nothing`
 (up to 4 P3P solutions).

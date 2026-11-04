@@ -48,7 +48,7 @@ end
 The robust rotation `R` with `bᵢ ≈ R·aᵢ` from direction pairs `cs` (`aᵢ => bᵢ`,
 3-vectors; normalized at entry, so any nonzero length is a direction), with a
 fraction of the pairs gross outliers. A fit — it seeds itself with
-VisualGeometryToolkitCore's [`kabsch`](@ref) — iterating a reweighted Kabsch:
+VisualGeometryToolkitCore's [`kabsch`](@extref VisualGeometryToolkitCore.kabsch) — iterating a reweighted Kabsch:
 residual angles `rᵢ = ∠(R·aᵢ, bᵢ)`, the robust scale
 `σ̂ = median(r) / √chisq_median(2)` (the median of a 2-D residual norm, over
 the pairs of positive prior weight), the

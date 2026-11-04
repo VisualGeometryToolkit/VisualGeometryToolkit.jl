@@ -6,8 +6,11 @@ CurrentModule = VisualGeometryToolkitEstimation
 
 ## Generic Block-Coordinate-Descent Loop
 
-The generic loop dispatches on `AbstractBlockCoordinateMethod`. Concrete
-methods plug in by extending a small set of interface methods (all
+The generic loop is VisualGeometryToolkitCore's
+[`block_coordinate_descent!`](@extref `VisualGeometryToolkitCore.block_coordinate_descent!-Tuple{AbstractWeightPolicy, AbstractBlockCoordinateMethod, Any, Any}`),
+dispatching on
+[`AbstractBlockCoordinateMethod`](@extref VisualGeometryToolkitCore.AbstractBlockCoordinateMethod).
+Concrete methods plug in by extending a small set of interface methods (all
 declared `public`): `init_state!`, `update_model!`, `update_residuals!`,
 `update_nuisance!`, `update_weights!`, `post_iteration!`, `stopping_criterion`
 (a VGC `StoppingCriterion` value, composed with `|`; a new criterion implements
@@ -23,8 +26,6 @@ stopping on the mixture NLL) — and its state a [`PosteriorIrlsState`](@ref)
 built from a seeded posterior and its residual buffers.
 
 ```@docs
-AbstractBlockCoordinateMethod
-block_coordinate_descent!
 PosteriorIrlsMethod
 PosteriorIrlsState
 WeightedRefine
@@ -58,7 +59,9 @@ marginalising the inlier scale `σ²` under the scorer's prior (`scale_prior`,
 Jeffreys by default), against a uniform outlier density of half-width
 `outlier_halfwidth(scoring)`.
 
-A VisualGeometryToolkitCore `PosteriorWeightState` is seeded from a consensus set:
+A VisualGeometryToolkitCore
+[`PosteriorWeightState`](@extref `VisualGeometryToolkitCore.PosteriorWeightState-Tuple{AbstractVector{Float64}, Int64, Int64, Int64}`)
+is seeded from a consensus set:
 
 - **In the RANSAC loop**: [`consensus_posterior`](@ref) squares the seed
   model's residuals (already in the score buffers) and seeds `(ν₀, ŝ²₀)` from
@@ -82,7 +85,6 @@ consensus_posterior
 posterior_irls!
 required_outlier_halfwidth
 consensus_s2!
-VisualGeometryToolkitCore.PosteriorWeightState
 ```
 
 ## Posterior Weighting
@@ -92,40 +94,34 @@ and stand-alone EM-style refinement. They are VisualGeometryToolkitCore's toolki
 (import them from there): spec arguments (`log_two_outlier_halfwidth`,
 `model_dof`, `codimension`) are supplied explicitly, and the partition is a
 consensus order and its size `k`, as a scorer's `consensus_order` and
-`inlier_count` give them.
-
-```@docs
-VisualGeometryToolkitCore.posterior_weights!
-VisualGeometryToolkitCore.posterior_inlier_probs!
-VisualGeometryToolkitCore.soft_posterior_weights!
-VisualGeometryToolkitCore.update_nu!
-VisualGeometryToolkitCore.next_nu
-VisualGeometryToolkitCore.median_seeded_posterior
-```
+`inlier_count` give them:
+[`posterior_weights!`](@extref VisualGeometryToolkitCore.posterior_weights!),
+[`posterior_inlier_probs!`](@extref VisualGeometryToolkitCore.posterior_inlier_probs!),
+[`soft_posterior_weights!`](@extref VisualGeometryToolkitCore.soft_posterior_weights!),
+[`update_nu!`](@extref `VisualGeometryToolkitCore.update_nu!-Tuple{VisualGeometryToolkitCore.PosteriorWeightState, Int64}`),
+[`next_nu`](@extref VisualGeometryToolkitCore.next_nu) and
+[`median_seeded_posterior`](@extref VisualGeometryToolkitCore.median_seeded_posterior).
 
 ## Scale and Mixture Estimation
 
 The scale fit, the Student-t + uniform mixture and its ECM cycle, and the
 degrees-of-freedom policies the posterior weighting above draws on. They are
-VisualGeometryToolkitCore's (import them from there).
-
-```@docs
-VisualGeometryToolkitCore.fit_scale
-VisualGeometryToolkitCore.update_scale!
-VisualGeometryToolkitCore.partition_student_t
-VisualGeometryToolkitCore.StudentTMixture
-VisualGeometryToolkitCore.inlier_posterior
-VisualGeometryToolkitCore.posterior_weight
-VisualGeometryToolkitCore.mixture_nll
-VisualGeometryToolkitCore.mixture_ecm!
-VisualGeometryToolkitCore.update_inlier_prior!
-VisualGeometryToolkitCore.sq_residuals
-VisualGeometryToolkitCore.Estimated
-VisualGeometryToolkitCore.FixedS2
-VisualGeometryToolkitCore.FixedPrior
-VisualGeometryToolkitCore.FixedNu
-VisualGeometryToolkitCore.ConsensusDof
-```
+VisualGeometryToolkitCore's (import them from there):
+[`fit_scale`](@extref VisualGeometryToolkitCore.fit_scale),
+[`update_scale!`](@extref `VisualGeometryToolkitCore.update_scale!-Tuple{VisualGeometryToolkitCore.PosteriorWeightState, Int64}`),
+[`partition_student_t`](@extref VisualGeometryToolkitCore.partition_student_t),
+[`StudentTMixture`](@extref VisualGeometryToolkitCore.StudentTMixture),
+[`inlier_posterior`](@extref VisualGeometryToolkitCore.inlier_posterior),
+[`posterior_weight`](@extref VisualGeometryToolkitCore.posterior_weight),
+[`mixture_nll`](@extref `VisualGeometryToolkitCore.mixture_nll-Tuple{VisualGeometryToolkitCore.PosteriorWeightState, AbstractVector, Int64}`),
+[`mixture_ecm!`](@extref VisualGeometryToolkitCore.mixture_ecm!),
+[`update_inlier_prior!`](@extref `VisualGeometryToolkitCore.update_inlier_prior!-Tuple{VisualGeometryToolkitCore.PosteriorWeightState, Int64}`),
+[`sq_residuals`](@extref VisualGeometryToolkitCore.sq_residuals), and the
+policies [`Estimated`](@extref VisualGeometryToolkitCore.Estimated),
+[`FixedS2`](@extref VisualGeometryToolkitCore.FixedS2),
+[`FixedPrior`](@extref VisualGeometryToolkitCore.FixedPrior),
+[`FixedNu`](@extref VisualGeometryToolkitCore.FixedNu) and
+[`ConsensusDof`](@extref VisualGeometryToolkitCore.ConsensusDof).
 
 ## Robust Losses
 

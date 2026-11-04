@@ -122,7 +122,7 @@ const _LOSS_TABLE = (
 
 STATIC IRLS at a frozen loss width — direct iteratively-reweighted least
 squares on loss `K`, no lift, no graduation. `Irls{K}` is an LO STRATEGY: one
-instance of VisualGeometryToolkitCore's generic [`block_coordinate_descent!`](@ref)
+instance of VisualGeometryToolkitCore's generic [`block_coordinate_descent!`](@extref `VisualGeometryToolkitCore.block_coordinate_descent!-Tuple{AbstractWeightPolicy, AbstractBlockCoordinateMethod, Any, Any}`)
 loop, which is not itself "IRLS" (it also runs EM, the half-quadratic lifts and
 GNC). Runs the posterior-weight iteration
 ([`posterior_irls!`](@ref)) — the `PosteriorIrlsMethod` /
@@ -385,7 +385,7 @@ default_local_optimization(::AbstractScoring) = NoLocalOptimization()
                         scale_update = Estimated(), prior_update = FixedPrior(inlier_prior(rws)),
                         nu_update = Estimated()) <: NormalizedWeightPolicy
 
-Likelihood adapter for [`block_coordinate_descent!`](@ref). Wraps a
+Likelihood adapter for [`block_coordinate_descent!`](@extref `VisualGeometryToolkitCore.block_coordinate_descent!-Tuple{AbstractWeightPolicy, AbstractBlockCoordinateMethod, Any, Any}`). Wraps a
 VisualGeometryToolkitCore `PosteriorWeightState` with its data size `n` so the generic `block_coordinate_descent!`
 loop can call `update_nuisance!` / `update_weights!` without problem-specific
 detail.

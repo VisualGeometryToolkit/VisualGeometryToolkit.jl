@@ -94,8 +94,8 @@ const _REGION_AZIMUTHS = 720
     fit_camera(::Type{T}, source, region; …) -> FitResult{<model of T>, CameraFitMetadata}
 
 The camera model of type `T` regressed onto `source` over `region`, a region of
-the source's sensor in its pixel frame (an [`imaged_region`](@ref
-VisualGeometryToolkitCore.imaged_region), an `Ellipse`, a `Rect`, their `∩`;
+the source's sensor in its pixel frame (an [`imaged_region`](@extref
+`VisualGeometryToolkitCore.Cameras.imaged_region-Tuple{BoundedCamera, Any}`), an `Ellipse`, a `Rect`, their `∩`;
 bounded): the minimizer of the integrated squared pixel error of the round trip,
 `∫ ‖π_T(π⁻¹_source(u)) − u‖² du` over the region. The target type selects the
 family and the solve:
@@ -123,21 +123,21 @@ family and the solve:
   zero); a lift moves every coefficient. `Division` alone fits `Division{1}`;
   any other type must carry its arities (`KannalaBrandt{4}`).
 - **`SplineProjection`** (`fit_camera(SplineProjection, source, region;
-  tolerance)`): the forward map ray → pixel as a [`ChartSpline`](@ref
-  VisualGeometryToolkitCore.ChartSpline) on the equidistant direction chart about the
+  tolerance)`): the forward map ray → pixel as a VisualGeometryToolkitCore
+  `ChartSpline` on the equidistant direction chart about the
   source's ray at the region's centroid, fitted to the source's pixels by
   linear least squares with a P-spline penalty. THE SPACING SEARCH, shared by
   the spline and grid targets: the knot spacing `h` is doubled down from 4
-  cells along the longer side and then bisected to the LARGEST spacing whose
+  knot intervals along the longer side and then bisected to the LARGEST spacing whose
   held-out maximum error is at most `tolerance` (px), `retcode :converged`; a
-  fit that cannot reach it at the finest spacing of the bracket (a cell of three
+  fit that cannot reach it at the finest spacing of the bracket (a knot interval of three
   quadrature strides) returns `retcode :max_iterations` with what it reached.
   Each fit of the search is an outer iteration, counted in the metadata's
   `outer_iterations`; `iterations(result)` is 0.
 - **`CentralGenericModel`** (`fit_camera(CentralGenericModel, source, region;
   tolerance)`): a grid model in Core's full-image layout — the lattice the
   constructor `CentralGenericModel(source, size; grid_size)` lays over the whole
-  image, [`generic_lattice`](@ref VisualGeometryToolkitCore.generic_lattice)
+  image, Core's `generic_lattice`
   (the source is not sampled: the solve sets every control) — with `domain` the
   region, fitted to the source's rays by linear least squares with the P-spline
   penalty, its lattice spacing chosen by the spacing search (`grid_size` is not
@@ -145,15 +145,14 @@ family and the solve:
   restricts the quadrature only, never the lattice: a node whose support misses
   it is held by the penalty. The tolerance bounds the held-out DIRECTION error in
   pixels, the non-central target's metric (below). The image is the source's: a grid model's own, or a
-  [`BoundedCamera`](@ref VisualGeometryToolkitCore.BoundedCamera)'s extent (a
+  [`BoundedCamera`](@extref VisualGeometryToolkitCore.Cameras.BoundedCamera)'s extent (a
   bare `CameraModel` has none: an `ArgumentError`).
 - **`NoncentralGenericModel`** (`fit_camera(NoncentralGenericModel, source,
   region; tolerance)`): the same design and search on the source's observation
   LINES — a non-central grid source's `Ray3`s, or a central source's rays
   through its centre. Both grids, the unit directions and the points, come
   from ONE penalized solve on the same lattice. A line's point is pinned by
-  an anchor: c*, Core's [`nearest_point`](@ref
-  VisualGeometryToolkitCore.nearest_point) of all the quadrature lines, and each
+  an anchor: c*, Core's `nearest_point` of all the quadrature lines, and each
   line contributes its point closest to c*, `o + ((c* − o)·d) d` — bounded for
   rays at and past 90°, where a plane anchor (the pupil plane) runs off. The
   points are in the source's frame (frame in = frame out; plain metres, the
@@ -171,7 +170,7 @@ take one), and for the non-central target
 also a `NoncentralGenericModel`. The spline families' quadrature is on the
 image (they take no `weight`). Their per-point steps (the source's
 backprojection, the chart, the design rows, the evaluation, the errors) run as
-batches — Core's KernelAbstractions kernels and [`pointwise!`](@ref
+batches — Core's KernelAbstractions kernels and [`pointwise!`](@extref
 VisualGeometryToolkitCore.pointwise!) — on the host, and the penalized normal
 equations are solved by a sparse Cholesky factorization.
 

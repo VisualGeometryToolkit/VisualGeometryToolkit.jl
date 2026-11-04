@@ -255,7 +255,7 @@ previous calibration, EXIF — through `focal_seed`.
 — the same quantity the RANSAC problems take; it must NOT be the residual scale
 (a half-width at the median residual makes the outlier component as dense as the
 inliers and zeroes every weight — measured). The posterior is seeded from the
-median residual ([`median_seeded_posterior`](@ref)): every point starts an
+median residual ([`median_seeded_posterior`](@extref VisualGeometryToolkitCore.median_seeded_posterior)): every point starts an
 inlier and the M-step shrinks ŝ as the model improves.
 
 That seed and schedule are load-bearing, not incidental. Five alternatives were

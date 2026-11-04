@@ -1,5 +1,9 @@
 # Extending
 
+```@meta
+CurrentModule = VisualGeometryToolkitEstimation
+```
+
 ## Implementing a Custom RANSAC Problem
 
 To add a new geometry type to the RANSAC framework, implement a subtype of
@@ -103,7 +107,7 @@ also provides VisualGeometryToolkitCore's chart-rows contract (`rows_provider`,
 
 For a non-RANSAC EM / iteratively reweighted least squares, implement
 `AbstractBlockCoordinateMethod` and pair it with a likelihood (`PosteriorLikelihood`). The generic
-loop in [`block_coordinate_descent!`](@ref) handles iteration, convergence, and the best-cost
+loop in [`block_coordinate_descent!`](@extref `VisualGeometryToolkitCore.block_coordinate_descent!-Tuple{AbstractWeightPolicy, AbstractBlockCoordinateMethod, Any, Any}`) handles iteration, convergence, and the best-cost
 ratchet — your concrete method only needs to provide:
 
 ```julia

@@ -1,5 +1,9 @@
 # Gauge Invariance of the Predictive Constraint Covariance
 
+```@meta
+CurrentModule = VisualGeometryToolkitEstimation
+```
+
 *For homogeneous models.*
 
 We show that the predictive constraint covariance
@@ -500,7 +504,7 @@ constraint rows are VisualGeometryToolkitEstimation's, `propagate`, `whiten`,
 | ``(\bg_i,\; \partial_{\bx}\bg_i,\; \partial_\theta\bg_i)`` | [`constraint_with_jacobians`](@ref)`(problem, model, i)` | ``(g,\; G_x,\; G_\theta)``, optionally followed by the point's noise shape ``\btSigma_{\bx_i}`` |
 | ``\operatorname{propagate}(A, \bSigma) = A\,\bSigma\,A^\top`` (18) | `propagate(A, Σ)` | ``A\,\bSigma\,A^\top`` |
 | ``\br_i = \mathbf{L}_i^{-1}\bg_i``, ``\partial_\theta\bg_{i,w} = \mathbf{L}_i^{-1}\partial_\theta\bg_i`` (15) | `whitened_constraint_residual((g, G_x, G_θ, Σₓ))` (the Sampson residual, then `whiten(s_N, N, Σₓ)` along its normal) and `whitening_factor(G_x, Σₓ) * G_θ` (the same factor, held fixed) | ``\br_i``, ``\partial_\theta\bg_{i,w}`` |
-| ``\lVert\br_i\rVert``, the model-certain residual | [`whitened_residual`](@ref VisualGeometryToolkitCore.whitened_residual)`(problem, ctx, i)`, per point in [`residuals!`](@ref) | ``\lVert\br_i\rVert`` (signed when ``d_g = 1``) |
+| ``\lVert\br_i\rVert``, the model-certain residual | [`whitened_residual`](@extref VisualGeometryToolkitCore.whitened_residual)`(problem, ctx, i)`, per point in [`residuals!`](@extref VisualGeometryToolkitCore.residuals!) | ``\lVert\br_i\rVert`` (signed when ``d_g = 1``) |
 | ``\btSigma_\theta`` on an index set ``\cS``: (13) on a minimal sample, (12) on an overdetermined one | [`solver_covariance`](@ref)`(problem, model, idx)` | ``\btSigma_\theta``, unit scale |
 | ``\widetilde{\mathbf{V}}_i = \mathbf{I} + \operatorname{propagate}(\partial_\theta\bg_{i,w},\, \btSigma_\theta)``, ``q_i = \br_i^\top \widetilde{\mathbf{V}}_i^{-1} \br_i`` (17), Remark 2 | RANSACScoringDoneRight's `score_sq_residuals!` with a `StudentTUniformScoring{Predictive}` | ``q_i`` and the penalty ``\log\lvert\widetilde{\mathbf{V}}_i\rvert`` per point, then the sweep |
 

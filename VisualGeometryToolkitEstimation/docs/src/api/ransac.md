@@ -20,12 +20,8 @@ AbstractCspondProblem
 MinimalSolveProblem
 PoseContext
 minimal_sample_size
-data_size
-model_type
-codimension
 solve
 fit_hypothesis
-residuals!
 test_sample
 test_model
 test_consensus
@@ -33,32 +29,34 @@ refine!
 draw_sample!
 constraint_with_jacobians
 solver_covariance
-provides_solver_covariance
-VisualGeometryToolkitCore.test_conditioning
-VisualGeometryToolkitCore.test_cheirality
 ```
+
+The rest of the problem protocol is VisualGeometryToolkitCore's, documented in
+its manual: [`data_size`](@extref VisualGeometryToolkitCore.data_size),
+[`model_type`](@extref VisualGeometryToolkitCore.model_type),
+[`codimension`](@extref VisualGeometryToolkitCore.codimension),
+[`residuals!`](@extref VisualGeometryToolkitCore.residuals!),
+[`provides_solver_covariance`](@extref VisualGeometryToolkitCore.provides_solver_covariance),
+[`test_conditioning`](@extref VisualGeometryToolkitCore.test_conditioning) and
+[`test_cheirality`](@extref `VisualGeometryToolkitCore.test_cheirality-Tuple{HomographyMat, Any, AbstractVector{<:Integer}}`).
 
 ## Solver + correspondence protocol
 
-The minimal-solver and correspondence verbs the problem layer is built on.
-They are VisualGeometryToolkitCore's; documented here because the problem interface
-above refers to them.
-
-```@docs
-VisualGeometryToolkitCore.MinimalSolver
-VisualGeometryToolkitCore.RefitFamily
-sources
-targets
-```
+The minimal-solver and correspondence verbs the problem layer is built on are
+VisualGeometryToolkitCore's:
+[`MinimalSolver`](@extref VisualGeometryToolkitCore.MinimalSolver),
+[`RefitFamily`](@extref VisualGeometryToolkitCore.RefitFamily),
+[`sources`](@extref VisualGeometryToolkitCore.sources) and
+[`targets`](@extref VisualGeometryToolkitCore.targets).
 
 ## Residual protocol
 
-The per-point residual protocol (VisualGeometryToolkitCore's) that `residuals!`
-runs, and the residual degrees of freedom.
+The per-point residual protocol that `residuals!` runs is VisualGeometryToolkitCore's
+([`whitened_residual`](@extref VisualGeometryToolkitCore.whitened_residual),
+[`residual_context`](@extref VisualGeometryToolkitCore.residual_context)); the
+residual degrees of freedom are this package's.
 
 ```@docs
-VisualGeometryToolkitCore.whitened_residual
-VisualGeometryToolkitCore.residual_context
 residual_dof
 oracle_residual_dof
 ```
@@ -66,12 +64,9 @@ oracle_residual_dof
 ## Local-optimization result
 
 `RansacEstimate`, `RansacMetadata`, `RansacWorkspace` and `inlier_ratio` are
-documented under "Result Types" and "Workspaces" below; the LO half of the
-result record is here.
-
-```@docs
-lo_estimate
-```
+documented under "Result Types" and "Workspaces" below. The LO half of the
+result record is VisualGeometryToolkitCore's
+[`lo_estimate`](@extref VisualGeometryToolkitCore.lo_estimate).
 
 ## Solver Backends
 

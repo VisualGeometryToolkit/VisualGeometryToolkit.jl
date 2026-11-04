@@ -81,4 +81,4 @@ matches = matcher(fa, fb, size(img_a), size(img_b))
 
 The package's `examples/loma.jl` runs this on a pair of downloaded images and
 draws the matches. Cite the LoMa and DeDoDe papers when you use these networks
-(see the README).
+(their entries are on the [home page](../index.md#LoMa)).

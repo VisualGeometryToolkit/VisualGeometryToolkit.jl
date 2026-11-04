@@ -1,20 +1,20 @@
 # Getting Started
 
-This page installs the package and walks through the README's quick start one
-step at a time. Every block on this page is a doctest, run by the docs build.
+This page installs the package and walks through the README's example one
+step at a time. Every Julia block on this page is a doctest, run by the docs
+build.
 
 ## Installation
 
 Install VisualGeometryToolkitFeatures from the General registry (Julia 1.12 or
 later):
 
-```julia
-using Pkg
-Pkg.add("VisualGeometryToolkitFeatures")
+```julia-repl
+pkg> add VisualGeometryToolkitFeatures
 ```
 
 The geometric types come from VisualGeometryToolkitCore, which is installed as
-a dependency. Add it to your environment as well (`Pkg.add("VisualGeometryToolkitCore")`)
+a dependency. Add it to your environment as well (`pkg> add VisualGeometryToolkitCore`)
 when you construct frames or points yourself.
 
 ## A synthetic image

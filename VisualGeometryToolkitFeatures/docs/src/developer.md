@@ -35,20 +35,24 @@ julia --project=VisualGeometryToolkitFeatures -e 'using Pkg; Pkg.test(; test_arg
 The second form runs the items whose names match the pattern. Check the total
 it reports: a pattern that matches nothing runs nothing.
 
-`test/readme_tests.jl` runs every `julia` block of the README except the
-installation block, and checks each statement whose line ends in `# true`.
-Keep the README's quick start self-contained: no files, no network.
+`test/readme_tests.jl` checks that the README's install line names exactly the
+packages its example loads, that the landing page (`docs/src/index.md`) shows
+the same install line and the same example, and runs the example in a fresh
+environment built from the install line. Keep the example self-contained: no
+files, no network.
 
 ## Documentation
 
-The docs index is generated from the README by `docs/make.jl`, so edit the
-README rather than `docs/src/index.md`. Build from the repository root:
+Build from the repository root:
 
 ```bash
 julia --project=VisualGeometryToolkitFeatures/docs --startup-file=no VisualGeometryToolkitFeatures/docs/make.jl
 ```
 
-The build runs the doctests and fails on an exported name without a docstring.
+The build runs the doctests and checks the links, fails on any warning, and
+fails on a public docstring missing from the manual. `test/docs_tests.jl`
+fails on a public name without a docstring, a docstring detached from its
+definition, and a signature line no method accepts.
 
 ## Benchmarks and examples
 

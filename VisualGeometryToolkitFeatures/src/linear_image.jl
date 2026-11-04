@@ -94,7 +94,7 @@ fisheye's image circle) it is the NORMALIZED convolution
 `blur(img·mask) / blur(mask)`: pixels outside the mask do not bleed in, and a
 pixel where the mask is zero is `0`. `σ = 0` returns a `Float64` copy (masked
 to zero outside the mask). Edge-safe smoothing of a linear image before it is
-sampled (the rooftop vignetting chain's cell samples).
+sampled (the rooftop vignetting chain samples it at fixed points).
 """
 function gaussian_blur(img::AbstractArray{<:Real, 3}, σ::Real, mask::Union{Nothing, AbstractMatrix{<:Real}} = nothing)
     σ >= 0 || throw(ArgumentError("gaussian_blur: σ must be non-negative, got $σ"))

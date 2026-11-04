@@ -5,43 +5,23 @@
 [![Docs: dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitFeatures/dev/)
 [![Coverage](https://codecov.io/gh/VisualGeometryToolkit/VisualGeometryToolkit.jl/branch/main/graph/badge.svg?flag=VisualGeometryToolkitFeatures)](https://app.codecov.io/gh/VisualGeometryToolkit/VisualGeometryToolkit.jl?flags%5B0%5D=VisualGeometryToolkitFeatures)
 
-Feature detection, description and matching for the VisualGeometry stack.
-
-- **Detection.** ASIFT (IMAS-25) on KernelAbstractions. `asift_detect` runs on
-  the CPU or any KernelAbstractions GPU backend and returns `Detection`s (a
-  feature frame plus detector metadata), optionally with each keypoint's
-  covariance. VisualGeometryToolkitIO writes and reads detections as JSON.
-- **Matching.** Nearest-neighbour descriptor matching, with one
-  KernelAbstractions implementation for the CPU and every GPU backend
-  (`nn_match`, `match`), and a stacked matcher over many galleries
-  (`nn_match_stacked`).
-- **LoMa.** The learned DeDoDe descriptors and LoMa matchers of
-  [LoMa](https://github.com/davnords/LoMa) (Nordström et al., ECCV 2026), run
-  from the authors' ONNX exports through ONNX Runtime on the CPU or CUDA
-  (`LoMaDescriptor`, `LoMaMatcher`). See [Citing](#citing).
-- **Extensions.** JLD2 backs `FileCache`, and Makie draws detections and
-  correspondences.
-
-The geometric types (feature frames, correspondences, covariances) are
-[VisualGeometryToolkitCore](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/stable/)'s.
-This package adds the detector, the descriptors and the matchers that work on
-them.
+VisualGeometryToolkitFeatures detects, describes and matches image features:
+the ASIFT detector on the CPU or a GPU, nearest-neighbour descriptor matching,
+and the learned LoMa descriptors and matchers. It returns the geometric types
+of [VisualGeometryToolkitCore](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/stable/).
 
 ## Installation
 
-```julia
-using Pkg
-Pkg.add("VisualGeometryToolkitFeatures")
+```julia-repl
+pkg> add VisualGeometryToolkitFeatures
 ```
 
-The package requires Julia 1.12 and is part of the
-[VisualGeometryToolkit](https://github.com/VisualGeometryToolkit) stack.
+Julia 1.12 or later. Every dependency is in the General registry.
 
-## Quick start
+## Example
 
 The example detects the blobs of a synthetic image and matches two sets of
-descriptors. It needs no files and no
-network.
+descriptors. It needs no files and no network.
 
 ```julia
 using VisualGeometryToolkitFeatures
@@ -74,30 +54,29 @@ matches = nn_match(D1, D2)             # mutual nearest neighbours, cosine simil
 all(perm[m.second] == m.first for m in matches)   # true
 ```
 
-Detections are written to and read from JSON by
-[VisualGeometryToolkitIO](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/stable/guide/serialization/)
-(`json_value(d, contract; kind)`, `from_json(Detection, obj, contract; kind)`), which owns
-the stack's quantity JSON format.
+The [Getting Started](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitFeatures/stable/guide/getting-started/)
+guide walks through it step by step.
 
 ## Documentation
 
-- [Getting started](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitFeatures/stable/guide/getting-started/):
-  the quick start, step by step.
+- [Getting Started](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitFeatures/stable/guide/getting-started/):
+  the example, step by step.
 - [Detection](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitFeatures/stable/guide/detection/):
   the ASIFT detector, its coordinates, accuracy and keypoint covariance.
 - [Matching](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitFeatures/stable/guide/matching/):
   strategies, metrics, stacked galleries and LoMa.
-- [API reference](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitFeatures/stable/api/detection/).
+- [API Reference](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitFeatures/stable/api/detection/).
 
-The stack's shared conventions (function names, argument order, coordinate
-frames and pixel origins) are documented in VisualGeometryToolkitCore's
-[Conventions](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/stable/guide/conventions/).
+VisualGeometryToolkitIO reads and writes detections as JSON, and
+VisualGeometryToolkitEstimation fits models to the matches. The
+[portal](https://visualgeometrytoolkit.github.io) links every package of the
+toolkit.
 
 ## Citing
 
-VisualGeometryToolkitFeatures is part of VisualGeometryToolkit. Cite the toolkit; its
-[CITATION.cff](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/blob/main/CITATION.cff) is the source of this entry (GitHub's "Cite this
-repository" button exports it):
+VisualGeometryToolkitFeatures is part of VisualGeometryToolkit. Cite the toolkit. Its
+[CITATION.cff](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/blob/main/CITATION.cff)
+is the source of this entry, and GitHub's "Cite this repository" button exports it:
 
 ```bibtex
 @software{pritts2026vgtk,
@@ -111,9 +90,13 @@ repository" button exports it):
 Cite also the papers behind the methods you use, listed on
 [the portal](https://visualgeometrytoolkit.github.io/#publications).
 
-### LoMa
-
-`LoMaDescriptor` and `LoMaMatcher` run the networks of [LoMa](https://github.com/davnords/LoMa) by **David Nordström, Johan Edstedt, Georg Bökman, Jonathan Astermark, Anders Heyden, Viktor Larsson, Mårten Wadenbäck, Michael Felsberg and Fredrik Kahl**. The architectures, the trained weights and the ONNX exports are theirs, downloaded from the authors' release; this package only feeds them keypoints and reads their matches back. The descriptors are [DeDoDe](https://github.com/Parskatt/DeDoDe)'s (Edstedt *et al.*). If you use them in published work, cite both:
+`LoMaDescriptor` and `LoMaMatcher` run the networks of
+[LoMa](https://github.com/davnords/LoMa) by David Nordström, Johan Edstedt,
+Georg Bökman, Jonathan Astermark, Anders Heyden, Viktor Larsson, Mårten
+Wadenbäck, Michael Felsberg and Fredrik Kahl. The architectures, the trained
+weights and the ONNX exports are theirs, downloaded from the authors' release.
+The descriptors are [DeDoDe](https://github.com/Parskatt/DeDoDe)'s (Edstedt
+*et al.*). If you use them in published work, cite both:
 
 ```bibtex
 @inproceedings{nordstrom2026loma,

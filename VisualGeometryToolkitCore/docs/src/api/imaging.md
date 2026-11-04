@@ -114,6 +114,26 @@ form, plain or physical, and move with `ustrip`/`with_unit`; `Scale`,
 `Aspect` and `Skew` are dimensionless. A calibration may be
 `Uncertain(c, CovMat(Σ))`, `Σ` over its parameters, as a pose may be.
 
+**A calibration on the board's own chart.** "No affine term" is a property of
+the nodes a thin-plate kind is built on (`r² log r` is not scale-invariant:
+rescaling the nodes moves a piston into the affine part), so a field computed
+on a dimensionless chart of the board — RadiometricCamera's page `[0, 1]²` —
+stays on that chart, and the target places the chart with a
+[`ChartPlacement`](@ref)`(origin, side)`, `p = origin + side·c`:
+`PlanarTarget(…; calibration, placement)` applies its calibration as
+`P(C(P⁻¹(p)))`, a height scaled by `side`. The calibration is plain chart
+numbers whatever the points' form; the placement is fixed data in the points'
+form (it carries the lengths, moves with `ustrip`/`with_unit`, and adds no
+parameters). A page whose chart runs down the design's y is placed at its
+top-left corner on the reflected chart nodes `(u, −v)`, which keep the
+bending pure.
+
+```julia
+nodes = [SVector(n[1], -n[2]) for n in grid_nodes(5; lo = 0.0, hi = 1.0)]   # the page's chart, rows down
+t = PlanarTarget(:page; calibration = HeightField(nodes, heights ./ side),     # heights in chart units
+                 placement = ChartPlacement(SVector(x0, ytop), side), board, canvas)
+```
+
 **Planarity is in the type.** [`is_planar`](@ref) is true for `Rigid`, the
 affine factors and `ThinPlateSpline`, false once a `HeightField` is present; `points(t)` is then `SVector{2}`s on `z = 0` or `SVector{3}`s, and the
 result type is inferred. A method that assumes the plane takes

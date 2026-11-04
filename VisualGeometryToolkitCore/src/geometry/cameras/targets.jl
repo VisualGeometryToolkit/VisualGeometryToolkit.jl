@@ -115,6 +115,96 @@ FlexUnits.ustrip(u::Units, t::PointTarget) = PointTarget([_ustrip_point(u, p) fo
 with_unit(t::PointTarget, u::Units) = PointTarget([_attach_point(u, p) for p in points(t)])
 
 # ------------------------------------------------------------------------------
+# ChartPlacement — a calibration's dimensionless chart in the design chart
+# ------------------------------------------------------------------------------
+#
+# A thin-plate calibration is pure bending only on the nodes it is built on
+# (target_calibration.jl, "no affine term"): its kernel r² log r is not
+# scale-invariant, so the same field on nodes in metres and on nodes in
+# millimetres differ by a piston. A target whose calibration is defined on a
+# DIMENSIONLESS chart of its board — RadiometricCamera's page [0, 1]² — says
+# where that chart lies with a placement, fixed data: the calibration then
+# acts in the chart, unit-free, and the placement carries the lengths.
+
+"""
+    ChartPlacement(origin, side)
+
+Where a planar target's calibration CHART lies in its design chart: the chart
+point `c` is the design point `p = origin + side · c` (and `c = (p − origin) /
+side`). `origin` is a 2-vector and `side` a positive number, all lengths
+(stored in metres, as a [`Board`](@ref)'s corner is) or all plain numbers —
+the target's points' form. A similarity of positive determinant, no rotation:
+a page whose chart runs down the design's y (an image's rows) is placed at its
+top-left corner and its calibration built on the REFLECTED chart nodes
+`(u, −v)` — a reflection keeps a thin-plate field's bending pure, as any
+isometry of the nodes does.
+
+A [`PlanarTarget`](@ref) built with `placement = P` holds its calibration in
+the chart, as plain numbers whatever the points' form: its physical points are
+
+    x(p) = P(C(P⁻¹(p)))      in the plane, and   side · h(P⁻¹(p))   along the normal
+
+for a calibration `C` and its height `h` — a [`HeightField`](@ref)'s heights
+are chart units, scaled back by `side`. The placement has no parameters (it is
+not a calibration kind: the calibration's parameters, names, manifold and
+regularizer are the calibration's own, untouched), and a unit move
+(`ustrip`, [`with_unit`](@ref)) moves it and the points and leaves the
+calibration as it is. `ustrip(u, P)` and `with_unit(P, u)` move a placement by
+itself.
+"""
+struct ChartPlacement
+    origin::SVector{2, Float64}   # the chart's origin in the design chart: plain metres, or plain
+    side::Float64                 # the design length of one chart unit: plain metres, or plain
+    physical::Bool                # whether the two are lengths (stored as plain metres, as a thin-plate kind's)
+    function ChartPlacement(origin::SVector{2, Float64}, side::Float64, physical::Bool)
+        (isfinite(side) && side > 0) || throw(ArgumentError("a chart placement's side is positive and finite, got $side"))
+        all(isfinite, origin) || throw(ArgumentError("a chart placement's origin is finite, got $(Tuple(origin))"))
+        return new(origin, side, physical)
+    end
+end
+function ChartPlacement(origin::AbstractVector, side::Number)
+    length(origin) == 2 || throw(DimensionMismatch("a chart placement's origin is a 2-vector; got $(length(origin)) entries"))
+    (side isa Quantity ? all(x -> x isa Quantity, origin) : !any(x -> x isa Quantity, origin)) ||
+        throw(ArgumentError("ChartPlacement: the origin and the side are all lengths or all plain numbers; got $(Tuple(origin)) and $(side)"))
+    side isa Quantity && return ChartPlacement(_board_origin(origin), Float64(strip_metres(_check_length(side))), true)
+    return ChartPlacement(SVector{2, Float64}(origin), Float64(side), false)
+end
+
+has_units(P::ChartPlacement) = P.physical
+_form_sample(P::ChartPlacement) = P.physical ? _attach_length(P.side, m) : P.side
+Base.:(==)(a::ChartPlacement, b::ChartPlacement) = a.origin == b.origin && a.side == b.side && a.physical == b.physical
+Base.hash(P::ChartPlacement, h::UInt) = hash(P.physical, hash(P.side, hash(P.origin, hash(:ChartPlacement, h))))
+Base.show(io::IO, P::ChartPlacement) =
+    print(io, "ChartPlacement(", Tuple(P.origin), ", ", P.side, P.physical ? "; lengths in metres)" : ")")
+FlexUnits.ustrip(u::Units, P::ChartPlacement) = P.physical ?
+    ChartPlacement(map(x -> _from_metres(x, u), P.origin), _from_metres(P.side, u), false) :
+    throw(ArgumentError("ustrip: the chart placement is plain numbers already; `with_unit` attaches a unit"))
+with_unit(P::ChartPlacement, u::Units) = P.physical ? throw(ArgumentError("with_unit: the chart placement already has units")) :
+    ChartPlacement(map(x -> _to_metres(x, u), P.origin), _to_metres(P.side, u), true)
+
+# The placement on plain numbers (metres for a physical one): the chart point
+# of a design point, and a calibration's chart result put back in the design
+# chart as the design point MOVED by the chart displacement, `p + side·(y − c)`
+# (`= origin + side·y`), so an in-plane identity — a HeightField, Rigid —
+# leaves `p` exactly; a height `y₃` is scaled by `side`.
+@inline _placement_side(P::ChartPlacement) = P.side
+@inline _to_chart(P::ChartPlacement, q::StaticVector{2}) = (q - P.origin) / _placement_side(P)
+@inline function _from_chart(P::ChartPlacement, q::StaticVector{2}, c::StaticVector{2}, y::StaticVector{2})
+    s = _placement_side(P)
+    return SVector(q[1] + s * (y[1] - c[1]), q[2] + s * (y[2] - c[2]))
+end
+@inline function _from_chart(P::ChartPlacement, q::StaticVector{2}, c::StaticVector{2}, y::StaticVector{3})
+    s = _placement_side(P)
+    return SVector(q[1] + s * (y[1] - c[1]), q[2] + s * (y[2] - c[2]), s * y[3])
+end
+# A calibration applied to a design point through the placement, the point keeping its form.
+function _placed_point(P::ChartPlacement, c::TargetCalibration, p::StaticVector)
+    q = _plain_point(p)
+    k = _to_chart(P, q)
+    return _restore_point(_from_chart(P, q, k, _apply(c, k)), p)
+end
+
+# ------------------------------------------------------------------------------
 # PlanarTarget
 # ------------------------------------------------------------------------------
 
@@ -123,8 +213,8 @@ struct _Checked end
 struct _UnitMove end
 
 """
-    PlanarTarget(nominal; calibration = Rigid(), board = nothing, canvas = nothing)                  a design given by its points
-    PlanarTarget(design::Symbol; nominal = nothing, calibration = Rigid(), board = nothing, canvas = nothing)   a content-addressed design
+    PlanarTarget(nominal; calibration = Rigid(), board = nothing, canvas = nothing, placement = nothing)                  a design given by its points
+    PlanarTarget(design::Symbol; nominal = nothing, calibration = Rigid(), board = nothing, canvas = nothing, placement = nothing)   a content-addressed design
 
 A planar target: a DESIGN — its nominal plane points, and/or the reference
 `design` they are resolved from (a BlobBoards board uid) — and a
@@ -166,6 +256,18 @@ the points, the calibration and [`surface`](@ref) never read. It is in the
 points' form like the board, and the board lies on it to within the same
 rounding margin (an `ArgumentError` otherwise). [`canvas`](@ref)`(t)` reads it;
 `ustrip` and `with_unit` move it with the points.
+
+`placement` is a [`ChartPlacement`](@ref), or `nothing`: where the
+calibration's dimensionless chart lies in the design chart. With one, the
+calibration acts in that chart — a [`HeightField`](@ref) or
+[`ThinPlateSpline`](@ref) built on the chart's nodes (RadiometricCamera's
+page `[0, 1]²`), its values in chart units — and is plain numbers whatever
+the points' form (an `ArgumentError` for a calibration with units); the
+placement is in the points' form and carries the lengths:
+`points(t) = P.(C.(P⁻¹.(nominal)))`, a height scaled by the placement's side.
+The calibration's parameters, manifold and regularizer are its own: the
+placement is fixed data and adds none. A unit move moves the placement and
+leaves the calibration as it is. [`placement`](@ref)`(t)` reads it.
 """
 struct PlanarTarget{C <: TargetCalibration, N <: Union{Nothing, Vector{<:SVector{2}}}, S <: Union{C, Uncertain{C}}} <: AbstractTarget
     reference::Union{Nothing, Symbol}
@@ -173,32 +275,43 @@ struct PlanarTarget{C <: TargetCalibration, N <: Union{Nothing, Vector{<:SVector
     calibration::S
     board::Union{Nothing, Board}
     canvas::Union{Nothing, Canvas}
+    placement::Union{Nothing, ChartPlacement}
     # The private `_UnitMove()` route skips the board containment check: the
     # points are known to lie on the board — a unit move of a target that held
     # them there (`ustrip`, `with_unit`), whose rounding must not refuse it.
     # Every public construction is `_Checked()`.
     function PlanarTarget(
             reference::Union{Nothing, Symbol}, nominal, calibration::Union{TargetCalibration, Uncertain{<:TargetCalibration}},
-            board::Union{Nothing, Board}, canvas::Union{Nothing, Canvas}, route::Union{_Checked, _UnitMove}
+            board::Union{Nothing, Board}, canvas::Union{Nothing, Canvas}, placement::Union{Nothing, ChartPlacement},
+            route::Union{_Checked, _UnitMove}
         )
         (reference === nothing && nominal === nothing) &&
             throw(ArgumentError("a planar target has a design reference, nominal points, or both"))
         n = nominal === nothing ? nothing : _nominal_points(nominal)
         _check_calibration(n, calibration)
-        # the points, the calibration's lengths and the board: one form
-        _check_one_form((n === nothing || isempty(n) ? nothing : first(n), geom(calibration), board, canvas))
+        # the points, the calibration's lengths (or, placed, the placement's) and the board: one form
+        placement === nothing || _check_chart_calibration(geom(calibration))
+        _check_one_form((n === nothing || isempty(n) ? nothing : first(n), something(placement, geom(calibration)), board, canvas))
         _check_board(n, board, calibration, route isa _Checked)
         route isa _Checked && _check_canvas(board, canvas)
-        return new{typeof(geom(calibration)), typeof(n), typeof(calibration)}(reference, n, calibration, board, canvas)
+        return new{typeof(geom(calibration)), typeof(n), typeof(calibration)}(reference, n, calibration, board, canvas, placement)
     end
 end
-# The public positional form (the board and the canvas optional): always checked,
-# the calibration first (`_stored_calibration`, target_calibration.jl: one of
-# the kinds or an accepted composition, right-associated, a rigid member's
-# lengths in metres).
+# The public positional form (the board, the canvas and the placement
+# optional): always checked, the calibration first (`_stored_calibration`,
+# target_calibration.jl: one of the kinds or an accepted composition,
+# right-associated, a rigid member's lengths in metres).
 PlanarTarget(reference::Union{Nothing, Symbol}, nominal, calibration,
-             board::Union{Nothing, Board} = nothing, canvas::Union{Nothing, Canvas} = nothing) =
-    PlanarTarget(reference, nominal, _stored_calibration(calibration), board, canvas, _Checked())
+             board::Union{Nothing, Board} = nothing, canvas::Union{Nothing, Canvas} = nothing,
+             placement::Union{Nothing, ChartPlacement} = nothing) =
+    PlanarTarget(reference, nominal, _stored_calibration(calibration), board, canvas, placement, _Checked())
+# A placed target's calibration acts in the dimensionless chart: plain numbers.
+_check_chart_calibration(c) = _unit_form(c) === :physical && throw(
+    ArgumentError(
+        "PlanarTarget: with a placement the calibration acts in its dimensionless chart, so it is plain numbers " *
+            "(nodes and values in chart units); got one with units — strip it (`ustrip(m, c)`) and build it on the chart's nodes"
+    )
+)
 # The board lies on the canvas, within the rounding margin of `_grown_rect`.
 function _check_canvas(bd, cv)
     (bd === nothing || cv === nothing) && return nothing
@@ -239,10 +352,10 @@ function _check_calibration(nominal, c)
     )
     return nothing
 end
-PlanarTarget(nominal::AbstractVector; calibration = Rigid(), board = nothing, canvas = nothing) =
-    PlanarTarget(nothing, nominal, calibration, board, canvas)
-PlanarTarget(reference::Symbol; nominal = nothing, calibration = Rigid(), board = nothing, canvas = nothing) =
-    PlanarTarget(reference, nominal, calibration, board, canvas)
+PlanarTarget(nominal::AbstractVector; calibration = Rigid(), board = nothing, canvas = nothing, placement = nothing) =
+    PlanarTarget(nothing, nominal, calibration, board, canvas, placement)
+PlanarTarget(reference::Symbol; nominal = nothing, calibration = Rigid(), board = nothing, canvas = nothing, placement = nothing) =
+    PlanarTarget(reference, nominal, calibration, board, canvas, placement)
 
 """
     AprilGrid(; tag_rows, tag_cols, tag_size, tag_spacing)
@@ -435,12 +548,21 @@ image when it carries one), or `nothing` when the target does not carry one.
 canvas(t::PlanarTarget) = t.canvas
 
 """
+    placement(t::PlanarTarget) -> Union{Nothing, ChartPlacement}
+
+Where the target's calibration chart lies in its design chart
+([`ChartPlacement`](@ref)), or `nothing` when the calibration acts on the
+design chart itself.
+"""
+placement(t::PlanarTarget) = t.placement
+
+"""
     resolve(t::PlanarTarget, nominal) -> PlanarTarget
 
 The target with its design's nominal points supplied — what the design's
 owner returns for the reference `reference(t)`.
 """
-resolve(t::PlanarTarget, nominal::AbstractVector) = PlanarTarget(t.reference, nominal, t.calibration, t.board, t.canvas)
+resolve(t::PlanarTarget, nominal::AbstractVector) = PlanarTarget(t.reference, nominal, t.calibration, t.board, t.canvas, t.placement)
 
 """
     is_resolved(t) -> Bool
@@ -468,46 +590,55 @@ is_resolved(t::PlanarTarget) = t.nominal !== nothing
 The physical target's points in its own frame, `calibration(t)` applied to the
 design: `SVector{2}`s on the plane `z = 0` when the calibration
 [`is_planar`](@ref), `SVector{3}`s when a [`HeightField`](@ref) lifts them off
-it — decided by the calibration's type, so the result type is inferred. An
-`ArgumentError` naming the reference for an unresolved target.
+it — decided by the calibration's type, so the result type is inferred. A
+placed target ([`placement`](@ref)) applies its calibration in the chart,
+`P(C(P⁻¹(p)))`. An `ArgumentError` naming the reference for an unresolved
+target.
 """
-points(t::PlanarTarget) = _calibrated_points(t, geom(t.calibration), t.nominal)
-_calibrated_points(t, _, ::Nothing) = _refuse_unresolved(t)
-_calibrated_points(_, c, nominal) = [c(p) for p in nominal]
+points(t::PlanarTarget) = t.nominal === nothing ? _refuse_unresolved(t) : _calibrated_points(geom(t.calibration), t.placement, t.nominal)
+_calibrated_points(c, ::Nothing, nominal) = [c(p) for p in nominal]
+_calibrated_points(c, P::ChartPlacement, nominal) = [_placed_point(P, c, p) for p in nominal]
 Base.:(==)(a::PlanarTarget, b::PlanarTarget) =
-    a.reference === b.reference && isequal(a.nominal, b.nominal) && a.calibration == b.calibration && a.board == b.board && a.canvas == b.canvas
+    a.reference === b.reference && isequal(a.nominal, b.nominal) && a.calibration == b.calibration && a.board == b.board &&
+    a.canvas == b.canvas && a.placement == b.placement
 Base.hash(t::PlanarTarget, h::UInt) =
-    hash(t.canvas, hash(t.board, hash(t.calibration, hash(t.nominal, hash(t.reference, hash(:PlanarTarget, h))))))
+    hash(t.placement, hash(t.canvas, hash(t.board, hash(t.calibration, hash(t.nominal, hash(t.reference, hash(:PlanarTarget, h)))))))
 
 # Units: a resolved target's nominal points move, and with them a calibration
 # that has lengths; an unresolved one moves only its calibration.
 # The board moves with them, by the same rule (an unresolved target's board
-# moves when it is in the form being left).
-has_units(t::PlanarTarget) = is_resolved(t) ? has_units(t.nominal) : has_units(geom(t.calibration))
+# moves when it is in the form being left). A placed target moves its
+# placement instead of its calibration, which is plain chart numbers.
+has_units(t::PlanarTarget) = is_resolved(t) ? has_units(t.nominal) : has_units(_lengths_part(t))
+# the part that carries the calibration's lengths: the placement, or the calibration
+_lengths_part(t::PlanarTarget) = t.placement === nothing ? geom(t.calibration) : t.placement
 FlexUnits.ustrip(u::Units, t::PlanarTarget) = PlanarTarget(
-    t.reference, is_resolved(t) ? [_ustrip_point(u, p) for p in t.nominal] : nothing, _ustrip_calibration(u, t.calibration),
-    _move_board(ustrip, u, t.board, true), _move_board(ustrip, u, t.canvas, true), _UnitMove()
+    t.reference, is_resolved(t) ? [_ustrip_point(u, p) for p in t.nominal] : nothing,
+    t.placement === nothing ? _ustrip_calibration(u, t.calibration) : t.calibration,
+    _move_board(ustrip, u, t.board, true), _move_board(ustrip, u, t.canvas, true), _move_board(ustrip, u, t.placement, true), _UnitMove()
 )
 with_unit(t::PlanarTarget, u::Units) = PlanarTarget(
-    t.reference, is_resolved(t) ? [_attach_point(u, p) for p in t.nominal] : nothing, _attach_calibration(u, t.calibration),
-    _move_board((u, bd) -> with_unit(bd, u), u, t.board, false), _move_board((u, cv) -> with_unit(cv, u), u, t.canvas, false), _UnitMove()
+    t.reference, is_resolved(t) ? [_attach_point(u, p) for p in t.nominal] : nothing,
+    t.placement === nothing ? _attach_calibration(u, t.calibration) : t.calibration,
+    _move_board((u, bd) -> with_unit(bd, u), u, t.board, false), _move_board((u, cv) -> with_unit(cv, u), u, t.canvas, false),
+    _move_board((u, P) -> with_unit(P, u), u, t.placement, false), _UnitMove()
 )
 # The one-form rule's view of a planar target (`_check_one_form`): its nominal
-# points', calibration's, board's and canvas's forms, which its constructor
+# points', calibration's (or placement's), board's and canvas's forms, which its constructor
 # already holds to one — read from the stored parts, never by applying the
 # calibration. An unresolved target whose calibration, board or canvas carries
 # lengths has their form, so a plain pose on it is refused as on a resolved one.
 function _unit_form(t::PlanarTarget)
     n = t.nominal
-    forms = (n === nothing || isempty(n) ? :none : _unit_form(first(n)), _unit_form(geom(t.calibration)), _unit_form(t.board), _unit_form(t.canvas))
+    forms = (n === nothing || isempty(n) ? :none : _unit_form(first(n)), _unit_form(_lengths_part(t)), _unit_form(t.board), _unit_form(t.canvas))
     return :physical in forms ? :physical : :plain in forms ? :plain : :none
 end
 _form_sample(t::PlanarTarget) = _form_sample(
     t.nominal !== nothing && !isempty(t.nominal) ? first(t.nominal) :
-        _unit_form(geom(t.calibration)) !== :none ? geom(t.calibration) : t.board !== nothing ? t.board : t.canvas
+        _unit_form(_lengths_part(t)) !== :none ? _lengths_part(t) : t.board !== nothing ? t.board : t.canvas
 )
 _move_board(_, _, ::Nothing, _) = nothing
-_move_board(f, u, bd::Union{Board, Canvas}, from_physical::Bool) = has_units(bd) == from_physical ? f(u, bd) : bd
+_move_board(f, u, bd::Union{Board, Canvas, ChartPlacement}, from_physical::Bool) = has_units(bd) == from_physical ? f(u, bd) : bd
 
 # --- the calibratable-target protocol ------------------------------------------------
 
@@ -517,7 +648,8 @@ _move_board(f, u, bd::Union{Board, Canvas}, from_physical::Bool) = has_units(bd)
 parameter_vector(t::PlanarTarget) = parameter_vector(geom(t.calibration))
 
 parameter_names(t::PlanarTarget) = parameter_names(geom(t.calibration))
-with_parameters(t::PlanarTarget, θ::AbstractVector) = PlanarTarget(t.reference, t.nominal, with_parameters(geom(t.calibration), θ), t.board, t.canvas)
+with_parameters(t::PlanarTarget, θ::AbstractVector) =
+    PlanarTarget(t.reference, t.nominal, with_parameters(geom(t.calibration), θ), t.board, t.canvas, t.placement)
 parameters(t::PlanarTarget) = NamedTuple{parameter_names(t)}(Tuple(parameter_vector(t)))
 regularizer(t::PlanarTarget) = regularizer(geom(t.calibration))
 is_planar(::PlanarTarget{C}) where {C} = is_planar(C)
@@ -609,7 +741,12 @@ retract(ch::TargetManifold, v) = with_parameters(ch.target, parameter_vector(ch.
 recenter(ch::TargetManifold, v) = TargetManifold(retract(ch, v), ch.basis, ch.fixed)
 retract_jacobian(ch::TargetManifold) = ch.basis
 retract_jacobian(ch::TargetManifold, ::AbstractVector) = ch.basis
-action_jacobian(ch::TargetManifold{<:PlanarTarget}, x) = _calibration_action(geom(ch.target.calibration), x, ch.basis)
+action_jacobian(ch::TargetManifold{<:PlanarTarget}, x) = _placed_action(ch.target.placement, geom(ch.target.calibration), x, ch.basis)
+# A placed target's calibration acts at the design point's chart point, and its
+# in-plane rows and height row come back scaled by the placement's side
+# (`x = p + side·(y − c)`, `side·y₃`: ∂x/∂θ = side·∂y/∂θ).
+_placed_action(::Nothing, c, x, B) = _calibration_action(c, x, B)
+_placed_action(P::ChartPlacement, c, x, B) = _placement_side(P) * _calibration_action(c, _to_chart(P, _plain_point(x)), B)
 # ∂C(x)/∂θ · B, multiplying only the rows and columns the calibration's Jacobian
 # can have nonzero: a height field moves only z, a thin-plate spline's two rows
 # each depend on one of its two value blocks.

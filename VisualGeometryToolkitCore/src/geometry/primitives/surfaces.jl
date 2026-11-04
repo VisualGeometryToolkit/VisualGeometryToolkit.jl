@@ -111,6 +111,11 @@ on the edge is a hit (up to the chart's own rounding).
   is solved per ray.
 - An in-plane [`ThinPlateSpline`](@ref) (alone or under a height field) is not supported by the ray
   primitives yet: an `ArgumentError` naming it.
+- A placed target ([`ChartPlacement`](@ref) `p = o + s c`): its calibration
+  acts in the chart, and the primitive is re-expressed in the design chart —
+  the same affine `A` with `b = s β − (A − I) o`, a height field's nodes
+  `o + s cᵢ`, heights `s hᵢ`, weights `wᵢ / s` and the constant
+  `−s ln s Σ wᵢ|cᵢ|²` the kernel's scale adds (exact, not an approximation).
 
 A physical target (metres) gives a primitive in metres, plain numbers. An
 uncertain pose or calibration gives its value. A `PointTarget` has no surface

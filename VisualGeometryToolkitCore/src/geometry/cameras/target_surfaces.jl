@@ -22,12 +22,47 @@ function surface(pt::PosedTarget{<:PlanarTarget})
     t = model(pt)
     physical = has_units(pt)
     c = geom(calibration(t))
-    c = physical ? _ustrip_calibration(m, c) : c
+    P = placement(t)
+    c = physical && P === nothing ? _ustrip_calibration(m, c) : c   # (a placed calibration is plain chart numbers)
     X = geom(pose(pt))
     X = physical ? ustrip(m, X) : X
-    A, b = _chart_affine(c)
+    P = P === nothing || !has_units(P) ? P : ustrip(m, P)
+    A, b = _placed_affine(P, _chart_affine(c)...)
     quad = Quad(translation(X), rotation(X), _design_rect(t, physical), A, b)
-    return _surface(Val(is_planar(typeof(c))), c, quad)
+    return _placed_surface(P, _surface(Val(is_planar(typeof(c))), c, quad))
+end
+
+# A placed target (`ChartPlacement` P, plain: p = o + s c): its calibration's
+# in-plane affine y = J c + β in the chart is, on the design chart,
+# p ↦ p + s (J c + β − c) = J p + (s β − (J − I) o) — the same J; b = s β −
+# (J − I) o, exactly 0 with J = I when the chart affine is the identity (a
+# height field alone), so its quad is the unplaced one bit for bit.
+_placed_affine(::Nothing, J, β) = (J, β)
+function _placed_affine(P::ChartPlacement, J, β)
+    s = _placement_side(P)
+    return J, s * β - (J - one(J)) * P.origin
+end
+# Its height field over the quad's metric plane coordinates m = o + s c, where
+# the height s·f(c) is exactly a thin-plate spline in m: with
+# U(|c − cᵢ|) = U(|m − mᵢ|)/s² − |m − mᵢ|² ln s / s² and the spline's side
+# conditions (Σwᵢ = 0, Σwᵢcᵢ = 0), the nodes o + s cᵢ, the heights s hᵢ, the
+# weights wᵢ/s, and the affine part
+#     a′ = (s a₁ − (a₂, a₃)·o − s ln s Σ wᵢ|cᵢ|²,  a₂,  a₃).
+# (RadiometricCamera's `board_relief`, there with o = 0.) s = 1 keeps the
+# weights; o = 0 and s = 1 keep the field.
+_placed_surface(::Nothing, s) = s
+_placed_surface(::ChartPlacement, q::Quad) = q
+function _placed_surface(P::ChartPlacement, hs::HeightSurface{K}) where {K}
+    s, o = _placement_side(P), P.origin
+    c = hs.nodes
+    bend = zero(eltype(hs.w))
+    for i in 1:K
+        bend += hs.w[i] * (c[i][1] * c[i][1] + c[i][2] * c[i][2])
+    end
+    a = hs.a
+    a1 = s * a[1] - (a[2] * o[1] + a[3] * o[2]) - s * log(s) * bend
+    nodes = SVector{K}(ntuple(i -> o + s * c[i], Val(K)))
+    return HeightSurface(hs.quad, nodes, s * hs.heights, hs.w / s, SVector(a1, a[2], a[3]))
 end
 
 # The rectangle in the design chart: the board, or the nominal points' box —

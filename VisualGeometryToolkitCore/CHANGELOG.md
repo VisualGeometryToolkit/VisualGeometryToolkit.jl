@@ -76,6 +76,24 @@ chain types, and CT's conventions hold for it.
   gauge columns orthogonally, another complement of the same plane fields).
   `restrict(ch, names)` keeps the constraint: the named parameters'
   directions that stay pure bending.
+- **`ChartPlacement(origin, side)`: a calibration on the board's dimensionless
+  chart.** A `PlanarTarget` takes `placement = ChartPlacement(o, s)` (new
+  field, accessor `placement(t)`, public; the positional form's sixth
+  argument): its calibration then acts in the chart `c = (p − o)/s`, plain
+  numbers whatever the points' form (a calibration with units is an
+  `ArgumentError`), and `points(t)` is `p + s·(C(c) − c)` in the plane and
+  `s·h(c)` along the normal — exact for an in-plane identity (a height field
+  alone keeps the design point bit for bit). The placement is fixed data in the
+  points' form, carries the lengths, moves with `ustrip`/`with_unit` (the
+  calibration does not), and adds no parameters: the calibration's names,
+  manifold and regularizer are unchanged, `action_jacobian` scales by `s`.
+  `surface` re-expresses a placed height field on the design chart exactly
+  (nodes `o + s cᵢ`, weights `wᵢ/s`, the kernel's constant `−s ln s Σ wᵢ|cᵢ|²`).
+  This is how RadiometricCamera's board warping — pure bending on its page's
+  chart `[0, 1]²`, rows down: the reflected nodes `(u, −v)` placed at the
+  page's top-left corner — keeps its heights bit for bit and its surface,
+  piston included, which building the field on the page's design nodes loses
+  to the pure-bending projection.
 - **Removed `calibration_jacobian`** (retired in `check_naming`): a
   calibration's parameter Jacobian is CT's `transform_deriv_params(c, x)`, its
   point Jacobian CT's `transform_deriv(c, x)`. `ThinPlateSpline` and

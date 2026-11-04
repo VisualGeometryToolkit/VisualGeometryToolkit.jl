@@ -788,3 +788,145 @@ end
     @test_throws DimensionError with_unit(HeightField(nodes), px)
     @test_throws Union{DimensionError, ConversionError} with_unit(EuclideanMap(RotMatrix{2}(0.0), SVector(0.0, 0.0)) ∘ Aspect(0.0), px)
 end
+
+@testitem "target calibration: a chart placement — a field on the board's dimensionless chart" begin
+    # RadiometricCamera's board warping: a thin-plate height field over the
+    # page's chart [0, 1]² (rows down: the design's y reflected), the page a
+    # square of side s with its top-left corner at (x0, ytop) in the design
+    # chart. On the chart's nodes its heights are pure bending, kept bit for
+    # bit; on the page's design nodes (x0 + s n₁, ytop − s n₂) the same values
+    # carry a piston −(ln s / s²) Σ wᵢ|mᵢ|² that the pure-bending projection
+    # would remove. With a ChartPlacement the field stays on the chart and the
+    # surface is the warped page, piston included.
+    using Test, StaticArrays, LinearAlgebra, Random, ForwardDiff
+    using VisualGeometryToolkitCore
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: grid_nodes, ThinPlateSplineSystem, tps_coefficients, tps_evaluate, placement, surface,
+        surface_point, intersection, minimal_manifold, retract_jacobian, retract, action_jacobian, tangent_size, with_unit, has_units
+    using FlexUnits: DimensionError
+    using Rotations: RotMatrix, RotXYZ
+
+    rng = Xoshiro(11)
+    mt, mm = VgtkCore.m, VgtkCore.mm
+    rc = grid_nodes(5; lo = 0.0, hi = 1.0)                          # RadiometricCamera's HEIGHT_NODES
+    src = ThinPlateSplineSystem(rc)
+    hh = 1.0e-3 .* randn(rng, 25)                                  # its nodal heights
+    w = SVector{25}(src.coeff[1:25, :] * hh)                       # board_height's weights (the affine part dropped)
+    z = [tps_evaluate(src.nodes, w, zero(SVector{3, Float64}), n) for n in rc]   # board_height at the nodes: world units
+    s, x0, ytop = 0.297, -0.05, 0.31
+    world = [SVector(x0 + n[1] * s, ytop - n[2] * s) for n in rc]  # the page's design nodes (RadiometricCamera's posed_target)
+    wsys = ThinPlateSplineSystem(world)
+    ww, wa = tps_coefficients(wsys, z)                              # the warped page: the full interpolant, its piston kept
+    truth(p) = tps_evaluate(wsys.nodes, ww, wa, p)
+    # a real piston (what projecting on design nodes drops), −(ln s / s²) Σ wᵢ|mᵢ|² of the board_relief, and no tilt
+    @test abs(wa[1]) > 1.0e-8 && norm(wa[2:3]) < 1.0e-12 * abs(wa[1]) + 1.0e-15
+    @test wa[1] ≈ -(log(s) / s^2) * sum(ww[i] * sum(abs2, world[i] - SVector(x0, ytop)) for i in 1:25) * s^2 rtol = 1.0e-8
+
+    chart = [SVector(n[1], -n[2]) for n in rc]                     # the chart's nodes, reflected (rows down)
+    zc = z ./ s                                                     # heights in chart units
+    hf = HeightField(chart, zc)
+    P = ChartPlacement(SVector(x0, ytop), s)
+    bd = Board(Size2(width = s, height = s), SVector(x0, ytop - s))
+    design = [SVector(x0 + s * rand(rng), ytop - s * rand(rng)) for _ in 1:40]
+    t = PlanarTarget(design; calibration = hf, board = bd, placement = P)
+    X = EuclideanMap(RotMatrix{3}(RotXYZ(0.1, -0.2, 0.05)), SVector(0.02, -0.01, 0.8))
+
+    @testset "(a) RadiometricCamera's heights, bit for bit; its warped page to 1e-12" begin
+        @test parameter_vector(hf) == zc                            # pure bending on the chart: not projected
+        @test placement(t) == P && calibration(t) === hf
+        pts = points(t)
+        @test pts isa Vector{SVector{3, Float64}}
+        @test all(q[SOneTo(2)] == p for (q, p) in zip(pts, design))   # the plane point exactly the design point
+        @test maximum(abs(q[3] - truth(p)) for (q, p) in zip(pts, design)) <= 1.0e-12
+        sf = surface(PosedTarget(t, X))
+        @test sf isa HeightSurface
+        @test maximum(norm(surface_point(sf, p) - X(SVector(p[1], p[2], truth(p)))) for p in design) <= 1.0e-12
+        # a ray down the normal meets the warped page where the truth is
+        for p in design[1:10]
+            x = X(SVector(p[1], p[2], truth(p)))
+            n = SMatrix{3, 3}(VgtkCore.rotation(X))[:, 3]
+            @test norm(intersection(sf, x + 0.2 * n, -n)[2] - x) <= 1.0e-12
+        end
+        # without the placement, the same values on the design nodes lose the piston
+        old = surface(PosedTarget(PlanarTarget(:page; calibration = HeightField(world, z), board = bd), X))
+        @test abs(norm(surface_point(old, design[1]) - X(SVector(design[1][1], design[1][2], truth(design[1])))) - abs(wa[1])) < 1.0e-12
+        # a height field alone leaves the quad as it is: the placed and the rigid target's quads agree bit for bit
+        @test sf.quad == surface(PosedTarget(PlanarTarget(design; board = bd), X))
+        # s = 1 and o = 0: the surface is the field's own
+        t1 = PlanarTarget([SVector(0.5, -0.5)]; calibration = hf, placement = ChartPlacement(SVector(0.0, 0.0), 1.0))
+        s1 = surface(PosedTarget(t1, X))
+        @test s1.w == hf.w && s1.a == hf.a && s1.nodes == SVector{25}(chart)
+    end
+
+    @testset "(b) the reflected page: reflected chart nodes are pure bending, and the same page" begin
+        sysc = ThinPlateSplineSystem(chart)
+        Mc = [ones(25) [p[1] for p in chart] [p[2] for p in chart]]
+        @test norm(Mc * (sysc.coeff[26:28, :] * zc)) <= 1.0e-14 * norm(zc)   # no affine term on the reflected nodes
+        # the same chart translated into [0, 1]² (origin at the page's lower-left corner): the same points
+        shifted = [SVector(n[1], 1 - n[2]) for n in rc]
+        t2 = PlanarTarget(design; calibration = HeightField(shifted, zc), placement = ChartPlacement(SVector(x0, ytop - s), s))
+        @test parameter_vector(calibration(t2)) == zc
+        @test maximum(norm(a - b) for (a, b) in zip(points(t2), points(t))) <= 1.0e-12
+    end
+
+    @testset "(c) the placement adds no parameters: the pose + calibration Jacobian has full rank" begin
+        ch = minimal_manifold(t)
+        @test tangent_size(ch) == 25 - 3 && parameter_names(t) == parameter_names(hf)
+        B = Matrix(retract_jacobian(ch))
+        # action_jacobian is ∂points/∂θ · B, the placement's side in the height row
+        J = ForwardDiff.jacobian(θ -> points(with_parameters(t, θ))[3], Vector(parameter_vector(t)))
+        @test action_jacobian(ch, design[3]) ≈ J * B rtol = 1.0e-10
+        # four poses about 0.8 m, a pinhole; poses (rotation vector, translation) and the manifold's coordinates
+        F = 4
+        R0 = [RotMatrix{3}(RotXYZ(0.3randn(rng), 0.3randn(rng), 0.3randn(rng))) for _ in 1:F]
+        t0 = [SVector(0.05randn(rng), 0.05randn(rng), 0.8 + 0.1rand(rng)) for _ in 1:F]
+        sk(ω) = SMatrix{3, 3}(0, ω[3], -ω[2], -ω[3], 0, ω[1], ω[2], -ω[1], 0)
+        function proj(v, pose)
+            tv = retract(ch, v)
+            out = promote_type(eltype(v), eltype(pose))[]
+            for f in 1:F
+                ω = SVector{3}(pose[(6f - 5):(6f - 3)])
+                R = (I + sk(ω) + sk(ω) * sk(ω) / 2) * SMatrix{3, 3}(R0[f])
+                tt = t0[f] + SVector{3}(pose[(6f - 2):(6f)])
+                for q in points(tv)
+                    Y = R * q + tt
+                    push!(out, Y[1] / Y[3], Y[2] / Y[3])
+                end
+            end
+            return out
+        end
+        Jj = ForwardDiff.jacobian(x -> proj(x[1:22], x[23:end]), zeros(22 + 6F))
+        sv = svdvals(Jj)
+        @test count(<(1.0e-9 * sv[1]), sv) == 0
+    end
+
+    @testset "(d) units: the placement carries the lengths, the calibration is unit-free" begin
+        Pm = ChartPlacement(SVector(x0, ytop) .* mt, s * mt)
+        tm = PlanarTarget([p .* mt for p in design]; calibration = hf, placement = Pm, board = with_unit(bd, mt))
+        @test has_units(tm) && has_units(Pm) && calibration(tm) === hf
+        @test all(a == b .* mt for (a, b) in zip(points(tm), points(t)))
+        @test ustrip(mt, tm) == t && with_unit(t, mt) == tm
+        # the physical target's surface (in metres) is the plain one's
+        Xm = EuclideanMap(VgtkCore.rotation(X), VgtkCore.translation(X) .* mt)
+        @test surface(PosedTarget(tm, Xm)) == surface(PosedTarget(t, X))
+        @test calibration(ustrip(mm, tm)) === hf && calibration(with_unit(t, mm)) === hf     # the calibration never moves
+        tmm = with_unit(t, mm)                                       # numbers read as millimetres
+        @test placement(tmm) == ChartPlacement(SVector(x0, ytop) .* mm, s * mm)
+        @test maximum(norm(VgtkCore.strip_metres(a) - b ./ 1000) for (a, b) in zip(points(tmm), points(t))) <= 1.0e-15
+        @test maximum(norm(a - b) for (a, b) in zip(points(ustrip(mm, tmm)), points(t))) <= 1.0e-15
+        Pmm = ustrip(mm, Pm)
+        @test !has_units(Pmm) && Pmm.side ≈ 1000s && Pmm.origin ≈ 1000 .* SVector(x0, ytop)
+        @test with_unit(Pmm, mm).side ≈ Pm.side && with_unit(Pmm, mm).origin ≈ Pm.origin
+        # one form: a physical placement on plain points, and a calibration with units, are refused
+        @test_throws DimensionError PlanarTarget(design; calibration = hf, placement = Pm)
+        @test_throws ArgumentError PlanarTarget([p .* mt for p in design]; calibration = with_unit(hf, mt), placement = Pm)
+        @test_throws ArgumentError ChartPlacement(SVector(x0, ytop), s * mt)
+        @test_throws ArgumentError ChartPlacement(SVector(x0, ytop), -s)
+        @test_throws DimensionError ChartPlacement(SVector(x0, ytop) .* VgtkCore.px, s * VgtkCore.px)
+        # an unresolved placed target takes its form from the placement
+        @test has_units(PlanarTarget(:page; calibration = hf, placement = Pm)) && !has_units(PlanarTarget(:page; calibration = hf, placement = P))
+        # equality and hashing see the placement
+        @test t != PlanarTarget(design; calibration = hf, board = bd) && hash(t) == hash(PlanarTarget(design; calibration = hf, board = bd, placement = P))
+        @test VgtkCore.resolve(PlanarTarget(:page; calibration = hf, placement = P), design) == PlanarTarget(:page; nominal = design, calibration = hf, placement = P)
+    end
+end

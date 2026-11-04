@@ -559,9 +559,12 @@ pose's, so a height field built from one is flat.
 `U(r) = r² log r` is not scale-invariant (`U(s r) = s² U(r) + s² log(s) r²`,
 and `Σ wᵢ |p − pᵢ|²` is a constant under the spline's side conditions), so
 scaling the nodes moves a constant — a piston — between the affine and the
-bending parts (translating or rotating them does not). Build a height field
+bending parts (translating, rotating or reflecting them does not). Build a height field
 on a dimensionless chart of the board (`[0, 1]²`, RadiometricCamera's), not on
-nodes in physical units, to keep its heights where they were computed. A
+nodes in physical units, to keep its heights where they were computed, and
+place that chart on the target with a [`ChartPlacement`](@ref)
+(`PlanarTarget(…; calibration, placement)`): the field stays plain, its
+heights in chart units, and the placement carries the lengths. A
 physical field's condition holds in metres, its stored form; a unit move
 (`ustrip(u, c)`, [`with_unit`](@ref)) converts the values and does not
 re-project them (the geometry stays where it is), so in another unit the

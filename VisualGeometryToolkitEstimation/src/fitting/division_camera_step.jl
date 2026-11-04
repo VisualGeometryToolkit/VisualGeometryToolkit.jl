@@ -434,6 +434,73 @@ function _whitening_lambdas(n::Int, w::_PositionalDivisionState, fw, σ)
     return ntuple(p -> kw[p] * fw, n)
 end
 
+# THE ARROW SOLVE, over per-board blocks of any static size m. Normal equations
+# whose unknowns are `ns` shared ones `xs` plus a block `tᵢ` of `m` per board,
+# each block coupled only to itself and to the shared ones:
+#     [S  C₁ … C_B; C₁ᵀ D₁; ⋮ ⋱; C_Bᵀ D_B]·[xs; t₁; …; t_B] = [bs; b₁; …; b_B].
+# The blocks eliminate per board (Schur complement):
+#     (S − Σᵢ Cᵢ Dᵢ⁻¹ Cᵢᵀ)·xs = bs − Σᵢ Cᵢ Dᵢ⁻¹ bᵢ,     tᵢ = Dᵢ⁻¹ (bᵢ − Cᵢᵀ xs),
+# so the dense solve is ns × ns whatever the number of boards. `blocks[i]` is
+# board i's `(C = Cᵢ::SMatrix{ns, m}, D = Dᵢ::SMatrix{m, m}, b = bᵢ::SVector{m})`,
+# `Dᵢ` symmetric. A board whose `D` is not positive definite
+# (`_arrow_block_live`: at m = 1, `d > 0`) carries no information on its block:
+# it is left out of the elimination and its `tᵢ` is NaN. A singular reduced
+# system throws `LinearAlgebra.SingularException`; the caller names the failure.
+# Returns `(xs::Vector{Float64}, ts::Vector{SVector{m, Float64}})`.
+#
+# For radial homographies (m = 3: each board's h̃₃). The division camera's depth
+# elimination (m = 1) is the scalar loop inside `_division_camera_solve`, and it
+# stays there, not routed through this: at m = 1 this function computes that
+# loop's numbers bit for bit (every sum in the same order, `D \ v` of a 1 × 1
+# block is `v / d` — `test/arrow_solve_tests.jl`), but REPLACING the loop by the
+# call changes the camera's output by ulps all the same. The solve inlines
+# `sampson_residual`, whose `muladd`s LLVM fuses or not per compilation of the
+# enclosing function, and an edit of that function's body can move the decision.
+# Measured 2026-11-04 (Julia 1.13.2): the call in place of the loop, inline or
+# behind a function barrier, moved the known-k fit's whitened residuals in their
+# last bits (its f by ~1e-13 relative after 24 iterations), the arrow arithmetic
+# replayed and identical; moving the residual loop into a `@noinline` helper
+# moved the contaminated fits instead. `test/division_solve_golden_tests.jl`
+# holds the camera to its bits.
+_arrow_block_live(D::SMatrix{1, 1}) = D[1] > 0
+_arrow_block_live(D::SMatrix) = LinearAlgebra.isposdef(D)
+
+function _arrow_solve(
+        Snn::Matrix{Float64}, bsh::Vector{Float64},
+        blocks::Vector{NamedTuple{(:C, :D, :b), Tuple{SMatrix{ns, m, Float64, L}, SMatrix{m, m, Float64, M}, SVector{m, Float64}}}}
+    ) where {ns, m, L, M}
+    (size(Snn) == (ns, ns) && length(bsh) == ns) ||
+        throw(DimensionMismatch("the shared block is $(size(Snn)) with $(length(bsh)) right-hand sides; the boards couple $ns"))
+    Sred = copy(Snn); bred = copy(bsh)
+    @inbounds for (; C, D, b) in blocks
+        _arrow_block_live(D) || continue
+        for p in 1:ns
+            kp = D \ C[p, :]                                        # row p of C·D⁻¹ (D symmetric)
+            for q in 1:ns, a in 1:m
+                Sred[p, q] -= kp[a] * C[q, a]
+            end
+            for a in 1:m
+                bred[p] -= kp[a] * b[a]
+            end
+        end
+    end
+    xs = Sred \ bred
+    ts = map(blocks) do (; C, D, b)
+        _arrow_block_live(D) || return SVector{m, Float64}(ntuple(_ -> NaN, Val(m)))
+        r = SVector{m, Float64}(
+            ntuple(Val(m)) do a
+                acc = b[a]
+                @inbounds for p in 1:ns
+                    acc -= C[p, a] * xs[p]
+                end
+                acc
+            end
+        )
+        D \ r
+    end
+    return xs, ts
+end
+
 function _division_camera_solve(
         Hs, boards, k, normalization::CspondNormalization;
         # No defaults: the one caller (`_division_camera_step`) supplies every one, and

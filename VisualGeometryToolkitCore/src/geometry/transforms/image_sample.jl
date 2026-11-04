@@ -11,13 +11,15 @@
 # value sampled at a point is the value a warp landing on that point gives.
 # =============================================================================
 
-@kernel function _sample_kernel!(out, @Const(src), @Const(points), fv)
+@kernel function _sample_kernel!(out, @Const(src), @Const(points), shift::SVector{2, T}, fv) where {T}
     I = @index(Global, Linear)
     H, W = size(src)
     @inbounds begin
-        p = points[I]
-        # a COLMAP point (x, y) is the Julia array position (row y + ½, column x + ½)
-        out[I] = _store(eltype(out), _bilinear_sample(src, p[2] + oftype(p[2], 0.5), p[1] + oftype(p[1], 0.5), fv, H, W))
+        # the point in its float eltype T (an integer point promoted here), moved
+        # into Julia's array position by the COLMAP → Julia shift: (x, y) is
+        # (row y + ½, column x + ½)
+        q = SVector{2, T}(points[I]) + shift
+        out[I] = _store(eltype(out), _bilinear_sample(src, q[2], q[1], fv, H, W))
     end
 end
 
@@ -47,12 +49,13 @@ function image_sample!(
     isempty(dst) && return dst
     backend = get_backend(dst)
     fv = _sample_type(eltype(dst))(fillvalue)
-    _sample_kernel!(backend, 256)(dst, src, _float_points(points), fv; ndrange = length(dst))
+    T = float(eltype(eltype(points)))
+    _sample_kernel!(backend, 256)(dst, src, points, _colmap_to_julia_shift(T), fv; ndrange = length(dst))
     KernelAbstractions.synchronize(backend)
     return dst
 end
-# Integer points (pixel indices held as `SVector{2, Int}`) are floated once at
-# entry — the kernel's half-pixel shift is in the points' own eltype; float
-# points are sampled as they are.
-_float_points(points::AbstractArray{<:StaticVector{2, <:AbstractFloat}}) = points
-_float_points(points::AbstractArray{<:StaticVector{2}}) = float.(points)
+# The COLMAP → Julia array-position shift, warp.jl's `_OUT_BRIDGE` =
+# `EuclideanMap(PixelFrame{:colmap}, PixelFrame{:julia})` (a pure translation,
+# (½, ½)), in the points' float eltype `T`: the kernel adds it in `T`, so a
+# Float32 point is shifted and sampled in Float32.
+_colmap_to_julia_shift(::Type{T}) where {T} = SVector{2, T}(translation(_OUT_BRIDGE))

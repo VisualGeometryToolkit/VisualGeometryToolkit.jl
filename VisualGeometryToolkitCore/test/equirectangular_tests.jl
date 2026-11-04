@@ -97,6 +97,16 @@ end
             @test all(isnan, project(P, SVector(0.0, 0.0, 0.0))) && all(isnan, project(P, SVector(NaN, 0.0, 1.0)))
         end
     end
+    @testset "the closed-form Jacobians are ForwardDiff's, at fixed points from the equator to near the poles" begin
+        for (P, _, _) in family, lat in (0.0, 0.3, -0.9, 1.4, -1.55, 1.5707), lon in (0.0, 0.7, -2.9, π)
+            X = SVector(cos(lat) * sin(lon), -sin(lat), cos(lat) * cos(lon))   # unit direction at (lon, lat)
+            @test transform_deriv(P, X) ≈ ForwardDiff.jacobian(v -> project(P, v), X) rtol = 1.0e-9
+            @test transform_deriv(P, 3.0 * X) ≈ ForwardDiff.jacobian(v -> project(P, v), 3.0 * X) rtol = 1.0e-9   # off the sphere
+            q = project(P, X)
+            all(isfinite, q) || continue
+            @test transform_deriv(inv(P), q) ≈ ForwardDiff.jacobian(p -> SVector{3}(backproject(P, p)), q) rtol = 1.0e-12
+        end
+    end
     @testset "the poles: no height on the central cylinder or Mercator's; ±1 on the equal-area one" begin
         @test all(isnan, project(Cylindrical(), SVector(0.0, -1.0, 0.0)))
         @test all(isnan, project(Mercator(), SVector(0.0, -1.0, 0.0)))
@@ -136,13 +146,18 @@ end
 
 @testitem "Backprojection of a camera model: a virtual camera's pixel → ray map" begin
     using Test, StaticArrays, LinearAlgebra
-    using CoordinateTransformations: LinearMap
-    using VisualGeometryToolkitCore: Backprojection, CameraModel, Lens, Perspective, Equidistant, px, backproject, project
+    using ForwardDiff: ForwardDiff
+    using CoordinateTransformations: LinearMap, transform_deriv
+    using VisualGeometryToolkitCore: Backprojection, CameraModel, Lens, Perspective, Equidistant, px, backproject, project,
+        backproject_with_jacobian
     for lens in (Lens(Perspective()), Lens(Equidistant()))
         m = CameraModel(300.0px, SA[320.0px, 240.0px]; lens)
         b = Backprojection(m)
         u = SVector(400.0, 100.0)
         @test b(u) ≈ backproject(m, u) && project(m, b(u)) ≈ u
+        # its Jacobian is the camera model's own back-projection Jacobian, ForwardDiff's of the unit ray
+        @test transform_deriv(b, u) == last(backproject_with_jacobian(m, u))
+        @test transform_deriv(b, u) ≈ ForwardDiff.jacobian(p -> SVector{3}(Tuple(backproject(m, p))), u) rtol = 1.0e-10
         R = SMatrix{3, 3}(0.0, 0.0, -1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0)            # aimed 90° to the side
         @test (LinearMap(R) ∘ b)(SVector(320.0, 240.0)) ≈ R * SVector(0.0, 0.0, 1.0)  # the principal point looks along R·z
     end

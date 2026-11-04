@@ -15,13 +15,19 @@
 # radial basis, the evaluation, the gradient — is plain scalar arithmetic and
 # is compared `==`, fed the fixture's own w and a. The coefficients, the
 # nodal weights and the bending energy go through `inv` and BLAS products, so
-# their last bits belong to the BLAS build (OpenBLAS picks its kernels by
-# CPU): they are compared within bounds measured on the recording machine
-# against two other solvers of the same system (Julia's generic LU, and
-# BigFloat rounded), whose largest deviations were, in eps() × the sum of
-# the magnitudes of the terms: w and a 9.3, nodal_weights 27.9, bending
-# energy 0.17. The bounds are 16, 32 and 1. On the recording machine the
-# deviation is zero; TPS_BITWISE=1 turns those comparisons back into `==`.
+# their last bits belong to the BLAS build (OpenBLAS picks its code path by
+# CPU): a backward-stable inverse is off by up to the order of κ·eps, κ the
+# condition number of [K P; Pᵀ 0] (31 on grid_nodes(3), 308 on
+# grid_nodes(5)), so they are compared within 4κ eps() × the sum of the
+# magnitudes of the terms. Measured on Julia 1.12.7 (grid_5, in eps() × that
+# sum): 0 under native (i9-13900K), Haswell and Zen; w and a 3.9, 4.7 and
+# 10.1, nodal_weights 33.0, 16.6 and 42.6, bending energy 0.24, 0.02 and
+# 0.03 under Sandybridge, Prescott and Nehalem. The bound 4κ = 1232 holds the
+# worst, nodal_weights under Nehalem, with a margin of 29 (the fixed bounds
+# 16, 32 and 1 it replaces were measured against two other solvers on the
+# recording machine, and Sandybridge and Nehalem broke the 32). On the
+# recording machine the deviation is zero; TPS_BITWISE=1 turns those
+# comparisons back into `==`.
 # The gradient with a nonzero affine part has no RadiometricCamera
 # counterpart: it is bit-pinned only for a = 0 (the height grid), and checked
 # against ForwardDiff otherwise.
@@ -33,7 +39,7 @@
     using VisualGeometryToolkitCore: ThinPlateSplineSystem, tps_radial_basis, grid_nodes, tps_coefficients,
         tps_evaluate, tps_gradient, nodal_weights, bending_energy   # public, not exported
     using StaticArrays: SVector
-    using LinearAlgebra: norm
+    using LinearAlgebra: norm, cond
     using ForwardDiff
     using KernelAbstractions
     using KernelAbstractions: @kernel, @index, @Const
@@ -62,15 +68,17 @@
         tps = ThinPlateSplineSystem(nodes)
         t = ref.values
 
-        # Through `inv` and BLAS: bounded (see the header).
+        # Through `inv` and BLAS: within 4κ eps() of the terms' magnitudes (see the header).
+        P = [ones(N) first.(nodes) last.(nodes)]
+        κ = cond([[tps_radial_basis(p, q) for p in nodes, q in nodes] P; P' zeros(3, 3)])
         w, a = tps_coefficients(tps, t)
         coeff_scale = [sum(abs.(tps.coeff[r, :]) .* abs.(t)) for r in 1:(N + 3)]
-        @test within(vcat(collect(w), collect(a)), vcat(ref.w, ref.a), coeff_scale, 16)
+        @test within(vcat(collect(w), collect(a)), vcat(ref.w, ref.a), coeff_scale, 4κ)
         for (k, p) in enumerate(POINTS)
             φ = [[abs(tps_radial_basis(p, q)) for q in tps.nodes]; 1.0; abs(p[1]); abs(p[2])]
-            @test within(collect(nodal_weights(tps, p)), ref.nodal_weights[k], [sum(abs.(tps.coeff[:, i]) .* φ) for i in 1:N], 32)
+            @test within(collect(nodal_weights(tps, p)), ref.nodal_weights[k], [sum(abs.(tps.coeff[:, i]) .* φ) for i in 1:N], 4κ)
         end
-        @test within(bending_energy(tps, t), ref.bending_energy, sum(abs.(t) .* (abs.(tps.Q) * abs.(t))), 1)
+        @test within(bending_energy(tps, t), ref.bending_energy, sum(abs.(t) .* (abs.(tps.Q) * abs.(t))), 4κ)
 
         # Plain arithmetic, fed the fixture's (w, a): bit-identical.
         rw, ra = SVector{N}(ref.w), SVector{3}(ref.a)

@@ -498,7 +498,7 @@ end
     using Rotations: RotMatrix, QuatRotation
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: intersection, chart, bounds, normal, surface, surface_point, board, grid_nodes, mm, m,
-        ThinPlateSplineSystem, tps_coefficients, tps_evaluate, with_unit, transform_deriv
+        ThinPlateSplineSystem, tps_coefficients, tps_evaluate, tps_radial_basis, with_unit, transform_deriv
 
     rng = Xoshiro(17)
     R = RotMatrix(QuatRotation(1.0, 0.2, -0.1, 0.3))
@@ -608,8 +608,18 @@ end
         pt = PosedTarget(PlanarTarget(grid_nodes(3; lo = -1.0, hi = 1.0); calibration = Hr), EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, a[1])))
         s = surface(pt)
         hits = [intersection(s, o, d) for (o, d) in zip(REF.ray_origins, REF.ray_directions)]
-        @test maximum(abs.(first.(hits) - REF.t)) <= 1.0e-15
-        @test maximum(maximum(abs, x - r) for (x, r) in zip(last.(hits), REF.x)) <= 1.0e-15
+        # The surface's spline comes from inv([K P; Pᵀ 0]) on the world nodes, LAPACK's LU and
+        # inversion, whose last bits follow OpenBLAS's core type: its relative error is of
+        # the order of κ·eps (κ ≈ 410 here), so a hit is within 4κ ulps of the largest
+        # hit value. Measured on Julia 1.12.7, t and x off by 4 and 3 eps natively
+        # (i9-13900K), Haswell and Zen, 5 and 4 Nehalem, 7 and 6 Sandybridge, 9 and 8
+        # Prescott, against the fixed 1e-15 (4.5 eps) this replaces. The bound,
+        # 4κ·eps(2.57) = 7.3e-13 for t and 4κ·eps(0.91) = 1.8e-13 for x, holds the worst
+        # (Prescott) with a margin of 360 and 100.
+        P = [ones(length(rn)) first.(rn) last.(rn)]
+        κ = cond([[tps_radial_basis(p, q) for p in rn, q in rn] P; P' zeros(3, 3)])
+        @test maximum(abs.(first.(hits) - REF.t)) <= 4κ * eps(maximum(abs, REF.t))
+        @test maximum(maximum(abs, x - r) for (x, r) in zip(last.(hits), REF.x)) <= 4κ * eps(maximum(r -> maximum(abs, r), REF.x))
     end
 
     @testset "a physical target: plain metres; an uncertain pose: its value" begin

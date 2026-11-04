@@ -104,6 +104,20 @@ difference_stencil(order::Integer) =
     ntuple(k -> Float64((-1)^(k - 1) * binomial(Int(order), k - 1)), Int(order) + 1)
 
 """
+    clamped_knots(n, p, lo, hi) -> SVector{n + p + 1, Float64}
+
+The clamped (open) uniform knot vector of `n` basis functions of degree `p`
+on `[lo, hi]`: `p + 1` knots at each end and `n − p − 1` interior knots
+spaced evenly, BSplineKit's `knots(BSplineBasis(BSplineOrder(p + 1),
+range(lo, hi; length = n − p + 1)))` as the static vector
+[`bspline_basis`](@ref) takes (a kernel's knots). The spline interpolates its
+first and last coefficient at `lo` and `hi`. Needs `n > p`.
+"""
+clamped_knots(n::Integer, p::Integer, lo::Real, hi::Real) =
+    (n > p || throw(ArgumentError("clamped_knots: need more than p = $p control points, got $n"));
+     SVector{n + p + 1}(Float64.(BSplineKit.knots(BSplineBasis(BSplineOrder(p + 1), range(Float64(lo), Float64(hi); length = n - p + 1))))))
+
+"""
     natural_extrapolation() -> (w₁, w₂)
 
 The natural boundary condition `f'' = 0` at a border knot of a uniform cubic

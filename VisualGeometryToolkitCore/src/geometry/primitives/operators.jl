@@ -750,22 +750,44 @@ overlap_area(::AnalyticOverlap, a, b) = throw(MethodError(overlap_area, (a, b)))
     _convex_clip_area!(subject, clip) -> Float64
 
 Exact area of the intersection of two CONVEX polygons, via Sutherland-Hodgman
-clipping + shoelace. ADOPTS both vectors: it reverses them in place to
-normalize winding and consumes `subject` as one of the two clipping buffers
-(the other a scratch vector, the two swapped per clip edge). Both must
-be `Vector{Point2{Float64}}` (see `_as_point2f`) and neither is usable
-afterwards.
+clipping ([`_convex_clip!`](@ref)) + shoelace. ADOPTS both vectors: it
+reverses them in place to normalize winding and consumes `subject` as one of
+the two clipping buffers. Both must be `Vector{Point2{Float64}}` (see
+`_as_point2f`) and neither is usable afterwards.
 """
 function _convex_clip_area!(subject::Vector{Point2{Float64}}, clip::Vector{Point2{Float64}})
     _shoelace_signed_area(subject) < 0 && reverse!(subject)
     _shoelace_signed_area(clip) < 0 && reverse!(clip)
+    return abs(_shoelace_signed_area(_convex_clip!(subject, clip)))
+end
 
+"""
+    _convex_clip!(subject, clip) -> Vector{Point2{Float64}}
+
+Sutherland–Hodgman: the closed ring `subject` clipped by the CONVEX ring
+`clip`, which must be counter-clockwise (positive shoelace area; its interior
+on the left of each edge). The subject keeps its orientation and may be any
+closed ring, convex or not, self-overlapping, winding more than once, or
+partly far outside the clip: each clip edge replaces the parts of the curve
+outside its half-plane by pieces of the edge's line, which leaves the
+curve's winding number unchanged at every point inside the half-plane. So
+the result's signed shoelace area is ∫ winding(subject) over the clip, also
+where a non-convex subject falls apart into several pieces: they come back
+joined by degenerate edges along the clip boundary, traversed once each way,
+which add nothing to a signed area that sums over edges (the shoelace, or
+[`_spherical_signed_area`](@ref) of the ring's image on the sphere).
+
+CONSUMES `subject` as one of its two buffers (the other a scratch vector, the
+two swapped per clip edge): the returned ring is one of them, and `subject`
+is not usable afterwards. Empty when nothing is left.
+"""
+function _convex_clip!(subject::Vector{Point2{Float64}}, clip::Vector{Point2{Float64}})
     poly = subject
     m = length(clip)
     # a convex polygon clipped by a convex one has at most the sum of their vertices
     clipped = sizehint!(Point2{Float64}[], length(subject) + m)
     for i in 1:m
-        isempty(poly) && return 0.0
+        isempty(poly) && return poly
         A = clip[i]
         B = clip[i == m ? 1 : i + 1]
         edge = B - A
@@ -785,7 +807,37 @@ function _convex_clip_area!(subject::Vector{Point2{Float64}}, clip::Vector{Point
         end
         poly, clipped = clipped, poly
     end
-    return abs(_shoelace_signed_area(poly))
+    return poly
+end
+
+"""
+    _spherical_signed_area(apex, ring) -> Float64
+
+The signed solid angle (sr) enclosed by the closed ring of unit vectors
+`ring`, whose consecutive vertices are joined by short geodesic edges: a fan
+of signed geodesic triangles `(apex, ring[k], ring[k + 1])`, each by Van
+Oosterom & Strackee (1983), `tan(E/2) = a·(b × c) / (1 + a·b + b·c + c·a)`,
+taken with `atan` of the two parts so `E ∈ (−2π, 2π]`.
+
+The sum is additive over edges (an edge traversed once each way adds
+nothing), and it is the enclosed area for ANY unit `apex` whose antipode
+`−apex` lies off the ring and outside the region: the apex need not be inside
+the region, nor the region in a hemisphere. Positive when the ring runs
+counter-clockwise seen from outside the sphere (`apex · (ring[k] × ring[k+1])
+> 0` about an apex inside it). The caller keeps the ring clear of `−apex`,
+where the denominator vanishes.
+"""
+function _spherical_signed_area(apex::SVector{3, Float64}, ring::AbstractVector{SVector{3, Float64}})
+    n = length(ring)
+    total = 0.0
+    @inbounds for k in 1:n
+        b = ring[k]
+        c = ring[k == n ? 1 : k + 1]
+        num = dot(apex, cross(b, c))
+        den = 1 + dot(apex, b) + dot(b, c) + dot(c, apex)
+        total += 2 * atan(num, den)
+    end
+    return total
 end
 
 # =============================================================================

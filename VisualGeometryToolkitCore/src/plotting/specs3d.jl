@@ -60,7 +60,7 @@ function FrameSpec(;
 end
 
 # Convenience: construct from EuclideanMap pose
-function FrameSpec(pose::EuclideanMap; scale::Real = 1.0, linewidth::Real = 3)
+function FrameSpec(pose::Union{EuclideanMap, RotationMap}; scale::Real = 1.0, linewidth::Real = 3)
     segments, colors, _ = frame_segments(pose; scale = scale)
     return MakieSpec.Lines(segments; color = colors, linewidth = linewidth)
 end
@@ -246,7 +246,7 @@ function camera!(
     if show_center
         push!(
             lscene.plots, MakieSpec.Scatter(
-                [Point3f(cam_pose.t)];
+                [Point3f(_mapped_origin(cam_pose))];
                 color = center_color, markersize = center_size
             )
         )

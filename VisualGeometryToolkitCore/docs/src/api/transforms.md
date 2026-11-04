@@ -23,7 +23,7 @@ Pages = ["transforms/matrices.jl"]
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false
-Pages = ["transforms/euclidean_map.jl", "transforms/homography_map.jl"]
+Pages = ["transforms/euclidean_map.jl", "transforms/rotation_map.jl", "transforms/homography_map.jl"]
 ```
 
 ## Coordinate Conversions

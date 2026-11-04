@@ -1,5 +1,76 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.5.5 (2026-11-04)
+
+Additive.
+
+- **A camera's vignetting** (cameras/vignetting.jl): the stack's one model of a
+  relative illumination V on the sensor, a B-spline in V, linear in its control
+  points, on clamped uniform knots, evaluated by Core's `bspline_basis`.
+  `TensorVignetting(n, box; degree = 3)` (exported), a tensor surface of
+  `n = (nx, ny)` control points over a sensor box, and
+  `RadialVignetting(n, center, radius; degree = 3)` (exported), a profile in
+  `‖u − center‖ / radius`, both under `AbstractVignetting`. Callable, `v(u)` at
+  a sensor point (COLMAP pixels), constant beyond the knots; isbits, so they
+  run in `pointwise!` on a device. Public: `coefficient_jacobian(v, u)`
+  (`∂V/∂vec(P)`, the basis functions in `vec(control_points(v))` order),
+  `active_coefficients(v, u)` (its nonzeros: the indices and values a
+  scatter-add reads), `control_points`, `with_control_points`,
+  `n_control_points`, `knot_vectors`, `spline_degree`, `field_center`,
+  `field_radius`, `radial_coordinate`, `pole_regular_basis(v)` (the radial
+  profiles smooth at their centre, `V′(0) = 0`: the first two control points
+  tied) and `convert_eltype` (any real type, Duals included). A tensor
+  surface implements the support protocol (`support_trait`, `nodes`,
+  `support`), so `free_nodes`, `node_mask` and `BoundaryRule` apply to it.
+  Hoisted from RadiometricCamera and PanoramaStitching, which each had one;
+  their copies are deleted. RadiometricCamera's arithmetic is kept, so its
+  numbers are unchanged.
+- `LogVignetting(spline)` (exported): either field read as log V, `V = exp(s(u))`
+  (positive, linear in log: a self-calibration's least squares). It adds no
+  basis of its own: knots, degree, support, `pole_regular_basis` and
+  `log_spline` are the spline's; `coefficient_jacobian` is `V·∂s/∂P`.
+- `clamped_knots(n, p, lo, hi)` (public): the clamped uniform knot vector
+  (BSplineKit's) as the static vector `bspline_basis` takes.
+- `RotationMap{N, T, R, Src, Dst}` (exported, transforms/rotation_map.jl): a
+  frame-tagged rotation about the origin, `x ↦ R·x`, whose one field is the
+  rotation, so it has no translation rather than a zero one. The rotation is
+  stored by EuclideanMap's rule. It provides relabel/unlabel, `inv` (tags
+  swapped), and a junction-checked `∘`: with itself it gives a RotationMap, and
+  with an EuclideanMap in either order it gives an EuclideanMap. Also
+  `rotation`, `transform_deriv`, `to_homogeneous`, `convert_eltype`, `==`,
+  `isapprox` and show. It holds no length (`has_units` false; `ustrip` and
+  `with_unit` return it) and is isbits. `PosedCamera`'s pose parameter admits
+  it (`Rt <: Union{EuclideanMap, RotationMap}`), and
+  `OrientedCamera{M} = PosedCamera{M, <:RotationMap{3}}` (exported, an alias)
+  is a camera that only turns about its centre. It projects, back-projects and
+  unprojects about the origin; `extrinsics` and `pose` are RotationMaps, and a
+  camera → world RotationMap labeled `CameraFrame → WorldFrame` is inverted
+  into the extrinsics slot. These are refused by name because they need a
+  position: the plane z = 0 verbs (`HomographyMat(camera)`, `RadialCamera`,
+  `transfer_ellipse`, `project` of a plane conic or rect), a rig member, and a
+  NoncentralGenericModel's pose. Plotting draws an oriented camera at the
+  origin. Additive: every EuclideanMap-posed camera is unchanged.
+- `view_overlap(cameras, [circles]; boundary_points = 512)` (exported,
+  cameras/view_overlap.jl): for every pair i < j of a panorama's frames (each a
+  `BoundedCamera` of an `OrientedCamera`; cameras may differ), a
+  `StructVector` row `(; i, j, solid_angle, fraction_i, fraction_j)`, with
+  K(K−1)/2 rows. The solid angle (sr) is that of the directions both frames
+  image, and each fraction is it over that frame's footprint
+  (`imaged_region(camera, circle) ∩ valid_domain(camera)`).
+  `view_overlap(a, b, [circle_a, circle_b])` gives the one row. A camera posed
+  by an EuclideanMap, or unposed, is refused by name. Boundary-sampled: frame
+  j's ring is drawn into frame i's image and clipped by Core's
+  Sutherland–Hodgman against Ω_i. Where frame i cannot image the ring, it
+  continues on a far circle, and one exact membership test fixes the winding.
+  The area is a fan of Van Oosterom–Strackee triangles from the optical axis,
+  so a field of view past 180° is measured; a footprint within 0.05 rad of its
+  backward axis is refused. Exact for perspective cameras, and O(1/n²) on
+  curved boundaries. For PanoramaStitching's pair selection.
+  `_convex_clip_area!` (primitives/operators.jl) now wraps
+  `_convex_clip!(subject, clip)`, which returns the clipped ring with the
+  subject's orientation kept (the area path is unchanged), and the spherical fan
+  `_spherical_signed_area(apex, ring)` sits beside `_shoelace_signed_area`.
+
 ## 0.5.4 (2026-11-04)
 
 Additive: every model built without a mask is unchanged, bit for bit.

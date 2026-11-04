@@ -73,6 +73,7 @@ using ..Primitives: _closed_meet   # Core's one rect-meet convention, closed (pr
 using ..VisualGeometryToolkitCore: block_order   # grouped data: the sorted-key block order (base/cspond_set.jl)
 using ..VisualGeometryToolkitCore: natural_extrapolation   # the natural boundary condition of a uniform cubic lattice (numerics/bspline_energy.jl, BSplineKit)
 using ..VisualGeometryToolkitCore: difference_stencil      # the forward-difference coefficients (numerics/bspline_energy.jl): Δ³c = 0's extrapolation
+using ..VisualGeometryToolkitCore: bspline_basis, clamped_knots   # the Cox–de Boor basis on clamped knots: the vignetting fields (vignetting.jl)
 using ..VisualGeometryToolkitCore: TagRegistry, tag_of   # the target calibration kinds' tags (quality/tag_registry.jl)
 using ..VisualGeometryToolkitCore: Circle, Ellipse, Circle3D, is_ellipse, boundary_points
 using ..VisualGeometryToolkitCore: intersects   # a node's support against the imaged region (support.jl)
@@ -123,6 +124,7 @@ using Base: ImmutableDict
 using ..VisualGeometryToolkitCore: Size2, Quantity, BaseQuantity, base_quantity, strip_or_bare, px, mm, μm, m
 using ..VisualGeometryToolkitCore: _check_pixels, _strip_pixels   # pixel-sized values: refuse a length (base/units.jl)
 using ..VisualGeometryToolkitCore: EuclideanMap, CameraPose, CameraExtrinsics, to_affine, to_homogeneous, image_warp, image_warp!
+using ..VisualGeometryToolkitCore: RotationMap, WorldFrame, CameraFrame, _mapped_origin   # an oriented camera's pose (transforms/rotation_map.jl)
 import ..VisualGeometryToolkitCore: has_units, with_unit   # extended on the carriers: targets, mounts, rigs, cameras, captures
 import ..VisualGeometryToolkitCore: _unit_form, _form_sample   # the one-form rule's view of each carrier (euclidean_map.jl `_check_one_form`)
 using ..VisualGeometryToolkitCore: translation, UnitfulEuclideanMap, _attach_unit, _ustrip_point, _attach_point, _stored_point,
@@ -187,6 +189,7 @@ include("equirectangular.jl") # the latitude/longitude projection of directions 
 include("lens_chart.jl") # parameter chart, ∂lens/∂θ, TOML lens registry (0.22.1)
 include("generic_models.jl") # Schöps et al. central/non-central generic grid models (0.16)
 include("support.jl")         # supports on the sensor: which parameters a camera can see (the generic models' lattice)
+include("vignetting.jl")      # TensorVignetting, RadialVignetting: a camera's vignetting (uses the support protocol, bspline_basis)
 include("chart_spline.jl")    # ChartSpline, SplineProjection: a forward map as the grid models' lattice on a direction chart (uses spline_value, the window)
 include("imaging_chain.jl")   # framed stages between image frames + imaging_chain mint (0.10)
 
@@ -216,7 +219,9 @@ inverse directions. The transform is computed on demand and inlined.
   grid model); `PosedCamera(model, X)` refuses a posed one (`is_posed(model)`)
   and a [`BoundedCamera`](@ref) — the bound goes outside the pose,
   `BoundedCamera(PosedCamera(model, X), extent)`
-- `Rt <: EuclideanMap`: extrinsics type
+- `Rt <: Union{EuclideanMap, RotationMap}`: extrinsics type. A
+  [`RotationMap`](@ref) poses a camera that only turns about its centre, an
+  [`OrientedCamera`](@ref).
 
 # Fields
 - `model::M`: Camera model (intrinsics + lens)
@@ -241,21 +246,45 @@ u = project(camera, X_world)
 """
 struct PosedCamera{
         M <: AbstractCamera,   # an unposed model — parametric OR generic (checked below)
-        Rt <: EuclideanMap,
+        Rt <: Union{EuclideanMap, RotationMap},
     } <: AbstractCamera
     model::M
     extrinsics::Rt
     # The one hierarchy admits a camera as the model type; the guard refuses the
     # two forms that are not a model. It is decided by the model's type
     # (`is_posed` is a type-level answer), so it compiles away.
-    function PosedCamera{M, Rt}(model, extrinsics) where {M <: AbstractCamera, Rt <: EuclideanMap}
+    function PosedCamera{M, Rt}(model, extrinsics) where {M <: AbstractCamera, Rt <: Union{EuclideanMap, RotationMap}}
         _check_camera_model(model, "PosedCamera")
         return new{M, Rt}(model, extrinsics)
     end
 end
-PosedCamera(model::M, extrinsics::Rt) where {M <: AbstractCamera, Rt <: EuclideanMap} = PosedCamera{M, Rt}(model, extrinsics)
+PosedCamera(model::M, extrinsics::Rt) where {M <: AbstractCamera, Rt <: Union{EuclideanMap, RotationMap}} =
+    PosedCamera{M, Rt}(model, extrinsics)
 
 is_posed(::PosedCamera) = true
+
+"""
+    OrientedCamera{M}
+
+A camera that only turns about its centre: a [`PosedCamera`](@ref) whose
+extrinsics are a [`RotationMap`](@ref)`{3}`, `PosedCamera{M, <:RotationMap{3}}`
+(an alias, not a type of its own). It has an orientation and no position:
+`extrinsics(c)` is the world → camera rotation, `pose(c)` its inverse, and
+`project`, `backproject` and `unproject` act about the origin. Build it from
+the rotation of either direction:
+`PosedCamera(model, relabel(CameraFrame, WorldFrame, RotationMap(R)))` takes
+a camera → world orientation and inverts it, an unlabeled or world → camera
+`RotationMap` is stored as the extrinsics. What needs a position refuses one
+by name: a rig member, the plane-induced homography and the verbs on plane
+coordinates (`project` of a plane conic or rectangle, `transfer_ellipse`,
+`HomographyMat`, `RadialCamera`), and a non-central grid model's pose. The
+frames of a panorama are oriented cameras, as [`view_overlap`](@ref) takes
+them.
+"""
+const OrientedCamera{M <: AbstractCamera} = PosedCamera{M, <:RotationMap{3}}   # M bounded as PosedCamera's, so a method on it is more specific than one on PosedCamera
+
+# A camera → world orientation (labeled so) is stored as its inverse, as a `CameraPose` is.
+PosedCamera(model::AbstractCamera, p::RotationMap{3, T, R, CameraFrame, WorldFrame}) where {T, R} = PosedCamera(model, inv(p))
 
 """
     PosedPinholeCamera
@@ -554,7 +583,7 @@ has_units(c::BoundedCamera) = has_units(c.camera)
 # An unposed camera holds no length (a NoncentralGenericModel's grid is plain
 # metres by its type, generic_models.jl); a posed camera type answers itself.
 has_units(c::AbstractCamera) = is_posed(c) ? throw(MethodError(has_units, (c,))) : false
-_rebuilt(c::PosedCamera, X::EuclideanMap) = PosedCamera{typeof(c.model), typeof(X)}(c.model, X)
+_rebuilt(c::PosedCamera, X::Union{EuclideanMap, RotationMap}) = PosedCamera{typeof(c.model), typeof(X)}(c.model, X)
 
 """
     ustrip(u::Units, camera::PosedCamera | BoundedCamera) -> same type of camera
@@ -644,7 +673,9 @@ E = extrinsics(camera)  # World-to-camera
 E(world_point)          # Transform point to camera coordinates
 ```
 """
-extrinsics(c::PosedCamera) = CameraExtrinsics(c.extrinsics)
+extrinsics(c::PosedCamera) = _labeled_extrinsics(c.extrinsics)
+_labeled_extrinsics(X::EuclideanMap) = CameraExtrinsics(X)
+_labeled_extrinsics(X::RotationMap) = relabel(WorldFrame, CameraFrame, X)   # an oriented camera's: a RotationMap, labeled the same way
 extrinsics(c::AbstractCamera) = _unposed_only(extrinsics, "extrinsics", c)
 
 """
@@ -675,7 +706,7 @@ function is_in_front(
     )
     ext = extrinsics(c)
     R = ext.R
-    t = ext.t
+    t = _mapped_origin(ext)    # the translation; the origin for an oriented camera
     z_cam = R[3, 1] .* x .+ R[3, 2] .* y .+ R[3, 3] .* z .+ t[3]
     return z_cam .> zero(eltype(z_cam))
 end
@@ -895,11 +926,13 @@ include("stereo.jl")
 include("rectify.jl")    # stereo rectification on the rig types (0.16)
 include("utilities.jl")
 include("image_circle.jl")  # the lens model's valid domain, and the image circle from a datasheet through the pitch
+include("view_overlap.jl")  # view_overlap: the solid angle every pair of a rotating camera's frames share (uses imaged_region, valid_domain)
 include("random.jl")
 
 # Include planar homography (depends on PosedCamera)
 include("homography.jl")   # camera-derived HomographyMat (moved out of geometry/ 0.29)
 include("calibration.jl")  # zhang_intrinsics — Zhang IAC regression from plane homographies
+include("oriented_camera.jl")  # what an OrientedCamera refuses (plane verbs, rig membership), its convert_eltype (after calibration.jl: RadialCamera)
 
 # =============================================================================
 # EXPORTS - Organized by category
@@ -1015,11 +1048,17 @@ export view_angle_limit                   # honest θ-domains
 export valid_domain                       # where the lens MODEL is valid, not where light falls
 export image_circle                       # the lit region of the sensor, from a datasheet through the pitch
 export imaged_region                      # Rect(extent) ∩ a supplied image circle: what the camera images
+export view_overlap                       # the solid angle every pair of a rotating camera's frames share (view_overlap.jl)
+export OrientedCamera                     # a PosedCamera posed by a RotationMap: a camera turning about its centre
 export pixel_mask                         # the pixels whose centres lie in a region (COLMAP centres, Julia layout)
 export pixel_centres                      # the centres of a sub-lattice of pixels that lie in a region
 export SupportTrait, GlobalSupport, LocalSupport, support_trait, nodes, support, node_position   # supports on the sensor (support.jl)
 export free_nodes, node_mask, cubic_bspline_footprint
 export BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent nodes of a lattice outside an imaged region (support.jl)
+export AbstractVignetting, TensorVignetting, RadialVignetting, LogVignetting   # a camera's vignetting fields (vignetting.jl)
+export log_spline                         # a LogVignetting's spline of log V (public, not exported, at the top level)
+export coefficient_jacobian, active_coefficients, control_points, with_control_points, n_control_points, knot_vectors, spline_degree,
+       field_center, field_radius, radial_coordinate, pole_regular_basis   # (public, not exported, at the top level)
 export radial_part                         # a lens's radially symmetric part
 export CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models (Schöps et al.)
 export present_nodes, in_present_domain   # the nodes a grid model holds; where it evaluates (every window node present)

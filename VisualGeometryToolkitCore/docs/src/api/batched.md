@@ -59,6 +59,32 @@ Private = false
 Pages = ["numerics/bspline_energy.jl"]
 ```
 
+## Vignetting
+
+A camera's relative illumination V on the sensor as a B-spline in V on
+clamped knots ([`clamped_knots`](@ref), [`bspline_basis`](@ref)), linear in
+its control points: a tensor surface over a sensor box
+([`TensorVignetting`](@ref)) or a profile in the radius about a centre
+([`RadialVignetting`](@ref)). A model is callable, `v(u)`, and isbits, so a
+batch of sensor points goes through [`pointwise!`](@ref) on a device;
+[`coefficient_jacobian`](@ref) is its row of a least squares in the control
+points, [`active_coefficients`](@ref) that row's nonzeros, and
+[`pole_regular_basis`](@ref) the radial profiles smooth at their centre. The
+estimators that fit them are their owners': a radiometric calibration's,
+a panorama's self-calibration.
+
+```julia
+v = RadialVignetting(12, SVector(2128.0, 1424.0), 1700.0)   # control points, centre and radius (camera pixels); V ≡ 1
+v = with_control_points(v, pole_regular_basis(v) * y)        # a profile with V′(0) = 0
+v(SVector(2500.0, 1300.0))                                   # V at a sensor point
+```
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Cameras]
+Private = false
+Pages = ["geometry/cameras/vignetting.jl"]
+```
+
 ## Thin-plate spline
 
 `f(𝐩) = a₁ + a_x 𝐩_x + a_y 𝐩_y + Σᵢ wᵢ U(𝐩, 𝐩ᵢ)` with `U = ½ r² ln r²`, through

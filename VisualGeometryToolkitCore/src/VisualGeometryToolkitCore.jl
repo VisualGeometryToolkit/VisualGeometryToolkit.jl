@@ -198,6 +198,7 @@ public gauss_hermite_prob, hammersley, square_rule, unit_disc_rule   # quadratur
 public bspline_basis   # the scalar Cox–de Boor basis (isbits, any eltype, kernel-safe; on the CPU BSplineKit's)
 public cubic_lattice_basis, bending_gram, bending_rows, bending_stencils, natural_extrapolation   # the bending energy and the natural boundary condition (BSplineKit)
 public difference_stencil   # a lattice's forward-difference coefficients (a P-spline penalty, BoundaryRule's Δ³ extrapolation)
+public clamped_knots        # the clamped uniform knot vector bspline_basis takes (BSplineKit's, static)
 public bspline_basis_iterative, evaluate_bspline_surface, bspline_surface_partial
 public evaluate_bspline_4d, bspline_4d_partial, contract_basis_4d_weighted
 # Thin-plate spline (hoisted from RadiometricCamera, arithmetic unchanged): the
@@ -312,11 +313,17 @@ export view_angle_limit  # the honest θ-domain of a lens
 export valid_domain      # where the lens MODEL is valid (its view-angle limit's image), not where light falls
 export image_circle      # the lit region of the sensor, from a datasheet through the pitch
 export imaged_region     # Rect(extent) ∩ a supplied image circle: what a bounded camera images
+export view_overlap      # the solid angle every pair of a rotating camera's frames share, and its fraction of each footprint (cameras/view_overlap.jl)
+export RotationMap, OrientedCamera   # a rotation-only pose, and a camera posed by one (transforms/rotation_map.jl, cameras/cameras.jl)
 export pixel_mask        # the pixels whose centres lie in a region (COLMAP centres, Julia's array layout)
 export pixel_centres     # the centres of a sub-lattice of pixels that lie in a region (pixel_mask's conversion)
 export free_nodes, node_mask   # which of a model's parameters a camera can see (cameras/support.jl)
 public SupportTrait, GlobalSupport, LocalSupport, support_trait, nodes, support, node_position, cubic_bspline_footprint
 public BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent nodes of a lattice outside an imaged region
+export AbstractVignetting, TensorVignetting, RadialVignetting, LogVignetting   # a camera's vignetting: B-spline fields on the sensor, in V or in log V (cameras/vignetting.jl)
+public log_spline   # a LogVignetting's spline of log V
+public coefficient_jacobian, active_coefficients, control_points, with_control_points, n_control_points, knot_vectors, spline_degree,
+       field_center, field_radius, radial_coordinate, pole_regular_basis   # their basis, accessors and a radial profile's regular subspace
 public radial_part      # a lens's radially symmetric part (shared with VisualGeometryToolkitEstimation's fit_camera)
 export parameter_vector, parameter_names, parameter_bounds, with_parameters  # the lens parameter chart
 public convert_eltype                     # a camera, lens or intrinsics rebuilt in another float type
@@ -818,6 +825,7 @@ include("robust/lo_contract.jl")      # lo_workspace/locally_optimize!/lo_estima
 # NOTE: coord_maps, region_maps, homography_map come AFTER Primitives
 include("geometry/transforms/matrices.jl")      # Transform matrix types + Holy Traits
 include("geometry/transforms/euclidean_map.jl") # EuclideanMap (rigid transforms for camera poses)
+include("geometry/transforms/rotation_map.jl")  # RotationMap: a frame-tagged rotation about the origin, no translation (an OrientedCamera's pose)
 include("geometry/transforms/lie.jl")           # SO(3)/SE(3) exp/log + left Jacobian (AD-safe exp side)
 include("geometry/transforms/rotation_fits.jl") # Kabsch/Wahba, chordal mean, SO(3) projection
 
@@ -939,5 +947,9 @@ const SCALE_INTERFACE_TAGS = TagRegistry(:scale_interface, "",
 include("quality/stack_contracts.jl")
 include("quality/agent_docs.jl")
 include("quality/conventions.jl")
+
+# The precompile workload: the camera models' native code, cached in the package image
+using PrecompileTools: @setup_workload, @compile_workload
+include("precompile.jl")
 
 end # module VisualGeometryToolkitCore

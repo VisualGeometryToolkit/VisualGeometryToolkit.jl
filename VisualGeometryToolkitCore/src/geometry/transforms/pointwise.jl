@@ -93,20 +93,41 @@ _pointwise!(::Serial, f::F, out, xs...) where {F} = (out .= f.(xs...); out)
 # (`_device_functor`): one aggregate argument holding every field makes the device compiler copy it to local memory once any of its
 # parts is used by reference — RadiometricCamera's per-pixel flux functor (2.3 KB of fields) needed 2800 bytes of local memory as
 # one argument against 2456 as its fields, and ran 5 % slower. A functor whose type cannot be rebuilt from its fields' device types
-# (`_splattable`), or with more fields than the kernels take, goes as one argument.
+# (`_splattable`), or with more fields than the kernels take, goes as one argument. The functor is first adapted to the backend as
+# a whole (`Adapt.adapt(backend, f)`, its own rules), and the launch then converts each field as it converts any argument.
 const _MAX_FIELDS = 16
 
-# `F`'s fields are each one of its type parameters or an isbits value (which the device conversion keeps): then the device type is
-# `F` with those parameters replaced by the fields' device types.
-_splattable(::Type{F}) where {F} =
-    isconcretetype(F) && !ismutabletype(F) && fieldcount(F) <= _MAX_FIELDS &&
-    all(i -> (T = fieldtype(F, i); any(p -> p === T, F.parameters) || isbitstype(T)), 1:fieldcount(F))
-# The functor of host type `F` from its fields' device values.
+# The type variables of `F`'s declaration, in order, and the declared type of each field (a TypeVar or a type).
+function _declaration(::Type{F}) where {F}
+    vars = TypeVar[]; w = F.name.wrapper
+    while w isa UnionAll
+        push!(vars, w.var); w = w.body
+    end
+    return vars, [fieldtype(w, i) for i in 1:fieldcount(F)]
+end
+_occurs(v::TypeVar, T) = T === v || (T isa DataType && any(p -> _occurs(v, p), T.parameters)) ||
+                         (T isa UnionAll && (_occurs(v, T.var.ub) || _occurs(v, T.body))) || (T isa Union && (_occurs(v, T.a) || _occurs(v, T.b)))
+# Every field is declared as one of `F`'s type variables, used by no other field's declaration, or holds an isbits value (which
+# the device conversion keeps): then the device type is `F` with those variables bound to the fields' device types.
+function _splattable(::Type{F}) where {F}
+    (isconcretetype(F) && !ismutabletype(F) && fieldcount(F) <= _MAX_FIELDS) || return false
+    vars, decl = _declaration(F)
+    for (i, d) in enumerate(decl)
+        if d isa TypeVar && d in vars
+            any(k -> k != i && decl[k] !== d && _occurs(d, decl[k]), eachindex(decl)) && return false
+        else
+            isbitstype(fieldtype(F, i)) || return false
+        end
+    end
+    return true
+end
+# The functor of host type `F` from its fields' device values: each field-declared type variable bound to its field's device type,
+# the others kept.
 @generated function _device_functor(::Type{F}, fields...) where {F}
+    vars, decl = _declaration(F)
     params = collect(Any, F.parameters)
-    for i in 1:fieldcount(F)
-        j = findfirst(p -> p === fieldtype(F, i), params)
-        j === nothing || (params[j] = fields[i])
+    for (i, d) in enumerate(decl)
+        d isa TypeVar && (j = findfirst(v -> v === d, vars); j === nothing || (params[j] = fields[i]))
     end
     T = isempty(params) ? F : F.name.wrapper{params...}
     return Expr(:new, T, (:(fields[$i]) for i in 1:fieldcount(F))...)
@@ -130,11 +151,13 @@ function _pointwise!(p::OnBackend, f::F, out, xs...) where {F}
     all(x -> axes(x) == axes(out), xs) ||
         throw(DimensionMismatch("pointwise!: the inputs' axes $(map(axes, xs)) are not the output's $(axes(out))"))
     isempty(out) && return out
-    if _splattable(F)
-        _launch(p, _POINTWISE_FIELDS_KERNELS[fieldcount(F) + 1])(out, xs, F, ntuple(i -> getfield(f, i), Val(fieldcount(F)))...;
+    fb = Adapt.adapt(p.backend, f)                      # the functor's own adapt rules, before it is taken apart
+    G = typeof(fb)
+    if _splattable(G)
+        _launch(p, _POINTWISE_FIELDS_KERNELS[fieldcount(G) + 1])(out, xs, G, ntuple(i -> getfield(fb, i), Val(fieldcount(G)))...;
                                                                   ndrange = size(out))
     else
-        _launch(p, _pointwise_kernel!)(out, xs, f; ndrange = size(out))
+        _launch(p, _pointwise_kernel!)(out, xs, fb; ndrange = size(out))
     end
     return out
 end

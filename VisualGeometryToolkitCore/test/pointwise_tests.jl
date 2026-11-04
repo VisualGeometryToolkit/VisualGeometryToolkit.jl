@@ -13,6 +13,16 @@
         w::Vector{Float64}
     end
     (a::VecAffine)(x) = a.w[1] * x + a.w[2]
+    # type parameters in another order than the fields; one parameter (T) no field's, equal to a field's type
+    struct Swapped{B, A}
+        a::A
+        b::B
+    end
+    (s::Swapped)(i) = s.a[i] + s.b
+    struct Tagged{T, V}
+        v::V
+    end
+    (t::Tagged)(i) = 2 * t.v[i]
     using StaticArrays: SVector
     using LinearAlgebra: norm
     using Random: Xoshiro
@@ -90,6 +100,12 @@
             @test VisualGeometryToolkitCore._splattable(typeof(Base.Fix1(project, KB))) && !VisualGeometryToolkitCore._splattable(typeof(scaled))
             O = pointwise!(scaled, similar(A), A; exec); KernelAbstractions.synchronize(cpu)
             @test O == scaled.(A)
+            t = randn(rng, 9); idx = collect(1:9)
+            for g in (Swapped(t, 0.5), Tagged{typeof(t), typeof(t)}(t))
+                @test VisualGeometryToolkitCore._splattable(typeof(g))
+                o = pointwise!(g, similar(t), idx; exec); KernelAbstractions.synchronize(cpu)
+                @test o == g.(idx)
+            end
         end
         @test pointwise!(hypot, Float64[], Float64[], Float64[]; exec = OnBackend(cpu)) == Float64[]
         @test_throws DimensionMismatch pointwise!(hypot, zeros(3), zeros(4), zeros(4); exec = OnBackend(cpu))
@@ -141,6 +157,16 @@
                 Base.invokelatest(project!, dev, KB, drays; exec)
                 Base.invokelatest(KernelAbstractions.synchronize, cbe)
                 @test isequal(Base.invokelatest(Array, dev), Base.invokelatest(Array, bcast))
+            end
+            # functors holding a device array, passed as their fields: the array arrives as the kernel's form of it, the type
+            # parameters bound in their declared order (a parameter no field declares, here equal to the array's type, kept)
+            tab = Float32.(1:64) ./ 7; dtab = Base.invokelatest(CuArray, tab); didx = Base.invokelatest(CuArray, collect(1:64))
+            for (g, h) in ((Swapped(dtab, 0.5f0), Swapped(tab, 0.5f0)), (Tagged{typeof(dtab), typeof(dtab)}(dtab), Tagged{Nothing, typeof(tab)}(tab)))
+                @test VisualGeometryToolkitCore._splattable(typeof(g))
+                o = Base.invokelatest(CuArray, zeros(Float32, 64))
+                Base.invokelatest(pointwise!, g, o, didx; exec = OnBackend(cbe))
+                Base.invokelatest(KernelAbstractions.synchronize, cbe)
+                @test Base.invokelatest(Array, o) == h.(1:64)
             end
             # a strong OpenCV chain out to its branch's edge, where the inverse
             # continues from the axis (the device runs the same fallback)

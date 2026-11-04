@@ -11,8 +11,9 @@ target measurements as self-describing JSON files, one schema per
 type, and a value read back from a file equals the value that was written.
 Each file declares its conventions (pixel frame, length unit, rotation
 encoding, pose direction), and every earlier schema version a published file
-holds still loads. It also reads and writes COLMAP models, reads OpenCV and
-MATLAB calibration exports, and exports to the TUM, EuRoC, BOP and TRC formats.
+holds still loads. It also reads and writes COLMAP models, reads COLMAP
+databases and OpenCV and MATLAB calibration exports, and exports to the TUM,
+EuRoC, BOP and TRC formats.
 
 ## Installation
 
@@ -56,6 +57,7 @@ VgtkIO.load(BoundedCamera, store; name = :left) == camera   # true
 VgtkIO.validate(store)                             # "cameras"
 ```
 
+The `provenance` keyword is written to the file but not returned by `load`.
 The [Getting Started](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/stable/guide/getting-started/)
 guide shows the files this writes.
 
@@ -89,6 +91,7 @@ exports it:
   author = {Pritts, James and Sauer, Hendrik},
   title  = {{VisualGeometryToolkit.jl}: Julia Packages for Multiple-View Geometry},
   url    = {https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl},
+  doi    = {10.5281/zenodo.23548372},
   year   = {2026}
 }
 ```

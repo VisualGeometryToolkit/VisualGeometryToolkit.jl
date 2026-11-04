@@ -278,7 +278,8 @@ earlier version; the reader of a schema owner's kind calls it before it reads
 a file, so an old file loads as the current version. An `ArgumentError` for a
 step that does not move the version, and whatever a step refuses.
 
-A `vgio/cameras/v1` record, carried through the v2 and v3 steps:
+A `vgio/cameras/v1` record, carried to the current version by the v1, v2 and
+v3 steps:
 
 ```jldoctest
 julia> v1 = Dict("schema" => "vgio/cameras/v1", "cameras" => [Dict(

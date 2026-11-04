@@ -8,8 +8,13 @@
   Without it, the check is recorded as skipped.
 - Aqua, ExplicitImports and a JET inference ratchet with a baseline of zero
   reports run as part of the normal suite (`test/quality_tests.jl`).
-- Every `julia` block of the README runs as written (`test/readme_tests.jl`),
-  and the docs build runs the examples in this manual as doctests.
+- The README's example, which the home page of this manual shows verbatim,
+  runs as written in a fresh environment built from the README's install line,
+  and that line must name exactly the packages the example loads
+  (`test/readme_tests.jl`). The docs build runs the examples in this manual as
+  doctests.
+- Every public name has a docstring, attached to its definition, whose
+  signature lines a method accepts (`test/docs_tests.jl`).
 
 ## Running the tests
 

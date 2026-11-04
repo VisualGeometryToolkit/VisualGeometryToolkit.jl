@@ -55,7 +55,7 @@ using CoordinateTransformations:
     Translation,
     transform_deriv,
     transform_deriv_params
-using Rotations: Rotations, RotMatrix, RotationVec, Rotation, QuatRotation
+using Rotations: Rotations, RotMatrix, RotationVec, Rotation, QuatRotation, Angle2d
 using LogExpFunctions: xlogx, logit, log1pexp   # the Welsch conjugate's w·log(w); the mixture's log-odds and softplus
 using SpecialFunctions: loggamma, digamma, trigamma   # the Student-t normaliser and the ν M-step (robust/mixture.jl)
 using QuadGK: quadgk, gauss   # a loss shape's truncated normaliser (robust/normaliser.jl)

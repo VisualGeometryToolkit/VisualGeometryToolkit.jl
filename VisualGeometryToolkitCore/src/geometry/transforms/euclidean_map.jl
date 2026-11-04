@@ -166,10 +166,12 @@ function _assert_rotation(
 end
 
 
-# The rotation a positional constructor stores: a `RotMatrix` or a `QuatRotation`
-# stays what it is (a saved pose's quaternion round-trips bit for bit); any other
+# The rotation a positional constructor stores: a `RotMatrix`, a `QuatRotation`
+# or an `Angle2d` stays what it is (a saved pose's quaternion round-trips bit for
+# bit, and so does a planar map's angle — a target calibration's rigid member
+# holds its parameter ϑ as an `Angle2d`, target_calibration.jl); any other
 # `Rotation` is stored as a `RotMatrix` of its own eltype.
-_stored_rotation(R::Union{RotMatrix, QuatRotation}) = R
+_stored_rotation(R::Union{RotMatrix, QuatRotation, Angle2d}) = R
 _stored_rotation(R::Rotation{N, T}) where {N, T} = RotMatrix{N, T}(R)
 
 # The length every physical translation is: a quantity of another dimension is
@@ -185,8 +187,9 @@ end
 
 A PHYSICAL map: every component of `t` a length, in any length unit (a
 quantity of another dimension is a `DimensionError`), stored as FlexUnits'
-base-form quantities — metres (`base_quantity`). A `RotMatrix` or `QuatRotation` rotation
-is stored as given; any other `Rotation` as a `RotMatrix` of its own eltype.
+base-form quantities — metres (`base_quantity`). A `RotMatrix`, `QuatRotation` or
+`Angle2d` rotation is stored as given; any other `Rotation` as a `RotMatrix` of
+its own eltype.
 """
 function EuclideanMap(
         R::Rotation{N, T}, t::AbstractVector{<:Quantity};

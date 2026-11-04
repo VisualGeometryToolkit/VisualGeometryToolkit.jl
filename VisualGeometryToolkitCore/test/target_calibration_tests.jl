@@ -12,7 +12,7 @@
     using VisualGeometryToolkitCore: grid_nodes, ThinPlateSplineSystem, tps_coefficients, tps_evaluate, bending_energy,
         transform_deriv, transform_deriv_params
     using CoordinateTransformations: ComposedTransformation
-    using Rotations: RotMatrix
+    using Rotations: Rotations, RotMatrix, Angle2d
 
     rng = Xoshiro(20261026)
     nodes = grid_nodes(4; lo = -0.1, hi = 0.1)                       # a 20 cm board's chart, 16 nodes
@@ -24,7 +24,6 @@
     kinds = (Aspect(0.002), Skew(-0.0015), Scale(0.001), E, AU, K, T, H, H ∘ AU, H ∘ T)
     xs = [SVector(0.2 * rand(rng) - 0.1, 0.2 * rand(rng) - 0.1) for _ in 1:8]
     push!(xs, SVector(nodes[6]...))                                     # on a node
-    has_rigid(c) = any(l -> l isa EuclideanMap, VgtkCore.Cameras._members(c))
 
     @testset "with_parameters ∘ parameter_vector round trips" begin
         for c in kinds
@@ -32,13 +31,9 @@
             # a step the calibration may take: along its manifold (a thin-plate kind's values keep no plane part)
             B = Matrix(VgtkCore.retract_jacobian(VgtkCore.TargetManifold(PlanarTarget(xs; calibration = c))))
             θ′ = θ .+ B * (1.0e-5 .* randn(rng, size(B, 2)))
-            if has_rigid(c)       # the angle goes through atan(sin, cos): to rounding
-                @test all(x -> with_parameters(c, θ)(x) ≈ c(x), xs)
-                @test parameter_vector(with_parameters(c, θ′)) ≈ θ′ rtol = 1.0e-15
-            else
-                @test with_parameters(c, θ) == c
-                @test parameter_vector(with_parameters(c, θ′)) == θ′
-            end
+            # exact for every kind: the rigid member stores its angle (an Angle2d), not a matrix
+            @test with_parameters(c, θ) == c
+            @test parameter_vector(with_parameters(c, θ′)) == θ′
             @test length(parameter_names(c)) == length(θ) && allunique(parameter_names(c))
             lo, hi = parameter_bounds(c)
             @test all(==(-Inf), lo) && all(==(Inf), hi)
@@ -51,6 +46,27 @@
         # CoordinateTransformations' order: the outer map's first
         @test parameter_names(H ∘ AU)[[1, 16, 17, 18]] == (:height_field_h1, :height_field_h16, :aspect_a1, :skew_u12)
         @test parameter_names(K) == (:euclidean_angle, :euclidean_tx, :euclidean_ty, :scale_log_scale, :aspect_a1, :skew_u12)
+    end
+
+    @testset "the rigid member's angle is its value: exact round trips" begin
+        @test VgtkCore.rotation(E) isa Angle2d{Float64}
+        mt = VgtkCore.m
+        for _ in 1:2000
+            θ = [π * (2 * rand(rng) - 1), 0.01 * randn(rng), 0.01 * randn(rng)]
+            c = with_parameters(E, θ)
+            @test parameter_vector(c) == θ
+            s = calibration(PlanarTarget(xs; calibration = c))                       # what a target stores
+            @test s == c && parameter_vector(s) == θ
+            p = with_parameters(VgtkCore.with_unit(E, mt), θ)                                # physical: the translation in metres
+            @test parameter_vector(p) == θ && parameter_vector(ustrip(mt, p)) == θ
+            @test parameter_vector(with_parameters(K, [θ; 0.001; 0.002; -0.0015]))[1:3] == θ
+        end
+        # a map built from a matrix is converted once, where a target stores it: its angle becomes the value
+        R = RotMatrix{2}(0.7)
+        s = calibration(PlanarTarget(xs; calibration = EuclideanMap(R, SVector(0.001, 0.002))))
+        @test VgtkCore.rotation(s) isa Angle2d{Float64} && VgtkCore.rotation(s).theta === Rotations.rotation_angle(R)
+        @test SMatrix{2, 2}(VgtkCore.rotation(s)) ≈ R rtol = 1.0e-15
+        @test parameter_vector(with_parameters(s, parameter_vector(s))) == parameter_vector(s)
     end
 
     @testset "transform_deriv_params is ∂c(x)/∂θ, transform_deriv ∂c(x)/∂x (ForwardDiff)" begin

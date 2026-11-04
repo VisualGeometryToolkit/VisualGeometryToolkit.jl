@@ -302,16 +302,29 @@ convert_eltype(::Type{T}, c::Scale) where {T <: AbstractFloat} = Scale(T(c.log_s
 # `transform_deriv_params` is the 2 × 3 `[J R p  I₂]` (manifolds/rigid.jl), its
 # `transform_deriv` R. It belongs in a calibration only with a KNOWN pose;
 # with the pose estimated jointly it is the pose.
+#
+# THE ANGLE IS THE VALUE. A calibration's rigid member holds its rotation as a
+# Rotations.jl `Angle2d`, which stores ϑ and builds cos ϑ, sin ϑ where it is
+# applied, so `parameter_vector(with_parameters(E, θ)) == θ` bit for bit and a
+# record's angle is the stored one. A matrix cannot be that value: ϑ ↦ R(ϑ) ↦
+# atan(R₂₁, R₁₁) misses ϑ by an ulp for about one angle in ten. A map built
+# from any other `Rotation{2}` (a `RotMatrix{2}`, a QR factor's) is converted
+# ONCE, where a target stores it (`_stored_calibration`, below): its angle
+# `rotation_angle(R)` becomes the value, and the stored matrix is the one that
+# angle builds (equal to the given one to its rounding). `parameter_vector`
+# reads any `Rotation{2}`'s `rotation_angle` — the stored ϑ of an `Angle2d`.
+_planar_rotation(R::Angle2d) = R
+_planar_rotation(R::Rotation{2, T}) where {T} = Angle2d{T}(rotation_angle(R))
 parameter_vector(E::EuclideanMap{2}) = (
-    R = SMatrix{2, 2}(rotation(E)); t = translation(E);
-    SVector(atan(R[2, 1], R[1, 1]), _plain_length(t[1]), _plain_length(t[2]))
+    t = translation(E);
+    SVector(rotation_angle(rotation(E)), _plain_length(t[1]), _plain_length(t[2]))
 )
 parameter_names(::EuclideanMap{2}) = (:angle, :tx, :ty)
 function with_parameters(E::EuclideanMap{2}, θ::AbstractVector)
     length(θ) == 3 || _refuse_length(E, θ)
     T = float(eltype(θ))
     t = SVector{2, T}(θ[2], θ[3])
-    return EuclideanMap(RotMatrix{2, T}(θ[1]), has_units(E) ? map(x -> _attach_length(x, m), t) : t; check = false)
+    return EuclideanMap(Angle2d{T}(θ[1]), has_units(E) ? map(x -> _attach_length(x, m), t) : t; check = false)
 end
 # a physical design point: the rotation column in metres (manifolds/rigid.jl's method takes plain points)
 transform_deriv_params(E::EuclideanMap{2}, x::StaticVector{2, <:Quantity}) = transform_deriv_params(E, _plain_point(x))
@@ -695,7 +708,10 @@ physical target — one of [`Rigid`](@ref), the affine factors (a planar
 `EuclideanMap`, [`Scale`](@ref), [`Aspect`](@ref), [`Skew`](@ref)),
 [`ThinPlateSpline`](@ref), [`HeightField`](@ref), or a composition of them
 with CT's `∘`. The union of those, the one type every calibration-typed
-method takes.
+method takes. The rigid member's parameters are `(:angle, :tx, :ty)`, and it
+holds its rotation as a Rotations.jl `Angle2d`, the angle itself (a member
+built from another `Rotation{2}` is converted once, where a target stores
+it), so its parameters round-trip bit for bit.
 
 A [`PlanarTarget`](@ref) holds one kind, or kinds composed in the CANONICAL
 ORDER, any of them left out:
@@ -982,7 +998,7 @@ with_parameters(u::Uncertain{<:TargetCalibration}, θ::AbstractVector) = with_pa
 # members in one form, in an accepted structure, right-associated. Anything
 # else is refused.
 _stored_calibration(c::Union{Rigid, ThinPlateSpline, HeightField, Scale, Aspect{2}, Skew{2}}) = c
-_stored_calibration(c::EuclideanMap{2}) = unlabel(c)
+_stored_calibration(c::EuclideanMap{2}) = unlabel(EuclideanMap(_planar_rotation(rotation(c)), translation(c); check = false))
 function _stored_calibration(c::_CalibrationComposition)
     ms = _members(c)
     inplane = first(ms) isa HeightField ? Base.tail(ms) : ms

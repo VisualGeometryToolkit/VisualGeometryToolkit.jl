@@ -37,7 +37,15 @@ chain types, and CT's conventions hold for it.
   `(:u12, :u13, …, :u23, …)`) and `Scale` (`x ↦ e^k x`, `(:log_scale,)`),
   and Core's planar `EuclideanMap` as the rigid member (`(:angle, :tx, :ty)`;
   new `transform_deriv_params(::EuclideanMap{2}, x)`, minimal, and
-  `transform_deriv(::EuclideanMap, x)`). None has gauges. With the pose
+  `transform_deriv(::EuclideanMap, x)`). The rigid member's ANGLE is its
+  value: it holds its rotation as a Rotations.jl `Angle2d` (`with_parameters`
+  builds `Angle2d(ϑ)`, `parameter_vector` reads `rotation_angle`, the stored
+  ϑ), so `parameter_vector(with_parameters(c, θ)) == θ` bit for bit for every
+  θ — a `RotMatrix{2}` misses ϑ by an ulp through `atan` for about one angle
+  in ten. A member built from any other `Rotation{2}` is converted once, where
+  a `PlanarTarget` stores it (its `rotation_angle` becomes the value), and
+  `EuclideanMap` now stores an `Angle2d` rotation as given, as it does a
+  `RotMatrix` or a `QuatRotation`. None has gauges. With the pose
   estimated jointly the print error is `Aspect ∘ Skew` (two parameters, where
   the affine kind had six and four gauges); a measured length adds `Scale`, a
   known pose the rigid member: `EuclideanMap ∘ Scale ∘ Aspect ∘ Skew`. A

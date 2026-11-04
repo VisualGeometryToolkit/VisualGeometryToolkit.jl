@@ -54,7 +54,7 @@ using StructArrays: StructArrays, StructArray
 using IntervalSets: IntervalSets
 using CoordinateTransformations: CoordinateTransformations, AffineMap, Translation, ComposedTransformation   # ∘: a lens's distortion stages, a target calibration's height field after its in-plane kind
 import CoordinateTransformations: transform_deriv, transform_deriv_params
-using Rotations: Rotations, RotMatrix
+using Rotations: Rotations, Rotation, RotMatrix, Angle2d, rotation_angle
 using GeometryBasics: GeometryBasics
 using MacroTools: MacroTools
 using KernelAbstractions: KernelAbstractions, @kernel, @index, @Const, get_backend

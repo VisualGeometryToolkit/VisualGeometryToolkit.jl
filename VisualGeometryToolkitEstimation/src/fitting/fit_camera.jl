@@ -432,7 +432,9 @@ function _image_quadrature(samples::F, source, region) where {F}
 end
 
 # The source's rays at `pixels`: its batched `backproject`, NaN where it images none.
-_source_rays(source, pixels) = SVector{3, Float64}.(backproject(source, pixels))
+_source_rays(source, pixels) = _svectors(backproject(source, pixels))
+_svectors(r::AbstractVector{SVector{3, Float64}}) = r
+_svectors(r) = SVector{3, Float64}.(r)
 
 # The source's observation lines at `pixels`, `(origin, unit direction)`, NaN where
 # it images none: a non-central grid's `Ray3`s (plain metres), and for a central
@@ -452,7 +454,8 @@ _is_finite_sample(l::Tuple) = all(_is_finite_sample, l)
 # Whether a point lies within `_EDGE_BAND_PX` of the region's edge: a point at
 # that distance on one of 16 directions leaves the region (a convex region's
 # distance to its edge, to the 16-gon's chord).
-_in_edge_band(region, p) = any(k -> Point2{Float64}((p + _EDGE_BAND_PX * SVector(cospi(k / 8), sinpi(k / 8)))...) ∉ region, 0:15)
+_in_edge_band(region, p) = any(e -> Point2{Float64}((p + _EDGE_BAND_PX * e)...) ∉ region, _EDGE_DIRECTIONS)
+const _EDGE_DIRECTIONS = ntuple(k -> SVector(cospi((k - 1) / 8), sinpi((k - 1) / 8)), 16)
 
 # One sample's design row: the 16 controls of its spline window and their
 # weights, in the column-major linear order of a `ny`-row control matrix (the
@@ -532,11 +535,11 @@ function _chart_quadrature(source, region)
     chart = Lens(Equidistant()) ∘ LinearMap(R)
     fit_charts = pointwise!(chart, similar(q.fit_rays, SVector{2, Float64}), q.fit_rays)
     held_charts = pointwise!(chart, similar(q.held_rays, SVector{2, Float64}), q.held_rays)
-    lo = minimum(reduce(hcat, fit_charts); dims = 2)
-    hi = maximum(reduce(hcat, fit_charts); dims = 2)
+    lo, hi = zip(extrema(c -> c[1], fit_charts), extrema(c -> c[2], fit_charts))
     margin = 1.0e-6
     area = Rect2(lo[1] - margin, lo[2] - margin, hi[1] - lo[1] + 2margin, hi[2] - lo[2] + 2margin)
-    return (; q..., chart, fit_charts, held_charts, area)
+    # the spacing search's one right-hand side: the fit points' pixels
+    return (; q..., chart, fit_charts, held_charts, area, rhs = _rhs_matrix(q.fit_px))
 end
 
 # The spline fit at `cells` knot spacings along the chart's longer side: the
@@ -547,7 +550,7 @@ function _spline_projection_fit(q, cells::Int)
     nx = ceil(Int, w[1] / h * (1 - 1.0e-12)) + 3
     ny = ceil(Int, w[2] / h * (1 - 1.0e-12)) + 3
     rows = _design_rows(c -> spline_window(q.area, (ny, nx), c), q.fit_charts, ny)
-    controls, λ = _penalized_solve(rows, _rhs_matrix(q.fit_px), ny, nx, Val(2))
+    controls, λ = _penalized_solve(rows, q.rhs, ny, nx, Val(2))
     spline = ChartSpline(q.area, controls)
     err = norm.(spline(q.held_charts) .- q.held_px)
     return (; spline, h, λ, counts = (nx, ny), errors = _held_out_errors(err, q.edge))
@@ -670,7 +673,7 @@ _image_size(source) = throw(
 # batched `project` from the pixel itself, Inf where it does not converge.
 function _grid_round_trip(m::CentralGenericModel, rays, px)
     out = project(m, rays, px; iters = 50)
-    return [out.ok[i] ? norm(out.px[i] - px[i]) : Inf for i in eachindex(px)]
+    return ifelse.(out.ok, norm.(out.px .- px), Inf)
 end
 
 # ------------------------------------------------------------------------------

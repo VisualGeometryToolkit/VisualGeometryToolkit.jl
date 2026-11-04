@@ -204,6 +204,14 @@ Fixed:
   on `iterate`. A `Rect` already took any static vector (GeometryBasics); a
   `Polygon` stays `Point2`-only (widening it would be type piracy).
 
+Performance (same bits):
+
+- **`nodal_weights` of a thin-plate system allocates nothing at any node
+  count.** Past 16 nodes the loop form built its basis in a heap `Vector`
+  (288 B a call at 25 nodes); it is a stack `MVector` folded in the same
+  order, so the weights are the same bits. A ForwardDiff `Dual` point now
+  gives `Dual` weights (it was a `MethodError`).
+
 ## 0.4.0 (2026-11-02)
 
 Breaking: ONE Sampson path. Nothing outside `base/sampson.jl` computes

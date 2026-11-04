@@ -214,6 +214,45 @@ end
     @test VgtkCore._NODAL_STATIC_MAX < 25 && nodal_weights(ThinPlateSplineSystem(grid_nodes(5)), SVector(0.1, 0.2)) isa SVector{25, Float64}
 end
 
+@testitem "thin_plate_spline: nodal_weights allocates nothing, same bits" begin
+    using Test, StaticArrays, Random, ForwardDiff
+    using VisualGeometryToolkitCore: ThinPlateSplineSystem, nodal_weights, tps_radial_basis
+    # The heap-`Vector` loop the loop form used to be (288 B a call at 25
+    # nodes, per pixel per sample in RadiometricCamera). Its stack form folds
+    # in the same order, so the weights are the same bits.
+    function heap_reference(tps::ThinPlateSplineSystem{N}, p) where {N}
+        c = tps.coeff
+        φ = Vector{Float64}(undef, N + 3)
+        for r in 1:N
+            φ[r] = tps_radial_basis(p, tps.nodes[r])
+        end
+        φ[N + 1] = 1.0; φ[N + 2] = Float64(p[1]); φ[N + 3] = Float64(p[2])
+        return SVector{N}(ntuple(i -> (s = c[1, i] * φ[1]; for r in 2:(N + 3); s += c[r, i] * φ[r]; end; s), N))
+    end
+    allocated(tps, p) = (nodal_weights(tps, p); @allocated nodal_weights(tps, p))
+    rng = Xoshiro(23)
+    @testset "N = $N" for N in (4, 16, 17, 25, 100)
+        tps = ThinPlateSplineSystem([SVector(10rand(rng), 10rand(rng)) for _ in 1:N])
+        for _ in 1:50
+            p = SVector(12rand(rng) - 1, 12rand(rng) - 1)
+            @test nodal_weights(tps, p) === heap_reference(tps, p)
+            q = Float32.(p)
+            @test nodal_weights(tps, q) === heap_reference(tps, q)
+        end
+        p = SVector(4.2, 5.1)
+        d = SVector(ForwardDiff.Dual(p[1], 1.0, 0.0), ForwardDiff.Dual(p[2], 0.0, 1.0))
+        @test allocated(tps, p) == 0
+        @test allocated(tps, Float32.(p)) == 0
+        @test allocated(tps, d) == 0
+        # A Dual point: the value is the Float64 weights' bits, the partials
+        # the Jacobian of the weights with respect to the point.
+        wd = nodal_weights(tps, d)
+        @test ForwardDiff.value.(wd) == nodal_weights(tps, p)
+        J = ForwardDiff.jacobian(x -> nodal_weights(tps, x), p)
+        @test reduce(vcat, (collect(ForwardDiff.partials(w))' for w in wd)) == J
+    end
+end
+
 # The spherical spline (Wahba's kernel), hoisted from RadiometricCamera's
 # focus charts: the kernel's known values, interpolation of the samples, the
 # constant reproduced with zero bending, and the evaluator's types.

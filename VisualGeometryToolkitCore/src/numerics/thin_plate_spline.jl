@@ -172,26 +172,36 @@ tps_gradient(tps::ThinPlateSplineSystem, w, a, 𝐩) = tps_gradient(tps.nodes, w
 The sensitivity of the spline at `𝐩` to each nodal value, `∂f(𝐩)/∂valuesᵢ`.
 With `f(𝐩) = φ(𝐩)ᵀ (coeff · values)` and `φ = (U(𝐩, 𝐩₁) … U(𝐩, 𝐩_N), 1, 𝐩_x,
 𝐩_y)`, node `i`'s weight is `Σ_r coeff[r, i] φ_r(𝐩)` — exact, since the spline
-is linear in its values. Host-side (it reads `coeff`), in `Float64`.
+is linear in its values. Host-side (it reads `coeff`), in `Float64` for a
+real point (a `Float32` point included); a ForwardDiff `Dual` point gives
+`Dual` weights. Allocation-free at every `N`.
 """
 function nodal_weights(tps::ThinPlateSplineSystem{N}, 𝐩::StaticVector{2}) where {N}
     N <= _NODAL_STATIC_MAX || return _nodal_weights_loop(tps, 𝐩)
-    φ = ntuple(r -> r <= N ? tps_radial_basis(𝐩, tps.nodes[r]) : (r == N + 1 ? 1.0 : (r == N + 2 ? Float64(𝐩[1]) : Float64(𝐩[2]))), Val(N + 3))
+    S = _nodal_eltype(𝐩)
+    φ = ntuple(r -> r <= N ? S(tps_radial_basis(𝐩, tps.nodes[r])) : (r == N + 1 ? one(S) : (r == N + 2 ? S(𝐩[1]) : S(𝐩[2]))), Val(N + 3))
     c = tps.coeff
     return SVector{N}(ntuple(i -> sum(ntuple(r -> c[r, i] * φ[r], Val(N + 3))), Val(N)))
 end
+# The basis and weights are Float64 for any real point: `float(promote_type(…))`
+# keeps Float64 for a Float32 point (as `Float64(𝐩[1])` did) and a Dual for a
+# Dual point.
+_nodal_eltype(𝐩::StaticVector{2}) = float(promote_type(Float64, eltype(𝐩)))
 # The unrolled form compiles N(N + 3) terms: past this many nodes (a 3 × 3 grid
 # and a little more) the same sums run as loops, left to right as `sum` folds a
-# tuple, so both forms give the same bits.
+# tuple, so both forms give the same bits. The loop form's basis is a stack
+# `MVector`, not a heap `Vector`: RadiometricCamera calls this per pixel per
+# sample with 25 nodes, where 288 B a call was the whole garbage stream.
 const _NODAL_STATIC_MAX = 16
 function _nodal_weights_loop(tps::ThinPlateSplineSystem{N}, 𝐩::StaticVector{2}) where {N}
     c = tps.coeff
-    φ = Vector{Float64}(undef, N + 3)
+    S = _nodal_eltype(𝐩)
+    φ = MVector{N + 3, S}(undef)
     for r in 1:N
         φ[r] = tps_radial_basis(𝐩, tps.nodes[r])
     end
-    φ[N + 1] = 1.0; φ[N + 2] = Float64(𝐩[1]); φ[N + 3] = Float64(𝐩[2])
-    out = MVector{N, Float64}(undef)
+    φ[N + 1] = one(S); φ[N + 2] = S(𝐩[1]); φ[N + 3] = S(𝐩[2])
+    out = MVector{N, S}(undef)
     @inbounds for i in 1:N
         s = c[1, i] * φ[1]
         for r in 2:(N + 3)

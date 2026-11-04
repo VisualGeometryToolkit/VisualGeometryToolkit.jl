@@ -433,8 +433,11 @@ function _map_rig_targets(f, tree::AbstractDict)
     haskey(t, "targets") && (t["targets"] = Any[merge(Dict{String, Any}(x), Dict{String, Any}("target" => f(x["target"]))) for x in tree["targets"]])
     return t
 end
+# (the v5 form of a v4 record; `_rig_v4_to_v6` is the current one)
 _rig_v4_to_v5(old) = (t = _map_rig_targets(_body_v1_to_v2, old); t["schema"] = _schema("rig"); t)
-_rig_v5_to_v4(new, old) = (t = _map_rig_targets(_body_v2_to_v1, new); t["schema"] = old["schema"]; t)
+# a current record back in v4's form: v6 → v5 (the composition orders, their
+# own inverse) then v5's keys renamed back
+_rig_v6_to_v4(new, old) = (t = _map_rig_targets(_body_v2_to_v1, _rig_v6_to_v5(new)); t["schema"] = old["schema"]; t)
 function _target_v1_to_v2(old)
     body = _renamed(old, ("calibration" => "calibration_record",))
     body["schema"] = _schema("target")
@@ -516,7 +519,13 @@ function _target_v2_to_v3(old)
     t["target"] = _body_v2_to_v3(old["target"])
     return t
 end
-_rig_v5_to_v6(old) = (t = _map_rig_sensors(_camera_v3_to_v4, _map_rig_targets(_body_v2_to_v3, old)); t["schema"] = _schema("rig"); t)
+_rig_v5_to_v6(old) = (t = _v5_v6_orders(old); t["schema"] = _schema("rig"); t)
+# the v5 ↔ v6 change, its own inverse: every sensor lens's chain and target
+# calibration's members reversed
+_v5_v6_orders(tree) = _map_rig_sensors(_camera_v3_to_v4, _map_rig_targets(_body_v2_to_v3, tree))
+_rig_v6_to_v5(new) = _v5_v6_orders(new)
+# v4 → v5 → v6: v4 listed a lens's stages in application order, as v5 did
+_rig_v4_to_v6(old) = _rig_v5_to_v6(_rig_v4_to_v5(old))
 
 # vgio/cameras/v3 → v4: each lens record's "chain" in CT's order
 function migrate_schema(::Val{Symbol("vgio/cameras/v3")}, src::AbstractString, dst::AbstractString)
@@ -550,7 +559,7 @@ end
 # hash); both are reported, so the measurement files naming the rig are
 # re-pointed (`vgio_migrate_tree`).
 function migrate_schema(::Val{Symbol("vgio/rig/v4")}, src::AbstractString, dst::AbstractString)
-    old, value = _migrate_record(Rig, _RIG_SPEC, src, dst, _rig_v4_to_v5, "the rig record")
+    old, value = _migrate_record(Rig, _RIG_SPEC, src, dst, _rig_v4_to_v6, "the rig record")
     old_ids = unique!([_rig_v4_id(old), _rig_v4_id_mm(value, old, dst)])
     return (; to = _schema("rig"), old_id = first(old_ids), old_ids, new_id = content_id(dst))
 end
@@ -584,7 +593,7 @@ _v4_mm_points(v, u) = Any[Any[_v4_mm(c, u) for c in p] for p in v]
 function _rig_v4_id_mm(value, old::AbstractDict, dst::AbstractString)
     p = dst * ".mm.json"
     save(p, value; length_unit = mm)
-    rec = _rig_v5_to_v4(_raw_tree(p), old)
+    rec = _rig_v6_to_v4(_raw_tree(p), old)
     rm(p)
     u = parse_unit(old["length_unit"]::String)
     s = _v4_mm(1.0, u)                                                    # mm per unit, as v4 scaled a covariance

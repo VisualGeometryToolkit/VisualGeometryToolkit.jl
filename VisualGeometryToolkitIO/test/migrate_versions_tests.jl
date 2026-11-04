@@ -193,6 +193,55 @@ end
     end
 end
 
+@testitem "vgio_migrate: a v4 rig's composed sensor lenses read in application order, as v4 read them" setup = [VGIoFixtures, MigrateFixtures] begin
+    # v4 (like v5) listed a lens's "chain" in APPLICATION order: [s₁, s₂] is s₁
+    # then s₂, the lens s₂ ∘ s₁. The migration to v6 (CT's order, the outer
+    # first) must give the camera v4 read.
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: Rig, BoundedCamera, PosedCamera, Tilt, ViewFrame, BodyFrame, relabel, model, project, backproject
+    using JSON: JSON
+    K = SMatrix{3, 3}(800.0, 0.0, 0.0, 0.0, 810.0, 0.0, 640.0, 480.0, 1.0)
+    add14 = Additive(Radial((-0.1, 0.05, 0.01), (0.002, -5.5e-4, 7.0e-6)), Tangential(1.0e-4, -2.0e-4), ThinPrism((-2.2e-3, 1.2e-4), (1.0e-3, -2.0e-3)))
+    tilt = Tilt(0.01, -0.02)
+    rad, aria_add = Radial((0.1, -0.02, 0.003)), Additive(Tangential(3.0e-4, -2.0e-4), ThinPrism((1.0e-3,), (-5.0e-4,)))
+    # the v4 stage lists, in application order, and the lenses v4 read from them (built by hand: s₂ ∘ s₁)
+    stages = Dict(:opencv => (Perspective(), [add14, tilt]), :aria => (Equidistant(), [rad, aria_add]))
+    expected = Dict(n => Lens(p, s[2] ∘ s[1]) for (n, (p, s)) in stages)
+    I3 = EuclideanMap(one(RotMatrix{3, Float64}), [0.0mm, 0.0mm, 0.0mm])
+    cam(n) = BoundedCamera(PosedCamera(CameraModel(K; lens = expected[n], image_origin = :colmap), relabel(BodyFrame{:camera_rig}, ViewFrame{n}, I3)), Size2(1280, 960))
+    rig = Rig{BodyFrame{:camera_rig}}((cam(:opencv), cam(:aria)))
+    mktempdir() do dir
+        v6 = joinpath(dir, "rig_v6.json")
+        save(v6, rig)
+        d = JSON.parse(read(v6, String); dicttype = Dict{String, Any})
+        d["schema"] = "vgio/rig/v4"
+        # a stage's own term record: a one-stage lens's record without its projection
+        stage_record(p, s) = (pk = only(keys(lens_record(Lens(p)))); Dict{String, Any}(k => v for (k, v) in lens_record(Lens(p, s)) if k != pk))
+        for x in d["sensors"]
+            p, ss = stages[Symbol(x["id"])]
+            x["camera"]["lens"]["chain"] = Any[stage_record(p, s) for s in ss]   # application order
+        end
+        @test [only(keys(s)) for s in d["sensors"][1]["camera"]["lens"]["chain"]] == ["add", "tilt"]
+        @test [only(keys(s)) for s in d["sensors"][2]["camera"]["lens"]["chain"]] == ["radial", "add"]
+        v4 = joinpath(dir, "rig_v4.json")
+        write(v4, JSON.json(d, 2))
+        r = VgtkIO.vgio_migrate(v4; out = joinpath(dir, "rig_migrated.json"))
+        @test r.to == "vgio/rig/v6" && read(r.out) == read(v6)
+        @test length(r.old_ids) == 1 && r.new_id == VgtkIO.content_id(rig)   # an mm file: v4's two identities agree
+        back = load(Rig, r.out)
+        for (i, n) in enumerate((:opencv, :aria))
+            got, want = model(back.members[i]), CameraModel(K; lens = expected[n], image_origin = :colmap)
+            @test got.lens == expected[n]
+            for x in -0.4:0.2:0.4, y in -0.3:0.15:0.3
+                X = SVector(x, y, 1.0)
+                @test project(got, X) == project(want, X)
+                u = project(want, X)
+                @test backproject(got, u) == backproject(want, u)
+            end
+        end
+    end
+end
+
 @testitem "vgio_migrate: a v4 rig in metres keeps both v4 identities, as v4 computed them" setup = [VGIoFixtures, MigrateFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     # fixtures/v4/rig_metres.json: units/rig.json as a v4 file in metres, plus

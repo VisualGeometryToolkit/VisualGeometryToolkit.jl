@@ -152,6 +152,18 @@ end
         @test hash(roundtrip(spec)) == hash(spec)
     end
 
+    @testset "a parameterized intrinsics kind is normalized to its wrapper" begin
+        lens = LensSpec(:division; coefficients = 2)
+        spec = CameraModelSpec(lens; intrinsics = LogicalIntrinsics{Float64})
+        @test spec == CameraModelSpec(lens)
+        @test intrinsics_kind(spec) === LogicalIntrinsics
+        @test roundtrip(spec) == spec
+        @test hash(spec) == hash(CameraModelSpec(lens))
+        pspec = CameraModelSpec(lens; intrinsics = ProjectiveIntrinsics{Float64})
+        @test intrinsics_kind(pspec) === ProjectiveIntrinsics
+        @test roundtrip(pspec) == pspec
+    end
+
     @testset "projective lens spec" begin
         spec = CameraModelSpec(LensSpec(:division; coefficients = 2); intrinsics = ProjectiveIntrinsics)
         @test intrinsics_kind(spec) === ProjectiveIntrinsics

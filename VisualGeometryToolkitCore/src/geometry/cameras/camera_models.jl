@@ -218,11 +218,13 @@ end
 # ============================================================================
 
 """
-    calibration_matrix(model::CameraModel) -> SMatrix{3,3,T,9}
+    calibration_matrix(model::CameraModel{<:LogicalIntrinsics}) -> SMatrix{3,3,T,9}
 
 Return the 3×3 calibration matrix K as a plain `SMatrix`, preserving the
 intrinsics' stored element type (`Float64` for the default constructors,
 `Float32` for e.g. `LogicalIntrinsics(CameraCalibrationMat{Float32}(…))`).
+A projective camera (`ProjectiveIntrinsics`) has no calibration matrix: there is
+no method, so the call raises a `MethodError`.
 
 # Example
 ```julia
@@ -501,17 +503,18 @@ end
 # =============================================================================
 
 """
-    unproject(model::CameraModel, u::AbstractVector, depth::Real) -> Point3
-    unproject(intrinsics, lens, u, depth) -> Point3
+    unproject(model::CameraModel{<:LogicalIntrinsics}, u::AbstractVector, depth::Real) -> Point3
+    unproject(intrinsics::LogicalIntrinsics, lens, u, depth) -> Point3
 
 The camera-frame point on the ray behind pixel `u` whose Z-DEPTH is `depth` —
 the convention of depth images: distance along the optical axis. It is
 `b·(depth / b₃)` with `b = backproject(intrinsics, lens, u)`, for every lens,
 and NaN where the ray has `b₃ ≤ 0`: a Z-depth names no point on such a ray. A
 point at distance `d` ALONG any ray, past 90° included, is
-`d · backproject(model, u)`.
+`d · backproject(model, u)`. A projective camera has no metric ray, so no
+Z-depth: there is no method, and the call raises a `MethodError`.
 """
-unproject(model::CameraModel, u::AbstractVector, depth::Real) =
+unproject(model::CameraModel{<:LogicalIntrinsics}, u::AbstractVector, depth::Real) =
     Point3(unproject(model.intrinsics, model.lens, u, depth))
 
 function unproject(

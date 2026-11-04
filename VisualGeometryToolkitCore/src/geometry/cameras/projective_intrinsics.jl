@@ -11,8 +11,10 @@ point `center` (`Point2`, COLMAP pixels) and nothing else. Its ray frame is
 PROJECTIVE: centred pixels `u − center`, defined only up to the plane
 homography that absorbs the focal length. There is no focal-length field, and
 none is implied — in particular it is not `f = 1`. Anything that needs a metric
-ray (`focal_length`, field of view, P3P, absolute pose) has no method and
-raises a `MethodError`.
+ray has no method and raises a `MethodError` (`focal_length`,
+`calibration_matrix`, `unproject`, P3P, absolute pose), except the field of
+view, which is refused with an `ArgumentError`: `fov` and `fov_radius`, and a
+finite `max_fov` in `undistorted_rect` (use `max_fov = Inf`).
 
 `CameraModel(ProjectiveIntrinsics(c), lens)` projects, back-projects and
 undistorts exactly as `CameraModel(LogicalIntrinsics(K), lens)` with the unit

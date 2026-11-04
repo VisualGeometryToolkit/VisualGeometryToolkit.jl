@@ -328,6 +328,10 @@ with the unset keys left out; `CameraModelSpec(table)` reads it back, and
 `intrinsics` defaults to `"metric"` when absent (a `central_generic` table may
 also name it, as `"metric"` only). `==` compares the specification.
 
+A parameterized `intrinsics` (`LogicalIntrinsics{Float64}`) names its kind: it
+is normalized to the wrapper (`LogicalIntrinsics`), so the specification
+round trips equal.
+
 Throws an `ArgumentError` for an `intrinsics` other than `metric` or
 `projective` (and `toml_value` for an intrinsics kind with neither name), for
 a `central_generic` table whose `intrinsics` is not `metric`, for an unknown
@@ -346,7 +350,7 @@ struct CameraModelSpec{I, S}
 end
 
 CameraModelSpec(lens::LensSpec; intrinsics::Type{<:AbstractIntrinsics} = LogicalIntrinsics) =
-    CameraModelSpec{intrinsics, LensSpec}(lens)
+    CameraModelSpec{Base.typename(intrinsics).wrapper, LensSpec}(lens)
 
 function CameraModelSpec(type::Symbol; grid_size = nothing, calib_area = nothing)
     type === :central_generic ||

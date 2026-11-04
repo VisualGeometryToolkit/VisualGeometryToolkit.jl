@@ -68,12 +68,10 @@ pixel_origin(::Type{PixelFrame{O}}) where {O} = O
     pixel_frame_from_name(name) -> Type{<:PixelFrame}
 
 The pixel frame a file names (`"colmap"`, `"opencv"`, `"julia"`), the inverse
-of [`pixel_frame_name`](@ref). VGC decides which pixel frames exist; a name it
-does not know is an `ArgumentError` that quotes VGC's list.
-
-It validates by constructing the conversion to the canonical pixel frame
-(`colmap`), so VGC's error names the registered set; this only restates that
-refusal as the `ArgumentError` every corrupt record in this package raises.
+of [`pixel_frame_name`](@ref). VGC decides which pixel frames exist: the name
+is checked by constructing the conversion to the canonical pixel frame
+(`colmap`), and a name VGC does not know is an `ArgumentError` that quotes
+VGC's list of registered frames.
 
 ```jldoctest
 julia> VgtkIO.pixel_frame_from_name("julia")

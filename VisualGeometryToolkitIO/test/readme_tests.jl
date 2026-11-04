@@ -10,6 +10,10 @@
 # examples load, and nothing else. The examples then run in a child Julia
 # process in a temporary environment — this package by path, the rest of the
 # install line from the registries — with none of the test run's load path.
+#
+# The item is VisualGeometryToolkitCore's test/readme_tests.jl with this
+# package's name and assertions; keep the two in step until the shared part
+# moves into Core beside the docs gates.
 
 @testitem "README: the install line names what the examples load; the examples run in a fresh environment" begin
     using Test, VisualGeometryToolkitIO

@@ -155,14 +155,23 @@ const _COMPOSE_KEY = "compose"
 const _RETIRED_COMPOSITION_TYPE = "calibration_chain"
 
 # The keys a calibration record of each kind states, by its tag, and how many
-# parameters it holds (VGC's `length(length_mask(K))` for a planar target's
-# kind: a euclidean's angle and translation, one parameter for each of the
-# N = 2 dimensionless factors, a thin-plate kind's nodal values).
+# parameters it holds — VGC's `length(length_mask(K))` of the planar target's
+# concrete kind `K` (`_record_kind`: N = 2, a thin-plate kind over its nodes),
+# read from VGC, never restated here, so a change of a kind's parameter layout
+# moves the record's counts, its covariance's order and the identity tree's
+# permutation with it. (Only the v2 migrator keeps frozen counts,
+# `_v2_parameter_count`: there the input is the v2 FORMAT, which does not change.)
 _calibration_keys(ty) = ty == "rigid" ? () : ty in ("thin_plate_spline", "height_field") ? (:nodes, :parameters) : (:parameters,)
-_record_parameter_count(ty, nodes) =
-    ty == "rigid" ? 0 : ty == "euclidean" ? 3 : ty in ("scale", "aspect", "skew") ? 1 :
-    ty == "thin_plate_spline" ? 2 * length(nodes) : ty == "height_field" ? length(nodes) :
-    throw(ArgumentError("a calibration record of unknown type $(repr(ty))"))
+function _record_kind(ty, K::Integer)
+    T = TARGET_CALIBRATION_TAGS[String(ty)]           # an unknown tag: VGC's ArgumentError, listing the known ones
+    T === EuclideanMap && return EuclideanMap{2}
+    T === Aspect && return Aspect{2}
+    T === Skew && return typeof(Skew(0.0))           # N = 2 (its parameter count, a type parameter, from VGC)
+    T === ThinPlateSpline && return ThinPlateSpline{Int(K)}
+    T === HeightField && return HeightField{Int(K)}
+    return T
+end
+_record_parameter_count(ty, nodes) = length(length_mask(_record_kind(ty, length(nodes))))
 _n_parameters(x) = x[:type] == _COMPOSITION_TYPE ? sum(_n_parameters, x[:compose]; init = 0) :
     _record_parameter_count(x[:type], get(x, :nodes, ()))
 

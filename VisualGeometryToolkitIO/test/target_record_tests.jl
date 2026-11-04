@@ -257,6 +257,17 @@ end
     end
 end
 
+@testitem "target/v3: a record's parameter counts are VGC's length_mask, for every kind and composition" setup = [VGIoFixtures, TargetRecordFixtures] begin
+    using VisualGeometryToolkitCore: length_mask, parameter_vector
+    import VisualGeometryToolkitIO as VgtkIO
+    for (name, c) in pairs(kinds())
+        rec = parse_json(JSON.json(VgtkIO._calibration_record(c, mm)))
+        @test VgtkIO._n_parameters(rec) == length(length_mask(c)) == length(parameter_vector(c))
+    end
+    @test_throws ArgumentError VgtkIO._record_parameter_count("affine", ())        # the retired kind: VGC's registry names its successor
+    @test_throws ArgumentError VgtkIO._record_parameter_count("bogus", ())
+end
+
 @testitem "rig/v6: a non-rigid posed target, and its content identity" setup = [VGIoFixtures, TargetRecordFixtures] begin
     using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, TargetFrame, WorldFrame, Uncertain, CovMat, pose, points,
         calibration, is_planar, ids, geom

@@ -723,8 +723,15 @@ The print error with a jointly estimated pose is
 gauge-free factors (see [`Aspect`](@ref)), the spline and the height field
 pure bending (no affine term in the interpolant, see [`ThinPlateSpline`](@ref)); a
 measured length adds `Scale`, a known pose the rigid member. No kind has a
-gauge, so every parameter of a composition is observable with the pose
-estimated jointly. Any other composition — a `Rigid` member, members out of
+gauge, so every parameter of `HeightField ∘ ThinPlateSpline ∘ Aspect ∘ Skew` is
+observable with the pose estimated jointly; a rigid member and a `Scale`
+duplicate that pose's rotation, translation and scale, so the joint-pose
+manifold ([`TargetManifold`](@ref), `minimal_manifold(target; known)`) refuses
+them unless `known` states the length (`:length`, `Scale`) or the pose
+(`:pose`, both) — drop them, or absorb them into the pose, for a joint
+refinement. (VisualGeometryToolkitIO's migration of a retired `"affine"` record
+writes all four factors `EuclideanMap ∘ Scale ∘ Aspect ∘ Skew`: the same map,
+held exactly.) Any other composition — a `Rigid` member, members out of
 order or repeated — is refused with an `ArgumentError`. A target stores a
 composition right-associated (`a ∘ (b ∘ c)`) whatever association `∘` built
 it in: the members, their order and so the parameters are the same.

@@ -112,7 +112,12 @@ CoordinateTransformations' order, the outer map first.
 `vgio_migrate` converts them: an affine is its Iwasawa factors
 `EuclideanMap ∘ Scale ∘ Aspect ∘ Skew` (the same map, its covariance through
 the factorization's Jacobian, and a rig's old content id reported for the
-re-pointing). It refuses a chain with no current form (two in-plane kinds out
+re-pointing). The record keeps all four factors, since a migration preserves
+the calibrated geometry exactly; but `EuclideanMap` and `Scale` are the
+target pose's gauges when the pose is estimated jointly, so VGC's
+joint-pose manifold (`minimal_manifold(target)`) refuses such a calibration
+until they are dropped or absorbed into the pose — or the caller states
+what fixes them (`known = (:pose,)`, a known pose). It refuses a chain with no current form (two in-plane kinds out
 of the canonical order) and a thin-plate spline or height field whose
 interpolant carries an affine term: that part cannot move into the factors
 (they compose after the spline) or a height plane into a rigid pose without

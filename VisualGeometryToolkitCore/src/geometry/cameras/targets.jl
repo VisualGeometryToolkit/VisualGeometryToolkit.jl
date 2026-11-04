@@ -655,14 +655,27 @@ regularizer(t::PlanarTarget) = regularizer(geom(t.calibration))
 is_planar(::PlanarTarget{C}) where {C} = is_planar(C)
 
 """
-    TargetManifold(target) <: Manifold
+    TargetManifold(target; known = ()) <: Manifold
 
-A calibratable target's manifold anchored at `target`: `minimal_manifold(target)`.
+A calibratable target's manifold anchored at `target`: `minimal_manifold(target; known)`.
 No calibration kind has a gauge (the affine factors leave the pose's
 directions out of the composition, the thin-plate kinds hold no affine or
 plane part), so the manifold is every direction the calibration's parameters
 may move in, and with the target's pose estimated jointly every one of them is
 observable.
+
+That holds for the print error a jointly estimated pose leaves,
+`HeightField ∘ ThinPlateSpline ∘ Aspect ∘ Skew`. A rigid member
+(`EuclideanMap`) duplicates the pose's rotation and translation, and a
+[`Scale`](@ref) the pose's scale (its translation's length): with the pose
+estimated jointly they are the pose's gauges, and the manifold REFUSES them
+(`ArgumentError`) unless the caller states what fixes them — `known` lists
+`:length` (a measured length, a ruler: `Scale` is observable) or `:pose` (a
+known pose, a fixture or motion capture: `EuclideanMap` and `Scale` both
+are). Otherwise drop them from the calibration, or absorb them into the pose,
+before a joint refinement. (A `vgio_migrate` of a retired `"affine"` record
+keeps all four factors `EuclideanMap ∘ Scale ∘ Aspect ∘ Skew`, the same map;
+that record takes `known = (:pose,)` or that reduction.)
 
 The chart is linear: `retract(ch, v) = with_parameters(target, θ₀ + B v)`,
 `B` an `n × m` matrix with orthonormal columns, so `tangent_size(ch) = m` and
@@ -696,7 +709,28 @@ struct TargetManifold{T <: AbstractTarget, B <: AbstractMatrix{Float64}} <: Mani
     basis::B                      # n × m, orthonormal columns: the free directions of θ
     fixed::Vector{Symbol}         # the parameters held fixed (`restrict`)
 end
-TargetManifold(t::PlanarTarget) = _target_manifold(t, Symbol[])
+TargetManifold(t::PlanarTarget; known::Tuple{Vararg{Symbol}} = ()) = _target_manifold(_check_gauges(t, known), Symbol[])
+
+# A rigid member and a scale are the jointly estimated pose's gauges: refused
+# unless `known` states the pose (both) or a length (the scale).
+const _TARGET_KNOWN = (:length, :pose)
+function _check_gauges(t::PlanarTarget, known::Tuple{Vararg{Symbol}})
+    for k in known
+        k in _TARGET_KNOWN || throw(ArgumentError("TargetManifold: known = $(repr(known)) — each entry is :length (a measured length) or :pose (a known pose)"))
+    end
+    ms = _members(geom(t.calibration))
+    gauges = String[]
+    any(x -> x isa EuclideanMap, ms) && !(:pose in known) && push!(gauges, "EuclideanMap (the pose's rotation and translation)")
+    any(x -> x isa Scale, ms) && isempty(known) && push!(gauges, "Scale (the pose's scale)")
+    isempty(gauges) || throw(
+        ArgumentError(
+            "TargetManifold: the calibration holds $(join(gauges, " and ")), a gauge of the target's jointly estimated pose — " *
+                "drop it from the calibration (or absorb it into the pose) for a joint refinement, whose print error is " *
+                "Aspect ∘ Skew; or state what fixes it: known = (:length,) for a measured length (Scale), known = (:pose,) for a known pose"
+        )
+    )
+    return t
+end
 
 # The largest parameter count with a static basis: below it a static basis
 # compiles about as fast as a Matrix one, above it far slower (the docstring's
@@ -733,7 +767,7 @@ end
 _basis(B::Matrix{Float64}, ::Val{true}) = SMatrix{size(B, 1), size(B, 2), Float64}(B)
 _basis(B::Matrix{Float64}, ::Val{false}) = B
 
-minimal_manifold(t::PlanarTarget) = TargetManifold(t)
+minimal_manifold(t::PlanarTarget; known::Tuple{Vararg{Symbol}} = ()) = TargetManifold(t; known)
 ambient_coordinates(t::PlanarTarget) = parameter_vector(t)
 tangent_size(ch::TargetManifold) = size(ch.basis, 2)
 model(ch::TargetManifold) = ch.target

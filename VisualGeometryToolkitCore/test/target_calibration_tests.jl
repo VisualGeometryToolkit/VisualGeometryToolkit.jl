@@ -29,7 +29,7 @@
         for c in kinds
             θ = parameter_vector(c)
             # a step the calibration may take: along its manifold (a thin-plate kind's values keep no plane part)
-            B = Matrix(VgtkCore.retract_jacobian(VgtkCore.TargetManifold(PlanarTarget(xs; calibration = c))))
+            B = Matrix(VgtkCore.retract_jacobian(VgtkCore.TargetManifold(PlanarTarget(xs; calibration = c); known = (:pose,))))
             θ′ = θ .+ B * (1.0e-5 .* randn(rng, size(B, 2)))
             # exact for every kind: the rigid member stores its angle (an Angle2d), not a matrix
             @test with_parameters(c, θ) == c
@@ -380,6 +380,7 @@ end
     using VisualGeometryToolkitCore: grid_nodes, TargetManifold, minimal_manifold, tangent_size, retract, recenter,
         retract_jacobian, action_jacobian, local_coordinates, restrict, model, transform_deriv_params, bending_energy,
         ThinPlateSplineSystem, tps_coefficients, tps_evaluate
+    import Rotations
 
     rng = Xoshiro(7)
     nodes = grid_nodes(4; lo = -0.1, hi = 0.1)                         # 16 nodes: an in-plane spline has n = 32
@@ -434,6 +435,24 @@ end
         r = recenter(ch, v)
         @test typeof(r) === typeof(ch) && model(r) == retract(ch, v)
         @test only(Base.return_types(recenter, (typeof(ch), typeof(v)))) === typeof(ch)
+    end
+
+    @testset "the pose's gauges: EuclideanMap and Scale refused unless known" begin
+        E = with_parameters(EuclideanMap(one(Rotations.RotMatrix{2, Float64}), SVector(0.0, 0.0)), [0.1, 0.002, -0.001])
+        K = E ∘ Scale(0.001) ∘ A                                       # a migrated affine: all four factors
+        tK, tS, tE = (PlanarTarget(pts; calibration = c) for c in (K, Scale(0.001) ∘ A, E))
+        for t in (tK, tS, tE)
+            @test_throws ArgumentError minimal_manifold(t)
+            @test_throws ArgumentError TargetManifold(t)
+        end
+        msg = sprint(showerror, try minimal_manifold(tK) catch e; e end)
+        @test occursin("gauge", msg) && occursin("EuclideanMap", msg) && occursin("Scale", msg) && occursin("known", msg)
+        @test tangent_size(minimal_manifold(tS; known = (:length,))) == 3      # a ruler: the scale observable
+        @test_throws ArgumentError minimal_manifold(tK; known = (:length,))    # the rigid member still needs the pose
+        @test tangent_size(minimal_manifold(tK; known = (:pose,))) == 6        # a known pose: the whole affine
+        @test tangent_size(minimal_manifold(tE; known = (:pose,))) == 3
+        @test_throws ArgumentError minimal_manifold(tK; known = (:ruler,))
+        @test tangent_size(restrict(minimal_manifold(tK; known = (:pose,)), (:skew_u12,))) == 1
     end
 
     @testset "ThinPlateSpline: 2K − 6 directions, all pure bending" begin
@@ -567,10 +586,10 @@ end
     end
     # `ambient`: every stored parameter free (B = I), as the 0.4 kinds were
     # before their gauges were fixed — what the constraint removes
-    function nullity_default(c; ambient = false)
+    function nullity_default(c; ambient = false, known = ())
         θ0 = Vector(parameter_vector(c)); n = length(θ0)
         J = ForwardDiff.jacobian(z -> projections(c, z[1:n], z[(n + 1):end]), [θ0; fill(1.0e-12, 6F)])
-        B = ambient ? Matrix{Float64}(I, n, n) : Matrix(retract_jacobian(VgtkCore.TargetManifold(PlanarTarget(design; calibration = c))))
+        B = ambient ? Matrix{Float64}(I, n, n) : Matrix(retract_jacobian(VgtkCore.TargetManifold(PlanarTarget(design; calibration = c); known)))
         s = svdvals([J[:, 1:n] * B J[:, (n + 1):end]])
         return count(<(1.0e-9 * s[1]), s)
     end
@@ -606,9 +625,13 @@ end
     @test nullity_default(H; ambient = true) == 1                    # the piston: a translation along the normal, at any height
     # the harness can see a gauge: the pose's directions, put back into the
     # composition, come back as exactly their count — the scale (1) and the rigid
-    # member (3)
-    @test nullity_default(Scale(0.01) ∘ A) == 1
-    @test nullity_default(E ∘ Scale(0.01) ∘ A) == 4
+    # member (3) — which is why the joint-pose manifold refuses them unless a
+    # known length or pose is stated (the harness here estimates the poses, so
+    # stating one is false and the gauges show)
+    @test nullity_default(Scale(0.01) ∘ A; known = (:length,)) == 1
+    @test nullity_default(E ∘ Scale(0.01) ∘ A; known = (:pose,)) == 4
+    @test_throws ArgumentError nullity_default(Scale(0.01) ∘ A)
+    @test_throws ArgumentError nullity_default(E ∘ Scale(0.01) ∘ A)
 end
 
 @testitem "target calibration: names, hashes, AD on lengths, an uncertain calibration" begin

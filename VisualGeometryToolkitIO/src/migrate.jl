@@ -479,7 +479,12 @@ end
 #   a21, a22, bx, by]}` (p ↦ A·p + b, A row by row) is its Iwasawa factors
 #   `EuclideanMap ∘ Scale ∘ Aspect ∘ Skew` (A = s·R·D·U), exactly the same map
 #   (`_affine_factors`), its covariance carried through the factorization's
-#   Jacobian; a chain's affine member becomes those four in its place;
+#   Jacobian; a chain's affine member becomes those four in its place. All
+#   four are KEPT (a migration preserves the geometry exactly): EuclideanMap
+#   and Scale are the jointly estimated pose's gauges, so VGC's joint-pose
+#   manifold refuses such a calibration unless a known pose is stated
+#   (`minimal_manifold(target; known = (:pose,))`) — drop or absorb them into
+#   the pose before a joint refinement;
 # - a thin-plate kind holds pure bending: a v2/v5 spline whose interpolant
 #   carries an affine term is REFUSED (by the current reader, naming why), not
 #   moved — no exact form exists: an affine displacement inside a

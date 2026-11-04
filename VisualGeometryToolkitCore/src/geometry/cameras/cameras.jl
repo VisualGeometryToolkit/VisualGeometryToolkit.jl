@@ -306,20 +306,8 @@ function transfer_ellipse(camera::PosedCamera, shape::Union{Circle, Ellipse})
     return _lens_ellipse(m.lens, m, transfer_ellipse(H, shape))
 end
 
-# The lens's part of the transfer, by dispatch on the lens: nothing to move behind
-# a failed pinhole transfer, no stage for a pinhole, and otherwise the lens chain,
-# COMPOSED, not unrolled: `distortion_map` is
-# `AffineMap(K) ∘ lens ∘ AffineMap(K⁻¹)`, and `∘` on CoordinateTransformations
-# `Transformation`s yields a `ComposedTransformation` — which `transfer_ellipse`
-# already walks, propagating `nothing`. Each stage's local affinity is the
-# transform's own `transform_deriv` at the transferred centre, so this is the
-# same arithmetic the three unrolled statements did.
-#
-# (Those statements carried a note that `∘` on "an abstractly-typed lens"
-# would infer through `Base.ComposedFunction`. Neither holds: the lens is the
-# type parameter `L` of `CameraModel{I, L}`, hence concrete, and composing
-# `Transformation`s gives a `ComposedTransformation`, never a
-# `Base.ComposedFunction` — the distinction `region_maps.jl` also relies on.)
+# The lens's part of the transfer: `distortion_map(m)` is a `ComposedTransformation`
+# (`AffineMap(K) ∘ lens ∘ AffineMap(K⁻¹)`), which `transfer_ellipse` walks stage by stage.
 _lens_ellipse(lens, m, ::Nothing) = nothing
 _lens_ellipse(::Pinhole, m, ep::Ellipse) = ep
 _lens_ellipse(lens, m, ep::Ellipse) = transfer_ellipse(distortion_map(m), ep)

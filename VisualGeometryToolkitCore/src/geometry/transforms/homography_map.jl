@@ -520,21 +520,11 @@ function transfer_ellipse(T::CoordinateTransformations.Transformation, shape::Un
     (Σ′[1, 1] > 0 && Σ′[2, 2] > 0 && Σ′[1, 1] * Σ′[2, 2] - Σ′[1, 2]^2 > 0) || return nothing
     return Ellipse(Point2(Float64(c′[1]), Float64(c′[2])), Σ′)
 end
+# A composition transfers stage by stage, the inner map first (`nothing` propagates).
 function transfer_ellipse(T::CoordinateTransformations.ComposedTransformation, shape::Union{Circle, Ellipse})
     inner = transfer_ellipse(T.t2, shape)
     inner === nothing && return nothing
     return transfer_ellipse(T.t1, inner)
-end
-# The SAME chain when `∘` produced Base's composite rather than
-# CoordinateTransformations': a lens that is not itself a `Transformation` makes
-# `AffineMap ∘ lens ∘ AffineMap` (i.e. `distortion_map`) a `ComposedFunction`.
-# Without this, composing the lens chain is a MethodError on exactly those lens
-# types — the reason `transfer_ellipse(::PosedCamera, _)` used to unroll the stages.
-# `outer`/`inner` are Base's names for `t1`/`t2`.
-function transfer_ellipse(T::ComposedFunction, shape::Union{Circle, Ellipse})
-    inner = transfer_ellipse(T.inner, shape)
-    inner === nothing && return nothing
-    return transfer_ellipse(T.outer, inner)
 end
 # The point-projective composite (PerspectiveMap ∘ HomographyMap) IS the
 # homography's action on conics — never a stage-wise transfer.

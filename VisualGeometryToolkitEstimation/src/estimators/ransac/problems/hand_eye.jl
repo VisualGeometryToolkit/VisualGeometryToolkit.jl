@@ -30,6 +30,19 @@
 # frame checks would reject the `inv(A[j]) ∘ A[i]` motion algebra. Local
 # UNLABELED concrete alias (same layout as the retired VGC Pose3 alias);
 # honest labels await VGC 0.8 view-identity frames.
+"""
+    Rigid3
+
+The unlabeled rigid motion of hand-eye calibration: a concrete
+`EuclideanMap{3, Float64}` with a `RotMatrix{3}` rotation and a `Vec3`
+translation between two `UnlabeledFrame{3}`s. It is the model type of
+[`HandEyeProblem`](@ref), the currency of its relative motions `(A_ij, B_ij)`,
+and the estimate of [`find_hand_eye`](@ref). The translation is in the caller's
+length unit (the unit of the motions' translations).
+
+Not a camera extrinsics: the motion algebra `inv(A[j]) ∘ A[i]` composes maps
+whose frames a labeled `Extrinsics3` would reject.
+"""
 const Rigid3 = EuclideanMap{
     3, Float64, RotMatrix{3, Float64, 9}, Vec3{Float64},
     UnlabeledFrame{3}, UnlabeledFrame{3},

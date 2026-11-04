@@ -8,6 +8,7 @@ CurrentModule = VisualGeometryToolkitEstimation
 
 ```@docs
 HandEyeProblem
+Rigid3
 ```
 
 ## Fitting Pipeline
@@ -20,7 +21,7 @@ refine_hand_eye
 ## Result Type
 
 `find_hand_eye` returns a `FitResult{Rigid3, RansacMetadata}`
-(`RansacEstimate{Rigid3}`, where `Rigid3 = EuclideanMap{3,Float64,...}`). The `.estimate` field is the recovered rigid
+(`RansacEstimate{Rigid3}`, with [`Rigid3`](@ref) an unlabeled `EuclideanMap{3, Float64}`). The `.estimate` field is the recovered rigid
 transform `X = T_RP` (pattern in rig). The nuisance camera-in-world
 transform `Y = T_WC` is **not** returned — it drops out of the AX = XB
 formulation. The remaining attributes (`.inlier_mask`, `.residuals`,

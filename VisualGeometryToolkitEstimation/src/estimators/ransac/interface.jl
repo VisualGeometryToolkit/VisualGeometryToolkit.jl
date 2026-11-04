@@ -251,16 +251,18 @@ lo_workspace(::Type{P}, ::Type{T}, ::AbstractLocalOptimization, n::Int) where {P
 """
     RansacWorkspace(problem, scoring[, local_optimization = NoLocalOptimization()][, T = Float32])
     RansacWorkspace(P, n_max, scoring[, local_optimization]; T = Float32)
+    RansacWorkspace(P, n_data[, T = Float32])
 
 The composed workspace for `problem` (or problems of type `P` with up to
 `n_max` points): the scorer's workspace (`scoring_workspace(scoring, n,
 codimension)` — its tables built for this scoring) and the local optimizer's
 (`lo_workspace(P, T, local_optimization, n)`). `K` is the type parameter of
 `AbstractRansacProblem{K}` — compile-time constant, no runtime dispatch.
+
+`RansacWorkspace(P, n_data[, T])` is the workspace of the default scorer (its
+tables depend on the scale prior and the profile flag only, not on the
+threshold): what a caller pre-allocates for the `find_*` pipelines.
 """
-# The workspace of the DEFAULT scorer (its tables depend on the scale prior and
-# the profile flag only, not on the half-width) — `RansacWorkspace(P, n_data[, T])`,
-# what a caller pre-allocates for the `find_*` pipelines.
 RansacWorkspace(::Type{P}, n::Int, ::Type{T} = Float32) where {P <: AbstractRansacProblem, T <: AbstractFloat} =
     RansacWorkspace(P, n, _default_scoring_at(P, 1.0), NoLocalOptimization(); T)
 RansacWorkspace(problem::AbstractRansacProblem, scoring, ::Type{T} = Float32) where {T <: AbstractFloat} =

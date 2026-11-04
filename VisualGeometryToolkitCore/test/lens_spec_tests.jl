@@ -152,6 +152,18 @@ end
         @test hash(roundtrip(spec)) == hash(spec)
     end
 
+    @testset "projective lens spec" begin
+        spec = CameraModelSpec(LensSpec(:division; coefficients = 2); intrinsics = ProjectiveIntrinsics)
+        @test intrinsics_kind(spec) === ProjectiveIntrinsics
+        d = toml_value(spec)
+        @test d["intrinsics"] == "projective" && d["lens"] == "division" && d["coefficients"] == 2
+        back = roundtrip(spec)
+        @test back == spec
+        @test intrinsics_kind(back) === ProjectiveIntrinsics
+        @test back != CameraModelSpec(LensSpec(:division; coefficients = 2))   # the kind is part of the spec
+        @test hash(back) == hash(spec)
+    end
+
     @testset "generic grid spec" begin
         for kw in (NamedTuple(), (; grid_size = (9, 7)), (; calib_area = (0, 0, 640, 480)), (; grid_size = (9, 7), calib_area = (0, 0, 640, 480)))
             spec = CameraModelSpec(:central_generic; kw...)

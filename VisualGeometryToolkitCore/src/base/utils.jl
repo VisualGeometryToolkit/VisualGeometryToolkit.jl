@@ -116,3 +116,37 @@ saturation_bounds(::Type{T}) where {T <: Real} =
     (Float64(typemin(T)) + Float64(eps(T)), Float64(typemax(T)) - Float64(eps(T)))
 saturation_bounds(::Type{C}) where {C <: Colors.Colorant} = saturation_bounds(eltype(C))
 saturation_bounds(img::AbstractMatrix) = saturation_bounds(eltype(img))
+
+# =============================================================================
+# Seeds
+# =============================================================================
+
+"""
+    stable_seed(seed, keys...) -> UInt64
+
+The seed derivation of every random stream in the stack: the first eight bytes
+(big-endian) of the SHA-256 of `seed` and `keys` printed as text, separated by
+the unit separator `\\x1f`. A fixed algorithm, unlike `Base.hash` (which
+changes across Julia versions), and keyed by NAME, unlike `seed + i`: a
+scene's draw depends on that scene's name only, so adding, removing or
+reordering other scenes leaves it unchanged, and no arithmetic coincidence
+gives two key tuples one stream. Keys are told apart by their printed text
+(`string`): `2`, `"2"` and `Int32(2)` are one key, and a key whose text holds
+`\\x1f` can collide with two keys; integers and plain names are always
+distinct. Seed a StableRNGs
+`StableRNG` with it (`StableRNG(stable_seed(seed, "scene", i))`), whose
+stream is fixed across Julia versions too.
+
+```jldoctest
+julia> using VisualGeometryToolkitCore: stable_seed
+
+julia> stable_seed(7, "budget", 2, 1)
+0xf5154d7e8f0e4d1c
+
+julia> stable_seed(1000, 1, 3) == stable_seed(0, 2, 3)
+false
+```
+"""
+stable_seed(seed::Integer, keys...) =
+    reduce((acc, b) -> (acc << 8) | UInt64(b), sha256(join((string(seed), string.(keys)...), '\x1f'))[1:8];
+           init = zero(UInt64))

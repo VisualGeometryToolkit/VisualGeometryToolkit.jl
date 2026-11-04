@@ -41,7 +41,9 @@ resampling, so the interval is reproducible:
 bootstrap_ci(finite_median, Xoshiro(1), errors)
 ```
 
-Every random sample of the stack is seeded by [`stable_seed`](@ref), which
+Every random sample of the stack is seeded by VisualGeometryToolkitCore's
+[`stable_seed`](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/stable/api/core/#VisualGeometryToolkitCore.stable_seed)
+(`Stats` re-exports it), which
 derives a seed from a spec's seed and a name. Adding or removing another scene
 therefore leaves a scene's sample unchanged:
 

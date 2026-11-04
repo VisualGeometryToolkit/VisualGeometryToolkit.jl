@@ -46,7 +46,8 @@ Every tuning names its data in its `[tuning.<name>]` spec, as a
   at most `cap`). Every sampler permutes, keeps the fraction, applies the cap,
   and only then sorts back into data order, so a cap never keeps a prefix of
   the data.
-- **Seeds.** Every draw is seeded by [`stable_seed`](@ref), the SHA-256 hash of
+- **Seeds.** Every draw is seeded by VisualGeometryToolkitCore's
+  [`stable_seed`](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/stable/api/core/#VisualGeometryToolkitCore.stable_seed), the SHA-256 hash of
   the spec's seed and of the name it applies to, such as a scene name or a
   budget and draw index. `Base.hash` is never used, because it is not stable
   across Julia versions. `seed + index` is never used either: with a named

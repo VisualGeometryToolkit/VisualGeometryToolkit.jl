@@ -361,14 +361,10 @@
         @test tuning_hash(TuningSpec("a", read_tuning(TuningScheme, moved))) != tuning_hash(a)
     end
 
-    @testset "stable_seed: a fixed algorithm, keyed by name" begin
-        # pinned against an independent SHA-256 (the first 8 bytes of
-        # sha256("20260901\x1fbrandenburg_gate")): a change of the derivation
-        # moves every sample of the stack and must fail here
-        @test stable_seed(20260901, "brandenburg_gate") === 0x45a700d306efb507
-        @test stable_seed(7, "budget", 2, 1) === 0xf5154d7e8f0e4d1c
-        @test stable_seed(1, "a") != stable_seed(1, "b") != stable_seed(2, "b")
-        @test stable_seed(1, "ab") != stable_seed(1, "a", "b")              # keys are separated
+    @testset "stable_seed: VisualGeometryToolkitCore's, re-exported" begin
+        # the derivation lives in Core (pinned by its own suite); Stats
+        # re-exports Core's function, no copy
+        @test stable_seed === VgtkCore.stable_seed
     end
 
     @testset "registered scene splits" begin

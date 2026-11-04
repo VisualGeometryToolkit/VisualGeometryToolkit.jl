@@ -1,6 +1,19 @@
 # VisualGeometryToolkitCore changelog
 
-## Unreleased
+## 0.5.3 (2026-11-04)
+
+Additive.
+
+- **`stable_seed(seed, keys...)`** (public, not exported): the seed of every
+  random stream in the stack, the first eight bytes of the SHA-256 of `seed`
+  and `keys` printed as text and separated by `\x1f`. It is fixed across Julia
+  versions and keyed by name, so no arithmetic coincidence gives two keys one
+  stream (as `seed + 1000i + j` did). Hoisted from VisualGeometryToolkitEval's `Stats`,
+  which now re-exports this one; the same numbers. A package outside the
+  evaluation stack (PanoramaStitching) seeds a StableRNGs `StableRNG` with it
+  without depending on Eval. New dependency: SHA (a standard library).
+
+## 0.5.2 (2026-11-04)
 
 Additive.
 

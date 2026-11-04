@@ -60,6 +60,7 @@ using LogExpFunctions: xlogx, logit, log1pexp   # the Welsch conjugate's w·log(
 using SpecialFunctions: loggamma, digamma, trigamma   # the Student-t normaliser and the ν M-step (robust/mixture.jl)
 using QuadGK: quadgk, gauss   # a loss shape's truncated normaliser (robust/normaliser.jl)
 using Random: Random
+using SHA: sha256   # stable_seed's fixed hash (base/utils.jl)
 import ForwardDiff   # the transfer form's mixed derivative ∂G_x/∂θ (geometry/forms.jl)
 import NLLSsolver   # the stack's Levenberg–Marquardt: the chart LM's driver, the variable and robustifier protocols (robust/lm_core.jl)
 
@@ -376,6 +377,7 @@ public has_units, with_unit, strip_metres   # plain or unitful; with_unit is ust
 export Size2
 export Gray, N0f8, N0f16  # Image types
 public filter_kwargs, validate_dir
+public stable_seed   # the seed of every random stream, keyed by name (base/utils.jl)
 # FileCache moved to VisualGeometryToolkitFeatures
 
 # Serialization traits (DimTrait, canon_value, etc.) moved to VisualGeometryToolkitFeatures

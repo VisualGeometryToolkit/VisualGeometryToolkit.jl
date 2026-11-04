@@ -175,26 +175,12 @@ function scene_ranges(sizes)
 end
 
 """
-    stable_seed(seed, keys...) -> UInt64
-
-The seed derivation of every random sample in the evaluation stack: the first
-eight bytes (big-endian) of the SHA-256 of `seed` and `keys` printed as text,
-separated by the unit separator `\x1f`. A fixed algorithm, unlike `Base.hash`
-(which changes across Julia versions), and keyed by NAME, unlike `seed + i`: a
-scene's draw depends on that scene's name only, so adding, removing or
-reordering other scenes leaves it unchanged.
-"""
-stable_seed(seed::Integer, keys...) =
-    reduce((acc, b) -> (acc << 8) | UInt64(b), sha256(join((string(seed), string.(keys)...), '\x1f'))[1:8];
-           init = zero(UInt64))
-
-"""
     POOL_RNG
 
 The RNG algorithm of every pool stream (a reader's per-scene pair subsample
 and the per-pair minimal-sample draws of `write_scene_pool`): StableRNGs'
 `StableRNG`, whose streams are fixed across Julia versions, seeded by
-[`stable_seed`](@ref). Recorded in each pool file (`pool_rng`).
+VisualGeometryToolkitCore's `stable_seed`. Recorded in each pool file (`pool_rng`).
 """
 const POOL_RNG = StableRNG
 

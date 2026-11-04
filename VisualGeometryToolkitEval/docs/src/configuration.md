@@ -15,7 +15,8 @@ read through one function. An unknown key or tag is refused.
 `configs/default.toml`. The file is parsed when the package is precompiled, so
 an edit takes effect after Julia restarts.
 
-Every random sample is seeded by [`stable_seed`](@ref) from a spec's seed and
+Every random sample is seeded by VisualGeometryToolkitCore's
+[`stable_seed`](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/stable/api/core/#VisualGeometryToolkitCore.stable_seed) from a spec's seed and
 a name, such as a scene name. See [The experimental protocol](@ref).
 
 ## Environment variables

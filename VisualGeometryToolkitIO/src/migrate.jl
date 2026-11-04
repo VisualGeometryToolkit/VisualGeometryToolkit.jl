@@ -349,12 +349,13 @@ vgio_migrate(path::AbstractString; out::AbstractString = _migrated_path(path), d
 # `vgio_migrate`, with `before_rename(r)` called on the verified result before
 # anything is put at `out` (a tree persists its identity map there).
 function _vgio_migrate(path::AbstractString; out::AbstractString, dry_run::Bool, before_rename = r -> nothing)
-    s = _peek_schema(path)
+    tree = _is_toml(path) ? TOML.parsefile(path) : nothing   # a TOML file is parsed once, here
+    s = tree === nothing ? _peek_schema(path) : get(tree, "schema", nothing)
     s isa AbstractString || throw(ArgumentError("$(path): not a vgio file (no schema)"))
     in_place = abspath(out) == abspath(path)
     (dry_run || in_place || !ispath(out)) || throw(ArgumentError("$(out) exists; refusing to overwrite it"))
-    if !_has_migration(s) && _is_toml(path) && _has_record_migration(s)
-        return _migrate_toml(path, out, dry_run, s, before_rename)
+    if !_has_migration(s) && tree !== nothing && _has_record_migration(s)
+        return _migrate_toml(path, tree, out, dry_run, s, before_rename)
     end
     _has_migration(s) ||
         throw(ArgumentError("$(path): no migration for a $(s) file (no method of VisualGeometryToolkitIO.migrate_schema for it)"))
@@ -368,12 +369,11 @@ end
 _is_toml(path) = endswith(lowercase(path), ".toml")
 
 # The generic file form for a TOML record whose schema has a step and no file
-# form: parse, run the steps, print, read the print back and require the very
-# tree (types included), so a value TOML.print cannot reproduce is a refusal.
-function _migrate_toml(path, out, dry_run, s, before_rename)
-    src_text = read(path, String)
-    tree = TOML.parse(src_text)
-    comments_dropped = occursin(r"^\s*#"m, src_text)
+# form: from the parsed `tree`, run the steps, print, read the print back and
+# require the very tree (types included), so a value TOML.print cannot reproduce
+# is a refusal.
+function _migrate_toml(path, tree, out, dry_run, s, before_rename)
+    comments_dropped = occursin(r"^\s*#"m, read(path, String))
     @warn "vgio_migrate rewrites $(path) through TOML.print, which drops its comments; the original is kept unless out == path"
     migrated = migrate_record(tree)
     return write_staged(out => basename(out); dry_run) do staged
@@ -392,7 +392,10 @@ function _migrate_toml(path, out, dry_run, s, before_rename)
         r
     end
 end
-# Equal AND of the same type throughout (`1 == 1.0` is not enough).
+
+# Equal AND of the same type throughout (`1 == 1.0` is not enough), element by
+# element: not `_same_value`, whose container check is `typeof` too, and a TOML
+# round trip turns an array's `Vector{Any}` into a `Vector{String}`.
 _same_tree(a::AbstractDict, b::AbstractDict) = keys(a) == keys(b) && all(_same_tree(a[k], b[k]) for k in keys(a))
 _same_tree(a::AbstractVector, b::AbstractVector) = length(a) == length(b) && all(_same_tree(x, y) for (x, y) in zip(a, b))
 _same_tree(a, b) = typeof(a) === typeof(b) && isequal(a, b)

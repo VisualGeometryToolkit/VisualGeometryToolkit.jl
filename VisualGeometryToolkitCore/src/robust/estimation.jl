@@ -170,7 +170,20 @@ bootstrap. An external arm that anchors a width (the adaptive PoseLib LM arm)
 reads its consensus scale through the production scoring machinery too.
 """
 abstract type RefitFamily end
+"""
+    NativeRefit()
+
+The [`RefitFamily`](@ref) of a strategy whose refit runs in the in-process
+solver loop (`locally_optimize!`); the default.
+"""
 struct NativeRefit <: RefitFamily end
+"""
+    ExternalRefit()
+
+The [`RefitFamily`](@ref) of a strategy whose refit is an external refiner
+called at an absolute width, through [`external_workspace`](@ref),
+[`prepare_external!`](@ref) and [`refine_external!`](@ref).
+"""
 struct ExternalRefit <: RefitFamily end
 
 RefitFamily(::AbstractLocalOptimization) = NativeRefit()   # default

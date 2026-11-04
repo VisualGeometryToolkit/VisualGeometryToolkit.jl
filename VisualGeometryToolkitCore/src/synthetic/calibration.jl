@@ -929,7 +929,7 @@ chart covariance.
 noise `σ_px` entering as `σ = σ_px/f`, as the F and H trials do.
 
 **Camera-aware (`cameras = (cam1, cam2)`)**: the scene is projected through two
-real [`CameraModel`](@ref)s, perturbed in PIXELS with `σ_px` itself, and handed
+real [`CameraModel`](@ref VisualGeometryToolkitCore.Cameras.CameraModel)s, perturbed in PIXELS with `σ_px` itself, and handed
 to the estimate and the covariance as BEARING correspondences carrying the
 `M₁`/`M₂` pixel Jacobians from [`backproject_with_jacobian`](@ref) — what an
 essential-matrix problem takes. The default estimate and covariance read those

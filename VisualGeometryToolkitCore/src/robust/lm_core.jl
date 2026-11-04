@@ -379,7 +379,7 @@ test: `-2`. [`lm_retcode`](@ref) maps it to `:stalled`.
 const _LM_STALLED = -2
 
 """
-    lmsolve_chart!(ews::ManifoldLmWorkspace{N}, lm; maxit = 1000, ftol = eps(), xtol = 1e-10, stationarity_tol, cache = true)
+    lmsolve_chart!(ews::ManifoldLmWorkspace{N}, lm; maxit = 1000, ftol = eps(), xtol = 1e-10, stationarity_tol)
         -> (x::SVector{N}, F, converged, iterations)
 
 THE chart LM: NLLSsolver's Levenberg–Marquardt (Marquardt's DᵀD damping)

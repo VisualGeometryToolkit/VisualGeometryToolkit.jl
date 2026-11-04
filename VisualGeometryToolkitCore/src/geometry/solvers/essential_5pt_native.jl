@@ -559,21 +559,6 @@ end
 # solver layer (`solve(::Essential5pt, …)`) and direct callers supply.
 const _Bearings5 = Union{NTuple{5, <:StaticVector{3}}, StaticVector{5, <:StaticVector{3}}}
 
-"""
-    essential_5pt(::NativeSolver, x1, x2) -> FixedModels{10, EssentialMat{Float64}}
-
-Nistér 5-point relative pose (essential matrices only), a native Julia port of
-PoseLib's `relpose_5pt`. `x1` and `x2` hold five calibrated bearings each, as a
-tuple or a static vector of 3-vectors.
-
-Typed to 3-vectors so a 2-vector (a point on the z = 1 plane) is a
-`MethodError` rather than a `DimensionMismatch` from inside the kernel, the
-same refusal `solve(::Essential5pt, …)` and PoseLib's backend give. The type is
-a necessary condition, not a guarantee: a 3-vector still ON the z = 1 plane
-is accepted and, the epipolar algebra being scale-invariant per endpoint, even gives
-the right answer for rays the chart can represent. Bearings must come from the
-camera's back-projection (`backproject_with_jacobian`), where they are built.
-"""
 # The solver's escaping scratch (the arrays its non-inlined kernels write into),
 # built once per task and reused by every solve on it — a minimal solve runs once
 # per RANSAC trial, and these arrays were its only heap allocations. Every entry a
@@ -599,6 +584,21 @@ _E5Scratch() = _E5Scratch(
     MVector{11, Float64}(undef), ntuple(_ -> MVector{10, Float64}(undef), Val(6))
 )
 
+"""
+    essential_5pt(::NativeSolver, x1, x2) -> FixedModels{10, EssentialMat{Float64}}
+
+Nistér 5-point relative pose (essential matrices only), a native Julia port of
+PoseLib's `relpose_5pt`. `x1` and `x2` hold five calibrated bearings each, as a
+tuple or a static vector of 3-vectors.
+
+Typed to 3-vectors so a 2-vector (a point on the z = 1 plane) is a
+`MethodError` rather than a `DimensionMismatch` from inside the kernel, the
+same refusal `solve(::Essential5pt, …)` and PoseLib's backend give. The type is
+a necessary condition, not a guarantee: a 3-vector still ON the z = 1 plane
+is accepted and, the epipolar algebra being scale-invariant per endpoint, even gives
+the right answer for rays the chart can represent. Bearings must come from the
+camera's back-projection (`backproject_with_jacobian`), where they are built.
+"""
 function essential_5pt(::NativeSolver, x1::_Bearings5, x2::_Bearings5)
     scratch = task_buffers(_E5Scratch, :vgc_essential_5pt_scratch)::_E5Scratch
     M = scratch.M

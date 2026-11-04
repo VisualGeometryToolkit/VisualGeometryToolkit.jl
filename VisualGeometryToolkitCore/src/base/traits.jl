@@ -18,7 +18,19 @@
 Trait indicating whether a type has a parametric boundary that can be sampled.
 """
 abstract type HasBoundaryTrait end
+"""
+    HasBoundary()
+
+The [`HasBoundaryTrait`](@ref) value of a shape whose parametric boundary can
+be sampled (a circle, an ellipse): `overlap_area` falls back to sampling it.
+"""
 struct HasBoundary <: HasBoundaryTrait end
+"""
+    NoBoundary()
+
+The [`HasBoundaryTrait`](@ref) value of a type with no parametric boundary to
+sample; the default.
+"""
 struct NoBoundary <: HasBoundaryTrait end
 
 """
@@ -65,7 +77,19 @@ intrinsics+lens+pose in a `BoundedCamera` so downstream geometry code can `exten
 `is_in_image(cam, p)`, and bound frustum visualizations.
 """
 abstract type BoundsTrait end
+"""
+    HasBounds()
+
+The [`BoundsTrait`](@ref) value of a type that carries its image extent in
+pixels (a `BoundedCamera`, a `BoundedMap`): `extent` and `is_in_image` apply.
+"""
 struct HasBounds <: BoundsTrait end
+"""
+    NoBounds()
+
+The [`BoundsTrait`](@ref) value of a type with no image extent (a bare camera
+model); the default.
+"""
 struct NoBounds <: BoundsTrait end
 
 """

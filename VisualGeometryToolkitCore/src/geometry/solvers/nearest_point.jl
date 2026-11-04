@@ -38,8 +38,8 @@ lines = csponds([SVector(0.0, 0.0, 0.0), SVector(1.0, 0.0, 0.0)], [SVector(0.0, 
 nearest_point(lines)   # [0.0, 0.0, 1.0]: where the two lines meet
 ```
 """
-# Origins that are lengths: stripped in metres once, the plain solve, metres back.
 function nearest_point(lines::AbstractVector{<:Pair{<:StaticVector{N, <:Quantity}, <:StaticVector{N}}}) where {N}
+    # Origins that are lengths: stripped in metres once, the plain solve, metres back.
     stripped = [strip_metres(first(l)) => last(l) for l in lines]
     w = weights_column(lines)
     return nearest_point(w === nothing ? stripped : withattrs(Csponds(sources(stripped), targets(stripped)); weights = w)) .* m

@@ -311,6 +311,12 @@ evaluation). An `ArgumentError` for `det A ≤ 0` (a reflection or a degenerate
 map, which has no such factorization).
 """
 iwasawa_parameters(A::StaticMatrix{2, 2}) = _iwasawa(_row_entries(_check_iwasawa(A)))
+"""
+    iwasawa_parameters_with_jacobian(A::StaticMatrix{2, 2}) -> (θ, J)
+
+[`iwasawa_parameters`](@ref)`(A)` and its 4 × 4 Jacobian `J` in `A`'s entries
+row by row, `(a₁₁, a₁₂, a₂₁, a₂₂)`; the same `ArgumentError` for `det A ≤ 0`.
+"""
 iwasawa_parameters_with_jacobian(A::StaticMatrix{2, 2}) = _value_and_jacobian(_iwasawa, _row_entries(_check_iwasawa(A)))
 _row_entries(A::StaticMatrix{2, 2}) = SVector(float(A[1, 1]), float(A[1, 2]), float(A[2, 1]), float(A[2, 2]))
 function _check_iwasawa(A)

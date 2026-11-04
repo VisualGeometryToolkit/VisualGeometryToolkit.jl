@@ -86,14 +86,66 @@ end
 
 # The unit constants: the registry's dynamic units, fixed when the package is
 # precompiled.
+"""
+    mm
+
+The millimetre, `1//1000` m exactly: `142mm` is `71//500` m. A length is stored
+in metres, so read one back in millimetres with `ustrip(mm, q)`.
+"""
 const mm = StackUnits.UNITS[:mm]
+"""
+    cm
+
+The centimetre, `1//100` m exactly.
+"""
 const cm = StackUnits.UNITS[:cm]
+"""
+    μm
+
+The micrometre, `1//1000000` m exactly; the unit of a sensor's pixel pitch
+(`5.86μm / px`).
+"""
 const μm = StackUnits.UNITS[:μm]
+"""
+    m
+
+The metre, the base unit every length is stored in: a bare `ustrip(q)` of a
+length is in metres.
+"""
 const m = StackUnits.UNITS[:m]
+"""
+    inch
+
+The international inch, `127//5000` m (25.4 mm) exactly.
+"""
 const inch = StackUnits.UNITS[:inch]
+"""
+    ft
+
+The foot, `12inch` exactly.
+"""
 const ft = StackUnits.UNITS[:ft]
+"""
+    px
+
+The pixel, a dimensionless count (FlexUnits' dimensions are the seven SI ones,
+so `px` cannot be told from a radian or a ratio). Pixel COORDINATES keep their
+frame through `PixelFrame` tags; `px` is for sizes and densities. A length
+becomes pixels through a density: `q * 300dpi`.
+"""
 const px = StackUnits.UNITS[:px]
+"""
+    pt
+
+The typographic point, `inch / 72` exactly.
+"""
 const pt = StackUnits.UNITS[:pt]
+"""
+    dpi
+
+Dots per inch, `px / inch`: the density a length crosses to pixels by
+(`210mm * 300dpi` is 2480.3… px).
+"""
 const dpi = StackUnits.UNITS[:dpi]
 
 """

@@ -212,6 +212,7 @@ read in the canonical `:colmap` origin convention).
 The associated point → line correlation is [`epipolar_map`](@ref); the
 kernels are [`epipoles`](@ref).
 """
+function EpipolarForm(rig::StereoRig)
 # WHY THE E FORM STAYED ON THE CHART WHILE EVERYTHING ELSE MOVED TO BEARINGS
 #
 # Calibrated geometry in this stack acts on unit bearings (unit rays, `StaticVector{3}`), and
@@ -234,7 +235,6 @@ kernels are [`epipoles`](@ref).
 # it is a new type beside this one, NOT a widening of this one: making
 # `EpipolarForm` mean both is the confusion the bearing/`GnomonicFrame` split
 # exists to prevent.
-function EpipolarForm(rig::StereoRig)
     a, b = ids(rig)
     # The view ids are run-time values, so the lifts' frame tags are too: the
     # assertions keep `∘` on the collineation × correlation methods.

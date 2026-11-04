@@ -100,8 +100,29 @@ composed with a manifold is differentiated once, here, not per consumer.
 """
 abstract type Manifold end
 
+"""
+    tangent_size(ch::Manifold) -> Int
+
+The manifold's dimension `D`: the length of the local coordinates `v` that
+[`retract`](@ref) takes. Part of the [`Manifold`](@ref) contract.
+"""
 function tangent_size end
+"""
+    retract(ch::Manifold, v::StaticVector{D}) -> model
+
+The ambient model at local coordinates `v` (`v = 0` is the anchor, `model(ch)`);
+it never normalizes. GTSAM's `retract`, Ceres' `Manifold::Plus`; its inverse is
+[`local_coordinates`](@ref) and its differential [`retract_jacobian`](@ref).
+Part of the [`Manifold`](@ref) contract.
+"""
 function retract end
+"""
+    recenter(ch::Manifold, v) -> Manifold
+
+The same manifold family re-anchored at `retract(ch, v)`, with the family's one
+normalization policy (a rotation re-projected onto SO(3), a homography's unit
+Frobenius representative). Part of the [`Manifold`](@ref) contract.
+"""
 function recenter end
 
 # `recenter`'s element-type rule: the manifold's element type `S` promoted with

@@ -43,12 +43,48 @@ abstract type AbstractBlockCoordinateMethod end
 
 # Extension-point generic functions. The framework only calls them; concrete
 # methods live downstream (VisualGeometryToolkitEstimation problems, BlobBoards adapters).
+"""
+    init_state!(method::AbstractBlockCoordinateMethod, prob, θ₀) -> state
+
+Build the solver state of [`block_coordinate_descent!`](@ref) and compute the
+initial residuals, scale and weights at `θ₀`. A method may fill buffers its own
+workspace holds, hence the `!`. An extension point: the method's package adds
+the method.
+"""
 function init_state! end
+"""
+    update_model!(state, method::AbstractBlockCoordinateMethod, prob, θ) -> θ′ | nothing
+
+The model block of [`block_coordinate_descent!`](@ref): one weighted update of
+`θ` at fixed weights and nuisance (a weighted least-squares solve, an LM step,
+Newton), or `θ` unchanged. `nothing` means there is no update to make, and the
+run stops with `:solve_failed`. A fit `fit_<fit>`'s method calls its
+`<fit>_step` here.
+"""
 function update_model! end
+"""
+    update_residuals!(state, method::AbstractBlockCoordinateMethod, prob, θ) -> state
+
+The residual block of [`block_coordinate_descent!`](@ref): writes the residuals
+and squared residuals of `θ` into the state, and nothing else.
+"""
 function update_residuals! end
+"""
+    block_coordinate_result(state, method::AbstractBlockCoordinateMethod, prob, θ, stop_reason, final_iter)
+
+Package the run of [`block_coordinate_descent!`](@ref) as the method's result
+(a [`FitResult`](@ref) for the stack's fits), from the final state, model,
+[`stop_reason`](@ref) and iteration count.
+"""
 function block_coordinate_result end
 
-# Default no-op for post_iteration!
+"""
+    post_iteration!(state, method::AbstractBlockCoordinateMethod, prob, θ, iter) -> nothing
+
+Per-iteration bookkeeping of [`block_coordinate_descent!`](@ref), after the
+weight block: best-model tracking and the counters a
+[`StoppingCriterion`](@ref) reads. The default does nothing.
+"""
 post_iteration!(state, ::AbstractBlockCoordinateMethod, prob, θ, iter) = nothing
 
 # Trust region is the OPTIMIZER's responsibility, not the framework's: the

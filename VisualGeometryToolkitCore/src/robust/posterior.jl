@@ -32,10 +32,10 @@ The per-point buffers are supplied by the caller (typically a workspace's);
 construction-time allocation is performed only by the `n`-constructor and
 [`median_seeded_posterior`](@ref).
 """
-# <: NormalizedWeightPolicy: the Student-t + uniform mixture IS a proper
-# normalized probability model — the state itself is the likelihood-grade
-# weight policy.
 mutable struct PosteriorWeightState <: NormalizedWeightPolicy
+    # <: NormalizedWeightPolicy: the Student-t + uniform mixture IS a proper
+    # normalized probability model — the state itself is the likelihood-grade
+    # weight policy.
     w::Vector{Float64}
     inlier_posterior::Vector{Float64}
     sq_residuals::Vector{Float64}

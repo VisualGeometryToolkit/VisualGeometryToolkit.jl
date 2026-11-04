@@ -547,6 +547,13 @@ function radial_transfer_rows!(r::AbstractVector, m::RadialHomography, u₁::Abs
     return _foreach_row!(_radial_rows!, r, length(u₁), m, u₁, u₂, sqrtw)
 end
 
+"""
+    radial_transfer_jacobian_rows!(J, m::RadialHomography, dH, u₁, sqrtw) -> J
+
+The Jacobian of [`radial_transfer_rows!`](@ref): columns `1:N` along the
+directions `dH` of `H`, column `N + 1` along `k`, a zero row for a ray outside
+the model's field.
+"""
 function radial_transfer_jacobian_rows!(J::AbstractMatrix, m::RadialHomography, dH::Tuple, u₁::AbstractVector, sqrtw::AbstractVector)
     return _foreach_row!(_radial_jacobian_rows!, J, length(u₁), m, dH, u₁, sqrtw)
 end

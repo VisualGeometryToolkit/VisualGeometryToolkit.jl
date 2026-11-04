@@ -325,12 +325,11 @@ u = SVector(400.0, 300.0)  # px (unitless)
 ray = backproject(camera, u)  # Returns normalized Vec3 direction
 ```
 """
-#
-# `@inline`: with a Dual camera (RadiometricCamera's GPU Jacobian, `Dual{Float32, 15}`)
-# the inliner otherwise declines it, and the device code hands the camera
-# over by pointer through local memory (3008 B a thread at KB; see cameras.jl's
-# BoundedCamera forwarders).
 @inline backproject(model::CameraModel, u::StaticVector{2, <:Real}) =
+    # `@inline`: with a Dual camera (RadiometricCamera's GPU Jacobian, `Dual{Float32, 15}`)
+    # the inliner otherwise declines it, and the device code hands the camera
+    # over by pointer through local memory (3008 B a thread at KB; see cameras.jl's
+    # BoundedCamera forwarders).
     Vec3(backproject(model.intrinsics, model.lens, u))
 
 # Batched version for multiple points. (It once handed the whole vector to the

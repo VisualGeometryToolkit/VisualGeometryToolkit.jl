@@ -303,14 +303,19 @@ _bitmask(idx, n) = (b = falses(n); b[idx] .= true; b)
 
 """
     source_map(f::CspondNormalization) -> AffineMap
-    destination_map(f::CspondNormalization) -> AffineMap
 
-The forward normalization of the source side and of the destination side
-(the correspondences' `targets`), as 2D affine maps (`source_map(f)(x)` is
-the normalized source point). The accessors to a frame's sides; its inverses
-are `inv` of these.
+The forward normalization of the source side, as a 2D affine map
+(`source_map(f)(x)` is the normalized source point); its inverse is `inv` of
+it. The destination side is [`destination_map`](@ref).
 """
 source_map(f::CspondNormalization) = affine_part(f.src)
+"""
+    destination_map(f::CspondNormalization) -> AffineMap
+
+The forward normalization of the destination side (the correspondences'
+`targets`), as a 2D affine map; its inverse is `inv` of it. The source side is
+[`source_map`](@ref).
+"""
 destination_map(f::CspondNormalization) = affine_part(f.dst)
 
 """

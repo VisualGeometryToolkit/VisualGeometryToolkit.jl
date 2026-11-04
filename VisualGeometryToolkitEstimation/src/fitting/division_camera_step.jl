@@ -434,6 +434,71 @@ function _whitening_lambdas(n::Int, w::_PositionalDivisionState, fw, σ)
     return ntuple(p -> kw[p] * fw, n)
 end
 
+# THE ARROW SOLVE, over per-board blocks of any static size m. Normal equations
+# whose unknowns are `ns` shared ones `xs` plus a block `tᵢ` of `m` per board,
+# each block coupled only to itself and to the shared ones:
+#     [S  C₁ … C_B; C₁ᵀ D₁; ⋮ ⋱; C_Bᵀ D_B]·[xs; t₁; …; t_B] = [bs; b₁; …; b_B].
+# The blocks eliminate per board (Schur complement):
+#     (S − Σᵢ Cᵢ Dᵢ⁻¹ Cᵢᵀ)·xs = bs − Σᵢ Cᵢ Dᵢ⁻¹ bᵢ,     tᵢ = Dᵢ⁻¹ (bᵢ − Cᵢᵀ xs),
+# so the dense solve is ns × ns whatever the number of boards. `blocks[i]` is
+# board i's `(C = Cᵢ::SMatrix{ns, m}, D = Dᵢ::SMatrix{m, m}, b = bᵢ::SVector{m})`,
+# `Dᵢ` symmetric (only its upper triangle is read at m ≥ 2, so an accumulation
+# symmetric to rounding is fine). A board whose `D` is not positive definite
+# (`_arrow_factor` gives `nothing`: at m = 1, `d > 0`; at m ≥ 2, its Cholesky
+# fails) carries no information on its block: it is left out of the elimination
+# and its `tᵢ` is NaN. A singular reduced system throws
+# `LinearAlgebra.SingularException`; the caller names the failure.
+# Returns `(xs::Vector{Float64}, ts::Vector{SVector{m, Float64}})`.
+#
+# For radial homographies (m = 3: each board's h̃₃). At m = 1 it computes the
+# division camera's scalar depth loop bit for bit (`test/arrow_solve_tests.jl`),
+# but that loop stays inline in `_division_camera_solve`: replacing it by this call
+# moves the fusion of the inlined `sampson_residual`'s `muladd`s, and with it the
+# camera's output by ulps (`test/division_solve_golden_tests.jl`).
+_arrow_factor(D::SMatrix{1, 1}) = D[1] > 0 ? D : nothing          # D \ v is v / d
+function _arrow_factor(D::SMatrix)
+    F = LinearAlgebra.cholesky(LinearAlgebra.Hermitian(D); check = false)
+    return LinearAlgebra.issuccess(F) ? F : nothing
+end
+_arrow_block_live(D::SMatrix) = _arrow_factor(D) !== nothing
+
+function _arrow_solve(
+        Snn::Matrix{Float64}, bsh::Vector{Float64},
+        blocks::Vector{NamedTuple{(:C, :D, :b), Tuple{SMatrix{ns, m, Float64, L}, SMatrix{m, m, Float64, M}, SVector{m, Float64}}}}
+    ) where {ns, m, L, M}
+    (size(Snn) == (ns, ns) && length(bsh) == ns) ||
+        throw(DimensionMismatch("the shared block is $(size(Snn)) with $(length(bsh)) right-hand sides; the boards couple $ns"))
+    factors = [_arrow_factor(blk.D) for blk in blocks]
+    Sred = copy(Snn); bred = copy(bsh)
+    @inbounds for ((; C, b), F) in zip(blocks, factors)
+        F === nothing && continue
+        K = F \ transpose(C)                                   # D⁻¹Cᵀ, m × ns (D symmetric: (C D⁻¹)ᵀ)
+        for p in 1:ns
+            for q in 1:ns, a in 1:m
+                Sred[p, q] -= K[a, p] * C[q, a]
+            end
+            for a in 1:m
+                bred[p] -= K[a, p] * b[a]
+            end
+        end
+    end
+    xs = Sred \ bred
+    ts = map(blocks, factors) do (; C, b), F
+        F === nothing && return SVector{m, Float64}(ntuple(_ -> NaN, Val(m)))
+        r = SVector{m, Float64}(
+            ntuple(Val(m)) do a
+                acc = b[a]
+                @inbounds for p in 1:ns
+                    acc -= C[p, a] * xs[p]
+                end
+                acc
+            end
+        )
+        SVector{m, Float64}(F \ r)
+    end
+    return xs, ts
+end
+
 function _division_camera_solve(
         Hs, boards, k, normalization::CspondNormalization;
         # No defaults: the one caller (`_division_camera_step`) supplies every one, and

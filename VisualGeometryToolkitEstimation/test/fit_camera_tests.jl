@@ -41,7 +41,9 @@ end
         h = 1.0e-5 * b
         for θ in range(0.05b, 0.95b; length = 7)
             cd = (Float64(projected_radius(srcr, θ + h)) - Float64(projected_radius(srcr, θ - h))) / 2h
-            @test abs(VgtkEstimation._radius_derivative(srcr, θ) - cd) <= 1.0e-8 * max(1.0, abs(cd))
+            r, dr = VgtkEstimation._radius_with_jacobian(srcr, θ)     # one Dual evaluation: the value and dr/dθ
+            @test abs(dr - cd) <= 1.0e-8 * max(1.0, abs(cd))
+            @test abs(r - Float64(projected_radius(srcr, θ))) <= 4 * eps(max(1.0, abs(r)))   # the plain radius, to its rounding
         end
     end
 end
@@ -238,10 +240,10 @@ end
     # the held-out direction error over the region: no worse than node interpolation on the same lattice
     interpolated = CentralGenericModel(FISHEYE, (1000, 1000); grid_size = (gw, gh))
     q = VgtkEstimation._image_quadrature(FISHEYE, REGION)
-    d = normalize.(q.held_rays)
-    e_fit, kept_fit = VgtkEstimation._direction_errors(g, FISHEYE, q.held_px, d)
-    e_int, _ = VgtkEstimation._direction_errors(interpolated, FISHEYE, q.held_px, d)
-    @test all(kept_fit) && md.family.n_held_out_dropped == 0
+    held = VgtkEstimation._held_out(CentralGenericModel, FISHEYE, q)
+    e_fit = VgtkEstimation._direction_errors(g, held)
+    e_int = VgtkEstimation._direction_errors(interpolated, held)
+    @test held.n_dropped == 0 && length(e_fit) == length(q.held_px) && md.family.n_held_out_dropped == 0
     @test maximum(e_fit) <= maximum(e_int)
     @test maximum(e_fit) ≈ md.max_px
     # the held-out error has no solver floor: a tolerance far below what the finest
@@ -296,15 +298,44 @@ end
         u in s.bad ? (first(backproject_with_jacobian(s.model, u)), fill(NaN, SMatrix{3, 2, Float64})) : backproject_with_jacobian(s.model, u)
     g = estimate(fit_camera(CentralGenericModel, BoundedCamera(FISHEYE, Size2(1000, 1000)), REGION; tolerance = 1.0e-3))
     q = VgtkEstimation._image_quadrature(FISHEYE, REGION)
-    d = normalize.(q.held_rays)
-    src = NaNJacobianSource(FISHEYE, Set{Any}(q.held_px[[3, 10, 50]]))
-    e_all, kept_all = VgtkEstimation._direction_errors(g, FISHEYE, q.held_px, d)
-    e, kept = VgtkEstimation._direction_errors(g, src, q.held_px, d)
-    @test all(kept_all) && count(!, kept) == 3 && !any(kept[[3, 10, 50]])
+    bad = [3, 10, 50]
+    src = NaNJacobianSource(FISHEYE, Set{Any}(q.held_px[bad]))
+    held_all = VgtkEstimation._held_out(CentralGenericModel, FISHEYE, q)
+    held = VgtkEstimation._held_out(CentralGenericModel, src, q)
+    kept = setdiff(eachindex(q.held_px), bad)
+    @test held_all.n_dropped == 0 && held.n_dropped == 3 && held.px == q.held_px[kept] && held.edge == q.edge[kept]
+    e_all = VgtkEstimation._direction_errors(g, held_all)
+    e = VgtkEstimation._direction_errors(g, held)
     @test all(isfinite, e)
     @test e ≈ e_all[kept] rtol = 1.0e-12     # (the wrapper's call compiles apart: the last bits may differ)
-    errors, family = VgtkEstimation._grid_errors(g, src, q, nothing)
-    @test family.n_held_out_dropped == 3 && isfinite(errors.max) && errors.max == maximum(e)
+    errors, _ = VgtkEstimation._grid_errors(g, held, nothing)
+    @test isfinite(errors.max) && errors.max == maximum(e)
+    @test_throws r"not finite at any held-out pixel" VgtkEstimation._held_out(CentralGenericModel, NaNJacobianSource(FISHEYE, Set{Any}(q.held_px)), q)
+end
+
+@testitem "fit_camera: a non-central grid's line offsets drop the held-out pixels its direction errors drop" setup = [FitCameraNoncentral] begin
+    using Test
+    using StaticArrays: SMatrix, SVector
+    using LinearAlgebra: norm, dot
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: estimate, NoncentralGenericModel, backproject_with_jacobian, interpolated_point
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    using VisualGeometryToolkitEstimation: fit_camera
+    struct NaNJacobianLines
+        model::Any
+        bad::Set{Any}
+    end
+    VgtkCore.backproject_with_jacobian(s::NaNJacobianLines, u) =
+        u in s.bad ? (first(backproject_with_jacobian(s.model, u)), fill(NaN, SMatrix{3, 2, Float64})) : backproject_with_jacobian(s.model, u)
+    fitted = estimate(fit_camera(NoncentralGenericModel, SOURCE, REGION; tolerance = 1.0e-3))
+    q = VgtkEstimation._image_quadrature(VgtkEstimation._source_lines, SOURCE, REGION)
+    offset(i) = (d = last(q.held_rays[i]); Δ = SVector{3, Float64}(interpolated_point(fitted, q.held_px[i])) - first(q.held_rays[i]); norm(Δ - dot(Δ, d) * d))
+    worst = partialsortperm(map(offset, eachindex(q.held_px)), 1:3; rev = true)   # the three largest offsets
+    held = VgtkEstimation._held_out(NoncentralGenericModel, NaNJacobianLines(SOURCE, Set{Any}(q.held_px[worst])), q)
+    direction, offsets = VgtkEstimation._line_errors(fitted, held)
+    kept = setdiff(eachindex(q.held_px), worst)
+    @test held.n_dropped == 3 && offsets.max == maximum(offset, kept) < maximum(offset, worst)
+    # (measured 2026-11-04: 5.04e-8 m over the kept pixels; 5.10e-8 m when the dropped ones were still counted)
 end
 
 @testitem "pspline_grid: the grid targets' one solve on a given lattice — fit_camera's at the lattice it chose" setup = [FitCameraFisheye] begin
@@ -386,7 +417,7 @@ end
     sampled = NoncentralGenericModel{Float64}(
         1000, 1000, 0, 0, 999, 999, [Vec3{Float64}(l.direction) for l in lines], [Vec3{Float64}(l.origin) for l in lines]
     )
-    e_s, o_s, _ = VgtkEstimation._line_errors(sampled, SOURCE, q)
+    e_s, o_s = VgtkEstimation._line_errors(sampled, VgtkEstimation._held_out(NoncentralGenericModel, SOURCE, q))
     @test md.max_px < e_s.max / 100 && md.family.max_offset < o_s.max / 100
     # the rays at and past 90° (to ~97°): the fitted lines stay on the source's
     # (measured 2.0e-6 rad, 7.2e-9 m)

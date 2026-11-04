@@ -44,10 +44,12 @@
     non-central fisheye to 97°, on a 40 × 40 lattice: 7.1e-4 px and 7.9e-9 m at
     most, against 0.39 px and 5.9e-6 m for sampling the source's lines at the
     nodes; `tolerance = 1e-3` chooses 26 × 26 (9.2e-4 px, 5.1e-8 m).
-  The grid targets' held-out direction error skips a held-out pixel where
-  the source's back-projection Jacobian is not finite (counted as
+  The grid targets' held-out errors — the direction error and the
+  non-central grid's line offset alike — skip a held-out pixel where the
+  source's back-projection Jacobian is not finite (counted as
   `n_held_out_dropped`), as the quadrature skips non-finite samples. The
-  `:image` density differentiates the source's radius exactly (ForwardDiff).
+  `:image` density differentiates the source's radius exactly (ForwardDiff,
+  the radius and its derivative from one Dual evaluation per node).
 - **`pspline_grid(G, source, region, grid_size)`: the grid targets' one
   P-spline solve on a GIVEN lattice** (`G` a `CentralGenericModel` or
   `NoncentralGenericModel`, `grid_size = (columns, rows)` of Core's

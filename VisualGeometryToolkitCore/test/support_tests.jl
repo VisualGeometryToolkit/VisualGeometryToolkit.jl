@@ -47,6 +47,11 @@
         @test pixel_mask(Rect(0, 0, 4, 3), 4, 3) == trues(3, 4)                 # every centre of the extent lies in it
         @test isapprox(count(M), π * (250π / 3)^2; rtol = 0.01)                   # the disc's area, wholly inside the extent
         @test pixel_mask(WholePlane(), 3, 2) == trues(2, 3)
+        # pixel_centres: the same centres, on any sub-lattice, v outer and u inner
+        @test pixel_centres(R, 1:1280, 1:960) == [SVector(u - 0.5, v - 0.5) for v in 1:960 for u in 1:1280 if M[v, u]]
+        us, vs = 3:4:1280, 2:4:960
+        @test pixel_centres(R, us, vs) == [SVector(u - 0.5, v - 0.5) for v in vs for u in us if M[v, u]]
+        @test pixel_centres(Rect(0, 0, 2, 1), 1:2, 1:1) == [SVector(0.5, 0.5), SVector(1.5, 0.5)]
     end
 
     @testset "the trait and its contract" begin

@@ -199,8 +199,8 @@ imaged_region(camera::BoundedCamera, circle) = Rect(0, 0, extent(camera)...) ∩
 The pixels of a `width × height` image whose CENTRES lie in `region` (any 2-D region answering `p ∈ region`: an
 [`imaged_region`](@ref), a `Rect`, an [`Ellipse`](@ref), their `∩`, the
 [`WholePlane`](@ref VisualGeometryToolkitCore.Primitives.WholePlane)), as a `height × width` `BitMatrix` in Julia's array
-layout: `mask[v, u]` is pixel `(u, v)`, whose centre is the COLMAP point `(u − ½, v − ½)` — the one place that conversion is
-made for a mask.
+layout: `mask[v, u]` is pixel `(u, v)`, whose centre is the COLMAP point `(u − ½, v − ½)` — the conversion
+[`pixel_centres`](@ref) shares, made in one place.
 
 ```julia
 region = imaged_region(camera, circle)        # the sensor ∩ a supplied image circle (a datasheet's, or a measured Ellipse)
@@ -208,4 +208,20 @@ mask = pixel_mask(region, width, height)      # the pixels the camera images
 ```
 """
 pixel_mask(region, width::Integer, height::Integer) =
-    BitMatrix([Point2{Float64}(u - 0.5, v - 0.5) ∈ region for v in 1:Int(height), u in 1:Int(width)])
+    BitMatrix([_pixel_centre(u, v) ∈ region for v in 1:Int(height), u in 1:Int(width)])
+
+"""
+    pixel_centres(region, us, vs) -> Vector{SVector{2, Float64}}
+
+The COLMAP centres `(u − ½, v − ½)` of the pixels `(u, v)`, `u ∈ us`, `v ∈ vs`
+(Julia's 1-based pixel indices, as [`pixel_mask`](@ref) indexes them), that lie
+in `region`, `v` outer and `u` inner: the pixels of a sub-lattice (a stride, an
+offset) without the full image's mask. `pixel_mask(region, W, H)[v, u]` is
+whether pixel `(u, v)`'s centre is among `pixel_centres(region, 1:W, 1:H)`.
+"""
+pixel_centres(region, us::AbstractVector{<:Integer}, vs::AbstractVector{<:Integer}) =
+    [SVector{2, Float64}(c) for v in vs for u in us for c in (_pixel_centre(u, v),) if c ∈ region]
+
+# A pixel's centre in the COLMAP frame: the one conversion from Julia's 1-based
+# pixel index.
+_pixel_centre(u::Integer, v::Integer) = Point2{Float64}(u - 0.5, v - 0.5)

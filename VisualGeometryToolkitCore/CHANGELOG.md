@@ -68,6 +68,9 @@ Added:
   kernel on the pixels' backend, bit for bit the scalar form on the CPU, NaN
   outside the calibrated area.
 - `pixel_mask(region, width, height)`: the pixels whose centres lie in a region.
+- `pixel_centres(region, us, vs)`: the COLMAP centres of the pixels of a
+  sub-lattice (`u ∈ us`, `v ∈ vs`) that lie in a region, without the full
+  image's mask; `pixel_mask` and it share the one centre conversion.
 - **`nearest_point(lines)`**: the least-squares point nearest to N lines,
   `origin => direction` pairs (a `Csponds` or a vector of `Pair`s, any
   dimension), the minimizer of `Σ wᵢ‖(I − dᵢdᵢᵀ)(x − oᵢ)‖²` in one closed-form

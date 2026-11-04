@@ -403,8 +403,8 @@ _coverage(exits, ρ) = count(e -> e >= ρ * (1 - 1.0e-9), exits) / length(exits)
 _check_image_weight(weight::Symbol) =
     weight === :image || throw(ArgumentError("fit_camera: a spline target's quadrature is on the image; weight must be :image, got :$weight"))
 
-# The quadrature of the region: the pixel centres (COLMAP) of the region's
-# `pixel_mask` on a lattice of `stride` pixels — the fit's points, and the
+# The quadrature of the region: the pixel centres (COLMAP) in the region on a
+# lattice of `stride` pixels (Core's `pixel_centres`) — the fit's points, and the
 # held-out check's offset by half a stride — with the source's rays there (a
 # point the source does not image is dropped) and the held-out points' edge band.
 #
@@ -419,9 +419,8 @@ function _image_quadrature(samples::F, source, region) where {F}
     stride = max(2, 2 * round(Int, minimum(hi - lo) / 1000))
     W, H = ceil(Int, hi[1]), ceil(Int, hi[2])
     (W > 0 && H > 0) || throw(ArgumentError("fit_camera: the region $box lies outside the image quadrant"))
-    mask = pixel_mask(region, W, H)
     u0, v0 = max(1, floor(Int, lo[1]) + 1), max(1, floor(Int, lo[2]) + 1)
-    lattice(off) = [SVector(u - 0.5, v - 0.5) for v in (v0 + off):stride:H for u in (u0 + off):stride:W if mask[v, u]]
+    lattice(off) = pixel_centres(region, (u0 + off):stride:W, (v0 + off):stride:H)
     function imaged(pixels)
         data = samples(source, pixels)
         keep = findall(_is_finite_sample, data)

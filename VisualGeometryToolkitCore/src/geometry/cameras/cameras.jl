@@ -1011,6 +1011,7 @@ export valid_domain                       # where the lens MODEL is valid, not w
 export image_circle                       # the lit region of the sensor, from a datasheet through the pitch
 export imaged_region                      # Rect(extent) ∩ a supplied image circle: what the camera images
 export pixel_mask                         # the pixels whose centres lie in a region (COLMAP centres, Julia layout)
+export pixel_centres                      # the centres of a sub-lattice of pixels that lie in a region
 export SupportTrait, GlobalSupport, LocalSupport, support_trait, nodes, support, node_position   # supports on the sensor (support.jl)
 export free_nodes, node_mask, cubic_bspline_footprint
 export BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent nodes of a lattice outside an imaged region (support.jl)

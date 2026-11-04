@@ -222,7 +222,7 @@ using SparseArrays: sparse   # the relpose bundle's stacked Jacobian (its stall 
 using SparseArrays: SparseMatrixCSC, spdiagm
 using LinearAlgebra: cholesky, lu, issuccess, diag
 using CoordinateTransformations: LinearMap
-using VisualGeometryToolkitCore: ChartSpline, SplineProjection, CentralGenericModel, Rect2, spline_window, pixel_mask,
+using VisualGeometryToolkitCore: ChartSpline, SplineProjection, CentralGenericModel, Rect2, spline_window, pixel_centres,
     pointwise!, nominal_intrinsics, project, BoundedCamera, extent, generic_lattice
 using VisualGeometryToolkitCore: NoncentralGenericModel, interpolated_direction, interpolated_point, nearest_point,
     backproject_with_jacobian

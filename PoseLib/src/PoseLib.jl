@@ -209,13 +209,13 @@ end
 # =============================================================================
 
 """
-    p3p(::PoseLibSolver, x, X) -> FixedModels{4, Extrinsics3}
+    p3p(::PoseLibSolver, x, X) -> Union{FixedModels{4, Extrinsics3}, Nothing}
 
 PoseLib's perspective-three-point solver, the `PoseLibSolver` backend of
 VisualGeometryToolkitCore's `p3p` kernel. `x` holds three unit bearings
 (`StaticVector{3, Float64}`) and `X` the three world points they see. Returns
-every real solution, up to four, as world-to-camera extrinsics in the frame and
-unit of `X`; a degenerate sample returns fewer, possibly none, and inputs of
+every real solution, up to four, as world-to-camera extrinsics in the frame of
+`X` (plain `Float64` points; the translation is in their unit); a degenerate sample returns fewer, possibly none, and inputs of
 any length other than three return `nothing`. The public entry point is
 `solve(P3P(PoseLibSolver()), cs, idx)` with `cs` the correspondences `X => x`.
 """
@@ -347,9 +347,10 @@ end
 PoseLib's eight-point essential matrix: the direct linear transform over eight
 or more correspondences `cs` of unit bearings `f₁ => f₂`, every one taken as an
 inlier. VisualGeometryToolkitCore has no native eight-point solver, so the form
-without a backend runs this one. An algorithm: a degenerate set returns
-`nothing` (a non-finite solution), and fewer than eight correspondences is an
-`AssertionError`.
+without a backend runs this one. An algorithm, so it can only be degenerate:
+it returns `nothing` when PoseLib's solution is not finite, but a degenerate
+set (a pure rotation, repeated points) can also give a finite, meaningless `E`
+that nothing flags. Fewer than eight correspondences fail an `@assert`.
 """
 function VgtkCore.essential_dlt(::PoseLibSolver,
         cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{3}}})
@@ -676,7 +677,8 @@ Bartoli–Sturm parametrization of `F`, which keeps the matrix at rank 2.
 pixel-frame `F`). `loss_width` is the width of the loss on the Sampson
 residual, in the same unit. `loss` and `loss_width` are as in
 [`refine_homography`](@ref). Returns the refined `FundMat`. It ends in the
-local minimum its seed leads to, as described for `refine_homography`.
+local minimum its seed leads to, as described for
+[`refine_homography`](@ref).
 """
 function refine_fundamental(F::AbstractMatrix,
                             cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}};
@@ -872,8 +874,9 @@ A refiner ends in the local minimum its seed leads to: under a truncated loss,
 a correspondence whose residual at the seed exceeds `loss_width` gets no
 weight, so a seed must be close enough that its inliers fall within the width.
 No convergence status comes back (PoseLib's iteration count is discarded).
-Without the library on this platform ([`is_available`](@ref) false) every
-refiner raises an error that says so.
+Without the library on this platform ([`is_available`](@ref) false), a call
+that reaches it raises an error that says so; a refused form (calibrated
+2-vectors, mixed units, non-unit bearings) raises its own `ArgumentError` first.
 
 ```jldoctest
 julia> using PoseLib, VisualGeometryToolkitCore

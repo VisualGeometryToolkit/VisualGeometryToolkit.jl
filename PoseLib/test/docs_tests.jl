@@ -11,8 +11,10 @@
 # every entry carries its reason, kept apart from a BACKLOG that only shrinks,
 # and an @info that prints both.
 
-# At top level, not inside the testset: the testset body runs in the world age
-# it started in, which cannot see methods an `include` inside it defines.
+# At this file's top level, not inside the testset: each top-level statement of
+# an included file runs in the latest world, so the testset below sees these
+# methods. Inside a testset, function or `let` body the include would define
+# them in a world that body cannot see.
 include(joinpath(@__DIR__, "docs_gates.jl"))
 
 @testset "docs: every public name has a docstring, attached, and its signatures match the methods" begin

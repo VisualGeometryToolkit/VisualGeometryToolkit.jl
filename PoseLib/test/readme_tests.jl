@@ -51,7 +51,7 @@
         # P3P finds the true pose among its solutions, and the refinement keeps
         # the camera at the origin, looking down the z axis.
         @test 1 <= length(readme.poses) <= 4
-        @test readme.reprojection(readme.best) < 1e-12
+        @test sqrt(readme.reprojection(readme.best) / length(readme.X)) < 1e-6   # RMS, pixels
         @test maximum(abs, readme.pose.t) < 1e-8
         @test maximum(abs, readme.pose.R - [1 0 0; 0 1 0; 0 0 1]) < 1e-8
     end

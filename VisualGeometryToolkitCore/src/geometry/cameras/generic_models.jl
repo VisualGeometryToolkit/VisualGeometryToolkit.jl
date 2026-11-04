@@ -93,8 +93,8 @@ The central generic camera model: a `grid` of observation-direction CONTROLS
 B-spline over the calibrated image area `(calib_min_x, calib_min_y)`–
 `(calib_max_x, calib_max_y)` (inclusive integer pixel indices, COLMAP
 frame). `backproject` is the normalized spline value; `project` is the
-reference implementation's pixel-space LM (initialized at the calibrated
-area's center, or at `init`).
+reference implementation's pixel-space LM (started at the calibrated
+area's center, or at a seed pixel: `project(m, X, p₀)`).
 
     CentralGenericModel(width, height, min_x, min_y, max_x, max_y, grid;
                         unit_controls = true, nominal = nothing, domain = WholePlane())
@@ -888,19 +888,25 @@ end
 # ------------------------------------------------------------------------------
 
 """
-    project(m::CentralGenericModel, X; init = nothing) -> SVector{2} | nothing
+    project(m::CentralGenericModel, X) -> SVector{2} | nothing
+    project(m::CentralGenericModel, X, p₀) -> SVector{2} | nothing
 
 Project the camera-frame point `X` to a pixel (COLMAP frame): the
 reference's Levenberg–Marquardt in pixel space, minimizing the mismatch
-between the pixel's unprojected direction and `normalize(X)`, initialized
-at the calibrated area's center (or `init`). `nothing` when the point does
-not project into the calibrated area (or the optimization fails to reach
-the reference's 1e-12 cost).
+between the pixel's unprojected direction and `normalize(X)`. The two-argument
+form starts cold, at the calibrated area's center; the three-argument form
+starts at the seed pixel `p₀`. The seed is a positional argument because it is
+per-call data, not configuration (keywords are configuration only; the model
+leads, then its data). `nothing` when the point does not project into the
+calibrated area (or the optimization fails to reach the reference's 1e-12
+cost), or when `p₀` is not finite.
 """
-function project(m::CentralGenericModel, X; init = nothing)
+project(m::CentralGenericModel, X) = _project_from(m, X, _area_center(m))
+project(m::CentralGenericModel, X, p₀) = _project_from(m, X, SVector{2, Float64}(float(p₀[1]), float(p₀[2])))
+
+function _project_from(m::CentralGenericModel, X, p0::SVector{2, Float64})
     Xv = SVector{3, Float64}(X[1], X[2], X[3])
     norm(Xv) > 0 || return nothing
-    p0 = init === nothing ? _area_center(m) : SVector{2, Float64}(float(init[1]), float(init[2]))
     all(isfinite, p0) || return nothing
     px, ok = _central_project(
         m.grid, Float64(m.calib_min_x), Float64(m.calib_min_y), Float64(m.calib_max_x), Float64(m.calib_max_y),
@@ -917,19 +923,24 @@ const _PROJECT_MAXITER = 100
 const _PROJECT_TOL = 1.0e-6
 
 """
-    project(m::NoncentralGenericModel, X; init = nothing) -> SVector{2} | nothing
+    project(m::NoncentralGenericModel, X) -> SVector{2} | nothing
+    project(m::NoncentralGenericModel, X, p₀) -> SVector{2} | nothing
 
 Project the camera-frame point `X` — plain metres, the point grid's unit — to
 a pixel: LM on the reference's
 tangent-plane point-to-line residual — the two components of
 `origin(p) − X` in the tangent basis of the pixel's line direction — so a
-converged pixel's observation line goes through `X`. `init` defaults to
-the calibrated area's center; for a non-central model a good initial
-estimate matters (the reference exposes the same knob).
+converged pixel's observation line goes through `X`. The two-argument form
+starts at the calibrated area's center, the three-argument form at the seed
+pixel `p₀`; for a non-central model a good seed matters (the reference
+exposes the same knob). The seed is positional because it is per-call data,
+not configuration (keywords are configuration only).
 """
-function project(m::NoncentralGenericModel, X; init = nothing)
+project(m::NoncentralGenericModel, X) = _project_from(m, X, _area_center(m))
+project(m::NoncentralGenericModel, X, p₀) = _project_from(m, X, SVector{2, Float64}(float(p₀[1]), float(p₀[2])))
+
+function _project_from(m::NoncentralGenericModel, X, p0::SVector{2, Float64})
     Xv = SVector{3, Float64}(X[1], X[2], X[3])
-    p0 = init === nothing ? _area_center(m) : SVector{2, Float64}(float(init[1]), float(init[2]))
     all(isfinite, p0) || return nothing
     res(p, _) = _noncentral_residual(m, p, Xv)
     jac(p, _) = ForwardDiff.jacobian(q -> _noncentral_residual(m, q, Xv), p)
@@ -1600,25 +1611,26 @@ end
 end
 
 """
-    project(m::CentralGenericModel, rays::AbstractVector{<:StaticVector{3}};
-            init, iters = 10, tol = 1.0e-6) -> (; px, ok)
+    project(m::CentralGenericModel, rays::AbstractVector{<:StaticVector{3}},
+            p₀s::AbstractVector; iters = 10, tol = 1.0e-6) -> (; px, ok)
 
 Batched projection: one LM per ray (at most `iters` iterations) with the
 ANALYTIC spline Jacobian, on any KernelAbstractions backend — supply device arrays (rays,
-inits, and a device copy of `m.grid` uploads automatically) and the solve
+seeds, and a device copy of `m.grid` uploads automatically) and the solve
 runs on the GPU; host arrays run the identical kernel threaded on the CPU. The
 backend is the rays' own: every output is allocated beside them.
-`init` is a same-length vector of warm starting pixels (the caller's
+`p₀s` holds one warm-start pixel per ray (the caller's
 structure — scanlines, previous frames — is what makes a few iterations
-enough; see the reference's ProjectWithInitialEstimate). Returns pixel
+enough; see the reference's ProjectWithInitialEstimate). The seeds are
+positional per-ray data; `iters` and `tol` are configuration. Returns pixel
 positions and a convergence mask (‖residual‖ < `tol`).
 """
 function project(
-        m::CentralGenericModel, rays::AbstractVector{<:StaticVector{3}};
-        init::AbstractVector, iters::Int = 10, tol::Real = _PROJECT_TOL
+        m::CentralGenericModel, rays::AbstractVector{<:StaticVector{3}}, p₀s::AbstractVector;
+        iters::Int = 10, tol::Real = _PROJECT_TOL
     )
-    length(init) == length(rays) || throw(ArgumentError("project: length(init) != length(rays)"))
-    return _project_batched(m, adapt(KA.get_backend(rays), m.grid), rays, init, iters, tol)
+    length(p₀s) == length(rays) || throw(ArgumentError("project: length(p₀s) != length(rays)"))
+    return _project_batched(m, adapt(KA.get_backend(rays), m.grid), rays, p₀s, iters, tol)
 end
 
 # The batched projection over a grid already on the rays' backend.

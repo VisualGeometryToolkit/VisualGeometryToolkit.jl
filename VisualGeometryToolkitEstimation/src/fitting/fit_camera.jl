@@ -603,6 +603,6 @@ _unbounded(source) = source
 # A grid model's round trip at the points `px` whose source rays are `rays`: the
 # batched `project` from the pixel itself, Inf where it does not converge.
 function _grid_round_trip(m::CentralGenericModel, rays, px)
-    out = project(m, rays; init = px, iters = 50)
+    out = project(m, rays, px; iters = 50)
     return [out.ok[i] ? norm(out.px[i] - px[i]) : Inf for i in eachindex(px)]
 end

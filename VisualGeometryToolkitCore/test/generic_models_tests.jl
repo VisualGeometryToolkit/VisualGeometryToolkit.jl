@@ -121,8 +121,8 @@
             X = unproject(g, px, 5.0)
             @test X !== nothing && isapprox(X[3], 5.0; atol = 1.0e-12)
             @test project(g, X) !== nothing
-            # init kwarg is honored
-            @test norm(project(g, 3.7 * backproject(g, px); init = px) - px) < 1.0e-3
+            # the positional seed is honored
+            @test norm(project(g, 3.7 * backproject(g, px), px) - px) < 1.0e-3
         end
 
         @testset "noncentral: central reduction + genuine lines" begin
@@ -152,7 +152,7 @@
                 p0 = SVector(30 + (W - 60) * rand(rng), 30 + (H - 60) * rand(rng))
                 r = backproject(gnc, p0)
                 X = SVector{3}(r.origin) + 1500.0 * SVector{3}(r.direction)
-                p1 = project(gnc, X; init = p0 + SVector(3.0, -2.0))
+                p1 = project(gnc, X, p0 + SVector(3.0, -2.0))
                 @test p1 !== nothing
                 r1 = backproject(gnc, p1)
                 pto = SVector{3}(r1.origin) - X
@@ -215,11 +215,11 @@
         rays = [backproject(g, p) for p in pts]
         keep = findall(!isnothing, rays)
         pts = pts[keep]; rays = SVector{3, Float64}.(rays[keep])
-        inits = [p + SVector(2.0 * randn(rng), 2.0 * randn(rng)) for p in pts]   # warm, ±2 px
-        out = project(g, rays; init = inits)
+        seeds = [p + SVector(2.0 * randn(rng), 2.0 * randn(rng)) for p in pts]   # warm, ±2 px
+        out = project(g, rays, seeds)
         @test all(out.ok)
-        # parity vs the host per-ray LM from the same inits
-        hostpx = [project(g, rays[i]; init = inits[i]) for i in eachindex(rays)]
+        # parity vs the host per-ray LM from the same seeds
+        hostpx = [project(g, rays[i], seeds[i]) for i in eachindex(rays)]
         dmax = maximum(norm(out.px[i] - hostpx[i]) for i in eachindex(rays))
         @test dmax < 5.0e-4
         # …and both land on the true pixel
@@ -282,9 +282,9 @@
         bad[5, 6] = -bad[5, 6]                       # an antipodal control: blends near it cross zero
         gb = CentralGenericModel{Float64}(W, H, g.calib_min_x, g.calib_min_y, g.calib_max_x, g.calib_max_y, bad)
         X = SVector(0.05, -0.02, 1.0)
-        p = project(gb, X; init = SVector(330.0, 235.0))
+        p = project(gb, X, SVector(330.0, 235.0))
         @test p === nothing || all(isfinite, p)
-        @test project(gb, X; init = SVector(NaN, 1.0)) === nothing
+        @test project(gb, X, SVector(NaN, 1.0)) === nothing
     end
 
     @testset "default_generic_grid" begin

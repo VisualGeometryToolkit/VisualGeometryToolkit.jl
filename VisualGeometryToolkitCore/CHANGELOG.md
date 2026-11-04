@@ -44,6 +44,13 @@ chain types, and CT's conventions hold for it.
   outer stage's first; its `lens_record` lists the `"chain"` stages outer
   first (`lens_from_record` builds the composition right-associated). Every
   projection, back-projection and Jacobian is bit for bit the chain's.
+- **The grid models' projection seed is positional**: the `init` keyword of
+  `project` on `CentralGenericModel` and `NoncentralGenericModel` is removed
+  (keywords are configuration only; a seed is per-call data).
+  `project(m, X)` starts cold at the calibrated area's center, as before;
+  `project(m, X; init = p)` is now `project(m, X, p)`, and the batched
+  `project(m, rays; init = p₀s, iters, tol)` is `project(m, rays, p₀s; iters, tol)`,
+  one seed per ray. Closed-form cameras take no seed.
 
 Added:
 

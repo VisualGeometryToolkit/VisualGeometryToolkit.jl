@@ -20,7 +20,7 @@
 # the mistake.  They are 2D→2D relations between a PLANE and an IMAGE whose
 # image side is organized as a pencil of rays about a known centre:
 #
-#   RadialHomography  H (3×3) + k + center   plane point → PIXEL, invertible;
+#   RadialHomography  H (3×3) + λ₁…λ_N + c   plane point → PIXEL, invertible;
 #                                            `project`/`backproject` are the
 #                                            IMAGE-side division lens, `m.H` is
 #                                            the plane part.

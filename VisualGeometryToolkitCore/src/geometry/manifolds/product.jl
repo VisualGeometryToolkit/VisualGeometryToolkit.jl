@@ -64,7 +64,7 @@ when the parts' are static and the whole stays small, a dense `Matrix`
 otherwise — products run to many parts: a rig of poses, a pose and its points),
 and `local_coordinates(ch, parts::Tuple)` the concatenation. `embed` assembles
 the model from its parts: [`minimal_manifold`](@ref)`(::RadialHomography)` is
-sl(3) ⊕ k assembled into the `RadialHomography` with its centre.
+sl(3) ⊕ the division lens's chart, assembled into the `RadialHomography` with its centre.
 """
 struct ProductManifold{C <: Tuple, F} <: Manifold
     charts::C

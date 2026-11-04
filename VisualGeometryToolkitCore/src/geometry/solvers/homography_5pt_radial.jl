@@ -58,15 +58,25 @@
 # as k/s² under uniform scaling of the targets).
 
 """
-    RadialHomography{T}
+    RadialHomography{T, N}
 
-Radially distorted homography model: a [`HomographyMat`](@ref) `H` paired
-with a one-parameter division-model coefficient `k` acting on the TARGET
-side, about the distortion `center` `c`. A correspondence `(s, d)` is
-explained when the division-model RAY LIFT of the observation is
-proportional to the recentered `H` ray:
+Radially distorted homography model: a [`HomographyMat`](@ref) `H` (plane point →
+undistorted pixel) and a PROJECTIVE division camera on the TARGET side — the
+`N` division coefficients `λ = (λ₁, …, λ_N)` (in squared pixel units, `λₚ`
+multiplying `ρ²ᵖ`) about the distortion centre `c` (the camera's principal
+point, COLMAP pixels). A correspondence `(s, d)` is explained when the
+division-model RAY LIFT of the observation is proportional to the recentered
+`H` ray:
 
-    (d − c ; 1 + k‖d − c‖²) ≃ λ · T₋c · H s̃
+    (d − c ; 1 + Σₚ λₚ‖d − c‖²ᵖ) ≃ λ · T₋c · H s̃
+
+The camera is [`CameraModel`](@ref)`(m)` =
+`CameraModel(ProjectiveIntrinsics(c), Division(λ...))`, built on demand: the
+struct stores its primitives (`H`, `λ`, `center`), so it is isbits and runs on a
+device. `RadialHomography{T}` (any `N`) stays a valid partial type; `N = 1` is
+the one-coefficient model of [`homography_5pt_radial`](@ref), for which
+[`division_coeff`](@ref) and the property `m.k` read `λ₁` (both throw an
+`ArgumentError` for `N > 1` — never a silent `λ₁`).
 
 The division model is an uncalibrated projection/back-projection model
 ([`project`](@ref)/[`backproject`](@ref)) — the lift's signed third
@@ -78,35 +88,63 @@ pixel-frame model with the center carried along, so consumers
 ([`radial_transfer`](@ref), quad projection) need no side-channel frame
 data.
 
-Produced by [`homography_5pt_radial`](@ref) / [`Homography5ptRadial`](@ref).
+Constructors: `RadialHomography(H, camera)` (a `CameraModel{<:ProjectiveIntrinsics,
+<:Division}`), and for `N = 1` `RadialHomography(H, k, c)`,
+`RadialHomography(H, k)` and `RadialHomography{T}(H, k[, c])` (the centre
+defaults to the origin). Produced by [`homography_5pt_radial`](@ref) /
+[`Homography5ptRadial`](@ref).
 """
-struct RadialHomography{T} <: AbstractRadialModel
+struct RadialHomography{T, N} <: AbstractRadialModel
     H::HomographyMat{T}
-    k::T
+    λ::NTuple{N, T}
     center::Point2{T}
 end
 
 "The plane part `H` of a [`RadialHomography`](@ref): plane point → undistorted pixel."
-homography(m::RadialHomography) = m.H
+homography(m::RadialHomography) = getfield(m, :H)
 
-"The division coefficient `k` of a [`RadialHomography`](@ref)'s image-side lens, about [`center`](@ref)."
-division_coeff(m::RadialHomography) = m.k
+"""
+    division_coeffs(m::RadialHomography{T, N}) -> NTuple{N, T}
 
-# Solver-frame convenience: distortion about the origin.
-RadialHomography{T}(H::HomographyMat, k) where {T} =
-    RadialHomography{T}(HomographyMat{T}(Tuple(H)), T(k), zero(Point2{T}))
-RadialHomography(H::HomographyMat{T}, k::Real) where {T} =
-    RadialHomography{T}(H, k)
+The `N` division coefficients `(λ₁, …, λ_N)` of `m`'s image-side lens, about
+[`center`](@ref), in squared centred-pixel units (`λₚ` multiplies `ρ²ᵖ`).
+"""
+division_coeffs(m::RadialHomography) = getfield(m, :λ)
 
-Base.zero(::Type{RadialHomography{T}}) where {T} =
-    RadialHomography{T}(
-    HomographyMat{T}(ntuple(_ -> zero(T), Val(9))), zero(T),
-    zero(Point2{T})
+"""
+    division_coeff(m::RadialHomography{T, 1}) -> T
+
+The division coefficient `k = λ₁` of a ONE-coefficient [`RadialHomography`](@ref)'s
+image-side lens, about [`center`](@ref) (the property `m.k` is this). Throws an
+`ArgumentError` for `N > 1`: read [`division_coeffs`](@ref) there.
+"""
+division_coeff(m::RadialHomography{T, 1}) where {T} = getfield(m, :λ)[1]
+division_coeff(::RadialHomography{T, N}) where {T, N} = throw(
+    ArgumentError("division_coeff: a RadialHomography with $N division coefficients has no single k; use division_coeffs")
 )
+
+# `m.k` is the one-coefficient model's λ₁ (the pre-N field); every other name is a field.
+@inline Base.getproperty(m::RadialHomography, s::Symbol) = s === :k ? division_coeff(m) : getfield(m, s)
+Base.propertynames(::RadialHomography{T, 1}, private::Bool = false) where {T} = (:H, :λ, :center, :k)
+Base.propertynames(::RadialHomography, private::Bool = false) = (:H, :λ, :center)
+
+# N = 1 constructors (the pre-N signatures), and coefficients as a tuple. The
+# centre defaults to the origin — the solver frame.
+RadialHomography{T}(H::AbstractMatrix, λ::Tuple, c::AbstractVector = zero(Point2{T})) where {T} =
+    RadialHomography{T, length(λ)}(HomographyMat{T}(Tuple(H)), map(T, λ), Point2{T}(c[1], c[2]))
+RadialHomography{T}(H::AbstractMatrix, k::Real, c::AbstractVector = zero(Point2{T})) where {T} =
+    RadialHomography{T}(H, (k,), c)
+RadialHomography(H::HomographyMat{T}, k::Real) where {T} = RadialHomography{T}(H, k)
+RadialHomography(H::AbstractMatrix, k::Real, c::AbstractVector) =
+    RadialHomography{float(promote_type(eltype(H), typeof(k), eltype(c)))}(H, k, c)
+
+Base.zero(::Type{RadialHomography{T, N}}) where {T, N} =
+    RadialHomography{T, N}(HomographyMat{T}(ntuple(_ -> zero(T), Val(9))), ntuple(_ -> zero(T), Val(N)), zero(Point2{T}))
+Base.zero(::Type{RadialHomography{T}}) where {T} = zero(RadialHomography{T, 1})
 Base.zero(m::RadialHomography) = zero(typeof(m))
 
 @inline is_valid_solution(m::RadialHomography) =
-    all(isfinite, m.H) && isfinite(m.k) && all(isfinite, m.center)
+    all(isfinite, m.H) && all(isfinite, m.λ) && all(isfinite, m.center)
 
 # -----------------------------------------------------------------------------
 # Coefficient construction (wadenback_common.cpp: compute_coeffs)
@@ -260,7 +298,7 @@ function homography_5pt_radial(
         d₄::StaticVector{2, T}, d₅::StaticVector{2, T};
         extra_check::Bool = false
     ) where {T}
-    M = RadialHomography{T}
+    M = RadialHomography{T, 1}
 
     dd = _radial1_coeffs(d₁, d₂, d₃, d₄, d₅)
     rhs = _radial1_rhs(s₁, s₂, s₃, s₄, s₅)
@@ -340,21 +378,25 @@ end
 # so the ops below extend VGC's camera verbs `project`/`backproject`
 # instead of pretending to be image warps.
 
+# The lift's third component `1 + Σₚ λₚ ρ²ᵖ` at ρ² (one coefficient: `1 + k ρ²`).
+@inline _lift_den(λ::NTuple{1}, ρ²) = 1 + λ[1] * ρ²
+@inline _lift_den(λ::Tuple, ρ²) = 1 + ρ² * evalpoly(ρ², λ)
+
 """
     backproject(m::RadialHomography, d) -> SVector{3}
 
 Back-project an observed target point to its (unnormalized) ray in the
-model's CENTERED frame: `(d − c ; 1 + k‖d − c‖²)` — the division-model
-lift. Total; the third component's sign carries front/back hemisphere
-(zero at exactly 90°, negative beyond — valid for omnidirectional lenses).
-The `H` part of the model relates source points to these rays:
-`backproject(m, d) ≃ λ · T₋c · H s̃` (with `T₋c` the recentering
-translation).
+model's CENTERED frame: `(d − c ; 1 + Σₚ λₚ‖d − c‖²ᵖ)` — the division-model
+lift (`1 + k‖d − c‖²` for one coefficient). Total; the third component's sign
+carries front/back hemisphere (zero at exactly 90°, negative beyond — valid
+for omnidirectional lenses). The `H` part of the model relates source points
+to these rays: `backproject(m, d) ≃ λ · T₋c · H s̃` (with `T₋c` the
+recentering translation).
 """
 @inline function backproject(m::RadialHomography{T}, d::StaticVector{2}) where {T}
     dx = T(d[1]) - m.center[1]
     dy = T(d[2]) - m.center[2]
-    return Vec3{T}(dx, dy, 1 + m.k * (dx * dx + dy * dy))
+    return Vec3{T}(dx, dy, _lift_den(m.λ, dx * dx + dy * dy))
 end
 
 """
@@ -362,29 +404,41 @@ end
 
 Project a ray (in the model's CENTERED frame, as produced by the `H` part)
 to the observed image point whose [`backproject`](@ref) lift is
-proportional to it: `c + μ·(x, y)` with `μ = 2 / (z + √(z² − 4k ρ²))`,
-`ρ² = x² + y²` (the branch continuous with `k → 0`, where it reduces to
-perspective division `μ = 1/z`). For `k < 0` (fisheye/omni) this is total
-over front AND back rays; for `k > 0` it returns `nothing` when
-`z² − 4kρ² < 0` (the ray lies outside the model's representable field).
+proportional to it. One coefficient, in closed form: `c + μ·(x, y)` with
+`μ = 2 / (z + √(z² − 4k ρ²))`, `ρ² = x² + y²` (the branch continuous with
+`k → 0`, where it reduces to perspective division `μ = 1/z`). For `k < 0`
+(fisheye/omni) this is total over front AND back rays; for `k > 0` it returns
+`nothing` when `z² − 4kρ² < 0` (the ray lies outside the model's representable
+field). `N > 1` coefficients: `c + project(Division(λ...), ray)`, the lens's own
+solve on its monotone branch, `nothing` where the lens images nothing (past
+its fold).
 """
-@inline function project(m::RadialHomography, ray::StaticVector{3})
-    p = _radial_projection(m, ray)
+@inline project(m::RadialHomography, ray::StaticVector{3}) = _radial_project(m, ray, _projection_lens(m))
+
+@inline function _radial_project(m::RadialHomography, ray, lens)
+    p = _radial_projection(m, ray, lens)
     p.ok || return nothing
     d = _radial_point(m, p)
     return Point2{eltype(d)}(d[1], d[2])
 end
 
-# The ONE edge rule of the division-model projection, shared by `project`, its
-# derivatives and the LM rows (and so by every scorer that calls
+# The lens a model projects through: none for one coefficient (the closed form
+# below), the `Division{N}` lens otherwise — built once per call site (building it
+# solves for its branch ends), so the rows are handed it once per launch.
+@inline _projection_lens(::RadialHomography{T, 1}) where {T} = nothing
+@inline _projection_lens(m::RadialHomography) = Division(m.λ...)
+
+# The ONE edge rule of the one-coefficient division-model projection, shared by
+# `project`, its derivatives and the LM rows (and so by every scorer that calls
 # `radial_transfer`): a ray is in the model's field iff it is off-axis with
 # `z² − 4kρ² > 0` and `z + √(z² − 4kρ²)` not lost to rounding RELATIVE to `z`, or
 # on-axis (ρ² below rounding relative to z²) and forward. Relative thresholds
 # only, so a rescaled ray or frame gets the same verdict. Generic in the element
-# type (Duals included) and device-safe.
-@inline function _radial_projection(m::RadialHomography, ray::StaticVector{3})
-    T = float(promote_type(typeof(m.k), eltype(ray)))
-    x = T(ray[1]); y = T(ray[2]); z = T(ray[3]); k = T(m.k)
+# type (Duals included) and device-safe. `N > 1`: the lens's rule (its image
+# point finite).
+@inline function _radial_projection(m::RadialHomography{<:Any, 1}, ray::StaticVector{3}, ::Nothing)
+    T = float(promote_type(eltype(m.λ), eltype(ray)))
+    x = T(ray[1]); y = T(ray[2]); z = T(ray[3]); k = T(m.λ[1])
     ρ² = x * x + y * y
     disc = z * z - 4 * k * ρ²
     S = sqrt(max(disc, zero(T)))
@@ -393,30 +447,41 @@ end
     ok = axial ? z > zero(T) : disc > zero(T) && abs(den) >= eps(T) * max(abs(z), one(T))
     return (; x, y, z, k, ρ², S, μ = 2 / den, axial, ok)
 end
+@inline function _radial_projection(::RadialHomography, ray::StaticVector{3}, lens)
+    u = project(lens, ray)
+    return (; u, z = ray[3], ok = all(isfinite, u))
+end
 
 """
     radial_in_front(m::RadialHomography, s) -> Bool
 
-Whether source point `s` lands in `m`'s field ([`project`](@ref)'s one edge rule)
-AND in its FRONT hemisphere: the observed point's division lift `μ·(x, y, z)` has
-a positive third component (`μ·z > 0`, the ray within 90° of the axis). For
-`k ≥ 0` every in-field ray is in front (the lift's third component `1 + kρ²`
-is positive), so this adds `z > 0` for `k < 0` only — where `project` is total
-over back rays too (omnidirectional lenses). The extent gate of a planar target:
-a board corner at or past 90° means the hypothesis spans ≥ 180° across a plane,
-which no camera images.
+Whether source point `s` lands in `m`'s field ([`project`](@ref)'s edge rule)
+AND in its FRONT hemisphere: the observed point's division lift has a positive
+third component (one coefficient: `μ·z > 0`, the ray within 90° of the axis;
+`N > 1`: the ray's `z > 0`, the lift on the lens's branch pointing the ray's
+way). For `k ≥ 0` every in-field ray is in front (the lift's third component
+`1 + kρ²` is positive), so this adds `z > 0` for `k < 0` only — where `project`
+is total over back rays too (omnidirectional lenses). The extent gate of a
+planar target: a board corner at or past 90° means the hypothesis spans ≥ 180°
+across a plane, which no camera images.
 """
 @inline function radial_in_front(m::RadialHomography, s)
-    p = _radial_projection(m, radial_ray(m, s))
-    return p.ok && p.μ * p.z > zero(p.μ)
+    p = _radial_projection(m, radial_ray(m, s), _projection_lens(m))
+    return p.ok && _in_front(m, p)
 end
+@inline _in_front(::RadialHomography{<:Any, 1}, p) = p.μ * p.z > zero(p.μ)
+@inline _in_front(::RadialHomography, p) = p.z > zero(p.z)
 
 # The predicted observation of an in-field ray: `c + μ·(x, y)`, the centre exactly
-# on the axis.
-@inline function _radial_point(m::RadialHomography, p)
+# on the axis (`N > 1`: `c + u`, the lens's image point).
+@inline function _radial_point(m::RadialHomography{<:Any, 1}, p)
     T = typeof(p.μ)
     c1 = T(m.center[1]); c2 = T(m.center[2])
     return p.axial ? SVector{2, T}(c1, c2) : SVector{2, T}(c1 + p.μ * p.x, c2 + p.μ * p.y)
+end
+@inline function _radial_point(m::RadialHomography, p)
+    T = eltype(p.u)
+    return SVector{2, T}(T(m.center[1]) + p.u[1], T(m.center[2]) + p.u[2])
 end
 
 # ∂(c + μ·(x, y))/∂(x, y, z) and ∂/∂k of an in-field ray, closed form: with
@@ -432,27 +497,42 @@ end
     return D, SVector(p.x * gk, p.y * gk)
 end
 
+# Both derivatives of an in-field ray: along the ray (2 × 3) and along the
+# coefficients (2 × N). One coefficient: the closed form above; `N > 1`: the
+# lens's (ForwardDiff through its `project`).
+@inline function _radial_jacobians(::RadialHomography{<:Any, 1}, p, ray, ::Nothing)
+    D, gk = _radial_derivs(p)
+    return D, SMatrix{2, 1}(gk[1], gk[2])
+end
+@inline _radial_jacobians(::RadialHomography, p, ray, lens) =
+    (transform_deriv(lens, ray), transform_deriv_params(lens, ray))
+
 """
     transform_deriv(m::RadialHomography, ray::StaticVector{3}) -> SMatrix{2,3}
-    transform_deriv_params(m::RadialHomography, ray::StaticVector{3}) -> SMatrix{2,1}
+    transform_deriv_params(m::RadialHomography{T, N}, ray::StaticVector{3}) -> SMatrix{2,N}
 
 The derivatives of [`project`](@ref)`(m, ray)`: along the (centred) ray, and along
-the division coefficient `k` (the model's one lens parameter; `H` and the centre
-act before the ray). Closed form; NaN where `project` returns `nothing` — the
-same edge rule, as for the lens models beyond their field.
+the division coefficients `λ₁ … λ_N` (the model's lens parameters; `H` and the
+centre act before the ray). Closed form for one coefficient; for `N > 1` the
+`Division{N}` lens's own (ForwardDiff through its `project`). NaN where
+`project` returns `nothing` — the same edge rule, as for the lens models beyond
+their field.
 """
 @inline function CoordinateTransformations.transform_deriv(m::RadialHomography, ray::StaticVector{3})
-    p = _radial_projection(m, ray)
-    T = typeof(p.μ)
+    lens = _projection_lens(m)
+    p = _radial_projection(m, ray, lens)
+    T = _projection_eltype(p)
     p.ok || return fill(T(NaN), SMatrix{2, 3, T, 6})
-    return _radial_derivs(p)[1]
+    return SMatrix{2, 3, T, 6}(_radial_jacobians(m, p, ray, lens)[1])
 end
-@inline function CoordinateTransformations.transform_deriv_params(m::RadialHomography, ray::StaticVector{3})
-    p = _radial_projection(m, ray)
-    T = typeof(p.μ)
-    p.ok || return fill(T(NaN), SMatrix{2, 1, T, 2})
-    return SMatrix{2, 1, T, 2}(_radial_derivs(p)[2])
+@inline function CoordinateTransformations.transform_deriv_params(m::RadialHomography{<:Any, N}, ray::StaticVector{3}) where {N}
+    lens = _projection_lens(m)
+    p = _radial_projection(m, ray, lens)
+    T = _projection_eltype(p)
+    p.ok || return fill(T(NaN), SMatrix{2, N, T})
+    return SMatrix{2, N, T}(_radial_jacobians(m, p, ray, lens)[2])
 end
+@inline _projection_eltype(p) = haskey(p, :μ) ? typeof(p.μ) : eltype(p.u)
 
 """
     radial_transfer(m::RadialHomography, s) -> SVector{2} or nothing
@@ -491,10 +571,11 @@ stay visible to LM next to a constant out-of-field one.
 const OUT_OF_FIELD_RESIDUAL = 1.0e6
 
 # The two rows of one correspondence, in the uniform `(out, i, args...)` form
-# `_foreach_row!` runs (a plain loop on the CPU, one kernel on a device).
-Base.@propagate_inbounds function _radial_rows!(r, i, m, u₁, u₂, sqrtw)
+# `_foreach_row!` runs (a plain loop on the CPU, one kernel on a device). `lens`
+# is `_projection_lens(m)`, built once per launch.
+Base.@propagate_inbounds function _radial_rows!(r, i, m, lens, u₁, u₂, sqrtw)
     s = u₁[i]; d = u₂[i]
-    p = _radial_projection(m, radial_ray(m, s))
+    p = _radial_projection(m, radial_ray(m, s), lens)
     T = eltype(r)
     if p.ok
         d̂ = _radial_point(m, p)
@@ -507,25 +588,33 @@ Base.@propagate_inbounds function _radial_rows!(r, i, m, u₁, u₂, sqrtw)
     return nothing
 end
 
-Base.@propagate_inbounds function _radial_jacobian_rows!(J, i, m, dH, u₁, sqrtw)
+# The row functions without a lens argument (one row at a time, the lens built per
+# row: free for one coefficient, whose lens is `nothing`).
+Base.@propagate_inbounds _radial_rows!(r, i, m, u₁, u₂, sqrtw) = _radial_rows!(r, i, m, _projection_lens(m), u₁, u₂, sqrtw)
+Base.@propagate_inbounds _radial_jacobian_rows!(J, i, m, dH, u₁, sqrtw) = _radial_jacobian_rows!(J, i, m, _projection_lens(m), dH, u₁, sqrtw)
+
+Base.@propagate_inbounds function _radial_jacobian_rows!(J, i, m::RadialHomography{<:Any, N}, lens, dH, u₁, sqrtw) where {N}
     s = u₁[i]
-    p = _radial_projection(m, radial_ray(m, s))
-    N = length(dH)
+    ray = radial_ray(m, s)
+    p = _radial_projection(m, ray, lens)
+    nH = length(dH)
     if !p.ok
-        for q in 1:(N + 1)
+        for q in 1:(nH + N)
             J[2i - 1, q] = zero(eltype(J))
             J[2i, q] = zero(eltype(J))
         end
         return nothing
     end
-    D, ∂k = _radial_derivs(p)
-    for q in 1:N
+    D, ∂λ = _radial_jacobians(m, p, ray, lens)
+    for q in 1:nH
         g = D * radial_ray(dH[q], m.center, s)    # the centred ray is linear in H
         J[2i - 1, q] = sqrtw[2i - 1] * g[1]
         J[2i, q] = sqrtw[2i] * g[2]
     end
-    J[2i - 1, N + 1] = sqrtw[2i - 1] * ∂k[1]
-    J[2i, N + 1] = sqrtw[2i] * ∂k[2]
+    for j in 1:N
+        J[2i - 1, nH + j] = sqrtw[2i - 1] * ∂λ[1, j]
+        J[2i, nH + j] = sqrtw[2i] * ∂λ[2, j]
+    end
     return nothing
 end
 
@@ -535,27 +624,28 @@ end
 
 The √w-weighted measurement-space transfer rows of `m` over `u₁[i] => u₂[i]`, two
 per correspondence (`r[2i-1:2i] = sqrtw[2i-1:2i] .* (radial_transfer(m, u₁[i]) − u₂[i])`),
-and their Jacobian: columns `1:N` along the directions `dH = (∂H/∂θ₁, …, ∂H/∂θ_N)`
+and their Jacobian: columns `1:M` along the directions `dH = (∂H/∂θ₁, …, ∂H/∂θ_M)`
 of `H` (e.g. the reshaped columns of `retract_jacobian(HomographyManifold8(H₀), v)`),
-column `N + 1` along `k` (`transform_deriv_params`). A ray outside the
-model's field ([`project`](@ref)'s one edge rule) is a constant residual with a
+columns `M + 1 … M + N` along the division coefficients `λ₁ … λ_N`
+(`transform_deriv_params`). A ray outside the
+model's field ([`project`](@ref)'s edge rule) is a constant residual with a
 ZERO Jacobian row, so LM rejects a step that pushes rays out rather than being
 rewarded for it. One KernelAbstractions kernel each on device backends, a plain
 loop over the same row functions on the CPU.
 """
 function radial_transfer_rows!(r::AbstractVector, m::RadialHomography, u₁::AbstractVector, u₂::AbstractVector, sqrtw::AbstractVector)
-    return _foreach_row!(_radial_rows!, r, length(u₁), m, u₁, u₂, sqrtw)
+    return _foreach_row!(_radial_rows!, r, length(u₁), m, _projection_lens(m), u₁, u₂, sqrtw)
 end
 
 """
     radial_transfer_jacobian_rows!(J, m::RadialHomography, dH, u₁, sqrtw) -> J
 
-The Jacobian of [`radial_transfer_rows!`](@ref): columns `1:N` along the
-directions `dH` of `H`, column `N + 1` along `k`, a zero row for a ray outside
-the model's field.
+The Jacobian of [`radial_transfer_rows!`](@ref): columns `1:M` along the
+`M` directions `dH` of `H`, columns `M + 1 … M + N` along the `N` division
+coefficients, a zero row for a ray outside the model's field.
 """
 function radial_transfer_jacobian_rows!(J::AbstractMatrix, m::RadialHomography, dH::Tuple, u₁::AbstractVector, sqrtw::AbstractVector)
-    return _foreach_row!(_radial_jacobian_rows!, J, length(u₁), m, dH, u₁, sqrtw)
+    return _foreach_row!(_radial_jacobian_rows!, J, length(u₁), m, _projection_lens(m), dH, u₁, sqrtw)
 end
 
 """
@@ -582,27 +672,27 @@ CspondNormalization(::Type{<:AbstractRadialModel}, cs; center, mask = nothing) =
 # normalization moves it by `destination_map(N) ∘ m ∘ inv(source_map(N))`, and back
 # by `inv(destination_map(N)) ∘ m ∘ source_map(N)`).
 #
-#   plane side (any collineation B):  H′ = H·B, k and c unchanged
+#   plane side (any collineation B):  H′ = H·B, λ and c unchanged
 #   image side (an ISOTROPIC similarity D = s·x + b — every normalization
 #   strategy produces these; the division model commutes only with
 #   similarities about its centre, and the centre moves with them):
-#       H′ = D·H,   k′ = k / s²,   c′ = D(c)
+#       H′ = D·H,   λₚ′ = λₚ / s²ᵖ,   c′ = D(c)
 #
 # A non-isotropic image-side map would break the radial symmetry, and a
 # projective one would not keep a division model: both are an `ArgumentError`.
 # -----------------------------------------------------------------------------
-@inline function Base.:∘(a::Union{HomographyMap{3}, _CTLeafTransformation}, m::RadialHomography{T}) where {T}
+@inline function Base.:∘(a::Union{HomographyMap{3}, _CTLeafTransformation}, m::RadialHomography{T, N}) where {T, N}
     D = SMatrix{3, 3}(to_homogeneous(a))
     s = D[1, 1]
     (iszero(D[3, 1]) && iszero(D[3, 2]) && isone(D[3, 3]) && iszero(D[1, 2]) && iszero(D[2, 1]) && D[2, 2] == s) ||
         throw(ArgumentError("∘ on a RadialHomography: the image-side map must be an isotropic similarity (s·x + b); got $D"))
     return RadialHomography{T}(
-        HomographyMat{T}(Tuple(D * SMatrix{3, 3}(m.H))), T(rescale_radial_coeff(m.k, inv(s), 1)),
+        HomographyMat{T}(Tuple(D * SMatrix{3, 3}(m.H))), ntuple(p -> T(rescale_radial_coeff(m.λ[p], inv(s), p)), Val(N)),
         Point2{T}(affine_part(D)(m.center))
     )
 end
 @inline Base.:∘(m::RadialHomography{T}, b::Union{HomographyMap{3}, _CTLeafTransformation}) where {T} =
-    RadialHomography{T}(HomographyMat{T}(Tuple(SMatrix{3, 3}(m.H) * SMatrix{3, 3}(to_homogeneous(b)))), m.k, m.center)
+    RadialHomography{T}(HomographyMat{T}(Tuple(SMatrix{3, 3}(m.H) * SMatrix{3, 3}(to_homogeneous(b)))), m.λ, m.center)
 
 # -----------------------------------------------------------------------------
 # Model-validity predicates (model_validity.jl vocabulary)

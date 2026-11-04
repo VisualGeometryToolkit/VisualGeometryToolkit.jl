@@ -189,7 +189,7 @@ end
 
 `x` rebuilt with every stored number in `T`: a lens (its coefficients), a
 `LogicalIntrinsics` (`K`, with `K⁻¹` recomputed in `T`), a `CameraModel`
-(both), a `CentralGenericModel` or `NoncentralGenericModel` (the grids;
+(both), a `RadialHomography` (its `H`, coefficients and centre), a `CentralGenericModel` or `NoncentralGenericModel` (the grids;
 the calibrated area stays as stored). Use it to move a camera to `Float32`
 before a GPU launch, or back to `Float64`.
 
@@ -212,6 +212,8 @@ convert_eltype(::Type{T}, intr::ProjectiveIntrinsics) where {T <: AbstractFloat}
     ProjectiveIntrinsics{T}(intr.center)
 convert_eltype(::Type{T}, m::CameraModel) where {T <: AbstractFloat} =
     CameraModel(convert_eltype(T, m.intrinsics), convert_eltype(T, m.lens))
+convert_eltype(::Type{T}, m::RadialHomography) where {T <: AbstractFloat} =
+    RadialHomography{T}(m.H, m.λ, m.center)
 
 # --- CameraModel: the intrinsics' coordinates, then the lens's ---------------------
 #

@@ -537,23 +537,33 @@ has_distortion(model::CameraModel) = has_distortion(model.lens)
 # =============================================================================
 
 """
-    CameraModel(m::RadialHomography) -> CameraModel{LogicalIntrinsics, Division}
+    CameraModel(m::RadialHomography{T, N}) -> CameraModel{ProjectiveIntrinsics{T}, Division{N, T}}
 
-Bridge a fitted uncalibrated radial model to a camera: unit-focal
-intrinsics with the principal point at `m.center` and a [`Division`](@ref)
-lens with `m.k` — normalized coordinates coincide with centered pixels, so
-the lens coefficient IS the model's pixel-frame `k`. The resulting camera
-drives the fused KA [`undistort!`](@ref) warp directly:
-`undistort(CameraModel(m), img)`.
+The projective division camera of a radial homography:
+`CameraModel(ProjectiveIntrinsics(center(m)), Division(division_coeffs(m)...))`,
+built from `m`'s stored primitives. Its ray frame is centred pixels, so the
+lens coefficients ARE the model's pixel-frame `λ`'s; it drives the fused KA
+[`undistort!`](@ref) warp directly: `undistort(CameraModel(m), img)`. No metric
+ray: a field-of-view operation (a finite `max_fov` of
+[`undistorted_rect`](@ref)) refuses it.
 """
-CameraModel(m::RadialHomography{T}) where {T} = CameraModel(
-    LogicalIntrinsics(
-        CameraCalibrationMat(
-            T[1 0 m.center[1]; 0 1 m.center[2]; 0 0 1]
-        )
-    ),
-    Division(m.k)
-)
+CameraModel(m::RadialHomography{T}) where {T} =
+    CameraModel(ProjectiveIntrinsics{T}(m.center), Division(m.λ...))
+
+"""
+    RadialHomography(H, camera::CameraModel{<:ProjectiveIntrinsics, <:Division}) -> RadialHomography{T, N}
+
+The radial homography of a plane homography `H` (plane point → undistorted
+pixel) and a projective division camera: its principal point is the centre, its
+`N` division coefficients the `λ`'s, `T` the promoted number type of the three.
+The inverse of [`CameraModel`](@ref)`(m)`.
+"""
+function RadialHomography(H::AbstractMatrix, camera::CameraModel{<:ProjectiveIntrinsics, <:Division})
+    λ = camera.lens.radial.d
+    c = principal_point(camera.intrinsics)
+    T = float(promote_type(eltype(H), eltype(λ), eltype(c)))
+    return RadialHomography{T}(H, λ, c)
+end
 
 # =============================================================================
 # Frame of record — the intrinsics K IS the normalization frame of the lens
@@ -673,21 +683,22 @@ function division_bounded(k::Real, center, sz; margin::Real = HORIZON_MARGIN)
     )
     return r_max < margin / sqrt(-k)
 end
-division_bounded(m::RadialHomography, sz; kwargs...) =
+division_bounded(m::RadialHomography{<:Any, 1}, sz; kwargs...) =
     division_bounded(m.k, m.center, sz; kwargs...)
+division_bounded(m::RadialHomography, sz; kwargs...) = division_bounded(CameraModel(m), sz; kwargs...)
 
 """
-    division_bounded(model::CameraModel{<:LogicalIntrinsics, <:LiftLens}, sz; margin = HORIZON_MARGIN) -> Bool
+    division_bounded(model::CameraModel{<:Union{LogicalIntrinsics, ProjectiveIntrinsics}, <:LiftLens}, sz; margin = HORIZON_MARGIN) -> Bool
 
 Does the whole image lie inside `margin · monotone_radius(lens)` (in the
-lens's normalized distorted radius)? The general-family form of the
-coefficient-level predicate above.
+lens's normalized distorted radius; a projective camera's is centred pixels)?
+The general-family form of the coefficient-level predicate above.
 """
 function division_bounded(
-        model::CameraModel{<:LogicalIntrinsics, <:LiftLens}, sz; margin::Real = HORIZON_MARGIN
+        model::CameraModel{<:Union{LogicalIntrinsics, ProjectiveIntrinsics}, <:LiftLens}, sz; margin::Real = HORIZON_MARGIN
     )
     width, height = sz[1], sz[2]
-    K = model.intrinsics.K
+    K = _K(model.intrinsics)
     cx, cy = K[1, 3], K[2, 3]
     rmax = sqrt(max((0 - cx)^2, (width - cx)^2) / K[1, 1]^2 + max((0 - cy)^2, (height - cy)^2) / K[2, 2]^2)
     return rmax < margin * monotone_radius(model.lens)
@@ -845,9 +856,10 @@ end
     undistorted_rect(m::RadialHomography, (width, height); margin = HORIZON_MARGIN, max_fov = Inf) -> Rect
 
 The undistorted-plane extent of a `width`×`height` frame under `m`'s
-division model: the frame boundary undistorted in closed form
-(`u = c + (d − c)/(1 + k‖d − c‖²)`), with boundary radii at or beyond
-`margin·r_∞` (the 90° divergence circle, `r_∞ = 1/√(−k)`) clipped to it —
+division model (the walk of its [`CameraModel`](@ref)`(m)`): the frame boundary
+undistorted (`u = c + (d − c)/(1 + Σₚ λₚ‖d − c‖²ᵖ)`), with boundary radii at or
+beyond `margin·r_∞` (the lens's horizon; `r_∞ = 1/√(−k)` for one coefficient)
+clipped to it —
 the honest cap when [`division_bounded`](@ref) is false and the true
 extent is infinite. Feed the rect to the rect form of
 [`undistort`](@ref)/[`undistort!`](@ref):
@@ -861,9 +873,11 @@ at the bounding square of that cone about the principal point. `Inf`, the
 default, leaves the frame's own field alone; a finite value is what makes a
 fisheye — whose horizon can sit inside the frame — rectify to a usable plane at
 all, since `tan θ` is unbounded in the last degree before the pole.
-[`DEFAULT_MAX_FOV`](@ref) is the recommended cap.
+[`DEFAULT_MAX_FOV`](@ref) is the recommended cap. A field of view needs a
+metric camera: for a radial homography (a projective camera,
+`ProjectiveIntrinsics`) a finite `max_fov` is an `ArgumentError`.
 """
-undistorted_rect(m::RadialHomography{Float64}, sz; margin::Real = HORIZON_MARGIN, max_fov::Real = Inf) =
+undistorted_rect(m::RadialHomography, sz; margin::Real = HORIZON_MARGIN, max_fov::Real = Inf) =
     undistorted_rect(CameraModel(m), sz; margin, max_fov)
 
 # ONE authority for the frame-boundary walk both rect builders share: the
@@ -924,8 +938,14 @@ function _frame_walk(model::CameraModel, sz, margin::Real)
 end
 
 function undistorted_rect(
-        model::CameraModel{<:LogicalIntrinsics, <:AbstractLensModel}, sz;
+        model::CameraModel{<:Union{LogicalIntrinsics, ProjectiveIntrinsics}, <:AbstractLensModel}, sz;
         margin::Real = HORIZON_MARGIN, max_fov::Real = Inf
+    )
+    (isfinite(max_fov) && model.intrinsics isa ProjectiveIntrinsics) && throw(
+        ArgumentError(
+            "undistorted_rect: a finite max_fov ($(rad2deg(max_fov))°) needs a metric camera; " *
+                "a ProjectiveIntrinsics camera has no focal length, so no field of view — use max_fov = Inf"
+        )
     )
     Wimg, Himg, cx, cy, undistort_boundary = _frame_walk(model, sz, margin)
     xmin = ymin = Inf; xmax = ymax = -Inf
@@ -1009,7 +1029,7 @@ fov_radius(model::CameraModel, θ::Real) =
 
 """
     valid_rect(m::RadialHomography, (width, height); margin = HORIZON_MARGIN) -> Rect
-    valid_rect(model::CameraModel{<:LogicalIntrinsics, <:AbstractLensModel}, sz;
+    valid_rect(model::CameraModel{<:Union{LogicalIntrinsics, ProjectiveIntrinsics}, <:AbstractLensModel}, sz;
                margin = HORIZON_MARGIN) -> Rect
 
 The INSCRIBED counterpart of [`undistorted_rect`](@ref) — OpenCV's
@@ -1029,7 +1049,7 @@ valid region is unbounded and the clip is the honest cap. Throws when the
 inscribed window is empty (boundary folded past the principal point).
 """
 function valid_rect(
-        model::CameraModel{<:LogicalIntrinsics, <:AbstractLensModel}, sz; margin::Real = HORIZON_MARGIN
+        model::CameraModel{<:Union{LogicalIntrinsics, ProjectiveIntrinsics}, <:AbstractLensModel}, sz; margin::Real = HORIZON_MARGIN
     )
     Wimg, Himg, _, _, undistort_boundary = _frame_walk(model, sz, margin)
     xlo = ylo = -Inf; xhi = yhi = Inf
@@ -1055,7 +1075,7 @@ function valid_rect(
     )
     return Rect(xlo, ylo, xhi - xlo, yhi - ylo)
 end
-valid_rect(m::RadialHomography{Float64}, sz; margin::Real = HORIZON_MARGIN) =
+valid_rect(m::RadialHomography, sz; margin::Real = HORIZON_MARGIN) =
     valid_rect(CameraModel(m), sz; margin)
 
 """

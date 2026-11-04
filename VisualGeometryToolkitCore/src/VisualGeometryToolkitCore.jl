@@ -609,7 +609,7 @@ export homography_dlt, homography_dlt!
 public homography_4pt   # positional minimal kernel under Homography4pt (public, not exported)
 export RadialHomography, AbstractRadialModel
 public homography_5pt_radial   # positional minimal kernel under Homography5ptRadial
-public homography, division_coeff   # RadialHomography accessors (plane part H, lens coefficient k)
+public homography, division_coeff, division_coeffs   # RadialHomography accessors (plane part H, the lens coefficient k of N = 1, all N coefficients)
 # `center` and `direction` are the radial family's accessors (radial_models.jl,
 # cameras/calibration.jl). PUBLIC, not exported: both names are far too generic
 # for a foundational geometry package to inject into every `using` — the same

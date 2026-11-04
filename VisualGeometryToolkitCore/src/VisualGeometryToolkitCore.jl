@@ -192,6 +192,7 @@ public ExecutionPolicy, Auto, Serial, Threaded, THREADED_MIN_LENGTH
 public gauss_hermite_prob, hammersley, square_rule, unit_disc_rule   # quadrature rules (N(0, 1), the square, the unit disc), low-discrepancy points
 public bspline_basis   # the scalar Cox–de Boor basis (isbits, any eltype, kernel-safe; on the CPU BSplineKit's)
 public cubic_lattice_basis, bending_gram, bending_rows, bending_stencils, natural_extrapolation   # the bending energy and the natural boundary condition (BSplineKit)
+public difference_stencil   # a lattice's forward-difference coefficients (a P-spline penalty, BoundaryRule's Δ³ extrapolation)
 public bspline_basis_iterative, evaluate_bspline_surface, bspline_surface_partial
 public evaluate_bspline_4d, bspline_4d_partial, contract_basis_4d_weighted
 # Thin-plate spline (hoisted from RadiometricCamera, arithmetic unchanged): the

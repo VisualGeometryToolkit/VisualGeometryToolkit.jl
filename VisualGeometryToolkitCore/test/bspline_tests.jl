@@ -317,6 +317,12 @@ end
     B1 = cubic_lattice_basis(9)
     cc = randn(rng, 9); cc[1] = w₁ * cc[2] + w₂ * cc[3]
     @test abs((Derivative(2) * Spline(B1, cc))(0.0)) < 1.0e-12
+    # the forward-difference stencils: Δ² is the natural rule's, Δ³ annihilates quadratics
+    using VisualGeometryToolkitCore: difference_stencil
+    @test difference_stencil(3) === (1.0, -3.0, 3.0, -1.0) && difference_stencil(2) === (1.0, -2.0, 1.0)
+    s2 = difference_stencil(2)
+    @test (-s2[2] / s2[1], -s2[3] / s2[1]) == (w₁, w₂) || all(isapprox.((-s2[2] / s2[1], -s2[3] / s2[1]), (w₁, w₂)))
+    @test abs(sum(difference_stencil(3)[k] * (0.3 * k^2 - 2k + 5) for k in 1:4)) < 1.0e-12
 end
 
 @testitem "bspline: the device surface kernel equals BSplineKit" begin

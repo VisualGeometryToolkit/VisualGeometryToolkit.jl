@@ -477,9 +477,11 @@ _design_rows(window_fn::F, pts, ny::Int) where {F} = pointwise!(
 # The right-hand side of a solve: one row per sample, one column per component.
 _rhs_matrix(vs::AbstractVector{<:StaticVector{K}}) where {K} = [v[k] for v in vs, k in 1:K]
 
-# The third-difference operator of an n-node axis.
-_third_difference(n::Int) =
-    spdiagm(n - 3, n, 0 => fill(1.0, n - 3), 1 => fill(-3.0, n - 3), 2 => fill(3.0, n - 3), 3 => fill(-1.0, n - 3))
+# The third-difference operator of an n-node axis (Core's one Δ³ stencil).
+function _third_difference(n::Int)
+    s = difference_stencil(3)
+    return spdiagm(n - 3, n, (k - 1 => fill(s[k], n - 3) for k in 1:4)...)
+end
 
 # The P-spline least squares of an `ny × nx` lattice: the controls minimizing
 # ‖A c − B‖² + λ(‖Dₓ³c‖² + ‖Dᵧ³c‖²) for the design rows `rows` and the targets `B`

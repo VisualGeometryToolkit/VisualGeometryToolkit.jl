@@ -196,7 +196,7 @@ end
 # coefficients of Δ³ with c₀ solved for). Each sums to one.
 function _boundary_extrapolation(order::Integer)
     order == 2 && return natural_extrapolation()
-    order == 3 && return (3.0, -3.0, 1.0)
+    order == 3 && return (s = difference_stencil(3); ntuple(k -> -s[k + 1] / s[1], 3))
     throw(ArgumentError("BoundaryRule: order must be 2 (natural, Δ²c = 0) or 3 (curvature-preserving, Δ³c = 0), got $order"))
 end
 

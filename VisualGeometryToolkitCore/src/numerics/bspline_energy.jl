@@ -90,6 +90,20 @@ function bending_stencils(nx::Integer, ny::Integer; spacing = (1.0, 1.0))
 end
 
 """
+    difference_stencil(order) -> NTuple{order + 1, Float64}
+
+The coefficients of the forward difference `Δᵒʳᵈᵉʳ` of a lattice's
+coefficients, `Δᵒc₀ = Σₖ sₖ cₖ₋₁` over `order + 1` consecutive nodes: the
+binomial coefficients with alternating sign, `(1, −3, 3, −1)` for `order = 3`.
+The one source of a P-spline's difference penalty
+(VisualGeometryToolkitEstimation's `fit_camera`) and of [`BoundaryRule`](@ref)'s
+curvature-preserving extrapolation (`Δ³c = 0` solved for the outermost
+coefficient).
+"""
+difference_stencil(order::Integer) =
+    ntuple(k -> Float64((-1)^(k - 1) * binomial(Int(order), k - 1)), Int(order) + 1)
+
+"""
     natural_extrapolation() -> (w₁, w₂)
 
 The natural boundary condition `f'' = 0` at a border knot of a uniform cubic

@@ -460,7 +460,6 @@ function _arrow_factor(D::SMatrix)
     F = LinearAlgebra.cholesky(LinearAlgebra.Hermitian(D); check = false)
     return LinearAlgebra.issuccess(F) ? F : nothing
 end
-_arrow_block_live(D::SMatrix) = _arrow_factor(D) !== nothing
 
 function _arrow_solve(
         Snn::Matrix{Float64}, bsh::Vector{Float64},

@@ -143,7 +143,8 @@ test_consensus(
         m::VgtkCore.RadialHomography, _mask
     )
     is_orientation_preserving(homography(m), et.extent) || return false
-    return all(s -> VgtkCore.radial_in_front(m, s), rect_corners(et.extent))
+    lens = VgtkCore._projection_lens(m)    # built once for the corners, not per corner
+    return all(s -> VgtkCore._radial_in_front(m, s, lens), rect_corners(et.extent))
 end
 
 # =============================================================================

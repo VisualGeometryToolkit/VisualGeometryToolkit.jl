@@ -158,3 +158,34 @@ end
         @test n_files >= 15                # the lenses, the camera stores, the exports and the rigid target's records
     end
 end
+
+@testitem "chain equivalence: a v5 rig's identity is v5's for every non-affine kind" setup = [ChainEquivalenceIO] begin
+    # `_v5_id` reports the current identity as the old one for a v5 rig without
+    # an affine kind: that is right only if the current identity tree of the
+    # SAME value is the one v5 hashed. The goldens' ids were computed by v5's
+    # code; the thin-plate values they hold carry an affine term (the current
+    # constructor would project them), so they are rebuilt here as they were
+    # (`project = false`) — the identity is of the value, not of its record.
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: Rigid, ThinPlateSpline, HeightField, PlanarTarget, PosedTarget, EuclideanMap, Rig, TargetFrame,
+        grid_nodes, with_unit, m
+    using StaticArrays: SVector
+    using Rotations: QuatRotation
+    P = read_goldens(joinpath(DIR, "corpus_params.txt"))
+    G = read_goldens(joinpath(DIR, "io_values.txt"))
+    nodes = grid_nodes(3; lo = 0.0, hi = 0.1)
+    T = with_unit(ThinPlateSpline(nodes, P["param/thin_plate_spline/fx"], P["param/thin_plate_spline/fy"]; project = false), m)
+    H = with_unit(HeightField(nodes, P["param/height_field/h"]; project = false), m)
+    ppts = ChainEquivalenceIO.ChainEquivalenceCorpus.physical_points()[1:20]
+    pose = EuclideanMap(ChainEquivalenceIO.RECORD_POSE_ROTATION, SVector(0.1, -0.05, 0.9) .* m)
+    gauge = PosedTarget(PlanarTarget(ppts), EuclideanMap(QuatRotation(1.0, 0.0, 0.0, 0.0, false), SVector(0.0, 0.0, 0.0) .* m))
+    for (name, c) in ("R" => Rigid(), "T" => T, "H" => H, "T_H" => H ∘ T)
+        rig = Rig{TargetFrame{:gauge}}(Dict(:gauge => gauge, Symbol("t_", name) => PosedTarget(PlanarTarget(ppts; calibration = c), pose)))
+        @test VisualGeometryToolkitIO.content_id(rig) == G["content_id/$name"]
+    end
+    # and the migration of the rigid golden reports it
+    mktempdir() do dir
+        r = VisualGeometryToolkitIO.vgio_migrate(joinpath(DIR, "records", "rig_R.json"); out = joinpath(dir, "rig_R.json"))
+        @test r.old_id == r.new_id == G["content_id/R"]
+    end
+end

@@ -79,8 +79,11 @@ Base.intersect(a::Union{Rect{2}, _Region2, Circle}, ::WholePlane) = a
 Base.intersect(::WholePlane, b::Union{Rect{2}, _Region2, Circle}) = b
 Base.intersect(w::WholePlane, ::WholePlane) = w
 
-Base.in(p::Point2, s::RegionIntersection) = p ∈ s.a && p ∈ s.b
-Base.in(::Point2, ::WholePlane) = true
+# A point is any `StaticVector{2}` (a `Point2` is one): an `SVector` asks the
+# same question through the same method instead of falling through to Base's
+# iterable `in`.
+Base.in(p::StaticVector{2}, s::RegionIntersection) = p ∈ s.a && p ∈ s.b
+Base.in(::StaticVector{2}, ::WholePlane) = true
 # a rectangle in a region: in an intersection when in both parts; in the whole plane always
 Base.in(r::Rect{2}, s::RegionIntersection) = r ∈ s.a && r ∈ s.b
 Base.in(::Rect{2}, ::WholePlane) = true

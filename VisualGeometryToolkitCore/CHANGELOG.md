@@ -75,6 +75,12 @@ Fixed:
   a `Circle` meets a region as its `Ellipse`, so
   `imaged_region(camera, circle::Circle)` builds instead of throwing a
   `MethodError` on `iterate` (it fell through to Base's set `intersect`).
+- **Region membership takes any `StaticVector{2}`**: `p ∈ region` for a
+  `RegionIntersection`, `WholePlane` and `Ellipse` is defined on
+  `StaticVector{2}` (a `Point2` is one, through the same method), so
+  `SVector(x, y) ∈ Rect ∩ ellipse` answers instead of throwing a `MethodError`
+  on `iterate`. A `Rect` already took any static vector (GeometryBasics); a
+  `Polygon` stays `Point2`-only (widening it would be type piracy).
 
 ## 0.4.0 (2026-11-02)
 

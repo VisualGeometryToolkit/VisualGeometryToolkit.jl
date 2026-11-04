@@ -98,4 +98,22 @@
         e2 = Ellipse(Point2(20.0, 0.0), 5.0, 5.0, 0.0)
         @test intersects(e1 ∩ e2, Rect2(-1.0, -1.0, 22.0, 2.0))         # over-approximates: e1 ∩ e2 is empty
     end
+
+    @testset "membership takes any StaticVector{2}, as a Point2" begin
+        using StaticArrays: SVector
+        e = Ellipse(Point2(50.0, 30.0), 70.0, 25.0, 0.3)
+        regions = (
+            e,
+            Rect(0, 0, 100, 60),
+            Rect(0, 0, 100, 60) ∩ e,                                    # RegionIntersection{HyperRectangle{2, Int}, Ellipse}
+            (Rect(0, 0, 100, 60) ∩ e) ∩ Ellipse(Point2(70.0, 30.0), 30.0, 30.0, 0.0),
+            Rect(0, 0, 100, 60) ∩ Circle(Point2(50.0, 30.0), 35.0),
+            WholePlane(),
+        )
+        for r in regions
+            @test all(p -> (SVector(p[1], p[2]) ∈ r) == (p ∈ r), grid)
+        end
+        @test SVector(50.0, 30.0) ∈ Rect(0, 0, 100, 60) ∩ e
+        @test SVector(-5.0, 30.0) ∉ Rect(0, 0, 100, 60) ∩ e
+    end
 end

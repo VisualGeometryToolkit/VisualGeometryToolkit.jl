@@ -39,9 +39,10 @@ Rect(0, 0, 4, 3) ∈ Ellipse(Point2(2.0, 1.5), 2.0, 2.0, 0.0)   # false
 Base.in(r::Rect{2}, e::Ellipse) = all(c -> Point2(c) ∈ e, rect_corners(r))
 
 """
-    Base.in(p::Point2, e::Ellipse) -> Bool
+    Base.in(p::StaticVector{2}, e::Ellipse) -> Bool
 
-Check if point `p` is inside ellipse `e`. Enables `p ∈ e` syntax.
+Check if point `p` (a `Point2`, an `SVector` — any `StaticVector{2}`) is
+inside ellipse `e`. Enables `p ∈ e` syntax.
 
 Uses the normalized ellipse equation: (x'/a)² + (y'/b)² ≤ 1
 where (x', y') are coordinates in the ellipse's local frame.
@@ -53,7 +54,7 @@ Point2(0.0, 0.0) ∈ ellipse  # true (center)
 Point2(5.0, 0.0) ∈ ellipse  # false (outside)
 ```
 """
-function Base.in(p::Point2, e::Ellipse)
+function Base.in(p::StaticVector{2}, e::Ellipse)
     # Transform point to ellipse-local coordinates (centered, axis-aligned)
     dx = p[1] - e.center[1]
     dy = p[2] - e.center[2]

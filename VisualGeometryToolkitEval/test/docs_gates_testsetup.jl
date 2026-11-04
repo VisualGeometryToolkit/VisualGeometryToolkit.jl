@@ -1,6 +1,9 @@
 # The three docstring checks of the docs item (docs_tests.jl), from the
-# julia-docs-pass skill's docs_gates.jl (VisualGeometryToolkitCore carries the
-# same code as test/docs_gates.jl):
+# stack's docs skill (VisualGeometryToolkitCore carries the same code as
+# test/docs_gates.jl), with two fixes Core's copy lacks: the body of a
+# documented module (`@doc "…" module … end`) is scanned for detached
+# docstrings, and a blank line between two signature lines does not end the
+# signature block:
 #
 #   undocumented_public(M)       public names of M (and its submodules) with no docstring
 #   signature_mismatches(M)      docstring signature lines that no method of the name accepts
@@ -41,13 +44,15 @@
     end
 
     # The signature lines of a docstring: the leading indented block (Julia's
-    # convention), each line `name(args...; kws...) [-> T]` or `name::T`.
+    # convention), each line `name(args...; kws...) [-> T]` or `name::T`. A blank
+    # line between two signature lines does not end the block; the first
+    # unindented text does.
     function signature_lines(text::AbstractString)
         lines = String[]
         for l in split(text, '\n')
             if startswith(l, "    ")
                 push!(lines, strip(l))
-            elseif !isempty(lines) || !isempty(strip(l))
+            elseif !isempty(strip(l))
                 break
             end
         end
@@ -150,6 +155,9 @@
                 push!(out, "$where:$line")
             elseif a isa Expr && a.head === :module
                 _bare_strings!(out, a.args[3], where)
+            elseif a isa Expr && a.head === :macrocall && a.args[end] isa Expr && a.args[end].head === :module
+                # A documented module parses as `@doc "…" module … end`: scan its body too.
+                _bare_strings!(out, a.args[end].args[3], where)
             elseif a isa Expr && a.head in (:block, :toplevel)
                 _bare_strings!(out, a, where)
             end

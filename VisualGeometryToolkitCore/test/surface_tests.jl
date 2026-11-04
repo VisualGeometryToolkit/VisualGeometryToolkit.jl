@@ -276,11 +276,12 @@ end
     using Rotations: RotMatrix, QuatRotation
     using VisualGeometryToolkitCore
     import VisualGeometryToolkitCore as VgtkCore
+    import KernelAbstractions
     using VisualGeometryToolkitCore: intersection, surface_point, ThinPlateSplineSystem, tps_coefficients, grid_nodes
 
     # the reference: Newton differentiated through every iteration (the method before the implicit derivative)
     function dual_newton(s, o, d)
-        t, x, converged, _ = VgtkCore._height_newton(s, o, d)
+        t, x, converged = VgtkCore._height_newton(s, o, d)
         return VgtkCore._within(s.quad, t, x, converged)
     end
     rng = Xoshiro(3)
@@ -307,9 +308,11 @@ end
             SVector(t, x[1], x[2], x[3])
         end
     end
-    # the partial count picks the path: SMALL chunks Newton in the Duals, LARGE ones the implicit derivative
+    # The two paths: the default takes the implicit derivative at every partial count (the CPU's choice);
+    # the GPU's, ImplicitRoot(8), runs Newton in the Duals below 8 partials. SMALL and LARGE chunks.
+    @test VgtkCore.implicit_root(KernelAbstractions.CPU()) === VgtkCore.ImplicitRoot() === VgtkCore.ImplicitRoot(1)
+    on_gpu(s, o, d) = intersection(s, o, d; derivative = VgtkCore.ImplicitRoot(8))
     SMALL, LARGE = 4, 17
-    @test SMALL < VgtkCore._HEIGHT_IMPLICIT_MIN_PARTIALS <= LARGE
     jac(f, p, C) = ForwardDiff.jacobian(f, p, ForwardDiff.JacobianConfig(f, p, ForwardDiff.Chunk{C}()))
 
     @testset "partials: both paths, the dual Newton's, and central differences" begin
@@ -320,7 +323,10 @@ end
             nhit += 1
             J = jac(hit(intersection), p, LARGE)
             @test relerr(J, jac(hit(dual_newton), p, LARGE)) <= 1.0e-12
-            @test relerr(jac(hit(intersection), p, SMALL), J) <= 1.0e-12
+            @test relerr(jac(hit(intersection), p, SMALL), J) <= 1.0e-12   # implicit at a few partials
+            @test jac(hit(on_gpu), p, SMALL) == jac(hit(dual_newton), p, SMALL)   # the Newton path IS the dual Newton
+            @test relerr(jac(hit(on_gpu), p, SMALL), J) <= 1.0e-12
+            @test jac(hit(on_gpu), p, LARGE) == J
             ε = 1.0e-6
             Jfd = reduce(hcat, [(hit(intersection)(p + ε * (1:34 .== k)) - hit(intersection)(p - ε * (1:34 .== k))) / 2ε for k in 1:34])
             @test relerr(J, Jfd) <= 1.0e-8
@@ -328,8 +334,8 @@ end
             p32 = Float32.(p)
             isnan(hit(intersection, Float32)(p32)[1]) && continue
             J64 = jac(hit(intersection), Float64.(p32), LARGE)
-            for C in (SMALL, LARGE)
-                @test relerr(jac(hit(intersection, Float32), p32, C), J64) <= 1.0e-5
+            for C in (SMALL, LARGE), f in (intersection, on_gpu)
+                @test relerr(jac(hit(f, Float32), p32, C), J64) <= 1.0e-5
             end
         end
         @test nhit >= 30
@@ -338,7 +344,7 @@ end
     @testset "values: the plain result's bits (implicit path), misses as before" begin
         # Dual inputs whose values are exactly the plain ones (random partials), in every carrier
         dz(x, N, tag) = ForwardDiff.Dual{tag}(x, ForwardDiff.Partials(ntuple(_ -> randn(rng, typeof(x)), N)))
-        for T in (Float64, Float32), N in (SMALL, VgtkCore._HEIGHT_IMPLICIT_MIN_PARTIALS)
+        for T in (Float64, Float32), N in (SMALL, 8)
             s = HeightSurface{25, T}(surf)
             D = ForwardDiff.Dual{:v, T, N}
             z(x) = dz(x, N, :v)
@@ -351,12 +357,14 @@ end
                 od, dd = z.(o), z.(d)
                 plain = intersection(s, o, d)
                 for args in ((sd, od, dd), (sd, o, d), (s, od, d), (s, o, dd))
-                    td, xd = intersection(args...)
-                    v = (ForwardDiff.value(td), ForwardDiff.value.(xd))
-                    if N >= VgtkCore._HEIGHT_IMPLICIT_MIN_PARTIALS
-                        @test isequal(v, plain)
+                    td, xd = intersection(args...)    # implicit: the plain bits at any partial count
+                    @test isequal((ForwardDiff.value(td), ForwardDiff.value.(xd)), plain)
+                    tg, xg = on_gpu(args...)
+                    v = (ForwardDiff.value(tg), ForwardDiff.value.(xg))
+                    if N >= 8
+                        @test isequal((tg, xg), (td, xd))
                     else   # Newton in the Duals: the plain values to an ulp (a muladd's fusing is per context)
-                        @test isequal((td, xd), dual_newton(args...))
+                        @test isequal((tg, xg), dual_newton(args...))
                         @test isnan(v[1]) == isnan(plain[1])
                         isnan(plain[1]) || @test abs(v[1] - plain[1]) <= 4 * eps(abs(plain[1])) &&
                                                  maximum(abs, v[2] - plain[2]) <= 4 * eps(T)
@@ -373,9 +381,9 @@ end
         for (o, d) in rays[1:12]
             p = [o; d; h; org]
             isnan(hit(intersection)(p)[1]) && continue
-            tn = q -> hit(intersection)(q)[1]   # one tag nested in itself
             Href = ForwardDiff.hessian(q -> hit(dual_newton)(q)[1], p)
-            for C in (SMALL, LARGE)
+            for f in (intersection, on_gpu), C in (SMALL, LARGE)
+                tn = q -> hit(f)(q)[1]   # one tag nested in itself
                 H = ForwardDiff.hessian(tn, p, ForwardDiff.HessianConfig(tn, p, ForwardDiff.Chunk{C}()))
                 @test relerr(H, Href) <= 1.0e-12
                 @test norm(H - H') <= 1.0e-12 * norm(H)
@@ -424,9 +432,9 @@ end
             sd = HeightSurface{25, D}(s)
             oT, dT = SVector{3, T}(o), SVector{3, T}(d)
             od, dd = D.(oT), D.(dT)
-            for args in ((sd, od, dd), (sd, oT, dT), (s, od, dd))
-                @test (@inferred intersection(args...))[1] isa D
-                @test allocs(intersection, args...) == 0
+            for args in ((sd, od, dd), (sd, oT, dT), (s, od, dd)), f in (intersection, on_gpu)
+                @test (@inferred f(args...))[1] isa D
+                @test allocs(f, args...) == 0
             end
         end
     end

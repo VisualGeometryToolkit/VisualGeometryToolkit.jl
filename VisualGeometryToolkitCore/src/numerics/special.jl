@@ -90,7 +90,7 @@ const _LI2_C = (
 # coefficients in the value type of `y`.
 @inline function _dilog_series(y)
     u = -log1p(-y)
-    c(k) = oftype(_value_part(u), _LI2_C[k])
+    c(k) = oftype(_primal(u), _LI2_C[k])
     acc = zero(u) + c(17)
     for k in 16:-1:1
         acc = acc * u + c(k)

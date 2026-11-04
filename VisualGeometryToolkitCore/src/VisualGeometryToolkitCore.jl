@@ -130,6 +130,7 @@ public ray_plane_intersection
 # (qualified access), as `model` does.
 export Quad, HeightSurface
 public intersection, chart, bounds, surface, surface_point
+public ImplicitRoot, implicit_root   # how a HeightSurface's root is differentiated under ForwardDiff, per device
 
 # -----------------------------------------------------------------------------
 # 2. TRANSFORMS - Maps for transforming geometry
@@ -769,6 +770,7 @@ include("base/utils.jl")    # Geometry utilities - uses types
 include("base/config_toml.jl")  # TOML config skeleton shared by every package with a configuration of record
 include("quality/tag_registry.jl")  # TagRegistry: the one tag → type map (before the kinds that register tags: the target calibrations)
 include("base/device.jl")   # default_device — the family's one KA backend resolver (CUDA ext registers)
+include("base/duals.jl")    # ForwardDiff value helpers: _primal (every layer), _outer_value / _with_value (one layer)
 include("base/svd_workspace.jl")  # SvdWorkspace + svd_nullvec! (used by solvers + RVG)
 include("base/propagate.jl")     # propagate(J, Σ) = J * Σ * J' with specializations
 include("base/measurement_noise.jl")  # exact, pair_covariance, noise_columns: the measurement-noise rule

@@ -32,12 +32,8 @@
 # derivatives (implicit function theorem): no Dual ever runs through an
 # iteration, and a Float result is the solver's own.
 
-@inline _primal(x::Real) = x
-@inline _primal(x::ForwardDiff.Dual) = _primal(ForwardDiff.value(x))
-
-@inline _is_dual_type(::Type{T}) where {T} = T !== Union{} && T <: ForwardDiff.Dual
-_primal_float(::Type{T}) where {T} = _is_dual_type(T) ? _primal_float(ForwardDiff.valtype(T)) : T
-
+# `_primal` (every Dual layer stripped), `_is_dual_type` and `_primal_float`
+# are the package's (base/duals.jl).
 
 # A lens, or any part of one, with its coefficients stripped to primal values.
 @inline _primal(x) = _is_dual_type(_coeff_type(x)) ? _with_own_parameters(x, map(_primal, _coefficients_of(x))) : x

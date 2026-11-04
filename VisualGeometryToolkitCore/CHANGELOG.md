@@ -216,13 +216,17 @@ Fixed:
   the Float32 rounding of the same derivative in Float32), except at grazing
   incidence, where the old ones stopped up to 4e-11 short of the converged
   derivative and the new ones agree with a 200-bit reference. Plain inputs
-  are unchanged, bit for bit. This is the path from 8 partials
-  (`_HEIGHT_IMPLICIT_MIN_PARTIALS`); with fewer, Newton still runs in the
-  `Dual`s, as before. Measured on a 25-node surface with Duals in the heights
-  and the ray, old/new: on an RTX 4090, `Dual{Float32, N}` for N = 1, 2, 4, 6,
-  8, 12, 15, 32 gives 0.50, 0.55, 0.59, 1.01, 1.84, 2.26, 2.52, 2.84×
+  are unchanged, bit for bit. **`intersection(s, o, d; derivative)`** takes
+  the choice, an **`ImplicitRoot(min_partials = 1)`** (public): a `Dual` with
+  fewer partials runs Newton in the `Dual`s, as before. The default is the
+  implicit derivative at every partial count, the CPU's choice; a kernel launch
+  supplies **`implicit_root(backend)`** (public), `ImplicitRoot(8)` on a
+  KernelAbstractions GPU. Measured on a 25-node surface with Duals in the
+  heights and the ray, old/new: on an RTX 4090, `Dual{Float32, N}` for N = 1,
+  2, 4, 6, 8, 12, 15, 32 gives 0.50, 0.55, 0.59, 1.01, 1.84, 2.26, 2.52, 2.84×
   (RadiometricCamera's GPU Jacobian at N = 4: the implicit path 10% slower);
-  on the CPU, `Dual{Float64, N}` gives 1.2–3.7×.
+  on the CPU, `Dual{Float64, N}` gives 1.2–3.7×. A `Quad`'s `intersection`
+  takes the same keyword and ignores it.
 
 Performance (same bits):
 

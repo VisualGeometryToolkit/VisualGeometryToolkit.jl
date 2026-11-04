@@ -472,9 +472,7 @@ end
 # and differentiates in the position. Two lookups with two contracts, not one
 # with a flag.
 
-# The value part of a (nested) Dual: a texel is chosen on it, the weights carry the partials.
-@inline _value_part(x::ForwardDiff.Dual) = _value_part(ForwardDiff.value(x))
-@inline _value_part(x) = x
+# A texel is chosen on the value under every Dual layer (`_primal`, base/duals.jl); the weights carry the partials.
 
 # The documented minimum, checked once per lookup before any texel is read (a
 # 1-wide or 1-high image has no second texel to blend with: the clamped index
@@ -486,7 +484,7 @@ end
     (H >= 2 && W >= 2) || _too_small_texture()
     h = one(eltype(uv)) / 2
     x = uv[1] * W - h; y = uv[2] * H - h
-    xv = _value_part(x); yv = _value_part(y)
+    xv = _primal(x); yv = _primal(y)
     Tv = typeof(xv)
     isfinite(xv) || (x = zero(x); xv = zero(Tv))        # a non-finite position reads the corner texel
     isfinite(yv) || (y = zero(y); yv = zero(Tv))

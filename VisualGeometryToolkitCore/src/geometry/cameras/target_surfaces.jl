@@ -2,8 +2,9 @@
 # surface(::PosedTarget): the primitive a ray meets on a posed planar target
 # =============================================================================
 #
-# A planar calibration (Rigid, an AffineMap) is a Quad, a height field (alone
-# or after an AffineMap) a HeightSurface (geometry/primitives/surfaces.jl). The
+# A planar affine calibration (Rigid, the affine factors `EuclideanMap ∘ Scale
+# ∘ Aspect ∘ Skew` or any of them) is a Quad, a height field (alone or after
+# affine factors) a HeightSurface (geometry/primitives/surfaces.jl). The
 # kind is chosen by the calibration's TYPE, so code over a rigid target never
 # compiles the Newton loop and nothing tests the heights at run time.
 #
@@ -64,7 +65,8 @@ function _chart_affine(c::TargetCalibration)
 end
 _in_plane(c::TargetCalibration) = c
 _in_plane(::HeightField) = Rigid()
-_in_plane(c::_LiftedCalibration) = c.t2
+# a stored composition is right-associated, its height field (if any) outermost
+_in_plane(c::_CalibrationComposition) = c.t1 isa HeightField ? c.t2 : c
 @noinline _refuse_chart(c::TargetCalibration) = throw(
     ArgumentError(
         _has_thin_plate(c) ?
@@ -75,12 +77,14 @@ _in_plane(c::_LiftedCalibration) = c.t2
 )
 # the member a composition's refusal names (it is refused for its in-plane kind)
 _not_affine(c::TargetCalibration) = c
-_not_affine(c::_LiftedCalibration) = is_affine(c.t2) ? c : c.t2
+_not_affine(c::_CalibrationComposition) = (ms = _members(c); i = findfirst(l -> !is_affine(l), ms); i === nothing ? c : ms[i])
 _has_thin_plate(c::TargetCalibration) = c isa ThinPlateSpline
-_has_thin_plate(c::_LiftedCalibration) = c.t2 isa ThinPlateSpline
+_has_thin_plate(c::_CalibrationComposition) = any(l -> l isa ThinPlateSpline, _members(c))
 
 _surface(::Val{true}, _, quad) = quad
 _surface(::Val{false}, c, quad) = _height_surface(_last_height_field(c), quad)
 _last_height_field(c::HeightField) = c
-_last_height_field(c::_LiftedCalibration) = c.t1
+# (a stored composition that is not planar has its height field outermost)
+_last_height_field(c::_CalibrationComposition) =
+    (h = c.t1; h isa HeightField ? h : throw(ArgumentError("surface: a non-planar calibration has its HeightField outermost")))
 _height_surface(h::HeightField{K}, quad) where {K} = HeightSurface(quad, h.system.nodes, h.h, h.w, h.a)

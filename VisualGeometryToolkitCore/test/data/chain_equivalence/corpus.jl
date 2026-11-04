@@ -16,7 +16,9 @@
 # independent of how a calibration, a composition or a Jacobian is spelled.
 #
 # Adapter fields:
-#   affine(A, b)                  the in-plane affine print error from A (2 × 2) and b
+#   affine(A, b)                  the in-plane affine print error from A (2 × 2) and b,
+#                                 or `nothing` where the code has no such kind (every
+#                                 case with an `A` member then retired)
 #   compose_calibrations(members) their composition, members IN APPLICATION ORDER
 #                                 (innermost first)
 #   compose_distortions(stages)   the same for a lens's distortion stages
@@ -122,11 +124,11 @@ const KIND_LETTERS = (R = :rigid, A = :affine, T = :thin_plate_spline, H = :heig
 # physical (the same lengths in metres).
 function kinds(P::AbstractDict, V; physical::Bool = false)
     nodes = grid_nodes(3; lo = 0.0, hi = 0.1)
-    A = V.affine(SMatrix{2, 2}(P["param/affine/A"]), P["param/affine/b"])
+    A = V.affine === nothing ? nothing : V.affine(SMatrix{2, 2}(P["param/affine/A"]), P["param/affine/b"])
     T = ThinPlateSpline(nodes, P["param/thin_plate_spline/fx"], P["param/thin_plate_spline/fy"])
     H = HeightField(nodes, P["param/height_field/h"])
     ks = (R = Rigid(), A = A, T = T, H = H)
-    return physical ? map(c -> c isa Rigid ? c : with_unit(c, m), ks) : ks
+    return physical ? map(c -> c isa Union{Rigid, Nothing} ? c : with_unit(c, m), ks) : ks
 end
 
 # Every composition the chain rules admit: two or more members, distinct
@@ -153,8 +155,9 @@ order.
 """
 function target_cases(P::AbstractDict, V; physical::Bool = false)
     ks = kinds(P, V; physical)
-    out = Pair{String, Any}[String(k) => getfield(ks, k) for k in (:R, :A, :T, :H)]
+    out = Pair{String, Any}[String(k) => getfield(ks, k) for k in (:R, :A, :T, :H) if getfield(ks, k) !== nothing]
     for order in admitted_orders()
+        any(k -> getfield(ks, k) === nothing, order) && continue     # a member the code has no kind for
         push!(out, join(String.(order), "_") => V.compose_calibrations(Tuple(getfield(ks, k) for k in order)))
     end
     return out

@@ -142,7 +142,7 @@ design and [`reference`](@ref)`(t)` the reference (or `nothing`).
 
 The nominal points are plain numbers (stored as `Float64`) or lengths (stored
 in metres), all one form ([`has_units`](@ref)); a calibration with lengths
-(an `AffineMap`'s translation, a thin-plate spline's nodes and displacements, a
+(a rigid member's translation, a thin-plate spline's nodes and displacements, a
 height field's nodes and heights) is in the same form, or the constructor
 raises FlexUnits' `DimensionError`. `ustrip(u, t)` and [`with_unit`](@ref)`(t, u)`
 move the points and the calibration together. An unresolved target holds no
@@ -194,7 +194,8 @@ struct PlanarTarget{C <: TargetCalibration, N <: Union{Nothing, Vector{<:SVector
 end
 # The public positional form (the board and the canvas optional): always checked,
 # the calibration first (`_stored_calibration`, target_calibration.jl: one of
-# the kinds or the one composition, an AffineMap's lengths in metres).
+# the kinds or an accepted composition, right-associated, a rigid member's
+# lengths in metres).
 PlanarTarget(reference::Union{Nothing, Symbol}, nominal, calibration,
              board::Union{Nothing, Board} = nothing, canvas::Union{Nothing, Canvas} = nothing) =
     PlanarTarget(reference, nominal, _stored_calibration(calibration), board, canvas, _Checked())
@@ -528,12 +529,13 @@ gauge_names(t::PlanarTarget) = gauge_names(geom(t.calibration))
 A calibratable target's manifold anchored at `target`, with its GAUGES held
 fixed: the directions of [`parameter_vector`](@ref)`(target)` that images
 cannot see because the target's pose absorbs them ([`gauge_names`](@ref)) —
-an `AffineMap`'s translation, in-plane rotation and scale, a
-[`ThinPlateSpline`](@ref)'s affine part, a [`HeightField`](@ref)'s piston and
-two tilts. `minimal_manifold(target)` is this manifold, and it means "the
-pose is estimated jointly". `free` names gauge directions to leave free, one
-`Symbol` or a tuple: with a known pose (motion capture, a fixture), free them
-all; with a measured length (a ruler), `TargetManifold(t; free = :scale)`.
+a [`ThinPlateSpline`](@ref)'s affine part, a [`HeightField`](@ref)'s piston
+and two tilts. The affine factors ([`Aspect`](@ref), [`Skew`](@ref),
+[`Scale`](@ref), a planar `EuclideanMap`) have none: a calibration leaves the
+pose's directions out of its composition instead. `minimal_manifold(target)`
+is this manifold, and it means "the pose is estimated jointly". `free` names
+gauge directions to leave free, one `Symbol` or a tuple: with a known pose
+(motion capture, a fixture), free them all.
 
 The chart is linear: `retract(ch, v) = with_parameters(target, θ₀ + B v)`,
 `B` an `n × m` matrix whose orthonormal columns span the directions of θ
@@ -547,13 +549,10 @@ names)` keeps only the parameters `names` free (the others fixed, as a
 `TargetManifold` with the same gauges).
 
 THE BASIS IS FIXED AT THE ANCHOR. The gauge directions are evaluated once,
-where the manifold is built (an `AffineMap`'s rotation and scale directions
-depend on `A₀`), and `recenter` keeps `B`: a fit moves on one linear slice
-through its starting parameters (for an `AffineMap`, the components of `A` along
-`A₀` and `J A₀` stay where they started), and the manifold's type does not
-change. A covariance estimated on it is in that slice's gauge; building a new
-`minimal_manifold` from the result re-anchors the slice and so changes the
-gauge.
+where the manifold is built, and `recenter` keeps `B`: a fit moves on one
+linear slice through its starting parameters, and the manifold's type does not
+change. (The thin-plate kinds' gauge directions are constants of their nodes,
+so the slice is the same wherever it is anchored.)
 
 `B` is an `SMatrix` while `n ≤ 18` and a `Matrix{Float64}`
 above: a static basis compiles in time that grows steeply with its size (the
@@ -669,8 +668,8 @@ vocabulary), every other parameter held at the anchor — a calibration's
 complexity as a manifold, as `restrict` of a [`LensManifold`](@ref). Of the
 fixed gauges, only the combinations that lie inside the span of the free
 parameters stay fixed: a gauge direction with a component on a held parameter
-cannot move there, so it constrains nothing (restricting an `AffineMap`
-to `(:a11,)` keeps that one direction free).
+cannot move there, so it constrains nothing (restricting a
+[`ThinPlateSpline`](@ref) to `(:fx1,)` keeps that one direction free).
 """
 function restrict(ch::TargetManifold{<:PlanarTarget}, names::Tuple{Symbol, Vararg{Symbol}})
     all_names = parameter_names(ch.target)

@@ -38,6 +38,15 @@
             # GeometryBasics'; the CT constructors are the canonical-frame-map
             # idiom documented in transforms/coord_maps.jl. (`Translation` left
             # this list 2026-09-21 with `ustrip(::Translation)`, its last method.)
+            # `AffineMap`: since 2026-11-04 (the affine target calibration kind
+            # retired, with its pirated `transform_deriv_params(::AffineMap, x)`
+            # and `ustrip(::Units, ::AffineMap)`) ONE method needs this entry:
+            # the constructor `AffineMap(::StaticMatrix{3, 3})`
+            # (transforms/conversions.jl), the pixel affine of a calibration
+            # matrix, `AffineMap(K)` (cameras/projections.jl, the imaging
+            # chain), which takes StaticArrays' type. Every other AffineMap
+            # method takes a type of the stack or of this list (HyperRectangle,
+            # HyperSphere, Disc, Line2D, a normalization strategy).
             CoordinateTransformations.AffineMap,
             # `transform_deriv(::PerspectiveMap, X)` — the chain-rule leaf the
             # camera's imaging transform needs (cameras/projections.jl).

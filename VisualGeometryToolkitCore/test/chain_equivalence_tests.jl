@@ -15,7 +15,7 @@
     using .ChainEquivalenceCorpus
     include(joinpath(DIR, "core_values.jl"))
     using VisualGeometryToolkitCore: calibration_tag, transform_deriv, transform_deriv_params
-    using CoordinateTransformations: AffineMap, ComposedTransformation
+    using CoordinateTransformations: ComposedTransformation
     using StaticArrays: SMatrix, SVector
 
     export DIR, CODE, MAX_ULPS, read_goldens, target_values, lens_values, expected_core_value, compare_value, scaled_comparison, target_cases,
@@ -24,7 +24,8 @@
     # THE ADAPTER — the code at hand, as corpus.jl's header describes, and what
     # it changes of the goldens on purpose:
     # - targets (compose with CoordinateTransformations, revision 2): the
-    #   affine print error is CT's `AffineMap`; a composition is CT's `∘`, its
+    #   affine kind is retired (0.5.0: the cases with an affine member are set
+    #   aside, `affine = nothing`); a composition is CT's `∘`, its
     #   parameters, names, bounds, Jacobian columns, gauges and regularizer
     #   rows in CT's order (the outer map, the height field, first: `ct_order`);
     #   the parameter Jacobian is CT's `transform_deriv_params`, the point
@@ -36,7 +37,7 @@
     #   lists the stages outer first under "compose" (`legacy_lens_record`
     #   puts them back under the goldens' "chain", in application order).
     const CODE = (
-        affine = (A, b) -> AffineMap(SMatrix{2, 2}(A), SVector{2}(b)),
+        affine = nothing,         # no affine kind (0.5.0): an affine print error is Aspect ∘ Skew (∘ …), every A case retired
         compose_calibrations = members -> ∘(reverse(members)...),
         compose_distortions = stages -> ∘(reverse(stages)...),
         jacobian_theta = transform_deriv_params,
@@ -48,10 +49,12 @@
         ct_order = true,
         lens_ct_order = true,
         # Two in-plane kinds never compose (a Rigid member is an in-plane kind):
-        # the only compositions left are A_H and T_H, a height field after an
-        # AffineMap or a ThinPlateSpline. A target refuses every one of these.
+        # the only composition left is T_H, a height field after a
+        # ThinPlateSpline. A target refuses every one of these. The affine kind
+        # is retired (0.5.0), and with it A and A_H: its gauge-free factors
+        # (Aspect, Skew, Scale, EuclideanMap) postdate the goldens.
         retired = Set([
-            "R_H", "R_A", "R_A_H", "R_T", "R_T_H", "A_R", "A_R_H", "A_T", "A_T_H", "T_R", "T_R_H", "T_A", "T_A_H",
+            "A", "A_H", "R_H", "R_A", "R_A_H", "R_T", "R_T_H", "A_R", "A_R_H", "A_T", "A_T_H", "T_R", "T_R_H", "T_A", "T_A_H",
             "R_A_T", "R_A_T_H", "R_T_A", "R_T_A_H", "A_R_T", "A_R_T_H", "A_T_R", "A_T_R_H", "T_R_A", "T_R_A_H", "T_A_R", "T_A_R_H",
         ]),
     )
@@ -89,15 +92,18 @@ end
     isempty(worst) || @info "chain equivalence: values off by ulps (≤ $(MAX_ULPS))" worst
     @test isempty(failures)
     @test n_compared + n_set_aside == length(G)
-    @test n_compared >= 250
+    @test n_compared >= 250 - 52                  # 52: the A and A_H goldens, set aside with the affine kind (0.5.0)
 end
 
 @testitem "chain equivalence: the retired compositions are refused" setup = [ChainEquivalenceCore] begin
     using VisualGeometryToolkitCore: PlanarTarget
     P = read_goldens(joinpath(DIR, "corpus_params.txt"))
     cases = Dict(target_cases(P, CODE))
+    # (a case with an affine member has no value at all: the code has no affine kind)
+    has_affine(n) = :A in case_members(n)
     for name in CODE.retired
+        has_affine(name) && continue
         @test_throws ArgumentError PlanarTarget(design_points(); calibration = cases[name])
     end
-    @test all(n -> haskey(cases, n), CODE.retired)
+    @test all(n -> haskey(cases, n) != has_affine(n), CODE.retired)
 end

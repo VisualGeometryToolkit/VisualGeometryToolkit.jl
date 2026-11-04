@@ -6,27 +6,43 @@ Breaking: one composition, CoordinateTransformations' `∘`, replaces the two
 chain types, and CT's conventions hold for it.
 
 - **A target calibration is a CoordinateTransformations `Transformation`.**
-  `TargetCalibration` is now the union of the kinds: `Rigid`, CT's 2-D
-  `AffineMap` (static `A` and `b`), `ThinPlateSpline`, `HeightField`, and the
-  only two compositions, `HeightField ∘ AffineMap` and
-  `HeightField ∘ ThinPlateSpline`. Two in-plane kinds never compose (a
-  `ThinPlateSpline` frees its own stretch and shear by name); a `PlanarTarget`
-  refuses any other composition with an `ArgumentError`. A downstream
-  calibration kind is no longer possible (the union is closed).
+  `TargetCalibration` is now the union of the kinds: `Rigid`, the affine
+  factors (a planar `EuclideanMap`, `Scale`, `Aspect`, `Skew`),
+  `ThinPlateSpline`, `HeightField`, and their compositions. A `PlanarTarget`
+  takes one kind, the affine factors in their canonical order
+  `EuclideanMap ∘ Scale ∘ Aspect ∘ Skew` (any of them left out), or a
+  `HeightField` after those or after a `ThinPlateSpline`; it refuses any other
+  composition with an `ArgumentError` and stores a composition
+  right-associated, whatever association `∘` built. A downstream calibration
+  kind is no longer possible (the union is closed).
 - **Removed `CalibrationChain`**: `CalibrationChain(A, H)` is `H ∘ A`
   (CoordinateTransformations' `∘`, applied right to left). A composition's
   parameters, names, bounds, Jacobian columns, gauges, length mask and
   regularizer rows are in CT's order, the OUTER map's (the height field's)
   first — the reverse of the chain's application order. Names keep their tag
-  prefixes (`:height_field_h1`, …, `:affine_a11`).
-- **Removed `Affine`**: the affine print error is CT's `AffineMap(A, b)`, `A`
-  a dimensionless `SMatrix{2, 2}`, `b` an `SVector{2}` plain or of lengths
-  (FlexUnits carries them; no `physical` flag). Its parameters
-  `(:a11, :a12, :a21, :a22, :bx, :by)` and gauges are unchanged; a target
-  stores `b` in metres. The registry's tag stays `"affine"`
-  (`TARGET_CALIBRATION_TAGS` strips its family's suffix `Map`); the registry
-  no longer holds `"calibration_chain"`, and `calibration_tag` of a
-  composition is an `ArgumentError`.
+  prefixes (`:height_field_h1`, …, `:aspect_a1`).
+- **Removed `Affine`, and the affine kind with it: the affine print error is
+  its gauge-free Iwasawa factors.** `A = s·R·D·U` (the KAN decomposition): new
+  N-generic CoordinateTransformations kinds `Aspect` (`x ↦ D x`, `D` a det-1
+  diagonal, its `N − 1` free log-stretches `(:a1, …)`), `Skew` (`x ↦ U x`, `U`
+  unit upper-triangular, its `N(N−1)/2` strictly-upper entries row by row
+  `(:u12, :u13, …, :u23, …)`) and `Scale` (`x ↦ e^k x`, `(:log_scale,)`),
+  and Core's planar `EuclideanMap` as the rigid member (`(:angle, :tx, :ty)`;
+  new `transform_deriv_params(::EuclideanMap{2}, x)`, minimal, and
+  `transform_deriv(::EuclideanMap, x)`). None has gauges. With the pose
+  estimated jointly the print error is `Aspect ∘ Skew` (two parameters, where
+  the affine kind had six and four gauges); a measured length adds `Scale`, a
+  known pose the rigid member: `EuclideanMap ∘ Scale ∘ Aspect ∘ Skew`. A
+  `PlanarTarget` refuses an `AffineMap` calibration with an `ArgumentError`
+  naming the composition. The tag `"affine"` is retired in
+  `TARGET_CALIBRATION_TAGS` (successor `"aspect"`, the composition's outer
+  member); new tags `"euclidean"`, `"scale"`, `"aspect"`, `"skew"`. The
+  registry no longer holds `"calibration_chain"`, and `calibration_tag` of a
+  composition is an `ArgumentError`. Core no longer adds methods to
+  `transform_deriv_params` or `FlexUnits.ustrip` on CoordinateTransformations'
+  `AffineMap`: that type piracy is gone, and `AffineMap` stays on Aqua's
+  `treat_as_own` list for one constructor only, `AffineMap(::StaticMatrix{3, 3})`
+  (the pixel affine of a calibration matrix).
 - **Removed `calibration_jacobian`** (retired in `check_naming`): a
   calibration's parameter Jacobian is CT's `transform_deriv_params(c, x)`, its
   point Jacobian CT's `transform_deriv(c, x)`. `ThinPlateSpline` and

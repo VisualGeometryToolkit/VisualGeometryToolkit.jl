@@ -218,6 +218,27 @@ function CoordinateTransformations.transform_deriv_params(::PlainEuclideanMap{3}
     return hcat(x[1] * I3, x[2] * I3, x[3] * I3, I3)
 end
 
+# ∂(R(ϑ)·x + t)/∂(ϑ, t₁, t₂) — the planar rigid map's parameter derivative in
+# its MINIMAL coordinates, the angle ϑ (radians, counter-clockwise) and the
+# translation: the 2×3 [J·R·x  I₂], J the quarter turn. In the plane the
+# rotations commute, so a change dϑ of the angle IS the left perturbation
+# R ↦ exp(dϑ J)·R of persisted-geometry.md's `[δω; δt]` chart, with
+# `t ↦ t + δt`. Unlike the 3-D method above (the ambient [vec(R); t] the
+# rigid charts' `retract_jacobian` maps into), it is minimal: the planar map
+# is a target calibration's rigid member (target_calibration.jl), whose
+# parameters are (ϑ, t₁, t₂). The translation does not enter; a physical
+# design point is taken in metres by the calibration protocol's method.
+function CoordinateTransformations.transform_deriv_params(E::EuclideanMap{2}, x::StaticVector{2, <:Real})
+    y = SMatrix{2, 2}(rotation(E)) * x
+    o, z = one(eltype(y)), zero(eltype(y))
+    return SMatrix{2, 3}(-y[2], y[1], o, z, z, o)
+end
+
+# ∂(R·x + t)/∂x = R, every dimension, plain or physical (the rotation is
+# dimensionless): the point Jacobian CoordinateTransformations' composition
+# chains through (a target calibration's rigid member).
+CoordinateTransformations.transform_deriv(E::EuclideanMap{N}, x) where {N} = SMatrix{N, N}(rotation(E))
+
 # Closed form of the chain rule for the action R(v)·x + t(v): the carried point
 # y moves by −[ΔR(ω)·y₀]×·L(ω)·dω and the translation by dτ. At the anchor
 # L = s·I (s = 4 for the MRP, 1 for the rotation vector): `[−s·[y₀]×  I₃]`.

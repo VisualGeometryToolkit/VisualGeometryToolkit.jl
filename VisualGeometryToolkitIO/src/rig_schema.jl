@@ -55,6 +55,15 @@ end
 #   … "canvas": {"size": {"width": w, "height": h}, "origin": [u, v],              (optional) the printed page,
 #                "texture": {"path": "<relative path>", "sha256": "<hex>",          its printed image (optional):
 #                            "size": {"width": w, "height": h}, "origin": [u, v]}}  the file and the rectangle it covers
+#   … "placement": {"origin": [u, v], "side": s}                                   (optional, planar only) VGC's ChartPlacement
+#
+# A PLACEMENT says where the calibration's dimensionless chart lies in the
+# design chart (the chart point c is the design point origin + side·c): its
+# origin and side are lengths in the file's `length_unit`. A placed target's
+# calibration acts in that chart, so its record — nodes, parameters,
+# covariance — is plain chart numbers, written and read as they are, never
+# scaled by the unit (the placement carries the lengths). A body without one
+# reads as before; no migration writes one.
 #
 # The board, the canvas and the texture are rectangles of ONE chart, the
 # design chart of the nominal points (VGC's `Canvas` states it): each is its
@@ -255,19 +264,25 @@ const _CANVAS = _Checked(
     z -> (z[:size][:width] >= 0 && z[:size][:height] >= 0) ? nothing : "a canvas's width and height are ≥ 0",
 )
 
+const _PLACEMENT = _Checked(
+    _Obj(:origin => _XY, :side => _Real()),
+    z -> (isfinite(z[:side]) && z[:side] > 0) ? nothing : "a chart placement's side is > 0",
+)
+
 const _TARGET_BODY = _Checked(
     _Obj(
         Pair{Symbol, _Spec}[:type => _NonEmpty()],
         Pair{Symbol, _Spec}[
             :points => _TARGET_POINTS, :point_covariances => _Vec(_Vec(_Vec(_Real()))),
             :reference => _NonEmpty(), :nominal => _Vec(_Vec(_Real(), 2)), :calibration => _TARGET_CALIBRATION,
-            :board => _BOARD, :canvas => _CANVAS,
+            :board => _BOARD, :canvas => _CANVAS, :placement => _PLACEMENT,
         ],
     ),
     function (t)
         ty = t[:type]
         if ty == "points"
             haskey(t, :points) || return "a points target states its `points`"
+            haskey(t, :placement) && return "a points target has no `placement` (a chart placement is a planar target's: where its calibration's chart lies)"
             any(k -> haskey(t, k), (:reference, :nominal, :calibration, :board, :canvas)) && return "a points target has `points` (and `point_covariances`) only"
             haskey(t, :point_covariances) && return _point_covariances_check(t[:points], t[:point_covariances])
             return nothing
@@ -309,7 +324,19 @@ end
 
 # A plain metre value (a calibration's stored length) as the file's number in `u`.
 _metres_json(x::Real, u::_LeafUnit) = _leaf_power(Float64(x), u, 1)
-_nodes_json(c, u::_LeafUnit) = [[_metres_json(p[1], u), _metres_json(p[2], u)] for p in c.system.nodes]
+
+# Where a calibration's lengths go: the file's unit or the identity's persisted
+# metres (`_LeafUnit`), or — for a PLACED target (VGC's `ChartPlacement`),
+# whose calibration acts in the board's dimensionless chart — `_CHART`: its
+# nodes, values and covariance are plain chart numbers, written and read as
+# they are, never scaled by `length_mask` (the placement carries the lengths).
+struct _Chart end
+const _CHART = _Chart()
+const _CalUnit = Union{_LeafUnit, _Chart}
+_metres_json(x::Real, ::_Chart) = Float64(x)
+_length_cov_json(Σ::AbstractMatrix, ::_Chart, dims) = _cov_rows((x, n) -> x, Σ, dims)
+_length_cov_from_json(c, n::Int, ::_Chart, dims) = SMatrix{n, n, Float64}(ntuple(k -> Float64(c[(k - 1) % n + 1][(k - 1) ÷ n + 1]::Real), n * n))
+_nodes_json(c, u::_CalUnit) = [[_metres_json(p[1], u), _metres_json(p[2], u)] for p in c.system.nodes]
 
 const _FactorKind = Union{EuclideanMap{2}, Scale, Aspect{2}, Skew{2}}
 _tag(c::Union{Rigid, ThinPlateSpline, HeightField, _FactorKind}) = calibration_tag(typeof(c))
@@ -317,7 +344,8 @@ _tag(::ComposedTransformation) = _COMPOSITION_TYPE
 # A calibration with lengths is stored physical: plain numbers are refused, as
 # a target's plain points are. One without lengths (Rigid, Scale, Aspect,
 # Skew and their compositions) has no form to refuse.
-_physical(c) = ((any(length_mask(c)) && !has_units(c)) && _refuse_plain("a $(nameof(typeof(c))) target calibration"); c)
+_physical(c, ::_LeafUnit) = ((any(length_mask(c)) && !has_units(c)) && _refuse_plain("a $(nameof(typeof(c))) target calibration"); c)
+_physical(c, ::_Chart) = c   # a placed target's calibration is plain chart numbers (VGC refuses one with units)
 
 # A composition's members, outer first, whatever its association (VGC stores
 # it right-associated); the record lists them flat.
@@ -345,46 +373,53 @@ function _planar_angle(R::StaticMatrix{2, 2})
     return ϑ
 end
 
-_calibration_record(c::Rigid, ::_LeafUnit) = (type = _tag(c),)
-_calibration_record(c::Union{Scale, Aspect{2}, Skew{2}}, ::_LeafUnit) = (type = _tag(c), parameters = Float64.(collect(parameter_vector(c))))
-function _calibration_record(c::EuclideanMap{2}, u::_LeafUnit)
-    θ = parameter_vector(_physical(c))
+_calibration_record(c::Rigid, ::_CalUnit) = (type = _tag(c),)
+_calibration_record(c::Union{Scale, Aspect{2}, Skew{2}}, ::_CalUnit) = (type = _tag(c), parameters = Float64.(collect(parameter_vector(c))))
+function _calibration_record(c::EuclideanMap{2}, u::_CalUnit)
+    θ = parameter_vector(_physical(c, u))
     return (type = _tag(c), parameters = [_planar_angle(SMatrix(VgtkCore.rotation(c))), _metres_json(θ[2], u), _metres_json(θ[3], u)])
 end
-_calibration_record(c::Union{ThinPlateSpline, HeightField}, u::_LeafUnit) =
-    (type = _tag(_physical(c)), nodes = _nodes_json(c, u), parameters = [_metres_json(v, u) for v in parameter_vector(c)])
-_calibration_record(c::ComposedTransformation, u::_LeafUnit) =
-    (type = _tag(_physical(c)), compose = [_calibration_record(l, u) for l in _flat_members(c)])
+_calibration_record(c::Union{ThinPlateSpline, HeightField}, u::_CalUnit) =
+    (type = _tag(_physical(c, u)), nodes = _nodes_json(c, u), parameters = [_metres_json(v, u) for v in parameter_vector(c)])
+_calibration_record(c::ComposedTransformation, u::_CalUnit) =
+    (type = _tag(_physical(c, u)), compose = [_calibration_record(l, u) for l in _flat_members(c)])
 
-_calibration_record(c::Uncertain{<:TargetCalibration}, u::_LeafUnit) =
+_calibration_record(c::Uncertain{<:TargetCalibration}, u::_CalUnit) =
     merge(_calibration_record(geom(c), u), (covariance = _length_cov_json(cov(c), u, length_mask(geom(c))),))
 
+# A calibration's length as read: a length in metres from the file's unit, or
+# (`_CHART`, a placed target's) the plain chart number as stored.
 _read_metres(x, u::Units) = read_length(x::Real, u)
-_nodes_from_json(x, u::Units) = [SVector(_read_metres(p[1], u), _read_metres(p[2], u)) for p in x.nodes::Vector{Any}]
+_read_metres(x, ::_Chart) = Float64(x::Real)
+_stored_value(x, u::Units) = Float64(ustrip(m, read_length(x::Real, u)))
+_stored_value(x, ::_Chart) = Float64(x::Real)
+const _ReadUnit = Union{Units, _Chart}
+_nodes_from_json(x, u::_ReadUnit) = [SVector(_read_metres(p[1], u), _read_metres(p[2], u)) for p in x.nodes::Vector{Any}]
 
 # (by the kind's TYPE, which VGC's registry gives for the record's tag)
-_calibration_from_record(::Type{Rigid}, x, u::Units) = Rigid()
-function _calibration_from_record(::Type{EuclideanMap}, x, u::Units)
+_calibration_from_record(::Type{Rigid}, x, u::_ReadUnit) = Rigid()
+function _calibration_from_record(::Type{EuclideanMap}, x, u::_ReadUnit)
     p = x.parameters::Vector{Any}
     return EuclideanMap(RotMatrix{2, Float64}(Float64(p[1])), SVector(_read_metres(p[2], u), _read_metres(p[3], u)); check = false)
 end
-_calibration_from_record(::Type{Scale}, x, u::Units) = Scale(Float64(only(x.parameters)))
-_calibration_from_record(::Type{Aspect}, x, u::Units) = Aspect(Float64(only(x.parameters)))
-_calibration_from_record(::Type{Skew}, x, u::Units) = Skew(Float64(only(x.parameters)))
-function _calibration_from_record(::Type{ThinPlateSpline}, x, u::Units)
+_calibration_from_record(::Type{Scale}, x, u::_ReadUnit) = Scale(Float64(only(x.parameters)))
+_calibration_from_record(::Type{Aspect}, x, u::_ReadUnit) = Aspect(Float64(only(x.parameters)))
+_calibration_from_record(::Type{Skew}, x, u::_ReadUnit) = Skew(Float64(only(x.parameters)))
+function _calibration_from_record(::Type{ThinPlateSpline}, x, u::_ReadUnit)
     nodes = _nodes_from_json(x, u)
     p = x.parameters::Vector{Any}
     K = length(nodes)
     return _pure_bending(ThinPlateSpline(nodes, [_read_metres(p[i], u) for i in 1:K], [_read_metres(p[K + i], u) for i in 1:K]), p, u)
 end
-_calibration_from_record(::Type{HeightField}, x, u::Units) =
+_calibration_from_record(::Type{HeightField}, x, u::_ReadUnit) =
     _pure_bending(HeightField(_nodes_from_json(x, u), [_read_metres(v, u) for v in x.parameters::Vector{Any}]), x.parameters, u)
 # A thin-plate kind holds pure bending (VGC: no affine term in its
 # interpolant; its constructor projects the values it is given and keeps,
-# bit for bit, values whose affine term is within 1e-12 of them, in metres):
-# a record whose values the constructor moved is refused, never read moved.
-function _pure_bending(c, p, u::Units)
-    stored = [Float64(ustrip(m, _read_metres(v, u))) for v in p]
+# bit for bit, values whose affine term is within 1e-12 of them, in metres —
+# or, placed, in chart units): a record whose values the constructor moved is
+# refused, never read moved.
+function _pure_bending(c, p, u::_ReadUnit)
+    stored = [_stored_value(v, u) for v in p]
     parameter_vector(c) == stored && return c
     what = c isa HeightField ? "heights" : "displacements"
     throw(
@@ -400,7 +435,7 @@ function _pure_bending(c, p, u::Units)
 end
 # A calibration record (validated) back to VGC's kind, `Uncertain` iff it
 # states a covariance (unit^(lᵢ+lⱼ) → m^(lᵢ+lⱼ)).
-function _target_calibration_from_json(x, u::Units)
+function _target_calibration_from_json(x, u::_ReadUnit)
     c = _bare_calibration_from_json(x, u)
     haskey(x, :covariance) || return c
     dims = length_mask(c)
@@ -408,7 +443,7 @@ function _target_calibration_from_json(x, u::Units)
 end
 # the calibration without its covariance: a kind, or a composition, its flat
 # members folded right (`a ∘ (b ∘ c)`, VGC's one association)
-_bare_calibration_from_json(x, u::Units) = x.type::String == _COMPOSITION_TYPE ?
+_bare_calibration_from_json(x, u::_ReadUnit) = x.type::String == _COMPOSITION_TYPE ?
     foldr(∘, [_bare_calibration_from_json(r, u) for r in x.compose]) :
     _calibration_from_record(TARGET_CALIBRATION_TAGS[x.type::String], x, u)
 
@@ -423,13 +458,29 @@ calibration with lengths, is an `ArgumentError` (attach the unit, `p .* m`). A
 Building blocks for a package serializing its own kind.
 """
 target_json(t::PointTarget, unit::_LeafUnit = mm) = merge((type = "points",), _points_json("a points target", points(t), unit))
-target_json(t::PlanarTarget, unit::_LeafUnit = mm) = merge(
-    reference(t) === nothing ?
-        (type = "planar", nominal = [_lengths_json(p, unit, "a planar target's nominal point") for p in t.nominal], calibration = _calibration_record(calibration(t), unit)) :
-        (type = "planar", reference = String(reference(t)), calibration = _calibration_record(calibration(t), unit)),
-    _board_json(board(t), unit),
-    _canvas_json(canvas(t), unit),
-)
+function target_json(t::PlanarTarget, unit::_LeafUnit = mm)
+    pl = placement(t)
+    cu = pl === nothing ? unit : _CHART          # a placed calibration: plain chart numbers
+    return merge(
+        reference(t) === nothing ?
+            (type = "planar", nominal = [_lengths_json(p, unit, "a planar target's nominal point") for p in t.nominal], calibration = _calibration_record(calibration(t), cu)) :
+            (type = "planar", reference = String(reference(t)), calibration = _calibration_record(calibration(t), cu)),
+        _board_json(board(t), unit),
+        _canvas_json(canvas(t), unit),
+        _placement_json(pl, unit),
+    )
+end
+
+# The placement ↔ its record (VGC's `ChartPlacement`: the chart point c is the
+# design point origin + side·c): its origin and side, lengths in the file's
+# unit, decimal-exactly; read back as lengths (stored plain metres).
+_placement_json(::Nothing, ::_LeafUnit) = (;)
+function _placement_json(P::ChartPlacement, u::_LeafUnit)
+    has_units(P) || _refuse_plain("a target's chart placement")
+    return (placement = (origin = [_metres_json(x, u) for x in P.origin], side = _metres_json(P.side, u)),)
+end
+_placement_from_json(x, u::Units) =
+    ChartPlacement(SVector(read_length(x.origin[1]::Real, u), read_length(x.origin[2]::Real, u)), read_length(x.side::Real, u))
 
 # The board ↔ its record. VGC's `Board` holds its size as lengths (metres) and
 # its lower-left corner as plain metres (a physical target's; a unitless one is
@@ -483,15 +534,16 @@ function target_from_json(t, unit::AbstractString; resolve = nothing)
     if t.type == "points"
         return PointTarget(_points_from_json(t.points::Vector{Any}, u, haskey(t, :point_covariances) ? t.point_covariances::Vector{Any} : nothing))
     end
-    c = _target_calibration_from_json(t.calibration, u)
+    pl = haskey(t, :placement) ? _placement_from_json(t.placement, u) : nothing
+    c = _target_calibration_from_json(t.calibration, pl === nothing ? u : _CHART)   # placed: plain chart numbers
     bd = haskey(t, :board) ? _board_from_json(t.board, u) : nothing
     cv = haskey(t, :canvas) ? _canvas_from_json(t.canvas, u) : nothing
-    haskey(t, :nominal) && return PlanarTarget(nothing, _points_from_json(t.nominal::Vector{Any}, u), c, bd, cv)
+    haskey(t, :nominal) && return PlanarTarget(nothing, _points_from_json(t.nominal::Vector{Any}, u), c, bd, cv, pl)
     ref = Symbol(t.reference::String)
     nominal = resolve === nothing ? nothing : resolve(ref)
     (nominal === nothing || isempty(nominal) || has_units(nominal)) ||
         _refuse_plain("resolve($(repr(ref))): the design's nominal points")
-    return PlanarTarget(ref, nominal, c, bd, cv)
+    return PlanarTarget(ref, nominal, c, bd, cv, pl)
 end
 
 # -----------------------------------------------------------------------------
@@ -779,7 +831,9 @@ The identity tree, fixed (a test pins it for a rig of every target kind):
                 "board": {"size": [width, height] (m), "origin": [m, m]}  (iff the target has a board),
                 "canvas": {"size": [width, height] (m), "origin": [m, m],
                            "texture": {"path", "sha256", "size": [width, height] (m), "origin": [m, m]} (iff it has one)}
-                                                                          (iff the target has a canvas)}
+                                                                          (iff the target has a canvas),
+                "placement": {"origin": [m, m], "side": m}                (iff the target has a chart placement;
+                                                                           its calibration's numbers are then the chart's, as held)}
     calibration {"kind": <the kind's tag> | "calibration_chain" (a composition), "parameters": parameter_vector (lengths in m),
                  "nodes": [[m, m], …] (thin-plate kinds), "members": [<calibration>, <calibration>] (a composition, in application order: the inner map first,
                  whatever order the record lists them in),

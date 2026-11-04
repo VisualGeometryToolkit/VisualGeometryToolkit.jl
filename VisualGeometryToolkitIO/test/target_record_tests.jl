@@ -499,3 +499,63 @@ end
         write(q, JSON.json(pt)); @test (try load(AbstractTarget, q); nothing catch e; e end) isa ArgumentError
     end
 end
+
+@testitem "target/v3: a chart placement — the calibration in plain chart numbers, the placement in the file's unit" setup = [VGIoFixtures, TargetRecordFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, ChartPlacement, HeightField, ThinPlateSpline, Aspect, Skew, Rigid,
+        Uncertain, CovMat, Rig, PosedTarget, TargetFrame, grid_nodes, calibration, parameter_vector, geom, placement
+    using Statistics: cov
+    using LinearAlgebra: Diagonal
+    # VGC's ChartPlacement: the calibration acts in the board's dimensionless
+    # chart ([0, 1]², RadiometricCamera's page), plain numbers whatever the
+    # points' form; the placement (origin, side) carries the lengths.
+    chart = grid_nodes(3; lo = 0.0, hi = 1.0)
+    H = HeightField(chart, [0.01, 0.0, -0.01, 0.02, 0.0, 0.0, 0.0, 0.03, 0.0])          # projected: pure bending, plain
+    c = Uncertain(foldr(∘, (H, Aspect(0.002), Skew(-0.001))), CovMat(SMatrix{11, 11, Float64}(Diagonal([1.0e-6 * i for i in 1:11]))))
+    P = ChartPlacement(SVector(mmq(-13.9), mmq(0.0)), mmq(150.0))
+    t = PlanarTarget(design_points(); calibration = c, placement = P)
+    mktempdir() do dir
+        p = joinpath(dir, "t.json")
+        for u in (mm, m)
+            save(p, t; length_unit = u)
+            d = parse_json(read(p, String))
+            # the placement in the file's unit, exactly; the calibration's numbers as held, in any unit
+            @test d.target.placement.origin == (u == mm ? [-13.9, 0.0] : [-0.0139, 0.0]) && d.target.placement.side == (u == mm ? 150.0 : 0.15)
+            @test d.target.calibration.compose[1].nodes == [[q[1], q[2]] for q in chart]
+            @test d.target.calibration.compose[1].parameters == collect(parameter_vector(H))
+            @test d.target.calibration.covariance == [[Float64(cov(c)[i, j]) for j in 1:11] for i in 1:11]   # never scaled by the unit
+            back = load(AbstractTarget, p)
+            @test back == t && placement(back) == P
+            @test calibration(back) == calibration(t) && parameter_vector(geom(calibration(back))) == parameter_vector(geom(c))
+        end
+        # a placement on a points target is refused
+        q = joinpath(dir, "points.json")
+        save(q, VisualGeometryToolkitCore.PointTarget([SVector(mmq(0.0), mmq(1.0), mmq(2.0))]))
+        dd = JSON.parse(read(q, String); dicttype = Dict{String, Any})
+        dd["target"]["placement"] = Dict("origin" => [0.0, 0.0], "side" => 1.0)
+        write(q, JSON.json(dd))
+        e = try load(AbstractTarget, q); nothing catch e; e end
+        @test e isa ArgumentError && occursin("no `placement`", e.msg)
+        # and a placement's side must be positive
+        save(p, t)
+        dd = JSON.parse(read(p, String); dicttype = Dict{String, Any})
+        dd["target"]["placement"]["side"] = 0.0
+        write(q, JSON.json(dd))
+        e = try load(AbstractTarget, q); nothing catch e; e end
+        @test e isa ArgumentError && occursin("side is > 0", e.msg)
+    end
+    # the identity holds the placement (origin and side, in metres): placed and unplaced differ, and so do two placements
+    X = EuclideanMap(one(RotMatrix{3, Float64}), [mmq(0.0), mmq(0.0), mmq(0.0)])
+    rig(tt) = Rig{TargetFrame{:a}}(Dict(:a => PosedTarget(tt, X)))
+    placed = PlanarTarget(design_points(); calibration = Rigid(), placement = P)
+    unplaced = PlanarTarget(design_points(); calibration = Rigid())
+    moved = PlanarTarget(design_points(); calibration = Rigid(), placement = ChartPlacement(SVector(mmq(-13.9), mmq(0.0)), mmq(151.0)))
+    ids = VgtkIO.content_id.(rig.((placed, unplaced, moved)))
+    @test allunique(ids)
+    @test VgtkIO._identity_tree(rig(placed))["targets"][1]["target"]["placement"] == Dict("origin" => [-0.0139, 0.0], "side" => 0.15)
+    mktempdir() do dir
+        p = joinpath(dir, "rig.json")
+        save(p, rig(t); length_unit = m)
+        @test VgtkIO.content_id(p) == VgtkIO.content_id(rig(t)) == VgtkIO.content_id(load(Rig, p))
+    end
+end

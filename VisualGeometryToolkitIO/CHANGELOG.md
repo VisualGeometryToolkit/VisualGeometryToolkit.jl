@@ -25,6 +25,13 @@ calibration.
   refused by name, naming its factors `EuclideanMap ∘ Scale ∘ Aspect ∘ Skew`
   and `vgio_migrate`. A calibration without lengths (the dimensionless
   factors) is written whatever its form; one with lengths must be physical.
+- **A planar target's chart placement** (VGC's `ChartPlacement`): an optional
+  `"placement": {"origin": [u, v], "side": s}` beside `board` and `canvas`,
+  lengths in the file's unit (decimal-exact), refused on a points target. A
+  placed target's calibration acts in the board's dimensionless chart, so its
+  record — nodes, parameters, covariance — is plain chart numbers, written and
+  read bit for bit in any unit. The placement enters the `content_id` tree
+  (origin and side in metres). A body without one reads as before.
 - **`vgio/cameras/v4`, and `vgio/rig/v6`'s sensors**: a lens's distortion
   stages in sequence (CT's `∘`) are listed in the lens record's `"compose"`
   outer first (the key a composed calibration lists its members under); v3/v5

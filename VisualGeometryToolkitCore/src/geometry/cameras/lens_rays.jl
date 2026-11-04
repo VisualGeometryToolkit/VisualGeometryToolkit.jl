@@ -133,13 +133,20 @@ end
     return atan(r, z) / r
 end
 
+# The `@inline` at the `sin` and `cos` call sites is for Dual arguments on a
+# device: ForwardDiff's methods are otherwise kept as calls, which hand their
+# Duals over through local memory. It moves no bits. `evalpoly` (the radial factor
+# below) is NOT forced inline: it is Horner in `muladd`, whose fusing LLVM
+# decides per context, and inlining it into a Dual camera's caller moved the
+# last ulp of 8 in 2000 KB projections on the CPU and of 41% of the device
+# bearings' partials.
 @inline function _sin_ratio(r2)
     r2 <= _series_radius2(r2) && return 1 - r2 / 6 + r2 * r2 / 120
     r = sqrt(r2)
-    return sin(r) / r
+    return @inline(sin(r)) / r
 end
 
-@inline _cos_root(r2) = r2 <= _series_radius2(r2) ? 1 - r2 / 2 + r2 * r2 / 24 : cos(sqrt(r2))
+@inline _cos_root(r2) = r2 <= _series_radius2(r2) ? 1 - r2 / 2 + r2 * r2 / 24 : @inline(cos(sqrt(r2)))
 
 # ‖v‖ + v₃ without cancellation: direct on the forward hemisphere, through the
 # conjugate (n + v₃)(n − v₃) = r² on the backward one, where the direct sum

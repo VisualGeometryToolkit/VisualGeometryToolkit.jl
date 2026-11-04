@@ -211,6 +211,14 @@ Performance (same bits):
   (288 B a call at 25 nodes); it is a stack `MVector` folded in the same
   order, so the weights are the same bits. A ForwardDiff `Dual` point now
   gives `Dual` weights (it was a `MethodError`).
+- **A Dual camera's `backproject` inlines on the device.**
+  `backproject(::CameraModel, u)` is `@inline`, and `BoundedCamera`'s
+  `project`/`backproject` are explicit `@inline` forwarders instead of
+  `@forward`'s; the equidistant frame's `sin`/`cos` are inlined at the call
+  site. A KB camera in `Dual{Float32, 15}` (RadiometricCamera's device
+  Jacobian) went from 124 registers and 3008 B of local memory a thread to
+  121 and 1160 B. `evalpoly` stays a call: forcing it inline moved `muladd`
+  fusing, and so last ulps.
 
 ## 0.4.0 (2026-11-02)
 

@@ -512,8 +512,14 @@ _unposed_only(f, what, x, args...) = is_posed(x) ? throw(MethodError(f, (x, args
 MacroTools.@forward BoundedCamera.camera (
     model, intrinsics, lens, focal_length, calibration_matrix,
     pose, extrinsics,
-    project, backproject, unproject, is_in_front,
+    unproject, is_in_front,
 )
+# The two maps a device kernel calls are written out `@inline`, which
+# `@forward` does not emit: with a Dual camera the inliner declines the
+# forwarder and the kernel hands the wrapped camera over by pointer through
+# local memory. The keywords stay for the batched generic-model `project`.
+@inline project(bc::BoundedCamera, args...; kwargs...) = project(bc.camera, args...; kwargs...)
+@inline backproject(bc::BoundedCamera, args...; kwargs...) = backproject(bc.camera, args...; kwargs...)
 
 # ----------------------------------------------------------------------------
 # Units — a physical camera is one whose extrinsics are (translation in metres)

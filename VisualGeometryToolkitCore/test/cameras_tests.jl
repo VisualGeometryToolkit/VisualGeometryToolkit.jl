@@ -158,4 +158,25 @@ end
         @test backproject(cm, SVector(400, 300)) == backproject(cm, SVector(400.0, 300.0))
         @test backproject(cm, [SVector(400, 300)]) == [backproject(cm, SVector(400.0, 300.0))]
     end
+
+    @testset "a Dual camera's backproject inlines through BoundedCamera" begin
+        # RadiometricCamera's device Jacobian backprojects through a Dual{Float32, 15}
+        # camera. With `@forward`'s forwarder and a non-`@inline` CameraModel method
+        # the inliner kept both as calls, and the kernel handed the camera over by
+        # pointer through local memory (3008 B a thread at KB; 1160 B after). The bearing is
+        # the same bits as the pixel-frame method's.
+        D = ForwardDiff.Dual{Nothing, Float32, 15}
+        seed(x, i) = D(x, ForwardDiff.Partials(ntuple(j -> Float32(j == i), 15)))
+        K = CameraCalibrationMat(SMatrix{3, 3, D}(seed(300.0f0, 1), 0, 0, 0, seed(300.0f0, 2), 0, seed(320.0f0, 3), seed(240.0f0, 4), 1))
+        lens0 = KannalaBrandt(-0.04f0, 0.01f0)
+        θ = parameter_vector(lens0)
+        cam = BoundedCamera(CameraModel(K; lens = with_parameters(lens0, [seed(θ[i], 4 + i) for i in eachindex(θ)])), Size2(640, 480))
+        u = SVector(400.3f0, 287.1f0)
+        @test backproject(cam, u) === Vec3(backproject(cam.camera.intrinsics, cam.camera.lens, u))
+        ci = only(code_typed(backproject, Tuple{typeof(cam), typeof(u)}))[1]
+        callee(st) = (m = st.args[1]; m isa Core.CodeInstance ? m.def : m)
+        called = [callee(st).def.name for st in ci.code if st isa Expr && st.head === :invoke]
+        @test :backproject ∉ called
+        @test :sin ∉ called && :cos ∉ called
+    end
 end

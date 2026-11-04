@@ -230,7 +230,7 @@ model = CameraModel(; focal=800.0, pp=(320.0, 240.0))
 K = calibration_matrix(model)  # [800 0 320; 0 800 240; 0 0 1]
 ```
 """
-function calibration_matrix(model::CameraModel)
+function calibration_matrix(model::CameraModel{<:LogicalIntrinsics})
     K = model.intrinsics.K
     T = eltype(K)
     return SMatrix{3, 3, T, 9}(K)
@@ -514,7 +514,7 @@ unproject(model::CameraModel, u::AbstractVector, depth::Real) =
     Point3(unproject(model.intrinsics, model.lens, u, depth))
 
 function unproject(
-        intrinsics::AbstractIntrinsics, lens::AbstractLensModel,
+        intrinsics::LogicalIntrinsics, lens::AbstractLensModel,
         u::AbstractVector, depth::Real
     )
     T = eltype(intrinsics.K)
@@ -703,9 +703,10 @@ composition (`affine_part(K) ∘ lens ∘ affine_part(K⁻¹)`) so `image_warp`'
 the fused per-pixel path is one affine, the lens polynomial, one affine.
 """
 function distortion_map(model::CameraModel{<:AbstractIntrinsics, <:AbstractLensModel})
-    T = eltype(model.intrinsics.K)
-    return affine_part(SMatrix{3, 3, T}(model.intrinsics.K)) ∘ model.lens ∘
-        affine_part(SMatrix{3, 3, T}(model.intrinsics.K_inv))
+    K = _K(model.intrinsics)
+    T = eltype(K)
+    return affine_part(SMatrix{3, 3, T}(K)) ∘ model.lens ∘
+        affine_part(SMatrix{3, 3, T}(_K_inv(model.intrinsics)))
 end
 
 """
@@ -915,7 +916,7 @@ end
 # model's clip radius).
 _frame_edges(W::Float64, H::Float64) = rect_edges(Rect(0.0, 0.0, W, H), EdgeGrid{Closed}(400))
 function _frame_walk(model::CameraModel, sz, margin::Real)
-    K = model.intrinsics.K
+    K = _K(model.intrinsics)
     fx, fy, cx, cy = Float64(K[1, 1]), Float64(K[2, 2]), Float64(K[1, 3]), Float64(K[2, 3])
     lens = _precision(Float64, model.lens)
     rclip = _rect_clip_radius(lens, margin)     # normalized distorted radius

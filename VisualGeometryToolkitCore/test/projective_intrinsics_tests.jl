@@ -6,7 +6,7 @@
     # =============================================================================
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: EuclideanMap, PixelFrame, convert_eltype, parameter_names, intrinsics, lens
+    using VisualGeometryToolkitCore: EuclideanMap, PixelFrame, ParameterManifold, action_jacobian, convert_eltype, parameter_names, intrinsics, lens
     using StaticArrays
     using GeometryBasics: Point2
     using Random: MersenneTwister
@@ -47,5 +47,27 @@
         @test principal_point(intrinsics(cv)) == Point2(shift[1], shift[2])
         @test principal_point(intrinsics(cv)) != principal_point(intrinsics(cam))
         @test lens(cv) == lens(cam)
+    end
+
+    @testset "undistort is the reference's" begin
+        img = rand(MersenneTwister(3), 24, 32)
+        cam_s = CameraModel(ProjectiveIntrinsics(Point2(16.0, 12.0)), Division(-2.0e-4, 0.0))
+        ref_s = CameraModel(LogicalIntrinsics(CameraCalibrationMat([1.0 0 16; 0 1.0 12; 0 0 1])), Division(-2.0e-4, 0.0))
+        @test undistort(cam_s, img) == undistort(ref_s, img)
+    end
+
+    @testset "parameter Jacobian under ForwardDiff" begin
+        using ForwardDiff
+        using FiniteDiff
+        X = SVector(0.1, 0.2, 1.0)
+        J = action_jacobian(ParameterManifold(cam), X)
+        @test size(J) == (2, 4) && all(isfinite, J)
+        f(θ) = project(with_parameters(cam, θ), X)
+        @test J ≈ FiniteDiff.finite_difference_jacobian(θ -> collect(f(θ)), collect(parameter_vector(cam))) rtol = 1.0e-5
+    end
+
+    @testset "no metric operation" begin
+        @test_throws MethodError calibration_matrix(cam)
+        @test_throws MethodError unproject(cam, SVector(1.0, 2.0), 1.0)
     end
 end

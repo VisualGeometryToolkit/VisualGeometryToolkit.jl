@@ -36,9 +36,8 @@ struct ProjectiveIntrinsics{T <: Real} <: AbstractIntrinsics
     ProjectiveIntrinsics{T}(center::AbstractVector{<:Real}) where {T <: Real} =
         new{T}(Point2{T}(center[1], center[2]))
 end
-ProjectiveIntrinsics(center::AbstractVector{T}) where {T <: AbstractFloat} =
-    ProjectiveIntrinsics{T}(center)
-ProjectiveIntrinsics(center::AbstractVector{<:Real}) = ProjectiveIntrinsics{Float64}(center)
+ProjectiveIntrinsics(center::AbstractVector{T}) where {T <: Real} =
+    ProjectiveIntrinsics{float(T)}(center)
 
 """
     principal_point(intrinsics::ProjectiveIntrinsics{T}) -> Point2{T}

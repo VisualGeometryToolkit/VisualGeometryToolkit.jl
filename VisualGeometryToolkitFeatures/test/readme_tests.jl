@@ -28,7 +28,7 @@
     packages = split(only(install))
     loaded = Set{String}()
     for code in example, m in eachmatch(r"^(?:using|import)\s+([^:\n]+)"m, code)
-        for part in split(replace(m[1], r"#.*" => ""), ',')   # a trailing comment is not a package
+        for part in split(m[1], ',')
             push!(loaded, first(split(strip(part), r"[.\s]")))
         end
     end
@@ -36,27 +36,31 @@
     @test Set(filter(!stdlib, loaded)) == Set(packages)
     @test occursin("pkg> add $(only(install))", index)
 
-    # The README marks its claims `# true`; the child asserts the same four.
-    @test count(r"#\s*true$"m, only(example)) == 4
+    @test occursin(r"#\s*true$"m, only(example))     # the example states its claims
 
     env = mktempdir()
     write(joinpath(env, "readme_example.jl"), only(example))
     registered = filter(!=("VisualGeometryToolkitFeatures"), String.(packages))
     script = joinpath(env, "run.jl")
+    # The child runs the example statement by statement, in one module, and
+    # asserts every statement whose last line ends in `# true`.
     write(script, """
     using Pkg
     Pkg.develop(path = $(repr(root)); io = devnull)
     isempty($(repr(registered))) || Pkg.add($(repr(registered)); io = devnull)
-    readme = Module(:ReadmeSandbox)
-    Base.include(readme, $(repr(joinpath(env, "readme_example.jl"))))
     using Test
+    readme = Module(:ReadmeSandbox)
+    code = read($(repr(joinpath(env, "readme_example.jl"))), String)
     @testset "README example" begin
-        # Three blobs, one of them dark, found at its COLMAP centre; every
-        # mutual nearest neighbour undoes the shuffle.
-        @test length(readme.dets) == 3
-        @test count(readme.is_dark, readme.dets) == 1
-        @test round.(readme.dark.center; digits = 1) == [99.5, 69.5]
-        @test all(readme.perm[m.second] == m.first for m in readme.matches)
+        pos = firstindex(code)
+        while pos <= ncodeunits(code)
+            ex, next = Meta.parse(code, pos; greedy = true, raise = true)
+            chunk = code[pos:prevind(code, next)]
+            pos = next
+            ex === nothing && continue
+            value = Core.eval(readme, ex)
+            occursin(r"#\\s*true\\z", rstrip(chunk)) && @test value === true
+        end
     end
     """)
     # Base.julia_cmd() carries the test run's flags (--depwarn=error, coverage).

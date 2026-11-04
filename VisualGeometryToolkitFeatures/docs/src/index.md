@@ -55,7 +55,8 @@ descriptors (the README's example; the test suite runs both).
 
 ```julia
 using VisualGeometryToolkitFeatures
-using Random   # a standard library, shipped with Julia
+# Random is a standard library, shipped with Julia.
+using Random
 
 # A 120×160 gray image with three Gaussian blobs, given as
 # (row, column, σ, amplitude): two light blobs and one dark one.
@@ -101,7 +102,7 @@ order, coordinate frames and pixel origins) are VisualGeometryToolkitCore's
 on.
 
 **Reference.** The API Reference pages ([Detection](api/detection.md),
-[Matching](api/matching.md), [Cache and Visualization](api/cache.md)) document
+[Image Input](api/image.md), [Matching](api/matching.md), [Cache and Visualization](api/cache.md)) document
 every public name; [References](references.md) lists the literature.
 
 ## Role in the VisualGeometryToolkit stack

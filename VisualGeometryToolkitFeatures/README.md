@@ -25,7 +25,8 @@ descriptors. It needs no files and no network.
 
 ```julia
 using VisualGeometryToolkitFeatures
-using Random   # a standard library, shipped with Julia
+# Random is a standard library, shipped with Julia.
+using Random
 
 # A 120×160 gray image with three Gaussian blobs, given as
 # (row, column, σ, amplitude): two light blobs and one dark one.

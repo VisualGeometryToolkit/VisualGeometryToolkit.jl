@@ -139,6 +139,13 @@ end
     @test v1_lens(BC, bc) == VgtkIO.opencv_lens(collect((bc[1], bc[2], bc[7], bc[8], bc[3], bc[4], bc[5], bc[6], bc[9:12]...)))
     @test v1_lens(BC, bc[1:8]) == VgtkIO.opencv_lens(collect((bc[1], bc[2], bc[7], bc[8], bc[3], bc[4], bc[5], bc[6])))   # 8: s = 0
     @test v1_lens(BC, (0.1, -0.02, 0, 0, 0, 0, 1.0e-3, -2.0e-3)) == VgtkIO.opencv_lens([0.1, -0.02, 1.0e-3, -2.0e-3])
+    # … and its map, written out (VGC 0.x's: the radial factor rational in r², k4–k6 the denominator)
+    let (k1, k2, k3, k4, k5, k6, p1, p2, s1, s2, s3, s4) = bc, x = X[1] / X[3], y = X[2] / X[3], r2 = x^2 + y^2
+        f = (1 + k1 * r2 + k2 * r2^2 + k3 * r2^3) / (1 + k4 * r2 + k5 * r2^2 + k6 * r2^3)
+        xd = x * f + 2p1 * x * y + p2 * (r2 + 2x^2) + s1 * r2 + s2 * r2^2
+        yd = y * f + p1 * (r2 + 2y^2) + 2p2 * x * y + s3 * r2 + s4 * r2^2
+        @test VgtkCore.project(v1_lens(BC, bc), X) ≈ [xd, yd]
+    end
     # its KannalaBrandt: θ_d = θ(1 + k1θ² + k2θ⁴ + k3θ⁶ + k4θ⁸)
     k = (0.03, -0.004, 0.0005, -2.0e-5)
     @test VgtkCore.project(v1_lens("KannalaBrandt", k), X) ≈ θ * (1 + k[1]θ^2 + k[2]θ^4 + k[3]θ^6 + k[4]θ^8) .* X[1:2] ./ r
@@ -175,6 +182,11 @@ end
         bad["cameras"][1]["intrinsics"]["unit"] = "mm"
         e = try load(Dict{Symbol, BoundedCamera}, write_tree(joinpath(dir, "bad.json"), bad)); nothing catch e; e end
         @test e isa ArgumentError && occursin("bad.json", e.msg) && occursin("px", e.msg)
+        # a value v1 never wrote (a degree that is not an integer) is refused naming the file, not a bare Julia error
+        odd = deepcopy(t)
+        odd["cameras"][1]["lens"] = Dict{String, Any}("model" => VgtkIO._V1_RATIONAL_RADIAL, "params" => Any[1.5, 1, 0.1, 0.2])
+        e = try load(Dict{Symbol, BoundedCamera}, write_tree(joinpath(dir, "odd.json"), odd)); nothing catch e; e end
+        @test e isa ArgumentError && occursin("odd.json", e.msg) && occursin("vgio/cameras/v1", e.msg)
     end
 end
 
@@ -215,6 +227,11 @@ end
         Dict{String, Any}("schema" => "toy/record/v3", "c" => 2 * t["b"])
     @test VgtkIO.migrate_record(Dict{String, Any}("schema" => "toy/record/v1", "a" => 1)) == Dict{String, Any}("schema" => "toy/record/v3", "c" => 2)
     @test VgtkIO.migrate_record(Dict{String, Any}("schema" => "toy/record/v3", "c" => 2)) == Dict{String, Any}("schema" => "toy/record/v3", "c" => 2)
+    # a step must move to a later version of its kind: no loop, no other kind
     VgtkIO.migrate_schema(::Val{Symbol("toy/stuck/v1")}, t::AbstractDict) = t
     @test_throws ArgumentError VgtkIO.migrate_record(Dict{String, Any}("schema" => "toy/stuck/v1"))
+    VgtkIO.migrate_schema(::Val{Symbol("toy/back/v2")}, t::AbstractDict) = Dict{String, Any}("schema" => "toy/back/v1")
+    @test_throws ArgumentError VgtkIO.migrate_record(Dict{String, Any}("schema" => "toy/back/v2"))
+    VgtkIO.migrate_schema(::Val{Symbol("toy/away/v1")}, t::AbstractDict) = Dict{String, Any}("schema" => "toy/other/v2")
+    @test_throws ArgumentError VgtkIO.migrate_record(Dict{String, Any}("schema" => "toy/away/v1"))
 end

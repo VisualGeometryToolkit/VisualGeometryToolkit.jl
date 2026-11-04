@@ -320,16 +320,21 @@ _reads_through_migration(s, kind::AbstractString) = _is_earlier_version(s, kind)
 # text, so the reader meets what it meets in a current file. Silent: an old
 # published file is a legitimate input; `@debug` names the version.
 function _migrated_on_load(d, path, kind, s)
+    refuse(why) = throw(ArgumentError("$(path): a $(s) file, read through its migration to $(_schema(kind)): $(why)"))
     t = try
         migrate_record(d)
     catch e
-        # a step's refusal, or a key its version's record always held, missing
-        e isa Union{ArgumentError, KeyError} || rethrow()
-        why = e isa KeyError ? "the record has no $(repr(e.key)), which every $(s) record held" : e.msg
-        throw(ArgumentError("$(path): a $(s) file, read through its migration to $(_schema(kind)): $(why)"))
+        # a step's refusal; or a record its version never wrote — a key every
+        # such record held missing, a value of the wrong type — named by its error
+        e isa ArgumentError && refuse(e.msg)
+        e isa KeyError && refuse("the record has no $(repr(e.key)), which every $(s) record held")
+        e isa Union{MethodError, InexactError, BoundsError, TypeError} && refuse("a value its version never wrote ($(sprint(showerror, e)))")
+        rethrow()
     end
-    @debug "$(path): a $(s) file, read through its migration to $(get(t, "schema", nothing))"
-    return _parse_vgio_text(_json_text(t), path)
+    reached = get(t, "schema", nothing)
+    reached == _schema(kind) || refuse("its version steps end at $(repr(reached))")
+    @debug "$(path): a $(s) file, read through its migration to $(reached)"
+    return _parse_vgio_text(JSON.json(t; allownan = true), path)   # (compact: parsed, never written)
 end
 
 # Write `body` as a v2 file after validating the very bytes that land on disk

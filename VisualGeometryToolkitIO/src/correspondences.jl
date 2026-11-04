@@ -121,7 +121,7 @@ for `cv::calibrateCamera` (the top-left pixel's centre at (0, 0)),
 `PixelFrame{:julia}` for MATLAB's (1, 1); the measurements' own frame by
 default. A type, it leads.
 
-`targets` is one or more rigs or `vgio/rig/v6` paths (one per connected
+`targets` is one or more rigs or rig file paths (one per connected
 component; a target present in several must carry the same points in each;
 `resolve` resolves a referenced planar design read from a path); when `obs` names its targets (`obs.targets`), the given ones must be
 exactly those, by [`content_id`](@ref) — an old rig file (`vgio/rig/v4`, or a
@@ -145,10 +145,13 @@ function save_correspondences(
         named = sort(obs.targets)
         if named != given
             old = Dict(reduce(vcat, [_old_id_map(t) for t in list]; init = Pair{String, String}[]))
-            named = sort!([get(old, t, t) for t in obs.targets])
+            named = sort!(unique!([get(old, t, t) for t in obs.targets]))     # (both of a v4 rig's identities: one rig)
         end
         named == given || throw(
-            ArgumentError("the measurements resolve against the targets $(sort(obs.targets)); the targets given are $(given)")
+            ArgumentError(
+                "the measurements resolve against the targets $(sort(obs.targets))" *
+                    (named == sort(obs.targets) ? "" : " (as current identities, $(named))") * "; the targets given are $(given)"
+            )
         )
     end
     return _write_correspondences(path, G, _correspondence_rows(G, obs, _target_rigs(list; resolve)); length_unit, provenance)

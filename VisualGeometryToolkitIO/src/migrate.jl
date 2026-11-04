@@ -282,9 +282,16 @@ function migrate_record(tree::AbstractDict)
     t = _lower(tree)
     while (s = get(t, "schema", nothing)) isa AbstractString && _has_record_migration(s)
         t = _lower(migrate_schema(Val(Symbol(s)), t))
-        get(t, "schema", nothing) == s && throw(ArgumentError("the migration step of $(s) returned a $(s) record"))
+        _moves_forward(s, get(t, "schema", nothing)) ||
+            throw(ArgumentError("the migration step of $(s) returned a $(repr(get(t, "schema", nothing))) record, not a later version of its kind"))
     end
     return t
+end
+# Whether a step's schema `to` is a later version of the kind `from` names
+# (`<kind>/v<n>`, an owner's kinds included): what keeps the steps from looping.
+function _moves_forward(from::AbstractString, to)
+    a, b = match(r"^(.+)/v(\d+)$", from), to isa AbstractString ? match(r"^(.+)/v(\d+)$", to) : nothing
+    return a !== nothing && b !== nothing && a[1] == b[1] && parse(Int, b[2]::AbstractString) > parse(Int, a[2]::AbstractString)
 end
 
 """
@@ -748,7 +755,7 @@ function _lens_v2_to_v3(l::AbstractDict)
         tag == "scaramuzza" ? Scaramuzza(v...) :
         tag == "division" ? Division(v...) :
         LiftLens(Radial(Tuple(v[1:nnum]), Tuple(v[(nnum + 1):end])))     # x_u = x_d·P(ρ²)/Q(ρ²)
-    return lens_record(lens)
+    return _lens_v4_to_v3(lens_record(lens))      # VGC's record, in v3's form (a composition's stages under "chain")
 end
 # VGC 0.x's Brown–Conrady lens — OpenCV's model with its fields k1…k6, p1, p2,
 # s1…s4 — as `opencv_lens` of OpenCV's vector [k1, k2, p1, p2, k3, k4, k5, k6,

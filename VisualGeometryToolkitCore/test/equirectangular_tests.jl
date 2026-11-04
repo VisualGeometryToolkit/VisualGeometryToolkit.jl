@@ -162,3 +162,23 @@ end
         @test (LinearMap(R) ∘ b)(SVector(320.0, 240.0)) ≈ R * SVector(0.0, 0.0, 1.0)  # the principal point looks along R·z
     end
 end
+
+@testitem "Backprojection of a camera without its own Jacobian, and of Int pixels" begin
+    # A model with no backproject_with_jacobian method (a BoundedCamera) takes
+    # ForwardDiff through its backproject; an integer pixel is floated first.
+    using Test, StaticArrays
+    using ForwardDiff: ForwardDiff
+    using CoordinateTransformations: transform_deriv
+    using VisualGeometryToolkitCore: Backprojection, CameraModel, BoundedCamera, CentralGenericModel, Lens, Equidistant, Size2, px,
+        backproject_with_jacobian
+    cm = CameraModel(300.0px, SA[320.0px, 240.0px]; lens = Lens(Equidistant()))
+    u = SVector(400.0, 100.0)
+    J = last(backproject_with_jacobian(cm, u))
+    bc = BoundedCamera(cm, Size2(640, 480))
+    @test transform_deriv(Backprojection(bc), u) ≈ J rtol = 1.0e-10
+    @test transform_deriv(Backprojection(bc), SVector(400, 100)) ≈ J rtol = 1.0e-10
+    @test transform_deriv(Backprojection(cm), SVector(400, 100)) ≈ J rtol = 1.0e-10
+    # a generic grid model keeps its own Jacobian
+    gen = CentralGenericModel(cm, (640, 480); grid_size = (6, 5))
+    @test transform_deriv(Backprojection(gen), SVector(400, 100)) == last(backproject_with_jacobian(gen, u))
+end

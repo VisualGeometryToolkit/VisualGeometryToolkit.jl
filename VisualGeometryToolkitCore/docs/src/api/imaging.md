@@ -81,8 +81,8 @@ what they are given onto that subspace, `v ↦ v − M a(v)` with `M = [1 u v]`
 at the nodes, keeping the bending (values whose affine term is within 1e-12
 of them are kept bit for bit, so RadiometricCamera's board heights, the
 bending part of its spline at its chart nodes, are kept unchanged). The
-condition is defined on the nodes the spline is built on: the kernel
-`r² log r` is not scale-invariant, and scaling the nodes moves a constant (a
+condition is defined on the nodes the spline is built on: the radial basis
+`U(r) = r² log r` is not scale-invariant, and scaling the nodes moves a constant (a
 piston) between the affine and the bending parts — build the thin-plate kinds
 on a dimensionless chart of the board.
 An affine displacement belongs to the affine factors and a plane of heights to

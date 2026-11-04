@@ -44,9 +44,10 @@ abstract type AbstractPanoramaProjection <: CoordinateTransformations.Transforma
     Backprojection(m) <: CoordinateTransformations.Transformation
 
 The back-projection of `m` as a map: its call is [`backproject`](@ref)`(m, q)`
-and `transform_deriv(b, q)` its `3 × 2` Jacobian (a camera model's own,
-`last(backproject_with_jacobian(m, q))`; a panorama projection's by
-ForwardDiff through its `backproject`). `m` is a
+and `transform_deriv(b, q)` its `3 × 2` Jacobian (a `CameraModel`'s or a
+generic grid model's own, `last(backproject_with_jacobian(m, q))`; any other
+model's — a panorama projection, a `BoundedCamera` — by ForwardDiff through its
+`backproject`). `m` is a
 panorama projection (`inv(p)` builds it, `inv(Backprojection(p)) === p`) or a
 camera model, a pixel → ray map: `Backprojection(model)` of a
 `CameraModel(...; lens = Lens(Perspective()))` is a rectilinear virtual camera,
@@ -63,10 +64,12 @@ end
 Base.inv(p::AbstractPanoramaProjection) = Backprojection(p)
 Base.inv(b::Backprojection{<:AbstractPanoramaProjection}) = b.model
 Base.show(io::IO, b::Backprojection) = print(io, "Backprojection(", b.model, ")")
-# A camera model's own back-projection Jacobian (tangent to the sphere); a
-# panorama projection's by ForwardDiff through its `backproject`.
-transform_deriv(b::Backprojection, q::StaticVector{2}) = last(backproject_with_jacobian(b.model, q))
-transform_deriv(b::Backprojection{<:AbstractPanoramaProjection}, q::StaticVector{2}) =
+# A model's own back-projection Jacobian (tangent to the sphere) where it has
+# one — a CameraModel here, the generic grid models beside theirs
+# (generic_models.jl) — and any other model's (a panorama projection, a bounded
+# camera) by ForwardDiff through its `backproject`; the pixel floated first.
+transform_deriv(b::Backprojection{<:CameraModel}, q::StaticVector{2}) = last(backproject_with_jacobian(b.model, _float_static(q)))
+transform_deriv(b::Backprojection, q::StaticVector{2}) =
     last(_value_and_jacobian(p -> SVector{3}(Tuple(backproject(b.model, p))), _float_static(q)))
 
 # The shared parts of the family: the longitude, its gradient, and the guard

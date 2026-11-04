@@ -622,8 +622,8 @@ bit for bit, as RadiometricCamera's board heights, the bending part of its
 spline, are). A plane of heights — a piston and two tilts — is the target
 pose's, so a height field built from one is flat.
 
-"No affine term" is defined ON THE NODES THE SPLINE IS BUILT ON: the kernel
-`U(r) = r² log r` is not scale-invariant (`U(s r) = s² U(r) + s² log(s) r²`,
+"No affine term" is defined ON THE NODES THE SPLINE IS BUILT ON: the radial
+basis `U(r) = r² log r` is not scale-invariant (`U(s r) = s² U(r) + s² log(s) r²`,
 and `Σ wᵢ |p − pᵢ|²` is a constant under the spline's side conditions), so
 scaling the nodes moves a constant — a piston — between the affine and the
 bending parts (translating, rotating or reflecting them does not). Build a height field

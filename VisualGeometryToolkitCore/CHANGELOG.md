@@ -182,8 +182,11 @@ Added:
   `Backprojection`, so a panorama raster's pixel → ray map composes into an
   `image_warp` chain (`camera ∘ LinearMap(R') ∘ inv(projection) ∘ raster`).
   `Equirectangular` now subtypes it too (its values unchanged).
-- **`Backprojection(m)`**: `backproject(m, q)` as a `Transformation` (with a
-  ForwardDiff `transform_deriv`), for a panorama projection or a camera model
+- **`Backprojection(m)`**: `backproject(m, q)` as a `Transformation` (its
+  `transform_deriv` the model's own `backproject_with_jacobian` for a
+  `CameraModel` or a generic grid model, ForwardDiff through `backproject` for
+  any other, a `BoundedCamera` included; an integer pixel is floated first),
+  for a panorama projection or a camera model
   — the pixel → ray map of a virtual camera (an azimuthal view: rectilinear,
   fisheye, stereographic, by the model's lens).
 - **`image_sample!(dst, src, points; fillvalue)`**: `image_warp!`'s bilinear
@@ -208,9 +211,15 @@ Added:
   rows (`plane`, `affine`), which the thin-plate kinds read instead of
   holding their own copy. Values are unchanged, bit for bit, except a
   composed target manifold's `action_jacobian`, which applies each member's
-  action to its own rows and chains them (last-ulp differences).
+  action to its own rows and chains them (last-ulp differences), each member
+  acting on the point in its own form (a physical target's rigid member
+  translates in metres).
 
 Fixed:
+
+- **`Quad{T}(q)` and `HeightSurface{K, T}(s)` return the requested `T`**, a
+  non-concrete one included (`Quad{Real}(q) isa Quad{Real}`); they returned
+  the converted numbers' concrete type.
 
 - **`Rect ∩ Circle`** (and `Circle ∩` any region, `Circle ∩ WholePlane()`):
   a `Circle` meets a region as its `Ellipse`, so
@@ -245,6 +254,10 @@ Fixed:
   takes the same keyword and ignores it.
 
 Performance (same bits):
+
+- **`surface(pt)` of a physical target with an `Uncertain` calibration** drops
+  the covariance before the metre strip instead of rescaling it on every call
+  (a 25-node height field: 27 kB a call to 6 kB, the bare calibration's).
 
 - **`nodal_weights` of a thin-plate system allocates nothing at any node
   count.** Past 16 nodes the loop form built its basis in a heap `Vector`

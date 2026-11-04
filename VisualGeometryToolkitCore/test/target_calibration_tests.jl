@@ -760,8 +760,9 @@ end
 @testitem "target calibration: a metre move keeps the thin-plate solver" begin
     using Test, StaticArrays
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: grid_nodes, m, mm, with_unit, surface
+    using VisualGeometryToolkitCore: grid_nodes, m, mm, with_unit, surface, Uncertain, CovMat
     using FlexUnits: ustrip
+    using LinearAlgebra: I
     using Rotations: RotMatrix
     # Lengths are stored in metres, so a strip to (or attachment of) metres leaves
     # the nodes and values as they are: the solver, the coefficients and the
@@ -784,6 +785,12 @@ end
     pt = with_unit(PosedTarget(PlanarTarget(pts; calibration = Hplain), X), m)
     surface(pt)
     @test (@allocated surface(pt)) < 16_384
+    # an uncertain calibration's covariance is not part of the surface: it is
+    # dropped before the strip, not rescaled (25 × 25) on every call
+    Hu = Uncertain(H, CovMat(SMatrix{25, 25}(1.0e-8 * I)))
+    ptu = PosedTarget(PlanarTarget([p .* m for p in pts]; calibration = Hu), with_unit(X, m))
+    @test surface(ptu) == surface(pt)
+    @test (@allocated surface(ptu)) < 16_384
 end
 
 @testitem "target calibration: is_affine, and the surface chart read off it" begin
@@ -990,5 +997,32 @@ end
         # equality and hashing see the placement
         @test t != PlanarTarget(design; calibration = hf, board = bd) && hash(t) == hash(PlanarTarget(design; calibration = hf, board = bd, placement = P))
         @test VgtkCore.resolve(PlanarTarget(:page; calibration = hf, placement = P), design) == PlanarTarget(:page; nominal = design, calibration = hf, placement = P)
+    end
+end
+
+@testitem "target calibration: a physical composition's action applies each member in its own form" begin
+    # ThinPlateSpline ∘ EuclideanMap ∘ Aspect ∘ Skew on lengths: the rigid member
+    # translates in metres, so the composed action must not strip the design
+    # point before the inner members act on it. Lengths are stored in metres,
+    # so the physical target's action is the plain target's number for number.
+    using Test, StaticArrays, Random
+    using VisualGeometryToolkitCore
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: grid_nodes, action_jacobian, retract_jacobian, transform_deriv_params, TargetManifold, m
+    using Rotations: Angle2d
+    rng = Xoshiro(3)
+    nodes = grid_nodes(3; lo = -0.1, hi = 0.1)
+    fx, fy = 1.0e-4 .* randn(rng, 9), 1.0e-4 .* randn(rng, 9)
+    ϑ, t = 0.02, SVector(0.003, -0.002)
+    cp = ThinPlateSpline(nodes, fx, fy) ∘ EuclideanMap(Angle2d(ϑ), t) ∘ Aspect(0.002) ∘ Skew(-0.0015)
+    cm = ThinPlateSpline([n .* m for n in nodes], fx .* m, fy .* m) ∘ EuclideanMap(Angle2d(ϑ), t .* m) ∘ Aspect(0.002) ∘ Skew(-0.0015)
+    design = [SVector(x, y) for x in range(-0.1, 0.1; length = 4) for y in range(-0.08, 0.08; length = 3)]
+    chp = TargetManifold(PlanarTarget(design; calibration = cp); known = (:pose,))
+    chm = TargetManifold(PlanarTarget([p .* m for p in design]; calibration = cm); known = (:pose,))
+    @test retract_jacobian(chm) == retract_jacobian(chp)
+    for p in design
+        Jp = action_jacobian(chp, p)
+        @test Jp ≈ transform_deriv_params(cp, p) * retract_jacobian(chp) atol = 1.0e-14
+        @test action_jacobian(chm, p .* m) ≈ Jp atol = 1.0e-15
     end
 end

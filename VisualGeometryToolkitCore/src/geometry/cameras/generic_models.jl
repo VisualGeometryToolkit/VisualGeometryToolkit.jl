@@ -775,6 +775,9 @@ function backproject_with_jacobian(m::NoncentralGenericModel, u::StaticVector{2}
     sy = _grid_scale(m.calib_min_y, m.calib_max_y, gh)   # ∂gy/∂y
     return f, hcat(P * (sx * Sx), P * (sy * Sy))
 end
+# A generic model's Backprojection takes its own Jacobian (equirectangular.jl).
+transform_deriv(b::Backprojection{<:Union{CentralGenericModel, NoncentralGenericModel}}, q::StaticVector{2}) =
+    last(backproject_with_jacobian(b.model, _float_static(q)))
 
 """
     unproject(m::CentralGenericModel, pixel, depth) -> SVector{3} | nothing

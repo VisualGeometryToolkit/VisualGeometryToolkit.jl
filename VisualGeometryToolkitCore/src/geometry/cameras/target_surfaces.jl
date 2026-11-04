@@ -21,7 +21,8 @@
 function surface(pt::PosedTarget{<:PlanarTarget})
     t = model(pt)
     physical = has_units(pt)
-    c = geom(physical ? _calibration_unit_move(t, c -> _ustrip_calibration(m, c)) : calibration(t))
+    # (the bare calibration: an uncertain one's covariance is not the surface's, so it is not rescaled)
+    c = geom(physical ? _calibration_unit_move(t, c -> _ustrip_calibration(m, geom(c))) : calibration(t))
     P = placement(t)
     X = geom(pose(pt))
     X = physical ? ustrip(m, X) : X

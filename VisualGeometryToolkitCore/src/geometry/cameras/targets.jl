@@ -119,7 +119,7 @@ with_unit(t::PointTarget, u::Units) = PointTarget([_attach_point(u, p) for p in 
 # ------------------------------------------------------------------------------
 #
 # A thin-plate calibration is pure bending only on the nodes it is built on
-# (target_calibration.jl, "no affine term"): its kernel r² log r is not
+# (target_calibration.jl, "no affine term"): its radial basis U(r) = r² log r is not
 # scale-invariant, so the same field on nodes in metres and on nodes in
 # millimetres differ by a piston. A target whose calibration is defined on a
 # DIMENSIONLESS chart of its board — RadiometricCamera's page [0, 1]² — says
@@ -788,12 +788,14 @@ _calibration_action(c::TargetCalibration, x, B) = transform_deriv_params(c, x) *
 # A composition t1 ∘ t2, θ = (θ₁, θ₂): ∂C/∂θ · B = ∂t1/∂θ₁ · B₁ + ∂t1/∂y · (∂t2/∂θ₂ · B₂)
 # at y = t2(x), B₁ and B₂ the rows of B over each member's parameters — each
 # member's own (sparse) action on its own row block, chained through the point
-# Jacobian, never the dense Jacobian of the whole.
+# Jacobian, never the dense Jacobian of the whole. Each member acts on the
+# point in its own form — a physical member (a rigid member's translation in
+# metres) on the physical point — and its Jacobians come back plain, as CT's
+# chain rule over the members' `transform_deriv(_params)` has them.
 function _calibration_action(c::_CalibrationComposition, x, B)
     n1, n2 = _parameter_count(typeof(c.t1)), _parameter_count(typeof(c.t2))
-    q = _plain_point(x)
-    y = _apply(c.t2, q)
-    return _calibration_action(c.t1, y, _row_block(B, 0, Val(n1))) + _point_jacobian(c.t1, y) * _calibration_action(c.t2, q, _row_block(B, n1, Val(n2)))
+    y = c.t2(x)
+    return _calibration_action(c.t1, y, _row_block(B, 0, Val(n1))) + transform_deriv(c.t1, y) * _calibration_action(c.t2, x, _row_block(B, n1, Val(n2)))
 end
 # (Each kept row is a 1 × K matrix times the K rows of B it meets: the product
 # kernel the full Jacobian's rows went through, so the entries keep their bits.)

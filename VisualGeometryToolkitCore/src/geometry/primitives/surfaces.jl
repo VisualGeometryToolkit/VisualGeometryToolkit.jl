@@ -149,7 +149,8 @@ on the edge is a hit (up to the chart's own rounding).
   acts in the chart, and the primitive is re-expressed in the design chart —
   the same affine `A` with `b = s β − (A − I) o`, a height field's nodes
   `o + s cᵢ`, heights `s hᵢ`, weights `wᵢ / s` and the constant
-  `−s ln s Σ wᵢ|cᵢ|²` the kernel's scale adds (exact, not an approximation).
+  `−s ln s Σ wᵢ|cᵢ|²` the scaled radial basis `U(r) = r² log r` adds (exact,
+  not an approximation).
 
 A physical target (metres) gives a primitive in metres, plain numbers. An
 uncertain pose or calibration gives its value. A `PointTarget` has no surface
@@ -219,11 +220,11 @@ function Quad(origin::StaticVector{3}, frame::StaticMatrix{3, 3}, rect::Rect2, A
     return Quad{T}(plane, o, u, v, Aₜ, SVector{2, T}(b), inv(Aₜ), Rect2{T}(rect))
 end
 Quad{T}(q::Quad{T}) where {T} = q
-Quad{T}(q::Quad) where {T} = _map_numbers(x -> convert(T, x), q)
-# Every number of q mapped by f (a conversion, or a Dual's value), its type the result's.
-@inline function _map_numbers(f::F, q::Quad) where {F}
-    c = map(f, q.plane.coeffs)
-    T = eltype(c)
+Quad{T}(q::Quad) where {T} = _map_numbers(x -> convert(T, x), q, T)
+# Every number of q mapped by f (a conversion, or a Dual's value), as a Quad{T}:
+# the requested T (a conversion's, concrete or not), else the mapped numbers' type.
+@inline _map_numbers(f::F, q::Quad) where {F} = (c = map(f, q.plane.coeffs); _map_numbers(f, q, eltype(c), c))
+@inline function _map_numbers(f::F, q::Quad, ::Type{T}, c = map(f, q.plane.coeffs)) where {F, T}
     return Quad{T}(Plane3D{T}(c), map(f, q.origin), map(f, q.e_u), map(f, q.e_v), map(f, q.A), map(f, q.b), map(f, q.A_inv),
                    Rect2{T}(map(f, q.rect.origin), map(f, q.rect.widths)))
 end
@@ -335,12 +336,12 @@ function HeightSurface(quad::Quad, nodes::StaticVector{K, <:StaticVector{2}}, he
                                SVector{K, T}(w), SVector{3, T}(a))
 end
 HeightSurface{K, T}(s::HeightSurface{K, T}) where {K, T} = s
-HeightSurface{K, T}(s::HeightSurface{K}) where {K, T} = _map_numbers(x -> convert(T, x), s)
+HeightSurface{K, T}(s::HeightSurface{K}) where {K, T} = _map_numbers(x -> convert(T, x), s, T)
 # Every number of s mapped by f, as for a Quad.
-@inline function _map_numbers(f::F, s::HeightSurface{K}) where {F, K}
-    q = _map_numbers(f, s.quad)
-    return HeightSurface{K, _eltype(q)}(q, map(n -> map(f, n), s.nodes), map(f, s.heights), map(f, s.w), map(f, s.a))
-end
+@inline _map_numbers(f::F, s::HeightSurface) where {F} = (q = _map_numbers(f, s.quad); _height_surface_of(f, s, q))
+@inline _map_numbers(f::F, s::HeightSurface, ::Type{T}) where {F, T} = _height_surface_of(f, s, _map_numbers(f, s.quad, T))
+@inline _height_surface_of(f::F, s::HeightSurface{K}, q::Quad{T}) where {F, K, T} =
+    HeightSurface{K, T}(q, map(n -> map(f, n), s.nodes), map(f, s.heights), map(f, s.w), map(f, s.a))
 _eltype(::HeightSurface{K, T}) where {K, T} = T
 _height_surface_fields(s::HeightSurface) = (s.quad, s.nodes, s.heights, s.w, s.a)
 Base.:(==)(a::HeightSurface, b::HeightSurface) = _height_surface_fields(a) == _height_surface_fields(b)

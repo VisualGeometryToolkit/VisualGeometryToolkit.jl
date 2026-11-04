@@ -270,6 +270,21 @@ end
     @test (@inferred intersection(sd, ro, d))[1] isa ForwardDiff.Dual
 end
 
+@testitem "surfaces: a conversion returns the requested type, concrete or not" begin
+    using Test, StaticArrays, Random
+    using Rotations: RotMatrix, QuatRotation
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: ThinPlateSplineSystem, tps_coefficients, grid_nodes
+    R = RotMatrix(QuatRotation(1.0, 0.1, -0.2, 0.05))
+    quad = Quad(SVector(0.1, -0.2, 0.3), R, Rect2(-0.5, -0.5, 1.0, 1.0))
+    nodes = SVector{9}(grid_nodes(3; lo = -0.5, hi = 0.5))
+    h = SVector{9}(0.01 .* randn(Xoshiro(3), 9))
+    surf = HeightSurface(quad, nodes, h, tps_coefficients(ThinPlateSplineSystem(nodes), Vector(h))...)
+    @test Quad{Real}(quad) isa Quad{Real} && Quad{Real}(quad) == quad
+    @test HeightSurface{9, Real}(surf) isa HeightSurface{9, Real} && HeightSurface{9, Real}(surf) == surf
+    @test Quad{Float32}(quad) isa Quad{Float32} && HeightSurface{9, Float32}(surf) isa HeightSurface{9, Float32}
+end
+
 @testitem "surfaces: a HeightSurface's Dual hit is the implicit derivative of the plain root" begin
     using Test, StaticArrays, LinearAlgebra, Random
     using ForwardDiff

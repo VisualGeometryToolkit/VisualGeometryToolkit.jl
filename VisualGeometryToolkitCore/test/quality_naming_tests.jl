@@ -14,6 +14,22 @@
     VgtkCore.test_naming(VisualGeometryToolkitCore)
 end
 
+@testitem "quality: the thin-plate radial basis is not a kernel" begin
+    # R10 (conventions/naming.md): "kernel" is a GPU, convolution, minimal-solver,
+    # null-space or probability-density kernel; the thin-plate spline's
+    # U(r) = r² log r is its radial basis.
+    using Test
+    using VisualGeometryToolkitCore
+    root = pkgdir(VisualGeometryToolkitCore)
+    pattern = r"kernel\s+`?(U\(r\)\s*=\s*)?r² log r|the kernel's scale"
+    hits = String[]
+    for dir in (joinpath(root, "src"), joinpath(root, "docs", "src")), (d, _, fs) in walkdir(dir), f in fs
+        endswith(f, ".jl") || endswith(f, ".md") || continue
+        occursin(pattern, read(joinpath(d, f), String)) && push!(hits, relpath(joinpath(d, f), root))
+    end
+    @test isempty(hits)
+end
+
 @testitem "quality: naming checker" begin
     using Test
     using VisualGeometryToolkitCore

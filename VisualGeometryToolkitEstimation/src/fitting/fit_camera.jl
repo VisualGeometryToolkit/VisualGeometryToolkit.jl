@@ -331,24 +331,28 @@ _family_limit(::Type) = view_angle_limit(Lens(Equidistant()))
 
 # Clenshaw–Curtis nodes on [0, b] of the view angle, the source's radii there
 # and the density w (`:image`: r·|dr/dθ|, the radius differentiated exactly,
-# ForwardDiff through the source's `projected_radius`).
+# ForwardDiff through the source's `projected_radius`). The radii are the plain
+# `projected_radius` — the regression's targets, bit for bit what a lens of the
+# source's own family gives back — and the Dual evaluation runs for `:image`
+# only, for its dr/dθ.
 function _forward_samples(srcr, b::Float64, n::Int, weight::Symbol)
     weight in (:image, :solid_angle, :uniform) ||
         throw(ArgumentError("fit_camera: weight must be :image, :solid_angle or :uniform, got :$weight"))
     ts, qs = _clenshaw_curtis(n, b)
-    rd = map(t -> _radius_with_jacobian(srcr, t), ts)
-    rA = first.(rd)
-    dens = map(eachindex(ts)) do i
-        weight === :uniform && return 1.0
-        weight === :solid_angle && return sin(ts[i])
-        return max(rA[i] * abs(last(rd[i])), 0.0)
+    rA = map(t -> Float64(projected_radius(srcr, t)), ts)
+    dens = if weight === :uniform
+        ones(length(ts))
+    elseif weight === :solid_angle
+        sin.(ts)
+    else
+        map((r, t) -> max(r * abs(last(_radius_with_jacobian(srcr, t))), 0.0), rA, ts)
     end
     return ts, qs, rA, dens
 end
 # The source's radius r(θ) and dr/dθ, exact, from ONE forward-mode Dual
 # evaluation of its `projected_radius` (the value part is the plain radius to
 # its rounding: a lens's Dual path may differ from its plain one in the last
-# bits, measured ≤ 2 ulp on the lens-family cases).
+# bits, measured ≤ 2 ulp on the lens-family cases, so only dr/dθ is used).
 function _radius_with_jacobian(srcr, θ::Float64)
     T = typeof(ForwardDiff.Tag(_radius_with_jacobian, Float64))
     r = projected_radius(srcr, ForwardDiff.Dual{T}(θ, 1.0))
@@ -466,7 +470,8 @@ _svectors(r) = SVector{3, Float64}.(r)
 # A function of the pixel as a source (one of Core's generic sources: `u ->
 # ray` or `nothing`), wrapped once at the `fit_camera` entry that takes one: its
 # `backproject` is the function's ray, NaN where it gives none — at a pixel,
-# and batched through `pointwise!` — and it is its own `model`.
+# and batched through `pointwise!`, serially: a user function is not known to
+# be thread-safe (a Python callback is not).
 struct _PixelFunctionSource{F}
     f::F
 end
@@ -475,8 +480,13 @@ function VgtkCore.backproject(s::_PixelFunctionSource, u::StaticVector{2})
     return r === nothing ? SVector(NaN, NaN, NaN) : SVector{3, Float64}(r)
 end
 VgtkCore.backproject(s::_PixelFunctionSource, pixels::AbstractVector{<:StaticVector{2}}) =
-    pointwise!(Base.Fix1(backproject, s), Vector{SVector{3, Float64}}(undef, length(pixels)), pixels)
-VgtkCore.model(s::_PixelFunctionSource) = s
+    pointwise!(Base.Fix1(backproject, s), Vector{SVector{3, Float64}}(undef, length(pixels)), pixels; exec = Serial())
+
+# The source a fit samples: a camera's model (a bounded camera's unbounded
+# model, Core's `model`), and any other source — a wrapped function of the
+# pixel, any value with a batched `backproject` — as it is.
+_source_model(source::AbstractCamera) = model(source)
+_source_model(source) = source
 
 # The source's observation lines at `pixels`, `(origin, unit direction)`, NaN where
 # it images none: a non-central grid's `Ray3`s (plain metres), and for a central
@@ -611,7 +621,7 @@ fit_camera(::Type{SplineProjection}, source::Function, region; tolerance::Real) 
     fit_camera(SplineProjection, _PixelFunctionSource(source), region; tolerance)
 function fit_camera(::Type{SplineProjection}, source, region; tolerance::Real)
     _check_tolerance(tolerance)
-    q = _chart_quadrature(model(source), region)
+    q = _chart_quadrature(_source_model(source), region)
     r, code, n = _spacing_search(cells -> _spline_projection_fit(q, cells), tolerance, _max_cells(q.extent, q.stride))
     return FitResult(
         SplineProjection(q.chart, r.spline, q.region), code, 0, r.errors.rms, length(q.fit_px),
@@ -691,7 +701,7 @@ end
 # source side (`_held_out`).
 function _grid_data(::Type{G}, source, region) where {G}
     size = _image_size(source)
-    cam = model(source)
+    cam = _source_model(source)
     q = _image_quadrature(_grid_samples(G), cam, region)
     rhs, anchor = _grid_rhs(G, q)
     return (; size, cam, q, held = _held_out(G, cam, q), B = _rhs_matrix(rhs), anchor, region, K = Val(length(eltype(rhs))))

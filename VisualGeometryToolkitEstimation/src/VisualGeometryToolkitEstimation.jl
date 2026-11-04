@@ -223,7 +223,7 @@ using SparseArrays: SparseMatrixCSC, spdiagm
 using LinearAlgebra: cholesky, lu, issuccess, diag
 using CoordinateTransformations: LinearMap
 using VisualGeometryToolkitCore: ChartSpline, SplineProjection, CentralGenericModel, Rect2, spline_window, pixel_centres,
-    pointwise!, nominal_intrinsics, BoundedCamera, extent, generic_lattice, difference_stencil
+    pointwise!, Serial, nominal_intrinsics, BoundedCamera, AbstractCamera, extent, generic_lattice, difference_stencil
 using VisualGeometryToolkitCore: NoncentralGenericModel, interpolated_direction, interpolated_point, nearest_point,
     backproject_with_jacobian
 

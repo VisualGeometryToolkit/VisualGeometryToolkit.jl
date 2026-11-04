@@ -49,7 +49,12 @@
   source's back-projection Jacobian is not finite (counted as
   `n_held_out_dropped`), as the quadrature skips non-finite samples. The
   `:image` density differentiates the source's radius exactly (ForwardDiff,
-  the radius and its derivative from one Dual evaluation per node).
+  one Dual evaluation per node, for `:image` only); the regression's target
+  radii are the source's plain `projected_radius`, so a lens refitted onto its
+  own family at its anchor has exactly zero residuals. A source that is
+  neither a camera nor a function — any value with a batched `backproject` —
+  is sampled as it is, and a function source is evaluated serially (a user
+  function is not known to be thread-safe).
 - **`pspline_grid(G, source, region, grid_size)`: the grid targets' one
   P-spline solve on a GIVEN lattice** (`G` a `CentralGenericModel` or
   `NoncentralGenericModel`, `grid_size = (columns, rows)` of Core's

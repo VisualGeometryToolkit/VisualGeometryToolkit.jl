@@ -386,6 +386,54 @@ end
     @test retcode(r) === :converged && metadata(r).max_px == metadata(rc).max_px && metadata(r).family == metadata(rc).family
 end
 
+@testitem "fit_camera: a function source's batched backproject runs serially" setup = [FitCameraFisheye] begin
+    using Test, StaticArrays
+    using VisualGeometryToolkitCore: backproject
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    # a user function is not known to be thread-safe (a Python callback): every
+    # call runs on the calling task, in pixel order, at any batch size
+    t0 = current_task()
+    calls = Tuple{Task, SVector{2, Float64}}[]
+    lk = ReentrantLock()
+    f = u -> (lock(() -> push!(calls, (current_task(), SVector{2, Float64}(u))), lk); backproject(FISHEYE, u))
+    pixels = [SVector(Float64(x), Float64(y)) for x in 100:2:180 for y in 100:2:200]   # 2091 ≥ the threaded length
+    rays = backproject(VgtkEstimation._PixelFunctionSource(f), pixels)
+    @test rays == [backproject(FISHEYE, p) for p in pixels]
+    @test all(c -> first(c) === t0, calls) && last.(calls) == pixels
+end
+
+@testitem "fit_camera: a callable source that is not a Function is sampled as it is" setup = [FitCameraFisheye] begin
+    using Test, StaticArrays
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: metadata, retcode, backproject, SplineProjection
+    using VisualGeometryToolkitEstimation: fit_camera
+    # a callable struct, not <: Function, with a single and a batched backproject:
+    # no `model` of its own, so the fit samples the source itself
+    struct RaySource{C}
+        camera::C
+    end
+    (s::RaySource)(u) = backproject(s.camera, u)
+    VgtkCore.backproject(s::RaySource, u::StaticVector{2}) = backproject(s.camera, u)
+    VgtkCore.backproject(s::RaySource, pixels::AbstractVector{<:StaticVector{2}}) = [backproject(s.camera, p) for p in pixels]
+    r = fit_camera(SplineProjection, RaySource(FISHEYE), REGION; tolerance = 1.0e-2)
+    rc = fit_camera(SplineProjection, FISHEYE, REGION; tolerance = 1.0e-2)
+    @test retcode(r) === :converged && metadata(r).max_px == metadata(rc).max_px && metadata(r).family == metadata(rc).family
+end
+
+@testitem "fit_camera: a lens refitted onto its own family has exactly zero residuals" begin
+    using Test, StaticArrays
+    using VisualGeometryToolkitCore: CameraModel, Lens, Perspective, Equidistant, Stereographic, Division, Scaramuzza, Ellipse,
+        metadata, rms
+    using VisualGeometryToolkitEstimation: fit_camera
+    # the regression's targets are the source's plain radii, so a source at its
+    # family's anchor is reproduced exactly (a Dual radius differs in the last bits)
+    region = Ellipse(SVector(320.0, 240.0), 200.0, 200.0, 0.0)
+    for l in (Lens(Perspective()), Lens(Equidistant()), Lens(Stereographic()), zero(Division{2}), zero(Scaramuzza{3}))
+        r = fit_camera(typeof(l), CameraModel(; pp = (320.0, 240.0), focal = 300.0, lens = l), region)
+        @test metadata(r).max_px == 0 && rms(r) == 0
+    end
+end
+
 @testitem "fit_camera: a non-central grid from a non-central source" setup = [FitCameraNoncentral] begin
     using Test
     using StaticArrays: SVector

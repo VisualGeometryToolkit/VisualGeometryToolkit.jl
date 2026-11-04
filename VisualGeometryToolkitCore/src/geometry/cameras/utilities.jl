@@ -108,6 +108,8 @@ fov(cam; dimension = :diagonal)
 """
 function fov(camera::BoundedCamera; dimension = :horizontal)
     m = model(camera)
+    # a field of view needs a metric focal: none for a projective camera
+    m isa CameraModel{<:ProjectiveIntrinsics} && throw(MethodError(fov, (camera,)))
     w, h = Float64(extent(camera).width), Float64(extent(camera).height)
     cx, cy = _principal_point(m)
     pts = if dimension === :horizontal

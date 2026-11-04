@@ -60,6 +60,24 @@
         @test backproject(m, d)[3] ≈ 1 + λ[1] * ρ² + λ[2] * ρ²^2 rtol = 1.0e-15
     end
 
+    @testset "N = 2 refusals: a back ray and a ray past the fold" begin
+        # λ₂ > 0 keeps the lift's third component positive (1 − 3e-7ρ² + 2e-13ρ⁴ ≥ 0.89),
+        # so this lens images no ray behind 90° and its view angle folds before 90°.
+        z0 = Point2(0.0, 0.0)
+        back = RadialHomography{Float64}(HomographyMat(SMatrix{3, 3, Float64}(1, 0, 0, 0, 1, 0, 0, 0, -1)), λ, z0)
+        grazing = RadialHomography{Float64}(HomographyMat(SMatrix{3, 3, Float64}(1, 0, 0, 0, 1, 0, 0, 0, 1.0e-4)), λ, z0)
+        s = SVector(1000.0, 300.0)
+        for mr in (back, grazing)
+            @test project(mr, radial_ray(mr, s)) === nothing
+            @test radial_transfer(mr, s) === nothing
+            @test !VgtkCore.radial_in_front(mr, s)
+            @test all(isnan, transform_deriv(mr, radial_ray(mr, s)))
+        end
+        @test radial_ray(back, s)[3] < 0
+        # an in-field front ray: both accept it
+        @test VgtkCore.radial_in_front(m, board[1]) && radial_transfer(m, board[1]) !== nothing
+    end
+
     @testset "N = 1: the camera constructor is the scalar one" begin
         k = -3.0e-7
         m1 = RadialHomography(H, k, c)

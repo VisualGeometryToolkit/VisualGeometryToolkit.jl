@@ -41,10 +41,13 @@ ProjectiveIntrinsics(center::AbstractVector{T}) where {T <: Real} =
 
 """
     principal_point(intrinsics::ProjectiveIntrinsics{T}) -> Point2{T}
+    principal_point(intrinsics::LogicalIntrinsics{T}) -> Point2{T}
 
-The principal point, in COLMAP pixels.
+The principal point, in COLMAP pixels: a projective camera's `center`, a logical
+camera's `(K[1, 3], K[2, 3])` — the one accessor for both kinds of intrinsics.
 """
 principal_point(intrinsics::ProjectiveIntrinsics) = intrinsics.center
+principal_point(intrinsics::LogicalIntrinsics{T}) where {T} = (K = intrinsics.K; Point2{T}(K[1, 3], K[2, 3]))
 
 # The implicit unit-focal K — an internal detail of the shared project /
 # backproject path, never a public accessor (no `calibration_matrix`, no focal).

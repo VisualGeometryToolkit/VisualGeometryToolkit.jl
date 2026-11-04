@@ -237,8 +237,9 @@ function calibration_matrix(model::CameraModel{<:LogicalIntrinsics})
 end
 
 # The principal point of a camera's pixel frame, in Float64 — the one read the
-# valid domain, the datasheet image circle, `fov` and the rectification panels make.
-_principal_point(camera::CameraModel) = (K = calibration_matrix(camera); Point2{Float64}(K[1, 3], K[2, 3]))
+# valid domain, the datasheet image circle, `fov` and the rectification panels make
+# (`principal_point`, so a projective camera has one too).
+_principal_point(camera::CameraModel) = (c = principal_point(camera.intrinsics); Point2{Float64}(c[1], c[2]))
 
 # ============================================================================
 # Projection and Backprojection Methods
@@ -547,7 +548,7 @@ lens coefficients ARE the model's pixel-frame `λ`'s; it drives the fused KA
 ray: a field-of-view operation (a finite `max_fov` of
 [`undistorted_rect`](@ref)) refuses it.
 """
-CameraModel(m::RadialHomography{T}) where {T} =
+CameraModel(m::RadialHomography{T, N}) where {T, N} =
     CameraModel(ProjectiveIntrinsics{T}(m.center), Division(m.λ...))
 
 """
@@ -1006,6 +1007,10 @@ plane at all. `Inf` for a lens with no such limit (a pinhole, a mild
 polynomial). This is the circle `plot_rectification` draws on the raw panel,
 and the guide for how much of a frame it is meaningful to rectify.
 
+A projective camera (`ProjectiveIntrinsics`) has no focal length: its radius is
+read in its own centred-pixel frame, the unit-focal one its lens coefficients are
+written in.
+
 It is NOT a safe rectification bound by itself. The distorted radius is very
 nearly linear in the view angle, while the perspective magnification is
 `tan θ`, so a generous FRACTION of this radius is still a fraction of a degree
@@ -1014,7 +1019,7 @@ from the pole: for a 927 px fisheye with a 1419 px horizon, 92% of it is
 Bound the ANGLE instead — see `undistorted_rect`'s `max_fov`.
 """
 horizon_radius(model::CameraModel) =
-    Float64(calibration_matrix(model)[1, 1]) * Float64(monotone_radius(lens(model)))
+    Float64(_K(model.intrinsics)[1, 1]) * Float64(monotone_radius(lens(model)))
 
 """
     fov_radius(model, θ) -> Float64

@@ -109,7 +109,7 @@ homography(m::RadialHomography) = getfield(m, :H)
 The `N` division coefficients `(λ₁, …, λ_N)` of `m`'s image-side lens, about
 [`center`](@ref), in squared centred-pixel units (`λₚ` multiplies `ρ²ᵖ`).
 """
-division_coeffs(m::RadialHomography) = getfield(m, :λ)
+division_coeffs(m::RadialHomography{T, N}) where {T, N} = getfield(m, :λ)
 
 """
     division_coeff(m::RadialHomography{T, 1}) -> T

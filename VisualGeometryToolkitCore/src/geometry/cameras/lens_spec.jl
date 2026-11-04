@@ -361,23 +361,22 @@ calibration.
 """
 intrinsics_kind(::CameraModelSpec{I}) where {I} = I
 
-# The TOML names of the intrinsics kinds, name => type: read by the table reader and written by toml_value.
-const _INTRINSICS_KINDS = ("metric" => LogicalIntrinsics, "projective" => ProjectiveIntrinsics)
+# The intrinsics kinds a spec names, and the TOML name of each (methods, not a
+# string => type table: these names are not the tag rule's): read by the table
+# reader, written by toml_value.
+const _INTRINSICS_KINDS = (LogicalIntrinsics, ProjectiveIntrinsics)
+_intrinsics_name(::Type{<:LogicalIntrinsics}) = "metric"
+_intrinsics_name(::Type{<:ProjectiveIntrinsics}) = "projective"
+_intrinsics_name(I::Type) =
+    throw(ArgumentError("CameraModelSpec: the intrinsics kind $I has no TOML name; known: $(_intrinsics_names())"))
 
-_intrinsics_names() = join(first.(_INTRINSICS_KINDS), ", ")
+_intrinsics_names() = join(map(_intrinsics_name, _INTRINSICS_KINDS), ", ")
 
 function _intrinsics_type(name)
-    for (n, I) in _INTRINSICS_KINDS
-        name == n && return I
+    for I in _INTRINSICS_KINDS
+        name == _intrinsics_name(I) && return I
     end
     throw(ArgumentError("CameraModelSpec: unknown intrinsics $(repr(name)); known: $(_intrinsics_names())"))
-end
-
-function _intrinsics_name(I::Type)
-    for (n, J) in _INTRINSICS_KINDS
-        I === J && return n
-    end
-    throw(ArgumentError("CameraModelSpec: the intrinsics kind $I has no TOML name; known: $(_intrinsics_names())"))
 end
 
 # The fields of a generic grid a table names; the set ones, name => value, in the order they are shown and written.

@@ -501,7 +501,7 @@ end
 
 # The projection a derivative is read from. One coefficient: `_radial_projection`
 # (the closed form reads its derivatives off it); `N > 1`: the lens's image point
-# and both its Jacobians from ONE ForwardDiff pass (`project_with_jacobians`), not
+# and both its Jacobians from ONE ForwardDiff evaluation (`project_with_jacobians`), not
 # a solve for the point and one per derivative block.
 @inline _radial_jacobian_projection(m::RadialHomography{<:Any, 1}, ray::StaticVector{3}, ::Nothing) =
     _radial_projection(m, ray, nothing)

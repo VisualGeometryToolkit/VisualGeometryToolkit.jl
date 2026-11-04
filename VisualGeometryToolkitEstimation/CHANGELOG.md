@@ -48,6 +48,14 @@
   the source's back-projection Jacobian is not finite (counted as
   `n_held_out_dropped`), as the quadrature skips non-finite samples. The
   `:image` density differentiates the source's radius exactly (ForwardDiff).
+- **`pspline_grid(G, source, region, grid_size)`: the grid targets' one
+  P-spline solve on a GIVEN lattice** (`G` a `CentralGenericModel` or
+  `NoncentralGenericModel`, `grid_size = (columns, rows)` of Core's
+  full-image lattice) — an algorithm name (one penalized least squares, fixed
+  weights): no spacing search, no tolerance, `retcode = :solved`, the same
+  `CameraFitMetadata` and held-out errors. `fit_camera`'s grid targets run it
+  at every spacing they try, so at the lattice `fit_camera` chose it is
+  `fit_camera`'s result.
 - **Breaking: removed `fit_lens` and `LensFitMetadata`** (retired in
   `check_naming`). `fit_lens(L, model; max_radius_px = R)` is
   `fit_camera(L, model, Ellipse(pp, R, R, 0.0))` (a disc about the principal

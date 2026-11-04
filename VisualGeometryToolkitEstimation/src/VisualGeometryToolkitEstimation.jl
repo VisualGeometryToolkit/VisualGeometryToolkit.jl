@@ -260,6 +260,7 @@ export fit_linear             # the robust coefficients of a linear model (rewei
 export fit_rotation_averaging # robust rotation averaging on a view graph (spectral seed, Lie-algebra IRLS)
 export fit_radial_camera, DivisionCameraError   # moved from VisualGeometryToolkitCore (estimator taxonomy v2)
 export fit_camera             # one model-to-model regression: a camera model of type T onto a source over a region
+export pspline_grid           # the grid targets' one P-spline solve on a given lattice (fit_camera's inner step)
 
 # -----------------------------------------------------------------------------
 # 2. RANSAC — the loop, its configuration and result, and seeded refinement

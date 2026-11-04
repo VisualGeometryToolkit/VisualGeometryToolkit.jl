@@ -307,6 +307,43 @@ end
     @test family.n_held_out_dropped == 3 && isfinite(errors.max) && errors.max == maximum(e)
 end
 
+@testitem "pspline_grid: the grid targets' one solve on a given lattice — fit_camera's at the lattice it chose" setup = [FitCameraFisheye] begin
+    using Test
+    using VisualGeometryToolkitCore: estimate, metadata, retcode, iterations, rms, BoundedCamera, Size2, CentralGenericModel
+    using VisualGeometryToolkitEstimation: fit_camera, pspline_grid, CameraFitMetadata
+    bc = BoundedCamera(FISHEYE, Size2(1000, 1000))
+    r = fit_camera(CentralGenericModel, bc, REGION; tolerance = 1.0e-3)
+    gh, gw = metadata(r).family.grid_size
+    p = pspline_grid(CentralGenericModel, bc, REGION, (gw, gh))       # (columns, rows), Core's lattice convention
+    @test retcode(p) === :solved && iterations(p) == 0 && metadata(p) isa CameraFitMetadata
+    @test estimate(p).grid == estimate(r).grid && rms(p) == rms(r) && metadata(p).max_px == metadata(r).max_px
+    @test metadata(p).family == (; penalty = metadata(r).family.penalty, grid_size = (gh, gw), stride = metadata(r).family.stride, n_held_out_dropped = 0)
+    for (cols, rows) in ((35, 25), (105, 75))
+        g = pspline_grid(CentralGenericModel, bc, REGION, (cols, rows))
+        @test size(estimate(g).grid) == (rows, cols) && metadata(g).family.grid_size == (rows, cols) && retcode(g) === :solved
+        @test isfinite(metadata(g).max_px) && all(c -> all(isfinite, c), estimate(g).grid)
+    end
+    @test metadata(pspline_grid(CentralGenericModel, bc, REGION, (105, 75))).max_px < metadata(pspline_grid(CentralGenericModel, bc, REGION, (35, 25))).max_px
+    @test_throws ArgumentError pspline_grid(CentralGenericModel, FISHEYE, REGION, (35, 25))      # a bare model has no image
+    @test_throws ArgumentError pspline_grid(CentralGenericModel, bc, REGION, (3, 9))             # fewer than 4 nodes on an axis
+end
+
+@testitem "pspline_grid: the non-central grid on a given lattice — fit_camera's at the lattice it chose" setup = [FitCameraNoncentral] begin
+    using Test
+    using VisualGeometryToolkitCore: estimate, metadata, retcode, rms, NoncentralGenericModel
+    using VisualGeometryToolkitEstimation: fit_camera, pspline_grid
+    r = fit_camera(NoncentralGenericModel, SOURCE, REGION; tolerance = 1.0e-3)
+    gh, gw = metadata(r).family.grid_size
+    p = pspline_grid(NoncentralGenericModel, SOURCE, REGION, (gw, gh))
+    @test retcode(p) === :solved && estimate(p).directions == estimate(r).directions && estimate(p).points == estimate(r).points
+    @test metadata(p).max_px == metadata(r).max_px && metadata(p).family.max_offset == metadata(r).family.max_offset &&
+        metadata(p).family.center == metadata(r).family.center && rms(p) == rms(r)
+    for (cols, rows) in ((35, 25), (105, 75))
+        g = pspline_grid(NoncentralGenericModel, SOURCE, REGION, (cols, rows))
+        @test size(estimate(g).directions) == (rows, cols) && isfinite(metadata(g).max_px) && isfinite(metadata(g).family.max_offset)
+    end
+end
+
 @testitem "fit_camera: a SplineProjection of a source that is not a camera" setup = [FitCameraFisheye] begin
     using Test
     using VisualGeometryToolkitCore: metadata, retcode, backproject, SplineProjection

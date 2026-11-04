@@ -58,5 +58,6 @@ CameraPosesRefineMetadata
 
 ```@docs
 fit_camera
+pspline_grid
 CameraFitMetadata
 ```

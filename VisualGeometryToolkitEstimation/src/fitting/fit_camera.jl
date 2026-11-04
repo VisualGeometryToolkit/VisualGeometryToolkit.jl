@@ -667,20 +667,60 @@ fit_camera(::Type{CentralGenericModel}, source, region; tolerance::Real) =
 
 function _fit_grid(::Type{G}, source, region, tolerance::Real) where {G}
     _check_tolerance(tolerance)
-    W, H = _image_size(source)
+    g = _grid_data(G, source, region)
+    W, H = g.size
+    r, code, n = _spacing_search(cells -> _pspline_grid(G, g, _lattice_grid_size(W, H, cells)), tolerance, _max_cells(max(W, H), g.q.stride))
+    return _grid_result(r, code, g, (; tolerance = Float64(tolerance), outer_iterations = n))
+end
+
+# What every lattice of one fit shares: the source's image, its model, the
+# quadrature, the right-hand side and its anchor.
+function _grid_data(::Type{G}, source, region) where {G}
+    size = _image_size(source)
     cam = _source_model(source)
     q = _image_quadrature(_grid_samples(G), cam, region)
     rhs, anchor = _grid_rhs(G, q)
-    B = _rhs_matrix(rhs)
-    fit(cells) = _grid_fit(G, cam, (W, H), _lattice_grid_size(W, H, cells), q, B, anchor, region, Val(length(eltype(rhs))))
-    r, code, n = _spacing_search(fit, tolerance, _max_cells(max(W, H), q.stride))
-    return FitResult(
-        r.fitted, code, 0, r.errors.rms, length(q.fit_px),
-        CameraFitMetadata(
-            region, :image, r.errors.max, r.errors.max_edge,
-            (; penalty = r.λ, grid_size = r.grid_size, stride = q.stride, tolerance = Float64(tolerance), outer_iterations = n, r.family...)
-        )
+    return (; size, cam, q, B = _rhs_matrix(rhs), anchor, region, K = Val(length(eltype(rhs))))
+end
+# The P-spline solve on one lattice of `grid_size` (columns, rows): the one
+# implementation `pspline_grid` runs once and `fit_camera`'s spacing search at
+# every spacing it tries.
+_pspline_grid(::Type{G}, g, grid_size) where {G} = _grid_fit(G, g.cam, g.size, Tuple(Int.(grid_size)), g.q, g.B, g.anchor, g.region, g.K)
+_grid_result(r, code, g, extra::NamedTuple) = FitResult(
+    r.fitted, code, 0, r.errors.rms, length(g.q.fit_px),
+    CameraFitMetadata(
+        g.region, :image, r.errors.max, r.errors.max_edge,
+        (; penalty = r.λ, grid_size = r.grid_size, stride = g.q.stride, extra..., r.family...)
     )
+)
+
+"""
+    pspline_grid(G, source, region, grid_size) -> FitResult{G, CameraFitMetadata}
+
+The P-spline (penalized B-spline least squares, Eilers–Marx) of a generic
+grid model `G` — `CentralGenericModel` or `NoncentralGenericModel` — onto
+`source` over `region`, on the GIVEN lattice: Core's full-image lattice of
+`grid_size = (columns, rows)` nodes on the source's image (as
+`generic_lattice` takes it), the region restricting the quadrature only, ONE
+penalized solve with the third-difference penalty `fit_camera` uses — the
+non-central grid's points anchored on c*, its directions and points one
+right-hand side — in the source's frame. No spacing search and no tolerance:
+the one deterministic least-squares step `fit_camera(G, source, region;
+tolerance)` repeats at each spacing it tries (the same implementation), so
+`pspline_grid(G, source, region, (gw, gh))` at the lattice `fit_camera` chose
+is its result.
+
+`source` is what [`fit_camera`](@ref)'s grid targets take (a grid model, or a
+bounded camera: the lattice needs the image). The result's `retcode` is
+`:solved`, `iterations` 0; its metadata is `fit_camera`'s, the held-out errors
+(the direction error in pixels; for the non-central grid also the line
+offsets in metres, and `center`) and `family = (; penalty, grid_size, stride,
+n_held_out_dropped, …)` with `grid_size` the lattice's `(rows, columns)`, as
+`fit_camera` reports it, and no `tolerance` or `outer_iterations`.
+"""
+function pspline_grid(::Type{G}, source, region, grid_size::Tuple{Integer, Integer}) where {G <: Union{CentralGenericModel, NoncentralGenericModel}}
+    g = _grid_data(G, source, region)
+    return _grid_result(_pspline_grid(G, g, grid_size), :solved, g, (;))
 end
 
 # The grid at one spacing: Core's lattice of `grid_size` (columns, rows), the

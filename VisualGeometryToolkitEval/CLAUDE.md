@@ -32,8 +32,12 @@ ReTestItems: `Pkg.test(; test_args = ["pool_io|tuning"])` filters items by
 name. Check the reported total.
 The quality items (Aqua, ExplicitImports, JET ratchet at 0, calling
 conventions, undefined globals, the stack's naming check) run in the default
-suite. The `readme` item runs every ```julia block of README.md, and checks
-that the installation block adds every package they import.
+suite. The `readme` item runs README.md's one ```julia block (the landing
+page `docs/src/index.md` shows the same block) in a fresh environment built
+from the `pkg> add` install line, which must name exactly the non-stdlib
+packages it loads. The `docs` item fails on a public name without a
+docstring, a docstring detached from its definition, or a signature line no
+method accepts (its exception list and backlog are in `test/docs_tests.jl`).
 
 The README is a README (purpose, installation, quick start, links). Reference
 material goes in the multi-page docs (`docs/src/`, one API page per submodule

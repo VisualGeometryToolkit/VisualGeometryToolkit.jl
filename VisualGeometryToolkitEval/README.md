@@ -5,40 +5,26 @@
 [![Docs: dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitEval/dev/)
 [![Coverage](https://codecov.io/gh/VisualGeometryToolkit/VisualGeometryToolkit.jl/branch/main/graph/badge.svg?flag=VisualGeometryToolkitEval)](https://app.codecov.io/gh/VisualGeometryToolkit/VisualGeometryToolkit.jl?flags%5B0%5D=VisualGeometryToolkitEval)
 
-VisualGeometryToolkitEval is the evaluation package of the
+VisualGeometryToolkitEval benchmarks robust estimators: it summarizes pose
+errors (finite medians, the mean average accuracy (mAA), bootstrap intervals),
+tunes hyperparameters by a cross-validation configured in TOML, and evaluates
+a RANSAC scorer composed with a local optimizer. It is the evaluation package
+of the
 [VisualGeometryToolkit](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl)
-stack. It holds what the stack's research projects share when they benchmark
-robust estimators:
-
-- summary statistics of pose errors, such as finite medians, the mean average
-  accuracy (mAA) and bias-corrected and accelerated (BCa) bootstrap intervals;
-- a codified cross-validation (CV) of hyperparameters, configured in TOML and
-  persisted with its full specification;
-- an evaluator that composes a RANSAC scorer with a local optimizer and
-  measures the pose error of the result;
-- readers for scoring pools and for raw two-view datasets;
-- a framework for reproducible experiments and paper figures.
-
-The evaluator is written against the contracts of
-[VisualGeometryToolkitCore](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/tree/main/VisualGeometryToolkitCore),
-so it runs any scorer with any local optimizer. A project that evaluates
-particular scorers or optimizers depends on their packages itself.
+stack, shared by the stack's research projects.
 
 ## Installation
 
-```julia
-using Pkg
-Pkg.add("VisualGeometryToolkitEval")
+```julia-repl
+pkg> add VisualGeometryToolkitEval
 ```
 
 The package requires Julia 1.12 or later.
 
-## Quick start
+## Example
 
-Each part of the package is a submodule (`Stats`, `Tuning`, `Evaluation`,
-`Pools` and others), and its names are imported from it. The example below
-summarizes a set of pose errors, then tunes one threshold by the package's
-coarse-to-fine cross-validation.
+The example summarizes the pose errors of seven image pairs, then tunes one
+threshold by the package's coarse-to-fine cross-validation.
 
 ```julia
 using VisualGeometryToolkitEval.Stats: finite_median, eligible_maa, bootstrap_ci
@@ -50,7 +36,7 @@ using TOML
 # Pose errors in degrees of seven image pairs; NaN marks a pair without a model.
 errors = [0.4, 1.2, NaN, 0.8, 3.5, 0.6, 2.1]
 finite_median(errors)                               # 1.0
-eligible_maa(errors; max_error = 10.0)                      # mAA up to 10 degrees; NaN counts as 0
+eligible_maa(errors; max_error = 10.0)              # ≈ 0.73: mAA up to 10 degrees; NaN counts as 0
 bootstrap_ci(finite_median, Xoshiro(1), errors)     # 95% BCa interval of the median
 
 # A tuning specification, as a paper's TOML config states it. The keys left out
@@ -71,21 +57,31 @@ result[:x_star_fine]                                # ≈ 2.0, the tuned thresho
 result[:boundary_hit]                               # false: the optimum is inside the window
 ```
 
+[Getting started](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitEval/stable/getting-started/)
+continues from here.
+
 ## Documentation
 
-The [documentation](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitEval/stable/)
-covers:
+- [Getting started](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitEval/stable/getting-started/):
+  the first examples.
+- [Guide](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitEval/stable/protocol/):
+  the experimental protocol, the `[tuning]` schema, the composition evaluator,
+  reproducible figures, paper projects, and the defaults and file formats.
+- [API Reference](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitEval/stable/api/toplevel/):
+  one page per submodule.
 
-- the experimental protocol that the stack's papers follow;
-- the `[tuning]` TOML schema;
-- the composition evaluator;
-- reproducible figures and the conventions of a paper project;
-- the API reference, one page per submodule.
+The evaluator is written against the contracts of VisualGeometryToolkitCore,
+so it runs any scorer with any local optimizer. It builds on
+VisualGeometryToolkitCore, VisualGeometryToolkitIO and
+VisualGeometryToolkitEstimation; a project that evaluates particular scorers or
+optimizers depends on their packages itself. The
+[portal](https://visualgeometrytoolkit.github.io) links every package of the
+toolkit.
 
 ## Citing
 
-VisualGeometryToolkitEval is part of VisualGeometryToolkit. Please cite the
-toolkit. Its
+VisualGeometryToolkitEval is part of VisualGeometryToolkit. Cite the toolkit.
+Its
 [CITATION.cff](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/blob/main/CITATION.cff)
 is the source of this entry, and GitHub's "Cite this repository" button
 exports it:
@@ -99,8 +95,8 @@ exports it:
 }
 ```
 
-Please also cite the papers behind the methods you use. They are listed on
-[the portal](https://visualgeometrytoolkit.github.io/#publications).
+Cite also the papers behind the methods you use; the
+[portal](https://visualgeometrytoolkit.github.io/#publications) lists them.
 
 ## License
 

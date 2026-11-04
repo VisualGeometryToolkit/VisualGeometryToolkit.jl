@@ -81,7 +81,7 @@ end
             t = PlanarTarget(design_points(); calibration = cc)
             save(p, t; length_unit)
             d = parse_json(read(p, String))
-            @test d.schema == "vgio/target/v3" && d.target.calibration.type == (name == :chain_affine ? "calibration_chain" : String(name))
+            @test d.schema == "vgio/target/v3" && d.target.calibration.type == (name in (:chain_affine, :calibration_chain) ? "composition" : String(name))
             @test haskey(d.target.calibration, :covariance) == (cc isa Uncertain)
             back = load(AbstractTarget, p)
             @test back == t                        # exact, by type: values, units, the covariance
@@ -114,16 +114,17 @@ end
         save(p, PlanarTarget(design_points(); calibration = k.height_field))
         c = parse_json(read(p, String)).target.calibration
         @test c.type == "height_field" && length(c.parameters) == 9 && c.parameters[8] == 0.3
-        # a composition: its members in CT's order (the outer map, the height
-        # field, first), the covariance once, over every member's parameters in that order
+        # a composition: its members under "compose" in CT's order (the outer
+        # map, the height field, first), the covariance once, over every member's parameters in that order
         save(p, PlanarTarget(design_points(); calibration = uncertain(k.calibration_chain)))
         c = parse_json(read(p, String)).target.calibration
-        @test [x.type for x in c.members] == ["height_field", "thin_plate_spline"]
-        @test all(x -> !haskey(x, :covariance), c.members) && size(reduce(hcat, c.covariance)) == (27, 27)
+        @test c.type == "composition" && !haskey(c, :members)
+        @test [x.type for x in c.compose] == ["height_field", "thin_plate_spline"]
+        @test all(x -> !haskey(x, :covariance), c.compose) && size(reduce(hcat, c.covariance)) == (27, 27)
         @test c.covariance[1][1] == 1.0 && c.covariance[5][5] == 5.0 && c.covariance[1][27] == -0.15   # every entry lengths²: mm²
         save(p, PlanarTarget(design_points(); calibration = uncertain(k.chain_affine)))
         c = parse_json(read(p, String)).target.calibration
-        @test [x.type for x in c.members] == ["height_field", "affine"]
+        @test [x.type for x in c.compose] == ["height_field", "affine"]
         @test c.covariance[1][1] == 1.0 && c.covariance[10][10] == 1.0e-5 && c.covariance[1][15] == -0.15   # h1² in mm²; a11 plain; h1·by in mm²
         # rigid
         save(p, PlanarTarget(design_points()))
@@ -151,17 +152,23 @@ end
             return e isa ArgumentError && occursin(key, e.msg)
         end
         @test refused(c -> (c["type"] = "spline"), "unknown calibration type")
-        @test refused(c -> (c["members"] = c["members"][1:1]), "a height_field after one in-plane kind")
-        @test refused(c -> push!(c["members"], Dict("type" => "rigid")), "a height_field after one in-plane kind")
-        @test refused(c -> (c["members"] = reverse(c["members"])), "the outer map first")       # v2's application order
-        @test refused(c -> push!(c["members"], Dict("type" => "calibration_chain", "members" => [])), "not a composition")
-        @test refused(c -> pop!(c["members"][1]["parameters"]), "states 9 parameters")
-        @test refused(c -> pop!(c["members"][2]["parameters"]), "states 18 parameters")
-        @test refused(c -> delete!(c["members"][1], "nodes"), "states its `nodes`")
+        @test refused(c -> (c["compose"] = c["compose"][1:1]), "a height_field after one in-plane kind")
+        @test refused(c -> push!(c["compose"], Dict("type" => "rigid")), "a height_field after one in-plane kind")
+        @test refused(c -> (c["compose"] = reverse(c["compose"])), "the outer map first")       # application order
+        @test refused(c -> push!(c["compose"], Dict("type" => "composition", "compose" => [])), "not a composition")
+        @test refused(c -> pop!(c["compose"][1]["parameters"]), "states 9 parameters")
+        @test refused(c -> pop!(c["compose"][2]["parameters"]), "states 18 parameters")
+        @test refused(c -> delete!(c["compose"][1], "nodes"), "states its `nodes`")
         @test refused(c -> (c["parameters"] = [1.0]), "has no `parameters`")
-        @test refused(c -> (c["members"][1]["covariance"] = [[1.0]]), "carries no `covariance`")
+        @test refused(c -> (c["compose"][1]["covariance"] = [[1.0]]), "carries no `covariance`")
         @test refused(c -> (c["covariance"] = [[1.0]]), "27×27")
-        @test refused(c -> (c["members"] = [Dict("type" => "rigid"), Dict("type" => "rigid", "parameters" => [])]), "has no `parameters`")
+        @test refused(c -> (c["compose"] = [Dict("type" => "rigid"), Dict("type" => "rigid", "parameters" => [])]), "has no `parameters`")
+        @test refused(c -> delete!(c, "compose"), "states its members, `compose`")
+        # the retired record — "calibration_chain", its "members" in application
+        # order — in a current file is refused by name, naming the migration
+        old_form(c) = (c["type"] = "calibration_chain"; c["members"] = reverse(pop!(c, "compose")))
+        @test refused(old_form, "retired") && refused(old_form, "vgio_migrate") && refused(old_form, "\"compose\"")
+        @test refused(c -> (c["members"] = pop!(c, "compose")), "vgio_migrate")             # the old key under the new type
         # a rigid calibration has no parameters: no covariance, in the record or in memory
         save(p, PlanarTarget(design_points()))
         rd = JSON.parse(read(p, String); dicttype = Dict{String, Any})
@@ -178,7 +185,7 @@ end
         # a v2 file (a composition in application order) is refused, naming the migration
         dd = deepcopy(good)
         dd["schema"] = "vgio/target/v2"
-        dd["target"]["calibration"]["members"] = reverse(dd["target"]["calibration"]["members"])
+        dd["target"]["calibration"] = VisualGeometryToolkitIO._composition_v3_to_v2(dd["target"]["calibration"])
         write(p, JSON.json(dd))
         e = try load(AbstractTarget, p); nothing catch e; e end
         @test e isa ArgumentError && occursin("vgio/target/v2", e.msg) && occursin("vgio_migrate", e.msg)

@@ -601,7 +601,8 @@ end
 #   lens   := { PROJ: [c…] }                                  a pure projection
 #           | { PROJ: [c…], TERM: payload }                    projection + one term
 #           | { PROJ: [c…], "add":   [ {TERM: payload}, … ] }
-#           | { PROJ: [c…], "chain": [ {TERM | "add": …}, … ] }     terms in sequence (∘), the OUTER first
+#           | { PROJ: [c…], "compose": [ {TERM | "add": …}, … ] }   terms in sequence (∘), the OUTER first
+#   (the retired "chain" listed terms in sequence in application order; it is refused, naming "compose")
 #           | { "lift": { "radial" | "radial_full": [[k…], [d…]] } }
 #   payload: radial / radial_full [[k…], [d…]]; tangential [p1, p2];
 #            thin_prism [[sx…], [sy…]]; tilt [tx, ty]; field_of_view [omega]
@@ -623,7 +624,7 @@ toml_value(l::AbstractLensModel) = lens_record(l)     # a lens-valued config fie
 _record(::Nothing) = Dict{String, Any}()
 _record(a::Additive) = Dict{String, Any}("add" => Any[_record(t) for t in a.terms])
 # terms in sequence: CoordinateTransformations' order, the outer map first
-_record(c::ComposedTransformation) = Dict{String, Any}("chain" => Any[_record(t) for t in reverse(_stages(c))])
+_record(c::ComposedTransformation) = Dict{String, Any}("compose" => Any[_record(t) for t in reverse(_stages(c))])
 _record(leaf) = Dict{String, Any}(
     _tag(typeof(leaf)) => any(f -> f isa Tuple, _fields(leaf)) ? Any[collect(Float64, f) for f in _fields(leaf)] :
         collect(Float64, _coefficients(leaf))
@@ -666,15 +667,21 @@ end
 function _from_record(::Type{T}, d) where {T}
     (d isa AbstractDict && length(d) == 1) || throw(ArgumentError("lens record: a term is a one-key record; got $(repr(d))"))
     k, v = String(only(keys(d))), only(values(d))
-    if k == "add" || k == "chain"
+    k == "chain" && throw(
+        ArgumentError(
+            "lens record: \"chain\" is retired (it listed terms in sequence in application order); " *
+                "list them under \"compose\" in CoordinateTransformations' order, the outer first"
+        )
+    )
+    if k == "add" || k == "compose"
         (v isa AbstractVector && !isempty(v)) || throw(ArgumentError("lens record: \"$k\" is a non-empty list of terms"))
         parts = map(x -> _from_record(T, x), v)
         k == "add" && return Additive(parts...)
-        length(parts) >= 2 || throw(ArgumentError("lens record: \"chain\" is two or more terms in sequence, the outer first"))
-        return foldr(∘, parts)                     # right-associated: parts[1] ∘ (parts[2] ∘ …)
+        length(parts) >= 2 || throw(ArgumentError("lens record: \"compose\" is two or more terms in sequence, the outer first"))
+        return foldr(∘, parts)                     # right-associated: parts[1] ∘ (parts[2] ∘ …), Lens's one association
     end
     (haskey(_LEAVES, k) && !_is_projection_tag(k)) || throw(
-        ArgumentError("lens record: unknown key \"$k\"; known: add, chain, $(join(sort(filter(!_is_projection_tag, collect(keys(_LEAVES)))), ", "))")
+        ArgumentError("lens record: unknown key \"$k\"; known: add, compose, $(join(sort(filter(!_is_projection_tag, collect(keys(_LEAVES)))), ", "))")
     )
     return _leaf(T, k, v)
 end

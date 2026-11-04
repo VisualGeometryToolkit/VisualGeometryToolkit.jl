@@ -309,7 +309,7 @@ end
 @inline _stages(c::ComposedTransformation) = (_stages(c.t2)..., _stages(c.t1)...)
 @inline _stages(d) = (d,)
 # A composed distortion in its ONE association, right-associated
-# (`D₃ ∘ (D₂ ∘ D₁)`, as `lens_from_record` builds a record's "chain"): Base
+# (`D₃ ∘ (D₂ ∘ D₁)`, as `lens_from_record` builds a record's "compose"): Base
 # folds `D₃ ∘ D₂ ∘ D₁` to the left, so without this two equal stage sequences
 # would be two values (unequal, hashed apart, and seen differently by
 # structural dispatch on the lens type).

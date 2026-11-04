@@ -84,7 +84,7 @@ in VGC's `TARGET_CALIBRATION_TAGS`:
 "calibration": {"type": "affine", "parameters": [a11, a12, a21, a22, bx, by]}
 "calibration": {"type": "thin_plate_spline", "nodes": [[u, v], …], "parameters": [fx1, …, fxK, fy1, …, fyK]}
 "calibration": {"type": "height_field", "nodes": [[u, v], …], "parameters": [h1, …, hK]}
-"calibration": {"type": "calibration_chain", "members": [{"type": "height_field", …}, {"type": "affine" | "thin_plate_spline", …}]}
+"calibration": {"type": "composition", "compose": [{"type": "height_field", …}, {"type": "affine" | "thin_plate_spline", …}]}
 ```
 
 `parameters` are the kind's `parameter_vector` in its `parameter_names` order:
@@ -93,10 +93,12 @@ lengths (an affine's `b`, the displacements, the heights) in the file's
 plane, in the file's unit. A composition — `HeightField ∘ AffineMap` or
 `HeightField ∘ ThinPlateSpline`, CoordinateTransformations' `∘`, the only two
 there are — is written by its structure: its members are records of their own,
-in CoordinateTransformations' order, the outer map (the height field) first
-(`vgio/target/v2` and `vgio/rig/v5` listed a chain's members in application
-order; `vgio_migrate` reverses them, and refuses a chain of two in-plane kinds,
-which has no current form). An `Uncertain` calibration adds `covariance` at
+listed under `compose` (the key a lens record lists its stages in sequence
+under) in CoordinateTransformations' order, the outer map (the height field)
+first (`vgio/target/v2` and `vgio/rig/v5` wrote `{"type": "calibration_chain",
+"members": […]}`, the members in application order; `vgio_migrate` converts
+them, and refuses a chain of two in-plane kinds, which has no current form; a
+current reader refuses the retired form by name). An `Uncertain` calibration adds `covariance` at
 the top of the record, n × n over `parameter_vector` (a composition's covers
 every member's parameters, in that order, so its members carry none), each entry in the file's unit raised to its length
 dimension. A calibration with lengths in plain numbers is refused, as plain

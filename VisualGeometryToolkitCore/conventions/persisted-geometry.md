@@ -128,8 +128,14 @@ closed set of keys; the target's own `calibration` is its
 `TARGET_CALIBRATION_TAGS`; its `parameters` in `parameter_names` order, lengths
 in the file's unit; `nodes` for a thin-plate kind; for a composition
 (`HeightField ∘ AffineMap`, `HeightField ∘ ThinPlateSpline`), written by its
-structure, `members` in CoordinateTransformations' order, the outer map first;
-and a `covariance` over every parameter, in that order, iff it is `Uncertain`. A target with a
+structure, `{"type": "composition", "compose": [outer, inner]}`, the members in
+CoordinateTransformations' order, the outer map first;
+and a `covariance` over every parameter, in that order, iff it is `Uncertain`.
+A lens record lists its stages in sequence under the same key, `compose`, in
+the same order. **A list whose order changes changes its key**: the retired
+`calibration_chain` / `members` and lens `chain` listed the same members in
+application order, and a reader refuses them by name rather than read them in
+the new order. A target with a
 `board` (the physical board it is printed on) writes it as
 `{"size": {"width", "height"}, "origin": [u, v]}`, lengths in the file's unit.
 

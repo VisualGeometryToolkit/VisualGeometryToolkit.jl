@@ -435,8 +435,8 @@ function _map_rig_targets(f, tree::AbstractDict)
 end
 # (the v5 form of a v4 record; `_rig_v4_to_v6` is the current one)
 _rig_v4_to_v5(old) = (t = _map_rig_targets(_body_v1_to_v2, old); t["schema"] = _schema("rig"); t)
-# a current record back in v4's form: v6 → v5 (the composition orders, their
-# own inverse) then v5's keys renamed back
+# a current record back in v4's form: v6 → v5 (the compositions back in
+# application order, under v5's keys) then v5's keys renamed back
 _rig_v6_to_v4(new, old) = (t = _map_rig_targets(_body_v2_to_v1, _rig_v6_to_v5(new)); t["schema"] = old["schema"]; t)
 function _target_v1_to_v2(old)
     body = _renamed(old, ("calibration" => "calibration_record",))
@@ -481,14 +481,23 @@ end
 _v2_parameter_count(r) = (t = r["type"]; t == "rigid" ? 0 : t == "affine" ? 6 :
     t == "thin_plate_spline" ? 2 * length(r["nodes"]) : t == "height_field" ? length(r["nodes"]) :
     throw(ArgumentError("a calibration record of unknown type $(repr(t))")))
+# The list's key and order changed together, so a reader can tell them apart:
+# v2/v5's `{"type": "calibration_chain", "members": [inner, outer]}` (application
+# order) is v3/v6's `{"type": "composition", "compose": [outer, inner]}` (CT's
+# order), the covariance permuted with the members; v3/v5's lens record
+# `"chain": [inner, …, outer]` is v4/v6's `"compose": [outer, …, inner]`.
 # A composed calibration record (type key `key`: "type" in a file, "kind" in
-# the identity tree) with its members' order reversed and its covariance
-# permuted with them; any other record as it is. Its own inverse.
-function _reversed_composition(c::AbstractDict, key = "type")
-    get(c, key, nothing) == "calibration_chain" || return c
-    out = copy(c)
-    ms = c["members"]
-    out["members"] = reverse(ms)
+# the identity tree) in the other form — `_composition_v2_to_v3` forward,
+# `_composition_v3_to_v2` back; any other record as it is.
+_composition_v2_to_v3(c::AbstractDict, key = "type") =
+    get(c, key, nothing) == _RETIRED_COMPOSITION_TYPE ? _recomposed(c, key, "members", _COMPOSITION_TYPE, _COMPOSE_KEY) : c
+_composition_v3_to_v2(c::AbstractDict, key = "type") =
+    get(c, key, nothing) == _COMPOSITION_TYPE ? _recomposed(c, key, _COMPOSE_KEY, _RETIRED_COMPOSITION_TYPE, "members") : c
+function _recomposed(c::AbstractDict, key, from, type, to)
+    out = Dict{String, Any}(k => v for (k, v) in c if k != from)
+    out[key] = type
+    ms = c[from]
+    out[to] = reverse(ms)
     if haskey(c, "covariance")
         sizes = [_v2_parameter_count(Dict("type" => r[key], "nodes" => get(r, "nodes", ()))) for r in ms]
         offsets = cumsum([0; sizes[1:(end - 1)]])
@@ -498,13 +507,19 @@ function _reversed_composition(c::AbstractDict, key = "type")
     end
     return out
 end
-# A lens record with its "chain" (terms in sequence) reversed: v3/v5 listed
-# the stages in application order, v4/v6 in CT's order (the outer first). Its
-# own inverse; any other lens record as it is.
-_reversed_lens_chain(l::AbstractDict) = haskey(l, "chain") ? merge(Dict{String, Any}(l), Dict{String, Any}("chain" => reverse(l["chain"]))) : l
-_reversed_lens_chain(l) = l
-# a camera body (a store's camera, a rig's sensor camera) with its lens's chain reversed
-_camera_v3_to_v4(c::AbstractDict) = haskey(c, "lens") ? merge(Dict{String, Any}(c), Dict{String, Any}("lens" => _reversed_lens_chain(c["lens"]))) : c
+# A lens record in the other form: v3/v5's "chain" (application order) as
+# v4/v6's "compose" (CT's order, the outer first), and back; any other lens
+# record as it is.
+_lens_v3_to_v4(l::AbstractDict) = _relisted(l, "chain", _COMPOSE_KEY)
+_lens_v4_to_v3(l::AbstractDict) = _relisted(l, _COMPOSE_KEY, "chain")
+_lens_v3_to_v4(l) = l
+_lens_v4_to_v3(l) = l
+_relisted(l, from, to) = haskey(l, from) ?
+    merge(Dict{String, Any}(k => v for (k, v) in l if k != from), Dict{String, Any}(to => reverse(l[from]))) : l
+# a camera body (a store's camera, a rig's sensor camera) with its lens in the other form
+_camera_lens(f, c::AbstractDict) = haskey(c, "lens") ? merge(Dict{String, Any}(c), Dict{String, Any}("lens" => f(c["lens"]))) : c
+_camera_v3_to_v4(c::AbstractDict) = _camera_lens(_lens_v3_to_v4, c)
+_camera_v4_to_v3(c::AbstractDict) = _camera_lens(_lens_v4_to_v3, c)
 function _cameras_v3_to_v4(old)
     t = copy(old)
     t["schema"] = _schema("cameras")
@@ -514,22 +529,23 @@ end
 _map_rig_sensors(f, tree::AbstractDict) = haskey(tree, "sensors") ?
     merge(Dict{String, Any}(tree), Dict{String, Any}("sensors" => Any[merge(Dict{String, Any}(x), Dict{String, Any}("camera" => f(x["camera"]))) for x in tree["sensors"]])) : tree
 
-_body_v2_to_v3(b::AbstractDict) = haskey(b, "calibration") ? merge(Dict{String, Any}(b), Dict{String, Any}("calibration" => _reversed_composition(b["calibration"]))) : b
+_body_calibration(f, b::AbstractDict) = haskey(b, "calibration") ? merge(Dict{String, Any}(b), Dict{String, Any}("calibration" => f(b["calibration"]))) : b
+_body_v2_to_v3(b::AbstractDict) = _body_calibration(_composition_v2_to_v3, b)
+_body_v3_to_v2(b::AbstractDict) = _body_calibration(_composition_v3_to_v2, b)
 function _target_v2_to_v3(old)
     t = copy(old)
     t["schema"] = _schema("target")
     t["target"] = _body_v2_to_v3(old["target"])
     return t
 end
-_rig_v5_to_v6(old) = (t = _v5_v6_orders(old); t["schema"] = _schema("rig"); t)
-# the v5 ↔ v6 change, its own inverse: every sensor lens's chain and target
-# calibration's members reversed
-_v5_v6_orders(tree) = _map_rig_sensors(_camera_v3_to_v4, _map_rig_targets(_body_v2_to_v3, tree))
-_rig_v6_to_v5(new) = _v5_v6_orders(new)
+# the v5 → v6 change and back: every sensor lens's and target calibration's
+# composition in the other form
+_rig_v5_to_v6(old) = (t = _map_rig_sensors(_camera_v3_to_v4, _map_rig_targets(_body_v2_to_v3, old)); t["schema"] = _schema("rig"); t)
+_rig_v6_to_v5(new) = _map_rig_sensors(_camera_v4_to_v3, _map_rig_targets(_body_v3_to_v2, new))
 # v4 → v5 → v6: v4 listed a lens's stages in application order, as v5 did
 _rig_v4_to_v6(old) = _rig_v5_to_v6(_rig_v4_to_v5(old))
 
-# vgio/cameras/v3 → v4: each lens record's "chain" in CT's order
+# vgio/cameras/v3 → v4: each lens record's "chain" as "compose", in CT's order
 function migrate_schema(::Val{Symbol("vgio/cameras/v3")}, src::AbstractString, dst::AbstractString)
     _migrate_record(Dict{Symbol, BoundedCamera}, _CAMERAS_SPEC, src, dst, _cameras_v3_to_v4, "the camera store")
     return (; to = _schema("cameras"))

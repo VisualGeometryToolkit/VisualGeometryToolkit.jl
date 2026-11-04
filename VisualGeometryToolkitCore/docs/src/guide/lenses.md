@@ -68,7 +68,8 @@ lift).
   Radial(…)`; OpenCV's tilt follows its additive model, `Tilt(τx, τy) ∘
   Additive(…)`. Each stage is a map term or an `Additive`. A composition's
   coefficients are in CT's order, the outer stage's first, and its record lists
-  the stages the same way (`"chain"`, the outer first).
+  the stages the same way (`"compose"`, the outer first; the retired
+  `"chain"`, which listed them in application order, is refused).
 
 ## Familiar models
 

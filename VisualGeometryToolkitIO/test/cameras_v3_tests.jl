@@ -166,7 +166,10 @@
             @test refused(dd -> (dd[:cameras][1][:width] = 0), "width")
             @test refused(dd -> (dd[:cameras][1][:unit] = "px"), "unit")               # no key the table does not name
             @test refused(dd -> (dd[:schema] = "vgio/cameras/v5"), "schema")                 # a version this reader does not know
-            @test refused(dd -> (dd[:schema] = "vgio/cameras/v3"), "vgio_migrate")           # v3 is migrated (its lens "chain" reversed)
+            @test refused(dd -> (dd[:schema] = "vgio/cameras/v3"), "vgio_migrate")           # v3 is migrated (its lens "chain" → "compose", reversed)
+            # the retired "chain" (stages in application order) in a current record: refused by name, naming the migration
+            chained = Dict(:perspective => [], :chain => [Dict(:add => [Dict(:tangential => [0.0, 0.1])]), Dict(:tilt => [0.01, 0.0])])
+            @test refused(dd -> (dd[:cameras][1][:lens] = chained), "vgio_migrate") && refused(dd -> (dd[:cameras][1][:lens] = chained), "\"compose\"")
             @test refused(dd -> (dd[:schema] = "vgio/cameras/v2"), "lens records")     # v2 is retired, refused by name
             @test refused(dd -> (dd[:schema] = "vgio/cameras/v1"), "lens records")
         end

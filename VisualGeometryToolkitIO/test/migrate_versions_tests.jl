@@ -219,7 +219,8 @@ end
         stage_record(p, s) = (pk = only(keys(lens_record(Lens(p)))); Dict{String, Any}(k => v for (k, v) in lens_record(Lens(p, s)) if k != pk))
         for x in d["sensors"]
             p, ss = stages[Symbol(x["id"])]
-            x["camera"]["lens"]["chain"] = Any[stage_record(p, s) for s in ss]   # application order
+            delete!(x["camera"]["lens"], "compose")
+            x["camera"]["lens"]["chain"] = Any[stage_record(p, s) for s in ss]   # v4's key, application order
         end
         @test [only(keys(s)) for s in d["sensors"][1]["camera"]["lens"]["chain"]] == ["add", "tilt"]
         @test [only(keys(s)) for s in d["sensors"][2]["camera"]["lens"]["chain"]] == ["radial", "add"]
@@ -506,8 +507,10 @@ end
 
 @testitem "vgio_migrate: rig/v5 → v6 reverses a sensor lens's chain and a target's composition, and maps the id" setup = [VGIoFixtures] begin
     # A v5 rig is the v6 text with every composed record's members in
-    # application order (CoordinateTransformations' order reversed): a sensor's
-    # lens "chain" and a target's calibration "members" with its covariance.
+    # application order (CoordinateTransformations' order reversed) under v5's
+    # keys: a sensor's lens "chain" (v6: "compose") and a target's
+    # "calibration_chain" "members" with its covariance (v6: "composition",
+    # "compose").
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: Rig, BoundedCamera, CameraModel, PosedCamera, PosedTarget, PlanarTarget, HeightField,
         Lens, Perspective, Additive, Radial, Tangential, Tilt, Size2, ViewFrame, BodyFrame, Uncertain, CovMat, grid_nodes, relabel, mm
@@ -527,14 +530,16 @@ end
         v6 = joinpath(dir, "rig.json")
         VgtkIO.save(v6, rig)
         d = JSON.parse(read(v6, String); dicttype = Dict{String, Any})
-        @test [only(keys(x)) for x in d["sensors"][1]["camera"]["lens"]["chain"]] == ["tilt", "add"]        # the outer first
-        @test [x["type"] for x in d["targets"][1]["target"]["calibration"]["members"]] == ["height_field", "affine"]
-        # the v5 file it migrates from
+        @test [only(keys(x)) for x in d["sensors"][1]["camera"]["lens"]["compose"]] == ["tilt", "add"]        # the outer first
+        @test d["targets"][1]["target"]["calibration"]["type"] == "composition"
+        @test [x["type"] for x in d["targets"][1]["target"]["calibration"]["compose"]] == ["height_field", "affine"]
+        # the v5 file it migrates from: v5's keys, in application order
         d["schema"] = "vgio/rig/v5"
         l = d["sensors"][1]["camera"]["lens"]
-        l["chain"] = reverse(l["chain"])
+        l["chain"] = reverse(pop!(l, "compose"))
         cal = d["targets"][1]["target"]["calibration"]
-        cal["members"] = reverse(cal["members"])
+        cal["type"] = "calibration_chain"
+        cal["members"] = reverse(pop!(cal, "compose"))
         p = [5, 6, 7, 8, 9, 10, 1, 2, 3, 4]                     # affine (6) then height field (4) ← height field then affine
         cal["covariance"] = [[cal["covariance"][p[i]][p[j]] for j in 1:10] for i in 1:10]
         v5 = joinpath(dir, "rig_v5.json")
@@ -570,7 +575,7 @@ end
             d["schema"] = "vgio/rig/v5"
             for x in d["targets"]
                 c = get(x["target"], "calibration", nothing)
-                c isa AbstractDict && get(c, "type", "") == "calibration_chain" && (x["target"]["calibration"] = VgtkIO._reversed_composition(c))
+                c isa AbstractDict && (x["target"]["calibration"] = VgtkIO._composition_v3_to_v2(c))
             end
             v5 = joinpath(dir, "rig_v5.json")
             write(v5, JSON.json(d, 2))

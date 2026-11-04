@@ -116,8 +116,20 @@ function _lens_from_json(x)
                 "families; there is no reader for it: re-export the camera from its producer"
         )
     )
+    # the retired "chain" (terms in sequence in application order, cameras v3 /
+    # rig v5): its key and order changed together, so it is never read as "compose"
+    _has_chain(x) && throw(
+        ArgumentError(
+            "a lens record's \"chain\" (its stages in application order) is the retired vgio/cameras/v3 / " *
+                "vgio/rig/v5 form: migrate the file with vgio_migrate (the stages are listed under \"compose\", " *
+                "in CoordinateTransformations' order, the outer first)"
+        )
+    )
     return lens_from_record(_plain(x)::Dict{String, Any})
 end
+_has_chain(x::AbstractDict) = haskey(x, "chain") || haskey(x, :chain) || any(_has_chain, values(x))
+_has_chain(x::AbstractVector) = any(_has_chain, x)
+_has_chain(x) = false
 
 # The lens record's own check, run by the validator on read AND write.
 function _lens_check(x)

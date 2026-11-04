@@ -79,7 +79,7 @@ end
 #   {"type": "affine", "parameters": [a11, a12, a21, a22, bx, by]}
 #   {"type": "thin_plate_spline", "nodes": [[u, v], …], "parameters": [fx1, …, fxK, fy1, …, fyK]}
 #   {"type": "height_field", "nodes": [[u, v], …], "parameters": [h1, …, hK]}
-#   {"type": "calibration_chain", "members": [{height_field}, {affine | thin_plate_spline}]}
+#   {"type": "composition", "compose": [{height_field}, {affine | thin_plate_spline}]}
 #
 # `parameters` are the kind's `parameter_vector`, in its `parameter_names`
 # order: lengths in the file's `length_unit` (an affine's `b`, the in-plane
@@ -87,7 +87,11 @@ end
 # `nodes` are positions in the target's plane, lengths in the file's unit. A
 # composition (`HeightField ∘ AffineMap` or `HeightField ∘ ThinPlateSpline`,
 # CoordinateTransformations' `∘`) is written by its structure, its members
-# records of their own in CT's order — the outer map, the height field, first.
+# records of their own listed under `compose` in CT's order — the outer map,
+# the height field, first (the key a lens record lists its stages in sequence
+# under, in the same order). The retired `calibration_chain` record (target
+# v2 / rig v5), whose `members` were in application order, is refused, naming
+# `vgio_migrate`.
 # `covariance` (optional, top level only) is present iff the calibration is
 # `Uncertain`: n × n over `parameter_vector` (a composition's: every member's,
 # the height field's first — one joint covariance, as `Uncertain(c, Σ)` holds
@@ -119,7 +123,12 @@ end
 
 # The record type of a composition, written by its structure (it has no tag in
 # VGC's registry: the tag rule would spell CoordinateTransformations' type).
-const _COMPOSITION_TYPE = "calibration_chain"
+const _COMPOSITION_TYPE = "composition"
+# The key a composition lists its members under, outer first — a calibration
+# record's and a lens record's alike (VGC's `lens_record`).
+const _COMPOSE_KEY = "compose"
+# v2/v5's composition record (its `members` in application order): refused
+const _RETIRED_COMPOSITION_TYPE = "calibration_chain"
 
 # The keys a calibration record of each kind states, and how many parameters
 # it holds — by the kind's TYPE, which the registry gives for its tag.
@@ -135,17 +144,26 @@ _record_kind(::Type{AffineMap}, x) = AffineMap{SMatrix{2, 2, Float64, 4}, SVecto
 _record_kind(::Type{ThinPlateSpline}, x) = ThinPlateSpline{length(x[:nodes])}
 _record_kind(::Type{HeightField}, x) = HeightField{length(x[:nodes])}
 _record_kind(x) = x[:type] == _COMPOSITION_TYPE ?
-    ComposedTransformation{_record_kind(x[:members][1]), _record_kind(x[:members][2])} :
+    ComposedTransformation{_record_kind(x[:compose][1]), _record_kind(x[:compose][2])} :
     _record_kind(TARGET_CALIBRATION_TAGS[x[:type]], x)
 _n_parameters(x) = length(length_mask(_record_kind(x)))
 
+# The retired composition record — `calibration_chain` with its `members` in
+# application order (target v2 / rig v5) — refused by name: its key and order
+# changed together, so it is never read as the current one.
+const _RETIRED_COMPOSITION_MSG =
+    "a \"$(_RETIRED_COMPOSITION_TYPE)\" calibration (its `members` in application order) is the retired " *
+    "target v2 / rig v5 record: migrate the file with vgio_migrate (a composition is " *
+    "{\"type\": \"$(_COMPOSITION_TYPE)\", \"$(_COMPOSE_KEY)\": [outer, inner]}, CoordinateTransformations' order)"
+
 function _target_calibration_check(x, member::Bool)
     ty = x[:type]
+    (ty == _RETIRED_COMPOSITION_TYPE || haskey(x, :members)) && return _RETIRED_COMPOSITION_MSG
     ty == _COMPOSITION_TYPE && return _composition_check(x, member)
     haskey(TARGET_CALIBRATION_TAGS, ty) ||
         return "unknown calibration type $(repr(ty)) (one of $(join(keys(TARGET_CALIBRATION_TAGS), ", ")), $(_COMPOSITION_TYPE))"
     want = _calibration_keys(TARGET_CALIBRATION_TAGS[ty])
-    for k in (:nodes, :parameters, :members)
+    for k in (:nodes, :parameters, Symbol(_COMPOSE_KEY))
         (k in want) == haskey(x, k) || return k in want ? "a $(ty) calibration states its `$(k)`" : "a $(ty) calibration has no `$(k)`"
     end
     :nodes in want && isempty(x[:nodes]) && return "a $(ty) calibration has at least one node"
@@ -161,8 +179,8 @@ function _composition_check(x, member::Bool)
     for k in (:nodes, :parameters)
         haskey(x, k) && return "a $(_COMPOSITION_TYPE) has no `$(k)` (its members state theirs)"
     end
-    haskey(x, :members) || return "a $(_COMPOSITION_TYPE) states its `members`"
-    ms = x[:members]
+    haskey(x, :compose) || return "a $(_COMPOSITION_TYPE) states its members, `$(_COMPOSE_KEY)`"
+    ms = x[:compose]
     for (i, r) in enumerate(ms)
         msg = _target_calibration_check(r, true)
         msg === nothing || return "member $(i): $(msg)"
@@ -185,9 +203,11 @@ function _covariance_check(x, ty, n, member::Bool)
     return nothing
 end
 const _CALIBRATION_FIELDS = Pair{Symbol, _Spec}[:nodes => _Vec(_XY), :parameters => _Vec(_Real()), :covariance => _Vec(_Vec(_Real()))]
-const _TARGET_CALIBRATION_MEMBER = _Obj(Pair{Symbol, _Spec}[:type => _NonEmpty()], vcat(_CALIBRATION_FIELDS, Pair{Symbol, _Spec}[:members => _Vec(_Free())]))
+# (`members`, the retired record's key, is admitted here only to be refused by
+# name in `_target_calibration_check`)
+const _TARGET_CALIBRATION_MEMBER = _Obj(Pair{Symbol, _Spec}[:type => _NonEmpty()], vcat(_CALIBRATION_FIELDS, Pair{Symbol, _Spec}[:compose => _Vec(_Free()), :members => _Vec(_Free())]))
 const _TARGET_CALIBRATION = _Checked(
-    _Obj(Pair{Symbol, _Spec}[:type => _NonEmpty()], vcat(_CALIBRATION_FIELDS, Pair{Symbol, _Spec}[:members => _Vec(_TARGET_CALIBRATION_MEMBER)])),
+    _Obj(Pair{Symbol, _Spec}[:type => _NonEmpty()], vcat(_CALIBRATION_FIELDS, Pair{Symbol, _Spec}[:compose => _Vec(_TARGET_CALIBRATION_MEMBER), :members => _Vec(_Free())])),
     x -> _target_calibration_check(x, false),
 )
 
@@ -280,7 +300,7 @@ end
 _calibration_record(c::Union{ThinPlateSpline, HeightField}, u::_LeafUnit) =
     (type = _tag(_physical(c)), nodes = _nodes_json(c, u), parameters = [_metres_json(v, u) for v in parameter_vector(c)])
 _calibration_record(c::ComposedTransformation, u::_LeafUnit) =
-    (type = _tag(c), members = [_calibration_record(c.t1, u), _calibration_record(c.t2, u)])
+    (type = _tag(c), compose = [_calibration_record(c.t1, u), _calibration_record(c.t2, u)])
 
 _calibration_record(c::Uncertain{<:TargetCalibration}, u::_LeafUnit) =
     merge(_calibration_record(geom(c), u), (covariance = _length_cov_json(cov(c), u, length_mask(geom(c))),))
@@ -311,7 +331,7 @@ function _target_calibration_from_json(x, u::Units)
 end
 # the calibration without its covariance: a kind, or a composition of two
 _bare_calibration_from_json(x, u::Units) = x.type::String == _COMPOSITION_TYPE ?
-    _bare_calibration_from_json(x.members[1], u) ∘ _bare_calibration_from_json(x.members[2], u) :
+    _bare_calibration_from_json(x.compose[1], u) ∘ _bare_calibration_from_json(x.compose[2], u) :
     _calibration_from_record(TARGET_CALIBRATION_TAGS[x.type::String], x, u)
 
 """
@@ -669,7 +689,8 @@ The identity tree, fixed (a test pins it for a rig of every target kind):
     pose       {"rotation": [w, x, y, z] (Hamilton, w ≥ 0), "translation": [m, m, m],
                 "covariance": 6×6 rows over [δω; δt], rad and m       (iff Uncertain)}
     camera     {"intrinsics": [fx, fy, cx, cy, skew] (px, the canonical pixel frame),
-                "extent": [width, height] (px), "lens": VGC's lens_record of the lens, its "chain" in application order (the inner stage first)}
+                "extent": [width, height] (px), "lens": VGC's lens_record of the lens, its stages in sequence
+                under "chain" in application order (the inner stage first)}
              | {"grid_model": "central" | "noncentral", "extent": [width, height],
                 "calibrated_area": [min_x, min_y, max_x, max_y], "grid": [width, height],
                 "directions": row-major [[x, y, z], …], "points": row-major [[m, m, m], …] (non-central),
@@ -681,7 +702,7 @@ The identity tree, fixed (a test pins it for a rig of every target kind):
                 "canvas": {"size": [width, height] (m), "origin": [m, m],
                            "texture": {"path", "sha256", "size": [width, height] (m), "origin": [m, m]} (iff it has one)}
                                                                           (iff the target has a canvas)}
-    calibration {"kind": <the kind's tag>, "parameters": parameter_vector (lengths in m),
+    calibration {"kind": <the kind's tag> | "calibration_chain" (a composition), "parameters": parameter_vector (lengths in m),
                  "nodes": [[m, m], …] (thin-plate kinds), "members": [<calibration>, <calibration>] (a composition, in application order: the inner map first,
                  whatever order the record lists them in),
                  "covariance": rows over the parameters, m^(lᵢ+lⱼ) (iff Uncertain)}
@@ -715,10 +736,13 @@ _id_targets(tr) = Any[
 # calibration's members and a lens's stages in APPLICATION order (the inner map
 # first), with a composition's covariance permuted to match — the order rig/v5
 # wrote and hashed. The record lists them in CoordinateTransformations' order
-# since v6; hashing the record's order would re-id every rig with a composed
-# target or lens on migration, which an identity must not do.
-_id_order!(d::_Id) = (haskey(d, "calibration") && (d["calibration"] = _reversed_composition(d["calibration"], "kind")); d)
-_id_lens(l) = _reversed_lens_chain(_lower(_lens_json(l)))
+# since v6 (and under new names, `composition`/`compose`); hashing the record's
+# order would re-id every rig with a composed target or lens on migration,
+# which an identity must not do. The identity keeps v5's names too: a
+# composition is `{"kind": "calibration_chain", "members": [inner, outer]}`, a
+# lens's stages its `"chain"`.
+_id_order!(d::_Id) = (haskey(d, "calibration") && (d["calibration"] = _composition_v3_to_v2(d["calibration"], "kind")); d)
+_id_lens(l) = _lens_v4_to_v3(_lower(_lens_json(l)))
 # a record's `type` (a target's, a calibration's and its members') is the identity's `kind`.
 # The identity is built from the writer's records, so a writer key renamed or
 # added changes every content_id unless it is mapped back here; the pinned-tree
@@ -726,7 +750,7 @@ _id_lens(l) = _reversed_lens_chain(_lower(_lens_json(l)))
 function _id_kind!(d::_Id)
     d["kind"] = pop!(d, "type")
     haskey(d, "calibration") && _id_kind!(d["calibration"])
-    foreach(_id_kind!, get(d, "members", ()))
+    foreach(_id_kind!, get(d, _COMPOSE_KEY, ()))
     return d
 end
 # a canvas's and its texture's sizes are [width, height], as the board's

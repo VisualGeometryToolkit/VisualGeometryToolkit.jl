@@ -7,15 +7,20 @@ Breaking: the target and rig records bump with VisualGeometryToolkitCore
 
 - **`vgio/target/v3` and `vgio/rig/v6`.** A composed calibration —
   `HeightField ∘ AffineMap` or `HeightField ∘ ThinPlateSpline`, the only two —
-  is written by its structure, `{"type": "calibration_chain", "members":
+  is written by its structure, `{"type": "composition", "compose":
   [height_field, affine | thin_plate_spline]}`, its members in CT's order (the
-  outer map first) and its covariance over that order; v2/v5 listed a chain's
-  members in application order. Every other record is unchanged but for its
+  outer map first) and its covariance over that order; v2/v5's
+  `{"type": "calibration_chain", "members": […]}` listed them in application
+  order. The key changed with the order, so the retired form in a current
+  record is refused by name (an `ArgumentError` naming `vgio_migrate`), never
+  read in the new order. Every other record is unchanged but for its
   schema. The affine kind reads back as CT's `AffineMap` (its `b` lengths in
   metres).
 - **`vgio/cameras/v4`, and `vgio/rig/v6`'s sensors**: a lens's distortion
-  stages in sequence (CT's `∘`) are listed in the lens record's `"chain"` outer
-  first; v3/v5 listed them in application order. `vgio_migrate` converts a
+  stages in sequence (CT's `∘`) are listed in the lens record's `"compose"`
+  outer first (the key a composed calibration lists its members under); v3/v5
+  listed them under `"chain"` in application order, and a `"chain"` in a
+  current record is refused naming `vgio_migrate`. `vgio_migrate` converts a
   v3 store (and a v4 or v5 rig's sensors with its targets). OpenCV's 14-coefficient lens is `Tilt ∘ Additive` and COLMAP's
   `RAD_TAN_THIN_PRISM_FISHEYE` `Additive ∘ Radial` in `opencv_lens` and the
   COLMAP assembly; the exported coefficients and COLMAP parameters are

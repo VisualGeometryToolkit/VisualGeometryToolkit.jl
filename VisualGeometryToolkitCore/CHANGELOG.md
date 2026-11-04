@@ -41,8 +41,14 @@ chain types, and CT's conventions hold for it.
   (OpenCV's tilted model `Tilt(τx, τy) ∘ Additive(…)`, Fisheye624
   `Additive(Tangential(…), ThinPrism(…)) ∘ Radial(…)`). A composed lens's
   coefficients, names, bounds and Jacobian columns are in CT's order, the
-  outer stage's first; its `lens_record` lists the `"chain"` stages outer
-  first (`lens_from_record` builds the composition right-associated). Every
+  outer stage's first; its `lens_record` lists the stages under the new key
+  `"compose"`, outer first, and `lens_from_record` refuses the retired
+  `"chain"` (application order) with an `ArgumentError` naming `"compose"` — a
+  lens-valued TOML config field (`toml_value`) is the same record, so a config
+  that wrote `chain` lists its stages under `compose`, outer first. A composed
+  distortion is stored right-associated whatever association it was built in
+  (`lens_from_record` builds that form), so equal stage sequences are one
+  value: `==`, `hash` and the record round trip agree. Every
   projection, back-projection and Jacobian is bit for bit the chain's.
 - **The grid models' projection seed is positional**: the `init` keyword of
   `project` on `CentralGenericModel` and `NoncentralGenericModel` is removed

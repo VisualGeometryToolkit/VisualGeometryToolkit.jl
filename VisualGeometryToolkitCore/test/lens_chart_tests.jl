@@ -560,7 +560,12 @@ end
         @test lens_record(back) == lens_record(l)
         @test parameter_vector(back) == parameter_vector(l) && parameter_names(back) == parameter_names(l)
     end
-    @test [only(keys(x)) for x in lens_record(left)["chain"]] == ["tilt", "add", "radial"]   # the outer first
+    @test [only(keys(x)) for x in lens_record(left)["compose"]] == ["tilt", "add", "radial"]   # the outer first
+    @test !haskey(lens_record(left), "chain")
+    # the retired key, whose order was application order, is refused, naming the new one
+    old = Dict{String, Any}("equidistant" => Any[], "chain" => reverse(lens_record(left)["compose"]))
+    e = try lens_from_record(old); nothing catch e; e end
+    @test e isa ArgumentError && occursin("\"chain\" is retired", e.msg) && occursin("\"compose\"", e.msg) && occursin("outer first", e.msg)
     # the association does not change what the lens computes
     x = SVector(0.3, -0.2)
     @test VisualGeometryToolkitCore.distort_normalized(left, x) == VisualGeometryToolkitCore.distort_normalized(right, x)

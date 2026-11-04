@@ -34,8 +34,10 @@
     #   application order whatever order the record lists them in, so no id
     #   moves (`new_content_ids` is empty);
     # - lenses: a distortion's stages in sequence are CT's `∘` (the Lens
-    #   `Chain` removed); the camera store is v4, its lens record's "chain"
-    #   listing the stages outer first: a golden v3 store is migrated by
+    #   `Chain` removed); the camera store is v4, its lens record's "compose"
+    #   listing the stages outer first (the goldens' "chain" listed them in
+    #   application order), and a composed calibration's record is
+    #   `{"type": "composition", "compose": […]}`: a golden v3 store is migrated by
     #   `vgio_migrate` and must be the writer's v4 output byte for byte. The
     #   OpenCV and COLMAP exports are unchanged.
     const CODE = (

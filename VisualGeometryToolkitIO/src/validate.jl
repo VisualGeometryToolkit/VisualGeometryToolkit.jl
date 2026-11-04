@@ -169,15 +169,16 @@ const _POINT_INDEX_BASE = 1
 # reads them.
 #
 # cameras v4 and rig v6 (the lens record, the same change): a lens's distortion
-# stages in sequence (CT's `∘`) are listed in the record's "chain" in CT's
-# order, the outer map first; v3/v5 listed them in application order. Migrated
-# by `vgio_migrate`.
+# stages in sequence (CT's `∘`) are listed in the record's "compose" in CT's
+# order, the outer map first; v3/v5 listed them under "chain" in application
+# order (refused by name in a current record). Migrated by `vgio_migrate`.
 #
 # target v3 and rig v6 (CoordinateTransformations' composition, 2026-11): a
 # target calibration is CT's `∘` of a height field after one in-plane kind,
-# its record's members listed in CT's order (the outer map first) and its
-# covariance over that order; v2/v5 listed a chain's members in application
-# order. Migrated by `vgio_migrate`, which refuses a v2/v5 chain with no v3
+# its record `{"type": "composition", "compose": [outer, inner]}`, the members
+# in CT's order and its covariance over that order; v2/v5's
+# `{"type": "calibration_chain", "members": [inner, outer]}` listed them in
+# application order (refused by name in a current record). Migrated by `vgio_migrate`, which refuses a v2/v5 chain with no v3
 # form (two in-plane kinds).
 #
 # transforms and trajectory are v3 since their frames are typed (2026-10): the

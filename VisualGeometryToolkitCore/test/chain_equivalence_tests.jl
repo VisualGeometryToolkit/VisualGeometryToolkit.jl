@@ -32,9 +32,9 @@
     #   written by structure); and the in-plane compositions are retired;
     # - lenses: a distortion's stages in sequence are CT's `∘` (the Lens
     #   `Chain` removed), its parameters, names, bounds and Jacobian columns in
-    #   CT's order, the outer stage first (`lens_ct_order`); the lens record's
-    #   "chain" lists the stages outer first (`legacy_lens_record` reverses it
-    #   back to the goldens' application order).
+    #   CT's order, the outer stage first (`lens_ct_order`); the lens record
+    #   lists the stages outer first under "compose" (`legacy_lens_record`
+    #   puts them back under the goldens' "chain", in application order).
     const CODE = (
         affine = (A, b) -> AffineMap(SMatrix{2, 2}(A), SVector{2}(b)),
         compose_calibrations = members -> ∘(reverse(members)...),
@@ -42,7 +42,8 @@
         jacobian_theta = transform_deriv_params,
         jacobian_x = transform_deriv,
         tag = c -> c isa ComposedTransformation ? nothing : calibration_tag(typeof(c)),
-        legacy_lens_record = r -> haskey(r, "chain") ? merge(r, Dict{String, Any}("chain" => reverse(r["chain"]))) : r,
+        legacy_lens_record = r -> haskey(r, "compose") ?
+            merge(filter(p -> first(p) != "compose", r), Dict{String, Any}("chain" => reverse(r["compose"]))) : r,
         composition_tags = false,
         ct_order = true,
         lens_ct_order = true,

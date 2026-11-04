@@ -808,8 +808,10 @@ end
 """
     content_id(targets) -> String
 
-The identity a measurement file (`target_points2d`, `target_points3d`) names a
-target definition by — `targets` a `Rig` or a `vgio/rig/v6` path: the SHA-256
+The identity a measurement file (`target_points2d`, `target_points3d`,
+`target_homographies`) names a target definition by — `targets` a `Rig`, a
+single unposed `AbstractTarget` (`Attributed` ones by their target), or a
+`vgio/rig/v6` or `vgio/target/v3` path: the SHA-256
 of the canonical JSON (`canonical_json`) of the rig's IDENTITY TREE. The tree
 is built from the in-memory value by the record writer's own walk, under the
 fixed names below — names of the identity's own, which a later record format
@@ -837,6 +839,11 @@ cm, m, μm) holds every metre value exactly, so its files share the value's
 identity; a non-decimal unit (inch) is exact only for numbers born in it, so
 an inch file of mm-born numbers reads back within an ulp and its identity
 differs from the value's.
+
+A single target's identity is the SHA-256 of its `target` record below alone
+(the same record a rig's identity holds under each `"target"`), so a target's id
+is that of the file `save` wrote and `load` reads back, and differs from every
+rig's (a rig's tree has `frame`). A `PosedTarget` is an `ArgumentError`.
 
 The identity tree, fixed (a test pins it for a rig of every target kind):
 
@@ -866,10 +873,20 @@ The identity tree, fixed (a test pins it for a rig of every target kind):
                  whatever order the record lists them in),
                  "covariance": rows over the parameters, m^(lᵢ+lⱼ) (iff Uncertain)}
 """
-content_id(x::Union{Rig, AbstractString}) = _targets_hash(x)
+content_id(x::Union{Rig, AbstractTarget, Attributed{<:AbstractTarget}, AbstractString}) = _targets_hash(x)
 
-_targets_hash(path::AbstractString) = _targets_hash(_rig_from_record(_read_store(path, "rig", _RIG_SPEC)))   # a referenced design stays a reference
+# A path is a `vgio/rig/v6` file or a `vgio/target/v3` file (by its schema); a referenced design stays a reference.
+function _targets_hash(path::AbstractString)
+    v = _split_schema(_peek_schema(path))
+    v !== nothing && v.kind == "target" && return _targets_hash(load(AbstractTarget, path))
+    return _targets_hash(_rig_from_record(_read_store(path, "rig", _RIG_SPEC)))
+end
 _targets_hash(rig::Rig) = sha256_hex(canonical_json(_identity_tree(rig)))
+_targets_hash(t::Attributed{<:AbstractTarget}) = _targets_hash(t.value)   # who calibrated it is not part of what it is
+_targets_hash(t::AbstractTarget) = sha256_hex(canonical_json(_id_target(t)))
+_targets_hash(::PosedTarget) = throw(
+    ArgumentError("content_id: a PosedTarget has a pose, which an unposed target's identity does not hold — name `model(pt)`, or the rig it sits in")
+)
 
 # The identity tree (content_id's docstring). Its targets and poses are the
 # writer's own records (`target_json`, `pose_json`), built with every length
@@ -887,8 +904,9 @@ function _identity_tree(rig::Rig)
 end
 _id_sensor(rig, i, id) =      # (as the writer's `_sensor_json`: the rig untyped here)
     _Id("id" => String(id), "camera" => _id_camera(sensor_rig(rig).members[i]), "extrinsics" => _lower(pose_json(extrinsics(sensor_rig(rig), i), _PERSISTED)))
+_id_target(t) = _id_order!(_id_kind!(_id_canvas!(_id_board!(_lower(target_json(t, _PERSISTED))))))
 _id_targets(tr) = Any[
-    _Id("id" => String(id), "target" => _id_order!(_id_kind!(_id_canvas!(_id_board!(_lower(target_json(tr[id].target, _PERSISTED)))))), "pose" => _lower(pose_json(pose(tr, id), _PERSISTED)))
+    _Id("id" => String(id), "target" => _id_target(tr[id].target), "pose" => _lower(pose_json(pose(tr, id), _PERSISTED)))
         for id in sort!(collect(ids(tr)))
 ]
 # The identity's ONE member order, independent of the record's: a composed

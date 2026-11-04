@@ -27,7 +27,7 @@ that this class of bug cannot be written down:
 
 Every vgio file has a schema tag `vgio/<kind>/v<n>`. The current versions are
 rig v4; cameras, transforms and trajectory v3; target, target_poses,
-target_points2d and target_points3d v1; and v2 for the rest. A file can be
+target_homographies, target_points2d and target_points3d v1; and v2 for the rest. A file can be
 read exactly with nothing but itself. The rules that make this true:
 
 **The envelope is about the file; attributes are about the value.** The

@@ -4,6 +4,7 @@
 #
 #   vgio/trajectory/v3        ↔ VGC `Trajectory{S, D}`      a body's pose over time
 #   vgio/target_poses/v1      ↔ VGC `TargetPoses{F}`        per frame, the poses of the targets seen
+#   vgio/target_homographies/v1 ↔ VGC `TargetHomographies{H}` per frame, each target's plane → pixel homography
 #   vgio/target_points2d/v1   ↔ VGC `TargetPoints2D{F}`     per frame, pixels of target points
 #   vgio/target_points3d/v1   ↔ VGC `TargetPoints3D{F}`     per frame, 3D positions of target points
 #
@@ -36,6 +37,23 @@
 #              "poses": [{"target": "89b", "rotation": […], "translation": […], "covariance": …}]}]}
 #      each pose maps target:<target> → `to`: a detector's object → camera pose
 #
+# {"schema": "vgio/target_homographies/v1", "pixel_frame": "colmap",
+#  "targets": ["<content id of a targets rig or of a single target>", …],
+#  "frames": [{"t": 1, "image": "DSC04520.JPG", "sensor": "<camera name>", "time": 12.5,
+#              "homographies": [{"target": "89b", "H": [[…3], […3], […3]]}]}]}
+#      each `target` names a board inside one of the `targets` — a `content_id` of
+#      EITHER a rig (rig/v6) of boards OR a single unposed target (target/v3); at
+#      least one. Each H maps the target's plane — its own design frame, millimetres — to a
+#      pixel of the declared `pixel_frame`, as `RadialHomography`'s H does: BEFORE
+#      the lens of the camera `sensor` names, about that camera's centre (an H is
+#      read against that camera). H is stored as rows and CANONICAL: unit
+#      Frobenius norm and H[3,3] ≥ 0 (VGC `sign_normalize`), so one placement
+#      always writes the same bytes and a stored H seeds `HomographyManifold8(H)`
+#      directly; a writer stores `sign_normalize(H)` and refuses a degenerate H,
+#      a reader refuses an H that is not canonical or is singular. A homography
+#      has no 3D frame, so the pixel frame is declared at `save`, not carried by
+#      the value.
+#
 # {"schema": "vgio/target_points2d/v1", "pixel_frame": "colmap", "point_index_base": 1,
 #  "targets": ["<content id of a targets file>", …],
 #  "frames": [{"t": 17, "image": "DSC0017.png", "sensor": "cam1", "time": …,
@@ -54,7 +72,8 @@
 # per-target frames (each target's points in its own TargetFrame, placed by its
 # mount) with no stored tracks — the measurements are the tracks.
 #
-# Required per kind: trajectory — `pose`; target_poses — `image`, `sensor`;
+# Required per kind: trajectory — `pose`; target_poses, target_homographies —
+# `image`, `sensor`;
 # target_points2d — `image`, `sensor`, and at least one `targets` identity
 # (the measurements cannot be resolved without it); target_points3d —
 # `sensor` (its `targets` absent when the constellation is not known
@@ -254,6 +273,150 @@ function load(::Type{TargetPoses}, path::AbstractString)
         frames[t] = Dict{Symbol, Any}(Symbol(p.target::String) => pose_from_json(p, unit) for p in f.poses::Vector{Any})
     end
     return TargetPoses{frame_from_name(d.to::String)}(frames; images, sensors, times, time_origin = _time_origin(d))
+end
+
+# =============================================================================
+# target_homographies/v1 ↔ TargetHomographies
+# =============================================================================
+
+# Unit Frobenius norm within a few ulp, and the sign rule H[3,3] ≥ 0: `sign_normalize`'s gauge.
+const _HOMOGRAPHY_NORM_TOL = 4 * eps(Float64)
+# A singular H: its smallest singular value is negligible against its largest.
+const _HOMOGRAPHY_RANK_TOL = 1.0e-12
+
+_homography_rows(H) = [Float64[H[i, j] for j in 1:3] for i in 1:3]
+_homography_matrix(rows) = SMatrix{3, 3, Float64, 9}(ntuple(k -> Float64(rows[(k - 1) % 3 + 1][(k - 1) ÷ 3 + 1]), 9))
+
+_is_canonical_homography(M) = abs(norm(M) - 1) <= _HOMOGRAPHY_NORM_TOL && M[3, 3] >= 0
+function _is_singular_homography(M)
+    σ = svdvals(M)
+    return !(σ[end] > _HOMOGRAPHY_RANK_TOL * σ[1])
+end
+
+const _HOMOGRAPHY_H = _Checked(
+    _Vec(_Vec(_Real(), 3), 3),
+    rows -> begin
+        M = _homography_matrix(rows)
+        _is_canonical_homography(M) ||
+            return "the homography is not canonical: it must have unit Frobenius norm and H[3,3] ≥ 0 (‖H‖ = $(norm(M)), H[3,3] = $(M[3, 3]))"
+        return _is_singular_homography(M) ? "the homography is singular (it has no inverse)" : nothing
+    end,
+)
+
+const _TARGET_HOMOGRAPHIES_SPEC = _Checked(
+    _Obj(
+        Pair{Symbol, _Spec}[
+            :schema => _schema_tok("target_homographies"), :pixel_frame => _PIXEL_FRAME,
+            :targets => _Checked(_Vec(_HEX64), h -> isempty(h) ? "the homographies name at least one targets identity (a rig's or a single target's `content_id`)" : _unique_check(h, "targets identities")),
+            :frames => _Vec(
+                _Checked(
+                    _Obj(
+                        Pair{Symbol, _Spec}[
+                            :t => _Int(), _stamp_specs([:image, :sensor])[1]...,
+                            :homographies => _Vec(_Obj(:target => _NonEmpty(), :H => _HOMOGRAPHY_H)),
+                        ],
+                        _stamp_specs([:image, :sensor])[2],
+                    ),
+                    f -> _unique_check([h[:target] for h in f[:homographies]], "the targets of a frame"),
+                )
+            ),
+        ],
+        Pair{Symbol, _Spec}[:time_origin => _NonEmpty(), _PROVENANCE...],
+    ),
+    _FRAMES_CHECK,
+)
+
+# The canonical H a writer stores: an H already canonical as it is (what a reader
+# returns, so a round trip is bit for bit — dividing a unit-norm H by its norm
+# can move its last bit), else `sign_normalize(H)`; a degenerate H is refused.
+function _canonical_homography(path, t, id, H)
+    M = SMatrix{3, 3, Float64, 9}(H)
+    all(isfinite, M) || throw(ArgumentError("$(path): frame $(t), target $(id): the homography has a non-finite entry"))
+    _is_canonical_homography(M) && return M
+    Hn = sign_normalize(M)
+    Hn === nothing && throw(ArgumentError("$(path): frame $(t), target $(id): the homography is degenerate (negligible norm), which sign_normalize cannot canonicalise"))
+    return SMatrix{3, 3, Float64, 9}(Hn)
+end
+
+"""
+    save(path, th::TargetHomographies; pixel_frame, targets, provenance = (;))
+
+Write a VGC `TargetHomographies` as a `vgio/target_homographies/v1` file: per
+frame index (sorted), its image and sensor (both required) and time, and every
+target's homography `H` (ids sorted) as three rows.
+
+`H` maps the target's plane — its design frame, millimetres — to a pixel of
+`pixel_frame` (a pixel-frame type such as `PixelFrame{:colmap}`, declared here
+because the value does not carry it; no number is converted), BEFORE the lens
+of the camera the frame's `sensor` names, about that camera's centre: exactly
+`RadialHomography`'s `H`. An `H` is read against that camera.
+
+`H` is stored canonical — `sign_normalize(H)`: unit Frobenius norm and
+`H[3,3] ≥ 0` — so one placement always writes the same bytes and a stored `H`
+seeds `HomographyManifold8(H)` directly; an `H` already canonical is written
+as it is.
+
+`targets` (required, at least one, no repeats) are the [`content_id`](@ref)s of
+the definitions the frames' target ids resolve in: each the identity of a rig
+of boards (`vgio/rig/v6`) or of a single unposed target (`vgio/target/v3`).
+Like `pixel_frame` they are declared here because the value does not carry
+them. A degenerate `H` (negligible norm, or non-finite) and a frame with
+no image or sensor are an `ArgumentError`, and no file is written.
+"""
+function save(
+        path::AbstractString, th::TargetHomographies;
+        pixel_frame::Type{<:PixelFrame}, targets::AbstractVector{<:AbstractString}, provenance::NamedTuple = (;),
+    )
+    frames = map(sort!(collect(keys(th)))) do t
+        hs = [
+            (target = String(id), H = _homography_rows(_canonical_homography(path, t, id, th[t][id])))
+                for id in sort!(collect(keys(th[t])))
+        ]
+        merge(_stamps_json(th, t), (homographies = hs,))
+    end
+    body = merge(
+        (schema = _schema("target_homographies"), pixel_frame = pixel_frame_name(pixel_frame), targets = String[targets...]),
+        _time_origin_json(th), (frames = frames,),
+    )
+    _write_store(path, _TARGET_HOMOGRAPHIES_SPEC, _with_provenance(body, provenance))
+    return nothing
+end
+
+"""
+    load(TargetHomographies, path; pixel_frame = nothing, targets = nothing) -> TargetHomographies{HomographyMat{Float64}}
+
+Read a `vgio/target_homographies/v1` file: per frame index, every target's
+canonical `H` (unit Frobenius norm, `H[3,3] ≥ 0`) exactly as stored, with the
+frames' images, sensors and times. `H` maps the target's plane (millimetres)
+to a pixel, before the lens of the camera the frame's `sensor` names.
+
+The value carries neither the pixel frame nor the `targets` identities; the
+file's are validated, not returned. Give `pixel_frame` (e.g.
+`PixelFrame{:colmap}`) and/or `targets` (the content ids, in any order) to
+assert them: a file declaring others is an `ArgumentError`, as is an `H` that
+is not canonical or is singular.
+"""
+function load(
+        ::Type{TargetHomographies}, path::AbstractString;
+        pixel_frame::Union{Nothing, Type{<:PixelFrame}} = nothing, targets::Union{Nothing, AbstractVector{<:AbstractString}} = nothing,
+    )
+    d = _read_store(path, "target_homographies", _TARGET_HOMOGRAPHIES_SPEC)
+    pixel_frame === nothing || d.pixel_frame::String == pixel_frame_name(pixel_frame) || throw(
+        ArgumentError("$(path): declares pixel_frame $(repr(d.pixel_frame)), not the requested $(repr(pixel_frame_name(pixel_frame)))")
+    )
+    targets === nothing || Set(String[h::String for h in d.targets::Vector{Any}]) == Set(String.(targets)) || throw(
+        ArgumentError("$(path): names the targets identities $(d.targets), not the requested $(collect(targets))")
+    )
+    frames = Dict{Int, Dict{Symbol, HomographyMat{Float64}}}()
+    images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()
+    for f in d.frames::Vector{Any}
+        t = Int(f.t::Integer)
+        _read_stamps!(images, sensors, times, f, t)
+        frames[t] = Dict{Symbol, HomographyMat{Float64}}(
+            Symbol(h.target::String) => HomographyMat{Float64}(Tuple(_homography_matrix(h.H::Vector{Any}))) for h in f.homographies::Vector{Any}
+        )
+    end
+    return TargetHomographies(frames; images, sensors, times, time_origin = _time_origin(d))
 end
 
 # =============================================================================

@@ -33,7 +33,7 @@ and times) or an `Attributed` attribute (a camera's `calibration` block, a targe
 `calibration_record`; a covariance, as `Uncertain`).
 
 Every vgio file is a versioned schema (`vgio/<kind>/v<n>`: rig v6; cameras
-v4; transforms, trajectory and target v3; target_poses, target_points2d and
+v4; transforms, trajectory and target v3; target_poses, target_homographies, target_points2d and
 target_points3d v1; the rest v2), and a file is sufficient on its own and
 minimal:
 - every convention a reader needs is DECLARED in the file, once — the pixel
@@ -87,7 +87,7 @@ module VisualGeometryToolkitIO
 import VisualGeometryToolkitCore as VgtkCore
 
 using StaticArrays: SMatrix, SVector, StaticMatrix, StaticVector
-using LinearAlgebra: I, norm, normalize
+using LinearAlgebra: I, norm, normalize, svdvals
 using Statistics: cov
 using Rotations: QuatRotation, RotMatrix, RotationVec, RotZ, Angle2d, params
 using JSON: JSON
@@ -106,7 +106,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     Canvas, CanvasTexture, canvas, ChartPlacement, placement,
     Rigid, ThinPlateSpline, HeightField, Scale, Aspect, Skew, TARGET_CALIBRATION_TAGS, calibration_tag, parameter_vector, length_mask,
     TARGET_CALIBRATION_ORDER, planar_kind, members, is_pure_bending, ThinPlateSplineSystem, iwasawa_parameters_with_jacobian, strip_or_bare,
-    Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D, TargetPoint2D, TargetPoint3D,
+    Trajectory, TargetPoses, TargetHomographies, HomographyMat, sign_normalize, TargetPoints2D, TargetPoints3D, TargetPoint2D, TargetPoint3D,
     CentralGenericModel, NoncentralGenericModel, nominal_intrinsics, present_nodes, LogicalIntrinsics, Ellipse, WholePlane,
     Frame, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, UnlabeledFrame,
     Uncertain, CovMat, geom,
@@ -134,6 +134,7 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 #   load(AbstractTarget, path; resolve = nothing) vgio/target/v3     one target (+ its calibration record)
 #   load(Trajectory, path)                       vgio/trajectory/v3  a body's pose over time
 #   load(TargetPoses, path)                      vgio/target_poses/v1
+#   load(TargetHomographies, path)               vgio/target_homographies/v1 (`pixel_frame` declared at `save`)
 #   load(TargetPoints2D, path)                   vgio/target_points2d/v1 (or a Schöps dataset.bin; `target`)
 #   load(TargetPoints3D, path)                   vgio/target_points3d/v1
 #   load(CaptureSettings, path)                  vgio/capture_settings/v1 (Attributed with its identities' sources)
@@ -174,7 +175,7 @@ include("transform_schema.jl")
 include("camera_schema.jl")
 include("generic_camera_schema.jl")  # the Schöps grid models (must precede rig_schema: sensors embed it)
 include("rig_schema.jl")
-include("captures_schema.jl")  # trajectory/v3, target_poses/v1, target_points2d/v1, target_points3d/v1: VGC's captures
+include("captures_schema.jl")  # trajectory/v3, target_poses/v1, target_homographies/v1, target_points2d/v1, target_points3d/v1: VGC's captures
 include("capture_settings_schema.jl")  # capture_settings/v1: the camera's settings per frame, the body and lens identities
 include("schoeps.jl")      # Schöps et al.'s camera_calibration files (intrinsics0.yaml, dataset.bin), read through `load`
 include("correspondences.jl")  # export: measurements + targets → per-(frame, target) point arrays for external calibrators

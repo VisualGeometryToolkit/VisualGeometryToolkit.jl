@@ -184,7 +184,7 @@ const _POINT_INDEX_BASE = 1
 # transforms and trajectory are v3 since their frames are typed (2026-10): the
 # `from`/`to` names go through the frame grammar (`frame_from_name`), so a
 # free-form name is refused, and a pose may carry its covariance. The kinds
-# born after that are v1 (target, target_poses, target_points2d, target_points3d).
+# born after that are v1 (target, target_poses, target_homographies, target_points2d, target_points3d).
 #
 # generic_camera v3 (the present nodes, 2026-11): a grid model holds the nodes
 # its imaged region reaches, listed as `present` (runs per lattice row), and
@@ -194,7 +194,7 @@ const _POINT_INDEX_BASE = 1
 # written before reads as it did, and rig stays v6.
 const _SCHEMA_VERSION = Dict(
     "cameras" => 4, "rig" => 6, "transforms" => 3, "trajectory" => 3, "generic_camera" => 3,
-    "target" => 3, "target_poses" => 1, "target_points2d" => 1, "target_points3d" => 1,
+    "target" => 3, "target_poses" => 1, "target_homographies" => 1, "target_points2d" => 1, "target_points3d" => 1,
     "capture_settings" => 1,
 )
 _schema_version(kind) = get(_SCHEMA_VERSION, kind, 2)
@@ -371,6 +371,7 @@ function _spec(kind::AbstractString)
     kind == "target" && return _TARGET_SPEC
     kind == "trajectory" && return _TRAJECTORY_SPEC
     kind == "target_poses" && return _TARGET_POSES_SPEC
+    kind == "target_homographies" && return _TARGET_HOMOGRAPHIES_SPEC
     kind == "target_points2d" && return _TARGET_POINTS2D_SPEC
     kind == "target_points3d" && return _TARGET_POINTS3D_SPEC
     kind == "capture_settings" && return _CAPTURE_SETTINGS_SPEC

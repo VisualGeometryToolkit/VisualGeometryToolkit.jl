@@ -259,6 +259,13 @@ behind the origin or outside `bounds`. The four iterations alone suffice
 while the height's slope × tan(incidence) is well below 1 (a print's warp);
 the continuation covers steep or grazing cases.
 
+Under ForwardDiff (`Dual`s in the surface, the origin or the direction, nested
+ones included) the root is differentiated by the implicit function theorem:
+Newton runs on the values — the plain result, bit for bit, misses included —
+and the partials are `−(∂g/∂p)/g′` at the root, one `Dual` evaluation of `g`.
+They are the derivative of the converged root, which differentiating every
+Newton iteration only approaches (to about 1e-11 relative at grazing incidence).
+
 [`normal`](@ref)`(s, x)` is the unit normal `(n − ∂h/∂m₁ e_u − ∂h/∂m₂ e_v) / ‖·‖`
 from the spline's analytic gradient ([`tps_gradient`](@ref)), on the side of
 the quad's normal (geometric; flip it against the ray for a camera-facing
@@ -337,7 +344,10 @@ const _HEIGHT_NEWTON_MAX_ITER = 20
     return t * den - s0 - h, den - dot(∇h, cd)
 end
 
-@inline function intersection(s::HeightSurface, o::StaticVector{3}, d::StaticVector{3})
+# Newton from the plane hit: (t, x, converged, g′(t)), the last g′ being NaN
+# unless Newton's final evaluation was at the returned t (a break on a
+# rounding-level update, the usual end).
+@inline function _height_newton(s::HeightSurface, o::StaticVector{3}, d::StaticVector{3})
     q = s.quad
     n = normal(q)
     den = dot(d, n)                       # g′ without the height's slope
@@ -357,12 +367,14 @@ end
     ε = eps(typeof(t))                   # a Dual's is its value type's (ForwardDiff)
     converged = false
     last = oftype(abs(t), Inf)
+    gp_at_t = oftype(t, NaN)
     for _ in (_HEIGHT_NEWTON_ITERATIONS + 1):_HEIGHT_NEWTON_MAX_ITER
         g, gp = _newton_terms(s, den, s0, cd, t, x)
         Δ = g / gp
         scale = L + abs(t) * nd
         if abs(Δ) * nd <= 64 * ε * scale
             converged = true
+            gp_at_t = gp
             break
         end
         last = abs(Δ) * nd / scale
@@ -370,5 +382,99 @@ end
         x = o + t * d
     end
     converged |= last <= sqrt(ε)
-    return _within(q, t, x, converged)
+    return t, x, converged, gp_at_t
+end
+
+# Plain numbers are solved by Newton; a ForwardDiff Dual anywhere (the surface,
+# the origin or the direction) by the implicit function theorem: Newton on the
+# values, then the partials of the root once (`_height_intersection(::Type{<:Dual}, …)`).
+@inline intersection(s::HeightSurface{K, T}, o::StaticVector{3}, d::StaticVector{3}) where {K, T} =
+    _height_intersection(promote_type(T, eltype(o), eltype(d)), s, o, d)
+
+@inline function _height_intersection(::Type{V}, s::HeightSurface, o::StaticVector{3}, d::StaticVector{3}) where {V}
+    t, x, converged, _ = _height_newton(s, o, d)
+    return _within(s.quad, t, x, converged)
+end
+
+# The hit (NaN on a miss) and g′ at it, in the arithmetic of the arguments.
+# Plain: Newton's own last g′ when that was at the root. Not inlined, so the
+# Newton compiles as it does in a plain call: StaticArrays' `dot` is a
+# `muladd`, whose fusion LLVM decides per compile context, and inlined beside
+# the Dual evaluation the values moved by an ulp on about 1 ray in 9.
+@noinline function _height_root(::Type{V}, s::HeightSurface, o::StaticVector{3}, d::StaticVector{3}) where {V}   # {V}: specialized, or a dynamic call on the device
+    t, x, converged, gp = _height_newton(s, o, d)
+    t, x = _within(s.quad, t, x, converged)
+    if isnan(gp) & !isnan(t)
+        gp = _height_slope(s, o, d, t, x)
+    end
+    return t, x, gp
+end
+# A Dual of an inner tag (nested differentiation): the inner layer's implicit
+# hit, and g′ there in the inner Duals (it carries their partials).
+@inline function _height_root(::Type{D}, s::HeightSurface, o::StaticVector{3}, d::StaticVector{3}) where {D <: ForwardDiff.Dual}
+    t, x = _height_intersection(D, s, o, d)
+    return t, x, _height_slope(s, o, d, t, x)
+end
+@inline function _height_slope(s::HeightSurface, o::StaticVector{3}, d::StaticVector{3}, t, x)
+    q = s.quad
+    n = normal(q)
+    _, gp = _newton_terms(s, dot(d, n), dot(q.origin - o, n), SVector(dot(d, q.e_u), dot(d, q.e_v)), t, x)
+    return gp
+end
+
+# The implicit function theorem. g(t; p) = t (d·n) − (o_q − o)·n − h(m(o + t d))
+# vanishes at the root t(p), so ∂t/∂p = −(∂g/∂p)/g′(t): Newton runs on the
+# VALUES of the outermost Dual (`D`'s tag) — today's plain path, its bits and
+# its misses — and g is evaluated once in Duals at the root's value, t held
+# fixed. The value parts are the plain result's exactly; the partials are the
+# first-order-exact derivative of the converged root, which is what Newton's
+# Duals converge to, at the cost of one Dual height evaluation instead of
+# differentiating every iteration. A Dual nested inside (an inner tag) is
+# solved the same way one layer down.
+@inline function _height_intersection(::Type{D}, s::HeightSurface, o::StaticVector{3}, d::StaticVector{3}) where {D <: ForwardDiff.Dual}
+    sv, ov, dv = _outer_value(D, s), _outer_value(D, o), _outer_value(D, d)
+    tv, xv, gp = _height_root(promote_type(_eltype(sv), eltype(ov), eltype(dv)), sv, ov, dv)
+    q = s.quad
+    n = normal(q)
+    # the root lifted into D explicitly: under ForwardDiff.hessian both layers
+    # carry ONE tag, and an inner-layer value meeting an outer-layer Dual in
+    # arithmetic would be read as the outer layer (perturbation confusion)
+    tD = _with_value(D, tv, zero(_partials_type(D)))
+    g = tD * dot(d, n) - dot(q.origin - o, n) - _height(s, _plane_coordinates(q, o + tD * d))
+    t = _with_value(D, tv, -(ForwardDiff.partials(g) / gp))
+    x = map((xi, ξ) -> _with_value(D, xi, ForwardDiff.partials(ξ)), xv, o + t * d)
+    hit = !isnan(tv)                      # the values' decision: a miss is NaN with zero partials
+    nan = oftype(t, NaN)
+    return ifelse(hit, t, nan), ifelse(hit, x, SVector(nan, nan, nan))
+end
+
+_eltype(::HeightSurface{K, T}) where {K, T} = T
+_eltype(::Quad{T}) where {T} = T
+_partials_type(::Type{ForwardDiff.Dual{G, V, N}}) where {G, V, N} = ForwardDiff.Partials{N, V}
+# A Dual of D's type with the value `v` and the partials `p`.
+@inline _with_value(::Type{ForwardDiff.Dual{G, V, N}}, v, p::ForwardDiff.Partials{N}) where {G, V, N} =
+    ForwardDiff.Dual{G}(convert(V, v), convert(ForwardDiff.Partials{N, V}, p))
+# Whether the element type E is D's outermost layer: E's outer tag is D's,
+# nested in itself as often as in D (ForwardDiff.hessian nests one tag inside
+# itself; other tags may sit inside either).
+_tag_depth(::Type{ForwardDiff.Dual{G, W, M}}, ::Type{ForwardDiff.Dual{H, V, N}}) where {G, W, M, H, V, N} =
+    (H === G) + _tag_depth(ForwardDiff.Dual{G, W, M}, V)
+_tag_depth(::Type, ::Type) = 0
+_in_layer(::Type{D}, ::Type{E}) where {G, D <: ForwardDiff.Dual{G}, E} =
+    E <: ForwardDiff.Dual{G} && _tag_depth(D, E) == _tag_depth(D, D)
+# The values of D's outermost layer; anything else (plain, an inner layer) as it is.
+@inline _outer_value(::Type{D}, x::Real) where {D <: ForwardDiff.Dual} = _in_layer(D, typeof(x)) ? ForwardDiff.value(x) : x
+@inline _outer_value(::Type{D}, v::StaticArray) where {D <: ForwardDiff.Dual} = map(x -> _outer_value(D, x), v)
+@inline _outer_value(::Type{D}, r::Rect2) where {D <: ForwardDiff.Dual} =
+    Rect2(_outer_value(D, r.origin), _outer_value(D, r.widths))
+@inline function _outer_value(::Type{D}, q::Quad{T}) where {D <: ForwardDiff.Dual, T}
+    _in_layer(D, T) || return q
+    c = _outer_value(D, q.plane.coeffs)
+    return Quad{eltype(c)}(Plane3D{eltype(c)}(c), _outer_value(D, q.origin), _outer_value(D, q.e_u), _outer_value(D, q.e_v),
+                           _outer_value(D, q.A), _outer_value(D, q.b), _outer_value(D, q.A_inv), _outer_value(D, q.rect))
+end
+@inline function _outer_value(::Type{D}, s::HeightSurface{K, T}) where {D <: ForwardDiff.Dual, K, T}
+    _in_layer(D, T) || return s
+    q = _outer_value(D, s.quad)
+    return HeightSurface{K, _eltype(q)}(q, _outer_value(D, s.nodes), _outer_value(D, s.heights), _outer_value(D, s.w), _outer_value(D, s.a))
 end

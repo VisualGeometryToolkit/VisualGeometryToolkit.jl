@@ -203,6 +203,21 @@ Fixed:
   `SVector(x, y) ∈ Rect ∩ ellipse` answers instead of throwing a `MethodError`
   on `iterate`. A `Rect` already took any static vector (GeometryBasics); a
   `Polygon` stays `Point2`-only (widening it would be type piracy).
+- **A `HeightSurface`'s Dual `intersection` is the implicit derivative.**
+  With ForwardDiff `Dual`s in the surface, the origin or the direction
+  (nested ones and several tags included), Newton runs on the values and the
+  partials are `−(∂g/∂p)/g′` at the root, one `Dual` evaluation instead of
+  differentiating every iteration. The value parts are the plain result's,
+  bit for bit, misses included (NaN with zero partials, as before); the
+  partials agree with the old ones to rounding (3e-15 relative in Float64,
+  the Float32 rounding of the same derivative in Float32), except at grazing
+  incidence, where the old ones stopped up to 4e-11 short of the converged
+  derivative and the new ones agree with a 200-bit reference. Plain inputs
+  are unchanged, bit for bit. Measured on a 25-node surface: on the CPU
+  3.1–3.9× faster in `Dual{Float64, 32}` and 1.5–1.8× in `Dual{Float64, 4}`;
+  on an RTX 4090 (a kernel taking the surface as a parameter) 1.7–2.5× in
+  `Dual{Float32, 15}`, but 0.53–0.88× in `Dual{Float32, 4}`, where the old
+  dual Newton cost little more than the plain one.
 
 Performance (same bits):
 

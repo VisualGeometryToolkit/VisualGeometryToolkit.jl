@@ -270,6 +270,147 @@ end
     @test (@inferred intersection(sd, ro, d))[1] isa ForwardDiff.Dual
 end
 
+@testitem "surfaces: a HeightSurface's Dual hit is the implicit derivative of the plain root" begin
+    using Test, StaticArrays, LinearAlgebra, Random
+    using ForwardDiff
+    using Rotations: RotMatrix, QuatRotation
+    using VisualGeometryToolkitCore
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: intersection, surface_point, ThinPlateSplineSystem, tps_coefficients, grid_nodes
+
+    # the reference: Newton differentiated through every iteration (the method before the implicit derivative)
+    function dual_newton(s, o, d)
+        t, x, converged, _ = VgtkCore._height_newton(s, o, d)
+        return VgtkCore._within(s.quad, t, x, converged)
+    end
+    rng = Xoshiro(3)
+    R = RotMatrix(QuatRotation(1.0, 0.1, -0.2, 0.05))
+    org = SVector(0.1, -0.2, 0.3)
+    nodes = SVector{25}(grid_nodes(5; lo = -0.5, hi = 0.5))
+    sys = ThinPlateSplineSystem(nodes)
+    h = 0.02 .* randn(rng, 25)
+    quad = Quad(org, R, Rect2(-0.5, -0.5, 1.0, 1.0))
+    surf = HeightSurface(quad, nodes, SVector{25}(h), tps_coefficients(sys, h)...)
+    c = org + R * SVector(0.05, -0.03, 1.5)
+    # a third aimed off the rectangle: misses
+    rays = [(c, normalize(org + R * SVector(1.2 * rand(rng) - 0.6, 1.2 * rand(rng) - 0.6, 0.0) - c) * (0.5 + rand(rng)))
+            for _ in 1:60]
+    relerr(a, b) = norm(a - b) / norm(b)
+
+    # p = [o; d; heights; the quad's origin]: Duals carried by the ray, the heights and the pose
+    function hit(f, T = Float64)
+        return p -> begin
+            hp = p[7:31]
+            q = Quad(SVector{3}(p[32], p[33], p[34]), SMatrix{3, 3, T}(R), Rect2{T}(-0.5, -0.5, 1.0, 1.0))
+            t, x = f(HeightSurface(q, SVector{25, SVector{2, T}}(nodes), SVector{25}(hp), tps_coefficients(sys, hp)...),
+                     SVector{3}(p[1], p[2], p[3]), SVector{3}(p[4], p[5], p[6]))
+            SVector(t, x[1], x[2], x[3])
+        end
+    end
+    @testset "partials: the dual Newton's, and central differences" begin
+        nhit = 0
+        for (o, d) in rays
+            p = [o; d; h; org]
+            isnan(hit(intersection)(p)[1]) && continue
+            nhit += 1
+            J = ForwardDiff.jacobian(hit(intersection), p)
+            @test relerr(J, ForwardDiff.jacobian(hit(dual_newton), p)) <= 1.0e-12
+            ε = 1.0e-6
+            Jfd = reduce(hcat, [(hit(intersection)(p + ε * (1:34 .== k)) - hit(intersection)(p - ε * (1:34 .== k))) / 2ε for k in 1:34])
+            @test relerr(J, Jfd) <= 1.0e-8
+            # Float32: Float32 rounding of the same derivative
+            p32 = Float32.(p)
+            isnan(hit(intersection, Float32)(p32)[1]) && continue
+            @test relerr(ForwardDiff.jacobian(hit(intersection, Float32), p32), ForwardDiff.jacobian(hit(intersection), Float64.(p32))) <= 1.0e-5
+        end
+        @test nhit >= 30
+    end
+
+    @testset "values: the plain result's bits, misses as before" begin
+        # Dual inputs whose values are exactly the plain ones (random partials), in every carrier
+        dz(x, N, tag) = ForwardDiff.Dual{tag}(x, ForwardDiff.Partials(ntuple(_ -> randn(rng, typeof(x)), N)))
+        for T in (Float64, Float32)
+            s = HeightSurface{25, T}(surf)
+            D = ForwardDiff.Dual{:v, T, 6}
+            z(x) = dz(x, 6, :v)
+            q = s.quad
+            qd = Quad{D}(VgtkCore.Plane3D{D}(z.(q.plane.coeffs)), z.(q.origin), z.(q.e_u), z.(q.e_v), z.(q.A), z.(q.b), z.(q.A_inv),
+                         Rect2{D}(z.(q.rect.origin), z.(q.rect.widths)))
+            sd = HeightSurface{25, D}(qd, map(n -> z.(n), s.nodes), z.(s.heights), z.(s.w), z.(s.a))
+            for (o, d) in rays
+                o, d = SVector{3, T}(o), SVector{3, T}(d)
+                od, dd = z.(o), z.(d)
+                plain = intersection(s, o, d)
+                for args in ((sd, od, dd), (sd, o, d), (s, od, d), (s, o, dd))
+                    td, xd = intersection(args...)
+                    @test isequal((ForwardDiff.value(td), ForwardDiff.value.(xd)), plain)
+                    if isnan(plain[1])   # NaN with zero partials, exactly as the dual Newton returns it
+                        @test isequal((td, xd), dual_newton(args...))
+                    end
+                end
+            end
+        end
+    end
+
+    @testset "nested Duals: the Hessian and two tags" begin
+        for (o, d) in rays[1:12]
+            p = [o; d; h; org]
+            isnan(hit(intersection)(p)[1]) && continue
+            H = ForwardDiff.hessian(q -> hit(intersection)(q)[1], p)   # one tag nested in itself
+            @test relerr(H, ForwardDiff.hessian(q -> hit(dual_newton)(q)[1], p)) <= 1.0e-12
+            @test norm(H - H') <= 1.0e-12 * norm(H)
+            # ∂/∂heights of ∂t/∂o: the heights' tag outside the origin's
+            g(f) = hv -> ForwardDiff.gradient(
+                oo -> f(HeightSurface(quad, nodes, SVector{25}(hv), tps_coefficients(sys, hv)...), SVector{3}(oo), d)[1], Vector(o))
+            @test relerr(ForwardDiff.jacobian(g(intersection), h), ForwardDiff.jacobian(g(dual_newton), h)) <= 1.0e-12
+        end
+    end
+
+    @testset "grazing rays: the implicit derivative is the converged one" begin
+        # the continuation scene (a 10 cm bump, rays down to 1° elevation): the dual Newton stops on its
+        # VALUE and can carry partials a few 1e-11 short; the implicit derivative agrees with a 200-bit
+        # dual Newton to rounding
+        bn = SVector{25}(grid_nodes(5; lo = 0.0, hi = 1.0))
+        bsys = ThinPlateSplineSystem(bn)
+        bh = [i == 13 ? 0.1 : 0.0 for i in 1:25]
+        bq = Quad(SVector(0.0, 0.0, 0.0), SMatrix{3, 3}(1.0I), Rect2(0.0, 0.0, 1.0, 1.0))
+        bs = HeightSurface(bq, bn, SVector{25}(bh), tps_coefficients(bsys, bh)...)
+        f(fun, T) = p -> begin
+            w, a = tps_coefficients(bsys, p[7:31])
+            t, x = fun(HeightSurface(Quad{T}(bq), SVector{25, SVector{2, T}}(bn), SVector{25}(p[7:31]), w, a),
+                       SVector{3}(p[1], p[2], p[3]), SVector{3}(p[4], p[5], p[6]))
+            SVector(t, x[1], x[2], x[3])
+        end
+        n = 0
+        for elevation in (5, 2, 1), u in 0.1:0.1:0.9
+            φ = deg2rad(elevation)
+            d = SVector(cos(φ), 0.0, -sin(φ))
+            p = [surface_point(bs, SVector(u, 0.5)) - 0.5 * d; d; bh]
+            isnan(f(intersection, Float64)(p)[1]) && continue
+            n += 1
+            Jb = setprecision(() -> Float64.(ForwardDiff.jacobian(f(dual_newton, BigFloat), big.(p))), BigFloat, 200)
+            @test relerr(ForwardDiff.jacobian(f(intersection, Float64), p), Jb) <= 1.0e-12
+        end
+        @test n >= 10
+    end
+
+    @testset "inferred and allocation-free: Dual{Float64, 32}, Dual{Float32, 15}" begin
+        allocs(f, args...) = (f(args...); @allocated f(args...))
+        o, d = rays[1]
+        for (T, N) in ((Float64, 32), (Float32, 15), (Float32, 4))
+            s = HeightSurface{25, T}(surf)
+            D = ForwardDiff.Dual{:a, T, N}
+            sd = HeightSurface{25, D}(s)
+            oT, dT = SVector{3, T}(o), SVector{3, T}(d)
+            od, dd = D.(oT), D.(dT)
+            for args in ((sd, od, dd), (sd, oT, dT), (s, od, dd))
+                @test (@inferred intersection(args...))[1] isa D
+                @test allocs(intersection, args...) == 0
+            end
+        end
+    end
+end
+
 @testitem "surfaces: both primitives in a KernelAbstractions kernel (CPU)" begin
     using Test, StaticArrays, LinearAlgebra, Random
     using KernelAbstractions

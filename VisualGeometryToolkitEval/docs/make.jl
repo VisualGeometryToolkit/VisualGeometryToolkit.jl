@@ -21,17 +21,30 @@ for m in SUBMODULES, n in names(m)
 end
 
 makedocs(;
+    # The source and edit links point into the monorepo (the package is its
+    # VisualGeometryToolkitEval/ directory).
+    repo = Documenter.Remotes.GitHub("VisualGeometryToolkit", "VisualGeometryToolkit.jl"),
     modules = [VisualGeometryToolkitEval],
     authors = "James Pritts <jbpritts@gmail.com>",
     sitename = "VisualGeometryToolkitEval",
     format = Documenter.HTML(; canonical = "https://visualgeometrytoolkit.github.io/VisualGeometryToolkitEval/",
                              edit_link = "main",
-                             repolink = "https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl",
                              prettyurls = get(ENV, "CI", "false") == "true",
                              # api/evaluation.html is 110 KiB (2026-10-24): the warning
                              # threshold is raised from 100 KiB; the 200 KiB error stays.
                              size_threshold_warn = 150 * 2^10),
-    remotes = nothing,
+    # The docs gates (General review, #171997, #173031, #173032): every public
+    # docstring is in the manual, the doctests run, every external link
+    # resolves, and nothing is warnonly — a warning fails the build. That
+    # every public name HAS a docstring is test/docs_tests.jl's job (the
+    # missing-docs check only sees docstrings that exist).
+    checkdocs = :public,
+    doctest = true,
+    linkcheck = true,
+    # Rate-limited or bot-blocking hosts that answer a crawler with 403/429
+    # (github.com gave 429 in VisualGeometryToolkitCore's build, 2026-11-04);
+    # lychee (.github/workflows/Links.yml) checks them with a token.
+    linkcheck_ignore = [r"^https://github\.com/", r"^https://doi\.org/"],
     pages = [
         "Home" => "index.md",
         "Getting started" => "getting-started.md",

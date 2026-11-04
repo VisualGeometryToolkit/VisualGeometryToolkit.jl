@@ -108,6 +108,7 @@
             Rect(0, 0, 100, 60) ∩ e,                                    # RegionIntersection{HyperRectangle{2, Int}, Ellipse}
             (Rect(0, 0, 100, 60) ∩ e) ∩ Ellipse(Point2(70.0, 30.0), 30.0, 30.0, 0.0),
             Rect(0, 0, 100, 60) ∩ Circle(Point2(50.0, 30.0), 35.0),
+            Circle(Point2(50.0, 30.0), 35.0),
             WholePlane(),
         )
         for r in regions
@@ -115,5 +116,9 @@
         end
         @test SVector(50.0, 30.0) ∈ Rect(0, 0, 100, 60) ∩ e
         @test SVector(-5.0, 30.0) ∉ Rect(0, 0, 100, 60) ∩ e
+        # a circle's disc is its ellipse's, boundary included
+        c = Circle(Point2(50.0, 30.0), 35.0)
+        @test all(p -> (SVector(p[1], p[2]) ∈ c) == (p ∈ Ellipse(c)), grid)
+        @test SVector(85.0, 30.0) ∈ c && Point2(85.0, 30.0) ∈ c && SVector(85.5, 30.0) ∉ c
     end
 end

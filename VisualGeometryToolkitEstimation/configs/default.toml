@@ -208,6 +208,12 @@ ftol = 1.0e-10
 # possibly hiding ~8–10 rejected candidate steps; see [chart_lm])
 max_iter = 100
 
+[fit_camera]
+# a lens family's regression (`fit_camera(L, source, region)`): the LM cap on
+# ACCEPTED iterations (NLLSsolver's count, each possibly hiding ~8–10 rejected
+# candidate steps; see [chart_lm])
+max_iter = 100
+
 # The EM of the Student-t + uniform mixture (`MixtureEmConfig`): what an
 # iteration does to the model, and to each part of the noise model. Under
 # `fit_residual_mixture` the model is a held fit's, so the update is "keep_model";

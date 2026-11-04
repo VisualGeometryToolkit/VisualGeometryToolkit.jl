@@ -60,3 +60,10 @@ CameraPosesRefineMetadata
 fit_lens
 LensFitMetadata
 ```
+
+## Camera-model regression
+
+```@docs
+fit_camera
+CameraFitMetadata
+```

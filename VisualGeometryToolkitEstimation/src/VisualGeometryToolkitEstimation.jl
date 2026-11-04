@@ -217,6 +217,13 @@ import NLLSsolver   # the block-structured LMs (the relpose bundle, refine_robot
 using VisualGeometryToolkitCore: nlls_retcode   # NLLSsolver's termination bits + the stall postcondition, as a retcode
 using VisualGeometryToolkitCore: nlls_options, nlls_features, finite_cost   # the stack's one LM knob map; the Schur system (upstream #60), detected
 using SparseArrays: sparse   # the relpose bundle's stacked Jacobian (its stall postcondition); the rotation averaging's update
+# fit_camera's spline families: the penalized normal equations (a sparse
+# Cholesky), the direction chart, Core's lattice and its batched maps.
+using SparseArrays: SparseMatrixCSC, spdiagm
+using LinearAlgebra: cholesky, lu, issuccess, diag
+using CoordinateTransformations: LinearMap
+using VisualGeometryToolkitCore: ChartSpline, SplineProjection, CentralGenericModel, Rect2, spline_window, pixel_mask,
+    pointwise!, nominal_intrinsics, project, BoundedCamera, extent
 
 
 # =============================================================================
@@ -250,6 +257,7 @@ export fit_rotation           # the robust rotation between two sets of directio
 export fit_linear             # the robust coefficients of a linear model (reweighted least squares)
 export fit_rotation_averaging # robust rotation averaging on a view graph (spectral seed, Lie-algebra IRLS)
 export fit_radial_camera, fit_lens, DivisionCameraError   # moved from VisualGeometryToolkitCore (estimator taxonomy v2)
+export fit_camera             # one model-to-model regression: a camera model of type T onto a source over a region
 
 # -----------------------------------------------------------------------------
 # 2. RANSAC — the loop, its configuration and result, and seeded refinement
@@ -311,7 +319,7 @@ public lo_loss, strategy_loss, plain_scale_multiple, deployed_shape, lo_width_va
 # Relative-pose bundle and robot-world calibration.
 # The division-camera step, its state, the lift constraint and the lens fit's metadata.
 public division_camera_step, DivisionCameraState, division_coeffs, board_sq_residuals,
-    RadialLift, LensFitMetadata
+    RadialLift, LensFitMetadata, CameraFitMetadata
 public bundle_refine_relpose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
 public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata
 # Configuration: configs/default.toml is the config of record; these select a
@@ -385,6 +393,7 @@ include("fitting/fit_radial_camera.jl")        # one board's radial camera, an i
 include("fitting/division_camera_step.jl")     # one iteration of the stacked linear focal solve + its state and failure (moved from VGC)
 include("fitting/fit_division_camera.jl")       # iterated Sampson-whitened, Student-t re-weighted focal stack (IRLS under block_coordinate_descent!)
 include("fitting/fit_lens.jl")                  # model-to-model lens regression on the radial profile (moved from VGC)
+include("fitting/fit_camera.jl")                # one model-to-model regression: a lens family, a SplineProjection or a grid onto a source over a region
 include("fitting/essential.jl")
 include("fitting/rotation.jl")
 include("fitting/circle.jl")

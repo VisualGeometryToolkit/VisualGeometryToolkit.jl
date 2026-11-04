@@ -425,12 +425,8 @@ end
 
 # The reference (util.h, EvalUniformCubicBSpline) evaluates its cubic pieces in
 # its window coordinate x ∈ [3, 4) itself, which cancels to ~1e-5 absolute in
-# Float32 (|x³| ≈ 64 against weights ≤ 2/3); the same polynomials in the local
-# coordinate u = x − 3 ∈ [0, 1) are exact in exact arithmetic and, in Horner
-# form, keep Float32 within 7e-8 of the exact weights. The callers below form
-# u = x − 3 from the window coordinate; on the window's own cell it is exact
-# (Sterbenz), outside it (`spline_weights` on a drifted pixel) the pieces
-# extrapolate as the same cubics and u may round.
+# Float32 (|x³| ≈ 64 against weights ≤ 2/3); the weights below take the local
+# coordinate instead.
 """
     cubic_bspline_weights(u) -> NTuple{4}
 
@@ -456,6 +452,12 @@ models' windows ([`spline_window`](@ref)) and [`ChartSpline`](@ref) read.
     return (a, b, c, d)
 end
 
+# The span's local coordinate u at window coordinate x (= grid coordinate + 2)
+# in the window `ix`: on the window's own cell, x ∈ [ix, ix + 1), it is exact
+# (Sterbenz); outside it (`spline_weights` on a drifted pixel) the pieces
+# extrapolate as the same cubics and u may round.
+@inline _span_coordinate(x, ix) = x - (ix - 3) - 3
+
 # Window bookkeeping shared by every eval (EvalUniformCubicBSplineSurface's
 # "+2 so the SURROUNDING control points are used" convention).
 @inline function _spline_window(gx, gy)
@@ -463,8 +465,8 @@ end
     y = gy + 2
     ix = floor(Int, x)
     iy = floor(Int, y)
-    wx = cubic_bspline_weights(x - (ix - 3) - 3)
-    wy = cubic_bspline_weights(y - (iy - 3) - 3)
+    wx = cubic_bspline_weights(_span_coordinate(x, ix))
+    wy = cubic_bspline_weights(_span_coordinate(y, iy))
     return ix, iy, wx, wy
 end
 
@@ -498,8 +500,8 @@ end
 # reads it per candidate step).
 @inline function _eval_window_grad(grid::AbstractMatrix{Vec3{T}}, gx, gy) where {T}
     ix, iy, wx, wy = _spline_window(gx, gy)
-    dwx = _cubic_bspline_weights_deriv(gx + 2 - (ix - 3) - 3)
-    dwy = _cubic_bspline_weights_deriv(gy + 2 - (iy - 3) - 3)
+    dwx = _cubic_bspline_weights_deriv(_span_coordinate(gx + 2, ix))
+    dwy = _cubic_bspline_weights_deriv(_span_coordinate(gy + 2, iy))
     S = Sx = Sy = zero(SVector{3, Float64})
     @inbounds for r in 1:4
         row = drow = zero(SVector{3, Float64})
@@ -537,7 +539,7 @@ end
     y = gy + 2
     ix = clamp(unsafe_trunc(Int, floor(x)), 3, gw - 1)
     iy = clamp(unsafe_trunc(Int, floor(y)), 3, gh - 1)
-    return ix, iy, cubic_bspline_weights(x - (ix - 3) - 3), cubic_bspline_weights(y - (iy - 3) - 3)
+    return ix, iy, cubic_bspline_weights(_span_coordinate(x, ix)), cubic_bspline_weights(_span_coordinate(y, iy))
 end
 
 @inline function _continued_window(m::_GenericLattice, x, y)
@@ -674,8 +676,8 @@ function spline_weights(m::_GenericLattice, ix::Integer, iy::Integer, pixel)
     sy = _grid_scale(m.calib_min_y, m.calib_max_y, gh)      # ∂gy/∂y
     gx = _grid_coord(x, m.calib_min_x, m.calib_max_x, gw)
     gy = _grid_coord(y, m.calib_min_y, m.calib_max_y, gh)
-    ux = gx + 2 - (ix - 3) - 3                               # the span's local coordinates
-    uy = gy + 2 - (iy - 3) - 3
+    ux = _span_coordinate(gx + 2, ix)
+    uy = _span_coordinate(gy + 2, iy)
     wxv = cubic_bspline_weights(ux); wyv = cubic_bspline_weights(uy)
     dwx = _cubic_bspline_weights_deriv(ux) .* sx; dwy = _cubic_bspline_weights_deriv(uy) .* sy
     T = typeof(x)
@@ -898,27 +900,28 @@ _control_coordinates(ch::ControlPatchManifold) = 2 + _point_coordinates(ch.point
 tangent_size(ch::ControlPatchManifold{PX, PY, L}) where {PX, PY, L} = _control_coordinates(ch) * L
 model(ch::ControlPatchManifold) = (; directions = ch.directions, points = ch.points)
 
-# One direction control stepped on its sphere (the reference's chart), its norm kept.
-@inline function _retracted_direction(d::SVector{3}, δ₁, δ₂)
-    t1, t2 = direction_tangents(normalize(d))
-    return norm(d) * normalize(d + δ₁ * t1 + δ₂ * t2)
-end
-# One point control `p` stepped by its chart from the coordinates `v[j], v[j + 1], …`;
-# `d` is the same node's direction control.
-@inline _retracted_point(::AdditivePoints, p::SVector{3}, d, v, j) = p + SVector(v[j], v[j + 1], v[j + 2])
-@inline function _retracted_point(::RayNormalPoints, p::SVector{3}, d, v, j)
-    t1, t2 = direction_tangents(normalize(d))
-    return p + v[j] * t1 + v[j + 1] * t2
-end
+# One direction control stepped on its sphere (the reference's chart), its norm
+# kept; (t1, t2) = direction_tangents(normalize(d)).
+@inline _retracted_direction(d::SVector{3}, t1, t2, δ₁, δ₂) = norm(d) * normalize(d + δ₁ * t1 + δ₂ * t2)
+# One point control stepped by its chart from the coordinates v[j+1], v[j+2], …;
+# (t1, t2) are the same node's direction tangents.
+@inline _retracted_point(::AdditivePoints, p::SVector{3}, t1, t2, v, j) = p + SVector(v[j + 1], v[j + 2], v[j + 3])
+@inline _retracted_point(::RayNormalPoints, p::SVector{3}, t1, t2, v, j) = p + v[j + 1] * t1 + v[j + 2] * t2
 function _retracted_controls(ch::ControlPatchManifold{PX, PY, L, T, Nothing}, v) where {PX, PY, L, T <: Real}
-    dirs = SMatrix{PX, PY}(ntuple(n -> _retracted_direction(ch.directions[n], v[2n - 1], v[2n]), Val(L)))
+    dirs = SMatrix{PX, PY}(ntuple(Val(L)) do n
+        d = ch.directions[n]
+        return _retracted_direction(d, direction_tangents(normalize(d))..., v[2n - 1], v[2n])
+    end)
     return dirs, nothing
 end
 function _retracted_controls(ch::ControlPatchManifold{PX, PY, L}, v) where {PX, PY, L}
     k = _control_coordinates(ch)
-    dirs = SMatrix{PX, PY}(ntuple(n -> _retracted_direction(ch.directions[n], v[k * (n - 1) + 1], v[k * (n - 1) + 2]), Val(L)))
-    pts = SMatrix{PX, PY}(ntuple(n -> _retracted_point(ch.point_chart, ch.points[n], ch.directions[n], v, k * (n - 1) + 3), Val(L)))
-    return dirs, pts
+    nodes = ntuple(Val(L)) do n                      # each node's tangents once, for its direction and its point
+        d = ch.directions[n]; j = k * (n - 1)
+        t1, t2 = direction_tangents(normalize(d))
+        return _retracted_direction(d, t1, t2, v[j + 1], v[j + 2]), _retracted_point(ch.point_chart, ch.points[n], t1, t2, v, j + 2)
+    end
+    return SMatrix{PX, PY}(map(first, nodes)), SMatrix{PX, PY}(map(last, nodes))
 end
 retract(ch::ControlPatchManifold, v) = (s = _retracted_controls(ch, v); (; directions = s[1], points = s[2]))
 recenter(ch::ControlPatchManifold, v) = (s = _retracted_controls(ch, v); ControlPatchManifold(s[1], s[2], ch.point_chart))

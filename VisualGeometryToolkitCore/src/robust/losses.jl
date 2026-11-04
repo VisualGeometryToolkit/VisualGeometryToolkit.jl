@@ -595,8 +595,9 @@ empty `x` (Statistics' `median`).
 """
 function mad_scale(x)
     m = Statistics.median(x)
-    return Statistics.median(abs(xi - m) for xi in x) / Distributions.quantile(Distributions.Normal(), 0.75)
+    return Statistics.median!(abs.(x .- m)) / _NORMAL_Q75
 end
+const _NORMAL_Q75 = Distributions.quantile(Distributions.Normal(), 0.75)   # Φ⁻¹(3/4), the MAD's consistency constant
 
 # =============================================================================
 # CONSTRUCTING a deployed loss, and reading its width

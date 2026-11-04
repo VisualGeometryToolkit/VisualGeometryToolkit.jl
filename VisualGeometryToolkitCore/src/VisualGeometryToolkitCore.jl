@@ -304,6 +304,8 @@ public PlanarCalibration   # the planar kinds as one type
 public TargetManifold                     # a calibratable target's Manifold (minimal_manifold(target))
 export Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
 export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3
+export DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings   # a capture's camera settings per frame, its hardware's identity (captures.jl)
+public is_constant   # every frame of a CaptureSettings exposed alike (not exported: a common word)
 export convert_frame   # the one way to change the pixel frame of pixel data
 export rectify             # stereo rectification (rig types + fused warp)
 export view_angle_limit  # the honest θ-domain of a lens

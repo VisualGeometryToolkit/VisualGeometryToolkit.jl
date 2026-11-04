@@ -147,6 +147,10 @@ Dots per inch, `px / inch`: the density a length crosses to pixels by
 (`210mm * 300dpi` is 2480.3… px).
 """
 const dpi = StackUnits.UNITS[:dpi]
+# The second, the SI base unit of time: an exposure time's unit (captures.jl).
+# Not a constant of the stack's surface — `s` is too common a local's name —
+# so code outside reads it as `parse_unit("s")`.
+const _SECOND = StackUnits.UNITS[:s]
 
 """
     BaseQuantity

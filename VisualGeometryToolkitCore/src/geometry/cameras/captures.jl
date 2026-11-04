@@ -340,21 +340,11 @@ _map_points(f, x::TargetPoints3D{F}) where {F} = TargetPoints3D{F}(
 FlexUnits.ustrip(u::Units, x::TargetPoints3D) = _map_points(p -> _ustrip_point(u, p), x)
 with_unit(x::TargetPoints3D, u::Units) = _map_points(p -> _attach_point(u, p), x)
 
-# --- the Dict surface, frame index → value -----------------------------------------
+# --- the Dict surface, frame index → value (the methods: end of file) --------------
 
 _frames(x::Trajectory) = x.poses
 _frames(x::Union{TargetPoses, TargetPoints2D, TargetPoints3D}) = x.frames
 
-for T in (:Trajectory, :TargetPoses, :TargetPoints2D, :TargetPoints3D)
-    @eval begin
-        Base.length(x::$T) = length(_frames(x))
-        Base.iterate(x::$T, s...) = iterate(_frames(x), s...)
-        Base.getindex(x::$T, t) = _frames(x)[t]
-        Base.get(x::$T, t, default) = get(_frames(x), t, default)
-        Base.haskey(x::$T, t) = haskey(_frames(x), t)
-        Base.keys(x::$T) = keys(_frames(x))
-    end
-end
 Base.setindex!(x::TargetPoints2D, v, t) = (x.frames[Int(t)] = TargetPoint2D[_target_point2d(o, t) for o in v]; x)
 
 # ------------------------------------------------------------------------------
@@ -381,4 +371,179 @@ function convert_frame(::Type{G}, o::TargetPoints2D{F}) where {G <: PixelFrame, 
         Dict{Int, Vector{TargetPoint2D}}(t => TargetPoint2D[merge(p, (xy = _shifted(shift, p.xy),)) for p in ps] for (t, ps) in o.frames);
         o.images, o.sensors, o.times, o.time_origin, o.targets,
     )
+end
+
+# ------------------------------------------------------------------------------
+# CaptureSettings — the camera's settings per frame, and the hardware's identity
+# ------------------------------------------------------------------------------
+#
+# Values are math; identity and provenance are attributes. A camera model, a
+# sensor and a lens model hold no names: WHICH body and lens took a capture is
+# a `DeviceIdentity` beside the capture, and the settings each frame was taken
+# with (exposure, the lens's marked focal length and its focus) are per-frame
+# values keyed by the same frame index as every other capture value. Where a
+# claim came from (EXIF, a config) is the file's to record
+# (VisualGeometryToolkitIO's `capture_settings` kind).
+
+"""
+    DeviceIdentity(make, model, serial)
+    DeviceIdentity(; make = nothing, model = nothing, serial = nothing)
+
+What a file says a piece of hardware — a camera body, a lens — is: its maker,
+model and serial number, each a `String` or `nothing` where unknown (an empty
+string is an `ArgumentError`: state `nothing`). A CLAIM, not a fact checked
+here: EXIF names an adapted lens by whatever the adapter reports, so a
+calibration pipeline may prefer an identity stated in its config. Held beside
+the values it identifies ([`CaptureSettings`](@ref), a stored camera's
+calibration record), never inside a camera or lens model.
+"""
+struct DeviceIdentity
+    make::Union{Nothing, String}
+    model::Union{Nothing, String}
+    serial::Union{Nothing, String}
+    function DeviceIdentity(make, model, serial)
+        return new(_identity_field(make, :make), _identity_field(model, :model), _identity_field(serial, :serial))
+    end
+end
+DeviceIdentity(; make = nothing, model = nothing, serial = nothing) = DeviceIdentity(make, model, serial)
+
+_identity_field(::Nothing, ::Symbol) = nothing
+function _identity_field(x::AbstractString, what::Symbol)
+    isempty(x) && throw(ArgumentError("DeviceIdentity: `$(what)` is empty — state `nothing` where it is unknown"))
+    return String(x)
+end
+
+# The second (units.jl), the unit an exposure time is checked and stripped in.
+using ..VisualGeometryToolkitCore: _SECOND
+
+# A positive, finite quantity of `u`'s dimension, stored in base form: a plain
+# number is a DimensionError (its unit is not stated), another dimension a
+# ConversionError.
+_positive_quantity(x::Real, u, ::Symbol) = throw(DimensionError(x, u))
+function _positive_quantity(q::Quantity, u, what::Symbol)
+    v = float(ustrip(u, q))
+    (isfinite(v) && v > 0) || throw(ArgumentError("`$(what)` is positive and finite, got $(q)"))
+    return base_quantity(q)
+end
+function _positive_number(x::Real, what::Symbol)
+    (isfinite(x) && x > 0) || throw(ArgumentError("`$(what)` is positive and finite, got $(x)"))
+    return Float64(x)
+end
+
+"""
+    ExposureSettings(exposure_time, f_number, iso)
+
+The exposure a frame was taken with: `exposure_time` a time quantity
+(`0.004s`, with `s = parse_unit("s")`; stored in seconds, FlexUnits' base
+form), `f_number` the aperture's f-number and `iso` the ISO speed, plain
+numbers stored as `Float64`. Each is positive and finite (`ArgumentError`); a
+plain exposure time is a `DimensionError` (its unit is not stated), a
+quantity of another dimension a `ConversionError`.
+"""
+struct ExposureSettings
+    exposure_time::BaseQuantity
+    f_number::Float64
+    iso::Float64
+    function ExposureSettings(exposure_time, f_number::Real, iso::Real)
+        return new(
+            _positive_quantity(exposure_time, _SECOND, :exposure_time),
+            _positive_number(f_number, :f_number), _positive_number(iso, :iso),
+        )
+    end
+end
+
+"""
+    LensSettings(focal_length, focus_distance = nothing)
+
+The lens settings a frame was taken with: `focal_length`, the NOMINAL focal
+length the lens is marked with or reports (a length; a zoom's setting) — not
+a calibrated focal length, which is the camera model's — and
+`focus_distance`, the distance the lens was focused at (a length), or
+`nothing` where it is not known. Both are positive and finite
+(`ArgumentError`): a lens reporting "infinity", or a marker value, is
+`nothing` here, never a distance. Lengths are stored in metres.
+"""
+struct LensSettings
+    focal_length::BaseQuantity
+    focus_distance::Union{Nothing, BaseQuantity}
+    function LensSettings(focal_length, focus_distance = nothing)
+        return new(
+            _positive_quantity(focal_length, m, :focal_length),
+            focus_distance === nothing ? nothing : _positive_quantity(focus_distance, m, :focus_distance),
+        )
+    end
+end
+
+"""
+    FrameSettings = @NamedTuple{exposure::ExposureSettings, lens_settings::LensSettings}
+
+One frame's camera settings in a [`CaptureSettings`](@ref): its
+[`ExposureSettings`](@ref) and [`LensSettings`](@ref).
+"""
+const FrameSettings = @NamedTuple{exposure::ExposureSettings, lens_settings::LensSettings}
+
+function _frame_settings(x, t)
+    (hasproperty(x, :exposure) && hasproperty(x, :lens_settings)) || throw(
+        ArgumentError("frame $(t): its settings state `exposure` and `lens_settings`, got $(x)")
+    )
+    return FrameSettings((x.exposure, x.lens_settings))
+end
+
+"""
+    CaptureSettings(frames; body = DeviceIdentity(), lens = DeviceIdentity())
+
+The camera settings of a capture, per frame index: `cs[t]` is frame `t`'s
+[`FrameSettings`](@ref), `(; exposure, lens_settings)` (a frame's value is
+anything with those two properties). The capture's hardware rides along as
+`cs.body` and `cs.lens`, [`DeviceIdentity`](@ref)s. The frame index is the
+join key every per-frame value of one capture shares ([`Trajectory`](@ref),
+[`TargetPoints2D`](@ref)); a frame without settings is absent. Otherwise a
+Dict: `keys`, `pairs`, iteration. [`is_constant`](@ref) says whether every
+frame was exposed alike.
+"""
+struct CaptureSettings <: AbstractDict{Int, FrameSettings}
+    frames::Dict{Int, FrameSettings}
+    body::DeviceIdentity
+    lens::DeviceIdentity
+    function CaptureSettings(frames::AbstractDict{<:Integer}; body::DeviceIdentity = DeviceIdentity(), lens::DeviceIdentity = DeviceIdentity())
+        return new(Dict{Int, FrameSettings}(Int(t) => _frame_settings(x, t) for (t, x) in frames), body, lens)
+    end
+end
+
+# The identities are part of the value: equal, isequal and hash all see them
+# (AbstractDict's own compare the frames only).
+Base.:(==)(a::CaptureSettings, b::CaptureSettings) = a.frames == b.frames && a.body == b.body && a.lens == b.lens
+Base.isequal(a::CaptureSettings, b::CaptureSettings) = isequal(a.frames, b.frames) && isequal(a.body, b.body) && isequal(a.lens, b.lens)
+Base.hash(x::CaptureSettings, h::UInt) = hash(x.lens, hash(x.body, hash(x.frames, hash(CaptureSettings, h))))
+
+"""
+    is_constant(cs::CaptureSettings) -> Bool
+
+Whether every frame of `cs` has the same exposure time, f-number and ISO
+(true for none or one frame). The lens settings are not compared: a fixed
+exposure under a refocused lens is still one exposure. With it, a per-frame
+brightness gain fitted across the capture is the light changing, not the
+camera.
+"""
+function is_constant(cs::CaptureSettings)
+    isempty(cs.frames) && return true
+    e = first(values(cs.frames)).exposure
+    return all(x -> x.exposure == e, values(cs.frames))   # its three fields: time, f-number, ISO
+end
+
+_frames(x::CaptureSettings) = x.frames
+
+# ------------------------------------------------------------------------------
+# The Dict surface of every per-frame value, frame index → value
+# ------------------------------------------------------------------------------
+
+for T in (:Trajectory, :TargetPoses, :TargetPoints2D, :TargetPoints3D, :CaptureSettings)
+    @eval begin
+        Base.length(x::$T) = length(_frames(x))
+        Base.iterate(x::$T, s...) = iterate(_frames(x), s...)
+        Base.getindex(x::$T, t) = _frames(x)[t]
+        Base.get(x::$T, t, default) = get(_frames(x), t, default)
+        Base.haskey(x::$T, t) = haskey(_frames(x), t)
+        Base.keys(x::$T) = keys(_frames(x))
+    end
 end

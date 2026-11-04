@@ -102,6 +102,7 @@ from VGC types.
 | `trajectory` | [`Trajectory`](@ref) |
 | `target_poses` | [`TargetPoses`](@ref) |
 | `target_points2d`, `target_points3d` | [`TargetPoints2D`](@ref), [`TargetPoints3D`](@ref) |
+| `capture_settings` | [`CaptureSettings`](@ref), `Attributed` with its identities' sources |
 
 The measurement kinds are COLMAP's decomposition: `target_points2d` ≈ COLMAP's
 `images.txt` `points2D` with their `POINT3D_ID` — here the pair (target id,
@@ -117,7 +118,10 @@ the value. A fact about the VALUE that must round-trip is part of the VGC value:
 a field (a trajectory's per-frame images and times, a measurement's target
 identities) or an `Attributed` attribute — a covariance as `Uncertain`, a
 camera's `calibration` block as
-`Attributed(camera, (; calibration = (; tool, source, date, reprojection_rms, n_images, n_points, note)))`,
+`Attributed(camera, (; calibration = (; tool, source, date, reprojection_rms, n_images, n_points, note, device)))`
+(`device = (; body, lens)`, the [`DeviceIdentity`](@ref)s of the hardware it
+was made for: values are math, identity is an attribute, so a camera model
+holds no names),
 a target's as `Attributed(target, (; calibration_record = (; …)))` (the same
 closed set of keys; the target's own `calibration` is its
 [`TargetCalibration`](@ref), part of the value, so the record is named apart).

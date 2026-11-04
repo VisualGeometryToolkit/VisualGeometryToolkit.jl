@@ -370,8 +370,28 @@ function _calibration_record(c::EuclideanMap{2}, u::_CalUnit)
     θ = parameter_vector(_physical(c, u))
     return (type = _tag(c), parameters = [Float64(θ[1]), _metres_json(θ[2], u), _metres_json(θ[3], u)])
 end
-_calibration_record(c::Union{ThinPlateSpline, HeightField}, u::_CalUnit) =
-    (type = _tag(_physical(c, u)), nodes = _nodes_json(c, u), parameters = [_metres_json(v, u) for v in parameter_vector(c)])
+function _calibration_record(c::Union{ThinPlateSpline, HeightField}, u::_CalUnit)
+    r = (type = _tag(_physical(c, u)), nodes = _nodes_json(c, u), parameters = [_metres_json(v, u) for v in parameter_vector(c)])
+    _check_writes_back(c, r, u)
+    return r
+end
+# The writer's half of the reader's pure-bending rule (`_check_pure_bending`):
+# a field pure bending neither in the file's numbers nor in metres would not
+# read back, so it is refused here, naming the unit to write it in. (The
+# identity tree, `_PERSISTED`, is never read.)
+_check_writes_back(c, r, ::_Persisted) = nothing
+function _check_writes_back(c, r, u::Union{Units, _Chart})
+    T = c isa HeightField ? HeightField : ThinPlateSpline
+    (_pure_in_file_unit(T, r.nodes, r.parameters) || _pure_in_metres(T, r.nodes, r.parameters, u)) && return nothing
+    throw(
+        ArgumentError(
+            "a $(r.type) calibration that is pure bending neither in metres nor in the file's unit " *
+                "$(u isa Units ? unit_string(u) : "(the placement's chart)") would not read back: pure bending (no affine term in the " *
+                "interpolant) depends on the unit the nodes are in, and a unit move (with_unit, ustrip) does not re-project — " *
+                "write it with the length_unit it was built in; nothing was written"
+        )
+    )
+end
 _calibration_record(c::ComposedTransformation, u::_CalUnit) =
     (type = _tag(_physical(c, u)), compose = [_calibration_record(l, u) for l in _flat_members(c)])
 
@@ -382,8 +402,6 @@ _calibration_record(c::Uncertain{<:TargetCalibration}, u::_CalUnit) =
 # (`_CHART`, a placed target's) the plain chart number as stored.
 _read_metres(x, u::Units) = read_length(x::Real, u)
 _read_metres(x, ::_Chart) = Float64(x::Real)
-_stored_value(x, u::Units) = Float64(ustrip(m, read_length(x::Real, u)))
-_stored_value(x, ::_Chart) = Float64(x::Real)
 const _ReadUnit = Union{Units, _Chart}
 _nodes_from_json(x, u::_ReadUnit) = [SVector(_read_metres(p[1], u), _read_metres(p[2], u)) for p in x.nodes::Vector{Any}]
 
@@ -397,25 +415,45 @@ _calibration_from_record(::Type{Scale}, x, u::_ReadUnit) = Scale(Float64(only(x.
 _calibration_from_record(::Type{Aspect}, x, u::_ReadUnit) = Aspect(Float64(only(x.parameters)))
 _calibration_from_record(::Type{Skew}, x, u::_ReadUnit) = Skew(Float64(only(x.parameters)))
 function _calibration_from_record(::Type{ThinPlateSpline}, x, u::_ReadUnit)
-    nodes = _nodes_from_json(x, u)
+    _check_pure_bending(ThinPlateSpline, x.nodes, x.parameters, u)
     p = x.parameters::Vector{Any}
-    K = length(nodes)
-    return _pure_bending(ThinPlateSpline(nodes, [_read_metres(p[i], u) for i in 1:K], [_read_metres(p[K + i], u) for i in 1:K]), p, u)
+    K = length(x.nodes)
+    return ThinPlateSpline(_nodes_from_json(x, u), [_read_metres(p[i], u) for i in 1:K], [_read_metres(p[K + i], u) for i in 1:K]; project = false)
 end
-_calibration_from_record(::Type{HeightField}, x, u::_ReadUnit) =
-    _pure_bending(HeightField(_nodes_from_json(x, u), [_read_metres(v, u) for v in x.parameters::Vector{Any}]), x.parameters, u)
+function _calibration_from_record(::Type{HeightField}, x, u::_ReadUnit)
+    _check_pure_bending(HeightField, x.nodes, x.parameters, u)
+    return HeightField(_nodes_from_json(x, u), [_read_metres(v, u) for v in x.parameters::Vector{Any}]; project = false)
+end
 # A thin-plate kind holds pure bending (VGC: no affine term in its
 # interpolant; its constructor projects the values it is given and keeps,
-# bit for bit, values whose affine term is within 1e-12 of them, in metres —
-# or, placed, in chart units): a record whose values the constructor moved is
-# refused, never read moved.
-function _pure_bending(c, p, u::_ReadUnit)
-    stored = [_stored_value(v, u) for v in p]
-    parameter_vector(c) == stored && return c
-    what = c isa HeightField ? "heights" : "displacements"
+# bit for bit, values whose affine term is within 1e-12 of them). "No affine
+# term" depends on the unit the nodes are in — scaling them moves a piston
+# between the affine and the bending parts — and VGC's unit move
+# (`with_unit`, `ustrip`) does not re-project, so a physical field is pure
+# bending in the unit it was BUILT in: metres (built from lengths), or the
+# unit whose plain numbers it was built from and then given (`with_unit(c,
+# mm)`). The record is read, unprojected, when its values are pure bending in
+# the file's own numbers (the unit it was written in; a placed target's chart
+# numbers) or in metres; any other — an affine term in every form — is
+# refused, never read moved. The writer refuses a field that would not read
+# back (`_check_writes_back`), so anything written reads back `==`.
+_bending_kind(::Type{ThinPlateSpline}, nodes, v) = (K = length(nodes); ThinPlateSpline(nodes, v[1:K], v[(K + 1):end]))
+_bending_kind(::Type{HeightField}, nodes, v) = HeightField(nodes, v)
+_is_pure_bending(T, nodes, v) = parameter_vector(_bending_kind(T, nodes, v)) == [_plain_or_metres(x) for x in v]
+_plain_or_metres(x::Real) = Float64(x)
+_plain_or_metres(x) = Float64(ustrip(m, x))
+function _pure_in_file_unit(T, nodes, p)
+    _is_pure_bending(T, [SVector(Float64(q[1]), Float64(q[2])) for q in nodes], [Float64(v) for v in p])
+end
+_pure_in_metres(T, nodes, p, u::Units) =
+    _is_pure_bending(T, [SVector(read_length(q[1]::Real, u), read_length(q[2]::Real, u)) for q in nodes], [read_length(v::Real, u) for v in p])
+_pure_in_metres(T, nodes, p, ::_Chart) = false
+function _check_pure_bending(::Type{T}, nodes, p, u::_ReadUnit) where {T}
+    (_pure_in_file_unit(T, nodes, p) || _pure_in_metres(T, nodes, p, u)) && return nothing
+    what = T === HeightField ? "heights" : "displacements"
     throw(
         ArgumentError(
-            "a $(calibration_tag(typeof(c))) calibration's $(what) carry an affine part (their thin-plate interpolant " *
+            "a $(calibration_tag(T)) calibration's $(what) carry an affine part (their thin-plate interpolant " *
                 "has an affine term): a thin-plate kind holds pure bending — an affine displacement belongs to " *
                 "Aspect ∘ Skew (∘ Scale ∘ EuclideanMap) composed after a thin_plate_spline, a plane of heights to the " *
                 "target's pose. Neither moves out of the spline exactly (the affine factors compose after the spline, " *

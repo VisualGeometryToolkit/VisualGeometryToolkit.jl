@@ -419,7 +419,7 @@ _node_lengths(system, physical) = physical ? [map(x -> _attach_length(x, m), p) 
 _two_rows(a::SVector{K}, b::SVector{K}) where {K} = SMatrix{2, K}(ntuple(k -> isodd(k) ? a[(k + 1) ÷ 2] : b[k ÷ 2], Val(2K)))
 
 """
-    ThinPlateSpline(nodes, fx, fy) <: CoordinateTransformations.Transformation
+    ThinPlateSpline(nodes, fx, fy; project = true) <: CoordinateTransformations.Transformation
     ThinPlateSpline(nodes)                       zero displacement
 
 An in-plane residual, `p ↦ p + (f_x(p), f_y(p))`: two thin-plate splines
@@ -445,7 +445,10 @@ it — the canonical print error is `HeightField ∘ ThinPlateSpline ∘ Aspect 
 Skew`. A spline built from an affine displacement is the identity. As for a
 [`HeightField`](@ref), "no affine term" is defined on the nodes the spline is
 built on (scaling them moves a constant between the affine and bending
-parts): build it on a dimensionless chart. The 2K
+parts): build it on a dimensionless chart. `project = false` keeps the
+displacements as given — for a reader restoring values that were pure bending
+in the unit they were written in (a unit move does not re-project, see
+[`HeightField`](@ref)); the caller has checked that condition. The 2K
 stored displacements have `2K − 6` free directions, the
 [`TargetManifold`](@ref)'s tangent, and no gauges; a covariance over them has
 rank `2K − 6`. `transform_deriv_params` is the derivative along that subspace
@@ -472,7 +475,7 @@ function _thin_plate_spline(system::ThinPlateSplineSystem{K}, L, P, fx::SVector{
     wy, ay = tps_coefficients(system, Vector(fy))   # the same BLAS product, the same bits
     return ThinPlateSpline{K, T}(system, fx, fy, wx, ax, wy, ay, L, P, physical)
 end
-ThinPlateSpline(nodes::AbstractVector, fx::AbstractVector, fy::AbstractVector) = _thin_plate_spline(nodes, fx, fy, true)
+ThinPlateSpline(nodes::AbstractVector, fx::AbstractVector, fy::AbstractVector; project::Bool = true) = _thin_plate_spline(nodes, fx, fy, project)
 function _thin_plate_spline(nodes::AbstractVector, fx::AbstractVector, fy::AbstractVector, project::Bool)
     K = length(nodes)
     length(fx) == length(fy) == K || throw(DimensionMismatch("ThinPlateSpline: $K nodes, $(length(fx)) and $(length(fy)) displacements"))
@@ -542,7 +545,7 @@ Base.show(io::IO, c::ThinPlateSpline{K}) where {K} =
     print(io, "ThinPlateSpline over ", K, " nodes", c.physical ? " (lengths in metres)" : "")
 
 """
-    HeightField(nodes, heights) <: CoordinateTransformations.Transformation
+    HeightField(nodes, heights; project = true) <: CoordinateTransformations.Transformation
     HeightField(nodes)                           flat
 
 An out-of-plane deformation, `p ↦ (p, h(p))`: one thin-plate spline
@@ -582,7 +585,9 @@ physical field's condition holds in metres, its stored form; a unit move
 (`ustrip(u, c)`, [`with_unit`](@ref)) converts the values and does not
 re-project them (the geometry stays where it is), so in another unit the
 interpolant may carry the piston that unit's scale adds, and a
-`with_parameters` there projects in that unit's numbers. The `K` stored heights have
+`with_parameters` there projects in that unit's numbers. `project = false`
+keeps the heights as given, the form a reader restores a field in after
+checking it was pure bending in the unit it was written in (VisualGeometryToolkitIO). The `K` stored heights have
 `K − 3` free directions, the [`TargetManifold`](@ref)'s tangent, and no
 gauges; a covariance over them has rank `K − 3`.
 """
@@ -600,7 +605,7 @@ function _height_field(system::ThinPlateSplineSystem{K}, L, P, h::SVector{K, T},
     w, a = tps_coefficients(system, Vector(h))   # a Vector, as RadiometricCamera supplies its heights: the same bits
     return HeightField{K, T}(system, h, w, a, L, P, physical)
 end
-HeightField(nodes::AbstractVector, heights::AbstractVector) = _height_field(nodes, heights, true)
+HeightField(nodes::AbstractVector, heights::AbstractVector; project::Bool = true) = _height_field(nodes, heights, project)
 function _height_field(nodes::AbstractVector, heights::AbstractVector, project::Bool)
     K = length(nodes)
     length(heights) == K || throw(DimensionMismatch("HeightField: $K nodes, $(length(heights)) heights"))

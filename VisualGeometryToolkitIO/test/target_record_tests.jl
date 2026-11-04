@@ -268,6 +268,47 @@ end
     @test_throws ArgumentError VgtkIO._record_parameter_count("bogus", ())
 end
 
+@testitem "target/v3: a thin-plate kind pure bending in the unit it was built in reads back ==" setup = [VGIoFixtures, TargetRecordFixtures] begin
+    # "No affine term" depends on the nodes' unit (scaling them moves a piston),
+    # and VGC's with_unit does not re-project: a field built from millimetre
+    # numbers and given the unit is pure bending in mm, not in metres. The
+    # reader checks the unit the record was written in (or metres); the writer
+    # refuses a field that would not read back.
+    using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, HeightField, ThinPlateSpline, grid_nodes, with_unit, cm, parameter_vector
+    nodes_mm = grid_nodes(3; lo = 0.0, hi = 100.0)
+    nodes_m = [p .* m for p in grid_nodes(3; lo = 0.0, hi = 0.1)]
+    # pure bending in millimetre numbers (projected there), given the unit —
+    # `with_unit(plain, mm)` to an ulp; built here file-born (each metre value
+    # one a millimetre file writes back exactly), so the round trip is exact
+    h_mm = parameter_vector(HeightField(nodes_mm, [0.3, -0.1, 0.4, 0.0, 0.2, -0.5, 0.1, 0.0, 0.25]))
+    f_mm = parameter_vector(ThinPlateSpline(nodes_mm, fill(0.0, 9), [0.3, -0.1, 0.4, 0.0, 0.2, -0.5, 0.1, 0.0, 0.25]))
+    born(ns) = [mmq.(p) for p in ns]
+    hmm = HeightField(born(nodes_mm), fileborn.(h_mm ./ 1000); project = false)
+    tmm = ThinPlateSpline(born(nodes_mm), fileborn.(f_mm[1:9] ./ 1000), fileborn.(f_mm[10:18] ./ 1000); project = false)
+    @test parameter_vector(hmm) ≈ parameter_vector(with_unit(HeightField(nodes_mm, h_mm), mm)) rtol = 1.0e-14
+    hm = HeightField(nodes_m, fileborn.(parameter_vector(HeightField(nodes_m, [3.0, -1.0, 4.0, 0.0, 2.0, -5.0, 1.0, 0.0, 2.5] .* 1.0e-4 .* m))))
+    design = [SVector(mmq(10.0 * i), mmq(10.0 * j)) for i in 0:9 for j in 0:9]
+    mktempdir() do dir
+        p = joinpath(dir, "target.json")
+        function roundtrip(c, u)
+            t = PlanarTarget(design; calibration = c)
+            save(p, t; length_unit = u)
+            return load(AbstractTarget, p) == t
+        end
+        @test parameter_vector(HeightField(hmm.system.nodes .* m, parameter_vector(hmm) .* m)) != parameter_vector(hmm)   # not pure in metres
+        @test roundtrip(hmm, mm)                   # built in mm: the mm file reads back
+        @test roundtrip(tmm, mm)
+        @test roundtrip(hm, m) && roundtrip(hm, mm) # built in m: either file reads back
+        # in a third unit neither form holds: the writer refuses, naming why, and writes nothing
+        rm(p; force = true)
+        for (c, u) in ((hmm, m), (tmm, cm))
+            e = try save(p, PlanarTarget(design; calibration = c); length_unit = u); nothing catch e; e end
+            @test e isa ArgumentError && occursin("would not read back", e.msg)
+        end
+        @test !isfile(p)
+    end
+end
+
 @testitem "rig/v6: a non-rigid posed target, and its content identity" setup = [VGIoFixtures, TargetRecordFixtures] begin
     using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, TargetFrame, WorldFrame, Uncertain, CovMat, pose, points,
         calibration, is_planar, ids, geom

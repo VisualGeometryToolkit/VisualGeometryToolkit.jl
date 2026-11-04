@@ -1,7 +1,8 @@
 # _arrow_solve — the Schur elimination of per-board blocks of static size m:
 # against a dense solve of the same normal equations at m = 3 (what radial
 # homographies need), bit for bit with the division camera's scalar depth loop
-# at m = 1, and a board whose block carries no information left out.
+# at m = 1, a board whose block carries no information left out, and one whose
+# block is symmetric only to rounding kept.
 @testitem "arrow_solve" begin
     using Test, LinearAlgebra
     using StableRNGs: StableRNG
@@ -87,6 +88,27 @@
         x = M[keep, keep] \ v[keep]
         @test all(isnan, ts[3])
         @test norm(vcat(xs, ts[1], ts[2], ts[4]) - x) <= 1.0e-10 * norm(x)
+        # a board whose D is symmetric only to rounding (as an accumulation of
+        # w·rrᵀ is: (w·r_a)·r_b against (w·r_b)·r_a) is a board, not dropped
+        rng2 = StableRNG(17)
+        Ms, vs = arrow_system(rng2, ns, m, nb)
+        bs = blocks_of(Ms, vs, ns, m, nb)
+        asym = map(bs) do blk
+            Dn = Matrix(blk.D)
+            Dn[1, 2] = nextfloat(Dn[1, 2]); Dn[3, 2] = prevfloat(Dn[3, 2])  # an ulp off, either side
+            (C = blk.C, D = SMatrix{m, m, Float64, m * m}(Dn), b = blk.b)
+        end
+        @test !any(issymmetric(blk.D) for blk in asym)                      # the case: not bit-symmetric
+        @test all(maximum(abs, blk.D - blk.D') <= 1.0e-14 * maximum(abs, blk.D) for blk in asym)
+        Ma = copy(Ms)
+        for (i, blk) in enumerate(asym)
+            idx = ns .+ ((i - 1) * m + 1:i * m)
+            Ma[idx, idx] .= Matrix(Symmetric(Matrix(blk.D)))                # the upper triangle, as the solve reads it
+        end
+        xa, ta = _arrow_solve(Ms[1:ns, 1:ns], vs[1:ns], asym)
+        x = Ma \ vs
+        @test all(t -> all(isfinite, t), ta)
+        @test norm(vcat(xa, reduce(vcat, ta)) - x) <= 1.0e-10 * norm(x)
         # and at m = 1 the camera's rule, d > 0
         M1, v1 = arrow_system(rng, ns, 1, 3)
         b1 = blocks_of(M1, v1, ns, 1, 3)

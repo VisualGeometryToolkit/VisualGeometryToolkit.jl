@@ -442,28 +442,25 @@ end
 #     (S − Σᵢ Cᵢ Dᵢ⁻¹ Cᵢᵀ)·xs = bs − Σᵢ Cᵢ Dᵢ⁻¹ bᵢ,     tᵢ = Dᵢ⁻¹ (bᵢ − Cᵢᵀ xs),
 # so the dense solve is ns × ns whatever the number of boards. `blocks[i]` is
 # board i's `(C = Cᵢ::SMatrix{ns, m}, D = Dᵢ::SMatrix{m, m}, b = bᵢ::SVector{m})`,
-# `Dᵢ` symmetric. A board whose `D` is not positive definite
-# (`_arrow_block_live`: at m = 1, `d > 0`) carries no information on its block:
-# it is left out of the elimination and its `tᵢ` is NaN. A singular reduced
-# system throws `LinearAlgebra.SingularException`; the caller names the failure.
+# `Dᵢ` symmetric (only its upper triangle is read at m ≥ 2, so an accumulation
+# symmetric to rounding is fine). A board whose `D` is not positive definite
+# (`_arrow_factor` gives `nothing`: at m = 1, `d > 0`; at m ≥ 2, its Cholesky
+# fails) carries no information on its block: it is left out of the elimination
+# and its `tᵢ` is NaN. A singular reduced system throws
+# `LinearAlgebra.SingularException`; the caller names the failure.
 # Returns `(xs::Vector{Float64}, ts::Vector{SVector{m, Float64}})`.
 #
-# For radial homographies (m = 3: each board's h̃₃). The division camera's depth
-# elimination (m = 1) is the scalar loop inside `_division_camera_solve`, and it
-# stays there, not routed through this: at m = 1 this function computes that
-# loop's numbers bit for bit (every sum in the same order, `D \ v` of a 1 × 1
-# block is `v / d` — `test/arrow_solve_tests.jl`), but REPLACING the loop by the
-# call changes the camera's output by ulps all the same. The solve inlines
-# `sampson_residual`, whose `muladd`s LLVM fuses or not per compilation of the
-# enclosing function, and an edit of that function's body can move the decision.
-# Measured 2026-11-04 (Julia 1.13.2): the call in place of the loop, inline or
-# behind a function barrier, moved the known-k fit's whitened residuals in their
-# last bits (its f by ~1e-13 relative after 24 iterations), the arrow arithmetic
-# replayed and identical; moving the residual loop into a `@noinline` helper
-# moved the contaminated fits instead. `test/division_solve_golden_tests.jl`
-# holds the camera to its bits.
-_arrow_block_live(D::SMatrix{1, 1}) = D[1] > 0
-_arrow_block_live(D::SMatrix) = LinearAlgebra.isposdef(D)
+# For radial homographies (m = 3: each board's h̃₃). At m = 1 it computes the
+# division camera's scalar depth loop bit for bit (`test/arrow_solve_tests.jl`),
+# but that loop stays inline in `_division_camera_solve`: replacing it by this call
+# moves the fusion of the inlined `sampson_residual`'s `muladd`s, and with it the
+# camera's output by ulps (`test/division_solve_golden_tests.jl`).
+_arrow_factor(D::SMatrix{1, 1}) = D[1] > 0 ? D : nothing          # D \ v is v / d
+function _arrow_factor(D::SMatrix)
+    F = LinearAlgebra.cholesky(LinearAlgebra.Hermitian(D); check = false)
+    return LinearAlgebra.issuccess(F) ? F : nothing
+end
+_arrow_block_live(D::SMatrix) = _arrow_factor(D) !== nothing
 
 function _arrow_solve(
         Snn::Matrix{Float64}, bsh::Vector{Float64},
@@ -471,22 +468,23 @@ function _arrow_solve(
     ) where {ns, m, L, M}
     (size(Snn) == (ns, ns) && length(bsh) == ns) ||
         throw(DimensionMismatch("the shared block is $(size(Snn)) with $(length(bsh)) right-hand sides; the boards couple $ns"))
+    factors = [_arrow_factor(blk.D) for blk in blocks]
     Sred = copy(Snn); bred = copy(bsh)
-    @inbounds for (; C, D, b) in blocks
-        _arrow_block_live(D) || continue
+    @inbounds for ((; C, b), F) in zip(blocks, factors)
+        F === nothing && continue
+        K = F \ transpose(C)                                   # D⁻¹Cᵀ, m × ns (D symmetric: (C D⁻¹)ᵀ)
         for p in 1:ns
-            kp = D \ C[p, :]                                        # row p of C·D⁻¹ (D symmetric)
             for q in 1:ns, a in 1:m
-                Sred[p, q] -= kp[a] * C[q, a]
+                Sred[p, q] -= K[a, p] * C[q, a]
             end
             for a in 1:m
-                bred[p] -= kp[a] * b[a]
+                bred[p] -= K[a, p] * b[a]
             end
         end
     end
     xs = Sred \ bred
-    ts = map(blocks) do (; C, D, b)
-        _arrow_block_live(D) || return SVector{m, Float64}(ntuple(_ -> NaN, Val(m)))
+    ts = map(blocks, factors) do (; C, b), F
+        F === nothing && return SVector{m, Float64}(ntuple(_ -> NaN, Val(m)))
         r = SVector{m, Float64}(
             ntuple(Val(m)) do a
                 acc = b[a]
@@ -496,7 +494,7 @@ function _arrow_solve(
                 acc
             end
         )
-        D \ r
+        SVector{m, Float64}(F \ r)
     end
     return xs, ts
 end

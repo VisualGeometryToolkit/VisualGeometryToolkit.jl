@@ -27,7 +27,8 @@ The intersection `a ∩ b` of two 2-D regions, held lazily: a point is in it
 when it is in both (`p ∈ s ⟺ p ∈ s.a && p ∈ s.b`), and its bounding box is
 the intersection of the two bounding boxes, `Rect2(s) == Rect2(s.a) ∩ Rect2(s.b)`
 (so [`bbox`](@ref VisualGeometryToolkitCore.bbox) works on it). Built by `Base.intersect` (`∩`) of a `Rect`, an
-[`Ellipse`](@ref) or another intersection, in any order and nesting:
+[`Ellipse`](@ref) or another intersection, in any order and nesting (a `Circle`
+enters as its `Ellipse`):
 
 ```julia
 domain = Rect(0, 0, 1920, 1200) ∩ Ellipse(Point2(960.0, 600.0), 700.0, 700.0, 0.0)
@@ -66,9 +67,16 @@ const _Region2 = Union{Ellipse, RegionIntersection}
 Base.intersect(a::_Region2, b::_Region2) = RegionIntersection(a, b)
 Base.intersect(a::Rect{2}, b::_Region2) = RegionIntersection(a, b)
 Base.intersect(a::_Region2, b::Rect{2}) = RegionIntersection(a, b)
+# A `Circle` (GeometryBasics' `HyperSphere{2}`) is the round `Ellipse`: it meets
+# a region as `Ellipse(c)`, so its membership, bounding box and `intersects` are
+# the ellipse's, one code path. Without these methods `Rect ∩ Circle` falls
+# through to Base's iterable-set `intersect` (a `MethodError` on `iterate`).
+Base.intersect(a::Union{Rect{2}, _Region2}, c::Circle) = a ∩ Ellipse(c)
+Base.intersect(c::Circle, b::Union{Rect{2}, _Region2}) = Ellipse(c) ∩ b
+Base.intersect(c₁::Circle, c₂::Circle) = Ellipse(c₁) ∩ Ellipse(c₂)
 # the identity of ∩
-Base.intersect(a::Union{Rect{2}, _Region2}, ::WholePlane) = a
-Base.intersect(::WholePlane, b::Union{Rect{2}, _Region2}) = b
+Base.intersect(a::Union{Rect{2}, _Region2, Circle}, ::WholePlane) = a
+Base.intersect(::WholePlane, b::Union{Rect{2}, _Region2, Circle}) = b
 Base.intersect(w::WholePlane, ::WholePlane) = w
 
 Base.in(p::Point2, s::RegionIntersection) = p ∈ s.a && p ∈ s.b

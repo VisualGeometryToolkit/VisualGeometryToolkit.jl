@@ -69,6 +69,13 @@ Added:
   outside the calibrated area.
 - `pixel_mask(region, width, height)`: the pixels whose centres lie in a region.
 
+Fixed:
+
+- **`Rect ∩ Circle`** (and `Circle ∩` any region, `Circle ∩ WholePlane()`):
+  a `Circle` meets a region as its `Ellipse`, so
+  `imaged_region(camera, circle::Circle)` builds instead of throwing a
+  `MethodError` on `iterate` (it fell through to Base's set `intersect`).
+
 ## 0.4.0 (2026-11-02)
 
 Breaking: ONE Sampson path. Nothing outside `base/sampson.jl` computes

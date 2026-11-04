@@ -25,6 +25,19 @@
         @test imaged_region(BoundedCamera(cam(800.0, Pinhole()), Size2(1280, 960)), WholePlane()) === Rect(0, 0, 1280, 960)
     end
 
+    @testset "imaged_region of a Circle: the Ellipse's region (Rect ∩ Circle once threw on Base's iterate)" begin
+        bc = BoundedCamera(cam(250.0, fold), Size2(1280, 960))
+        circle = Circle(Point2(640.0, 480.0), 250π / 3)
+        Rc = imaged_region(bc, circle)
+        Re = imaged_region(bc, Ellipse(circle))
+        @test Rc isa RegionIntersection && Rc.b == Ellipse(circle)
+        grid = [Point2(u, v) for u in -10.0:7.5:1290.0, v in -10.0:7.5:970.0]
+        @test all(p -> (p ∈ Rc) == (p ∈ Re), grid)
+        @test 0 < count(∈(Rc), grid) < length(grid)
+        @test (circle ∩ Rect(0, 0, 1280, 960)).a == Ellipse(circle)
+        @test circle ∩ WholePlane() === circle && WholePlane() ∩ circle === circle
+    end
+
     @testset "pixel_mask: the pixels whose centres lie in a region" begin
         R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960)), lit)
         M = pixel_mask(R, 1280, 960)

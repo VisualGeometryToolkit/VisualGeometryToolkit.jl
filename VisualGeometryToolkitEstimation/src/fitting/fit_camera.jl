@@ -59,7 +59,7 @@ record `family`, a `NamedTuple`:
   asked for; the errors are the held-out check's;
 - `CentralGenericModel`: `(; penalty, grid_size, stride, tolerance)`; the errors are
   the held-out check's, through the fitted grid's `project`;
-- `NoncentralGenericModel`: `(; center, penalty, grid_size, stride, tolerance,
+- `NoncentralGenericModel`: `(; penalty, grid_size, stride, tolerance, center,
   max_offset, rms_offset, max_offset_edge)` — `center` the anchor c* (the
   least-squares point nearest to the source's quadrature lines, in the
   source's frame, plain metres as the grid's points), and the held-out line
@@ -467,6 +467,15 @@ _in_edge_band(region, p) = any(k -> Point2{Float64}((p + _EDGE_BAND_PX * SVector
     return (idx, w)
 end
 
+# The design rows of the points `pts` on an `ny`-row lattice, `window_fn(p)` each
+# point's spline window.
+_design_rows(window_fn::F, pts, ny::Int) where {F} = pointwise!(
+    p -> _design_row(window_fn(p), ny), Vector{Tuple{SVector{16, Int}, SVector{16, Float64}}}(undef, length(pts)), pts
+)
+
+# The right-hand side of a solve: one row per sample, one column per component.
+_rhs_matrix(vs::AbstractVector{<:StaticVector{K}}) where {K} = [v[k] for v in vs, k in 1:K]
+
 # The third-difference operator of an n-node axis.
 _third_difference(n::Int) =
     spdiagm(n - 3, n, 0 => fill(1.0, n - 3), 1 => fill(-3.0, n - 3), 2 => fill(3.0, n - 3), 3 => fill(-1.0, n - 3))
@@ -541,12 +550,8 @@ function _spline_projection_fit(q, cells::Int)
     h = maximum(w) / cells
     nx = ceil(Int, w[1] / h * (1 - 1.0e-12)) + 3
     ny = ceil(Int, w[2] / h * (1 - 1.0e-12)) + 3
-    rows = pointwise!(
-        c -> _design_row(spline_window(q.area, (ny, nx), c), ny),
-        Vector{Tuple{SVector{16, Int}, SVector{16, Float64}}}(undef, length(q.fit_charts)), q.fit_charts
-    )
-    B = [p[k] for p in q.fit_px, k in 1:2]
-    controls, λ = _penalized_solve(rows, B, ny, nx, Val(2))
+    rows = _design_rows(c -> spline_window(q.area, (ny, nx), c), q.fit_charts, ny)
+    controls, λ = _penalized_solve(rows, _rhs_matrix(q.fit_px), ny, nx, Val(2))
     spline = ChartSpline(q.area, controls)
     err = norm.(spline(q.held_charts) .- q.held_px)
     return (; spline, h, λ, counts = (nx, ny), _held_out_errors(err, q.edge)...)
@@ -555,7 +560,7 @@ end
 function fit_camera(::Type{SplineProjection}, source, region; tolerance::Real, weight::Symbol = :image)
     _check_image_weight(weight)
     tolerance > 0 || throw(ArgumentError("fit_camera: tolerance must be positive, got $tolerance"))
-    q = _chart_quadrature(_unbounded(source), region)
+    q = _chart_quadrature(model(source), region)
     # The bracket: from 4 cells along the chart's longer side up to a cell of
     # three quadrature strides (fewer points per cell leave it to the penalty).
     cells_max = max(1, floor(Int, q.extent / (3 * q.stride)))
@@ -599,43 +604,64 @@ _spline_projection_result(q, r, code::Symbol, fits::Int, tolerance::Real) = FitR
 )
 
 # ------------------------------------------------------------------------------
-# CentralGenericModel
+# The grid targets: CentralGenericModel and NoncentralGenericModel
 # ------------------------------------------------------------------------------
+#
+# One body for both: the quadrature of the source's data, Core's full-image
+# lattice over the source's image (the calibrated area is the image; the region
+# restricts the quadrature only), the design rows, ONE penalized solve, the
+# model, the held-out errors and the tolerance check. The target type selects
+# the data (`_grid_samples`), the lattice, the right-hand side, the model built
+# from the controls and the errors.
 
 function fit_camera(
         ::Type{CentralGenericModel}, source, region;
         grid_size::Tuple{Integer, Integer}, tolerance::Real, weight::Symbol = :image
     )
     _check_image_weight(weight)
+    return _fit_grid(CentralGenericModel, source, region, grid_size, tolerance)
+end
+
+function _fit_grid(::Type{G}, source, region, grid_size, tolerance::Real) where {G}
     W, H = _image_size(source)
-    cam = _unbounded(source)
-    q = _image_quadrature(cam, region)
-    # the node-interpolation constructor's model: Core's full-image lattice (the
-    # calibrated area is the image; the region restricts the quadrature only),
-    # the nominal pinhole, the start
-    start = CentralGenericModel(
-        cam, (W, H); grid_size, init = cam isa CameraModel ? :interpolate : :quasi_interpolate, domain = region
-    )
-    area = (start.calib_min_x, start.calib_min_y, start.calib_max_x, start.calib_max_y)
-    gh, gw = size(start.grid)
-    rows = pointwise!(
-        p -> _design_row(spline_window(start, p), gh),
-        Vector{Tuple{SVector{16, Int}, SVector{16, Float64}}}(undef, length(q.fit_px)), q.fit_px
-    )
-    B = [r[k] for r in q.fit_rays, k in 1:3]
-    controls, λ = _penalized_solve(rows, B, gh, gw, Val(3))
-    fitted = CentralGenericModel{Float64}(
-        W, H, area..., Vec3{Float64}.(controls); unit_controls = false, nominal = nominal_intrinsics(start), domain = region
-    )
-    err = _grid_round_trip(fitted, q.held_rays, q.held_px)
-    e = _held_out_errors(err, q.edge)
+    cam = model(source)
+    q = _image_quadrature(_grid_samples(G), cam, region)
+    lattice = _grid_lattice(G, cam, (W, H), grid_size, region)
+    gh, gw = _lattice_size(lattice)
+    rhs, anchor = _grid_rhs(G, q)
+    rows = _design_rows(p -> spline_window(lattice, p), q.fit_px, gh)
+    controls, λ = _penalized_solve(rows, _rhs_matrix(rhs), gh, gw, Val(length(eltype(rhs))))
+    fitted = _grid_model(G, lattice, controls, anchor, region)
+    e, family = _grid_errors(fitted, cam, q, anchor)
     e.max_px <= tolerance ||
-        @warn "fit_camera: the $(gh) × $(gw) grid's held-out round trip reaches $(round(e.max_px; sigdigits = 3)) px, over the tolerance $(tolerance) px"
+        @warn "fit_camera: the $(gh) × $(gw) $(_grid_error_name(G)) reaches $(round(e.max_px; sigdigits = 3)) px, over the tolerance $(tolerance) px"
     return FitResult(
         fitted, :solved, 0, e.rms_px, length(q.fit_px),
-        CameraFitMetadata(region, weight, e.max_px, e.rms_px, e.max_px_edge, (; penalty = λ, grid_size = (gh, gw), stride = q.stride, tolerance = Float64(tolerance)))
+        CameraFitMetadata(
+            region, :image, e.max_px, e.rms_px, e.max_px_edge,
+            (; penalty = λ, grid_size = (gh, gw), stride = q.stride, tolerance = Float64(tolerance), family...)
+        )
     )
 end
+
+_lattice_size(m::CentralGenericModel) = size(m.grid)
+_lattice_size(m::NoncentralGenericModel) = size(m.directions)
+_lattice_area(m) = (m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y)
+
+_grid_samples(::Type{CentralGenericModel}) = _source_rays
+_grid_error_name(::Type{CentralGenericModel}) = "grid's held-out round trip"
+
+# The central lattice: the node-interpolation constructor's model (its nominal
+# pinhole), the start.
+_grid_lattice(::Type{CentralGenericModel}, source, size, grid_size, region) = CentralGenericModel(
+    source, size; grid_size, init = source isa CameraModel ? :interpolate : :quasi_interpolate, domain = region
+)
+_grid_rhs(::Type{CentralGenericModel}, q) = (q.fit_rays, nothing)
+_grid_model(::Type{CentralGenericModel}, lattice, controls, _, region) = CentralGenericModel{Float64}(
+    lattice.width, lattice.height, _lattice_area(lattice)..., Vec3{Float64}.(controls);
+    unit_controls = false, nominal = nominal_intrinsics(lattice), domain = region
+)
+_grid_errors(fitted::CentralGenericModel, _, q, _) = (_held_out_errors(_grid_round_trip(fitted, q.held_rays, q.held_px), q.edge), (;))
 
 # The image a grid target's lattice covers: a grid source's own, a bounded
 # camera's extent. A bare camera model has no image.
@@ -647,8 +673,6 @@ _image_size(source) = throw(
             "bound it by its sensor or extent, `BoundedCamera(model, sensor)`"
     )
 )
-_unbounded(bc::BoundedCamera) = model(bc)
-_unbounded(source) = source
 
 # A grid model's round trip at the points `px` whose source rays are `rays`: the
 # batched `project` from the pixel itself, Inf where it does not converge.
@@ -676,44 +700,32 @@ function fit_camera(
         grid_size::Tuple{Integer, Integer}, tolerance::Real, weight::Symbol = :image
     )
     _check_image_weight(weight)
-    W, H = _image_size(source)
-    cam = _unbounded(source)
-    q = _image_quadrature(_source_lines, cam, region)
-    lattice = _noncentral_lattice(cam, (W, H), grid_size, region)
-    area = (lattice.calib_min_x, lattice.calib_min_y, lattice.calib_max_x, lattice.calib_max_y)
-    gh, gw = size(lattice.directions)
+    return _fit_grid(NoncentralGenericModel, source, region, grid_size, tolerance)
+end
+
+_grid_samples(::Type{NoncentralGenericModel}) = _source_lines
+_grid_error_name(::Type{NoncentralGenericModel}) = "non-central grid's held-out direction error"
+_grid_lattice(::Type{NoncentralGenericModel}, source, size, grid_size, region) = _noncentral_lattice(source, size, grid_size, region)
+
+# The right-hand side: the unit direction, and the line's point closest to c*
+# relative to c* (the solve is translation-equivariant: a B-spline's weights sum
+# to one and the third differences vanish on constants); c* the anchor.
+function _grid_rhs(::Type{NoncentralGenericModel}, q)
     center = nearest_point([o => d for (o, d) in q.fit_rays])
-    rows = pointwise!(
-        p -> _design_row(spline_window(lattice, p), gh),
-        Vector{Tuple{SVector{16, Int}, SVector{16, Float64}}}(undef, length(q.fit_px)), q.fit_px
-    )
-    # the right-hand side: the unit direction, and the line's point closest to
-    # c* relative to c* (the solve is translation-equivariant: a B-spline's
-    # weights sum to one and the third differences vanish on constants)
-    B = Matrix{Float64}(undef, length(q.fit_rays), 6)
-    for (i, (o, d)) in enumerate(q.fit_rays)
-        B[i, 1:3] .= d
-        B[i, 4:6] .= o + dot(center - o, d) * d - center
-    end
-    controls, λ = _penalized_solve(rows, B, gh, gw, Val(6))
-    directions = map(x -> Vec3{Float64}(x[1], x[2], x[3]), controls)
-    points = map(x -> Vec3{Float64}(x[4] + center[1], x[5] + center[2], x[6] + center[3]), controls)
-    fitted = NoncentralGenericModel{Float64}(
-        W, H, area..., directions, points; unit_controls = false, nominal = nominal_intrinsics(lattice), domain = region
-    )
-    e, offsets = _line_errors(fitted, cam, q)
-    e.max_px <= tolerance ||
-        @warn "fit_camera: the $(gh) × $(gw) non-central grid's held-out direction error reaches $(round(e.max_px; sigdigits = 3)) px, over the tolerance $(tolerance) px"
-    return FitResult(
-        fitted, :solved, 0, e.rms_px, length(q.fit_px),
-        CameraFitMetadata(
-            region, weight, e.max_px, e.rms_px, e.max_px_edge,
-            (;
-                center, penalty = λ, grid_size = (gh, gw), stride = q.stride, tolerance = Float64(tolerance),
-                max_offset = offsets.max_px, rms_offset = offsets.rms_px, max_offset_edge = offsets.max_px_edge,
-            )
-        )
-    )
+    return [vcat(d, o + dot(center - o, d) * d - center) for (o, d) in q.fit_rays], center
+end
+
+# A control of the joint solve split into its direction and its absolute point.
+_direction_control(x::SVector{6}) = Vec3{Float64}(x[1], x[2], x[3])
+_point_control(x::SVector{6}, center) = Vec3{Float64}(x[4] + center[1], x[5] + center[2], x[6] + center[3])
+
+_grid_model(::Type{NoncentralGenericModel}, lattice, controls, center, region) = NoncentralGenericModel{Float64}(
+    lattice.width, lattice.height, _lattice_area(lattice)..., _direction_control.(controls), _point_control.(controls, Ref(center));
+    unit_controls = false, nominal = nominal_intrinsics(lattice), domain = region
+)
+function _grid_errors(fitted::NoncentralGenericModel, source, q, center)
+    e, offsets = _line_errors(fitted, source, q)
+    return e, (; center, max_offset = offsets.max_px, rms_offset = offsets.rms_px, max_offset_edge = offsets.max_px_edge)
 end
 
 # The non-central target's lattice: Core's full-image layout over the source's

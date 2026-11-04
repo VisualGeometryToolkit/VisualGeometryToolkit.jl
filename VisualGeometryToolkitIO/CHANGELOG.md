@@ -8,8 +8,10 @@ calibration.
 
 - **`vgio/target/v3` and `vgio/rig/v6`.** The calibration kinds are VGC 0.5's:
   new leaf records `euclidean` (a planar `EuclideanMap`, `[angle, tx, ty]`,
-  the translation in the file's unit; the angle one that rebuilds the
-  rotation matrix bit for bit), `scale` (`[log_scale]`), `aspect` (`[a1]`) and
+  the translation in the file's unit; the angle the one VGC's member stores,
+  its `Angle2d`'s, written as it is and read back as an `Angle2d`, so value →
+  file → value is exact — no search for an angle that rebuilds a matrix),
+  `scale` (`[log_scale]`), `aspect` (`[a1]`) and
   `skew` (`[u12]`), the last three dimensionless; `thin_plate_spline` and
   `height_field` hold pure bending, and a record whose values carry an affine
   term is refused (VGC's constructor would move them). A composition — 2 to 6

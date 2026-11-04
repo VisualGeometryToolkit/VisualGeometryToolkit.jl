@@ -97,8 +97,8 @@ end
 # order, lengths (by `length_mask`: a euclidean's `tx, ty`, the in-plane
 # displacements, the heights) in the file's `length_unit`, plain numbers
 # otherwise (an angle, the log-scale, the log-stretch, the shear). A
-# euclidean's angle is one that rebuilds its rotation matrix exactly
-# (`_planar_angle`), so a value read back is its file's. `nodes` are positions
+# euclidean's angle is the one its value stores (VGC holds the rigid member's
+# rotation as an `Angle2d`), so a value read back is its file's. `nodes` are positions
 # in the target's plane, lengths in the file's unit. The thin-plate kinds hold
 # PURE BENDING (VGC: no affine term in the interpolant): the reader rebuilds
 # each and refuses values the constructor would move (an affine displacement
@@ -352,32 +352,14 @@ _physical(c, ::_Chart) = c   # a placed target's calibration is plain chart numb
 _flat_members(c::ComposedTransformation) = (_flat_members(c.t1)..., _flat_members(c.t2)...)
 _flat_members(c) = (c,)
 
-# A planar rotation's angle as a record holds it: one whose rotation matrix,
-# rebuilt as the reader builds it (`RotMatrix{2}(angle)`, VGC's
-# `with_parameters`), is the matrix held — `atan` of the matrix (VGC's
-# `parameter_vector`) or the nearest float to it that rebuilds it bit for bit
-# (`atan(R₂₁, R₁₁)` is within a few ulps of the angle a `RotMatrix{2}` was built
-# from, but rebuilds a different matrix for about one angle in ten). A matrix no
-# angle rebuilds (one an estimator computed) is converted, as a 3-D rotation is
-# to its quaternion. So a value read from a file writes its file's angle's
-# equivalent, and reads back bit for bit.
-function _planar_angle(R::StaticMatrix{2, 2})
-    ϑ = atan(R[2, 1], R[1, 1])
-    S = SMatrix{2, 2, Float64}(R)
-    up, down = ϑ, ϑ
-    for _ in 0:8
-        SMatrix(RotMatrix{2, Float64}(up)) == S && return up
-        SMatrix(RotMatrix{2, Float64}(down)) == S && return down
-        up, down = nextfloat(up), prevfloat(down)
-    end
-    return ϑ
-end
-
 _calibration_record(c::Rigid, ::_CalUnit) = (type = _tag(c),)
 _calibration_record(c::Union{Scale, Aspect{2}, Skew{2}}, ::_CalUnit) = (type = _tag(c), parameters = Float64.(collect(parameter_vector(c))))
+# The angle is the stored one: a target's rigid member holds its rotation as an
+# `Angle2d` (VGC), whose `parameter_vector` is the angle itself, so the record
+# writes it and the reader's `Angle2d` of it is the value, bit for bit.
 function _calibration_record(c::EuclideanMap{2}, u::_CalUnit)
     θ = parameter_vector(_physical(c, u))
-    return (type = _tag(c), parameters = [_planar_angle(SMatrix(VgtkCore.rotation(c))), _metres_json(θ[2], u), _metres_json(θ[3], u)])
+    return (type = _tag(c), parameters = [Float64(θ[1]), _metres_json(θ[2], u), _metres_json(θ[3], u)])
 end
 _calibration_record(c::Union{ThinPlateSpline, HeightField}, u::_CalUnit) =
     (type = _tag(_physical(c, u)), nodes = _nodes_json(c, u), parameters = [_metres_json(v, u) for v in parameter_vector(c)])
@@ -400,7 +382,7 @@ _nodes_from_json(x, u::_ReadUnit) = [SVector(_read_metres(p[1], u), _read_metres
 _calibration_from_record(::Type{Rigid}, x, u::_ReadUnit) = Rigid()
 function _calibration_from_record(::Type{EuclideanMap}, x, u::_ReadUnit)
     p = x.parameters::Vector{Any}
-    return EuclideanMap(RotMatrix{2, Float64}(Float64(p[1])), SVector(_read_metres(p[2], u), _read_metres(p[3], u)); check = false)
+    return EuclideanMap(Angle2d{Float64}(Float64(p[1])), SVector(_read_metres(p[2], u), _read_metres(p[3], u)); check = false)
 end
 _calibration_from_record(::Type{Scale}, x, u::_ReadUnit) = Scale(Float64(only(x.parameters)))
 _calibration_from_record(::Type{Aspect}, x, u::_ReadUnit) = Aspect(Float64(only(x.parameters)))

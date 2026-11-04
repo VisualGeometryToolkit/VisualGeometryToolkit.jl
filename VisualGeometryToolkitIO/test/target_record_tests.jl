@@ -10,7 +10,7 @@
     using Statistics: cov
     using StaticArrays: SVector, SMatrix
     using LinearAlgebra: Diagonal
-    using Rotations: QuatRotation, RotMatrix
+    using Rotations: QuatRotation, RotMatrix, Angle2d
     import VisualGeometryToolkitIO as VgtkIO
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: mm, m
@@ -30,7 +30,7 @@
     # projected values made file-born — which the constructor keeps bit for bit.
     function kinds()
         nodes = [SVector(mmq(p[1]), mmq(p[2])) for p in grid_nodes(3; lo = 0.0, hi = 100.0)]
-        E = VgtkCore.EuclideanMap(RotMatrix{2, Float64}(0.01), SVector(mmq(0.5), mmq(-0.25)); check = false)
+        E = VgtkCore.EuclideanMap(Angle2d{Float64}(0.01), SVector(mmq(0.5), mmq(-0.25)); check = false)   # the member stores its angle
         S, A, U = Scale(0.001), Aspect(0.002), Skew(-0.003)
         T0 = ThinPlateSpline(nodes, mmq.([0.01, 0.0, -0.02, 0.03, 0.0, 0.0, 0.01, -0.01, 0.0]), mmq.([-0.02, 0.01, 0.0, 0.0, 0.04, 0.0, 0.0, 0.02, -0.03]))
         θT = fileborn.(parameter_vector(T0))
@@ -110,7 +110,8 @@ end
 
 @testitem "target/v3: the record as written — tags, parameter order, units" setup = [VGIoFixtures, TargetRecordFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, Rigid, parameter_vector
+    using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, Rigid, parameter_vector, with_parameters, calibration
+    using Random: Random
     k = kinds()
     mktempdir() do dir
         p = joinpath(dir, "target.json")
@@ -119,11 +120,23 @@ end
         # translation lengths in the file's unit; scale, aspect and skew one plain number each
         save(p, PlanarTarget(design_points(); calibration = k.euclidean))
         c = parse_json(read(p, String)).target.calibration
-        @test c.type == "euclidean" && c.parameters[2:3] == [0.5, -0.25] && abs(c.parameters[1] - 0.01) < 1.0e-16
+        @test c.type == "euclidean" && c.parameters[2:3] == [0.5, -0.25] && c.parameters[1] === 0.01
         save(p, PlanarTarget(design_points(); calibration = k.euclidean); length_unit = m)
         @test parse_json(read(p, String)).target.calibration.parameters[2:3] == [0.0005, -0.00025]
-        # the angle is one that rebuilds the rotation matrix bit for bit (atan of the
-        # matrix does not, for about one angle in ten): value → file → value is exact
+        # the angle is the value (VGC stores the rigid member's rotation as an Angle2d):
+        # the record holds the stored angle and value → file → value is exact
+        rng = Random.Xoshiro(20261104)
+        E0 = VisualGeometryToolkitCore.EuclideanMap(RotMatrix{2, Float64}(0.0), SVector(mmq(0.0), mmq(0.0)); check = false)
+        for _ in 1:1000
+            ϑ = π * (2 * rand(rng) - 1)
+            E = with_parameters(E0, [ϑ, 0.5e-3, -0.25e-3])
+            t = PlanarTarget(design_points(); calibration = E)
+            save(p, t)
+            @test parse_json(read(p, String)).target.calibration.parameters[1] === ϑ
+            back = load(AbstractTarget, p)
+            @test back == t && parameter_vector(calibration(back)) == parameter_vector(E)
+        end
+        # a matrix-built member is converted once, where the target stores it, and then round-trips exactly
         for ϑ in range(-3.1, 3.1; length = 301)
             E = VisualGeometryToolkitCore.EuclideanMap(RotMatrix{2, Float64}(ϑ), SVector(mmq(0.5), mmq(-0.25)); check = false)
             t = PlanarTarget(design_points(); calibration = E)

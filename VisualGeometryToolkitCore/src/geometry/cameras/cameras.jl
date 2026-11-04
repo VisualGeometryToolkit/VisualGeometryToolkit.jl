@@ -219,9 +219,10 @@ inverse directions. The transform is computed on demand and inlined.
   grid model); `PosedCamera(model, X)` refuses a posed one (`is_posed(model)`)
   and a [`BoundedCamera`](@ref) — the bound goes outside the pose,
   `BoundedCamera(PosedCamera(model, X), extent)`
-- `Rt <: Union{EuclideanMap, RotationMap}`: extrinsics type. A
+- `Rt <: Union{EuclideanMap, RotationMap{3}}`: extrinsics type. A
   [`RotationMap`](@ref) poses a camera that only turns about its centre, an
-  [`OrientedCamera`](@ref).
+  [`OrientedCamera`](@ref); a camera turns in three dimensions, so a
+  `RotationMap{2}` is a `MethodError` at construction.
 
 # Fields
 - `model::M`: Camera model (intrinsics + lens)
@@ -246,19 +247,19 @@ u = project(camera, X_world)
 """
 struct PosedCamera{
         M <: AbstractCamera,   # an unposed model — parametric OR generic (checked below)
-        Rt <: Union{EuclideanMap, RotationMap},
+        Rt <: Union{EuclideanMap, RotationMap{3}},
     } <: AbstractCamera
     model::M
     extrinsics::Rt
     # The one hierarchy admits a camera as the model type; the guard refuses the
     # two forms that are not a model. It is decided by the model's type
     # (`is_posed` is a type-level answer), so it compiles away.
-    function PosedCamera{M, Rt}(model, extrinsics) where {M <: AbstractCamera, Rt <: Union{EuclideanMap, RotationMap}}
+    function PosedCamera{M, Rt}(model, extrinsics) where {M <: AbstractCamera, Rt <: Union{EuclideanMap, RotationMap{3}}}
         _check_camera_model(model, "PosedCamera")
         return new{M, Rt}(model, extrinsics)
     end
 end
-PosedCamera(model::M, extrinsics::Rt) where {M <: AbstractCamera, Rt <: Union{EuclideanMap, RotationMap}} =
+PosedCamera(model::M, extrinsics::Rt) where {M <: AbstractCamera, Rt <: Union{EuclideanMap, RotationMap{3}}} =
     PosedCamera{M, Rt}(model, extrinsics)
 
 is_posed(::PosedCamera) = true
@@ -583,7 +584,7 @@ has_units(c::BoundedCamera) = has_units(c.camera)
 # An unposed camera holds no length (a NoncentralGenericModel's grid is plain
 # metres by its type, generic_models.jl); a posed camera type answers itself.
 has_units(c::AbstractCamera) = is_posed(c) ? throw(MethodError(has_units, (c,))) : false
-_rebuilt(c::PosedCamera, X::Union{EuclideanMap, RotationMap}) = PosedCamera{typeof(c.model), typeof(X)}(c.model, X)
+_rebuilt(c::PosedCamera, X::Union{EuclideanMap, RotationMap{3}}) = PosedCamera{typeof(c.model), typeof(X)}(c.model, X)
 
 """
     ustrip(u::Units, camera::PosedCamera | BoundedCamera) -> same type of camera

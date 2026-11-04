@@ -116,6 +116,9 @@ with_unit(M::RotationMap, ::Units) = M
 _rotation_matrix(M::RotationMap{N}) where {N} = SMatrix{N, N}(M.R)
 Base.:(==)(A::RotationMap, B::RotationMap) =
     _rotation_frames(A) == _rotation_frames(B) && _rotation_matrix(A) == _rotation_matrix(B)
+# Hash what `==` compares (the tags and the rotation's matrix), so `isequal` maps hash alike whatever their
+# representation (a RotMatrix and a QuatRotation, q and −q); `+ 0.0` maps −0.0 to 0.0, which `==` does not tell apart.
+Base.hash(M::RotationMap, h::UInt) = hash(_rotation_matrix(M) .+ zero(eltype(_rotation_matrix(M))), hash(_rotation_frames(M), hash(:RotationMap, h)))
 Base.isapprox(A::RotationMap, B::RotationMap; kwargs...) =
     _rotation_frames(A) == _rotation_frames(B) && isapprox(_rotation_matrix(A), _rotation_matrix(B); kwargs...)
 

@@ -1,5 +1,38 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.5.6 (2026-11-05)
+
+Bug fixes to 0.5.5's additions; additive otherwise.
+
+- `view_overlap(a, b, circle)`: the one circle now bounds both frames, as the
+  vector form's one circle bounds every frame (frame `b` kept the whole sensor).
+  `circle_b` defaults to `circle_a`.
+- `view_overlap` on a frame whose model is not a `CameraModel` (a grid model)
+  is an `ArgumentError` naming the requirement, not a `MethodError` inside the
+  footprint.
+- `with_control_points` promotes the field's element type with the control
+  points' (`promote_type`): Int control points no longer throw `InexactError`
+  on the knots, and Float32 ones no longer round the knots, centre or radius.
+- A `TensorVignetting` of Dual eltype implements the support protocol
+  (`support` reads the knots' values under the Duals): `free_nodes`,
+  `node_mask` and `BoundaryRule` work on it.
+- `RadialVignetting(n, center, radius)` accepts `px` quantities (a length is a
+  `DimensionError`) and refuses a radius that is not positive and finite
+  (`ArgumentError`).
+- `RotationMap` hashes what `==` compares (tags and the rotation's matrix), so
+  equal maps of different representations hash alike.
+- `PosedCamera` admits `RotationMap{3}` only: a planar rotation is a
+  `MethodError` at construction, not later in `pose`/`project`.
+- `center(v)` (Core's one centre generic) for every vignetting field.
+  `field_center` is deprecated (a warning, forwarding to `center`); it is
+  removed in 0.7.
+- `LogVignetting`'s `coefficient_jacobian` and `active_coefficients` evaluate
+  the spline's basis once, bit for bit the two-evaluation form.
+- Planned for 0.7 (breaking): the vignetting constructors' element type
+  becomes a leading positional argument, `TensorVignetting([T = Float64], n, box; degree)`
+  and `RadialVignetting([T = Float64], n, center, radius; degree)`, per the
+  signature convention (slot 4); the `T` keyword stays until then.
+
 ## 0.5.5 (2026-11-04)
 
 Additive.

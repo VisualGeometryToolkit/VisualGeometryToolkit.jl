@@ -6,9 +6,10 @@
     using StaticArrays: SVector
     using LinearAlgebra: dot
     using VisualGeometryToolkitCore: TensorVignetting, RadialVignetting, coefficient_jacobian, control_points, with_control_points,
-        n_control_points, knot_vectors, spline_degree, field_center, field_radius, radial_coordinate, pole_regular_basis,
+        n_control_points, knot_vectors, spline_degree, center, field_radius, radial_coordinate, pole_regular_basis,
         clamped_knots, convert_eltype, pointwise!, Rect, BoundaryRule, boundary_rule_jacobian, free_nodes, Circle, Point2, LogVignetting
     import BSplineKit
+    import ForwardDiff
 
     # The textbook recursion (Piegl & Tiller, eq. 2.5), written independently of `bspline_basis`: 0/0 := 0, the last non-empty
     # span closed on the right, x clamped onto the knots.
@@ -45,7 +46,13 @@
             @test r(u) ≈ dot(basis_ref(knot_vectors(r)[1], 3, ρ), vec(control_points(r))) atol = 1e-13
         end
         @test spline_degree(t) == (2, 2) && spline_degree(r) == (3,)
-        @test field_center(t) == SVector(W / 2, H / 2) && field_center(r) == SVector(300.0, 250.0) && field_radius(r) == 400.0
+        @test center(t) == SVector(W / 2, H / 2) && center(r) == SVector(300.0, 250.0) && field_radius(r) == 400.0
+        # field_center, the duplicate of Core's `center` generic, warns and forwards (deprecated in 0.5.6, removed in 0.7)
+        if Base.JLOptions().depwarn == 2                    # --depwarn=error (the strict run): the warning is an error
+            @test_throws ErrorException VisualGeometryToolkitCore.field_center(r)
+        else
+            @test (@test_deprecated VisualGeometryToolkitCore.field_center(r)) == center(r)
+        end
         @test radial_coordinate(r, SVector(300.0, 650.0)) == 1.0
         @test TensorVignetting((6, 6), Rect(10, 20, 100, 50))(SVector(30.0, 40.0)) ≈ 1.0      # the partition of unity
     end
@@ -73,7 +80,7 @@
         @test size(Z) == (9, 8) && Z[1, 1] == Z[2, 1] == 1.0
         y = [0.3 * cos(j) for j in 1:8]
         v = with_control_points(r, Z * y)                                               # a profile in the regular subspace
-        c = field_center(v); δ = SVector(1e-4 * 400, 0.0)
+        c = center(v); δ = SVector(1e-4 * 400, 0.0)
         growth(v) = (v(c + 2δ) - v(c)) / (v(c + δ) - v(c))                              # 4 for V − V(c) = O(ρ²), 2 for a cone O(ρ)
         @test abs(growth(v) - 4) < 1e-2
         @test abs(growth(with_control_points(r, [1.0; 0.8; ones(7)])) - 2) < 1e-2       # untied: a cone at the centre
@@ -106,11 +113,48 @@
             idx, w = VisualGeometryToolkitCore.active_coefficients(lv, u)
             @test all(J[collect(idx)] .≈ collect(w))
         end
-        @test pole_regular_basis(lr) == pole_regular_basis(r) && field_center(lr) == field_center(r)
+        @test pole_regular_basis(lr) == pole_regular_basis(r) && center(lr) == center(r)
+        # one basis evaluation per row, bit for bit the two-evaluation chain rule
+        for (lv, s) in ((lr, VisualGeometryToolkitCore.log_spline(lr)), (lt, VisualGeometryToolkitCore.log_spline(lt))), u in pts[1:7:end]
+            @test coefficient_jacobian(lv, u) == exp(s(u)) .* coefficient_jacobian(s, u)
+            idx, w = VisualGeometryToolkitCore.active_coefficients(s, u); V = exp(s(u))
+            @test VisualGeometryToolkitCore.active_coefficients(lv, u) == (idx, map(x -> V * x, w))
+        end
         @test knot_vectors(lt) == knot_vectors(t) && n_control_points(lt) == n_control_points(t)
         @test isbitstype(typeof(lr))
         @test convert_eltype(Float32, lr)(SVector(200.0f0, 100.0f0)) ≈ lr(SVector(200.0, 100.0)) rtol = 1e-6
         @test 0 < length(free_nodes(lt, Rect(200.0, 150.0, 240.0, 180.0))) < n_control_points(lt)
+    end
+
+    @testset "with_control_points promotes, never narrows the knots, centre or radius" begin
+        ti = with_control_points(t, ones(Int, 7, 5))                    # Int control points: no InexactError on the knots
+        @test eltype(control_points(ti)) === Float64 && knot_vectors(ti) == knot_vectors(t)
+        t32 = with_control_points(t, Float32.(P2))                      # Float32: the knots keep their Float64 values
+        @test knot_vectors(t32) == knot_vectors(t) && eltype(knot_vectors(t32)[1]) === Float64
+        r32 = with_control_points(RadialVignetting(9, SVector(300.1, 250.3), 400.7), ones(Float32, 9))
+        @test center(r32) == SVector(300.1, 250.3) && field_radius(r32) == 400.7
+        ri = with_control_points(r, ones(Int, 9))
+        @test eltype(control_points(ri)) === Float64 && center(ri) == center(r)
+    end
+
+    @testset "support of a Dual field: the knots' values" begin
+        D = ForwardDiff.Dual{Nothing, Float64, 1}
+        td = with_control_points(t, D.(P2))                              # Dual control points: a Dual field, Dual knots
+        @test eltype(knot_vectors(td)[1]) === D
+        region = Rect(200.0, 150.0, 240.0, 180.0)
+        @test free_nodes(td, region) == free_nodes(t, region)
+        @test VisualGeometryToolkitCore.support(td, CartesianIndex(3, 2)) == VisualGeometryToolkitCore.support(t, CartesianIndex(3, 2))
+    end
+
+    @testset "RadialVignetting: pixel quantities, a positive radius" begin
+        px, mm = VisualGeometryToolkitCore.px, VisualGeometryToolkitCore.mm
+        rq = RadialVignetting(9, SVector(300.0px, 250.0px), 400.0px)
+        @test center(rq) == SVector(300.0, 250.0) && field_radius(rq) == 400.0
+        @test rq(SVector(310.0, 260.0)) == RadialVignetting(9, SVector(300.0, 250.0), 400.0)(SVector(310.0, 260.0))
+        @test_throws VisualGeometryToolkitCore.FlexUnits.DimensionError RadialVignetting(9, SVector(300.0, 250.0), 4.0mm)
+        @test_throws ArgumentError RadialVignetting(9, SVector(300.0, 250.0), 0.0)
+        @test_throws ArgumentError RadialVignetting(9, SVector(300.0, 250.0), -1.0)
+        @test_throws ArgumentError RadialVignetting(9, SVector(300.0, 250.0), Inf)
     end
 
     @testset "GPU: device == host (availability-gated)" begin

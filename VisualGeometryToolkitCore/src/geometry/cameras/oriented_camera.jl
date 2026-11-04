@@ -42,7 +42,7 @@ _raw_extrinsics(::OrientedCamera) = throw(
             "cannot state the scene's unit — pose it by a physical EuclideanMap, `EuclideanMap(R, zeros(3) .* m)`"
     )
 )
-PosedCamera(::NoncentralGenericModel, ::RotationMap) = _refuse_oriented_noncentral()
+PosedCamera(::NoncentralGenericModel, ::RotationMap{3}) = _refuse_oriented_noncentral()
 PosedCamera(::NoncentralGenericModel, ::RotationMap{3, T, R, CameraFrame, WorldFrame}) where {T, R} = _refuse_oriented_noncentral()
 
 # A rotation map in another float type, its representation and tags kept.

@@ -99,6 +99,8 @@ end
         @test row.fraction_i ≈ row.fraction_j        # equal footprints
         (footprint(row) - cap(α), row.solid_angle - cap_overlap(α, α, γ))
     end
+    # the pair form's one circle bounds both frames, as the vector form's one circle bounds every frame
+    @test view_overlap(a, b, disc) == view_overlap(a, b, disc, disc) == only(view_overlap([a, b], disc))
     # the chords' sag: 1.6e-5 sr of the 0.77 sr cap and 1.0e-5 of the 0.40 sr overlap at 512 …
     @test abs(errors[4][1]) < 2.0e-5 && abs(errors[4][2]) < 1.2e-5
     # … converging as O(1/n²): a quarter per doubling
@@ -239,6 +241,11 @@ end
     @test_throws "unposed" view_overlap(pin, oriented(pin, R(0.0)))
     @test_throws "2 image circles for 3 cameras" view_overlap(frames(pin, [R(0.0), R(1.0), R(2.0)]), [disc, disc])
     @test_throws "at least 16" view_overlap(frames(pin, [R(0.0), R(1.0)]); boundary_points = 8)
+    # a frame whose model is not a CameraModel (a grid model): refused by name, not a MethodError
+    g = CentralGenericModel(CameraModel(CameraCalibrationMat(@SMatrix [320.0 0 400; 0 320.0 400; 0 0 1]); lens = KannalaBrandt(-0.02)),
+                            (800, 800); grid_size = (12, 12))
+    gframe = BoundedCamera(PosedCamera(g, relabel(CameraFrame, WorldFrame, RotationMap(R(0.0)))), Size2(800, 800))
+    @test_throws "a frame's model is a CameraModel" view_overlap(gframe, oriented(kb, R(0.5)))
 end
 
 @testitem "view_overlap: eleven frames of a panorama" setup = [ViewOverlapSetup] begin
@@ -267,7 +274,7 @@ end
     using VisualGeometryToolkitCore: Pinhole, KannalaBrandt, convert_eltype, to_homogeneous, rotation, transfer_ellipse,
         has_units, with_unit, mm, m, RadialCamera, Rig, HomographyMat, HomographyMap
     using CoordinateTransformations: transform_deriv
-    using Rotations: RotMatrix, RotY, RotX, QuatRotation
+    using Rotations: RotMatrix, RotY, RotX, QuatRotation, Angle2d
     R1, R2 = RotMatrix(RotY(0.3)), RotMatrix(RotX(-0.2))
     M = RotationMap(R1)
     x = SVector(1.0, 2.0, 3.0)
@@ -297,6 +304,16 @@ end
     @test RotationMap(R1) == RotationMap(QuatRotation(R1)) || RotationMap(R1) ≈ RotationMap(QuatRotation(R1))
     @test RotationMap(R1) ≈ RotationMap(QuatRotation(R1))
     @test P != M && !(P ≈ M)
+    # hash agrees with ==: the representation (a matrix, a quaternion, q and −q) does not split equal maps
+    q = QuatRotation(R1)
+    Mq, Mnq = RotationMap(q), RotationMap(QuatRotation(-q.q.s, -q.q.v1, -q.q.v2, -q.q.v3, false))
+    @test Mq == Mnq && hash(Mq) == hash(Mnq) && length(Set([Mq, Mnq])) == 1
+    for A in (Mq, Mnq), B in (M, Mq, Mnq)
+        A == B && @test hash(A) == hash(B)
+    end
+    @test hash(P) != hash(M)                                       # the tags are hashed
+    Iz = RotationMap(RotMatrix{3, Float64}(@SMatrix [1.0 -0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]))   # a −0.0 entry, == the identity
+    @test Iz == RotationMap(one(RotMatrix{3, Float64})) && hash(Iz) == hash(RotationMap(one(RotMatrix{3, Float64})))
     F = convert_eltype(Float32, P)
     @test F isa RotationMap{3, Float32, <:Any, CameraFrame, WorldFrame} && F ≈ relabel(CameraFrame, WorldFrame, RotationMap(RotMatrix{3, Float32}(R1)))
     @test occursin("CameraFrame → WorldFrame", sprint(show, P))
@@ -307,6 +324,8 @@ end
     cm = CameraModel(CameraCalibrationMat(K); lens = Pinhole())
     c = PosedCamera(cm, P)                       # a camera → world orientation, stored as its inverse
     @test c isa OrientedCamera && !(PosedCamera(cm, E) isa OrientedCamera)
+    # a camera turns in three dimensions: a planar rotation does not pose one
+    @test_throws MethodError PosedCamera(cm, RotationMap(Angle2d(0.3)))
     @test pose(c) == P && extrinsics(c) == inv(P)
     @test project(c, R1 * x) ≈ project(cm, x)                # a direction in the world, imaged about the origin
     @test backproject(c, SVector(100.0, 50.0)) ≈ R1 * normalize(backproject(cm, SVector(100.0, 50.0)))

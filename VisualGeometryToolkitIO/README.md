@@ -1,38 +1,33 @@
-# VisualGeometryToolkitIO
+# VisualGeometryToolkitIO.jl
 
 [![CI](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/actions/workflows/CI.yml)
 [![Docs: stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/stable/)
 [![Docs: dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/dev/)
 [![Coverage](https://codecov.io/gh/VisualGeometryToolkit/VisualGeometryToolkit.jl/branch/main/graph/badge.svg?flag=VisualGeometryToolkitIO)](https://app.codecov.io/gh/VisualGeometryToolkit/VisualGeometryToolkit.jl?flags%5B0%5D=VisualGeometryToolkitIO)
 
-File formats for the [VisualGeometryToolkit](https://github.com/VisualGeometryToolkit)
-stack. It saves and loads cameras, poses, rigs, trajectories and target
-measurements as self-describing JSON files, one schema per
+VisualGeometryToolkitIO saves and loads cameras, poses, rigs, trajectories and
+target measurements as self-describing JSON files, one schema per
 [VisualGeometryToolkitCore](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/tree/main/VisualGeometryToolkitCore)
-type. Each file declares its conventions (pixel frame, length unit, rotation
-encoding, pose direction), so it can be read correctly without outside
-knowledge. Rotations are stored as quaternions, and a value read back from a
-file equals the value that was written.
-
-The package also reads and writes COLMAP models, reads COLMAP databases and
-OpenCV or MATLAB calibration exports, and exports trajectories and
-measurements to the TUM, EuRoC, BOP and TRC formats.
+type, and a value read back from a file equals the value that was written.
+Each file declares its conventions (pixel frame, length unit, rotation
+encoding, pose direction), and every earlier schema version a published file
+holds still loads. It also reads and writes COLMAP models, reads OpenCV and
+MATLAB calibration exports, and exports to the TUM, EuRoC, BOP and TRC formats.
 
 ## Installation
 
-```julia
-using Pkg
-Pkg.add(["VisualGeometryToolkitCore", "VisualGeometryToolkitIO"])
+```julia-repl
+pkg> add VisualGeometryToolkitCore VisualGeometryToolkitIO
 ```
 
-VisualGeometryToolkitIO requires Julia 1.12 or later. The examples below also
-use VisualGeometryToolkitCore, which defines the types that are saved and
-loaded.
+Julia 1.12 or later. Every dependency is in the General registry.
+VisualGeometryToolkitCore defines the types that are saved and loaded.
 
-## Quick start
+## Example
 
-`load` and `save` are public but not exported, because other packages (FileIO
-among them) export functions with the same names. Call them through a module
+The example saves a pose and a camera and loads them back. `load` and `save`
+are public but not exported, because other packages (FileIO among them)
+export functions with the same names, so they are called through a module
 alias.
 
 ```julia
@@ -41,17 +36,15 @@ import VisualGeometryToolkitIO as VgtkIO
 
 dir = mktempdir()
 
-# A pose whose frames are part of its type: the camera rig's body frame to the
-# camera's optical frame. Its translation is a length (held in metres); the
-# file states it in millimetres, and a plain translation is refused.
+# A pose from the camera rig's body frame to the camera's optical frame, its
+# frames part of its type. The translation is a length, held in metres; the
+# file states it in millimetres.
 X = relabel(BodyFrame{:camera_rig}, CameraFrame,
     lookat(Vec3(0.0, 0.0, 500.0) .* mm, Vec3(0.0, 0.0, 0.0) .* mm, Vec3(0.0, -1.0, 0.0)))
-
 path = joinpath(dir, "hand_eye.json")
 VgtkIO.save(path, [X]; provenance = (method = "robot-world hand-eye",))
 X2 = only(VgtkIO.load(Vector{EuclideanMap}, path))
-@assert X2.R ≈ X.R && X2.t == X.t
-@assert X2 isa EuclideanMap{3, Float64, <:Any, <:Any, BodyFrame{:camera_rig}, CameraFrame}
+X2.t == X.t                                        # true: the translation comes back exactly
 
 # A camera store: named cameras with their image size.
 model = CameraModel(2400.0px, [2120.0, 1416.0] .* px;
@@ -59,26 +52,35 @@ model = CameraModel(2400.0px, [2120.0, 1416.0] .* px;
 camera = BoundedCamera(model, Size2(4240, 2832))
 store = joinpath(dir, "cameras.json")
 VgtkIO.save(store, Dict(:left => camera))
-@assert VgtkIO.load(BoundedCamera, store; name = :left) == camera
-@assert VgtkIO.validate(store) == "cameras"
+VgtkIO.load(BoundedCamera, store; name = :left) == camera   # true
+VgtkIO.validate(store)                             # "cameras"
 ```
 
-The `provenance` keyword is written to the file but not returned by `load`.
+The [Getting Started](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/stable/guide/getting-started/)
+guide shows the files this writes.
 
 ## Documentation
 
-- [Stable documentation](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/stable/)
-  and [development documentation](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/dev/):
-  the schema rules, every supported kind and format, the conventions a file
-  declares, the third-party calibration migrations, and the API reference.
-- The stack conventions shared by every package are on VisualGeometryToolkitCore's
-  [Conventions](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/stable/guide/conventions/)
-  page.
+- [Getting Started](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/stable/guide/getting-started/):
+  save and load a pose and a camera, and read the files.
+- [Kinds and the I/O Surface](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/stable/guide/kinds/)
+  and [Third-Party Calibrations](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/stable/guide/third-party/):
+  every kind and format, reading an earlier schema version, and converting
+  OpenCV and MATLAB exports.
+- [Schema Rules](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/stable/guide/schemas/)
+  and [Conventions on Disk](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/stable/guide/conventions/):
+  why the files look the way they do, and how a file declares its conventions.
+- [API Reference](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/stable/api/native/).
+
+VisualGeometryToolkitIO is built on VisualGeometryToolkitCore, whose
+[Conventions](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/stable/guide/conventions/)
+page states the rules every package of the stack follows. The
+[portal](https://visualgeometrytoolkit.github.io) links all the packages.
 
 ## Citing
 
-VisualGeometryToolkitIO is part of VisualGeometryToolkit. Please cite the
-toolkit. Its [CITATION.cff](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/blob/main/CITATION.cff)
+VisualGeometryToolkitIO is part of VisualGeometryToolkit. Cite the toolkit.
+Its [CITATION.cff](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/blob/main/CITATION.cff)
 is the source of this entry, and GitHub's "Cite this repository" button
 exports it:
 
@@ -91,8 +93,8 @@ exports it:
 }
 ```
 
-Please also cite the papers behind the methods you use. They are listed on
-[the portal](https://visualgeometrytoolkit.github.io/#publications).
+Cite also the papers behind the methods you use; the
+[portal](https://visualgeometrytoolkit.github.io/#publications) lists them.
 
 ## License
 

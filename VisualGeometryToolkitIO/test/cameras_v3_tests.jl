@@ -29,6 +29,10 @@
         Division(-0.28, -0.09),
         tpf,
         Lens(VgtkCore.Unified(0.7), Additive(Radial((-0.1, 0.01)), Tangential(1.0e-3, 0.0))),
+        # composed: two stages (Aria), and three built left-associated (Base's
+        # fold of ∘), which the lens stores right-associated as the reader builds it
+        Lens(Equidistant(), Additive(Tangential(3.0e-4, -2.0e-4), ThinPrism((1.0e-3,), (-5.0e-4,))) ∘ Radial((0.1, -0.02, 0.003))),
+        Lens(Equidistant(), VgtkCore.Tilt(0.01, -0.02) ∘ Additive(Tangential(3.0e-4, -2.0e-4), ThinPrism((1.0e-3,), (-5.0e-4,))) ∘ Radial((0.1, -0.02))),
     ]
 
     @testset "round trip is exact for every lens type" begin

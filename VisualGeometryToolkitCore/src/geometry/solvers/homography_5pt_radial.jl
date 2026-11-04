@@ -379,7 +379,6 @@ end
 # instead of pretending to be image warps.
 
 # The lift's third component `1 + Σₚ λₚ ρ²ᵖ` at ρ² (one coefficient: `1 + k ρ²`).
-@inline _lift_den(λ::NTuple{1}, ρ²) = 1 + λ[1] * ρ²
 @inline _lift_den(λ::Tuple, ρ²) = 1 + ρ² * evalpoly(ρ², λ)
 
 """
@@ -465,8 +464,11 @@ is total over back rays too (omnidirectional lenses). The extent gate of a
 planar target: a board corner at or past 90° means the hypothesis spans ≥ 180°
 across a plane, which no camera images.
 """
-@inline function radial_in_front(m::RadialHomography, s)
-    p = _radial_projection(m, radial_ray(m, s), _projection_lens(m))
+@inline radial_in_front(m::RadialHomography, s) = _radial_in_front(m, s, _projection_lens(m))
+
+# `lens` is `_projection_lens(m)`, built once by a caller testing many points.
+@inline function _radial_in_front(m::RadialHomography, s, lens)
+    p = _radial_projection(m, radial_ray(m, s), lens)
     return p.ok && _in_front(m, p)
 end
 @inline _in_front(::RadialHomography{<:Any, 1}, p) = p.μ * p.z > zero(p.μ)
@@ -497,15 +499,25 @@ end
     return D, SVector(p.x * gk, p.y * gk)
 end
 
-# Both derivatives of an in-field ray: along the ray (2 × 3) and along the
-# coefficients (2 × N). One coefficient: the closed form above; `N > 1`: the
-# lens's (ForwardDiff through its `project`).
+# The projection a derivative is read from. One coefficient: `_radial_projection`
+# (the closed form reads its derivatives off it); `N > 1`: the lens's image point
+# and both its Jacobians from ONE ForwardDiff pass (`project_with_jacobians`), not
+# a solve for the point and one per derivative block.
+@inline _radial_jacobian_projection(m::RadialHomography{<:Any, 1}, ray::StaticVector{3}, ::Nothing) =
+    _radial_projection(m, ray, nothing)
+@inline function _radial_jacobian_projection(::RadialHomography, ray::StaticVector{3}, lens)
+    u, JX, Jp = project_with_jacobians(lens, ray)
+    return (; u, z = ray[3], ok = all(isfinite, u), JX, Jp)
+end
+
+# Both derivatives of an in-field ray, from its `_radial_jacobian_projection` `p`:
+# along the ray (2 × 3) and along the coefficients (2 × N). One coefficient: the
+# closed form above; `N > 1`: the lens's (ForwardDiff through its `project`).
 @inline function _radial_jacobians(::RadialHomography{<:Any, 1}, p, ray, ::Nothing)
     D, gk = _radial_derivs(p)
     return D, SMatrix{2, 1}(gk[1], gk[2])
 end
-@inline _radial_jacobians(::RadialHomography, p, ray, lens) =
-    (transform_deriv(lens, ray), transform_deriv_params(lens, ray))
+@inline _radial_jacobians(::RadialHomography, p, ray, lens) = (p.JX, p.Jp)
 
 """
     transform_deriv(m::RadialHomography, ray::StaticVector{3}) -> SMatrix{2,3}
@@ -520,19 +532,20 @@ their field.
 """
 @inline function CoordinateTransformations.transform_deriv(m::RadialHomography, ray::StaticVector{3})
     lens = _projection_lens(m)
-    p = _radial_projection(m, ray, lens)
-    T = _projection_eltype(p)
+    p = _radial_jacobian_projection(m, ray, lens)
+    T = _projection_eltype(m, p)
     p.ok || return fill(T(NaN), SMatrix{2, 3, T, 6})
     return SMatrix{2, 3, T, 6}(_radial_jacobians(m, p, ray, lens)[1])
 end
 @inline function CoordinateTransformations.transform_deriv_params(m::RadialHomography{<:Any, N}, ray::StaticVector{3}) where {N}
     lens = _projection_lens(m)
-    p = _radial_projection(m, ray, lens)
-    T = _projection_eltype(p)
+    p = _radial_jacobian_projection(m, ray, lens)
+    T = _projection_eltype(m, p)
     p.ok || return fill(T(NaN), SMatrix{2, N, T})
     return SMatrix{2, N, T}(_radial_jacobians(m, p, ray, lens)[2])
 end
-@inline _projection_eltype(p) = haskey(p, :μ) ? typeof(p.μ) : eltype(p.u)
+@inline _projection_eltype(::RadialHomography{<:Any, 1}, p) = typeof(p.μ)
+@inline _projection_eltype(::RadialHomography, p) = eltype(p.u)
 
 """
     radial_transfer(m::RadialHomography, s) -> SVector{2} or nothing
@@ -588,15 +601,10 @@ Base.@propagate_inbounds function _radial_rows!(r, i, m, lens, u₁, u₂, sqrtw
     return nothing
 end
 
-# The row functions without a lens argument (one row at a time, the lens built per
-# row: free for one coefficient, whose lens is `nothing`).
-Base.@propagate_inbounds _radial_rows!(r, i, m, u₁, u₂, sqrtw) = _radial_rows!(r, i, m, _projection_lens(m), u₁, u₂, sqrtw)
-Base.@propagate_inbounds _radial_jacobian_rows!(J, i, m, dH, u₁, sqrtw) = _radial_jacobian_rows!(J, i, m, _projection_lens(m), dH, u₁, sqrtw)
-
 Base.@propagate_inbounds function _radial_jacobian_rows!(J, i, m::RadialHomography{<:Any, N}, lens, dH, u₁, sqrtw) where {N}
     s = u₁[i]
     ray = radial_ray(m, s)
-    p = _radial_projection(m, ray, lens)
+    p = _radial_jacobian_projection(m, ray, lens)
     nH = length(dH)
     if !p.ok
         for q in 1:(nH + N)
@@ -776,5 +784,7 @@ exactly, because this outline is a board's image-plane QUAD and a quad whose
 corners are missed is a different polygon. The one sampler behind a board's
 image-plane quad and its Makie overlay (hoisted from BlobBoards, 2026-09).
 """
-radial_outline(m::RadialHomography, r::HyperRectangle{2}; samples::Int = 20) =
-    _rect_edge_samples(s -> radial_transfer(m, s), r, samples)
+function radial_outline(m::RadialHomography, r::HyperRectangle{2}; samples::Int = 20)
+    lens = _projection_lens(m)
+    return _rect_edge_samples(s -> _radial_project(m, radial_ray(m, s), lens), r, samples)
+end

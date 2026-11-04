@@ -94,18 +94,17 @@ function minimal_manifold(E::EssentialMat)
     return EssentialManifold5(RotMatrix{3, Float64}(R), Vec3{Float64}(t))
 end
 
-# RadialHomography: the plane homography's sl(3) chart ⊕ the division lens's chart
-# (`LensManifold(Division(λ...))`, cameras/lens_chart.jl: unbounded, so `λ₀ + v`),
-# the centre riding along — the chart whose directions
+# RadialHomography: the plane homography's sl(3) chart ⊕ the division coefficients
+# λ (a Euclidean chart, `λ₀ + v`: the division lens's own chart is the same
+# unbounded one), the centre riding along — the chart whose directions
 # `radial_transfer_jacobian_rows!` takes (dH from the first part, the λ's last).
 struct _RadialHomographyParts{T}
     center::Point2{T}
 end
 function (e::_RadialHomographyParts)(parts)
-    H, lens = parts
-    λ = lens.radial.d
+    H, λ = parts
     T = promote_type(eltype(H), eltype(λ))
-    return RadialHomography{T}(HomographyMat{T}(Tuple(H)), map(T, λ), Point2{T}(e.center[1], e.center[2]))
+    return RadialHomography{T}(HomographyMat{T}(Tuple(H)), map(T, Tuple(λ)), Point2{T}(e.center[1], e.center[2]))
 end
 """
     constraint_with_jacobians(l::Line2D, x::StaticVector{2}) -> (g, G_x::SVector{2}, G_θ::SVector{3})
@@ -124,11 +123,11 @@ minimal_manifold(l::Line2D) = Line2DManifold(l)
 
 ambient_coordinates(m::RadialHomography) = vcat(SVector{9}(Tuple(SMatrix{3, 3}(m.H))), SVector(m.λ))
 minimal_manifold(m::RadialHomography) = ProductManifold(
-    HomographyManifold8(SMatrix{3, 3, Float64, 9}(m.H)), LensManifold(Division(m.λ...));
+    HomographyManifold8(SMatrix{3, 3, Float64, 9}(m.H)), EuclideanManifold(SVector(m.λ));
     embed = _RadialHomographyParts(m.center)
 )
 local_coordinates(p::ProductManifold{<:Tuple, <:_RadialHomographyParts}, m::RadialHomography) =
-    local_coordinates(p, (m.H, Division(m.λ...)))
+    local_coordinates(p, (m.H, SVector(m.λ)))
 
 # One correspondence's constraint value, its measurement gradient and its AMBIENT
 # model gradient — over the parameters `retract_jacobian` differentiates: vec(M)

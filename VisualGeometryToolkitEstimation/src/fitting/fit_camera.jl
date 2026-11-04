@@ -61,7 +61,7 @@ a `NamedTuple`:
   errors are the held-out check's;
 - `CentralGenericModel`: `(; penalty, grid_size, stride, tolerance,
   outer_iterations)`, `grid_size` the chosen lattice's `(rows, columns)`; the
-  errors are the held-out check's, through the fitted grid's `project`;
+  errors are the held-out direction error, as the non-central target's (below);
 - `NoncentralGenericModel`: `(; penalty, grid_size, stride, tolerance,
   outer_iterations, center, max_offset, rms_offset, max_offset_edge)` —
   `center` the anchor c* (the
@@ -140,7 +140,8 @@ family and the solve:
   penalty, its lattice spacing chosen by the spacing search (`grid_size` is not
   an input: the tolerance chooses it; the metadata records it). The region
   restricts the quadrature only, never the lattice: a node whose support misses
-  it is held by the penalty. The image is the source's: a grid model's own, or a
+  it is held by the penalty. The tolerance bounds the held-out DIRECTION error in
+  pixels, the non-central target's metric (below). The image is the source's: a grid model's own, or a
   [`BoundedCamera`](@ref VisualGeometryToolkitCore.BoundedCamera)'s extent (a
   bare `CameraModel` has none: an `ArgumentError`).
 - **`NoncentralGenericModel`** (`fit_camera(NoncentralGenericModel, source,
@@ -700,7 +701,8 @@ _grid_model(::Type{CentralGenericModel}, lattice, controls, _, region) = Central
     lattice.width, lattice.height, _lattice_area(lattice)..., Vec3{Float64}.(controls);
     unit_controls = false, nominal = nominal_intrinsics(lattice), domain = region
 )
-_grid_errors(fitted::CentralGenericModel, _, q, _) = (_held_out_errors(_grid_round_trip(fitted, q.held_rays, q.held_px), q.edge), (;))
+_grid_errors(fitted::CentralGenericModel, source, q, _) =
+    (_held_out_errors(_direction_errors(fitted, source, q.held_px, normalize.(q.held_rays)), q.edge), (;))
 
 # The image a grid target's lattice covers: a grid source's own, a bounded
 # camera's extent. A bare camera model has no image.
@@ -712,13 +714,6 @@ _image_size(source) = throw(
             "bound it by its sensor or extent, `BoundedCamera(model, sensor)`"
     )
 )
-
-# A grid model's round trip at the points `px` whose source rays are `rays`: the
-# batched `project` from the pixel itself, Inf where it does not converge.
-function _grid_round_trip(m::CentralGenericModel, rays, px)
-    out = project(m, rays, px; iters = 50)
-    return ifelse.(out.ok, norm.(out.px .- px), Inf)
-end
 
 # ------------------------------------------------------------------------------
 # NoncentralGenericModel
@@ -760,21 +755,15 @@ function _grid_errors(fitted::NoncentralGenericModel, source, q, center)
     return e, (; center, max_offset = offsets.max, rms_offset = offsets.rms, max_offset_edge = offsets.max_edge)
 end
 
-# The held-out errors of a fitted non-central grid against the source's lines:
-# the DIRECTION error in pixels — the fitted direction's tangent deviation from
-# the source's mapped back through the source's back-projection Jacobian
-# `J = ∂d/∂u`, `‖J⁺δ‖` (the round trip through the source to first order; J the
-# source's `backproject_with_jacobian`) — and the LINE OFFSET
-# `‖(I − ddᵀ)(o_fit − o_src)‖`, the distance from the source's point to the
-# fitted line's point across the source's direction, in the source's length
-# unit (plain metres). Both through the fitted splines (`interpolated_direction`,
-# `interpolated_point`), which continue past the calibrated area as the fit's
-# design does.
-function _line_errors(fitted::NoncentralGenericModel, source, q)
-    px = q.held_px
-    o_src = first.(q.held_rays)
-    d_src = last.(q.held_rays)
-    direction_px = map(eachindex(px)) do i
+# The held-out DIRECTION error of a fitted grid (either target) in pixels: at
+# each held-out pixel the fitted direction's tangent deviation from the source's
+# unit direction `d`, mapped back through the source's back-projection Jacobian
+# `J = ∂d/∂u` (its `backproject_with_jacobian`), `‖J⁺δ‖` — the round trip
+# through the source to first order. Evaluated directly through the fitted
+# spline (`interpolated_direction`, continued past the calibrated area as the
+# fit's design is): no projection, no seed, so no solver tolerance floors it.
+function _direction_errors(fitted, source, px, d_src)
+    return map(eachindex(px)) do i
         d = d_src[i]
         J = last(backproject_with_jacobian(source, px[i]))
         all(isfinite, J) || return Inf
@@ -783,6 +772,18 @@ function _line_errors(fitted::NoncentralGenericModel, source, q)
         δ -= dot(δ, d) * d
         norm((transpose(J) * J) \ (transpose(J) * δ))
     end
+end
+
+# The held-out errors of a fitted non-central grid against the source's lines:
+# the direction error in pixels (above) and the LINE OFFSET
+# `‖(I − ddᵀ)(o_fit − o_src)‖`, the distance from the source's point to the
+# fitted line's point across the source's direction, in the source's length
+# unit (plain metres), through the fitted point spline.
+function _line_errors(fitted::NoncentralGenericModel, source, q)
+    px = q.held_px
+    o_src = first.(q.held_rays)
+    d_src = last.(q.held_rays)
+    direction_px = _direction_errors(fitted, source, px, d_src)
     offset = map(eachindex(px)) do i
         d = d_src[i]
         Δ = SVector{3, Float64}(interpolated_point(fitted, px[i])) - o_src[i]

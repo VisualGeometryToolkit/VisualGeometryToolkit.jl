@@ -27,7 +27,10 @@
     extent or a grid source's image), the region restricting the quadrature
     only; the lattice spacing chosen by the same search (`grid_size` is not an
     input; the metadata records the chosen one), `:converged` or
-    `:max_iterations`;
+    `:max_iterations`. The tolerance bounds the held-out direction error in
+    pixels, the non-central target's metric (the fitted grid's direction
+    against the source's, through the source's back-projection Jacobian): no
+    seeded projection, so no solver floor reads an error as 0;
   - `NoncentralGenericModel` (`fit_camera(NoncentralGenericModel, source,
     region; tolerance)`): the same lattice search and penalized solve on
     the source's observation lines (a non-central grid, or any central source

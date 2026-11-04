@@ -217,13 +217,20 @@ end
     # Core's full-image lattice, the region as the domain
     @test (g.width, g.height, g.calib_min_x, g.calib_min_y, g.calib_max_x, g.calib_max_y) == (1000, 1000, 0, 0, 999, 999)
     @test size(g.grid) == (gh, gw) && g.domain === REGION
-    # the round trip over the region: no worse than node interpolation on the same lattice
+    # the held-out direction error over the region: no worse than node interpolation on the same lattice
     interpolated = CentralGenericModel(FISHEYE, (1000, 1000); grid_size = (gw, gh))
     q = VgtkEstimation._image_quadrature(FISHEYE, REGION)
-    e_fit = VgtkEstimation._grid_round_trip(g, q.held_rays, q.held_px)
-    e_int = VgtkEstimation._grid_round_trip(interpolated, q.held_rays, q.held_px)
+    d = normalize.(q.held_rays)
+    e_fit = VgtkEstimation._direction_errors(g, FISHEYE, q.held_px, d)
+    e_int = VgtkEstimation._direction_errors(interpolated, FISHEYE, q.held_px, d)
     @test maximum(e_fit) <= maximum(e_int)
     @test maximum(e_fit) ≈ md.max_px
+    # the held-out error has no solver floor: a tolerance far below what the finest
+    # lattice attains is out of reach, never a false convergence (measured
+    # 2026-11-04: 169 × 169 reaches 1.9e-6 px; the seeded round trip it replaced
+    # read 0.0 from 96 × 96 on and "converged" there)
+    rf = fit_camera(CentralGenericModel, bc, REGION; tolerance = 1.0e-12)
+    @test retcode(rf) === :max_iterations && metadata(rf).max_px > 1.0e-9 && metadata(rf).family.grid_size == (169, 169)
     # the nodes outside the region: finite, and smooth — the unit controls' third
     # differences along both axes, below node interpolation's (ringing in the
     # corners); the nodes whose support meets the region within its bounding cone

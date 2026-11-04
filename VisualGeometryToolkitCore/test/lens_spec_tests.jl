@@ -177,6 +177,16 @@ end
         @test_throws ArgumentError CameraModelSpec(:central_generic; calib_area = (1, 2, 3))
         @test_throws ArgumentError CameraModelSpec(:nonsense)
         @test_throws ArgumentError CameraModelSpec(Dict("type" => "central_generic", "bogus" => 1))
+        # the config template's `intrinsics = "metric"` left beside an uncommented `type`:
+        # redundant but true (a generic grid is metric), so accepted; any other kind is refused
+        g = CameraModelSpec(Dict("type" => "central_generic", "intrinsics" => "metric", "grid_size" => [9, 7]))
+        @test g == CameraModelSpec(:central_generic; grid_size = (9, 7))
+        e = try
+            CameraModelSpec(Dict("type" => "central_generic", "intrinsics" => "projective")); nothing
+        catch err
+            err
+        end
+        @test e isa ArgumentError && occursin("metric", e.msg) && occursin("projective", e.msg)
     end
 
     @testset "refusals" begin

@@ -325,12 +325,13 @@ partial calibration) and a [`LensSpec`](@ref) or a [`GenericGridSpec`](@ref)
 "lens" => …, …)` (a `LensSpec` table plus `intrinsics`) or
 `Dict("type" => "central_generic", "grid_size" => […], "calib_area" => […])`
 with the unset keys left out; `CameraModelSpec(table)` reads it back, and
-`intrinsics` defaults to `"metric"` when absent. `==` compares the
-specification.
+`intrinsics` defaults to `"metric"` when absent (a `central_generic` table may
+also name it, as `"metric"` only). `==` compares the specification.
 
 Throws an `ArgumentError` for an `intrinsics` other than `metric` or
 `projective` (and `toml_value` for an intrinsics kind with neither name), for
-an unknown `type` or key, and for whatever [`LensSpec`](@ref) or
+a `central_generic` table whose `intrinsics` is not `metric`, for an unknown
+`type` or key, and for whatever [`LensSpec`](@ref) or
 [`GenericGridSpec`](@ref) refuses.
 """
 struct CameraModelSpec{I, S}
@@ -390,6 +391,10 @@ function CameraModelSpec(table::AbstractDict)
     if haskey(d, "type")
         d["type"] == "central_generic" ||
             throw(ArgumentError("CameraModelSpec: unknown type $(repr(d["type"])); known: central_generic"))
+        # a generic grid is metric: `intrinsics = "metric"` beside it is redundant but true
+        name = pop!(d, "intrinsics", "metric")
+        name == "metric" ||
+            throw(ArgumentError("CameraModelSpec: a central_generic grid is metric; got intrinsics = $(repr(name))"))
         extra = setdiff(keys(d), ("type", _GRID_KEYS...))
         isempty(extra) || throw(ArgumentError("CameraModelSpec: a central_generic table takes type, $(join(_GRID_KEYS, ", ")); got also $(sort(collect(extra)))"))
         return CameraModelSpec(:central_generic; (Symbol(k) => d[k] for k in _GRID_KEYS if haskey(d, k))...)

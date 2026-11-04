@@ -334,6 +334,14 @@ with whatever the schema's migration reports — a rig's `old_ids` (the v4
 identities measurement files may name it by: the one hashed from the file as
 written, and the one v4 minted for the value in millimetres, when the file is
 in another unit) and its `new_id`.
+
+A `.toml` record whose schema has a step but no file form (a schema owner's
+TOML config) is rewritten by the generic file form: parse, [`migrate_record`](@ref),
+`TOML.print` to the staging directory, re-parse and require the very tree back
+(types included: an `Int` stays an `Int`, a `1.0` a `Float64`, a date a `Date`),
+an `ArgumentError` otherwise. The rewrite drops the file's comments: a `@warn`
+says so, and the result's `comments_dropped` is `true` when the file had a `#`
+comment line. The result is `(; path, out, from, to, comments_dropped)`.
 """
 vgio_migrate(path::AbstractString; out::AbstractString = _migrated_path(path), dry_run::Bool = false) =
     _vgio_migrate(path; out, dry_run)
@@ -345,6 +353,9 @@ function _vgio_migrate(path::AbstractString; out::AbstractString, dry_run::Bool,
     s isa AbstractString || throw(ArgumentError("$(path): not a vgio file (no schema)"))
     in_place = abspath(out) == abspath(path)
     (dry_run || in_place || !ispath(out)) || throw(ArgumentError("$(out) exists; refusing to overwrite it"))
+    if !_has_migration(s) && _is_toml(path) && _has_record_migration(s)
+        return _migrate_toml(path, out, dry_run, s, before_rename)
+    end
     _has_migration(s) ||
         throw(ArgumentError("$(path): no migration for a $(s) file (no method of VisualGeometryToolkitIO.migrate_schema for it)"))
     return write_staged(out => basename(path); dry_run) do staged
@@ -353,6 +364,33 @@ function _vgio_migrate(path::AbstractString; out::AbstractString, dry_run::Bool,
         r
     end
 end
+
+_is_toml(path) = endswith(lowercase(path), ".toml")
+
+# The generic file form for a TOML record whose schema has a step and no file
+# form: parse, run the steps, print, read the print back and require the very
+# tree (types included), so a value TOML.print cannot reproduce is a refusal.
+function _migrate_toml(path, out, dry_run, s, before_rename)
+    src_text = read(path, String)
+    tree = TOML.parse(src_text)
+    comments_dropped = occursin(r"^\s*#"m, src_text)
+    @warn "vgio_migrate rewrites $(path) through TOML.print, which drops its comments; the original is kept unless out == path"
+    migrated = migrate_record(tree)
+    return write_staged(out => basename(out); dry_run) do staged
+        open(io -> TOML.print(io, migrated), staged, "w")
+        back = TOML.parsefile(staged)
+        _same_tree(back, migrated) ||
+            throw(ArgumentError("$(path): the migrated record does not read back from TOML.print as itself (a value TOML.print cannot reproduce exactly); nothing written"))
+        r = (; path = String(path), out = dry_run ? nothing : String(out), from = String(s),
+            to = String(migrated["schema"]), comments_dropped)
+        before_rename(r)
+        r
+    end
+end
+# Equal AND of the same type throughout (`1 == 1.0` is not enough).
+_same_tree(a::AbstractDict, b::AbstractDict) = keys(a) == keys(b) && all(_same_tree(a[k], b[k]) for k in keys(a))
+_same_tree(a::AbstractVector, b::AbstractVector) = length(a) == length(b) && all(_same_tree(x, y) for (x, y) in zip(a, b))
+_same_tree(a, b) = typeof(a) === typeof(b) && isequal(a, b)
 
 const _STAGE_PREFIX = ".vgio_migrate_"
 

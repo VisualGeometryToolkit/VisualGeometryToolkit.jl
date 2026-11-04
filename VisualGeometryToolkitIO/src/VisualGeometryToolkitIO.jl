@@ -92,6 +92,7 @@ using Statistics: cov
 using Rotations: QuatRotation, RotMatrix, RotationVec, RotZ, Angle2d, params
 using JSON: JSON
 using SQLite: SQLite
+using TOML: TOML
 using FlexUnits: Units, Quantity, ustrip, dimension, uscale, quantity
 using CoordinateTransformations: ComposedTransformation   # a target calibration's composition
 using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, px, dpi, has_units,

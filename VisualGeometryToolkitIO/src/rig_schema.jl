@@ -39,6 +39,7 @@ _unique_check(xs, what) = allunique(xs) ? nothing : "$(what) must be unique"
 
 # Read the schema a file declares, before knowing which kind to validate it as.
 function _peek_schema(path::AbstractString)
+    endswith(lowercase(path), ".toml") && return get(TOML.parsefile(path), "schema", nothing)
     d = _read_vgio_json(path)
     d isa AbstractDict || throw(ArgumentError("$(path): not a JSON object"))
     return get(d, :schema, nothing)

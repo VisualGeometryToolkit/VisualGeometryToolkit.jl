@@ -1,5 +1,13 @@
 # VisualGeometryToolkitIO changelog
 
+## Unreleased
+
+- **`vgio_migrate` rewrites a `.toml` record** whose schema has a
+  `migrate_schema(::Val, tree)` step and no file form (a schema owner's config):
+  parse, the steps, `TOML.print`, and a verified read-back (the same tree, types
+  included, or an `ArgumentError`). Comments are dropped: a `@warn` says so and
+  the result's `comments_dropped` is `true` when the file had any.
+
 ## 0.5.2 (2026-11-04)
 
 - **`vgio/generic_camera/v3`**: a grid model's held nodes (VisualGeometryToolkitCore

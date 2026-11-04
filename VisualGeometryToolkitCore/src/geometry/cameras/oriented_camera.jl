@@ -6,7 +6,7 @@
 # `RotationMap`: it projects, back-projects and unprojects about the origin
 # through the map interface, and `pose`, `extrinsics`, `is_in_front` and the
 # unit verbs answer for it there. What needs the camera's position refuses it
-# here, by name: the plane-coordinate verbs, whose plane z = 0 passes through
+# here, by name: the plane-coordinate verbs, whose plane z = 0 contains
 # the camera's centre (every point of it images onto one line), a rig member
 # (its pose is rigid, its frame placed in the rig's), and a non-central grid
 # model's pose (its rays start at points in metres, which a rotation cannot
@@ -18,7 +18,7 @@ const _OrientedPinholeCamera = PosedCamera{<:CameraModel{<:AbstractIntrinsics, P
 @noinline _refuse_oriented(what) = throw(
     ArgumentError(
         "$(what): the camera is an OrientedCamera, with an orientation and no position; the plane z = 0 of a " *
-            "plane-coordinate verb passes through its centre, where the whole plane images onto one line — pose " *
+            "plane-coordinate verb contains its centre, where the whole plane images onto one line — pose " *
             "the camera by an EuclideanMap"
     )
 )

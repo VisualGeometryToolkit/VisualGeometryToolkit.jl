@@ -233,6 +233,10 @@ public AbstractPanoramaProjection   # their supertype (a Transformation whose in
 export AbstractDistortionTerm, Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive
 public Even, Full, isdelta, projection_frame
 export radial, parameters, lens_record, lens_from_record
+export LensSpec
+export CameraModelSpec
+public GenericGridSpec, intrinsics_kind   # what a calibration is for: the intrinsics kind and a lens or grid spec
+public free_names   # a LensSpec's free coefficients (not exported: a calibrator may define its own)
 export division_bounded, undistorted_rect, valid_rect, horizon_radius, fov_radius
 export radial_homography   # a target homography seen through a projective division camera (camera_models.jl)
 public DEFAULT_MAX_FOV

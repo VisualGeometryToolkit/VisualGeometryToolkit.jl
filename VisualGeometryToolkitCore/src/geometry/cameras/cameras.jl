@@ -186,6 +186,7 @@ include("camera_models.jl")
 include("lens_rays.jl")       # THE lens contract: project/backproject on rays + the derived Jacobians
 include("equirectangular.jl") # the latitude/longitude projection of directions (panoramas, sky maps)
 include("lens_chart.jl") # parameter chart, ∂lens/∂θ, TOML lens registry (0.22.1)
+include("lens_spec.jl")  # LensSpec: a lens family by name and term counts (the name table reads lens_chart.jl's _LEAVES)
 include("generic_models.jl") # Schöps et al. central/non-central generic grid models (0.16)
 include("support.jl")         # supports on the sensor: which parameters a camera can see (the generic models' lattice)
 include("chart_spline.jl")    # ChartSpline, SplineProjection: a forward map as the grid models' lattice on a direction chart (uses spline_value, the window)
@@ -944,6 +945,8 @@ export Backprojection    # a back-projection as a Transformation (equirectangula
 export AbstractPanoramaProjection   # the family's supertype (public, not exported, at the top level)
 export AbstractDistortionTerm, Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Even, Full
 export radial, isdelta, projection_frame, parameters, lens_record, lens_from_record
+export LensSpec, free_names             # a lens family by name and term counts (lens_spec.jl; free_names public, not exported, at the top level)
+export CameraModelSpec, GenericGridSpec, intrinsics_kind   # what a calibration is for (lens_spec.jl; GenericGridSpec, intrinsics_kind public, not exported, at the top level)
 export division_bounded, undistorted_rect, valid_rect, horizon_radius, fov_radius, DEFAULT_MAX_FOV   # whole-extent undistortion
 export radial_homography   # a target homography seen through a projective division camera
 export undistort, undistort!           # Remove lens distortion from images

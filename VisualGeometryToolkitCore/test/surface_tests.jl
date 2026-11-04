@@ -307,32 +307,41 @@ end
             SVector(t, x[1], x[2], x[3])
         end
     end
-    @testset "partials: the dual Newton's, and central differences" begin
+    # the partial count picks the path: SMALL chunks Newton in the Duals, LARGE ones the implicit derivative
+    SMALL, LARGE = 4, 17
+    @test SMALL < VgtkCore._HEIGHT_IMPLICIT_MIN_PARTIALS <= LARGE
+    jac(f, p, C) = ForwardDiff.jacobian(f, p, ForwardDiff.JacobianConfig(f, p, ForwardDiff.Chunk{C}()))
+
+    @testset "partials: both paths, the dual Newton's, and central differences" begin
         nhit = 0
         for (o, d) in rays
             p = [o; d; h; org]
             isnan(hit(intersection)(p)[1]) && continue
             nhit += 1
-            J = ForwardDiff.jacobian(hit(intersection), p)
-            @test relerr(J, ForwardDiff.jacobian(hit(dual_newton), p)) <= 1.0e-12
+            J = jac(hit(intersection), p, LARGE)
+            @test relerr(J, jac(hit(dual_newton), p, LARGE)) <= 1.0e-12
+            @test relerr(jac(hit(intersection), p, SMALL), J) <= 1.0e-12
             ε = 1.0e-6
             Jfd = reduce(hcat, [(hit(intersection)(p + ε * (1:34 .== k)) - hit(intersection)(p - ε * (1:34 .== k))) / 2ε for k in 1:34])
             @test relerr(J, Jfd) <= 1.0e-8
-            # Float32: Float32 rounding of the same derivative
+            # Float32: Float32 rounding of the same derivative, on either path
             p32 = Float32.(p)
             isnan(hit(intersection, Float32)(p32)[1]) && continue
-            @test relerr(ForwardDiff.jacobian(hit(intersection, Float32), p32), ForwardDiff.jacobian(hit(intersection), Float64.(p32))) <= 1.0e-5
+            J64 = jac(hit(intersection), Float64.(p32), LARGE)
+            for C in (SMALL, LARGE)
+                @test relerr(jac(hit(intersection, Float32), p32, C), J64) <= 1.0e-5
+            end
         end
         @test nhit >= 30
     end
 
-    @testset "values: the plain result's bits, misses as before" begin
+    @testset "values: the plain result's bits (implicit path), misses as before" begin
         # Dual inputs whose values are exactly the plain ones (random partials), in every carrier
         dz(x, N, tag) = ForwardDiff.Dual{tag}(x, ForwardDiff.Partials(ntuple(_ -> randn(rng, typeof(x)), N)))
-        for T in (Float64, Float32)
+        for T in (Float64, Float32), N in (SMALL, VgtkCore._HEIGHT_IMPLICIT_MIN_PARTIALS)
             s = HeightSurface{25, T}(surf)
-            D = ForwardDiff.Dual{:v, T, 6}
-            z(x) = dz(x, 6, :v)
+            D = ForwardDiff.Dual{:v, T, N}
+            z(x) = dz(x, N, :v)
             q = s.quad
             qd = Quad{D}(VgtkCore.Plane3D{D}(z.(q.plane.coeffs)), z.(q.origin), z.(q.e_u), z.(q.e_v), z.(q.A), z.(q.b), z.(q.A_inv),
                          Rect2{D}(z.(q.rect.origin), z.(q.rect.widths)))
@@ -343,7 +352,15 @@ end
                 plain = intersection(s, o, d)
                 for args in ((sd, od, dd), (sd, o, d), (s, od, d), (s, o, dd))
                     td, xd = intersection(args...)
-                    @test isequal((ForwardDiff.value(td), ForwardDiff.value.(xd)), plain)
+                    v = (ForwardDiff.value(td), ForwardDiff.value.(xd))
+                    if N >= VgtkCore._HEIGHT_IMPLICIT_MIN_PARTIALS
+                        @test isequal(v, plain)
+                    else   # Newton in the Duals: the plain values to an ulp (a muladd's fusing is per context)
+                        @test isequal((td, xd), dual_newton(args...))
+                        @test isnan(v[1]) == isnan(plain[1])
+                        isnan(plain[1]) || @test abs(v[1] - plain[1]) <= 4 * eps(abs(plain[1])) &&
+                                                 maximum(abs, v[2] - plain[2]) <= 4 * eps(T)
+                    end
                     if isnan(plain[1])   # NaN with zero partials, exactly as the dual Newton returns it
                         @test isequal((td, xd), dual_newton(args...))
                     end
@@ -352,13 +369,17 @@ end
         end
     end
 
-    @testset "nested Duals: the Hessian and two tags" begin
+    @testset "nested Duals: the Hessian on both paths, and two tags" begin
         for (o, d) in rays[1:12]
             p = [o; d; h; org]
             isnan(hit(intersection)(p)[1]) && continue
-            H = ForwardDiff.hessian(q -> hit(intersection)(q)[1], p)   # one tag nested in itself
-            @test relerr(H, ForwardDiff.hessian(q -> hit(dual_newton)(q)[1], p)) <= 1.0e-12
-            @test norm(H - H') <= 1.0e-12 * norm(H)
+            tn = q -> hit(intersection)(q)[1]   # one tag nested in itself
+            Href = ForwardDiff.hessian(q -> hit(dual_newton)(q)[1], p)
+            for C in (SMALL, LARGE)
+                H = ForwardDiff.hessian(tn, p, ForwardDiff.HessianConfig(tn, p, ForwardDiff.Chunk{C}()))
+                @test relerr(H, Href) <= 1.0e-12
+                @test norm(H - H') <= 1.0e-12 * norm(H)
+            end
             # ∂/∂heights of ∂t/∂o: the heights' tag outside the origin's
             g(f) = hv -> ForwardDiff.gradient(
                 oo -> f(HeightSurface(quad, nodes, SVector{25}(hv), tps_coefficients(sys, hv)...), SVector{3}(oo), d)[1], Vector(o))
@@ -389,15 +410,15 @@ end
             isnan(f(intersection, Float64)(p)[1]) && continue
             n += 1
             Jb = setprecision(() -> Float64.(ForwardDiff.jacobian(f(dual_newton, BigFloat), big.(p))), BigFloat, 200)
-            @test relerr(ForwardDiff.jacobian(f(intersection, Float64), p), Jb) <= 1.0e-12
+            @test relerr(jac(f(intersection, Float64), p, LARGE), Jb) <= 1.0e-12   # the implicit path
         end
         @test n >= 10
     end
 
-    @testset "inferred and allocation-free: Dual{Float64, 32}, Dual{Float32, 15}" begin
+    @testset "inferred and allocation-free on both paths" begin
         allocs(f, args...) = (f(args...); @allocated f(args...))
         o, d = rays[1]
-        for (T, N) in ((Float64, 32), (Float32, 15), (Float32, 4))
+        for (T, N) in ((Float64, 32), (Float32, 15), (Float32, 8), (Float32, 4), (Float64, 1))
             s = HeightSurface{25, T}(surf)
             D = ForwardDiff.Dual{:a, T, N}
             sd = HeightSurface{25, D}(s)

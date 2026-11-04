@@ -213,11 +213,13 @@ Fixed:
   the Float32 rounding of the same derivative in Float32), except at grazing
   incidence, where the old ones stopped up to 4e-11 short of the converged
   derivative and the new ones agree with a 200-bit reference. Plain inputs
-  are unchanged, bit for bit. Measured on a 25-node surface: on the CPU
-  3.1–3.9× faster in `Dual{Float64, 32}` and 1.5–1.8× in `Dual{Float64, 4}`;
-  on an RTX 4090 (a kernel taking the surface as a parameter) 1.7–2.5× in
-  `Dual{Float32, 15}`, but 0.53–0.88× in `Dual{Float32, 4}`, where the old
-  dual Newton cost little more than the plain one.
+  are unchanged, bit for bit. This is the path from 8 partials
+  (`_HEIGHT_IMPLICIT_MIN_PARTIALS`); with fewer, Newton still runs in the
+  `Dual`s, as before. Measured on a 25-node surface with Duals in the heights
+  and the ray, old/new: on an RTX 4090, `Dual{Float32, N}` for N = 1, 2, 4, 6,
+  8, 12, 15, 32 gives 0.50, 0.55, 0.59, 1.01, 1.84, 2.26, 2.52, 2.84×
+  (RadiometricCamera's GPU Jacobian at N = 4: the implicit path 10% slower);
+  on the CPU, `Dual{Float64, N}` gives 1.2–3.7×.
 
 Performance (same bits):
 

@@ -260,11 +260,15 @@ while the height's slope × tan(incidence) is well below 1 (a print's warp);
 the continuation covers steep or grazing cases.
 
 Under ForwardDiff (`Dual`s in the surface, the origin or the direction, nested
-ones included) the root is differentiated by the implicit function theorem:
-Newton runs on the values — the plain result, bit for bit, misses included —
-and the partials are `−(∂g/∂p)/g′` at the root, one `Dual` evaluation of `g`.
-They are the derivative of the converged root, which differentiating every
-Newton iteration only approaches (to about 1e-11 relative at grazing incidence).
+ones included) with 8 or more partials the root is differentiated by the
+implicit function theorem: Newton runs on the values — the plain result, bit
+for bit, misses included — and the partials are `−(∂g/∂p)/g′` at the root, one
+`Dual` evaluation of `g`. They are the derivative of the converged root, which
+differentiating every Newton iteration only approaches (to about 1e-11 relative
+at grazing incidence). With fewer partials Newton runs in the `Dual`s, which is
+cheaper there on a GPU; its values agree with the plain result to an ulp (the
+fusing of a `muladd` is the compiler's choice in each context) and its
+partials with the implicit ones to rounding.
 
 [`normal`](@ref)`(s, x)` is the unit normal `(n − ∂h/∂m₁ e_u − ∂h/∂m₂ e_v) / ‖·‖`
 from the spline's analytic gradient ([`tps_gradient`](@ref)), on the side of
@@ -336,6 +340,16 @@ end
 # continuation's cap.
 const _HEIGHT_NEWTON_ITERATIONS = 4
 const _HEIGHT_NEWTON_MAX_ITER = 20
+# The fewest partials (the outermost Dual layer's N) for which a Dual intersection
+# takes the implicit derivative instead of Newton differentiated through every
+# iteration. Measured 2026-11-04 on a 25-node surface, Duals in the heights and
+# the ray, old/new time: RTX 4090, Dual{Float32, N}, N = 1 2 4 6 8 12 15 32 →
+# 0.50 0.55 0.59 1.01 1.84 2.26 2.52 2.84 (and RadiometricCamera's GPU Jacobian
+# at N = 4: the implicit path 10% slower); CPU, Dual{Float64, N} → 1.2 1.7 1.8
+# 2.4 2.5 3.3 2.7 3.3. On the device a few partials cost almost nothing over the
+# plain Newton, so the implicit path's extra plain solve and Dual evaluation do not
+# pay; the crossover is at 6, and 8 leaves a margin.
+const _HEIGHT_IMPLICIT_MIN_PARTIALS = 8
 
 # Newton's g(t) = t den − s0 − h(m(x)) and g′(t) = den − ∇h·cd at the ray point
 # x = o + t d, the height and its gradient computed together.
@@ -431,7 +445,11 @@ end
 # Duals converge to, at the cost of one Dual height evaluation instead of
 # differentiating every iteration. A Dual nested inside (an inner tag) is
 # solved the same way one layer down.
-@inline function _height_intersection(::Type{D}, s::HeightSurface, o::StaticVector{3}, d::StaticVector{3}) where {D <: ForwardDiff.Dual}
+@inline function _height_intersection(::Type{D}, s::HeightSurface, o::StaticVector{3}, d::StaticVector{3}) where {G, V, N, D <: ForwardDiff.Dual{G, V, N}}
+    if N < _HEIGHT_IMPLICIT_MIN_PARTIALS       # a few partials: Newton differentiated through (cheaper, see the constant)
+        t, x, converged, _ = _height_newton(s, o, d)
+        return _within(s.quad, t, x, converged)
+    end
     sv, ov, dv = _outer_value(D, s), _outer_value(D, o), _outer_value(D, d)
     tv, xv, gp = _height_root(promote_type(_eltype(sv), eltype(ov), eltype(dv)), sv, ov, dv)
     q = s.quad

@@ -566,6 +566,15 @@ function RadialHomography(H::AbstractMatrix, camera::CameraModel{<:ProjectiveInt
     return RadialHomography{T}(H, λ, c)
 end
 
+"""
+    radial_homography(camera::CameraModel{<:ProjectiveIntrinsics, <:Division}, H::HomographyMat) -> RadialHomography
+
+The radial homography of a target's plane homography `H` seen through a
+projective division `camera`: `RadialHomography(H, camera)`. Pairs a
+[`TargetHomographies`](@ref) entry with the camera that measured it.
+"""
+radial_homography(camera::CameraModel{<:ProjectiveIntrinsics, <:Division}, H::HomographyMat) = RadialHomography(H, camera)
+
 # =============================================================================
 # Frame of record — the intrinsics K IS the normalization frame of the lens
 # =============================================================================

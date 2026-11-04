@@ -943,6 +943,7 @@ export AbstractPanoramaProjection   # the family's supertype (public, not export
 export AbstractDistortionTerm, Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Even, Full
 export radial, isdelta, projection_frame, parameters, lens_record, lens_from_record
 export LensSpec, free_names             # a lens family by name and term counts (lens_spec.jl; free_names public, not exported, at the top level)
+export CameraModelSpec, GenericGridSpec, intrinsics_kind   # what a calibration is for (lens_spec.jl; GenericGridSpec, intrinsics_kind public, not exported, at the top level)
 export division_bounded, undistorted_rect, valid_rect, horizon_radius, fov_radius, DEFAULT_MAX_FOV   # whole-extent undistortion
 export undistort, undistort!           # Remove lens distortion from images
 export radial_camera_5pt, RadialCamera5pt   # the radial camera's 5-point minimal kernel and its solver

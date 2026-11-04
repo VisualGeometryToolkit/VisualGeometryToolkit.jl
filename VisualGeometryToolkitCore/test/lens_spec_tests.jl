@@ -129,3 +129,63 @@
         @test sprint(show, LensSpec(:division; coefficients = 2, free = (:d1,))) == "LensSpec(:division; coefficients = 2, free = (:d1,))"
     end
 end
+
+@testitem "camera_model_spec" begin
+    using Test, TOML
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: toml_value, GenericGridSpec, intrinsics_kind
+
+    roundtrip(spec) = CameraModelSpec(TOML.parse(sprint(TOML.print, toml_value(spec))))
+
+    @testset "metric lens spec" begin
+        spec = CameraModelSpec(LensSpec(:division; coefficients = 2))
+        @test intrinsics_kind(spec) === LogicalIntrinsics
+        @test (@inferred intrinsics_kind(spec)) === LogicalIntrinsics
+        d = toml_value(spec)
+        @test d["intrinsics"] == "metric" && d["lens"] == "division" && d["coefficients"] == 2
+        @test roundtrip(spec) == spec
+        @test CameraModelSpec(Dict("lens" => "division", "coefficients" => 2)) == spec   # intrinsics defaults to metric
+        rec = CameraModelSpec(LensSpec(Division(0.1, 0.0)))
+        @test roundtrip(rec) == rec
+        free = CameraModelSpec(LensSpec(:kannala_brandt; coefficients = 4, free = (:k1, :k2)))
+        @test roundtrip(free) == free
+        @test hash(roundtrip(spec)) == hash(spec)
+    end
+
+    @testset "generic grid spec" begin
+        for kw in (NamedTuple(), (; grid_size = (9, 7)), (; calib_area = (0, 0, 640, 480)), (; grid_size = (9, 7), calib_area = (0, 0, 640, 480)))
+            spec = CameraModelSpec(:central_generic; kw...)
+            @test intrinsics_kind(spec) === LogicalIntrinsics
+            @test spec.model isa GenericGridSpec
+            @test toml_value(spec)["type"] == "central_generic"
+            @test Set(keys(toml_value(spec))) == Set(vcat("type", String[String(k) for k in keys(kw)]))
+            @test roundtrip(spec) == spec
+        end
+        @test_throws ArgumentError CameraModelSpec(:central_generic; grid_size = (0, 7))
+        @test_throws ArgumentError CameraModelSpec(:central_generic; calib_area = (1, 2, 3))
+        @test_throws ArgumentError CameraModelSpec(:nonsense)
+        @test_throws ArgumentError CameraModelSpec(Dict("type" => "central_generic", "bogus" => 1))
+    end
+
+    @testset "refusals" begin
+        e = try
+            CameraModelSpec(Dict("intrinsics" => "spherical", "lens" => "division", "coefficients" => 2)); nothing
+        catch err
+            err
+        end
+        @test e isa ArgumentError && occursin("metric, projective", e.msg)
+        if !isdefined(VisualGeometryToolkitCore, :ProjectiveIntrinsics)
+            e = try
+                CameraModelSpec(Dict("intrinsics" => "projective", "lens" => "division", "coefficients" => 2)); nothing
+            catch err
+                err
+            end
+            @test e isa ArgumentError && occursin("ProjectiveIntrinsics", e.msg)
+        end
+    end
+
+    @testset "show" begin
+        @test sprint(show, CameraModelSpec(LensSpec(:division; coefficients = 2))) == "CameraModelSpec(LensSpec(:division; coefficients = 2))"
+        @test sprint(show, CameraModelSpec(:central_generic; grid_size = (9, 7))) == "CameraModelSpec(:central_generic; grid_size = (9, 7))"
+    end
+end

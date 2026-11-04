@@ -270,3 +270,152 @@ function Base.show(io::IO, spec::LensSpec)
     end
     return print(io, ")")
 end
+
+# =============================================================================
+# CameraModelSpec: what a calibration is for
+# =============================================================================
+
+"""
+    GenericGridSpec(; grid_size = nothing, calib_area = nothing)
+
+The grid of a central generic camera (one ray per grid point, no lens family):
+`grid_size`, the `(columns, rows)` of the grid, and `calib_area`, the
+`(x0, y0, x1, y1)` pixel rectangle the grid covers; `nothing` leaves either to
+the calibrator.
+
+Throws an `ArgumentError` for a `grid_size` that is not two positive integers
+or a `calib_area` that is not four integers.
+"""
+struct GenericGridSpec
+    grid_size::Union{Nothing, Tuple{Int, Int}}
+    calib_area::Union{Nothing, NTuple{4, Int}}
+end
+
+function _int_tuple(what::Symbol, x, n::Int)
+    (x isa Union{Tuple, AbstractVector} && length(x) == n && all(v -> v isa Integer && !(v isa Bool), x)) ||
+        throw(ArgumentError("GenericGridSpec: $what is a list of $n integers; got $(repr(x))"))
+    return ntuple(i -> Int(x[i]), n)
+end
+
+function GenericGridSpec(; grid_size = nothing, calib_area = nothing)
+    gs = grid_size === nothing ? nothing : _int_tuple(:grid_size, grid_size, 2)
+    gs === nothing || all(>(0), gs) ||
+        throw(ArgumentError("GenericGridSpec: grid_size must be positive; got $(repr(grid_size))"))
+    ca = calib_area === nothing ? nothing : _int_tuple(:calib_area, calib_area, 4)
+    return GenericGridSpec(gs, ca)
+end
+
+"""
+    CameraModelSpec(lens::LensSpec; intrinsics::Type{<:AbstractIntrinsics} = LogicalIntrinsics)
+    CameraModelSpec(:central_generic; grid_size = nothing, calib_area = nothing)
+    CameraModelSpec(table::AbstractDict)
+
+What a calibration is for: an intrinsics kind (the type parameter `I`: metric
+[`LogicalIntrinsics`](@ref), or the projective `ProjectiveIntrinsics` of a
+partial calibration) and a [`LensSpec`](@ref) or a [`GenericGridSpec`](@ref)
+(the field `model`). The generic form is always metric.
+
+`toml_value(spec)` is the table `Dict("intrinsics" => "metric" | "projective",
+"lens" => …, …)` (a `LensSpec` table plus `intrinsics`) or
+`Dict("type" => "central_generic", "grid_size" => […], "calib_area" => […])`
+with the unset keys left out; `CameraModelSpec(table)` reads it back, and
+`intrinsics` defaults to `"metric"` when absent. `==` compares the
+specification.
+
+Throws an `ArgumentError` for an `intrinsics` other than `metric` or
+`projective`, for `projective` where `ProjectiveIntrinsics` does not exist, for
+an unknown `type` or key, and for whatever [`LensSpec`](@ref) or
+[`GenericGridSpec`](@ref) refuses.
+"""
+struct CameraModelSpec{I, S}
+    model::S
+    function CameraModelSpec{I, S}(model::S) where {I, S <: Union{LensSpec, GenericGridSpec}}
+        I isa Type && I <: AbstractIntrinsics ||
+            throw(ArgumentError("CameraModelSpec: the intrinsics kind is a subtype of AbstractIntrinsics; got $(repr(I))"))
+        S === GenericGridSpec && I !== LogicalIntrinsics &&
+            throw(ArgumentError("CameraModelSpec: a generic grid is metric (LogicalIntrinsics); got $I"))
+        return new{I, S}(model)
+    end
+end
+
+CameraModelSpec(lens::LensSpec; intrinsics::Type{<:AbstractIntrinsics} = LogicalIntrinsics) =
+    CameraModelSpec{intrinsics, LensSpec}(lens)
+
+function CameraModelSpec(type::Symbol; grid_size = nothing, calib_area = nothing)
+    type === :central_generic ||
+        throw(ArgumentError("CameraModelSpec: unknown type :$type; known: central_generic (or a LensSpec)"))
+    return CameraModelSpec{LogicalIntrinsics, GenericGridSpec}(GenericGridSpec(; grid_size, calib_area))
+end
+
+"""
+    intrinsics_kind(spec::CameraModelSpec) -> Type{<:AbstractIntrinsics}
+
+The intrinsics type `spec` calibrates: `LogicalIntrinsics` for a metric
+calibration.
+"""
+intrinsics_kind(::CameraModelSpec{I}) where {I} = I
+
+_intrinsics_names() = "metric, projective"
+
+function _intrinsics_type(name)
+    name == "metric" && return LogicalIntrinsics
+    if name == "projective"
+        isdefined(@__MODULE__, :ProjectiveIntrinsics) ||
+            throw(ArgumentError("CameraModelSpec: intrinsics = \"projective\" needs ProjectiveIntrinsics, which this version of VisualGeometryToolkitCore does not define"))
+        return getfield(@__MODULE__, :ProjectiveIntrinsics)
+    end
+    throw(ArgumentError("CameraModelSpec: unknown intrinsics $(repr(name)); known: $(_intrinsics_names())"))
+end
+
+function CameraModelSpec(table::AbstractDict)
+    d = Dict{String, Any}(String(k) => v for (k, v) in table)
+    if haskey(d, "type")
+        d["type"] == "central_generic" ||
+            throw(ArgumentError("CameraModelSpec: unknown type $(repr(d["type"])); known: central_generic"))
+        extra = setdiff(keys(d), ("type", "grid_size", "calib_area"))
+        isempty(extra) || throw(ArgumentError("CameraModelSpec: a central_generic table takes type, grid_size, calib_area; got also $(sort(collect(extra)))"))
+        return CameraModelSpec(:central_generic; grid_size = get(d, "grid_size", nothing), calib_area = get(d, "calib_area", nothing))
+    end
+    name = pop!(d, "intrinsics", "metric")
+    return CameraModelSpec(LensSpec(d); intrinsics = _intrinsics_type(name))
+end
+
+function toml_value(spec::CameraModelSpec{I, LensSpec}) where {I}
+    d = toml_value(spec.model)
+    d["intrinsics"] = nameof(I) === :ProjectiveIntrinsics ? "projective" : "metric"
+    return d
+end
+
+function toml_value(spec::CameraModelSpec{LogicalIntrinsics, GenericGridSpec})
+    g = spec.model
+    d = Dict{String, Any}("type" => "central_generic")
+    g.grid_size === nothing || (d["grid_size"] = Any[g.grid_size...])
+    g.calib_area === nothing || (d["calib_area"] = Any[g.calib_area...])
+    return d
+end
+
+Base.:(==)(a::GenericGridSpec, b::GenericGridSpec) = a.grid_size == b.grid_size && a.calib_area == b.calib_area
+Base.hash(g::GenericGridSpec, h::UInt) = hash((g.grid_size, g.calib_area), hash(:GenericGridSpec, h))
+Base.:(==)(a::CameraModelSpec{I}, b::CameraModelSpec{J}) where {I, J} = I === J && a.model == b.model
+Base.hash(s::CameraModelSpec{I}, h::UInt) where {I} = hash((I, s.model), hash(:CameraModelSpec, h))
+
+function Base.show(io::IO, g::GenericGridSpec)
+    args = String[]
+    g.grid_size === nothing || push!(args, "grid_size = $(g.grid_size)")
+    g.calib_area === nothing || push!(args, "calib_area = $(g.calib_area)")
+    return print(io, "GenericGridSpec(", join(args, ", "), ")")
+end
+
+function Base.show(io::IO, s::CameraModelSpec{I, LensSpec}) where {I}
+    print(io, "CameraModelSpec(", s.model)
+    I === LogicalIntrinsics || print(io, "; intrinsics = ", I)
+    return print(io, ")")
+end
+
+function Base.show(io::IO, s::CameraModelSpec{LogicalIntrinsics, GenericGridSpec})
+    g = s.model
+    args = String[]
+    g.grid_size === nothing || push!(args, "grid_size = $(g.grid_size)")
+    g.calib_area === nothing || push!(args, "calib_area = $(g.calib_area)")
+    return print(io, "CameraModelSpec(:central_generic", isempty(args) ? "" : "; " * join(args, ", "), ")")
+end

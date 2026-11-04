@@ -53,6 +53,6 @@ function image_sample!(
 end
 # Integer points (pixel indices held as `SVector{2, Int}`) are floated once at
 # entry — the kernel's half-pixel shift is in the points' own eltype; float
-# points are passed as they are.
+# points are sampled as they are.
 _float_points(points::AbstractArray{<:StaticVector{2, <:AbstractFloat}}) = points
 _float_points(points::AbstractArray{<:StaticVector{2}}) = float.(points)

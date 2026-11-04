@@ -348,7 +348,7 @@ end
     using Test
     using VisualGeometryToolkitCore: metadata, retcode, backproject, SplineProjection
     using VisualGeometryToolkitEstimation: fit_camera
-    # a function of the pixel (one of Core's generic sources) is passed as it is, not through `model`
+    # a function of the pixel (one of Core's generic sources) is sampled as it is, not through `model`
     f = u -> backproject(FISHEYE, u)
     r = fit_camera(SplineProjection, f, REGION; tolerance = 1.0e-2)
     rc = fit_camera(SplineProjection, FISHEYE, REGION; tolerance = 1.0e-2)

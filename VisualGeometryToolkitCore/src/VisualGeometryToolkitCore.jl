@@ -180,6 +180,7 @@ export FramedImage        # canvas + its pixel-frame window (warp-layer return c
 # The KernelAbstractions resampler: one bilinear kernel, every backend
 # (CPU and CUDA share the implementation; backend from the output array).
 export image_warp!, image_warp_batch_to!
+export image_sample!      # the same bilinear tap at scattered points (one kernel, every backend)
 export canonical_map, logpolar_map, logpolar_to_cartesian
 export dilate, intersects
 # Pointwise maps over arrays: one broadcast driver for every backend, with the
@@ -222,6 +223,9 @@ export Pinhole, Division, KannalaBrandt, Scaramuzza, AbstractLensModel, Lens, Li
 export AbstractProjection, Perspective, Equidistant, Stereographic, Equisolid, Orthographic
 export DoubleSphere, Unified, ExtendedUnified
 export Equirectangular   # the latitude/longitude projection of directions (not a lens)
+export Cylindrical, CylindricalEqualArea, Mercator   # the rest of the cylindrical family (rows tan φ, sin φ, asinh(tan φ))
+export Backprojection    # a back-projection as a Transformation: inv(projection), a camera model's pixel → ray map
+public AbstractPanoramaProjection   # their supertype (a Transformation whose inv is its Backprojection)
 export AbstractDistortionTerm, Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive
 public Even, Full, isdelta, projection_frame
 export radial, parameters, lens_record, lens_from_record
@@ -847,6 +851,8 @@ include("geometry/solvers/ellipse_5pt.jl")                 # Ellipse5pt: the ell
 
 # Core warping API - builders returning BoundedMap with image-side conventions baked in
 include("geometry/transforms/warp.jl")
+# The same bilinear tap at scattered points (image_sample!). Uses warp.jl's _bilinear_sample.
+include("geometry/transforms/image_sample.jl")
 # Pointwise maps over arrays (one broadcast driver; the host threading policy).
 include("geometry/transforms/pointwise.jl")
 # Iterative Cox–de Boor B-spline kernels (0.14; hoisted from

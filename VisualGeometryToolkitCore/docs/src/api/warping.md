@@ -23,12 +23,13 @@ texture in its unit-square (half-texel) chart, extends its edges, returns
 several channels and differentiates in the position (a printed board's
 albedo under ForwardDiff); [`bilinear_sample_clamped`](@ref) reads 1-based
 array positions, rejects one off the image, and is exact at integers (a
-pixel scan).
+pixel scan). [`image_sample!`](@ref) is `image_warp!`'s tap at points the
+caller holds (the projections of a set of directions), with its boundary.
 
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false
-Pages = ["transforms/warp.jl", "transforms/bounded_map.jl"]
+Pages = ["transforms/warp.jl", "transforms/image_sample.jl", "transforms/bounded_map.jl"]
 ```
 
 ## Index

@@ -113,6 +113,24 @@ Added:
   direction of the pixel's observation line and its Jacobian `∂f/∂u`,
   analytic from the direction spline's derivative weights, tangent to the
   sphere; NaN outside the calibrated area (the central model's contract).
+- **The cylindrical family of panorama projections**: `Cylindrical` (rows
+  `tan φ`, the central projection onto the unit cylinder),
+  `CylindricalEqualArea` (Lambert's, rows `sin φ`: equal raster areas are
+  equal solid angles) and `Mercator` (rows `asinh(tan φ)`, conformal) beside
+  `Equirectangular`, under the new `AbstractPanoramaProjection`. Each is a
+  CoordinateTransformations `Transformation` — its call is `project`, its
+  `transform_deriv` the analytic 2 × 3 Jacobian — whose `inv` is its
+  `Backprojection`, so a panorama raster's pixel → ray map composes into an
+  `image_warp` chain (`camera ∘ LinearMap(R') ∘ inv(projection) ∘ raster`).
+  `Equirectangular` now subtypes it too (its values unchanged).
+- **`Backprojection(m)`**: `backproject(m, q)` as a `Transformation` (with a
+  ForwardDiff `transform_deriv`), for a panorama projection or a camera model
+  — the pixel → ray map of a virtual camera (an azimuthal view: rectilinear,
+  fisheye, stereographic, by the model's lens).
+- **`image_sample!(dst, src, points; fillvalue)`**: `image_warp!`'s bilinear
+  tap and boundary at scattered COLMAP points the caller holds, one
+  KernelAbstractions kernel on the backend that owns `dst` (a value sampled at
+  a point equals a warp landing on it).
 
 Fixed:
 

@@ -1,6 +1,8 @@
 # =============================================================================
-# Equirectangular (geometry/cameras/equirectangular.jl): the axes, the round
-# trip both ways, scale-freeness, the poles and the refusals.
+# The panorama projections (geometry/cameras/equirectangular.jl): the axes,
+# the round trip both ways, scale-freeness, the poles and the refusals; the
+# cylindrical family's vertical coordinates, Jacobians, known raster pixels and
+# the equal-area property; Backprojection of a projection and of a camera.
 # =============================================================================
 
 @testitem "Equirectangular: axes, round trips, poles" begin
@@ -38,5 +40,110 @@
         @test all(isnan, project(E, SVector(0.0, Inf, 1.0)))
         @test eltype(project(E, SVector(1.0f0, 0.0f0, 1.0f0))) === Float32
         @test eltype(backproject(E, SVector(0.1f0, 0.2f0))) === Float32
+    end
+end
+
+@testitem "the cylindrical family: vertical coordinates, round trips, Jacobians, the inverse map" begin
+    using Test, StaticArrays, LinearAlgebra, Random
+    using ForwardDiff: ForwardDiff
+    using CoordinateTransformations: LinearMap, transform_deriv
+    using VisualGeometryToolkitCore: Equirectangular, Cylindrical, CylindricalEqualArea, Mercator, Backprojection,
+        project, backproject, angle_between
+
+    # each projection's vertical coordinate of the latitude φ, and the range of v a test draws from
+    family = ((Equirectangular(), φ -> φ, 1.5), (Cylindrical(), tan, 3.0), (CylindricalEqualArea(), sin, 0.99),
+              (Mercator(), φ -> asinh(tan(φ)), 2.5))
+    rng = Xoshiro(5)
+    E = Equirectangular()
+    for (P, vert, vmax) in family
+        @testset "$(nameof(typeof(P))): the axes, the longitude is shared, the vertical is v(φ)" begin
+            @test project(P, SVector(0.0, 0.0, 1.0)) == SVector(0.0, 0.0)
+            @test project(P, SVector(1.0, 0.0, 0.0)) ≈ SVector(π / 2, 0.0)
+            @test project(P, SVector(0.0, -1.0, 1.0)) ≈ SVector(0.0, vert(π / 4))      # 45° up
+            @test project(P, SVector(0.0, 1.0, 1.0)) ≈ SVector(0.0, -vert(π / 4))      # 45° down
+            for _ in 1:500
+                X = randn(rng, SVector{3, Float64})
+                p, e = project(P, X), project(E, X)
+                @test p[1] == e[1]
+                @test p[2] ≈ vert(e[2]) rtol = 1.0e-12 atol = 1.0e-15
+            end
+        end
+        @testset "$(nameof(typeof(P))): round trips both ways, scale-freeness" begin
+            for _ in 1:500
+                X = randn(rng, SVector{3, Float64})
+                p = project(P, X)
+                @test angle_between(backproject(P, p), X) < 1.0e-14
+                @test project(P, 7.5 * X) ≈ p rtol = 1.0e-14
+                @test norm(backproject(P, p)) ≈ 1 rtol = 1.0e-15
+                q = SVector(2π * rand(rng) - π, vmax * (2rand(rng) - 1))
+                @test project(P, backproject(P, q)) ≈ q atol = 1.0e-12
+            end
+        end
+        @testset "$(nameof(typeof(P))): transform_deriv is the Jacobian of the projection and of its inverse" begin
+            for _ in 1:100
+                X = randn(rng, SVector{3, Float64})
+                @test transform_deriv(P, X) ≈ ForwardDiff.jacobian(v -> project(P, v), X) rtol = 1.0e-10
+                q = project(P, X)
+                @test transform_deriv(inv(P), q) ≈ ForwardDiff.jacobian(p -> SVector{3}(backproject(P, p)), q) rtol = 1.0e-12
+            end
+        end
+        @testset "$(nameof(typeof(P))): inv is its Backprojection, a Transformation" begin
+            @test inv(P) isa Backprojection && inv(inv(P)) === P
+            X = SVector(0.3, -0.2, 0.9)
+            @test P(X) == project(P, X) && inv(P)(P(X)) ≈ normalize(X)
+            @test (LinearMap(SMatrix{3, 3}(1.0I)) ∘ inv(P))(P(X)) ≈ normalize(X)
+            @test eltype(project(P, SVector(1.0f0, 0.0f0, 1.0f0))) === Float32
+            @test eltype(backproject(P, SVector(0.1f0, 0.2f0))) === Float32
+            @test all(isnan, project(P, SVector(0.0, 0.0, 0.0))) && all(isnan, project(P, SVector(NaN, 0.0, 1.0)))
+        end
+    end
+    @testset "the poles: no height on the central cylinder or Mercator's; ±1 on the equal-area one" begin
+        @test all(isnan, project(Cylindrical(), SVector(0.0, -1.0, 0.0)))
+        @test all(isnan, project(Mercator(), SVector(0.0, -1.0, 0.0)))
+        @test project(CylindricalEqualArea(), SVector(0.0, -2.0, 0.0)) == SVector(0.0, 1.0)
+        @test all(isnan, backproject(CylindricalEqualArea(), SVector(0.0, 1.5)))
+    end
+end
+
+@testitem "the cylindrical family: the rays of known raster pixels; equal area" begin
+    using Test, StaticArrays, LinearAlgebra
+    using CoordinateTransformations: AffineMap
+    using VisualGeometryToolkitCore: Cylindrical, CylindricalEqualArea, Mercator, Equirectangular, project
+
+    # a raster of 0.5°/px: columns from longitude −90°, rows from v = v₁ downwards (v step = 0.5° in radians)
+    δ = deg2rad(0.5)
+    raster(v1) = AffineMap(SMatrix{2, 2}(δ, 0.0, 0.0, -δ), SVector(-π / 2, v1))   # COLMAP (x, y) → (λ, v)
+    @testset "$(nameof(typeof(P)))" for P in (Cylindrical(), Mercator(), CylindricalEqualArea(), Equirectangular())
+        v45 = project(P, SVector(0.0, -1.0, 1.0))[2]
+        ray = inv(P) ∘ raster(v45)
+        @test ray(SVector(0.0, 0.0)) ≈ SVector(-1.0, -1.0, 0.0) / sqrt(2) atol = 1.0e-15  # the top-left corner: 90° left, 45° up
+        @test ray(SVector(180.0, v45 / δ)) ≈ SVector(0.0, 0.0, 1.0) atol = 1.0e-14        # forward, on the horizon
+        @test P(ray(SVector(123.25, 77.5))) ≈ raster(v45)(SVector(123.25, 77.5)) atol = 1.0e-13
+    end
+    @testset "CylindricalEqualArea: every pixel of a uniform raster subtends the same solid angle" begin
+        # the solid angle of a pixel [λ, λ + δλ] × [φ₀, φ₁] is ∫∫ cos φ dφ dλ = δλ (sin φ₁ − sin φ₀) (Archimedes): with the
+        # pixel's latitudes from the projection's inverse, every row of a uniform raster subtends δλ·δv
+        P = CylindricalEqualArea()
+        δλ = deg2rad(0.5); δv = 0.01
+        pix(v) = (φ0 = project(Equirectangular(), inv(P)(SVector(0.0, v)))[2]; φ1 = project(Equirectangular(), inv(P)(SVector(0.0, v + δv)))[2];
+                  δλ * (sin(φ1) - sin(φ0)))
+        @test all(v -> pix(v) ≈ δλ * δv, -0.99:0.01:0.98)
+        # the equirectangular raster is not equal-area: its polar pixels are smaller
+        pixE(φ) = δλ * (sin(φ + 0.01) - sin(φ))
+        @test pixE(1.4) < 0.2 * pixE(0.0)
+    end
+end
+
+@testitem "Backprojection of a camera model: a virtual camera's pixel → ray map" begin
+    using Test, StaticArrays, LinearAlgebra
+    using CoordinateTransformations: LinearMap
+    using VisualGeometryToolkitCore: Backprojection, CameraModel, Lens, Perspective, Equidistant, px, backproject, project
+    for lens in (Lens(Perspective()), Lens(Equidistant()))
+        m = CameraModel(300.0px, SA[320.0px, 240.0px]; lens)
+        b = Backprojection(m)
+        u = SVector(400.0, 100.0)
+        @test b(u) ≈ backproject(m, u) && project(m, b(u)) ≈ u
+        R = SMatrix{3, 3}(0.0, 0.0, -1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0)            # aimed 90° to the side
+        @test (LinearMap(R) ∘ b)(SVector(320.0, 240.0)) ≈ R * SVector(0.0, 0.0, 1.0)  # the principal point looks along R·z
     end
 end

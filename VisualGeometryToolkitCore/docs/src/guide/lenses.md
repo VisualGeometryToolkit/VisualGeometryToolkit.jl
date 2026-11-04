@@ -41,7 +41,16 @@ radial basis is `radial_full`).
 
 The whole sphere of directions onto the (longitude, latitude) rectangle — a
 panorama raster, a sky map — is [`Equirectangular`](@ref): not a lens (it has
-no radial profile), a projection of its own with `project`/`backproject`.
+no radial profile), a projection of its own with `project`/`backproject`. Its
+cylindrical family shares the longitude and changes the vertical coordinate:
+[`Cylindrical`](@ref) (`tan φ`, the central projection onto the unit
+cylinder), [`CylindricalEqualArea`](@ref) (`sin φ`: equal raster areas are
+equal solid angles) and [`Mercator`](@ref) (`asinh(tan φ)`, conformal). Each is
+a `Transformation` whose `inv` is its [`Backprojection`](@ref), so a panorama
+raster's pixel → ray map composes into an `image_warp` chain; an azimuthal view
+needs no type of its own — it is `Backprojection(camera)` of a virtual camera
+with the view's lens (`Lens(Perspective())`, `Lens(Equidistant())`,
+`Lens(Stereographic())`).
 
 ## Terms and how they combine
 

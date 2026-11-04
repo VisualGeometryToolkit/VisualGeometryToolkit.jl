@@ -927,6 +927,9 @@ export Scaramuzza                      # Scaramuzza's omnidirectional polynomial
 export AbstractProjection, Perspective, Equidistant, Stereographic, Equisolid, Orthographic
 export DoubleSphere, Unified, ExtendedUnified   # the parametric projections
 export Equirectangular   # the latitude/longitude projection of directions (equirectangular.jl)
+export Cylindrical, CylindricalEqualArea, Mercator   # the rest of the cylindrical family (equirectangular.jl)
+export Backprojection    # a back-projection as a Transformation (equirectangular.jl)
+export AbstractPanoramaProjection   # the family's supertype (public, not exported, at the top level)
 export AbstractDistortionTerm, Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Even, Full
 export radial, isdelta, projection_frame, parameters, lens_record, lens_from_record
 export division_bounded, undistorted_rect, valid_rect, horizon_radius, fov_radius, DEFAULT_MAX_FOV   # whole-extent undistortion

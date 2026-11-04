@@ -311,6 +311,7 @@ public spline_support, spline_weights, window_controls, window_indices, directio
 public ControlPatchManifold   # a block of a generic grid model's controls as a Manifold: the per-tile refinement's variable
 public GenericModelWindow, window, nominal_intrinsics, interpolated_direction, interpolated_point   # a view onto a block of a grid model's controls; its raw splines
 public spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice for any control type; the 4th-order quasi-interpolant
+export ChartSpline, SplineProjection   # a spline on a 2-D chart; a forward map (ray → pixel) as one on the equidistant direction chart (fit_camera's)
 export with_model          # same camera/rig, new model (validated rebuild)
 # `ids(rig)` (0.9): the rig's view-identity symbols, READ FROM the labeled
 # extrinsics' frame parameters (single source of truth — no stored duplicate).

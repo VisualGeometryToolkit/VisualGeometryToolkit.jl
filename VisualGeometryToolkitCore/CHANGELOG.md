@@ -45,6 +45,23 @@ chain types, and CT's conventions hold for it.
   first (`lens_from_record` builds the composition right-associated). Every
   projection, back-projection and Jacobian is bit for bit the chain's.
 
+Added:
+
+- **`ChartSpline(area, controls)`**: a tensor-product uniform cubic B-spline
+  from a 2-D chart to ℝᴷ — the grid models' lattice (`spline_value`) as a
+  CoordinateTransformations `Transformation`, its `transform_deriv` the
+  differentiated cubic pieces, a batch of chart points evaluated by a
+  KernelAbstractions kernel.
+- **`SplineProjection(chart, spline, region)`**: a forward map ray → pixel as
+  a `ChartSpline` on the equidistant direction chart about the optical axis
+  (`Lens(Equidistant()) ∘ LinearMap(R)`), a `Transformation` that composes in
+  `image_warp` chains; `project(sp, X)` is `nothing` when the pixel leaves the
+  region it was fitted over (VisualGeometryToolkitEstimation's `fit_camera`).
+- **Batched `backproject(m::CentralGenericModel, pixels)`**: a KernelAbstractions
+  kernel on the pixels' backend, bit for bit the scalar form on the CPU, NaN
+  outside the calibrated area.
+- `pixel_mask(region, width, height)`: the pixels whose centres lie in a region.
+
 ## 0.4.0 (2026-11-02)
 
 Breaking: ONE Sampson path. Nothing outside `base/sampson.jl` computes

@@ -1637,3 +1637,46 @@ function _project_batched(m::CentralGenericModel, d_grid, rays, init, iters::Int
     KA.synchronize(backend)
     return (; px, ok)
 end
+
+# Batched backprojection: the scalar `backproject`'s window and normalization
+# (`_grid_coord`, `_spline_window`, `_eval_window`) per pixel, the calibrated
+# area's bounds as the scalar test reads them (integers), NaN outside it.
+@kernel function _backproject_kernel!(rays, @Const(grid), @Const(pixels), minx::Int, miny::Int, maxx::Int, maxy::Int)
+    i = @index(Global)
+    @inbounds begin
+        p = pixels[i]
+        x, y = float(p[1]), float(p[2])
+        gh, gw = size(grid)
+        if x >= minx && y >= miny && x < maxx + 1 && y < maxy + 1
+            ix, iy, wx, wy = _spline_window(_grid_coord(x, minx, maxx, gw), _grid_coord(y, miny, maxy, gh))
+            d = _eval_window(grid, ix, iy, wx, wy)
+            rays[i] = SVector{3}(d) / norm(d)
+        else
+            rays[i] = zero(eltype(rays)) .+ eltype(eltype(rays))(NaN)
+        end
+    end
+end
+
+"""
+    backproject(m::CentralGenericModel, pixels::AbstractVector{<:StaticVector{2}}) -> rays
+
+Batched backprojection: the unit direction of every pixel (COLMAP frame), the
+scalar [`backproject`](@ref)'s spline window and normalization evaluated by a
+KernelAbstractions kernel on the pixels' own backend (a device copy of
+`m.grid` uploads automatically; host arrays run the identical kernel on the
+CPU), bit for bit the scalar value on the CPU backend. A pixel outside the
+calibrated area comes back NaN (the scalar form's `nothing`), as a batch
+through [`pointwise!`](@ref) does. The batched [`project`](@ref)'s counterpart.
+"""
+function backproject(m::CentralGenericModel, pixels::AbstractVector{<:StaticVector{2, <:Real}})
+    backend = KA.get_backend(pixels)
+    T = eltype(eltype(m.grid))
+    rays = KA.allocate(backend, SVector{3, promote_type(T, float(eltype(eltype(pixels))))}, length(pixels))
+    isempty(pixels) && return rays
+    _backproject_kernel!(backend, 64)(
+        rays, adapt(backend, m.grid), pixels, m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y;
+        ndrange = length(pixels)
+    )
+    KA.synchronize(backend)
+    return rays
+end

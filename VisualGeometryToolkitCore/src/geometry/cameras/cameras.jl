@@ -183,6 +183,7 @@ include("equirectangular.jl") # the latitude/longitude projection of directions 
 include("lens_chart.jl") # parameter chart, ∂lens/∂θ, TOML lens registry (0.22.1)
 include("generic_models.jl") # Schöps et al. central/non-central generic grid models (0.16)
 include("support.jl")         # supports on the sensor: which parameters a camera can see (the generic models' lattice)
+include("chart_spline.jl")    # ChartSpline, SplineProjection: a forward map as the grid models' lattice on a direction chart (uses spline_value, the window)
 include("imaging_chain.jl")   # framed stages between image frames + imaging_chain mint (0.10)
 
 # ==============================================================================
@@ -1019,6 +1020,7 @@ export spline_support, spline_weights, window_controls, window_indices, directio
 export ControlPatchManifold              # a block of a grid model's controls as a manifold (public, not exported, at the top level)
 export GenericModelWindow, window, nominal_intrinsics, interpolated_direction, interpolated_point   # a view onto a block of controls; the raw splines
 export spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice as a primitive (any control type); the 4th-order quasi-interpolant
+export ChartSpline, SplineProjection     # a spline on a 2-D chart; a forward map (ray → pixel) as one on the equidistant direction chart
 export with_model                         # same camera/rig, new model — rebuilds through the validating constructor
 export reference_frame                    # rig/target-rig reference-frame type (submodule-level only:
 #   the top module deliberately does not re-export it — import explicitly)

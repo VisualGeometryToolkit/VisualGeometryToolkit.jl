@@ -392,7 +392,12 @@ The iteration's focal length in pixels, as `(fx, fy)` like every `focal_length`
 """
 VgtkCore.focal_length(state::DivisionCameraState) = (state.f, state.f)
 
-"The iteration's division coefficients `k` (of r², r⁴, … in pixels about the centre)."
+"""
+    division_coeffs(state::DivisionCameraState) -> Vector{Float64}
+
+The iteration's division coefficients `k` (of r², r⁴, … in pixels about the
+centre): VisualGeometryToolkitCore's `division_coeffs`, answered for the state.
+"""
 division_coeffs(state::DivisionCameraState) = state.k
 
 """

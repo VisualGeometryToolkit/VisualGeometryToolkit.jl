@@ -12,7 +12,7 @@
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: Rig, AbstractTarget, Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D,
-        NoncentralGenericModel, has_units, geom, pose, translation
+        NoncentralGenericModel, CentralGenericModel, has_units, geom, pose, translation
     using Statistics: cov
 
     fixtures = joinpath(@__DIR__, "fixtures", "units")
@@ -22,6 +22,7 @@
         "target_points.json" => AbstractTarget, "target_planar.json" => AbstractTarget,
         "trajectory.json" => Trajectory, "target_poses.json" => TargetPoses,
         "target_points3d.json" => TargetPoints3D, "generic_camera.json" => NoncentralGenericModel,
+        "generic_camera_masked.json" => CentralGenericModel,
         "target_points2d.json" => TargetPoints2D,
     )
     # every fixture is covered: the table above and correspondences.json (an export, below)

@@ -7,7 +7,7 @@
 @testsetup module OldVersions
     import VisualGeometryToolkitIO as VgtkIO
     using JSON: JSON
-    using VisualGeometryToolkitCore: AbstractTarget, Rig, BoundedCamera
+    using VisualGeometryToolkitCore: AbstractTarget, Rig, BoundedCamera, NoncentralGenericModel
     export old_fixture, old_versions, json_tree, write_tree
 
     old_fixture(name) = joinpath(@__DIR__, "fixtures", "old", name)
@@ -25,6 +25,7 @@
         for v in ("v1", "v2", "v3")
             push!(out, old_fixture("cameras_$(v).json") => Dict{Symbol, BoundedCamera})
         end
+        push!(out, old_fixture("generic_camera_v2.json") => NoncentralGenericModel)   # every node: v3's all-present model
         for name in ("target_planar.json", "target_points.json")
             t = json_tree(units_fixture(name))
             v2 = copy(t)

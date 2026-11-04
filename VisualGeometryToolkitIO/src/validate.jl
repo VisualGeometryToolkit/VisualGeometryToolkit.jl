@@ -185,8 +185,15 @@ const _POINT_INDEX_BASE = 1
 # `from`/`to` names go through the frame grammar (`frame_from_name`), so a
 # free-form name is refused, and a pose may carry its covariance. The kinds
 # born after that are v1 (target, target_poses, target_points2d, target_points3d).
+#
+# generic_camera v3 (the present nodes, 2026-11): a grid model holds the nodes
+# its imaged region reaches, listed as `present` (runs per lattice row), and
+# its grids hold those nodes only; v2 held every node. A v2 file reads through
+# its version step as every node present. A rig sensor's generic body carries
+# `present` only when its model does not hold every node, so every rig/v6 file
+# written before reads as it did, and rig stays v6.
 const _SCHEMA_VERSION = Dict(
-    "cameras" => 4, "rig" => 6, "transforms" => 3, "trajectory" => 3,
+    "cameras" => 4, "rig" => 6, "transforms" => 3, "trajectory" => 3, "generic_camera" => 3,
     "target" => 3, "target_poses" => 1, "target_points2d" => 1, "target_points3d" => 1,
     "capture_settings" => 1,
 )
@@ -245,6 +252,7 @@ const _RETIRED_KINDS = Dict(
 const _MIGRATIONS_TO_CURRENT = Dict(
     "vgio/target/v1" => "target", "vgio/rig/v4" => "rig", "vgio/target/v2" => "target", "vgio/rig/v5" => "rig",
     "vgio/cameras/v1" => "file", "vgio/cameras/v2" => "file", "vgio/cameras/v3" => "file",
+    "vgio/generic_camera/v2" => "file",
 )
 
 function _refuse_schema(path, kind::AbstractString, s)

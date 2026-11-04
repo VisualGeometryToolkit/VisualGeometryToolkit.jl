@@ -1,5 +1,31 @@
 # VisualGeometryToolkitIO changelog
 
+## 0.5.2 (2026-11-04)
+
+- **`vgio/generic_camera/v3`**: a grid model's held nodes (VisualGeometryToolkitCore
+  0.5.4's `present_nodes`) as `present`, runs per lattice row
+  (`[[row, [[col_lo, col_hi], …]], …]`, 0-based, inclusive; any shape, holes
+  included), and its grids over those nodes only, row-major; written only for a
+  model that does not hold every node (a record without it holds every node).
+  A model reads back with its mask and NaN in its absent slots, which no
+  evaluation reads. The writer writes v3 only.
+- **`vgio/generic_camera/v2` keeps loading**, through its version step (a v2
+  record is a v3 one that holds every node: only the schema changes), and
+  `vgio_migrate` rewrites it.
+- **rig/v6 is unchanged**: a generic sensor's body carries `present` the same
+  way, so every rig written before reads, writes and is identified
+  (`content_id`) as before; a masked model's identity names its held nodes.
+- **New kind `vgio/capture_settings/v1`** (`save`, `load(CaptureSettings, path)`):
+  per frame index the exposure (time in seconds, f-number, ISO) and the
+  nominal lens settings (focal length, focus distance where known) in the
+  declared `length_unit`, and the body and lens identities, each with its
+  source (`"exif"` or `"config"`; a config-stated lens may keep the EXIF claim
+  it overrode). In memory `Attributed(cs, (; identity_sources[, exif_lens]))`.
+- **A calibration block may state its `device`** (`{"body": {…}, "lens": {…}}`,
+  each a `DeviceIdentity`): the hardware a camera's calibration was made for.
+  Additive: every cameras/v4 file without it reads as before.
+- Compat: VisualGeometryToolkitCore 0.5.4.
+
 ## 0.5.1 (2026-11-04)
 
 Every earlier schema version a published file holds is read again. A reader

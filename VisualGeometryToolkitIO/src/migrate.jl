@@ -259,7 +259,8 @@ least `to`, the schema written (and whatever the owner reports: a rig's
 A declared extension point (VisualGeometryToolkitIO's `CONTRACT_GENERICS`): the
 owner of a schema adds both forms for each of its old versions.
 VisualGeometryToolkitIO's own: `vgio/cameras/v1` → v2 → v3 → v4,
-`vgio/target/v1` → v2 → v3 and `vgio/rig/v4` → v5 → v6.
+`vgio/target/v1` → v2 → v3, `vgio/rig/v4` → v5 → v6 and
+`vgio/generic_camera/v2` → v3.
 """
 function migrate_schema end
 # Whether a schema has a file migration (`vgio_migrate`), a step (the readers).
@@ -314,7 +315,7 @@ end
 
 Rewrite the file at `path`, of the earlier schema version it declares, in its
 kind's current one, by the file form of [`migrate_schema`](@ref) for that
-schema (cameras v1–v3, target v1–v2, rig v4–v5, and any a schema owner adds),
+schema (cameras v1–v3, target v1–v2, rig v4–v5, generic_camera v2, and any a schema owner adds),
 which runs the same version steps a reader runs on load: an old file need not
 be rewritten to be read, and this is how it is rewritten once. The migration
 is written through the current writer to a staging directory BESIDE `out`
@@ -862,6 +863,19 @@ migrate_schema(::Val{Symbol("vgio/target/v1")}, t::AbstractDict) = _target_v1_to
 migrate_schema(::Val{Symbol("vgio/target/v2")}, t::AbstractDict) = _target_v2_to_v3(t)
 migrate_schema(::Val{Symbol("vgio/rig/v4")}, t::AbstractDict) = (foreach(x -> _check_v1_warp(x["target"]), get(t, "targets", ())); _rig_v4_to_v5(t))
 migrate_schema(::Val{Symbol("vgio/rig/v5")}, t::AbstractDict) = _rig_v5_to_v6(t)
+migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, t::AbstractDict) = _generic_camera_v2_to_v3(t)
+
+# vgio/generic_camera/v2 → v3 (the present nodes, 2026-11): a v2 model held
+# every node of its lattice, row-major; v3 lists the held nodes as runs per
+# lattice row (`present`) and its grids over them, and a record without
+# `present` holds every node, so a v2 record is a v3 one as it stands. No number
+# moves.
+function _generic_camera_v2_to_v3(old)
+    haskey(old, "present") && throw(ArgumentError("a vgio/generic_camera/v2 record holds every node; it has no `present`"))
+    t = copy(old)
+    t["schema"] = "vgio/generic_camera/v3"
+    return t
+end
 
 _migrate_cameras(src, dst) = (_migrate_file(Dict{Symbol, BoundedCamera}, src, dst, "the camera store"); (; to = _schema("cameras")))
 migrate_schema(::Val{Symbol("vgio/cameras/v1")}, src::AbstractString, dst::AbstractString) = _migrate_cameras(src, dst)
@@ -870,6 +884,8 @@ migrate_schema(::Val{Symbol("vgio/cameras/v3")}, src::AbstractString, dst::Abstr
 _migrate_target(src, dst) = (_migrate_file(AbstractTarget, src, dst, "the target record"); (; to = _schema("target")))
 migrate_schema(::Val{Symbol("vgio/target/v1")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
 migrate_schema(::Val{Symbol("vgio/target/v2")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
+migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, src::AbstractString, dst::AbstractString) =
+    (_migrate_file(Union{CentralGenericModel, NoncentralGenericModel}, src, dst, "the generic camera record"); (; to = _schema("generic_camera")))
 # A rig: its identity is the current value's, and the identities its old
 # version named it by, where they differ, are reported, so the measurement
 # files naming it are re-pointed (`vgio_migrate_tree`).

@@ -668,7 +668,13 @@ end
 # camera body (`_PITCH`, camera_schema.jl), in the rig's `length_unit`. Additive
 # in rig/v5, which is unreleased: no version moves.
 const _RIG_CAMERA_BODY = _Obj(_CAMERA_BODY_FIELDS, Pair{Symbol, _Spec}[:pitch => _PITCH])
-const _RIG_GENERIC_BODY = _Checked(_Obj(_GENERIC_BODY_FIELDS, Pair{Symbol, _Spec}[:point_grid => _GRID, :pitch => _PITCH, _GENERIC_OPTIONAL...]), _generic_check)
+# A generic body's `present` is optional: every node when it is absent
+# (generic_camera_schema.jl), so every rig/v6 file written before reads as it
+# did; the writer emits it for a model that does not hold every node.
+const _RIG_GENERIC_BODY = _Checked(
+    _Obj(_GENERIC_BODY_FIELDS, Pair{Symbol, _Spec}[:point_grid => _GRID, :pitch => _PITCH, _GENERIC_OPTIONAL..., _GENERIC_PRESENT...]),
+    _generic_check,
+)
 
 const _SENSOR_RECORD = _Obj(
     :id => _NonEmpty(),
@@ -937,8 +943,9 @@ end
 # the pitch iff the camera is bounded by its sensor: the writer's own `_with_pitch`,
 # its leaves the persisted metre values
 _id_pitch(c) = (s = _sensor_of(c); s === nothing ? () : ("pitch" => _lower(_with_pitch((;), s, _PERSISTED).pitch),))
-_id_grid(g) = Any[Any[Float64(v[k]) for k in 1:3] for gy in 1:size(g, 1) for v in (g[gy, :]...,)]
-_id_grid_metres(g) = Any[Any[_persisted(v[k]) for k in 1:3] for gy in 1:size(g, 1) for v in (g[gy, :]...,)]
+# the held nodes, row by row (every node of a model that holds them all, as before the presence mask)
+_id_grid(g, P) = Any[Any[Float64(g[gy, gx][k]) for k in 1:3] for gy in 1:size(g, 1) for gx in 1:size(g, 2) if P[gy, gx]]
+_id_grid_metres(g, P) = Any[Any[_persisted(g[gy, gx][k]) for k in 1:3] for gy in 1:size(g, 1) for gx in 1:size(g, 2) if P[gy, gx]]
 function _id_grid_header(gm, grid)
     return _Id(
         "extent" => Any[Int(gm.width), Int(gm.height)],
@@ -946,17 +953,24 @@ function _id_grid_header(gm, grid)
         "grid" => Any[size(grid, 2), size(grid, 1)],
     )
 end
-_id_grid_model(gm::CentralGenericModel) =
-    merge(_id_grid_header(gm, gm.grid), _Id("grid_model" => "central", "directions" => _id_grid(gm.grid)), _id_grid_extras(gm))
+_id_grid_model(gm::CentralGenericModel) = merge(
+    _id_grid_header(gm, gm.grid),
+    _Id("grid_model" => "central", "directions" => _id_grid(gm.grid, present_nodes(gm))), _id_grid_extras(gm),
+)
 _id_grid_model(gm::NoncentralGenericModel) = merge(
     _id_grid_header(gm, gm.directions),
-    _Id("grid_model" => "noncentral", "directions" => _id_grid(gm.directions), "points" => _id_grid_metres(gm.points)),   # plain metres
+    _Id("grid_model" => "noncentral", "directions" => _id_grid(gm.directions, present_nodes(gm)),
+        "points" => _id_grid_metres(gm.points, present_nodes(gm))),   # plain metres
     _id_grid_extras(gm),
 )
-# the nominal pinhole and the domain iff the model has them, under the
-# identity's own names (fixed: a writer key renamed does not re-id a rig)
-function _id_grid_extras(gm)
+# the nominal pinhole, the domain and the held nodes (as runs) iff the model
+# has them, under the identity's own names (fixed: a writer key renamed does
+# not re-id a rig; a model holding every node has the identity it had before
+# the presence mask)
+function _id_grid_extras(gm::Union{CentralGenericModel, NoncentralGenericModel})
     d = _Id()
+    P = present_nodes(gm)
+    all(P) || (d["present"] = _present_runs(P))
     n = nominal_intrinsics(gm)
     n === nothing || (K = n.K; d["nominal_intrinsics"] = Any[Float64(K[1, 1]), Float64(K[2, 2]), Float64(K[1, 3]), Float64(K[2, 3]), Float64(K[1, 2])])
     e = gm.domain

@@ -164,6 +164,10 @@
                 @test relabeled("vgio/cameras/v3") === nothing                                # no composed lens: a v3 record as well
                 @test occursin("vgio/cameras/v2 lens is", something(relabeled("vgio/cameras/v2"), ""))
                 @test occursin("vgio/camera/v1 record", something(relabeled(v1), ""))
+            elseif startswith(name, "generic")
+                @test doc[:schema] == "vgio/generic_camera/v3"
+                @test occursin("no migration reads", something(relabeled(v1), ""))
+                @test relabeled("vgio/generic_camera/v2") === nothing                         # every node held: a v2 record as well
             elseif endswith(doc[:schema], "/v3")
                 @test occursin("no migration reads", something(relabeled(v1), ""))
                 @test occursin("no migration reads", something(relabeled(replace(doc[:schema], "/v3" => "/v2")), ""))

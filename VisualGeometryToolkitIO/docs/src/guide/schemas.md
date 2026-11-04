@@ -139,7 +139,9 @@ file keeps loading: `load` runs the file's version steps in memory, one step
 per version, and reads the current record they give (see
 [The Kinds](kinds.md#Reading-an-earlier-version)). Read this way:
 `cameras/v1`–`v3` (the v1/v2 lenses as VGC's lens families, each the same
-map), `target/v1`–`v2` and `rig/v4`–`v5`.
+map), `target/v1`–`v2`, `rig/v4`–`v5` and `generic_camera/v2` (every node
+present: v3 lists the nodes a grid model holds, `present`, and stores only
+those).
 
 A version no published file holds, and that no step reads, is refused by
 name. A v1 or v2 transforms or trajectory file never had a migration,

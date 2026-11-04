@@ -57,7 +57,8 @@ minimal:
 EVERY EARLIER VERSION A PUBLISHED FILE HOLDS IS READ, and only the current one
 is written. A schema change must not force the published data (Zenodo, Hugging
 Face; multi-GB archives) to be uploaded again, so a published file keeps
-loading: a reader that meets cameras v1–v3, target v1–v2 or rig v4–v5 runs the
+loading: a reader that meets cameras v1–v3, target v1–v2, rig v4–v5 or
+generic_camera v2 runs the
 version steps in memory (`migrate_record`: one `migrate_schema(::Val{schema},
 tree)` step per version, migrate.jl), silently but for an `@debug`, and reads
 the current record they give. `vgio_migrate` rewrites a file once with the same
@@ -105,7 +106,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     Rigid, ThinPlateSpline, HeightField, Scale, Aspect, Skew, TARGET_CALIBRATION_TAGS, calibration_tag, parameter_vector, length_mask,
     TARGET_CALIBRATION_ORDER, planar_kind, members, is_pure_bending, ThinPlateSplineSystem, iwasawa_parameters_with_jacobian, strip_or_bare,
     Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D, TargetPoint2D, TargetPoint3D,
-    CentralGenericModel, NoncentralGenericModel, nominal_intrinsics, LogicalIntrinsics, Ellipse, WholePlane,
+    CentralGenericModel, NoncentralGenericModel, nominal_intrinsics, present_nodes, LogicalIntrinsics, Ellipse, WholePlane,
     Frame, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, UnlabeledFrame,
     Uncertain, CovMat, geom,
     Point2, FeatureFrame, Disc, OrientedDisc, EllipticFrame, AffineFrame, AbstractDetection,

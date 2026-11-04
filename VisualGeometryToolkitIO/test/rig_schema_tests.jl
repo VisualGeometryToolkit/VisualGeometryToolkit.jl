@@ -83,7 +83,7 @@ end
     end
 end
 
-@testitem "generic camera round trip (vgio/generic_camera/v2)" setup = [VGIoFixtures] begin
+@testitem "generic camera round trip (vgio/generic_camera/v3)" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitCore: Rig, PosedCamera, ViewFrame, NoncentralGenericModel, Vec3, relabel, ids, model
     using Rotations: RotXYZ
 

@@ -1,12 +1,12 @@
 # =============================================================================
-# vgio/generic_camera/v2 — the Schöps et al. grid models, serialized
+# vgio/generic_camera/v3 — the Schöps et al. grid models, serialized
 # =============================================================================
 #
 # One model per file, field names mirroring the reference implementation's
 # YAML tags (puzzlepaint/camera_calibration) so the two formats translate
 # one-to-one:
 #
-# {"schema": "vgio/generic_camera/v2",
+# {"schema": "vgio/generic_camera/v3",
 #  "pixel_frame": "colmap",                        VGC's grid models ARE in it
 #  "length_unit": "mm",                            non-central only (point_grid)
 #  "type": "CentralGenericModel" | "NoncentralGenericModel",
@@ -14,8 +14,9 @@
 #  "calibration_min_x": …, "calibration_min_y": …,
 #  "calibration_max_x": …, "calibration_max_y": …,
 #  "grid_width": …, "grid_height": …, "grid_layout": "row_major",
-#  "direction_grid": [[x, y, z], …],               entry y·grid_width + x
-#  "point_grid":     [[x, y, z], …],               non-central only
+#  "present": [[row, [[col_lo, col_hi], …]], …],   (optional) the present nodes: runs per lattice row, 0-based, inclusive; absent = every node
+#  "direction_grid": [[x, y, z], …],               the present nodes, row-major
+#  "point_grid":     [[x, y, z], …],               non-central only, the same nodes
 #  "nominal_intrinsics": [fx, fy, cx, cy, skew],   (optional) the pinhole the model reports with, px
 #  "domain": {"ellipse": [cx, cy, a, b, θ]},       (optional) the source's imaged region, px; absent = the whole plane
 #  "provenance": {…}}                               (optional)
@@ -24,11 +25,24 @@
 # the reference's convention (origin at the top-left corner of the top-left
 # pixel) is exactly that frame — so the declaration can only be "colmap", and a
 # reader refuses any other rather than shifting a grid it cannot shift. The
-# grids are the model's ~10,000 parameters (~200 KB of JSON at the paper's grid
-# size), still configuration-adjacent and diffable. A rig whose sensor carries
-# a generic model embeds this BODY (no schema or declarations — the rig
-# declares them) where a parametric sensor embeds a camera body; it carries its
-# own width/height, so a bare `PosedCamera` sensor suffices.
+# grids are the model's parameters (~10,000 nodes, ~200 KB of JSON at the
+# paper's grid size, less the nodes a model does not hold), still
+# configuration-adjacent and diffable. A rig whose sensor carries a generic
+# model embeds this BODY (no schema or declarations — the rig declares them)
+# where a parametric sensor embeds a camera body; it carries its own
+# width/height, so a bare `PosedCamera` sensor suffices.
+#
+# THE PRESENT NODES (v3, 2026-11). A model holds the nodes of its lattice that
+# its imaged region reaches (Core's `present_nodes`); the others are absent and
+# have no value. `present` lists the held nodes as runs per lattice row — every
+# row that holds one, rows increasing, its runs `[col_lo, col_hi]` increasing
+# and apart (any shape: convex, cut by the frame, with holes) — and the grids
+# hold exactly those nodes, row by row. A model reads back with NaN in its
+# absent slots, which no evaluation reads. A body carries `present` only for a
+# model that does not hold every node, and a body without it holds every node:
+# the standalone file's and a rig sensor's alike, so rig/v6's bodies still read
+# as they are and a `vgio/generic_camera/v2` file is a v3 record as it stands
+# (its version step changes only the schema).
 #
 # The point grid is a plain model's numbers: VGC's grid models hold
 # `Vec3{T}`, so the points are plain METRES in memory — the unit VGC strips a
@@ -45,6 +59,33 @@
 # for bit; a domain of any other region type is refused by the writer. Schöps' YAML carries neither: its models read with
 # none and the whole plane.
 
+# The runs of present nodes per lattice row, `[[row, [[lo, hi], …]], …]`:
+# each row once, rows increasing, its runs nonempty, increasing and apart (a
+# gap of at least one node), every index a non-negative integer. The lattice's
+# bounds and the node count are the body's check (`_generic_check`).
+struct _RowRuns <: _Spec end
+function _validate(::_RowRuns, x, file, at)
+    x isa AbstractVector || _refuse(file, at, "expected an array of [row, [[col_lo, col_hi], …]] entries")
+    isint(v) = v isa Integer && !(v isa Bool) && v >= 0
+    last_row = -1
+    for (i, e) in enumerate(x)
+        a = "$(at)[$(i)]"
+        (e isa AbstractVector && length(e) == 2 && isint(e[1]) && e[2] isa AbstractVector && !isempty(e[2])) ||
+            _refuse(file, a, "expected [row, [[col_lo, col_hi], …]], a row index and its nonempty runs")
+        e[1] > last_row || _refuse(file, a, "rows are listed once, increasing; row $(e[1]) follows row $(last_row)")
+        last_row = e[1]
+        last_hi = -2
+        for (j, r) in enumerate(e[2])
+            (r isa AbstractVector && length(r) == 2 && isint(r[1]) && isint(r[2]) && r[1] <= r[2]) ||
+                _refuse(file, "$(a)[2][$(j)]", "expected a run [col_lo, col_hi] of non-negative integers, col_lo ≤ col_hi")
+            r[1] > last_hi + 1 ||
+                _refuse(file, "$(a)[2][$(j)]", "a row's runs are increasing and apart; [$(r[1]), $(r[2])] follows a run ending at $(last_hi)")
+            last_hi = r[2]
+        end
+    end
+    return nothing
+end
+
 const _GRID = _Vec(_XYZ)
 const _GENERIC_TYPES = ("CentralGenericModel", "NoncentralGenericModel")
 const _GENERIC_BODY_FIELDS = Pair{Symbol, _Spec}[
@@ -57,18 +98,31 @@ const _GENERIC_BODY_FIELDS = Pair{Symbol, _Spec}[
     :direction_grid => _GRID,
 ]
 
+# The number of nodes a body's runs hold (every node of the lattice without them).
+_present_count(x) = haskey(x, :present) ?
+    sum(r[2] - r[1] + 1 for e in x[:present] for r in e[2]; init = 0) : x[:grid_width] * x[:grid_height]
+
 # The body's own check, shared by the standalone file and a rig sensor: a
-# point grid exactly when the model is non-central, and grids of the declared
-# size.
+# point grid exactly when the model is non-central, runs inside the lattice,
+# and grids of the held nodes' count.
 function _generic_check(x)
     noncentral = x[:type] == "NoncentralGenericModel"
     noncentral == haskey(x, :point_grid) ||
         return noncentral ? "a NoncentralGenericModel needs its point_grid" : "a CentralGenericModel has no point_grid"
-    n = x[:grid_width] * x[:grid_height]
+    if haskey(x, :present)
+        isempty(x[:present]) && return "`present` holds no node"
+        for e in x[:present]
+            e[1] < x[:grid_height] || return "`present` names row $(e[1]) of a lattice of grid_height = $(x[:grid_height]) rows"
+            last(e[2])[2] < x[:grid_width] ||
+                return "`present` names column $(last(e[2])[2]) of a lattice of grid_width = $(x[:grid_width]) columns"
+        end
+    end
+    n = _present_count(x)
+    what = haskey(x, :present) ? "the $(n) nodes `present` holds" : "grid_width × grid_height = $(n)"
     length(x[:direction_grid]) == n ||
-        return "direction_grid has $(length(x[:direction_grid])) entries, expected grid_width × grid_height = $(n)"
+        return "direction_grid has $(length(x[:direction_grid])) entries, expected $(what)"
     (noncentral && length(x[:point_grid]) != n) &&
-        return "point_grid has $(length(x[:point_grid])) entries, expected grid_width × grid_height = $(n)"
+        return "point_grid has $(length(x[:point_grid])) entries, expected $(what)"
     # the domain ellipse as Core's `Ellipse` holds it — semi-axes positive, the
     # major first — so it reads back as the numbers the file holds; the nominal
     # pinhole's focal lengths positive (K maps the image the right way up, K⁻¹
@@ -87,7 +141,7 @@ end
 
 const _GENERIC_DOMAIN = _Obj(:ellipse => _Vec(_Real(), 5))
 const _GENERIC_OPTIONAL = Pair{Symbol, _Spec}[:nominal_intrinsics => _Vec(_Real(), 5), :domain => _GENERIC_DOMAIN]
-const _GENERIC_BODY = _Checked(_Obj(_GENERIC_BODY_FIELDS, Pair{Symbol, _Spec}[:point_grid => _GRID, _GENERIC_OPTIONAL...]), _generic_check)
+const _GENERIC_PRESENT = Pair{Symbol, _Spec}[:present => _RowRuns()]
 const _GENERIC_CAMERA_SPEC = _Checked(
     _Obj(
         Pair{Symbol, _Spec}[
@@ -95,7 +149,7 @@ const _GENERIC_CAMERA_SPEC = _Checked(
             :pixel_frame => _Tok(pixel_frame_name(CANONICAL_PIXEL_FRAME)),
             _GENERIC_BODY_FIELDS...,
         ],
-        Pair{Symbol, _Spec}[:length_unit => _LENGTH_UNIT, :point_grid => _GRID, _GENERIC_OPTIONAL..., _PROVENANCE...],
+        Pair{Symbol, _Spec}[:length_unit => _LENGTH_UNIT, :point_grid => _GRID, _GENERIC_OPTIONAL..., _GENERIC_PRESENT..., _PROVENANCE...],
     ),
     x -> something(
         _generic_check(x),
@@ -105,20 +159,50 @@ const _GENERIC_CAMERA_SPEC = _Checked(
     ),
 )
 
-_grid_json(g::Matrix{<:Vec3}) =
-    [[Float64(v[1]), Float64(v[2]), Float64(v[3])] for gy in 1:size(g, 1) for v in (g[gy, :]...,)]
-# a point grid (plain metres) in the file's length unit
-_point_grid_json(g::Matrix{<:Vec3}, unit::Units) =
-    [Float64[_write_power(Float64(v[k]), unit, 1) for k in 1:3] for gy in 1:size(g, 1) for v in (g[gy, :]...,)]
+# The present nodes of a `[gy, gx]` mask as runs per row, 0-based and inclusive.
+function _present_runs(P::AbstractMatrix{Bool})
+    rows = Any[]
+    for gy in 1:size(P, 1)
+        runs = Any[]
+        gx = 1
+        while gx <= size(P, 2)
+            if P[gy, gx]
+                lo = gx
+                while gx < size(P, 2) && P[gy, gx + 1]
+                    gx += 1
+                end
+                push!(runs, [lo - 1, gx - 1])
+            end
+            gx += 1
+        end
+        isempty(runs) || push!(rows, Any[gy - 1, runs])
+    end
+    return rows
+end
+# The runs back to a `[gy, gx]` mask of a `gh × gw` lattice.
+function _present_from_runs(runs, gw::Int, gh::Int)
+    P = falses(gh, gw)
+    for e in runs, r in e[2]::Vector{Any}
+        P[(e[1]::Integer) + 1, ((r[1]::Integer) + 1):((r[2]::Integer) + 1)] .= true
+    end
+    return P
+end
 
-# A grid back from its row-major entries: a direction grid as stored, a point
-# grid read in the file's length unit into plain metres.
-function _grid_from_json(a, gw::Int, gh::Int; unit::Units = mm, is_points::Bool = false)
-    g = Matrix{Vec3{Float64}}(undef, gh, gw)
-    for (i, v) in enumerate(a)
-        gy, gx = divrem(i - 1, gw)
+# The held nodes of a grid, row by row: a direction grid as stored, a point
+# grid (plain metres) in the file's length unit.
+_grid_json(g::Matrix{<:Vec3}, P::AbstractMatrix{Bool}) =
+    [[Float64(g[gy, gx][k]) for k in 1:3] for gy in 1:size(g, 1) for gx in 1:size(g, 2) if P[gy, gx]]
+_point_grid_json(g::Matrix{<:Vec3}, P::AbstractMatrix{Bool}, unit::Units) =
+    [Float64[_write_power(Float64(g[gy, gx][k]), unit, 1) for k in 1:3] for gy in 1:size(g, 1) for gx in 1:size(g, 2) if P[gy, gx]]
+
+# A grid back from its held nodes' row-major entries: a direction grid as
+# stored, a point grid read in the file's length unit into plain metres; NaN in
+# the absent slots (no value: no evaluation reads one).
+function _grid_from_json(a, P::AbstractMatrix{Bool}; unit::Units = mm, is_points::Bool = false)
+    g = fill(Vec3{Float64}(NaN, NaN, NaN), size(P))
+    for (I, v) in zip(findall(permutedims(P)), a)    # the held nodes in row-major order
         xyz = Float64[is_points ? _read_power(c::Real, unit, 1) : Float64(c::Real) for c in v::Vector{Any}]
-        g[gy + 1, gx + 1] = Vec3{Float64}(xyz...)
+        g[I[2], I[1]] = Vec3{Float64}(xyz...)
     end
     return g
 end
@@ -142,32 +226,35 @@ function _generic_extras_from(d)
     return (; nominal, domain)
 end
 
-_generic_body(m::CentralGenericModel, u::Units = mm) = merge(_generic_body_core(m, u), _generic_extras(m))
-_generic_body(m::NoncentralGenericModel, u::Units = mm) = merge(_generic_body_core(m, u), _generic_extras(m))
-_generic_body_core(m::CentralGenericModel, ::Units = mm) = (
-    type = "CentralGenericModel",
+# A model's body, the standalone file's and a rig sensor's: `present` for a
+# model that does not hold every node.
+function _generic_body(m::Union{CentralGenericModel, NoncentralGenericModel}, u::Units = mm)
+    P = present_nodes(m)
+    pres = all(P) ? (;) : (present = _present_runs(P),)
+    return merge(_generic_body_core(m, P, u, pres), _generic_extras(m))
+end
+_generic_header(m, grid, pres) = (
+    type = String(nameof(typeof(m))),
     width = m.width, height = m.height,
     calibration_min_x = m.calib_min_x, calibration_min_y = m.calib_min_y,
     calibration_max_x = m.calib_max_x, calibration_max_y = m.calib_max_y,
-    grid_width = size(m.grid, 2), grid_height = size(m.grid, 1), grid_layout = _GRID_LAYOUT,
-    direction_grid = _grid_json(m.grid),
+    grid_width = size(grid, 2), grid_height = size(grid, 1), grid_layout = _GRID_LAYOUT,
+    pres...,
 )
+_generic_body_core(m::CentralGenericModel, P, ::Units, pres) =
+    merge(_generic_header(m, m.grid, pres), (direction_grid = _grid_json(m.grid, P),))
 # The point grid (plain metres) is written in the file's `unit`.
-_generic_body_core(m::NoncentralGenericModel, unit::Units = mm) = (
-    type = "NoncentralGenericModel",
-    width = m.width, height = m.height,
-    calibration_min_x = m.calib_min_x, calibration_min_y = m.calib_min_y,
-    calibration_max_x = m.calib_max_x, calibration_max_y = m.calib_max_y,
-    grid_width = size(m.directions, 2), grid_height = size(m.directions, 1), grid_layout = _GRID_LAYOUT,
-    direction_grid = _grid_json(m.directions),
-    point_grid = _point_grid_json(m.points, unit),
+_generic_body_core(m::NoncentralGenericModel, P, unit::Units, pres) = merge(
+    _generic_header(m, m.directions, pres),
+    (direction_grid = _grid_json(m.directions, P), point_grid = _point_grid_json(m.points, P, unit)),
 )
 
 # A validated body back to the model; `unit` is the length unit the enclosing
 # file declares (read only for a non-central point grid).
 function _generic_from_body(d, unit::Units)
     gw, gh = Int(d.grid_width::Integer), Int(d.grid_height::Integer)
-    dirs = _grid_from_json(d.direction_grid::Vector{Any}, gw, gh)
+    P = haskey(d, :present) ? _present_from_runs(d.present::Vector{Any}, gw, gh) : trues(gh, gw)
+    dirs = _grid_from_json(d.direction_grid::Vector{Any}, P)
     args = (
         Int(d.width::Integer), Int(d.height::Integer),
         Int(d.calibration_min_x::Integer), Int(d.calibration_min_y::Integer),
@@ -176,17 +263,18 @@ function _generic_from_body(d, unit::Units)
     # the controls as stored (a model's controls may be off the sphere — a quasi-interpolated start, a tangent-plane optimizer's
     # result — and a re-normalization would change its spline; a unit grid reads back unit either way)
     x = _generic_extras_from(d)
-    d.type == "CentralGenericModel" && return CentralGenericModel(args..., dirs; unit_controls = false, x...)
-    return NoncentralGenericModel(args..., dirs, _grid_from_json(d.point_grid::Vector{Any}, gw, gh; unit, is_points = true);
-                                  unit_controls = false, x...)
+    d.type == "CentralGenericModel" && return CentralGenericModel(args..., dirs; unit_controls = false, x..., present = P)
+    return NoncentralGenericModel(args..., dirs, _grid_from_json(d.point_grid::Vector{Any}, P; unit, is_points = true);
+                                  unit_controls = false, x..., present = P)
 end
 
 """
     save(path, m::CentralGenericModel; provenance = (;))
     save(path, m::NoncentralGenericModel; length_unit = mm, provenance = (;))
 
-Write a generic grid camera model as a `vgio/generic_camera/v2` file (field
-names mirror the reference implementation's YAML tags; grids row-major, in
+Write a generic grid camera model as a `vgio/generic_camera/v3` file (field
+names mirror the reference implementation's YAML tags; the nodes the model
+holds, `present` as runs per lattice row and the grids row-major over them, in
 the COLMAP pixel frame; a non-central point grid — plain metres in memory —
 in `length_unit`).
 """
@@ -204,9 +292,10 @@ end
     load(CentralGenericModel, path) -> CentralGenericModel
     load(NoncentralGenericModel, path; file_unit = nothing) -> NoncentralGenericModel
 
-Read a `vgio/generic_camera/v2` file (a non-central point grid into plain
-metres), or the reference implementation's own `intrinsics0.yaml` (Schöps et
-al.'s camera_calibration; the form is decided by the file's content, see
+Read a `vgio/generic_camera/v3` file (a non-central point grid into plain
+metres; the absent nodes NaN, which no evaluation reads) or a
+`vgio/generic_camera/v2` one (every node present), or the reference
+implementation's own `intrinsics0.yaml` (Schöps et al.'s camera_calibration; the form is decided by the file's content, see
 schoeps.jl). The typed load is an assertion of intent: loading a central record as
 non-central (or vice versa) errors.
 

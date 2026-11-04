@@ -88,7 +88,11 @@ reports it.
 - `visible_origin::NTuple{2, Int}` — `(top_margin, left_margin)`, the visible
   area's offset into the full raw frame, which is `raw_size` (`(height, width)`).
 - `metadata::NamedTuple` — the EXIF fields (`datetime_original`, `subsec`,
-  `exposure_s`, `fnumber`, `focal_mm`, `iso`, `model`; `nothing` where absent),
+  `exposure_s`, `fnumber`, `focal_mm`, `iso`, `model`, `make`, `body_serial`,
+  `lens_make`, `lens_model`, `lens_serial`, `focus_distance_m`; `nothing` where
+  absent, a non-finite or non-positive focus distance too; typed by
+  [`exposure_settings`](@ref), [`lens_settings`](@ref), [`body_identity`](@ref),
+  [`lens_identity`](@ref) and [`capture_time`](@ref)),
   `daylight_wb` (LibRaw's daylight white balance, R G B), `linear_max` (the
   camera's declared linear-response limit per channel, `nothing` when the file
   has none), `decoder` and `libraw_version`.
@@ -362,3 +366,165 @@ the white level.
 """
 load_raw(path::AbstractString; mode::Symbol, gain::Real = 1, decoder::RawDecoder = LibRawDecoder()) =
     LinearRaw(load_raw_mosaic(path; decoder); mode, gain)
+
+# -----------------------------------------------------------------------------
+# The EXIF fields as Core's typed values: settings and identities
+# -----------------------------------------------------------------------------
+#
+# `metadata` keeps the decoder's fields as it read them; the accessors below
+# are the one place they become Core's ExposureSettings, LensSettings and
+# DeviceIdentity values, so no fact is held twice.
+
+# The metadata-only hook: a decoder whose library can read the headers without
+# the photosites adds a method (LibRaw); otherwise the file is decoded.
+_decode_metadata(decoder::RawDecoder, path::AbstractString) = _decode_raw(decoder, path).metadata
+
+"""
+    load_raw_metadata(path; decoder::RawDecoder = LibRawDecoder()) -> NamedTuple
+
+The EXIF fields of a camera RAW file, as [`RawMosaic`](@ref)'s `metadata`
+holds them, without keeping the photosites: [`LibRawDecoder`](@ref) reads the
+headers only (no unpack), [`RawpyDecoder`](@ref) decodes the file. The typed
+accessors ([`exposure_settings`](@ref), …) take it as they take a mosaic.
+"""
+function load_raw_metadata(path::AbstractString; decoder::RawDecoder = LibRawDecoder())
+    isfile(path) || throw(ArgumentError("load_raw_metadata: no file at $path"))
+    return _decode_metadata(decoder, String(path))::NamedTuple
+end
+
+# A focus distance a file reports, in metres: a marker (a lens at "infinity",
+# an unset 0, a negative or NaN value, EXIF SubjectDistance's 0xFFFFFFFF) is
+# no distance and is `nothing`. The measured Sony ARWs (an FX3, an adapted
+# manual-focus lens) report infinity.
+const _EXIF_INFINITY = 4294967295   # SubjectDistance's "infinity" (0xFFFFFFFF/1)
+_focus_distance(::Nothing) = nothing
+_focus_distance(d::Real) = (isfinite(d) && 0 < d < _EXIF_INFINITY) ? Float64(d) : nothing
+
+_raw_metadata(x::RawMosaic) = x.metadata
+_raw_metadata(x::NamedTuple) = x
+function _stated(md::NamedTuple, k::Symbol, what::AbstractString)
+    v = get(md, k, nothing)
+    v === nothing && throw(ArgumentError("$(what): the RAW's metadata states no `$(k)` (its EXIF has none)"))
+    return v
+end
+_text(::Nothing) = nothing
+_text(s::AbstractString) = (t = strip(s); isempty(t) ? nothing : String(t))
+
+"""
+    exposure_settings(x) -> ExposureSettings
+
+The exposure a RAW frame was taken with — `x` a [`RawMosaic`](@ref) or its
+`metadata` ([`load_raw_metadata`](@ref)) — as Core's `ExposureSettings`:
+`exposure_s` seconds, `fnumber`, `iso`. A field the file does not state is an
+`ArgumentError` naming it.
+"""
+exposure_settings(x::Union{RawMosaic, NamedTuple}) = _exposure_settings(_raw_metadata(x), parse_unit("s"))
+# `sec`, the second, parsed once by the caller: Core keeps no public time
+# constant, and `parse_unit` cannot run while a package precompiles (FlexUnits'
+# parse evaluates into its registry module), so it is parsed at call time.
+_exposure_settings(md::NamedTuple, sec) = ExposureSettings(
+    _stated(md, :exposure_s, "exposure_settings") * sec,
+    _stated(md, :fnumber, "exposure_settings"), _stated(md, :iso, "exposure_settings"),
+)
+
+"""
+    lens_settings(x) -> LensSettings
+
+The lens settings a RAW frame was taken with, as Core's `LensSettings`: the
+focal length the lens reports (`focal_mm`, the NOMINAL value, not a
+calibration) and the focus distance where the file states a finite, positive
+one (`nothing` otherwise — the FX3's adapted lenses report infinity). A file
+without a focal length is an `ArgumentError`.
+"""
+function lens_settings(x::Union{RawMosaic, NamedTuple})
+    md = _raw_metadata(x)
+    d = _focus_distance(get(md, :focus_distance_m, nothing))
+    return LensSettings(_stated(md, :focal_mm, "lens_settings") * mm, d === nothing ? nothing : d * m)
+end
+
+"""
+    body_identity(x) -> DeviceIdentity
+
+The camera body a RAW file says took it (`make`, `model`, `body_serial`), as
+Core's `DeviceIdentity`; a field the file does not state is `nothing`.
+"""
+function body_identity(x::Union{RawMosaic, NamedTuple})
+    md = _raw_metadata(x)
+    return DeviceIdentity(_text(get(md, :make, nothing)), _text(get(md, :model, nothing)), _text(get(md, :body_serial, nothing)))
+end
+
+"""
+    lens_identity(x) -> DeviceIdentity
+
+The lens a RAW file CLAIMS took it (`lens_make`, `lens_model`,
+`lens_serial`). Kept, not trusted: a lens on an adapter is named by what the
+adapter reports (the FX3 with Sigma EF lenses claims "DT 8mm F4 SAM"), so a
+pipeline that knows its lens states it ([`extract_capture_settings`](@ref)'s `lens`).
+"""
+function lens_identity(x::Union{RawMosaic, NamedTuple})
+    md = _raw_metadata(x)
+    return DeviceIdentity(_text(get(md, :lens_make, nothing)), _text(get(md, :lens_model, nothing)), _text(get(md, :lens_serial, nothing)))
+end
+
+"""
+    capture_time(x) -> Union{String, Nothing}
+
+When a RAW frame was taken, as the file states it: EXIF's
+DateTimeOriginal (local time, no zone) with its SubSecTimeOriginal, written
+ISO 8601 (`"2026-10-29T14:03:12.34"`); `nothing` when the file states none.
+"""
+function capture_time(x::Union{RawMosaic, NamedTuple})
+    md = _raw_metadata(x)
+    dt = get(md, :datetime_original, nothing)
+    (dt === nothing || !occursin(r"\d", dt)) && return nothing   # EXIF's unknown time: blanks, the colons kept
+    mt = Base.match(r"^(\d{4}):(\d{2}):(\d{2}) (\d{2}:\d{2}:\d{2})$", strip(dt))
+    mt === nothing && throw(ArgumentError("capture_time: DateTimeOriginal $(repr(dt)) is not EXIF's YYYY:MM:DD HH:MM:SS"))
+    ss = strip(something(get(md, :subsec, ""), ""))
+    return "$(mt[1])-$(mt[2])-$(mt[3])T$(mt[4])" * (isempty(ss) ? "" : ".$(ss)")
+end
+
+# Two identities agree unless a field both state differs (case aside: LibRaw
+# writes a maker as "Sony" where EXIF has "SONY").
+_fields(d::DeviceIdentity) = (d.make, d.model, d.serial)
+_agrees(a::DeviceIdentity, b::DeviceIdentity) =
+    all(((x, y),) -> x === nothing || y === nothing || lowercase(x) == lowercase(y), zip(_fields(a), _fields(b)))
+# Identities that agree pairwise, as one: each field the first that states it.
+_first_stated(xs) = (i = findfirst(!isnothing, xs); i === nothing ? nothing : xs[i])
+_merged(ids) = DeviceIdentity((_first_stated(xs) for xs in zip(map(_fields, ids)...))...)
+function _one_identity(ids, what)
+    all(a -> all(b -> _agrees(a, b), ids), ids) ||
+        throw(ArgumentError("extract_capture_settings: the frames name $(length(unique(ids))) $(what)s, $(unique(ids)); a capture has one"))
+    return _merged(ids)
+end
+
+"""
+    extract_capture_settings(frames; lens = nothing) -> CaptureSettings
+
+The camera settings of a capture from its RAW files' EXIF: `frames` maps a
+frame index to a [`RawMosaic`](@ref) or its `metadata`
+([`load_raw_metadata`](@ref)); each frame's settings are
+[`exposure_settings`](@ref) and [`lens_settings`](@ref). The body is the
+frames' [`body_identity`](@ref), which must be one (identities agree when no
+field both state differs, case aside; `ArgumentError` otherwise). The lens
+is `lens` where the caller states it — a config knows an adapted lens EXIF
+misnames — and the frames' one EXIF claim otherwise ([`lens_identity`](@ref),
+which must then agree across the frames); a stated lens that disagrees with
+EXIF is used, with a warning naming both. EXIF's claim stays readable from
+the metadata.
+"""
+function extract_capture_settings(frames::AbstractDict{<:Integer}; lens::Union{Nothing, DeviceIdentity} = nothing)
+    isempty(frames) && throw(ArgumentError("extract_capture_settings: no frames"))
+    mds = Dict{Int, NamedTuple}(Int(t) => _raw_metadata(x) for (t, x) in frames)
+    ts = sort!(collect(keys(mds)))                      # frame order: the earliest frame stating a field gives it
+    body = _one_identity([body_identity(mds[t]) for t in ts], "camera body")
+    claims = unique(lens_identity(mds[t]) for t in ts)
+    if lens === nothing
+        lens = _one_identity(claims, "lens")
+    elseif !all(c -> _agrees(lens, c), claims)
+        @warn "extract_capture_settings: the stated lens overrides what the RAW files' EXIF claims" stated = lens exif = claims
+    end
+    sec = parse_unit("s")
+    return CaptureSettings(
+        Dict(t => (exposure = _exposure_settings(md, sec), lens_settings = lens_settings(md)) for (t, md) in mds); body, lens,
+    )
+end

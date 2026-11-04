@@ -1,5 +1,24 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.4.2 (2026-11-04)
+
+Additive: `RawMosaic.metadata` keeps its type and every field it had.
+
+- **The RAW's EXIF as Core's typed values**: `exposure_settings`,
+  `lens_settings`, `body_identity`, `lens_identity` and `capture_time`
+  (public) of a `RawMosaic` or its metadata, and `extract_capture_settings(frames;
+  lens = nothing)`, a capture's `CaptureSettings` (one body; a stated lens
+  overrides EXIF's claim, with a warning when they disagree: an adapted lens
+  is misnamed, the FX3 with Sigma EF lenses claims a Sony "DT" lens).
+- **`load_raw_metadata(path; decoder)`**: the EXIF fields alone; LibRaw reads
+  the headers without unpacking the photosites.
+- `metadata` gains `make`, `body_serial`, `lens_make`, `lens_model`,
+  `lens_serial` and `focus_distance_m` (`nothing` where absent; a non-finite
+  or non-positive focus distance too, never a distance). LibRaw: the lens from
+  `libraw_get_lensinfo` (its leading fields mirrored, the offset checked);
+  no body serial or focus distance. rawpy: the EXIF tags.
+- Compat: VisualGeometryToolkitCore 0.5.4.
+
 ## 0.4.1 (2026-11-04)
 
 - **New `load_raw(path; mode, gain = 1, decoder = LibRawDecoder())`**: a camera

@@ -38,6 +38,7 @@ using VisualGeometryToolkitCore: Csponds  # #21 correspondence layer
 using VisualGeometryToolkitCore: default_device   # the family's one KA backend resolver — never a hardcoded KA.CPU()
 using VisualGeometryToolkitCore: AbstractDetection, FeatureFrame, OrientedDisc, AffineFrame, PointFrame
 using VisualGeometryToolkitCore: characteristic_scale
+using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, CaptureSettings, parse_unit, mm, m   # a RAW's EXIF, typed (raw_image.jl)
 using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain, implicit_covariance, propagate   # keypoint uncertainty
 import VisualGeometryToolkitCore: cov, geom   # extended for Detections of an Uncertain frame
 # Extended here with Detection methods:
@@ -143,6 +144,9 @@ public srgb_to_linear, box_downsample, gaussian_blur   # gaussian_blur: the (mas
 export load_raw, load_raw_mosaic   # a camera RAW file as exact linear values (:bin2, :green), and its decoded mosaic
 export LinearRaw, RawMosaic, RawDecoder, LibRawDecoder, RawpyDecoder
 public cfa_string, photosite_colors   # the pattern as letters; each photosite's colour index (the pattern tiled)
+export load_raw_metadata        # a RAW file's EXIF fields alone (no photosites decoded)
+public exposure_settings, lens_settings, body_identity, lens_identity, capture_time   # a RAW's EXIF as Core's typed values
+export extract_capture_settings # frame index → RAW metadata in, Core's CaptureSettings out
 export batched_rows             # the describe backends' chunking skeleton
 export detect_mser, region_mask   # MSER (VLFeat's selection on ImageMorphology's MaxTree)
 public MserRegion, boundary_contours

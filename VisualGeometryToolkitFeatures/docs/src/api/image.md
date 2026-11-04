@@ -26,6 +26,14 @@ differs in precision only: LibRaw stores exposure, f-number and focal length as
 `Float32` (`0.01666666753590107` s for exifread's `1/60`) and keeps no
 sub-second time (`subsec = ""`).
 
+The EXIF fields become VisualGeometryToolkitCore's typed values through
+[`exposure_settings`](@ref), [`lens_settings`](@ref), [`body_identity`](@ref),
+[`lens_identity`](@ref) and [`capture_time`](@ref), from a mosaic or from
+[`load_raw_metadata`](@ref) (the headers only); [`extract_capture_settings`](@ref)
+gathers a capture's frames into a `CaptureSettings`. A lens's EXIF name is a
+claim: on an adapter (the FX3 with Sigma EF lenses) it names another lens, so a
+pipeline that knows its lens states it.
+
 ```@autodocs
 Modules = [VisualGeometryToolkitFeatures]
 Pages = ["raw_image.jl"]

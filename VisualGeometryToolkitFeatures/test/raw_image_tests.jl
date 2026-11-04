@@ -200,3 +200,74 @@ end
         @test_skip "VGTK_RAW_TEST_FILE names no RAW file"
     end
 end
+
+@testitem "raw: EXIF as typed settings and identities" begin
+    using Test
+    using VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    using VisualGeometryToolkitCore: ExposureSettings, LensSettings, DeviceIdentity, CaptureSettings, is_constant,
+        parse_unit, mm, m, ustrip
+    s = parse_unit("s")
+    # a decoder's metadata, as the LibRaw decoder fills it for a Sony FX3 ARW behind an EF adapter
+    md = (; datetime_original = "2026:10:29 14:03:12", subsec = "34", exposure_s = Float64(Float32(1 / 250)),
+          fnumber = 8.0, focal_mm = 14.0, iso = 100, model = "ILME-FX3", make = "Sony", body_serial = nothing,
+          lens_make = nothing, lens_model = "DT 8mm F4 SAM", lens_serial = nothing, focus_distance_m = nothing)
+    e = VgtkFeatures.exposure_settings(md)
+    @test e == ExposureSettings(Float64(Float32(1 / 250)) * s, 8, 100)        # LibRaw's Float32 shutter, as stored
+    @test VgtkFeatures.lens_settings(md) == LensSettings(14.0mm)
+    @test VgtkFeatures.body_identity(md) == DeviceIdentity(; make = "Sony", model = "ILME-FX3")
+    @test VgtkFeatures.lens_identity(md) == DeviceIdentity(; model = "DT 8mm F4 SAM")
+    @test VgtkFeatures.capture_time(md) == "2026-10-29T14:03:12.34"
+    @test VgtkFeatures.capture_time(merge(md, (subsec = "",))) == "2026-10-29T14:03:12"
+    @test VgtkFeatures.capture_time(merge(md, (datetime_original = nothing,))) === nothing
+    # a focus distance the file reports at infinity, 0 or below is absent, never a distance
+    for d in (Inf, 0.0, -1.0, NaN)
+        @test VgtkFeatures._focus_distance(d) === nothing
+        @test VgtkFeatures.lens_settings(merge(md, (focus_distance_m = VgtkFeatures._focus_distance(d),))).focus_distance === nothing
+    end
+    @test ustrip(m, VgtkFeatures.lens_settings(merge(md, (focus_distance_m = 1.5,))).focus_distance) == 1.5
+    # metadata from before these fields (a 0.4.1 decode): the identities are what it states
+    old = (; datetime_original = nothing, subsec = "", exposure_s = 0.01, fnumber = 4.0, focal_mm = 20.0, iso = 200, model = "ILME-FX3")
+    @test VgtkFeatures.body_identity(old) == DeviceIdentity(; model = "ILME-FX3")
+    @test VgtkFeatures.lens_identity(old) == DeviceIdentity()
+    # a field the file does not state is named
+    err = try VgtkFeatures.exposure_settings(merge(md, (iso = nothing,))) catch x; x end
+    @test err isa ArgumentError && occursin("iso", err.msg)
+
+    # EXIF's unknown time (blanks, the colons kept) is no time; SubjectDistance's 0xFFFFFFFF is infinity
+    @test VgtkFeatures.capture_time(merge(md, (datetime_original = "    :  :     :  :  ",))) === nothing
+    @test VgtkFeatures._focus_distance(4294967295.0) === nothing
+
+    # extract_capture_settings: one body; the stated lens overrides EXIF's claim, warning with both
+    md2 = merge(md, (iso = 200,))
+    cs = extract_capture_settings(Dict(1 => md, 2 => md2))
+    @test cs isa CaptureSettings && cs.lens == DeviceIdentity(; model = "DT 8mm F4 SAM") && !is_constant(cs)
+    @test cs[2].exposure.iso == 200.0
+    sigma = DeviceIdentity(; make = "SIGMA", model = "14mm F1.8 DG HSM | Art 017")
+    cs2 = @test_logs (:warn, r"overrides") extract_capture_settings(Dict(1 => md, 2 => md); lens = sigma)
+    @test cs2.lens == sigma && is_constant(cs2)
+    @test_logs extract_capture_settings(Dict(1 => md); lens = DeviceIdentity(; model = "DT 8mm F4 SAM", serial = "123"))   # agrees: no warning
+    # one body across decoders: rawpy's EXIF "SONY" and its serial agree with LibRaw's "Sony", which states none
+    cs3 = extract_capture_settings(Dict(1 => md, 2 => merge(md, (make = "SONY", body_serial = "5123"))))
+    @test cs3.body == DeviceIdentity(; make = "Sony", model = "ILME-FX3", serial = "5123")
+    @test_throws ArgumentError extract_capture_settings(Dict(1 => md, 2 => merge(md, (model = "ILCE-7M4",))))
+    @test_throws ArgumentError extract_capture_settings(Dict(1 => md, 2 => merge(md, (lens_model = "FE 20mm F1.8 G",))))
+    @test_throws ArgumentError extract_capture_settings(Dict{Int, NamedTuple}())
+end
+
+@testitem "raw: the metadata alone (LibRaw_jll)" begin
+    using Test
+    using VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    using LibRaw_jll
+    @test_throws ArgumentError load_raw_metadata(joinpath(@__DIR__, "no-such-file.ARW"))
+    path = get(ENV, "VGTK_RAW_TEST_FILE", "")
+    if isfile(path)
+        md = load_raw_metadata(path; decoder = LibRawDecoder())
+        @test md == load_raw_mosaic(path; decoder = LibRawDecoder()).metadata     # the headers give what a decode gives
+        @test VgtkFeatures.exposure_settings(md).exposure_time > zero(VgtkFeatures.exposure_settings(md).exposure_time)
+        @test md.focus_distance_m === nothing
+    else
+        @test_skip "VGTK_RAW_TEST_FILE names no RAW file"
+    end
+end

@@ -43,6 +43,8 @@ function _exif(f::Py)
     t_dt, t_ss = tag("EXIF DateTimeOriginal"), tag("EXIF SubSecTimeOriginal")
     t_exp, t_fn, t_fl = tag("EXIF ExposureTime"), tag("EXIF FNumber"), tag("EXIF FocalLength")
     t_iso, t_model = tag("EXIF ISOSpeedRatings"), tag("Image Model")
+    text(k) = (t = tag(k); t === nothing ? nothing : VisualGeometryToolkitFeatures._text(_str(t)))
+    t_fd = tag("EXIF SubjectDistance")
     return (;
         datetime_original = t_dt === nothing ? nothing : _str(t_dt),
         subsec = t_ss === nothing ? "" : _str(t_ss),
@@ -51,6 +53,12 @@ function _exif(f::Py)
         focal_mm = t_fl === nothing ? nothing : _ratio(t_fl),
         iso = t_iso === nothing ? nothing : parse(Int, _str(t_iso)),
         model = t_model === nothing ? nothing : _str(t_model),
+        make = text("Image Make"),
+        body_serial = text("EXIF BodySerialNumber"),
+        lens_make = text("EXIF LensMake"),
+        lens_model = text("EXIF LensModel"),
+        lens_serial = text("EXIF LensSerialNumber"),
+        focus_distance_m = VisualGeometryToolkitFeatures._focus_distance(t_fd === nothing ? nothing : _ratio(t_fd)),
     )
 end
 

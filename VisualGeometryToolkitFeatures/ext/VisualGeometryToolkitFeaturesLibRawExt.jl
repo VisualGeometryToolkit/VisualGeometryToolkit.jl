@@ -156,6 +156,15 @@ struct ColorData
     ExifColorSpace::Int32
 end
 
+# The leading fields of libraw_lensinfo_t (the pointer libraw_get_lensinfo
+# returns, `lens` of libraw_data_t, right after `idata`): only these are read,
+# so only they are mirrored; the nested nikon/dng/makernotes parts that follow
+# are not.
+struct LensInfoPrefix
+    MinFocal::Float32; MaxFocal::Float32; MaxAp4MinFocal::Float32; MaxAp4MaxFocal::Float32; EXIF_MaxAp::Float32
+    LensMake::NTuple{128, UInt8}; Lens::NTuple{128, UInt8}; LensSerial::NTuple{128, UInt8}; InternalLensSerial::NTuple{128, UInt8}
+end
+
 struct GpsInfo
     latitude::NTuple{3, Float32}; longitude::NTuple{3, Float32}; gpstimestamp::NTuple{3, Float32}
     altitude::Float32
@@ -236,22 +245,34 @@ function _strerror(code)
     return unsafe_string(@ccall libraw.libraw_strerror(code::Cint)::Cstring)
 end
 
-function VisualGeometryToolkitFeatures._decode_raw(::LibRawDecoder, path::AbstractString)
+# `f(lr)` on a LibRaw handle with `path` open (its headers parsed), closed after.
+function _with_libraw(f, path::AbstractString, who::AbstractString)
     lr = @ccall libraw.libraw_init(0::Cuint)::Ptr{Cvoid}
-    lr == C_NULL && error("load_raw: libraw_init failed")
+    lr == C_NULL && error("$who: libraw_init failed")
     try
         rc = @ccall libraw.libraw_open_file(lr::Ptr{Cvoid}, path::Cstring)::Cint
-        rc == 0 || error("load_raw: LibRaw cannot open $path: $(_strerror(rc))")
-        rc = @ccall libraw.libraw_unpack(lr::Ptr{Cvoid})::Cint
-        rc == 0 || error("load_raw: LibRaw cannot unpack $path: $(_strerror(rc))")
-        return _mosaic(lr, path)
+        rc == 0 || error("$who: LibRaw cannot open $path: $(_strerror(rc))")
+        return f(lr)
     finally
         @ccall libraw.libraw_close(lr::Ptr{Cvoid})::Cvoid
     end
 end
 
-function _mosaic(lr::Ptr{Cvoid}, path::AbstractString)
-    # -- locate the structures and check the mirror against the accessors
+VisualGeometryToolkitFeatures._decode_raw(::LibRawDecoder, path::AbstractString) = _with_libraw(path, "load_raw") do lr
+    rc = @ccall libraw.libraw_unpack(lr::Ptr{Cvoid})::Cint
+    rc == 0 || error("load_raw: LibRaw cannot unpack $path: $(_strerror(rc))")
+    return _mosaic(lr, path)
+end
+
+# The file's metadata alone: the headers, no unpack.
+VisualGeometryToolkitFeatures._decode_metadata(::LibRawDecoder, path::AbstractString) = _with_libraw(path, "load_raw_metadata") do lr
+    s = _structures(lr)
+    return _metadata(s.idata_p, s.other_p, s.lens_p, s.color_p)
+end
+
+# Locate the live structures and check the mirror against the accessors
+# (checks 1–2 of the header comment; they hold once the file is open).
+function _structures(lr::Ptr{Cvoid})
     sizes_p = lr + sizeof(Ptr{Cvoid})
     idata_p = Ptr{Cvoid}(@ccall libraw.libraw_get_iparams(lr::Ptr{Cvoid})::Ptr{Cvoid})
     other_p = Ptr{Cvoid}(@ccall libraw.libraw_get_imgother(lr::Ptr{Cvoid})::Ptr{Cvoid})
@@ -273,6 +294,43 @@ function _mosaic(lr::Ptr{Cvoid}, path::AbstractString)
     for a in 0:2, b in 0:3
         _check("rgb_cam[$a][$b]", rgb[4a + b + 1] === @ccall libraw.libraw_get_rgb_cam(lr::Ptr{Cvoid}, a::Cint, b::Cint)::Cfloat)
     end
+    lens_p = Ptr{Cvoid}(@ccall libraw.libraw_get_lensinfo(lr::Ptr{Cvoid})::Ptr{Cvoid})
+    _check("lens offset", lens_p == idata_p + sizeof(IParams))
+    return (; sizes_p, sizes, idata_p, other_p, color_p, lens_p)
+end
+
+# The EXIF fields, as LibRaw parsed them; the white balance and linear limit
+# from the colour data at `wb_color_p` (the unpacked `rawdata` copy in a decode,
+# the live one when only the headers were read).
+function _metadata(idata_p::Ptr{Cvoid}, other_p::Ptr{Cvoid}, lens_p::Ptr{Cvoid}, wb_color_p::Ptr{Cvoid})
+    other = unsafe_load(Ptr{ImgOther}(other_p))
+    lens = unsafe_load(Ptr{LensInfoPrefix}(lens_p))
+    nonempty = VisualGeometryToolkitFeatures._text   # a stripped string, `nothing` when empty
+    lin = _field(wb_color_p, ColorData, :linear_max)
+    rpre = _field(wb_color_p, ColorData, :pre_mul)
+    return (;
+        datetime_original = other.timestamp == 0 ? nothing : _strftime(other.timestamp),
+        subsec = "",                                  # LibRaw keeps no SubSecTimeOriginal
+        exposure_s = other.shutter > 0 ? Float64(other.shutter) : nothing,
+        fnumber = other.aperture > 0 ? Float64(other.aperture) : nothing,
+        focal_mm = other.focal_len > 0 ? Float64(other.focal_len) : nothing,
+        iso = other.iso_speed > 0 ? round(Int, other.iso_speed) : nothing,
+        model = nonempty(_cstring(_field(idata_p, IParams, :model))),
+        make = nonempty(_cstring(_field(idata_p, IParams, :make))),
+        body_serial = nothing,                        # shootinginfo.BodySerial: past the unmirrored makernotes
+        lens_make = nonempty(_cstring(lens.LensMake)),
+        lens_model = nonempty(_cstring(lens.Lens)),
+        lens_serial = nonempty(_cstring(lens.LensSerial)),
+        focus_distance_m = nothing,                   # LibRaw parses no focus distance into a common field
+        daylight_wb = (Float64(rpre[1]), Float64(rpre[2]), Float64(rpre[3])),
+        linear_max = all(>(0), lin) ? Float64.(lin) : nothing,
+        decoder = "LibRaw_jll",
+        libraw_version = libraw_version(),
+    )
+end
+
+function _mosaic(lr::Ptr{Cvoid}, path::AbstractString)
+    (; sizes_p, sizes, idata_p, other_p, color_p, lens_p) = _structures(lr)
     rawdata_p = other_p + sizeof(ImgOther) + sizeof(Thumbnail) + sizeof(ThumbnailList)
     rsizes = _field(rawdata_p, RawData, :sizes)
     _check("rawdata.sizes", rsizes == sizes)
@@ -314,25 +372,7 @@ function _mosaic(lr::Ptr{Cvoid}, path::AbstractString)
     end
     black = VisualGeometryToolkitFeatures._per_channel_black(cblack, Int(_field(rcolor_p, ColorData, :black)), filters, path)
     white = Float64(_field(rcolor_p, ColorData, :maximum))
-    lin = _field(rcolor_p, ColorData, :linear_max)
-    rpre = _field(rcolor_p, ColorData, :pre_mul)
-
-    # -- EXIF, as LibRaw parsed it
-    other = unsafe_load(Ptr{ImgOther}(other_p))
-    model = _cstring(_field(idata_p, IParams, :model))
-    metadata = (;
-        datetime_original = other.timestamp == 0 ? nothing : _strftime(other.timestamp),
-        subsec = "",                                  # LibRaw keeps no SubSecTimeOriginal
-        exposure_s = other.shutter > 0 ? Float64(other.shutter) : nothing,
-        fnumber = other.aperture > 0 ? Float64(other.aperture) : nothing,
-        focal_mm = other.focal_len > 0 ? Float64(other.focal_len) : nothing,
-        iso = other.iso_speed > 0 ? round(Int, other.iso_speed) : nothing,
-        model = isempty(model) ? nothing : model,
-        daylight_wb = (Float64(rpre[1]), Float64(rpre[2]), Float64(rpre[3])),
-        linear_max = all(>(0), lin) ? Float64.(lin) : nothing,
-        decoder = "LibRaw_jll",
-        libraw_version = libraw_version(),
-    )
+    metadata = _metadata(idata_p, other_p, lens_p, rcolor_p)
     return RawMosaic(raw, pattern, Float64.(black), white, (top, left), (RH, RW), metadata)
 end
 

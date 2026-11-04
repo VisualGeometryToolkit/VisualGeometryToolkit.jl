@@ -52,7 +52,7 @@ One axis of a [`JointCoarseFine`](@ref) search: its `coarse` axis (window rule
 + spacing), its expand-on-boundary rule, the `fine` spacing over the coarse
 argmin's bracket, and whether it is `expensive` — a value of an expensive axis
 costs a run the cheap axes reuse (a detection run, say), so the search asks
-for the cells one expensive value at a time. Untagged; defaults
+for the grid points one expensive value at a time. Untagged; defaults
 `[types.coarse_fine_axis]`.
 """
 struct CoarseFineAxis

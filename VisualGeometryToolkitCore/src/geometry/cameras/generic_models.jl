@@ -814,7 +814,38 @@ differentiated residual is never promoted.
 end
 
 """
-    ControlPatchManifold(directions[, points]) <: Manifold
+    ControlPointChart
+
+How a [`ControlPatchManifold`](@ref) moves its point controls:
+[`AdditivePoints`](@ref) (3 coordinates per point) or
+[`RayNormalPoints`](@ref) (2, across the point's own ray).
+"""
+abstract type ControlPointChart end
+
+"""
+    AdditivePoints() <: ControlPointChart
+
+A point control moves additively, `p + (Δx, Δy, Δz)`: 3 coordinates, the
+identity as its block of `retract_jacobian`. The default chart of a
+[`ControlPatchManifold`](@ref).
+"""
+struct AdditivePoints <: ControlPointChart end
+
+"""
+    RayNormalPoints() <: ControlPointChart
+
+A point control moves across its own ray, `p + a·t₁ + b·t₂` with
+`(t₁, t₂) = direction_tangents(normalize(d))` of the same node's direction
+control `d` at the anchor: 2 coordinates, `(t₁ t₂)` as its block of
+`retract_jacobian`, and `local_coordinates` the offset's dot products with
+`t₁` and `t₂`. A move along the ray leaves the node's line where it is, so this
+chart drops the one coordinate of [`AdditivePoints`](@ref) that does not move
+the line.
+"""
+struct RayNormalPoints <: ControlPointChart end
+
+"""
+    ControlPatchManifold(directions[, points[, point_chart = AdditivePoints()]]) <: Manifold
 
 A patch of a generic grid model's controls as a manifold: a `PX × PY` block of
 its direction controls (an `SMatrix` of 3-vectors, in the caller's layout:
@@ -827,23 +858,30 @@ reference's chart,
     ‖d‖ · normalize(d + δ₁t₁ + δ₂t₂),   (t₁, t₂) = direction_tangents(d / ‖d‖),
 
 2 coordinates that keep its norm (the norm is a weight of the spline's blend,
-not a gauge) and whose derivative at δ = 0 is `(t₁, t₂)`; a point control moves
-additively, 3 coordinates. The coordinates are per control, column-major over
-the block: `(δ₁, δ₂)` each, or `(δ₁, δ₂, Δx, Δy, Δz)` with points —
-[`restrict`](@ref) them by mask to hold some fixed (a pupil-plane model's `Δz`).
-`model(ch)` is `(; directions, points)` (`points` is `nothing` for a central
-patch); `retract_jacobian(ch)` is block diagonal, `(t₁ t₂)` per direction and
-the identity per point.
+not a gauge) and whose derivative at δ = 0 is `(t₁, t₂)`. A point control moves
+by `point_chart` (a [`ControlPointChart`](@ref)): additively, 3 coordinates
+([`AdditivePoints`](@ref)), or across its own ray, 2 ([`RayNormalPoints`](@ref)).
+The coordinates are per control, column-major over the block: `(δ₁, δ₂)` each,
+`(δ₁, δ₂, Δx, Δy, Δz)` with additive points or `(δ₁, δ₂, a, b)` with ray-normal
+points — [`restrict`](@ref) them by mask to hold some fixed (a pupil-plane
+model's `Δz`). `model(ch)` is `(; directions, points)` (`points` is `nothing`
+for a central patch, whose `point_chart` is unused); `retract_jacobian(ch)` is
+block diagonal, `(t₁ t₂)` per direction and the point chart's block per point.
 """
-struct ControlPatchManifold{PX, PY, L, T <: Real, P <: Union{Nothing, SMatrix{PX, PY, SVector{3, T}, L}}} <: Manifold
+struct ControlPatchManifold{PX, PY, L, T <: Real, P <: Union{Nothing, SMatrix{PX, PY, SVector{3, T}, L}}, C <: ControlPointChart} <: Manifold
     directions::SMatrix{PX, PY, SVector{3, T}, L}
     points::P
+    point_chart::C
 end
 ControlPatchManifold(directions::SMatrix{PX, PY, <:StaticVector{3}}) where {PX, PY} =
     (T = float(eltype(eltype(directions))); ControlPatchManifold(SMatrix{PX, PY, SVector{3, T}}(directions), nothing))
+ControlPatchManifold(directions::SMatrix{PX, PY, SVector{3, T}, L}, points::Union{Nothing, SMatrix{PX, PY, SVector{3, T}, L}}) where {PX, PY, L, T <: Real} =
+    ControlPatchManifold(directions, points, AdditivePoints())
 
+_point_coordinates(::AdditivePoints) = 3
+_point_coordinates(::RayNormalPoints) = 2
 _control_coordinates(::ControlPatchManifold{PX, PY, L, T, Nothing}) where {PX, PY, L, T <: Real} = 2
-_control_coordinates(::ControlPatchManifold) = 5
+_control_coordinates(ch::ControlPatchManifold) = 2 + _point_coordinates(ch.point_chart)
 tangent_size(ch::ControlPatchManifold{PX, PY, L}) where {PX, PY, L} = _control_coordinates(ch) * L
 model(ch::ControlPatchManifold) = (; directions = ch.directions, points = ch.points)
 
@@ -852,34 +890,47 @@ model(ch::ControlPatchManifold) = (; directions = ch.directions, points = ch.poi
     t1, t2 = direction_tangents(normalize(d))
     return norm(d) * normalize(d + δ₁ * t1 + δ₂ * t2)
 end
+# One point control `p` stepped by its chart from the coordinates `v[j], v[j + 1], …`;
+# `d` is the same node's direction control.
+@inline _retracted_point(::AdditivePoints, p::SVector{3}, d, v, j) = p + SVector(v[j], v[j + 1], v[j + 2])
+@inline function _retracted_point(::RayNormalPoints, p::SVector{3}, d, v, j)
+    t1, t2 = direction_tangents(normalize(d))
+    return p + v[j] * t1 + v[j + 1] * t2
+end
 function _retracted_controls(ch::ControlPatchManifold{PX, PY, L, T, Nothing}, v) where {PX, PY, L, T <: Real}
     dirs = SMatrix{PX, PY}(ntuple(n -> _retracted_direction(ch.directions[n], v[2n - 1], v[2n]), Val(L)))
     return dirs, nothing
 end
 function _retracted_controls(ch::ControlPatchManifold{PX, PY, L}, v) where {PX, PY, L}
-    dirs = SMatrix{PX, PY}(ntuple(n -> _retracted_direction(ch.directions[n], v[5n - 4], v[5n - 3]), Val(L)))
-    pts = SMatrix{PX, PY}(ntuple(n -> ch.points[n] + SVector(v[5n - 2], v[5n - 1], v[5n]), Val(L)))
+    k = _control_coordinates(ch)
+    dirs = SMatrix{PX, PY}(ntuple(n -> _retracted_direction(ch.directions[n], v[k * (n - 1) + 1], v[k * (n - 1) + 2]), Val(L)))
+    pts = SMatrix{PX, PY}(ntuple(n -> _retracted_point(ch.point_chart, ch.points[n], ch.directions[n], v, k * (n - 1) + 3), Val(L)))
     return dirs, pts
 end
 retract(ch::ControlPatchManifold, v) = (s = _retracted_controls(ch, v); (; directions = s[1], points = s[2]))
-recenter(ch::ControlPatchManifold, v) = (s = _retracted_controls(ch, v); s[2] === nothing ? ControlPatchManifold(s[1]) : ControlPatchManifold(s[1], s[2]))
+recenter(ch::ControlPatchManifold, v) = (s = _retracted_controls(ch, v); ControlPatchManifold(s[1], s[2], ch.point_chart))
+# A point chart's block of `retract_jacobian`: rows r+1:r+3, columns c+1:c+k.
+_point_jacobian!(J, ::AdditivePoints, r, c, t1, t2) = (for i in 1:3; J[r + i, c + i] = one(eltype(J)); end; J)
+_point_jacobian!(J, ::RayNormalPoints, r, c, t1, t2) = (J[(r + 1):(r + 3), c + 1] = t1; J[(r + 1):(r + 3), c + 2] = t2; J)
 function retract_jacobian(ch::ControlPatchManifold{PX, PY, L, T}) where {PX, PY, L, T}
     k = _control_coordinates(ch)
-    J = zeros(T, 3 * L * (k == 2 ? 1 : 2), k * L)
+    central = ch.points === nothing
+    J = zeros(T, 3 * L * (central ? 1 : 2), k * L)
     for n in 1:L
         t1, t2 = direction_tangents(normalize(ch.directions[n]))
-        r = 3 * (k == 2 ? n - 1 : 2n - 2)
+        r = 3 * (central ? n - 1 : 2n - 2)
         J[(r + 1):(r + 3), k * (n - 1) + 1] = t1
         J[(r + 1):(r + 3), k * (n - 1) + 2] = t2
-        k == 5 && for i in 1:3
-            J[r + 3 + i, k * (n - 1) + 2 + i] = one(T)
-        end
+        central || _point_jacobian!(J, ch.point_chart, r + 3, k * (n - 1) + 2, t1, t2)
     end
     return J
 end
+# A point chart's coordinates of the offset Δ, written to out[j+1], out[j+2], ….
+_point_local_coordinates!(out, ::AdditivePoints, j, Δ, t1, t2) = (out[(j + 1):(j + 3)] = Δ; out)
+_point_local_coordinates!(out, ::RayNormalPoints, j, Δ, t1, t2) = (out[j + 1] = dot(Δ, t1); out[j + 2] = dot(Δ, t2); out)
 # The coordinates of a block of controls: per direction, the step's tangent
 # coordinates (its sphere's chart inverted — the norm is the anchor's), per point
-# the offset.
+# its chart's coordinates of the offset.
 function local_coordinates(ch::ControlPatchManifold{PX, PY, L}, x::NamedTuple) where {PX, PY, L}
     k = _control_coordinates(ch)
     out = zeros(promote_type(eltype(eltype(ch.directions)), eltype(eltype(x.directions))), k * L)
@@ -890,7 +941,7 @@ function local_coordinates(ch::ControlPatchManifold{PX, PY, L}, x::NamedTuple) w
         s = norm(d) / dot(y, d̂)                     # s·y = d + δ₁t₁ + δ₂t₂, and t ⟂ d̂
         out[k * (n - 1) + 1] = s * dot(y, t1)
         out[k * (n - 1) + 2] = s * dot(y, t2)
-        k == 5 && (out[(k * (n - 1) + 3):(k * n)] = x.points[n] - ch.points[n])
+        ch.points === nothing || _point_local_coordinates!(out, ch.point_chart, k * (n - 1) + 2, x.points[n] - ch.points[n], t1, t2)
     end
     return out
 end

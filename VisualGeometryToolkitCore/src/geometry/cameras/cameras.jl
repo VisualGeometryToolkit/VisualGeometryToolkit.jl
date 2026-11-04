@@ -1023,6 +1023,7 @@ export radial_part                         # a lens's radially symmetric part
 export CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models (Schöps et al.)
 export spline_support, spline_weights, window_controls, window_indices, direction_tangents, default_generic_grid  # the grid model's window interface (0.22.2)
 export ControlPatchManifold              # a block of a grid model's controls as a manifold (public, not exported, at the top level)
+export ControlPointChart, AdditivePoints, RayNormalPoints   # how its point controls move (public, not exported, at the top level)
 export GenericModelWindow, window, nominal_intrinsics, interpolated_direction, interpolated_point   # a view onto a block of controls; the raw splines
 export spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice as a primitive (any control type); the 4th-order quasi-interpolant
 export generic_lattice                   # a grid model's layout from a source, without sampling it

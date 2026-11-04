@@ -62,3 +62,55 @@
         @test (@inferred NLLSsolver.update(c, u, 1)) isa typeof(c)
     end
 end
+
+@testitem "ControlPatchManifold: point controls on the ray-normal chart" begin
+    using Test, StaticArrays, LinearAlgebra, Random
+    using ForwardDiff: ForwardDiff
+    import NLLSsolver
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: ControlPatchManifold, AdditivePoints, RayNormalPoints, direction_tangents, retract, recenter,
+        retract_jacobian, local_coordinates, tangent_size, model
+
+    rng = Xoshiro(20261104)
+    dirs = SMatrix{2, 3}(ntuple(_ -> (1.0 + 0.2 * rand(rng)) * normalize(SVector(0.3 * randn(rng), 0.3 * randn(rng), 1.0)), 6))   # not unit
+    pts = SMatrix{2, 3}(ntuple(_ -> SVector(1.0e-3 * randn(rng), 1.0e-3 * randn(rng), 1.0e-3 * randn(rng)), 6))
+    r = ControlPatchManifold(dirs, pts, RayNormalPoints())
+    @test ControlPatchManifold(dirs, pts) == ControlPatchManifold(dirs, pts, AdditivePoints())
+
+    @testset "2 coordinates per point: p + a·t₁ + b·t₂ of the node's own direction" begin
+        @test tangent_size(r) == 24
+        v = SVector{24}(1.0e-2 .* randn(rng, 24))
+        m = retract(r, v)
+        for k in 1:6
+            d = dirs[k]; t1, t2 = direction_tangents(normalize(d))
+            @test m.directions[k] ≈ norm(d) * normalize(d + v[4k - 3] * t1 + v[4k - 2] * t2) rtol = 1.0e-15
+            @test m.points[k] ≈ pts[k] + v[4k - 1] * t1 + v[4k] * t2 rtol = 1.0e-15
+            @test abs(dot(m.points[k] - pts[k], normalize(d))) < 1.0e-16     # no move along the ray
+        end
+        @test recenter(r, v) isa typeof(r) && model(recenter(r, v)) == m
+    end
+
+    @testset "local_coordinates inverts retract" begin
+        for _ in 1:5
+            v = SVector{24}(1.0e-2 .* randn(rng, 24))
+            @test local_coordinates(r, retract(r, v)) ≈ v rtol = 1.0e-10
+        end
+        z = local_coordinates(r, model(r))
+        @test norm(z) < 1.0e-15 && all(iszero, z[3:4:end]) && all(iszero, z[4:4:end])   # the point offsets exactly
+    end
+
+    @testset "retract_jacobian is ForwardDiff's at zero: (t₁ t₂) per direction and per point" begin
+        flat(x) = vcat([vcat(x.directions[k], x.points[k]) for k in 1:6]...)
+        J = ForwardDiff.jacobian(u -> flat(retract(r, u)), zeros(tangent_size(r)))
+        @test size(retract_jacobian(r)) == (36, 24)
+        @test J ≈ retract_jacobian(r) rtol = 1.0e-12 atol = 1.0e-15
+        t1, t2 = direction_tangents(normalize(dirs[2]))
+        @test retract_jacobian(r)[10:12, 7:8] == hcat(t1, t2)
+    end
+
+    @testset "an NLLSsolver variable" begin
+        u = randn(rng, 30) .* 1.0e-2
+        @test Int(NLLSsolver.nvars(r)) == 24
+        @test (@inferred NLLSsolver.update(r, u, 1)) isa typeof(r)
+    end
+end

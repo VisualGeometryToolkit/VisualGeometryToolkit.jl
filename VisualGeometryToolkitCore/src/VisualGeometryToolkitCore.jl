@@ -322,6 +322,7 @@ export CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models
 export default_generic_grid  # the grid model's window interface (0.22.2)
 public spline_support, spline_weights, window_controls, window_indices, direction_tangents
 public ControlPatchManifold   # a block of a generic grid model's controls as a Manifold: the per-tile refinement's variable
+public ControlPointChart, AdditivePoints, RayNormalPoints   # a ControlPatchManifold's point chart: additive (Δx, Δy, Δz) or across the ray (a, b)
 public GenericModelWindow, window, nominal_intrinsics, interpolated_direction, interpolated_point   # a view onto a block of a grid model's controls; its raw splines
 public spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice for any control type; the 4th-order quasi-interpolant
 public generic_lattice   # a grid model's layout from a source (its lattice and nominal), without sampling it

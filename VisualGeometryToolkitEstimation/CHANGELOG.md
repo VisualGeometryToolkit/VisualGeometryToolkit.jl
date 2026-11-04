@@ -17,14 +17,19 @@
   - `SplineProjection` (`fit_camera(SplineProjection, source, region;
     tolerance)`): the forward map ray → pixel as Core's `ChartSpline` on the
     equidistant direction chart, penalized linear least squares (a P-spline,
-    `λ = 1e-8·mean(diag(AᵀA))`) with its knot spacing bisected to the largest
-    whose held-out maximum meets `tolerance` (`:max_iterations` when it cannot);
+    `λ = 1e-8·mean(diag(AᵀA))`) with its knot spacing searched — doubled, then
+    bisected — to the largest whose held-out maximum meets `tolerance`
+    (`:converged`; `:max_iterations` with what the finest spacing reached when
+    it cannot). The search's fits are outer iterations, the metadata's
+    `outer_iterations`; `iterations(result)` is 0;
   - `CentralGenericModel` (`fit_camera(CentralGenericModel, source, region;
-    grid_size, tolerance)`): a grid on Core's full-image lattice (a
-    `BoundedCamera`'s extent or a grid source's image), the region restricting
-    the quadrature only;
+    tolerance)`): a grid on Core's full-image lattice (a `BoundedCamera`'s
+    extent or a grid source's image), the region restricting the quadrature
+    only; the lattice spacing chosen by the same search (`grid_size` is not an
+    input; the metadata records the chosen one), `:converged` or
+    `:max_iterations`;
   - `NoncentralGenericModel` (`fit_camera(NoncentralGenericModel, source,
-    region; grid_size, tolerance)`): the same lattice and penalized solve on
+    region; tolerance)`): the same lattice search and penalized solve on
     the source's observation lines (a non-central grid, or any central source
     the central target takes), directions and points from one solve. Each
     line's point is its point closest to c*, Core's `nearest_point` of all
@@ -33,8 +38,9 @@
     The tolerance bounds the held-out direction error in pixels (through the
     source's back-projection Jacobian); the line offset is reported as
     `max_offset`, `rms_offset`, `max_offset_edge` (metres). On a synthetic
-    non-central fisheye to 97°: 7.1e-4 px and 7.9e-9 m at most, against 0.39 px
-    and 5.9e-6 m for sampling the source's lines at the nodes.
+    non-central fisheye to 97°, on a 40 × 40 lattice: 7.1e-4 px and 7.9e-9 m at
+    most, against 0.39 px and 5.9e-6 m for sampling the source's lines at the
+    nodes; `tolerance = 1e-3` chooses 26 × 26 (9.2e-4 px, 5.1e-8 m).
 - **Breaking: removed `fit_lens` and `LensFitMetadata`** (retired in
   `check_naming`). `fit_lens(L, model; max_radius_px = R)` is
   `fit_camera(L, model, Ellipse(pp, R, R, 0.0))` (a disc about the principal

@@ -15,9 +15,9 @@
 #                            ray, by penalized linear least squares; its knot
 #                            spacing bisected to the largest one whose held-out
 #                            maximum error meets `tolerance`
-#   CentralGenericModel      the grid of Core's layout (`grid_size`) over the
-#                            region's pixel bounding box, the source's rays by
-#                            penalized linear least squares; the tolerance checked
+#   CentralGenericModel      the grid of Core's full-image layout, the source's
+#                            rays by penalized linear least squares; its lattice
+#                            spacing searched as the SplineProjection's knots are
 #   NoncentralGenericModel   the same lattice, the source's LINES: the directions
 #                            and each line's point closest to the lines' common
 #                            nearest point c*, by the same penalized solve
@@ -54,14 +54,17 @@ a `NamedTuple`:
   rescale `s`, the fitted and the source's angular domains (radians), and
   whether the target family cut the source's domain; the errors are at the
   quadrature's nodes of the radial profile;
-- `SplineProjection`: `(; spacing, penalty, counts, stride, tolerance)` — the
-  knot spacing `h` (radians in the chart), the P-spline weight `λ`, the control
-  counts per chart axis, the quadrature's stride in pixels and the tolerance
-  asked for; the errors are the held-out check's;
-- `CentralGenericModel`: `(; penalty, grid_size, stride, tolerance)`; the errors are
-  the held-out check's, through the fitted grid's `project`;
-- `NoncentralGenericModel`: `(; penalty, grid_size, stride, tolerance, center,
-  max_offset, rms_offset, max_offset_edge)` — `center` the anchor c* (the
+- `SplineProjection`: `(; spacing, penalty, counts, stride, tolerance,
+  outer_iterations)` — the knot spacing `h` (radians in the chart), the
+  P-spline weight `λ`, the control counts per chart axis, the quadrature's
+  stride in pixels, the tolerance asked for and the spacing search's fits; the
+  errors are the held-out check's;
+- `CentralGenericModel`: `(; penalty, grid_size, stride, tolerance,
+  outer_iterations)`, `grid_size` the chosen lattice's `(rows, columns)`; the
+  errors are the held-out check's, through the fitted grid's `project`;
+- `NoncentralGenericModel`: `(; penalty, grid_size, stride, tolerance,
+  outer_iterations, center, max_offset, rms_offset, max_offset_edge)` —
+  `center` the anchor c* (the
   least-squares point nearest to the source's quadrature lines, in the
   source's frame, plain metres as the grid's points), and the held-out line
   offset `‖(I − ddᵀ)(o_fit − o_src)‖` (plain metres); the pixel errors are the
@@ -120,24 +123,28 @@ family and the solve:
   tolerance)`): the forward map ray → pixel as a [`ChartSpline`](@ref
   VisualGeometryToolkitCore.ChartSpline) on the equidistant direction chart about the
   source's ray at the region's centroid, fitted to the source's pixels by
-  linear least squares with a P-spline penalty. The knot spacing `h` is bisected to the
-  largest one whose held-out maximum error is at most `tolerance` (px); a fit
-  that cannot reach it within the spacing bracket returns `retcode
-  :max_iterations` with what it reached. `iterations` counts the fits made.
+  linear least squares with a P-spline penalty. THE SPACING SEARCH, shared by
+  the spline and grid targets: the knot spacing `h` is doubled down from 4
+  cells along the longer side and then bisected to the LARGEST spacing whose
+  held-out maximum error is at most `tolerance` (px), `retcode :converged`; a
+  fit that cannot reach it at the finest spacing of the bracket (a cell of three
+  quadrature strides) returns `retcode :max_iterations` with what it reached.
+  Each fit of the search is an outer iteration, counted in the metadata's
+  `outer_iterations`; `iterations(result)` is 0.
 - **`CentralGenericModel`** (`fit_camera(CentralGenericModel, source, region;
-  grid_size, tolerance)`): a grid model in Core's full-image layout — the
-  lattice the constructor `CentralGenericModel(source, size; grid_size)` lays
-  over the whole image, [`generic_lattice`](@ref
-  VisualGeometryToolkitCore.generic_lattice) (the source is not sampled: the
-  solve sets every control) — with `domain` the
+  tolerance)`): a grid model in Core's full-image layout — the lattice the
+  constructor `CentralGenericModel(source, size; grid_size)` lays over the whole
+  image, [`generic_lattice`](@ref VisualGeometryToolkitCore.generic_lattice)
+  (the source is not sampled: the solve sets every control) — with `domain` the
   region, fitted to the source's rays by linear least squares with the P-spline
-  penalty. The region restricts the quadrature only, never the lattice: a node
-  whose support misses it is held by the penalty. The image is the source's: a
-  grid model's own, or a [`BoundedCamera`](@ref VisualGeometryToolkitCore.BoundedCamera)'s
-  extent (a bare `CameraModel` has none: an `ArgumentError`). The tolerance is
-  checked (warned when exceeded), never searched; `retcode :solved`.
+  penalty, its lattice spacing chosen by the spacing search (`grid_size` is not
+  an input: the tolerance chooses it; the metadata records it). The region
+  restricts the quadrature only, never the lattice: a node whose support misses
+  it is held by the penalty. The image is the source's: a grid model's own, or a
+  [`BoundedCamera`](@ref VisualGeometryToolkitCore.BoundedCamera)'s extent (a
+  bare `CameraModel` has none: an `ArgumentError`).
 - **`NoncentralGenericModel`** (`fit_camera(NoncentralGenericModel, source,
-  region; grid_size, tolerance)`): the same design on the source's observation
+  region; tolerance)`): the same design and search on the source's observation
   LINES — a non-central grid source's `Ray3`s, or a central source's rays
   through its centre. Both grids, the unit directions and the points, come
   from ONE penalized solve on the same lattice. A line's point is pinned by
@@ -573,89 +580,110 @@ function _spline_projection_fit(q, cells::Int)
 end
 
 function fit_camera(::Type{SplineProjection}, source, region; tolerance::Real)
-    tolerance > 0 || throw(ArgumentError("fit_camera: tolerance must be positive, got $tolerance"))
+    _check_tolerance(tolerance)
     q = _chart_quadrature(model(source), region)
-    # The bracket: from 4 cells along the chart's longer side up to a cell of
-    # three quadrature strides (fewer points per cell leave it to the penalty).
-    cells_max = max(1, floor(Int, q.extent / (3 * q.stride)))
-    fits = 0
+    r, code, n = _spacing_search(cells -> _spline_projection_fit(q, cells), tolerance, _max_cells(q.extent, q.stride))
+    return FitResult(
+        SplineProjection(q.chart, r.spline, q.region), code, 0, r.errors.rms, length(q.fit_px),
+        CameraFitMetadata(
+            q.region, :image, r.errors.max, r.errors.max_edge,
+            (; spacing = r.h, penalty = r.λ, counts = r.counts, stride = q.stride, tolerance = Float64(tolerance), outer_iterations = n)
+        )
+    )
+end
+
+_check_tolerance(tolerance::Real) =
+    tolerance > 0 || throw(ArgumentError("fit_camera: tolerance must be positive, got $tolerance"))
+
+# The spacing search's bracket: from 4 cells along the longer side (of the
+# chart, or of the image) up to a cell of three quadrature strides (fewer
+# points per cell leave it to the penalty).
+_max_cells(extent::Real, stride::Integer) = max(1, floor(Int, extent / (3 * stride)))
+
+# The spacing search of the spline and grid targets: `fit(cells)` the fit with
+# `cells` knot cells along the longer side, its held-out maximum `errors.max`.
+# Doubling from 4 cells to the first count that meets `tolerance`, then
+# bisection between it and the last that did not: the LARGEST spacing that meets
+# it, `:converged`; `:max_iterations` with what the finest spacing reached when
+# `cells_max` does not meet it. Each fit is an outer iteration (the fit's inputs
+# change, the estimator repeats); their count is the third value.
+function _spacing_search(fit::F, tolerance::Real, cells_max::Int) where {F}
     meets(r) = r.errors.max <= tolerance
-    # Doubling to the first count that meets the tolerance, then bisection
-    # between it and the last that did not: the largest spacing that meets it.
+    outer_iterations = 1
     lower = 0
     cells = min(4, cells_max)
-    best = _spline_projection_fit(q, cells)
-    fits += 1
+    best = fit(cells)
     while !meets(best)
         lower = cells
-        if cells == cells_max
-            return _spline_projection_result(q, best, :max_iterations, fits, tolerance)
-        end
+        cells == cells_max && return best, :max_iterations, outer_iterations
         cells = min(2cells, cells_max)
-        best = _spline_projection_fit(q, cells)
-        fits += 1
+        best = fit(cells)
+        outer_iterations += 1
     end
     upper = cells
     while upper - lower > 1
         mid = (lower + upper) ÷ 2
-        r = _spline_projection_fit(q, mid)
-        fits += 1
+        r = fit(mid)
+        outer_iterations += 1
         if meets(r)
             upper, best = mid, r
         else
             lower = mid
         end
     end
-    return _spline_projection_result(q, best, :converged, fits, tolerance)
+    return best, :converged, outer_iterations
 end
-
-_spline_projection_result(q, r, code::Symbol, fits::Int, tolerance::Real) = FitResult(
-    SplineProjection(q.chart, r.spline, q.region), code, fits, r.errors.rms, length(q.fit_px),
-    CameraFitMetadata(
-        q.region, :image, r.errors.max, r.errors.max_edge,
-        (; spacing = r.h, penalty = r.λ, counts = r.counts, stride = q.stride, tolerance = Float64(tolerance))
-    )
-)
 
 # ------------------------------------------------------------------------------
 # The grid targets: CentralGenericModel and NoncentralGenericModel
 # ------------------------------------------------------------------------------
 #
-# One body for both: the quadrature of the source's data, Core's full-image
-# lattice over the source's image (the calibrated area is the image; the region
-# restricts the quadrature only), the design rows, ONE penalized solve, the
-# model, the held-out errors and the tolerance check. The target type selects
-# the data (`_grid_samples`), the lattice, the right-hand side, the model built
-# from the controls and the errors.
+# One body for both: the quadrature of the source's data, then the spacing
+# search over Core's full-image lattice on the source's image (the calibrated
+# area is the image; the region restricts the quadrature only) — at each
+# spacing the design rows, ONE penalized solve, the model and the held-out
+# errors. The target type selects the data (`_grid_samples`), the right-hand
+# side, the model built from the controls and the errors.
 
-function fit_camera(
-        ::Type{CentralGenericModel}, source, region;
-        grid_size::Tuple{Integer, Integer}, tolerance::Real
-    )
-    return _fit_grid(CentralGenericModel, source, region, grid_size, tolerance)
-end
+fit_camera(::Type{CentralGenericModel}, source, region; tolerance::Real) =
+    _fit_grid(CentralGenericModel, source, region, tolerance)
 
-function _fit_grid(::Type{G}, source, region, grid_size, tolerance::Real) where {G}
-    _check_lattice_size(grid_size[2], grid_size[1])   # up front, before the quadrature
+function _fit_grid(::Type{G}, source, region, tolerance::Real) where {G}
+    _check_tolerance(tolerance)
     W, H = _image_size(source)
     cam = model(source)
     q = _image_quadrature(_grid_samples(G), cam, region)
-    lattice = _grid_lattice(G, cam, (W, H), grid_size, region)
-    gh, gw = _lattice_size(lattice)
     rhs, anchor = _grid_rhs(G, q)
-    rows = _design_rows(p -> spline_window(lattice, p), q.fit_px, gh)
-    controls, λ = _penalized_solve(rows, _rhs_matrix(rhs), gh, gw, Val(length(eltype(rhs))))
-    fitted = _grid_model(G, lattice, controls, anchor, region)
-    e, family = _grid_errors(fitted, cam, q, anchor)
-    e.max <= tolerance ||
-        @warn "fit_camera: the $(gh) × $(gw) $(_grid_error_name(G)) reaches $(round(e.max; sigdigits = 3)) px, over the tolerance $(tolerance) px"
+    B = _rhs_matrix(rhs)
+    fit(cells) = _grid_fit(G, cam, (W, H), _lattice_grid_size(W, H, cells), q, B, anchor, region, Val(length(eltype(rhs))))
+    r, code, n = _spacing_search(fit, tolerance, _max_cells(max(W, H), q.stride))
     return FitResult(
-        fitted, :solved, 0, e.rms, length(q.fit_px),
+        r.fitted, code, 0, r.errors.rms, length(q.fit_px),
         CameraFitMetadata(
-            region, :image, e.max, e.max_edge,
-            (; penalty = λ, grid_size = (gh, gw), stride = q.stride, tolerance = Float64(tolerance), family...)
+            region, :image, r.errors.max, r.errors.max_edge,
+            (; penalty = r.λ, grid_size = r.grid_size, stride = q.stride, tolerance = Float64(tolerance), outer_iterations = n, r.family...)
         )
     )
+end
+
+# The grid at one spacing: Core's lattice of `grid_size` (columns, rows), the
+# penalized solve, the model and its held-out errors.
+function _grid_fit(::Type{G}, source, size, grid_size, q, B, anchor, region, ::Val{K}) where {G, K}
+    lattice = _grid_lattice(G, source, size, grid_size, region)
+    gh, gw = _lattice_size(lattice)
+    rows = _design_rows(p -> spline_window(lattice, p), q.fit_px, gh)
+    controls, λ = _penalized_solve(rows, B, gh, gw, Val(K))
+    fitted = _grid_model(G, lattice, controls, anchor, region)
+    errors, family = _grid_errors(fitted, source, q, anchor)
+    return (; fitted, errors, family, λ, grid_size = (gh, gw))
+end
+
+# The lattice of `cells` cells along the image's longer side: the spacing
+# h = max(W, H) / cells, the node counts ⌈extent / h⌉ + 3 per axis (the chart
+# spline's rule), as Core's `grid_size` (columns, rows).
+function _lattice_grid_size(W::Integer, H::Integer, cells::Integer)
+    h = max(W, H) / cells
+    return (ceil(Int, W / h * (1 - 1.0e-12)) + 3, ceil(Int, H / h * (1 - 1.0e-12)) + 3)
 end
 
 _lattice_size(m::CentralGenericModel) = size(m.grid)
@@ -663,7 +691,6 @@ _lattice_size(m::NoncentralGenericModel) = size(m.directions)
 _lattice_area(m) = (m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y)
 
 _grid_samples(::Type{CentralGenericModel}) = _source_rays
-_grid_error_name(::Type{CentralGenericModel}) = "grid's held-out round trip"
 
 # The lattice: Core's layout of a grid model from the source (its nominal
 # pinhole), without sampling it — the solve sets every control.
@@ -707,15 +734,10 @@ end
 # c* itself. Anchoring on a plane instead (the pupil plane z = const) explodes
 # for rays near and past 90°, where the plane meets the line far away or never.
 
-function fit_camera(
-        ::Type{NoncentralGenericModel}, source, region;
-        grid_size::Tuple{Integer, Integer}, tolerance::Real
-    )
-    return _fit_grid(NoncentralGenericModel, source, region, grid_size, tolerance)
-end
+fit_camera(::Type{NoncentralGenericModel}, source, region; tolerance::Real) =
+    _fit_grid(NoncentralGenericModel, source, region, tolerance)
 
 _grid_samples(::Type{NoncentralGenericModel}) = _source_lines
-_grid_error_name(::Type{NoncentralGenericModel}) = "non-central grid's held-out direction error"
 
 # The right-hand side: the unit direction, and the line's point closest to c*
 # relative to c* (the solve is translation-equivariant: a B-spline's weights sum

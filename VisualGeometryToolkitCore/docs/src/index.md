@@ -70,14 +70,38 @@ alias for a value whose attributes are a covariance or precision. See
 
 ## Installation
 
-```julia
-using Pkg
-Pkg.add("VisualGeometryToolkitCore")
+```julia-repl
+pkg> add VisualGeometryToolkitCore
 ```
 
-For visualization support:
+Julia 1.12 or later; every dependency is in the General registry. Any Makie
+backend (`pkg> add GLMakie`) loads the plotting extension.
+
+## A first example
+
+A camera views a planar board. The example projects the board's points into
+the image, estimates the board-to-image homography from those
+correspondences, and maps a circle on the board to the ellipse it images as
+(the README's example; the test suite runs both).
+
 ```julia
-Pkg.add("GLMakie")  # Automatically activates the plotting extension
+using VisualGeometryToolkitCore
+
+# A Sony IMX174 sensor behind a lens with a 40° horizontal field of view,
+# 2 m in front of the board and looking at its centre.
+s = sensor("Sony", "IMX174")
+f = focal_length(s, deg2rad(40.0); dimension = :horizontal)
+model = CameraModel(f, s.pitch, centroid(Rect(s)) .* px)
+camera = PosedCamera(model, lookat(Vec3(0.3, 0.2, -2.0) .* m, Vec3(0.0, 0.0, 0.0) .* m, Vec3(0.0, -1.0, 0.0)))
+
+# A 5 × 5 grid of board points (metres, on z = 0) and their images (pixels).
+board = [Point2(x, y) for x in -0.2:0.1:0.2 for y in -0.2:0.1:0.2]
+pixels = [project(camera, Point3(p[1], p[2], 0.0) .* m) for p in board]
+
+# The board-to-image homography, and what it does to the board.
+H = HomographyMap(homography_dlt(csponds(board, pixels)))
+to_euclidean(H(board[1])) ≈ pixels[1]                # true
+image = transfer_ellipse(H, Circle(Point2(0.0, 0.0), 0.05))   # a 5 cm circle's image: an Ellipse (nothing past the horizon)
 ```
 
 ## Module structure
@@ -94,24 +118,29 @@ are equivalent.
 
 ## Documentation
 
-```@contents
-Pages = [
-    "guide/getting-started.md",
-    "guide/design.md",
-    "guide/frames.md",
-    "guide/forms.md",
-    "guide/stereo.md",
-    "guide/cameras.md",
-    "guide/imaging-chain.md",
-    "guide/sphere.md",
-    "guide/undistortion.md",
-    "guide/batched.md",
-    "guide/primitives.md",
-    "guide/transforms.md",
-    "guide/estimators.md",
-]
-Depth = 2
-```
+**Start here.** [Getting Started](guide/getting-started.md) installs the
+package and introduces units, frames and a first camera.
+
+**How to.** Model a camera and its lens ([Cameras](guide/cameras.md),
+[Lens Families](guide/lenses.md),
+[Back-projection and Undistortion](guide/undistortion.md)); work with
+[Geometric Primitives](guide/primitives.md) and
+[Transforms](guide/transforms.md); run maps over [Batches](guide/batched.md)
+on the CPU or a GPU; choose an estimator
+([Robust Estimation](guide/estimators.md)); plot
+([Visualization](guide/visualization.md)).
+
+**Explanation.** [Conventions](guide/conventions.md) states the stack's
+rules and the defect each one prevents;
+[Coordinate Frames](guide/frames.md),
+[Epipolar Forms](guide/forms.md),
+[The Framed Imaging Chain](guide/imaging-chain.md),
+[Ray Maps and Frame Transitions](guide/sphere.md),
+[Stereo Rigs and Uncertainty](guide/stereo.md) and
+[Design: Attributed{V,A}](guide/design.md) explain the design.
+
+**Reference.** The API Reference pages, from [Frames](api/frames.md) to
+[Synthetic Data](api/synthetic.md), document every public name.
 
 ## Role in the VisualGeometryToolkit stack
 

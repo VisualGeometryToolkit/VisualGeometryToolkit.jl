@@ -159,7 +159,7 @@ const CONTRACT_GENERICS = (
     # the target-calibration protocol a downstream target implements
     # (geometry/cameras/target_calibration.jl, targets.jl; a calibration's
     # Jacobians are CoordinateTransformations' transform_deriv_params / transform_deriv)
-    regularizer, calibration_tag, length_mask, is_planar, is_affine, gauge_names, gauge_directions, calibration, design,
+    regularizer, calibration_tag, length_mask, is_planar, is_affine, calibration, design,
     # the surface a ray meets (geometry/primitives/surfaces.jl): a downstream
     # surface primitive answers the queries, a downstream calibration kind `surface`
     intersection, normal, chart, bounds, surface_point, surface,
@@ -203,7 +203,7 @@ VisualGeometryToolkitCore's, by group:
 - the parameter protocol (`parameter_vector`, `parameter_names`,
   `parameter_bounds`, `with_parameters`);
 - the target-calibration protocol (`regularizer`,
-  `is_planar`, `gauge_names`, `gauge_directions`) and
+  `is_planar`) and
   the target accessors `calibration` and `design`;
 - the surface protocol (`intersection`, `normal`, `chart`, `surface_point`, `bounds`) and
   `surface`, which builds a posed target's primitive;

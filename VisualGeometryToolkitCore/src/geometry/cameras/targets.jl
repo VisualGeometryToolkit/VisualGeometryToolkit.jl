@@ -521,38 +521,35 @@ with_parameters(t::PlanarTarget, θ::AbstractVector) = PlanarTarget(t.reference,
 parameters(t::PlanarTarget) = NamedTuple{parameter_names(t)}(Tuple(parameter_vector(t)))
 regularizer(t::PlanarTarget) = regularizer(geom(t.calibration))
 is_planar(::PlanarTarget{C}) where {C} = is_planar(C)
-gauge_names(t::PlanarTarget) = gauge_names(geom(t.calibration))
 
 """
-    TargetManifold(target; free = ()) <: Manifold
+    TargetManifold(target) <: Manifold
 
-A calibratable target's manifold anchored at `target`, with its GAUGES held
-fixed: the directions of [`parameter_vector`](@ref)`(target)` that images
-cannot see because the target's pose absorbs them ([`gauge_names`](@ref)) —
-a [`ThinPlateSpline`](@ref)'s affine part, a [`HeightField`](@ref)'s piston
-and two tilts. The affine factors ([`Aspect`](@ref), [`Skew`](@ref),
-[`Scale`](@ref), a planar `EuclideanMap`) have none: a calibration leaves the
-pose's directions out of its composition instead. `minimal_manifold(target)`
-is this manifold, and it means "the pose is estimated jointly". `free` names
-gauge directions to leave free, one `Symbol` or a tuple: with a known pose
-(motion capture, a fixture), free them all.
+A calibratable target's manifold anchored at `target`: `minimal_manifold(target)`.
+No calibration kind has a gauge (the affine factors leave the pose's
+directions out of the composition, the thin-plate kinds hold no affine or
+plane part), so the manifold is every direction the calibration's parameters
+may move in, and with the target's pose estimated jointly every one of them is
+observable.
 
 The chart is linear: `retract(ch, v) = with_parameters(target, θ₀ + B v)`,
-`B` an `n × m` matrix whose orthonormal columns span the directions of θ
-orthogonal to the fixed ones, so `tangent_size(ch) = m` and
-`retract_jacobian(ch) = B`. With nothing fixed `B` is the identity and the
-coordinates are the parameters' offsets, named by [`parameter_names`](@ref);
-with a gauge fixed they are coordinates in that orthonormal basis.
+`B` an `n × m` matrix with orthonormal columns, so `tangent_size(ch) = m` and
+`retract_jacobian(ch) = B`. For the affine factors `B` is the identity and the
+coordinates are the parameters' offsets, named by [`parameter_names`](@ref).
+For a [`ThinPlateSpline`](@ref) (a [`HeightField`](@ref)) `B` spans the
+`2K − 6` (`K − 3`) pure-bending directions, the null space of the
+interpolant's affine-coefficient rows — the complement of an orthonormal basis
+of those rows' span, from a Householder QR
+with column pivoting (LAPACK, so one reproducible basis per node set and
+parameter layout); a composition's the complement of its members'
+constraints together.
 `action_jacobian(ch, x) = transform_deriv_params(c, x) · B` at the design point
 `x`; `local_coordinates(ch, t) = Bᵀ (θ(t) − θ₀)`. [`restrict`](@ref)`(ch,
-names)` keeps only the parameters `names` free (the others fixed, as a
-`TargetManifold` with the same gauges).
+names)` keeps only the parameters `names` free, the others held.
 
-THE BASIS IS FIXED AT THE ANCHOR. The gauge directions are evaluated once,
-where the manifold is built, and `recenter` keeps `B`: a fit moves on one
-linear slice through its starting parameters, and the manifold's type does not
-change. (The thin-plate kinds' gauge directions are constants of their nodes,
-so the slice is the same wherever it is anchored.)
+THE BASIS IS FIXED AT THE ANCHOR, and `recenter` keeps it: the constrained
+directions are constants of the nodes, so the slice is the same wherever it
+is anchored, and the manifold's type does not change.
 
 `B` is an `SMatrix` while `n ≤ 18` and a `Matrix{Float64}`
 above: a static basis compiles in time that grows steeply with its size (the
@@ -565,70 +562,41 @@ as a `Matrix`; n = 32, 2.3 s against 0.7 s; a 5 × 5 in-plane spline, n = 50,
 struct TargetManifold{T <: AbstractTarget, B <: AbstractMatrix{Float64}} <: Manifold
     target::T
     basis::B                      # n × m, orthonormal columns: the free directions of θ
-    fixed_gauges::Vector{Symbol}  # the gauge directions held fixed
     fixed::Vector{Symbol}         # the parameters held fixed (`restrict`)
 end
-function TargetManifold(t::PlanarTarget; free::Union{Symbol, Tuple{Vararg{Symbol}}} = ())
-    gauges = gauge_names(t)
-    freed = free isa Symbol ? (free,) : free
-    for g in freed
-        g in gauges || throw(
-            ArgumentError("TargetManifold: no gauge direction $(repr(g)) to free; the target's are $(isempty(gauges) ? "none" : join(gauges, ", "))")
-        )
-    end
-    return _target_manifold(t, Symbol[g for g in gauges if !(g in freed)], Symbol[])
-end
+TargetManifold(t::PlanarTarget) = _target_manifold(t, Symbol[])
 
 # The largest parameter count with a static basis: below it a static basis
 # compiles about as fast as a Matrix one, above it far slower (the docstring's
 # measurements).
 const _STATIC_BASIS_MAX = 18
 
-# B: within the free parameter axes E (every axis but the fixed parameters),
-# the orthogonal complement of the fixed gauge combinations that LIE in
-# span(E) — span(E) ∩ span(D), D the fixed gauge directions. A gauge with only
-# a component on the free axes is not a gauge there and fixes nothing. With
-# Q an orthonormal basis of span(D), the combinations are Q c with
-# ‖(I − EEᵀ) Q c‖ ≤ tol ‖c‖ — the right singular vectors of (I − EEᵀ) Q whose
-# singular values are ≤ tol, tol = 1e-6 (loose, so a near-gauge counts).
-const _GAUGE_IN_SPAN_RTOL = 1.0e-6
-function _target_manifold(t::PlanarTarget, fixed_gauges::Vector{Symbol}, fixed::Vector{Symbol})
+# B: the directions E y of the free parameter axes E (every axis but the held
+# parameters) that keep the calibration's constraint, Dᵀ E y = 0, D its
+# constraint columns (`_constraint_columns`: the thin-plate kinds' plane
+# fields, orthonormal) — y in the complement of range(Eᵀ D), from the full
+# Householder QR of Eᵀ D with column pivoting, its rank where |Rᵢᵢ| is above
+# √eps of the largest (D is orthonormal, so the cutoff is scale-free).
+function _target_manifold(t::PlanarTarget, fixed::Vector{Symbol})
     c = geom(t.calibration)
     names = parameter_names(c)
     n = length(names)
     free_axes = [i for i in 1:n if !(names[i] in fixed)]
-    E = zeros(n, length(free_axes))                                    # the free parameter axes
+    f = length(free_axes)
+    E = zeros(n, f)                                                    # the free parameter axes
     foreach(((j, i),) -> E[i, j] = 1.0, enumerate(free_axes))
-    B = if isempty(fixed_gauges) || isempty(free_axes)
+    D = _constraint_columns(c)
+    B = if size(D, 2) == 0 || f == 0
         E
     else
-        gn = gauge_names(c)
-        D = gauge_directions(c)[:, [findfirst(==(g), gn) for g in fixed_gauges]]
-        # unit columns: the rank cutoff below is then scale-free (a height
-        # field's tilt columns are its node coordinates, centimetres in metres)
-        for j in axes(D, 2)
-            nj = norm(view(D, :, j))
-            nj > 0 && (D[:, j] ./= nj)
-        end
-        FD = svd(D)
-        Q = FD.U[:, FD.S .> sqrt(eps(Float64)) * maximum(FD.S)]          # span(D), orthonormal
-        inside = if length(free_axes) == n
-            Q                                                           # nothing fixed: every gauge is in span(E)
-        else
-            outside = Q[setdiff(1:n, free_axes), :]                     # (I − EEᵀ) Q, in the fixed rows
-            FO = svd(outside; full = true)
-            σ = [FO.S; zeros(size(Q, 2) - length(FO.S))]
-            Q * FO.V[:, σ .<= _GAUGE_IN_SPAN_RTOL]                      # the gauge combinations in span(E)
-        end
-        if size(inside, 2) == 0
-            E
-        else
-            FI = svd(E' * inside; full = true)
-            r = count(>(sqrt(eps(Float64))), FI.S)
-            E * FI.U[:, (r + 1):end]
-        end
+        X = E' * D                                                     # f × g
+        F = LinearAlgebra.qr(X, LinearAlgebra.ColumnNorm())
+        d = abs.(diag(F.R))
+        r = isempty(d) ? 0 : count(>(sqrt(eps(Float64)) * maximum(d)), d)
+        Q = F.Q * Matrix{Float64}(LinearAlgebra.I, f, f)
+        E * Q[:, (r + 1):f]
     end
-    return TargetManifold(t, _basis(B, Val(n <= _STATIC_BASIS_MAX)), fixed_gauges, fixed)
+    return TargetManifold(t, _basis(B, Val(n <= _STATIC_BASIS_MAX)), fixed)
 end
 _basis(B::Matrix{Float64}, ::Val{true}) = SMatrix{size(B, 1), size(B, 2), Float64}(B)
 _basis(B::Matrix{Float64}, ::Val{false}) = B
@@ -638,7 +606,7 @@ ambient_coordinates(t::PlanarTarget) = parameter_vector(t)
 tangent_size(ch::TargetManifold) = size(ch.basis, 2)
 model(ch::TargetManifold) = ch.target
 retract(ch::TargetManifold, v) = with_parameters(ch.target, parameter_vector(ch.target) + ch.basis * v)
-recenter(ch::TargetManifold, v) = TargetManifold(retract(ch, v), ch.basis, ch.fixed_gauges, ch.fixed)
+recenter(ch::TargetManifold, v) = TargetManifold(retract(ch, v), ch.basis, ch.fixed)
 retract_jacobian(ch::TargetManifold) = ch.basis
 retract_jacobian(ch::TargetManifold, ::AbstractVector) = ch.basis
 action_jacobian(ch::TargetManifold{<:PlanarTarget}, x) = _calibration_action(geom(ch.target.calibration), x, ch.basis)
@@ -665,11 +633,13 @@ local_coordinates(ch::TargetManifold, t::AbstractTarget) = ch.basis' * (paramete
 
 The target manifold on the parameters `names` ([`parameter_names`](@ref)'
 vocabulary), every other parameter held at the anchor — a calibration's
-complexity as a manifold, as `restrict` of a [`LensManifold`](@ref). Of the
-fixed gauges, only the combinations that lie inside the span of the free
-parameters stay fixed: a gauge direction with a component on a held parameter
-cannot move there, so it constrains nothing (restricting a
-[`ThinPlateSpline`](@ref) to `(:fx1,)` keeps that one direction free).
+complexity as a manifold, as `restrict` of a [`LensManifold`](@ref). The
+thin-plate kinds' constraint still holds: the free directions are those of
+the named parameters that keep the values pure bending (no affine term in the
+interpolant), so
+a height field restricted to `m ≤ 3` of its heights has no direction left
+(three plane conditions on `m` unknowns), and to `m` heights in general
+position `m − 3`.
 """
 function restrict(ch::TargetManifold{<:PlanarTarget}, names::Tuple{Symbol, Vararg{Symbol}})
     all_names = parameter_names(ch.target)
@@ -678,5 +648,5 @@ function restrict(ch::TargetManifold{<:PlanarTarget}, names::Tuple{Symbol, Varar
             ArgumentError("restrict: the target has no parameter $(repr(n)); its parameters are $(join(String.(all_names), ", "))")
         )
     end
-    return _target_manifold(ch.target, ch.fixed_gauges, Symbol[n for n in all_names if !(n in names)])
+    return _target_manifold(ch.target, Symbol[n for n in all_names if !(n in names)])
 end

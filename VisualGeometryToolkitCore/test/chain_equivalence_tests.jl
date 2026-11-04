@@ -38,6 +38,12 @@
     #   puts them back under the goldens' "chain", in application order).
     const CODE = (
         affine = nothing,         # no affine kind (0.5.0): an affine print error is Aspect ∘ Skew (∘ …), every A case retired
+        gauges = false,           # no kind has gauges (0.5.0): the goldens' gauge names and directions are set aside
+        # the thin-plate kinds are pure bending (0.5.0: no affine term in the
+        # interpolant): built from the goldens' parameters, whose interpolants
+        # carry one, they are projected, so every value read
+        # off their nodal values moves (corpus.jl `_PROJECTED_FIELDS`)
+        projected = Set(["T", "H", "T_H"]),
         compose_calibrations = members -> ∘(reverse(members)...),
         compose_distortions = stages -> ∘(reverse(stages)...),
         jacobian_theta = transform_deriv_params,
@@ -79,6 +85,11 @@ end
             n_set_aside += 1
             continue
         end
+        if e === :aside                          # a value the code has, moved on purpose (the adapter's `projected`)
+            haskey(actual, key) || push!(failures, "$key: missing")
+            n_set_aside += 1
+            continue
+        end
         haskey(actual, key) || (push!(failures, "$key: missing"); continue)
         ok, d, why = compare_value(e, actual[key]; scaled = scaled_comparison(key, CODE), precision = value_precision(key),
             printed = printed_value(key))
@@ -93,7 +104,9 @@ end
     isempty(worst) || @info "chain equivalence: values off by ulps (≤ $(MAX_ULPS))" worst
     @test isempty(failures)
     @test n_compared + n_set_aside == length(G)
-    @test n_compared >= 250 - 52                  # 52: the A and A_H goldens, set aside with the affine kind (0.5.0)
+    # 52: the A and A_H goldens, set aside with the affine kind (0.5.0); 8: the
+    # gauge fields of R, T, H and T_H; 34: the projected fields of T, H and T_H
+    @test n_compared >= 250 - 52 - 8 - 34
 end
 
 @testitem "chain equivalence: the retired compositions are refused" setup = [ChainEquivalenceCore] begin

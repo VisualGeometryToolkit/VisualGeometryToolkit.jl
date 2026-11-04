@@ -371,6 +371,11 @@ const RETIRED_NAMES = String[
     # (2026-11-03): its parameter Jacobian is CT's `transform_deriv_params`, its
     # point Jacobian CT's `transform_deriv` (conventions/jacobians.md)
     "calibration" * "_jacobian",
+    # no target calibration kind has a gauge (2026-11-04): the affine print
+    # error is its Iwasawa factors (the pose's directions left out of the
+    # composition), the thin-plate kinds hold no plane part; `TargetManifold`
+    # has no `free` keyword
+    "gauge" * "_names", "gauge" * "_directions",
     # one model-to-model regression, `fit_camera(T, source, region)` (a lens
     # family, a `SplineProjection`, a grid), and its `CameraFitMetadata`
     # (VisualGeometryToolkitEstimation 0.6.0, 2026-11-04)

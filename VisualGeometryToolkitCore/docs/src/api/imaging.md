@@ -47,16 +47,16 @@ calibration estimates intrinsics and a lens: a CoordinateTransformations
 `transform_deriv_params` and its point Jacobian CT's `transform_deriv`. The
 kinds:
 
-| kind | map | parameters | Jacobian | regularizer | gauges fixed by default |
+| kind | map | parameters | Jacobian | regularizer | free directions |
 |---|---|---|---|---|---|
-| [`Rigid`](@ref) | `p ↦ p` | none | 2 × 0 | none | none |
-| [`Skew`](@ref) (`N = 2`) | `p ↦ U p`, `U` unit upper-triangular | `u12` (`U`'s strictly-upper entries, row by row) | 2 × 1 | none | none |
-| [`Aspect`](@ref) (`N = 2`) | `p ↦ diag(e^{a}, e^{−a}) p` | `a1` | 2 × 1 | none | none |
-| [`Scale`](@ref) | `p ↦ e^{k} p` | `log_scale` | 2 × 1 | none | none |
-| a planar `EuclideanMap` | `p ↦ R(ϑ) p + t` | `angle, tx, ty` | 2 × 3 | none | none |
-| [`ThinPlateSpline`](@ref) | `p ↦ p + (f_x(p), f_y(p))` | `fx1…fxK, fy1…fyK` | 2 × 2K | bending energy, 2K rows | its affine part: `:fx_1, :fx_u, :fx_v, :fy_1, :fy_u, :fy_v` |
-| [`HeightField`](@ref) | `p ↦ (p, h(p))` | `h1…hK` | 3 × K | bending energy, K rows | `:piston, :tilt_x, :tilt_y` |
-| a composition (CT's `∘`) | the members, the inner first | the members', tag-prefixed, the outer member's first | CT's chain rule, `hcat(p1, m1 * p2)` | stacked, the outer member's first | the members', tag-prefixed |
+| [`Rigid`](@ref) | `p ↦ p` | none | 2 × 0 | none | 0 |
+| [`Skew`](@ref) (`N = 2`) | `p ↦ U p`, `U` unit upper-triangular | `u12` (`U`'s strictly-upper entries, row by row) | 2 × 1 | none | 1 |
+| [`Aspect`](@ref) (`N = 2`) | `p ↦ diag(e^{a}, e^{−a}) p` | `a1` | 2 × 1 | none | 1 |
+| [`Scale`](@ref) | `p ↦ e^{k} p` | `log_scale` | 2 × 1 | none | 1 |
+| a planar `EuclideanMap` | `p ↦ R(ϑ) p + t` | `angle, tx, ty` | 2 × 3 | none | 3 |
+| [`ThinPlateSpline`](@ref) | `p ↦ p + (f_x(p), f_y(p))`, no affine term | `fx1…fxK, fy1…fyK` | 2 × 2K | bending energy, 2K rows | 2K − 6 |
+| [`HeightField`](@ref) | `p ↦ (p, h(p))`, no affine term | `h1…hK` | 3 × K | bending energy, K rows | K − 3 |
+| a composition (CT's `∘`) | the members, the inner first | the members', tag-prefixed, the outer member's first | CT's chain rule, `hcat(p1, m1 * p2)` | stacked, the outer member's first | the members' sum |
 
 **The affine print error is its Iwasawa factors.** An affine map of the design
 `p ↦ A p + b` factors as `A = s·R·D·U` (the KAN decomposition): a rotation, a
@@ -72,14 +72,39 @@ The counts agree: an affine map of `R^N` has `N² + N` parameters, the pose
 `N(N−1)/2 + N` and the scale one, which leaves `(N−1) + N(N−1)/2`. `Aspect`,
 `Skew` and `Scale` are N-generic; a planar target takes `N = 2`.
 
-A [`PlanarTarget`](@ref) takes one kind, the factors in the canonical order
-(any of them left out), or a `HeightField` after those or after a
-`ThinPlateSpline` (`HeightField ∘ Aspect ∘ Skew`,
-`HeightField ∘ ThinPlateSpline`), and refuses any other composition with an
-`ArgumentError`; it stores a composition right-associated, whatever
-association `∘` built. A composition's parameters, names, bounds, Jacobian
-columns, gauges and regularizer rows are in CoordinateTransformations' order,
-the outer member's first. The 0.4 `AffineMap` kind (tag `"affine"`) is retired.
+**The thin-plate kinds are pure bending.** An in-plane spline's displacements
+and a height field's heights have no affine term in their interpolant: the
+spline through each nodal value vector is `Σ wᵢ U(·, pᵢ)` alone, its affine
+coefficients `a` ([`tps_coefficients`](@ref)) zero — intrinsic to the spline,
+whatever the node distribution. The constructor and `with_parameters` project
+what they are given onto that subspace, `v ↦ v − M a(v)` with `M = [1 u v]`
+at the nodes, keeping the bending (values whose affine term is within 1e-12
+of them are kept bit for bit, so RadiometricCamera's board heights, the
+bending part of its spline at its chart nodes, are kept unchanged). The
+condition is defined on the nodes the spline is built on: the kernel
+`r² log r` is not scale-invariant, and scaling the nodes moves a constant (a
+piston) between the affine and the bending parts — build the thin-plate kinds
+on a dimensionless chart of the board.
+An affine displacement belongs to the affine factors and a plane of heights to
+the pose; a spline built from either is the identity. So the canonical print
+error with a jointly estimated pose is
+
+```julia
+HeightField(nodes, h) ∘ ThinPlateSpline(nodes, fx, fy) ∘ Aspect(a) ∘ Skew(u)
+```
+
+and no kind has a gauge: every direction a composition's parameters may move
+in is observable, and the joint pose/calibration Jacobian has full column rank.
+The stored parameters stay the nodal values (2K, K), with `2K − 6` (`K − 3`)
+free directions; a covariance over them has that rank.
+
+A [`PlanarTarget`](@ref) takes one kind, or kinds in the canonical order
+`HeightField ∘ ThinPlateSpline ∘ EuclideanMap ∘ Scale ∘ Aspect ∘ Skew`, any of
+them left out, and refuses any other composition with an `ArgumentError`; it
+stores a composition right-associated, whatever association `∘` built. A
+composition's parameters, names, bounds, Jacobian columns and regularizer rows
+are in CoordinateTransformations' order, the outer member's first. The 0.4
+`AffineMap` kind (tag `"affine"`) is retired.
 
 The thin-plate kinds are splines over `K` fixed nodes in the target's plane
 (the numerics' [`ThinPlateSplineSystem`](@ref)), their parameters the nodal
@@ -94,18 +119,15 @@ affine factors and `ThinPlateSpline`, false once a `HeightField` is present; `po
 result type is inferred. A method that assumes the plane takes
 `t::PlanarTarget{<:PlanarCalibration}` and refuses a height field by dispatch.
 
-**Gauges.** The thin-plate kinds have directions of θ that are the pose's: a
-spline's affine part, and a height field plus a plane (a tilted, shifted
-pose). The default [`TargetManifold`](@ref) — `minimal_manifold(t)`, which
-means "the pose is estimated jointly" — holds them fixed: a `ThinPlateSpline`
-is a pure residual, a `HeightField` loses its piston and tilts. The chart is
-linear on an orthonormal basis of the complement of [`gauge_names`](@ref)'
-directions. The affine factors have none: a calibration leaves the pose's
-directions out of its composition instead.
+**The manifold.** [`TargetManifold`](@ref)`(t)` — `minimal_manifold(t)` — is
+linear: the identity basis for the affine factors, the thin-plate kinds' free
+directions (an orthonormal null-space basis of the affine-coefficient rows, from a pivoted
+Householder QR: reproducible) for the splines. There is nothing to free or
+fix: what the data observes is chosen by the composition's members.
 
 ```julia
-t = PlanarTarget(pts; calibration = HeightField(nodes) ∘ Aspect(0.0) ∘ Skew(0.0))
-ch = minimal_manifold(t)                                   # the pose estimated jointly: the height field's gauges fixed
+t = PlanarTarget(pts; calibration = HeightField(nodes) ∘ ThinPlateSpline(nodes) ∘ Aspect(0.0) ∘ Skew(0.0))
+ch = minimal_manifold(t)                                   # (K − 3) + (2K − 6) + 2 directions, all observable
 PlanarTarget(pts; calibration = Scale(0.0) ∘ Aspect(0.0) ∘ Skew(0.0))   # a ruler: the scale is observable
 ```
 

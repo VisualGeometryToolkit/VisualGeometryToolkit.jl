@@ -205,6 +205,14 @@ end
 const MAX_ULPS = 4
 const _TARGET_PARAMETER_FIELDS = ("names", "theta", "bounds_lo", "bounds_hi", "length_mask", "with_parameters/theta",
     "with_unit_mm/theta", "ustrip_mm/theta", "manifold/retract")
+const _GAUGE_FIELDS = ("gauge" * "_names", "gauge" * "_directions")
+# What a thin-plate kind's values move when its nodal values lose their
+# interpolant's affine term (the adapter's `projected` cases): every value read off the values, and
+# a composition's parameter Jacobian (the outer member's is taken at the inner
+# one's output); the names, flags, bounds, length mask, a single kind's
+# parameter Jacobian (the nodal weights) and the manifold size do not move.
+const _PROJECTED_FIELDS = ("theta", "out", "out_physical", "jacobian_x", "regularizer", "with_parameters/theta",
+    "with_parameters/out", "with_unit_mm/theta", "ustrip_mm/theta", "manifold/action", "manifold/retract")
 const _LENS_PARAMETER_FIELDS = ("names", "theta", "bounds_lo", "bounds_hi", "float32/theta", "with_parameters/theta", "manifold/retract")
 
 """
@@ -222,12 +230,17 @@ function expected_core_value(key::AbstractString, g, V)
     if family == "target"
         composed = length(case_members(name)) > 1
         field == "tag" && composed && !V.composition_tags && return :absent
+        # (the gauge fields' names are retired, so spelled here by parts)
+        hasproperty(V, :gauges) && !V.gauges && field in _GAUGE_FIELDS && return :absent
+        # (`:aside`: the code still has the value, and it moved on purpose)
+        hasproperty(V, :projected) && name in V.projected &&
+            (field in _PROJECTED_FIELDS || (composed && field == "jacobian_theta")) && return :aside
         p = block_permutation(target_blocks(name, 1), V.ct_order)
         q = block_permutation(target_blocks(name, 2), V.ct_order)
         r = block_permutation(target_blocks(name, 3), V.ct_order)
         field in _TARGET_PARAMETER_FIELDS && return g[p]
-        field == "gauge_names" && return g[q]
-        field == "gauge_directions" && return g[p, q]
+        field == _GAUGE_FIELDS[1] && return g[q]
+        field == _GAUGE_FIELDS[2] && return g[p, q]
         field in ("jacobian_theta", "manifold/action") && return g[:, p, :]
         field == "regularizer" && return g[r]
         return g

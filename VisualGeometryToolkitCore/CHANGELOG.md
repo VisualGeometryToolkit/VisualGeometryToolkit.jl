@@ -17,7 +17,7 @@ chain types, and CT's conventions hold for it.
   kind is no longer possible (the union is closed).
 - **Removed `CalibrationChain`**: `CalibrationChain(A, H)` is `H ∘ A`
   (CoordinateTransformations' `∘`, applied right to left). A composition's
-  parameters, names, bounds, Jacobian columns, gauges, length mask and
+  parameters, names, bounds, Jacobian columns, length mask and
   regularizer rows are in CT's order, the OUTER map's (the height field's)
   first — the reverse of the chain's application order. Names keep their tag
   prefixes (`:height_field_h1`, …, `:aspect_a1`).
@@ -43,6 +43,31 @@ chain types, and CT's conventions hold for it.
   `AffineMap`: that type piracy is gone, and `AffineMap` stays on Aqua's
   `treat_as_own` list for one constructor only, `AffineMap(::StaticMatrix{3, 3})`
   (the pixel affine of a calibration matrix).
+- **The thin-plate kinds are pure bending, and no kind has a gauge.**
+  `ThinPlateSpline`'s displacements and `HeightField`'s heights have no affine
+  term in their interpolant (the spline's affine coefficients `a` are zero:
+  pure bending, intrinsic to the spline): the constructor and
+  `with_parameters` project each nodal value vector, `v ↦ v − M a(v)` with
+  `M = [1 u v]` at the nodes, which keeps the bending (values whose affine
+  term is within 1e-12 of them are kept bit for bit, so the projection is
+  idempotent, a stored spline rebuilds exactly, and RadiometricCamera's board
+  heights — its spline's bending part at its chart nodes — are kept unchanged;
+  "no affine term" is defined on the nodes the spline is built on, since the
+  kernel r² log r moves a piston under a scaling of them: build on a
+  dimensionless chart).
+  A spline built from an affine displacement is the identity, a height field
+  built from a plane of heights flat. The canonical print error is
+  `HeightField ∘ ThinPlateSpline ∘ Aspect ∘ Skew` (a `ThinPlateSpline` now
+  composes before the affine factors). The stored parameters stay the 2K (K)
+  nodal values, with 2K − 6 (K − 3) free directions; a covariance over them
+  has that rank. **Removed `gauge_names` and `gauge_directions`** (retired in
+  `check_naming`) and `TargetManifold`'s `free` keyword: `TargetManifold(t)`'s
+  basis is the identity for the affine factors and, for the thin-plate kinds,
+  an orthonormal null-space basis of the interpolant's affine-coefficient rows
+  from a pivoted Householder QR (reproducible; the 0.4 default fixed the
+  gauge columns orthogonally, another complement of the same plane fields).
+  `restrict(ch, names)` keeps the constraint: the named parameters'
+  directions that stay pure bending.
 - **Removed `calibration_jacobian`** (retired in `check_naming`): a
   calibration's parameter Jacobian is CT's `transform_deriv_params(c, x)`, its
   point Jacobian CT's `transform_deriv(c, x)`. `ThinPlateSpline` and

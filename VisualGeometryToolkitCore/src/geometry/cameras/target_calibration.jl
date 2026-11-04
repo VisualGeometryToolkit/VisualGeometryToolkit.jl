@@ -19,12 +19,13 @@
 #
 # The kinds are `Rigid`; the four factors of an affine print error, Core's
 # `EuclideanMap{2}` and `Scale`, `Aspect`, `Skew` (the Iwasawa factors,
-# below); the two thin-plate kinds; and their compositions with CT's `∘`: the
-# factors in their canonical order (`EuclideanMap ∘ Scale ∘ Aspect ∘ Skew`,
-# any of them left out), and a height field after one in-plane kind or chain
-# (`HeightField ∘ Aspect ∘ Skew`, `HeightField ∘ ThinPlateSpline`). A
-# composition's parameters, names, bounds, Jacobian columns, gauges and
-# regularizer rows are in CT's order — the OUTER map's first, as
+# below); the two thin-plate kinds, which hold no affine (plane) part; and
+# their compositions with CT's `∘` in the canonical order
+# `HeightField ∘ ThinPlateSpline ∘ EuclideanMap ∘ Scale ∘ Aspect ∘ Skew`, any of
+# them left out — the print error with a jointly estimated pose is
+# `HeightField ∘ ThinPlateSpline ∘ Aspect ∘ Skew`. No kind has a gauge. A
+# composition's parameters, names, bounds, Jacobian columns and regularizer
+# rows are in CT's order — the OUTER map's first, as
 # `transform_deriv_params(t1 ∘ t2, x) = hcat(p1, m1 * p2)` stacks them.
 #
 # LENGTHS. A calibration's lengths are in the form of the design points it
@@ -320,7 +321,8 @@ transform_deriv_params(E::EuclideanMap{2}, x::StaticVector{2, <:Quantity}) = tra
 const _PlanarFactor = Union{EuclideanMap{2}, Scale, Aspect{2}, Skew{2}}
 const _AnyFactor = Union{_PlanarFactor, Scale, Aspect, Skew}
 regularizer(::_AnyFactor) = SVector{0, Float64}()
-# their place in the canonical order, the outer map first
+# their place in the canonical order, the outer map first (a bending-only
+# thin-plate spline before them, rank 0, below: HeightField ∘ ThinPlateSpline ∘ Aspect ∘ Skew)
 _factor_rank(::EuclideanMap) = 1
 _factor_rank(::Scale) = 2
 _factor_rank(::Aspect) = 3
@@ -356,8 +358,49 @@ with_unit(c::Union{Scale, Aspect, Skew}, ::Units) = c
 # relative, may come out negative). No shift is added, so `‖L v‖²` is the
 # bending energy to rounding, not a biased one; the rows along the null
 # space are zero.
+#
+# NO AFFINE TERM IN THE INTERPOLANT. A thin-plate spline through nodal values
+# `v` is `f(p) = a₁ + a_u u + a_v v + Σᵢ wᵢ U(p, pᵢ)`, `(w; a) =
+# tps_coefficients(system, v)`: an affine term `a` and the bending `Σ wᵢ U`.
+# The affine term is not the spline's to carry: for a height field it is the
+# pose's piston and two tilts, for an in-plane spline an affine map of the
+# design, which the affine factors (`EuclideanMap ∘ Scale ∘ Aspect ∘ Skew`)
+# carry. So the thin-plate kinds hold PURE BENDING — values whose interpolant
+# has `a(v) = 0` (each of an in-plane spline's two value vectors: six
+# conditions) — intrinsic to the spline, whatever the node distribution. The
+# constructor and `with_parameters` PROJECT what they are given onto it:
+# `v ↦ v − M a(v)`, `M = [1 u v]` the plane fields at the nodes (the spline
+# through `M a` is that plane exactly, so the projection keeps `w` and zeroes
+# `a`; it is oblique, along the plane fields, and idempotent). Values whose
+# affine term is already within `_PLANE_PART_RTOL` of them (`‖M a(v)‖ ≤
+# 1e-12 ‖v‖`) are kept as they are, bit for bit, so a stored spline rebuilds
+# identically and RadiometricCamera's board heights — the bending part of its
+# spline at its chart nodes — are kept unchanged. The stored parameters stay the K (2K) nodal values;
+# they have K − 3 (2K − 6) free directions, the null space of the affine
+# rows of `system.coeff`, which the target manifold's basis spans
+# (`_constraint_columns`); a covariance over them has that rank.
 
 _bending_rows(L::Matrix{Float64}, v::SVector{K}) where {K} = SVector{K}(L * v)
+
+# The plane fields 1, u, v at the nodes (K × 3).
+function _plane_basis(system::ThinPlateSplineSystem{K}) where {K}
+    M = Matrix{Float64}(undef, K, 3)
+    for (i, p) in enumerate(system.nodes)
+        M[i, 1], M[i, 2], M[i, 3] = 1.0, p[1], p[2]
+    end
+    return M
+end
+# The interpolant's affine-coefficient rows (3 × K): a(v) = A v.
+_affine_rows(system::ThinPlateSplineSystem{K}) where {K} = system.coeff[(K + 1):(K + 3), :]
+# The relative size of an affine term below which nodal values count as pure
+# bending: far above the rounding of a projection, far below any real plane.
+const _PLANE_PART_RTOL = 1.0e-12
+# v without the affine term of its interpolant (v kept, bit for bit, when it has none).
+function _without_plane(system::ThinPlateSplineSystem{K}, M::Matrix{Float64}, v::SVector{K, T}) where {K, T}
+    plane = M * (_affine_rows(system) * Vector(v))
+    sqrt(sum(abs2, plane)) <= _PLANE_PART_RTOL * sqrt(sum(abs2, v)) && return v
+    return v - SVector{K, T}(plane)
+end
 _node_lengths(system, physical) = physical ? [map(x -> _attach_length(x, m), p) for p in system.nodes] : collect(system.nodes)
 # 2 × 2K: (nᵀ, 0) over (0, nᵀ) — the two splines' nodal weights
 _two_rows(a::SVector{K}, b::SVector{K}) where {K} = SMatrix{2, K}(ntuple(k -> isodd(k) ? a[(k + 1) ÷ 2] : b[k ÷ 2], Val(2K)))
@@ -375,12 +418,25 @@ Parameters `(:fx1, …, :fxK, :fy1, …, :fyK)`, unbounded;
 [`regularizer`](@ref) the two splines' bending-energy rows (`2K` rows; a
 quadratic block, see its docstring).
 
-It is a RESIDUAL: its affine part (each spline's `1`, `u`, `v` over the nodes)
-is fixed by the default [`TargetManifold`](@ref) — `gauge_names` `(:fx_1,
-:fx_u, :fx_v, :fy_1, :fy_u, :fy_v)` — because four of those six directions
-are the pose's. An in-plane kind does not compose with another: free `:fx_u`,
-… by name to let the spline carry a print stretch and shear. A
-[`HeightField`](@ref) composes after it, `HeightField ∘ ThinPlateSpline`.
+It is a pure BENDING residual: no affine term in the interpolant. Each of the
+two splines, through `fx` and through `fy`, has zero affine coefficients
+(`a₁ = a_u = a_v = 0` of [`tps_coefficients`](@ref): six conditions), and the
+constructor and [`with_parameters`](@ref) PROJECT the displacements they are
+given onto that subspace, `v ↦ v − M a(v)` with `M = [1 u v]` at the nodes —
+which keeps the bending and drops the affine term (displacements whose affine
+term is below 1e-12 of them are kept bit for bit). A displacement
+that is an affine map of the design is not the spline's to carry: four of its
+six directions are the target pose's, and the other two (and the rest, with a
+measured length or a known pose) belong to the affine factors composed after
+it — the canonical print error is `HeightField ∘ ThinPlateSpline ∘ Aspect ∘
+Skew`. A spline built from an affine displacement is the identity. As for a
+[`HeightField`](@ref), "no affine term" is defined on the nodes the spline is
+built on (scaling them moves a constant between the affine and bending
+parts): build it on a dimensionless chart. The 2K
+stored displacements have `2K − 6` free directions, the
+[`TargetManifold`](@ref)'s tangent, and no gauges; a covariance over them has
+rank `2K − 6`. `transform_deriv_params` is the derivative along that subspace
+(the nodal weights; the projection is the identity there).
 """
 struct ThinPlateSpline{K, T} <: CoordinateTransformations.Transformation
     system::ThinPlateSplineSystem{K}
@@ -391,14 +447,20 @@ struct ThinPlateSpline{K, T} <: CoordinateTransformations.Transformation
     wy::SVector{K, T}
     ay::SVector{3, T}
     bending::Matrix{Float64}
+    plane::Matrix{Float64}      # K × 3: the plane fields [1 u v] at the nodes (`_plane_basis`)
     physical::Bool
 end
-function _thin_plate_spline(system::ThinPlateSplineSystem{K}, L, fx::SVector{K, T}, fy::SVector{K, T}, physical) where {K, T}
+# (`project = false`: a unit move, whose values were pure bending on the
+# nodes they came from — re-projecting them on rescaled nodes would move a
+# piston, see "no affine term" above)
+function _thin_plate_spline(system::ThinPlateSplineSystem{K}, L, P, fx::SVector{K, T}, fy::SVector{K, T}, physical, project::Bool = true) where {K, T}
+    project && ((fx, fy) = (_without_plane(system, P, fx), _without_plane(system, P, fy)))
     wx, ax = tps_coefficients(system, Vector(fx))   # a Vector, as RadiometricCamera supplies its values:
     wy, ay = tps_coefficients(system, Vector(fy))   # the same BLAS product, the same bits
-    return ThinPlateSpline{K, T}(system, fx, fy, wx, ax, wy, ay, L, physical)
+    return ThinPlateSpline{K, T}(system, fx, fy, wx, ax, wy, ay, L, P, physical)
 end
-function ThinPlateSpline(nodes::AbstractVector, fx::AbstractVector, fy::AbstractVector)
+ThinPlateSpline(nodes::AbstractVector, fx::AbstractVector, fy::AbstractVector) = _thin_plate_spline(nodes, fx, fy, true)
+function _thin_plate_spline(nodes::AbstractVector, fx::AbstractVector, fy::AbstractVector, project::Bool)
     K = length(nodes)
     length(fx) == length(fy) == K || throw(DimensionMismatch("ThinPlateSpline: $K nodes, $(length(fx)) and $(length(fy)) displacements"))
     ns, physical = _node_points(nodes)
@@ -408,13 +470,13 @@ function ThinPlateSpline(nodes::AbstractVector, fx::AbstractVector, fy::Abstract
     py_ == physical || _refuse_form("ThinPlateSpline", first(fy), physical)
     system = ThinPlateSplineSystem(ns)
     T = float(promote_type(eltype(vx), eltype(vy)))
-    return _thin_plate_spline(system, bending_factor(system), SVector{K, T}(vx), SVector{K, T}(vy), physical)
+    return _thin_plate_spline(system, bending_factor(system), _plane_basis(system), SVector{K, T}(vx), SVector{K, T}(vy), physical, project)
 end
 function ThinPlateSpline(nodes::AbstractVector)
     ns, physical = _node_points(nodes)
     K = length(ns)
     system = ThinPlateSplineSystem(ns)
-    return _thin_plate_spline(system, bending_factor(system), zero(SVector{K, Float64}), zero(SVector{K, Float64}), physical)
+    return _thin_plate_spline(system, bending_factor(system), _plane_basis(system), zero(SVector{K, Float64}), zero(SVector{K, Float64}), physical)
 end
 _apply(c::ThinPlateSpline, q) =
     q + SVector(tps_evaluate(c.system.nodes, c.wx, c.ax, q), tps_evaluate(c.system.nodes, c.wy, c.ay, q))
@@ -429,7 +491,7 @@ parameter_vector(c::ThinPlateSpline) = vcat(c.fx, c.fy)
 function with_parameters(c::ThinPlateSpline{K}, θ::AbstractVector) where {K}
     length(θ) == 2K || _refuse_length(c, θ)
     T = float(eltype(θ))
-    return _thin_plate_spline(c.system, c.bending, _wrap(θ, Val(K), 0, T), _wrap(θ, Val(K), K, T), c.physical)
+    return _thin_plate_spline(c.system, c.bending, c.plane, _wrap(θ, Val(K), 0, T), _wrap(θ, Val(K), K, T), c.physical)
 end
 function transform_deriv_params(c::ThinPlateSpline{K}, x) where {K}
     n = nodal_weights(c.system, _plain_point(x))
@@ -439,6 +501,7 @@ end
 regularizer(c::ThinPlateSpline) = vcat(_bending_rows(c.bending, c.fx), _bending_rows(c.bending, c.fy))
 
 _has_lengths(::ThinPlateSpline) = true
+_factor_rank(::ThinPlateSpline) = 0   # (the canonical order: before the affine factors)
 has_units(c::ThinPlateSpline) = c.physical
 _length_sample(c::ThinPlateSpline) = first(first(_node_lengths(c.system, c.physical)))
 length_mask(::Type{<:ThinPlateSpline{K}}) where {K} = SVector{2K}(ntuple(_ -> true, Val(2K)))
@@ -450,14 +513,14 @@ length_mask(::Type{<:ThinPlateSpline{K}}) where {K} = SVector{2K}(ntuple(_ -> tr
 _in_metres(u::Units) = dimension(u) == dimension(m) && _metre_factor(u) == 1
 function FlexUnits.ustrip(u::Units, c::ThinPlateSpline{K, T}) where {K, T}
     c.physical || _refuse_strip(c)
-    _in_metres(u) && return ThinPlateSpline{K, T}(c.system, c.fx, c.fy, c.wx, c.ax, c.wy, c.ay, c.bending, false)
-    return ThinPlateSpline([map(x -> _from_metres(x, u), p) for p in c.system.nodes], map(x -> _from_metres(x, u), c.fx), map(x -> _from_metres(x, u), c.fy))
+    _in_metres(u) && return ThinPlateSpline{K, T}(c.system, c.fx, c.fy, c.wx, c.ax, c.wy, c.ay, c.bending, c.plane, false)
+    return _thin_plate_spline([map(x -> _from_metres(x, u), p) for p in c.system.nodes], map(x -> _from_metres(x, u), c.fx), map(x -> _from_metres(x, u), c.fy), false)
 end
 function with_unit(c::ThinPlateSpline{K, T}, u::Units) where {K, T}
     c.physical && _refuse_attach(c)
-    _in_metres(u) && return ThinPlateSpline{K, T}(c.system, c.fx, c.fy, c.wx, c.ax, c.wy, c.ay, c.bending, true)
+    _in_metres(u) && return ThinPlateSpline{K, T}(c.system, c.fx, c.fy, c.wx, c.ax, c.wy, c.ay, c.bending, c.plane, true)
     to(x) = _attach_length(x, u)
-    return ThinPlateSpline([map(to, p) for p in c.system.nodes], map(to, c.fx), map(to, c.fy))
+    return _thin_plate_spline([map(to, p) for p in c.system.nodes], map(to, c.fx), map(to, c.fy), false)
 end
 Base.:(==)(a::ThinPlateSpline, b::ThinPlateSpline) =
     a.system.nodes == b.system.nodes && a.fx == b.fx && a.fy == b.fy && a.physical == b.physical
@@ -479,10 +542,33 @@ the bending-energy rows (`K` rows).
 
 A target with a height field is not planar ([`is_planar`](@ref)): its
 [`points`](@ref) are 3-vectors. It composes after an in-plane kind or chain,
-`HeightField ∘ Aspect ∘ Skew` or `HeightField ∘ ThinPlateSpline`, its nodes
-then in that kind's output (the calibrated plane, not the design). Its piston
-and two tilts are the pose's (gauges): the default [`TargetManifold`](@ref)
-holds them fixed — see [`gauge_names`](@ref).
+`HeightField ∘ ThinPlateSpline ∘ Aspect ∘ Skew` (the canonical print error),
+`HeightField ∘ Aspect ∘ Skew`, …, its nodes then in that chain's output (the
+calibrated plane, not the design).
+
+Its heights are pure bending: no affine term in the interpolant, `a = 0`
+(the field's `a`, of [`tps_coefficients`](@ref)), and the constructor and
+[`with_parameters`](@ref) PROJECT the heights they are given onto that
+subspace, `h ↦ h − M a(h)` with `M = [1 u v]` at the nodes — the bending kept,
+the plane dropped (heights whose affine term is below 1e-12 of them are kept
+bit for bit, as RadiometricCamera's board heights, the bending part of its
+spline, are). A plane of heights — a piston and two tilts — is the target
+pose's, so a height field built from one is flat.
+
+"No affine term" is defined ON THE NODES THE SPLINE IS BUILT ON: the kernel
+`U(r) = r² log r` is not scale-invariant (`U(s r) = s² U(r) + s² log(s) r²`,
+and `Σ wᵢ |p − pᵢ|²` is a constant under the spline's side conditions), so
+scaling the nodes moves a constant — a piston — between the affine and the
+bending parts (translating or rotating them does not). Build a height field
+on a dimensionless chart of the board (`[0, 1]²`, RadiometricCamera's), not on
+nodes in physical units, to keep its heights where they were computed. A
+physical field's condition holds in metres, its stored form; a unit move
+(`ustrip(u, c)`, [`with_unit`](@ref)) converts the values and does not
+re-project them (the geometry stays where it is), so in another unit the
+interpolant may carry the piston that unit's scale adds, and a
+`with_parameters` there projects in that unit's numbers. The `K` stored heights have
+`K − 3` free directions, the [`TargetManifold`](@ref)'s tangent, and no
+gauges; a covariance over them has rank `K − 3`.
 """
 struct HeightField{K, T} <: CoordinateTransformations.Transformation
     system::ThinPlateSplineSystem{K}
@@ -490,25 +576,28 @@ struct HeightField{K, T} <: CoordinateTransformations.Transformation
     w::SVector{K, T}
     a::SVector{3, T}
     bending::Matrix{Float64}
+    plane::Matrix{Float64}      # K × 3: the plane fields [1 u v] at the nodes (`_plane_basis`)
     physical::Bool
 end
-function _height_field(system::ThinPlateSplineSystem{K}, L, h::SVector{K, T}, physical) where {K, T}
+function _height_field(system::ThinPlateSplineSystem{K}, L, P, h::SVector{K, T}, physical, project::Bool = true) where {K, T}
+    project && (h = _without_plane(system, P, h))
     w, a = tps_coefficients(system, Vector(h))   # a Vector, as RadiometricCamera supplies its heights: the same bits
-    return HeightField{K, T}(system, h, w, a, L, physical)
+    return HeightField{K, T}(system, h, w, a, L, P, physical)
 end
-function HeightField(nodes::AbstractVector, heights::AbstractVector)
+HeightField(nodes::AbstractVector, heights::AbstractVector) = _height_field(nodes, heights, true)
+function _height_field(nodes::AbstractVector, heights::AbstractVector, project::Bool)
     K = length(nodes)
     length(heights) == K || throw(DimensionMismatch("HeightField: $K nodes, $(length(heights)) heights"))
     ns, physical = _node_points(nodes)
     v, ph = _lengths(collect(heights))
     ph == physical || _refuse_form("HeightField", first(heights), physical)
     system = ThinPlateSplineSystem(ns)
-    return _height_field(system, bending_factor(system), SVector{K, float(eltype(v))}(v), physical)
+    return _height_field(system, bending_factor(system), _plane_basis(system), SVector{K, float(eltype(v))}(v), physical, project)
 end
 function HeightField(nodes::AbstractVector)
     ns, physical = _node_points(nodes)
     system = ThinPlateSplineSystem(ns)
-    return _height_field(system, bending_factor(system), zero(SVector{length(ns), Float64}), physical)
+    return _height_field(system, bending_factor(system), _plane_basis(system), zero(SVector{length(ns), Float64}), physical)
 end
 _apply(c::HeightField, q) = SVector(q[1], q[2], tps_evaluate(c.system.nodes, c.w, c.a, q))
 function _point_jacobian(c::HeightField, q)
@@ -521,7 +610,7 @@ parameter_vector(c::HeightField) = c.h
 # parameter_names(::HeightField): generated from the type, beside the name tables below
 function with_parameters(c::HeightField{K}, θ::AbstractVector) where {K}
     length(θ) == K || _refuse_length(c, θ)
-    return _height_field(c.system, c.bending, _wrap(θ, Val(K), 0, float(eltype(θ))), c.physical)
+    return _height_field(c.system, c.bending, c.plane, _wrap(θ, Val(K), 0, float(eltype(θ))), c.physical)
 end
 function transform_deriv_params(c::HeightField{K}, x) where {K}
     n = nodal_weights(c.system, _plain_point(x))
@@ -535,14 +624,14 @@ _length_sample(c::HeightField) = first(first(_node_lengths(c.system, c.physical)
 length_mask(::Type{<:HeightField{K}}) where {K} = SVector{K}(ntuple(_ -> true, Val(K)))
 function FlexUnits.ustrip(u::Units, c::HeightField{K, T}) where {K, T}
     c.physical || _refuse_strip(c)
-    _in_metres(u) && return HeightField{K, T}(c.system, c.h, c.w, c.a, c.bending, false)
-    return HeightField([map(x -> _from_metres(x, u), p) for p in c.system.nodes], map(x -> _from_metres(x, u), c.h))
+    _in_metres(u) && return HeightField{K, T}(c.system, c.h, c.w, c.a, c.bending, c.plane, false)
+    return _height_field([map(x -> _from_metres(x, u), p) for p in c.system.nodes], map(x -> _from_metres(x, u), c.h), false)
 end
 function with_unit(c::HeightField{K, T}, u::Units) where {K, T}
     c.physical && _refuse_attach(c)
-    _in_metres(u) && return HeightField{K, T}(c.system, c.h, c.w, c.a, c.bending, true)
+    _in_metres(u) && return HeightField{K, T}(c.system, c.h, c.w, c.a, c.bending, c.plane, true)
     to(x) = _attach_length(x, u)
-    return HeightField([map(to, p) for p in c.system.nodes], map(to, c.h))
+    return _height_field([map(to, p) for p in c.system.nodes], map(to, c.h), false)
 end
 Base.:(==)(a::HeightField, b::HeightField) = a.system.nodes == b.system.nodes && a.h == b.h && a.physical == b.physical
 Base.hash(c::HeightField, h::UInt) = hash(c.physical, hash(c.h, hash(c.system.nodes, hash(:HeightField, h))))
@@ -566,8 +655,8 @@ transform_deriv(c::Union{ThinPlateSpline, HeightField}, x) = _point_jacobian(c, 
 # (`transform_deriv`, `transform_deriv_params`: `hcat(p1, m1 * p2)`, the
 # outer map's parameters first) are CT's. The rest of the protocol is here,
 # over the composition's MEMBERS (its leaves, outer first, whatever the
-# association `∘` built). A composition of up to five members has nesting
-# depth at most four, which the type below spells out: a `ComposedTransformation`
+# association `∘` built). A composition of up to six members (the canonical
+# order's) has nesting depth at most five, which the type below spells out: a `ComposedTransformation`
 # whose every member is a calibration kind — so every method on it is on a
 # type this package owns a part of. Which compositions a TARGET accepts is a
 # narrower rule, checked where it stores one (`_stored_calibration`, below).
@@ -575,11 +664,15 @@ const _CalibrationLeaf = Union{ThinPlateSpline, HeightField, _AnyFactor}   # (an
 const _CalibrationNode1 = Union{_CalibrationLeaf, ComposedTransformation{<:_CalibrationLeaf, <:_CalibrationLeaf}}
 const _CalibrationNode2 = Union{_CalibrationNode1, ComposedTransformation{<:_CalibrationNode1, <:_CalibrationNode1}}
 const _CalibrationNode3 = Union{_CalibrationNode2, ComposedTransformation{<:_CalibrationNode2, <:_CalibrationNode2}}
-const _CalibrationComposition = ComposedTransformation{<:_CalibrationNode3, <:_CalibrationNode3}
-# the planar chains: compositions of the affine factors alone
-const _PlanarNode1 = Union{_PlanarFactor, ComposedTransformation{<:_PlanarFactor, <:_PlanarFactor}}
+const _CalibrationNode4 = Union{_CalibrationNode3, ComposedTransformation{<:_CalibrationNode3, <:_CalibrationNode3}}
+const _CalibrationComposition = ComposedTransformation{<:_CalibrationNode4, <:_CalibrationNode4}
+# the planar chains: compositions of the in-plane kinds alone (a thin-plate
+# spline and the affine factors, up to five members)
+const _PlanarLeaf = Union{ThinPlateSpline, _PlanarFactor}
+const _PlanarNode1 = Union{_PlanarLeaf, ComposedTransformation{<:_PlanarLeaf, <:_PlanarLeaf}}
 const _PlanarNode2 = Union{_PlanarNode1, ComposedTransformation{<:_PlanarNode1, <:_PlanarNode1}}
-const _PlanarChain = Union{_PlanarNode2, ComposedTransformation{<:_PlanarNode2, <:_PlanarNode2}}
+const _PlanarNode3 = Union{_PlanarNode2, ComposedTransformation{<:_PlanarNode2, <:_PlanarNode2}}
+const _PlanarChain = Union{_PlanarNode3, ComposedTransformation{<:_PlanarNode3, <:_PlanarNode3}}
 
 # The members, outer first; as values and as types.
 _members(c::ComposedTransformation) = (_members(c.t1)..., _members(c.t2)...)
@@ -601,26 +694,27 @@ physical target — one of [`Rigid`](@ref), the affine factors (a planar
 with CT's `∘`. The union of those, the one type every calibration-typed
 method takes.
 
-A [`PlanarTarget`](@ref) holds:
-- one kind, or the affine factors composed in their canonical order,
-  `EuclideanMap ∘ Scale ∘ Aspect ∘ Skew`, any of them left out — the print
-  error with a jointly estimated pose is `Aspect ∘ Skew`, with a measured
-  length `Scale ∘ Aspect ∘ Skew`, with a known pose all four (see
-  [`Aspect`](@ref));
-- or a [`HeightField`](@ref) after one of those or after a
-  [`ThinPlateSpline`](@ref): `HeightField ∘ Aspect ∘ Skew`,
-  `HeightField ∘ ThinPlateSpline`.
-Any other composition — a `Rigid` member, two in-plane kinds with a spline
-among them, factors out of order or repeated, a member after a height field —
-is refused with an `ArgumentError`. A target stores a composition
-right-associated (`a ∘ (b ∘ c)`) whatever association `∘` built it in: the
-members, their order and so the parameters are the same.
+A [`PlanarTarget`](@ref) holds one kind, or kinds composed in the CANONICAL
+ORDER, any of them left out:
+
+    HeightField ∘ ThinPlateSpline ∘ EuclideanMap ∘ Scale ∘ Aspect ∘ Skew
+
+The print error with a jointly estimated pose is
+`HeightField ∘ ThinPlateSpline ∘ Aspect ∘ Skew` — the affine part as the
+gauge-free factors (see [`Aspect`](@ref)), the spline and the height field
+pure bending (no affine term in the interpolant, see [`ThinPlateSpline`](@ref)); a
+measured length adds `Scale`, a known pose the rigid member. No kind has a
+gauge, so every parameter of a composition is observable with the pose
+estimated jointly. Any other composition — a `Rigid` member, members out of
+order or repeated — is refused with an `ArgumentError`. A target stores a
+composition right-associated (`a ∘ (b ∘ c)`) whatever association `∘` built
+it in: the members, their order and so the parameters are the same.
 
 The protocol: [`parameter_vector`](@ref), [`parameter_names`](@ref),
 [`parameter_bounds`](@ref), [`with_parameters`](@ref)`(c, θ)`,
 CoordinateTransformations' `transform_deriv_params(c, x)` (`∂c(x)/∂θ`) and
 `transform_deriv(c, x)` (`∂c(x)/∂x`), [`regularizer`](@ref)`(c)`,
-[`gauge_names`](@ref), [`length_mask`](@ref). A composition's are stacked in
+[`length_mask`](@ref). A composition's are stacked in
 CT's order, the outer member's first; its names carry each member's tag,
 `:height_field_h1`, …, `:aspect_a1`, `:skew_u12`. Jacobians are plain numbers;
 for a physical calibration the point and the length parameters are in metres.
@@ -718,10 +812,6 @@ _static_parameter_names(::Type{<:Skew{N}}) where {N} = ntuple(k -> ((i, j) = _sk
 _static_parameter_names(::Type{<:ThinPlateSpline{K}}) where {K} =
     (ntuple(i -> Symbol(:fx, i), K)..., ntuple(i -> Symbol(:fy, i), K)...)
 _static_parameter_names(::Type{<:HeightField{K}}) where {K} = ntuple(i -> Symbol(:h, i), K)
-_static_gauge_names(::Type{Rigid}) = ()
-_static_gauge_names(::Type{<:_AnyFactor}) = ()
-_static_gauge_names(::Type{<:ThinPlateSpline}) = (:fx_1, :fx_u, :fx_v, :fy_1, :fy_u, :fy_v)
-_static_gauge_names(::Type{<:HeightField}) = (:piston, :tilt_x, :tilt_y)
 # A literal tuple per type, so a NamedTuple over the names is inferred.
 @generated parameter_names(c::Union{Scale, Aspect, Skew, ThinPlateSpline, HeightField}) = QuoteNode(_static_parameter_names(c))
 # A composition's names: each member's, prefixed by its tag, outer first (CT's order).
@@ -754,8 +844,8 @@ const TARGET_CALIBRATION_TAGS = TagRegistry(:target_calibration, "Map",
 """
     calibration_tag(::Type{C}) -> String
 
-The tag of the calibration kind `C`: the prefix of its parameter and gauge
-names in a composition (`:aspect_a1`) and the `type` of its record — its
+The tag of the calibration kind `C`: the prefix of its parameter names in a
+composition (`:aspect_a1`) and the `type` of its record — its
 [`TARGET_CALIBRATION_TAGS`](@ref) tag. A composition has none (an
 `ArgumentError`).
 """
@@ -828,68 +918,31 @@ refuses a target with a [`HeightField`](@ref) by dispatch (a `MethodError`).
 const PlanarCalibration = Union{Rigid, ThinPlateSpline, _PlanarChain}
 
 # ------------------------------------------------------------------------------
-# Gauges — the directions the pose absorbs
+# No gauges: the constrained directions of the thin-plate kinds
 # ------------------------------------------------------------------------------
-
-"""
-    gauge_names(c | target) -> Tuple{Vararg{Symbol}}
-
-A calibration's GAUGES: the directions of its parameter vector θ (length `n`)
-that images of the target cannot observe because the target's pose absorbs
-them, by name; [`gauge_directions`](@ref) gives them as columns in θ's
-coordinates (plain numbers; lengths in metres). The default [`TargetManifold`](@ref) holds them fixed; a caller
-frees one by name, `TargetManifold(t; free = :piston)`.
-
-These defaults assume the pose is estimated jointly — that is what
-`minimal_manifold(t)` means. With a known pose (motion capture, a fixture),
-every kind's parameters are observable: free the gauges by name.
-
-- The affine factors ([`Aspect`](@ref), [`Skew`](@ref), [`Scale`](@ref), a
-  planar `EuclideanMap`): none. An affine print error has gauges only as a
-  whole; its factorization leaves them out instead — the pose's rotation,
-  translation and scale are the members a composition omits
-  (`Aspect ∘ Skew` with a jointly estimated pose).
-- [`ThinPlateSpline`](@ref): its whole affine part, `:fx_1`, `:fx_u`, `:fx_v`,
-  `:fy_1`, `:fy_u`, `:fy_v` — the columns `[1;0]`, `[u;0]`, `[v;0]`, `[0;1]`,
-  `[0;u]`, `[0;v]` over the nodes, constants. Four are the pose's (a
-  similarity); free `:fx_u`, … by name to let the spline carry a stretch and
-  shear.
-- [`HeightField`](@ref): `:piston`, `:tilt_x`, `:tilt_y` — heights that are an
-  affine function of the node position, `hᵢ = α + β uᵢ + γ vᵢ`, the columns
-  `1`, `u` and `v` over the nodes. The spline through affine heights is that
-  plane, which the pose's translation and two rotations reproduce; fixing them
-  leaves the heights orthogonal to every plane (`Σ hᵢ = Σ uᵢhᵢ = Σ vᵢhᵢ = 0`
-  for the steps).
-- A composition: its members', each name prefixed by its member's tag, the
-  outer member's first (`:height_field_piston`, …).
-- [`Rigid`](@ref): none.
-"""
-function gauge_names end
-gauge_names(::Rigid) = ()
-gauge_names(c::Union{_AnyFactor, ThinPlateSpline, HeightField}) = _static_gauge_names(typeof(c))
-@generated gauge_names(c::_CalibrationComposition) = QuoteNode(_composed_names(_static_gauge_names, c))
-gauge_names(u::Uncertain{<:TargetCalibration}) = gauge_names(geom(u))
-
-"""
-    gauge_directions(c) -> Matrix{Float64}
-
-The gauges of [`gauge_names`](@ref) as the columns of an `n × g` matrix in the
-coordinates of `parameter_vector(c)`, evaluated at `c` (`n × 0` for a kind
-without gauges).
-"""
-function gauge_directions end
-gauge_directions(c::Rigid) = zeros(Float64, 0, 0)
-gauge_directions(c::_AnyFactor) = zeros(Float64, length(parameter_vector(c)), 0)
-function gauge_directions(c::ThinPlateSpline{K}) where {K}
-    o, z = ones(K), zeros(K)
-    u = [Float64(p[1]) for p in c.system.nodes]
-    v = [Float64(p[2]) for p in c.system.nodes]
-    return [[o; z] [u; z] [v; z] [z; o] [z; u] [z; v]]
+#
+# No kind has a gauge. The affine factors leave the pose's directions out of
+# the composition; the thin-plate kinds hold values with no affine term in
+# their interpolant. What the target manifold needs is the latter's
+# CONSTRAINT, `a(v) = A v = 0`: the columns, in θ's coordinates, its values
+# are orthogonal to — an orthonormal basis `P` (K × 3) of the affine rows
+# `A`'s span for a height field, `[P 0; 0 P]` for an in-plane spline, none
+# (n × 0) for the affine factors, a composition's block diagonal.
+_constraint_columns(::Rigid) = zeros(Float64, 0, 0)
+_constraint_columns(c::_AnyFactor) = zeros(Float64, length(parameter_vector(c)), 0)
+function _constraint_columns(c::ThinPlateSpline{K}) where {K}
+    P = _affine_row_basis(c.system)
+    D = zeros(Float64, 2K, 6)
+    D[1:K, 1:3] = P
+    D[(K + 1):(2K), 4:6] = P
+    return D
 end
-gauge_directions(c::HeightField{K}) where {K} =
-    [ones(K) [Float64(p[1]) for p in c.system.nodes] [Float64(p[2]) for p in c.system.nodes]]
-function gauge_directions(c::_CalibrationComposition)
-    D1, D2 = gauge_directions(c.t1), gauge_directions(c.t2)
+_constraint_columns(c::HeightField) = _affine_row_basis(c.system)
+# An orthonormal basis (K × 3) of the affine-coefficient rows' span: the
+# values are pure bending iff orthogonal to it (thin Householder QR, LAPACK: reproducible).
+_affine_row_basis(system::ThinPlateSplineSystem) = Matrix(LinearAlgebra.qr(Matrix(_affine_rows(system)')).Q)
+function _constraint_columns(c::_CalibrationComposition)
+    D1, D2 = _constraint_columns(c.t1), _constraint_columns(c.t2)
     D = zeros(Float64, size(D1, 1) + size(D2, 1), size(D1, 2) + size(D2, 2))
     D[1:size(D1, 1), 1:size(D1, 2)] = D1
     D[(size(D1, 1) + 1):end, (size(D1, 2) + 1):end] = D2
@@ -932,7 +985,8 @@ function _stored_calibration(c::_CalibrationComposition)
     inplane = first(ms) isa HeightField ? Base.tail(ms) : ms
     accepted = !isempty(inplane) && (
         length(inplane) == 1 ? !(only(inplane) isa HeightField) :
-            all(l -> l isa _PlanarFactor, inplane) && all(i -> _factor_rank(inplane[i]) < _factor_rank(inplane[i + 1]), 1:(length(inplane) - 1))
+            all(l -> l isa Union{ThinPlateSpline, _PlanarFactor}, inplane) &&
+            all(i -> _factor_rank(inplane[i]) < _factor_rank(inplane[i + 1]), 1:(length(inplane) - 1))
     )
     accepted || _refuse_composition(c)
     _check_one_form(ms)
@@ -950,14 +1004,14 @@ _stored_calibration(::AffineMap) = throw(
 _stored_calibration(c) = throw(
     ArgumentError(
         "a target calibration is Rigid, a planar EuclideanMap, a Scale, an Aspect{2} or a Skew{2} (or those composed in that " *
-            "order), a ThinPlateSpline, a HeightField, or a HeightField after one of them; got a $(nameof(typeof(geom(c))))"
+            "order), a ThinPlateSpline, a HeightField, or those composed in the order HeightField ∘ ThinPlateSpline ∘ " *
+            "EuclideanMap ∘ Scale ∘ Aspect ∘ Skew; got a $(nameof(typeof(geom(c))))"
     )
 )
 @noinline _refuse_composition(c) = throw(
     ArgumentError(
-        "a target calibration composes the affine factors in their canonical order, EuclideanMap ∘ Scale ∘ Aspect ∘ Skew " *
-            "(any of them left out), and a HeightField only outermost, after those or after a ThinPlateSpline; a ThinPlateSpline " *
-            "and Rigid compose with nothing else (a ThinPlateSpline frees its own stretch and shear by name). " *
+        "a target calibration composes its kinds in the canonical order HeightField ∘ ThinPlateSpline ∘ EuclideanMap ∘ " *
+            "Scale ∘ Aspect ∘ Skew, any of them left out, each at most once; Rigid composes with nothing. " *
             "Got $(_composition_spelling(c))"
     )
 )

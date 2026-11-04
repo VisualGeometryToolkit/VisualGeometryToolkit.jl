@@ -12,7 +12,7 @@ using Rotations: QuatRotation
 using FlexUnits: ustrip
 import VisualGeometryToolkitCore as VgtkCore
 using VisualGeometryToolkitCore: m, mm, parameter_vector, parameter_names, parameter_bounds, with_parameters, regularizer,
-    gauge_names, gauge_directions, length_mask, is_planar, is_affine, has_units, with_unit, PlanarTarget, PosedTarget,
+    length_mask, is_planar, is_affine, has_units, with_unit, PlanarTarget, PosedTarget,
     TargetManifold, tangent_size, retract_jacobian, action_jacobian, retract, EuclideanMap, surface, project, backproject,
     distort_normalized, undistort_normalized, monotone_radius, view_angle_limit, convert_eltype, LensManifold, lens_record,
     CameraModel, valid_domain, LogicalIntrinsics, lens, transform_deriv, transform_deriv_params
@@ -60,7 +60,6 @@ function target_values(P, V)
         p = block_permutation(target_blocks(name, 1), V.ct_order)      # code = golden[p]
         δ = P["param/target/$name/delta"][p]
         emit("$k/names", parameter_names(c))
-        emit("$k/gauge_names", gauge_names(c))
         V.tag(c) === nothing || emit("$k/tag", V.tag(c))
         emit("$k/length_mask", collect(length_mask(c)))
         emit("$k/is_planar", is_planar(c))
@@ -74,7 +73,6 @@ function target_values(P, V)
         emit("$k/jacobian_theta", slices([V.jacobian_theta(c, x) for x in jpts]))
         emit("$k/jacobian_x", slices([V.jacobian_x(c, x) for x in jpts]))
         emit("$k/regularizer", collect(regularizer(c)))
-        emit("$k/gauge_directions", gauge_directions(c))
         c2 = with_parameters(c, θ + δ)
         emit("$k/with_parameters/theta", collect(parameter_vector(c2)))
         emit("$k/with_parameters/out", columns(c2.(pts[1:50])))

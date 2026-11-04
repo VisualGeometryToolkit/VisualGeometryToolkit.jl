@@ -411,12 +411,17 @@ end
         include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "height_surface", "reference.jl"))
         REF = HEIGHT_SURFACE_REFERENCE
         rn = [REF.origin[SOneTo(2)] + 2 .* b for b in REF.nodes]
+        # The fixture's heights are RadiometricCamera's BENDING part at its chart
+        # nodes, pure bending there: a HeightField on those nodes keeps them bit
+        # for bit. On the world nodes (the chart scaled by 2) the same values'
+        # interpolant gains a piston (U(2r) = 4U(r) + 4 log 2 r², and Σwᵢ|p − pᵢ|²
+        # is a constant): the HeightField drops it (0.5.0) and the pose carries it.
+        @test parameter_vector(HeightField(REF.nodes, REF.bending_heights)) == REF.bending_heights
         Hr = HeightField(rn, REF.bending_heights)
-        pt = PosedTarget(PlanarTarget(grid_nodes(3; lo = -1.0, hi = 1.0); calibration = Hr), EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, 0.0)))
-        s = surface(pt)
         w, a = tps_coefficients(ThinPlateSplineSystem(rn), Vector(REF.bending_heights))
-        quad = Quad(SVector(0.0, 0.0, 0.0), SMatrix{3, 3}(1.0I), bbox(grid_nodes(3; lo = -1.0, hi = 1.0)))
-        @test s == HeightSurface(quad, SVector{25}(rn), SVector{25}(REF.bending_heights), w, a)
+        @test parameter_vector(Hr) ≈ REF.bending_heights .- a[1] atol = 1.0e-15        # the piston a₁ dropped, the bending kept
+        pt = PosedTarget(PlanarTarget(grid_nodes(3; lo = -1.0, hi = 1.0); calibration = Hr), EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, a[1])))
+        s = surface(pt)
         hits = [intersection(s, o, d) for (o, d) in zip(REF.ray_origins, REF.ray_directions)]
         @test maximum(abs.(first.(hits) - REF.t)) <= 1.0e-15
         @test maximum(maximum(abs, x - r) for (x, r) in zip(last.(hits), REF.x)) <= 1.0e-15

@@ -29,7 +29,9 @@
     @testset "with_parameters ∘ parameter_vector round trips" begin
         for c in kinds
             θ = parameter_vector(c)
-            θ′ = θ .+ 1.0e-5 .* randn(rng, length(θ))
+            # a step the calibration may take: along its manifold (a thin-plate kind's values keep no plane part)
+            B = Matrix(VgtkCore.retract_jacobian(VgtkCore.TargetManifold(PlanarTarget(xs; calibration = c))))
+            θ′ = θ .+ B * (1.0e-5 .* randn(rng, size(B, 2)))
             if has_rigid(c)       # the angle goes through atan(sin, cos): to rounding
                 @test all(x -> with_parameters(c, θ)(x) ≈ c(x), xs)
                 @test parameter_vector(with_parameters(c, θ′)) ≈ θ′ rtol = 1.0e-15
@@ -88,9 +90,14 @@
         end
         # a target takes the factors in their canonical order, a height field only outermost
         A1, U1, S1 = Aspect(0.1), Skew(0.1), Scale(0.1)
-        for c in (U1 ∘ A1, A1 ∘ S1, S1 ∘ E, A1 ∘ A1, T ∘ A1, A1 ∘ T, A1 ∘ H, H ∘ Rigid(), Rigid() ∘ A1, H ∘ (T ∘ A1),
-                  (H ∘ T) ∘ A1, H ∘ H, H ∘ U1 ∘ A1)
+        for c in (U1 ∘ A1, A1 ∘ S1, S1 ∘ E, A1 ∘ A1, A1 ∘ T, E ∘ T, T ∘ T, T ∘ H, A1 ∘ H, H ∘ Rigid(), Rigid() ∘ A1, T ∘ Rigid(),
+                  H ∘ H, H ∘ U1 ∘ A1, H ∘ A1 ∘ T)
             @test_throws ArgumentError PlanarTarget(xs; calibration = c)
+        end
+        # the canonical print error, HeightField ∘ ThinPlateSpline ∘ Aspect ∘ Skew, in any association
+        for c in (H ∘ T ∘ A1 ∘ U1, H ∘ (T ∘ (A1 ∘ U1)), (H ∘ T) ∘ (A1 ∘ U1), T ∘ A1 ∘ U1, H ∘ T ∘ E ∘ S1 ∘ A1 ∘ U1)
+            s = calibration(PlanarTarget(xs; calibration = c))
+            @test parameter_vector(s) == parameter_vector(c) && s == foldr(ComposedTransformation, VgtkCore.Cameras._members(c))
         end
         # a target stores a composition right-associated, whatever ∘ built
         for c in (E ∘ S1 ∘ A1 ∘ U1, E ∘ (S1 ∘ (A1 ∘ U1)), (E ∘ S1) ∘ (A1 ∘ U1), H ∘ A1 ∘ U1, H ∘ (A1 ∘ U1))
@@ -122,7 +129,7 @@
         heights = [0.002 * sin(3p[1]) * cos(2p[2]) for p in rc_nodes]
         hf = HeightField(rc_nodes, heights)
         sys = ThinPlateSplineSystem(rc_nodes)
-        w, a = tps_coefficients(sys, heights)
+        w, a = tps_coefficients(sys, Vector(parameter_vector(hf)))          # the stored heights: their plane part projected off
         for p in (SVector(0.37, 0.61), SVector(0.0, 0.0), SVector(0.25, 0.5), SVector(0.999, 0.001))
             q = hf(p)
             @test q[3] === tps_evaluate(sys.nodes, w, a, p)
@@ -146,7 +153,7 @@ end
     using Test, StaticArrays, LinearAlgebra, Random, ForwardDiff
     using VisualGeometryToolkitCore
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: transform_deriv, transform_deriv_params, convert_eltype, length_mask, gauge_names
+    using VisualGeometryToolkitCore: transform_deriv, transform_deriv_params, convert_eltype, length_mask
     import Rotations
 
     rng = Xoshiro(20261104)
@@ -180,7 +187,7 @@ end
             for c in (A, U, S, A ∘ U, S ∘ A ∘ U)
                 θ = parameter_vector(c)
                 @test with_parameters(c, θ) == c && parameter_vector(with_parameters(c, θ .+ 1.0e-3)) == θ .+ 1.0e-3
-                @test isempty(gauge_names(c)) && !any(length_mask(c)) && isempty(regularizer(c))
+                @test !any(length_mask(c)) && isempty(regularizer(c))
             end
             # Σ dᵢ = 0 exactly; det = 1: exact for the skew, to rounding for the aspect
             @test sum(A.log_diagonal) == 0
@@ -257,12 +264,23 @@ end
 
     @testset "the thin-plate kinds in lengths" begin
         H = HeightField(nodes_mm, fill(0.0mm, 9) .+ [0.1, 0.0, -0.1, 0.2, 0.0, 0.0, 0.0, 0.3, 0.0] .* mm)
-        Hp = HeightField(grid_nodes(3; lo = 0.0, hi = 100.0), [0.1, 0.0, -0.1, 0.2, 0.0, 0.0, 0.0, 0.3, 0.0])
+        # (the field is projected in metres, its stored form; its plain form in mm is
+        # the same geometry, not a field projected in millimetre numbers — the
+        # kernel's scale moves a piston, see HeightField)
+        Hp = ustrip(mm, H)
         t = PlanarTarget(pts_mm; calibration = H)
         @test points(ustrip(mm, t)) ≈ points(PlanarTarget(pts; calibration = Hp))
         @test ustrip.(mm, points(t)[2]) ≈ Hp(pts[2])
+        @test VgtkCore.with_unit(Hp, mm) == H || parameter_vector(VgtkCore.with_unit(Hp, mm)) ≈ parameter_vector(H)
+        Hmm = HeightField(grid_nodes(3; lo = 0.0, hi = 100.0), [0.1, 0.0, -0.1, 0.2, 0.0, 0.0, 0.0, 0.3, 0.0])
+        # built from millimetre numbers, the field is projected in those: it differs from the metre one by a piston only
+        dz(p) = ustrip(mm, H(SVector(p[1] * mm, p[2] * mm))[3]) - Hmm(p)[3]
+        @test all(p -> abs(dz(p) - dz(pts[1])) < 1.0e-9, pts) && abs(dz(pts[1])) > 1.0e-6
         T = ThinPlateSpline(nodes_mm, fill(0.01mm, 9), fill(-0.01mm, 9))
-        @test ustrip.(mm, T(pts_mm[2])) ≈ pts[2] + SVector(0.01, -0.01)
+        @test ustrip.(mm, T(pts_mm[2])) ≈ pts[2]            # a constant displacement is a translation: no part of a spline
+        Tb = ThinPlateSpline(nodes_mm, [0.0, 0.01, 0.0, 0.01, 0.0, 0.01, 0.0, 0.01, 0.0] .* mm, fill(0.0mm, 9))
+        Tp = ustrip(mm, Tb)
+        @test ustrip.(mm, Tb(pts_mm[3])) ≈ Tp(pts[3]) && Tp(pts[3]) != pts[3]   # bending survives, in lengths as in plain numbers
         @test_throws DimensionError HeightField(nodes_mm, fill(0.1, 9))
         @test_throws DimensionError PlanarTarget(pts_mm; calibration = H ∘ rigid(SVector(0.0, 0.0)) ∘ AU)
         @test [ustrip.(mm, p) for p in points(PlanarTarget(pts_mm; calibration = H ∘ AU))] ≈ [ustrip.(mm, H(AU(p))) for p in pts_mm]
@@ -339,95 +357,122 @@ end
     end
 end
 
-@testitem "target calibration: gauges on the target manifold" begin
+@testitem "target calibration: the thin-plate kinds are pure bending; the target manifold" begin
     using Test, StaticArrays, LinearAlgebra, Random, ForwardDiff
     using VisualGeometryToolkitCore
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: grid_nodes, TargetManifold, minimal_manifold, tangent_size, retract, recenter,
-        retract_jacobian, action_jacobian, local_coordinates, restrict, gauge_names, gauge_directions, model, transform_deriv_params
+        retract_jacobian, action_jacobian, local_coordinates, restrict, model, transform_deriv_params, bending_energy,
+        ThinPlateSplineSystem, tps_coefficients, tps_evaluate
 
     rng = Xoshiro(7)
     nodes = grid_nodes(4; lo = -0.1, hi = 0.1)                         # 16 nodes: an in-plane spline has n = 32
     pts = [SVector(0.2 * rand(rng) - 0.1, 0.2 * rand(rng) - 0.1) for _ in 1:12]
     A = Aspect(0.002) ∘ Skew(-0.0015)
-    H = HeightField(nodes, 1.0e-3 .* randn(rng, 16))
-    T = ThinPlateSpline(nodes, 1.0e-4 .* randn(rng, 16), 1.0e-4 .* randn(rng, 16))
-    unit_cols(D) = D ./ norm.(eachcol(D))'
+    sys = ThinPlateSplineSystem(nodes)
+    M = [ones(16) [p[1] for p in nodes] [p[2] for p in nodes]]         # the plane fields 1, u, v at the nodes
+    Aff = sys.coeff[17:19, :]                                          # the interpolant's affine coefficients: a(v) = Aff v
+    plane_part(v) = norm(M * (Aff * v)) / norm(v)                      # the affine term at the nodes, relative
+    fx, fy, h = 1.0e-4 .* randn(rng, 16), 1.0e-4 .* randn(rng, 16), 1.0e-3 .* randn(rng, 16)
+    H = HeightField(nodes, h)
+    T = ThinPlateSpline(nodes, fx, fy)
 
-    @testset "the affine factors: no gauges, every parameter free" begin
+    @testset "the projection: exact, idempotent, the identity on an affine displacement" begin
+        @test plane_part(fx) > 1.0e-3 && plane_part(h) > 1.0e-3                # what was supplied has an affine term
+        @test plane_part(T.fx) < 1.0e-12 && plane_part(T.fy) < 1.0e-12 && plane_part(H.h) < 1.0e-12
+        @test norm(H.a) < 1.0e-15 * norm(H.h) && norm(T.ax) < 1.0e-15 * norm(T.fx) && norm(T.ay) < 1.0e-15 * norm(T.fy)
+        # the stored values are the supplied ones less their interpolant's affine term: the bending kept
+        Π = I - M * Aff
+        @test isapprox(T.fx, Π * fx; rtol = 1.0e-12) && isapprox(T.fy, Π * fy; rtol = 1.0e-12) && isapprox(H.h, Π * h; rtol = 1.0e-12)
+        @test isapprox(H.w, tps_coefficients(sys, h)[1]; rtol = 1.0e-10)       # the same bending weights
+        # idempotent, bit for bit: a spline rebuilt from its stored values is the same spline
+        @test ThinPlateSpline(nodes, T.fx, T.fy) == T && HeightField(nodes, H.h) == H
+        @test with_parameters(T, parameter_vector(T)) == T && with_parameters(H, parameter_vector(H)) == H
+        @test parameter_vector(with_parameters(H, Π * h)) == Π * h || plane_part(Π * h) > 1.0e-12
+        # RadiometricCamera's board heights — its spline's bending part at its chart nodes — are kept bit for bit
+        rc = grid_nodes(5; lo = 0.0, hi = 1.0)
+        src = ThinPlateSplineSystem(rc)
+        wb, _ = tps_coefficients(src, 1.0e-3 .* randn(rng, 25))
+        z = [tps_evaluate(src.nodes, wb, zero(SVector{3, Float64}), p) for p in rc]
+        @test parameter_vector(HeightField(rc, z)) == z
+        # an affine displacement is not the spline's: it is the identity (a plane of heights: flat)
+        Ta = ThinPlateSpline(nodes, [1.0e-3 + 2.0e-3 * p[1] - 1.0e-3 * p[2] for p in nodes], [3.0e-3 * p[2] - 1.0e-4 for p in nodes])
+        Ha = HeightField(nodes, [1.0e-4 + 2.0e-3 * p[1] - 1.0e-3 * p[2] for p in nodes])
+        @test norm(parameter_vector(Ta)) < 1.0e-16 && norm(parameter_vector(Ha)) < 1.0e-16     # of displacements ~1e-3: rounding
+        @test all(x -> Ta(x) ≈ x && norm(Ha(x) - SVector(x[1], x[2], 0.0)) < 1.0e-16, pts)
+        # the bending energy does not see the affine term: unchanged by the projection
+        @test sum(abs2, regularizer(H)) ≈ bending_energy(sys, h) rtol = 1.0e-10
+        @test sum(abs2, regularizer(T)) ≈ bending_energy(sys, fx) + bending_energy(sys, fy) rtol = 1.0e-10
+        # physical: the same projection in metres
+        Hm = HeightField([p .* VgtkCore.m for p in nodes], h .* VgtkCore.m)
+        @test parameter_vector(Hm) == parameter_vector(H)
+    end
+
+    @testset "the affine factors: every parameter free" begin
         t = PlanarTarget(pts; calibration = A)
-        @test gauge_names(A) == () && gauge_names(t) == () && size(gauge_directions(A)) == (2, 0)
         ch = minimal_manifold(t)
         @test ch isa TargetManifold && tangent_size(ch) == 2 && retract_jacobian(ch) == I
         v = SVector{2}(1.0e-4 .* randn(rng, 2))
         @test local_coordinates(ch, retract(ch, v)) ≈ v
         @test action_jacobian(ch, pts[1]) ≈ transform_deriv_params(A, pts[1])
-        @test_throws ArgumentError TargetManifold(t; free = :scale)        # nothing to free
         r = recenter(ch, v)
         @test typeof(r) === typeof(ch) && model(r) == retract(ch, v)
         @test only(Base.return_types(recenter, (typeof(ch), typeof(v)))) === typeof(ch)
     end
 
-    @testset "ThinPlateSpline: its whole affine part is fixed" begin
+    @testset "ThinPlateSpline: 2K − 6 directions, all pure bending" begin
         t = PlanarTarget(pts; calibration = T)
-        @test gauge_names(T) == (:fx_1, :fx_u, :fx_v, :fy_1, :fy_u, :fy_v)
-        D = gauge_directions(T)
-        u, w = [p[1] for p in nodes], [p[2] for p in nodes]
-        o, z = ones(16), zeros(16)
-        @test D == [[o; z] [u; z] [w; z] [z; o] [z; u] [z; w]]
         ch = minimal_manifold(t)
         @test tangent_size(ch) == 32 - 6
         B = retract_jacobian(ch)
-        @test norm(B' * D) < 1.0e-13 && B' * B ≈ I
-        @test tangent_size(TargetManifold(t; free = (:fx_u, :fy_v))) == 28
-        @test tangent_size(TargetManifold(t; free = gauge_names(T))) == 32
+        @test B' * B ≈ I && norm(Aff * B[1:16, :]) < 1.0e-12 && norm(Aff * B[17:32, :]) < 1.0e-12
+        v = 1.0e-4 .* randn(rng, 26)
+        @test local_coordinates(ch, retract(ch, v)) ≈ v
+        @test plane_part(parameter_vector(retract(ch, v))[1:16]) < 1.0e-12
     end
 
-    @testset "HeightField: piston and the two tilts are fixed" begin
+    @testset "HeightField: K − 3 directions, all pure bending" begin
         t = PlanarTarget(pts; calibration = H)
-        @test gauge_names(t) == (:piston, :tilt_x, :tilt_y)
         ch = minimal_manifold(t)
         @test tangent_size(ch) == 13
-        D = gauge_directions(H)
         B = retract_jacobian(ch)
-        @test norm(B' * D) < 1.0e-13 && B' * B ≈ I
+        @test norm(Aff * B) < 1.0e-12 && B' * B ≈ I
         v = SVector{13}(1.0e-4 .* randn(rng, 13))
         δh = parameter_vector(retract(ch, v)) - parameter_vector(H)
-        @test abs(sum(δh)) < 1.0e-17 && abs(sum(p[1] * x for (p, x) in zip(nodes, δh))) < 1.0e-17 &&
-            abs(sum(p[2] * x for (p, x) in zip(nodes, δh))) < 1.0e-17
+        @test plane_part(δh) < 1.0e-12 && plane_part(parameter_vector(retract(ch, v))) < 1.0e-12
+        @test local_coordinates(ch, retract(ch, v)) ≈ v
         @test size(action_jacobian(ch, pts[1])) == (3, 13)
-        plane = with_parameters(t, parameter_vector(H) + [1.0e-4 + 2.0e-3 * p[1] - 1.0e-3 * p[2] for p in nodes])
-        @test norm(local_coordinates(ch, plane)) < 1.0e-15                  # a plane of heights is invisible
-        @test tangent_size(TargetManifold(t; free = :piston)) == 14
-        @test tangent_size(TargetManifold(t; free = (:piston, :tilt_x, :tilt_y))) == 16
+        # the basis is reproducible: built twice, bit for bit
+        @test retract_jacobian(minimal_manifold(PlanarTarget(pts; calibration = HeightField(nodes, h)))) == B
     end
 
-    @testset "a composition: the members' gauges, prefixed, the outer member's first" begin
-        C = H ∘ T
-        t = PlanarTarget(pts; calibration = C)
-        @test gauge_names(C) == (:height_field_piston, :height_field_tilt_x, :height_field_tilt_y,
-            :thin_plate_spline_fx_1, :thin_plate_spline_fx_u, :thin_plate_spline_fx_v,
-            :thin_plate_spline_fy_1, :thin_plate_spline_fy_u, :thin_plate_spline_fy_v)
-        ch = minimal_manifold(t)
-        @test tangent_size(ch) == 16 + 32 - 9
-        @test norm(retract_jacobian(ch)' * unit_cols(gauge_directions(C))) < 1.0e-13
-        CA = H ∘ A
-        tA = PlanarTarget(pts; calibration = CA)
-        @test gauge_names(CA) == (:height_field_piston, :height_field_tilt_x, :height_field_tilt_y)
-        @test tangent_size(minimal_manifold(tA)) == 16 + 2 - 3
+    @testset "a composition: its members' blocks" begin
+        C = H ∘ T ∘ A
+        ch = minimal_manifold(PlanarTarget(pts; calibration = C))
+        @test tangent_size(ch) == 13 + 26 + 2
+        B = retract_jacobian(ch)
+        # orthonormal, pure bending in every spline's block, the affine factors' axes wholly free
+        @test B' * B ≈ I && norm(Aff * B[1:16, :]) < 1.0e-12 && norm(Aff * B[17:32, :]) < 1.0e-12 &&
+            norm(Aff * B[33:48, :]) < 1.0e-12 && B[49:50, :] * B[49:50, :]' ≈ I
+        @test tangent_size(minimal_manifold(PlanarTarget(pts; calibration = H ∘ A))) == 16 + 2 - 3
     end
 
-    @testset "restrict fixes only the gauge combinations inside the free span" begin
+    @testset "restrict: the named parameters' directions that keep the constraint" begin
         tH = PlanarTarget(pts; calibration = H)
-        @test tangent_size(restrict(minimal_manifold(tH), (:h1, :h2, :h3))) == 3
-        @test tangent_size(restrict(minimal_manifold(tH), (:h1, :h2, :h3, :h4, :h5))) == 5
+        # m named heights keep m − rank(the affine rows on them) directions
+        for idx in ([1, 2, 5], [1, 2, 3], [1, 2, 3, 4, 5], [6, 7, 10, 11])
+            r = restrict(minimal_manifold(tH), Tuple(Symbol(:h, i) for i in idx))
+            @test tangent_size(r) == length(idx) - rank(Aff[:, idx])
+            B = retract_jacobian(r)
+            @test norm(Aff * B) < 1.0e-12 && norm(B[setdiff(1:16, idx), :]) == 0
+        end
         tA = PlanarTarget(pts; calibration = A)
         @test tangent_size(restrict(minimal_manifold(tA), (:skew_u12,))) == 1
         @test_throws ArgumentError restrict(minimal_manifold(tA), (:h1,))
         @test tangent_size(minimal_manifold(PlanarTarget(pts))) == 0           # Rigid: zero-dimensional
     end
 
-    @testset "the gauge rank is scale-free: a physical spline on centimetre nodes" begin
+    @testset "the constraint's rank is scale-free: a physical spline on centimetre nodes" begin
         # the tilt columns are the node coordinates, so their size follows the
         # node units; the default manifold's tangent size must not
         mt = VgtkCore.m
@@ -461,7 +506,8 @@ end
         @test local_coordinates(big, model(r)) ≈ v
         J = action_jacobian(big, pts[1])
         @test J isa Matrix{Float64} && size(J) == (2, 44) && J ≈ transform_deriv_params(T5, pts[1]) * B
-        @test norm(B' * gauge_directions(T5)) < 1.0e-13
+        A5 = ThinPlateSplineSystem(grid_nodes(5; lo = -0.1, hi = 0.1)).coeff[26:28, :]
+        @test norm(A5 * B[1:25, :]) < 1.0e-12 && norm(A5 * B[26:50, :]) < 1.0e-12
     end
 end
 
@@ -503,10 +549,12 @@ end
         end
         return out
     end
-    function nullity_default(c; free = ())
+    # `ambient`: every stored parameter free (B = I), as the 0.4 kinds were
+    # before their gauges were fixed — what the constraint removes
+    function nullity_default(c; ambient = false)
         θ0 = Vector(parameter_vector(c)); n = length(θ0)
         J = ForwardDiff.jacobian(z -> projections(c, z[1:n], z[(n + 1):end]), [θ0; fill(1.0e-12, 6F)])
-        B = Matrix(retract_jacobian(VgtkCore.TargetManifold(PlanarTarget(design; calibration = c); free)))
+        B = ambient ? Matrix{Float64}(I, n, n) : Matrix(retract_jacobian(VgtkCore.TargetManifold(PlanarTarget(design; calibration = c))))
         s = svdvals([J[:, 1:n] * B J[:, (n + 1):end]])
         return count(<(1.0e-9 * s[1]), s)
     end
@@ -520,12 +568,26 @@ end
         "Aspect ∘ Skew" => A, "ThinPlateSpline" => T, "HeightField flat" => H0, "HeightField h ≈ 1 mm" => H,
         "HeightField ∘ Aspect ∘ Skew" => H ∘ A, "HeightField flat ∘ Aspect ∘ Skew" => H0 ∘ A,
         "HeightField ∘ ThinPlateSpline" => H ∘ T, "HeightField ∘ TPS at zero displacement" => H ∘ ThinPlateSpline(nodes),
+        "HeightField ∘ ThinPlateSpline ∘ Aspect ∘ Skew" => H ∘ T ∘ A,
     )
     for (name, c) in cases
         @testset "$name" begin
             @test nullity_default(c) == 0
         end
     end
+    # The drop: with every stored parameter free, the canonical composition at
+    # the design (a flat height field, a spline at zero displacement) is
+    # rank-deficient by exactly the old gauge count — the spline's six affine
+    # directions (four the pose's, two the aspect and skew again) and the height
+    # field's three plane directions — and on its manifold by none. (Away from
+    # the design the plane directions are near-gauges, observed only through
+    # the bending: a height field of 1 mm leaves its piston alone exactly
+    # unobservable, the tilts at singular values ~1e-7 of the largest.)
+    T0 = ThinPlateSpline(nodes)
+    @test nullity_default(H0 ∘ T0 ∘ A; ambient = true) == 6 + 3 && nullity_default(H0 ∘ T0 ∘ A) == 0
+    @test nullity_default(H0 ∘ T; ambient = true) == 4 + 3          # (no aspect and skew: the spline's stretch and shear are observed)
+    @test nullity_default(H0; ambient = true) == 3 && nullity_default(T; ambient = true) == 4
+    @test nullity_default(H; ambient = true) == 1                    # the piston: a translation along the normal, at any height
     # the harness can see a gauge: the pose's directions, put back into the
     # composition, come back as exactly their count — the scale (1) and the rigid
     # member (3)
@@ -537,7 +599,7 @@ end
     using Test, StaticArrays, LinearAlgebra, ForwardDiff
     using VisualGeometryToolkitCore
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: grid_nodes, gauge_names, mm, m, Attributed, Uncertain, CovMat, transform_deriv_params
+    using VisualGeometryToolkitCore: grid_nodes, mm, m, Attributed, Uncertain, CovMat, transform_deriv_params
     using FlexUnits: ustrip
     using Rotations: RotMatrix
 
@@ -551,7 +613,8 @@ end
 
     @testset "a composition's names are inferred" begin
         @test (@inferred parameter_names(C)) == parameter_names(C) && length(parameter_names(C)) == 9 + 18
-        @test (@inferred gauge_names(C)) == gauge_names(C)
+        # no kind has gauges (0.5.0): the two gauge accessors are gone (their names retired, so spelled by parts)
+        @test !any(s -> isdefined(VgtkCore, Symbol("gauge_" * s)), ("names", "directions"))
         t = PlanarTarget(pts; calibration = H ∘ A)
         @test (@inferred VgtkCore.parameters(t)).aspect_a1 == 0.001
         @test (@inferred parameter_names(E ∘ Scale(0.0) ∘ A)) == (:euclidean_angle, :euclidean_tx, :euclidean_ty, :scale_log_scale, :aspect_a1, :skew_u12)
@@ -609,7 +672,10 @@ end
 
     @testset "ForwardDiff through a physical calibration" begin
         pmm = SVector(10.0, 20.0) .* mm
-        for c in (VgtkCore.with_unit(E ∘ A, mm), VgtkCore.with_unit(H, mm), VgtkCore.with_unit(H ∘ A, mm), VgtkCore.with_unit(H ∘ (E ∘ (Scale(0.01) ∘ A)), mm))
+        # (the field built physical: pure bending in metres, its stored form — a unit move of a
+        # millimetre-number field would carry the piston the scale adds, and a step projects it)
+        Hm = HeightField([p .* mm for p in nodes], parameter_vector(H) .* mm)
+        for c in (VgtkCore.with_unit(E ∘ A, mm), Hm, Hm ∘ A, Hm ∘ (VgtkCore.with_unit(E, mm) ∘ (Scale(0.01) ∘ A)))
             J = ForwardDiff.jacobian(θ -> ustrip.(m, with_parameters(c, θ)(pmm)), Vector(parameter_vector(c)))
             @test J ≈ transform_deriv_params(c, pmm) atol = 1.0e-14
         end

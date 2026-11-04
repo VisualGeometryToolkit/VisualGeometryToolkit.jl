@@ -291,7 +291,7 @@ export calibration, is_planar
 public is_affine   # a calibration's in-plane part is an affine of the design (the surface chart's)
 export regularizer   # the calibratable-target protocol
 public design, reference, board, canvas   # a planar target's design, its reference, its board and its canvas (not exported: common words)
-public PlanarCalibration, gauge_names, gauge_directions   # the planar kinds as one type; a calibration's gauges
+public PlanarCalibration   # the planar kinds as one type
 public TargetManifold                     # a calibratable target's Manifold (minimal_manifold(target))
 export Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
 export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3

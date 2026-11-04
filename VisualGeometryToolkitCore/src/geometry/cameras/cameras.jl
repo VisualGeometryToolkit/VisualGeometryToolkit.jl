@@ -990,7 +990,6 @@ export SchoepsPattern                         # Schöps et al.'s tagged star pat
 export TargetCalibration, Rigid, ThinPlateSpline, HeightField   # a planar target's calibration kinds (with the affine factors and their ∘)
 export Aspect, Skew, Scale                    # the affine print error's gauge-free Iwasawa factors (with a planar EuclideanMap)
 export calibration, design, reference, is_planar   # design, reference: public, not exported, at the top level
-export gauge_names, gauge_directions        # a calibration's gauges (public, not exported, at the top level)
 export is_affine                         # the surface chart's trait (public, not exported, at the top level)
 export PlanarCalibration                 # the planar kinds as one type (public, not exported, at the top level)
 export TARGET_CALIBRATION_TAGS, calibration_tag, length_mask   # the kinds' tag registry and a kind's tag (public, not exported, at the top level)

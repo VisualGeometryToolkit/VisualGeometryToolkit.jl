@@ -294,6 +294,30 @@ end
     end
 end
 
+@testitem "vgio_migrate: a v4 rig or v1 target held rigid warps only — any other is refused, never migrated" setup = [VGIoFixtures, MigrateFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    # v4's writer refused a non-rigid warp and its reader knew none, so v4 has
+    # no identity for one: a "v4" file holding an affine warp is not v4's
+    mktempdir() do dir
+        d = JSON.parse(read(joinpath(@__DIR__, "fixtures", "v4", "rig_metres.json"), String); dicttype = Dict{String, Any})
+        d["targets"][1]["target"]["warp"] = Dict{String, Any}("type" => "affine", "parameters" => Any[1.0, 0.0, 0.0, 1.0, 0.001, 0.0])
+        src = joinpath(dir, "rig.json")
+        write(src, JSON.json(d, 2))
+        e = try vgio_migrate(src); nothing catch e; e end
+        @test e isa ArgumentError && occursin("rigid warp only", e.msg) && occursin("affine", e.msg)
+        @test !isfile(VgtkIO._migrated_path(src))
+        t = Dict{String, Any}("schema" => "vgio/target/v1", "length_unit" => "mm",
+            "target" => Dict{String, Any}("type" => "planar", "design" => "b76e", "warp" => Dict{String, Any}("type" => "thin_plate_spline")))
+        tsrc = joinpath(dir, "target.json")
+        write(tsrc, JSON.json(t, 2))
+        e = try vgio_migrate(tsrc); nothing catch e; e end
+        @test e isa ArgumentError && occursin("rigid warp only", e.msg)
+        # the rigid fixture still migrates
+        cp(joinpath(@__DIR__, "fixtures", "v4", "rig_metres.json"), src; force = true)
+        @test vgio_migrate(src).to == "vgio/rig/v6"
+    end
+end
+
 @testitem "vgio_migrate: v4's value identity where v4's reader changed a number — a w < 0 quaternion, non-unit directions" setup = [VGIoFixtures, MigrateFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     # fixtures/v4/rig_canonical_m.json: rig_metres.json with sensor `cam`'s quaternion negated (w < 0, the same

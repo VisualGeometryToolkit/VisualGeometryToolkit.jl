@@ -438,6 +438,22 @@ _rig_v4_to_v5(old) = (t = _map_rig_targets(_body_v1_to_v2, old); t["schema"] = _
 # a current record back in v4's form: v6 → v5 (the compositions back in
 # application order, under v5's keys) then v5's keys renamed back
 _rig_v6_to_v4(new, old) = (t = _map_rig_targets(_body_v2_to_v1, _rig_v6_to_v5(new)); t["schema"] = old["schema"]; t)
+# A v1 target's / v4 rig target's `warp` was RIGID ONLY: v4's writer refused
+# any other calibration and its reader knew no other type. A body claiming one
+# (an "affine", a spline, a chain) was never a v1/v4 record — v4's identities
+# (`_rig_v4_id_mm`: the record re-emitted in millimetres, rigid warps carrying
+# no lengths) are defined only for rigid warps — so it is refused by name,
+# never migrated as if v4 had written it.
+function _check_v1_warp(body::AbstractDict, src)
+    w = get(body, "warp", nothing)
+    (w === nothing || w == Dict{String, Any}("type" => "rigid")) && return nothing
+    throw(
+        ArgumentError(
+            "vgio_migrate: $src is a vgio/target/v1 or vgio/rig/v4 record whose \"warp\" is $(repr(get(w, "type", w))): " *
+                "those records held a rigid warp only ({\"type\": \"rigid\"}), so this file was not written by them; nothing was written"
+        )
+    )
+end
 function _target_v1_to_v2(old)
     body = _renamed(old, ("calibration" => "calibration_record",))
     body["schema"] = _schema("target")
@@ -465,6 +481,7 @@ end
 
 # vgio/target/v1 → the current target (v1 held rigid targets only: no composition)
 function migrate_schema(::Val{Symbol("vgio/target/v1")}, src::AbstractString, dst::AbstractString)
+    _check_v1_warp(_raw_tree(src)["target"], src)
     _migrate_record(AbstractTarget, _TARGET_SPEC, src, dst, _target_v1_to_v2, "the target record")
     return (; to = _schema("target"))
 end
@@ -713,6 +730,7 @@ end
 # hash); both are reported, so the measurement files naming the rig are
 # re-pointed (`vgio_migrate_tree`).
 function migrate_schema(::Val{Symbol("vgio/rig/v4")}, src::AbstractString, dst::AbstractString)
+    foreach(x -> _check_v1_warp(x["target"], src), get(_raw_tree(src), "targets", ()))
     old, value = _migrate_record(Rig, _RIG_SPEC, src, dst, _rig_v4_to_v6, "the rig record")
     old_ids = unique!([_rig_v4_id(old), _rig_v4_id_mm(value, old, dst)])
     return (; to = _schema("rig"), old_id = first(old_ids), old_ids, new_id = content_id(dst))

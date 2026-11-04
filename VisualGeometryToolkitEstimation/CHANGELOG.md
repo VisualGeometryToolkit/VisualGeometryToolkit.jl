@@ -20,7 +20,19 @@
   - `CentralGenericModel` (`fit_camera(CentralGenericModel, source, region;
     grid_size, tolerance)`): a grid on Core's full-image lattice (a
     `BoundedCamera`'s extent or a grid source's image), the region restricting
-    the quadrature only.
+    the quadrature only;
+  - `NoncentralGenericModel` (`fit_camera(NoncentralGenericModel, source,
+    region; grid_size, tolerance)`): the same lattice and penalized solve on
+    the source's observation lines (a non-central grid, or any central source
+    the central target takes), directions and points from one solve. Each
+    line's point is its point closest to c*, Core's `nearest_point` of all
+    the quadrature lines, so the points stay bounded for rays past 90°; they
+    are absolute, in the source's frame, and c* is `metadata(r).family.center`.
+    The tolerance bounds the held-out direction error in pixels (through the
+    source's back-projection Jacobian); the line offset is reported as
+    `max_offset`, `rms_offset`, `max_offset_edge` (metres). On a synthetic
+    non-central fisheye to 97°: 7.1e-4 px and 7.9e-9 m at most, against 0.39 px
+    and 5.9e-6 m for sampling the source's lines at the nodes.
 - **Breaking: removed `fit_lens` and `LensFitMetadata`** (retired in
   `check_naming`). `fit_lens(L, model; max_radius_px = R)` is
   `fit_camera(L, model, Ellipse(pp, R, R, 0.0))` (a disc about the principal

@@ -18,6 +18,9 @@
 #   CentralGenericModel      the grid of Core's layout (`grid_size`) over the
 #                            region's pixel bounding box, the source's rays by
 #                            penalized linear least squares; the tolerance checked
+#   NoncentralGenericModel   the same lattice, the source's LINES: the directions
+#                            and each line's point closest to the lines' common
+#                            nearest point c*, by the same penalized solve
 #
 # THE PENALTY of the spline families is a P-spline's: λ(‖Dₓ³c‖² + ‖Dᵧ³c‖²), third
 # differences of the controls along both lattice axes. Every node is free; the
@@ -55,7 +58,14 @@ record `family`, a `NamedTuple`:
   counts per chart axis, the quadrature's stride in pixels and the tolerance
   asked for; the errors are the held-out check's;
 - `CentralGenericModel`: `(; penalty, grid_size, stride, tolerance)`; the errors are
-  the held-out check's, through the fitted grid's `project`.
+  the held-out check's, through the fitted grid's `project`;
+- `NoncentralGenericModel`: `(; center, penalty, grid_size, stride, tolerance,
+  max_offset, rms_offset, max_offset_edge)` — `center` the anchor c* (the
+  least-squares point nearest to the source's quadrature lines, in the
+  source's frame, plain metres as the grid's points), and the held-out line
+  offset `‖(I − ddᵀ)(o_fit − o_src)‖` (plain metres); the pixel errors are the
+  held-out DIRECTION error, mapped to pixels through the source's
+  back-projection Jacobian.
 """
 struct CameraFitMetadata{R, F <: NamedTuple}
     region::R
@@ -122,9 +132,26 @@ family and the solve:
   grid model's own, or a [`BoundedCamera`](@ref VisualGeometryToolkitCore.BoundedCamera)'s
   extent (a bare `CameraModel` has none: an `ArgumentError`). The tolerance is
   checked (warned when exceeded), never searched; `retcode :solved`.
+- **`NoncentralGenericModel`** (`fit_camera(NoncentralGenericModel, source,
+  region; grid_size, tolerance)`): the same design on the source's observation
+  LINES — a non-central grid source's `Ray3`s, or a central source's rays
+  through its centre. Both grids, the unit directions and the points, come
+  from ONE penalized solve on the same lattice. A line's point is pinned by
+  an anchor: c*, Core's [`nearest_point`](@ref
+  VisualGeometryToolkitCore.nearest_point) of all the quadrature lines, and each
+  line contributes its point closest to c*, `o + ((c* − o)·d) d` — bounded for
+  rays at and past 90°, where a plane anchor (the pupil plane) runs off. The
+  points are in the source's frame (frame in = frame out; plain metres, the
+  grid's unit), c* in the metadata; a central source's are all c*. The
+  tolerance bounds the held-out DIRECTION error in pixels: the direction's
+  deviation mapped through the source's back-projection Jacobian (the round
+  trip through the source to first order); the line offset is reported beside
+  it, in metres. A non-central source is a `NoncentralGenericModel`, which has
+  its own image.
 
 `source` is a `CameraModel` (bounded or not) or a `CentralGenericModel` (anything
-with a batched `backproject(source, pixels)`). The spline families take `weight = :image` only:
+with a batched `backproject(source, pixels)`), and for the non-central target
+also a `NoncentralGenericModel`. The spline families take `weight = :image` only:
 their quadrature is on the image. Their per-point steps (the source's
 backprojection, the chart, the design rows, the evaluation, the errors) run as
 batches — Core's KernelAbstractions kernels and [`pointwise!`](@ref
@@ -378,7 +405,12 @@ _check_image_weight(weight::Symbol) =
 # `pixel_mask` on a lattice of `stride` pixels — the fit's points, and the
 # held-out check's offset by half a stride — with the source's rays there (a
 # point the source does not image is dropped) and the held-out points' edge band.
-function _image_quadrature(source, region)
+#
+# `samples(source, pixels)` is the source's datum per pixel, NaN where it images
+# none: its rays (`_source_rays`, the default) or its observation lines
+# (`_source_lines`); the result's `fit_rays` and `held_rays` hold those data.
+_image_quadrature(source, region) = _image_quadrature(_source_rays, source, region)
+function _image_quadrature(samples::F, source, region) where {F}
     box = Rect2(region)   # an ArgumentError for the whole plane: the region must be bounded
     lo, hi = minimum(box), maximum(box)
     extent = maximum(hi - lo)
@@ -389,9 +421,9 @@ function _image_quadrature(source, region)
     u0, v0 = max(1, floor(Int, lo[1]) + 1), max(1, floor(Int, lo[2]) + 1)
     lattice(off) = [SVector(u - 0.5, v - 0.5) for v in (v0 + off):stride:H for u in (u0 + off):stride:W if mask[v, u]]
     function imaged(pixels)
-        rays = backproject(source, pixels)
-        keep = findall(r -> all(isfinite, r), rays)
-        return pixels[keep], SVector{3, Float64}.(rays[keep])
+        data = samples(source, pixels)
+        keep = findall(_is_finite_sample, data)
+        return pixels[keep], data[keep]
     end
     fit_px, fit_rays = imaged(lattice(0))
     held_px, held_rays = imaged(lattice(stride ÷ 2))
@@ -400,6 +432,24 @@ function _image_quadrature(source, region)
     edge = map(p -> _in_edge_band(region, p), held_px)
     return (; region, stride, extent, fit_px, fit_rays, held_px, held_rays, edge)
 end
+
+# The source's rays at `pixels`: its batched `backproject`, NaN where it images none.
+_source_rays(source, pixels) = SVector{3, Float64}.(backproject(source, pixels))
+
+# The source's observation lines at `pixels`, `(origin, unit direction)`, NaN where
+# it images none: a non-central grid's `Ray3`s (plain metres), and for a central
+# source its rays through the projection centre, the origin.
+function _source_lines(source::NoncentralGenericModel, pixels)
+    nan3 = SVector(NaN, NaN, NaN)
+    return map(pixels) do p
+        r = backproject(source, p)
+        r === nothing ? (nan3, nan3) : (SVector{3, Float64}(r.origin), SVector{3, Float64}(r.direction))
+    end
+end
+_source_lines(source, pixels) = map(r -> (zero(SVector{3, Float64}), normalize(r)), _source_rays(source, pixels))
+
+_is_finite_sample(r::StaticVector) = all(isfinite, r)
+_is_finite_sample(l::Tuple) = all(_is_finite_sample, l)
 
 # Whether a point lies within `_EDGE_BAND_PX` of the region's edge: a point at
 # that distance on one of 16 directions leaves the region (a convex region's
@@ -589,11 +639,11 @@ end
 
 # The image a grid target's lattice covers: a grid source's own, a bounded
 # camera's extent. A bare camera model has no image.
-_image_size(m::CentralGenericModel) = (m.width, m.height)
+_image_size(m::Union{CentralGenericModel, NoncentralGenericModel}) = (m.width, m.height)
 _image_size(bc::BoundedCamera) = (e = extent(bc); (Int(e.width), Int(e.height)))
 _image_size(source) = throw(
     ArgumentError(
-        "fit_camera(CentralGenericModel, …): a $(nameof(typeof(source))) source has no image for the grid's full-image lattice; " *
+        "fit_camera(<grid model>, …): a $(nameof(typeof(source))) source has no image for the grid's full-image lattice; " *
             "bound it by its sensor or extent, `BoundedCamera(model, sensor)`"
     )
 )
@@ -605,4 +655,123 @@ _unbounded(source) = source
 function _grid_round_trip(m::CentralGenericModel, rays, px)
     out = project(m, rays, px; iters = 50)
     return [out.ok[i] ? norm(out.px[i] - px[i]) : Inf for i in eachindex(px)]
+end
+
+# ------------------------------------------------------------------------------
+# NoncentralGenericModel
+# ------------------------------------------------------------------------------
+#
+# The same design as the central grid, on lines: Core's full-image lattice, the
+# region restricting the quadrature only, ONE penalized solve for both grids
+# (the unit directions and the points are columns of one right-hand side over
+# one design). A line's point is not data — any point of the line is the same
+# line — so the fit pins it: every quadrature line contributes its point closest
+# to c*, the least-squares point nearest to all of them (Core's `nearest_point`).
+# The points then vary as little as the lines allow, and a central source's are
+# c* itself. Anchoring on a plane instead (the pupil plane z = const) explodes
+# for rays near and past 90°, where the plane meets the line far away or never.
+
+function fit_camera(
+        ::Type{NoncentralGenericModel}, source, region;
+        grid_size::Tuple{Integer, Integer}, tolerance::Real, weight::Symbol = :image
+    )
+    _check_image_weight(weight)
+    W, H = _image_size(source)
+    cam = _unbounded(source)
+    q = _image_quadrature(_source_lines, cam, region)
+    lattice = _noncentral_lattice(cam, (W, H), grid_size, region)
+    area = (lattice.calib_min_x, lattice.calib_min_y, lattice.calib_max_x, lattice.calib_max_y)
+    gh, gw = size(lattice.directions)
+    center = nearest_point([o => d for (o, d) in q.fit_rays])
+    rows = pointwise!(
+        p -> _design_row(spline_window(lattice, p), gh),
+        Vector{Tuple{SVector{16, Int}, SVector{16, Float64}}}(undef, length(q.fit_px)), q.fit_px
+    )
+    # the right-hand side: the unit direction, and the line's point closest to
+    # c* relative to c* (the solve is translation-equivariant: a B-spline's
+    # weights sum to one and the third differences vanish on constants)
+    B = Matrix{Float64}(undef, length(q.fit_rays), 6)
+    for (i, (o, d)) in enumerate(q.fit_rays)
+        B[i, 1:3] .= d
+        B[i, 4:6] .= o + dot(center - o, d) * d - center
+    end
+    controls, λ = _penalized_solve(rows, B, gh, gw, Val(6))
+    directions = map(x -> Vec3{Float64}(x[1], x[2], x[3]), controls)
+    points = map(x -> Vec3{Float64}(x[4] + center[1], x[5] + center[2], x[6] + center[3]), controls)
+    fitted = NoncentralGenericModel{Float64}(
+        W, H, area..., directions, points; unit_controls = false, nominal = nominal_intrinsics(lattice), domain = region
+    )
+    e, offsets = _line_errors(fitted, cam, q)
+    e.max_px <= tolerance ||
+        @warn "fit_camera: the $(gh) × $(gw) non-central grid's held-out direction error reaches $(round(e.max_px; sigdigits = 3)) px, over the tolerance $(tolerance) px"
+    return FitResult(
+        fitted, :solved, 0, e.rms_px, length(q.fit_px),
+        CameraFitMetadata(
+            region, weight, e.max_px, e.rms_px, e.max_px_edge,
+            (;
+                center, penalty = λ, grid_size = (gh, gw), stride = q.stride, tolerance = Float64(tolerance),
+                max_offset = offsets.max_px, rms_offset = offsets.rms_px, max_offset_edge = offsets.max_px_edge,
+            )
+        )
+    )
+end
+
+# The non-central target's lattice: Core's full-image layout over the source's
+# image. A central source through the node-interpolation constructor (its
+# nominal pinhole); a non-central grid source keeps its own nominal.
+function _noncentral_lattice(source::NoncentralGenericModel, (W, H), grid_size, region)
+    gw, gh = grid_size
+    return NoncentralGenericModel{Float64}(
+        W, H, 0, 0, W - 1, H - 1, fill(Vec3{Float64}(0, 0, 1), gh, gw), fill(Vec3{Float64}(0, 0, 0), gh, gw);
+        nominal = nominal_intrinsics(source), domain = region
+    )
+end
+_noncentral_lattice(source, size, grid_size, region) = NoncentralGenericModel(
+    source, size; grid_size, init = source isa CameraModel ? :interpolate : :quasi_interpolate, domain = region
+)
+
+# The held-out errors of a fitted non-central grid against the source's lines:
+# the DIRECTION error in pixels — the fitted direction's tangent deviation from
+# the source's mapped back through the source's back-projection Jacobian
+# `J = ∂d/∂u`, `‖J⁺δ‖` (the round trip through the source to first order; J by
+# central differences of ±`_JACOBIAN_DIFFERENCE_PX`, one-sided where a side is not
+# imaged) — and the LINE OFFSET `‖(I − ddᵀ)(o_fit − o_src)‖`, the distance
+# from the source's point to the fitted line's point across the source's
+# direction, in the source's length unit (plain metres). Both through the
+# fitted splines (`interpolated_direction`, `interpolated_point`), which
+# continue past the calibrated area as the fit's design does.
+const _JACOBIAN_DIFFERENCE_PX = 0.25
+function _line_errors(fitted::NoncentralGenericModel, source, q)
+    px = q.held_px
+    o_src = first.(q.held_rays)
+    d_src = last.(q.held_rays)
+    h = _JACOBIAN_DIFFERENCE_PX
+    shifted(s) = last.(_source_lines(source, [p + s for p in px]))
+    dxp, dxm = shifted(SVector(h, 0.0)), shifted(SVector(-h, 0.0))
+    dyp, dym = shifted(SVector(0.0, h)), shifted(SVector(0.0, -h))
+    direction_px = map(eachindex(px)) do i
+        d = d_src[i]
+        J = hcat(_difference(dxp[i], dxm[i], d, h), _difference(dyp[i], dym[i], d, h))
+        all(isfinite, J) || return Inf
+        f = normalize(SVector{3, Float64}(interpolated_direction(fitted, px[i])))
+        δ = f - d
+        δ -= dot(δ, d) * d
+        norm((transpose(J) * J) \ (transpose(J) * δ))
+    end
+    offset = map(eachindex(px)) do i
+        d = d_src[i]
+        Δ = SVector{3, Float64}(interpolated_point(fitted, px[i])) - o_src[i]
+        norm(Δ - dot(Δ, d) * d)
+    end
+    return _held_out_errors(direction_px, q.edge), _held_out_errors(offset, q.edge)
+end
+
+# A column of the source's back-projection Jacobian from the directions a step
+# `h` either side of `d`'s pixel: central, or one-sided where one side is not
+# imaged (NaN where neither is).
+function _difference(dp, dm, d, h)
+    all(isfinite, dp) && all(isfinite, dm) && return (dp - dm) / 2h
+    all(isfinite, dp) && return (dp - d) / h
+    all(isfinite, dm) && return (d - dm) / h
+    return SVector(NaN, NaN, NaN)
 end

@@ -31,8 +31,10 @@ _projection_families() = Pair{Symbol, _LensFamily}[
         if P <: AbstractProjection && isconcretetype(P) && hasmethod(P, Tuple{})
 ]
 
-# The name table. Parametric projections (`DoubleSphere`, `Unified`,
-# `ExtendedUnified`) have no zero-argument constructor, so they take no entry yet.
+# The name table. The reference of a family is the member that EQUALS ITS BASE
+# PROJECTION: the polynomial families at all-zero coefficients are perspective
+# (or equidistant), and a parametric projection at the parameters that reduce it
+# to perspective: DoubleSphere(0, 0), Unified(0), ExtendedUnified(0, 1) (α = 0).
 const _LENS_FAMILIES = Dict{Symbol, _LensFamily}(
     :division => _LensFamily((; coefficients = _Count(1)), s -> Division(_zeros(s.coefficients)...)),
     :kannala_brandt => _LensFamily((; coefficients = _Count(1)), s -> KannalaBrandt(_zeros(s.coefficients)...)),
@@ -46,6 +48,9 @@ const _LENS_FAMILIES = Dict{Symbol, _LensFamily}(
         (; numerator = _Count(0), denominator = _Count(1)),
         s -> Lens(Perspective(), Radial(_zeros(s.numerator), _zeros(s.denominator))),
     ),
+    :double_sphere => _LensFamily((;), s -> Lens(DoubleSphere(0.0, 0.0))),
+    :unified => _LensFamily((;), s -> Lens(Unified(0.0))),
+    :extended_unified => _LensFamily((;), s -> Lens(ExtendedUnified(0.0, 1.0))),
     _projection_families()...,
 )
 
@@ -67,7 +72,13 @@ The families and their structure keywords:
   - `:rational`: `numerator` (≥ 0) and `denominator` (≥ 1), OpenCV's rational
     radial factor `k1…k(numerator)` over `d1…d(denominator)`;
   - `:perspective`, `:equidistant`, `:stereographic`, `:equisolid`,
-    `:orthographic`: a lens with no distortion, no keywords.
+    `:orthographic`, `:double_sphere`, `:unified`, `:extended_unified`: a
+    projection with no distortion, no keywords.
+
+The reference values of a family are those of the member that equals its base
+projection: all-zero coefficients for the polynomial families, and for the
+parametric projections the parameters that reduce them to perspective
+(`DoubleSphere(0, 0)`, `Unified(0)`, `ExtendedUnified(0, 1)`).
 
 `free` lists, by [`parameter_names`](@ref) of the lens, the coefficients a
 calibrator moves; the default (`nothing`) is all of them.
@@ -75,8 +86,9 @@ calibrator moves; the default (`nothing`) is all of them.
 The record form, `LensSpec(Dict("record" => lens_record(lens)))`, covers every
 composition the table does not name, and is the only form with numbers: a lens
 with non-zero starting or held coefficients. `LensSpec(lens)` is the inverse of
-`lens(spec)`: the named form when the lens's structure has a name AND its
-coefficients are the reference values (zeros), else the record form.
+`lens(spec)`: the named form only when the lens's structure has a name AND its
+coefficients are the reference values, else the record form, so no value is
+ever dropped.
 
 `toml_value(spec)` is `Dict("lens" => "division", "coefficients" => 3, …)` or
 `Dict("lens" => Dict("record" => …))`, plus `"free"` when set;

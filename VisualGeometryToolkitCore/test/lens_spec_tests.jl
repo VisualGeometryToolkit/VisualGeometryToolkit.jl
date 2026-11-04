@@ -16,6 +16,9 @@
         (LensSpec(:stereographic), ()),
         (LensSpec(:equisolid), ()),
         (LensSpec(:orthographic), ()),
+        (LensSpec(:double_sphere), (:xi, :alpha)),
+        (LensSpec(:unified), (:xi,)),
+        (LensSpec(:extended_unified), (:alpha, :beta)),
     ]
 
     @testset "lens(spec): names and reference values" begin
@@ -23,7 +26,7 @@
             L = lens(spec)
             @test L isa AbstractLensModel
             @test parameter_names(L) == names
-            @test all(iszero, parameter_vector(L))
+            spec.family === :extended_unified || @test all(iszero, parameter_vector(L))
             @test free_names(spec) == names
         end
         @test lens(LensSpec(:division; coefficients = 3)) == Division(0.0, 0.0, 0.0)
@@ -33,6 +36,21 @@
         @test lens(LensSpec(:brown_conrady; radial = 2)) == Lens(Perspective(), Radial((0.0, 0.0)))
         @test lens(LensSpec(:rational; numerator = 1, denominator = 2)) == Lens(Perspective(), Radial((0.0,), (0.0, 0.0)))
         @test lens(LensSpec(:equidistant)) == Lens(Equidistant())
+    end
+
+    @testset "parametric projections: the member equal to perspective" begin
+        using StaticArrays, Random
+        rng = MersenneTwister(7)
+        rays = [SVector(0.8 * randn(rng), 0.8 * randn(rng), 1.0) for _ in 1:20]
+        P = Lens(Perspective())
+        for f in (:double_sphere, :unified, :extended_unified)
+            L = lens(LensSpec(f))
+            @test maximum(maximum(abs, VisualGeometryToolkitCore.Cameras.project(L, X) - VisualGeometryToolkitCore.Cameras.project(P, X)) for X in rays) <= 1.0e-12
+        end
+        @test lens(LensSpec(:extended_unified)) == Lens(ExtendedUnified(0.0, 1.0))
+        # a non-reference value keeps its number: the record form
+        @test LensSpec(Lens(DoubleSphere(-0.2, 0.6))).family === :record
+        @test lens(LensSpec(Lens(DoubleSphere(-0.2, 0.6)))) == Lens(DoubleSphere(-0.2, 0.6))
     end
 
     @testset "round trips" begin

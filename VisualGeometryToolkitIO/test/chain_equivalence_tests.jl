@@ -29,10 +29,10 @@
     #   members and covariance in CT's order (`ct_order`); the in-plane
     #   compositions are retired. Target and rig records are v3/v6: a golden
     #   v2/v5 file is migrated by `vgio_migrate` and must be the writer's v3/v6
-    #   output byte for byte; a retired case's is refused. A rig whose target is
-    #   composed changes its content id (its members are listed outer map
-    #   first): the new ids are pinned here, and the migration must report the
-    #   golden id as the rig's old one;
+    #   output byte for byte; a retired case's is refused. Every content id is
+    #   the golden's: the identity tree lists a composition's members in
+    #   application order whatever order the record lists them in, so no id
+    #   moves (`new_content_ids` is empty);
     # - lenses: a distortion's stages in sequence are CT's `∘` (the Lens
     #   `Chain` removed); the camera store is v4, its lens record's "chain"
     #   listing the stages outer first: a golden v3 store is migrated by
@@ -50,10 +50,7 @@
         ]),
         migrate = (golden, out) -> occursin(r"^(target|rig|cameras)_", basename(golden)) ?
             VisualGeometryToolkitIO.vgio_migrate(golden; out) : cp(golden, out; force = true),
-        new_content_ids = Dict(
-            "A_H" => "2112fe43b29998d8ce4cf3ecd0db5559f1f5a7074d86ec1e7b637d90df133f63",
-            "T_H" => "19438df216311b4c5ba2477832ff9bcaca5e7946262a0113311a6adab18d8efc",
-        ),
+        new_content_ids = Dict{String, String}(),
     )
 end
 
@@ -100,7 +97,13 @@ end
             @test same
             n_files += 1
         end
-        # a rig whose id moves: its migration maps the golden id to the new one
+        # a rig whose target is composed keeps its id across the v5 → v6
+        # migration (persisted-geometry.md: an identity does not change when
+        # the file format does); a rig whose id moves maps the golden id to the new one
+        for name in ("A_H", "T_H")
+            r = VisualGeometryToolkitIO.vgio_migrate(joinpath(golden_records, "rig_$name.json"); out = joinpath(dir, "rig_$name.ids.json"))
+            @test r.old_id == r.new_id == G["content_id/$name"] == VisualGeometryToolkitIO.content_id(r.out)
+        end
         for (name, id) in CODE.new_content_ids
             r = VisualGeometryToolkitIO.vgio_migrate(joinpath(golden_records, "rig_$name.json"); out = joinpath(dir, "rig_$name.ids.json"))
             @test r.old_id == G["content_id/$name"] && r.new_id == id

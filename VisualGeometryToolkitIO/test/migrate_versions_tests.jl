@@ -543,7 +543,40 @@ end
         @test e isa ArgumentError && occursin("vgio_migrate", e.msg)
         r = VgtkIO.vgio_migrate(v5; out = joinpath(dir, "rig_migrated.json"))
         @test r.to == "vgio/rig/v6" && read(r.out) == read(v6)                  # the writer's v6, byte for byte
-        @test r.new_id == VgtkIO.content_id(rig) && r.old_id != r.new_id
+        @test r.new_id == VgtkIO.content_id(rig) && r.old_id == r.new_id && r.old_ids == [r.new_id]   # the identity is the format's
         @test VgtkIO.load(Rig, r.out)[:t].target == rig[:t].target
+    end
+end
+
+@testitem "vgio_migrate: a v5 rig of every target kind and its v6 migration have one content_id, the id v5 had" setup = [VGIoFixtures, TargetRecordFixtures] begin
+    # persisted-geometry.md: "An identity does not change when the file format
+    # does". The identity tree lists a composition's members (and a lens's
+    # stages) in application order, the order v5's record held, whatever order
+    # the record lists them in.
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: Rig
+    using JSON: JSON
+    # identity_rig()'s id as v5 hashed it — its composed target's members in
+    # application order (thin_plate_spline, height_field), computed by the v5
+    # → v6 migration's old-id rule before the identity tree fixed its order
+    v5_ids = Dict(false => "f55db7e749c4b23e0ad31e665e2e79e5529163efdff4e04bf758617229549527",
+        true => "aa4d8aea6e17d3f7b5962b71ebdd6d493d186c38386a216347395a778f09586d")
+    mktempdir() do dir
+        for boards in (false, true), length_unit in (mm, m)
+            rig = identity_rig(; boards)
+            v6 = joinpath(dir, "rig_v6.json")
+            VgtkIO.save(v6, rig; length_unit)
+            d = JSON.parse(read(v6, String); dicttype = Dict{String, Any})
+            d["schema"] = "vgio/rig/v5"
+            for x in d["targets"]
+                c = get(x["target"], "calibration", nothing)
+                c isa AbstractDict && get(c, "type", "") == "calibration_chain" && (x["target"]["calibration"] = VgtkIO._reversed_composition(c))
+            end
+            v5 = joinpath(dir, "rig_v5.json")
+            write(v5, JSON.json(d, 2))
+            r = VgtkIO.vgio_migrate(v5; out = joinpath(dir, "rig_migrated_$(boards)_$(length_unit).json"))
+            @test read(r.out) == read(v6)
+            @test r.old_id == r.new_id == VgtkIO.content_id(r.out) == VgtkIO.content_id(rig) == v5_ids[boards]
+        end
     end
 end

@@ -669,7 +669,7 @@ The identity tree, fixed (a test pins it for a rig of every target kind):
     pose       {"rotation": [w, x, y, z] (Hamilton, w ≥ 0), "translation": [m, m, m],
                 "covariance": 6×6 rows over [δω; δt], rad and m       (iff Uncertain)}
     camera     {"intrinsics": [fx, fy, cx, cy, skew] (px, the canonical pixel frame),
-                "extent": [width, height] (px), "lens": VGC's lens_record of the lens}
+                "extent": [width, height] (px), "lens": VGC's lens_record of the lens, its "chain" in application order (the inner stage first)}
              | {"grid_model": "central" | "noncentral", "extent": [width, height],
                 "calibrated_area": [min_x, min_y, max_x, max_y], "grid": [width, height],
                 "directions": row-major [[x, y, z], …], "points": row-major [[m, m, m], …] (non-central),
@@ -682,7 +682,8 @@ The identity tree, fixed (a test pins it for a rig of every target kind):
                            "texture": {"path", "sha256", "size": [width, height] (m), "origin": [m, m]} (iff it has one)}
                                                                           (iff the target has a canvas)}
     calibration {"kind": <the kind's tag>, "parameters": parameter_vector (lengths in m),
-                 "nodes": [[m, m], …] (thin-plate kinds), "members": [<calibration>, <calibration>] (a composition, the outer map first),
+                 "nodes": [[m, m], …] (thin-plate kinds), "members": [<calibration>, <calibration>] (a composition, in application order: the inner map first,
+                 whatever order the record lists them in),
                  "covariance": rows over the parameters, m^(lᵢ+lⱼ) (iff Uncertain)}
 """
 content_id(x::Union{Rig, AbstractString}) = _targets_hash(x)
@@ -707,9 +708,17 @@ end
 _id_sensor(rig, i, id) =      # (as the writer's `_sensor_json`: the rig untyped here)
     _Id("id" => String(id), "camera" => _id_camera(sensor_rig(rig).members[i]), "extrinsics" => _lower(pose_json(extrinsics(sensor_rig(rig), i), _PERSISTED)))
 _id_targets(tr) = Any[
-    _Id("id" => String(id), "target" => _id_kind!(_id_canvas!(_id_board!(_lower(target_json(tr[id].target, _PERSISTED))))), "pose" => _lower(pose_json(pose(tr, id), _PERSISTED)))
+    _Id("id" => String(id), "target" => _id_order!(_id_kind!(_id_canvas!(_id_board!(_lower(target_json(tr[id].target, _PERSISTED)))))), "pose" => _lower(pose_json(pose(tr, id), _PERSISTED)))
         for id in sort!(collect(ids(tr)))
 ]
+# The identity's ONE member order, independent of the record's: a composed
+# calibration's members and a lens's stages in APPLICATION order (the inner map
+# first), with a composition's covariance permuted to match — the order rig/v5
+# wrote and hashed. The record lists them in CoordinateTransformations' order
+# since v6; hashing the record's order would re-id every rig with a composed
+# target or lens on migration, which an identity must not do.
+_id_order!(d::_Id) = (haskey(d, "calibration") && (d["calibration"] = _reversed_composition(d["calibration"], "kind")); d)
+_id_lens(l) = _reversed_lens_chain(_lower(_lens_json(l)))
 # a record's `type` (a target's, a calibration's and its members') is the identity's `kind`.
 # The identity is built from the writer's records, so a writer key renamed or
 # added changes every content_id unless it is mapped back here; the pinned-tree
@@ -743,7 +752,7 @@ function _id_camera(c)
         e = extent(c)
         return _Id(
             "intrinsics" => Any[Float64(K[1, 1]), Float64(K[2, 2]), Float64(K[1, 3]), Float64(K[2, 3]), Float64(K[1, 2])],
-            "extent" => Any[Int(e.width), Int(e.height)], "lens" => _lower(_lens_json(mdl.lens)),
+            "extent" => Any[Int(e.width), Int(e.height)], "lens" => _id_lens(mdl.lens),
             _id_pitch(c)...,
         )
     end

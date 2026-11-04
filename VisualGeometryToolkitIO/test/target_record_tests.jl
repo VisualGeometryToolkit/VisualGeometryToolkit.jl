@@ -246,8 +246,10 @@ end
     rig = identity_rig()
     # (re-pinned 2026-11-03: the rig's composed target, `e_chain`, was an Affine →
     # ThinPlateSpline → HeightField chain, retired with the in-plane compositions;
-    # it is HeightField ∘ ThinPlateSpline now. No measurement file names this rig.)
-    @test content_id(rig) == "772cb994f4f5d531d39b722f3675bda369d7d763cc4bc2f149d447cbfb6db329"   # poses as the reader returns them
+    # it is HeightField ∘ ThinPlateSpline now. No measurement file names this rig.
+    # Re-pinned 2026-11-04 to the id rig/v5 gave it: the identity lists the
+    # composition's members in application order, independent of the record.)
+    @test content_id(rig) == "f55db7e749c4b23e0ad31e665e2e79e5529163efdff4e04bf758617229549527"   # poses as the reader returns them
     # The identity is of the PERSISTED rotation, the quaternion the writer
     # stores (one conversion, `_qvec`, shared by the writer and the tree): a
     # rig held with RotMatrix poses, the same rig built from
@@ -261,7 +263,7 @@ end
     end
     # a rig whose targets carry boards: the board is part of the identity
     brig = identity_rig(; boards = true)
-    @test content_id(brig) == "d2bb4e22e286a189fa401f847ba2c93a77b89f1db778014465d7579fcbc66ffb"   # (re-pinned with `rig`'s)
+    @test content_id(brig) == "aa4d8aea6e17d3f7b5962b71ebdd6d493d186c38386a216347395a778f09586d"   # (re-pinned with `rig`'s)
     @test content_id(brig) != content_id(rig)
     tb = VgtkIO._identity_tree(brig)
     @test only(x for x in tb["targets"] if x["id"] == "a_rigid")["target"]["board"] ==
@@ -279,7 +281,7 @@ end
     @test sort!(collect(keys(t))) == ["frame", "targets"]
     e = only(x for x in t["targets"] if x["id"] == "e_chain")
     @test e["target"]["kind"] == "planar" && e["target"]["calibration"]["kind"] == "calibration_chain" &&
-        haskey(e["target"]["calibration"], "covariance") && [x["kind"] for x in e["target"]["calibration"]["members"]] == ["height_field", "thin_plate_spline"]
+        haskey(e["target"]["calibration"], "covariance") && [x["kind"] for x in e["target"]["calibration"]["members"]] == ["thin_plate_spline", "height_field"]   # application order, as v5
     # a generic sensor with a nominal pinhole and a domain: both enter under the identity's own names
     using VisualGeometryToolkitCore: PosedCamera, ViewFrame, relabel, CentralGenericModel, NoncentralGenericModel, KannalaBrandt,
         EuclideanMap, Vec3, CameraModel, Ellipse, Point2

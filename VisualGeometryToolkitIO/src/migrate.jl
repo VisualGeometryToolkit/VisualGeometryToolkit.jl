@@ -538,20 +538,13 @@ function migrate_schema(::Val{Symbol("vgio/target/v2")}, src::AbstractString, ds
     return (; to = _schema("target"))
 end
 
-# The rig's content identity changes where a target's calibration is composed
-# (the identity tree lists its members as the record does): v5's is the
-# current tree with those members back in application order.
+# The rig's content identity does not change: the identity tree lists a
+# composition's members and a lens's stages in one fixed order (application
+# order, as v5's record did), whatever order the record lists them in.
 function migrate_schema(::Val{Symbol("vgio/rig/v5")}, src::AbstractString, dst::AbstractString)
-    _, value = _migrate_record(Rig, _RIG_SPEC, src, dst, _rig_v5_to_v6, "the rig record")
-    tree = _identity_tree(value)
-    haskey(tree, "targets") && for x in tree["targets"]
-        haskey(x["target"], "calibration") && (x["target"]["calibration"] = _reversed_composition(x["target"]["calibration"], "kind"))
-    end
-    haskey(tree, "sensors") && for x in tree["sensors"]
-        x["camera"] = _camera_v3_to_v4(x["camera"])
-    end
-    old_id = sha256_hex(canonical_json(tree))
-    return (; to = _schema("rig"), old_id, old_ids = [old_id], new_id = content_id(dst))
+    _migrate_record(Rig, _RIG_SPEC, src, dst, _rig_v5_to_v6, "the rig record")
+    id = content_id(dst)
+    return (; to = _schema("rig"), old_id = id, old_ids = [id], new_id = id)
 end
 
 # vgio/rig/v4 → the current rig. The rig's content identity changes with the

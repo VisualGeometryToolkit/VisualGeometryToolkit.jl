@@ -16,19 +16,17 @@ Breaking: the target and rig records bump with VisualGeometryToolkitCore
 - **`vgio/cameras/v4`, and `vgio/rig/v6`'s sensors**: a lens's distortion
   stages in sequence (CT's `∘`) are listed in the lens record's `"chain"` outer
   first; v3/v5 listed them in application order. `vgio_migrate` converts a
-  v3 store (and a v5 rig's sensors with its targets); a rig whose sensor lens
-  is composed changes its `content_id`, the migration mapping the old id to
-  the new one. OpenCV's 14-coefficient lens is `Tilt ∘ Additive` and COLMAP's
+  v3 store (and a v4 or v5 rig's sensors with its targets). OpenCV's 14-coefficient lens is `Tilt ∘ Additive` and COLMAP's
   `RAD_TAN_THIN_PRISM_FISHEYE` `Additive ∘ Radial` in `opencv_lens` and the
   COLMAP assembly; the exported coefficients and COLMAP parameters are
   unchanged.
 - **`vgio_migrate` converts `vgio/target/v2` and `vgio/rig/v5`** (reversing a
   chain's members and permuting its covariance); a v2/v5 chain of two
   in-plane kinds has no current form and is refused. The readers refuse v2/v5,
-  naming the migration. A rig whose target has a composed calibration changes
-  its `content_id` (the identity tree lists the members as the record does);
-  the migration reports the old id and the new one, so `vgio_migrate_tree`
-  re-points the measurement files that name it. Every other rig keeps its id.
+  naming the migration. Every rig keeps its `content_id`: the identity tree
+  lists a composition's members and a lens's stages in one fixed order,
+  application order (the order v5 held), whatever order the record lists them
+  in.
 - Depends on CoordinateTransformations (the calibration's `AffineMap` and
   composition types).
 

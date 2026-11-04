@@ -48,7 +48,7 @@ using VisualGeometryToolkitCore: Rigid, ThinPlateSpline, HeightField, Lens, Pers
 
 export golden_line, read_goldens, golden_value, target_cases, lens_cases, design_points, physical_points,
     rays, image_points, jacobian_count, KIND_LETTERS, case_members, target_blocks, lens_blocks, block_permutation, ulps,
-    expected_core_value, compare_value, scaled_comparison, MAX_ULPS
+    expected_core_value, compare_value, scaled_comparison, value_precision, printed_value, MAX_ULPS
 
 # -----------------------------------------------------------------------------
 # The line format
@@ -187,13 +187,14 @@ end
 """
     ulps(a, b) -> Int128
 
-The distance between two Float64s in units in the last place (0 for equal
-values, `-0.0` and `0.0` included, and for two NaNs; `typemax` when one is NaN
-and the other is not).
+The distance between two Float64s (or two Float32s) in units in the last place
+of their type (0 for equal values, `-0.0` and `0.0` included, and for two NaNs;
+`typemax` when one is NaN and the other is not).
 """
-function ulps(a::Float64, b::Float64)
+function ulps(a::T, b::T) where {T <: Union{Float64, Float32}}
     (isnan(a) || isnan(b)) && return isnan(a) && isnan(b) ? Int128(0) : typemax(Int128)
-    o(x) = (i = Int128(reinterpret(Int64, x)); i < 0 ? -(i - Int128(typemin(Int64))) : i)
+    I = T === Float64 ? Int64 : Int32
+    o(x) = (i = Int128(reinterpret(I, x)); i < 0 ? -(i - Int128(typemin(I))) : i)
     return abs(o(a) - o(b))
 end
 
@@ -256,19 +257,56 @@ function scaled_comparison(key::AbstractString, V)
 end
 
 """
-    compare_value(expected, actual; scaled = false) -> (ok::Bool, ulps::Int128, why::String)
+    value_precision(key) -> Type
+
+The precision a golden's numbers were computed in, which its ulps count in:
+`Float32` for a lens's `float32/` values (stored widened to Float64, where one
+Float32 ulp is 2²⁹ Float64 ulps), `Float64` otherwise.
+"""
+value_precision(key::AbstractString) = occursin("/float32/", key) ? Float32 : Float64
+
+"""
+    printed_value(key) -> Bool
+
+Whether a golden is a computed value stored as its printed text (`valid_domain`'s
+`Ellipse`), so that its numbers are compared as numbers. A record's text is not
+one: its numbers are a file's, pinned exactly.
+"""
+printed_value(key::AbstractString) = endswith(key, "/camera/valid_domain")
+
+# A number as Julia's `repr` prints it, inside a printed value.
+const _NUMBER = r"[-+]?(?:\d+\.?\d*(?:[eE][-+]?\d+)?|Inf|NaN)"
+
+"""
+    compare_value(expected, actual; scaled = false, precision = Float64, printed = false) -> (ok::Bool, ulps::Int128, why::String)
 
 Names, texts and flags exactly; Float64 arrays of the same shape within
-`MAX_ULPS` entry by entry (`ulps` the largest distance found, 0 when bit for
-bit identical). With `scaled`, within `MAX_ULPS` ulps of the array's largest
-entry instead (`scaled_comparison`): for values whose rounding moves with the
-order of an SVD's input, where an entry that is zero to rounding has no ulp.
+`MAX_ULPS` entry by entry, counted in ulps of `precision` (`value_precision`;
+`ulps` the largest distance found, 0 when bit for bit identical). With
+`printed` (`printed_value`), a text's words exactly and its numbers within
+`MAX_ULPS`. With `scaled`, within `MAX_ULPS` ulps of the array's largest entry
+instead (`scaled_comparison`): for values whose rounding moves with the order
+of an SVD's input, where an entry that is zero to rounding has no ulp.
+
+The ulp tolerance is the gate's result-accuracy margin, not slack for a
+change: `muladd` (`evalpoly`'s Horner steps) lets LLVM fuse or not, so the
+last bit of a value depends on the compiler and on the call site's inlining.
+Julia 1.12 and 1.13 differ there by 2 Float64 ulps in `valid_domain` and by
+1 Float32 ulp (2²⁹ Float64 ulps) in a Float32 lens's `project`; on 1.12 the
+same `project` call returns either Float32 at two call sites of one process.
 """
-function compare_value(e, a; scaled::Bool = false)
+function compare_value(e, a; scaled::Bool = false, precision::Type{<:AbstractFloat} = Float64, printed::Bool = false)
+    if printed && e isa AbstractString && a isa AbstractString && e != a
+        ne, na = [m.match for m in eachmatch(_NUMBER, e)], [m.match for m in eachmatch(_NUMBER, a)]
+        same_words = replace(e, _NUMBER => "#") == replace(a, _NUMBER => "#") && length(ne) == length(na)
+        d = same_words ? maximum(ulps.(parse.(Float64, ne), parse.(Float64, na)); init = Int128(0)) : typemax(Int128)
+        ok = d <= MAX_ULPS
+        return (ok, ok ? d : Int128(0), ok ? "" : "$(repr(a)), the golden's $(repr(e))")
+    end
     if e isa AbstractArray{Float64} || e isa Float64
         a isa Union{AbstractArray{<:Real}, Real} || return (false, Int128(0), "a $(typeof(a)) where Float64s are pinned")
         size(e) == size(a) || return (false, Int128(0), "size $(size(a)), the golden's $(size(e))")
-        d = isempty(e) ? Int128(0) : maximum(ulps.(Float64.(e), Float64.(a)))
+        d = isempty(e) ? Int128(0) : maximum(ulps.(precision.(e), precision.(a)))
         if scaled && !isempty(e)
             δ, s = maximum(abs.(Float64.(e) .- Float64.(a))), maximum(abs, e)
             ok = δ <= MAX_ULPS * eps(s)

@@ -15,6 +15,22 @@ Modules = [VisualGeometryToolkitCore]
 Pages = ["quality/tag_registry.jl", "quality/stack_contracts.jl", "quality/contract_helpers.jl"]
 ```
 
+## Quality gates
+
+The checks every stack package's quality items run: the naming rules, the
+rows Jacobian check, the gate bundle, the agent-docs policy and the one copy
+of the conventions. `check_naming` and `test_quality_gates` load with `Test`
+(the `Test` extension).
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore]
+Pages = ["quality/naming.jl", "quality/test_helpers.jl", "quality/agent_docs.jl", "quality/conventions.jl"]
+```
+
+```@docs
+SCALE_INTERFACE_TAGS
+```
+
 ## Index
 
 ```@index

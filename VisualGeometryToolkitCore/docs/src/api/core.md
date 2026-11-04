@@ -4,9 +4,10 @@
 CurrentModule = VisualGeometryToolkitCore
 ```
 
-The package docstring, units and quantities, utilities, synthetic-data
-generation, the benchmark pool record, and the visualization stubs. The core composition and
-uncertainty types are on the [Core Types API](types.md) page.
+The package docstring, units and quantities, utilities, the benchmark pool
+record, and the visualization stubs. The core composition and uncertainty
+types are on the [Core Types API](types.md) page, synthetic data and the Monte
+Carlo calibration on the [Synthetic Data API](synthetic.md) page.
 
 ## The Package
 
@@ -34,6 +35,15 @@ Private = false
 Pages = ["base/utils.jl", "base/geometry_utils.jl", "base/device.jl"]
 ```
 
+Drawing into an array without Makie (masks, debug frames; public, not
+exported):
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore]
+Private = false
+Pages = ["base/raster.jl"]
+```
+
 ## TOML Configuration
 
 The config-of-record machinery shared by the package family's config types
@@ -42,14 +52,6 @@ The config-of-record machinery shared by the package family's config types
 ```@autodocs
 Modules = [VisualGeometryToolkitCore]
 Pages = ["base/config_toml.jl"]
-```
-
-## Synthetic Data
-
-```@autodocs
-Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras, VisualGeometryToolkitCore.Synthetic]
-Private = false
-Pages = ["synthetic/synthetic.jl", "synthetic/conics.jl", "synthetic/evaluation.jl", "synthetic/augmentation.jl"]
 ```
 
 ## Benchmark Pools

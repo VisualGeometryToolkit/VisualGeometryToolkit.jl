@@ -115,6 +115,18 @@ Private = false
 Pages = ["numerics/quadrature.jl"]
 ```
 
+## Kernel building blocks
+
+An in-register LU solve for fixed-size systems and a KernelAbstractions
+workgroup reduction, for code that writes its own kernels (public, not
+exported).
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore]
+Private = false
+Pages = ["numerics/small_lu.jl", "numerics/ka_reduce.jl"]
+```
+
 ## Index
 
 ```@index

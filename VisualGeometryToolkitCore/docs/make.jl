@@ -77,10 +77,22 @@ makedocs(;
         # The search index crossed the 500 KiB default with the 0.14
         # docstring additions (the shim-block docstrings moved into src plus
         # the DoubleSphere/B-spline/ray-plane surfaces); same rationale as
-        # size_threshold_warn above.
-        search_size_threshold_warn = 640 * 2^10,
+        # size_threshold_warn above. Measured 1.15 MiB on 2026-11-04, once every
+        # public docstring was in the manual (checkdocs = :public).
+        search_size_threshold_warn = 1280 * 2^10,
     ),
-    checkdocs = :exports,
+    # The docs gates (General review, #171997, #173031, #173032): every public
+    # docstring is in the manual, the doctests run, every external link
+    # resolves, and nothing is warnonly — a warning fails the build. That
+    # every public name HAS a docstring is test/docs_tests.jl's job (the
+    # missing-docs check only sees docstrings that exist).
+    checkdocs = :public,
+    doctest = true,
+    linkcheck = true,
+    # Rate-limited or bot-blocking hosts that answer a crawler with 403/429
+    # (github.com gave 429 on CITATION.cff, 2026-11-04); lychee
+    # (.github/workflows/Links.yml) checks them with a token.
+    linkcheck_ignore = [r"^https://github\.com/", r"^https://doi\.org/", r"^https://(www\.)?sciencedirect\.com/", r"^https://ieeexplore\.ieee\.org/", r"^https://dl\.acm\.org/"],
     pages = [
         "Home" => "index.md",
         "Getting Started" => "guide/getting-started.md",
@@ -111,7 +123,11 @@ makedocs(;
             "Generic Camera Models" => "api/generic_models.md",
             "Calibration" => "api/calibration.md",
             "Lenses" => "api/lenses.md",
-            "Imaging Chain & Stereo" => "api/imaging.md",
+            # Split on 2026-11-04 (api/imaging.html 226 KiB, api/core.html
+            # 206 KiB, both over the 200 KiB error): the rigs, stereo and
+            # captures to api/rigs.md, the synthetic data to api/synthetic.md.
+            "Imaging Chain & Targets" => "api/imaging.md",
+            "Rigs, Stereo & Captures" => "api/rigs.md",
             "Primitives" => "api/primitives.md",
             "Solvers" => "api/solvers.md",
             "Epipolar Forms" => "api/epipolar_forms.md",
@@ -123,6 +139,7 @@ makedocs(;
             "Manifolds & Uncertainty" => "api/manifolds.md",
             "Core Types" => "api/types.md",
             "Core" => "api/core.md",
+            "Synthetic Data" => "api/synthetic.md",
         ],
         "References" => "references.md",
     ],

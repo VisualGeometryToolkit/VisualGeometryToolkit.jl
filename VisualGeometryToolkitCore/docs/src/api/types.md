@@ -46,6 +46,7 @@ rms
 metadata
 weights
 dof
+nested_metadata
 ```
 
 ## Index

@@ -46,11 +46,17 @@
         @test_logs (:warn, r"comments") VgtkIO.vgio_migrate(inplace; out = inplace)
         @test TOML.parsefile(inplace)["schema"] == "vgiotest/config/v2"
 
-        # no comments, no flag
+        # no comments: no flag, no warning
         plain = joinpath(dir, "plain.toml")
         write(plain, "schema = \"vgiotest/config/v1\"\nold_name = \"x\"\n")
-        r2 = @test_logs (:warn, r"comments") VgtkIO.vgio_migrate(plain; out = joinpath(dir, "plain2.toml"))
+        r2 = @test_logs min_level = Base.CoreLogging.Warn VgtkIO.vgio_migrate(plain; out = joinpath(dir, "plain2.toml"))
         @test !r2.comments_dropped
+
+        # a trailing comment only: flagged and warned
+        trailing = joinpath(dir, "trailing.toml")
+        write(trailing, "schema = \"vgiotest/config/v1\"\nold_name = \"x\"  # note\n")
+        r3 = @test_logs (:warn, r"comments") VgtkIO.vgio_migrate(trailing; out = joinpath(dir, "trailing2.toml"))
+        @test r3.comments_dropped
 
         # no schema
         noschema = joinpath(dir, "ns.toml")

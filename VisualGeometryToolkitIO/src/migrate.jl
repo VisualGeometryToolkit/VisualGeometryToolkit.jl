@@ -339,9 +339,10 @@ A `.toml` record whose schema has a step but no file form (a schema owner's
 TOML config) is rewritten by the generic file form: parse, [`migrate_record`](@ref),
 `TOML.print` to the staging directory, re-parse and require the very tree back
 (types included: an `Int` stays an `Int`, a `1.0` a `Float64`, a date a `Date`),
-an `ArgumentError` otherwise. The rewrite drops the file's comments: a `@warn`
-says so, and the result's `comments_dropped` is `true` when the file had a `#`
-comment line. The result is `(; path, out, from, to, comments_dropped)`.
+an `ArgumentError` otherwise. The rewrite drops the file's comments: the
+result's `comments_dropped` is `true`, and a `@warn` says so, when the file has
+any `#` (a comment line or a trailing comment; a `#` inside a string also
+counts, conservatively). The result is `(; path, out, from, to, comments_dropped)`.
 """
 vgio_migrate(path::AbstractString; out::AbstractString = _migrated_path(path), dry_run::Bool = false) =
     _vgio_migrate(path; out, dry_run)
@@ -373,8 +374,10 @@ _is_toml(path) = endswith(lowercase(path), ".toml")
 # require the very tree (types included), so a value TOML.print cannot reproduce
 # is a refusal.
 function _migrate_toml(path, tree, out, dry_run, s, before_rename)
-    comments_dropped = occursin(r"^\s*#"m, read(path, String))
-    @warn "vgio_migrate rewrites $(path) through TOML.print, which drops its comments; the original is kept unless out == path"
+    # any `#`, trailing comments included (a `#` inside a string is a harmless false positive)
+    comments_dropped = occursin('#', read(path, String))
+    comments_dropped &&
+        @warn "vgio_migrate rewrites $(path) through TOML.print, which drops its comments; the original is kept unless out == path"
     migrated = migrate_record(tree)
     return write_staged(out => basename(out); dry_run) do staged
         try

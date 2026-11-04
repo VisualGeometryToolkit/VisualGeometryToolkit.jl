@@ -423,17 +423,31 @@ _calibrated_rect(m::_GenericLattice) =
     return SVector(m.calib_min_x + (gx1 - 2) * hx, m.calib_min_y + (gy1 - 2) * hy)
 end
 
-# The four uniform-cubic window weights at frac x ∈ [3, 4) — the reference's
-# util.h (EvalUniformCubicBSpline), cross-checked against BSplineKit in the
-# tests. The reference evaluates its cubic pieces in x itself, which cancels
-# to ~1e-5 absolute in Float32 (|x³| ≈ 64 against weights ≤ 2/3); the same
-# polynomials in the local coordinate u = x − 3 ∈ [0, 1) are exact in exact
-# arithmetic and, in Horner form, keep Float32 within 7e-8 of the exact
-# weights. On the window's own cell, x ∈ [3, 4), u = x − 3 is exact
-# (Sterbenz); outside it (`spline_weights` on a drifted pixel) the pieces
+# The reference (util.h, EvalUniformCubicBSpline) evaluates its cubic pieces in
+# its window coordinate x ∈ [3, 4) itself, which cancels to ~1e-5 absolute in
+# Float32 (|x³| ≈ 64 against weights ≤ 2/3); the same polynomials in the local
+# coordinate u = x − 3 ∈ [0, 1) are exact in exact arithmetic and, in Horner
+# form, keep Float32 within 7e-8 of the exact weights. The callers below form
+# u = x − 3 from the window coordinate; on the window's own cell it is exact
+# (Sterbenz), outside it (`spline_weights` on a drifted pixel) the pieces
 # extrapolate as the same cubics and u may round.
-@inline function _cubic_weights(x)
-    u = x - 3
+"""
+    cubic_bspline_weights(u) -> NTuple{4}
+
+The four weights of a uniform cubic B-spline span at its local coordinate
+`u ∈ [0, 1)`: the value on the span is `w₁c₁ + w₂c₂ + w₃c₃ + w₄c₄` over its
+four consecutive controls,
+
+    ((1 − u)³, 3u³ − 6u² + 4, −3u³ + 3u² + 3u + 1, u³) / 6,
+
+a partition of unity. Outside `[0, 1)` the same cubics continue (extrapolate).
+Kernel-lawful: in `u`'s own type (a `Float32` coordinate gives `Float32`
+weights, a `ForwardDiff.Dual` dual ones), no allocation and no branch, so a
+device kernel can call it. Evaluated in Horner form in `u`, which keeps
+`Float32` within 1e-7 of the exact weights. The weights the generic grid
+models' windows ([`spline_window`](@ref)) and [`ChartSpline`](@ref) read.
+"""
+@inline function cubic_bspline_weights(u)
     v = 1 - u
     a = v * v * v / 6                           # (1 − u)³ / 6
     b = (u * u * (3u - 6) + 4) / 6              # (3u³ − 6u² + 4) / 6
@@ -449,8 +463,8 @@ end
     y = gy + 2
     ix = floor(Int, x)
     iy = floor(Int, y)
-    wx = _cubic_weights(x - (ix - 3))
-    wy = _cubic_weights(y - (iy - 3))
+    wx = cubic_bspline_weights(x - (ix - 3) - 3)
+    wy = cubic_bspline_weights(y - (iy - 3) - 3)
     return ix, iy, wx, wy
 end
 
@@ -468,10 +482,9 @@ end
     return ((wy[1] * row(1) + wy[2] * row(2)) + wy[3] * row(3)) + wy[4] * row(4)
 end
 
-# d/dx of the four window weights — the same cubic pieces differentiated, in
-# the same local coordinate u = x − 3 and Horner form as `_cubic_weights`.
-@inline function _cubic_weights_deriv(x)
-    u = x - 3
+# d/du of the four span weights — the same cubic pieces differentiated, in the
+# same local coordinate u and Horner form as `cubic_bspline_weights`.
+@inline function _cubic_bspline_weights_deriv(u)
     v = 1 - u
     a = -v * v / 2                  # −(1 − u)² / 2
     b = u * (3u - 4) / 2            # (3u² − 4u) / 2
@@ -485,8 +498,8 @@ end
 # reads it per candidate step).
 @inline function _eval_window_grad(grid::AbstractMatrix{Vec3{T}}, gx, gy) where {T}
     ix, iy, wx, wy = _spline_window(gx, gy)
-    dwx = _cubic_weights_deriv(gx + 2 - (ix - 3))
-    dwy = _cubic_weights_deriv(gy + 2 - (iy - 3))
+    dwx = _cubic_bspline_weights_deriv(gx + 2 - (ix - 3) - 3)
+    dwy = _cubic_bspline_weights_deriv(gy + 2 - (iy - 3) - 3)
     S = Sx = Sy = zero(SVector{3, Float64})
     @inbounds for r in 1:4
         row = drow = zero(SVector{3, Float64})
@@ -524,7 +537,7 @@ end
     y = gy + 2
     ix = clamp(unsafe_trunc(Int, floor(x)), 3, gw - 1)
     iy = clamp(unsafe_trunc(Int, floor(y)), 3, gh - 1)
-    return ix, iy, _cubic_weights(x - (ix - 3)), _cubic_weights(y - (iy - 3))
+    return ix, iy, cubic_bspline_weights(x - (ix - 3) - 3), cubic_bspline_weights(y - (iy - 3) - 3)
 end
 
 @inline function _continued_window(m::_GenericLattice, x, y)
@@ -661,10 +674,10 @@ function spline_weights(m::_GenericLattice, ix::Integer, iy::Integer, pixel)
     sy = _grid_scale(m.calib_min_y, m.calib_max_y, gh)      # ∂gy/∂y
     gx = _grid_coord(x, m.calib_min_x, m.calib_max_x, gw)
     gy = _grid_coord(y, m.calib_min_y, m.calib_max_y, gh)
-    ax = gx + 2 - (ix - 3)
-    ay = gy + 2 - (iy - 3)
-    wxv = _cubic_weights(ax); wyv = _cubic_weights(ay)
-    dwx = _cubic_weights_deriv(ax) .* sx; dwy = _cubic_weights_deriv(ay) .* sy
+    ux = gx + 2 - (ix - 3) - 3                               # the span's local coordinates
+    uy = gy + 2 - (iy - 3) - 3
+    wxv = cubic_bspline_weights(ux); wyv = cubic_bspline_weights(uy)
+    dwx = _cubic_bspline_weights_deriv(ux) .* sx; dwy = _cubic_bspline_weights_deriv(uy) .* sy
     T = typeof(x)
     w = SMatrix{4, 4, T, 16}(ntuple(k -> wyv[(k - 1) % 4 + 1] * wxv[(k - 1) ÷ 4 + 1], Val(16)))
     wx = SMatrix{4, 4, T, 16}(ntuple(k -> wyv[(k - 1) % 4 + 1] * dwx[(k - 1) ÷ 4 + 1], Val(16)))

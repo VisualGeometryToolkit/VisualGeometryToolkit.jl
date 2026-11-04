@@ -524,15 +524,17 @@ codimension_factor(K::Type{<:AbstractLossShape}, d::Integer) =
     efficiency_constant(K, d) / efficiency_constant(K)
 
 # =============================================================================
-# ONE convenience scale estimator — NOT part of the interface above
+# TWO convenience scale estimators — NOT part of the interface above
 # =============================================================================
 #
 # A loss width takes sigma as an input, and the choice of estimator is
 # the caller's: MAD, RMS, a median of norms, Qn/Sn, an IRLS-updated scale, or a
-# value carried in from calibration (`FixedScale`). The two functions below are
-# the median-of-norms option, provided because it is the one that pairs with the
-# chi lift in `codimension_factor`. They are deliberately UNEXPORTED — call them
-# qualified — so that reaching for them is a decision rather than a default.
+# value carried in from calibration (`FixedScale`). `chisq_median` and
+# `noise_sigma` below are the median-of-norms option, provided because it is the
+# one that pairs with the chi lift in `codimension_factor`; `mad_scale` is the
+# centred MAD, for values that are not residuals of a model. They are
+# deliberately UNEXPORTED — call them qualified — so that reaching for them is a
+# decision rather than a default.
 
 """
     chisq_median(codim::Integer) -> Float64
@@ -575,6 +577,26 @@ norms as d = 1 returns 1.745x the true sigma, and every downstream width
 inherits it.
 """
 noise_sigma(norms, d::Integer) = Statistics.median(norms) / sqrt(chisq_median(d))
+
+"""
+    mad_scale(x) -> Float64
+
+The normal-consistent median absolute deviation of the scalars `x`:
+`median(|xᵢ − median(x)|) / Φ⁻¹(3/4)`, the familiar `1.4826·MAD` with its
+constant exact (`1 / Φ⁻¹(0.75) = 1.482602…`). If `x ~ N(μ, σ²)` it estimates
+`σ`, with 50% breakdown.
+
+It CENTRES first, so a bias cancels: the spread of values about their own
+median — a residual image's log-intensity misfit, a seam's photometric
+difference — where [`noise_sigma`](@ref) of residual norms would count the
+offset as noise. For the residuals of a fitted model, whose zero is the model
+and not their median, use `noise_sigma(abs.(r), 1)`. ArgumentError for an
+empty `x` (Statistics' `median`).
+"""
+function mad_scale(x)
+    m = Statistics.median(x)
+    return Statistics.median(abs(xi - m) for xi in x) / Distributions.quantile(Distributions.Normal(), 0.75)
+end
 
 # =============================================================================
 # CONSTRUCTING a deployed loss, and reading its width

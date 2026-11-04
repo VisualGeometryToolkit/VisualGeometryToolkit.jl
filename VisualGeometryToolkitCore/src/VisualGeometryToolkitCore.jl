@@ -326,6 +326,7 @@ public ControlPatchManifold   # a block of a generic grid model's controls as a 
 public ControlPointChart, AdditivePoints, RayNormalPoints   # a ControlPatchManifold's point chart: additive (Δx, Δy, Δz) or across the ray (a, b)
 public GenericModelWindow, window, nominal_intrinsics, interpolated_direction, interpolated_point   # a view onto a block of a grid model's controls; its raw splines
 public spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice for any control type; the 4th-order quasi-interpolant
+public cubic_bspline_weights   # a uniform cubic B-spline span's four weights at its local coordinate (kernel-lawful)
 public generic_lattice   # a grid model's layout from a source (its lattice and nominal), without sampling it
 export ChartSpline, SplineProjection   # a spline on a 2-D chart; a forward map (ray → pixel) as one on the equidistant direction chart (fit_camera's)
 export with_model          # same camera/rig, new model (validated rebuild)
@@ -484,6 +485,7 @@ public RowsWorkspace, rows_workspace, task_buffers, point_norms!,
 export AbstractMEstimator, efficiency_constant
 public codimension_factor
 public noise_sigma   # the robust noise sigma of residual norms, median(norms) / √chisq_median(d)
+public mad_scale     # the normal-consistent MAD of scalars, median(|x − median(x)|) / Φ⁻¹(3/4) (1.4826·MAD)
 # A DEPLOYED loss carries the width it runs at as `scale_multiple` (the multiple
 # of the noise scale) and `s2` (noise VARIANCE, always supplied by the caller);
 # `AnyLoss` is either a deployed loss or an annealed one, and is what the

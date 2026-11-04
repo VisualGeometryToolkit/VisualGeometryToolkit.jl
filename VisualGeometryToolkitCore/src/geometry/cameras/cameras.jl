@@ -1026,6 +1026,7 @@ export ControlPatchManifold              # a block of a grid model's controls as
 export ControlPointChart, AdditivePoints, RayNormalPoints   # how its point controls move (public, not exported, at the top level)
 export GenericModelWindow, window, nominal_intrinsics, interpolated_direction, interpolated_point   # a view onto a block of controls; the raw splines
 export spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice as a primitive (any control type); the 4th-order quasi-interpolant
+export cubic_bspline_weights             # a uniform cubic B-spline span's four weights (public, not exported, at the top level)
 export generic_lattice                   # a grid model's layout from a source, without sampling it
 export ChartSpline, SplineProjection     # a spline on a 2-D chart; a forward map (ray → pixel) as one on the equidistant direction chart
 export with_model                         # same camera/rig, new model — rebuilds through the validating constructor

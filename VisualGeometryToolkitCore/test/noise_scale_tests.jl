@@ -9,7 +9,7 @@
     using StaticArrays
     using Random
     using Statistics
-    using Distributions: Chi, pdf, quantile
+    using Distributions: Chi, Normal, pdf, quantile
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: noise_sigma, chisq_median, efficiency_constant, weight,
         WelschShape, CauchyShape, GemanMcclureShape
@@ -45,6 +45,17 @@
             predicted = σ * quantile(Chi(d), 0.5 / (1 - ε)) / quantile(Chi(d), 0.5)
             @test abs(mean(est) - predicted) < 4 * std(est) / sqrt(N)
         end
+    end
+
+    @testset "mad_scale: the centred, normal-consistent MAD" begin
+        @test VgtkCore.mad_scale([1.0, 2.0, 3.0, 4.0, 100.0]) == 1.0 / quantile(Normal(), 0.75)   # median 3, |x − 3| median 1
+        @test VgtkCore.mad_scale([1.0, 2.0, 3.0, 4.0, 100.0]) ≈ 1.4826 rtol = 2.0e-6               # the familiar constant
+        x = 0.37 .* randn(MersenneTwister(7), 20_001) .+ 0.9
+        @test VgtkCore.mad_scale(x) ≈ 0.37 rtol = 0.02                  # a bias cancels
+        @test VgtkCore.mad_scale(x .+ 5) ≈ VgtkCore.mad_scale(x) rtol = 1.0e-12
+        @test VgtkCore.mad_scale(Float32[1, 2, 3, 4, 100]) ≈ 1.4826 rtol = 2.0e-6
+        @test noise_sigma(abs.(x), 1) > 3 * 0.37                         # the uncentred scale counts the offset as noise
+        @test_throws ArgumentError VgtkCore.mad_scale(Float64[])
     end
 
     @testset "efficiency_constant: 95% Gaussian efficiency of the M-estimate" begin

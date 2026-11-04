@@ -3,8 +3,8 @@
     using Test
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: CentralGenericModel, NoncentralGenericModel, Ray3, Division,
-        is_posed
-    using VisualGeometryToolkitCore.Cameras: _cubic_weights, _cubic_weights_deriv, _spline_window, _eval_window, _grid_coords
+        is_posed, cubic_bspline_weights
+    using VisualGeometryToolkitCore.Cameras: _cubic_bspline_weights_deriv, _spline_window, _eval_window, _grid_coords
     using StaticArrays
     using FiniteDiff: FiniteDiff
     using GeometryBasics: Vec3
@@ -46,8 +46,8 @@
                 @test isapprox(ours, S(g - 1); atol = 1.0e-12)
             end
             # partition of unity + endpoint continuity of the ported weights
-            for f in (3.0, 3.25, 3.7, 3.999999)
-                @test isapprox(sum(_cubic_weights(f)), 1.0; atol = 1.0e-12)
+            for u in (0.0, 0.25, 0.7, 0.999999)
+                @test isapprox(sum(cubic_bspline_weights(u)), 1.0; atol = 1.0e-12)
             end
         end
 
@@ -62,15 +62,17 @@
             worst_sum = worst_deriv_sum = 0.0
             for u in range(0.0f0, prevfloat(1.0f0); length = 20_001)
                 x = 3.0f0 + u
-                w = _cubic_weights(x)
-                dw = _cubic_weights_deriv(x)
+                w = cubic_bspline_weights(x - 3)          # the window coordinate's local coordinate, as the windows form it
+                dw = _cubic_bspline_weights_deriv(x - 3)
                 worst = max(worst, maximum(Float64.(abs.(big.(w) .- exact(big(x) - 3)))))
                 worst_deriv = max(worst_deriv, maximum(Float64.(abs.(big.(dw) .- exact_deriv(big(x) - 3)))))
                 worst_sum = max(worst_sum, abs(sum(Float64.(w)) - 1))
                 worst_deriv_sum = max(worst_deriv_sum, abs(sum(Float64.(dw))))
             end
-            @test _cubic_weights(3.5f0) isa NTuple{4, Float32}
-            @test _cubic_weights_deriv(3.5f0) isa NTuple{4, Float32}
+            @test cubic_bspline_weights(0.5f0) isa NTuple{4, Float32}
+            @test _cubic_bspline_weights_deriv(0.5f0) isa NTuple{4, Float32}
+            @test cubic_bspline_weights(0.375) == (0.625^3 / 6, (3 * 0.375^3 - 6 * 0.375^2 + 4) / 6,
+                (-3 * 0.375^3 + 3 * 0.375^2 + 3 * 0.375 + 1) / 6, 0.375^3 / 6)      # dyadic: every form is exact
             @test worst < 1.0e-7
             @test worst_deriv < 1.0e-7
             @test worst_sum < 4 * eps(Float32)

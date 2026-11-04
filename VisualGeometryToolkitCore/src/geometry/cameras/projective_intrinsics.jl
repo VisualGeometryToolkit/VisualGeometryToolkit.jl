@@ -1,0 +1,68 @@
+# ==============================================================================
+# ProjectiveIntrinsics — the principal point alone
+# ==============================================================================
+
+"""
+    ProjectiveIntrinsics{T <: Real}(center)
+    ProjectiveIntrinsics(center)
+
+The intrinsics of a projective ("partially calibrated") camera: the principal
+point `center` (`Point2`, COLMAP pixels) and nothing else. Its ray frame is
+PROJECTIVE: centred pixels `u − center`, defined only up to the plane
+homography that absorbs the focal length. There is no focal-length field, and
+none is implied — in particular it is not `f = 1`. Anything that needs a metric
+ray (`focal_length`, field of view, P3P, absolute pose) has no method and
+raises a `MethodError`.
+
+`CameraModel(ProjectiveIntrinsics(c), lens)` projects, back-projects and
+undistorts exactly as `CameraModel(LogicalIntrinsics(K), lens)` with the unit
+focal `K = [1 0 cx; 0 1 cy; 0 0 1]` does: both go through the same code, which
+reads the pixel matrix at `_K` / `_K_inv`.
+
+`ProjectiveIntrinsics{T}(center)` stores the centre in `T`; `ProjectiveIntrinsics(center)`
+takes `T` from `center` (integers become `Float64`). See [`principal_point`](@ref),
+[`parameter_names`](@ref) (`(:cx, :cy)`), [`convert_eltype`](@ref) and
+[`convert_frame`](@ref).
+
+```jldoctest
+julia> using VisualGeometryToolkitCore, GeometryBasics
+
+julia> ProjectiveIntrinsics(Point2(2120.0, 1416.0))
+ProjectiveIntrinsics(cx = 2120.0, cy = 1416.0)
+```
+"""
+struct ProjectiveIntrinsics{T <: Real} <: AbstractIntrinsics
+    center::Point2{T}
+    ProjectiveIntrinsics{T}(center::AbstractVector{<:Real}) where {T <: Real} =
+        new{T}(Point2{T}(center[1], center[2]))
+end
+ProjectiveIntrinsics(center::AbstractVector{T}) where {T <: AbstractFloat} =
+    ProjectiveIntrinsics{T}(center)
+ProjectiveIntrinsics(center::AbstractVector{<:Real}) = ProjectiveIntrinsics{Float64}(center)
+
+"""
+    principal_point(intrinsics::ProjectiveIntrinsics{T}) -> Point2{T}
+
+The principal point, in COLMAP pixels.
+"""
+principal_point(intrinsics::ProjectiveIntrinsics) = intrinsics.center
+
+# The implicit unit-focal K — an internal detail of the shared project /
+# backproject path, never a public accessor (no `calibration_matrix`, no focal).
+@inline function _K(intrinsics::ProjectiveIntrinsics{T}) where {T}
+    c = intrinsics.center
+    return SMatrix{3, 3, T, 9}(one(T), zero(T), zero(T), zero(T), one(T), zero(T), c[1], c[2], one(T))
+end
+@inline function _K_inv(intrinsics::ProjectiveIntrinsics{T}) where {T}
+    c = intrinsics.center
+    return SMatrix{3, 3, T, 9}(one(T), zero(T), zero(T), zero(T), one(T), zero(T), -c[1], -c[2], one(T))
+end
+
+Base.:(==)(a::ProjectiveIntrinsics, b::ProjectiveIntrinsics) = a.center == b.center
+Base.isequal(a::ProjectiveIntrinsics, b::ProjectiveIntrinsics) = isequal(a.center, b.center)
+Base.hash(a::ProjectiveIntrinsics, h::UInt) = hash(a.center, hash(:ProjectiveIntrinsics, h))
+
+function Base.show(io::IO, intrinsics::ProjectiveIntrinsics)
+    c = intrinsics.center
+    return print(io, "ProjectiveIntrinsics(cx = ", c[1], ", cy = ", c[2], ")")
+end

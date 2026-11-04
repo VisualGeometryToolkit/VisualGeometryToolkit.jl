@@ -179,6 +179,7 @@ include("boards.jl")           # Board: the board a planar target's pattern is p
 
 # Include modular camera components
 include("intrinsics.jl")
+include("projective_intrinsics.jl")  # ProjectiveIntrinsics: the principal point alone, no focal length
 include("lenses.jl")         # the lens families: Lens/LiftLens, projections, terms, combinators
 include("projections.jl")
 include("camera_models.jl")
@@ -920,6 +921,8 @@ export CMOS_SENSORS                    # Database of common sensors
 # -----------------------------------------------------------------------------
 export AbstractIntrinsics
 export LogicalIntrinsics               # Pixel-based (fx, fy, cx, cy)
+export ProjectiveIntrinsics            # the principal point alone: a projective ray frame, no focal length
+export principal_point                 # a projective camera's principal point
 export CameraCalibrationMat                        # 3x3 pixel-space calibration matrix
 export zhang_intrinsics                # Zhang IAC regression from plane homographies
 

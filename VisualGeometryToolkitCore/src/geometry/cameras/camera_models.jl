@@ -483,7 +483,7 @@ family extends.
         u::StaticVector{2, <:Real}
     )
     h = to_affine(u)
-    xd = intrinsics.K_inv * h
+    xd = _K_inv(intrinsics) * h
     # The ONLY thing this layer owns is the pixel frame. The bearing itself is
     # the lens's, and it is already a unit `Vec` — a DIRECTION, not the position
     # at unit depth, which is `unproject`'s answer rather than this one.

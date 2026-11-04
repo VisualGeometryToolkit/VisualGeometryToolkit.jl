@@ -373,6 +373,23 @@ function convert_frame(::Type{G}, o::TargetPoints2D{F}) where {G <: PixelFrame, 
     )
 end
 
+"""
+    convert_frame(G::Type{<:PixelFrame}, camera::CameraModel{<:ProjectiveIntrinsics}) -> CameraModel
+
+The projective camera with its principal point moved from the package's
+COLMAP pixel frame to `G` by `EuclideanMap(PixelFrame{:colmap}, G)`, so that
+`project` of the result is `project` of the camera in `G`'s pixels. The lens
+is unchanged: it acts on centred coordinates, which a translation of the pixel
+origin does not touch. The result is a `CameraModel` in `G`'s convention;
+the camera itself holds no frame tag, so converting it again is the caller's
+bookkeeping. The element type is preserved.
+"""
+function convert_frame(::Type{G}, camera::CameraModel{<:ProjectiveIntrinsics{T}}) where {G <: PixelFrame, T}
+    c = principal_point(camera.intrinsics)
+    moved = EuclideanMap(PixelFrame{:colmap}, G)(SVector{2, T}(c[1], c[2]))
+    return CameraModel(ProjectiveIntrinsics{T}(Point2{T}(moved[1], moved[2])), camera.lens)
+end
+
 # ------------------------------------------------------------------------------
 # CaptureSettings — the camera's settings per frame, and the hardware's identity
 # ------------------------------------------------------------------------------

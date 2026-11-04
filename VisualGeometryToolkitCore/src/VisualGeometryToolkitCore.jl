@@ -222,7 +222,7 @@ export AbstractCamera, PosedCamera, BoundedCamera, CameraModel, Sensor, sensor, 
 public is_posed   # whether a camera or target carries a pose (the rig members' one placement trait)
 export extent
 public BoundsTrait, HasBounds, NoBounds, bounds_trait
-export LogicalIntrinsics, AbstractIntrinsics
+export LogicalIntrinsics, ProjectiveIntrinsics, AbstractIntrinsics, principal_point
 export Pinhole, Division, KannalaBrandt, Scaramuzza, AbstractLensModel, Lens, LiftLens
 export AbstractProjection, Perspective, Equidistant, Stereographic, Equisolid, Orthographic
 export DoubleSphere, Unified, ExtendedUnified

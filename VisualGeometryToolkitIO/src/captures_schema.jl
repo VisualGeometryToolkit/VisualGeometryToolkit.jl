@@ -51,8 +51,8 @@
 #      always writes the same bytes and a stored H seeds `HomographyManifold8(H)`
 #      directly; a writer stores `sign_normalize(H)` and refuses a degenerate H,
 #      a reader refuses an H that is not canonical or is singular. A homography
-#      has no 3D frame, so the pixel frame is declared at `save`, not carried by
-#      the value.
+#      has no 3D frame, so the pixel frame is the TYPE parameter of the value
+#      (`TargetHomographies{F}`), as for target_points2d, and `targets` its field.
 #
 # {"schema": "vgio/target_points2d/v1", "pixel_frame": "colmap", "point_index_base": 1,
 #  "targets": ["<content id of a targets file>", …],
@@ -339,34 +339,30 @@ function _canonical_homography(path, t, id, H)
 end
 
 """
-    save(path, th::TargetHomographies; pixel_frame, targets, provenance = (;))
+    save(path, th::TargetHomographies{F}; provenance = (;))
 
-Write a VGC `TargetHomographies` as a `vgio/target_homographies/v1` file: per
-frame index (sorted), its image and sensor (both required) and time, and every
-target's homography `H` (ids sorted) as three rows.
+Write a VGC `TargetHomographies` as a `vgio/target_homographies/v1` file whose
+declared pixel frame is `F`, the value's own type — no pixel is converted and
+none can be written under another frame's label — and whose `targets` are the
+value's `th.targets`: the [`content_id`](@ref)s of the definitions its target
+ids resolve in, each the identity of a rig of boards (`vgio/rig/v6`) or of a
+single unposed target (`vgio/target/v3`). Per frame index (sorted) it writes
+the image and sensor (both required), the time, and every target's
+homography `H` (ids sorted) as three rows.
 
 `H` maps the target's plane — its design frame, millimetres — to a pixel of
-`pixel_frame` (a pixel-frame type such as `PixelFrame{:colmap}`, declared here
-because the value does not carry it; no number is converted), BEFORE the lens
-of the camera the frame's `sensor` names, about that camera's centre: exactly
-`RadialHomography`'s `H`. An `H` is read against that camera.
+`F`, BEFORE the lens of the camera the frame's `sensor` names, about that
+camera's centre: exactly `RadialHomography`'s `H`. An `H` is read against that
+camera.
 
 `H` is stored canonical — `sign_normalize(H)`: unit Frobenius norm and
 `H[3,3] ≥ 0` — so one placement always writes the same bytes and a stored `H`
 seeds `HomographyManifold8(H)` directly; an `H` already canonical is written
-as it is.
-
-`targets` (required, at least one, no repeats) are the [`content_id`](@ref)s of
-the definitions the frames' target ids resolve in: each the identity of a rig
-of boards (`vgio/rig/v6`) or of a single unposed target (`vgio/target/v3`).
-Like `pixel_frame` they are declared here because the value does not carry
-them. A degenerate `H` (negligible norm, or non-finite) and a frame with
-no image or sensor are an `ArgumentError`, and no file is written.
+as it is. A degenerate `H` (negligible norm, or non-finite), a value naming no
+`targets`, and a frame with no image or sensor are an `ArgumentError`, and no
+file is written.
 """
-function save(
-        path::AbstractString, th::TargetHomographies;
-        pixel_frame::Type{<:PixelFrame}, targets::AbstractVector{<:AbstractString}, provenance::NamedTuple = (;),
-    )
+function save(path::AbstractString, th::TargetHomographies{F}; provenance::NamedTuple = (;)) where {F <: PixelFrame}
     frames = map(sort!(collect(keys(th)))) do t
         hs = [
             (target = String(id), H = _homography_rows(_canonical_homography(path, t, id, th[t][id])))
@@ -375,7 +371,7 @@ function save(
         merge(_stamps_json(th, t), (homographies = hs,))
     end
     body = merge(
-        (schema = _schema("target_homographies"), pixel_frame = pixel_frame_name(pixel_frame), targets = String[targets...]),
+        (schema = _schema("target_homographies"), pixel_frame = pixel_frame_name(F), targets = copy(th.targets)),
         _time_origin_json(th), (frames = frames,),
     )
     _write_store(path, _TARGET_HOMOGRAPHIES_SPEC, _with_provenance(body, provenance))
@@ -383,30 +379,21 @@ function save(
 end
 
 """
-    load(TargetHomographies, path; pixel_frame = nothing, targets = nothing) -> TargetHomographies{HomographyMat{Float64}}
+    load(TargetHomographies, path) -> TargetHomographies{F, HomographyMat{Float64}}
+    load(TargetHomographies{F}, path) -> TargetHomographies{F, HomographyMat{Float64}}
 
-Read a `vgio/target_homographies/v1` file: per frame index, every target's
-canonical `H` (unit Frobenius norm, `H[3,3] ≥ 0`) exactly as stored, with the
-frames' images, sensors and times. `H` maps the target's plane (millimetres)
-to a pixel, before the lens of the camera the frame's `sensor` names.
+Read a `vgio/target_homographies/v1` file: the value it was written from,
+typed in the pixel frame `F` the file declares, per frame index every
+target's canonical `H` (unit Frobenius norm, `H[3,3] ≥ 0`) exactly as stored,
+with the frames' images, sensors and times and the `targets` identities. `H`
+maps the target's plane (millimetres) to a pixel of `F`, before the lens of the
+camera the frame's `sensor` names. Change the frame with `convert_frame`.
 
-The value carries neither the pixel frame nor the `targets` identities; the
-file's are validated, not returned. Give `pixel_frame` (e.g.
-`PixelFrame{:colmap}`) and/or `targets` (the content ids, in any order) to
-assert them: a file declaring others is an `ArgumentError`, as is an `H` that
-is not canonical or is singular.
+The second form asserts the frame: a file declaring another is an
+`ArgumentError`. So is an `H` that is not canonical or is singular.
 """
-function load(
-        ::Type{TargetHomographies}, path::AbstractString;
-        pixel_frame::Union{Nothing, Type{<:PixelFrame}} = nothing, targets::Union{Nothing, AbstractVector{<:AbstractString}} = nothing,
-    )
+function load(::Type{TargetHomographies}, path::AbstractString)
     d = _read_store(path, "target_homographies", _TARGET_HOMOGRAPHIES_SPEC)
-    pixel_frame === nothing || d.pixel_frame::String == pixel_frame_name(pixel_frame) || throw(
-        ArgumentError("$(path): declares pixel_frame $(repr(d.pixel_frame)), not the requested $(repr(pixel_frame_name(pixel_frame)))")
-    )
-    targets === nothing || Set(String[h::String for h in d.targets::Vector{Any}]) == Set(String.(targets)) || throw(
-        ArgumentError("$(path): names the targets identities $(d.targets), not the requested $(collect(targets))")
-    )
     frames = Dict{Int, Dict{Symbol, HomographyMat{Float64}}}()
     images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()
     for f in d.frames::Vector{Any}
@@ -416,7 +403,16 @@ function load(
             Symbol(h.target::String) => HomographyMat{Float64}(Tuple(_homography_matrix(h.H::Vector{Any}))) for h in f.homographies::Vector{Any}
         )
     end
-    return TargetHomographies(frames; images, sensors, times, time_origin = _time_origin(d))
+    return TargetHomographies{pixel_frame_from_name(d.pixel_frame::String)}(
+        frames; images, sensors, times, time_origin = _time_origin(d), targets = String[h::String for h in d.targets::Vector{Any}],
+    )
+end
+function load(::Type{<:TargetHomographies{F}}, path::AbstractString) where {F <: PixelFrame}
+    th = load(TargetHomographies, path)
+    th isa TargetHomographies{F} || throw(
+        ArgumentError("$(path): declares pixel_frame $(repr(pixel_frame_name(typeof(th).parameters[1]))), not the requested $(repr(pixel_frame_name(F)))")
+    )
+    return th
 end
 
 # =============================================================================

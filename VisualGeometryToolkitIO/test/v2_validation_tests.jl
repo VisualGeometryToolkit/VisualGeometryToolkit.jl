@@ -103,6 +103,13 @@
             at!("target_points3d", "target_points3d.json"),
             TargetPoints3D{WorldFrame}(Dict(1 => [(target = :rig, index = 1, xyz = mm_lengths(SVector(1.0, 2.0, 3.0)))]); sensors = "mocap", images = Dict(1 => "a.png")),
         )
+        H = VisualGeometryToolkitCore.sign_normalize(VisualGeometryToolkitCore.HomographyMat{Float64}((812.3, 37.9, 0.0001, -41.7, 805.1, -0.0002, 1210.25, 640.5, 0.6)))
+        save(
+            at!("target_homographies", "target_homographies.json"),
+            VisualGeometryToolkitCore.TargetHomographies{PixelFrame{:colmap}}(
+                Dict(1 => Dict(:a => H)); images = Dict(1 => "a.png"), sensors = "cam", targets = [content_id(targets)],
+            ),
+        )
         obs = TargetPoints2D{PixelFrame{:colmap}}(Dict(1 => [(; target = :a, index = 2, xy = SVector(640.0, 480.0), weight = 1.0)]);
             images = Dict(1 => "a.png"), sensors = "cam", targets = [content_id(targets)])
         save(at!("target_points2d", "target_points2d.json"), obs)
@@ -112,7 +119,7 @@
             "generic_camera" => VgtkIO._GENERIC_CAMERA_SPEC, "generic_noncentral" => VgtkIO._GENERIC_CAMERA_SPEC,
             "rig" => VgtkIO._RIG_SPEC, "rig_generic" => VgtkIO._RIG_SPEC, "rig_targets" => VgtkIO._RIG_SPEC, "target" => VgtkIO._TARGET_SPEC,
             "trajectory" => VgtkIO._TRAJECTORY_SPEC, "target_points2d" => VgtkIO._TARGET_POINTS2D_SPEC,
-            "target_poses" => VgtkIO._TARGET_POSES_SPEC, "target_points3d" => VgtkIO._TARGET_POINTS3D_SPEC,
+            "target_poses" => VgtkIO._TARGET_POSES_SPEC, "target_homographies" => VgtkIO._TARGET_HOMOGRAPHIES_SPEC, "target_points3d" => VgtkIO._TARGET_POINTS3D_SPEC,
             "correspondences" => VgtkIO._CORRESPONDENCES_SPEC,
         )
         for (name, path) in sort!(collect(files))
@@ -144,7 +151,7 @@
             v1 = replace(doc[:schema], r"/v\d+$" => "/v1")
             relabeled(s) = refusal(merge(doc, Dict(:schema => s)), dir, "$(name)_$(basename(s))"; units)
             not_theirs(msg) = msg === nothing || occursin("was not written by them", msg)
-            if name in ("target_poses", "target_points2d", "target_points3d")
+            if name in ("target_poses", "target_homographies", "target_points2d", "target_points3d")
                 @test endswith(doc[:schema], "/v1")
             elseif name == "target"
                 @test doc[:schema] == "vgio/target/v3"

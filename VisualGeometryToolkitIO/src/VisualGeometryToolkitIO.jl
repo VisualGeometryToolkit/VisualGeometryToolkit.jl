@@ -134,7 +134,7 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 #   load(AbstractTarget, path; resolve = nothing) vgio/target/v3     one target (+ its calibration record)
 #   load(Trajectory, path)                       vgio/trajectory/v3  a body's pose over time
 #   load(TargetPoses, path)                      vgio/target_poses/v1
-#   load(TargetHomographies, path)               vgio/target_homographies/v1 (`pixel_frame` declared at `save`)
+#   load(TargetHomographies, path)               vgio/target_homographies/v1 (and `load(TargetHomographies{F}, path)`)
 #   load(TargetPoints2D, path)                   vgio/target_points2d/v1 (or a Schöps dataset.bin; `target`)
 #   load(TargetPoints3D, path)                   vgio/target_points3d/v1
 #   load(CaptureSettings, path)                  vgio/capture_settings/v1 (Attributed with its identities' sources)

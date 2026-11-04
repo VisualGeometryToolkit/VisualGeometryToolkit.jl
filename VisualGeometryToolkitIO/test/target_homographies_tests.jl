@@ -21,14 +21,14 @@
         a = canonical([812.3, -41.7, 1210.25], [37.9, 805.1, 640.5], [0.00012, -0.00007, 0.6])
         b = canonical([-799.0, 12.5, 1511.0], [-9.25, -803.75, 480.125], [0.0001, 0.0002, 0.7])
         c = canonical([790.5, 0.0, 300.0], [0.0, 790.5, 200.0], [0.0, 0.0, 0.4])
-        return TargetHomographies(
+        return TargetHomographies{colmap}(
             Dict(1 => Dict(:a => a, :b => b), 4 => Dict(:a => c));
             images = Dict(1 => "img_001.png", 4 => "img_004.png"), sensors = "cam",
-            times = Dict(1 => 0.5, 4 => 12.25), time_origin = "2026-11-05T00:00:00",
+            times = Dict(1 => 0.5, 4 => 12.25), time_origin = "2026-11-05T00:00:00", targets = ids,
         )
     end
 
-    written(path, th; kw...) = (save(path, th; pixel_frame = colmap, targets = ids, kw...); JSON.parse(read(path, String)))
+    written(path, th; kw...) = (save(path, th; kw...); JSON.parse(read(path, String)))
     rewritten(path, d) = (write(path, JSON.json(d)); path)
 end
 
@@ -39,7 +39,7 @@ end
     th = sample()
     mktempdir() do dir
         p = joinpath(dir, "th.json")
-        save(p, th; pixel_frame = colmap, targets = ids, provenance = (; tool = "test"))
+        save(p, th; provenance = (; tool = "test"))
         back = load(TargetHomographies, p)
         @test back == th
         for t in keys(th), id in keys(th[t])
@@ -47,9 +47,14 @@ end
         end
         @test back.images == th.images && back.sensors == th.sensors && back.times == th.times
         @test back.time_origin == th.time_origin
-        @test load(TargetHomographies, p; pixel_frame = colmap, targets = reverse(ids)) == th
-        @test_throws ArgumentError load(TargetHomographies, p; pixel_frame = PixelFrame{:opencv})
-        @test_throws ArgumentError load(TargetHomographies, p; targets = [repeat('c', 64)])
+        @test back isa TargetHomographies{colmap} && back.targets == ids
+        @test load(TargetHomographies{colmap}, p) == th
+        @test_throws ArgumentError load(TargetHomographies{PixelFrame{:opencv}}, p)
+        # another pixel frame is another type, written under its own label
+        cv = TargetHomographies{PixelFrame{:opencv}}(th.frames; images = th.images, sensors = th.sensors, targets = ids)
+        save(joinpath(dir, "cv.json"), cv)
+        @test load(TargetHomographies, joinpath(dir, "cv.json")) isa TargetHomographies{PixelFrame{:opencv}}
+        @test load(TargetHomographies, joinpath(dir, "cv.json")) != th
         @test JSON.parse(read(p, String))["targets"] == ids
         d = JSON.parse(read(p, String))
         @test d["schema"] == "vgio/target_homographies/v1" && d["pixel_frame"] == "colmap"
@@ -57,7 +62,7 @@ end
         @test d["frames"][1]["homographies"][1]["H"] isa Vector && length(d["frames"][1]["homographies"][1]["H"][1]) == 3
         @test VgtkIO.validate(p) == "target_homographies"
         # the same placement always writes the same bytes
-        save(joinpath(dir, "again.json"), th; pixel_frame = colmap, targets = ids, provenance = (; tool = "test"))
+        save(joinpath(dir, "again.json"), th; provenance = (; tool = "test"))
         @test read(p, String) == read(joinpath(dir, "again.json"), String)
     end
 end
@@ -67,18 +72,18 @@ end
     using StaticArrays: SMatrix
     using LinearAlgebra: norm
     raw = HomographyMat{Float64}(Tuple(-37.5 .* SMatrix{3, 3, Float64}(3, 1, 0.2, 0.5, 2, 0.1, 100, 80, 1)))   # scaled, wrong sign
-    th = TargetHomographies(Dict(1 => Dict(:a => raw)); images = Dict(1 => "i.png"), sensors = "cam")
+    th = TargetHomographies{colmap}(Dict(1 => Dict(:a => raw)); images = Dict(1 => "i.png"), sensors = "cam", targets = ids)
     mktempdir() do dir
         p = joinpath(dir, "th.json")
-        save(p, th; pixel_frame = colmap, targets = ids)
+        save(p, th)
         H = load(TargetHomographies, p)[1][:a]
         @test collect(H) == collect(sign_normalize(raw))
         @test abs(norm(H) - 1) <= 4eps() && H[3, 3] >= 0
     end
-    degenerate = TargetHomographies(Dict(1 => Dict(:a => HomographyMat{Float64}(ntuple(_ -> 0.0, 9)))); images = Dict(1 => "i.png"), sensors = "cam")
+    degenerate = TargetHomographies{colmap}(Dict(1 => Dict(:a => HomographyMat{Float64}(ntuple(_ -> 0.0, 9)))); images = Dict(1 => "i.png"), sensors = "cam", targets = ids)
     mktempdir() do dir
         p = joinpath(dir, "th.json")
-        @test_throws ArgumentError save(p, degenerate; pixel_frame = colmap, targets = ids)
+        @test_throws ArgumentError save(p, degenerate)
         @test !isfile(p)
     end
 end
@@ -124,10 +129,11 @@ end
         @test occursin("target_homographies/v1", refusal(d -> d["schema"] = "vgio/target_poses/v1", "wrong_kind"))
     end
     # a writer refuses a value missing what the kind requires, without leaving a file
-    noimg = TargetHomographies(sample().frames; sensors = "cam")
+    noimg = TargetHomographies{colmap}(sample().frames; sensors = "cam", targets = ids)
+    notargets = TargetHomographies{colmap}(sample().frames; images = sample().images, sensors = "cam")
     mktempdir() do dir
-        @test_throws ArgumentError save(joinpath(dir, "x.json"), noimg; pixel_frame = colmap, targets = ids)
-        @test_throws ArgumentError save(joinpath(dir, "y.json"), sample(); pixel_frame = colmap, targets = String[])
+        @test_throws ArgumentError save(joinpath(dir, "x.json"), noimg)
+        @test_throws ArgumentError save(joinpath(dir, "y.json"), notargets)
         @test !isfile(joinpath(dir, "y.json"))
     end
 end

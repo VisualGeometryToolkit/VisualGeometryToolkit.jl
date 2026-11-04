@@ -286,8 +286,8 @@ VisualGeometryToolkitCore's `essential_5pt` kernel. `x1` and `x2` are five unit
 bearings each (an `NTuple` or an `SVector{5}` of `StaticVector{3, Float64}`);
 the second form reads the five correspondences `cs[idx]` of bearings
 `f₁ => f₂`. A 2-vector is a `MethodError`, never lifted to the z = 1 plane.
-Returns every real solution that passes VisualGeometryToolkitCore's
-`is_valid_solution`, up to ten; a degenerate sample returns fewer, possibly
+Returns every real solution that VisualGeometryToolkitCore's
+`is_valid_solution` accepts, up to ten; a degenerate sample returns fewer, possibly
 none. The public entry point is `solve(Essential5pt(PoseLibSolver()), cs, idx)`.
 """
 function VgtkCore.essential_5pt(::PoseLibSolver, x1::_Bearings5, x2::_Bearings5)

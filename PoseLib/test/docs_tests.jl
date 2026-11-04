@@ -2,7 +2,7 @@
 # `checkdocs = :public` only sees docstrings that exist, so a public name with
 # none, a docstring detached from its definition by a blank or comment line
 # (Julia 1.12 makes it a bare string) and a signature line that drifted from
-# the methods (a removed keyword) all pass it. The General registration review
+# the methods (a removed keyword) all go unnoticed by it. The General registration review
 # asks for every public name to be documented (#173032).
 #
 # Two lists, kept apart:

@@ -4,6 +4,8 @@
 
 by [James Pritts](https://prittjam.github.io/)
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23548372.svg)](https://doi.org/10.5281/zenodo.23548372)
+
 Composable Julia packages for robust multiple-view geometry: geometric types,
 file formats, feature detection, robust estimation and RANSAC, calibration
 (camera and lens models, hand–eye), fiducial markers (BlobBoards), evaluation
@@ -128,6 +130,7 @@ Cite the toolkit; [CITATION.cff](CITATION.cff) is the source of this entry
   author = {Pritts, James and Sauer, Hendrik},
   title  = {{VisualGeometryToolkit.jl}: Julia Packages for Multiple-View Geometry},
   url    = {https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl},
+  doi    = {10.5281/zenodo.23548372},
   year   = {2026}
 }
 ```

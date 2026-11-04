@@ -4,6 +4,7 @@ message: >-
   describe the methods you use (listed at https://visualgeometrytoolkit.github.io/#publications).
 type: software
 title: "VisualGeometryToolkit.jl: Julia Packages for Multiple-View Geometry"
+doi: 10.5281/zenodo.23548372
 authors:
   - family-names: Pritts
     given-names: James

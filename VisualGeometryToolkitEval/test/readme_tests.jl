@@ -38,12 +38,12 @@
 
     env = mktempdir()
     write(joinpath(env, "readme_example.jl"), only(example))
-    registered = filter(!=("VisualGeometryToolkitEval"), String.(packages))
+    # The install line names this package alone (the set test above), so the
+    # environment is this package, developed by path.
     script = joinpath(env, "run.jl")
     write(script, """
     using Pkg
     Pkg.develop(path = $(repr(root)); io = devnull)
-    isempty($(repr(registered))) || Pkg.add($(repr(registered)); io = devnull)
     readme = Module(:ReadmeSandbox)
     Base.include(readme, $(repr(joinpath(env, "readme_example.jl"))))
     using Test

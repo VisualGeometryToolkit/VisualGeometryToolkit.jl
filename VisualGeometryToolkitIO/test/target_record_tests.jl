@@ -26,16 +26,27 @@
     # every kind, physical, its numbers file-born (each length the metre value
     # nearest a millimetre decimal, so the record writes it back exactly). The
     # thin-plate kinds are pure bending (VGC projects their values: a spline's
-    # affine displacement, a field's plane, dropped), so theirs are the
-    # projected values made file-born — which the constructor keeps bit for bit.
+    # affine displacement, a field's plane, dropped), so theirs are LITERALS:
+    # pure-bending values, which the constructor keeps bit for bit. They are
+    # never computed here. The projection is a BLAS product whose last ulp
+    # depends on the OpenBLAS kernel the CPU selects (Haswell/Zen vs
+    # Sandybridge, Prescott or GitHub's AVX-512 runners), so a computed value,
+    # and the content_id pinned on it, would differ by machine. (The literals
+    # are the file-born projections, on the Haswell kernel, of
+    # fx = [0.01, 0, -0.02, 0.03, 0, 0, 0.01, -0.01, 0] mm,
+    # fy = [-0.02, 0.01, 0, 0, 0.04, 0, 0, 0.02, -0.03] mm and
+    # h = [0.1, 0, -0.1, 0.2, 0, 0, 0, 0.3, 0] mm.)
     function kinds()
         nodes = [SVector(mmq(p[1]), mmq(p[2])) for p in grid_nodes(3; lo = 0.0, hi = 100.0)]
         E = VgtkCore.EuclideanMap(Angle2d{Float64}(0.01), SVector(mmq(0.5), mmq(-0.25)); check = false)   # the member stores its angle
         S, A, U = Scale(0.001), Aspect(0.002), Skew(-0.003)
-        T0 = ThinPlateSpline(nodes, mmq.([0.01, 0.0, -0.02, 0.03, 0.0, 0.0, 0.01, -0.01, 0.0]), mmq.([-0.02, 0.01, 0.0, 0.0, 0.04, 0.0, 0.0, 0.02, -0.03]))
-        θT = fileborn.(parameter_vector(T0))
-        T = ThinPlateSpline(nodes, θT[1:9], θT[10:18])
-        H = HeightField(nodes, fileborn.(parameter_vector(HeightField(nodes, mmq.([0.1, 0.0, -0.1, 0.2, 0.0, 0.0, 0.0, 0.3, 0.0])))))
+        T = ThinPlateSpline(nodes,
+            [1.5764702259321875e-5, 1.5158418539816482e-5, 4.552134820311087e-6, 2.9552134820311098e-5, 8.945851100805704e-6,
+                1.833956738130031e-5, 3.33956738130032e-6, -7.266716338205075e-6, 1.2126999942289532e-5] .* m,
+            [6.897225551491389e-5, 0.00010177539737466663, 9.457853923441935e-5, 9.238168109417197e-5, 0.0001351848229539247,
+                9.798796481367743e-5, 9.579110667343005e-5, 0.00011859424853318279, 7.139739039293552e-5] .* m)
+        H = HeightField(nodes, [0.0002615206031300322, 0.00020545776593497856, 0.00014939492873992493, 0.00037970911471519355,
+            0.0002236462775201399, 0.0002675834403250863, 0.0001978976263003549, 0.0005418347891053013, 0.0002857719519102476] .* m)
         right(cs...) = foldr(∘, cs)   # right-associated, as a target stores a composition
         return (rigid = Rigid(), euclidean = E, scale = S, aspect = A, skew = U, thin_plate_spline = T, height_field = H,
             print_error = A ∘ U, affine_factors = right(E, S, A, U), calibration_chain = H ∘ T, chain_affine = right(H, A, U),
@@ -384,6 +395,12 @@ end
     brig = identity_rig(; boards = true)
     @test content_id(brig) == "f34bee5347b45f2a9d6bca72741e8d2bf47dd2fa7e1b3d12ddb237694b8ef865"   # (re-pinned with `rig`'s)
     @test content_id(brig) != content_id(rig)
+    # the same identity from a checked-in file of that rig (every target kind,
+    # thin-plate and height-field values with 17 significant digits): a file's
+    # identity hashes its numbers as read (the reader does not re-project), so
+    # it is the same on every CPU, OpenBLAS kernel, thread count and Julia version
+    every_kind = joinpath(@__DIR__, "fixtures", "identity", "rig_every_kind.json")
+    @test content_id(every_kind) == content_id(load(Rig, every_kind)) == "f34bee5347b45f2a9d6bca72741e8d2bf47dd2fa7e1b3d12ddb237694b8ef865"
     tb = VgtkIO._identity_tree(brig)
     @test only(x for x in tb["targets"] if x["id"] == "a_rigid")["target"]["board"] ==
         Dict("size" => [0.15, 0.07725], "origin" => [-0.0139, 0.0])

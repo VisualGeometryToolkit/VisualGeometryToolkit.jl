@@ -80,5 +80,11 @@
         @test norm(ustrip.(mm, x) - X) < 1.0e-9
         plain = nearest_point([ustrip.(mm, first(l)) => last(l) for l in lines])
         @test norm(plain - X) < 1.0e-9                                       # plain in, plain out, the caller's unit
+        # the unitful form is the plain one on the metre-stripped lines, the weights carried
+        inm = nearest_point([ustrip.(m, first(l)) => last(l) for l in lines])
+        @test ustrip.(m, x) == inm
+        w = [1.0, 0.5, 2.0, 0.0]
+        lw = withattrs(csponds(first.(lines), last.(lines)); weights = w)
+        @test ustrip.(m, nearest_point(lw)) == nearest_point(withattrs(csponds([ustrip.(m, first(l)) for l in lw], last.(lines)); weights = w))
     end
 end

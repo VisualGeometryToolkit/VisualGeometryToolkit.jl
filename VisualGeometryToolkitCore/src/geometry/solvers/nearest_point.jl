@@ -38,13 +38,18 @@ lines = csponds([SVector(0.0, 0.0, 0.0), SVector(1.0, 0.0, 0.0)], [SVector(0.0, 
 nearest_point(lines)   # [0.0, 0.0, 1.0]: where the two lines meet
 ```
 """
+# Origins that are lengths: stripped in metres once, the plain solve, metres back.
+function nearest_point(lines::AbstractVector{<:Pair{<:StaticVector{N, <:Quantity}, <:StaticVector{N}}}) where {N}
+    stripped = [strip_metres(first(l)) => last(l) for l in lines]
+    w = weights_column(lines)
+    return nearest_point(w === nothing ? stripped : withattrs(Csponds(sources(stripped), targets(stripped)); weights = w)) .* m
+end
 function nearest_point(lines::AbstractVector{<:Pair{<:StaticVector{N}, <:StaticVector{N}}}) where {N}
     w = check_weights(weights_column(lines), length(lines))
     weight(i) = w === nothing ? 1.0 : Float64(w[i])
     n₊ = w === nothing ? length(lines) : count(>(0), w)
     n₊ >= 2 || throw(ArgumentError("nearest_point requires at least 2 lines of positive weight, got $n₊"))
-    unitful = first(lines[firstindex(lines)]) isa StaticVector{N, <:Quantity}
-    origin(i) = SVector{N, Float64}(unitful ? strip_metres(first(lines[i])) : first(lines[i]))
+    origin(i) = SVector{N, Float64}(first(lines[i]))
     # the weighted centroid of the origins: the solve's own origin
     wsum = 0.0
     ō = zero(SVector{N, Float64})
@@ -72,6 +77,5 @@ function nearest_point(lines::AbstractVector{<:Pair{<:StaticVector{N}, <:StaticV
     λ = eigen(Symmetric(A)).values   # ascending
     λ[1] > 1.0e-12 * λ[end] ||
         throw(ArgumentError("nearest_point: the lines do not determine a point (parallel; the normal matrix's eigenvalues $(λ[1]) ≪ $(λ[end]))"))
-    x = ō + A \ b
-    return unitful ? x .* m : x
+    return ō + A \ b
 end

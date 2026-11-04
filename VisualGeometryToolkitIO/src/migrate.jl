@@ -470,27 +470,116 @@ function migrate_schema(::Val{Symbol("vgio/target/v1")}, src::AbstractString, ds
 end
 
 # vgio/target/v2 → v3 and vgio/rig/v5 → v6 (CoordinateTransformations'
-# composition, 2026-11): a composed calibration's members are listed in CT's
-# order, the outer map first, and its covariance is over that order — v2/v5
-# listed them in application order. The only compositions v3/v6 hold are a
-# height field after one in-plane kind; any other v2/v5 chain (two in-plane
-# kinds, a Rigid member, three or more members) has no v3 form and is refused
-# (the current reader refuses the reordered record, naming the rule).
+# composition and the gauge-free print error, 2026-11):
+# - a composed calibration's members are listed in CT's order, the outer map
+#   first, under `compose` (`{"type": "composition", …}`), and its covariance
+#   is over that order — v2/v5's `{"type": "calibration_chain", "members": […]}`
+#   listed them in application order;
+# - the AFFINE kind is retired: `{"type": "affine", "parameters": [a11, a12,
+#   a21, a22, bx, by]}` (p ↦ A·p + b, A row by row) is its Iwasawa factors
+#   `EuclideanMap ∘ Scale ∘ Aspect ∘ Skew` (A = s·R·D·U), exactly the same map
+#   (`_affine_factors`), its covariance carried through the factorization's
+#   Jacobian; a chain's affine member becomes those four in its place;
+# - a thin-plate kind holds pure bending: a v2/v5 spline whose interpolant
+#   carries an affine term is REFUSED (by the current reader, naming why), not
+#   moved — no exact form exists: an affine displacement inside a
+#   thin_plate_spline cannot move into the factors, which compose AFTER the
+#   spline (`T ∘ A` needs the bending re-expressed at the moved points, which
+#   a spline on the same nodes cannot hold), and a plane of heights is a shear
+#   of the target, not a rigid motion its pose could take. Dropping either
+#   would change the calibrated geometry silently;
+# - the result must be a composition in VGC's canonical order
+#   (`HeightField ∘ ThinPlateSpline ∘ EuclideanMap ∘ Scale ∘ Aspect ∘ Skew`):
+#   any other v2/v5 chain (two in-plane kinds out of that order, a Rigid
+#   member) has no v3 form and is refused by the current reader, naming the
+#   rule.
 # The v2 counts are frozen on purpose, not derived from `length_mask`, so the v2
 # migrator does not follow a later change of a kind's parameter layout.
 _v2_parameter_count(r) = (t = r["type"]; t == "rigid" ? 0 : t == "affine" ? 6 :
     t == "thin_plate_spline" ? 2 * length(r["nodes"]) : t == "height_field" ? length(r["nodes"]) :
     throw(ArgumentError("a calibration record of unknown type $(repr(t))")))
+
+# An affine A (row by row a11, a12, a21, a22; det A > 0) as its Iwasawa
+# factors A = s·R·D·U, by A = Q·T (QR, T upper-triangular with a positive
+# diagonal, so Q is a rotation when det A > 0): ϑ = atan(Q₂₁, Q₁₁), s =
+# √(t₁₁ t₂₂), log-scale log s, aspect a₁ = ½ log(t₁₁/t₂₂), skew u₁₂ = t₁₂/t₁₁
+# — and the Jacobian of (ϑ, log s, a₁, u₁₂) in (a11, a12, a21, a22), 4 × 4.
+function _affine_factors(a11, a12, a21, a22)
+    d = a11 * a22 - a12 * a21
+    d > 0 || throw(
+        ArgumentError(
+            "an affine calibration with det A = $(d) ≤ 0 (a reflection or a degenerate map) has no factorization " *
+                "EuclideanMap ∘ Scale ∘ Aspect ∘ Skew; nothing was written"
+        )
+    )
+    r2 = a11^2 + a21^2                       # t₁₁²
+    n = a11 * a12 + a21 * a22                # t₁₁ t₁₂
+    θ = (atan(a21, a11), log(d) / 2, log(r2) / 2 - log(d) / 2, n / r2)
+    J = [
+        -a21/r2 0.0 a11/r2 0.0;
+        a22/(2d) -a21/(2d) -a12/(2d) a11/(2d);
+        a11/r2-a22/(2d) a21/(2d) a21/r2+a12/(2d) -a11/(2d);
+        a12/r2-2a11*n/r2^2 a11/r2 a22/r2-2a21*n/r2^2 a21/r2
+    ]
+    return θ, J
+end
+# A v2 member as its v3 members (CT's order) and the Jacobian of their
+# parameters in its own: an affine as [euclidean, scale, aspect, skew] over
+# (ϑ, bx, by, log s, a₁, u₁₂) ← (a11, a12, a21, a22, bx, by), its b carried
+# over unchanged in the file's unit; any other kind as it is (`nothing`: the identity).
+function _member_v2_to_v3(r::AbstractDict)
+    r["type"] == "affine" || return (records = Any[r], J = nothing, n = _v2_parameter_count(r))
+    p = r["parameters"]
+    (ϑ, k, a, u), Ja = _affine_factors(Float64.(p[1:4])...)
+    rec(ty, θ) = Dict{String, Any}("type" => ty, "parameters" => Any[θ...])
+    records = Any[rec("euclidean", (ϑ, p[5], p[6])), rec("scale", (k,)), rec("aspect", (a,)), rec("skew", (u,))]
+    J = zeros(6, 6)
+    J[1, 1:4] = Ja[1, :]
+    J[2, 5] = J[3, 6] = 1.0
+    J[4:6, 1:4] = Ja[2:4, :]
+    return (; records, J, n = 6)
+end
+# A v2 calibration record (a kind, a chain, an affine) as its v3 record.
+function _calibration_v2_to_v3(c::AbstractDict)
+    ty = get(c, "type", nothing)
+    ty in (_RETIRED_COMPOSITION_TYPE, "affine") || return c
+    parts = [_member_v2_to_v3(r) for r in (ty == "affine" ? Any[c] : c["members"])]
+    out = Dict{String, Any}(k => v for (k, v) in c if !(k in ("type", "members", "parameters", "covariance")))
+    out["type"] = _COMPOSITION_TYPE
+    out[_COMPOSE_KEY] = reduce(vcat, [p.records for p in reverse(parts)])
+    haskey(c, "covariance") && (out["covariance"] = _covariance_v2_to_v3(c["covariance"], parts))
+    return out
+end
+# The covariance over the v2 members (application order) as the one over the
+# v3 members (CT's order): Σ′ = J Σ Jᵀ with J the members' block Jacobians,
+# reversed; a pure reorder permutes the entries (exactly).
+function _covariance_v2_to_v3(rows, parts)
+    Σ = [Float64(rows[i][j]) for i in eachindex(rows), j in eachindex(rows)]
+    old_off = cumsum([0; [p.n for p in parts][1:(end - 1)]])
+    blocks = reverse(collect(zip(parts, old_off)))
+    if all(p -> p.J === nothing, parts)
+        perm = reduce(vcat, [collect((o + 1):(o + p.n)) for (p, o) in blocks]; init = Int[])
+        return Any[Any[Σ[perm[i], perm[j]] for j in eachindex(perm)] for i in eachindex(perm)]
+    end
+    J = zeros(sum(p -> p.n, parts), length(rows))
+    row = 0
+    for (p, o) in blocks
+        J[(row + 1):(row + p.n), (o + 1):(o + p.n)] = p.J === nothing ? [Float64(i == j) for i in 1:p.n, j in 1:p.n] : p.J
+        row += p.n
+    end
+    S = J * Σ * J'
+    return Any[Any[i <= j ? S[i, j] : S[j, i] for j in axes(S, 2)] for i in axes(S, 1)]   # exactly symmetric
+end
+
 # The list's key and order changed together, so a reader can tell them apart:
 # v2/v5's `{"type": "calibration_chain", "members": [inner, outer]}` (application
 # order) is v3/v6's `{"type": "composition", "compose": [outer, inner]}` (CT's
 # order), the covariance permuted with the members; v3/v5's lens record
 # `"chain": [inner, …, outer]` is v4/v6's `"compose": [outer, …, inner]`.
-# A composed calibration record (type key `key`: "type" in a file, "kind" in
-# the identity tree) in the other form — `_composition_v2_to_v3` forward,
-# `_composition_v3_to_v2` back; any other record as it is.
-_composition_v2_to_v3(c::AbstractDict, key = "type") =
-    get(c, key, nothing) == _RETIRED_COMPOSITION_TYPE ? _recomposed(c, key, "members", _COMPOSITION_TYPE, _COMPOSE_KEY) : c
+# `_composition_v3_to_v2` puts a current composition record (type key `key`:
+# "type" in a file, "kind" in the identity tree) back under v5's names and in
+# application order — the identity tree's fixed form, which keeps every id v5
+# could name; any other record as it is.
 _composition_v3_to_v2(c::AbstractDict, key = "type") =
     get(c, key, nothing) == _COMPOSITION_TYPE ? _recomposed(c, key, _COMPOSE_KEY, _RETIRED_COMPOSITION_TYPE, "members") : c
 function _recomposed(c::AbstractDict, key, from, type, to)
@@ -499,7 +588,7 @@ function _recomposed(c::AbstractDict, key, from, type, to)
     ms = c[from]
     out[to] = reverse(ms)
     if haskey(c, "covariance")
-        sizes = [_v2_parameter_count(Dict("type" => r[key], "nodes" => get(r, "nodes", ()))) for r in ms]
+        sizes = [_record_parameter_count(r[key], get(r, "nodes", ())) for r in ms]
         offsets = cumsum([0; sizes[1:(end - 1)]])
         p = reduce(vcat, reverse([collect((o + 1):(o + n)) for (o, n) in zip(offsets, sizes)]); init = Int[])
         Σ = c["covariance"]
@@ -530,7 +619,7 @@ _map_rig_sensors(f, tree::AbstractDict) = haskey(tree, "sensors") ?
     merge(Dict{String, Any}(tree), Dict{String, Any}("sensors" => Any[merge(Dict{String, Any}(x), Dict{String, Any}("camera" => f(x["camera"]))) for x in tree["sensors"]])) : tree
 
 _body_calibration(f, b::AbstractDict) = haskey(b, "calibration") ? merge(Dict{String, Any}(b), Dict{String, Any}("calibration" => f(b["calibration"]))) : b
-_body_v2_to_v3(b::AbstractDict) = _body_calibration(_composition_v2_to_v3, b)
+_body_v2_to_v3(b::AbstractDict) = _body_calibration(_calibration_v2_to_v3, b)
 _body_v3_to_v2(b::AbstractDict) = _body_calibration(_composition_v3_to_v2, b)
 function _target_v2_to_v3(old)
     t = copy(old)
@@ -556,13 +645,54 @@ function migrate_schema(::Val{Symbol("vgio/target/v2")}, src::AbstractString, ds
     return (; to = _schema("target"))
 end
 
-# The rig's content identity does not change: the identity tree lists a
-# composition's members and a lens's stages in one fixed order (application
-# order, as v5's record did), whatever order the record lists them in.
+# The rig's content identity does not change with the record's order: the
+# identity tree lists a composition's members and a lens's stages in one fixed
+# order (application order, as v5's record did), whatever order the record
+# lists them in. It changes where the VALUE does — a target whose calibration
+# held the retired affine kind now holds its factors — and then v5's identity
+# is reported as the old one (`_v5_id`), so the measurement files naming the
+# rig are re-pointed.
 function migrate_schema(::Val{Symbol("vgio/rig/v5")}, src::AbstractString, dst::AbstractString)
-    _migrate_record(Rig, _RIG_SPEC, src, dst, _rig_v5_to_v6, "the rig record")
-    id = content_id(dst)
-    return (; to = _schema("rig"), old_id = id, old_ids = [id], new_id = id)
+    old, value = _migrate_record(Rig, _RIG_SPEC, src, dst, _rig_v5_to_v6, "the rig record")
+    new_id = content_id(dst)
+    old_id = _v5_id(old, value, new_id)
+    return (; to = _schema("rig"), old_id, old_ids = [old_id], new_id)
+end
+
+# v5's content identity of a rig: the current tree of its value, but for each
+# target whose v5 calibration held an affine kind that calibration as v5's tree
+# held it — its record with `kind` for `type`, every length leaf the persisted
+# metre value of the file's number (the current tree's rule), its covariance
+# in metres (v5 built its tree from the value read back, which is exactly that).
+_has_affine(r::AbstractDict) = get(r, "type", nothing) == "affine" || any(_has_affine, get(r, "members", ()))
+function _v5_id(old::AbstractDict, value, new_id)
+    olds = Dict(x["id"] => x["target"] for x in get(old, "targets", ()))
+    affine = [id for (id, t) in olds if _has_affine(get(t, "calibration", Dict{String, Any}()))]
+    isempty(affine) && return new_id
+    u = parse_unit(old["length_unit"]::String)
+    tree = _identity_tree(value)
+    for x in tree["targets"]
+        x["id"] in affine && (x["target"]["calibration"] = _v5_identity_calibration(olds[x["id"]]["calibration"], u))
+    end
+    return sha256_hex(canonical_json(tree))
+end
+# which of a v2 calibration record's parameters are lengths (its frozen layout)
+_v2_length_mask(r) = (t = r["type"]; t == "affine" ? Bool[0, 0, 0, 0, 1, 1] : t == "calibration_chain" ?
+    reduce(vcat, [_v2_length_mask(x) for x in r["members"]]; init = Bool[]) : fill(true, _v2_parameter_count(r)))
+function _v5_identity_calibration(r::AbstractDict, u::Units)
+    P(x) = _metres_json(ustrip(m, read_length(x::Real, u)), _PERSISTED)
+    out = Dict{String, Any}("kind" => r["type"])
+    haskey(r, "members") && (out["members"] = Any[_v5_identity_calibration(x, u) for x in r["members"]])
+    haskey(r, "nodes") && (out["nodes"] = Any[Any[P(p[1]), P(p[2])] for p in r["nodes"]])
+    if haskey(r, "parameters")
+        mask = _v2_length_mask(r)
+        out["parameters"] = Any[mask[i] ? P(v) : Float64(v) for (i, v) in enumerate(r["parameters"])]
+    end
+    if haskey(r, "covariance")
+        dims = _v2_length_mask(r)
+        out["covariance"] = _length_cov_json(_length_cov_from_json(r["covariance"], length(dims), u, dims), _PERSISTED, dims)
+    end
+    return out
 end
 
 # vgio/rig/v4 → the current rig. The rig's content identity changes with the

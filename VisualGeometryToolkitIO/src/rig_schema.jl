@@ -76,26 +76,41 @@ end
 # `TARGET_CALIBRATION_TAGS` (the one registry; snake_case of the type's name):
 #
 #   {"type": "rigid"}
-#   {"type": "affine", "parameters": [a11, a12, a21, a22, bx, by]}
+#   {"type": "euclidean", "parameters": [angle, tx, ty]}       a planar EuclideanMap: radians, lengths
+#   {"type": "scale", "parameters": [log_scale]}
+#   {"type": "aspect", "parameters": [a1]}
+#   {"type": "skew", "parameters": [u12]}
 #   {"type": "thin_plate_spline", "nodes": [[u, v], …], "parameters": [fx1, …, fxK, fy1, …, fyK]}
 #   {"type": "height_field", "nodes": [[u, v], …], "parameters": [h1, …, hK]}
-#   {"type": "composition", "compose": [{height_field}, {affine | thin_plate_spline}]}
+#   {"type": "composition", "compose": [{outer}, …, {inner}]}
 #
 # `parameters` are the kind's `parameter_vector`, in its `parameter_names`
-# order: lengths in the file's `length_unit` (an affine's `b`, the in-plane
-# displacements, the heights), plain numbers otherwise (an affine's `A`).
-# `nodes` are positions in the target's plane, lengths in the file's unit. A
-# composition (`HeightField ∘ AffineMap` or `HeightField ∘ ThinPlateSpline`,
-# CoordinateTransformations' `∘`) is written by its structure, its members
-# records of their own listed under `compose` in CT's order — the outer map,
-# the height field, first (the key a lens record lists its stages in sequence
-# under, in the same order). The retired `calibration_chain` record (target
-# v2 / rig v5), whose `members` were in application order, is refused, naming
-# `vgio_migrate`.
+# order, lengths (by `length_mask`: a euclidean's `tx, ty`, the in-plane
+# displacements, the heights) in the file's `length_unit`, plain numbers
+# otherwise (an angle, the log-scale, the log-stretch, the shear). A
+# euclidean's angle is one that rebuilds its rotation matrix exactly
+# (`_planar_angle`), so a value read back is its file's. `nodes` are positions
+# in the target's plane, lengths in the file's unit. The thin-plate kinds hold
+# PURE BENDING (VGC: no affine term in the interpolant): the reader rebuilds
+# each and refuses values the constructor would move (an affine displacement
+# is the affine factors', a plane of heights the pose's).
+#
+# A composition — 2 to 6 members in VGC's canonical order
+# `HeightField ∘ ThinPlateSpline ∘ EuclideanMap ∘ Scale ∘ Aspect ∘ Skew`, any
+# left out, each once (`Aspect ∘ Skew`, the print error with a jointly
+# estimated pose; `HeightField ∘ ThinPlateSpline ∘ Aspect ∘ Skew`; …),
+# CoordinateTransformations' `∘` — is written by its structure, FLAT: its
+# members records of their own listed under `compose` in CT's order, the outer
+# map first (the key a lens record lists its stages in sequence under, in the
+# same order); it reads back right-associated, VGC's one association. The
+# retired `calibration_chain` record (target v2 / rig v5), whose `members` were
+# in application order, and the retired `affine` kind (CT's `AffineMap`, its
+# print error now `EuclideanMap ∘ Scale ∘ Aspect ∘ Skew`) are refused by name,
+# naming `vgio_migrate`.
 # `covariance` (optional, top level only) is present iff the calibration is
 # `Uncertain`: n × n over `parameter_vector` (a composition's: every member's,
-# the height field's first — one joint covariance, as `Uncertain(c, Σ)` holds
-# it), each entry
+# concatenated outer first — one joint covariance, as `Uncertain(c, Σ)` holds
+# it; a thin-plate kind's has rank 2K − 6 or K − 3, which is valid), each entry
 # in the file's unit raised to its length dimension.
 #
 # THE BOARD (optional, a planar target's): the physical board the design is
@@ -130,23 +145,22 @@ const _COMPOSE_KEY = "compose"
 # v2/v5's composition record (its `members` in application order): refused
 const _RETIRED_COMPOSITION_TYPE = "calibration_chain"
 
-# The keys a calibration record of each kind states, and how many parameters
-# it holds — by the kind's TYPE, which the registry gives for its tag.
-_calibration_keys(::Type{Rigid}) = ()
-_calibration_keys(::Type{AffineMap}) = (:parameters,)
-_calibration_keys(::Type{ThinPlateSpline}) = (:nodes, :parameters)
-_calibration_keys(::Type{HeightField}) = (:nodes, :parameters)
-# The count is VGC's: the length of `length_mask` of the kind the record
-# describes, as far as its parameter count depends on the record (its node
-# count, a composition's members).
-_record_kind(K::Type, x) = K
-_record_kind(::Type{AffineMap}, x) = AffineMap{SMatrix{2, 2, Float64, 4}, SVector{2, Float64}}
-_record_kind(::Type{ThinPlateSpline}, x) = ThinPlateSpline{length(x[:nodes])}
-_record_kind(::Type{HeightField}, x) = HeightField{length(x[:nodes])}
-_record_kind(x) = x[:type] == _COMPOSITION_TYPE ?
-    ComposedTransformation{_record_kind(x[:compose][1]), _record_kind(x[:compose][2])} :
-    _record_kind(TARGET_CALIBRATION_TAGS[x[:type]], x)
-_n_parameters(x) = length(length_mask(_record_kind(x)))
+# The keys a calibration record of each kind states, by its tag, and how many
+# parameters it holds (VGC's `length(length_mask(K))` for a planar target's
+# kind: a euclidean's angle and translation, one parameter for each of the
+# N = 2 dimensionless factors, a thin-plate kind's nodal values).
+_calibration_keys(ty) = ty == "rigid" ? () : ty in ("thin_plate_spline", "height_field") ? (:nodes, :parameters) : (:parameters,)
+_record_parameter_count(ty, nodes) =
+    ty == "rigid" ? 0 : ty == "euclidean" ? 3 : ty in ("scale", "aspect", "skew") ? 1 :
+    ty == "thin_plate_spline" ? 2 * length(nodes) : ty == "height_field" ? length(nodes) :
+    throw(ArgumentError("a calibration record of unknown type $(repr(ty))"))
+_n_parameters(x) = x[:type] == _COMPOSITION_TYPE ? sum(_n_parameters, x[:compose]; init = 0) :
+    _record_parameter_count(x[:type], get(x, :nodes, ()))
+
+# VGC's canonical order of a composition's members, the outer map first (each
+# kind's tag): `HeightField ∘ ThinPlateSpline ∘ EuclideanMap ∘ Scale ∘ Aspect ∘ Skew`
+const _CANONICAL_ORDER = ("height_field", "thin_plate_spline", "euclidean", "scale", "aspect", "skew")
+const _CANONICAL_TEXT = "HeightField ∘ ThinPlateSpline ∘ EuclideanMap ∘ Scale ∘ Aspect ∘ Skew"
 
 # The retired composition record — `calibration_chain` with its `members` in
 # application order (target v2 / rig v5) — refused by name: its key and order
@@ -154,15 +168,23 @@ _n_parameters(x) = length(length_mask(_record_kind(x)))
 const _RETIRED_COMPOSITION_MSG =
     "a \"$(_RETIRED_COMPOSITION_TYPE)\" calibration (its `members` in application order) is the retired " *
     "target v2 / rig v5 record: migrate the file with vgio_migrate (a composition is " *
-    "{\"type\": \"$(_COMPOSITION_TYPE)\", \"$(_COMPOSE_KEY)\": [outer, inner]}, CoordinateTransformations' order)"
+    "{\"type\": \"$(_COMPOSITION_TYPE)\", \"$(_COMPOSE_KEY)\": [outer, …, inner]}, CoordinateTransformations' order)"
+# The retired affine kind (CT's AffineMap, six parameters): its print error is
+# the composition of VGC's gauge-free factors.
+const _RETIRED_AFFINE_MSG =
+    "an \"affine\" calibration (CoordinateTransformations' AffineMap, [a11, a12, a21, a22, bx, by]) is retired: " *
+    "an affine print error is the composition EuclideanMap ∘ Scale ∘ Aspect ∘ Skew (A = s·R·D·U), " *
+    "{\"type\": \"$(_COMPOSITION_TYPE)\", \"$(_COMPOSE_KEY)\": [euclidean, scale, aspect, skew]} — a target v2 / " *
+    "rig v5 file is converted by vgio_migrate"
 
 function _target_calibration_check(x, member::Bool)
     ty = x[:type]
     (ty == _RETIRED_COMPOSITION_TYPE || haskey(x, :members)) && return _RETIRED_COMPOSITION_MSG
+    ty == "affine" && return _RETIRED_AFFINE_MSG
     ty == _COMPOSITION_TYPE && return _composition_check(x, member)
     haskey(TARGET_CALIBRATION_TAGS, ty) ||
         return "unknown calibration type $(repr(ty)) (one of $(join(keys(TARGET_CALIBRATION_TAGS), ", ")), $(_COMPOSITION_TYPE))"
-    want = _calibration_keys(TARGET_CALIBRATION_TAGS[ty])
+    want = _calibration_keys(ty)
     for k in (:nodes, :parameters, Symbol(_COMPOSE_KEY))
         (k in want) == haskey(x, k) || return k in want ? "a $(ty) calibration states its `$(k)`" : "a $(ty) calibration has no `$(k)`"
     end
@@ -172,8 +194,9 @@ function _target_calibration_check(x, member::Bool)
         return "a $(ty) calibration$(:nodes in want ? " over $(length(x[:nodes])) nodes" : "") states $(n) parameters, got $(length(x[:parameters]))"
     return _covariance_check(x, ty, n, member)
 end
-# A composition: a height field after one in-plane kind, the height field
-# (the outer map) first, as CoordinateTransformations orders `t1 ∘ t2`.
+# A composition: 2 to 6 members, each a kind of the canonical order (no Rigid,
+# no composition), in that order, each once, the outer map first, as
+# CoordinateTransformations orders `t1 ∘ t2`.
 function _composition_check(x, member::Bool)
     member && return "a $(_COMPOSITION_TYPE)'s member is not a composition"
     for k in (:nodes, :parameters)
@@ -185,9 +208,11 @@ function _composition_check(x, member::Bool)
         msg = _target_calibration_check(r, true)
         msg === nothing || return "member $(i): $(msg)"
     end
-    (length(ms) == 2 && ms[1][:type] == "height_field" && ms[2][:type] in ("affine", "thin_plate_spline")) || return (
-        "a $(_COMPOSITION_TYPE) is a height_field after one in-plane kind — the members [height_field, affine] or " *
-            "[height_field, thin_plate_spline], the outer map first; got [$(join((r[:type] for r in ms), ", "))]"
+    ranks = [something(findfirst(==(r[:type]), _CANONICAL_ORDER), 0) for r in ms]
+    (2 <= length(ms) <= length(_CANONICAL_ORDER) && all(>(0), ranks) && issorted(ranks; lt = <=)) || return (
+        "a $(_COMPOSITION_TYPE)'s members are 2 to 6 kinds in the canonical order $(_CANONICAL_TEXT) " *
+            "([$(join(_CANONICAL_ORDER, ", "))]), any left out, each once, the outer map first; " *
+            "got [$(join((r[:type] for r in ms), ", "))]"
     )
     return _covariance_check(x, _COMPOSITION_TYPE, _n_parameters(x), member)
 end
@@ -286,21 +311,50 @@ end
 _metres_json(x::Real, u::_LeafUnit) = _leaf_power(Float64(x), u, 1)
 _nodes_json(c, u::_LeafUnit) = [[_metres_json(p[1], u), _metres_json(p[2], u)] for p in c.system.nodes]
 
-_tag(c::Union{Rigid, AffineMap, ThinPlateSpline, HeightField}) = tag_of(TARGET_CALIBRATION_TAGS, c)
+const _FactorKind = Union{EuclideanMap{2}, Scale, Aspect{2}, Skew{2}}
+_tag(c::Union{Rigid, ThinPlateSpline, HeightField, _FactorKind}) = calibration_tag(typeof(c))
 _tag(::ComposedTransformation) = _COMPOSITION_TYPE
 # A calibration with lengths is stored physical: plain numbers are refused, as
-# a target's plain points are.
-_physical(c::TargetCalibration) = (has_units(c) || _refuse_plain("a $(nameof(typeof(c))) target calibration"); c)
+# a target's plain points are. One without lengths (Rigid, Scale, Aspect,
+# Skew and their compositions) has no form to refuse.
+_physical(c) = ((any(length_mask(c)) && !has_units(c)) && _refuse_plain("a $(nameof(typeof(c))) target calibration"); c)
+
+# A composition's members, outer first, whatever its association (VGC stores
+# it right-associated); the record lists them flat.
+_flat_members(c::ComposedTransformation) = (_flat_members(c.t1)..., _flat_members(c.t2)...)
+_flat_members(c) = (c,)
+
+# A planar rotation's angle as a record holds it: one whose rotation matrix,
+# rebuilt as the reader builds it (`RotMatrix{2}(angle)`, VGC's
+# `with_parameters`), is the matrix held — `atan` of the matrix (VGC's
+# `parameter_vector`) or the nearest float to it that rebuilds it bit for bit
+# (`atan(R₂₁, R₁₁)` is within a few ulps of the angle a `RotMatrix{2}` was built
+# from, but rebuilds a different matrix for about one angle in ten). A matrix no
+# angle rebuilds (one an estimator computed) is converted, as a 3-D rotation is
+# to its quaternion. So a value read from a file writes its file's angle's
+# equivalent, and reads back bit for bit.
+function _planar_angle(R::StaticMatrix{2, 2})
+    ϑ = atan(R[2, 1], R[1, 1])
+    S = SMatrix{2, 2, Float64}(R)
+    up, down = ϑ, ϑ
+    for _ in 0:8
+        SMatrix(RotMatrix{2, Float64}(up)) == S && return up
+        SMatrix(RotMatrix{2, Float64}(down)) == S && return down
+        up, down = nextfloat(up), prevfloat(down)
+    end
+    return ϑ
+end
 
 _calibration_record(c::Rigid, ::_LeafUnit) = (type = _tag(c),)
-function _calibration_record(c::AffineMap, u::_LeafUnit)
+_calibration_record(c::Union{Scale, Aspect{2}, Skew{2}}, ::_LeafUnit) = (type = _tag(c), parameters = Float64.(collect(parameter_vector(c))))
+function _calibration_record(c::EuclideanMap{2}, u::_LeafUnit)
     θ = parameter_vector(_physical(c))
-    return (type = _tag(c), parameters = [Float64(θ[1]), Float64(θ[2]), Float64(θ[3]), Float64(θ[4]), _metres_json(θ[5], u), _metres_json(θ[6], u)])
+    return (type = _tag(c), parameters = [_planar_angle(SMatrix(VgtkCore.rotation(c))), _metres_json(θ[2], u), _metres_json(θ[3], u)])
 end
 _calibration_record(c::Union{ThinPlateSpline, HeightField}, u::_LeafUnit) =
     (type = _tag(_physical(c)), nodes = _nodes_json(c, u), parameters = [_metres_json(v, u) for v in parameter_vector(c)])
 _calibration_record(c::ComposedTransformation, u::_LeafUnit) =
-    (type = _tag(c), compose = [_calibration_record(c.t1, u), _calibration_record(c.t2, u)])
+    (type = _tag(_physical(c)), compose = [_calibration_record(l, u) for l in _flat_members(c)])
 
 _calibration_record(c::Uncertain{<:TargetCalibration}, u::_LeafUnit) =
     merge(_calibration_record(geom(c), u), (covariance = _length_cov_json(cov(c), u, length_mask(geom(c))),))
@@ -308,19 +362,42 @@ _calibration_record(c::Uncertain{<:TargetCalibration}, u::_LeafUnit) =
 _read_metres(x, u::Units) = read_length(x::Real, u)
 _nodes_from_json(x, u::Units) = [SVector(_read_metres(p[1], u), _read_metres(p[2], u)) for p in x.nodes::Vector{Any}]
 
+# (by the kind's TYPE, which VGC's registry gives for the record's tag)
 _calibration_from_record(::Type{Rigid}, x, u::Units) = Rigid()
-function _calibration_from_record(::Type{AffineMap}, x, u::Units)
+function _calibration_from_record(::Type{EuclideanMap}, x, u::Units)
     p = x.parameters::Vector{Any}
-    return AffineMap(SMatrix{2, 2, Float64}(p[1], p[3], p[2], p[4]), SVector(_read_metres(p[5], u), _read_metres(p[6], u)))
+    return EuclideanMap(RotMatrix{2, Float64}(Float64(p[1])), SVector(_read_metres(p[2], u), _read_metres(p[3], u)); check = false)
 end
+_calibration_from_record(::Type{Scale}, x, u::Units) = Scale(Float64(only(x.parameters)))
+_calibration_from_record(::Type{Aspect}, x, u::Units) = Aspect(Float64(only(x.parameters)))
+_calibration_from_record(::Type{Skew}, x, u::Units) = Skew(Float64(only(x.parameters)))
 function _calibration_from_record(::Type{ThinPlateSpline}, x, u::Units)
     nodes = _nodes_from_json(x, u)
     p = x.parameters::Vector{Any}
     K = length(nodes)
-    return ThinPlateSpline(nodes, [_read_metres(p[i], u) for i in 1:K], [_read_metres(p[K + i], u) for i in 1:K])
+    return _pure_bending(ThinPlateSpline(nodes, [_read_metres(p[i], u) for i in 1:K], [_read_metres(p[K + i], u) for i in 1:K]), p, u)
 end
 _calibration_from_record(::Type{HeightField}, x, u::Units) =
-    HeightField(_nodes_from_json(x, u), [_read_metres(v, u) for v in x.parameters::Vector{Any}])
+    _pure_bending(HeightField(_nodes_from_json(x, u), [_read_metres(v, u) for v in x.parameters::Vector{Any}]), x.parameters, u)
+# A thin-plate kind holds pure bending (VGC: no affine term in its
+# interpolant; its constructor projects the values it is given and keeps,
+# bit for bit, values whose affine term is within 1e-12 of them, in metres):
+# a record whose values the constructor moved is refused, never read moved.
+function _pure_bending(c, p, u::Units)
+    stored = [Float64(ustrip(m, _read_metres(v, u))) for v in p]
+    parameter_vector(c) == stored && return c
+    what = c isa HeightField ? "heights" : "displacements"
+    throw(
+        ArgumentError(
+            "a $(calibration_tag(typeof(c))) calibration's $(what) carry an affine part (their thin-plate interpolant " *
+                "has an affine term): a thin-plate kind holds pure bending — an affine displacement belongs to " *
+                "Aspect ∘ Skew (∘ Scale ∘ EuclideanMap) composed after a thin_plate_spline, a plane of heights to the " *
+                "target's pose. Neither moves out of the spline exactly (the affine factors compose after the spline, " *
+                "not before it; a plane of heights is a shear, not a rigid motion), so a record holding one — a " *
+                "target v2 / rig v5 spline among them — is not read or migrated: re-fit the calibration"
+        )
+    )
+end
 # A calibration record (validated) back to VGC's kind, `Uncertain` iff it
 # states a covariance (unit^(lᵢ+lⱼ) → m^(lᵢ+lⱼ)).
 function _target_calibration_from_json(x, u::Units)
@@ -329,9 +406,10 @@ function _target_calibration_from_json(x, u::Units)
     dims = length_mask(c)
     return Uncertain(c, CovMat(_length_cov_from_json(x.covariance::Vector{Any}, length(dims), u, dims)))
 end
-# the calibration without its covariance: a kind, or a composition of two
+# the calibration without its covariance: a kind, or a composition, its flat
+# members folded right (`a ∘ (b ∘ c)`, VGC's one association)
 _bare_calibration_from_json(x, u::Units) = x.type::String == _COMPOSITION_TYPE ?
-    _bare_calibration_from_json(x.compose[1], u) ∘ _bare_calibration_from_json(x.compose[2], u) :
+    foldr(∘, [_bare_calibration_from_json(r, u) for r in x.compose]) :
     _calibration_from_record(TARGET_CALIBRATION_TAGS[x.type::String], x, u)
 
 """

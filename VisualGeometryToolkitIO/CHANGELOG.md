@@ -3,19 +3,28 @@
 ## 0.5.0 (unreleased)
 
 Breaking: the target and rig records bump with VisualGeometryToolkitCore
-0.5's composition (CoordinateTransformations' `∘`).
+0.5's composition (CoordinateTransformations' `∘`) and its gauge-free target
+calibration.
 
-- **`vgio/target/v3` and `vgio/rig/v6`.** A composed calibration —
-  `HeightField ∘ AffineMap` or `HeightField ∘ ThinPlateSpline`, the only two —
-  is written by its structure, `{"type": "composition", "compose":
-  [height_field, affine | thin_plate_spline]}`, its members in CT's order (the
-  outer map first) and its covariance over that order; v2/v5's
+- **`vgio/target/v3` and `vgio/rig/v6`.** The calibration kinds are VGC 0.5's:
+  new leaf records `euclidean` (a planar `EuclideanMap`, `[angle, tx, ty]`,
+  the translation in the file's unit; the angle one that rebuilds the
+  rotation matrix bit for bit), `scale` (`[log_scale]`), `aspect` (`[a1]`) and
+  `skew` (`[u12]`), the last three dimensionless; `thin_plate_spline` and
+  `height_field` hold pure bending, and a record whose values carry an affine
+  term is refused (VGC's constructor would move them). A composition — 2 to 6
+  kinds in the canonical order `HeightField ∘ ThinPlateSpline ∘ EuclideanMap
+  ∘ Scale ∘ Aspect ∘ Skew`, any left out — is written flat by its structure,
+  `{"type": "composition", "compose": [outer, …, inner]}`, in CT's order (the
+  outer map first), its covariance over the concatenated parameters in that
+  order, and read back right-associated; v2/v5's
   `{"type": "calibration_chain", "members": […]}` listed them in application
   order. The key changed with the order, so the retired form in a current
   record is refused by name (an `ArgumentError` naming `vgio_migrate`), never
-  read in the new order. Every other record is unchanged but for its
-  schema. The affine kind reads back as CT's `AffineMap` (its `b` lengths in
-  metres).
+  read in the new order. The `"affine"` kind (CT's `AffineMap`) is retired:
+  refused by name, naming its factors `EuclideanMap ∘ Scale ∘ Aspect ∘ Skew`
+  and `vgio_migrate`. A calibration without lengths (the dimensionless
+  factors) is written whatever its form; one with lengths must be physical.
 - **`vgio/cameras/v4`, and `vgio/rig/v6`'s sensors**: a lens's distortion
   stages in sequence (CT's `∘`) are listed in the lens record's `"compose"`
   outer first (the key a composed calibration lists its members under); v3/v5
@@ -26,14 +35,23 @@ Breaking: the target and rig records bump with VisualGeometryToolkitCore
   COLMAP assembly; the exported coefficients and COLMAP parameters are
   unchanged.
 - **`vgio_migrate` converts `vgio/target/v2` and `vgio/rig/v5`** (reversing a
-  chain's members and permuting its covariance); a v2/v5 chain of two
-  in-plane kinds has no current form and is refused. The readers refuse v2/v5,
-  naming the migration. Every rig keeps its `content_id`: the identity tree
-  lists a composition's members and a lens's stages in one fixed order,
-  application order (the order v5 held), whatever order the record lists them
-  in.
-- Depends on CoordinateTransformations (the calibration's `AffineMap` and
-  composition types).
+  chain's members and permuting its covariance). An affine calibration
+  becomes its Iwasawa factors (A = Q·T by QR, det A > 0 required: ϑ =
+  atan(Q₂₁, Q₁₁), log s = ½ log(t₁₁ t₂₂), a₁ = ½ log(t₁₁/t₂₂), u₁₂ = t₁₂/t₁₁),
+  the same map, its covariance through the factorization's Jacobian; in a
+  chain it is replaced by the four in its place. A chain with no current form
+  (in-plane kinds out of the canonical order, a Rigid member) is refused, and
+  so is a thin-plate spline or height field whose interpolant carries an
+  affine term: no exact form exists (the factors compose after the spline,
+  and a plane of heights is a shear, not a rigid motion a pose could take),
+  so it is re-fitted rather than silently changed. The readers refuse v2/v5,
+  naming the migration. A rig keeps its `content_id` unless its value
+  changes: the identity tree lists a composition's members and a lens's
+  stages in one fixed order, application order (the order v5 held), whatever
+  order the record lists them in; a rig whose target held the affine kind
+  changes it, and the migration reports v5's id as the old one so
+  `vgio_migrate_tree` re-points its measurement files.
+- Depends on CoordinateTransformations (the calibration's composition type).
 
 ## 0.4.0 (2026-11-02)
 

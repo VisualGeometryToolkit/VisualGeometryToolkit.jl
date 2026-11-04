@@ -85,7 +85,7 @@ using Rotations: QuatRotation, RotMatrix, RotationVec, RotZ, params
 using JSON: JSON
 using SQLite: SQLite
 using FlexUnits: Units, Quantity, ustrip, dimension, uscale, quantity
-using CoordinateTransformations: AffineMap, ComposedTransformation   # a target calibration's affine kind and its composition
+using CoordinateTransformations: ComposedTransformation   # a target calibration's composition
 using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, px, dpi, has_units,
     CameraModel, CameraCalibrationMat, AbstractLensModel, Lens, Pinhole, Division, KannalaBrandt, Scaramuzza,
     Perspective, Equidistant, DoubleSphere, Unified, ExtendedUnified,
@@ -95,7 +95,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     Rig, PosedTarget, BoundedCamera, PosedCamera, Attributed, sensor_rig, target_rig, Sensor, sensor,
     AbstractTarget, PointTarget, PlanarTarget, TargetCalibration, calibration, reference, is_resolved, Board, board,
     Canvas, CanvasTexture, canvas,
-    Rigid, ThinPlateSpline, HeightField, TARGET_CALIBRATION_TAGS, tag_of, parameter_vector, length_mask,
+    Rigid, ThinPlateSpline, HeightField, Scale, Aspect, Skew, TARGET_CALIBRATION_TAGS, calibration_tag, parameter_vector, length_mask,
     Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D, TargetPoint2D, TargetPoint3D,
     CentralGenericModel, NoncentralGenericModel, nominal_intrinsics, LogicalIntrinsics, Ellipse, WholePlane,
     Frame, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, UnlabeledFrame,

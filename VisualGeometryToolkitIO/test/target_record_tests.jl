@@ -5,7 +5,7 @@
 # =============================================================================
 
 @testsetup module TargetRecordFixtures
-    using VisualGeometryToolkitCore: Rigid, ThinPlateSpline, HeightField, Uncertain, CovMat,
+    using VisualGeometryToolkitCore: Rigid, ThinPlateSpline, HeightField, Scale, Aspect, Skew, Uncertain, CovMat,
         grid_nodes, parameter_vector, geom, reference, calibration
     using Statistics: cov
     using StaticArrays: SVector, SMatrix
@@ -13,24 +13,33 @@
     using Rotations: QuatRotation, RotMatrix
     import VisualGeometryToolkitIO as VgtkIO
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: mm
-    using CoordinateTransformations: AffineMap
+    using VisualGeometryToolkitCore: mm, m
 
-    export kinds, uncertain, design_points, mmq, identity_rig
+    export kinds, uncertain, design_points, mmq, identity_rig, fileborn
 
     # one millimetre number as a reader returns it (lengths.jl: decimal-exact)
     mmq(x) = VgtkIO.read_length(x, mm)
     design_points() = [SVector(mmq(0.0), mmq(0.0)), SVector(mmq(62.8), mmq(0.0)), SVector(mmq(-13.9), mmq(40.25)), SVector(mmq(30.5), mmq(77.0))]
+    # a plain metre value as a millimetre file holds it and reads it back
+    fileborn(x::Real) = VgtkIO.read_length(VgtkIO.write_length(x * m, mm), mm)
 
     # every kind, physical, its numbers file-born (each length the metre value
-    # nearest a millimetre decimal, so the record writes it back exactly)
+    # nearest a millimetre decimal, so the record writes it back exactly). The
+    # thin-plate kinds are pure bending (VGC projects their values: a spline's
+    # affine displacement, a field's plane, dropped), so theirs are the
+    # projected values made file-born — which the constructor keeps bit for bit.
     function kinds()
         nodes = [SVector(mmq(p[1]), mmq(p[2])) for p in grid_nodes(3; lo = 0.0, hi = 100.0)]
-        A = AffineMap(SMatrix{2, 2}(1.001, -0.003, 0.002, 0.999), SVector(mmq(0.5), mmq(-0.25)))
-        T = ThinPlateSpline(nodes, mmq.([0.01, 0.0, -0.02, 0.03, 0.0, 0.0, 0.01, -0.01, 0.0]), mmq.([-0.02, 0.01, 0.0, 0.0, 0.04, 0.0, 0.0, 0.02, -0.03]))
-        H = HeightField(nodes, mmq.([0.1, 0.0, -0.1, 0.2, 0.0, 0.0, 0.0, 0.3, 0.0]))
-        return (rigid = Rigid(), affine = A, thin_plate_spline = T, height_field = H,
-            calibration_chain = H ∘ T, chain_affine = H ∘ A)
+        E = VgtkCore.EuclideanMap(RotMatrix{2, Float64}(0.01), SVector(mmq(0.5), mmq(-0.25)); check = false)
+        S, A, U = Scale(0.001), Aspect(0.002), Skew(-0.003)
+        T0 = ThinPlateSpline(nodes, mmq.([0.01, 0.0, -0.02, 0.03, 0.0, 0.0, 0.01, -0.01, 0.0]), mmq.([-0.02, 0.01, 0.0, 0.0, 0.04, 0.0, 0.0, 0.02, -0.03]))
+        θT = fileborn.(parameter_vector(T0))
+        T = ThinPlateSpline(nodes, θT[1:9], θT[10:18])
+        H = HeightField(nodes, fileborn.(parameter_vector(HeightField(nodes, mmq.([0.1, 0.0, -0.1, 0.2, 0.0, 0.0, 0.0, 0.3, 0.0])))))
+        right(cs...) = foldr(∘, cs)   # right-associated, as a target stores a composition
+        return (rigid = Rigid(), euclidean = E, scale = S, aspect = A, skew = U, thin_plate_spline = T, height_field = H,
+            print_error = A ∘ U, affine_factors = right(E, S, A, U), calibration_chain = H ∘ T, chain_affine = right(H, A, U),
+            canonical = right(H, T, E, S, A, U))
     end
 
     # A rig of targets of every kind — rigid, affine, thin-plate, height field,
@@ -48,7 +57,7 @@
         pt = VgtkCore.PointTarget([VgtkCore.Uncertain(SVector(mmq(0.0), mmq(1.5), mmq(-2.0)), VgtkCore.CovMat(SMatrix{3, 3, Float64}(Diagonal([1.0e-8, 1.0e-8, 4.0e-8]))))])
         members = Dict(
             :a_rigid => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(nothing, design_points(), Rigid(), bd), ident),
-            :b_affine => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(design_points(); calibration = uncertain(k.affine)), X((10.0, 0.0, 900.0))),
+            :b_affine => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(design_points(); calibration = uncertain(k.affine_factors)), X((10.0, 0.0, 900.0))),
             :c_tps => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(:c_tps; calibration = k.thin_plate_spline), X((-200.0, 15.5, 850.0))),
             :d_height => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(design_points(); calibration = k.height_field), VgtkCore.Uncertain(X((0.0, 120.0, 910.0)), I6)),
             :e_chain => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(nothing, design_points(), uncertain(k.calibration_chain), bd), X((300.0, -40.25, 1000.0))),
@@ -74,6 +83,7 @@ end
 @testitem "target/v3: every calibration kind round-trips, with and without its covariance" setup = [VGIoFixtures, TargetRecordFixtures] begin
     using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, Attributed, Uncertain, calibration, points, geom,
         is_resolved, reference, parameter_names, Rigid
+    using CoordinateTransformations: ComposedTransformation
     using Statistics: cov
     mktempdir() do dir
         p = joinpath(dir, "target.json")
@@ -81,7 +91,9 @@ end
             t = PlanarTarget(design_points(); calibration = cc)
             save(p, t; length_unit)
             d = parse_json(read(p, String))
-            @test d.schema == "vgio/target/v3" && d.target.calibration.type == (name in (:chain_affine, :calibration_chain) ? "composition" : String(name))
+            composed = c isa ComposedTransformation
+            @test d.schema == "vgio/target/v3" && d.target.calibration.type == (composed ? "composition" : String(name))
+            composed && @test length(d.target.calibration.compose) == length(VisualGeometryToolkitIO._flat_members(c))   # flat, outer first
             @test haskey(d.target.calibration, :covariance) == (cc isa Uncertain)
             back = load(AbstractTarget, p)
             @test back == t                        # exact, by type: values, units, the covariance
@@ -97,25 +109,41 @@ end
 end
 
 @testitem "target/v3: the record as written — tags, parameter order, units" setup = [VGIoFixtures, TargetRecordFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, Rigid, parameter_vector
     k = kinds()
     mktempdir() do dir
         p = joinpath(dir, "target.json")
-        # affine: A plain, b a length in the file's unit, in parameter_names order
-        save(p, PlanarTarget(design_points(); calibration = k.affine))
-        @test parse_json(read(p, String)).target.calibration == Dict(:type => "affine", :parameters => [1.001, 0.002, -0.003, 0.999, 0.5, -0.25])
-        save(p, PlanarTarget(design_points(); calibration = k.affine); length_unit = m)
-        @test parse_json(read(p, String)).target.calibration.parameters == [1.001, 0.002, -0.003, 0.999, 0.0005, -0.00025]
-        # the thin-plate kinds: nodes and every parameter lengths
+        mmnum(x) = VgtkIO.write_length(x * m, mm)
+        # the affine factors: a euclidean's angle plain (radians) and its
+        # translation lengths in the file's unit; scale, aspect and skew one plain number each
+        save(p, PlanarTarget(design_points(); calibration = k.euclidean))
+        c = parse_json(read(p, String)).target.calibration
+        @test c.type == "euclidean" && c.parameters[2:3] == [0.5, -0.25] && abs(c.parameters[1] - 0.01) < 1.0e-16
+        save(p, PlanarTarget(design_points(); calibration = k.euclidean); length_unit = m)
+        @test parse_json(read(p, String)).target.calibration.parameters[2:3] == [0.0005, -0.00025]
+        # the angle is one that rebuilds the rotation matrix bit for bit (atan of the
+        # matrix does not, for about one angle in ten): value → file → value is exact
+        for ϑ in range(-3.1, 3.1; length = 301)
+            E = VisualGeometryToolkitCore.EuclideanMap(RotMatrix{2, Float64}(ϑ), SVector(mmq(0.5), mmq(-0.25)); check = false)
+            t = PlanarTarget(design_points(); calibration = E)
+            save(p, t)
+            @test load(AbstractTarget, p) == t
+        end
+        for (kind, x) in ((:scale, 0.001), (:aspect, 0.002), (:skew, -0.003))
+            save(p, PlanarTarget(design_points(); calibration = k[kind]); length_unit = m)   # no lengths: the same in any unit
+            @test parse_json(read(p, String)).target.calibration == Dict(:type => String(kind), :parameters => [x])
+        end
+        # the thin-plate kinds: nodes and every parameter lengths, pure bending
         save(p, PlanarTarget(design_points(); calibration = k.thin_plate_spline))
         c = parse_json(read(p, String)).target.calibration
         @test c.type == "thin_plate_spline" && length(c.nodes) == 9 && c.nodes[9] == [100.0, 100.0] && length(c.parameters) == 18
-        @test c.parameters[1:3] == [0.01, 0.0, -0.02] && c.parameters[10:12] == [-0.02, 0.01, 0.0]    # fx…, then fy…
+        @test c.parameters == mmnum.(parameter_vector(k.thin_plate_spline))    # fx…, then fy…
         save(p, PlanarTarget(design_points(); calibration = k.height_field))
         c = parse_json(read(p, String)).target.calibration
-        @test c.type == "height_field" && length(c.parameters) == 9 && c.parameters[8] == 0.3
-        # a composition: its members under "compose" in CT's order (the outer
-        # map, the height field, first), the covariance once, over every member's parameters in that order
+        @test c.type == "height_field" && c.parameters == mmnum.(parameter_vector(k.height_field))
+        # a composition: its members under "compose", flat, in CT's order (the
+        # outer map, the height field, first), the covariance once, over every member's parameters in that order
         save(p, PlanarTarget(design_points(); calibration = uncertain(k.calibration_chain)))
         c = parse_json(read(p, String)).target.calibration
         @test c.type == "composition" && !haskey(c, :members)
@@ -124,8 +152,11 @@ end
         @test c.covariance[1][1] == 1.0 && c.covariance[5][5] == 5.0 && c.covariance[1][27] == -0.15   # every entry lengths²: mm²
         save(p, PlanarTarget(design_points(); calibration = uncertain(k.chain_affine)))
         c = parse_json(read(p, String)).target.calibration
-        @test [x.type for x in c.compose] == ["height_field", "affine"]
-        @test c.covariance[1][1] == 1.0 && c.covariance[10][10] == 1.0e-5 && c.covariance[1][15] == -0.15   # h1² in mm²; a11 plain; h1·by in mm²
+        @test [x.type for x in c.compose] == ["height_field", "aspect", "skew"]
+        @test c.covariance[1][1] == 1.0 && c.covariance[10][10] == 1.0e-5 && c.covariance[1][11] == -1.5e-4   # h1² in mm²; a1 plain; h1·u12 in mm
+        save(p, PlanarTarget(design_points(); calibration = k.canonical))
+        @test [x.type for x in parse_json(read(p, String)).target.calibration.compose] ==
+            ["height_field", "thin_plate_spline", "euclidean", "scale", "aspect", "skew"]
         # rigid
         save(p, PlanarTarget(design_points()))
         @test parse_json(read(p, String)).target.calibration == Dict(:type => "rigid")
@@ -133,14 +164,16 @@ end
 end
 
 @testitem "target/v3: refusals — plain calibrations, malformed records, the v1 keys" setup = [VGIoFixtures, TargetRecordFixtures] begin
-    using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, HeightField, grid_nodes
-    using CoordinateTransformations: AffineMap
+    using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, HeightField, Aspect, Skew, Scale, grid_nodes, EuclideanMap
     mktempdir() do dir
         p = joinpath(dir, "target.json")
         # a calibration with lengths in plain numbers is refused at save, as plain points are
-        @test_throws ArgumentError save(p, PlanarTarget(:b76e; calibration = AffineMap(SMatrix{2, 2}(1.0, 0.0, 0.0, 1.0), SVector(0.1, 0.0))))
+        @test_throws ArgumentError save(p, PlanarTarget(:b76e; calibration = EuclideanMap(RotMatrix{2, Float64}(0.1), SVector(0.1, 0.0))))
         @test_throws ArgumentError save(p, PlanarTarget(:b76e; calibration = HeightField(grid_nodes(2; lo = 0.0, hi = 1.0))))
         @test !isfile(p)
+        # ... one without lengths has no form to refuse: the dimensionless factors are written
+        save(p, PlanarTarget(:b76e; calibration = Scale(0.01) ∘ Aspect(0.001) ∘ Skew(0.002)))
+        @test load(AbstractTarget, p) == PlanarTarget(:b76e; calibration = Scale(0.01) ∘ Aspect(0.001) ∘ Skew(0.002))
         save(p, PlanarTarget(design_points(); calibration = kinds().calibration_chain))
         good = JSON.parse(read(p, String); dicttype = Dict{String, Any})
         function refused(f, key)
@@ -151,10 +184,18 @@ end
             e = try load(AbstractTarget, q); nothing catch e; e end
             return e isa ArgumentError && occursin(key, e.msg)
         end
+        order = "in the canonical order HeightField ∘ ThinPlateSpline ∘ EuclideanMap ∘ Scale ∘ Aspect ∘ Skew"
         @test refused(c -> (c["type"] = "spline"), "unknown calibration type")
-        @test refused(c -> (c["compose"] = c["compose"][1:1]), "a height_field after one in-plane kind")
-        @test refused(c -> push!(c["compose"], Dict("type" => "rigid")), "a height_field after one in-plane kind")
+        @test refused(c -> (c["compose"] = c["compose"][1:1]), order)                            # one member
+        @test refused(c -> push!(c["compose"], Dict("type" => "rigid")), order)                  # a Rigid member
+        @test refused(c -> push!(c["compose"], deepcopy(c["compose"][2])), order)                # a kind twice
         @test refused(c -> (c["compose"] = reverse(c["compose"])), "the outer map first")       # application order
+        # the pure-bending rule: a spline's values whose interpolant has an affine term are refused, not moved
+        @test refused(c -> (c["compose"][2]["parameters"] = c["compose"][2]["parameters"] .+ 0.5), "pure bending")
+        @test refused(c -> (c["compose"][1]["parameters"] = c["compose"][1]["parameters"] .+ 0.5), "a plane of heights to the")
+        # the retired affine kind, by name, naming its factors and the migration
+        aff(c) = (c["compose"] = [c["compose"][1], Dict("type" => "affine", "parameters" => [1.0, 0.0, 0.0, 1.0, 0.0, 0.0])])
+        @test refused(aff, "EuclideanMap ∘ Scale ∘ Aspect ∘ Skew") && refused(aff, "vgio_migrate")
         @test refused(c -> push!(c["compose"], Dict("type" => "composition", "compose" => [])), "not a composition")
         @test refused(c -> pop!(c["compose"][1]["parameters"]), "states 9 parameters")
         @test refused(c -> pop!(c["compose"][2]["parameters"]), "states 18 parameters")
@@ -214,7 +255,7 @@ end
         Dict(
             :a => PosedTarget(PlanarTarget(design_points(); calibration = uncertain(k.calibration_chain)), ident),
             :b => PosedTarget(PlanarTarget(:b; calibration = k.height_field), Uncertain(X, CovMat(SMatrix{6, 6, Float64}(LinearAlgebra.I) * 1.0e-6))),
-            :c => PosedTarget(PlanarTarget(design_points(); calibration = k.affine), X),
+            :c => PosedTarget(PlanarTarget(design_points(); calibration = k.affine_factors), X),
         )
     )
     mktempdir() do dir
@@ -225,7 +266,7 @@ end
         @test ids(back) == ids(rig) && all(id -> back[id].target == rig[id].target, ids(rig))
         @test pose(back, :b) isa Uncertain && geom(pose(back, :b)).t == X.t && pose(back, :c).t == X.t
         @test !is_planar(back[:a].target) && eltype(points(back[:a].target)) <: SVector{3}
-        @test calibration(back[:c].target) == k.affine
+        @test calibration(back[:c].target) == calibration(rig[:c].target)          # (stored right-associated)
         # the identity does not change with the file's unit, or a read
         pm = joinpath(dir, "rig_m.json")
         save(pm, rig; length_unit = m)
@@ -255,8 +296,14 @@ end
     # ThinPlateSpline → HeightField chain, retired with the in-plane compositions;
     # it is HeightField ∘ ThinPlateSpline now. No measurement file names this rig.
     # Re-pinned 2026-11-04 to the id rig/v5 gave it: the identity lists the
-    # composition's members in application order, independent of the record.)
-    @test content_id(rig) == "f55db7e749c4b23e0ad31e665e2e79e5529163efdff4e04bf758617229549527"   # poses as the reader returns them
+    # composition's members in application order, independent of the record.
+    # Re-pinned again 2026-11-04 because the VALUE changed with VGC 0.5's
+    # gauge-free print error: `b_affine` holds EuclideanMap ∘ Scale ∘ Aspect ∘
+    # Skew instead of the retired AffineMap, and `c_tps`, `d_height` and
+    # `e_chain`'s thin-plate kinds hold pure bending, their values projected
+    # (no affine term in the interpolant); `a_rigid` and `f_points` are as
+    # they were. No measurement file names this rig.)
+    @test content_id(rig) == "e7d6b28fde6a1ac9d1a13ee041897919192f13b9379c6aa9719e35fec5c356d7"   # poses as the reader returns them
     # The identity is of the PERSISTED rotation, the quaternion the writer
     # stores (one conversion, `_qvec`, shared by the writer and the tree): a
     # rig held with RotMatrix poses, the same rig built from
@@ -270,7 +317,7 @@ end
     end
     # a rig whose targets carry boards: the board is part of the identity
     brig = identity_rig(; boards = true)
-    @test content_id(brig) == "aa4d8aea6e17d3f7b5962b71ebdd6d493d186c38386a216347395a778f09586d"   # (re-pinned with `rig`'s)
+    @test content_id(brig) == "f34bee5347b45f2a9d6bca72741e8d2bf47dd2fa7e1b3d12ddb237694b8ef865"   # (re-pinned with `rig`'s)
     @test content_id(brig) != content_id(rig)
     tb = VgtkIO._identity_tree(brig)
     @test only(x for x in tb["targets"] if x["id"] == "a_rigid")["target"]["board"] ==
@@ -328,7 +375,7 @@ end
     mktempdir() do dir
         p = joinpath(dir, "t.json")
         # (the calibrations' numbers are mm-born, so the inch file carries a rigid one)
-        cases = [[(c, u, bd, design_points()) for c in (k.rigid, k.affine, uncertain(k.calibration_chain)) for u in (mm, m)];
+        cases = [[(c, u, bd, design_points()) for c in (k.rigid, k.affine_factors, uncertain(k.calibration_chain)) for u in (mm, m)];
                  [(k.rigid, inch, bd_inch, pts_inch)]]
         for (c, u, bd, pts) in cases
             t = PlanarTarget(nothing, pts, c, bd)

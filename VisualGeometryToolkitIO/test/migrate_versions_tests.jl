@@ -511,46 +511,86 @@ end
     # keys: a sensor's lens "chain" (v6: "compose") and a target's
     # "calibration_chain" "members" with its covariance (v6: "composition",
     # "compose").
+    # The target's v5 calibration is a chain [affine, height_field]: the affine
+    # kind is retired, so it migrates to its factors — HeightField ∘ EuclideanMap
+    # ∘ Scale ∘ Aspect ∘ Skew, the same map — its covariance through the
+    # factorization's Jacobian.
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: Rig, BoundedCamera, CameraModel, PosedCamera, PosedTarget, PlanarTarget, HeightField,
-        Lens, Perspective, Additive, Radial, Tangential, Tilt, Size2, ViewFrame, BodyFrame, Uncertain, CovMat, grid_nodes, relabel, mm
-    using CoordinateTransformations: AffineMap
+        Lens, Perspective, Additive, Radial, Tangential, Tilt, Size2, ViewFrame, BodyFrame, Uncertain, CovMat, grid_nodes, relabel, mm,
+        calibration, parameter_vector, Scale, Aspect, Skew, geom
     using LinearAlgebra: Diagonal
+    import LinearAlgebra
     using JSON: JSON
     K = SMatrix{3, 3}(800.0, 0.0, 0.0, 0.0, 810.0, 0.0, 640.0, 480.0, 1.0)
     lens = Lens(Perspective(), Tilt(0.01, -0.02) ∘ Additive(Radial((-0.12, 0.03)), Tangential(1.0e-3, -5.0e-4)))
     I3 = EuclideanMap(one(RotMatrix{3, Float64}), [0.0mm, 0.0mm, 0.0mm])
     cam = BoundedCamera(PosedCamera(CameraModel(K; lens, image_origin = :colmap), relabel(BodyFrame{:camera_rig}, ViewFrame{:cam}, I3)), Size2(1280, 960))
-    nodes = [p .* mm for p in grid_nodes(2; lo = 0.0, hi = 100.0)]
-    c = HeightField(nodes, [0.1, 0.0, -0.1, 0.2] .* mm) ∘ AffineMap(SMatrix{2, 2}(1.001, 0.0, 0.002, 0.999), SVector(0.5, -0.25) .* mm)
-    Σ = CovMat(SMatrix{10, 10, Float64}(Diagonal([1.0e-8 * i for i in 1:10])))
-    t = PlanarTarget([SVector(0.0, 0.0) .* mm, SVector(100.0, 50.0) .* mm]; calibration = Uncertain(c, Σ))
-    rig = Rig{BodyFrame{:camera_rig}}((cam,), Dict(:t => PosedTarget(t, I3)))
+    nodes = [VgtkIO.read_length.(p, mm) for p in grid_nodes(3; lo = 0.0, hi = 100.0)]
+    fb(x) = VgtkIO.read_length(VgtkIO.write_length(x * VisualGeometryToolkitCore.m, mm), mm)    # file-born
+    H = HeightField(nodes, fb.(parameter_vector(HeightField(nodes, VgtkIO.read_length.([0.1, 0.0, -0.1, 0.2, 0.0, 0.0, 0.0, 0.3, 0.0], mm)))))
+    pts = [SVector(0.0, 0.0) .* mm, SVector(100.0, 50.0) .* mm]
+    rig = Rig{BodyFrame{:camera_rig}}((cam,), Dict(:t => PosedTarget(PlanarTarget(pts; calibration = H), I3)))
+    A, b = (1.001, 0.002, -0.003, 0.999), (0.5, -0.25)       # a11, a12, a21, a22 (row by row); b in the file's mm
+    Σold = Diagonal([1.0e-8 * i for i in 1:15])              # over [affine (6); height field (9)], the file's units
     mktempdir() do dir
         v6 = joinpath(dir, "rig.json")
         VgtkIO.save(v6, rig)
         d = JSON.parse(read(v6, String); dicttype = Dict{String, Any})
         @test [only(keys(x)) for x in d["sensors"][1]["camera"]["lens"]["compose"]] == ["tilt", "add"]        # the outer first
-        @test d["targets"][1]["target"]["calibration"]["type"] == "composition"
-        @test [x["type"] for x in d["targets"][1]["target"]["calibration"]["compose"]] == ["height_field", "affine"]
-        # the v5 file it migrates from: v5's keys, in application order
+        # the v5 file: v5's keys, in application order; the calibration a chain [affine, height_field]
         d["schema"] = "vgio/rig/v5"
         l = d["sensors"][1]["camera"]["lens"]
         l["chain"] = reverse(pop!(l, "compose"))
-        cal = d["targets"][1]["target"]["calibration"]
-        cal["type"] = "calibration_chain"
-        cal["members"] = reverse(pop!(cal, "compose"))
-        p = [5, 6, 7, 8, 9, 10, 1, 2, 3, 4]                     # affine (6) then height field (4) ← height field then affine
-        cal["covariance"] = [[cal["covariance"][p[i]][p[j]] for j in 1:10] for i in 1:10]
+        hrec = d["targets"][1]["target"]["calibration"]
+        d["targets"][1]["target"]["calibration"] = Dict{String, Any}("type" => "calibration_chain",
+            "members" => Any[Dict{String, Any}("type" => "affine", "parameters" => Any[A..., b...]), hrec],
+            "covariance" => Any[Any[Σold[i, j] for j in 1:15] for i in 1:15])
         v5 = joinpath(dir, "rig_v5.json")
         write(v5, JSON.json(d, 2))
         e = try VgtkIO.load(Rig, v5); nothing catch e; e end
         @test e isa ArgumentError && occursin("vgio_migrate", e.msg)
         r = VgtkIO.vgio_migrate(v5; out = joinpath(dir, "rig_migrated.json"))
-        @test r.to == "vgio/rig/v6" && read(r.out) == read(v6)                  # the writer's v6, byte for byte
-        @test r.new_id == VgtkIO.content_id(rig) && r.old_id == r.new_id && r.old_ids == [r.new_id]   # the identity is the format's
-        @test VgtkIO.load(Rig, r.out)[:t].target == rig[:t].target
+        @test r.to == "vgio/rig/v6"
+        # the value changed kind (affine → its factors), so the identity moves: v5's is reported as the old one
+        @test r.new_id == VgtkIO.content_id(r.out) && r.old_id != r.new_id && r.old_ids == [r.old_id]
+        back = VgtkIO.load(Rig, r.out)
+        @test VisualGeometryToolkitCore.model(only(back.members.sensors)).lens == lens          # the sensor's lens, in CT's order
+        cu = calibration(back[:t].target)
+        c = geom(cu)
+        ms = VgtkIO._flat_members(c)
+        @test ms[1] == H && ms[2] isa EuclideanMap && ms[3] isa Scale && ms[4] isa Aspect && ms[5] isa Skew
+        # the same map: H(A·p + b), in metres
+        Am, bm = SMatrix{2, 2}(A[1], A[3], A[2], A[4]), SVector(b...) ./ 1000
+        for q in (SVector(0.0, 0.0), SVector(0.1, 0.05), SVector(-0.02, 0.08))
+            @test ustrip.(VisualGeometryToolkitCore.m, c(q .* VisualGeometryToolkitCore.m)) ≈ ustrip.(VisualGeometryToolkitCore.m, H((Am * q + bm) .* VisualGeometryToolkitCore.m)) atol = 1.0e-14
+        end
+        # the covariance, over [height field (9); ϑ, tx, ty, log s, a₁, u₁₂] in the file's units: J Σ Jᵀ, J by central differences
+        f(x) = (θ = VgtkIO._affine_factors(x[1:4]...)[1]; [θ[1], x[5], x[6], θ[2], θ[3], θ[4]])
+        x0 = [A..., b...]
+        Jfd = reduce(hcat, [(h = zeros(6); h[k] = 1.0e-6; (f(x0 .+ h) .- f(x0 .- h)) ./ 2.0e-6) for k in 1:6])
+        @test VgtkIO._member_v2_to_v3(Dict{String, Any}("type" => "affine", "parameters" => Any[x0...])).J ≈ Jfd rtol = 1.0e-8
+        Jt = zeros(15, 15)
+        Jt[1:9, 7:15] = Matrix{Float64}(LinearAlgebra.I, 9, 9)
+        Jt[10:15, 1:6] = Jfd
+        rows = JSON.parse(read(r.out, String))["targets"][1]["target"]["calibration"]["covariance"]
+        @test [rows[i][j] for i in 1:15, j in 1:15] ≈ Jt * Σold * Jt' rtol = 1.0e-6
     end
+end
+
+@testitem "vgio_migrate: an affine calibration is its Iwasawa factors — the same map, det A > 0 required" setup = [VGIoFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: Scale, Aspect, Skew
+    for A in ((1.001, 0.002, -0.003, 0.999), (0.7, -1.3, 2.1, 0.4), (-1.2, 0.3, -0.1, -0.9), (2.0, 0.0, 0.0, 0.5))
+        (ϑ, k, a, u), _ = VgtkIO._affine_factors(A...)
+        M = SMatrix{2, 2}(A[1], A[3], A[2], A[4])
+        F = SMatrix(RotMatrix{2, Float64}(ϑ)) * exp(k) * SMatrix{2, 2}(exp(a), 0.0, 0.0, exp(-a)) * SMatrix{2, 2}(1.0, 0.0, u, 1.0)
+        @test F ≈ M rtol = 1.0e-14
+        c = EuclideanMap(RotMatrix{2, Float64}(ϑ), SVector(0.0, 0.0); check = false) ∘ Scale(k) ∘ Aspect(a) ∘ Skew(u)
+        @test c(SVector(0.3, -0.7)) ≈ M * SVector(0.3, -0.7) rtol = 1.0e-14
+    end
+    e = try VgtkIO._affine_factors(1.0, 0.0, 0.0, -1.0); nothing catch e; e end                      # a reflection
+    @test e isa ArgumentError && occursin("det A", e.msg)
 end
 
 @testitem "vgio_migrate: a v5 rig of every target kind and its v6 migration have one content_id, the id v5 had" setup = [VGIoFixtures, TargetRecordFixtures] begin
@@ -561,14 +601,18 @@ end
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: Rig
     using JSON: JSON
-    # identity_rig()'s id as v5 hashed it — its composed target's members in
-    # application order (thin_plate_spline, height_field), computed by the v5
-    # → v6 migration's old-id rule before the identity tree fixed its order
-    v5_ids = Dict(false => "f55db7e749c4b23e0ad31e665e2e79e5529163efdff4e04bf758617229549527",
-        true => "aa4d8aea6e17d3f7b5962b71ebdd6d493d186c38386a216347395a778f09586d")
+    # identity_rig() without its affine target (`b_affine` holds the factors,
+    # which v5 never wrote; the affine kind's migration and the old id it
+    # reports are checked against the chain-equivalence goldens): every other
+    # kind, its v5 form — the current record with v5's names and order — of
+    # the same identity, pinned.
+    using VisualGeometryToolkitCore: TargetFrame, ids
+    v5_ids = Dict(false => "531c4aac5d154481e35f144c48fe7450711e35f88497def8c70ca5190fa58ae0",
+        true => "5c82c4d9d13a2abdbcb6af39163b6a6372f22eb5d0ceb5c2c697f22e04cb87c4")
     mktempdir() do dir
         for boards in (false, true), length_unit in (mm, m)
-            rig = identity_rig(; boards)
+            full = identity_rig(; boards)
+            rig = Rig{TargetFrame{:a_rigid}}(Dict(id => full[id] for id in ids(full) if id != :b_affine))
             v6 = joinpath(dir, "rig_v6.json")
             VgtkIO.save(v6, rig; length_unit)
             d = JSON.parse(read(v6, String); dicttype = Dict{String, Any})

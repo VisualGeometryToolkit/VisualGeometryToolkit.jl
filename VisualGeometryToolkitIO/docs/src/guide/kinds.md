@@ -81,28 +81,48 @@ in VGC's `TARGET_CALIBRATION_TAGS`:
 
 ```json
 "calibration": {"type": "rigid"}
-"calibration": {"type": "affine", "parameters": [a11, a12, a21, a22, bx, by]}
+"calibration": {"type": "euclidean", "parameters": [angle, tx, ty]}
+"calibration": {"type": "scale", "parameters": [log_scale]}
+"calibration": {"type": "aspect", "parameters": [a1]}
+"calibration": {"type": "skew", "parameters": [u12]}
 "calibration": {"type": "thin_plate_spline", "nodes": [[u, v], …], "parameters": [fx1, …, fxK, fy1, …, fyK]}
 "calibration": {"type": "height_field", "nodes": [[u, v], …], "parameters": [h1, …, hK]}
-"calibration": {"type": "composition", "compose": [{"type": "height_field", …}, {"type": "affine" | "thin_plate_spline", …}]}
+"calibration": {"type": "composition", "compose": [{outer}, …, {inner}]}
 ```
 
 `parameters` are the kind's `parameter_vector` in its `parameter_names` order:
-lengths (an affine's `b`, the displacements, the heights) in the file's
-`length_unit`, the affine's `A` plain. `nodes` are positions in the target's
-plane, in the file's unit. A composition — `HeightField ∘ AffineMap` or
-`HeightField ∘ ThinPlateSpline`, CoordinateTransformations' `∘`, the only two
-there are — is written by its structure: its members are records of their own,
-listed under `compose` (the key a lens record lists its stages in sequence
-under) in CoordinateTransformations' order, the outer map (the height field)
-first (`vgio/target/v2` and `vgio/rig/v5` wrote `{"type": "calibration_chain",
-"members": […]}`, the members in application order; `vgio_migrate` converts
-them, and refuses a chain of two in-plane kinds, which has no current form; a
-current reader refuses the retired form by name). An `Uncertain` calibration adds `covariance` at
-the top of the record, n × n over `parameter_vector` (a composition's covers
-every member's parameters, in that order, so its members carry none), each entry in the file's unit raised to its length
-dimension. A calibration with lengths in plain numbers is refused, as plain
-points are.
+lengths (a euclidean's `tx, ty`, the displacements, the heights) in the file's
+`length_unit`, the rest plain (a euclidean's angle in radians, the log-scale,
+the aspect's log-stretch, the skew's shear). `nodes` are positions in the
+target's plane, in the file's unit. The thin-plate kinds hold pure bending (no
+affine term in the interpolant): a record whose values carry one is refused.
+
+A composition is 2 to 6 kinds in VGC's canonical order
+`HeightField ∘ ThinPlateSpline ∘ EuclideanMap ∘ Scale ∘ Aspect ∘ Skew`, any
+left out, each once — the affine print error `Aspect ∘ Skew` (with a ruler
+`Scale ∘ Aspect ∘ Skew`, with a known pose `EuclideanMap ∘ Scale ∘ Aspect ∘
+Skew`), `HeightField ∘ ThinPlateSpline ∘ Aspect ∘ Skew`, … It is written by its
+structure, flat: its members are records of their own, listed under `compose`
+(the key a lens record lists its stages in sequence under) in
+CoordinateTransformations' order, the outer map first.
+
+`vgio/target/v2` and `vgio/rig/v5` wrote `{"type": "calibration_chain",
+"members": […]}`, the members in application order, and an `"affine"` kind
+(`[a11, a12, a21, a22, bx, by]`); the current reader refuses both by name.
+`vgio_migrate` converts them: an affine is its Iwasawa factors
+`EuclideanMap ∘ Scale ∘ Aspect ∘ Skew` (the same map, its covariance through
+the factorization's Jacobian, and a rig's old content id reported for the
+re-pointing). It refuses a chain with no current form (two in-plane kinds out
+of the canonical order) and a thin-plate spline or height field whose
+interpolant carries an affine term: that part cannot move into the factors
+(they compose after the spline) or a height plane into a rigid pose without
+changing the map, so such a calibration is re-fitted.
+
+An `Uncertain` calibration adds `covariance` at the top of the record, n × n
+over `parameter_vector` (a composition's covers every member's parameters, in
+that order, so its members carry none; a thin-plate kind's has rank 2K − 6 or
+K − 3), each entry in the file's unit raised to its length dimension. A
+calibration with lengths in plain numbers is refused, as plain points are.
 
 A `PlanarTarget` may also state its `board`, the physical board it is
 printed on (parallel to a camera's sensor; the board proper, inside the

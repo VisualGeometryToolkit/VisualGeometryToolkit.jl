@@ -195,8 +195,7 @@
             # NO-FILL CONTRACT: every pixel of the inner boundary forward-distorts
             # to INSIDE the source frame (this is the definition, tested directly)
             cm = CameraModel(m)
-            K = cm.intrinsics.K
-            fx, fy, cx, cy = K[1, 1], K[2, 2], K[1, 3], K[2, 3]
+            fx, fy, (cx, cy) = 1.0, 1.0, principal_point(cm.intrinsics)   # projective: unit focal about the centre
             o, wd = inner.origin, inner.widths
             for t in range(0, 1; length = 200), u in (
                         SVector(o[1] + t * wd[1], o[2]), SVector(o[1] + t * wd[1], o[2] + wd[2]),

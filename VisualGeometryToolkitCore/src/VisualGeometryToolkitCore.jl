@@ -222,7 +222,7 @@ export AbstractCamera, PosedCamera, BoundedCamera, CameraModel, Sensor, sensor, 
 public is_posed   # whether a camera or target carries a pose (the rig members' one placement trait)
 export extent
 public BoundsTrait, HasBounds, NoBounds, bounds_trait
-export LogicalIntrinsics, AbstractIntrinsics
+export LogicalIntrinsics, ProjectiveIntrinsics, AbstractIntrinsics, principal_point
 export Pinhole, Division, KannalaBrandt, Scaramuzza, AbstractLensModel, Lens, LiftLens
 export AbstractProjection, Perspective, Equidistant, Stereographic, Equisolid, Orthographic
 export DoubleSphere, Unified, ExtendedUnified
@@ -234,6 +234,7 @@ export AbstractDistortionTerm, Radial, Tangential, ThinPrism, Tilt, FieldOfView,
 public Even, Full, isdelta, projection_frame
 export radial, parameters, lens_record, lens_from_record
 export division_bounded, undistorted_rect, valid_rect, horizon_radius, fov_radius
+export radial_homography   # a target homography seen through a projective division camera (camera_models.jl)
 public DEFAULT_MAX_FOV
 export zhang_intrinsics, RadialCamera5pt, RadialCamera  # calibration.jl
 public radial_camera_5pt   # the positional minimal kernel under RadialCamera5pt (public, not exported)
@@ -302,7 +303,7 @@ export regularizer   # the calibratable-target protocol
 public design, reference, board, canvas   # a planar target's design, its reference, its board and its canvas (not exported: common words)
 public PlanarCalibration   # the planar kinds as one type
 public TargetManifold                     # a calibratable target's Manifold (minimal_manifold(target))
-export Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
+export Trajectory, TargetPoses, TargetHomographies, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
 export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3
 export DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings   # a capture's camera settings per frame, its hardware's identity (captures.jl)
 public is_constant   # every frame of a CaptureSettings exposed alike (not exported: a common word)
@@ -609,7 +610,7 @@ export homography_dlt, homography_dlt!
 public homography_4pt   # positional minimal kernel under Homography4pt (public, not exported)
 export RadialHomography, AbstractRadialModel
 public homography_5pt_radial   # positional minimal kernel under Homography5ptRadial
-public homography, division_coeff   # RadialHomography accessors (plane part H, lens coefficient k)
+public homography, division_coeff, division_coeffs   # RadialHomography accessors (plane part H, the lens coefficient k of N = 1, all N coefficients)
 # `center` and `direction` are the radial family's accessors (radial_models.jl,
 # cameras/calibration.jl). PUBLIC, not exported: both names are far too generic
 # for a foundational geometry package to inject into every `using` — the same

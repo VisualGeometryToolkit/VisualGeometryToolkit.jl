@@ -168,12 +168,28 @@ function with_parameters(::LogicalIntrinsics, θ::AbstractVector)
     return LogicalIntrinsics(CameraCalibrationMat(K))
 end
 
+# --- ProjectiveIntrinsics: the principal point alone ---------------------------------
+
+parameter_names(::ProjectiveIntrinsics) = (:cx, :cy)
+@inline function parameter_bounds(::ProjectiveIntrinsics{T}) where {T}
+    F = float(T)
+    return (SVector{2, F}(-Inf, -Inf), SVector{2, F}(Inf, Inf))
+end
+parameter_vector(intr::ProjectiveIntrinsics{T}) where {T} = SVector{2, T}(intr.center[1], intr.center[2])
+function with_parameters(::ProjectiveIntrinsics, θ::AbstractVector)
+    length(θ) == 2 || throw(
+        ArgumentError("ProjectiveIntrinsics takes 2 parameters $((:cx, :cy)); got $(length(θ))")
+    )
+    cx, cy = float.(θ)
+    return ProjectiveIntrinsics(Point2(cx, cy))
+end
+
 """
     convert_eltype(::Type{T}, x) where {T <: AbstractFloat}
 
 `x` rebuilt with every stored number in `T`: a lens (its coefficients), a
 `LogicalIntrinsics` (`K`, with `K⁻¹` recomputed in `T`), a `CameraModel`
-(both), a `CentralGenericModel` or `NoncentralGenericModel` (the grids;
+(both), a `RadialHomography` (its `H`, coefficients and centre), a `CentralGenericModel` or `NoncentralGenericModel` (the grids;
 the calibrated area stays as stored). Use it to move a camera to `Float32`
 before a GPU launch, or back to `Float64`.
 
@@ -192,8 +208,12 @@ convert_eltype(::Type{T}, l::AbstractLensModel) where {T <: AbstractFloat} =
 _widens(::Type{T}, ::Type{C}) where {T, C} = C === Union{} || promote_type(T, C) === T
 convert_eltype(::Type{T}, intr::LogicalIntrinsics) where {T <: AbstractFloat} =
     LogicalIntrinsics(CameraCalibrationMat{T}(intr.K))
+convert_eltype(::Type{T}, intr::ProjectiveIntrinsics) where {T <: AbstractFloat} =
+    ProjectiveIntrinsics{T}(intr.center)
 convert_eltype(::Type{T}, m::CameraModel) where {T <: AbstractFloat} =
     CameraModel(convert_eltype(T, m.intrinsics), convert_eltype(T, m.lens))
+convert_eltype(::Type{T}, m::RadialHomography) where {T <: AbstractFloat} =
+    RadialHomography{T}(m.H, m.λ, m.center)
 
 # --- CameraModel: the intrinsics' coordinates, then the lens's ---------------------
 #
@@ -221,6 +241,7 @@ end
 end
 parameters(m::CameraModel) = NamedTuple{parameter_names(m)}(Tuple(parameter_vector(m)))
 parameters(intr::LogicalIntrinsics) = NamedTuple{parameter_names(intr)}(Tuple(parameter_vector(intr)))
+parameters(intr::ProjectiveIntrinsics) = NamedTuple{parameter_names(intr)}(Tuple(parameter_vector(intr)))
 
 # --- the parameter manifold ----------------------------------------------------------
 

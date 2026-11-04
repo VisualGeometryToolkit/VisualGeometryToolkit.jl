@@ -10,7 +10,7 @@
 
 # The pixel-space affine of an intrinsics block is `affine_part(K)`
 # (transforms/conversions.jl); no second spelling here.
-@inline _pixel_affine(intrinsics::AbstractIntrinsics) = affine_part(intrinsics.K)
+@inline _pixel_affine(intrinsics::AbstractIntrinsics) = affine_part(_K(intrinsics))
 
 """
     imaging_transform(intrinsics, lens) -> ComposedTransformation

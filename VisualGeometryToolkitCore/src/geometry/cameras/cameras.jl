@@ -179,6 +179,7 @@ include("boards.jl")           # Board: the board a planar target's pattern is p
 
 # Include modular camera components
 include("intrinsics.jl")
+include("projective_intrinsics.jl")  # ProjectiveIntrinsics: the principal point alone, no focal length
 include("lenses.jl")         # the lens families: Lens/LiftLens, projections, terms, combinators
 include("projections.jl")
 include("camera_models.jl")
@@ -920,6 +921,8 @@ export CMOS_SENSORS                    # Database of common sensors
 # -----------------------------------------------------------------------------
 export AbstractIntrinsics
 export LogicalIntrinsics               # Pixel-based (fx, fy, cx, cy)
+export ProjectiveIntrinsics            # the principal point alone: a projective ray frame, no focal length
+export principal_point                 # a projective camera's principal point
 export CameraCalibrationMat                        # 3x3 pixel-space calibration matrix
 export zhang_intrinsics                # Zhang IAC regression from plane homographies
 
@@ -942,6 +945,7 @@ export AbstractPanoramaProjection   # the family's supertype (public, not export
 export AbstractDistortionTerm, Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Even, Full
 export radial, isdelta, projection_frame, parameters, lens_record, lens_from_record
 export division_bounded, undistorted_rect, valid_rect, horizon_radius, fov_radius, DEFAULT_MAX_FOV   # whole-extent undistortion
+export radial_homography   # a target homography seen through a projective division camera
 export undistort, undistort!           # Remove lens distortion from images
 export radial_camera_5pt, RadialCamera5pt   # the radial camera's 5-point minimal kernel and its solver
 export radial_rows                     # RadialCamera's rows accessor (public, not exported, at the top level)
@@ -1006,7 +1010,7 @@ export TARGET_CALIBRATION_TAGS, calibration_tag, length_mask   # the kinds' tag 
 export TARGET_CALIBRATION_ORDER, planar_kind, members, is_pure_bending   # the composition's structure (public, not exported, at the top level)
 export iwasawa_parameters, iwasawa_parameters_with_jacobian   # an affine's Iwasawa factors' parameters (public, not exported, at the top level)
 export regularizer, TargetManifold      # the calibratable-target protocol
-export Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
+export Trajectory, TargetPoses, TargetHomographies, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
 export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3
 export DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings, is_constant   # a capture's camera settings per frame, its hardware's identity (captures.jl; is_constant public, not exported, at the top level)
 export convert_frame                      # the one way to change the pixel frame of pixel data

@@ -19,6 +19,7 @@
 #
 #   Trajectory{S, D}      the pose S → D per frame index (a body in the world)
 #   TargetPoses{F}        per frame, the pose of every target seen, TargetFrame{id} → F
+#   TargetHomographies{H} per frame, each target's plane → pixel HomographyMat (the projective TargetPoses)
 #   TargetPoints2D{F}     per frame, the pixels of target points, in the pixel frame F
 #   TargetPoints3D{F}     per frame, the 3D positions of target points, in the 3D frame F
 #
@@ -40,6 +41,14 @@ _frame_times(x::AbstractDict) = Dict{Int, Float64}(Int(t) => Float64(v) for (t, 
 # One name for every frame, or a frame index → name map.
 _frame_names(x::AbstractString, ts) = Dict{Int, String}(t => String(x) for t in ts)
 _frame_names(x::AbstractDict, ts) = _frame_strings(x, "")
+
+# The per-frame stamps of a capture value, normalized and checked against its
+# frame indices `ts`: (images, sensors, times).
+function _stamps(ts, images, sensors, times, time_origin)
+    imgs, sens, tms = _frame_strings(images, "images"), _frame_names(sensors, ts), _frame_times(times)
+    _check_stamps(ts, imgs, tms, time_origin, sens)
+    return imgs, sens, tms
+end
 
 function _check_stamps(ts, images, times, time_origin, sensors = Dict{Int, String}())
     for (what, d) in (("images", images), ("times", times), ("sensors", sensors))
@@ -160,8 +169,7 @@ struct TargetPoses{F <: Frame{3}, P} <: AbstractDict{Int, Dict{Symbol, P}}
         vals = [X for ps in values(fr) for X in values(ps)]
         _check_one_form(vals)   # all plain or all physical
         P = isempty(vals) ? EuclideanMap{3} : typejoin(map(typeof, vals)...)
-        imgs, sens, tms = _frame_strings(images, "images"), _frame_names(sensors, keys(fr)), _frame_times(times)
-        _check_stamps(keys(fr), imgs, tms, time_origin, sens)
+        imgs, sens, tms = _stamps(keys(fr), images, sensors, times, time_origin)
         return new{F, P}(
             Dict{Int, Dict{Symbol, P}}(t => Dict{Symbol, P}(ps) for (t, ps) in fr), imgs, sens, tms, _origin(time_origin),
         )
@@ -195,6 +203,51 @@ _map_poses(f, tp::TargetPoses{F}) where {F} = TargetPoses{F}(
 )
 FlexUnits.ustrip(u::Units, tp::TargetPoses) = _map_poses(X -> ustrip(u, X), tp)
 with_unit(tp::TargetPoses, u::Units) = _map_poses(X -> with_unit(X, u), tp)
+
+# ------------------------------------------------------------------------------
+# TargetHomographies
+# ------------------------------------------------------------------------------
+
+"""
+    TargetHomographies(frames; images = Dict(), sensors = Dict(), times = Dict(), time_origin = nothing)
+
+Per frame index, the homography of every target seen, each a `HomographyMat`
+taking the target's plane (its chart coordinates) to pixels: `th[t]` is frame
+`t`'s target id → homography. The projective counterpart of
+[`TargetPoses`](@ref): a homography has no 3D frame, so the type carries only
+the homography type `H`. `images[t]` names the image, `sensors[t]` the camera
+(one name for every frame, or a map), `times[t]` seconds since `time_origin`.
+Throws `ArgumentError` for a stamp (`images`, `sensors`, `times`) naming a
+frame index with no value, or `times` without a `time_origin`. Otherwise a
+Dict: `keys`, `pairs`, iteration.
+"""
+struct TargetHomographies{H <: HomographyMat} <: AbstractDict{Int, Dict{Symbol, H}}
+    frames::Dict{Int, Dict{Symbol, H}}
+    images::Dict{Int, String}
+    sensors::Dict{Int, String}
+    times::Dict{Int, Float64}
+    time_origin::Union{Nothing, String}
+
+    function TargetHomographies(
+            frames::AbstractDict{<:Integer}; images::AbstractDict = Dict{Int, String}(),
+            sensors::Union{AbstractString, AbstractDict} = Dict{Int, String}(),
+            times::AbstractDict = Dict{Int, Float64}(), time_origin::Union{Nothing, AbstractString} = nothing
+        )
+        fr = Dict{Int, Dict{Symbol, HomographyMat}}(
+            Int(t) => Dict{Symbol, HomographyMat}(Symbol(id) => H for (id, H) in hs) for (t, hs) in frames
+        )
+        vals = [H for hs in values(fr) for H in values(hs)]
+        H = isempty(vals) ? HomographyMat{Float64} : typejoin(map(typeof, vals)...)
+        imgs, sens, tms = _stamps(keys(fr), images, sensors, times, time_origin)
+        return new{H}(
+            Dict{Int, Dict{Symbol, H}}(t => Dict{Symbol, H}(hs) for (t, hs) in fr), imgs, sens, tms, _origin(time_origin),
+        )
+    end
+end
+
+Base.:(==)(a::TargetHomographies, b::TargetHomographies) =
+    a.frames == b.frames && a.images == b.images && a.sensors == b.sensors &&
+    a.times == b.times && isequal(a.time_origin, b.time_origin)
 
 # ------------------------------------------------------------------------------
 # TargetPoints2D / TargetPoints3D
@@ -343,7 +396,7 @@ with_unit(x::TargetPoints3D, u::Units) = _map_points(p -> _attach_point(u, p), x
 # --- the Dict surface, frame index → value (the methods: end of file) --------------
 
 _frames(x::Trajectory) = x.poses
-_frames(x::Union{TargetPoses, TargetPoints2D, TargetPoints3D}) = x.frames
+_frames(x::Union{TargetPoses, TargetHomographies, TargetPoints2D, TargetPoints3D}) = x.frames
 
 Base.setindex!(x::TargetPoints2D, v, t) = (x.frames[Int(t)] = TargetPoint2D[_target_point2d(o, t) for o in v]; x)
 
@@ -371,6 +424,23 @@ function convert_frame(::Type{G}, o::TargetPoints2D{F}) where {G <: PixelFrame, 
         Dict{Int, Vector{TargetPoint2D}}(t => TargetPoint2D[merge(p, (xy = _shifted(shift, p.xy),)) for p in ps] for (t, ps) in o.frames);
         o.images, o.sensors, o.times, o.time_origin, o.targets,
     )
+end
+
+"""
+    convert_frame(G::Type{<:PixelFrame}, camera::CameraModel{<:ProjectiveIntrinsics}) -> CameraModel
+
+The projective camera with its principal point moved from the package's
+COLMAP pixel frame to `G` by `EuclideanMap(PixelFrame{:colmap}, G)`, so that
+`project` of the result is `project` of the camera in `G`'s pixels. The lens
+is unchanged: it acts on centred coordinates, which a translation of the pixel
+origin does not touch. The result is a `CameraModel` in `G`'s convention;
+the camera itself holds no frame tag, so converting it again is the caller's
+bookkeeping. The element type is preserved.
+"""
+function convert_frame(::Type{G}, camera::CameraModel{<:ProjectiveIntrinsics{T}}) where {G <: PixelFrame, T}
+    c = principal_point(camera.intrinsics)
+    moved = EuclideanMap(PixelFrame{:colmap}, G)(SVector{2, T}(c[1], c[2]))
+    return CameraModel(ProjectiveIntrinsics{T}(Point2{T}(moved[1], moved[2])), camera.lens)
 end
 
 # ------------------------------------------------------------------------------
@@ -537,7 +607,7 @@ _frames(x::CaptureSettings) = x.frames
 # The Dict surface of every per-frame value, frame index → value
 # ------------------------------------------------------------------------------
 
-for T in (:Trajectory, :TargetPoses, :TargetPoints2D, :TargetPoints3D, :CaptureSettings)
+for T in (:Trajectory, :TargetPoses, :TargetHomographies, :TargetPoints2D, :TargetPoints3D, :CaptureSettings)
     @eval begin
         Base.length(x::$T) = length(_frames(x))
         Base.iterate(x::$T, s...) = iterate(_frames(x), s...)

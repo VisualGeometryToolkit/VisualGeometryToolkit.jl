@@ -38,7 +38,8 @@ function _rectified_panel!(
         max_fov::Real
     )
     H, W = size(img)
-    f = calibration_matrix(camera)[1, 1]
+    # a projective camera has no focal length: its kind stands in the title
+    f_txt = camera.intrinsics isa ProjectiveIntrinsics ? "projective" : "f=$(round(calibration_matrix(camera)[1, 1]; digits = 1))"
     c = _principal_point(camera)
     # CAPPED BY FIELD OF VIEW, not by a fraction of the horizon: flattening the
     # last degree before the pole is unbounded (`tan θ`), and without this a
@@ -49,7 +50,7 @@ function _rectified_panel!(
     fov_txt = isfinite(max_fov) ? ", fov ±$(round(Int, rad2deg(max_fov)))°" : ""
     ax, _ = imshow(
         pos, ci;
-        title = "$label — f=$(round(f; digits = 1)), pp=($(round(c[1]; digits = 1)), $(round(c[2]; digits = 1)))$fov_txt  (↓×$(round(σ; digits = 2)))",
+        title = "$label — $f_txt, pp=($(round(c[1]; digits = 1)), $(round(c[2]; digits = 1)))$fov_txt  (↓×$(round(σ; digits = 2)))",
         titlecolor = colour
     )
     # The sensor footprint is the frame rect every other call in this chain
@@ -64,8 +65,8 @@ function _rectified_panel!(
 end
 
 """
-    plot_rectification(cameras::AbstractVector, img; names = String[], max_px = 4200) -> Figure
-    plot_rectification(camera::CameraModel, img; max_px = 4200, name = "") -> Figure
+    plot_rectification(cameras::AbstractVector, img; names = String[], max_px = 4200, max_fov = nothing) -> Figure
+    plot_rectification(camera::CameraModel, img; max_px = 4200, name = "", max_fov = nothing) -> Figure
 
 One raw panel, then one FULL-extent rectification PER CAMERA, all in the same
 pixel frame. Each camera's 180° radius circle and principal-point cross are
@@ -76,7 +77,11 @@ calibrations of the same session differ. Each rectified panel is a self-placing
 `FramedImage` (the rect form of [`undistort`](@ref) returns the canvas WITH its
 pixel-frame window), so the sensor footprint (dashed) and the cross land where
 they belong with nothing carried by hand. `max_px` caps the rendered width; the
-downsample folds into the fused warp.
+downsample folds into the fused warp. `max_fov` (radians) caps each rectified
+panel by field of view ([`undistorted_rect`](@ref)); left at `nothing` it is
+[`DEFAULT_MAX_FOV`](@ref) for a metric camera and no cap for a projective one
+(`ProjectiveIntrinsics`, e.g. `CameraModel(::RadialHomography)`), which has no
+field of view — an explicit finite value on one is an `ArgumentError`.
 
 This is the form for judging one fit against another: a linear calibration
 against the bundle that refined it, or one robust cutoff against another. The
@@ -85,7 +90,7 @@ single-camera method is the same figure for one camera.
 function plot_rectification(
         cameras::AbstractVector, img::AbstractMatrix;
         names::AbstractVector{<:AbstractString} = String[], max_px::Real = 4200,
-        max_fov::Real = DEFAULT_MAX_FOV
+        max_fov::Union{Nothing, Real} = nothing
     )
     isempty(cameras) && throw(ArgumentError("plot_rectification: no cameras to compare"))
     labels = isempty(names) ? ["camera $i" for i in eachindex(cameras)] : collect(names)
@@ -98,12 +103,19 @@ function plot_rectification(
     for (i, cam) in enumerate(cameras)
         colour = palette[mod1(i, length(palette))]
         any_horizon |= _raw_overlay!(ax1, cam, colour, labels[i])
-        _rectified_panel!(fig[1, i + 1], cam, img, max_px, labels[i], colour; max_fov)
+        _rectified_panel!(fig[1, i + 1], cam, img, max_px, labels[i], colour; max_fov = _panel_max_fov(cam, max_fov))
     end
     # a legend needs a labelled horizon: pinhole-like lenses have none to show
     any_horizon && Makie.axislegend(ax1; position = :lt, framevisible = true)
     return fig
 end
+
+# The field-of-view cap of one panel: the caller's, else the default for the
+# camera's kind — `DEFAULT_MAX_FOV` for a metric camera, none (`Inf`) for a
+# projective one, which has no field of view (an explicit finite cap on it is
+# `undistorted_rect`'s ArgumentError).
+_panel_max_fov(camera::CameraModel, max_fov::Real) = max_fov
+_panel_max_fov(camera::CameraModel, ::Nothing) = camera.intrinsics isa ProjectiveIntrinsics ? Inf : DEFAULT_MAX_FOV
 
 plot_rectification(camera::CameraModel, img::AbstractMatrix; name::AbstractString = "", kwargs...) =
     plot_rectification([camera], img; names = [isempty(name) ? "rectified" : name], kwargs...)

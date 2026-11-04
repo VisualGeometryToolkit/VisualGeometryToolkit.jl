@@ -243,6 +243,39 @@ end
     end
 end
 
+@testitem "vgio_migrate: a nested lens chain is relisted at every depth" setup = [VGIoFixtures, MigrateFixtures] begin
+    # a v3/v5 "chain" may hold a "chain" as a stage (Core reads a nested
+    # composition): [{chain: [A₁, A₂]}, T] in application order is T ∘ (A₂ ∘ A₁).
+    # Relisting only the outer list left the inner "chain", which the current
+    # reader refuses.
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: Rig, BoundedCamera, PosedCamera, Tilt, ViewFrame, BodyFrame, relabel, model
+    using JSON: JSON
+    K = SMatrix{3, 3}(800.0, 0.0, 0.0, 0.0, 810.0, 0.0, 640.0, 480.0, 1.0)
+    A1, A2, T1 = Additive(Radial((-0.1, 0.05)), Tangential(1.0e-4, -2.0e-4)), Additive(ThinPrism((1.0e-3,), (-5.0e-4,))), Tilt(0.01, -0.02)
+    L = Lens(Perspective(), T1 ∘ (A2 ∘ A1))
+    term(x) = Dict{String, Any}(k => v for (k, v) in lens_record(Lens(Perspective(), x)) if k != "perspective")
+    v5_lens = Dict{String, Any}("perspective" => Any[], "chain" => Any[Dict{String, Any}("chain" => Any[term(A1), term(A2)]), term(T1)])
+    I3 = EuclideanMap(one(RotMatrix{3, Float64}), [0.0mm, 0.0mm, 0.0mm])
+    cam = BoundedCamera(PosedCamera(CameraModel(K; lens = L, image_origin = :colmap), relabel(BodyFrame{:camera_rig}, ViewFrame{:c}, I3)), Size2(1280, 960))
+    rig = Rig{BodyFrame{:camera_rig}}((cam,))
+    @test VgtkIO._lens_v3_to_v4(v5_lens) == Dict{String, Any}("perspective" => Any[], "compose" => Any[term(T1), Dict{String, Any}("compose" => Any[term(A2), term(A1)])])
+    @test VgtkIO._lens_v4_to_v3(VgtkIO._lens_v3_to_v4(v5_lens)) == v5_lens
+    mktempdir() do dir
+        v6 = joinpath(dir, "rig_v6.json")
+        save(v6, rig)
+        d = JSON.parse(read(v6, String); dicttype = Dict{String, Any})
+        d["schema"] = "vgio/rig/v5"
+        d["sensors"][1]["camera"]["lens"] = v5_lens
+        v5 = joinpath(dir, "rig_v5.json")
+        write(v5, JSON.json(d, 2))
+        r = VgtkIO.vgio_migrate(v5; out = joinpath(dir, "rig_migrated.json"))
+        @test model(load(Rig, r.out).members[1]).lens == L
+        # the identity tree lists the stages in application order whatever the record's nesting: v5's id is the value's
+        @test r.old_id == r.new_id == VgtkIO.content_id(rig)
+    end
+end
+
 @testitem "vgio_migrate: a v4 rig in metres keeps both v4 identities, as v4 computed them" setup = [VGIoFixtures, MigrateFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     # fixtures/v4/rig_metres.json: units/rig.json as a v4 file in metres, plus

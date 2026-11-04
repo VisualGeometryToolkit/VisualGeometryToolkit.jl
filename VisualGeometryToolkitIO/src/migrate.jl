@@ -608,8 +608,16 @@ _lens_v3_to_v4(l::AbstractDict) = _relisted(l, "chain", _COMPOSE_KEY)
 _lens_v4_to_v3(l::AbstractDict) = _relisted(l, _COMPOSE_KEY, "chain")
 _lens_v3_to_v4(l) = l
 _lens_v4_to_v3(l) = l
-_relisted(l, from, to) = haskey(l, from) ?
-    merge(Dict{String, Any}(k => v for (k, v) in l if k != from), Dict{String, Any}(to => reverse(l[from]))) : l
+# At every depth: a lens record nests records (an `add`'s terms, a `lift`'s
+# lens, a composition's stages), and a composition inside any of them is
+# relisted as well.
+function _relisted(l::AbstractDict, from, to)
+    out = Dict{String, Any}(String(k) => _relisted(v, from, to) for (k, v) in l)
+    haskey(out, from) && (out[to] = reverse(pop!(out, from)))
+    return out
+end
+_relisted(v::AbstractVector, from, to) = map(x -> _relisted(x, from, to), v)
+_relisted(x, from, to) = x
 # a camera body (a store's camera, a rig's sensor camera) with its lens in the other form
 _camera_lens(f, c::AbstractDict) = haskey(c, "lens") ? merge(Dict{String, Any}(c), Dict{String, Any}("lens" => f(c["lens"]))) : c
 _camera_v3_to_v4(c::AbstractDict) = _camera_lens(_lens_v3_to_v4, c)

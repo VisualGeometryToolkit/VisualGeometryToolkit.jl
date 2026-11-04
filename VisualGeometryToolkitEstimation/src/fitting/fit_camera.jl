@@ -495,6 +495,7 @@ end
 # (one column per component), λ = `_PSPLINE_PENALTY` · mean(diag(AᵀA)); the
 # controls as an `ny × nx` matrix of `SVector{K}` and λ.
 function _penalized_solve(rows::AbstractVector, B::Matrix{Float64}, ny::Int, nx::Int, ::Val{K}) where {K}
+    _check_lattice_size(ny, nx)
     N = length(rows)
     rowval = Vector{Int}(undef, 16N)
     nzval = Vector{Float64}(undef, 16N)
@@ -516,6 +517,12 @@ function _penalized_solve(rows::AbstractVector, B::Matrix{Float64}, ny::Int, nx:
     controls = [SVector{K, Float64}(ntuple(k -> X[(c - 1) * ny + r, k], Val(K))) for r in 1:ny, c in 1:nx]
     return controls, λ
 end
+
+# The third-difference penalty and the cubic window need at least 4 nodes per axis
+# (ChartSpline's and the generic models' own bound).
+_check_lattice_size(ny::Integer, nx::Integer) = (ny >= 4 && nx >= 4) || throw(
+    ArgumentError("fit_camera: a uniform cubic lattice needs at least 4 × 4 nodes, got $ny × $nx")
+)
 
 # An error at the held-out points (pixels, or metres for a line offset): its
 # maximum, rms and edge-band maximum.
@@ -629,6 +636,7 @@ function fit_camera(
 end
 
 function _fit_grid(::Type{G}, source, region, grid_size, tolerance::Real) where {G}
+    _check_lattice_size(grid_size[2], grid_size[1])   # up front, before the quadrature
     W, H = _image_size(source)
     cam = model(source)
     q = _image_quadrature(_grid_samples(G), cam, region)

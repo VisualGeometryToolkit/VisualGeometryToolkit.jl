@@ -236,6 +236,9 @@ end
     @test maximum(angle_between(SVector{3}(g.grid[i]), axis) for i in findall(near)) <= cone + deg2rad(30)
     # a bare camera model has no image for the full-image lattice
     @test_throws ArgumentError fit_camera(CentralGenericModel, FISHEYE, REGION; grid_size = (40, 40), tolerance = 0.01)
+    # fewer than 4 nodes on an axis: a named ArgumentError, before any work
+    @test_throws r"at least 4 × 4 nodes" fit_camera(CentralGenericModel, bc, REGION; grid_size = (40, 3), tolerance = 0.01)
+    @test_throws r"at least 4 × 4 nodes" VgtkEstimation._penalized_solve(Tuple{SVector{16, Int}, SVector{16, Float64}}[], zeros(0, 2), 3, 9, Val(2))
 end
 
 @testitem "fit_camera: a non-central grid from a non-central source" setup = [FitCameraNoncentral] begin

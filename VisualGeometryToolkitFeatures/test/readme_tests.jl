@@ -53,14 +53,19 @@
     code = read($(repr(joinpath(env, "readme_example.jl"))), String)
     @testset "README example" begin
         pos = firstindex(code)
+        nclaims = 0
         while pos <= ncodeunits(code)
             ex, next = Meta.parse(code, pos; greedy = true, raise = true)
             chunk = code[pos:prevind(code, next)]
             pos = next
             ex === nothing && continue
             value = Core.eval(readme, ex)
-            occursin(r"#\\s*true\\z", rstrip(chunk)) && @test value === true
+            if occursin(r"#\\s*true\\z", rstrip(chunk))
+                nclaims += 1
+                @test value === true
+            end
         end
+        @test nclaims == $(count(r"#\s*true$"m, only(example)))   # every claim was asserted
     end
     """)
     # Base.julia_cmd() carries the test run's flags (--depwarn=error, coverage).

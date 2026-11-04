@@ -377,7 +377,12 @@ function _migrate_toml(path, out, dry_run, s, before_rename)
     @warn "vgio_migrate rewrites $(path) through TOML.print, which drops its comments; the original is kept unless out == path"
     migrated = migrate_record(tree)
     return write_staged(out => basename(out); dry_run) do staged
-        open(io -> TOML.print(io, migrated), staged, "w")
+        try
+            open(io -> TOML.print(io, migrated), staged, "w")
+        catch err
+            err isa ErrorException || rethrow()   # TOML.print refuses a value type it has no form for
+            throw(ArgumentError("$(path): the migrated record cannot be written as TOML ($(err.msg)); nothing written"))
+        end
         back = TOML.parsefile(staged)
         _same_tree(back, migrated) ||
             throw(ArgumentError("$(path): the migrated record does not read back from TOML.print as itself (a value TOML.print cannot reproduce exactly); nothing written"))

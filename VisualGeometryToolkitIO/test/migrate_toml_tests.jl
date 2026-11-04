@@ -63,3 +63,37 @@
         @test isfile(joinpath(dir, "c.migrated.toml"))
     end
 end
+
+@testitem "migrate_toml refuses what TOML.print cannot reproduce" begin
+    import VisualGeometryToolkitIO as VgtkIO
+    using TOML
+
+    # a Float32 prints, and reads back as a Float64 (a different type); a Symbol makes TOML.print throw
+    VgtkIO.migrate_schema(::Val{Symbol("vgiotest/lossy32/v1")}, t::Dict{String, Any}) =
+        Dict{String, Any}("schema" => "vgiotest/lossy32/v2", "x" => Float32(0.5))
+    VgtkIO.migrate_schema(::Val{Symbol("vgiotest/lossysym/v1")}, t::Dict{String, Any}) =
+        Dict{String, Any}("schema" => "vgiotest/lossysym/v2", "x" => :sym)
+
+    mktempdir() do dir
+        for kind in ("lossy32", "lossysym")
+            src = joinpath(dir, "$(kind).toml")
+            write(src, "schema = \"vgiotest/$(kind)/v1\"\n")
+            before = sort(readdir(dir))
+            out = joinpath(dir, "$(kind).out.toml")
+            for kw in ((; out), (; out, dry_run = true), (; out = src))
+                e = try
+                    Base.CoreLogging.with_logger(Base.CoreLogging.NullLogger()) do
+                        VgtkIO.vgio_migrate(src; kw...)
+                    end
+                    nothing
+                catch err
+                    err
+                end
+                @test e isa ArgumentError
+                @test occursin(src, e.msg)
+                @test sort(readdir(dir)) == before      # no out, no staging directory left
+                @test read(src, String) == "schema = \"vgiotest/$(kind)/v1\"\n"
+            end
+        end
+    end
+end

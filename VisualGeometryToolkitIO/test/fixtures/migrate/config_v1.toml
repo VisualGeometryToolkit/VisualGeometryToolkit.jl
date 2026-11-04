@@ -1,0 +1,24 @@
+# a commented run config
+schema = "vgiotest/config/v1"
+old_name = "run-7"
+count = 3
+scale = 1.0
+ratio = 0.25
+taken = 2026-11-04
+limits = { lo = 1, hi = 2.5 }
+
+[solver]
+iterations = 20
+tol = 1.0e-6
+
+[solver.inner]
+flag = true
+names = ["a", "b"]
+
+[[boards]]
+id = 1
+size = 12.0
+
+[[boards]]
+id = 2
+size = 8.5

@@ -244,6 +244,15 @@ and the `domain` it is given — a supplied image circle, the whole plane by
 default; a generic source carries its own over — so
 `free_nodes(m, imaged_region(m))` are the nodes that can reach a lit pixel.
 
+A model need not hold the other nodes. Built with `present =
+node_mask(m, imaged_region(m))`, it keeps the same lattice (spacing, basis,
+the dense control matrix) and holds only those nodes; every pixel of the
+imaged region reads them alone, so the model evaluates the region bit for bit
+as the full one. [`present_nodes`](@ref VisualGeometryToolkitCore.Cameras.present_nodes)
+is the mask, and [`in_present_domain`](@ref VisualGeometryToolkitCore.Cameras.in_present_domain)
+says where the model evaluates: past it `backproject` is `nothing` and
+`project` gives no pixel, as outside the calibrated area.
+
 ```julia
 m = CentralGenericModel(fish, (1280, 960); grid_size = (35, 25), init = :quasi_interpolate)
 w = window(m, 5:14, 15:24)                        # rows (y) × cols (x) of the grid

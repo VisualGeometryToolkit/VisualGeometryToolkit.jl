@@ -75,7 +75,8 @@ node_position(m, i) = nothing
 The parameters of `m` free under the imaged `region` (an
 [`imaged_region`](@ref), a `Rect`, an `Ellipse`, …): for a `LocalSupport` model
 the nodes whose [`support`](@ref) meets the region,
-`[i for i in nodes(m) if intersects(region, support(m, i))]`; for a
+`[i for i in nodes(m) if intersects(region, support(m, i))]`, less any node
+the model does not hold (a grid model's absent nodes, [`present_nodes`](@ref)); for a
 `GlobalSupport` model every parameter, `Colon()` — an index that selects them
 all (`θ[free_nodes(m, region)]`), the same answer [`node_mask`](@ref) gives. A
 consumer that needs to iterate nodes asks a `LocalSupport` model
@@ -83,7 +84,11 @@ consumer that needs to iterate nodes asks a `LocalSupport` model
 """
 free_nodes(m, region) = _free_nodes(support_trait(m), m, region)
 _free_nodes(::GlobalSupport, m, region) = Colon()
-_free_nodes(::LocalSupport, m, region) = [i for i in nodes(m) if intersects(region, support(m, i))]
+_free_nodes(::LocalSupport, m, region) = [i for i in nodes(m) if _is_free(m, region, i)]
+# A node is free when the model holds it and its support meets the region (a
+# grid model's absent node, `present_nodes`, is never free).
+_is_free(m, region, i) = _node_present(m, i) && intersects(region, support(m, i))
+_node_present(m, i) = true
 
 """
     node_mask(m, region) -> BitArray
@@ -95,7 +100,7 @@ so `θ[node_mask(m, region)]` reads the same for every model.
 """
 node_mask(m, region) = _node_mask(support_trait(m), m, region)
 _node_mask(::GlobalSupport, m, region) = Colon()
-_node_mask(::LocalSupport, m, region) = BitArray(map(i -> intersects(region, support(m, i)), nodes(m)))
+_node_mask(::LocalSupport, m, region) = BitArray(map(i -> _is_free(m, region, i), nodes(m)))
 
 """
     cubic_bspline_footprint(center, spacing) -> Rect2{Float64}
@@ -120,6 +125,7 @@ end
 
 support_trait(::Type{<:_GenericModel}) = LocalSupport()
 nodes(m::_GenericModel) = CartesianIndices(_grid_size(m))
+_node_present(m::_GenericModel, i::CartesianIndex{2}) = m.present === nothing || m.present[i]
 node_position(m::_GenericModel, i::CartesianIndex{2}) = Point2{Float64}(_node_pixel(m, i[2], i[1]))
 # A node's footprint, clipped to the calibrated area the model is defined on.
 # (The closed meet, Core's one rect-meet convention: a footprint always overlaps

@@ -1,5 +1,42 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.5.4 (2026-11-04)
+
+Additive: every model built without a mask is unchanged, bit for bit.
+
+- **A grid model holds the nodes its imaged region reaches.**
+  `CentralGenericModel` and `NoncentralGenericModel` take `present` (a `Bool`
+  matrix of the grid's size, `[gy, gx]`; `nothing`, the default, is every
+  node, and an all-true mask is stored as `nothing`). The controls stay a
+  dense matrix; an absent node's control is never read and has no meaningful
+  value. The mask a fit over the imaged region takes is the footprint rule,
+  `node_mask(m, imaged_region(m))`, under which every pixel of the region
+  reads present nodes only, so the masked model evaluates the region bit for
+  bit as the full one.
+- **Where a masked model evaluates**: `in_present_domain(m, pixel)` (public),
+  the calibrated area with every node of the pixel's 4×4 window present.
+  Outside it the model answers as outside the calibrated area: `backproject`
+  and `unproject` give `nothing`, `backproject_with_jacobian` a NaN pair,
+  `project` (scalar, batched and the undistortion's coarse inverse) no pixel,
+  the raw splines NaN, `spline_support` `nothing` and `spline_weights` an
+  `ArgumentError`. Never a throw from an evaluation.
+- `present_nodes(m)` (public): the mask, for a model or a `GenericModelWindow`
+  (which carries its block of it). `free_nodes` and `node_mask` never name an
+  absent node. `convert_eltype` and `Adapt` carry the mask (a dense `Bool`
+  array on the device; the kernels read it as the host does).
+- **A capture's camera settings, per frame** (captures.jl, exported):
+  `ExposureSettings(exposure_time, f_number, iso)` (a time quantity, in
+  seconds), `LensSettings(focal_length, focus_distance = nothing)` (the
+  NOMINAL, marked focal length; an unknown or "infinity" focus is `nothing`),
+  `FrameSettings`, and `CaptureSettings(frames; body, lens)`, an
+  `AbstractDict` from frame index to `(; exposure, lens_settings)` with the
+  body and lens `DeviceIdentity(make, model, serial)` beside it. Values are
+  math, identity is an attribute: camera, sensor and lens models stay
+  name-free. `is_constant(cs)` (public): every frame exposed alike. Every
+  value is checked positive and finite; a plain exposure time is a
+  `DimensionError`. conventions/persisted-geometry.md names the
+  `capture_settings` kind and a calibration block's `device`.
+
 ## 0.5.3 (2026-11-04)
 
 Additive.

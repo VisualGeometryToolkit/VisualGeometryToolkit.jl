@@ -85,6 +85,22 @@ function _check_generic_area(width, height, cminx, cminy, cmaxx, cmaxy, gsz)
     return nothing
 end
 
+# The presence mask of a lattice: `nothing` (every node present) or a `Bool`
+# matrix of the grid's size, `[gy, gx]`. A given mask is checked and kept as a
+# dense `Matrix{Bool}` (a byte per node: the evaluations read 16 of it per
+# pixel, and a device copy is the same array), an all-true one is `nothing` —
+# one representation of "every node present", so a model built with `trues(…)`
+# is the model built without (and costs nothing per evaluation).
+_present_mask(::Nothing, sz) = nothing
+function _present_mask(present::AbstractMatrix{Bool}, sz)
+    _check_present(present, sz)
+    any(present) || throw(ArgumentError("generic model: the presence mask holds no present node"))
+    return all(present) ? nothing : Matrix{Bool}(present)
+end
+_check_present(::Nothing, sz) = nothing
+_check_present(present::AbstractMatrix{Bool}, sz) = size(present) == sz ||
+    throw(DimensionMismatch("generic model: a $(size(present)) presence mask for a $(sz) grid"))
+
 """
     CentralGenericModel{T} <: AbstractCamera
 
@@ -97,7 +113,8 @@ reference implementation's pixel-space LM (started at the calibrated
 area's center, or at a seed pixel: `project(m, X, p₀)`).
 
     CentralGenericModel(width, height, min_x, min_y, max_x, max_y, grid;
-                        unit_controls = true, nominal = nothing, domain = WholePlane())
+                        unit_controls = true, nominal = nothing, domain = WholePlane(),
+                        present = nothing)
 
 `unit_controls = true` re-normalizes every control at construction (the
 reference's Read() behavior: its optimizer keeps the controls on the sphere).
@@ -110,6 +127,17 @@ built from; [`nominal_intrinsics`](@ref)) — projection never reads it.
 `domain` is the region of the sensor (pixels) the camera images — a supplied
 image circle (a datasheet's [`image_circle`](@ref) or a measured one), or the
 `WholePlane()`; [`imaged_region`](@ref)`(m)` is the calibrated area ∩ `domain`.
+
+`present` says which nodes the model holds: `nothing` (the default) for every
+node, or a `Bool` matrix of the grid's size (`[gy, gx]`, `true` = present). An
+absent node's control is never read, and its value is not meaningful. The
+model evaluates a pixel only when every node of its 4×4 window is present
+([`in_present_domain`](@ref)); elsewhere it answers as outside the calibrated
+area (`backproject` is `nothing`, `project` is `nothing`, the raw splines are
+NaN). The mask a fit over the imaged region takes is the footprint rule,
+[`node_mask`](@ref)`(m, imaged_region(m))`: every pixel of the region then
+reads present nodes only. An all-true mask is stored as `nothing`;
+[`present_nodes`](@ref) returns the mask.
 
     CentralGenericModel(source, (width, height); grid_size, calib_area, init, ...)
 
@@ -137,7 +165,7 @@ a region holding arrays) is replaced by `WholePlane()` on the device copy —
 the domain is a host-side bookkeeping region (node supports, `imaged_region`),
 which no device evaluation reads.
 """
-struct CentralGenericModel{T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, I, D} <: AbstractCamera
+struct CentralGenericModel{T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, I, D, P <: Union{Nothing, AbstractMatrix{Bool}}} <: AbstractCamera
     width::Int
     height::Int
     calib_min_x::Int
@@ -147,23 +175,28 @@ struct CentralGenericModel{T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, I, 
     grid::G
     nominal::I
     domain::D
+    present::P
 
-    function CentralGenericModel{T, G, I, D}(
+    function CentralGenericModel{T, G, I, D, P}(
             width::Integer, height::Integer,
             cminx::Integer, cminy::Integer, cmaxx::Integer, cmaxy::Integer,
-            grid::G, nominal::I, domain::D
-        ) where {T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, I, D}
+            grid::G, nominal::I, domain::D, present::P
+        ) where {T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, I, D, P <: Union{Nothing, AbstractMatrix{Bool}}}
         _check_generic_area(width, height, cminx, cminy, cmaxx, cmaxy, size(grid))
-        return new{T, G, I, D}(width, height, cminx, cminy, cmaxx, cmaxy, grid, nominal, domain)
+        _check_present(present, size(grid))
+        return new{T, G, I, D, P}(width, height, cminx, cminy, cmaxx, cmaxy, grid, nominal, domain, present)
     end
 end
 function CentralGenericModel{T}(
         w::Integer, h::Integer, a::Integer, b::Integer, c::Integer, d::Integer, grid::AbstractMatrix;
-        unit_controls::Bool = true, nominal = nothing, domain = WholePlane()
+        unit_controls::Bool = true, nominal = nothing, domain = WholePlane(), present = nothing
     ) where {T <: AbstractFloat}
     g = _controls(T, grid, unit_controls)
-    return CentralGenericModel{T, typeof(g), typeof(nominal), typeof(domain)}(w, h, a, b, c, d, g, nominal, domain)
+    return _central_model(T, w, h, a, b, c, d, g, nominal, domain, _present_mask(present, size(g)))
 end
+# The model of its parts' own types: a function barrier over the mask, `nothing` or a `Matrix{Bool}`.
+_central_model(::Type{T}, w, h, a, b, c, d, g::G, nominal::I, domain::D, present::P) where {T, G, I, D, P} =
+    CentralGenericModel{T, G, I, D, P}(w, h, a, b, c, d, g, nominal, domain, present)
 CentralGenericModel(
     w::Integer, h::Integer, a::Integer, b::Integer, c::Integer, d::Integer,
     grid::AbstractMatrix{<:StaticVector{3, T}}; kwargs...
@@ -197,13 +230,15 @@ caller's unit against the grid's metres. `ustrip(m, camera)` is the plain
 camera, in metres only.
 
     NoncentralGenericModel(width, height, min_x, min_y, max_x, max_y, directions, points;
-                           unit_controls = true, nominal = nothing, domain = WholePlane())
+                           unit_controls = true, nominal = nothing, domain = WholePlane(),
+                           present = nothing)
     NoncentralGenericModel(source, (width, height); grid_size, calib_area, init, ...)
 
-The keywords as for [`CentralGenericModel`](@ref). From a (central) source:
-directions as the central model's `init`, points all zero.
+The keywords as for [`CentralGenericModel`](@ref) (`present` masks both grids).
+From a (central) source: directions as the central model's `init`, points all
+zero.
 """
-struct NoncentralGenericModel{T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, I, D} <: AbstractCamera
+struct NoncentralGenericModel{T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, I, D, P <: Union{Nothing, AbstractMatrix{Bool}}} <: AbstractCamera
     width::Int
     height::Int
     calib_min_x::Int
@@ -214,12 +249,13 @@ struct NoncentralGenericModel{T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, 
     points::G
     nominal::I
     domain::D
+    present::P
 
-    function NoncentralGenericModel{T, G, I, D}(
+    function NoncentralGenericModel{T, G, I, D, P}(
             width::Integer, height::Integer,
             cminx::Integer, cminy::Integer, cmaxx::Integer, cmaxy::Integer,
-            directions::G, points::G, nominal::I, domain::D
-        ) where {T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, I, D}
+            directions::G, points::G, nominal::I, domain::D, present::P
+        ) where {T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, I, D, P <: Union{Nothing, AbstractMatrix{Bool}}}
         size(directions) == size(points) || throw(
             ArgumentError(
                 "NoncentralGenericModel: direction and point grids must have equal size, " *
@@ -227,13 +263,14 @@ struct NoncentralGenericModel{T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, 
             )
         )
         _check_generic_area(width, height, cminx, cminy, cmaxx, cmaxy, size(directions))
-        return new{T, G, I, D}(width, height, cminx, cminy, cmaxx, cmaxy, directions, points, nominal, domain)
+        _check_present(present, size(directions))
+        return new{T, G, I, D, P}(width, height, cminx, cminy, cmaxx, cmaxy, directions, points, nominal, domain, present)
     end
 end
 function NoncentralGenericModel{T}(
         w::Integer, h::Integer, a::Integer, b::Integer, c::Integer, d::Integer,
         directions::AbstractMatrix, points::AbstractMatrix;
-        unit_controls::Bool = true, nominal = nothing, domain = WholePlane()
+        unit_controls::Bool = true, nominal = nothing, domain = WholePlane(), present = nothing
     ) where {T <: AbstractFloat}
     dirs = _controls(T, directions, unit_controls)
     pts = _controls(T, points, false)
@@ -241,8 +278,10 @@ function NoncentralGenericModel{T}(
         dirs = Matrix{Vec3{T}}(dirs)
         pts = Matrix{Vec3{T}}(pts)
     end
-    return NoncentralGenericModel{T, typeof(dirs), typeof(nominal), typeof(domain)}(w, h, a, b, c, d, dirs, pts, nominal, domain)
+    return _noncentral_model(T, w, h, a, b, c, d, dirs, pts, nominal, domain, _present_mask(present, size(dirs)))
 end
+_noncentral_model(::Type{T}, w, h, a, b, c, d, dirs::G, pts::G, nominal::I, domain::D, present::P) where {T, G, I, D, P} =
+    NoncentralGenericModel{T, G, I, D, P}(w, h, a, b, c, d, dirs, pts, nominal, domain, present)
 NoncentralGenericModel(
     w::Integer, h::Integer, a::Integer, b::Integer, c::Integer, d::Integer,
     directions::AbstractMatrix{<:StaticVector{3, T}}, points::AbstractMatrix{<:StaticVector{3}}; kwargs...
@@ -271,6 +310,24 @@ model that had one).
 """
 imaged_region(m::_GenericModel) = _calibrated_rect(m) ∩ m.domain
 
+"""
+    in_present_domain(m, pixel) -> Bool
+
+Whether a generic grid model evaluates `pixel` (COLMAP frame): inside the
+calibrated area, with every node of the pixel's 4×4 window present
+([`present_nodes`](@ref)). Where it is `false`, `backproject` is `nothing` and
+`project` gives no pixel. For a model with every node present it is the
+calibrated area; under the footprint mask `node_mask(m, imaged_region(m))` it
+holds on all of `imaged_region(m)`.
+"""
+function in_present_domain(m::_GenericModel, pixel)
+    x, y = float(pixel[1]), float(pixel[2])
+    _in_calibrated_area(m, x, y) || return false
+    m.present === nothing && return true                 # every node present: no window to look at
+    ix, iy, _, _ = _spline_window(_grid_coords(m, x, y)...)
+    return _window_present(m.present, ix, iy)
+end
+
 # ------------------------------------------------------------------------------
 # A window: a view onto a block of a model's controls
 # ------------------------------------------------------------------------------
@@ -282,18 +339,19 @@ A view onto a rectangular block of a generic grid model's controls: the
 model's lattice (its image and calibrated area, its FULL grid size) with only
 the controls of rows `offset[1] + 1 : offset[1] + size(directions, 1)` and
 columns `offset[2] + 1 : …` present, possibly replaced (`window(m, rows, cols;
-directions, points)`). Every evaluation of the model's spline that reads only
+directions, points)`), and the block of the model's presence mask
+([`present_nodes`](@ref); `nothing` when every node is present). Every evaluation of the model's spline that reads only
 controls inside the block — `interpolated_direction`, `interpolated_point`,
 `spline_support`, `spline_weights` — gives the same bits on the window as on a
-model holding those controls. A pixel whose 4×4 support leaves the block is
-not imaged by the window: `interpolated_direction` and `interpolated_point`
+model holding those controls. A pixel whose 4×4 support leaves the block, or
+reads an absent node, is not imaged by the window: `interpolated_direction` and `interpolated_point`
 are NaN there, `spline_support` is `nothing` and `spline_weights` of such a
 support is an `ArgumentError` — never a read of controls outside the block. It is what a per-tile cost block of a
 refinement evaluates: a few hundred controls instead of the whole grid. Not a
 camera (it projects nothing); `points` is `nothing` for a central model's
 window.
 """
-struct GenericModelWindow{T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, P <: Union{Nothing, G}}
+struct GenericModelWindow{T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, P <: Union{Nothing, G}, M <: Union{Nothing, AbstractMatrix{Bool}}}
     width::Int
     height::Int
     calib_min_x::Int
@@ -304,6 +362,7 @@ struct GenericModelWindow{T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, P <:
     offset::NTuple{2, Int}          # 0-based (row, col) of directions[1, 1] in the full grid
     directions::G
     points::P
+    present::M                      # the block of the model's presence mask (`nothing`: every node present)
 end
 
 """
@@ -336,14 +395,35 @@ function window(
         d = Matrix{Vec3{T}}(d)
         p = Matrix{Vec3{T}}(p)
     end
-    return GenericModelWindow{T, typeof(d), typeof(p)}(
+    present = m.present === nothing ? nothing : m.present[rows, cols]      # the block's own (a few bytes; read 16 per pixel)
+    return GenericModelWindow{T, typeof(d), typeof(p), typeof(present)}(
         m.width, m.height, m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y,
-        (gh, gw), (first(rows) - 1, first(cols) - 1), d, p
+        (gh, gw), (first(rows) - 1, first(cols) - 1), d, p, present
     )
 end
 
 # What every lattice evaluation reads, for a model and a window alike.
 const _GenericLattice = Union{CentralGenericModel, NoncentralGenericModel, GenericModelWindow}
+
+"""
+    present_nodes(m) -> BitMatrix
+
+The nodes a generic grid model (or a [`GenericModelWindow`](@ref), its block)
+holds, `[gy, gx]` like its controls: `true` = present. Every node for a model
+built without a `present` mask.
+"""
+present_nodes(m::_GenericLattice) = m.present === nothing ? trues(size(_directions(m))) : BitMatrix(m.present)
+
+# Whether every node of window `(jx, jy)` — controls `[jy - 3 + r, jx - 3 + c]`,
+# `r, c ∈ 1:4`, of the mask's own indexing — is present. Device-safe: a mask on
+# the device is read as it is (no allocation, no Union).
+@inline _window_present(::Nothing, jx, jy) = true
+@inline function _window_present(present::AbstractMatrix{Bool}, jx, jy)
+    for c in -2:1, r in -2:1
+        present[jy + r, jx + c] || return false
+    end
+    return true
+end
 
 _directions(m::CentralGenericModel) = m.grid
 _directions(m::Union{NoncentralGenericModel, GenericModelWindow}) = m.directions
@@ -354,20 +434,26 @@ _offset(::_GenericModel) = (0, 0)
 _offset(w::GenericModelWindow) = w.offset
 
 Adapt.adapt_structure(to, m::CentralGenericModel{T}) where {T} =
-    (g = Adapt.adapt(to, m.grid); dom = _device_domain(m.domain);
-     CentralGenericModel{T, typeof(g), typeof(m.nominal), typeof(dom)}(
-        m.width, m.height, m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y, g, m.nominal, dom))
+    (g = Adapt.adapt(to, m.grid); dom = _device_domain(m.domain); pr = _device_present(to, m.present);
+     CentralGenericModel{T, typeof(g), typeof(m.nominal), typeof(dom), typeof(pr)}(
+        m.width, m.height, m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y, g, m.nominal, dom, pr))
 Adapt.adapt_structure(to, m::NoncentralGenericModel{T}) where {T} =
     (d = Adapt.adapt(to, m.directions); p = Adapt.adapt(to, m.points); dom = _device_domain(m.domain);
-     NoncentralGenericModel{T, typeof(d), typeof(m.nominal), typeof(dom)}(
-        m.width, m.height, m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y, d, p, m.nominal, dom))
+     pr = _device_present(to, m.present);
+     NoncentralGenericModel{T, typeof(d), typeof(m.nominal), typeof(dom), typeof(pr)}(
+        m.width, m.height, m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y, d, p, m.nominal, dom, pr))
 Adapt.adapt_structure(to, w::GenericModelWindow{T}) where {T} =
     (d = Adapt.adapt(to, w.directions); p = w.points === nothing ? nothing : Adapt.adapt(to, w.points);
-     GenericModelWindow{T, typeof(d), typeof(p)}(
-        w.width, w.height, w.calib_min_x, w.calib_min_y, w.calib_max_x, w.calib_max_y, w.grid_size, w.offset, d, p))
+     pr = _device_present(to, w.present);
+     GenericModelWindow{T, typeof(d), typeof(p), typeof(pr)}(
+        w.width, w.height, w.calib_min_x, w.calib_min_y, w.calib_max_x, w.calib_max_y, w.grid_size, w.offset, d, p, pr))
 # The domain is a host-side region (masks, node supports): an isbits one travels,
 # anything else is left behind as the whole plane.
 _device_domain(d) = isbitstype(typeof(d)) ? d : WholePlane()
+# The presence mask travels (a dense `Bool` array: the identity on the host): the
+# evaluations read it on the device as on the host.
+_device_present(to, ::Nothing) = nothing
+_device_present(to, p::AbstractMatrix{Bool}) = Adapt.adapt(to, p)
 
 # ------------------------------------------------------------------------------
 # Area & grid mapping (verbatim from the reference; COLMAP frame throughout)
@@ -606,15 +692,17 @@ window's).
 end
 
 # Whether window `(ix, iy)`'s 4×4 support lies inside the controls a lattice
-# holds. A model holds its whole grid and the window index is clamped to it; a
-# window holds one block, and a pixel whose support leaves the block is not
-# imaged by that window — its evaluation is NaN, never a read past the block
-# (the controls there are not the window's: a view's parent holds other ones).
-@inline _in_block(::_GenericModel, grid, ix, iy) = true
+# holds and every one of them is present. A model holds its whole grid and the
+# window index is clamped to it; a window holds one block, and a pixel whose
+# support leaves the block is not imaged by that window — its evaluation is NaN,
+# never a read past the block (the controls there are not the window's: a
+# view's parent holds other ones). A support holding an absent node is not
+# imaged either: an absent control has no meaningful value.
+@inline _in_block(m::_GenericModel, grid, ix, iy) = _window_present(m.present, ix, iy)
 @inline function _in_block(w::GenericModelWindow, grid::AbstractMatrix, ix, iy)
     jx = ix - w.offset[2]
     jy = iy - w.offset[1]
-    return 3 <= jx && jx + 1 <= size(grid, 2) && 3 <= jy && jy + 1 <= size(grid, 1)
+    return 3 <= jx && jx + 1 <= size(grid, 2) && 3 <= jy && jy + 1 <= size(grid, 1) && _window_present(w.present, jx, jy)
 end
 @inline _nan_control(grid::AbstractMatrix) = (z = zero(eltype(grid)); z .+ eltype(z)(NaN))
 
@@ -642,7 +730,8 @@ The window `pixel` (COLMAP frame) reads on a generic grid model or a
 [`GenericModelWindow`](@ref): the 4×4 controls
 `grid[iy - 3 + r, ix - 3 + c]`, `r, c ∈ 1:4` (row = y tap, column = x tap) of
 the FULL grid — the index pair [`spline_weights`](@ref) takes. `nothing`
-outside the calibrated area, and on a window when that support leaves the
+outside the calibrated area, where the support holds an absent node
+([`present_nodes`](@ref)), and on a window when that support leaves the
 window's block (the pixel is not imaged by the window).
 """
 function spline_support(m::_GenericLattice, pixel)
@@ -664,12 +753,12 @@ respect to the pixel's x and y. The window is the caller's: for a pixel that
 has drifted off the window's own cell the cubic pieces extrapolate smoothly,
 which is what a refinement holding the support fixed between rebuilds needs.
 `sum(w .* grid_window)` is the unnormalized direction `backproject`
-normalizes. On a window, a window `(ix, iy)` whose support leaves the
-window's block is an `ArgumentError`.
+normalizes. A window `(ix, iy)` whose support holds an absent node, or on a
+window leaves the window's block, is an `ArgumentError`.
 """
 function spline_weights(m::_GenericLattice, ix::Integer, iy::Integer, pixel)
     _in_block(m, _directions(m), ix, iy) ||
-        throw(ArgumentError("spline_weights: window ($ix, $iy) reads controls outside the window's block"))
+        throw(ArgumentError("spline_weights: window ($ix, $iy) reads an absent control or one outside the window's block"))
     x, y = float(pixel[1]), float(pixel[2])
     gh, gw = _grid_size(m)
     sx = _grid_scale(m.calib_min_x, m.calib_max_x, gw)      # ∂gx/∂x
@@ -713,13 +802,15 @@ window_indices(m::CentralGenericModel, ix::Integer, iy::Integer) =
 
 The unit observation direction of `pixel` (COLMAP frame): the normalized
 uniform-cubic B-spline value of the direction grid. `nothing` outside the
-calibrated area.
+calibrated area and where the pixel's window holds an absent node
+([`in_present_domain`](@ref)).
 """
 function backproject(m::CentralGenericModel, pixel)
     x, y = float(pixel[1]), float(pixel[2])
     _in_calibrated_area(m, x, y) || return nothing
     gx, gy = _grid_coords(m, x, y)
     ix, iy, wx, wy = _spline_window(gx, gy)
+    _window_present(m.present, ix, iy) || return nothing
     d = _eval_window(m.grid, ix, iy, wx, wy)
     return SVector{3}(d) / norm(d)
 end
@@ -732,13 +823,14 @@ Jacobian `M = ∂f/∂u` (3×2), the derivative of the normalized spline value �
 tangent to the sphere (`fᵀM = 0`) by construction. The parametric cameras'
 [`backproject_with_jacobian`](@ref) for the generic model: what puts a bearing
 residual's threshold in pixels (the essential and rotation problems'
-`M₁`/`M₂` columns). `(NaN, NaN)` outside the calibrated area; never throws.
+`M₁`/`M₂` columns). `(NaN, NaN)` outside the calibrated area and where the
+pixel's window holds an absent node ([`in_present_domain`](@ref)); never throws.
 """
 function backproject_with_jacobian(m::CentralGenericModel, u::StaticVector{2})
     x = SVector{2, Float64}(u[1], u[2])
     nanf = SVector{3, Float64}(NaN, NaN, NaN)
     nanM = SMatrix{3, 2, Float64, 6}(ntuple(_ -> NaN, Val(6)))
-    _in_calibrated_area(m, x[1], x[2]) || return nanf, nanM
+    in_present_domain(m, x) || return nanf, nanM
     function dir(p)
         gx, gy = _grid_coords(m, p[1], p[2])
         d = _eval_window(m.grid, _spline_window(gx, gy)...)
@@ -753,13 +845,15 @@ end
 
 The observation LINE of `pixel`: both grids evaluated with the same spline
 window; the direction normalized, the origin as interpolated (plain metres in
-the camera frame, the grid's unit). `nothing` outside the calibrated area.
+the camera frame, the grid's unit). `nothing` outside the calibrated area and
+where the pixel's window holds an absent node ([`in_present_domain`](@ref)).
 """
 function backproject(m::NoncentralGenericModel{T}, pixel) where {T}
     x, y = float(pixel[1]), float(pixel[2])
     _in_calibrated_area(m, x, y) || return nothing
     gx, gy = _grid_coords(m, x, y)
     ix, iy, wx, wy = _spline_window(gx, gy)
+    _window_present(m.present, ix, iy) || return nothing
     d = _eval_window(m.directions, ix, iy, wx, wy)
     o = _eval_window(m.points, ix, iy, wx, wy)
     nd = norm(d)
@@ -774,11 +868,12 @@ The unit DIRECTION `f` of the pixel `u`'s observation line (COLMAP frame) and
 its Jacobian `M = ∂f/∂u` (3×2), analytic from the direction spline's
 derivative weights — tangent to the sphere (`fᵀM = 0`). The line's point is not
 differentiated: `backproject` gives it. `(NaN, NaN)` outside the calibrated
-area; never throws.
+area and where the pixel's window holds an absent node
+([`in_present_domain`](@ref)); never throws.
 """
 function backproject_with_jacobian(m::NoncentralGenericModel, u::StaticVector{2})
     x, y = Float64(u[1]), Float64(u[2])
-    _in_calibrated_area(m, x, y) ||
+    in_present_domain(m, SVector(x, y)) ||
         return SVector{3, Float64}(NaN, NaN, NaN), SMatrix{3, 2, Float64, 6}(ntuple(_ -> NaN, Val(6)))
     gh, gw = _grid_size(m)
     gx, gy = _grid_coords(m, x, y)
@@ -997,7 +1092,8 @@ starts at the seed pixel `p₀`. The seed is a positional argument because it is
 per-call data, not configuration (keywords are configuration only; the model
 leads, then its data). `nothing` when the point does not project into the
 calibrated area (or the optimization fails to reach the reference's 1e-12
-cost), or when `p₀` is not finite.
+cost), onto a pixel whose window holds an absent node
+([`in_present_domain`](@ref)), or when `p₀` is not finite.
 """
 project(m::CentralGenericModel, X) = _project_from(m, X, _area_center(m))
 project(m::CentralGenericModel, X, p₀) = _project_from(m, X, SVector{2, Float64}(float(p₀[1]), float(p₀[2])))
@@ -1010,7 +1106,7 @@ function _project_from(m::CentralGenericModel, X, p0::SVector{2, Float64})
         m.grid, Float64(m.calib_min_x), Float64(m.calib_min_y), Float64(m.calib_max_x), Float64(m.calib_max_y),
         Xv, p0[1], p0[2], _PROJECT_MAXITER, _PROJECT_TOL^2
     )
-    return ok ? px : nothing
+    return ok && in_present_domain(m, px) ? px : nothing
 end
 
 # The host budget of the one central solve: a cold start from the area center
@@ -1032,7 +1128,8 @@ converged pixel's observation line goes through `X`. The two-argument form
 starts at the calibrated area's center, the three-argument form at the seed
 pixel `p₀`; for a non-central model a good seed matters (the reference
 exposes the same knob). The seed is positional because it is per-call data,
-not configuration (keywords are configuration only).
+not configuration (keywords are configuration only). `nothing` as for the
+central model, a pixel whose window holds an absent node included.
 """
 project(m::NoncentralGenericModel, X) = _project_from(m, X, _area_center(m))
 project(m::NoncentralGenericModel, X, p₀) = _project_from(m, X, SVector{2, Float64}(float(p₀[1]), float(p₀[2])))
@@ -1046,7 +1143,7 @@ function _project_from(m::NoncentralGenericModel, X, p0::SVector{2, Float64})
         res, jac, p0[1], p0[2], Float64(m.calib_min_x), Float64(m.calib_min_y), Float64(m.calib_max_x),
         Float64(m.calib_max_y), _PROJECT_MAXITER, _PROJECT_TOL^2
     )
-    return ok ? px : nothing
+    return ok && in_present_domain(m, px) ? px : nothing
 end
 
 # ------------------------------------------------------------------------------
@@ -1341,21 +1438,22 @@ end
 # bridge to it
 # ------------------------------------------------------------------------------
 # The controls convert as they are (a conversion does not re-normalize them:
-# a model with off-sphere controls keeps its spline); nominal and domain travel.
+# a model with off-sphere controls keeps its spline); nominal, domain and the
+# presence mask travel.
 convert_eltype(::Type{T}, m::CentralGenericModel) where {T <: AbstractFloat} =
     CentralGenericModel{T}(
     m.width, m.height, m.calib_min_x, m.calib_min_y,
-    m.calib_max_x, m.calib_max_y, Vec3{T}.(m.grid); unit_controls = false, m.nominal, m.domain
+    m.calib_max_x, m.calib_max_y, Vec3{T}.(m.grid); unit_controls = false, m.nominal, m.domain, m.present
 )
 convert_eltype(::Type{T}, m::NoncentralGenericModel) where {T <: AbstractFloat} =
     NoncentralGenericModel{T}(
     m.width, m.height, m.calib_min_x, m.calib_min_y,
-    m.calib_max_x, m.calib_max_y, Vec3{T}.(m.directions), Vec3{T}.(m.points); unit_controls = false, m.nominal, m.domain
+    m.calib_max_x, m.calib_max_y, Vec3{T}.(m.directions), Vec3{T}.(m.points); unit_controls = false, m.nominal, m.domain, m.present
 )
 convert_eltype(::Type{T}, w::GenericModelWindow) where {T <: AbstractFloat} =
     (d = Vec3{T}.(w.directions); p = w.points === nothing ? nothing : Vec3{T}.(w.points);
-     GenericModelWindow{T, typeof(d), typeof(p)}(
-        w.width, w.height, w.calib_min_x, w.calib_min_y, w.calib_max_x, w.calib_max_y, w.grid_size, w.offset, d, p))
+     GenericModelWindow{T, typeof(d), typeof(p), typeof(w.present)}(
+        w.width, w.height, w.calib_min_x, w.calib_min_y, w.calib_max_x, w.calib_max_y, w.grid_size, w.offset, d, p, w.present))
 
 # The one bridge from transforms/warp.jl's private `_precision` (the fused
 # image_warp chain and the batched kernels) to the public conversion: a lens
@@ -1451,7 +1549,7 @@ function _remap_sample(
     px = KA.allocate(backend, SVector{2, Float64}, nr + 1, nc + 1)
     okmap = KA.allocate(backend, Bool, nr + 1, nc + 1)
     _row_march_kernel!(backend, 8)(   # small groups: a few hundred rows still spread over every CPU thread
-        px, okmap, grid, rays, _area_center(m)...,
+        px, okmap, grid, _device_present(backend, m.present), rays, _area_center(m)...,
         Float64(m.calib_min_x), Float64(m.calib_min_y), Float64(m.calib_max_x), Float64(m.calib_max_y);
         ndrange = nr + 1
     )
@@ -1473,30 +1571,31 @@ end
 # converged on its inward side — a neighbour's solution, a fraction of a model
 # cell away, so a near-horizon node starts on its own side of the clamped
 # plateau. Every solve is the host `project`'s (`_PROJECT_MAXITER` iterations,
-# converged below `_PROJECT_TOL`).
-@kernel function _row_march_kernel!(px_out, ok_out, @Const(grid), @Const(rays), cx, cy, minx, miny, maxx, maxy)
+# converged below `_PROJECT_TOL`, its pixel's window present).
+@kernel function _row_march_kernel!(px_out, ok_out, @Const(grid), present, @Const(rays), cx, cy, minx, miny, maxx, maxy)
     row = @index(Global)
     ncol = size(rays, 2)
     mid = (ncol + 1) ÷ 2
-    from_mid = _march_node!(px_out, ok_out, grid, rays, row, mid, SVector(cx, cy), minx, miny, maxx, maxy)
+    from_mid = _march_node!(px_out, ok_out, grid, present, rays, row, mid, SVector(cx, cy), minx, miny, maxx, maxy)
     warm = from_mid
     for col in (mid + 1):ncol
-        warm = _march_node!(px_out, ok_out, grid, rays, row, col, warm, minx, miny, maxx, maxy)
+        warm = _march_node!(px_out, ok_out, grid, present, rays, row, col, warm, minx, miny, maxx, maxy)
     end
     warm = from_mid
     for col in (mid - 1):-1:1
-        warm = _march_node!(px_out, ok_out, grid, rays, row, col, warm, minx, miny, maxx, maxy)
+        warm = _march_node!(px_out, ok_out, grid, present, rays, row, col, warm, minx, miny, maxx, maxy)
     end
 end
 
 # One node of the row march: solved from `warm`; returns the warm start of the
 # next node (this solution if it converged, else `warm` unchanged).
-@inline function _march_node!(px_out, ok_out, grid, rays, row, col, warm, minx, miny, maxx, maxy)
+@inline function _march_node!(px_out, ok_out, grid, present, rays, row, col, warm, minx, miny, maxx, maxy)
     @inbounds begin
         px, ok = _central_project(
             grid, minx, miny, maxx, maxy, rays[row, col], warm[1], warm[2],
             _PROJECT_MAXITER, _PROJECT_TOL^2
         )
+        ok = ok && _reads_present(present, size(grid), px, minx, miny, maxx, maxy)
         px_out[row, col] = px
         ok_out[row, col] = ok
     end
@@ -1720,7 +1819,7 @@ end
 # design in KA, the per-ray solve being `_central_project`. The grid uploads
 # as-is (Vec3 is isbits). KA.CPU() runs the identical kernel on host.
 @kernel function _project_kernel!(
-        px_out, ok_out, @Const(grid), @Const(rays), @Const(inits),
+        px_out, ok_out, @Const(grid), present, @Const(rays), @Const(inits),
         minx::Float64, miny::Float64, maxx::Float64, maxy::Float64,
         iters::Int, tol2::Float64
     )
@@ -1728,8 +1827,16 @@ end
     @inbounds begin
         px, ok = _central_project(grid, minx, miny, maxx, maxy, rays[i], inits[i][1], inits[i][2], iters, tol2)
         px_out[i] = px
-        ok_out[i] = ok
+        ok_out[i] = ok && _reads_present(present, size(grid), px, minx, miny, maxx, maxy)   # an absent node read: no projection
     end
+end
+
+# Whether the converged pixel `px` (finite, inside the area) reads present nodes
+# only, on a grid of `(gh, gw)` controls; device-safe.
+@inline _reads_present(::Nothing, sz, px, minx, miny, maxx, maxy) = true
+@inline function _reads_present(present, (gh, gw), px, minx, miny, maxx, maxy)
+    ix, iy, _, _ = _spline_window(_grid_coord(px[1], minx, maxx, gw), _grid_coord(px[2], miny, maxy, gh))
+    return _window_present(present, ix, iy)
 end
 
 """
@@ -1745,7 +1852,8 @@ backend is the rays' own: every output is allocated beside them.
 structure — scanlines, previous frames — is what makes a few iterations
 enough; see the reference's ProjectWithInitialEstimate). The seeds are
 positional per-ray data; `iters` and `tol` are configuration. Returns pixel
-positions and a convergence mask (‖residual‖ < `tol`).
+positions and a convergence mask (‖residual‖ < `tol`, and the pixel's window
+present, as the scalar `project` requires).
 """
 function project(
         m::CentralGenericModel, rays::AbstractVector{<:StaticVector{3}}, p₀s::AbstractVector;
@@ -1763,7 +1871,7 @@ function _project_batched(m::CentralGenericModel, d_grid, rays, init, iters::Int
     ok = KA.allocate(backend, Bool, N)
     kern = _project_kernel!(backend, 64)
     kern(
-        px, ok, d_grid, rays, init,
+        px, ok, d_grid, _device_present(backend, m.present), rays, init,
         Float64(m.calib_min_x), Float64(m.calib_min_y),
         Float64(m.calib_max_x), Float64(m.calib_max_y),
         iters, Float64(tol)^2; ndrange = N
@@ -1775,18 +1883,23 @@ end
 # Batched backprojection: the scalar `backproject`'s window and normalization
 # (`_grid_coord`, `_spline_window`, `_eval_window`) per pixel, the calibrated
 # area's bounds as the scalar test reads them (integers), NaN outside it.
-@kernel function _backproject_kernel!(rays, @Const(grid), @Const(pixels), minx::Int, miny::Int, maxx::Int, maxy::Int)
+@kernel function _backproject_kernel!(rays, @Const(grid), present, @Const(pixels), minx::Int, miny::Int, maxx::Int, maxy::Int)
     i = @index(Global)
     @inbounds begin
         p = pixels[i]
         x, y = float(p[1]), float(p[2])
         gh, gw = size(grid)
+        nan = zero(eltype(rays)) .+ eltype(eltype(rays))(NaN)
         if x >= minx && y >= miny && x < maxx + 1 && y < maxy + 1
             ix, iy, wx, wy = _spline_window(_grid_coord(x, minx, maxx, gw), _grid_coord(y, miny, maxy, gh))
-            d = _eval_window(grid, ix, iy, wx, wy)
-            rays[i] = SVector{3}(d) / norm(d)
+            if _window_present(present, ix, iy)
+                d = _eval_window(grid, ix, iy, wx, wy)
+                rays[i] = SVector{3}(d) / norm(d)
+            else
+                rays[i] = nan
+            end
         else
-            rays[i] = zero(eltype(rays)) .+ eltype(eltype(rays))(NaN)
+            rays[i] = nan
         end
     end
 end
@@ -1799,7 +1912,7 @@ scalar [`backproject`](@ref)'s spline window and normalization evaluated by a
 KernelAbstractions kernel on the pixels' own backend (a device copy of
 `m.grid` uploads automatically; host arrays run the identical kernel on the
 CPU), bit for bit the scalar value on the CPU backend. A pixel outside the
-calibrated area comes back NaN (the scalar form's `nothing`), as a batch
+calibrated area, or whose window holds an absent node, comes back NaN (the scalar form's `nothing`), as a batch
 through [`pointwise!`](@ref) does. The batched [`project`](@ref)'s counterpart.
 """
 function backproject(m::CentralGenericModel, pixels::AbstractVector{<:StaticVector{2, <:Real}})
@@ -1808,7 +1921,7 @@ function backproject(m::CentralGenericModel, pixels::AbstractVector{<:StaticVect
     rays = KA.allocate(backend, SVector{3, promote_type(T, float(eltype(eltype(pixels))))}, length(pixels))
     isempty(pixels) && return rays
     _backproject_kernel!(backend, 64)(
-        rays, adapt(backend, m.grid), pixels, m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y;
+        rays, adapt(backend, m.grid), _device_present(backend, m.present), pixels, m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y;
         ndrange = length(pixels)
     )
     KA.synchronize(backend)

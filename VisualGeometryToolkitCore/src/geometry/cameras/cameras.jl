@@ -1022,6 +1022,7 @@ export free_nodes, node_mask, cubic_bspline_footprint
 export BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent nodes of a lattice outside an imaged region (support.jl)
 export radial_part                         # a lens's radially symmetric part
 export CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models (Schöps et al.)
+export present_nodes, in_present_domain   # the nodes a grid model holds; where it evaluates (every window node present)
 export spline_support, spline_weights, window_controls, window_indices, direction_tangents, default_generic_grid  # the grid model's window interface (0.22.2)
 export ControlPatchManifold              # a block of a grid model's controls as a manifold (public, not exported, at the top level)
 export ControlPointChart, AdditivePoints, RayNormalPoints   # how its point controls move (public, not exported, at the top level)

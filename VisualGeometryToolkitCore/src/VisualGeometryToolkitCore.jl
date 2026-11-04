@@ -324,6 +324,7 @@ public ParameterManifold, LensManifold    # a parametric model's Manifold, insid
 public parameter_box                      # a ParameterManifold's solver search box (`box` keyword), within parameter_bounds
 public coordinate_scale                   # a ParameterManifold's coordinate scales (`scale` keyword)
 export CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models
+public present_nodes, in_present_domain   # the nodes a grid model holds; where it evaluates (every window node present)
 export default_generic_grid  # the grid model's window interface (0.22.2)
 public spline_support, spline_weights, window_controls, window_indices, direction_tangents
 public ControlPatchManifold   # a block of a generic grid model's controls as a Manifold: the per-tile refinement's variable

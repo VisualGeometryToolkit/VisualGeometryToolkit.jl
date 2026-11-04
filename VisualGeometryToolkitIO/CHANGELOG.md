@@ -61,6 +61,11 @@ calibration.
   changes it, and the migration reports v5's id as the old one so
   `vgio_migrate_tree` re-points its measurement files.
 - Depends on CoordinateTransformations (the calibration's composition type).
+- The calibration record reads the composition's structure from VGC (`members`,
+  `TARGET_CALIBRATION_ORDER`, `planar_kind`, `is_pure_bending`) instead of
+  restating it, and the v2 → v3 migration factors a retired affine with VGC's
+  `iwasawa_parameters_with_jacobian`; records, covariances and messages are
+  unchanged (a reflection's refusal is VGC's message, still naming `det A`).
 
 ## 0.4.0 (2026-11-02)
 

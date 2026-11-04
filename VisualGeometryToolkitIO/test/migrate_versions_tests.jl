@@ -615,7 +615,7 @@ end
         @test VisualGeometryToolkitCore.model(only(back.members.sensors)).lens == lens          # the sensor's lens, in CT's order
         cu = calibration(back[:t].target)
         c = geom(cu)
-        ms = VgtkIO._flat_members(c)
+        ms = VisualGeometryToolkitCore.members(c)
         @test ms[1] == H && ms[2] isa EuclideanMap && ms[3] isa Scale && ms[4] isa Aspect && ms[5] isa Skew
         # the same map: H(A·p + b), in metres
         Am, bm = SMatrix{2, 2}(A[1], A[3], A[2], A[4]), SVector(b...) ./ 1000
@@ -623,7 +623,7 @@ end
             @test ustrip.(VisualGeometryToolkitCore.m, c(q .* VisualGeometryToolkitCore.m)) ≈ ustrip.(VisualGeometryToolkitCore.m, H((Am * q + bm) .* VisualGeometryToolkitCore.m)) atol = 1.0e-14
         end
         # the covariance, over [height field (9); ϑ, tx, ty, log s, a₁, u₁₂] in the file's units: J Σ Jᵀ, J by central differences
-        f(x) = (θ = VgtkIO._affine_factors(x[1:4]...)[1]; [θ[1], x[5], x[6], θ[2], θ[3], θ[4]])
+        f(x) = (θ = VisualGeometryToolkitCore.iwasawa_parameters(SMatrix{2, 2}(x[1], x[3], x[2], x[4])); [θ[1], x[5], x[6], θ[2], θ[3], θ[4]])
         x0 = [A..., b...]
         Jfd = reduce(hcat, [(h = zeros(6); h[k] = 1.0e-6; (f(x0 .+ h) .- f(x0 .- h)) ./ 2.0e-6) for k in 1:6])
         @test VgtkIO._member_v2_to_v3(Dict{String, Any}("type" => "affine", "parameters" => Any[x0...])).J ≈ Jfd rtol = 1.0e-8
@@ -636,17 +636,17 @@ end
 end
 
 @testitem "vgio_migrate: an affine calibration is its Iwasawa factors — the same map, det A > 0 required" setup = [VGIoFixtures] begin
-    import VisualGeometryToolkitIO as VgtkIO
+    import VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: Scale, Aspect, Skew
     for A in ((1.001, 0.002, -0.003, 0.999), (0.7, -1.3, 2.1, 0.4), (-1.2, 0.3, -0.1, -0.9), (2.0, 0.0, 0.0, 0.5))
-        (ϑ, k, a, u), _ = VgtkIO._affine_factors(A...)
         M = SMatrix{2, 2}(A[1], A[3], A[2], A[4])
+        ϑ, k, a, u = VisualGeometryToolkitCore.iwasawa_parameters(M)
         F = SMatrix(RotMatrix{2, Float64}(ϑ)) * exp(k) * SMatrix{2, 2}(exp(a), 0.0, 0.0, exp(-a)) * SMatrix{2, 2}(1.0, 0.0, u, 1.0)
         @test F ≈ M rtol = 1.0e-14
         c = EuclideanMap(RotMatrix{2, Float64}(ϑ), SVector(0.0, 0.0); check = false) ∘ Scale(k) ∘ Aspect(a) ∘ Skew(u)
         @test c(SVector(0.3, -0.7)) ≈ M * SVector(0.3, -0.7) rtol = 1.0e-14
     end
-    e = try VgtkIO._affine_factors(1.0, 0.0, 0.0, -1.0); nothing catch e; e end                      # a reflection
+    e = try VisualGeometryToolkitCore.iwasawa_parameters(SMatrix{2, 2}(1.0, 0.0, 0.0, -1.0)); nothing catch e; e end   # a reflection
     @test e isa ArgumentError && occursin("det A", e.msg)
 end
 

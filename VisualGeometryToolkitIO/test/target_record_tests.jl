@@ -82,8 +82,7 @@ end
 
 @testitem "target/v3: every calibration kind round-trips, with and without its covariance" setup = [VGIoFixtures, TargetRecordFixtures] begin
     using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, Attributed, Uncertain, calibration, points, geom,
-        is_resolved, reference, parameter_names, Rigid
-    using CoordinateTransformations: ComposedTransformation
+        is_resolved, reference, parameter_names, Rigid, members
     using Statistics: cov
     mktempdir() do dir
         p = joinpath(dir, "target.json")
@@ -91,9 +90,9 @@ end
             t = PlanarTarget(design_points(); calibration = cc)
             save(p, t; length_unit)
             d = parse_json(read(p, String))
-            composed = c isa ComposedTransformation
+            composed = length(members(c)) > 1
             @test d.schema == "vgio/target/v3" && d.target.calibration.type == (composed ? "composition" : String(name))
-            composed && @test length(d.target.calibration.compose) == length(VisualGeometryToolkitIO._flat_members(c))   # flat, outer first
+            composed && @test length(d.target.calibration.compose) == length(members(c))   # flat, outer first
             @test haskey(d.target.calibration, :covariance) == (cc isa Uncertain)
             back = load(AbstractTarget, p)
             @test back == t                        # exact, by type: values, units, the covariance

@@ -155,30 +155,17 @@ const _COMPOSE_KEY = "compose"
 const _RETIRED_COMPOSITION_TYPE = "calibration_chain"
 
 # The keys a calibration record of each kind states, by its tag, and how many
-# parameters it holds — VGC's `length(length_mask(K))` of the planar target's
-# concrete kind `K` (`_record_kind`: N = 2, a thin-plate kind over its nodes),
-# read from VGC, never restated here, so a change of a kind's parameter layout
+# parameters it holds — VGC's `length(length_mask(planar_kind(K, n)))` of the
+# kind `K` its registry gives for the tag (N = 2, a thin-plate kind over its `n`
+# nodes), read from VGC, never restated here, so a change of a kind's parameter layout
 # moves the record's counts, its covariance's order and the identity tree's
 # permutation with it. (Only the v2 migrator keeps frozen counts,
 # `_v2_parameter_count`: there the input is the v2 FORMAT, which does not change.)
 _calibration_keys(ty) = ty == "rigid" ? () : ty in ("thin_plate_spline", "height_field") ? (:nodes, :parameters) : (:parameters,)
-function _record_kind(ty, K::Integer)
-    T = TARGET_CALIBRATION_TAGS[String(ty)]           # an unknown tag: VGC's ArgumentError, listing the known ones
-    T === EuclideanMap && return EuclideanMap{2}
-    T === Aspect && return Aspect{2}
-    T === Skew && return typeof(Skew(0.0))           # N = 2 (its parameter count, a type parameter, from VGC)
-    T === ThinPlateSpline && return ThinPlateSpline{Int(K)}
-    T === HeightField && return HeightField{Int(K)}
-    return T
-end
-_record_parameter_count(ty, nodes) = length(length_mask(_record_kind(ty, length(nodes))))
+# (an unknown tag: VGC's ArgumentError, listing the known ones)
+_record_parameter_count(ty, nodes) = length(length_mask(planar_kind(TARGET_CALIBRATION_TAGS[String(ty)], length(nodes))))
 _n_parameters(x) = x[:type] == _COMPOSITION_TYPE ? sum(_n_parameters, x[:compose]; init = 0) :
     _record_parameter_count(x[:type], get(x, :nodes, ()))
-
-# VGC's canonical order of a composition's members, the outer map first (each
-# kind's tag): `HeightField ∘ ThinPlateSpline ∘ EuclideanMap ∘ Scale ∘ Aspect ∘ Skew`
-const _CANONICAL_ORDER = ("height_field", "thin_plate_spline", "euclidean", "scale", "aspect", "skew")
-const _CANONICAL_TEXT = "HeightField ∘ ThinPlateSpline ∘ EuclideanMap ∘ Scale ∘ Aspect ∘ Skew"
 
 # The retired composition record — `calibration_chain` with its `members` in
 # application order (target v2 / rig v5) — refused by name: its key and order
@@ -226,10 +213,11 @@ function _composition_check(x, member::Bool)
         msg = _target_calibration_check(r, true)
         msg === nothing || return "member $(i): $(msg)"
     end
-    ranks = [something(findfirst(==(r[:type]), _CANONICAL_ORDER), 0) for r in ms]
-    (2 <= length(ms) <= length(_CANONICAL_ORDER) && all(>(0), ranks) && issorted(ranks; lt = <=)) || return (
-        "a $(_COMPOSITION_TYPE)'s members are 2 to 6 kinds in the canonical order $(_CANONICAL_TEXT) " *
-            "([$(join(_CANONICAL_ORDER, ", "))]), any left out, each once, the outer map first; " *
+    order = map(calibration_tag, TARGET_CALIBRATION_ORDER)   # VGC's canonical order, the outer map first, by tag
+    ranks = [something(findfirst(==(r[:type]), order), 0) for r in ms]
+    (2 <= length(ms) <= length(order) && all(>(0), ranks) && issorted(ranks; lt = <=)) || return (
+        "a $(_COMPOSITION_TYPE)'s members are 2 to 6 kinds in the canonical order $(join(nameof.(TARGET_CALIBRATION_ORDER), " ∘ ")) " *
+            "([$(join(order, ", "))]), any left out, each once, the outer map first; " *
             "got [$(join((r[:type] for r in ms), ", "))]"
     )
     return _covariance_check(x, _COMPOSITION_TYPE, _n_parameters(x), member)
@@ -356,11 +344,6 @@ _tag(::ComposedTransformation) = _COMPOSITION_TYPE
 _physical(c, ::_LeafUnit) = ((any(length_mask(c)) && !has_units(c)) && _refuse_plain("a $(nameof(typeof(c))) target calibration"); c)
 _physical(c, ::_Chart) = c   # a placed target's calibration is plain chart numbers (VGC refuses one with units)
 
-# A composition's members, outer first, whatever its association (VGC stores
-# it right-associated); the record lists them flat.
-_flat_members(c::ComposedTransformation) = (_flat_members(c.t1)..., _flat_members(c.t2)...)
-_flat_members(c) = (c,)
-
 _calibration_record(c::Rigid, ::_CalUnit) = (type = _tag(c),)
 _calibration_record(c::Union{Scale, Aspect{2}, Skew{2}}, ::_CalUnit) = (type = _tag(c), parameters = Float64.(collect(parameter_vector(c))))
 # The angle is the stored one: a target's rigid member holds its rotation as an
@@ -375,14 +358,13 @@ function _calibration_record(c::Union{ThinPlateSpline, HeightField}, u::_CalUnit
     _check_writes_back(c, r, u)
     return r
 end
-# The writer's half of the reader's pure-bending rule (`_check_pure_bending`):
-# a field pure bending neither in the file's numbers nor in metres would not
-# read back, so it is refused here, naming the unit to write it in. (The
-# identity tree, `_PERSISTED`, is never read.)
+# The writer's half of the reader's pure-bending rule (`_reads_back`): a field
+# pure bending neither in the file's numbers nor in metres would not read
+# back, so it is refused here, naming the unit to write it in. (The identity
+# tree, `_PERSISTED`, is never read.)
 _check_writes_back(c, r, ::_Persisted) = nothing
 function _check_writes_back(c, r, u::Union{Units, _Chart})
-    T = c isa HeightField ? HeightField : ThinPlateSpline
-    (_pure_in_file_unit(T, r.nodes, r.parameters) || _pure_in_metres(T, r.nodes, r.parameters, u)) && return nothing
+    _reads_back(r.nodes, r.parameters, u) === nothing || return nothing
     throw(
         ArgumentError(
             "a $(r.type) calibration that is pure bending neither in metres nor in the file's unit " *
@@ -393,7 +375,7 @@ function _check_writes_back(c, r, u::Union{Units, _Chart})
     )
 end
 _calibration_record(c::ComposedTransformation, u::_CalUnit) =
-    (type = _tag(_physical(c, u)), compose = [_calibration_record(l, u) for l in _flat_members(c)])
+    (type = _tag(_physical(c, u)), compose = [_calibration_record(l, u) for l in members(c)])
 
 _calibration_record(c::Uncertain{<:TargetCalibration}, u::_CalUnit) =
     merge(_calibration_record(geom(c), u), (covariance = _length_cov_json(cov(c), u, length_mask(geom(c))),))
@@ -415,14 +397,14 @@ _calibration_from_record(::Type{Scale}, x, u::_ReadUnit) = Scale(Float64(only(x.
 _calibration_from_record(::Type{Aspect}, x, u::_ReadUnit) = Aspect(Float64(only(x.parameters)))
 _calibration_from_record(::Type{Skew}, x, u::_ReadUnit) = Skew(Float64(only(x.parameters)))
 function _calibration_from_record(::Type{ThinPlateSpline}, x, u::_ReadUnit)
-    _check_pure_bending(ThinPlateSpline, x.nodes, x.parameters, u)
+    system = _check_pure_bending(ThinPlateSpline, x.nodes, x.parameters, u)
     p = x.parameters::Vector{Any}
     K = length(x.nodes)
-    return ThinPlateSpline(_nodes_from_json(x, u), [_read_metres(p[i], u) for i in 1:K], [_read_metres(p[K + i], u) for i in 1:K]; project = false)
+    return ThinPlateSpline(system, [_read_metres(p[i], u) for i in 1:K], [_read_metres(p[K + i], u) for i in 1:K]; project = false)
 end
 function _calibration_from_record(::Type{HeightField}, x, u::_ReadUnit)
-    _check_pure_bending(HeightField, x.nodes, x.parameters, u)
-    return HeightField(_nodes_from_json(x, u), [_read_metres(v, u) for v in x.parameters::Vector{Any}]; project = false)
+    system = _check_pure_bending(HeightField, x.nodes, x.parameters, u)
+    return HeightField(system, [_read_metres(v, u) for v in x.parameters::Vector{Any}]; project = false)
 end
 # A thin-plate kind holds pure bending (VGC: no affine term in its
 # interpolant; its constructor projects the values it is given and keeps,
@@ -437,19 +419,26 @@ end
 # numbers) or in metres; any other — an affine term in every form — is
 # refused, never read moved. The writer refuses a field that would not read
 # back (`_check_writes_back`), so anything written reads back `==`.
-_bending_kind(::Type{ThinPlateSpline}, nodes, v) = (K = length(nodes); ThinPlateSpline(nodes, v[1:K], v[(K + 1):end]))
-_bending_kind(::Type{HeightField}, nodes, v) = HeightField(nodes, v)
-_is_pure_bending(T, nodes, v) = parameter_vector(_bending_kind(T, nodes, v)) == [_plain_or_metres(x) for x in v]
-_plain_or_metres(x::Real) = Float64(x)
-_plain_or_metres(x) = Float64(ustrip(m, x))
-function _pure_in_file_unit(T, nodes, p)
-    _is_pure_bending(T, [SVector(Float64(q[1]), Float64(q[2])) for q in nodes], [Float64(v) for v in p])
+#
+# `_reads_back(nodes, p, u)`: whether the record's nodes and parameters (the
+# file's numbers; `p` a height field's K heights or a spline's 2K
+# displacements, `fx` then `fy`) read back — each value block pure bending
+# (VGC's `is_pure_bending`) on the nodes in the file's numbers or in metres —
+# and the system the value is built on (metres, or the chart's numbers), each
+# system formed once; `nothing` when they do not.
+function _reads_back(nodes, p, u::_ReadUnit)
+    file = ThinPlateSplineSystem([SVector(Float64(q[1]), Float64(q[2])) for q in nodes])
+    pure_in_file = _pure_blocks(file, [Float64(v) for v in p])
+    u isa _Chart && return pure_in_file ? file : nothing        # a placed target's chart numbers are its values'
+    metres = ThinPlateSplineSystem([SVector(_metres(q[1], u), _metres(q[2], u)) for q in nodes])
+    return pure_in_file || _pure_blocks(metres, [_metres(v, u) for v in p]) ? metres : nothing
 end
-_pure_in_metres(T, nodes, p, u::Units) =
-    _is_pure_bending(T, [SVector(read_length(q[1]::Real, u), read_length(q[2]::Real, u)) for q in nodes], [read_length(v::Real, u) for v in p])
-_pure_in_metres(T, nodes, p, ::_Chart) = false
+_metres(x, u::Units) = strip_or_bare(m, read_length(x::Real, u))
+_pure_blocks(system::ThinPlateSplineSystem{K}, v) where {K} =
+    length(v) == K ? is_pure_bending(system, v) : is_pure_bending(system, v[1:K]) && is_pure_bending(system, v[(K + 1):end])
 function _check_pure_bending(::Type{T}, nodes, p, u::_ReadUnit) where {T}
-    (_pure_in_file_unit(T, nodes, p) || _pure_in_metres(T, nodes, p, u)) && return nothing
+    system = _reads_back(nodes, p, u)
+    system === nothing || return system
     what = T === HeightField ? "heights" : "displacements"
     throw(
         ArgumentError(

@@ -495,7 +495,7 @@ end
 # - the AFFINE kind is retired: `{"type": "affine", "parameters": [a11, a12,
 #   a21, a22, bx, by]}` (p ↦ A·p + b, A row by row) is its Iwasawa factors
 #   `EuclideanMap ∘ Scale ∘ Aspect ∘ Skew` (A = s·R·D·U), exactly the same map
-#   (`_affine_factors`), its covariance carried through the factorization's
+#   (VGC's `iwasawa_parameters`), its covariance carried through the factorization's
 #   Jacobian; a chain's affine member becomes those four in its place. All
 #   four are KEPT (a migration preserves the geometry exactly): EuclideanMap
 #   and Scale are the jointly estimated pose's gauges, so VGC's joint-pose
@@ -521,45 +521,24 @@ _v2_parameter_count(r) = (t = r["type"]; t == "rigid" ? 0 : t == "affine" ? 6 :
     t == "thin_plate_spline" ? 2 * length(r["nodes"]) : t == "height_field" ? length(r["nodes"]) :
     throw(ArgumentError("a calibration record of unknown type $(repr(t))")))
 
-# An affine A (row by row a11, a12, a21, a22; det A > 0) as its Iwasawa
-# factors A = s·R·D·U, by A = Q·T (QR, T upper-triangular with a positive
-# diagonal, so Q is a rotation when det A > 0): ϑ = atan(Q₂₁, Q₁₁), s =
-# √(t₁₁ t₂₂), log-scale log s, aspect a₁ = ½ log(t₁₁/t₂₂), skew u₁₂ = t₁₂/t₁₁
-# — and the Jacobian of (ϑ, log s, a₁, u₁₂) in (a11, a12, a21, a22), 4 × 4.
-function _affine_factors(a11, a12, a21, a22)
-    d = a11 * a22 - a12 * a21
-    d > 0 || throw(
-        ArgumentError(
-            "an affine calibration with det A = $(d) ≤ 0 (a reflection or a degenerate map) has no factorization " *
-                "EuclideanMap ∘ Scale ∘ Aspect ∘ Skew; nothing was written"
-        )
-    )
-    r2 = a11^2 + a21^2                       # t₁₁²
-    n = a11 * a12 + a21 * a22                # t₁₁ t₁₂
-    θ = (atan(a21, a11), log(d) / 2, log(r2) / 2 - log(d) / 2, n / r2)
-    J = [
-        -a21/r2 0.0 a11/r2 0.0;
-        a22/(2d) -a21/(2d) -a12/(2d) a11/(2d);
-        a11/r2-a22/(2d) a21/(2d) a21/r2+a12/(2d) -a11/(2d);
-        a12/r2-2a11*n/r2^2 a11/r2 a22/r2-2a21*n/r2^2 a21/r2
-    ]
-    return θ, J
-end
 # A v2 member as its v3 members (CT's order) and the Jacobian of their
 # parameters in its own: an affine as [euclidean, scale, aspect, skew] over
-# (ϑ, bx, by, log s, a₁, u₁₂) ← (a11, a12, a21, a22, bx, by), its b carried
-# over unchanged in the file's unit; any other kind as it is (`nothing`: the identity).
+# (ϑ, bx, by, log s, a₁, u₁₂) ← (a11, a12, a21, a22, bx, by) — A's Iwasawa
+# factors A = s·R·D·U (VGC's `iwasawa_parameters_with_jacobian`, its Jacobian
+# in A's entries row by row, as v2 stored them), its b carried over unchanged
+# in the file's unit; any other kind as it is, its Jacobian the identity.
 function _member_v2_to_v3(r::AbstractDict)
-    r["type"] == "affine" || return (records = Any[r], J = nothing, n = _v2_parameter_count(r))
+    n = _v2_parameter_count(r)
+    r["type"] == "affine" || return (records = Any[r], J = [Float64(i == j) for i in 1:n, j in 1:n], n)
     p = r["parameters"]
-    (ϑ, k, a, u), Ja = _affine_factors(Float64.(p[1:4])...)
+    (ϑ, k, a, u), Ja = iwasawa_parameters_with_jacobian(SMatrix{2, 2}(Float64(p[1]), Float64(p[3]), Float64(p[2]), Float64(p[4])))
     rec(ty, θ) = Dict{String, Any}("type" => ty, "parameters" => Any[θ...])
     records = Any[rec("euclidean", (ϑ, p[5], p[6])), rec("scale", (k,)), rec("aspect", (a,)), rec("skew", (u,))]
     J = zeros(6, 6)
     J[1, 1:4] = Ja[1, :]
     J[2, 5] = J[3, 6] = 1.0
     J[4:6, 1:4] = Ja[2:4, :]
-    return (; records, J, n = 6)
+    return (; records, J, n)
 end
 # A v2 calibration record (a kind, a chain, an affine) as its v3 record.
 function _calibration_v2_to_v3(c::AbstractDict)
@@ -573,24 +552,20 @@ function _calibration_v2_to_v3(c::AbstractDict)
     return out
 end
 # The covariance over the v2 members (application order) as the one over the
-# v3 members (CT's order): Σ′ = J Σ Jᵀ with J the members' block Jacobians,
-# reversed; a pure reorder permutes the entries (exactly).
+# v3 members (CT's order): Σ′ = J Σ Jᵀ with J the members' block Jacobians
+# (an identity block for a kind carried over as it is), their row blocks
+# reversed.
 function _covariance_v2_to_v3(rows, parts)
     Σ = [Float64(rows[i][j]) for i in eachindex(rows), j in eachindex(rows)]
-    old_off = cumsum([0; [p.n for p in parts][1:(end - 1)]])
-    blocks = reverse(collect(zip(parts, old_off)))
-    if all(p -> p.J === nothing, parts)
-        perm = reduce(vcat, [collect((o + 1):(o + p.n)) for (p, o) in blocks]; init = Int[])
-        return Any[Any[Σ[perm[i], perm[j]] for j in eachindex(perm)] for i in eachindex(perm)]
-    end
-    J = zeros(sum(p -> p.n, parts), length(rows))
-    row = 0
-    for (p, o) in blocks
-        J[(row + 1):(row + p.n), (o + 1):(o + p.n)] = p.J === nothing ? [Float64(i == j) for i in 1:p.n, j in 1:p.n] : p.J
-        row += p.n
-    end
+    J = cat((p.J for p in parts)...; dims = (1, 2))[_block_reverse_perm([p.n for p in parts]), :]
     S = J * Σ * J'
     return Any[Any[i <= j ? S[i, j] : S[j, i] for j in axes(S, 2)] for i in axes(S, 1)]   # exactly symmetric
+end
+# The permutation that lists consecutive blocks of `sizes` entries in reverse
+# block order, each block's entries kept in order.
+function _block_reverse_perm(sizes)
+    offsets = cumsum([0; sizes[1:(end - 1)]])
+    return reduce(vcat, reverse([collect((o + 1):(o + n)) for (o, n) in zip(offsets, sizes)]); init = Int[])
 end
 
 # The list's key and order changed together, so a reader can tell them apart:
@@ -610,9 +585,7 @@ function _recomposed(c::AbstractDict, key, from, type, to)
     ms = c[from]
     out[to] = reverse(ms)
     if haskey(c, "covariance")
-        sizes = [_record_parameter_count(r[key], get(r, "nodes", ())) for r in ms]
-        offsets = cumsum([0; sizes[1:(end - 1)]])
-        p = reduce(vcat, reverse([collect((o + 1):(o + n)) for (o, n) in zip(offsets, sizes)]); init = Int[])
+        p = _block_reverse_perm([_record_parameter_count(r[key], get(r, "nodes", ())) for r in ms])
         Σ = c["covariance"]
         out["covariance"] = Any[Any[Σ[p[i]][p[j]] for j in eachindex(p)] for i in eachindex(p)]
     end

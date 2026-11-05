@@ -1,5 +1,5 @@
 # =============================================================================
-# rig/v6, target/v3, trajectory/v3, target_poses/v1, target_points2d/v1,
+# rig/v6, target/v3, trajectory/v3, target_poses/v1, target_points2d/v2,
 # target_points3d/v1 round trips, and the correspondences export
 # =============================================================================
 #

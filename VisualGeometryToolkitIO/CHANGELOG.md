@@ -26,6 +26,11 @@
   identity or a rig target the listed target and rig files do not hold. A
   measurement names a single target by its `reference`, or by its content id
   when it has none; a rig's target by its id.
+- **Manifest refusals**: a `kind` of `"image"` listing a `trajectory` or
+  `target_poses` record; `./a.json` and `a.json` as two entries of one file; a
+  listed file that is a symlink resolving outside the manifest's directory.
+  A malformed `.toml` file given to `vgio_migrate` (or read for its schema) is an
+  `ArgumentError` naming the path, not a `TOML.ParserError`.
 - **`save_correspondences` takes single targets** (an `AbstractTarget` or a
   `vgio/target/v3` path) beside rigs, named as above.
 - **`vgio_migrate` rewrites a `.toml` record** whose schema has a

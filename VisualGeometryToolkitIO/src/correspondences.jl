@@ -122,15 +122,16 @@ for `cv::calibrateCamera` (the top-left pixel's centre at (0, 0)),
 default. A type, it leads.
 
 `targets` is one or more rigs, rig file paths, or single targets (an
-`AbstractTarget` or a `vgio/target/v3` path; named in the file by its design
-`reference`, or its [`content_id`](@ref) with none) (one per connected
-component; a target present in several must carry the same points in each;
-`resolve` resolves a referenced planar design read from a path); when `obs` names its targets (`obs.targets`), the given ones must be
-exactly those, by [`content_id`](@ref) — an old rig file (`vgio/rig/v4`, or a
-`v5` whose calibration held the retired affine kind) also by the identity its
+`AbstractTarget` or a `vgio/target/v3` path), one per connected component. A
+single target is named in the file by its design `reference`, or by its
+[`content_id`](@ref) with none. A target present in several must carry the same
+points in each; `resolve` resolves a referenced planar design read from a path.
+When `obs` names its targets (`obs.targets`), the given ones must be exactly
+those, by [`content_id`](@ref) — an old rig file (`vgio/rig/v4`, or a `v5`
+whose calibration held the retired affine kind) also by the identity its
 version named it by, which the measurement files written beside it hold.
-Every (target, index) must resolve,
-and every frame must name its image and sensor.
+Every (target, index) must resolve, and every frame must name its image and
+sensor.
 """
 save_correspondences(path::AbstractString, obs::TargetPoints2D{F}, targets...; kwargs...) where {F <: PixelFrame} =
     save_correspondences(F, path, obs, targets...; kwargs...)

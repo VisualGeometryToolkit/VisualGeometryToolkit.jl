@@ -4,7 +4,8 @@
 #
 #   vgio/trajectory/v3        ↔ VGC `Trajectory{S, D}`      a body's pose over time
 #   vgio/target_poses/v1      ↔ VGC `TargetPoses{F}`        per frame, the poses of the targets seen
-#   vgio/target_homographies/v1 ↔ VGC `TargetHomographies{F, H}` per frame, each target's plane → pixel homography
+#   vgio/target_homographies/v1 ↔ VGC `TargetHomographies{F, H}`
+#                                                         per frame, each target's plane → pixel homography
 #   vgio/target_points2d/v2   ↔ VGC `TargetPoints2D{F}`     per frame, pixels of target points
 #   vgio/target_points3d/v1   ↔ VGC `TargetPoints3D{F}`     per frame, 3D positions of target points
 #
@@ -420,10 +421,11 @@ function load(::Type{TargetHomographies}, path::AbstractString)
         frames; images, sensors, times, time_origin = _time_origin(d), targets = String[h::String for h in d.targets::Vector{Any}],
     )
 end
+_pixel_frame_type(::TargetHomographies{F}) where {F} = F
 function load(::Type{<:TargetHomographies{F}}, path::AbstractString) where {F <: PixelFrame}
     th = load(TargetHomographies, path)
     th isa TargetHomographies{F} || throw(
-        ArgumentError("$(path): declares pixel_frame $(repr(pixel_frame_name(typeof(th).parameters[1]))), not the requested $(repr(pixel_frame_name(F)))")
+        ArgumentError("$(path): declares pixel_frame $(repr(pixel_frame_name(_pixel_frame_type(th)))), not the requested $(repr(pixel_frame_name(F)))")
     )
     return th
 end

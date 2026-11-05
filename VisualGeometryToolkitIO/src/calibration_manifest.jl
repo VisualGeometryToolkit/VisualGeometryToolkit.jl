@@ -16,9 +16,10 @@
 # bytes and says which are AUTHORITIES (the measurement or the estimate) and
 # which are DERIVED (computed from other listed files: `target_poses` from the
 # trajectory and the targets), so a loader can check the set is consistent —
-# that homographies are read against the right camera, that a derived file
-# comes from the files beside it — without any one record knowing of the
-# others. A measurement file's target names must be in the targets it
+# that a derived file names files the manifest lists, that a measurement's
+# targets resolve in the listed target and rig files — without any one record
+# knowing of the others (it does not check a measurement's `sensor` against a
+# listed camera store). A measurement file's target names must be in the targets it
 # references: a rig's target ids, a single target's design `reference` (or its
 # content id when it has none). `kind` says what the result is: "metric" (a placement in space),
 # "projective" (a partial calibration), "image" (an image-based result with no
@@ -44,11 +45,12 @@ end
 # The cross-entry checks: unique paths, every `derived_from` a listed path, no cycle.
 function _manifest_files_check(files)
     isempty(files) && return "a manifest lists at least one file"
-    msg = _unique_check([f[:path] for f in files], "file paths")
+    # `./a.json` and `a.json` are one file
+    msg = _unique_check([normpath(f[:path]) for f in files], "file paths")
     msg === nothing || return msg
-    from = Dict(String(f[:path]) => String.(f[:derived_from]) for f in files)
+    from = Dict(normpath(f[:path]) => normpath.(String.(f[:derived_from])) for f in files)
     for f in files, d in f[:derived_from]
-        haskey(from, d) || return "$(f[:path]): `derived_from` names $(repr(d)), which the manifest does not list"
+        haskey(from, normpath(d)) || return "$(f[:path]): `derived_from` names $(repr(d)), which the manifest does not list"
     end
     state = Dict{String, Symbol}()
     visit(p) = begin
@@ -70,8 +72,23 @@ function _manifest_files_check(files)
     return nothing
 end
 
-# A model's intrinsics must be the kind's (a generic grid is metric).
+# The clear contradictions between a result's `kind` and the records it lists:
+# an image result has no placement in space, so it lists no trajectory or
+# target_poses record.
+function _manifest_kind_check(x)
+    x[:kind] == "image" || return nothing
+    for f in x[:files]
+        k = _split_schema(f[:kind])
+        (k !== nothing && k.kind in ("trajectory", "target_poses")) &&
+            return "`kind` is \"image\" (a result with no placement in space), but it lists $(f[:path]), a $(repr(f[:kind])) record"
+    end
+    return nothing
+end
+
+# A model's intrinsics must be the kind's (a generic grid is metric); a kind its records do not contradict.
 function _manifest_model_check(x)
+    msg = _manifest_kind_check(x)
+    msg === nothing || return msg
     haskey(x, :model) || return nothing
     m = x[:model]
     i = haskey(m, :type) ? "metric" : get(m, :intrinsics, "metric")
@@ -169,6 +186,13 @@ function _manifest_model(d, path)
     end
 end
 
+# Whether `full`, with symlinks resolved, lies inside `dir` (also resolved).
+function _realpath_inside(full, dir)
+    root = realpath(dir)
+    p = realpath(full)
+    return p == root || startswith(p, joinpath(root, ""))
+end
+
 # The files a manifest lists, against the directory: each exists, holds the recorded
 # schema, and hashes to the recorded SHA-256 (a mismatch names the file); then the
 # targets the measurement files name resolve in the listed target and rig files.
@@ -176,6 +200,9 @@ function _check_manifest_files(dir, d, mpath)
     for f in d.files::Vector{Any}
         full = joinpath(dir, f.path::String)
         isfile(full) || throw(ArgumentError("$(mpath): lists $(f.path), which is not a file in $(dir)"))
+        _realpath_inside(full, dir) || throw(
+            ArgumentError("$(full): resolves outside $(dir) (a symlink leaves the manifest's directory); a manifest binds files inside its directory")
+        )
         got = _file_sha256(full)
         got == f.sha256 || throw(
             ArgumentError("$(full): its SHA-256 is $(got), but $(mpath) records $(f.sha256) — the file changed since the manifest was written")

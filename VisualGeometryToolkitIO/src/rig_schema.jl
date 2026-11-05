@@ -37,9 +37,18 @@
 
 _unique_check(xs, what) = allunique(xs) ? nothing : "$(what) must be unique"
 
+# A TOML file's tree; a malformed file is an ArgumentError naming the path.
+function _parse_toml_file(path::AbstractString)
+    return try
+        TOML.parsefile(path)
+    catch e
+        e isa TOML.ParserError ? throw(ArgumentError("$(path): not valid TOML ($(sprint(showerror, e)))")) : rethrow()
+    end
+end
+
 # Read the schema a file declares, before knowing which kind to validate it as.
 function _peek_schema(path::AbstractString)
-    _is_toml(path) && return get(TOML.parsefile(path), "schema", nothing)
+    _is_toml(path) && return get(_parse_toml_file(path), "schema", nothing)
     d = _read_vgio_json(path)
     d isa AbstractDict || throw(ArgumentError("$(path): not a JSON object"))
     return get(d, :schema, nothing)

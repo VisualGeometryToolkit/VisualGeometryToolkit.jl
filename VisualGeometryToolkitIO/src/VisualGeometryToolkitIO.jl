@@ -33,8 +33,8 @@ and times) or an `Attributed` attribute (a camera's `calibration` block, a targe
 `calibration_record`; a covariance, as `Uncertain`).
 
 Every vgio file is a versioned schema (`vgio/<kind>/v<n>`: rig v6; cameras
-v4; transforms, trajectory and target v3; target_poses, target_homographies, target_points2d and
-target_points3d v1; the rest v2), and a file is sufficient on its own and
+v4; transforms, trajectory and target v3; target_points2d v2; target_poses, target_homographies,
+target_points3d and calibration v1; the rest v2), and a file is sufficient on its own and
 minimal:
 - every convention a reader needs is DECLARED in the file, once — the pixel
   frame, the length unit, the rotation encoding (Hamilton quaternions, w-x-y-z,

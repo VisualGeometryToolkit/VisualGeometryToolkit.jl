@@ -103,3 +103,23 @@ end
         end
     end
 end
+
+@testitem "migrate_toml: a malformed file and a step that drops the schema are ArgumentErrors naming what is wrong" begin
+    import VisualGeometryToolkitIO as VgtkIO
+
+    VgtkIO.migrate_schema(::Val{Symbol("vgiotest/noschema/v1")}, t::Dict{String, Any}) = Dict{String, Any}("x" => 1)
+
+    mktempdir() do dir
+        bad = joinpath(dir, "bad.toml")
+        write(bad, "schema = \"vgiotest/config/v1\"\nold_name = = 3\n")
+        e = try VgtkIO.vgio_migrate(bad; out = joinpath(dir, "o.toml")) catch err; err end
+        @test e isa ArgumentError && occursin(bad, e.msg) && occursin("not valid TOML", e.msg)
+
+        dropped = joinpath(dir, "dropped.toml")
+        write(dropped, "schema = \"vgiotest/noschema/v1\"\n")
+        out = joinpath(dir, "dropped.out.toml")
+        e = try VgtkIO.vgio_migrate(dropped; out) catch err; err end
+        @test e isa ArgumentError && occursin("not a later version", e.msg)
+        @test !ispath(out)
+    end
+end

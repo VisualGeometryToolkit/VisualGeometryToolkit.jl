@@ -68,7 +68,7 @@ end
         VgtkIO.save_manifest(dir, files; kind = "metric", model, metrics = (rms_px = 0.4, n_frames = 3), provenance = (; tool = "test"))
         @test read(p, String) == before
         # optional parts left out read back as nothing
-        VgtkIO.save_manifest(dir, files[1:3]; kind = "image")
+        VgtkIO.save_manifest(dir, files[[1, 3]]; kind = "image")   # no placement in space: no trajectory
         m2 = VgtkIO.load_manifest(dir)
         @test m2.kind == "image" && m2.model === nothing && m2.metrics === nothing && m2.provenance === nothing
     end
@@ -137,6 +137,11 @@ end
         @test_throws "relative path inside" VgtkIO.load_manifest(dir)
         edit(d -> d["files"][2]["path"] = "rig_targets.json")
         @test_throws "file paths must be unique" VgtkIO.load_manifest(dir)
+        edit(d -> d["files"][2]["path"] = "./rig_targets.json")     # the same file spelled another way
+        @test_throws "file paths must be unique" VgtkIO.load_manifest(dir)
+        # an image result lists no trajectory or target_poses record
+        edit(d -> d["kind"] = "image")
+        @test_throws "a result with no placement in space" VgtkIO.load_manifest(dir)
         edit(d -> d["extra"] = 1)
         @test_throws "unknown key" VgtkIO.load_manifest(dir)
         edit(d -> d["schema"] = "vgio/calibration/v0")
@@ -163,6 +168,8 @@ end
         @test_throws "is not a file" VgtkIO.save_manifest(dir, ["missing.json"]; kind = "metric")
         @test_throws "a calibration kind" VgtkIO.save_manifest(dir, files; kind = "euclidean")
         @test_throws ArgumentError VgtkIO.save_manifest(dir, [(path = "trajectory.json", rol = "authority")]; kind = "metric")
+        @test_throws "a result with no placement in space" VgtkIO.save_manifest(dir, files; kind = "image")
+        @test_throws "file paths must be unique" VgtkIO.save_manifest(dir, [files[1], "./" * files[1]]; kind = "metric")
         write(joinpath(dir, "notes.txt"), "{\"a\": 1}")
         @test_throws "not a vgio record" VgtkIO.save_manifest(dir, ["notes.txt"]; kind = "metric")
         @test !isfile(p)                                       # nothing was written by any refusal
@@ -261,5 +268,20 @@ end
         p = joinpath(dir, "calibration.json")
         rewrite(p, d -> d["files"][2]["sha256"] = VgtkIO.sha256_hex(read(joinpath(dir, "target_homographies.json"), String)))
         @test_throws "target_homographies.json: names the targets identity" VgtkIO.load_manifest(dir)
+    end
+end
+
+@testitem "calibration/v1: a listed file that is a symlink leaving the directory is refused" setup = [ManifestFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    mktempdir() do outside
+        mktempdir() do dir
+            cp(fixture("rig_targets.json"), joinpath(outside, "rig_targets.json"))
+            symlink(joinpath(outside, "rig_targets.json"), joinpath(dir, "rig_targets.json"))
+            @test_throws "resolves outside" VgtkIO.save_manifest(dir, ["rig_targets.json"]; kind = "metric")
+            # a symlink that stays inside is fine
+            cp(fixture("rig_targets.json"), joinpath(dir, "real.json"))
+            symlink(joinpath(dir, "real.json"), joinpath(dir, "link.json"))
+            @test isfile(VgtkIO.save_manifest(dir, ["link.json"]; kind = "metric"))
+        end
     end
 end

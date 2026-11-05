@@ -350,7 +350,7 @@ vgio_migrate(path::AbstractString; out::AbstractString = _migrated_path(path), d
 # `vgio_migrate`, with `before_rename(r)` called on the verified result before
 # anything is put at `out` (a tree persists its identity map there).
 function _vgio_migrate(path::AbstractString; out::AbstractString, dry_run::Bool, before_rename = r -> nothing)
-    tree = _is_toml(path) ? TOML.parsefile(path) : nothing   # a TOML file is parsed once, here
+    tree = _is_toml(path) ? _parse_toml_file(path) : nothing   # a TOML file is parsed once, here
     s = tree === nothing ? _peek_schema(path) : get(tree, "schema", nothing)
     s isa AbstractString || throw(ArgumentError("$(path): not a vgio file (no schema)"))
     in_place = abspath(out) == abspath(path)

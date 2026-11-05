@@ -468,13 +468,20 @@ the four keywords or as one `stamps` value, not both (`ArgumentError`) — read 
 `td.images`, `td.sensors`, `td.times` and `td.time_origin` as on
 [`TargetPoints2D`](@ref); `targets` names the target definitions the indices
 resolve in by content identity (VisualGeometryToolkitIO's `content_id`), unique.
-Equal numbers in different frames are different detections (`==`). Otherwise a
-Dict: `keys`, `pairs`, iteration.
+`==`, `isequal` and `hash` agree: the frame type, the frame keys, every set
+with its attribute columns, the stamps and the targets — equal numbers in
+different frames are different detections. Otherwise a Dict: `keys`, `pairs`,
+iteration.
 
 The conversions from [`TargetPoints2D`](@ref) and [`TargetPoints3D`](@ref)
 keep the frame, the stamps and the targets, group each frame's points by
-target in their order, and carry the 2D bundle `weight` as a `weights` column;
-a value mixing plain and `Uncertain` points is refused (one form).
+target in their order, and carry the 2D bundle `weight` as a `weights` column.
+They convert every old value except two the old types allow and this one does
+not, each an `ArgumentError` naming the frame, target and index: a (target,
+index) detected twice in one frame (a data error: a point is detected once),
+and a value mixing plain and `Uncertain` points (one form per container). Such
+a value, and a file of it, stays a `TargetPoints2D`/`TargetPoints3D`
+(VisualGeometryToolkitIO's `load(TargetPoints2D, path)` still reads it).
 """
 struct TargetDetections{F <: Frame, C} <: AbstractDict{Int, Dict{Symbol, C}}
     frames::Dict{Int, Dict{Symbol, C}}
@@ -542,9 +549,29 @@ function _map_detections(f, ::Type{G}, x::TargetDetections) where {G}
     return TargetDetections{G}(_UncheckedDetections(), frames, x.stamps, x.targets)
 end
 
-# A set's `==` includes its attribute columns (Csponds' own).
+# A set's equality includes its attribute columns (a Csponds' `==` compares
+# its pairs only): a weighted set is not its unweighted one.
+_same_detections(a::Csponds, b::Csponds) = a == b && a.attrs == b.attrs
+_isequal_detections(a::Csponds, b::Csponds) = isequal(a, b) && isequal(a.attrs, b.attrs)
+_same_frames(same, a::AbstractDict, b::AbstractDict) =
+    keys(a) == keys(b) && all(t -> keys(a[t]) == keys(b[t]) && all(id -> same(a[t][id], b[t][id]), keys(a[t])), keys(a))
+
+# Equal: the same frame type `F`, frame keys, per-target sets with their
+# columns, stamps and targets. `isequal` and `hash` agree with it (the
+# AbstractDict fallbacks would compare the frames' sets only), so a value is a
+# sound Dict key.
 Base.:(==)(a::TargetDetections{F}, b::TargetDetections{G}) where {F, G} =
-    F === G && a.frames == b.frames && a.stamps == b.stamps && a.targets == b.targets
+    F === G && _same_frames(_same_detections, a.frames, b.frames) && a.stamps == b.stamps && a.targets == b.targets
+Base.isequal(a::TargetDetections{F}, b::TargetDetections{G}) where {F, G} =
+    F === G && _same_frames(_isequal_detections, a.frames, b.frames) && isequal(a.stamps, b.stamps) && isequal(a.targets, b.targets)
+function Base.hash(x::TargetDetections{F}, h::UInt) where {F}
+    # the frames are unordered: each (frame, target, set, columns) hashed alone, combined by xor
+    hf = zero(UInt)
+    for (t, s) in x.frames, (id, cs) in s
+        hf ⊻= hash(t, hash(id, hash(cs.attrs, hash(cs))))
+    end
+    return hash(x.targets, hash(x.stamps, hash(hf, hash(F, hash(TargetDetections, h)))))
+end
 
 # One form per container: its first point states it.
 function has_units(x::TargetDetections)
@@ -565,10 +592,48 @@ function _detections_by_target(os, point, columns)
     end
     return Dict(id => Csponds([o.index for o in sel], [point(o) for o in sel], columns(sel)) for (id, sel) in groups)
 end
-_converted_detections(::Type{F}, x, point, columns) where {F} = TargetDetections{F}(
-    Dict(t => _detections_by_target(os, point, columns) for (t, os) in x.frames);
-    x.images, x.sensors, x.times, x.time_origin, x.targets,
-)
+# What the old kinds allow and a TargetDetections refuses — a (target, index)
+# twice in one frame, and plain and Uncertain points in one value — refused by
+# name (frame, target, index), in frame order then point order. The old value
+# itself is valid, so the error says to keep it.
+function _check_convertible(x, point)
+    kind = nameof(typeof(x))
+    keep = "keep it as a $(kind) (a file of that kind still loads as VisualGeometryToolkitIO's `load($(kind), path)`)"
+    form(p) = p isa Uncertain ? "Uncertain" : "plain"
+    first_point = nothing
+    for t in sort!(collect(keys(x.frames)))
+        seen = Set{Tuple{Symbol, Int}}()
+        for o in x.frames[t]
+            key = (Symbol(o.target), Int(o.index))
+            key in seen && throw(
+                ArgumentError(
+                    "$(kind) → TargetDetections: frame $(t), target $(key[1]), index $(key[2]) is detected twice — " *
+                        "a TargetDetections holds a point once per frame; $(keep)"
+                )
+            )
+            push!(seen, key)
+            if first_point === nothing
+                first_point = (form(point(o)), t, key...)
+            elseif form(point(o)) != first_point[1]
+                throw(
+                    ArgumentError(
+                        "$(kind) → TargetDetections: frame $(t), target $(key[1]), index $(key[2]) is $(form(point(o))) where " *
+                            "frame $(first_point[2]), target $(first_point[3]), index $(first_point[4]) is $(first_point[1]) — " *
+                            "a TargetDetections holds one form; $(keep)"
+                    )
+                )
+            end
+        end
+    end
+    return nothing
+end
+function _converted_detections(::Type{F}, x, point, columns) where {F}
+    _check_convertible(x, point)
+    return TargetDetections{F}(
+        Dict(t => _detections_by_target(os, point, columns) for (t, os) in x.frames);
+        x.images, x.sensors, x.times, x.time_origin, x.targets,
+    )
+end
 TargetDetections(x::TargetPoints2D{F}) where {F} =
     _converted_detections(F, x, o -> o.xy, sel -> (weights = Float64[o.weight for o in sel],))
 TargetDetections(x::TargetPoints3D{F}) where {F} = _converted_detections(F, x, o -> o.xyz, _ -> (;))

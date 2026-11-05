@@ -70,6 +70,10 @@ function _file_form(path::AbstractString)
     end
 end
 
+# A YAML file's text, read once, without a leading UTF-8 byte-order mark — the
+# one `_file_form` skips, so every reader sees the same text.
+_yaml_text(path::AbstractString) = _strip_bom(read(path, String))
+
 # -----------------------------------------------------------------------------
 # intrinsics0.yaml
 # -----------------------------------------------------------------------------
@@ -109,7 +113,7 @@ function _schoeps_grid(yml::AbstractString, tag::AbstractString, gw::Int, gh::In
 end
 
 function _load_schoeps_model(::Type{T}, path::AbstractString, file_unit) where {T}
-    yml = read(path, String)
+    yml = _yaml_text(path)
     type = _schoeps_field(yml, "type", path)
     type == string(nameof(T)) || throw(ArgumentError("$(path) holds a Schöps $(type), not a $(nameof(T))"))
     hdr = map(k -> _schoeps_int(yml, k, path), (
@@ -141,8 +145,13 @@ end
 # vgio/target `layout` record.
 #
 # Both files are the flat YAML their generators write: top-level `key: value`
-# lines, and in Schöps' a `page` map and an `apriltags` list of maps, indented.
-# `_layout_yaml` reads that shape (and no other YAML) into strings.
+# lines, and in Schöps' a `page` map and an `apriltags` list of maps — its
+# items indented, or at column 0 under their key as PyYAML's default dump
+# writes them (`apriltags:` then `- tag_x: 13`, the item's further keys
+# indented by 2). Comments are YAML's: a `#` that begins the line or follows
+# whitespace, outside quotes (Kalibr's stock `tagCols: 6   #number of
+# apriltags`). `_layout_yaml` reads that shape (and no other YAML) into
+# strings, from the text `_yaml_text` reads.
 function _layout_yaml(yml::AbstractString, path)
     top = Dict{String, String}()
     maps = Dict{String, Dict{String, String}}()
@@ -152,9 +161,10 @@ function _layout_yaml(yml::AbstractString, path)
     keyval(s) = (mt = match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*?)\s*$", s);
         mt === nothing && throw(ArgumentError("$(path): `$(s)` is not a `key: value` line")); (String(something(mt[1])), _yaml_unquoted(something(mt[2]))))
     for raw in split(yml, '\n')
-        line = rstrip(raw)
-        (isempty(strip(line)) || startswith(strip(line), '#')) && continue
-        if !startswith(line, ' ') && !startswith(line, '\t')
+        line = rstrip(_yaml_uncommented(raw))
+        isempty(strip(line)) && continue
+        item_at_column_0 = section !== nothing && startswith(line, "- ")
+        if !item_at_column_0 && !startswith(line, ' ') && !startswith(line, '\t')
             k, v = keyval(line)
             (haskey(top, k) || k in opened || haskey(maps, k) || haskey(lists, k)) && throw(ArgumentError("$(path): `$(k)` is stated twice"))
             isempty(v) ? (section = k; push!(opened, k)) : (section = nothing; top[k] = v)
@@ -183,6 +193,23 @@ function _layout_yaml(yml::AbstractString, path)
     return (; top, maps, lists)
 end
 _yaml_unquoted(s) = (t = String(s); length(t) >= 2 && t[1] == t[end] && t[1] in ('\'', '"') ? t[2:(end - 1)] : t)
+# A line without its comment: from a `#` at the line's start or after
+# whitespace, outside single and double quotes (`'aprilgrid' #gridtype`).
+function _yaml_uncommented(line::AbstractString)
+    quote_char = nothing
+    prev = ' '
+    for (i, c) in pairs(line)
+        if quote_char !== nothing
+            c == quote_char && (quote_char = nothing)
+        elseif (c == '\'' || c == '"') && (isspace(prev) || prev == ':')   # a quoted scalar opens
+            quote_char = c
+        elseif c == '#' && isspace(prev)
+            return SubString(line, firstindex(line), prevind(line, i))
+        end
+        prev = c
+    end
+    return line
+end
 function _yaml_get(d::AbstractDict, key, path, what)
     haskey(d, key) || throw(ArgumentError("$(path): no `$(key)` — not $(what)"))
     return d[key]
@@ -202,7 +229,7 @@ end
 
 # A target layout YAML (the content says which), as its PlanarTarget.
 function _load_layout_yaml(path::AbstractString)
-    y = _layout_yaml(read(path, String), path)
+    y = _layout_yaml(_yaml_text(path), path)
     haskey(y.top, "target_type") && return _load_kalibr_target(y, path)
     haskey(y.top, "squares_x") && return _load_schoeps_pattern(y, path)
     throw(
@@ -225,11 +252,28 @@ function _load_kalibr_target(y, path)
     (isempty(y.maps) && isempty(y.lists)) || throw(ArgumentError("$(path): $(_KALIBR_APRILGRID) is flat `key: value` lines"))
     _yaml_only(y.top, ("target_type", "tagCols", "tagRows", "tagSize", "tagSpacing"), path, _KALIBR_APRILGRID)
     tag_size = read_length(_yaml_parse(Float64, y.top, "tagSize", path, _KALIBR_APRILGRID), m)
+    _yaml_parse(Float64, y.top, "tagSpacing", path, _KALIBR_APRILGRID)   # a finite number
+    # Kalibr's ratio → the gap, the product of the two decimals as written,
+    # rounded once to the metre value (as `read_length` reads a decimal): a
+    # float product would round twice (0.088 · 0.3 = 0.026399999999999996)
+    ratio = _decimal_rational(y.top["tagSpacing"], path, "tagSpacing")
+    gap = _metre_quantity(Float64(_decimal_rational(y.top["tagSize"], path, "tagSize") * ratio))
     grid = AprilGrid(;
         tag_rows = _yaml_parse(Int, y.top, "tagRows", path, _KALIBR_APRILGRID), tag_cols = _yaml_parse(Int, y.top, "tagCols", path, _KALIBR_APRILGRID),
-        tag_size, tag_spacing = tag_size * _yaml_parse(Float64, y.top, "tagSpacing", path, _KALIBR_APRILGRID),   # Kalibr's ratio → the gap
+        tag_size, tag_spacing = gap,
     )
     return PlanarTarget(grid)
+end
+# A decimal number's text as the exact rational it denotes ("0.088" → 11//125).
+function _decimal_rational(s::AbstractString, path, key)
+    mt = match(r"^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$", s)
+    (mt === nothing || isempty(something(mt[2], "")) && isempty(something(mt[3], ""))) &&
+        throw(ArgumentError("$(path): `$(key)` is $(repr(s)), not a decimal number"))
+    frac = something(mt[3], "")
+    digits = parse(BigInt, string(something(mt[2], ""), frac, "0"))   # the trailing 0 keeps an empty part a number
+    e = (mt[4] === nothing ? 0 : parse(Int, mt[4])) - length(frac) - 1
+    r = e >= 0 ? Rational{BigInt}(digits * big(10)^e) : digits // big(10)^(-e)
+    return mt[1] == "-" ? -r : r
 end
 
 # Schöps' pattern YAML (create_calibration_pattern.py): `num_star_segments`,

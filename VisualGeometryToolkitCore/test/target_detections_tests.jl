@@ -118,4 +118,56 @@
         @test t3 isa TargetDetections{WorldFrame} && has_units(t3) && !hasattr(t3[7][:body], :weights)
         @test cov(t3[7][:body][1].second) == Σ3 && (t3.times, t3.time_origin) == (p3.times, p3.time_origin)
     end
+
+    @testset "conversion refusals name the frame, target and index" begin
+        msg(f) = try
+            f(); ""
+        catch e
+            e isa ArgumentError ? e.msg : rethrow()
+        end
+        dup = TargetPoints2D{PixelFrame{:opencv}}(
+            Dict(4 => [(target = :b, index = 2, xy = SVector(1.0, 2.0), weight = 1.0), (target = :b, index = 2, xy = SVector(3.0, 4.0), weight = 1.0)])
+        )
+        s = msg(() -> TargetDetections(dup))
+        @test occursin("frame 4, target b, index 2", s) && occursin("load(TargetPoints2D, path)", s)
+        mixed = TargetPoints3D{WorldFrame}(
+            Dict(
+                1 => [(target = :body, index = 1, xyz = SVector(1.0, 2.0, 3.0) .* m)],
+                2 => [(target = :body, index = 3, xyz = Uncertain(SVector(1.0, 2.0, 3.0) .* m, Σ3))],
+            )
+        )
+        s = msg(() -> TargetDetections(mixed))
+        @test occursin("frame 2, target body, index 3 is Uncertain", s) && occursin("frame 1, target body, index 1 is plain", s)
+        @test occursin("load(TargetPoints3D, path)", s)
+    end
+
+    @testset "Csponds equality is of its pairs" begin
+        # a Csponds is the vector of its pairs: `==`, `isequal` and `hash` ignore
+        # its columns (TargetDetections compares them itself)
+        cs = pix([1, 2], [SVector(1.0, 2.0), SVector(3.0, 4.0)])
+        w = withattrs(cs; weights = [1.0, 0.5])
+        @test w == cs && isequal(w, cs) && hash(w) == hash(cs) && hash(w) == hash(collect(w))
+    end
+
+    @testset "isequal and hash agree with ==" begin
+        P = PixelFrame{:colmap}
+        fr() = Dict(1 => Dict(:b => withattrs(pix([1, 2], [SVector(1.0, 2.0), SVector(3.0, 4.0)]); weights = [1.0, 0.5])))
+        a = TargetDetections{P}(fr(); sensors = "cam", targets = ["ab"])
+        b = TargetDetections{P}(fr(); sensors = "cam", targets = ["ab"])
+        @test a == b && isequal(a, b) && hash(a) == hash(b)
+        others = (
+            TargetDetections{P}(fr(); sensors = "other", targets = ["ab"]),                  # stamps
+            TargetDetections{P}(fr(); sensors = "cam", targets = ["cd"]),                    # targets
+            TargetDetections{PixelFrame{:opencv}}(fr(); sensors = "cam", targets = ["ab"]),   # pixel frame
+            TargetDetections{P}(                                                             # columns
+                Dict(1 => Dict(:b => withattrs(pix([1, 2], [SVector(1.0, 2.0), SVector(3.0, 4.0)]); weights = [1.0, 1.0]))); sensors = "cam", targets = ["ab"],
+            ),
+        )
+        for o in others
+            @test a != o && !isequal(a, o) && hash(a) != hash(o)
+        end
+        d = Dict(a => 1)
+        @test d[b] == 1 && all(o -> !haskey(d, o), others)
+        @test length(Set([a, b, others...])) == 1 + length(others)
+    end
 end

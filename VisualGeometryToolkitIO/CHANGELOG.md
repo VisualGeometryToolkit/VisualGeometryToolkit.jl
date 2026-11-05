@@ -15,8 +15,11 @@
   and refuses plain points (`p .* m`). `payload` reserved and refused, as for
   every kind.
 - **`load(TargetDetections, path)` reads a `vgio/target_points2d/v1` or
-  `vgio/target_points3d/v1` file**, converted; `load(TargetPoints2D/3D, …)`
-  and their writers are unchanged. `vgio_migrate_tree` and the re-pointing
+  `vgio/target_points3d/v1` file**, converted, except a file with a
+  (target, index) twice in one frame or with plain and `Uncertain` points
+  mixed, which those kinds allow: refused with an `ArgumentError` naming the
+  path, frame, target and index, and still read by `load(TargetPoints2D/3D,
+  path)`. `load(TargetPoints2D/3D, …)` and their writers are unchanged. `vgio_migrate_tree` and the re-pointing
   of a migrated rig's measurement files handle a `target_detections` file
   as the other measurement kinds.
 - **File names** (docs, "Kinds and the I/O Surface"): the stem is the kind,
@@ -52,7 +55,15 @@
   the pattern rectangle checked against the layout; no board, which the file
   does not state), and Kalibr's `aprilgrid` target YAML as
   `PlanarTarget(AprilGrid(…))`, its `tagSpacing` ratio read as the gap
-  `tagSize · tagSpacing`. Either saves as a `layout` record.
+  `tagSize · tagSpacing` — the exact product of the two decimals, rounded once
+  (0.088 · 0.3 is 26.4 mm, as a file's 26.4 reads). Either saves as a
+  `layout` record. Both read YAML comments (a `#` at a line's start or after
+  whitespace, outside quotes: Kalibr's stock files carry them), skip a UTF-8
+  byte-order mark (the Schöps intrinsics YAML too), and take a list's items at
+  column 0 under their key (PyYAML's default dump) as well as indented.
+- `vgio_migrate`'s rig identities (`_old_rig_ids`) match rig v4, v5 and v6 by
+  name and refuse any other version, so a future identity-changing step must
+  state its own.
 - Compat: VisualGeometryToolkitCore 0.5.7 (`AbstractTargetLayout`, `layout`,
   `TARGET_LAYOUT_TAGS`).
 

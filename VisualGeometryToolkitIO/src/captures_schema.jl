@@ -19,7 +19,7 @@
 # memory, in the declared `length_unit` on disk; `Uncertain` members with
 # their covariance). A writer refuses plain numbers where a length is meant.
 #
-# The hierarchy: a RIG of targets (rig/v5) defines targets and their points; a
+# The hierarchy: a RIG of targets (a vgio/rig file) defines targets and their points; a
 # measurement names a point by (target, index) — its `point_index_base`-based
 # position in that target's `points` — and the measurement file names the
 # targets files it resolves in by content identity (`targets`, see
@@ -61,7 +61,7 @@
 #
 # COLMAP, for orientation (no exporter): target_points2d is COLMAP's images.txt
 # `points2D` with their `POINT3D_ID`, the (target, index) pair playing the
-# `POINT3D_ID`; a rig of targets (rig/v5 targets) is COLMAP's `points3D`, kept as
+# `POINT3D_ID`; a rig of targets (a vgio/rig file's targets) is COLMAP's `points3D`, kept as
 # per-target frames (each target's points in its own TargetFrame, placed by its
 # mount) with no stored tracks — the measurements are the tracks.
 #
@@ -598,6 +598,17 @@ function _detections_from_json(r, unit::Union{Nothing, Units})
     return haskey(r, :weights) ? withattrs(cs; weights = Float64[Float64(w::Real) for w in r.weights::Vector{Any}]) : cs
 end
 
+# An old measurement file's value as a TargetDetections; VGC's refusal (a
+# duplicate detection, a form mix) names the file.
+function _converted_on_load(x, path)
+    try
+        return TargetDetections(x)
+    catch e
+        e isa ArgumentError && throw(ArgumentError("$(path): $(e.msg)"))
+        rethrow()
+    end
+end
+
 """
     load(TargetDetections, path) -> TargetDetections{F}
 
@@ -606,16 +617,20 @@ detections typed in the frame `F` the file declares — pixels exactly as
 stored, 3D points in metres — `Uncertain` where it states covariances, with
 their `weights` column where stated, the frames' stamps and the targets
 identities. A `vgio/target_points2d/v1` or `vgio/target_points3d/v1` file is
-read too, converted (`TargetDetections(load(TargetPoints2D, path))`): every
-published file of those kinds keeps loading as the current value.
+read too, converted (`TargetDetections(load(TargetPoints2D, path))`), unless
+it holds one of the two things those kinds allow and a `TargetDetections`
+does not: a (target, index) detected twice in one frame, or plain and
+`Uncertain` points in one file. Such a file is refused with an
+`ArgumentError` naming the path, frame, target and index, and still loads as
+what it is, `load(TargetPoints2D, path)` or `load(TargetPoints3D, path)`.
 """
 function load(::Type{TargetDetections}, path::AbstractString)
     d = _read_vgio_json(path)   # parsed once; its `schema` says which kind it is read as
     k = d isa AbstractDict ? _split_schema(get(d, :schema, nothing)) : nothing
     k !== nothing && k.kind == "target_points2d" &&
-        return TargetDetections(_target_points2d(_checked_store(d, path, "target_points2d", _TARGET_POINTS2D_SPEC)))
+        return _converted_on_load(_target_points2d(_checked_store(d, path, "target_points2d", _TARGET_POINTS2D_SPEC)), path)
     k !== nothing && k.kind == "target_points3d" &&
-        return TargetDetections(_target_points3d(_checked_store(d, path, "target_points3d", _TARGET_POINTS3D_SPEC)))
+        return _converted_on_load(_target_points3d(_checked_store(d, path, "target_points3d", _TARGET_POINTS3D_SPEC)), path)
     d = _checked_store(d, path, "target_detections", _TARGET_DETECTIONS_SPEC)
     unit = haskey(d, :pixel_frame) ? nothing : parse_unit(d.length_unit::String)
     frames = Dict{Int, Dict{Symbol, Any}}()

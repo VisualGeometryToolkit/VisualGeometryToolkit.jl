@@ -144,7 +144,7 @@ end
     # Kalibr: tagSpacing is the gap over the tag size; VGC's AprilGrid takes the gap
     kp = layouts_fixture("aprilgrid_8x8_90mm.yaml")
     k = load(PlanarTarget, kp)
-    @test layout(k) == AprilGrid(; tag_rows = 8, tag_cols = 8, tag_size = rl(0.09, m), tag_spacing = rl(0.09, m) * 0.3)
+    @test layout(k) == AprilGrid(; tag_rows = 8, tag_cols = 8, tag_size = rl(0.09, m), tag_spacing = rl(27.0, mm))   # 0.09 · 0.3, decimal-exact
     @test k == PlanarTarget(layout(k)) && length(points(k)) == 256 && layout(k).apriltag_family == "tag36h11" && layout(k).first_id == 0
     @test isapprox(ustrip(mm, layout(k).tag_spacing), 27.0; atol = 1.0e-12)
     # either, saved, is a layout record that reads back the same target
@@ -162,5 +162,62 @@ end
         @test occursin("spans", msg(() -> load(PlanarTarget, y("s.yaml", replace(read(sp, String), "pattern_end_x_mm: 995.9999999999998" => "pattern_end_x_mm: 990.0")))))
         @test occursin("no `squares_y`", msg(() -> load(PlanarTarget, y("s2.yaml", replace(read(sp, String), "squares_y: 30\n" => "")))))
         @test occursin("neither a Kalibr", msg(() -> load(PlanarTarget, y("x.yaml", "foo: 1\n"))))
+    end
+end
+
+@testitem "layout YAML: comments, a byte-order mark, column-0 list items, the Kalibr gap decimal-exact" setup = [VGIoFixtures, LayoutFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: PlanarTarget, AprilGrid, SchoepsPattern, Rig, PosedTarget, BodyFrame, layout, points
+    using Rotations: RotZ
+    rl = VgtkIO.read_length
+    # Kalibr's stock april_6x6.yaml, comments and all
+    kalibr = """
+    target_type: 'aprilgrid' #gridtype
+    tagCols: 6               #number of apriltags
+    tagRows: 6               #number of apriltags
+    tagSize: 0.088           #size of apriltag, edge to edge [m]
+    tagSpacing: 0.3          #ratio of space between tags to tagSize
+                             #example: tagSize=2m, spacing=0.5m --> tagSpacing=0.25[-]
+    """
+    # Schöps' pattern as PyYAML's default dump writes it: list items at column 0
+    schoeps(items) = """
+    num_star_segments: 12
+    squares_x: 12
+    squares_y: 9
+    square_length_in_meters: 0.025
+    apriltags:
+    $(items)
+    """
+    column0 = "- tag_x: 2\n  tag_y: 1\n  width: 2\n  height: 2\n  index: 4\n- tag_x: 7\n  tag_y: 5\n  width: 3\n  height: 2\n  index: 11"
+    indented = "  - tag_x: 2\n    tag_y: 1\n    width: 2\n    height: 2\n    index: 4\n  - tag_x: 7\n    tag_y: 5\n    width: 3\n    height: 2\n    index: 11"
+    want_pattern = SchoepsPattern(;
+        squares_x = 12, squares_y = 9, square_length = rl(0.025, m), star_segments = 12,
+        apriltags = [(; x = 2, y = 1, width = 2, height = 2, id = 4), (; x = 7, y = 5, width = 3, height = 2, id = 11)],
+    )
+    mktempdir() do dir
+        y(name, text) = (p = joinpath(dir, name); write(p, text); p)
+        bom(name, text) = (p = joinpath(dir, name); write(p, vcat(UInt8[0xef, 0xbb, 0xbf], codeunits(text))); p)
+        # comments: Kalibr's stock file reads
+        k = load(PlanarTarget, y("april_6x6.yaml", kalibr))
+        @test layout(k) isa AprilGrid && layout(k).tag_rows == 6 && layout(k).tag_cols == 6 && layout(k).tag_size == rl(0.088, m)
+        @test layout(k) == layout(load(PlanarTarget, y("q.yaml", "target_type: \"aprilgrid\"  # a comment\ntagCols: 6\ntagRows: 6\ntagSize: 0.088\ntagSpacing: 0.3\n")))
+        # a quoted '#' is not a comment
+        @test occursin("\"april #grid\"", let e = try load(PlanarTarget, y("h.yaml", "target_type: 'april #grid'\n")); nothing catch e; e end; e.msg end)
+        # the gap is the product of the decimals, rounded once: 26.4 mm, as read from a file
+        @test layout(k).tag_spacing === rl(26.4, mm) && layout(k).tag_spacing !== rl(0.088, m) * 0.3
+        p = joinpath(dir, "k.json")
+        save(p, k)
+        @test parse_json(read(p, String)).target.layout.tag_spacing == 26.4
+        from_mm = PlanarTarget(AprilGrid(; tag_rows = 6, tag_cols = 6, tag_size = rl(88.0, mm), tag_spacing = rl(26.4, mm)))
+        @test k == from_mm && all(map(===, points(k), points(from_mm)))
+        X = EuclideanMap(RotMatrix(RotZ(0.3)), SVector(0.1, -0.2, 1.5) .* m)
+        rig(t) = Rig{BodyFrame{:board_rig}}(Dict(:grid => PosedTarget(t, X)))
+        @test content_id(rig(k)) == content_id(rig(from_mm))
+        # a UTF-8 byte-order mark is skipped, by both layout readers
+        @test load(PlanarTarget, bom("bom_k.yaml", kalibr)) == k
+        @test layout(load(PlanarTarget, bom("bom_s.yaml", schoeps(indented)))) == want_pattern
+        # list items at column 0 under their key, as the indented form
+        @test layout(load(PlanarTarget, y("s0.yaml", schoeps(column0)))) == want_pattern
+        @test layout(load(PlanarTarget, y("s2.yaml", schoeps(indented)))) == want_pattern
     end
 end

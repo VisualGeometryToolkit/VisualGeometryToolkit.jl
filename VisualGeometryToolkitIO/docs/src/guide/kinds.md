@@ -25,7 +25,7 @@ argument, because the value already carries it.
 | `vgio/target/v4` | one `AbstractTarget` (`PointTarget`, `PlanarTarget` of any `TargetCalibration`, `Uncertain` or not, stated by its points, its reference or its layout), or an `Attributed` one with its `(; calibration_record)` | `load(AbstractTarget, path; resolve)`; a planar one: `load(PlanarTarget, path)` | `save(path, target)` |
 | `vgio/trajectory/v3` | `Trajectory{S, D}`: labeled poses per frame index, with images, times and recovered flags | `load(Trajectory, path)` | `save(path, tr)`; exporters `save_tum_trajectory`, `save_euroc_trajectory` |
 | `vgio/target_poses/v1` | `TargetPoses{F}`: per frame, `TargetFrame{id} → F` poses; `pose(tp, t, id)` | `load(TargetPoses, path)` | `save(path, tp)`; exporter `save_bop_scene` |
-| `vgio/target_detections/v1` | `TargetDetections{F}`: per frame, per target, `csponds(index, detection)` — pixels in a `PixelFrame` or 3D points in a named 3D frame, plain or `Uncertain`, with an optional `weights` column | `load(TargetDetections, path)` (a `target_points2d/v1` or `target_points3d/v1` file too, converted) | `save(path, td)` |
+| `vgio/target_detections/v1` | `TargetDetections{F}`: per frame, per target, `csponds(index, detection)` — pixels in a `PixelFrame` or 3D points in a named 3D frame, plain or `Uncertain`, with an optional `weights` column | `load(TargetDetections, path)` (a `target_points2d/v1` or `target_points3d/v1` file too, converted — except one with a (target, index) twice in a frame or with plain and `Uncertain` points mixed, refused by name; it still loads as `load(TargetPoints2D/3D, path)`) | `save(path, td)` |
 | `vgio/target_points2d/v1` | `TargetPoints2D{F <: PixelFrame}`: per frame, `(target, index, xy, weight)` | `load(TargetPoints2D, path)` | `save(path, obs)`; exporter `save_correspondences` |
 | `vgio/target_points3d/v1` | `TargetPoints3D{F}`: per frame, `(target, index, xyz)`, such as motion-capture markers | `load(TargetPoints3D, path)` | `save(path, obs)`; exporter `save_trc` |
 | `vgio/capture_settings/v1` | `CaptureSettings`: per frame, the exposure (time, f-number, ISO) and the nominal lens settings (focal length, focus distance); the body and lens `DeviceIdentity`, `Attributed` with each one's source (`"exif"` or `"config"`) and the EXIF lens claim a stated lens overrode | `load(CaptureSettings, path)` | `save(path, Attributed(cs, (; identity_sources = (body, lens)[, exif_lens])))` |
@@ -89,7 +89,7 @@ readers and migrations.
 This section is documentation only; there is no COLMAP exporter for these
 kinds. A `target_points2d` file corresponds to the `points2D` of COLMAP's
 `images.txt` with their `POINT3D_ID`, where the `(target, index)` pair plays
-the role of the `POINT3D_ID`. A rig of targets (the targets of a `rig/v5`)
+the role of the `POINT3D_ID`. A rig of targets (the targets of a `vgio/rig` file)
 corresponds to COLMAP's `points3D`. It is kept as per-target frames, with each
 target's points in its own `TargetFrame` and placed by its pose. It stores no
 tracks, because the measurements are the tracks.

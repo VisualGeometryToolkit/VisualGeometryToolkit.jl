@@ -32,10 +32,11 @@ round-trip is part of the VGC value: a field (a trajectory's per-frame images
 and times) or an `Attributed` attribute (a camera's `calibration` block, a target's
 `calibration_record`; a covariance, as `Uncertain`).
 
-Every vgio file is a versioned schema (`vgio/<kind>/v<n>`: rig v6; cameras
-v4; transforms, trajectory and target v3; target_poses, target_points2d,
-target_points3d and target_detections v1; the rest v2), and a file is sufficient on its own and
-minimal:
+Every vgio file is a versioned schema (`vgio/<kind>/v<n>`, the current
+versions: rig v7; cameras and target v4; transforms, trajectory and
+generic_camera v3; target_poses, target_points2d, target_points3d,
+target_detections and capture_settings v1; the rest v2), and a file is
+sufficient on its own and minimal:
 - every convention a reader needs is DECLARED in the file, once — the pixel
   frame, the length unit, the rotation encoding (Hamilton quaternions, w-x-y-z,
   w ≥ 0 — a raw 3×3 never appears) and what a transform does to a point — and
@@ -138,7 +139,7 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 #   load(TargetPoses, path)                      vgio/target_poses/v1
 #   load(TargetPoints2D, path)                   vgio/target_points2d/v1 (or a Schöps dataset.bin; `target`)
 #   load(TargetPoints3D, path)                   vgio/target_points3d/v1
-#   load(TargetDetections, path)                 vgio/target_detections/v1 (or a target_points2d/3d/v1 file, converted)
+#   load(TargetDetections, path)                 vgio/target_detections/v1 (or a target_points2d/3d/v1 file, converted, unless it has a duplicate or a form mix)
 #   load(CaptureSettings, path)                  vgio/capture_settings/v1 (Attributed with its identities' sources)
 #   load(CentralGenericModel | NoncentralGenericModel, path)   the Schöps grid models (vgio JSON, or Schöps' intrinsics0.yaml)
 #   load(ColmapModel, dir; contract = nothing)   COLMAP model directory (foreign)

@@ -4,7 +4,7 @@
 # =============================================================================
 #
 # The measurements (target_points2d/v1, VGC `TargetPoints2D`) and the targets
-# (rig/v6, a VGC `Rig` of targets) are COLMAP's points2D → points3D
+# (a vgio/rig file, a VGC `Rig` of targets) are COLMAP's points2D → points3D
 # decomposition: a pixel and a reference into a target's point list. Feeding a
 # third-party calibrator — cv::calibrateCamera, MATLAB's
 # estimateCameraParameters, the python side — means resolving the references

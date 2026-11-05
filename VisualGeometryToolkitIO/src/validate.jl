@@ -199,8 +199,9 @@ const _POINT_INDEX_BASE = 1
 # its imaged region reaches, listed as `present` (runs per lattice row), and
 # its grids hold those nodes only; v2 held every node. A v2 file reads through
 # its version step as every node present. A rig sensor's generic body carries
-# `present` only when its model does not hold every node, so every rig/v6 file
-# written before reads as it did, and rig stays v6.
+# `present` only when its model does not hold every node, so a rig file
+# written before reads as it did: this change moved no rig version (rig v7 is
+# the target layouts' above).
 const _SCHEMA_VERSION = Dict(
     "cameras" => 4, "rig" => 7, "transforms" => 3, "trajectory" => 3, "generic_camera" => 3,
     "target" => 4, "target_poses" => 1, "target_points2d" => 1, "target_points3d" => 1,

@@ -377,6 +377,15 @@ end
     end
 end
 
+@testitem "_old_rig_ids: every rig version is matched by name; any other is refused" setup = [VGIoFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    @test VgtkIO._old_rig_ids("vgio/rig/v6", Dict{String, Any}(), nothing, "id") == ["id"]   # v6 → v7 moves no number
+    for s in ("vgio/rig/v3", "vgio/rig/v7", "vgio/rig/v8")
+        e = try VgtkIO._old_rig_ids(s, Dict{String, Any}(), nothing, "id"); nothing catch e; e end
+        @test e isa ArgumentError && occursin(s, e.msg)
+    end
+end
+
 @testitem "vgio_migrate: a schema owner adds its migration (migrate_schema)" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     # a downstream owner's schema, migrated by vgio_migrate without VGIo knowing it

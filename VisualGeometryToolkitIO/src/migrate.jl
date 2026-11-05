@@ -927,13 +927,17 @@ end
 # target held the retired affine kind, which migrates to its factors (`_v5_id`:
 # the identity tree lists a composition's members and a lens's stages in one
 # fixed order, application order, whatever order the record lists them in).
+# Every version is matched by name: a future step that changes an identity
+# must add its arm, so any other version is refused.
 function _old_rig_ids(s, old, value, new_id)
     if s == "vgio/rig/v4"
         return unique!([_rig_v4_id(old), _rig_v4_id_mm(value, old)])
     elseif s == "vgio/rig/v5"
         return [_v5_id(old, value, new_id)]
-    else
+    elseif s == "vgio/rig/v6"
         return [new_id]   # a v6 rig's identity is the current one (the v7 step moves no number)
+    else
+        throw(ArgumentError("the identities a $(s) rig was named by are not known: a rig version's step that migrates it states them here"))
     end
 end
 
@@ -1160,7 +1164,7 @@ end
     vgio_migrate_tree(dir; in_place = false, dry_run = false, io = stdout) -> Vector{NamedTuple}
 
 Migrate every `.json` file under `dir` whose schema has a migration (cameras
-v1–v3, target v1–v2, rig v4–v5, and any schema whose owner added a
+v1–v3, target v1–v3, rig v4–v6, generic_camera v2, and any schema whose owner added a
 [`migrate_schema`](@ref) file form), then re-point the measurement files under
 `dir` (`vgio/target_points2d/v1`, `vgio/target_points3d/v1`, `vgio/target_detections/v1`) at the current
 rigs of the tree, each by the guarded pattern of [`vgio_migrate`](@ref) (a

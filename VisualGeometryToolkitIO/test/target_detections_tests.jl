@@ -72,6 +72,40 @@ end
     end
 end
 
+@testitem "target detections: an old file with a duplicate or a form mix is refused by name, and loads as its own kind" setup = [VGIoFixtures] begin
+    using LinearAlgebra: I
+    using VisualGeometryToolkitCore: TargetDetections, TargetPoints2D, TargetPoints3D, WorldFrame, Uncertain, CovMat
+    msg(f) = (e = try f(); nothing catch e; e end; e isa ArgumentError ? e.msg : "")
+    h = repeat("cd", 32)
+    mktempdir() do dir
+        # a (target, index) twice in one frame: TargetPoints2D allows it
+        dup = TargetPoints2D{PixelFrame{:colmap}}(
+            Dict(3 => [(target = :b, index = 2, xy = SVector(1.0, 2.0), weight = 1.0), (target = :b, index = 2, xy = SVector(1.5, 2.5), weight = 1.0)]);
+            sensors = "cam1", images = Dict(3 => "a.png"), targets = [h],
+        )
+        p = joinpath(dir, "dup_points2d.json")
+        save(p, dup)
+        s = msg(() -> load(TargetDetections, p))
+        @test startswith(s, p) && occursin("frame 3, target b, index 2", s) && occursin("load(TargetPoints2D, path)", s)
+        @test load(TargetPoints2D, p) == dup                                 # still loads as what it is
+        # plain and Uncertain points in one file: TargetPoints3D allows it
+        Σ = CovMat(SMatrix{3, 3, Float64}(2.5e-7I))
+        mixed = TargetPoints3D{WorldFrame}(
+            Dict(
+                1 => [(target = :rig, index = 1, xyz = mm_lengths(SVector(1.0, 2.0, 3.0)))],
+                2 => [(target = :rig, index = 2, xyz = Uncertain(mm_lengths(SVector(1.0, 2.0, 3.0)), Σ))],
+            );
+            sensors = "mocap",
+        )
+        p3 = joinpath(dir, "mixed_points3d.json")
+        save(p3, mixed)
+        s = msg(() -> load(TargetDetections, p3))
+        @test startswith(s, p3) && occursin("frame 2, target rig, index 2 is Uncertain", s) && occursin("frame 1, target rig, index 1 is plain", s)
+        @test occursin("load(TargetPoints3D, path)", s)
+        @test load(TargetPoints3D, p3) == mixed
+    end
+end
+
 @testitem "target detections: re-pointed at a migrated rig, every index resolved" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitCore: TargetDetections, WorldFrame, BodyFrame, Rig, PosedTarget, PointTarget, csponds
     using VisualGeometryToolkitIO: content_id

@@ -12,22 +12,21 @@
   (`withattrs(cs; weights)`). One concrete set type per container
   (`Csponds{Int, P, Vector{Int}, Vector{P}, A}`): every set the same point
   form and the same columns (`ArgumentError`), all physical or all plain
-  (`DimensionError`). `==` (frames, sets with their columns, stamps,
-  targets), `has_units`, `ustrip(u, td)` and `with_unit(td, u)` for 3D,
+  (`DimensionError`). `==`, `isequal` and `hash`, which agree (the frame
+  type, frames, sets with their columns, stamps, targets: a sound Dict key),
+  `has_units`, `ustrip(u, td)` and `with_unit(td, u)` for 3D,
   `convert_frame` for pixels, the Dict surface. Conversions
   `TargetDetections(::TargetPoints2D)` (the bundle `weight` a `weights`
-  column) and `TargetDetections(::TargetPoints3D)`. Additive: the 0.7 wave
+  column) and `TargetDetections(::TargetPoints3D)`; an old value with a
+  (target, index) twice in one frame or with plain and `Uncertain` points
+  mixed is refused, the `ArgumentError` naming the frame, target and index
+  (the old value stays valid as it is). Additive: the 0.7 wave
   replaces `TargetPoints2D`/`TargetPoints3D` by it.
 - **`FrameStamps`** (exported): a capture's per-frame `images`, `sensors`,
   `times` and `time_origin`, built and checked as the captures' stamps are;
   `TargetDetections` holds one (`td.stamps`) and forwards its four fields as
   properties (`td.images`, …). Trajectory, TargetPoses and TargetPoints2D/3D
   keep their own fields until 0.7.
-- **`Csponds` equality includes its attribute columns**: `==`, `isequal` and
-  `hash` of two `Csponds` compare their pairs and their columns (a weighted
-  set is no longer `==` its unweighted one). A set without columns hashes as
-  before, the vector of its pairs; a `Csponds` against another vector type is
-  still AbstractArray's element-wise `==`.
 - `ustrip(u, layout)` and `with_unit(layout, u)` for `AprilGrid` and
   `SchoepsPattern`: the layout's lengths moved between the forms (an
   `ArgumentError` for a layout already in the form asked for), as for `Board`

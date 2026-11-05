@@ -87,8 +87,9 @@ The record form, `LensSpec(Dict("record" => lens_record(lens)))`, covers every
 composition the table does not name, and is the only form with numbers: a lens
 with non-zero starting or held coefficients. `LensSpec(lens)` is the inverse of
 `lens(spec)`: the named form only when the lens's structure has a name AND its
-coefficients are the reference values, else the record form, so no value is
-ever dropped.
+coefficients are the reference values (compared whatever their element type, so
+a `Float32` lens at the reference values is named; a `-0.0` is not the reference
+`0.0`), else the record form, so no value is ever dropped.
 
 `toml_value(spec)` is `Dict("lens" => "division", "coefficients" => 3, …)` or
 `Dict("lens" => Dict("record" => …))`, plus `"free"` when set;
@@ -107,7 +108,12 @@ struct LensSpec
     function LensSpec(family::Symbol, structure::NamedTuple, free, record)
         (family === :record) == (record !== nothing) ||
             throw(ArgumentError("LensSpec: the family is :record exactly when a record is given; got :$family and record = $(repr(record))"))
-        return new(family, structure, free, record)
+        if record === nothing
+            structure = _check_structure(family, structure)
+        else
+            isempty(structure) || throw(ArgumentError("LensSpec: a record spec has no structure keywords; got $(structure)"))
+        end
+        return _validated(new(family, structure, _free_tuple(free), record))
     end
 end
 
@@ -150,10 +156,9 @@ function _free_tuple(free)
     return Tuple(Symbol(x) for x in free)
 end
 
-# `ref`: the lens of `spec`, when the caller has already built it.
-function _validated(spec::LensSpec, ref = nothing)
+function _validated(spec::LensSpec)
     spec.free === nothing && return spec
-    names = parameter_names(ref === nothing ? lens(spec) : ref)
+    names = parameter_names(lens(spec))
     for n in spec.free
         n in names || throw(
             ArgumentError("LensSpec: free name :$n is not a parameter of the lens's chart; its parameter_names are $names")
@@ -164,22 +169,23 @@ function _validated(spec::LensSpec, ref = nothing)
 end
 
 function LensSpec(family::Symbol; free = nothing, kwargs...)
-    return _validated(LensSpec(family, _check_structure(family, NamedTuple(kwargs)), _free_tuple(free), nothing))
+    return LensSpec(family, NamedTuple(kwargs), free, nothing)
 end
 
 # The record is read and written back, so the stored form is canonical (and refused early when it is no lens).
 _canonical_record(d::AbstractDict) = lens_record(lens_from_record(d))
 
 _record_spec(record::AbstractDict, free) =
-    _validated(LensSpec(:record, (;), _free_tuple(free), _canonical_record(record)))
+    LensSpec(:record, (;), free, _canonical_record(record))
 
 function LensSpec(l::AbstractLensModel; free = nothing)
     named = _named_structure(l)
     if named !== nothing
         family, structure = named
         ref = _reference_lens(family, structure)
-        typeof(ref) == typeof(l) && parameter_vector(ref) == parameter_vector(l) &&
-            return _validated(LensSpec(family, structure, _free_tuple(free), nothing), ref)
+        # by structure and values, whatever the eltype; `isequal` keeps a `-0.0` (its sign is a value)
+        isequal(parameter_vector(ref), parameter_vector(l)) &&
+            return LensSpec(family, structure, free, nothing)
     end
     return _record_spec(lens_record(l), free)
 end
@@ -235,7 +241,8 @@ end
 
 The lens of `spec` at its reference values: zero coefficients, and the
 projection's own parameters; what a calibrator starts a regression or a solve
-from. The record form gives the record's lens, its numbers kept.
+from. The record form gives the record's lens, its numbers kept. Its element
+type is `Float64` for both forms, whatever lens a spec was made from.
 """
 lens(spec::LensSpec) = spec.record === nothing ? _reference_lens(spec.family, spec.structure) : lens_from_record(Float64, spec.record)
 
@@ -345,6 +352,8 @@ struct CameraModelSpec{I, S}
             throw(ArgumentError("CameraModelSpec: the intrinsics kind is a subtype of AbstractIntrinsics; got $(repr(I))"))
         S === GenericGridSpec && I !== LogicalIntrinsics &&
             throw(ArgumentError("CameraModelSpec: a generic grid is metric (LogicalIntrinsics); got $I"))
+        # a parameterized kind names its wrapper (as the keyword path does)
+        Base.typename(I).wrapper === I || return CameraModelSpec{Base.typename(I).wrapper, S}(model)
         return new{I, S}(model)
     end
 end

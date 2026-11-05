@@ -21,7 +21,8 @@ undistorts exactly as `CameraModel(LogicalIntrinsics(K), lens)` with the unit
 focal `K = [1 0 cx; 0 1 cy; 0 0 1]` does: both go through the same code, which
 reads the pixel matrix at `_K` / `_K_inv`.
 
-`ProjectiveIntrinsics{T}(center)` stores the centre in `T`; `ProjectiveIntrinsics(center)`
+`ProjectiveIntrinsics{T}(center)` stores the centre in `T` (a floating-point or AD
+eltype; an integer or rational `T` is an `ArgumentError`); `ProjectiveIntrinsics(center)`
 takes `T` from `center` (integers become `Float64`). See [`principal_point`](@ref),
 [`parameter_names`](@ref) (`(:cx, :cy)`), [`convert_eltype`](@ref) and
 [`convert_frame`](@ref).
@@ -35,8 +36,13 @@ ProjectiveIntrinsics(cx = 2120.0, cy = 1416.0)
 """
 struct ProjectiveIntrinsics{T <: Real} <: AbstractIntrinsics
     center::Point2{T}
-    ProjectiveIntrinsics{T}(center::AbstractVector{<:Real}) where {T <: Real} =
-        new{T}(Point2{T}(center[1], center[2]))
+    function ProjectiveIntrinsics{T}(center::AbstractVector{<:Real}) where {T <: Real}
+        # a centre is a measurement: floats (and AD numbers, which are `Real`), never exact integers or rationals
+        T <: Union{Integer, Rational} && throw(
+            ArgumentError("ProjectiveIntrinsics{$T}: the eltype is a floating-point (or AD) type; use ProjectiveIntrinsics(center), which takes float($T)")
+        )
+        return new{T}(Point2{T}(center[1], center[2]))
+    end
 end
 ProjectiveIntrinsics(center::AbstractVector{T}) where {T <: Real} =
     ProjectiveIntrinsics{float(T)}(center)

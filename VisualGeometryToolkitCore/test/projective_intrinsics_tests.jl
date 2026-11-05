@@ -6,7 +6,7 @@
     # =============================================================================
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: EuclideanMap, PixelFrame, ParameterManifold, action_jacobian, convert_eltype, parameter_names, intrinsics, lens
+    using VisualGeometryToolkitCore: EuclideanMap, PixelFrame, ParameterManifold, action_jacobian, convert_eltype, parameter_names, parameter_bounds, parameters, with_parameters, intrinsics, lens
     using StaticArrays
     using GeometryBasics: Point2
     using Random: MersenneTwister
@@ -43,10 +43,29 @@
 
     @testset "convert_frame moves the centre, not the lens" begin
         cv = convert_frame(PixelFrame{:opencv}, cam)
-        shift = EuclideanMap(PixelFrame{:colmap}, PixelFrame{:opencv})(SVector(2120.0, 1416.0))
-        @test principal_point(intrinsics(cv)) == Point2(shift[1], shift[2])
+        # COLMAP's pixel centres sit at half-integers, OpenCV's at integers: the centre moves by (-0.5, -0.5)
+        @test principal_point(intrinsics(cv)) == Point2(2119.5, 1415.5)
         @test principal_point(intrinsics(cv)) != principal_point(intrinsics(cam))
         @test lens(cv) == lens(cam)
+    end
+
+    @testset "parameters, parameter_bounds and the with_parameters refusal" begin
+        i = intrinsics(cam)
+        @test parameters(i) == (cx = 2120.0, cy = 1416.0)
+        lo, hi = parameter_bounds(i)
+        @test lo == SVector(-Inf, -Inf) && hi == SVector(Inf, Inf)
+        @test eltype(lo) === Float64 && eltype(parameter_bounds(convert_eltype(Float32, i))[1]) === Float32
+        @test with_parameters(i, [10.0, 20.0]) == ProjectiveIntrinsics(Point2(10.0, 20.0))
+        @test with_parameters(i, [1, 2]) == ProjectiveIntrinsics(Point2(1.0, 2.0))      # integers become Float64
+        @test_throws "ProjectiveIntrinsics takes 2 parameters" with_parameters(i, [1.0, 2.0, 3.0])
+        @test_throws "got 1" with_parameters(i, [1.0])
+    end
+
+    @testset "the eltype is a float" begin
+        @test_throws ArgumentError ProjectiveIntrinsics{Int}(Point2(1, 2))
+        @test_throws ArgumentError ProjectiveIntrinsics{Rational{Int}}(Point2(1, 2))
+        @test_throws ArgumentError ProjectiveIntrinsics{Bool}([true, false])
+        @test ProjectiveIntrinsics{Float32}(Point2(1, 2)) isa ProjectiveIntrinsics{Float32}
     end
 
     @testset "undistort is the reference's" begin

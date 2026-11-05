@@ -4,7 +4,7 @@
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: toml_value, free_names
 
-    # name, spec, expected parameter names, the structure's lens type
+    # spec, expected parameter names
     cases = Any[
         (LensSpec(:division; coefficients = 3), (:d1, :d2, :d3)),
         (LensSpec(:kannala_brandt; coefficients = 4), (:k1, :k2, :k3, :k4)),
@@ -51,6 +51,28 @@
         # a non-reference value keeps its number: the record form
         @test LensSpec(Lens(DoubleSphere(-0.2, 0.6))).family === :record
         @test lens(LensSpec(Lens(DoubleSphere(-0.2, 0.6)))) == Lens(DoubleSphere(-0.2, 0.6))
+    end
+
+    @testset "the named form is eltype-agnostic and keeps the sign of a zero" begin
+        # a Float32 lens at the reference values is the named form, and lens(spec) is Float64 either way
+        s32 = LensSpec(Division(0.0f0, 0.0f0))
+        @test s32 == LensSpec(:division; coefficients = 2)
+        @test eltype(parameter_vector(lens(s32))) === Float64
+        @test LensSpec(KannalaBrandt(0.0f0, 0.0f0, 0.0f0)) == LensSpec(:kannala_brandt; coefficients = 3)
+        # a -0.0 coefficient is a value: not the reference, so the record form keeps its sign
+        neg = LensSpec(Division(-0.0, 0.0))
+        @test neg.family === :record
+        @test signbit(parameter_vector(lens(neg))[1])
+        @test neg != LensSpec(:division; coefficients = 2)
+    end
+
+    @testset "the inner constructor validates" begin
+        @test_throws ArgumentError LensSpec(:division, (; coefficients = 0), nothing, nothing)
+        @test_throws ArgumentError LensSpec(:division, (;), nothing, nothing)
+        @test_throws ArgumentError LensSpec(:division, (; coefficients = 2), (:d9,), nothing)
+        @test_throws ArgumentError LensSpec(:fish, (;), nothing, nothing)
+        @test_throws ArgumentError LensSpec(:record, (; coefficients = 2), nothing, Dict{String, Any}())
+        @test LensSpec(:division, (; coefficients = 2), [:d1], nothing) == LensSpec(:division; coefficients = 2, free = (:d1,))
     end
 
     @testset "round trips" begin
@@ -127,6 +149,11 @@
         @test sprint(show, LensSpec(:brown_conrady; radial = 3, tangential = true)) == "LensSpec(:brown_conrady; radial = 3, tangential = true)"
         @test sprint(show, LensSpec(:equidistant)) == "LensSpec(:equidistant)"
         @test sprint(show, LensSpec(:division; coefficients = 2, free = (:d1,))) == "LensSpec(:division; coefficients = 2, free = (:d1,))"
+        # the record form lists the record's keys, sorted
+        rec = LensSpec(Division(-0.1, 0.02))
+        @test sprint(show, rec) == "LensSpec(record = {" * join(sort(collect(keys(rec.record))), ", ") * "})"
+        @test startswith(sprint(show, rec), "LensSpec(record = {")
+        @test endswith(sprint(show, LensSpec(Division(-0.1, 0.02); free = (:d1,))), ", free = (:d1,))")
     end
 end
 
@@ -164,6 +191,14 @@ end
         @test roundtrip(pspec) == pspec
     end
 
+    @testset "the inner constructor normalizes a parameterized intrinsics kind too" begin
+        lens = LensSpec(:division; coefficients = 2)
+        spec = CameraModelSpec{LogicalIntrinsics{Float64}, LensSpec}(lens)
+        @test intrinsics_kind(spec) === LogicalIntrinsics
+        @test spec == CameraModelSpec(lens)
+        @test intrinsics_kind(CameraModelSpec{ProjectiveIntrinsics{Float32}, LensSpec}(lens)) === ProjectiveIntrinsics
+    end
+
     @testset "projective lens spec" begin
         spec = CameraModelSpec(LensSpec(:division; coefficients = 2); intrinsics = ProjectiveIntrinsics)
         @test intrinsics_kind(spec) === ProjectiveIntrinsics
@@ -199,6 +234,16 @@ end
             err
         end
         @test e isa ArgumentError && occursin("metric", e.msg) && occursin("projective", e.msg)
+    end
+
+    @testset "generic spec hash" begin
+        a = CameraModelSpec(:central_generic; grid_size = (9, 7), calib_area = (0, 0, 640, 480))
+        b = CameraModelSpec(:central_generic; grid_size = [9, 7], calib_area = [0, 0, 640, 480])
+        @test a == b && hash(a) == hash(b)
+        @test hash(a) != hash(CameraModelSpec(:central_generic; grid_size = (9, 8), calib_area = (0, 0, 640, 480)))
+        @test hash(CameraModelSpec(:central_generic)) == hash(CameraModelSpec(:central_generic))
+        @test hash(GenericGridSpec(; grid_size = (9, 7))) == hash(GenericGridSpec(; grid_size = [9, 7]))
+        @test hash(roundtrip(a)) == hash(a)
     end
 
     @testset "refusals" begin

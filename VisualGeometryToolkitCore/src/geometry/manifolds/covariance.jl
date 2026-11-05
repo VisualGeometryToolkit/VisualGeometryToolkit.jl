@@ -98,8 +98,9 @@ end
 # λ (a Euclidean chart, `λ₀ + v`: the division lens's own chart is the same
 # unbounded one; unit-scaled, which for N = 1 is the chart as it stands, bit for
 # bit. For N > 1 the λ's span many orders of magnitude in pixel units, so this
-# part is only well scaled in a Hartley-normalized frame), the centre riding along — the chart whose directions
-# `radial_transfer_jacobian_rows!` takes (dH from the first part, the λ's last).
+# part is only well scaled in a Hartley-normalized frame), the centre riding
+# along — the chart whose directions `radial_transfer_jacobian_rows!` takes
+# (dH from the first part, the λ's last).
 struct _RadialHomographyParts{T}
     center::Point2{T}
 end

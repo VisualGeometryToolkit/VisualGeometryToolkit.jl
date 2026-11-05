@@ -15,15 +15,25 @@ is unchanged bit for bit: its solver, chart, rows and Jacobians.
   reads every coefficient; `division_coeff(m)` throws for `N > 1`.
 - **Breaking: `CameraModel(::RadialHomography)` is projective** —
   `CameraModel(ProjectiveIntrinsics(center(m)), Division(division_coeffs(m)...))`.
-  `calibration_matrix`, `unproject`, `fov`, `image_circle` and the default
-  nominal camera on it are MethodErrors (or a refusal), and a finite `max_fov`
-  (`undistorted_rect`, `fov_radius`) is an `ArgumentError`.
+  `calibration_matrix`, `unproject`, `image_circle` and the default nominal
+  camera on it are MethodErrors; `fov` is an `ArgumentError`, as are `fov_radius`
+  and a finite `max_fov` (`undistorted_rect`).
   `RadialHomography(H, camera)` and `radial_homography(camera, H)` build the
   model from such a camera.
 - **`radial_homography(camera::CameraModel{<:LogicalIntrinsics, <:Division}, H)`**
   pairs a stored plane homography with a METRIC division camera: `λₚ = kₚ / f^(2p)`
   about the principal point, so `radial_transfer` of it is `project(camera, K⁻¹·H·X̃)`.
   An `ArgumentError` for `fx ≠ fy` or a skewed `K`.
+- **`CameraModelSpec{I, S}(…)` normalizes a parameterized intrinsics kind**
+  (`LogicalIntrinsics{Float64}`) to its wrapper in the inner constructor too, as
+  the keyword path does, so the specification round trips equal.
+- **`ProjectiveIntrinsics{T}` refuses an integer or rational `T`** (an
+  `ArgumentError`; floats and AD numbers stay, `ProjectiveIntrinsics(center)`
+  still takes `float(T)`).
+- **`LensSpec`**: `LensSpec(lens)` names a lens at the reference values whatever
+  its element type (a `Float32` lens is the named form), keeps a `-0.0`
+  coefficient in the record form, and `lens(spec)` is `Float64`; the 4-argument
+  inner constructor validates what the public ones do.
 - **Breaking: the metric operations are narrowed to `LogicalIntrinsics`**:
   `calibration_matrix(::CameraModel)` and `unproject(::AbstractIntrinsics, …)`
   have no method for another intrinsics kind.

@@ -63,8 +63,8 @@ Pages = ["numerics/bspline_energy.jl"]
 
 A camera's relative illumination V on the sensor as a B-spline in V on
 clamped knots ([`clamped_knots`](@ref), [`bspline_basis`](@ref)), linear in
-its control points: a tensor surface over a sensor box
-([`TensorVignetting`](@ref)) or a profile in the radius about a centre
+its control points: a tensor-product surface over a sensor box
+([`TensorProductVignetting`](@ref)) or a profile in the radius about a centre
 ([`RadialVignetting`](@ref)). A model is callable, `v(u)`, and isbits, so a
 batch of sensor points goes through [`pointwise!`](@ref) on a device;
 [`coefficient_jacobian`](@ref) is its row of a least squares in the control

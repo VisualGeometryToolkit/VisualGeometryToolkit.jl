@@ -78,79 +78,68 @@ abstract type AbstractHomConicMat{T} <: StaticArrays.StaticMatrix{3, 3, T} end
 macro smatrix_wrapper(Name, arg2, arg3 = nothing)
     name = esc(Name)
     if arg2 === :N && arg3 === :Frame
-        # N-parametric square form with a trailing frame tag:
-        # Name{N,T,L,C<:Frame{N}} <: StaticMatrix{N,N,T}. Used by the
+        # N-parametric square form holding a static matrix, with a trailing frame tag:
+        # Name{N,T,M,C<:Frame{N}} <: StaticMatrix{N,N,T}. Used by the
         # statistical forms (CovMat/PrecMat, 0.9): the frame parameter names
         # WHICH frame the matrix's coordinates live in, defaulting
         # to `UnlabeledFrame{N}` through every historically-shaped constructor
         # (the standing gradual-typing rule — labels are opt-in, never viral).
         argerr_msg = string(Name, "{N,T} takes N*N args, got ")
         return quote
-            # The STORAGE is the length `L`: `N * N` entries (column-major) for a
-            # full matrix, `N` for a diagonal one (`Diagonal…` aliases below). An
-            # operation's result type follows its input TYPES, never its values:
-            # a rotation or a Jacobian makes a diagonal form full (`propagate`),
-            # a scalar or a sum of diagonals keeps it diagonal.
-            struct $name{N, T, L, C <: Frame{N}} <: StaticArrays.StaticMatrix{N, N, T}
-                data::NTuple{L, T}
-                # Typed inner constructor: the untyped default `Name{…}(data)`
-                # is ambiguous against StaticArrays' generic converters.
-                function $name{N, T, L, C}(data::NTuple{L}) where {N, T, L, C <: Frame{N}}
-                    (L == N * N || L == N) || throw(ArgumentError(string($(string(Name)), "{", N, "}: ", L,
-                        " stored entries; a full form stores N * N = ", N * N, ", a diagonal one N = ", N)))
-                    return new{N, T, L, C}(convert(NTuple{L, T}, data))
-                end
+            # The form HOLDS a static matrix, and the matrix's type is its structure:
+            # an `SMatrix` (full), an `SDiagonal` (diagonal) or a `ScaledIdentity`
+            # (λ·I, isotropic) — the three a `GaussianBlur` holds. `parent(A)` is the
+            # matrix, and structured arithmetic is the matrix's own (an SDiagonal sum
+            # is an SDiagonal); the form itself inverts, relabels, converts and
+            # promotes, and every other operation sees its full N × N entries and,
+            # like any product J*Σ, escapes to an SMatrix (not a covariance).
+            struct $name{N, T, M <: _FormStorage{N, T}, C <: Frame{N}} <: StaticArrays.StaticMatrix{N, N, T}
+                matrix::M
+                # Typed inner constructor (an argument of the storage union): an
+                # untyped `Name{…}(m)` is ambiguous against StaticArrays' generic
+                # `(::Type{<:StaticArray})(::AbstractArray)` converter.
+                $name{N, T, M, C}(m::_FormStorage{N, T}) where {N, T, M, C <: Frame{N}} = new{N, T, M, C}(m)
             end
+            Base.parent(A::$name) = getfield(A, :matrix)
             @inline Base.size(::Type{<:$name{N}}) where {N} = (N, N)
-            # similar_type is what StaticArrays builds a map/broadcast result as:
-            # N * N entries, so always the FULL form, frame kept for an eltype
-            # conversion. Products like J*Σ still escape to SMatrix, as for every
-            # other @smatrix_wrapper type — not a covariance, no wrapper, no frame.
-            @inline StaticArrays.similar_type(
-                ::Type{$name{N, T, L, C}}, ::Type{S}
-            ) where {N, T, L, C, S} = $name{N, S, N * N, C}
+            # similar_type is what StaticArrays builds an eltype conversion as: the
+            # full form, its frame kept.
+            @inline StaticArrays.similar_type(::Type{$name{N, T, M, C}}, ::Type{S}) where {N, T, M, C, S} =
+                $name{N, S, StaticArrays.SMatrix{N, N, S, N * N}, C}
             @inline StaticArrays.similar_type(::Type{<:$name{N}}, ::Type{S}) where {N, S} =
-                $name{N, S, N * N, UnlabeledFrame{N}}
+                $name{N, S, StaticArrays.SMatrix{N, N, S, N * N}, UnlabeledFrame{N}}
             @inline Base.eltype(::Type{<:$name{N, T}}) where {N, T} = T
             @inline Base.IndexStyle(::Type{<:$name}) = IndexLinear()
-            @inline function Base.getindex(A::$name{N, T, L}, k::Int) where {N, T, L}
-                L == N * N && return A.data[k]
-                i, j = mod1(k, N), (k - 1) ÷ N + 1
-                return i == j ? A.data[i] : zero(T)
-            end
-            @inline Base.getindex(A::$name{N, T, L}, i::Int, j::Int) where {N, T, L} =
-                L == N * N ? A.data[(j - 1) * N + i] : (i == j ? A.data[i] : zero(T))
-            # Every entry, column-major (what StaticArrays converts through); the
-            # stored entries are `getfield(A, :data)`.
-            @inline Base.Tuple(A::$name{N, T, L}) where {N, T, L} = L == N * N ? A.data : ntuple(k -> A[k], Val(N * N))
-            # A diagonal form from a static Diagonal (`SDiagonal`): its N entries.
-            @inline $name(D::LinearAlgebra.Diagonal{T, StaticArrays.SVector{N, T}}) where {N, T} =
-                $name{N, T, N, UnlabeledFrame{N}}(Tuple(D.diag))
-            @inline $name{N, T}(D::LinearAlgebra.Diagonal{<:Any, <:StaticArrays.SVector{N}}) where {N, T} =
-                $name{N, T, N, UnlabeledFrame{N}}(convert(NTuple{N, T}, Tuple(D.diag)))
-            # Gradual-typing default: the historical 3-parameter surface
-            # (`Name{N,T,L}(data)`) records no frame. Pre-0.9 code compiles
-            # and behaves unchanged.
-            @inline (::Type{$name{N, T, L}})(data::NTuple{L, T}) where {N, T, L} =
-                $name{N, T, L, UnlabeledFrame{N}}(data)
-            @inline $name{N, T}(data::NTuple{L, T}) where {N, T, L} = $name{N, T, L}(data)
+            @inline Base.getindex(A::$name, k::Int) = getfield(A, :matrix)[k]
+            @inline Base.getindex(A::$name, i::Int, j::Int) = getfield(A, :matrix)[i, j]
+            # every entry, column-major (what StaticArrays converts through)
+            @inline Base.Tuple(A::$name{N, T}) where {N, T} = Tuple(StaticArrays.SMatrix{N, N, T}(getfield(A, :matrix)))
+            # The unlabeled form of a static matrix: its structure is its type.
+            @inline $name(m::StaticArrays.SMatrix{N, N, T}) where {N, T} = $name{N, T, typeof(m), UnlabeledFrame{N}}(m)
+            @inline $name(m::LinearAlgebra.Diagonal{T, StaticArrays.SVector{N, T}}) where {N, T} = $name{N, T, typeof(m), UnlabeledFrame{N}}(m)
+            @inline $name(m::ScaledIdentity{N, T}) where {N, T} = $name{N, T, typeof(m), UnlabeledFrame{N}}(m)
+            # The full form of entries (column-major) or of any matrix of the size
+            @inline $name{N, T}(data::NTuple{L}) where {N, T, L} = $name(StaticArrays.SMatrix{N, N, T}(data))
             @inline function $name{N, T}(args::Vararg{T, L}) where {N, T, L}
                 L == N * N || throw(ArgumentError(string($argerr_msg, L)))
-                return $name{N, T, L}(args)
+                return $name(StaticArrays.SMatrix{N, N, T}(args))
             end
-            @inline $name(M::SMatrix{N, N, T, L}) where {N, T, L} = $name{N, T, L}(Tuple(M))
-            @inline $name{N, T}(M::SMatrix{N, N, T, L}) where {N, T, L} = $name{N, T, L}(Tuple(M))
-            @inline $name{N, T}(M::AbstractMatrix) where {N, T} = $name{N, T}(SMatrix{N, N, T}(M))
+            @inline $name{N, T}(m::AbstractMatrix) where {N, T} = $name(StaticArrays.SMatrix{N, N, T}(m))
             # Any 2-D StaticArray (the full AbstractMatrix ∩ StaticArray intersection):
             # more specific than StaticArrays' `(::Type{SA})(::StaticArray)` converter.
-            @inline $name{N, T}(M::StaticArrays.StaticArray{<:Tuple, <:Any, 2}) where {N, T} = $name{N, T}(SMatrix{N, N, T}(M))
-            # Eltype conversion of a labeled wrapper keeps its frame (a label is
-            # never silently erased — the same rule as `convert`).
-            @inline $name{N, T}(M::$name{N, S, L, C}) where {N, T, S, L, C <: Frame{N}} =
-                $name{N, T, L, C}(convert(NTuple{L, T}, getfield(M, :data)))
-            # Labeled lift from an SMatrix (fully-parameterized surface).
-            @inline (::Type{$name{N, T, L, C}})(M::SMatrix{N, N, T, L}) where {N, T, L, C <: Frame{N}} =
-                $name{N, T, L, C}(Tuple(M))
+            @inline $name{N, T}(m::StaticArrays.StaticArray{<:Tuple, <:Any, 2}) where {N, T} = $name(StaticArrays.SMatrix{N, N, T}(m))
+            # a structured matrix in another eltype keeps its structure
+            @inline $name{N, T}(m::LinearAlgebra.Diagonal{<:Any, <:StaticArrays.SVector{N}}) where {N, T} = $name(_with_eltype(T, m))
+            @inline $name{N, T}(m::ScaledIdentity{N}) where {N, T} = $name(_with_eltype(T, m))
+            # Eltype conversion of a labeled form keeps its frame and its structure
+            # (a label is never silently erased — the same rule as `convert`).
+            @inline function $name{N, T}(A::$name{N, S, M, C}) where {N, T, S, M, C <: Frame{N}}
+                m = _with_eltype(T, getfield(A, :matrix))
+                return $name{N, T, typeof(m), C}(m)
+            end
+            # What StaticArrays builds through similar_type: the full form from its entries.
+            @inline (::Type{$name{N, T, M, C}})(data::Tuple) where {N, T, M <: StaticArrays.SMatrix, C <: Frame{N}} =
+                $name{N, T, M, C}(M(data))
         end
     elseif arg3 === nothing && arg2 === :N
         # N-parametric square form: Name{N,T,L} <: StaticMatrix{N,N,T}
@@ -567,18 +556,61 @@ Base.iterate(a::Attributed{<:Cspond}, state...) = iterate(getfield(a, :value), s
 @inline Base.size(a::Attributed{<:AbstractVector}, args...) = size(getfield(a, :value), args...)
 
 # ========================================================================
-# PrecMat{N,T,L,F} - Per-observation information (precision) matrix
+# ScaledIdentity{N,T} - the static N×N matrix λ·I, stored as λ
+# ========================================================================
+
+"""
+    ScaledIdentity{N}(λ)
+
+The `N × N` matrix `λ·I`, stored as the one number `λ`: the static, sized
+counterpart of `LinearAlgebra.UniformScaling` (which has no size), beside
+StaticArrays' `SDiagonal` (one number per axis) and `SMatrix` (every entry).
+Isotropic: a rotation leaves it unchanged. Isbits; reads as its full matrix.
+It stays a `ScaledIdentity` under `inv`, a scalar factor and a sum with
+another; a sum with an `SDiagonal` is an `SDiagonal`; every other operation
+gives an `SMatrix`. The isotropic storage of [`CovMat`](@ref) /
+[`PrecMat`](@ref) and the round [`GaussianBlur`](@ref).
+"""
+struct ScaledIdentity{N, T} <: StaticArrays.StaticMatrix{N, N, T}
+    λ::T
+    # typed (a Number): an untyped argument is ambiguous against StaticArrays' generic converters
+    ScaledIdentity{N, T}(λ::Number) where {N, T} = new{N, T}(convert(T, λ))
+end
+ScaledIdentity{N}(λ::T) where {N, T <: Number} = ScaledIdentity{N, T}(λ)
+@inline Base.getindex(A::ScaledIdentity{N, T}, i::Int, j::Int) where {N, T} = i == j ? A.λ : zero(T)
+@inline Base.getindex(A::ScaledIdentity{N, T}, k::Int) where {N, T} = mod1(k, N) == (k - 1) ÷ N + 1 ? A.λ : zero(T)
+@inline Base.Tuple(A::ScaledIdentity{N}) where {N} = ntuple(k -> A[k], Val(N * N))
+@inline Base.IndexStyle(::Type{<:ScaledIdentity}) = IndexLinear()
+# a map/broadcast result has every entry: an SMatrix
+@inline StaticArrays.similar_type(::Type{<:ScaledIdentity{N}}, ::Type{S}) where {N, S} = SMatrix{N, N, S, N * N}
+@inline Base.inv(A::ScaledIdentity{N}) where {N} = ScaledIdentity{N}(inv(A.λ))
+@inline Base.:*(s::Number, A::ScaledIdentity{N}) where {N} = ScaledIdentity{N}(s * A.λ)
+@inline Base.:*(A::ScaledIdentity{N}, s::Number) where {N} = ScaledIdentity{N}(A.λ * s)
+@inline Base.:/(A::ScaledIdentity{N}, s::Number) where {N} = ScaledIdentity{N}(A.λ / s)
+@inline Base.:+(A::ScaledIdentity{N}, B::ScaledIdentity{N}) where {N} = ScaledIdentity{N}(A.λ + B.λ)
+@inline Base.:+(A::ScaledIdentity{N}, D::LinearAlgebra.Diagonal{<:Any, <:StaticArrays.SVector{N}}) where {N} = LinearAlgebra.Diagonal(map(d -> A.λ + d, D.diag))
+@inline Base.:+(D::LinearAlgebra.Diagonal{<:Any, <:StaticArrays.SVector{N}}, A::ScaledIdentity{N}) where {N} = A + D
+# its diagonal, as StaticArrays' SDiagonal
+@inline LinearAlgebra.Diagonal(A::ScaledIdentity{N}) where {N} = LinearAlgebra.Diagonal(StaticArrays.SVector(ntuple(_ -> A.λ, Val(N))))
+
+# The three storages of a statistical form (CovMat, PrecMat) and of a blur: full, diagonal, isotropic.
+const _FormStorage{N, T} = Union{SMatrix{N, N, T}, LinearAlgebra.Diagonal{T, StaticArrays.SVector{N, T}}, ScaledIdentity{N, T}}
+
+# ========================================================================
+# PrecMat{N,T,M,F} - Per-observation information (precision) matrix
 # ========================================================================
 
 @smatrix_wrapper PrecMat N Frame
 
 @doc """
-    PrecMat{N,T,L,F} <: StaticMatrix{N,N,T}
+    PrecMat{N,T,M,F} <: StaticMatrix{N,N,T}
 
 N×N information (precision) matrix Λ = Σ⁻¹ for per-observation residual
 uncertainty. Parametric in N so it sizes to the value dof for any geometric
 value: 2 for Point2, 3 for Disc, 5 for EllipticFrame, M for Hyperplane{M},
-etc. `L = N*N` is the flat storage length (required by StaticArrays).
+etc. `M` is the static matrix it holds (`parent(Λ)`), and its type is the
+storage: an `SMatrix` (full), an `SDiagonal` (diagonal) or a
+[`ScaledIdentity`](@ref) (isotropic) — see [`DiagonalCovMat`](@ref).
 
 Used as the storage form for sources that emit precision natively (e.g.,
 RoMa v2 dense matcher, factor-graph SLAM backends, any EIV estimator that
@@ -631,13 +663,13 @@ See also: [`CovMat`](@ref), [`Uncertain`](@ref), [`propagate`](@ref).
 """ PrecMat
 
 # ========================================================================
-# CovMat{N,T,L,F} - Per-observation covariance matrix (counterpart to PrecMat)
+# CovMat{N,T,M,F} - Per-observation covariance matrix (counterpart to PrecMat)
 # ========================================================================
 
 @smatrix_wrapper CovMat N Frame
 
 @doc """
-    CovMat{N,T,L,F} <: StaticMatrix{N,N,T}
+    CovMat{N,T,M,F} <: StaticMatrix{N,N,T}
 
 N×N covariance matrix Σ = Λ⁻¹ — the covariance counterpart to [`PrecMat`](@ref).
 
@@ -666,8 +698,8 @@ law per type and records the destination frame on the result.
 The trailing `F <: Frame{N}` names the frame the matrix's coordinates live
 in; every historically-shaped constructor defaults it to
 `UnlabeledFrame{N}` (the gradual-typing wildcard — see [`PrecMat`](@ref)).
-Storage and StaticArrays interface mirror [`PrecMat`](@ref); SMatrix shape
-(`L = N*N`) and getindex semantics are identical.
+Storage (the held matrix `M`, `parent(Σ)`: an `SMatrix`, `SDiagonal` or
+[`ScaledIdentity`](@ref)) and the StaticArrays interface mirror [`PrecMat`](@ref).
 
 ## Example
 
@@ -682,20 +714,23 @@ e = Ellipse(Uncertain(Point2(100.0, 200.0), Σ); sigma=3)
     CovMat{N}(; σ)
     PrecMat{N}(; σ)
 
-The N×N covariance `σ²·I` (precision `I/σ²`) of a standard deviation `σ`: a
-positive real, or an N-tuple / `SVector{N}` of them for the diagonal
-`(σ₁², …, σ_N²)` (`(1/σ₁², …)`). Keyword-only so the number is unambiguously a
-standard deviation — there is no positional scalar constructor. The element
-type is `float` of σ's; the frame is `UnlabeledFrame{N}`, as for every
-unlabeled constructor (label with [`relabel`](@ref)).
+The N×N covariance `σ²·I` (precision `I/σ²`) of a standard deviation `σ`, an
+isotropic form (a `ScaledIdentity`); an N-tuple / `SVector{N}` of them is the
+diagonal `(σ₁², …, σ_N²)` (`(1/σ₁², …)`), a diagonal form (an `SDiagonal`).
+Keyword-only so the number is unambiguously a standard deviation — there is no
+positional scalar constructor. The element type is `float` of σ's; the frame is
+`UnlabeledFrame{N}`, as for every unlabeled constructor (label with
+[`relabel`](@ref)).
 
 ```julia
-Uncertain(Point2(100.0, 200.0), CovMat{2}(σ = 0.5))          # Σ = 0.25·I
-Uncertain(Point2(100.0, 200.0), PrecMat{2}(σ = (0.5, 2.0)))  # Λ = diag(4, 0.25)
+Uncertain(Point2(100.0, 200.0), CovMat{2}(σ = 0.5))          # Σ = 0.25·I, isotropic
+Uncertain(Point2(100.0, 200.0), PrecMat{2}(σ = (0.5, 2.0)))  # Λ = diag(4, 0.25), diagonal
 ```
 """
-@inline (::Type{CovMat{N}})(; σ) where {N} = _diagonal_form(CovMat, _sigmas(Val(N), σ), x -> x * x)
-@inline (::Type{PrecMat{N}})(; σ) where {N} = _diagonal_form(PrecMat, _sigmas(Val(N), σ), x -> inv(x * x))
+@inline (::Type{CovMat{N}})(; σ) where {N} = _sigma_form(CovMat, Val(N), σ, x -> x * x)
+@inline (::Type{PrecMat{N}})(; σ) where {N} = _sigma_form(PrecMat, Val(N), σ, x -> inv(x * x))
+@inline _sigma_form(::Type{F}, ::Val{N}, σ::Real, f::G) where {F, N, G} = F(ScaledIdentity{N}(f(only(_checked_sigmas((float(σ),))))))
+@inline _sigma_form(::Type{F}, ::Val{N}, σ, f::G) where {F, N, G} = F(LinearAlgebra.Diagonal(StaticArrays.SVector(map(f, _sigmas(Val(N), σ)))))
 
 @inline _sigmas(::Val{N}, σ::Real) where {N} = _checked_sigmas(ntuple(_ -> float(σ), Val(N)))
 @inline _sigmas(::Val{N}, σ::Tuple{Vararg{Real, N}}) where {N} = _checked_sigmas(promote(map(float, σ)...))
@@ -703,11 +738,6 @@ Uncertain(Point2(100.0, 200.0), PrecMat{2}(σ = (0.5, 2.0)))  # Λ = diag(4, 0.2
 @inline function _checked_sigmas(σ::Tuple{Vararg{AbstractFloat}})
     all(s -> s > 0 && isfinite(s), σ) || throw(ArgumentError("σ must be positive and finite, got $σ"))
     return σ
-end
-@inline function _diagonal_form(::Type{F}, σ::Tuple{T, Vararg{T}}, f::G) where {F, T, G}
-    N = length(σ)
-    d = map(f, σ)
-    return F{N, T, N * N}(ntuple(k -> (k - 1) % N == (k - 1) ÷ N ? d[(k - 1) % N + 1] : zero(T), Val(N * N)))
 end
 
 # ========================================================================
@@ -720,8 +750,8 @@ end
 A geometric value `V` with its 2nd-order uncertainty: an [`Attributed`](@ref)
 whose attributes are one of the typed matrix wrappers —
 
-- `CovMat{N,T,L}` — covariance Σ in parameter space
-- `PrecMat{N,T,L}` — precision Λ = Σ⁻¹ in parameter/residual space
+- `CovMat{N,T,M}` — covariance Σ in parameter space
+- `PrecMat{N,T,M}` — precision Λ = Σ⁻¹ in parameter/residual space
 
 `Uncertain` is an alias, not a second struct: one value-with-attributes type
 carries every value-plus-metadata pattern, and an uncertain value is the one
@@ -743,16 +773,16 @@ boundary, never in the inner loop.
 
 ## Two roles, one wrapper
 
-- **Measurement-side**: `Uncertain{Point2, PrecMat{2,T,4}}` — a feature
+- **Measurement-side**: `Uncertain{Point2, PrecMat{2,T,SMatrix{2,2,T,4}}}` — a feature
   detection (e.g. RoMa-v2 dense match) carrying its per-observation
   precision. Consumed by heteroscedastic Sampson, weighted DLT, IRLS.
-- **Model-side**: `Uncertain{HomographyMat{T}, CovMat{8,T,64}}` — a fitted
+- **Model-side**: `Uncertain{HomographyMat{T}, CovMat{8,T,SMatrix{8,8,T,64}}}` — a fitted
   model carrying its parameter covariance. Consumed by predictive scoring
   and downstream propagation.
 
 # Type Parameters
 - `V`: The wrapped geometric value (`Point2`, `HomographyMat`, `Disc`, …)
-- `M`: The matrix wrapper (`CovMat{N,T,L}` or `PrecMat{N,T,L}`)
+- `M`: The matrix wrapper (`CovMat{N,T,M}` or `PrecMat{N,T,M}`)
 
 # Example
 ```julia
@@ -813,41 +843,65 @@ Uncertain(v, m::Union{CovMat, PrecMat}) = Attributed(v, m)
 # Frame-preserving: inversion swaps the REPRESENTATION (covariance ↔
 # precision, i.e. which transformation law applies), not the frame the
 # coordinates live in.
-@inline Base.inv(Λ::PrecMat{N, T, L, C}) where {N, T, L, C} =
-    L == N * N ? CovMat{N, T, L, C}(Tuple(inv(SMatrix{N, N, T}(Λ)))) : CovMat{N, T, L, C}(map(inv, getfield(Λ, :data)))
-@inline Base.inv(Σ::CovMat{N, T, L, C}) where {N, T, L, C} =
-    L == N * N ? PrecMat{N, T, L, C}(Tuple(inv(SMatrix{N, N, T}(Σ)))) : PrecMat{N, T, L, C}(map(inv, getfield(Σ, :data)))
+@inline function Base.inv(Λ::PrecMat{N, T, M, C}) where {N, T, M, C}
+    m = inv(parent(Λ))                       # the matrix's own inverse: an SDiagonal's is an SDiagonal, λ·I's is λ⁻¹·I
+    return CovMat{N, eltype(m), typeof(m), C}(m)
+end
+@inline function Base.inv(Σ::CovMat{N, T, M, C}) where {N, T, M, C}
+    m = inv(parent(Σ))
+    return PrecMat{N, eltype(m), typeof(m), C}(m)
+end
 
 """
-    DiagonalCovMat{N, T, C} = CovMat{N, T, N, C}
-    DiagonalPrecMat{N, T, C} = PrecMat{N, T, N, C}
+    FullCovMat{N, T, C}, DiagonalCovMat{N, T, C}, IsotropicCovMat{N, T, C}
+    FullPrecMat{N, T, C}, DiagonalPrecMat{N, T, C}, IsotropicPrecMat{N, T, C}
 
-A covariance (precision) stored as its diagonal: `N` entries instead of
-`N * N`. Built from a static `Diagonal`, `CovMat(SDiagonal(σ₁², σ₂²))`. It
-stays diagonal under what keeps it so — `inv`, a scalar factor, a sum of two
-diagonal forms, a unit change — and becomes the full form under anything that
-mixes axes (`propagate` through a map, a Jacobian); `convert` and `promote`
-make a diagonal form full, never the reverse. Indexing, `Tuple` and every
-StaticArrays operation see the full `N × N` matrix.
+A covariance (precision) by the matrix it holds: an `SMatrix` (full), an
+`SDiagonal` (`CovMat(SDiagonal(σ₁², σ₂²))`) or a [`ScaledIdentity`](@ref)
+(`CovMat(ScaledIdentity{2}(σ²))`, `CovMat{2}(σ = …)`). The storages order
+isotropic ⊂ diagonal ⊂ full. A form keeps its storage under `inv` and
+`relabel`; `convert` and `promote` give the coarser of two storages, never a
+finer one (a container of mixed storage is one concrete type); `propagate`
+through a map gives the full form; a unit change gives the diagonal form of an
+isotropic one (lengths and angles scale apart). Arithmetic on the structure is
+the matrix's own, `parent(Σ)`; on the form itself it sees the full `N × N`
+entries and gives an `SMatrix`.
 """
-const DiagonalCovMat{N, T, C} = CovMat{N, T, N, C}
-@doc (@doc DiagonalCovMat) const DiagonalPrecMat{N, T, C} = PrecMat{N, T, N, C}
+const DiagonalCovMat{N, T, C} = CovMat{N, T, LinearAlgebra.Diagonal{T, StaticArrays.SVector{N, T}}, C}
+@doc (@doc DiagonalCovMat) const DiagonalPrecMat{N, T, C} = PrecMat{N, T, LinearAlgebra.Diagonal{T, StaticArrays.SVector{N, T}}, C}
+@doc (@doc DiagonalCovMat) const IsotropicCovMat{N, T, C} = CovMat{N, T, ScaledIdentity{N, T}, C}
+@doc (@doc DiagonalCovMat) const IsotropicPrecMat{N, T, C} = PrecMat{N, T, ScaledIdentity{N, T}, C}
+@doc (@doc DiagonalCovMat) const FullCovMat{N, T, C} = CovMat{N, T, <:SMatrix{N, N, T}, C}
+@doc (@doc DiagonalCovMat) const FullPrecMat{N, T, C} = PrecMat{N, T, <:SMatrix{N, N, T}, C}
 
-# What keeps a diagonal form diagonal: a scalar factor and a sum of two diagonal forms (of one frame).
+# The storage order isotropic (1) ⊂ diagonal (2) ⊂ full (3), the storage of a rank in an eltype, and a matrix in a
+# storage at least as coarse as its own (the one direction `convert` and `promote` take).
+_storage_rank(::Type{<:ScaledIdentity}) = 1
+_storage_rank(::Type{<:LinearAlgebra.Diagonal}) = 2
+_storage_rank(::Type{<:SMatrix}) = 3
+_storage_of(::Val{1}, ::Val{N}, ::Type{T}) where {N, T} = ScaledIdentity{N, T}
+_storage_of(::Val{2}, ::Val{N}, ::Type{T}) where {N, T} = LinearAlgebra.Diagonal{T, StaticArrays.SVector{N, T}}
+_storage_of(::Val{3}, ::Val{N}, ::Type{T}) where {N, T} = SMatrix{N, N, T, N * N}
+_as_storage(::Type{<:SMatrix{N, N, T}}, m) where {N, T} = SMatrix{N, N, T}(m)
+_as_storage(::Type{LinearAlgebra.Diagonal{T, StaticArrays.SVector{N, T}}}, m::LinearAlgebra.Diagonal) where {N, T} =
+    LinearAlgebra.Diagonal(StaticArrays.SVector{N, T}(m.diag))
+_as_storage(::Type{LinearAlgebra.Diagonal{T, StaticArrays.SVector{N, T}}}, m::ScaledIdentity{N}) where {N, T} =
+    LinearAlgebra.Diagonal(StaticArrays.SVector(ntuple(_ -> convert(T, m.λ), Val(N))))
+_as_storage(::Type{ScaledIdentity{N, T}}, m::ScaledIdentity{N}) where {N, T} = ScaledIdentity{N, T}(m.λ)
+
+# A matrix of a storage in another eltype, its structure kept.
+_with_eltype(::Type{T}, m::SMatrix{N, N}) where {T, N} = SMatrix{N, N, T}(m)
+_with_eltype(::Type{T}, m::LinearAlgebra.Diagonal{<:Any, <:StaticArrays.SVector{N}}) where {T, N} = LinearAlgebra.Diagonal(StaticArrays.SVector{N, T}(m.diag))
+_with_eltype(::Type{T}, m::ScaledIdentity{N}) where {T, N} = ScaledIdentity{N, T}(convert(T, m.λ))
+
 for F in (:CovMat, :PrecMat)
     @eval begin
-        @inline Base.:*(s::Number, A::$F{N, T, N, C}) where {N, T, C} = $F{N, promote_type(typeof(s), T), N, C}(map(x -> s * x, getfield(A, :data)))
-        @inline Base.:*(A::$F{N, T, N, C}, s::Number) where {N, T, C} = s * A
-        @inline Base.:/(A::$F{N, T, N, C}, s::Number) where {N, T, C} = $F{N, typeof(one(T) / s), N, C}(map(x -> x / s, getfield(A, :data)))
-        @inline Base.:+(A::$F{N, T, N, C}, B::$F{N, S, N, C}) where {N, T, S, C} =
-            $F{N, promote_type(T, S), N, C}(map(+, getfield(A, :data), getfield(B, :data)))
-        # mixed storage: the full form, as a sum of two full forms is (not a bare SMatrix)
-        @inline Base.:+(A::$F{N, T, N, C}, B::$F{N, S, L, C}) where {N, T, S, L, C} =
-            $F{N, promote_type(T, S), N * N, C}(map(+, Tuple(A), Tuple(B)))
-        @inline Base.:+(A::$F{N, T, L, C}, B::$F{N, S, N, C}) where {N, T, S, L, C} = B + A
-        # mixed storage promotes to the full form (literals, `vcat`, `promote`); frames as they are
-        Base.promote_rule(::Type{$F{N, T, L1, C}}, ::Type{$F{N, S, L2, C}}) where {N, T, S, L1, L2, C} =
-            $F{N, promote_type(T, S), L1 == L2 ? L1 : N * N, C}
+        # mixed storage promotes to the coarser one (literals, `vcat`, `promote`); frames as they are
+        function Base.promote_rule(::Type{$F{N, T, M1, C}}, ::Type{$F{N, S, M2, C}}) where {N, T, S, M1, M2, C}
+            R = promote_type(T, S)
+            M = _storage_of(Val(max(_storage_rank(M1), _storage_rank(M2))), Val(N), R)
+            return $F{N, R, M, C}
+        end
     end
 end
 
@@ -856,10 +910,10 @@ end
 # precision matrix has a single frame, unlike a map's Src/Dst endpoints or a
 # bilinear epipolar form's two point slots. Semantics are the house
 # relabel/unlabel contract: deliberate, unchecked override; zero-cost.
-@inline relabel(::Type{C}, Σ::CovMat{N, T, L}) where {N, T, L, C <: Frame{N}} =
-    CovMat{N, T, L, C}(getfield(Σ, :data))
-@inline relabel(::Type{C}, Λ::PrecMat{N, T, L}) where {N, T, L, C <: Frame{N}} =
-    PrecMat{N, T, L, C}(getfield(Λ, :data))
+@inline relabel(::Type{C}, Σ::CovMat{N, T, M}) where {N, T, M, C <: Frame{N}} =
+    CovMat{N, T, M, C}(parent(Σ))
+@inline relabel(::Type{C}, Λ::PrecMat{N, T, M}) where {N, T, M, C <: Frame{N}} =
+    PrecMat{N, T, M, C}(parent(Λ))
 @inline unlabel(Σ::CovMat{N}) where {N} = relabel(UnlabeledFrame{N}, Σ)
 @inline unlabel(Λ::PrecMat{N}) where {N} = relabel(UnlabeledFrame{N}, Λ)
 
@@ -872,7 +926,7 @@ end
 
 # --- Storage-boundary conversion (mirrors the EuclideanMap idiom) ---
 # Containers typed against the historical 3-parameter surface
-# (`Vector{Uncertain{Point2, PrecMat{2,T,4}}}` and the like) must keep
+# (`Vector{Uncertain{Point2, PrecMat{2,T,SMatrix{2,2,T,4}}}}` and the like) must keep
 # working: `setindex!`/`push!` route through `convert`, and the stored
 # value's frame parameter would otherwise make it a different type.
 #
@@ -886,21 +940,21 @@ end
 # NOT error — it would fall through to StaticArrays' generic
 # `convert(::Type{SA}, ::StaticArray)` and rebuild under the new frame,
 # silently relabeling (the composition method-(5) idiom, applied to convert).
-# Storage: the same storage is copied; a diagonal form converts to the full one;
-# a full form never converts to a diagonal one (that would read its values).
+# Storage: a form converts to its own storage or a coarser one (isotropic ⊂
+# diagonal ⊂ full), never a finer one (that would read its values).
 @inline function Base.convert(
-        ::Type{CovMat{N, T, L, C}}, Σ::CovMat{N, S, M, C0}
-    ) where {N, T, S, L, M, C <: Frame{N}, C0 <: Frame{N}}
-    (C0 === C || C0 === UnlabeledFrame{N}) && (L == M || L == N * N) ||
-        throw(MethodError(convert, (CovMat{N, T, L, C}, Σ)))
-    return CovMat{N, T, L, C}(NTuple{L, T}(L == M ? getfield(Σ, :data) : Tuple(Σ)))
+        ::Type{CovMat{N, T, M, C}}, Σ::CovMat{N, S, M0, C0}
+    ) where {N, T, S, M, M0, C <: Frame{N}, C0 <: Frame{N}}
+    (C0 === C || C0 === UnlabeledFrame{N}) && _storage_rank(M) >= _storage_rank(M0) ||
+        throw(MethodError(convert, (CovMat{N, T, M, C}, Σ)))
+    return CovMat{N, T, M, C}(_as_storage(M, parent(Σ)))
 end
 @inline function Base.convert(
-        ::Type{PrecMat{N, T, L, C}}, Λ::PrecMat{N, S, M, C0}
-    ) where {N, T, S, L, M, C <: Frame{N}, C0 <: Frame{N}}
-    (C0 === C || C0 === UnlabeledFrame{N}) && (L == M || L == N * N) ||
-        throw(MethodError(convert, (PrecMat{N, T, L, C}, Λ)))
-    return PrecMat{N, T, L, C}(NTuple{L, T}(L == M ? getfield(Λ, :data) : Tuple(Λ)))
+        ::Type{PrecMat{N, T, M, C}}, Λ::PrecMat{N, S, M0, C0}
+    ) where {N, T, S, M, M0, C <: Frame{N}, C0 <: Frame{N}}
+    (C0 === C || C0 === UnlabeledFrame{N}) && _storage_rank(M) >= _storage_rank(M0) ||
+        throw(MethodError(convert, (PrecMat{N, T, M, C}, Λ)))
+    return PrecMat{N, T, M, C}(_as_storage(M, parent(Λ)))
 end
 # Uncertain to a stated (possibly partially-parameterized) target: convert
 # both components. The exact-type fast path stays with Base's

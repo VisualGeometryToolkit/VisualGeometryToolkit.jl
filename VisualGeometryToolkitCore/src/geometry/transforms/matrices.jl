@@ -267,8 +267,19 @@ function Base.:*(a::AbstractHomMat, b::AbstractHomMat)
     return ResultType(Tuple(C))
 end
 
-# Inverse - preserves matrix type (we don't reclassify)
+# Inverse - preserves matrix type (we don't reclassify). A general homography by the 3×3 inverse; an
+# affine-family matrix [A t; 0 1] by its own structure, [A⁻¹ −A⁻¹t; 0 1], so the inverse is exactly of its class (the last
+# row exactly 0 0 1 — the 3×3 inverse leaves 1 ± ulp there), with A⁻¹ = Aᵀ for a rigid one (exactly orthonormal again).
 Base.inv(A::AbstractHomMat) = similar_type(typeof(A), eltype(A))(Tuple(inv(SMatrix{3, 3, eltype(A)}(A))))
+function Base.inv(M::AbstractAffineMat)
+    T = eltype(M)
+    A = SMatrix{2, 2, T, 4}(M[1, 1], M[2, 1], M[1, 2], M[2, 2])
+    Ai = _linear_inverse(M, A)
+    ti = -(Ai * SVector{2, T}(M[1, 3], M[2, 3]))
+    return similar_type(typeof(M), T)((Ai[1, 1], Ai[2, 1], zero(T), Ai[1, 2], Ai[2, 2], zero(T), ti[1], ti[2], one(T)))
+end
+_linear_inverse(::AbstractEuclideanMat, A) = A'
+_linear_inverse(::AbstractAffineMat, A) = inv(A)
 
 # =======================================================================
 # AbstractMatrixMap — parent for callable Maps that have a matrix form

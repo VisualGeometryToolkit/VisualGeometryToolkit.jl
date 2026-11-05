@@ -5,12 +5,15 @@
     using Test
     using StaticArrays: SVector, SMatrix, SDiagonal, @SMatrix
     using LinearAlgebra: Diagonal, det
-    using VisualGeometryToolkitCore: AbstractBlur, GaussianBlur, moment_matrix, convolve, transform_blur, convert_eltype
+    using VisualGeometryToolkitCore: AbstractBlur, GaussianBlur, moment_matrix, convolve, transform_blur, convert_eltype, ScaledIdentity
     import ForwardDiff
 
     @testset "forms and storage" begin
         r = GaussianBlur(0.8)
-        @test r isa AbstractBlur && moment_matrix(r) ≈ SDiagonal(0.64, 0.64) && moment_matrix(r) isa Diagonal
+        @test r isa AbstractBlur && moment_matrix(r) ≈ SDiagonal(0.64, 0.64) && moment_matrix(r) isa ScaledIdentity{2}
+        @test moment_matrix(convolve(r, GaussianBlur(0.6))) isa ScaledIdentity{2}                      # two round blurs: round
+        @test moment_matrix(transform_blur(@SMatrix([0.8 -0.6; 0.6 0.8]), r)) ≈ moment_matrix(r)       # a rotation keeps a round blur
+        @test_throws ArgumentError GaussianBlur(ScaledIdentity{2}(-1.0))
         a = GaussianBlur(0.5, 1.5)
         @test moment_matrix(a) == SDiagonal(0.25, 2.25)
         M = @SMatrix [2.0 0.3; 0.3 1.0]
@@ -50,6 +53,7 @@
 
     @testset "eltype conversion; Duals" begin
         @test eltype(moment_matrix(convert_eltype(Float32, GaussianBlur(0.5, 1.5)))) == Float32
+        @test eltype(moment_matrix(convert_eltype(Float32, GaussianBlur(0.5)))) == Float32
         @test eltype(moment_matrix(convert_eltype(Float32, GaussianBlur(@SMatrix [2.0 0.3; 0.3 1.0])))) == Float32
         d = ForwardDiff.derivative(σ -> moment_matrix(GaussianBlur(σ))[1, 1], 0.7)
         @test d ≈ 1.4

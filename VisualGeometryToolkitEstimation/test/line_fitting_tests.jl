@@ -35,7 +35,7 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
     @testset "fit_line — heteroscedastic (Uncertain points)" begin
         rng = StableRNG(29)
         # Half the points are 100× noisier; the weighted fit must ignore them.
-        pts = Uncertain{Point2{Float64}, CovMat{2, Float64, 4, UnlabeledFrame{2}}}[]
+        pts = Uncertain{Point2{Float64}, CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, UnlabeledFrame{2}}}[]
         for i in 1:60
             σ = isodd(i) ? 0.01 : 1.0
             y = 2.0i + 1.0 + σ * randn(rng)

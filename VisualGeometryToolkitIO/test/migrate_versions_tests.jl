@@ -107,7 +107,7 @@ end
     using LinearAlgebra: I, Diagonal
     P = EuclideanMap(RotMatrix{3}(Matrix(1.0I, 3, 3)), SVector(1.0, 2.0, 3.0) .* VisualGeometryToolkitCore.m)
     Σ = Matrix(Diagonal(fill(1.0e-4, 6)))
-    U(Σ) = Uncertain(P, CovMat{6, Float64, 36}(Tuple(Σ)))
+    U(Σ) = Uncertain(P, CovMat{6, Float64}(Tuple(Σ)))
     Σt = copy(Σ); Σt[5, 5] = nextfloat(Σt[5, 5])
     Σr = copy(Σ); Σr[2, 2] = nextfloat(Σr[2, 2])
     @test VgtkIO._same_value(U(Σ), U(Σt)) && !VgtkIO._same_value(U(Σ), U(Σr))

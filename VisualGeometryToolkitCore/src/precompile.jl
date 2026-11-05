@@ -30,7 +30,7 @@
         backproject_with_jacobian(g, u)
         project(g, X)
         # the vignetting fields, in V and in log V: evaluation and their coefficient rows
-        for s in (TensorVignetting((6, 5), Rect(0.0, 0.0, 640.0, 480.0); degree = 3), RadialVignetting(8, SVector(320.0, 240.0), 400.0))
+        for s in (TensorProductVignetting((6, 5), Rect(0.0, 0.0, 640.0, 480.0); degree = 3), RadialVignetting(8, SVector(320.0, 240.0), 400.0))
             for v in (s, LogVignetting(with_control_points(s, zeros(n_control_points(s)))))
                 v(u)
                 coefficient_jacobian(v, u)

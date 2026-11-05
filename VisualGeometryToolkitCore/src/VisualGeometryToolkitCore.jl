@@ -116,7 +116,8 @@ export default_device, reset_default_device!   # the ONE KA backend resolver (ba
 
 # Uncertainty types and accessors
 export Uncertain, PrecMat, CovMat
-export DiagonalPrecMat, DiagonalCovMat   # the forms stored as their diagonal (L = N; base/types.jl)
+export FullPrecMat, FullCovMat, DiagonalPrecMat, DiagonalCovMat, IsotropicPrecMat, IsotropicCovMat   # the forms by the matrix they hold: SMatrix, SDiagonal, ScaledIdentity (base/types.jl)
+export ScaledIdentity                    # the static N×N matrix λ·I, stored as λ (base/types.jl)
 export geom, prec   # `cov` is reachable via `Statistics.cov` (extended for Uncertain)
 export exact        # a zero-covariance measurement (the measurement-noise rule)
 public pair_covariance, noise_columns   # a correspondence's 4×4 covariance; Uncertain endpoints → Σ₁/Σ₂ columns
@@ -323,7 +324,7 @@ export pixel_centres     # the centres of a sub-lattice of pixels that lie in a 
 export free_nodes, node_mask   # which of a model's parameters a camera can see (cameras/support.jl)
 public SupportTrait, GlobalSupport, LocalSupport, support_trait, nodes, support, node_position, cubic_bspline_footprint
 public BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent nodes of a lattice outside an imaged region
-export AbstractVignetting, TensorVignetting, RadialVignetting, LogVignetting   # a camera's vignetting: B-spline fields on the sensor, in V or in log V (cameras/vignetting.jl)
+export AbstractVignetting, TensorProductVignetting, RadialVignetting, LogVignetting   # a camera's vignetting: B-spline fields on the sensor, in V or in log V (cameras/vignetting.jl)
 public log_spline   # a LogVignetting's spline of log V
 export EnvironmentLight, SphericalHarmonicMap   # the scene's light: radiance from every direction on a sphere about a centre, in real SH (cameras/lighting.jl)
 export AbstractBlur, GaussianBlur   # one blur of an imaging model (a camera's in-focus blur, a print's), by its moment matrix (cameras/blur.jl)

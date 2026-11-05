@@ -70,6 +70,7 @@ const _ITERATION_WORDS = ("iter", "iters", _IT, _IT * "s")
 # retired in one form lists each form it took. Names renamed by the naming
 # sweep are listed here as they are renamed.
 const RETIRED_NAMES = String[
+    "Tensor" * "Vignetting",                  # a tensor-PRODUCT B-spline surface, not a tensor: `TensorProductVignetting` (2026-11)
     # the loop's former vocabulary
     "iterate" * "_lo", "iterate" * "_lo!",
     "solve" * "_step", "solve" * "_step!",

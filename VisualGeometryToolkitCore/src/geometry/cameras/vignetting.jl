@@ -5,8 +5,11 @@
 # Two fields, both LINEAR in their coefficients (`coefficient_jacobian(v, u) ⋅ vec(control_points(v)) == v(u)`) and both
 # evaluated by the stack's one isbits Cox–de Boor basis (`bspline_basis`) on clamped uniform knots (`clamped_knots`):
 #
-#   TensorVignetting   V(u) = Σᵢ Σⱼ Nᵢ,ₚ(u₁) Mⱼ,ₚ(u₂) Pᵢⱼ                 a tensor surface over a box of the sensor
-#   RadialVignetting   V(u) = Σᵢ Nᵢ,ₚ(‖u − c‖ / r) Pᵢ                     a profile in the radius about a centre
+#   TensorProductVignetting   V(u) = Σᵢ Σⱼ Nᵢ,ₚ(u₁) Mⱼ,ₚ(u₂) Pᵢⱼ    a tensor-product B-spline surface over a box of the sensor
+#   RadialVignetting          V(u) = Σᵢ Nᵢ,ₚ(‖u − c‖ / r) Pᵢ        a profile in the radius about a centre
+#
+# "Tensor product" names how the 2-D basis is built, Nᵢ(u₁)·Mⱼ(u₂) from two 1-D bases (de Boor); V itself is a scalar
+# field on the sensor, not a tensor.
 #
 # Positions are sensor points in COLMAP pixels; outside the knots the basis is clamped (a constant continuation). Both are
 # isbits (kernel-lawful in `pointwise!`). The estimators that fit them are their owners' (a radiometric calibration, a
@@ -20,16 +23,16 @@ A vignetting field `V` on the sensor, linear in its control points:
 `coefficient_jacobian(v, u) ⋅ vec(control_points(v)) == v(u)`. Callable,
 `v(u)` at a sensor point `u` (COLMAP pixels), and `v(u, f)` with the point's
 ray `f` (not read: the form a panorama's render takes). Implementations:
-[`TensorVignetting`](@ref) and [`RadialVignetting`](@ref).
+[`TensorProductVignetting`](@ref) and [`RadialVignetting`](@ref).
 """
 abstract type AbstractVignetting end
 
 # -----------------------------------------------------------------------------
-# The tensor surface
+# The tensor-product surface
 # -----------------------------------------------------------------------------
 
 """
-    TensorVignetting(n, box::Rect2; degree = 3, T = Float64)
+    TensorProductVignetting(n, box::Rect2; degree = 3, T = Float64)
 
 The tensor-product B-spline vignetting surface of `n = (nx, ny)` control
 points over the sensor box `box` (COLMAP pixels): degree `degree` along both
@@ -37,45 +40,45 @@ axes (or a pair), clamped uniform knots ([`clamped_knots`](@ref)) over the
 box's two ranges, control points `P ≡ 1` (the partition of unity: `V ≡ 1`).
 `V(u) = Σᵢⱼ Nᵢ(u₁) Mⱼ(u₂) Pᵢⱼ`, a point outside the box clamped onto it.
 """
-struct TensorVignetting{T, NX, NY, KX, KY, NXY, DP, DQ} <: AbstractVignetting
+struct TensorProductVignetting{T, NX, NY, KX, KY, NXY, DP, DQ} <: AbstractVignetting
     knots_x::SVector{KX, T}
     knots_y::SVector{KY, T}
     P::SMatrix{NX, NY, T, NXY}
 end
-function TensorVignetting(n::NTuple{2, Integer}, box::GeometryBasics.HyperRectangle{2}; degree = 3, T = Float64)
+function TensorProductVignetting(n::NTuple{2, Integer}, box::GeometryBasics.HyperRectangle{2}; degree = 3, T = Float64)
     p, q = degree isa Integer ? (Int(degree), Int(degree)) : (Int(degree[1]), Int(degree[2]))
     o = GeometryBasics.origin(box); w = GeometryBasics.widths(box)
     kx = clamped_knots(n[1], p, o[1], o[1] + w[1])
     ky = clamped_knots(n[2], q, o[2], o[2] + w[2])
     NX, NY = Int(n[1]), Int(n[2])
-    return TensorVignetting{T, NX, NY, length(kx), length(ky), NX * NY, p, q}(SVector{length(kx), T}(kx), SVector{length(ky), T}(ky),
+    return TensorProductVignetting{T, NX, NY, length(kx), length(ky), NX * NY, p, q}(SVector{length(kx), T}(kx), SVector{length(ky), T}(ky),
                                                                                ones(SMatrix{NX, NY, T, NX * NY}))
 end
 
 # The two axis bases at a sensor point: every evaluation of the surface starts from them.
-@inline _axis_bases(v::TensorVignetting{T, NX, NY, KX, KY, NXY, DP, DQ}, u::StaticVector{2}) where {T, NX, NY, KX, KY, NXY, DP, DQ} =
+@inline _axis_bases(v::TensorProductVignetting{T, NX, NY, KX, KY, NXY, DP, DQ}, u::StaticVector{2}) where {T, NX, NY, KX, KY, NXY, DP, DQ} =
     (bspline_basis(v.knots_x, Val(DP), u[1]), bspline_basis(v.knots_y, Val(DQ), u[2]))
-@inline _surface_value(v::TensorVignetting, Nx, My) = dot(Nx, v.P * My)
-@inline _surface_jacobian(::TensorVignetting{T, NX, NY}, Nx, My) where {T, NX, NY} =
+@inline _surface_value(v::TensorProductVignetting, Nx, My) = dot(Nx, v.P * My)
+@inline _surface_jacobian(::TensorProductVignetting{T, NX, NY}, Nx, My) where {T, NX, NY} =
     SVector{NX * NY}(ntuple(k -> Nx[(k - 1) % NX + 1] * My[(k - 1) ÷ NX + 1], Val(NX * NY)))
-@inline function _surface_active(::TensorVignetting{T, NX, NY, KX, KY, NXY, DP, DQ}, Nx, My) where {T, NX, NY, KX, KY, NXY, DP, DQ}
+@inline function _surface_active(::TensorProductVignetting{T, NX, NY, KX, KY, NXY, DP, DQ}, Nx, My) where {T, NX, NY, KX, KY, NXY, DP, DQ}
     ix = _first_active(Nx, DP); iy = _first_active(My, DQ)
     idx = ntuple(k -> (iy + (k - 1) ÷ (DP + 1) - 1) * NX + ix + (k - 1) % (DP + 1), Val((DP + 1) * (DQ + 1)))
     w = ntuple(k -> Nx[ix + (k - 1) % (DP + 1)] * My[iy + (k - 1) ÷ (DP + 1)], Val((DP + 1) * (DQ + 1)))
     return idx, w
 end
 
-@inline (v::TensorVignetting)(u::StaticVector{2}) = _surface_value(v, _axis_bases(v, u)...)
+@inline (v::TensorProductVignetting)(u::StaticVector{2}) = _surface_value(v, _axis_bases(v, u)...)
 
 """
     coefficient_jacobian(v::AbstractVignetting, u) -> SVector
 
 `∂V(u)/∂vec(P)`: the basis functions at the sensor point `u`, ordered like
-`vec(control_points(v))` (column-major; for a tensor surface
+`vec(control_points(v))` (column-major; for a tensor-product surface
 `Nᵢ(u₁) Mⱼ(u₂)` at `i + (j − 1)·nx`), so `V(u) = coefficient_jacobian(v, u) ⋅ vec(P)`.
 V is linear in `P`: the Jacobian does not depend on `P`.
 """
-@inline coefficient_jacobian(v::TensorVignetting, u::StaticVector{2}) = _surface_jacobian(v, _axis_bases(v, u)...)
+@inline coefficient_jacobian(v::TensorProductVignetting, u::StaticVector{2}) = _surface_jacobian(v, _axis_bases(v, u)...)
 
 # The first of the p + 1 consecutive basis functions that can be nonzero at a point: the first nonzero one, kept p + 1 from the
 # end (at a knot one of the p + 1 is zero). Kernel-lawful (a loop over the static basis).
@@ -92,19 +95,19 @@ end
 
 The control points whose basis functions can be nonzero at the sensor point
 `u` and their values there: `(p + 1)` of a radial profile, `(p + 1)(q + 1)`
-of a tensor surface (linear indices of `vec(control_points(v))`), the entries
+of a tensor-product surface (linear indices of `vec(control_points(v))`), the entries
 of [`coefficient_jacobian`](@ref)`(v, u)` at `idx`, every other entry zero.
 The sparse form a scatter-add over many points reads. Kernel-lawful.
 """
-@inline active_coefficients(v::TensorVignetting, u::StaticVector{2}) = _surface_active(v, _axis_bases(v, u)...)
+@inline active_coefficients(v::TensorProductVignetting, u::StaticVector{2}) = _surface_active(v, _axis_bases(v, u)...)
 
 # A field's value with its coefficient row (or that row's nonzeros) from ONE basis evaluation, by the same arithmetic as
 # `v(u)`, `coefficient_jacobian` and `active_coefficients`, so bit for bit theirs: what a log field's chain rule reads.
-@inline function _field_value_and_row(v::TensorVignetting, u::StaticVector{2})
+@inline function _field_value_and_row(v::TensorProductVignetting, u::StaticVector{2})
     Nx, My = _axis_bases(v, u)
     return _surface_value(v, Nx, My), _surface_jacobian(v, Nx, My)
 end
-@inline function _field_value_and_active(v::TensorVignetting, u::StaticVector{2})
+@inline function _field_value_and_active(v::TensorProductVignetting, u::StaticVector{2})
     Nx, My = _axis_bases(v, u)
     return _surface_value(v, Nx, My), _surface_active(v, Nx, My)
 end
@@ -112,38 +115,38 @@ end
 """
     control_points(v::AbstractVignetting) -> SMatrix
 
-The control points: `nx × ny` for a tensor surface, `N × 1` for a radial
+The control points: `nx × ny` for a tensor-product surface, `N × 1` for a radial
 profile, so `vec(control_points(v))` is the coefficient vector of either field
 (the order of [`coefficient_jacobian`](@ref)).
 """
-control_points(v::TensorVignetting) = v.P
+control_points(v::TensorProductVignetting) = v.P
 """
     n_control_points(v::AbstractVignetting) -> Int
 
 The number of control points, `length(vec(control_points(v)))`.
 """
-n_control_points(::TensorVignetting{T, NX, NY}) where {T, NX, NY} = NX * NY
+n_control_points(::TensorProductVignetting{T, NX, NY}) where {T, NX, NY} = NX * NY
 """
     knot_vectors(v::AbstractVignetting) -> Tuple
 
 The clamped knot vectors, one per axis: `(knots_x, knots_y)` for a tensor
 surface (camera pixels), `(knots,)` over `[0, 1]` for a radial profile.
 """
-knot_vectors(v::TensorVignetting) = (v.knots_x, v.knots_y)
+knot_vectors(v::TensorProductVignetting) = (v.knots_x, v.knots_y)
 """
     spline_degree(v::AbstractVignetting) -> Tuple
 
-The B-spline degree per axis: `(p, q)` for a tensor surface, `(p,)` for a radial profile.
+The B-spline degree per axis: `(p, q)` for a tensor-product surface, `(p,)` for a radial profile.
 """
-spline_degree(::TensorVignetting{T, NX, NY, KX, KY, NXY, DP, DQ}) where {T, NX, NY, KX, KY, NXY, DP, DQ} = (DP, DQ)
+spline_degree(::TensorProductVignetting{T, NX, NY, KX, KY, NXY, DP, DQ}) where {T, NX, NY, KX, KY, NXY, DP, DQ} = (DP, DQ)
 """
     center(v::AbstractVignetting) -> SVector{2}
 
 The field's centre (COLMAP pixels), a method of Core's one `center` generic:
-the middle of a tensor surface's box, a radial profile's centre of symmetry,
+the middle of a tensor-product surface's box, a radial profile's centre of symmetry,
 a log field's spline's.
 """
-center(v::TensorVignetting) = SVector((first(v.knots_x) + last(v.knots_x)) / 2, (first(v.knots_y) + last(v.knots_y)) / 2)
+center(v::TensorProductVignetting) = SVector((first(v.knots_x) + last(v.knots_x)) / 2, (first(v.knots_y) + last(v.knots_y)) / 2)
 
 """
     field_center(v::AbstractVignetting) -> SVector{2}
@@ -165,23 +168,23 @@ shaped like `control_points(v)` or its `vec`. The element type is
 never narrowed (Int or Float32 control points on a Float64 field give a
 Float64 field; Duals give a Dual field, its knots exact).
 """
-function with_control_points(v::TensorVignetting{T, NX, NY, KX, KY, NXY, DP, DQ}, P::AbstractMatrix{S}) where {T, NX, NY, KX, KY, NXY, DP, DQ, S}
+function with_control_points(v::TensorProductVignetting{T, NX, NY, KX, KY, NXY, DP, DQ}, P::AbstractMatrix{S}) where {T, NX, NY, KX, KY, NXY, DP, DQ, S}
     R = promote_type(T, S)
-    return TensorVignetting{R, NX, NY, KX, KY, NXY, DP, DQ}(SVector{KX, R}(v.knots_x), SVector{KY, R}(v.knots_y), SMatrix{NX, NY, R, NXY}(P))
+    return TensorProductVignetting{R, NX, NY, KX, KY, NXY, DP, DQ}(SVector{KX, R}(v.knots_x), SVector{KY, R}(v.knots_y), SMatrix{NX, NY, R, NXY}(P))
 end
-with_control_points(v::TensorVignetting{T, NX, NY}, P::AbstractVector) where {T, NX, NY} =
+with_control_points(v::TensorProductVignetting{T, NX, NY}, P::AbstractVector) where {T, NX, NY} =
     with_control_points(v, reshape(collect(P), NX, NY))
 
 # `T` any real type: a Dual for a device Jacobian, as well as a float.
-convert_eltype(::Type{T}, v::TensorVignetting{S, NX, NY, KX, KY, NXY, DP, DQ}) where {T <: Real, S, NX, NY, KX, KY, NXY, DP, DQ} =
-    TensorVignetting{T, NX, NY, KX, KY, NXY, DP, DQ}(SVector{KX, T}(v.knots_x), SVector{KY, T}(v.knots_y), SMatrix{NX, NY, T, NXY}(v.P))
+convert_eltype(::Type{T}, v::TensorProductVignetting{S, NX, NY, KX, KY, NXY, DP, DQ}) where {T <: Real, S, NX, NY, KX, KY, NXY, DP, DQ} =
+    TensorProductVignetting{T, NX, NY, KX, KY, NXY, DP, DQ}(SVector{KX, T}(v.knots_x), SVector{KY, T}(v.knots_y), SMatrix{NX, NY, T, NXY}(v.P))
 
 # The surface's control points as a lattice of the support protocol (support.jl): control point (i, j) influences the knot span
 # [kxᵢ, kxᵢ₊ₚ₊₁] × [kyⱼ, kyⱼ₊q₊₁], so `free_nodes` / `node_mask` over an imaged region give the points the region constrains and
 # `BoundaryRule` the dependent ones.
-support_trait(::Type{<:TensorVignetting}) = LocalSupport()
-nodes(::TensorVignetting{T, NX, NY}) where {T, NX, NY} = CartesianIndices((NX, NY))
-function support(v::TensorVignetting{T, NX, NY, KX, KY, NXY, DP, DQ}, i::CartesianIndex{2}) where {T, NX, NY, KX, KY, NXY, DP, DQ}
+support_trait(::Type{<:TensorProductVignetting}) = LocalSupport()
+nodes(::TensorProductVignetting{T, NX, NY}) where {T, NX, NY} = CartesianIndices((NX, NY))
+function support(v::TensorProductVignetting{T, NX, NY, KX, KY, NXY, DP, DQ}, i::CartesianIndex{2}) where {T, NX, NY, KX, KY, NXY, DP, DQ}
     # the knots' values under any Dual layer (base/duals.jl): a support is a region of the sensor, not a derivative
     x0, x1 = Float64(_primal(v.knots_x[i[1]])), Float64(_primal(v.knots_x[i[1] + DP + 1]))
     y0, y1 = Float64(_primal(v.knots_y[i[2]])), Float64(_primal(v.knots_y[i[2] + DQ + 1]))
@@ -285,7 +288,7 @@ end
     LogVignetting(spline::AbstractVignetting)
 
 A vignetting whose B-spline is log V: `V(u) = exp(s(u))`, `s` the
-[`TensorVignetting`](@ref) or [`RadialVignetting`](@ref) `spline` read as the
+[`TensorProductVignetting`](@ref) or [`RadialVignetting`](@ref) `spline` read as the
 logarithm (its control points are log V's). Positive by construction, and linear
 in its control points in log, so a fit in log V is a linear least squares
 (PanoramaStitching's self-calibration). Everything but the exponential is the

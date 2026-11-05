@@ -86,6 +86,7 @@ using ..VisualGeometryToolkitCore: AbstractRadialModel   # RadialCamera joins th
 using ..VisualGeometryToolkitCore: RadialHomography      # the family's other member (conversion in calibration.jl)
 import ..VisualGeometryToolkitCore: center               # ONE `center` generic (base/types.jl)
 import ..VisualGeometryToolkitCore: moment_matrix        # ONE `moment_matrix` generic (base/interface_functions.jl): a blur's shape (blur.jl)
+using ..VisualGeometryToolkitCore: ScaledIdentity, _FormStorage   # λ·I and the three storages a statistical form holds (base/types.jl): a blur's moments (blur.jl)
 import ..VisualGeometryToolkitCore: direction            # the radial family's algebraic accessor (public, not exported)
 import ..VisualGeometryToolkitCore: Rect  # Import (not using) to extend the constructor
 import ..VisualGeometryToolkitCore: project  # Import to extend (shared with Primitives)
@@ -190,7 +191,7 @@ include("equirectangular.jl") # the latitude/longitude projection of directions 
 include("lens_chart.jl") # parameter chart, ∂lens/∂θ, TOML lens registry (0.22.1)
 include("generic_models.jl") # Schöps et al. central/non-central generic grid models (0.16)
 include("support.jl")         # supports on the sensor: which parameters a camera can see (the generic models' lattice)
-include("vignetting.jl")      # TensorVignetting, RadialVignetting: a camera's vignetting (uses the support protocol, bspline_basis)
+include("vignetting.jl")      # TensorProductVignetting, RadialVignetting: a camera's vignetting (uses the support protocol, bspline_basis)
 include("lighting.jl")        # EnvironmentLight, SphericalHarmonicMap, sh_basis: the scene's light (extends vignetting.jl's coefficient_jacobian)
 include("blur.jl")            # GaussianBlur: one blur of an imaging model by its moment matrix (extends Core's moment_matrix)
 include("chart_spline.jl")    # ChartSpline, SplineProjection: a forward map as the grid models' lattice on a direction chart (uses spline_value, the window)
@@ -1061,7 +1062,7 @@ export pixel_centres                      # the centres of a sub-lattice of pixe
 export SupportTrait, GlobalSupport, LocalSupport, support_trait, nodes, support, node_position   # supports on the sensor (support.jl)
 export free_nodes, node_mask, cubic_bspline_footprint
 export BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent nodes of a lattice outside an imaged region (support.jl)
-export AbstractVignetting, TensorVignetting, RadialVignetting, LogVignetting   # a camera's vignetting fields (vignetting.jl)
+export AbstractVignetting, TensorProductVignetting, RadialVignetting, LogVignetting   # a camera's vignetting fields (vignetting.jl)
 export log_spline                         # a LogVignetting's spline of log V (public, not exported, at the top level)
 export EnvironmentLight, SphericalHarmonicMap   # the scene's light: SH radiance on a sphere about a centre (lighting.jl)
 export AbstractBlur, GaussianBlur, convolve, transform_blur   # one blur of an imaging model by its moment matrix (blur.jl; the functions public, not exported, at the top level)

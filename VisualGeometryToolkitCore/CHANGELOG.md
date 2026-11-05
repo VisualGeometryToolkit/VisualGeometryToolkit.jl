@@ -11,16 +11,30 @@
   (orthonormal, no Condon–Shortley phase; `sh_index(l, m) = l² + l + m + 1`, `sh_count`): generated, isbits,
   allocation-free and Dual-safe at the poles. Hoisted from RadiometricCamera (`Lighting`, `y_basis`, `ω̂`, `L_SVSH`),
   bit for bit: every value and ForwardDiff Jacobian equal on random inputs for l ≤ 3. Additive.
-- **Diagonal statistical forms** (`DiagonalCovMat{N, T, C}`, `DiagonalPrecMat`, exported): a `CovMat` / `PrecMat` whose
-  storage length `L` is `N` stores its diagonal only (`CovMat(SDiagonal(σ₁², σ₂²))`); `L = N * N` is the full form, as
-  before, so every existing type and value is unchanged. A diagonal form reads as its full matrix (indexing, `Tuple`,
-  every StaticArrays operation) and stays diagonal under `inv`, a scalar factor, a sum of diagonal forms, `relabel` and a
-  unit change; `propagate` through a map, a sum with a full form, `convert` and `promote` give the full form (a container
-  of mixed storage is one concrete full type), and a full form never converts to a diagonal one. Additive.
+- **Breaking: `CovMat` / `PrecMat` hold a static matrix, and its type is the storage.** `CovMat{N, T, M, C}`: `M` is an
+  `SMatrix` (full), an `SDiagonal` (diagonal) or a `ScaledIdentity` (isotropic λ·I); it was `CovMat{N, T, L, C}` with
+  `L = N * N`, a tuple of entries. `parent(Σ)` is the matrix, and structured arithmetic is the matrix's own; the form
+  reads as its full `N × N` matrix, and arithmetic on it escapes to an `SMatrix` as before. A form keeps its storage
+  under `inv` and `relabel`; `convert` and `promote` give the coarser storage (isotropic ⊂ diagonal ⊂ full), never a
+  finer one, so a container of mixed storage is one concrete type; `propagate` through a map gives the full form; a unit
+  change gives an isotropic form's diagonal. `CovMat{N}(σ = s)` is now isotropic and `CovMat{N}(σ = (s₁, …))` diagonal
+  (they were full); the entry constructors (`CovMat{N, T}(…)`, `CovMat(::SMatrix)`) give the full form as before.
+  Aliases `FullCovMat`, `DiagonalCovMat`, `IsotropicCovMat` (and `…PrecMat`); `UncertainPixel` and `UncertainPoint3`
+  hold the full form. Migration: a spelled-out `CovMat{2, Float64, 4, F}` is `CovMat{2, Float64, SMatrix{2, 2, Float64,
+  4}, F}`, and `CovMat{N, T, N * N}(data)` is `CovMat{N, T}(data)`.
+- **`ScaledIdentity{N, T}`** (exported): the static `N × N` matrix `λ·I`, stored as `λ` — the sized counterpart of
+  `UniformScaling`, beside `SDiagonal` and `SMatrix`; isotropic (a rotation leaves it unchanged), isbits.
 - **`GaussianBlur`** (exported, `cameras/blur.jl`; `AbstractBlur`): one blur of an imaging model — a camera's in-focus
-  blur, a print's — by its second-moment matrix (`moment_matrix`; px² on a sensor, m² on a print), round, axis-aligned
-  (`SDiagonal` storage) or general (a symmetric positive semidefinite `SMatrix`); `convolve(a, b)` adds the moments,
-  `transform_blur(J, b)` is `J M Jᵀ`. A kernel's shape, not a measurement's uncertainty: not a `CovMat`. Additive.
+  blur, a print's — by its second-moment matrix (`moment_matrix`; px² on a sensor, m² on a print), held as the same three
+  storages as a `CovMat`: round (`ScaledIdentity`), axis-aligned (`SDiagonal`) or general (a symmetric positive
+  semidefinite `SMatrix`); `convolve(a, b)` adds the moments, `transform_blur(J, b)` is `J M Jᵀ`. A kernel's shape, not a
+  measurement's uncertainty: not a `CovMat`.
+- **Breaking: `TensorVignetting` is `TensorProductVignetting`** — a tensor-product B-spline surface, not a tensor-valued
+  field; the old name is retired (`check_naming`).
+- **The inverse of an affine-family transform matrix is exactly of its class**: `inv` of a `HomAffineMat`,
+  `HomSimilarityMat`, `HomEuclideanMat`, `HomRotationMat`, `HomTranslationMat`, the scaling matrices and
+  `CameraCalibrationMat` is `[A⁻¹ −A⁻¹t; 0 1]` with its last row exactly `0 0 1` (the 3×3 inverse left `1 ± ulp` there),
+  the transpose for a rigid one. A homography keeps the 3×3 inverse.
 
 ## 0.5.7 (2026-11-05)
 

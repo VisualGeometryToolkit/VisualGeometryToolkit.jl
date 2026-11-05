@@ -236,20 +236,22 @@ with_unit(tp::TargetPoses, u::Units) = _map_poses(X -> with_unit(X, u), tp)
 # ------------------------------------------------------------------------------
 
 """
-    UncertainPixel = Uncertain{SVector{2, Float64}, CovMat{2, Float64, 4, UnlabeledFrame{2}}}
+    UncertainPixel = Uncertain{SVector{2, Float64}, CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, UnlabeledFrame{2}}}
 
-A measured pixel with its 2×2 covariance (px²).
+A measured pixel with its 2×2 covariance (px²), the full form: a container of
+them is one concrete type, and a diagonal or isotropic covariance converts to
+it on the way in (`convert`, `push!`).
 """
-const UncertainPixel = Uncertain{SVector{2, Float64}, CovMat{2, Float64, 4, UnlabeledFrame{2}}}
+const UncertainPixel = Uncertain{SVector{2, Float64}, CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, UnlabeledFrame{2}}}
 
 """
-    UncertainPoint3 = Uncertain{SVector{3, Float64}, CovMat{3, Float64, 9, UnlabeledFrame{3}}}
+    UncertainPoint3 = Uncertain{SVector{3, Float64}, CovMat{3, Float64, SMatrix{3, 3, Float64, 9}, UnlabeledFrame{3}}}
 
 A measured plain 3D point with its 3×3 covariance (in the point's units
-squared). A physical one holds metres, its covariance in m² — stored as given,
-never rescaled from the unit the point was written in.
+squared), the full form. A physical one holds metres, its covariance in m² —
+stored as given, never rescaled from the unit the point was written in.
 """
-const UncertainPoint3 = Uncertain{SVector{3, Float64}, CovMat{3, Float64, 9, UnlabeledFrame{3}}}
+const UncertainPoint3 = Uncertain{SVector{3, Float64}, CovMat{3, Float64, SMatrix{3, 3, Float64, 9}, UnlabeledFrame{3}}}
 
 """
     TargetPoint2D = @NamedTuple{target::Symbol, index::Int, xy::Union{SVector{2, Float64}, UncertainPixel}, weight::Float64}

@@ -5,7 +5,7 @@
     using Test
     using StaticArrays: SVector
     using LinearAlgebra: dot
-    using VisualGeometryToolkitCore: TensorVignetting, RadialVignetting, coefficient_jacobian, control_points, with_control_points,
+    using VisualGeometryToolkitCore: TensorProductVignetting, RadialVignetting, coefficient_jacobian, control_points, with_control_points,
         n_control_points, knot_vectors, spline_degree, center, field_radius, radial_coordinate, pole_regular_basis,
         clamped_knots, convert_eltype, pointwise!, Rect, BoundaryRule, boundary_rule_jacobian, free_nodes, Circle, Point2, LogVignetting
     import BSplineKit
@@ -33,7 +33,7 @@
 
     W, H = 640.0, 480.0
     P2 = [1.0 + 0.1 * sin(i) * cos(2j) for i in 1:7, j in 1:5]
-    t = with_control_points(TensorVignetting((7, 5), Rect(0, 0, W, H); degree = 2), P2)
+    t = with_control_points(TensorProductVignetting((7, 5), Rect(0, 0, W, H); degree = 2), P2)
     r = with_control_points(RadialVignetting(9, SVector(300.0, 250.0), 400.0), [1.0 - 0.05 * (i - 1)^1.3 for i in 1:9])
     pts = [SVector(x, y) for x in range(-20.0, W + 20; length = 23) for y in range(-15.0, H + 15; length = 17)]
 
@@ -54,7 +54,7 @@
             @test (@test_deprecated VisualGeometryToolkitCore.field_center(r)) == center(r)
         end
         @test radial_coordinate(r, SVector(300.0, 650.0)) == 1.0
-        @test TensorVignetting((6, 6), Rect(10, 20, 100, 50))(SVector(30.0, 40.0)) ≈ 1.0      # the partition of unity
+        @test TensorProductVignetting((6, 6), Rect(10, 20, 100, 50))(SVector(30.0, 40.0)) ≈ 1.0      # the partition of unity
     end
 
     @testset "linear in the control points: the coefficient Jacobian" begin

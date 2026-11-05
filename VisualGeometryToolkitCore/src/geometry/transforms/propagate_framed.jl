@@ -78,10 +78,10 @@ end
 # Shared by every framed map with a constant Jacobian (`EuclideanMap` here, the
 # cameras' `FramedAffine`).
 # The result is the FULL form whatever the input's storage: a map mixes axes (a diagonal form becomes full).
-@inline _pushforward(J::SMatrix{N, N, P}, Σ::CovMat{N, S, L}, ::Type{Dst}) where {N, P, S, L, Dst} =
-    CovMat{N, P, N * N, Dst}(Tuple(J * SMatrix{N, N, P}(Σ) * J'))
-@inline _pullback(Jinv::SMatrix{N, N, P}, Λ::PrecMat{N, S, L}, ::Type{Dst}) where {N, P, S, L, Dst} =
-    PrecMat{N, P, N * N, Dst}(Tuple(Jinv' * SMatrix{N, N, P}(Λ) * Jinv))
+@inline _pushforward(J::SMatrix{N, N, P}, Σ::CovMat{N}, ::Type{Dst}) where {N, P, Dst} =
+    CovMat{N, P, SMatrix{N, N, P, N * N}, Dst}(SMatrix{N, N, P, N * N}(J * SMatrix{N, N, P}(Σ) * J'))
+@inline _pullback(Jinv::SMatrix{N, N, P}, Λ::PrecMat{N}, ::Type{Dst}) where {N, P, Dst} =
+    PrecMat{N, P, SMatrix{N, N, P, N * N}, Dst}(SMatrix{N, N, P, N * N}(Jinv' * SMatrix{N, N, P}(Λ) * Jinv))
 
 """
     propagate(m::EuclideanMap{N}, u::Uncertain) -> Uncertain
@@ -123,19 +123,19 @@ representation: covariance pushes forward `Σ ↦ JΣJᵀ`, precision pulls back
 """
 function propagate(
         h::HomographyMap{3, T, M, Src, Dst},
-        u::Uncertain{P, CovMat{2, S, 4, C}}
+        u::Uncertain{P, <:CovMat{2, S, <:Any, C}}
     ) where {T, M, Src <: Frame{2}, Dst <: Frame{2}, S, C <: Frame{2}, P <: StaticVector{2}}
     _check_junction(C, Src, propagate, (h, u))
     R = promote_type(T, S, eltype(P))
     x′, J = _homography_point_jacobian(SMatrix{3, 3, R, 9}(h.forward), getfield(u, :value))
     Σ = getfield(u, :attributes)
-    out = J * SMatrix{2, 2, R}(Σ) * J'
-    return Uncertain(similar_type(P, R)(x′), CovMat{2, R, 4, Dst}(Tuple(out)))
+    out = J * SMatrix{2, 2, R}(Σ) * J'                     # full, whatever Σ's storage
+    return Uncertain(similar_type(P, R)(x′), CovMat{2, R, SMatrix{2, 2, R, 4}, Dst}(SMatrix{2, 2, R, 4}(out)))
 end
 
 function propagate(
         h::HomographyMap{3, T, M, Src, Dst},
-        u::Uncertain{P, PrecMat{2, S, 4, C}}
+        u::Uncertain{P, <:PrecMat{2, S, <:Any, C}}
     ) where {T, M, Src <: Frame{2}, Dst <: Frame{2}, S, C <: Frame{2}, P <: StaticVector{2}}
     _check_junction(C, Src, propagate, (h, u))
     R = promote_type(T, S, eltype(P))
@@ -143,5 +143,5 @@ function propagate(
     Jinv = inv(J)
     Λ = getfield(u, :attributes)
     out = Jinv' * SMatrix{2, 2, R}(Λ) * Jinv
-    return Uncertain(similar_type(P, R)(x′), PrecMat{2, R, 4, Dst}(Tuple(out)))
+    return Uncertain(similar_type(P, R)(x′), PrecMat{2, R, SMatrix{2, 2, R, 4}, Dst}(SMatrix{2, 2, R, 4}(out)))
 end

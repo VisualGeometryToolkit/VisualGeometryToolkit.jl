@@ -216,12 +216,12 @@ so that a writer can store the design by its layout rather than by its points.
 """
 abstract type AbstractTargetLayout end
 
-# A layout is its fields: two are equal iff they are the same layout type with
-# every field equal (lengths compared as stored, in metres).
+# A layout is its design: two are equal iff they are the same layout type with
+# the same design (lengths compared as stored, in metres). Each layout declares
+# its design beside its struct (`_layout_design`, an accessor, not reflection).
 Base.:(==)(a::AbstractTargetLayout, b::AbstractTargetLayout) =
-    nameof(typeof(a)) === nameof(typeof(b)) && all(f -> getfield(a, f) == getfield(b, f), fieldnames(typeof(a)))
-Base.hash(L::AbstractTargetLayout, h::UInt) =
-    foldl((h, f) -> hash(getfield(L, f), h), fieldnames(typeof(L)); init = hash(nameof(typeof(L)), h))
+    nameof(typeof(a)) === nameof(typeof(b)) && _layout_design(a) == _layout_design(b)
+Base.hash(L::AbstractTargetLayout, h::UInt) = hash(_layout_design(L), hash(nameof(typeof(L)), h))
 
 # The construction routes of a PlanarTarget (private): checked, or a unit move.
 struct _Checked end
@@ -430,6 +430,7 @@ struct AprilGrid{T <: Number} <: AbstractTargetLayout
         return new{T}(Int(tag_rows), Int(tag_cols), tag_size, tag_spacing, String(apriltag_family), Int(first_id))
     end
 end
+_layout_design(g::AprilGrid) = (g.tag_rows, g.tag_cols, g.tag_size, g.tag_spacing, g.apriltag_family, g.first_id)
 # The AprilTag family a layout's tags are of when it does not say: Kalibr's and
 # Schöps' generators both print tag36h11.
 const _DEFAULT_APRILTAG_FAMILY = "tag36h11"
@@ -562,6 +563,7 @@ struct SchoepsPattern{T <: Number} <: AbstractTargetLayout
         return new{T}(Int(squares_x), Int(squares_y), square_length, apriltags, Int(star_segments), String(apriltag_family))
     end
 end
+_layout_design(p::SchoepsPattern) = (p.squares_x, p.squares_y, p.square_length, p.apriltags, p.star_segments, p.apriltag_family)
 function SchoepsPattern(;
         squares_x::Integer, squares_y::Integer, square_length::Number, apriltags,
         star_segments::Integer = 16, apriltag_family::AbstractString = _DEFAULT_APRILTAG_FAMILY

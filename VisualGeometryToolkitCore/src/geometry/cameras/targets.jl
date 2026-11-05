@@ -301,16 +301,15 @@ struct PlanarTarget{C <: TargetCalibration, N <: Union{Nothing, Vector{<:SVector
     # The private `_UnitMove()` route skips the board containment check: the
     # points are known to lie on the board — a unit move of a target that held
     # them there (`ustrip`, `with_unit`), whose rounding must not refuse it.
-    # Every public construction is `_Checked()`. A `layout` is given INSTEAD of
-    # nominal points (`nominal === nothing`): its points are derived here.
+    # Every public construction is `_Checked()`. A `layout` is given only with
+    # the points it builds (`PlanarTarget(layout; …)`, a unit move of one,
+    # `with_parameters`): rebuilding them here would make the point type
+    # uninferable and redo the layout on every parameter update in an LM loop.
     function PlanarTarget(
             reference::Union{Nothing, Symbol}, nominal, calibration::Union{TargetCalibration, Uncertain{<:TargetCalibration}},
             board::Union{Nothing, Board}, canvas::Union{Nothing, Canvas}, placement::Union{Nothing, ChartPlacement},
             route::Union{_Checked, _UnitMove}, layout::Union{Nothing, AbstractTargetLayout} = nothing
         )
-        (layout === nothing || nominal === nothing) ||
-            throw(ArgumentError("PlanarTarget: a layout's points follow from it; supply the layout or the nominal points, not both"))
-        layout === nothing || (nominal = _layout_points(layout))
         (reference === nothing && nominal === nothing) &&
             throw(ArgumentError("a planar target has a design reference, nominal points, or both"))
         n = nominal === nothing ? nothing : _nominal_points(nominal)
@@ -491,7 +490,7 @@ with_unit(g::AprilGrid{<:Real}, u::Units) = AprilGrid(;
 
 # The target of a layout's points, recording the layout (`layout(t)`).
 PlanarTarget(L::AbstractTargetLayout; calibration = Rigid(), board = nothing, canvas = nothing, placement = nothing) =
-    PlanarTarget(nothing, nothing, _stored_calibration(calibration), board, canvas, placement, _Checked(), L)
+    PlanarTarget(nothing, _layout_points(L), _stored_calibration(calibration), board, canvas, placement, _Checked(), L)
 
 const _SchoepsTag = @NamedTuple{x::Int, y::Int, width::Int, height::Int, id::Int}   # a Schöps tag: in squares, y down; the family id
 
@@ -764,7 +763,7 @@ with_unit(t::PlanarTarget, u::Units) = _unit_moved(
 # A layout target's points are derived from its moved layout by the constructor,
 # so they stay the layout's points exactly.
 _unit_moved(t, L, move_point, c, bd, cv, pl) = PlanarTarget(
-    t.reference, L === nothing && is_resolved(t) ? [move_point(p) for p in t.nominal] : nothing,
+    t.reference, L !== nothing ? _layout_points(L) : is_resolved(t) ? [move_point(p) for p in t.nominal] : nothing,
     c, bd, cv, pl, _UnitMove(), L
 )
 # The one-form rule's view of a planar target (`_check_one_form`): its nominal
@@ -793,7 +792,7 @@ parameter_vector(t::PlanarTarget) = parameter_vector(geom(t.calibration))
 
 parameter_names(t::PlanarTarget) = parameter_names(geom(t.calibration))
 with_parameters(t::PlanarTarget, θ::AbstractVector) = PlanarTarget(
-    t.reference, t.layout === nothing ? t.nominal : nothing, _stored_calibration(with_parameters(geom(t.calibration), θ)),
+    t.reference, t.nominal, _stored_calibration(with_parameters(geom(t.calibration), θ)),
     t.board, t.canvas, t.placement, _Checked(), t.layout
 )
 parameters(t::PlanarTarget) = NamedTuple{parameter_names(t)}(Tuple(parameter_vector(t)))

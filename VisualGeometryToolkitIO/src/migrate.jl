@@ -456,9 +456,10 @@ function _same_value(a::Uncertain, b::Uncertain)
             n == 0 ? Σa[I] === Σb[I] : _same_metres(Float64(Σa[I]), Float64(Σb[I]))
         end
 end
-# A correspondence set: its endpoints and its attribute columns, field by field
-# (the AbstractArray method above would compare its pairs only).
-_same_value(a::Csponds, b) = typeof(a) === typeof(b) && all(f -> _same_value(getfield(a, f), getfield(b, f)), fieldnames(typeof(a)))
+# A correspondence set: its endpoints and its attribute columns, through its
+# accessors (the AbstractArray method above would compare its pairs only).
+_same_value(a::Csponds, b) = typeof(a) === typeof(b) &&
+    _same_value(sources(a), sources(b)) && _same_value(targets(a), targets(b)) && _same_value(a.attrs, b.attrs)
 # A non-central model's points are plain metres (its directions are not lengths).
 _same_value(a::NoncentralGenericModel, b::NoncentralGenericModel) =
     typeof(a) === typeof(b) && all(f -> f === :points ?

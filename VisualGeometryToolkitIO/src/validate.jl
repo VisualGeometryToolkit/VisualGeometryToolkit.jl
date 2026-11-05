@@ -213,6 +213,7 @@ const _SCHEMA_VERSION = Dict(
     "cameras" => 4, "rig" => 8, "transforms" => 4, "trajectory" => 4, "generic_camera" => 3,
     "target" => 5, "target_poses" => 2, "target_points2d" => 2, "target_points3d" => 2,
     "capture_settings" => 1, "target_detections" => 2,
+    "vignetting" => 1, "environment_light" => 1, "blur" => 1,   # 2026-11: a radiometric camera's fields, light and blurs
 )
 _schema_version(kind) = get(_SCHEMA_VERSION, kind, 2)
 _schema(kind) = "vgio/$(kind)/v$(_schema_version(kind))"
@@ -236,19 +237,19 @@ const _POSE = _Obj(:rotation => _Vec(_Real(), 4), :translation => _Vec(_Real(), 
 # ScaledIdentity). Present iff the value is `Uncertain`; all zeros is `exact`.
 # Positive semi-definiteness is not tested (zero is valid).
 struct _Cov <: _Spec
-    d::Int
+    d::Int   # the dimension; 0: any (a size its record checks, as a target calibration's over its parameters)
 end
 _cov_spec(d::Int) = _Cov(d)
-const _COV_ROWS = Dict{Int, _Spec}()
 function _validate(s::_Cov, x, file, at)
     if x isa AbstractVector
-        rows = get!(() -> _Checked(_Vec(_Vec(_Real(), s.d), s.d),
-                c -> all(c[i][j] == c[j][i] for i in 1:s.d, j in 1:s.d) ? nothing : "covariance must be symmetric"), _COV_ROWS, s.d)
-        return _validate(rows, x, file, at)
+        d = s.d > 0 ? s.d : length(x)
+        _validate(_Vec(_Vec(_Real(), d), d), x, file, at)
+        all(x[i][j] == x[j][i] for i in 1:d, j in 1:d) || _refuse(file, at, "covariance must be symmetric")
+        return nothing
     end
     x isa AbstractDict || _refuse(file, at, "a covariance is an array of rows, {\"diagonal\": […]} or {\"isotropic\": λ}")
     return _validate(_Either(Pair{Symbol, _Spec}[
-        :diagonal => _Obj(:diagonal => _Vec(_Real(), s.d)),
+        :diagonal => _Obj(:diagonal => _Vec(_Real(), s.d > 0 ? s.d : -1)),
         :isotropic => _Obj(:isotropic => _Real()),
     ]), x, file, at)
 end
@@ -413,6 +414,9 @@ function _spec(kind::AbstractString)
     kind == "target_points3d" && return _TARGET_POINTS3D_SPEC
     kind == "target_detections" && return _TARGET_DETECTIONS_SPEC
     kind == "capture_settings" && return _CAPTURE_SETTINGS_SPEC
+    kind == "vignetting" && return _VIGNETTING_SPEC
+    kind == "environment_light" && return _ENVIRONMENT_LIGHT_SPEC
+    kind == "blur" && return _BLUR_SPEC
     kind == "correspondences" && return _CORRESPONDENCES_SPEC
     return nothing
 end

@@ -157,6 +157,10 @@ _point_covariances_check(pts, cs) = begin
     length(cs) == length(pts) || return "point_covariances must have one entry per point"
     d = isempty(pts) ? 0 : length(first(pts))
     for c in cs
+        if c isa AbstractDict    # {"diagonal": […]} or {"isotropic": λ} (the shape is `_Cov`'s)
+            haskey(c, :diagonal) && length(c[:diagonal]) != d && return "each point covariance's diagonal has $(d) entries, the points' dimension"
+            continue
+        end
         (length(c) == d && all(r -> length(r) == d, c)) || return "each point covariance is $(d)×$(d), the points' dimension"
         all(c[i][j] == c[j][i] for i in 1:d, j in 1:d) || return "a point covariance must be symmetric"
     end
@@ -246,13 +250,15 @@ function _covariance_check(x, ty, n, member::Bool)
         member && return "a composition's member carries no `covariance` (the composition's covers every member's parameters)"
         n == 0 && return "a $(ty) calibration has no parameters, so no `covariance`"
         c = x[:covariance]
+        c isa AbstractDict && return (haskey(c, :diagonal) && length(c[:diagonal]) != n) ?
+            "`covariance` is over the calibration's $(n) parameters, its diagonal has $(length(c[:diagonal]))" : nothing
         (length(c) == n && all(r -> length(r) == n, c)) ||
             return "`covariance` is $(n)×$(n), over the calibration's parameters"
         all(c[i][j] == c[j][i] for i in 1:n, j in 1:n) || return "`covariance` must be symmetric"
     end
     return nothing
 end
-const _CALIBRATION_FIELDS = Pair{Symbol, _Spec}[:nodes => _Vec(_XY), :parameters => _Vec(_Real()), :covariance => _Vec(_Vec(_Real()))]
+const _CALIBRATION_FIELDS = Pair{Symbol, _Spec}[:nodes => _Vec(_XY), :parameters => _Vec(_Real()), :covariance => _Cov(0)]
 # (`members`, the retired record's key, is admitted here only to be refused by
 # name in `_target_calibration_check`)
 const _TARGET_CALIBRATION_MEMBER = _Obj(Pair{Symbol, _Spec}[:type => _NonEmpty()], vcat(_CALIBRATION_FIELDS, Pair{Symbol, _Spec}[:compose => _Vec(_Free()), :members => _Vec(_Free())]))
@@ -320,7 +326,7 @@ const _TARGET_BODY = _Checked(
     _Obj(
         Pair{Symbol, _Spec}[:type => _NonEmpty()],
         Pair{Symbol, _Spec}[
-            :points => _TARGET_POINTS, :point_covariances => _Vec(_Vec(_Vec(_Real()))),
+            :points => _TARGET_POINTS, :point_covariances => _Vec(_Cov(0)),
             :reference => _NonEmpty(), :nominal => _Vec(_Vec(_Real(), 2)), :layout => _TARGET_LAYOUT, :calibration => _TARGET_CALIBRATION,
             :board => _BOARD, :canvas => _CANVAS, :placement => _PLACEMENT,
         ],

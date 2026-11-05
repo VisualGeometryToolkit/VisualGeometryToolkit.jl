@@ -90,6 +90,9 @@ import VisualGeometryToolkitCore as VgtkCore
 using StaticArrays: SMatrix, SVector, StaticMatrix, StaticVector
 using LinearAlgebra: I, norm, normalize, Diagonal
 using VisualGeometryToolkitCore: ScaledIdentity   # an isotropic covariance's storage (λ·I): its wire form {"isotropic": λ}
+using VisualGeometryToolkitCore: AbstractVignetting, TensorProductVignetting, RadialVignetting, LogVignetting, knot_vectors,
+    spline_degree, control_points, field_radius, log_spline, with_control_points,
+    EnvironmentLight, SphericalHarmonicMap, coefficients, max_degree, GaussianBlur, moment_matrix   # the radiometric kinds (radiometry_schema.jl)
 using Statistics: cov
 using Rotations: QuatRotation, RotMatrix, RotationVec, RotZ, Angle2d, params
 using JSON: JSON
@@ -181,6 +184,7 @@ include("generic_camera_schema.jl")  # the Schöps grid models (must precede rig
 include("rig_schema.jl")
 include("captures_schema.jl")  # trajectory/v3, target_poses/v1, target_points2d/v1, target_points3d/v1, target_detections/v1: VGC's captures
 include("capture_settings_schema.jl")  # capture_settings/v1: the camera's settings per frame, the body and lens identities
+include("radiometry_schema.jl")  # vignetting/v1, environment_light/v1, blur/v1: a radiometric camera's fields, light and blurs
 include("schoeps.jl")      # Schöps et al.'s camera_calibration files (intrinsics0.yaml, dataset.bin), read through `load`
 include("correspondences.jl")  # export: measurements + targets → per-(frame, target) point arrays for external calibrators
 include("assemble.jl")

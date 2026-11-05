@@ -9,7 +9,13 @@
   v4, `target` v5, `rig` v8. An earlier file reads through its version step (its covariances are rows; only the schema
   is renamed) and `vgio_migrate` rewrites it; a rig's identity does not change. Fixtures of each replaced version under
   `test/fixtures/old/`.
-- Requires the VisualGeometryToolkitCore whose `CovMat{N, T, M, C}` holds a static matrix (`ScaledIdentity`).
+- **New kinds, a radiometric camera's values:** `vgio/vignetting/v1` (`TensorProductVignetting` with its knots stated,
+  `RadialVignetting`, `LogVignetting`; COLMAP pixels; rebuilt bit for bit), `vgio/environment_light/v1` (an
+  `EnvironmentLight` of a `SphericalHarmonicMap`: centre and radius in `length_unit`, a plain light refused; the basis
+  convention stated) and `vgio/blur/v1` (name → `GaussianBlur` on a sensor, px², in the storage each holds).
+- A target calibration's covariance and a point target's point covariances take the three storage forms too.
+- Requires the VisualGeometryToolkitCore whose `CovMat{N, T, M, C}` holds a static matrix (`ScaledIdentity`), with
+  `TensorProductVignetting(knots_x, knots_y, P; degree)` and `radius` public.
 
 ## 0.5.3 (2026-11-05)
 

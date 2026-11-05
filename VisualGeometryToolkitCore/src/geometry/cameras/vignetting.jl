@@ -55,6 +55,29 @@ function TensorProductVignetting(n::NTuple{2, Integer}, box::GeometryBasics.Hype
                                                                                ones(SMatrix{NX, NY, T, NX * NY}))
 end
 
+"""
+    TensorProductVignetting(knots_x, knots_y, P; degree)
+
+The surface on the given clamped knot vectors (COLMAP pixels; `degree`, or a
+pair, the B-spline degree per axis) with the `nx × ny` control points `P`:
+`length(knots_x) == nx + p + 1`, the knots nondecreasing and clamped (each end
+repeated `p + 1` times). The knots are taken as they are — what a file's
+reader needs to rebuild a surface exactly (`knot_vectors`, `spline_degree`,
+`control_points` give them back).
+"""
+function TensorProductVignetting(knots_x::AbstractVector, knots_y::AbstractVector, P::AbstractMatrix; degree)
+    p, q = degree isa Integer ? (Int(degree), Int(degree)) : (Int(degree[1]), Int(degree[2]))
+    NX, NY = size(P)
+    for (k, n, d, ax) in ((knots_x, NX, p, "x"), (knots_y, NY, q, "y"))
+        length(k) == n + d + 1 || throw(ArgumentError("TensorProductVignetting: $(length(k)) knots along $(ax) for $(n) control points of degree $(d) (need $(n + d + 1))"))
+        (issorted(k) && all(==(first(k)), k[1:(d + 1)]) && all(==(last(k)), k[(end - d):end])) ||
+            throw(ArgumentError("TensorProductVignetting: the knots along $(ax) are not a clamped nondecreasing vector of degree $(d)"))
+    end
+    T = promote_type(eltype(knots_x), eltype(knots_y), eltype(P))
+    KX, KY = length(knots_x), length(knots_y)
+    return TensorProductVignetting{T, NX, NY, KX, KY, NX * NY, p, q}(SVector{KX, T}(knots_x), SVector{KY, T}(knots_y), SMatrix{NX, NY, T, NX * NY}(P))
+end
+
 # The two axis bases at a sensor point: every evaluation of the surface starts from them.
 @inline _axis_bases(v::TensorProductVignetting{T, NX, NY, KX, KY, NXY, DP, DQ}, u::StaticVector{2}) where {T, NX, NY, KX, KY, NXY, DP, DQ} =
     (bspline_basis(v.knots_x, Val(DP), u[1]), bspline_basis(v.knots_y, Val(DQ), u[2]))

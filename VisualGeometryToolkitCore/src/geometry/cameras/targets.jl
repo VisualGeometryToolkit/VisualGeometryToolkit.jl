@@ -75,7 +75,8 @@ _target_point(p::StaticVector{2}) = _stored_point(Val(2), p)
 _target_point(p::StaticVector{3}) = _stored_point(Val(3), p)
 _target_point(p::AbstractVector) = length(p) == 2 ? _stored_point(Val(2), p) : length(p) == 3 ? _stored_point(Val(3), p) :
     throw(ArgumentError("a target point is a 2-vector (a plane's) or a 3-vector; got $(length(p)) entries"))
-_target_point(p::Uncertain) = (v = _target_point(geom(p)); Uncertain(v, CovMat(SMatrix{length(v), length(v), Float64}(Statistics.cov(p)))))
+# the covariance in Float64 and the storage it holds (full, diagonal or isotropic), unlabeled
+_target_point(p::Uncertain) = (v = _target_point(geom(p)); Uncertain(v, CovMat{length(v), Float64}(parent(Statistics.cov(p)))))
 
 # ------------------------------------------------------------------------------
 # PointTarget
@@ -100,6 +101,7 @@ struct PointTarget{P} <: AbstractTarget
     points::Vector{P}
     function PointTarget(pts::AbstractVector)
         ps = map(_target_point, pts)
+        isconcretetype(eltype(ps)) || (ps = _one_storage(ps))   # mixed covariance storage: the coarser one (captures.jl)
         isempty(ps) || allequal(length(geom(p)) for p in ps) ||
             throw(ArgumentError("a target's points are all 2-vectors or all 3-vectors"))
         _check_one_form(ps)

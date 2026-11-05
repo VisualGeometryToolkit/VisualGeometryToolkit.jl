@@ -330,6 +330,7 @@ export EnvironmentLight, SphericalHarmonicMap   # the scene's light: radiance fr
 export AbstractBlur, GaussianBlur   # one blur of an imaging model (a camera's in-focus blur, a print's), by its moment matrix (cameras/blur.jl)
 public convolve, transform_blur     # two Gaussian blurs in sequence; a blur through a linear map of its plane
 public radiance, exit_direction, radiance_map, coefficients, with_coefficients, max_degree, sh_basis, sh_count, sh_index   # its evaluation, accessors and the SH basis
+public radius   # GeometryBasics' `radius`, Core's methods on it included (an EnvironmentLight's sphere)
 public coefficient_jacobian, active_coefficients, control_points, with_control_points, n_control_points, knot_vectors, spline_degree,
        field_center, field_radius, radial_coordinate, pole_regular_basis   # their basis, accessors and a radial profile's regular subspace
 public radial_part      # a lens's radially symmetric part (shared with VisualGeometryToolkitEstimation's fit_camera)

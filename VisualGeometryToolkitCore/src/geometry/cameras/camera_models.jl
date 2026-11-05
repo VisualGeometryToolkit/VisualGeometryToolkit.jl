@@ -578,6 +578,30 @@ projective division `camera`: `RadialHomography(H, camera)`. Pairs a
 """
 radial_homography(camera::CameraModel{<:ProjectiveIntrinsics, <:Division}, H::HomographyMat) = RadialHomography(H, camera)
 
+"""
+    radial_homography(camera::CameraModel{<:LogicalIntrinsics, <:Division}, H::HomographyMat) -> RadialHomography
+
+The radial homography of a plane homography `H` (plane point → undistorted pixel)
+seen through a METRIC division `camera`: `RadialHomography(H, λ, c)` with
+`λₚ = kₚ / f^{2p}`, `kₚ` the camera's division coefficients in `K`'s normalized
+chart, `f` its focal length (pixels) and `c` its principal point. The projective
+method's `λ`'s are pixel-frame; this converts the metric camera's to them, so
+`radial_transfer(radial_homography(camera, H), X)` is the raw pixel
+`project(camera, K⁻¹·H·[X; 1])` of a plane point `X`. Throws an `ArgumentError`
+for `fx ≠ fy` or a skewed `K`, whose lens is not radially symmetric in pixels.
+"""
+function radial_homography(camera::CameraModel{<:LogicalIntrinsics, <:Division}, H::HomographyMat)
+    K = camera.intrinsics.K
+    (K[1, 1] == K[2, 2] && iszero(K[1, 2])) ||
+        throw(ArgumentError("radial_homography(camera, H): needs fx == fy and no skew (a radial lens is symmetric in pixels only then); got fx = $(K[1, 1]), fy = $(K[2, 2]), skew = $(K[1, 2])"))
+    f = K[1, 1]
+    k = radial(camera.lens).d
+    c = principal_point(camera.intrinsics)
+    T = float(promote_type(eltype(H), eltype(k), eltype(c), typeof(f)))
+    λ = ntuple(p -> T(k[p]) / T(f)^(2p), length(k))
+    return RadialHomography{T}(H, λ, c)
+end
+
 # =============================================================================
 # Frame of record — the intrinsics K IS the normalization frame of the lens
 # =============================================================================

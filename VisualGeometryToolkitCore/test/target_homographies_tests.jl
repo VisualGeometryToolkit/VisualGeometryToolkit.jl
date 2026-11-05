@@ -46,6 +46,30 @@
         @test radial_homography(cam, tg[1][:b1]) == RadialHomography(H1, cam)
     end
 
+    @testset "radial_homography of a metric camera" begin
+        using Random, LinearAlgebra
+        f, c = 2455.46, SVector(3000.0, 2000.0)
+        K = SMatrix{3, 3, Float64}(f, 0, 0, 0, f, 0, c[1], c[2], 1)
+        cam = CameraModel(LogicalIntrinsics(CameraCalibrationMat(K)), Division(-0.183, 0.0411))
+        rng = MersenneTwister(7)
+        R = SMatrix{3, 3, Float64}(Matrix(qr(randn(rng, 3, 3)).Q))
+        R = det(R) < 0 ? -R : R
+        t = SVector(30.0, -20.0, 1500.0)
+        H = HomographyMat(K * hcat(R[:, 1], R[:, 2], t))
+        m = radial_homography(cam, H)
+        @test m isa RadialHomography{Float64, 2}
+        @test collect(VisualGeometryToolkitCore.division_coeffs(m)) ≈ [-0.183 / f^2, 0.0411 / f^4]
+        for _ in 1:20
+            X = 100 .* (rand(rng, 2) .- 0.5)
+            u = project(cam, R * SVector(X[1], X[2], 0.0) + t)
+            @test norm(radial_transfer(m, SVector(X[1], X[2])) - SVector(u[1], u[2])) < 1.0e-9
+        end
+        skewed = CameraModel(LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(f, 0, 0, 1.0, f, 0, c[1], c[2], 1))), Division(-0.1))
+        aniso = CameraModel(LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(f, 0, 0, 0, 1.1f, 0, c[1], c[2], 1))), Division(-0.1))
+        @test_throws ArgumentError radial_homography(skewed, H)
+        @test_throws ArgumentError radial_homography(aniso, H)
+    end
+
     @testset "validation refuses what TargetPoses refuses, with its messages" begin
         msg(f) = try; f(); nothing; catch e; e isa ArgumentError ? e.msg : rethrow(); end
         for (a, b) in (

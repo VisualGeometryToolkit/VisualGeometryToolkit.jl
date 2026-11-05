@@ -20,6 +20,10 @@ is unchanged bit for bit: its solver, chart, rows and Jacobians.
   (`undistorted_rect`, `fov_radius`) is an `ArgumentError`.
   `RadialHomography(H, camera)` and `radial_homography(camera, H)` build the
   model from such a camera.
+- **`radial_homography(camera::CameraModel{<:LogicalIntrinsics, <:Division}, H)`**
+  pairs a stored plane homography with a METRIC division camera: `λₚ = kₚ / f^(2p)`
+  about the principal point, so `radial_transfer` of it is `project(camera, K⁻¹·H·X̃)`.
+  An `ArgumentError` for `fx ≠ fy` or a skewed `K`.
 - **Breaking: the metric operations are narrowed to `LogicalIntrinsics`**:
   `calibration_matrix(::CameraModel)` and `unproject(::AbstractIntrinsics, …)`
   have no method for another intrinsics kind.

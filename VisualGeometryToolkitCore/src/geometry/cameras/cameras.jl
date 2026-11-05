@@ -190,6 +190,7 @@ include("lens_chart.jl") # parameter chart, ∂lens/∂θ, TOML lens registry (0
 include("generic_models.jl") # Schöps et al. central/non-central generic grid models (0.16)
 include("support.jl")         # supports on the sensor: which parameters a camera can see (the generic models' lattice)
 include("vignetting.jl")      # TensorVignetting, RadialVignetting: a camera's vignetting (uses the support protocol, bspline_basis)
+include("lighting.jl")        # EnvironmentLight, SphericalHarmonicMap, sh_basis: the scene's light (extends vignetting.jl's coefficient_jacobian)
 include("chart_spline.jl")    # ChartSpline, SplineProjection: a forward map as the grid models' lattice on a direction chart (uses spline_value, the window)
 include("imaging_chain.jl")   # framed stages between image frames + imaging_chain mint (0.10)
 
@@ -1060,6 +1061,8 @@ export free_nodes, node_mask, cubic_bspline_footprint
 export BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent nodes of a lattice outside an imaged region (support.jl)
 export AbstractVignetting, TensorVignetting, RadialVignetting, LogVignetting   # a camera's vignetting fields (vignetting.jl)
 export log_spline                         # a LogVignetting's spline of log V (public, not exported, at the top level)
+export EnvironmentLight, SphericalHarmonicMap   # the scene's light: SH radiance on a sphere about a centre (lighting.jl)
+export radiance, exit_direction, radiance_map, coefficients, with_coefficients, max_degree, sh_basis, sh_count, sh_index   # (public, not exported, at the top level)
 export coefficient_jacobian, active_coefficients, control_points, with_control_points, n_control_points, knot_vectors, spline_degree,
        field_center, field_radius, radial_coordinate, pole_regular_basis   # (public, not exported, at the top level)
 export radial_part                         # a lens's radially symmetric part

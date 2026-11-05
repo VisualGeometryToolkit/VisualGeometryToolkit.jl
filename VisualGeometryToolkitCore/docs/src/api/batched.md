@@ -85,6 +85,33 @@ Private = false
 Pages = ["geometry/cameras/vignetting.jl"]
 ```
 
+## Lighting
+
+The scene's light as a radiometric camera model sees it: an
+[`EnvironmentLight`](@ref), radiance from every direction given by a
+directional map on a sphere of finite radius about a centre, looked up where a
+ray from the shaded point leaves the sphere ([`exit_direction`](@ref);
+`radius = Inf` is the distant light). The map is a
+[`SphericalHarmonicMap`](@ref): real spherical harmonics per channel
+([`sh_basis`](@ref), orthonormal, no Condon–Shortley phase, index
+[`sh_index`](@ref)`(l, m) = l² + l + m + 1`), so the radiance is linear in the
+coefficients and [`coefficient_jacobian`](@ref) is its row. Everything is
+isbits and allocation-free, for a kernel; the centre and radius are lengths
+(`ustrip(m, light)` for the kernel's plain form). Hoisted from
+RadiometricCamera, bit for bit.
+
+```julia
+light = EnvironmentLight(SphericalHarmonicMap(a, 2), SVector(0.0, 0.0, 0.0), 1.5)   # 3 × 9 coefficients, centre, radius
+radiance(light, x, ω)                                    # per channel, arriving at x from direction ω
+coefficients(light) * coefficient_jacobian(light, x, ω)  # the same, as a row of a least squares
+```
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Cameras]
+Private = false
+Pages = ["geometry/cameras/lighting.jl"]
+```
+
 ## Thin-plate spline
 
 `f(𝐩) = a₁ + a_x 𝐩_x + a_y 𝐩_y + Σᵢ wᵢ U(𝐩, 𝐩ᵢ)` with `U = ½ r² ln r²`, through

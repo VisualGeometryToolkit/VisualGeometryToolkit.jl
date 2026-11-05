@@ -1,5 +1,17 @@
 # VisualGeometryToolkitCore changelog
 
+## Unreleased
+
+- **`EnvironmentLight`, `SphericalHarmonicMap`** (exported, `cameras/lighting.jl`): the scene's light as a radiometric
+  camera model sees it — radiance from every direction, a directional map on a sphere of finite radius about a centre,
+  read where a ray from the shaded point leaves the sphere (`exit_direction`; `radius = Inf`, the distant light); the
+  map is real spherical harmonics per channel. `radiance(light, x, ω)`, the linear factor `coefficient_jacobian(light,
+  x, ω)`, the accessors `coefficients`, `with_coefficients`, `max_degree`, `radiance_map`, `center`, `radius`, and
+  `convert_eltype`, `ustrip` / `with_unit` (centre and radius are lengths). The basis is `sh_basis(Val(l_max), ω)`
+  (orthonormal, no Condon–Shortley phase; `sh_index(l, m) = l² + l + m + 1`, `sh_count`): generated, isbits,
+  allocation-free and Dual-safe at the poles. Hoisted from RadiometricCamera (`Lighting`, `y_basis`, `ω̂`, `L_SVSH`),
+  bit for bit: every value and ForwardDiff Jacobian equal on random inputs for l ≤ 3. Additive.
+
 ## 0.5.7 (2026-11-05)
 
 - **`TargetDetections{F, C}`** (exported, `captures.jl`): per frame index, per

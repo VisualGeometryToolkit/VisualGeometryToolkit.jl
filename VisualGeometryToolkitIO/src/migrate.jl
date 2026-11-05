@@ -456,7 +456,8 @@ function _same_value(a::Uncertain, b::Uncertain)
             n == 0 ? Σa[I] === Σb[I] : _same_metres(Float64(Σa[I]), Float64(Σb[I]))
         end
 end
-# A correspondence set: its endpoints and its attribute columns (its `==` sees the pairs only).
+# A correspondence set: its endpoints and its attribute columns, field by field
+# (the AbstractArray method above would compare its pairs only).
 _same_value(a::Csponds, b) = typeof(a) === typeof(b) && all(f -> _same_value(getfield(a, f), getfield(b, f)), fieldnames(typeof(a)))
 # A non-central model's points are plain metres (its directions are not lengths).
 _same_value(a::NoncentralGenericModel, b::NoncentralGenericModel) =
@@ -926,9 +927,15 @@ end
 # target held the retired affine kind, which migrates to its factors (`_v5_id`:
 # the identity tree lists a composition's members and a lens's stages in one
 # fixed order, application order, whatever order the record lists them in).
-_old_rig_ids(s, old, value, new_id) =
-    s == "vgio/rig/v4" ? unique!([_rig_v4_id(old), _rig_v4_id_mm(value, old)]) : s == "vgio/rig/v5" ? [_v5_id(old, value, new_id)] :
-    [new_id]   # a v6 rig's identity is the current one (the v7 step moves no number)
+function _old_rig_ids(s, old, value, new_id)
+    if s == "vgio/rig/v4"
+        return unique!([_rig_v4_id(old), _rig_v4_id_mm(value, old)])
+    elseif s == "vgio/rig/v5"
+        return [_v5_id(old, value, new_id)]
+    else
+        return [new_id]   # a v6 rig's identity is the current one (the v7 step moves no number)
+    end
+end
 
 # A targets argument that is an old rig file: each identity its version named
 # it by mapped to its current one, where they differ; none for a rig or a
@@ -1067,10 +1074,6 @@ const _MEASUREMENT_KINDS = Dict(
     "vgio/target_detections/v1" => TargetDetections,
 )
 
-# A measurement value's own type, frame included (to rebuild it with other targets).
-_measurement_type(::TargetPoints2D{F}) where {F} = TargetPoints2D{F}
-_measurement_type(::TargetPoints3D{F}) where {F} = TargetPoints3D{F}
-_measurement_type(::TargetDetections{F}) where {F} = TargetDetections{F}
 # Every measurement of a value as (frame, target, point index).
 _measured_points(obs::Union{TargetPoints2D, TargetPoints3D}) = ((f, o.target, o.index) for (f, os) in obs for o in os)
 _measured_points(obs::TargetDetections) = ((f, id, i) for (f, sets) in obs for (id, cs) in sets for i in sources(cs))
@@ -1118,7 +1121,7 @@ function _repoint_targets(
     named = [r for (r, h) in zip(rig_list, hashes) if h in targets]   # the rigs the measurements resolve in
     unchecked = _check_resolves_by_id(obs, _target_rigs(named; resolve), path)
     return write_staged(out => basename(path); dry_run) do staged
-        save(staged, _measurement_type(obs)(obs.frames; images = obs.images, sensors = obs.sensors, times = obs.times, time_origin = obs.time_origin, targets); _resave_kwargs(old)...)
+        save(staged, typeof(obs)(obs.frames; images = obs.images, sensors = obs.sensors, times = obs.times, time_origin = obs.time_origin, targets); _resave_kwargs(old)...)
         re = load(T, staged)
         _verify(re.targets == targets, path, "its targets")
         _verify(all(f -> f === :targets || _same_value(getfield(re, f), getfield(obs, f)), fieldnames(typeof(obs))) &&

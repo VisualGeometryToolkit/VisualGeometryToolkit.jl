@@ -139,6 +139,19 @@ end
 Base.propertynames(cs::Csponds) =
     (:sources, :targets, :attrs, keys(getfield(cs, :attrs))...)
 
+# Two sets are equal when their pairs AND their attribute columns are (a
+# weighted set is not its unweighted one). A set without columns hashes as the
+# vector of its pairs, so it stays equal-and-hash-consistent with a plain
+# `Pair` vector or a `csponds` StructArray (AbstractArray's `==`).
+Base.:(==)(a::Csponds, b::Csponds) =
+    sources(a) == sources(b) && targets(a) == targets(b) && getfield(a, :attrs) == getfield(b, :attrs)
+Base.isequal(a::Csponds, b::Csponds) =
+    isequal(sources(a), sources(b)) && isequal(targets(a), targets(b)) && isequal(getfield(a, :attrs), getfield(b, :attrs))
+function Base.hash(cs::Csponds, h::UInt)
+    hp = invoke(hash, Tuple{AbstractArray, UInt}, cs, h)
+    return isempty(getfield(cs, :attrs)) ? hp : hash(getfield(cs, :attrs), hp)
+end
+
 """
     hasattr(cs::Csponds, k::Symbol) -> Bool
 

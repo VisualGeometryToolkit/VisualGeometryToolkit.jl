@@ -285,10 +285,10 @@ const _PLACEMENT = _Checked(
     z -> (isfinite(z[:side]) && z[:side] > 0) ? nothing : "a chart placement's side is > 0",
 )
 
-# A layout record's keys besides `type`, by the layout's type (VGC's
-# `TARGET_LAYOUT_TAGS` gives the type for the record's tag): every one is written.
-_layout_keys(::Type{AprilGrid}) = (:tag_rows, :tag_cols, :tag_size, :tag_spacing, :apriltag_family, :first_id)
-_layout_keys(::Type{SchoepsPattern}) = (:squares_x, :squares_y, :square_length, :star_segments, :apriltag_family, :apriltags)
+# A layout record's keys besides `type`: exactly the layout type's fields (VGC's
+# `TARGET_LAYOUT_TAGS` gives the type for the record's tag), every one written
+# (in `_layout_json`'s order).
+_layout_keys(L::Type{<:AbstractTargetLayout}) = fieldnames(L)
 const _SCHOEPS_TAG = _Obj(:x => _Int(), :y => _Int(), :width => _PosInt(), :height => _PosInt(), :id => _Int())
 const _TARGET_LAYOUT = _Checked(
     _Obj(
@@ -542,8 +542,7 @@ end
 # geometric — a nominal target's of the same points.
 function _design_json(t::PlanarTarget, unit::_LeafUnit)
     reference(t) === nothing || return (reference = String(reference(t)),)
-    (layout(t) === nothing || unit isa _Persisted) ||
-        return (layout = _layout_json(layout(t), unit),)
+    (layout(t) !== nothing && !(unit isa _Persisted)) && return (layout = _layout_json(layout(t), unit),)
     return (nominal = [_lengths_json(p, unit, "a planar target's nominal point") for p in design(t)],)
 end
 

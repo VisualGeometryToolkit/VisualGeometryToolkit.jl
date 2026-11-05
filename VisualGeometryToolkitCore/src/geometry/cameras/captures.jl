@@ -88,9 +88,6 @@ Base.:(==)(a::FrameStamps, b::FrameStamps) =
     a.images == b.images && a.sensors == b.sensors && a.times == b.times && isequal(a.time_origin, b.time_origin)
 Base.hash(s::FrameStamps, h::UInt) = hash(s.time_origin, hash(s.times, hash(s.sensors, hash(s.images, hash(FrameStamps, h)))))
 
-# The stamps as the keywords every capture constructor takes.
-_stamp_kwargs(s::FrameStamps) = (images = s.images, sensors = s.sensors, times = s.times, time_origin = s.time_origin)
-
 # The frames of a labeled pose, unlabeled frames included.
 _pose_frames(X::EuclideanMap{3}) = _em_frames(X)
 _pose_frames(u::Uncertain{<:EuclideanMap{3}}) = _em_frames(geom(u))
@@ -404,7 +401,7 @@ end
 
 # The attribute columns a set carries (`withattrs`), each collected into a
 # vector of its own: none for a bare `csponds` StructArray or a Pair vector.
-_detection_attrs(cs::Csponds) = map(collect, getfield(cs, :attrs))
+_detection_attrs(cs::Csponds) = map(collect, cs.attrs)
 _detection_attrs(_) = (;)
 
 # One target's detections in one frame, as stored: `Csponds{Int, P}` of the
@@ -425,12 +422,15 @@ end
 _detection_set(::Val, cs, t, id) = throw(
     ArgumentError("frame $(t), target $(id): a detection set is a vector of index => point pairs (`csponds(indices, points)`), got $(typeof(cs))")
 )
-_detected_points(sets) = Any[p for cs in sets for p in targets(cs)]
-_empty_detection_set(::Val{D}) where {D} =
-    Csponds{Int, SVector{D, Float64}, Vector{Int}, Vector{SVector{D, Float64}}, @NamedTuple{}}
+_empty_detection_set(::Val{D}) where {D} = typeof(Csponds(Int[], SVector{D, Float64}[]))
+
+# The private route of the per-point maps (`_map_detections`): the sets are
+# built from a checked value's, so nothing is validated again.
+struct _UncheckedDetections end
 
 """
     TargetDetections{F <: Frame}(frames; images, sensors, times, time_origin, targets = String[])
+    TargetDetections{F <: Frame}(frames; stamps::FrameStamps, targets = String[])
     TargetDetections(x::TargetPoints2D)
     TargetDetections(x::TargetPoints3D)
 
@@ -463,7 +463,8 @@ tracked body's marker constellation, never a board mounted on the body. Memory
 holds metres; a file holds its declared `length_unit` (VisualGeometryToolkitIO's
 `target_detections` kind).
 
-The per-frame stamps are a [`FrameStamps`](@ref) (`td.stamps`), read as
+The per-frame stamps are a [`FrameStamps`](@ref) (`td.stamps`) — given as
+the four keywords or as one `stamps` value, not both (`ArgumentError`) — read as
 `td.images`, `td.sensors`, `td.times` and `td.time_origin` as on
 [`TargetPoints2D`](@ref); `targets` names the target definitions the indices
 resolve in by content identity (VisualGeometryToolkitIO's `content_id`), unique.
@@ -481,29 +482,47 @@ struct TargetDetections{F <: Frame, C} <: AbstractDict{Int, Dict{Symbol, C}}
     targets::Vector{String}
 
     function TargetDetections{F}(
-            frames::AbstractDict; images::AbstractDict = Dict{Int, String}(),
+            frames::AbstractDict; stamps::Union{Nothing, FrameStamps} = nothing, images::AbstractDict = Dict{Int, String}(),
             sensors::Union{AbstractString, AbstractDict} = Dict{Int, String}(),
             times::AbstractDict = Dict{Int, Float64}(), time_origin::Union{Nothing, AbstractString} = nothing,
             targets::AbstractVector{<:AbstractString} = String[],
         ) where {F <: Frame}
         D = Val(_detection_dim(F))
-        fr = Dict{Int, Dict{Symbol, Any}}(
-            Int(t) => Dict{Symbol, Any}(Symbol(id) => _detection_set(D, cs, t, id) for (id, cs) in byid)
-                for (t, byid) in frames
-        )
-        sets = Any[cs for s in values(fr) for cs in values(s)]
-        _check_one_form(_detected_points(sets))   # all plain or all physical
-        C = isempty(sets) ? _empty_detection_set(D) : typeof(first(sets))
-        all(cs -> typeof(cs) === C, sets) || throw(
+        # every set checked and stored; each holds one concrete point type, so
+        # one point per set states the container's form
+        sets = [(Int(t), Symbol(id), _detection_set(D, cs, t, id)) for (t, byid) in frames for (id, cs) in byid]
+        _check_one_form([last(cs[1]) for (_, _, cs) in sets])   # all plain or all physical (`targets` is the keyword here)
+        C = isempty(sets) ? _empty_detection_set(D) : typeof(sets[1][3])
+        all(s -> typeof(s[3]) === C, sets) || throw(
             ArgumentError(
                 "one form per container: every detection set holds the same point type (all plain or all " *
-                    "Uncertain) and the same attribute columns; got $(join(unique(map(typeof, sets)), ", "))"
+                    "Uncertain) and the same attribute columns; got $(join(unique(typeof(s[3]) for s in sets), ", "))"
             )
         )
-        stamps = FrameStamps(keys(fr); images, sensors, times, time_origin)
+        fr = Dict{Int, Dict{Symbol, C}}(Int(t) => Dict{Symbol, C}() for t in keys(frames))
+        for (t, id, cs) in sets
+            fr[t][id] = cs
+        end
+        if stamps === nothing
+            stamps = FrameStamps(keys(fr); images, sensors, times, time_origin)
+        else
+            (isempty(images) && isempty(sensors) && isempty(times) && time_origin === nothing) || throw(
+                ArgumentError("TargetDetections: the stamps are given as `stamps` or as `images`, `sensors`, `times` and `time_origin`, not both")
+            )
+            _check_stamps(keys(fr), stamps.images, stamps.times, stamps.time_origin, stamps.sensors)
+        end
         allunique(targets) || throw(ArgumentError("`targets` names a target definition twice"))
-        return new{F, C}(Dict{Int, Dict{Symbol, C}}(t => Dict{Symbol, C}(s) for (t, s) in fr), stamps, String.(targets))
+        return new{F, C}(fr, stamps, String.(targets))
     end
+    TargetDetections{F}(::_UncheckedDetections, frames::Dict{Int, Dict{Symbol, C}}, stamps::FrameStamps, targets::Vector{String}) where {F <: Frame, C} =
+        new{F, C}(frames, stamps, targets)
+end
+# The value's own type names the frame; the set type follows from the sets
+# (`typeof(td)(frames; …)` rebuilds one).
+function TargetDetections{F, C}(frames::AbstractDict; kwargs...) where {F <: Frame, C}
+    x = TargetDetections{F}(frames; kwargs...)
+    x isa TargetDetections{F, C} || throw(ArgumentError("TargetDetections{$(F), $(C)}: the sets given are $(typeof(x).parameters[2])"))
+    return x
 end
 
 # The stamps read as the value's own properties, as on the other captures.
@@ -512,34 +531,43 @@ Base.getproperty(x::TargetDetections, k::Symbol) =
     k in _STAMP_FIELDS ? getfield(getfield(x, :stamps), k) : getfield(x, k)
 Base.propertynames(::TargetDetections) = (:frames, :stamps, :targets, _STAMP_FIELDS...)
 
-# Every point moved by `f`, the indices, columns, stamps and targets kept, in frame `G`.
-_map_detections(f, ::Type{G}, x::TargetDetections) where {G} = TargetDetections{G}(
-    Dict(t => Dict(id => Csponds(sources(cs), map(f, targets(cs)), getfield(cs, :attrs)) for (id, cs) in s) for (t, s) in x.frames);
-    _stamp_kwargs(x.stamps)..., targets = x.targets,
-)
+# Every point moved by `f` (one stored point type to another), the indices,
+# columns, stamps and targets kept, in frame `G`: a checked value's sets, moved
+# point by point, need no validation again.
+function _map_detections(f, ::Type{G}, x::TargetDetections) where {G}
+    moved(cs) = Csponds(copy(sources(cs)), map(f, targets(cs)), _detection_attrs(cs))
+    sets = (cs for s in values(x.frames) for cs in values(s))
+    C = isempty(sets) ? _empty_detection_set(Val(_detection_dim(G))) : typeof(moved(first(sets)))
+    frames = Dict{Int, Dict{Symbol, C}}(t => Dict{Symbol, C}(id => moved(cs) for (id, cs) in s) for (t, s) in x.frames)
+    return TargetDetections{G}(_UncheckedDetections(), frames, x.stamps, x.targets)
+end
 
-# A set's equality includes its attribute columns (a Csponds' `==` compares the pairs).
-_same_detections(a::Csponds, b::Csponds) = a == b && getfield(a, :attrs) == getfield(b, :attrs)
+# A set's `==` includes its attribute columns (Csponds' own).
 Base.:(==)(a::TargetDetections{F}, b::TargetDetections{G}) where {F, G} =
-    F === G && keys(a.frames) == keys(b.frames) &&
-    all(t -> keys(a[t]) == keys(b[t]) && all(id -> _same_detections(a[t][id], b[t][id]), keys(a[t])), keys(a.frames)) &&
-    a.stamps == b.stamps && a.targets == b.targets
+    F === G && a.frames == b.frames && a.stamps == b.stamps && a.targets == b.targets
 
-has_units(x::TargetDetections) = any(s -> any(cs -> any(has_units, targets(cs)), values(s)), values(x.frames))
+# One form per container: its first point states it.
+function has_units(x::TargetDetections)
+    for s in values(x.frames), cs in values(s)
+        return has_units(last(cs[1]))
+    end
+    return false
+end
 FlexUnits.ustrip(u::Units, x::TargetDetections{F}) where {F <: Frame{3}} = _map_detections(p -> _ustrip_point(u, p), F, x)
 with_unit(x::TargetDetections{F}, u::Units) where {F <: Frame{3}} = _map_detections(p -> _attach_point(u, p), F, x)
 
 # A TargetPoints2D/3D frame's points, grouped by target in their order:
 # indices, points (`point(o)`) and the columns `columns(points of the target)`.
 function _detections_by_target(os, point, columns)
-    return Dict(
-        id => (sel = [o for o in os if o.target === id]; Csponds([o.index for o in sel], [point(o) for o in sel], columns(sel)))
-            for id in unique(o.target for o in os)
-    )
+    groups = Dict{Symbol, Vector{eltype(os)}}()
+    for o in os
+        push!(get!(() -> eltype(os)[], groups, o.target), o)
+    end
+    return Dict(id => Csponds([o.index for o in sel], [point(o) for o in sel], columns(sel)) for (id, sel) in groups)
 end
 _converted_detections(::Type{F}, x, point, columns) where {F} = TargetDetections{F}(
     Dict(t => _detections_by_target(os, point, columns) for (t, os) in x.frames);
-    images = x.images, sensors = x.sensors, times = x.times, time_origin = x.time_origin, targets = x.targets,
+    x.images, x.sensors, x.times, x.time_origin, x.targets,
 )
 TargetDetections(x::TargetPoints2D{F}) where {F} =
     _converted_detections(F, x, o -> o.xy, sel -> (weights = Float64[o.weight for o in sel],))

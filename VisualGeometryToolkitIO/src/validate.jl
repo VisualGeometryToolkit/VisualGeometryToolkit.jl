@@ -315,8 +315,11 @@ _refuse_payload(path, d) = haskey(d, _PAYLOAD_KEY) && throw(
 # version of the kind is read through its version steps (`migrate_record`,
 # migrate.jl), in memory: the record they give is validated as the current
 # record and read as one.
-function _read_store(path::AbstractString, kind::AbstractString, spec::_Spec)
-    d = _read_vgio_json(path)                 # a non-finite number is refused by its field
+_read_store(path::AbstractString, kind::AbstractString, spec::_Spec) =
+    _checked_store(_read_vgio_json(path), path, kind, spec)   # a non-finite number is refused by its field
+# …and the same for a file already parsed (`d`, its JSON), by a reader that
+# chose the kind from its `schema`.
+function _checked_store(d, path::AbstractString, kind::AbstractString, spec::_Spec)
     d isa AbstractDict || throw(ArgumentError("$(path): not a JSON object"))
     s = get(d, :schema, nothing)
     s == _schema(kind) || (_reads_through_migration(s, kind) && (d = _migrated_on_load(d, path, kind, s)))

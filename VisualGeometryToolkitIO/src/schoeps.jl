@@ -147,6 +147,7 @@ function _layout_yaml(yml::AbstractString, path)
     top = Dict{String, String}()
     maps = Dict{String, Dict{String, String}}()
     lists = Dict{String, Vector{Dict{String, String}}}()
+    opened = Set{String}()   # the blocks (`key:` with no value) not yet given a line
     section = nothing
     keyval(s) = (mt = match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*?)\s*$", s);
         mt === nothing && throw(ArgumentError("$(path): `$(s)` is not a `key: value` line")); (String(something(mt[1])), _yaml_unquoted(something(mt[2]))))
@@ -155,14 +156,18 @@ function _layout_yaml(yml::AbstractString, path)
         (isempty(strip(line)) || startswith(strip(line), '#')) && continue
         if !startswith(line, ' ') && !startswith(line, '\t')
             k, v = keyval(line)
-            (haskey(top, k) || haskey(maps, k) || haskey(lists, k)) && throw(ArgumentError("$(path): `$(k)` is stated twice"))
-            isempty(v) ? (section = k; maps[k] = Dict{String, String}()) : (section = nothing; top[k] = v)
+            (haskey(top, k) || k in opened || haskey(maps, k) || haskey(lists, k)) && throw(ArgumentError("$(path): `$(k)` is stated twice"))
+            isempty(v) ? (section = k; push!(opened, k)) : (section = nothing; top[k] = v)
             continue
         end
         section === nothing && throw(ArgumentError("$(path): the indented line `$(strip(line))` belongs to no key"))
         s = strip(line)
+        # a block's first line says what it is: a list of maps (`- `) or a map
+        if section in opened
+            delete!(opened, section)
+            startswith(s, "- ") ? (lists[section] = Dict{String, String}[]) : (maps[section] = Dict{String, String}())
+        end
         if startswith(s, "- ")
-            haskey(maps, section) && isempty(maps[section]) && (delete!(maps, section); lists[section] = Dict{String, String}[])
             haskey(lists, section) || throw(ArgumentError("$(path): `$(section)` mixes a map and a list"))
             push!(lists[section], Dict{String, String}())
             s = strip(s[3:end])
@@ -172,8 +177,8 @@ function _layout_yaml(yml::AbstractString, path)
         haskey(d, k) && throw(ArgumentError("$(path): `$(section).$(k)` is stated twice"))
         d[k] = v
     end
-    for (k, d) in maps   # an empty block is an empty list (`apriltags:` with no tag)
-        isempty(d) && (delete!(maps, k); lists[k] = Dict{String, String}[])
+    for k in opened   # a block with no line is an empty list (`apriltags:` with no tag)
+        lists[k] = Dict{String, String}[]
     end
     return (; top, maps, lists)
 end
@@ -182,14 +187,11 @@ function _yaml_get(d::AbstractDict, key, path, what)
     haskey(d, key) || throw(ArgumentError("$(path): no `$(key)` — not $(what)"))
     return d[key]
 end
-function _yaml_int(d, key, path, what)
-    v = tryparse(Int, _yaml_get(d, key, path, what))
-    v === nothing && throw(ArgumentError("$(path): `$(key)` is $(repr(d[key])), not an integer"))
-    return v
-end
-function _yaml_real(d, key, path, what)
-    v = tryparse(Float64, _yaml_get(d, key, path, what))
-    (v === nothing || !isfinite(v)) && throw(ArgumentError("$(path): `$(key)` is $(repr(d[key])), not a finite number"))
+# A value read as an `Int` or a finite `Float64`.
+function _yaml_parse(::Type{T}, d, key, path, what) where {T <: Union{Int, Float64}}
+    v = tryparse(T, _yaml_get(d, key, path, what))
+    (v === nothing || !isfinite(v)) &&
+        throw(ArgumentError("$(path): `$(key)` is $(repr(d[key])), not $(T === Int ? "an integer" : "a finite number")"))
     return v
 end
 function _yaml_only(d, keys, path, what)
@@ -222,10 +224,10 @@ function _load_kalibr_target(y, path)
     ty == "aprilgrid" || throw(ArgumentError("$(path): a Kalibr $(repr(ty)) target; only an `aprilgrid` is a VGC layout (AprilGrid)"))
     (isempty(y.maps) && isempty(y.lists)) || throw(ArgumentError("$(path): $(_KALIBR_APRILGRID) is flat `key: value` lines"))
     _yaml_only(y.top, ("target_type", "tagCols", "tagRows", "tagSize", "tagSpacing"), path, _KALIBR_APRILGRID)
-    tag_size = read_length(_yaml_real(y.top, "tagSize", path, _KALIBR_APRILGRID), m)
+    tag_size = read_length(_yaml_parse(Float64, y.top, "tagSize", path, _KALIBR_APRILGRID), m)
     grid = AprilGrid(;
-        tag_rows = _yaml_int(y.top, "tagRows", path, _KALIBR_APRILGRID), tag_cols = _yaml_int(y.top, "tagCols", path, _KALIBR_APRILGRID),
-        tag_size, tag_spacing = tag_size * _yaml_real(y.top, "tagSpacing", path, _KALIBR_APRILGRID),   # Kalibr's ratio → the gap
+        tag_rows = _yaml_parse(Int, y.top, "tagRows", path, _KALIBR_APRILGRID), tag_cols = _yaml_parse(Int, y.top, "tagCols", path, _KALIBR_APRILGRID),
+        tag_size, tag_spacing = tag_size * _yaml_parse(Float64, y.top, "tagSpacing", path, _KALIBR_APRILGRID),   # Kalibr's ratio → the gap
     )
     return PlanarTarget(grid)
 end
@@ -249,18 +251,18 @@ function _load_schoeps_pattern(y, path)
     _yaml_only(y.lists, ("apriltags",), path, _SCHOEPS_PATTERN)
     tags = map(get(y.lists, "apriltags", Dict{String, String}[])) do t
         _yaml_only(t, ("tag_x", "tag_y", "width", "height", "index"), path, "an apriltag of $(_SCHOEPS_PATTERN)")
-        f(k) = _yaml_int(t, k, path, "an apriltag of $(_SCHOEPS_PATTERN)")
+        f(k) = _yaml_parse(Int, t, k, path, "an apriltag of $(_SCHOEPS_PATTERN)")
         (x = f("tag_x"), y = f("tag_y"), width = f("width"), height = f("height"), id = f("index"))
     end
     pattern = SchoepsPattern(;
-        squares_x = _yaml_int(y.top, "squares_x", path, _SCHOEPS_PATTERN), squares_y = _yaml_int(y.top, "squares_y", path, _SCHOEPS_PATTERN),
-        square_length = read_length(_yaml_real(y.top, "square_length_in_meters", path, _SCHOEPS_PATTERN), m),
-        star_segments = _yaml_int(y.top, "num_star_segments", path, _SCHOEPS_PATTERN), apriltags = tags,
+        squares_x = _yaml_parse(Int, y.top, "squares_x", path, _SCHOEPS_PATTERN), squares_y = _yaml_parse(Int, y.top, "squares_y", path, _SCHOEPS_PATTERN),
+        square_length = read_length(_yaml_parse(Float64, y.top, "square_length_in_meters", path, _SCHOEPS_PATTERN), m),
+        star_segments = _yaml_parse(Int, y.top, "num_star_segments", path, _SCHOEPS_PATTERN), apriltags = tags,
     )
     haskey(y.maps, "page") || return PlanarTarget(pattern)
     page = y.maps["page"]
     _yaml_only(page, _SCHOEPS_PAGE_KEYS, path, "the page of $(_SCHOEPS_PATTERN)")
-    W, H, sx, sy, ex, ey = (read_length(_yaml_real(page, k, path, "the page of $(_SCHOEPS_PATTERN)"), mm) for k in _SCHOEPS_PAGE_KEYS)
+    W, H, sx, sy, ex, ey = (read_length(_yaml_parse(Float64, page, k, path, "the page of $(_SCHOEPS_PATTERN)"), mm) for k in _SCHOEPS_PAGE_KEYS)
     for (what, a, b, n) in (("x", sx, ex, pattern.squares_x), ("y", sy, ey, pattern.squares_y))
         abs(ustrip(m, (b - a) - n * pattern.square_length)) <= 1.0e-9 || throw(
             ArgumentError(

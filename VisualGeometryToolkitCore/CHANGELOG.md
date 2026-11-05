@@ -23,6 +23,15 @@
   `TargetDetections` holds one (`td.stamps`) and forwards its four fields as
   properties (`td.images`, …). Trajectory, TargetPoses and TargetPoints2D/3D
   keep their own fields until 0.7.
+- **`Csponds` equality includes its attribute columns**: `==`, `isequal` and
+  `hash` of two `Csponds` compare their pairs and their columns (a weighted
+  set is no longer `==` its unweighted one). A set without columns hashes as
+  before, the vector of its pairs; a `Csponds` against another vector type is
+  still AbstractArray's element-wise `==`.
+- `ustrip(u, layout)` and `with_unit(layout, u)` for `AprilGrid` and
+  `SchoepsPattern`: the layout's lengths moved between the forms (an
+  `ArgumentError` for a layout already in the form asked for), as for `Board`
+  and `Canvas`; `PlanarTarget`'s unit moves use them.
 - `check_naming` R11 flags a `TargetDetections` built from `ustrip(…)`
   components, as it does `TargetPoints3D`.
 - Conventions: `frames.md` names `TargetDetections` among a capture's values,

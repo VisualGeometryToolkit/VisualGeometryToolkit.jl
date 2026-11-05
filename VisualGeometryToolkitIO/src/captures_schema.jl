@@ -309,8 +309,7 @@ resolve in (`obs.targets`, their [`content_id`](@ref)s).
 function save(path::AbstractString, obs::TargetPoints2D{F}; provenance::NamedTuple = (;)) where {F <: PixelFrame}
     frames = map(sort!(collect(keys(obs)))) do t
         points = map(obs[t]) do o
-            xy = geom(o.xy)
-            p = (target = String(o.target), index = o.index, xy = [xy[1], xy[2]], weight = o.weight)
+            p = (target = String(o.target), index = o.index, xy = _pixel_json(geom(o.xy)), weight = o.weight)
             o.xy isa Uncertain ? merge(p, (covariance = _cov_json(cov(o.xy)),)) : p   # px²: no length
         end
         merge(_stamps_json(obs, t), (points = points,))
@@ -326,9 +325,30 @@ function save(path::AbstractString, obs::TargetPoints2D{F}; provenance::NamedTup
     return nothing
 end
 
-function _pixel_from_json(o)
-    xy = SVector{2, Float64}(Float64(o.xy[1]::Real), Float64(o.xy[2]::Real))
-    return haskey(o, :covariance) ? Uncertain(xy, CovMat(_cov_matrix(o.covariance::Vector{Any}, 2))) : xy
+# A pixel on the wire, as stored (px², never converted): its two numbers, and
+# its 2×2 covariance where the value is `Uncertain` (`nothing` where not).
+_pixel_json(xy) = Float64[xy[1], xy[2]]
+function _pixel_from_json(xy, covariance)
+    p = SVector{2, Float64}(Float64(xy[1]::Real), Float64(xy[2]::Real))
+    return covariance === nothing ? p : Uncertain(p, CovMat(_cov_matrix(covariance::Vector{Any}, 2)))
+end
+
+# The parsed, checked record as the value (`load(TargetPoints2D, path)`'s, and
+# `load(TargetDetections, path)`'s conversion of it).
+function _target_points2d(d)
+    frames = Dict{Int, Vector{TargetPoint2D}}()
+    images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()
+    for f in d.frames::Vector{Any}
+        t = Int(f.t::Integer)
+        _read_stamps!(images, sensors, times, f, t)
+        frames[t] = TargetPoint2D[
+            (target = Symbol(o.target::String), index = Int(o.index::Integer), xy = _pixel_from_json(o.xy, get(o, :covariance, nothing)), weight = Float64(o.weight::Real))
+                for o in f.points::Vector{Any}
+        ]
+    end
+    return TargetPoints2D{pixel_frame_from_name(d.pixel_frame::String)}(
+        frames; images, sensors, times, time_origin = _time_origin(d), targets = String[h::String for h in d.targets::Vector{Any}],
+    )
 end
 
 """
@@ -355,20 +375,7 @@ function load(::Type{TargetPoints2D}, path::AbstractString; target::Union{Nothin
         return _load_schoeps_dataset(path, target)
     end
     target === nothing || throw(ArgumentError("$(path): `target` is for a Schöps dataset.bin; a vgio file names its targets"))
-    d = _read_store(path, "target_points2d", _TARGET_POINTS2D_SPEC)
-    frames = Dict{Int, Vector{TargetPoint2D}}()
-    images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()
-    for f in d.frames::Vector{Any}
-        t = Int(f.t::Integer)
-        _read_stamps!(images, sensors, times, f, t)
-        frames[t] = TargetPoint2D[
-            (target = Symbol(o.target::String), index = Int(o.index::Integer), xy = _pixel_from_json(o), weight = Float64(o.weight::Real))
-                for o in f.points::Vector{Any}
-        ]
-    end
-    return TargetPoints2D{pixel_frame_from_name(d.pixel_frame::String)}(
-        frames; images, sensors, times, time_origin = _time_origin(d), targets = String[h::String for h in d.targets::Vector{Any}],
-    )
+    return _target_points2d(_read_store(path, "target_points2d", _TARGET_POINTS2D_SPEC))
 end
 
 # =============================================================================
@@ -416,7 +423,7 @@ function save(path::AbstractString, obs::TargetPoints3D{F}; length_unit::Units =
         points = map(obs[t]) do o
             xyz = _lengths_json(geom(o.xyz), length_unit, "save: a 3D target point")
             r = (target = String(o.target), index = o.index, xyz = xyz)
-            o.xyz isa Uncertain ? merge(r, (covariance = _length_cov_json(cov(o.xyz), length_unit, _point_cov_dims(3)),)) : r
+            o.xyz isa Uncertain ? merge(r, (covariance = _point3_cov_json(cov(o.xyz), length_unit),)) : r
         end
         merge(_stamps_json(obs, t), (points = points,))
     end
@@ -432,12 +439,32 @@ function save(path::AbstractString, obs::TargetPoints3D{F}; length_unit::Units =
     return nothing
 end
 
-# One wire point as lengths in metres (its covariance in m²), read in the file's unit.
-function _point3_from_json(o, unit::Units)
-    p = _lengths_from_json(Val(3), o.xyz::Vector{Any}, unit)
-    xyz = haskey(o, :covariance) ?
-        Uncertain(p, CovMat(_length_cov_from_json(o.covariance::Vector{Any}, 3, unit, _point_cov_dims(3)))) : p
-    return (target = Symbol(o.target::String), index = Int(o.index::Integer), xyz = xyz)
+# A 3D point's covariance on the wire, in the file's unit squared; and a wire
+# point read back as lengths in metres (its covariance, where stated — `nothing`
+# where not — in m²), in the file's unit.
+_point3_cov_json(Σ, u::Units) = _length_cov_json(Σ, u, _point_cov_dims(3))
+function _point3_from_json(xyz, covariance, unit::Units)
+    p = _lengths_from_json(Val(3), xyz::Vector{Any}, unit)
+    return covariance === nothing ? p : Uncertain(p, CovMat(_length_cov_from_json(covariance::Vector{Any}, 3, unit, _point_cov_dims(3))))
+end
+
+# The parsed, checked record as the value (as `_target_points2d`).
+function _target_points3d(d)
+    unit = parse_unit(d.length_unit::String)
+    frames = Dict{Int, Vector{TargetPoint3D}}()
+    images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()
+    for f in d.frames::Vector{Any}
+        t = Int(f.t::Integer)
+        _read_stamps!(images, sensors, times, f, t)
+        frames[t] = TargetPoint3D[
+            (target = Symbol(o.target::String), index = Int(o.index::Integer), xyz = _point3_from_json(o.xyz, get(o, :covariance, nothing), unit))
+                for o in f.points::Vector{Any}
+        ]
+    end
+    return TargetPoints3D{frame_from_name(d.frame::String)}(
+        frames; images, sensors, times, time_origin = _time_origin(d),
+        targets = haskey(d, :targets) ? String[h::String for h in d.targets::Vector{Any}] : String[],
+    )
 end
 
 """
@@ -446,21 +473,7 @@ end
 Read a `vgio/target_points3d/v1` file: the measurements in the frame `F` it
 declares, lengths in metres (`Uncertain` where it states a covariance, in m²).
 """
-function load(::Type{TargetPoints3D}, path::AbstractString)
-    d = _read_store(path, "target_points3d", _TARGET_POINTS3D_SPEC)
-    unit = parse_unit(d.length_unit::String)
-    frames = Dict{Int, Vector{TargetPoint3D}}()
-    images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()
-    for f in d.frames::Vector{Any}
-        t = Int(f.t::Integer)
-        _read_stamps!(images, sensors, times, f, t)
-        frames[t] = TargetPoint3D[_point3_from_json(o, unit) for o in f.points::Vector{Any}]
-    end
-    return TargetPoints3D{frame_from_name(d.frame::String)}(
-        frames; images, sensors, times, time_origin = _time_origin(d),
-        targets = haskey(d, :targets) ? String[h::String for h in d.targets::Vector{Any}] : String[],
-    )
-end
+load(::Type{TargetPoints3D}, path::AbstractString) = _target_points3d(_read_store(path, "target_points3d", _TARGET_POINTS3D_SPEC))
 
 # =============================================================================
 # target_detections/v1 ↔ TargetDetections
@@ -529,19 +542,19 @@ _detections_frame_json(::Type{F}, u::Units) where {F} = (length_unit = unit_stri
 
 # A point and its covariance on the wire: a pixel as it is (px², never
 # converted), a 3D point's lengths in `u` (plain refused) and its covariance in u².
-_detection_point_json(::Type{<:PixelFrame}, p, ::Units) = Float64[p[1], p[2]]
+_detection_point_json(::Type{<:PixelFrame}, p, ::Units) = _pixel_json(p)
 _detection_point_json(::Type, p, u::Units) = _lengths_json(p, u, "save: a 3D target detection")
 _detection_cov_json(::Type{<:PixelFrame}, Σ, ::Units) = _cov_json(Σ)
-_detection_cov_json(::Type, Σ, u::Units) = _length_cov_json(Σ, u, _point_cov_dims(3))
+_detection_cov_json(::Type, Σ, u::Units) = _point3_cov_json(Σ, u)
 
 function _detection_json(::Type{F}, id::Symbol, cs::Csponds, u::Units) where {F}
     pts = targets(cs)
     r = (target = String(id), index = collect(Int, sources(cs)), points = [_detection_point_json(F, geom(p), u) for p in pts])
     eltype(pts) <: Uncertain && (r = merge(r, (covariance = [_detection_cov_json(F, cov(p), u) for p in pts],)))
-    cols = getfield(cs, :attrs)
-    for k in keys(cols)
-        k === :weights || throw(ArgumentError("save: a target_detections file holds one attribute column, `weights`; target $(id) carries `$(k)`"))
-    end
+    cols = cs.attrs
+    keys(cols) ⊆ (:weights,) || throw(
+        ArgumentError("save: a target_detections file holds one attribute column, `weights`; target $(id) carries `$(first(k for k in keys(cols) if k !== :weights))`")
+    )
     return haskey(cols, :weights) ? merge(r, (weights = Float64[w for w in cols.weights],)) : r
 end
 
@@ -575,18 +588,12 @@ end
 
 # One wire record as a detection set: indices => points (pixels as stored, 3D
 # lengths in metres read in `unit`), `Uncertain` where it states covariances.
+_detection_from_json(p, covariance, ::Nothing) = _pixel_from_json(p, covariance)
+_detection_from_json(p, covariance, unit::Units) = _point3_from_json(p, covariance, unit)
 function _detections_from_json(r, unit::Union{Nothing, Units})
     idx = Int[Int(i::Integer) for i in r.index::Vector{Any}]
-    pts = unit === nothing ?
-        [SVector{2, Float64}(Float64(p[1]::Real), Float64(p[2]::Real)) for p in r.points::Vector{Any}] :
-        [_lengths_from_json(Val(3), p::Vector{Any}, unit) for p in r.points::Vector{Any}]
-    if haskey(r, :covariance)
-        covs = r.covariance::Vector{Any}
-        pts = [
-            Uncertain(p, CovMat(unit === nothing ? _cov_matrix(c::Vector{Any}, 2) : _length_cov_from_json(c::Vector{Any}, 3, unit, _point_cov_dims(3))))
-                for (p, c) in zip(pts, covs)
-        ]
-    end
+    covs = haskey(r, :covariance) ? r.covariance::Vector{Any} : nothing
+    pts = [_detection_from_json(p, covs === nothing ? nothing : covs[i], unit) for (i, p) in enumerate(r.points::Vector{Any})]
     cs = Csponds(idx, pts)
     return haskey(r, :weights) ? withattrs(cs; weights = Float64[Float64(w::Real) for w in r.weights::Vector{Any}]) : cs
 end
@@ -603,10 +610,13 @@ read too, converted (`TargetDetections(load(TargetPoints2D, path))`): every
 published file of those kinds keeps loading as the current value.
 """
 function load(::Type{TargetDetections}, path::AbstractString)
-    k = _split_schema(_try_schema(path))
-    k !== nothing && k.kind == "target_points2d" && return TargetDetections(load(TargetPoints2D, path))
-    k !== nothing && k.kind == "target_points3d" && return TargetDetections(load(TargetPoints3D, path))
-    d = _read_store(path, "target_detections", _TARGET_DETECTIONS_SPEC)
+    d = _read_vgio_json(path)   # parsed once; its `schema` says which kind it is read as
+    k = d isa AbstractDict ? _split_schema(get(d, :schema, nothing)) : nothing
+    k !== nothing && k.kind == "target_points2d" &&
+        return TargetDetections(_target_points2d(_checked_store(d, path, "target_points2d", _TARGET_POINTS2D_SPEC)))
+    k !== nothing && k.kind == "target_points3d" &&
+        return TargetDetections(_target_points3d(_checked_store(d, path, "target_points3d", _TARGET_POINTS3D_SPEC)))
+    d = _checked_store(d, path, "target_detections", _TARGET_DETECTIONS_SPEC)
     unit = haskey(d, :pixel_frame) ? nothing : parse_unit(d.length_unit::String)
     frames = Dict{Int, Dict{Symbol, Any}}()
     images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()

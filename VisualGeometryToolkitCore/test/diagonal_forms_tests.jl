@@ -6,6 +6,7 @@
 @testitem "diagonal statistical forms" begin
     using Test
     using StaticArrays: SVector, SMatrix, SDiagonal, @SMatrix
+    import VisualGeometryToolkitCore
     using LinearAlgebra: cholesky, Diagonal
     import Rotations
     using VisualGeometryToolkitCore: CovMat, PrecMat, DiagonalCovMat, DiagonalPrecMat, IsotropicCovMat, IsotropicPrecMat, FullCovMat,
@@ -64,6 +65,19 @@
         @test cov(with_unit(FlexUnits.ustrip(mm, X), mm)) ≈ Σ
         Xi = Uncertain(geom(X), CovMat(ScaledIdentity{6}(1.0e-6)))
         @test getfield(FlexUnits.ustrip(mm, Xi), :attributes) isa DiagonalCovMat{6, Float64}   # angles and lengths scale apart
+    end
+
+    @testset "a detection set keeps its covariances' storage; mixed in the coarser one" begin
+        P = VisualGeometryToolkitCore.PixelFrame{:colmap}
+        u(Σ) = Uncertain(SVector(1.0, 2.0), Σ)
+        set(pts) = VisualGeometryToolkitCore.TargetDetections{P}(Dict(1 => Dict(:b => VisualGeometryToolkitCore.csponds(collect(1:length(pts)), pts)));
+            sensors = "cam", images = Dict(1 => "a.png"))
+        storage(td) = typeof(parent(cov(td[1][:b][1].second)))
+        @test storage(set([u(S), u(S)])) <: ScaledIdentity
+        @test storage(set([u(D), u(D)])) <: Diagonal
+        @test storage(set([u(S), u(D)])) <: Diagonal                     # mixed: the coarser storage, one concrete type
+        @test storage(set([u(S), u(F)])) <: SMatrix
+        @test_throws ArgumentError set([u(S), SVector(3.0, 4.0)])         # plain and Uncertain still refused
     end
 
     @testset "ScaledIdentity" begin

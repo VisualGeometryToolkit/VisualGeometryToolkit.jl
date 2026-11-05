@@ -1,5 +1,5 @@
 # =============================================================================
-# vgio/rig/v7 and vgio/target/v4 — VGC's `Rig` in every storage (sensors,
+# vgio/rig/v8 and vgio/target/v5 — VGC's `Rig` in every storage (sensors,
 # targets, both) and VGC's target model, serialized
 # =============================================================================
 #
@@ -382,8 +382,8 @@ struct _Chart end
 const _CHART = _Chart()
 const _CalUnit = Union{_LeafUnit, _Chart}
 _metres_json(x::Real, ::_Chart) = Float64(x)
-_length_cov_json(Σ::AbstractMatrix, ::_Chart, dims) = _cov_rows((x, n) -> x, Σ, dims)
-_length_cov_from_json(c, n::Int, ::_Chart, dims) = SMatrix{n, n, Float64}(ntuple(k -> Float64(c[(k - 1) % n + 1][(k - 1) ÷ n + 1]::Real), n * n))
+_length_cov_json(Σ::AbstractMatrix, ::_Chart, dims) = _cov_wire((x, n) -> x, Σ, dims)
+_length_cov_from_json(c, n::Int, ::_Chart, dims) = _cov_from_wire((x, k) -> Float64(x), c, n, dims)
 _nodes_json(c, u::_CalUnit) = [[_metres_json(p[1], u), _metres_json(p[2], u)] for p in c.system.nodes]
 
 const _FactorKind = Union{EuclideanMap{2}, Scale, Aspect{2}, Skew{2}}
@@ -508,7 +508,7 @@ function _target_calibration_from_json(x, u::_ReadUnit)
     c = _bare_calibration_from_json(x, u)
     haskey(x, :covariance) || return c
     dims = length_mask(c)
-    return Uncertain(c, CovMat(_length_cov_from_json(x.covariance::Vector{Any}, length(dims), u, dims)))
+    return Uncertain(c, CovMat(_length_cov_from_json(x.covariance, length(dims), u, dims)))
 end
 # the calibration without its covariance: a kind, or a composition, its flat
 # members folded right (`a ∘ (b ∘ c)`, VGC's one association)
@@ -655,10 +655,10 @@ function target_from_json(t, unit::AbstractString; resolve = nothing)
 end
 
 # -----------------------------------------------------------------------------
-# vgio/target/v4 ↔ one target (AbstractTarget, or one Attributed with its calibration record)
+# vgio/target/v5 ↔ one target (AbstractTarget, or one Attributed with its calibration record)
 # -----------------------------------------------------------------------------
 #
-# {"schema": "vgio/target/v4", "length_unit": "mm", "target": {target body},
+# {"schema": "vgio/target/v5", "length_unit": "mm", "target": {target body},
 #  "calibration_record": {…}}             (optional: who calibrated it — the cameras' block's keys)
 
 const _TARGET_SPEC = _Obj(
@@ -740,10 +740,10 @@ function load(::Type{AbstractTarget}, path::AbstractString; resolve = nothing)
 end
 
 # -----------------------------------------------------------------------------
-# vgio/rig/v7 ↔ Rig, every storage
+# vgio/rig/v8 ↔ Rig, every storage
 # -----------------------------------------------------------------------------
 #
-# {"schema": "vgio/rig/v7", "pixel_frame": "colmap", <pose declarations>, "frame": "body:camera_rig",
+# {"schema": "vgio/rig/v8", "pixel_frame": "colmap", <pose declarations>, "frame": "body:camera_rig",
 #  "sensors": [{"id": "cam1", "camera": {camera body | generic body},
 #               "extrinsics": {rotation, translation}}],               extrinsics: `frame` → view:<id>
 #  "targets": [{"id": "<uid>", "target": {target body},

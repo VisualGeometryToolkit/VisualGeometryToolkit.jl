@@ -20,7 +20,8 @@
   change gives an isotropic form's diagonal. `CovMat{N}(σ = s)` is now isotropic and `CovMat{N}(σ = (s₁, …))` diagonal
   (they were full); the entry constructors (`CovMat{N, T}(…)`, `CovMat(::SMatrix)`) give the full form as before.
   Aliases `FullCovMat`, `DiagonalCovMat`, `IsotropicCovMat` (and `…PrecMat`); `UncertainPixel` and `UncertainPoint3`
-  hold the full form. Migration: a spelled-out `CovMat{2, Float64, 4, F}` is `CovMat{2, Float64, SMatrix{2, 2, Float64,
+  hold the full form. A `TargetDetections` set keeps the storage its points' covariances hold (it densified them), a set
+  of mixed storage in the coarser one. Migration: a spelled-out `CovMat{2, Float64, 4, F}` is `CovMat{2, Float64, SMatrix{2, 2, Float64,
   4}, F}`, and `CovMat{N, T, N * N}(data)` is `CovMat{N, T}(data)`.
 - **`ScaledIdentity{N, T}`** (exported): the static `N × N` matrix `λ·I`, stored as `λ` — the sized counterpart of
   `UniformScaling`, beside `SDiagonal` and `SMatrix`; isotropic (a rotation leaves it unchanged), isbits.

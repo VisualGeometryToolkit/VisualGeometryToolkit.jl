@@ -1,0 +1,85 @@
+{
+    "schema": "vgio/target_points3d/v1",
+    "length_unit": "mm",
+    "frame": "world",
+    "point_index_base": 1,
+    "time_origin": "2026-05-27T00:00:00",
+    "frames": [
+        {
+            "t": 1,
+            "image": "DSC1.JPG",
+            "sensor": "mocap",
+            "time": 10.0,
+            "points": [
+                {
+                    "target": "board_rig",
+                    "index": 1,
+                    "xyz": [
+                        1140.24,
+                        327.55,
+                        1614.39
+                    ]
+                },
+                {
+                    "target": "camera_rig",
+                    "index": 3,
+                    "xyz": [
+                        2113.1,
+                        -0.0,
+                        -1319.0
+                    ],
+                    "covariance": [
+                        [
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    ]
+                }
+            ]
+        },
+        {
+            "t": 2,
+            "sensor": "mocap",
+            "time": 10.5,
+            "points": [
+                {
+                    "target": "board_rig",
+                    "index": 2,
+                    "xyz": [
+                        0.001,
+                        2.0,
+                        300000.0
+                    ],
+                    "covariance": [
+                        [
+                            0.25,
+                            0.01,
+                            0.0
+                        ],
+                        [
+                            0.01,
+                            0.16,
+                            -0.002
+                        ],
+                        [
+                            0.0,
+                            -0.002,
+                            0.0123
+                        ]
+                    ]
+                }
+            ]
+        }
+    ]
+}

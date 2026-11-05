@@ -27,10 +27,21 @@ rigid transform), stores uncertainty exactly as the in-memory type states it:
   calibration, a fitted pose) carries `Uncertain` values. A writer that has a
   covariance and drops it is a bug.
 
-### One encoding
+### One encoding per storage
 
-The `covariance` is a `d×d` array of rows (`d` arrays of `d` numbers), symmetric, in
-the primitive's own tangent order and units:
+The `covariance` states the storage the value's [`CovMat`](@ref) holds, so it
+round-trips as that storage:
+
+| In memory (`parent(Σ)`) | On disk |
+|---|---|
+| `SMatrix` (full) | a `d×d` array of rows (`d` arrays of `d` numbers), symmetric |
+| `SDiagonal` (diagonal) | `{"diagonal": [d numbers]}` |
+| [`ScaledIdentity`](@ref) (isotropic, `λ·I`) | `{"isotropic": λ}` |
+
+An isotropic covariance over entries of different length dimensions (a pose's
+angles and lengths) has no single number in the file's units, so it is written,
+and read back, as its diagonal. The storage is told from the JSON's shape, never
+from the numbers. Every form is in the primitive's own tangent order and units:
 
 - **Points:** `(x, y)` or `(x, y, z)`, in the file's unit squared. That is px² in a
   file that declares a `pixel_frame`, and the declared `length_unit` squared

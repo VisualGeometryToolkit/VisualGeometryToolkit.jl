@@ -1,5 +1,16 @@
 # VisualGeometryToolkitIO changelog
 
+## Unreleased
+
+- **The covariance storage (new versions).** A covariance is written in the storage its value's `CovMat` holds — rows
+  (full, as before), `{"diagonal": […]}` or `{"isotropic": λ}` — and read back as that storage; an isotropic one over a
+  pose's angles and lengths is written as its diagonal. Every kind that carries a covariance moved up a version:
+  `target_detections` v2, `target_points2d` v2, `target_points3d` v2, `target_poses` v2, `trajectory` v4, `transforms`
+  v4, `target` v5, `rig` v8. An earlier file reads through its version step (its covariances are rows; only the schema
+  is renamed) and `vgio_migrate` rewrites it; a rig's identity does not change. Fixtures of each replaced version under
+  `test/fixtures/old/`.
+- Requires the VisualGeometryToolkitCore whose `CovMat{N, T, M, C}` holds a static matrix (`ScaledIdentity`).
+
 ## 0.5.3 (2026-11-05)
 
 - Requires VisualGeometryToolkitCore 0.5.7 (compat floor raised).

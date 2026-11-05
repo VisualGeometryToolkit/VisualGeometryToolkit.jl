@@ -34,7 +34,7 @@ end
             p = joinpath(dir, "t$(i)_$(u).json")
             save(p, t; length_unit = u)
             d = parse_json(read(p, String))
-            @test d.schema == "vgio/target/v4" && haskey(d.target, :layout) && !haskey(d.target, :nominal) && !haskey(d.target, :reference)
+            @test d.schema == "vgio/target/v5" && haskey(d.target, :layout) && !haskey(d.target, :nominal) && !haskey(d.target, :reference)
             back = load(AbstractTarget, p)
             @test back == t && layout(back) == layout(t)
             @test points(back) == points(t) && all(map(===, points(back), points(t)))   # bit for bit: the layout's lengths are decimal-exact
@@ -58,7 +58,7 @@ end
         rig(t) = Rig{BodyFrame{:board_rig}}(Dict(:grid => PosedTarget(t, X)))
         rp = joinpath(dir, "rig.json")
         save(rp, rig(lt))
-        @test parse_json(read(rp, String)).schema == "vgio/rig/v7"
+        @test parse_json(read(rp, String)).schema == "vgio/rig/v8"
         back = load(Rig, rp)
         @test layout(back[:grid].target) == april_grid() && back[:grid].target == lt
         @test content_id(rig(lt)) == content_id(rig(nt)) == content_id(rp)
@@ -107,9 +107,9 @@ end
     using VisualGeometryToolkitCore: AbstractTarget, Rig, Attributed
     units(name) = joinpath(@__DIR__, "fixtures", "units", name)
     mktempdir() do dir
-        for (name, old, new, T) in (("target_planar.json", "vgio/target/v3", "vgio/target/v4", AbstractTarget),
-                                    ("target_points.json", "vgio/target/v3", "vgio/target/v4", AbstractTarget),
-                                    ("rig_targets.json", "vgio/rig/v6", "vgio/rig/v7", Rig), ("rig.json", "vgio/rig/v6", "vgio/rig/v7", Rig))
+        for (name, old, new, T) in (("target_planar.json", "vgio/target/v3", "vgio/target/v5", AbstractTarget),
+                                    ("target_points.json", "vgio/target/v3", "vgio/target/v5", AbstractTarget),
+                                    ("rig_targets.json", "vgio/rig/v6", "vgio/rig/v8", Rig), ("rig.json", "vgio/rig/v6", "vgio/rig/v8", Rig))
             src = joinpath(dir, name)
             write(src, replace(read(units(name), String), "\"schema\": \"$(new)\"" => "\"schema\": \"$(old)\""))
             @test occursin(old, read(src, String))

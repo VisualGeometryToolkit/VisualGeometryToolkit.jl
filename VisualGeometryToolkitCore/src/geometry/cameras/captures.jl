@@ -238,9 +238,11 @@ with_unit(tp::TargetPoses, u::Units) = _map_poses(X -> with_unit(X, u), tp)
 """
     UncertainPixel = Uncertain{SVector{2, Float64}, CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, UnlabeledFrame{2}}}
 
-A measured pixel with its 2×2 covariance (px²), the full form: a container of
-them is one concrete type, and a diagonal or isotropic covariance converts to
-it on the way in (`convert`, `push!`).
+A measured pixel with its 2×2 covariance (px²), in the full form. A
+[`TargetDetections`](@ref) set keeps the storage its points' covariances hold
+(isotropic, diagonal or full; a set of mixed storage in the coarser one), so a
+detector's isotropic noise stays one number per point; a container typed with
+this alias converts a structured covariance to the full form on the way in.
 """
 const UncertainPixel = Uncertain{SVector{2, Float64}, CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, UnlabeledFrame{2}}}
 
@@ -275,11 +277,18 @@ point's covariance is in m², stored as given (never rescaled): supply it in m²
 """
 const TargetPoint3D = @NamedTuple{target::Symbol, index::Int, xyz::Union{SVector{3}, Uncertain{<:SVector{3}}}}
 
-_pixel(xy::Uncertain) = Uncertain(SVector{2, Float64}(geom(xy)), CovMat(SMatrix{2, 2, Float64, 4}(Statistics.cov(xy))))
+# the covariance in Float64 and the storage it holds (full, diagonal or isotropic), unlabeled
+_pixel(xy::Uncertain) = Uncertain(SVector{2, Float64}(geom(xy)), CovMat{2, Float64}(parent(Statistics.cov(xy))))
 _pixel(xy) = SVector{2, Float64}(xy)
 # the covariance as given: m² for a physical point (base units), never rescaled
-_point3(p::Uncertain) = Uncertain(_stored_point(Val(3), geom(p)), CovMat(SMatrix{3, 3, Float64, 9}(Statistics.cov(p))))
+_point3(p::Uncertain) = Uncertain(_stored_point(Val(3), geom(p)), CovMat{3, Float64}(parent(Statistics.cov(p))))
 _point3(p) = _stored_point(Val(3), p)
+# Uncertain points of different covariance storage, in the coarser one (`promote`): one concrete element type
+function _one_storage(pts::AbstractVector)
+    all(p -> p isa Uncertain, pts) || return pts
+    M = mapreduce(p -> typeof(getfield(p, :attributes)), promote_type, pts)
+    return [Uncertain(geom(p), convert(M, getfield(p, :attributes))) for p in pts]
+end
 
 function _target_point2d(o, t)
     hasproperty(o, :weight) || throw(
@@ -415,6 +424,7 @@ function _detection_set(::Val{D}, cs::AbstractVector{<:Pair}, t, id) where {D}
     all(>=(1), idx) || throw(ArgumentError("$(what): point indices are 1-based (≥ 1), got $(minimum(idx))"))
     allunique(idx) || throw(ArgumentError("$(what): a point index appears twice — a point is detected once per frame"))
     pts = [_detected_point(Val(D), p, what) for p in targets(cs)]
+    isconcretetype(eltype(pts)) || (pts = _one_storage(pts))   # mixed covariance storage: the coarser one
     if !isconcretetype(eltype(pts))
         _check_one_form(pts)   # a unit mix is FlexUnits' DimensionError
         throw(ArgumentError("$(what): plain and Uncertain detections mixed — one form per container"))

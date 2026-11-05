@@ -1,8 +1,8 @@
 # =============================================================================
-# vgio/transforms/v3 — named rigid transforms between typed frames
+# vgio/transforms/v4 — named rigid transforms between typed frames
 # =============================================================================
 #
-# {"schema": "vgio/transforms/v3",
+# {"schema": "vgio/transforms/v4",
 #  "length_unit": "mm",
 #  "rotation_encoding": "quaternion_wxyz_hamilton",
 #  "transform_convention": "x_to = R * x_from + t",
@@ -64,9 +64,9 @@ pose_declarations(unit::Units = mm) =
     (length_unit = unit_string(unit), rotation_encoding = _ROTATION_ENCODING, transform_convention = _TRANSFORM_CONVENTION)
 _pose_declarations(unit::AbstractString) = pose_declarations(parse_unit(unit))
 
-# A covariance with no length in it (px², or a ratio) as the wire's rows, and back.
-_cov_json(Σ::StaticMatrix) = [Float64[Σ[i, j] for j in axes(Σ, 2)] for i in axes(Σ, 1)]
-_cov_matrix(c, n::Int) = SMatrix{n, n, Float64}(ntuple(k -> Float64(c[(k - 1) % n + 1][(k - 1) ÷ n + 1]::Real), n * n))
+# A covariance with no length in it (px², or a ratio) on the wire, in the storage it holds, and back.
+_cov_json(Σ::StaticMatrix) = _cov_wire((x, n) -> x, Σ, ntuple(_ -> 0, size(Σ, 1)))
+_cov_matrix(c, n::Int) = _cov_from_wire((x, k) -> Float64(x), c, n, ntuple(_ -> 0, n))
 
 # The plain and uncertain rigid maps, any labels.
 const _AnyPose = Union{EuclideanMap{3}, Uncertain{<:EuclideanMap{3}}}
@@ -93,7 +93,7 @@ function pose_json(X::EuclideanMap{3}, unit::_LeafUnit = mm)
 end
 function pose_json(u::Uncertain{<:EuclideanMap{3}}, unit::_LeafUnit = mm)
     body = pose_json(geom(u), unit)
-    return merge(body, (covariance = _length_cov_json(SMatrix{6, 6, Float64, 36}(cov(u)), unit, _POSE_COV_DIMS),))
+    return merge(body, (covariance = _length_cov_json(cov(u), unit, _POSE_COV_DIMS),))   # in the storage it holds
 end
 
 """
@@ -116,7 +116,7 @@ function pose_from_json(p, unit::AbstractString)
     u = parse_unit(unit)
     X = _quat_map(canonical_qvec(q), _lengths_from_json(Val(3), p.translation::Vector{Any}, u))
     haskey(p, :covariance) || return X
-    return Uncertain(X, CovMat(_length_cov_from_json(p.covariance::Vector{Any}, 6, u, _POSE_COV_DIMS)))
+    return Uncertain(X, CovMat(_length_cov_from_json(p.covariance, 6, u, _POSE_COV_DIMS)))
 end
 
 # A labeled pose's frame names, from its labels.

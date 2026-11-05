@@ -887,6 +887,29 @@ migrate_schema(::Val{Symbol("vgio/rig/v4")}, t::AbstractDict) = (foreach(x -> _c
 migrate_schema(::Val{Symbol("vgio/rig/v5")}, t::AbstractDict) = _rig_v5_to_v6(t)
 migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, t::AbstractDict) = _generic_camera_v2_to_v3(t)
 
+# The covariance storage (2026-11): a covariance is written in the storage its
+# value holds (VisualGeometryToolkitCore's CovMat: an SMatrix, SDiagonal or
+# ScaledIdentity) — rows, `{"diagonal": […]}` or `{"isotropic": λ}` — so the
+# kinds that carry one move up a version, and an earlier file, whose every
+# covariance is rows, is a file of the next version as it stands. No number
+# moves. (target_detections v1 → v2, target_points2d / target_points3d v1 → v2,
+# target_poses v1 → v2, trajectory v3 → v4, transforms v3 → v4, target v4 → v5,
+# rig v7 → v8.)
+const _COVARIANCE_STORAGE_VERSIONS = (
+    "vgio/target_detections/v1" => "vgio/target_detections/v2",
+    "vgio/target_points2d/v1" => "vgio/target_points2d/v2",
+    "vgio/target_points3d/v1" => "vgio/target_points3d/v2",
+    "vgio/target_poses/v1" => "vgio/target_poses/v2",
+    "vgio/trajectory/v3" => "vgio/trajectory/v4",
+    "vgio/transforms/v3" => "vgio/transforms/v4",
+    "vgio/target/v4" => "vgio/target/v5",
+    "vgio/rig/v7" => "vgio/rig/v8",
+)
+_with_schema(t::AbstractDict, s::AbstractString) = (n = Dict{String, Any}(t); n["schema"] = s; n)
+for (from, to) in _COVARIANCE_STORAGE_VERSIONS
+    @eval migrate_schema(::Val{Symbol($from)}, t::AbstractDict) = _with_schema(t, $to)
+end
+
 # vgio/generic_camera/v2 → v3 (the present nodes, 2026-11): a v2 model held
 # every node of its lattice, row-major; v3 lists the held nodes as runs per
 # lattice row (`present`) and its grids over them, and a record without
@@ -915,6 +938,20 @@ migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, src::AbstractString, dst
 migrate_schema(::Val{Symbol("vgio/rig/v4")}, src::AbstractString, dst::AbstractString) = _migrate_rig("vgio/rig/v4", src, dst)
 migrate_schema(::Val{Symbol("vgio/rig/v5")}, src::AbstractString, dst::AbstractString) = _migrate_rig("vgio/rig/v5", src, dst)
 migrate_schema(::Val{Symbol("vgio/rig/v6")}, src::AbstractString, dst::AbstractString) = _migrate_rig("vgio/rig/v6", src, dst)
+migrate_schema(::Val{Symbol("vgio/rig/v7")}, src::AbstractString, dst::AbstractString) = _migrate_rig("vgio/rig/v7", src, dst)
+migrate_schema(::Val{Symbol("vgio/target/v4")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
+# the measurement and pose kinds of the covariance-storage step: rewritten through their value
+for (s, T, kind, what) in (
+        ("vgio/target_detections/v1", TargetDetections, "target_detections", "the target detections"),
+        ("vgio/target_points2d/v1", TargetPoints2D, "target_points2d", "the target points (2D)"),
+        ("vgio/target_points3d/v1", TargetPoints3D, "target_points3d", "the target points (3D)"),
+        ("vgio/target_poses/v1", TargetPoses, "target_poses", "the target poses"),
+        ("vgio/trajectory/v3", Trajectory, "trajectory", "the trajectory"),
+        ("vgio/transforms/v3", Vector{EuclideanMap}, "transforms", "the transforms"),
+    )
+    @eval migrate_schema(::Val{Symbol($s)}, src::AbstractString, dst::AbstractString) =
+        (_migrate_file($T, src, dst, $what); (; to = _schema($kind)))
+end
 function _migrate_rig(s, src, dst)
     value = _migrate_file(Rig, src, dst, "the rig record")
     new_id = content_id(dst)
@@ -935,8 +972,8 @@ function _old_rig_ids(s, old, value, new_id)
         return unique!([_rig_v4_id(old), _rig_v4_id_mm(value, old)])
     elseif s == "vgio/rig/v5"
         return [_v5_id(old, value, new_id)]
-    elseif s == "vgio/rig/v6"
-        return [new_id]   # a v6 rig's identity is the current one (the v7 step moves no number)
+    elseif s == "vgio/rig/v6" || s == "vgio/rig/v7"
+        return [new_id]   # a v6 or v7 rig's identity is the current one (the v7 and v8 steps move no number)
     else
         throw(ArgumentError("the identities a $(s) rig was named by are not known: a rig version's step that migrates it states them here"))
     end
@@ -1077,6 +1114,8 @@ end
 const _MEASUREMENT_KINDS = Dict(
     "vgio/target_points2d/v1" => TargetPoints2D, "vgio/target_points3d/v1" => TargetPoints3D,
     "vgio/target_detections/v1" => TargetDetections,
+    "vgio/target_points2d/v2" => TargetPoints2D, "vgio/target_points3d/v2" => TargetPoints3D,
+    "vgio/target_detections/v2" => TargetDetections,
 )
 
 # Every measurement of a value as (frame, target, point index).

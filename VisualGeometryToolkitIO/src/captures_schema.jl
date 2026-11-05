@@ -26,31 +26,31 @@
 # `content_id`); a trajectory is the pose of a body (`body:<id>`, a view, a
 # target) in one frame.
 #
-# {"schema": "vgio/trajectory/v3", <pose declarations>, "from": "body:board_rig", "to": "world",
+# {"schema": "vgio/trajectory/v4", <pose declarations>, "from": "body:board_rig", "to": "world",
 #  "time_origin": "2026-05-27T00:00:00",
 #  "frames": [{"t": 17, "image": "DSC04520.JPG", "time": 47058.40,
 #              "pose": {rotation, translation[, covariance]}, "recovered": true}]}
 #      every pose maps `from` → `to`; `recovered` (written only when true) marks
 #      a pose substituted under a stated method rather than measured
 #
-# {"schema": "vgio/target_poses/v1", <pose declarations>, "to": "camera_optical",
+# {"schema": "vgio/target_poses/v2", <pose declarations>, "to": "camera_optical",
 #  "frames": [{"t": 1, "image": "DSC04520.JPG", "sensor": "<camera name>", "time": 12.5,
 #              "poses": [{"target": "89b", "rotation": […], "translation": […], "covariance": …}]}]}
 #      each pose maps target:<target> → `to`: a detector's object → camera pose
 #
-# {"schema": "vgio/target_points2d/v1", "pixel_frame": "colmap", "point_index_base": 1,
+# {"schema": "vgio/target_points2d/v2", "pixel_frame": "colmap", "point_index_base": 1,
 #  "targets": ["<content id of a targets file>", …],
 #  "frames": [{"t": 17, "image": "DSC0017.png", "sensor": "cam1", "time": …,
 #              "points": [{"target": "<uid>", "index": 5, "xy": [u, v], "weight": 1.0,
 #                          "covariance": [[…], […]]}]}]}
 #
-# {"schema": "vgio/target_points3d/v1", "length_unit": "mm", "frame": "world", "point_index_base": 1,
+# {"schema": "vgio/target_points3d/v2", "length_unit": "mm", "frame": "world", "point_index_base": 1,
 #  "targets": [ … ],                                                   (optional)
 #  "frames": [{"t": 17, "image": …, "sensor": "mocap", "time": …,
 #              "points": [{"target": "board_rig", "index": 3, "xyz": [x, y, z],
 #                          "covariance": [[…3], …3 rows]}]}]}
 #
-# {"schema": "vgio/target_detections/v1", "pixel_frame": "colmap", "point_index_base": 1,
+# {"schema": "vgio/target_detections/v2", "pixel_frame": "colmap", "point_index_base": 1,
 #  "targets": [ … ],                       (or "frame": "world", "length_unit": "mm"; targets optional)
 #  "frames": [{"t": 17, "image": …, "sensor": "cam1", "time": …,
 #              "detections": [{"target": "<uid>", "index": [1, 5], "points": [[u, v], [u, v]],
@@ -330,7 +330,7 @@ end
 _pixel_json(xy) = Float64[xy[1], xy[2]]
 function _pixel_from_json(xy, covariance)
     p = SVector{2, Float64}(Float64(xy[1]::Real), Float64(xy[2]::Real))
-    return covariance === nothing ? p : Uncertain(p, CovMat(_cov_matrix(covariance::Vector{Any}, 2)))
+    return covariance === nothing ? p : Uncertain(p, CovMat(_cov_matrix(covariance, 2)))
 end
 
 # The parsed, checked record as the value (`load(TargetPoints2D, path)`'s, and
@@ -445,7 +445,7 @@ end
 _point3_cov_json(Σ, u::Units) = _length_cov_json(Σ, u, _point_cov_dims(3))
 function _point3_from_json(xyz, covariance, unit::Units)
     p = _lengths_from_json(Val(3), xyz::Vector{Any}, unit)
-    return covariance === nothing ? p : Uncertain(p, CovMat(_length_cov_from_json(covariance::Vector{Any}, 3, unit, _point_cov_dims(3))))
+    return covariance === nothing ? p : Uncertain(p, CovMat(_length_cov_from_json(covariance, 3, unit, _point_cov_dims(3))))
 end
 
 # The parsed, checked record as the value (as `_target_points2d`).
@@ -592,7 +592,7 @@ _detection_from_json(p, covariance, ::Nothing) = _pixel_from_json(p, covariance)
 _detection_from_json(p, covariance, unit::Units) = _point3_from_json(p, covariance, unit)
 function _detections_from_json(r, unit::Union{Nothing, Units})
     idx = Int[Int(i::Integer) for i in r.index::Vector{Any}]
-    covs = haskey(r, :covariance) ? r.covariance::Vector{Any} : nothing
+    covs = haskey(r, :covariance) ? r.covariance : nothing
     pts = [_detection_from_json(p, covs === nothing ? nothing : covs[i], unit) for (i, p) in enumerate(r.points::Vector{Any})]
     cs = Csponds(idx, pts)
     return haskey(r, :weights) ? withattrs(cs; weights = Float64[Float64(w::Real) for w in r.weights::Vector{Any}]) : cs

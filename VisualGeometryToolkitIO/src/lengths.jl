@@ -253,10 +253,29 @@ _lengths_from_json(::Val{N}, v::AbstractVector, u::Units) where {N} =
 # calibration's `length_mask`) as the wire's rows in `u`, and back.
 # `_cov_rows` applies `f(entry, dimension)` to every entry, row by row.
 _cov_rows(f, Σ::AbstractMatrix, dims) = [Float64[f(Float64(Σ[i, j]), dims[i] + dims[j]) for j in axes(Σ, 2)] for i in axes(Σ, 1)]
-_length_cov_json(Σ::AbstractMatrix, u::_LeafUnit, dims) = _cov_rows((x, n) -> _leaf_power(x, u, n), Σ, dims)
-_length_cov_from_json(c, n::Int, u::Units, dims) = SMatrix{n, n, Float64}(
-    ntuple(k -> (i = (k - 1) % n + 1; j = (k - 1) ÷ n + 1; _read_power(c[i][j]::Real, u, dims[i] + dims[j])), n * n)
+
+# The wire form states the storage the covariance holds (VisualGeometryToolkitCore's
+# CovMat: an SMatrix, SDiagonal or ScaledIdentity): rows; `{"diagonal": [d]}`;
+# `{"isotropic": λ}`. An isotropic one over entries of different length
+# dimensions (a pose's angles and lengths) has no single number in the file's
+# units, so it is written as its diagonal. `f(entry, dimension)` per entry.
+_cov_wire(f, Σ::CovMat, dims) = _cov_wire(f, parent(Σ), dims)
+_cov_wire(f, Σ::AbstractMatrix, dims) = _cov_rows(f, Σ, dims)
+_cov_wire(f, D::Diagonal{<:Any, <:StaticVector}, dims) =
+    Dict{String, Any}("diagonal" => Float64[f(Float64(D.diag[i]), dims[i] + dims[i]) for i in eachindex(D.diag)])
+_cov_wire(f, S::ScaledIdentity, dims) = all(==(first(dims)), dims) ?
+    Dict{String, Any}("isotropic" => f(Float64(S.λ), first(dims) + first(dims))) : _cov_wire(f, Diagonal(S), dims)
+# … and back, `g(number, dimension)` per entry: the storage the wire form states.
+_cov_from_wire(g, c::AbstractVector, n::Int, dims) = SMatrix{n, n, Float64}(
+    ntuple(k -> (i = (k - 1) % n + 1; j = (k - 1) ÷ n + 1; g(c[i][j]::Real, dims[i] + dims[j])), n * n)
 )
+function _cov_from_wire(g, c::AbstractDict, n::Int, dims)
+    haskey(c, "diagonal") && return Diagonal(SVector{n, Float64}(ntuple(i -> g(c["diagonal"][i]::Real, dims[i] + dims[i]), n)))
+    haskey(c, "isotropic") && return ScaledIdentity{n}(Float64(g(c["isotropic"]::Real, first(dims) + first(dims))))
+    throw(ArgumentError("a covariance object is {\"diagonal\": […]} or {\"isotropic\": λ}, got the keys $(collect(keys(c)))"))
+end
+_length_cov_json(Σ::AbstractMatrix, u::_LeafUnit, dims) = _cov_wire((x, n) -> _leaf_power(x, u, n), Σ, dims)
+_length_cov_from_json(c, n::Int, u::Units, dims) = _cov_from_wire((x, k) -> _read_power(x, u, k), c, n, dims)
 # a pose's 6×6 over [δω; δt] (rotation first: rad, then the length), a point's d×d
 const _POSE_COV_DIMS = (0, 0, 0, 1, 1, 1)
 _point_cov_dims(n::Int) = ntuple(_ -> 1, n)

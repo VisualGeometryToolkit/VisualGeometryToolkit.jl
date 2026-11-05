@@ -55,7 +55,7 @@ end
         path = joinpath(dir, "rig.json")
         save(path, rig; provenance = (name = "test-rig",))
         d = parse_json(read(path, String))
-        @test d.schema == "vgio/rig/v7" && d.pixel_frame == "colmap" && d.length_unit == "mm"
+        @test d.schema == "vgio/rig/v8" && d.pixel_frame == "colmap" && d.length_unit == "mm"
         @test d.frame == "view:left" && d.provenance.name == "test-rig"
         @test !haskey(d, :targets)                                       # omitted, not empty
         # the extrinsics' frames are where they sit — never restated beside them
@@ -151,7 +151,7 @@ end
         path = joinpath(dir, "targets.json")
         save(path, tr)
         d = parse_json(read(path, String))
-        @test d.schema == "vgio/rig/v7" && !haskey(d, :pixel_frame) && !haskey(d, :sensors)   # pixel_frame iff sensors
+        @test d.schema == "vgio/rig/v8" && !haskey(d, :pixel_frame) && !haskey(d, :sensors)   # pixel_frame iff sensors
         @test [t.id for t in d.targets] == ["a1f2", "b76e", "c9"]      # ids sorted
         @test d.targets[1].target.type == "planar" && haskey(d.targets[1].target, :nominal)
         # a referenced design is written by its reference alone: its points are its owner's
@@ -248,7 +248,7 @@ end
         save(tp, markers)
         @test load(AbstractTarget, tp) == markers
         dt = parse_json(read(tp, String))
-        @test dt.schema == "vgio/target/v4" && !haskey(dt, :calibration_record)
+        @test dt.schema == "vgio/target/v5" && !haskey(dt, :calibration_record)
         @test_throws ArgumentError save(tp, Attributed(markers, (; calibration_record = (; date = "May 2026"))))
         # a posed target is not a target file: refused at save, naming the model and the rig writer, nothing written
         posed = PosedTarget(markers, ident)
@@ -309,10 +309,10 @@ end
     using VisualGeometryToolkitCore: Rig, TargetPoints2D, TargetPoints3D
     mktempdir() do dir
         for (schema, T, successor) in (
-                ("vgio/observations/v2", TargetPoints2D, "target_points2d/v1"),
-                ("vgio/point_observations/v1", TargetPoints3D, "target_points3d/v1"),
-                ("vgio/targets/v2", Rig, "rig/v7"),
-                ("vgio/rig/v3", Rig, "rig/v7"),
+                ("vgio/observations/v2", TargetPoints2D, "target_points2d/v2"),
+                ("vgio/point_observations/v1", TargetPoints3D, "target_points3d/v2"),
+                ("vgio/targets/v2", Rig, "rig/v8"),
+                ("vgio/rig/v3", Rig, "rig/v8"),
                 ("vgio/session/v3", Rig, "calibration pipeline's own session kind"),
             )
             p = joinpath(dir, "old.json")
@@ -362,7 +362,7 @@ end
         @test back.images == tr.images && back.times == tr.times && back.time_origin == tr.time_origin
         @test back.recovered == Set([3])
         d = parse_json(read(path, String))
-        @test d.schema == "vgio/trajectory/v3" && (d.from, d.to) == ("body:board_rig", "world")
+        @test d.schema == "vgio/trajectory/v4" && (d.from, d.to) == ("body:board_rig", "world")
         @test !haskey(d.frames[1], :recovered) && d.frames[2].recovered == true      # written only when true
         # read → write → read is exact
         p2 = joinpath(dir, "again.json")
@@ -375,7 +375,7 @@ end
     end
 end
 
-@testitem "target poses round trip (vgio/target_poses/v1)" setup = [VGIoFixtures] begin
+@testitem "target poses round trip (vgio/target_poses/v2)" setup = [VGIoFixtures] begin
     using LinearAlgebra: LinearAlgebra
     using VisualGeometryToolkitCore: TargetPoses, CameraFrame, TargetFrame, Uncertain, CovMat, pose
     using Rotations: RotXYZ
@@ -398,7 +398,7 @@ end
         U = pose(back, 4, Symbol("006"))
         @test U isa Uncertain && cov(U) == Σ
         d = parse_json(read(path, String))
-        @test d.schema == "vgio/target_poses/v1" && d.to == "camera_optical"
+        @test d.schema == "vgio/target_poses/v2" && d.to == "camera_optical"
         @test [p.target for p in d.frames[1].poses] == ["006", "b89"]           # ids sorted; an undetected target absent
         # read → write → read is exact
         p2 = joinpath(dir, "again.json")
@@ -410,7 +410,7 @@ end
     end
 end
 
-@testitem "target points 3D round trip (vgio/target_points3d/v1)" setup = [VGIoFixtures] begin
+@testitem "target points 3D round trip (vgio/target_points3d/v2)" setup = [VGIoFixtures] begin
     using LinearAlgebra: LinearAlgebra
     using VisualGeometryToolkitCore: TargetPoints3D, WorldFrame, Uncertain, CovMat, geom, exact
     using Statistics: cov
@@ -428,7 +428,7 @@ end
         @test back == obs
         @test back[1][1].xyz isa SVector && back[1][2].xyz isa Uncertain && iszero(cov(back[1][2].xyz))
         d = parse_json(read(path, String))
-        @test d.schema == "vgio/target_points3d/v1" && d.frame == "world" && !haskey(d, :targets)
+        @test d.schema == "vgio/target_points3d/v2" && d.frame == "world" && !haskey(d, :targets)
         @test !haskey(d.frames[1].points[1], :covariance) && haskey(d.frames[1].points[2], :covariance)
         # a file in metres reads into the same lengths, its covariance (m²) as it is
         dm = JSON.parse(read(path, String); dicttype = Dict{String, Any})
@@ -526,7 +526,7 @@ end
         # the file declares the frame the TYPE carries, and no pixel is converted
         save(path, obs)
         d = parse_json(read(path, String))
-        @test d.schema == "vgio/target_points2d/v1" && d.pixel_frame == "julia" && d.point_index_base == 1
+        @test d.schema == "vgio/target_points2d/v2" && d.pixel_frame == "julia" && d.point_index_base == 1
         @test d.frames[1].points[1].xy == [640.0, 480.0]
         @test d.targets == [content_id(targets)]
         @test d.frames[2].image == "DSC0003.png" && d.frames[2].sensor == "cam"

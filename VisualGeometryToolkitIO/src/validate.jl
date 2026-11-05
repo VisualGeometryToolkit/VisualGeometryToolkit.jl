@@ -202,10 +202,17 @@ const _POINT_INDEX_BASE = 1
 # `present` only when its model does not hold every node, so a rig file
 # written before reads as it did: this change moved no rig version (rig v7 is
 # the target layouts' above).
+#
+# The covariance storage (2026-11): every kind that carries a covariance writes
+# it in the storage its value holds — rows, {"diagonal": […]} or
+# {"isotropic": λ} (`_cov_spec`) — and moved up a version: rig v8, transforms
+# v4, trajectory v4, target v5, target_poses v2, target_points2d v2,
+# target_points3d v2, target_detections v2. An earlier file reads through its
+# version step unchanged (its covariances are rows).
 const _SCHEMA_VERSION = Dict(
-    "cameras" => 4, "rig" => 7, "transforms" => 3, "trajectory" => 3, "generic_camera" => 3,
-    "target" => 4, "target_poses" => 1, "target_points2d" => 1, "target_points3d" => 1,
-    "capture_settings" => 1, "target_detections" => 1,
+    "cameras" => 4, "rig" => 8, "transforms" => 4, "trajectory" => 4, "generic_camera" => 3,
+    "target" => 5, "target_poses" => 2, "target_points2d" => 2, "target_points3d" => 2,
+    "capture_settings" => 1, "target_detections" => 2,
 )
 _schema_version(kind) = get(_SCHEMA_VERSION, kind, 2)
 _schema(kind) = "vgio/$(kind)/v$(_schema_version(kind))"
@@ -222,14 +229,29 @@ const _PROVENANCE = Pair{Symbol, _Spec}[:provenance => _Free()]
 
 const _POSE = _Obj(:rotation => _Vec(_Real(), 4), :translation => _Vec(_Real(), 3))
 
-# A covariance on the wire (VisualGeometryToolkitCore conventions/persisted-geometry.md):
-# a d×d array of rows, finite and exactly symmetric, in the value's own tangent
-# order and the file's units. Present iff the value is `Uncertain`; all zeros
-# is `exact`. Positive semi-definiteness is not tested (zero is valid).
-_cov_spec(d::Int) = _Checked(
-    _Vec(_Vec(_Real(), d), d),
-    c -> all(c[i][j] == c[j][i] for i in 1:d, j in 1:d) ? nothing : "covariance must be symmetric",
-)
+# A covariance on the wire (VisualGeometryToolkitCore conventions/persisted-geometry.md),
+# in the value's own tangent order and the file's units, its shape the storage
+# the value holds: a d×d array of rows, finite and exactly symmetric (full);
+# `{"diagonal": [d numbers]}` (an SDiagonal); `{"isotropic": λ}` (λ·I, a
+# ScaledIdentity). Present iff the value is `Uncertain`; all zeros is `exact`.
+# Positive semi-definiteness is not tested (zero is valid).
+struct _Cov <: _Spec
+    d::Int
+end
+_cov_spec(d::Int) = _Cov(d)
+const _COV_ROWS = Dict{Int, _Spec}()
+function _validate(s::_Cov, x, file, at)
+    if x isa AbstractVector
+        rows = get!(() -> _Checked(_Vec(_Vec(_Real(), s.d), s.d),
+                c -> all(c[i][j] == c[j][i] for i in 1:s.d, j in 1:s.d) ? nothing : "covariance must be symmetric"), _COV_ROWS, s.d)
+        return _validate(rows, x, file, at)
+    end
+    x isa AbstractDict || _refuse(file, at, "a covariance is an array of rows, {\"diagonal\": […]} or {\"isotropic\": λ}")
+    return _validate(_Either(Pair{Symbol, _Spec}[
+        :diagonal => _Obj(:diagonal => _Vec(_Real(), s.d)),
+        :isotropic => _Obj(:isotropic => _Real()),
+    ]), x, file, at)
+end
 const _COV2 = _cov_spec(2)
 const _COV3 = _cov_spec(3)
 const _COV6 = _cov_spec(6)
@@ -251,8 +273,8 @@ const _XYZ = _Vec(_Real(), 3)
 # migration — each successor started at v1 under its new name (or moved out of
 # VGIo), and the producer re-exports.
 const _RETIRED_KINDS = Dict(
-    "vgio/observations/v2" => "vgio/target_points2d/v1", "vgio/point_observations/v1" => "vgio/target_points3d/v1",
-    "vgio/targets/v2" => "vgio/rig/v7", "vgio/rig/v3" => "vgio/rig/v7",
+    "vgio/observations/v2" => "vgio/target_points2d/v2", "vgio/point_observations/v1" => "vgio/target_points3d/v2",
+    "vgio/targets/v2" => "vgio/rig/v8", "vgio/rig/v3" => "vgio/rig/v8",
     "vgio/session/v3" => "the calibration pipeline's own session kind (a pipeline's checkpoint is the pipeline's, not VGIo's)",
 )
 
@@ -261,7 +283,9 @@ const _RETIRED_KINDS = Dict(
 # for each.
 const _MIGRATIONS_TO_CURRENT = Dict(
     "vgio/target/v1" => "target", "vgio/rig/v4" => "rig", "vgio/target/v2" => "target", "vgio/rig/v5" => "rig",
-    "vgio/target/v3" => "target", "vgio/rig/v6" => "rig",
+    "vgio/target/v3" => "target", "vgio/rig/v6" => "rig", "vgio/target/v4" => "target", "vgio/rig/v7" => "rig",
+    "vgio/target_detections/v1" => "file", "vgio/target_points2d/v1" => "file", "vgio/target_points3d/v1" => "file",
+    "vgio/target_poses/v1" => "file", "vgio/trajectory/v3" => "file", "vgio/transforms/v3" => "file",
     "vgio/cameras/v1" => "file", "vgio/cameras/v2" => "file", "vgio/cameras/v3" => "file",
     "vgio/generic_camera/v2" => "file",
 )

@@ -88,7 +88,8 @@ module VisualGeometryToolkitIO
 import VisualGeometryToolkitCore as VgtkCore
 
 using StaticArrays: SMatrix, SVector, StaticMatrix, StaticVector
-using LinearAlgebra: I, norm, normalize
+using LinearAlgebra: I, norm, normalize, Diagonal
+using VisualGeometryToolkitCore: ScaledIdentity   # an isotropic covariance's storage (λ·I): its wire form {"isotropic": λ}
 using Statistics: cov
 using Rotations: QuatRotation, RotMatrix, RotationVec, RotZ, Angle2d, params
 using JSON: JSON

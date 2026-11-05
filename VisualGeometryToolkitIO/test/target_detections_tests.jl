@@ -2,7 +2,7 @@
 # and Uncertain with weights; 3D points plain and Uncertain, in mm and in m),
 # the old measurement kinds read as TargetDetections, and the refusals.
 
-@testitem "target detections round trip (vgio/target_detections/v1)" setup = [VGIoFixtures] begin
+@testitem "target detections round trip (vgio/target_detections/v2)" setup = [VGIoFixtures] begin
     using LinearAlgebra: I
     using Statistics: cov
     using VisualGeometryToolkitCore: TargetDetections, TargetPoints2D, TargetPoints3D, WorldFrame, Uncertain, CovMat,
@@ -19,7 +19,7 @@
         )
         @test rt(p2) == p2
         d = parse_json(read(joinpath(dir, "td.json"), String))
-        @test d.schema == "vgio/target_detections/v1" && d.pixel_frame == "colmap" && d.point_index_base == 1
+        @test d.schema == "vgio/target_detections/v2" && d.pixel_frame == "colmap" && d.point_index_base == 1
         @test d.frames[1].detections[1].index == [1, 4] && !haskey(d.frames[1].detections[1], :covariance)
         # pixels, Uncertain, with weights: px², never converted
         u2 = TargetDetections{PixelFrame{:opencv}}(
@@ -68,7 +68,7 @@ end
         # resaved, it is the current kind
         q = joinpath(dir, "target_detections.json")
         save(q, load(TargetDetections, p3))
-        @test parse_json(read(q, String)).schema == "vgio/target_detections/v1" && load(TargetDetections, q) == TargetDetections(o3)
+        @test parse_json(read(q, String)).schema == "vgio/target_detections/v2" && load(TargetDetections, q) == TargetDetections(o3)
     end
 end
 

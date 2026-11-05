@@ -17,7 +17,7 @@
         @test back == [labeled, X2]
         @test typeof(back[1]) == typeof(labeled) && typeof(back[2]) == typeof(X2)
         d = parse_json(read(path, String))
-        @test d.schema == "vgio/transforms/v3" && d.length_unit == "mm"
+        @test d.schema == "vgio/transforms/v4" && d.length_unit == "mm"
         @test d.rotation_encoding == "quaternion_wxyz_hamilton" && d.transform_convention == "x_to = R * x_from + t"
         @test (d.transforms[1].from, d.transforms[1].to) == ("target:b76e", "camera_optical")
         @test d.transforms[1].rotation[1] >= 0

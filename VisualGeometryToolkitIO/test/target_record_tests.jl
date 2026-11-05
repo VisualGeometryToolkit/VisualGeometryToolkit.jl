@@ -102,7 +102,7 @@ end
             save(p, t; length_unit)
             d = parse_json(read(p, String))
             composed = length(members(c)) > 1
-            @test d.schema == "vgio/target/v4" && d.target.calibration.type == (composed ? "composition" : String(name))
+            @test d.schema == "vgio/target/v5" && d.target.calibration.type == (composed ? "composition" : String(name))
             composed && @test length(d.target.calibration.compose) == length(members(c))   # flat, outer first
             @test haskey(d.target.calibration, :covariance) == (cc isa Uncertain)
             back = load(AbstractTarget, p)
@@ -337,7 +337,7 @@ end
     mktempdir() do dir
         p = joinpath(dir, "rig.json")
         save(p, rig)
-        @test parse_json(read(p, String)).schema == "vgio/rig/v7"
+        @test parse_json(read(p, String)).schema == "vgio/rig/v8"
         back = load(Rig, p)
         @test ids(back) == ids(rig) && all(id -> back[id].target == rig[id].target, ids(rig))
         @test pose(back, :b) isa Uncertain && geom(pose(back, :b)).t == X.t && pose(back, :c).t == X.t

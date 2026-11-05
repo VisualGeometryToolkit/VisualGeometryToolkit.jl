@@ -1030,6 +1030,7 @@ export sensor_rig, target_rig             # the two halves of a rig carrying bot
 export AbstractTarget, PointTarget, PlanarTarget, resolve, is_resolved   # the target as a model (targets.jl)
 export AprilGrid, point_index                 # Kalibr's AprilGrid layout as a PlanarTarget (public, not exported, at the top level)
 export SchoepsPattern                         # Schöps et al.'s tagged star pattern as a PlanarTarget (public, not exported, at the top level)
+export AbstractTargetLayout, layout, TARGET_LAYOUT_TAGS   # a target's parametric design, recorded by PlanarTarget(layout), and the layouts' tags (public, not exported, at the top level)
 export TargetCalibration, Rigid, ThinPlateSpline, HeightField   # a planar target's calibration kinds (with the affine factors and their ∘)
 export Aspect, Skew, Scale                    # the affine print error's gauge-free Iwasawa factors (with a planar EuclideanMap)
 export ChartPlacement, placement              # a calibration's dimensionless chart in the design chart (targets.jl; placement public, not exported, at the top level)

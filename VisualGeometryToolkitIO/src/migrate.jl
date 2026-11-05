@@ -259,7 +259,7 @@ least `to`, the schema written (and whatever the owner reports: a rig's
 A declared extension point (VisualGeometryToolkitIO's `CONTRACT_GENERICS`): the
 owner of a schema adds both forms for each of its old versions.
 VisualGeometryToolkitIO's own: `vgio/cameras/v1` → v2 → v3 → v4,
-`vgio/target/v1` → v2 → v3, `vgio/rig/v4` → v5 → v6 and
+`vgio/target/v1` → v2 → v3 → v4, `vgio/rig/v4` → v5 → v6 → v7 and
 `vgio/generic_camera/v2` → v3.
 """
 function migrate_schema end
@@ -315,7 +315,7 @@ end
 
 Rewrite the file at `path`, of the earlier schema version it declares, in its
 kind's current one, by the file form of [`migrate_schema`](@ref) for that
-schema (cameras v1–v3, target v1–v2, rig v4–v5, generic_camera v2, and any a schema owner adds),
+schema (cameras v1–v3, target v1–v3, rig v4–v6, generic_camera v2, and any a schema owner adds),
 which runs the same version steps a reader runs on load: an old file need not
 be rewritten to be read, and this is how it is rewritten once. The migration
 is written through the current writer to a staging directory BESIDE `out`
@@ -852,6 +852,22 @@ end
 _rig_v5_to_v6(old) = (t = _map_rig_sensors(_camera_v3_to_v4, _map_rig_targets(_body_v2_to_v3, old)); t["schema"] = "vgio/rig/v6"; t)
 _rig_v6_to_v5(new) = _map_rig_sensors(_camera_v4_to_v3, _map_rig_targets(_body_v3_to_v2, new))
 
+# vgio/target/v3 → v4 and vgio/rig/v6 → v7 (the target layouts, 2026-11): a v4
+# planar body may state its design by a `layout`; a v3 body (a reference or
+# nominal points) is a v4 body as it stands, so the step moves the version and
+# no number, and a rig's identity does not move.
+function _layout_free_body(b::AbstractDict, record)
+    haskey(b, "layout") && _not_written_by(record, "holds no \"layout\" (a target layout is target v4 / rig v7)")
+    return b
+end
+function _target_v3_to_v4(old)
+    _layout_free_body(old["target"], "a vgio/target/v3 record")
+    t = copy(old)
+    t["schema"] = "vgio/target/v4"
+    return t
+end
+_rig_v6_to_v7(old) = (t = _map_rig_targets(b -> _layout_free_body(b, "a vgio/rig/v6 record"), old); t["schema"] = "vgio/rig/v7"; t)
+
 # -----------------------------------------------------------------------------
 # The steps, one per version, and the file migrations that run them
 # -----------------------------------------------------------------------------
@@ -861,6 +877,8 @@ migrate_schema(::Val{Symbol("vgio/cameras/v2")}, t::AbstractDict) = _cameras_v2_
 migrate_schema(::Val{Symbol("vgio/cameras/v3")}, t::AbstractDict) = _cameras_v3_to_v4(t)
 migrate_schema(::Val{Symbol("vgio/target/v1")}, t::AbstractDict) = _target_v1_to_v2(t)
 migrate_schema(::Val{Symbol("vgio/target/v2")}, t::AbstractDict) = _target_v2_to_v3(t)
+migrate_schema(::Val{Symbol("vgio/target/v3")}, t::AbstractDict) = _target_v3_to_v4(t)
+migrate_schema(::Val{Symbol("vgio/rig/v6")}, t::AbstractDict) = _rig_v6_to_v7(t)
 migrate_schema(::Val{Symbol("vgio/rig/v4")}, t::AbstractDict) = (foreach(x -> _check_v1_warp(x["target"]), get(t, "targets", ())); _rig_v4_to_v5(t))
 migrate_schema(::Val{Symbol("vgio/rig/v5")}, t::AbstractDict) = _rig_v5_to_v6(t)
 migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, t::AbstractDict) = _generic_camera_v2_to_v3(t)
@@ -884,6 +902,7 @@ migrate_schema(::Val{Symbol("vgio/cameras/v3")}, src::AbstractString, dst::Abstr
 _migrate_target(src, dst) = (_migrate_file(AbstractTarget, src, dst, "the target record"); (; to = _schema("target")))
 migrate_schema(::Val{Symbol("vgio/target/v1")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
 migrate_schema(::Val{Symbol("vgio/target/v2")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
+migrate_schema(::Val{Symbol("vgio/target/v3")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
 migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, src::AbstractString, dst::AbstractString) =
     (_migrate_file(Union{CentralGenericModel, NoncentralGenericModel}, src, dst, "the generic camera record"); (; to = _schema("generic_camera")))
 # A rig: its identity is the current value's, and the identities its old
@@ -891,6 +910,7 @@ migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, src::AbstractString, dst
 # files naming it are re-pointed (`vgio_migrate_tree`).
 migrate_schema(::Val{Symbol("vgio/rig/v4")}, src::AbstractString, dst::AbstractString) = _migrate_rig("vgio/rig/v4", src, dst)
 migrate_schema(::Val{Symbol("vgio/rig/v5")}, src::AbstractString, dst::AbstractString) = _migrate_rig("vgio/rig/v5", src, dst)
+migrate_schema(::Val{Symbol("vgio/rig/v6")}, src::AbstractString, dst::AbstractString) = _migrate_rig("vgio/rig/v6", src, dst)
 function _migrate_rig(s, src, dst)
     value = _migrate_file(Rig, src, dst, "the rig record")
     new_id = content_id(dst)
@@ -905,7 +925,8 @@ end
 # the identity tree lists a composition's members and a lens's stages in one
 # fixed order, application order, whatever order the record lists them in).
 _old_rig_ids(s, old, value, new_id) =
-    s == "vgio/rig/v4" ? unique!([_rig_v4_id(old), _rig_v4_id_mm(value, old)]) : [_v5_id(old, value, new_id)]
+    s == "vgio/rig/v4" ? unique!([_rig_v4_id(old), _rig_v4_id_mm(value, old)]) : s == "vgio/rig/v5" ? [_v5_id(old, value, new_id)] :
+    [new_id]   # a v6 rig's identity is the current one (the v7 step moves no number)
 
 # A targets argument that is an old rig file: each identity its version named
 # it by mapped to its current one, where they differ; none for a rig or a

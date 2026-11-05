@@ -1,5 +1,36 @@
 # VisualGeometryToolkitIO changelog
 
+## 0.5.3 (unreleased)
+
+- **`vgio/target/v4` and `vgio/rig/v7`**: a planar target may state its design
+  by its `layout` — VisualGeometryToolkitCore's `AprilGrid` or `SchoepsPattern`,
+  the record's `type` the layout's tag in `TARGET_LAYOUT_TAGS` (`april_grid`,
+  `schoeps_pattern`), every key written (the tag family, the first id, the star
+  segments, each Schöps tag's id), lengths in the file's `length_unit` through
+  `write_length`/`read_length` — instead of its `reference` or its `nominal`
+  points; a body states exactly one of the three. A target built with
+  `PlanarTarget(layout; …)` (VGC records it, `layout(t)`) is written by its
+  layout and reads back the same target, its points VGC's from the layout.
+- **`content_id` does not move**: a layout target enters the identity tree by
+  its points, as a nominal one, so a layout file and a nominal file of the
+  same design name one target, and every rig without a layout keeps its id.
+- **`vgio/target/v3` and `vgio/rig/v6` keep loading**, through their version
+  steps (a v3/v6 body is a v4/v7 one as it stands; only the schema changes),
+  and `vgio_migrate` rewrites them; a rig's migration reports its id
+  unchanged. The writers write v4 and v7 only.
+- **The tools' own layout files load directly**, through the typed `load` of
+  the target they define (`load(PlanarTarget, path)`, new, and
+  `load(AbstractTarget, path)`; the form is told from the content): Schöps et
+  al.'s pattern YAML (`create_calibration_pattern.py`) as
+  `PlanarTarget(SchoepsPattern(…); canvas)`, its `page` the canvas (lower-left
+  corner at `(−pattern_start_x, pattern_end_y − height)` in the design chart;
+  the pattern rectangle checked against the layout; no board, which the file
+  does not state), and Kalibr's `aprilgrid` target YAML as
+  `PlanarTarget(AprilGrid(…))`, its `tagSpacing` ratio read as the gap
+  `tagSize · tagSpacing`. Either saves as a `layout` record.
+- Compat: VisualGeometryToolkitCore 0.5.7 (`AbstractTargetLayout`, `layout`,
+  `TARGET_LAYOUT_TAGS`).
+
 ## 0.5.2 (2026-11-04)
 
 - **`vgio/generic_camera/v3`**: a grid model's held nodes (VisualGeometryToolkitCore

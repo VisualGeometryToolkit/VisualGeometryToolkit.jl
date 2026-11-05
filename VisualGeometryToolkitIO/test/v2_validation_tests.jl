@@ -147,17 +147,19 @@
             if name in ("target_poses", "target_points2d", "target_points3d")
                 @test endswith(doc[:schema], "/v1")
             elseif name == "target"
-                @test doc[:schema] == "vgio/target/v3"
+                @test doc[:schema] == "vgio/target/v4"
                 @test occursin("was not written by them", something(relabeled(v1), ""))      # its `calibration_record` was v1's `calibration`
                 @test relabeled("vgio/target/v2") === nothing                                 # no composition: a v2 record as well
+                @test relabeled("vgio/target/v3") === nothing                                 # no layout: a v3 record as well
             elseif name in ("transforms", "trajectory")
                 @test occursin("free strings", something(relabeled(replace(doc[:schema], "/v3" => "/v2")), ""))
                 @test occursin("free strings", something(relabeled(v1), ""))
             elseif startswith(name, "rig")
                 @test occursin("re-export", something(relabeled(v1), ""))
                 @test occursin("re-export", something(relabeled("vgio/rig/v2"), ""))
-                @test occursin("rig/v6", something(relabeled("vgio/rig/v3"), ""))
+                @test occursin("rig/v7", something(relabeled("vgio/rig/v3"), ""))
                 @test not_theirs(relabeled("vgio/rig/v4")) && not_theirs(relabeled("vgio/rig/v5"))
+                @test relabeled("vgio/rig/v6") === nothing                                    # no layout: a v6 record as well
                 @test (name == "rig_targets") == (relabeled("vgio/rig/v4") !== nothing)     # a target's `calibration` was v4's `warp`
             elseif name == "cameras"
                 @test doc[:schema] == "vgio/cameras/v4"

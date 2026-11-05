@@ -55,7 +55,7 @@ end
         path = joinpath(dir, "rig.json")
         save(path, rig; provenance = (name = "test-rig",))
         d = parse_json(read(path, String))
-        @test d.schema == "vgio/rig/v6" && d.pixel_frame == "colmap" && d.length_unit == "mm"
+        @test d.schema == "vgio/rig/v7" && d.pixel_frame == "colmap" && d.length_unit == "mm"
         @test d.frame == "view:left" && d.provenance.name == "test-rig"
         @test !haskey(d, :targets)                                       # omitted, not empty
         # the extrinsics' frames are where they sit — never restated beside them
@@ -151,7 +151,7 @@ end
         path = joinpath(dir, "targets.json")
         save(path, tr)
         d = parse_json(read(path, String))
-        @test d.schema == "vgio/rig/v6" && !haskey(d, :pixel_frame) && !haskey(d, :sensors)   # pixel_frame iff sensors
+        @test d.schema == "vgio/rig/v7" && !haskey(d, :pixel_frame) && !haskey(d, :sensors)   # pixel_frame iff sensors
         @test [t.id for t in d.targets] == ["a1f2", "b76e", "c9"]      # ids sorted
         @test d.targets[1].target.type == "planar" && haskey(d.targets[1].target, :nominal)
         # a referenced design is written by its reference alone: its points are its owner's
@@ -248,7 +248,7 @@ end
         save(tp, markers)
         @test load(AbstractTarget, tp) == markers
         dt = parse_json(read(tp, String))
-        @test dt.schema == "vgio/target/v3" && !haskey(dt, :calibration_record)
+        @test dt.schema == "vgio/target/v4" && !haskey(dt, :calibration_record)
         @test_throws ArgumentError save(tp, Attributed(markers, (; calibration_record = (; date = "May 2026"))))
         # a posed target is not a target file: refused at save, naming the model and the rig writer, nothing written
         posed = PosedTarget(markers, ident)
@@ -290,7 +290,7 @@ end
         @test refused(dd -> (dd["pixel_frame"] = "colmap"), "pixel_frame")             # declared iff sensors
         @test refused(dd -> (dd["targets"] = []), "omitted, not empty")
         @test refused(dd -> delete!(dd, "targets"), "sensors, targets, or both")
-        @test refused(dd -> (dd["targets"][1]["target"]["reference"] = "a"), "not both")     # reference and nominal
+        @test refused(dd -> (dd["targets"][1]["target"]["reference"] = "a"), "exactly one of")     # reference and nominal
         @test refused(dd -> (dd["targets"][1]["target"]["type"] = "spline"), "unknown target type")
         @test refused(dd -> (dd["targets"][1]["target"]["calibration"] = Dict("type" => "warp")), "unknown calibration type")
         @test refused(dd -> delete!(dd["targets"][1]["target"], "calibration"), "states its `calibration`")
@@ -311,8 +311,8 @@ end
         for (schema, T, successor) in (
                 ("vgio/observations/v2", TargetPoints2D, "target_points2d/v1"),
                 ("vgio/point_observations/v1", TargetPoints3D, "target_points3d/v1"),
-                ("vgio/targets/v2", Rig, "rig/v6"),
-                ("vgio/rig/v3", Rig, "rig/v6"),
+                ("vgio/targets/v2", Rig, "rig/v7"),
+                ("vgio/rig/v3", Rig, "rig/v7"),
                 ("vgio/session/v3", Rig, "calibration pipeline's own session kind"),
             )
             p = joinpath(dir, "old.json")

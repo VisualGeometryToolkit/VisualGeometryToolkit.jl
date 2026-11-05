@@ -181,6 +181,14 @@ const _POINT_INDEX_BASE = 1
 # application order (refused by name in a current record). Migrated by `vgio_migrate`, which refuses a v2/v5 chain with no v3
 # form (two in-plane kinds).
 #
+# target v4 and rig v7 (the target layouts, 2026-11): a planar target may state
+# its design by its `"layout"` (VGC's AprilGrid or SchoepsPattern, the type its
+# tag in VGC's `TARGET_LAYOUT_TAGS`) instead of its `"reference"` or its
+# `"nominal"` points — exactly one of the three. A v3/v6 body is a v4/v7 body
+# as it stands: the step moves the version and no number. The version moves so
+# that a reader of v3/v6 refuses a layout target by its version, not by an
+# unknown key.
+#
 # transforms and trajectory are v3 since their frames are typed (2026-10): the
 # `from`/`to` names go through the frame grammar (`frame_from_name`), so a
 # free-form name is refused, and a pose may carry its covariance. The kinds
@@ -193,8 +201,8 @@ const _POINT_INDEX_BASE = 1
 # `present` only when its model does not hold every node, so every rig/v6 file
 # written before reads as it did, and rig stays v6.
 const _SCHEMA_VERSION = Dict(
-    "cameras" => 4, "rig" => 6, "transforms" => 3, "trajectory" => 3, "generic_camera" => 3,
-    "target" => 3, "target_poses" => 1, "target_points2d" => 1, "target_points3d" => 1,
+    "cameras" => 4, "rig" => 7, "transforms" => 3, "trajectory" => 3, "generic_camera" => 3,
+    "target" => 4, "target_poses" => 1, "target_points2d" => 1, "target_points3d" => 1,
     "capture_settings" => 1,
 )
 _schema_version(kind) = get(_SCHEMA_VERSION, kind, 2)
@@ -242,7 +250,7 @@ const _XYZ = _Vec(_Real(), 3)
 # VGIo), and the producer re-exports.
 const _RETIRED_KINDS = Dict(
     "vgio/observations/v2" => "vgio/target_points2d/v1", "vgio/point_observations/v1" => "vgio/target_points3d/v1",
-    "vgio/targets/v2" => "vgio/rig/v6", "vgio/rig/v3" => "vgio/rig/v6",
+    "vgio/targets/v2" => "vgio/rig/v7", "vgio/rig/v3" => "vgio/rig/v7",
     "vgio/session/v3" => "the calibration pipeline's own session kind (a pipeline's checkpoint is the pipeline's, not VGIo's)",
 )
 
@@ -251,6 +259,7 @@ const _RETIRED_KINDS = Dict(
 # for each.
 const _MIGRATIONS_TO_CURRENT = Dict(
     "vgio/target/v1" => "target", "vgio/rig/v4" => "rig", "vgio/target/v2" => "target", "vgio/rig/v5" => "rig",
+    "vgio/target/v3" => "target", "vgio/rig/v6" => "rig",
     "vgio/cameras/v1" => "file", "vgio/cameras/v2" => "file", "vgio/cameras/v3" => "file",
     "vgio/generic_camera/v2" => "file",
 )

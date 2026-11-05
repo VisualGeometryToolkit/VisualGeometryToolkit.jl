@@ -215,7 +215,7 @@ end
             t = JSON.parse(read(joinpath(@__DIR__, "fixtures", "units", file), String); dicttype = Dict{String, Any});
             t["schema"] = schema; write(p, JSON.json(t)); e = try load(T, p); nothing catch e; e end; e isa ArgumentError ? e.msg : "")
         @test occursin("free strings", refusal(Vector{EuclideanMap}, "vgio/transforms/v2", "transforms.json"))   # its frames' names are not the grammar's
-        @test occursin("rig/v6", refusal(Rig, "vgio/rig/v3", "rig.json"))                                   # a retired kind
+        @test occursin("rig/v7", refusal(Rig, "vgio/rig/v3", "rig.json"))                                # a retired kind
         @test occursin("re-export", refusal(Rig, "vgio/rig/v2", "rig.json"))                                # no migration
     end
 end

@@ -1,5 +1,5 @@
 # =============================================================================
-# vgio/rig/v6 and vgio/target/v3 — VGC's `Rig` in every storage (sensors,
+# vgio/rig/v7 and vgio/target/v4 — VGC's `Rig` in every storage (sensors,
 # targets, both) and VGC's target model, serialized
 # =============================================================================
 #
@@ -51,6 +51,7 @@ end
 #   {"type": "points", "points": [[x, y(, z)], …], "point_covariances": [[[…]…]…]}   PointTarget
 #   {"type": "planar", "reference": "<reference>", "calibration": {calibration}}     PlanarTarget of a referenced design
 #   {"type": "planar", "nominal": [[x, y], …], "calibration": {calibration}}         PlanarTarget of explicit points
+#   {"type": "planar", "layout": {layout}, "calibration": {calibration}}            PlanarTarget(layout): a parametric design
 #   … "board": {"size": {"width": w, "height": h}, "origin": [u, v]}               (optional) its physical board
 #   … "canvas": {"size": {"width": w, "height": h}, "origin": [u, v],              (optional) the printed page,
 #                "texture": {"path": "<relative path>", "sha256": "<hex>",          its printed image (optional):
@@ -79,6 +80,23 @@ end
 # a BlobBoards board uid resolves to them — so they are NOT restated: `load`
 # returns the target unresolved unless the caller supplies `resolve`, the
 # design owner's resolver.
+#
+# THE LAYOUT (target v4 / rig v7) — VGC's `AbstractTargetLayout`, the design a
+# `PlanarTarget(layout; …)` was built from, which it records (`layout(t)`): a
+# target built from one is written by it, its points VGC's from the layout and
+# never restated. Its `type` is the layout's tag in VGC's `TARGET_LAYOUT_TAGS`
+# (snake_case of the type's name), lengths in the file's `length_unit`:
+#
+#   {"type": "april_grid", "tag_rows": r, "tag_cols": c, "tag_size": s, "tag_spacing": g,
+#    "apriltag_family": "tag36h11", "first_id": 0}                         VGC's AprilGrid (g: the gap, a length)
+#   {"type": "schoeps_pattern", "squares_x": nx, "squares_y": ny, "square_length": s,
+#    "star_segments": 16, "apriltag_family": "tag36h11",
+#    "apriltags": [{"x", "y", "width", "height", "id"}, …]}                  VGC's SchoepsPattern (squares, y down as printed)
+#
+# Every key is written, defaults included. A body states its design by exactly
+# one of `reference`, `nominal` and `layout`. A layout target's identity
+# (`content_id`) is of its points, as a nominal target's: the layout is not
+# hashed, so a layout file and a nominal file of the same design name one target.
 #
 # THE CALIBRATION — VGC's `TargetCalibration`, the map from the design to the
 # physical target — is one record, its `type` the kind's tag in VGC's
@@ -267,12 +285,43 @@ const _PLACEMENT = _Checked(
     z -> (isfinite(z[:side]) && z[:side] > 0) ? nothing : "a chart placement's side is > 0",
 )
 
+# A layout record's keys besides `type`, by the layout's type (VGC's
+# `TARGET_LAYOUT_TAGS` gives the type for the record's tag): every one is written.
+_layout_keys(::Type{AprilGrid}) = (:tag_rows, :tag_cols, :tag_size, :tag_spacing, :apriltag_family, :first_id)
+_layout_keys(::Type{SchoepsPattern}) = (:squares_x, :squares_y, :square_length, :star_segments, :apriltag_family, :apriltags)
+const _SCHOEPS_TAG = _Obj(:x => _Int(), :y => _Int(), :width => _PosInt(), :height => _PosInt(), :id => _Int())
+const _TARGET_LAYOUT = _Checked(
+    _Obj(
+        Pair{Symbol, _Spec}[:type => _NonEmpty()],
+        Pair{Symbol, _Spec}[
+            :tag_rows => _PosInt(), :tag_cols => _PosInt(), :tag_size => _Real(), :tag_spacing => _Real(), :first_id => _Int(),
+            :squares_x => _PosInt(), :squares_y => _PosInt(), :square_length => _Real(), :star_segments => _PosInt(),
+            :apriltags => _Vec(_SCHOEPS_TAG), :apriltag_family => _NonEmpty(),
+        ],
+    ),
+    function (x)
+        ty = x[:type]
+        haskey(TARGET_LAYOUT_TAGS, ty) || return "unknown layout type $(repr(ty)) (one of $(join(keys(TARGET_LAYOUT_TAGS), ", ")))"
+        want = _layout_keys(TARGET_LAYOUT_TAGS[ty])
+        for k in keys(x)
+            Symbol(k) in (:type, want...) || return "a $(ty) layout has no `$(k)` (its keys: $(join(want, ", ")))"
+        end
+        for k in want
+            haskey(x, k) || return "a $(ty) layout states its `$(k)`"
+        end
+        return nothing
+    end,
+)
+
+# A planar body's design: exactly one of these (a reference, nominal points, a layout).
+const _DESIGN_KEYS = (:reference, :nominal, :layout)
+
 const _TARGET_BODY = _Checked(
     _Obj(
         Pair{Symbol, _Spec}[:type => _NonEmpty()],
         Pair{Symbol, _Spec}[
             :points => _TARGET_POINTS, :point_covariances => _Vec(_Vec(_Vec(_Real()))),
-            :reference => _NonEmpty(), :nominal => _Vec(_Vec(_Real(), 2)), :calibration => _TARGET_CALIBRATION,
+            :reference => _NonEmpty(), :nominal => _Vec(_Vec(_Real(), 2)), :layout => _TARGET_LAYOUT, :calibration => _TARGET_CALIBRATION,
             :board => _BOARD, :canvas => _CANVAS, :placement => _PLACEMENT,
         ],
     ),
@@ -281,14 +330,15 @@ const _TARGET_BODY = _Checked(
         if ty == "points"
             haskey(t, :points) || return "a points target states its `points`"
             haskey(t, :placement) && return "a points target has no `placement` (a chart placement is a planar target's: where its calibration's chart lies)"
-            any(k -> haskey(t, k), (:reference, :nominal, :calibration, :board, :canvas)) && return "a points target has `points` (and `point_covariances`) only"
+            any(k -> haskey(t, k), (_DESIGN_KEYS..., :calibration, :board, :canvas)) && return "a points target has `points` (and `point_covariances`) only"
             haskey(t, :point_covariances) && return _point_covariances_check(t[:points], t[:point_covariances])
             return nothing
         elseif ty == "planar"
-            any(k -> haskey(t, k), (:points, :point_covariances)) && return "a planar target has `reference` or `nominal`, and `calibration`"
+            any(k -> haskey(t, k), (:points, :point_covariances)) && return "a planar target has `reference`, `nominal` or `layout`, and `calibration`"
             haskey(t, :calibration) || return "a planar target states its `calibration`"
-            (haskey(t, :reference) ⊻ haskey(t, :nominal)) ||
-                return "a planar target states its `reference` or its `nominal` points — one, not both (a referenced design's points are its owner's)"
+            count(k -> haskey(t, k), _DESIGN_KEYS) == 1 ||
+                return "a planar target states its design by exactly one of its `reference`, its `nominal` points or its `layout` " *
+                "(a referenced design's points are its owner's, a layout's are VGC's from the layout)"
             return nothing
         end
         return "unknown target type $(repr(ty)) (points, planar)"
@@ -481,14 +531,53 @@ function target_json(t::PlanarTarget, unit::_LeafUnit = mm)
     pl = placement(t)
     cu = pl === nothing ? unit : _CHART          # a placed calibration: plain chart numbers
     return merge(
-        reference(t) === nothing ?
-            (type = "planar", nominal = [_lengths_json(p, unit, "a planar target's nominal point") for p in t.nominal], calibration = _calibration_record(calibration(t), cu)) :
-            (type = "planar", reference = String(reference(t)), calibration = _calibration_record(calibration(t), cu)),
+        (type = "planar",), _design_json(t, unit), (calibration = _calibration_record(calibration(t), cu),),
         _board_json(board(t), unit),
         _canvas_json(canvas(t), unit),
         _placement_json(pl, unit),
     )
 end
+# The design: its reference, its layout, or its nominal points. The identity
+# tree (`_PERSISTED`) takes a layout target's points, so its identity is
+# geometric — a nominal target's of the same points.
+function _design_json(t::PlanarTarget, unit::_LeafUnit)
+    reference(t) === nothing || return (reference = String(reference(t)),)
+    (layout(t) === nothing || unit isa _Persisted) ||
+        return (layout = _layout_json(layout(t), unit),)
+    return (nominal = [_lengths_json(p, unit, "a planar target's nominal point") for p in design(t)],)
+end
+
+# A layout ↔ its record (`_TARGET_LAYOUT`): every key, its lengths in the
+# file's unit through `write_length` / `read_length`; a layout of plain numbers
+# is refused, as plain points are.
+_physical_layout(L::AbstractTargetLayout) = (has_units(L) || _refuse_plain("a target's $(nameof(typeof(L))) layout"); L)
+function _layout_json(g::AprilGrid, u::Units)
+    _physical_layout(g)
+    return (
+        type = tag_of(TARGET_LAYOUT_TAGS, g), tag_rows = g.tag_rows, tag_cols = g.tag_cols,
+        tag_size = write_length(g.tag_size, u), tag_spacing = write_length(g.tag_spacing, u),
+        apriltag_family = g.apriltag_family, first_id = g.first_id,
+    )
+end
+function _layout_json(p::SchoepsPattern, u::Units)
+    _physical_layout(p)
+    return (
+        type = tag_of(TARGET_LAYOUT_TAGS, p), squares_x = p.squares_x, squares_y = p.squares_y,
+        square_length = write_length(p.square_length, u), star_segments = p.star_segments,
+        apriltag_family = p.apriltag_family, apriltags = [(; t.x, t.y, t.width, t.height, t.id) for t in p.apriltags],
+    )
+end
+_layout_from_json(x, u::Units) = _layout_from_record(TARGET_LAYOUT_TAGS[x.type::String], x, u)
+_layout_from_record(::Type{AprilGrid}, x, u::Units) = AprilGrid(;
+    tag_rows = x.tag_rows::Integer, tag_cols = x.tag_cols::Integer,
+    tag_size = read_length(x.tag_size::Real, u), tag_spacing = read_length(x.tag_spacing::Real, u),
+    apriltag_family = x.apriltag_family::String, first_id = x.first_id::Integer,
+)
+_layout_from_record(::Type{SchoepsPattern}, x, u::Units) = SchoepsPattern(;
+    squares_x = x.squares_x::Integer, squares_y = x.squares_y::Integer, square_length = read_length(x.square_length::Real, u),
+    star_segments = x.star_segments::Integer, apriltag_family = x.apriltag_family::String,
+    apriltags = [(x = t.x::Integer, y = t.y::Integer, width = t.width::Integer, height = t.height::Integer, id = t.id::Integer) for t in x.apriltags],
+)
 
 # The placement ↔ its record (VGC's `ChartPlacement`: the chart point c is the
 # design point origin + side·c): its origin and side, lengths in the file's
@@ -558,6 +647,7 @@ function target_from_json(t, unit::AbstractString; resolve = nothing)
     bd = haskey(t, :board) ? _board_from_json(t.board, u) : nothing
     cv = haskey(t, :canvas) ? _canvas_from_json(t.canvas, u) : nothing
     haskey(t, :nominal) && return PlanarTarget(nothing, _points_from_json(t.nominal::Vector{Any}, u), c, bd, cv, pl)
+    haskey(t, :layout) && return PlanarTarget(_layout_from_json(t.layout, u); calibration = c, board = bd, canvas = cv, placement = pl)
     ref = Symbol(t.reference::String)
     nominal = resolve === nothing ? nothing : resolve(ref)
     (nominal === nothing || isempty(nominal) || has_units(nominal)) ||
@@ -566,10 +656,10 @@ function target_from_json(t, unit::AbstractString; resolve = nothing)
 end
 
 # -----------------------------------------------------------------------------
-# vgio/target/v3 ↔ one target (AbstractTarget, or one Attributed with its calibration record)
+# vgio/target/v4 ↔ one target (AbstractTarget, or one Attributed with its calibration record)
 # -----------------------------------------------------------------------------
 #
-# {"schema": "vgio/target/v3", "length_unit": "mm", "target": {target body},
+# {"schema": "vgio/target/v4", "length_unit": "mm", "target": {target body},
 #  "calibration_record": {…}}             (optional: who calibrated it — the cameras' block's keys)
 
 const _TARGET_SPEC = _Obj(
@@ -581,8 +671,9 @@ const _TARGET_SPEC = _Obj(
     save(path, target::AbstractTarget; length_unit = mm, provenance = (;))
     save(path, Attributed(target, (; calibration_record)); length_unit = mm, provenance = (;))
 
-Write one physical target as a `vgio/target/v3` file — its body (rig_schema.jl:
-its points, and a planar target's calibration with its parameters and, when
+Write one physical target as a `vgio/target/v4` file — its body (rig_schema.jl:
+its points — a planar target's by its reference, its layout when it records
+one (`layout(t)`), or its nominal points — and a planar target's calibration with its parameters and, when
 `Uncertain`, their covariance) in `length_unit` and, for an `Attributed` one,
 its `calibration_record`: who calibrated it, when, from what (the keys of a
 camera's `calibration` block). Plain points are an `ArgumentError`, and so is a
@@ -610,7 +701,7 @@ function save(
     _write_store(path, _TARGET_SPEC, _with_provenance(body, provenance))
     return nothing
 end
-# A `vgio/target/v3` file holds an UNPOSED target: a posed one is refused here,
+# A `vgio/target/v4` file holds an UNPOSED target: a posed one is refused here,
 # before anything is written, rather than deep inside the writer. Its pose is a
 # rig member's, written by the rig writer.
 _refuse_posed_target(path) = throw(
@@ -633,13 +724,16 @@ save(path::AbstractString, ::Attributed{<:PosedTarget, <:NamedTuple{(:calibratio
 """
     load(AbstractTarget, path; resolve = nothing) -> AbstractTarget | Attributed{<:AbstractTarget}
 
-Read a `vgio/target/v3` file: the target, `Attributed` with its
+Read a `vgio/target/v4` file: the target, `Attributed` with its
 `calibration_record` where the file states one. `resolve(reference)` supplies
 a referenced design's nominal points (else the target is returned
-unresolved). A `vgio/target/v1` or `v2` file is read through its version
-steps (`migrate_record`).
+unresolved). A `vgio/target/v1`, `v2` or `v3` file is read through its version
+steps (`migrate_record`). A Schöps pattern YAML or a Kalibr aprilgrid YAML is
+read as its layout's `PlanarTarget` (see `load(PlanarTarget, path)`); the form
+is decided by the file's content.
 """
 function load(::Type{AbstractTarget}, path::AbstractString; resolve = nothing)
+    _file_form(path) === :yaml && return _load_layout_yaml(path)
     d = _read_store(path, "target", _TARGET_SPEC)
     t = target_from_json(d.target, d.length_unit::String; resolve)
     return haskey(d, :calibration_record) ?
@@ -647,10 +741,10 @@ function load(::Type{AbstractTarget}, path::AbstractString; resolve = nothing)
 end
 
 # -----------------------------------------------------------------------------
-# vgio/rig/v6 ↔ Rig, every storage
+# vgio/rig/v7 ↔ Rig, every storage
 # -----------------------------------------------------------------------------
 #
-# {"schema": "vgio/rig/v6", "pixel_frame": "colmap", <pose declarations>, "frame": "body:camera_rig",
+# {"schema": "vgio/rig/v7", "pixel_frame": "colmap", <pose declarations>, "frame": "body:camera_rig",
 #  "sensors": [{"id": "cam1", "camera": {camera body | generic body},
 #               "extrinsics": {rotation, translation}}],               extrinsics: `frame` → view:<id>
 #  "targets": [{"id": "<uid>", "target": {target body},
@@ -754,7 +848,7 @@ end
 """
     save(path, rig::Rig; length_unit = mm, provenance = (;))
 
-Write a physical VGC `Rig` — sensors, targets, or both — as a `vgio/rig/v6`
+Write a physical VGC `Rig` — sensors, targets, or both — as a `vgio/rig/v7`
 file in `length_unit`: each sensor (a `BoundedCamera`) with its extrinsics
 `frame → view:<id>`, each target (sorted by id) with its body and its pose
 `target:<id> → frame` (a `covariance` iff `Uncertain`). A rig of plain
@@ -767,12 +861,12 @@ save(path::AbstractString, rig::Rig; length_unit::Units = mm, provenance::NamedT
 """
     load(Rig, path; resolve = nothing) -> Rig
 
-Read a `vgio/rig/v6` file back into a fully labeled VGC `Rig` of the storage
+Read a `vgio/rig/v7` file back into a fully labeled VGC `Rig` of the storage
 it holds, its lengths in metres: sensors (each a `BoundedCamera` labeled `frame → ViewFrame{id}`),
 targets (each a `PosedTarget`, minted `TargetFrame{id} → frame` on access), or both.
 `resolve(design)` supplies a referenced planar design's nominal points (see
 [`target_from_json`](@ref)). Type-unstable by nature (frame types are minted
-from file data) — load once, dispatch after. A `vgio/rig/v4` or `v5` file is
+from file data) — load once, dispatch after. A `vgio/rig/v4`, `v5` or `v6` file is
 read through its version steps (`migrate_record`).
 """
 load(::Type{Rig}, path::AbstractString; resolve = nothing) = _rig_from_record(_read_store(path, "rig", _RIG_SPEC); resolve)
@@ -808,7 +902,7 @@ end
     content_id(targets) -> String
 
 The identity a measurement file (`target_points2d`, `target_points3d`) names a
-target definition by — `targets` a `Rig` or a `vgio/rig/v6` path: the SHA-256
+target definition by — `targets` a `Rig` or a `vgio/rig/v7` path: the SHA-256
 of the canonical JSON (`canonical_json`) of the rig's IDENTITY TREE. The tree
 is built from the in-memory value by the record writer's own walk, under the
 fixed names below — names of the identity's own, which a later record format
@@ -818,7 +912,11 @@ file format does: a rig, every file written from it in any decimal
 `length_unit`, the rig loaded back from such a file, and a migration of the
 file to the next rig version have one identity. A relabeled provenance does
 not change it; a target's calibration kind, its parameters, its covariance
-its board and its canvas (with its texture reference) do.
+its board and its canvas (with its texture reference) do. A planar target built
+from a layout (`layout(t)`, written as a `layout` record) enters by its nominal
+points, as a target given by its points does: the layout is not hashed, so a
+layout file and a nominal file of the same design name one target, and a target
+of no layout has the identity it had before layouts existed.
 
 The identity is of the persisted representation; a value and the file written
 from it hash equal by construction. Every length enters as the number a file in

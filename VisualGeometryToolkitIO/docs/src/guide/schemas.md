@@ -26,8 +26,9 @@ that this class of bug cannot be written down:
 ## What every vgio file guarantees
 
 Every vgio file has a schema tag `vgio/<kind>/v<n>`. The current versions are
-rig v4; cameras, transforms and trajectory v3; target, target_poses,
-target_points2d and target_points3d v1; and v2 for the rest. A file can be
+rig v7; target and cameras v4; transforms, trajectory and generic_camera v3;
+target_poses, target_points2d, target_points3d and capture_settings v1; and
+v2 for the rest. A file can be
 read exactly with nothing but itself. The rules that make this true:
 
 **The envelope is about the file; attributes are about the value.** The
@@ -139,9 +140,10 @@ file keeps loading: `load` runs the file's version steps in memory, one step
 per version, and reads the current record they give (see
 [The Kinds](kinds.md#Reading-an-earlier-version)). Read this way:
 `cameras/v1`–`v3` (the v1/v2 lenses as VGC's lens families, each the same
-map), `target/v1`–`v2`, `rig/v4`–`v5` and `generic_camera/v2` (every node
-present: v3 lists the nodes a grid model holds, `present`, and stores only
-those).
+map), `target/v1`–`v3`, `rig/v4`–`v6` (a v3 target / v6 rig body is a
+current one as it stands: v4 / v7 only add a planar target's `layout`) and
+`generic_camera/v2` (every node present: v3 lists the nodes a grid model
+holds, `present`, and stores only those).
 
 A version no published file holds, and that no step reads, is refused by
 name. A v1 or v2 transforms or trajectory file never had a migration,
@@ -157,7 +159,7 @@ the producer re-exports:
 |---|---|
 | `observations/v2` | `target_points2d/v1` |
 | `point_observations/v1` | `target_points3d/v1` |
-| `targets/v2`, `rig/v3` | `rig/v6` |
+| `targets/v2`, `rig/v3` | `rig/v7` |
 | `session/v3` | the calibration pipeline's own session kind |
 
 A pipeline's checkpoint belongs to the pipeline, not to core geometry, which

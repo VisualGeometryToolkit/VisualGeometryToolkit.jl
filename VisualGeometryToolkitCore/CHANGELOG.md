@@ -8,6 +8,26 @@
 - `distance(hyperplane, p)` is deprecated (a warning, the same signed value):
   the name read as unsigned. Use `signed_distance`, or `abs` of it. The
   hyperplane method is removed in 0.7; `distance` stays the unsigned generic.
+- **A `PlanarTarget` records the layout it was built from**:
+  `AbstractTargetLayout` (public), the supertype of `AprilGrid` and
+  `SchoepsPattern`; `PlanarTarget(layout; calibration = Rigid(), board,
+  canvas, placement = nothing)` (the `calibration` and `placement` keywords
+  new) builds the same points as before and records the layout, read by
+  `layout(t)` (public; `nothing` for a target given by its points or a
+  reference). A unit move moves the layout with the points (rebuilding them
+  from it), `with_parameters` keeps it, and `resolve`, which supplies other
+  points, drops it; `==` and `hash` include it. The public positional
+  constructor is unchanged. Additive: a new last field, `layout`.
+- **The layouts hold the whole design**: `AprilGrid(; …, apriltag_family =
+  "tag36h11", first_id = 0)` and `SchoepsPattern(; …, star_segments = 16,
+  apriltag_family = "tag36h11")`, each Schöps tag `(; x, y, width, height,
+  id)` (the YAML's `index`; without ids the tags are numbered 0, 1, … in
+  order; ids distinct and ≥ 0, star segments even and ≥ 4). The keyword
+  defaults keep every existing construction, and the points do not move. Both
+  have value `==` and `hash` (a Schöps pattern's tag vector compared by value).
+- `TARGET_LAYOUT_TAGS` (public): the layouts' `TagRegistry`, `"april_grid"`
+  and `"schoeps_pattern"` (the tag rule's `snake_case` of the type's name),
+  VisualGeometryToolkitIO's `layout` record type.
 
 ## 0.5.6 (2026-11-05)
 

@@ -130,6 +130,172 @@ function _load_schoeps_model(::Type{T}, path::AbstractString, file_unit) where {
 end
 
 # -----------------------------------------------------------------------------
+# The target layouts' own YAML files: Schöps' pattern YAML, Kalibr's target YAML
+# -----------------------------------------------------------------------------
+#
+# Read through the typed `load` of the target they define, the same verb as the
+# vgio target file (`load(PlanarTarget, path)`, `load(AbstractTarget, path)`),
+# the form decided by the content (`_file_form`, then the YAML's keys: Kalibr's
+# `target_type`, Schöps' `squares_x`). Each returns VGC's
+# `PlanarTarget(layout; canvas)`, its layout recorded, so `save` writes it as a
+# vgio/target `layout` record.
+#
+# Both files are the flat YAML their generators write: top-level `key: value`
+# lines, and in Schöps' a `page` map and an `apriltags` list of maps, indented.
+# `_layout_yaml` reads that shape (and no other YAML) into strings.
+function _layout_yaml(yml::AbstractString, path)
+    top = Dict{String, String}()
+    maps = Dict{String, Dict{String, String}}()
+    lists = Dict{String, Vector{Dict{String, String}}}()
+    section = nothing
+    keyval(s) = (mt = match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*?)\s*$", s);
+        mt === nothing && throw(ArgumentError("$(path): `$(s)` is not a `key: value` line")); (String(something(mt[1])), _yaml_unquoted(something(mt[2]))))
+    for raw in split(yml, '\n')
+        line = rstrip(raw)
+        (isempty(strip(line)) || startswith(strip(line), '#')) && continue
+        if !startswith(line, ' ') && !startswith(line, '\t')
+            k, v = keyval(line)
+            (haskey(top, k) || haskey(maps, k) || haskey(lists, k)) && throw(ArgumentError("$(path): `$(k)` is stated twice"))
+            isempty(v) ? (section = k; maps[k] = Dict{String, String}()) : (section = nothing; top[k] = v)
+            continue
+        end
+        section === nothing && throw(ArgumentError("$(path): the indented line `$(strip(line))` belongs to no key"))
+        s = strip(line)
+        if startswith(s, "- ")
+            haskey(maps, section) && isempty(maps[section]) && (delete!(maps, section); lists[section] = Dict{String, String}[])
+            haskey(lists, section) || throw(ArgumentError("$(path): `$(section)` mixes a map and a list"))
+            push!(lists[section], Dict{String, String}())
+            s = strip(s[3:end])
+        end
+        k, v = keyval(s)
+        d = haskey(lists, section) ? last(lists[section]) : maps[section]
+        haskey(d, k) && throw(ArgumentError("$(path): `$(section).$(k)` is stated twice"))
+        d[k] = v
+    end
+    for (k, d) in maps   # an empty block is an empty list (`apriltags:` with no tag)
+        isempty(d) && (delete!(maps, k); lists[k] = Dict{String, String}[])
+    end
+    return (; top, maps, lists)
+end
+_yaml_unquoted(s) = (t = String(s); length(t) >= 2 && t[1] == t[end] && t[1] in ('\'', '"') ? t[2:(end - 1)] : t)
+function _yaml_get(d::AbstractDict, key, path, what)
+    haskey(d, key) || throw(ArgumentError("$(path): no `$(key)` — not $(what)"))
+    return d[key]
+end
+function _yaml_int(d, key, path, what)
+    v = tryparse(Int, _yaml_get(d, key, path, what))
+    v === nothing && throw(ArgumentError("$(path): `$(key)` is $(repr(d[key])), not an integer"))
+    return v
+end
+function _yaml_real(d, key, path, what)
+    v = tryparse(Float64, _yaml_get(d, key, path, what))
+    (v === nothing || !isfinite(v)) && throw(ArgumentError("$(path): `$(key)` is $(repr(d[key])), not a finite number"))
+    return v
+end
+function _yaml_only(d, keys, path, what)
+    extra = setdiff(Base.keys(d), keys)
+    isempty(extra) || throw(ArgumentError("$(path): $(what) holds $(join(("`$(k)`" for k in sort!(collect(extra))), ", ")), which this reader does not know"))
+    return nothing
+end
+
+# A target layout YAML (the content says which), as its PlanarTarget.
+function _load_layout_yaml(path::AbstractString)
+    y = _layout_yaml(read(path, String), path)
+    haskey(y.top, "target_type") && return _load_kalibr_target(y, path)
+    haskey(y.top, "squares_x") && return _load_schoeps_pattern(y, path)
+    throw(
+        ArgumentError(
+            "$(path): neither a Kalibr target YAML (`target_type`) nor a Schöps pattern YAML (`squares_x`) — " *
+                "a vgio target file is JSON"
+        )
+    )
+end
+
+# Kalibr's target YAML (kalibr_common/ConfigReader.py, CalibrationTargetParameters):
+# an `aprilgrid` is `tagCols`, `tagRows`, `tagSize` (metres) and `tagSpacing`,
+# the gap as a RATIO of the tag size — VGC's AprilGrid takes the gap as a
+# length, `tagSize · tagSpacing`. Kalibr's grids are tag36h11 from id 0. A
+# checkerboard or circle grid is not a layout VGC holds, and is refused.
+const _KALIBR_APRILGRID = "a Kalibr aprilgrid target YAML"
+function _load_kalibr_target(y, path)
+    ty = y.top["target_type"]
+    ty == "aprilgrid" || throw(ArgumentError("$(path): a Kalibr $(repr(ty)) target; only an `aprilgrid` is a VGC layout (AprilGrid)"))
+    (isempty(y.maps) && isempty(y.lists)) || throw(ArgumentError("$(path): $(_KALIBR_APRILGRID) is flat `key: value` lines"))
+    _yaml_only(y.top, ("target_type", "tagCols", "tagRows", "tagSize", "tagSpacing"), path, _KALIBR_APRILGRID)
+    tag_size = read_length(_yaml_real(y.top, "tagSize", path, _KALIBR_APRILGRID), m)
+    grid = AprilGrid(;
+        tag_rows = _yaml_int(y.top, "tagRows", path, _KALIBR_APRILGRID), tag_cols = _yaml_int(y.top, "tagCols", path, _KALIBR_APRILGRID),
+        tag_size, tag_spacing = tag_size * _yaml_real(y.top, "tagSpacing", path, _KALIBR_APRILGRID),   # Kalibr's ratio → the gap
+    )
+    return PlanarTarget(grid)
+end
+
+# Schöps' pattern YAML (create_calibration_pattern.py): `num_star_segments`,
+# `squares_x`, `squares_y`, `square_length_in_meters`, the `apriltags` (each
+# `tag_x`, `tag_y`, `width`, `height` in squares, y down as printed, and its
+# `index`, the family id) and the `page` it is printed on (`width_mm`,
+# `height_mm` and the pattern's rectangle on it, `pattern_start_*_mm` to
+# `pattern_end_*_mm`, from the page's top-left corner, y down). The page is the
+# target's CANVAS: VGC's design chart has the pattern's lower-left corner at
+# the origin, y up, so the page's lower-left corner is at
+# (−pattern_start_x, pattern_end_y − height). The pattern's rectangle is the
+# layout's own (`squares × square_length`, checked to 1 nm); the file states no
+# board (the physical board the page is mounted on), so the target has none.
+const _SCHOEPS_PATTERN = "a Schöps pattern YAML"
+const _SCHOEPS_PAGE_KEYS = ("width_mm", "height_mm", "pattern_start_x_mm", "pattern_start_y_mm", "pattern_end_x_mm", "pattern_end_y_mm")
+function _load_schoeps_pattern(y, path)
+    _yaml_only(y.top, ("num_star_segments", "squares_x", "squares_y", "square_length_in_meters"), path, _SCHOEPS_PATTERN)
+    _yaml_only(y.maps, ("page",), path, _SCHOEPS_PATTERN)
+    _yaml_only(y.lists, ("apriltags",), path, _SCHOEPS_PATTERN)
+    tags = map(get(y.lists, "apriltags", Dict{String, String}[])) do t
+        _yaml_only(t, ("tag_x", "tag_y", "width", "height", "index"), path, "an apriltag of $(_SCHOEPS_PATTERN)")
+        f(k) = _yaml_int(t, k, path, "an apriltag of $(_SCHOEPS_PATTERN)")
+        (x = f("tag_x"), y = f("tag_y"), width = f("width"), height = f("height"), id = f("index"))
+    end
+    pattern = SchoepsPattern(;
+        squares_x = _yaml_int(y.top, "squares_x", path, _SCHOEPS_PATTERN), squares_y = _yaml_int(y.top, "squares_y", path, _SCHOEPS_PATTERN),
+        square_length = read_length(_yaml_real(y.top, "square_length_in_meters", path, _SCHOEPS_PATTERN), m),
+        star_segments = _yaml_int(y.top, "num_star_segments", path, _SCHOEPS_PATTERN), apriltags = tags,
+    )
+    haskey(y.maps, "page") || return PlanarTarget(pattern)
+    page = y.maps["page"]
+    _yaml_only(page, _SCHOEPS_PAGE_KEYS, path, "the page of $(_SCHOEPS_PATTERN)")
+    W, H, sx, sy, ex, ey = (read_length(_yaml_real(page, k, path, "the page of $(_SCHOEPS_PATTERN)"), mm) for k in _SCHOEPS_PAGE_KEYS)
+    for (what, a, b, n) in (("x", sx, ex, pattern.squares_x), ("y", sy, ey, pattern.squares_y))
+        abs(ustrip(m, (b - a) - n * pattern.square_length)) <= 1.0e-9 || throw(
+            ArgumentError(
+                "$(path): the page's pattern spans $(ustrip(mm, b - a)) mm in $(what), not the $(n) squares of " *
+                    "$(ustrip(mm, pattern.square_length)) mm the pattern states"
+            )
+        )
+    end
+    return PlanarTarget(pattern; canvas = Canvas(Size2(width = W, height = H), SVector(-sx, ey - H)))
+end
+
+"""
+    load(PlanarTarget, path; resolve = nothing) -> PlanarTarget | Attributed{<:PlanarTarget}
+
+A planar target from a `vgio/target` file (as [`load`](@ref)`(AbstractTarget,
+path)`, refusing a points target), or from the layout file of the tool that
+generated it, decided by its content:
+
+- Schöps et al.'s pattern YAML (`create_calibration_pattern.py`:
+  `squares_x`, …, `apriltags`, `page`) — `PlanarTarget(SchoepsPattern(…);
+  canvas)`, the page its canvas;
+- Kalibr's target YAML of an `aprilgrid` (`target_type: aprilgrid`, `tagCols`,
+  `tagRows`, `tagSize` in metres, `tagSpacing` the gap over the tag size) —
+  `PlanarTarget(AprilGrid(…))`, the gap `tagSize · tagSpacing`.
+
+Either way the target records its layout, so `save` writes it as one.
+"""
+function load(::Type{PlanarTarget}, path::AbstractString; resolve = nothing)
+    t = load(AbstractTarget, path; resolve)
+    geom_t = t isa Attributed ? t.value : t
+    geom_t isa PlanarTarget || throw(ArgumentError("$(path) holds a $(nameof(typeof(geom_t))), not a PlanarTarget"))
+    return t
+end
+
+# -----------------------------------------------------------------------------
 # dataset.bin (calib_data, version 0)
 # -----------------------------------------------------------------------------
 #

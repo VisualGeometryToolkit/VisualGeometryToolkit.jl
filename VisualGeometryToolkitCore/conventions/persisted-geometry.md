@@ -128,7 +128,7 @@ closed set of keys; the target's own `calibration` is its
 
 **A target's calibration is part of its record.** A [`PlanarTarget`](@ref)'s
 [`TargetCalibration`](@ref) is written in its body as one `calibration` record
-(`vgio/target/v3`, `vgio/rig/v6`): its `type`, the kind's tag in
+(`vgio/target/v4`, `vgio/rig/v7`): its `type`, the kind's tag in
 `TARGET_CALIBRATION_TAGS`; its `parameters` in `parameter_names` order, lengths
 in the file's unit; `nodes` for a thin-plate kind; for a composition
 (the affine print error `Aspect ∘ Skew`, `HeightField ∘ Aspect ∘ Skew`,
@@ -150,6 +150,15 @@ whose design is content-addressed (a BlobBoards board uid) is written by its
 `reference` and its calibration; its nominal points are the design's owner's
 and are not restated. A reader returns it unresolved unless the caller supplies
 the owner's resolver.
+
+**A parametric design is stored by its layout.** A [`PlanarTarget`](@ref) built
+from a layout (`PlanarTarget(layout; …)`, an [`AbstractTargetLayout`](@ref):
+[`AprilGrid`](@ref), [`SchoepsPattern`](@ref)) records it ([`layout`](@ref)`(t)`)
+and is written by it (`vgio/target/v4`, `vgio/rig/v7`): a `layout` record whose
+`type` is the layout's tag in `TARGET_LAYOUT_TAGS`, its whole design (tag
+family, ids) and its lengths in the file's unit; its points follow from the
+layout and are not restated. Its identity is of its points, as a target given
+by them: the layout is not hashed.
 
 **An identity does not change when the file format does.** A measurement names
 the rig that defines its targets by `content_id`: the SHA-256 of a canonical

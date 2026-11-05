@@ -103,6 +103,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     Rig, PosedTarget, BoundedCamera, PosedCamera, Attributed, sensor_rig, target_rig, Sensor, sensor,
     AbstractTarget, PointTarget, PlanarTarget, TargetCalibration, calibration, reference, is_resolved, Board, board,
     Canvas, CanvasTexture, canvas, ChartPlacement, placement,
+    AbstractTargetLayout, AprilGrid, SchoepsPattern, layout, design, TARGET_LAYOUT_TAGS, tag_of,
     Rigid, ThinPlateSpline, HeightField, Scale, Aspect, Skew, TARGET_CALIBRATION_TAGS, calibration_tag, parameter_vector, length_mask,
     TARGET_CALIBRATION_ORDER, planar_kind, members, is_pure_bending, ThinPlateSplineSystem, iwasawa_parameters_with_jacobian, strip_or_bare,
     Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D, TargetPoint2D, TargetPoint3D,
@@ -129,8 +130,9 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 #   load(Dict{Symbol, BoundedCamera}, path)      vgio/cameras/v4     the camera store
 #   load(BoundedCamera | CameraModel, path; name = nothing)          one of its cameras (multi refused unnamed)
 #   load(Vector{EuclideanMap}, path)             vgio/transforms/v3  labeled poses
-#   load(Rig, path; resolve = nothing)           vgio/rig/v6         sensors, targets, or both
-#   load(AbstractTarget, path; resolve = nothing) vgio/target/v3     one target (+ its calibration record)
+#   load(Rig, path; resolve = nothing)           vgio/rig/v7         sensors, targets, or both
+#   load(AbstractTarget, path; resolve = nothing) vgio/target/v4     one target (+ its calibration record)
+#   load(PlanarTarget, path)                     a planar vgio/target/v4, or a Schöps pattern YAML or a Kalibr aprilgrid YAML
 #   load(Trajectory, path)                       vgio/trajectory/v3  a body's pose over time
 #   load(TargetPoses, path)                      vgio/target_poses/v1
 #   load(TargetPoints2D, path)                   vgio/target_points2d/v1 (or a Schöps dataset.bin; `target`)

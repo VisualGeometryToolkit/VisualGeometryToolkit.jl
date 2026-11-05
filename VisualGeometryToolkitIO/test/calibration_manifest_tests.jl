@@ -27,17 +27,22 @@
     end
 
     # a projective result: one single target and the homographies against it
-    function projective_dir(dir; name = :board)
-        cp(fixture("target_planar.json"), joinpath(dir, "target_planar.json"))
+    function projective_dir(dir; name = nothing, reference = nothing)
+        if reference === nothing
+            cp(fixture("target_planar.json"), joinpath(dir, "target_planar.json"); force = true)
+        else   # the planar target as a referenced design
+            rewrite(joinpath(dir, "target_planar.json"), d -> (delete!(d["target"], "nominal"); d["target"]["reference"] = reference); src = fixture("target_planar.json"))
+        end
+        name === nothing && (name = content_id(joinpath(dir, "target_planar.json")))
         H = sign_normalize(HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}([800.0 0 300; 0 800 200; 0 0 1]'))))
         th = TargetHomographies{PixelFrame{:colmap}}(
-            Dict(1 => Dict(name => H)); images = Dict(1 => "a.png"), sensors = "cam", targets = [content_id(joinpath(dir, "target_planar.json"))],
+            Dict(1 => Dict(Symbol(name) => H)); images = Dict(1 => "a.png"), sensors = "cam", targets = [content_id(joinpath(dir, "target_planar.json"))],
         )
         save(joinpath(dir, "target_homographies.json"), th)
         return ["target_planar.json", "target_homographies.json"]
     end
 
-    rewrite(path, f) = (d = JSON.parse(read(path, String)); f(d); write(path, JSON.json(d)); path)
+    rewrite(path, f; src = path) = (d = JSON.parse(read(src, String)); f(d); write(path, JSON.json(d)); path)
 end
 
 @testitem "calibration/v1: a metric manifest round trips, hashes and roles intact" setup = [ManifestFixtures] begin
@@ -189,11 +194,32 @@ end
         end
         @test err isa ArgumentError && occursin("target_points2d.json", err.msg) && occursin("\"zz\"", err.msg)
     end
-    # homographies: against a single target any name is accepted; a stray content id is refused
+    # homographies against a single target: an unreferenced one is measured under its content id,
+    # a referenced one under its reference; any other name is refused naming the file
     mktempdir() do dir
-        files = projective_dir(dir; name = :whatever)
+        files = projective_dir(dir)
         VgtkIO.save_manifest(dir, files; kind = "image")
         @test VgtkIO.load_manifest(dir).kind == "image"
+        wrong = projective_dir(dir; name = "board")
+        err = try
+            VgtkIO.save_manifest(dir, wrong; kind = "image"); nothing
+        catch e
+            e
+        end
+        @test err isa ArgumentError && occursin("target_homographies.json", err.msg) && occursin("frame 1", err.msg) && occursin("\"board\"", err.msg)
+        files = projective_dir(dir; reference = "uid7", name = "uid7")
+        VgtkIO.save_manifest(dir, files; kind = "image")
+        @test VgtkIO.load_manifest(dir).kind == "image"
+        for bad in ("board", content_id(joinpath(dir, "target_planar.json")))   # a referenced target is not named by its content id
+            files = projective_dir(dir; reference = "uid7", name = bad)
+            err = try
+                VgtkIO.save_manifest(dir, files; kind = "image"); nothing
+            catch e
+                e
+            end
+            @test err isa ArgumentError && occursin("target_homographies.json", err.msg) && occursin("uid7", err.msg)
+        end
+        files = projective_dir(dir)
         th = load(TargetHomographies, joinpath(dir, "target_homographies.json"))
         stray = retargeted(th, ["0"^64])
         save(joinpath(dir, "target_homographies.json"), stray)
@@ -213,7 +239,7 @@ end
         catch e
             e
         end
-        @test err isa ArgumentError && occursin("target_homographies.json", err.msg) && occursin("\"whatever\"", err.msg)
+        @test err isa ArgumentError && occursin("target_homographies.json", err.msg) && occursin("frame 1", err.msg)
         # the load side refuses a tree that became inconsistent after the manifest was written (hash updated by hand)
         save(joinpath(dir, "target_homographies.json"), th)
         VgtkIO.save_manifest(dir, ["target_planar.json", "target_homographies.json"]; kind = "image")
@@ -226,7 +252,7 @@ end
     using VisualGeometryToolkitCore: TargetHomographies
     using VisualGeometryToolkitIO: load, save
     mktempdir() do dir
-        files = projective_dir(dir; name = :board)
+        files = projective_dir(dir)
         VgtkIO.save_manifest(dir, files; kind = "image")
         # a manifest written by hand over a measurement file whose target is unknown: the hash is right, the resolution is not
         th = load(TargetHomographies, joinpath(dir, "target_homographies.json"))

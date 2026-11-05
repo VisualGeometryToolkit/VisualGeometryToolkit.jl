@@ -18,7 +18,9 @@
 # trajectory and the targets), so a loader can check the set is consistent —
 # that homographies are read against the right camera, that a derived file
 # comes from the files beside it — without any one record knowing of the
-# others. `kind` says what the result is: "metric" (a placement in space),
+# others. A measurement file's target names must be in the targets it
+# references: a rig's target ids, a single target's design `reference` (or its
+# content id when it has none). `kind` says what the result is: "metric" (a placement in space),
 # "projective" (a partial calibration), "image" (an image-based result with no
 # placement in space). A file's `kind` is the schema of the record it holds.
 # `path`s are relative to the manifest's directory.
@@ -188,18 +190,20 @@ end
 # R18: every target/rig file the manifest lists is loaded, by content id. A
 # `target_points2d` / `target_homographies` file naming a targets identity none
 # of them has, or a target name not inside the identities it names, is refused
-# naming that file. A rig holds target ids; a single target holds no name of its
-# own, so any name a measurement gives it is accepted.
+# naming that file. A rig holds target ids; a single target is measured under
+# its design `reference` (a planar body's, BlobBoards' board uid) or, with no
+# reference, under its content id.
 function _check_manifest_targets(dir, d, mpath)
     rigs = Dict{String, Set{String}}()          # a rig's content id → its target ids
-    singles = Set{String}()                     # a single target's content id
+    singles = Dict{String, String}()            # a single target's content id → the name it is measured under
     for f in d.files::Vector{Any}
         full = joinpath(dir, f.path::String)
         k = _split_schema(f.kind)::NamedTuple
         if k.kind == "rig"
             rigs[content_id(full)] = Set(String(t.id) for t in get(_read_store(full, "rig", _RIG_SPEC), :targets, Any[]))
         elseif k.kind == "target"
-            push!(singles, content_id(full))
+            id = content_id(full)
+            singles[id] = String(get(_read_store(full, "target", _TARGET_SPEC).target, :reference, id))
         end
     end
     for f in d.files::Vector{Any}
@@ -208,14 +212,13 @@ function _check_manifest_targets(dir, d, mpath)
         (k.kind == "target_points2d" || k.kind == "target_homographies") || continue
         m = _read_store(full, k.kind, _spec(k.kind)::_Spec)
         for id in m.targets::Vector{Any}
-            (haskey(rigs, id) || id in singles) || throw(
+            (haskey(rigs, id) || haskey(singles, id)) || throw(
                 ArgumentError("$(full): names the targets identity $(id), which none of the target or rig files $(mpath) lists has")
             )
         end
-        loose = any(id -> id in singles, m.targets)
-        allowed = union(Set{String}(), (rigs[id] for id in m.targets if haskey(rigs, id))...)
+        allowed = Set{String}(n for id in m.targets for n in (haskey(rigs, id) ? rigs[id] : (singles[id],)))
         for fr in m.frames::Vector{Any}, o in (k.kind == "target_points2d" ? fr.points : fr.homographies)::Vector{Any}
-            (loose || o.target in allowed) || throw(
+            (o.target in allowed) || throw(
                 ArgumentError("$(full): frame $(fr.t) names the target $(repr(o.target)), which is not in the targets it references ($(sort!(collect(allowed))))")
             )
         end
@@ -232,8 +235,9 @@ and hashes to the recorded SHA-256 — an `ArgumentError` naming the file
 otherwise — and the targets resolve: every target and rig file listed is
 loaded, and a `target_points2d` or `target_homographies` file naming a
 targets identity (`content_id`) none of them has, or a target name not inside
-the rig it references, is refused naming that file. (A single target holds no
-name of its own: any name is accepted against it.) A listed file of an earlier
+the targets it references, is refused naming that file. A rig's targets are
+named by their ids; a single target by its design `reference` (a planar body's)
+or, when it has none, by its `content_id`. A listed file of an earlier
 schema version is read through its version steps.
 
 Returns `(; dir, kind, model, files, metrics, provenance)`: `kind` the

@@ -294,9 +294,12 @@ TargetPoints2D{F}(frames::Pair...; kwargs...) where {F <: PixelFrame} = TargetPo
 
 The 3D sibling of [`TargetPoints2D`](@ref): per frame index, the measured
 positions of target points — `tp[t]` a `Vector{`[`TargetPoint3D`](@ref)`}` —
-in the 3D frame `F` (`WorldFrame` for a tracker's room), millimetres. A
-motion-capture system's markers: a point is (body, marker index), the body's
-constellation its target definition. `sensors`, `images`, `times`,
+in the 3D frame `F` (`WorldFrame` for a tracker's room); a file holds them in
+its declared `length_unit`. A motion-capture system's measured markers: a
+point is (constellation, marker index), the tracked body's marker
+constellation its target definition, never a board mounted on the body.
+Measured values only: points computed by posing a design through a pose are
+derived and never stored here. `sensors`, `images`, `times`,
 `targets` as for [`TargetPoints2D`](@ref). A physical capture holds lengths
 in metres and an uncertain point's covariance in m², as supplied ([`has_units`](@ref)); `ustrip(u, x)` and [`with_unit`](@ref)`(x, u)`
 move every point.

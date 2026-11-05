@@ -113,3 +113,35 @@ the camera's frame), [`TargetPoints2D`](@ref) are pixels in a declared
 `PixelFrame`, [`TargetPoints3D`](@ref) points in a declared 3D frame. A
 measurement names a target point by (target id, point index), resolved
 against the target's definition — the rig member.
+
+### A planar target's frame: one orientation for every design
+
+Every planar target's `TargetFrame{id}` has the same axes: **x right and y up
+as the target is seen from its viewing side, and +z towards the viewer**, so
+the design lies on `z = 0` and a camera that sees it has its centre at `z > 0`
+([`signed_distance`](@ref) to the plane `> 0`). The viewing side is the printed
+side of a print; a target that is seen from behind (backlit, transparent, a
+mirror) states its viewing side, and every cheirality test reads that side
+rather than assuming one.
+
+The ORIGIN is the design's own and is documented with it: an
+[`AprilGrid`](@ref)'s is tag 0's first corner (Kalibr's frame, point for
+point), a [`SchoepsPattern`](@ref)'s the pattern's lower-left corner, a
+BlobBoards board's its centre. An origin is a translation, never a rotation, so
+the orientation, the side and every cheirality test read the same for every
+design; where the printed page sits relative to the origin is the target's
+[`Canvas`](@ref).
+
+A tool's own target frame is converted once, at the IO adapter that reads its
+files, by a fixed rigid map, and nothing inside the stack sees it: Schöps'
+`KnownGeometry` (y down: a half turn about x and a shift of one square), and
+OpenCV's and MATLAB's checkerboard frames (z into the board, the camera at
+`z < 0`). Kalibr's AprilGrid frame is this one.
+
+**Why one orientation.** A front end that built its own page frame (y down,
+from texture pixels) and searched both row directions found two labellings of
+one scene — rows along −y with the camera behind is rows along +y rotated 180°
+about x — scored them alike, and let rounding choose: Julia 1.12 and 1.13
+chose differently (RadiometricCamera, 2026-11-05). With the axes fixed by the
+convention there is one labelling, and cheirality removes the one remaining
+wrong pose, the camera behind the target.

@@ -7,7 +7,7 @@ against, then parameters.**
 |------|----------------|------|------------|
 | `project(camera, X)` | camera | `X` | |
 | `sampson_distance(F, u₁, u₂)` | `F` | `u₁`, `u₂` | |
-| `distance(plane, p)`, `closest_point(plane, p)` | plane | `p` | |
+| `signed_distance(plane, p)`, `closest_point(plane, p)` | plane | `p` | |
 | `is_in_front(camera, X)` | camera | `X` | |
 | `undistort(model, img, rect; scale)` | model | `img` | `rect`, `scale` |
 | `boundary_point(ellipse, θ)` | ellipse | | `θ` |

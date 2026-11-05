@@ -45,8 +45,8 @@
         @test projective_distance(radial_rows(Pr), a) < sqrt(2.0e-9)
         for (X, x) in raw
             line = VgtkCore.project(Pr, X)
-            @test abs(VgtkCore.distance(line, x)) < 1.0e-6
-            @test abs(VgtkCore.distance(line, c)) < 1.0e-9
+            @test abs(VgtkCore.signed_distance(line, x)) < 1.0e-6
+            @test abs(VgtkCore.signed_distance(line, c)) < 1.0e-9
         end
         @test SMatrix{3, 3, Float64}(HomographyMat(Pr))[3, :] == SVector(0.0, 0.0, 1.0)
         # P is fixed only up to sign (the SVD null vector's): read Pc in Pr's sign

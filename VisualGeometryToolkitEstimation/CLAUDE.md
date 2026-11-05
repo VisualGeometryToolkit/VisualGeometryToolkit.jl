@@ -201,7 +201,7 @@ model or shape first, then the data it acts on or is measured against, then
 parameters.**
 
 - `project(camera, point3d)`, `sampson_distance(H, u₁, u₂)`,
-  `distance(line, point)`
+  `signed_distance(line, point)`
 - An accessor takes the one object: `minimal_sample_size(problem)`, `model_type(problem)`
 - A GIVEN model leads in task verbs and estimators too:
   `find_absolute_pose(camera, pairs)`, `AbsolutePoseProblem(camera, pairs)`.

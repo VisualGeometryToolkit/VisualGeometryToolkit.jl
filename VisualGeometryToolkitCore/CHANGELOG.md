@@ -1,5 +1,14 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.5.7 (2026-11-05)
+
+- `signed_distance(hyperplane, p)`: the signed distance `n·p + d`, positive on
+  the normal's side (a line or a plane; the side test of a camera in front of a
+  planar target).
+- `distance(hyperplane, p)` is deprecated (a warning, the same signed value):
+  the name read as unsigned. Use `signed_distance`, or `abs` of it. The
+  hyperplane method is removed in 0.7; `distance` stays the unsigned generic.
+
 ## 0.5.6 (2026-11-05)
 
 Bug fixes to 0.5.5's additions; additive otherwise.

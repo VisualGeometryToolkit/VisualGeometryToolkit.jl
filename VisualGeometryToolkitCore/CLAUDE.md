@@ -367,11 +367,11 @@ end
 ```julia
 # In base/interface.jl / interface_functions.jl:
 function centroid end
-function distance end
+function signed_distance end
 
 # In Primitives submodule:
 centroid(e::Ellipse) = e.center
-distance(h::Hyperplane, p::Point2) = ...
+signed_distance(h::Hyperplane, p::Point2) = ...
 coeffs(p::Paraboloid3D{T,P}) -> SVector{P,T}  # paraboloid free parameters
 ```
 

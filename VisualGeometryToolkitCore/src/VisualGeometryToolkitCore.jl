@@ -122,7 +122,7 @@ public pair_covariance, noise_columns   # a correspondence's 4×4 covariance; Un
 
 # Hyperplanes (lines in 2D, planes in 3D)
 export Hyperplane, Line2D, Plane3D
-export normal, offset, distance, closest_point, project, side
+export normal, offset, distance, signed_distance, closest_point, project, side   # `distance(hyperplane, p)` deprecated (signed): `signed_distance`
 export slope, intercept, clip_to_rect
 # Batched SoA ray-plane intersection (0.14; hoisted from RayTracedCalibration):
 # broadcasted hit points + ray parameters of SoA ray bundles against a Plane3D.

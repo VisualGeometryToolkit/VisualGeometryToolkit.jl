@@ -80,7 +80,7 @@ using ..VisualGeometryToolkitCore: intersects   # a node's support against the i
 using ..VisualGeometryToolkitCore: HomEllipseMat, WholePlane   # the conic matrix a valid domain is built from, and the whole plane (image_circle.jl)
 import ..VisualGeometryToolkitCore: HomographyMap  # Import (not using) to extend the labeled camera lift
 
-using ..VisualGeometryToolkitCore: Plane3D, distance  # For chirality-filtered P3P
+using ..VisualGeometryToolkitCore: Plane3D, signed_distance  # For chirality-filtered P3P
 using ..VisualGeometryToolkitCore: Line2D   # RadialCamera projects a plane point TO A LINE
 using ..VisualGeometryToolkitCore: AbstractRadialModel   # RadialCamera joins the plane→pencil family
 using ..VisualGeometryToolkitCore: RadialHomography      # the family's other member (conversion in calibration.jl)

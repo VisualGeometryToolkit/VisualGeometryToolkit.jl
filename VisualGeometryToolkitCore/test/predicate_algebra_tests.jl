@@ -146,11 +146,24 @@
             p = Point2(5.0, 7.0)
             cp = closest_point(line, p)
             @test cp ≈ Point2(2.0, 7.0)
-            @test abs(distance(line, p)) ≈ 3.0
-            @test abs(distance(line, cp)) < 1.0e-12
+            @test abs(signed_distance(line, p)) ≈ 3.0
+            @test abs(signed_distance(line, cp)) < 1.0e-12
             @test side(line, p) == 1
             @test cp ∈ line   # `in` keeps Base's in(item, collection) order
-            @test_throws MethodError distance(p, line)
+            @test_throws MethodError signed_distance(p, line)
+        end
+
+        @testset "signed_distance: the sign is the hyperplane's orientation" begin
+            line = Line2D(1.0, 0.0, -2.0)                     # x = 2, normal +x
+            @test signed_distance(line, Point2(5.0, 7.0)) ≈ 3.0
+            @test signed_distance(line, Point2(-1.0, 7.0)) ≈ -3.0
+            @test signed_distance(Line2D(-1.0, 0.0, 2.0), Point2(5.0, 7.0)) ≈ -3.0   # the same line, flipped
+            plane = Plane3D(Point3(0.0, 0.0, 1.0), Vec3(0.0, 0.0, 2.0))   # z = 1; a non-unit normal is normalized
+            @test signed_distance(plane, Point3(0.0, 0.0, 4.0)) ≈ 3.0
+            @test signed_distance(plane, Point3(0.0, 0.0, -1.0)) ≈ -2.0
+            @test signed_distance(plane, SA[1.0, 2.0, 1.0]) ≈ 0.0 atol = 1.0e-15
+            # the deprecated name forwards (same value, a warning) until 0.7
+            @test (@test_deprecated distance(line, Point2(-1.0, 7.0))) ≈ -3.0
         end
 
         @testset "allocation-free hot predicates" begin

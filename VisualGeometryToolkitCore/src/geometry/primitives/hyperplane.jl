@@ -17,7 +17,7 @@ using LinearAlgebra: norm, dot, cross, normalize
 using GeometryBasics: GeometryBasics, Point, Point2, Point3, Vec2, Vec3, Rect2
 
 # Import shared functions from parent to extend
-import ..VisualGeometryToolkitCore: closest_point, distance, normal, offset, centroid
+import ..VisualGeometryToolkitCore: closest_point, distance, signed_distance, normal, offset, centroid
 
 # =============================================================================
 # Hyperplane Type
@@ -51,7 +51,7 @@ plane = Hyperplane(SVector(0.0, 0.0, 1.0, -5.0))
 plane = Plane3D(Point3(0,0,5), Vec3(0,0,1))
 
 # Point-to-hyperplane signed distance
-d = distance(line, Point2(1.0, 2.0))
+d = signed_distance(line, Point2(1.0, 2.0))
 
 # Closest point on hyperplane (orthogonal projection)
 p_closest = closest_point(line, Point2(1.0, 2.0))
@@ -135,22 +135,32 @@ offset(h::Hyperplane) = -h.coeffs[end]
 # =============================================================================
 
 """
-    distance(hyperplane, point) -> T
+    signed_distance(hyperplane, point) -> T
 
-Signed distance from `point` to `hyperplane`.
-Positive if on the positive side of the normal.
+Signed distance from `point` to `hyperplane`: `n·p + d` with the unit normal `n`,
+positive on the side the normal points to, negative on the other, zero on the
+hyperplane. The sign is the hyperplane's orientation, so it answers which side a
+point is on (a camera centre in front of a planar target: `signed_distance(plane, c) > 0`).
 
 # Example
 ```julia
 line = Line2D(Point2(0.0, 0.0), Point2(1.0, 0.0))  # x-axis
-distance(line, Point2(3.0, 5.0))  # 5.0
+signed_distance(line, Point2(3.0, 5.0))   # 5.0
+signed_distance(line, Point2(3.0, -5.0))  # -5.0
 ```
 """
-function distance(h::Hyperplane{M, N, T}, p::StaticArray{Tuple{M}}) where {M, N, T}
+function signed_distance(h::Hyperplane{M, N, T}, p::StaticArray{Tuple{M}}) where {M, N, T}
     return dot(h.coeffs, SVector{N}(p..., one(eltype(p))))
 end
 
-distance(h::Hyperplane{M}, p::Point{M}) where {M} = distance(h, SVector{M}(p))
+signed_distance(h::Hyperplane{M}, p::Point{M}) where {M} = signed_distance(h, SVector{M}(p))
+
+# `distance(hyperplane, p)` returned the SIGNED distance under an unsigned name; deprecated in 0.5.7
+# (same value, a warning), removed in 0.7.
+function distance(h::Hyperplane{M}, p::Union{Point{M}, StaticArray{Tuple{M}}}) where {M}
+    Base.depwarn("`distance(hyperplane, p)` is deprecated: it is signed, use `signed_distance(hyperplane, p)` (or `abs` of it)", :distance)
+    return signed_distance(h, p)
+end
 
 """
     closest_point(hyperplane, p) -> Point{M}
@@ -164,7 +174,7 @@ closest_point(line, Point2(3.0, 5.0))  # Point2(3.0, 0.0)
 ```
 """
 function closest_point(h::Hyperplane{M, N, T}, p::StaticArray{Tuple{M}}) where {M, N, T}
-    d = distance(h, p)
+    d = signed_distance(h, p)
     n = normal(h)
     return p - d * n
 end
@@ -180,7 +190,7 @@ Return which side of the hyperplane `p` is on:
 - `0` if on the hyperplane (within tolerance)
 """
 function side(h::Hyperplane{M, N}, p::Union{Point{M}, StaticArray{Tuple{M}}}; atol = 1.0e-10) where {M, N}
-    d = distance(h, p)
+    d = signed_distance(h, p)
     return abs(d) < atol ? 0 : (d > 0 ? 1 : -1)
 end
 
@@ -189,7 +199,7 @@ end
 
 Check if point `p` lies on hyperplane `h` within tolerance.
 """
-on_hyperplane(h::Hyperplane, p; atol = 1.0e-10) = abs(distance(h, p)) < atol
+on_hyperplane(h::Hyperplane, p; atol = 1.0e-10) = abs(signed_distance(h, p)) < atol
 
 """
     p ∈ h  or  in(p, h::Hyperplane)

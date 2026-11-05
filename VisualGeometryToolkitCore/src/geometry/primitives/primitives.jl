@@ -18,7 +18,7 @@ Provides geometric primitive types and operations:
 # Main Functions
 - `dilate`, `intersects`, `gradient`
 - `is_ellipse`, `classify_conic`
-- `distance`, `closest_point`, `normal`, `offset`
+- `signed_distance`, `closest_point`, `normal`, `offset`
 
 # Example
 ```julia
@@ -31,7 +31,7 @@ dilated = dilate(circle, 2.0)
 # Hyperplanes
 line = Line2D(Point2(0.0, 0.0), Point2(1.0, 1.0))
 plane = Plane3D(Point3(0.0, 0.0, 0.0), Vec3(0.0, 0.0, 1.0))
-d = distance(line, Point2(1.0, 2.0))
+d = signed_distance(line, Point2(1.0, 2.0))
 ```
 """
 module Primitives
@@ -82,7 +82,7 @@ using ..VisualGeometryToolkitCore: CircleTrait, EllipseTrait, ParabolaTrait, Hyp
 using ..VisualGeometryToolkitCore: IsotropicScale, ShapeMatrixScale
 import ..VisualGeometryToolkitCore: has_boundary, classify_conic
 import ..VisualGeometryToolkitCore: frame_scale
-import ..VisualGeometryToolkitCore: centroid, normal, offset, distance, closest_point
+import ..VisualGeometryToolkitCore: centroid, normal, offset, distance, signed_distance, closest_point
 import ..VisualGeometryToolkitCore: dilate, intersects, area, iou, coverage
 import ..VisualGeometryToolkitCore: overlap_area, overlap_method, geom_rank
 import ..VisualGeometryToolkitCore: moment_matrix, characteristic_scale, aspect_ratio

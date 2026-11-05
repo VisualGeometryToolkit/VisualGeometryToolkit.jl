@@ -210,7 +210,7 @@ the very last file: `CONTRACT_GENERICS` lists functions from every section above
 |----------|------------|----------------|
 | `centroid` | `base/interface_functions.jl` | Primitives (Ellipse, Circle, Rect, Disc) |
 | `project` | `base/interface_functions.jl` | Cameras (`project(camera, X)`) |
-| `distance` | `base/interface_functions.jl` | Primitives (`distance(plane, p)`) |
+| `signed_distance` | `base/interface_functions.jl` | Primitives (`signed_distance(plane, p)`; `distance` is the unsigned generic, the hyperplane method deprecated) |
 | `closest_point` | `base/interface_functions.jl` | Primitives (`closest_point(plane, p)`) |
 | `dilate` | `base/interface_functions.jl` | Primitives (Circle, Ellipse) |
 | `intersects` | `base/interface_functions.jl` | Primitives (Rect, Circle) |

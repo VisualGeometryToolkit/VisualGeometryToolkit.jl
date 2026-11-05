@@ -589,6 +589,20 @@ end
         @test_throws ArgumentError save_correspondences(joinpath(dir, "x.json"), o2, rp)
         save_correspondences(joinpath(dir, "y.json"), o2, rp; resolve = _ -> pts)
         @test parse_json(read(joinpath(dir, "y.json"), String)).rows[1].object_points[1] == [20.0, 10.0, 0.0]
+        # a single target (a value or a vgio/target/v3 path) is named by its design reference
+        st = PlanarTarget(:a1f2; nominal = pts)
+        sp = joinpath(dir, "single_target.json")
+        save(sp, st)
+        so = TargetPoints2D{PixelFrame{:julia}}(Dict(1 => [(; target = :a1f2, index = 1, xy = SVector(1.0, 2.0), weight = 1.0)]); images = Dict(1 => "a.png"), sensors = "cam", targets = [content_id(sp)])
+        @test content_id(sp) == content_id(st)
+        @test_throws ArgumentError save_correspondences(joinpath(dir, "x.json"), so, sp)                  # a reference needs its resolver
+        for (name, t) in (("path", sp), ("value", st))
+            sc = joinpath(dir, "single_$(name).json")
+            save_correspondences(sc, so, t; resolve = _ -> pts)
+            r = only(parse_json(read(sc, String)).rows)
+            @test r.target == "a1f2" && r.object_points[1] == [10.0, 5.0, 0.0] && r.image_points[1] == [1.0, 2.0]
+        end
+        @test_throws ArgumentError save_correspondences(joinpath(dir, "x.json"), so, targets)             # the rig is not the target it names
         # a trajectory file is not target points
         tpath = joinpath(dir, "trajectory.json")
         save(tpath, Trajectory(TargetFrame{:a1f2}, WorldFrame, Dict(1 => at(900.0mm))))

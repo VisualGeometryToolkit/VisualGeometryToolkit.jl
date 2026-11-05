@@ -1015,7 +1015,18 @@ _target_list(t::Union{Rig, AbstractString}) = Any[t]
 _target_list(ts::Union{AbstractVector, Tuple}) = collect(Any, ts)
 _target_rigs(ts; resolve = nothing) = [_target_rig(t; resolve) for t in _target_list(ts)]
 _target_rig(r::Rig; resolve = nothing) = target_rig(r)
-_target_rig(p::AbstractString; resolve = nothing) = target_rig(load(Rig, p; resolve))
+function _target_rig(p::AbstractString; resolve = nothing)
+    v = _split_schema(_peek_schema(p))
+    v !== nothing && v.kind == "target" && return _target_rig(load(AbstractTarget, p; resolve))
+    return target_rig(load(Rig, p; resolve))
+end
+# A single unposed target as a one-member rig, under the name its measurements
+# carry: its design `reference`, or its content id with none (the manifest's rule).
+_target_rig(t::Attributed{<:AbstractTarget}; resolve = nothing) = _target_rig(t.value; resolve)
+function _target_rig(t::AbstractTarget; resolve = nothing)
+    name = t isa PlanarTarget && reference(t) !== nothing ? reference(t) : Symbol(content_id(t))
+    return Rig{TargetFrame{name}}(Dict(name => PosedTarget(t, EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, 0.0) .* m))))
+end
 _target_hashes(ts) = String[_targets_hash(t) for t in _target_list(ts)]
 
 # Every (target, index) must resolve in the rigs the file will name — checked

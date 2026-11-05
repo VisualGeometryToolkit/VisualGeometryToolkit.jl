@@ -776,3 +776,22 @@ end
         @test !occursin("FAILED", String(take!(out)))
     end
 end
+
+@testitem "vgio_migrate_tree: a v1 measurement file naming a v4 rig id is re-pointed and rewritten as v2" setup = [VGIoFixtures, MigrateFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: TargetPoints2D
+    mktempdir() do dir
+        old_copy(dir, "rig_targets.json", as_v4_rig)
+        obs = joinpath(dir, "target_points2d.json")
+        write(obs, as_v1_points2d(replace(read(units_fixture("target_points2d.json"), String), current_id() => V4_ID)))
+        d = VgtkIO._raw_tree(obs)
+        @test d["schema"] == "vgio/target_points2d/v1" && d["targets"] == [V4_ID]
+        out = IOBuffer()
+        rs = vgio_migrate_tree(dir; in_place = true, io = out)
+        @test !occursin("FAILED", String(take!(out)))
+        d = VgtkIO._raw_tree(obs)
+        @test d["schema"] == "vgio/target_points2d/v2" && d["targets"] == [current_id()]
+        @test VgtkIO._same_value(load(TargetPoints2D, obs), load(TargetPoints2D, units_fixture("target_points2d.json")))
+        @test read(obs, String) == read(units_fixture("target_points2d.json"), String)
+    end
+end

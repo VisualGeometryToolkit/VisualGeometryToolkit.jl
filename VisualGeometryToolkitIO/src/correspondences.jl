@@ -121,7 +121,9 @@ for `cv::calibrateCamera` (the top-left pixel's centre at (0, 0)),
 `PixelFrame{:julia}` for MATLAB's (1, 1); the measurements' own frame by
 default. A type, it leads.
 
-`targets` is one or more rigs or rig file paths (one per connected
+`targets` is one or more rigs, rig file paths, or single targets (an
+`AbstractTarget` or a `vgio/target/v3` path; named in the file by its design
+`reference`, or its [`content_id`](@ref) with none) (one per connected
 component; a target present in several must carry the same points in each;
 `resolve` resolves a referenced planar design read from a path); when `obs` names its targets (`obs.targets`), the given ones must be
 exactly those, by [`content_id`](@ref) — an old rig file (`vgio/rig/v4`, or a

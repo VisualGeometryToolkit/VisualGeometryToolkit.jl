@@ -5,7 +5,9 @@
 - **New kind `vgio/target_homographies/v1`** (`save`, `load(TargetHomographies, path)`,
   `load(TargetHomographies{F}, path)`): per frame, each target's plane (mm) to
   pixel homography, canonical (unit Frobenius norm, `H[3,3] >= 0`), against the
-  camera the frame's `sensor` names, before its lens. The pixel frame is the
+  camera the frame's `sensor` names, before its lens (VGC's
+  `radial_homography(camera, H)` pairs them, for a projective camera and for a
+  metric one with `fx == fy` and no skew). The pixel frame is the
   value's type; `targets` are the `content_id`s its ids resolve in.
 - **`content_id` of a single unposed target** (a `vgio/target/v3` path, an
   `AbstractTarget`, or an `Attributed` one): the SHA-256 of its `target` record,
@@ -21,7 +23,11 @@
   file, `derived_from`. `kind` is `"metric"`, `"projective"` or `"image"`;
   `model` is an optional `CameraModelSpec`. A load refuses a changed file by
   name, and a `target_points2d` / `target_homographies` file naming a targets
-  identity or a rig target the listed target and rig files do not hold.
+  identity or a rig target the listed target and rig files do not hold. A
+  measurement names a single target by its `reference`, or by its content id
+  when it has none; a rig's target by its id.
+- **`save_correspondences` takes single targets** (an `AbstractTarget` or a
+  `vgio/target/v3` path) beside rigs, named as above.
 - **`vgio_migrate` rewrites a `.toml` record** whose schema has a
   `migrate_schema(::Val, tree)` step and no file form (a schema owner's config):
   parse, the steps, `TOML.print`, and a verified read-back (the same tree, types

@@ -45,8 +45,12 @@
 #      EITHER a rig (rig/v6) of boards OR a single unposed target (target/v3); at
 #      least one. Each H maps the target's plane — its own design frame, millimetres — to a
 #      pixel of the declared `pixel_frame`, as `RadialHomography`'s H does: BEFORE
-#      the lens of the camera `sensor` names, about that camera's centre (an H is
-#      read against that camera). H is stored as rows and CANONICAL: unit
+#      the lens of the camera `sensor` names, about that camera's centre. An H is
+#      paired with that camera by VGC's `radial_homography(camera, H)`: a PROJECTIVE
+#      camera (principal point + division in pixels) is the model itself; a METRIC
+#      one (K with fx == fy, no skew; division in K's normalized chart) converts to
+#      λₚ = kₚ / f^(2p) about its principal point — equivalently, the pixel of a
+#      plane point X is project(camera, K⁻¹·H·[X; 1]). H is stored as rows and CANONICAL: unit
 #      Frobenius norm and H[3,3] ≥ 0 (VGC `sign_normalize`), so one placement
 #      always writes the same bytes and a stored H seeds `HomographyManifold8(H)`
 #      directly; a writer stores `sign_normalize(H)` and refuses a degenerate H,
@@ -356,8 +360,12 @@ homography `H` (ids sorted) as three rows.
 
 `H` maps the target's plane — its design frame, millimetres — to a pixel of
 `F`, BEFORE the lens of the camera the frame's `sensor` names, about that
-camera's centre: exactly `RadialHomography`'s `H`. An `H` is read against that
-camera.
+camera's centre: exactly `RadialHomography`'s `H`. An `H` is paired with that
+camera by VGC's `radial_homography(camera, H)`: for a projective camera the camera
+itself is the model; for a metric one (`fx == fy`, no skew) it converts the
+division coefficients `kₚ` of `K`'s normalized chart to `λₚ = kₚ / f^(2p)` about
+the principal point — equivalently, a plane point `X` lands on the pixel
+`project(camera, K⁻¹·H·[X; 1])`.
 
 `H` is stored canonical — `sign_normalize(H)`: unit Frobenius norm and
 `H[3,3] ≥ 0` — so one placement always writes the same bytes and a stored `H`
@@ -391,7 +399,8 @@ typed in the pixel frame `F` the file declares, per frame index every
 target's canonical `H` (unit Frobenius norm, `H[3,3] ≥ 0`) exactly as stored,
 with the frames' images, sensors and times and the `targets` identities. `H`
 maps the target's plane (millimetres) to a pixel of `F`, before the lens of the
-camera the frame's `sensor` names. Change the frame with `convert_frame`.
+camera the frame's `sensor` names (pair them with VGC's `radial_homography(camera, H)`;
+see [`save`](@ref)). Change the frame with `convert_frame`.
 
 The second form asserts the frame: a file declaring another is an
 `ArgumentError`. So is an `H` that is not canonical or is singular.

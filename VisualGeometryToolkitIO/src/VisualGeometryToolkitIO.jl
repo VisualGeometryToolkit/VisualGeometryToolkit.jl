@@ -33,8 +33,8 @@ and times) or an `Attributed` attribute (a camera's `calibration` block, a targe
 `calibration_record`; a covariance, as `Uncertain`).
 
 Every vgio file is a versioned schema (`vgio/<kind>/v<n>`: rig v6; cameras
-v4; transforms, trajectory and target v3; target_poses, target_points2d and
-target_points3d v1; the rest v2), and a file is sufficient on its own and
+v4; transforms, trajectory and target v3; target_poses, target_points2d,
+target_points3d and target_detections v1; the rest v2), and a file is sufficient on its own and
 minimal:
 - every convention a reader needs is DECLARED in the file, once — the pixel
   frame, the length unit, the rotation encoding (Hamilton quaternions, w-x-y-z,
@@ -107,6 +107,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     Rigid, ThinPlateSpline, HeightField, Scale, Aspect, Skew, TARGET_CALIBRATION_TAGS, calibration_tag, parameter_vector, length_mask,
     TARGET_CALIBRATION_ORDER, planar_kind, members, is_pure_bending, ThinPlateSplineSystem, iwasawa_parameters_with_jacobian, strip_or_bare,
     Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D, TargetPoint2D, TargetPoint3D,
+    TargetDetections, Csponds, withattrs, sources, targets,
     CentralGenericModel, NoncentralGenericModel, nominal_intrinsics, present_nodes, LogicalIntrinsics, Ellipse, WholePlane,
     Frame, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, UnlabeledFrame,
     Uncertain, CovMat, geom,
@@ -137,6 +138,7 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 #   load(TargetPoses, path)                      vgio/target_poses/v1
 #   load(TargetPoints2D, path)                   vgio/target_points2d/v1 (or a Schöps dataset.bin; `target`)
 #   load(TargetPoints3D, path)                   vgio/target_points3d/v1
+#   load(TargetDetections, path)                 vgio/target_detections/v1 (or a target_points2d/3d/v1 file, converted)
 #   load(CaptureSettings, path)                  vgio/capture_settings/v1 (Attributed with its identities' sources)
 #   load(CentralGenericModel | NoncentralGenericModel, path)   the Schöps grid models (vgio JSON, or Schöps' intrinsics0.yaml)
 #   load(ColmapModel, dir; contract = nothing)   COLMAP model directory (foreign)
@@ -175,7 +177,7 @@ include("transform_schema.jl")
 include("camera_schema.jl")
 include("generic_camera_schema.jl")  # the Schöps grid models (must precede rig_schema: sensors embed it)
 include("rig_schema.jl")
-include("captures_schema.jl")  # trajectory/v3, target_poses/v1, target_points2d/v1, target_points3d/v1: VGC's captures
+include("captures_schema.jl")  # trajectory/v3, target_poses/v1, target_points2d/v1, target_points3d/v1, target_detections/v1: VGC's captures
 include("capture_settings_schema.jl")  # capture_settings/v1: the camera's settings per frame, the body and lens identities
 include("schoeps.jl")      # Schöps et al.'s camera_calibration files (intrinsics0.yaml, dataset.bin), read through `load`
 include("correspondences.jl")  # export: measurements + targets → per-(frame, target) point arrays for external calibrators

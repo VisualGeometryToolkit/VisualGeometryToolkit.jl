@@ -27,7 +27,8 @@ that this class of bug cannot be written down:
 
 Every vgio file has a schema tag `vgio/<kind>/v<n>`. The current versions are
 rig v7; target and cameras v4; transforms, trajectory and generic_camera v3;
-target_poses, target_points2d, target_points3d and capture_settings v1; and
+target_poses, target_points2d, target_points3d, capture_settings and
+target_detections v1; and
 v2 for the rest. A file can be
 read exactly with nothing but itself. The rules that make this true:
 
@@ -58,7 +59,7 @@ coefficients, centre and counts) are recomputed rather than stored. The
 writer refuses data whose derived values disagree with their source.
 
 **Measurements name their targets by content.** A measurement file
-(`target_points2d`, `target_points3d`) names the rigs that define the targets
+(`target_detections`, `target_points2d`, `target_points3d`) names the rigs that define the targets
 it indexes by their content identity, `content_id(rig)` or
 `content_id(path)`. This is the SHA-256 of the rig's identity tree: built from
 the in-memory rig under names of the identity's own, fixed once in

@@ -456,6 +456,8 @@ function _same_value(a::Uncertain, b::Uncertain)
             n == 0 ? Σa[I] === Σb[I] : _same_metres(Float64(Σa[I]), Float64(Σb[I]))
         end
 end
+# A correspondence set: its endpoints and its attribute columns (its `==` sees the pairs only).
+_same_value(a::Csponds, b) = typeof(a) === typeof(b) && all(f -> _same_value(getfield(a, f), getfield(b, f)), fieldnames(typeof(a)))
 # A non-central model's points are plain metres (its directions are not lengths).
 _same_value(a::NoncentralGenericModel, b::NoncentralGenericModel) =
     typeof(a) === typeof(b) && all(f -> f === :points ?
@@ -1060,9 +1062,20 @@ end
 # `save_correspondences` resolves an old identity against the old rig file
 # (`_old_id_map`). Nothing else re-points.
 
-const _MEASUREMENT_KINDS = Dict("vgio/target_points2d/v1" => TargetPoints2D, "vgio/target_points3d/v1" => TargetPoints3D)
+const _MEASUREMENT_KINDS = Dict(
+    "vgio/target_points2d/v1" => TargetPoints2D, "vgio/target_points3d/v1" => TargetPoints3D,
+    "vgio/target_detections/v1" => TargetDetections,
+)
 
-# Re-point a measurement file (`vgio/target_points2d/v1`, `vgio/target_points3d/v1`)
+# A measurement value's own type, frame included (to rebuild it with other targets).
+_measurement_type(::TargetPoints2D{F}) where {F} = TargetPoints2D{F}
+_measurement_type(::TargetPoints3D{F}) where {F} = TargetPoints3D{F}
+_measurement_type(::TargetDetections{F}) where {F} = TargetDetections{F}
+# Every measurement of a value as (frame, target, point index).
+_measured_points(obs::Union{TargetPoints2D, TargetPoints3D}) = ((f, o.target, o.index) for (f, os) in obs for o in os)
+_measured_points(obs::TargetDetections) = ((f, id, i) for (f, sets) in obs for (id, cs) in sets for i in sources(cs))
+
+# Re-point a measurement file (`vgio/target_points2d/v1`, `vgio/target_points3d/v1`, `vgio/target_detections/v1`)
 # at the rigs its targets were migrated to: every identity in its `targets`
 # that `ids` (old → new, a rig migration's `old_ids` and `new_id`) maps is
 # replaced; nothing else changes, and the file stays at its version. Every
@@ -1085,7 +1098,7 @@ function _repoint_targets(
     )
     s = get(old, "schema", nothing)
     T = get(_MEASUREMENT_KINDS, s, nothing)
-    T === nothing && throw(ArgumentError("$(path): a $(repr(s)) file names no targets to re-point (target_points2d/v1, target_points3d/v1)"))
+    T === nothing && throw(ArgumentError("$(path): a $(repr(s)) file names no targets to re-point (target_points2d/v1, target_points3d/v1, target_detections/v1)"))
     in_place = abspath(out) == abspath(path)
     (dry_run || in_place || !ispath(out)) || throw(ArgumentError("$(out) exists; refusing to overwrite it"))
     obs = load(T, path)
@@ -1105,7 +1118,7 @@ function _repoint_targets(
     named = [r for (r, h) in zip(rig_list, hashes) if h in targets]   # the rigs the measurements resolve in
     unchecked = _check_resolves_by_id(obs, _target_rigs(named; resolve), path)
     return write_staged(out => basename(path); dry_run) do staged
-        save(staged, typeof(obs)(obs.frames; images = obs.images, sensors = obs.sensors, times = obs.times, time_origin = obs.time_origin, targets); _resave_kwargs(old)...)
+        save(staged, _measurement_type(obs)(obs.frames; images = obs.images, sensors = obs.sensors, times = obs.times, time_origin = obs.time_origin, targets); _resave_kwargs(old)...)
         re = load(T, staged)
         _verify(re.targets == targets, path, "its targets")
         _verify(all(f -> f === :targets || _same_value(getfield(re, f), getfield(obs, f)), fieldnames(typeof(obs))) &&
@@ -1124,13 +1137,13 @@ function _check_resolves_by_id(obs, rigs, path)
         npts[id] = is_resolved(t) ? length(points(t)) : nothing
     end
     unchecked = 0
-    for (f, os) in obs, o in os
-        haskey(npts, o.target) || throw(ArgumentError("$(path): frame $(f) measures target $(o.target), which none of the rigs given holds"))
-        n = npts[o.target]
+    for (f, target, index) in _measured_points(obs)
+        haskey(npts, target) || throw(ArgumentError("$(path): frame $(f) measures target $(target), which none of the rigs given holds"))
+        n = npts[target]
         if n === nothing
             unchecked += 1
         else
-            1 <= o.index <= n || throw(ArgumentError("$(path): frame $(f) measures point $(o.index) of target $(o.target), which has $(n)"))
+            1 <= index <= n || throw(ArgumentError("$(path): frame $(f) measures point $(index) of target $(target), which has $(n)"))
         end
     end
     return unchecked
@@ -1146,7 +1159,7 @@ end
 Migrate every `.json` file under `dir` whose schema has a migration (cameras
 v1–v3, target v1–v2, rig v4–v5, and any schema whose owner added a
 [`migrate_schema`](@ref) file form), then re-point the measurement files under
-`dir` (`vgio/target_points2d/v1`, `vgio/target_points3d/v1`) at the current
+`dir` (`vgio/target_points2d/v1`, `vgio/target_points3d/v1`, `vgio/target_detections/v1`) at the current
 rigs of the tree, each by the guarded pattern of [`vgio_migrate`](@ref) (a
 full-precision length may be rewritten within 2 ulp, as the same metre value),
 with one line per file to `io`

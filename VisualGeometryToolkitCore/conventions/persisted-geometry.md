@@ -101,8 +101,14 @@ from VGC types.
 | `target` | an [`AbstractTarget`](@ref) ([`PointTarget`](@ref), [`PlanarTarget`](@ref)) |
 | `trajectory` | [`Trajectory`](@ref) |
 | `target_poses` | [`TargetPoses`](@ref) |
-| `target_points2d`, `target_points3d` | [`TargetPoints2D`](@ref), [`TargetPoints3D`](@ref) |
+| `target_detections` | [`TargetDetections`](@ref) (pixels or 3D points, by its frame) |
+| `target_points2d`, `target_points3d` | [`TargetPoints2D`](@ref), [`TargetPoints3D`](@ref); also read as a `TargetDetections` (converted on load) |
 | `capture_settings` | [`CaptureSettings`](@ref), `Attributed` with its identities' sources |
+
+**File names state the kind, never the time.** A file's name is a
+convention for people, not a format: every loader reads the file's `schema`
+and never its name. VisualGeometryToolkitIO's docs ("Kinds and the I/O
+Surface", *File names*) state it once.
 
 The measurement kinds are COLMAP's decomposition: `target_points2d` ≈ COLMAP's
 `images.txt` `points2D` with their `POINT3D_ID` — here the pair (target id,

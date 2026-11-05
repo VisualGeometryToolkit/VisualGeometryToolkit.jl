@@ -6,6 +6,8 @@
 #   vgio/target_poses/v1      ↔ VGC `TargetPoses{F}`        per frame, the poses of the targets seen
 #   vgio/target_points2d/v1   ↔ VGC `TargetPoints2D{F}`     per frame, pixels of target points
 #   vgio/target_points3d/v1   ↔ VGC `TargetPoints3D{F}`     per frame, 3D positions of target points
+#   vgio/target_detections/v1 ↔ VGC `TargetDetections{F}`   per frame, per target, index => pixel or 3D point
+#                               (load(TargetDetections, …) reads the two kinds above too, converted)
 #
 # Every one is a list of `frames`, each named by its index `t` — unique, the
 # join key between the kinds of one capture — with, where the kind has them,
@@ -47,6 +49,15 @@
 #  "frames": [{"t": 17, "image": …, "sensor": "mocap", "time": …,
 #              "points": [{"target": "board_rig", "index": 3, "xyz": [x, y, z],
 #                          "covariance": [[…3], …3 rows]}]}]}
+#
+# {"schema": "vgio/target_detections/v1", "pixel_frame": "colmap", "point_index_base": 1,
+#  "targets": [ … ],                       (or "frame": "world", "length_unit": "mm"; targets optional)
+#  "frames": [{"t": 17, "image": …, "sensor": "cam1", "time": …,
+#              "detections": [{"target": "<uid>", "index": [1, 5], "points": [[u, v], [u, v]],
+#                              "covariance": [[[…], […]], [[…], […]]], "weights": [1.0, 0.5]}]}]}
+#      per target the indices (unique), its points, and per point a covariance iff
+#      Uncertain and a weight iff the set has a `weights` column; required stamps as
+#      target_points2d (pixels) or target_points3d (3D points)
 #
 # COLMAP, for orientation (no exporter): target_points2d is COLMAP's images.txt
 # `points2D` with their `POINT3D_ID`, the (target, index) pair playing the
@@ -446,6 +457,166 @@ function load(::Type{TargetPoints3D}, path::AbstractString)
         frames[t] = TargetPoint3D[_point3_from_json(o, unit) for o in f.points::Vector{Any}]
     end
     return TargetPoints3D{frame_from_name(d.frame::String)}(
+        frames; images, sensors, times, time_origin = _time_origin(d),
+        targets = haskey(d, :targets) ? String[h::String for h in d.targets::Vector{Any}] : String[],
+    )
+end
+
+# =============================================================================
+# target_detections/v1 ↔ TargetDetections
+# =============================================================================
+
+# One target's detections in a frame: its point indices (unique, at least
+# one), its points (`d` numbers each), and per point, where the value has them,
+# a d×d covariance and a weight.
+_detection_record_spec(d::Int) = _Checked(
+    _Obj(
+        Pair{Symbol, _Spec}[:target => _NonEmpty(), :index => _Vec(_PosInt()), :points => _Vec(_Vec(_Real(), d))],
+        Pair{Symbol, _Spec}[:covariance => _Vec(_cov_spec(d)), :weights => _Vec(_Real())],
+    ),
+    function (r)
+        n = length(r[:index])
+        n == 0 && return "a detected target has at least one point (a target not detected is absent)"
+        msg = _unique_check(r[:index], "the point indices of a target")
+        msg === nothing || return msg
+        for k in (:points, :covariance, :weights)
+            (haskey(r, k) && length(r[k]) != n) && return "`$(k)` has $(length(r[k])) entries where `index` has $(n)"
+        end
+        return nothing
+    end,
+)
+_detection_frame_spec(d::Int, required::Vector{Symbol}) = _Checked(
+    _Obj(
+        Pair{Symbol, _Spec}[:t => _Int(), _stamp_specs(required)[1]..., :detections => _Vec(_detection_record_spec(d))],
+        _stamp_specs(required)[2],
+    ),
+    f -> _unique_check([r[:target] for r in f[:detections]], "the targets of a frame"),
+)
+# Pixels (`pixel_frame`: every frame's image and sensor, at least one targets
+# identity) or 3D points (`frame` and `length_unit`: every frame's sensor).
+const _TARGET_DETECTIONS_SPEC = _Checked(
+    _Either(
+        Pair{Symbol, _Spec}[
+            :pixel_frame => _Obj(
+                Pair{Symbol, _Spec}[
+                    :schema => _schema_tok("target_detections"), :pixel_frame => _PIXEL_FRAME,
+                    :point_index_base => _Tok(_POINT_INDEX_BASE),
+                    :targets => _Checked(_Vec(_HEX64), h -> isempty(h) ? "the detections name at least one targets file" : _unique_check(h, "targets identities")),
+                    :frames => _Vec(_detection_frame_spec(2, [:image, :sensor])),
+                ],
+                Pair{Symbol, _Spec}[:time_origin => _NonEmpty(), _PROVENANCE...],
+            ),
+            :frame => _Obj(
+                Pair{Symbol, _Spec}[
+                    :schema => _schema_tok("target_detections"), :length_unit => _LENGTH_UNIT,
+                    :frame => _FRAME_NAME, :point_index_base => _Tok(_POINT_INDEX_BASE),
+                    :frames => _Vec(_detection_frame_spec(3, [:sensor])),
+                ],
+                Pair{Symbol, _Spec}[
+                    :targets => _Checked(_Vec(_HEX64), h -> _unique_check(h, "targets identities")),
+                    :time_origin => _NonEmpty(), _PROVENANCE...,
+                ],
+            ),
+        ]
+    ),
+    _FRAMES_CHECK,
+)
+
+# The declaration of the frame the detections are in: a pixel frame, or a 3D
+# frame and the file's length unit.
+_detections_frame_json(::Type{F}, ::Units) where {F <: PixelFrame} = (pixel_frame = pixel_frame_name(F),)
+_detections_frame_json(::Type{F}, u::Units) where {F} = (length_unit = unit_string(u), frame = frame_name(F))
+
+# A point and its covariance on the wire: a pixel as it is (px², never
+# converted), a 3D point's lengths in `u` (plain refused) and its covariance in u².
+_detection_point_json(::Type{<:PixelFrame}, p, ::Units) = Float64[p[1], p[2]]
+_detection_point_json(::Type, p, u::Units) = _lengths_json(p, u, "save: a 3D target detection")
+_detection_cov_json(::Type{<:PixelFrame}, Σ, ::Units) = _cov_json(Σ)
+_detection_cov_json(::Type, Σ, u::Units) = _length_cov_json(Σ, u, _point_cov_dims(3))
+
+function _detection_json(::Type{F}, id::Symbol, cs::Csponds, u::Units) where {F}
+    pts = targets(cs)
+    r = (target = String(id), index = collect(Int, sources(cs)), points = [_detection_point_json(F, geom(p), u) for p in pts])
+    eltype(pts) <: Uncertain && (r = merge(r, (covariance = [_detection_cov_json(F, cov(p), u) for p in pts],)))
+    cols = getfield(cs, :attrs)
+    for k in keys(cols)
+        k === :weights || throw(ArgumentError("save: a target_detections file holds one attribute column, `weights`; target $(id) carries `$(k)`"))
+    end
+    return haskey(cols, :weights) ? merge(r, (weights = Float64[w for w in cols.weights],)) : r
+end
+
+"""
+    save(path, td::TargetDetections{F}; length_unit = mm, provenance = (;))
+
+Write a VGC `TargetDetections` as a `vgio/target_detections/v1` file: per
+frame index (sorted), its stamps, and per target (ids sorted) its point
+indices, its points, a `covariance` per point iff the points are `Uncertain`,
+and its `weights` column where it has one (the only column the kind holds).
+Pixels declare the value's pixel frame `F` and are written as they are; every
+frame must name its image and sensor, and the value its targets identities.
+3D points declare `frame = frame_name(F)` and are written in `length_unit`
+(covariances in its square); every frame must name its sensor, and plain
+points are an `ArgumentError` (attach the unit, `p .* m`).
+"""
+function save(path::AbstractString, td::TargetDetections{F}; length_unit::Units = mm, provenance::NamedTuple = (;)) where {F}
+    frames = map(sort!(collect(keys(td)))) do t
+        detections = [_detection_json(F, id, td[t][id], length_unit) for id in sort!(collect(keys(td[t])))]
+        merge(_stamps_json(td, t), (detections = detections,))
+    end
+    body = merge(
+        (schema = _schema("target_detections"),), _detections_frame_json(F, length_unit),
+        (point_index_base = _POINT_INDEX_BASE,),
+        (F <: PixelFrame || !isempty(td.targets)) ? (targets = td.targets,) : (;),
+        _time_origin_json(td), (frames = frames,),
+    )
+    _write_store(path, _TARGET_DETECTIONS_SPEC, _with_provenance(body, provenance))
+    return nothing
+end
+
+# One wire record as a detection set: indices => points (pixels as stored, 3D
+# lengths in metres read in `unit`), `Uncertain` where it states covariances.
+function _detections_from_json(r, unit::Union{Nothing, Units})
+    idx = Int[Int(i::Integer) for i in r.index::Vector{Any}]
+    pts = unit === nothing ?
+        [SVector{2, Float64}(Float64(p[1]::Real), Float64(p[2]::Real)) for p in r.points::Vector{Any}] :
+        [_lengths_from_json(Val(3), p::Vector{Any}, unit) for p in r.points::Vector{Any}]
+    if haskey(r, :covariance)
+        covs = r.covariance::Vector{Any}
+        pts = [
+            Uncertain(p, CovMat(unit === nothing ? _cov_matrix(c::Vector{Any}, 2) : _length_cov_from_json(c::Vector{Any}, 3, unit, _point_cov_dims(3))))
+                for (p, c) in zip(pts, covs)
+        ]
+    end
+    cs = Csponds(idx, pts)
+    return haskey(r, :weights) ? withattrs(cs; weights = Float64[Float64(w::Real) for w in r.weights::Vector{Any}]) : cs
+end
+
+"""
+    load(TargetDetections, path) -> TargetDetections{F}
+
+Read a `vgio/target_detections/v1` file: per frame index, per target, its
+detections typed in the frame `F` the file declares — pixels exactly as
+stored, 3D points in metres — `Uncertain` where it states covariances, with
+their `weights` column where stated, the frames' stamps and the targets
+identities. A `vgio/target_points2d/v1` or `vgio/target_points3d/v1` file is
+read too, converted (`TargetDetections(load(TargetPoints2D, path))`): every
+published file of those kinds keeps loading as the current value.
+"""
+function load(::Type{TargetDetections}, path::AbstractString)
+    k = _split_schema(_try_schema(path))
+    k !== nothing && k.kind == "target_points2d" && return TargetDetections(load(TargetPoints2D, path))
+    k !== nothing && k.kind == "target_points3d" && return TargetDetections(load(TargetPoints3D, path))
+    d = _read_store(path, "target_detections", _TARGET_DETECTIONS_SPEC)
+    unit = haskey(d, :pixel_frame) ? nothing : parse_unit(d.length_unit::String)
+    frames = Dict{Int, Dict{Symbol, Any}}()
+    images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()
+    for f in d.frames::Vector{Any}
+        t = Int(f.t::Integer)
+        _read_stamps!(images, sensors, times, f, t)
+        frames[t] = Dict{Symbol, Any}(Symbol(r.target::String) => _detections_from_json(r, unit) for r in f.detections::Vector{Any})
+    end
+    F = unit === nothing ? pixel_frame_from_name(d.pixel_frame::String) : frame_from_name(d.frame::String)
+    return TargetDetections{F}(
         frames; images, sensors, times, time_origin = _time_origin(d),
         targets = haskey(d, :targets) ? String[h::String for h in d.targets::Vector{Any}] : String[],
     )

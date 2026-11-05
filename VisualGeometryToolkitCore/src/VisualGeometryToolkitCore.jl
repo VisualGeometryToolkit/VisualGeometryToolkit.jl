@@ -305,6 +305,7 @@ public design, reference, board, canvas   # a planar target's design, its refere
 public PlanarCalibration   # the planar kinds as one type
 public TargetManifold                     # a calibratable target's Manifold (minimal_manifold(target))
 export Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
+export TargetDetections, FrameStamps   # per frame, per target, index => detection; a capture's per-frame stamps (captures.jl)
 export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3
 export DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings   # a capture's camera settings per frame, its hardware's identity (captures.jl)
 public is_constant   # every frame of a CaptureSettings exposed alike (not exported: a common word)

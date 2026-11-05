@@ -111,7 +111,7 @@ import ..VisualGeometryToolkitCore: aspect_ratio  # Extend interface stub (share
 import ..VisualGeometryToolkitCore: surface   # a posed target's primitive (target_surfaces.jl)
 using ..VisualGeometryToolkitCore: Quad, HeightSurface, Rect2, rotation, _in_rect   # _in_rect: the surface containment test, the board check's too
 using ..VisualGeometryToolkitCore: _check_length   # a length, or a DimensionError (euclidean_map.jl)
-using ..VisualGeometryToolkitCore: Attributed, csponds  # composition primitives (depth-attributed points, correspondence sets)
+using ..VisualGeometryToolkitCore: Attributed, csponds, Csponds  # composition primitives (depth-attributed points, correspondence sets)
 using ..VisualGeometryToolkitCore: sources, targets, centroid  # correspondence access protocol (#21)
 using ..VisualGeometryToolkitCore: AbstractCamera  # Abstract camera type from interface
 import ..VisualGeometryToolkitCore: is_posed  # the pose trait, answered per camera type
@@ -1042,6 +1042,7 @@ export TARGET_CALIBRATION_ORDER, planar_kind, members, is_pure_bending   # the c
 export iwasawa_parameters, iwasawa_parameters_with_jacobian   # an affine's Iwasawa factors' parameters (public, not exported, at the top level)
 export regularizer, TargetManifold      # the calibratable-target protocol
 export Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
+export TargetDetections, FrameStamps      # per frame, per target, index => detection; a capture's per-frame stamps (captures.jl)
 export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3
 export DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings, is_constant   # a capture's camera settings per frame, its hardware's identity (captures.jl; is_constant public, not exported, at the top level)
 export convert_frame                      # the one way to change the pixel frame of pixel data

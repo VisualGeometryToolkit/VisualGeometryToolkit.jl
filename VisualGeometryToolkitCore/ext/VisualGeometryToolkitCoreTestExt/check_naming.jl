@@ -1483,7 +1483,7 @@ hand-written conversion factor (`25.4`, `0.0254`, `304.8`, `0.3048`, or an
 inch ratio such as `127//5000`) and a bare `ubase(…)` (a stored quantity is
 `base_quantity(q)`: `ubase` keeps the exact `Rational` of `142mm`). It also keeps
 the units layering. A pose or a target's points (`EuclideanMap`,
-`PlanarTarget`, `PointTarget`, `TargetPoints3D`) built with a `ustrip(…)` or a
+`PlanarTarget`, `PointTarget`, `TargetPoints3D`, `TargetDetections`) built with a `ustrip(…)` or a
 `ustrip.(…)` in its arguments is flagged: a physical value is built from
 quantities (`t .* m`), and its plain form comes from the whole value's
 `ustrip(u, X)`. Outside `test/`, a definition that names a file's
@@ -1687,7 +1687,7 @@ _holds_ustrip(x) = _is_ustrip(x) || (x isa Expr && any(_holds_ustrip, x.args))
 # The constructors of a public physical value: a pose and the targets' points.
 # A unitful value is built from quantities (`t .* m`); a plain one comes from
 # the whole value's `ustrip(u, X)`, never from stripping its components.
-const _PHYSICAL_CONSTRUCTORS = (:EuclideanMap, :PlanarTarget, :PointTarget, :TargetPoints3D)
+const _PHYSICAL_CONSTRUCTORS = (:EuclideanMap, :PlanarTarget, :PointTarget, :TargetPoints3D, :TargetDetections)
 _constructor_name(c) = c isa Expr && c.head === :curly ? _unit_rule_callee(c.args[1]) : _unit_rule_callee(c)
 
 # A file's length unit, named in code: `d.length_unit`, `:length_unit`,

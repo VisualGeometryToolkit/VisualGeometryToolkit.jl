@@ -2,6 +2,31 @@
 
 ## 0.5.3 (unreleased)
 
+- **`vgio/target_detections/v1`**, VisualGeometryToolkitCore 0.5.7's
+  `TargetDetections`: `save(path, td; length_unit = mm, provenance)` and
+  `load(TargetDetections, path)`. Per frame (its stamps), per target, the
+  point `index` array (1-based, `point_index_base`), the `points`, a
+  `covariance` per point iff the points are `Uncertain` (px² as they are;
+  3D in `length_unit²` through `write_length`/`read_length`), and the
+  `weights` column where the set has one (the only column the kind holds; a
+  set with another is refused). A pixel file declares `pixel_frame` and
+  requires every frame's `image` and `sensor` and a `targets` identity; a 3D
+  file declares `frame` and `length_unit`, requires every frame's `sensor`,
+  and refuses plain points (`p .* m`). `payload` reserved and refused, as for
+  every kind.
+- **`load(TargetDetections, path)` reads a `vgio/target_points2d/v1` or
+  `vgio/target_points3d/v1` file**, converted; `load(TargetPoints2D/3D, …)`
+  and their writers are unchanged. `vgio_migrate_tree` and the re-pointing
+  of a migrated rig's measurement files handle a `target_detections` file
+  as the other measurement kinds.
+- **File names** (docs, "Kinds and the I/O Surface"): the stem is the kind,
+  the suffix what tells copies apart (`target_detections_<sensor>.json`,
+  `target_poses_<sensor>.json`, `trajectory_<body>.json`,
+  `targets_<rig>.json`, `cameras.json`), never a timestamp; loaders read
+  `schema`, never the name, and published files keep theirs.
+- Requires VisualGeometryToolkitCore 0.5.7 (the compat floor is raised with
+  Core's version bump at the release: Core's Project.toml is still 0.5.6).
+
 - **`vgio/target/v4` and `vgio/rig/v7`**: a planar target may state its design
   by its `layout` — VisualGeometryToolkitCore's `AprilGrid` or `SchoepsPattern`,
   the record's `type` the layout's tag in `TARGET_LAYOUT_TAGS` (`april_grid`,

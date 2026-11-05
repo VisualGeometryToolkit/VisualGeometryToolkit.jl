@@ -2,6 +2,35 @@
 
 ## 0.5.7 (2026-11-05)
 
+- **`TargetDetections{F, C}`** (exported, `captures.jl`): per frame index, per
+  target id, the detections of the target's points as a correspondence set
+  `csponds(index, observation)` — `index` 1-based into `points(target)`,
+  unique; only detected points, a target not detected absent. The dimension
+  is the frame's: pixels in a `PixelFrame` (plain or `UncertainPixel`, px²),
+  3D points in a named `Frame{3}` (plain, or lengths in metres, an
+  `Uncertain` one's covariance in m²). Optional attribute columns
+  (`withattrs(cs; weights)`). One concrete set type per container
+  (`Csponds{Int, P, Vector{Int}, Vector{P}, A}`): every set the same point
+  form and the same columns (`ArgumentError`), all physical or all plain
+  (`DimensionError`). `==` (frames, sets with their columns, stamps,
+  targets), `has_units`, `ustrip(u, td)` and `with_unit(td, u)` for 3D,
+  `convert_frame` for pixels, the Dict surface. Conversions
+  `TargetDetections(::TargetPoints2D)` (the bundle `weight` a `weights`
+  column) and `TargetDetections(::TargetPoints3D)`. Additive: the 0.7 wave
+  replaces `TargetPoints2D`/`TargetPoints3D` by it.
+- **`FrameStamps`** (exported): a capture's per-frame `images`, `sensors`,
+  `times` and `time_origin`, built and checked as the captures' stamps are;
+  `TargetDetections` holds one (`td.stamps`) and forwards its four fields as
+  properties (`td.images`, …). Trajectory, TargetPoses and TargetPoints2D/3D
+  keep their own fields until 0.7.
+- `check_naming` R11 flags a `TargetDetections` built from `ustrip(…)`
+  components, as it does `TargetPoints3D`.
+- Conventions: `frames.md` names `TargetDetections` among a capture's values,
+  `units.md` lists a 3D `target_detections` among the physical kinds and
+  public values, `persisted-geometry.md` tables the `target_detections` kind
+  (the old measurement kinds read as it too) and points at VisualGeometryToolkitIO's
+  file-name convention.
+
 - `signed_distance(hyperplane, p)`: the signed distance `n·p + d`, positive on
   the normal's side (a line or a plane; the side test of a camera in front of a
   planar target).

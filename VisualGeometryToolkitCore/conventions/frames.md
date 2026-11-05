@@ -109,10 +109,13 @@ world, a tracker's room, or a member's own frame — the gauge). Each member is 
 A capture's per-frame values keep the same frames: a [`Trajectory`](@ref)
 maps one body's frame into one frame over time (`BodyFrame{:board_rig} →
 WorldFrame`), [`TargetPoses`](@ref) map `TargetFrame{id} → F` per frame (`F`
-the camera's frame), [`TargetPoints2D`](@ref) are pixels in a declared
-`PixelFrame`, [`TargetPoints3D`](@ref) points in a declared 3D frame. A
-measurement names a target point by (target id, point index), resolved
-against the target's definition — the rig member.
+the camera's frame), and [`TargetDetections`](@ref)`{F}` are pixels in a
+declared `PixelFrame` or points in a declared 3D frame, the dimension the
+frame's (the older [`TargetPoints2D`](@ref) and [`TargetPoints3D`](@ref),
+pixels and 3D points apart, are replaced by it in 0.7). A measurement names a
+target point by (target id, point index) — in `TargetDetections`, per frame and
+target, `index => observation` — resolved against the target's definition,
+the rig member.
 
 ### A planar target's frame: one orientation for every design
 

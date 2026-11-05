@@ -21,6 +21,9 @@
 #   TargetPoses{F}        per frame, the pose of every target seen, TargetFrame{id} → F
 #   TargetPoints2D{F}     per frame, the pixels of target points, in the pixel frame F
 #   TargetPoints3D{F}     per frame, the 3D positions of target points, in the 3D frame F
+#   TargetDetections{F}   per frame, per target, `csponds(index, detection)` in the frame F
+#                         (pixels or 3D points; its stamps a FrameStamps) — the form
+#                         TargetPoints2D/3D become in 0.7
 #
 # Each may carry `Uncertain` members (conventions/persisted-geometry.md):
 # a pose with its 6×6 covariance, a point with its d×d. A physical value holds
@@ -28,7 +31,7 @@
 # one plain numbers; `ustrip(u, x)` and `with_unit(x, u)` move between them.
 #
 # These are the values VisualGeometryToolkitIO's `trajectory`, `target_poses`,
-# `target_points2d` and `target_points3d` kinds serialize, exactly; the types
+# `target_points2d`, `target_points3d` and `target_detections` kinds serialize, exactly; the types
 # are permissive (an in-memory value may lack its images or sensors) and a
 # kind's writer states what its file requires.
 
@@ -52,6 +55,41 @@ end
 
 _origin(x::Nothing) = nothing
 _origin(x::AbstractString) = String(x)
+
+"""
+    FrameStamps(ts; images = Dict(), sensors = Dict(), times = Dict(), time_origin = nothing)
+
+The per-frame stamps of a capture value whose frame indices are `ts`: per
+index, optionally, `images[t]` (the image taken then), `sensors[t]` (what
+measured it — one name for every frame, or a map) and `times[t]` (seconds
+since `time_origin`, an ISO 8601 date-time, stated iff any time is). Each map
+names only indices of `ts` (`ArgumentError`). Read as fields: `s.images`,
+`s.sensors`, `s.times`, `s.time_origin`. Held by [`TargetDetections`](@ref),
+which forwards the four as its own properties.
+"""
+struct FrameStamps
+    images::Dict{Int, String}
+    sensors::Dict{Int, String}
+    times::Dict{Int, Float64}
+    time_origin::Union{Nothing, String}
+
+    function FrameStamps(
+            ts; images::AbstractDict = Dict{Int, String}(),
+            sensors::Union{AbstractString, AbstractDict} = Dict{Int, String}(),
+            times::AbstractDict = Dict{Int, Float64}(), time_origin::Union{Nothing, AbstractString} = nothing,
+        )
+        imgs, sens, tms = _frame_strings(images, "images"), _frame_names(sensors, ts), _frame_times(times)
+        _check_stamps(ts, imgs, tms, time_origin, sens)
+        return new(imgs, sens, tms, _origin(time_origin))
+    end
+end
+
+Base.:(==)(a::FrameStamps, b::FrameStamps) =
+    a.images == b.images && a.sensors == b.sensors && a.times == b.times && isequal(a.time_origin, b.time_origin)
+Base.hash(s::FrameStamps, h::UInt) = hash(s.time_origin, hash(s.times, hash(s.sensors, hash(s.images, hash(FrameStamps, h)))))
+
+# The stamps as the keywords every capture constructor takes.
+_stamp_kwargs(s::FrameStamps) = (images = s.images, sensors = s.sensors, times = s.times, time_origin = s.time_origin)
 
 # The frames of a labeled pose, unlabeled frames included.
 _pose_frames(X::EuclideanMap{3}) = _em_frames(X)
@@ -343,10 +381,174 @@ _map_points(f, x::TargetPoints3D{F}) where {F} = TargetPoints3D{F}(
 FlexUnits.ustrip(u::Units, x::TargetPoints3D) = _map_points(p -> _ustrip_point(u, p), x)
 with_unit(x::TargetPoints3D, u::Units) = _map_points(p -> _attach_point(u, p), x)
 
+# ------------------------------------------------------------------------------
+# TargetDetections — per frame, per target, index => detection
+# ------------------------------------------------------------------------------
+
+# The dimension of a detection, from the frame it is measured in: a pixel in a
+# pixel frame, a 3D point in a named 3D frame.
+_detection_dim(::Type{F}) where {F <: PixelFrame} = 2
+function _detection_dim(::Type{F}) where {F <: Frame{3}}
+    F <: UnlabeledFrame && throw(ArgumentError("3D target detections name the frame they are measured in (e.g. WorldFrame)"))
+    return 3
+end
+_detection_dim(::Type{F}) where {F} =
+    throw(ArgumentError("target detections are pixels in a PixelFrame or 3D points in a named 3D frame, not in $(F)"))
+
+# One detection in its stored form (`_pixel`, `_point3`), its dimension checked.
+function _detected_point(::Val{D}, p, what) where {D}
+    n = length(geom(p))
+    n == D || throw(ArgumentError("$(what): a detection of $(n) coordinates where the frame holds $(D)"))
+    return D == 2 ? _pixel(p) : _point3(p)
+end
+
+# The attribute columns a set carries (`withattrs`), each collected into a
+# vector of its own: none for a bare `csponds` StructArray or a Pair vector.
+_detection_attrs(cs::Csponds) = map(collect, getfield(cs, :attrs))
+_detection_attrs(_) = (;)
+
+# One target's detections in one frame, as stored: `Csponds{Int, P}` of the
+# 1-based point indices (unique) and the points, with the set's columns.
+function _detection_set(::Val{D}, cs::AbstractVector{<:Pair}, t, id) where {D}
+    what = "frame $(t), target $(id)"
+    isempty(cs) && throw(ArgumentError("$(what): an empty detection set — a target not detected in a frame is absent"))
+    idx = Int[Int(i) for i in sources(cs)]
+    all(>=(1), idx) || throw(ArgumentError("$(what): point indices are 1-based (≥ 1), got $(minimum(idx))"))
+    allunique(idx) || throw(ArgumentError("$(what): a point index appears twice — a point is detected once per frame"))
+    pts = [_detected_point(Val(D), p, what) for p in targets(cs)]
+    if !isconcretetype(eltype(pts))
+        _check_one_form(pts)   # a unit mix is FlexUnits' DimensionError
+        throw(ArgumentError("$(what): plain and Uncertain detections mixed — one form per container"))
+    end
+    return Csponds(idx, pts, _detection_attrs(cs))
+end
+_detection_set(::Val, cs, t, id) = throw(
+    ArgumentError("frame $(t), target $(id): a detection set is a vector of index => point pairs (`csponds(indices, points)`), got $(typeof(cs))")
+)
+_detected_points(sets) = Any[p for cs in sets for p in targets(cs)]
+_empty_detection_set(::Val{D}) where {D} =
+    Csponds{Int, SVector{D, Float64}, Vector{Int}, Vector{SVector{D, Float64}}, @NamedTuple{}}
+
+"""
+    TargetDetections{F <: Frame}(frames; images, sensors, times, time_origin, targets = String[])
+    TargetDetections(x::TargetPoints2D)
+    TargetDetections(x::TargetPoints3D)
+
+Per frame index, per target, the detections of the target's points: `td[t]`
+is frame `t`'s target id (`Symbol`) → correspondence set, and `td[t][id]` a
+[`Csponds`](@ref) `index => observation` — `index` 1-based into
+[`points`](@ref)`(target)` (unique within the set), `observation` the
+measured point — so the pairing with the design is
+`points(target)[i] => x`. Only detected points are held (sparse, as COLMAP's
+and Kalibr's detections are); a target not detected in a frame is absent.
+Built from `frames = Dict(t => Dict(id => cs))`, each `cs` any vector of
+`index => point` pairs ([`csponds`](@ref)`(indices, points)`), with optional
+per-detection attribute columns ([`withattrs`](@ref)`(cs; weights = w)`, a
+bundle's weights), per the data-arguments convention.
+
+The dimension is the frame's: `F <: PixelFrame` holds pixels in that pixel
+frame (plain `SVector{2, Float64}` or [`UncertainPixel`](@ref), covariances in
+px²; [`convert_frame`](@ref) moves them), a named `F <: Frame{3}` 3D points in
+it (`WorldFrame` for a tracker's room; `UnlabeledFrame` is refused) — plain
+`Float64`, or lengths in metres, an `Uncertain` one's covariance in m², stored
+as supplied ([`has_units`](@ref); `ustrip(u, x)` and
+[`with_unit`](@ref)`(x, u)` move every point). One form per container:
+every set holds the same point type and the same attribute columns
+(`ArgumentError`), all physical or all plain (`DimensionError`).
+
+POINTS only: a detection of a non-point feature (an edge, a conic) is another
+type. MEASURED only, never computed by posing a design through a pose (that is
+derived, a function, and not stored). A motion-capture capture's target is the
+tracked body's marker constellation, never a board mounted on the body. Memory
+holds metres; a file holds its declared `length_unit` (VisualGeometryToolkitIO's
+`target_detections` kind).
+
+The per-frame stamps are a [`FrameStamps`](@ref) (`td.stamps`), read as
+`td.images`, `td.sensors`, `td.times` and `td.time_origin` as on
+[`TargetPoints2D`](@ref); `targets` names the target definitions the indices
+resolve in by content identity (VisualGeometryToolkitIO's `content_id`), unique.
+Equal numbers in different frames are different detections (`==`). Otherwise a
+Dict: `keys`, `pairs`, iteration.
+
+The conversions from [`TargetPoints2D`](@ref) and [`TargetPoints3D`](@ref)
+keep the frame, the stamps and the targets, group each frame's points by
+target in their order, and carry the 2D bundle `weight` as a `weights` column;
+a value mixing plain and `Uncertain` points is refused (one form).
+"""
+struct TargetDetections{F <: Frame, C} <: AbstractDict{Int, Dict{Symbol, C}}
+    frames::Dict{Int, Dict{Symbol, C}}
+    stamps::FrameStamps
+    targets::Vector{String}
+
+    function TargetDetections{F}(
+            frames::AbstractDict; images::AbstractDict = Dict{Int, String}(),
+            sensors::Union{AbstractString, AbstractDict} = Dict{Int, String}(),
+            times::AbstractDict = Dict{Int, Float64}(), time_origin::Union{Nothing, AbstractString} = nothing,
+            targets::AbstractVector{<:AbstractString} = String[],
+        ) where {F <: Frame}
+        D = Val(_detection_dim(F))
+        fr = Dict{Int, Dict{Symbol, Any}}(
+            Int(t) => Dict{Symbol, Any}(Symbol(id) => _detection_set(D, cs, t, id) for (id, cs) in byid)
+                for (t, byid) in frames
+        )
+        sets = Any[cs for s in values(fr) for cs in values(s)]
+        _check_one_form(_detected_points(sets))   # all plain or all physical
+        C = isempty(sets) ? _empty_detection_set(D) : typeof(first(sets))
+        all(cs -> typeof(cs) === C, sets) || throw(
+            ArgumentError(
+                "one form per container: every detection set holds the same point type (all plain or all " *
+                    "Uncertain) and the same attribute columns; got $(join(unique(map(typeof, sets)), ", "))"
+            )
+        )
+        stamps = FrameStamps(keys(fr); images, sensors, times, time_origin)
+        allunique(targets) || throw(ArgumentError("`targets` names a target definition twice"))
+        return new{F, C}(Dict{Int, Dict{Symbol, C}}(t => Dict{Symbol, C}(s) for (t, s) in fr), stamps, String.(targets))
+    end
+end
+
+# The stamps read as the value's own properties, as on the other captures.
+const _STAMP_FIELDS = (:images, :sensors, :times, :time_origin)
+Base.getproperty(x::TargetDetections, k::Symbol) =
+    k in _STAMP_FIELDS ? getfield(getfield(x, :stamps), k) : getfield(x, k)
+Base.propertynames(::TargetDetections) = (:frames, :stamps, :targets, _STAMP_FIELDS...)
+
+# Every point moved by `f`, the indices, columns, stamps and targets kept, in frame `G`.
+_map_detections(f, ::Type{G}, x::TargetDetections) where {G} = TargetDetections{G}(
+    Dict(t => Dict(id => Csponds(sources(cs), map(f, targets(cs)), getfield(cs, :attrs)) for (id, cs) in s) for (t, s) in x.frames);
+    _stamp_kwargs(x.stamps)..., targets = x.targets,
+)
+
+# A set's equality includes its attribute columns (a Csponds' `==` compares the pairs).
+_same_detections(a::Csponds, b::Csponds) = a == b && getfield(a, :attrs) == getfield(b, :attrs)
+Base.:(==)(a::TargetDetections{F}, b::TargetDetections{G}) where {F, G} =
+    F === G && keys(a.frames) == keys(b.frames) &&
+    all(t -> keys(a[t]) == keys(b[t]) && all(id -> _same_detections(a[t][id], b[t][id]), keys(a[t])), keys(a.frames)) &&
+    a.stamps == b.stamps && a.targets == b.targets
+
+has_units(x::TargetDetections) = any(s -> any(cs -> any(has_units, targets(cs)), values(s)), values(x.frames))
+FlexUnits.ustrip(u::Units, x::TargetDetections{F}) where {F <: Frame{3}} = _map_detections(p -> _ustrip_point(u, p), F, x)
+with_unit(x::TargetDetections{F}, u::Units) where {F <: Frame{3}} = _map_detections(p -> _attach_point(u, p), F, x)
+
+# A TargetPoints2D/3D frame's points, grouped by target in their order:
+# indices, points (`point(o)`) and the columns `columns(points of the target)`.
+function _detections_by_target(os, point, columns)
+    return Dict(
+        id => (sel = [o for o in os if o.target === id]; Csponds([o.index for o in sel], [point(o) for o in sel], columns(sel)))
+            for id in unique(o.target for o in os)
+    )
+end
+_converted_detections(::Type{F}, x, point, columns) where {F} = TargetDetections{F}(
+    Dict(t => _detections_by_target(os, point, columns) for (t, os) in x.frames);
+    images = x.images, sensors = x.sensors, times = x.times, time_origin = x.time_origin, targets = x.targets,
+)
+TargetDetections(x::TargetPoints2D{F}) where {F} =
+    _converted_detections(F, x, o -> o.xy, sel -> (weights = Float64[o.weight for o in sel],))
+TargetDetections(x::TargetPoints3D{F}) where {F} = _converted_detections(F, x, o -> o.xyz, _ -> (;))
+
 # --- the Dict surface, frame index → value (the methods: end of file) --------------
 
 _frames(x::Trajectory) = x.poses
-_frames(x::Union{TargetPoses, TargetPoints2D, TargetPoints3D}) = x.frames
+_frames(x::Union{TargetPoses, TargetPoints2D, TargetPoints3D, TargetDetections}) = x.frames
 
 Base.setindex!(x::TargetPoints2D, v, t) = (x.frames[Int(t)] = TargetPoint2D[_target_point2d(o, t) for o in v]; x)
 
@@ -358,7 +560,7 @@ Base.setindex!(x::TargetPoints2D, v, t) = (x.frames[Int(t)] = TargetPoint2D[_tar
     convert_frame(G::Type{<:PixelFrame}, x) -> x in G
 
 The ONE way to change the pixel frame of frame-typed pixel data
-([`TargetPoints2D`](@ref); a package adds a method for its own frame-typed
+([`TargetPoints2D`](@ref), a pixel [`TargetDetections`](@ref); a package adds a method for its own frame-typed
 values): every pixel is moved by `EuclideanMap(F, G)` and the result is typed
 `G`, so a frame is never relabeled without its numbers moving with it. A
 pixel-frame change is a translation, so a covariance does not move.
@@ -374,6 +576,11 @@ function convert_frame(::Type{G}, o::TargetPoints2D{F}) where {G <: PixelFrame, 
         Dict{Int, Vector{TargetPoint2D}}(t => TargetPoint2D[merge(p, (xy = _shifted(shift, p.xy),)) for p in ps] for (t, ps) in o.frames);
         o.images, o.sensors, o.times, o.time_origin, o.targets,
     )
+end
+
+function convert_frame(::Type{G}, x::TargetDetections{F}) where {G <: PixelFrame, F <: PixelFrame}
+    shift = EuclideanMap(F, G)
+    return _map_detections(p -> _shifted(shift, p), G, x)
 end
 
 # ------------------------------------------------------------------------------
@@ -540,7 +747,7 @@ _frames(x::CaptureSettings) = x.frames
 # The Dict surface of every per-frame value, frame index → value
 # ------------------------------------------------------------------------------
 
-for T in (:Trajectory, :TargetPoses, :TargetPoints2D, :TargetPoints3D, :CaptureSettings)
+for T in (:Trajectory, :TargetPoses, :TargetPoints2D, :TargetPoints3D, :TargetDetections, :CaptureSettings)
     @eval begin
         Base.length(x::$T) = length(_frames(x))
         Base.iterate(x::$T, s...) = iterate(_frames(x), s...)

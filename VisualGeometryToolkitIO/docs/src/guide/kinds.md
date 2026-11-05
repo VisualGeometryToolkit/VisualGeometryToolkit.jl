@@ -25,11 +25,41 @@ argument, because the value already carries it.
 | `vgio/target/v4` | one `AbstractTarget` (`PointTarget`, `PlanarTarget` of any `TargetCalibration`, `Uncertain` or not, stated by its points, its reference or its layout), or an `Attributed` one with its `(; calibration_record)` | `load(AbstractTarget, path; resolve)`; a planar one: `load(PlanarTarget, path)` | `save(path, target)` |
 | `vgio/trajectory/v3` | `Trajectory{S, D}`: labeled poses per frame index, with images, times and recovered flags | `load(Trajectory, path)` | `save(path, tr)`; exporters `save_tum_trajectory`, `save_euroc_trajectory` |
 | `vgio/target_poses/v1` | `TargetPoses{F}`: per frame, `TargetFrame{id} → F` poses; `pose(tp, t, id)` | `load(TargetPoses, path)` | `save(path, tp)`; exporter `save_bop_scene` |
+| `vgio/target_detections/v1` | `TargetDetections{F}`: per frame, per target, `csponds(index, detection)` — pixels in a `PixelFrame` or 3D points in a named 3D frame, plain or `Uncertain`, with an optional `weights` column | `load(TargetDetections, path)` (a `target_points2d/v1` or `target_points3d/v1` file too, converted) | `save(path, td)` |
 | `vgio/target_points2d/v1` | `TargetPoints2D{F <: PixelFrame}`: per frame, `(target, index, xy, weight)` | `load(TargetPoints2D, path)` | `save(path, obs)`; exporter `save_correspondences` |
 | `vgio/target_points3d/v1` | `TargetPoints3D{F}`: per frame, `(target, index, xyz)`, such as motion-capture markers | `load(TargetPoints3D, path)` | `save(path, obs)`; exporter `save_trc` |
 | `vgio/capture_settings/v1` | `CaptureSettings`: per frame, the exposure (time, f-number, ISO) and the nominal lens settings (focal length, focus distance); the body and lens `DeviceIdentity`, `Attributed` with each one's source (`"exif"` or `"config"`) and the EXIF lens claim a stated lens overrode | `load(CaptureSettings, path)` | `save(path, Attributed(cs, (; identity_sources = (body, lens)[, exif_lens])))` |
 | `vgio/generic_camera/v3` (Schöps grid models: the nodes the model holds, `present` as runs per lattice row, and only their controls) | `CentralGenericModel`, `NoncentralGenericModel` | `load(CentralGenericModel, path)`, `load(NoncentralGenericModel, path)` | `save(path, m)` |
 | `vgio/correspondences/v2` (flat 2D–3D pairs per frame and target) | an export of a `TargetPoints2D` and its target rigs; there is no reader | — | `save_correspondences([to_frame,] path, obs, targets...; resolve)` |
+
+A `target_detections` file holds, per frame, one record per detected target:
+its point indices (1-based, `point_index_base`), its points, and, where the
+value has them, one covariance per point (px², or the file's `length_unit`
+squared) and its `weights`:
+
+```json
+{"schema": "vgio/target_detections/v1", "pixel_frame": "colmap", "point_index_base": 1,
+ "targets": ["<content id of a rig>"],
+ "frames": [{"t": 17, "image": "DSC0017.png", "sensor": "cam1",
+             "detections": [{"target": "b89", "index": [1, 4], "points": [[u, v], [u, v]],
+                             "covariance": [[[…], […]], [[…], […]]], "weights": [1.0, 0.5]}]}]}
+```
+
+A 3D file states `"frame"` (a 3D frame name) and `"length_unit"` in place of
+`"pixel_frame"`, its points are lengths in that unit, and its `targets` may be
+absent; a 2D one requires each frame's `image` and `sensor` and at least one
+`targets` identity, a 3D one each frame's `sensor`.
+
+### File names
+
+A file's name states its kind and what tells copies of it apart; the loaders
+never read it (they read `schema`). The stem is the kind and the suffix the
+distinguishing name: `target_detections_<sensor>.json`,
+`target_poses_<sensor>.json`, `trajectory_<body>.json`, `targets_<rig>.json`,
+`cameras.json`. A name holds no timestamp: the time is the file's
+`time_origin` and `times`, the capture date is the session directory's, and a
+rerun goes in its own run-key directory with its provenance. Published and
+existing files keep their names.
 
 A camera bounded by its physical sensor (`BoundedCamera(camera, sensor::Sensor)`)
 carries the sensor's pixel pitch in its camera body, `"pitch": [width, height]`,

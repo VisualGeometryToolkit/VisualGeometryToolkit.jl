@@ -671,11 +671,13 @@ with_unit(E::EuclideanMap, u::Units) = _attach_unit(E, u)
 # strip and its attach are inverse to within an ulp. The one rule for a pose
 # (`_POSE_LENGTHS`), a point (every entry) and a target calibration's θ.
 function _scale_length_form(M::CovMat{N, T, L, C}, mask, f, op) where {N, T, L, C}
-    return CovMat{N, T, L, C}(ntuple(k -> _length_entry(M[k], k, N, mask, f, op), Val(L)))
+    return CovMat{N, T, L, C}(ntuple(k -> _length_entry(M[_stored_index(k, N, L)], _stored_index(k, N, L), N, mask, f, op), Val(L)))
 end
 function _scale_length_form(M::PrecMat{N, T, L, C}, mask, f, op) where {N, T, L, C}
-    return PrecMat{N, T, L, C}(ntuple(k -> _length_entry(M[k], k, N, mask, f, _opposite(op)), Val(L)))
+    return PrecMat{N, T, L, C}(ntuple(k -> _length_entry(M[_stored_index(k, N, L)], _stored_index(k, N, L), N, mask, f, _opposite(op)), Val(L)))
 end
+# The column-major index of the k-th stored entry: itself for a full form, the k-th diagonal entry for a diagonal one.
+@inline _stored_index(k, N, L) = L == N * N ? k : (k - 1) * N + k
 @inline function _length_entry(x, k, N, mask, f, op)
     n = mask[mod1(k, N)] + mask[(k - 1) ÷ N + 1]
     return n == 0 ? x : op(x, n == 1 ? f : f * f)

@@ -11,6 +11,16 @@
   (orthonormal, no Condon–Shortley phase; `sh_index(l, m) = l² + l + m + 1`, `sh_count`): generated, isbits,
   allocation-free and Dual-safe at the poles. Hoisted from RadiometricCamera (`Lighting`, `y_basis`, `ω̂`, `L_SVSH`),
   bit for bit: every value and ForwardDiff Jacobian equal on random inputs for l ≤ 3. Additive.
+- **Diagonal statistical forms** (`DiagonalCovMat{N, T, C}`, `DiagonalPrecMat`, exported): a `CovMat` / `PrecMat` whose
+  storage length `L` is `N` stores its diagonal only (`CovMat(SDiagonal(σ₁², σ₂²))`); `L = N * N` is the full form, as
+  before, so every existing type and value is unchanged. A diagonal form reads as its full matrix (indexing, `Tuple`,
+  every StaticArrays operation) and stays diagonal under `inv`, a scalar factor, a sum of diagonal forms, `relabel` and a
+  unit change; `propagate` through a map, a sum with a full form, `convert` and `promote` give the full form (a container
+  of mixed storage is one concrete full type), and a full form never converts to a diagonal one. Additive.
+- **`GaussianBlur`** (exported, `cameras/blur.jl`; `AbstractBlur`): one blur of an imaging model — a camera's in-focus
+  blur, a print's — by its second-moment matrix (`moment_matrix`; px² on a sensor, m² on a print), round, axis-aligned
+  (`SDiagonal` storage) or general (a symmetric positive semidefinite `SMatrix`); `convolve(a, b)` adds the moments,
+  `transform_blur(J, b)` is `J M Jᵀ`. A kernel's shape, not a measurement's uncertainty: not a `CovMat`. Additive.
 
 ## 0.5.7 (2026-11-05)
 

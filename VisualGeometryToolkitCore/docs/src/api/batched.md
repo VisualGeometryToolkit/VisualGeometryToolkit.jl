@@ -112,6 +112,29 @@ Private = false
 Pages = ["geometry/cameras/lighting.jl"]
 ```
 
+## Blur
+
+One blur of an imaging model — a camera's in-focus blur (diffraction, the
+sensor's anti-aliasing filter, demosaicing), a print's own blur — as a
+[`GaussianBlur`](@ref) by its second-moment matrix ([`moment_matrix`](@ref)):
+round, axis-aligned (stored as an `SDiagonal`) or general. Several blurs
+compose into a point spread: two Gaussians in sequence add their moments
+([`convolve`](@ref)), and a linear map of the plane takes `M` to `J M Jᵀ`
+([`transform_blur`](@ref)). A blur is a kernel's shape, not a measurement's
+uncertainty, so it is not a [`CovMat`](@ref).
+
+```julia
+camera = GaussianBlur(0.6)                     # round, 0.6 px
+print  = GaussianBlur(0.02, 0.03)              # axis-aligned (mm, on the print)
+total  = convolve(transform_blur(J, print), camera)   # the print's blur seen through the pixel footprint J, then the camera's
+```
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Cameras]
+Private = false
+Pages = ["geometry/cameras/blur.jl"]
+```
+
 ## Thin-plate spline
 
 `f(𝐩) = a₁ + a_x 𝐩_x + a_y 𝐩_y + Σᵢ wᵢ U(𝐩, 𝐩ᵢ)` with `U = ½ r² ln r²`, through

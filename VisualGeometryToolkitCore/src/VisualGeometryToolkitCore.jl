@@ -116,6 +116,7 @@ export default_device, reset_default_device!   # the ONE KA backend resolver (ba
 
 # Uncertainty types and accessors
 export Uncertain, PrecMat, CovMat
+export DiagonalPrecMat, DiagonalCovMat   # the forms stored as their diagonal (L = N; base/types.jl)
 export geom, prec   # `cov` is reachable via `Statistics.cov` (extended for Uncertain)
 export exact        # a zero-covariance measurement (the measurement-noise rule)
 public pair_covariance, noise_columns   # a correspondence's 4×4 covariance; Uncertain endpoints → Σ₁/Σ₂ columns
@@ -325,6 +326,8 @@ public BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent n
 export AbstractVignetting, TensorVignetting, RadialVignetting, LogVignetting   # a camera's vignetting: B-spline fields on the sensor, in V or in log V (cameras/vignetting.jl)
 public log_spline   # a LogVignetting's spline of log V
 export EnvironmentLight, SphericalHarmonicMap   # the scene's light: radiance from every direction on a sphere about a centre, in real SH (cameras/lighting.jl)
+export AbstractBlur, GaussianBlur   # one blur of an imaging model (a camera's in-focus blur, a print's), by its moment matrix (cameras/blur.jl)
+public convolve, transform_blur     # two Gaussian blurs in sequence; a blur through a linear map of its plane
 public radiance, exit_direction, radiance_map, coefficients, with_coefficients, max_degree, sh_basis, sh_count, sh_index   # its evaluation, accessors and the SH basis
 public coefficient_jacobian, active_coefficients, control_points, with_control_points, n_control_points, knot_vectors, spline_degree,
        field_center, field_radius, radial_coordinate, pole_regular_basis   # their basis, accessors and a radial profile's regular subspace

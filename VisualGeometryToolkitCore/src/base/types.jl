@@ -86,28 +86,48 @@ macro smatrix_wrapper(Name, arg2, arg3 = nothing)
         # (the standing gradual-typing rule — labels are opt-in, never viral).
         argerr_msg = string(Name, "{N,T} takes N*N args, got ")
         return quote
+            # The STORAGE is the length `L`: `N * N` entries (column-major) for a
+            # full matrix, `N` for a diagonal one (`Diagonal…` aliases below). An
+            # operation's result type follows its input TYPES, never its values:
+            # a rotation or a Jacobian makes a diagonal form full (`propagate`),
+            # a scalar or a sum of diagonals keeps it diagonal.
             struct $name{N, T, L, C <: Frame{N}} <: StaticArrays.StaticMatrix{N, N, T}
                 data::NTuple{L, T}
                 # Typed inner constructor: the untyped default `Name{…}(data)`
                 # is ambiguous against StaticArrays' generic converters.
-                $name{N, T, L, C}(data::NTuple{L}) where {N, T, L, C <: Frame{N}} =
-                    new{N, T, L, C}(convert(NTuple{L, T}, data))
+                function $name{N, T, L, C}(data::NTuple{L}) where {N, T, L, C <: Frame{N}}
+                    (L == N * N || L == N) || throw(ArgumentError(string($(string(Name)), "{", N, "}: ", L,
+                        " stored entries; a full form stores N * N = ", N * N, ", a diagonal one N = ", N)))
+                    return new{N, T, L, C}(convert(NTuple{L, T}, data))
+                end
             end
             @inline Base.size(::Type{<:$name{N}}) where {N} = (N, N)
-            # Frame-preserving similar_type for ELTYPE conversion (promote
-            # chains). Broadcast/matmul results still escape to SMatrix, as
-            # for every other @smatrix_wrapper type — a product like J*Σ is
-            # not a covariance and must not inherit the wrapper or the frame.
+            # similar_type is what StaticArrays builds a map/broadcast result as:
+            # N * N entries, so always the FULL form, frame kept for an eltype
+            # conversion. Products like J*Σ still escape to SMatrix, as for every
+            # other @smatrix_wrapper type — not a covariance, no wrapper, no frame.
             @inline StaticArrays.similar_type(
                 ::Type{$name{N, T, L, C}}, ::Type{S}
-            ) where {N, T, L, C, S} = $name{N, S, L, C}
+            ) where {N, T, L, C, S} = $name{N, S, N * N, C}
             @inline StaticArrays.similar_type(::Type{<:$name{N}}, ::Type{S}) where {N, S} =
                 $name{N, S, N * N, UnlabeledFrame{N}}
             @inline Base.eltype(::Type{<:$name{N, T}}) where {N, T} = T
             @inline Base.IndexStyle(::Type{<:$name}) = IndexLinear()
-            @inline Base.getindex(A::$name, k::Int) = A.data[k]
-            @inline Base.getindex(A::$name{N}, i::Int, j::Int) where {N} = A.data[(j - 1) * N + i]
-            @inline Base.Tuple(A::$name) = A.data
+            @inline function Base.getindex(A::$name{N, T, L}, k::Int) where {N, T, L}
+                L == N * N && return A.data[k]
+                i, j = mod1(k, N), (k - 1) ÷ N + 1
+                return i == j ? A.data[i] : zero(T)
+            end
+            @inline Base.getindex(A::$name{N, T, L}, i::Int, j::Int) where {N, T, L} =
+                L == N * N ? A.data[(j - 1) * N + i] : (i == j ? A.data[i] : zero(T))
+            # Every entry, column-major (what StaticArrays converts through); the
+            # stored entries are `getfield(A, :data)`.
+            @inline Base.Tuple(A::$name{N, T, L}) where {N, T, L} = L == N * N ? A.data : ntuple(k -> A[k], Val(N * N))
+            # A diagonal form from a static Diagonal (`SDiagonal`): its N entries.
+            @inline $name(D::LinearAlgebra.Diagonal{T, StaticArrays.SVector{N, T}}) where {N, T} =
+                $name{N, T, N, UnlabeledFrame{N}}(Tuple(D.diag))
+            @inline $name{N, T}(D::LinearAlgebra.Diagonal{<:Any, <:StaticArrays.SVector{N}}) where {N, T} =
+                $name{N, T, N, UnlabeledFrame{N}}(convert(NTuple{N, T}, Tuple(D.diag)))
             # Gradual-typing default: the historical 3-parameter surface
             # (`Name{N,T,L}(data)`) records no frame. Pre-0.9 code compiles
             # and behaves unchanged.
@@ -127,7 +147,7 @@ macro smatrix_wrapper(Name, arg2, arg3 = nothing)
             # Eltype conversion of a labeled wrapper keeps its frame (a label is
             # never silently erased — the same rule as `convert`).
             @inline $name{N, T}(M::$name{N, S, L, C}) where {N, T, S, L, C <: Frame{N}} =
-                $name{N, T, L, C}(convert(NTuple{L, T}, Tuple(M)))
+                $name{N, T, L, C}(convert(NTuple{L, T}, getfield(M, :data)))
             # Labeled lift from an SMatrix (fully-parameterized surface).
             @inline (::Type{$name{N, T, L, C}})(M::SMatrix{N, N, T, L}) where {N, T, L, C <: Frame{N}} =
                 $name{N, T, L, C}(Tuple(M))
@@ -794,9 +814,42 @@ Uncertain(v, m::Union{CovMat, PrecMat}) = Attributed(v, m)
 # precision, i.e. which transformation law applies), not the frame the
 # coordinates live in.
 @inline Base.inv(Λ::PrecMat{N, T, L, C}) where {N, T, L, C} =
-    CovMat{N, T, L, C}(Tuple(inv(SMatrix{N, N, T}(Λ))))
+    L == N * N ? CovMat{N, T, L, C}(Tuple(inv(SMatrix{N, N, T}(Λ)))) : CovMat{N, T, L, C}(map(inv, getfield(Λ, :data)))
 @inline Base.inv(Σ::CovMat{N, T, L, C}) where {N, T, L, C} =
-    PrecMat{N, T, L, C}(Tuple(inv(SMatrix{N, N, T}(Σ))))
+    L == N * N ? PrecMat{N, T, L, C}(Tuple(inv(SMatrix{N, N, T}(Σ)))) : PrecMat{N, T, L, C}(map(inv, getfield(Σ, :data)))
+
+"""
+    DiagonalCovMat{N, T, C} = CovMat{N, T, N, C}
+    DiagonalPrecMat{N, T, C} = PrecMat{N, T, N, C}
+
+A covariance (precision) stored as its diagonal: `N` entries instead of
+`N * N`. Built from a static `Diagonal`, `CovMat(SDiagonal(σ₁², σ₂²))`. It
+stays diagonal under what keeps it so — `inv`, a scalar factor, a sum of two
+diagonal forms, a unit change — and becomes the full form under anything that
+mixes axes (`propagate` through a map, a Jacobian); `convert` and `promote`
+make a diagonal form full, never the reverse. Indexing, `Tuple` and every
+StaticArrays operation see the full `N × N` matrix.
+"""
+const DiagonalCovMat{N, T, C} = CovMat{N, T, N, C}
+@doc (@doc DiagonalCovMat) const DiagonalPrecMat{N, T, C} = PrecMat{N, T, N, C}
+
+# What keeps a diagonal form diagonal: a scalar factor and a sum of two diagonal forms (of one frame).
+for F in (:CovMat, :PrecMat)
+    @eval begin
+        @inline Base.:*(s::Number, A::$F{N, T, N, C}) where {N, T, C} = $F{N, promote_type(typeof(s), T), N, C}(map(x -> s * x, getfield(A, :data)))
+        @inline Base.:*(A::$F{N, T, N, C}, s::Number) where {N, T, C} = s * A
+        @inline Base.:/(A::$F{N, T, N, C}, s::Number) where {N, T, C} = $F{N, typeof(one(T) / s), N, C}(map(x -> x / s, getfield(A, :data)))
+        @inline Base.:+(A::$F{N, T, N, C}, B::$F{N, S, N, C}) where {N, T, S, C} =
+            $F{N, promote_type(T, S), N, C}(map(+, getfield(A, :data), getfield(B, :data)))
+        # mixed storage: the full form, as a sum of two full forms is (not a bare SMatrix)
+        @inline Base.:+(A::$F{N, T, N, C}, B::$F{N, S, L, C}) where {N, T, S, L, C} =
+            $F{N, promote_type(T, S), N * N, C}(map(+, Tuple(A), Tuple(B)))
+        @inline Base.:+(A::$F{N, T, L, C}, B::$F{N, S, N, C}) where {N, T, S, L, C} = B + A
+        # mixed storage promotes to the full form (literals, `vcat`, `promote`); frames as they are
+        Base.promote_rule(::Type{$F{N, T, L1, C}}, ::Type{$F{N, S, L2, C}}) where {N, T, S, L1, L2, C} =
+            $F{N, promote_type(T, S), L1 == L2 ? L1 : N * N, C}
+    end
+end
 
 # --- Frame labeling escape hatches — relabel / unlabel for the statistical
 # forms. One tag (the frame of the coordinates), not two: a covariance/
@@ -804,9 +857,9 @@ Uncertain(v, m::Union{CovMat, PrecMat}) = Attributed(v, m)
 # bilinear epipolar form's two point slots. Semantics are the house
 # relabel/unlabel contract: deliberate, unchecked override; zero-cost.
 @inline relabel(::Type{C}, Σ::CovMat{N, T, L}) where {N, T, L, C <: Frame{N}} =
-    CovMat{N, T, L, C}(Tuple(Σ))
+    CovMat{N, T, L, C}(getfield(Σ, :data))
 @inline relabel(::Type{C}, Λ::PrecMat{N, T, L}) where {N, T, L, C <: Frame{N}} =
-    PrecMat{N, T, L, C}(Tuple(Λ))
+    PrecMat{N, T, L, C}(getfield(Λ, :data))
 @inline unlabel(Σ::CovMat{N}) where {N} = relabel(UnlabeledFrame{N}, Σ)
 @inline unlabel(Λ::PrecMat{N}) where {N} = relabel(UnlabeledFrame{N}, Λ)
 
@@ -833,19 +886,21 @@ Uncertain(v, m::Union{CovMat, PrecMat}) = Attributed(v, m)
 # NOT error — it would fall through to StaticArrays' generic
 # `convert(::Type{SA}, ::StaticArray)` and rebuild under the new frame,
 # silently relabeling (the composition method-(5) idiom, applied to convert).
+# Storage: the same storage is copied; a diagonal form converts to the full one;
+# a full form never converts to a diagonal one (that would read its values).
 @inline function Base.convert(
-        ::Type{CovMat{N, T, L, C}}, Σ::CovMat{N, S, L, C0}
-    ) where {N, T, S, L, C <: Frame{N}, C0 <: Frame{N}}
-    (C0 === C || C0 === UnlabeledFrame{N}) ||
+        ::Type{CovMat{N, T, L, C}}, Σ::CovMat{N, S, M, C0}
+    ) where {N, T, S, L, M, C <: Frame{N}, C0 <: Frame{N}}
+    (C0 === C || C0 === UnlabeledFrame{N}) && (L == M || L == N * N) ||
         throw(MethodError(convert, (CovMat{N, T, L, C}, Σ)))
-    return CovMat{N, T, L, C}(NTuple{L, T}(Tuple(Σ)))
+    return CovMat{N, T, L, C}(NTuple{L, T}(L == M ? getfield(Σ, :data) : Tuple(Σ)))
 end
 @inline function Base.convert(
-        ::Type{PrecMat{N, T, L, C}}, Λ::PrecMat{N, S, L, C0}
-    ) where {N, T, S, L, C <: Frame{N}, C0 <: Frame{N}}
-    (C0 === C || C0 === UnlabeledFrame{N}) ||
+        ::Type{PrecMat{N, T, L, C}}, Λ::PrecMat{N, S, M, C0}
+    ) where {N, T, S, L, M, C <: Frame{N}, C0 <: Frame{N}}
+    (C0 === C || C0 === UnlabeledFrame{N}) && (L == M || L == N * N) ||
         throw(MethodError(convert, (PrecMat{N, T, L, C}, Λ)))
-    return PrecMat{N, T, L, C}(NTuple{L, T}(Tuple(Λ)))
+    return PrecMat{N, T, L, C}(NTuple{L, T}(L == M ? getfield(Λ, :data) : Tuple(Λ)))
 end
 # Uncertain to a stated (possibly partially-parameterized) target: convert
 # both components. The exact-type fast path stays with Base's

@@ -77,10 +77,11 @@ end
 # `Σ ↦ J Σ Jᵀ`; precision pulls back, `Λ ↦ J⁻ᵀ Λ J⁻¹`. The result carries `Dst`.
 # Shared by every framed map with a constant Jacobian (`EuclideanMap` here, the
 # cameras' `FramedAffine`).
+# The result is the FULL form whatever the input's storage: a map mixes axes (a diagonal form becomes full).
 @inline _pushforward(J::SMatrix{N, N, P}, Σ::CovMat{N, S, L}, ::Type{Dst}) where {N, P, S, L, Dst} =
-    CovMat{N, P, L, Dst}(Tuple(J * SMatrix{N, N, P}(Σ) * J'))
+    CovMat{N, P, N * N, Dst}(Tuple(J * SMatrix{N, N, P}(Σ) * J'))
 @inline _pullback(Jinv::SMatrix{N, N, P}, Λ::PrecMat{N, S, L}, ::Type{Dst}) where {N, P, S, L, Dst} =
-    PrecMat{N, P, L, Dst}(Tuple(Jinv' * SMatrix{N, N, P}(Λ) * Jinv))
+    PrecMat{N, P, N * N, Dst}(Tuple(Jinv' * SMatrix{N, N, P}(Λ) * Jinv))
 
 """
     propagate(m::EuclideanMap{N}, u::Uncertain) -> Uncertain

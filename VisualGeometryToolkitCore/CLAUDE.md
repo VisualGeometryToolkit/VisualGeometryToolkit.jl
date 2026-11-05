@@ -177,7 +177,7 @@ Key types and helpers:
 
 The conventions every stack package follows (naming and the estimator verbs,
 signatures, data arguments, coordinate frames and normalization, pixel origins,
-bearings, measurement noise, Jacobians, units, stack contracts) live ONCE, in
+bearings, measurement noise, residuals and distances, Jacobians, units, stack contracts) live ONCE, in
 `conventions/` at the repository root; `conventions/README.md` indexes them. They ship with the
 package (`VisualGeometryToolkitCore.conventions_dir()`), the other packages' CLAUDE.md
 files point at them, and the docs' Conventions page is generated from them.
@@ -191,6 +191,7 @@ Edit them there, never in a CLAUDE.md. Imported in full:
 @conventions/pixel-origins.md
 @conventions/bearings.md
 @conventions/measurement-noise.md
+@conventions/residuals-and-distances.md
 @conventions/persisted-geometry.md
 @conventions/jacobians.md
 @conventions/units.md

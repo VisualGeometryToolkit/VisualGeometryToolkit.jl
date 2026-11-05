@@ -116,9 +116,12 @@ residual_context(::AbstractConstraintProblem, model) = model
     whitened_residual(problem, ctx, i) -> Real
 
 The whitened residual of data point `i` under `model`: the norm of `L⁻¹gᵢ`,
-where `LLᵀ = Σ̃_{gᵢ} = ∂ₓgᵢ·Σ̃_x·∂ₓgᵢᵀ`, so that its square is the Mahalanobis
-distance `gᵢᵀ Σ̃_{gᵢ}⁻¹ gᵢ` (`~ χ²(d_g)` under H₀). SIGNED for a scalar
-constraint (`d_g = 1`: `gᵢ/√Σ̃_{gᵢ}`), the non-negative norm for a vector one.
+where `LLᵀ = Σ̃_{gᵢ} = ∂ₓgᵢ·Σ̃_x·∂ₓgᵢᵀ`, so that its square is the squared
+Mahalanobis distance `gᵢᵀ Σ̃_{gᵢ}⁻¹ gᵢ` (`~ χ²(d_g)` under H₀). SIGNED for a
+scalar constraint (`d_g = 1`: `gᵢ/√Σ̃_{gᵢ}`), the non-negative norm for a vector
+one. A signed distance or a distance under the word "residual" is the one
+exception to conventions/residuals-and-distances.md, scheduled for the 0.7
+wave, where this hook becomes `mahalanobis_distance(problem, ctx, i)`.
 
 The default is [`whitened_constraint_residual`](@ref)`(problem, model, i)`: the
 Sampson residual of `constraint_with_jacobians(problem, model, i)` (the geometry
@@ -138,8 +141,11 @@ per point, at `ctx = `[`residual_context`](@ref)`(problem, model)`.
     residuals!(r, problem, model)
 
 Fill `r[1:data_size(problem)]` with whitened residuals such that `r[i]^2` is the
-Mahalanobis distance `gᵢᵀ Σ̃_{gᵢ}⁻¹ gᵢ` (so `r[i]^2 ~ χ²(d_g)` under H₀).
+squared Mahalanobis distance `gᵢᵀ Σ̃_{gᵢ}⁻¹ gᵢ` (so `r[i]^2 ~ χ²(d_g)` under H₀).
 It is [`whitened_residual`](@ref) at every point, SIGNED for a scalar constraint.
+Its name is the one exception to conventions/residuals-and-distances.md (a
+per-point distance under the word "residual"), scheduled for the 0.7 wave,
+where it becomes `mahalanobis_distances!(d, problem, model)`.
 The per-model work is [`residual_context`](@ref), computed once; a problem
 overrides that hook and `whitened_residual`, not this loop.
 """

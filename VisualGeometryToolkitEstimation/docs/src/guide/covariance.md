@@ -217,7 +217,7 @@ Both terms scale identically as ``\lambda^2``, so the *shape* (i.e.
     shape-whitened residual ``\br_i`` are invariant under the gauge
     transformation ``\theta \to \lambda\theta`` for all ``\lambda \neq 0``.
     Consequently, the marginal score ``S(\theta,\cI)`` and the predictive
-    Mahalanobis distance ``q_i = \br_i^\top\btSigma_{\bg_i}^{-1}\br_i`` are
+    squared Mahalanobis distance ``q_i = \br_i^\top\btSigma_{\bg_i}^{-1}\br_i`` are
     gauge-invariant.
 
 *Proof.* From (9), ``\br_i`` is invariant. From (11),
@@ -451,7 +451,7 @@ identity by construction.
     ``\bSigma_\theta = \sigma^2\btSigma_\theta``) is used, giving
     ``\widetilde{\mathbf{V}}_i = \mathbf{I} + (\mathbf{L}_i^{-1}\partial_\theta\bg_i)\,\btSigma_\theta\,(\mathbf{L}_i^{-1}\partial_\theta\bg_i)^\top``.
     This differs from the properly-scaled form (17) by an overall factor of
-    ``\sigma^2``, which cancels in the Mahalanobis distance
+    ``\sigma^2``, which cancels in the squared Mahalanobis distance
     ``q_i = \br_i^\top\widetilde{\mathbf{V}}_i^{-1}\br_i`` since the whitened
     residual ``\br_i`` also absorbs a factor of ``\sigma`` (i.e.
     ``\br_i \sim \mathcal{N}(0, \sigma^2 I)`` so that
@@ -518,7 +518,7 @@ derived from it.
 `residuals!` writes `whitened_residual(problem, ctx, i)`, which by default
 takes the Sampson residual of ``(\bg_i, \partial_{\bx}\bg_i)`` and whitens it
 by the point's noise shape when the problem returns one: the norm of
-``\br_i = \mathbf{L}_i^{-1}\bg_i``, whose square is the Mahalanobis distance
+``\br_i = \mathbf{L}_i^{-1}\bg_i``, whose square is the squared Mahalanobis distance
 ``\bg_i^\top\bigl(\btSigma_{\bg_i}^{(\bx)}\bigr)^{-1}\bg_i``. A problem may
 override it with a cheaper route to the same quantity.
 

@@ -28,6 +28,17 @@
 - `TARGET_LAYOUT_TAGS` (public): the layouts' `TagRegistry`, `"april_grid"`
   and `"schoeps_pattern"` (the tag rule's `snake_case` of the type's name),
   VisualGeometryToolkitIO's `layout` record type.
+- **A new convention, `conventions/residuals-and-distances.md`**, read after
+  `measurement-noise.md` (`convention_files()` and the docs' Conventions
+  page): the prefix names the currency (`sampson_` geometric, `whitened_` /
+  `mahalanobis_` in noise units), the noun names the shape (a residual is the
+  signed vector, a distance its norm, a signed distance the residual when
+  `d_g = 1`), and a square is the squared distance. It states the one current
+  exception, `residuals!` and the hook `whitened_residual`, and their 0.7
+  names. Documentation only: no name or value changes.
+- Docstrings: `whitened_residual` and `residuals!` call `gᵀΣ̃⁻¹g` the squared
+  Mahalanobis distance (they called it the Mahalanobis distance) and point at
+  the new convention.
 
 ## 0.5.6 (2026-11-05)
 

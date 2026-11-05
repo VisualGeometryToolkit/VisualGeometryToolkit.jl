@@ -125,7 +125,7 @@ The scoring layer dispatches on a single axis: **model type**.
 
 The key design invariant is the **whitening contract**: every `residuals!`
 implementation must return whitened residuals such that ``r_i^2`` equals the
-Mahalanobis distance ``g_i^\top \tilde\Sigma_{g_i}^{-1} g_i``. Whether the
+squared Mahalanobis distance ``g_i^\top \tilde\Sigma_{g_i}^{-1} g_i``. Whether the
 problem has isotropic or heteroscedastic measurement noise is the problem's
 responsibility — it handles the whitening inside `residuals!`. For example:
 

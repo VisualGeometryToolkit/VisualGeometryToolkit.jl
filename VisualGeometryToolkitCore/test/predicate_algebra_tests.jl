@@ -162,8 +162,11 @@
             @test signed_distance(plane, Point3(0.0, 0.0, 4.0)) ≈ 3.0
             @test signed_distance(plane, Point3(0.0, 0.0, -1.0)) ≈ -2.0
             @test signed_distance(plane, SA[1.0, 2.0, 1.0]) ≈ 0.0 atol = 1.0e-15
-            # the deprecated name forwards (same value, a warning) until 0.7
-            @test (@test_deprecated distance(line, Point2(-1.0, 7.0))) ≈ -3.0
+            # the deprecated name forwards (a warning; under --depwarn=error the call
+            # throws, which @test_deprecated also accepts) until 0.7; the value is
+            # checked only where the warning does not throw
+            @test_deprecated distance(line, Point2(-1.0, 7.0))
+            Base.JLOptions().depwarn == 2 || @test distance(line, Point2(-1.0, 7.0)) ≈ -3.0
         end
 
         @testset "allocation-free hot predicates" begin

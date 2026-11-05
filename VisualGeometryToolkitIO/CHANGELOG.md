@@ -1,6 +1,8 @@
 # VisualGeometryToolkitIO changelog
 
-## 0.5.3 (unreleased)
+## 0.5.3 (2026-11-05)
+
+- Requires VisualGeometryToolkitCore 0.5.7 (compat floor raised).
 
 - **`vgio/target_detections/v1`**, VisualGeometryToolkitCore 0.5.7's
   `TargetDetections`: `save(path, td; length_unit = mm, provenance)` and

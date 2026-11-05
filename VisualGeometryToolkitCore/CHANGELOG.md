@@ -4,7 +4,7 @@
 
 - **`EnvironmentLight`, `SphericalHarmonicMap`** (exported, `cameras/lighting.jl`): the scene's light as a radiometric
   camera model sees it — radiance from every direction, a directional map on a sphere of finite radius about a centre,
-  read where a ray from the shaded point leaves the sphere (`exit_direction`; `radius = Inf`, the distant light); the
+  read where a ray from the shaded point leaves the sphere (`exit_direction`); the
   map is real spherical harmonics per channel. `radiance(light, x, ω)`, the linear factor `coefficient_jacobian(light,
   x, ω)`, the accessors `coefficients`, `with_coefficients`, `max_degree`, `radiance_map`, `center`, `radius`, and
   `convert_eltype`, `ustrip` / `with_unit` (centre and radius are lengths). The basis is `sh_basis(Val(l_max), ω)`

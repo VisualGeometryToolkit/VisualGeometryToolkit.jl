@@ -1,6 +1,6 @@
 # The scene's light (cameras/lighting.jl): the real spherical-harmonic basis against closed forms (the convention: no
 # Condon–Shortley phase) and orthonormality on the sphere, the exit direction's geometry, the miss case's finite derivative,
-# linearity in the coefficients, the constant and distant lights, units, eltype conversion and the kernel laws.
+# linearity in the coefficients, the constant light, units, eltype conversion and the kernel laws.
 @testitem "lighting" begin
     using Test
     using StaticArrays: SVector, SMatrix
@@ -11,7 +11,7 @@
     import FlexUnits
     import ForwardDiff
 
-    unit3(v) = SVector{3}(normalize(collect(Float64, v)))
+    unit3(v) = normalize(SVector{3, Float64}(v))
 
     @testset "the basis: closed forms for l ≤ 2, no Condon–Shortley phase" begin
         @test sh_count(0) == 1 && sh_count(2) == 9 && sh_index(0, 0) == 1 && sh_index(1, -1) == 2 && sh_index(2, 2) == 9
@@ -27,10 +27,12 @@
     end
 
     @testset "the basis: orthonormal on the sphere (l ≤ 4, a midpoint rule in cos θ and φ)" begin
-        nz, nφ = 1200, 200   # the midpoint rule is exact in φ for these degrees; its error in cos θ is O(1/nz²)
+        nz, nφ = 1200, 20    # the midpoint rule in φ is exact for trigonometric degree < nφ (here ≤ 8); in cos θ its error is O(1/nz²)
         G = zeros(sh_count(4), sh_count(4))
         for i in 1:nz, k in 1:nφ
-            z = -1 + (i - 0.5) * 2 / nz; φ = (k - 0.5) * 2π / nφ; s = sqrt(1 - z^2)
+            z = -1 + (i - 0.5) * 2 / nz
+            φ = (k - 0.5) * 2π / nφ
+            s = sqrt(1 - z^2)
             y = sh_basis(Val(4), SVector(s * cos(φ), s * sin(φ), z))
             G .+= (y * y') .* (2 / nz) .* (2π / nφ)
         end
@@ -49,6 +51,7 @@
     M = SphericalHarmonicMap(a, 1)
     c = SVector(0.1, -0.2, 0.3); r = 2.0
     light = EnvironmentLight(M, c, r)
+    x₀ = SVector(0.3, 0.2, -0.1); ω₀ = unit3((0.2, -0.7, 0.4))
 
     @testset "the map and the light's accessors" begin
         @test max_degree(M) == 1 && coefficients(M) == a && max_degree(light) == 1 && coefficients(light) == a
@@ -63,7 +66,7 @@
         @test all(radiance(EnvironmentLight(K, c, r), SVector(0.2, 0.1, 0.0), unit3(d)) ≈ fill(0.7, 3) for d in ((1, 0, 0), (0, -1, 1), (3, 2, -1)))
     end
 
-    @testset "exit direction: on the sphere, ahead of the point; distant light; the miss" begin
+    @testset "exit direction: on the sphere, ahead of the point; a point outside" begin
         for (x, d) in ((SVector(0.0, 0.0, 0.0), (1, 0, 0)), (SVector(0.5, 0.4, -0.3), (-1, 2, 0.5)), (SVector(1.0, -1.0, 1.0), (0, 0, 1)))
             ω = unit3(d)
             ω̂ = exit_direction(light, x, ω)
@@ -72,9 +75,6 @@
             μ = dot(p - x, ω)
             @test μ > 0 && p ≈ x + μ * ω                     # on the ray, ahead of x
         end
-        far = EnvironmentLight(M, c, Inf)
-        @test exit_direction(far, SVector(5.0, 1.0, 2.0), unit3((1, 2, 2))) ≈ unit3((1, 2, 2))
-        @test radiance(far, SVector(5.0, 1.0, 2.0), unit3((1, 2, 2))) ≈ M(unit3((1, 2, 2)))
         # a point outside the sphere whose line misses it: read at the line's closest point to the centre, derivatives finite
         x = SVector(5.0, 0.0, 0.0); ω = unit3((0, 1, 0))
         @test exit_direction(light, x, ω) ≈ normalize((x - c) - dot(x - c, ω) * ω)
@@ -86,10 +86,9 @@
     end
 
     @testset "radiance is linear in the coefficients" begin
-        x = SVector(0.3, 0.2, -0.1); ω = unit3((0.2, -0.7, 0.4))
-        @test coefficients(light) * coefficient_jacobian(light, x, ω) ≈ radiance(light, x, ω)
-        g = ForwardDiff.jacobian(v -> radiance(with_coefficients(light, reshape(v, 3, 4)), x, ω), vec(collect(a)))
-        y = coefficient_jacobian(light, x, ω)
+        @test coefficients(light) * coefficient_jacobian(light, x₀, ω₀) ≈ radiance(light, x₀, ω₀)
+        g = ForwardDiff.jacobian(v -> radiance(with_coefficients(light, reshape(v, 3, 4)), x₀, ω₀), vec(collect(a)))
+        y = coefficient_jacobian(light, x₀, ω₀)
         @test g ≈ kron(y', Matrix(1.0I, 3, 3))
     end
 
@@ -108,8 +107,7 @@
         @test eltype(coefficients(l32)) == Float32 && eltype(center(l32)) == Float32
         @test radiance(l32, SVector{3, Float32}(0, 0, 0), SVector{3, Float32}(1, 0, 0)) ≈ radiance(light, SVector(0.0, 0, 0), SVector(1.0, 0, 0)) rtol = 1.0e-5
         @test isbitstype(typeof(light))
-        x = SVector(0.3, 0.2, -0.1); ω = unit3((0.2, -0.7, 0.4))
         allocs(l, x, ω) = (radiance(l, x, ω); @allocated radiance(l, x, ω))
-        @test allocs(light, x, ω) == 0
+        @test allocs(light, x₀, ω₀) == 0
     end
 end

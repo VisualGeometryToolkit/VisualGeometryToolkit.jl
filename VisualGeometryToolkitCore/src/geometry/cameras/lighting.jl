@@ -7,7 +7,7 @@
 #
 #   L(x, ω) = M(ω̂(x, ω)),   ω̂ = (x + μω − c) / ‖x + μω − c‖,   μ > 0 the root of ‖x + μω − c‖² = r²
 #
-# With r = Inf the light is pbrt's infinite (distant) light, ω̂ = ω. The directional map M is a real spherical-harmonic
+# As r → ∞ it tends to pbrt's infinite (distant) light, ω̂ = ω. The directional map M is a real spherical-harmonic
 # expansion per channel, M_c(ω) = Σ_{l ≤ L} Σ_m a_{c,lm} y_l^m(ω), so the radiance is LINEAR in the coefficients:
 # `coefficients(light) * coefficient_jacobian(light, x, ω) == radiance(light, x, ω)`.
 #
@@ -125,11 +125,7 @@ struct SphericalHarmonicMap{L, C, J, CJ, T}
         return new{L, C, J, CJ, T}(a)
     end
 end
-function SphericalHarmonicMap(a::AbstractMatrix, l_max::Integer)
-    C, J = size(a)
-    J == sh_count(l_max) || throw(DimensionMismatch("SphericalHarmonicMap: $J coefficients per channel, degree $l_max needs $(sh_count(l_max))"))
-    return SphericalHarmonicMap{Int(l_max)}(SMatrix{C, J}(a))
-end
+SphericalHarmonicMap(a::AbstractMatrix, l_max::Integer) = SphericalHarmonicMap{Int(l_max)}(SMatrix{size(a)...}(a))
 function SphericalHarmonicMap(radiance::Real, l_max::Integer; channels::Integer = 3)
     a = zeros(typeof(float(radiance)), channels, sh_count(l_max))
     a[:, 1] .= radiance / _sh_normalization(0, 0)        # y_0^0 = K_0^0 = 1/√(4π)
@@ -164,8 +160,7 @@ type (a Dual for a Jacobian); a light keeps its centre and radius.
 with_coefficients(M::SphericalHarmonicMap{L, C, J}, a::AbstractMatrix) where {L, C, J} =
     SphericalHarmonicMap{L}(SMatrix{C, J}(a))
 
-convert_eltype(::Type{T}, M::SphericalHarmonicMap{L, C, J}) where {T <: Real, L, C, J} =
-    SphericalHarmonicMap{L}(SMatrix{C, J, T}(M.coefficients))
+convert_eltype(::Type{T}, M::SphericalHarmonicMap{L, C, J}) where {T <: Real, L, C, J} = with_coefficients(M, SMatrix{C, J, T}(M.coefficients))
 
 # -----------------------------------------------------------------------------
 # The light: the map on a sphere about a centre
@@ -178,7 +173,7 @@ Radiance from every direction, given by the directional `map` (a
 [`SphericalHarmonicMap`](@ref)) on the sphere of `radius` about `center`: a ray
 from a point `x` in direction `ω` reads the map where it leaves that sphere
 ([`exit_direction`](@ref)), so nearby points see the light from different
-directions. `radius = Inf` is the distant (infinite) light, `ω̂ = ω`.
+directions (the distant, infinite light is its limit as `radius → ∞`).
 `center` and `radius` are lengths: metres as quantities in a public value,
 plain numbers in a kernel (`ustrip(m, light)`); the frame is the owner's.
 """
@@ -216,8 +211,8 @@ with_unit(light::EnvironmentLight, u::Units) =
     exit_direction(light::EnvironmentLight, x, ω) -> SVector{3}
 
 The unit direction from the light's centre to the point where the ray
-`x + μω` (`μ > 0`, `ω` a unit vector) leaves the light's sphere; `ω` itself for
-a distant light. For `x` outside the sphere (a wide view of a board larger
+`x + μω` (`μ > 0`, `ω` a unit vector) leaves the light's sphere. For `x`
+outside the sphere (a wide view of a board larger
 than the sphere): a ray whose line misses the sphere is read at the line's
 closest point to the centre, `μ = −(x − c)·ω`, with finite derivatives there
 (not `sqrt(max(Δ, 0))`, whose derivative at 0 is `Inf · 0`); one whose line
@@ -225,7 +220,6 @@ crosses it but points away is read at the crossing nearer to `x`, behind it
 (`μ < 0`).
 """
 @inline function exit_direction(light::EnvironmentLight, x::StaticVector{3}, ω::StaticVector{3})
-    isinf(_primal(light.radius)) && return ω / sqrt(dot(ω, ω))
     d = x - light.center
     b = dot(d, ω)
     Δ = b^2 - (dot(d, d) - light.radius^2)

@@ -196,7 +196,7 @@ const _POINT_INDEX_BASE = 1
 const _SCHEMA_VERSION = Dict(
     "cameras" => 4, "rig" => 6, "transforms" => 3, "trajectory" => 3, "generic_camera" => 3,
     "target" => 3, "target_poses" => 1, "target_homographies" => 1, "target_points2d" => 2, "target_points3d" => 1,
-    "capture_settings" => 1,
+    "capture_settings" => 1, "calibration" => 1,
 )
 _schema_version(kind) = get(_SCHEMA_VERSION, kind, 2)
 _schema(kind) = "vgio/$(kind)/v$(_schema_version(kind))"
@@ -376,6 +376,7 @@ function _spec(kind::AbstractString)
     kind == "target_points2d" && return _TARGET_POINTS2D_SPEC
     kind == "target_points3d" && return _TARGET_POINTS3D_SPEC
     kind == "capture_settings" && return _CAPTURE_SETTINGS_SPEC
+    kind == "calibration" && return _CALIBRATION_SPEC
     kind == "correspondences" && return _CORRESPONDENCES_SPEC
     return nothing
 end

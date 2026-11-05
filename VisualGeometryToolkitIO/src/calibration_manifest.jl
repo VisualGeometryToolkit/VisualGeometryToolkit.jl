@@ -1,0 +1,261 @@
+# =============================================================================
+# vgio/calibration/v1 — the manifest of a calibration result's record files
+# =============================================================================
+#
+# {"schema": "vgio/calibration/v1",
+#  "kind": "metric" | "projective" | "image",
+#  "model": {CameraModelSpec table},                                  (optional)
+#  "files": [{"path": "camera.json", "sha256": "<hex>", "kind": "vgio/cameras/v4",
+#             "role": "authority", "derived_from": []},
+#            {"path": "target_poses.json", "sha256": "<hex>", "kind": "vgio/target_poses/v1",
+#             "role": "derived", "derived_from": ["trajectory_1.json", "targets_1.json"]}, …],
+#  "metrics": {…},                                                    (optional, free-form)
+#  "provenance": {…}}                                                 (optional)
+#
+# One `calibration.json` binds a result's record files by the SHA-256 of their
+# bytes and says which are AUTHORITIES (the measurement or the estimate) and
+# which are DERIVED (computed from other listed files: `target_poses` from the
+# trajectory and the targets), so a loader can check the set is consistent —
+# that homographies are read against the right camera, that a derived file
+# comes from the files beside it — without any one record knowing of the
+# others. `kind` says what the result is: "metric" (a placement in space),
+# "projective" (a partial calibration), "image" (an image-based result with no
+# placement in space). A file's `kind` is the schema of the record it holds.
+# `path`s are relative to the manifest's directory.
+
+const _MANIFEST_FILE = "calibration.json"
+const _MANIFEST_KINDS = ("metric", "projective", "image")
+const _MANIFEST_ROLES = ("authority", "derived")
+
+# A relative path that stays inside the manifest's directory.
+_is_inside_path(p) = !isempty(p) && !isabspath(p) && !('\\' in p) && !(".." in splitpath(p))
+
+_manifest_file_check(f) = begin
+    f[:role] == "authority" && !isempty(f[:derived_from]) &&
+        return "$(f[:path]): an authority is derived from nothing, but lists `derived_from` $(collect(f[:derived_from]))"
+    f[:role] == "derived" && isempty(f[:derived_from]) &&
+        return "$(f[:path]): a derived file says which listed files it is derived from; `derived_from` is empty"
+    f[:path] in f[:derived_from] && return "$(f[:path]): a file is not derived from itself"
+    nothing
+end
+
+# The cross-entry checks: unique paths, every `derived_from` a listed path, no cycle.
+function _manifest_files_check(files)
+    isempty(files) && return "a manifest lists at least one file"
+    msg = _unique_check([f[:path] for f in files], "file paths")
+    msg === nothing || return msg
+    from = Dict(String(f[:path]) => String.(f[:derived_from]) for f in files)
+    for f in files, d in f[:derived_from]
+        haskey(from, d) || return "$(f[:path]): `derived_from` names $(repr(d)), which the manifest does not list"
+    end
+    state = Dict{String, Symbol}()
+    visit(p) = begin
+        st = get(state, p, :new)
+        st === :done && return nothing
+        st === :open && return p
+        state[p] = :open
+        for d in from[p]
+            c = visit(d)
+            c === nothing || return c
+        end
+        state[p] = :done
+        nothing
+    end
+    for p in keys(from)
+        c = visit(p)
+        c === nothing || return "$(c): a file is derived from itself through `derived_from`"
+    end
+    return nothing
+end
+
+# A model's intrinsics must be the kind's (a generic grid is metric).
+function _manifest_model_check(x)
+    haskey(x, :model) || return nothing
+    m = x[:model]
+    i = haskey(m, :type) ? "metric" : get(m, :intrinsics, "metric")
+    return (x[:kind] in ("metric", "projective") && i != x[:kind]) ?
+        "`model` calibrates $(repr(i)) intrinsics, but the result's `kind` is $(repr(x[:kind]))" : nothing
+end
+
+const _CALIBRATION_SPEC = _Checked(
+    _Obj(
+        Pair{Symbol, _Spec}[
+            :schema => _schema_tok("calibration"),
+            :kind => _Named(k -> k in _MANIFEST_KINDS, "a calibration kind ($(join(_MANIFEST_KINDS, ", ")))"),
+            :files => _Checked(
+                _Vec(
+                    _Checked(
+                        _Obj(
+                            :path => _Named(_is_inside_path, "a relative path inside the manifest's directory"),
+                            :sha256 => _HEX64,
+                            :kind => _Named(s -> _split_schema(s) !== nothing, "a vgio record schema (`vgio/<kind>/v<n>`)"),
+                            :role => _Named(r -> r in _MANIFEST_ROLES, "a role ($(join(_MANIFEST_ROLES, ", ")))"),
+                            :derived_from => _Vec(_NonEmpty()),
+                        ),
+                        _manifest_file_check,
+                    )
+                ),
+                _manifest_files_check,
+            ),
+        ],
+        Pair{Symbol, _Spec}[:model => _Free(), :metrics => _Free(), _PROVENANCE...],
+    ),
+    _manifest_model_check,
+)
+
+_file_sha256(path) = sha256_hex(read(path, String))
+
+# A file entry as the writer takes it: a path (an authority), or `(; path[, role, derived_from])`.
+function _manifest_entry(dir, e)
+    path, role, from = e isa AbstractString ? (e, "authority", String[]) :
+        e isa NamedTuple && haskey(e, :path) && issubset(keys(e), (:path, :role, :derived_from)) ?
+        (e.path, String(get(e, :role, "authority")), String[String(p) for p in get(e, :derived_from, String[])]) :
+        throw(ArgumentError("save_manifest: a file is a path, or `(; path[, role, derived_from])`; got $(repr(e))"))
+    full = joinpath(dir, path)
+    isfile(full) || throw(ArgumentError("save_manifest: $(full) is not a file"))
+    s = _peek_schema(full)
+    _split_schema(s) === nothing && throw(ArgumentError("$(full): not a vgio record (schema $(repr(s))); a manifest binds vgio records"))
+    return (path = String(path), sha256 = _file_sha256(full), kind = s, role = role, derived_from = from)
+end
+
+"""
+    save_manifest(dir, files; kind, model = nothing, metrics = nothing, provenance = (;)) -> String
+
+Write `dir/calibration.json`, a `vgio/calibration/v1` manifest binding a
+calibration result's record files, and return its path. `files` lists the
+vgio record files beside it: each a path relative to `dir` (an authority) or
+`(; path, role = "authority", derived_from = String[])`, where `role` is
+`"authority"` or `"derived"` and a derived file names, in `derived_from`, the
+listed files it is computed from (`target_poses` from the trajectory and the
+targets). Each entry records the file's SHA-256 and its record schema.
+
+`kind` is `"metric"`, `"projective"` or `"image"` (an image-based result with
+no placement in space). `model` is an optional VGC `CameraModelSpec` (written
+through its `toml_value`; its intrinsics must be the `kind`'s); `metrics` an
+optional `NamedTuple` or `Dict` of the result's numbers; `provenance` a free-form
+`NamedTuple` no reader interprets.
+
+The manifest is checked as [`load_manifest`](@ref) checks it, before anything
+is written: an `ArgumentError` for a missing or non-vgio file, a derived file
+without `derived_from` (or an authority with one), a `derived_from` naming a file
+that is not listed or forming a cycle, and a measurement file
+(`target_points2d`, `target_homographies`) naming a target the listed
+target and rig files do not hold.
+"""
+function save_manifest(dir::AbstractString, files::AbstractVector; kind::AbstractString, model = nothing, metrics = nothing, provenance::NamedTuple = (;))
+    path = joinpath(dir, _MANIFEST_FILE)
+    entries = [_manifest_entry(dir, e) for e in files]
+    body = (schema = _schema("calibration"), kind = String(kind), files = entries)
+    model === nothing || (body = merge(body, (model = VgtkCore.toml_value(model),)))
+    metrics === nothing || (body = merge(body, (metrics = metrics,)))
+    body = _with_provenance(body, provenance)
+    tree = _parse_vgio_text(_json_text(body), path)       # the very bytes, as _write_store checks them
+    _validate(_CALIBRATION_SPEC, tree, path, "")
+    model === nothing || _manifest_model(tree, path)
+    _check_manifest_files(dir, tree, path)
+    write(path, _json_text(body))
+    return path
+end
+
+# The model a manifest states, read by VGC's own reader; its refusal names the manifest.
+function _manifest_model(d, path)
+    haskey(d, :model) || return nothing
+    return try
+        VgtkCore.CameraModelSpec(_plain(d.model))
+    catch e
+        e isa ArgumentError ? throw(ArgumentError("$(path): model: $(e.msg)")) : rethrow()
+    end
+end
+
+# The files a manifest lists, against the directory: each exists, holds the recorded
+# schema, and hashes to the recorded SHA-256 (a mismatch names the file); then the
+# targets the measurement files name resolve in the listed target and rig files.
+function _check_manifest_files(dir, d, mpath)
+    for f in d.files::Vector{Any}
+        full = joinpath(dir, f.path::String)
+        isfile(full) || throw(ArgumentError("$(mpath): lists $(f.path), which is not a file in $(dir)"))
+        got = _file_sha256(full)
+        got == f.sha256 || throw(
+            ArgumentError("$(full): its SHA-256 is $(got), but $(mpath) records $(f.sha256) — the file changed since the manifest was written")
+        )
+        s = _peek_schema(full)
+        s == f.kind || throw(ArgumentError("$(full): holds a $(repr(s)) record, but $(mpath) lists it as $(repr(f.kind))"))
+    end
+    _check_manifest_targets(dir, d, mpath)
+    return nothing
+end
+
+# R18: every target/rig file the manifest lists is loaded, by content id. A
+# `target_points2d` / `target_homographies` file naming a targets identity none
+# of them has, or a target name not inside the identities it names, is refused
+# naming that file. A rig holds target ids; a single target holds no name of its
+# own, so any name a measurement gives it is accepted.
+function _check_manifest_targets(dir, d, mpath)
+    rigs = Dict{String, Set{String}}()          # a rig's content id → its target ids
+    singles = Set{String}()                     # a single target's content id
+    for f in d.files::Vector{Any}
+        full = joinpath(dir, f.path::String)
+        k = _split_schema(f.kind)::NamedTuple
+        if k.kind == "rig"
+            rigs[content_id(full)] = Set(String(t.id) for t in get(_read_store(full, "rig", _RIG_SPEC), :targets, Any[]))
+        elseif k.kind == "target"
+            push!(singles, content_id(full))
+        end
+    end
+    for f in d.files::Vector{Any}
+        full = joinpath(dir, f.path::String)
+        k = _split_schema(f.kind)::NamedTuple
+        (k.kind == "target_points2d" || k.kind == "target_homographies") || continue
+        m = _read_store(full, k.kind, _spec(k.kind)::_Spec)
+        for id in m.targets::Vector{Any}
+            (haskey(rigs, id) || id in singles) || throw(
+                ArgumentError("$(full): names the targets identity $(id), which none of the target or rig files $(mpath) lists has")
+            )
+        end
+        loose = any(id -> id in singles, m.targets)
+        allowed = union(Set{String}(), (rigs[id] for id in m.targets if haskey(rigs, id))...)
+        for fr in m.frames::Vector{Any}, o in (k.kind == "target_points2d" ? fr.points : fr.homographies)::Vector{Any}
+            (loose || o.target in allowed) || throw(
+                ArgumentError("$(full): frame $(fr.t) names the target $(repr(o.target)), which is not in the targets it references ($(sort!(collect(allowed))))")
+            )
+        end
+    end
+    return nothing
+end
+
+"""
+    load_manifest(dir) -> NamedTuple
+
+Read `dir/calibration.json`, a `vgio/calibration/v1` manifest, and check the set
+it binds: every listed file exists, holds the record schema the manifest lists
+and hashes to the recorded SHA-256 — an `ArgumentError` naming the file
+otherwise — and the targets resolve: every target and rig file listed is
+loaded, and a `target_points2d` or `target_homographies` file naming a
+targets identity (`content_id`) none of them has, or a target name not inside
+the rig it references, is refused naming that file. (A single target holds no
+name of its own: any name is accepted against it.) A listed file of an earlier
+schema version is read through its version steps.
+
+Returns `(; dir, kind, model, files, metrics, provenance)`: `kind` the
+manifest's `"metric"`, `"projective"` or `"image"`; `model` the VGC
+`CameraModelSpec` or `nothing`; `files` a vector of
+`(; path, sha256, kind, role, derived_from)`, `path`s relative to `dir`;
+`metrics` and `provenance` the parsed objects or `nothing`. Read a file with
+`load(T, joinpath(dir, path))`.
+"""
+function load_manifest(dir::AbstractString)
+    path = joinpath(dir, _MANIFEST_FILE)
+    isfile(path) || throw(ArgumentError("$(dir) holds no $(_MANIFEST_FILE)"))
+    d = _read_store(path, "calibration", _CALIBRATION_SPEC)
+    _check_manifest_files(dir, d, path)
+    files = [
+        (
+                path = String(f.path::String), sha256 = String(f.sha256::String), kind = String(f.kind::String),
+                role = String(f.role::String), derived_from = String[String(p) for p in f.derived_from::Vector{Any}],
+            ) for f in d.files::Vector{Any}
+    ]
+    return (
+        dir = String(dir), kind = String(d.kind::String), model = _manifest_model(d, path), files = files,
+        metrics = get(d, :metrics, nothing), provenance = get(d, :provenance, nothing),
+    )
+end

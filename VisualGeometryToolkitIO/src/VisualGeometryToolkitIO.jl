@@ -177,6 +177,7 @@ include("generic_camera_schema.jl")  # the Schöps grid models (must precede rig
 include("rig_schema.jl")
 include("captures_schema.jl")  # trajectory/v3, target_poses/v1, target_homographies/v1, target_points2d/v2, target_points3d/v1: VGC's captures
 include("capture_settings_schema.jl")  # capture_settings/v1: the camera's settings per frame, the body and lens identities
+include("calibration_manifest.jl")  # calibration.json: vgio/calibration/v1, the hash-bound set of a result's records (after the kinds it checks)
 include("schoeps.jl")      # Schöps et al.'s camera_calibration files (intrinsics0.yaml, dataset.bin), read through `load`
 include("correspondences.jl")  # export: measurements + targets → per-(frame, target) point arrays for external calibrators
 include("assemble.jl")
@@ -223,6 +224,7 @@ public SCHOEPS_PIXEL_FRAME            # the pixel frame of Schöps' camera_calib
 public ColmapModel                    # a COLMAP model directory's contents + its unit contract
 public read_length, write_length   # a file length <-> metres, decimal-exact (power-of-ten units shift the exponent)
 public read_quantity, write_quantity, json_value, from_json, ScalarOrQuantity, role_unit   # the quantity JSON format (core_json.jl); a contract's length roles
+public save_manifest, load_manifest     # vgio/calibration/v1: the manifest binding a result's record files by SHA-256
 public validate                       # check any vgio file against its kind's table
 public migrate_schema, CONTRACT_GENERICS   # the per-schema migration a schema owner extends (its declared extension points)
 public migrate_record                 # an earlier version's record as the current one, in memory: the version steps a reader runs

@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **New kind `vgio/target_homographies/v1`** (`save`, `load(TargetHomographies, path)`,
+  `load(TargetHomographies{F}, path)`): per frame, each target's plane (mm) to
+  pixel homography, canonical (unit Frobenius norm, `H[3,3] >= 0`), against the
+  camera the frame's `sensor` names, before its lens. The pixel frame is the
+  value's type; `targets` are the `content_id`s its ids resolve in.
+- **`content_id` of a single unposed target** (a `vgio/target/v3` path, an
+  `AbstractTarget`, or an `Attributed` one): the SHA-256 of its `target` record,
+  distinct from every rig's. A `PosedTarget` is an `ArgumentError`.
+- **`vgio/target_points2d/v2`**: `targets` may be the content id of a single
+  target as well as a rig's. A `v1` file reads through its version step
+  (`migrate_record`); `vgio_migrate` rewrites it and `vgio_migrate_tree`
+  re-points and rewrites a tree's `v1` measurement files.
+- **New kind `vgio/calibration/v1`, the manifest** (`save_manifest(dir, files;
+  kind, model, metrics, provenance)`, `load_manifest(dir)`): one
+  `calibration.json` binding a result's record files by SHA-256, each with its
+  record schema, its `role` (`"authority"` or `"derived"`) and, for a derived
+  file, `derived_from`. `kind` is `"metric"`, `"projective"` or `"image"`;
+  `model` is an optional `CameraModelSpec`. A load refuses a changed file by
+  name, and a `target_points2d` / `target_homographies` file naming a targets
+  identity or a rig target the listed target and rig files do not hold.
 - **`vgio_migrate` rewrites a `.toml` record** whose schema has a
   `migrate_schema(::Val, tree)` step and no file form (a schema owner's config):
   parse, the steps, `TOML.print`, and a verified read-back (the same tree, types

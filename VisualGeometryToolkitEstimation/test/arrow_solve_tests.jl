@@ -114,6 +114,18 @@
         b1 = blocks_of(M1, v1, ns, 1, 3)
         _, t1 = _arrow_solve(M1[1:ns, 1:ns], v1[1:ns], [b1[1], (C = zero(b1[2].C), D = zero(b1[2].D), b = zero(b1[2].b)), b1[3]])
         @test isnan(t1[2][1]) && all(isfinite, (t1[1][1], t1[3][1]))
+        # a non-finite D is a dead block at every m (a Cholesky of a NaN may report success)
+        for bad in (NaN, Inf)
+            Dn = Matrix(blocks[3].D); Dn[2, 2] = bad
+            nanb = (C = blocks[3].C, D = SMatrix{m, m, Float64, m * m}(Dn), b = blocks[3].b)
+            _, tn = _arrow_solve(M[1:ns, 1:ns], v[1:ns], [blocks[1:2]; nanb; blocks[4:4]])
+            @test all(isnan, tn[3]) && all(t -> all(isfinite, t), tn[[1, 2, 4]])
+        end
+        _, t1n = _arrow_solve(M1[1:ns, 1:ns], v1[1:ns], [b1[1], (C = b1[2].C, D = typeof(b1[2].D)(Inf), b = b1[2].b), b1[3]])
+        @test isnan(t1n[2][1])
+        # any AbstractVector of the blocks is taken (a view, a Memory-backed vector)
+        xv, _ = _arrow_solve(M1[1:ns, 1:ns], v1[1:ns], view(b1, 1:3))
+        @test xv == _arrow_solve(M1[1:ns, 1:ns], v1[1:ns], b1)[1]
         # the shared block must match the blocks' coupling
         @test_throws DimensionMismatch _arrow_solve(zeros(3, 3), zeros(3), b1)
     end

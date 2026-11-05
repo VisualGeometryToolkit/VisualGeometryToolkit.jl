@@ -450,7 +450,7 @@ end
 # `Dᵢ` symmetric (only its upper triangle is read at m ≥ 2, so an accumulation
 # symmetric to rounding is fine). A board whose `D` is not positive definite
 # (`_arrow_factor` gives `nothing`: at m = 1, `d > 0`; at m ≥ 2, its Cholesky
-# fails) carries no information on its block: it is left out of the elimination
+# fails; a `D` with a non-finite entry is dead at every m) carries no information on its block: it is left out of the elimination
 # and its `tᵢ` is NaN. A singular reduced system throws
 # `LinearAlgebra.SingularException`; the caller names the failure.
 # Returns `(xs::Vector{Float64}, ts::Vector{SVector{m, Float64}})`.
@@ -460,15 +460,16 @@ end
 # but that loop stays inline in `_division_camera_solve`: replacing it by this call
 # moves the fusion of the inlined `sampson_residual`'s `muladd`s, and with it the
 # camera's output by ulps (`test/division_solve_golden_tests.jl`).
-_arrow_factor(D::SMatrix{1, 1}) = D[1] > 0 ? D : nothing          # D \ v is v / d
+_arrow_factor(D::SMatrix{1, 1}) = (isfinite(D[1]) && D[1] > 0) ? D : nothing          # D \ v is v / d
 function _arrow_factor(D::SMatrix)
+    all(isfinite, D) || return nothing         # a Cholesky of a NaN-bearing D may report success
     F = LinearAlgebra.cholesky(LinearAlgebra.Hermitian(D); check = false)
     return LinearAlgebra.issuccess(F) ? F : nothing
 end
 
 function _arrow_solve(
         Snn::Matrix{Float64}, bsh::Vector{Float64},
-        blocks::Vector{NamedTuple{(:C, :D, :b), Tuple{SMatrix{ns, m, Float64, L}, SMatrix{m, m, Float64, M}, SVector{m, Float64}}}}
+        blocks::AbstractVector{<:NamedTuple{(:C, :D, :b), <:Tuple{SMatrix{ns, m, Float64, L}, SMatrix{m, m, Float64, M}, SVector{m, Float64}}}}
     ) where {ns, m, L, M}
     (size(Snn) == (ns, ns) && length(bsh) == ns) ||
         throw(DimensionMismatch("the shared block is $(size(Snn)) with $(length(bsh)) right-hand sides; the boards couple $ns"))

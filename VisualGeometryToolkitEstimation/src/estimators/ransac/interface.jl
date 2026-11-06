@@ -24,7 +24,7 @@ and constraint derivatives for a specific estimation task.
 - `constraint_with_jacobians(p, model, i)` — `(g, ∂ₓg, ∂_θg)` at data point `i`
 
 # Derived Automatically
-- `residuals!(r, p, model)` — Mahalanobis distance `√(gᵀ Σ̃_g⁻¹ g)` from `constraint_with_jacobians`
+- `mahalanobis_distances!(r, p, model)` — Mahalanobis distance `√(gᵀ Σ̃_g⁻¹ g)` from `constraint_with_jacobians`
 
 # Optional Methods
 - `draw_sample!(rng, indices, p)` — custom sampling (default: uniform without replacement)
@@ -35,7 +35,7 @@ and constraint derivatives for a specific estimation task.
 - `solver_covariance(p, model, indices)` + `provides_solver_covariance(::Type{<:P}) = true` — model parameter
   covariance for predictive scoring; `nothing` for a degenerate sample (the hypothesis is skipped). A problem
   without a provider is refused by a predictive scorer.
-- `residuals!(r, p, model)` — override the default if a faster batch implementation exists
+- `mahalanobis_distances!(r, p, model)` — override the default if a faster batch implementation exists
 
 # Example
 ```julia
@@ -133,11 +133,11 @@ model_type(p::AbstractRansacProblem) = model_type(typeof(p))
 #       The step's covariance is not read off `ws`: it is the constraint
 #       covariance (`solver_covariance`) on the consensus it was refined on.
 
-# `residuals!` (the default that derives the whitened distance from
+# `mahalanobis_distances!` (the default that derives the whitened distance from
 # `constraint_with_jacobians`) is VisualGeometryToolkitCore's constraint-problem
 # protocol, which `AbstractRansacProblem` implements, so that default applies
-# here. RANSAC problems still override `residuals!` for a faster batch path
-# (those methods extend the imported `residuals!`).
+# here. RANSAC problems still override `mahalanobis_distances!` for a faster batch path
+# (those methods extend the imported `mahalanobis_distances!`).
 
 # -----------------------------------------------------------------------------
 # Optional Method Stubs with Defaults
@@ -249,33 +249,44 @@ lo_workspace(::Type{P}, ::Type{T}, ::AbstractLocalOptimization, n::Int) where {P
     LoBuffers{T}(refine_workspace(P, n), n, model_type(P))
 
 """
-    RansacWorkspace(problem, scoring[, local_optimization = NoLocalOptimization()][, T = Float32])
-    RansacWorkspace(P, n_max, scoring[, local_optimization]; T = Float32)
-    RansacWorkspace(P, n_data[, T = Float32])
+    RansacWorkspace([T = Float32,] problem, scoring[, local_optimization = NoLocalOptimization()])
+    RansacWorkspace([T = Float32,] P, n_max, scoring[, local_optimization = NoLocalOptimization()])
+    RansacWorkspace([T = Float32,] P, n_data)
 
 The composed workspace for `problem` (or problems of type `P` with up to
 `n_max` points): the scorer's workspace (`scoring_workspace(scoring, n,
 codimension)` — its tables built for this scoring) and the local optimizer's
-(`lo_workspace(P, T, local_optimization, n)`). `K` is the type parameter of
+(`lo_workspace(P, T, local_optimization, n)`). `T` is the per-point storage
+element type, an optional leading positional. `K` is the type parameter of
 `AbstractRansacProblem{K}` — compile-time constant, no runtime dispatch.
 
-`RansacWorkspace(P, n_data[, T])` is the workspace of the default scorer (its
+`RansacWorkspace([T,] P, n_data)` is the workspace of the default scorer (its
 tables depend on the scale prior and the profile flag only, not on the
 threshold): what a caller pre-allocates for the `find_*` pipelines.
 """
-RansacWorkspace(::Type{P}, n::Int, ::Type{T} = Float32) where {P <: AbstractRansacProblem, T <: AbstractFloat} =
-    RansacWorkspace(P, n, _default_scoring_at(P, 1.0), NoLocalOptimization(); T)
-RansacWorkspace(problem::AbstractRansacProblem, scoring, ::Type{T} = Float32) where {T <: AbstractFloat} =
-    RansacWorkspace(problem, scoring, NoLocalOptimization(), T)
-RansacWorkspace(problem::AbstractRansacProblem, scoring, lo::AbstractLocalOptimization, ::Type{T} = Float32) where {T <: AbstractFloat} =
-    RansacWorkspace(typeof(problem), data_size(problem), scoring, lo; T)
-function RansacWorkspace(::Type{P}, n::Int, scoring::AbstractScoring, lo::AbstractLocalOptimization = NoLocalOptimization();
-                         T::Type{<:AbstractFloat} = Float32) where {P <: AbstractRansacProblem}
+RansacWorkspace(::Type{T}, ::Type{P}, n::Int) where {T <: AbstractFloat, P <: AbstractRansacProblem} =
+    RansacWorkspace(T, P, n, _default_scoring_at(P, 1.0))
+RansacWorkspace(::Type{T}, problem::AbstractRansacProblem, scoring,
+                lo::AbstractLocalOptimization = NoLocalOptimization()) where {T <: AbstractFloat} =
+    RansacWorkspace(T, typeof(problem), data_size(problem), scoring, lo)
+function RansacWorkspace(::Type{T}, ::Type{P}, n::Int, scoring::AbstractScoring,
+                         lo::AbstractLocalOptimization = NoLocalOptimization()) where {T <: AbstractFloat, P <: AbstractRansacProblem}
     return RansacWorkspace(
         n, minimal_sample_size(P), model_type(P), T,
         scoring_workspace(scoring, n, codimension(P)), lo_workspace(P, T, lo, n)
     )
 end
+# The optional leading `T`: each form without it is the default storage
+# eltype's, which the pipelines' too-few result (`_storage_eltype`) reads too.
+const _DEFAULT_STORAGE_ELTYPE = Float32
+RansacWorkspace(::Type{P}, n::Int) where {P <: AbstractRansacProblem} =
+    RansacWorkspace(_DEFAULT_STORAGE_ELTYPE, P, n)
+RansacWorkspace(::Type{P}, n::Int, scoring::AbstractScoring,
+                lo::AbstractLocalOptimization = NoLocalOptimization()) where {P <: AbstractRansacProblem} =
+    RansacWorkspace(_DEFAULT_STORAGE_ELTYPE, P, n, scoring, lo)
+RansacWorkspace(problem::AbstractRansacProblem, scoring,
+                lo::AbstractLocalOptimization = NoLocalOptimization()) =
+    RansacWorkspace(_DEFAULT_STORAGE_ELTYPE, problem, scoring, lo)
 
 """
     test_model(problem::AbstractRansacProblem, model, sample_indices::AbstractVector{Int}) -> Bool

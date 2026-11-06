@@ -85,7 +85,7 @@ mutable struct PosteriorIrlsState{M, T}
     residuals::Vector{T}
     # Residuals corresponding to the incumbent — saved by `post_iteration!` whenever
     # the cost drops, so `locally_optimize!` can hand them off to the scoring
-    # buffers at IRLS exit and let Phase 3 skip a redundant residuals!() sweep.
+    # buffers at IRLS exit and let Phase 3 skip a redundant mahalanobis_distances!() sweep.
     best_residuals::Vector{T}
     # The incumbent (VGC `Incumbent`) and the current cost. Costs are Float64
     # regardless of the workspace storage T: the stop rule compares running
@@ -127,13 +127,13 @@ posterior-weight iteration, [`posterior_irls!`](@ref); LocalOptimizationDoneRigh
 mixture lifts). Freshness contract: `cs` must come from the most recent score
 on `buf`; its consensus order is read from the scorer's workspace. The seed
 model's residuals are already in `buf`, so squaring them into the posterior
-buffer avoids a redundant residuals!() sweep. The Student-t scale contributes
+buffer avoids a redundant mahalanobis_distances!() sweep. The Student-t scale contributes
 one extra DOF on top of the minimal sample size (ν = (k − m)·dg).
 """
 function consensus_posterior(L::LoBuffers, problem, cs::ConsensusSet, buf::ScoreBuffers, scoring, a::Float64)
     check_fresh(cs, buf)
     n = data_size(problem)
-    square_residuals!(L.posterior_sq_r, buf.residuals, n)
+    square_distances!(L.posterior_sq_r, buf.residuals, n)
     return seed_posterior!(
         L.posterior, L.posterior_sq_r, n, minimal_sample_size(problem) + 1, inlier_count(cs);
         order = consensus_order(scoring, buf.scoring_ws),
@@ -188,10 +188,10 @@ update_model!(state::PosteriorIrlsState, method::PosteriorIrlsMethod, problem, �
 
 function update_residuals!(state::PosteriorIrlsState{M, T}, method::PosteriorIrlsMethod, problem, θ) where {M, T}
     n = data_size(problem)
-    residuals!(state.residuals, problem, θ)
+    mahalanobis_distances!(state.residuals, problem, θ)
     rws = state.rws
-    square_residuals!(sq_residuals(rws), state.residuals, n)
-    state.current_cost = weighted_rss(robust_weight(rws), sq_residuals(rws), n)
+    square_distances!(sq_distances(rws), state.residuals, n)
+    state.current_cost = weighted_rss(robust_weight(rws), sq_distances(rws), n)
     return nothing
 end
 
@@ -244,7 +244,7 @@ posterior state `rws`:
   `update_weights!`, and the cost re-seeded under those weights.
 
 The best iterate's residuals are handed back to `buf`
-(`residuals_current = true`), so the loop skips a redundant residuals!() sweep.
+(`residuals_current = true`), so the loop skips a redundant mahalanobis_distances!() sweep.
 """
 function posterior_irls!(
         likelihood::F, L::LoBuffers, problem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring,
@@ -287,7 +287,7 @@ _seed_policy_weights!(::PosteriorIrlsState, ::PosteriorLikelihood, ::Int) = noth
 function _seed_policy_weights!(state::PosteriorIrlsState, lh, n::Int)
     update_nuisance!(lh)
     update_weights!(lh)
-    cost = weighted_rss(robust_weight(state.rws), sq_residuals(state.rws), n)
+    cost = weighted_rss(robust_weight(state.rws), sq_distances(state.rws), n)
     state.best = Incumbent(state.best.θ, cost)
     state.current_cost = cost
     return nothing

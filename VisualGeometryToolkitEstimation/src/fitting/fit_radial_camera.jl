@@ -84,7 +84,7 @@ function fit_radial_camera(
     P = _candidate(p, P)
     # the reported residual is the point–radial-line distance in px (the
     # problem's scoring residual), one currency whatever the iteration count
-    ss = sum(abs2, residuals!(Vector{Float64}(undef, n), p, P))
+    ss = sum(abs2, mahalanobis_distances!(Vector{Float64}(undef, n), p, P))
     return FitResult(P, :solved, iterations, sqrt(ss / n), n, nothing)
 end
 

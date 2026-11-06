@@ -107,9 +107,9 @@ import VisualGeometryToolkitCore: AbstractLocalOptimization,
 # `using`; RVG adds no scorer), the local-optimization contract (RVG's hosted
 # strategies implement `locally_optimize!`/`lo_workspace`/`lo_width`/
 # `with_width`/`deployed_scale_multiple`) and the robust-statistics toolkit.
-import VisualGeometryToolkitCore: data_size, codimension, minimal_sample_size, residuals!,
+import VisualGeometryToolkitCore: data_size, codimension, minimal_sample_size, mahalanobis_distances!,
     solver_covariance, provides_solver_covariance, refine!, refine_workspace,
-    residual_context, whitened_residual,
+    residual_context, mahalanobis_distance, whitened_residual,
     locally_optimize!, lo_workspace, lo_width, deployed_scale_multiple
 using VisualGeometryToolkitCore: AbstractConstraintProblem, AbstractScoring, ScoreBuffers, score_model!,
     consensus_mask!, consensus_set, consensus_order, consensus_s2, inlier_count, inlier_probabilities!,
@@ -118,7 +118,7 @@ using VisualGeometryToolkitCore: AbstractConstraintProblem, AbstractScoring, Sco
     ScaleMultiple, LossWidth, TagRegistry, MsacScoring, RansacScoring, inlier_threshold,
     PosteriorWeightState, JeffreysPrior, seed_posterior!, partition_rss, weighted_rss,
     median_seeded_posterior, Estimated, FixedS2, FixedPrior, FixedNu, ConsensusDof, inlier_prior,
-    square_residuals!, sq_residuals, s_hat_sq, student_t_dof,
+    square_distances!, sq_distances, s_hat_sq, student_t_dof,
     update_scale!, update_nu!, update_inlier_prior!,
     mixture_nll
 # Generic block-coordinate-descent loop (hoisted to VGC

@@ -15,7 +15,7 @@ using VisualGeometryToolkitCore: center, converged, division_coeff, estimate, ho
 using VisualGeometryToolkitCore: is_map_inlier   # the posterior MAP inlier rule
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitEstimation: RadialHomographyProblem, find_radial_homography,
-    solve, refine!, residuals!, data_size
+    solve, refine!, mahalanobis_distances!, data_size
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, RadialHomography, radial_transfer, backproject, WelschShape,
     HomographyMat, unit_normalize
 using VisualGeometryToolkitCore.Synthetic: projective_distance
@@ -73,9 +73,9 @@ end
             worst < 1.0e-6 && (ok = true)
         end
         @test ok
-        # residuals! against ground truth: exact on clean inliers
+        # mahalanobis_distances! against ground truth: exact on clean inliers
         r = zeros(length(pairs))
-        residuals!(r, p, m_gt)
+        mahalanobis_distances!(r, p, m_gt)
         @test maximum(r) < 1.0e-8
     end
 
@@ -121,10 +121,10 @@ end
         n = data_size(p)
         θ0 = RadialHomography{Float64}(homography(m_gt), division_coeff(m_gt) * 1.5, center(m_gt))
         w = ones(n)
-        r0 = zeros(n); residuals!(r0, p, θ0)
+        r0 = zeros(n); mahalanobis_distances!(r0, p, θ0)
         θ1 = refine!(nothing, p, θ0, w)
         @test θ1 !== nothing
-        r1 = zeros(n); residuals!(r1, p, θ1)
+        r1 = zeros(n); mahalanobis_distances!(r1, p, θ1)
         @test sum(abs2, r1) < sum(abs2, r0)
     end
 

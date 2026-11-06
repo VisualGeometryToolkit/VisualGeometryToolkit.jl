@@ -46,18 +46,21 @@ The names, by currency and shape:
 | Currency | Residual (signed vector) | Distance (`≥ 0`) | Signed distance (`d_g = 1`) |
 |---|---|---|---|
 | geometric | [`sampson_residual`](@ref), [`sampson_residuals!`](@ref) | [`sampson_distance`](@ref), [`sampson_distances!`](@ref) | [`signed_distance`](@ref) |
-| whitened | [`whitened_residuals!`](@ref) (model level), [`whitened_constraint_residual`](@ref) (problem level) | [`mahalanobis_distance`](@ref) | the whitened residual, `d_g = 1` |
+| whitened | [`whitened_residuals!`](@ref) (model level `(r, M, xs)` and problem level `(r, problem, model)`), [`whitened_residual`](@ref)`(problem, ctx, i)` (one point) | [`mahalanobis_distance`](@ref) (model level `(M, x…)` and problem level `(problem, ctx, i)`), [`mahalanobis_distances!`](@ref)`(d, problem, model)` | the whitened residual, `d_g = 1` |
 
-### The one exception: the RANSAC per-point scalar
+### The RANSAC protocol
 
-[`residuals!`](@ref)`(r, problem, model)` and its hook
-[`whitened_residual`](@ref)`(problem, ctx, i)` (with the helper
-`whitened_distance(r)`) return the signed distance when `d_g = 1` and the
-distance otherwise, under the word "residual". The 0.7 wave renames them:
-`residuals!` becomes `mahalanobis_distances!(d, problem, model)`, the hook
-`mahalanobis_distance(problem, ctx, i)` (`≥ 0`), `whitened_constraint_residual`
-becomes `whitened_residual(problem, ctx, i)` (the signed vector), a new
-problem-level `whitened_residuals!(r, problem, model)` stacks its rows, the
-helper is removed, and `sq_residuals` / `square_residuals!` become
-`sq_distances` / `square_distances!`. Scores are bit-for-bit unchanged: every
-scorer reads `r²`, which the sign does not move.
+The constraint-problem protocol (VisualGeometryToolkitCore's `robust/problem.jl`)
+follows the same table. What a scorer reads per point is a DISTANCE:
+[`mahalanobis_distances!`](@ref)`(d, problem, model)` fills `d[i] ≥ 0` from
+the per-point hook [`mahalanobis_distance`](@ref)`(problem, ctx, i)`, `ctx`
+the problem's [`residual_context`](@ref)`(problem, model)` (the model by
+default). The signed residual is [`whitened_residual`](@ref)`(problem, ctx,
+i)`, in the constraint's shape (a number at `d_g = 1`, its `d_g` components
+otherwise), and [`whitened_residuals!`](@ref)`(r, problem, model)` stacks its
+rows. The squares are [`sq_distances`](@ref) and [`square_distances!`](@ref).
+Scores read `d²`, which the residual's sign does not move. Until the 0.7 wave
+the per-point scalar was a signed distance at `d_g = 1` and a distance
+otherwise, under the word "residual"; a `whitened_residual` override written
+then returns a scalar at `d_g ≥ 2`, and
+[`test_constraint_problem`](@ref) refuses its shape.

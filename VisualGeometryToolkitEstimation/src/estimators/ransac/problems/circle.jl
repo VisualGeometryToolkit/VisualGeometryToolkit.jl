@@ -14,7 +14,7 @@
 #                        and log r, 3 dof.
 #
 # Its construction, sampler and RANSAC wiring are the family's (cspond.jl). The
-# residual is VGC's default `residuals!` — the Sampson distance g/‖G_x‖ of the
+# residual is VGC's default `mahalanobis_distances!` — the Sampson distance g/‖G_x‖ of the
 # constraint (VGC's Sampson layer), (d² − r²)/(2d) for a point at distance d
 # from the centre: the geometric distance d − r to first order, in PIXELS. The
 # refit is the family's chart LM (`refine!` → `_refine!(::NonlinLsq, …)`) on the
@@ -67,7 +67,7 @@ chart_dof(::Type{<:CircleProblem}) = 3
 # three points (scale-free, so in the points' own frame).
 test_sample(p::CircleProblem, idx::AbstractVector{Int}) = test_sample(model_type(p), p.cs, idx)
 
-# The scoring constraint — VGC's point-on-circle constraint. `residuals!` is
+# The scoring constraint — VGC's point-on-circle constraint. `mahalanobis_distances!` is
 # VGC's default through it (the Sampson distance, VGC's one degeneracy rule).
 @inline constraint_with_jacobians(p::CircleProblem, c::VgtkCore.Circle, i::Int) =
     @inbounds VgtkCore.constraint_with_jacobians(c, p.cs[i])

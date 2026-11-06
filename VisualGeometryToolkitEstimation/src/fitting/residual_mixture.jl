@@ -51,7 +51,7 @@ struct _FixedResiduals
     residuals::Vector{Float64}
 end
 data_size(p::_FixedResiduals) = length(p.residuals)
-residuals!(r::AbstractVector, p::_FixedResiduals, _held) = copyto!(r, p.residuals)
+mahalanobis_distances!(r::AbstractVector, p::_FixedResiduals, _held) = copyto!(r, p.residuals)
 
 """
     ResidualMixtureMetadata

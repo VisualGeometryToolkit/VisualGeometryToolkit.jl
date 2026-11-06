@@ -103,7 +103,7 @@ _default_scoring_at(problem, τ::Float64) = MsacScoring(problem; threshold = τ)
 # default, so it is the type a search on the same data returns.
 _too_few(::Type{P}, n::Int; workspace = nothing, _...) where {P} =
     _no_model_result(model_type(P), RansacResultBuffers{_storage_eltype(workspace)}(n), 0, NaN)
-_storage_eltype(::Nothing) = Float32   # RansacWorkspace(P, n_data[, T = Float32])
+_storage_eltype(::Nothing) = _DEFAULT_STORAGE_ELTYPE   # RansacWorkspace([T = Float32,] P, n_data)
 _storage_eltype(::RansacWorkspace{<:Any, <:Any, T}) where {T} = T
 
 # The `extent` keyword of the `find_*` pipelines: when given, the problem is

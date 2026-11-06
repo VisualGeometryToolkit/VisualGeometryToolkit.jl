@@ -28,7 +28,8 @@ end
 
 @testitem "EllipseProblem: minimal solver, residual, chart rows, refit" setup = [EllipseScene] begin
     using Test, Random, LinearAlgebra, StaticArrays
-    using VisualGeometryToolkitCore: Point2, Ellipse, residual_rows!, residual_jacobian_rows!, ambient_coordinates, boundary_point
+    using VisualGeometryToolkitCore: Point2, Ellipse, residual_rows!, residual_jacobian_rows!, ambient_coordinates, boundary_point,
+        whitened_residuals!
     using VisualGeometryToolkitEstimation: EllipseProblem
     import VisualGeometryToolkitEstimation as VgtkEstimation
     centre(e) = SVector(e.center[1], e.center[2])
@@ -40,27 +41,29 @@ end
     e = first(sol)
     @test sol.count == 1 && norm(centre(e) - centre(E₀)) < 1.0e-8 && abs(e.a - E₀.a) < 1.0e-8 && abs(e.b - E₀.b) < 1.0e-8 &&
         abs(sin(e.θ - E₀.θ)) < 1.0e-10
-    r = zeros(200); VgtkEstimation.residuals!(r, p, e)
+    r = zeros(200); VgtkEstimation.mahalanobis_distances!(r, p, e)
     @test maximum(abs, r) < 1.0e-8                                       # pixels
-    allocs(r, p, θ) = (VgtkEstimation.residuals!(r, p, θ); @allocated VgtkEstimation.residuals!(r, p, θ))
+    allocs(r, p, θ) = (VgtkEstimation.mahalanobis_distances!(r, p, θ); @allocated VgtkEstimation.mahalanobis_distances!(r, p, θ))
     @test allocs(r, p, e) == 0
     # a collinear triple and a repeated point: no ellipse
     q = EllipseProblem([Point2(0.0, 0.0), Point2(1.0, 1.0), Point2(2.0, 2.0), Point2(0.0, 3.0), Point2(3.0, 0.5), Point2(0.0, 0.0)])
     @test VgtkEstimation.solve(q, [1, 2, 3, 4, 5]).count == 0
     @test !VgtkEstimation.test_sample(q, [1, 2, 3, 4, 5]) && !VgtkEstimation.test_sample(q, [1, 4, 5, 2, 6])   # the gate refuses them first
     @test VgtkEstimation.test_sample(p, [1, 2, 3, 4, 5])
-    # the residual is the Sampson distance: the geometric distance to first order.
+    # the signed residual is the Sampson residual: the geometric signed distance to first
+    # order, and the scoring distance its magnitude.
     # Along the major axis (normal there) a point δ off is (δ − δ²/(2(a + δ)))…
     off = [Point2{Float64}(centre(E₀) + (E₀.a + δ) * SVector(cos(E₀.θ), sin(E₀.θ))) for δ in range(-5, 5, length = 21)]
     po = EllipseProblem(off)
-    ro = zeros(21); VgtkEstimation.residuals!(ro, po, E₀)
+    ro = zeros(21); whitened_residuals!(ro, po, E₀)
     δs = collect(range(-5, 5, length = 21))
     @test ro ≈ δs .- δs .^ 2 ./ (2 .* (E₀.a .+ δs)) atol = 1.0e-10
+    @test VgtkEstimation.mahalanobis_distances!(zeros(21), po, E₀) == abs.(ro)
     # …and anywhere on the curve, a point δ along the normal is δ to first order
     nrm(t) = normalize(SMatrix{2, 2}(cos(E₀.θ), sin(E₀.θ), -sin(E₀.θ), cos(E₀.θ)) * SVector(E₀.b * cos(t), E₀.a * sin(t)))   # outward
     ts = range(0, 2π, length = 13)
     near = [Point2{Float64}(SVector(boundary_point(E₀, t)...) + s * 0.5 * nrm(t)) for t in ts for s in (1, -1)]
-    rn = zeros(26); VgtkEstimation.residuals!(rn, EllipseProblem(near), E₀)
+    rn = zeros(26); whitened_residuals!(rn, EllipseProblem(near), E₀)
     @test maximum(abs, rn .- repeat([0.5, -0.5], 13)) < 0.5^2 * E₀.a / E₀.b^2   # second order in δ, the curvature at most a/b²
     # the chart rows — the orthogonal distances, whose foot point is a root solve
     # AD must not see — against central differences, at random weights

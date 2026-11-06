@@ -22,7 +22,7 @@ using VisualGeometryToolkitCore: inlier_mask, is_inlier, inlier_weight, robust_w
     update_nuisance!, update_weights!, retcode, iterations
 # The robust-statistics toolkit (VisualGeometryToolkitCore): the posterior-weight
 # state's accessors and updates, and the nuisance-part policies.
-using VisualGeometryToolkitCore: s_hat_sq, student_t_dof, inlier_prior, sq_residuals, update_scale!, update_nu!,
+using VisualGeometryToolkitCore: s_hat_sq, student_t_dof, inlier_prior, sq_distances, update_scale!, update_nu!,
     Estimated, FixedS2, FixedPrior, FixedNu, ConsensusDof
 using VisualGeometryToolkitCore: MsacScoring, median_seeded_posterior
 using VisualGeometryToolkitEstimation

@@ -15,7 +15,7 @@
 # angular resolution scales as 1/r) — the trade for distortion invariance.
 #
 # Sampson whitening of the algebraic row is exact here (only the pixel is
-# uncertain), so `residuals!` reports g/‖∂g/∂x‖ directly. The LO step is the
+# uncertain), so `mahalanobis_distances!` reports g/‖∂g/∂x‖ directly. The LO step is the
 # chart LM on the sphere chart of vec(P) (below).
 # The centre is problem DATA (required), as for the radial homography. The
 # problem owns ONE normalization, `CspondNormalization(RadialCamera, cs; center)`
@@ -61,7 +61,7 @@ _with_datum(p::RadialCameraProblem, P::VgtkCore.RadialCamera) =
     VgtkCore.RadialCamera(radial_rows(P), p.context)
 
 # The constraint of one correspondence on its RAW pixel (VGC's; the camera
-# carries its centre and the constraint subtracts it). `residuals!` is
+# carries its centre and the constraint subtracts it). `mahalanobis_distances!` is
 # VisualGeometryToolkitCore's default through it: the perpendicular distance of the
 # pixel from its predicted radial line — the Sampson distance of the scalar
 # constraint with the pixel the only uncertain quantity, exact — by VGC's one

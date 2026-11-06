@@ -18,9 +18,11 @@
 #                                            fallback throws), `nothing` = degenerate sample
 #   provides_solver_covariance(P)          — trait: whether P defines solver_covariance
 #
-# `residuals!` is derived from `constraint_with_jacobians` (Mahalanobis distance);
-# a problem supplies a faster path through `residual_context` (per model, once)
-# and `whitened_residual` (per point), never by rewriting the loop.
+# `mahalanobis_distances!` is derived from `constraint_with_jacobians` (the
+# norm of each point's `whitened_residual`); a problem supplies a faster path
+# through `residual_context` (per model, once) and `mahalanobis_distance` (per
+# point), never by rewriting the loop. `whitened_residuals!` stacks the signed
+# `whitened_residual` rows.
 #
 # A local optimization reads one more verb of a problem: the weighted refit
 # `refine!(R, problem, θ, w)` on the problem's own workspace
@@ -36,7 +38,7 @@ Implementors provide `data_size`, `codimension`, `minimal_sample_size`, and
 `constraint_rounding_scale` (the point's noise and its degeneracy scales),
 `solver_covariance` with
 `provides_solver_covariance` (predictive scoring), `residual_context` with
-`whitened_residual` (a Jacobian-free residual path), and `refine!` with
+`mahalanobis_distance` (a Jacobian-free distance path), and `refine!` with
 `refine_workspace` (the weighted refit local optimizations call).
 """
 abstract type AbstractConstraintProblem end
@@ -101,60 +103,121 @@ end
 """
     residual_context(problem, model) -> ctx
 
-What [`residuals!`](@ref) computes ONCE per model before its per-point loop, and
-hands to every [`whitened_residual`](@ref)`(problem, ctx, i)`. The default is the
-model itself, so a problem that defines neither hook scores exactly as before.
+What [`mahalanobis_distances!`](@ref) and [`whitened_residuals!`](@ref)
+compute ONCE per model before their per-point loops, and hand to every
+[`mahalanobis_distance`](@ref)`(problem, ctx, i)` and
+[`whitened_residual`](@ref)`(problem, ctx, i)`. The default is the model
+itself, so a problem that defines neither hook scores exactly as before.
 
 A problem overrides it when part of the residual depends on the model alone and
 is costly: a relative-pose bundle's cheiral pose decomposition and inverse
 intrinsics, an essential matrix widened to `Float64` once rather than per point.
-It then defines `whitened_residual(problem, ctx::C, i)` for its context type `C`.
+It then defines the per-point hooks it answers for its context type `C`
+(`constraint_with_jacobians(problem, ctx::C, i)`, which the defaults read, or
+`mahalanobis_distance(problem, ctx::C, i)` directly).
 """
 residual_context(::AbstractConstraintProblem, model) = model
 
 """
-    whitened_residual(problem, ctx, i) -> Real
+    whitened_residual(problem, ctx, i) -> T | SVector{d_g}
 
-The whitened residual of data point `i` under `model`: the norm of `L⁻¹gᵢ`,
-where `LLᵀ = Σ̃_{gᵢ} = ∂ₓgᵢ·Σ̃_x·∂ₓgᵢᵀ`, so that its square is the squared
-Mahalanobis distance `gᵢᵀ Σ̃_{gᵢ}⁻¹ gᵢ` (`~ χ²(d_g)` under H₀). SIGNED for a
-scalar constraint (`d_g = 1`: `gᵢ/√Σ̃_{gᵢ}`), the non-negative norm for a vector
-one. A signed distance or a distance under the word "residual" is the one
-exception to conventions/residuals-and-distances.md, scheduled for the 0.7
-wave, where this hook becomes `mahalanobis_distance(problem, ctx, i)`.
+Data point `i`'s constraint as a whitened residual, SIGNED and in the
+constraint's shape: a number for a scalar constraint (`d_g = 1`, the signed
+distance `gᵢ/√Σ̃_{gᵢ}`), an `SVector` of its `d_g` components for a vector one
+(`L⁻¹gᵢ`, `LLᵀ = Σ̃_{gᵢ} = ∂ₓgᵢ·Σ̃_x·∂ₓgᵢᵀ`), so that `‖rᵢ‖²` is the squared
+Mahalanobis distance `gᵢᵀ Σ̃_{gᵢ}⁻¹ gᵢ` (`~ χ²(d_g)` under H₀). `ctx` is
+[`residual_context`](@ref)`(problem, model)`, the model by default. GTSAM's
+`NoiseModelFactor::whitenedError` for this point.
 
-The default is [`whitened_constraint_residual`](@ref)`(problem, model, i)`: the
-Sampson residual of `constraint_with_jacobians(problem, model, i)` (the geometry
-layer of [`sampson_residual_with_normal`](@ref), at the problem's own currency
-of `G_x` and its `constraint_rounding_scale`), whitened by the point's
-`measurement_covariance` — the stack's one Sampson path and its one
-degeneracy rule (`±Inf`
-for an unsatisfiable degenerate point, `0` for one that vanishes exactly). A
-problem overrides it when a cheaper Jacobian-free route to the SAME quantity
-exists; the override must keep the sign contract. [`residuals!`](@ref) is this
-per point, at `ctx = `[`residual_context`](@ref)`(problem, model)`.
+The default is the Sampson residual of `constraint_with_jacobians(problem, ctx,
+i)` at the problem's [`constraint_rounding_scale`](@ref)`(problem, ctx, i)`
+(base/sampson.jl's geometry layer, the stack's one Sampson path and its one
+degeneracy rule: `±Inf` for an unsatisfiable degenerate point, `0` for one that
+vanishes exactly), whitened by the point's [`measurement_covariance`](@ref) (one
+Cholesky of `G_x·Σ̃_x·G_xᵀ`). An override returns the same shape: a scalar for a
+vector constraint is a distance, not a residual, and
+[`test_constraint_problem`](@ref) refuses it. The distance is
+[`mahalanobis_distance`](@ref); the rows over every point
+[`whitened_residuals!`](@ref).
 """
-@inline whitened_residual(p::AbstractConstraintProblem, model, i::Int) =
-    whitened_distance(whitened_constraint_residual(p, model, i))
+@inline function whitened_residual(p::AbstractConstraintProblem, ctx, i::Int)
+    g, G_x, G_θ = _three(constraint_with_jacobians(p, ctx, i))
+    s, _ = _whitened_constraint(g, G_x, G_θ, constraint_rounding_scale(p, ctx, i), measurement_covariance(p, i), nothing)
+    return _constraint_shape(g, s)
+end
 
 """
-    residuals!(r, problem, model)
+    mahalanobis_distance(problem, ctx, i) -> Real
 
-Fill `r[1:data_size(problem)]` with whitened residuals such that `r[i]^2` is the
-squared Mahalanobis distance `gᵢᵀ Σ̃_{gᵢ}⁻¹ gᵢ` (so `r[i]^2 ~ χ²(d_g)` under H₀).
-It is [`whitened_residual`](@ref) at every point, SIGNED for a scalar constraint.
-Its name is the one exception to conventions/residuals-and-distances.md (a
-per-point distance under the word "residual"), scheduled for the 0.7 wave,
-where it becomes `mahalanobis_distances!(d, problem, model)`.
-The per-model work is [`residual_context`](@ref), computed once; a problem
-overrides that hook and `whitened_residual`, not this loop.
+The Mahalanobis distance of data point `i`, `≥ 0`: the norm of its
+[`whitened_residual`](@ref), so that its square is the squared Mahalanobis
+distance `gᵢᵀ Σ̃_{gᵢ}⁻¹ gᵢ` (`~ χ²(d_g)` under H₀). `ctx` is
+[`residual_context`](@ref)`(problem, model)`, the model by default. What every
+scorer reads per point: scores take its square, which the residual's sign does
+not move.
+
+A problem overrides it when a cheaper Jacobian-free route to the SAME distance
+exists (a reprojection error's norm), or to put a gate before it (a point the
+lens cannot place: `OUT_OF_FIELD_RESIDUAL`); an override returns a value
+`≥ 0`. [`mahalanobis_distances!`](@ref) is this at every point.
 """
-function residuals!(r::AbstractVector, p::AbstractConstraintProblem, model)
+@inline mahalanobis_distance(p::AbstractConstraintProblem, ctx, i::Int) =
+    _residual_norm(_as_vector(whitened_residual(p, ctx, i)))   # `|r|` for a scalar constraint (base/sampson.jl)
+
+"""
+    mahalanobis_distances!(d, problem, model) -> d
+
+Fill `d[i]` with [`mahalanobis_distance`](@ref)`(problem, ctx, i)` for every
+index of `d` (`1:data_size(problem)` in the RANSAC loop), `≥ 0`, so that
+`d[i]^2 ~ χ²(d_g)` under H₀. The per-model work is
+[`residual_context`](@ref), computed once; a problem overrides that hook and
+`mahalanobis_distance`, not this loop. The signed rows are
+[`whitened_residuals!`](@ref).
+"""
+function mahalanobis_distances!(d::AbstractVector, p::AbstractConstraintProblem, model)
     ctx = residual_context(p, model)
-    @inbounds for i in eachindex(r)
-        r[i] = whitened_residual(p, ctx, i)
+    @inbounds for i in eachindex(d)
+        d[i] = mahalanobis_distance(p, ctx, i)
+    end
+    return d
+end
+
+"""
+    whitened_residuals!(r, problem, model) -> r
+
+The [`whitened_residual`](@ref) of every data point, stacked: point `i`'s `d_g`
+signed components in rows `d_g(i−1)+1 … d_g·i` of `r`, for the first
+`length(r) ÷ d_g` points (`d_g·data_size(problem)` rows hold every point; a
+length that is not a multiple of `d_g` is a `DimensionMismatch`), unweighted, at `ctx = `[`residual_context`](@ref)`(problem,
+model)`, computed once. The problem-level form of the model-level
+`whitened_residuals!(r, M, xs)`; its row norms are
+[`mahalanobis_distances!`](@ref)'s.
+"""
+whitened_residuals!(r::AbstractVector, p::AbstractConstraintProblem, model) = _stack_whitened_residuals!(r, p, model)
+# A model that is itself a vector would also match the model-level
+# `whitened_residuals!(r, M, xs::AbstractVector)`: the problem decides.
+whitened_residuals!(r::AbstractVector, p::AbstractConstraintProblem, model::AbstractVector) = _stack_whitened_residuals!(r, p, model)
+function _stack_whitened_residuals!(r::AbstractVector, p::AbstractConstraintProblem, model)
+    isempty(r) && return r
+    ctx = residual_context(p, model)
+    w₁ = whitened_residual(p, ctx, 1)
+    dg = length(w₁)                                  # the constraint's shape: 1 for a number
+    n, rest = divrem(length(r), dg)
+    iszero(rest) || throw(DimensionMismatch(
+        "whitened_residuals!: r has $(length(r)) rows, not a multiple of the constraint's $dg components"))
+    _store_rows!(r, w₁, 1)
+    for i in 2:n
+        _store_rows!(r, whitened_residual(p, ctx, i), i)
     end
     return r
+end
+# Point `i`'s components in its rows; a number is its one component.
+@inline function _store_rows!(r, w, i::Int)
+    dg = length(w)
+    @inbounds for k in 1:dg
+        r[dg * (i - 1) + k] = w[k]
+    end
+    return nothing
 end
 
 """
@@ -162,7 +225,7 @@ end
 
 The covariance of data point `i`'s measurements, over the coordinates its
 constraint's `G_x` differentiates (a correspondence's pair block): what
-[`whitened_constraint_residual`](@ref) whitens by. A problem's measurements
+[`whitened_residual`](@ref) whitens by. A problem's measurements
 carry their noise (conventions/measurement-noise.md) — `I` for plain points,
 the default — and a problem that stores covariances (a correspondence set's
 `Σ₁`/`Σ₂` columns, a line fit's per-point shapes) returns point `i`'s.
@@ -170,26 +233,10 @@ the default — and a problem that stores covariances (a correspondence set's
 measurement_covariance(::AbstractConstraintProblem, ::Int) = I
 
 """
-    whitened_constraint_residual(problem, model, i) -> T | SVector{dg}
-
-Data point `i`'s constraint (`constraint_with_jacobians(problem, model, i)`) as
-a whitened residual, in the constraint's shape (a number for a scalar
-constraint): its Sampson residual at the problem's
-[`constraint_rounding_scale`](@ref)`(problem, model, i)` (base/sampson.jl's
-geometry layer and its one degeneracy rule), whitened by the point's
-[`measurement_covariance`](@ref) (one Cholesky of `G_x·Σ̃_x·G_xᵀ`).
-"""
-@inline function whitened_constraint_residual(p::AbstractConstraintProblem, model, i::Int)
-    g, G_x, G_θ = _three(constraint_with_jacobians(p, model, i))
-    s, _ = _whitened_constraint(g, G_x, G_θ, constraint_rounding_scale(p, model, i), measurement_covariance(p, i), nothing)
-    return _constraint_shape(g, s)
-end
-
-"""
     whitened_constraint_rows(problem, model, i) -> (r, J_w)
 
 Data point `i`'s constraint as a least-squares row: its
-[`whitened_constraint_residual`](@ref) and its model rows `L_Σ⁻¹·G_θ` under the
+[`whitened_residual`](@ref) and its model rows `L_Σ⁻¹·G_θ` under the
 SAME factor, held fixed (the Gauss–Newton row of a frozen whitening;
 `L_Σ L_Σᵀ = G_x·Σ̃_x·G_xᵀ`). In the constraint's shape: a number and an
 `SVector` row for a scalar constraint, an `SVector` and a matrix for a vector
@@ -218,9 +265,6 @@ end
 # Rows back in `G_θ`'s shape.
 @inline _rows_shape(::StaticVector{n}, J::StaticMatrix{1, n, T}) where {n, T} = SVector{n, T}(Tuple(J))
 @inline _rows_shape(::StaticMatrix, J::StaticMatrix) = J
-
-@inline whitened_distance(r::Real) = r
-@inline whitened_distance(r::StaticVector) = norm(r)
 
 # Squared norm: `rᵢ²` for scalar, `rᵢᵀrᵢ` for vector — ‖rᵢ‖² from the
 # shape-whitened residual.

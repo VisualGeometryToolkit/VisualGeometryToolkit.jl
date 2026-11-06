@@ -100,8 +100,8 @@ end
 
 # RSS of a partition from SQUARED residuals: Σ_{j ≤ k} r²_{order[j]}, in Float64
 # whatever the storage eltype.
-@inline _partition_rss(sq_residuals::AbstractVector, order::AbstractVector{Int}, k::Int) =
-    _partition_sum(Float64, sq_residuals, order, k)
+@inline _partition_rss(sq_distances::AbstractVector, order::AbstractVector{Int}, k::Int) =
+    _partition_sum(Float64, sq_distances, order, k)
 
 """
     partition_rss(order, residuals, k) -> Float64
@@ -115,7 +115,7 @@ partition_rss(order::AbstractVector{Int}, residuals::AbstractVector, k::Int) =
     _partition_sum(r -> Float64(r)^2, residuals, order, k)
 
 """
-    weighted_rss(w, sq_residuals, n) -> Float64
+    weighted_rss(w, sq_distances, n) -> Float64
 
 The weighted residual sum of squares `Σ_{i ≤ n} wᵢ·rᵢ²` of SQUARED residuals,
 accumulated in Float64 left to right from 0.0. A zero-weight term contributes
@@ -124,10 +124,10 @@ Sampson degeneracy rule — a vanishing projected variance), and `0·Inf = NaN`
 would poison the sum and everything read from it (the ŝ² M-step of
 [`update_scale!`](@ref), an IRLS cost and its stop rule).
 """
-@inline function weighted_rss(w::AbstractVector, sq_residuals::AbstractVector, n::Int)
+@inline function weighted_rss(w::AbstractVector, sq_distances::AbstractVector, n::Int)
     s = 0.0
     @inbounds for i in 1:n
-        s += weighted_sq(w[i], sq_residuals[i])
+        s += weighted_sq(w[i], sq_distances[i])
     end
     return s
 end
@@ -143,15 +143,15 @@ residual, where `0·Inf = NaN`.
 @inline weighted_sq(w, sq_r) = iszero(w) ? zero(w * sq_r) : w * sq_r
 
 """
-    square_residuals!(sq, r, n) -> sq
+    square_distances!(sq, r, n) -> sq
 
 `sq[i] = r[i]²` for `i ≤ n`, squared in `sq`'s OWN precision (`x = eltype(sq)(r[i])`,
 then `x·x`): a Float64 buffer squares a Float32 residual exactly. THE one
 residual-squaring loop of the stack — the refill of a
-[`PosteriorWeightState`](@ref)'s [`sq_residuals`](@ref), the per-point scores
+[`PosteriorWeightState`](@ref)'s [`sq_distances`](@ref), the per-point scores
 a scorer sweeps, and the pool staging.
 """
-function square_residuals!(sq::AbstractVector{T}, r::AbstractVector, n::Int) where {T}
+function square_distances!(sq::AbstractVector{T}, r::AbstractVector, n::Int) where {T}
     @inbounds for i in 1:n
         x = T(r[i])
         sq[i] = x * x

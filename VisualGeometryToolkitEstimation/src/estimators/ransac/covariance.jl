@@ -5,7 +5,7 @@
 # Every covariance RANSAC scores with is ONE function: VGC's
 # `implicit_covariance` on the problem's own constraint rows,
 # `constraint_with_jacobians(p, θ, i)` for `i` in an index set — the rows
-# `residuals!` whitens and predictive scoring contracts, in the data frame
+# `mahalanobis_distances!` whitens and predictive scoring contracts, in the data frame
 # (measurement maps included: the rows are already there). On a minimal
 # sample the system is square and the sandwich IS the implicit-function
 # covariance of the minimal solve (the hypothesis's `solver_covariance`); on an
@@ -35,9 +35,9 @@ _model_directions(_p, _θ) = nothing
 # One index's block (Aᵢ, Bᵢ[, Σ̃ₓ]): the constraint's model rows in the
 # covariance's coordinates, its measurement rows (VGC's `block_rows`, the form
 # `implicit_covariance` reads), and the point's noise shape Σ̃ₓ (the problem's
-# `measurement_covariance`, the one `residuals!` whitens by) when it is not
+# `measurement_covariance`, the one `mahalanobis_distances!` whitens by) when it is not
 # isotropic. `noise_weighted = true` below makes the estimator the
-# (BᵢΣ̃ₓBᵢᵀ)⁻¹-weighted one `residuals!` scores (VGC folds Σ̃ₓ into Bᵢ).
+# (BᵢΣ̃ₓBᵢᵀ)⁻¹-weighted one `mahalanobis_distances!` scores (VGC folds Σ̃ₓ into Bᵢ).
 @inline _model_rows(::Nothing, Gθ) = block_rows(Gθ)
 @inline _model_rows(T, Gθ) = block_rows(Gθ) * T
 @inline function _constraint_block(T, cd::Tuple, Σ̃ₓ)

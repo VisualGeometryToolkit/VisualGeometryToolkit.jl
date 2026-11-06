@@ -53,10 +53,10 @@ _measurement_set(lm::ChartLm) = withattrs(lm.problem.cs; sqrt_weights = _element
 # `M₁`/`M₂`, read by VGC's `constraint_keywords`), at the chart's model, along
 # its `retract_jacobian`.
 #
-# E's are TANGENT Sampson rows, the SAME implementation `residuals!` scores
+# E's are TANGENT Sampson rows, the SAME implementation `mahalanobis_distances!` scores
 # through. This is the fix for a regression introduced during the bearing port:
 # these rows computed the IMAGE-PLANE Sampson on points that had become
-# bearings, while `residuals!` computed the tangent form. Measured at one
+# bearings, while `mahalanobis_distances!` computed the tangent form. Measured at one
 # model, the two disagreed by a median ratio of 1.11 and a MAXIMUM of 446x —
 # not a scale factor but a different function. The optimiser descended
 # something unrelated to what was scored: cost flat-to-rising (0.006378 ->

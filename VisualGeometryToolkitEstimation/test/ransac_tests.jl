@@ -401,5 +401,32 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         end
     end
 
+    # The storage eltype is an optional LEADING positional on every form
+    # (signatures.md: a type argument leads a non-mutating call); the trailing
+    # and keyword forms it replaced are a MethodError, not a silent default.
+    @testset "RansacWorkspace([T,] …): the eltype leads" begin
+        p = LineFittingProblem(first(make_line_data(n_inliers = 20, n_outliers = 5)))
+        P = typeof(p)
+        sc = MsacScoring(p; threshold = 0.5)
+        lo = Irls{TLSShape}()
+        for (ws, T) in (
+                (RansacWorkspace(P, 40), Float32),
+                (RansacWorkspace(Float64, P, 40), Float64),
+                (RansacWorkspace(P, 40, sc), Float32),
+                (RansacWorkspace(P, 40, sc, lo), Float32),
+                (RansacWorkspace(Float64, P, 40, sc), Float64),
+                (RansacWorkspace(Float64, P, 40, sc, lo), Float64),
+                (RansacWorkspace(p, sc), Float32),
+                (RansacWorkspace(Float64, p, sc), Float64),
+                (RansacWorkspace(Float64, p, sc, lo), Float64),
+            )
+            @test ws isa RansacWorkspace{<:Any, <:Any, T}
+        end
+        @test_throws MethodError RansacWorkspace(P, 40, Float64)
+        @test_throws MethodError RansacWorkspace(p, sc, Float64)
+        @test_throws MethodError RansacWorkspace(p, sc, lo, Float64)
+        @test_throws MethodError RansacWorkspace(P, 40, sc, lo; T = Float64)
+    end
+
 end
 end

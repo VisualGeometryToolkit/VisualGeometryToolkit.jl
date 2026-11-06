@@ -43,7 +43,7 @@ Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer th
 - `extent`: optional `HyperRectangle{2}` world-plane region; when given the problem
   is wrapped in `BoundedProblem` so the fitted H is validated over the rectangle.
 - `workspace`: optional pre-allocated `RansacWorkspace` to reuse —
-  `RansacWorkspace(HomographyProblem{Float64}, n_data[, T = Float32])`, `T` the
+  `RansacWorkspace([T = Float32,] HomographyProblem{Float64}, n_data)`, `T` the
   per-point storage precision, holds the DEFAULT (MSAC) scorer's workspace; for
   another scoring or local optimization build it from them,
   `RansacWorkspace(problem, scoring, local_optimization)`. Each call checks the

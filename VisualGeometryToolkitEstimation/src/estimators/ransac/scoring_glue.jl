@@ -444,7 +444,7 @@ Frozen-scale plain-IRLS likelihood adapter for [`Irls{K}`](@ref Irls): ONE
 weight policy generic over the loss, replacing the former per-loss
 Welsch/Geman–McClure/Huber/L2 quadruplet whose bodies differed only in the
 weight formula — which is exactly `VisualGeometryToolkitCore.weight` on the shape.  Reuses
-the `PosteriorWeightState` buffers (`sq_residuals`, `w`). The loss carries
+the `PosteriorWeightState` buffers (`sq_distances`, `w`). The loss carries
 its OWN squared width (`sq_loss_width`, Huber: elbow²), committed at construction
 from the seed partition's Student-t scale and **frozen** — `update_nuisance!` is
 a no-op.
@@ -466,7 +466,7 @@ function update_weights!(lh::LossPlainWeights)
     shape = loss_shape(lh.loss)
     width2 = sq_loss_width(lh.loss)
     @inbounds for i in 1:lh.n
-        robust_weight(rws)[i] = weight(shape, sq_residuals(rws)[i], width2)
+        robust_weight(rws)[i] = weight(shape, sq_distances(rws)[i], width2)
     end
     return nothing
 end
@@ -502,7 +502,7 @@ robust_weight(lh::LossPlainWeights) = view(robust_weight(lh.rws), 1:lh.n)
 # so this costs nothing at runtime and — unlike a per-shape exemption method —
 # cannot go stale when a shape is added.
 is_inlier(lh::LossPlainWeights, i::Integer) =
-    !bounded(lh.loss) || @inbounds(sq_residuals(lh.rws)[i] <= sq_loss_width(lh.loss))
+    !bounded(lh.loss) || @inbounds(sq_distances(lh.rws)[i] <= sq_loss_width(lh.loss))
 
 # The width mode of `Irls{K}` (VisualGeometryToolkitCore's `lo_width`), its derived
 # scale-interface label, and the one setter: the width mode is a type

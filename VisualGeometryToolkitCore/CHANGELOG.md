@@ -23,6 +23,33 @@
   RadiometricCamera's warped-board ray intersections (Δt 1.1e-15) and the pure-bending projection's affine part
   (1.0e-15 relative).
 - `configs/stack_dependencies.toml`: the `neurips2026` row names VisualGeometryToolkitIO, which it uses.
+- **Breaking: the RANSAC protocol's per-point scalar is a distance, under a distance's name**
+  (conventions/residuals-and-distances.md). Scores are bit for bit unchanged: every scorer reads the square, which the
+  sign does not move.
+  - `residuals!(r, problem, model)` → `mahalanobis_distances!(d, problem, model)`, `d[i] ≥ 0` (was signed at
+    `d_g = 1`).
+  - The per-point hook `whitened_residual(problem, ctx, i)` (a signed distance at `d_g = 1`, a distance otherwise) →
+    `mahalanobis_distance(problem, ctx, i)`, `≥ 0`: a new method of the exported model-level `mahalanobis_distance`.
+    Its default is the norm of the new `whitened_residual`.
+  - `whitened_constraint_residual(problem, model, i)` → `whitened_residual(problem, ctx, i)`: the SIGNED whitened
+    residual in the constraint's shape (a number at `d_g = 1`, an `SVector` of its `d_g` components otherwise).
+    **The name is reused**: an override of the old hook keeps compiling and now defines the signed residual; at
+    `d_g ≥ 2` it returns a scalar, and `test_constraint_problem` refuses that shape. Migrate such an override to
+    `mahalanobis_distance`.
+  - New: the problem-level `whitened_residuals!(r, problem, model)` stacks every point's `whitened_residual`
+    (rows `d_g(i−1)+1 … d_g·i`), beside the model-level `whitened_residuals!(r, M, xs)`.
+  - `whitened_distance(r)` is removed (the hook's default takes the norm).
+  - `sq_residuals` → `sq_distances` (the `PosteriorWeightState` accessor and field, and the argument names of
+    `PosteriorWeightState`, `seed_posterior!`, `posterior_weights!`, `posterior_inlier_probs!`,
+    `soft_posterior_weights!`, `next_nu` and `weighted_rss`); `square_residuals!` → `square_distances!`.
+  - `test_constraint_problem` checks `mahalanobis_distances!` (inferred, allocation-free, `≥ 0`, equal to
+    `mahalanobis_distance` to rounding) and the shape of `whitened_residual` at every point. `CONTRACT_GENERICS` lists
+    `mahalanobis_distances!`, `mahalanobis_distance` and `whitened_residual` in place of `residuals!`.
+  - The old names are retired in `check_naming`; no alias remains, so an old call is an `UndefVarError`.
+    Migration: `residuals!(r, p, θ)` → `mahalanobis_distances!(r, p, θ)` (`abs` is already applied);
+    an old `whitened_residual` override → `mahalanobis_distance`;
+    `whitened_constraint_residual(p, θ, i)` → `whitened_residual(p, θ, i)`; `whitened_distance(r)` → `norm(r)`;
+    `sq_residuals(pws)` → `sq_distances(pws)`; `square_residuals!` → `square_distances!`.
 
 ## 0.6.0 (2026-11-06)
 

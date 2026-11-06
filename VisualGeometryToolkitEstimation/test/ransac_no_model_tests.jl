@@ -160,7 +160,7 @@ end
     too_few(refine_absolute_pose(VgtkCore.with_unit(pose, m), Csponds([x .* m for x in X], f)), 2)
 
     # the supplied workspace's storage eltype
-    r = too_few(find_circle(pts(2); workspace = RansacWorkspace(CircleProblem, 2, Float64)), 2)
+    r = too_few(find_circle(pts(2); workspace = RansacWorkspace(Float64, CircleProblem, 2)), 2)
     @test r.residuals isa Vector{Float64} && r isa RansacEstimate{Circle{Float64}, Float64}
     @test too_few(find_circle(pts(2)), 2) isa RansacEstimate{Circle{Float64}, Float32}
     # the too-few result is the same type as a search's

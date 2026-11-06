@@ -10,7 +10,7 @@ using Statistics: median
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: csponds
 using VisualGeometryToolkitCore: converged, estimate   # VGC accessors (public)
-using VisualGeometryToolkitCore: residuals!   # the constraint-problem contract (VGC)
+using VisualGeometryToolkitCore: mahalanobis_distances!   # the constraint-problem contract (VGC)
 using VisualGeometryToolkitCore: MsacScoring   # owned and exported by VisualGeometryToolkitCore
 using VisualGeometryToolkitEstimation: refine!, inlier_ratio   # public, not exported
 using VisualGeometryToolkitEstimation
@@ -76,7 +76,7 @@ make_exact_fundmat_data(; n = 7, seed = 42) =
         p = FundMatProblem(csponds(src, dst))
 
         r = Vector{Float64}(undef, 10)
-        residuals!(r, p, F_true)
+        mahalanobis_distances!(r, p, F_true)
         @test all(r .< 1.0e-6)
     end
 

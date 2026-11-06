@@ -1,7 +1,7 @@
 # The IRLS M-step's scale, `update_scale!`, is the ECM step of the d_g-variate
 # Student-t with scale ŝ²·I:  ŝ² ← Σπᵢuᵢrᵢ² / (d_g·Σπᵢ) = ŝ²·Σwᵢrᵢ² / (d_g·Σπᵢ).
 #
-# `sq_residuals` holds squared NORMS of d_g-vectors and the E-step reads ŝ² per
+# `sq_distances` holds squared NORMS of d_g-vectors and the E-step reads ŝ² per
 # component. The step was Σwᵢrᵢ²/Σwᵢ, whose fixed point is d_g·σ² — ŝ ≈ 1.42σ at
 # d_g = 2 and 2.44σ at d_g = 6 on Gaussian data — with the inverse-gamma prior's
 # pseudo-counts added in the units of the precision-scaled weights.

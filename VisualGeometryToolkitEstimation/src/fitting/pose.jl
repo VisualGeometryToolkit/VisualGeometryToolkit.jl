@@ -45,7 +45,7 @@ points (a plain one with plain points).
 - `threshold`: **in PIXELS** (the reprojection residual's unit), as [`find_homography`](@ref).
 - `extent`: as [`find_homography`](@ref); the pose's `_check_extent` rejects
   poses failing cheirality or yielding a non-simple / non-convex image quad.
-- `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace(AbsolutePoseProblem, n_data[, T])`.
+- `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace([T,] AbsolutePoseProblem, n_data)`.
 - `local_optimization`: default `Irls{TLSShape}()` on the 6-dof pose chart, as
   [`find_homography`](@ref).
 - the other keywords as [`find_homography`](@ref).

@@ -145,7 +145,7 @@ Scalar and kernel-callable.
     -(m.log_mix_out + log1pexp(_log_inlier_density(m, sq_r) - m.log_odds_out))
 
 """
-    soft_posterior_weights!(w, inlier_posterior, sq_residuals, ν, s_hat_sq, log_two_outlier_halfwidth, n, d_g=1[, inlier_prior=1/2])
+    soft_posterior_weights!(w, inlier_posterior, sq_distances, ν, s_hat_sq, log_two_outlier_halfwidth, n, d_g=1[, inlier_prior=1/2])
 
 E-step: compute posterior inlier probability and combined IRLS weight.
 
@@ -159,18 +159,18 @@ The separation is critical: the ν Newton update must use fixed E-step weights
 couple in a positive feedback loop that drives ν → ∞.
 """
 function soft_posterior_weights!(w::AbstractVector, inlier_posterior::AbstractVector,
-                                 sq_residuals::AbstractVector,
+                                 sq_distances::AbstractVector,
                                  ν::Float64, s_hat_sq::Float64, log_two_outlier_halfwidth::Float64, n::Int,
                                  d_g::Int = 1, inlier_prior::Float64 = 0.5)
     m = StudentTMixture(ν, s_hat_sq, log_two_outlier_halfwidth, d_g, inlier_prior)
     @inbounds for i in 1:n
-        inlier_posterior[i], w[i] = _posterior_pair(m, sq_residuals[i])
+        inlier_posterior[i], w[i] = _posterior_pair(m, sq_distances[i])
     end
     return nothing
 end
 
 """
-    next_nu(ν, sq_residuals, s_hat_sq, w_fixed, n; d_g=1, kwargs...) -> ν_new
+    next_nu(ν, sq_distances, s_hat_sq, w_fixed, n; d_g=1, kwargs...) -> ν_new
 
 M-step: Newton update for ν maximizing the EM Q-function with fixed E-step weights.
 
@@ -194,11 +194,11 @@ Up to `max_newton` Newton steps from the current ν, each clamped to
 step is uphill; elsewhere the step is geometric, uphill along the gradient —
 ν ← 2ν if ∂Q/∂ν > 0, ν ← ν/2 otherwise.
 """
-function next_nu(ν::Float64, sq_residuals::AbstractVector, s_hat_sq::Float64,
+function next_nu(ν::Float64, sq_distances::AbstractVector, s_hat_sq::Float64,
                  w_fixed::AbstractVector, n::Int;
                  d_g::Int = 1, max_newton::Int = 5, ν_min::Float64 = 2.0, ν_max::Float64 = 1.0e4)
     for _ in 1:max_newton
-        dQ, d2Q, sum_w = _nu_derivatives(ν, sq_residuals, s_hat_sq, w_fixed, n, d_g)
+        dQ, d2Q, sum_w = _nu_derivatives(ν, sq_distances, s_hat_sq, w_fixed, n, d_g)
         sum_w < 1.0e-10 && break
         # Ascent safeguard: Newton only where Q is concave (its step is then
         # uphill); a convex point steps geometrically along the gradient.
@@ -211,7 +211,7 @@ end
 
 # (∂Q/∂ν, ∂²Q/∂ν², Σwᵢ) of `next_nu`'s Q at ν — its docstring states both.
 # Points with wᵢ < 1e-15 are skipped, as outliers.
-function _nu_derivatives(ν::Float64, sq_residuals::AbstractVector, s_hat_sq::Float64,
+function _nu_derivatives(ν::Float64, sq_distances::AbstractVector, s_hat_sq::Float64,
                          w_fixed::AbstractVector, n::Int, d_g::Int)
     dg = Float64(d_g)
     ψ_half_νdg = digamma((ν + dg) / 2.0)
@@ -226,7 +226,7 @@ function _nu_derivatives(ν::Float64, sq_residuals::AbstractVector, s_hat_sq::Fl
     @inbounds for i in 1:n
         wi = w_fixed[i]
         wi < 1.0e-15 && continue
-        z_i = sq_residuals[i] / (ν * s_hat_sq)   # scale-normalised r²
+        z_i = sq_distances[i] / (ν * s_hat_sq)   # scale-normalised r²
         inv_1pz = 1.0 / (1.0 + z_i)
         dq_i = 0.5 * ψ_half_νdg - 0.5 * ψ_half_ν - 0.5 * dg * inv_ν -
             0.5 * log1p(z_i) + (ν + dg) * z_i * inv_1pz * 0.5 * inv_ν

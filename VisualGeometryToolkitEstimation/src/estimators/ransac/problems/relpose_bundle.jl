@@ -288,7 +288,7 @@ end
 
 # Optimal 2-view triangulation through K: minimize ‖π(K₁X)−u₁‖²+‖π(K₂(RX+t))−u₂‖²
 # over X (ray-form init + Gauss-Newton).  The per-pose structure optimum the BA
-# converges to — so `residuals!` here matches the BA's own per-point residual,
+# converges to — so `mahalanobis_distances!` here matches the BA's own per-point residual,
 # keeping the IRLS reweight CONSISTENT with the refit.
 function _triangulate_optimal(u1, u2, K1, K2, iK1, iK2, R, t; iters::Int = 6)
     X = _triangulate_rays(iK1, iK2, u1, u2, R, t)
@@ -467,7 +467,7 @@ model_type(::Type{<:RelposeBundleProblem}) = EssentialMat{Float64}
 # per-point objective the BA refit minimizes (so the IRLS reweight is consistent
 # with the refit — same residual feeds `update_weights!` and the BA cost). The
 # per-model work — the cheiral pose of θ — is RSDR's `residual_context`, taken
-# once per model; `residuals!` is RSDR's loop over it.
+# once per model; `mahalanobis_distances!` is RSDR's loop over it.
 struct _RelposeResidualContext
     R::SMatrix{3, 3, Float64, 9}
     t::Vec3{Float64}
@@ -476,7 +476,7 @@ function residual_context(p::RelposeBundleProblem, θ::EssentialMat)
     R, t = _cheiral_relpose(θ, p.iK1, p.iK2, sources(p.cs), targets(p.cs))
     return _RelposeResidualContext(SMatrix{3, 3, Float64, 9}(R), t)
 end
-@inline function whitened_residual(p::RelposeBundleProblem, ctx::_RelposeResidualContext, i::Int)
+@inline function mahalanobis_distance(p::RelposeBundleProblem, ctx::_RelposeResidualContext, i::Int)
     u1 = @inbounds sources(p.cs)[i]; u2 = @inbounds targets(p.cs)[i]
     X = _triangulate_optimal(u1, u2, p.K1, p.K2, p.iK1, p.iK2, ctx.R, ctx.t)
     return norm(_reprojection_error(p.K1, p.K2, ctx.R, ctx.t, X, u1, u2))

@@ -47,7 +47,7 @@ selects per-model behaviour (codimension, minimal solver, Sampson whitening)
 via Holy traits like `_model_codim(::Type{<:HomographyMat}) = 2`.
 
 RANSAC problems implement: `minimal_sample_size`, `data_size`, `model_type`,
-`codimension`, `solve`, `residuals!`, and optionally `test_sample`,
+`codimension`, `solve`, `mahalanobis_distances!`, and optionally `test_sample`,
 `test_model`, `test_consensus`, `refine!`, `constraint_with_jacobians` and, for
 predictive scoring, `provides_solver_covariance` (the covariance itself is RVG's
 one `solver_covariance`, the constraint sandwich over an index set).
@@ -83,9 +83,11 @@ RansacWorkspace{K, M, T, W, L}             built once, reused across trials and 
 ```
 
 `RansacWorkspace(problem, scoring, local_optimization)` (or
-`RansacWorkspace(P, n_max, scoring, local_optimization; T)`) composes it; the
-no-scoring form `RansacWorkspace(P, n)` builds the default MSAC scorer's. All
-dispatch on `W` and `L` is static.
+`RansacWorkspace(P, n_max, scoring, local_optimization)`) composes it; the
+no-scoring form `RansacWorkspace(P, n)` builds the default MSAC scorer's. The
+storage eltype is an optional leading positional on each form,
+`RansacWorkspace(T, …)` (default `Float32`). All dispatch on `W` and `L` is
+static.
 
 ## Design decisions
 
@@ -198,7 +200,7 @@ shapes (the `AbstractLossShape` family: `WelschShape`, `GemanMcclureShape`,
 loop's extension verbs with new methods. The loss shapes and the
 local-optimization trait vocabulary (`ScaleInterface`, `optimization_path`, …)
 are VGC's, exported by VGC; RVG re-exports nothing. The problem protocol
-(`data_size`, `codimension`, `minimal_sample_size`, `residuals!`, `refine!`,
+(`data_size`, `codimension`, `minimal_sample_size`, `mahalanobis_distances!`, `refine!`,
 `refine_workspace`), the scoring and local-optimization contracts, the baseline
 scorers and the Student-t / posterior-weighting toolkit are VGC's too; RVG
 implements them for its problems and strategies.

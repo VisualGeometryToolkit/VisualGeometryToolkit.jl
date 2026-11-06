@@ -23,7 +23,7 @@
     VgtkCore.constraint_rounding_scale(p::CDProblem{<:Any, <:Any, <:AbstractVector}, _model, i::Int) = p.ρs[i]
 
     _one(cd, Σ, ρ) = CDProblem([cd], Σ === nothing ? nothing : [Σ], ρ === nothing ? nothing : [ρ])
-    whitened_of(cd; Σ = nothing, ρ = nothing) = VgtkCore.whitened_constraint_residual(_one(cd, Σ, ρ), nothing, 1)
+    whitened_of(cd; Σ = nothing, ρ = nothing) = VgtkCore.whitened_residual(_one(cd, Σ, ρ), nothing, 1)
     rows_of(cd; Σ = nothing, ρ = nothing) = VgtkCore.whitened_constraint_rows(_one(cd, Σ, ρ), nothing, 1)
-    distance_of(cd; kw...) = VgtkCore.whitened_distance(whitened_of(cd; kw...))
+    distance_of(cd; Σ = nothing, ρ = nothing) = VgtkCore.mahalanobis_distance(_one(cd, Σ, ρ), nothing, 1)
 end

@@ -1,9 +1,10 @@
 # The constraint-problem protocol (`AbstractConstraintProblem`): the default
-# `residuals!` whitens each constraint through the Sampson layer, so a DEGENERATE
+# `whitened_residual` whitens each constraint through the Sampson layer, so a DEGENERATE
 # measurement follows the stack's one Sampson degeneracy rule — residual 0 when
 # the constraint vanishes (at the constraint's rounding scale, when it supplies
-# one), ±Inf otherwise — and `whitened_residual` is the per-point extension
-# point, SIGNED for a scalar constraint.
+# one), ±Inf otherwise — SIGNED and in the constraint's shape;
+# `mahalanobis_distance` (its norm, ≥ 0) is the per-point extension point
+# `mahalanobis_distances!` loops over, and `whitened_residuals!` stacks the rows.
 #
 # The restatement it replaced (`distance_of(g, ∂ₓg, Σ̃_x)`) returned the RAW,
 # unwhitened `g` for a scalar constraint whenever Σ̃_g ≤ eps — at an exact
@@ -46,13 +47,16 @@
     @testset "whitened residuals: the Sampson layer, and its degeneracy rule" begin
         @testset "scalar constraint (d_g = 1)" begin
             # regular: g/√c, bit for bit
-            @test distance_of(_scalar(0.3, (0.6, 0.8))) === 0.3 / sqrt(0.6^2 + 0.8^2)
+            @test whitened_of(_scalar(0.3, (0.6, 0.8))) === 0.3 / sqrt(0.6^2 + 0.8^2)
+            @test whitened_of(_scalar(-0.3, (0.6, 0.8))) === -0.3 / sqrt(0.6^2 + 0.8^2)
+            @test distance_of(_scalar(-0.3, (0.6, 0.8))) === 0.3 / sqrt(0.6^2 + 0.8^2)   # the distance: |r|
             # a legitimately SMALL gradient (c = 1e-18 < eps) is whitened — the
             # residual is scale-free — where the old floor returned the raw g
             @test distance_of(_scalar(3e-10, (6e-10, 8e-10))) ≈ 0.3 rtol = 1e-12
             # exactly vanishing gradient: ±Inf unless the constraint vanishes too
-            @test distance_of(_scalar(0.5, (0.0, 0.0))) === Inf
-            @test distance_of(_scalar(-0.5, (0.0, 0.0))) === -Inf
+            @test whitened_of(_scalar(0.5, (0.0, 0.0))) === Inf
+            @test whitened_of(_scalar(-0.5, (0.0, 0.0))) === -Inf
+            @test distance_of(_scalar(-0.5, (0.0, 0.0))) === Inf
             @test distance_of(_scalar(0.0, (0.0, 0.0))) === 0.0
             @test isnan(distance_of(_scalar(0.5, (NaN, 0.0))))
         end
@@ -74,30 +78,41 @@
             @test distance_of((zero(g), Gx1, Gθ)) === 0.0
         end
 
-        @testset "residuals! reads a degenerate point as an outlier" begin
+        @testset "mahalanobis_distances! reads a degenerate point as an outlier" begin
             n = 12
             cds = [_scalar(0.01 * i, (0.6, 0.8)) for i in 1:n]
             cds[5] = _scalar(0.02, (0.0, 0.0))              # degenerate, unsatisfied
             cds[n] = _scalar(3.0, (0.6, 0.8))               # an ordinary outlier
             p = CDProblem(cds)
-            r = zeros(n); VgtkCore.residuals!(r, p, nothing)
+            r = zeros(n); VgtkCore.mahalanobis_distances!(r, p, nothing)
             @test r == [distance_of(cd) for cd in cds]
             @test r[5] === Inf
         end
 
-        @testset "whitened_residual: the per-point default, one signed contract" begin
+        @testset "whitened_residual signed, mahalanobis_distance its norm" begin
             n = 8
             cds = [_scalar((-1.0)^i * 0.05 * i, (0.6, 0.8)) for i in 1:n]
             p = CDProblem(cds)
-            r = zeros(n); VgtkCore.residuals!(r, p, nothing)
-            @test r == [VgtkCore.whitened_residual(p, nothing, i) for i in 1:n]
-            @test any(<(0), r)                               # signed, not a norm
-            # vector constraints: the norm
+            d = zeros(n); VgtkCore.mahalanobis_distances!(d, p, nothing)
+            w = [VgtkCore.whitened_residual(p, nothing, i) for i in 1:n]
+            @test any(<(0), w)                               # the residual: signed
+            @test d == abs.(w)                               # the distance: its norm, bit for bit
+            @test d == [VgtkCore.mahalanobis_distance(p, nothing, i) for i in 1:n]
+            # the stacked rows of a scalar constraint are the residuals
+            @test VgtkCore.whitened_residuals!(zeros(n), p, nothing) == w
+            # vector constraints: the d_g components, and the distance their norm
             g = SVector(0.3, -0.1)
             Gx = SMatrix{2,4,Float64,8}(1.0, 0.2, -0.3, 0.9, 0.5, 0.1, 0.0, -0.4)
             Gθ = SMatrix{2,3,Float64,6}(1.0, 0.0, 0.0, 1.0, 0.5, 0.5)
-            pv = CDProblem([(g, Gx, Gθ)])
-            @test VgtkCore.whitened_residual(pv, nothing, 1) == distance_of((g, Gx, Gθ))
+            pv = CDProblem([(g, Gx, Gθ), (-g, Gx, Gθ)])
+            wv = VgtkCore.whitened_residual(pv, nothing, 1)
+            @test wv isa SVector{2, Float64}
+            @test wv ≈ cholesky(Symmetric(Gx * Gx')).L \ g rtol = 1e-14
+            @test VgtkCore.mahalanobis_distance(pv, nothing, 1) === norm(wv)
+            @test VgtkCore.whitened_residuals!(zeros(4), pv, nothing) == vcat(wv, VgtkCore.whitened_residual(pv, nothing, 2))
+            @test_throws DimensionMismatch VgtkCore.whitened_residuals!(zeros(3), pv, nothing)   # not whole points
+            # a model that is itself a vector: the problem-level rows, not the model-level form
+            @test VgtkCore.whitened_residuals!(zeros(4), pv, [1.0, 2.0]) == VgtkCore.whitened_residuals!(zeros(4), pv, nothing)
         end
 
         @testset "residual_context: per-model work once, per-point residual on it" begin
@@ -105,14 +120,16 @@
             @test VgtkCore.residual_context(CDProblem([_scalar(0.1, (0.6, 0.8))]), :θ) === :θ
             n = 5
             p = _CtxProblem(collect(1.0:n), Ref(0))
-            r = zeros(n); VgtkCore.residuals!(r, p, 2.0)
+            r = zeros(n); VgtkCore.mahalanobis_distances!(r, p, 2.0)
             @test p.n_contexts[] == 1
-            @test r == [(x - 2.0) / 4.0 for x in 1.0:n]
+            @test r == [abs((x - 2.0) / 4.0) for x in 1.0:n]
+            @test VgtkCore.whitened_residuals!(zeros(n), p, 2.0) == [(x - 2.0) / 4.0 for x in 1.0:n]
+            @test p.n_contexts[] == 2
         end
 
         @testset "a problem's rounding scale reaches the Sampson layer" begin
             # A FundMat problem answering its model's `constraint_rounding_scale`
-            # per point: residuals! must agree with
+            # per point: mahalanobis_distances! must agree with
             # `sampson_distance` on degenerate and rounding-level pairs, which
             # only the rounding scale decides.
             S2 = SVector{2,Float64}
@@ -132,13 +149,13 @@
                 p = _F5Problem(cs)
                 @test VgtkCore.constraint_rounding_scale(p, F, 1) == VgtkCore.constraint_rounding_scale(F, cs[1]...)
                 n = length(cs)
-                r = zeros(n); VgtkCore.residuals!(r, p, F)
+                r = zeros(n); VgtkCore.mahalanobis_distances!(r, p, F)
                 d = [VgtkCore.sampson_distance(F, c) for c in cs]
-                @test abs.(r) == d
-                @test r == [only(VgtkCore.sampson_residual(F, c.first, c.second)) for c in cs]
+                @test r == d
+                @test VgtkCore.whitened_residuals!(zeros(n), p, F) == [only(VgtkCore.sampson_residual(F, c.first, c.second)) for c in cs]
             end
-            @test VgtkCore.residuals!(zeros(3), _F5Problem(cases[1][2]), F1)[1:2] == [Inf, Inf]
-            @test VgtkCore.residuals!(zeros(3), _F5Problem(cases[2][2]), F2)[1:2] == [0.0, 0.0]
+            @test VgtkCore.mahalanobis_distances!(zeros(3), _F5Problem(cases[1][2]), F1)[1:2] == [Inf, Inf]
+            @test VgtkCore.mahalanobis_distances!(zeros(3), _F5Problem(cases[2][2]), F2)[1:2] == [0.0, 0.0]
         end
     end
 
@@ -157,7 +174,35 @@
         g, Gx = 0.3, SVector(0.6, 0.8)
         p5 = CDProblem([(g, Gx, SVector(1.0, 2.0), I, nothing)])
         @test_throws ArgumentError VgtkCore.whitened_residual(p5, nothing, 1)
+        @test_throws ArgumentError VgtkCore.mahalanobis_distance(p5, nothing, 1)
         @test_throws ArgumentError VgtkCore.whitened_constraint_rows(p5, nothing, 1)
+    end
+
+    # A `whitened_residual` override written before 0.7, when that hook was the
+    # distance: a scalar at d_g = 2. The conformance helper refuses its shape.
+    struct _ScalarOverrideProblem <: AbstractConstraintProblem end
+    VgtkCore.data_size(::_ScalarOverrideProblem) = 3
+    VgtkCore.codimension(::_ScalarOverrideProblem) = 2
+    VgtkCore.minimal_sample_size(::_ScalarOverrideProblem) = 1
+    VgtkCore.whitened_residual(::_ScalarOverrideProblem, _ctx, i::Int) = 0.1 * i
+    # The helper's verdict, captured rather than recorded (its testset fails by
+    # design). A nested `@testset` takes its parent's type, so the helper's own
+    # testsets are captures too, and hand themselves to the enclosing capture.
+    mutable struct _Capture <: Test.AbstractTestSet
+        results::Vector{Any}
+    end
+    _Capture(_desc; _kw...) = _Capture(Any[])
+    Test.record(ts::_Capture, t) = (push!(ts.results, t); t)
+    function Test.finish(ts::_Capture)
+        Test.get_testset_depth() > 0 && (parent = Test.get_testset()) isa _Capture && Test.record(parent, ts)
+        return ts
+    end
+    _fails(ts::_Capture) = sum(t -> t isa _Capture ? _fails(t) : Int(t isa Union{Test.Fail, Test.Error}), ts.results; init = 0)
+    @testset "a scalar whitened_residual at d_g = 2 is refused" begin
+        ts = Test.@testset _Capture "captured" begin
+            VgtkCore.test_constraint_problem(_ScalarOverrideProblem(), nothing)
+        end
+        @test _fails(ts) == 1                             # the shape, and only the shape
     end
 
     # The conformance helper every problem's package runs.

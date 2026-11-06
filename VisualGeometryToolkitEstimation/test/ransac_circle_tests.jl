@@ -29,7 +29,7 @@ end
 @testitem "CircleProblem: minimal solver, residual, chart rows, refit" setup = [CircleScene] begin
     using Test, Random, LinearAlgebra, StaticArrays
     import ForwardDiff
-    using VisualGeometryToolkitCore: Point2, Circle, residual_rows!, residual_jacobian_rows!
+    using VisualGeometryToolkitCore: Point2, Circle, residual_rows!, residual_jacobian_rows!, whitened_residuals!
     using VisualGeometryToolkitEstimation: CircleProblem
     import VisualGeometryToolkitEstimation as VgtkEstimation
     centre(c) = SVector(c.center[1], c.center[2])
@@ -39,24 +39,25 @@ end
     @test VgtkEstimation.codimension(p) == 1 && VgtkEstimation.minimal_sample_size(p) == 3 && VgtkEstimation.chart_dof(p) == 3
     sol = VgtkEstimation.solve(p, [1, 2, 3])
     @test sol.count == 1 && norm(centre(first(sol)) - C₀) < 1.0e-9 && abs(first(sol).r - R₀) < 1.0e-9
-    r = zeros(200); VgtkEstimation.residuals!(r, p, first(sol))
+    r = zeros(200); VgtkEstimation.mahalanobis_distances!(r, p, first(sol))
     @test maximum(abs, r) < 1.0e-9                                       # pixels
-    allocs(r, p, θ) = (VgtkEstimation.residuals!(r, p, θ); @allocated VgtkEstimation.residuals!(r, p, θ))
+    allocs(r, p, θ) = (VgtkEstimation.mahalanobis_distances!(r, p, θ); @allocated VgtkEstimation.mahalanobis_distances!(r, p, θ))
     @test allocs(r, p, first(sol)) == 0
     # collinear and repeated points: no circle
     q = CircleProblem([Point2(0.0, 0.0), Point2(1.0, 1.0), Point2(2.0, 2.0), Point2(0.0, 0.0)])
     @test VgtkEstimation.solve(q, [1, 2, 3]).count == 0 && VgtkEstimation.solve(q, [1, 2, 4]).count == 0
     @test !VgtkEstimation.test_sample(q, [1, 2, 3]) && !VgtkEstimation.test_sample(q, [1, 2, 4])   # the gate refuses them first
     @test VgtkEstimation.test_sample(p, [1, 2, 3])
-    # the residual is the Sampson distance (d² − r²)/(2d): the geometric distance d − r to first order,
-    # short of it by exactly (d − r)²/(2d)
+    # the signed residual is the Sampson residual (d² − r²)/(2d): the geometric signed distance d − r to
+    # first order, short of it by exactly (d − r)²/(2d); the scoring distance is its magnitude
     c = Circle(Point2(C₀...), R₀)
     off = [Point2{Float64}(C₀ + (R₀ + δ) * SVector(cos(t), sin(t))) for (δ, t) in zip(range(-5, 5, length = 21), range(0, 6, length = 21))]
     po = CircleProblem(off)
-    ro = zeros(21); VgtkEstimation.residuals!(ro, po, c)
+    ro = zeros(21); whitened_residuals!(ro, po, c)
     d = [norm(SVector(x...) - C₀) for x in off]
     @test ro ≈ d .- R₀ .- (d .- R₀) .^ 2 ./ (2 .* d) atol = 1.0e-10
     @test maximum(abs, ro .- (d .- R₀)) < 25 / (2 * (R₀ - 5)) + 1.0e-12   # 5 px off a 300 px circle: 0.04 px
+    @test VgtkEstimation.mahalanobis_distances!(zeros(21), po, c) == abs.(ro)
     # the chart rows against ForwardDiff, at random weights
     pn, _ = circle_scene(rng, 100; σ = 1.0, outl = 0.0)
     pp = CircleProblem(pn)

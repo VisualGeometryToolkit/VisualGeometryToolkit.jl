@@ -150,19 +150,32 @@ end
 # The scoring residual — measurement-space reprojection distance (pixels)
 # =============================================================================
 
-# The reprojection distance of correspondence `i`, Jacobian-free
-# (`residuals!` is VisualGeometryToolkitCore's loop over it). A k > 0 model can
-# place a predicted ray outside its representable field (`radial_transfer` →
-# nothing): VGC's one out-of-field residual (`OUT_OF_FIELD_RESIDUAL`), finite so
-# the scoring sweep's sort and squares stay well-defined while the point is
-# buried among the outliers.
-@inline function whitened_residual(
-        p::RadialHomographyProblem, m::VgtkCore.RadialHomography, i::Int
-    )
+# The reprojection residual of correspondence `i`, Jacobian-free: the predicted
+# minus the measured target pixel, or `nothing` when a k > 0 model places the
+# predicted ray outside its representable field (`radial_transfer` → nothing).
+@inline function _reprojection_offset(p::RadialHomographyProblem, m::VgtkCore.RadialHomography, i::Int)
     d̂ = VgtkCore.radial_transfer(m, @inbounds sources(p.cs)[i])
-    d̂ === nothing && return VgtkCore.OUT_OF_FIELD_RESIDUAL
+    d̂ === nothing && return nothing
     v = @inbounds targets(p.cs)[i]
-    return Float64(norm(SVector(d̂[1] - v[1], d̂[2] - v[2])))
+    return SVector(d̂[1] - v[1], d̂[2] - v[2])
+end
+
+# The signed rows (`whitened_residuals!`): the offset, or out of field a
+# residual whose norm is the distance's out-of-field constant.
+@inline function whitened_residual(p::RadialHomographyProblem, m::VgtkCore.RadialHomography, i::Int)
+    e = _reprojection_offset(p, m, i)
+    e === nothing && return SVector(VgtkCore.OUT_OF_FIELD_RESIDUAL, 0.0)
+    return SVector{2, Float64}(e)
+end
+
+# The reprojection distance (`mahalanobis_distances!` is VisualGeometryToolkitCore's
+# loop over it); out of field, VGC's one out-of-field residual
+# (`OUT_OF_FIELD_RESIDUAL`), finite so the scoring sweep's sort and squares
+# stay well-defined while the point is buried among the outliers.
+@inline function mahalanobis_distance(p::RadialHomographyProblem, m::VgtkCore.RadialHomography, i::Int)
+    e = _reprojection_offset(p, m, i)
+    e === nothing && return VgtkCore.OUT_OF_FIELD_RESIDUAL
+    return Float64(norm(e))
 end
 
 # =============================================================================

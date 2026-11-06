@@ -16,7 +16,7 @@ using Rotations: RotXYZ
 using VisualGeometryToolkitCore: center, estimate, radial_rows   # VGC accessors (public)
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitEstimation: RadialCameraProblem, find_radial_camera,
-    solve, refine!, residuals!, data_size, codimension
+    solve, refine!, mahalanobis_distances!, data_size, codimension
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, RadialCamera, radial_camera_5pt,
     constraint_with_jacobians
 using VisualGeometryToolkitCore.Synthetic: projective_distance
@@ -47,7 +47,7 @@ _pd(a::RadialCamera, b::RadialCamera) = projective_distance(radial_rows(a), radi
     @test data_size(p) == length(pairs) && codimension(typeof(p)) == 1
     # residuals of the truth: zero on inliers, large on outliers
     r = zeros(length(pairs))
-    residuals!(r, p, P_gt)
+    mahalanobis_distances!(r, p, P_gt)
     @test maximum(abs.(r[gt])) < 1.0e-6
     @test minimum(abs.(r[.!gt])) > 1.0
     # the minimal solve on five inliers reproduces the truth up to scale
@@ -78,7 +78,7 @@ _pd(a::RadialCamera, b::RadialCamera) = projective_distance(radial_rows(a), radi
     P_gt2, pairs2, gt2 = _board(StableRNG(3); σ = 0.3)
     est2 = find_radial_camera(pairs2; center = _CC, threshold = 5.0, rng = StableRNG(2))
     @test est2 !== nothing
-    r2 = zeros(length(pairs2)); residuals!(r2, RadialCameraProblem(pairs2; center = _CC), estimate(est2))
+    r2 = zeros(length(pairs2)); mahalanobis_distances!(r2, RadialCameraProblem(pairs2; center = _CC), estimate(est2))
     @test median(abs.(r2[gt2])) < 0.5
     @test let r = find_radial_camera(pairs[1:4]; center = _CC, rng = StableRNG(446))
         VgtkCore.retcode(r) === :no_model && VgtkCore.iterations(r) == 0 && VgtkCore.estimate(r) === nothing
@@ -107,7 +107,7 @@ end
     @test _pd(lift_model(prov, θ), seed) < sqrt(2 * 1.0e-12)
     # residuals at the chart centre are the problem's own
     lift_refresh!(prov, θ)
-    r = zeros(data_size(p)); residuals!(r, p, seed)
+    r = zeros(data_size(p)); VgtkCore.whitened_residuals!(r, p, seed)    # the signed rows (codim 1)
     @test maximum(abs.(lift_residuals(prov)[1:data_size(p)] - r)) < 1.0e-9
     lift_jacobian!(prov, θ)
     J = copy(VgtkCore.lift_rows(prov).J[1:data_size(p), :])
@@ -118,7 +118,7 @@ end
     est = find_radial_camera(pairs; center = _CC, threshold = 5.0, rng = StableRNG(4))
     @test est !== nothing
     @test est.lo_retcode != :not_run
-    rr = zeros(length(pairs)); residuals!(rr, p, estimate(est))
+    rr = zeros(length(pairs)); mahalanobis_distances!(rr, p, estimate(est))
     @test median(abs.(rr[gt])) < 0.4
     @test count(est.inlier_mask .& .!gt) == 0
     # the shipped default: the core's TLS IRLS, following the scorer

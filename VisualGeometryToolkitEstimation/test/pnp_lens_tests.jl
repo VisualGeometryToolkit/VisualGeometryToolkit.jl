@@ -53,7 +53,7 @@ end
     prob = AbsolutePoseProblem(cam, StructArray(src .=> dst))
     @test prob.context.model === cam
     # scoring: the raw-pixel reprojection through the lens — zero at the truth (up to noise)
-    r = zeros(length(src)); VgtkEstimation.residuals!(r, prob, EuclideanMap(R_gt, t_gt))
+    r = zeros(length(src)); VgtkEstimation.mahalanobis_distances!(r, prob, EuclideanMap(R_gt, t_gt))
     @test maximum(r[gt]) < 1.5 && minimum(r[.!gt]) > 5.0
     arms = (
         "Irls{TLS} (default)" => VgtkEstimation.Irls{VgtkEstimation.TLSShape}(),
@@ -80,7 +80,7 @@ end
     prov = VgtkCore.rows_provider(prob)
     θ = VgtkCore.lift_init(prov, seed)
     VgtkCore.lift_refresh!(prov, θ)
-    rr = zeros(n); VgtkEstimation.residuals!(rr, prob, VgtkCore.lift_model(prov, θ))
+    rr = zeros(n); VgtkEstimation.mahalanobis_distances!(rr, prob, VgtkCore.lift_model(prov, θ))
     @test maximum(abs.(VgtkCore.lift_residuals(prov)[1:n] .- rr)) < 1.0e-9   # one currency: the rows' norms ARE the scoring residuals
     VgtkCore.lift_jacobian!(prov, θ)
     Jl = copy(VgtkCore.lift_rows(prov).J[1:2n, :])
@@ -102,7 +102,7 @@ end
     dst = [Point2{Float64}(project(cam, SVector(s) + SVector(0.0, 0.0, 300.0))...) for s in src]
     prob = AbsolutePoseProblem(cam, StructArray(src .=> dst))
     r = zeros(4)
-    VgtkEstimation.residuals!(r, prob, EuclideanMap(RotMatrix{3, Float64}(one(SMatrix{3, 3, Float64})), Vec3{Float64}(0.0, 0.0, -300.0)))   # behind the camera
+    VgtkEstimation.mahalanobis_distances!(r, prob, EuclideanMap(RotMatrix{3, Float64}(one(SMatrix{3, 3, Float64})), Vec3{Float64}(0.0, 0.0, -300.0)))   # behind the camera
     @test all(==(VgtkCore.OUT_OF_FIELD_RESIDUAL), r)
 end
 end

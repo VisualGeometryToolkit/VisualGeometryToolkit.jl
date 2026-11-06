@@ -68,9 +68,9 @@ function solve(p::LineFittingProblem, idx::AbstractVector{Int})
     return FixedModels{1, typeof(line)}(1, (line,))
 end
 
-# `residuals!` is VisualGeometryToolkitCore's default: the constraint from
+# `mahalanobis_distances!` is VisualGeometryToolkitCore's default: the constraint from
 # `constraint_with_jacobians` below whitened by the point's `measurement_covariance`
-# (VGC's `whitened_constraint_residual`) — the stack's one
+# (VGC's `whitened_residual`) — the stack's one
 # Sampson degeneracy rule (a vanishing projected variance nᵀΣn gives 0 or Inf),
 # not the `max(σᵢ, eps)` floor this problem carried until 2026-09-22.
 
@@ -164,7 +164,7 @@ function solve(p::InhomLineFittingProblem{T}, idx::AbstractVector{Int}) where {T
     return FixedModels{1, M}(1, (M(a, b),))
 end
 
-# `residuals!` is VisualGeometryToolkitCore's default through
+# `mahalanobis_distances!` is VisualGeometryToolkitCore's default through
 # `constraint_with_jacobians` below (∂ₓg = [1], so the whitened residual is g
 # itself, bit-for-bit).
 

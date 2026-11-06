@@ -43,7 +43,7 @@
         "kabsch_stationarity", "lm_workspace_type", "loss_label", "manifold_parts",
         "radial_ray", "recenter_pose",
         "rescale_radial_coeff", "sigma_max", "sq_norm", "thin_ratio", "weights_column",
-        "whitened_distance", "zero_sample!",
+        "zero_sample!",
     ])
     # The signatures a docstring states for a contract's implementers, not for a
     # method of this package.

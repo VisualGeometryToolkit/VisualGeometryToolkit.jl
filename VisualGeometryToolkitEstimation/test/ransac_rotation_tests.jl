@@ -51,20 +51,21 @@ end
     @test maximum(θs) > deg2rad(90)                                    # the field reaches past 90°
     sol = VgtkEstimation.solve(p, [1, 2])
     @test sol.count == 1 && norm(SMatrix{3, 3}(first(sol)) - R) < 1.0e-9   # exact on two clean pairs
-    r = zeros(60); VgtkEstimation.residuals!(r, p, first(sol))
+    r = zeros(60); VgtkEstimation.mahalanobis_distances!(r, p, first(sol))
     @test maximum(r) < 1.0e-5                                           # pixels
-    allocs(r, p, θ) = (VgtkEstimation.residuals!(r, p, θ); @allocated VgtkEstimation.residuals!(r, p, θ))
+    allocs(r, p, θ) = (VgtkEstimation.mahalanobis_distances!(r, p, θ); @allocated VgtkEstimation.mahalanobis_distances!(r, p, θ))
     @test allocs(r, p, first(sol)) == 0
     # the residual is the Sampson distance of the joint measurement (Σ = I) to VGC's bearing transfer constraint, in pixels
     i = 7; Rp = RotMatrix(RotationVec(0.3, -0.5, 0.21))
     g, G_x, _ = VgtkEstimation.constraint_with_jacobians(p, Rp, i)
-    @test VgtkEstimation.whitened_residual(p, Rp, i) ≈ sqrt(g' * ((G_x * G_x') \ g)) rtol = 1.0e-10
+    @test VgtkEstimation.mahalanobis_distance(p, Rp, i) ≈ sqrt(g' * ((G_x * G_x') \ g)) rtol = 1.0e-10
+    @test VgtkEstimation.mahalanobis_distance(p, Rp, i) === norm(VgtkEstimation.whitened_residual(p, Rp, i))   # its two components
     # an antipodal transfer is an outlier however small its tangent residual: an
     # explicit datum f₂ = −R·f₁ (its tangent residual is zero) is gated to Inf
     f₁ = sources(p.cs)[i]; M₁ = p.cs.M₁[i]
     pa = RotationProblem(withattrs(Csponds([f₁, f₁], [-(R * f₁), R * f₁]); M₁ = [M₁, M₁], M₂ = [R * M₁, R * M₁]))
-    @test VgtkEstimation.whitened_residual(pa, R, 1) == Inf
-    @test VgtkEstimation.whitened_residual(pa, R, 2) < 1.0e-9           # the same datum, not antipodal
+    @test VgtkEstimation.mahalanobis_distance(pa, R, 1) == Inf
+    @test VgtkEstimation.mahalanobis_distance(pa, R, 2) < 1.0e-9           # the same datum, not antipodal
     # the coincidence gate refuses a sample of one detection twice
     cs2 = Csponds(vcat(sources(cs)[1:2], [sources(cs)[1]]), vcat(targets(cs)[1:2], [targets(cs)[1]]))
     p2 = RotationProblem(FISHEYE, FISHEYE, cs2)
@@ -101,7 +102,7 @@ end
     rows(a) = (out = zeros(eltype(a), 2n); residual_rows!(out, lm, SVector{3}(a)); out)
     @test J ≈ ForwardDiff.jacobian(rows, Vector(a0)) rtol = 1.0e-8
     # the chart-LM refit (refine!) from the kabsch start lowers the Sampson cost
-    cost(Rx) = (r = zeros(n); VgtkEstimation.residuals!(r, p, Rx); sum(abs2, r))
+    cost(Rx) = (r = zeros(n); VgtkEstimation.mahalanobis_distances!(r, p, Rx); sum(abs2, r))
     ws = VgtkEstimation.refine_workspace(typeof(p), n)
     R1 = VgtkEstimation.refine!(ws, p, R0, ones(n))
     @test R1 isa RotMatrix

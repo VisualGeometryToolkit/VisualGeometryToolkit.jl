@@ -32,7 +32,7 @@ Each concrete subtype defines extension points:
 - `update_model!(state, method, prob, θ)` — the model block: one weighted
   update of θ (weighted least squares, LM, Newton), or θ unchanged; `nothing`
   when there is no update to make (the run stops with `:solve_failed`)
-- `update_residuals!(state, method, prob, θ)` — compute residuals + sq_residuals from θ
+- `update_residuals!(state, method, prob, θ)` — compute residuals + sq_distances from θ
 - `post_iteration!(state, method, prob, θ, iter)` — per-iteration bookkeeping
   (best-tracking, counters the stopping criteria read)
 - [`stopping_criterion`](@ref)`(method)` — the method's own

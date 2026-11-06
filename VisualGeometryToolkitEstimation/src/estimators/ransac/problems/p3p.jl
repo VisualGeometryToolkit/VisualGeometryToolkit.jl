@@ -22,11 +22,11 @@
 # ‖project(model, R·X + t) − u‖ through the full camera — `project` answers on
 # the ray domain, so a direction the lens cannot image is NaN, and the one
 # participation rule (`_pnp_participates`) turns it into VGC's out-of-field
-# residual: an outlier, not a NaN in the sort. `residuals!` is
+# residual: an outlier, not a NaN in the sort. `mahalanobis_distances!` is
 # VisualGeometryToolkitCore's loop over this; the two agree to rounding (the
 # loop may contract StaticArrays' `muladd`s into FMAs differently from a single
 # call), the tolerance Core's contract conformance check allows.
-@inline function whitened_residual(p::AbsolutePoseProblem, pose::PlainEuclideanMap{3, Float64}, i::Int)
+@inline function mahalanobis_distance(p::AbsolutePoseProblem, pose::PlainEuclideanMap{3, Float64}, i::Int)
     e = @inbounds VgtkCore.reprojection_error(p.context.model, pose, sources(p.cs)[i], targets(p.cs)[i])
     _pnp_participates(e) || return VgtkCore.OUT_OF_FIELD_RESIDUAL
     return norm(e)
@@ -194,7 +194,7 @@ end
 # Predictive scoring — the pose constraint and its minimal-sample covariance
 # =============================================================================
 
-# One correspondence's constraint in the `residuals!` currency: VGC's lens form
+# One correspondence's constraint in the `mahalanobis_distances!` currency: VGC's lens form
 # `constraint_with_jacobians(model, pose, X, u)` — e = project(model, R·X + t) − u
 # in RAW pixels, G_x = −I₂ (the observed pixel is the measurement, X exact),
 # G_θ its 2×6 Jacobian along LeftRigidManifold6 at the pose. A point the lens

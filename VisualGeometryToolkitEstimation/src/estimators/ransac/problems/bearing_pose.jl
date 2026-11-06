@@ -180,7 +180,7 @@ end
 
 # The scoring residual: the norm of the whitened tangent residual (radians, or
 # pixels with an `M` column), the caller's weight not applied.
-@inline whitened_residual(p::BearingPoseProblem, pose::PlainEuclideanMap{3, Float64}, i::Int) =
+@inline mahalanobis_distance(p::BearingPoseProblem, pose::PlainEuclideanMap{3, Float64}, i::Int) =
     norm(_bearing_residual(p, rotation(pose), translation(pose), i))
 
 # The unit of the class's file `threshold` (`[pipelines.bearing_pose]`): the

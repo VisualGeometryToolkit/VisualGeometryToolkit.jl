@@ -5,8 +5,9 @@
 import VisualGeometryToolkitCore as VgtkCore
 using VisualGeometryToolkitCore: scoring_workspace, score!, inlier_count, consensus_order, consensus_set,
     consensus_s2, inlier_threshold, has_inlier_threshold, score_bound, ScoreBuffers, score_model!,
-    lo_workspace, locally_optimize!, LoInfo, FitResult, estimate, residuals!, data_size,
-    codimension, minimal_sample_size, whitened_residual, residual_context, model_type, check_workspace
+    lo_workspace, locally_optimize!, LoInfo, FitResult, estimate, mahalanobis_distances!, data_size,
+    codimension, minimal_sample_size, whitened_residual, mahalanobis_distance, residual_context, model_type,
+    check_workspace
 
 using VisualGeometryToolkitCore: Manifold, EssentialManifold, tangent_size, zero_tangent, recenter, retract,
     retract_jacobian, ambient_coordinates
@@ -100,7 +101,7 @@ function test_local_optimization_contract(::Type{T}, lo, problem, θ, scoring; a
         Test.@test estimate(r) isa model_type(problem)
         if r.residuals_current
             rr = similar(buf.residuals)
-            residuals!(rr, problem, estimate(r))
+            mahalanobis_distances!(rr, problem, estimate(r))
             Test.@test rr == buf.residuals
         end
         score_model!(buf, scoring, problem, θ)
@@ -117,15 +118,25 @@ function test_constraint_problem(problem, θ)
     return Test.@testset "constraint problem: $(nameof(typeof(problem)))" begin
         n = data_size(problem)
         Test.@test n isa Int && codimension(problem) isa Int && minimal_sample_size(problem) isa Int
-        r = Vector{Float64}(undef, n)
-        Test.@inferred residuals!(r, problem, θ)
-        Test.@test (@allocated residuals!(r, problem, θ)) == 0
-        # to rounding, at the point's or the residuals' scale (see the docstring:
+        d = Vector{Float64}(undef, n)
+        Test.@inferred mahalanobis_distances!(d, problem, θ)
+        Test.@test (@allocated mahalanobis_distances!(d, problem, θ)) == 0
+        Test.@test !any(<(0), d)                       # a distance: ≥ 0 (or NaN)
+        # to rounding, at the point's or the distances' scale (see the docstring:
         # FMA contraction differs between the loop and a single call)
         ctx = residual_context(problem, θ)
-        w = [Float64(whitened_residual(problem, ctx, i)) for i in 1:n]
-        finite = filter(isfinite, r)
-        scale = isempty(finite) ? 0.0 : maximum(abs, finite)
-        Test.@test all(i -> isequal(w[i], r[i]) || isapprox(w[i], r[i]; rtol = 1.0e-11, atol = 1.0e-14 * scale), 1:n)
+        m = [Float64(mahalanobis_distance(problem, ctx, i)) for i in 1:n]
+        finite = filter(isfinite, d)
+        scale = isempty(finite) ? 0.0 : maximum(finite)
+        Test.@test all(i -> isequal(m[i], d[i]) || isapprox(m[i], d[i]; rtol = 1.0e-11, atol = 1.0e-14 * scale), 1:n)
+        # the signed residual has the constraint's shape: a scalar at d_g = 1, the
+        # d_g components otherwise — a scalar there is a distance under the
+        # residual's name (a `whitened_residual` override written before 0.7,
+        # when that hook was today's `mahalanobis_distance`), refused
+        d_g = codimension(problem)
+        Test.@testset "whitened_residual has the constraint's shape (d_g = $d_g)" begin
+            Test.@test all(i -> _has_constraint_shape(whitened_residual(problem, ctx, i), d_g), 1:n)
+        end
     end
 end
+_has_constraint_shape(r, d_g::Int) = r isa Union{Real, StaticVector} && length(r) == d_g

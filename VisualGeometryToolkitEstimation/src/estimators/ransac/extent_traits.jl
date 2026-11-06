@@ -96,13 +96,13 @@ extent_trait(::AbstractRansacProblem) = NoExtent()
 # Extrinsics3 + rectangular extent: project the 4 board-rectangle corners (lifted to
 # z=0 world points) through the pose + the problem's camera, then require
 #   (a) cheirality — every corner in front of the camera (camera-frame Z>0).
-#       The per-correspondence cheirality in `residuals!` only guarantees the
+#       The per-correspondence cheirality in `mahalanobis_distances!` only guarantees the
 #       matched inliers are in front; the board *extent* can still straddle the
 #       camera (a grazing pose) and explode the quad. This catches that.
 #   (b) a simple, convex, consistently-wound quad in image space — the calibrated
 #       analog of `is_orientation_preserving(H, rect)` on the homography path.
 # Projection is `VisualGeometryToolkitCore.project(model, ·)` on the RAY domain — the
-# same call `residuals!` makes, so the quad test and the residual agree about
+# same call `mahalanobis_distances!` makes, so the quad test and the residual agree about
 # which directions the camera images.
 @inline function _check_extent(
         et::WithExtent{<:HyperRectangle{2}}, p,
@@ -142,7 +142,7 @@ end
     BoundedProblem(inner::AbstractRansacProblem, extent) -> BoundedProblem
 
 Wrap an existing RANSAC problem with a known validity extent. The wrap
-forwards all RANSAC interface methods (`solve`, `residuals!`,
+forwards all RANSAC interface methods (`solve`, `mahalanobis_distances!`,
 `test_sample`, `test_model`, `test_consensus`, ...) to `inner`, but
 declares `extent_trait(::BoundedProblem) = WithExtent(extent)` so the
 post-IRLS extent-consensus check fires.
@@ -176,7 +176,12 @@ codimension(::Type{<:BoundedProblem{P}}) where {P} = codimension(P)
 model_type(::Type{<:BoundedProblem{P}}) where {P} = model_type(P)
 solve(p::BoundedProblem, idx::AbstractVector{Int}) = solve(p.inner, idx)
 fit_hypothesis(p::BoundedProblem, θ, idx::AbstractVector{Int}) = fit_hypothesis(p.inner, θ, idx)
-residuals!(r::Vector, p::BoundedProblem, m) = residuals!(r, p.inner, m)
+mahalanobis_distances!(d::Vector, p::BoundedProblem, m) = mahalanobis_distances!(d, p.inner, m)
+# the per-point hooks (and VGC's `whitened_residuals!` loop over them) read the
+# inner problem's context, distance and signed residual
+residual_context(p::BoundedProblem, m) = residual_context(p.inner, m)
+mahalanobis_distance(p::BoundedProblem, ctx, i::Int) = mahalanobis_distance(p.inner, ctx, i)
+whitened_residual(p::BoundedProblem, ctx, i::Int) = whitened_residual(p.inner, ctx, i)
 test_sample(p::BoundedProblem, idx::AbstractVector{Int}) = test_sample(p.inner, idx)
 test_model(p::BoundedProblem, m, idx::AbstractVector{Int}) = test_model(p.inner, m, idx)
 # BoundedProblem composes the inner problem's consensus check with the

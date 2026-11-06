@@ -123,18 +123,19 @@ The scoring layer dispatches on a single axis: **model type**.
 | `model::M` (certain) | ``r_i^2`` | every model-certain scorer (MSAC, RANSAC, the marginal) |
 | `model::Uncertain{M}` | ``r_i^2 / \tilde{v}_i`` | a predictive scorer (`is_predictive`), e.g. `StudentTUniformScoring{Predictive}`, with ``\Sigma_\theta \neq 0`` |
 
-The key design invariant is the **whitening contract**: every `residuals!`
-implementation must return whitened residuals such that ``r_i^2`` equals the
+The key design invariant is the **whitening contract**: every `mahalanobis_distances!`
+implementation must return distances ``r_i \ge 0`` (the norms of the whitened
+residuals) such that ``r_i^2`` equals the
 squared Mahalanobis distance ``g_i^\top \tilde\Sigma_{g_i}^{-1} g_i``. Whether the
 problem has isotropic or heteroscedastic measurement noise is the problem's
-responsibility — it handles the whitening inside `residuals!`. For example:
+responsibility — it handles the whitening inside `mahalanobis_distances!`. For example:
 
 - **Isotropic** (``\tilde\Sigma_{x_i} = I``): the Sampson distance
   ``r_i = g_i / \sqrt{c_i}`` is already whitened, where ``c_i = \|\partial_x g_i\|^2``.
-- **Heteroscedastic** (``\tilde\Sigma_{x_i}`` varies): `residuals!` must
+- **Heteroscedastic** (``\tilde\Sigma_{x_i}`` varies): `mahalanobis_distances!` must
   apply ``r_i = L_i^{-1} g_i`` where ``L_i L_i^\top = \tilde\Sigma_{g_i} = \partial_x g_i \, \tilde\Sigma_{x_i} \, (\partial_x g_i)^\top``.
 
-Because `residuals!` handles whitening, a scorer only needs to square the
+Because `mahalanobis_distances!` handles whitening, a scorer only needs to square the
 residuals (model-certain path) or additionally inflate by the predictive
 variance (model-uncertain path). For the Student-t + uniform marginal the
 measurement-space covariance penalty is zero on both paths (whitened outlier

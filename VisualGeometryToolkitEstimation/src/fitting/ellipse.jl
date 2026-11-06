@@ -46,7 +46,7 @@ sampling: [`refine_ellipse`](@ref).
 - `points`: 2D points, `AbstractVector` of `StaticVector{2}` (`Point2{Float64}`
   storage canonicalized internally), plain: unit isotropic noise.
 - `threshold`: **in PIXELS** (the points' unit), as [`find_homography`](@ref).
-- `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace(EllipseProblem, n_data[, T])`.
+- `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace([T,] EllipseProblem, n_data)`.
 - `local_optimization`: default `Triggs{WelschShape}(scale_multiple = 2.5)`; any
   other strategy as [`find_homography`](@ref).
 - the other keywords as [`find_homography`](@ref).

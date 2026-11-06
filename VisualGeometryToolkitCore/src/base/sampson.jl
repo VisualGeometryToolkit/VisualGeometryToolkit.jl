@@ -113,7 +113,7 @@ end
 @inline _gradient_bound²(ρ::NamedTuple, ::Type{T}) where {T} = T(ρ.gradient)^2
 
 # A residual in its constraint's shape: a number for a scalar constraint, the
-# vector for a vector one (`whitened_constraint_residual`'s currency).
+# vector for a vector one (the problem-level `whitened_residual`'s currency).
 @inline _constraint_shape(::Real, s::StaticVector{1}) = s[1]
 @inline _constraint_shape(::StaticVector, s::StaticVector) = s
 

@@ -392,6 +392,14 @@ const RETIRED_NAMES = String[
     # family, a `SplineProjection`, a grid), and its `CameraFitMetadata`
     # (VisualGeometryToolkitEstimation 0.6.0, 2026-11-04)
     "fit" * "_lens", "LensFit" * "Metadata",
+    # the RANSAC per-point scalar is a distance under a distance's name (the 0.7
+    # wave, conventions/residuals-and-distances.md): `mahalanobis_distances!(d,
+    # problem, model)` over the hook `mahalanobis_distance(problem, ctx, i)`
+    # (≥ 0); the signed residual is `whitened_residual(problem, ctx, i)`, its
+    # rows `whitened_residuals!(r, problem, model)`; the squares are
+    # `sq_distances` / `square_distances!`; the norm helper is gone
+    "residuals" * "!", "whitened_constraint" * "_residual", "whitened" * "_distance",
+    "sq" * "_residuals", "square" * "_residuals!",
 ]
 
 # Rule 10: the width quantities are bound by their full names. One name per

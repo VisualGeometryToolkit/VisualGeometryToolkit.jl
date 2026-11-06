@@ -145,7 +145,7 @@
             for f in fieldnames(PosteriorWeightState)
                 @test getfield(a, f) == getfield(b, f)
             end
-            @test a.sq_residuals !== sq                  # its own buffers
+            @test a.sq_distances !== sq                  # its own buffers
         end
         @test_throws ArgumentError median_seeded_posterior(sq, 5; outlier_halfwidth = 1.0, codimension = 3)
     end

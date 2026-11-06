@@ -58,7 +58,7 @@ end
 # sentinel so the posterior down-weights them (they never enter the solve).
 function _focal_sq!(sq, state::_PositionalDivisionState)
     i = 0
-    for v in state.sq_residuals, s in v
+    for v in state.sq_distances, s in v
         i += 1
         sq[i] = isfinite(s) ? s : 1.0e12
     end
@@ -113,7 +113,7 @@ function VgtkCore.update_model!(st::DivisionCameraIrlsState, m::DivisionCameraIr
 end
 
 function VgtkCore.update_residuals!(st::DivisionCameraIrlsState, m::DivisionCameraIrls, prob, θ)
-    _focal_sq!(sq_residuals(st.rws), st.state)
+    _focal_sq!(sq_distances(st.rws), st.state)
     return nothing
 end
 
@@ -359,7 +359,7 @@ function fit_division_camera(
     if audited !== nothing
         verbose && println("  branch audit: $(_moved_branches(audited, st.state)) view(s) moved; resuming")
         st.state = audited; st.Δ = Inf
-        _focal_sq!(sq_residuals(rws), audited)
+        _focal_sq!(sq_distances(rws), audited)
         update_nuisance!(lh); update_weights!(lh)
         res = block_coordinate_descent!(st, lh, method, nothing, audited; max_iter = max_iter - niter - 1)
         niter, rc = niter + 1 + iterations(res), retcode(res)
@@ -378,7 +378,7 @@ function fit_division_camera(
     # sentinel for them, which is not a residual), and a row of prior weight
     # zero was never fitted.
     ss, nres = 0.0, 0
-    for (i, sqi) in enumerate(st.state.sq_residuals), (j, r²) in enumerate(sqi)
+    for (i, sqi) in enumerate(st.state.sq_distances), (j, r²) in enumerate(sqi)
         (isfinite(r²) && (prior === nothing || prior[i][j] > 0)) || continue
         ss += r²; nres += 1
     end

@@ -143,7 +143,7 @@ rows the chart LM, NLLSsolver, minimizes in [`lmsolve_chart!`](@ref).
 chart is centred on, the whitening frozen there, the data views and the
 √weights. `θ` is the CHART vector, not a model. The rows are √w-WEIGHTED and
 live in chart coordinates — a different currency from a RANSAC problem's
-UNWEIGHTED `residuals!(r, problem, model)` in data units. Two names, because
+UNWEIGHTED `whitened_residuals!(r, problem, model)` in data units. Two names, because
 one name with two currencies is what the frame-in = frame-out rule exists to
 prevent.
 

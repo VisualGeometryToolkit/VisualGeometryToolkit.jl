@@ -453,14 +453,16 @@ public ConsensusSet, consensus_score, is_fresh, check_fresh, NativeRefit, Extern
 # public, reached qualified or imported by name.
 # -----------------------------------------------------------------------------
 # The constraint-problem protocol.
-public AbstractConstraintProblem, data_size, codimension, minimal_sample_size, residuals!,
+# (`mahalanobis_distance` and `whitened_residuals!` are exported/public below,
+# with their model-level methods.)
+public AbstractConstraintProblem, data_size, codimension, minimal_sample_size, mahalanobis_distances!,
     residual_context, whitened_residual, measurement_covariance, solver_covariance, provides_solver_covariance,
     refine!, refine_workspace
 # The robust-statistics toolkit.
 public IGPrior, JeffreysPrior, seed_posterior!, reset_posterior!, fit_scale, partition_student_t, partition_rss, weighted_rss,
-    weighted_sq, square_residuals!, StudentTMixture, inlier_posterior, posterior_weight,
+    weighted_sq, square_distances!, StudentTMixture, inlier_posterior, posterior_weight,
     posterior_weight_derivative, mixture_nll, next_nu, soft_posterior_weights!,
-    PosteriorWeightState, sq_residuals, s_hat_sq, student_t_dof, inlier_prior,
+    PosteriorWeightState, sq_distances, s_hat_sq, student_t_dof, inlier_prior,
     Estimated, FixedS2, FixedPrior, FixedNu, ConsensusDof, update_scale!, update_nu!,
     update_inlier_prior!, mixture_ecm!, median_seeded_posterior, posterior_inlier_probs!,
     posterior_weights!, GauInlier, decision_threshold, truncated_log_normaliser
@@ -707,12 +709,12 @@ public whitening_factor   # L⁻¹ of the propagated constraint covariance, froz
 # workspace and solves, the product chart's parts, the rotation algorithms'
 # stationarity conditions, the radial-coefficient law, the PnP pixel whitening,
 # the covariance block rows, the radial-H centred ray, the correspondence
-# attribute columns, the weights checks and the whitened constraint residual):
+# attribute columns, the weights checks and the whitened constraint rows):
 # public, unexported — reached qualified or by explicit import.
 public lm_workspace_type, lmsolve_chart!, fill_sqrt_weights!, manifold_parts,
     kabsch_stationarity, chordal_mean_stationarity, rescale_radial_coeff, pnp_pixel_whitening,
     block_rows, radial_ray, attrs_of, attribute_column, cd_pair, sigma_max, check_weights,
-    weights_column, sq_norm, whitened_constraint_residual, whitened_constraint_rows, whitened_distance, zero_sample!
+    weights_column, sq_norm, whitened_constraint_rows, zero_sample!
 # The one TOML tag → type map and its spelling rule (quality/tag_registry.jl),
 # the dependency allow-list, the private-name scan and the extension points
 # (quality/stack_contracts.jl). Reached qualified; the quality gates
@@ -824,7 +826,7 @@ include("robust/lm_core.jl")      # the chart LM: NLLSsolver on the row protocol
 # protocol, the robust-statistics toolkit (scale, the Student-t + uniform mixture,
 # the posterior-weight state), the scoring contract with the baseline scorers,
 # and the local-optimization contract.
-include("robust/problem.jl")          # AbstractConstraintProblem + data_size/codimension/residuals!/refine!
+include("robust/problem.jl")          # AbstractConstraintProblem + data_size/codimension/mahalanobis_distances!/refine!
 include("robust/scale.jl")            # IGPrior, fit_scale, partition_student_t, partition_rss, weighted_rss
 include("robust/mixture.jl")          # StudentTMixture, the E-step, next_nu, GauInlier/decision_threshold
 include("robust/posterior.jl")        # PosteriorWeightState, the nuisance policies, mixture_ecm!

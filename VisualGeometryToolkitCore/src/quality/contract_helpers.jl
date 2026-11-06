@@ -54,11 +54,14 @@ function test_manifold_contract end
     test_constraint_problem(problem, θ)
 
 The constraint-problem protocol on `problem` at the model `θ`, as tests:
-`data_size`/`codimension`/`minimal_sample_size` integers, [`residuals!`](@ref)
-type-stable and allocation-free after warm-up and equal to
-[`whitened_residual`](@ref) at every point to rounding: `rtol = 1e-11` of the
-point's residual or `1e-14` of the largest finite residual (a non-finite one
-identical). The rounding is of the measurements, not of the residual: a
+`data_size`/`codimension`/`minimal_sample_size` integers,
+[`mahalanobis_distances!`](@ref) type-stable, allocation-free after warm-up,
+`≥ 0`, and equal to [`mahalanobis_distance`](@ref) at every point to rounding:
+`rtol = 1e-11` of the point's distance or `1e-14` of the largest finite
+distance (a non-finite one identical); and [`whitened_residual`](@ref) in the
+constraint's shape at every point — a number at `d_g = 1`, `d_g` components
+otherwise, so a scalar override at `d_g ≥ 2` (a distance under the residual's
+name, the pre-0.7 hook) is refused. The rounding is of the measurements, not of the residual: a
 reprojection residual is a difference of ~1000 px coordinates, so two paths
 differ by ~1000·eps px whatever the residual (PnP measured 4.8e-14 px on a
 1.08 px residual, E 5.7e-14 px; 2026-11). Not bit for bit: the batch loop and a single call may contract

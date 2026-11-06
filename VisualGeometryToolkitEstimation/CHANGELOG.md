@@ -1,5 +1,43 @@
 # VisualGeometryToolkitEstimation changelog
 
+## 0.7.0 (unreleased)
+
+### Breaking
+
+- **`RansacWorkspace` takes its storage eltype as an optional LEADING
+  positional** on every form, as the stack's signature rule places a type
+  argument in a non-mutating call:
+  `RansacWorkspace([T = Float32,] problem, scoring[, local_optimization])`,
+  `RansacWorkspace([T = Float32,] P, n_max, scoring[, local_optimization])` and
+  `RansacWorkspace([T = Float32,] P, n_data)`. The keyword `T` of the
+  `(P, n_max, scoring[, lo])` form and the trailing positional `T` of the
+  `(P, n_data)` and `(problem, scoring[, lo])` forms are removed, with no
+  deprecated path: an old call is a `MethodError`. Migrate
+  `RansacWorkspace(P, n, sc, lo; T = Float64)` to
+  `RansacWorkspace(Float64, P, n, sc, lo)`, `RansacWorkspace(P, n, Float64)` to
+  `RansacWorkspace(Float64, P, n)`, `RansacWorkspace(problem, sc, Float64)`
+  to `RansacWorkspace(Float64, problem, sc)` and
+  `RansacWorkspace(problem, sc, lo, Float64)` to
+  `RansacWorkspace(Float64, problem, sc, lo)`. Calls without an eltype are
+  unchanged.
+- **The RANSAC protocol rename of VisualGeometryToolkitCore 0.7** (its
+  changelog states it): every problem's per-point scalar is the Mahalanobis
+  DISTANCE (`≥ 0`), computed by `mahalanobis_distances!(d, problem, model)`;
+  scores are bit for bit unchanged. The problems' Jacobian-free overrides of
+  the old `whitened_residual` hook — `AbsolutePoseProblem`,
+  `BearingPoseProblem`, `RadialHomographyProblem`, `RotationProblem` (behind
+  its hemisphere gate) and `RelposeBundleProblem` — are now
+  `mahalanobis_distance` methods. `EssentialProblem`'s signed Sampson
+  override stays `whitened_residual`, the signed residual, and
+  `RadialHomographyProblem` gains a `whitened_residual` (the 2-component
+  reprojection offset; out of field `(OUT_OF_FIELD_RESIDUAL, 0)`, whose norm
+  is the distance's). `BoundedProblem` forwards `mahalanobis_distances!`,
+  `residual_context`, `mahalanobis_distance` and `whitened_residual` to its
+  inner problem.
+  `DivisionCameraState`'s field `sq_residuals` is `sq_distances`
+  (`board_sq_residuals(state)` is unchanged). `fit_residual_mixture`'s held
+  residuals are scored as given; their square is what the mixture reads.
+
 ## 0.6.1 (2026-11-06)
 
 VisualGeometryToolkitCore 0.6 (compat `"0.6"`).

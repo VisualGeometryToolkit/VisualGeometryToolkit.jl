@@ -13,7 +13,7 @@
     using Rotations: RotMatrix, RotX
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: csponds, exact, Uncertain, CovMat, pair_covariance, whitened_residuals!,
-        source_map, destination_map, sampson_distance, mahalanobis_distance, residuals!,
+        source_map, destination_map, sampson_distance, mahalanobis_distance, mahalanobis_distances!,
         converged, estimate, MsacScoring, TLSShape
     using VisualGeometryToolkitEstimation
     using VisualGeometryToolkitEstimation: Irls, locally_optimize, RadialHomographyProblem
@@ -30,7 +30,7 @@
         p = HomographyProblem(csponds(board, pix))
         @test isempty(keys(p.cs.attrs))
         @test all(pair_covariance(p.cs, i) === I for i in 1:n)
-        r = residuals!(zeros(n), p, H)
+        r = mahalanobis_distances!(zeros(n), p, H)
         # the unchanged isotropic whitening, bit for bit: the Sampson distance
         @test r == [sampson_distance(H, board[i], pix[i]) for i in 1:n]
         @test maximum(r) < 1.0e-3                     # metres: the unit the rule removes
@@ -40,7 +40,7 @@
         p = HomographyProblem(csponds(exact.(board), pix))
         @test keys(p.cs.attrs) == (:Σ₁,)
         @test all(iszero, p.cs.Σ₁)
-        r = residuals!(zeros(n), p, H)
+        r = mahalanobis_distances!(zeros(n), p, H)
         @test maximum(abs.(r .- transfer) ./ transfer) < 1.0e-10
         @test [mahalanobis_distance(H, exact(board[i]), pix[i]) for i in 1:n] ≈ r rtol = 1.0e-12
         # analytically: G₂ = −c·I, so Σ̃ = c²I and r = g/|c| — the LM's
@@ -49,7 +49,7 @@
         @test [norm(rr[2i-1:2i]) for i in 1:n] ≈ r rtol = 1.0e-12
         wallocs(rr, H, cs) = (whitened_residuals!(rr, H, cs); @allocated whitened_residuals!(rr, H, cs))
         @test wallocs(rr, H, p.cs) == 0
-        @test (@allocated residuals!(r, p, H)) == 0
+        @test (@allocated mahalanobis_distances!(r, p, H)) == 0
         # the chart-LM refit and its lift descend the same pixel residual
         Hs = HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(H) .* (1 .+ 1.0e-3 .* SMatrix{3, 3, Float64, 9}(1, -2, 1, 2, -1, 1, -1, 1, 0))))
         lr = locally_optimize(p, Hs; scoring = MsacScoring(p; threshold = 3.0), local_optimization = Irls{TLSShape}())
@@ -66,7 +66,7 @@
         src = [Uncertain(board[i], CovMat(Σ₁[i])) for i in 1:n]
         dst = [Uncertain(pix[i], CovMat(Σ₂)) for i in 1:n]
         p = HomographyProblem(csponds(src, dst))
-        r = residuals!(zeros(n), p, H)
+        r = mahalanobis_distances!(zeros(n), p, H)
         manual = map(1:n) do i
             g, Gx, _ = VgtkCore.constraint_with_jacobians(H, board[i], pix[i])
             G₁ = Gx[:, SVector(1, 2)]; G₂ = Gx[:, SVector(3, 4)]

@@ -20,7 +20,7 @@ Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer th
 - `correspondences`: as [`find_homography`](@ref); a `Csponds` `:score` column is the
   per-match prior (PROSAC; uniform otherwise).
 - `threshold`: **in PIXELS**, as [`find_homography`](@ref).
-- `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace(FundMatProblem{Float64}, n_data[, T])`.
+- `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace([T,] FundMatProblem{Float64}, n_data)`.
 - `local_optimization`: default `Irls{TLSShape}()`, as [`find_homography`](@ref).
 - the other keywords as [`find_homography`](@ref).
 """

@@ -129,7 +129,8 @@ const CONTRACT_GENERICS = (
     lift_wmax, lift_conjugate, lift_zblock,
     lo_label, lo_marker, optimization_path,
     # the constraint-problem protocol (robust/problem.jl)
-    data_size, codimension, minimal_sample_size, residuals!, residual_context, whitened_residual,
+    data_size, codimension, minimal_sample_size, mahalanobis_distances!, mahalanobis_distance,
+    residual_context, whitened_residual,
     measurement_covariance, solver_covariance, provides_solver_covariance, refine!, refine_workspace,
     # the scoring contract (robust/scoring_contract.jl, robust/baseline_scorers.jl)
     scoring_workspace, score!, inlier_count, consensus_order, inlier_threshold, has_inlier_threshold,

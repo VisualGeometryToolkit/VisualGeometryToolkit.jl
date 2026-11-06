@@ -232,10 +232,8 @@ statically dispatched.
 - `L`: the local optimizer's workspace type (`lo_workspace(P, T, lo, n)`)
 
 # Constructors
-```julia
-ws = RansacWorkspace(problem, scoring[, local_optimization][, T])
-ws = RansacWorkspace(P, n_max, scoring, local_optimization; T = Float32)
-```
+`RansacWorkspace([T = Float32,] problem, scoring[, local_optimization])` and
+its siblings, documented on the constructor.
 
 # Reuse
 Supply a workspace to `ransac(; workspace = ws)` (or `ransac!`) to avoid

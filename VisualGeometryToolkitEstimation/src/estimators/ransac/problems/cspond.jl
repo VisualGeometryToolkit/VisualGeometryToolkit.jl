@@ -831,7 +831,7 @@ P3P solver. Accepts any `sources`/`targets`-protocol container of
 PROSAC prior.
 
 The residual currency is the RAW pixel of `model` for every lens: scoring
-projects through the intrinsics AND the lens (`residuals!`), and both local
+projects through the intrinsics AND the lens (`mahalanobis_distances!`), and both local
 optimizations refine the same reprojection — the Student-t M-step and the
 Welsch lift run on VGC's full-camera `constraint_with_jacobians(model, pose,
 X, u)`. A `Pinhole` model keeps the classic calibrated kernels
@@ -975,12 +975,12 @@ test_sample(p::MinimalSolveProblem{<:Union{HomographyMat, FundMat}}, idx::Abstra
 test_sample(p::MinimalSolveProblem{<:EssentialMat}, idx::AbstractVector{Int}) =
     test_sample(model_type(p), p.cs, idx; tol_px = p.coincident_tol)
 
-# constraint_with_jacobians — VGC's, in the DATA frame where `residuals!` scores.
+# constraint_with_jacobians — VGC's, in the DATA frame where `mahalanobis_distances!` scores.
 #
 # E's predictive-scoring constraint, on BEARINGS with their per-view Jacobians.
 #
 # THE THIRD ROUTE TO ONE QUANTITY, and the third place this port had to change
-# together: `residuals!`, the LM rows, and this. Changing two of the three is
+# together: `mahalanobis_distances!`, the LM rows, and this. Changing two of the three is
 # what produced a 446x LM/scoring mismatch earlier in this port — an optimiser
 # descending a function unrelated to the one being scored while reporting
 # `:converged`. The rule that falls out: when several functions compute one
@@ -1010,7 +1010,7 @@ end
 provides_solver_covariance(::Type{<:RelativeProblem}) = true
 
 # The mapped homography's scoring constraint, in the DATA frame where
-# `residuals!` scores, at the composed `H_data = inv(C₂) ∘ H ∘ C₁`.
+# `mahalanobis_distances!` scores, at the composed `H_data = inv(C₂) ∘ H ∘ C₁`.
 #
 # `G_θ` is then carried into the MODEL's own coordinates (chain rule) so that a
 # solver-frame covariance contracts with a `G_θ` in its own frame.

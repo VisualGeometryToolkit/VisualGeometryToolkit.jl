@@ -66,7 +66,7 @@ ordering similar to Julia Base"; the model-first rule never overrides it):
 - A symmetric relation takes either order: `intersects(a, b)`, `iou(a, b)`.
 - VisualGeometryToolkitEstimation's RANSAC family leads with the problem, which carries
   the data, and puts the hypothesis after it: `solve(problem, idx)`,
-  `test_model(problem, model, idx)`, `residuals!(r, problem, model)`,
+  `test_model(problem, model, idx)`, `mahalanobis_distances!(d, problem, model)`,
   `locally_optimize(problem, θ₀)`, and wrappers that hold a problem or a
   per-pair context (`refit_imc(lo, ctx, seed)`).
 

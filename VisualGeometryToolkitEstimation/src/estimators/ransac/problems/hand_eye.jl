@@ -19,7 +19,7 @@
 #   - Residual: 6-vector r_ij = [L · Log(R_err); t_err] under a
 #     characteristic length L that balances rotation (rad) and
 #     translation (length) units; Mahalanobis distance via the
-#     default residuals! from constraint_with_jacobians.
+#     default mahalanobis_distances! from constraint_with_jacobians.
 #   - Local optimization (`refine!`): the chart LM on VGC's
 #     RigidExpManifold6 (ForwardDiff Jacobian); default strategy Irls{TLSShape}.
 # =============================================================================
@@ -243,7 +243,7 @@ Under that convention, near the optimum:
 
 The measurement Jacobian `∂ₓg = I_6` reports the noise model directly on
 the constraint (the per-pair 6-vector is already in unit-balanced form),
-so the default `residuals!` produces ‖g‖.
+so the default `mahalanobis_distances!` produces ‖g‖.
 """
 @inline function constraint_with_jacobians(p::HandEyeProblem, X::Rigid3, i::Int)
     L = p.char_length

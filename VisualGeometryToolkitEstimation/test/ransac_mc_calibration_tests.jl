@@ -544,7 +544,7 @@ end
         μF = 2ν / (ν - 2); varF = 4 * ν^2 * ν / ((ν - 2)^2 * (ν - 4))   # 2·F(2, ν): mean, variance
         @test abs(rF.nees_mean - μF) < 4 * sqrt(varF / rF.ntrials)
     end
-    # LineFittingProblem's whitening: its residuals (RSDR's default `residuals!`
+    # LineFittingProblem's whitening: its residuals (RSDR's default `mahalanobis_distances!`
     # through `constraint_with_jacobians` + the whitened residual, weighted by √(nᵀΣ̃ᵢn)) at the
     # TRUE line are N(0, σ²) each — jointly χ²ₙ; and a held-out point's whitened
     # residual under the weighted fit on the other n, against σ² + G_w·Σ_θ·G_wᵀ
@@ -554,7 +554,7 @@ end
             nv, d, pts, Σ̃ = _hetero_line(rng, n, σ)
             p = VgtkEstimation.LineFittingProblem([Uncertain(pts[i], CovMat(Σ̃[i])) for i in 1:n])
             r = zeros(n)
-            VgtkEstimation.residuals!(r, p, Line2D{Float64}(SVector(nv[1], nv[2], d)))
+            VgtkEstimation.mahalanobis_distances!(r, p, Line2D{Float64}(SVector(nv[1], nv[2], d)))
             return r, σ^2 * Matrix(1.0I, n, n)
         end
     end

@@ -48,7 +48,7 @@ _sampson_cost(E, u₁, u₂, w) =
 end
 
 @testset "LM rows and scoring residuals are the same function (assembly canary)" begin
-    # THE DEFECT THIS EXISTS TO CATCH. During the bearing port `residuals!` was
+    # THE DEFECT THIS EXISTS TO CATCH. During the bearing port `mahalanobis_distances!` was
     # moved to the tangent Sampson while the LM state's rows still computed
     # the image-plane form on the same (now bearing) points. They disagreed by
     # a median ratio of 1.11 and a MAXIMUM of 446x — a different function, not
@@ -82,7 +82,7 @@ end
     θ = EssentialMat(R, t)
 
     scored = Vector{Float64}(undef, m)
-    VgtkEstimation.residuals!(scored, p, θ)
+    VgtkEstimation.mahalanobis_distances!(scored, p, θ)
 
     ch = EssentialManifold5(RotMatrix{3, Float64}(R), Vec3{Float64}(t))
     rows = residual_rows!(Vector{Float64}(undef, m), _lm_state(p, ch, ones(m)), VgtkCore.zero_tangent(ch))
@@ -170,7 +170,7 @@ end
     @test !VgtkEstimation._has_measurement_maps(p0)
     n = length(u₁)
     r0 = Vector{Float64}(undef, n)
-    VgtkEstimation.residuals!(r0, p0, θ)
+    VgtkEstimation.mahalanobis_distances!(r0, p0, θ)
     @test all(isfinite, r0)
 
     # H declares per-view PIXEL frames (ImageFrame) at the same boundary; F,
@@ -224,7 +224,7 @@ end
     @test eltype(eltype(sources(p32.cs))) == Float32     # the regime under test
     θ = EssentialMat(R, t)
     r = Vector{Float64}(undef, length(a))
-    VgtkEstimation.residuals!(r, p32, θ)
+    VgtkEstimation.mahalanobis_distances!(r, p32, θ)
     @test all(isfinite, r[1:150])
     @test count(<(3.0), r[1:150]) > 140              # true inliers score as inliers
     res = VgtkEstimation.ransac(p32, MsacScoring(p32; threshold = 3.0); rng = StableRNG(7))

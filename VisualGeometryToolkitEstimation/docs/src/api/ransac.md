@@ -35,7 +35,7 @@ The rest of the problem protocol is VisualGeometryToolkitCore's, documented in
 its manual: [`data_size`](@extref VisualGeometryToolkitCore.data_size),
 [`model_type`](@extref VisualGeometryToolkitCore.model_type),
 [`codimension`](@extref VisualGeometryToolkitCore.codimension),
-[`residuals!`](@extref VisualGeometryToolkitCore.residuals!),
+[`mahalanobis_distances!`](@extref VisualGeometryToolkitCore.mahalanobis_distances!),
 [`provides_solver_covariance`](@extref VisualGeometryToolkitCore.provides_solver_covariance),
 [`test_conditioning`](@extref VisualGeometryToolkitCore.test_conditioning) and
 [`test_cheirality`](@extref `VisualGeometryToolkitCore.test_cheirality-Tuple{HomographyMat, Any, AbstractVector{<:Integer}}`).
@@ -51,8 +51,9 @@ VisualGeometryToolkitCore's:
 
 ## Residual protocol
 
-The per-point residual protocol that `residuals!` runs is VisualGeometryToolkitCore's
-([`whitened_residual`](@extref VisualGeometryToolkitCore.whitened_residual),
+The per-point protocol that `mahalanobis_distances!` runs is VisualGeometryToolkitCore's
+([`mahalanobis_distance`](@extref VisualGeometryToolkitCore.mahalanobis_distance),
+the signed [`whitened_residual`](@extref VisualGeometryToolkitCore.whitened_residual),
 [`residual_context`](@extref VisualGeometryToolkitCore.residual_context)); the
 residual degrees of freedom are this package's.
 

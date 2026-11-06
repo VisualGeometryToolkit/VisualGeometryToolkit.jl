@@ -38,7 +38,7 @@ mutable struct PosteriorWeightState <: NormalizedWeightPolicy
     # weight policy.
     w::Vector{Float64}
     inlier_posterior::Vector{Float64}
-    sq_residuals::Vector{Float64}
+    sq_distances::Vector{Float64}
     ν::Float64
     s_hat_sq::Float64
     log_two_outlier_halfwidth::Float64
@@ -63,12 +63,12 @@ StudentTMixture(pws::PosteriorWeightState) =
     StudentTMixture(pws.ν, pws.s_hat_sq, pws.log_two_outlier_halfwidth, pws.d_g, pws.inlier_prior)
 
 """
-    sq_residuals(pws::PosteriorWeightState) -> Vector{Float64}
+    sq_distances(pws::PosteriorWeightState) -> Vector{Float64}
 
-The squared residuals the E-step weighs — the buffer `update_scale!` and
+The squared Mahalanobis distances the E-step weighs — the buffer `update_scale!` and
 `update_weights!` read, refilled by the caller between iterations.
 """
-sq_residuals(pws::PosteriorWeightState) = pws.sq_residuals
+sq_distances(pws::PosteriorWeightState) = pws.sq_distances
 
 """
     s_hat_sq(pws::PosteriorWeightState) -> Float64
@@ -95,7 +95,7 @@ residual is an inlier (1/2 unless estimated or held elsewhere).
 inlier_prior(pws::PosteriorWeightState) = pws.inlier_prior
 
 """
-    PosteriorWeightState(sq_residuals, n, model_dof, k; order, prior, w, inlier_posterior, sq_r,
+    PosteriorWeightState(sq_distances, n, model_dof, k; order, prior, w, inlier_posterior, sq_r,
                          log_two_outlier_halfwidth, codimension = 1)
 
 The state seeded from a hard partition: the first `k` entries of `order` (a
@@ -104,10 +104,10 @@ fresh sort. The seed is the partition's Student-t under `prior`
 ([`partition_student_t`](@ref)), so it equals the scoring predictive over
 `order[1:k]`; the E-step runs once.
 
-Precondition: `order[1:k]` is a partition of `sq_residuals[1:n]` and
+Precondition: `order[1:k]` is a partition of `sq_distances[1:n]` and
 `k > model_dof`.
 """
-function PosteriorWeightState(sq_residuals::AbstractVector{Float64}, n::Int, model_dof::Int,
+function PosteriorWeightState(sq_distances::AbstractVector{Float64}, n::Int, model_dof::Int,
                               k_prev::Int;
                               order::AbstractVector{Int},
                               prior::IGPrior,
@@ -117,25 +117,25 @@ function PosteriorWeightState(sq_residuals::AbstractVector{Float64}, n::Int, mod
                               log_two_outlier_halfwidth::Float64,
                               codimension::Int = 1)
     pws = PosteriorWeightState(w, inlier_posterior, sq_r, NaN, NaN, log_two_outlier_halfwidth, codimension, prior)
-    return seed_posterior!(pws, sq_residuals, n, model_dof, k_prev; order, prior, log_two_outlier_halfwidth, codimension)
+    return seed_posterior!(pws, sq_distances, n, model_dof, k_prev; order, prior, log_two_outlier_halfwidth, codimension)
 end
 
 """
-    seed_posterior!(pws, sq_residuals, n, model_dof, k; order, prior, log_two_outlier_halfwidth,
+    seed_posterior!(pws, sq_distances, n, model_dof, k; order, prior, log_two_outlier_halfwidth,
                     codimension = 1) -> pws
 
-The partition seeding of [`PosteriorWeightState`](@ref)`(sq_residuals, n, model_dof, k; …)`
+The partition seeding of [`PosteriorWeightState`](@ref)`(sq_distances, n, model_dof, k; …)`
 IN PLACE, on `pws`'s own buffers: the same squared residuals, partition
 Student-t and first E-step, the inlier prior back at 1/2. What a caller that
 keeps one state across calls (a local optimizer's workspace) re-seeds with.
 """
-function seed_posterior!(pws::PosteriorWeightState, sq_residuals::AbstractVector{Float64}, n::Int,
+function seed_posterior!(pws::PosteriorWeightState, sq_distances::AbstractVector{Float64}, n::Int,
                          model_dof::Int, k_prev::Int;
                          order::AbstractVector{Int}, prior::IGPrior,
                          log_two_outlier_halfwidth::Float64, codimension::Int = 1)
-    w, inlier_posterior, sq_r = pws.w, pws.inlier_posterior, pws.sq_residuals
+    w, inlier_posterior, sq_r = pws.w, pws.inlier_posterior, pws.sq_distances
     _check_state_buffers(w, inlier_posterior, sq_r, n)
-    _copy_sq_residuals!(sq_r, sq_residuals, n)
+    _copy_sq_distances!(sq_r, sq_distances, n)
     ν, s_hat_sq = partition_student_t(prior, _partition_rss(sq_r, order, k_prev), k_prev;
                                       model_dof, codimension)
     # Initial soft weights from the seeded (ν, ŝ²)
@@ -159,10 +159,10 @@ end
 
 # Seed the state's own buffer from the caller's squared residuals (a view the
 # state does not own); nothing to do when they are the same buffer.
-function _copy_sq_residuals!(sq_r, sq_residuals, n::Int)
-    sq_r === sq_residuals && return sq_r
+function _copy_sq_distances!(sq_r, sq_distances, n::Int)
+    sq_r === sq_distances && return sq_r
     @inbounds for i in 1:n
-        sq_r[i] = sq_residuals[i]
+        sq_r[i] = sq_distances[i]
     end
     return sq_r
 end
@@ -224,7 +224,7 @@ function median_seeded_posterior(sq::AbstractVector{Float64}, n::Int;
         n; ν, s_hat_sq = Statistics.median(view(sq, 1:n)) / m_d,
         log_two_outlier_halfwidth = log(2 * Float64(outlier_halfwidth)), codimension, prior
     )
-    _copy_sq_residuals!(pws.sq_residuals, sq, n)
+    _copy_sq_distances!(pws.sq_distances, sq, n)
     update_weights!(pws, n)
     return pws
 end
@@ -245,7 +245,7 @@ end
 
 M-step, scale block: overwrite ŝ² from the E-step's weights and the current
 squared residuals, and nothing else. Call after the residual block fills
-`sq_residuals(pws)`; the ν block is [`update_nu!`](@ref), called after this.
+`sq_distances(pws)`; the ν block is [`update_nu!`](@ref), called after this.
 
 ŝ² is the ECM step of the d_g-variate Student-t with scale ŝ²·I:
 
@@ -257,7 +257,7 @@ precision-scaled, `wᵢ = πᵢ·(ν + d_g)/(νŝ² + rᵢ²) = πᵢuᵢ/ŝ²`,
 `fit_scale(prior, ŝ²·Σwᵢrᵢ², d_g·Σπᵢ)`. Returns ŝ².
 """
 function update_scale!(pws::PosteriorWeightState, n::Int)
-    sum_wr2 = weighted_rss(pws.w, pws.sq_residuals, n)
+    sum_wr2 = weighted_rss(pws.w, pws.sq_distances, n)
     return pws.s_hat_sq = fit_scale(
         pws.prior, pws.s_hat_sq * sum_wr2,
         pws.d_g * _sum_inlier_posterior(pws, n)
@@ -274,7 +274,7 @@ squared residuals and the CURRENT ŝ², and nothing else. Call after
 """
 function update_nu!(pws::PosteriorWeightState, n::Int)
     return pws.ν = next_nu(
-        pws.ν, pws.sq_residuals, pws.s_hat_sq, pws.inlier_posterior, n;
+        pws.ν, pws.sq_distances, pws.s_hat_sq, pws.inlier_posterior, n;
         d_g = pws.d_g
     )
 end
@@ -417,7 +417,7 @@ from current ν, ŝ², and squared residuals.
 """
 function update_weights!(pws::PosteriorWeightState, n::Int)
     return soft_posterior_weights!(
-        pws.w, pws.inlier_posterior, pws.sq_residuals,
+        pws.w, pws.inlier_posterior, pws.sq_distances,
         pws.ν, pws.s_hat_sq, pws.log_two_outlier_halfwidth, n, pws.d_g, pws.inlier_prior
     )
 end
@@ -427,14 +427,14 @@ end
 
 One ECM cycle of the Student-t + uniform mixture with the mixing proportion
 ESTIMATED (ν held fixed), from the residuals `r[1:n]` (unsquared). It squares them
-into [`sq_residuals`](@ref)`(pws)`, then runs the E-step ([`update_weights!`](@ref)),
+into [`sq_distances`](@ref)`(pws)`, then runs the E-step ([`update_weights!`](@ref)),
 the scale block ([`update_scale!`](@ref)) and the inlier-prior block
 ([`update_inlier_prior!`](@ref)), in that order. Each block is an exact
 conditional maximisation, so the mixture NLL ([`mixture_nll`](@ref)) never
 rises. Returns `nothing`.
 """
 function mixture_ecm!(pws::PosteriorWeightState, r::AbstractVector, n::Int)
-    square_residuals!(pws.sq_residuals, r, n)
+    square_distances!(pws.sq_distances, r, n)
     update_weights!(pws, n)
     update_scale!(pws, n)
     update_inlier_prior!(pws, n)
@@ -473,19 +473,19 @@ robust_weight(pws::PosteriorWeightState) = pws.w
 # predictive, `partition_student_t` — the SAME (ν, ŝ²) rule a
 # `PosteriorWeightState` seeds from. The RSS is summed in Float64 regardless of
 # the residuals' storage eltype. The inlier prior is ½.
-@inline function _partition_mixture(sq_residuals::AbstractVector,
+@inline function _partition_mixture(sq_distances::AbstractVector,
                                     order::AbstractVector{Int}, k::Int,
                                     dg::Int, model_dof::Int, log_two_outlier_halfwidth::Float64,
                                     prior::IGPrior)
     ν, s_hat_sq = partition_student_t(
-        prior, _partition_rss(sq_residuals, order, k), k;
+        prior, _partition_rss(sq_distances, order, k), k;
         model_dof, codimension = dg
     )
     return StudentTMixture(ν, s_hat_sq, log_two_outlier_halfwidth, dg)
 end
 
 """
-    posterior_weights!(w, sq_residuals, order, k; model_dof, log_two_outlier_halfwidth,
+    posterior_weights!(w, sq_distances, order, k; model_dof, log_two_outlier_halfwidth,
                        codimension = 1, prior = JeffreysPrior())
 
 Student-t posterior weights `w[i] = P(inlier | rᵢ) · uᵢ` of the hard partition
@@ -496,32 +496,32 @@ uniform outlier support, `uᵢ = (ν + d_g)/(ν·ŝ² + r²ᵢ)`. Per point this
 [`posterior_weight`](@ref) of that [`StudentTMixture`](@ref). Fills every
 entry of `w`.
 """
-function posterior_weights!(w::AbstractVector, sq_residuals::AbstractVector,
+function posterior_weights!(w::AbstractVector, sq_distances::AbstractVector,
                             order::AbstractVector{Int}, k::Int;
                             model_dof::Int, log_two_outlier_halfwidth::Float64,
                             codimension::Int = 1, prior::IGPrior = JeffreysPrior())
-    m = _partition_mixture(sq_residuals, order, k, codimension, model_dof, log_two_outlier_halfwidth, prior)
+    m = _partition_mixture(sq_distances, order, k, codimension, model_dof, log_two_outlier_halfwidth, prior)
     @inbounds for i in eachindex(w)
-        w[i] = posterior_weight(m, Float64(sq_residuals[i]))
+        w[i] = posterior_weight(m, Float64(sq_distances[i]))
     end
     return w
 end
 
 """
-    posterior_inlier_probs!(w, sq_residuals, order, k; model_dof, log_two_outlier_halfwidth,
+    posterior_inlier_probs!(w, sq_distances, order, k; model_dof, log_two_outlier_halfwidth,
                             codimension = 1, prior = JeffreysPrior())
 
 Posterior inlier probabilities `w[i] ∈ [0, 1]` of the hard partition
 `order[1:k]`, without the IRLS weight factor — the same mixture as
 [`posterior_weights!`](@ref), so that is this times `uᵢ`.
 """
-function posterior_inlier_probs!(w::AbstractVector, sq_residuals::AbstractVector,
+function posterior_inlier_probs!(w::AbstractVector, sq_distances::AbstractVector,
                                  order::AbstractVector{Int}, k::Int;
                                  model_dof::Int, log_two_outlier_halfwidth::Float64,
                                  codimension::Int = 1, prior::IGPrior = JeffreysPrior())
-    m = _partition_mixture(sq_residuals, order, k, codimension, model_dof, log_two_outlier_halfwidth, prior)
+    m = _partition_mixture(sq_distances, order, k, codimension, model_dof, log_two_outlier_halfwidth, prior)
     @inbounds for i in eachindex(w)
-        w[i] = inlier_posterior(m, Float64(sq_residuals[i]))
+        w[i] = inlier_posterior(m, Float64(sq_distances[i]))
     end
     return w
 end

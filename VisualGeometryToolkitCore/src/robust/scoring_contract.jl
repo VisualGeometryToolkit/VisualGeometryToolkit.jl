@@ -327,7 +327,7 @@ function score_model!(buf::ScoreBuffers, scoring, problem, θ;
 end
 
 function _score_model!(buf, scoring, problem, θ, n, sample, reuse_residuals, bound)
-    (reuse_residuals && !is_predictive(scoring)) || residuals!(buf.residuals, problem, θ)
+    (reuse_residuals && !is_predictive(scoring)) || mahalanobis_distances!(buf.residuals, problem, θ)
     return score!(buf.scoring_ws, scoring, buf.scores, buf.residuals, n; sample, bound)
 end
 _score_model!(buf, scoring, problem, θ::Uncertain, n, sample, _reuse_residuals, bound) =

@@ -636,7 +636,7 @@ depending on pattern distance, foreshortening, image-area, etc.). With
 
 The framework supports this directly: return ``\Sigma_{x_i}`` from the problem's
 `measurement_covariance(problem, i)` beside its `constraint_with_jacobians`, and
-the default `residuals!` computes
+the default `mahalanobis_distances!` computes
 ``\sqrt{\boldsymbol{g}_i^{\!\top}\,\tilde\Sigma_{g,i}^{-1}\,\boldsymbol{g}_i}``.
 
 *Strengths.* Textbook-correct heteroscedastic weighting; a far-away

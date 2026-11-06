@@ -17,7 +17,7 @@ using Rotations: RotY, RotXYZ
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: test_scoring_contract, test_constraint_problem, test_local_optimization_contract,
     MsacScoring, RansacScoring, estimate, converged, csponds, model_type, RadialCamera, RadialHomography,
-    radial_transfer, WelschShape, TLSShape, data_size, codimension, minimal_sample_size, residuals!,
+    radial_transfer, WelschShape, TLSShape, data_size, codimension, minimal_sample_size, mahalanobis_distances!,
     residual_context, whitened_residual, rotation, translation, radial_rows, homography, division_coeff
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitEstimation: RansacConfig
@@ -234,7 +234,7 @@ function check_rows_provider(p, θ; inliers = trues(data_size(p)), currency_tol 
         @test lift_residuals(prov) === rws.rn
         @test rws.rn ≈ point_norms!(zeros(n), rws.r, n, C) rtol = 1.0e-14
     end
-    r = zeros(n); residuals!(r, p, θ)
+    r = zeros(n); mahalanobis_distances!(r, p, θ)
     res = lift_residuals(prov)
     @test maximum(i -> abs(abs(res[i]) - abs(r[i])) / max(abs(r[i]), 1.0), findall(inliers)) < currency_tol
     # the participation mask: every point, unless the problem masks some (PnP)
@@ -272,7 +272,7 @@ end
         # first order: the currency is compared on the inliers — their difference is second order, δ²·κ/2 with the curvature κ ≤ a/b²
         # (0.019 here): ≤ 0.01 at |δ| < 1 px, measured 5.1e-3
         pl, θl = ellipse_scene()
-        rl = zeros(data_size(pl)); residuals!(rl, pl, θl)
+        rl = zeros(data_size(pl)); mahalanobis_distances!(rl, pl, θl)
         check_rows_provider(pl, θl; inliers = abs.(rl) .< 1, currency_tol = 1.0e-2)
     end
 end

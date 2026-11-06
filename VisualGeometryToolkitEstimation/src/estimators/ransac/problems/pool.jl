@@ -161,7 +161,7 @@ function _oracle_rss(::EssentialProblem, raw::StereoRawPair, draft, src, dst, ma
     Kc1, Kc2 = pool_frame_calibrations(draft)
     ep = EssentialProblem(CameraModel(Kc1), CameraModel(Kc2),
                           VgtkCore.Csponds(Point2{Float64}.(src), Point2{Float64}.(dst)))
-    r = residuals!(Vector{Float64}(undef, data_size(ep)), ep, EssentialMat(pair_R_gt(raw), pair_t_gt(raw)))
+    r = mahalanobis_distances!(Vector{Float64}(undef, data_size(ep)), ep, EssentialMat(pair_R_gt(raw), pair_t_gt(raw)))
     return isempty(mask) ? sum(abs2, r) : sum(abs2, view(r, only(mask)))
 end
 
@@ -261,9 +261,9 @@ end
 # -----------------------------------------------------------------------------
 #
 # E: the tangent Sampson of the metric `E = Kc₂ᵀ·F·Kc₁` on the record's
-# `EssentialProblem(pair)` (`residuals!`), the residual a pool-frame LO scores
+# `EssentialProblem(pair)` (`mahalanobis_distances!`), the residual a pool-frame LO scores
 # refits with. F and H: the plane Sampson of the pool-frame model through VGC
-# `sampson_distances!`, NOT the problem's `residuals!`: it is the
+# `sampson_distances!`, NOT the problem's `mahalanobis_distances!`: it is the
 # residual VGC's `pixel_residuals` recomputes (the same function), and this route is kept for
 # bitwise equality with pools already written. Stored as `Float32(|r|)`.
 
@@ -274,7 +274,7 @@ function _pool_residuals!(R::AbstractMatrix{Float32}, ::EssentialProblem, pair::
     Kc1, Kc2 = pool_frame_calibrations(pair)
     r = Vector{Float64}(undef, data_size(ep))
     for j in eachindex(pair.models)
-        residuals!(r, ep, EssentialMat(pair.models[j], Kc1, Kc2))
+        mahalanobis_distances!(r, ep, EssentialMat(pair.models[j], Kc1, Kc2))
         R[:, j] .= Float32.(abs.(r))
     end
     return R

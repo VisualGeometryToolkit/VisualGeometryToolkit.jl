@@ -115,9 +115,9 @@ local optimization).
 
 **The problem protocol** ([`AbstractConstraintProblem`](@ref
 VisualGeometryToolkitCore.AbstractConstraintProblem)): `data_size`, `codimension`,
-`minimal_sample_size` and `constraint_with_jacobians`, from which `residuals!`
-is derived (a problem may supply a faster `residual_context` /
-`whitened_residual` path); optionally `solver_covariance` for predictive
+`minimal_sample_size` and `constraint_with_jacobians`, from which the signed
+`whitened_residual` and the distances `mahalanobis_distances!` are derived (a
+problem may supply a faster `residual_context` / `mahalanobis_distance` path); optionally `solver_covariance` for predictive
 scoring; and the weighted refit `refine!(R, problem, θ, w)` on
 `refine_workspace(P, n)` that local optimizations call.
 

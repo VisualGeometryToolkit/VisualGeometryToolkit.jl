@@ -188,7 +188,7 @@ specializations go in `problems/`.
 
 ## Code Conventions
 
-- **Functions**: `snake_case` (`residuals!`, `minimal_sample_size`, `locally_optimize`)
+- **Functions**: `snake_case` (`mahalanobis_distances!`, `minimal_sample_size`, `locally_optimize`)
 - **Types**: `CamelCase` (`HomographyProblem`, `RansacWorkspace`, `RansacEstimate`)
 - **Constants**: `UPPERCASE_SNAKE_CASE`
 - **Section dividers**: `# =============================================================================`
@@ -217,7 +217,7 @@ The model-first rule above, and the RANSAC problem-first exception below, order
 the inputs within (5) only.
 - A function that modifies a Julia object argument ends in `!`, and only a
   function argument, an IO or an RNG precede what it mutates:
-  `residuals!(r, problem, model)`, `score!(W, scoring, scores, residuals, n)`,
+  `mahalanobis_distances!(d, problem, model)`, `score!(W, scoring, scores, residuals, n)`,
   `refine!(ws, problem, θ, weights)`, `block_coordinate_descent!(state, likelihood, method, prob, θ₀)`,
   `consensus_s2!(ws, problem, scoring, model)`. An output the caller reads
   back is the leading mutated argument of a `!` function
@@ -230,10 +230,11 @@ the inputs within (5) only.
   (best-tracking, a schedule's rung advance, the counters a criterion reads)
   goes in `post_iteration!`, which the loop runs first.
 - A type argument is positional, never a keyword: it leads a non-mutating call
-  and follows the mutated inputs of a `!` call: `RansacWorkspace(P, n_data)`,
-  the problem type first. An optional type is an optional positional, written
-  as separate methods: `RansacWorkspace(P, n_data[, T = Float32])` (the
-  per-point storage eltype; there are no per-family `*_workspace` wrappers).
+  and follows the mutated inputs of a `!` call. An optional type is an
+  optional leading positional, written as separate methods:
+  `RansacWorkspace([T = Float32,] P, n_data)` and every other
+  `RansacWorkspace` form (`T` the per-point storage eltype; there are no
+  per-family `*_workspace` wrappers).
 - An RNG leads: `draw_sample!(rng, indices, problem)`.
 - A reorder or rename makes every old call fail loudly (`MethodError` /
   `UndefVarError`) and adds no method ambiguity.

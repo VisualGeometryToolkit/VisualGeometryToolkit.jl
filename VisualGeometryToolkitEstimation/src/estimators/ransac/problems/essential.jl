@@ -29,7 +29,7 @@
 # steps by MRP(ω)·R, t along the S² tangent basis at t and renormalized — so E
 # stays exactly on the essential manifold with no gauge direction. The rows
 # are the TANGENT Sampson of E on bearings, whitened by the per-view
-# back-projection Jacobians `M₁`/`M₂` — the SAME implementation `residuals!`
+# back-projection Jacobians `M₁`/`M₂` — the SAME implementation `mahalanobis_distances!`
 # scores through (VGC's batch rows over the problem's set, its M₁/M₂ columns),
 # with the chart's directions ∂vec(E)/∂v from VGC's `retract_jacobian`.
 # The chart-LM refit and the HQ/GNC lifts (LocalOptimizationDoneRight) share
@@ -130,7 +130,7 @@ end
 # `Inf` (373 of 373) — `find_essential` returned `:no_model` where Float64
 # converged on all 298. The data stay in the caller's eltype; only the
 # arithmetic is widened, per point, with no allocation. The model is widened
-# ONCE per model — RSDR's `residual_context`, which `residuals!` takes before
+# ONCE per model — RSDR's `residual_context`, which `mahalanobis_distances!` takes before
 # its per-point loop — and the per-point widening is then a no-op.
 @inline _bearing64(f) = SVector{3, Float64}(f[1], f[2], f[3])
 @inline _jacobian64(M) = SMatrix{3, 2, Float64, 6}(M)

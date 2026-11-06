@@ -338,13 +338,13 @@ const _BoardPose = EuclideanMap{3, Float64, RotMatrix{3, Float64, 9}, SVector{3,
 
 # One iteration's state in POSITIONAL form — the views in a fixed order (`ids`): the state the
 # stacked solve and the IRLS iterate on, before it is keyed. `poses[i] === nothing`
-# for a view that admitted no pose; `sq_residuals[i]` mirrors view i.
+# for a view that admitted no pose; `sq_distances[i]` mirrors view i.
 struct _PositionalDivisionState
     f::Float64
     k::Vector{Float64}
     center::Point2{Float64}
     poses::Vector{Union{Nothing, _BoardPose}}
-    sq_residuals::Vector{Vector{Float64}}
+    sq_distances::Vector{Vector{Float64}}
 end
 
 """
@@ -356,7 +356,7 @@ keyed by the views' identity `K`: `f`; the division coefficients `k` (of r², r�
 every input radial camera shares; `poses[id]`, the board pose — an
 `EuclideanMap{3}` from the board plane (z = 0) into the camera, rotation from
 the radial camera, translation (t₁₂, t₃) — in the plane's units, of each view that admitted one (a view
-without a pose this iteration is absent); and `sq_residuals[id]`, the whitened
+without a pose this iteration is absent); and `sq_distances[id]`, the whitened
 residual norms² of the view's correspondences (pixel², in its order; NaN for a
 view without a pose) — the currency the robust re-weighting reads. `ids` is the
 sorted key order. Feed it back as `whiten_at` for the next iteration;
@@ -367,21 +367,21 @@ struct DivisionCameraState{K}
     k::Vector{Float64}
     center::Point2{Float64}
     poses::Dict{K, _BoardPose}
-    sq_residuals::Dict{K, Vector{Float64}}
+    sq_distances::Dict{K, Vector{Float64}}
     ids::Vector{K}
 end
 
 # positional ⇄ keyed at the boundary
 function _keyed(p::_PositionalDivisionState, ids::Vector{K}) where {K}
     poses = Dict{K, _BoardPose}(ids[i] => p.poses[i] for i in eachindex(ids) if p.poses[i] !== nothing)
-    sq = Dict{K, Vector{Float64}}(ids[i] => p.sq_residuals[i] for i in eachindex(ids))
+    sq = Dict{K, Vector{Float64}}(ids[i] => p.sq_distances[i] for i in eachindex(ids))
     return DivisionCameraState{K}(p.f, p.k, p.center, poses, sq, ids)
 end
 _positional(w::Union{Nothing, Real}, _ids) = w      # a seed focal, or none: no views to order
 _positional(st::DivisionCameraState, ids) = _PositionalDivisionState(
     st.f, st.k, st.center,
     Union{Nothing, _BoardPose}[get(st.poses, id, nothing) for id in ids],
-    [get(st.sq_residuals, id, Float64[]) for id in ids]
+    [get(st.sq_distances, id, Float64[]) for id in ids]
 )
 
 """
@@ -401,7 +401,7 @@ division_coeffs(state::DivisionCameraState) = state.k
 The whitened residual norms² of every correspondence, per view in its order
 (pixel²) — the currency the robust re-weighting reads.
 """
-board_sq_residuals(state::DivisionCameraState) = state.sq_residuals
+board_sq_residuals(state::DivisionCameraState) = state.sq_distances
 
 # Shared driver: normalize through `normalization`, pick a pose candidate per board,
 # stack the (whitened, weighted) constraint rows, solve. Returns the iteration's
@@ -856,7 +856,7 @@ a `Division{ncoef}` lens re-expressed in that K's normalized frame
 the `CameraModel(model, K′)` constructor).
 
 ONE ITERATION, not an estimator. Without `whiten_at` there is nothing to linearize
-at, so the SOLVE is plain algebraic least squares; the returned `sq_residuals`,
+at, so the SOLVE is plain algebraic least squares; the returned `sq_distances`,
 which the robust driver reweights by, are the Sampson residuals at the solution.
 The robust driver's iteration 0 is this step at its seed,
 

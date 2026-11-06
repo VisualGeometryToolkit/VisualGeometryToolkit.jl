@@ -8,7 +8,7 @@
 # (upstream #60, the stack's fork) and NLLSsolver's sparse LDL (what a
 # registered NLLSsolver takes until #60 merges) reach the same pose; (3) allocations per call flat in N (the kept problem);
 # (4) noiseless recovery is machine-exact (canonical frame); (5) noisy
-# refinement improves a perturbed seed; (6) optimal-triangulation `residuals!`
+# refinement improves a perturbed seed; (6) optimal-triangulation `mahalanobis_distances!`
 # ≤ DLT reprojection; (7) the 5-dof chart reaches the retired 6-dof chart's
 # optimum, stationary, ‖t‖ = 1.
 # =============================================================================
@@ -423,7 +423,7 @@ end
     p = RelposeBundleProblem(KC1, KC2, csponds(u1, u2))
     θ = EssentialMat(Rgt, tgt)
     r = zeros(N + 1)
-    VgtkEstimation.residuals!(r, p, θ)
+    VgtkEstimation.mahalanobis_distances!(r, p, θ)
     @test all(isfinite, r)
 end
 

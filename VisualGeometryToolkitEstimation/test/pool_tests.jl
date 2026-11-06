@@ -14,7 +14,7 @@ using VisualGeometryToolkitCore.Pools: PoolPair, StereoRawPair, pool_pixel_scale
     pool_normalization, num_models, num_points
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitEstimation: draw_hypotheses, Hypotheses, InlierVariance, TrackVariance, UniformSampler,
-    RansacConfig, residuals!
+    RansacConfig, mahalanobis_distances!
 
 # A raw pair of the pool interface (pixels).
 struct TestRawPair <: StereoRawPair
@@ -104,7 +104,7 @@ end
         if kind === :E
             @test pp.coincident_tol == COINCIDENT_PX * pool_pixel_scale(pair)
             Kc1, Kc2 = pool_frame_calibrations(pair)
-            r = residuals!(zeros(num_points(pair)), pp, EssentialMat(pair.models[j], Kc1, Kc2))
+            r = mahalanobis_distances!(zeros(num_points(pair)), pp, EssentialMat(pair.models[j], Kc1, Kc2))
             @test R[:, j] == Float32.(abs.(r))
         else
             # to Float32 rounding: the same sampson_distance, inlined into the pool's

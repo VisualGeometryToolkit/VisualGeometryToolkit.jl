@@ -15,7 +15,7 @@ To add a new geometry type to the RANSAC framework, implement a subtype of
 # The problem interface is split across its owners: extend each verb from the
 # package that owns it (`import`, so the methods below extend rather than shadow).
 using VisualGeometryToolkitEstimation: AbstractRansacProblem
-import VisualGeometryToolkitCore: minimal_sample_size, data_size, codimension, residuals!,
+import VisualGeometryToolkitCore: minimal_sample_size, data_size, codimension, mahalanobis_distances!,
     model_type, solve, test_sample, test_model, test_consensus, refine!, refine_workspace
 using VisualGeometryToolkitCore: FixedModels
 
@@ -40,14 +40,14 @@ function solve(p::MyProblem, sample_indices::AbstractVector{Int})
     # Return a model or FixedModels{N,M}, or nothing on failure
 end
 
-# Compute whitened residuals for all data points given a model.
-# MUST satisfy r[i]^2 = squared Mahalanobis distance (the whitening contract).
-# For isotropic problems (Σ_x = I), this is just the signed distance.
-function residuals!(residuals::Vector{Float64}, p::MyProblem, model)
-    for i in eachindex(residuals)
-        residuals[i] = compute_distance(p.data[i], model)
+# Compute the Mahalanobis distance (≥ 0) of every data point given a model.
+# MUST satisfy d[i]^2 = squared Mahalanobis distance (the whitening contract).
+# For isotropic problems (Σ_x = I), this is just the geometric distance.
+function mahalanobis_distances!(d::Vector{Float64}, p::MyProblem, model)
+    for i in eachindex(d)
+        d[i] = compute_distance(p.data[i], model)
     end
-    return residuals
+    return d
 end
 ```
 

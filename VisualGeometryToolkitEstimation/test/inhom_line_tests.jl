@@ -9,7 +9,7 @@ using StableRNGs
 using ForwardDiff
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: estimate, metadata   # VGC accessors (public)
-using VisualGeometryToolkitCore: codimension, solver_covariance, scoring_workspace   # the constraint-problem and scoring contracts (VGC)
+using VisualGeometryToolkitCore: codimension, solver_covariance, scoring_workspace, whitened_residuals!   # the constraint-problem and scoring contracts (VGC)
 using VisualGeometryToolkitCore: MsacScoring, ThresholdScoringWorkspace   # owned and exported by VisualGeometryToolkitCore
 using VisualGeometryToolkitEstimation: RansacMetadata   # public, not exported
 using VisualGeometryToolkitEstimation
@@ -159,10 +159,14 @@ _g_of_y(pts, model, y, i) = constraint(
         for i in 1:3
             g, G_x, G_θ = constraint_with_jacobians(prob, model, i)
 
-            # g is the problem's scoring residual of point i
+            # g is the problem's signed whitened residual of point i (∂ₓg = [1]),
+            # its distance |g| the scoring's
             r = zeros(3)
-            VgtkEstimation.residuals!(r, prob, model)
+            whitened_residuals!(r, prob, model)   # a vector model: the problem-level rows
             @test g ≈ r[i] atol = 1.0e-14
+            d = zeros(3)
+            VgtkEstimation.mahalanobis_distances!(d, prob, model)
+            @test abs(g) ≈ d[i] atol = 1.0e-14
 
             # G_x = ∂g/∂yᵢ and G_θ = ∂g/∂(a, b), as ForwardDiff sees g
             @test G_x ≈ SA[ForwardDiff.derivative(y -> _g_of_y(pts, model, y, i), pts[i][2])] atol = 1.0e-14

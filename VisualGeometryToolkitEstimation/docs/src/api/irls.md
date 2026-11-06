@@ -116,7 +116,7 @@ VisualGeometryToolkitCore's (import them from there):
 [`mixture_nll`](@extref `VisualGeometryToolkitCore.mixture_nll-Tuple{VisualGeometryToolkitCore.PosteriorWeightState, AbstractVector, Int64}`),
 [`mixture_ecm!`](@extref VisualGeometryToolkitCore.mixture_ecm!),
 [`update_inlier_prior!`](@extref `VisualGeometryToolkitCore.update_inlier_prior!-Tuple{VisualGeometryToolkitCore.PosteriorWeightState, Int64}`),
-[`sq_residuals`](@extref VisualGeometryToolkitCore.sq_residuals), and the
+[`sq_distances`](@extref VisualGeometryToolkitCore.sq_distances), and the
 policies [`Estimated`](@extref VisualGeometryToolkitCore.Estimated),
 [`FixedS2`](@extref VisualGeometryToolkitCore.FixedS2),
 [`FixedPrior`](@extref VisualGeometryToolkitCore.FixedPrior),

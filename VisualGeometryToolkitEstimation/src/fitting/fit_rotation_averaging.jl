@@ -90,10 +90,10 @@ function fit_rotation_averaging(
     frames = sort!(collect(keys(seed)))
     R = Dict(k => SMatrix{3, 3, Float64, 9}(seed[k]) for k in frames)
     m = length(edges); r = Vector{SVector{3, Float64}}(undef, m); w = copy(p)
-    residuals!() = for (q, (i, j)) in enumerate(edges)
+    edge_residuals!() = for (q, (i, j)) in enumerate(edges)
         r[q] = log_so3(R[j] * Rrel[q] * R[i]')
     end
-    residuals!()
+    edge_residuals!()
     retcode = :max_iterations; iter = 0; σ = NaN
     while iter < max_iter
         iter += 1
@@ -108,7 +108,7 @@ function fit_rotation_averaging(
             R[k] = SMatrix{3, 3, Float64, 9}(VgtkCore.exp_so3(δ)) * R[k]
             Δ = max(Δ, norm(δ))
         end
-        residuals!()
+        edge_residuals!()
         Δ < tol && (retcode = :converged; break)
     end
     σ = _averaging_weights!(w, r, p, loss, scale_multiple)

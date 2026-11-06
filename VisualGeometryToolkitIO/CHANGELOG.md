@@ -45,7 +45,14 @@
 - **New kinds, a radiometric camera's values:** `vgio/vignetting/v1` (`TensorProductVignetting` with its knots stated,
   `RadialVignetting`, `LogVignetting`; COLMAP pixels; rebuilt bit for bit), `vgio/environment_light/v1` (an
   `EnvironmentLight` of a `SphericalHarmonicMap`: centre and radius in `length_unit`, a plain light refused; the basis
-  convention stated) and `vgio/blur/v1` (name → `GaussianBlur` on a sensor, px², in the storage each holds).
+  convention stated) and `vgio/blur/v1` (name → `GaussianBlur`, each one's `covariance` — the blur is the density
+  `N(0, Σ)` — in the storage it holds and in the unit its block states, `"px^2"` on a sensor or `length_unit` squared
+  on a print by IO's length rule: a decimal variance reads back exactly, a variance computed in code within an ulp;
+  the unit is recorded, the blur's frame tag is not). The three bodies are VGC values on `VgioStyle`, so another package's record can nest
+  them: `JSON.lower(style, x)` and `JSON.lift(style, AbstractVignetting, record)`, `JSON.lift(style, EnvironmentLight,
+  record)` (centre and radius in the style's length unit) and `JSON.lift(style, GaussianBlur, record)` (`{"unit",
+  "covariance"}`: the lift reads the stated unit, px² as plain numbers and a length² as m² quantities); the kinds'
+  save and load go through them.
 - A target calibration's covariance and a point target's point covariances take the three storage forms too.
 - Requires the VisualGeometryToolkitCore whose `CovMat{N, T, M, C}` holds a static matrix (`ScaledIdentity`), with
   `TensorProductVignetting(knots_x, knots_y, P; degree)` and `radius` public.

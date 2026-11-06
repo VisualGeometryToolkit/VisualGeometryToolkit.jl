@@ -94,20 +94,20 @@ end
 """
     Ellipse(center, A::AbstractMatrix)
 
-Refused: a plain 2×2 matrix is ambiguous — it could be a moment matrix Σ
-(1σ contour `(x-c)ᵀ Σ⁻¹ (x-c) = 1`) or an affine "square root" A with
-Σ = A·A', and for symmetric input the two interpretations silently differ
-by a squaring. Say which one you mean:
+Refused: a plain 2×2 matrix is ambiguous — it could be a moment matrix M
+(`(x-c)ᵀ M⁻¹ (x-c) = 1`, the 1σ contour of a covariance M) or a shape factor
+A with M = A·A', and for symmetric input the two interpretations silently
+differ by a squaring. Say which one you mean:
 
-- moment matrix: `Ellipse(center, Symmetric(Σ))`
-- affine square root (e.g. Baumberg adaptation): `Ellipse(center, Symmetric(A * A'))`
+- moment matrix: `Ellipse(center, Symmetric(M))`
+- shape factor (e.g. Baumberg adaptation): `Ellipse(center, Symmetric(A * A'))`
 """
 function Ellipse(center, A::AbstractMatrix)
     throw(
         ArgumentError(
             "Ellipse(center, A::AbstractMatrix) is ambiguous: supply the moment " *
-                "matrix explicitly as Ellipse(center, Symmetric(Σ)), or for an " *
-                "affine square root A use Ellipse(center, Symmetric(A * A'))."
+                "matrix explicitly as Ellipse(center, Symmetric(M)), or for a " *
+                "shape factor A use Ellipse(center, Symmetric(A * A'))."
         )
     )
 end
@@ -115,8 +115,8 @@ end
 """
     Ellipse(center, Σ::Symmetric) -> Ellipse
 
-Construct an ellipse from a 2×2 moment matrix (symmetric PD). The boundary is the
-1σ ellipse: `{x : (x-c)ᵀ Σ⁻¹ (x-c) = 1}`.
+Construct an ellipse from its 2×2 moment matrix (symmetric PD; a covariance's
+1σ contour). The boundary is `{x : (x-c)ᵀ Σ⁻¹ (x-c) = 1}`.
 
 Semi-axes are `√λᵢ` where `λᵢ` are eigenvalues of `Σ`.
 
@@ -218,16 +218,16 @@ Return the area of an ellipse: π * a * b.
 area(e::Ellipse) = π * e.a * e.b
 
 """
-    shape_matrix(e::Ellipse) -> SMatrix{2,2}
+    shape_factor(e::Ellipse) -> SMatrix{2,2}
 
-Return the 2×2 shape matrix A where the ellipse boundary satisfies ‖A⁻¹(x - c)‖ = 1.
-
-The shape matrix is A = R(θ) * diag(a, b) where R is the rotation matrix.
+The 2×2 factor `A = R(θ)·diag(a, b)` of the ellipse's [`moment_matrix`](@ref)
+`M = A·Aᵀ` (`R` the rotation by θ): the boundary is `‖A⁻¹(x - c)‖ = 1`, the
+unit circle mapped by `x = c + A u`.
 """
-function shape_matrix(e::Ellipse{T}) where {T}
+function shape_factor(e::Ellipse{T}) where {T}
     cosθ, sinθ = cos(e.θ), sin(e.θ)
     # R(θ) * diag(a, b) = [cosθ -sinθ; sinθ cosθ] * [a 0; 0 b]. `float(T)`: an
-    # integer-typed ellipse has a non-integer shape matrix (it threw an
+    # integer-typed ellipse has a non-integer shape factor (it threw an
     # InexactError here); float(T) is the identity for every float and Dual T.
     return SMatrix{2, 2, float(T)}(
         e.a * cosθ, e.a * sinθ,
@@ -238,12 +238,11 @@ end
 """
     moment_matrix(e::Ellipse) -> SMatrix{2,2}
 
-Return the moment matrix M = A * A' where A is the shape matrix.
-
-This represents the ellipse as a 1-σ contour: `{x : (x-c)ᵀ M⁻¹ (x-c) = 1}`.
+The ellipse's matrix `M = A·Aᵀ`, `A` its [`shape_factor`](@ref): the
+boundary is `{x : (x-c)ᵀ M⁻¹ (x-c) = 1}` (the 1σ contour of `N(c, M)`).
 """
 function moment_matrix(e::Ellipse{T}) where {T}
-    A = shape_matrix(e)
+    A = shape_factor(e)
     return A * A'
 end
 
@@ -381,7 +380,7 @@ Construct conic matrix Q from Ellipse via Q = A^{-T} * CIRCLE * A^{-1},
 where A maps unit circle → ellipse.
 """
 function HomEllipseMat(e::Ellipse{T}) where {T}
-    L = shape_matrix(e)   # R(θ)·diag(a, b): unit circle → ellipse, linear part
+    L = shape_factor(e)   # R(θ)·diag(a, b): unit circle → ellipse, linear part
     A = @SMatrix [
         L[1, 1]   L[1, 2]   e.center[1];
         L[2, 1]   L[2, 2]   e.center[2];

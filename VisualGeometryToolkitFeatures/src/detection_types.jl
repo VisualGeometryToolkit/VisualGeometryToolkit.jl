@@ -103,7 +103,7 @@ geom(d::Attributed{<:_UncertainFrame, <:NamedTuple}) = Attributed(feature_frame(
 # correctly to this method when V <: FeatureFrame.
 
 # Moment matrix accessor (blob shape). `d.σ` is VGC's `characteristic_scale`:
-# σ itself for the isotropic frames, √|det S| for the shape-matrix ones.
+# σ itself for the isotropic frames, √|det S| for the shape-factor ones.
 _get_moment_matrix(f::Union{Disc{T}, OrientedDisc{T}}) where {T} =
     SMatrix{2, 2, T}(f.σ^2, zero(T), zero(T), f.σ^2)
 _get_moment_matrix(f::EllipticFrame) = moment_matrix(f)

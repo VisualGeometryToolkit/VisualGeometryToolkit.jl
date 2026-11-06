@@ -234,7 +234,7 @@ Compile-time dispatch via trait types defined in `base/traits.jl` (loaded by
 | `HasBoundaryTrait` | `HasBoundary`, `NoBoundary` | Primitives (boundary-sampled `overlap_area` fallback) |
 | `OverlapMethod` | `AnalyticOverlap`, `BoundarySampled` | `overlap_method` / `overlap_area` (Primitives) |
 | `BoundsTrait` | `HasBounds`, `NoBounds` | `extent` on `BoundedCamera`, `BoundedMap` |
-| `FrameScaleTrait` | `IsotropicScale`, `ShapeMatrixScale` | `FeatureFrame` accessors (Primitives `feature_frames.jl`) |
+| `FrameScaleTrait` | `IsotropicScale`, `ShapeFactorScale` | `FeatureFrame` accessors (Primitives `feature_frames.jl`) |
 | `AbstractSolverBackend` | `NativeSolver`, `PoseLibSolver` | `MinimalSolver` verb layer, positional solver kernels |
 | `FrameDependence` | `GeometryDefined`, `ModelDefined` | `frame_transition`, sphere sections (Cameras) |
 
@@ -256,7 +256,7 @@ plain `SMatrix`) are algebra only. The affine class is stated once, as
 # Dispatch on FrameScaleTrait: one accessor, one method per scale kind
 characteristic_scale(f::FeatureFrame) = _characteristic_scale(frame_scale(f), f)
 
-_characteristic_scale(::ShapeMatrixScale, f) = sqrt(abs(det(shape_matrix(f))))
+_characteristic_scale(::ShapeFactorScale, f) = sqrt(abs(det(shape_factor(f))))
 _characteristic_scale(::IsotropicScale, f) = f.σ
 ```
 

@@ -2,6 +2,31 @@
 
 ## 0.6.0 (Unreleased)
 
+- **Breaking: `shape_matrix` is removed; the factor is `shape_factor`.** `shape_matrix` returned the FACTOR `F` of an
+  elliptical region's matrix `M = F·Fᵀ` — `S` for an `EllipticFrame` (`M = S²`), `A` for an `AffineFrame`,
+  `R(θ)·diag(a, b)` for an `Ellipse` — under the name ellipsoidal calculus gives `M` itself (`E(c, M) = {x : (x-c)ᵀ
+  M⁻¹ (x-c) ≤ 1}`). It is now `shape_factor(f)`, with `moment_matrix(f) = shape_factor(f) * shape_factor(f)'`;
+  `shape_matrix` has no method and no alias (retired, `check_naming`), so every old call is an `UndefVarError` rather
+  than a silent change of meaning. Migration: `shape_matrix(x)` → `shape_factor(x)`. The `FrameScaleTrait` arm that
+  dispatches on it is renamed with it, `ShapeMatrixScale` → `ShapeFactorScale` (retired, no alias). **0.7.0 will
+  retire `moment_matrix` and reintroduce `shape_matrix` meaning `M`** (and take `shape_matrix` off `check_naming`'s
+  retired names when it returns): `M` is a region's shape, not its second moment (a uniform ellipse has covariance
+  `M/4`; in affine feature detection the second-moment matrix is the structure tensor `μ ≈ M⁻¹`). The two-release
+  order makes every caller fail hard once instead of compiling against a changed meaning.
+- **Breaking: a `GaussianBlur` holds a covariance.** A point spread function is a probability density (where a photon
+  from a point source lands), and a Gaussian blur is the density `N(0, Σ)`, so its parameter is a covariance: the
+  blur stores a `CovMat{2}` (the same three storages, `ScaledIdentity` / `SDiagonal` / `SMatrix`; its frame tag the
+  plane the blur lives on). The 0.5 note that a blur "is a kernel's shape, not a covariance" is reversed. The
+  accessors are Statistics.jl's: `cov(b)` (Σ), `var(b)` and `std(b)` (per axis); `moment_matrix(b)` is removed.
+  `GaussianBlur(Σ::CovMat{2})` keeps the frame; `GaussianBlur(σ)`, `GaussianBlur(σx, σy)` and the bare storages stay
+  (a negative standard deviation is now an `ArgumentError`; zero, the identity blur, is allowed).
+  `convolve(a, b)` adds the covariances and checks that the two frames meet. **`transform_blur` is retired**: a
+  blur under a linear map is the covariance's push-forward, `propagate(J, b)` (a raw Jacobian, the result unlabeled)
+  or `propagate(m, b)` for a framed map with a constant Jacobian (`EuclideanMap`, `SimilarityMap`, a camera's
+  `FramedAffine`: the frame checked, the result in the map's destination), through `propagate`'s own law for the
+  map; a singular or near-singular map's rank-deficient result is clamped onto the PSD cone (an eigenvalue negative
+  only to rounding becomes zero), never refused over a rounded determinant. A print's blur holds m² quantities (`GaussianBlur(0.02mm)`): `has_units`, `ustrip(u, b)` (plain, in u²) and
+  `with_unit(b, u)` are the whole value's.
 - **Breaking: maps are the geometric objects, matrices only algebra.** The typed homogeneous matrices
   `HomTranslationMat`, `HomRotationMat`, `HomEuclideanMat`, `HomSimilarityMat`, `HomScalingMat`,
   `HomUniformScalingMat`, `HomAffineMat` and their abstract levels `AbstractHomMat`, `AbstractAffineMat`,

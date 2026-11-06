@@ -35,8 +35,8 @@ to image space. The transformation encodes the feature's position, scale, and sh
 Concrete subtypes:
 - `Disc{T}`: 3 DOF - isotropic (translation + uniform scale)
 - `OrientedDisc{T}`: 4 DOF - isotropic with orientation
-- `EllipticFrame{T}`: 5 DOF - anisotropic (symmetric shape matrix)
-- `AffineFrame{T}`: 6 DOF - full affine (general shape matrix)
+- `EllipticFrame{T}`: 5 DOF - anisotropic (symmetric shape factor)
+- `AffineFrame{T}`: 6 DOF - full affine (general shape factor)
 
 # Interface
 All frames implement:

@@ -7,7 +7,7 @@
 # - Disc: Isotropic blob (center, σ) - 3 DOF
 #
 # For anisotropic blobs, use:
-# - EllipticFrame: 5 DOF geometric frame (center + shape matrix)
+# - EllipticFrame: 5 DOF geometric frame (center + shape factor)
 # - MvNormal: Statistical representation from Distributions.jl
 #
 # =============================================================================

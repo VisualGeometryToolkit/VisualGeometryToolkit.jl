@@ -31,7 +31,7 @@ argument, because the value already carries it.
 | `vgio/capture_settings/v1` | `CaptureSettings`: per frame, the exposure (time, f-number, ISO) and the nominal lens settings (focal length, focus distance); the body and lens `DeviceIdentity`, `Attributed` with each one's source (`"exif"` or `"config"`) and the EXIF lens claim a stated lens overrode | `load(CaptureSettings, path)` | `save(path, Attributed(cs, (; identity_sources = (body, lens)[, exif_lens])))` |
 | `vgio/vignetting/v1` | an `AbstractVignetting`: `TensorProductVignetting` (its knots stated), `RadialVignetting` or `LogVignetting`, positions in COLMAP pixels; rebuilt bit for bit | `load(AbstractVignetting, path)` | `save(path, v)` |
 | `vgio/environment_light/v1` | an `EnvironmentLight` of a `SphericalHarmonicMap`: centre and radius in `length_unit` (a plain light refused), coefficients per channel, the basis convention stated (`real_orthonormal_no_condon_shortley`) | `load(EnvironmentLight, path)` | `save(path, light)` |
-| `vgio/blur/v1` | name → `GaussianBlur` on a sensor (px²), each in the storage it holds (round, axis-aligned, general) | `load(Dict{Symbol, GaussianBlur}, path)` | `save(path, blurs)` |
+| `vgio/blur/v1` | name → `GaussianBlur`, each one's `covariance` in the storage it holds (round, axis-aligned, general) and the `unit` it states: `"px^2"` on a sensor, `length_unit` squared (`"mm^2"`) on a print; the unit is recorded, the blur's frame tag is not | `load(Dict{Symbol, GaussianBlur}, path)` | `save(path, blurs)` |
 | `vgio/generic_camera/v3` (Schöps grid models: the nodes the model holds, `present` as runs per lattice row, and only their controls) | `CentralGenericModel`, `NoncentralGenericModel` | `load(CentralGenericModel, path)`, `load(NoncentralGenericModel, path)` | `save(path, m)` |
 | `vgio/correspondences/v2` (flat 2D–3D pairs per frame and target) | an export of a `TargetPoints2D` and its target rigs; there is no reader | — | `save_correspondences([to_frame,] path, obs, targets...; resolve)` |
 
@@ -315,11 +315,15 @@ is not one); the methods are on `VgioStyle` only.
 | Value | `T` in `lift` | Record |
 |---|---|---|
 | `EuclideanMap{3}`, plain or `Uncertain` | `EuclideanMap{3}` | `{"rotation": [w, x, y, z], "translation": [x, y, z], "covariance": …}` |
+| `Trajectory` | `Trajectory` | the `vgio/trajectory` body without its schema and pose declarations: `{"from", "to", ["time_origin"], "frames": […]}` |
 | `CameraModel` | `CameraModel` | `{"K": {"fx", "fy", "cx", "cy", "skew"}, "lens": {…}}`, `cx, cy` in `pixel_frame` |
 | `CentralGenericModel`, `NoncentralGenericModel` | `Union{CentralGenericModel, NoncentralGenericModel}` | the `vgio/generic_camera` body |
 | `PointTarget`, `PlanarTarget` | `AbstractTarget` (keyword `resolve`, as `target_from_json`'s) | the target body, a planar target's calibration as the parametric record (below) |
 | `AprilGrid`, `SchoepsPattern` | `AbstractTargetLayout` | `{"type": tag, every field}` |
 | `Ellipse` | `Ellipse` | `[cx, cy, a, b, θ]` |
+| `TensorProductVignetting`, `RadialVignetting`, `LogVignetting` | `AbstractVignetting` | the `vgio/vignetting` body, `{"type": …, …}`, positions in COLMAP pixels |
+| `EnvironmentLight` of a `SphericalHarmonicMap` | `EnvironmentLight` | `{"center": [x, y, z], "radius": r, "map": {…}}`, lengths in `length_unit` (the `vgio/environment_light` body without `schema`/`length_unit`) |
+| `GaussianBlur` | `GaussianBlur` | `{"unit": "px^2" \| "<length_unit>^2", "covariance": …}` in the storage it holds: px² on a sensor (plain), a print's in `length_unit`² (read back as m² quantities); the lift reads the stated unit |
 
 A target's calibration is written and read as part of its target's body, not
 by a `lower` of its own: VisualGeometryToolkitCore's `TargetCalibration` holds
@@ -334,6 +338,16 @@ and no `parameters` for a kind that has none. It is read back with
 `with_parameters`; a record holding more or fewer parameters than its kind is
 an `ArgumentError` naming the tag. A kind whose structure its type does not fix states that
 structure beside its parameters (a thin-plate kind's `nodes`).
+
+A package's own kind crosses the file boundary through the same pair the
+native kinds do: [`write_record`](@ref)`(path, record; style)` writes a record
+(its VGC values lowered on `style`) in the vgio file shape, refusing a NaN or
+±Infinity by its field, and [`read_record`](@ref)`(path)` parses one back as
+its kind's current record, through the owner's version steps
+(`migrate_schema`, run by `migrate_record`) when the file is of an earlier
+version. The record states its own schema, `"<owner>/<kind>/v<n>"`; the owner
+validates its fields. A run report that may hold a non-finite statistic is
+written and read with `allownan = true`.
 
 `pose_json` / `pose_from_json`, `camera_json` / `camera_from_json`,
 `target_json` / `target_from_json` and `pose_declarations` are the same

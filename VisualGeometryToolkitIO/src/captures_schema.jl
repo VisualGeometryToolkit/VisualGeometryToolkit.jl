@@ -161,17 +161,22 @@ Write a physical VGC `Trajectory` as a `vgio/trajectory/v3` file: its frames
 and `recovered` flag where the trajectory has them — in `length_unit`. A
 trajectory of plain poses is an `ArgumentError` (attach the unit, `t .* m`).
 """
-function save(path::AbstractString, tr::Trajectory{S, D}; length_unit::Units = mm, provenance::NamedTuple = (;)) where {S, D}
+function save(path::AbstractString, tr::Trajectory; length_unit::Units = mm, provenance::NamedTuple = (;))
+    body = merge((schema = _schema("trajectory"),), pose_declarations(length_unit), JSON.lower(VgioStyle(; length_unit), tr))
+    _write_store(path, _TRAJECTORY_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit))
+    return nothing
+end
+
+# A Trajectory on IO's style: the body of a `vgio/trajectory` file without its
+# schema and its pose declarations (`pose_declarations`, the enclosing file's):
+# `from`, `to`, the `time_origin` where the trajectory has one, and one record
+# per frame index, sorted — its stamps and its pose, lowered on the style.
+function JSON.lower(::VgioStyle, tr::Trajectory{S, D}) where {S, D}
     frames = map(sort!(collect(keys(tr)))) do t
         f = merge(_stamps_json(tr, t), (pose = tr[t],))   # the pose itself, lowered on the file's style
         t in tr.recovered ? merge(f, (recovered = true,)) : f
     end
-    body = merge(
-        (schema = _schema("trajectory"),), pose_declarations(length_unit),
-        (from = frame_name(S), to = frame_name(D)), _time_origin_json(tr), (frames = frames,),
-    )
-    _write_store(path, _TRAJECTORY_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit))
-    return nothing
+    return merge((from = frame_name(S), to = frame_name(D)), _time_origin_json(tr), (frames = frames,))
 end
 
 """
@@ -185,7 +190,10 @@ once, dispatch after.
 """
 function load(::Type{Trajectory}, path::AbstractString)
     d = _read_store(path, "trajectory", _TRAJECTORY_SPEC)
-    s = VgioStyle(; length_unit = parse_unit(d.length_unit::String))
+    return JSON.lift(VgioStyle(; length_unit = parse_unit(d.length_unit::String)), Trajectory, d)
+end
+# …and back: a trajectory body read on the style (its lengths in the style's unit).
+function JSON.lift(s::VgioStyle, ::Type{Trajectory}, d::_Record)
     poses, images, times, recovered = Dict{Int, Any}(), Dict{Int, String}(), Dict{Int, Float64}(), Set{Int}()
     for f in d.frames::Vector{Any}
         t = Int(f.t::Integer)

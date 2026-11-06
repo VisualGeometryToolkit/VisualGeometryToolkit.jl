@@ -108,7 +108,7 @@ export Paraboloid3D, coeffs
 export is_valid_shape
 public DEFAULT_MAX_ASPECT_RATIO   # the default `is_valid_shape` bound, reached qualified
 export is_peak
-export boundary, region, scale, shape_matrix
+export boundary, region, scale, shape_factor
 export bbox
 
 # Compute backend dispatch tags (shared across the package family)
@@ -329,8 +329,8 @@ public BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent n
 export AbstractVignetting, TensorProductVignetting, RadialVignetting, LogVignetting   # a camera's vignetting: B-spline fields on the sensor, in V or in log V (cameras/vignetting.jl)
 public log_spline   # a LogVignetting's spline of log V
 export EnvironmentLight, SphericalHarmonicMap   # the scene's light: radiance from every direction on a sphere about a centre, in real SH (cameras/lighting.jl)
-export AbstractBlur, GaussianBlur   # one blur of an imaging model (a camera's in-focus blur, a print's), by its moment matrix (cameras/blur.jl)
-public convolve, transform_blur     # two Gaussian blurs in sequence; a blur through a linear map of its plane
+export AbstractBlur, GaussianBlur   # one blur of an imaging model (a camera's in-focus blur, a print's), the density N(0, Σ) by its covariance (cameras/blur.jl)
+public convolve                     # two Gaussian blurs in sequence (through a linear map of its plane: `propagate`)
 public radiance, exit_direction, radiance_map, coefficients, with_coefficients, max_degree, sh_basis, sh_count, sh_index   # its evaluation, accessors and the SH basis
 public radius   # GeometryBasics' `radius`, Core's methods on it included (an EnvironmentLight's sphere)
 public coefficient_jacobian, active_coefficients, control_points, with_control_points, n_control_points, knot_vectors, spline_degree,
@@ -422,7 +422,7 @@ public OverlapMethod, AnalyticOverlap, BoundarySampled
 # Conic traits
 export ConicTrait,
     CircleTrait, EllipseTrait, ParabolaTrait, HyperbolaTrait, DegenerateTrait
-public FrameScaleTrait, IsotropicScale, ShapeMatrixScale, frame_scale
+public FrameScaleTrait, IsotropicScale, ShapeFactorScale, frame_scale
 
 # Solver backend trait (select implementation: NativeSolver, PoseLibSolver)
 export AbstractSolverBackend, NativeSolver, PoseLibSolver

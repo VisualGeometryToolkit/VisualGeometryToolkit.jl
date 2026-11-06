@@ -387,7 +387,7 @@
 
     @testset "IsotropicScale trait arms regression (0.14.0)" begin
         # The trait refactor (3dd507e) shipped characteristic_scale/aspect_ratio
-        # dispatching on frame_scale(f) with ONLY the ShapeMatrixScale arm, so
+        # dispatching on frame_scale(f) with ONLY the shape-factor arm, so
         # both threw MethodError for Disc/OrientedDisc. σ IS the isotropic
         # characteristic scale; the aspect ratio of a disc is 1 by definition.
         d = Disc(GeometryBasics.Point2(3.0, 4.0), 2.5)
@@ -396,7 +396,7 @@
         @test characteristic_scale(od) == 2.5
         @test aspect_ratio(d) == 1.0
         @test aspect_ratio(od) == 1.0
-        # Consistency: an isotropic frame lifted to the shape-matrix
+        # Consistency: an isotropic frame lifted to the shape-factor
         # representation reports the same scale through the other trait arm.
         ef = EllipticFrame(AffineFrame(d, 0.0))
         @test characteristic_scale(ef) ≈ 2.5
@@ -429,4 +429,21 @@ end
     @test EllipticFrame(Point2(1.0, 2.0), Σ, Val(:moment_matrix)).S == S
     # genuinely indefinite (a paraboloid that is not a peak): refused, not clamped
     @test_throws ArgumentError VgtkCore.Primitives._sym_sqrt(SMatrix{2, 2}(-1.0, 0.0, 0.0, 1.0))
+end
+
+# The factor and its matrix (0.6: the factor is `shape_factor`): moment_matrix(f) = F Fᵀ for F = shape_factor(f),
+# for every frame type with a factor and the ellipse; the factor maps the unit circle onto the boundary.
+@testitem "frames: shape_factor F and moment_matrix F Fᵀ" begin
+    using Test
+    using VisualGeometryToolkitCore: EllipticFrame, AffineFrame, Ellipse, Point2, shape_factor, moment_matrix, boundary_points
+    using StaticArrays: SMatrix, SVector
+
+    e = Ellipse(Point2(1.0, 2.0), 3.0, 1.5, 0.4)
+    for g in (EllipticFrame(Point2(1.0, 2.0), SMatrix{2, 2}(2.0, 0.5, 0.5, 1.0)), AffineFrame(Point2(1.0, 2.0), SMatrix{2, 2}(2.0, 0.3, -0.4, 1.0)), e)
+        F = shape_factor(g)
+        @test F * F' ≈ moment_matrix(g) atol = 1.0e-12
+    end
+    @test shape_factor(EllipticFrame(e)) * shape_factor(EllipticFrame(e))' ≈ moment_matrix(e) atol = 1.0e-12
+    Mi = inv(moment_matrix(e))
+    @test all(p -> (d = SVector(p[1] - 1.0, p[2] - 2.0); d' * Mi * d ≈ 1.0), boundary_points(e, 16))
 end

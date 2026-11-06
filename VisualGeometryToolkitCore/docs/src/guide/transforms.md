@@ -192,7 +192,7 @@ bm    = image_warp(math, 31)
 patch = image_warp!(Matrix{Float32}(undef, 31, 31), bm, img)
 
 # From an EllipticFrame (anisotropic feature)
-frame = EllipticFrame(center, S)  # S is shape matrix
+frame = EllipticFrame(center, S)  # S is the shape factor (moment matrix S²)
 math = canonical_map(Ellipse(frame), 31; bound=1.0)
 bm    = image_warp(math, 31)
 ```

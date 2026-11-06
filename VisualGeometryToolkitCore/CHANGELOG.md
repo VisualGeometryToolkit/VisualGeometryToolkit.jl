@@ -2,6 +2,15 @@
 
 ## 0.6.0 (Unreleased)
 
+- **`ThinPlateSplineSystem` solves a conditioned system.** It centred nothing and scaled nothing, so on pixel nodes (a
+  5208 × 3476 sensor's grid) `[K P; Pᵀ 0]` had a condition number of 2e18; the nodes are now centred on their centroid
+  and scaled by one isotropic factor (`HartleyNormalization`, κ ≈ 1.2e3 on any 5 × 5 grid) and the solution mapped back
+  exactly (`w = σ² w′`, the linear part `σ a′`, the constant `a′₁ + a′·𝐭 + ln σ Σ w′ᵢ|𝐩′ᵢ|²`, `Q = σ² Q′`). An
+  interpolating thin-plate spline is the same surface under a similarity of its domain, so only rounding moves:
+  `coeff` and `Q` by 1e-15–1e-13 relative on grids, 2e-11 on 100 random nodes. Everything it holds stays in the caller's
+  frame. The thin-plate calibration kinds' docstrings now say their chart must be ONE scaling of the board (`[0, 1] ×
+  [0, H/W]`), never a per-axis `[0, 1]²` (a thin-plate spline is not invariant under it).
+
 - **Breaking: `shape_matrix` is removed; the factor is `shape_factor`.** `shape_matrix` returned the FACTOR `F` of an
   elliptical region's matrix `M = F·Fᵀ` — `S` for an `EllipticFrame` (`M = S²`), `A` for an `AffineFrame`,
   `R(θ)·diag(a, b)` for an `Ellipse` — under the name ellipsoidal calculus gives `M` itself (`E(c, M) = {x : (x-c)ᵀ

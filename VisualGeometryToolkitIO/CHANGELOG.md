@@ -4,25 +4,31 @@
 
 - **New kind `vgio/target_homographies/v1`** (`save`, `load(TargetHomographies, path)`,
   `load(TargetHomographies{F}, path)`): per frame, each target's plane (mm) to
-  pixel homography, canonical (unit Frobenius norm, `H[3,3] >= 0`), against the
-  camera the frame's `sensor` names, before its lens (VGC's
-  `radial_homography(camera, H)` pairs them, for a projective camera and for a
-  metric one with `fx == fy` and no skew). The pixel frame is the
-  value's type; `targets` are the `content_id`s its ids resolve in. Its H is
-  written and read on `VgioStyle` (`JSON.lower` / `JSON.lift` of a `HomographyMat`:
-  its three rows), as every embedded value.
+  pixel `HomographyMap`, against the camera the frame's `sensor` names, before
+  its lens (VGC's `radial_homography(camera, H)` pairs them, for a projective
+  camera and for a metric one with `fx == fy` and no skew). The pixel frame is
+  the value's type; `targets` are the `content_id`s its ids resolve in. Each
+  homography is ONE `JSON.lower` / `JSON.lift(::VgioStyle, …)` pair on the
+  parametric record — `{"type": "homography_map", "parameters": [h11 … h33]}`,
+  VGC's parameter protocol of a `HomographyMap` (nine entries row-major,
+  canonical: unit Frobenius norm, `h33 ≥ 0`) — and an `Uncertain` one's 8×8
+  `covariance` in the `HomographyManifold8` chart, in the storage it holds. Its
+  frames are given by where it sits. The minimal-form rule (style.jl) names it.
 - **`content_id` of a single unposed target** (a `vgio/target` path, an
   `AbstractTarget`, or an `Attributed` one): the SHA-256 of its `target` record,
   distinct from every rig's. A `PosedTarget` is an `ArgumentError`.
-- **`vgio/target_points2d/v3`**: `targets` may be the content id of a single target as well as a rig's.
-  0.6.0's `v2` (the covariance storage) reads through an identity step (a v2 record names rigs only, and a
-  rig's id is unchanged), a `v1` file through v2's step first; `vgio_migrate` rewrites either as v3. The
-  released v2 fixture is kept under `test/fixtures/old/`.
+- **`target_detections` names single targets** (no new version): its `targets`
+  may be the content id of a single unposed target (`vgio/target/v5`) as well
+  as a rig's; the reader always took any content id, so a released reader reads
+  such a file as written. `vgio_migrate_tree` resolves a measurement's ids
+  against the tree's current single target files as well as its rigs (0.6.0
+  logged such a file `FAILED`), and the manifest checks a `target_detections`
+  file's targets like the other measurements'.
 - **`vgio_migrate_tree` leaves every measurement file** (`target_points2d`, `target_points3d`,
   `target_detections`, any version) to its re-pointing step, which rewrites an earlier version as the
   current one. 0.6.0 migrated an earlier one by its file form in the first loop, so with `in_place = false`
   a file naming a stale rig id kept that id in its `<stem>.migrated.json` and the second loop found it
-  "already re-pointed" (a test pins it now).
+  "already re-pointed" (a test pins it now; checked against 0.6.0's order).
 - **New kind `vgio/calibration/v1`, the manifest** (`save_manifest(dir, files;
   kind, model, metrics, provenance)`, `load_manifest(dir)`): one
   `calibration.json` binding a result's record files by SHA-256, each with its
@@ -30,7 +36,7 @@
   file, `derived_from`. `kind` is `"metric"`, `"projective"` or `"image"`;
   `model` is an optional `CameraModelSpec`, written on `VgioStyle` as VGC's
   `toml_value` table and lifted by VGC's reader. A load refuses a changed file by
-  name, and a `target_points2d` / `target_homographies` file naming a targets
+  name, and a `target_detections` / `target_homographies` / `target_points2d` file naming a targets
   identity or a rig target the listed target and rig files do not hold. A
   measurement names a single target by its `reference`, or by its content id
   when it has none; a rig's target by its id. Written by the kind's own writer
@@ -41,8 +47,6 @@
   listed file that is a symlink resolving outside the manifest's directory.
   A malformed `.toml` file given to `vgio_migrate` (or read for its schema) is an
   `ArgumentError` naming the path, not a `TOML.ParserError`.
-- **`save_correspondences` takes single targets** (an `AbstractTarget` or a
-  `vgio/target` path) beside rigs, named as above.
 - **`vgio_migrate` rewrites a `.toml` record** whose schema has a
   `migrate_schema(::Val, tree)` step and no file form (a schema owner's config):
   parse, the steps, `TOML.print`, and a verified read-back (the same tree, types

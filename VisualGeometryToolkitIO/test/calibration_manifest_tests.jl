@@ -4,7 +4,7 @@
 
 @testsetup module ManifestFixtures
     using JSON: JSON
-    using VisualGeometryToolkitCore: TargetHomographies, HomographyMat, PixelFrame, sign_normalize
+    using VisualGeometryToolkitCore: TargetHomographies, HomographyMap, HomographyMat, PixelFrame, sign_normalize
     using StaticArrays: SMatrix
     using VisualGeometryToolkitIO: load, save, content_id
 
@@ -34,7 +34,7 @@
             rewrite(joinpath(dir, "target_planar.json"), d -> (delete!(d["target"], "nominal"); d["target"]["reference"] = reference); src = fixture("target_planar.json"))
         end
         name === nothing && (name = content_id(joinpath(dir, "target_planar.json")))
-        H = sign_normalize(HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}([800.0 0 300; 0 800 200; 0 0 1]'))))
+        H = HomographyMap(sign_normalize(HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}([800.0 0 300; 0 800 200; 0 0 1]')))))
         th = TargetHomographies{PixelFrame{:colmap}}(
             Dict(1 => Dict(Symbol(name) => H)); images = Dict(1 => "a.png"), sensors = "cam", targets = [content_id(joinpath(dir, "target_planar.json"))],
         )
@@ -178,6 +178,9 @@ end
 
 @testitem "calibration/v1: measurements must name targets the manifest's target and rig files hold" setup = [ManifestFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
+    import VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: PixelFrame
+    using StaticArrays: SVector
     using VisualGeometryToolkitCore: TargetHomographies, TargetPoints2D
     using VisualGeometryToolkitIO: load, save, content_id
     mktempdir() do dir
@@ -247,6 +250,22 @@ end
             e
         end
         @test err isa ArgumentError && occursin("target_homographies.json", err.msg) && occursin("frame 1", err.msg)
+        # detections of the single target (target_detections names it by content id, its points by its name)
+        tid = content_id(joinpath(dir, "target_planar.json"))
+        det(name) = VisualGeometryToolkitCore.TargetDetections{PixelFrame{:colmap}}(
+            Dict(1 => Dict(Symbol(name) => VisualGeometryToolkitCore.csponds([1, 2], [SVector(1.0, 2.0), SVector(3.0, 4.0)])));
+            images = Dict(1 => "a.png"), sensors = "cam", targets = [tid],
+        )
+        save(joinpath(dir, "target_detections_cam.json"), det(tid))
+        VgtkIO.save_manifest(dir, ["target_planar.json", "target_detections_cam.json"]; kind = "image")
+        @test VgtkIO.load_manifest(dir).kind == "image"
+        save(joinpath(dir, "target_detections_cam.json"), det("board"))
+        err = try
+            VgtkIO.save_manifest(dir, ["target_planar.json", "target_detections_cam.json"]; kind = "image"); nothing
+        catch e
+            e
+        end
+        @test err isa ArgumentError && occursin("target_detections_cam.json", err.msg) && occursin("\"board\"", err.msg)
         # the load side refuses a tree that became inconsistent after the manifest was written (hash updated by hand)
         save(joinpath(dir, "target_homographies.json"), th)
         VgtkIO.save_manifest(dir, ["target_planar.json", "target_homographies.json"]; kind = "image")

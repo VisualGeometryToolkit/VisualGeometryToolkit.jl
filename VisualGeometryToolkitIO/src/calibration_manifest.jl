@@ -158,7 +158,7 @@ The manifest is checked as [`load_manifest`](@ref) checks it, before anything
 is written: an `ArgumentError` for a missing or non-vgio file, a derived file
 without `derived_from` (or an authority with one), a `derived_from` naming a file
 that is not listed or forming a cycle, and a measurement file
-(`target_points2d`, `target_homographies`) naming a target the listed
+(`target_detections`, `target_homographies`, `target_points2d`) naming a target the listed
 target and rig files do not hold.
 """
 function save_manifest(dir::AbstractString, files::AbstractVector; kind::AbstractString, model = nothing, metrics = nothing, provenance::NamedTuple = (;))
@@ -224,11 +224,13 @@ function _check_manifest_files(dir, d, mpath)
 end
 
 # R18: every target/rig file the manifest lists is loaded, by content id. A
-# `target_points2d` / `target_homographies` file naming a targets identity none
+# `target_detections` / `target_homographies` / `target_points2d` file naming a targets identity none
 # of them has, or a target name not inside the identities it names, is refused
 # naming that file. A rig holds target ids; a single target is measured under
 # its design `reference` (a planar body's, BlobBoards' board uid) or, with no
 # reference, under its content id.
+# The measurement kinds whose `targets` a manifest resolves, and the per-frame list naming a target.
+const _MANIFEST_MEASUREMENTS = Dict("target_detections" => :detections, "target_homographies" => :homographies, "target_points2d" => :points)
 function _check_manifest_targets(dir, d, mpath)
     rigs = Dict{String, Set{String}}()          # a rig's content id → its target ids
     singles = Dict{String, String}()            # a single target's content id → the name it is measured under
@@ -245,7 +247,7 @@ function _check_manifest_targets(dir, d, mpath)
     for f in d.files::Vector{Any}
         full = joinpath(dir, f.path::String)
         k = _split_schema(f.kind)::NamedTuple
-        (k.kind == "target_points2d" || k.kind == "target_homographies") || continue
+        haskey(_MANIFEST_MEASUREMENTS, k.kind) || continue
         m = _read_store(full, k.kind, _spec(k.kind)::_Spec)
         for id in m.targets::Vector{Any}
             (haskey(rigs, id) || haskey(singles, id)) || throw(
@@ -253,7 +255,7 @@ function _check_manifest_targets(dir, d, mpath)
             )
         end
         allowed = Set{String}(n for id in m.targets for n in (haskey(rigs, id) ? rigs[id] : (singles[id],)))
-        for fr in m.frames::Vector{Any}, o in (k.kind == "target_points2d" ? fr.points : fr.homographies)::Vector{Any}
+        for fr in m.frames::Vector{Any}, o in getproperty(fr, _MANIFEST_MEASUREMENTS[k.kind])::Vector{Any}
             (o.target in allowed) || throw(
                 ArgumentError("$(full): frame $(fr.t) names the target $(repr(o.target)), which is not in the targets it references ($(sort!(collect(allowed))))")
             )
@@ -269,7 +271,7 @@ Read `dir/calibration.json`, a `vgio/calibration/v1` manifest, and check the set
 it binds: every listed file exists, holds the record schema the manifest lists
 and hashes to the recorded SHA-256 — an `ArgumentError` naming the file
 otherwise — and the targets resolve: every target and rig file listed is
-loaded, and a `target_points2d` or `target_homographies` file naming a
+loaded, and a `target_detections`, `target_homographies` or `target_points2d` file naming a
 targets identity (`content_id`) none of them has, or a target name not inside
 the targets it references, is refused naming that file. A rig's targets are
 named by their ids; a single target by its design `reference` (a planar body's)

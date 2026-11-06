@@ -51,10 +51,19 @@ is unchanged bit for bit: its solver, chart, rows and Jacobians.
   `toml_value` and `CameraModelSpec(table)`. A `central_generic` table may name
   `intrinsics = "metric"` (redundant but true); any other kind beside it is an
   `ArgumentError`.
-- **`TargetHomographies{F, H}`**: per frame, each target's plane → pixel homography,
-  a capture like `TargetPoints2D`/`TargetPoints3D`: the pixel frame `F` is part of the
-  type (`TargetHomographies{F}(frames; …)`; no frame-less form) and `targets` names
-  the target definitions by content identity.
+- **`TargetHomographies{F, H}`**: per frame, each target's plane → pixel `HomographyMap`,
+  a capture like `TargetPoses`: the pixel frame `F` is part of the type
+  (`TargetHomographies{F}(frames; …)`; no frame-less form), the maps are stored
+  unlabeled (plain or `Uncertain`, an 8×8 covariance in `HomographyManifold8`) and
+  `homography(th, t, id)` mints `TargetPlaneFrame → F`; `targets` names the target
+  definitions by content identity. `radial_homography(camera, h::HomographyMap)`.
+- **`HomographyMap{3}` has the parameter protocol** (`parameter_names` `h11 … h33`,
+  `parameter_vector`, `with_parameters`, `length_mask`): its nine entries row-major,
+  canonical (unit Frobenius norm, `H[3,3] ≥ 0`, `sign_normalize`; a canonical matrix
+  as held). Nine, not eight: a homography has no global 8-number chart (`h33 = 1`
+  fails at `h33 = 0`), so the normalization is declared. Its tag is
+  `PLANAR_MAP_TAGS`' `"homography_map"` (a new `TagRegistry`, public). `relabel` and
+  `unlabel` take an `Uncertain` homography.
 - `division_coeffs` is in `CONTRACT_GENERICS`: another stack package may add a
   method for its own model or state (VisualGeometryToolkitEstimation's
   `DivisionCameraState` does).

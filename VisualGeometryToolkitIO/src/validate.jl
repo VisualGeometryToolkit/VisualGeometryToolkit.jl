@@ -209,13 +209,9 @@ const _POINT_INDEX_BASE = 1
 # v4, trajectory v4, target v5, target_poses v2, target_points2d v2,
 # target_points3d v2, target_detections v2. An earlier file reads through its
 # version step unchanged (its covariances are rows).
-#
-# target_points2d v3 (single targets, 2026-11, after IO 0.6.0 released v2): its
-# `targets` name a rig OR a single unposed target (as target_homographies/v1); a
-# v2 file (rig ids only) reads through its identity step, a v1 file through both.
 const _SCHEMA_VERSION = Dict(
     "cameras" => 4, "rig" => 8, "transforms" => 4, "trajectory" => 4, "generic_camera" => 3,
-    "target" => 5, "target_poses" => 2, "target_points2d" => 3, "target_points3d" => 2,
+    "target" => 5, "target_poses" => 2, "target_points2d" => 2, "target_points3d" => 2,
     "target_homographies" => 1, "capture_settings" => 1, "target_detections" => 2, "calibration" => 1,
     "vignetting" => 1, "environment_light" => 1, "blur" => 1,   # 2026-11: a radiometric camera's fields, light and blurs
 )
@@ -278,7 +274,7 @@ const _XYZ = _Vec(_Real(), 3)
 # migration — each successor started at v1 under its new name (or moved out of
 # VGIo), and the producer re-exports.
 const _RETIRED_KINDS = Dict(
-    "vgio/observations/v2" => "vgio/target_points2d/v3", "vgio/point_observations/v1" => "vgio/target_points3d/v2",
+    "vgio/observations/v2" => "vgio/target_points2d/v2", "vgio/point_observations/v1" => "vgio/target_points3d/v2",
     "vgio/targets/v2" => "vgio/rig/v8", "vgio/rig/v3" => "vgio/rig/v8",
     "vgio/session/v3" => "the calibration pipeline's own session kind (a pipeline's checkpoint is the pipeline's, not VGIo's)",
 )
@@ -290,7 +286,6 @@ const _MIGRATIONS_TO_CURRENT = Dict(
     "vgio/target/v1" => "target", "vgio/rig/v4" => "rig", "vgio/target/v2" => "target", "vgio/rig/v5" => "rig",
     "vgio/target/v3" => "target", "vgio/rig/v6" => "rig", "vgio/target/v4" => "target", "vgio/rig/v7" => "rig",
     "vgio/target_detections/v1" => "file", "vgio/target_points2d/v1" => "file", "vgio/target_points3d/v1" => "file",
-    "vgio/target_points2d/v2" => "file",
     "vgio/target_poses/v1" => "file", "vgio/trajectory/v3" => "file", "vgio/transforms/v3" => "file",
     "vgio/cameras/v1" => "file", "vgio/cameras/v2" => "file", "vgio/cameras/v3" => "file",
     "vgio/generic_camera/v2" => "file",

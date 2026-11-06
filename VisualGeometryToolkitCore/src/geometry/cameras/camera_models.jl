@@ -576,10 +576,21 @@ end
     radial_homography(camera::CameraModel{<:ProjectiveIntrinsics, <:Division}, H::HomographyMat) -> RadialHomography
 
 The radial homography of a target's plane homography `H` seen through a
-projective division `camera`: `RadialHomography(H, camera)`. Pairs a
-[`TargetHomographies`](@ref) entry with the camera that measured it.
+projective division `camera`: `RadialHomography(H, camera)`. A
+[`TargetHomographies`](@ref) entry (a `HomographyMap`) pairs with the camera
+that measured it through the `HomographyMap` method below.
 """
 radial_homography(camera::CameraModel{<:ProjectiveIntrinsics, <:Division}, H::HomographyMat) = RadialHomography(H, camera)
+
+"""
+    radial_homography(camera::CameraModel{<:Union{ProjectiveIntrinsics, LogicalIntrinsics}, <:Division}, h::HomographyMap{3}) -> RadialHomography
+
+The radial homography of a plane → pixel `HomographyMap` (a
+[`TargetHomographies`](@ref) entry, labeled or not): `radial_homography(camera, H)`
+of its matrix. The map's frames are not checked against the camera, which holds none.
+"""
+radial_homography(camera::CameraModel{<:Union{ProjectiveIntrinsics, LogicalIntrinsics}, <:Division}, h::HomographyMap{3, T}) where {T} =
+    radial_homography(camera, HomographyMat{T}(Tuple(to_homogeneous(h))))
 
 """
     radial_homography(camera::CameraModel{<:LogicalIntrinsics, <:Division}, H::HomographyMat) -> RadialHomography

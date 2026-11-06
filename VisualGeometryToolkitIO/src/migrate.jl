@@ -959,13 +959,6 @@ for (from, to) in _COVARIANCE_STORAGE_VERSIONS
     @eval migrate_schema(::Val{Symbol($from)}, t::AbstractDict) = _with_schema(t, $to)
 end
 
-# vgio/target_points2d/v2 → v3 (single targets, 2026-11): v3's `targets` hold
-# the content ids of a targets rig OR of a single unposed target, as
-# target_homographies/v1's do. A v2 record names rigs only, and a rig's id does
-# not change, so a v2 record is a v3 one as it stands: the step moves the schema
-# token and no number (a v1 record reaches it through the covariance step).
-migrate_schema(::Val{Symbol("vgio/target_points2d/v2")}, t::AbstractDict) = _with_schema(t, "vgio/target_points2d/v3")
-
 # vgio/generic_camera/v2 → v3 (the present nodes, 2026-11): a v2 model held
 # every node of its lattice, row-major; v3 lists the held nodes as runs per
 # lattice row (`present`) and its grids over them, and a record without
@@ -1000,7 +993,6 @@ migrate_schema(::Val{Symbol("vgio/target/v4")}, src::AbstractString, dst::Abstra
 for (s, T, kind, what) in (
         ("vgio/target_detections/v1", TargetDetections, "target_detections", "the target detections"),
         ("vgio/target_points2d/v1", TargetPoints2D, "target_points2d", "the target points (2D)"),
-        ("vgio/target_points2d/v2", TargetPoints2D, "target_points2d", "the target points (2D)"),   # the single-target step
         ("vgio/target_points3d/v1", TargetPoints3D, "target_points3d", "the target points (3D)"),
         ("vgio/target_poses/v1", TargetPoses, "target_poses", "the target poses"),
         ("vgio/trajectory/v3", Trajectory, "trajectory", "the trajectory"),
@@ -1175,11 +1167,13 @@ const _MEASUREMENT_KINDS = Dict(
     "vgio/target_points2d/v1" => TargetPoints2D, "vgio/target_points3d/v1" => TargetPoints3D,
     "vgio/target_detections/v1" => TargetDetections,
     "vgio/target_points2d/v2" => TargetPoints2D, "vgio/target_points3d/v2" => TargetPoints3D,
-    "vgio/target_points2d/v3" => TargetPoints2D,
     "vgio/target_detections/v2" => TargetDetections,
 )
 
 _is_old_measurement(s) = !_is_current(s)
+# What a measurement's `targets` may name in a tree: a current rig of targets or a
+# single unposed target file (a target_detections or target_homographies file's ids).
+_is_target_definition(s) = s == _schema("rig") || s == _schema("target")
 
 # Every measurement of a value as (frame, target, point index).
 _measured_points(obs::Union{TargetPoints2D, TargetPoints3D}) = ((f, o.target, o.index) for (f, os) in obs for o in os)
@@ -1189,7 +1183,7 @@ _measured_points(obs::TargetDetections) = ((f, id, i) for (f, sets) in obs for (
 # at the rigs its targets were migrated to: every identity in its `targets`
 # that `ids` (old → new, a rig migration's `old_ids` and `new_id`) maps is
 # replaced; nothing else changes, and the file is written as its kind's current
-# version (a target_points2d/v1 or v2 file becomes v3). Every
+# version (a v1 file becomes v2). Every
 # identity the file names must be mapped or be the `content_id` of one of
 # `rigs` (rigs or `vgio/rig/v5` paths; `hashes` their identities, when the
 # caller has them): any other is an `ArgumentError` naming the file and the
@@ -1271,7 +1265,7 @@ Migrate every `.json` file under `dir` whose schema has a migration (cameras
 v1–v3, target v1–v3, rig v4–v6, generic_camera v2, and any schema whose owner added a
 [`migrate_schema`](@ref) file form), then re-point the measurement files under
 `dir` (`vgio/target_points2d`, `vgio/target_points3d`, `vgio/target_detections`, v1–v2) at the current
-rigs of the tree, each by the guarded pattern of [`vgio_migrate`](@ref) (a
+rigs and single target files of the tree, each by the guarded pattern of [`vgio_migrate`](@ref) (a
 full-precision length may be rewritten within 2 ulp, as the same metre value),
 with one line per file to `io`
 — a file left as it is says why (`current`, or no `targets`). Written beside
@@ -1297,7 +1291,7 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
     schemas = Dict(f => _try_schema(f) for f in files)
     results = NamedTuple[]
     ids = _read_ids(idsfile)
-    rigs = String[]                                                    # the current rigs of the tree
+    rigs = String[]                                                    # the current target definitions of the tree (rigs, single targets)
     failed = Pair{String, String}[]                                    # file => why it was refused
     for f in files
         s = schemas[f]
@@ -1307,7 +1301,7 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
             elseif haskey(_MEASUREMENT_KINDS, s)
                 # re-pointed below; a v1 file is rewritten as v2 there
             elseif _is_current(s)
-                s == _schema("rig") && push!(rigs, f)
+                _is_target_definition(s) && push!(rigs, f)
                 println(io, "current   ", f, ": ", s)
             else
                 println(io, "SKIPPED   ", f, ": ", s, " has no migration (a retired version, or a schema no package migrates)")
@@ -1325,7 +1319,7 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
             _vgio_migrate(f; out, dry_run, before_rename = r -> _map_ids!(ids, r, idsfile, dry_run))
         end
         r === nothing && continue
-        (!dry_run && r.to == _schema("rig")) && push!(rigs, out)
+        (!dry_run && _is_target_definition(r.to)) && push!(rigs, out)
         push!(results, r)
         println(io, dry_run ? "verified  " : "migrated  ", f, ": ", s, " → ", r.to,
             haskey(r, :old_ids) ? "  (content id $(join(r.old_ids, ", ")) → $(r.new_id))" : "")

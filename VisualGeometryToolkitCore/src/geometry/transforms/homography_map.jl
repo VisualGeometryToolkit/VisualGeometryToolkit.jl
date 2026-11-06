@@ -174,6 +174,12 @@ end
 @inline unlabel(h::HomographyMap{N}) where {N} =
     relabel(UnlabeledFrame{N - 1}, UnlabeledFrame{N - 1}, h)
 
+# An uncertain homography is relabeled as its value: its covariance, in the
+# chart of the map's own matrix (HomographyManifold8), does not move.
+relabel(::Type{Src}, ::Type{Dst}, u::Uncertain{<:HomographyMap{N}}) where {N, K, Src <: Frame{K}, Dst <: Frame{K}} =
+    Uncertain(relabel(Src, Dst, geom(u)), getfield(u, :attributes))
+unlabel(u::Uncertain{<:HomographyMap{N}}) where {N} = relabel(UnlabeledFrame{N - 1}, UnlabeledFrame{N - 1}, u)
+
 # AbstractMatrixMap interface: HomographyMap's stored matrix IS its homogeneous
 # form — the one accessor to it (`inv(h)`'s is the stored inverse), as a plain SMatrix.
 to_homogeneous(h::HomographyMap{N, T}) where {N, T} = SMatrix{N, N, T}(h.forward)

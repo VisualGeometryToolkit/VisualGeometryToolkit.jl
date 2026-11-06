@@ -81,6 +81,7 @@ import ..VisualGeometryToolkitCore: _padding_value   # FixedModels' padding of a
 using ..VisualGeometryToolkitCore: intersects   # a node's support against the imaged region (support.jl)
 using ..VisualGeometryToolkitCore: HomEllipseMat, WholePlane   # the conic matrix a valid domain is built from, and the whole plane (image_circle.jl)
 import ..VisualGeometryToolkitCore: HomographyMap  # Import (not using) to extend the labeled camera lift
+import ..VisualGeometryToolkitCore: homography   # its TargetHomographies method, as pose(tp, t, id) (captures.jl)
 
 using ..VisualGeometryToolkitCore: Plane3D, signed_distance  # For chirality-filtered P3P
 using ..VisualGeometryToolkitCore: Line2D   # RadialCamera projects a plane point TO A LINE
@@ -162,6 +163,7 @@ using ..VisualGeometryToolkitCore: EssentialMat  # rig → labeled epipolar-form
 import ..VisualGeometryToolkitCore: points         # extended: a target rig's world points (rig.jl)
 import ..VisualGeometryToolkitCore: EpipolarForm  # Import (not using) to extend with the rig mint
 import ..VisualGeometryToolkitCore: HomographyMat  # Import to extend constructor
+using ..VisualGeometryToolkitCore: sign_normalize   # a homography's canonical parameters (captures.jl)
 import ..VisualGeometryToolkitCore: Extrinsics3   # Import to extend constructor: the planar-target pose from a homography (homography.jl)
 using ..VisualGeometryToolkitCore: _cross2d   # the 2-D cross product (base/coordinates.jl): radial_camera_5pt
 using ..VisualGeometryToolkitCore: _AffinePlanarMap   # the affine-class maps RadialCamera's ∘ accepts (calibration.jl)
@@ -1050,7 +1052,7 @@ export ChartPlacement, placement              # a calibration's dimensionless ch
 export calibration, design, reference, is_planar   # design, reference: public, not exported, at the top level
 export is_affine                         # the surface chart's trait (public, not exported, at the top level)
 export PlanarCalibration                 # the planar kinds as one type (public, not exported, at the top level)
-export TARGET_CALIBRATION_TAGS, calibration_tag, length_mask   # the kinds' tag registry and a kind's tag (public, not exported, at the top level)
+export TARGET_CALIBRATION_TAGS, PLANAR_MAP_TAGS, calibration_tag, length_mask   # the kinds' tag registry and a kind's tag (public, not exported, at the top level)
 export TARGET_CALIBRATION_ORDER, planar_kind, members, is_pure_bending   # the composition's structure (public, not exported, at the top level)
 export iwasawa_parameters, iwasawa_parameters_with_jacobian   # an affine's Iwasawa factors' parameters (public, not exported, at the top level)
 export regularizer, TargetManifold      # the calibratable-target protocol

@@ -1,10 +1,10 @@
 # =============================================================================
 # vgio/target_homographies/v1 ↔ TargetHomographies: per frame, each target's
-# plane → pixel homography, canonical (unit Frobenius norm, H[3,3] ≥ 0)
+# plane → pixel HomographyMap as the parametric record (nine canonical entries)
 # =============================================================================
 
 @testsetup module TargetHomographiesFixtures
-    using VisualGeometryToolkitCore: TargetHomographies, HomographyMat, PixelFrame, sign_normalize
+    using VisualGeometryToolkitCore: TargetHomographies, HomographyMap, HomographyMat, PixelFrame, sign_normalize
     using StaticArrays: SMatrix
     using JSON: JSON
     using VisualGeometryToolkitIO: load, save
@@ -15,7 +15,7 @@
     const ids = [repeat('a', 64), repeat('b', 64)]     # (the content ids of a rig of boards, of a single target)
 
     # a plane → pixel homography, as a placement would give it, in canonical form
-    canonical(rows...) = sign_normalize(HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(permutedims(reduce(hcat, rows))))))
+    canonical(rows...) = HomographyMap(sign_normalize(HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(permutedims(reduce(hcat, rows)))))))
 
     function sample()
         a = canonical([812.3, -41.7, 1210.25], [37.9, 805.1, 640.5], [0.00012, -0.00007, 0.6])
@@ -33,7 +33,8 @@
 end
 
 @testitem "target_homographies/v1: exact round trip" setup = [TargetHomographiesFixtures] begin
-    using VisualGeometryToolkitCore: TargetHomographies, PixelFrame
+    using VisualGeometryToolkitCore: TargetHomographies, PixelFrame, to_homogeneous
+    import VisualGeometryToolkitCore
     using JSON: JSON
     import VisualGeometryToolkitIO as VgtkIO
     th = sample()
@@ -43,7 +44,7 @@ end
         back = load(TargetHomographies, p)
         @test back == th
         for t in keys(th), id in keys(th[t])
-            @test collect(back[t][id]) == collect(th[t][id])      # bit for bit
+            @test to_homogeneous(back[t][id]) == to_homogeneous(th[t][id])      # bit for bit
         end
         @test back.images == th.images && back.sensors == th.sensors && back.times == th.times
         @test back.time_origin == th.time_origin
@@ -59,7 +60,9 @@ end
         d = JSON.parse(read(p, String))
         @test d["schema"] == "vgio/target_homographies/v1" && d["pixel_frame"] == "colmap"
         @test d["provenance"] == Dict("tool" => "test")
-        @test d["frames"][1]["homographies"][1]["H"] isa Vector && length(d["frames"][1]["homographies"][1]["H"][1]) == 3
+        r = d["frames"][1]["homographies"][1]
+        @test r["type"] == "homography_map" && length(r["parameters"]) == 9 && !haskey(r, "covariance")
+        @test r["parameters"] == collect(VisualGeometryToolkitCore.parameter_vector(th[1][Symbol(r["target"])]))
         @test VgtkIO.validate(p) == "target_homographies"
         # the same placement always writes the same bytes
         save(joinpath(dir, "again.json"), th; provenance = (; tool = "test"))
@@ -68,22 +71,24 @@ end
 end
 
 @testitem "target_homographies/v1: the writer stores the canonical H" setup = [TargetHomographiesFixtures] begin
-    using VisualGeometryToolkitCore: TargetHomographies, HomographyMat, sign_normalize
+    using VisualGeometryToolkitCore: TargetHomographies, HomographyMap, HomographyMat, sign_normalize, to_homogeneous
     using StaticArrays: SMatrix
     using LinearAlgebra: norm
-    raw = HomographyMat{Float64}(Tuple(-37.5 .* SMatrix{3, 3, Float64}(3, 1, 0.2, 0.5, 2, 0.1, 100, 80, 1)))   # scaled, wrong sign
+    M = HomographyMat{Float64}(Tuple(-37.5 .* SMatrix{3, 3, Float64}(3, 1, 0.2, 0.5, 2, 0.1, 100, 80, 1)))   # scaled, wrong sign
+    raw = HomographyMap(M)
     th = TargetHomographies{colmap}(Dict(1 => Dict(:a => raw)); images = Dict(1 => "i.png"), sensors = "cam", targets = ids)
     mktempdir() do dir
         p = joinpath(dir, "th.json")
         save(p, th)
-        H = load(TargetHomographies, p)[1][:a]
-        @test collect(H) == collect(sign_normalize(raw))
+        H = to_homogeneous(load(TargetHomographies, p)[1][:a])
+        @test H == SMatrix{3, 3, Float64}(sign_normalize(M))
         @test abs(norm(H) - 1) <= 4eps() && H[3, 3] >= 0
     end
-    degenerate = TargetHomographies{colmap}(Dict(1 => Dict(:a => HomographyMat{Float64}(ntuple(_ -> 0.0, 9)))); images = Dict(1 => "i.png"), sensors = "cam", targets = ids)
+    degenerate = TargetHomographies{colmap}(Dict(1 => Dict(:a => HomographyMap(SMatrix{3, 3, Float64}(fill(NaN, 9)...)))); images = Dict(1 => "i.png"), sensors = "cam", targets = ids)
     mktempdir() do dir
         p = joinpath(dir, "th.json")
-        @test_throws ArgumentError save(p, degenerate)
+        e = try save(p, degenerate); nothing catch e; e end
+        @test e isa ArgumentError && occursin("frame 1, target a", e.msg) && occursin(p, e.msg)
         @test !isfile(p)
     end
 end
@@ -116,12 +121,15 @@ end
         @test occursin("targets", refusal(d -> d["targets"] = String[], "empty_targets"))
         @test occursin("targets", refusal(d -> d["targets"] = [ids[1], ids[1]], "repeated_targets"))
         @test occursin("targets", refusal(d -> d["targets"] = ["not-a-digest"], "bad_targets"))
-        @test occursin("H: expected 3 entries, got 2", refusal(d -> d["frames"][1]["homographies"][1]["H"] = [[1.0, 0.0], [0.0, 1.0]], "not_3x3"))
-        @test occursin("H[1]: expected 3 entries, got 2", refusal(d -> d["frames"][1]["homographies"][1]["H"] = [[1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], "short_row"))
-        @test occursin("H: expected 3 entries, got 2", refusal(d -> d["frames"][1]["homographies"][1]["H"] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], "two_rows"))
-        @test occursin("singular", refusal(d -> d["frames"][1]["homographies"][1]["H"] = [[0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [0.0, 0.0, 0.0]], "singular"))
-        @test occursin("canonical", refusal(d -> d["frames"][1]["homographies"][1]["H"] = [[2.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0]], "not_unit"))
-        @test occursin("canonical", refusal(d -> d["frames"][1]["homographies"][1]["H"] = [[-0.6, 0.0, 0.0], [0.0, -0.6, 0.0], [0.0, 0.0, -0.8]], "wrong_sign"))
+        rec(d) = d["frames"][1]["homographies"][1]
+        @test occursin("parameters: expected 9 entries, got 8", refusal(d -> rec(d)["parameters"] = rec(d)["parameters"][1:8], "eight"))
+        @test occursin("type", refusal(d -> rec(d)["type"] = "homography", "bad_type"))
+        @test occursin("type", refusal(d -> delete!(rec(d), "type"), "no_type"))
+        @test occursin("singular", refusal(d -> rec(d)["parameters"] = zeros(9), "singular"))
+        @test occursin("canonical", refusal(d -> rec(d)["parameters"] = [2.0, 0, 0, 0, 2.0, 0, 0, 0, 2.0], "not_unit"))
+        @test occursin("canonical", refusal(d -> rec(d)["parameters"] = [-0.6, 0, 0, 0, -0.6, 0, 0, 0, -0.8], "wrong_sign"))
+        @test occursin("covariance", refusal(d -> rec(d)["covariance"] = [[1.0, 0.0], [0.0, 1.0]], "cov_size"))
+        @test occursin("bogus", refusal(d -> rec(d)["bogus"] = 1, "record_bogus"))
         @test occursin("`t`", refusal(d -> d["frames"][2]["t"] = d["frames"][1]["t"], "duplicate_t"))
         @test occursin("targets", refusal(d -> push!(d["frames"][1]["homographies"], deepcopy(d["frames"][1]["homographies"][1])), "duplicate_target"))
         @test occursin("sensor", refusal(d -> delete!(d["frames"][1], "sensor"), "no_sensor"))
@@ -136,6 +144,29 @@ end
         @test_throws ArgumentError save(joinpath(dir, "x.json"), noimg)
         @test_throws ArgumentError save(joinpath(dir, "y.json"), notargets)
         @test !isfile(joinpath(dir, "y.json"))
+    end
+end
+
+@testitem "target_homographies/v1: an Uncertain homography keeps its 8×8 covariance in its storage" setup = [TargetHomographiesFixtures] begin
+    using VisualGeometryToolkitCore: TargetHomographies, Uncertain, CovMat, geom, to_homogeneous
+    import VisualGeometryToolkitCore
+    using StaticArrays: SMatrix
+    using JSON: JSON
+    th = sample()
+    A = SMatrix{8, 8, Float64}(ntuple(k -> (i = (k - 1) % 8 + 1; j = (k - 1) ÷ 8 + 1; i == j ? 1.0e-6 * i : 1.0e-8), 64))
+    for Σ in (CovMat(A), CovMat{8}(σ = 1.0e-3), CovMat{8}(σ = Tuple(1.0e-3 .* (1:8))))
+        u = TargetHomographies{colmap}(
+            Dict(1 => Dict(:a => Uncertain(th[1][:a], Σ))); images = Dict(1 => "i.png"), sensors = "cam", targets = ids,
+        )
+        mktempdir() do dir
+            p = joinpath(dir, "u.json")
+            d = written(p, u)
+            @test haskey(d["frames"][1]["homographies"][1], "covariance")
+            back = load(TargetHomographies, p)[1][:a]
+            @test back isa Uncertain && to_homogeneous(geom(back)) == to_homogeneous(th[1][:a])
+            Σb = getfield(back, :attributes)                          # the CovMat an Uncertain holds
+            @test typeof(parent(Σb)) == typeof(parent(Σ)) && Matrix(Σb) == Matrix(Σ)
+        end
     end
 end
 

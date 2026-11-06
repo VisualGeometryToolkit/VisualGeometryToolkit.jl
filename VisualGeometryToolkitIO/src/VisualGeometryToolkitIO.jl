@@ -34,7 +34,7 @@ and times) or an `Attributed` attribute (a camera's `calibration` block, a targe
 
 Every vgio file is a versioned schema (`vgio/<kind>/v<n>`, the current
 versions: rig v8; target v5; cameras, transforms and trajectory v4;
-generic_camera and target_points2d v3; target_poses, target_points3d and
+generic_camera v3; target_poses, target_points2d, target_points3d and
 target_detections v2; target_homographies, capture_settings, calibration,
 vignetting, environment_light and blur v1; the rest v2), and a file is
 sufficient on its own and minimal:
@@ -89,7 +89,7 @@ module VisualGeometryToolkitIO
 import VisualGeometryToolkitCore as VgtkCore
 
 using StaticArrays: SMatrix, SVector, StaticMatrix, StaticVector
-using LinearAlgebra: I, norm, normalize, svdvals, Diagonal
+using LinearAlgebra: I, norm, normalize, Diagonal
 using VisualGeometryToolkitCore: ScaledIdentity   # an isotropic covariance's storage (λ·I): its wire form {"isotropic": λ}
 using VisualGeometryToolkitCore: AbstractVignetting, TensorProductVignetting, RadialVignetting, LogVignetting, knot_vectors,
     spline_degree, control_points, field_radius, log_spline, with_control_points,
@@ -113,7 +113,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     AbstractTargetLayout, AprilGrid, SchoepsPattern, layout, design, TARGET_LAYOUT_TAGS, tag_of,
     Rigid, ThinPlateSpline, HeightField, Scale, Aspect, Skew, TARGET_CALIBRATION_TAGS, calibration_tag, parameter_vector, with_parameters, length_mask,
     TARGET_CALIBRATION_ORDER, planar_kind, members, is_pure_bending, ThinPlateSplineSystem, iwasawa_parameters_with_jacobian, strip_or_bare,
-    Trajectory, TargetPoses, TargetHomographies, HomographyMat, sign_normalize, TargetPoints2D, TargetPoints3D, TargetPoint2D, TargetPoint3D,
+    Trajectory, TargetPoses, TargetHomographies, HomographyMap, HomographyMat, PLANAR_MAP_TAGS, TargetPoints2D, TargetPoints3D, TargetPoint2D, TargetPoint3D,
     TargetDetections, Csponds, withattrs, sources, targets,
     CentralGenericModel, NoncentralGenericModel, nominal_intrinsics, present_nodes, LogicalIntrinsics, Ellipse, WholePlane,
     Frame, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, UnlabeledFrame,
@@ -144,7 +144,7 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 #   load(Trajectory, path)                       vgio/trajectory/v4  a body's pose over time
 #   load(TargetPoses, path)                      vgio/target_poses/v2
 #   load(TargetHomographies, path)               vgio/target_homographies/v1 (and `load(TargetHomographies{F}, path)`)
-#   load(TargetPoints2D, path)                   vgio/target_points2d/v3 (or a Schöps dataset.bin; `target`)
+#   load(TargetPoints2D, path)                   vgio/target_points2d/v2 (or a Schöps dataset.bin; `target`)
 #   load(TargetPoints3D, path)                   vgio/target_points3d/v2
 #   load(TargetDetections, path)                 vgio/target_detections/v2 (or a target_points2d/3d file, converted, unless it has a duplicate or a form mix)
 #   load(CaptureSettings, path)                  vgio/capture_settings/v1 (Attributed with its identities' sources)
@@ -187,7 +187,7 @@ include("transform_schema.jl")
 include("camera_schema.jl")
 include("generic_camera_schema.jl")  # the Schöps grid models (must precede rig_schema: sensors embed it)
 include("rig_schema.jl")
-include("captures_schema.jl")  # trajectory/v4, target_poses/v2, target_homographies/v1, target_points2d/v3, target_points3d/v2, target_detections/v2: VGC's captures
+include("captures_schema.jl")  # trajectory/v4, target_poses/v2, target_homographies/v1, target_points2d/v2, target_points3d/v2, target_detections/v2: VGC's captures
 include("capture_settings_schema.jl")  # capture_settings/v1: the camera's settings per frame, the body and lens identities
 include("radiometry_schema.jl")  # vignetting/v1, environment_light/v1, blur/v1: a radiometric camera's fields, light and blurs
 include("calibration_manifest.jl")  # calibration.json: vgio/calibration/v1, the hash-bound set of a result's records (after the kinds it checks)

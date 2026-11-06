@@ -3,8 +3,8 @@
 # calibrators take (write-only, like TUM / EuRoC / BOP / TRC)
 # =============================================================================
 #
-# The measurements (target_points2d/v3, VGC `TargetPoints2D`) and the targets
-# (a vgio/rig file, a VGC `Rig` of targets, or a single vgio/target) are COLMAP's points2D → points3D
+# The measurements (target_points2d/v1, VGC `TargetPoints2D`) and the targets
+# (a vgio/rig file, a VGC `Rig` of targets) are COLMAP's points2D → points3D
 # decomposition: a pixel and a reference into a target's point list. Feeding a
 # third-party calibrator — cv::calibrateCamera, MATLAB's
 # estimateCameraParameters, the python side — means resolving the references
@@ -121,17 +121,14 @@ for `cv::calibrateCamera` (the top-left pixel's centre at (0, 0)),
 `PixelFrame{:julia}` for MATLAB's (1, 1); the measurements' own frame by
 default. A type, it leads.
 
-`targets` is one or more rigs, rig file paths, or single targets (an
-`AbstractTarget` or a `vgio/target` path), one per connected component. A
-single target is named in the file by its design `reference`, or by its
-[`content_id`](@ref) with none. A target present in several must carry the same
-points in each; `resolve` resolves a referenced planar design read from a path.
-When `obs` names its targets (`obs.targets`), the given ones must be exactly
-those, by [`content_id`](@ref) — an old rig file (`vgio/rig/v4`, or a `v5`
-whose calibration held the retired affine kind) also by the identity its
+`targets` is one or more rigs or rig file paths (one per connected
+component; a target present in several must carry the same points in each;
+`resolve` resolves a referenced planar design read from a path); when `obs` names its targets (`obs.targets`), the given ones must be
+exactly those, by [`content_id`](@ref) — an old rig file (`vgio/rig/v4`, or a
+`v5` whose calibration held the retired affine kind) also by the identity its
 version named it by, which the measurement files written beside it hold.
-Every (target, index) must resolve, and every frame must name its image and
-sensor.
+Every (target, index) must resolve,
+and every frame must name its image and sensor.
 """
 save_correspondences(path::AbstractString, obs::TargetPoints2D{F}, targets...; kwargs...) where {F <: PixelFrame} =
     save_correspondences(F, path, obs, targets...; kwargs...)

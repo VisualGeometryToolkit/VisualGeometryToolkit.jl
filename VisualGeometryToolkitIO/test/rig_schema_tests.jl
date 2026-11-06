@@ -1,6 +1,6 @@
 # =============================================================================
-# rig/v8, target/v5, trajectory/v4, target_poses/v2, target_points2d/v3,
-# target_points3d/v2 round trips, and the correspondences export
+# rig/v6, target/v3, trajectory/v3, target_poses/v1, target_points2d/v1,
+# target_points3d/v1 round trips, and the correspondences export
 # =============================================================================
 #
 # EXACTNESS BY TYPE: every kind reads back as the VGC value it was written
@@ -309,7 +309,7 @@ end
     using VisualGeometryToolkitCore: Rig, TargetPoints2D, TargetPoints3D
     mktempdir() do dir
         for (schema, T, successor) in (
-                ("vgio/observations/v2", TargetPoints2D, "target_points2d/v3"),
+                ("vgio/observations/v2", TargetPoints2D, "target_points2d/v2"),
                 ("vgio/point_observations/v1", TargetPoints3D, "target_points3d/v2"),
                 ("vgio/targets/v2", Rig, "rig/v8"),
                 ("vgio/rig/v3", Rig, "rig/v8"),
@@ -526,7 +526,7 @@ end
         # the file declares the frame the TYPE carries, and no pixel is converted
         save(path, obs)
         d = parse_json(read(path, String))
-        @test d.schema == "vgio/target_points2d/v3" && d.pixel_frame == "julia" && d.point_index_base == 1
+        @test d.schema == "vgio/target_points2d/v2" && d.pixel_frame == "julia" && d.point_index_base == 1
         @test d.frames[1].points[1].xy == [640.0, 480.0]
         @test d.targets == [content_id(targets)]
         @test d.frames[2].image == "DSC0003.png" && d.frames[2].sensor == "cam"
@@ -589,20 +589,6 @@ end
         @test_throws ArgumentError save_correspondences(joinpath(dir, "x.json"), o2, rp)
         save_correspondences(joinpath(dir, "y.json"), o2, rp; resolve = _ -> pts)
         @test parse_json(read(joinpath(dir, "y.json"), String)).rows[1].object_points[1] == [20.0, 10.0, 0.0]
-        # a single target (a value or a vgio/target/v3 path) is named by its design reference
-        st = PlanarTarget(:a1f2; nominal = pts)
-        sp = joinpath(dir, "single_target.json")
-        save(sp, st)
-        so = TargetPoints2D{PixelFrame{:julia}}(Dict(1 => [(; target = :a1f2, index = 1, xy = SVector(1.0, 2.0), weight = 1.0)]); images = Dict(1 => "a.png"), sensors = "cam", targets = [content_id(sp)])
-        @test content_id(sp) == content_id(st)
-        @test_throws ArgumentError save_correspondences(joinpath(dir, "x.json"), so, sp)                  # a reference needs its resolver
-        for (name, t) in (("path", sp), ("value", st))
-            sc = joinpath(dir, "single_$(name).json")
-            save_correspondences(sc, so, t; resolve = _ -> pts)
-            r = only(parse_json(read(sc, String)).rows)
-            @test r.target == "a1f2" && r.object_points[1] == [10.0, 5.0, 0.0] && r.image_points[1] == [1.0, 2.0]
-        end
-        @test_throws ArgumentError save_correspondences(joinpath(dir, "x.json"), so, targets)             # the rig is not the target it names
         # a trajectory file is not target points
         tpath = joinpath(dir, "trajectory.json")
         save(tpath, Trajectory(TargetFrame{:a1f2}, WorldFrame, Dict(1 => at(900.0mm))))

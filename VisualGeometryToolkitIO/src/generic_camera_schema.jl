@@ -192,8 +192,8 @@ end
 # grid (plain metres) in the file's length unit.
 _grid_json(g::Matrix{<:Vec3}, P::AbstractMatrix{Bool}) =
     [[Float64(g[gy, gx][k]) for k in 1:3] for gy in 1:size(g, 1) for gx in 1:size(g, 2) if P[gy, gx]]
-_point_grid_json(g::Matrix{<:Vec3}, P::AbstractMatrix{Bool}, unit::Units) =
-    [Float64[_write_power(Float64(g[gy, gx][k]), unit, 1) for k in 1:3] for gy in 1:size(g, 1) for gx in 1:size(g, 2) if P[gy, gx]]
+_point_grid_json(g::Matrix{<:Vec3}, P::AbstractMatrix{Bool}, unit::_LeafUnit) =
+    [Float64[_leaf_power(Float64(g[gy, gx][k]), unit, 1) for k in 1:3] for gy in 1:size(g, 1) for gx in 1:size(g, 2) if P[gy, gx]]
 
 # A grid back from its held nodes' row-major entries: a direction grid as
 # stored, a point grid read in the file's length unit into plain metres; NaN in
@@ -207,51 +207,57 @@ function _grid_from_json(a, P::AbstractMatrix{Bool}; unit::Units = mm, is_points
     return g
 end
 
-# The optional nominal pinhole and domain of a model (empty when it has none).
-function _generic_extras(m)
+# The optional nominal pinhole (a K's five numbers, style.jl) and domain (an
+# ellipse's minimal form) of a model, empty when it has none — the record's and
+# the identity tree's (`_id_grid_model`) alike.
+function _generic_extras(s::VgioStyle, m)
     n = nominal_intrinsics(m)
-    nom = n === nothing ? (;) : (K = n.K;
-        (nominal_intrinsics = Float64[K[1, 1], K[2, 2], K[1, 3], K[2, 3], K[1, 2]],))
+    nom = n === nothing ? (;) : (nominal_intrinsics = _k_values(n.K),)
     d = m.domain
-    dom = d isa WholePlane ? (;) : d isa Ellipse ?
-        (domain = (ellipse = Float64[d.center[1], d.center[2], d.a, d.b, d.θ],),) :
-        throw(ArgumentError("save: a generic model's domain is stored as an Ellipse or the whole plane; got a $(nameof(typeof(d)))"))
+    dom = d isa WholePlane ? (;) : d isa Ellipse ? (domain = (ellipse = JSON.lower(s, d),),) : _refuse_domain(s, d)
     return merge(nom, dom)
 end
-function _generic_extras_from(d)
-    nominal = haskey(d, :nominal_intrinsics) ? (v = Float64.(d.nominal_intrinsics::Vector{Any});
-        LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(v[1], 0, 0, v[5], v[2], 0, v[3], v[4], 1)))) : nothing
-    domain = haskey(d, :domain) ? (e = Float64.(d.domain.ellipse::Vector{Any}); Ellipse(Point2{Float64}(e[1], e[2]), e[3], e[4], e[5])) :
-        WholePlane()
-    return (; nominal, domain)
-end
+# the caller's context: the identity tree's style (`_PERSISTED`) is content_id's, any other a writer's
+_refuse_domain(s::VgioStyle, d) = throw(
+    ArgumentError(
+        s.length_unit isa _Persisted ?
+            "content_id: a generic model's domain is an Ellipse or the whole plane; got a $(nameof(typeof(d)))" :
+            "save: a generic model's domain is stored as an Ellipse or the whole plane; got a $(nameof(typeof(d)))"
+    )
+)
+_generic_extras_from(s::VgioStyle, d) = (
+    nominal = haskey(d, :nominal_intrinsics) ? LogicalIntrinsics(_k_from_values(d.nominal_intrinsics::Vector{Any})) : nothing,
+    domain = haskey(d, :domain) ? JSON.lift(s, Ellipse, d.domain.ellipse::Vector{Any}) : WholePlane(),
+)
 
-# A model's body, the standalone file's and a rig sensor's: `present` for a
-# model that does not hold every node.
-function _generic_body(m::Union{CentralGenericModel, NoncentralGenericModel}, u::Units = mm)
+const _GenericModel = Union{CentralGenericModel, NoncentralGenericModel}
+
+# A model's body on IO's style, the standalone file's and a rig sensor's:
+# `present` for a model that does not hold every node, a non-central point grid
+# (plain metres) in the style's length form (the file's unit; the identity
+# tree's persisted metres).
+function JSON.lower(s::VgioStyle, m::_GenericModel)
     P = present_nodes(m)
-    pres = all(P) ? (;) : (present = _present_runs(P),)
-    return merge(_generic_body_core(m, P, u, pres), _generic_extras(m))
+    dirs = m isa CentralGenericModel ? m.grid : m.directions
+    return merge(
+        (
+            type = String(nameof(typeof(m))),
+            width = m.width, height = m.height,
+            calibration_min_x = m.calib_min_x, calibration_min_y = m.calib_min_y,
+            calibration_max_x = m.calib_max_x, calibration_max_y = m.calib_max_y,
+            grid_width = size(dirs, 2), grid_height = size(dirs, 1), grid_layout = _GRID_LAYOUT,
+        ),
+        all(P) ? (;) : (present = _present_runs(P),),
+        (direction_grid = _grid_json(dirs, P),),
+        m isa NoncentralGenericModel ? (point_grid = _point_grid_json(m.points, P, s.length_unit),) : (;),
+        _generic_extras(s, m),
+    )
 end
-_generic_header(m, grid, pres) = (
-    type = String(nameof(typeof(m))),
-    width = m.width, height = m.height,
-    calibration_min_x = m.calib_min_x, calibration_min_y = m.calib_min_y,
-    calibration_max_x = m.calib_max_x, calibration_max_y = m.calib_max_y,
-    grid_width = size(grid, 2), grid_height = size(grid, 1), grid_layout = _GRID_LAYOUT,
-    pres...,
-)
-_generic_body_core(m::CentralGenericModel, P, ::Units, pres) =
-    merge(_generic_header(m, m.grid, pres), (direction_grid = _grid_json(m.grid, P),))
-# The point grid (plain metres) is written in the file's `unit`.
-_generic_body_core(m::NoncentralGenericModel, P, unit::Units, pres) = merge(
-    _generic_header(m, m.directions, pres),
-    (direction_grid = _grid_json(m.directions, P), point_grid = _point_grid_json(m.points, P, unit)),
-)
 
-# A validated body back to the model; `unit` is the length unit the enclosing
-# file declares (read only for a non-central point grid).
-function _generic_from_body(d, unit::Units)
+# A validated body back to the model; the style's length unit is the one the
+# enclosing file declares (read only for a non-central point grid).
+function JSON.lift(s::VgioStyle, ::Type{_GenericModel}, d::_Record)
+    unit = s.length_unit
     gw, gh = Int(d.grid_width::Integer), Int(d.grid_height::Integer)
     P = haskey(d, :present) ? _present_from_runs(d.present::Vector{Any}, gw, gh) : trues(gh, gw)
     dirs = _grid_from_json(d.direction_grid::Vector{Any}, P)
@@ -262,7 +268,7 @@ function _generic_from_body(d, unit::Units)
     )
     # the controls as stored (a model's controls may be off the sphere — a quasi-interpolated start, a tangent-plane optimizer's
     # result — and a re-normalization would change its spline; a unit grid reads back unit either way)
-    x = _generic_extras_from(d)
+    x = _generic_extras_from(s, d)
     d.type == "CentralGenericModel" && return CentralGenericModel(args..., dirs; unit_controls = false, x..., present = P)
     return NoncentralGenericModel(args..., dirs, _grid_from_json(d.point_grid::Vector{Any}, P; unit, is_points = true);
                                   unit_controls = false, x..., present = P)
@@ -284,7 +290,8 @@ function save(
     )
     head = (schema = _schema("generic_camera"), pixel_frame = pixel_frame_name(CANONICAL_PIXEL_FRAME))
     unit = m isa NoncentralGenericModel ? (length_unit = unit_string(length_unit),) : (;)
-    _write_store(path, _GENERIC_CAMERA_SPEC, _with_provenance(merge(head, unit, _generic_body(m, length_unit)), provenance))
+    s = VgioStyle(; length_unit)
+    _write_store(path, _GENERIC_CAMERA_SPEC, _with_provenance(merge(head, unit, JSON.lower(s, m)), provenance); style = s)
     return nothing
 end
 
@@ -321,7 +328,7 @@ end
 
 function _load_generic(path::AbstractString)
     d = _read_store(path, "generic_camera", _GENERIC_CAMERA_SPEC)
-    return _generic_from_body(d, haskey(d, :length_unit) ? parse_unit(d.length_unit::String) : mm)
+    return JSON.lift(VgioStyle(; length_unit = haskey(d, :length_unit) ? parse_unit(d.length_unit::String) : mm), _GenericModel, d::_Record)
 end
 
 _typed_generic(::Type{T}, m, path) where {T} = m isa T ? m : throw(

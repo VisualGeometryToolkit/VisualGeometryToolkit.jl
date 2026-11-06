@@ -87,14 +87,13 @@ iff `Uncertain`. Its frames are not written: they are given by where it sits.
 A plain translation is an `ArgumentError` (attach its unit,
 `EuclideanMap(rotation(X), t .* m)`). The inverse is [`pose_from_json`](@ref).
 """
-function pose_json(X::EuclideanMap{3}, unit::_LeafUnit = mm)
-    t = _lengths_json(X.t, unit, "a pose's translation")
-    return (rotation = collect(_qvec(X.R)), translation = t)
-end
-function pose_json(u::Uncertain{<:EuclideanMap{3}}, unit::_LeafUnit = mm)
-    body = pose_json(geom(u), unit)
-    return merge(body, (covariance = _length_cov_json(cov(u), unit, _POSE_COV_DIMS),))   # in the storage it holds
-end
+pose_json(X::_AnyPose, unit::_LeafUnit = mm) = JSON.lower(VgioStyle(; length_unit = unit), X)
+
+# The pose record on IO's style (style.jl): the minimal form, a quaternion and a translation.
+JSON.lower(s::VgioStyle, X::EuclideanMap{3}) =
+    (rotation = collect(_qvec(X.R)), translation = _lengths_json(X.t, s.length_unit, "a pose's translation"))
+JSON.lower(s::VgioStyle, u::Uncertain{<:EuclideanMap{3}}) =   # the covariance in the storage it holds
+    merge(JSON.lower(s, geom(u)), (covariance = _length_cov_json(cov(u), s.length_unit, _POSE_COV_DIMS),))
 
 """
     pose_from_json(p, unit::AbstractString) -> EuclideanMap{3} | Uncertain
@@ -108,12 +107,14 @@ cross block in m·rad. The rotation is the stored quaternion itself, a
 writes back to the same numbers. The quaternion must be unit-norm to 1e-6
 (refused otherwise, never normalized silently).
 """
-function pose_from_json(p, unit::AbstractString)
+pose_from_json(p, unit::AbstractString) = JSON.lift(VgioStyle(; length_unit = parse_unit(unit)), EuclideanMap{3}, p::_Record)
+
+function JSON.lift(s::VgioStyle, ::Type{EuclideanMap{3}}, p::_Record)
     q = SVector{4, Float64}(Float64.(p.rotation::Vector{Any})...)
     abs(norm(q) - 1) < 1.0e-6 || throw(
         ArgumentError("quaternion is not unit-norm (|q| = $(norm(q))); refusing to normalize silently")
     )
-    u = parse_unit(unit)
+    u = s.length_unit
     X = _quat_map(canonical_qvec(q), _lengths_from_json(Val(3), p.translation::Vector{Any}, u))
     haskey(p, :covariance) || return X
     return Uncertain(X, CovMat(_length_cov_from_json(p.covariance, 6, u, _POSE_COV_DIMS)))
@@ -143,12 +144,13 @@ function save(path::AbstractString, poses::AbstractVector; length_unit::Units = 
     all(X -> X isa _AnyPose, poses) || throw(
         ArgumentError("save: a transforms file holds rigid poses (EuclideanMap{3}, plain or Uncertain); got $(eltype(poses))")
     )
+    s = VgioStyle(; length_unit)
     records = map(poses) do X
         from, to = _labeled_names(X)
-        merge((from = from, to = to), pose_json(X, length_unit))
+        merge((from = from, to = to), JSON.lower(s, X))
     end
     body = merge((schema = _schema("transforms"),), pose_declarations(length_unit), (transforms = records,))
-    _write_store(path, _TRANSFORMS_SPEC, _with_provenance(body, provenance))
+    _write_store(path, _TRANSFORMS_SPEC, _with_provenance(body, provenance); style = s)
     return nothing
 end
 
@@ -163,9 +165,9 @@ file). A retired v2 (free-form names) or v1 file is refused.
 """
 function load(::Type{Vector{EuclideanMap}}, path::AbstractString)
     d = _read_store(path, "transforms", _TRANSFORMS_SPEC)
-    unit = d.length_unit::String
+    s = VgioStyle(; length_unit = parse_unit(d.length_unit::String))
     return _AnyPose[
-        relabel(frame_from_name(r.from::String), frame_from_name(r.to::String), pose_from_json(r, unit))
+        relabel(frame_from_name(r.from::String), frame_from_name(r.to::String), JSON.lift(s, EuclideanMap{3}, r::_Record))
             for r in d.transforms::Vector{Any}
     ]
 end

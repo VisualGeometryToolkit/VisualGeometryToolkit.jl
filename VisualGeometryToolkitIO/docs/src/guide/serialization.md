@@ -44,7 +44,10 @@ other dimension has no declared unit and is an `ArgumentError`.
 [`json_value`](@ref)`(x, contract; kind)` is the plain value a record holds for one
 of VisualGeometryToolkitCore's values, which `JSON.json` writes, and
 [`from_json`](@ref)`(T, d, contract; kind)` reads it back from a parsed object.
-These are explicit functions, not methods of JSON.jl's `lower` and `lift`.
+These are explicit functions of a `UnitContract`, not `lower` and `lift`
+methods (the records of the native kinds' geometric values — poses, cameras,
+targets with their calibrations — are, on `VgioStyle`; see "Building blocks for
+other kinds" in [Kinds and the I/O Surface](kinds.md)).
 
 | Value | JSON object |
 |---|---|

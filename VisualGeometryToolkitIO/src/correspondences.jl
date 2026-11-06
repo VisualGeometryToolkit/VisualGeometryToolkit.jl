@@ -103,7 +103,7 @@ function _write_correspondences(
             ) for r in rows
         ],
     )
-    _write_store(path, _CORRESPONDENCES_SPEC, _with_provenance(body, provenance))
+    _write_store(path, _CORRESPONDENCES_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit, pixel_frame = G))
     return path
 end
 

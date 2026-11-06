@@ -304,11 +304,41 @@ dst)` that `vgio_migrate` runs — a declared extension point
 
 ## Building blocks for other kinds
 
-A package that serializes a kind of its own (for example a calibration
-pipeline's session) can reuse the bodies the native kinds embed:
+Every VisualGeometryToolkitCore value a native kind embeds is written and read
+on one serialization style, `VgioStyle(; length_unit = mm, pixel_frame =
+PixelFrame{:colmap})`, a `JSON.JSONStyle` that carries what the enclosing file
+declares. `JSON.json(x; style)` writes a value, `JSON.lower(style, x)` gives
+its record and `JSON.lift(style, T, record)` reads one back from a record
+read by property access — a parsed `JSON.Object` or a `NamedTuple` (a `Dict`
+is not one); the methods are on `VgioStyle` only.
+
+| Value | `T` in `lift` | Record |
+|---|---|---|
+| `EuclideanMap{3}`, plain or `Uncertain` | `EuclideanMap{3}` | `{"rotation": [w, x, y, z], "translation": [x, y, z], "covariance": …}` |
+| `CameraModel` | `CameraModel` | `{"K": {"fx", "fy", "cx", "cy", "skew"}, "lens": {…}}`, `cx, cy` in `pixel_frame` |
+| `CentralGenericModel`, `NoncentralGenericModel` | `Union{CentralGenericModel, NoncentralGenericModel}` | the `vgio/generic_camera` body |
+| `PointTarget`, `PlanarTarget` | `AbstractTarget` (keyword `resolve`, as `target_from_json`'s) | the target body, a planar target's calibration as the parametric record (below) |
+| `AprilGrid`, `SchoepsPattern` | `AbstractTargetLayout` | `{"type": tag, every field}` |
+| `Ellipse` | `Ellipse` | `[cx, cy, a, b, θ]` |
+
+A target's calibration is written and read as part of its target's body, not
+by a `lower` of its own: VisualGeometryToolkitCore's `TargetCalibration` holds
+every planar `EuclideanMap`, so a `lower` on it would write any 2D map left in
+a record (a pixel-frame conversion) as a target calibration.
+
+A parametric model is written as `{"type": tag, "parameters": [θ₁, …]}`: the
+tag from its kind's `TagRegistry` (snake_case of the type's name), the
+parameters VisualGeometryToolkitCore's `parameter_vector` in `parameter_names`
+order, the lengths among them (`length_mask`) in the file's unit and decimal-exact,
+and no `parameters` for a kind that has none. It is read back with
+`with_parameters`; a record holding more or fewer parameters than its kind is
+an `ArgumentError` naming the tag. A kind whose structure its type does not fix states that
+structure beside its parameters (a thin-plate kind's `nodes`).
+
 `pose_json` / `pose_from_json`, `camera_json` / `camera_from_json`,
-`target_json` / `target_from_json`, and `pose_declarations`. They are public
-and not exported.
+`target_json` / `target_from_json` and `pose_declarations` are the same
+records for a length unit or a pixel frame given directly. All of these are
+public and not exported.
 
 ## Run logs
 

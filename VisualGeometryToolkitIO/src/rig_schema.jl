@@ -292,7 +292,7 @@ const _PLACEMENT = _Checked(
 )
 
 # A layout record's keys besides `type` (VGC's `TARGET_LAYOUT_TAGS` gives the
-# type for the record's tag): every one is written, in `_layout_json`'s order.
+# type for the record's tag): every one is written, in this order.
 _layout_keys(::Type{<:AprilGrid}) = (:tag_rows, :tag_cols, :tag_size, :tag_spacing, :apriltag_family, :first_id)
 _layout_keys(::Type{<:SchoepsPattern}) = (:squares_x, :squares_y, :square_length, :star_segments, :apriltag_family, :apriltags)
 const _SCHOEPS_TAG = _Obj(:x => _Int(), :y => _Int(), :width => _PosInt(), :height => _PosInt(), :id => _Int())
@@ -392,35 +392,39 @@ _length_cov_json(Σ::AbstractMatrix, ::_Chart, dims) = _cov_wire((x, n) -> x, Σ
 _length_cov_from_json(c, n::Int, ::_Chart, dims) = _cov_from_wire((x, k) -> Float64(x), c, n, dims)
 _nodes_json(c, u::_CalUnit) = [[_metres_json(p[1], u), _metres_json(p[2], u)] for p in c.system.nodes]
 
-const _FactorKind = Union{EuclideanMap{2}, Scale, Aspect{2}, Skew{2}}
-_tag(c::Union{Rigid, ThinPlateSpline, HeightField, _FactorKind}) = calibration_tag(typeof(c))
-_tag(::ComposedTransformation) = _COMPOSITION_TYPE
-# A calibration with lengths is stored physical: plain numbers are refused, as
-# a target's plain points are. One without lengths (Rigid, Scale, Aspect,
-# Skew and their compositions) has no form to refuse.
-_physical(c, ::_LeafUnit) = ((any(length_mask(c)) && !has_units(c)) && _refuse_plain("a $(nameof(typeof(c))) target calibration"); c)
-_physical(c, ::_Chart) = c   # a placed target's calibration is plain chart numbers (VGC refuses one with units)
-
-_calibration_record(c::Rigid, ::_CalUnit) = (type = _tag(c),)
-_calibration_record(c::Union{Scale, Aspect{2}, Skew{2}}, ::_CalUnit) = (type = _tag(c), parameters = Float64.(collect(parameter_vector(c))))
-# The angle is the stored one: a target's rigid member holds its rotation as an
-# `Angle2d` (VGC), whose `parameter_vector` is the angle itself, so the record
-# writes it and the reader's `Angle2d` of it is the value, bit for bit.
-function _calibration_record(c::EuclideanMap{2}, u::_CalUnit)
-    θ = parameter_vector(_physical(c, u))
-    return (type = _tag(c), parameters = [Float64(θ[1]), _metres_json(θ[2], u), _metres_json(θ[3], u)])
-end
-function _calibration_record(c::Union{ThinPlateSpline, HeightField}, u::_CalUnit)
-    r = (type = _tag(_physical(c, u)), nodes = _nodes_json(c, u), parameters = [_metres_json(v, u) for v in parameter_vector(c)])
+# A planar target's calibration on IO's style (style.jl), the PARAMETRIC
+# RECORD: its kind's tag in VGC's `TARGET_CALIBRATION_TAGS`, its
+# `parameter_vector` (lengths by `length_mask` in the style's length form), a
+# thin-plate kind's `nodes` beside them; a composition its members' records,
+# outer first; an `Uncertain` one its covariance beside. A calibration with
+# lengths is stored physical: plain numbers are refused, as a target's plain
+# points are (one without lengths — Rigid, Scale, Aspect, Skew and their
+# compositions — has no form to refuse; a placed target's, `_CHART`, is plain
+# chart numbers, which VGC refuses units on).
+#
+# A named function, called by the target's lower, and NOT a `JSON.lower`
+# method: VGC's `TargetCalibration` union holds every planar `EuclideanMap`
+# (a pixel-frame conversion among them) and every composition, so a `lower` on
+# it would write any such map left in a body as a target calibration.
+function _target_calibration_json(s::VgioStyle, c::TargetCalibration)
+    u = s.length_unit
+    u isa _Chart || (any(length_mask(c)) && !has_units(c) && _refuse_plain("a $(nameof(typeof(c))) target calibration"))
+    c isa ComposedTransformation && return (type = _COMPOSITION_TYPE, compose = [_target_calibration_json(s, l) for l in members(c)])
+    r = _parametric_record(calibration_tag(typeof(c)), c, u; structure = _calibration_structure(c, u))
     _check_writes_back(c, r, u)
     return r
 end
+_target_calibration_json(s::VgioStyle, c::Uncertain{<:TargetCalibration}) =
+    merge(_target_calibration_json(s, geom(c)), (covariance = _length_cov_json(cov(c), s.length_unit, length_mask(geom(c))),))
+# What a kind's type does not fix: a thin-plate kind's nodes.
+_calibration_structure(c, u) = (;)
+_calibration_structure(c::Union{ThinPlateSpline, HeightField}, u) = (nodes = _nodes_json(c, u),)
 # The writer's half of the reader's pure-bending rule (`_reads_back`): a field
 # pure bending neither in the file's numbers nor in metres would not read
 # back, so it is refused here, naming the unit to write it in. (The identity
 # tree, `_PERSISTED`, is never read.)
-_check_writes_back(c, r, ::_Persisted) = nothing
-function _check_writes_back(c, r, u::Union{Units, _Chart})
+_check_writes_back(c, r, u) = nothing
+function _check_writes_back(c::Union{ThinPlateSpline, HeightField}, r, u::Union{Units, _Chart})
     _reads_back(r.nodes, r.parameters, u) === nothing || return nothing
     throw(
         ArgumentError(
@@ -431,37 +435,26 @@ function _check_writes_back(c, r, u::Union{Units, _Chart})
         )
     )
 end
-_calibration_record(c::ComposedTransformation, u::_CalUnit) =
-    (type = _tag(_physical(c, u)), compose = [_calibration_record(l, u) for l in members(c)])
-
-_calibration_record(c::Uncertain{<:TargetCalibration}, u::_CalUnit) =
-    merge(_calibration_record(geom(c), u), (covariance = _length_cov_json(cov(c), u, length_mask(geom(c))),))
-
 # A calibration's length as read: a length in metres from the file's unit, or
 # (`_CHART`, a placed target's) the plain chart number as stored.
 _read_metres(x, u::Units) = read_length(x::Real, u)
 _read_metres(x, ::_Chart) = Float64(x::Real)
 const _ReadUnit = Union{Units, _Chart}
-_nodes_from_json(x, u::_ReadUnit) = [SVector(_read_metres(p[1], u), _read_metres(p[2], u)) for p in x.nodes::Vector{Any}]
 
-# (by the kind's TYPE, which VGC's registry gives for the record's tag)
-_calibration_from_record(::Type{Rigid}, x, u::_ReadUnit) = Rigid()
-function _calibration_from_record(::Type{EuclideanMap}, x, u::_ReadUnit)
-    p = x.parameters::Vector{Any}
-    return EuclideanMap(Angle2d{Float64}(Float64(p[1])), SVector(_read_metres(p[2], u), _read_metres(p[3], u)); check = false)
-end
-_calibration_from_record(::Type{Scale}, x, u::_ReadUnit) = Scale(Float64(only(x.parameters)))
-_calibration_from_record(::Type{Aspect}, x, u::_ReadUnit) = Aspect(Float64(only(x.parameters)))
-_calibration_from_record(::Type{Skew}, x, u::_ReadUnit) = Skew(Float64(only(x.parameters)))
-function _calibration_from_record(::Type{ThinPlateSpline}, x, u::_ReadUnit)
-    system = _check_pure_bending(ThinPlateSpline, x.nodes, x.parameters, u)
-    p = x.parameters::Vector{Any}
-    K = length(x.nodes)
-    return ThinPlateSpline(system, [_read_metres(p[i], u) for i in 1:K], [_read_metres(p[K + i], u) for i in 1:K]; project = false)
-end
-function _calibration_from_record(::Type{HeightField}, x, u::_ReadUnit)
-    system = _check_pure_bending(HeightField, x.nodes, x.parameters, u)
-    return HeightField(system, [_read_metres(v, u) for v in x.parameters::Vector{Any}]; project = false)
+# A kind back from its record (by the kind's TYPE, which VGC's registry gives
+# for the record's tag): the parametric record's `with_parameters` on the kind's
+# prototype — the angle of a planar EuclideanMap is the stored one, VGC's
+# `Angle2d`, so a value read back is its file's, bit for bit — and a thin-plate
+# kind by its own constructor, on the nodes its record states, unprojected.
+_calibration_from_record(K::Type, x, u::_ReadUnit) = _from_parametric_record(_calibration_prototype(planar_kind(K), u), x, u)
+_calibration_prototype(::Type{K}, u) where {K <: Union{Rigid, Scale, Aspect{2}}} = K()
+_calibration_prototype(::Type{K}, u) where {K <: Skew} = Skew{2}()
+_calibration_prototype(::Type{<:EuclideanMap{2}}, u) =   # physical iff the file's numbers are lengths (not a placed chart's)
+    EuclideanMap(Angle2d(0.0), u isa _Chart ? SVector(0.0, 0.0) : SVector(0.0, 0.0) .* m; check = false)
+function _calibration_from_record(T::Type{<:Union{ThinPlateSpline, HeightField}}, x, u::_ReadUnit)
+    system = _check_pure_bending(T, x.nodes, x.parameters, u)
+    v, K = [_read_metres(p, u) for p in x.parameters::Vector{Any}], length(x.nodes)   # a spline's fx then fy; the heights
+    return T === ThinPlateSpline ? ThinPlateSpline(system, v[1:K], v[(K + 1):end]; project = false) : HeightField(system, v; project = false)
 end
 # A thin-plate kind holds pure bending (VGC: no affine term in its
 # interpolant; its constructor projects the values it is given and keeps,
@@ -491,6 +484,7 @@ function _reads_back(nodes, p, u::_ReadUnit)
     return pure_in_file || _pure_blocks(metres, [_metres(v, u) for v in p]) ? metres : nothing
 end
 _metres(x, u::Units) = strip_or_bare(m, read_length(x::Real, u))
+_metres(x, ::_Chart) = Float64(x::Real)
 _pure_blocks(system::ThinPlateSplineSystem{K}, v) where {K} =
     length(v) == K ? is_pure_bending(system, v) : is_pure_bending(system, v[1:K]) && is_pure_bending(system, v[(K + 1):end])
 function _check_pure_bending(::Type{T}, nodes, p, u::_ReadUnit) where {T}
@@ -509,8 +503,10 @@ function _check_pure_bending(::Type{T}, nodes, p, u::_ReadUnit) where {T}
     )
 end
 # A calibration record (validated) back to VGC's kind, `Uncertain` iff it
-# states a covariance (unit^(lᵢ+lⱼ) → m^(lᵢ+lⱼ)).
-function _target_calibration_from_json(x, u::_ReadUnit)
+# states a covariance (unit^(lᵢ+lⱼ) → m^(lᵢ+lⱼ)): the target lift's, the
+# inverse of `_target_calibration_json`.
+function _target_calibration_from_json(s::VgioStyle, x::_Record)
+    u = s.length_unit
     c = _bare_calibration_from_json(x, u)
     haskey(x, :covariance) || return c
     dims = length_mask(c)
@@ -532,12 +528,16 @@ calibration with lengths, is an `ArgumentError` (attach the unit, `p .* m`). A
 `PlanarTarget` of a referenced design is written by its reference alone.
 Building blocks for a package serializing its own kind.
 """
-target_json(t::PointTarget, unit::_LeafUnit = mm) = merge((type = "points",), _points_json("a points target", points(t), unit))
-function target_json(t::PlanarTarget, unit::_LeafUnit = mm)
-    pl = placement(t)
-    cu = pl === nothing ? unit : _CHART          # a placed calibration: plain chart numbers
+target_json(t::PointTarget, unit::_LeafUnit = mm) = JSON.lower(VgioStyle(; length_unit = unit), t)
+target_json(t::PlanarTarget, unit::_LeafUnit = mm) = JSON.lower(VgioStyle(; length_unit = unit), t)
+
+# A target on IO's style (style.jl): its body, lengths in the style's length form.
+JSON.lower(s::VgioStyle, t::PointTarget) = merge((type = "points",), _points_json("a points target", points(t), s.length_unit))
+function JSON.lower(s::VgioStyle, t::PlanarTarget)
+    unit, pl = s.length_unit, placement(t)
+    cs = pl === nothing ? s : _with_length(s, _CHART)          # a placed calibration: plain chart numbers
     return merge(
-        (type = "planar",), _design_json(t, unit), (calibration = _calibration_record(calibration(t), cu),),
+        (type = "planar",), _design_json(s, t), (calibration = _target_calibration_json(cs, calibration(t)),),
         _board_json(board(t), unit),
         _canvas_json(canvas(t), unit),
         _placement_json(pl, unit),
@@ -546,43 +546,33 @@ end
 # The design: its reference, its layout, or its nominal points. The identity
 # tree (`_PERSISTED`) takes a layout target's points, so its identity is
 # geometric — a nominal target's of the same points.
-function _design_json(t::PlanarTarget, unit::_LeafUnit)
+function _design_json(s::VgioStyle, t::PlanarTarget)
+    unit = s.length_unit
     reference(t) === nothing || return (reference = String(reference(t)),)
-    (layout(t) !== nothing && !(unit isa _Persisted)) && return (layout = _layout_json(layout(t), unit),)
+    (layout(t) !== nothing && !(unit isa _Persisted)) && return (layout = JSON.lower(s, layout(t)),)
     return (nominal = [_lengths_json(p, unit, "a planar target's nominal point") for p in design(t)],)
 end
 
-# A layout ↔ its record (`_TARGET_LAYOUT`): every key, its lengths in the
-# file's unit through `write_length` / `read_length`; a layout of plain numbers
-# is refused, as plain points are.
-_physical_layout(L::AbstractTargetLayout) = (has_units(L) || _refuse_plain("a target's $(nameof(typeof(L))) layout"); L)
-function _layout_json(g::AprilGrid, u::Units)
-    _physical_layout(g)
-    return (
-        type = tag_of(TARGET_LAYOUT_TAGS, g), tag_rows = g.tag_rows, tag_cols = g.tag_cols,
-        tag_size = write_length(g.tag_size, u), tag_spacing = write_length(g.tag_spacing, u),
-        apriltag_family = g.apriltag_family, first_id = g.first_id,
-    )
+# A layout ↔ its record (`_TARGET_LAYOUT`), on IO's style: its tag in VGC's
+# `TARGET_LAYOUT_TAGS` and every key (`_layout_keys`), each the field of that
+# name — a length (`_layout_lengths`) in the file's unit through `write_length`
+# / `read_length`, a Schöps tag as its five integers, any other as it is — and
+# read back by the layout's keyword constructor. A layout of plain numbers is
+# refused, as plain points are.
+_layout_lengths(::Type{<:AprilGrid}) = (:tag_size, :tag_spacing)
+_layout_lengths(::Type{<:SchoepsPattern}) = (:square_length,)
+function JSON.lower(s::VgioStyle, L::AbstractTargetLayout)
+    has_units(L) || _refuse_plain("a target's $(nameof(typeof(L))) layout")
+    value(k) = (v = getfield(L, k); k in _layout_lengths(typeof(L)) ? write_length(v, s.length_unit) :
+        k === :apriltags ? [(; t.x, t.y, t.width, t.height, t.id) for t in v] : v)
+    return merge((type = tag_of(TARGET_LAYOUT_TAGS, L),), NamedTuple(k => value(k) for k in _layout_keys(typeof(L))))
 end
-function _layout_json(p::SchoepsPattern, u::Units)
-    _physical_layout(p)
-    return (
-        type = tag_of(TARGET_LAYOUT_TAGS, p), squares_x = p.squares_x, squares_y = p.squares_y,
-        square_length = write_length(p.square_length, u), star_segments = p.star_segments,
-        apriltag_family = p.apriltag_family, apriltags = [(; t.x, t.y, t.width, t.height, t.id) for t in p.apriltags],
-    )
+function JSON.lift(s::VgioStyle, ::Type{AbstractTargetLayout}, x::_Record)
+    T = TARGET_LAYOUT_TAGS[x.type::String]
+    value(k) = (v = x[k]; k in _layout_lengths(T) ? read_length(v::Real, s.length_unit) :
+        k === :apriltags ? [(x = t.x::Integer, y = t.y::Integer, width = t.width::Integer, height = t.height::Integer, id = t.id::Integer) for t in v] : v)
+    return T(; (k => value(k) for k in _layout_keys(T))...)
 end
-_layout_from_json(x, u::Units) = _layout_from_record(TARGET_LAYOUT_TAGS[x.type::String], x, u)
-_layout_from_record(::Type{AprilGrid}, x, u::Units) = AprilGrid(;
-    tag_rows = x.tag_rows::Integer, tag_cols = x.tag_cols::Integer,
-    tag_size = read_length(x.tag_size::Real, u), tag_spacing = read_length(x.tag_spacing::Real, u),
-    apriltag_family = x.apriltag_family::String, first_id = x.first_id::Integer,
-)
-_layout_from_record(::Type{SchoepsPattern}, x, u::Units) = SchoepsPattern(;
-    squares_x = x.squares_x::Integer, squares_y = x.squares_y::Integer, square_length = read_length(x.square_length::Real, u),
-    star_segments = x.star_segments::Integer, apriltag_family = x.apriltag_family::String,
-    apriltags = [(x = t.x::Integer, y = t.y::Integer, width = t.width::Integer, height = t.height::Integer, id = t.id::Integer) for t in x.apriltags],
-)
 
 # The placement ↔ its record (VGC's `ChartPlacement`: the chart point c is the
 # design point origin + side·c): its origin and side, lengths in the file's
@@ -597,22 +587,15 @@ _placement_from_json(x, u::Units) =
 
 # The board ↔ its record. VGC's `Board` holds its size as lengths (metres) and
 # its lower-left corner as plain metres (a physical target's; a unitless one is
-# in no file). Both are written in the file's unit, the size in the Size2 form,
-# decimal-exactly; read back, the size is lengths and the corner plain metres.
+# in no file): a rectangle of the design chart, as the canvas's and its
+# texture's are — the size in the Size2 form by `write_length`/`read_length`,
+# the corner as plain metres in the file's unit, decimal-exactly.
 _board_json(::Nothing, ::_LeafUnit) = (;)
-function _board_json(bd::Board, u::_LeafUnit)
-    has_units(bd) || _refuse_plain("a target's board")
-    size = (width = _leaf_length(bd.size.width, u), height = _leaf_length(bd.size.height, u))
-    return (board = (size = size, origin = [_metres_json(x, u) for x in bd.origin]),)
-end
-function _board_from_json(x, u::Units)
-    o = x.origin::Vector{Any}
-    return Board(from_json(Size2, x.size, UnitContract(u); kind = :length), SVector(_read_power(o[1]::Real, u, 1), _read_power(o[2]::Real, u, 1)))
-end
+_board_json(bd::Board, u::_LeafUnit) = (has_units(bd) || _refuse_plain("a target's board"); (board = _rect_json(bd, u),))
+_board_from_json(x, u::Units) = Board(_rect_from_json(x, u)...)
 
-# The canvas ↔ its record: the board's rule for each rectangle (sizes by
-# `write_length`/`read_length`, corners as plain metres in the file's unit),
-# the texture's path and digest as stored.
+# The canvas ↔ its record: the board's rule for each rectangle, the texture's
+# path and digest as stored.
 _rect_json(r, u::_LeafUnit) = (
     size = (width = _leaf_length(r.size.width, u), height = _leaf_length(r.size.height, u)),
     origin = [_metres_json(x, u) for x in r.origin],
@@ -642,17 +625,22 @@ reference is returned unresolved unless `resolve(reference::Symbol)` returns
 its nominal points — lengths, as the design's owner holds them; plain points
 are an `ArgumentError`.
 """
-function target_from_json(t, unit::AbstractString; resolve = nothing)
-    u = parse_unit(unit)
+target_from_json(t, unit::AbstractString; resolve = nothing) =
+    JSON.lift(VgioStyle(; length_unit = parse_unit(unit)), AbstractTarget, t::_Record; resolve)
+
+# A target body back on IO's style (the inverse of its `lower`), its lengths in
+# the style's unit; `resolve` as `target_from_json`'s.
+function JSON.lift(s::VgioStyle, ::Type{AbstractTarget}, t::_Record; resolve = nothing)
+    u = s.length_unit
     if t.type == "points"
         return PointTarget(_points_from_json(t.points::Vector{Any}, u, haskey(t, :point_covariances) ? t.point_covariances::Vector{Any} : nothing))
     end
     pl = haskey(t, :placement) ? _placement_from_json(t.placement, u) : nothing
-    c = _target_calibration_from_json(t.calibration, pl === nothing ? u : _CHART)   # placed: plain chart numbers
+    c = _target_calibration_from_json(pl === nothing ? s : _with_length(s, _CHART), t.calibration::_Record)   # placed: plain chart numbers
     bd = haskey(t, :board) ? _board_from_json(t.board, u) : nothing
     cv = haskey(t, :canvas) ? _canvas_from_json(t.canvas, u) : nothing
     haskey(t, :nominal) && return PlanarTarget(nothing, _points_from_json(t.nominal::Vector{Any}, u), c, bd, cv, pl)
-    haskey(t, :layout) && return PlanarTarget(_layout_from_json(t.layout, u); calibration = c, board = bd, canvas = cv, placement = pl)
+    haskey(t, :layout) && return PlanarTarget(JSON.lift(s, AbstractTargetLayout, t.layout::_Record); calibration = c, board = bd, canvas = cv, placement = pl)
     ref = Symbol(t.reference::String)
     nominal = resolve === nothing ? nothing : resolve(ref)
     (nominal === nothing || isempty(nominal) || has_units(nominal)) ||
@@ -691,8 +679,8 @@ obtained.
 """
 save(path::AbstractString, t::AbstractTarget; length_unit::Units = mm, provenance::NamedTuple = (;)) = (
     _write_store(
-        path, _TARGET_SPEC,
-        _with_provenance((schema = _schema("target"), length_unit = unit_string(length_unit), target = target_json(t, length_unit)), provenance),
+        path, _TARGET_SPEC, _with_provenance((schema = _schema("target"), length_unit = unit_string(length_unit), target = t), provenance);
+        style = VgioStyle(; length_unit),   # the target itself, lowered on the file's style
     ); nothing
 )
 function save(
@@ -700,10 +688,10 @@ function save(
         length_unit::Units = mm, provenance::NamedTuple = (;)
     )
     body = (
-        schema = _schema("target"), length_unit = unit_string(length_unit), target = target_json(t.value, length_unit),
+        schema = _schema("target"), length_unit = unit_string(length_unit), target = t.value,
         calibration_record = _calibration_json(t.calibration_record, "a target's calibration record"),
     )
-    _write_store(path, _TARGET_SPEC, _with_provenance(body, provenance))
+    _write_store(path, _TARGET_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit))
     return nothing
 end
 # A `vgio/target/v4` file holds an UNPOSED target: a posed one is refused here,
@@ -806,18 +794,19 @@ const _RIG_SPEC = _Checked(
     end,
 )
 
-function _sensor_json(rig, i, id, unit::Units)
+function _sensor_json(s::VgioStyle, rig, i, id)
     c = sensor_rig(rig).members[i]
     m = model(c)
     body = if m isa CameraModel
         c isa BoundedCamera || throw(
             ArgumentError("rig sensor $i ($(id)) carries no pixel extent — wrap it in BoundedCamera(camera, extent) before saving")
         )
-        _with_pitch(_camera_body(m, extent(c)), sensor(c), unit)
+        _camera_body(s, m, extent(c))
     else
-        _with_pitch(_generic_body(m, unit), _sensor_of(c), unit)      # generic grid model: carries its own extent
+        JSON.lower(s, m)      # generic grid model: carries its own extent
     end
-    return (id = String(id), camera = body, extrinsics = pose_json(extrinsics(sensor_rig(rig), i), unit))   # <rig frame> → view:<id>
+    body = _with_pitch(body, _sensor_of(c), s.length_unit)
+    return (id = String(id), camera = body, extrinsics = JSON.lower(s, extrinsics(sensor_rig(rig), i)))   # <rig frame> → view:<id>
 end
 
 # a rig member's physical sensor, if it is bounded by one
@@ -838,13 +827,14 @@ function _rig_body(rig::Rig, unit::Units = mm)
         _has_sensors(rig) ? (pixel_frame = pixel_frame_name(CANONICAL_PIXEL_FRAME),) : (;),
         pose_declarations(unit), (frame = frame_name(reference_frame(rig)),),
     )
+    s = VgioStyle(; length_unit = unit)
     if _has_sensors(rig)
         sr = sensor_rig(rig)
-        body = merge(body, (sensors = [_sensor_json(rig, i, id, unit) for (i, id) in enumerate(ids(sr))],))
+        body = merge(body, (sensors = [_sensor_json(s, rig, i, id) for (i, id) in enumerate(ids(sr))],))
     end
     if _has_targets(rig)
         tr = target_rig(rig)
-        targets = [(id = String(id), target = target_json(tr[id].target, unit), pose = pose_json(pose(tr, id), unit)) for id in ids(tr)]   # target:<id> → <rig frame>
+        targets = [(id = String(id), target = JSON.lower(s, tr[id].target), pose = JSON.lower(s, pose(tr, id))) for id in ids(tr)]   # target:<id> → <rig frame>
         body = merge(body, (targets = targets,))
     end
     return body
@@ -861,7 +851,7 @@ translations or points is an `ArgumentError` (attach the unit, `t .* m`). A
 rig's name, if it has one worth keeping, belongs in `provenance`.
 """
 save(path::AbstractString, rig::Rig; length_unit::Units = mm, provenance::NamedTuple = (;)) =
-    (_write_store(path, _RIG_SPEC, _with_provenance(_rig_body(rig, length_unit), provenance)); nothing)
+    (_write_store(path, _RIG_SPEC, _with_provenance(_rig_body(rig, length_unit), provenance); style = VgioStyle(; length_unit)); nothing)
 
 """
     load(Rig, path; resolve = nothing) -> Rig
@@ -878,27 +868,27 @@ load(::Type{Rig}, path::AbstractString; resolve = nothing) = _rig_from_record(_r
 
 function _rig_from_record(d; resolve = nothing)
     F = frame_from_name(d.frame::String)
-    unit = d.length_unit::String
-    haskey(d, :targets) || return Rig{F}((_load_sensors(d, F, unit)...,))
+    u = parse_unit(d.length_unit::String)
+    haskey(d, :targets) || return Rig{F}((_load_sensors(d, F, u)...,))
+    s = VgioStyle(; length_unit = u)
     members = Dict{Symbol, PosedTarget}(
-        Symbol(t.id::String) => PosedTarget(target_from_json(t.target, unit; resolve), pose_from_json(t.pose, unit))
+        Symbol(t.id::String) => PosedTarget(JSON.lift(s, AbstractTarget, t.target::_Record; resolve), JSON.lift(s, EuclideanMap{3}, t.pose::_Record))
             for t in d.targets::Vector{Any}
     )
     targets = Dict{Symbol, typejoin(map(typeof, values(members))...)}(members)
     haskey(d, :sensors) || return Rig{F}(targets)
-    return Rig{F}((_load_sensors(d, F, unit)...,), targets)
+    return Rig{F}((_load_sensors(d, F, u)...,), targets)
 end
 
-function _load_sensors(d, ::Type{F}, unit::String) where {F}
-    pframe = pixel_frame_from_name(d.pixel_frame::String)
+function _load_sensors(d, ::Type{F}, u::Units) where {F}
+    st = VgioStyle(; length_unit = u, pixel_frame = pixel_frame_from_name(d.pixel_frame::String))
     return map(d.sensors::Vector{Any}) do s
-        Xl = relabel(F, ViewFrame{Symbol(s.id::String)}, pose_from_json(s.extrinsics, unit))
+        Xl = relabel(F, ViewFrame{Symbol(s.id::String)}, JSON.lift(st, EuclideanMap{3}, s.extrinsics::_Record))
         if haskey(s.camera, :type)
-            gm = _generic_from_body(s.camera, parse_unit(unit))
-            BoundedCamera(PosedCamera(gm, Xl), _bound_from_body(s.camera, Size2(gm.width, gm.height), parse_unit(unit)))
+            gm = JSON.lift(st, _GenericModel, s.camera::_Record)
+            BoundedCamera(PosedCamera(gm, Xl), _bound_from_body(s.camera, Size2(gm.width, gm.height), u))
         else
-            cm, ext = _camera_from_body(s.camera, pframe)
-            BoundedCamera(PosedCamera(cm, Xl), _bound_from_body(s.camera, ext, parse_unit(unit)))
+            BoundedCamera(PosedCamera(JSON.lift(st, CameraModel, s.camera::_Record), Xl), _bound_from_body(s.camera, _extent_from_body(s.camera), u))
         end
     end
 end
@@ -974,7 +964,7 @@ _targets_hash(path::AbstractString) = _targets_hash(_rig_from_record(_read_store
 _targets_hash(rig::Rig) = sha256_hex(canonical_json(_identity_tree(rig)))
 
 # The identity tree (content_id's docstring). Its targets and poses are the
-# writer's own records (`target_json`, `pose_json`), built with every length
+# writer's own records (`JSON.lower` on `_ID_STYLE`), built with every length
 # leaf as its persisted metre value (`_PERSISTED`) instead of a file's number,
 # under the identity's names: `kind` for a record's `type`, a board's size as
 # [width, height]. Every number is a Float64 (base units), an extent or grid
@@ -987,10 +977,14 @@ function _identity_tree(rig::Rig)
     _has_targets(rig) && (d["targets"] = _id_targets(target_rig(rig)))
     return d
 end
+const _ID_STYLE = VgioStyle(; length_unit = _PERSISTED)   # every length leaf its persisted metre value
 _id_sensor(rig, i, id) =      # (as the writer's `_sensor_json`: the rig untyped here)
-    _Id("id" => String(id), "camera" => _id_camera(sensor_rig(rig).members[i]), "extrinsics" => _lower(pose_json(extrinsics(sensor_rig(rig), i), _PERSISTED)))
+    _Id("id" => String(id), "camera" => _id_camera(sensor_rig(rig).members[i]), "extrinsics" => _lower(JSON.lower(_ID_STYLE, extrinsics(sensor_rig(rig), i))))
 _id_targets(tr) = Any[
-    _Id("id" => String(id), "target" => _id_order!(_id_kind!(_id_canvas!(_id_board!(_lower(target_json(tr[id].target, _PERSISTED)))))), "pose" => _lower(pose_json(pose(tr, id), _PERSISTED)))
+    _Id(
+        "id" => String(id), "target" => _id_order!(_id_kind!(_id_canvas!(_id_board!(_lower(JSON.lower(_ID_STYLE, tr[id].target)))))),
+        "pose" => _lower(JSON.lower(_ID_STYLE, pose(tr, id))),
+    )
         for id in sort!(collect(ids(tr)))
 ]
 # The identity's ONE member order, independent of the record's: a composed
@@ -1023,20 +1017,14 @@ function _id_canvas!(d::_Id)
     return d
 end
 # a board's size is [width, height]
-function _id_board!(d::_Id)
-    haskey(d, "board") || return d
-    s = d["board"]["size"]
-    d["board"]["size"] = Any[s["width"], s["height"]]
-    return d
-end
+_id_board!(d::_Id) = (haskey(d, "board") && _id_size!(d["board"]); d)
 
 function _id_camera(c)
     mdl = model(c)
     if mdl isa CameraModel
-        K = mdl.intrinsics.K
         e = extent(c)
         return _Id(
-            "intrinsics" => Any[Float64(K[1, 1]), Float64(K[2, 2]), Float64(K[1, 3]), Float64(K[2, 3]), Float64(K[1, 2])],
+            "intrinsics" => Any[_k_values(mdl.intrinsics.K)...],
             "extent" => Any[Int(e.width), Int(e.height)], "lens" => _id_lens(mdl.lens),
             _id_pitch(c)...,
         )
@@ -1046,40 +1034,25 @@ end
 # the pitch iff the camera is bounded by its sensor: the writer's own `_with_pitch`,
 # its leaves the persisted metre values
 _id_pitch(c) = (s = _sensor_of(c); s === nothing ? () : ("pitch" => _lower(_with_pitch((;), s, _PERSISTED).pitch),))
-# the held nodes, row by row (every node of a model that holds them all, as before the presence mask)
-_id_grid(g, P) = Any[Any[Float64(g[gy, gx][k]) for k in 1:3] for gy in 1:size(g, 1) for gx in 1:size(g, 2) if P[gy, gx]]
-_id_grid_metres(g, P) = Any[Any[_persisted(g[gy, gx][k]) for k in 1:3] for gy in 1:size(g, 1) for gx in 1:size(g, 2) if P[gy, gx]]
-function _id_grid_header(gm, grid)
-    return _Id(
-        "extent" => Any[Int(gm.width), Int(gm.height)],
-        "calibrated_area" => Any[Int(gm.calib_min_x), Int(gm.calib_min_y), Int(gm.calib_max_x), Int(gm.calib_max_y)],
-        "grid" => Any[size(grid, 2), size(grid, 1)],
+# A generic model: the writer's body (the points its persisted metres) under
+# the identity's own names — fixed: a writer key renamed does not re-id a rig;
+# the held nodes row by row, and their runs, the nominal pinhole and the domain
+# iff the model has them (a model holding every node has the identity it had
+# before the presence mask). The grids, the largest arrays of the tree, are the
+# body's own node vectors (built fresh by the lower, Float64 rows that
+# `canonical_json` writes as it writes `Any` ones), not copied again.
+function _id_grid_model(gm::_GenericModel)
+    r = JSON.lower(_ID_STYLE, gm)
+    d = _Id(
+        "extent" => Any[Int(r.width), Int(r.height)],
+        "calibrated_area" => Any[Int(r.calibration_min_x), Int(r.calibration_min_y), Int(r.calibration_max_x), Int(r.calibration_max_y)],
+        "grid" => Any[r.grid_width, r.grid_height], "grid_model" => gm isa CentralGenericModel ? "central" : "noncentral",
+        "directions" => r.direction_grid,
     )
-end
-_id_grid_model(gm::CentralGenericModel) = merge(
-    _id_grid_header(gm, gm.grid),
-    _Id("grid_model" => "central", "directions" => _id_grid(gm.grid, present_nodes(gm))), _id_grid_extras(gm),
-)
-_id_grid_model(gm::NoncentralGenericModel) = merge(
-    _id_grid_header(gm, gm.directions),
-    _Id("grid_model" => "noncentral", "directions" => _id_grid(gm.directions, present_nodes(gm)),
-        "points" => _id_grid_metres(gm.points, present_nodes(gm))),   # plain metres
-    _id_grid_extras(gm),
-)
-# the nominal pinhole, the domain and the held nodes (as runs) iff the model
-# has them, under the identity's own names (fixed: a writer key renamed does
-# not re-id a rig; a model holding every node has the identity it had before
-# the presence mask)
-function _id_grid_extras(gm::Union{CentralGenericModel, NoncentralGenericModel})
-    d = _Id()
-    P = present_nodes(gm)
-    all(P) || (d["present"] = _present_runs(P))
-    n = nominal_intrinsics(gm)
-    n === nothing || (K = n.K; d["nominal_intrinsics"] = Any[Float64(K[1, 1]), Float64(K[2, 2]), Float64(K[1, 3]), Float64(K[2, 3]), Float64(K[1, 2])])
-    e = gm.domain
-    e isa WholePlane || (e isa Ellipse ?
-        (d["domain"] = _Id("ellipse" => Any[Float64(e.center[1]), Float64(e.center[2]), Float64(e.a), Float64(e.b), Float64(e.θ)])) :
-        throw(ArgumentError("content_id: a generic model's domain is an Ellipse or the whole plane; got a $(nameof(typeof(e)))")))
+    haskey(r, :point_grid) && (d["points"] = r.point_grid)
+    for k in (:present, :nominal_intrinsics, :domain)
+        haskey(r, k) && (d[String(k)] = _lower(r[k]))
+    end
     return d
 end
 

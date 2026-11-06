@@ -171,7 +171,7 @@ function save_units_sidecar(dir::AbstractString, contract::Union{UnitContract, U
     (contract isa UnitContract && length(contract.lengths) > 1) && throw(
         ArgumentError("a COLMAP model's units sidecar declares its world and density only; this contract has length roles $(keys(contract.lengths))")
     )
-    return _write_store(joinpath(dir, UNITS_SIDECAR), _UNITS_SPEC, _sidecar_body(contract))
+    return _write_store(joinpath(dir, UNITS_SIDECAR), _UNITS_SPEC, _sidecar_body(contract); style = VgioStyle())   # (declares no VGC value's unit)
 end
 
 """

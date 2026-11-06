@@ -109,7 +109,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     AbstractTarget, PointTarget, PlanarTarget, TargetCalibration, calibration, reference, is_resolved, Board, board,
     Canvas, CanvasTexture, canvas, ChartPlacement, placement,
     AbstractTargetLayout, AprilGrid, SchoepsPattern, layout, design, TARGET_LAYOUT_TAGS, tag_of,
-    Rigid, ThinPlateSpline, HeightField, Scale, Aspect, Skew, TARGET_CALIBRATION_TAGS, calibration_tag, parameter_vector, length_mask,
+    Rigid, ThinPlateSpline, HeightField, Scale, Aspect, Skew, TARGET_CALIBRATION_TAGS, calibration_tag, parameter_vector, with_parameters, length_mask,
     TARGET_CALIBRATION_ORDER, planar_kind, members, is_pure_bending, ThinPlateSplineSystem, iwasawa_parameters_with_jacobian, strip_or_bare,
     Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D, TargetPoint2D, TargetPoint3D,
     TargetDetections, Csponds, withattrs, sources, targets,
@@ -154,6 +154,7 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 #
 #   save_correspondences, save_tum_trajectory, save_euroc_trajectory, save_bop_scene, save_trc
 #                                                exporters: VGC values in, a foreign shape out
+#   VgioStyle                                    the style every embedded VGC value is lowered/lifted on (style.jl)
 #   pose_json / pose_from_json, camera_json / camera_from_json, target_json / target_from_json,
 #   pose_declarations                            building blocks for a package's own kind
 #
@@ -170,6 +171,7 @@ function save end
 
 include("lengths.jl")     # read_length / write_length: decimal-exact file lengths (before every schema)
 include("json.jl")
+include("style.jl")       # VgioStyle: the lower/lift of every embedded VGC value, the parametric record, the minimal forms
 include("validate.jl")    # the v2 spec combinators + read/write boundaries (before every schema: specs are consts)
 include("contract.jl")
 include("core_json.jl")     # the quantity JSON format: numbers in the declared unit; VGC sizes, frames, detections
@@ -227,6 +229,7 @@ export save_opencv_calibration        # the inverse of load_opencv_calibration: 
 # `import VisualGeometryToolkitIO as VgtkIO`), because the names are generic enough to
 # collide with FileIO's, BlobBoards' or a caller's own.
 public load, save                     # the two-verb I/O surface (see the top of this file)
+public VgioStyle                      # the serialization style every embedded VGC value is lowered and lifted on (style.jl)
 public SCHOEPS_PIXEL_FRAME            # the pixel frame of Schöps' camera_calibration files (COLMAP's)
 public ColmapModel                    # a COLMAP model directory's contents + its unit contract
 public read_length, write_length   # a file length <-> metres, decimal-exact (power-of-ten units shift the exponent)

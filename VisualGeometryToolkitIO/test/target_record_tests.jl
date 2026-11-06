@@ -272,7 +272,7 @@ end
     using VisualGeometryToolkitCore: length_mask, parameter_vector
     import VisualGeometryToolkitIO as VgtkIO
     for (name, c) in pairs(kinds())
-        rec = parse_json(JSON.json(VgtkIO._calibration_record(c, mm)))
+        rec = parse_json(JSON.json(VgtkIO._target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm), c)))   # the parametric record
         @test VgtkIO._n_parameters(rec) == length(length_mask(c)) == length(parameter_vector(c))
     end
     @test_throws ArgumentError VgtkIO._record_parameter_count("affine", ())        # the retired kind: VGC's registry names its successor

@@ -163,14 +163,14 @@ trajectory of plain poses is an `ArgumentError` (attach the unit, `t .* m`).
 """
 function save(path::AbstractString, tr::Trajectory{S, D}; length_unit::Units = mm, provenance::NamedTuple = (;)) where {S, D}
     frames = map(sort!(collect(keys(tr)))) do t
-        f = merge(_stamps_json(tr, t), (pose = pose_json(tr[t], length_unit),))
+        f = merge(_stamps_json(tr, t), (pose = tr[t],))   # the pose itself, lowered on the file's style
         t in tr.recovered ? merge(f, (recovered = true,)) : f
     end
     body = merge(
         (schema = _schema("trajectory"),), pose_declarations(length_unit),
         (from = frame_name(S), to = frame_name(D)), _time_origin_json(tr), (frames = frames,),
     )
-    _write_store(path, _TRAJECTORY_SPEC, _with_provenance(body, provenance))
+    _write_store(path, _TRAJECTORY_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit))
     return nothing
 end
 
@@ -185,11 +185,11 @@ once, dispatch after.
 """
 function load(::Type{Trajectory}, path::AbstractString)
     d = _read_store(path, "trajectory", _TRAJECTORY_SPEC)
-    unit = d.length_unit::String
+    s = VgioStyle(; length_unit = parse_unit(d.length_unit::String))
     poses, images, times, recovered = Dict{Int, Any}(), Dict{Int, String}(), Dict{Int, Float64}(), Set{Int}()
     for f in d.frames::Vector{Any}
         t = Int(f.t::Integer)
-        poses[t] = pose_from_json(f.pose, unit)
+        poses[t] = JSON.lift(s, EuclideanMap{3}, f.pose::_Record)
         _read_stamps!(images, nothing, times, f, t)
         get(f, :recovered, false) === true && push!(recovered, t)
     end
@@ -236,15 +236,16 @@ required) and time, and every target's pose (ids sorted; a `covariance` iff
 `Uncertain`), in `length_unit`. Plain poses are an `ArgumentError`.
 """
 function save(path::AbstractString, tp::TargetPoses{F}; length_unit::Units = mm, provenance::NamedTuple = (;)) where {F}
+    s = VgioStyle(; length_unit)
     frames = map(sort!(collect(keys(tp)))) do t
-        poses = [merge((target = String(id),), pose_json(tp[t][id], length_unit)) for id in sort!(collect(keys(tp[t])))]
+        poses = [merge((target = String(id),), JSON.lower(s, tp[t][id])) for id in sort!(collect(keys(tp[t])))]
         merge(_stamps_json(tp, t), (poses = poses,))
     end
     body = merge(
         (schema = _schema("target_poses"),), pose_declarations(length_unit), (to = frame_name(F),),
         _time_origin_json(tp), (frames = frames,),
     )
-    _write_store(path, _TARGET_POSES_SPEC, _with_provenance(body, provenance))
+    _write_store(path, _TARGET_POSES_SPEC, _with_provenance(body, provenance); style = s)
     return nothing
 end
 
@@ -256,13 +257,13 @@ pose's lengths in metres, `Uncertain` where the file states a covariance.
 """
 function load(::Type{TargetPoses}, path::AbstractString)
     d = _read_store(path, "target_poses", _TARGET_POSES_SPEC)
-    unit = d.length_unit::String
+    s = VgioStyle(; length_unit = parse_unit(d.length_unit::String))
     frames = Dict{Int, Dict{Symbol, Any}}()
     images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()
     for f in d.frames::Vector{Any}
         t = Int(f.t::Integer)
         _read_stamps!(images, sensors, times, f, t)
-        frames[t] = Dict{Symbol, Any}(Symbol(p.target::String) => pose_from_json(p, unit) for p in f.poses::Vector{Any})
+        frames[t] = Dict{Symbol, Any}(Symbol(p.target::String) => JSON.lift(s, EuclideanMap{3}, p::_Record) for p in f.poses::Vector{Any})
     end
     return TargetPoses{frame_from_name(d.to::String)}(frames; images, sensors, times, time_origin = _time_origin(d))
 end
@@ -321,7 +322,7 @@ function save(path::AbstractString, obs::TargetPoints2D{F}; provenance::NamedTup
         ),
         _time_origin_json(obs), (frames = frames,),
     )
-    _write_store(path, _TARGET_POINTS2D_SPEC, _with_provenance(body, provenance))
+    _write_store(path, _TARGET_POINTS2D_SPEC, _with_provenance(body, provenance); style = VgioStyle(; pixel_frame = F))
     return nothing
 end
 
@@ -435,7 +436,7 @@ function save(path::AbstractString, obs::TargetPoints3D{F}; length_unit::Units =
         isempty(obs.targets) ? (;) : (targets = obs.targets,),
         _time_origin_json(obs), (frames = frames,),
     )
-    _write_store(path, _TARGET_POINTS3D_SPEC, _with_provenance(body, provenance))
+    _write_store(path, _TARGET_POINTS3D_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit))
     return nothing
 end
 
@@ -582,7 +583,7 @@ function save(path::AbstractString, td::TargetDetections{F}; length_unit::Units 
         (F <: PixelFrame || !isempty(td.targets)) ? (targets = td.targets,) : (;),
         _time_origin_json(td), (frames = frames,),
     )
-    _write_store(path, _TARGET_DETECTIONS_SPEC, _with_provenance(body, provenance))
+    _write_store(path, _TARGET_DETECTIONS_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit))
     return nothing
 end
 

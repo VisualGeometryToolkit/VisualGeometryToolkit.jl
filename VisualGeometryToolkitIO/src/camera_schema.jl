@@ -37,14 +37,8 @@
 # valid pixel frames: VGC owns the registered set (the offset table behind the
 # `PixelFrame` conversion factory), and a second list here could only agree
 # with it or drift from it. Validity is therefore decided by ASKING VGC, whose
-# refusal already names the registered options.
-#
-# `CANONICAL_PIXEL_FRAME` is the single thing VGIo must state: which frame a
-# `CameraModel`'s stored K is in. VGC guarantees it — every `CameraModel`
-# constructor converts its `image_origin` argument to this frame on the way in
-# — but exposes no accessor for it, so it is named here ONCE rather than as a
-# `:colmap` literal in every writer and reader.
-const CANONICAL_PIXEL_FRAME = PixelFrame{:colmap}
+# refusal already names the registered options. (`CANONICAL_PIXEL_FRAME`, the
+# frame a `CameraModel`'s K is in, is stated once, in style.jl.)
 
 """
     pixel_frame_name(::Type{<:PixelFrame}) -> String
@@ -182,35 +176,21 @@ function _sensor_from_pitch(p, ext::Size2, u::Units)
     return Sensor(Size2(width = ext.width * px, height = ext.height * px), Size2(width = pw / px, height = ph / px))
 end
 
-# Written from a CameraModel, whose K is canonical by construction, in the
-# pixel frame the enclosing file declares (`frame`; the canonical one unless a
-# frame-typed container is written in another, when its principal point moves
-# with the declaration).
-function _camera_body(model::CameraModel, extent::Size2, frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME)
-    K = model.intrinsics.K
-    c = EuclideanMap(CANONICAL_PIXEL_FRAME, frame)(SVector{2, Float64}(K[1, 3], K[2, 3]))
-    return (
-        width = Int(extent.width), height = Int(extent.height),
-        K = (fx = Float64(K[1, 1]), fy = Float64(K[2, 2]), cx = Float64(c[1]), cy = Float64(c[2]), skew = Float64(K[1, 2])),
-        lens = _lens_json(model.lens),
-    )
-end
+# A CameraModel on IO's style (style.jl): its K — canonical by construction —
+# with the principal point in the style's pixel frame (the file's declaration;
+# a frame-typed container written in another moves it with the declaration),
+# and its lens record. A body is its pixel extent and these.
+JSON.lower(s::VgioStyle, model::CameraModel) = (K = _k_record(model.intrinsics.K, _pixel_frame(s)), lens = _lens_json(model.lens))
+_camera_body(s::VgioStyle, model::CameraModel, extent::Size2) =
+    merge((width = Int(extent.width), height = Int(extent.height)), JSON.lower(s, model))
 
-# A body back to (model, extent), its K read in `frame` (the file's declared
-# pixel frame): `image_origin` is the CameraModel constructor's keyword for
-# "the frame the K I am handing you is written in", and it converts to the
-# canonical frame internally — the whole of the half-pixel handling.
-function _camera_from_body(b, frame::Type{<:PixelFrame})
-    k = b.K
-    K = CameraCalibrationMat(
-        SMatrix{3, 3, Float64}(
-            Float64(k.fx::Real), 0, 0, Float64(k.skew::Real), Float64(k.fy::Real), 0,
-            Float64(k.cx::Real), Float64(k.cy::Real), 1,
-        )
-    )
-    model = CameraModel(K; lens = _lens_from_json(b.lens), image_origin = pixel_origin(frame))
-    return model, Size2(Int(b.width::Integer), Int(b.height::Integer))
-end
+# …and back, its K read in the style's pixel frame: `image_origin` is the
+# CameraModel constructor's keyword for "the frame the K I am handing you is
+# written in", and it converts to the canonical frame internally — the whole of
+# the half-pixel handling.
+JSON.lift(s::VgioStyle, ::Type{CameraModel}, b::_Record) =
+    CameraModel(_k_from_record(b.K); lens = _lens_from_json(b.lens), image_origin = pixel_origin(_pixel_frame(s)))
+_extent_from_body(b) = Size2(Int(b.width::Integer), Int(b.height::Integer))
 
 """
     camera_json(model::CameraModel, extent, frame = CANONICAL_PIXEL_FRAME) -> NamedTuple
@@ -222,7 +202,7 @@ point in the pixel `frame` the enclosing file declares, and read back into
 VGC's canonical frame. Building blocks for a package serializing its own kind.
 """
 camera_json(model::CameraModel, extent::Size2, frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME) =
-    _camera_body(model, extent, frame)
+    _camera_body(VgioStyle(; pixel_frame = frame), model, extent)
 """
     camera_from_json(body, frame) -> (model, extent)
 
@@ -230,7 +210,8 @@ Read a camera body (the inverse of [`camera_json`](@ref)) whose principal
 point is in the pixel `frame` the enclosing file declares. The returned
 `CameraModel` is in VGC's canonical pixel frame.
 """
-camera_from_json(body, frame::Type{<:PixelFrame}) = _camera_from_body(body, frame)
+camera_from_json(body, frame::Type{<:PixelFrame}) =
+    (JSON.lift(VgioStyle(; pixel_frame = frame), CameraModel, body::_Record), _extent_from_body(body))
 
 # -----------------------------------------------------------------------------
 # The calibration block — where a stored camera's numbers came from
@@ -363,9 +344,9 @@ const _CAMERAS_SPEC = _Checked(
 _bounded(c::BoundedCamera) = c
 _bounded(c::Attributed) = getfield(c, :value)
 
-function _camera_entry(name::Symbol, c::_StoredCamera, unit::Units)
+function _camera_entry(s::VgioStyle, name::Symbol, c::_StoredCamera)
     bc = _bounded(c)
-    e = merge((name = String(name),), _with_pitch(_camera_body(bc.camera, bc.extent), sensor(bc), unit))
+    e = merge((name = String(name),), _with_pitch(_camera_body(s, bc.camera, bc.extent), sensor(bc), s.length_unit))
     return c isa Attributed ? merge(e, (calibration = _calibration_json(c.calibration),)) : e
 end
 
@@ -394,12 +375,13 @@ function save(path::AbstractString, cameras::AbstractDict{Symbol}; length_unit::
         isempty(String(name)) && throw(ArgumentError("a camera name is non-empty — it is the identity a config refers to"))
     end
     pitched = any(c -> sensor(_bounded(c)) !== nothing, values(cameras))
+    s = VgioStyle(; length_unit)
     body = merge(
         (schema = _schema("cameras"), pixel_frame = pixel_frame_name(CANONICAL_PIXEL_FRAME)),
         pitched ? (length_unit = unit_string(length_unit),) : (;),
-        (cameras = [_camera_entry(k, cameras[k], length_unit) for k in sort!(collect(keys(cameras)))],),
+        (cameras = [_camera_entry(s, k, cameras[k]) for k in sort!(collect(keys(cameras)))],),
     )
-    _write_store(path, _CAMERAS_SPEC, _with_provenance(body, provenance))
+    _write_store(path, _CAMERAS_SPEC, _with_provenance(body, provenance); style = s)
     return nothing
 end
 
@@ -413,11 +395,11 @@ v1, v2 or v3 store is read through its version steps (`migrate_record`).
 """
 function load(::Type{Dict{Symbol, BoundedCamera}}, path::AbstractString)
     d = _read_store(path, "cameras", _CAMERAS_SPEC)
-    frame = pixel_frame_from_name(d.pixel_frame::String)
+    s = VgioStyle(; pixel_frame = pixel_frame_from_name(d.pixel_frame::String))
     out = Dict{Symbol, _StoredCamera}()
     for c in d.cameras::Vector{Any}
-        cm, ext = _camera_from_body(c, frame)
-        bc = BoundedCamera(cm, haskey(c, :pitch) ? _bound_from_body(c, ext, parse_unit(d.length_unit::String)) : ext)
+        ext = _extent_from_body(c)
+        bc = BoundedCamera(JSON.lift(s, CameraModel, c::_Record), haskey(c, :pitch) ? _bound_from_body(c, ext, parse_unit(d.length_unit::String)) : ext)
         out[Symbol(c.name::String)] = haskey(c, :calibration) ?
             Attributed(bc, (; calibration = _calibration_from_json(c.calibration::AbstractDict))) : bc
     end

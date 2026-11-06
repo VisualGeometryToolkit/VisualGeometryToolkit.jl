@@ -104,7 +104,7 @@ back, bit for bit.
 """
 function save(path::AbstractString, v::AbstractVignetting; provenance::NamedTuple = (;))
     body = (schema = _schema("vignetting"), pixel_frame = "colmap", vignetting = _vignetting_json(v))
-    _write_store(path, _VIGNETTING_SPEC, _with_provenance(body, provenance))
+    _write_store(path, _VIGNETTING_SPEC, _with_provenance(body, provenance); style = VgioStyle())   # (no length declared)
     return nothing
 end
 
@@ -136,7 +136,7 @@ function save(path::AbstractString, light::EnvironmentLight{<:SphericalHarmonicM
         map = (type = "spherical_harmonics", basis = _SH_BASIS, l_max = max_degree(light),
                coefficients = [Float64[a[c, j] for j in axes(a, 2)] for c in axes(a, 1)]),
     )
-    _write_store(path, _ENVIRONMENT_LIGHT_SPEC, _with_provenance(body, provenance))
+    _write_store(path, _ENVIRONMENT_LIGHT_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit))
     return nothing
 end
 
@@ -168,7 +168,7 @@ px², in the storage it holds (`{"isotropic": λ}` for a round one,
 function save(path::AbstractString, blurs::AbstractDict{Symbol, <:GaussianBlur}; provenance::NamedTuple = (;))
     body = (schema = _schema("blur"), unit = "px",
         blurs = [(name = String(k), moments = _cov_wire((x, n) -> x, moment_matrix(blurs[k]), (0, 0))) for k in sort!(collect(keys(blurs)))])
-    _write_store(path, _BLUR_SPEC, _with_provenance(body, provenance))
+    _write_store(path, _BLUR_SPEC, _with_provenance(body, provenance); style = VgioStyle())   # (no length declared)
     return nothing
 end
 

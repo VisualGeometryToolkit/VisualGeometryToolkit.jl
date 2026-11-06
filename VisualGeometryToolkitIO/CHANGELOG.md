@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+- **One serializer, `VgioStyle` (public).** Every VisualGeometryToolkitCore value a record embeds is written by one
+  `JSON.lower(::VgioStyle, x)` method and read by one `JSON.lift(::VgioStyle, T, record)` method (StructUtils' hooks,
+  through JSON.jl's public names), on IO's own style, `VgioStyle <: JSON.JSONStyle`, which carries the file's
+  `length_unit` and `pixel_frame`: a pose (`EuclideanMap{3}`, `Uncertain` too), a `CameraModel` (its K and lens), a
+  generic grid model, a `PointTarget` or `PlanarTarget` body (`JSON.lift(style, AbstractTarget, record; resolve)`), an
+  `AbstractTargetLayout` and an `Ellipse`. A target's calibration is part of its body and has no `lower` of its own (one
+  on VGC's `TargetCalibration` union would claim every planar `EuclideanMap` left in a record). No method lands on
+  those functions for another style, and there is no global `JSON.lower(x)`. Every writer serializes on its own file's
+  style, `JSON.json(body; style = VgioStyle(…))` (a required argument of the one write path), so a value left in a body
+  is lowered in the unit and pixel frame the file declares; a reader is parse → `migrate_record` → validate → `lift`.
+  A parametric record with more or fewer parameters than its kind is an `ArgumentError` naming the tag, its kind's
+  count and the record's.
+- **The parametric record.** A target calibration kind's `{"type": tag, ["nodes": …], ["parameters": …]}` is written
+  generically: the tag from `TARGET_CALIBRATION_TAGS`, the parameters VGC's `parameter_vector` (its lengths, by
+  `length_mask`, through the decimal-exact shift), `parameters` omitted for a kind with none (`rigid`); it is read back
+  by `with_parameters` on the kind's prototype, and a thin-plate kind (its nodes are structure, its values read back
+  unprojected) by its constructor. A layout is the keyed record of its fields, read back by its keyword constructor.
+  The per-kind writers and readers are gone.
+- **One encoder per minimal form.** A K's five numbers (`fx, fy, cx, cy, skew`) and an ellipse's
+  (`[cx, cy, a, b, θ]`) are written in one place each, for the camera body, a generic model's `nominal_intrinsics` and
+  `domain`, and the rig identity tree, which now reads a generic model off the writer's own body; a board is a
+  rectangle of the design chart, written as the canvas's are.
+- **No file changes.** Every kind writes the same bytes as before (every test fixture, and each of the ~11,800 files
+  and ~10,000 identity trees the test suite writes, written with the old and the new code and compared), no content
+  identity moves, and no schema version moves. The lens record stays VisualGeometryToolkitCore's `lens_record`: it
+  already is the generic structure-and-coefficients record (type tags and coefficient arrays, read by
+  `lens_from_record`), and a `{"type", "parameters"}` lens would need that structure under another key and a new
+  cameras and rig version, removing no code.
+- `pose_json`/`pose_from_json`, `camera_json`/`camera_from_json` and `target_json`/`target_from_json` keep their
+  signatures; each is the style's `lower`/`lift` for the unit or pixel frame it is given. The readers take a record read
+  by property access, a parsed `JSON.Object` or a `NamedTuple` (`camera_from_json(camera_json(…))` round-trips in
+  memory); a `Dict` (no property access) is a `TypeError` at the call.
+
 - **The covariance storage (new versions).** A covariance is written in the storage its value's `CovMat` holds — rows
   (full, as before), `{"diagonal": […]}` or `{"isotropic": λ}` — and read back as that storage; an isotropic one over a
   pose's angles and lengths is written as its diagonal. Every kind that carries a covariance moved up a version:

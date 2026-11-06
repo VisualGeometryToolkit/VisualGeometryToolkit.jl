@@ -386,9 +386,12 @@ function _migrated_on_load(d, path, kind, s)
 end
 
 # Write `body` as a v2 file after validating the very bytes that land on disk
-# against `spec`: a writer cannot produce a file its own reader refuses.
-function _write_store(path::AbstractString, spec::_Spec, body)
-    text = _json_text(body)                   # serialized once: these bytes are validated and written
+# against `spec`: a writer cannot produce a file its own reader refuses. A VGC
+# value left in `body` is lowered on `style` (style.jl), the file's own
+# declarations — required, so no writer can serialize under a unit or pixel
+# frame its file does not declare.
+function _write_store(path::AbstractString, spec::_Spec, body; style::VgioStyle)
+    text = _json_text(body, style)            # serialized once: these bytes are validated and written
     _validate(spec, _parse_vgio_text(text, path), path, "")   # (a NaN/Inf refused by its field)
     write(path, text)
     return nothing

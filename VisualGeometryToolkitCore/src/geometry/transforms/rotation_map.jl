@@ -95,6 +95,15 @@ function Base.:∘(A::EuclideanMap{N, TA, RA, VA, SrcA, DstA}, B::RotationMap{N,
     return relabel(SrcB, DstA, EuclideanMap(A.R * B.R, A.t; check = false))
 end
 
+# A rotation is the similarity of scale 1 and no translation, its frames kept,
+# so it composes with a similarity exactly and junction-checked.
+function SimilarityMap(M::RotationMap{N, T, R, Src, Dst}) where {N, T, R, Src, Dst}
+    sf = one(float(T))
+    return SimilarityMap{N, T, typeof(sf), R, SVector{N, typeof(sf)}, Src, Dst}(sf, M.R, zero(SVector{N, typeof(sf)}))
+end
+Base.:∘(A::RotationMap{N}, B::SimilarityMap{N}) where {N} = SimilarityMap(A) ∘ B
+Base.:∘(A::SimilarityMap{N}, B::RotationMap{N}) where {N} = A ∘ SimilarityMap(B)
+
 CoordinateTransformations.transform_deriv(M::RotationMap{N}, x) where {N} = SMatrix{N, N}(M.R)
 
 function to_homogeneous(M::RotationMap{N, T}) where {N, T}

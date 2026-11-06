@@ -59,6 +59,8 @@ import ..VisualGeometryToolkitCore: center  # ONE `center` generic (geometry/rad
 
 # Import transform types (defined in base/types.jl) - import to extend constructors
 import ..VisualGeometryToolkitCore: HomEllipseMat, HomCircleMat, Conic
+using ..VisualGeometryToolkitCore: _averaged_coefficients, _Unchecked   # the unchecked conic of a primitive (its class is by construction)
+using ..VisualGeometryToolkitCore: _conic_work_type   # the precision a conic's class is decided and read in
 
 # Import canonical geometry constants (defined in base/interface.jl)
 
@@ -78,7 +80,7 @@ using Accessors: @set
 
 # Import interface traits and function stubs (to extend)
 using ..VisualGeometryToolkitCore: HasBoundary, AnalyticOverlap, BoundarySampled
-using ..VisualGeometryToolkitCore: CircleTrait, EllipseTrait, ParabolaTrait, HyperbolaTrait, DegenerateTrait
+using ..VisualGeometryToolkitCore: CircleTrait, EllipseTrait
 using ..VisualGeometryToolkitCore: IsotropicScale, ShapeMatrixScale
 import ..VisualGeometryToolkitCore: has_boundary, classify_conic
 import ..VisualGeometryToolkitCore: frame_scale

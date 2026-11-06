@@ -711,6 +711,7 @@ rounding): a sheared or anisotropic map has no single scale.
 """
 similarity_scale(m::FramedAffine) = _similarity_scale(m.A)
 similarity_scale(a::AffineMap) = _similarity_scale(SMatrix{2, 2}(a.linear))
+similarity_scale(m::SimilarityMap) = m.s   # a similarity by type: its scale, no test
 function _similarity_scale(A::StaticMatrix{2, 2})
     G = A' * A
     σ² = (G[1, 1] + G[2, 2]) / 2

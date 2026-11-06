@@ -55,14 +55,11 @@ function center end
 
 
 # ========================================================================
-# Conic Matrix Types
+# Static matrix types: the conic matrices, the epipolar matrices
 # ========================================================================
 #
-# Homogeneous conic matrix types needed by Primitives before full
-# transforms module loads. Extracted here to break circular dependency:
-#   - matrices.jl defines transform types that need ConicTrait (from interface.jl)
-#   - Primitives needs conic matrix types
-#   - Primitives is loaded before the rest of transforms
+# Defined here, before the Primitives submodule (which builds conics from its
+# Ellipse and Circle) and the transforms (which act on them).
 
 using StaticArrays: StaticArrays, SMatrix, StaticMatrix, MVector, StaticVector
 
@@ -236,45 +233,296 @@ macro smatrix_wrapper(Name, arg2, arg3 = nothing)
     end
 end
 
-# Define conic matrix types (internal representations)
-@smatrix_wrapper HomEllipseMat AbstractHomConicMat
-@smatrix_wrapper HomCircleMat AbstractHomConicMat
+# ------------------------------------------------------------------------
+# Conic matrices: one symmetric-coefficient storage, three classes
+# ------------------------------------------------------------------------
+#
+# A conic matrix is symmetric, so it is stored as its upper triangle,
+# column-major: (C₁₁, C₁₂, C₂₂, C₁₃, C₂₃, C₃₃) — the order of the
+# point-on-conic constraint's `G_θ` (manifolds/ellipse.jl). Exactly symmetric
+# by storage: `Q[i, j]` and `Q[j, i]` read the same coefficient. A matrix
+# handed in is checked for symmetry (`isapprox(Q, Qᵀ; rtol = √eps)`) and its
+# off-diagonal pairs averaged; an exactly symmetric matrix is stored bit for
+# bit. The class (`K`) is the type: HomEllipseMat, HomCircleMat and Conic are
+# the one struct `SymmetricConic{K}`, with one constructor set.
+#
+# Not a `_FormStorage` form (CovMat/PrecMat): a conic's 3×3 is indefinite (a
+# real ellipse's has one eigenvalue of the other sign) and homogeneous (every
+# nonzero multiple is the same curve), so it has none of a covariance form's
+# inverse, frame or definiteness; it is six coefficients and a class.
 
-@doc "Homogeneous 3×3 matrix representation of an ellipse (conic section)." HomEllipseMat
-@doc "Homogeneous 3×3 matrix representation of a circle (special conic)." HomCircleMat
+# column-major entry k of the 3×3 → its coefficient
+const _SYM3_INDEX = (1, 2, 4, 2, 3, 5, 4, 5, 6)
 
-# ========================================================================
-# Conic — geometric primitive for indeterminate conic sections
-# ========================================================================
+# The nine entries, column-major, of the symmetric 3×3 of six coefficients.
+@inline _full3(q::NTuple{6}) = ntuple(k -> q[_SYM3_INDEX[k]], Val(9))
 
-"""
-    Conic{T}
+# the machine epsilon of a conic computation: Float64's for an AD number or an exact type
+_conic_eps(::Type{T}) where {T <: AbstractFloat} = eps(T)
+_conic_eps(::Type) = eps(Float64)
+# the construction tolerance of a conic's symmetry and a circle's isotropy, from
+# the precision the entries were given in
+_conic_rtol(::Type{T}) where {T} = sqrt(_conic_eps(T))
+# The type a conic's class is decided in: at least Float64. A Float32 conic at
+# pixel coordinates holds |centre|²-sized terms whose cancellation leaves γ
+# below Float32's rounding floor although its stored coefficients resolve it;
+# Float32 arithmetic refused half of all 1–10 px blobs in a 4000×3000 image.
+_conic_work_type(::Type{T}) where {T} = float(promote_type(T, Float64))
 
-Geometric primitive representing a 2D conic section (ellipse, hyperbola,
-parabola, or degenerate). Wraps a 3×3 homogeneous conic matrix.
+# The sentinel of an inner constructor that stores its parts as given: the
+# caller guarantees the invariants the checked constructors test (a conic
+# built symmetric and of its class, a calibration matrix's structure).
+struct _Unchecked end
 
-Returned by `HomographyMap` when transforming geometric primitives
-(Circle, Ellipse). Use `is_ellipse`, `classify_conic` to determine
-the type, and `Ellipse(conic)`, `Circle(conic)` to convert.
+# The coefficients of a 3×3 `Q` in `T`, its off-diagonal pairs averaged in `T` (no check).
+@inline _averaged_coefficients(::Type{T}, Q) where {T} = (
+    T(Q[1, 1]), _mean_in(T, Q[1, 2], Q[2, 1]), T(Q[2, 2]),
+    _mean_in(T, Q[1, 3], Q[3, 1]), _mean_in(T, Q[2, 3], Q[3, 2]), T(Q[3, 3]),
+)
+@inline _mean_in(::Type{T}, x, y) where {T} = T((T(x) + T(y)) / 2)   # x for x == y
 
-# Examples
-```julia
-H = HomographyMap(M)
-Q = H(circle)         # returns Conic
-is_ellipse(Q)         # check type
-ell = Ellipse(Q)      # convert to Ellipse
-```
-"""
-struct Conic{T}
-    Q::SMatrix{3, 3, T, 9}
+# The coefficients of a symmetric 3×3 `Q` in `T`: its symmetry checked, its
+# off-diagonal pairs averaged. The check is relative (every entry divided by the
+# largest before any square, so neither 1e160·Q overflows nor 1e-170·Q
+# underflows), computed in `float` of the entries, and its tolerance is the
+# precision the entries were GIVEN in: Float32 data read into a Conic{Float64}
+# carries Float32's asymmetry.
+function _symmetric_coefficients(::Type{T}, Q, name) where {T}
+    size(Q) == (3, 3) || throw(DimensionMismatch("$name takes a 3×3 matrix, got $(size(Q))"))
+    S = float(eltype(Q))
+    m = maximum(x -> abs(S(x)), Q)
+    isfinite(m) || throw(ArgumentError("$name: the matrix has non-finite entries: $(Q)"))
+    rtol = _conic_rtol(eltype(Q))
+    if !iszero(m)
+        r(i, j) = S(Q[i, j]) / m
+        n2 = sum(x -> abs2(S(x) / m), Q)
+        d2 = 2 * (abs2(r(1, 2) - r(2, 1)) + abs2(r(1, 3) - r(3, 1)) + abs2(r(2, 3) - r(3, 2)))
+        d2 <= rtol^2 * n2 || throw(
+            ArgumentError(
+                "$name: a conic matrix is symmetric, got one with ‖Q − Qᵀ‖ / ‖Q‖ = $(sqrt(d2 / n2)) " *
+                    "(tolerance √eps = $(rtol))"
+            )
+        )
+    end
+    return _averaged_coefficients(T, Q)
 end
 
-Conic(Q::AbstractMatrix{T}) where {T} = Conic{T}(SMatrix{3, 3, T}(Q))
+struct SymmetricConic{K, T} <: AbstractHomConicMat{T}
+    coeffs::NTuple{6, T}
+    SymmetricConic{K, T}(q::NTuple{6}, ::_Unchecked) where {K, T} = new{K, T}(convert(NTuple{6, T}, q))
+end
 
-# Convert back to matrix types (for internal use)
-HomEllipseMat(c::Conic{T}) where {T} = HomEllipseMat{T}(Tuple(c.Q))
-HomCircleMat(c::Conic{T}) where {T} = HomCircleMat{T}(Tuple(c.Q))
-SMatrix{3, 3}(c::Conic) = c.Q
+"""
+    HomEllipseMat{T} <: AbstractHomConicMat{T}
+
+The homogeneous 3×3 matrix of a real, non-degenerate ellipse
+`x̃ᵀ Q x̃ = 0`, `x̃ = (x, y, 1)`, stored as its six unique coefficients
+`(Q₁₁, Q₁₂, Q₂₂, Q₁₃, Q₂₃, Q₃₃)` — exactly symmetric by storage; indexing
+returns the full symmetric matrix, and arithmetic on it gives an `SMatrix`.
+Built from an [`Ellipse`](@ref), a symmetric 3×3 matrix (or its nine entries,
+column-major) or the six coefficients. A matrix is checked for symmetry
+(`isapprox(Q, Qᵀ; rtol = √eps)`, its off-diagonal pairs averaged), and
+`check = true` checks the class — [`classify_conic`](@ref) answering
+`EllipseTrait`, the same test — with an `ArgumentError` naming what it is
+instead; a general conic is a [`Conic`](@ref).
+"""
+const HomEllipseMat{T} = SymmetricConic{:ellipse, T}
+
+"""
+    HomCircleMat{T} <: AbstractHomConicMat{T}
+
+The homogeneous 3×3 matrix of a real circle, stored and constructed as
+[`HomEllipseMat`](@ref) is. Its class check adds isotropy: `Q₁₁ = Q₂₂` and
+`Q₁₂ = 0` within `√eps · ‖A‖`.
+"""
+const HomCircleMat{T} = SymmetricConic{:circle, T}
+
+"""
+    Conic{T} <: AbstractHomConicMat{T}
+
+A 2D conic section of any class (ellipse, hyperbola, parabola or
+degenerate), stored and constructed as [`HomEllipseMat`](@ref) is, with no
+class check. What a [`HomographyMap`](@ref) makes of a circle or an ellipse:
+[`classify_conic`](@ref) names its class and `Ellipse(c)` (checked: an
+`ArgumentError` for another class) reads the ellipse back; to map a shape and
+get its ellipse or `nothing` in one non-throwing call, use
+`transfer_ellipse(H, shape)` on the map and the shape instead.
+
+```julia
+Q = HomographyMap(M)(circle)   # a Conic
+is_ellipse(Q) && Ellipse(Q)
+```
+"""
+const Conic{T} = SymmetricConic{:general, T}
+
+# -- the classes, read from the six coefficients ------------------------------
+
+"""
+    classify_conic(Q::Union{Conic, HomEllipseMat, HomCircleMat}) -> ConicTrait
+
+Classify a conic matrix and return the appropriate Holy Trait.
+
+Returns one of:
+- `EllipseTrait()`: Valid ellipse (bounded, non-degenerate)
+- `HyperbolaTrait()`: Hyperbola (indefinite quadratic form)
+- `ParabolaTrait()`: Parabola (singular quadratic form)
+- `DegenerateTrait()`: a point ellipse, an imaginary ellipse, or a conic with
+  no quadratic part (a line). Intersecting line pairs classify as
+  `HyperbolaTrait` and parallel pairs as `ParabolaTrait` (their quadratic forms).
+
+Invariant to the conic's scale and sign (a homogeneous conic is defined only
+up to a nonzero multiplier). A point ellipse is told from a real one by γ, the
+constant term at the centre, against the rounding of the terms that produce it
+(`|c| + 2|b||centre| + |λ|·|centre|²`) magnified by the quadratic block's
+condition number κ — never against an absolute threshold, which called large or
+distant ellipses degenerate. The bound was measured: on
+20,000 elongated point ellipses (κ up to 1e6) the computed |γ| stays below
+0.55·κ·eps of those terms, and the test allows 2·(1 + κ)·eps. The test runs in
+at least Float64 on the coefficients divided by the largest, so a Float32 conic
+is classified as its stored coefficients define it (a 3 px Float32 ellipse at
+(1000, 800) is an ellipse; in Float32 arithmetic its γ sank below the noise
+floor), and neither a huge nor a tiny multiple of a conic overflows or
+underflows. An ellipse whose γ is within that noise — thin and very far along
+its minor axis — reads degenerate, because the arithmetic cannot tell it from a
+point. The checked `HomEllipseMat` constructor runs this same test, and
+`Ellipse(Q)` reads the centre and γ in the same precision.
+"""
+classify_conic(Q::SymmetricConic) = _conic_trait(getfield(Q, :coeffs))
+
+# The six coefficients in the work type, divided by the largest (relative only:
+# a homogeneous conic has no absolute scale, and no square of a raw entry can
+# overflow or underflow); `nothing` for a zero or non-finite conic.
+@inline function _conic_scaled(q::NTuple{6, T}) where {T}
+    W = _conic_work_type(T)
+    m = maximum(x -> abs(W(x)), q)
+    (iszero(m) || !isfinite(m)) && return nothing
+    return map(x -> W(x) / m, q)
+end
+
+# THE conic classification, on the six coefficients, decided in at least
+# Float64 (`_conic_work_type`) after scaling by the largest coefficient.
+@inline function _conic_trait(q::NTuple{6})
+    s = _conic_scaled(q)
+    s === nothing && return DegenerateTrait()
+    a, b, c, d, e, f = s
+    W = typeof(a)
+    ϵ = _conic_eps(W)
+    A = SMatrix{2, 2, W}(a, b, b, c)
+    bv = SVector{2, W}(d, e)
+    cc = f
+
+    # the quadratic block's eigenvalues ordered by MAGNITUDE: `extrema` orders
+    # them by value, so a negated conic read its ratio upside down
+    λ1, λ2 = eigen(Symmetric(A)).values
+    small, large = abs(λ1) <= abs(λ2) ? (λ1, λ2) : (λ2, λ1)
+    iszero(large) && return DegenerateTrait()          # no quadratic part: a line
+
+    abs(small / large) < ϵ^(3 / 4) && return ParabolaTrait()
+    small * large < zero(W) && return HyperbolaTrait()
+
+    # definite: flip a negated conic so the block is positive definite
+    if large < zero(W)
+        A, bv, cc = -A, -bv, -cc
+    end
+    centre = -(A \ bv)
+    γ = cc + dot(bv, centre)
+    # γ < 0 is a real ellipse, unless it does not rise above the rounding of the
+    # terms that produce it (a point ellipse is γ = 0 up to that rounding)
+    κ = abs(large / small)
+    terms = abs(cc) + 2 * norm(bv) * norm(centre) + abs(large) * dot(centre, centre)
+    return γ < -2 * (1 + κ) * ϵ * terms ? EllipseTrait() : DegenerateTrait()
+end
+
+# The class predicates: THE test of classify_conic (an ellipse), and isotropy on
+# top (a circle), relative to ‖A‖ and in the coefficients' own precision.
+@inline _is_real_ellipse(q::NTuple{6}) = _conic_trait(q) isa EllipseTrait
+@inline function _is_isotropic(q::NTuple{6, T}) where {T}
+    s = _conic_scaled(q)
+    s === nothing && return false
+    a, b, c = s[1], s[2], s[3]
+    tol = _conic_rtol(T) * sqrt(a * a + 2 * b * b + c * c)
+    return abs(a - c) <= tol && abs(b) <= tol
+end
+@inline _is_of_class(::Type{<:SymmetricConic{:general}}, ::NTuple{6}) = true
+@inline _is_of_class(::Type{<:SymmetricConic{:ellipse}}, q::NTuple{6}) = _is_real_ellipse(q)
+@inline _is_of_class(::Type{<:SymmetricConic{:circle}}, q::NTuple{6}) = _is_real_ellipse(q) && _is_isotropic(q)
+
+# A conic of class `J` is of class `K` by construction (no check needed).
+_class_implies(J::Symbol, K::Symbol) = J === K || K === :general || (J === :circle && K === :ellipse)
+
+_conic_name(::Type{<:SymmetricConic{:ellipse}}) = "HomEllipseMat"
+_conic_name(::Type{<:SymmetricConic{:circle}}) = "HomCircleMat"
+_conic_name(::Type{<:SymmetricConic{:general}}) = "Conic"
+
+# The message is formatted here only, on the throw.
+@noinline function _throw_conic_class(::Type{C}, q::NTuple{6}) where {C <: SymmetricConic}
+    what = _describe_trait(_conic_trait(q))
+    if what === nothing   # a real ellipse, so the class is a circle's
+        a, b, c = q[1], q[2], q[3]
+        what = "its quadratic block is not isotropic (A₁₁ − A₂₂ = $(a - c), A₁₂ = $(b)): an ellipse, not a circle"
+    end
+    throw(ArgumentError(string(_conic_name(C), ": ", what, " (a general conic is a `Conic`)")))
+end
+_describe_trait(::EllipseTrait) = nothing
+_describe_trait(::HyperbolaTrait) = "its quadratic block is indefinite: a hyperbola or an intersecting line pair, not an ellipse"
+_describe_trait(::ParabolaTrait) = "its quadratic block is singular: a parabola or a parallel line pair, not an ellipse"
+_describe_trait(::DegenerateTrait) = "a point, imaginary or line conic (γ does not rise above its rounding), not a real ellipse"
+
+# -- the constructors: one set, for every class ----------------------------------
+
+function SymmetricConic{K, T}(q::NTuple{6}; check::Bool = true) where {K, T}
+    qT = convert(NTuple{6, T}, q)
+    check && !_is_of_class(SymmetricConic{K}, qT) && _throw_conic_class(SymmetricConic{K}, qT)
+    return SymmetricConic{K, T}(qT, _Unchecked())
+end
+SymmetricConic{K}(q::NTuple{6, T}; check::Bool = true) where {K, T} = SymmetricConic{K, T}(q; check)
+SymmetricConic{K, T}(q::StaticVector{6}; check::Bool = true) where {K, T} = SymmetricConic{K, T}(Tuple(q); check)
+SymmetricConic{K}(q::StaticVector{6, T}; check::Bool = true) where {K, T} = SymmetricConic{K, T}(Tuple(q); check)
+# a symmetric 3×3: a matrix, or its nine entries column-major
+SymmetricConic{K, T}(M::AbstractMatrix; check::Bool = true) where {K, T} =
+    SymmetricConic{K, T}(_symmetric_coefficients(T, M, _conic_name(SymmetricConic{K})); check)
+SymmetricConic{K}(M::AbstractMatrix{T}; check::Bool = true) where {K, T} = SymmetricConic{K, T}(M; check)
+# Disambiguate vs StaticArrays' generic `(::Type{SA})(sa::StaticArray)` converter.
+SymmetricConic{K, T}(M::StaticArrays.StaticArray{<:Tuple, <:Any, 2}; check::Bool = true) where {K, T} =
+    SymmetricConic{K, T}(_symmetric_coefficients(T, M, _conic_name(SymmetricConic{K})); check)
+SymmetricConic{K}(M::StaticArrays.StaticArray{<:Tuple, T, 2}; check::Bool = true) where {K, T} = SymmetricConic{K, T}(M; check)
+SymmetricConic{K, T}(data::NTuple{9}; check::Bool = true) where {K, T} = SymmetricConic{K, T}(SMatrix{3, 3}(data); check)
+SymmetricConic{K}(data::NTuple{9, T}; check::Bool = true) where {K, T} = SymmetricConic{K, T}(data; check)
+SymmetricConic{K, T}(args::Vararg{Number, 9}; check::Bool = true) where {K, T} = SymmetricConic{K, T}(args; check)
+# Another conic: symmetric by storage, its coefficients taken as they are; the
+# class checked only where the source's class does not imply it.
+SymmetricConic{K, T}(Q::SymmetricConic{J}; check::Bool = !_class_implies(J, K)) where {K, T, J} =
+    SymmetricConic{K, T}(getfield(Q, :coeffs); check)
+SymmetricConic{K}(Q::SymmetricConic{J, T}; check::Bool = !_class_implies(J, K)) where {K, J, T} =
+    SymmetricConic{K, T}(Q; check)
+
+# Immutable and of its class already: StaticArrays' generic `copy` and
+# cross-eltype `convert` rebuild through the checked 9-entry constructor, which
+# refused values built unchecked (`check = false`, `_Unchecked`, an ellipse
+# whose class only the stored coefficients resolve). A same-class conversion
+# converts the coefficients and checks nothing; another class still goes
+# through the checked constructor.
+Base.copy(Q::SymmetricConic) = Q
+Base.convert(::Type{C}, Q::C) where {C <: SymmetricConic} = Q
+Base.convert(::Type{SymmetricConic{K, T}}, Q::SymmetricConic{K}) where {K, T} =
+    SymmetricConic{K, T}(getfield(Q, :coeffs), _Unchecked())
+# FixedModels' padding of a solver's unused slots: the zero coefficients (no
+# class holds them, but a padding slot is never read as a model)
+_padding_value(::Type{SymmetricConic{K, T}}) where {K, T} = SymmetricConic{K, T}(ntuple(_ -> zero(T), Val(6)), _Unchecked())
+
+Base.IndexStyle(::Type{<:SymmetricConic}) = IndexLinear()
+@inline function Base.getindex(A::SymmetricConic, k::Int)
+    @boundscheck 1 <= k <= 9 || throw(BoundsError(A, k))
+    return @inbounds getfield(A, :coeffs)[_SYM3_INDEX[k]]
+end
+@inline Base.Tuple(A::SymmetricConic) = _full3(getfield(A, :coeffs))
+
+# The ellipse of a conic when it is one, else `nothing`: the class tested once,
+# never thrown (`Ellipse` reads it with no second check).
+@inline function _ellipse_or_nothing(Q::SymmetricConic{K, T}) where {K, T}
+    q = getfield(Q, :coeffs)
+    return _is_real_ellipse(q) ? Ellipse(HomEllipseMat{T}(q, _Unchecked())) : nothing
+end
 
 # ========================================================================
 # Fundamental / Essential Matrix Types
@@ -284,8 +532,8 @@ SMatrix{3, 3}(c::Conic) = c.Q
 # matrix; they share an `AbstractFundMat` parent so that shared algebra
 # (Sampson distance, etc.) can dispatch on the abstract type while
 # solver- and codomain-specific paths still dispatch on the leaf type.
-# Not geometric transforms (map points to lines, not points to points),
-# so the supertype is StaticMatrix, not AbstractHomMat.
+# Not geometric transforms (map points to lines, not points to points):
+# dense algebraic StaticMatrix wrappers, like HomographyMat.
 
 "Abstract parent for 3×3 epipolar matrices (FundMat, EssentialMat)."
 abstract type AbstractFundMat{T} <: StaticArrays.StaticMatrix{3, 3, T} end
@@ -359,9 +607,10 @@ Base.eltype(::Type{FixedModels{N, M}}) where {N, M} = M
 to carry a solver's candidates through a per-model transform (a frame change
 by composition, an eltype change). `M′` is `f`'s inferred return type on `M` and must
 be concrete; the unused slots keep `fm`'s padding when `M′ == M` and are
-`zero(M′)` otherwise, as the builder pads them (so a model type without a
-`zero`, a `Circle`, maps within its own type). `f` is never called on a
-padding slot.
+its padding value otherwise (`zero(M′)`, or an unchecked zero-parameter value
+for a structured type with no valid zero), as the builder pads them (so a model
+type without either, a `Circle`, maps within its own type). `f` is never called
+on a padding slot.
 """
 function Base.map(f::F, fm::FixedModels{N, M}) where {F, N, M}
     M′ = Base.promote_op(f, M)
@@ -369,7 +618,12 @@ function Base.map(f::F, fm::FixedModels{N, M}) where {F, N, M}
     return FixedModels{N, M′}(fm.count, ntuple(i -> i <= fm.count ? convert(M′, f(@inbounds fm.data[i])) : _padding(M′, @inbounds fm.data[i]), Val(N)))
 end
 @inline _padding(::Type{M}, x::M) where {M} = x
-@inline _padding(::Type{M′}, _) where {M′} = zero(M′)
+@inline _padding(::Type{M′}, _) where {M′} = _padding_value(M′)
+
+# The value of a FixedModels padding slot, never read as a model: `zero(M)`,
+# or for a structured type with no valid zero (a calibration matrix's row 3 is
+# `0 0 1`, no ellipse is zero) an unchecked zero-parameter value.
+_padding_value(::Type{M}) where {M} = zero(M)
 
 # =============================================================================
 # Solver-output validity + FixedModels-from-builder constructor
@@ -382,7 +636,7 @@ end
 #   `is_valid_solution(::T)`    — type-dispatched validity predicate
 #   `FixedModels{N,M}(make, n)` — build by calling `make(i)` for `i in 1:n`,
 #                                  keep those satisfying `is_valid_solution`,
-#                                  pad unused slots with `zero(M)`.
+#                                  pad unused slots with `_padding_value(M)`.
 #
 # Always returns a `FixedModels{N,M}` (with `count=0` if no candidate is
 # valid).  Callers iterate with `for x in fm` — empty case yields nothing
@@ -403,7 +657,8 @@ Add a method for any new model type that needs a stricter check.
 
 # Builder constructor: `FixedModels{N,M}(make::Function, n::Int)`.
 # Calls `make(i)` for `i in 1:n`, keeps those satisfying `is_valid_solution`,
-# pads unused slots with `zero(M)`.  Returns an empty FixedModels (count=0)
+# pads unused slots with `_padding_value(M)` (`zero(M)` unless the type has no
+# valid zero).  Returns an empty FixedModels (count=0)
 # if `n == 0` or every candidate failed validity.
 @inline function FixedModels{NOUT, MType}(make::F, n::Integer) where {NOUT, MType, F <: Function}
     valid = MVector{NOUT, MType}(undef)
@@ -414,7 +669,7 @@ Add a method for any new model type that needs a stricter check.
         n_valid += 1
         valid[n_valid] = m
     end
-    z = zero(MType)
+    z = _padding_value(MType)
     # Bind to a fresh local before the closure. `n_valid` is assigned inside the
     # loop above, so capturing it directly forces Julia to box it (`Core.Box`),
     # which both defeats inference in this hot minimal-solver path and makes it
@@ -423,8 +678,6 @@ Add a method for any new model type that needs a stricter check.
     nv = n_valid
     return FixedModels{NOUT, MType}(nv, ntuple(i -> i ≤ nv ? valid[i] : z, Val(NOUT)))
 end
-
-# NOTE: similar_type for conic matrices is generated by @smatrix_wrapper macro
 
 # The JSON codecs of these types and ScalarOrQuantity live in VisualGeometryToolkitIO (src/core_json.jl)
 

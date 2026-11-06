@@ -75,7 +75,9 @@ using ..VisualGeometryToolkitCore: natural_extrapolation   # the natural boundar
 using ..VisualGeometryToolkitCore: difference_stencil      # the forward-difference coefficients (numerics/bspline_energy.jl): Δ³c = 0's extrapolation
 using ..VisualGeometryToolkitCore: bspline_basis, clamped_knots   # the Cox–de Boor basis on clamped knots: the vignetting fields (vignetting.jl)
 using ..VisualGeometryToolkitCore: TagRegistry, tag_of   # the target calibration kinds' tags (quality/tag_registry.jl)
-using ..VisualGeometryToolkitCore: Circle, Ellipse, Circle3D, is_ellipse, boundary_points
+using ..VisualGeometryToolkitCore: Circle, Ellipse, Circle3D, _ellipse_or_nothing, boundary_points
+using ..VisualGeometryToolkitCore: _Unchecked   # the unchecked inner constructor's sentinel (CameraCalibrationMat, base/types.jl)
+import ..VisualGeometryToolkitCore: _padding_value   # FixedModels' padding of a type with no valid zero (CameraCalibrationMat)
 using ..VisualGeometryToolkitCore: intersects   # a node's support against the imaged region (support.jl)
 using ..VisualGeometryToolkitCore: HomEllipseMat, WholePlane   # the conic matrix a valid domain is built from, and the whole plane (image_circle.jl)
 import ..VisualGeometryToolkitCore: HomographyMap  # Import (not using) to extend the labeled camera lift
@@ -125,6 +127,7 @@ using Base: ImmutableDict
 # Import types and macros defined in core and geometry
 using ..VisualGeometryToolkitCore: Size2, Quantity, BaseQuantity, base_quantity, strip_or_bare, px, mm, μm, m
 using ..VisualGeometryToolkitCore: _check_pixels, _strip_pixels   # pixel-sized values: refuse a length (base/units.jl)
+using ..VisualGeometryToolkitCore: SimilarityMap   # similarity_scale of a similarity (imaging_chain.jl)
 using ..VisualGeometryToolkitCore: EuclideanMap, CameraPose, CameraExtrinsics, to_affine, to_homogeneous, image_warp, image_warp!
 using ..VisualGeometryToolkitCore: RotationMap, WorldFrame, CameraFrame, _mapped_origin   # an oriented camera's pose (transforms/rotation_map.jl)
 import ..VisualGeometryToolkitCore: has_units, with_unit   # extended on the carriers: targets, mounts, rigs, cameras, captures
@@ -159,11 +162,10 @@ using ..VisualGeometryToolkitCore: epipolar_map
 using ..VisualGeometryToolkitCore: EssentialMat  # rig → labeled epipolar-form mints (stereo.jl)
 import ..VisualGeometryToolkitCore: points         # extended: a target rig's world points (rig.jl)
 import ..VisualGeometryToolkitCore: EpipolarForm  # Import (not using) to extend with the rig mint
-using ..VisualGeometryToolkitCore: @smatrix_wrapper, AbstractCalibrationMat
 import ..VisualGeometryToolkitCore: HomographyMat  # Import to extend constructor
 import ..VisualGeometryToolkitCore: Extrinsics3   # Import to extend constructor: the planar-target pose from a homography (homography.jl)
 using ..VisualGeometryToolkitCore: _cross2d   # the 2-D cross product (base/coordinates.jl): radial_camera_5pt
-using ..VisualGeometryToolkitCore: _CTLeafTransformation   # the CT affines RadialCamera's ∘ accepts (calibration.jl)
+using ..VisualGeometryToolkitCore: _AffinePlanarMap   # the affine-class maps RadialCamera's ∘ accepts (calibration.jl)
 using ..VisualGeometryToolkitCore: rescale_radial_coeff   # the one radial-coefficient scaling law (radial_models.jl; _rescale_lens)
 using ..VisualGeometryToolkitCore: check_weights
 import ..VisualGeometryToolkitCore: propagate   # extended for FramedAffine (imaging_chain.jl)
@@ -307,7 +309,8 @@ const PosedPinholeCamera = PosedCamera{<:CameraModel{<:AbstractIntrinsics, Pinho
 # distorting lens, `n` boundary samples projected into a `Polygon`.
 function _camera_project_conic(camera::PosedCamera, shape, n::Int = 64)
     Q = _plane_conic(camera, shape, lens(camera))
-    Q !== nothing && is_ellipse(Q) && return Ellipse(Q)
+    e = Q === nothing ? nothing : _ellipse_or_nothing(Q)
+    e === nothing || return e
     return _camera_project_world_points(camera, _world_boundary(shape, n))
 end
 # The exact image conic through the plane-induced homography — pinhole only.

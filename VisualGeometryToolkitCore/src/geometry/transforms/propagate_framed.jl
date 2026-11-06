@@ -96,6 +96,33 @@ propagate(m::EuclideanMap{N}, u::Uncertain{V, <:Union{CovMat{N}, PrecMat{N}}}) w
     Uncertain(m(getfield(u, :value)), propagate(m, getfield(u, :attributes)))
 
 # -----------------------------------------------------------------------------
+# SimilarityMap — the same, with the constant Jacobian J = s·R
+# -----------------------------------------------------------------------------
+
+"""
+    propagate(m::SimilarityMap{N}, Σ::CovMat{N})  -> CovMat{N, ..., Dst}
+    propagate(m::SimilarityMap{N}, Λ::PrecMat{N}) -> PrecMat{N, ..., Dst}
+    propagate(m::SimilarityMap{N}, u::Uncertain)  -> Uncertain
+
+As for an [`EuclideanMap`](@ref) (the same junction check, the same two laws),
+with the constant Jacobian `J = s·R`: `Σ ↦ s²·RΣRᵀ`, `Λ ↦ RΛRᵀ / s²`.
+"""
+function propagate(
+        m::SimilarityMap{N, T, Sc, R, V, Src, Dst}, Σ::CovMat{N, S, L, C}
+    ) where {N, T, Sc, R, V, Src <: Frame{N}, Dst <: Frame{N}, S, L, C <: Frame{N}}
+    _check_junction(C, Src, propagate, (m, Σ))
+    return _pushforward(SMatrix{N, N, promote_type(T, Sc, S)}(m.s * SMatrix{N, N}(m.R)), Σ, Dst)
+end
+function propagate(
+        m::SimilarityMap{N, T, Sc, R, V, Src, Dst}, Λ::PrecMat{N, S, L, C}
+    ) where {N, T, Sc, R, V, Src <: Frame{N}, Dst <: Frame{N}, S, L, C <: Frame{N}}
+    _check_junction(C, Src, propagate, (m, Λ))
+    return _pullback(SMatrix{N, N, promote_type(T, Sc, S)}(inv(m.s) * SMatrix{N, N}(inv(m.R))), Λ, Dst)
+end
+propagate(m::SimilarityMap{N}, u::Uncertain{V, <:Union{CovMat{N}, PrecMat{N}}}) where {N, V} =
+    Uncertain(m(getfield(u, :value)), propagate(m, getfield(u, :attributes)))
+
+# -----------------------------------------------------------------------------
 # HomographyMap — projective action, point-DEPENDENT Jacobian
 # -----------------------------------------------------------------------------
 

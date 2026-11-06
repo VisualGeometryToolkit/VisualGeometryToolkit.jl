@@ -34,16 +34,17 @@
         end
 
         @testset "Transform Operations" begin
-            # Test basic transform creation
-            rot = to_homogeneous(RotMatrix{2}(π / 4))
-            @test rot isa HomRotationMat{Float64}
+            # The homogeneous matrix of a map is a plain SMatrix: the map's type is its class
+            rot = to_homogeneous(LinearMap(RotMatrix{2}(π / 4)))
+            @test rot isa SMatrix{3, 3, Float64, 9}
 
             trans = to_homogeneous(Translation(SVector(2.0, 1.0)))
-            @test trans isa HomTranslationMat{Float64}
+            @test trans isa SMatrix{3, 3, Float64, 9}
 
-            # Test transform multiplication
-            euclidean = rot * trans
-            @test euclidean isa HomEuclideanMat{Float64}
+            # Composing the maps keeps the class: a rotation after a translation is rigid
+            euclidean = EuclideanMap(RotMatrix{2}(π / 4), SVector(0.0, 0.0)) ∘ EuclideanMap(one(RotMatrix{2, Float64}), SVector(2.0, 1.0))
+            @test euclidean isa EuclideanMap{2}
+            @test to_homogeneous(euclidean) ≈ rot * trans
         end
 
         @testset "GeometryBasics Integration" begin
@@ -75,10 +76,10 @@
         @testset "Conic Transformations" begin
             ellipse = Ellipse(Point2(0.0, 0.0), 3.0, 2.0, 0.0)
 
-            # Test translation using HomographyMap (preserves typed matrix from to_homogeneous)
-            H = to_homogeneous(Translation(SVector(5.0, -2.0)))
-            H_map = HomographyMap(H)
+            # A translation lifted to a HomographyMap acts projectively: a Conic, an ellipse here
+            H_map = HomographyMap(Translation(SVector(5.0, -2.0)))
             conic_result = H_map(ellipse)
+            @test conic_result isa Conic
             translated_ellipse = Ellipse(conic_result)
 
             @test norm(translated_ellipse.center - Point2(5.0, -2.0)) < 1.0e-12

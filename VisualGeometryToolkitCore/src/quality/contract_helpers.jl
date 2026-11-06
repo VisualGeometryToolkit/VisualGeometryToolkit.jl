@@ -56,7 +56,15 @@ function test_manifold_contract end
 The constraint-problem protocol on `problem` at the model `θ`, as tests:
 `data_size`/`codimension`/`minimal_sample_size` integers, [`residuals!`](@ref)
 type-stable and allocation-free after warm-up and equal to
-[`whitened_residual`](@ref) at every point. Implemented by
-VisualGeometryToolkitCoreTestExt.
+[`whitened_residual`](@ref) at every point to rounding: `rtol = 1e-11` of the
+point's residual or `1e-14` of the largest finite residual (a non-finite one
+identical). The rounding is of the measurements, not of the residual: a
+reprojection residual is a difference of ~1000 px coordinates, so two paths
+differ by ~1000·eps px whatever the residual (PnP measured 4.8e-14 px on a
+1.08 px residual, E 5.7e-14 px; 2026-11). Not bit for bit: the batch loop and a single call may contract
+StaticArrays' `muladd`s into FMAs differently once the loop vectorizes, so a
+bitwise rule held for a problem only by forbidding inlining (PnP's
+`@noinline`, 15–22% per point) — result accuracy, not bit accuracy.
+Implemented by VisualGeometryToolkitCoreTestExt.
 """
 function test_constraint_problem end

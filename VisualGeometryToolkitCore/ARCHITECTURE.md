@@ -82,14 +82,17 @@ pool-selection verbs (`robust/pool_selection.jl`: `best_pool_model`,
 
 ### 3. Transforms (matrix types and rigid maps)
 ```julia
-include("geometry/transforms/matrices.jl")       # Transform matrix types + AbstractHomMat hierarchy
+include("geometry/transforms/matrices.jl")       # HomographyMat (dense algebra) + AbstractMatrixMap
 include("geometry/transforms/euclidean_map.jl")  # EuclideanMap for poses
+include("geometry/transforms/similarity_map.jl") # SimilarityMap (x ↦ s·R·x + t)
 include("geometry/transforms/lie.jl")            # SO(3)/SE(3) exp/log
 include("geometry/transforms/rotation_fits.jl")  # Kabsch/Wahba, chordal mean
 ```
 
-**Why before Primitives?** `matrices.jl` defines the `AbstractHomMat` type
-hierarchy; `EuclideanMap` is used by Primitives (3D conics) and Cameras.
+**Why before Primitives?** `matrices.jl` defines `HomographyMat` and the
+`AbstractMatrixMap` parent; `EuclideanMap` is used by Primitives (3D conics)
+and Cameras, and `SimilarityMap` reuses its rotation checks. Their actions on
+primitives come after Primitives (`ct_contravariant.jl`).
 
 ### 4. Primitives submodule
 ```julia
@@ -236,8 +239,15 @@ Compile-time dispatch via trait types defined in `base/traits.jl` (loaded by
 | `FrameDependence` | `GeometryDefined`, `ModelDefined` | `frame_transition`, sphere sections (Cameras) |
 
 The transform class (Euclidean ⊂ similarity ⊂ affine ⊂ projective) is not a
-trait: the `AbstractHomMat` hierarchy in `matrices.jl` carries it, and
-`HomographyMap` dispatches its conic push-forward on the matrix type.
+trait: the map types carry it — `EuclideanMap`, `SimilarityMap` (and the
+rotation and uniform-scaling `LinearMap`s through it), CoordinateTransformations'
+affines, `HomographyMap` — and each acts on a primitive in its class
+(`ct_contravariant.jl`, `homography_map.jl`). A `HomographyMap` is always
+projective: a circle maps to a `Conic`. Matrices (`to_homogeneous(map)`, a
+plain `SMatrix`) are algebra only. The affine class is stated once, as
+`_AffinePlanarMap` (homography_map.jl): CoordinateTransformations' affines and
+`_StructuredAffineMap`, the stack's own affine-class types, each with an
+`AffineMap(m)`; the homography lift, the `∘` bridges and `fuse` read it.
 
 ### Trait-based Dispatch Example
 
@@ -287,8 +297,9 @@ extents); the size-form is sugar over the rect-form for the common case.
 | `src/base/units.jl` | unit constants, the stack's four units registered into FlexUnits' registry, `parse_unit`/`unit_string` |
 | `src/base/size2.jl` | Size2 type |
 | `src/base/feature_coords.jl` | `_strip_coords`: pixels in px, lengths in mm |
-| `src/geometry/transforms/matrices.jl` | Transform matrices + `AbstractHomMat` hierarchy (composition promotion) |
+| `src/geometry/transforms/matrices.jl` | `HomographyMat` (dense algebraic homography) and `AbstractMatrixMap` |
 | `src/geometry/transforms/euclidean_map.jl` | `EuclideanMap` for camera poses |
+| `src/geometry/transforms/similarity_map.jl` | `SimilarityMap` (x ↦ s·R·x + t), exact under `∘` and `inv` |
 | `src/geometry/transforms/homography_map.jl` | `HomographyMap` for point/line/conic transforms |
 | `src/geometry/transforms/warp.jl` | `image_warp` adapter + `image_warp_batch_to!` batched primitive |
 | `src/base/cspond_set.jl` | Correspondence containers (`Csponds`, `Cspond`, `Attributed`) |
@@ -335,14 +346,16 @@ extents); the size-form is sugar over the rect-form for the common case.
 3. Implement interface functions: `centroid`, `boundary_point`, etc.
 4. Add to exports in `primitives.jl`
 
-### Adding a New Transform Matrix Type
+### Adding a New Transform Class
 
-1. Use the two-argument `@smatrix_wrapper` form (macro in `base/types.jl`) in
-   `matrices.jl`, parenting the type at its tightest abstract level:
-   ```julia
-   @smatrix_wrapper MyTransformMat AbstractAffineMat   # 3×3: MyTransformMat{T} <: AbstractAffineMat{T}
-   ```
+A transform class is a MAP type (a `CoordinateTransformations.Transformation`,
+`<: AbstractMatrixMap` when it has a matrix form), never a matrix type:
 
-2. Add it to the same-type `Base.promote_rule` loop in `matrices.jl`. There is
-   no trait to declare: composition result types and `HomographyMap`'s conic
-   push-forward dispatch on the abstract hierarchy.
+1. Store the class's parameters, with `Src`/`Dst` frame tags as `EuclideanMap`
+   and `SimilarityMap` do (`relabel`/`unlabel`, `inv` swapping them, `∘`
+   checking the junction with `_check_junction`).
+2. Give it its exact `∘` and `inv` within the class, `to_homogeneous` (a plain
+   `SMatrix`), `transform_deriv`, and a `HomographyMap` lift storing its
+   analytic inverse.
+3. Add actions on primitives only where the result's type changes
+   (`ct_contravariant.jl`); everything else goes through the coarser class.

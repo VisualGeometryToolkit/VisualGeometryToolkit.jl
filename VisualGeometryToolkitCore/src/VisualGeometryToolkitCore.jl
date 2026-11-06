@@ -15,9 +15,10 @@ BlobBoards build on it.
 - `Synthetic`: ground-truth generators and metrics for benchmarking estimators.
 
 # Key types in the parent module
-- Transform matrices: `AbstractHomMat ⊃ AbstractAffineMat ⊃ AbstractSimilarityMat
-  ⊃ AbstractEuclideanMat`, plus `FundMat`, `EssentialMat` and `CameraCalibrationMat`.
-- Frame-tagged maps: `EuclideanMap` and `HomographyMap` carry `Src`/`Dst` tags from
+- Transform maps carry the class: `EuclideanMap ⊂ SimilarityMap ⊂` CoordinateTransformations'
+  affines `⊂ HomographyMap`; the algebraic matrices are `HomographyMat`, `FundMat`,
+  `EssentialMat`, `CameraCalibrationMat` (five parameters) and the symmetric conics.
+- Frame-tagged maps: `EuclideanMap`, `SimilarityMap` and `HomographyMap` carry `Src`/`Dst` tags from
   the open `Frame` hierarchy (`ViewFrame`, `PixelFrame`, `GnomonicFrame`, …);
   composition and `inv` are frame-checked.
 - Minimal solvers (`homography_4pt`, `p3p`, the 5-point essential and the
@@ -142,8 +143,9 @@ public ImplicitRoot, implicit_root   # how a HeightSurface's root is differentia
 # Primary API: Maps operate on primitives (a conic maps to a conic; see HomographyMap)
 export AbstractMatrixMap         # parent for matrix-backed Maps (BoundedMap is a sibling)
 export HomographyMap, EuclideanMap, CameraPose, CameraExtrinsics, Extrinsics3
+export SimilarityMap             # x ↦ s·R·x + t: the similarity class (circles stay circles), exact under ∘ and inv
 public PlainEuclideanMap, UnitfulEuclideanMap   # the inner loop's map and the physical one
-public rotation, translation   # EuclideanMap accessors (x ↦ R·x + t); qualified or imported by name
+public rotation, translation   # EuclideanMap/SimilarityMap accessors (x ↦ R·x + t); qualified or imported by name
 # Coordinate-frame tags (EuclideanMap Src/Dst parameters) + label escape hatches
 export Frame, UnlabeledFrame, WorldFrame, CameraFrame, TargetPlaneFrame, PixelFrame
 # View-identity tags (0.8): Symbol-parametric instance identity — ViewFrame{:left}
@@ -405,11 +407,11 @@ public stable_seed   # the seed of every random stream, keyed by name (base/util
 # 6. ADVANCED/INTERNAL - Matrix types, traits
 # -----------------------------------------------------------------------------
 # Matrix types (for low-level operations)
-# AbstractHomConicMat, HomEllipseMat, HomCircleMat are in base/types.jl
-export AbstractHomMat  # abstract parent types
+# AbstractHomConicMat, HomEllipseMat, HomCircleMat, Conic are in base/types.jl
+# (symmetric by storage, class-checked); the transform class is the MAP's type
+# (EuclideanMap ⊂ SimilarityMap ⊂ AffineMap ⊂ HomographyMap), not a matrix's
 public AbstractHomConicMat
-export HomRotationMat, HomTranslationMat, HomUniformScalingMat, HomScalingMat
-export HomEuclideanMat, HomSimilarityMat, HomAffineMat, HomographyMat
+export HomographyMat
 export HomEllipseMat, HomCircleMat, Conic
 export AbstractFundMat, FundMat, EssentialMat, FixedModels
 
@@ -832,8 +834,9 @@ include("robust/lo_contract.jl")      # lo_workspace/locally_optimize!/lo_estima
 
 # Geometry Transforms (partial - matrices and rigid transforms only)
 # NOTE: coord_maps, region_maps, homography_map come AFTER Primitives
-include("geometry/transforms/matrices.jl")      # Transform matrix types + Holy Traits
+include("geometry/transforms/matrices.jl")      # HomographyMat (dense algebra) + AbstractMatrixMap
 include("geometry/transforms/euclidean_map.jl") # EuclideanMap (rigid transforms for camera poses)
+include("geometry/transforms/similarity_map.jl") # SimilarityMap (x ↦ s·R·x + t); uses EuclideanMap's rotation checks
 include("geometry/transforms/rotation_map.jl")  # RotationMap: a frame-tagged rotation about the origin, no translation (an OrientedCamera's pose)
 include("geometry/transforms/lie.jl")           # SO(3)/SE(3) exp/log + left Jacobian (AD-safe exp side)
 include("geometry/transforms/rotation_fits.jl") # Kabsch/Wahba, chordal mean, SO(3) projection

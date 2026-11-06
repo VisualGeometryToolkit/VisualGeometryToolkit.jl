@@ -362,8 +362,9 @@ function refine! end
 #
 #   chart_dof(P)                 the chart's dof (type level: a workspace is sized
 #                                before a model exists) — the trait itself
-#   _chart(p, θ)                 the chart at a model (default `minimal_manifold(θ)`),
-#                                the ONE seeding of the refit and the lift
+#   _chart(p, θ)                 the chart at a model of `model_type(p)` (default
+#                                `minimal_manifold(θ)`), the ONE seeding of the
+#                                refit and the lift; θ enters as `_as_model(p, θ)`
 #   residual_rows! /             the √w-weighted rows and their Jacobian on
 #   residual_jacobian_rows!      `ChartLm{C, <:P}` (VGC's LM protocol)
 #
@@ -410,8 +411,21 @@ ChartLm(ch, problem, sqrtw) = ChartLm(ch, problem, sqrtw, nothing)
 # anchor itself (the unit-Frobenius representative, a re-projected rotation).
 @inline _reanchored(ch) = recenter(ch, VgtkCore.zero_tangent(ch))
 
-# The per-problem facts, with their defaults (see the section header).
-_chart(_p, θ) = minimal_manifold(θ)
+# The model entering a refit or a local optimization, as the problem's model
+# type — taken ONCE, at the entry (`_refine!`, the lift's `lift_init`, Triggs):
+# an unlabeled in-flight iterate takes the type's frame labels (`convert`, the
+# gradual-typing direction), anything else is refused there.
+@inline _as_model(p, θ) = convert(model_type(p), θ)::model_type(p)
+
+# The per-problem facts, with their defaults (see the section header). The
+# default chart is the model's own manifold, for a model of the problem's type
+# only: another value is refused, never charted as whatever it happens to be.
+function _chart(p, θ)
+    θ isa model_type(p) || throw(ArgumentError(
+        "the chart of a $(nameof(typeof(p))) is at a $(model_type(p)), got a $(typeof(θ))"
+    ))
+    return minimal_manifold(θ)
+end
 _refit_chart(p, θ, _weights) = _chart(p, θ)
 _lm_state(p, ch, sqrtw) = ChartLm(ch, p, sqrtw)
 _refit_state(p, ch, sqrtw) = _lm_state(p, ch, sqrtw)
@@ -484,7 +498,7 @@ and the LO's own acceptance (the scoring) decides whether it is kept.
 """
 function _refine!(::NonlinLsq, lo_ws, p::AbstractRansacProblem, θ, weights::AbstractVector)
     _underdetermined(p, weights) && return nothing
-    ch = _refit_chart(p, θ, weights)
+    ch = _refit_chart(p, _as_model(p, θ), weights)
     ch === nothing && return nothing
     rows, dof = _lm_size(p)
     n = data_size(p)
@@ -530,10 +544,10 @@ state that counts further adds its method.
 
 # =============================================================================
 # Refit-kind trait — routes the LO step `refine!` by problem CLASS, not by the
-# model's nominal type. Replaces the old `θ::AbstractHomMat` dispatch, which
-# (mis)used the transform-vs-bilinear-form hierarchy as a stand-in for "DLT-
-# refittable" and so silently excluded F and E (both <: AbstractFundMat, a
-# sibling of AbstractHomMat) — their LO refit fell through to `nothing`.
+# model's nominal type. Replaces the old dispatch on the transform-matrix
+# hierarchy, which (mis)used the transform-vs-bilinear-form split as a stand-in
+# for "DLT-refittable" and so silently excluded F and E (both <: AbstractFundMat,
+# outside it) — their LO refit fell through to `nothing`.
 #
 #   NonlinLsq    — a chart problem (`chart_dof`) → the chart LM from θ
 #   NoRefit      — no refit in this shape

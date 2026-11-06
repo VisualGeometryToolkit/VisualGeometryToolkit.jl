@@ -3,16 +3,19 @@
 # ========================================================================
 
 """
-    to_homogeneous(M::SMatrix{2,2,T}, t::SVector{2,T}) -> SMatrix{3,3,T}
+    to_homogeneous(map) -> SMatrix{N+1, N+1, T}
+    to_homogeneous(A::StaticMatrix{N,N}, t::StaticVector{N}) -> SMatrix{N+1, N+1, T}
 
-Convert 2×2 linear transformation matrix and 2D translation vector to 3×3 homogeneous matrix.
+The homogeneous matrix `[A t; 0 1]` of an affine-family map of `N`-space, as
+a plain `SMatrix` — for algebra and interop. Every map has one: a
+`Translation`, a `LinearMap` (a rotation, a `UniformScaling` — 2-D — a
+`Diagonal`, any matrix), an `AffineMap`, an [`EuclideanMap`](@ref), a
+[`SimilarityMap`](@ref), a [`RotationMap`](@ref), a composition `a ∘ b` (the
+product), and a [`HomographyMap`](@ref) (its forward matrix). Exact: the
+map's entries copied, the last row the constant `0 … 0 1`.
 
-# Arguments
-- `M::SMatrix{2,2,T}`: 2×2 linear transformation matrix
-- `t::SVector{2,T}`: 2D translation vector
-
-# Returns
-- `SMatrix{3,3,T}`: 3×3 homogeneous transformation matrix
+The matrix carries no class: the map's TYPE does. Geometric operations take
+the map (`S(circle)`, `a ∘ b`, `inv(a)`) and convert inside, once.
 
 # Example
 ```julia
@@ -21,143 +24,73 @@ t = SVector(1.0, 2.0)            # translation
 H = to_homogeneous(M, t)         # 3×3 homogeneous matrix
 ```
 """
-@inline to_homogeneous(M::StaticMatrix{2, 2, T}, t::StaticVector{2, T}) where {T} =
-    @SMatrix [
-    M[1, 1] M[1, 2] t[1]
-    M[2, 1] M[2, 2] t[2]
-    zero(T) zero(T) one(T)
-]
-
-# -------------------------------------------------
-# Bridge: CoordinateTransformations / Rotations -> typed homogeneous
-# -------------------------------------------------
-
-# primitives
-to_homogeneous(R::Rotations.Rotation{2, T}) where {T} =
-    HomRotationMat{T}(Tuple(to_homogeneous(SMatrix{2, 2, T}(Matrix(R)), zero(Vec{2, T}))))
-
-to_homogeneous(Tx::CoordinateTransformations.Translation{<:SVector{2, T}}) where {T} =
-    HomTranslationMat{T}(
-    Tuple(
-        @SMatrix [
-            1.0 0.0 Tx.translation[1]
-            0.0 1.0 Tx.translation[2]
-            0.0 0.0 1.0
-        ]
-    )
-)
-
-# LinearMap: Type-based dispatch for specific matrix types
-# Uniform scaling (matches Julia's LinearAlgebra.UniformScaling)
-to_homogeneous(L::CoordinateTransformations.LinearMap{<:UniformScaling{T}}) where {T} =
-    HomUniformScalingMat{T}(Tuple(to_homogeneous(SMatrix{2, 2, T}(L.linear), zero(Vec{2, T}))))
-
-# Diagonal scaling
-function to_homogeneous(L::CoordinateTransformations.LinearMap{<:Diagonal{T}}) where {T}
-    sx, sy = L.linear.diag[1], L.linear.diag[2]
-    M = SMatrix{2, 2, T}(L.linear)
-    if sx == sy
-        return HomUniformScalingMat{T}(Tuple(to_homogeneous(M, zero(Vec{2, T}))))
-    else
-        return HomScalingMat{T}(Tuple(to_homogeneous(M, zero(Vec{2, T}))))
-    end
-end
-
-# Rotation matrices (from Rotations.jl)
-to_homogeneous(L::CoordinateTransformations.LinearMap{<:Rotations.RotMatrix{2, T}}) where {T} =
-    HomRotationMat{T}(Tuple(to_homogeneous(SMatrix{2, 2, T}(L.linear), zero(Vec{2, T}))))
-
-# General matrix - fallback with runtime checks
-function to_homogeneous(L::CoordinateTransformations.LinearMap{Mat}) where {Mat <: AbstractMatrix}
-    T = eltype(L.linear)
-    M = SMatrix{2, 2, T}(L.linear)
-    if iszero(M[1, 2]) && iszero(M[2, 1])
-        sx, sy = M[1, 1], M[2, 2]
-        if sx == sy
-            return HomUniformScalingMat{T}(Tuple(to_homogeneous(M, zero(Vec{2, T}))))
-        else
-            return HomScalingMat{T}(Tuple(to_homogeneous(M, zero(Vec{2, T}))))
+@inline function to_homogeneous(A::StaticMatrix{N, N}, t::StaticVector{N}) where {N}
+    T = promote_type(eltype(A), eltype(t))
+    return SMatrix{N + 1, N + 1, T}(
+        ntuple(Val((N + 1) * (N + 1))) do k
+            i, j = mod1(k, N + 1), cld(k, N + 1)
+            i <= N ? (j <= N ? T(A[i, j]) : T(t[i])) : (i == j ? one(T) : zero(T))
         end
-    else
-        return HomAffineMat{T}(Tuple(to_homogeneous(M, zero(Vec{2, T}))))
-    end
+    )
 end
 
-# EuclideanMap: Rotation + Translation
-to_homogeneous(E::PlainEuclideanMap{2, T}) where {T} = begin
-    M = SMatrix{2, 2, T}(Matrix(E.R))
-    t = SVector{2, T}(E.t)
-    HomEuclideanMat{T}(Tuple(to_homogeneous(M, t)))
-end
+# The linear part of a CoordinateTransformations map as a static matrix (a
+# UniformScaling is 2-D: it states no dimension).
+@inline _static_linear(A::StaticMatrix) = A
+@inline _static_linear(A::UniformScaling{T}) where {T} = SMatrix{2, 2, T}(A)
+@inline _static_linear(A::Diagonal{T, <:StaticVector{N}}) where {N, T} = SMatrix{N, N, T}(A)
+@inline _static_linear(A::AbstractMatrix{T}) where {T} = SMatrix{2, 2, T}(A)   # an unsized matrix: 2-D
+@inline _static_translation(t::StaticVector) = t
+@inline _static_translation(t::AbstractVector{T}) where {T} = SVector{2, T}(t)  # an unsized vector: 2-D
+@inline _zero_translation(::StaticMatrix{N, N, T}) where {N, T} = zero(SVector{N, T})
+@inline _identity_linear(::StaticVector{N, T}) where {N, T} = SMatrix{N, N, T}(I)
 
-# AffineMap: ALWAYS Affine
-to_homogeneous(Af::CoordinateTransformations.AffineMap{Mat, V}) where {Mat <: AbstractMatrix, V <: AbstractVector} = begin
-    T = promote_type(eltype(Af.linear), eltype(Af.translation))
-    M = SMatrix{2, 2, T}(Af.linear)
-    t = SVector{2, T}(Af.translation)
-    HomAffineMat{T}(Tuple(to_homogeneous(M, t)))
-end
+to_homogeneous(R::Rotations.Rotation{N, T}) where {N, T} = to_homogeneous(SMatrix{N, N, T}(R), zero(SVector{N, T}))
+to_homogeneous(Tx::CoordinateTransformations.Translation) =
+    (t = _static_translation(Tx.translation); to_homogeneous(_identity_linear(t), t))
+to_homogeneous(L::CoordinateTransformations.LinearMap) =
+    (A = _static_linear(L.linear); to_homogeneous(A, _zero_translation(A)))
+to_homogeneous(Af::CoordinateTransformations.AffineMap) =
+    to_homogeneous(_static_linear(Af.linear), _static_translation(Af.translation))
+to_homogeneous(E::PlainEuclideanMap{N, T}) where {N, T} = to_homogeneous(SMatrix{N, N, T}(E.R), E.t)
+# A physical map has no plain matrix: refused once here, for every lift and
+# bridge that reads one (HomographyMap(E), E ∘ H, E ∘ a model matrix, a warp).
+to_homogeneous(::UnitfulEuclideanMap) =
+    _refuse_unitful("to_homogeneous (and so HomographyMap(E), ∘ with a homography or a model matrix)")
 
-# Compositions: ALWAYS Affine (we do not reclassify composites)
-to_homogeneous(C::ComposedFunction) = begin
-    A = to_homogeneous(C.outer)
-    B = to_homogeneous(C.inner)
-    T = promote_type(eltype(A), eltype(B))
-    H = SMatrix{3, 3, T}(Tuple(A)) * SMatrix{3, 3, T}(Tuple(B))
-    HomAffineMat{T}(Tuple(H))
-end
+# A composition: the product of its factors' matrices, in either spelling
+# (Base's `∘` of functions, CoordinateTransformations' `∘` of transformations)
+to_homogeneous(C::ComposedFunction) = to_homogeneous(C.outer) * to_homogeneous(C.inner)
+to_homogeneous(C::CoordinateTransformations.ComposedTransformation) = to_homogeneous(C.t1) * to_homogeneous(C.t2)
 
-# Identity methods for already-homogeneous matrices
-to_homogeneous(H::AbstractHomMat) = H
-
-# -------------------------------------------------
-# Constructors: foreign types → typed homogeneous
-# -------------------------------------------------
+# ========================================================================
+# The inverse of an affine-family map, as its homogeneous matrix
+# ========================================================================
 #
-# Each leaf constructor returns its own type (no type lies).  AffineMap and
-# ComposedFunction stay HomAffineMat because they ARE general affines with
-# no narrower structure to recover.  For "give me the tightest VGC type for
-# this CT input," call `AbstractHomMat(x)` — it dispatches through
-# `to_homogeneous`, which inspects the inner matrix and picks accordingly
-# (Translation → HomTranslationMat, LinearMap{<:RotMatrix} → HomRotationMat,
-# LinearMap{<:UniformScaling} → HomUniformScalingMat, etc.).
-
-# Tight per-leaf constructors
-HomTranslationMat(Tx::CoordinateTransformations.Translation{<:SVector{2}}) =
-    to_homogeneous(Tx)
-
-HomRotationMat(R::Rotations.Rotation{2}) = to_homogeneous(R)
-HomRotationMat(L::CoordinateTransformations.LinearMap{<:Rotations.RotMatrix{2}}) =
-    to_homogeneous(L)
-
-HomUniformScalingMat(L::CoordinateTransformations.LinearMap{<:UniformScaling}) =
-    to_homogeneous(L)
-
-# Force anisotropic interpretation even when the diagonal is uniform —
-# `to_homogeneous` may collapse to HomUniformScalingMat when sx == sy, but
-# this constructor honors the caller's explicit choice.
-function HomScalingMat(L::CoordinateTransformations.LinearMap{<:Diagonal{T}}) where {T}
-    M = SMatrix{2, 2, T}(L.linear)
-    return HomScalingMat{T}(Tuple(to_homogeneous(M, zero(Vec{2, T}))))
+# THE inverse every affine-class action and lift reads (a conic's congruence,
+# a line's cotransform, HomographyMap's stored inverse, a model matrix's
+# correlation): analytic, static (a Matrix-backed map is made static first —
+# never a heap inverse per primitive) and checked. A singular or non-finite
+# linear part is an ArgumentError, so no NaN or Inf inverse is ever stored or
+# handed on as a valid conic or line.
+@noinline _throw_singular_affine(A) = throw(
+    ArgumentError("the map's linear part is singular or non-finite, so it has no inverse: $(A)")
+)
+@inline function _checked_linear_inverse(A::StaticMatrix)
+    Ai = inv(A)   # StaticArrays' closed form (adjugate / det) for N ≤ 3: Inf or NaN when singular
+    (all(isfinite, A) && all(isfinite, Ai)) || _throw_singular_affine(A)
+    return Ai
 end
-
-HomEuclideanMat(E::PlainEuclideanMap{2}) = to_homogeneous(E)
-
-# General-affine inputs stay HomAffineMat (no narrower category exists).
-HomAffineMat(Af::CoordinateTransformations.AffineMap) = to_homogeneous(Af)
-HomAffineMat(C::ComposedFunction) = to_homogeneous(C)
-
-# Smart generic constructor — pick the tightest VGC type via `to_homogeneous`.
-# Return type is the appropriate AbstractHomMat subtype, determined by the
-# argument's structure.  Use this at boundaries where you don't know (or
-# don't want to commit to) the input category.
-#
-#   AbstractHomMat(Translation([1.0, 2.0]))                      → HomTranslationMat
-#   AbstractHomMat(LinearMap(RotMatrix{2}(0.5)))                 → HomRotationMat
-#   AbstractHomMat(LinearMap(UniformScaling(2.0)))               → HomUniformScalingMat
-#   AbstractHomMat(LinearMap(Diagonal(SA[2.0, 3.0])))            → HomScalingMat
-#   AbstractHomMat(AffineMap(...))                               → HomAffineMat
-(::Type{AbstractHomMat})(x::CoordinateTransformations.Transformation) = to_homogeneous(x)
+_inverse_homogeneous(Tx::CoordinateTransformations.Translation) =
+    (t = _static_translation(Tx.translation); to_homogeneous(_identity_linear(t), -t))
+_inverse_homogeneous(L::CoordinateTransformations.LinearMap) =
+    (Ai = _checked_linear_inverse(_static_linear(L.linear)); to_homogeneous(Ai, _zero_translation(Ai)))
+function _inverse_homogeneous(Af::CoordinateTransformations.AffineMap)
+    Ai = _checked_linear_inverse(_static_linear(Af.linear))
+    return to_homogeneous(Ai, -(Ai * _static_translation(Af.translation)))
+end
+# the rigid and similarity maps invert from their parts (never singular)
+_inverse_homogeneous(m::Union{EuclideanMap, SimilarityMap}) = to_homogeneous(inv(m))
 
 # ========================================================================
 # from_homogeneous: 3×3 homogeneous → AffineMap (2×2 linear + 2D offset)
@@ -170,8 +103,8 @@ Extract the 2×2 linear part and 2D translation from a 3×3 homogeneous matrix.
 The bottom row is not read; for a camera calibration matrix `K` it is the
 pixel affine of the imaging chain, `affine_part(K) ∘ lens`.
 
-Works with any 3×3 static matrix: `HomAffineMat`, `CameraCalibrationMat`,
-plain `SMatrix{3,3}`, etc.
+Works with any 3×3 static matrix: a `CameraCalibrationMat`, a plain
+`SMatrix{3,3}` (`to_homogeneous` of an affine map), etc.
 
 # Example
 ```julia

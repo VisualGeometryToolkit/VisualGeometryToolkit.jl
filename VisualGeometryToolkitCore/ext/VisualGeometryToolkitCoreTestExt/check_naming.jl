@@ -71,6 +71,14 @@ const _ITERATION_WORDS = ("iter", "iters", _IT, _IT * "s")
 # sweep are listed here as they are renamed.
 const RETIRED_NAMES = String[
     "Tensor" * "Vignetting",                  # a tensor-PRODUCT B-spline surface, not a tensor: `TensorProductVignetting` (2026-11)
+    # maps are the geometric objects, matrices only algebra (Core 0.6): the
+    # transform class is the map's type (`EuclideanMap`, `SimilarityMap`,
+    # `AffineMap`, `HomographyMap`); `to_homogeneous(map)` is a plain SMatrix
+    "Hom" * "TranslationMat", "Hom" * "RotationMat", "Hom" * "EuclideanMat", "Hom" * "SimilarityMat",
+    "Hom" * "ScalingMat", "Hom" * "UniformScalingMat", "Hom" * "AffineMat",
+    "Abstract" * "HomMat", "Abstract" * "AffineMat", "Abstract" * "SimilarityMat",
+    "Abstract" * "EuclideanMat", "Abstract" * "CalibrationMat",
+    "_preserves" * "_circles", "_transform" * "_circle", "_transform" * "_ellipse",
     # the loop's former vocabulary
     "iterate" * "_lo", "iterate" * "_lo!",
     "solve" * "_step", "solve" * "_step!",

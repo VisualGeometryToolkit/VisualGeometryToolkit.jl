@@ -68,8 +68,8 @@ module. Cameras holds only camera-level wrappers over them (`p3p(model, csponds)
 `sample_p3p`) and the radial calibration solver `radial_camera_5pt`.
 
 **Transforms** (`src/geometry/transforms/`) are NOT a submodule due to dependency ordering:
-- `matrices.jl` → defines transform matrix types and their abstract hierarchy (`AbstractHomMat` ⊃ … ⊃ `AbstractEuclideanMat`)
-- `euclidean_map.jl` → defines `EuclideanMap` for camera poses
+- `matrices.jl` → defines `HomographyMat` (dense algebra) and the `AbstractMatrixMap` parent
+- `euclidean_map.jl`, `similarity_map.jl` → define `EuclideanMap` (camera poses) and `SimilarityMap`
 - Primitives submodule → uses conic matrix types
 - `coord_maps.jl`, `region_maps.jl` → use Ellipse from Primitives
 
@@ -99,7 +99,11 @@ Compile-time dispatch via traits defined in `src/base/traits.jl` (loaded by
 | `FrameDependence` (`GeometryDefined`, `ModelDefined`) | Frame-tag commensurability (`frame_transition`) |
 
 The transform class (Euclidean ⊂ similarity ⊂ affine ⊂ projective) is not a
-trait: the abstract matrix hierarchy in `matrices.jl` carries it.
+trait: the map types carry it (`EuclideanMap`, `SimilarityMap`, the
+CoordinateTransformations affines, `HomographyMap` — always projective), and
+each acts on primitives in its class. Matrices are algebra only:
+`to_homogeneous(map)` is a plain `SMatrix`, and algebra operations take maps and
+convert inside.
 
 Traits are added ONLY when a dispatch site consumes them — the 2026-07 audit
 deleted ten trait families that had implementations but zero consumers.
@@ -169,7 +173,7 @@ Key types and helpers:
 ## Code Conventions
 
 - **Functions**: `snake_case` (`detect_features`, `focal_length`)
-- **Types**: `CamelCase` (`Ellipse`, `HomTranslationMat`)
+- **Types**: `CamelCase` (`Ellipse`, `SimilarityMap`)
 - **Constants**: `UPPERCASE_SNAKE_CASE` (`CMOS_SENSORS`)
 - **Section dividers**: `# =============================================================================`
 
@@ -466,8 +470,10 @@ include("blob_types.jl")
 | `src/base/traits.jl` | Holy Traits definitions |
 | `src/base/types.jl` | Loads interface.jl, defines `AbstractDetection`, `Uncertain`, conic matrices |
 | `src/base/units.jl` | the registry `StackUnits` (exact rational scales), unit constants, `base_quantity`, `parse_unit`/`unit_string` (`Size2` in `size2.jl`) |
-| `src/geometry/transforms/matrices.jl` | Transform matrices + abstract hierarchy (composition promotion) |
+| `src/geometry/transforms/matrices.jl` | `HomographyMat` (dense algebraic homography), `AbstractMatrixMap` |
 | `src/geometry/transforms/euclidean_map.jl` | `EuclideanMap` for camera poses |
+| `src/geometry/transforms/similarity_map.jl` | `SimilarityMap` (x ↦ s·R·x + t), exact under `∘`/`inv` |
+| `src/geometry/transforms/ct_contravariant.jl` | the maps' actions on primitives, by class |
 | `src/geometry/transforms/homography_map.jl` | `HomographyMap` for points/lines/conics |
 | `src/geometry/primitives/primitives.jl` | Primitives submodule entry |
 | `src/geometry/cameras/cameras.jl` | Cameras submodule entry (`AbstractCamera`) |

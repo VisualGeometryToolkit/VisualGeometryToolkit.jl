@@ -131,7 +131,7 @@ end
 """
     constraint_with_jacobians(c::Conic, x::StaticVector{2}) -> (g, G_x::SVector{2}, G_θ::SVector{6})
 
-The point-on-conic constraint of a general conic `C` (`c.Q`, symmetric 3×3):
+The point-on-conic constraint of a general conic `C` (`SMatrix{3, 3}(c)`, symmetric 3×3):
 `g = x̃ᵀ C x̃`, `x̃ = (x, 1)`, with `G_x = 2(C x̃)₁,₂` and `G_θ` over the conic's
 six distinct entries in upper-triangle column-major order,
 `(C₁₁, C₁₂, C₂₂, C₁₃, C₂₃, C₃₃)`: `(x², 2xy, y², 2x, 2y, 1)`. Homogeneous: a
@@ -142,8 +142,8 @@ distance to the curve — for an ellipse's conic, its
 part (the centre of a central conic) has `G_x = 0`: the one Sampson degeneracy.
 """
 @inline function constraint_with_jacobians(c::Conic, x::StaticVector{2})
-    T = float(promote_type(eltype(c.Q), eltype(x)))
-    C = SMatrix{3, 3, T, 9}(c.Q)
+    T = float(promote_type(eltype(c), eltype(x)))
+    C = SMatrix{3, 3, T, 9}(c)
     xh = _lift_image_point(x, T)
     Cx = C * xh
     g = dot(xh, Cx)
@@ -155,7 +155,7 @@ end
 # `G_θ`'s coordinates): G_x = 2(C x̃)₁,₂ is linear in C, so the entries are
 # 2·x̃'s coordinates where an entry meets the row.
 @inline function measurement_gradient_jacobian(c::Conic, x::StaticVector{2})
-    T = float(promote_type(eltype(c.Q), eltype(x)))
+    T = float(promote_type(eltype(c), eltype(x)))
     z = zero(T); o = one(T)
     return SMatrix{2, 6, T}(2 * x[1], z, 2 * x[2], 2 * x[1], z, 2 * x[2], 2 * o, z, z, 2 * o, z, z)
 end
@@ -164,9 +164,9 @@ end
 # bilinear bounds (`_epipolar_rounding`) at x̃ on both sides, the gradient's
 # doubled (`G_x = 2(C x̃)₁,₂`), so a homogeneous scale of `C` never decides.
 @inline function constraint_rounding_scale(c::Conic, x::StaticVector{2})
-    T = float(promote_type(eltype(c.Q), eltype(x)))
+    T = float(promote_type(eltype(c), eltype(x)))
     xh = _lift_image_point(x, T)
-    gradient, value = _epipolar_rounding(SMatrix{3, 3, T, 9}(c.Q), xh, xh)
+    gradient, value = _epipolar_rounding(SMatrix{3, 3, T, 9}(c), xh, xh)
     return (; gradient = 2 * gradient, value)
 end
 minimal_manifold(e::Ellipse) = EllipseManifold(e)

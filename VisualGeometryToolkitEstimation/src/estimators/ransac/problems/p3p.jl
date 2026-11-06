@@ -23,7 +23,9 @@
 # the ray domain, so a direction the lens cannot image is NaN, and the one
 # participation rule (`_pnp_participates`) turns it into VGC's out-of-field
 # residual: an outlier, not a NaN in the sort. `residuals!` is
-# VisualGeometryToolkitCore's loop over this.
+# VisualGeometryToolkitCore's loop over this; the two agree to rounding (the
+# loop may contract StaticArrays' `muladd`s into FMAs differently from a single
+# call), the tolerance Core's contract conformance check allows.
 @inline function whitened_residual(p::AbsolutePoseProblem, pose::PlainEuclideanMap{3, Float64}, i::Int)
     e = @inbounds VgtkCore.reprojection_error(p.context.model, pose, sources(p.cs)[i], targets(p.cs)[i])
     _pnp_participates(e) || return VgtkCore.OUT_OF_FIELD_RESIDUAL
@@ -290,8 +292,9 @@ chart_dof(::Type{<:AbsolutePoseProblem}) = 6
 
 # The chart at a pose: LeftRigidManifold6 re-anchored at zero coordinates —
 # the nearest proper rotation, since minimal-solver seeds (VGC P3P backends)
-# are unvalidated and can carry ~1e-7 of orthonormality drift.
-_chart(::AbsolutePoseProblem, pose) = _reanchored(LeftRigidManifold6(rotation(pose), translation(pose)))
+# are unvalidated and can carry ~1e-7 of orthonormality drift. At the model
+# type: every entry hands θ through `_as_model` (interface.jl).
+_chart(::AbsolutePoseProblem, pose::Extrinsics3) = _reanchored(LeftRigidManifold6(rotation(pose), translation(pose)))
 
 # The rows' extra: the pixel block of `_pnp_row` (`nothing` in the refit: its
 # calibrated Pinhole rows) and the participation mask the rows write (the lift's

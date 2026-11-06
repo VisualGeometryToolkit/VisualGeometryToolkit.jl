@@ -2,10 +2,8 @@
 # Homography - 2D projective transformations for planar scenes
 # ==============================================================================
 
-# Note: HomographyMat is defined in geometry/transforms/matrices.jl as part of
-# the transform hierarchy.  `Base.inv(::AbstractHomMat)` (in matrices.jl)
-# already returns the same leaf type via `similar_type`, so no explicit
-# `inv(::HomographyMat)` override is needed.
+# Note: HomographyMat is defined in geometry/transforms/matrices.jl, with its
+# product and inverse (both HomographyMats).
 
 """
     HomographyMat(camera::PosedPinholeCamera) -> HomographyMat{Float64}

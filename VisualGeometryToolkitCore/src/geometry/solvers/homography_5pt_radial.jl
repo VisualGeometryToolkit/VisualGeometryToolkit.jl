@@ -591,7 +591,7 @@ CspondNormalization(::Type{<:AbstractRadialModel}, cs; center, mask = nothing) =
 # A non-isotropic image-side map would break the radial symmetry, and a
 # projective one would not keep a division model: both are an `ArgumentError`.
 # -----------------------------------------------------------------------------
-@inline function Base.:∘(a::Union{HomographyMap{3}, _CTLeafTransformation}, m::RadialHomography{T}) where {T}
+@inline function Base.:∘(a::Union{HomographyMap{3}, _AffinePlanarMap}, m::RadialHomography{T}) where {T}
     D = SMatrix{3, 3}(to_homogeneous(a))
     s = D[1, 1]
     (iszero(D[3, 1]) && iszero(D[3, 2]) && isone(D[3, 3]) && iszero(D[1, 2]) && iszero(D[2, 1]) && D[2, 2] == s) ||
@@ -601,7 +601,7 @@ CspondNormalization(::Type{<:AbstractRadialModel}, cs; center, mask = nothing) =
         Point2{T}(affine_part(D)(m.center))
     )
 end
-@inline Base.:∘(m::RadialHomography{T}, b::Union{HomographyMap{3}, _CTLeafTransformation}) where {T} =
+@inline Base.:∘(m::RadialHomography{T}, b::Union{HomographyMap{3}, _AffinePlanarMap}) where {T} =
     RadialHomography{T}(HomographyMat{T}(Tuple(SMatrix{3, 3}(m.H) * SMatrix{3, 3}(to_homogeneous(b)))), m.k, m.center)
 
 # -----------------------------------------------------------------------------

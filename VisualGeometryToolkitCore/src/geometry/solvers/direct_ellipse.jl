@@ -64,12 +64,16 @@ function direct_ellipse(points::AbstractVector{<:StaticVector{2}})
     a2 = Tl * a1
     A, B, C = a1
     D, Ec, F = a2
+    # Classified where it was solved: in the Hartley frame the conic's terms are
+    # O(1), while at pixel coordinates they are |centre|²-sized and their
+    # cancellation hides a small ellipse's γ. An affine map keeps the class, so
+    # the conic moved back is an ellipse by construction.
+    _is_real_ellipse((A, B / 2, C, D / 2, Ec / 2, F)) || return nothing   # nothing for an imaginary ellipse
     Cn = SMatrix{3, 3, T}(A, B / 2, D / 2, B / 2, C, Ec / 2, D / 2, Ec / 2, F)
     H = SMatrix{3, 3, T}(to_homogeneous(N))
     Cp = H' * Cn * H                                     # back to the input coordinates
-    Cp = (Cp + Cp') / 2
     all(isfinite, Cp) || return nothing
-    return Ellipse(HomEllipseMat{T}(Tuple(Cp)))
+    return Ellipse(HomEllipseMat{T}(_averaged_coefficients(T, Cp), _Unchecked()))
 end
 
 # =============================================================================

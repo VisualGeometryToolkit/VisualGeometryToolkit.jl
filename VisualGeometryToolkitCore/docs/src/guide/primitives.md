@@ -74,8 +74,9 @@ b = 20.0  # Semi-minor axis
 θ = π/4   # Rotation angle
 ellipse = Ellipse(center, a, b, θ)
 
-# From homogeneous matrix
-Q = HomEllipseMat(...)
+# From a homogeneous matrix of unknown class: a Conic (no class check), then
+# classify — HomEllipseMat(M) itself throws for anything but a real ellipse
+Q = Conic(M)
 if is_ellipse(Q)
     ellipse = Ellipse(Q)
 end
@@ -109,8 +110,9 @@ intersects(rect1, rect2)
 ### Conic Classification
 
 ```julia
-# Check if a conic matrix represents an ellipse
-Q = HomEllipseMat(...)
+# Check if a conic matrix represents an ellipse (a Conic: any class; a
+# HomEllipseMat is one by construction, its checked constructor refuses the rest)
+Q = Conic(M)
 is_ellipse(Q)  # a real, non-degenerate ellipse?
 
 # Classify the conic
@@ -156,20 +158,13 @@ end
 
 ```julia
 using Rotations: RotMatrix
+using StaticArrays: SVector
 
-# Create transform matrices
-R = HomRotationMat(RotMatrix{2}(π/4))    # 45° rotation
-T = HomTranslationMat(Vec2(10.0, 20.0))  # Translation
-S = HomUniformScalingMat{2}(2.0)         # Uniform 2× scaling
+# A similarity: 2× scaling, a 45° rotation, a translation (x ↦ s·R·x + t)
+S = SimilarityMap(2.0, RotMatrix{2}(π/4), SVector(10.0, 20.0))
 
-# Compose into a single matrix
-combined = HomSimilarityMat(SMatrix{3,3}(T) * SMatrix{3,3}(R) * SMatrix{3,3}(S))
-
-# Wrap for callable syntax
-H = HomographyMap(combined)
-
-# Apply to shapes - similarity preserves circles
-transformed_circle = H(circle)  # Returns Circle (similarity preserves shape)
+# Apply to shapes - a similarity preserves circles
+transformed_circle = S(circle)  # Returns Circle (radius doubled)
 ```
 
 ## Working with Units

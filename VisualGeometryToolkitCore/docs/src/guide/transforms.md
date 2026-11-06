@@ -1,99 +1,69 @@
 # Coordinate Transforms
 
-VisualGeometryToolkitCore provides homogeneous 2D transforms, coordinate mappings, and image warping utilities.
+VisualGeometryToolkitCore provides 2D transforms as maps, coordinate mappings, and image warping utilities.
 
-## Homogeneous 2D Transforms
+## Maps Carry the Transform Class
 
-### Basic Transforms
+A transform is a MAP, and its type is its class: Euclidean ⊂ similarity ⊂
+affine ⊂ projective. Each map acts on a primitive exactly as its class allows,
+and composes and inverts within it.
+
+| class | maps | `Circle` → | `Ellipse` → | feature frames |
+|---|---|---|---|---|
+| Euclidean | `EuclideanMap{2}`, `Translation` | `Circle` | `Ellipse` | same type |
+| similarity | `SimilarityMap{2}`, `LinearMap` of a rotation or a `UniformScaling` | `Circle` | `Ellipse` | same type |
+| affine | `AffineMap`, any other `LinearMap` | `HomEllipseMat` | `HomEllipseMat` | — |
+| projective | `HomographyMap` | `Conic` | `Conic` | `MethodError` |
 
 ```julia
 using VisualGeometryToolkitCore
-using LinearAlgebra: Diagonal
+using CoordinateTransformations: Translation, LinearMap, AffineMap
+using LinearAlgebra: Diagonal, I
 using Rotations: RotMatrix
 using StaticArrays: SVector
 
-# Rotation (around origin)
-R = HomRotationMat(RotMatrix{2}(π/4))  # 45° counter-clockwise (from a Rotations.jl rotation)
+E = EuclideanMap(RotMatrix{2}(π/4), SVector(10.0, 20.0))    # rotation + translation
+S = SimilarityMap(2.0, RotMatrix{2}(π/4), SVector(10.0, 20.0))  # x ↦ s·R·x + t
+L = LinearMap(Diagonal(SVector(2.0, 1.5)))                  # 2× in x, 1.5× in y
 
-# Translation
-T = HomTranslationMat(Vec2(10.0, 20.0))
-
-# Uniform scaling (matches Julia's UniformScaling)
-S = HomUniformScalingMat{2}(2.0)  # 2× scaling
-
-# Diagonal scaling (non-uniform)
-S_diag = HomScalingMat(Diagonal(SVector(2.0, 1.5, 1.0)))  # 2× in x, 1.5× in y
-```
-
-### Composite Transforms
-
-The composite matrix types follow the projective-group hierarchy
-`AbstractHomMat ⊃ AbstractAffineMat ⊃ AbstractSimilarityMat ⊃
-AbstractEuclideanMat`:
-
-```julia
-# Euclidean (rotation + translation), similarity, affine, projective —
-# each wraps a 3×3 matrix
-euclidean  = HomEuclideanMat(matrix)
-similarity = HomSimilarityMat(matrix)
-affine     = HomAffineMat(matrix)
-homography = HomographyMat(matrix)
-```
-
-The type records the tightest transform class, which drives dispatch —
-e.g. a similarity maps a `Circle` to a `Circle`, an affinity maps it to a
-`HomEllipseMat`, and a general homography to a `Conic` (an ellipse only while the
-circle stays clear of the line at infinity — test with `classify_conic`).
-
-### Applying Transforms
-
-Use `HomographyMap` to make matrices callable:
-
-```julia
-# Wrap matrix in HomographyMap for callable syntax
-H_rot = HomographyMap(R)
-H_trans = HomographyMap(T)
-
-# Transform a point
-p = Point2(100.0, 150.0)
-p_rotated = H_rot(p)
-
-# Compose maps
-H_combined = H_trans ∘ H_rot  # First rotate, then translate
-p_final = H_combined(p)
-
-# Transform geometric primitives. The result type follows the map's matrix
-# type: a Circle under a similarity, a HomEllipseMat under an affinity, a
-# Conic under a general homography (possibly a hyperbola: the circle may cross
-# the line at infinity).
 circle = Circle(Point2(0.0, 0.0), 10.0)
+S(circle)          # a Circle: centre mapped, radius 20
+L(circle)          # a HomEllipseMat (an affine image of a circle is an ellipse)
+S ∘ E              # a SimilarityMap, from the parts (s, R, t) — exact
+inv(S)             # a SimilarityMap: (1/s, Rᵀ, −Rᵀt/s)
+```
+
+### Homographies
+
+`HomographyMap` is projective in meaning: it maps a circle or an ellipse to a
+`Conic`, whatever its matrix (possibly a hyperbola: the circle may cross the
+line at infinity). Any structured map lifts to one — `HomographyMap(S)` stores
+`to_homogeneous(S)` and, as its inverse, `to_homogeneous(inv(S))`, never a 3×3
+inversion — and a mixed composition (`E ∘ H`, `H ∘ AffineMap(…)`) is a
+`HomographyMap`. To keep an ellipse an ellipse under an affinity, apply the
+affine map itself rather than its lift.
+
+```julia
 H_proj = HomographyMap(HomographyMat(camera))
 Q = H_proj(circle)                                     # a Conic
 ellipse = classify_conic(Q) isa EllipseTrait ? Ellipse(Q) : nothing
-```
 
-For matrix multiplication without wrapping:
-
-```julia
-# Direct matrix operations
-p_hom = to_affine(p)  # [x, y, 1]
-p_transformed = to_euclidean(SMatrix{3,3}(R) * p_hom)
-
-# Compose matrices
-combined_mat = SMatrix{3,3}(T) * SMatrix{3,3}(R)
+p = Point2(100.0, 150.0)
+p_mapped = (H_proj ∘ E)(p)                             # homogeneous Point3
 ```
 
 ## Coordinate Representations
 
 ### Homogeneous ↔ Affine ↔ Euclidean
 
-```julia
-# Get underlying matrix
-mat = to_affine(R)      # 2×3 matrix [A | t]
-mat_hom = to_homogeneous(R)  # 3×3 matrix
+`to_homogeneous(map)` is a plain `SMatrix` (`[A t; 0 1]`, the last row the
+constant `0 … 0 1`) of every map: for algebra and interop. It carries no class —
+the map does — so geometric code takes the map and converts inside.
 
-# Extract Euclidean components (rotation + translation only)
-euclidean_part = to_euclidean(affine)
+```julia
+mat_hom = to_homogeneous(E)          # 3×3 SMatrix
+p_hom = to_affine(p)                 # [x, y, 1]
+p_transformed = to_euclidean(mat_hom * p_hom)
 ```
 
 ## Coordinate Mappings
@@ -369,7 +339,10 @@ X(SVector(0.0, 0.0, 1.0) .* m)                           # a unitful map acts on
 Strip the whole map with `ustrip(u, X)` rather than rebuilding it from a
 stripped translation. A unitful map that meets plain numbers (applied to a
 plain point, or composed with a plain map) raises FlexUnits' `DimensionError`
-instead of promoting.
+instead of promoting. Where a plain-only object meets a unitful map — a
+homography (`HomographyMap(E)`, `E ∘ H`, `E ∘` a model matrix, `to_homogeneous(E)`),
+a `SimilarityMap` (`SimilarityMap(E)`, `E ∘ S`) or a planar primitive's action
+(`E(circle)`) — the error is an `ArgumentError` naming the fix, `ustrip(m, E)`.
 
 ## See Also
 

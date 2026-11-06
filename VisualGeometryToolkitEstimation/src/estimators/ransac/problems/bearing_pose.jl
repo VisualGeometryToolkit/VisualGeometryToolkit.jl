@@ -216,7 +216,7 @@ _model_directions(::BearingPoseProblem, _θ) = nothing
 
 # The chart: AbsolutePoseProblem's.
 chart_dof(::Type{<:BearingPoseProblem}) = 6
-_chart(::BearingPoseProblem, pose) = _reanchored(LeftRigidManifold6(rotation(pose), translation(pose)))
+_chart(::BearingPoseProblem, pose::Extrinsics3) = _reanchored(LeftRigidManifold6(rotation(pose), translation(pose)))
 
 # √w-weighted rows in the chart at `δ` (VGC's `residual_rows!`): the LO's √w
 # per row times the caller's fixed √weight per correspondence. The Jacobian is

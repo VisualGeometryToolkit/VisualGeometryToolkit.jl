@@ -281,7 +281,7 @@ provides_solver_covariance(::Type{<:HandEyeProblem}) = true   # predictive scori
 # =============================================================================
 
 chart_dof(::Type{<:HandEyeProblem}) = 6
-_chart(::HandEyeProblem, X) = RigidExpManifold6(rotation(X), translation(X))
+_chart(::HandEyeProblem, X::Rigid3) = RigidExpManifold6(rotation(X), translation(X))   # at the model type: θ enters as `_as_model` (interface.jl)
 _model_at(::HandEyeProblem, ch) = convert(Rigid3, model(ch))
 
 # √w-weighted, unit-balanced hand-eye rows in the chart at `δ` (VGC's

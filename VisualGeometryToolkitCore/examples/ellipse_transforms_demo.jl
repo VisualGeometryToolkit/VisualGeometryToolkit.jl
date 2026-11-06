@@ -67,22 +67,20 @@ scaled_conic = HomographyMap(H_scale_mat)(ellipse1)
 scaled_ellipse = Ellipse(scaled_conic)
 println("  After scaling by [2, 1.5]: a=$(scaled_ellipse.a), b=$(scaled_ellipse.b)")
 
-# 4. Homogeneous transform system
-println("\n🏗️  Homogeneous Transform System:")
-rot_hom = to_homogeneous(RotMatrix{2}(π/4))
-trans_hom = to_homogeneous(Translation(SVector(3.0, 1.0)))
-scale_hom = to_homogeneous(LinearMap(@SMatrix [1.5 0.0; 0.0 1.5]))
+# 4. The transform class is the MAP's type (a matrix is algebra only)
+println("\n🏗️  Maps by class:")
+R = LinearMap(RotMatrix{2}(π/4))
+Tr = Translation(SVector(3.0, 1.0))
+S = SimilarityMap(1.5, RotMatrix{2}(0.0), SVector(0.0, 0.0))
 
-println("  Rotation matrix type: $(typeof(rot_hom))")
-println("  Translation matrix type: $(typeof(trans_hom))")
-println("  Scale matrix type: $(typeof(scale_hom))")
-
-# Compose transforms
-euclidean = rot_hom * trans_hom
-affine = euclidean * scale_hom
-
-println("  Euclidean composition type: $(typeof(euclidean))")
-println("  Affine composition type: $(typeof(affine))")
+# a similarity composed with the rest of its class stays a similarity, and keeps an ellipse an ellipse
+similarity = S ∘ R ∘ Tr
+println("  S ∘ R ∘ T is a $(nameof(typeof(similarity))): $(typeof(similarity(ellipse1)))")
+# an affine map gives the ellipse's matrix; a homography a general Conic
+affine = AffineMap(@SMatrix([2.0 0.3; 0.0 1.5]), SVector(1.0, 0.0))
+println("  an AffineMap of an ellipse is a HomEllipseMat: $(affine(ellipse1) isa HomEllipseMat)")
+# to_homogeneous is a plain SMatrix, for algebra and interop
+println("  to_homogeneous(S ∘ R ∘ T) isa $(typeof(to_homogeneous(similarity)))")
 
 # 5. GeometryBasics integration
 println("\n🎨 GeometryBasics Integration:")
@@ -125,6 +123,6 @@ println("\n✅ Demo completed successfully!")
 println("\nKey features demonstrated:")
 println("  • Robust ellipse construction with automatic axis ordering")
 println("  • High-precision ellipse ⇄ conic conversion using eigenvalue decomposition")
-println("  • Efficient homogeneous transform system with type preservation")
+println("  • Transform classes carried by the map types (similarity, affine, projective)")
 println("  • Seamless GeometryBasics integration for visualization")
 println("  • Geometric transformations with proper conic push-forward")

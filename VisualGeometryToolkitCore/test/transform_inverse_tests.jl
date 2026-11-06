@@ -1,34 +1,46 @@
-# The inverse of a homogeneous transform matrix is of its own class EXACTLY (transforms/matrices.jl): an affine-family
-# matrix's inverse has its last row exactly 0 0 1 (the 3×3 inverse left 1 ± ulp there), a rigid one's linear block is the
-# transpose; the type is kept; a homography keeps the 3×3 inverse.
+# The inverse of a structured transform is of its own class EXACTLY: each map inverts analytically (an EuclideanMap's
+# rotation by its transpose, a SimilarityMap by (1/s, Rᵀ, −Rᵀt/s), a CT affine by its own inverse), and lifting one to a
+# HomographyMap stores that analytic inverse, so the stored inverse's last row is exactly 0 0 1 (a 3×3 inversion leaves
+# 1 ± ulp there). A calibration matrix's inverse is analytic with exact structural zeros; a homography keeps the 3×3 inverse.
 @testitem "transform matrix inverse" begin
     using Test
     using StaticArrays: SMatrix, SVector, @SMatrix
-    using LinearAlgebra: I
-    using VisualGeometryToolkitCore: HomRotationMat, HomTranslationMat, HomEuclideanMat, HomUniformScalingMat, HomSimilarityMat,
-        HomScalingMat, HomAffineMat, HomographyMat, CameraCalibrationMat
+    using LinearAlgebra: I, Diagonal
+    using Rotations: RotMatrix
+    using CoordinateTransformations: Translation, LinearMap, AffineMap
+    using VisualGeometryToolkitCore: HomographyMap, HomographyMat, CameraCalibrationMat, EuclideanMap, SimilarityMap,
+        to_homogeneous
 
     c, s = cos(0.7), sin(0.7)
-    cases = (
-        HomRotationMat{Float64}(c, s, 0.0, -s, c, 0.0, 0.0, 0.0, 1.0),
-        HomTranslationMat(SVector(3.7, -1.3)),
-        HomEuclideanMat{Float64}(c, s, 0.0, -s, c, 0.0, 3.7, -1.3, 1.0),
-        HomUniformScalingMat{2}(2.5),
-        HomSimilarityMat{Float64}(2.0c, 2.0s, 0.0, -2.0s, 2.0c, 0.0, 3.7, -1.3, 1.0),
-        HomScalingMat{Float64}(1.5, 0.0, 0.0, 0.0, 0.25, 0.0, 0.0, 0.0, 1.0),
-        HomAffineMat{Float64}(1.3, 0.2, 0.0, -0.4, 0.9, 0.0, 3.7, -1.3, 1.0),
-        CameraCalibrationMat{Float64}(1234.5, 0.0, 0.0, 0.3, 1230.1, 0.0, 2016.7, 1511.2, 1.0),
+    R = RotMatrix{2}(0.7)
+    maps = (
+        LinearMap(R),
+        Translation(SVector(3.7, -1.3)),
+        EuclideanMap(R, SVector(3.7, -1.3)),
+        LinearMap(2.5I),
+        SimilarityMap(2.0, R, SVector(3.7, -1.3)),
+        LinearMap(Diagonal(SVector(1.5, 0.25))),
+        AffineMap(@SMatrix([1.3 -0.4; 0.2 0.9]), SVector(3.7, -1.3)),
     )
-    for M in cases
-        Mi = inv(M)
-        @test typeof(Mi) == typeof(M)
-        @test (Mi[3, 1], Mi[3, 2], Mi[3, 3]) === (0.0, 0.0, 1.0)              # exactly affine
-        @test SMatrix(M) * SMatrix(Mi) ≈ I(3) atol = 1.0e-12
+    for a in maps
+        h = HomographyMap(a)
+        Hi = inv(h).forward
+        @test Hi isa SMatrix{3, 3, Float64, 9}
+        @test (Hi[3, 1], Hi[3, 2], Hi[3, 3]) === (0.0, 0.0, 1.0)              # exactly affine
+        @test Hi ≈ to_homogeneous(inv(a)) rtol = 4 * eps()                   # the map's analytic inverse (to fusion)
+        @test to_homogeneous(a) * Hi ≈ I(3) atol = 1.0e-12
     end
-    R, E = cases[1], cases[3]
-    @test inv(R) == R' && SMatrix{2, 2}(inv(E)[1:2, 1:2]) == SMatrix{2, 2}(E[1:2, 1:2])'   # rigid: the transpose, exactly
-    @test inv(cases[2]) == HomTranslationMat(SVector(-3.7, 1.3))
-    @test inv(cases[8])[2, 1] == 0                                              # calibration: upper triangular again
+    E = maps[3]
+    @test SMatrix{2, 2}(to_homogeneous(inv(E))[1:2, 1:2]) == SMatrix{2, 2}(R)'   # rigid: the transpose, exactly
+    @test inv(maps[2]) == Translation(SVector(-3.7, 1.3))
+
+    K = CameraCalibrationMat{Float64}(1234.5, 0.0, 0.0, 0.3, 1230.1, 0.0, 2016.7, 1511.2, 1.0)
+    Ki = inv(K)
+    @test Ki isa SMatrix{3, 3, Float64, 9}                                     # K⁻¹ is not a calibration
+    @test (Ki[2, 1], Ki[3, 1], Ki[3, 2], Ki[3, 3]) === (0.0, 0.0, 0.0, 1.0)      # exact structural entries
+    @test SMatrix(K) * Ki ≈ I(3) atol = 1.0e-12
+    @test inv(HomographyMap(K)).forward == Ki                                  # the lift stores the analytic inverse
+
     H = HomographyMat{Float64}(1.0, 0.1, 1.0e-4, 0.2, 0.9, -2.0e-4, 5.0, -3.0, 1.0)
     @test inv(H) isa HomographyMat
     @test SMatrix(H) * SMatrix(inv(H)) ≈ I(3) atol = 1.0e-12

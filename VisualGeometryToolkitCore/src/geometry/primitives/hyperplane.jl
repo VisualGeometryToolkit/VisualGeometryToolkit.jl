@@ -470,7 +470,7 @@ Transform a 3D plane through a Euclidean (rigid) transformation.
 
 For Euclidean transform x ↦ R*x + t, plane with normal n and offset d transforms as:
 - n' = R * n (rotate the normal)
-- d' = d - n · t (adjust offset by translation along normal)
+- d' = d + n' · t (the plane n·x = d moved with its points: n'·(R x + t) = d + n'·t)
 
 # Example
 ```julia
@@ -486,35 +486,13 @@ function (E::PlainEuclideanMap{3, T})(plane::Plane3D{S}) where {T, S}
     n = normal(plane)
     # Rotate normal
     n′ = E.R * n
-    # Adjust offset: new_d = old_d - n · t
+    # Adjust offset: new_d = old_d + n′ · t
     # (translation moves the plane along/against its normal)
-    d′ = offset(plane) - dot(n, SVector{3}(E.t))
+    d′ = offset(plane) + dot(n′, SVector{3}(E.t))
     return Plane3D{promote_type(T, S)}(SVector{4, promote_type(T, S)}(n′..., -d′))
 end
 
-"""
-    (E::EuclideanMap{2})(line::Line2D) -> Line2D
-
-Transform a 2D line through a Euclidean (rigid) transformation.
-
-# Example
-```julia
-R = RotMatrix{2}(π/4)
-t = SVector(1.0, 2.0)
-E = EuclideanMap(R, t)
-
-line = Line2D(0.0, π/2)  # y = 0 (Hesse form)
-line′ = E(line)  # Transformed line
-```
-"""
-function (E::PlainEuclideanMap{2, T})(line::Line2D{S}) where {T, S}
-    n = normal(line)
-    # Rotate normal
-    n′ = E.R * n
-    # Adjust offset
-    d′ = offset(line) - dot(n, SVector{2}(E.t))
-    return Line2D{promote_type(T, S)}(SVector{3, promote_type(T, S)}(n′..., -d′))
-end
+# (A 2D line's rigid action is the similarity's of scale 1: transforms/ct_contravariant.jl.)
 
 # =============================================================================
 # Batched ray–plane intersection (0.14; hoisted from RayTracedCalibration)

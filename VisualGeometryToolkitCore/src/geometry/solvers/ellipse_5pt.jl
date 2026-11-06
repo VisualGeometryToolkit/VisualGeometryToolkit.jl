@@ -40,9 +40,9 @@ function solve(::Ellipse5pt, points::AbstractVector, idx::AbstractVector{<:Integ
     # its null vector by cofactors: vⱼ = (−1)^(j+1)·det(D without column j)
     v = SVector(ntuple(j -> (isodd(j) ? 1 : -1) * det(D[:, SVector{4}(ntuple(k -> k < j ? k : k + 1, Val(4)))]), Val(5)))
     A, B, C, Dx, Ey = v
-    Q = HomEllipseMat{Float64}((A, B / 2, Dx / 2, B / 2, C, Ey / 2, Dx / 2, Ey / 2, 0.0))
-    (all(isfinite, v) && is_ellipse(Q)) || return none
-    e = Ellipse(Q)
+    all(isfinite, v) || return none
+    e = _ellipse_or_nothing(Conic((A, B / 2, C, Dx / 2, Ey / 2, 0.0)))   # the conic through the five: any class
+    e === nothing && return none
     c = p₁ + SVector(e.center[1], e.center[2])
     (all(isfinite, c) && isfinite(e.a) && isfinite(e.b) && e.b > 0) || return none
     return FixedModels{1, M}(1, (M(Point2{Float64}(c), e.a, e.b, e.θ),))

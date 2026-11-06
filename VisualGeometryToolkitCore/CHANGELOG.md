@@ -1,7 +1,96 @@
 # VisualGeometryToolkitCore changelog
 
-## Unreleased
+## 0.6.0 (Unreleased)
 
+- **Breaking: maps are the geometric objects, matrices only algebra.** The typed homogeneous matrices
+  `HomTranslationMat`, `HomRotationMat`, `HomEuclideanMat`, `HomSimilarityMat`, `HomScalingMat`,
+  `HomUniformScalingMat`, `HomAffineMat` and their abstract levels `AbstractHomMat`, `AbstractAffineMat`,
+  `AbstractSimilarityMat`, `AbstractEuclideanMat`, `AbstractCalibrationMat` are removed, with their promotion
+  rules, `*` and `inv`, the per-leaf constructors and `AbstractHomMat(x)`; the names are retired (`check_naming`).
+  The transform class is the MAP's type: `EuclideanMap`, the new `SimilarityMap`, CoordinateTransformations'
+  affines, `HomographyMap`. Migration: `HomRotationMat(R)` → `LinearMap(R)` or `EuclideanMap(R, 0)`,
+  `HomTranslationMat(t)` → `Translation(t)`, `HomUniformScalingMat{2}(s)` → `LinearMap(s * I)`, a similarity
+  matrix → `SimilarityMap(s, R, t)`, `HomAffineMat(M)` → `AffineMap(A, b)`; `HomographyMat` stays (a plain 3×3
+  static wrapper, its product and inverse homographies).
+- **Breaking: `to_homogeneous(map)` is a plain `SMatrix{N+1, N+1}`** for every map — `Translation`, `LinearMap`
+  (rotation, `UniformScaling`, `Diagonal`, any matrix), `AffineMap`, `EuclideanMap` (now any `N`), `SimilarityMap`,
+  a composition (`ComposedFunction` or CoordinateTransformations' `ComposedTransformation`: the product),
+  `HomographyMap` (its forward) — the map's entries copied, the last row the constant `0 … 0 1`. It carries no
+  class; geometric operations take the map. **`to_homogeneous` of a matrix is removed** (`to_homogeneous(H)` of
+  a `HomographyMat` or a `CameraCalibrationMat` returned it as it was): a matrix is not a map, use it as it is or
+  lift it (`HomographyMap(H)`). A unitful `EuclideanMap` has no plain matrix: `to_homogeneous`, and so
+  `HomographyMap(E)` and `E ∘` a homography or a model matrix, is an `ArgumentError` naming `ustrip(m, E)`.
+- **Breaking: a `HomographyMap` is always projective in meaning**: a `Circle` or an `Ellipse` maps to a `Conic`,
+  whatever its matrix (a `HomographyMap` of an affine or similarity matrix gave a `HomEllipseMat` or a `Circle`).
+  Apply the affine (or similarity) map itself to keep an ellipse an ellipse (a circle a circle). Lifting a
+  structured map — `HomographyMap(a)` for a `Translation`, `LinearMap`, `AffineMap`, `EuclideanMap{2}`,
+  `SimilarityMap{2}` — stores `to_homogeneous(a)` and, as its inverse, `to_homogeneous(inv(a))` (the map's
+  analytic inverse, never a 3×3 inversion; a singular or non-finite linear part is an `ArgumentError`, where it
+  stored an `Inf` inverse); a `CameraCalibrationMat` lifts with its analytic inverse. Mixed
+  compositions (`EuclideanMap`, `SimilarityMap` or a CT leaf ∘ a `HomographyMap`, either order) are a
+  `HomographyMap` with `SMatrix` storage; two `HomographyMat`-backed maps keep `HomographyMat`. The model-matrix
+  and epipolar bridges (`a ∘ H`, `a ∘ F`, `a ∘ EpipolarMap`, `a ∘ RadialHomography`, `a ∘ RadialCamera`) take the
+  same affine-class maps, `EuclideanMap{2}` and `SimilarityMap{2}` included. `HomographyMat`s of two eltypes
+  promote to the `HomographyMat` of the promoted eltype.
+- **`SimilarityMap`** (exported, `transforms/similarity_map.jl`): `x ↦ s·R·x + t` with a positive scale, a
+  Rotations.jl rotation and a translation, frame-tagged exactly like `EuclideanMap` (`Src`/`Dst`, `relabel`,
+  `unlabel`, `inv` swapping, `∘` junction-checked). Exact algebra from the parts: `∘` of two similarities is one
+  (`s₁s₂, R₁R₂, s₁R₁t₂ + t₁`), `inv` is `(1/s, Rᵀ, −Rᵀt/s)`; `∘` with every other similarity-class map — an
+  `EuclideanMap`, a `RotationMap`, a `Translation`, a rotation `LinearMap`, a uniform scaling (either order) — is a
+  junction-checked `SimilarityMap`, never a lazy composition; `SimilarityMap(E)` (s = 1),
+  `SimilarityMap(RotationMap(R))`, `SimilarityMap(LinearMap(R))`, `SimilarityMap(LinearMap(λI))` (a
+  negative λ is the half turn) and `SimilarityMap(Translation(t))`. Accessors `scale`, `rotation`, `translation`;
+  `transform_deriv`, `to_homogeneous`, `similarity_scale`, `propagate` of a `CovMat`/`PrecMat`/`Uncertain`
+  (`J = s·R`, EuclideanMap's junction check), and EuclideanMap's labeling `convert` (an unlabeled map into a
+  labeled slot). Plain numbers only: a quantity translation or scale, or a unitful `EuclideanMap` converted or
+  composed with one, is an `ArgumentError` naming `ustrip(m, E)`.
+- **Primitive actions by map class.** A similarity (`SimilarityMap`, and through it a rotation or uniform-scaling
+  `LinearMap`) maps a `Circle` to a `Circle` (radius · s), an `Ellipse` to an `Ellipse` (axes · s, θ + the
+  rotation's angle), a `Line2D` to a `Line2D`, a `Disc` to a `Disc` (σ · s), an `OrientedDisc`, an
+  `EllipticFrame` (shape `s·R S Rᵀ`, moment `s²·R Σ Rᵀ`) and an `AffineFrame` (`s·R A`). An `AffineMap` or a
+  general `LinearMap` gives a `HomEllipseMat` (as before), conjugating by its own analytic inverse — static
+  (a Matrix-backed map is made static first) and checked: a singular or non-finite linear part is an
+  `ArgumentError` for a circle, an ellipse and a line alike (it gave a `HomEllipseMat` of NaNs, a misleading
+  'Normal vector cannot be zero' or a `SingularException`), and a linear part so ill-conditioned that the image
+  reads as a parabola (κ² past the classifier's floor, `Diagonal(1e7, 1)`) is an `ArgumentError` rather than a
+  `HomEllipseMat` that `classify_conic` disowns. A feature frame under a homography stays a `MethodError`.
+- **Fixed: the rigid action on a `Plane3D` and a `Line2D`.** For the Hesse form `n·x = d`, `E(plane)` and
+  `E(line)` are now `n′ = R·n`, `d′ = d + n′·t` (the plane through the moved points, `n′·(R x + t) = d + n′·t`);
+  0.5 wrote `d′ = d − n·t`, the wrong sign and the unrotated normal, so every rigid plane and line result with a
+  nonzero translation changes. The similarity action on a line promotes
+  over every part (a `Dual` scale or translation differentiates; a Float64 translation over a Float32 scale and
+  rotation gives a Float64 line).
+- **Breaking: conic matrices are symmetric by storage.** `HomEllipseMat`, `HomCircleMat` and `Conic` store the six
+  coefficients `(Q₁₁, Q₁₂, Q₂₂, Q₁₃, Q₂₃, Q₃₃)`; indexing returns the full symmetric matrix, arithmetic an
+  `SMatrix`. A matrix (or 9-tuple) handed in is checked symmetric (`isapprox(Q, Qᵀ; rtol = √eps)`, otherwise an
+  `ArgumentError`) and its off-diagonal pairs averaged; `HomEllipseMat(q::NTuple{6})` (and `HomCircleMat`, `Conic`)
+  takes the coefficients. `Conic`'s field `Q` is gone: read `SMatrix{3, 3}(c)` or `c[i, j]`. The conic congruence
+  `H⁻ᵀ C H⁻¹` computes the upper triangle only (a full 3×3 product left 913 of 1000 random results asymmetric).
+- **Breaking: conic class checks.** `HomEllipseMat(…; check = true)` requires a real, non-degenerate ellipse —
+  `classify_conic` answering `EllipseTrait`, the same test — and `HomCircleMat` also an
+  isotropic quadratic block (within `√eps · ‖A‖`); a general conic (a hyperbola, a point or imaginary ellipse, a
+  line pair) is a `Conic`, which `classify_conic` and `is_ellipse` now take directly. `Ellipse(c::Conic)` refuses a
+  conic that is not an ellipse; `Circle(Q)` of an ellipse's or a conic's matrix is the `HomCircleMat` check (its
+  `atol` keyword and `ErrorException` are gone). The three are one type, `SymmetricConic{K}` (`K` the class). A
+  conic built from a primitive is of its class by construction (not re-checked), and an affine image is classified
+  by the same test, so a stored class and `classify_conic` agree for every conic the stack builds; a
+  `check = false` value is the caller's guarantee. Copying, converting the eltype (`push!` into a typed vector)
+  and padding a `FixedModels` never re-check a conic or a `CameraCalibrationMat` (StaticArrays' generic forms
+  rebuilt them through the checked constructor, so an unchecked value could not be copied and `zero` threw).
+- **The conic classification is decided in at least Float64**, on the coefficients divided by the largest: a
+  Float32 conic is classified as its stored coefficients define it (Float32 arithmetic refused 51% of 1–10 px
+  Float32 blobs in a 4000×3000 image as point conics, and `direct_ellipse` returned `nothing` for 56%; it now
+  classifies in its Hartley frame), `1e160·Q` and `1e-170·Q` classify as `Q`, and integer and rational matrices
+  are accepted. The symmetry check is relative, in `float` of the entries, with the tolerance of the precision
+  the entries were given in (Float32 data into a `Conic{Float64}`).
+- **Breaking: `CameraCalibrationMat` stores its five parameters** `(fx, fy, s, cx, cy)`: indexing returns exact
+  structural `0`s and `1`; isbits and eltype-generic as before. The structure (row 3 = `0 0 1`, `K[2, 1] = 0`) is
+  now always checked, `check = false` skipping only the positive focals; `CameraCalibrationMat(α * I)` with
+  `α ≠ 1` is refused (`K₃₃ = α`). `inv(K)` is analytic, a plain `SMatrix{3, 3}` with exact structural zeros (it
+  was a `CameraCalibrationMat`: K⁻¹ is not a calibration), equal to the former affine inverse to rounding
+  (`K⁻¹[2, 1]` is now `+0.0`, and `K⁻¹[1, 3]` can differ by an ulp for a skewed `K`); arithmetic on a
+  `K` gives an `SMatrix`, and `K * v` is StaticArrays' product (`SMatrix(K) * v` bit for bit, the vector's type
+  kept). A 3-D `AffineMap` is not a calibration matrix (`CameraModel(::AffineMap)` refuses it).
 - **`EnvironmentLight`, `SphericalHarmonicMap`** (exported, `cameras/lighting.jl`): the scene's light as a radiometric
   camera model sees it — radiance from every direction, a directional map on a sphere of finite radius about a centre,
   read where a ray from the shaded point leaves the sphere (`exit_direction`); the
@@ -34,10 +123,9 @@
   measurement's uncertainty: not a `CovMat`.
 - **Breaking: `TensorVignetting` is `TensorProductVignetting`** — a tensor-product B-spline surface, not a tensor-valued
   field; the old name is retired (`check_naming`).
-- **The inverse of an affine-family transform matrix is exactly of its class**: `inv` of a `HomAffineMat`,
-  `HomSimilarityMat`, `HomEuclideanMat`, `HomRotationMat`, `HomTranslationMat`, the scaling matrices and
-  `CameraCalibrationMat` is `[A⁻¹ −A⁻¹t; 0 1]` with its last row exactly `0 0 1` (the 3×3 inverse left `1 ± ulp` there),
-  the transpose for a rigid one. A homography keeps the 3×3 inverse.
+- **The inverse of an affine-family transform is exactly of its class**: a structured map inverts analytically and
+  its `HomographyMap` lift stores that inverse, last row exactly `0 0 1` (the 3×3 inverse left `1 ± ulp` there), the
+  transpose for a rigid one; `inv(::CameraCalibrationMat)` is analytic. A homography keeps the 3×3 inverse.
 
 ## 0.5.7 (2026-11-05)
 

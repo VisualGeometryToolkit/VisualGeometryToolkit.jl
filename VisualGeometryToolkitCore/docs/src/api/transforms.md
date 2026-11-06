@@ -4,26 +4,32 @@
 CurrentModule = VisualGeometryToolkitCore
 ```
 
-Matrix-backed transform types, framed maps, coordinate conversions,
-uncertainty propagation, and the SO(3)/SE(3) helpers. Region maps and
-image warping are on the [Warping API](warping.md) page. See the
+Framed maps — the geometric objects, whose type is their transform class —
+the dense homography matrix, coordinate conversions, uncertainty
+propagation, and the SO(3)/SE(3) helpers. Region maps and image warping are
+on the [Warping API](warping.md) page. See the
 [Transforms](../guide/transforms.md) and
 [Coordinate Frames](../guide/frames.md) guides.
 
-## Homogeneous Matrix Types
+## Framed Maps
+
+A map acts on a primitive in its class: an `EuclideanMap` or a `SimilarityMap`
+keeps a circle a `Circle` (and a feature frame its type), an `AffineMap` gives
+a `HomEllipseMat`, a `HomographyMap` a `Conic` (the actions are on the
+[Warping API](warping.md) page).
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
+Private = false
+Pages = ["transforms/euclidean_map.jl", "transforms/similarity_map.jl", "transforms/rotation_map.jl", "transforms/homography_map.jl"]
+```
+
+## The Homography Matrix
 
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false
 Pages = ["transforms/matrices.jl"]
-```
-
-## Framed Maps
-
-```@autodocs
-Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
-Private = false
-Pages = ["transforms/euclidean_map.jl", "transforms/rotation_map.jl", "transforms/homography_map.jl"]
 ```
 
 ## Coordinate Conversions

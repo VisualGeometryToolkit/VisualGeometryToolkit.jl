@@ -422,28 +422,28 @@ end
     S1 = VgtkCore.Primitives._sym_sqrt(Σ1)
     @test all(isfinite, S1)
     @test S1 * S1 ≈ Σ1 atol = 1.0e-8
-    # every constructor goes through it: an ellipse's frame reproduces its moment matrix
+    # every constructor goes through it: an ellipse's frame reproduces its shape matrix
     e = Ellipse(Point2(1.0, 2.0), 3.0, 1.5, 0.4)
     f = EllipticFrame(e)
-    @test f.S * f.S ≈ VgtkCore.moment_matrix(e) atol = 1.0e-12
-    @test EllipticFrame(Point2(1.0, 2.0), Σ, Val(:moment_matrix)).S == S
+    @test f.S * f.S ≈ VgtkCore.shape_matrix(e) atol = 1.0e-12
+    @test EllipticFrame(Point2(1.0, 2.0), Σ, Val(:shape_matrix)).S == S
     # genuinely indefinite (a paraboloid that is not a peak): refused, not clamped
     @test_throws ArgumentError VgtkCore.Primitives._sym_sqrt(SMatrix{2, 2}(-1.0, 0.0, 0.0, 1.0))
 end
 
-# The factor and its matrix (0.6: the factor is `shape_factor`): moment_matrix(f) = F Fᵀ for F = shape_factor(f),
+# The factor and its matrix: shape_matrix(f) = F Fᵀ for F = shape_factor(f),
 # for every frame type with a factor and the ellipse; the factor maps the unit circle onto the boundary.
-@testitem "frames: shape_factor F and moment_matrix F Fᵀ" begin
+@testitem "frames: shape_factor F and shape_matrix F Fᵀ" begin
     using Test
-    using VisualGeometryToolkitCore: EllipticFrame, AffineFrame, Ellipse, Point2, shape_factor, moment_matrix, boundary_points
+    using VisualGeometryToolkitCore: EllipticFrame, AffineFrame, Ellipse, Point2, shape_factor, shape_matrix, boundary_points
     using StaticArrays: SMatrix, SVector
 
     e = Ellipse(Point2(1.0, 2.0), 3.0, 1.5, 0.4)
     for g in (EllipticFrame(Point2(1.0, 2.0), SMatrix{2, 2}(2.0, 0.5, 0.5, 1.0)), AffineFrame(Point2(1.0, 2.0), SMatrix{2, 2}(2.0, 0.3, -0.4, 1.0)), e)
         F = shape_factor(g)
-        @test F * F' ≈ moment_matrix(g) atol = 1.0e-12
+        @test F * F' ≈ shape_matrix(g) atol = 1.0e-12
     end
-    @test shape_factor(EllipticFrame(e)) * shape_factor(EllipticFrame(e))' ≈ moment_matrix(e) atol = 1.0e-12
-    Mi = inv(moment_matrix(e))
+    @test shape_factor(EllipticFrame(e)) * shape_factor(EllipticFrame(e))' ≈ shape_matrix(e) atol = 1.0e-12
+    Mi = inv(shape_matrix(e))
     @test all(p -> (d = SVector(p[1] - 1.0, p[2] - 2.0); d' * Mi * d ≈ 1.0), boundary_points(e, 16))
 end

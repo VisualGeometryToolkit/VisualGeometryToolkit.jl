@@ -94,18 +94,18 @@ end
 """
     Ellipse(center, A::AbstractMatrix)
 
-Refused: a plain 2×2 matrix is ambiguous — it could be a moment matrix M
+Refused: a plain 2×2 matrix is ambiguous — it could be a shape matrix M
 (`(x-c)ᵀ M⁻¹ (x-c) = 1`, the 1σ contour of a covariance M) or a shape factor
 A with M = A·A', and for symmetric input the two interpretations silently
 differ by a squaring. Say which one you mean:
 
-- moment matrix: `Ellipse(center, Symmetric(M))`
+- shape matrix: `Ellipse(center, Symmetric(M))`
 - shape factor (e.g. Baumberg adaptation): `Ellipse(center, Symmetric(A * A'))`
 """
 function Ellipse(center, A::AbstractMatrix)
     throw(
         ArgumentError(
-            "Ellipse(center, A::AbstractMatrix) is ambiguous: supply the moment " *
+            "Ellipse(center, A::AbstractMatrix) is ambiguous: supply the shape " *
                 "matrix explicitly as Ellipse(center, Symmetric(M)), or for a " *
                 "shape factor A use Ellipse(center, Symmetric(A * A'))."
         )
@@ -115,7 +115,7 @@ end
 """
     Ellipse(center, Σ::Symmetric) -> Ellipse
 
-Construct an ellipse from its 2×2 moment matrix (symmetric PD; a covariance's
+Construct an ellipse from its 2×2 shape matrix (symmetric PD; a covariance's
 1σ contour). The boundary is `{x : (x-c)ᵀ Σ⁻¹ (x-c) = 1}`.
 
 Semi-axes are `√λᵢ` where `λᵢ` are eigenvalues of `Σ`.
@@ -220,7 +220,7 @@ area(e::Ellipse) = π * e.a * e.b
 """
     shape_factor(e::Ellipse) -> SMatrix{2,2}
 
-The 2×2 factor `A = R(θ)·diag(a, b)` of the ellipse's [`moment_matrix`](@ref)
+The 2×2 factor `A = R(θ)·diag(a, b)` of the ellipse's [`shape_matrix`](@ref)
 `M = A·Aᵀ` (`R` the rotation by θ): the boundary is `‖A⁻¹(x - c)‖ = 1`, the
 unit circle mapped by `x = c + A u`.
 """
@@ -236,12 +236,12 @@ function shape_factor(e::Ellipse{T}) where {T}
 end
 
 """
-    moment_matrix(e::Ellipse) -> SMatrix{2,2}
+    shape_matrix(e::Ellipse) -> SMatrix{2,2}
 
-The ellipse's matrix `M = A·Aᵀ`, `A` its [`shape_factor`](@ref): the
+The ellipse's shape matrix `M = A·Aᵀ`, `A` its [`shape_factor`](@ref): the
 boundary is `{x : (x-c)ᵀ M⁻¹ (x-c) = 1}` (the 1σ contour of `N(c, M)`).
 """
-function moment_matrix(e::Ellipse{T}) where {T}
+function shape_matrix(e::Ellipse{T}) where {T}
     A = shape_factor(e)
     return A * A'
 end

@@ -57,7 +57,7 @@ Properties are forwarded from frame and metadata:
 - `d.metadata`, `d.attributes` → the metadata
 - `d.center` → `frame.center`
 - `d.σ` → scale from frame (exact for Disc, characteristic_scale for anisotropic)
-- `d.Σ` → moment matrix (blob shape, not measurement covariance)
+- `d.Σ` → shape matrix (blob shape, not measurement covariance)
 - `d.response`, `d.edge_score`, etc. → forwarded from metadata
 
 # Example
@@ -102,12 +102,12 @@ geom(d::Attributed{<:_UncertainFrame, <:NamedTuple}) = Attributed(feature_frame(
 # More specific than the generic Attributed{V,A} method — Julia dispatches
 # correctly to this method when V <: FeatureFrame.
 
-# Moment matrix accessor (blob shape). `d.σ` is VGC's `characteristic_scale`:
+# Shape matrix accessor (blob shape). `d.σ` is VGC's `characteristic_scale`:
 # σ itself for the isotropic frames, √|det S| for the shape-factor ones.
-_get_moment_matrix(f::Union{Disc{T}, OrientedDisc{T}}) where {T} =
+_get_shape_matrix(f::Union{Disc{T}, OrientedDisc{T}}) where {T} =
     SMatrix{2, 2, T}(f.σ^2, zero(T), zero(T), f.σ^2)
-_get_moment_matrix(f::EllipticFrame) = moment_matrix(f)
-_get_moment_matrix(f::AffineFrame) = moment_matrix(f)
+_get_shape_matrix(f::EllipticFrame) = shape_matrix(f)
+_get_shape_matrix(f::AffineFrame) = shape_matrix(f)
 
 @generated function Base.getproperty(d::Attributed{V, A}, s::Symbol) where {V <: FeatureFrame, A}
     exprs = Expr[]
@@ -117,7 +117,7 @@ _get_moment_matrix(f::AffineFrame) = moment_matrix(f)
     push!(exprs, :(s === :metadata   && return getfield(d, :attributes)))  # compat
     push!(exprs, :(s === :center     && return getfield(d, :value).center))
     push!(exprs, :(s === :σ          && return characteristic_scale(getfield(d, :value))))
-    push!(exprs, :(s === :Σ          && return _get_moment_matrix(getfield(d, :value))))
+    push!(exprs, :(s === :Σ          && return _get_shape_matrix(getfield(d, :value))))
     for name in fieldnames(A)
         push!(exprs, :(s === $(QuoteNode(name)) && return getfield(getfield(d, :attributes), $(QuoteNode(name)))))
     end
@@ -140,7 +140,7 @@ end
     push!(exprs, :(s === :metadata   && return getfield(d, :attributes)))
     push!(exprs, :(s === :center     && return feature_frame(d).center))
     push!(exprs, :(s === :σ          && return characteristic_scale(feature_frame(d))))
-    push!(exprs, :(s === :Σ          && return _get_moment_matrix(feature_frame(d))))
+    push!(exprs, :(s === :Σ          && return _get_shape_matrix(feature_frame(d))))
     for name in fieldnames(A)
         push!(exprs, :(s === $(QuoteNode(name)) && return getfield(getfield(d, :attributes), $(QuoteNode(name)))))
     end
@@ -161,9 +161,9 @@ centroid(d::Attributed{<:_UncertainFrame}) = feature_frame(d).center
 region(d::Attributed{<:FeatureFrame}, args...) = region(getfield(d, :value), args...)
 region(d::Attributed{<:_UncertainFrame}, args...) = region(feature_frame(d), args...)
 
-# Moment matrix access (blob shape)
-moment_matrix(d::Attributed{<:FeatureFrame}) = _get_moment_matrix(getfield(d, :value))
-moment_matrix(d::Attributed{<:_UncertainFrame}) = _get_moment_matrix(feature_frame(d))
+# Shape matrix access (blob shape)
+shape_matrix(d::Attributed{<:FeatureFrame}) = _get_shape_matrix(getfield(d, :value))
+shape_matrix(d::Attributed{<:_UncertainFrame}) = _get_shape_matrix(feature_frame(d))
 
 # Custom show to print as "Detection(...)" for readability
 function Base.show(io::IO, d::Attributed{V, A}) where {V <: FeatureFrame, A}

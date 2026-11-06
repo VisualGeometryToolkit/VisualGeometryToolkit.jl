@@ -72,7 +72,7 @@ const _ITERATION_WORDS = ("iter", "iters", _IT, _IT * "s")
 const RETIRED_NAMES = String[
     "Tensor" * "Vignetting",                  # a tensor-PRODUCT B-spline surface, not a tensor: `TensorProductVignetting` (2026-11)
     "ShapeMatrix" * "Scale",                  # the trait dispatches on `shape_factor`: `ShapeFactorScale` (2026-11)
-    "shape" * "_matrix",                    # it returned the FACTOR F of M = F Fᵀ: `shape_factor` (0.6); 0.7 retires `moment_matrix` and gives this name to M (2026-11)
+    "moment" * "_matrix",                   # M is a region's shape, not its second moment: `shape_matrix` (0.7; the factor is `shape_factor`)
     "transform" * "_blur",                  # a blur is the density N(0, Σ): through a linear map, its covariance's push-forward, `propagate(J, b)` (2026-11)
     # maps are the geometric objects, matrices only algebra (Core 0.6): the
     # transform class is the map's type (`EuclideanMap`, `SimilarityMap`,

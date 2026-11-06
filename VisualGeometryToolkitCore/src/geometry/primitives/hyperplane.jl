@@ -17,7 +17,7 @@ using LinearAlgebra: norm, dot, cross, normalize
 using GeometryBasics: GeometryBasics, Point, Point2, Point3, Vec2, Vec3, Rect2
 
 # Import shared functions from parent to extend
-import ..VisualGeometryToolkitCore: closest_point, distance, signed_distance, normal, offset, centroid
+import ..VisualGeometryToolkitCore: closest_point, signed_distance, normal, offset, centroid
 
 # =============================================================================
 # Hyperplane Type
@@ -154,13 +154,6 @@ function signed_distance(h::Hyperplane{M, N, T}, p::StaticArray{Tuple{M}}) where
 end
 
 signed_distance(h::Hyperplane{M}, p::Point{M}) where {M} = signed_distance(h, SVector{M}(p))
-
-# `distance(hyperplane, p)` returned the SIGNED distance under an unsigned name; deprecated in 0.5.7
-# (same value, a warning), removed in 0.7.
-function distance(h::Hyperplane{M}, p::Union{Point{M}, StaticArray{Tuple{M}}}) where {M}
-    Base.depwarn("`distance(hyperplane, p)` is deprecated: it is signed, use `signed_distance(hyperplane, p)` (or `abs` of it)", :distance)
-    return signed_distance(h, p)
-end
 
 """
     closest_point(hyperplane, p) -> Point{M}

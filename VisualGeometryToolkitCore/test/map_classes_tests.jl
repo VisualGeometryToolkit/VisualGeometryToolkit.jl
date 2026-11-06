@@ -31,7 +31,7 @@ end
 @testitem "map classes: Euclidean keeps every primitive's type" setup = [MapClassFixtures] begin
     using Random, StaticArrays, LinearAlgebra, GeometryBasics
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: Disc, OrientedDisc, EllipticFrame, AffineFrame, moment_matrix, Line2D
+    using VisualGeometryToolkitCore: Disc, OrientedDisc, EllipticFrame, AffineFrame, shape_matrix, Line2D
     rng = Xoshiro(1)
     for _ in 1:50
         E = random_euclidean(rng)
@@ -63,7 +63,7 @@ end
     using Random, StaticArrays, LinearAlgebra, GeometryBasics, Rotations
     using CoordinateTransformations: LinearMap, transform_deriv
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: Disc, OrientedDisc, EllipticFrame, AffineFrame, moment_matrix, Line2D, scale, centroid
+    using VisualGeometryToolkitCore: Disc, OrientedDisc, EllipticFrame, AffineFrame, shape_matrix, Line2D, scale, centroid
     rng = Xoshiro(2)
     for _ in 1:50
         S = random_similarity(rng)
@@ -84,7 +84,7 @@ end
             y = S(x)
             @test abs(dot(l′.coeffs, SVector(y[1], y[2], 1.0))) / norm(l′.coeffs) < 1.0e-9 * (1 + norm(y))
         end
-        # feature frames: the centre mapped, the moment matrix carried as J Σ Jᵀ (J = s R)
+        # feature frames: the centre mapped, the shape matrix carried as J Σ Jᵀ (J = s R)
         J = transform_deriv(S, SVector(0.0, 0.0))
         p = Point2(randn(rng), randn(rng))
         d = S(Disc(p, 2.0))
@@ -92,11 +92,11 @@ end
         o = S(OrientedDisc(p, 2.0, 0.3))
         @test o isa OrientedDisc && scale(o) ≈ scale(S) * 2.0
         Σ = SMatrix{2, 2}(3.0, 0.5, 0.5, 1.0)
-        f = S(EllipticFrame(p, Σ, Val(:moment_matrix)))
-        @test f isa EllipticFrame && moment_matrix(f) ≈ J * Σ * J'
+        f = S(EllipticFrame(p, Σ, Val(:shape_matrix)))
+        @test f isa EllipticFrame && shape_matrix(f) ≈ J * Σ * J'
         A = SMatrix{2, 2}(2.0, 0.3, -0.4, 1.0)
         a = S(AffineFrame(p, A))
-        @test a isa AffineFrame && moment_matrix(a) ≈ J * (A * A') * J'
+        @test a isa AffineFrame && shape_matrix(a) ≈ J * (A * A') * J'
     end
 end
 

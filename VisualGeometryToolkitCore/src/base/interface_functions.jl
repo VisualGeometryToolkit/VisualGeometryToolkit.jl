@@ -77,8 +77,8 @@ function project end
 Distance from the point `p` to `geometry`, non-negative. A signed distance is
 [`signed_distance`](@ref), never this name.
 
-Methods: none current. `distance(hyperplane, point)` returned the signed distance and
-is deprecated (0.5.7, removed in 0.7) for `signed_distance(hyperplane, point)`.
+Methods: none in VisualGeometryToolkitCore. A hyperplane's distance is signed:
+`signed_distance(hyperplane, point)` (`abs` of it for the unsigned value).
 """
 function distance end
 
@@ -168,9 +168,9 @@ Methods:
 function intersects end
 
 """
-    moment_matrix(g)
+    shape_matrix(g)
 
-The matrix `M` of an elliptical region `{x : (x-c)ᵀ M⁻¹ (x-c) ≤ 1}` (the
+The shape matrix `M` of an elliptical region `{x : (x-c)ᵀ M⁻¹ (x-c) ≤ 1}` (the
 ellipsoidal-calculus `E(c, M)`), symmetric positive-definite: `M = F·Fᵀ` with
 `F` its [`shape_factor`](@ref) (`S²` for an `EllipticFrame`, `A·Aᵀ` for an
 `AffineFrame`).
@@ -179,16 +179,15 @@ It is the region's shape, not its second moment: the uniform density on the
 region has covariance `M/4`, and in affine feature detection the
 "second-moment matrix" is the structure tensor `μ ≈ M⁻¹`. A frame built from a
 Gaussian `N(c, Σ)` takes its 1σ contour, `M = Σ` ([`EllipticFrame`](@ref)
-of an `MvNormal`, a `Paraboloid3D`'s equivalent Gaussian). (The name is
-retired in 0.7, where this matrix takes the ellipsoidal-calculus name.)
+of an `MvNormal`, a `Paraboloid3D`'s equivalent Gaussian).
 
 Methods:
-- `moment_matrix(::EllipticFrame)` → `SMatrix{2,2,T,4}`
-- `moment_matrix(::AffineFrame)` → `SMatrix{2,2,T,4}`
-- `moment_matrix(::Ellipse)` → `SMatrix{2,2,T,4}`
-- `moment_matrix(::Paraboloid3D)` → `SMatrix{2,2,T,4}`
+- `shape_matrix(::EllipticFrame)` → `SMatrix{2,2,T,4}`
+- `shape_matrix(::AffineFrame)` → `SMatrix{2,2,T,4}`
+- `shape_matrix(::Ellipse)` → `SMatrix{2,2,T,4}`
+- `shape_matrix(::Paraboloid3D)` → `SMatrix{2,2,T,4}`
 """
-function moment_matrix end
+function shape_matrix end
 
 """
     characteristic_scale(g)
@@ -208,7 +207,7 @@ function characteristic_scale end
 
 Return the aspect ratio (a/b) of an ellipse-like shape.
 
-For moment-matrix-based types (MvNormal, EllipticFrame): sqrt(λ_max / λ_min).
+For shape-matrix-based types (MvNormal, EllipticFrame): sqrt(λ_max / λ_min).
 For geometric types (Ellipse): a/b (semi-major / semi-minor).
 
 A value of 1.0 indicates isotropy (circular shape).
@@ -311,7 +310,7 @@ function scale end
 """
     shape_factor(g)
 
-The factor `F` of an elliptical region's matrix `M = F·Fᵀ` ([`moment_matrix`](@ref)):
+The factor `F` of an elliptical region's matrix `M = F·Fᵀ` ([`shape_matrix`](@ref)):
 the linear part of the affine map that takes the unit disc onto the region,
 `{c + F u : ‖u‖ ≤ 1}`.
 

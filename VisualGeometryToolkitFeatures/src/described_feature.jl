@@ -73,7 +73,7 @@ end
 centroid(df::DescribedFeature) = centroid(getfield(df, :detection))
 region(df::DescribedFeature, args...) = region(getfield(df, :detection), args...)
 feature_frame(df::DescribedFeature) = feature_frame(getfield(df, :detection))
-moment_matrix(df::DescribedFeature) = moment_matrix(getfield(df, :detection))
+shape_matrix(df::DescribedFeature) = shape_matrix(getfield(df, :detection))
 
 # =============================================================================
 # StructArray constructors and accessors

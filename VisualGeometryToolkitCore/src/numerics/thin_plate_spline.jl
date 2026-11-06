@@ -6,19 +6,18 @@
 #
 # with (w; a) the solution of [K P; Pᵀ 0] (w; a) = (values; 0), K = [U(𝐩ᵢ, 𝐩ⱼ)]
 # (zero diagonal), P = [1 𝐩_x 𝐩_y]. The system matrix depends only on the
-# nodes, so its inverse is formed once and (w, a) is a LINEAR map of the nodal
+# nodes, so it is factorized once and (w, a) is a LINEAR map of the nodal
 # values.
 #
 # The evaluation is RadiometricCamera's, operation for operation, and
 # test/thin_plate_spline_tests.jl checks every value here against numbers that
 # RadiometricCamera's own functions produced (test/fixtures/thin_plate_spline):
 # `==` for everything after (w, a), within a measured bound for what goes
-# through the solve and BLAS. The solve is conditioned (2026-11-06): the system
-# is formed and inverted on the nodes centred and scaled by one isotropic
-# factor (`HartleyNormalization`) and mapped back exactly to the caller's frame
-# (see `ThinPlateSplineSystem`), which moves (w, a) only at rounding level — on
-# pixel nodes the unconditioned system's condition number was ~1e18. The
-# solver keeps `inv` rather than a factorization.
+# through the solve and BLAS. The solve is conditioned: the system is formed
+# and factorized on the nodes centred and scaled by one isotropic factor
+# (`HartleyNormalization`) and mapped back exactly to the caller's frame (see
+# `ThinPlateSplineSystem`), which moves (w, a) only at rounding level — on
+# pixel nodes the unconditioned system's condition number was ~1e18.
 #
 # Two halves, as in RadiometricCamera: the solver object `ThinPlateSplineSystem`
 # (RadiometricCamera's `ThinPlateSpline`, renamed here because that name is the
@@ -81,9 +80,9 @@ spline through the same values then bends differently, so it is never used
 here.) Without it, nodes in pixels (thousands) put `r² ln r²` near 1e8 beside
 the unit column of `P`.
 
-`coeff` is mapped back from the first `N` columns of the INVERTED conditioned
-system matrix `[K′ P′; P′ᵀ 0]`, formed with `inv` as RadiometricCamera forms
-it (a factorization moves the last bits differently). The matrices live on
+`coeff` is mapped back from the first `N` columns of the inverse of the
+conditioned system matrix `[K′ P′; P′ᵀ 0]`, solved for those `N` right-hand
+sides by one LU factorization. The matrices live on
 the host; [`tps_coefficients`](@ref) turns nodal values into the isbits `(w,
 a)` that [`tps_evaluate`](@ref) and [`tps_gradient`](@ref) take.
 """
@@ -103,14 +102,17 @@ function ThinPlateSplineSystem(nodes::AbstractVector{<:StaticVector{2}})
     qs = [A(p) for p in ps]
     Umat = [tps_radial_basis(qs[i], qs[j]) for i in 1:N, j in 1:N]
     P′ = [ones(N) getindex.(qs, 1) getindex.(qs, 2)]
-    Kinv = inv([Umat P′; P′' zeros(3, 3)])   # `inv`, not `\`, as RadiometricCamera forms it
-    Cw′ = Kinv[1:N, 1:N]
+    # The first N columns of the inverse of the saddle-point matrix: one factorization, N right-hand sides. LU with
+    # partial pivoting, not Bunch–Kaufman: it keeps the pure-bending projection's affine part (a = 0) an order of
+    # magnitude closer to zero (1.0e-15 against 8.7e-15 relative, the 4 × 4 grid of the target calibration tests).
+    C′ = lu([Umat P′; P′' zeros(3, 3)]) \ [Matrix{Float64}(I, N, N); zeros(3, N)]
+    Cw′ = C′[1:N, :]
     coeff = Matrix{Float64}(undef, N + 3, N)
     coeff[1:N, :] .= σ^2 .* Cw′                                                         # w = σ² w′
-    coeff[N + 1, :] .= Kinv[N + 1, 1:N] .+ 𝐭[1] .* Kinv[N + 2, 1:N] .+ 𝐭[2] .* Kinv[N + 3, 1:N] .+
+    coeff[N + 1, :] .= C′[N + 1, :] .+ 𝐭[1] .* C′[N + 2, :] .+ 𝐭[2] .* C′[N + 3, :] .+
                        log(σ) .* (Cw′' * [sum(abs2, q) for q in qs])                   # a₁ = a′₁ + a′·𝐭 + ln σ Σ w′ᵢ|𝐩′ᵢ|²
-    coeff[N + 2, :] .= σ .* Kinv[N + 2, 1:N]                                            # (a_x, a_y) = σ (a′_x, a′_y)
-    coeff[N + 3, :] .= σ .* Kinv[N + 3, 1:N]
+    coeff[N + 2, :] .= σ .* C′[N + 2, :]                                                # (a_x, a_y) = σ (a′_x, a′_y)
+    coeff[N + 3, :] .= σ .* C′[N + 3, :]
     Q = Matrix(Symmetric(σ^2 .* (Cw′' * Umat * Cw′)))                                   # Q = σ² Q′
     P = [ones(N) getindex.(ps, 1) getindex.(ps, 2)]
     return ThinPlateSplineSystem{N}(SVector{N}(ps), coeff, Q, P, coeff[(N + 1):(N + 3), :])

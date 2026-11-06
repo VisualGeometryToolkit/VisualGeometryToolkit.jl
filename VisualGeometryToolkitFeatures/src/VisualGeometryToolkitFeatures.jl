@@ -43,7 +43,7 @@ using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain, implicit_cov
 import VisualGeometryToolkitCore: cov, geom   # extended for Detections of an Uncertain frame
 # Extended here with Detection methods:
 import VisualGeometryToolkitCore: Attributed, Disc, EllipticFrame, Ellipse
-import VisualGeometryToolkitCore: centroid, moment_matrix, feature_frame, region
+import VisualGeometryToolkitCore: centroid, shape_matrix, feature_frame, region
 
 
 # =============================================================================

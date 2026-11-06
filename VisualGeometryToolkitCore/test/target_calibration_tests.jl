@@ -415,7 +415,8 @@ end
     @testset "the projection: exact, idempotent, the identity on an affine displacement" begin
         @test plane_part(fx) > 1.0e-3 && plane_part(h) > 1.0e-3                # what was supplied has an affine term
         @test plane_part(T.fx) < 1.0e-12 && plane_part(T.fy) < 1.0e-12 && plane_part(H.h) < 1.0e-12
-        @test norm(H.a) < 1.0e-15 * norm(H.h) && norm(T.ax) < 1.0e-15 * norm(T.fx) && norm(T.ay) < 1.0e-15 * norm(T.fy)
+        # zero to rounding: 16 eps relative (measured 1.0e-15, 4.2e-16 and 5.5e-16 with the LU solve)
+        @test norm(H.a) < 16eps() * norm(H.h) && norm(T.ax) < 16eps() * norm(T.fx) && norm(T.ay) < 16eps() * norm(T.fy)
         # the stored values are the supplied ones less their interpolant's affine term: the bending kept
         Π = I - M * Aff
         @test isapprox(T.fx, Π * fx; rtol = 1.0e-12) && isapprox(T.fy, Π * fy; rtol = 1.0e-12) && isapprox(H.h, Π * h; rtol = 1.0e-12)

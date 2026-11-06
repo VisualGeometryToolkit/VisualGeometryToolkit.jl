@@ -47,12 +47,6 @@
         end
         @test spline_degree(t) == (2, 2) && spline_degree(r) == (3,)
         @test center(t) == SVector(W / 2, H / 2) && center(r) == SVector(300.0, 250.0) && field_radius(r) == 400.0
-        # field_center, the duplicate of Core's `center` generic, warns and forwards (deprecated in 0.5.6, removed in 0.7)
-        if Base.JLOptions().depwarn == 2                    # --depwarn=error (the strict run): the warning is an error
-            @test_throws ErrorException VisualGeometryToolkitCore.field_center(r)
-        else
-            @test (@test_deprecated VisualGeometryToolkitCore.field_center(r)) == center(r)
-        end
         @test radial_coordinate(r, SVector(300.0, 650.0)) == 1.0
         @test TensorProductVignetting((6, 6), Rect(10, 20, 100, 50))(SVector(30.0, 40.0)) ≈ 1.0      # the partition of unity
     end
@@ -181,4 +175,21 @@
             end
         end
     end
+end
+
+# The one tag registry of the vignetting fields: the tag rule, the reverse lookup on a value, the retired tag.
+@testitem "vignetting: VIGNETTING_TAGS" begin
+    using Test
+    using StaticArrays: SVector
+    using VisualGeometryToolkitCore: VIGNETTING_TAGS, TensorProductVignetting, RadialVignetting, LogVignetting, Rect, tag_of,
+        tag_rule_violations
+
+    @test collect(keys(VIGNETTING_TAGS)) == ["tensor_product", "radial", "log"]
+    @test isempty(tag_rule_violations(VIGNETTING_TAGS))
+    t = TensorProductVignetting((6, 6), Rect(10, 20, 100, 50))
+    r = RadialVignetting(8, SVector(300.0, 250.0), 400.0)
+    @test VIGNETTING_TAGS["tensor_product"] === TensorProductVignetting && tag_of(VIGNETTING_TAGS, t) == "tensor_product"
+    @test tag_of(VIGNETTING_TAGS, r) == "radial" && tag_of(VIGNETTING_TAGS, LogVignetting(r)) == "log"
+    err = try VIGNETTING_TAGS["tensor"]; nothing catch e; e end
+    @test err isa ArgumentError && occursin("tensor_product", err.msg)
 end

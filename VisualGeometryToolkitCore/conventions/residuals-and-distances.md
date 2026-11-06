@@ -27,7 +27,7 @@ green on every plain test and is wrong on the first covariance.
 | signed distance | the residual when `d_g = 1`: one number | signed |
 
 [`signed_distance`](@ref)`(plane, p)` is the geometric signed distance
-(VisualGeometryToolkitCore 0.5.7). `distance(hyperplane, p)` is deprecated
+(VisualGeometryToolkitCore 0.5.7). `distance(hyperplane, p)` was removed in 0.7
 because it returned a signed value under an unsigned name.
 
 **A square is named as one.** `‖r‖²` is the SQUARED distance: `gᵀΣ̃⁻¹g` is the

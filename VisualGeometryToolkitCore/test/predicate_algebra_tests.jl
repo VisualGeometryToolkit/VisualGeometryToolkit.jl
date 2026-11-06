@@ -14,7 +14,7 @@
     # in the shared test Main.
     using VisualGeometryToolkitCore: px, HomEllipseMat, Ellipse, Circle, Rect2, Disc,
         EllipticFrame, Line2D, area, iou, coverage, overlap_area, overlap_method,
-        geom_rank, intersects, region, closest_point, distance, moment_matrix,
+        geom_rank, intersects, region, closest_point, distance, shape_matrix,
         AnalyticOverlap, BoundarySampled
     using GeometryBasics: Point2, Point2f, Polygon
 
@@ -130,9 +130,9 @@
         @testset "Ellipse matrix constructor contract" begin
             # Plain matrices are refused: moment-vs-sqrt ambiguity
             @test_throws ArgumentError Ellipse(Point2(0.0, 0.0), [4.0 1.0; 1.0 9.0])
-            # Symmetric moment matrix round-trips
+            # Symmetric shape matrix round-trips
             e = Ellipse(Point2(5.0, 7.0), 3.0, 2.0, 0.4)
-            e_rt = Ellipse(e.center, Symmetric(moment_matrix(e)))
+            e_rt = Ellipse(e.center, Symmetric(shape_matrix(e)))
             @test e_rt.center == e.center
             @test e_rt.a ≈ e.a
             @test e_rt.b ≈ e.b
@@ -162,11 +162,8 @@
             @test signed_distance(plane, Point3(0.0, 0.0, 4.0)) ≈ 3.0
             @test signed_distance(plane, Point3(0.0, 0.0, -1.0)) ≈ -2.0
             @test signed_distance(plane, SA[1.0, 2.0, 1.0]) ≈ 0.0 atol = 1.0e-15
-            # the deprecated name forwards (a warning; under --depwarn=error the call
-            # throws, which @test_deprecated also accepts) until 0.7; the value is
-            # checked only where the warning does not throw
-            @test_deprecated distance(line, Point2(-1.0, 7.0))
-            Base.JLOptions().depwarn == 2 || @test distance(line, Point2(-1.0, 7.0)) ≈ -3.0
+            # the unsigned name has no hyperplane method (removed in 0.7)
+            @test_throws MethodError distance(line, Point2(-1.0, 7.0))
         end
 
         @testset "allocation-free hot predicates" begin

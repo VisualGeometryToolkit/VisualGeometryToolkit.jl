@@ -14,25 +14,16 @@
 # What is pinned exactly and what is bounded. Everything AFTER (w, a) — the
 # radial basis, the evaluation, the gradient — is plain scalar arithmetic and
 # is compared `==`, fed the fixture's own w and a. The coefficients, the
-# nodal weights and the bending energy go through `inv` and BLAS products, so
-# their last bits belong to the BLAS build (OpenBLAS picks its code path by
-# CPU): a backward-stable inverse is off by up to the order of κ·eps, κ the
-# condition number of [K P; Pᵀ 0] (31 on grid_nodes(3), 308 on
+# nodal weights and the bending energy go through the solve and BLAS products
+# — RadiometricCamera's `inv` of the unconditioned system, here an LU solve of
+# the conditioned one (centred, one isotropic scale) — so their last
+# bits differ: a backward-stable solve is off by up to the order of κ·eps, κ
+# the condition number of [K P; Pᵀ 0] (31 on grid_nodes(3), 308 on
 # grid_nodes(5)), so they are compared within 4κ eps() × the sum of the
-# magnitudes of the terms. Measured on Julia 1.12.7 (grid_5, in eps() × that
-# sum): 0 under native (i9-13900K), Haswell and Zen; w and a 3.9, 4.7 and
-# 10.1, nodal_weights 33.0, 16.6 and 42.6, bending energy 0.24, 0.02 and
-# 0.03 under Sandybridge, Prescott and Nehalem. The bound 4κ = 1232 holds the
-# worst, nodal_weights under Nehalem, with a margin of 29 (the fixed bounds
-# 16, 32 and 1 it replaces were measured against two other solvers on the
-# recording machine, and Sandybridge and Nehalem broke the 32). On the
-# recording machine the deviation was zero; TPS_BITWISE=1 turns those
-# comparisons back into `==`. Since the solve is conditioned (centred, one
-# isotropic scale: 2026-11-06) the system differs from RadiometricCamera's in
-# its last bits on every machine, so TPS_BITWISE no longer holds anywhere:
-# measured on the i9-13900K (native), in eps() × that sum, w and a 2.0 / 20.6,
-# nodal_weights 3.9 / 45.8, bending energy 0 / 0.30 (grid_3 / grid_5), within
-# the same 4κ bound.
+# magnitudes of the terms (the bound held the worst BLAS code path, Nehalem's,
+# with a margin of 29 against RadiometricCamera's own solver).
+# Pixel-scale nodes are checked against a BigFloat solve of the unconditioned
+# system ("thin_plate_spline: pixel nodes").
 # The gradient with a nonzero affine part has no RadiometricCamera
 # counterpart: it is bit-pinned only for a = 0 (the height grid), and checked
 # against ForwardDiff otherwise.
@@ -52,11 +43,9 @@
     include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "thin_plate_spline", "reference.jl"))
     REF = TPS_REFERENCE
     POINTS = REF.points
-    BITWISE = get(ENV, "TPS_BITWISE", "") == "1"   # the recording machine: the BLAS-dependent values `==` too
 
-    # Within `c` eps() of the sum of the term magnitudes `scale` (elementwise),
-    # or `==` under TPS_BITWISE.
-    within(x, ref, scale, c) = BITWISE ? x == ref : all(abs.(x .- ref) .<= c * eps() .* scale)
+    # Within `c` eps() of the sum of the term magnitudes `scale` (elementwise).
+    within(x, ref, scale, c) = all(abs.(x .- ref) .<= c * eps() .* scale)
 
     # Σ of the magnitudes of the evaluation's terms: the scale its rounding
     # (and its cancellation far outside the hull) is measured against.
@@ -73,7 +62,7 @@
         tps = ThinPlateSplineSystem(nodes)
         t = ref.values
 
-        # Through `inv` and BLAS: within 4κ eps() of the terms' magnitudes (see the header).
+        # Through the solve and BLAS: within 4κ eps() of the terms' magnitudes (see the header).
         P = [ones(N) first.(nodes) last.(nodes)]
         κ = cond([[tps_radial_basis(p, q) for p in nodes, q in nodes] P; P' zeros(3, 3)])
         w, a = tps_coefficients(tps, t)
@@ -98,8 +87,7 @@
         @test eltype(w32) == Float32 && eltype(a32) == Float32
         ref32 = vcat(ref.w_f32, ref.a_f32)
         coeff_scale32 = [sum(abs.(tps.coeff[r, :]) .* abs.(Float32.(t))) for r in 1:(N + 3)]
-        @test BITWISE ? vcat(collect(w32), collect(a32)) == ref32 :
-            all(abs.(Float64.(vcat(collect(w32), collect(a32))) .- ref32) .<= eps.(ref32) .+ 16 * eps() .* coeff_scale32)
+        @test all(abs.(Float64.(vcat(collect(w32), collect(a32))) .- ref32) .<= eps.(ref32) .+ 16 * eps() .* coeff_scale32)
         nodes32 = SVector{N}(SVector{2, Float32}.(tps.nodes))
         f32 = [tps_evaluate(nodes32, SVector{N}(ref.w_f32), SVector{3}(ref.a_f32), SVector{2, Float32}(p)) for p in POINTS]
         @test f32 isa Vector{Float32}
@@ -207,6 +195,32 @@
             @test g == [tps_gradient(nodes, w, a, p) for p in points]
         end
     end
+end
+
+# Pixel-scale nodes: a 5 × 5 grid over a 5208 × 3476 sensor, where the unconditioned [K P; Pᵀ 0] has κ ≈ 2e18. The
+# conditioned solve against the unconditioned system solved in 256-bit BigFloat: each row of `coeff`, and `Q`, within
+# 1e-12 of its largest entry (measured 2.3e-14 and 1.7e-14), and the spline interpolates its nodal values.
+@testitem "thin_plate_spline: pixel nodes" begin
+    using Test
+    using StaticArrays: SVector
+    using LinearAlgebra: I
+    using VisualGeometryToolkitCore: ThinPlateSplineSystem, grid_nodes, tps_radial_basis, tps_coefficients, tps_evaluate, Rect
+
+    nodes = grid_nodes(5, Rect(0, 0, 5208, 3476))
+    N = length(nodes)
+    tps = ThinPlateSplineSystem(nodes)
+    C, Q = setprecision(BigFloat, 256) do
+        ps = [SVector{2, BigFloat}(p) for p in nodes]
+        K = [tps_radial_basis(p, q) for p in ps, q in ps]
+        P = [ones(BigFloat, N) first.(ps) last.(ps)]
+        C = [K P; P' zeros(BigFloat, 3, 3)] \ [Matrix{BigFloat}(I, N, N); zeros(BigFloat, 3, N)]
+        C, C[1:N, :]' * K * C[1:N, :]
+    end
+    @test all(r -> maximum(abs.(tps.coeff[r, :] .- C[r, :])) <= 1.0e-12 * maximum(abs.(C[r, :])), 1:(N + 3))
+    @test maximum(abs.(tps.Q .- Q)) <= 1.0e-12 * maximum(abs.(Q))
+    vals = [sin(p[1] / 1000) + cos(p[2] / 700) for p in nodes]
+    w, a = tps_coefficients(tps, vals)
+    @test maximum(abs(tps_evaluate(tps, w, a, p) - v) for (p, v) in zip(nodes, vals)) <= 1.0e-11
 end
 
 @testitem "thin_plate_spline: nodal_weights' loop form" begin

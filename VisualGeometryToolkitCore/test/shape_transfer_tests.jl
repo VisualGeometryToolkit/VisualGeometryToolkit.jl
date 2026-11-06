@@ -21,7 +21,7 @@
     using CoordinateTransformations: PerspectiveMap, AffineMap, Translation
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: reprojection_error, transform_deriv, transfer_ellipse, constraint_with_jacobians, imaging_transform,
-        distortion_map, pinhole, moment_matrix, boundary_points, backproject, project, skew
+        distortion_map, pinhole, shape_matrix, boundary_points, backproject, project, skew
 
     const _K = CameraCalibrationMat(950.0px, [2120.0px, 1416.0px])
     const _CAMS = (
@@ -85,9 +85,9 @@
             for shape in (c, e0)
                 out = transfer_ellipse(A, shape)
                 @test out isa Ellipse
-                ctr, Σ = VgtkCore._ellipse_moments(shape)
+                ctr, Σ = VgtkCore._ellipse_center_shape(shape)
                 @test SVector{2, Float64}(out.center) ≈ A(ctr)
-                @test moment_matrix(out) ≈ A.linear * Σ * A.linear' rtol = 1.0e-10
+                @test shape_matrix(out) ≈ A.linear * Σ * A.linear' rtol = 1.0e-10
             end
             H = HomographyMap(HomographyMat{Float64}((1.0, 0.1, 1.0e-4, -0.05, 1.0, 2.0e-4, 20.0, -10.0, 1.0)))
             @test transfer_ellipse(H, e0) isa Ellipse
@@ -95,7 +95,7 @@
             T = Translation(SVector(3.0, 4.0)) ∘ A
             out = transfer_ellipse(T, c)
             @test SVector{2, Float64}(out.center) ≈ T(SVector(10.0, -5.0))
-            @test moment_matrix(out) ≈ A.linear * (9.0 * I) * A.linear' rtol = 1.0e-10
+            @test shape_matrix(out) ≈ A.linear * (9.0 * I) * A.linear' rtol = 1.0e-10
         end
 
         @testset "transfer_ellipse(camera): the conic through the lens stays an ellipse — $name" for (name, cam) in _CAMS
@@ -105,7 +105,7 @@
                 @test out isa Ellipse
                 # the sampled true boundary lies on the transferred ellipse: a small
                 # blob's image under the lens is affine to well within its own size
-                Σ = moment_matrix(out); Σi = inv(Σ)
+                Σ = shape_matrix(out); Σi = inv(Σ)
                 ctr = SVector{2, Float64}(out.center)
                 worst = 0.0
                 for p in boundary_points(shape, 64)

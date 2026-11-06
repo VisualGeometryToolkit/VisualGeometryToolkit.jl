@@ -10,10 +10,10 @@
 #
 #   julia +1.12 --project=. <this file> <output path>
 #
-# The coefficients, nodal weights and bending energy go through `inv` and
+# The coefficients, nodal weights and bending energy go through a solve and
 # BLAS products, so their last bits are this machine's BLAS build's; the test
-# compares them within measured bounds (TPS_BITWISE=1 for `==`), and the plain
-# arithmetic after (w, a) with `==`. Do not regenerate per machine.
+# compares them within measured bounds, and the plain arithmetic after (w, a)
+# with `==`. Do not regenerate per machine.
 #
 # Not discovered by the test runner (no `_tests.jl` suffix) and not run by it:
 # RadiometricCamera is not a dependency of the suite.

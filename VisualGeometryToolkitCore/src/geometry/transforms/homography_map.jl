@@ -466,7 +466,7 @@ affinity at the transferred centre (see [`transfer_ellipse(::PosedCamera, _)`](@
 fold, the line at infinity).
 """
 function transfer_ellipse(T::CoordinateTransformations.Transformation, shape::Union{Circle, Ellipse})
-    c, Σ = _ellipse_moments(shape)
+    c, Σ = _ellipse_center_shape(shape)
     c′ = T(c)
     (isfinite(c′[1]) && isfinite(c′[2])) || return nothing
     J = SMatrix{2, 2, Float64, 4}(transform_deriv(T, c))
@@ -485,9 +485,9 @@ end
 # homography's action on conics — never a stage-wise transfer.
 transfer_ellipse(proj::_PerspHomography, shape::Union{Circle, Ellipse}) = transfer_ellipse(proj.t2, shape)
 
-# (centre, moment matrix) of the shapes the transfer accepts.
-_ellipse_moments(e::Ellipse) = (SVector{2, Float64}(e.center[1], e.center[2]), SMatrix{2, 2, Float64, 4}(moment_matrix(e)))
-_ellipse_moments(c::Circle) = (
+# (centre, shape matrix) of the shapes the transfer accepts.
+_ellipse_center_shape(e::Ellipse) = (SVector{2, Float64}(e.center[1], e.center[2]), SMatrix{2, 2, Float64, 4}(shape_matrix(e)))
+_ellipse_center_shape(c::Circle) = (
     SVector{2, Float64}(c.center[1], c.center[2]),
     SMatrix{2, 2, Float64, 4}(Float64(c.r)^2, 0.0, 0.0, Float64(c.r)^2),
 )

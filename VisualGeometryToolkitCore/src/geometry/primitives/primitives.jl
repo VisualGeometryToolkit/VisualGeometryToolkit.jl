@@ -84,10 +84,10 @@ using ..VisualGeometryToolkitCore: CircleTrait, EllipseTrait
 using ..VisualGeometryToolkitCore: IsotropicScale, ShapeFactorScale
 import ..VisualGeometryToolkitCore: has_boundary, classify_conic
 import ..VisualGeometryToolkitCore: frame_scale
-import ..VisualGeometryToolkitCore: centroid, normal, offset, distance, signed_distance, closest_point
+import ..VisualGeometryToolkitCore: centroid, normal, offset, signed_distance, closest_point
 import ..VisualGeometryToolkitCore: dilate, intersects, area, iou, coverage
 import ..VisualGeometryToolkitCore: overlap_area, overlap_method, geom_rank
-import ..VisualGeometryToolkitCore: moment_matrix, characteristic_scale, aspect_ratio
+import ..VisualGeometryToolkitCore: shape_matrix, characteristic_scale, aspect_ratio
 import ..VisualGeometryToolkitCore: boundary_point, boundary_points
 import ..VisualGeometryToolkitCore: boundary, region, scale, shape_factor
 

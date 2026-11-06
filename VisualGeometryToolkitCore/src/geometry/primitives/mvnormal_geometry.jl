@@ -70,8 +70,8 @@ MvNormal(d::Disc{T}) where {T} = MvNormal(d.center, d.σ)
 
 Convert an MvNormal to an EllipticFrame for geometric operations.
 
-The frame is the Gaussian's 1σ contour: its moment matrix is the covariance,
-`moment_matrix(frame) = Σ`, and its shape factor `S = √Σ` (symmetric, by
+The frame is the Gaussian's 1σ contour: its shape matrix is the covariance,
+`shape_matrix(frame) = Σ`, and its shape factor `S = √Σ` (symmetric, by
 eigendecomposition).
 
 # Example
@@ -85,7 +85,7 @@ function EllipticFrame(d::AbstractMvNormal)
     μ = mean(d)
     Σ = cov(d)
     T = eltype(μ)
-    return EllipticFrame(Point2{T}(μ...), Σ, Val(:moment_matrix))
+    return EllipticFrame(Point2{T}(μ...), Σ, Val(:shape_matrix))
 end
 
 """

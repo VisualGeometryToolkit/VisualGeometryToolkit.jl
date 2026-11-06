@@ -172,17 +172,6 @@ a log field's spline's.
 center(v::TensorProductVignetting) = SVector((first(v.knots_x) + last(v.knots_x)) / 2, (first(v.knots_y) + last(v.knots_y)) / 2)
 
 """
-    field_center(v::AbstractVignetting) -> SVector{2}
-
-Deprecated in 0.5.6, removed in 0.7: [`center`](@ref)`(v)`, Core's one
-centre generic, which it duplicated.
-"""
-function field_center(v::AbstractVignetting)
-    Base.depwarn("`field_center(v)` is deprecated; use `center(v)`, Core's one centre generic", :field_center)
-    return center(v)
-end
-
-"""
     with_control_points(v::AbstractVignetting, P) -> AbstractVignetting
 
 The same field (knots, degree, centre) with the control points `P`: a matrix
@@ -359,3 +348,17 @@ convert_eltype(::Type{T}, v::LogVignetting) where {T <: Real} = LogVignetting(co
 support_trait(::Type{LogVignetting{S}}) where {S} = support_trait(S)
 nodes(v::LogVignetting) = nodes(v.spline)
 support(v::LogVignetting, i::CartesianIndex) = support(v.spline, i)
+
+"""
+    VIGNETTING_TAGS
+
+The [`TagRegistry`](@ref) of the vignetting fields: `"tensor_product"`
+([`TensorProductVignetting`](@ref)), `"radial"` ([`RadialVignetting`](@ref))
+and `"log"` ([`LogVignetting`](@ref)), `snake_case` of the type's name with the
+family's suffix `Vignetting` stripped — the `type` of VisualGeometryToolkitIO's
+`vgio/vignetting/v1` body. RETIRED: `"tensor"`, the tensor-product surface's
+tag before the type was named for its basis.
+"""
+const VIGNETTING_TAGS = TagRegistry(:vignetting, "Vignetting",
+    "tensor_product" => TensorProductVignetting, "radial" => RadialVignetting, "log" => LogVignetting;
+    retired = ("tensor" => "tensor_product",))

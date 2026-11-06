@@ -188,7 +188,7 @@ end
         "BlobBoards" => bb,
         "PanoramaStitching" => ["VisualGeometryToolkitCore", "VisualGeometryToolkitFeatures", "VisualGeometryToolkitEstimation"],
         "accv2026" => ["LocalOptimizationDoneRight", "RANSACScoringDoneRight", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "VisualGeometryToolkitCore", "VisualGeometryToolkitIO", "PoseLib"],
-        "neurips2026" => ["RANSACScoringDoneRight", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "VisualGeometryToolkitCore"],
+        "neurips2026" => ["RANSACScoringDoneRight", "VisualGeometryToolkitEval", "VisualGeometryToolkitEstimation", "VisualGeometryToolkitCore", "VisualGeometryToolkitIO"],
         "bmvc2026" => vcat(bb[1:3], "VisualGeometryToolkitEval", bb[4:end], "BlobBoards"),
     )
     # every row names stack packages only, never itself

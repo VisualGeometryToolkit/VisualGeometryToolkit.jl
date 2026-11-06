@@ -65,12 +65,12 @@ types, ordered by degrees of freedom:
 |---|---|---|
 | `Disc` | 3 | centre and isotropic scale |
 | `OrientedDisc` | 4 | centre, scale and orientation |
-| `EllipticFrame` | 5 | centre and moment matrix (anisotropic) |
+| `EllipticFrame` | 5 | centre and shape matrix (anisotropic) |
 | `AffineFrame` | 6 | centre and full affine shape |
 
 `asift_detect` returns `Detection{EllipticFrame}`. The accessor is
 `feature_frame(d)`. Properties of the frame and of the metadata read directly:
-`d.center`, `d.σ` (the characteristic scale), `d.Σ` (the moment matrix),
+`d.center`, `d.σ` (the characteristic scale), `d.Σ` (the shape matrix),
 `d.response`.
 
 Coordinate-frame tags, such as `ImageFrame` and `NormalizedImageFrame`, are a

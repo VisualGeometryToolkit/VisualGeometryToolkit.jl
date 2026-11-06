@@ -1,5 +1,10 @@
 # VisualGeometryToolkitFeatures changelog
 
+## Unreleased
+
+- **Breaking, with VisualGeometryToolkitCore 0.7:** a `Detection`'s and a `DescribedFeature`'s blob shape is
+  `shape_matrix(d)` (Core's renamed generic; `moment_matrix` is retired). `d.Σ` is unchanged.
+
 ## 0.5.0 (2026-11-06)
 
 VisualGeometryToolkitCore 0.6 (compat `"0.6"`). Breaking with Core's

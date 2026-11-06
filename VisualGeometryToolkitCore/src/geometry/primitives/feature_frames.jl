@@ -92,8 +92,8 @@ Anisotropic feature frame with 5 degrees of freedom: translation (2) + symmetric
 Defines the transformation: `x = S·u + center`
 
 where S is a symmetric positive-definite 2×2 matrix (the shape factor,
-[`shape_factor`](@ref)). The moment matrix is M = S·S' = S² (since S is
-symmetric, [`moment_matrix`](@ref)): the region is `(x-c)ᵀ M⁻¹ (x-c) ≤ 1`.
+[`shape_factor`](@ref)). The shape matrix is M = S·S' = S² (since S is
+symmetric, [`shape_matrix`](@ref)): the region is `(x-c)ᵀ M⁻¹ (x-c) ≤ 1`.
 
 This maps the unit circle to an ellipse in image space. Invariant to affine
 transformations (up to in-plane rotation).
@@ -102,9 +102,9 @@ transformations (up to in-plane rotation).
 - `center::Point2{T}`: Center position in image coordinates
 - `S::SMatrix{2,2,T,4}`: Shape factor (symmetric positive-definite)
 
-# Relationship to the moment matrix
+# Relationship to the shape matrix
 - Shape factor: S (what we store)
-- Moment matrix: M = S² = S·S'
+- Shape matrix: M = S² = S·S'
 - To get S from M: S = √M (matrix square root)
 
 # Example
@@ -154,7 +154,7 @@ The type parameter `P` encodes the number of free parameters:
 - `P=2`: Fixed-center isotropic — `C = cI`, `b = 0`
 
 Storage is always the full `(a₀, b, C)` so the geometric interface
-(`moment_matrix`, `is_peak`, `EllipticFrame`) works uniformly.
+(`shape_matrix`, `is_peak`, `EllipticFrame`) works uniformly.
 
 # Fields
 - `a₀::T`: Intercept (peak value)
@@ -167,7 +167,7 @@ Storage is always the full `(a₀, b, C)` so the geometric interface
 - `Paraboloid3D(θ::SVector{2})`: Fixed-center isotropic `{T,2}`
 - `Paraboloid3D(d::Disc, a₀)`: From detection `{T,2}`
 
-See also: [`moment_matrix`](@ref), [`is_peak`](@ref), [`coeffs`](@ref), [`EllipticFrame`](@ref)
+See also: [`shape_matrix`](@ref), [`is_peak`](@ref), [`coeffs`](@ref), [`EllipticFrame`](@ref)
 """
 struct Paraboloid3D{T, P}
     a₀::T
@@ -201,12 +201,12 @@ end
 Paraboloid3D(p::Paraboloid3D) = p
 
 """
-    moment_matrix(p::Paraboloid3D) -> SMatrix{2,2}
+    shape_matrix(p::Paraboloid3D) -> SMatrix{2,2}
 
 The covariance of the equivalent Gaussian, `Σ = -½C⁻¹`, as the matrix of its
 1σ contour (`M = Σ`).
 """
-function moment_matrix(p::Paraboloid3D{T}) where {T}
+function shape_matrix(p::Paraboloid3D{T}) where {T}
     C = p.C
     d = det(C)
     inv_det = T(-0.5) / d
@@ -288,7 +288,7 @@ end
 EllipticFrame(center::AbstractVector, S::AbstractMatrix) = EllipticFrame(Point2(center...), S)
 EllipticFrame(e::EllipticFrame) = e
 
-# The symmetric square root S = M^½ of a 2×2 moment matrix (M = S·S): the ONE
+# The symmetric square root S = M^½ of a 2×2 shape matrix (M = S·S): the ONE
 # spelling for every frame constructor. An eigenvalue negative only to rounding
 # (within 8·eps of the largest) clamps to zero, so a PSD matrix that rounds a
 # hair negative is not NaN; a genuinely indefinite Σ — a paraboloid fit that is
@@ -300,18 +300,18 @@ function _sym_sqrt(Σ::AbstractMatrix)
     λ = E.values
     tol = 8 * eps(float(eltype(λ))) * maximum(abs, λ)
     all(l -> l >= -tol, λ) ||
-        throw(ArgumentError("moment matrix is not positive semidefinite (eigenvalues $(Tuple(λ)))"))
+        throw(ArgumentError("shape matrix is not positive semidefinite (eigenvalues $(Tuple(λ)))"))
     S = E.vectors * Diagonal(sqrt.(max.(λ, zero(eltype(λ))))) * E.vectors'
     return SMatrix{2, 2}(S[1, 1], S[1, 2], S[1, 2], S[2, 2])
 end
 
-# Construct from the moment matrix (M → S via matrix sqrt); from a Gaussian's covariance, its 1σ contour (M = Σ)
-EllipticFrame(center::Point2{T}, Σ::AbstractMatrix, ::Val{:moment_matrix}) where {T} =
+# Construct from the shape matrix (M → S via matrix sqrt); from a Gaussian's covariance, its 1σ contour (M = Σ)
+EllipticFrame(center::Point2{T}, Σ::AbstractMatrix, ::Val{:shape_matrix}) where {T} =
     EllipticFrame{T}(Point2{T}(center), SMatrix{2, 2, T}(_sym_sqrt(Σ)))
 
 # Construct from Paraboloid3D fit: Σ = -½C⁻¹, center shifted by Σ*b
 function EllipticFrame(center::Point2{T}, p::Paraboloid3D{T, P}) where {T, P}
-    Σ = moment_matrix(p)
+    Σ = shape_matrix(p)
     offset = Σ * p.b
     new_center = Point2{T}(center[1] + offset[1], center[2] + offset[2])
     return EllipticFrame{T}(new_center, SMatrix{2, 2, T}(_sym_sqrt(Σ)))
@@ -328,17 +328,17 @@ end
 # Construct from Disc (isotropic)
 EllipticFrame(d::Disc{T}) where {T} = EllipticFrame(d.center, d.σ)
 
-# Construct from Ellipse (the symmetric shape factor from the moment matrix)
+# Construct from Ellipse (the symmetric shape factor from the shape matrix)
 function EllipticFrame(e::Ellipse{T}) where {T}
     # EllipticFrame uses symmetric S where M = S²
     # Ellipse has M = A*A' where its shape factor A = R(θ)*diag(a,b) is non-symmetric
     # Compute S = M^(1/2) via eigendecomposition
-    return EllipticFrame{T}(e.center, SMatrix{2, 2, T}(_sym_sqrt(moment_matrix(e))))
+    return EllipticFrame{T}(e.center, SMatrix{2, 2, T}(_sym_sqrt(shape_matrix(e))))
 end
 
 # Properties
 shape_factor(f::EllipticFrame) = f.S
-moment_matrix(f::EllipticFrame) = f.S * f.S'  # M = S²
+shape_matrix(f::EllipticFrame) = f.S * f.S'  # M = S²
 
 # =============================================================================
 # AffineFrame (6 DOF) - Full Affine Frame
@@ -359,7 +359,7 @@ that a symmetric matrix cannot represent.
 
 # Fields
 - `center::Point2{T}`: Center position in image coordinates
-- `A::SMatrix{2,2,T,4}`: Shape factor (general, not necessarily symmetric; moment matrix M = A·Aᵀ)
+- `A::SMatrix{2,2,T,4}`: Shape factor (general, not necessarily symmetric; shape matrix M = A·Aᵀ)
 
 # Decomposition
 Any A can be decomposed as A = R(φ)·S where:
@@ -411,7 +411,7 @@ end
 
 # Properties
 shape_factor(f::AffineFrame) = f.A
-moment_matrix(f::AffineFrame) = f.A * f.A'  # M = A·A'
+shape_matrix(f::AffineFrame) = f.A * f.A'  # M = A·A'
 
 # Extract symmetric part (EllipticFrame)
 function EllipticFrame(f::AffineFrame{T}) where {T}
@@ -634,7 +634,7 @@ end
 # =============================================================================
 
 # Note: MvNormal stores covariance Σ, EllipticFrame stores the shape factor S
-# Relationship: M = S·S' (S²) for symmetric S, the moment matrix; the frame is the 1σ contour, Σ = M
+# Relationship: M = S·S' (S²) for symmetric S, the shape matrix; the frame is the 1σ contour, Σ = M
 # EllipticFrame(d::AbstractMvNormal) is defined in mvnormal_geometry.jl
 
 """
@@ -643,14 +643,14 @@ end
 
 Convert a shape-factor frame to an MvNormal (statistical).
 
-The frame is read as the Gaussian's 1σ contour: its moment matrix
-M = F·Fᵀ ([`moment_matrix`](@ref), F the shape factor) is the covariance.
+The frame is read as the Gaussian's 1σ contour: its shape matrix
+M = F·Fᵀ ([`shape_matrix`](@ref), F the shape factor) is the covariance.
 Note: For AffineFrame, this loses the in-plane rotation since Σ = A·A' is symmetric.
 """
 MvNormal(f::FeatureFrame) = _frame_mvnormal(frame_scale(f), f)
 function _frame_mvnormal(::ShapeFactorScale, f)
     T = eltype(f.center)
-    Σ = SMatrix{2, 2, T}(moment_matrix(f))
+    Σ = SMatrix{2, 2, T}(shape_matrix(f))
     return MvNormal(SVector{2, T}(f.center...), Σ)
 end
 

@@ -1065,12 +1065,13 @@ export SupportTrait, GlobalSupport, LocalSupport, support_trait, nodes, support,
 export free_nodes, node_mask, cubic_bspline_footprint
 export BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent nodes of a lattice outside an imaged region (support.jl)
 export AbstractVignetting, TensorProductVignetting, RadialVignetting, LogVignetting   # a camera's vignetting fields (vignetting.jl)
+export VIGNETTING_TAGS                    # the fields' tag registry (public, not exported, at the top level)
 export log_spline                         # a LogVignetting's spline of log V (public, not exported, at the top level)
 export EnvironmentLight, SphericalHarmonicMap   # the scene's light: SH radiance on a sphere about a centre (lighting.jl)
 export AbstractBlur, GaussianBlur, convolve   # one blur of an imaging model by its covariance (blur.jl; `convolve` public, not exported, at the top level)
 export radiance, exit_direction, radiance_map, coefficients, with_coefficients, max_degree, sh_basis, sh_count, sh_index   # (public, not exported, at the top level)
 export coefficient_jacobian, active_coefficients, control_points, with_control_points, n_control_points, knot_vectors, spline_degree,
-       field_center, field_radius, radial_coordinate, pole_regular_basis   # (public, not exported, at the top level)
+       field_radius, radial_coordinate, pole_regular_basis   # (public, not exported, at the top level)
 export radial_part                         # a lens's radially symmetric part
 export CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models (Schöps et al.)
 export present_nodes, in_present_domain   # the nodes a grid model holds; where it evaluates (every window node present)

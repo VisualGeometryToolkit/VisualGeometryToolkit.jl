@@ -1,5 +1,29 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.7.0 (Unreleased)
+
+- **Breaking: `moment_matrix` is `shape_matrix` (M); `shape_matrix` returns M again** (0.6 removed it so old factor
+  calls failed loudly). `shape_matrix(f)` is the shape matrix `M` of an elliptical region, `{x : (x-c)ᵀ M⁻¹ (x-c) ≤ 1}`,
+  for an `EllipticFrame`, an `AffineFrame`, an `Ellipse` and a `Paraboloid3D`; the factor stays `shape_factor(f)`, with
+  `M = shape_factor(f) * shape_factor(f)'`. `moment_matrix` has no method and no alias (retired, `check_naming`), and
+  `EllipticFrame(center, M, Val(:shape_matrix))` replaces `Val(:moment_matrix)`. Migration: `moment_matrix(x)` →
+  `shape_matrix(x)`. **Caveat for a 0.5 → 0.7 jump:** code written against 0.5 that calls `shape_matrix` expecting the
+  FACTOR now compiles and gets `M`; such code must call `shape_factor` (0.6 is the release where it fails loudly).
+- **Breaking: the deprecated `distance(hyperplane, p)` and `field_center(v)` are removed.** Use
+  `signed_distance(hyperplane, p)` (`abs` of it for the unsigned value) and `center(v)`. The `distance` generic stays,
+  for a non-negative distance, with no method in Core.
+- **`VIGNETTING_TAGS` (public):** the vignetting fields' `TagRegistry`, `"tensor_product"` (`TensorProductVignetting`),
+  `"radial"` (`RadialVignetting`) and `"log"` (`LogVignetting`) — the `type` VisualGeometryToolkitIO's
+  `vgio/vignetting/v1` body writes; `"tensor"` is retired for `"tensor_product"`.
+- **`ThinPlateSplineSystem` solves by factorization.** The conditioned symmetric system is solved for its `N`
+  right-hand sides by one LU factorization in place of forming `inv`; `coeff` moves by rounding only (9.5e-16, 6.0e-15
+  and 2.2e-14 relative to 0.6 on `grid_nodes(3)`, `grid_nodes(5)` and a 5 × 5 pixel grid), and on a 5 × 5 grid over a
+  5208 × 3476 sensor `coeff` and `Q` are within 2.3e-14 and 1.7e-14 of a 256-bit BigFloat solve of the unconditioned
+  system (a new test). Two exactness tests that were pinned at 1e-15 to the old solve's rounding now allow 16 eps:
+  RadiometricCamera's warped-board ray intersections (Δt 1.1e-15) and the pure-bending projection's affine part
+  (1.0e-15 relative).
+- `configs/stack_dependencies.toml`: the `neurips2026` row names VisualGeometryToolkitIO, which it uses.
+
 ## 0.6.0 (2026-11-06)
 
 - **`ThinPlateSplineSystem` solves a conditioned system.** It centred nothing and scaled nothing, so on pixel nodes (a

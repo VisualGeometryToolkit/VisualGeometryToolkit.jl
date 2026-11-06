@@ -137,7 +137,9 @@ end
     Δn = maximum(maximum(abs, normal(s, x) - r) for (x, r) in zip(xs, REF.surface_normal))
     @test all(abs(x[3] - tps_evaluate(nodes, w, a, chart(s, x))) < 1.0e-15 for x in xs)   # on the surface
     @test length(REF.t) == 100
-    @test Δt <= 1.0e-15 && Δx <= 1.0e-15 && Δc <= 1.0e-15 && Δn <= 1.0e-15
+    # 16 eps: the (w, a) of a factorized, conditioned solve, not RadiometricCamera's `inv` (measured: Δt 1.1e-15, Δx
+    # 8.9e-16, Δc 1.0e-15, Δn 5.1e-16)
+    @test Δt <= 16eps() && Δx <= 16eps() && Δc <= 16eps() && Δn <= 16eps()
     # the normal leans against the slope: (−∂h/∂u, −∂h/∂v, 1), normalised
     x = intersection(s, REF.ray_origins[1], REF.ray_directions[1])[2]
     ε = 1.0e-6

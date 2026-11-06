@@ -38,19 +38,21 @@
 
 const _SH_BASIS = "real_orthonormal_no_condon_shortley"
 
-const _TENSOR_BODY = _Obj(:type => _Tok("tensor_product"), :degree => _Vec(_PosInt(), 2), :knots_x => _Vec(_Real()),
-    :knots_y => _Vec(_Real()), :control_points => _Vec(_Vec(_Real())))
-const _RADIAL_BODY = _Obj(:type => _Tok("radial"), :degree => _PosInt(), :center => _Vec(_Real(), 2), :radius => _Real(),
-    :control_points => _Vec(_Real()))
-# A body is told by its `type`; a log field holds a spline body.
+# A body is told by its `type`, the field's tag in VGC's `VIGNETTING_TAGS`; a log field holds a spline body.
 struct _VignettingBody <: _Spec end
+_vignetting_type(T::Type{<:AbstractVignetting}) = _Tok(tag_of(VIGNETTING_TAGS, T))
+_vignetting_body(T::Type{<:TensorProductVignetting}) = _Obj(:type => _vignetting_type(T), :degree => _Vec(_PosInt(), 2),
+    :knots_x => _Vec(_Real()), :knots_y => _Vec(_Real()), :control_points => _Vec(_Vec(_Real())))
+_vignetting_body(T::Type{<:RadialVignetting}) = _Obj(:type => _vignetting_type(T), :degree => _PosInt(),
+    :center => _Vec(_Real(), 2), :radius => _Real(), :control_points => _Vec(_Real()))
+_vignetting_body(T::Type{<:LogVignetting}) = _Obj(:type => _vignetting_type(T), :spline => _VignettingBody())
+_vignetting_tags() = join(keys(VIGNETTING_TAGS), ", ")
 function _validate(::_VignettingBody, x, file, at)
-    x isa AbstractDict && haskey(x, :type) || _refuse(file, at, "a vignetting is an object with a `type` (tensor_product, radial, log)")
+    x isa AbstractDict && haskey(x, :type) || _refuse(file, at, "a vignetting is an object with a `type` ($(_vignetting_tags()))")
     t = x[:type]
-    t == "tensor_product" && return _validate(_TENSOR_BODY, x, file, at)
-    t == "radial" && return _validate(_RADIAL_BODY, x, file, at)
-    t == "log" && return _validate(_Obj(:type => _Tok("log"), :spline => _VignettingBody()), x, file, at)
-    _refuse(file, _at(at, :type), "$(repr(t)) is not a vignetting type (tensor_product, radial, log)")
+    t isa AbstractString && haskey(VIGNETTING_TAGS, t) ||
+        _refuse(file, _at(at, :type), "$(repr(t)) is not a vignetting type ($(_vignetting_tags()))")
+    return _validate(_vignetting_body(VIGNETTING_TAGS[t]), x, file, at)
 end
 const _VIGNETTING_SPEC = _Obj(
     Pair{Symbol, _Spec}[:schema => _schema_tok("vignetting"), :pixel_frame => _Tok("colmap"), :vignetting => _VignettingBody()],
@@ -84,24 +86,25 @@ const _BLUR_SPEC = _Checked(
 
 # The `vignetting` body, on the style (positions in COLMAP pixels: the fields' own convention, no length).
 JSON.lower(::VgioStyle, v::TensorProductVignetting) = (
-    type = "tensor_product", degree = collect(spline_degree(v)),
+    type = tag_of(VIGNETTING_TAGS, v), degree = collect(spline_degree(v)),
     knots_x = Float64.(collect(knot_vectors(v)[1])), knots_y = Float64.(collect(knot_vectors(v)[2])),
     control_points = [Float64[control_points(v)[i, j] for j in axes(control_points(v), 2)] for i in axes(control_points(v), 1)],
 )
 JSON.lower(::VgioStyle, v::RadialVignetting) = (
-    type = "radial", degree = only(spline_degree(v)), center = Float64.(collect(VgtkCore.center(v))),
+    type = tag_of(VIGNETTING_TAGS, v), degree = only(spline_degree(v)), center = Float64.(collect(VgtkCore.center(v))),
     radius = Float64(field_radius(v)), control_points = Float64.(collect(vec(control_points(v)))),
 )
-JSON.lower(s::VgioStyle, v::LogVignetting) = (type = "log", spline = JSON.lower(s, log_spline(v)))
-JSON.lower(::VgioStyle, v::AbstractVignetting) = throw(ArgumentError("save: a $(typeof(v)) has no vgio/vignetting body (tensor_product, radial, log)"))
+JSON.lower(s::VgioStyle, v::LogVignetting) = (type = tag_of(VIGNETTING_TAGS, v), spline = JSON.lower(s, log_spline(v)))
+JSON.lower(::VgioStyle, v::AbstractVignetting) = throw(ArgumentError("save: a $(typeof(v)) has no vgio/vignetting body ($(_vignetting_tags()))"))
 
-function JSON.lift(s::VgioStyle, ::Type{AbstractVignetting}, b::_Record)
-    b.type == "log" && return LogVignetting(JSON.lift(s, AbstractVignetting, b.spline::_Record))
-    if b.type == "tensor_product"
-        P = reduce(vcat, (permutedims(Float64[Float64(x::Real) for x in r]) for r in b.control_points::Vector{Any}))
-        return TensorProductVignetting(Float64[Float64(x::Real) for x in b.knots_x], Float64[Float64(x::Real) for x in b.knots_y], P;
-            degree = (Int(b.degree[1]), Int(b.degree[2])))
-    end
+JSON.lift(s::VgioStyle, ::Type{AbstractVignetting}, b::_Record) = _lift_vignetting(s, VIGNETTING_TAGS[b.type::String], b)
+_lift_vignetting(s::VgioStyle, ::Type{<:LogVignetting}, b::_Record) = LogVignetting(JSON.lift(s, AbstractVignetting, b.spline::_Record))
+function _lift_vignetting(::VgioStyle, ::Type{<:TensorProductVignetting}, b::_Record)
+    P = reduce(vcat, (permutedims(Float64[Float64(x::Real) for x in r]) for r in b.control_points::Vector{Any}))
+    return TensorProductVignetting(Float64[Float64(x::Real) for x in b.knots_x], Float64[Float64(x::Real) for x in b.knots_y], P;
+        degree = (Int(b.degree[1]), Int(b.degree[2])))
+end
+function _lift_vignetting(::VgioStyle, ::Type{<:RadialVignetting}, b::_Record)
     P = Float64[Float64(x::Real) for x in b.control_points]
     v = RadialVignetting(length(P), SVector(Float64(b.center[1]), Float64(b.center[2])), Float64(b.radius); degree = Int(b.degree))
     return with_control_points(v, P)

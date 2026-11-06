@@ -1,5 +1,11 @@
 # VisualGeometryToolkitIO changelog
 
+## Unreleased
+
+- The `vgio/vignetting/v1` body's `type` is read and written through VisualGeometryToolkitCore's `VIGNETTING_TAGS`
+  (`tensor_product`, `radial`, `log`): the same strings, so no file changes; an unknown type is refused naming the
+  registry's tags.
+
 ## 0.6.0 (2026-11-06)
 
 - **`read_record(io::IO)`**: a record from JSON text (BlobBoards' `rebuild_board` takes a board's JSON as text),

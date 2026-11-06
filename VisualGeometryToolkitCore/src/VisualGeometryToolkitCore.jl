@@ -98,7 +98,7 @@ export Circle, Ellipse, AbstractConic3D, Ellipse3D, Circle3D
 public RegionIntersection, WholePlane   # `a ∩ b` of two 2-D regions, held lazily, and the identity of ∩ (primitives/regions.jl)
 export boundary_point, boundary_points
 export centroid, area
-export moment_matrix, characteristic_scale
+export shape_matrix, characteristic_scale
 export iou, overlap_area, coverage, best_iou_match
 public overlap_method, geom_rank
 
@@ -125,7 +125,7 @@ public pair_covariance, noise_columns   # a correspondence's 4×4 covariance; Un
 
 # Hyperplanes (lines in 2D, planes in 3D)
 export Hyperplane, Line2D, Plane3D
-export normal, offset, distance, signed_distance, closest_point, project, side   # `distance(hyperplane, p)` deprecated (signed): `signed_distance`
+export normal, offset, distance, signed_distance, closest_point, project, side   # a hyperplane's distance is signed: `signed_distance`
 export slope, intercept, clip_to_rect
 # Batched SoA ray-plane intersection (0.14; hoisted from RayTracedCalibration):
 # broadcasted hit points + ray parameters of SoA ray bundles against a Plane3D.
@@ -328,13 +328,14 @@ public SupportTrait, GlobalSupport, LocalSupport, support_trait, nodes, support,
 public BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent nodes of a lattice outside an imaged region
 export AbstractVignetting, TensorProductVignetting, RadialVignetting, LogVignetting   # a camera's vignetting: B-spline fields on the sensor, in V or in log V (cameras/vignetting.jl)
 public log_spline   # a LogVignetting's spline of log V
+public VIGNETTING_TAGS   # the fields' TagRegistry: the `type` of IO's vignetting body
 export EnvironmentLight, SphericalHarmonicMap   # the scene's light: radiance from every direction on a sphere about a centre, in real SH (cameras/lighting.jl)
 export AbstractBlur, GaussianBlur   # one blur of an imaging model (a camera's in-focus blur, a print's), the density N(0, Σ) by its covariance (cameras/blur.jl)
 public convolve                     # two Gaussian blurs in sequence (through a linear map of its plane: `propagate`)
 public radiance, exit_direction, radiance_map, coefficients, with_coefficients, max_degree, sh_basis, sh_count, sh_index   # its evaluation, accessors and the SH basis
 public radius   # GeometryBasics' `radius`, Core's methods on it included (an EnvironmentLight's sphere)
 public coefficient_jacobian, active_coefficients, control_points, with_control_points, n_control_points, knot_vectors, spline_degree,
-       field_center, field_radius, radial_coordinate, pole_regular_basis   # their basis, accessors and a radial profile's regular subspace
+       field_radius, radial_coordinate, pole_regular_basis   # their basis, accessors and a radial profile's regular subspace
 public radial_part      # a lens's radially symmetric part (shared with VisualGeometryToolkitEstimation's fit_camera)
 export parameter_vector, parameter_names, parameter_bounds, with_parameters  # the lens parameter chart
 public convert_eltype                     # a camera, lens or intrinsics rebuilt in another float type

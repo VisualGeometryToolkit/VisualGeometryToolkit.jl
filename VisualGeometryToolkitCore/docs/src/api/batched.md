@@ -71,7 +71,9 @@ batch of sensor points goes through [`pointwise!`](@ref) on a device;
 points, [`active_coefficients`](@ref) that row's nonzeros, and
 [`pole_regular_basis`](@ref) the radial profiles smooth at their centre. The
 estimators that fit them are their owners': a radiometric calibration's,
-a panorama's self-calibration.
+a panorama's self-calibration. [`VIGNETTING_TAGS`](@ref) is the fields' tag
+registry (`"tensor_product"`, `"radial"`, `"log"`), the `type` a file or a
+configuration names them by.
 
 ```julia
 v = RadialVignetting(12, SVector(2128.0, 1424.0), 1700.0)   # control points, centre and radius (camera pixels); V ≡ 1

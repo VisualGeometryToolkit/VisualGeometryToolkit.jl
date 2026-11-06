@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **`read_record(io::IO)`**: a record from JSON text (BlobBoards' `rebuild_board` takes a board's JSON as text),
+  the same parse, version steps and refusals as `read_record(path)`. A schema owner's step that refuses a record
+  (an `ArgumentError`, or a key its version always held missing) is an `ArgumentError` naming the file (or "the
+  JSON text") and its schema, as the native kinds' readers name theirs.
 - **One serializer, `VgioStyle` (public).** Every VisualGeometryToolkitCore value a record embeds is written by one
   `JSON.lower(::VgioStyle, x)` method and read by one `JSON.lift(::VgioStyle, T, record)` method (StructUtils' hooks,
   through JSON.jl's public names), on IO's own style, `VgioStyle <: JSON.JSONStyle`, which carries the file's

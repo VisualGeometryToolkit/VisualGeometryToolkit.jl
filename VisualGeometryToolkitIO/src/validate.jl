@@ -427,22 +427,35 @@ end
 
 """
     read_record(path; allownan = false) -> JSON.Object
+    read_record(io::IO; allownan = false) -> JSON.Object
 
-The record a JSON file holds, as its kind's CURRENT record: parsed (a
-`JSON.Object`, read by property access — the form `JSON.lift(::VgioStyle, T,
-record)` takes) and, when its `schema` is an earlier version that a schema
-owner's version steps read ([`migrate_schema`](@ref)), run through them by
-[`migrate_record`](@ref) in memory; the file is not rewritten. A NaN or
-±Infinity is refused naming its field; `allownan = true` reads one (and then
-reads every number as a `Float64`, JSON.jl's rule), for a file
-[`write_record`](@ref) wrote with `allownan = true`.
+The record a JSON file (or the JSON text `io` holds) is, as its kind's
+CURRENT record: parsed (a `JSON.Object`, read by property access — the form
+`JSON.lift(::VgioStyle, T, record)` takes) and, when its `schema` is an
+earlier version that a schema owner's version steps read
+([`migrate_schema`](@ref)), run through them by [`migrate_record`](@ref) in
+memory; the file is not rewritten. A step's refusal (an `ArgumentError`, or a
+key its version always held missing) is an `ArgumentError` naming the file
+and its schema. A NaN or ±Infinity is refused naming its field;
+`allownan = true` reads one (and then reads every number as a `Float64`,
+JSON.jl's rule), for a file [`write_record`](@ref) wrote with
+`allownan = true`.
 """
-function read_record(path::AbstractString; allownan::Bool = false)
-    parse(text) = allownan ? _parse_json(text; allownan = true) : _parse_vgio_text(text, path)
-    d = parse(read(path, String))
+read_record(path::AbstractString; allownan::Bool = false) = _read_record_text(read(path, String), path; allownan)
+read_record(io::IO; allownan::Bool = false) = _read_record_text(read(io, String), "the JSON text"; allownan)
+
+function _read_record_text(text::AbstractString, where_::AbstractString; allownan::Bool)
+    parse(t) = allownan ? _parse_json(t; allownan = true) : _parse_vgio_text(t, where_)
+    d = parse(text)
     s = d isa AbstractDict ? get(d, :schema, nothing) : nothing
     (s isa AbstractString && _has_record_migration(s)) || return d
-    return parse(JSON.json(migrate_record(d); allownan = true))   # what a current file parses as
+    t = try
+        migrate_record(d)
+    catch e
+        e isa Union{ArgumentError, KeyError} || rethrow()
+        throw(ArgumentError("$(where_): its $(s) record does not read through its version steps: $(sprint(showerror, e))"))
+    end
+    return parse(JSON.json(t; allownan = true))   # what a current file parses as
 end
 
 # `provenance` as the writer stores it: the caller's free-form object, omitted

@@ -345,7 +345,8 @@ native kinds do: [`write_record`](@ref)`(path, record; style)` writes a record
 ±Infinity by its field, and [`read_record`](@ref)`(path)` parses one back as
 its kind's current record, through the owner's version steps
 (`migrate_schema`, run by `migrate_record`) when the file is of an earlier
-version. The record states its own schema, `"<owner>/<kind>/v<n>"`; the owner
+version; a step's refusal names the file and its schema. `read_record(io)`
+reads the same from JSON text. The record states its own schema, `"<owner>/<kind>/v<n>"`; the owner
 validates its fields. A run report that may hold a non-finite statistic is
 written and read with `allownan = true`.
 

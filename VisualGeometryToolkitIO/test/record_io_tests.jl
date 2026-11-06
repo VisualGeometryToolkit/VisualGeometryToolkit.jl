@@ -25,6 +25,12 @@
         r = VgtkIO.read_record(p)
         @test r.schema == "toy/thing/v2" && r.n == 7
         @test occursin("toy/thing/v1", read(p, String))
+        # the same from JSON text, and a step's refusal names the file and its schema
+        r = VgtkIO.read_record(IOBuffer("""{"schema": "toy/thing/v1", "count": 5}"""))
+        @test r.schema == "toy/thing/v2" && r.n == 5
+        write(p, """{"schema": "toy/thing/v1"}""")              # a v1 record always held `count`
+        e = try VgtkIO.read_record(p); nothing catch e; e end
+        @test e isa ArgumentError && occursin(p, e.msg) && occursin("toy/thing/v1", e.msg) && occursin("count", e.msg)
         # a non-finite number is refused by its field, unless the file is a report that allows it
         @test_throws ArgumentError VgtkIO.write_record(joinpath(dir, "bad.json"), (; a = (; b = NaN)))
         @test !isfile(joinpath(dir, "bad.json"))

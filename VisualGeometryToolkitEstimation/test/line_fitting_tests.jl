@@ -35,7 +35,7 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
     @testset "fit_line — heteroscedastic (Uncertain points)" begin
         rng = StableRNG(29)
         # Half the points are 100× noisier; the weighted fit must ignore them.
-        pts = Uncertain{Point2{Float64}, CovMat{2, Float64, 4, UnlabeledFrame{2}}}[]
+        pts = Uncertain{Point2{Float64}, CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, UnlabeledFrame{2}}}[]
         for i in 1:60
             σ = isodd(i) ? 0.01 : 1.0
             y = 2.0i + 1.0 + σ * randn(rng)
@@ -44,7 +44,7 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
         end
         res = fit_line(pts)
         # Precise points lie close to the recovered line.
-        errs = [abs(distance(geom(estimate(res)), geom(pts[i]))) for i in 1:2:59]
+        errs = [abs(signed_distance(geom(estimate(res)), geom(pts[i]))) for i in 1:2:59]
         @test maximum(errs) < 0.1
         @test res.ν == 58
     end
@@ -62,7 +62,7 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
         line = VgtkEstimation.refine!(nothing, prob, nothing, ones(40))
         @test line !== nothing
         for p in pts
-            @test abs(distance(line, p)) < 0.2
+            @test abs(signed_distance(line, p)) < 0.2
         end
 
         # Excluded points carry weight 0 and must not move the fit: zero out the
@@ -76,7 +76,7 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
         line2 = VgtkEstimation.refine!(nothing, prob2, nothing, w)
         @test line2 !== nothing
         for i in 1:20
-            @test abs(distance(line2, pts2[i])) < 0.2
+            @test abs(signed_distance(line2, pts2[i])) < 0.2
         end
 
         # Fewer than 3 surviving weights is a `nothing`, not a throw.
@@ -88,8 +88,8 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
         append!(pts3, [Point2{Float64}(Float64(x), 0.5) for x in (10, 30, 50)])
         w3 = [i <= 57 ? 1.0 : 1.0e-6 for i in 1:60]
         line3 = VgtkEstimation.refine!(nothing, LineFittingProblem(pts3), nothing, w3)
-        @test abs(distance(line3, Point2(0.0, 0.0))) < 1.0e-4
-        @test abs(distance(line3, Point2(56.0, 0.0))) < 1.0e-4
+        @test abs(signed_distance(line3, Point2(0.0, 0.0))) < 1.0e-4
+        @test abs(signed_distance(line3, Point2(56.0, 0.0))) < 1.0e-4
     end
 
     # 57 inliers on y = 0 (σ = 0.01) and 3 outliers at y = 0.5, seeded at the
@@ -105,8 +105,8 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
         prob, θ₀ = _contaminated_line(StableRNG(57))
         r = locally_optimize(prob, θ₀; local_optimization = Irls{WelschShape}(scale_multiple = 1.5), threshold = 0.1)   # 10σ; the outliers sit 0.475 off the seed
         line = estimate(r)
-        @test abs(distance(line, Point2(0.0, 0.0))) < 0.006
-        @test abs(distance(line, Point2(56.0, 0.0))) < 0.006
+        @test abs(signed_distance(line, Point2(0.0, 0.0))) < 0.006
+        @test abs(signed_distance(line, Point2(56.0, 0.0))) < 0.006
         @test count(r.inlier_mask[1:57]) >= 55 && !any(r.inlier_mask[58:60])
     end
 
@@ -124,7 +124,7 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
         est = VgtkEstimation._lo_on_partition!(ws, prob, θ₀, sc, k, lo)
         @test iterations(est) > 2
         @test retcode(est) in (:converged, :max_iterations)
-        @test abs(distance(estimate(est), Point2(28.0, 0.0))) < abs(distance(θ₀, Point2(28.0, 0.0)))
+        @test abs(signed_distance(estimate(est), Point2(28.0, 0.0))) < abs(signed_distance(θ₀, Point2(28.0, 0.0)))
     end
 
     @testset "Irls survives a failed refit" begin

@@ -15,7 +15,7 @@ using KernelAbstractions: @kernel, @index, @Const
 # One row of `detect_foerstner`'s result: a point frame with its 2×2
 # covariance, labelled, with its window centre and the classification statistic.
 const _FoerstnerDetection = Attributed{
-    Uncertain{PointFrame{Float64}, CovMat{2, Float64, 4, UnlabeledFrame{2}}},
+    Uncertain{PointFrame{Float64}, CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, UnlabeledFrame{2}}},
     @NamedTuple{label::Symbol, window::Point2{Float64}, F::Float64},
 }
 

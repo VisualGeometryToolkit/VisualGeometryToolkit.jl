@@ -59,7 +59,7 @@
         C = Conic(e)
         for p in (SVector(420.0, 250.0), SVector(300.0, 290.0), SVector(330.0, 230.0))
             @test sampson_distance(C, p) ≈ sampson_distance(e, p) rtol = 1.0e-10
-            @test sampson_distance(Conic(-3.0 * C.Q), p) ≈ sampson_distance(C, p) rtol = 1.0e-12     # homogeneous
+            @test sampson_distance(Conic(-3.0 * SMatrix{3, 3}(C)), p) ≈ sampson_distance(C, p) rtol = 1.0e-12     # homogeneous
         end
         @test sampson_distance(e, e.center) == Inf
         @test sampson_distance(C, SVector(e.center...)) == Inf

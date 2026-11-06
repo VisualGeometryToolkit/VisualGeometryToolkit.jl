@@ -120,7 +120,12 @@ function test_constraint_problem(problem, θ)
         r = Vector{Float64}(undef, n)
         Test.@inferred residuals!(r, problem, θ)
         Test.@test (@allocated residuals!(r, problem, θ)) == 0
+        # to rounding, at the point's or the residuals' scale (see the docstring:
+        # FMA contraction differs between the loop and a single call)
         ctx = residual_context(problem, θ)
-        Test.@test all(i -> isequal(Float64(whitened_residual(problem, ctx, i)), r[i]), 1:n)
+        w = [Float64(whitened_residual(problem, ctx, i)) for i in 1:n]
+        finite = filter(isfinite, r)
+        scale = isempty(finite) ? 0.0 : maximum(abs, finite)
+        Test.@test all(i -> isequal(w[i], r[i]) || isapprox(w[i], r[i]; rtol = 1.0e-11, atol = 1.0e-14 * scale), 1:n)
     end
 end

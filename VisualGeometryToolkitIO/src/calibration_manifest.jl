@@ -165,22 +165,28 @@ function save_manifest(dir::AbstractString, files::AbstractVector; kind::Abstrac
     path = joinpath(dir, _MANIFEST_FILE)
     entries = [_manifest_entry(dir, e) for e in files]
     body = (schema = _schema("calibration"), kind = String(kind), files = entries)
-    model === nothing || (body = merge(body, (model = VgtkCore.toml_value(model),)))
+    model === nothing || (body = merge(body, (model = model::VgtkCore.CameraModelSpec,)))   # lowered on the style
     metrics === nothing || (body = merge(body, (metrics = metrics,)))
     body = _with_provenance(body, provenance)
-    tree = _parse_vgio_text(_json_text(body), path)       # the very bytes, as _write_store checks them
+    text = _json_text(body, VgioStyle())                  # serialized once: these bytes are checked and written, as _write_store's
+    tree = _parse_vgio_text(text, path)
     _validate(_CALIBRATION_SPEC, tree, path, "")
     model === nothing || _manifest_model(tree, path)
     _check_manifest_files(dir, tree, path)
-    write(path, _json_text(body))
+    write(path, text)
     return path
 end
 
-# The model a manifest states, read by VGC's own reader; its refusal names the manifest.
+# A CameraModelSpec on the wire: VGC's own table (`toml_value`, the config form),
+# and back by VGC's own reader.
+JSON.lower(::VgioStyle, spec::VgtkCore.CameraModelSpec) = VgtkCore.toml_value(spec)
+JSON.lift(::VgioStyle, ::Type{VgtkCore.CameraModelSpec}, x::JSON.Object) = VgtkCore.CameraModelSpec(_plain(x))   # a parsed table
+
+# The model a manifest states, lifted; its refusal names the manifest.
 function _manifest_model(d, path)
     haskey(d, :model) || return nothing
     return try
-        VgtkCore.CameraModelSpec(_plain(d.model))
+        JSON.lift(VgioStyle(), VgtkCore.CameraModelSpec, d.model::JSON.Object)
     catch e
         e isa ArgumentError ? throw(ArgumentError("$(path): model: $(e.msg)")) : rethrow()
     end

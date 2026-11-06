@@ -26,7 +26,7 @@
     # the one constructor: a CovMat or a PrecMat, nothing else — a bare matrix or
     # a scalar does not say which form is stored
     u = Uncertain(p, CovMat(@SMatrix [0.1 0.0; 0.0 0.2]))
-    @test getfield(u, :attributes) isa CovMat{2, Float64, 4, UnlabeledFrame{2}}
+    @test getfield(u, :attributes) isa CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, UnlabeledFrame{2}}
     @test_throws MethodError Uncertain(p, @SMatrix [0.1 0.0; 0.0 0.2])
     @test_throws MethodError Uncertain(p, 0.5)
     @test_throws MethodError Uncertain(p, (; σ = 0.5))
@@ -63,11 +63,11 @@
 
     # the storage-boundary convert (labels an unlabeled form; containers typed on
     # the historical 3-parameter surface)
-    v = Vector{Uncertain{Point2{Float32}, PrecMat{2, Float32, 4}}}(undef, 1)
+    v = Vector{Uncertain{Point2{Float32}, PrecMat{2, Float32, SMatrix{2, 2, Float32, 4}}}}(undef, 1)
     v[1] = Uncertain(Point2{Float32}(1, 2), Λ)
     @test geom(v[1]) == Point2{Float32}(1, 2)
-    ul = convert(Uncertain{Point2{Float64}, CovMat{2, Float64, 4, ImageFrame{:a}}}, Uncertain(p, Σ))
-    @test getfield(ul, :attributes) isa CovMat{2, Float64, 4, ImageFrame{:a}}
+    ul = convert(Uncertain{Point2{Float64}, CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, ImageFrame{:a}}}, Uncertain(p, Σ))
+    @test getfield(ul, :attributes) isa CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, ImageFrame{:a}}
 
     # Ellipse: one method, the same ellipse from either stored form
     eΣ = Ellipse(Uncertain(p, Σ); sigma = 2)
@@ -78,7 +78,7 @@
     for s in (0.5, 2.0f0, 3)
         Σs = CovMat{2}(σ = s); Λs = PrecMat{2}(σ = s)
         F = float(typeof(s))
-        @test Σs isa CovMat{2, F, 4, UnlabeledFrame{2}} && Λs isa PrecMat{2, F, 4, UnlabeledFrame{2}}
+        @test Σs isa IsotropicCovMat{2, F, UnlabeledFrame{2}} && Λs isa IsotropicPrecMat{2, F, UnlabeledFrame{2}}   # a scalar σ: λ·I
         @test SMatrix{2, 2}(Σs) == F(s)^2 * SMatrix{2, 2, F}(I) && isbits(Σs) && isbits(Λs)
         @test SMatrix{2, 2}(inv(Λs)) ≈ SMatrix{2, 2}(Σs)
         @test SMatrix{2, 2}(cov(Uncertain(p, Λs))) ≈ SMatrix{2, 2}(Σs)
@@ -86,10 +86,10 @@
     end
     @test SMatrix{3, 3}(CovMat{3}(σ = (1.0, 2.0, 3.0))) == SMatrix{3, 3}(Diagonal(SVector(1.0, 4.0, 9.0)))
     @test SMatrix{2, 2}(PrecMat{2}(σ = SVector(0.5, 2.0))) == SMatrix{2, 2}(Diagonal(SVector(4.0, 0.25)))
-    @test @inferred(CovMat{3}(σ = SVector(1.0, 2.0, 3.0))) isa CovMat{3, Float64, 9}
+    @test @inferred(CovMat{3}(σ = SVector(1.0, 2.0, 3.0))) isa DiagonalCovMat{3, Float64}                  # a σ per axis: the diagonal
     @test_throws MethodError CovMat{3}(σ = (1.0, 2.0))          # the diagonal has N entries
     @test_throws ArgumentError CovMat{2}(σ = 0.0)
     @test_throws ArgumentError PrecMat{2}(σ = -1.0)
     @test_throws DimensionMismatch CovMat{2}(0.5)               # no positional scalar (σ or variance?): StaticArrays refuses it
-    @test relabel(ImageFrame{:a}, CovMat{2}(σ = 0.5)) isa CovMat{2, Float64, 4, ImageFrame{:a}}
+    @test relabel(ImageFrame{:a}, CovMat{2}(σ = 0.5)) isa IsotropicCovMat{2, Float64, ImageFrame{:a}}
 end

@@ -273,14 +273,14 @@ HomographyMat(P::RadialCamera{T}) where {T} = HomographyMat{T}(
 # model: an `ArgumentError`. To re-attach a caller's DATUM centre exactly after
 # moving back (the inverse map carrying the normalized origin back rounds it):
 # `RadialCamera(radial_rows(inv(destination_map(N)) ∘ P ∘ source_map(N)), c)`.
-function Base.:∘(a::Union{HomographyMap{3}, _CTLeafTransformation}, P::RadialCamera)
+function Base.:∘(a::Union{HomographyMap{3}, _AffinePlanarMap}, P::RadialCamera)
     D = SMatrix{3, 3}(to_homogeneous(a))
     (iszero(D[3, 1]) && iszero(D[3, 2]) && isone(D[3, 3])) ||
         throw(ArgumentError("∘ on a RadialCamera: the image-side map must be affine; got $D"))
     A = SMatrix{2, 2}(D[1, 1], D[2, 1], D[1, 2], D[2, 2])
     return RadialCamera(A * P.P, affine_part(D)(P.center))
 end
-Base.:∘(P::RadialCamera, b::Union{HomographyMap{3}, _CTLeafTransformation}) =
+Base.:∘(P::RadialCamera, b::Union{HomographyMap{3}, _AffinePlanarMap}) =
     RadialCamera(P.P * SMatrix{3, 3}(to_homogeneous(b)), P.center)
 
 """

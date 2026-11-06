@@ -6,13 +6,12 @@
 # WHERE THIS SITS IN THE HIERARCHY.  VisualGeometryToolkitCore keeps three layers
 # apart so that composition stays checkable:
 #
-#   1. ALGEBRAIC QUANTITIES — `AbstractHomMat <: StaticMatrix{3,3}` and the
-#      affine/similarity/euclidean/calibration chain under it.  Matrices.  They
-#      compose by multiplication, and the subtype chain IS the composition
-#      algebra.  No direction, no frame, no cached inverse.
-#   2. MAPPINGS — `HomographyMap` and the lenses: `Transformation`s carrying a
-#      forward AND an inverse, plus `Src`/`Dst` frame parameters, so a bad
-#      composition under `∘` is a type error.
+#   1. ALGEBRAIC QUANTITIES — `HomographyMat`, `CameraCalibrationMat`, the
+#      conic matrices: `StaticMatrix{3,3}`s.  They compose by multiplication.
+#      No class, no direction, no frame, no cached inverse.
+#   2. MAPPINGS — `EuclideanMap`, `SimilarityMap`, `HomographyMap` and the
+#      lenses: `Transformation`s whose type is their class, carrying `Src`/`Dst`
+#      frame parameters, so a bad composition under `∘` is a type error.
 #   3. CAMERA MODELS — unposed `AbstractCamera`s; `CameraModel` = intrinsics + lens;
 #      `PosedCamera` = model + extrinsics.  Domain is a 3D point.
 #

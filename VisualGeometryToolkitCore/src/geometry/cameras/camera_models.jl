@@ -117,7 +117,7 @@ model = CameraModel(EuclideanMap(PixelFrame{:opencv}, PixelFrame{:colmap}) ∘ a
 ```
 """
 function CameraModel(map::AffineMap; lens::AbstractLensModel = Pinhole())
-    K = CameraCalibrationMat{Float64}(Tuple(to_homogeneous(map)))
+    K = _calibration_from_affine(Float64, map.linear, map.translation)
     return CameraModel(LogicalIntrinsics(K), lens)
 end
 
@@ -156,7 +156,10 @@ function CameraModel(
         origin_shift = Translation(
             EuclideanMap(PixelFrame{image_origin}, PixelFrame{:colmap}).t
         )
-        CameraModel(origin_shift ∘ affine_part(K); lens)
+        # K was checked (or deliberately not, `check = false`) when it was
+        # built: the shift moves its principal point only, so nothing is re-checked
+        a = origin_shift ∘ affine_part(K)
+        CameraModel(LogicalIntrinsics(_calibration_from_affine(Float64, a.linear, a.translation; check = false)), lens)
     else
         CameraModel(LogicalIntrinsics(K), lens)
     end

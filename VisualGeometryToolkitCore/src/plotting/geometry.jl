@@ -46,14 +46,15 @@ end
 _display_mm(x) = has_units(x) ? ustrip(mm, x) : x
 
 """
-    frame_segments(pose::EuclideanMap; scale) -> (segments, colors, axis_ends)
+    frame_segments(pose::Union{EuclideanMap, RotationMap}; scale) -> (segments, colors, axis_ends)
 
-Convenience method for EuclideanMap poses (a physical pose drawn in mm).
+Convenience method for EuclideanMap poses (a physical pose drawn in mm) and
+RotationMap orientations (drawn at the origin).
 """
-function frame_segments(pose::EuclideanMap; scale::Real = 1.0)
+function frame_segments(pose::Union{EuclideanMap, RotationMap}; scale::Real = 1.0)
     pose = _display_mm(pose)
     return frame_segments(;
-        origin = Point3f(pose.t),
+        origin = Point3f(_mapped_origin(pose)),
         rotation = SMatrix{3, 3, Float64}(pose.R),
         scale = scale
     )
@@ -71,7 +72,7 @@ function frustum_segments(camera::PosedCamera, sensor_bounds, depth::Real)
     camera = _display_mm(camera)
     # Get camera pose
     cam_pose = pose(camera)
-    cam_center = Point3f(cam_pose.t)
+    cam_center = Point3f(_mapped_origin(cam_pose))   # the origin for an oriented camera
 
     # Unproject sensor corners to 3D world coordinates
     corners_2d = Point2{Float64}.(coordinates(sensor_bounds))

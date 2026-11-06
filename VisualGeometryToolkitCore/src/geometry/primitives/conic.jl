@@ -390,7 +390,7 @@ function HomEllipseMat(e::Ellipse{T}) where {T}
 
     Q = propagate(transpose(inv(A)), CIRCLE)   # A^{-T}·CIRCLE·A^{-1}
 
-    return HomEllipseMat{T}(Tuple(Q))
+    return HomEllipseMat{T}(_averaged_coefficients(T, Q), _Unchecked())   # an ellipse by construction
 end
 
 """
@@ -411,7 +411,7 @@ function HomCircleMat(c::Circle{T}) where {T}
 
     Q = propagate(transpose(inv(A)), CIRCLE)   # A^{-T}·CIRCLE·A^{-1}
 
-    return HomCircleMat{U}(Tuple(Q))
+    return HomCircleMat{U}(_averaged_coefficients(U, Q), _Unchecked())   # a circle by construction
 end
 
 # =============================================================================
@@ -425,69 +425,8 @@ HomEllipseMat(c::Circle) = HomCircleMat(c)
 # Conic Classification and Validation
 # =============================================================================
 
-# Symmetrize + unit-Frobenius normalization shared by the conic classifiers.
-# Returns `nothing` for a numerically null matrix (degenerate).
-@inline function _normalized_symmetric_conic(Q::StaticMatrix{3, 3, T}) where {T}
-    C_raw = SMatrix{3, 3, T}(Q)
-    C_sym = (C_raw + transpose(C_raw)) / T(2)
-    n = norm(C_sym)
-    (iszero(n) || !isfinite(n)) && return nothing   # relative only: a homogeneous conic has no absolute scale
-    return C_sym / n
-end
-
-"""
-    classify_conic(Q::Union{HomEllipseMat, HomCircleMat}) -> ConicTrait
-
-Classify a conic matrix and return the appropriate Holy Trait.
-
-Returns one of:
-- `EllipseTrait()`: Valid ellipse (bounded, non-degenerate)
-- `HyperbolaTrait()`: Hyperbola (indefinite quadratic form)
-- `ParabolaTrait()`: Parabola (singular quadratic form)
-- `DegenerateTrait()`: a point ellipse, an imaginary ellipse, or a conic with
-  no quadratic part (a line). Intersecting line pairs classify as
-  `HyperbolaTrait` and parallel pairs as `ParabolaTrait` (their quadratic forms).
-
-Invariant to the conic's scale and sign (a homogeneous conic is defined only
-up to a nonzero multiplier). A point ellipse is told from a real one by γ, the
-constant term at the centre, against the rounding of the terms that produce it
-(`|c| + 2|b||centre| + |λ|·|centre|²`) magnified by the quadratic block's
-condition number κ — never against an absolute threshold, which called large or
-distant ellipses degenerate. The bound was measured: on
-20,000 elongated point ellipses (κ up to 1e6) the computed |γ| stays below
-0.55·κ·eps of those terms, and the test allows 2·(1 + κ)·eps. An ellipse whose γ
-is within that noise — thin and far along its minor axis, or small in Float32 —
-reads degenerate, because the arithmetic cannot tell it from a point.
-"""
-function classify_conic(Q::Union{HomEllipseMat{T}, HomCircleMat{T}}) where {T}
-    C = _normalized_symmetric_conic(Q)
-    C === nothing && return DegenerateTrait()
-
-    A = SMatrix{2, 2, T}(C[1, 1], C[2, 1], C[1, 2], C[2, 2])
-    b = SVector{2, T}(C[1, 3], C[2, 3])
-    c = C[3, 3]
-
-    # the quadratic block's eigenvalues ordered by MAGNITUDE: `extrema` orders
-    # them by value, so a negated conic read its ratio upside down
-    λ1, λ2 = eigen(Symmetric(A)).values
-    small, large = abs(λ1) <= abs(λ2) ? (λ1, λ2) : (λ2, λ1)
-    iszero(large) && return DegenerateTrait()          # no quadratic part: a line
-
-    abs(small / large) < eps(T)^(T(3) / T(4)) && return ParabolaTrait()
-    small * large < zero(T) && return HyperbolaTrait()
-
-    # definite: flip a negated conic so the block is positive definite
-    if large < zero(T)
-        A, b, c = -A, -b, -c
-    end
-    center = -(A \ b)
-    γ = c + dot(b, center)
-    # γ < 0 is a real ellipse, unless it does not rise above the rounding of the
-    # terms that produce it (a point ellipse is γ = 0 up to that rounding)
-    κ = abs(large / small)
-    terms = abs(c) + 2 * norm(b) * norm(center) + abs(large) * dot(center, center)
-    return γ < -2 * (1 + κ) * eps(T) * terms ? EllipseTrait() : DegenerateTrait()
-end
+# (classify_conic of a conic matrix — the six coefficients — is in base/types.jl,
+# beside the class checks of the conic constructors, which run the same test.)
 
 # Trivial classification for geometric primitives
 classify_conic(::Ellipse) = EllipseTrait()
@@ -512,53 +451,56 @@ is_ellipse(Q) = classify_conic(Q) isa Union{EllipseTrait, CircleTrait}
 Extract Ellipse from conic matrix Q using robust eigenvalue decomposition.
 """
 function Ellipse(Q::Union{HomEllipseMat{T}, HomCircleMat{T}}) where {T}
-    C = SMatrix{3, 3, T}(Q)
+    # of its class: no check here. Read in the precision the class was decided
+    # in (classify_conic): a Float32 conic at pixel coordinates loses γ to
+    # cancellation in Float32 arithmetic.
+    q = getfield(Q, :coeffs)
+    q11, q12, q22, q13, q23, q33 = map(_conic_work_type(T), q)
+    W = typeof(q11)
 
-    A = SMatrix{2, 2, T}(C[1, 1], C[2, 1], C[1, 2], C[2, 2])
-    b = SVector{2, T}(C[1, 3], C[2, 3])
+    A = SMatrix{2, 2, W}(q11, q12, q12, q22)
+    b = SVector{2, W}(q13, q23)
 
     center_vec = -(A \ b)
-    γ = C[3, 3] + dot(b, center_vec)
+    γ = q33 + dot(b, center_vec)
 
-    A_sym = (A + transpose(A)) / T(2)
-    eigen_result = eigen(Symmetric(A_sym))
+    eigen_result = eigen(Symmetric(A))
     eigenvals = eigen_result.values
     eigenvecs = eigen_result.vectors
 
     # Clamp to avoid DomainError from numerically negative arguments
-    a1 = sqrt(max(zero(T), -γ / eigenvals[1]))
-    a2 = sqrt(max(zero(T), -γ / eigenvals[2]))
+    a1 = sqrt(max(zero(W), -γ / eigenvals[1]))
+    a2 = sqrt(max(zero(W), -γ / eigenvals[2]))
 
     if a1 >= a2
         a, b_axis = a1, a2
-        major_axis_vec = Vec2{T}(eigenvecs[1, 1], eigenvecs[2, 1])
+        major_axis_vec = Vec2{W}(eigenvecs[1, 1], eigenvecs[2, 1])
     else
         a, b_axis = a2, a1
-        major_axis_vec = Vec2{T}(eigenvecs[1, 2], eigenvecs[2, 2])
+        major_axis_vec = Vec2{W}(eigenvecs[1, 2], eigenvecs[2, 2])
     end
 
     θ = atan(major_axis_vec[2], major_axis_vec[1])
-    θ = mod(θ, T(π))
+    θ = mod(θ, W(π))
 
-    return Ellipse{T}(Point2{T}(center_vec), a, b_axis, θ)
+    R = float(T)   # an exact-typed conic (Int) still has an irrational ellipse
+    return Ellipse{R}(Point2{R}(center_vec), R(a), R(b_axis), R(θ))
 end
 
 """
-    Circle(Q::Union{HomEllipseMat, HomCircleMat}) -> Circle
+    Circle(Q::Union{HomCircleMat, HomEllipseMat, Conic}) -> Circle
 
-Extract circle parameters from conic matrix.
-Throws an error if the conic doesn't represent a circle (a and b differ significantly).
+The circle of a conic matrix. A `HomCircleMat` is one by its class; an ellipse's
+or a general conic's matrix is checked by THE circle predicate, the
+`HomCircleMat` class check (isotropy within `√eps · ‖A‖`, relative, so a large
+circle is read as a small one is), with its `ArgumentError`.
 """
-function GeometryBasics.Circle(Q::Union{HomEllipseMat{T}, HomCircleMat{T}}; atol = 1.0e-6) where {T}
+function GeometryBasics.Circle(Q::HomCircleMat)
     ellipse = Ellipse(Q)
-
-    if !isapprox(ellipse.a, ellipse.b; atol = atol)
-        error("Conic does not represent a circle: a=$(ellipse.a), b=$(ellipse.b)")
-    end
-
     r = (ellipse.a + ellipse.b) / 2
     return GeometryBasics.Circle(ellipse.center, r)
 end
+GeometryBasics.Circle(Q::HomEllipseMat) = Circle(HomCircleMat(Q))
 
 # =============================================================================
 # Gradient Computation
@@ -574,33 +516,24 @@ Returns the 2D Euclidean gradient [∂f/∂x, ∂f/∂y] as a `Vec2` — it's a
 direction (steepest-ascent), not a position: the point-on-conic constraint's
 measurement gradient (`constraint_with_jacobians(::Conic, p)`'s `G_x`).
 """
-gradient(Q::HomEllipseMat{T}, p::Point2{T}) where {T} = Vec2{T}(constraint_with_jacobians(Conic(Q), p)[2])
+gradient(Q::HomEllipseMat, p::AbstractVector) = gradient(Conic(Q), p)
 
-# Allow mixed types with automatic promotion
-function gradient(Q::HomEllipseMat{T1}, p::Point2{T2}) where {T1, T2}
-    T = promote_type(T1, T2)
-    return gradient(HomEllipseMat{T}(Q.data), Point2{T}(p))
-end
+# =============================================================================
+# Conic geometric primitive — the class matrices for the ellipse forms
+# =============================================================================
 
-# Allow AbstractVector as input
-function gradient(Q::HomEllipseMat{T}, p::AbstractVector) where {T}
+# Any conic's gradient (the constraint's measurement gradient), mixed eltypes promoted
+function gradient(c::Conic{T1}, p::AbstractVector) where {T1}
     length(p) == 2 || throw(ArgumentError("Point must be 2D, got length $(length(p))"))
-    return gradient(Q, Point2{T}(p[1], p[2]))
+    T = promote_type(T1, eltype(p))
+    return Vec2{T}(constraint_with_jacobians(c, SVector{2, T}(p[1], p[2]))[2])
 end
-
-# =============================================================================
-# Conic geometric primitive — delegates to matrix types
-# =============================================================================
-
-is_ellipse(c::Conic) = is_ellipse(HomEllipseMat(c))
-classify_conic(c::Conic) = classify_conic(HomEllipseMat(c))
+# an ellipse is extracted from a conic of that class: `HomEllipseMat` checks it, once
 Ellipse(c::Conic) = Ellipse(HomEllipseMat(c))
-GeometryBasics.Circle(c::Conic; kw...) = Circle(HomEllipseMat(c); kw...)
-gradient(c::Conic, p) = gradient(HomEllipseMat(c), p)
+GeometryBasics.Circle(c::Conic) = Circle(HomCircleMat(c))
 
 # Identity constructors — idempotent conversion
 GeometryBasics.Circle(c::Circle) = c
-Conic(c::Conic) = c
 
 # Construct Conic from geometric primitives
 Conic(e::Ellipse) = Conic(HomEllipseMat(e))

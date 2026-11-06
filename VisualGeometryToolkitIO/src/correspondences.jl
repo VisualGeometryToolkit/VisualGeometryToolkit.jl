@@ -4,7 +4,7 @@
 # =============================================================================
 #
 # The measurements (target_points2d/v2, VGC `TargetPoints2D`) and the targets
-# (rig/v6, a VGC `Rig` of targets) are COLMAP's points2D → points3D
+# (a vgio/rig file, a VGC `Rig` of targets, or a single vgio/target) are COLMAP's points2D → points3D
 # decomposition: a pixel and a reference into a target's point list. Feeding a
 # third-party calibrator — cv::calibrateCamera, MATLAB's
 # estimateCameraParameters, the python side — means resolving the references
@@ -103,7 +103,7 @@ function _write_correspondences(
             ) for r in rows
         ],
     )
-    _write_store(path, _CORRESPONDENCES_SPEC, _with_provenance(body, provenance))
+    _write_store(path, _CORRESPONDENCES_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit, pixel_frame = G))
     return path
 end
 
@@ -122,7 +122,7 @@ for `cv::calibrateCamera` (the top-left pixel's centre at (0, 0)),
 default. A type, it leads.
 
 `targets` is one or more rigs, rig file paths, or single targets (an
-`AbstractTarget` or a `vgio/target/v3` path), one per connected component. A
+`AbstractTarget` or a `vgio/target` path), one per connected component. A
 single target is named in the file by its design `reference`, or by its
 [`content_id`](@ref) with none. A target present in several must carry the same
 points in each; `resolve` resolves a referenced planar design read from a path.

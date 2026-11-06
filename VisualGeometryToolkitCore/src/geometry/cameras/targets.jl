@@ -75,7 +75,8 @@ _target_point(p::StaticVector{2}) = _stored_point(Val(2), p)
 _target_point(p::StaticVector{3}) = _stored_point(Val(3), p)
 _target_point(p::AbstractVector) = length(p) == 2 ? _stored_point(Val(2), p) : length(p) == 3 ? _stored_point(Val(3), p) :
     throw(ArgumentError("a target point is a 2-vector (a plane's) or a 3-vector; got $(length(p)) entries"))
-_target_point(p::Uncertain) = (v = _target_point(geom(p)); Uncertain(v, CovMat(SMatrix{length(v), length(v), Float64}(Statistics.cov(p)))))
+# the covariance in Float64 and the storage it holds (full, diagonal or isotropic), unlabeled
+_target_point(p::Uncertain) = (v = _target_point(geom(p)); Uncertain(v, CovMat{length(v), Float64}(parent(Statistics.cov(p)))))
 
 # ------------------------------------------------------------------------------
 # PointTarget
@@ -100,6 +101,7 @@ struct PointTarget{P} <: AbstractTarget
     points::Vector{P}
     function PointTarget(pts::AbstractVector)
         ps = map(_target_point, pts)
+        isconcretetype(eltype(ps)) || (ps = _one_storage(ps))   # mixed covariance storage: the coarser one (captures.jl)
         isempty(ps) || allequal(length(geom(p)) for p in ps) ||
             throw(ArgumentError("a target's points are all 2-vectors or all 3-vectors"))
         _check_one_form(ps)
@@ -205,6 +207,24 @@ end
 # PlanarTarget
 # ------------------------------------------------------------------------------
 
+"""
+    AbstractTargetLayout
+
+A parametric design of a planar target — [`AprilGrid`](@ref) or
+[`SchoepsPattern`](@ref): the few numbers its nominal points follow from, and
+whatever else the printed design states (its tag family and ids). `PlanarTarget(layout; …)`
+is the target of its points, and it records the layout ([`layout`](@ref)`(t)`)
+so that a writer can store the design by its layout rather than by its points.
+"""
+abstract type AbstractTargetLayout end
+
+# A layout is its design: two are equal iff they are the same layout type with
+# the same design (lengths compared as stored, in metres). Each layout declares
+# its design beside its struct (`_layout_design`, an accessor, not reflection).
+Base.:(==)(a::AbstractTargetLayout, b::AbstractTargetLayout) =
+    nameof(typeof(a)) === nameof(typeof(b)) && _layout_design(a) == _layout_design(b)
+Base.hash(L::AbstractTargetLayout, h::UInt) = hash(_layout_design(L), hash(nameof(typeof(L)), h))
+
 # The construction routes of a PlanarTarget (private): checked, or a unit move.
 struct _Checked end
 struct _UnitMove end
@@ -265,6 +285,12 @@ placement is in the points' form and carries the lengths:
 The calibration's parameters, manifold and regularizer are its own: the
 placement is fixed data and adds none. A unit move moves the placement and
 leaves the calibration as it is. [`placement`](@ref)`(t)` reads it.
+
+A target built from a parametric design, `PlanarTarget(layout; calibration,
+board, canvas, placement)` (an [`AbstractTargetLayout`](@ref):
+[`AprilGrid`](@ref), [`SchoepsPattern`](@ref)), holds the layout's points as its
+nominal points and records the layout, [`layout`](@ref)`(t)`; every other
+construction records none.
 """
 struct PlanarTarget{C <: TargetCalibration, N <: Union{Nothing, Vector{<:SVector{2}}}, S <: Union{C, Uncertain{C}}} <: AbstractTarget
     reference::Union{Nothing, Symbol}
@@ -273,14 +299,18 @@ struct PlanarTarget{C <: TargetCalibration, N <: Union{Nothing, Vector{<:SVector
     board::Union{Nothing, Board}
     canvas::Union{Nothing, Canvas}
     placement::Union{Nothing, ChartPlacement}
+    layout::Union{Nothing, AbstractTargetLayout}
     # The private `_UnitMove()` route skips the board containment check: the
     # points are known to lie on the board — a unit move of a target that held
     # them there (`ustrip`, `with_unit`), whose rounding must not refuse it.
-    # Every public construction is `_Checked()`.
+    # Every public construction is `_Checked()`. A `layout` is given only with
+    # the points it builds (`PlanarTarget(layout; …)`, a unit move of one,
+    # `with_parameters`): rebuilding them here would make the point type
+    # uninferable and redo the layout on every parameter update in an LM loop.
     function PlanarTarget(
             reference::Union{Nothing, Symbol}, nominal, calibration::Union{TargetCalibration, Uncertain{<:TargetCalibration}},
             board::Union{Nothing, Board}, canvas::Union{Nothing, Canvas}, placement::Union{Nothing, ChartPlacement},
-            route::Union{_Checked, _UnitMove}
+            route::Union{_Checked, _UnitMove}, layout::Union{Nothing, AbstractTargetLayout} = nothing
         )
         (reference === nothing && nominal === nothing) &&
             throw(ArgumentError("a planar target has a design reference, nominal points, or both"))
@@ -291,7 +321,7 @@ struct PlanarTarget{C <: TargetCalibration, N <: Union{Nothing, Vector{<:SVector
         _check_one_form((n === nothing || isempty(n) ? nothing : first(n), something(placement, geom(calibration)), board, canvas))
         _check_board(n, board, calibration, route isa _Checked)
         route isa _Checked && _check_canvas(board, canvas)
-        return new{typeof(geom(calibration)), typeof(n), typeof(calibration)}(reference, n, calibration, board, canvas, placement)
+        return new{typeof(geom(calibration)), typeof(n), typeof(calibration)}(reference, n, calibration, board, canvas, placement, layout)
     end
 end
 # The public positional form (the board, the canvas and the placement
@@ -355,18 +385,20 @@ PlanarTarget(reference::Symbol; nominal = nothing, calibration = Rigid(), board 
     PlanarTarget(reference, nominal, calibration, board, canvas, placement)
 
 """
-    AprilGrid(; tag_rows, tag_cols, tag_size, tag_spacing)
+    AprilGrid(; tag_rows, tag_cols, tag_size, tag_spacing, apriltag_family = "tag36h11", first_id = 0)
 
 The layout of an AprilGrid, Kalibr's grid of AprilTags (the `aprilgrid` target
 of Kalibr's target YAML: `tagRows`, `tagCols`, `tagSize`, `tagSpacing`):
 `tag_rows × tag_cols` square tags of side `tag_size`, `tag_spacing` apart — the
 gap between two neighbouring tags, a length like the side (Kalibr's
 `tagSpacing` is the ratio `tag_spacing / tag_size`). Both are lengths
-(`90mm`, `27mm`) or both plain numbers. Tag `i` (0-based: the family id less
-the grid's first id) sits in row `i ÷ tag_cols`, column `i % tag_cols`.
+(`90mm`, `27mm`) or both plain numbers. The tags are of the AprilTag family
+`apriltag_family` (Kalibr's grids are `tag36h11`), with ids from `first_id`
+(≥ 0) on. Tag `i` (0-based: the family id less the grid's first id) sits in
+row `i ÷ tag_cols`, column `i % tag_cols`.
 
-`PlanarTarget(grid; board = nothing, canvas = nothing)` is the target of its
-tag corners in Kalibr's point order and frame: the `2tag_rows × 2tag_cols`
+`PlanarTarget(grid; calibration = Rigid(), board = nothing, canvas = nothing, placement = nothing)`
+is the target of its tag corners (recording the grid, [`layout`](@ref)) in Kalibr's point order and frame: the `2tag_rows × 2tag_cols`
 corners row by row, point `r·2tag_cols + c` (0-based, `r` and `c` 0-based) at
 
     x = (c ÷ 2)(tag_size + tag_spacing) + (c % 2)·tag_size
@@ -380,19 +412,35 @@ or plain numbers); a `board` or `canvas` is in that form too, and a page whose
 lower-left corner is not tag 0's first corner says so by its origin
 (`Canvas(size, origin)`).
 """
-struct AprilGrid{T <: Number}
+struct AprilGrid{T <: Number} <: AbstractTargetLayout
     tag_rows::Int
     tag_cols::Int
     tag_size::T
     tag_spacing::T
-    function AprilGrid{T}(tag_rows::Integer, tag_cols::Integer, tag_size::T, tag_spacing::T) where {T <: Number}
+    apriltag_family::String
+    first_id::Int
+    function AprilGrid{T}(
+            tag_rows::Integer, tag_cols::Integer, tag_size::T, tag_spacing::T,
+            apriltag_family::AbstractString = _DEFAULT_APRILTAG_FAMILY, first_id::Integer = 0
+        ) where {T <: Number}
         (tag_rows >= 1 && tag_cols >= 1) || throw(ArgumentError("AprilGrid: $(tag_rows) × $(tag_cols) tags; a grid has at least one"))
         zero(tag_size) < tag_size || throw(ArgumentError("AprilGrid: the tag size is $(tag_size), not positive"))
         zero(tag_spacing) <= tag_spacing || throw(ArgumentError("AprilGrid: the tag spacing is $(tag_spacing), negative"))
-        return new{T}(Int(tag_rows), Int(tag_cols), tag_size, tag_spacing)
+        _check_apriltag_family("AprilGrid", apriltag_family)
+        first_id >= 0 || throw(ArgumentError("AprilGrid: the first tag id is $(first_id), negative"))
+        return new{T}(Int(tag_rows), Int(tag_cols), tag_size, tag_spacing, String(apriltag_family), Int(first_id))
     end
 end
-function AprilGrid(; tag_rows::Integer, tag_cols::Integer, tag_size::Number, tag_spacing::Number)
+_layout_design(g::AprilGrid) = (g.tag_rows, g.tag_cols, g.tag_size, g.tag_spacing, g.apriltag_family, g.first_id)
+# The AprilTag family a layout's tags are of when it does not say: Kalibr's and
+# Schöps' generators both print tag36h11.
+const _DEFAULT_APRILTAG_FAMILY = "tag36h11"
+_check_apriltag_family(what, f) =
+    isempty(f) ? throw(ArgumentError("$(what): the AprilTag family is empty (the generators' family is \"$(_DEFAULT_APRILTAG_FAMILY)\")")) : nothing
+function AprilGrid(;
+        tag_rows::Integer, tag_cols::Integer, tag_size::Number, tag_spacing::Number,
+        apriltag_family::AbstractString = _DEFAULT_APRILTAG_FAMILY, first_id::Integer = 0
+    )
     (tag_size isa Quantity) == (tag_spacing isa Quantity) ||
         throw(ArgumentError("AprilGrid: the tag size and the tag spacing are both lengths or both plain numbers; got $(tag_size) and $(tag_spacing)"))
     if tag_size isa Quantity
@@ -400,7 +448,7 @@ function AprilGrid(; tag_rows::Integer, tag_cols::Integer, tag_size::Number, tag
             throw(ArgumentError("AprilGrid: the tag size and spacing are lengths; got $(tag_size) and $(tag_spacing)"))
     end
     s, g = tag_size isa Quantity ? (base_quantity(tag_size), base_quantity(tag_spacing)) : float.(promote(tag_size, tag_spacing))
-    return AprilGrid{promote_type(typeof(s), typeof(g))}(tag_rows, tag_cols, promote(s, g)...)
+    return AprilGrid{promote_type(typeof(s), typeof(g))}(tag_rows, tag_cols, promote(s, g)..., apriltag_family, first_id)
 end
 
 """
@@ -420,28 +468,53 @@ function point_index(grid::AprilGrid, tag::Integer, corner::Integer)
     return 1 + base + (0, 1, ncols + 1, ncols)[corner + 1]
 end
 
-function PlanarTarget(grid::AprilGrid; board = nothing, canvas = nothing)
+function _layout_points(grid::AprilGrid)
     pitch = grid.tag_size + grid.tag_spacing
     along(i) = (i ÷ 2) * pitch + (i % 2) * grid.tag_size
-    nominal = [SVector(along(c), along(r)) for r in 0:(2 * grid.tag_rows - 1) for c in 0:(2 * grid.tag_cols - 1)]
-    return PlanarTarget(nothing, nominal, Rigid(), board, canvas)
+    return [SVector(along(c), along(r)) for r in 0:(2 * grid.tag_rows - 1) for c in 0:(2 * grid.tag_cols - 1)]
 end
+has_units(g::AprilGrid) = g.tag_size isa Quantity
 
 """
-    SchoepsPattern(; squares_x, squares_y, square_length, apriltags)
+    ustrip(u::Units, grid::AprilGrid) -> AprilGrid
+    with_unit(grid::AprilGrid, u::Units) -> AprilGrid
+
+The grid's tag size and spacing moved between the forms: a physical grid's
+lengths as plain numbers in `u`, a plain grid's numbers as lengths in `u`. The
+grid already in the form asked for is an `ArgumentError`.
+"""
+FlexUnits.ustrip(u::Units, g::AprilGrid{<:Quantity}) = AprilGrid(;
+    g.tag_rows, g.tag_cols, tag_size = _strip_length(u, g.tag_size), tag_spacing = _strip_length(u, g.tag_spacing), g.apriltag_family, g.first_id
+)
+with_unit(g::AprilGrid{<:Real}, u::Units) = AprilGrid(;
+    g.tag_rows, g.tag_cols, tag_size = _attach_length(g.tag_size, u), tag_spacing = _attach_length(g.tag_spacing, u), g.apriltag_family, g.first_id
+)
+
+# The target of a layout's points, recording the layout (`layout(t)`).
+PlanarTarget(L::AbstractTargetLayout; calibration = Rigid(), board = nothing, canvas = nothing, placement = nothing) =
+    PlanarTarget(nothing, _layout_points(L), _stored_calibration(calibration), board, canvas, placement, _Checked(), L)
+
+const _SchoepsTag = @NamedTuple{x::Int, y::Int, width::Int, height::Int, id::Int}   # a Schöps tag: in squares, y down; the family id
+
+"""
+    SchoepsPattern(; squares_x, squares_y, square_length, apriltags, star_segments = 16, apriltag_family = "tag36h11")
 
 The layout of a tagged star pattern of Schöps et al.'s camera_calibration
 (their `create_calibration_pattern.py`; the pattern YAML's `squares_x`,
-`squares_y`, `square_length_in_meters` and `apriltags`): a `squares_x ×
+`squares_y`, `square_length_in_meters`, `num_star_segments` and `apriltags`): a `squares_x ×
 squares_y` grid of squares of side `square_length` — a length (`8mm`) or a
-plain number — with a star feature at every inner corner, and AprilTags, each
+plain number — with a star feature of `star_segments` segments (even, ≥ 4) at every inner corner, and AprilTags of the family
+`apriltag_family`, each
 covering `width × height` squares from square `(x, y)` (the YAML's `tag_x`,
 `tag_y`, `width`, `height`: 0-based squares, x to the right and y DOWN as the
-pattern is printed). `apriltags` is a collection of `(; x, y, width, height)`
-(other fields, such as the tag's `index`, are not read); each tag lies on the
-pattern.
+pattern is printed) and carrying the family id `id` (the YAML's `index`).
+`apriltags` is a collection of `(; x, y, width, height)` or `(; x, y, width,
+height, id)` — without ids the tags are numbered 0, 1, … in order — stored as
+`(; x, y, width, height, id)`; each tag lies on the pattern, and the ids are
+distinct and ≥ 0.
 
-`PlanarTarget(pattern; board = nothing, canvas = nothing)` is the target of
+`PlanarTarget(pattern; calibration = Rigid(), board = nothing, canvas = nothing, placement = nothing)`
+is the target (recording the pattern, [`layout`](@ref)) of
 its star features in Schöps' feature order
 (`FeatureDetectorTaggedPattern::GetCorners`): the inner corners `(gx, gy)`,
 `gx ∈ 0:squares_x − 2`, `gy ∈ 0:squares_y − 2`, row by row (`gy` outer), the
@@ -464,40 +537,93 @@ in metres, or plain numbers); a `board` or `canvas` is in that form too, and a
 page whose lower-left corner is not the pattern's says so by its origin
 (`Canvas(size, origin)`).
 """
-struct SchoepsPattern{T <: Number}
+struct SchoepsPattern{T <: Number} <: AbstractTargetLayout
     squares_x::Int
     squares_y::Int
     square_length::T
-    apriltags::Vector{NTuple{4, Int}}   # (x, y, width, height) in squares
-    function SchoepsPattern{T}(squares_x::Integer, squares_y::Integer, square_length::T, apriltags::Vector{NTuple{4, Int}}) where {T <: Number}
+    apriltags::Vector{_SchoepsTag}
+    star_segments::Int
+    apriltag_family::String
+    function SchoepsPattern{T}(
+            squares_x::Integer, squares_y::Integer, square_length::T, apriltags::Vector{_SchoepsTag},
+            star_segments::Integer = 16, apriltag_family::AbstractString = _DEFAULT_APRILTAG_FAMILY
+        ) where {T <: Number}
         (squares_x >= 2 && squares_y >= 2) ||
             throw(ArgumentError("SchoepsPattern: $(squares_x) × $(squares_y) squares; a pattern has an inner corner, at least 2 × 2"))
         zero(square_length) < square_length || throw(ArgumentError("SchoepsPattern: the square length is $(square_length), not positive"))
-        for (x, y, w, h) in apriltags
-            (w >= 1 && h >= 1 && x >= 0 && y >= 0 && x + w <= squares_x && y + h <= squares_y) || throw(
-                ArgumentError("SchoepsPattern: a $(w) × $(h) tag at square ($(x), $(y)) does not lie on the $(squares_x) × $(squares_y) pattern")
+        for (; x, y, width, height, id) in apriltags
+            (width >= 1 && height >= 1 && x >= 0 && y >= 0 && x + width <= squares_x && y + height <= squares_y) || throw(
+                ArgumentError("SchoepsPattern: a $(width) × $(height) tag at square ($(x), $(y)) does not lie on the $(squares_x) × $(squares_y) pattern")
             )
+            id >= 0 || throw(ArgumentError("SchoepsPattern: a tag's id is $(id), negative"))
         end
-        return new{T}(Int(squares_x), Int(squares_y), square_length, apriltags)
+        allunique(t.id for t in apriltags) || throw(ArgumentError("SchoepsPattern: the tags' ids $([t.id for t in apriltags]) are not distinct"))
+        (star_segments >= 4 && iseven(star_segments)) ||
+            throw(ArgumentError("SchoepsPattern: a star of $(star_segments) segments; a star has an even number, at least 4"))
+        _check_apriltag_family("SchoepsPattern", apriltag_family)
+        return new{T}(Int(squares_x), Int(squares_y), square_length, apriltags, Int(star_segments), String(apriltag_family))
     end
 end
-function SchoepsPattern(; squares_x::Integer, squares_y::Integer, square_length::Number, apriltags)
+_layout_design(p::SchoepsPattern) = (p.squares_x, p.squares_y, p.square_length, p.apriltags, p.star_segments, p.apriltag_family)
+function SchoepsPattern(;
+        squares_x::Integer, squares_y::Integer, square_length::Number, apriltags,
+        star_segments::Integer = 16, apriltag_family::AbstractString = _DEFAULT_APRILTAG_FAMILY
+    )
     if square_length isa Quantity
         dimension(square_length) == dimension(mm) || throw(ArgumentError("SchoepsPattern: the square length is a length; got $(square_length)"))
     end
     s = square_length isa Quantity ? base_quantity(square_length) : float(square_length)
-    tags = NTuple{4, Int}[(Int(t.x), Int(t.y), Int(t.width), Int(t.height)) for t in apriltags]
-    return SchoepsPattern{typeof(s)}(squares_x, squares_y, s, tags)
+    tags = _SchoepsTag[(x = Int(t.x), y = Int(t.y), width = Int(t.width), height = Int(t.height), id = Int(hasproperty(t, :id) ? t.id : i - 1))
+        for (i, t) in enumerate(apriltags)]
+    return SchoepsPattern{typeof(s)}(squares_x, squares_y, s, tags, star_segments, apriltag_family)
+end
+has_units(p::SchoepsPattern) = p.square_length isa Quantity
+
+"""
+    ustrip(u::Units, pattern::SchoepsPattern) -> SchoepsPattern
+    with_unit(pattern::SchoepsPattern, u::Units) -> SchoepsPattern
+
+The pattern's square length moved between the forms: a physical pattern's as a
+plain number in `u`, a plain pattern's number as a length in `u`. The pattern
+already in the form asked for is an `ArgumentError`.
+"""
+FlexUnits.ustrip(u::Units, p::SchoepsPattern{<:Quantity}) =
+    SchoepsPattern(; p.squares_x, p.squares_y, square_length = _strip_length(u, p.square_length), p.apriltags, p.star_segments, p.apriltag_family)
+with_unit(p::SchoepsPattern{<:Real}, u::Units) =
+    SchoepsPattern(; p.squares_x, p.squares_y, square_length = _attach_length(p.square_length, u), p.apriltags, p.star_segments, p.apriltag_family)
+
+for L in (:AprilGrid, :SchoepsPattern)
+    @eval FlexUnits.ustrip(::Units, ::$L{<:Real}) = throw(ArgumentError(string("ustrip: the ", $(string(L)), " is plain numbers already; `with_unit` attaches a unit")))
+    @eval with_unit(::$L{<:Quantity}, ::Units) = throw(ArgumentError(string("with_unit: the ", $(string(L)), " already has units")))
 end
 
-# Schöps' IsValidFeatureCoord: an inner corner not next to a tag.
-_schoeps_feature(p::SchoepsPattern, gx, gy) = !any(((x, y, w, h),) -> x - 1 <= gx <= x - 1 + w && y - 1 <= gy <= y - 1 + h, p.apriltags)
-
-function PlanarTarget(p::SchoepsPattern; board = nothing, canvas = nothing)
-    s = p.square_length
-    nominal = [SVector((gx + 1) * s, (p.squares_y - 1 - gy) * s) for gy in 0:(p.squares_y - 2) for gx in 0:(p.squares_x - 2) if _schoeps_feature(p, gx, gy)]
-    return PlanarTarget(nothing, nominal, Rigid(), board, canvas)
+# The inner corners next to a tag (Schöps' IsValidFeatureCoord refuses them):
+# `covered[gx + 1, gy + 1]`, each tag marking its own range once.
+function _schoeps_covered(p::SchoepsPattern)
+    nx, ny = p.squares_x - 1, p.squares_y - 1
+    covered = falses(nx, ny)
+    for t in p.apriltags
+        covered[max(t.x, 1):min(t.x + t.width, nx), max(t.y, 1):min(t.y + t.height, ny)] .= true
+    end
+    return covered
 end
+
+function _layout_points(p::SchoepsPattern)
+    s, covered = p.square_length, _schoeps_covered(p)
+    return [SVector((gx + 1) * s, (p.squares_y - 1 - gy) * s) for gy in 0:(p.squares_y - 2) for gx in 0:(p.squares_x - 2) if !covered[gx + 1, gy + 1]]
+end
+
+"""
+    TARGET_LAYOUT_TAGS
+
+The [`TagRegistry`](@ref) of the target layouts ([`AbstractTargetLayout`](@ref)):
+`"april_grid"` ([`AprilGrid`](@ref)) and `"schoeps_pattern"`
+([`SchoepsPattern`](@ref)), `snake_case` of the type's name — the `type` of
+VisualGeometryToolkitIO's target `layout` record. (Kalibr's own YAML spells
+its target type `aprilgrid`; that is the foreign file's word, read by its
+reader, not a tag.)
+"""
+const TARGET_LAYOUT_TAGS = TagRegistry(:target_layout, "", "april_grid" => AprilGrid, "schoeps_pattern" => SchoepsPattern)
 
 """
     calibration(t::PlanarTarget) -> TargetCalibration or Uncertain
@@ -554,6 +680,18 @@ design chart itself.
 placement(t::PlanarTarget) = t.placement
 
 """
+    layout(t::PlanarTarget) -> Union{Nothing, AbstractTargetLayout}
+
+The parametric design the target's nominal points were built from — an
+[`AprilGrid`](@ref) or a [`SchoepsPattern`](@ref), given to
+`PlanarTarget(layout; …)` — or `nothing` for a target given by its points or
+by a reference. A unit move moves it with the points and a new calibration
+(`with_parameters`) keeps it; [`resolve`](@ref), which supplies other points,
+drops it.
+"""
+layout(t::PlanarTarget) = t.layout
+
+"""
     resolve(t::PlanarTarget, nominal) -> PlanarTarget
 
 The target with its design's nominal points supplied — what the design's
@@ -597,9 +735,9 @@ _calibrated_points(c, ::Nothing, nominal) = [c(p) for p in nominal]
 _calibrated_points(c, P::ChartPlacement, nominal) = [_placed_point(P, c, p) for p in nominal]
 Base.:(==)(a::PlanarTarget, b::PlanarTarget) =
     a.reference === b.reference && isequal(a.nominal, b.nominal) && a.calibration == b.calibration && a.board == b.board &&
-    a.canvas == b.canvas && a.placement == b.placement
+    a.canvas == b.canvas && a.placement == b.placement && a.layout == b.layout
 Base.hash(t::PlanarTarget, h::UInt) =
-    hash(t.placement, hash(t.canvas, hash(t.board, hash(t.calibration, hash(t.nominal, hash(t.reference, hash(:PlanarTarget, h)))))))
+    hash(t.layout, hash(t.placement, hash(t.canvas, hash(t.board, hash(t.calibration, hash(t.nominal, hash(t.reference, hash(:PlanarTarget, h))))))))
 
 # Units: a resolved target's nominal points move, and with them a calibration
 # that has lengths; an unresolved one moves only its calibration.
@@ -612,16 +750,23 @@ _lengths_part(t::PlanarTarget) = t.placement === nothing ? geom(t.calibration) :
 # The calibration as a unit move `f` leaves it: moved, or — placed — as it is
 # (a placed calibration is plain chart numbers; the placement carries the lengths).
 _calibration_unit_move(t::PlanarTarget, f) = t.placement === nothing ? f(t.calibration) : t.calibration
-FlexUnits.ustrip(u::Units, t::PlanarTarget) = PlanarTarget(
-    t.reference, is_resolved(t) ? [_ustrip_point(u, p) for p in t.nominal] : nothing,
+FlexUnits.ustrip(u::Units, t::PlanarTarget) = _unit_moved(
+    t, _move_board(ustrip, u, t.layout, true), p -> _ustrip_point(u, p),
     _calibration_unit_move(t, c -> _ustrip_calibration(u, c)),
-    _move_board(ustrip, u, t.board, true), _move_board(ustrip, u, t.canvas, true), _move_board(ustrip, u, t.placement, true), _UnitMove()
+    _move_board(ustrip, u, t.board, true), _move_board(ustrip, u, t.canvas, true), _move_board(ustrip, u, t.placement, true)
 )
-with_unit(t::PlanarTarget, u::Units) = PlanarTarget(
-    t.reference, is_resolved(t) ? [_attach_point(u, p) for p in t.nominal] : nothing,
+_unit_attached(u, x) = with_unit(x, u)   # `with_unit` in `ustrip`'s argument order, for `_move_board`
+with_unit(t::PlanarTarget, u::Units) = _unit_moved(
+    t, _move_board(_unit_attached, u, t.layout, false), p -> _attach_point(u, p),
     _calibration_unit_move(t, c -> _attach_calibration(u, c)),
-    _move_board((u, bd) -> with_unit(bd, u), u, t.board, false), _move_board((u, cv) -> with_unit(cv, u), u, t.canvas, false),
-    _move_board((u, P) -> with_unit(P, u), u, t.placement, false), _UnitMove()
+    _move_board(_unit_attached, u, t.board, false), _move_board(_unit_attached, u, t.canvas, false),
+    _move_board(_unit_attached, u, t.placement, false)
+)
+# A layout target's points are derived from its moved layout by the constructor,
+# so they stay the layout's points exactly.
+_unit_moved(t, L, move_point, c, bd, cv, pl) = PlanarTarget(
+    t.reference, L !== nothing ? _layout_points(L) : is_resolved(t) ? [move_point(p) for p in t.nominal] : nothing,
+    c, bd, cv, pl, _UnitMove(), L
 )
 # The one-form rule's view of a planar target (`_check_one_form`): its nominal
 # points', calibration's (or placement's), board's and canvas's forms, which its constructor
@@ -638,7 +783,7 @@ _form_sample(t::PlanarTarget) = _form_sample(
         _unit_form(_lengths_part(t)) !== :none ? _lengths_part(t) : t.board !== nothing ? t.board : t.canvas
 )
 _move_board(_, _, ::Nothing, _) = nothing
-_move_board(f, u, bd::Union{Board, Canvas, ChartPlacement}, from_physical::Bool) = has_units(bd) == from_physical ? f(u, bd) : bd
+_move_board(f, u, bd::Union{Board, Canvas, ChartPlacement, AbstractTargetLayout}, from_physical::Bool) = has_units(bd) == from_physical ? f(u, bd) : bd
 
 # --- the calibratable-target protocol ------------------------------------------------
 
@@ -648,8 +793,10 @@ _move_board(f, u, bd::Union{Board, Canvas, ChartPlacement}, from_physical::Bool)
 parameter_vector(t::PlanarTarget) = parameter_vector(geom(t.calibration))
 
 parameter_names(t::PlanarTarget) = parameter_names(geom(t.calibration))
-with_parameters(t::PlanarTarget, θ::AbstractVector) =
-    PlanarTarget(t.reference, t.nominal, with_parameters(geom(t.calibration), θ), t.board, t.canvas, t.placement)
+with_parameters(t::PlanarTarget, θ::AbstractVector) = PlanarTarget(
+    t.reference, t.nominal, _stored_calibration(with_parameters(geom(t.calibration), θ)),
+    t.board, t.canvas, t.placement, _Checked(), t.layout
+)
 parameters(t::PlanarTarget) = NamedTuple{parameter_names(t)}(Tuple(parameter_vector(t)))
 regularizer(t::PlanarTarget) = regularizer(geom(t.calibration))
 is_planar(::PlanarTarget{C}) where {C} = is_planar(C)

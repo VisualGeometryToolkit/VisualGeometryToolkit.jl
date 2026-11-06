@@ -117,26 +117,20 @@ _leaves(f::ComposedTransformation) = (_leaves(f.t1)..., _leaves(f.t2)...)
 # Canonicalize leaves that block CT's affine algebra into forms it merges.
 _canonical(t) = t
 _canonical(::RCSwap) = LinearMap(SMatrix{2, 2, Float64}(0.0, 1.0, 1.0, 0.0))
-_canonical(e::EuclideanMap{2}) = affine_part(SMatrix{3, 3, Float64}(to_homogeneous(e)))
+_canonical(e::_StructuredAffineMap) = AffineMap(e)   # the stack's affine-class maps (homography_map.jl)
 
-# Matrix-representable leaves: CT's ∘ (affine algebra) or VGC's HomographyMap
-# bridges collapse any adjacent pair of these into ONE link.
-const _MatrixLeaf = Union{
-    Translation{<:StaticVector{2}},
-    LinearMap,
-    AffineMap,
-    HomographyMap{3},
-}
+# Matrix-representable leaves (after `_canonical`): CT's ∘ (affine algebra) or
+# VGC's HomographyMap bridges collapse any adjacent pair of these into ONE link.
+# A Translation is a leaf only when it is statically 2-D: an unsized
+# `Translation([1.0, 2.0])` or a 3-D one stays a lazy link (it has no planar
+# homography to fuse into), as before the class refactor.
+const _PlanarCTLeaf = Union{Translation{<:StaticVector{2}}, LinearMap, AffineMap}
+const _MatrixLeaf = Union{_PlanarCTLeaf, HomographyMap{3}}
 
 # Lift a matrix leaf to a HomographyMap (for pulling affines through a
 # perspective division: A ∘ PerspectiveMap == PerspectiveMap ∘ lift(A)).
 _as_homography(h::HomographyMap{3}) = h
-_as_homography(a::Union{Translation{<:StaticVector{2}}, AffineMap}) =
-    HomographyMap(to_homogeneous(a))
-function _as_homography(a::LinearMap)
-    M = SMatrix{2, 2}(a.linear)
-    return HomographyMap(to_homogeneous(M, zero(SVector{2, eltype(M)})))
-end
+_as_homography(a::_PlanarCTLeaf) = HomographyMap(a)
 
 # Right-to-left greedy merge over the canonical leaf tuple.  Recursive on
 # tuples so the common chains infer to concrete fused types.
@@ -190,8 +184,7 @@ _precision(::Type{T}, x::LinearMap) where {T <: AbstractFloat} =
     LinearMap(T.(x.linear))
 _precision(::Type{T}, x::AffineMap) where {T <: AbstractFloat} =
     AffineMap(T.(x.linear), T.(x.translation))
-_precision(::Type{T}, x::HomographyMap{3, S, M, Src, Dst}) where {T <: AbstractFloat, S, M, Src, Dst} =
-    relabel(Src, Dst, HomographyMap(SMatrix{3, 3, T, 9}(to_homogeneous(x))))
+_precision(::Type{T}, x::HomographyMap{3}) where {T <: AbstractFloat} = HomographyMap{3, T}(x)   # both stored matrices converted, labels kept
 _precision(::Type{T}, x::ComposedFunction) where {T <: AbstractFloat} =
     _precision(T, x.outer) ∘ _precision(T, x.inner)
 _precision(::Type{T}, x::ComposedTransformation) where {T <: AbstractFloat} =

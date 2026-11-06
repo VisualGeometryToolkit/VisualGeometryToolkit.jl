@@ -153,22 +153,24 @@
                 @test is_ellipse(Q)
             end
             # A = I, b = −t, c = |t|² + g: g < 0 real, g = 0 a point, g > 0 imaginary
-            conic(t, g; k = 1.0) = HomEllipseMat(k * SMatrix{3, 3}(1.0, 0.0, -t[1], 0.0, 1.0, -t[2], -t[1], -t[2], t[1]^2 + t[2]^2 + g))
+            # (a general `Conic`: a HomEllipseMat refuses the point and the imaginary one)
+            conic(t, g; k = 1.0) = Conic(k * SMatrix{3, 3}(1.0, 0.0, -t[1], 0.0, 1.0, -t[2], -t[1], -t[2], t[1]^2 + t[2]^2 + g))
             for k in (1.0, -3.0e5), t in ((0.0, 0.0), (2.0e3, -7.0e2))
                 @test classify_conic(conic(t, -4.0; k)) isa EllipseTrait
                 @test classify_conic(conic(t, 0.0; k)) isa DegenerateTrait
                 @test classify_conic(conic(t, 4.0; k)) isa DegenerateTrait
                 @test !is_ellipse(conic(t, 4.0; k))
+                @test_throws ArgumentError HomEllipseMat(conic(t, 4.0; k))
             end
             # a singular block: parallel lines x² = 1, negated — not an ellipse
-            lines = HomEllipseMat(-SMatrix{3, 3}(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0))
+            lines = Conic(-SMatrix{3, 3}(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0))
             @test classify_conic(lines) isa ParabolaTrait
             @test !is_ellipse(lines)
             # an elongated point ellipse (κ = 1e6) far from the origin stays degenerate
             A = SMatrix{2, 2}(1.0, 0.0, 0.0, 1.0e-6)
             t = SVector(3.0e4, -1.2e4)
             b = -A * t
-            point = HomEllipseMat(SMatrix{3, 3}(A[1, 1], A[2, 1], b[1], A[1, 2], A[2, 2], b[2], b[1], b[2], dot(t, A * t)))
+            point = Conic(SMatrix{3, 3}(A[1, 1], A[2, 1], b[1], A[1, 2], A[2, 2], b[2], b[1], b[2], dot(t, A * t)))
             @test classify_conic(point) isa DegenerateTrait
             # a thin ellipse far along its minor axis has a well-resolved γ: the noise
             # bound is the rounding of γ's terms, not a multiple of |c| alone

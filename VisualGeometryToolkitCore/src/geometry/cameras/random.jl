@@ -131,7 +131,7 @@ function _in_front_of(model, plane)
     return function (sols, X3, u3)
         for ext in sols
             cam = PosedCamera(model, ext)
-            distance(plane, Point3(pose(cam).t...)) > 0 && return (cam, StructArray(X3 .=> u3))
+            signed_distance(plane, Point3(pose(cam).t...)) > 0 && return (cam, StructArray(X3 .=> u3))
         end
         return nothing
     end
@@ -149,7 +149,7 @@ Sample a random P3P configuration with chirality filtering.
 
 Like `sample_p3p(model, X, sensor_bounds)` but additionally filters solutions
 to only those where the camera is on the positive side of the given plane
-(i.e., `distance(plane, camera_center) > 0`).
+(i.e., `signed_distance(plane, camera_center) > 0`).
 
 This is useful for planar calibration targets where you want to ensure the
 camera is "in front of" the target plane.

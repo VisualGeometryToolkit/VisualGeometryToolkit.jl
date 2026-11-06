@@ -70,6 +70,15 @@ const _ITERATION_WORDS = ("iter", "iters", _IT, _IT * "s")
 # retired in one form lists each form it took. Names renamed by the naming
 # sweep are listed here as they are renamed.
 const RETIRED_NAMES = String[
+    "Tensor" * "Vignetting",                  # a tensor-PRODUCT B-spline surface, not a tensor: `TensorProductVignetting` (2026-11)
+    # maps are the geometric objects, matrices only algebra (Core 0.6): the
+    # transform class is the map's type (`EuclideanMap`, `SimilarityMap`,
+    # `AffineMap`, `HomographyMap`); `to_homogeneous(map)` is a plain SMatrix
+    "Hom" * "TranslationMat", "Hom" * "RotationMat", "Hom" * "EuclideanMat", "Hom" * "SimilarityMat",
+    "Hom" * "ScalingMat", "Hom" * "UniformScalingMat", "Hom" * "AffineMat",
+    "Abstract" * "HomMat", "Abstract" * "AffineMat", "Abstract" * "SimilarityMat",
+    "Abstract" * "EuclideanMat", "Abstract" * "CalibrationMat",
+    "_preserves" * "_circles", "_transform" * "_circle", "_transform" * "_ellipse",
     # the loop's former vocabulary
     "iterate" * "_lo", "iterate" * "_lo!",
     "solve" * "_step", "solve" * "_step!",
@@ -1483,7 +1492,7 @@ hand-written conversion factor (`25.4`, `0.0254`, `304.8`, `0.3048`, or an
 inch ratio such as `127//5000`) and a bare `ubase(…)` (a stored quantity is
 `base_quantity(q)`: `ubase` keeps the exact `Rational` of `142mm`). It also keeps
 the units layering. A pose or a target's points (`EuclideanMap`,
-`PlanarTarget`, `PointTarget`, `TargetPoints3D`) built with a `ustrip(…)` or a
+`PlanarTarget`, `PointTarget`, `TargetPoints3D`, `TargetDetections`) built with a `ustrip(…)` or a
 `ustrip.(…)` in its arguments is flagged: a physical value is built from
 quantities (`t .* m`), and its plain form comes from the whole value's
 `ustrip(u, X)`. Outside `test/`, a definition that names a file's
@@ -1687,7 +1696,7 @@ _holds_ustrip(x) = _is_ustrip(x) || (x isa Expr && any(_holds_ustrip, x.args))
 # The constructors of a public physical value: a pose and the targets' points.
 # A unitful value is built from quantities (`t .* m`); a plain one comes from
 # the whole value's `ustrip(u, X)`, never from stripping its components.
-const _PHYSICAL_CONSTRUCTORS = (:EuclideanMap, :PlanarTarget, :PointTarget, :TargetPoints3D)
+const _PHYSICAL_CONSTRUCTORS = (:EuclideanMap, :PlanarTarget, :PointTarget, :TargetPoints3D, :TargetDetections)
 _constructor_name(c) = c isa Expr && c.head === :curly ? _unit_rule_callee(c.args[1]) : _unit_rule_callee(c)
 
 # A file's length unit, named in code: `d.length_unit`, `:length_unit`,

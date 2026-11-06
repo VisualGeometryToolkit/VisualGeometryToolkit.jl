@@ -241,8 +241,8 @@ function Base.:∘(em::EpipolarMap{S1, S2}, h::HomographyMap{3, T, M, Src, Dst})
     F = SMatrix{3, 3, Te, 9}(em.mat) * SMatrix{3, 3, T, 9}(h.forward)
     return EpipolarMap{Src, S2}(FundMat{eltype(F)}(Tuple(F)))
 end
-Base.:∘(a::_CTLeafTransformation, em::EpipolarMap) = HomographyMap(a) ∘ em
-Base.:∘(em::EpipolarMap, a::_CTLeafTransformation) = em ∘ HomographyMap(a)
+Base.:∘(a::_AffinePlanarMap, em::EpipolarMap) = HomographyMap(a) ∘ em
+Base.:∘(em::EpipolarMap, a::_AffinePlanarMap) = em ∘ HomographyMap(a)
 
 """
     a ∘ H ∘ b       (H::HomographyMat)     -> HomographyMat
@@ -268,19 +268,19 @@ type) is a separate call. A matrix composed with a matrix, or with anything
 that is not a collineation, is an `ArgumentError` naming the lift
 (`HomographyMap(H)`, `EpipolarMap(F)`).
 """
-function Base.:∘(a::Union{HomographyMap{3}, _CTLeafTransformation}, H::HomographyMat)
+function Base.:∘(a::Union{HomographyMap{3}, _AffinePlanarMap}, H::HomographyMat)
     H′ = SMatrix{3, 3}(to_homogeneous(a)) * SMatrix{3, 3}(H)
     return HomographyMat{eltype(H′)}(Tuple(H′))
 end
-function Base.:∘(H::HomographyMat, b::Union{HomographyMap{3}, _CTLeafTransformation})
+function Base.:∘(H::HomographyMat, b::Union{HomographyMap{3}, _AffinePlanarMap})
     H′ = SMatrix{3, 3}(H) * SMatrix{3, 3}(to_homogeneous(b))
     return HomographyMat{eltype(H′)}(Tuple(H′))
 end
-function Base.:∘(a::Union{HomographyMap{3}, _CTLeafTransformation}, F::AbstractFundMat)
-    F′ = transpose(SMatrix{3, 3}(to_homogeneous(inv(a)))) * SMatrix{3, 3}(F)
+function Base.:∘(a::Union{HomographyMap{3}, _AffinePlanarMap}, F::AbstractFundMat)
+    F′ = transpose(SMatrix{3, 3}(_inverse_homogeneous(a))) * SMatrix{3, 3}(F)
     return FundMat{eltype(F′)}(Tuple(F′))
 end
-function Base.:∘(F::AbstractFundMat, b::Union{HomographyMap{3}, _CTLeafTransformation})
+function Base.:∘(F::AbstractFundMat, b::Union{HomographyMap{3}, _AffinePlanarMap})
     F′ = SMatrix{3, 3}(F) * SMatrix{3, 3}(to_homogeneous(b))
     return FundMat{eltype(F′)}(Tuple(F′))
 end

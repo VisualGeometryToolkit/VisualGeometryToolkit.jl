@@ -142,7 +142,7 @@ function Makie.plot!(p::CameraPlot)
 
     # Get camera pose
     cam_pose = pose(camera)
-    cam_center = Point3f(cam_pose.t)
+    cam_center = Point3f(_mapped_origin(cam_pose))   # the origin for an oriented camera
 
     # -------------------------------------------------------------------------
     # 1. Camera center marker

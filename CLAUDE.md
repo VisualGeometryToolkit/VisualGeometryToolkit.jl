@@ -76,6 +76,7 @@ there and nowhere else; downstream repositories check their copies against it.
 @VisualGeometryToolkitCore/conventions/frames.md
 @VisualGeometryToolkitCore/conventions/pixel-origins.md
 @VisualGeometryToolkitCore/conventions/bearings.md
+@VisualGeometryToolkitCore/conventions/residuals-and-distances.md
 @VisualGeometryToolkitCore/conventions/jacobians.md
 @VisualGeometryToolkitCore/conventions/units.md
 @VisualGeometryToolkitCore/conventions/stack-contracts.md

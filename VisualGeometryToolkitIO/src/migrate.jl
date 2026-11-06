@@ -259,7 +259,7 @@ least `to`, the schema written (and whatever the owner reports: a rig's
 A declared extension point (VisualGeometryToolkitIO's `CONTRACT_GENERICS`): the
 owner of a schema adds both forms for each of its old versions.
 VisualGeometryToolkitIO's own: `vgio/cameras/v1` → v2 → v3 → v4,
-`vgio/target/v1` → v2 → v3, `vgio/rig/v4` → v5 → v6 and
+`vgio/target/v1` → v2 → v3 → v4, `vgio/rig/v4` → v5 → v6 → v7 and
 `vgio/generic_camera/v2` → v3.
 """
 function migrate_schema end
@@ -315,7 +315,7 @@ end
 
 Rewrite the file at `path`, of the earlier schema version it declares, in its
 kind's current one, by the file form of [`migrate_schema`](@ref) for that
-schema (cameras v1–v3, target v1–v2, rig v4–v5, generic_camera v2, and any a schema owner adds),
+schema (cameras v1–v3, target v1–v3, rig v4–v6, generic_camera v2, and any a schema owner adds),
 which runs the same version steps a reader runs on load: an old file need not
 be rewritten to be read, and this is how it is rewritten once. The migration
 is written through the current writer to a staging directory BESIDE `out`
@@ -505,6 +505,10 @@ function _same_value(a::Uncertain, b::Uncertain)
             n == 0 ? Σa[I] === Σb[I] : _same_metres(Float64(Σa[I]), Float64(Σb[I]))
         end
 end
+# A correspondence set: its endpoints and its attribute columns, through its
+# accessors (the AbstractArray method above would compare its pairs only).
+_same_value(a::Csponds, b) = typeof(a) === typeof(b) &&
+    _same_value(sources(a), sources(b)) && _same_value(targets(a), targets(b)) && _same_value(a.attrs, b.attrs)
 # A non-central model's points are plain metres (its directions are not lengths).
 _same_value(a::NoncentralGenericModel, b::NoncentralGenericModel) =
     typeof(a) === typeof(b) && all(f -> f === :points ?
@@ -901,6 +905,22 @@ end
 _rig_v5_to_v6(old) = (t = _map_rig_sensors(_camera_v3_to_v4, _map_rig_targets(_body_v2_to_v3, old)); t["schema"] = "vgio/rig/v6"; t)
 _rig_v6_to_v5(new) = _map_rig_sensors(_camera_v4_to_v3, _map_rig_targets(_body_v3_to_v2, new))
 
+# vgio/target/v3 → v4 and vgio/rig/v6 → v7 (the target layouts, 2026-11): a v4
+# planar body may state its design by a `layout`; a v3 body (a reference or
+# nominal points) is a v4 body as it stands, so the step moves the version and
+# no number, and a rig's identity does not move.
+function _layout_free_body(b::AbstractDict, record)
+    haskey(b, "layout") && _not_written_by(record, "holds no \"layout\" (a target layout is target v4 / rig v7)")
+    return b
+end
+function _target_v3_to_v4(old)
+    _layout_free_body(old["target"], "a vgio/target/v3 record")
+    t = copy(old)
+    t["schema"] = "vgio/target/v4"
+    return t
+end
+_rig_v6_to_v7(old) = (t = _map_rig_targets(b -> _layout_free_body(b, "a vgio/rig/v6 record"), old); t["schema"] = "vgio/rig/v7"; t)
+
 # -----------------------------------------------------------------------------
 # The steps, one per version, and the file migrations that run them
 # -----------------------------------------------------------------------------
@@ -910,20 +930,36 @@ migrate_schema(::Val{Symbol("vgio/cameras/v2")}, t::AbstractDict) = _cameras_v2_
 migrate_schema(::Val{Symbol("vgio/cameras/v3")}, t::AbstractDict) = _cameras_v3_to_v4(t)
 migrate_schema(::Val{Symbol("vgio/target/v1")}, t::AbstractDict) = _target_v1_to_v2(t)
 migrate_schema(::Val{Symbol("vgio/target/v2")}, t::AbstractDict) = _target_v2_to_v3(t)
+migrate_schema(::Val{Symbol("vgio/target/v3")}, t::AbstractDict) = _target_v3_to_v4(t)
+migrate_schema(::Val{Symbol("vgio/rig/v6")}, t::AbstractDict) = _rig_v6_to_v7(t)
 migrate_schema(::Val{Symbol("vgio/rig/v4")}, t::AbstractDict) = (foreach(x -> _check_v1_warp(x["target"]), get(t, "targets", ())); _rig_v4_to_v5(t))
 migrate_schema(::Val{Symbol("vgio/rig/v5")}, t::AbstractDict) = _rig_v5_to_v6(t)
 migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, t::AbstractDict) = _generic_camera_v2_to_v3(t)
-migrate_schema(::Val{Symbol("vgio/target_points2d/v1")}, t::AbstractDict) = _target_points2d_v1_to_v2(t)
 
-# vgio/target_points2d/v1 → v2 (single targets, 2026-11): v2's `targets` hold
-# the content ids of a targets rig (rig/v6) OR of a single unposed target
-# (target/v3), as target_homographies/v1's do. A v1 record names rigs only, and
-# a rig's id is unchanged, so every v1 record is a v2 one as it stands: only the
-# schema token moves, and no number does.
-function _target_points2d_v1_to_v2(old)
-    t = copy(old)
-    t["schema"] = "vgio/target_points2d/v2"
-    return t
+# The covariance storage (2026-11): a covariance is written in the storage its
+# value holds (VisualGeometryToolkitCore's CovMat: an SMatrix, SDiagonal or
+# ScaledIdentity) — rows, `{"diagonal": […]}` or `{"isotropic": λ}` — so the
+# kinds that carry one move up a version, and an earlier file, whose every
+# covariance is rows, is a file of the next version as it stands. No number
+# moves. (target_detections v1 → v2, target_points2d / target_points3d v1 → v2,
+# target_poses v1 → v2, trajectory v3 → v4, transforms v3 → v4, target v4 → v5,
+# rig v7 → v8.) target_points2d v2 is also the single targets (2026-11): its
+# `targets` hold the content ids of a targets rig OR of a single unposed target,
+# as target_homographies/v1's do; a v1 record names rigs only, and a rig's id
+# does not change, so the same identity step serves.
+const _COVARIANCE_STORAGE_VERSIONS = (
+    "vgio/target_detections/v1" => "vgio/target_detections/v2",
+    "vgio/target_points2d/v1" => "vgio/target_points2d/v2",
+    "vgio/target_points3d/v1" => "vgio/target_points3d/v2",
+    "vgio/target_poses/v1" => "vgio/target_poses/v2",
+    "vgio/trajectory/v3" => "vgio/trajectory/v4",
+    "vgio/transforms/v3" => "vgio/transforms/v4",
+    "vgio/target/v4" => "vgio/target/v5",
+    "vgio/rig/v7" => "vgio/rig/v8",
+)
+_with_schema(t::AbstractDict, s::AbstractString) = (n = Dict{String, Any}(t); n["schema"] = s; n)
+for (from, to) in _COVARIANCE_STORAGE_VERSIONS
+    @eval migrate_schema(::Val{Symbol($from)}, t::AbstractDict) = _with_schema(t, $to)
 end
 
 # vgio/generic_camera/v2 → v3 (the present nodes, 2026-11): a v2 model held
@@ -945,8 +981,7 @@ migrate_schema(::Val{Symbol("vgio/cameras/v3")}, src::AbstractString, dst::Abstr
 _migrate_target(src, dst) = (_migrate_file(AbstractTarget, src, dst, "the target record"); (; to = _schema("target")))
 migrate_schema(::Val{Symbol("vgio/target/v1")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
 migrate_schema(::Val{Symbol("vgio/target/v2")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
-migrate_schema(::Val{Symbol("vgio/target_points2d/v1")}, src::AbstractString, dst::AbstractString) =
-    (_migrate_file(TargetPoints2D, src, dst, "the measurements"); (; to = _schema("target_points2d")))
+migrate_schema(::Val{Symbol("vgio/target/v3")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
 migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, src::AbstractString, dst::AbstractString) =
     (_migrate_file(Union{CentralGenericModel, NoncentralGenericModel}, src, dst, "the generic camera record"); (; to = _schema("generic_camera")))
 # A rig: its identity is the current value's, and the identities its old
@@ -954,6 +989,21 @@ migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, src::AbstractString, dst
 # files naming it are re-pointed (`vgio_migrate_tree`).
 migrate_schema(::Val{Symbol("vgio/rig/v4")}, src::AbstractString, dst::AbstractString) = _migrate_rig("vgio/rig/v4", src, dst)
 migrate_schema(::Val{Symbol("vgio/rig/v5")}, src::AbstractString, dst::AbstractString) = _migrate_rig("vgio/rig/v5", src, dst)
+migrate_schema(::Val{Symbol("vgio/rig/v6")}, src::AbstractString, dst::AbstractString) = _migrate_rig("vgio/rig/v6", src, dst)
+migrate_schema(::Val{Symbol("vgio/rig/v7")}, src::AbstractString, dst::AbstractString) = _migrate_rig("vgio/rig/v7", src, dst)
+migrate_schema(::Val{Symbol("vgio/target/v4")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
+# the measurement and pose kinds of the covariance-storage step: rewritten through their value
+for (s, T, kind, what) in (
+        ("vgio/target_detections/v1", TargetDetections, "target_detections", "the target detections"),
+        ("vgio/target_points2d/v1", TargetPoints2D, "target_points2d", "the target points (2D)"),
+        ("vgio/target_points3d/v1", TargetPoints3D, "target_points3d", "the target points (3D)"),
+        ("vgio/target_poses/v1", TargetPoses, "target_poses", "the target poses"),
+        ("vgio/trajectory/v3", Trajectory, "trajectory", "the trajectory"),
+        ("vgio/transforms/v3", Vector{EuclideanMap}, "transforms", "the transforms"),
+    )
+    @eval migrate_schema(::Val{Symbol($s)}, src::AbstractString, dst::AbstractString) =
+        (_migrate_file($T, src, dst, $what); (; to = _schema($kind)))
+end
 function _migrate_rig(s, src, dst)
     value = _migrate_file(Rig, src, dst, "the rig record")
     new_id = content_id(dst)
@@ -967,8 +1017,19 @@ end
 # target held the retired affine kind, which migrates to its factors (`_v5_id`:
 # the identity tree lists a composition's members and a lens's stages in one
 # fixed order, application order, whatever order the record lists them in).
-_old_rig_ids(s, old, value, new_id) =
-    s == "vgio/rig/v4" ? unique!([_rig_v4_id(old), _rig_v4_id_mm(value, old)]) : [_v5_id(old, value, new_id)]
+# Every version is matched by name: a future step that changes an identity
+# must add its arm, so any other version is refused.
+function _old_rig_ids(s, old, value, new_id)
+    if s == "vgio/rig/v4"
+        return unique!([_rig_v4_id(old), _rig_v4_id_mm(value, old)])
+    elseif s == "vgio/rig/v5"
+        return [_v5_id(old, value, new_id)]
+    elseif s == "vgio/rig/v6" || s == "vgio/rig/v7"
+        return [new_id]   # a v6 or v7 rig's identity is the current one (the v7 and v8 steps move no number)
+    else
+        throw(ArgumentError("the identities a $(s) rig was named by are not known: a rig version's step that migrates it states them here"))
+    end
+end
 
 # A targets argument that is an old rig file: each identity its version named
 # it by mapped to its current one, where they differ; none for a rig or a
@@ -1102,14 +1163,23 @@ end
 # `save_correspondences` resolves an old identity against the old rig file
 # (`_old_id_map`). Nothing else re-points.
 
-# (target_points2d/v1 is listed so a v1 file is re-pointed too, and rewritten as v2 by the same
-# guarded write; `vgio_migrate_tree` leaves it to the re-pointing step.)
+# (Every measurement kind's earlier versions are listed so an old file is re-pointed too, and
+# rewritten as its kind's current version by the same guarded write; `vgio_migrate_tree` leaves
+# every measurement file to the re-pointing step.)
 const _MEASUREMENT_KINDS = Dict(
-    "vgio/target_points2d/v1" => TargetPoints2D, "vgio/target_points2d/v2" => TargetPoints2D, "vgio/target_points3d/v1" => TargetPoints3D,
+    "vgio/target_points2d/v1" => TargetPoints2D, "vgio/target_points3d/v1" => TargetPoints3D,
+    "vgio/target_detections/v1" => TargetDetections,
+    "vgio/target_points2d/v2" => TargetPoints2D, "vgio/target_points3d/v2" => TargetPoints3D,
+    "vgio/target_detections/v2" => TargetDetections,
 )
-_is_old_measurement(s) = s == "vgio/target_points2d/v1"
 
-# Re-point a measurement file (`vgio/target_points2d/v1`–`v2`, `vgio/target_points3d/v1`)
+_is_old_measurement(s) = !_is_current(s)
+
+# Every measurement of a value as (frame, target, point index).
+_measured_points(obs::Union{TargetPoints2D, TargetPoints3D}) = ((f, o.target, o.index) for (f, os) in obs for o in os)
+_measured_points(obs::TargetDetections) = ((f, id, i) for (f, sets) in obs for (id, cs) in sets for i in sources(cs))
+
+# Re-point a measurement file (`vgio/target_points2d`, `vgio/target_points3d`, `vgio/target_detections`, v1–v2)
 # at the rigs its targets were migrated to: every identity in its `targets`
 # that `ids` (old → new, a rig migration's `old_ids` and `new_id`) maps is
 # replaced; nothing else changes, and the file is written as its kind's current
@@ -1133,7 +1203,7 @@ function _repoint_targets(
     )
     s = get(old, "schema", nothing)
     T = get(_MEASUREMENT_KINDS, s, nothing)
-    T === nothing && throw(ArgumentError("$(path): a $(repr(s)) file names no targets to re-point (target_points2d/v1–v2, target_points3d/v1)"))
+    T === nothing && throw(ArgumentError("$(path): a $(repr(s)) file names no targets to re-point (target_points2d, target_points3d, target_detections, v1–v2)"))
     in_place = abspath(out) == abspath(path)
     (dry_run || in_place || !ispath(out)) || throw(ArgumentError("$(out) exists; refusing to overwrite it"))
     obs = load(T, path)
@@ -1172,13 +1242,13 @@ function _check_resolves_by_id(obs, rigs, path)
         npts[id] = is_resolved(t) ? length(points(t)) : nothing
     end
     unchecked = 0
-    for (f, os) in obs, o in os
-        haskey(npts, o.target) || throw(ArgumentError("$(path): frame $(f) measures target $(o.target), which none of the rigs given holds"))
-        n = npts[o.target]
+    for (f, target, index) in _measured_points(obs)
+        haskey(npts, target) || throw(ArgumentError("$(path): frame $(f) measures target $(target), which none of the rigs given holds"))
+        n = npts[target]
         if n === nothing
             unchecked += 1
         else
-            1 <= o.index <= n || throw(ArgumentError("$(path): frame $(f) measures point $(o.index) of target $(o.target), which has $(n)"))
+            1 <= index <= n || throw(ArgumentError("$(path): frame $(f) measures point $(index) of target $(target), which has $(n)"))
         end
     end
     return unchecked
@@ -1192,9 +1262,9 @@ end
     vgio_migrate_tree(dir; in_place = false, dry_run = false, io = stdout) -> Vector{NamedTuple}
 
 Migrate every `.json` file under `dir` whose schema has a migration (cameras
-v1–v3, target v1–v2, rig v4–v5, and any schema whose owner added a
+v1–v3, target v1–v3, rig v4–v6, generic_camera v2, and any schema whose owner added a
 [`migrate_schema`](@ref) file form), then re-point the measurement files under
-`dir` (`vgio/target_points2d/v1`–`v2`, `vgio/target_points3d/v1`) at the current
+`dir` (`vgio/target_points2d`, `vgio/target_points3d`, `vgio/target_detections`, v1–v2) at the current
 rigs of the tree, each by the guarded pattern of [`vgio_migrate`](@ref) (a
 full-precision length may be rewritten within 2 ulp, as the same metre value),
 with one line per file to `io`

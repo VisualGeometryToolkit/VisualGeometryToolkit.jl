@@ -59,7 +59,7 @@ julia> centroid(circle)
  1.0
  2.0
 
-julia> distance(line, Point2(0.0, 1.0))   # signed distance
+julia> signed_distance(line, Point2(0.0, 1.0))   # + on the normal's side
 0.7071067811865475
 
 julia> classify_conic(ellipse)

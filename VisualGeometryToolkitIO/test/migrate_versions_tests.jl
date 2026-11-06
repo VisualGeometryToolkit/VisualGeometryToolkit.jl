@@ -10,13 +10,13 @@
     units_fixture(name) = joinpath(@__DIR__, "fixtures", "units", name)
 
     # The fixtures ARE the migration of the files they were (git history before
-    # the target record v2): the v1/v4 text is the current (v3/v6) text with the renamed
+    # the target record v2): the v1/v4 text is the current (v4/v7) text with the renamed
     # keys put back — `"calibration": {` was `"warp": {` (rigid only),
     # `"reference"` was `"design"`, the target file's `"calibration_record"`
     # was `"calibration"`.
-    as_v4_rig(text) = replace(text, "\"schema\": \"vgio/rig/v6\"" => "\"schema\": \"vgio/rig/v4\"",
+    as_v4_rig(text) = replace(text, "\"schema\": \"vgio/rig/v8\"" => "\"schema\": \"vgio/rig/v4\"",
         "\"calibration\": {" => "\"warp\": {", "\"reference\":" => "\"design\":")
-    as_v1_target(text) = replace(replace(text, "\"schema\": \"vgio/target/v3\"" => "\"schema\": \"vgio/target/v1\"",
+    as_v1_target(text) = replace(replace(text, "\"schema\": \"vgio/target/v5\"" => "\"schema\": \"vgio/target/v1\"",
         "\"calibration\": {" => "\"warp\": {", "\"reference\":" => "\"design\":"), "\"calibration_record\":" => "\"calibration\":")
     # target_points2d.json as vgio/target_points2d/v1 held it: the same record, the earlier schema token
     as_v1_points2d(text) = replace(text, "\"schema\": \"vgio/target_points2d/v2\"" => "\"schema\": \"vgio/target_points2d/v1\"")
@@ -51,7 +51,7 @@ end
             @test VgtkIO._same_value(a0, b0)
             # a dry run verifies and writes nothing
             r = vgio_migrate(src; dry_run = true)
-            @test r.out === nothing && r.from == "vgio/target/v1" && r.to == "vgio/target/v3"
+            @test r.out === nothing && r.from == "vgio/target/v1" && r.to == "vgio/target/v5"
             @test !isfile(VgtkIO._migrated_path(src))
             # beside the original, which is untouched
             r = vgio_migrate(src)
@@ -109,7 +109,7 @@ end
     using LinearAlgebra: I, Diagonal
     P = EuclideanMap(RotMatrix{3}(Matrix(1.0I, 3, 3)), SVector(1.0, 2.0, 3.0) .* VisualGeometryToolkitCore.m)
     Σ = Matrix(Diagonal(fill(1.0e-4, 6)))
-    U(Σ) = Uncertain(P, CovMat{6, Float64, 36}(Tuple(Σ)))
+    U(Σ) = Uncertain(P, CovMat{6, Float64}(Tuple(Σ)))
     Σt = copy(Σ); Σt[5, 5] = nextfloat(Σt[5, 5])
     Σr = copy(Σ); Σr[2, 2] = nextfloat(Σr[2, 2])
     @test VgtkIO._same_value(U(Σ), U(Σt)) && !VgtkIO._same_value(U(Σ), U(Σr))
@@ -177,7 +177,7 @@ end
         @test load(Rig, rig).members == load(Rig, units_fixture("rig_targets.json")).members
         @test content_id(rig) == only(obs_new.targets) != v4_id
         r = vgio_migrate(rig)
-        @test r.to == "vgio/rig/v6" && r.old_id == v4_id && r.old_ids == [v4_id] && r.new_id == content_id(r.out) == only(obs_new.targets)   # an mm file: one v4 id
+        @test r.to == "vgio/rig/v8" && r.old_id == v4_id && r.old_ids == [v4_id] && r.new_id == content_id(r.out) == only(obs_new.targets)   # an mm file: one v4 id
         @test read(r.out, String) == read(units_fixture("rig_targets.json"), String)
         rs = vgio_migrate(sensors; out = sensors)
         @test read(sensors, String) == read(units_fixture("rig.json"), String)
@@ -230,7 +230,7 @@ end
         v4 = joinpath(dir, "rig_v4.json")
         write(v4, JSON.json(d, 2))
         r = VgtkIO.vgio_migrate(v4; out = joinpath(dir, "rig_migrated.json"))
-        @test r.to == "vgio/rig/v6" && read(r.out) == read(v6)
+        @test r.to == "vgio/rig/v8" && read(r.out) == read(v6)
         @test length(r.old_ids) == 1 && r.new_id == VgtkIO.content_id(rig)   # an mm file: v4's two identities agree
         back = load(Rig, r.out)
         for (i, n) in enumerate((:opencv, :aria))
@@ -317,7 +317,7 @@ end
         @test e isa ArgumentError && occursin("rigid warp only", e.msg)
         # the rigid fixture still migrates
         cp(joinpath(@__DIR__, "fixtures", "v4", "rig_metres.json"), src; force = true)
-        @test vgio_migrate(src).to == "vgio/rig/v6"
+        @test vgio_migrate(src).to == "vgio/rig/v8"
     end
 end
 
@@ -376,6 +376,16 @@ end
         @test occursin("current   $(joinpath(tree, "rig.json"))", out) && occursin("current   $(joinpath(tree, "target_points2d.json")): names current rigs", out)
         @test occursin("current   $(joinpath(tree, "target_points3d.json")): names no targets", out)
         @test VgtkIO._migrate_cli(["target"]; io) == 2
+    end
+end
+
+@testitem "_old_rig_ids: every rig version is matched by name; any other is refused" setup = [VGIoFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    @test VgtkIO._old_rig_ids("vgio/rig/v6", Dict{String, Any}(), nothing, "id") == ["id"]   # v6 → v7 moves no number
+    @test VgtkIO._old_rig_ids("vgio/rig/v7", Dict{String, Any}(), nothing, "id") == ["id"]   # v7 → v8 (the covariance storage) neither
+    for s in ("vgio/rig/v3", "vgio/rig/v8", "vgio/rig/v9")
+        e = try VgtkIO._old_rig_ids(s, Dict{String, Any}(), nothing, "id"); nothing catch e; e end
+        @test e isa ArgumentError && occursin(s, e.msg)
     end
 end
 
@@ -611,7 +621,7 @@ end
         r = VgtkIO.vgio_migrate(v5; out = joinpath(dir, "rig_migrated.json"))
         @test VgtkIO._same_value(VgtkIO.load(Rig, v5), VgtkIO.load(Rig, r.out))           # read through its migration, as its migrated file
         @test VgtkIO.content_id(v5) == r.new_id
-        @test r.to == "vgio/rig/v6"
+        @test r.to == "vgio/rig/v8"
         # the value changed kind (affine → its factors), so the identity moves: v5's is reported as the old one
         @test r.new_id == VgtkIO.content_id(r.out) && r.old_id != r.new_id && r.old_ids == [r.old_id]
         back = VgtkIO.load(Rig, r.out)

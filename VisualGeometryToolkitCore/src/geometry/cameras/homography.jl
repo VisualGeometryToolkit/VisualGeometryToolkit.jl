@@ -2,10 +2,8 @@
 # Homography - 2D projective transformations for planar scenes
 # ==============================================================================
 
-# Note: HomographyMat is defined in geometry/transforms/matrices.jl as part of
-# the transform hierarchy.  `Base.inv(::AbstractHomMat)` (in matrices.jl)
-# already returns the same leaf type via `similar_type`, so no explicit
-# `inv(::HomographyMat)` override is needed.
+# Note: HomographyMat is defined in geometry/transforms/matrices.jl, with its
+# product and inverse (both HomographyMats).
 
 """
     HomographyMat(camera::PosedPinholeCamera) -> HomographyMat{Float64}
@@ -85,7 +83,7 @@ function _induced_plane_homography(
     )
     K = camera.model.intrinsics.K
     R = camera.extrinsics.R
-    t = camera.extrinsics.t
+    t = _mapped_origin(camera.extrinsics)   # an oriented camera's: the origin (its plane z = 0 verbs refuse it, oriented_camera.jl)
     uu = Vec3{Float64}(u...)        # plane basis vectors (free vectors)
     vv = Vec3{Float64}(v...)
     oo = Point3{Float64}(origin...)  # plane origin (position)

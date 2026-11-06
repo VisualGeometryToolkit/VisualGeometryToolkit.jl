@@ -2,26 +2,78 @@
 
 ## Unreleased
 
+- **One serializer, `VgioStyle` (public).** Every VisualGeometryToolkitCore value a record embeds is written by one
+  `JSON.lower(::VgioStyle, x)` method and read by one `JSON.lift(::VgioStyle, T, record)` method (StructUtils' hooks,
+  through JSON.jl's public names), on IO's own style, `VgioStyle <: JSON.JSONStyle`, which carries the file's
+  `length_unit` and `pixel_frame`: a pose (`EuclideanMap{3}`, `Uncertain` too), a `CameraModel` (its K and lens), a
+  generic grid model, a `PointTarget` or `PlanarTarget` body (`JSON.lift(style, AbstractTarget, record; resolve)`), an
+  `AbstractTargetLayout` and an `Ellipse`. A target's calibration is part of its body and has no `lower` of its own (one
+  on VGC's `TargetCalibration` union would claim every planar `EuclideanMap` left in a record). No method lands on
+  those functions for another style, and there is no global `JSON.lower(x)`. Every writer serializes on its own file's
+  style, `JSON.json(body; style = VgioStyle(…))` (a required argument of the one write path), so a value left in a body
+  is lowered in the unit and pixel frame the file declares; a reader is parse → `migrate_record` → validate → `lift`.
+  A parametric record with more or fewer parameters than its kind is an `ArgumentError` naming the tag, its kind's
+  count and the record's.
+- **The parametric record.** A target calibration kind's `{"type": tag, ["nodes": …], ["parameters": …]}` is written
+  generically: the tag from `TARGET_CALIBRATION_TAGS`, the parameters VGC's `parameter_vector` (its lengths, by
+  `length_mask`, through the decimal-exact shift), `parameters` omitted for a kind with none (`rigid`); it is read back
+  by `with_parameters` on the kind's prototype, and a thin-plate kind (its nodes are structure, its values read back
+  unprojected) by its constructor. A layout is the keyed record of its fields, read back by its keyword constructor.
+  The per-kind writers and readers are gone.
+- **One encoder per minimal form.** A K's five numbers (`fx, fy, cx, cy, skew`) and an ellipse's
+  (`[cx, cy, a, b, θ]`) are written in one place each, for the camera body, a generic model's `nominal_intrinsics` and
+  `domain`, and the rig identity tree, which now reads a generic model off the writer's own body; a board is a
+  rectangle of the design chart, written as the canvas's are.
+- **No file changes.** Every kind writes the same bytes as before (every test fixture, and each of the ~11,800 files
+  and ~10,000 identity trees the test suite writes, written with the old and the new code and compared), no content
+  identity moves, and no schema version moves. The lens record stays VisualGeometryToolkitCore's `lens_record`: it
+  already is the generic structure-and-coefficients record (type tags and coefficient arrays, read by
+  `lens_from_record`), and a `{"type", "parameters"}` lens would need that structure under another key and a new
+  cameras and rig version, removing no code.
+- `pose_json`/`pose_from_json`, `camera_json`/`camera_from_json` and `target_json`/`target_from_json` keep their
+  signatures; each is the style's `lower`/`lift` for the unit or pixel frame it is given. The readers take a record read
+  by property access, a parsed `JSON.Object` or a `NamedTuple` (`camera_from_json(camera_json(…))` round-trips in
+  memory); a `Dict` (no property access) is a `TypeError` at the call.
+
+- **The covariance storage (new versions).** A covariance is written in the storage its value's `CovMat` holds — rows
+  (full, as before), `{"diagonal": […]}` or `{"isotropic": λ}` — and read back as that storage; an isotropic one over a
+  pose's angles and lengths is written as its diagonal. Every kind that carries a covariance moved up a version:
+  `target_detections` v2, `target_points2d` v2, `target_points3d` v2, `target_poses` v2, `trajectory` v4, `transforms`
+  v4, `target` v5, `rig` v8. An earlier file reads through its version step (its covariances are rows; only the schema
+  is renamed) and `vgio_migrate` rewrites it; a rig's identity does not change. Fixtures of each replaced version under
+  `test/fixtures/old/`.
+- **New kinds, a radiometric camera's values:** `vgio/vignetting/v1` (`TensorProductVignetting` with its knots stated,
+  `RadialVignetting`, `LogVignetting`; COLMAP pixels; rebuilt bit for bit), `vgio/environment_light/v1` (an
+  `EnvironmentLight` of a `SphericalHarmonicMap`: centre and radius in `length_unit`, a plain light refused; the basis
+  convention stated) and `vgio/blur/v1` (name → `GaussianBlur` on a sensor, px², in the storage each holds).
+- A target calibration's covariance and a point target's point covariances take the three storage forms too.
+- Requires the VisualGeometryToolkitCore whose `CovMat{N, T, M, C}` holds a static matrix (`ScaledIdentity`), with
+  `TensorProductVignetting(knots_x, knots_y, P; degree)` and `radius` public.
+
 - **New kind `vgio/target_homographies/v1`** (`save`, `load(TargetHomographies, path)`,
   `load(TargetHomographies{F}, path)`): per frame, each target's plane (mm) to
   pixel homography, canonical (unit Frobenius norm, `H[3,3] >= 0`), against the
   camera the frame's `sensor` names, before its lens (VGC's
   `radial_homography(camera, H)` pairs them, for a projective camera and for a
   metric one with `fx == fy` and no skew). The pixel frame is the
-  value's type; `targets` are the `content_id`s its ids resolve in.
-- **`content_id` of a single unposed target** (a `vgio/target/v3` path, an
+  value's type; `targets` are the `content_id`s its ids resolve in. Its H is
+  written and read on `VgioStyle` (`JSON.lower` / `JSON.lift` of a `HomographyMat`:
+  its three rows), as every embedded value.
+- **`content_id` of a single unposed target** (a `vgio/target` path, an
   `AbstractTarget`, or an `Attributed` one): the SHA-256 of its `target` record,
   distinct from every rig's. A `PosedTarget` is an `ArgumentError`.
-- **`vgio/target_points2d/v2`**: `targets` may be the content id of a single
-  target as well as a rig's. A `v1` file reads through its version step
-  (`migrate_record`); `vgio_migrate` rewrites it and `vgio_migrate_tree`
-  re-points and rewrites a tree's `v1` measurement files.
+- **`vgio/target_points2d/v2`** (the covariance storage's v2 above, one version for both): `targets` may
+  also be the content id of a single target as well as a rig's. A `v1` file reads through its version step
+  (`migrate_record`); `vgio_migrate` rewrites it, and `vgio_migrate_tree` leaves every measurement file
+  (`target_points2d`, `target_points3d`, `target_detections`) to its re-pointing step, which rewrites an
+  earlier version as the current one.
 - **New kind `vgio/calibration/v1`, the manifest** (`save_manifest(dir, files;
   kind, model, metrics, provenance)`, `load_manifest(dir)`): one
   `calibration.json` binding a result's record files by SHA-256, each with its
   record schema, its `role` (`"authority"` or `"derived"`) and, for a derived
   file, `derived_from`. `kind` is `"metric"`, `"projective"` or `"image"`;
-  `model` is an optional `CameraModelSpec`. A load refuses a changed file by
+  `model` is an optional `CameraModelSpec`, written on `VgioStyle` as VGC's
+  `toml_value` table and lifted by VGC's reader. A load refuses a changed file by
   name, and a `target_points2d` / `target_homographies` file naming a targets
   identity or a rig target the listed target and rig files do not hold. A
   measurement names a single target by its `reference`, or by its content id
@@ -32,7 +84,7 @@
   A malformed `.toml` file given to `vgio_migrate` (or read for its schema) is an
   `ArgumentError` naming the path, not a `TOML.ParserError`.
 - **`save_correspondences` takes single targets** (an `AbstractTarget` or a
-  `vgio/target/v3` path) beside rigs, named as above.
+  `vgio/target` path) beside rigs, named as above.
 - **`vgio_migrate` rewrites a `.toml` record** whose schema has a
   `migrate_schema(::Val, tree)` step and no file form (a schema owner's config):
   parse, the steps, `TOML.print`, and a verified read-back (the same tree, types
@@ -40,6 +92,75 @@
   `#` (a comment line or a trailing comment; a `#` inside a string also counts,
   conservatively) the result's `comments_dropped` is `true` and a `@warn` says
   so; a file without one migrates silently.
+
+## 0.5.3 (2026-11-05)
+
+- Requires VisualGeometryToolkitCore 0.5.7 (compat floor raised).
+
+- **`vgio/target_detections/v1`**, VisualGeometryToolkitCore 0.5.7's
+  `TargetDetections`: `save(path, td; length_unit = mm, provenance)` and
+  `load(TargetDetections, path)`. Per frame (its stamps), per target, the
+  point `index` array (1-based, `point_index_base`), the `points`, a
+  `covariance` per point iff the points are `Uncertain` (px² as they are;
+  3D in `length_unit²` through `write_length`/`read_length`), and the
+  `weights` column where the set has one (the only column the kind holds; a
+  set with another is refused). A pixel file declares `pixel_frame` and
+  requires every frame's `image` and `sensor` and a `targets` identity; a 3D
+  file declares `frame` and `length_unit`, requires every frame's `sensor`,
+  and refuses plain points (`p .* m`). `payload` reserved and refused, as for
+  every kind.
+- **`load(TargetDetections, path)` reads a `vgio/target_points2d/v1` or
+  `vgio/target_points3d/v1` file**, converted, except a file with a
+  (target, index) twice in one frame or with plain and `Uncertain` points
+  mixed, which those kinds allow: refused with an `ArgumentError` naming the
+  path, frame, target and index, and still read by `load(TargetPoints2D/3D,
+  path)`. `load(TargetPoints2D/3D, …)` and their writers are unchanged. `vgio_migrate_tree` and the re-pointing
+  of a migrated rig's measurement files handle a `target_detections` file
+  as the other measurement kinds.
+- **File names** (docs, "Kinds and the I/O Surface"): the stem is the kind,
+  the suffix what tells copies apart (`target_detections_<sensor>.json`,
+  `target_poses_<sensor>.json`, `trajectory_<body>.json`,
+  `targets_<rig>.json`, `cameras.json`), never a timestamp; loaders read
+  `schema`, never the name, and published files keep theirs.
+- Requires VisualGeometryToolkitCore 0.5.7 (the compat floor is raised with
+  Core's version bump at the release: Core's Project.toml is still 0.5.6).
+
+- **`vgio/target/v4` and `vgio/rig/v7`**: a planar target may state its design
+  by its `layout` — VisualGeometryToolkitCore's `AprilGrid` or `SchoepsPattern`,
+  the record's `type` the layout's tag in `TARGET_LAYOUT_TAGS` (`april_grid`,
+  `schoeps_pattern`), every key written (the tag family, the first id, the star
+  segments, each Schöps tag's id), lengths in the file's `length_unit` through
+  `write_length`/`read_length` — instead of its `reference` or its `nominal`
+  points; a body states exactly one of the three. A target built with
+  `PlanarTarget(layout; …)` (VGC records it, `layout(t)`) is written by its
+  layout and reads back the same target, its points VGC's from the layout.
+- **`content_id` does not move**: a layout target enters the identity tree by
+  its points, as a nominal one, so a layout file and a nominal file of the
+  same design name one target, and every rig without a layout keeps its id.
+- **`vgio/target/v3` and `vgio/rig/v6` keep loading**, through their version
+  steps (a v3/v6 body is a v4/v7 one as it stands; only the schema changes),
+  and `vgio_migrate` rewrites them; a rig's migration reports its id
+  unchanged. The writers write v4 and v7 only.
+- **The tools' own layout files load directly**, through the typed `load` of
+  the target they define (`load(PlanarTarget, path)`, new, and
+  `load(AbstractTarget, path)`; the form is told from the content): Schöps et
+  al.'s pattern YAML (`create_calibration_pattern.py`) as
+  `PlanarTarget(SchoepsPattern(…); canvas)`, its `page` the canvas (lower-left
+  corner at `(−pattern_start_x, pattern_end_y − height)` in the design chart;
+  the pattern rectangle checked against the layout; no board, which the file
+  does not state), and Kalibr's `aprilgrid` target YAML as
+  `PlanarTarget(AprilGrid(…))`, its `tagSpacing` ratio read as the gap
+  `tagSize · tagSpacing` — the exact product of the two decimals, rounded once
+  (0.088 · 0.3 is 26.4 mm, as a file's 26.4 reads). Either saves as a
+  `layout` record. Both read YAML comments (a `#` at a line's start or after
+  whitespace, outside quotes: Kalibr's stock files carry them), skip a UTF-8
+  byte-order mark (the Schöps intrinsics YAML too), and take a list's items at
+  column 0 under their key (PyYAML's default dump) as well as indented.
+- `vgio_migrate`'s rig identities (`_old_rig_ids`) match rig v4, v5 and v6 by
+  name and refuse any other version, so a future identity-changing step must
+  state its own.
+- Compat: VisualGeometryToolkitCore 0.5.7 (`AbstractTargetLayout`, `layout`,
+  `TARGET_LAYOUT_TAGS`).
 
 ## 0.5.2 (2026-11-04)
 

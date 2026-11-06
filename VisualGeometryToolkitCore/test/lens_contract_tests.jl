@@ -268,7 +268,7 @@
             # project: the pixel of every pair lies ON the projected radial line, and
             # `direction` is the bare P·X̃ the line is spanned by
             for (X, x) in pts
-                @test abs(VgtkCore.distance(VgtkCore.project(Pc, X), x)) < 1.0e-6
+                @test abs(VgtkCore.signed_distance(VgtkCore.project(Pc, X), x)) < 1.0e-6
                 d = VgtkCore.direction(Pc, X)
                 @test abs(d[1] * x[2] - d[2] * x[1]) / (norm(d) * norm(x)) < 1.0e-6
             end
@@ -280,8 +280,8 @@
             @test Tuple(Pr.center) == (c[1], c[2])
             for (X, x) in raw
                 line = VgtkCore.project(Pr, X)
-                @test abs(VgtkCore.distance(line, x)) < 1.0e-6
-                @test abs(VgtkCore.distance(line, c)) < 1.0e-9
+                @test abs(VgtkCore.signed_distance(line, x)) < 1.0e-6
+                @test abs(VgtkCore.signed_distance(line, c)) < 1.0e-9
             end
             @test SMatrix{3, 3, Float64}(HomographyMat(Pr))[3, :] == SVector(0.0, 0.0, 1.0)
             @test SMatrix{3, 3, Float64}(HomographyMat(Pr))[1:2, 3] ≈ Pc.P[:, 3] + c
@@ -357,7 +357,7 @@
             for X in Xs
                 u = VgtkCore.project(cam_div, SVector(X[1], X[2], 0.0))
                 line = VgtkCore.project(Pd, X)
-                @test abs(VgtkCore.distance(line, Point2(u[1], u[2]))) < 1.0e-9
+                @test abs(VgtkCore.signed_distance(line, Point2(u[1], u[2]))) < 1.0e-9
             end
             # composition with a normalization's sides — the family's frame law, both directions.
             cs = [X => SVector{2, Float64}(VgtkCore.project(cam_div, SVector(X[1], X[2], 0.0))) for X in Xs]

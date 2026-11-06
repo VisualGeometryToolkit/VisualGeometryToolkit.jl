@@ -670,12 +670,21 @@ with_unit(E::EuclideanMap, u::Units) = _attach_unit(E, u)
 # scaled once by the product of its row and column factors (1, f or f·f), so a
 # strip and its attach are inverse to within an ulp. The one rule for a pose
 # (`_POSE_LENGTHS`), a point (every entry) and a target calibration's θ.
-function _scale_length_form(M::CovMat{N, T, L, C}, mask, f, op) where {N, T, L, C}
-    return CovMat{N, T, L, C}(ntuple(k -> _length_entry(M[k], k, N, mask, f, op), Val(L)))
+function _scale_length_form(M::CovMat{N, T, MT, C}, mask, f, op) where {N, T, MT, C}
+    m = _scale_length_matrix(parent(M), mask, f, op)
+    return CovMat{N, T, typeof(m), C}(m)
 end
-function _scale_length_form(M::PrecMat{N, T, L, C}, mask, f, op) where {N, T, L, C}
-    return PrecMat{N, T, L, C}(ntuple(k -> _length_entry(M[k], k, N, mask, f, _opposite(op)), Val(L)))
+function _scale_length_form(M::PrecMat{N, T, MT, C}, mask, f, op) where {N, T, MT, C}
+    m = _scale_length_matrix(parent(M), mask, f, _opposite(op))
+    return PrecMat{N, T, typeof(m), C}(m)
 end
+# The matrix, entry by entry, in its own storage: a full one every entry, a diagonal one its diagonal; an isotropic one
+# as a diagonal (the mask may scale its axes apart).
+_scale_length_matrix(m::SMatrix{N, N, T, L}, mask, f, op) where {N, T, L} =
+    SMatrix{N, N, T, L}(ntuple(k -> _length_entry(m[k], k, N, mask, f, op), Val(L)))
+_scale_length_matrix(m::LinearAlgebra.Diagonal{T, <:SVector{N}}, mask, f, op) where {N, T} =
+    LinearAlgebra.Diagonal(SVector{N, T}(ntuple(i -> _length_entry(m.diag[i], (i - 1) * N + i, N, mask, f, op), Val(N))))
+_scale_length_matrix(m::ScaledIdentity{N}, mask, f, op) where {N} = _scale_length_matrix(LinearAlgebra.Diagonal(m), mask, f, op)
 @inline function _length_entry(x, k, N, mask, f, op)
     n = mask[mod1(k, N)] + mask[(k - 1) ÷ N + 1]
     return n == 0 ? x : op(x, n == 1 ? f : f * f)

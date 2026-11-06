@@ -20,18 +20,51 @@ argument, because the value already carries it.
 | Kind | VGC value | Read | Write |
 |---|---|---|---|
 | `vgio/cameras/v4` (the camera store) | `Dict{Symbol, …}` of name → `BoundedCamera` of a `CameraModel` (unposed, like a COLMAP "camera"), or an `Attributed` one with its `(; calibration)` block | `load(Dict{Symbol, BoundedCamera}, path)`; one camera: `load(BoundedCamera, path; name)` or `load(CameraModel, path; name)` | `save(path, store)` |
-| `vgio/transforms/v3` | `Vector` of labeled `EuclideanMap{3, …, S, D}`, or `Uncertain` ones (mm) | `load(Vector{EuclideanMap}, path)` | `save(path, poses)` |
-| `vgio/rig/v6` | `Rig{F, M}` holding sensors (a tuple of `BoundedCamera`s), targets (a `Dict` of `PosedTarget`s), or both | `load(Rig, path; resolve)` | `save(path, rig)` |
-| `vgio/target/v3` | one `AbstractTarget` (`PointTarget`, `PlanarTarget` of any `TargetCalibration`, `Uncertain` or not), or an `Attributed` one with its `(; calibration_record)` | `load(AbstractTarget, path; resolve)` | `save(path, target)` |
-| `vgio/trajectory/v3` | `Trajectory{S, D}`: labeled poses per frame index, with images, times and recovered flags | `load(Trajectory, path)` | `save(path, tr)`; exporters `save_tum_trajectory`, `save_euroc_trajectory` |
-| `vgio/target_poses/v1` | `TargetPoses{F}`: per frame, `TargetFrame{id} → F` poses; `pose(tp, t, id)` | `load(TargetPoses, path)` | `save(path, tp)`; exporter `save_bop_scene` |
+| `vgio/transforms/v4` | `Vector` of labeled `EuclideanMap{3, …, S, D}`, or `Uncertain` ones (mm) | `load(Vector{EuclideanMap}, path)` | `save(path, poses)` |
+| `vgio/rig/v8` | `Rig{F, M}` holding sensors (a tuple of `BoundedCamera`s), targets (a `Dict` of `PosedTarget`s), or both | `load(Rig, path; resolve)` | `save(path, rig)` |
+| `vgio/target/v5` | one `AbstractTarget` (`PointTarget`, `PlanarTarget` of any `TargetCalibration`, `Uncertain` or not, stated by its points, its reference or its layout), or an `Attributed` one with its `(; calibration_record)` | `load(AbstractTarget, path; resolve)`; a planar one: `load(PlanarTarget, path)` | `save(path, target)` |
+| `vgio/trajectory/v4` | `Trajectory{S, D}`: labeled poses per frame index, with images, times and recovered flags | `load(Trajectory, path)` | `save(path, tr)`; exporters `save_tum_trajectory`, `save_euroc_trajectory` |
+| `vgio/target_poses/v2` | `TargetPoses{F}`: per frame, `TargetFrame{id} → F` poses; `pose(tp, t, id)` | `load(TargetPoses, path)` | `save(path, tp)`; exporter `save_bop_scene` |
 | `vgio/target_homographies/v1` | `TargetHomographies{F <: PixelFrame, H}`: per frame, each target's plane (mm) → pixel `HomographyMat`, canonical (unit norm, `H[3,3] ≥ 0`), before the lens of the frame's `sensor`'s camera (a `RadialHomography`'s `H`); `targets` are the `content_id`s (a rig's or a single target's) its ids resolve in | `load(TargetHomographies, path)` | `save(path, th)` |
+| `vgio/target_detections/v2` | `TargetDetections{F}`: per frame, per target, `csponds(index, detection)` — pixels in a `PixelFrame` or 3D points in a named 3D frame, plain or `Uncertain`, with an optional `weights` column | `load(TargetDetections, path)` (a `target_points2d/v1` or `target_points3d/v1` file too, converted — except one with a (target, index) twice in a frame or with plain and `Uncertain` points mixed, refused by name; it still loads as `load(TargetPoints2D/3D, path)`) | `save(path, td)` |
 | `vgio/target_points2d/v2` | `TargetPoints2D{F <: PixelFrame}`: per frame, `(target, index, xy, weight)` | `load(TargetPoints2D, path)` | `save(path, obs)`; exporter `save_correspondences` |
-| `vgio/target_points3d/v1` | `TargetPoints3D{F}`: per frame, `(target, index, xyz)`, such as motion-capture markers | `load(TargetPoints3D, path)` | `save(path, obs)`; exporter `save_trc` |
+| `vgio/target_points3d/v2` | `TargetPoints3D{F}`: per frame, `(target, index, xyz)`, such as motion-capture markers | `load(TargetPoints3D, path)` | `save(path, obs)`; exporter `save_trc` |
 | `vgio/capture_settings/v1` | `CaptureSettings`: per frame, the exposure (time, f-number, ISO) and the nominal lens settings (focal length, focus distance); the body and lens `DeviceIdentity`, `Attributed` with each one's source (`"exif"` or `"config"`) and the EXIF lens claim a stated lens overrode | `load(CaptureSettings, path)` | `save(path, Attributed(cs, (; identity_sources = (body, lens)[, exif_lens])))` |
+| `vgio/vignetting/v1` | an `AbstractVignetting`: `TensorProductVignetting` (its knots stated), `RadialVignetting` or `LogVignetting`, positions in COLMAP pixels; rebuilt bit for bit | `load(AbstractVignetting, path)` | `save(path, v)` |
+| `vgio/environment_light/v1` | an `EnvironmentLight` of a `SphericalHarmonicMap`: centre and radius in `length_unit` (a plain light refused), coefficients per channel, the basis convention stated (`real_orthonormal_no_condon_shortley`) | `load(EnvironmentLight, path)` | `save(path, light)` |
+| `vgio/blur/v1` | name → `GaussianBlur` on a sensor (px²), each in the storage it holds (round, axis-aligned, general) | `load(Dict{Symbol, GaussianBlur}, path)` | `save(path, blurs)` |
 | `vgio/calibration/v1` (`calibration.json`, the manifest) | the record files of one calibration result bound by SHA-256: each with its record schema, `role` (`"authority"` or `"derived"`) and `derived_from`; `kind` `"metric"`, `"projective"` or `"image"`, an optional `CameraModelSpec`, `metrics`, `provenance`; a load refuses a changed file by name and measurements naming targets the listed target and rig files do not hold | `load_manifest(dir)` | `save_manifest(dir, files; kind, model, metrics, provenance)` |
 | `vgio/generic_camera/v3` (Schöps grid models: the nodes the model holds, `present` as runs per lattice row, and only their controls) | `CentralGenericModel`, `NoncentralGenericModel` | `load(CentralGenericModel, path)`, `load(NoncentralGenericModel, path)` | `save(path, m)` |
 | `vgio/correspondences/v2` (flat 2D–3D pairs per frame and target) | an export of a `TargetPoints2D` and its target rigs; there is no reader | — | `save_correspondences([to_frame,] path, obs, targets...; resolve)` |
+
+A `target_detections` file holds, per frame, one record per detected target:
+its point indices (1-based, `point_index_base`), its points, and, where the
+value has them, one covariance per point (px², or the file's `length_unit`
+squared) and its `weights`:
+
+```json
+{"schema": "vgio/target_detections/v2", "pixel_frame": "colmap", "point_index_base": 1,
+ "targets": ["<content id of a rig>"],
+ "frames": [{"t": 17, "image": "DSC0017.png", "sensor": "cam1",
+             "detections": [{"target": "b89", "index": [1, 4], "points": [[u, v], [u, v]],
+                             "covariance": [[[…], […]], [[…], […]]], "weights": [1.0, 0.5]}]}]}
+```
+
+A 3D file states `"frame"` (a 3D frame name) and `"length_unit"` in place of
+`"pixel_frame"`, its points are lengths in that unit, and its `targets` may be
+absent; a 2D one requires each frame's `image` and `sensor` and at least one
+`targets` identity, a 3D one each frame's `sensor`.
+
+### File names
+
+A file's name states its kind and what tells copies of it apart; the loaders
+never read it (they read `schema`). The stem is the kind and the suffix the
+distinguishing name: `target_detections_<sensor>.json`,
+`target_poses_<sensor>.json`, `trajectory_<body>.json`, `targets_<rig>.json`,
+`cameras.json`. A name holds no timestamp: the time is the file's
+`time_origin` and `times`, the capture date is the session directory's, and a
+rerun goes in its own run-key directory with its provenance. Published and
+existing files keep their names.
 
 A camera bounded by its physical sensor (`BoundedCamera(camera, sensor::Sensor)`)
 carries the sensor's pixel pitch in its camera body, `"pitch": [width, height]`,
@@ -48,6 +81,8 @@ covers the pitch. A camera bounded by a bare pixel extent has no `pitch` key.
 | OpenCV or MATLAB calibration export | `ExternalCalibration`, an adapter holding VGC values | `load_opencv_calibration([file_frame,] path; file_unit)`, `load_matlab_calibration([file_frame,] path; file_unit)`; `migrate_opencv` and `migrate_matlab` convert one to native files | `save_opencv_calibration([to_frame,] path, cal; to_unit, images)` |
 | Kalibr camchain (`camchain.yaml`) | `BoundedCamera` | `load_kalibr_camchain([file_frame,] path; camera = "cam0")` | — |
 | Schöps et al.'s camera_calibration `intrinsics0.yaml` | `CentralGenericModel`, `NoncentralGenericModel` (VGC's own types; the file's corner pixel convention is `SCHOEPS_PIXEL_FRAME`, COLMAP's) | `load(CentralGenericModel, path)`, `load(NoncentralGenericModel, path; file_unit)`: the form is told from the content; the point grid's unit is the caller's | read-only (`save` writes `vgio/generic_camera/v3`) |
+| Schöps et al.'s pattern YAML (`create_calibration_pattern.py`) | `PlanarTarget(SchoepsPattern(…); canvas)`, the page its canvas | `load(PlanarTarget, path)` (or `load(AbstractTarget, path)`): the form is told from the content | read-only (`save` writes `vgio/target/v5`, the layout as a record) |
+| Kalibr's target YAML of an `aprilgrid` | `PlanarTarget(AprilGrid(…))`, the gap `tagSize · tagSpacing` (Kalibr's `tagSpacing` is a ratio) | `load(PlanarTarget, path)` (or `load(AbstractTarget, path)`) | read-only (`save` writes `vgio/target/v5`) |
 | Schöps et al.'s camera_calibration `dataset.bin` (`calib_data` v0) | `TargetPoints2D{SCHOEPS_PIXEL_FRAME}`: per image, `(target, feature id + 1, xy, 1.0)` | `load(TargetPoints2D, path; target)`: the target the ids index is the caller's | read-only |
 | COLMAP `database.db` | a lazy read handle | `ColmapDatabase(path)`, with the accessors `keypoints`, `descriptors`, `matches`, `verified_matches` and others (public, so qualify them) | read-only |
 
@@ -59,7 +94,7 @@ readers and migrations.
 This section is documentation only; there is no COLMAP exporter for these
 kinds. A `target_points2d` file corresponds to the `points2D` of COLMAP's
 `images.txt` with their `POINT3D_ID`, where the `(target, index)` pair plays
-the role of the `POINT3D_ID`. A rig of targets (the targets of a `rig/v5`)
+the role of the `POINT3D_ID`. A rig of targets (the targets of a `vgio/rig` file)
 corresponds to COLMAP's `points3D`. It is kept as per-target frames, with each
 target's points in its own `TargetFrame` and placed by its pose. It stores no
 tracks, because the measurements are the tracks.
@@ -77,6 +112,29 @@ written:
   written by its `reference` alone, since its points belong to the
   design's owner. It reads back unresolved unless the caller supplies
   `resolve`, the owner's resolver (`reference::Symbol -> nominal points`).
+- A `PlanarTarget` built from a layout (`PlanarTarget(layout; …)`, which VGC
+  records as `layout(t)`) is written by its `layout` (`vgio/target/v4`,
+  `vgio/rig/v7`); its points are VGC's from the layout and are not restated.
+  The record's `type` is the layout's tag in VGC's `TARGET_LAYOUT_TAGS`, every
+  key is written, and lengths are in the file's unit:
+
+```json
+"layout": {"type": "april_grid", "tag_rows": 6, "tag_cols": 6, "tag_size": 88.0, "tag_spacing": 26.4,
+           "apriltag_family": "tag36h11", "first_id": 0}
+"layout": {"type": "schoeps_pattern", "squares_x": 30, "squares_y": 30, "square_length": 33.0,
+           "star_segments": 16, "apriltag_family": "tag36h11",
+           "apriltags": [{"x": 13, "y": 13, "width": 4, "height": 4, "id": 9}]}
+```
+
+  `tag_spacing` is the gap between neighbouring tags, a length (Kalibr's
+  `tagSpacing` is that gap over the tag size). A Schöps tag's `x`, `y`,
+  `width` and `height` are squares, y down as the pattern is printed (the
+  layout's own coordinates); the target's points are in VGC's design chart, y
+  up. A body states exactly one of `reference`, `nominal` and `layout`. A
+  layout target's `content_id` is of its points, as a nominal target's, so a
+  layout file and a nominal file of the same design name the same target.
+  A `vgio/target/v3` or `vgio/rig/v6` file (no layout) reads as it always did,
+  through its version step, which moves no number.
 
 A `PlanarTarget`'s `calibration` (VGC's `TargetCalibration`, the map from the
 design to the physical target) is one record whose `type` is the kind's tag
@@ -159,7 +217,17 @@ never shadows the target's `calibration`.
 ## Reading an earlier version
 
 Every earlier version a published file holds is read: `vgio/cameras/v1`–`v3`,
-`vgio/target/v1`–`v2`, `vgio/rig/v4`–`v5` and `vgio/generic_camera/v2`. `load` runs the file's version
+`vgio/target/v1`–`v4`, `vgio/rig/v4`–`v7`, `vgio/generic_camera/v2`, `vgio/transforms/v3`,
+`vgio/trajectory/v3`, and v1 of `target_poses`, `target_points2d`, `target_points3d` and
+`target_detections`.
+
+**The covariance storage (2026-11)** moved every kind that carries a covariance up a
+version: a covariance is written in the storage its value holds — rows (full),
+`{"diagonal": […]}` or `{"isotropic": λ}` — and read back as that storage
+(VisualGeometryToolkitCore's `CovMat` holds an `SMatrix`, `SDiagonal` or
+`ScaledIdentity`). An isotropic covariance over a pose's angles and lengths is written
+as its diagonal (no single number holds rad² and mm²). An earlier file's covariances
+are all rows, so its version step only renames the schema. `load` runs the file's version
 steps in memory, one per version
 ([`migrate_schema`](@ref VisualGeometryToolkitIO.migrate_schema)`(::Val{schema}, tree)`,
 run by [`migrate_record`](@ref VisualGeometryToolkitIO.migrate_record)), and
@@ -238,11 +306,41 @@ dst)` that `vgio_migrate` runs — a declared extension point
 
 ## Building blocks for other kinds
 
-A package that serializes a kind of its own (for example a calibration
-pipeline's session) can reuse the bodies the native kinds embed:
+Every VisualGeometryToolkitCore value a native kind embeds is written and read
+on one serialization style, `VgioStyle(; length_unit = mm, pixel_frame =
+PixelFrame{:colmap})`, a `JSON.JSONStyle` that carries what the enclosing file
+declares. `JSON.json(x; style)` writes a value, `JSON.lower(style, x)` gives
+its record and `JSON.lift(style, T, record)` reads one back from a record
+read by property access — a parsed `JSON.Object` or a `NamedTuple` (a `Dict`
+is not one); the methods are on `VgioStyle` only.
+
+| Value | `T` in `lift` | Record |
+|---|---|---|
+| `EuclideanMap{3}`, plain or `Uncertain` | `EuclideanMap{3}` | `{"rotation": [w, x, y, z], "translation": [x, y, z], "covariance": …}` |
+| `CameraModel` | `CameraModel` | `{"K": {"fx", "fy", "cx", "cy", "skew"}, "lens": {…}}`, `cx, cy` in `pixel_frame` |
+| `CentralGenericModel`, `NoncentralGenericModel` | `Union{CentralGenericModel, NoncentralGenericModel}` | the `vgio/generic_camera` body |
+| `PointTarget`, `PlanarTarget` | `AbstractTarget` (keyword `resolve`, as `target_from_json`'s) | the target body, a planar target's calibration as the parametric record (below) |
+| `AprilGrid`, `SchoepsPattern` | `AbstractTargetLayout` | `{"type": tag, every field}` |
+| `Ellipse` | `Ellipse` | `[cx, cy, a, b, θ]` |
+
+A target's calibration is written and read as part of its target's body, not
+by a `lower` of its own: VisualGeometryToolkitCore's `TargetCalibration` holds
+every planar `EuclideanMap`, so a `lower` on it would write any 2D map left in
+a record (a pixel-frame conversion) as a target calibration.
+
+A parametric model is written as `{"type": tag, "parameters": [θ₁, …]}`: the
+tag from its kind's `TagRegistry` (snake_case of the type's name), the
+parameters VisualGeometryToolkitCore's `parameter_vector` in `parameter_names`
+order, the lengths among them (`length_mask`) in the file's unit and decimal-exact,
+and no `parameters` for a kind that has none. It is read back with
+`with_parameters`; a record holding more or fewer parameters than its kind is
+an `ArgumentError` naming the tag. A kind whose structure its type does not fix states that
+structure beside its parameters (a thin-plate kind's `nodes`).
+
 `pose_json` / `pose_from_json`, `camera_json` / `camera_from_json`,
-`target_json` / `target_from_json`, and `pose_declarations`. They are public
-and not exported.
+`target_json` / `target_from_json` and `pose_declarations` are the same
+records for a length unit or a pixel frame given directly. All of these are
+public and not exported.
 
 ## Run logs
 

@@ -27,10 +27,21 @@ rigid transform), stores uncertainty exactly as the in-memory type states it:
   calibration, a fitted pose) carries `Uncertain` values. A writer that has a
   covariance and drops it is a bug.
 
-### One encoding
+### One encoding per storage
 
-The `covariance` is a `d×d` array of rows (`d` arrays of `d` numbers), symmetric, in
-the primitive's own tangent order and units:
+The `covariance` states the storage the value's [`CovMat`](@ref) holds, so it
+round-trips as that storage:
+
+| In memory (`parent(Σ)`) | On disk |
+|---|---|
+| `SMatrix` (full) | a `d×d` array of rows (`d` arrays of `d` numbers), symmetric |
+| `SDiagonal` (diagonal) | `{"diagonal": [d numbers]}` |
+| [`ScaledIdentity`](@ref) (isotropic, `λ·I`) | `{"isotropic": λ}` |
+
+An isotropic covariance over entries of different length dimensions (a pose's
+angles and lengths) has no single number in the file's units, so it is written,
+and read back, as its diagonal. The storage is told from the JSON's shape, never
+from the numbers. Every form is in the primitive's own tangent order and units:
 
 - **Points:** `(x, y)` or `(x, y, z)`, in the file's unit squared. That is px² in a
   file that declares a `pixel_frame`, and the declared `length_unit` squared
@@ -101,8 +112,14 @@ from VGC types.
 | `target` | an [`AbstractTarget`](@ref) ([`PointTarget`](@ref), [`PlanarTarget`](@ref)) |
 | `trajectory` | [`Trajectory`](@ref) |
 | `target_poses` | [`TargetPoses`](@ref) |
-| `target_points2d`, `target_points3d` | [`TargetPoints2D`](@ref), [`TargetPoints3D`](@ref) |
+| `target_detections` | [`TargetDetections`](@ref) (pixels or 3D points, by its frame) |
+| `target_points2d`, `target_points3d` | [`TargetPoints2D`](@ref), [`TargetPoints3D`](@ref); also read as a `TargetDetections` (converted on load; a file with a (target, index) twice in a frame, or plain and `Uncertain` points mixed, is refused by name and loads as its own kind only) |
 | `capture_settings` | [`CaptureSettings`](@ref), `Attributed` with its identities' sources |
+
+**File names state the kind, never the time.** A file's name is a
+convention for people, not a format: every loader reads the file's `schema`
+and never its name. VisualGeometryToolkitIO's docs ("Kinds and the I/O
+Surface", *File names*) state it once.
 
 The measurement kinds are COLMAP's decomposition: `target_points2d` ≈ COLMAP's
 `images.txt` `points2D` with their `POINT3D_ID` — here the pair (target id,
@@ -128,7 +145,7 @@ closed set of keys; the target's own `calibration` is its
 
 **A target's calibration is part of its record.** A [`PlanarTarget`](@ref)'s
 [`TargetCalibration`](@ref) is written in its body as one `calibration` record
-(`vgio/target/v3`, `vgio/rig/v6`): its `type`, the kind's tag in
+(`vgio/target/v4`, `vgio/rig/v7`): its `type`, the kind's tag in
 `TARGET_CALIBRATION_TAGS`; its `parameters` in `parameter_names` order, lengths
 in the file's unit; `nodes` for a thin-plate kind; for a composition
 (the affine print error `Aspect ∘ Skew`, `HeightField ∘ Aspect ∘ Skew`,
@@ -150,6 +167,15 @@ whose design is content-addressed (a BlobBoards board uid) is written by its
 `reference` and its calibration; its nominal points are the design's owner's
 and are not restated. A reader returns it unresolved unless the caller supplies
 the owner's resolver.
+
+**A parametric design is stored by its layout.** A [`PlanarTarget`](@ref) built
+from a layout (`PlanarTarget(layout; …)`, an [`AbstractTargetLayout`](@ref):
+[`AprilGrid`](@ref), [`SchoepsPattern`](@ref)) records it ([`layout`](@ref)`(t)`)
+and is written by it (`vgio/target/v4`, `vgio/rig/v7`): a `layout` record whose
+`type` is the layout's tag in `TARGET_LAYOUT_TAGS`, its whole design (tag
+family, ids) and its lengths in the file's unit; its points follow from the
+layout and are not restated. Its identity is of its points, as a target given
+by them: the layout is not hashed.
 
 **An identity does not change when the file format does.** A measurement names
 the rig that defines its targets by `content_id`: the SHA-256 of a canonical

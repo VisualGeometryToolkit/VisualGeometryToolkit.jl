@@ -27,7 +27,10 @@ Pages = ["cameras/rig.jl", "cameras/stereo.jl", "cameras/rectify.jl"]
 The per-frame values of a capture, keyed by frame index: a body's
 [`Trajectory`](@ref), a detector's [`TargetPoses`](@ref), the measured target
 points [`TargetPoints2D`](@ref) (pixels) and [`TargetPoints3D`](@ref) (3D
-markers), and [`convert_frame`](@ref), the one way to change a pixel frame.
+markers) — and [`TargetDetections`](@ref), per frame and target the
+detections `index => observation` in a pixel or 3D frame, with its
+[`FrameStamps`](@ref), which replaces both in 0.7 — and
+[`convert_frame`](@ref), the one way to change a pixel frame.
 The camera's settings per frame are a [`CaptureSettings`](@ref): each frame's
 [`ExposureSettings`](@ref) and nominal [`LensSettings`](@ref), with the
 [`DeviceIdentity`](@ref) of the body and the lens beside them (a camera model

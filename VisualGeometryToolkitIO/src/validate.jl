@@ -181,22 +181,40 @@ const _POINT_INDEX_BASE = 1
 # application order (refused by name in a current record). Migrated by `vgio_migrate`, which refuses a v2/v5 chain with no v3
 # form (two in-plane kinds).
 #
+# target v4 and rig v7 (the target layouts, 2026-11): a planar target may state
+# its design by its `"layout"` (VGC's AprilGrid or SchoepsPattern, the type its
+# tag in VGC's `TARGET_LAYOUT_TAGS`) instead of its `"reference"` or its
+# `"nominal"` points — exactly one of the three. A v3/v6 body is a v4/v7 body
+# as it stands: the step moves the version and no number. The version moves so
+# that a reader of v3/v6 refuses a layout target by its version, not by an
+# unknown key.
+#
 # transforms and trajectory are v3 since their frames are typed (2026-10): the
 # `from`/`to` names go through the frame grammar (`frame_from_name`), so a
 # free-form name is refused, and a pose may carry its covariance. The kinds
-# born after that are v1 (target, target_poses, target_homographies, target_points3d). target_points2d is v2 (2026-11): its
-# `targets` name a rig OR a single unposed target (as target_homographies/v1), and a v1 file reads through its step.
+# born after that are v1 (target, target_poses, target_homographies, target_points2d, target_points3d,
+# capture_settings, target_detections, calibration). target_points2d v2 (2026-11, with the covariance
+# storage below) also lets its `targets` name a single unposed target (as target_homographies/v1).
 #
 # generic_camera v3 (the present nodes, 2026-11): a grid model holds the nodes
 # its imaged region reaches, listed as `present` (runs per lattice row), and
 # its grids hold those nodes only; v2 held every node. A v2 file reads through
 # its version step as every node present. A rig sensor's generic body carries
-# `present` only when its model does not hold every node, so every rig/v6 file
-# written before reads as it did, and rig stays v6.
+# `present` only when its model does not hold every node, so a rig file
+# written before reads as it did: this change moved no rig version (rig v7 is
+# the target layouts' above).
+#
+# The covariance storage (2026-11): every kind that carries a covariance writes
+# it in the storage its value holds — rows, {"diagonal": […]} or
+# {"isotropic": λ} (`_cov_spec`) — and moved up a version: rig v8, transforms
+# v4, trajectory v4, target v5, target_poses v2, target_points2d v2,
+# target_points3d v2, target_detections v2. An earlier file reads through its
+# version step unchanged (its covariances are rows).
 const _SCHEMA_VERSION = Dict(
-    "cameras" => 4, "rig" => 6, "transforms" => 3, "trajectory" => 3, "generic_camera" => 3,
-    "target" => 3, "target_poses" => 1, "target_homographies" => 1, "target_points2d" => 2, "target_points3d" => 1,
-    "capture_settings" => 1, "calibration" => 1,
+    "cameras" => 4, "rig" => 8, "transforms" => 4, "trajectory" => 4, "generic_camera" => 3,
+    "target" => 5, "target_poses" => 2, "target_points2d" => 2, "target_points3d" => 2,
+    "target_homographies" => 1, "capture_settings" => 1, "target_detections" => 2, "calibration" => 1,
+    "vignetting" => 1, "environment_light" => 1, "blur" => 1,   # 2026-11: a radiometric camera's fields, light and blurs
 )
 _schema_version(kind) = get(_SCHEMA_VERSION, kind, 2)
 _schema(kind) = "vgio/$(kind)/v$(_schema_version(kind))"
@@ -213,14 +231,29 @@ const _PROVENANCE = Pair{Symbol, _Spec}[:provenance => _Free()]
 
 const _POSE = _Obj(:rotation => _Vec(_Real(), 4), :translation => _Vec(_Real(), 3))
 
-# A covariance on the wire (VisualGeometryToolkitCore conventions/persisted-geometry.md):
-# a d×d array of rows, finite and exactly symmetric, in the value's own tangent
-# order and the file's units. Present iff the value is `Uncertain`; all zeros
-# is `exact`. Positive semi-definiteness is not tested (zero is valid).
-_cov_spec(d::Int) = _Checked(
-    _Vec(_Vec(_Real(), d), d),
-    c -> all(c[i][j] == c[j][i] for i in 1:d, j in 1:d) ? nothing : "covariance must be symmetric",
-)
+# A covariance on the wire (VisualGeometryToolkitCore conventions/persisted-geometry.md),
+# in the value's own tangent order and the file's units, its shape the storage
+# the value holds: a d×d array of rows, finite and exactly symmetric (full);
+# `{"diagonal": [d numbers]}` (an SDiagonal); `{"isotropic": λ}` (λ·I, a
+# ScaledIdentity). Present iff the value is `Uncertain`; all zeros is `exact`.
+# Positive semi-definiteness is not tested (zero is valid).
+struct _Cov <: _Spec
+    d::Int   # the dimension; 0: any (a size its record checks, as a target calibration's over its parameters)
+end
+_cov_spec(d::Int) = _Cov(d)
+function _validate(s::_Cov, x, file, at)
+    if x isa AbstractVector
+        d = s.d > 0 ? s.d : length(x)
+        _validate(_Vec(_Vec(_Real(), d), d), x, file, at)
+        all(x[i][j] == x[j][i] for i in 1:d, j in 1:d) || _refuse(file, at, "covariance must be symmetric")
+        return nothing
+    end
+    x isa AbstractDict || _refuse(file, at, "a covariance is an array of rows, {\"diagonal\": […]} or {\"isotropic\": λ}")
+    return _validate(_Either(Pair{Symbol, _Spec}[
+        :diagonal => _Obj(:diagonal => _Vec(_Real(), s.d > 0 ? s.d : -1)),
+        :isotropic => _Obj(:isotropic => _Real()),
+    ]), x, file, at)
+end
 const _COV2 = _cov_spec(2)
 const _COV3 = _cov_spec(3)
 const _COV6 = _cov_spec(6)
@@ -242,8 +275,8 @@ const _XYZ = _Vec(_Real(), 3)
 # migration — each successor started at v1 under its new name (or moved out of
 # VGIo), and the producer re-exports.
 const _RETIRED_KINDS = Dict(
-    "vgio/observations/v2" => "vgio/target_points2d/v2", "vgio/point_observations/v1" => "vgio/target_points3d/v1",
-    "vgio/targets/v2" => "vgio/rig/v6", "vgio/rig/v3" => "vgio/rig/v6",
+    "vgio/observations/v2" => "vgio/target_points2d/v2", "vgio/point_observations/v1" => "vgio/target_points3d/v2",
+    "vgio/targets/v2" => "vgio/rig/v8", "vgio/rig/v3" => "vgio/rig/v8",
     "vgio/session/v3" => "the calibration pipeline's own session kind (a pipeline's checkpoint is the pipeline's, not VGIo's)",
 )
 
@@ -252,8 +285,11 @@ const _RETIRED_KINDS = Dict(
 # for each.
 const _MIGRATIONS_TO_CURRENT = Dict(
     "vgio/target/v1" => "target", "vgio/rig/v4" => "rig", "vgio/target/v2" => "target", "vgio/rig/v5" => "rig",
+    "vgio/target/v3" => "target", "vgio/rig/v6" => "rig", "vgio/target/v4" => "target", "vgio/rig/v7" => "rig",
+    "vgio/target_detections/v1" => "file", "vgio/target_points2d/v1" => "file", "vgio/target_points3d/v1" => "file",
+    "vgio/target_poses/v1" => "file", "vgio/trajectory/v3" => "file", "vgio/transforms/v3" => "file",
     "vgio/cameras/v1" => "file", "vgio/cameras/v2" => "file", "vgio/cameras/v3" => "file",
-    "vgio/generic_camera/v2" => "file", "vgio/target_points2d/v1" => "file",
+    "vgio/generic_camera/v2" => "file",
 )
 
 function _refuse_schema(path, kind::AbstractString, s)
@@ -306,8 +342,11 @@ _refuse_payload(path, d) = haskey(d, _PAYLOAD_KEY) && throw(
 # version of the kind is read through its version steps (`migrate_record`,
 # migrate.jl), in memory: the record they give is validated as the current
 # record and read as one.
-function _read_store(path::AbstractString, kind::AbstractString, spec::_Spec)
-    d = _read_vgio_json(path)                 # a non-finite number is refused by its field
+_read_store(path::AbstractString, kind::AbstractString, spec::_Spec) =
+    _checked_store(_read_vgio_json(path), path, kind, spec)   # a non-finite number is refused by its field
+# …and the same for a file already parsed (`d`, its JSON), by a reader that
+# chose the kind from its `schema`.
+function _checked_store(d, path::AbstractString, kind::AbstractString, spec::_Spec)
     d isa AbstractDict || throw(ArgumentError("$(path): not a JSON object"))
     s = get(d, :schema, nothing)
     s == _schema(kind) || (_reads_through_migration(s, kind) && (d = _migrated_on_load(d, path, kind, s)))
@@ -348,9 +387,12 @@ function _migrated_on_load(d, path, kind, s)
 end
 
 # Write `body` as a v2 file after validating the very bytes that land on disk
-# against `spec`: a writer cannot produce a file its own reader refuses.
-function _write_store(path::AbstractString, spec::_Spec, body)
-    text = _json_text(body)                   # serialized once: these bytes are validated and written
+# against `spec`: a writer cannot produce a file its own reader refuses. A VGC
+# value left in `body` is lowered on `style` (style.jl), the file's own
+# declarations — required, so no writer can serialize under a unit or pixel
+# frame its file does not declare.
+function _write_store(path::AbstractString, spec::_Spec, body; style::VgioStyle)
+    text = _json_text(body, style)            # serialized once: these bytes are validated and written
     _validate(spec, _parse_vgio_text(text, path), path, "")   # (a NaN/Inf refused by its field)
     write(path, text)
     return nothing
@@ -375,8 +417,12 @@ function _spec(kind::AbstractString)
     kind == "target_homographies" && return _TARGET_HOMOGRAPHIES_SPEC
     kind == "target_points2d" && return _TARGET_POINTS2D_SPEC
     kind == "target_points3d" && return _TARGET_POINTS3D_SPEC
+    kind == "target_detections" && return _TARGET_DETECTIONS_SPEC
     kind == "capture_settings" && return _CAPTURE_SETTINGS_SPEC
     kind == "calibration" && return _CALIBRATION_SPEC
+    kind == "vignetting" && return _VIGNETTING_SPEC
+    kind == "environment_light" && return _ENVIRONMENT_LIGHT_SPEC
+    kind == "blur" && return _BLUR_SPEC
     kind == "correspondences" && return _CORRESPONDENCES_SPEC
     return nothing
 end

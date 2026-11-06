@@ -15,9 +15,10 @@ BlobBoards build on it.
 - `Synthetic`: ground-truth generators and metrics for benchmarking estimators.
 
 # Key types in the parent module
-- Transform matrices: `AbstractHomMat ⊃ AbstractAffineMat ⊃ AbstractSimilarityMat
-  ⊃ AbstractEuclideanMat`, plus `FundMat`, `EssentialMat` and `CameraCalibrationMat`.
-- Frame-tagged maps: `EuclideanMap` and `HomographyMap` carry `Src`/`Dst` tags from
+- Transform maps carry the class: `EuclideanMap ⊂ SimilarityMap ⊂` CoordinateTransformations'
+  affines `⊂ HomographyMap`; the algebraic matrices are `HomographyMat`, `FundMat`,
+  `EssentialMat`, `CameraCalibrationMat` (five parameters) and the symmetric conics.
+- Frame-tagged maps: `EuclideanMap`, `SimilarityMap` and `HomographyMap` carry `Src`/`Dst` tags from
   the open `Frame` hierarchy (`ViewFrame`, `PixelFrame`, `GnomonicFrame`, …);
   composition and `inv` are frame-checked.
 - Minimal solvers (`homography_4pt`, `p3p`, the 5-point essential and the
@@ -116,13 +117,15 @@ export default_device, reset_default_device!   # the ONE KA backend resolver (ba
 
 # Uncertainty types and accessors
 export Uncertain, PrecMat, CovMat
+export FullPrecMat, FullCovMat, DiagonalPrecMat, DiagonalCovMat, IsotropicPrecMat, IsotropicCovMat   # the forms by the matrix they hold: SMatrix, SDiagonal, ScaledIdentity (base/types.jl)
+export ScaledIdentity                    # the static N×N matrix λ·I, stored as λ (base/types.jl)
 export geom, prec   # `cov` is reachable via `Statistics.cov` (extended for Uncertain)
 export exact        # a zero-covariance measurement (the measurement-noise rule)
 public pair_covariance, noise_columns   # a correspondence's 4×4 covariance; Uncertain endpoints → Σ₁/Σ₂ columns
 
 # Hyperplanes (lines in 2D, planes in 3D)
 export Hyperplane, Line2D, Plane3D
-export normal, offset, distance, closest_point, project, side
+export normal, offset, distance, signed_distance, closest_point, project, side   # `distance(hyperplane, p)` deprecated (signed): `signed_distance`
 export slope, intercept, clip_to_rect
 # Batched SoA ray-plane intersection (0.14; hoisted from RayTracedCalibration):
 # broadcasted hit points + ray parameters of SoA ray bundles against a Plane3D.
@@ -140,8 +143,9 @@ public ImplicitRoot, implicit_root   # how a HeightSurface's root is differentia
 # Primary API: Maps operate on primitives (a conic maps to a conic; see HomographyMap)
 export AbstractMatrixMap         # parent for matrix-backed Maps (BoundedMap is a sibling)
 export HomographyMap, EuclideanMap, CameraPose, CameraExtrinsics, Extrinsics3
+export SimilarityMap             # x ↦ s·R·x + t: the similarity class (circles stay circles), exact under ∘ and inv
 public PlainEuclideanMap, UnitfulEuclideanMap   # the inner loop's map and the physical one
-public rotation, translation   # EuclideanMap accessors (x ↦ R·x + t); qualified or imported by name
+public rotation, translation   # EuclideanMap/SimilarityMap accessors (x ↦ R·x + t); qualified or imported by name
 # Coordinate-frame tags (EuclideanMap Src/Dst parameters) + label escape hatches
 export Frame, UnlabeledFrame, WorldFrame, CameraFrame, TargetPlaneFrame, PixelFrame
 # View-identity tags (0.8): Symbol-parametric instance identity — ViewFrame{:left}
@@ -198,6 +202,7 @@ public gauss_hermite_prob, hammersley, square_rule, unit_disc_rule   # quadratur
 public bspline_basis   # the scalar Cox–de Boor basis (isbits, any eltype, kernel-safe; on the CPU BSplineKit's)
 public cubic_lattice_basis, bending_gram, bending_rows, bending_stencils, natural_extrapolation   # the bending energy and the natural boundary condition (BSplineKit)
 public difference_stencil   # a lattice's forward-difference coefficients (a P-spline penalty, BoundaryRule's Δ³ extrapolation)
+public clamped_knots        # the clamped uniform knot vector bspline_basis takes (BSplineKit's, static)
 public bspline_basis_iterative, evaluate_bspline_surface, bspline_surface_partial
 public evaluate_bspline_4d, bspline_4d_partial, contract_basis_4d_weighted
 # Thin-plate spline (hoisted from RadiometricCamera, arithmetic unchanged): the
@@ -294,6 +299,7 @@ export sensor_rig, target_rig             # the two halves of a rig carrying bot
 export AbstractTarget, PointTarget, PlanarTarget, resolve, is_resolved   # the target as a model (targets.jl)
 public AprilGrid, point_index   # Kalibr's AprilGrid layout: PlanarTarget(grid) its tag corners, point_index(grid, tag, corner) their order
 public SchoepsPattern            # Schöps et al.'s tagged star pattern: PlanarTarget(pattern) its star features in Schöps' feature order
+public AbstractTargetLayout, layout, TARGET_LAYOUT_TAGS   # a target's parametric design (AprilGrid, SchoepsPattern), the layout a PlanarTarget records, the layouts' tags
 export TargetCalibration, Rigid, ThinPlateSpline, HeightField   # a planar target's calibration kinds (with the affine factors and their ∘)
 export Aspect, Skew, Scale        # the affine print error's gauge-free Iwasawa factors: Aspect ∘ Skew (Scale ∘ with a ruler, EuclideanMap ∘ Scale ∘ with a known pose)
 export calibration, is_planar
@@ -308,6 +314,7 @@ public design, reference, board, canvas   # a planar target's design, its refere
 public PlanarCalibration   # the planar kinds as one type
 public TargetManifold                     # a calibratable target's Manifold (minimal_manifold(target))
 export Trajectory, TargetPoses, TargetHomographies, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
+export TargetDetections, FrameStamps   # per frame, per target, index => detection; a capture's per-frame stamps (captures.jl)
 export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3
 export DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings   # a capture's camera settings per frame, its hardware's identity (captures.jl)
 public is_constant   # every frame of a CaptureSettings exposed alike (not exported: a common word)
@@ -317,11 +324,22 @@ export view_angle_limit  # the honest θ-domain of a lens
 export valid_domain      # where the lens MODEL is valid (its view-angle limit's image), not where light falls
 export image_circle      # the lit region of the sensor, from a datasheet through the pitch
 export imaged_region     # Rect(extent) ∩ a supplied image circle: what a bounded camera images
+export view_overlap      # the solid angle every pair of a rotating camera's frames share, and its fraction of each footprint (cameras/view_overlap.jl)
+export RotationMap, OrientedCamera   # a rotation-only pose, and a camera posed by one (transforms/rotation_map.jl, cameras/cameras.jl)
 export pixel_mask        # the pixels whose centres lie in a region (COLMAP centres, Julia's array layout)
 export pixel_centres     # the centres of a sub-lattice of pixels that lie in a region (pixel_mask's conversion)
 export free_nodes, node_mask   # which of a model's parameters a camera can see (cameras/support.jl)
 public SupportTrait, GlobalSupport, LocalSupport, support_trait, nodes, support, node_position, cubic_bspline_footprint
 public BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent nodes of a lattice outside an imaged region
+export AbstractVignetting, TensorProductVignetting, RadialVignetting, LogVignetting   # a camera's vignetting: B-spline fields on the sensor, in V or in log V (cameras/vignetting.jl)
+public log_spline   # a LogVignetting's spline of log V
+export EnvironmentLight, SphericalHarmonicMap   # the scene's light: radiance from every direction on a sphere about a centre, in real SH (cameras/lighting.jl)
+export AbstractBlur, GaussianBlur   # one blur of an imaging model (a camera's in-focus blur, a print's), by its moment matrix (cameras/blur.jl)
+public convolve, transform_blur     # two Gaussian blurs in sequence; a blur through a linear map of its plane
+public radiance, exit_direction, radiance_map, coefficients, with_coefficients, max_degree, sh_basis, sh_count, sh_index   # its evaluation, accessors and the SH basis
+public radius   # GeometryBasics' `radius`, Core's methods on it included (an EnvironmentLight's sphere)
+public coefficient_jacobian, active_coefficients, control_points, with_control_points, n_control_points, knot_vectors, spline_degree,
+       field_center, field_radius, radial_coordinate, pole_regular_basis   # their basis, accessors and a radial profile's regular subspace
 public radial_part      # a lens's radially symmetric part (shared with VisualGeometryToolkitEstimation's fit_camera)
 export parameter_vector, parameter_names, parameter_bounds, with_parameters  # the lens parameter chart
 public convert_eltype                     # a camera, lens or intrinsics rebuilt in another float type
@@ -394,11 +412,11 @@ public stable_seed   # the seed of every random stream, keyed by name (base/util
 # 6. ADVANCED/INTERNAL - Matrix types, traits
 # -----------------------------------------------------------------------------
 # Matrix types (for low-level operations)
-# AbstractHomConicMat, HomEllipseMat, HomCircleMat are in base/types.jl
-export AbstractHomMat  # abstract parent types
+# AbstractHomConicMat, HomEllipseMat, HomCircleMat, Conic are in base/types.jl
+# (symmetric by storage, class-checked); the transform class is the MAP's type
+# (EuclideanMap ⊂ SimilarityMap ⊂ AffineMap ⊂ HomographyMap), not a matrix's
 public AbstractHomConicMat
-export HomRotationMat, HomTranslationMat, HomUniformScalingMat, HomScalingMat
-export HomEuclideanMat, HomSimilarityMat, HomAffineMat, HomographyMat
+export HomographyMat
 export HomEllipseMat, HomCircleMat, Conic
 export AbstractFundMat, FundMat, EssentialMat, FixedModels
 
@@ -821,8 +839,10 @@ include("robust/lo_contract.jl")      # lo_workspace/locally_optimize!/lo_estima
 
 # Geometry Transforms (partial - matrices and rigid transforms only)
 # NOTE: coord_maps, region_maps, homography_map come AFTER Primitives
-include("geometry/transforms/matrices.jl")      # Transform matrix types + Holy Traits
+include("geometry/transforms/matrices.jl")      # HomographyMat (dense algebra) + AbstractMatrixMap
 include("geometry/transforms/euclidean_map.jl") # EuclideanMap (rigid transforms for camera poses)
+include("geometry/transforms/similarity_map.jl") # SimilarityMap (x ↦ s·R·x + t); uses EuclideanMap's rotation checks
+include("geometry/transforms/rotation_map.jl")  # RotationMap: a frame-tagged rotation about the origin, no translation (an OrientedCamera's pose)
 include("geometry/transforms/lie.jl")           # SO(3)/SE(3) exp/log + left Jacobian (AD-safe exp side)
 include("geometry/transforms/rotation_fits.jl") # Kabsch/Wahba, chordal mean, SO(3) projection
 
@@ -944,5 +964,9 @@ const SCALE_INTERFACE_TAGS = TagRegistry(:scale_interface, "",
 include("quality/stack_contracts.jl")
 include("quality/agent_docs.jl")
 include("quality/conventions.jl")
+
+# The precompile workload: the camera models' native code, cached in the package image
+using PrecompileTools: @setup_workload, @compile_workload
+include("precompile.jl")
 
 end # module VisualGeometryToolkitCore

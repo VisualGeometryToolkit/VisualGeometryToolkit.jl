@@ -41,7 +41,7 @@ function solve(p::MyProblem, sample_indices::AbstractVector{Int})
 end
 
 # Compute whitened residuals for all data points given a model.
-# MUST satisfy r[i]^2 = Mahalanobis distance (the whitening contract).
+# MUST satisfy r[i]^2 = squared Mahalanobis distance (the whitening contract).
 # For isotropic problems (Σ_x = I), this is just the signed distance.
 function residuals!(residuals::Vector{Float64}, p::MyProblem, model)
     for i in eachindex(residuals)

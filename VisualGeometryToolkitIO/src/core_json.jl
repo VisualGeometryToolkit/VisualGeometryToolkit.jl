@@ -410,7 +410,7 @@ function from_json(::Type{<:AbstractDetection}, d::_JSONObject, contract::UnitCo
     c = _get_key(d, "cov")
     N = _cov_size(c, d)
     Σ = c === nothing ? fill(NaN, N, N) : reshape(Float64[_cov_entry_from_json(x, contract, kind) for x in c], N, N)
-    return Attributed(Uncertain(fr, CovMat{N, Float64, N * N}(Tuple(Σ))), meta)
+    return Attributed(Uncertain(fr, CovMat(SMatrix{N, N, Float64}(Σ))), meta)
 end
 # The size N of a detection's covariance is the value's, not the frame type's
 # (an ASIFT EllipticFrame's is 3×3): an N×N matrix's N² entries, or, for a

@@ -47,16 +47,16 @@
         m = FramedAffine(ImageFrame{:v}, NormalizedImageFrame{:v}, sz)
         Σ = relabel(ImageFrame{:v}, CovMat{2, Float64}(4.0, 1.0, 1.0, 9.0))
         Σn = propagate(m, Σ)
-        @test Σn isa CovMat{2, Float64, 4, NormalizedImageFrame{:v}}
+        @test Σn isa CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, NormalizedImageFrame{:v}}
         @test SMatrix{2, 2}(Σn) ≈ SMatrix{2, 2}(Σ) / s^2 rtol = 1.0e-14          # A = I/s
         @test SMatrix{2, 2}(propagate(inv(m), Σn)) ≈ SMatrix{2, 2}(Σ) rtol = 1.0e-14
         # precision pulls back: the law of inv(Σ) is the inverse of the law of Σ
         Λn = propagate(m, inv(Σ))
-        @test Λn isa PrecMat{2, Float64, 4, NormalizedImageFrame{:v}}
+        @test Λn isa PrecMat{2, Float64, SMatrix{2, 2, Float64, 4}, NormalizedImageFrame{:v}}
         @test SMatrix{2, 2}(Λn) ≈ SMatrix{2, 2}(inv(Σn)) rtol = 1.0e-12
         # a labeled mismatch is refused; an unlabeled form is the wildcard
         @test_throws MethodError propagate(m, relabel(ImageFrame{:w}, CovMat{2, Float64}(4.0, 1.0, 1.0, 9.0)))
-        @test propagate(m, CovMat{2, Float64}(4.0, 1.0, 1.0, 9.0)) isa CovMat{2, Float64, 4, NormalizedImageFrame{:v}}
+        @test propagate(m, CovMat{2, Float64}(4.0, 1.0, 1.0, 9.0)) isa CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, NormalizedImageFrame{:v}}
         # an Uncertain moves its value and its form together
         x = SVector(400.0, 800.0)
         u = propagate(m, Uncertain(x, Σ))

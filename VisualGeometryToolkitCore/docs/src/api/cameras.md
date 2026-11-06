@@ -47,6 +47,18 @@ Private = false
 Pages = ["cameras/boards.jl"]
 ```
 
+## The overlap of a rotating camera's views
+
+[`view_overlap`](@ref) measures, for every pair of frames of a camera turning
+about its centre, the solid angle of the directions both image and its share
+of each frame's footprint: the overlap a panorama's pair selection reads.
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore.Cameras]
+Private = false
+Pages = ["cameras/view_overlap.jl"]
+```
+
 ## Index
 
 ```@index

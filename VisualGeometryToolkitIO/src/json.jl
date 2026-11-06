@@ -42,8 +42,9 @@ _write_json(path::AbstractString, body) = open(path, "w") do io
 end
 # The text a vgio file holds, as a string: `_write_json`'s, except that a
 # non-finite number is written as JSON.jl's NaN / Infinity, for the strict
-# parse of that text (`_parse_vgio_text`) to refuse by its field.
-_json_text(body) = JSON.json(body; pretty = 4, allownan = true)
+# parse of that text (`_parse_vgio_text`) to refuse by its field; a VGC value
+# in `body` lowered on `style` (VgioStyle, style.jl).
+_json_text(body, style::JSON.JSONStyle) = JSON.json(body; pretty = 4, allownan = true, style)
 
 _read_json(path::AbstractString; allownan::Bool = false) = _parse_json(read(path, String); allownan)
 

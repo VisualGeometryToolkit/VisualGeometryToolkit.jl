@@ -59,6 +59,82 @@ Private = false
 Pages = ["numerics/bspline_energy.jl"]
 ```
 
+## Vignetting
+
+A camera's relative illumination V on the sensor as a B-spline in V on
+clamped knots ([`clamped_knots`](@ref), [`bspline_basis`](@ref)), linear in
+its control points: a tensor-product surface over a sensor box
+([`TensorProductVignetting`](@ref)) or a profile in the radius about a centre
+([`RadialVignetting`](@ref)). A model is callable, `v(u)`, and isbits, so a
+batch of sensor points goes through [`pointwise!`](@ref) on a device;
+[`coefficient_jacobian`](@ref) is its row of a least squares in the control
+points, [`active_coefficients`](@ref) that row's nonzeros, and
+[`pole_regular_basis`](@ref) the radial profiles smooth at their centre. The
+estimators that fit them are their owners': a radiometric calibration's,
+a panorama's self-calibration.
+
+```julia
+v = RadialVignetting(12, SVector(2128.0, 1424.0), 1700.0)   # control points, centre and radius (camera pixels); V ≡ 1
+v = with_control_points(v, pole_regular_basis(v) * y)        # a profile with V′(0) = 0
+v(SVector(2500.0, 1300.0))                                   # V at a sensor point
+```
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Cameras]
+Private = false
+Pages = ["geometry/cameras/vignetting.jl"]
+```
+
+## Lighting
+
+The scene's light as a radiometric camera model sees it: an
+[`EnvironmentLight`](@ref), radiance from every direction given by a
+directional map on a sphere of finite radius about a centre, looked up where a
+ray from the shaded point leaves the sphere ([`exit_direction`](@ref); the
+distant light is its limit as the radius grows). The map is a
+[`SphericalHarmonicMap`](@ref): real spherical harmonics per channel
+([`sh_basis`](@ref), orthonormal, no Condon–Shortley phase, index
+[`sh_index`](@ref)`(l, m) = l² + l + m + 1`), so the radiance is linear in the
+coefficients and [`coefficient_jacobian`](@ref) is its row. Everything is
+isbits and allocation-free, for a kernel; the centre and radius are lengths
+(`ustrip(m, light)` for the kernel's plain form). Hoisted from
+RadiometricCamera, bit for bit.
+
+```julia
+light = EnvironmentLight(SphericalHarmonicMap(a, 2), SVector(0.0, 0.0, 0.0), 1.5)   # 3 × 9 coefficients, centre, radius
+radiance(light, x, ω)                                    # per channel, arriving at x from direction ω
+coefficients(light) * coefficient_jacobian(light, x, ω)  # the same, as a row of a least squares
+```
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Cameras]
+Private = false
+Pages = ["geometry/cameras/lighting.jl"]
+```
+
+## Blur
+
+One blur of an imaging model — a camera's in-focus blur (diffraction, the
+sensor's anti-aliasing filter, demosaicing), a print's own blur — as a
+[`GaussianBlur`](@ref) by its second-moment matrix ([`moment_matrix`](@ref)):
+round, axis-aligned (stored as an `SDiagonal`) or general. Several blurs
+compose into a point spread: two Gaussians in sequence add their moments
+([`convolve`](@ref)), and a linear map of the plane takes `M` to `J M Jᵀ`
+([`transform_blur`](@ref)). A blur is a kernel's shape, not a measurement's
+uncertainty, so it is not a [`CovMat`](@ref).
+
+```julia
+camera = GaussianBlur(0.6)                     # round, 0.6 px
+print  = GaussianBlur(0.02, 0.03)              # axis-aligned (mm, on the print)
+total  = convolve(transform_blur(J, print), camera)   # the print's blur seen through the pixel footprint J, then the camera's
+```
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Cameras]
+Private = false
+Pages = ["geometry/cameras/blur.jl"]
+```
+
 ## Thin-plate spline
 
 `f(𝐩) = a₁ + a_x 𝐩_x + a_y 𝐩_y + Σᵢ wᵢ U(𝐩, 𝐩ᵢ)` with `U = ½ r² ln r²`, through

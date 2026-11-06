@@ -1,0 +1,17 @@
+num_star_segments: 16
+squares_x: 30
+squares_y: 30
+square_length_in_meters: 0.03306666666666667
+page:
+    width_mm: 999.9999999999999
+    height_mm: 999.9999999999999
+    pattern_start_x_mm: 4.0
+    pattern_start_y_mm: 4.000000000000052
+    pattern_end_x_mm: 995.9999999999998
+    pattern_end_y_mm: 995.9999999999998
+apriltags:
+  - tag_x: 13
+    tag_y: 13
+    width: 4
+    height: 4
+    index: 9

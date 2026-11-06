@@ -17,7 +17,7 @@ using LinearAlgebra: norm, dot, cross, normalize
 using GeometryBasics: GeometryBasics, Point, Point2, Point3, Vec2, Vec3, Rect2
 
 # Import shared functions from parent to extend
-import ..VisualGeometryToolkitCore: closest_point, distance, normal, offset, centroid
+import ..VisualGeometryToolkitCore: closest_point, distance, signed_distance, normal, offset, centroid
 
 # =============================================================================
 # Hyperplane Type
@@ -51,7 +51,7 @@ plane = Hyperplane(SVector(0.0, 0.0, 1.0, -5.0))
 plane = Plane3D(Point3(0,0,5), Vec3(0,0,1))
 
 # Point-to-hyperplane signed distance
-d = distance(line, Point2(1.0, 2.0))
+d = signed_distance(line, Point2(1.0, 2.0))
 
 # Closest point on hyperplane (orthogonal projection)
 p_closest = closest_point(line, Point2(1.0, 2.0))
@@ -135,22 +135,32 @@ offset(h::Hyperplane) = -h.coeffs[end]
 # =============================================================================
 
 """
-    distance(hyperplane, point) -> T
+    signed_distance(hyperplane, point) -> T
 
-Signed distance from `point` to `hyperplane`.
-Positive if on the positive side of the normal.
+Signed distance from `point` to `hyperplane`: `n·p + d` with the unit normal `n`,
+positive on the side the normal points to, negative on the other, zero on the
+hyperplane. The sign is the hyperplane's orientation, so it answers which side a
+point is on (a camera centre in front of a planar target: `signed_distance(plane, c) > 0`).
 
 # Example
 ```julia
 line = Line2D(Point2(0.0, 0.0), Point2(1.0, 0.0))  # x-axis
-distance(line, Point2(3.0, 5.0))  # 5.0
+signed_distance(line, Point2(3.0, 5.0))   # 5.0
+signed_distance(line, Point2(3.0, -5.0))  # -5.0
 ```
 """
-function distance(h::Hyperplane{M, N, T}, p::StaticArray{Tuple{M}}) where {M, N, T}
+function signed_distance(h::Hyperplane{M, N, T}, p::StaticArray{Tuple{M}}) where {M, N, T}
     return dot(h.coeffs, SVector{N}(p..., one(eltype(p))))
 end
 
-distance(h::Hyperplane{M}, p::Point{M}) where {M} = distance(h, SVector{M}(p))
+signed_distance(h::Hyperplane{M}, p::Point{M}) where {M} = signed_distance(h, SVector{M}(p))
+
+# `distance(hyperplane, p)` returned the SIGNED distance under an unsigned name; deprecated in 0.5.7
+# (same value, a warning), removed in 0.7.
+function distance(h::Hyperplane{M}, p::Union{Point{M}, StaticArray{Tuple{M}}}) where {M}
+    Base.depwarn("`distance(hyperplane, p)` is deprecated: it is signed, use `signed_distance(hyperplane, p)` (or `abs` of it)", :distance)
+    return signed_distance(h, p)
+end
 
 """
     closest_point(hyperplane, p) -> Point{M}
@@ -164,7 +174,7 @@ closest_point(line, Point2(3.0, 5.0))  # Point2(3.0, 0.0)
 ```
 """
 function closest_point(h::Hyperplane{M, N, T}, p::StaticArray{Tuple{M}}) where {M, N, T}
-    d = distance(h, p)
+    d = signed_distance(h, p)
     n = normal(h)
     return p - d * n
 end
@@ -180,7 +190,7 @@ Return which side of the hyperplane `p` is on:
 - `0` if on the hyperplane (within tolerance)
 """
 function side(h::Hyperplane{M, N}, p::Union{Point{M}, StaticArray{Tuple{M}}}; atol = 1.0e-10) where {M, N}
-    d = distance(h, p)
+    d = signed_distance(h, p)
     return abs(d) < atol ? 0 : (d > 0 ? 1 : -1)
 end
 
@@ -189,7 +199,7 @@ end
 
 Check if point `p` lies on hyperplane `h` within tolerance.
 """
-on_hyperplane(h::Hyperplane, p; atol = 1.0e-10) = abs(distance(h, p)) < atol
+on_hyperplane(h::Hyperplane, p; atol = 1.0e-10) = abs(signed_distance(h, p)) < atol
 
 """
     p ∈ h  or  in(p, h::Hyperplane)
@@ -460,7 +470,7 @@ Transform a 3D plane through a Euclidean (rigid) transformation.
 
 For Euclidean transform x ↦ R*x + t, plane with normal n and offset d transforms as:
 - n' = R * n (rotate the normal)
-- d' = d - n · t (adjust offset by translation along normal)
+- d' = d + n' · t (the plane n·x = d moved with its points: n'·(R x + t) = d + n'·t)
 
 # Example
 ```julia
@@ -476,35 +486,13 @@ function (E::PlainEuclideanMap{3, T})(plane::Plane3D{S}) where {T, S}
     n = normal(plane)
     # Rotate normal
     n′ = E.R * n
-    # Adjust offset: new_d = old_d - n · t
+    # Adjust offset: new_d = old_d + n′ · t
     # (translation moves the plane along/against its normal)
-    d′ = offset(plane) - dot(n, SVector{3}(E.t))
+    d′ = offset(plane) + dot(n′, SVector{3}(E.t))
     return Plane3D{promote_type(T, S)}(SVector{4, promote_type(T, S)}(n′..., -d′))
 end
 
-"""
-    (E::EuclideanMap{2})(line::Line2D) -> Line2D
-
-Transform a 2D line through a Euclidean (rigid) transformation.
-
-# Example
-```julia
-R = RotMatrix{2}(π/4)
-t = SVector(1.0, 2.0)
-E = EuclideanMap(R, t)
-
-line = Line2D(0.0, π/2)  # y = 0 (Hesse form)
-line′ = E(line)  # Transformed line
-```
-"""
-function (E::PlainEuclideanMap{2, T})(line::Line2D{S}) where {T, S}
-    n = normal(line)
-    # Rotate normal
-    n′ = E.R * n
-    # Adjust offset
-    d′ = offset(line) - dot(n, SVector{2}(E.t))
-    return Line2D{promote_type(T, S)}(SVector{3, promote_type(T, S)}(n′..., -d′))
-end
+# (A 2D line's rigid action is the similarity's of scale 1: transforms/ct_contravariant.jl.)
 
 # =============================================================================
 # Batched ray–plane intersection (0.14; hoisted from RayTracedCalibration)

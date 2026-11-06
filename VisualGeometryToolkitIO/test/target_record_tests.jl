@@ -102,7 +102,7 @@ end
             save(p, t; length_unit)
             d = parse_json(read(p, String))
             composed = length(members(c)) > 1
-            @test d.schema == "vgio/target/v3" && d.target.calibration.type == (composed ? "composition" : String(name))
+            @test d.schema == "vgio/target/v5" && d.target.calibration.type == (composed ? "composition" : String(name))
             composed && @test length(d.target.calibration.compose) == length(members(c))   # flat, outer first
             @test haskey(d.target.calibration, :covariance) == (cc isa Uncertain)
             back = load(AbstractTarget, p)
@@ -272,7 +272,7 @@ end
     using VisualGeometryToolkitCore: length_mask, parameter_vector
     import VisualGeometryToolkitIO as VgtkIO
     for (name, c) in pairs(kinds())
-        rec = parse_json(JSON.json(VgtkIO._calibration_record(c, mm)))
+        rec = parse_json(JSON.json(VgtkIO._target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm), c)))   # the parametric record
         @test VgtkIO._n_parameters(rec) == length(length_mask(c)) == length(parameter_vector(c))
     end
     @test_throws ArgumentError VgtkIO._record_parameter_count("affine", ())        # the retired kind: VGC's registry names its successor
@@ -337,7 +337,7 @@ end
     mktempdir() do dir
         p = joinpath(dir, "rig.json")
         save(p, rig)
-        @test parse_json(read(p, String)).schema == "vgio/rig/v6"
+        @test parse_json(read(p, String)).schema == "vgio/rig/v8"
         back = load(Rig, p)
         @test ids(back) == ids(rig) && all(id -> back[id].target == rig[id].target, ids(rig))
         @test pose(back, :b) isa Uncertain && geom(pose(back, :b)).t == X.t && pose(back, :c).t == X.t

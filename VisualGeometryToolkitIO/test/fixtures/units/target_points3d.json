@@ -1,5 +1,5 @@
 {
-    "schema": "vgio/target_points3d/v1",
+    "schema": "vgio/target_points3d/v2",
     "length_unit": "mm",
     "frame": "world",
     "point_index_base": 1,

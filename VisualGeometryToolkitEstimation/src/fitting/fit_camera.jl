@@ -121,7 +121,9 @@ family and the solve:
   `:uniform` (in `θ`). A forward target moves its projection's coefficients and
   its radial factor's numerator (its denominator and decentering terms stay
   zero); a lift moves every coefficient. `Division` alone fits `Division{1}`;
-  any other type must carry its arities (`KannalaBrandt{4}`).
+  any other type must carry its arities (`KannalaBrandt{4}`). The `retcode` is
+  the LM's; a regression that ends at a non-finite focal rescale is
+  `:solve_failed` (its camera's focals non-finite), never a throw.
 - **`SplineProjection`** (`fit_camera(SplineProjection, source, region;
   tolerance)`): the forward map ray → pixel as a VisualGeometryToolkitCore
   `ChartSpline` on the equidistant direction chart about the
@@ -230,7 +232,13 @@ function fit_camera(
     p, code, iters = _regress_lens(lm, length(θs), Val(tangent_size(P)), max_iter)
 
     s, lensB = _scale_and_lens(P, p)
-    Kb = CameraCalibrationMat(K0 * Diagonal(SVector(s, s, 1.0)); check = false)   # focal and skew by s
+    # a regression that ends non-finite did not converge: its FitResult reports it
+    isfinite(s) || (code = :solve_failed)
+    # focal and skew by s, the structural entries written exactly (K0 · diag(s, s, 1)
+    # made 0·Inf = NaN in row 3 for a non-finite s, which the structure check refuses)
+    Kb = CameraCalibrationMat(
+        SMatrix{3, 3, Float64}(K0[1, 1] * s, 0, 0, K0[1, 2] * s, K0[2, 2] * s, 0, K0[1, 3], K0[2, 3], 1); check = false
+    )
     out = CameraModel(LogicalIntrinsics(Kb), lensB)
     θcap = L <: LiftLens ? view_angle_limit(lensB) - 1.0e-9 : Inf
     Δ = [s * Float64(projected_radius(lensB, min(θs[i], θcap))) - rA[i] for i in eachindex(θs)]

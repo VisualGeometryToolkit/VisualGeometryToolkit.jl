@@ -36,20 +36,14 @@
             # Create test ellipse (HomographyMap transforms primitives, not matrices)
             ellipse = Ellipse(Point2(0.0, 0.0), 2.0, 1.0, 0.0)
 
-            # Test individual transforms
-            scale = to_homogeneous(LinearMap(@SMatrix [2.0 0.0; 0.0 1.5]))
-            rotation = to_homogeneous(RotMatrix{2}(π / 6))
-            translation = to_homogeneous(Translation(SVector(1.0, 2.0)))
+            # Lift each map to a HomographyMap: projective in meaning, a Conic out
+            H_scale = HomographyMap(LinearMap(@SMatrix [2.0 0.0; 0.0 1.5]))
+            H_rotation = HomographyMap(LinearMap(RotMatrix{2}(π / 6)))
+            H_translation = HomographyMap(Translation(SVector(1.0, 2.0)))
 
-            # Wrap in HomographyMap for callable syntax (preserves typed matrices from to_homogeneous)
-            H_scale = HomographyMap(scale)
-            H_rotation = HomographyMap(rotation)
-            H_translation = HomographyMap(translation)
-
-            # Test transform application on ellipse primitives
-            # Anisotropic scale returns conic matrix; convert back to Ellipse between steps
+            # Test transform application on ellipse primitives; convert back to Ellipse between steps
             Q_scaled = H_scale(ellipse)
-            @test Q_scaled isa HomEllipseMat{Float64}
+            @test Q_scaled isa Conic{Float64}
             ellipse_scaled = Ellipse(Q_scaled)
 
             Q_rotated = H_rotation(ellipse_scaled)
@@ -76,9 +70,9 @@
             # Test rotation matrix
             θ = π / 4
             rot = RotMatrix{2}(θ)
-            hom_rot = to_homogeneous(rot)
-            @test hom_rot isa HomRotationMat{Float64}
-            @test size(hom_rot) == (3, 3)
+            hom_rot = to_homogeneous(LinearMap(rot))
+            @test hom_rot isa SMatrix{3, 3, Float64, 9}
+            @test hom_rot == to_homogeneous(rot)
             @test hom_rot[3, 3] == 1.0
             @test hom_rot[1:2, 1:2] ≈ [cos(θ) -sin(θ); sin(θ) cos(θ)]
 
@@ -86,8 +80,7 @@
             t = SVector(3.0, -2.0)
             trans = Translation(t)
             hom_trans = to_homogeneous(trans)
-            @test hom_trans isa HomTranslationMat{Float64}
-            @test size(hom_trans) == (3, 3)
+            @test hom_trans isa SMatrix{3, 3, Float64, 9}
             @test hom_trans[1:2, 1:2] ≈ I(2)
             @test hom_trans[1:2, 3] ≈ t
 
@@ -95,80 +88,33 @@
             s = SVector(2.0, 0.5)
             scale = LinearMap(Diagonal(s))
             hom_scale = to_homogeneous(scale)
-            @test hom_scale isa HomScalingMat{Float64}
-            @test size(hom_scale) == (3, 3)
+            @test hom_scale isa SMatrix{3, 3, Float64, 9}
             @test hom_scale[1:2, 1:2] ≈ Diagonal(s)
 
-            # Test isotropic scale
-            s_iso = 1.5
-            scale_iso = LinearMap(s_iso * I(2))
-            hom_scale_iso = to_homogeneous(scale_iso)
-            @test hom_scale_iso isa HomUniformScalingMat{Float64}
+            # Test isotropic scale, and the 3-D maps
+            hom_scale_iso = to_homogeneous(LinearMap(1.5 * I))
+            @test hom_scale_iso == SMatrix{3, 3}(1.5, 0, 0, 0, 1.5, 0, 0, 0, 1)
+            E3 = EuclideanMap(RotXYZ(0.1, 0.2, 0.3), SVector(1.0, 2.0, 3.0))
+            @test to_homogeneous(E3) isa SMatrix{4, 4, Float64, 16}
+            @test to_homogeneous(E3)[1:3, 4] == E3.t && to_homogeneous(E3)[4, :] == SVector(0.0, 0.0, 0.0, 1.0)
         end
 
-        @testset "Transform composition and materialization" begin
-            # Create transforms
-            rot = to_homogeneous(RotMatrix{2}(π / 3))
-            trans = to_homogeneous(Translation(SVector(1.0, -1.0)))
-            scale = to_homogeneous(LinearMap(Diagonal(SVector(2.0, 0.8))))
+        @testset "Transform composition: the class is the map's" begin
+            rot = LinearMap(RotMatrix{2}(π / 3))
+            trans = Translation(SVector(1.0, -1.0))
+            scale = LinearMap(Diagonal(SVector(2.0, 0.8)))
 
-            # Test multiplication
-            euclidean = rot * trans
-            @test euclidean isa HomEuclideanMat{Float64}
-
-            affine = scale * euclidean
-            @test affine isa HomAffineMat{Float64}
-
-            # Test to_homogeneous (materialization)
-            mat_euclidean = to_homogeneous(euclidean)
-            @test mat_euclidean isa HomEuclideanMat{Float64}
-            @test size(mat_euclidean) == (3, 3)
-
-            mat_affine = to_homogeneous(affine)
-            @test mat_affine isa HomAffineMat{Float64}
-            @test size(mat_affine) == (3, 3)
-
-            # Verify homogeneous matrices work correctly
-            test_point = [1.0, 1.0, 1.0]
-            result1 = mat_euclidean * test_point
-            # Note: Transform objects only work on conics, not points directly
-            # So we'll just verify the matrix is correct size and type
-        end
-
-        @testset "Result type system" begin
-            # Composition result types come from `Base.promote_type` over the
-            # AbstractHomMat hierarchy.  Bare-class membership (`<:`) checks the
-            # category; concrete type equality also works for the Float64 case.
-            rot = to_homogeneous(RotMatrix{2}(π / 4))
-            trans = to_homogeneous(Translation(SVector(1.0, 1.0)))
-            scale_iso = to_homogeneous(LinearMap(2.0 * I(2)))
-            scale_aniso = to_homogeneous(LinearMap(Diagonal(SVector(2.0, 0.5))))
-
-            # Euclidean combinations
-            @test promote_type(typeof(rot), typeof(trans)) <: HomEuclideanMat
-            @test promote_type(typeof(trans), typeof(rot)) <: HomEuclideanMat
-
-            # Similarity combinations (uniform scaling preserves similarity)
-            @test promote_type(typeof(scale_iso), typeof(rot)) <: HomSimilarityMat
-            @test promote_type(typeof(rot), typeof(scale_iso)) <: HomSimilarityMat
-            @test promote_type(typeof(scale_iso), typeof(trans)) <: HomSimilarityMat
-            @test promote_type(typeof(trans), typeof(scale_iso)) <: HomSimilarityMat
-
-            # Anisotropic scaling breaks similarity → Affine
-            @test promote_type(typeof(scale_aniso), typeof(rot)) <: HomAffineMat
-            @test promote_type(typeof(scale_aniso), typeof(trans)) <: HomAffineMat
-            @test promote_type(typeof(rot), typeof(scale_aniso)) <: HomAffineMat
-            @test promote_type(typeof(trans), typeof(scale_aniso)) <: HomAffineMat
-
-            # Test actual multiplication results
-            @test (rot * trans) isa HomEuclideanMat{Float64}
-            @test (trans * rot) isa HomEuclideanMat{Float64}
-            @test (scale_iso * rot) isa HomSimilarityMat{Float64}
-            @test (rot * scale_iso) isa HomSimilarityMat{Float64}
-            @test (scale_iso * trans) isa HomSimilarityMat{Float64}
-            @test (trans * scale_iso) isa HomSimilarityMat{Float64}
-            @test (scale_aniso * rot) isa HomAffineMat{Float64}
-            @test (scale_aniso * trans) isa HomAffineMat{Float64}
+            # the matrix of a composition is the product of the matrices
+            @test to_homogeneous(rot ∘ trans) ≈ to_homogeneous(rot) * to_homogeneous(trans)
+            @test to_homogeneous(scale ∘ rot ∘ trans) ≈ to_homogeneous(scale) * to_homogeneous(rot) * to_homogeneous(trans)
+            # rigid ∘ rigid is rigid, similarity ∘ rigid a similarity
+            E = EuclideanMap(RotMatrix{2}(π / 3), SVector(0.0, 0.0)) ∘ EuclideanMap(one(RotMatrix{2, Float64}), SVector(1.0, -1.0))
+            @test E isa EuclideanMap{2}
+            @test to_homogeneous(E) ≈ to_homogeneous(rot) * to_homogeneous(trans)
+            @test SimilarityMap(LinearMap(2.0I)) ∘ E isa SimilarityMap{2}
+            # a homography after a structured map is a homography, SMatrix-backed
+            @test HomographyMap(HomographyMat(SMatrix{3, 3}(1.0, 0.1, 1.0e-3, 0.0, 1.0, 0.0, 2.0, 1.0, 1.0))) ∘ E isa
+                HomographyMap{3, Float64, SMatrix{3, 3, Float64, 9}}
         end
 
         @testset "Circle transformations" begin
@@ -179,13 +125,10 @@
             @test is_ellipse(Q_circle)
 
             # Apply diagonal (non-uniform) scaling - will transform circle to ellipse
-            scale = to_homogeneous(LinearMap(Diagonal(SVector(2.0, 1.0))))
-            H_scale = HomographyMap(scale)
-
-            # Transform the circle primitive directly
-            # Anisotropic scaling returns HomEllipseMat (conic matrix), convert to Ellipse
-            conic_result = H_scale(circle)
+            lm = LinearMap(Diagonal(SVector(2.0, 1.0)))
+            conic_result = lm(circle)                     # the affine map itself: an ellipse's matrix
             @test conic_result isa HomEllipseMat{Float64}
+            @test HomographyMap(lm)(circle) isa Conic{Float64}   # its homography lift: projective in meaning
             ellipse_result = Ellipse(conic_result)
 
             # Verify the transformation worked correctly
@@ -193,11 +136,9 @@
             @test ellipse_result.a ≈ 3.0 atol = 1.0e-12  # radius 1.5 scaled by 2
             @test ellipse_result.b ≈ 1.5 atol = 1.0e-12  # radius 1.5 unchanged in y
 
-            # Test uniform scaling - circle should remain a circle (with HomSimilarityMat)
-            iso_scale_mat = HomSimilarityMat{Float64}(Tuple(@SMatrix [2.0 0.0 0.0; 0.0 2.0 0.0; 0.0 0.0 1.0]))
-            H_iso_scale = HomographyMap(iso_scale_mat)
-            circle_scaled = H_iso_scale(circle)
-            @test circle_scaled isa Circle{Float64}  # Similarity preserves circles
+            # Uniform scaling - a similarity keeps a circle a circle
+            circle_scaled = SimilarityMap(LinearMap(2.0I))(circle)
+            @test circle_scaled isa Circle{Float64}
             @test circle_scaled.center ≈ Point2(2.0, 2.0) atol = 1.0e-12  # center scaled by 2
             @test circle_scaled.r ≈ 3.0 atol = 1.0e-12  # radius 1.5 scaled by 2
         end

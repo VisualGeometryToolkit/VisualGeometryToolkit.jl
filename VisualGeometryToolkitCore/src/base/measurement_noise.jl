@@ -51,13 +51,13 @@ columns ([`noise_columns`](@ref)); the per-point matrices cost 4 numbers each at
 that boundary and nothing in the inner loop, where the columns are what is read.
 """
 exact(p::StaticVector{N, T}) where {N, T <: Real} =
-    Uncertain(p, CovMat{N, float(T), N * N}(ntuple(_ -> zero(float(T)), Val(N * N))))
+    Uncertain(p, CovMat(zero(SMatrix{N, N, float(T), N * N})))
 # A physical point (lengths, stored in metres): the zero covariance is in m²,
 # the unit an `Uncertain` physical point's covariance carries.
 function exact(p::StaticVector{N, <:Quantity}) where {N}
     q = map(x -> _check_length(base_quantity(x)), p)
     T = float(typeof(ustrip(first(q))))
-    return Uncertain(q, CovMat{N, T, N * N}(ntuple(_ -> zero(T), Val(N * N))))
+    return Uncertain(q, CovMat(zero(SMatrix{N, N, T, N * N})))
 end
 
 # One endpoint's covariance as a static matrix: `I` (unit isotropic) for a plain

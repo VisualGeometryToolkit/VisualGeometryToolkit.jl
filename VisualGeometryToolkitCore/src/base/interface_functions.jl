@@ -12,7 +12,7 @@
 # then parameters:
 #
 #   project(camera, X)             sampson_distance(F, u₁, u₂)
-#   distance(plane, p)             undistort(model, img, rect)
+#   signed_distance(plane, p)      undistort(model, img, rect)
 #   boundary_point(ellipse, θ)     focal_length(sensor, θ)
 #
 # A given model leads in task verbs too (`localize(camera, detections)`); a
@@ -74,12 +74,24 @@ function project end
 """
     distance(geometry, p)
 
-Distance from the point `p` to `geometry`.
+Distance from the point `p` to `geometry`, non-negative. A signed distance is
+[`signed_distance`](@ref), never this name.
 
-Methods:
-- `distance(hyperplane, point)`: Signed distance from point to hyperplane
+Methods: none current. `distance(hyperplane, point)` returned the signed distance and
+is deprecated (0.5.7, removed in 0.7) for `signed_distance(hyperplane, point)`.
 """
 function distance end
+
+"""
+    signed_distance(geometry, p)
+
+Signed distance from the point `p` to an oriented `geometry`: its sign says which
+side `p` is on.
+
+Methods:
+- `signed_distance(hyperplane, point)`: `n·p + d`, positive on the normal's side
+"""
+function signed_distance end
 
 """
     closest_point(geometry, p)
@@ -89,7 +101,7 @@ Return the point on `geometry` closest to `p`.
 Methods:
 - `closest_point(hyperplane, point)`: Orthogonal projection onto hyperplane
 
-See also: `distance` (the norm of `p - closest_point(g, p)` for convex `g`).
+See also: `signed_distance` (for a hyperplane, `p - closest_point(h, p) = signed_distance(h, p) · normal(h)`).
 """
 function closest_point end
 

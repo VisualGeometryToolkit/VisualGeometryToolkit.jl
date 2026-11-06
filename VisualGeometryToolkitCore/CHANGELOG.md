@@ -1,8 +1,133 @@
 # VisualGeometryToolkitCore changelog
 
-## Unreleased
+## 0.6.0 (Unreleased)
 
-Breaking (the next release is a minor bump). The `N = 1` `RadialHomography`
+- **Breaking: maps are the geometric objects, matrices only algebra.** The typed homogeneous matrices
+  `HomTranslationMat`, `HomRotationMat`, `HomEuclideanMat`, `HomSimilarityMat`, `HomScalingMat`,
+  `HomUniformScalingMat`, `HomAffineMat` and their abstract levels `AbstractHomMat`, `AbstractAffineMat`,
+  `AbstractSimilarityMat`, `AbstractEuclideanMat`, `AbstractCalibrationMat` are removed, with their promotion
+  rules, `*` and `inv`, the per-leaf constructors and `AbstractHomMat(x)`; the names are retired (`check_naming`).
+  The transform class is the MAP's type: `EuclideanMap`, the new `SimilarityMap`, CoordinateTransformations'
+  affines, `HomographyMap`. Migration: `HomRotationMat(R)` → `LinearMap(R)` or `EuclideanMap(R, 0)`,
+  `HomTranslationMat(t)` → `Translation(t)`, `HomUniformScalingMat{2}(s)` → `LinearMap(s * I)`, a similarity
+  matrix → `SimilarityMap(s, R, t)`, `HomAffineMat(M)` → `AffineMap(A, b)`; `HomographyMat` stays (a plain 3×3
+  static wrapper, its product and inverse homographies).
+- **Breaking: `to_homogeneous(map)` is a plain `SMatrix{N+1, N+1}`** for every map — `Translation`, `LinearMap`
+  (rotation, `UniformScaling`, `Diagonal`, any matrix), `AffineMap`, `EuclideanMap` (now any `N`), `SimilarityMap`,
+  a composition (`ComposedFunction` or CoordinateTransformations' `ComposedTransformation`: the product),
+  `HomographyMap` (its forward) — the map's entries copied, the last row the constant `0 … 0 1`. It carries no
+  class; geometric operations take the map. **`to_homogeneous` of a matrix is removed** (`to_homogeneous(H)` of
+  a `HomographyMat` or a `CameraCalibrationMat` returned it as it was): a matrix is not a map, use it as it is or
+  lift it (`HomographyMap(H)`). A unitful `EuclideanMap` has no plain matrix: `to_homogeneous`, and so
+  `HomographyMap(E)` and `E ∘` a homography or a model matrix, is an `ArgumentError` naming `ustrip(m, E)`.
+- **Breaking: a `HomographyMap` is always projective in meaning**: a `Circle` or an `Ellipse` maps to a `Conic`,
+  whatever its matrix (a `HomographyMap` of an affine or similarity matrix gave a `HomEllipseMat` or a `Circle`).
+  Apply the affine (or similarity) map itself to keep an ellipse an ellipse (a circle a circle). Lifting a
+  structured map — `HomographyMap(a)` for a `Translation`, `LinearMap`, `AffineMap`, `EuclideanMap{2}`,
+  `SimilarityMap{2}` — stores `to_homogeneous(a)` and, as its inverse, `to_homogeneous(inv(a))` (the map's
+  analytic inverse, never a 3×3 inversion; a singular or non-finite linear part is an `ArgumentError`, where it
+  stored an `Inf` inverse); a `CameraCalibrationMat` lifts with its analytic inverse. Mixed
+  compositions (`EuclideanMap`, `SimilarityMap` or a CT leaf ∘ a `HomographyMap`, either order) are a
+  `HomographyMap` with `SMatrix` storage; two `HomographyMat`-backed maps keep `HomographyMat`. The model-matrix
+  and epipolar bridges (`a ∘ H`, `a ∘ F`, `a ∘ EpipolarMap`, `a ∘ RadialHomography`, `a ∘ RadialCamera`) take the
+  same affine-class maps, `EuclideanMap{2}` and `SimilarityMap{2}` included. `HomographyMat`s of two eltypes
+  promote to the `HomographyMat` of the promoted eltype.
+- **`SimilarityMap`** (exported, `transforms/similarity_map.jl`): `x ↦ s·R·x + t` with a positive scale, a
+  Rotations.jl rotation and a translation, frame-tagged exactly like `EuclideanMap` (`Src`/`Dst`, `relabel`,
+  `unlabel`, `inv` swapping, `∘` junction-checked). Exact algebra from the parts: `∘` of two similarities is one
+  (`s₁s₂, R₁R₂, s₁R₁t₂ + t₁`), `inv` is `(1/s, Rᵀ, −Rᵀt/s)`; `∘` with every other similarity-class map — an
+  `EuclideanMap`, a `RotationMap`, a `Translation`, a rotation `LinearMap`, a uniform scaling (either order) — is a
+  junction-checked `SimilarityMap`, never a lazy composition; `SimilarityMap(E)` (s = 1),
+  `SimilarityMap(RotationMap(R))`, `SimilarityMap(LinearMap(R))`, `SimilarityMap(LinearMap(λI))` (a
+  negative λ is the half turn) and `SimilarityMap(Translation(t))`. Accessors `scale`, `rotation`, `translation`;
+  `transform_deriv`, `to_homogeneous`, `similarity_scale`, `propagate` of a `CovMat`/`PrecMat`/`Uncertain`
+  (`J = s·R`, EuclideanMap's junction check), and EuclideanMap's labeling `convert` (an unlabeled map into a
+  labeled slot). Plain numbers only: a quantity translation or scale, or a unitful `EuclideanMap` converted or
+  composed with one, is an `ArgumentError` naming `ustrip(m, E)`.
+- **Primitive actions by map class.** A similarity (`SimilarityMap`, and through it a rotation or uniform-scaling
+  `LinearMap`) maps a `Circle` to a `Circle` (radius · s), an `Ellipse` to an `Ellipse` (axes · s, θ + the
+  rotation's angle), a `Line2D` to a `Line2D`, a `Disc` to a `Disc` (σ · s), an `OrientedDisc`, an
+  `EllipticFrame` (shape `s·R S Rᵀ`, moment `s²·R Σ Rᵀ`) and an `AffineFrame` (`s·R A`). An `AffineMap` or a
+  general `LinearMap` gives a `HomEllipseMat` (as before), conjugating by its own analytic inverse — static
+  (a Matrix-backed map is made static first) and checked: a singular or non-finite linear part is an
+  `ArgumentError` for a circle, an ellipse and a line alike (it gave a `HomEllipseMat` of NaNs, a misleading
+  'Normal vector cannot be zero' or a `SingularException`), and a linear part so ill-conditioned that the image
+  reads as a parabola (κ² past the classifier's floor, `Diagonal(1e7, 1)`) is an `ArgumentError` rather than a
+  `HomEllipseMat` that `classify_conic` disowns. A feature frame under a homography stays a `MethodError`.
+- **Fixed: the rigid action on a `Plane3D` and a `Line2D`.** For the Hesse form `n·x = d`, `E(plane)` and
+  `E(line)` are now `n′ = R·n`, `d′ = d + n′·t` (the plane through the moved points, `n′·(R x + t) = d + n′·t`);
+  0.5 wrote `d′ = d − n·t`, the wrong sign and the unrotated normal, so every rigid plane and line result with a
+  nonzero translation changes. The similarity action on a line promotes
+  over every part (a `Dual` scale or translation differentiates; a Float64 translation over a Float32 scale and
+  rotation gives a Float64 line).
+- **Breaking: conic matrices are symmetric by storage.** `HomEllipseMat`, `HomCircleMat` and `Conic` store the six
+  coefficients `(Q₁₁, Q₁₂, Q₂₂, Q₁₃, Q₂₃, Q₃₃)`; indexing returns the full symmetric matrix, arithmetic an
+  `SMatrix`. A matrix (or 9-tuple) handed in is checked symmetric (`isapprox(Q, Qᵀ; rtol = √eps)`, otherwise an
+  `ArgumentError`) and its off-diagonal pairs averaged; `HomEllipseMat(q::NTuple{6})` (and `HomCircleMat`, `Conic`)
+  takes the coefficients. `Conic`'s field `Q` is gone: read `SMatrix{3, 3}(c)` or `c[i, j]`. The conic congruence
+  `H⁻ᵀ C H⁻¹` computes the upper triangle only (a full 3×3 product left 913 of 1000 random results asymmetric).
+- **Breaking: conic class checks.** `HomEllipseMat(…; check = true)` requires a real, non-degenerate ellipse —
+  `classify_conic` answering `EllipseTrait`, the same test — and `HomCircleMat` also an
+  isotropic quadratic block (within `√eps · ‖A‖`); a general conic (a hyperbola, a point or imaginary ellipse, a
+  line pair) is a `Conic`, which `classify_conic` and `is_ellipse` now take directly. `Ellipse(c::Conic)` refuses a
+  conic that is not an ellipse; `Circle(Q)` of an ellipse's or a conic's matrix is the `HomCircleMat` check (its
+  `atol` keyword and `ErrorException` are gone). The three are one type, `SymmetricConic{K}` (`K` the class). A
+  conic built from a primitive is of its class by construction (not re-checked), and an affine image is classified
+  by the same test, so a stored class and `classify_conic` agree for every conic the stack builds; a
+  `check = false` value is the caller's guarantee. Copying, converting the eltype (`push!` into a typed vector)
+  and padding a `FixedModels` never re-check a conic or a `CameraCalibrationMat` (StaticArrays' generic forms
+  rebuilt them through the checked constructor, so an unchecked value could not be copied and `zero` threw).
+- **The conic classification is decided in at least Float64**, on the coefficients divided by the largest: a
+  Float32 conic is classified as its stored coefficients define it (Float32 arithmetic refused 51% of 1–10 px
+  Float32 blobs in a 4000×3000 image as point conics, and `direct_ellipse` returned `nothing` for 56%; it now
+  classifies in its Hartley frame), `1e160·Q` and `1e-170·Q` classify as `Q`, and integer and rational matrices
+  are accepted. The symmetry check is relative, in `float` of the entries, with the tolerance of the precision
+  the entries were given in (Float32 data into a `Conic{Float64}`).
+- **Breaking: `CameraCalibrationMat` stores its five parameters** `(fx, fy, s, cx, cy)`: indexing returns exact
+  structural `0`s and `1`; isbits and eltype-generic as before. The structure (row 3 = `0 0 1`, `K[2, 1] = 0`) is
+  now always checked, `check = false` skipping only the positive focals; `CameraCalibrationMat(α * I)` with
+  `α ≠ 1` is refused (`K₃₃ = α`). `inv(K)` is analytic, a plain `SMatrix{3, 3}` with exact structural zeros (it
+  was a `CameraCalibrationMat`: K⁻¹ is not a calibration), equal to the former affine inverse to rounding
+  (`K⁻¹[2, 1]` is now `+0.0`, and `K⁻¹[1, 3]` can differ by an ulp for a skewed `K`); arithmetic on a
+  `K` gives an `SMatrix`, and `K * v` is StaticArrays' product (`SMatrix(K) * v` bit for bit, the vector's type
+  kept). A 3-D `AffineMap` is not a calibration matrix (`CameraModel(::AffineMap)` refuses it).
+- **`EnvironmentLight`, `SphericalHarmonicMap`** (exported, `cameras/lighting.jl`): the scene's light as a radiometric
+  camera model sees it — radiance from every direction, a directional map on a sphere of finite radius about a centre,
+  read where a ray from the shaded point leaves the sphere (`exit_direction`); the
+  map is real spherical harmonics per channel. `radiance(light, x, ω)`, the linear factor `coefficient_jacobian(light,
+  x, ω)`, the accessors `coefficients`, `with_coefficients`, `max_degree`, `radiance_map`, `center`, `radius`, and
+  `convert_eltype`, `ustrip` / `with_unit` (centre and radius are lengths). The basis is `sh_basis(Val(l_max), ω)`
+  (orthonormal, no Condon–Shortley phase; `sh_index(l, m) = l² + l + m + 1`, `sh_count`): generated, isbits,
+  allocation-free and Dual-safe at the poles. Hoisted from RadiometricCamera (`Lighting`, `y_basis`, `ω̂`, `L_SVSH`),
+  bit for bit: every value and ForwardDiff Jacobian equal on random inputs for l ≤ 3. Additive.
+- **Breaking: `CovMat` / `PrecMat` hold a static matrix, and its type is the storage.** `CovMat{N, T, M, C}`: `M` is an
+  `SMatrix` (full), an `SDiagonal` (diagonal) or a `ScaledIdentity` (isotropic λ·I); it was `CovMat{N, T, L, C}` with
+  `L = N * N`, a tuple of entries. `parent(Σ)` is the matrix, and structured arithmetic is the matrix's own; the form
+  reads as its full `N × N` matrix, and arithmetic on it escapes to an `SMatrix` as before. A form keeps its storage
+  under `inv` and `relabel`; `convert` and `promote` give the coarser storage (isotropic ⊂ diagonal ⊂ full), never a
+  finer one, so a container of mixed storage is one concrete type; `propagate` through a map gives the full form; a unit
+  change gives an isotropic form's diagonal. `CovMat{N}(σ = s)` is now isotropic and `CovMat{N}(σ = (s₁, …))` diagonal
+  (they were full); the entry constructors (`CovMat{N, T}(…)`, `CovMat(::SMatrix)`) give the full form as before.
+  Aliases `FullCovMat`, `DiagonalCovMat`, `IsotropicCovMat` (and `…PrecMat`); `UncertainPixel` and `UncertainPoint3`
+  hold the full form. A `TargetDetections` set and a `PointTarget` keep the storage their points' covariances hold
+  (they densified them), mixed storage in the coarser one.
+- `TensorProductVignetting(knots_x, knots_y, P; degree)`: a surface on stated clamped knots (a file's reader rebuilds a
+  surface exactly). `radius` (GeometryBasics') is public, an `EnvironmentLight`'s sphere among its methods. Migration: a spelled-out `CovMat{2, Float64, 4, F}` is `CovMat{2, Float64, SMatrix{2, 2, Float64,
+  4}, F}`, and `CovMat{N, T, N * N}(data)` is `CovMat{N, T}(data)`.
+- **`ScaledIdentity{N, T}`** (exported): the static `N × N` matrix `λ·I`, stored as `λ` — the sized counterpart of
+  `UniformScaling`, beside `SDiagonal` and `SMatrix`; isotropic (a rotation leaves it unchanged), isbits.
+- **`GaussianBlur`** (exported, `cameras/blur.jl`; `AbstractBlur`): one blur of an imaging model — a camera's in-focus
+  blur, a print's — by its second-moment matrix (`moment_matrix`; px² on a sensor, m² on a print), held as the same three
+  storages as a `CovMat`: round (`ScaledIdentity`), axis-aligned (`SDiagonal`) or general (a symmetric positive
+  semidefinite `SMatrix`); `convolve(a, b)` adds the moments, `transform_blur(J, b)` is `J M Jᵀ`. A kernel's shape, not a
+  measurement's uncertainty: not a `CovMat`.
+- **Breaking: `TensorVignetting` is `TensorProductVignetting`** — a tensor-product B-spline surface, not a tensor-valued
+  field; the old name is retired (`check_naming`).
+- **The inverse of an affine-family transform is exactly of its class**: a structured map inverts analytically and
+  its `HomographyMap` lift stores that inverse, last row exactly `0 0 1` (the 3×3 inverse left `1 ± ulp` there), the
+  transpose for a rigid one; `inv(::CameraCalibrationMat)` is analytic. A homography keeps the 3×3 inverse.
+
+Radial-homography calibration (breaking). The `N = 1` `RadialHomography`
 is unchanged bit for bit: its solver, chart, rows and Jacobians.
 
 - **Breaking: `RadialHomography{T, N}`**, `N` division coefficients. The
@@ -58,6 +183,187 @@ is unchanged bit for bit: its solver, chart, rows and Jacobians.
 - `division_coeffs` is in `CONTRACT_GENERICS`: another stack package may add a
   method for its own model or state (VisualGeometryToolkitEstimation's
   `DivisionCameraState` does).
+
+## 0.5.7 (2026-11-05)
+
+- **`TargetDetections{F, C}`** (exported, `captures.jl`): per frame index, per
+  target id, the detections of the target's points as a correspondence set
+  `csponds(index, observation)` — `index` 1-based into `points(target)`,
+  unique; only detected points, a target not detected absent. The dimension
+  is the frame's: pixels in a `PixelFrame` (plain or `UncertainPixel`, px²),
+  3D points in a named `Frame{3}` (plain, or lengths in metres, an
+  `Uncertain` one's covariance in m²). Optional attribute columns
+  (`withattrs(cs; weights)`). One concrete set type per container
+  (`Csponds{Int, P, Vector{Int}, Vector{P}, A}`): every set the same point
+  form and the same columns (`ArgumentError`), all physical or all plain
+  (`DimensionError`). `==`, `isequal` and `hash`, which agree (the frame
+  type, frames, sets with their columns, stamps, targets: a sound Dict key),
+  `has_units`, `ustrip(u, td)` and `with_unit(td, u)` for 3D,
+  `convert_frame` for pixels, the Dict surface. Conversions
+  `TargetDetections(::TargetPoints2D)` (the bundle `weight` a `weights`
+  column) and `TargetDetections(::TargetPoints3D)`; an old value with a
+  (target, index) twice in one frame or with plain and `Uncertain` points
+  mixed is refused, the `ArgumentError` naming the frame, target and index
+  (the old value stays valid as it is). Additive: the 0.7 wave
+  replaces `TargetPoints2D`/`TargetPoints3D` by it.
+- **`FrameStamps`** (exported): a capture's per-frame `images`, `sensors`,
+  `times` and `time_origin`, built and checked as the captures' stamps are;
+  `TargetDetections` holds one (`td.stamps`) and forwards its four fields as
+  properties (`td.images`, …). Trajectory, TargetPoses and TargetPoints2D/3D
+  keep their own fields until 0.7.
+- `ustrip(u, layout)` and `with_unit(layout, u)` for `AprilGrid` and
+  `SchoepsPattern`: the layout's lengths moved between the forms (an
+  `ArgumentError` for a layout already in the form asked for), as for `Board`
+  and `Canvas`; `PlanarTarget`'s unit moves use them.
+- `check_naming` R11 flags a `TargetDetections` built from `ustrip(…)`
+  components, as it does `TargetPoints3D`.
+- Conventions: `frames.md` names `TargetDetections` among a capture's values,
+  `units.md` lists a 3D `target_detections` among the physical kinds and
+  public values, `persisted-geometry.md` tables the `target_detections` kind
+  (the old measurement kinds read as it too) and points at VisualGeometryToolkitIO's
+  file-name convention.
+
+- `signed_distance(hyperplane, p)`: the signed distance `n·p + d`, positive on
+  the normal's side (a line or a plane; the side test of a camera in front of a
+  planar target).
+- `distance(hyperplane, p)` is deprecated (a warning, the same signed value):
+  the name read as unsigned. Use `signed_distance`, or `abs` of it. The
+  hyperplane method is removed in 0.7; `distance` stays the unsigned generic.
+- **A `PlanarTarget` records the layout it was built from**:
+  `AbstractTargetLayout` (public), the supertype of `AprilGrid` and
+  `SchoepsPattern`; `PlanarTarget(layout; calibration = Rigid(), board,
+  canvas, placement = nothing)` (the `calibration` and `placement` keywords
+  new) builds the same points as before and records the layout, read by
+  `layout(t)` (public; `nothing` for a target given by its points or a
+  reference). A unit move moves the layout with the points (rebuilding them
+  from it), `with_parameters` keeps it, and `resolve`, which supplies other
+  points, drops it; `==` and `hash` include it. The public positional
+  constructor is unchanged. Additive: a new last field, `layout`.
+- **The layouts hold the whole design**: `AprilGrid(; …, apriltag_family =
+  "tag36h11", first_id = 0)` and `SchoepsPattern(; …, star_segments = 16,
+  apriltag_family = "tag36h11")`, each Schöps tag `(; x, y, width, height,
+  id)` (the YAML's `index`; without ids the tags are numbered 0, 1, … in
+  order; ids distinct and ≥ 0, star segments even and ≥ 4). The keyword
+  defaults keep every existing construction, and the points do not move. Both
+  have value `==` and `hash` (a Schöps pattern's tag vector compared by value).
+- `TARGET_LAYOUT_TAGS` (public): the layouts' `TagRegistry`, `"april_grid"`
+  and `"schoeps_pattern"` (the tag rule's `snake_case` of the type's name),
+  VisualGeometryToolkitIO's `layout` record type.
+- **A new convention, `conventions/residuals-and-distances.md`**, read after
+  `measurement-noise.md` (`convention_files()` and the docs' Conventions
+  page): the prefix names the currency (`sampson_` geometric, `whitened_` /
+  `mahalanobis_` in noise units), the noun names the shape (a residual is the
+  signed vector, a distance its norm, a signed distance the residual when
+  `d_g = 1`), and a square is the squared distance. It states the one current
+  exception, `residuals!` and the hook `whitened_residual`, and their 0.7
+  names. Documentation only: no name or value changes.
+- Docstrings: `whitened_residual` and `residuals!` call `gᵀΣ̃⁻¹g` the squared
+  Mahalanobis distance (they called it the Mahalanobis distance) and point at
+  the new convention.
+
+## 0.5.6 (2026-11-05)
+
+Bug fixes to 0.5.5's additions; additive otherwise.
+
+- `view_overlap(a, b, circle)`: the one circle now bounds both frames, as the
+  vector form's one circle bounds every frame (frame `b` kept the whole sensor).
+  `circle_b` defaults to `circle_a`.
+- `view_overlap` on a frame whose model is not a `CameraModel` (a grid model)
+  is an `ArgumentError` naming the requirement, not a `MethodError` inside the
+  footprint.
+- `with_control_points` promotes the field's element type with the control
+  points' (`promote_type`): Int control points no longer throw `InexactError`
+  on the knots, and Float32 ones no longer round the knots, centre or radius.
+- A `TensorVignetting` of Dual eltype implements the support protocol
+  (`support` reads the knots' values under the Duals): `free_nodes`,
+  `node_mask` and `BoundaryRule` work on it.
+- `RadialVignetting(n, center, radius)` accepts `px` quantities (a length is a
+  `DimensionError`) and refuses a radius that is not positive and finite
+  (`ArgumentError`).
+- `RotationMap` hashes what `==` compares (tags and the rotation's matrix), so
+  equal maps of different representations hash alike.
+- `PosedCamera` admits `RotationMap{3}` only: a planar rotation is a
+  `MethodError` at construction, not later in `pose`/`project`.
+- `center(v)` (Core's one centre generic) for every vignetting field.
+  `field_center` is deprecated (a warning, forwarding to `center`); it is
+  removed in 0.7.
+- `LogVignetting`'s `coefficient_jacobian` and `active_coefficients` evaluate
+  the spline's basis once, bit for bit the two-evaluation form.
+- Planned for 0.7 (breaking): the vignetting constructors' element type
+  becomes a leading positional argument, `TensorVignetting([T = Float64], n, box; degree)`
+  and `RadialVignetting([T = Float64], n, center, radius; degree)`, per the
+  signature convention (slot 4); the `T` keyword stays until then.
+
+## 0.5.5 (2026-11-04)
+
+Additive.
+
+- **A camera's vignetting** (cameras/vignetting.jl): the stack's one model of a
+  relative illumination V on the sensor, a B-spline in V, linear in its control
+  points, on clamped uniform knots, evaluated by Core's `bspline_basis`.
+  `TensorVignetting(n, box; degree = 3)` (exported), a tensor surface of
+  `n = (nx, ny)` control points over a sensor box, and
+  `RadialVignetting(n, center, radius; degree = 3)` (exported), a profile in
+  `‖u − center‖ / radius`, both under `AbstractVignetting`. Callable, `v(u)` at
+  a sensor point (COLMAP pixels), constant beyond the knots; isbits, so they
+  run in `pointwise!` on a device. Public: `coefficient_jacobian(v, u)`
+  (`∂V/∂vec(P)`, the basis functions in `vec(control_points(v))` order),
+  `active_coefficients(v, u)` (its nonzeros: the indices and values a
+  scatter-add reads), `control_points`, `with_control_points`,
+  `n_control_points`, `knot_vectors`, `spline_degree`, `field_center`,
+  `field_radius`, `radial_coordinate`, `pole_regular_basis(v)` (the radial
+  profiles smooth at their centre, `V′(0) = 0`: the first two control points
+  tied) and `convert_eltype` (any real type, Duals included). A tensor
+  surface implements the support protocol (`support_trait`, `nodes`,
+  `support`), so `free_nodes`, `node_mask` and `BoundaryRule` apply to it.
+  Hoisted from RadiometricCamera and PanoramaStitching, which each had one;
+  their copies are deleted. RadiometricCamera's arithmetic is kept, so its
+  numbers are unchanged.
+- `LogVignetting(spline)` (exported): either field read as log V, `V = exp(s(u))`
+  (positive, linear in log: a self-calibration's least squares). It adds no
+  basis of its own: knots, degree, support, `pole_regular_basis` and
+  `log_spline` are the spline's; `coefficient_jacobian` is `V·∂s/∂P`.
+- `clamped_knots(n, p, lo, hi)` (public): the clamped uniform knot vector
+  (BSplineKit's) as the static vector `bspline_basis` takes.
+- `RotationMap{N, T, R, Src, Dst}` (exported, transforms/rotation_map.jl): a
+  frame-tagged rotation about the origin, `x ↦ R·x`, whose one field is the
+  rotation, so it has no translation rather than a zero one. The rotation is
+  stored by EuclideanMap's rule. It provides relabel/unlabel, `inv` (tags
+  swapped), and a junction-checked `∘`: with itself it gives a RotationMap, and
+  with an EuclideanMap in either order it gives an EuclideanMap. Also
+  `rotation`, `transform_deriv`, `to_homogeneous`, `convert_eltype`, `==`,
+  `isapprox` and show. It holds no length (`has_units` false; `ustrip` and
+  `with_unit` return it) and is isbits. `PosedCamera`'s pose parameter admits
+  it (`Rt <: Union{EuclideanMap, RotationMap}`), and
+  `OrientedCamera{M} = PosedCamera{M, <:RotationMap{3}}` (exported, an alias)
+  is a camera that only turns about its centre. It projects, back-projects and
+  unprojects about the origin; `extrinsics` and `pose` are RotationMaps, and a
+  camera → world RotationMap labeled `CameraFrame → WorldFrame` is inverted
+  into the extrinsics slot. These are refused by name because they need a
+  position: the plane z = 0 verbs (`HomographyMat(camera)`, `RadialCamera`,
+  `transfer_ellipse`, `project` of a plane conic or rect), a rig member, and a
+  NoncentralGenericModel's pose. Plotting draws an oriented camera at the
+  origin. Additive: every EuclideanMap-posed camera is unchanged.
+- `view_overlap(cameras, [circles]; boundary_points = 512)` (exported,
+  cameras/view_overlap.jl): for every pair i < j of a panorama's frames (each a
+  `BoundedCamera` of an `OrientedCamera`; cameras may differ), a
+  `StructVector` row `(; i, j, solid_angle, fraction_i, fraction_j)`, with
+  K(K−1)/2 rows. The solid angle (sr) is that of the directions both frames
+  image, and each fraction is it over that frame's footprint
+  (`imaged_region(camera, circle) ∩ valid_domain(camera)`).
+  `view_overlap(a, b, [circle_a, circle_b])` gives the one row. A camera posed
+  by an EuclideanMap, or unposed, is refused by name. Boundary-sampled: frame
+  j's ring is drawn into frame i's image and clipped by Core's
+  Sutherland–Hodgman against Ω_i. Where frame i cannot image the ring, it
+  continues on a far circle, and one exact membership test fixes the winding.
+  The area is a fan of Van Oosterom–Strackee triangles from the optical axis,
+  so a field of view past 180° is measured; a footprint within 0.05 rad of its
+  backward axis is refused. Exact for perspective cameras, and O(1/n²) on
+  curved boundaries. For PanoramaStitching's pair selection.
+  `_convex_clip_area!` (primitives/operators.jl) now wraps
+  `_convex_clip!(subject, clip)`, which returns the clipped ring with the
+  subject's orientation kept (the area path is unchanged), and the spherical fan
+  `_spherical_signed_area(apex, ring)` sits beside `_shoelace_signed_area`.
 
 ## 0.5.4 (2026-11-04)
 

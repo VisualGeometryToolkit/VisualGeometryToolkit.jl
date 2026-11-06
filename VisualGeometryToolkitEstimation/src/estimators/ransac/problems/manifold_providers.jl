@@ -80,7 +80,7 @@ _lift_norms!(p::ManifoldLiftProvider{<:Any, <:Any, C}) where {C} = (point_norms!
 lift_valid(::ManifoldLiftProvider) = nothing
 
 # The generic provider: the chart problem's own chart, rows and read-out.
-lift_init(p::ManifoldLiftProvider, model) = _chart(p.problem, model)
+lift_init(p::ManifoldLiftProvider, model) = _chart(p.problem, _as_model(p.problem, model))
 _lift_state(p::ManifoldLiftProvider, ch) = _lm_state(p.problem, ch, p.lws.onev)
 function _refresh_rows!(p::ManifoldLiftProvider, ch)
     residual_rows!(p.lws.r, _lift_state(p, ch), VgtkCore.zero_tangent(ch))
@@ -144,7 +144,7 @@ function locally_optimize!(
         cs::ConsensusSet, buf::ScoreBuffers, scoring
     )
     loss = lo_loss(lo, cs, scoring, buf)
-    ch = _chart(problem, model)
+    ch = _chart(problem, _as_model(problem, model))
     rows, dof = _lm_size(problem)
     ews = _lm_workspace(L.refine, rows, dof)
     fill!(sqrt_weights(ews), 1.0)

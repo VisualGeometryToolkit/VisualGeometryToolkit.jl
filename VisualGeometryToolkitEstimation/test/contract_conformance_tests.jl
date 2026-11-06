@@ -130,33 +130,12 @@ end
 @testset "constraint-problem protocol: every problem with a scene" begin
     (pe, θe), (pf, θf) = epipolar_scenes()
     (pl, θl), (pih, θi) = line_scenes()
-    for (p, θ) in (h_scene(), radial_homography_scene(), radial_camera_scene(), circle_scene(), ellipse_scene(), (pl, θl), (pih, θi), hand_eye_scene(), pnp_scene())
+    # One rule for every problem, Core's: the batch rows and the per-point form
+    # agree to rounding at the residuals' scale (E measured ≤ 5.7e-14 px against
+    # residuals up to 271 px, 2026-10-09; PnP ≤ 1.3e-13 px; FMA contraction
+    # differs between the vectorized loop and a single call).
+    for (p, θ) in (h_scene(), radial_homography_scene(), radial_camera_scene(), circle_scene(), ellipse_scene(), (pl, θl), (pih, θi), hand_eye_scene(), pnp_scene(), (pe, θe), (pf, θf))
         test_constraint_problem(p, θ)
-    end
-    # E and F: `residuals!` (the batch rows) and `whitened_residual` (the
-    # per-point form) agree only to rounding, not bit for bit as the helper
-    # demands — so the agreement is checked at the rounding of the residuals'
-    # own scale. Measured 2026-10-09: E ≤ 5.7e-14 px against residuals up to
-    # 271 px (a minimal-sample point, |r| ~ 4e-14, differs by 36% of itself:
-    # rounding, which no relative tolerance on the point alone admits); F
-    # ≤ 6.4e-17. Whether the two paths happen to agree bitwise depends on
-    # code generation (under `--check-bounds=yes`, as `Pkg.test` runs, F agrees
-    # bitwise and E does not), so bitwise equality is not tested here until
-    # the two paths are one. Everything else of the protocol holds. (PnP's two
-    # paths became one with the lens-family merge: it runs the full protocol
-    # above.)
-    for (p, θ) in ((pe, θe), (pf, θf))
-        @testset "constraint problem (to rounding): $(nameof(typeof(p)))" begin
-            n = data_size(p)
-            @test n isa Int && codimension(p) isa Int && minimal_sample_size(p) isa Int
-            r = Vector{Float64}(undef, n)
-            @inferred residuals!(r, p, θ)
-            @test (@allocated residuals!(r, p, θ)) == 0
-            ctx = residual_context(p, θ)
-            w = [Float64(whitened_residual(p, ctx, i)) for i in 1:n]
-            scale = maximum(abs, r)
-            @test all(i -> isapprox(w[i], r[i]; rtol = 1.0e-11, atol = 1.0e-14 * scale), 1:n)
-        end
     end
 end
 

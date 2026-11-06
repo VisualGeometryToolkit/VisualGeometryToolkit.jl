@@ -6,7 +6,7 @@
 # - StaticArrays (SVector, SMatrix, Size, similar_type, StaticMatrix)
 # - CoordinateTransformations (Transformation, AffineMap)
 # - GeometryBasics (Point, Point2, Point3)
-# - AbstractHomMat, AbstractHomConicMat, HomCircleMat, HomEllipseMat (from matrices.jl)
+# - HomographyMat (matrices.jl), AbstractHomConicMat, HomCircleMat, HomEllipseMat, Conic (base/types.jl)
 # - to_affine (from conversions.jl)
 
 # ========================================================================
@@ -19,14 +19,16 @@
 Projective transformation with cached inverse for efficient
 covariant (points) and contravariant (lines, conics) transformations.
 
-Sub-projective transforms (Translation, LinearMap, AffineMap) can act
-directly on Circle, Ellipse, and Line2D via ct_contravariant.jl.
-Use HomographyMap when you need a full projective (HomographyMat) wrapper.
+A `HomographyMap` is ALWAYS projective in meaning, whatever its matrix: a
+circle or an ellipse maps to a [`Conic`](@ref). The sub-projective classes are
+their own maps, acting in their class (the class table of the Transforms
+guide, "Maps Carry the Transform Class").
 
 # Type Parameters
 - `N`: Matrix dimension (3 for 2D projective, 4 for 3D projective)
 - `T`: Element type
-- `M`: Matrix type (HomRotationMat, HomAffineMat, HomographyMat, etc.)
+- `M`: Matrix type — a `HomographyMat` (a lifted homography matrix) or a plain
+  `SMatrix` (every other lift and every mixed composition)
 - `Src`/`Dst`: coordinate-[`Frame`](@ref) tags of the point FRAMES the map
   connects — `Frame{N-1}`, since the N×N matrix acts on (N-1)-dimensional
   frames (a 3×3 homography is 2D↔2D projective: `Frame{2}` on both sides).
@@ -36,8 +38,8 @@ Use HomographyMap when you need a full projective (HomographyMat) wrapper.
   `UnlabeledFrame{N-1}`, `inv` swaps the tags, and `∘` checks a labeled
   junction (identical wildcard truth table — see `Base.:∘` below).
 
-`HomographyMat` and the rest of the `AbstractHomMat` hierarchy stay
-frame-FREE algebra; frames are declared at the Mat → Map lift:
+`HomographyMat` stays frame-FREE algebra; frames are declared at the
+Mat → Map lift:
 
 ```julia
 H = HomographyMap{TargetPlaneFrame, PixelFrame{:colmap}}(H_mat)   # labeled lift
@@ -59,10 +61,10 @@ for `EuclideanMap`.
 
 # Examples
 ```julia
-# Create from any homogeneous matrix type
+# Lift a homography matrix, or any structured map (its analytic inverse is stored)
 h = HomographyMap(HomographyMat(camera))
-h = HomographyMap(HomRotationMat(RotMatrix{2}(θ)))
-h = HomographyMap(HomAffineMat(...))
+h = HomographyMap(EuclideanMap(RotMatrix{2}(θ), t))
+h = HomographyMap(AffineMap(A, b))
 
 # Transform points (Euclidean → homogeneous output)
 p′ = h(Point2(100, 200))  # → Point3 (homogeneous)
@@ -70,9 +72,9 @@ p′ = h(Point2(100, 200))  # → Point3 (homogeneous)
 # Transform points (homogeneous → homogeneous output)
 p′ = h(Point3(100, 200, 1))  # → Point3
 
-# Transform conics: the result type follows the matrix class
-h(circle)   # Circle under a similarity, HomEllipseMat under an affinity, Conic otherwise
-h(ellipse)  # HomEllipseMat under an affinity (similarities included), Conic otherwise
+# Transform conics: always a Conic (classify it, or apply the structured map itself)
+h(circle)   # Conic
+h(ellipse)  # Conic
 
 # Transform lines
 l′ = h(Line2D(1.0, -1.0, 0.0))  # → Line2D
@@ -102,18 +104,17 @@ end
     return HomographyMap{N, T, M, UnlabeledFrame{N - 1}, UnlabeledFrame{N - 1}}(fwd, bwd)
 end
 
-# Constructor computes inverse once
+# Constructor computes inverse once, by the INPUT's `inv` (a structured
+# matrix's analytic inverse: a rotation's transpose, a calibration matrix's
+# closed form), then stores both as SMatrix — the map is projective, whatever
+# the matrix's structure. A HomographyMat is stored as itself (below).
 function HomographyMap(m::StaticMatrix{N, N, T}) where {N, T}
-    M = typeof(m)
-    m_inv = M(Tuple(inv(SMatrix{N, N}(m))))
-    return HomographyMap{N, T, M}(m, m_inv)
+    mi = inv(m)
+    S = promote_type(T, eltype(mi))
+    fwd = SMatrix{N, N, S}(m)
+    return HomographyMap{N, S, typeof(fwd)}(fwd, SMatrix{N, N, S}(mi))
 end
-
-# For AbstractHomMat types, preserve the matrix type
-function HomographyMap(m::M) where {M <: AbstractHomMat}
-    m_inv = M(Tuple(inv(SMatrix{3, 3}(m))))
-    return HomographyMap{3, eltype(m), M}(m, m_inv)
-end
+HomographyMap(m::HomographyMat{T}) where {T} = HomographyMap{3, T, HomographyMat{T}}(m, inv(m))
 
 HomographyMap(h::HomographyMap) = h
 
@@ -174,8 +175,8 @@ end
     relabel(UnlabeledFrame{N - 1}, UnlabeledFrame{N - 1}, h)
 
 # AbstractMatrixMap interface: HomographyMap's stored matrix IS its homogeneous
-# form — the one accessor to it (`inv(h)`'s is the stored inverse).
-to_homogeneous(h::HomographyMap) = h.forward
+# form — the one accessor to it (`inv(h)`'s is the stored inverse), as a plain SMatrix.
+to_homogeneous(h::HomographyMap{N, T}) where {N, T} = SMatrix{N, N, T}(h.forward)
 
 # HomographyMap stores its inverse, so it's always invertible
 
@@ -223,52 +224,32 @@ end
 # For matrix operations, use the formula directly with h.inverse
 # ========================================================================
 
-# Helper: apply conic transformation formula Q' = H^{-T}·Q·H^{-1} (a congruence: `propagate`)
-@inline function _transform_conic_matrix(h::HomographyMap{3}, Q::SMatrix{3, 3})
-    return propagate(transpose(SMatrix{3, 3}(h.inverse)), Q)
+# The conic congruence C′ = H⁻ᵀ·C·H⁻¹ from the inverse Hi = H⁻¹, as the six
+# coefficients of the symmetric result: C′ᵢⱼ = Hi[:, i] ⋅ (C·Hi)[:, j], computed
+# for i ≤ j only, so the result is exactly symmetric by storage.
+@inline function _conic_congruence(Hi::StaticMatrix{3, 3}, Q::StaticMatrix{3, 3})
+    T = promote_type(eltype(Hi), eltype(Q))
+    H = SMatrix{3, 3, T, 9}(Hi)
+    M = SMatrix{3, 3, T, 9}(Q) * H
+    c(i, j) = H[1, i] * M[1, j] + H[2, i] * M[2, j] + H[3, i] * M[3, j]
+    return (c(1, 1), c(1, 2), c(2, 2), c(1, 3), c(2, 3), c(3, 3))
 end
 
-# Circle + similarity-preserving transform → Circle (exact)
-@inline function _transform_circle(
-        ::Type{<:AbstractSimilarityMat},
-        h::HomographyMap{3, T, M}, c::Circle
-    ) where {T, M}
-    Q = SMatrix{3, 3}(HomCircleMat(c))
-    Q′ = _transform_conic_matrix(h, Q)
-    return Circle(HomCircleMat{eltype(Q′)}(Tuple(Q′)))
-end
-
-# Circle + affine (non-similarity) → HomEllipseMat (exact: affine of a circle is an ellipse).
-@inline function _transform_circle(
-        ::Type{<:AbstractAffineMat},
-        h::HomographyMap{3, T, M}, c::Circle
-    ) where {T, M}
-    Q = SMatrix{3, 3}(HomCircleMat(c))
-    Q′ = _transform_conic_matrix(h, Q)
-    return HomEllipseMat{eltype(Q′)}(Tuple(Q′))
-end
-
-# Circle + general projective / raw StaticMatrix → Conic (could be any conic class).
-@inline function _transform_circle(
-        ::Type{<:StaticMatrix},
-        h::HomographyMap{3, T, M}, c::Circle
-    ) where {T, M}
-    Q = SMatrix{3, 3}(HomCircleMat(c))
-    Q′ = _transform_conic_matrix(h, Q)
-    return Conic{eltype(Q′)}(Q′)
+# A conic of a circle or an ellipse under a projective map: any class
+@inline function _projective_conic(h::HomographyMap{3}, Q::AbstractHomConicMat)
+    q = _conic_congruence(h.inverse, Q)
+    return Conic{eltype(q)}(q, _Unchecked())
 end
 
 """
-    (h::HomographyMap{3})(c::Circle) -> Circle, HomEllipseMat or Conic
+    (h::HomographyMap{3})(c::Circle) -> Conic
 
-Transform a circle through a homography map.
+Transform a circle through a homography map: a `Conic`, whatever the map's
+matrix (a `HomographyMap` is projective in meaning). An `EuclideanMap`, a
+`SimilarityMap`, a translation, rotation or uniform scaling keeps a circle a
+`Circle`, and an affine map gives a `HomEllipseMat`: apply them directly.
 
-Returns:
-- a `Circle` for similarity-preserving transforms (rotation, translation, isotropic scale)
-- `HomEllipseMat` for other affine transforms (an affine image of a circle is an ellipse)
-- `Conic` for a general projective transform
-
-A returned conic matrix could be:
+The returned conic could be:
 - An ellipse (most common for camera projections of visible circles)
 - A hyperbola (circle partially behind camera)
 - A parabola (circle tangent to plane at infinity)
@@ -297,17 +278,13 @@ conic_matrices = H.(circles)
 ellipses = [Ellipse(Q) for Q in conic_matrices if classify_conic(Q) isa EllipseTrait]
 ```
 """
-@inline function (h::HomographyMap{3, T, M})(c::Circle) where {T, M}
-    return _transform_circle(M, h, c)
-end
+@inline (h::HomographyMap{3})(c::Circle) = _projective_conic(h, HomCircleMat(c))
 
 """
-    (h::HomographyMap{3})(e::Ellipse) -> HomEllipseMat or Conic
+    (h::HomographyMap{3})(e::Ellipse) -> Conic
 
-Transform an ellipse through a homography map. Returns the conic matrix.
-
-`HomEllipseMat` under an affine map; under a general projective transform a
-`Conic`, which could be any conic type.
+Transform an ellipse through a homography map: a `Conic`, which could be any
+conic type (an affine map applied directly gives a `HomEllipseMat`).
 Use `classify_conic()` to determine the type and construct appropriately.
 
 # Example
@@ -319,29 +296,7 @@ if classify_conic(Q′) isa EllipseTrait
 end
 ```
 """
-@inline function (h::HomographyMap{3, T, M})(e::Ellipse) where {T, M}
-    return _transform_ellipse(M, h, e)
-end
-
-# Ellipse + affine → HomEllipseMat (exact: affine of an ellipse is an ellipse).
-@inline function _transform_ellipse(
-        ::Type{<:AbstractAffineMat},
-        h::HomographyMap{3, T, M}, e::Ellipse
-    ) where {T, M}
-    Q = SMatrix{3, 3}(HomEllipseMat(e))
-    Q′ = _transform_conic_matrix(h, Q)
-    return HomEllipseMat{eltype(Q′)}(Tuple(Q′))
-end
-
-# Ellipse + general projective / raw StaticMatrix → Conic (could be any conic class).
-@inline function _transform_ellipse(
-        ::Type{<:StaticMatrix},
-        h::HomographyMap{3, T, M}, e::Ellipse
-    ) where {T, M}
-    Q = SMatrix{3, 3}(HomEllipseMat(e))
-    Q′ = _transform_conic_matrix(h, Q)
-    return Conic{eltype(Q′)}(Q′)
-end
+@inline (h::HomographyMap{3})(e::Ellipse) = _projective_conic(h, HomEllipseMat(e))
 
 # ========================================================================
 # Composition and Inverse
@@ -350,14 +305,9 @@ end
 # Composition: (A ∘ B)(x) = A(B(x))
 # Forward: A.forward * B.forward
 # Inverse: B.inverse * A.inverse
-# Inner-matrix result type comes from the AbstractHomMat hierarchy via
-# `Base.promote_type` (defined in matrices.jl) when BOTH inners are typed
-# Hom mats.  A raw-SMatrix inner on either side demotes the result to a
-# plain SMatrix — `promote_type(SMatrix, HomAffineMat)` would land on the
-# abstract `StaticArray{Tuple{3,3},T,2}` and fail to construct.
-function _compose_mat_type(::Type{Ma}, ::Type{Mb}) where {Ma <: AbstractHomMat, Mb <: AbstractHomMat}
-    return promote_type(Ma, Mb)                       # parametric, e.g. HomEuclideanMat{Float64}
-end
+# Two lifted homography matrices compose to a HomographyMat; any other pair
+# (an SMatrix-backed lift on either side) to a plain SMatrix.
+_compose_mat_type(::Type{<:HomographyMat{Ta}}, ::Type{<:HomographyMat{Tb}}) where {Ta, Tb} = HomographyMat{promote_type(Ta, Tb)}
 function _compose_mat_type(::Type{Ma}, ::Type{Mb}) where {N, Ma <: StaticMatrix{N, N}, Mb <: StaticMatrix{N, N}}
     T = promote_type(eltype(Ma), eltype(Mb))
     return SMatrix{N, N, T, N * N}
@@ -404,31 +354,16 @@ end
 #
 # Composition rules:
 #
-#   HomographyMap{Ma} ∘ HomographyMap{Mb} → HomographyMap{promote_type(Ma,Mb)}   [above]
-#   EuclideanMap     ∘ EuclideanMap       → EuclideanMap (analytic R, t)        [in euclidean_map.jl]
+#   HomographyMap ∘ HomographyMap → HomographyMap (HomographyMat storage when both are, else SMatrix)  [above]
+#   EuclideanMap  ∘ EuclideanMap  → EuclideanMap (analytic R, t)        [euclidean_map.jl]
+#   SimilarityMap ∘ SimilarityMap → SimilarityMap (analytic s, R, t)    [similarity_map.jl]
 #
-# Mixed shapes — convert the non-HomographyMap side to its homogeneous matrix
-# form, wrap as a HomographyMap, then delegate to the HomographyMap ∘
-# HomographyMap method.  Inner-matrix categories tighten via the
-# AbstractHomMat hierarchy in `Base.promote_rule`.
+# Mixed shapes — lift the structured side to a HomographyMap (forward its
+# homogeneous matrix, inverse the homogeneous matrix of its ANALYTIC inverse,
+# never a 3×3 inversion), then compose as homographies: SMatrix storage.
 #
-#   EuclideanMap   ∘ HomographyMap → HomographyMap{promote_type(HomEuclideanMat, Mb)}
-#   HomographyMap  ∘ EuclideanMap  → HomographyMap{promote_type(Ma, HomEuclideanMat)}
-#   CT.X           ∘ HomographyMap → HomographyMap{promote_type(typeof_M(X), Mb)}
-#   HomographyMap  ∘ CT.X          → HomographyMap{promote_type(Ma, typeof_M(X))}
-
-# EuclideanMap mixed with HomographyMap → HomographyMap (Option A: demote to
-# the more general matrix-backed Map; inner matrix tightens via promote_rule).
-# The EuclideanMap's frame tags ride along on the lift — never silently
-# erased — so the junction stays frame-checked by the HomographyMap rules.
-@inline Base.:∘(
-    a::EuclideanMap{2, T, R, V, Src, Dst}, b::HomographyMap{3}
-) where {T, R <: Rotation{2, T}, V <: StaticVector{2, T}, Src <: Frame{2}, Dst <: Frame{2}} =
-    relabel(Src, Dst, HomographyMap(to_homogeneous(a))) ∘ b
-@inline Base.:∘(
-    a::HomographyMap{3}, b::EuclideanMap{2, T, R, V, Src, Dst}
-) where {T, R <: Rotation{2, T}, V <: StaticVector{2, T}, Src <: Frame{2}, Dst <: Frame{2}} =
-    a ∘ relabel(Src, Dst, HomographyMap(to_homogeneous(b)))
+#   EuclideanMap / SimilarityMap / CT leaf  ∘ HomographyMap → HomographyMap
+#   HomographyMap ∘ EuclideanMap / SimilarityMap / CT leaf  → HomographyMap
 
 # CT-foreign types mixed with HomographyMap.  Scoped to a Union of the
 # concrete CT types (Translation/LinearMap/AffineMap) so the dispatch
@@ -440,23 +375,46 @@ const _CTLeafTransformation = Union{
     CoordinateTransformations.AffineMap,
 }
 
-# A CT leaf as a HomographyMap: its homogeneous matrix, and as the stored
-# inverse the homogeneous matrix of ITS CT inverse (`inv(A)`, `−inv(A)·t` — the
-# leaf's own analytic inverse), never a generic 3×3 inversion of the forward.
-function HomographyMap(a::_CTLeafTransformation)
-    fwd = AbstractHomMat(a)
-    M = typeof(fwd)
-    return HomographyMap{size(M, 1), eltype(M), M}(fwd, M(Tuple(to_homogeneous(inv(a)))))
+# THE affine class of planar maps, stated once: CoordinateTransformations'
+# affines and the stack's own affine-class map types, each with its analytic
+# inverse and an `AffineMap(m)`. A new affine-class map type is added to
+# `_StructuredAffineMap` with its `AffineMap` method, and the homography lift,
+# the `∘` bridges below and the warp fusion (warp.jl) all take it.
+const _StructuredAffineMap = Union{EuclideanMap{2}, SimilarityMap{2}}
+const _AffinePlanarMap = Union{_CTLeafTransformation, _StructuredAffineMap}
+
+CoordinateTransformations.AffineMap(E::PlainEuclideanMap{2}) = AffineMap(SMatrix{2, 2}(E.R), SVector{2}(E.t))
+CoordinateTransformations.AffineMap(S::SimilarityMap{2}) = AffineMap(S.s * SMatrix{2, 2}(S.R), SVector{2}(S.t))
+
+"""
+    HomographyMap(a) -> HomographyMap{3, T, SMatrix{3, 3, T, 9}}
+
+Any structured planar map — a `Translation`, `LinearMap` or `AffineMap`, an
+[`EuclideanMap`](@ref)`{2}`, a [`SimilarityMap`](@ref)`{2}` — lifted to a
+homography: the forward matrix `to_homogeneous(a)`, the stored inverse
+`to_homogeneous(inv(a))` (the map's own analytic inverse, never a 3×3
+inversion). An `EuclideanMap`'s or `SimilarityMap`'s frame tags ride along.
+The lift is projective in meaning: it maps a circle to a `Conic`.
+"""
+HomographyMap(a::_CTLeafTransformation) = _lift_homography(a, UnlabeledFrame{2}, UnlabeledFrame{2})
+HomographyMap(a::EuclideanMap{2, T, R, V, Src, Dst}) where {T, R, V, Src, Dst} = _lift_homography(a, Src, Dst)
+HomographyMap(a::SimilarityMap{2, T, S, R, V, Src, Dst}) where {T, S, R, V, Src, Dst} = _lift_homography(a, Src, Dst)
+function _lift_homography(a, ::Type{Src}, ::Type{Dst}) where {Src, Dst}
+    fwd = to_homogeneous(a)
+    bwd = _inverse_homogeneous(a)   # checked: a singular affine is refused, never an Inf inverse stored
+    T = promote_type(eltype(fwd), eltype(bwd))
+    return HomographyMap{3, T, SMatrix{3, 3, T, 9}, Src, Dst}(SMatrix{3, 3, T, 9}(fwd), SMatrix{3, 3, T, 9}(bwd))
 end
 
-@inline Base.:∘(a::_CTLeafTransformation, b::HomographyMap{3}) = HomographyMap(a) ∘ b
-@inline Base.:∘(a::HomographyMap{3}, b::_CTLeafTransformation) = a ∘ HomographyMap(b)
+@inline Base.:∘(a::_AffinePlanarMap, b::HomographyMap{3}) = HomographyMap(a) ∘ b
+@inline Base.:∘(a::HomographyMap{3}, b::_AffinePlanarMap) = a ∘ HomographyMap(b)
 
 # Inverse is O(1) - just swap forward and inverse (preserves matrix type).
 # Typed algebra: inv swaps the frame tags (H_AB⁻¹ = H_BA), as for EuclideanMap.
 function Base.inv(h::HomographyMap{N, T, M, Src, Dst}) where {N, T, M, Src, Dst}
     return HomographyMap{N, T, M, Dst, Src}(h.inverse, h.forward)
 end
+_inverse_homogeneous(h::HomographyMap) = to_homogeneous(inv(h))   # its stored inverse
 
 # ========================================================================
 # Rect → Polygon (projective mapping of a rectangle)
@@ -489,10 +447,7 @@ line at infinity (hyperbola/parabola/degenerate). Downstream code spelled
 `Q = H(region(...)); is_ellipse(Q) || continue; Ellipse(Q)` at six call
 sites — this is that pattern, once.
 """
-function transfer_ellipse(H::HomographyMap{3}, shape::Union{Circle, Ellipse})
-    Q = H(shape)
-    return is_ellipse(Q) ? Ellipse(Q) : nothing
-end
+transfer_ellipse(H::HomographyMap{3}, shape::Union{Circle, Ellipse}) = _ellipse_or_nothing(H(shape))
 
 """
     transfer_ellipse(T::Transformation, shape::Union{Circle, Ellipse}) -> Ellipse | nothing
@@ -589,7 +544,7 @@ Hyperplanes transform contravariantly (like lines): π' = H^{-T}·π
 
 # Example
 ```julia
-H = HomographyMap(HomAffineMat(...))
+H = HomographyMap(AffineMap(A, b))
 line = Line2D(1.0, -1.0, 0.0)  # x - y = 0
 line′ = H(line)
 

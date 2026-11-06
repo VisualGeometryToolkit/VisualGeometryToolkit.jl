@@ -2,19 +2,21 @@
 # CT Contravariant Transforms
 # ========================================================================
 #
-# Makes CoordinateTransformations types (Translation, LinearMap, AffineMap)
-# directly callable on contravariant geometric primitives:
+# Makes CoordinateTransformations types (Translation, LinearMap, AffineMap),
+# EuclideanMap{2} and SimilarityMap{2} directly callable on geometric
+# primitives, each in its own class (the table below):
 #   - Circle (conic, contravariant)
 #   - Ellipse (conic, contravariant)
 #   - Line2D (hyperplane, contravariant)
+#   - the feature frames (Euclidean and similarity maps)
 #
 # Also provides `+` operator shorthand for translation of primitives.
 #
-# For projective transforms or explicit matrix control, use HomographyMap.
+# For projective transforms, use HomographyMap (homography_map.jl).
 #
 # DEPENDENCY GRAPH:
-#   matrices.jl          → homogeneous matrix types + hierarchy
-#   conversions.jl       → to_homogeneous (CT → typed 3×3)
+#   euclidean_map.jl, similarity_map.jl → the Euclidean and similarity maps
+#   conversions.jl       → to_homogeneous (map → plain SMatrix)
 #   primitives/conic.jl  → Circle, Ellipse, HomCircleMat, HomEllipseMat
 #   primitives/hyperplane.jl → Line2D, normal, offset
 #
@@ -67,94 +69,85 @@ Base.:+(l::Line2D, v::StaticVector{2}) = Translation(v)(l)
 Base.:+(v::StaticVector{2}, l::Line2D) = Translation(v)(l)
 
 # ========================================================================
-# Shared helpers for conic and line transforms
+# Primitive actions by map class
 # ========================================================================
+#
+# The map's TYPE is its class, and a method exists only where the result's
+# type changes; everything else goes through the coarser class:
+#
+#   | class      | maps                                         | Circle        | Ellipse       | Line2D | feature frames |
+#   |------------|----------------------------------------------|---------------|---------------|--------|----------------|
+#   | Euclidean  | EuclideanMap{2}, Translation                 | Circle        | Ellipse       | Line2D | same type      |
+#   | similarity | SimilarityMap{2}, LinearMap{<:Rotation{2}},  | Circle        | Ellipse       | Line2D | same type      |
+#   |            | LinearMap{<:UniformScaling}                  |               |               |        |                |
+#   | affine     | AffineMap, any other LinearMap               | HomEllipseMat | HomEllipseMat | Line2D | —              |
+#   | projective | HomographyMap (homography_map.jl)            | Conic         | Conic         | Line2D | MethodError    |
+#
+# This table is the one statement of the classes; the map types' docstrings
+# point here. The conic law is HomographyMap's `_conic_congruence`, never re-spelled here;
+# an affine map conjugates a conic and moves a line by its own analytic inverse,
+# `to_homogeneous(inv(am))` (never a 3×3 inversion). A Euclidean map is the
+# similarity of scale 1 and acts through it.
 
-# A CoordinateTransformations map as its HomographyMap: the conic and line laws
-# are HomographyMap's (`_transform_conic_matrix`, the Hyperplane method), never
-# re-spelled here.
-@inline _ct_homography(ct) = HomographyMap(to_homogeneous(ct))
-
-"""
-    _ct_conic_transform(ct, Q::AbstractHomConicMat) -> HomEllipseMat
-
-Apply contravariant conic transformation: Q' = H^{-T} Q H^{-1}
-where H is the homogeneous matrix of the CT transform.  Used for
-`LinearMap` / `AffineMap` callables — both affine, so an ellipse-input
-is guaranteed to stay an ellipse.
-"""
-@inline function _ct_conic_transform(ct, Q::AbstractHomConicMat)
-    Q′ = _transform_conic_matrix(_ct_homography(ct), SMatrix{3, 3}(Q))
-    return HomEllipseMat{eltype(Q′)}(Tuple(Q′))
+# Q′ = A⁻ᵀ·Q·A⁻¹ of an affine map, from its checked analytic inverse
+# (`_inverse_homogeneous`: a singular linear part is an ArgumentError). An affine
+# image of an ellipse is an ellipse, but its class is still decided by THE
+# classifier, so a stored HomEllipseMat and `classify_conic` never disagree: a
+# linear part so ill-conditioned that its image reads as a parabola (κ(A)² past
+# the classifier's eps^(3/4) floor, e.g. Diagonal(1e7, 1)) is an ArgumentError.
+@inline function _affine_conic(am, Q::AbstractHomConicMat)
+    q = _conic_congruence(_inverse_homogeneous(am), Q)
+    _is_real_ellipse(q) || _throw_ill_conditioned_affine(am)
+    return HomEllipseMat{eltype(q)}(q, _Unchecked())
 end
+@noinline _throw_ill_conditioned_affine(am) = throw(
+    ArgumentError(
+        "the affine image of the ellipse is too ill-conditioned to be told from a parabola " *
+            "(the map's linear part: $(to_homogeneous(am)[SOneTo(2), SOneTo(2)]))"
+    )
+)
 
-"""
-    _ct_line_transform(ct, l::Line2D) -> Line2D
-
-Apply contravariant line transformation: l' = H^{-T} l
-where H is the homogeneous matrix of the CT transform.
-"""
-@inline function _ct_line_transform(ct, l::Line2D)
-    return _ct_homography(ct)(l)
-end
-
-# ========================================================================
-# LinearMap on Circle — trait dispatch
-# ========================================================================
-
-# Circle-preservation predicate — all that survives of the former
-# TransformTrait family (audit #18): rotations and uniform scalings map
-# circles to circles; everything else demotes to an ellipse.  Type-stable,
-# so the branch below folds at compile time.
-_preserves_circles(::Type{<:CoordinateTransformations.LinearMap{<:Rotations.RotMatrix}}) = true
-_preserves_circles(::Type{<:CoordinateTransformations.LinearMap{<:UniformScaling}}) = true
-_preserves_circles(::Type{<:CoordinateTransformations.LinearMap}) = false
-
-"""
-    (lm::LinearMap)(c::Circle) -> Circle or HomEllipseMat
-
-Transform a circle through a linear map.
-- Circle-preserving transforms (rotation, uniform scale) return Circle
-- Everything else (anisotropic scale, general linear) returns HomEllipseMat
-"""
-@inline function (lm::CoordinateTransformations.LinearMap)(c::Circle)
-    if _preserves_circles(typeof(lm))
-        Q′ = _transform_conic_matrix(_ct_homography(lm), SMatrix{3, 3}(HomCircleMat(c)))
-        return Circle(HomCircleMat{eltype(Q′)}(Tuple(Q′)))
-    else
-        return _ct_conic_transform(lm, HomCircleMat(c))
-    end
+# l′ = M⁻ᵀ·l of a map, from its checked analytic inverse: the line law of every affine-class map.
+@inline function _line_action(m, l::Line2D{S}) where {S}
+    l′ = transpose(_inverse_homogeneous(m)) * SVector{3}(l.coeffs)
+    return Line2D{eltype(l′)}(l′)
 end
 
 # ========================================================================
-# LinearMap on Ellipse — always returns HomEllipseMat
-# ========================================================================
-
-"""
-    (lm::LinearMap)(e::Ellipse) -> Conic
-
-Transform an ellipse through a linear map. Returns a conic matrix.
-"""
-@inline function (lm::CoordinateTransformations.LinearMap)(e::Ellipse)
-    return _ct_conic_transform(lm, HomEllipseMat(e))
-end
-
-# ========================================================================
-# AffineMap on Circle / Ellipse — trait dispatch, returns HomEllipseMat
+# LinearMap / AffineMap on Circle / Ellipse — the affine class: HomEllipseMat
 # ========================================================================
 # Docstrings live on the AffineMap constructors in coord_maps.jl. Julia's
 # docstring system can't distinguish `AffineMap(::Circle)` (constructor)
 # from `(am::AffineMap)(::Circle)` (call overload) — both reduce to
 # `AffineMap :: Tuple{Circle}` for attachment purposes and collide. The
-# constructor site is the canonical home; these call overloads are
-# straightforward implementations of the conic-transform formula
-# Q' = H^{-T}·Q·H^{-1} (see _transform_conic_matrix above).
+# constructor site is the canonical home.
 
-@inline (am::CoordinateTransformations.AffineMap)(c::Circle) =
-    _ct_conic_transform(am, HomCircleMat(c))
+"""
+    (lm::LinearMap)(c::Circle) -> HomEllipseMat
+    (lm::LinearMap)(e::Ellipse) -> HomEllipseMat
 
-@inline (am::CoordinateTransformations.AffineMap)(e::Ellipse) =
-    _ct_conic_transform(am, HomEllipseMat(e))
+Transform a circle or an ellipse through a general linear map: its
+`HomEllipseMat` (an affine image of an ellipse is an ellipse). A rotation or a
+uniform scaling is a similarity and keeps the primitive's type (a `Circle`, an
+`Ellipse`): see [`SimilarityMap`](@ref).
+"""
+@inline (lm::CoordinateTransformations.LinearMap)(c::Circle) = _affine_conic(lm, HomCircleMat(c))
+@inline (lm::CoordinateTransformations.LinearMap)(e::Ellipse) = _affine_conic(lm, HomEllipseMat(e))
+
+@inline (am::CoordinateTransformations.AffineMap)(c::Circle) = _affine_conic(am, HomCircleMat(c))
+@inline (am::CoordinateTransformations.AffineMap)(e::Ellipse) = _affine_conic(am, HomEllipseMat(e))
+
+# ========================================================================
+# The similarity subgroup of LinearMap: through its SimilarityMap
+# ========================================================================
+
+const _SimilarityLinearMap = Union{
+    CoordinateTransformations.LinearMap{<:Rotation{2}},
+    CoordinateTransformations.LinearMap{<:UniformScaling},
+}
+for P in (:Circle, :Ellipse, :Disc, :OrientedDisc, :EllipticFrame, :AffineFrame)
+    @eval @inline (lm::_SimilarityLinearMap)(x::$P) = SimilarityMap(lm)(x)
+end
 
 # ========================================================================
 # LinearMap / AffineMap on Line2D
@@ -165,57 +158,62 @@ end
 
 Transform a 2D line through a linear map. Lines stay lines under linear transforms.
 """
-@inline function (lm::CoordinateTransformations.LinearMap)(l::Line2D)
-    return _ct_line_transform(lm, l)
-end
+@inline (lm::CoordinateTransformations.LinearMap)(l::Line2D) = _line_action(lm, l)
 
 """
     (am::AffineMap)(l::Line2D) -> Line2D
 
 Transform a 2D line through an affine map. Lines stay lines under affine transforms.
 """
-@inline function (am::CoordinateTransformations.AffineMap)(l::Line2D)
-    return _ct_line_transform(am, l)
-end
+@inline (am::CoordinateTransformations.AffineMap)(l::Line2D) = _line_action(am, l)
 
 # ========================================================================
-# EuclideanMap{2} — rigid actions on primitives and feature frames
+# SimilarityMap{2} — the similarity class on primitives and feature frames
 # ========================================================================
 #
-# A labeled rigid map — the pixel-origin frame maps
-# `EuclideanMap(PixelFrame{:colmap}, PixelFrame{:julia})` above all — must be
-# applicable to the things that live in pixel coordinates, not only to bare
-# vectors. Until 2026-09 only `Translation` had these methods, so BlobBoards
-# rewrapped every frame map's `.t` in a `Translation` to shift a blob list.
-# A rigid map preserves shape, so every action here is exact and closed:
-# centre ↦ R c + t, orientation ↦ + angle(R), shape matrices ↦ conjugated by R.
-# (Line2D already had its action in primitives/hyperplane.jl.)
+# x ↦ s·R·x + t preserves angles and length ratios, so each action is exact
+# and closed: centre ↦ s R c + t, lengths (a radius, the axes, σ) ↦ s·length,
+# orientation ↦ + angle(R), a shape matrix S (Σ = S²) ↦ s·R S Rᵀ, an affine
+# frame's A ↦ s·R A, a line n·x + c = 0 ↦ (R n)·x′ + (s c − (R n)·t) = 0 (its
+# normal's length kept). An EuclideanMap{2} is the similarity of scale 1 and
+# acts through it, bit for bit (s·x is exact at s = 1): a labeled rigid map —
+# the pixel-origin frame maps `EuclideanMap(PixelFrame{:colmap},
+# PixelFrame{:julia})` above all — applies to everything that lives in pixel
+# coordinates (`EuclideanMap(PixelFrame{:colmap}, PixelFrame{:julia}).(blobs)`).
 
 @inline _rigid_angle(R) = atan(R[2, 1], R[1, 1])
-@inline function _rigid_center(E::PlainEuclideanMap{2}, c)   # pixel-frame maps: plain
-    p = E.R * SVector{2}(c[1], c[2]) + E.t
+@inline function _similar_center(S::SimilarityMap{2}, c)
+    p = S(SVector{2}(c[1], c[2]))
     return Point2(p[1], p[2])
 end
 
 """
-    (E::EuclideanMap{2})(c::Circle) -> Circle
-    (E::EuclideanMap{2})(e::Ellipse) -> Ellipse
-    (E::EuclideanMap{2})(f::FeatureFrame) -> same frame type
+    (S::SimilarityMap{2})(x) -> same type as x
+    (E::EuclideanMap{2})(x) -> same type as x
 
-Rigid action on a 2D primitive or feature frame: the centre is mapped through
-`E`, the shape is carried along exactly (a rotation rotates an orientation or
-conjugates a shape matrix; a pure translation leaves it unchanged). Lets an
-origin-conversion frame map be broadcast over a detection list directly:
-`EuclideanMap(PixelFrame{:colmap}, PixelFrame{:julia}).(blobs)`.
+The similarity (or rigid) action on a `Circle`, an `Ellipse`, a `Line2D` or a
+feature frame (`Disc`, `OrientedDisc`, `EllipticFrame`, `AffineFrame`), exact
+in its class: see the class table above. A rotation or a uniform scaling
+`LinearMap` acts through its `SimilarityMap`.
 """
-@inline (E::EuclideanMap{2})(c::Circle) = Circle(_rigid_center(E, centroid(c)), GeometryBasics.radius(c))
-@inline (E::EuclideanMap{2})(e::Ellipse) = Ellipse(_rigid_center(E, e.center), e.a, e.b, e.θ + _rigid_angle(E.R))
-# (Lines already have their rigid action: `(E::EuclideanMap{2})(::Line2D)` in
-# primitives/hyperplane.jl.)
-@inline (E::EuclideanMap{2})(f::Disc) = Disc(_rigid_center(E, f.center), f.σ)
-@inline (E::EuclideanMap{2})(f::OrientedDisc) = OrientedDisc(_rigid_center(E, f.center), f.σ, f.θ + _rigid_angle(E.R))
-@inline function (E::EuclideanMap{2})(f::EllipticFrame)
-    R = SMatrix{2, 2}(E.R)
-    return EllipticFrame(_rigid_center(E, f.center), R * f.S * R')
+@inline (S::SimilarityMap{2})(c::Circle) = Circle(_similar_center(S, centroid(c)), S.s * GeometryBasics.radius(c))
+@inline (S::SimilarityMap{2})(e::Ellipse) =
+    Ellipse(_similar_center(S, e.center), S.s * e.a, S.s * e.b, e.θ + _rigid_angle(S.R))
+@inline function (S::SimilarityMap{2, T, Sc})(l::Line2D{U}) where {T, Sc, U}
+    V = promote_type(T, Sc, eltype(S.t), U)   # every part: a Dual scale or translation, a Float64 t over Float32 s, R
+    n′ = S.R * normal(l)
+    return Line2D{V}(SVector{3, V}(n′[1], n′[2], S.s * l.coeffs[3] - dot(n′, SVector{2}(S.t))))
 end
-@inline (E::EuclideanMap{2})(f::AffineFrame) = AffineFrame(_rigid_center(E, f.center), SMatrix{2, 2}(E.R) * f.A)
+@inline (S::SimilarityMap{2})(f::Disc) = Disc(_similar_center(S, f.center), S.s * f.σ)
+@inline (S::SimilarityMap{2})(f::OrientedDisc) =
+    OrientedDisc(_similar_center(S, f.center), S.s * f.σ, f.θ + _rigid_angle(S.R))
+@inline function (S::SimilarityMap{2})(f::EllipticFrame)
+    R = SMatrix{2, 2}(S.R)
+    return EllipticFrame(_similar_center(S, f.center), S.s * (R * f.S * R'))
+end
+@inline (S::SimilarityMap{2})(f::AffineFrame) = AffineFrame(_similar_center(S, f.center), S.s * (SMatrix{2, 2}(S.R) * f.A))
+
+for P in (:Circle, :Ellipse, :Line2D, :Disc, :OrientedDisc, :EllipticFrame, :AffineFrame)
+    @eval @inline (E::EuclideanMap{2})(x::$P) =
+        (has_units(E) && _refuse_unitful($(string("the action on a ", P))); SimilarityMap(E)(x))
+end

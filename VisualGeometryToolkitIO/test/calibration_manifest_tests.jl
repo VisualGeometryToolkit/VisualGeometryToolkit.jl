@@ -59,7 +59,7 @@ end
         @test m.kind == "metric" && m.model == model && m.dir == dir
         @test [f.path for f in m.files] == ["rig_targets.json", "trajectory.json", "target_points2d.json", "target_poses.json"]
         poses = m.files[4]
-        @test poses.role == "derived" && poses.derived_from == ["trajectory.json", "rig_targets.json"] && poses.kind == "vgio/target_poses/v1"
+        @test poses.role == "derived" && poses.derived_from == ["trajectory.json", "rig_targets.json"] && poses.kind == "vgio/target_poses/v2"
         @test m.files[2].role == "authority" && isempty(m.files[2].derived_from)
         @test all(f.sha256 == VgtkIO.sha256_hex(read(joinpath(dir, f.path), String)) for f in m.files)
         @test m.metrics["rms_px"] == 0.4 && m.provenance["tool"] == "test"
@@ -115,7 +115,7 @@ end
         edit(f) = (write(p, original); rewrite(p, f))
         # a recorded schema that the file does not hold
         edit(d -> d["files"][2]["kind"] = "vgio/target_poses/v1")
-        @test_throws "holds a \"vgio/trajectory/v3\" record" VgtkIO.load_manifest(dir)
+        @test_throws "holds a \"vgio/trajectory/v4\" record" VgtkIO.load_manifest(dir)
         # a derived entry without derived_from (missing key, and empty list)
         edit(d -> delete!(d["files"][4], "derived_from"))
         @test_throws "derived_from" VgtkIO.load_manifest(dir)

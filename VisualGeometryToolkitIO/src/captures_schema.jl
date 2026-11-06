@@ -2,12 +2,14 @@
 # The per-frame kinds of a capture — VisualGeometryToolkitCore's captures, serialized
 # =============================================================================
 #
-#   vgio/trajectory/v3        ↔ VGC `Trajectory{S, D}`      a body's pose over time
-#   vgio/target_poses/v1      ↔ VGC `TargetPoses{F}`        per frame, the poses of the targets seen
+#   vgio/trajectory/v4        ↔ VGC `Trajectory{S, D}`      a body's pose over time
+#   vgio/target_poses/v2      ↔ VGC `TargetPoses{F}`        per frame, the poses of the targets seen
 #   vgio/target_homographies/v1 ↔ VGC `TargetHomographies{F, H}`
 #                                                         per frame, each target's plane → pixel homography
 #   vgio/target_points2d/v2   ↔ VGC `TargetPoints2D{F}`     per frame, pixels of target points
-#   vgio/target_points3d/v1   ↔ VGC `TargetPoints3D{F}`     per frame, 3D positions of target points
+#   vgio/target_points3d/v2   ↔ VGC `TargetPoints3D{F}`     per frame, 3D positions of target points
+#   vgio/target_detections/v2 ↔ VGC `TargetDetections{F}`   per frame, per target, index => pixel or 3D point
+#                               (load(TargetDetections, …) reads the two kinds above too, converted)
 #
 # Every one is a list of `frames`, each named by its index `t` — unique, the
 # join key between the kinds of one capture — with, where the kind has them,
@@ -19,21 +21,21 @@
 # memory, in the declared `length_unit` on disk; `Uncertain` members with
 # their covariance). A writer refuses plain numbers where a length is meant.
 #
-# The hierarchy: a RIG of targets (rig/v5) defines targets and their points; a
+# The hierarchy: a RIG of targets (a vgio/rig file) defines targets and their points; a
 # measurement names a point by (target, index) — its `point_index_base`-based
 # position in that target's `points` — and the measurement file names the
 # targets files it resolves in by content identity (`targets`, see
 # `content_id`); a trajectory is the pose of a body (`body:<id>`, a view, a
 # target) in one frame.
 #
-# {"schema": "vgio/trajectory/v3", <pose declarations>, "from": "body:board_rig", "to": "world",
+# {"schema": "vgio/trajectory/v4", <pose declarations>, "from": "body:board_rig", "to": "world",
 #  "time_origin": "2026-05-27T00:00:00",
 #  "frames": [{"t": 17, "image": "DSC04520.JPG", "time": 47058.40,
 #              "pose": {rotation, translation[, covariance]}, "recovered": true}]}
 #      every pose maps `from` → `to`; `recovered` (written only when true) marks
 #      a pose substituted under a stated method rather than measured
 #
-# {"schema": "vgio/target_poses/v1", <pose declarations>, "to": "camera_optical",
+# {"schema": "vgio/target_poses/v2", <pose declarations>, "to": "camera_optical",
 #  "frames": [{"t": 1, "image": "DSC04520.JPG", "sensor": "<camera name>", "time": 12.5,
 #              "poses": [{"target": "89b", "rotation": […], "translation": […], "covariance": …}]}]}
 #      each pose maps target:<target> → `to`: a detector's object → camera pose
@@ -43,7 +45,7 @@
 #  "frames": [{"t": 1, "image": "DSC04520.JPG", "sensor": "<camera name>", "time": 12.5,
 #              "homographies": [{"target": "89b", "H": [[…3], […3], […3]]}]}]}
 #      each `target` names a board inside one of the `targets` — a `content_id` of
-#      EITHER a rig (rig/v6) of boards OR a single unposed target (target/v3); at
+#      EITHER a rig (rig/v8) of boards OR a single unposed target (target/v5); at
 #      least one. Each H maps the target's plane — its own design frame, millimetres — to a
 #      pixel of the declared `pixel_frame`, as `RadialHomography`'s H does: BEFORE
 #      the lens of the camera `sensor` names, about that camera's centre. An H is
@@ -65,19 +67,29 @@
 #              "points": [{"target": "<uid>", "index": 5, "xy": [u, v], "weight": 1.0,
 #                          "covariance": [[…], […]]}]}]}
 #      each `target` names a board inside one of the `targets` — a `content_id` of
-#      EITHER a rig (rig/v6) of boards OR a single unposed target (target/v3), as in
-#      target_homographies/v1; at least one. v2 is v1 with the schema token bumped and
-#      this widening: a v1 file (rig ids only) reads as v2 through its version step.
+#      EITHER a rig (rig/v8) of boards OR a single unposed target (target/v5), as in
+#      target_homographies/v1; at least one. v2 is v1 with the covariance storage
+#      (rows, {"diagonal": …} or {"isotropic": λ}) and this widening: a v1 file (rig
+#      ids, covariances as rows) reads as v2 through its version step.
 #
-# {"schema": "vgio/target_points3d/v1", "length_unit": "mm", "frame": "world", "point_index_base": 1,
+# {"schema": "vgio/target_points3d/v2", "length_unit": "mm", "frame": "world", "point_index_base": 1,
 #  "targets": [ … ],                                                   (optional)
 #  "frames": [{"t": 17, "image": …, "sensor": "mocap", "time": …,
 #              "points": [{"target": "board_rig", "index": 3, "xyz": [x, y, z],
 #                          "covariance": [[…3], …3 rows]}]}]}
 #
+# {"schema": "vgio/target_detections/v2", "pixel_frame": "colmap", "point_index_base": 1,
+#  "targets": [ … ],                       (or "frame": "world", "length_unit": "mm"; targets optional)
+#  "frames": [{"t": 17, "image": …, "sensor": "cam1", "time": …,
+#              "detections": [{"target": "<uid>", "index": [1, 5], "points": [[u, v], [u, v]],
+#                              "covariance": [[[…], […]], [[…], […]]], "weights": [1.0, 0.5]}]}]}
+#      per target the indices (unique), its points, and per point a covariance iff
+#      Uncertain and a weight iff the set has a `weights` column; required stamps as
+#      target_points2d (pixels) or target_points3d (3D points)
+#
 # COLMAP, for orientation (no exporter): target_points2d is COLMAP's images.txt
 # `points2D` with their `POINT3D_ID`, the (target, index) pair playing the
-# `POINT3D_ID`; a rig of targets (rig/v5 targets) is COLMAP's `points3D`, kept as
+# `POINT3D_ID`; a rig of targets (a vgio/rig file's targets) is COLMAP's `points3D`, kept as
 # per-target frames (each target's points in its own TargetFrame, placed by its
 # mount) with no stored tracks — the measurements are the tracks.
 #
@@ -180,14 +192,14 @@ trajectory of plain poses is an `ArgumentError` (attach the unit, `t .* m`).
 """
 function save(path::AbstractString, tr::Trajectory{S, D}; length_unit::Units = mm, provenance::NamedTuple = (;)) where {S, D}
     frames = map(sort!(collect(keys(tr)))) do t
-        f = merge(_stamps_json(tr, t), (pose = pose_json(tr[t], length_unit),))
+        f = merge(_stamps_json(tr, t), (pose = tr[t],))   # the pose itself, lowered on the file's style
         t in tr.recovered ? merge(f, (recovered = true,)) : f
     end
     body = merge(
         (schema = _schema("trajectory"),), pose_declarations(length_unit),
         (from = frame_name(S), to = frame_name(D)), _time_origin_json(tr), (frames = frames,),
     )
-    _write_store(path, _TRAJECTORY_SPEC, _with_provenance(body, provenance))
+    _write_store(path, _TRAJECTORY_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit))
     return nothing
 end
 
@@ -202,11 +214,11 @@ once, dispatch after.
 """
 function load(::Type{Trajectory}, path::AbstractString)
     d = _read_store(path, "trajectory", _TRAJECTORY_SPEC)
-    unit = d.length_unit::String
+    s = VgioStyle(; length_unit = parse_unit(d.length_unit::String))
     poses, images, times, recovered = Dict{Int, Any}(), Dict{Int, String}(), Dict{Int, Float64}(), Set{Int}()
     for f in d.frames::Vector{Any}
         t = Int(f.t::Integer)
-        poses[t] = pose_from_json(f.pose, unit)
+        poses[t] = JSON.lift(s, EuclideanMap{3}, f.pose::_Record)
         _read_stamps!(images, nothing, times, f, t)
         get(f, :recovered, false) === true && push!(recovered, t)
     end
@@ -253,15 +265,16 @@ required) and time, and every target's pose (ids sorted; a `covariance` iff
 `Uncertain`), in `length_unit`. Plain poses are an `ArgumentError`.
 """
 function save(path::AbstractString, tp::TargetPoses{F}; length_unit::Units = mm, provenance::NamedTuple = (;)) where {F}
+    s = VgioStyle(; length_unit)
     frames = map(sort!(collect(keys(tp)))) do t
-        poses = [merge((target = String(id),), pose_json(tp[t][id], length_unit)) for id in sort!(collect(keys(tp[t])))]
+        poses = [merge((target = String(id),), JSON.lower(s, tp[t][id])) for id in sort!(collect(keys(tp[t])))]
         merge(_stamps_json(tp, t), (poses = poses,))
     end
     body = merge(
         (schema = _schema("target_poses"),), pose_declarations(length_unit), (to = frame_name(F),),
         _time_origin_json(tp), (frames = frames,),
     )
-    _write_store(path, _TARGET_POSES_SPEC, _with_provenance(body, provenance))
+    _write_store(path, _TARGET_POSES_SPEC, _with_provenance(body, provenance); style = s)
     return nothing
 end
 
@@ -273,13 +286,13 @@ pose's lengths in metres, `Uncertain` where the file states a covariance.
 """
 function load(::Type{TargetPoses}, path::AbstractString)
     d = _read_store(path, "target_poses", _TARGET_POSES_SPEC)
-    unit = d.length_unit::String
+    s = VgioStyle(; length_unit = parse_unit(d.length_unit::String))
     frames = Dict{Int, Dict{Symbol, Any}}()
     images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()
     for f in d.frames::Vector{Any}
         t = Int(f.t::Integer)
         _read_stamps!(images, sensors, times, f, t)
-        frames[t] = Dict{Symbol, Any}(Symbol(p.target::String) => pose_from_json(p, unit) for p in f.poses::Vector{Any})
+        frames[t] = Dict{Symbol, Any}(Symbol(p.target::String) => JSON.lift(s, EuclideanMap{3}, p::_Record) for p in f.poses::Vector{Any})
     end
     return TargetPoses{frame_from_name(d.to::String)}(frames; images, sensors, times, time_origin = _time_origin(d))
 end
@@ -295,6 +308,11 @@ const _HOMOGRAPHY_RANK_TOL = 1.0e-12
 
 _homography_rows(H) = [Float64[H[i, j] for j in 1:3] for i in 1:3]
 _homography_matrix(rows) = SMatrix{3, 3, Float64, 9}(ntuple(k -> Float64(rows[(k - 1) % 3 + 1][(k - 1) ÷ 3 + 1]), 9))
+
+# A homography on the wire: its three rows, as held (the writer stores a
+# canonical one, `_canonical_homography`; the spec checks one read), and back.
+JSON.lower(::VgioStyle, H::HomographyMat) = _homography_rows(H)
+JSON.lift(::VgioStyle, ::Type{HomographyMat}, rows::AbstractVector{Any}) = HomographyMat{Float64}(Tuple(_homography_matrix(rows)))
 
 _is_canonical_homography(M) = abs(norm(M) - 1) <= _HOMOGRAPHY_NORM_TOL && M[3, 3] >= 0
 function _is_singular_homography(M)
@@ -341,10 +359,10 @@ const _TARGET_HOMOGRAPHIES_SPEC = _Checked(
 function _canonical_homography(path, t, id, H)
     M = SMatrix{3, 3, Float64, 9}(H)
     all(isfinite, M) || throw(ArgumentError("$(path): frame $(t), target $(id): the homography has a non-finite entry"))
-    _is_canonical_homography(M) && return M
+    _is_canonical_homography(M) && return HomographyMat{Float64}(Tuple(M))
     Hn = sign_normalize(M)
     Hn === nothing && throw(ArgumentError("$(path): frame $(t), target $(id): the homography is degenerate (negligible norm), which sign_normalize cannot canonicalise"))
-    return SMatrix{3, 3, Float64, 9}(Hn)
+    return HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(Hn)))
 end
 
 """
@@ -354,8 +372,8 @@ Write a VGC `TargetHomographies` as a `vgio/target_homographies/v1` file whose
 declared pixel frame is `F`, the value's own type — no pixel is converted and
 none can be written under another frame's label — and whose `targets` are the
 value's `th.targets`: the [`content_id`](@ref)s of the definitions its target
-ids resolve in, each the identity of a rig of boards (`vgio/rig/v6`) or of a
-single unposed target (`vgio/target/v3`). Per frame index (sorted) it writes
+ids resolve in, each the identity of a rig of boards (`vgio/rig/v8`) or of a
+single unposed target (`vgio/target/v5`). Per frame index (sorted) it writes
 the image and sensor (both required), the time, and every target's
 homography `H` (ids sorted) as three rows.
 
@@ -378,7 +396,7 @@ file is written.
 function save(path::AbstractString, th::TargetHomographies{F}; provenance::NamedTuple = (;)) where {F <: PixelFrame}
     frames = map(sort!(collect(keys(th)))) do t
         hs = [
-            (target = String(id), H = _homography_rows(_canonical_homography(path, t, id, th[t][id])))
+            (target = String(id), H = _canonical_homography(path, t, id, th[t][id]))   # lowered on the file's style
                 for id in sort!(collect(keys(th[t])))
         ]
         merge(_stamps_json(th, t), (homographies = hs,))
@@ -387,7 +405,7 @@ function save(path::AbstractString, th::TargetHomographies{F}; provenance::Named
         (schema = _schema("target_homographies"), pixel_frame = pixel_frame_name(F), targets = copy(th.targets)),
         _time_origin_json(th), (frames = frames,),
     )
-    _write_store(path, _TARGET_HOMOGRAPHIES_SPEC, _with_provenance(body, provenance))
+    _write_store(path, _TARGET_HOMOGRAPHIES_SPEC, _with_provenance(body, provenance); style = VgioStyle(; pixel_frame = F))
     return nothing
 end
 
@@ -408,16 +426,17 @@ The second form asserts the frame: a file declaring another is an
 """
 function load(::Type{TargetHomographies}, path::AbstractString)
     d = _read_store(path, "target_homographies", _TARGET_HOMOGRAPHIES_SPEC)
+    s = VgioStyle(; pixel_frame = pixel_frame_from_name(d.pixel_frame::String))
     frames = Dict{Int, Dict{Symbol, HomographyMat{Float64}}}()
     images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()
     for f in d.frames::Vector{Any}
         t = Int(f.t::Integer)
         _read_stamps!(images, sensors, times, f, t)
         frames[t] = Dict{Symbol, HomographyMat{Float64}}(
-            Symbol(h.target::String) => HomographyMat{Float64}(Tuple(_homography_matrix(h.H::Vector{Any}))) for h in f.homographies::Vector{Any}
+            Symbol(h.target::String) => JSON.lift(s, HomographyMat, h.H::Vector{Any}) for h in f.homographies::Vector{Any}
         )
     end
-    return TargetHomographies{pixel_frame_from_name(d.pixel_frame::String)}(
+    return TargetHomographies{_pixel_frame(s)}(
         frames; images, sensors, times, time_origin = _time_origin(d), targets = String[h::String for h in d.targets::Vector{Any}],
     )
 end
@@ -468,13 +487,12 @@ declared pixel frame is `F`, the value's own type — no pixel is converted and
 none can be written under another frame's label. Every frame must name its
 image and sensor, and the value must name the target definitions its indices
 resolve in (`obs.targets`, their [`content_id`](@ref)s: each the identity of a
-rig of boards (`vgio/rig/v6`) or of a single unposed target (`vgio/target/v3`)).
+rig of boards (`vgio/rig/v8`) or of a single unposed target (`vgio/target/v5`)).
 """
 function save(path::AbstractString, obs::TargetPoints2D{F}; provenance::NamedTuple = (;)) where {F <: PixelFrame}
     frames = map(sort!(collect(keys(obs)))) do t
         points = map(obs[t]) do o
-            xy = geom(o.xy)
-            p = (target = String(o.target), index = o.index, xy = [xy[1], xy[2]], weight = o.weight)
+            p = (target = String(o.target), index = o.index, xy = _pixel_json(geom(o.xy)), weight = o.weight)
             o.xy isa Uncertain ? merge(p, (covariance = _cov_json(cov(o.xy)),)) : p   # px²: no length
         end
         merge(_stamps_json(obs, t), (points = points,))
@@ -486,13 +504,34 @@ function save(path::AbstractString, obs::TargetPoints2D{F}; provenance::NamedTup
         ),
         _time_origin_json(obs), (frames = frames,),
     )
-    _write_store(path, _TARGET_POINTS2D_SPEC, _with_provenance(body, provenance))
+    _write_store(path, _TARGET_POINTS2D_SPEC, _with_provenance(body, provenance); style = VgioStyle(; pixel_frame = F))
     return nothing
 end
 
-function _pixel_from_json(o)
-    xy = SVector{2, Float64}(Float64(o.xy[1]::Real), Float64(o.xy[2]::Real))
-    return haskey(o, :covariance) ? Uncertain(xy, CovMat(_cov_matrix(o.covariance::Vector{Any}, 2))) : xy
+# A pixel on the wire, as stored (px², never converted): its two numbers, and
+# its 2×2 covariance where the value is `Uncertain` (`nothing` where not).
+_pixel_json(xy) = Float64[xy[1], xy[2]]
+function _pixel_from_json(xy, covariance)
+    p = SVector{2, Float64}(Float64(xy[1]::Real), Float64(xy[2]::Real))
+    return covariance === nothing ? p : Uncertain(p, CovMat(_cov_matrix(covariance, 2)))
+end
+
+# The parsed, checked record as the value (`load(TargetPoints2D, path)`'s, and
+# `load(TargetDetections, path)`'s conversion of it).
+function _target_points2d(d)
+    frames = Dict{Int, Vector{TargetPoint2D}}()
+    images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()
+    for f in d.frames::Vector{Any}
+        t = Int(f.t::Integer)
+        _read_stamps!(images, sensors, times, f, t)
+        frames[t] = TargetPoint2D[
+            (target = Symbol(o.target::String), index = Int(o.index::Integer), xy = _pixel_from_json(o.xy, get(o, :covariance, nothing)), weight = Float64(o.weight::Real))
+                for o in f.points::Vector{Any}
+        ]
+    end
+    return TargetPoints2D{pixel_frame_from_name(d.pixel_frame::String)}(
+        frames; images, sensors, times, time_origin = _time_origin(d), targets = String[h::String for h in d.targets::Vector{Any}],
+    )
 end
 
 """
@@ -520,20 +559,7 @@ function load(::Type{TargetPoints2D}, path::AbstractString; target::Union{Nothin
         return _load_schoeps_dataset(path, target)
     end
     target === nothing || throw(ArgumentError("$(path): `target` is for a Schöps dataset.bin; a vgio file names its targets"))
-    d = _read_store(path, "target_points2d", _TARGET_POINTS2D_SPEC)
-    frames = Dict{Int, Vector{TargetPoint2D}}()
-    images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()
-    for f in d.frames::Vector{Any}
-        t = Int(f.t::Integer)
-        _read_stamps!(images, sensors, times, f, t)
-        frames[t] = TargetPoint2D[
-            (target = Symbol(o.target::String), index = Int(o.index::Integer), xy = _pixel_from_json(o), weight = Float64(o.weight::Real))
-                for o in f.points::Vector{Any}
-        ]
-    end
-    return TargetPoints2D{pixel_frame_from_name(d.pixel_frame::String)}(
-        frames; images, sensors, times, time_origin = _time_origin(d), targets = String[h::String for h in d.targets::Vector{Any}],
-    )
+    return _target_points2d(_read_store(path, "target_points2d", _TARGET_POINTS2D_SPEC))
 end
 
 # =============================================================================
@@ -581,7 +607,7 @@ function save(path::AbstractString, obs::TargetPoints3D{F}; length_unit::Units =
         points = map(obs[t]) do o
             xyz = _lengths_json(geom(o.xyz), length_unit, "save: a 3D target point")
             r = (target = String(o.target), index = o.index, xyz = xyz)
-            o.xyz isa Uncertain ? merge(r, (covariance = _length_cov_json(cov(o.xyz), length_unit, _point_cov_dims(3)),)) : r
+            o.xyz isa Uncertain ? merge(r, (covariance = _point3_cov_json(cov(o.xyz), length_unit),)) : r
         end
         merge(_stamps_json(obs, t), (points = points,))
     end
@@ -593,16 +619,36 @@ function save(path::AbstractString, obs::TargetPoints3D{F}; length_unit::Units =
         isempty(obs.targets) ? (;) : (targets = obs.targets,),
         _time_origin_json(obs), (frames = frames,),
     )
-    _write_store(path, _TARGET_POINTS3D_SPEC, _with_provenance(body, provenance))
+    _write_store(path, _TARGET_POINTS3D_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit))
     return nothing
 end
 
-# One wire point as lengths in metres (its covariance in m²), read in the file's unit.
-function _point3_from_json(o, unit::Units)
-    p = _lengths_from_json(Val(3), o.xyz::Vector{Any}, unit)
-    xyz = haskey(o, :covariance) ?
-        Uncertain(p, CovMat(_length_cov_from_json(o.covariance::Vector{Any}, 3, unit, _point_cov_dims(3)))) : p
-    return (target = Symbol(o.target::String), index = Int(o.index::Integer), xyz = xyz)
+# A 3D point's covariance on the wire, in the file's unit squared; and a wire
+# point read back as lengths in metres (its covariance, where stated — `nothing`
+# where not — in m²), in the file's unit.
+_point3_cov_json(Σ, u::Units) = _length_cov_json(Σ, u, _point_cov_dims(3))
+function _point3_from_json(xyz, covariance, unit::Units)
+    p = _lengths_from_json(Val(3), xyz::Vector{Any}, unit)
+    return covariance === nothing ? p : Uncertain(p, CovMat(_length_cov_from_json(covariance, 3, unit, _point_cov_dims(3))))
+end
+
+# The parsed, checked record as the value (as `_target_points2d`).
+function _target_points3d(d)
+    unit = parse_unit(d.length_unit::String)
+    frames = Dict{Int, Vector{TargetPoint3D}}()
+    images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()
+    for f in d.frames::Vector{Any}
+        t = Int(f.t::Integer)
+        _read_stamps!(images, sensors, times, f, t)
+        frames[t] = TargetPoint3D[
+            (target = Symbol(o.target::String), index = Int(o.index::Integer), xyz = _point3_from_json(o.xyz, get(o, :covariance, nothing), unit))
+                for o in f.points::Vector{Any}
+        ]
+    end
+    return TargetPoints3D{frame_from_name(d.frame::String)}(
+        frames; images, sensors, times, time_origin = _time_origin(d),
+        targets = haskey(d, :targets) ? String[h::String for h in d.targets::Vector{Any}] : String[],
+    )
 end
 
 """
@@ -611,17 +657,175 @@ end
 Read a `vgio/target_points3d/v1` file: the measurements in the frame `F` it
 declares, lengths in metres (`Uncertain` where it states a covariance, in m²).
 """
-function load(::Type{TargetPoints3D}, path::AbstractString)
-    d = _read_store(path, "target_points3d", _TARGET_POINTS3D_SPEC)
-    unit = parse_unit(d.length_unit::String)
-    frames = Dict{Int, Vector{TargetPoint3D}}()
+load(::Type{TargetPoints3D}, path::AbstractString) = _target_points3d(_read_store(path, "target_points3d", _TARGET_POINTS3D_SPEC))
+
+# =============================================================================
+# target_detections/v1 ↔ TargetDetections
+# =============================================================================
+
+# One target's detections in a frame: its point indices (unique, at least
+# one), its points (`d` numbers each), and per point, where the value has them,
+# a d×d covariance and a weight.
+_detection_record_spec(d::Int) = _Checked(
+    _Obj(
+        Pair{Symbol, _Spec}[:target => _NonEmpty(), :index => _Vec(_PosInt()), :points => _Vec(_Vec(_Real(), d))],
+        Pair{Symbol, _Spec}[:covariance => _Vec(_cov_spec(d)), :weights => _Vec(_Real())],
+    ),
+    function (r)
+        n = length(r[:index])
+        n == 0 && return "a detected target has at least one point (a target not detected is absent)"
+        msg = _unique_check(r[:index], "the point indices of a target")
+        msg === nothing || return msg
+        for k in (:points, :covariance, :weights)
+            (haskey(r, k) && length(r[k]) != n) && return "`$(k)` has $(length(r[k])) entries where `index` has $(n)"
+        end
+        return nothing
+    end,
+)
+_detection_frame_spec(d::Int, required::Vector{Symbol}) = _Checked(
+    _Obj(
+        Pair{Symbol, _Spec}[:t => _Int(), _stamp_specs(required)[1]..., :detections => _Vec(_detection_record_spec(d))],
+        _stamp_specs(required)[2],
+    ),
+    f -> _unique_check([r[:target] for r in f[:detections]], "the targets of a frame"),
+)
+# Pixels (`pixel_frame`: every frame's image and sensor, at least one targets
+# identity) or 3D points (`frame` and `length_unit`: every frame's sensor).
+const _TARGET_DETECTIONS_SPEC = _Checked(
+    _Either(
+        Pair{Symbol, _Spec}[
+            :pixel_frame => _Obj(
+                Pair{Symbol, _Spec}[
+                    :schema => _schema_tok("target_detections"), :pixel_frame => _PIXEL_FRAME,
+                    :point_index_base => _Tok(_POINT_INDEX_BASE),
+                    :targets => _Checked(_Vec(_HEX64), h -> isempty(h) ? "the detections name at least one targets file" : _unique_check(h, "targets identities")),
+                    :frames => _Vec(_detection_frame_spec(2, [:image, :sensor])),
+                ],
+                Pair{Symbol, _Spec}[:time_origin => _NonEmpty(), _PROVENANCE...],
+            ),
+            :frame => _Obj(
+                Pair{Symbol, _Spec}[
+                    :schema => _schema_tok("target_detections"), :length_unit => _LENGTH_UNIT,
+                    :frame => _FRAME_NAME, :point_index_base => _Tok(_POINT_INDEX_BASE),
+                    :frames => _Vec(_detection_frame_spec(3, [:sensor])),
+                ],
+                Pair{Symbol, _Spec}[
+                    :targets => _Checked(_Vec(_HEX64), h -> _unique_check(h, "targets identities")),
+                    :time_origin => _NonEmpty(), _PROVENANCE...,
+                ],
+            ),
+        ]
+    ),
+    _FRAMES_CHECK,
+)
+
+# The declaration of the frame the detections are in: a pixel frame, or a 3D
+# frame and the file's length unit.
+_detections_frame_json(::Type{F}, ::Units) where {F <: PixelFrame} = (pixel_frame = pixel_frame_name(F),)
+_detections_frame_json(::Type{F}, u::Units) where {F} = (length_unit = unit_string(u), frame = frame_name(F))
+
+# A point and its covariance on the wire: a pixel as it is (px², never
+# converted), a 3D point's lengths in `u` (plain refused) and its covariance in u².
+_detection_point_json(::Type{<:PixelFrame}, p, ::Units) = _pixel_json(p)
+_detection_point_json(::Type, p, u::Units) = _lengths_json(p, u, "save: a 3D target detection")
+_detection_cov_json(::Type{<:PixelFrame}, Σ, ::Units) = _cov_json(Σ)
+_detection_cov_json(::Type, Σ, u::Units) = _point3_cov_json(Σ, u)
+
+function _detection_json(::Type{F}, id::Symbol, cs::Csponds, u::Units) where {F}
+    pts = targets(cs)
+    r = (target = String(id), index = collect(Int, sources(cs)), points = [_detection_point_json(F, geom(p), u) for p in pts])
+    eltype(pts) <: Uncertain && (r = merge(r, (covariance = [_detection_cov_json(F, cov(p), u) for p in pts],)))
+    cols = cs.attrs
+    keys(cols) ⊆ (:weights,) || throw(
+        ArgumentError("save: a target_detections file holds one attribute column, `weights`; target $(id) carries `$(first(k for k in keys(cols) if k !== :weights))`")
+    )
+    return haskey(cols, :weights) ? merge(r, (weights = Float64[w for w in cols.weights],)) : r
+end
+
+"""
+    save(path, td::TargetDetections{F}; length_unit = mm, provenance = (;))
+
+Write a VGC `TargetDetections` as a `vgio/target_detections/v1` file: per
+frame index (sorted), its stamps, and per target (ids sorted) its point
+indices, its points, a `covariance` per point iff the points are `Uncertain`,
+and its `weights` column where it has one (the only column the kind holds).
+Pixels declare the value's pixel frame `F` and are written as they are; every
+frame must name its image and sensor, and the value its targets identities.
+3D points declare `frame = frame_name(F)` and are written in `length_unit`
+(covariances in its square); every frame must name its sensor, and plain
+points are an `ArgumentError` (attach the unit, `p .* m`).
+"""
+function save(path::AbstractString, td::TargetDetections{F}; length_unit::Units = mm, provenance::NamedTuple = (;)) where {F}
+    frames = map(sort!(collect(keys(td)))) do t
+        detections = [_detection_json(F, id, td[t][id], length_unit) for id in sort!(collect(keys(td[t])))]
+        merge(_stamps_json(td, t), (detections = detections,))
+    end
+    body = merge(
+        (schema = _schema("target_detections"),), _detections_frame_json(F, length_unit),
+        (point_index_base = _POINT_INDEX_BASE,),
+        (F <: PixelFrame || !isempty(td.targets)) ? (targets = td.targets,) : (;),
+        _time_origin_json(td), (frames = frames,),
+    )
+    _write_store(path, _TARGET_DETECTIONS_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit))
+    return nothing
+end
+
+# One wire record as a detection set: indices => points (pixels as stored, 3D
+# lengths in metres read in `unit`), `Uncertain` where it states covariances.
+_detection_from_json(p, covariance, ::Nothing) = _pixel_from_json(p, covariance)
+_detection_from_json(p, covariance, unit::Units) = _point3_from_json(p, covariance, unit)
+function _detections_from_json(r, unit::Union{Nothing, Units})
+    idx = Int[Int(i::Integer) for i in r.index::Vector{Any}]
+    covs = haskey(r, :covariance) ? r.covariance : nothing
+    pts = [_detection_from_json(p, covs === nothing ? nothing : covs[i], unit) for (i, p) in enumerate(r.points::Vector{Any})]
+    cs = Csponds(idx, pts)
+    return haskey(r, :weights) ? withattrs(cs; weights = Float64[Float64(w::Real) for w in r.weights::Vector{Any}]) : cs
+end
+
+# An old measurement file's value as a TargetDetections; VGC's refusal (a
+# duplicate detection, a form mix) names the file.
+function _converted_on_load(x, path)
+    try
+        return TargetDetections(x)
+    catch e
+        e isa ArgumentError && throw(ArgumentError("$(path): $(e.msg)"))
+        rethrow()
+    end
+end
+
+"""
+    load(TargetDetections, path) -> TargetDetections{F}
+
+Read a `vgio/target_detections/v1` file: per frame index, per target, its
+detections typed in the frame `F` the file declares — pixels exactly as
+stored, 3D points in metres — `Uncertain` where it states covariances, with
+their `weights` column where stated, the frames' stamps and the targets
+identities. A `vgio/target_points2d/v1` or `vgio/target_points3d/v1` file is
+read too, converted (`TargetDetections(load(TargetPoints2D, path))`), unless
+it holds one of the two things those kinds allow and a `TargetDetections`
+does not: a (target, index) detected twice in one frame, or plain and
+`Uncertain` points in one file. Such a file is refused with an
+`ArgumentError` naming the path, frame, target and index, and still loads as
+what it is, `load(TargetPoints2D, path)` or `load(TargetPoints3D, path)`.
+"""
+function load(::Type{TargetDetections}, path::AbstractString)
+    d = _read_vgio_json(path)   # parsed once; its `schema` says which kind it is read as
+    k = d isa AbstractDict ? _split_schema(get(d, :schema, nothing)) : nothing
+    k !== nothing && k.kind == "target_points2d" &&
+        return _converted_on_load(_target_points2d(_checked_store(d, path, "target_points2d", _TARGET_POINTS2D_SPEC)), path)
+    k !== nothing && k.kind == "target_points3d" &&
+        return _converted_on_load(_target_points3d(_checked_store(d, path, "target_points3d", _TARGET_POINTS3D_SPEC)), path)
+    d = _checked_store(d, path, "target_detections", _TARGET_DETECTIONS_SPEC)
+    unit = haskey(d, :pixel_frame) ? nothing : parse_unit(d.length_unit::String)
+    frames = Dict{Int, Dict{Symbol, Any}}()
     images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()
     for f in d.frames::Vector{Any}
         t = Int(f.t::Integer)
         _read_stamps!(images, sensors, times, f, t)
-        frames[t] = TargetPoint3D[_point3_from_json(o, unit) for o in f.points::Vector{Any}]
+        frames[t] = Dict{Symbol, Any}(Symbol(r.target::String) => _detections_from_json(r, unit) for r in f.detections::Vector{Any})
     end
-    return TargetPoints3D{frame_from_name(d.frame::String)}(
+    F = unit === nothing ? pixel_frame_from_name(d.pixel_frame::String) : frame_from_name(d.frame::String)
+    return TargetDetections{F}(
         frames; images, sensors, times, time_origin = _time_origin(d),
         targets = haskey(d, :targets) ? String[h::String for h in d.targets::Vector{Any}] : String[],
     )

@@ -116,17 +116,20 @@ Pages = ["geometry/cameras/lighting.jl"]
 
 One blur of an imaging model — a camera's in-focus blur (diffraction, the
 sensor's anti-aliasing filter, demosaicing), a print's own blur — as a
-[`GaussianBlur`](@ref) by its second-moment matrix ([`moment_matrix`](@ref)):
-round, axis-aligned (stored as an `SDiagonal`) or general. Several blurs
-compose into a point spread: two Gaussians in sequence add their moments
-([`convolve`](@ref)), and a linear map of the plane takes `M` to `J M Jᵀ`
-([`transform_blur`](@ref)). A blur is a kernel's shape, not a measurement's
-uncertainty, so it is not a [`CovMat`](@ref).
+[`GaussianBlur`](@ref). A point spread function is a probability density
+(where a photon from a point source lands), and a Gaussian blur is the density
+`N(0, Σ)`, so it is held by its covariance, a [`CovMat`](@ref)`{2}`
+([`cov`](@ref); `var` and `std` per axis): round, axis-aligned (stored as an
+`SDiagonal`) or general, px² on a sensor, m² (quantities) on a print. Several
+blurs compose into a point spread: two Gaussians in sequence add their
+covariances ([`convolve`](@ref)), and a linear map of the plane pushes the
+covariance forward, `Σ ↦ J Σ Jᵀ` ([`propagate`](@ref)).
 
 ```julia
-camera = GaussianBlur(0.6)                     # round, 0.6 px
-print  = GaussianBlur(0.02, 0.03)              # axis-aligned (mm, on the print)
-total  = convolve(transform_blur(J, print), camera)   # the print's blur seen through the pixel footprint J, then the camera's
+camera = GaussianBlur(0.6)                     # round, σ = 0.6 px
+print  = GaussianBlur(0.02mm, 0.03mm)          # axis-aligned, on the print: m² quantities
+total  = convolve(propagate(J, ustrip(mm, print)), camera)   # in mm², through the pixel footprint J (px/mm), then the camera's
+std(camera)                                    # (0.6, 0.6) px
 ```
 
 ```@autodocs

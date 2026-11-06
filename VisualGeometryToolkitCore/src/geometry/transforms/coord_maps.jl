@@ -30,8 +30,8 @@ AffineMap from canonical [-1,1]² to an ellipse's coordinate frame
 function CoordinateTransformations.AffineMap(target::Ellipse)
     # Pure geometry; the region maps compose it with image-convention (y-down)
     # patches on both sides, so no flip is applied. The linear part is the
-    # ellipse's own shape matrix R(θ)·diag(a, b).
-    return CoordinateTransformations.AffineMap(shape_matrix(target), GeometryBasics.origin(target))
+    # ellipse's own shape factor R(θ)·diag(a, b).
+    return CoordinateTransformations.AffineMap(shape_factor(target), GeometryBasics.origin(target))
 end
 
 """

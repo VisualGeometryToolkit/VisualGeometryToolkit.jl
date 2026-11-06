@@ -52,10 +52,10 @@ has_boundary(::Rect) = HasBoundary()
 
 
 # -----------------------------------------------------------------------------
-# FrameScale Traits (isotropic vs shape-matrix frames)
+# FrameScale Traits (isotropic vs shape-factor frames)
 # -----------------------------------------------------------------------------
 
 frame_scale(::Disc) = IsotropicScale()
 frame_scale(::OrientedDisc) = IsotropicScale()
-frame_scale(::EllipticFrame) = ShapeMatrixScale()
-frame_scale(::AffineFrame) = ShapeMatrixScale()
+frame_scale(::EllipticFrame) = ShapeFactorScale()
+frame_scale(::AffineFrame) = ShapeFactorScale()

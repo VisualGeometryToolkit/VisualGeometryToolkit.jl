@@ -1,5 +1,15 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.5.0 (2026-11-06)
+
+VisualGeometryToolkitCore 0.6 (compat `"0.6"`). Breaking with Core's
+`CovMat`, which now holds a static matrix (full, diagonal or isotropic).
+
+- Detections' covariances are Core 0.6's `CovMat{2, T, M}`; the spelled-out
+  `CovMat{N, T, N², F}` types are gone.
+- `CACHE_FORMAT` (2) is part of every cache key, so a JLD2 cache entry of the
+  earlier `CovMat` layout is a miss, not a failed load.
+
 ## 0.4.2 (2026-11-04)
 
 Additive: `RawMosaic.metadata` keeps its type and every field it had.

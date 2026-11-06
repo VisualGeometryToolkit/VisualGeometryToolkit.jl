@@ -18,7 +18,7 @@ image's frame:
 - `σ`: the characteristic scale, in input pixels;
 - `intensity`: the DoG response at the extremum, positive for a dark blob and
   negative for a light one;
-- `s_xx`, `s_xy`, `s_yy`: the symmetric 2×2 shape matrix of the elliptic frame,
+- `s_xx`, `s_xy`, `s_yy`: the symmetric 2×2 shape factor of the elliptic frame,
   back-projected from the tilted warp it was found in;
 - `warp_idx`: the index of that warp in the plan's tilt schedule (1 is the
   identity).

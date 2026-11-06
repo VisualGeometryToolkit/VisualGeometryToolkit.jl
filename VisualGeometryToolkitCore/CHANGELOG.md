@@ -1,7 +1,100 @@
 # VisualGeometryToolkitCore changelog
 
-## 0.6.0 (Unreleased)
+## Unreleased
 
+Breaking (the next release is a minor bump). The `N = 1` `RadialHomography`
+is unchanged bit for bit: its solver, chart, rows and Jacobians.
+
+- **Breaking: `RadialHomography{T, N}`**, `N` division coefficients. The
+  field `k` is now `λ::NTuple{N, T}`; `m.k` still reads `λ₁` through
+  `getproperty` (an `ArgumentError` for `N > 1`), but Accessors' `@set m.k`
+  no longer works. `RadialHomography{T}` is now a UnionAll:
+  `Vector{RadialHomography{Float64}}`, a `Ref{RadialHomography{Float64}}()[]`
+  placeholder and a field annotated `RadialHomography{T}` become abstract (write
+  `RadialHomography{T, 1}` for today's model). `division_coeffs(m)` (public)
+  reads every coefficient; `division_coeff(m)` throws for `N > 1`.
+- **Breaking: `CameraModel(::RadialHomography)` is projective** —
+  `CameraModel(ProjectiveIntrinsics(center(m)), Division(division_coeffs(m)...))`.
+  `calibration_matrix`, `unproject`, `image_circle` and the default nominal
+  camera on it are MethodErrors; `fov` is an `ArgumentError`, as are `fov_radius`
+  and a finite `max_fov` (`undistorted_rect`).
+  `RadialHomography(H, camera)` and `radial_homography(camera, H)` build the
+  model from such a camera.
+- **`radial_homography(camera::CameraModel{<:LogicalIntrinsics, <:Division}, H)`**
+  pairs a stored plane homography with a METRIC division camera: `λₚ = kₚ / f^(2p)`
+  about the principal point, so `radial_transfer` of it is `project(camera, K⁻¹·H·X̃)`.
+  An `ArgumentError` for `fx ≠ fy` or a skewed `K`.
+- **`CameraModelSpec{I, S}(…)` normalizes a parameterized intrinsics kind**
+  (`LogicalIntrinsics{Float64}`) to its wrapper in the inner constructor too, as
+  the keyword path does, so the specification round trips equal.
+- **`ProjectiveIntrinsics{T}` refuses an integer or rational `T`** (an
+  `ArgumentError`; floats and AD numbers stay, `ProjectiveIntrinsics(center)`
+  still takes `float(T)`).
+- **`LensSpec`**: `LensSpec(lens)` names a lens at the reference values whatever
+  its element type (a `Float32` lens is the named form), keeps a `-0.0`
+  coefficient in the record form, and `lens(spec)` is `Float64`; the 4-argument
+  inner constructor validates what the public ones do.
+- **Breaking: the metric operations are narrowed to `LogicalIntrinsics`**:
+  `calibration_matrix(::CameraModel)` and `unproject(::AbstractIntrinsics, …)`
+  have no method for another intrinsics kind.
+- **Breaking: `plot_rectification`'s `max_fov` defaults to `nothing`**, resolved
+  per camera: `DEFAULT_MAX_FOV` for a metric camera (today's value), no cap for
+  a projective one (a strong fisheye rectifies to the horizon clip).
+- **`ProjectiveIntrinsics(center)`**: the principal point alone, a projective
+  ray frame with no focal length; `principal_point` for both intrinsics kinds.
+  Project, backproject, `distortion_map`/`undistort` and the frame walk serve
+  both kinds through one pixel-matrix seam.
+- **`LensSpec`** (a lens family by name and term counts, or a record form for
+  the rest; `free_names`, public) and **`CameraModelSpec`** (what a calibration
+  is for: an intrinsics kind and a `LensSpec`, or the metric
+  `GenericGridSpec`; `intrinsics_kind`, public), with TOML tables through
+  `toml_value` and `CameraModelSpec(table)`. A `central_generic` table may name
+  `intrinsics = "metric"` (redundant but true); any other kind beside it is an
+  `ArgumentError`.
+- **`TargetHomographies{F, H}`**: per frame, each target's plane → pixel homography,
+  a capture like `TargetPoints2D`/`TargetPoints3D`: the pixel frame `F` is part of the
+  type (`TargetHomographies{F}(frames; …)`; no frame-less form) and `targets` names
+  the target definitions by content identity.
+- `division_coeffs` is in `CONTRACT_GENERICS`: another stack package may add a
+  method for its own model or state (VisualGeometryToolkitEstimation's
+  `DivisionCameraState` does).
+
+## 0.6.0 (2026-11-06)
+
+- **`ThinPlateSplineSystem` solves a conditioned system.** It centred nothing and scaled nothing, so on pixel nodes (a
+  5208 × 3476 sensor's grid) `[K P; Pᵀ 0]` had a condition number of 2e18; the nodes are now centred on their centroid
+  and scaled by one isotropic factor (`HartleyNormalization`, κ ≈ 1.2e3 on any 5 × 5 grid) and the solution mapped back
+  exactly (`w = σ² w′`, the linear part `σ a′`, the constant `a′₁ + a′·𝐭 + ln σ Σ w′ᵢ|𝐩′ᵢ|²`, `Q = σ² Q′`). An
+  interpolating thin-plate spline is the same surface under a similarity of its domain, so only rounding moves:
+  `coeff` and `Q` by 1e-15–1e-13 relative on grids, 2e-11 on 100 random nodes. Everything it holds stays in the caller's
+  frame. The thin-plate calibration kinds' docstrings now say their chart must be ONE scaling of the board (`[0, 1] ×
+  [0, H/W]`), never a per-axis `[0, 1]²` (a thin-plate spline is not invariant under it).
+
+- **Breaking: `shape_matrix` is removed; the factor is `shape_factor`.** `shape_matrix` returned the FACTOR `F` of an
+  elliptical region's matrix `M = F·Fᵀ` — `S` for an `EllipticFrame` (`M = S²`), `A` for an `AffineFrame`,
+  `R(θ)·diag(a, b)` for an `Ellipse` — under the name ellipsoidal calculus gives `M` itself (`E(c, M) = {x : (x-c)ᵀ
+  M⁻¹ (x-c) ≤ 1}`). It is now `shape_factor(f)`, with `moment_matrix(f) = shape_factor(f) * shape_factor(f)'`;
+  `shape_matrix` has no method and no alias (retired, `check_naming`), so every old call is an `UndefVarError` rather
+  than a silent change of meaning. Migration: `shape_matrix(x)` → `shape_factor(x)`. The `FrameScaleTrait` arm that
+  dispatches on it is renamed with it, `ShapeMatrixScale` → `ShapeFactorScale` (retired, no alias). **0.7.0 will
+  retire `moment_matrix` and reintroduce `shape_matrix` meaning `M`** (and take `shape_matrix` off `check_naming`'s
+  retired names when it returns): `M` is a region's shape, not its second moment (a uniform ellipse has covariance
+  `M/4`; in affine feature detection the second-moment matrix is the structure tensor `μ ≈ M⁻¹`). The two-release
+  order makes every caller fail hard once instead of compiling against a changed meaning.
+- **Breaking: a `GaussianBlur` holds a covariance.** A point spread function is a probability density (where a photon
+  from a point source lands), and a Gaussian blur is the density `N(0, Σ)`, so its parameter is a covariance: the
+  blur stores a `CovMat{2}` (the same three storages, `ScaledIdentity` / `SDiagonal` / `SMatrix`; its frame tag the
+  plane the blur lives on). The 0.5 note that a blur "is a kernel's shape, not a covariance" is reversed. The
+  accessors are Statistics.jl's: `cov(b)` (Σ), `var(b)` and `std(b)` (per axis); `moment_matrix(b)` is removed.
+  `GaussianBlur(Σ::CovMat{2})` keeps the frame; `GaussianBlur(σ)`, `GaussianBlur(σx, σy)` and the bare storages stay
+  (a negative standard deviation is now an `ArgumentError`; zero, the identity blur, is allowed).
+  `convolve(a, b)` adds the covariances and checks that the two frames meet. **`transform_blur` is retired**: a
+  blur under a linear map is the covariance's push-forward, `propagate(J, b)` (a raw Jacobian, the result unlabeled)
+  or `propagate(m, b)` for a framed map with a constant Jacobian (`EuclideanMap`, `SimilarityMap`, a camera's
+  `FramedAffine`: the frame checked, the result in the map's destination), through `propagate`'s own law for the
+  map; a singular or near-singular map's rank-deficient result is clamped onto the PSD cone (an eigenvalue negative
+  only to rounding becomes zero), never refused over a rounded determinant. A print's blur holds m² quantities (`GaussianBlur(0.02mm)`): `has_units`, `ustrip(u, b)` (plain, in u²) and
+  `with_unit(b, u)` are the whole value's.
 - **Breaking: maps are the geometric objects, matrices only algebra.** The typed homogeneous matrices
   `HomTranslationMat`, `HomRotationMat`, `HomEuclideanMat`, `HomSimilarityMat`, `HomScalingMat`,
   `HomUniformScalingMat`, `HomAffineMat` and their abstract levels `AbstractHomMat`, `AbstractAffineMat`,
@@ -126,63 +219,6 @@
 - **The inverse of an affine-family transform is exactly of its class**: a structured map inverts analytically and
   its `HomographyMap` lift stores that inverse, last row exactly `0 0 1` (the 3×3 inverse left `1 ± ulp` there), the
   transpose for a rigid one; `inv(::CameraCalibrationMat)` is analytic. A homography keeps the 3×3 inverse.
-
-Radial-homography calibration (breaking). The `N = 1` `RadialHomography`
-is unchanged bit for bit: its solver, chart, rows and Jacobians.
-
-- **Breaking: `RadialHomography{T, N}`**, `N` division coefficients. The
-  field `k` is now `λ::NTuple{N, T}`; `m.k` still reads `λ₁` through
-  `getproperty` (an `ArgumentError` for `N > 1`), but Accessors' `@set m.k`
-  no longer works. `RadialHomography{T}` is now a UnionAll:
-  `Vector{RadialHomography{Float64}}`, a `Ref{RadialHomography{Float64}}()[]`
-  placeholder and a field annotated `RadialHomography{T}` become abstract (write
-  `RadialHomography{T, 1}` for today's model). `division_coeffs(m)` (public)
-  reads every coefficient; `division_coeff(m)` throws for `N > 1`.
-- **Breaking: `CameraModel(::RadialHomography)` is projective** —
-  `CameraModel(ProjectiveIntrinsics(center(m)), Division(division_coeffs(m)...))`.
-  `calibration_matrix`, `unproject`, `image_circle` and the default nominal
-  camera on it are MethodErrors; `fov` is an `ArgumentError`, as are `fov_radius`
-  and a finite `max_fov` (`undistorted_rect`).
-  `RadialHomography(H, camera)` and `radial_homography(camera, H)` build the
-  model from such a camera.
-- **`radial_homography(camera::CameraModel{<:LogicalIntrinsics, <:Division}, H)`**
-  pairs a stored plane homography with a METRIC division camera: `λₚ = kₚ / f^(2p)`
-  about the principal point, so `radial_transfer` of it is `project(camera, K⁻¹·H·X̃)`.
-  An `ArgumentError` for `fx ≠ fy` or a skewed `K`.
-- **`CameraModelSpec{I, S}(…)` normalizes a parameterized intrinsics kind**
-  (`LogicalIntrinsics{Float64}`) to its wrapper in the inner constructor too, as
-  the keyword path does, so the specification round trips equal.
-- **`ProjectiveIntrinsics{T}` refuses an integer or rational `T`** (an
-  `ArgumentError`; floats and AD numbers stay, `ProjectiveIntrinsics(center)`
-  still takes `float(T)`).
-- **`LensSpec`**: `LensSpec(lens)` names a lens at the reference values whatever
-  its element type (a `Float32` lens is the named form), keeps a `-0.0`
-  coefficient in the record form, and `lens(spec)` is `Float64`; the 4-argument
-  inner constructor validates what the public ones do.
-- **Breaking: the metric operations are narrowed to `LogicalIntrinsics`**:
-  `calibration_matrix(::CameraModel)` and `unproject(::AbstractIntrinsics, …)`
-  have no method for another intrinsics kind.
-- **Breaking: `plot_rectification`'s `max_fov` defaults to `nothing`**, resolved
-  per camera: `DEFAULT_MAX_FOV` for a metric camera (today's value), no cap for
-  a projective one (a strong fisheye rectifies to the horizon clip).
-- **`ProjectiveIntrinsics(center)`**: the principal point alone, a projective
-  ray frame with no focal length; `principal_point` for both intrinsics kinds.
-  Project, backproject, `distortion_map`/`undistort` and the frame walk serve
-  both kinds through one pixel-matrix seam.
-- **`LensSpec`** (a lens family by name and term counts, or a record form for
-  the rest; `free_names`, public) and **`CameraModelSpec`** (what a calibration
-  is for: an intrinsics kind and a `LensSpec`, or the metric
-  `GenericGridSpec`; `intrinsics_kind`, public), with TOML tables through
-  `toml_value` and `CameraModelSpec(table)`. A `central_generic` table may name
-  `intrinsics = "metric"` (redundant but true); any other kind beside it is an
-  `ArgumentError`.
-- **`TargetHomographies{F, H}`**: per frame, each target's plane → pixel homography,
-  a capture like `TargetPoints2D`/`TargetPoints3D`: the pixel frame `F` is part of the
-  type (`TargetHomographies{F}(frames; …)`; no frame-less form) and `targets` names
-  the target definitions by content identity.
-- `division_coeffs` is in `CONTRACT_GENERICS`: another stack package may add a
-  method for its own model or state (VisualGeometryToolkitEstimation's
-  `DivisionCameraState` does).
 
 ## 0.5.7 (2026-11-05)
 

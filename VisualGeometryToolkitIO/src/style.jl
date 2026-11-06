@@ -53,7 +53,7 @@ the `JSON.JSONStyle` hooks), on this style
 only. It carries what the enclosing file declares for the value — the
 `length_unit` its lengths are written in (decimal-exact, through
 [`write_length`](@ref) and [`read_length`](@ref)) and the `pixel_frame` its
-principal points are written in — and is handed to the writer as
+principal points are written in — and the writer takes it as
 `JSON.json(x; style = VgioStyle(…))`.
 
 A package serializing a kind of its own embeds VGC values the same way (a

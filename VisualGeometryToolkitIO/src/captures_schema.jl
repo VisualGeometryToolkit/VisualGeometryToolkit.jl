@@ -6,7 +6,7 @@
 #   vgio/target_poses/v2      ↔ VGC `TargetPoses{F}`        per frame, the poses of the targets seen
 #   vgio/target_homographies/v1 ↔ VGC `TargetHomographies{F, H}`
 #                                                         per frame, each target's plane → pixel homography
-#   vgio/target_points2d/v2   ↔ VGC `TargetPoints2D{F}`     per frame, pixels of target points
+#   vgio/target_points2d/v3   ↔ VGC `TargetPoints2D{F}`     per frame, pixels of target points
 #   vgio/target_points3d/v2   ↔ VGC `TargetPoints3D{F}`     per frame, 3D positions of target points
 #   vgio/target_detections/v2 ↔ VGC `TargetDetections{F}`   per frame, per target, index => pixel or 3D point
 #                               (load(TargetDetections, …) reads the two kinds above too, converted)
@@ -61,16 +61,17 @@
 #      has no 3D frame, so the pixel frame is the TYPE parameter of the value
 #      (`TargetHomographies{F}`), as for target_points2d, and `targets` its field.
 #
-# {"schema": "vgio/target_points2d/v2", "pixel_frame": "colmap", "point_index_base": 1,
+# {"schema": "vgio/target_points2d/v3", "pixel_frame": "colmap", "point_index_base": 1,
 #  "targets": ["<content id of a targets rig or of a single target>", …],
 #  "frames": [{"t": 17, "image": "DSC0017.png", "sensor": "cam1", "time": …,
 #              "points": [{"target": "<uid>", "index": 5, "xy": [u, v], "weight": 1.0,
 #                          "covariance": [[…], […]]}]}]}
 #      each `target` names a board inside one of the `targets` — a `content_id` of
 #      EITHER a rig (rig/v8) of boards OR a single unposed target (target/v5), as in
-#      target_homographies/v1; at least one. v2 is v1 with the covariance storage
-#      (rows, {"diagonal": …} or {"isotropic": λ}) and this widening: a v1 file (rig
-#      ids, covariances as rows) reads as v2 through its version step.
+#      target_homographies/v1; at least one. v3 is v2 (as IO 0.6.0 released it: the
+#      covariance storage, rows, {"diagonal": …} or {"isotropic": λ}) with this
+#      widening: a v2 file (rig ids only) reads as v3 through its identity step, a
+#      v1 file (covariances as rows) through v2's step first.
 #
 # {"schema": "vgio/target_points3d/v2", "length_unit": "mm", "frame": "world", "point_index_base": 1,
 #  "targets": [ … ],                                                   (optional)
@@ -162,7 +163,7 @@ _stamp_specs(required::Vector{Symbol}) = (
 )
 
 # =============================================================================
-# trajectory/v3 ↔ Trajectory
+# trajectory/v4 ↔ Trajectory
 # =============================================================================
 
 const _TRAJECTORY_FRAME = _Obj(
@@ -184,29 +185,34 @@ const _TRAJECTORY_SPEC = _Checked(
 """
     save(path, tr::Trajectory{S, D}; length_unit = mm, provenance = (;))
 
-Write a physical VGC `Trajectory` as a `vgio/trajectory/v3` file: its frames
+Write a physical VGC `Trajectory` as a `vgio/trajectory/v4` file: its frames
 `from = frame_name(S)`, `to = frame_name(D)`, one record per frame index
 (sorted) — the pose (a `covariance` iff `Uncertain`), and its `image`, `time`
 and `recovered` flag where the trajectory has them — in `length_unit`. A
 trajectory of plain poses is an `ArgumentError` (attach the unit, `t .* m`).
 """
-function save(path::AbstractString, tr::Trajectory{S, D}; length_unit::Units = mm, provenance::NamedTuple = (;)) where {S, D}
+function save(path::AbstractString, tr::Trajectory; length_unit::Units = mm, provenance::NamedTuple = (;))
+    body = merge((schema = _schema("trajectory"),), pose_declarations(length_unit), JSON.lower(VgioStyle(; length_unit), tr))
+    _write_store(path, _TRAJECTORY_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit))
+    return nothing
+end
+
+# A Trajectory on IO's style: the body of a `vgio/trajectory` file without its
+# schema and its pose declarations (`pose_declarations`, the enclosing file's):
+# `from`, `to`, the `time_origin` where the trajectory has one, and one record
+# per frame index, sorted — its stamps and its pose, lowered on the style.
+function JSON.lower(::VgioStyle, tr::Trajectory{S, D}) where {S, D}
     frames = map(sort!(collect(keys(tr)))) do t
         f = merge(_stamps_json(tr, t), (pose = tr[t],))   # the pose itself, lowered on the file's style
         t in tr.recovered ? merge(f, (recovered = true,)) : f
     end
-    body = merge(
-        (schema = _schema("trajectory"),), pose_declarations(length_unit),
-        (from = frame_name(S), to = frame_name(D)), _time_origin_json(tr), (frames = frames,),
-    )
-    _write_store(path, _TRAJECTORY_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit))
-    return nothing
+    return merge((from = frame_name(S), to = frame_name(D)), _time_origin_json(tr), (frames = frames,))
 end
 
 """
     load(Trajectory, path) -> Trajectory{S, D}
 
-Read a `vgio/trajectory/v3` file: its frames as types (`S`, `D` from
+Read a `vgio/trajectory/v4` file: its frames as types (`S`, `D` from
 `from`/`to`), each pose labeled `S → D`, lengths in metres — `Uncertain` where the
 file states a covariance — with the images, times and recovered flags it
 records. Type-unstable by nature (the frame types come from the file): load
@@ -214,7 +220,10 @@ once, dispatch after.
 """
 function load(::Type{Trajectory}, path::AbstractString)
     d = _read_store(path, "trajectory", _TRAJECTORY_SPEC)
-    s = VgioStyle(; length_unit = parse_unit(d.length_unit::String))
+    return JSON.lift(VgioStyle(; length_unit = parse_unit(d.length_unit::String)), Trajectory, d)
+end
+# …and back: a trajectory body read on the style (its lengths in the style's unit).
+function JSON.lift(s::VgioStyle, ::Type{Trajectory}, d::_Record)
     poses, images, times, recovered = Dict{Int, Any}(), Dict{Int, String}(), Dict{Int, Float64}(), Set{Int}()
     for f in d.frames::Vector{Any}
         t = Int(f.t::Integer)
@@ -229,7 +238,7 @@ function load(::Type{Trajectory}, path::AbstractString)
 end
 
 # =============================================================================
-# target_poses/v1 ↔ TargetPoses
+# target_poses/v2 ↔ TargetPoses
 # =============================================================================
 
 const _TARGET_POSE_RECORD = _Obj(
@@ -259,7 +268,7 @@ const _TARGET_POSES_SPEC = _Checked(
 """
     save(path, tp::TargetPoses{F}; length_unit = mm, provenance = (;))
 
-Write a physical VGC `TargetPoses` as a `vgio/target_poses/v1` file declaring
+Write a physical VGC `TargetPoses` as a `vgio/target_poses/v2` file declaring
 `to = frame_name(F)`: per frame index (sorted), its image and sensor (both
 required) and time, and every target's pose (ids sorted; a `covariance` iff
 `Uncertain`), in `length_unit`. Plain poses are an `ArgumentError`.
@@ -281,7 +290,7 @@ end
 """
     load(TargetPoses, path) -> TargetPoses{F}
 
-Read a `vgio/target_poses/v1` file: `F` the frame its poses map into, every
+Read a `vgio/target_poses/v2` file: `F` the frame its poses map into, every
 pose's lengths in metres, `Uncertain` where the file states a covariance.
 """
 function load(::Type{TargetPoses}, path::AbstractString)
@@ -450,7 +459,7 @@ function load(::Type{<:TargetHomographies{F}}, path::AbstractString) where {F <:
 end
 
 # =============================================================================
-# target_points2d/v2 ↔ TargetPoints2D
+# target_points2d/v3 ↔ TargetPoints2D
 # =============================================================================
 
 const _TARGET_POINTS2D_SPEC = _Checked(
@@ -482,7 +491,7 @@ const _TARGET_POINTS2D_SPEC = _Checked(
 """
     save(path, obs::TargetPoints2D{F}; provenance = (;))
 
-Write a VGC `TargetPoints2D` as a `vgio/target_points2d/v2` file whose
+Write a VGC `TargetPoints2D` as a `vgio/target_points2d/v3` file whose
 declared pixel frame is `F`, the value's own type — no pixel is converted and
 none can be written under another frame's label. Every frame must name its
 image and sensor, and the value must name the target definitions its indices
@@ -537,8 +546,8 @@ end
 """
     load(TargetPoints2D, path; target = nothing) -> TargetPoints2D{F}
 
-Read a `vgio/target_points2d/v2` file (a `v1` file reads through its version
-step, as the same value): per frame index, the measured pixels typed in the
+Read a `vgio/target_points2d/v3` file (a `v2` or `v1` file reads through its
+version steps, as the same value): per frame index, the measured pixels typed in the
 pixel frame `F` the file declares, exactly as stored, with the frames' images,
 sensors and times and the targets identities (each a rig's or a single
 target's `content_id`). Change the frame with `convert_frame`.
@@ -563,7 +572,7 @@ function load(::Type{TargetPoints2D}, path::AbstractString; target::Union{Nothin
 end
 
 # =============================================================================
-# target_points3d/v1 ↔ TargetPoints3D
+# target_points3d/v2 ↔ TargetPoints3D
 # =============================================================================
 
 const _TARGET_POINTS3D_SPEC = _Checked(
@@ -597,7 +606,7 @@ const _TARGET_POINTS3D_SPEC = _Checked(
 """
     save(path, obs::TargetPoints3D{F}; length_unit = mm, provenance = (;))
 
-Write a physical VGC `TargetPoints3D` as a `vgio/target_points3d/v1` file in
+Write a physical VGC `TargetPoints3D` as a `vgio/target_points3d/v2` file in
 frame `F`, in `length_unit`: per frame its sensor (required), image and time
 where stated; an `Uncertain` point writes its 3×3 `covariance` (`length_unit`²).
 Plain points are an `ArgumentError` (attach the unit, `p .* m`).
@@ -654,13 +663,13 @@ end
 """
     load(TargetPoints3D, path) -> TargetPoints3D{F}
 
-Read a `vgio/target_points3d/v1` file: the measurements in the frame `F` it
+Read a `vgio/target_points3d/v2` file: the measurements in the frame `F` it
 declares, lengths in metres (`Uncertain` where it states a covariance, in m²).
 """
 load(::Type{TargetPoints3D}, path::AbstractString) = _target_points3d(_read_store(path, "target_points3d", _TARGET_POINTS3D_SPEC))
 
 # =============================================================================
-# target_detections/v1 ↔ TargetDetections
+# target_detections/v2 ↔ TargetDetections
 # =============================================================================
 
 # One target's detections in a frame: its point indices (unique, at least
@@ -745,7 +754,7 @@ end
 """
     save(path, td::TargetDetections{F}; length_unit = mm, provenance = (;))
 
-Write a VGC `TargetDetections` as a `vgio/target_detections/v1` file: per
+Write a VGC `TargetDetections` as a `vgio/target_detections/v2` file: per
 frame index (sorted), its stamps, and per target (ids sorted) its point
 indices, its points, a `covariance` per point iff the points are `Uncertain`,
 and its `weights` column where it has one (the only column the kind holds).
@@ -796,11 +805,11 @@ end
 """
     load(TargetDetections, path) -> TargetDetections{F}
 
-Read a `vgio/target_detections/v1` file: per frame index, per target, its
+Read a `vgio/target_detections/v2` file: per frame index, per target, its
 detections typed in the frame `F` the file declares — pixels exactly as
 stored, 3D points in metres — `Uncertain` where it states covariances, with
 their `weights` column where stated, the frames' stamps and the targets
-identities. A `vgio/target_points2d/v1` or `vgio/target_points3d/v1` file is
+identities. A `vgio/target_points2d` or `vgio/target_points3d` file (any version that reads) is
 read too, converted (`TargetDetections(load(TargetPoints2D, path))`), unless
 it holds one of the two things those kinds allow and a `TargetDetections`
 does not: a (target, index) detected twice in one frame, or plain and

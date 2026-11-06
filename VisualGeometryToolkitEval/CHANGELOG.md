@@ -1,5 +1,11 @@
 # VisualGeometryToolkitEval changelog
 
+## 0.5.0 (2026-11-06)
+
+VisualGeometryToolkitCore 0.6, VisualGeometryToolkitIO 0.6 and
+VisualGeometryToolkitEstimation 0.6.1 (compat `"0.6"`, `"0.6"`, `"0.6.1"`): the
+breaking upstream releases; no change to this package's own code.
+
 ## 0.4.3 (2026-11-04)
 
 VisualGeometryToolkitCore 0.5.3 (compat `"0.5.3"`).

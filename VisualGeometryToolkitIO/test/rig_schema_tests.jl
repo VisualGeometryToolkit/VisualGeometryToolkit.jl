@@ -1,5 +1,5 @@
 # =============================================================================
-# rig/v8, target/v5, trajectory/v4, target_poses/v2, target_points2d/v2,
+# rig/v8, target/v5, trajectory/v4, target_poses/v2, target_points2d/v3,
 # target_points3d/v2 round trips, and the correspondences export
 # =============================================================================
 #
@@ -309,7 +309,7 @@ end
     using VisualGeometryToolkitCore: Rig, TargetPoints2D, TargetPoints3D
     mktempdir() do dir
         for (schema, T, successor) in (
-                ("vgio/observations/v2", TargetPoints2D, "target_points2d/v2"),
+                ("vgio/observations/v2", TargetPoints2D, "target_points2d/v3"),
                 ("vgio/point_observations/v1", TargetPoints3D, "target_points3d/v2"),
                 ("vgio/targets/v2", Rig, "rig/v8"),
                 ("vgio/rig/v3", Rig, "rig/v8"),
@@ -526,7 +526,7 @@ end
         # the file declares the frame the TYPE carries, and no pixel is converted
         save(path, obs)
         d = parse_json(read(path, String))
-        @test d.schema == "vgio/target_points2d/v2" && d.pixel_frame == "julia" && d.point_index_base == 1
+        @test d.schema == "vgio/target_points2d/v3" && d.pixel_frame == "julia" && d.point_index_base == 1
         @test d.frames[1].points[1].xy == [640.0, 480.0]
         @test d.targets == [content_id(targets)]
         @test d.frames[2].image == "DSC0003.png" && d.frames[2].sensor == "cam"

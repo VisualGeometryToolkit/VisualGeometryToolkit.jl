@@ -152,7 +152,7 @@ function classify_conic end
 
 
 # -----------------------------------------------------------------------------
-# FrameScale Trait (isotropic vs shape-matrix feature frames)
+# FrameScale Trait (isotropic vs shape-factor feature frames)
 # -----------------------------------------------------------------------------
 
 """
@@ -161,15 +161,15 @@ function classify_conic end
 Trait distinguishing feature frame scale types for dispatch.
 
 - `IsotropicScale()`: Frames with a single scale σ (Disc, OrientedDisc)
-- `ShapeMatrixScale()`: Frames with a 2×2 shape matrix (EllipticFrame, AffineFrame)
+- `ShapeFactorScale()`: Frames with a 2×2 shape factor (EllipticFrame, AffineFrame)
 """
 abstract type FrameScaleTrait end
 
 "Trait indicating an isotropic frame with single scale σ."
 struct IsotropicScale <: FrameScaleTrait end
 
-"Trait indicating a frame with a 2×2 shape matrix."
-struct ShapeMatrixScale <: FrameScaleTrait end
+"Trait indicating a frame with a 2×2 shape factor (`shape_factor`)."
+struct ShapeFactorScale <: FrameScaleTrait end
 
 """
     frame_scale(x) -> FrameScaleTrait

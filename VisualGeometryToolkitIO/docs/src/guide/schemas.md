@@ -26,8 +26,8 @@ that this class of bug cannot be written down:
 ## What every vgio file guarantees
 
 Every vgio file has a schema tag `vgio/<kind>/v<n>`. The current versions are
-rig v8; target v5; cameras, transforms and trajectory v4; generic_camera v3;
-target_poses, target_points2d, target_points3d and target_detections v2;
+rig v8; target v5; cameras, transforms and trajectory v4; generic_camera and
+target_points2d v3; target_poses, target_points3d and target_detections v2;
 target_homographies, capture_settings, calibration, vignetting,
 environment_light and blur v1; and
 v2 for the rest. A file can be
@@ -159,9 +159,9 @@ the producer re-exports:
 
 | Retired | Successor |
 |---|---|
-| `observations/v2` | `target_points2d/v2` |
+| `observations/v2` | `target_points2d/v3` |
 | `point_observations/v1` | `target_points3d/v1` |
-| `targets/v2`, `rig/v3` | `rig/v7` |
+| `targets/v2`, `rig/v3` | `rig/v8` |
 | `session/v3` | the calibration pipeline's own session kind |
 
 A pipeline's checkpoint belongs to the pipeline, not to core geometry, which

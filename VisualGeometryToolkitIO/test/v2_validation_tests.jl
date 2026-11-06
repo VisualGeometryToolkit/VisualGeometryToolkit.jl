@@ -151,8 +151,12 @@
             v1 = replace(doc[:schema], r"/v\d+$" => "/v1")
             relabeled(s) = refusal(merge(doc, Dict(:schema => s)), dir, "$(name)_$(basename(s))"; units)
             not_theirs(msg) = msg === nothing || occursin("was not written by them", msg)
-            if name in ("target_poses", "target_points2d", "target_points3d")
+            if name in ("target_poses", "target_points3d")
                 @test endswith(doc[:schema], "/v2")                                          # v2: the covariance storage
+            elseif name == "target_points2d"
+                @test doc[:schema] == "vgio/target_points2d/v3"                              # v3: single targets (after 0.6.0's v2)
+                @test relabeled("vgio/target_points2d/v2") === nothing                       # rig ids only: a v2 record as well
+                @test relabeled(v1) === nothing                                              # covariances as rows: through v2
             elseif name == "target_homographies"
                 @test endswith(doc[:schema], "/v1")                                          # born at v1: nothing earlier
             elseif name == "target"

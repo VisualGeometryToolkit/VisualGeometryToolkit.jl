@@ -15,7 +15,7 @@ import KernelAbstractions as KA
 using KernelAbstractions: @kernel, @index, @Const
 import Atomix
 
-# Scale band of a feature with shape matrix S = [sxx sxy; sxy syy]: the
+# Scale band of a feature with shape factor S = [sxx sxy; sxy syy]: the
 # geometric-mean scale √det S (σ√t for a tilted warp) binned in `w`-octave
 # bands; `w == 0` puts everything in band 0, a degenerate shape gets the
 # sentinel. See `_band_pool!` below for the why.

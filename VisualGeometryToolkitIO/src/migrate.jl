@@ -943,10 +943,7 @@ migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, t::AbstractDict) = _gene
 # covariance is rows, is a file of the next version as it stands. No number
 # moves. (target_detections v1 → v2, target_points2d / target_points3d v1 → v2,
 # target_poses v1 → v2, trajectory v3 → v4, transforms v3 → v4, target v4 → v5,
-# rig v7 → v8.) target_points2d v2 is also the single targets (2026-11): its
-# `targets` hold the content ids of a targets rig OR of a single unposed target,
-# as target_homographies/v1's do; a v1 record names rigs only, and a rig's id
-# does not change, so the same identity step serves.
+# rig v7 → v8.)
 const _COVARIANCE_STORAGE_VERSIONS = (
     "vgio/target_detections/v1" => "vgio/target_detections/v2",
     "vgio/target_points2d/v1" => "vgio/target_points2d/v2",
@@ -961,6 +958,13 @@ _with_schema(t::AbstractDict, s::AbstractString) = (n = Dict{String, Any}(t); n[
 for (from, to) in _COVARIANCE_STORAGE_VERSIONS
     @eval migrate_schema(::Val{Symbol($from)}, t::AbstractDict) = _with_schema(t, $to)
 end
+
+# vgio/target_points2d/v2 → v3 (single targets, 2026-11): v3's `targets` hold
+# the content ids of a targets rig OR of a single unposed target, as
+# target_homographies/v1's do. A v2 record names rigs only, and a rig's id does
+# not change, so a v2 record is a v3 one as it stands: the step moves the schema
+# token and no number (a v1 record reaches it through the covariance step).
+migrate_schema(::Val{Symbol("vgio/target_points2d/v2")}, t::AbstractDict) = _with_schema(t, "vgio/target_points2d/v3")
 
 # vgio/generic_camera/v2 → v3 (the present nodes, 2026-11): a v2 model held
 # every node of its lattice, row-major; v3 lists the held nodes as runs per
@@ -996,6 +1000,7 @@ migrate_schema(::Val{Symbol("vgio/target/v4")}, src::AbstractString, dst::Abstra
 for (s, T, kind, what) in (
         ("vgio/target_detections/v1", TargetDetections, "target_detections", "the target detections"),
         ("vgio/target_points2d/v1", TargetPoints2D, "target_points2d", "the target points (2D)"),
+        ("vgio/target_points2d/v2", TargetPoints2D, "target_points2d", "the target points (2D)"),   # the single-target step
         ("vgio/target_points3d/v1", TargetPoints3D, "target_points3d", "the target points (3D)"),
         ("vgio/target_poses/v1", TargetPoses, "target_poses", "the target poses"),
         ("vgio/trajectory/v3", Trajectory, "trajectory", "the trajectory"),
@@ -1170,6 +1175,7 @@ const _MEASUREMENT_KINDS = Dict(
     "vgio/target_points2d/v1" => TargetPoints2D, "vgio/target_points3d/v1" => TargetPoints3D,
     "vgio/target_detections/v1" => TargetDetections,
     "vgio/target_points2d/v2" => TargetPoints2D, "vgio/target_points3d/v2" => TargetPoints3D,
+    "vgio/target_points2d/v3" => TargetPoints2D,
     "vgio/target_detections/v2" => TargetDetections,
 )
 
@@ -1183,7 +1189,7 @@ _measured_points(obs::TargetDetections) = ((f, id, i) for (f, sets) in obs for (
 # at the rigs its targets were migrated to: every identity in its `targets`
 # that `ids` (old → new, a rig migration's `old_ids` and `new_id`) maps is
 # replaced; nothing else changes, and the file is written as its kind's current
-# version (a target_points2d/v1 file becomes v2). Every
+# version (a target_points2d/v1 or v2 file becomes v3). Every
 # identity the file names must be mapped or be the `content_id` of one of
 # `rigs` (rigs or `vgio/rig/v5` paths; `hashes` their identities, when the
 # caller has them): any other is an `ArgumentError` naming the file and the

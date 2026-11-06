@@ -133,7 +133,7 @@ end
     save(path, poses::AbstractVector; length_unit = mm, provenance = (;))
 
 Write labeled physical rigid poses — `EuclideanMap{…, S, D}` or `Uncertain`
-ones, their translations lengths — as a `vgio/transforms/v3` file: each
+ones, their translations lengths — as a `vgio/transforms/v4` file: each
 record's `from`/`to` are its labels' frame names ([`frame_name`](@ref)), its
 translation in `length_unit` (declared), a `covariance` iff `Uncertain`. An
 unlabeled or half-labeled pose is refused (relabel it with the frames it maps
@@ -157,7 +157,7 @@ end
 """
     load(Vector{EuclideanMap}, path) -> Vector{Union{EuclideanMap{3}, Uncertain{<:EuclideanMap{3}}}}
 
-Read a `vgio/transforms/v3` file: each record a pose labeled with its
+Read a `vgio/transforms/v4` file: each record a pose labeled with its
 `from`/`to` frames (`frame_from_name`), its translation lengths in metres
 (read in the file's `length_unit`), `Uncertain` iff the file states a
 covariance. Type-unstable by nature (the labels come from the

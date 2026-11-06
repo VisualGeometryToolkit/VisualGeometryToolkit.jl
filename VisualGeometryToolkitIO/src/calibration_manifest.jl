@@ -7,7 +7,7 @@
 #  "model": {CameraModelSpec table},                                  (optional)
 #  "files": [{"path": "camera.json", "sha256": "<hex>", "kind": "vgio/cameras/v4",
 #             "role": "authority", "derived_from": []},
-#            {"path": "target_poses.json", "sha256": "<hex>", "kind": "vgio/target_poses/v1",
+#            {"path": "target_poses.json", "sha256": "<hex>", "kind": "vgio/target_poses/v2",
 #             "role": "derived", "derived_from": ["trajectory_1.json", "targets_1.json"]}, …],
 #  "metrics": {…},                                                    (optional, free-form)
 #  "provenance": {…}}                                                 (optional)
@@ -168,12 +168,15 @@ function save_manifest(dir::AbstractString, files::AbstractVector; kind::Abstrac
     model === nothing || (body = merge(body, (model = model::VgtkCore.CameraModelSpec,)))   # lowered on the style
     metrics === nothing || (body = merge(body, (metrics = metrics,)))
     body = _with_provenance(body, provenance)
-    text = _json_text(body, VgioStyle())                  # serialized once: these bytes are checked and written, as _write_store's
-    tree = _parse_vgio_text(text, path)
-    _validate(_CALIBRATION_SPEC, tree, path, "")
-    model === nothing || _manifest_model(tree, path)
-    _check_manifest_files(dir, tree, path)
-    write(path, text)
+    # The kind's writer and reader, staged: the very bytes `_write_store` writes are
+    # read back by `_read_store` and checked against the directory before the one
+    # rename puts them at `path`; a refusal leaves nothing written.
+    write_staged(path => _MANIFEST_FILE; dry_run = false) do staged
+        _write_store(staged, _CALIBRATION_SPEC, body; style = VgioStyle())
+        tree = _read_store(staged, "calibration", _CALIBRATION_SPEC)
+        _manifest_model(tree, path)
+        _check_manifest_files(dir, tree, path)
+    end
     return path
 end
 

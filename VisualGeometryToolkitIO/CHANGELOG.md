@@ -2,6 +2,62 @@
 
 ## Unreleased
 
+- **New kind `vgio/target_homographies/v1`** (`save`, `load(TargetHomographies, path)`,
+  `load(TargetHomographies{F}, path)`): per frame, each target's plane (mm) to
+  pixel homography, canonical (unit Frobenius norm, `H[3,3] >= 0`), against the
+  camera the frame's `sensor` names, before its lens (VGC's
+  `radial_homography(camera, H)` pairs them, for a projective camera and for a
+  metric one with `fx == fy` and no skew). The pixel frame is the
+  value's type; `targets` are the `content_id`s its ids resolve in. Its H is
+  written and read on `VgioStyle` (`JSON.lower` / `JSON.lift` of a `HomographyMat`:
+  its three rows), as every embedded value.
+- **`content_id` of a single unposed target** (a `vgio/target` path, an
+  `AbstractTarget`, or an `Attributed` one): the SHA-256 of its `target` record,
+  distinct from every rig's. A `PosedTarget` is an `ArgumentError`.
+- **`vgio/target_points2d/v3`**: `targets` may be the content id of a single target as well as a rig's.
+  0.6.0's `v2` (the covariance storage) reads through an identity step (a v2 record names rigs only, and a
+  rig's id is unchanged), a `v1` file through v2's step first; `vgio_migrate` rewrites either as v3. The
+  released v2 fixture is kept under `test/fixtures/old/`.
+- **`vgio_migrate_tree` leaves every measurement file** (`target_points2d`, `target_points3d`,
+  `target_detections`, any version) to its re-pointing step, which rewrites an earlier version as the
+  current one. 0.6.0 migrated an earlier one by its file form in the first loop, so with `in_place = false`
+  a file naming a stale rig id kept that id in its `<stem>.migrated.json` and the second loop found it
+  "already re-pointed" (a test pins it now).
+- **New kind `vgio/calibration/v1`, the manifest** (`save_manifest(dir, files;
+  kind, model, metrics, provenance)`, `load_manifest(dir)`): one
+  `calibration.json` binding a result's record files by SHA-256, each with its
+  record schema, its `role` (`"authority"` or `"derived"`) and, for a derived
+  file, `derived_from`. `kind` is `"metric"`, `"projective"` or `"image"`;
+  `model` is an optional `CameraModelSpec`, written on `VgioStyle` as VGC's
+  `toml_value` table and lifted by VGC's reader. A load refuses a changed file by
+  name, and a `target_points2d` / `target_homographies` file naming a targets
+  identity or a rig target the listed target and rig files do not hold. A
+  measurement names a single target by its `reference`, or by its content id
+  when it has none; a rig's target by its id. Written by the kind's own writer
+  and reader (`_write_store`, `_read_store`) in a `write_staged` directory, so a
+  refused manifest leaves nothing at `calibration.json`.
+- **Manifest refusals**: a `kind` of `"image"` listing a `trajectory` or
+  `target_poses` record; `./a.json` and `a.json` as two entries of one file; a
+  listed file that is a symlink resolving outside the manifest's directory.
+  A malformed `.toml` file given to `vgio_migrate` (or read for its schema) is an
+  `ArgumentError` naming the path, not a `TOML.ParserError`.
+- **`save_correspondences` takes single targets** (an `AbstractTarget` or a
+  `vgio/target` path) beside rigs, named as above.
+- **`vgio_migrate` rewrites a `.toml` record** whose schema has a
+  `migrate_schema(::Val, tree)` step and no file form (a schema owner's config):
+  parse, the steps, `TOML.print`, and a verified read-back (the same tree, types
+  included, or an `ArgumentError`). Comments are dropped: when the file has any
+  `#` (a comment line or a trailing comment; a `#` inside a string also counts,
+  conservatively) the result's `comments_dropped` is `true` and a `@warn` says
+  so; a file without one migrates silently.
+- The Schöps YAML decimal reader binds its exponent capture once (a JET report on Julia 1.13).
+
+## 0.6.0 (2026-11-06)
+
+- **`read_record(io::IO)`**: a record from JSON text (BlobBoards' `rebuild_board` takes a board's JSON as text),
+  the same parse, version steps and refusals as `read_record(path)`. A schema owner's step that refuses a record
+  (an `ArgumentError`, or a key its version always held missing) is an `ArgumentError` naming the file (or "the
+  JSON text") and its schema, as the native kinds' readers name theirs.
 - **One serializer, `VgioStyle` (public).** Every VisualGeometryToolkitCore value a record embeds is written by one
   `JSON.lower(::VgioStyle, x)` method and read by one `JSON.lift(::VgioStyle, T, record)` method (StructUtils' hooks,
   through JSON.jl's public names), on IO's own style, `VgioStyle <: JSON.JSONStyle`, which carries the file's
@@ -45,53 +101,17 @@
 - **New kinds, a radiometric camera's values:** `vgio/vignetting/v1` (`TensorProductVignetting` with its knots stated,
   `RadialVignetting`, `LogVignetting`; COLMAP pixels; rebuilt bit for bit), `vgio/environment_light/v1` (an
   `EnvironmentLight` of a `SphericalHarmonicMap`: centre and radius in `length_unit`, a plain light refused; the basis
-  convention stated) and `vgio/blur/v1` (name → `GaussianBlur` on a sensor, px², in the storage each holds).
+  convention stated) and `vgio/blur/v1` (name → `GaussianBlur`, each one's `covariance` — the blur is the density
+  `N(0, Σ)` — in the storage it holds and in the unit its block states, `"px^2"` on a sensor or `length_unit` squared
+  on a print by IO's length rule: a decimal variance reads back exactly, a variance computed in code within an ulp;
+  the unit is recorded, the blur's frame tag is not). The three bodies are VGC values on `VgioStyle`, so another package's record can nest
+  them: `JSON.lower(style, x)` and `JSON.lift(style, AbstractVignetting, record)`, `JSON.lift(style, EnvironmentLight,
+  record)` (centre and radius in the style's length unit) and `JSON.lift(style, GaussianBlur, record)` (`{"unit",
+  "covariance"}`: the lift reads the stated unit, px² as plain numbers and a length² as m² quantities); the kinds'
+  save and load go through them.
 - A target calibration's covariance and a point target's point covariances take the three storage forms too.
 - Requires the VisualGeometryToolkitCore whose `CovMat{N, T, M, C}` holds a static matrix (`ScaledIdentity`), with
   `TensorProductVignetting(knots_x, knots_y, P; degree)` and `radius` public.
-
-- **New kind `vgio/target_homographies/v1`** (`save`, `load(TargetHomographies, path)`,
-  `load(TargetHomographies{F}, path)`): per frame, each target's plane (mm) to
-  pixel homography, canonical (unit Frobenius norm, `H[3,3] >= 0`), against the
-  camera the frame's `sensor` names, before its lens (VGC's
-  `radial_homography(camera, H)` pairs them, for a projective camera and for a
-  metric one with `fx == fy` and no skew). The pixel frame is the
-  value's type; `targets` are the `content_id`s its ids resolve in. Its H is
-  written and read on `VgioStyle` (`JSON.lower` / `JSON.lift` of a `HomographyMat`:
-  its three rows), as every embedded value.
-- **`content_id` of a single unposed target** (a `vgio/target` path, an
-  `AbstractTarget`, or an `Attributed` one): the SHA-256 of its `target` record,
-  distinct from every rig's. A `PosedTarget` is an `ArgumentError`.
-- **`vgio/target_points2d/v2`** (the covariance storage's v2 above, one version for both): `targets` may
-  also be the content id of a single target as well as a rig's. A `v1` file reads through its version step
-  (`migrate_record`); `vgio_migrate` rewrites it, and `vgio_migrate_tree` leaves every measurement file
-  (`target_points2d`, `target_points3d`, `target_detections`) to its re-pointing step, which rewrites an
-  earlier version as the current one.
-- **New kind `vgio/calibration/v1`, the manifest** (`save_manifest(dir, files;
-  kind, model, metrics, provenance)`, `load_manifest(dir)`): one
-  `calibration.json` binding a result's record files by SHA-256, each with its
-  record schema, its `role` (`"authority"` or `"derived"`) and, for a derived
-  file, `derived_from`. `kind` is `"metric"`, `"projective"` or `"image"`;
-  `model` is an optional `CameraModelSpec`, written on `VgioStyle` as VGC's
-  `toml_value` table and lifted by VGC's reader. A load refuses a changed file by
-  name, and a `target_points2d` / `target_homographies` file naming a targets
-  identity or a rig target the listed target and rig files do not hold. A
-  measurement names a single target by its `reference`, or by its content id
-  when it has none; a rig's target by its id.
-- **Manifest refusals**: a `kind` of `"image"` listing a `trajectory` or
-  `target_poses` record; `./a.json` and `a.json` as two entries of one file; a
-  listed file that is a symlink resolving outside the manifest's directory.
-  A malformed `.toml` file given to `vgio_migrate` (or read for its schema) is an
-  `ArgumentError` naming the path, not a `TOML.ParserError`.
-- **`save_correspondences` takes single targets** (an `AbstractTarget` or a
-  `vgio/target` path) beside rigs, named as above.
-- **`vgio_migrate` rewrites a `.toml` record** whose schema has a
-  `migrate_schema(::Val, tree)` step and no file form (a schema owner's config):
-  parse, the steps, `TOML.print`, and a verified read-back (the same tree, types
-  included, or an `ArgumentError`). Comments are dropped: when the file has any
-  `#` (a comment line or a trailing comment; a `#` inside a string also counts,
-  conservatively) the result's `comments_dropped` is `true` and a `@warn` says
-  so; a file without one migrates silently.
 
 ## 0.5.3 (2026-11-05)
 

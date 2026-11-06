@@ -3,7 +3,7 @@
 # calibrators take (write-only, like TUM / EuRoC / BOP / TRC)
 # =============================================================================
 #
-# The measurements (target_points2d/v2, VGC `TargetPoints2D`) and the targets
+# The measurements (target_points2d/v3, VGC `TargetPoints2D`) and the targets
 # (a vgio/rig file, a VGC `Rig` of targets, or a single vgio/target) are COLMAP's points2D → points3D
 # decomposition: a pixel and a reference into a target's point list. Feeding a
 # third-party calibrator — cv::calibrateCamera, MATLAB's

@@ -27,12 +27,12 @@ argument, because the value already carries it.
 | `vgio/target_poses/v2` | `TargetPoses{F}`: per frame, `TargetFrame{id} → F` poses; `pose(tp, t, id)` | `load(TargetPoses, path)` | `save(path, tp)`; exporter `save_bop_scene` |
 | `vgio/target_homographies/v1` | `TargetHomographies{F <: PixelFrame, H}`: per frame, each target's plane (mm) → pixel `HomographyMat`, canonical (unit norm, `H[3,3] ≥ 0`), before the lens of the frame's `sensor`'s camera (a `RadialHomography`'s `H`); `targets` are the `content_id`s (a rig's or a single target's) its ids resolve in | `load(TargetHomographies, path)` | `save(path, th)` |
 | `vgio/target_detections/v2` | `TargetDetections{F}`: per frame, per target, `csponds(index, detection)` — pixels in a `PixelFrame` or 3D points in a named 3D frame, plain or `Uncertain`, with an optional `weights` column | `load(TargetDetections, path)` (a `target_points2d/v1` or `target_points3d/v1` file too, converted — except one with a (target, index) twice in a frame or with plain and `Uncertain` points mixed, refused by name; it still loads as `load(TargetPoints2D/3D, path)`) | `save(path, td)` |
-| `vgio/target_points2d/v2` | `TargetPoints2D{F <: PixelFrame}`: per frame, `(target, index, xy, weight)` | `load(TargetPoints2D, path)` | `save(path, obs)`; exporter `save_correspondences` |
+| `vgio/target_points2d/v3` | `TargetPoints2D{F <: PixelFrame}`: per frame, `(target, index, xy, weight)`; `targets` the `content_id`s of rigs or single targets (a `v2` or `v1` file reads through its steps) | `load(TargetPoints2D, path)` | `save(path, obs)`; exporter `save_correspondences` |
 | `vgio/target_points3d/v2` | `TargetPoints3D{F}`: per frame, `(target, index, xyz)`, such as motion-capture markers | `load(TargetPoints3D, path)` | `save(path, obs)`; exporter `save_trc` |
 | `vgio/capture_settings/v1` | `CaptureSettings`: per frame, the exposure (time, f-number, ISO) and the nominal lens settings (focal length, focus distance); the body and lens `DeviceIdentity`, `Attributed` with each one's source (`"exif"` or `"config"`) and the EXIF lens claim a stated lens overrode | `load(CaptureSettings, path)` | `save(path, Attributed(cs, (; identity_sources = (body, lens)[, exif_lens])))` |
 | `vgio/vignetting/v1` | an `AbstractVignetting`: `TensorProductVignetting` (its knots stated), `RadialVignetting` or `LogVignetting`, positions in COLMAP pixels; rebuilt bit for bit | `load(AbstractVignetting, path)` | `save(path, v)` |
 | `vgio/environment_light/v1` | an `EnvironmentLight` of a `SphericalHarmonicMap`: centre and radius in `length_unit` (a plain light refused), coefficients per channel, the basis convention stated (`real_orthonormal_no_condon_shortley`) | `load(EnvironmentLight, path)` | `save(path, light)` |
-| `vgio/blur/v1` | name → `GaussianBlur` on a sensor (px²), each in the storage it holds (round, axis-aligned, general) | `load(Dict{Symbol, GaussianBlur}, path)` | `save(path, blurs)` |
+| `vgio/blur/v1` | name → `GaussianBlur`, each one's `covariance` in the storage it holds (round, axis-aligned, general) and the `unit` it states: `"px^2"` on a sensor, `length_unit` squared (`"mm^2"`) on a print; the unit is recorded, the blur's frame tag is not | `load(Dict{Symbol, GaussianBlur}, path)` | `save(path, blurs)` |
 | `vgio/calibration/v1` (`calibration.json`, the manifest) | the record files of one calibration result bound by SHA-256: each with its record schema, `role` (`"authority"` or `"derived"`) and `derived_from`; `kind` `"metric"`, `"projective"` or `"image"`, an optional `CameraModelSpec`, `metrics`, `provenance`; a load refuses a changed file by name and measurements naming targets the listed target and rig files do not hold | `load_manifest(dir)` | `save_manifest(dir, files; kind, model, metrics, provenance)` |
 | `vgio/generic_camera/v3` (Schöps grid models: the nodes the model holds, `present` as runs per lattice row, and only their controls) | `CentralGenericModel`, `NoncentralGenericModel` | `load(CentralGenericModel, path)`, `load(NoncentralGenericModel, path)` | `save(path, m)` |
 | `vgio/correspondences/v2` (flat 2D–3D pairs per frame and target) | an export of a `TargetPoints2D` and its target rigs; there is no reader | — | `save_correspondences([to_frame,] path, obs, targets...; resolve)` |
@@ -113,7 +113,7 @@ written:
   design's owner. It reads back unresolved unless the caller supplies
   `resolve`, the owner's resolver (`reference::Symbol -> nominal points`).
 - A `PlanarTarget` built from a layout (`PlanarTarget(layout; …)`, which VGC
-  records as `layout(t)`) is written by its `layout` (`vgio/target/v4`,
+  records as `layout(t)`) is written by its `layout` (since `vgio/target/v4`,
   `vgio/rig/v7`); its points are VGC's from the layout and are not restated.
   The record's `type` is the layout's tag in VGC's `TARGET_LAYOUT_TAGS`, every
   key is written, and lengths are in the file's unit:
@@ -317,11 +317,15 @@ is not one); the methods are on `VgioStyle` only.
 | Value | `T` in `lift` | Record |
 |---|---|---|
 | `EuclideanMap{3}`, plain or `Uncertain` | `EuclideanMap{3}` | `{"rotation": [w, x, y, z], "translation": [x, y, z], "covariance": …}` |
+| `Trajectory` | `Trajectory` | the `vgio/trajectory` body without its schema and pose declarations: `{"from", "to", ["time_origin"], "frames": […]}` |
 | `CameraModel` | `CameraModel` | `{"K": {"fx", "fy", "cx", "cy", "skew"}, "lens": {…}}`, `cx, cy` in `pixel_frame` |
 | `CentralGenericModel`, `NoncentralGenericModel` | `Union{CentralGenericModel, NoncentralGenericModel}` | the `vgio/generic_camera` body |
 | `PointTarget`, `PlanarTarget` | `AbstractTarget` (keyword `resolve`, as `target_from_json`'s) | the target body, a planar target's calibration as the parametric record (below) |
 | `AprilGrid`, `SchoepsPattern` | `AbstractTargetLayout` | `{"type": tag, every field}` |
 | `Ellipse` | `Ellipse` | `[cx, cy, a, b, θ]` |
+| `TensorProductVignetting`, `RadialVignetting`, `LogVignetting` | `AbstractVignetting` | the `vgio/vignetting` body, `{"type": …, …}`, positions in COLMAP pixels |
+| `EnvironmentLight` of a `SphericalHarmonicMap` | `EnvironmentLight` | `{"center": [x, y, z], "radius": r, "map": {…}}`, lengths in `length_unit` (the `vgio/environment_light` body without `schema`/`length_unit`) |
+| `GaussianBlur` | `GaussianBlur` | `{"unit": "px^2" \| "<length_unit>^2", "covariance": …}` in the storage it holds: px² on a sensor (plain), a print's in `length_unit`² (read back as m² quantities); the lift reads the stated unit |
 
 A target's calibration is written and read as part of its target's body, not
 by a `lower` of its own: VisualGeometryToolkitCore's `TargetCalibration` holds
@@ -336,6 +340,17 @@ and no `parameters` for a kind that has none. It is read back with
 `with_parameters`; a record holding more or fewer parameters than its kind is
 an `ArgumentError` naming the tag. A kind whose structure its type does not fix states that
 structure beside its parameters (a thin-plate kind's `nodes`).
+
+A package's own kind crosses the file boundary through the same pair the
+native kinds do: [`write_record`](@ref VisualGeometryToolkitIO.write_record)`(path, record; style)` writes a record
+(its VGC values lowered on `style`) in the vgio file shape, refusing a NaN or
+±Infinity by its field, and [`read_record`](@ref VisualGeometryToolkitIO.read_record)`(path)` parses one back as
+its kind's current record, through the owner's version steps
+(`migrate_schema`, run by `migrate_record`) when the file is of an earlier
+version; a step's refusal names the file and its schema. `read_record(io)`
+reads the same from JSON text. The record states its own schema, `"<owner>/<kind>/v<n>"`; the owner
+validates its fields. A run report that may hold a non-finite statistic is
+written and read with `allownan = true`.
 
 `pose_json` / `pose_from_json`, `camera_json` / `camera_from_json`,
 `target_json` / `target_from_json` and `pose_declarations` are the same

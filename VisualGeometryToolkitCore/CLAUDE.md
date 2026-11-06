@@ -94,7 +94,7 @@ Compile-time dispatch via traits defined in `src/base/traits.jl` (loaded by
 | `HasBoundaryTrait` | Boundary-sampling fallback |
 | `OverlapMethod` (`AnalyticOverlap`, `BoundarySampled`) | `overlap_area` method selection |
 | `BoundsTrait` | `BoundedCamera` extent dispatch |
-| `FrameScaleTrait` (`IsotropicScale`, `ShapeMatrixScale`) | Feature-frame scale dispatch |
+| `FrameScaleTrait` (`IsotropicScale`, `ShapeFactorScale`) | Feature-frame scale dispatch |
 | `AbstractSolverBackend` (`NativeSolver`, `PoseLibSolver`) | Minimal-solver backend |
 | `FrameDependence` (`GeometryDefined`, `ModelDefined`) | Frame-tag commensurability (`frame_transition`) |
 

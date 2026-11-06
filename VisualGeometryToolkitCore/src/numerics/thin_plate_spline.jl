@@ -9,13 +9,16 @@
 # nodes, so its inverse is formed once and (w, a) is a LINEAR map of the nodal
 # values.
 #
-# The arithmetic is RadiometricCamera's, operation for operation: its golden
-# tests pin it, and test/thin_plate_spline_tests.jl checks every value here
-# against numbers that RadiometricCamera's own functions produced
-# (test/fixtures/thin_plate_spline): `==` for everything after (w, a), within
-# a measured bound for what goes through `inv` and BLAS (the BLAS build owns
-# those last bits). Do not "improve" it — in particular the solver keeps `inv`
-# rather than a factorization (see `ThinPlateSplineSystem`).
+# The evaluation is RadiometricCamera's, operation for operation, and
+# test/thin_plate_spline_tests.jl checks every value here against numbers that
+# RadiometricCamera's own functions produced (test/fixtures/thin_plate_spline):
+# `==` for everything after (w, a), within a measured bound for what goes
+# through the solve and BLAS. The solve is conditioned (2026-11-06): the system
+# is formed and inverted on the nodes centred and scaled by one isotropic
+# factor (`HartleyNormalization`) and mapped back exactly to the caller's frame
+# (see `ThinPlateSplineSystem`), which moves (w, a) only at rounding level — on
+# pixel nodes the unconditioned system's condition number was ~1e18. The
+# solver keeps `inv` rather than a factorization.
 #
 # Two halves, as in RadiometricCamera: the solver object `ThinPlateSplineSystem`
 # (RadiometricCamera's `ThinPlateSpline`, renamed here because that name is the
@@ -58,30 +61,59 @@ rule ([`is_pure_bending`](@ref)), the `N × 3` plane fields `plane = [1 𝐩_x �
 at the nodes and the `3 × N` affine rows of `coeff`, `affine` (`a = affine ·
 values`).
 
-`coeff` is the first `N` columns of the INVERTED system matrix `[K P; Pᵀ 0]`,
-formed with `inv` as RadiometricCamera forms it: its golden tests pin these
-numbers, and a factorization would move them in the last bits. The matrices
-live on the host; [`tps_coefficients`](@ref) turns nodal values into the
-isbits `(w, a)` that [`tps_evaluate`](@ref) and [`tps_gradient`](@ref) take.
+Everything it holds is in the CALLER's frame (frame in = frame out): the
+nodes as given, `(w, a)` of the spline `f(𝐩)` in those coordinates, and `Q`
+the bending form of those coordinates (`valuesᵀ Q values = wᵀ K w`, `K` of the
+given nodes: the values' unit squared over the nodes' unit squared, a fixed
+multiple of the bending energy `J = ∫ f_xx² + 2f_xy² + f_yy²` in the given
+coordinates).
+
+The system is SOLVED in a conditioned frame, as an estimator's private
+normalization: the nodes are centred on their centroid and scaled by one
+isotropic factor σ ([`HartleyNormalization`](@ref): mean distance √2 from the
+centroid), `𝐩′ = σ 𝐩 + 𝐭`. An interpolating thin-plate spline is the same
+surface under a similarity of its domain, so only rounding changes: the
+weights map back as `w = σ² w′`, the linear part as `(a_x, a_y) = σ (a′_x,
+a′_y)`, the constant as `a₁ = a′₁ + a′ · 𝐭 + ln σ Σᵢ w′ᵢ |𝐩′ᵢ|²` (the kernel's
+`σ² ln σ · r²` term, a constant under the side conditions `Σ w′ᵢ = 0`, `Σ w′ᵢ
+𝐩′ᵢ = 0`), and `Q = σ² Q′`. (A PER-AXIS scaling is not a similarity: the
+spline through the same values then bends differently, so it is never used
+here.) Without it, nodes in pixels (thousands) put `r² ln r²` near 1e8 beside
+the unit column of `P`.
+
+`coeff` is mapped back from the first `N` columns of the INVERTED conditioned
+system matrix `[K′ P′; P′ᵀ 0]`, formed with `inv` as RadiometricCamera forms
+it (a factorization moves the last bits differently). The matrices live on
+the host; [`tps_coefficients`](@ref) turns nodal values into the isbits `(w,
+a)` that [`tps_evaluate`](@ref) and [`tps_gradient`](@ref) take.
 """
 struct ThinPlateSplineSystem{N}
     nodes::SVector{N, SVector{2, Float64}}
-    coeff::Matrix{Float64}      # (N+3) × N
-    Q::Matrix{Float64}          # N × N
-    plane::Matrix{Float64}      # N × 3: the plane fields [1 x y] at the nodes (the system's P)
+    coeff::Matrix{Float64}      # (N+3) × N, the caller's frame
+    Q::Matrix{Float64}          # N × N, the caller's frame
+    plane::Matrix{Float64}      # N × 3: the plane fields [1 x y] at the nodes (the system's P, the caller's frame)
     affine::Matrix{Float64}     # 3 × N: coeff's affine rows, a = affine · values
 end
 
 function ThinPlateSplineSystem(nodes::AbstractVector{<:StaticVector{2}})
     N = length(nodes)
-    Umat = [tps_radial_basis(SVector{2, Float64}(nodes[i]), SVector{2, Float64}(nodes[j])) for i in 1:N, j in 1:N]
-    P = [ones(N) getindex.(nodes, 1) getindex.(nodes, 2)]
-    K = [Umat P; P' zeros(3, 3)]
-    Kinv = inv(K)   # `inv`, not `\`: RadiometricCamera's goldens depend on these exact bits
-    coeff = Kinv[:, 1:N]
-    Cw = coeff[1:N, :]
-    Q = Matrix(Symmetric(Cw' * Umat * Cw))
-    return ThinPlateSplineSystem{N}(SVector{N}(SVector{2, Float64}.(nodes)), coeff, Q, Matrix{Float64}(P), coeff[(N + 1):(N + 3), :])
+    ps = [SVector{2, Float64}(p) for p in nodes]
+    A = AffineMap(HartleyNormalization(), ps)          # 𝐩′ = σ 𝐩 + 𝐭, one isotropic σ
+    σ = Float64(A.linear[1, 1]); 𝐭 = SVector{2, Float64}(A.translation)
+    qs = [A(p) for p in ps]
+    Umat = [tps_radial_basis(qs[i], qs[j]) for i in 1:N, j in 1:N]
+    P′ = [ones(N) getindex.(qs, 1) getindex.(qs, 2)]
+    Kinv = inv([Umat P′; P′' zeros(3, 3)])   # `inv`, not `\`, as RadiometricCamera forms it
+    Cw′ = Kinv[1:N, 1:N]
+    coeff = Matrix{Float64}(undef, N + 3, N)
+    coeff[1:N, :] .= σ^2 .* Cw′                                                         # w = σ² w′
+    coeff[N + 1, :] .= Kinv[N + 1, 1:N] .+ 𝐭[1] .* Kinv[N + 2, 1:N] .+ 𝐭[2] .* Kinv[N + 3, 1:N] .+
+                       log(σ) .* (Cw′' * [sum(abs2, q) for q in qs])                   # a₁ = a′₁ + a′·𝐭 + ln σ Σ w′ᵢ|𝐩′ᵢ|²
+    coeff[N + 2, :] .= σ .* Kinv[N + 2, 1:N]                                            # (a_x, a_y) = σ (a′_x, a′_y)
+    coeff[N + 3, :] .= σ .* Kinv[N + 3, 1:N]
+    Q = Matrix(Symmetric(σ^2 .* (Cw′' * Umat * Cw′)))                                   # Q = σ² Q′
+    P = [ones(N) getindex.(ps, 1) getindex.(ps, 2)]
+    return ThinPlateSplineSystem{N}(SVector{N}(ps), coeff, Q, P, coeff[(N + 1):(N + 3), :])
 end
 
 """

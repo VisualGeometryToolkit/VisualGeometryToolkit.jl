@@ -633,9 +633,13 @@ basis `U(r) = r² log r` is not scale-invariant (`U(s r) = s² U(r) + s² log(s)
 and `Σ wᵢ |p − pᵢ|²` is a constant under the spline's side conditions), so
 scaling the nodes moves a constant — a piston — between the affine and the
 bending parts (translating, rotating or reflecting them does not). Build a height field
-on a dimensionless chart of the board (`[0, 1]²`, RadiometricCamera's), not on
-nodes in physical units, to keep its heights where they were computed, and
-place that chart on the target with a [`ChartPlacement`](@ref)
+on a dimensionless chart of the board, not on nodes in physical units, to keep
+its heights where they were computed: the board in units of ONE length, its
+width (`[0, 1] × [0, H/W]`, RadiometricCamera's page), a uniform scaling. Never
+scale x and y apart (a non-square board onto `[0, 1]²`): a thin-plate spline is
+the same surface only under a similarity of its domain, so per-axis scaling
+makes its bending depend on the board's aspect. Place that chart on the target
+with a [`ChartPlacement`](@ref) (a similarity)
 (`PlanarTarget(…; calibration, placement)`): the field stays plain, its
 heights in chart units, and the placement carries the lengths. A
 physical field's condition holds in metres, its stored form; a unit move

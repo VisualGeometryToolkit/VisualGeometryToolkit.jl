@@ -81,7 +81,7 @@ using Accessors: @set
 # Import interface traits and function stubs (to extend)
 using ..VisualGeometryToolkitCore: HasBoundary, AnalyticOverlap, BoundarySampled
 using ..VisualGeometryToolkitCore: CircleTrait, EllipseTrait
-using ..VisualGeometryToolkitCore: IsotropicScale, ShapeMatrixScale
+using ..VisualGeometryToolkitCore: IsotropicScale, ShapeFactorScale
 import ..VisualGeometryToolkitCore: has_boundary, classify_conic
 import ..VisualGeometryToolkitCore: frame_scale
 import ..VisualGeometryToolkitCore: centroid, normal, offset, distance, signed_distance, closest_point
@@ -89,7 +89,7 @@ import ..VisualGeometryToolkitCore: dilate, intersects, area, iou, coverage
 import ..VisualGeometryToolkitCore: overlap_area, overlap_method, geom_rank
 import ..VisualGeometryToolkitCore: moment_matrix, characteristic_scale, aspect_ratio
 import ..VisualGeometryToolkitCore: boundary_point, boundary_points
-import ..VisualGeometryToolkitCore: boundary, region, scale, shape_matrix
+import ..VisualGeometryToolkitCore: boundary, region, scale, shape_factor
 
 # Import MvNormal for geometry extensions
 import Distributions: MvNormal

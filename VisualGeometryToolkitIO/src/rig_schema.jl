@@ -11,7 +11,7 @@
 # file may add a free-form "provenance" object that VGIo never reads.
 #
 # A rig of targets is the DEFINITION the per-frame measurements of
-# target_points2d/v2 and target_points3d/v2 (captures_schema.jl) resolve
+# target_points2d/v3 and target_points3d/v2 (captures_schema.jl) resolve
 # against: a point is named by (target, index), its `point_index_base`-based
 # position in that target's points, and a measurement file names the rig files
 # it resolves in by their content identity ([`content_id`](@ref)).
@@ -674,7 +674,7 @@ const _TARGET_SPEC = _Obj(
     save(path, target::AbstractTarget; length_unit = mm, provenance = (;))
     save(path, Attributed(target, (; calibration_record)); length_unit = mm, provenance = (;))
 
-Write one physical target as a `vgio/target/v4` file — its body (rig_schema.jl:
+Write one physical target as a `vgio/target/v5` file — its body (rig_schema.jl:
 its points — a planar target's by its reference, its layout when it records
 one (`layout(t)`), or its nominal points — and a planar target's calibration with its parameters and, when
 `Uncertain`, their covariance) in `length_unit` and, for an `Attributed` one,
@@ -704,7 +704,7 @@ function save(
     _write_store(path, _TARGET_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit))
     return nothing
 end
-# A `vgio/target/v4` file holds an UNPOSED target: a posed one is refused here,
+# A `vgio/target/v5` file holds an UNPOSED target: a posed one is refused here,
 # before anything is written, rather than deep inside the writer. Its pose is a
 # rig member's, written by the rig writer.
 _refuse_posed_target(path) = throw(
@@ -727,7 +727,7 @@ save(path::AbstractString, ::Attributed{<:PosedTarget, <:NamedTuple{(:calibratio
 """
     load(AbstractTarget, path; resolve = nothing) -> AbstractTarget | Attributed{<:AbstractTarget}
 
-Read a `vgio/target/v4` file: the target, `Attributed` with its
+Read a `vgio/target/v5` file: the target, `Attributed` with its
 `calibration_record` where the file states one. `resolve(reference)` supplies
 a referenced design's nominal points (else the target is returned
 unresolved). A `vgio/target/v1`, `v2` or `v3` file is read through its version
@@ -853,7 +853,7 @@ end
 """
     save(path, rig::Rig; length_unit = mm, provenance = (;))
 
-Write a physical VGC `Rig` — sensors, targets, or both — as a `vgio/rig/v7`
+Write a physical VGC `Rig` — sensors, targets, or both — as a `vgio/rig/v8`
 file in `length_unit`: each sensor (a `BoundedCamera`) with its extrinsics
 `frame → view:<id>`, each target (sorted by id) with its body and its pose
 `target:<id> → frame` (a `covariance` iff `Uncertain`). A rig of plain
@@ -866,7 +866,7 @@ save(path::AbstractString, rig::Rig; length_unit::Units = mm, provenance::NamedT
 """
     load(Rig, path; resolve = nothing) -> Rig
 
-Read a `vgio/rig/v7` file back into a fully labeled VGC `Rig` of the storage
+Read a `vgio/rig/v8` file back into a fully labeled VGC `Rig` of the storage
 it holds, its lengths in metres: sensors (each a `BoundedCamera` labeled `frame → ViewFrame{id}`),
 targets (each a `PosedTarget`, minted `TargetFrame{id} → frame` on access), or both.
 `resolve(design)` supplies a referenced planar design's nominal points (see

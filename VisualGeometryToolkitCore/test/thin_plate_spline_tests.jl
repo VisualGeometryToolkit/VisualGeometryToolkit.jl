@@ -26,8 +26,13 @@
 # worst, nodal_weights under Nehalem, with a margin of 29 (the fixed bounds
 # 16, 32 and 1 it replaces were measured against two other solvers on the
 # recording machine, and Sandybridge and Nehalem broke the 32). On the
-# recording machine the deviation is zero; TPS_BITWISE=1 turns those
-# comparisons back into `==`.
+# recording machine the deviation was zero; TPS_BITWISE=1 turns those
+# comparisons back into `==`. Since the solve is conditioned (centred, one
+# isotropic scale: 2026-11-06) the system differs from RadiometricCamera's in
+# its last bits on every machine, so TPS_BITWISE no longer holds anywhere:
+# measured on the i9-13900K (native), in eps() × that sum, w and a 2.0 / 20.6,
+# nodal_weights 3.9 / 45.8, bending energy 0 / 0.30 (grid_3 / grid_5), within
+# the same 4κ bound.
 # The gradient with a nonzero affine part has no RadiometricCamera
 # counterpart: it is bit-pinned only for a = 0 (the height grid), and checked
 # against ForwardDiff otherwise.

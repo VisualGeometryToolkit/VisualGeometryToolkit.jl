@@ -1,5 +1,5 @@
 {
-    "schema": "vgio/target_points2d/v2",
+    "schema": "vgio/target_points2d/v3",
     "pixel_frame": "julia",
     "point_index_base": 1,
     "targets": [

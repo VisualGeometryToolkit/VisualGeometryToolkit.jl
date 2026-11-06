@@ -124,9 +124,11 @@ with_unit(t::PointTarget, u::Units) = PointTarget([_attach_point(u, p) for p in 
 # (target_calibration.jl, "no affine term"): its radial basis U(r) = r² log r is not
 # scale-invariant, so the same field on nodes in metres and on nodes in
 # millimetres differ by a piston. A target whose calibration is defined on a
-# DIMENSIONLESS chart of its board — RadiometricCamera's page [0, 1]² — says
-# where that chart lies with a placement, fixed data: the calibration then
-# acts in the chart, unit-free, and the placement carries the lengths.
+# DIMENSIONLESS chart of its board — RadiometricCamera's page in units of its
+# width, [0, 1] × [0, H/W]: one scale for both axes, as a placement is a
+# similarity — says where that chart lies with a placement, fixed data: the
+# calibration then acts in the chart, unit-free, and the placement carries the
+# lengths.
 
 """
     ChartPlacement(origin, side)

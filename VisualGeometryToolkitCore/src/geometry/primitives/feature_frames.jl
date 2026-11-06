@@ -91,24 +91,25 @@ Anisotropic feature frame with 5 degrees of freedom: translation (2) + symmetric
 
 Defines the transformation: `x = S·u + center`
 
-where S is a symmetric positive-definite 2×2 matrix (the shape matrix).
-The moment matrix is M = S·S' = S² (since S is symmetric).
+where S is a symmetric positive-definite 2×2 matrix (the shape factor,
+[`shape_factor`](@ref)). The moment matrix is M = S·S' = S² (since S is
+symmetric, [`moment_matrix`](@ref)): the region is `(x-c)ᵀ M⁻¹ (x-c) ≤ 1`.
 
 This maps the unit circle to an ellipse in image space. Invariant to affine
 transformations (up to in-plane rotation).
 
 # Fields
 - `center::Point2{T}`: Center position in image coordinates
-- `S::SMatrix{2,2,T,4}`: Shape matrix (symmetric positive-definite)
+- `S::SMatrix{2,2,T,4}`: Shape factor (symmetric positive-definite)
 
-# Relationship to Moment Matrix
-- Shape matrix: S (what we store)
+# Relationship to the moment matrix
+- Shape factor: S (what we store)
 - Moment matrix: M = S² = S·S'
 - To get S from M: S = √M (matrix square root)
 
 # Example
 ```julia
-S = @SMatrix [2.0 0.5; 0.5 1.0]  # symmetric shape matrix
+S = @SMatrix [2.0 0.5; 0.5 1.0]  # symmetric shape factor
 frame = EllipticFrame(Point2(100.0, 200.0), S)
 T = AffineMap(frame)  # AffineMap: u → S*u + center
 ellipse = region(frame, 2.0)  # Ellipse at 2σ contour
@@ -118,7 +119,7 @@ See also: [`AffineFrame`](@ref), `Distributions.MvNormal`
 """
 struct EllipticFrame{T} <: FeatureFrame{T}
     center::Point2{T}
-    S::SMatrix{2, 2, T, 4}  # symmetric shape matrix
+    S::SMatrix{2, 2, T, 4}  # symmetric shape factor (M = S²)
 end
 
 const DEFAULT_MAX_ASPECT_RATIO = 10.0
@@ -126,7 +127,7 @@ const DEFAULT_MAX_ASPECT_RATIO = 10.0
 """
     is_valid_shape(S; max_aspect_ratio=DEFAULT_MAX_ASPECT_RATIO) -> Bool
 
-Check that a 2×2 shape matrix is symmetric, positive-definite, and has
+Check that a 2×2 shape factor is symmetric, positive-definite, and has
 axis ratio ≤ `max_aspect_ratio`.
 """
 function is_valid_shape(
@@ -202,7 +203,8 @@ Paraboloid3D(p::Paraboloid3D) = p
 """
     moment_matrix(p::Paraboloid3D) -> SMatrix{2,2}
 
-Covariance of the equivalent Gaussian: `Σ = -½C⁻¹`.
+The covariance of the equivalent Gaussian, `Σ = -½C⁻¹`, as the matrix of its
+1σ contour (`M = Σ`).
 """
 function moment_matrix(p::Paraboloid3D{T}) where {T}
     C = p.C
@@ -286,7 +288,7 @@ end
 EllipticFrame(center::AbstractVector, S::AbstractMatrix) = EllipticFrame(Point2(center...), S)
 EllipticFrame(e::EllipticFrame) = e
 
-# The symmetric square root S = Σ^½ of a 2×2 moment matrix (M = S·S): the ONE
+# The symmetric square root S = M^½ of a 2×2 moment matrix (M = S·S): the ONE
 # spelling for every frame constructor. An eigenvalue negative only to rounding
 # (within 8·eps of the largest) clamps to zero, so a PSD matrix that rounds a
 # hair negative is not NaN; a genuinely indefinite Σ — a paraboloid fit that is
@@ -303,7 +305,7 @@ function _sym_sqrt(Σ::AbstractMatrix)
     return SMatrix{2, 2}(S[1, 1], S[1, 2], S[1, 2], S[2, 2])
 end
 
-# Construct from moment matrix (M → S via matrix sqrt)
+# Construct from the moment matrix (M → S via matrix sqrt); from a Gaussian's covariance, its 1σ contour (M = Σ)
 EllipticFrame(center::Point2{T}, Σ::AbstractMatrix, ::Val{:moment_matrix}) where {T} =
     EllipticFrame{T}(Point2{T}(center), SMatrix{2, 2, T}(_sym_sqrt(Σ)))
 
@@ -326,16 +328,16 @@ end
 # Construct from Disc (isotropic)
 EllipticFrame(d::Disc{T}) where {T} = EllipticFrame(d.center, d.σ)
 
-# Construct from Ellipse (compute symmetric shape matrix from moment matrix)
+# Construct from Ellipse (the symmetric shape factor from the moment matrix)
 function EllipticFrame(e::Ellipse{T}) where {T}
     # EllipticFrame uses symmetric S where M = S²
-    # Ellipse has M = A*A' where A = R(θ)*diag(a,b) is non-symmetric
+    # Ellipse has M = A*A' where its shape factor A = R(θ)*diag(a,b) is non-symmetric
     # Compute S = M^(1/2) via eigendecomposition
     return EllipticFrame{T}(e.center, SMatrix{2, 2, T}(_sym_sqrt(moment_matrix(e))))
 end
 
 # Properties
-shape_matrix(f::EllipticFrame) = f.S
+shape_factor(f::EllipticFrame) = f.S
 moment_matrix(f::EllipticFrame) = f.S * f.S'  # M = S²
 
 # =============================================================================
@@ -357,7 +359,7 @@ that a symmetric matrix cannot represent.
 
 # Fields
 - `center::Point2{T}`: Center position in image coordinates
-- `A::SMatrix{2,2,T,4}`: Shape matrix (general, not necessarily symmetric)
+- `A::SMatrix{2,2,T,4}`: Shape factor (general, not necessarily symmetric; moment matrix M = A·Aᵀ)
 
 # Decomposition
 Any A can be decomposed as A = R(φ)·S where:
@@ -366,7 +368,7 @@ Any A can be decomposed as A = R(φ)·S where:
 
 # Example
 ```julia
-A = @SMatrix [2.0 0.5; -0.5 1.0]  # general shape matrix
+A = @SMatrix [2.0 0.5; -0.5 1.0]  # general shape factor
 frame = AffineFrame(Point2(100.0, 200.0), A)
 T = AffineMap(frame)  # AffineMap: u → A*u + center
 ```
@@ -375,10 +377,10 @@ See also: [`EllipticFrame`](@ref)
 """
 struct AffineFrame{T} <: FeatureFrame{T}
     center::Point2{T}
-    A::SMatrix{2, 2, T, 4}  # general shape matrix
+    A::SMatrix{2, 2, T, 4}  # general shape factor (M = A·Aᵀ)
 
     function AffineFrame{T}(center::Point2{T}, A::SMatrix{2, 2, T, 4}) where {T}
-        det(A) > 0 || throw(ArgumentError("Shape matrix A must have positive determinant"))
+        det(A) > 0 || throw(ArgumentError("the shape factor A must have positive determinant"))
         return new{T}(center, A)
     end
 end
@@ -408,7 +410,7 @@ function AffineFrame(d::Disc{T}, φ::Real) where {T}
 end
 
 # Properties
-shape_matrix(f::AffineFrame) = f.A
+shape_factor(f::AffineFrame) = f.A
 moment_matrix(f::AffineFrame) = f.A * f.A'  # M = A·A'
 
 # Extract symmetric part (EllipticFrame)
@@ -422,12 +424,12 @@ end
 # aspect_ratio(::Disc) threw MethodError — Disc/OrientedDisc carry a single
 # σ, which IS the characteristic scale, with aspect ratio 1 by definition.
 characteristic_scale(f::FeatureFrame) = _characteristic_scale(frame_scale(f), f)
-_characteristic_scale(::ShapeMatrixScale, f) = sqrt(abs(det(shape_matrix(f))))
+_characteristic_scale(::ShapeFactorScale, f) = sqrt(abs(det(shape_factor(f))))
 _characteristic_scale(::IsotropicScale, f) = f.σ
 
 aspect_ratio(f::FeatureFrame) = _aspect_ratio(frame_scale(f), f)
-function _aspect_ratio(::ShapeMatrixScale, f)
-    svs = svdvals(shape_matrix(f))
+function _aspect_ratio(::ShapeFactorScale, f)
+    svs = svdvals(shape_factor(f))
     return sqrt(maximum(svs) / minimum(svs))
 end
 _aspect_ratio(::IsotropicScale, f) = one(f.σ)
@@ -463,7 +465,7 @@ function CoordinateTransformations.AffineMap(d::OrientedDisc{T}) where {T}
 end
 
 CoordinateTransformations.AffineMap(f::FeatureFrame) = _affine_map_frame(frame_scale(f), f)
-_affine_map_frame(::ShapeMatrixScale, f) = AffineMap(shape_matrix(f), SVector{2}(f.center...))
+_affine_map_frame(::ShapeFactorScale, f) = AffineMap(shape_factor(f), SVector{2}(f.center...))
 
 # =============================================================================
 # Boundary Sampling (HasBoundary trait implementation)
@@ -522,7 +524,7 @@ ell = region(frame, 2.0)  # Ellipse at 2σ
 """
 region(f::FeatureFrame, k::Real = 1.0) = _frame_region(frame_scale(f), _strip_frame(f), k)
 _frame_region(::IsotropicScale, d, k) = Circle(d, k)
-_frame_region(::ShapeMatrixScale, f, k) = Ellipse(f, k)
+_frame_region(::ShapeFactorScale, f, k) = Ellipse(f, k)
 
 """
     boundary(center, Σ::AbstractMatrix, n_sigma::Real=1.0) -> Ellipse
@@ -564,7 +566,7 @@ function _frame_circle(::IsotropicScale, d, r)
     cx, cy, σ = _strip_coords((d.center[1], d.center[2], d.σ))
     return Circle(Point2(cx, cy), r * σ)
 end
-_frame_circle(::ShapeMatrixScale, f, r) = Circle(f.center, r * characteristic_scale(f))
+_frame_circle(::ShapeFactorScale, f, r) = Circle(f.center, r * characteristic_scale(f))
 
 # =============================================================================
 # Ellipse Construction from FeatureFrame
@@ -576,7 +578,7 @@ _frame_circle(::ShapeMatrixScale, f, r) = Circle(f.center, r * characteristic_sc
 Construct an Ellipse from a FeatureFrame at the `r`-σ contour.
 
 For isotropic frames, returns a circle-equivalent ellipse (a == b).
-For anisotropic frames, computes semi-axes via SVD of the scaled shape matrix.
+For anisotropic frames, computes semi-axes via SVD of the scaled shape factor.
 
 # Example
 ```julia
@@ -590,8 +592,8 @@ function _frame_ellipse(::IsotropicScale, d, r)
     T = typeof(radius)
     return Ellipse(d.center, radius, radius, zero(T))
 end
-function _frame_ellipse(::ShapeMatrixScale, f, r)
-    M = r * shape_matrix(f)
+function _frame_ellipse(::ShapeFactorScale, f, r)
+    M = r * shape_factor(f)
     U, σs, _ = svd(M)
     return Ellipse(f.center, σs[1], σs[2], atan(U[2, 1], U[1, 1]))
 end
@@ -631,21 +633,22 @@ end
 # Conversions between MvNormal and Frames
 # =============================================================================
 
-# Note: MvNormal stores covariance Σ, EllipticFrame stores shape matrix S
-# Relationship: M = S·S' (S²) for symmetric S; MvNormal uses M as its covariance
+# Note: MvNormal stores covariance Σ, EllipticFrame stores the shape factor S
+# Relationship: M = S·S' (S²) for symmetric S, the moment matrix; the frame is the 1σ contour, Σ = M
 # EllipticFrame(d::AbstractMvNormal) is defined in mvnormal_geometry.jl
 
 """
     MvNormal(f::EllipticFrame) -> MvNormal
     MvNormal(f::AffineFrame) -> MvNormal
 
-Convert a shape-matrix frame to an MvNormal (statistical).
+Convert a shape-factor frame to an MvNormal (statistical).
 
-Computes the moment matrix M = shape·shape' and uses it as MvNormal covariance.
+The frame is read as the Gaussian's 1σ contour: its moment matrix
+M = F·Fᵀ ([`moment_matrix`](@ref), F the shape factor) is the covariance.
 Note: For AffineFrame, this loses the in-plane rotation since Σ = A·A' is symmetric.
 """
 MvNormal(f::FeatureFrame) = _frame_mvnormal(frame_scale(f), f)
-function _frame_mvnormal(::ShapeMatrixScale, f)
+function _frame_mvnormal(::ShapeFactorScale, f)
     T = eltype(f.center)
     Σ = SMatrix{2, 2, T}(moment_matrix(f))
     return MvNormal(SVector{2, T}(f.center...), Σ)

@@ -25,6 +25,16 @@ Needs the VisualGeometryToolkitCore release with `RadialHomography{T, N}` (its
 - The radial-homography extent gate calls VisualGeometryToolkitCore's public
   `radial_in_front` (no private names of another stack package).
 
+## 0.6.1 (2026-11-06)
+
+VisualGeometryToolkitCore 0.6 (compat `"0.6"`).
+
+- A pose is converted to the problem's model type once, where refinement and
+  local optimization start; any other model type is refused.
+- `fit_camera` reports a non-finite focal scale as `:solve_failed`.
+- The spelled-out `CovMat` types follow Core 0.6's `CovMat{N, T, M}` (a
+  static matrix held, full, diagonal or isotropic).
+
 ## 0.6.0 (2026-11-04)
 
 - **`fit_camera(T, source, region; …)`: one model-to-model regression** —

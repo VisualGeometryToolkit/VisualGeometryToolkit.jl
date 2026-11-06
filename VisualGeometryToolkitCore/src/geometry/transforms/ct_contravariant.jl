@@ -173,7 +173,7 @@ Transform a 2D line through an affine map. Lines stay lines under affine transfo
 #
 # x ↦ s·R·x + t preserves angles and length ratios, so each action is exact
 # and closed: centre ↦ s R c + t, lengths (a radius, the axes, σ) ↦ s·length,
-# orientation ↦ + angle(R), a shape matrix S (Σ = S²) ↦ s·R S Rᵀ, an affine
+# orientation ↦ + angle(R), a shape factor S (Σ = S²) ↦ s·R S Rᵀ, an affine
 # frame's A ↦ s·R A, a line n·x + c = 0 ↦ (R n)·x′ + (s c − (R n)·t) = 0 (its
 # normal's length kept). An EuclideanMap{2} is the similarity of scale 1 and
 # acts through it, bit for bit (s·x is exact at s = 1): a labeled rigid map —

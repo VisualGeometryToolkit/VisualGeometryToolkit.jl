@@ -170,17 +170,23 @@ function intersects end
 """
     moment_matrix(g)
 
-Return the moment matrix M = S·S' (or A·A') of a blob-like primitive.
+The matrix `M` of an elliptical region `{x : (x-c)ᵀ M⁻¹ (x-c) ≤ 1}` (the
+ellipsoidal-calculus `E(c, M)`), symmetric positive-definite: `M = F·Fᵀ` with
+`F` its [`shape_factor`](@ref) (`S²` for an `EllipticFrame`, `A·Aᵀ` for an
+`AffineFrame`).
 
-This is the symmetric positive-definite matrix defining the elliptical shape
-(second moment of the blob's spatial extent), NOT a statistical covariance.
-
-The ellipse boundary is `{x : (x-c)ᵀ M⁻¹ (x-c) = 1}`.
+It is the region's shape, not its second moment: the uniform density on the
+region has covariance `M/4`, and in affine feature detection the
+"second-moment matrix" is the structure tensor `μ ≈ M⁻¹`. A frame built from a
+Gaussian `N(c, Σ)` takes its 1σ contour, `M = Σ` ([`EllipticFrame`](@ref)
+of an `MvNormal`, a `Paraboloid3D`'s equivalent Gaussian). (The name is
+retired in 0.7, where this matrix takes the ellipsoidal-calculus name.)
 
 Methods:
 - `moment_matrix(::EllipticFrame)` → `SMatrix{2,2,T,4}`
 - `moment_matrix(::AffineFrame)` → `SMatrix{2,2,T,4}`
 - `moment_matrix(::Ellipse)` → `SMatrix{2,2,T,4}`
+- `moment_matrix(::Paraboloid3D)` → `SMatrix{2,2,T,4}`
 """
 function moment_matrix end
 
@@ -303,18 +309,22 @@ Methods:
 function scale end
 
 """
-    shape_matrix(frame)
+    shape_factor(g)
 
-Return the shape matrix of an anisotropic feature frame.
+The factor `F` of an elliptical region's matrix `M = F·Fᵀ` ([`moment_matrix`](@ref)):
+the linear part of the affine map that takes the unit disc onto the region,
+`{c + F u : ‖u‖ ≤ 1}`.
 
-For `EllipticFrame`, returns the symmetric shape matrix S where Σ = S².
-For `AffineFrame`, returns the general shape matrix A where Σ = A·A'.
+For `EllipticFrame`, the symmetric factor `S` (`M = S²`); for `AffineFrame`,
+the general factor `A` (`M = A·Aᵀ`, `A` keeping the in-plane rotation that `M`
+loses); for `Ellipse`, `R(θ)·diag(a, b)`.
 
 Methods:
-- `shape_matrix(::EllipticFrame)` → `SMatrix{2,2}`
-- `shape_matrix(::AffineFrame)` → `SMatrix{2,2}`
+- `shape_factor(::EllipticFrame)` → `SMatrix{2,2}`
+- `shape_factor(::AffineFrame)` → `SMatrix{2,2}`
+- `shape_factor(::Ellipse)` → `SMatrix{2,2}`
 """
-function shape_matrix end
+function shape_factor end
 
 """
     area(primitive)

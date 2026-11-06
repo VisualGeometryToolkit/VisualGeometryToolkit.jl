@@ -16,6 +16,6 @@ Modules = [VisualGeometryToolkitIO]
 Pages = [
     "VisualGeometryToolkitIO.jl", "lengths.jl", "core_json.jl", "json.jl", "style.jl", "validate.jl", "frame_names.jl",
     "transform_schema.jl", "camera_schema.jl", "generic_camera_schema.jl",
-    "rig_schema.jl", "captures_schema.jl", "canonical.jl", "jsonl.jl", "calibration_manifest.jl",
+    "rig_schema.jl", "captures_schema.jl", "capture_settings_schema.jl", "radiometry_schema.jl", "canonical.jl", "jsonl.jl", "calibration_manifest.jl",
 ]
 ```

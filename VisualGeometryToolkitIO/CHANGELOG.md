@@ -1,6 +1,6 @@
 # VisualGeometryToolkitIO changelog
 
-## Unreleased
+## 0.6.0 (2026-11-06)
 
 - **`read_record(io::IO)`**: a record from JSON text (BlobBoards' `rebuild_board` takes a board's JSON as text),
   the same parse, version steps and refusals as `read_record(path)`. A schema owner's step that refuses a record

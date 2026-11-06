@@ -1,6 +1,6 @@
 # VisualGeometryToolkitCore changelog
 
-## 0.6.0 (Unreleased)
+## 0.6.0 (2026-11-06)
 
 - **`ThinPlateSplineSystem` solves a conditioned system.** It centred nothing and scaled nothing, so on pixel nodes (a
   5208 × 3476 sensor's grid) `[K P; Pᵀ 0]` had a condition number of 2e18; the nodes are now centred on their centroid

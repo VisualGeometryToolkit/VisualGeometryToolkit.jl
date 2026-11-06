@@ -1,6 +1,8 @@
 # PoseLib changelog
 
-## Unreleased
+## 0.1.7 (2026-11-06)
+
+VisualGeometryToolkitCore 0.6 (compat `"0.6"`).
 
 - `essential_dlt` with fewer than eight correspondences throws an
   `ArgumentError` naming the count it got (`essential_dlt needs at least 8

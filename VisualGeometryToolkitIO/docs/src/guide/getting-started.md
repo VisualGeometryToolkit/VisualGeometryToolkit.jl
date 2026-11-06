@@ -30,7 +30,7 @@ julia> VgtkIO.save(path, [X]; provenance = (method = "robot-world hand-eye",))
 
 julia> print(read(path, String))
 {
-    "schema": "vgio/transforms/v3",
+    "schema": "vgio/transforms/v4",
     "length_unit": "mm",
     "rotation_encoding": "quaternion_wxyz_hamilton",
     "transform_convention": "x_to = R * x_from + t",

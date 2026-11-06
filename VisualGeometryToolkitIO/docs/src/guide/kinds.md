@@ -340,9 +340,9 @@ an `ArgumentError` naming the tag. A kind whose structure its type does not fix 
 structure beside its parameters (a thin-plate kind's `nodes`).
 
 A package's own kind crosses the file boundary through the same pair the
-native kinds do: [`write_record`](@ref)`(path, record; style)` writes a record
+native kinds do: [`write_record`](@ref VisualGeometryToolkitIO.write_record)`(path, record; style)` writes a record
 (its VGC values lowered on `style`) in the vgio file shape, refusing a NaN or
-±Infinity by its field, and [`read_record`](@ref)`(path)` parses one back as
+±Infinity by its field, and [`read_record`](@ref VisualGeometryToolkitIO.read_record)`(path)` parses one back as
 its kind's current record, through the owner's version steps
 (`migrate_schema`, run by `migrate_record`) when the file is of an earlier
 version; a step's refusal names the file and its schema. `read_record(io)`

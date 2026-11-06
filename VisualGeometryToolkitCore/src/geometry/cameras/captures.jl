@@ -455,7 +455,7 @@ measured point — so the pairing with the design is
 and Kalibr's detections are); a target not detected in a frame is absent.
 Built from `frames = Dict(t => Dict(id => cs))`, each `cs` any vector of
 `index => point` pairs ([`csponds`](@ref)`(indices, points)`), with optional
-per-detection attribute columns ([`withattrs`](@ref)`(cs; weights = w)`, a
+per-detection attribute columns ([`withattrs`](@ref VisualGeometryToolkitCore.withattrs)`(cs; weights = w)`, a
 bundle's weights), per the data-arguments convention.
 
 The dimension is the frame's: `F <: PixelFrame` holds pixels in that pixel

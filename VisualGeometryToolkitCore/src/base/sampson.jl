@@ -470,11 +470,28 @@ sampson_residuals!(r::AbstractVector, M, xs::AbstractVector) =
 (`Σ` of a point set, `Σ₁`/`Σ₂` of a correspondence set — conventions/
 measurement-noise.md): element `i`'s constraint `L⁻¹gᵢ`, `LLᵀ = G_x·Σᵢ·G_xᵀ`,
 in σ units (`‖rᵢ‖² ~ χ²(dg)`; an exact source with a plain target is the
-transfer error in the target's units). Without noise columns it IS
-`sampson_residuals!`. GTSAM's `NoiseModelFactor::whitenedError` is this per
-factor (and `unwhitenedError` the constraint); a degenerate element is zero.
+transfer error in the target's units). UNWEIGHTED: a `sqrt_weights` column
+is not read — the same currency as the problem-level
+`whitened_residuals!(r, problem, model)`; the √w-weighted rows a least-squares
+solver takes are [`weighted_whitened_residuals!`](@ref). Without noise
+columns it is the unweighted `sampson_residuals!`. GTSAM's
+`NoiseModelFactor::whitenedError` is this per factor (and `unwhitenedError`
+the constraint); a degenerate element is zero.
 """
 whitened_residuals!(r::AbstractVector, M, xs::AbstractVector) =
+    _foreach_row!(_sampson_residual_row!, r, length(xs), M, _measurement_columns(xs), constraint_keywords(M, xs), _noise_columns(xs),
+        nothing)
+
+"""
+    weighted_whitened_residuals!(r, M, xs) -> r
+
+[`whitened_residuals!`](@ref) times `√wᵢ` from the set's `sqrt_weights`
+column (absent: 1): the least-squares rows of a weighted fit — the chart LM's
+`residual_rows!` of a Sampson-constraint problem (conventions/jacobians.md: LM
+rows are √w-weighted, the RANSAC rows are not). Its model rows are
+[`weighted_whitened_jacobian_rows!`](@ref).
+"""
+weighted_whitened_residuals!(r::AbstractVector, M, xs::AbstractVector) =
     _foreach_row!(_sampson_residual_row!, r, length(xs), M, _measurement_columns(xs), constraint_keywords(M, xs), _noise_columns(xs),
         attribute_column(xs, :sqrt_weights))
 
@@ -498,9 +515,22 @@ sampson_jacobian_rows!(J::AbstractMatrix, M, directions::Union{StaticMatrix, Tup
 
 The model rows of [`whitened_residuals!`](@ref): [`sampson_jacobian_rows!`](@ref)
 with the measurements' noise columns, the Cholesky factor of `G_x·Σᵢ·G_xᵀ`
-differentiated with the model (exact, not frozen).
+differentiated with the model (exact, not frozen). Unweighted, as its
+residuals; [`weighted_whitened_jacobian_rows!`](@ref) is the √w form.
 """
 whitened_jacobian_rows!(J::AbstractMatrix, M, directions::Union{StaticMatrix, Tuple}, xs::AbstractVector) =
+    _foreach_row!(_sampson_jacobian_row!, J, length(xs), M, _direction_rows(directions), _measurement_columns(xs),
+        constraint_keywords(M, xs), _noise_columns(xs), nothing)
+
+"""
+    weighted_whitened_jacobian_rows!(J, M, directions, xs) -> J
+
+The model rows of [`weighted_whitened_residuals!`](@ref):
+[`whitened_jacobian_rows!`](@ref) times `√wᵢ` from the set's `sqrt_weights`
+column — the chart LM's `residual_jacobian_rows!` of a Sampson-constraint
+problem.
+"""
+weighted_whitened_jacobian_rows!(J::AbstractMatrix, M, directions::Union{StaticMatrix, Tuple}, xs::AbstractVector) =
     _foreach_row!(_sampson_jacobian_row!, J, length(xs), M, _direction_rows(directions), _measurement_columns(xs),
         constraint_keywords(M, xs), _noise_columns(xs), attribute_column(xs, :sqrt_weights))
 

@@ -268,32 +268,43 @@ struct SampleBudgetMethodSpec{S}
 end
 
 """
-    MsacSpec(name, loss_width, lo; refinement_loss_width = nothing)
+    LossWidthSpec(name, scoring, loss_width, lo = NoLocalOptimization(); refinement_loss_width = nothing)
 
-One MSAC column of [`evaluate_sample_budget`](@ref): MSAC selection
-(VisualGeometryToolkitCore's `MsacScoring` at threshold `loss_width`, pool frame), its
-running best refit by its own refiner `lo` (a paper's truncated refiner — an
-`ExternalRefit` strategy such as PoseLib's TLS-LM) at `refinement_loss_width`,
-the arm's tuned refinement loss width; `nothing` refits at the selection loss
-width.
+One loss-width column of [`evaluate_sample_budget`](@ref): selection by
+`scoring`, a loss-width family's template (its `width_axis` is `LossWidth()`:
+VisualGeometryToolkitCore's `MsacScoring(dg)` or `RansacScoring(dg)`, or a
+paper's family with the same `with_width` and `score!` methods), built at
+`loss_width` (pool frame) with `with_width(scoring, LossWidth(loss_width))`.
+Its running best is refit by its own refiner `lo` (a paper's truncated refiner
+— an `ExternalRefit` strategy such as PoseLib's TLS-LM) at
+`refinement_loss_width`, the arm's tuned refinement loss width (`nothing`:
+the selection loss width). With `lo = NoLocalOptimization()` the column is
+selection only: its LO checkpoints record the selected model's `model_imc`, the
+same statistic as its batch checkpoints, and cost no refit.
 """
-struct MsacSpec{L}
+struct LossWidthSpec{S, L}
     name::Symbol
+    scoring::S
     loss_width::Float64
     lo::L
     refinement_loss_width::Union{Nothing,Float64}
 end
-MsacSpec(name::Symbol, loss_width::Real, lo::AbstractLocalOptimization;
-         refinement_loss_width::Union{Nothing,Real} = nothing) =
-    MsacSpec(name, Float64(loss_width), lo,
-             refinement_loss_width === nothing ? nothing : Float64(refinement_loss_width))
+function LossWidthSpec(name::Symbol, scoring::AbstractScoring, loss_width::Real,
+                       lo::AbstractLocalOptimization = NoLocalOptimization();
+                       refinement_loss_width::Union{Nothing,Real} = nothing)
+    width_axis(scoring) == LossWidth() || throw(ArgumentError(
+        "LossWidthSpec $name: a $(nameof(typeof(scoring))) is not a loss-width family (its width axis is " *
+            "$(width_axis(scoring))); a Student-t + uniform column is a SampleBudgetMethodSpec"))
+    return LossWidthSpec(name, scoring, Float64(loss_width), lo,
+                         refinement_loss_width === nothing ? nothing : Float64(refinement_loss_width))
+end
 
 # The selection width of a method column: its scoring's outlier half-width.
 function _method_width(m::SampleBudgetMethodSpec)
     a = outlier_halfwidth(m.scoring)
     a === nothing && throw(ArgumentError(
         "evaluate_sample_budget: method $(m.name) scores with a $(nameof(typeof(m.scoring))), which has no " *
-            "outlier half-width; a threshold column is an MsacSpec"))
+            "outlier half-width; a loss-width column is a LossWidthSpec"))
     return Float64(a)
 end
 
@@ -303,7 +314,7 @@ _template(m::SampleBudgetMethodSpec) = with_width(m.scoring, OutlierHalfwidth(1.
 
 """
     evaluate_sample_budget(problem_type, methods::Vector{<:SampleBudgetMethodSpec}, pairs, residuals;
-                           pair_ids, msac_specs::Vector{<:MsacSpec}, cfg::SampleBudgetConfig,
+                           pair_ids, loss_width_specs::Vector{<:LossWidthSpec}, cfg::SampleBudgetConfig,
                            sample_starts = nothing, refit_scoring = methods[1].scoring)
         -> SampleBudgetResults
 
@@ -314,8 +325,10 @@ A `:samples` budget (`cfg.budget_unit`) counts minimal samples through
 `sample_starts[i]`, pair `i`'s minimal-sample starts — VisualGeometryToolkitEval
 `sample_starts(pool)`, the one reconstruction of sample boundaries; it is
 required then and ignored for a `:models` budget.
-Columns: the scoring methods, then one MSAC column per [`MsacSpec`](@ref),
-then the oracle (last). Every native refit is seeded under `refit_scoring` (a
+Columns: the scoring methods, then one loss-width column per
+[`LossWidthSpec`](@ref) (MSAC, or a paper's loss-width family; selection only
+under `NoLocalOptimization`), then the oracle (last). Every checkpoint records
+the running best's `model_imc`. Every native refit is seeded under `refit_scoring` (a
 scoring TEMPLATE, rebuilt at each refit's own outlier half-width) — the
 methods' own: they must share it.
 Parallel over pairs; per-method scoring workspaces preallocated per thread.
@@ -325,7 +338,7 @@ function evaluate_sample_budget(problem_type::Type,
                                 pairs::AbstractVector{<:PoolPair},
                                 residuals::AbstractVector{<:AbstractMatrix{Float32}};
                                 pair_ids::AbstractVector{<:AbstractString} = String[],
-                                msac_specs::AbstractVector{<:MsacSpec} = MsacSpec[],
+                                loss_width_specs::AbstractVector{<:LossWidthSpec} = LossWidthSpec[],
                                 cfg::SampleBudgetConfig,
                                 sample_starts::Union{Nothing,AbstractVector{<:AbstractVector{<:Integer}}} = nothing,
                                 refit_scoring = isempty(methods) ? nothing : methods[1].scoring)
@@ -342,16 +355,22 @@ function evaluate_sample_budget(problem_type::Type,
     # builds its scoring from it at its own native (as the miscal evaluation's
     # `apply_lo_refits` does) — a method selecting under another template (a
     # scale prior) would refit under the first method's.
-    foreach(_method_width, methods)   # a threshold scorer is refused first: it is an MsacSpec
+    foreach(_method_width, methods)   # a loss-width scorer is refused first: it is a LossWidthSpec
     isempty(methods) || all(m -> _template(m) == _template(methods[1]), methods) ||
         throw(ArgumentError("evaluate_sample_budget: the methods select under different scoring templates " *
                             "($(unique([_template(m) for m in methods]))); the per-pair context and every " *
                             "refit carry one — run one evaluation per template"))
+    dg = codimension(problem_type)
+    for s in loss_width_specs
+        codimension(s.scoring) == dg || throw(ArgumentError(
+            "evaluate_sample_budget: column $(s.name) scores at codimension $(codimension(s.scoring)), " *
+                "the problem's is $dg"))
+    end
     M  = length(methods)
-    Mm = length(msac_specs)             # MSAC selectors (truncated select + LO)
+    Mm = length(loss_width_specs)       # loss-width selectors (select + their own LO, or none)
     B  = n_batches(cfg)
     L  = n_los(cfg)
-    nsel = M + Mm + 1            # scoring methods + MSAC + the oracle (last column)
+    nsel = M + Mm + 1            # scoring methods + loss-width columns + the oracle (last column)
 
     err_batch      = Array{Float32}(undef, P, nsel, B)
     best_idx_batch = Array{Int32}(undef,   P, nsel, B)
@@ -362,15 +381,14 @@ function evaluate_sample_budget(problem_type::Type,
     # One selector tuple per thread (each ScoreSelector owns its scoring +
     # scratch workspace); the OracleSelector is appended last.
     N_max = maximum(num_points, pairs)
-    dg    = codimension(problem_type)
     nt    = Threads.maxthreadid()
     _scorer(name, sc, width; kw...) =
         ScoreSelector(name, sc, width, scoring_workspace(sc, N_max, dg), Vector{Float64}(undef, N_max); kw...)
     _thread_tuple() = (
         Tuple(_scorer(m.name, m.scoring, _method_width(m)) for m in methods)...,
-        # MSAC selection + its own refiner: one selector per spec.
-        Tuple(_scorer(s.name, MsacScoring(dg; threshold = s.loss_width), s.loss_width;
-                      lo = s.lo, refinement_width = s.refinement_loss_width) for s in msac_specs)...,
+        # loss-width selection + its own refiner: one selector per spec.
+        Tuple(_scorer(s.name, with_width(s.scoring, LossWidth(s.loss_width)), s.loss_width;
+                      lo = s.lo, refinement_width = s.refinement_loss_width) for s in loss_width_specs)...,
         # Oracle refines its GT-best model at a representative outlier
         # half-width (the first method's).
         OracleSelector(:oracle, _method_width(methods[1])),
@@ -379,7 +397,7 @@ function evaluate_sample_budget(problem_type::Type,
 
     # Startup accounting: warm every active LO path single-threaded BEFORE the
     # loop (first call pays JIT). Makes the per-call numbers pure steady-state.
-    lo_startup_ns = _warmup_lo_startup(problem_type, methods, pairs, msac_specs, cfg, nsel, refit_scoring)
+    lo_startup_ns = _warmup_lo_startup(problem_type, methods, pairs, loss_width_specs, cfg, nsel, refit_scoring)
 
     Threads.@threads for i in 1:P
         tid = Threads.threadid()
@@ -404,7 +422,7 @@ function evaluate_sample_budget(problem_type::Type,
 
     return SampleBudgetResults(
         vcat(Symbol[m.name for m in methods],          # scoring methods …
-             Symbol[spec.name for spec in msac_specs],     # … then MSAC …
+             Symbol[spec.name for spec in loss_width_specs],   # … then the loss-width columns …
              [:oracle]),                               # … oracle last
         batch_sample_counts(cfg),
         lo_sample_counts(cfg),
@@ -418,9 +436,10 @@ end
 
 # Warm every active LO path once, single-threaded, on the first pair's first
 # model — compiles the path and records the cold cost (JIT + one call). Each
-# distinct path (the IRLS-family `cfg.lo_strategy`, and the truncated
-# refiner of the MSAC selectors) is measured once and broadcast to its columns.
-function _warmup_lo_startup(problem_type, methods, pairs, msac_specs, cfg, nsel, refit_scoring)
+# distinct path (the IRLS-family `cfg.lo_strategy`, and each refiner type of
+# the loss-width columns) is measured once and broadcast to its columns; a
+# selection-only column has none.
+function _warmup_lo_startup(problem_type, methods, pairs, loss_width_specs, cfg, nsel, refit_scoring)
     startup = zeros(Int64, nsel)
     isempty(pairs) && return startup
     M = length(methods)
@@ -442,13 +461,15 @@ function _warmup_lo_startup(problem_type, methods, pairs, msac_specs, cfg, nsel,
         for m in 1:M; startup[m] = cold; end
         startup[nsel] = cold                       # oracle (last column)
     end
-    # Truncated path (shared by all MSAC columns).
-    if !isempty(msac_specs)
-        s1 = first(msac_specs)
-        t  = time_ns()
-        refit_imc!(ctx, s1.lo, seed_E, s1.loss_width)
-        cold = Int64(time_ns() - t)
-        startup[M .+ eachindex(msac_specs)] .= cold
+    # The loss-width columns' own refiners: one warm call per refiner type.
+    cold = Dict{DataType,Int64}()
+    for (k, s) in enumerate(loss_width_specs)
+        s.lo isa NoLocalOptimization && continue
+        startup[M + k] = get!(cold, typeof(s.lo)) do
+            t = time_ns()
+            refit_imc!(ctx, s.lo, seed_E, s.loss_width)
+            Int64(time_ns() - t)
+        end
     end
     return startup
 end

@@ -5,6 +5,8 @@
 
 @testitem "render_helpers" setup = [StyleFixtures] begin
     using Test, JLD2
+    using DataFrames: DataFrame
+    using VisualGeometryToolkitEval.Render: results_by_method, load_results
     using VisualGeometryToolkitEval.Stats: finite_median, eligible_maa
     using VisualGeometryToolkitEval.Render: pgf_coords, evaluation_curve, family_rank, FAMILY_ORDER,
         color_defs, house_colors, paper_color_name, paper_color_defs, PANELS, PaperStyle,
@@ -14,6 +16,32 @@
         @test pgf_coords([0.5, 1.0, 2.0], [1.0, NaN, Inf]) == "(0.500000,1.0000)"
         @test pgf_coords([10, 20], [0.25, 0.5]; fmt = "(%d,%.4f)") == "(10,0.2500) (20,0.5000)"
         @test pgf_coords(Float64[], Float64[]) == ""
+    end
+
+    @testset "results_by_method and load_results" begin
+        summary = DataFrame(method = ["RANSAC (median)", "IG  sel (mAA)", "RANSAC (median)", "IG  sel (maa)", "IG  sel"],
+                            tuning_criterion = ["median", "mAA", "median", "mAA", "median"],
+                            n = [20, 10, 5, 40, 7], mean_med = [1.0, 2.0, 3.0, 4.0, 5.0])
+        before = copy(summary)
+        data = results_by_method(summary)
+        @test summary == before                                          # the summary is not modified
+        @test sort(collect(keys(data))) == [("IG  sel", "mAA"), ("IG  sel", "median"), ("RANSAC", "median")]
+        @test data[("RANSAC", "median")].nn == [5.0, 20.0] && data[("RANSAC", "median")].mean_med == [3.0, 1.0]
+        @test data[("IG  sel", "mAA")].n == [10, 40]                     # either case of the suffix is one method
+        # RSDR's copy (`sensitivity_data`: a mask per key instead of groupby): the same rows per key
+        rsdr(df0) = begin
+            df = copy(df0)
+            df.method_key = [replace(strip(String(m)), r"\s*\((?:median|mAA)\)$"i => "") for m in df.method]
+            df.tune_key = String.(df.tuning_criterion); df.nn = Float64.(df.n); sort!(df, :nn)
+            Dict((String(k[1]), String(k[2])) => df[(df.method_key .== k[1]) .& (df.tune_key .== k[2]), :]
+                 for k in unique(zip(df.method_key, df.tune_key)))
+        end
+        @test keys(rsdr(summary)) == keys(data) && all(DataFrame(data[k]) == rsdr(summary)[k] for k in keys(data))
+        mktempdir() do dir
+            p = joinpath(dir, "summary.jld2")
+            JLD2.jldsave(p; summary)
+            @test all(DataFrame(load_results(p)[k]) == DataFrame(data[k]) for k in keys(data))
+        end
     end
 
     @testset "evaluation_curve" begin

@@ -247,6 +247,39 @@ The number of stored minimal-sample models: the residual matrix's column count.
 num_models(pair::PoolPair) = length(pair.models)
 
 """
+    check_residual_matrix(pair::PoolPair, R::AbstractMatrix) -> nothing
+
+The pool record's residual-matrix contract: `R` is `num_points(pair) ×
+num_models(pair)`, its rows the pair's correspondences and its columns the
+stored models. Any other shape is a `DimensionMismatch`, so a matrix of another
+pair is refused rather than read. Every scorer entry that reads a pair's
+residuals calls it.
+"""
+function check_residual_matrix(pair::PoolPair, R::AbstractMatrix)
+    n, M = num_points(pair), num_models(pair)
+    size(R) == (n, M) || throw(DimensionMismatch(
+        "residual matrix of size $(size(R)) for a pool pair of $n points and $M models " *
+            "(expected num_points × num_models)"))
+    return nothing
+end
+
+"""
+    best_model_index(score, M::Integer) -> Int
+
+The one pool argmax: the index of the best of models `1:M` under `score(j)`.
+The FIRST strictly best model wins; a non-finite score (`NaN`, `±Inf`) never
+wins; `0` (never a valid index) means no model scores a finite value.
+"""
+@inline function best_model_index(score::F, M::Integer) where {F}
+    best_j = 0; best = -Inf
+    for j in 1:M
+        s = score(j)
+        (isfinite(s) && s > best) && (best = Float64(s); best_j = j)
+    end
+    return best_j
+end
+
+"""
     pool_imc(pair::PoolPair, j::Integer) -> Float64
 
 The stored selection pose error [deg] of pool model `j` — the "imc" every pool

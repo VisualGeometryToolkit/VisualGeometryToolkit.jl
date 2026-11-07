@@ -132,6 +132,46 @@ end
 
 convert_eltype(::Type{T}, b::GaussianBlur) where {T <: Real} = GaussianBlur(CovMat{2, T}(b.covariance))
 
+# The parameter protocol: a blur's coefficients are the free entries of its
+# covariance's storage — a round blur its variance `(:variance,)`, an
+# axis-aligned one `(:variance_x, :variance_y)`, a general one
+# `(:variance_x, :covariance_xy, :variance_y)` — so a fit keeps the structure
+# it was given. A variance is bounded below by 0 (open: a
+# `ParameterManifold`'s chart is then `σ² = σ₀²·exp(v)`, the log chart); the
+# off-diagonal is unbounded, and a general covariance stepped past positive
+# semidefiniteness is refused by `with_parameters`, as by the constructor. The
+# frame of the covariance is kept. A print's blur (m² quantities) is stripped
+# first (`ustrip(u, b)`).
+parameter_vector(b::GaussianBlur) = (_plain_blur(b, parameter_vector); _blur_parameters(parent(b.covariance)))
+_blur_parameters(S::ScaledIdentity{2}) = StaticArrays.SVector(S.λ)
+_blur_parameters(D::LinearAlgebra.Diagonal) = StaticArrays.SVector(D.diag[1], D.diag[2])
+_blur_parameters(M::StaticArrays.SMatrix{2, 2}) = StaticArrays.SVector(M[1, 1], M[1, 2], M[2, 2])
+parameter_names(b::GaussianBlur) = _blur_names(parent(b.covariance))
+_blur_names(::ScaledIdentity{2}) = (:variance,)
+_blur_names(::LinearAlgebra.Diagonal) = (:variance_x, :variance_y)
+_blur_names(::StaticArrays.SMatrix{2, 2}) = (:variance_x, :covariance_xy, :variance_y)
+function parameter_bounds(b::GaussianBlur)
+    θ = parameter_vector(b)
+    T = float(eltype(θ))
+    lo = map(n -> n === :covariance_xy ? T(-Inf) : zero(T), parameter_names(b))
+    return (StaticArrays.SVector(lo), StaticArrays.SVector(map(_ -> T(Inf), lo)))
+end
+function with_parameters(b::GaussianBlur, θ::AbstractVector)
+    _plain_blur(b, with_parameters)
+    S = parent(b.covariance)
+    n = length(_blur_names(S))
+    length(θ) == n || throw(ArgumentError("GaussianBlur takes $n parameters ($(join(_blur_names(S), ", "))); got $(length(θ))"))
+    Σ = _blur_storage(S, θ)
+    return GaussianBlur(CovMat{2, eltype(Σ), typeof(Σ), _frame(b.covariance)}(Σ))
+end
+_blur_storage(::ScaledIdentity{2}, θ) = ScaledIdentity{2}(θ[1])
+_blur_storage(::LinearAlgebra.Diagonal, θ) = LinearAlgebra.Diagonal(StaticArrays.SVector(θ[1], θ[2]))
+_blur_storage(::StaticArrays.SMatrix{2, 2}, θ) = StaticArrays.SMatrix{2, 2}(θ[1], θ[2], θ[2], θ[3])
+_plain_blur(b::GaussianBlur, f) = has_units(b) ?
+    throw(ArgumentError("$(nameof(f)): the blur's covariance holds quantities; strip it first, `ustrip(u, b)`")) : b
+# The imaging models with the parameter protocol (vignetting.jl, lighting.jl, here) on their ParameterManifold.
+local_coordinates(ch::ParameterManifold, x::Union{AbstractVignetting, EnvironmentLight, GaussianBlur}) = _parameter_offsets(ch, x)
+
 # Units: a print's blur is in m² (quantities), its plain form in a unit `u` in u² — the whole value's `ustrip(u, b)`.
 has_units(b::GaussianBlur) = has_units(b.covariance)
 FlexUnits.ustrip(u::Units, b::GaussianBlur) = has_units(b) ? GaussianBlur(_map_entries(x -> ustrip(u^2, x), b.covariance)) :

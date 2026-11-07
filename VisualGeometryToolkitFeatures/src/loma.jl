@@ -25,7 +25,7 @@
 import ONNXRunTime as ORT
 using Downloads: Downloads
 using Scratch: @get_scratch!
-using SHA: sha256
+using VisualGeometryToolkitCore: sha256_hex   # the stack's one hex digest: a model file's
 
 # =============================================================================
 # Models: the ONNX files of the `loma` release, pinned by sha256
@@ -74,7 +74,7 @@ function _loma_model_path(file, digest)
     isfile(path) && return path
     @info "Downloading LoMa model $file (cached in this package's scratch space)"
     tmp = Downloads.download("$_LOMA_RELEASE/$file", tempname(dirname(path)))
-    got = bytes2hex(open(sha256, tmp))
+    got = open(sha256_hex, tmp)
     if got != digest
         rm(tmp; force = true)
         error("LoMa model $file: sha256 $got, expected $digest")
@@ -115,13 +115,23 @@ function _loma_keypoints(features, sz)
     return kpts
 end
 
-# The n strongest detections (largest |response|, the DoG response is signed),
-# in detector order. Not `first(detections, n)`: ASIFT emits in scan order, so
-# a prefix covers only the top rows of the image.
-function _strongest(detections, n)
+"""
+    strongest(detections, n) -> detections
+
+The `n` strongest detections — the largest `|response|` (a DoG response is
+signed: a dark and a light blob of the same contrast are equally strong) — in
+detector order. Of detections that tie at the cut, the earlier ones are kept.
+With `n` or fewer detections, `detections` itself is returned (not a copy).
+
+Not `first(detections, n)`: ASIFT emits in scan order, so a prefix covers only
+the top rows of the image. [`LoMaDescriptor`](@ref) describes the
+`max_detections` strongest this way.
+"""
+function strongest(detections, n::Integer)
+    n >= 0 || throw(ArgumentError("strongest: n must be nonnegative, got $n"))
     length(detections) <= n && return detections
-    keep = partialsortperm(abs.(getproperty.(detections, :response)), 1:n; rev = true)
-    return detections[sort!(collect(keep))]
+    keep = sortperm(abs.(getproperty.(detections, :response)); rev = true)[1:n]   # stable: a tie keeps the earlier
+    return detections[sort!(keep)]
 end
 
 # =============================================================================
@@ -143,11 +153,18 @@ The network is [DeDoDe](https://github.com/Parskatt/DeDoDe)'s (Edstedt et al.,
 3DV 2024), as exported by [LoMa](https://github.com/davnords/LoMa); cite both
 (BibTeX in the package README).
 
-`img` is a `(3, 784, 784)` Float32 RGB channelview in [0, 1], as
-`Float32.(channelview(rgb))` gives it: the exported graph's input shape is
-fixed, and it feeds the first convolution directly, with no normalization.
-Do not ImageNet-normalize it: on LoMa's toronto pair that drops the matches
-from 166 to 14 (and none above probability 0.5).
+`img` is a `(3, H, W)` RGB channelview in [0, 1] of any size and real
+element type, as `Float32.(channelview(rgb))` gives it, and `detections` are
+in its COLMAP pixel frame. The exported graph's input is fixed at
+[`LOMA_IMAGE_SIZE`](@ref)² and feeds the first convolution directly, with no
+normalization: an image of another size is resampled to it per channel by
+VisualGeometryToolkitCore's bilinear `image_warp!` (the COLMAP scaling
+`x ↦ (W, H) / 784 ⊙ x`, no prefilter), and a `(3, 784, 784)` image is taken as
+it is. The keypoints enter the network's [-1, 1] chart from the image's own
+size, so the detections are never rescaled, and the described features carry
+them as given (frame in = frame out). Do not ImageNet-normalize the image: on
+LoMa's toronto pair that drops the matches from 166 to 14 (and none above
+probability 0.5).
 
 A descriptor pairs with the [`LoMaMatcher`](@ref)s of its dimension: `:b` with
 `:b128`, `:g` with `:b`, `:l`, `:g` and `:r`.
@@ -168,16 +185,39 @@ function LoMaDescriptor(
     return LoMaDescriptor(variant, max_detections, dim, _loma_session(file, digest, execution_provider))
 end
 
-const _LOMA_IMAGE_SIZE = (3, 784, 784)   # the descriptor graph's fixed input shape
+"""
+    LOMA_IMAGE_SIZE = 784
 
-function (l::LoMaDescriptor)(img, detections)
-    size(img) == _LOMA_IMAGE_SIZE || throw(ArgumentError(
-        "LoMaDescriptor takes a $(join(_LOMA_IMAGE_SIZE, '×')) RGB channelview, got size $(size(img))"))
-    detections = _strongest(detections, l.max_detections)
+The side of the DeDoDe descriptor graph's fixed square input: a
+[`LoMaDescriptor`](@ref) resamples an image of another size to
+`(3, 784, 784)`.
+"""
+const LOMA_IMAGE_SIZE = 784
+
+# The descriptor graph's input: the image as it is at the graph's size, else each channel resampled to it by the
+# COLMAP scaling of the network's pixels onto the image's (a downscale's taps all lie on the image, so the fill
+# never enters).
+function _loma_input(img::AbstractArray{<:Real, 3})
+    C, H, W = size(img)
+    C == 3 || throw(ArgumentError("LoMaDescriptor takes a 3 × H × W RGB channelview, got size $(size(img))"))
+    n = LOMA_IMAGE_SIZE
+    (H, W) == (n, n) && return convert(Array{Float32, 3}, img)
+    bm = image_warp(AffineMap(SMatrix{2, 2, Float64, 4}(W / n, 0.0, 0.0, H / n), SVector(0.0, 0.0)), Rect(0, 0, n, n))
+    out = Array{Float32}(undef, 3, n, n)
+    plane = Matrix{Float32}(undef, n, n)
+    for c in 1:3
+        out[c, :, :] .= image_warp!(plane, bm, view(img, c, :, :))
+    end
+    return out
+end
+
+function (l::LoMaDescriptor)(img::AbstractArray{<:Real, 3}, detections)
+    input = _loma_input(img)
+    detections = strongest(detections, l.max_detections)
     descriptor_inputs = l.descriptor_model.input_names
 
     descriptors = l.descriptor_model(Dict(
-        descriptor_inputs[1] => insertdims(img, dims=1),
+        descriptor_inputs[1] => insertdims(input, dims=1),
         descriptor_inputs[2] => _loma_keypoints(detections, size(img))
     ))["descriptions"]
     described_features(detections, dropdims(descriptors, dims=1))

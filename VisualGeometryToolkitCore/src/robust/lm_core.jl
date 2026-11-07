@@ -724,3 +724,26 @@ end
 # `computeresjac` when a hand-written Jacobian is faster.
 NLLSsolver.nvars(m::Manifold) = NLLSsolver.static(tangent_size(m))
 NLLSsolver.update(m::Manifold, δ, start = 1) = recenter(m, tangent_part(m, δ, start - 1))
+
+"""
+    Eliminable{E}(value)
+
+An NLLSsolver variable — a Core [`Manifold`](@ref), an `SVector`, any value
+with NLLSsolver's `nvars`/`update` — that the solver may ELIMINATE (`E =
+true`): the Schur-complement linear system eliminates every such variable
+(a bundle's structure points, a rotation bundle's track directions) before it
+solves for the rest. `nvars` and `update` forward to `value` (an update
+re-wraps the updated value); `iseliminable` is declared only where the
+installed NLLSsolver has the Schur system ([`nlls_features`](@ref)`().schur`),
+and `Eliminable{false}` is the same variable left in the full sparse LDL — what
+a solver without the Schur system takes, and a fallback test forces.
+"""
+struct Eliminable{E, V}
+    value::V
+end
+Eliminable{E}(value::V) where {E, V} = Eliminable{E, V}(value)
+NLLSsolver.nvars(e::Eliminable) = NLLSsolver.nvars(e.value)
+NLLSsolver.update(e::Eliminable{E}, δ, start = 1) where {E} = Eliminable{E}(NLLSsolver.update(e.value, δ, start))
+if _NLLS_HAS_SCHUR
+    NLLSsolver.iseliminable(::Type{<:Eliminable{true}}) = NLLSsolver.static(true)
+end

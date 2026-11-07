@@ -13,14 +13,15 @@
 # =============================================================================
 using Test, Random, LinearAlgebra, StaticArrays, StructArrays
 using StableRNGs
-using Rotations: RotY, RotXYZ
+using Rotations: RotY, RotXYZ, RotMatrix
 using VisualGeometryToolkitCore
+using VisualGeometryToolkitCore: EuclideanMap, Csponds
 using VisualGeometryToolkitCore: test_scoring_contract, test_constraint_problem, test_local_optimization_contract,
     MsacScoring, RansacScoring, estimate, converged, csponds, model_type, RadialCamera, RadialHomography,
     radial_transfer, WelschShape, TLSShape, data_size, codimension, minimal_sample_size, mahalanobis_distances!,
     residual_context, whitened_residual, rotation, translation, radial_rows, homography, division_coeff
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitEstimation: RansacConfig
+using VisualGeometryToolkitEstimation: RansacConfig, RelposeBundleProblem, BearingPoseProblem
 using VisualGeometryToolkitCore: RowsWorkspace, rows_provider, lift_init, lift_refresh!, lift_jacobian!, lift_retract,
     lift_model, lift_valid, lift_rows, lift_residuals, lift_size, point_norms!
 using VisualGeometryToolkitCore.Synthetic: projective_distance
@@ -127,6 +128,29 @@ end
     end
 end
 
+# The relative-pose bundle's scoring problem (its own residual context: the
+# cheiral pose of θ, the optimally triangulated reprojection) on a noisy
+# two-view scene, at the true essential matrix.
+function relpose_bundle_scene()
+    rng = StableRNG(37)
+    K = SMatrix{3, 3, Float64, 9}(800.0, 0.0, 0.0, 0.0, 800.0, 0.0, 320.0, 240.0, 1.0)
+    R = SMatrix{3, 3, Float64, 9}(RotY(0.2)); t = normalize(SVector(0.5, -0.1, 0.2))
+    Xs = [SVector(2rand(rng) - 1, 2rand(rng) - 1, 4 + 2rand(rng)) for _ in 1:60]
+    px(X) = (x = K * X; SVector(x[1] / x[3], x[2] / x[3]))
+    u1 = [px(X) + 0.5 * randn(rng, SVector{2, Float64}) for X in Xs]
+    u2 = [px(R * X + t) + 0.5 * randn(rng, SVector{2, Float64}) for X in Xs]
+    return RelposeBundleProblem(K, K, csponds(u1, u2)), VgtkCore.EssentialMat(R, t)
+end
+# The bearing pose problem (central bearings, a 2-component tangent residual),
+# at the true pose, with noisy bearings.
+function bearing_pose_scene()
+    rng = StableRNG(41)
+    E = EuclideanMap(RotMatrix(RotXYZ(0.1, -0.2, 0.3)), SVector(0.1, -0.2, 3.0))
+    Xs = [SVector(2rand(rng) - 1, 2rand(rng) - 1, 2rand(rng) - 1) for _ in 1:50]
+    fs = [normalize(E.R * X + E.t + 0.003 * randn(rng, SVector{3, Float64})) for X in Xs]
+    return BearingPoseProblem(Csponds(Xs, fs)), E
+end
+
 @testset "constraint-problem protocol: every problem with a scene" begin
     (pe, θe), (pf, θf) = epipolar_scenes()
     (pl, θl), (pih, θi) = line_scenes()
@@ -134,8 +158,18 @@ end
     # agree to rounding at the residuals' scale (E measured ≤ 5.7e-14 px against
     # residuals up to 271 px, 2026-10-09; PnP ≤ 1.3e-13 px; FMA contraction
     # differs between the vectorized loop and a single call).
-    for (p, θ) in (h_scene(), radial_homography_scene(), radial_camera_scene(), circle_scene(), ellipse_scene(), (pl, θl), (pih, θi), hand_eye_scene(), pnp_scene(), (pe, θe), (pf, θf))
+    scenes = (h_scene(), radial_homography_scene(), radial_camera_scene(), circle_scene(), ellipse_scene(), (pl, θl), (pih, θi),
+        hand_eye_scene(), pnp_scene(), (pe, θe), (pf, θf), relpose_bundle_scene(), bearing_pose_scene())
+    for (p, θ) in scenes
         test_constraint_problem(p, θ)
+    end
+    # A scalar constraint's residual is SIGNED: on noisy data the points lie on
+    # both sides of the model, so a residual whose sign was discarded (a
+    # distance under the residual's name) shows as no negative entry.
+    @testset "d_g = 1: the residual keeps its sign ($(nameof(typeof(p))))" for (p, θ) in [s for s in scenes if codimension(s[1]) == 1]
+        ctx = residual_context(p, θ)
+        w = [whitened_residual(p, ctx, i) for i in 1:data_size(p)]
+        @test any(<(0), w) && any(>(0), w)
     end
 end
 

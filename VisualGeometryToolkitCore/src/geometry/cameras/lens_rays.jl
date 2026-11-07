@@ -292,7 +292,7 @@ end
 # of the coefficients, computed on their primal values in float precision (a
 # Dual factor's branch is its primal's) and stored in T.
 function _radial_branch_ends(::Type{B}, ::Type{T}, k::Tuple, d::Tuple) where {B, T}
-    S = float(_primal_float(T))
+    S = float(primal_float(T))
     kp, dp = map(x -> S(_primal(x)), k), map(x -> S(_primal(x)), d)
     fold = _fold_point(_fold_coeffs(B, kp, dp, S), Inf)
     return _stored_end(T, fold), _stored_end(T, min(fold, _fold_point(_ucoeffs(B, dp, S), Inf)))
@@ -303,7 +303,7 @@ _stored_end(::Type{T}, u) where {T <: Integer} = isfinite(u) ? floor(T, u) : typ
 # The relative step inside a stored end that a reader evaluating AT the end takes:
 # ρ = √u and ρ² round a few ulps past a closed end in the lens's own precision
 # (1e-9 at Float64, as before; 8 ulps at Float32).
-_end_margin(::Type{T}) where {T} = max(1.0e-9, 8 * Float64(eps(float(_primal_float(T)))))
+_end_margin(::Type{T}) where {T} = max(1.0e-9, 8 * Float64(eps(float(primal_float(T)))))
 _end_margin(::Type{Union{}}) = 1.0e-9
 
 
@@ -428,7 +428,7 @@ end
 @inline function _undistort_2d(solve::F, fwd::G, lens, xd::StaticVector{2}) where {F, G}
     lp = _primal(lens)
     T = promote_type(eltype(xd), _coeff_type(lens))
-    S = float(_primal_float(T))
+    S = float(primal_float(T))
     x0 = SVector{2, S}(_primal(xd[1]), _primal(xd[2]))
     x, ok = solve(lp, x0)
     if _is_dual_type(T)
@@ -457,7 +457,7 @@ end
     t = xd[1] * xd[1] + xd[2] * xd[2]
     rp, tp = _primal(r), _primal(t)
     T = promote_type(eltype(xd), _coeff_type(l))
-    S = float(_primal_float(T))
+    S = float(primal_float(T))
     g = one(S)
     settled = false
     for _ in 1:12
@@ -1233,7 +1233,7 @@ end
     r2 = x * x + y * y
     rp = _primal(r)
     T = promote_type(typeof(r2), typeof(z), _coeff_type(r))
-    S = float(_primal_float(T))
+    S = float(primal_float(T))
     r2p, zp = S(_primal(r2)), S(_primal(z))
     if iszero(r2p)
         m, ok = (zp > 0 ? inv(zp) : S(NaN)), zp > 0

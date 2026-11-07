@@ -137,6 +137,16 @@ function test_constraint_problem(problem, θ)
         Test.@testset "whitened_residual has the constraint's shape (d_g = $d_g)" begin
             Test.@test all(i -> _has_constraint_shape(whitened_residual(problem, ctx, i), d_g), 1:n)
         end
+        # …and its norm is the distance (a gate's non-finite distance a non-finite
+        # residual): the two hooks describe one point
+        Test.@testset "norm(whitened_residual) is mahalanobis_distance" begin
+            Test.@test all(i -> _norm_matches(whitened_residual(problem, ctx, i), m[i], scale), 1:n)
+        end
     end
 end
 _has_constraint_shape(r, d_g::Int) = r isa Union{Real, StaticVector} && length(r) == d_g
+function _norm_matches(r, d, scale)
+    q = Float64(r isa Real ? abs(r) : sqrt(sum(abs2, r)))
+    isfinite(q) || return !isfinite(d)
+    return isfinite(d) && (q == d || isapprox(q, d; rtol = 1.0e-11, atol = 1.0e-14 * scale))
+end

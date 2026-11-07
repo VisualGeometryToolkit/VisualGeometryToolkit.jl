@@ -49,6 +49,18 @@ struct MsacScoring{DG, T} <: AbstractScoring
     MsacScoring{DG, T}(threshold) where {DG, T} = new{DG, T}(threshold)
 end
 
+"""
+    SCORING_TAGS
+
+The [`TagRegistry`](@ref) of the scoring families: `"ransac"`
+([`RansacScoring`](@ref)) and `"msac"` ([`MsacScoring`](@ref)), `snake_case` of
+the type's name with the family's suffix `Scoring` stripped. A package that
+adds families (RANSACScoringDoneRight's MLESAC, MAGSAC++, …) declares its own
+registry of the same family and suffix, `TagRegistry(:scoring, "Scoring", …;
+retired)`, and its loaders read `merge(VgtkCore.SCORING_TAGS, its_tags)`.
+"""
+const SCORING_TAGS = TagRegistry(:scoring, "Scoring", "ransac" => RansacScoring, "msac" => MsacScoring)
+
 const _ThresholdScoring{DG, T} = Union{RansacScoring{DG, T}, MsacScoring{DG, T}}
 const _ScoringAtThreshold = Union{RansacScoring{<:Any, Float64}, MsacScoring{<:Any, Float64}}
 

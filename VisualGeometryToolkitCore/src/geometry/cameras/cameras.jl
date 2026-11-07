@@ -105,7 +105,7 @@ import ..VisualGeometryToolkitCore: Manifold, SubsetManifold, retract, recenter,
 using ..VisualGeometryToolkitCore: SphereManifold   # RadialCamera's minimal manifold (calibration.jl)
 using ..VisualGeometryToolkitCore: _lift            # a restriction's coordinates lifted (lens_chart.jl's boxed recenter)
 import ..VisualGeometryToolkitCore: _primal         # every Dual layer stripped (base/duals.jl); lens_rays.jl adds the lens method
-using ..VisualGeometryToolkitCore: _is_dual_type, _primal_float   # (base/duals.jl)
+using ..VisualGeometryToolkitCore: _is_dual_type, primal_float   # (base/duals.jl)
 import ..VisualGeometryToolkitCore: constraint_dim, _measurement_dim, ambient_coordinates   # … and its place in the covariance machinery
 import ..VisualGeometryToolkitCore: _precision, _has_division  # image_warp chain hooks: lens precision, a lens consumes a ray
 import ..VisualGeometryToolkitCore: toml_value   # extended on lenses (lens_chart.jl): a lens writes as its record
@@ -508,7 +508,7 @@ sensor(bc::BoundedCamera) = bc.sensor
 # (new extrinsics, new model, a unit change) keeps.
 _rebound(bc::BoundedCamera{<:Any, S}, camera::C) where {C <: AbstractCamera, S} = BoundedCamera{C, S}(camera, bc.extent, bc.sensor)
 # a bounded camera in another element type: the wrapped camera converted, the bound kept (a device kernel's Float32 camera)
-convert_eltype(::Type{T}, bc::BoundedCamera) where {T <: AbstractFloat} = _rebound(bc, convert_eltype(T, bc.camera))
+convert_eltype(::Type{T}, bc::BoundedCamera) where {T <: Real} = _rebound(bc, convert_eltype(T, bc.camera))
 
 # Trait opt-in — instance form (matches VGC convention: see has_boundary(::Ellipse) etc.)
 bounds_trait(::BoundedCamera) = HasBounds()
@@ -980,7 +980,7 @@ export Cylindrical, CylindricalEqualArea, Mercator   # the rest of the cylindric
 export Backprojection    # a back-projection as a Transformation (equirectangular.jl)
 export AbstractPanoramaProjection   # the family's supertype (public, not exported, at the top level)
 export AbstractDistortionTerm, Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Even, Full
-export radial, isdelta, projection_frame, parameters, lens_record, lens_from_record
+export radial, isdelta, projection_frame, parameters, lens_record, lens_from_record, lens_label
 export division_bounded, undistorted_rect, valid_rect, horizon_radius, fov_radius, DEFAULT_MAX_FOV   # whole-extent undistortion
 export undistort, undistort!           # Remove lens distortion from images
 export radial_camera_5pt, RadialCamera5pt   # the radial camera's 5-point minimal kernel and its solver
@@ -1082,7 +1082,11 @@ export GenericModelWindow, window, nominal_intrinsics, interpolated_direction, i
 export spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice as a primitive (any control type); the 4th-order quasi-interpolant
 export cubic_bspline_weights             # a uniform cubic B-spline span's four weights (public, not exported, at the top level)
 export generic_lattice                   # a grid model's layout from a source, without sampling it
+export directions, grid_size, window_offset, lattice_spacing   # a grid model's lattice accessors (public, not exported, at the top level)
+export with_domain, with_present, with_nominal, with_directions, with_points, central_model   # its set accessors (likewise)
 export ChartSpline, SplineProjection     # a spline on a 2-D chart; a forward map (ray → pixel) as one on the equidistant direction chart
+export pixel_centre                      # an image array index's pixel centre, COLMAP frame, in T (public, not exported, at the top level)
+export equidistant_chart                 # the equidistant direction chart about an axis (public, not exported, at the top level)
 export with_model                         # same camera/rig, new model — rebuilds through the validating constructor
 export reference_frame                    # rig/target-rig reference-frame type (submodule-level only:
 #   the top module deliberately does not re-export it — import explicitly)

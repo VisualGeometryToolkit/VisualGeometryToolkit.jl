@@ -214,16 +214,42 @@ function read_table(::Type{T}, d::AbstractDict; skip = (), from_toml = _convert_
     return kw
 end
 
-# read_table's default converter: the value in its field's type.
-_convert_from_toml(::Type{T}, ::Val{F}, v) where {T, F} = convert_field(fieldtype(T, F), v)
+# read_table's default converter: the value in its field's type, the key named.
+_convert_from_toml(::Type{T}, ::Val{F}, v) where {T, F} = convert_field(fieldtype(T, F), v, toml_key(T, F))
 
 """
     convert_field(::Type{T}, v)
+    convert_field(::Type{T}, v, key)
 
 A TOML value → the field type (`Float64(v)`, `Int(v)`, `Bool(v)`, `Symbol(v)`):
 the one converter behind a typed [`present_kwargs`](@ref) spec.
+
+The keyed form checks the value's shape and names `key` in every error (an
+`ArgumentError`): a table where a value belongs is refused; a `Tuple` field
+takes an array of exactly its length, converted element by element; a
+`Vector` field an array, converted element-wise; any other value for a tuple or
+vector field (a string would convert character by character) is refused; a
+value that does not convert (`MethodError`, `InexactError`, `ArgumentError`)
+is reported as not a `T`. [`read_table`](@ref)'s default converter is the
+keyed form.
 """
 convert_field(::Type{T}, v) where {T} = T(v)
+function convert_field(::Type{S}, v, key) where {S}
+    v isa AbstractDict && throw(ArgumentError("`$key` is a value, not a table"))
+    try
+        return convert_field(S, v)
+    catch err
+        err isa Union{MethodError, InexactError, ArgumentError} || rethrow()
+        throw(ArgumentError("`$key` = $(repr(v)) is not a $S"))
+    end
+end
+function convert_field(::Type{S}, v::AbstractVector, key) where {S <: Tuple}
+    length(v) == fieldcount(S) || throw(ArgumentError("`$key` needs $(fieldcount(S)) values, got $(length(v))"))
+    return S(Tuple(convert_field(fieldtype(S, i), v[i], key) for i in 1:fieldcount(S)))
+end
+convert_field(::Type{Vector{E}}, v::AbstractVector, key) where {E} = E[convert_field(E, x, key) for x in v]
+convert_field(::Type{S}, v, key) where {S <: Union{Tuple, AbstractVector}} =
+    throw(ArgumentError("`$key` = $(repr(v)) is not a $S (an array$(S <: Tuple ? " of $(fieldcount(S)) values" : ""))"))
 
 """
     parse_defaults(path::AbstractString) -> Dict{String, Any}

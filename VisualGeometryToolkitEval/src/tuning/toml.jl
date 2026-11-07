@@ -166,7 +166,7 @@ versions (unlike `Base.hash`); a TOML round trip of `d` reproduces it. Behind
 function _toml_hash(d::AbstractDict)
     io = IOBuffer()
     TOML.print(io, d; sorted = true)
-    return bytes2hex(sha256(take!(io)))[1:16]
+    return sha256_hex(take!(io))[1:16]
 end
 
 # -----------------------------------------------------------------------------
@@ -307,10 +307,37 @@ above it, unfiltered. An `over` that names another scheme `type` replaces the
 entry, as [`layer_tuning`](@ref) replaces a nested table: the new scheme keeps
 none of the entry's keys (not even those both schemes have, such as
 `cross_validation` or `criterion`), and `under` is filtered against the new
-scheme's fields. With both empty (the default) the entry is read as it is.
+scheme's fields. With both empty (the default) the entry is read as it is. The layered entry
+itself, before it is read, is [`layered_tuning_entry`](@ref).
 """
 function tuning_spec(cfg::AbstractDict, name::AbstractString; under::AbstractDict = Dict{String,Any}(),
                      over::AbstractDict = Dict{String,Any}())
+    entry = layered_tuning_entry(cfg, name; under, over)
+    tag = entry["type"]
+    dflt = get(get(TUNING_DEFAULTS, "schemes", Dict()), String(tag), nothing)
+    dflt === nothing && throw(ArgumentError("configs/tuning.toml has no [schemes.$tag] defaults"))
+    scheme = _read_tagged_scheme(entry, merge(Dict{String,Any}("type" => tag), dflt), "tuning.$name")
+    return TuningSpec(String(name), scheme)
+end
+tuning_spec(path::AbstractString, name::AbstractString; kw...) = tuning_spec(TOML.parsefile(path), name; kw...)
+
+"""
+    layered_tuning_entry(cfg, name; under = Dict(), over = Dict()) -> Dict{String,Any}
+    layered_tuning_entry(path::AbstractString, name; under, over) -> Dict{String,Any}
+
+The `[tuning.<name>]` entry of a config (a parsed TOML `Dict` or a file path)
+with a campaign's protocol layered around it, as [`tuning_spec`](@ref) reads
+it but before it is read: no shipped defaults filled in, no key checked beyond
+the entry's scheme `type`. `under` is layered beneath the entry, keeping only
+the keys that are TOML keys of the entry's scheme (`VgtkCore.allowed_keys`: a
+Greek field by its ASCII spelling, skipped fields left out); `over` is
+layered above it, unfiltered; an `over` that names another scheme `type`
+replaces the entry, and `under` is filtered against the new scheme. With both
+empty the entry is returned as it is. A project that folds the layered entry
+into a run key, or writes it as a config of its own, reads it here.
+"""
+function layered_tuning_entry(cfg::AbstractDict, name::AbstractString; under::AbstractDict = Dict{String,Any}(),
+                              over::AbstractDict = Dict{String,Any}())
     haskey(cfg, "tuning") || throw(ArgumentError("config has no [tuning] table"))
     tt = cfg["tuning"]
     haskey(tt, name) ||
@@ -318,28 +345,19 @@ function tuning_spec(cfg::AbstractDict, name::AbstractString; under::AbstractDic
     entry = tt[name]
     entry isa AbstractDict || throw(ArgumentError("[tuning.$name] must be a table"))
     haskey(entry, "type") || throw(ArgumentError("[tuning.$name] names no scheme `type`"))
-    tag = entry["type"]
-    T = _tag_type("scheme", tag, "tuning.$name")
-    if !isempty(under) || !isempty(over)
-        # an `over` naming another scheme replaces the entry, as `layer_tuning`
-        # replaces a nested table whose type changes: the new scheme inherits
-        # none of the entry's parameters, not even the keys both share, and
-        # `under` is filtered against the NEW scheme's fields
-        replaced = haskey(over, "type") && over["type"] != tag
-        if replaced
-            tag = over["type"]
-            T = _tag_type("scheme", tag, "tuning.$name")
-        end
-        fields = Set(VgtkCore.allowed_keys(T))
-        kept = Dict{String,Any}(String(k) => v for (k, v) in under if String(k) in fields)
-        entry = layer_tuning(layer_tuning(kept, replaced ? Dict{String,Any}() : entry), over)
-    end
-    dflt = get(get(TUNING_DEFAULTS, "schemes", Dict()), String(tag), nothing)
-    dflt === nothing && throw(ArgumentError("configs/tuning.toml has no [schemes.$tag] defaults"))
-    scheme = _read_tagged_scheme(entry, merge(Dict{String,Any}("type" => tag), dflt), "tuning.$name")
-    return TuningSpec(String(name), scheme)
+    T = _tag_type("scheme", entry["type"], "tuning.$name")   # an unknown tag is refused, layered or not
+    isempty(under) && isempty(over) && return entry
+    # an `over` naming another scheme replaces the entry, as `layer_tuning`
+    # replaces a nested table whose type changes: the new scheme inherits
+    # none of the entry's parameters, not even the keys both share, and
+    # `under` is filtered against the NEW scheme's fields
+    replaced = haskey(over, "type") && over["type"] != entry["type"]
+    replaced && (T = _tag_type("scheme", over["type"], "tuning.$name"))
+    fields = Set(VgtkCore.allowed_keys(T))
+    kept = Dict{String,Any}(String(k) => v for (k, v) in under if String(k) in fields)
+    return layer_tuning(layer_tuning(kept, replaced ? Dict{String,Any}() : entry), over)
 end
-tuning_spec(path::AbstractString, name::AbstractString; kw...) = tuning_spec(TOML.parsefile(path), name; kw...)
+layered_tuning_entry(path::AbstractString, name::AbstractString; kw...) = layered_tuning_entry(TOML.parsefile(path), name; kw...)
 
 _read_tagged_scheme(entry, dflt, path) = _read_struct(_tag_type("scheme", entry["type"], path), entry, dflt, path, true, true)
 

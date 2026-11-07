@@ -52,7 +52,7 @@
         mm = masked(m)
         out = filter(p -> !in_present_domain(mm, p), pixels)
         @test !isempty(out) && all(p -> in_present_domain(m, p), out)
-        @test all(p -> backproject(mm, p) === nothing, out)
+        @test all(p -> all(isnan, backproject(mm, p)), out)
         @test all(p -> all(isnan, backproject_with_jacobian(mm, p)[1]) && all(isnan, backproject_with_jacobian(mm, p)[2]), out)
         @test all(p -> all(isnan, interpolated_direction(mm, p)), out)
         @test all(p -> spline_support(mm, p) === nothing, out)
@@ -67,7 +67,7 @@
         # the batched forms agree with the scalar ones
         pts = [out[1:5]; [SVector(640.0, 480.0), SVector(600.0, 420.0)]]
         rays = backproject(mm, pts)
-        @test all(i -> backproject(mm, pts[i]) === nothing ? all(isnan, rays[i]) : rays[i] == backproject(mm, pts[i]), eachindex(pts))
+        @test all(i -> isequal(rays[i], backproject(mm, pts[i])), eachindex(pts))
         Xs = [backproject(m, p) for p in pts]
         b = project(mm, Xs, pts; iters = 100)
         @test all(i -> b.ok[i] == (project(mm, Xs[i], pts[i]) !== nothing), eachindex(pts))
@@ -97,7 +97,7 @@
                                     unit_controls = false, present = P)
         @test present_nodes(nc) == P && present_nodes(convert_eltype(Float32, nc)) == P
         out = first(filter(p -> !in_present_domain(mm, p), pixels))
-        @test !in_present_domain(nc, out) && backproject(nc, out) === nothing
+        @test !in_present_domain(nc, out) && all(isnan, backproject(nc, out).direction) && all(isnan, backproject(nc, out).origin)
         @test all(isnan, interpolated_point(nc, out)) && all(isnan, backproject_with_jacobian(nc, out)[1])
         c = SVector(640.0, 480.0)
         @test backproject(nc, c).direction == backproject(mm, c)

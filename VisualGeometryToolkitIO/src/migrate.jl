@@ -26,8 +26,8 @@ end
 # exactly — `_qvec` — and within a few ulp otherwise).
 _same_length(a, b) = _same_metres(Float64(ustrip(m, a)), Float64(ustrip(m, b)))
 # Two metre values (or m², a covariance entry's) within the length conversion's
-# guarantee: 2 ulp, the sign of a zero kept.
-_same_metres(x::Float64, y::Float64) = x === y || (signbit(x) == signbit(y) && abs(x - y) <= 2 * eps(abs(x)))
+# guarantee: 2 ulp, the sign of a zero kept (`ulps = 0`: bit for bit).
+_same_metres(x::Float64, y::Float64, ulps::Integer = 2) = x === y || (signbit(x) == signbit(y) && abs(x - y) <= ulps * eps(abs(x)))
 _same_pose(a::EuclideanMap, b::EuclideanMap) =
     all(map(_same_length, a.t, b.t)) && maximum(abs, Matrix(a.R) - Matrix(b.R)) <= 8 * eps()
 
@@ -428,48 +428,69 @@ _resave_kwargs(old::AbstractDict) = merge(
     haskey(old, "length_unit") ? (; length_unit = parse_unit(old["length_unit"]::String)) : (;), (; provenance = _provenance_of(old)),
 )
 
+"""
+    same_value(a, b; length_ulps = 2) -> Bool
+
+Whether two TYPED values are the same record: the same type at every level,
+compared field by field, an array element by element, a dict key by key, an
+[`Uncertain`](@ref) value with its covariance and a correspondence set through
+its endpoints and attribute columns. A LENGTH — a quantity of dimension length
+or length², a covariance entry whose two parameters' length powers add up to 1
+or 2, a non-central model's points — is compared as its metre value within
+`length_ulps` ulp (the sign of a zero kept); every other number (a rotation, a
+focal length, a pixel, a time, a dimensionless quantity) and every string,
+symbol or type must be identical (`===`, `isequal`).
+
+The default, 2 ulp, is the decimal-exact length conversion's guarantee
+([`read_length`](@ref)/[`write_length`](@ref)): a full-precision file number
+has no metre value that writes back to its own text, so a migration that reads
+an old file and the file it wrote compares within it. `length_ulps = 0` is
+exact everywhere, for a schema whose lengths read back bit for bit (a product
+codec's).
+"""
+function same_value end
+
 # The migration's comparison is of TYPED records: the old file read by the
 # migration's reader and the new file read by the current reader are compared
-# value for value. A length — a quantity of dimension length or length², or a
-# covariance entry whose two parameters' length powers add up to 1 or 2 — is
-# compared as its metre value within the length conversion's guarantee (2 ulp,
-# `_same_metres`): a full-precision file number has no metre value that writes
-# back to its own text (lengths.jl). Every other number — a rotation, a
-# quaternion, a focal length or principal point, a lens coefficient, a pixel, a
-# time, a dimensionless quantity — is written from the identical Float64 by
-# every writer and must come back bit for bit (`===`).
-_same_value(a::Quantity, b::Quantity) =
-    dimension(a) == dimension(b) &&
-    (dimension(a) in (dimension(m), dimension(m * m)) ? _same_metres(Float64(ustrip(a)), Float64(ustrip(b))) : ustrip(a) === ustrip(b))
-_same_value(a::AbstractFloat, b::AbstractFloat) = a === b
-_same_value(a::Union{Number, AbstractString, Symbol, Nothing, Missing}, b) = typeof(a) === typeof(b) && isequal(a, b)
-_same_value(a::AbstractDict, b::AbstractDict) = typeof(a) === typeof(b) && Set(keys(a)) == Set(keys(b)) && all(k -> _same_value(a[k], b[k]), keys(a))
-_same_value(a::AbstractArray, b) = typeof(a) === typeof(b) && size(a) == size(b) && all(i -> _same_value(a[i], b[i]), eachindex(a))
-_same_value(a::Union{Tuple, NamedTuple}, b) = typeof(a) === typeof(b) && all(i -> _same_value(a[i], b[i]), 1:length(a))
-function _same_value(a::Uncertain, b::Uncertain)
-    typeof(a) === typeof(b) && _same_value(geom(a), geom(b)) || return false
+# value for value. A length is compared as its metre value within the length
+# conversion's guarantee (`_same_metres`); every other number is written from
+# the identical Float64 by every writer and must come back bit for bit.
+same_value(a::Quantity, b::Quantity; length_ulps::Integer = 2) =
+    typeof(a) === typeof(b) && dimension(a) == dimension(b) &&
+    (dimension(a) in (dimension(m), dimension(m * m)) ? _same_metres(Float64(ustrip(a)), Float64(ustrip(b)), length_ulps) : ustrip(a) === ustrip(b))
+same_value(a::AbstractFloat, b::AbstractFloat; length_ulps::Integer = 2) = a === b
+same_value(a::Union{Number, AbstractString, Symbol, Type, Nothing, Missing}, b; length_ulps::Integer = 2) = typeof(a) === typeof(b) && isequal(a, b)
+same_value(a::AbstractDict, b::AbstractDict; length_ulps::Integer = 2) =
+    typeof(a) === typeof(b) && Set(keys(a)) == Set(keys(b)) && all(k -> same_value(a[k], b[k]; length_ulps), keys(a))
+same_value(a::AbstractArray, b; length_ulps::Integer = 2) =
+    typeof(a) === typeof(b) && size(a) == size(b) && all(i -> same_value(a[i], b[i]; length_ulps), eachindex(a))
+same_value(a::Union{Tuple, NamedTuple}, b; length_ulps::Integer = 2) =
+    typeof(a) === typeof(b) && all(i -> same_value(a[i], b[i]; length_ulps), 1:length(a))
+function same_value(a::Uncertain, b::Uncertain; length_ulps::Integer = 2)
+    typeof(a) === typeof(b) && same_value(geom(a), geom(b); length_ulps) || return false
     Σa, Σb = cov(a), cov(b)
     p = _cov_length_powers(geom(a))
     return size(Σa) == size(Σb) && all(
         CartesianIndices(Σa)) do I
             n = p === nothing ? 0 : p[I[1]] + p[I[2]]
-            n == 0 ? Σa[I] === Σb[I] : _same_metres(Float64(Σa[I]), Float64(Σb[I]))
+            n == 0 ? Σa[I] === Σb[I] : _same_metres(Float64(Σa[I]), Float64(Σb[I]), length_ulps)
         end
 end
 # A correspondence set: its endpoints and its attribute columns, through its
 # accessors (the AbstractArray method above would compare its pairs only).
-_same_value(a::Csponds, b) = typeof(a) === typeof(b) &&
-    _same_value(sources(a), sources(b)) && _same_value(targets(a), targets(b)) && _same_value(a.attrs, b.attrs)
+same_value(a::Csponds, b; length_ulps::Integer = 2) = typeof(a) === typeof(b) &&
+    same_value(sources(a), sources(b); length_ulps) && same_value(targets(a), targets(b); length_ulps) && same_value(a.attrs, b.attrs; length_ulps)
 # A non-central model's points are plain metres (its directions are not lengths).
-_same_value(a::NoncentralGenericModel, b::NoncentralGenericModel) =
+same_value(a::NoncentralGenericModel, b::NoncentralGenericModel; length_ulps::Integer = 2) =
     typeof(a) === typeof(b) && all(f -> f === :points ?
-        all(map((p, q) -> all(map(_same_metres, Float64.(p), Float64.(q))), getfield(a, f), getfield(b, f))) && size(a.points) == size(b.points) :
-        _same_value(getfield(a, f), getfield(b, f)), fieldnames(typeof(a)))
+        size(a.points) == size(b.points) &&
+        all(map((p, q) -> all(map((x, y) -> _same_metres(x, y, length_ulps), Float64.(p), Float64.(q))), getfield(a, f), getfield(b, f))) :
+        same_value(getfield(a, f), getfield(b, f); length_ulps), fieldnames(typeof(a)))
 # Any other value: field by field.
-function _same_value(a, b)
+function same_value(a, b; length_ulps::Integer = 2)
     typeof(a) === typeof(b) || return false
     isempty(fieldnames(typeof(a))) && return isequal(a, b)
-    return all(f -> _same_value(getfield(a, f), getfield(b, f)), fieldnames(typeof(a)))
+    return all(f -> same_value(getfield(a, f), getfield(b, f); length_ulps), fieldnames(typeof(a)))
 end
 # The length power of each parameter a covariance is over: a pose's (rotation
 # then translation), a point's (every coordinate a length), a target
@@ -543,14 +564,14 @@ end
 # The guarded file migration of a VGIo record: the file at `src` read as a `T`
 # (through the version steps, validated as the current record), written by the
 # current writer to `dst` in the unit and with the provenance of the record the
-# steps give, read back as a `T` and compared with the value (`_same_value`: a
+# steps give, read back as a `T` and compared with the value (`same_value`: a
 # length within the conversion's guarantee, every other number bit for bit),
 # its unit and provenance with that record's. Returns the value.
 function _migrate_file(::Type{T}, src::AbstractString, dst::AbstractString, what) where {T}
     current = migrate_record(_raw_tree(src))
     value = load(T, src)
     save(dst, value; _resave_kwargs(current)...)
-    _verify(_same_value(value, load(T, dst)) && _same_file_extras(_raw_tree(dst), current), src, what)
+    _verify(same_value(value, load(T, dst)) && _same_file_extras(_raw_tree(dst), current), src, what)
     return value
 end
 
@@ -1168,7 +1189,7 @@ function _repoint_targets(
         save(staged, typeof(obs)(obs.frames; images = obs.images, sensors = obs.sensors, times = obs.times, time_origin = obs.time_origin, targets); _resave_kwargs(old)...)
         re = load(T, staged)
         _verify(re.targets == targets, path, "its targets")
-        _verify(all(f -> f === :targets || _same_value(getfield(re, f), getfield(obs, f)), fieldnames(typeof(obs))) &&
+        _verify(all(f -> f === :targets || same_value(getfield(re, f), getfield(obs, f)), fieldnames(typeof(obs))) &&
             _same_file_extras(_raw_tree(staged), old), path, "the measurements")
         (; path = String(path), out = dry_run ? nothing : String(out), repointed, unchecked)
     end

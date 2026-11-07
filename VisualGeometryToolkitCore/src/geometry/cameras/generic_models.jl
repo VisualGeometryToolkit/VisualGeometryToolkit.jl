@@ -133,8 +133,7 @@ node, or a `Bool` matrix of the grid's size (`[gy, gx]`, `true` = present). An
 absent node's control is never read, and its value is not meaningful. The
 model evaluates a pixel only when every node of its 4×4 window is present
 ([`in_present_domain`](@ref)); elsewhere it answers as outside the calibrated
-area (`backproject` is `nothing`, `project` is `nothing`, the raw splines are
-NaN). The mask a fit over the imaged region takes is the footprint rule,
+area (`backproject` and the raw splines are NaN, `project` is `nothing`). The mask a fit over the imaged region takes is the footprint rule,
 [`node_mask`](@ref)`(m, imaged_region(m))`: every pixel of the region then
 reads present nodes only. An all-true mask is stored as `nothing`;
 [`present_nodes`](@ref) returns the mask.
@@ -299,6 +298,86 @@ projection never reads it: a generic model has no K/lens split.
 """
 nominal_intrinsics(m::_GenericModel) = m.nominal
 
+# -----------------------------------------------------------------------------
+# Set accessors: the model with one part replaced, every other part kept
+# -----------------------------------------------------------------------------
+#
+# The ONE rebuild of each model, beside its struct: every setter below goes
+# through it, so a field added to a model is carried (or refused) here and
+# nowhere else. Controls are kept exactly as given (`unit_controls = false`).
+_rebuild(m::CentralGenericModel; directions = m.grid, nominal = m.nominal, domain = m.domain, present = m.present) =
+    CentralGenericModel(m.width, m.height, m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y, directions;
+                        unit_controls = false, nominal, domain, present)
+_rebuild(m::NoncentralGenericModel; directions = m.directions, points = m.points, nominal = m.nominal,
+         domain = m.domain, present = m.present) =
+    NoncentralGenericModel(m.width, m.height, m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y, directions, points;
+                           unit_controls = false, nominal, domain, present)
+
+"""
+    with_domain(m, domain) -> model
+
+The generic grid model `m` with `domain` as the region of the sensor it images
+(an image circle, or `WholePlane()`; see [`imaged_region`](@ref)), every other
+part kept.
+"""
+with_domain(m::_GenericModel, domain) = _rebuild(m; domain)
+
+"""
+    with_nominal(m, nominal) -> model
+
+The generic grid model `m` reporting the pinhole `nominal` (a
+`LogicalIntrinsics`, or `nothing`; [`nominal_intrinsics`](@ref)), every other
+part kept. Projection never reads it.
+"""
+with_nominal(m::_GenericModel, nominal) = _rebuild(m; nominal)
+
+"""
+    with_present(m, present::AbstractMatrix{Bool}) -> model
+
+The generic grid model `m` holding the nodes `present` (`[gy, gx]`, `true` =
+present; [`present_nodes`](@ref)): the same lattice, region and nominal
+pinhole, the controls of the present nodes kept and NaN in the absent ones (a
+non-central model's points likewise). No evaluation reads an absent slot (a
+pixel is evaluated only when its whole 4×4 window is present), and one read
+anywhere shows as NaN.
+"""
+with_present(m::CentralGenericModel, present::AbstractMatrix{Bool}) =
+    _rebuild(m; directions = _absent_nan(m.grid, present), present)
+with_present(m::NoncentralGenericModel, present::AbstractMatrix{Bool}) =
+    _rebuild(m; directions = _absent_nan(m.directions, present), points = _absent_nan(m.points, present), present)
+function _absent_nan(G::AbstractMatrix{V}, present::AbstractMatrix{Bool}) where {V}
+    size(G) == size(present) || throw(DimensionMismatch("with_present: a $(size(present)) mask for a $(size(G)) grid"))
+    return map((v, p) -> p ? v : V(NaN, NaN, NaN), G, present)
+end
+
+"""
+    with_directions(m, D::AbstractMatrix{<:StaticVector{3}}) -> model
+
+The generic grid model `m` with the direction controls `D` (`[gy, gx]`, the
+size of [`directions`](@ref)`(m)`, kept exactly as given), every other part
+kept.
+"""
+with_directions(m::_GenericModel, D::AbstractMatrix) = _rebuild(m; directions = D)
+
+"""
+    with_points(m::NoncentralGenericModel, P::AbstractMatrix{<:StaticVector{3}}) -> NoncentralGenericModel
+
+The non-central model `m` with the line-point controls `P` (`[gy, gx]`, plain
+metres in the camera frame, kept exactly as given), every other part kept.
+"""
+with_points(m::NoncentralGenericModel, P::AbstractMatrix) = _rebuild(m; points = P)
+
+"""
+    central_model(m::NoncentralGenericModel) -> CentralGenericModel
+
+The central model of a non-central one's directions — what a point at infinity
+sees: the same lattice, direction controls (as stored), nominal pinhole,
+domain and present nodes; the line points dropped.
+"""
+central_model(m::NoncentralGenericModel) =
+    CentralGenericModel(m.width, m.height, m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y, m.directions;
+                        unit_controls = false, m.nominal, m.domain, m.present)
+
 """
     imaged_region(m::Union{CentralGenericModel, NoncentralGenericModel}) -> region
 
@@ -315,7 +394,7 @@ imaged_region(m::_GenericModel) = _calibrated_rect(m) ∩ m.domain
 
 Whether a generic grid model evaluates `pixel` (COLMAP frame): inside the
 calibrated area, with every node of the pixel's 4×4 window present
-([`present_nodes`](@ref)). Where it is `false`, `backproject` is `nothing` and
+([`present_nodes`](@ref)). Where it is `false`, `backproject` is NaN and
 `project` gives no pixel. For a model with every node present it is the
 calibrated area; under the footprint mask `node_mask(m, imaged_region(m))` it
 holds on all of `imaged_region(m)`.
@@ -383,11 +462,12 @@ function window(
         throw(ArgumentError("window: rows $rows × cols $cols outside the $gh × $gw grid"))
     m isa CentralGenericModel && points !== nothing &&
         throw(ArgumentError("window: points belong to a non-central model's window, and only there"))
-    directions = directions === nothing ? view(_directions(m), rows, cols) : directions
+    controls = Cameras.directions(m)                      # the accessor: the keyword shadows its name here
+    directions = directions === nothing ? view(controls, rows, cols) : directions
     points = m isa NoncentralGenericModel && points === nothing ? view(m.points, rows, cols) : points
     size(directions) == (length(rows), length(cols)) ||
         throw(DimensionMismatch("window: $(size(directions)) controls for a $(length(rows)) × $(length(cols)) block"))
-    T = eltype(eltype(_directions(m)))
+    T = eltype(eltype(controls))
     d = _controls(T, directions, false)
     p = points === nothing ? nothing : _controls(T, points, false)
     size(d) == (p === nothing ? size(d) : size(p)) || throw(DimensionMismatch("window: directions and points differ in size"))
@@ -412,7 +492,7 @@ The nodes a generic grid model (or a [`GenericModelWindow`](@ref), its block)
 holds, `[gy, gx]` like its controls: `true` = present. Every node for a model
 built without a `present` mask.
 """
-present_nodes(m::_GenericLattice) = m.present === nothing ? trues(size(_directions(m))) : BitMatrix(m.present)
+present_nodes(m::_GenericLattice) = m.present === nothing ? trues(size(directions(m))) : BitMatrix(m.present)
 
 # Whether every node of window `(jx, jy)` — controls `[jy - 3 + r, jx - 3 + c]`,
 # `r, c ∈ 1:4`, of the mask's own indexing — is present. Device-safe: a mask on
@@ -425,13 +505,38 @@ present_nodes(m::_GenericLattice) = m.present === nothing ? trues(size(_directio
     return true
 end
 
-_directions(m::CentralGenericModel) = m.grid
-_directions(m::Union{NoncentralGenericModel, GenericModelWindow}) = m.directions
+"""
+    directions(m) -> AbstractMatrix{Vec3}
+
+The direction controls of a generic grid model or a [`GenericModelWindow`](@ref)
+(its block), `[gy, gx]`: a central model's `grid`, a non-central model's
+`directions`. Not normalized beyond what the model's constructor did.
+"""
+directions(m::CentralGenericModel) = m.grid
+directions(m::Union{NoncentralGenericModel, GenericModelWindow}) = m.directions
+
+"""
+    grid_size(m) -> (gx, gy)
+
+The size of a generic grid model's FULL lattice, `(columns, rows)` — the
+`grid_size` keyword's order (`generic_lattice(…; grid_size)`, the
+constructors from a source), the reverse of `size(directions(m))`. A
+[`GenericModelWindow`](@ref) reports its model's lattice, not its block.
+"""
+grid_size(m::_GenericLattice) = reverse(_grid_size(m))
+# (rows, cols) of the full lattice: the controls' own indexing.
 _grid_size(m::CentralGenericModel) = size(m.grid)
 _grid_size(m::NoncentralGenericModel) = size(m.directions)
 _grid_size(w::GenericModelWindow) = w.grid_size
-_offset(::_GenericModel) = (0, 0)
-_offset(w::GenericModelWindow) = w.offset
+
+"""
+    window_offset(m) -> (row, col)
+
+The 0-based `(row, col)` of `directions(m)[1, 1]` in the full lattice:
+`(0, 0)` for a model, the block's corner for a [`GenericModelWindow`](@ref).
+"""
+window_offset(::_GenericModel) = (0, 0)
+window_offset(w::GenericModelWindow) = w.offset
 
 Adapt.adapt_structure(to, m::CentralGenericModel{T}) where {T} =
     (g = Adapt.adapt(to, m.grid); dom = _device_domain(m.domain); pr = _device_present(to, m.present);
@@ -495,7 +600,14 @@ end
 # rectangle `[min, max + 1]` (`_in_calibrated_area` is its half-open test). The
 # ONE spelling of the lattice geometry: the node pixels below and the nodes'
 # supports (support.jl) read them.
-@inline function _lattice_spacing(m::_GenericLattice)
+"""
+    lattice_spacing(m) -> (hx, hy)
+
+The cell size of a generic grid model's lattice in pixels: the calibrated span
+over its cells, `((calib_max_x + 1 − calib_min_x) / (gx − 3), (calib_max_y + 1 −
+calib_min_y) / (gy − 3))`.
+"""
+@inline function lattice_spacing(m::_GenericLattice)
     gh, gw = _grid_size(m)
     return ((m.calib_max_x + 1 - m.calib_min_x) / (gw - 3), (m.calib_max_y + 1 - m.calib_min_y) / (gh - 3))
 end
@@ -505,7 +617,7 @@ _calibrated_rect(m::_GenericLattice) =
 # Grid node (Julia 1-based control index) → pixel: inverse of `_grid_coords`
 # at integer grid coordinate `j₁ - 1` (the C++ 0-based control index).
 @inline function _node_pixel(m::_GenericLattice, gx1::Integer, gy1::Integer)
-    hx, hy = _lattice_spacing(m)
+    hx, hy = lattice_spacing(m)
     return SVector(m.calib_min_x + (gx1 - 2) * hx, m.calib_min_y + (gy1 - 2) * hy)
 end
 
@@ -686,9 +798,9 @@ window's).
 """
 @inline function interpolated_direction(m::_GenericLattice, pixel)
     ix, iy, wx, wy = _continued_window(m, pixel[1], pixel[2])
-    grid = _directions(m)
+    grid = directions(m)
     _in_block(m, grid, ix, iy) || return _nan_control(grid)
-    return _eval_window(grid, ix, iy, wx, wy, _offset(m))
+    return _eval_window(grid, ix, iy, wx, wy, window_offset(m))
 end
 
 # Whether window `(ix, iy)`'s 4×4 support lies inside the controls a lattice
@@ -720,7 +832,7 @@ leaves the window's block.
         throw(ArgumentError("interpolated_point: a central model's window has no points"))
     ix, iy, wx, wy = _continued_window(m, pixel[1], pixel[2])
     _in_block(m, m.points, ix, iy) || return _nan_control(m.points)
-    return _eval_window(m.points, ix, iy, wx, wy, _offset(m))
+    return _eval_window(m.points, ix, iy, wx, wy, window_offset(m))
 end
 
 """
@@ -739,7 +851,7 @@ function spline_support(m::_GenericLattice, pixel)
     _in_calibrated_area(m, x, y) || return nothing
     gx, gy = _grid_coords(m, x, y)
     ix, iy, _, _ = _spline_window(gx, gy)
-    _in_block(m, _directions(m), ix, iy) || return nothing
+    _in_block(m, directions(m), ix, iy) || return nothing
     return (ix, iy)
 end
 
@@ -757,7 +869,7 @@ normalizes. A window `(ix, iy)` whose support holds an absent node, or on a
 window leaves the window's block, is an `ArgumentError`.
 """
 function spline_weights(m::_GenericLattice, ix::Integer, iy::Integer, pixel)
-    _in_block(m, _directions(m), ix, iy) ||
+    _in_block(m, directions(m), ix, iy) ||
         throw(ArgumentError("spline_weights: window ($ix, $iy) reads an absent control or one outside the window's block"))
     x, y = float(pixel[1]), float(pixel[2])
     gh, gw = _grid_size(m)
@@ -798,21 +910,25 @@ window_indices(m::CentralGenericModel, ix::Integer, iy::Integer) =
 # ------------------------------------------------------------------------------
 
 """
-    backproject(m::CentralGenericModel, pixel) -> SVector{3} | nothing
+    backproject(m::CentralGenericModel, pixel) -> SVector{3}
 
 The unit observation direction of `pixel` (COLMAP frame): the normalized
-uniform-cubic B-spline value of the direction grid. `nothing` outside the
+uniform-cubic B-spline value of the direction grid. NaN outside the
 calibrated area and where the pixel's window holds an absent node
-([`in_present_domain`](@ref)).
+([`in_present_domain`](@ref)) — the lens contract's form: one concrete return
+type, never `nothing`, never a throw, so it runs inside a kernel (`isfinite`
+is the imaged test).
 """
-function backproject(m::CentralGenericModel, pixel)
+function backproject(m::CentralGenericModel{T}, pixel) where {T}
     x, y = float(pixel[1]), float(pixel[2])
-    _in_calibrated_area(m, x, y) || return nothing
+    F = promote_type(T, typeof(x))
+    nan = SVector{3, F}(NaN, NaN, NaN)
+    _in_calibrated_area(m, x, y) || return nan
     gx, gy = _grid_coords(m, x, y)
     ix, iy, wx, wy = _spline_window(gx, gy)
-    _window_present(m.present, ix, iy) || return nothing
+    _window_present(m.present, ix, iy) || return nan
     d = _eval_window(m.grid, ix, iy, wx, wy)
-    return SVector{3}(d) / norm(d)
+    return SVector{3, F}(SVector{3}(d) / norm(d))
 end
 
 """
@@ -841,24 +957,24 @@ function backproject_with_jacobian(m::CentralGenericModel, u::StaticVector{2})
 end
 
 """
-    backproject(m::NoncentralGenericModel, pixel) -> Ray3 | nothing
+    backproject(m::NoncentralGenericModel, pixel) -> Ray3{Float64}
 
 The observation LINE of `pixel`: both grids evaluated with the same spline
 window; the direction normalized, the origin as interpolated (plain metres in
-the camera frame, the grid's unit). `nothing` outside the calibrated area and
-where the pixel's window holds an absent node ([`in_present_domain`](@ref)).
+the camera frame, the grid's unit). A ray of NaN origin and direction outside
+the calibrated area and where the pixel's window holds an absent node
+([`in_present_domain`](@ref)): the lens contract's form, never `nothing`.
 """
 function backproject(m::NoncentralGenericModel{T}, pixel) where {T}
     x, y = float(pixel[1]), float(pixel[2])
-    _in_calibrated_area(m, x, y) || return nothing
+    nan = Vec3{Float64}(NaN, NaN, NaN)
+    _in_calibrated_area(m, x, y) || return Ray3{Float64}(nan, nan)
     gx, gy = _grid_coords(m, x, y)
     ix, iy, wx, wy = _spline_window(gx, gy)
-    _window_present(m.present, ix, iy) || return nothing
+    _window_present(m.present, ix, iy) || return Ray3{Float64}(nan, nan)
     d = _eval_window(m.directions, ix, iy, wx, wy)
     o = _eval_window(m.points, ix, iy, wx, wy)
-    nd = norm(d)
-    F = typeof(float(x))
-    return Ray3{Float64}(Vec3{Float64}(o), Vec3{Float64}(d / nd))
+    return Ray3{Float64}(Vec3{Float64}(o), Vec3{Float64}(d / norm(d)))
 end
 
 """
@@ -898,8 +1014,7 @@ for a direction with non-positive z.
 """
 function unproject(m::CentralGenericModel, pixel, depth)
     d = backproject(m, pixel)
-    d === nothing && return nothing
-    d[3] > 0 || return nothing
+    d[3] > 0 || return nothing                           # NaN (not imaged) fails the test too
     return SVector{3}(d * (depth / d[3]))
 end
 
@@ -1312,7 +1427,7 @@ _source_direction(m::CentralGenericModel, px) = normalize(SVector{3, Float64}(in
 function _quasi_interpolation_directions(source, m::_GenericLattice)
     gh, gw = _grid_size(m)
     Cx, Cy = gw - 3, gh - 3
-    hx, hy = _lattice_spacing(m)
+    hx, hy = lattice_spacing(m)
     f(tx, ty) = _source_direction(source, SVector(m.calib_min_x + tx * hx, m.calib_min_y + ty * hy))
     valid(tx, ty) = all(isfinite, f(tx, ty))
     function node(tx, ty)
@@ -1912,7 +2027,7 @@ scalar [`backproject`](@ref)'s spline window and normalization evaluated by a
 KernelAbstractions kernel on the pixels' own backend (a device copy of
 `m.grid` uploads automatically; host arrays run the identical kernel on the
 CPU), bit for bit the scalar value on the CPU backend. A pixel outside the
-calibrated area, or whose window holds an absent node, comes back NaN (the scalar form's `nothing`), as a batch
+calibrated area, or whose window holds an absent node, comes back NaN (as the scalar form does), as a batch
 through [`pointwise!`](@ref) does. The batched [`project`](@ref)'s counterpart.
 """
 function backproject(m::CentralGenericModel, pixels::AbstractVector{<:StaticVector{2, <:Real}})

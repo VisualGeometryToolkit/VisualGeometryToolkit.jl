@@ -118,7 +118,7 @@
             w, _, _ = spline_weights(m, ix, iy, p)
             @test w == SMatrix{4, 4}([wy[r] * wx[c] for r in 1:4, c in 1:4])
         end
-        @test backproject(m, SVector(-1.0, 10.0)) === nothing && all(isfinite, interpolated_direction(m, SVector(-1.0, 10.0)))
+        @test all(isnan, backproject(m, SVector(-1.0, 10.0))) && all(isfinite, interpolated_direction(m, SVector(-1.0, 10.0)))
         @test all(isnan, interpolated_direction(m, SVector(NaN, 10.0)))                          # never an error
     end
 

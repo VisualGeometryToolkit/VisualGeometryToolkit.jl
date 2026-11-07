@@ -316,6 +316,19 @@ function load_pool(path::AbstractString)
     return _pool_from_raw(JLD2.load(path), path)
 end
 
+"""
+    pool_size(path) -> Int
+
+The number of pairs in a light pool file — `length(load_pool(path))` — read
+from its header (one per-pair key) without loading the pairs. The file's
+`pool_format` is checked as [`load_pool`](@ref) checks it (another format is
+an `ArgumentError` naming the file); the pairs themselves are not.
+"""
+function pool_size(path::AbstractString)
+    _check_artifact_format(path, :pool)
+    return JLD2.jldopen(f -> length(f["scene_names"]), path, "r")
+end
+
 # The pool of a light file's raw contents, every check of `load_pool` applied.
 function _pool_from_raw(raw::AbstractDict, path::AbstractString)
     Set(keys(raw)) == Set(_POOL_FILE_KEYS) ||

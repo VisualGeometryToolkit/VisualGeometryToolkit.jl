@@ -21,7 +21,15 @@
 @inline _primal(x::ForwardDiff.Dual) = _primal(ForwardDiff.value(x))
 
 @inline _is_dual_type(::Type{T}) where {T} = T !== Union{} && T <: ForwardDiff.Dual
-_primal_float(::Type{T}) where {T} = _is_dual_type(T) ? _primal_float(ForwardDiff.valtype(T)) : T
+"""
+    primal_float(T::Type) -> Type
+
+The real type under every ForwardDiff `Dual` layer of `T` (`Float64` for a
+`Dual{Tag, Dual{Tag2, Float64, 1}, 2}`, `T` itself for a non-Dual type): the
+precision a branch on primal values computes in. A type-level recursion, so it
+folds at compile time inside a kernel.
+"""
+primal_float(::Type{T}) where {T} = _is_dual_type(T) ? primal_float(ForwardDiff.valtype(T)) : T
 
 _partials_type(::Type{ForwardDiff.Dual{G, V, N}}) where {G, V, N} = ForwardDiff.Partials{N, V}
 # A Dual of D's type with the value `v` (of D's value type) and the partials `p`.

@@ -541,6 +541,30 @@ function refine_relpose(::Rigid3,
     ))
 end
 
+# A K as PoseLib's SIMPLE_PINHOLE camera: (focal, cx, cy), the focal the mean of K₁₁ and K₂₂ — the one statement of
+# the mapping, for every binding that hands a K over and for `calibrated_loss_width`.
+_pinhole_focal(K::AbstractMatrix) = (K[1, 1] + K[2, 2]) / 2
+_simple_pinhole(K::AbstractMatrix) = Float64[_pinhole_focal(K), K[1, 3], K[2, 3]]
+
+"""
+    calibrated_loss_width(K1, K2, loss_width) -> Float64
+
+The calibrated (bearing-unit) loss width that PoseLib's relative-pose refiner
+works at when it is handed `loss_width` in the unit of the points together
+with the intrinsics `K1` and `K2` ([`refine_relpose`](@ref)`(pose, K1, K2, cs;
+loss_width)`): `loss_width · ½(1/f₁ + 1/f₂)`, PoseLib's camera-aware rule
+(`robust.cc`), with each `fᵢ = (Kᵢ₁₁ + Kᵢ₂₂)/2`, the focal length of the
+`SIMPLE_PINHOLE` camera the binding hands over.
+
+A refiner on calibrated data that must deploy at the same operating point as
+PoseLib's pixel refiner converts its width with this, so the two cannot drift
+apart when the camera mapping changes.
+"""
+calibrated_loss_width(K1::AbstractMatrix, K2::AbstractMatrix, loss_width::Real) =
+    loss_width * (0.5 * (1.0 / _pinhole_focal(K1) + 1.0 / _pinhole_focal(K2)))
+
+public calibrated_loss_width
+
 """
     refine_relpose(pose::Rigid3, K1, K2, cs; max_iter, loss = TLSShape(), loss_width) -> Rigid3
 
@@ -577,8 +601,8 @@ function refine_relpose(pose::Rigid3, K1::AbstractMatrix, K2::AbstractMatrix,
         Rin[3(j-1)+i] = R0[i, j]            # column-major (Eigen layout)
     end
     tin  = Float64[t0[1], t0[2], t0[3]]
-    cam1 = Float64[(K1[1,1] + K1[2,2]) / 2, K1[1,3], K1[2,3]]   # focal, cx, cy
-    cam2 = Float64[(K2[1,1] + K2[2,2]) / 2, K2[1,3], K2[2,3]]
+    cam1 = _simple_pinhole(K1)
+    cam2 = _simple_pinhole(K2)
     R_out = MVector{9, Float64}(undef); t_out = MVector{3, Float64}(undef)
     _require_library()
     ccall((:poselib_refine_relpose_cam, libposelib_jl), Cint,
@@ -780,7 +804,7 @@ function refine_absolute_pose(pose::Rigid3, K::AbstractMatrix,
         Rin[3(j-1)+i] = R0[i, j]            # column-major (Eigen layout)
     end
     tin = Float64[t0[1], t0[2], t0[3]]
-    cam = Float64[(K[1,1] + K[2,2]) / 2, K[1,3], K[2,3]]        # focal, cx, cy
+    cam = _simple_pinhole(K)
     R_out = MVector{9, Float64}(undef); t_out = MVector{3, Float64}(undef)
     _require_library()
     ccall((:poselib_bundle_adjust_cam, libposelib_jl), Cint,

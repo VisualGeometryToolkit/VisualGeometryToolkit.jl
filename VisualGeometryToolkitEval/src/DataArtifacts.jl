@@ -73,7 +73,7 @@ checks a catalog against its bindings.
 module DataArtifacts
 
 using TOML: TOML
-using SHA: sha256
+using VisualGeometryToolkitCore: sha256_hex
 using Base: SHA1
 using Pkg.Artifacts: bind_artifact!, create_artifact, archive_artifact, remove_artifact
 using Artifacts: with_artifacts_directory
@@ -580,7 +580,7 @@ function _pack(cat, name, stage, kinds)
         write(treefile, bytes2hex(hash.bytes) * '\n')
         write(sidecar, listing)
     end
-    sha = bytes2hex(open(sha256, tarball))
+    sha = open(sha256_hex, tarball)
     return (; name = String(name), tarball, hash, sha, bytes = filesize(tarball),
             raw = sum(p -> p.len, pieces; init = 0))
 end

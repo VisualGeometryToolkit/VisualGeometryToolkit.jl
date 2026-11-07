@@ -4,6 +4,21 @@
 
 ### Breaking
 
+- **`fit_residual_mixture(distances, scoring; …)`**: the input is the held model's DISTANCES (`≥ 0`, what
+  `mahalanobis_distances!` fills); a negative entry is refused with an `ArgumentError` naming `abs` (it is a signed
+  residual). The positional was named `residuals`.
+- `RelposeBundleProblem` and `BearingPoseProblem` answer `whitened_residual` (the bundle's: the reprojection
+  distance signed by the epipolar constraint's side; the bearing pose's: the whitened tangent 2-vector), and the
+  conformance suite runs `test_constraint_problem` on both. `RotationProblem`'s hemisphere gate is on the residual
+  (`(Inf, Inf)` for an antipodal pair; its distance is Core's default norm). `RadialHomographyProblem` whitens its
+  offset by `measurement_covariance` and, out of field, points `OUT_OF_FIELD_RESIDUAL` along the target's radial
+  direction (its norm the distance's constant), no longer along x.
+- The chart LM's Sampson rows are VisualGeometryToolkitCore's `weighted_whitened_residuals!` /
+  `weighted_whitened_jacobian_rows!` (Core's `whitened_*` are now unweighted); the rows are bit for bit unchanged.
+- `fit_camera`'s P-spline penalty is Core's `difference_rows((ny, nx), 3)` (`DᵀD` identical, entry for entry), its
+  direction chart Core's `equidistant_chart` (the same basis rule), and the relative-pose bundle's points Core's
+  `Eliminable`; the private `_third_difference` and the bundle's own point wrapper are deleted.
+
 - **`RansacWorkspace` takes its storage eltype as an optional LEADING
   positional** on every form, as the stack's signature rule places a type
   argument in a non-mutating call:

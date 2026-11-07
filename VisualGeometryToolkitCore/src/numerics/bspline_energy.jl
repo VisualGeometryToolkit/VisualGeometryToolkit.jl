@@ -104,6 +104,40 @@ difference_stencil(order::Integer) =
     ntuple(k -> Float64((-1)^(k - 1) * binomial(Int(order), k - 1)), Int(order) + 1)
 
 """
+    difference_rows(mask::AbstractMatrix{Bool}, order) -> SparseMatrixCSC{Float64, Int}
+    difference_rows(dims::Dims{2}, order)
+
+The forward differences `Δᵒʳᵈᵉʳ` ([`difference_stencil`](@ref)) of a 2-D
+lattice of coefficients along both of its axes, as a sparse operator on the
+lattice's column-major vector: one row per window of `order + 1` consecutive
+nodes that lies wholly in `mask` (`true`: a node the rows may read), first
+the windows along the first axis (`(i, j) … (i + order, j)`, `j` outer), then
+those along the second. `dims` is the unmasked lattice (`trues(dims)`).
+
+`DᵀD` is the P-spline difference penalty (Eilers & Marx 1996): at `order = 3`
+it annihilates a quadratic along each axis, so only the variation beyond it is
+penalized. An `N × 1` mask is a profile (rows along its one axis only).
+"""
+function difference_rows(mask::AbstractMatrix{Bool}, order::Integer)
+    order >= 1 || throw(ArgumentError("difference_rows: order must be ≥ 1, got $order"))
+    s = difference_stencil(order)
+    L = LinearIndices(mask)
+    n1, n2 = size(mask)
+    I, J, V = Int[], Int[], Float64[]
+    row = 0
+    for (axis, ni, nj) in ((1, n1 - order, n2), (2, n1, n2 - order)), j in 1:nj, i in 1:ni
+        δ = axis == 1 ? CartesianIndex(1, 0) : CartesianIndex(0, 1)
+        all(k -> mask[CartesianIndex(i, j) + k * δ], 0:order) || continue
+        row += 1
+        for k in 0:order
+            push!(I, row); push!(J, L[CartesianIndex(i, j) + k * δ]); push!(V, s[k + 1])
+        end
+    end
+    return sparse(I, J, V, row, length(mask))
+end
+difference_rows(dims::Dims{2}, order::Integer) = difference_rows(trues(dims), order)
+
+"""
     clamped_knots(n, p, lo, hi) -> SVector{n + p + 1, Float64}
 
 The clamped (open) uniform knot vector of `n` basis functions of degree `p`

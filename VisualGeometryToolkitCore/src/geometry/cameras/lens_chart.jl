@@ -169,13 +169,17 @@ function with_parameters(::LogicalIntrinsics, θ::AbstractVector)
 end
 
 """
-    convert_eltype(::Type{T}, x) where {T <: AbstractFloat}
+    convert_eltype(::Type{T}, x) where {T <: Real}
 
 `x` rebuilt with every stored number in `T`: a lens (its coefficients), a
 `LogicalIntrinsics` (`K`, with `K⁻¹` recomputed in `T`), a `CameraModel`
-(both), a `CentralGenericModel` or `NoncentralGenericModel` (the grids;
-the calibrated area stays as stored). Use it to move a camera to `Float32`
-before a GPU launch, or back to `Float64`.
+(both), a `BoundedCamera` (its camera, the bound kept), a plain
+`EuclideanMap` or `RotationMap` (rotation and translation, representation and
+frames kept), a `CentralGenericModel` or `NoncentralGenericModel` (the grids;
+the calibrated area stays as stored; `T <: AbstractFloat` there). Use it to
+move a camera to `Float32` before a GPU launch, or back to `Float64`, or to a
+ForwardDiff `Dual` for a Jacobian by forward differentiation (a `Dual` is a `Real`, not an
+`AbstractFloat`).
 
 A lens's and a grid model's method is also what the batched and fused
 kernels apply once per launch, so per-element math never promotes (Metal has
@@ -187,12 +191,12 @@ Public, not exported; a downstream camera or lens type adds its own method.
 function convert_eltype end
 # Widening keeps the radial factors' branch ends, cast (see `Radial`); narrowing
 # recomputes them from the rounded coefficients.
-convert_eltype(::Type{T}, l::AbstractLensModel) where {T <: AbstractFloat} =
+convert_eltype(::Type{T}, l::AbstractLensModel) where {T <: Real} =
     _widens(T, _coeff_type(l)) ? _with_own_parameters(l, map(T, parameter_vector(l))) : _with_parameters(l, map(T, parameter_vector(l)))
 _widens(::Type{T}, ::Type{C}) where {T, C} = C === Union{} || promote_type(T, C) === T
-convert_eltype(::Type{T}, intr::LogicalIntrinsics) where {T <: AbstractFloat} =
+convert_eltype(::Type{T}, intr::LogicalIntrinsics) where {T <: Real} =
     LogicalIntrinsics(CameraCalibrationMat{T}(intr.K))
-convert_eltype(::Type{T}, m::CameraModel) where {T <: AbstractFloat} =
+convert_eltype(::Type{T}, m::CameraModel) where {T <: Real} =
     CameraModel(convert_eltype(T, m.intrinsics), convert_eltype(T, m.lens))
 
 # --- CameraModel: the intrinsics' coordinates, then the lens's ---------------------
@@ -559,7 +563,8 @@ function _parameter_jacobian(m::CameraModel, X)
     Xf = _float_static(X)
     return _jacobian(q -> project(with_parameters(m, q), Xf), parameter_vector(m))
 end
-function local_coordinates(ch::ParameterManifold, x::_ParametricModel)
+local_coordinates(ch::ParameterManifold, x::_ParametricModel) = _parameter_offsets(ch, x)
+function _parameter_offsets(ch::ParameterManifold, x)
     _same_structure(ch.model, x) || throw(
         ArgumentError("local_coordinates: a $(_structure_name(x)) is not on the manifold of $(_structure_name(ch.model))")
     )
@@ -629,6 +634,29 @@ _record(leaf) = Dict{String, Any}(
     _tag(typeof(leaf)) => any(f -> f isa Tuple, _fields(leaf)) ? Any[collect(Float64, f) for f in _fields(leaf)] :
         collect(Float64, _coefficients(leaf))
 )
+
+"""
+    lens_label(lens) -> String
+
+A lens's display name — a report's label, a run's name — by the tag rule: a
+named family is `snake_case` of its name (`"pinhole"`, `"kannala_brandt"`,
+`"division"`, `"scaramuzza"`); any other lens is its [`lens_record`](@ref)'s
+leaf tags in the record's order, joined by `_` (a lift is `lift_` and its
+term): `Lens(DoubleSphere(ξ, α))` is `"double_sphere"`, an OpenCV-14 lens
+`"perspective_tilt_radial_tangential_thin_prism"`. A label, never read back:
+[`lens_from_record`](@ref) reads the record.
+"""
+lens_label(::Pinhole) = "pinhole"
+lens_label(::KannalaBrandt) = "kannala_brandt"
+lens_label(::Division) = "division"
+lens_label(::Scaramuzza) = "scaramuzza"
+lens_label(l::Union{Lens, LiftLens}) = join(_leaf_tags(l), "_")
+_leaf_tags(l::Lens) = (_tag(typeof(l.projection)), _leaf_tags(l.distortion)...)
+_leaf_tags(l::LiftLens) = ("lift", _leaf_tags(l.radial)...)
+_leaf_tags(::Nothing) = ()
+_leaf_tags(a::Additive) = foldl((acc, t) -> (acc..., _leaf_tags(t)...), a.terms; init = ())
+_leaf_tags(c::ComposedTransformation) = foldl((acc, t) -> (acc..., _leaf_tags(t)...), reverse(_stages(c)); init = ())
+_leaf_tags(leaf) = (_tag(typeof(leaf)),)
 
 const _LEAVES = Dict{String, Any}(
     _tag(X) => X for X in (

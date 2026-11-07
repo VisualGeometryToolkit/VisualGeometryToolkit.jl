@@ -253,7 +253,7 @@ end
         write(p, JSON.json(dd))
         q = joinpath(dir, "good.json")
         write(q, JSON.json(good))
-        @test VisualGeometryToolkitIO._same_value(load(AbstractTarget, p), load(AbstractTarget, q))
+        @test VisualGeometryToolkitIO.same_value(load(AbstractTarget, p), load(AbstractTarget, q))
         # a v1 key is an unknown key of the current record; a current record labeled v1 is refused by the v1 step
         dd = deepcopy(good)
         dd["target"]["warp"] = pop!(dd["target"], "calibration")

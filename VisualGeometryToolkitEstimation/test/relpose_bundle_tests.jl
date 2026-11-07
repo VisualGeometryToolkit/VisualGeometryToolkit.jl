@@ -321,7 +321,7 @@ end
     t0 = normalize(SVector{3, Float64}(t0))
     iK1 = _inv3(KC1); iK2 = _inv3(KC2)
     sw = ones(N)
-    extent(p, s) = (pose = p.variables[1]; maximum(i -> s * (SMatrix{3, 3}(pose.R) * p.variables[i + 1].X + pose.t)[1], 1:N))
+    extent(p, s) = (pose = p.variables[1]; maximum(i -> s * (SMatrix{3, 3}(pose.R) * p.variables[i + 1].value + pose.t)[1], 1:N))
     function wall_fit(E, wall, s)
         data = _WallData(SMatrix{3, 3, Float64, 9}(KC1), _WallK(SMatrix{3, 3, Float64, 9}(KC2), wall, s), u1, u2, sw)
         run = VisualGeometryToolkitEstimation._BundleRun{E}(N, data)

@@ -113,7 +113,7 @@ end
             src = joinpath(dir, name)
             write(src, replace(read(units(name), String), "\"schema\": \"$(new)\"" => "\"schema\": \"$(old)\""))
             @test occursin(old, read(src, String))
-            @test VgtkIO._same_value(load(T, src), load(T, units(name)))     # read through its step, silently
+            @test VgtkIO.same_value(load(T, src), load(T, units(name)))     # read through its step, silently
             r = vgio_migrate(src)
             @test r.from == old && r.to == new
             @test read(r.out, String) == read(units(name), String)            # the current file, byte for byte

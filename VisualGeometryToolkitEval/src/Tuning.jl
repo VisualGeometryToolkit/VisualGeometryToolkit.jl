@@ -36,7 +36,7 @@ module Tuning
 using Random: shuffle
 using StableRNGs: StableRNG
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore   # the TOML key helpers (toml.jl, sampling.jl)
-using SHA: sha256
+using VisualGeometryToolkitCore: sha256_hex    # _toml_hash (toml.jl)
 using TOML: TOML
 using JLD2: JLD2
 using LibGit2: LibGit2
@@ -71,7 +71,7 @@ export
     TuningScheme, CoarseFine, CoarseFineAxis, Incumbent, JointCoarseFine, WindowedBootstrap, Factorial, TuningSpec,
     # toml.jl — the [tuning] parser/writer
     TUNING_TAGS, tuning_spec, tuning_specs, tuning_table, tuning_toml, tuning_hash, read_tuning,
-    resolve_tuning!, layer_tuning,
+    resolve_tuning!, layer_tuning, layered_tuning_entry,
     # persist.jl — the tuning-artifact writer/reader
     TuningArtifact, save_tuning_artifact, load_tuning_artifact, code_identity,
     # bootstrap_argmin.jl — the bootstrap of a tuned argmin over the units

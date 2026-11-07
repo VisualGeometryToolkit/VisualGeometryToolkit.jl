@@ -127,16 +127,24 @@ const DEFAULT_MAX_ASPECT_RATIO = 10.0
 """
     is_valid_shape(S; max_aspect_ratio=DEFAULT_MAX_ASPECT_RATIO) -> Bool
 
-Check that a 2×2 shape factor is symmetric, positive-definite, and has
-axis ratio ≤ `max_aspect_ratio`.
+Check that a 2×2 shape factor is positive-definite and has
+[`aspect_ratio`](@ref) `√(σ_max/σ_min) ≤ max_aspect_ratio` (the frame's, of
+`EllipticFrame(c, S)`). Closed form, without building the frame or a
+decomposition: `σ_max·σ_min = |det S|` and `σ_max² + σ_min² = ‖S‖²_F`, so
+with `r = σ_max/σ_min ≥ 1` and `k = max_aspect_ratio` the test `√r ≤ k` is
+`r + 1/r ≤ k² + 1/k²`, i.e. `‖S‖²_F ≤ (k² + k⁻²)·|det S|`. Allocation-free and
+branch-light in the element type: callable inside a kernel on a static 2×2
+(a fitted peak's negated quadratic form `-C` after [`is_peak`](@ref)).
 """
 function is_valid_shape(
         S::AbstractMatrix;
-        max_aspect_ratio::Float64 = DEFAULT_MAX_ASPECT_RATIO
+        max_aspect_ratio::Real = DEFAULT_MAX_ASPECT_RATIO
     )
     is_positive_definite(S) || return false
-    f = EllipticFrame(Point2(0.0, 0.0), S)
-    return aspect_ratio(f) ≤ max_aspect_ratio
+    T = float(eltype(S))
+    k2 = T(max_aspect_ratio)^2
+    d = abs(S[1, 1] * S[2, 2] - S[1, 2] * S[2, 1])
+    return S[1, 1]^2 + S[1, 2]^2 + S[2, 1]^2 + S[2, 2]^2 ≤ (k2 + inv(k2)) * d
 end
 
 # =============================================================================
@@ -238,6 +246,18 @@ definite) — i.e. the fitted surface has a maximum, as expected for a
 bright-blob response peak. See [`Paraboloid3D`](@ref).
 """
 is_peak(p::Paraboloid3D) = is_negative_definite(p.C)
+
+"""
+    is_peak(C::StaticMatrix{2, 2}) -> Bool
+
+Whether the quadratic form `C` of a paraboloid `z = a₀ + bᵀx + xᵀCx` opens
+downward (negative definite: `C₁₁ < 0`, `det C > 0`): the paraboloid's peak
+test on its 2×2 coefficients, closed form and kernel-callable — a device fit
+that holds `(C₁₁, C₁₂, C₂₂)` tests `is_peak(C)` and then
+[`is_valid_shape`](@ref)`(-C; max_aspect_ratio)` without building a
+`Paraboloid3D`.
+"""
+is_peak(C::StaticMatrix{2, 2}) = is_negative_definite(C)
 
 """
     Paraboloid3D(d::Disc, a₀::Real) -> Paraboloid3D{T,2}
@@ -412,6 +432,8 @@ end
 # Properties
 shape_factor(f::AffineFrame) = f.A
 shape_matrix(f::AffineFrame) = f.A * f.A'  # M = A·A'
+# A disc's: `σ² I` (its EllipticFrame's `S = σ I`), oriented or not — the orientation turns nothing round.
+shape_matrix(d::Union{Disc, OrientedDisc}) = (s2 = d.σ * d.σ; z = zero(s2); SMatrix{2, 2, typeof(s2), 4}(s2, z, z, s2))
 
 # Extract symmetric part (EllipticFrame)
 function EllipticFrame(f::AffineFrame{T}) where {T}

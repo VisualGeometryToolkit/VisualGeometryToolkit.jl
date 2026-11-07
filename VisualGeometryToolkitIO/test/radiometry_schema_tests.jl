@@ -35,6 +35,14 @@
         @test all(typeof(cov(bb[k])) == typeof(cov(B[k])) && cov(bb[k]) == cov(B[k]) for k in keys(B))
         bR = JSON.parse(read(p, String))["blurs"][3]                                          # :R, sorted last: round, one number
         @test bR["unit"] == "px^2" && collect(keys(bR["covariance"])) == ["isotropic"] && bR["covariance"]["isotropic"] ≈ 0.36
+        # the same body nested in another record (RadiometricCamera's per-channel in-focus blur): lowered and lifted
+        # through the one pair of methods the file uses, byte for byte the file's `blurs`
+        s = VisualGeometryToolkitIO.VgioStyle(; length_unit = mm)
+        nested = JSON.parse(JSON.json((camera = (in_focus_blur = B,),); style = s))["camera"]["in_focus_blur"]
+        @test nested == JSON.parse(read(p, String))["blurs"] && [b["name"] for b in nested] == ["B", "G", "R"]
+        lifted = JSON.lift(s, Dict{Symbol, GaussianBlur}, JSON.parse(JSON.json(nested)))
+        @test lifted isa Dict{Symbol, GaussianBlur} && all(cov(lifted[k]) == cov(B[k]) && typeof(cov(lifted[k])) == typeof(cov(B[k])) for k in keys(B))
+        @test_throws ArgumentError JSON.lift(s, Dict{Symbol, GaussianBlur}, JSON.parse(JSON.json([nested[1], nested[1]])))   # a repeated name
     end
 end
 
@@ -116,6 +124,9 @@ end
         p = joinpath(dir, "v.json")
         save(p, RadialVignetting(5, SVector(10.0, 20.0), 30.0))
         @test_throws ArgumentError load(AbstractVignetting, edited(p, t -> t["vignetting"]["type"] = "polynomial"))
+        # a retired tag: the registry's message, naming its successor
+        err = try load(AbstractVignetting, edited(p, t -> t["vignetting"]["type"] = "tensor")); nothing catch e; e end
+        @test err isa ArgumentError && occursin("tensor_product", err.msg) && occursin("renamed", err.msg)
         @test_throws ArgumentError load(AbstractVignetting, edited(p, t -> t["pixel_frame"] = "opencv"))     # COLMAP pixels only
         l = joinpath(dir, "l.json")
         save(l, with_unit(EnvironmentLight(SphericalHarmonicMap(ones(3, 4), 1), SVector(0.0, 0.0, 0.0), 1.0), m))

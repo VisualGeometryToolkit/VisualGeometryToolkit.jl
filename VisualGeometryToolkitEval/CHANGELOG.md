@@ -1,5 +1,27 @@
 # VisualGeometryToolkitEval changelog
 
+## Unreleased
+
+- **Breaking: `MsacSpec` is `LossWidthSpec(name, scoring, loss_width, lo = NoLocalOptimization();
+  refinement_loss_width)`**, and `evaluate_sample_budget`'s keyword `msac_specs` is `loss_width_specs`. A column
+  selects with any loss-width family's template (`width_axis(scoring) == LossWidth()`: Core's `MsacScoring(dg)` or
+  `RansacScoring(dg)`, or a paper's family with `with_width` and `score!`, such as RANSACScoringDoneRight's MLESAC,
+  MAGSAC++ and loss-cost families) built at `loss_width`; its codimension must be the problem's. Under
+  `NoLocalOptimization` the column is selection only: its LO checkpoints record the selected model's `model_imc`
+  (the statistic of every checkpoint), with no refit and no LO time. `MsacSpec(:msac, w, lo)` is
+  `LossWidthSpec(:msac, MsacScoring(dg), w, lo)`. The warm-up now times each refiner type once (formerly the first
+  spec's refiner, broadcast to every column).
+- **`Tuning.layered_tuning_entry(cfg, name; under, over) -> Dict`** (exported): the `[tuning.<name>]` entry with a
+  campaign's protocol layered around it, as `tuning_spec` reads it (which now calls it), before it is read.
+  `under` is filtered by the scheme's TOML keys (`allowed_keys`), not its field names: a Greek field is kept by its
+  ASCII spelling (LocalOptimizationDoneRight's `protocol_tuning` filtered by `fieldnames`).
+- **`Pools.pool_size(path) -> Int`** (exported): a light pool file's pair count from its header, under
+  `load_pool`'s format check, without loading the pairs.
+- **`Render.results_by_method(summary::DataFrame)`** (exported): the per-`(method_key, tuning_criterion)` bucketing
+  of a summary already in hand; `load_results(path)` reads the file and calls it. Its buckets are `SubDataFrame`s
+  (RANSACScoringDoneRight's `sensitivity_data` copy returned `DataFrame`s of the same rows).
+- The tuning hash and an artifact tarball's digest use VisualGeometryToolkitCore's `sha256_hex` (no value changes).
+
 ## 0.5.0 (2026-11-06)
 
 VisualGeometryToolkitCore 0.6, VisualGeometryToolkitIO 0.6 and

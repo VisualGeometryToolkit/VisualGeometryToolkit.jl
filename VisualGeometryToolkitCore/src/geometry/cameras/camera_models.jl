@@ -558,6 +558,17 @@ CameraModel(m::RadialHomography{T}) where {T} = CameraModel(
     Division(m.k)
 )
 
+"""
+    distortion_map(m::RadialHomography) -> Transformation
+
+The radial model's undistorted → distorted pixel map, `c + μ·(u − c)` with
+the division model's `μ` ([`project`](@ref)`(m, (u − c, 1))` as a map): the
+camera bridge's [`distortion_map`](@ref), `distortion_map(CameraModel(m))`.
+Its inverse is the undistortion, `inv(distortion_map(m))`; NaN where the
+model's field ends (as its lens does), never `nothing`.
+"""
+distortion_map(m::RadialHomography) = distortion_map(CameraModel(m))
+
 # =============================================================================
 # Frame of record — the intrinsics K IS the normalization frame of the lens
 # =============================================================================

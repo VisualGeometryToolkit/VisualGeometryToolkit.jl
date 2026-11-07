@@ -45,19 +45,20 @@ MixtureEmConfig(;
     max_iter::Integer = _dflt("mixture_em", "max_iter"),
 ) = MixtureEmConfig(model_update, nuisance, max_iter)
 
-# A held model's residuals as a problem: the residual block of the iteration
-# re-reads them, and nothing refines them (there is no `refine!`).
-struct _FixedResiduals
-    residuals::Vector{Float64}
+# A held model's distances as a problem: the residual block of the iteration
+# re-reads them through the protocol's distance hook (`≥ 0`), and nothing
+# refines them (there is no `refine!`).
+struct _FixedDistances
+    distances::Vector{Float64}
 end
-data_size(p::_FixedResiduals) = length(p.residuals)
-mahalanobis_distances!(r::AbstractVector, p::_FixedResiduals, _held) = copyto!(r, p.residuals)
+data_size(p::_FixedDistances) = length(p.distances)
+mahalanobis_distances!(d::AbstractVector, p::_FixedDistances, _held) = copyto!(d, p.distances)
 
 """
     ResidualMixtureMetadata
 
 The `metadata` of a [`fit_residual_mixture`](@ref) result: the mixture's
-negative log-likelihood `nll` of the residuals at the fitted noise model (the
+negative log-likelihood `nll` of the distances at the fitted noise model (the
 quantity the EM lowered).
 """
 struct ResidualMixtureMetadata
@@ -65,12 +66,15 @@ struct ResidualMixtureMetadata
 end
 
 """
-    fit_residual_mixture(residuals, scoring; model_dof,
+    fit_residual_mixture(distances, scoring; model_dof,
                          config = MixtureEmConfig())
         -> Union{FitResult{PosteriorWeightState, ResidualMixtureMetadata}, Nothing}
 
-Fit the Student-t + uniform mixture to a held model's `residuals` (unsquared;
-the residual NORMS of a codimension-2 measurement) and classify each one.
+Fit the Student-t + uniform mixture to a held model's `distances` (`≥ 0`,
+unsquared: the Mahalanobis distances, the residual NORMS of a codimension-2
+measurement — what `mahalanobis_distances!` fills) and classify each one. A
+negative entry is a signed residual, not a distance, and is an
+`ArgumentError` (supply `abs.(r)`).
 
 1. The scorer takes their consensus set — `score!` of `scoring` (any scorer with
    a uniform outlier model, `outlier_halfwidth`, whose per-point scores are the
@@ -97,12 +101,16 @@ The result: `estimate` the fitted mixture, a `PosteriorWeightState` — its
 `rms` is the reprojection error of record; `retcode` and `iterations` the EM's;
 `metadata` a [`ResidualMixtureMetadata`](@ref).
 """
-function fit_residual_mixture(residuals::AbstractVector{<:Real}, scoring::AbstractScoring;
+function fit_residual_mixture(distances::AbstractVector{<:Real}, scoring::AbstractScoring;
                               model_dof::Int, config::MixtureEmConfig = MixtureEmConfig())
     config.model_update isa KeepModel || throw(ArgumentError(
-        "fit_residual_mixture: the residuals are a held model's, so the model update must be " *
+        "fit_residual_mixture: the distances are a held model's, so the model update must be " *
             "KeepModel, got $(config.model_update)"))
-    r = collect(Float64, residuals)
+    i = findfirst(<(0), distances)
+    i === nothing || throw(ArgumentError(
+        "fit_residual_mixture: distances[$i] = $(distances[i]) is negative — a signed residual, not a distance; " *
+            "supply its magnitude, `abs.(r)`"))
+    r = collect(Float64, distances)
     n = length(r)
     rws = _consensus_seeded_posterior(r, n, scoring; model_dof)
     rws === nothing && return nothing
@@ -112,7 +120,7 @@ function fit_residual_mixture(residuals::AbstractVector{<:Real}, scoring::Abstra
     # tracks, never moved (`KeepModel`).
     state = PosteriorIrlsState(rws, copy(r), copy(r), r, mixture_nll(rws, r, n))
     res = block_coordinate_descent!(state, lh, PosteriorIrlsMethod(nothing, config.model_update),
-                                    _FixedResiduals(r), r; max_iter = config.max_iter)
+                                    _FixedDistances(r), r; max_iter = config.max_iter)
     ss, k = 0.0, 0
     for i in 1:n
         is_inlier(rws, i) || continue

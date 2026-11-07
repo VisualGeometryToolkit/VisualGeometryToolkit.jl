@@ -222,6 +222,16 @@ whether pixel `(u, v)`'s centre is among `pixel_centres(region, 1:W, 1:H)`.
 pixel_centres(region, us::AbstractVector{<:Integer}, vs::AbstractVector{<:Integer}) =
     [SVector{2, Float64}(c) for v in vs for u in us for c in (_pixel_centre(u, v),) if c ∈ region]
 
-# A pixel's centre in the COLMAP frame: the one conversion from Julia's 1-based
-# pixel index.
-_pixel_centre(u::Integer, v::Integer) = Point2{Float64}(u - 0.5, v - 0.5)
+"""
+    pixel_centre([T = Float64,] I::CartesianIndex{2}) -> SVector{2, T}
+
+The centre of the pixel at the array index `I = (row, col)` (Julia's 1-based
+indices, `img[row, col]`) in the COLMAP frame, `(col − ½, row − ½)`, in `T`:
+the one conversion from an image array's index to a pixel point. Allocation-
+and branch-free, so a device functor over `CartesianIndices` calls it at the
+kernel's element type.
+"""
+@inline pixel_centre(::Type{T}, I::CartesianIndex{2}) where {T <: Real} = SVector{2, T}(T(I[2]) - T(0.5), T(I[1]) - T(0.5))
+@inline pixel_centre(I::CartesianIndex{2}) = pixel_centre(Float64, I)
+# Pixel `(u, v)` (column, row) as the regions read it.
+_pixel_centre(u::Integer, v::Integer) = Point2{Float64}(pixel_centre(CartesianIndex(v, u)))

@@ -37,7 +37,7 @@ export
     # paper_style.jl — a paper's styling, one value
     PaperStyle,
     # plot_core.jl — load_results + the PanelSpec build_axis + colours
-    load_results, paper_color_name, paper_color_defs, default_palette, PANELS,
+    load_results, results_by_method, paper_color_name, paper_color_defs, default_palette, PANELS,
     write_article_preview, build_axis,
     # figure_style.jl — the faceted-arm grammar
     arm_style_records, FAMILY_ORDER, family_rank, PATH_RANK, path_rank, arm_order,

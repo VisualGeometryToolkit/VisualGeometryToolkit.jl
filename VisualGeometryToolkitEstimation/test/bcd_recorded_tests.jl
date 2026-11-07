@@ -84,7 +84,7 @@ function mixture_arm()
     rws = VgtkEstimation.median_seeded_posterior(r .^ 2, n; outlier_halfwidth = 40.0, codimension = 2)
     state = VgtkEstimation.PosteriorIrlsState(rws, copy(r), copy(r), r, VgtkEstimation.mixture_nll(rws, r, n))
     return state, VgtkEstimation.PosteriorLikelihood(rws, n), VgtkEstimation.PosteriorIrlsMethod(nothing, VgtkEstimation.MixtureEmConfig().model_update),
-        VgtkEstimation._FixedResiduals(r), r, 30
+        VgtkEstimation._FixedDistances(r), r, 30
 end
 
 # Everything a state holds that a run moves (numbers, arrays, incumbents, the

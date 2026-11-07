@@ -104,12 +104,14 @@ test_sample(p::RotationProblem, idx::AbstractVector{Int}) =
         VgtkCore.TransferForm(_transfer_homography(R)), sources(p.cs)[i], targets(p.cs)[i]; M₁ = p.cs.M₁[i], M₂ = p.cs.M₂[i])
 end
 
-# The Mahalanobis distance: VGC's default (the norm of the `whitened_residual` of
-# the constraint above, in pixels) behind the hemisphere gate — the transferred ray must be in f₂'s
-# hemisphere, since an antipodal pair also has a small tangent residual.
-@inline function mahalanobis_distance(p::RotationProblem, R::RotMatrix, i::Int)
-    @inbounds dot(R * sources(p.cs)[i], targets(p.cs)[i]) > 0 || return Inf
-    return norm(whitened_residual(p, R, i))   # VGC's default, behind the gate
+# The whitened residual: VGC's default (the Sampson residual of the constraint
+# above, whitened, in pixels) behind the hemisphere gate — the transferred ray
+# must be in f₂'s hemisphere, since an antipodal pair also has a small tangent
+# residual. A gated point's residual is infinite in both components, so its
+# norm, the Mahalanobis distance (VGC's default), is the gate's `Inf`.
+@inline function whitened_residual(p::RotationProblem, R::RotMatrix, i::Int)
+    @inbounds dot(R * sources(p.cs)[i], targets(p.cs)[i]) > 0 || return SVector(Inf, Inf)
+    return @invoke whitened_residual(p::AbstractConstraintProblem, R, i::Int)
 end
 
 # The sub-detector half-width refusal is the bearing problems' (essential.jl

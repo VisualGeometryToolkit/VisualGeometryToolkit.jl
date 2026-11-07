@@ -131,7 +131,7 @@ node_position(m::_GenericModel, i::CartesianIndex{2}) = Point2{Float64}(_node_pi
 # (The closed meet, Core's one rect-meet convention: a footprint always overlaps
 # the area by at least a cell, so it is never empty.)
 support(m::_GenericModel, i::CartesianIndex{2}) =
-    _closed_meet(cubic_bspline_footprint(node_position(m, i), _lattice_spacing(m)), _calibrated_rect(m))
+    _closed_meet(cubic_bspline_footprint(node_position(m, i), lattice_spacing(m)), _calibrated_rect(m))
 
 # -----------------------------------------------------------------------------
 # The boundary rule of a lattice under an imaged region: the nodes outside it are

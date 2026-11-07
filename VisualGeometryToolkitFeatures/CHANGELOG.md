@@ -2,8 +2,25 @@
 
 ## Unreleased
 
+- The LoMa model digest and `cache_key` are VisualGeometryToolkitCore's `sha256_hex` (the same values); the SHA
+  dependency is dropped.
 - **Breaking, with VisualGeometryToolkitCore 0.7:** a `Detection`'s and a `DescribedFeature`'s blob shape is
   `shape_matrix(d)` (Core's renamed generic; `moment_matrix` is retired). `d.Σ` is unchanged.
+- **`LoMaDescriptor` takes an image of any size**: `(descriptor)(img, detections)` with `img` a `3 × H × W` RGB
+  channelview of any real element type and the detections in its COLMAP pixels. An image that is not the graph's
+  fixed `LOMA_IMAGE_SIZE`² (public, 784) is resampled to it per channel by Core's bilinear `image_warp!` (the COLMAP
+  scaling, Float64 math, Float32 taps: PanoramaStitching's hand resampling, bit for bit); a `3 × 784 × 784` image is
+  taken as before. The keypoint chart reads the image's own size, so the detections are never rescaled and the
+  described features carry them as given (PanoramaStitching rescaled its frames to 784² by hand, moment matrices
+  included, which the descriptor never read).
+- **`strongest(detections, n)` (public)**, the selection `LoMaDescriptor` applies (formerly the private
+  `_strongest`): the `n` largest `|response|`, in detector order. Ties at the cut now keep the earlier detections
+  (a stable sort; the former `partialsortperm` left that choice unspecified). BlobBoards' cap keeps the same set
+  but re-sorts it by response.
+- **`box_downsample` takes a 2-D image and any real or colour element type**, averaging in the element type's
+  float (`Float32` for a `Float32`, `Gray{Float32}` or 8-bit image: BlobBoards' supersampling filter, bit for bit;
+  `Float64` for a `Float64` or integer image, as before). A `Float32` 3-D image now gives a `Float32` result
+  (formerly `Float64`).
 
 ## 0.5.0 (2026-11-06)
 

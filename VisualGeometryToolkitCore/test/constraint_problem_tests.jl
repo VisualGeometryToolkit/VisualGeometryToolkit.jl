@@ -111,6 +111,7 @@
             @test VgtkCore.mahalanobis_distance(pv, nothing, 1) === norm(wv)
             @test VgtkCore.whitened_residuals!(zeros(4), pv, nothing) == vcat(wv, VgtkCore.whitened_residual(pv, nothing, 2))
             @test_throws DimensionMismatch VgtkCore.whitened_residuals!(zeros(3), pv, nothing)   # not whole points
+            @test_throws DimensionMismatch VgtkCore.whitened_residuals!(zeros(2), pv, nothing)   # not every point
             # a model that is itself a vector: the problem-level rows, not the model-level form
             @test VgtkCore.whitened_residuals!(zeros(4), pv, [1.0, 2.0]) == VgtkCore.whitened_residuals!(zeros(4), pv, nothing)
         end
@@ -203,6 +204,10 @@
             VgtkCore.test_constraint_problem(_ScalarOverrideProblem(), nothing)
         end
         @test _fails(ts) == 1                             # the shape, and only the shape
+        # the stacked rows read d_g = codimension(problem) components per point and
+        # every point: the scalar override fails loudly, never reads past the data
+        @test_throws DimensionMismatch VgtkCore.whitened_residuals!(zeros(6), _ScalarOverrideProblem(), nothing)
+        @test_throws DimensionMismatch VgtkCore.whitened_residuals!(zeros(4), _ScalarOverrideProblem(), nothing)
     end
 
     # The conformance helper every problem's package runs.

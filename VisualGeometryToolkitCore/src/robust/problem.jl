@@ -186,34 +186,35 @@ end
     whitened_residuals!(r, problem, model) -> r
 
 The [`whitened_residual`](@ref) of every data point, stacked: point `i`'s `d_g`
-signed components in rows `d_g(i−1)+1 … d_g·i` of `r`, for the first
-`length(r) ÷ d_g` points (`d_g·data_size(problem)` rows hold every point; a
-length that is not a multiple of `d_g` is a `DimensionMismatch`), unweighted, at `ctx = `[`residual_context`](@ref)`(problem,
-model)`, computed once. The problem-level form of the model-level
-`whitened_residuals!(r, M, xs)`; its row norms are
-[`mahalanobis_distances!`](@ref)'s.
+signed components in rows `d_g(i−1)+1 … d_g·i` of `r`, `d_g =
+`[`codimension`](@ref)`(problem)`, unweighted, at `ctx = `[`residual_context`](@ref)`(problem,
+model)`, computed once. `r` holds every point, `d_g·data_size(problem)` rows;
+another length is a `DimensionMismatch`, and so is a point whose residual is
+not `d_g` components (a scalar override of a vector constraint): it fails
+loudly rather than reading past the data. The problem-level form of the
+model-level `whitened_residuals!(r, M, xs)` (unweighted too); its row norms
+are [`mahalanobis_distances!`](@ref)'s.
 """
 whitened_residuals!(r::AbstractVector, p::AbstractConstraintProblem, model) = _stack_whitened_residuals!(r, p, model)
 # A model that is itself a vector would also match the model-level
 # `whitened_residuals!(r, M, xs::AbstractVector)`: the problem decides.
 whitened_residuals!(r::AbstractVector, p::AbstractConstraintProblem, model::AbstractVector) = _stack_whitened_residuals!(r, p, model)
 function _stack_whitened_residuals!(r::AbstractVector, p::AbstractConstraintProblem, model)
-    isempty(r) && return r
+    dg, n = codimension(p), data_size(p)
+    length(r) == dg * n || throw(DimensionMismatch(
+        "whitened_residuals!: r has $(length(r)) rows; $n points of $dg components need $(dg * n)"))
+    n == 0 && return r
     ctx = residual_context(p, model)
-    w₁ = whitened_residual(p, ctx, 1)
-    dg = length(w₁)                                  # the constraint's shape: 1 for a number
-    n, rest = divrem(length(r), dg)
-    iszero(rest) || throw(DimensionMismatch(
-        "whitened_residuals!: r has $(length(r)) rows, not a multiple of the constraint's $dg components"))
-    _store_rows!(r, w₁, 1)
-    for i in 2:n
-        _store_rows!(r, whitened_residual(p, ctx, i), i)
+    for i in 1:n
+        _store_rows!(r, whitened_residual(p, ctx, i), i, dg)
     end
     return r
 end
 # Point `i`'s components in its rows; a number is its one component.
-@inline function _store_rows!(r, w, i::Int)
-    dg = length(w)
+@inline function _store_rows!(r, w, i::Int, dg::Int)
+    length(w) == dg || throw(DimensionMismatch(
+        "whitened_residuals!: point $i's whitened_residual has $(length(w)) components, the constraint $dg " *
+            "(a scalar for a vector constraint is a distance: override `mahalanobis_distance`)"))
     @inbounds for k in 1:dg
         r[dg * (i - 1) + k] = w[k]
     end

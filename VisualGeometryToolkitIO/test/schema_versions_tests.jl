@@ -62,7 +62,7 @@ end
             r = vgio_migrate(src; out = joinpath(dir, "migrated_" * basename(src)))
             @test r.from == s && r.to == VgtkIO._schema(kind) && VgtkIO._peek_schema(r.out) == r.to
             b = load(T, r.out)
-            @test VgtkIO._same_value(a, b)                                   # exact, a length within its 2-ulp guarantee
+            @test VgtkIO.same_value(a, b)                                   # exact, a length within its 2-ulp guarantee
             # vgio_migrate's file is the current writer's file of the value the loader returns
             p = joinpath(dir, "saved_" * basename(src))
             save(p, a; VgtkIO._resave_kwargs(VgtkIO.migrate_record(json_tree(src)))...)

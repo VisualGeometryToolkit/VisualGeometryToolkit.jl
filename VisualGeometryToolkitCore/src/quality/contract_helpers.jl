@@ -61,7 +61,9 @@ The constraint-problem protocol on `problem` at the model `θ`, as tests:
 distance (a non-finite one identical); and [`whitened_residual`](@ref) in the
 constraint's shape at every point — a number at `d_g = 1`, `d_g` components
 otherwise, so a scalar override at `d_g ≥ 2` (a distance under the residual's
-name, the pre-0.7 hook) is refused. The rounding is of the measurements, not of the residual: a
+name, the pre-0.7 hook) is refused — and with its norm equal to the point's
+distance to the same rounding (a non-finite distance, a gate's, matched by a
+non-finite residual), so the two hooks describe one point. The rounding is of the measurements, not of the residual: a
 reprojection residual is a difference of ~1000 px coordinates, so two paths
 differ by ~1000·eps px whatever the residual (PnP measured 4.8e-14 px on a
 1.08 px residual, E 5.7e-14 px; 2026-11). Not bit for bit: the batch loop and a single call may contract

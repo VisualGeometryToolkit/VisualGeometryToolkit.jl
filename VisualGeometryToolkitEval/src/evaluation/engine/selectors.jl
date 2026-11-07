@@ -156,3 +156,6 @@ function _lo_error!(ctx, s::ScoreSelector, lo, cfg)
     imc, lo_ns = refit_imc!(ctx, lo, seed, refit_width)
     return (Float32(imc), lo_ns)
 end
+# A selection-only column (a LossWidthSpec without a refiner): the selected
+# model's own `model_imc`, as its batch checkpoint records it; no refit.
+_lo_error!(ctx, s::ScoreSelector, ::NoLocalOptimization, cfg) = (checkpoint(s, ctx.geom, ctx.pair)[1], Int64(0))

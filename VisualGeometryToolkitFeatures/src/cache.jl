@@ -15,7 +15,7 @@
 #
 # =============================================================================
 
-using SHA: sha256
+using VisualGeometryToolkitCore: sha256_hex   # a cache key's digest
 
 """
     FileCache{D}
@@ -75,4 +75,4 @@ key = cache_key(board_uid, model_hash, cutoff, patch_size)
 get!(cache, key) do ... end
 ```
 """
-cache_key(args...) = bytes2hex(sha256(repr((CACHE_FORMAT, args...))))
+cache_key(args...) = sha256_hex(repr((CACHE_FORMAT, args...)))

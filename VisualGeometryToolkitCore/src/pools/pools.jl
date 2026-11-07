@@ -68,6 +68,8 @@ export num_points, num_models, pool_imc, gt_pose, calibration_matrices
 export pool_normalization, pool_frame_maps, pool_frame_calibrations, pool_pixel_scale, pixel_csponds
 export pixel_residuals
 public rig   # the GT StereoRig, built on access (not exported: `rig` is every caller's local name)
+# The residual-matrix contract and the one pool argmax every pool selection calls.
+public check_residual_matrix, best_model_index
 
 # -----------------------------------------------------------------------------
 # 2. THE RAW-PAIR INTERFACE - a dataset reader's pair, in pixels

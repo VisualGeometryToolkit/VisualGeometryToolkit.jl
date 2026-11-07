@@ -116,8 +116,10 @@
             end
             @test wq > 5 * worst_angle
             # calibrated-area contract
-            @test backproject(g, SVector(-1.0, 10.0)) === nothing
-            @test backproject(g, SVector(Float64(W), 10.0)) === nothing
+            @test all(isnan, backproject(g, SVector(-1.0, 10.0)))
+            @test all(isnan, backproject(g, SVector(Float64(W), 10.0)))
+            @test backproject(g, SVector(-1.0, 10.0)) isa SVector{3, Float64}   # one return type: kernel-lawful
+            @inferred backproject(g, SVector(Float64(W), 10.0))
             # z-depth unproject (VGC convention)
             px = SVector(200.0, 150.0)
             X = unproject(g, px, 5.0)
@@ -203,7 +205,7 @@
             g = CentralGenericModel(src, (W, H); grid_size = (8, 6))
             g32 = VgtkCore.Cameras._precision(Float32, g)
             @test eltype(g32.grid) == Vec3{Float32}
-            @test backproject(g32, SVector(100.0, 100.0)) !== nothing
+            @test all(isfinite, backproject(g32, SVector(100.0, 100.0)))
         end
     end
 

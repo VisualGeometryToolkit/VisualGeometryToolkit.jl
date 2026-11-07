@@ -362,3 +362,22 @@ tag before the type was named for its basis.
 const VIGNETTING_TAGS = TagRegistry(:vignetting, "Vignetting",
     "tensor_product" => TensorProductVignetting, "radial" => RadialVignetting, "log" => LogVignetting;
     retired = ("tensor" => "tensor_product",))
+
+# -----------------------------------------------------------------------------
+# The parameter protocol: a field's coefficients are its control points
+# -----------------------------------------------------------------------------
+#
+# `parameter_vector(v)` is `vec(control_points(v))` — the order of
+# `coefficient_jacobian` — named `c1, c2, …`, unbounded (a log field's control
+# points are log gains; a plain field's gains are not bounded by the model),
+# and `with_parameters(v, θ)` is `with_control_points(v, θ)`: knots, degree,
+# centre and radius are the field's geometry, fixed. So a field is a
+# `ParameterManifold` (an NLLSsolver variable through Core's adapter), and a
+# linear restriction of it (`restrict(ch, Z)`) is a fit's control-point basis.
+parameter_vector(v::AbstractVignetting) = (P = control_points(v); SVector{length(P), eltype(P)}(Tuple(P)))
+parameter_names(v::AbstractVignetting) = ntuple(i -> Symbol(:c, i), Val(n_control_points(v)))
+function with_parameters(v::AbstractVignetting, θ::AbstractVector)
+    n = n_control_points(v)
+    length(θ) == n || throw(ArgumentError("$(nameof(typeof(v))) takes $n parameters (its control points); got $(length(θ))"))
+    return with_control_points(v, θ)
+end

@@ -91,7 +91,13 @@
         # (`_loss_at`/`_width_s2` on `lo_width(lo) === missing`, the default of
         # an optimizer without a width mode, which has no method there). Lower
         # it as those go.
-        jet_bound = 13,
+        # RAISED to 14 on 2026-11-07 (0.7 wave): one more of the abstract-stub
+        # class, `codimension(p)` on an `AbstractConstraintProblem` in
+        # `_stack_whitened_residuals!` (problem.jl), which checks a residual
+        # override's shape against the problem's codimension (a d_g ≥ 2 scalar
+        # override fails loudly instead of reading past the data), beside the
+        # `constraint_with_jacobians` reports of the same function.
+        jet_bound = 14,
     )
 end
 

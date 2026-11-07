@@ -33,22 +33,30 @@ The sRGB (IEC 61966-2-1) electro-optical transfer function: an encoded value
 @inline srgb_to_linear(x::Real) = x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055)^2.4
 
 """
-    box_downsample(img::AbstractArray{<:Real, 3}, f::Integer) -> Array{Float64, 3}
+    box_downsample(img::AbstractMatrix, f::Integer) -> Matrix
+    box_downsample(img::AbstractArray{T, 3}, f::Integer) -> Array{float(T), 3}
 
-The `H × W × C` image averaged over `f × f` blocks, per channel: output pixel
-`(i, j)` is the mean of input rows `(i − 1)f + 1 : if` and columns
-`(j − 1)f + 1 : jf`. The output is `H ÷ f × W ÷ f × C`; rows and columns past
-the last whole block are dropped. `f = 1` returns a `Float64` copy.
+The `H × W` image (or `H × W × C`, per channel) averaged over `f × f` blocks:
+output pixel `(i, j)` is the mean of input rows `(i − 1)f + 1 : if` and
+columns `(j − 1)f + 1 : jf`. The output is `H ÷ f × W ÷ f` (`× C`); rows and
+columns past the last whole block are dropped. The element type is a real
+number or a colour (`Gray{Float32}`, `RGB{N0f8}`, …); the sums accumulate, and
+the output is stored, in its floating-point type `float(T)` — `Float64` for a
+`Float64` or integer image, `Float32` for a `Float32` or 8-bit one (the
+patches BlobBoards' descriptor reads, byte for byte) — each block summed
+column by column and scaled once by `1/f²` in that type. `f = 1` returns a
+`float(T)` copy.
 """
-function box_downsample(img::AbstractArray{<:Real, 3}, f::Integer)
+function box_downsample(img::AbstractArray{T, N}, f::Integer) where {T <: Union{Real, Colorant}, N}
+    N in (2, 3) || throw(ArgumentError("box_downsample: an H × W or H × W × C image, got $N dimensions"))
     f >= 1 || throw(ArgumentError("box_downsample: the factor must be a positive integer, got $f"))
-    H, W, C = size(img)
-    out = zeros(Float64, H ÷ f, W ÷ f, C)
-    inv_n = 1 / (f * f)
-    for c in 1:C, j in 1:(W ÷ f), i in 1:(H ÷ f)
-        s = 0.0
+    A = float(T)
+    out = Array{A}(undef, size(img, 1) ÷ f, size(img, 2) ÷ f, size(img)[3:end]...)
+    inv_n = one(eltype(A)) / (f * f)
+    for c in CartesianIndices(axes(out)[3:end]), j in axes(out, 2), i in axes(out, 1)
+        s = zero(A)
         for jj in ((j - 1) * f + 1):(j * f), ii in ((i - 1) * f + 1):(i * f)
-            s += img[ii, jj, c]
+            s += A(img[ii, jj, c])
         end
         out[i, j, c] = s * inv_n
     end

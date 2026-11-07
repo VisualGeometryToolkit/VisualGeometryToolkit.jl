@@ -76,23 +76,13 @@ const _BundlePose = typeof(EssentialManifold5(SMatrix{3, 3, Float64, 9}(I), SVec
 # The pose block's dimension: `EssentialManifold5`'s tangent size.
 const _POSE_DOF = 5
 
-# A structure point, free in ℝ³. `E` says whether NLLSsolver may eliminate it
-# (the Schur-complement linear system, upstream #60); `_BundlePoint{false}` is
+# A structure point, free in ℝ³: VGC's `Eliminable` around the point. `E` says
+# whether NLLSsolver may eliminate it (the Schur-complement linear system,
+# upstream #60, open; detected once, VGC `nlls_features`); `E = false` is
 # NLLSsolver's sparse LDL over every unknown — which an NLLSsolver without #60
 # takes and the fallback test forces.
-struct _BundlePoint{E}
-    X::SVector{3, Float64}
-end
-NLLSsolver.nvars(::_BundlePoint) = NLLSsolver.static(3)
-NLLSsolver.update(p::_BundlePoint{E}, δ, start = 1) where {E} =
-    _BundlePoint{E}(p.X + SVector(δ[start], δ[start + 1], δ[start + 2]))
-
-# The Schur complement (`iseliminable`, upstream #60, open), detected once
-# (VGC `nlls_features`) until #60 merges.
+const _BundlePoint{E} = Eliminable{E, SVector{3, Float64}}
 const _BUNDLE_SCHUR = nlls_features().schur
-if _BUNDLE_SCHUR
-    NLLSsolver.iseliminable(::Type{_BundlePoint{true}}) = NLLSsolver.static(true)
-end
 
 # The data of the current call — the calibrations, the two views and the
 # √weights — shared by every residual block. The run OWNS the three vectors
@@ -128,7 +118,7 @@ Base.eltype(::_BundleRows) = Float64
 function NLLSsolver.computeresidual(r::_BundleRows, pose::_BundlePose, p::_BundlePoint)
     d = r.data; i = r.i
     R = SMatrix{3, 3, Float64, 9}(pose.R); t = SVector{3, Float64}(pose.t)
-    return d.sqrtw[i] * _reprojection_error(d.K1, d.K2, R, t, p.X, d.u1[i], d.u2[i])
+    return d.sqrtw[i] * _reprojection_error(d.K1, d.K2, R, t, p.value, d.u1[i], d.u2[i])
 end
 # The block's cost as the LM reads it: non-finite is +Inf (`finite_cost`).
 NLLSsolver.computecost(vars::Vector{Union{_BundlePose, _BundlePoint{E}}}, r::_BundleRows{E}) where {E} =
@@ -139,7 +129,7 @@ NLLSsolver.computecost(vars::Vector{Union{_BundlePose, _BundlePoint{E}}}, r::_Bu
 # NLLSsolver asks for both blocks' columns: `varflags` = 0b11.
 function NLLSsolver.computeresjac(_varflags, r::_BundleRows, pose::_BundlePose, p::_BundlePoint)
     d = r.data; i = r.i; w = d.sqrtw[i]
-    R = SMatrix{3, 3, Float64, 9}(pose.R); t = SVector{3, Float64}(pose.t); X = p.X
+    R = SMatrix{3, 3, Float64, 9}(pose.R); t = SVector{3, Float64}(pose.t); X = p.value
     e = _reprojection_error(d.K1, d.K2, R, t, X, d.u1[i], d.u2[i])
     A1 = _Dproj(d.K1 * X) * d.K1                        # ∂(img1)/∂X, 2×3
     D2K2 = _Dproj(d.K2 * (R * X + t)) * d.K2            # 2×3
@@ -310,11 +300,11 @@ end
 # `test_cheirality`; a z-test assumes a forward hemisphere the ray domain does
 # not have). It takes BEARINGS: the caller back-projects with its own camera.
 
-# The bundle problem's cheirality: its K-frame points back-projected ONCE
-# (two bearings per point, not two per point per motion) through the
-# problem's stored K⁻¹, then THE vote.
-function _cheiral_relpose(E, iK1, iK2, u1, u2)
-    R, t = cheiral_pose_fast(E, [_bearing(iK1, u) for u in u1], [_bearing(iK2, u) for u in u2])
+# The bundle problem's cheirality: its K-frame points back-projected ONCE, at
+# construction (two bearings per point, not two per point per motion, and none
+# per model: `RelposeBundleProblem`'s `f1`/`f2`), then THE vote.
+function _cheiral_relpose(p, E)
+    R, t = cheiral_pose_fast(E, p.f1, p.f2)
     return R, Vec3{Float64}(t)
 end
 
@@ -454,9 +444,14 @@ struct RelposeBundleProblem{C, K <: AbstractMatrix} <: AbstractRansacProblem{5}
     iK1::SMatrix{3, 3, Float64, 9}   # K⁻¹, inverted once at construction
     iK2::SMatrix{3, 3, Float64, 9}
     cs::C
+    f1::Vector{SVector{3, Float64}}  # the points' unit bearings through K⁻¹, back-projected once at
+    f2::Vector{SVector{3, Float64}}  # construction: the per-model cheirality vote reads them (allocation-free)
 end
-RelposeBundleProblem(K1::K, K2::K, cs::C) where {C, K <: AbstractMatrix} =
-    RelposeBundleProblem{C, K}(K1, K2, _inv3(K1), _inv3(K2), cs)
+function RelposeBundleProblem(K1::K, K2::K, cs::C) where {C, K <: AbstractMatrix}
+    iK1, iK2 = _inv3(K1), _inv3(K2)
+    return RelposeBundleProblem{C, K}(K1, K2, iK1, iK2, cs,
+        [_bearing(iK1, u) for u in sources(cs)], [_bearing(iK2, u) for u in targets(cs)])
+end
 
 data_size(p::RelposeBundleProblem) = length(p.cs)
 codimension(::Type{<:RelposeBundleProblem}) = 1
@@ -473,13 +468,23 @@ struct _RelposeResidualContext
     t::Vec3{Float64}
 end
 function residual_context(p::RelposeBundleProblem, θ::EssentialMat)
-    R, t = _cheiral_relpose(θ, p.iK1, p.iK2, sources(p.cs), targets(p.cs))
+    R, t = _cheiral_relpose(p, θ)
     return _RelposeResidualContext(SMatrix{3, 3, Float64, 9}(R), t)
 end
 @inline function mahalanobis_distance(p::RelposeBundleProblem, ctx::_RelposeResidualContext, i::Int)
     u1 = @inbounds sources(p.cs)[i]; u2 = @inbounds targets(p.cs)[i]
     X = _triangulate_optimal(u1, u2, p.K1, p.K2, p.iK1, p.iK2, ctx.R, ctx.t)
     return norm(_reprojection_error(p.K1, p.K2, ctx.R, ctx.t, X, u1, u2))
+end
+# The signed residual of the codim-1 constraint: the distance above with the
+# side of the epipolar variety the pair lies on, the sign of the epipolar
+# constraint `ũ₂ᵀ K₂⁻ᵀ [t]ₓ R K₁⁻¹ ũ₁` at the context's pose (the sign Sampson's
+# signed residual carries) — so `abs` of it is the distance, bit for bit.
+@inline function whitened_residual(p::RelposeBundleProblem, ctx::_RelposeResidualContext, i::Int)
+    u1 = @inbounds sources(p.cs)[i]; u2 = @inbounds targets(p.cs)[i]
+    x1 = p.iK1 * SVector(u1[1], u1[2], 1.0); x2 = p.iK2 * SVector(u2[1], u2[2], 1.0)
+    g = dot(x2, cross(ctx.t, ctx.R * x1))
+    return copysign(mahalanobis_distance(p, ctx, i), g)
 end
 
 # Robust BA refit — the problem's own LO step (a Schur-reduced full-3D bundle,
@@ -489,7 +494,7 @@ end
 function refine!(_ws, p::RelposeBundleProblem, θ::EssentialMat, weights::AbstractVector)
     _underdetermined(p, weights) && return nothing
     u1 = sources(p.cs); u2 = targets(p.cs)
-    R₀, t₀ = _cheiral_relpose(θ, p.iK1, p.iK2, u1, u2)
+    R₀, t₀ = _cheiral_relpose(p, θ)
     sqrtw = fill_sqrt_weights!(Vector{Float64}(undef, length(weights)), weights, length(weights))
     res = _bundle_refine_relpose(R₀, t₀, p.K1, p.K2, p.iK1, p.iK2, u1, u2, sqrtw)
     res === nothing && return nothing

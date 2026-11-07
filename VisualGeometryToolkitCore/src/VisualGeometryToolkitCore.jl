@@ -61,7 +61,8 @@ using LogExpFunctions: xlogx, logit, log1pexp   # the Welsch conjugate's w·log(
 using SpecialFunctions: loggamma, digamma, trigamma   # the Student-t normaliser and the ν M-step (robust/mixture.jl)
 using QuadGK: quadgk, gauss   # a loss shape's truncated normaliser (robust/normaliser.jl)
 using Random: Random
-using SHA: sha256   # stable_seed's fixed hash (base/utils.jl)
+using SHA: sha256   # stable_seed's fixed hash, sha256_hex (base/utils.jl)
+using SparseArrays: sparse   # a lattice's difference rows (numerics/bspline_energy.jl)
 import ForwardDiff   # the transfer form's mixed derivative ∂G_x/∂θ (geometry/forms.jl)
 import NLLSsolver   # the stack's Levenberg–Marquardt: the chart LM's driver, the variable and robustifier protocols (robust/lm_core.jl)
 
@@ -202,6 +203,7 @@ public gauss_hermite_prob, hammersley, square_rule, unit_disc_rule   # quadratur
 public bspline_basis   # the scalar Cox–de Boor basis (isbits, any eltype, kernel-safe; on the CPU BSplineKit's)
 public cubic_lattice_basis, bending_gram, bending_rows, bending_stencils, natural_extrapolation   # the bending energy and the natural boundary condition (BSplineKit)
 public difference_stencil   # a lattice's forward-difference coefficients (a P-spline penalty, BoundaryRule's Δ³ extrapolation)
+public difference_rows      # the sparse Δᵒʳᵈᵉʳ rows of a (masked) 2-D lattice along both axes: the P-spline penalty's operator
 public clamped_knots        # the clamped uniform knot vector bspline_basis takes (BSplineKit's, static)
 public bspline_basis_iterative, evaluate_bspline_surface, bspline_surface_partial
 public evaluate_bspline_4d, bspline_4d_partial, contract_basis_4d_weighted
@@ -238,6 +240,7 @@ public AbstractPanoramaProjection   # their supertype (a Transformation whose in
 export AbstractDistortionTerm, Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive
 public Even, Full, isdelta, projection_frame
 export radial, parameters, lens_record, lens_from_record
+public lens_label   # a lens's display name by the tag rule (a named family, or its record's leaf tags)
 export division_bounded, undistorted_rect, valid_rect, horizon_radius, fov_radius
 public DEFAULT_MAX_FOV
 export zhang_intrinsics, RadialCamera5pt, RadialCamera  # calibration.jl
@@ -352,7 +355,12 @@ public GenericModelWindow, window, nominal_intrinsics, interpolated_direction, i
 public spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice for any control type; the 4th-order quasi-interpolant
 public cubic_bspline_weights   # a uniform cubic B-spline span's four weights at its local coordinate (kernel-lawful)
 public generic_lattice   # a grid model's layout from a source (its lattice and nominal), without sampling it
+public directions, grid_size, window_offset, lattice_spacing   # a grid model's lattice: its direction controls, (gx, gy), a window's corner, the cell size in px
+public with_domain, with_present, with_nominal, with_directions, with_points, central_model   # a grid model with one part replaced; a non-central model's central part
+public primal_float      # the float type under every ForwardDiff Dual layer (base/duals.jl)
 export ChartSpline, SplineProjection   # a spline on a 2-D chart; a forward map (ray → pixel) as one on the equidistant direction chart (fit_camera's)
+public pixel_centre        # the COLMAP centre (col − ½, row − ½) of an image array index, in T (kernel-lawful)
+public equidistant_chart   # the equidistant direction chart about an axis: Lens(Equidistant()) ∘ LinearMap(R), R's rows (e₁, e₂, axis)
 export with_model          # same camera/rig, new model (validated rebuild)
 # `ids(rig)` (0.9): the rig's view-identity symbols, READ FROM the labeled
 # extrinsics' frame parameters (single source of truth — no stored duplicate).
@@ -400,6 +408,7 @@ export Size2
 export Gray, N0f8, N0f16  # Image types
 public filter_kwargs, validate_dir
 public stable_seed   # the seed of every random stream, keyed by name (base/utils.jl)
+public sha256_hex    # lower-case hex SHA-256 of a string's bytes, a byte vector or a stream (a file: `open(sha256_hex, path)`)
 # FileCache moved to VisualGeometryToolkitFeatures
 
 # Serialization traits (DimTrait, canon_value, etc.) moved to VisualGeometryToolkitFeatures
@@ -438,7 +447,7 @@ export canonical_basis
 # Robust-estimation interfaces (robust/estimation.jl)
 public scale_s2   # the squared scale ŝ² of a ConsensusSet, DeployedLoss or FixedS2
 export AbstractScoring, AbstractLocalOptimization, RefitFamily, FixedScale,
-    AbstractWeightPolicy, update_weights!, update_nuisance!
+    AbstractWeightPolicy, update_weights!, update_nuisance!, FrozenNuisance
 # The interface machinery behind them: public, reached qualified or imported by
 # name. ConsensusSet is read through its accessors (inlier_count, scale_s2, consensus_score,
 # is_fresh/check_fresh), never by field name.
@@ -461,7 +470,7 @@ public AbstractConstraintProblem, data_size, codimension, minimal_sample_size, m
 # The robust-statistics toolkit.
 public IGPrior, JeffreysPrior, seed_posterior!, reset_posterior!, fit_scale, partition_student_t, partition_rss, weighted_rss,
     weighted_sq, square_distances!, StudentTMixture, inlier_posterior, posterior_weight,
-    posterior_weight_derivative, mixture_nll, next_nu, soft_posterior_weights!,
+    posterior_weight_derivative, mixture_nll, next_nu, nu_point_terms, next_nu_from_sums, soft_posterior_weights!,
     PosteriorWeightState, sq_distances, s_hat_sq, student_t_dof, inlier_prior,
     Estimated, FixedS2, FixedPrior, FixedNu, ConsensusDof, update_scale!, update_nu!,
     update_inlier_prior!, mixture_ecm!, median_seeded_posterior, posterior_inlier_probs!,
@@ -471,7 +480,7 @@ public scoring_workspace, score!, inlier_count, consensus_order, inlier_threshol
     has_inlier_threshold, is_predictive, scored_model, scale_prior, outlier_halfwidth,
     score_bound, check_workspace, consensus_s2, consensus_set, inlier_probabilities!,
     score_model!, consensus_mask!, ScoreBuffers, residuals, scores, consensus_mask,
-    with_width, RansacScoring, MsacScoring, ThresholdScoringWorkspace, residual_quality
+    with_width, RansacScoring, MsacScoring, ThresholdScoringWorkspace, residual_quality, SCORING_TAGS
 # The local-optimization contract.
 public lo_workspace, locally_optimize!, lo_estimate, LoInfo, lo_width, loss_at,
     deployed_scale_multiple, width_scale_interface, width_s2, check_composition, width_value,
@@ -544,7 +553,7 @@ export BarronShape
 # charts), `implicit_covariance` (of an estimate).
 export Manifold, EssentialManifold5, FundMatManifold7, HomographyManifold8, RigidManifold6,
     transform_covariance
-public tangent_size, EssentialManifold6, SubsetManifold, restrict, retract, recenter,
+public tangent_size, EssentialManifold6, SubsetManifold, LinearSubspaceManifold, restrict, retract, recenter,
     recenter_pose, retract_jacobian, action_jacobian, pose_action_jacobian, retract_directions, s2_tangent_basis,
     SL3_BASIS
 public anchor_svd   # FundMatManifold7's anchor (U, σ, V)
@@ -595,6 +604,7 @@ public ManifoldLmWorkspace
 public residual_rows!, residual_jacobian_rows!, lm_retcode, is_stationary, nlls_retcode, loss_robustifier
 # The one map of the stack's LM knobs onto NLLSsolver's options, and whether the
 # loaded NLLSsolver has the still-unreleased Schur system (robust/lm_core.jl).
+public Eliminable   # an NLLSsolver variable the Schur system may eliminate (a bundle's structure points)
 public nlls_options, nlls_features, nlls_stop_code, nlls_stop_reasons, finite_cost   # NLLSsolver's knobs, its Schur system detected, its termination bits decoded
 # The stack's naming checker (ext/VisualGeometryToolkitCoreTestExt; loads with Test): every stack package's
 # quality test runs it on itself; reached qualified.
@@ -664,7 +674,8 @@ public constraint   # g alone: the `<f>` of `constraint_with_jacobians` (algebra
 export triangulate   # ray-domain triangulation: the point AND both ray depths (cheirality is λ > 0, not z > 0)
 public constraint_rounding_scale   # a model's rounding scales at a measurement: what the Sampson degeneracy rule reads
 public sampson_residual_with_jacobian, measurement_gradient_jacobian   # the Sampson residual's exact model Jacobian and the model protocol it reads
-public sampson_residuals!, whitened_residuals!, sampson_jacobian_rows!, whitened_jacobian_rows!   # over a measurement set (columns: noise, keywords, sqrt_weights): one KA kernel each
+public sampson_residuals!, whitened_residuals!, sampson_jacobian_rows!, whitened_jacobian_rows!   # over a measurement set (columns: noise, keywords; the geometric ones also sqrt_weights): one KA kernel each
+public weighted_whitened_residuals!, weighted_whitened_jacobian_rows!   # the whitened rows times the set's sqrt_weights: a weighted fit's (the chart LM's) rows
 public constraint_keywords   # the attribute columns a model's constraint takes as keywords (M₁, M₂ on bearings)
 public sampson_distances!   # the n × M matrix of sampson_distance, models by elements (a pool's residuals)
 public TransferForm   # the homography's transfer constraint

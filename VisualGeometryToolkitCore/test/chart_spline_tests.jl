@@ -72,10 +72,10 @@
         pix = [SVector(1010 * rand(rng) - 5, 1010 * rand(rng) - 5) for _ in 1:2000]
         push!(pix, SVector(NaN, 3.0), SVector(0.0, 0.0), SVector(999.999, 999.999), SVector(1000.0, 10.0))
         rays = backproject(grid, pix)
-        scalar = [(r = backproject(grid, p); r === nothing ? SVector(NaN, NaN, NaN) : r) for p in pix]
-        @test eltype(rays) === SVector{3, Float64}
+        scalar = [backproject(grid, p) for p in pix]
+        @test eltype(rays) === SVector{3, Float64} && eltype(scalar) === SVector{3, Float64}
         @test all(i -> isequal(rays[i], scalar[i]), eachindex(pix))
-        @test count(r -> all(isnan, r), rays) == count(isnothing, (backproject(grid, p) for p in pix))
+        @test count(r -> all(isnan, r), rays) == count(r -> all(isnan, r), scalar) > 0
     end
 
     @testset "GPU (availability-gated)" begin

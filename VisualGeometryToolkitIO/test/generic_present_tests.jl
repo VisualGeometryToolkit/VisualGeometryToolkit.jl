@@ -53,7 +53,7 @@
         pc = joinpath(dir, "c.json"); save(pc, gc); bc = load(NoncentralGenericModel, pc)
         inside = [SVector(x, y) for x in 0.5:2.0:63.5 for y in 0.5:2.0:47.5 if in_present_domain(gc, SVector(x, y))]
         @test !isempty(inside) && all(c -> backproject(bc, c).direction == backproject(gc, c).direction, inside)
-        @test !in_present_domain(bc, SVector(0.5, 0.5)) && backproject(bc, SVector(0.5, 0.5)) === nothing
+        @test !in_present_domain(bc, SVector(0.5, 0.5)) && all(isnan, backproject(bc, SVector(0.5, 0.5)).direction)
 
         # a rig sensor's body: `present` for a masked model only; an unmasked one writes the rig/v6 body it always did
         Xl = relabel(ViewFrame{:g}, ViewFrame{:g}, EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.0, 0.0, 0.0)), [0.0mm, 0.0mm, 0.0mm]))

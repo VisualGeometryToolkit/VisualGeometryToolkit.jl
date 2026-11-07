@@ -1,5 +1,13 @@
 # PoseLib changelog
 
+## Unreleased
+
+- **`calibrated_loss_width(K1, K2, loss_width)` (public)**: the bearing-unit width PoseLib's relative-pose refiner
+  works at when handed a width in the points' unit and the two intrinsics, `loss_width · ½(1/f₁ + 1/f₂)` with
+  `fᵢ = (Kᵢ₁₁ + Kᵢ₂₂)/2` (PoseLib's `robust.cc` rule), so a calibrated refiner deploys at the same operating point
+  (LocalOptimizationDoneRight's Lebeda arms held a copy). The `SIMPLE_PINHOLE` mapping of a K is stated once, for it
+  and for the `refine_relpose` and `refine_absolute_pose` bindings. No result changes.
+
 ## 0.1.7 (2026-11-06)
 
 VisualGeometryToolkitCore 0.6 (compat `"0.6"`).

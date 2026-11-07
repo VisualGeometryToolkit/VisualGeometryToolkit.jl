@@ -70,6 +70,6 @@ end
                       ("target_points3d_v1.json", "target_points3d.json", TargetPoints3D),
                       ("target_poses_v1.json", "target_poses.json", TargetPoses), ("trajectory_v3.json", "trajectory.json", Trajectory),
                       ("transforms_v3.json", "transforms.json", Vector{EuclideanMap}))
-        @test VgtkIO._same_value(load(T, old(o)), load(T, cur(c)))
+        @test VgtkIO.same_value(load(T, old(o)), load(T, cur(c)))
     end
 end

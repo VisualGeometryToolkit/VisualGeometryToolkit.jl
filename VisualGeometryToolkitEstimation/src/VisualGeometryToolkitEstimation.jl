@@ -7,9 +7,9 @@ import VisualGeometryToolkitCore as VgtkCore
 # =============================================================================
 
 using LinearAlgebra: LinearAlgebra, I, dot, norm, normalize, cross, svd, opnorm,
-    Diagonal, Symmetric,
+    Diagonal, Symmetric, UniformScaling,
     eigen                                                          # the ellipse refit rows' axes frame
-using StaticArrays: StaticArrays, MVector, SA, SMatrix, SVector, StaticVector
+using StaticArrays: StaticArrays, MVector, SA, SMatrix, SVector, StaticVector, StaticMatrix
 using FixedSizeArrays: FixedSizeArray
 using Random: Random
 using Rotations: Rotations, RotMatrix
@@ -39,7 +39,7 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
     # imported back for the P3P degeneracy check.
     thin_ratio, _are_points_distinct,
     normal, skew, whitening_factor,   # the frozen whitening of the reweighted fits (radial camera, division lift)
-    whitened_residuals!, whitened_jacobian_rows!,   # the chart LM rows of every Sampson-constraint problem (one KA kernel each)
+    weighted_whitened_residuals!, weighted_whitened_jacobian_rows!,   # the chart LM rows of every Sampson-constraint problem (one KA kernel each)
     kabsch, chordal_mean, log_so3,   # SO(3) log (hand-eye, robot-world)
     s2_tangent_basis,                        # the tangent chart of the P3P ray-coplanarity gate
     tls_line,                                # fit_line's unweighted seed direction
@@ -215,15 +215,14 @@ using VisualGeometryToolkitCore: PerspectiveMap, transform_deriv
 using ForwardDiff: ForwardDiff
 import NLLSsolver   # the block-structured LMs (the relpose bundle, refine_robot_world_hand_eye): qualified NLLSProblem/optimize! and its residual protocol
 using VisualGeometryToolkitCore: nlls_retcode   # NLLSsolver's termination bits + the stall postcondition, as a retcode
-using VisualGeometryToolkitCore: nlls_options, nlls_features, finite_cost   # the stack's one LM knob map; the Schur system (upstream #60), detected
+using VisualGeometryToolkitCore: nlls_options, nlls_features, finite_cost, Eliminable   # the stack's one LM knob map; the Schur system (upstream #60), detected
 using SparseArrays: sparse   # the relpose bundle's stacked Jacobian (its stall postcondition); the rotation averaging's update
 # fit_camera's spline families: the penalized normal equations (a sparse
 # Cholesky), the direction chart, Core's lattice and its batched maps.
-using SparseArrays: SparseMatrixCSC, spdiagm
+using SparseArrays: SparseMatrixCSC
 using LinearAlgebra: cholesky, lu, issuccess, diag
-using CoordinateTransformations: LinearMap
-using VisualGeometryToolkitCore: ChartSpline, SplineProjection, CentralGenericModel, Rect2, spline_window, pixel_centres,
-    pointwise!, Serial, nominal_intrinsics, BoundedCamera, AbstractCamera, extent, generic_lattice, difference_stencil
+using VisualGeometryToolkitCore: equidistant_chart, ChartSpline, SplineProjection, CentralGenericModel, Rect2, spline_window, pixel_centres,
+    pointwise!, Serial, nominal_intrinsics, BoundedCamera, AbstractCamera, extent, generic_lattice, difference_rows
 using VisualGeometryToolkitCore: NoncentralGenericModel, interpolated_direction, interpolated_point, nearest_point,
     backproject_with_jacobian
 

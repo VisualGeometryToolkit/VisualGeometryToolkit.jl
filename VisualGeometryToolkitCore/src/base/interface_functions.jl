@@ -186,6 +186,7 @@ Methods:
 - `shape_matrix(::AffineFrame)` → `SMatrix{2,2,T,4}`
 - `shape_matrix(::Ellipse)` → `SMatrix{2,2,T,4}`
 - `shape_matrix(::Paraboloid3D)` → `SMatrix{2,2,T,4}`
+- `shape_matrix(::Disc)`, `shape_matrix(::OrientedDisc)` → `σ² I`, `SMatrix{2,2,T,4}`
 """
 function shape_matrix end
 

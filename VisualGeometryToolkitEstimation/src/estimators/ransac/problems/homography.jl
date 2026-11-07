@@ -81,7 +81,7 @@ test_consensus(p::MinimalSolveProblem{<:HomographyMat}, H::HomographyMat, mask::
 # conventions/measurement-noise.md: an exact source gives the transfer error in
 # target pixels), the factor re-evaluated at every iterate and its derivative
 # carried — the Sampson-constraint problems' one chart-rows method
-# (sampson_lm.jl, VGC's `whitened_residuals!` / `whitened_jacobian_rows!` with
+# (sampson_lm.jl, VGC's `weighted_whitened_residuals!` / `weighted_whitened_jacobian_rows!` with
 # the homography's `measurement_gradient_jacobian`), one KernelAbstractions
 # kernel each on a GPU backend, a plain loop on the CPU. (Until 0.4 the rows
 # whitened the TRANSFER form with a factor frozen at the chart's anchor: a

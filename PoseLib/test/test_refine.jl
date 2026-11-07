@@ -61,6 +61,27 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
         ref = refine_relpose(seed, K1, K2, Csponds(x1, x2); max_iter = 25, loss_width = 2.0)
         @test _rot_err_deg(ref.R, R) < 1e-3
         @test dot(normalize(ref.t), t) > 1 - 1e-8
+        # calibrated_loss_width: PoseLib's rule, ½(1/f₁ + 1/f₂) with f = (fx + fy)/2 — LocalOptimizationDoneRight's
+        # `_poselib_loss_width_scale` copy, bit for bit, on intrinsics with fx ≠ fy
+        Ka = SMatrix{3,3}(812.5, 0, 0, 0, 797.25, 0, 320.0, 240.0, 1.0)
+        Kb = SMatrix{3,3}(1103.0, 0, 0, 0, 1099.5, 0, 330.0, 250.0, 1.0)
+        lodr(Kc1, Kc2) = 0.5 * (1.0 / ((Kc1[1, 1] + Kc1[2, 2]) / 2) + 1.0 / ((Kc2[1, 1] + Kc2[2, 2]) / 2))
+        @test PoseLib.calibrated_loss_width(Ka, Kb, 2.0) === 2.0 * lodr(Ka, Kb)
+        @test PoseLib.calibrated_loss_width(K1, K1, 1.0) === 1 / 800
+        # and it IS the width the pixel refiner works at: the same points in K⁻¹ coordinates, identity cameras,
+        # at the calibrated width, refine to the same pose (equal focal lengths: the rule is then exact). The
+        # translation's length is free (up to scale) and differs; its direction does not. At the pixel width
+        # instead the rotation is 0.09 off.
+        I3 = SMatrix{3,3}(1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0)
+        n1 = [_nrm(inv(K1) * SVector(u[1], u[2], 1.0)) for u in x1]
+        n2 = [_nrm(inv(K1) * SVector(u[1], u[2], 1.0)) for u in [_proj(K1, R * Y + t) for Y in X]]
+        p2 = [_proj(K1, R * Y + t) for Y in X]
+        n2[1:nout] .= [_nrm(inv(K1) * SVector(u[1], u[2], 1.0)) for u in x2[1:nout]]
+        p2[1:nout] .= x2[1:nout]
+        pix = refine_relpose(seed, K1, K1, Csponds(x1, p2); max_iter = 25, loss_width = 2.0)
+        cal = refine_relpose(seed, I3, I3, Csponds(n1, n2); max_iter = 25,
+                             loss_width = PoseLib.calibrated_loss_width(K1, K1, 2.0))
+        @test maximum(abs.(SMatrix{3,3}(cal.R) .- SMatrix{3,3}(pix.R))) < 1e-9 && norm(normalize(cal.t) - normalize(pix.t)) < 1e-9
     end
 
     tx = SMatrix{3,3}(0.0, t[3], -t[2], -t[3], 0.0, t[1], t[2], -t[1], 0.0)

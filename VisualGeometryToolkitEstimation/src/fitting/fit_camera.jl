@@ -499,10 +499,9 @@ _source_model(source) = source
 # it images none: a non-central grid's `Ray3`s (plain metres), and for a central
 # source its rays through the projection centre, the origin.
 function _source_lines(source::NoncentralGenericModel, pixels)
-    nan3 = SVector(NaN, NaN, NaN)
     return map(pixels) do p
-        r = backproject(source, p)
-        r === nothing ? (nan3, nan3) : (SVector{3, Float64}(r.origin), SVector{3, Float64}(r.direction))
+        r = backproject(source, p)                       # NaN where the source images nothing
+        (SVector{3, Float64}(r.origin), SVector{3, Float64}(r.direction))
     end
 end
 _source_lines(source, pixels) = map(r -> (zero(SVector{3, Float64}), normalize(r)), _source_rays(source, pixels))
@@ -536,12 +535,6 @@ _design_rows(window_fn::F, pts, ny::Int) where {F} = pointwise!(
 # The right-hand side of a solve: one row per sample, one column per component.
 _rhs_matrix(vs::AbstractVector{<:StaticVector{K}}) where {K} = [v[k] for v in vs, k in 1:K]
 
-# The third-difference operator of an n-node axis (Core's one Δ³ stencil).
-function _third_difference(n::Int)
-    s = difference_stencil(3)
-    return spdiagm(n - 3, n, (k - 1 => fill(s[k], n - 3) for k in 1:4)...)
-end
-
 # The P-spline least squares of an `ny × nx` lattice: the controls minimizing
 # ‖A c − B‖² + λ(‖Dₓ³c‖² + ‖Dᵧ³c‖²) for the design rows `rows` and the targets `B`
 # (one column per component), λ = `_PSPLINE_PENALTY` · mean(diag(AᵀA)); the
@@ -560,9 +553,8 @@ function _penalized_solve(rows::AbstractVector, B::Matrix{Float64}, ny::Int, nx:
     At = SparseMatrixCSC(ny * nx, N, collect(1:16:(16N + 1)), rowval, nzval)
     AtA = At * transpose(At)
     λ = _PSPLINE_PENALTY * sum(diag(AtA)) / size(AtA, 1)
-    Dx = kron(_third_difference(nx), sparse(I, ny, ny))   # across columns (the chart's first axis)
-    Dy = kron(sparse(I, nx, nx), _third_difference(ny))   # across rows (its second)
-    M = AtA + λ * (transpose(Dx) * Dx + transpose(Dy) * Dy)
+    D = difference_rows((ny, nx), 3)   # Core's Δ³ rows along both lattice axes
+    M = AtA + λ * (transpose(D) * D)
     AtB = Matrix(At * B)
     F = cholesky(Symmetric(M); check = false)
     X = issuccess(F) ? F \ AtB : lu(M) \ AtB   # a pivot lost to rounding: the sparse LU, never a dense copy
@@ -594,13 +586,8 @@ function _chart_quadrature(source, region)
     q = _image_quadrature(source, region)
     c = sum(q.fit_px) / length(q.fit_px)
     a = backproject(source, c)
-    (a === nothing || !all(isfinite, a)) && throw(ArgumentError("fit_camera: the source images no ray at the region's centroid $c"))
-    axis = normalize(SVector{3, Float64}(a))
-    e1 = cross(SVector(0.0, 1.0, 0.0), axis)
-    e1 = norm(e1) > 1.0e-6 ? normalize(e1) : normalize(cross(SVector(1.0, 0.0, 0.0), axis))
-    e2 = cross(axis, e1)
-    R = SMatrix{3, 3, Float64}(e1[1], e2[1], axis[1], e1[2], e2[2], axis[2], e1[3], e2[3], axis[3])   # rows e1, e2, axis
-    chart = Lens(Equidistant()) ∘ LinearMap(R)
+    all(isfinite, a) || throw(ArgumentError("fit_camera: the source images no ray at the region's centroid $c"))
+    chart = equidistant_chart(SVector{3, Float64}(a))
     fit_charts = pointwise!(chart, similar(q.fit_rays, SVector{2, Float64}), q.fit_rays)
     held_charts = pointwise!(chart, similar(q.held_rays, SVector{2, Float64}), q.held_rays)
     lo, hi = zip(extrema(c -> c[1], fit_charts), extrema(c -> c[2], fit_charts))

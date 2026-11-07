@@ -15,8 +15,6 @@
 # schema lives.
 # =============================================================================
 
-using SHA: sha256
-
 function _canonical_string(io::IO, s::AbstractString)
     print(io, '"')
     for c in s
@@ -92,10 +90,3 @@ function canonical_json(io::IO, x)
 end
 canonical_json(x) = sprint(canonical_json, x)
 
-"""
-    sha256_hex(s::AbstractString) -> String
-
-Lower-case hex SHA-256 of the string's bytes — the one hash behind every
-content identity in the family (`sha256_hex(canonical_json(tree))`).
-"""
-sha256_hex(s::AbstractString) = bytes2hex(sha256(codeunits(s)))

@@ -395,6 +395,19 @@ evidence in a score. The ρ(∞) = ∞ boundary of the theory, as a type.
 """
 abstract type NormalizedWeightPolicy <: AbstractWeightPolicy end
 
+"""
+    FrozenNuisance() <: AbstractWeightPolicy
+
+The weight policy that holds nothing: `update_nuisance!` and `update_weights!`
+are no-ops that return the policy. For a [`block_coordinate_descent!`](@ref)
+whose loss stays at the deployment it was seeded with (a closed-form lift, a
+fixed-scale reweighting whose weights the model block computes itself): the
+nuisance and weight blocks are frozen, and the loop still calls them.
+"""
+struct FrozenNuisance <: AbstractWeightPolicy end
+update_nuisance!(p::FrozenNuisance) = p
+update_weights!(p::FrozenNuisance) = p
+
 # -----------------------------------------------------------------------------
 # Reading a weight policy — three quantities, named apart
 # -----------------------------------------------------------------------------

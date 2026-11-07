@@ -109,6 +109,10 @@ end
     r, _ = reprojection_residuals(StableRNG(11); n_in = 100, n_out = 10, σ = 0.5, halfwidth = 50.0)
     @test_throws ArgumentError fit_residual_mixture(r, MsacScoring(2; threshold = 2.0); model_dof = 4,
                                                     config = MixtureEmConfig(model_update = WeightedRefine()))
+    # the input is distances (≥ 0): a signed residual is refused, naming `abs`
+    rs = copy(r); rs[3] = -rs[3]
+    err = try fit_residual_mixture(rs, MsacScoring(2; threshold = 2.0); model_dof = 4) catch e; e end
+    @test err isa ArgumentError && occursin("abs", err.msg) && occursin("distances[3]", err.msg)
 end
 
 @testset "fit_residual_mixture: a known mixture" begin

@@ -22,7 +22,7 @@
     using VisualGeometryToolkitEval.Stats: eligible_maa, finite_median, maa_threshold, quantile_or,
         ImprovementTrace, trace_error_at, anytime_curve
     using VisualGeometryToolkitEval.Render: fmt3, write_tsv, read_tsv
-    using VisualGeometryToolkitEval.Tuning: tuning_spec, tuning_table, layer_tuning, TUNING_TAGS
+    using VisualGeometryToolkitEval.Tuning: tuning_spec, tuning_table, layer_tuning, layered_tuning_entry, TUNING_TAGS
     using VisualGeometryToolkitEval.Experiments: write_oracle_floor, oracle_floor_done, oracle_floor_source,
         oracle_floors_path
     using VisualGeometryToolkitEval.Pools: export_pixel_inputs, ScoringPool, synthetic_e_pool_pair, GT_CONVENTION,
@@ -163,6 +163,16 @@
         end
         s = tuning_spec(cfg, "t"; under = types, over)
         @test s == lodr_protocol_tuning("t"; over)
+        # the layered entry itself, the Dict LODR folds into a run key: its copy's dict, key for key
+        lodr_layered(name; over = Dict{String,Any}()) = begin
+            en = cfg["tuning"][name]
+            T = TUNING_TAGS["scheme"][en["type"]]
+            layer_tuning(layer_tuning(Dict{String,Any}(k => v for (k, v) in types if Symbol(k) in fieldnames(T)), en), over)
+        end
+        @test layered_tuning_entry(cfg, "t"; under = types, over) == lodr_layered("t"; over)
+        @test layered_tuning_entry(cfg, "t"; under = types) == lodr_layered("t")
+        @test layered_tuning_entry(cfg, "t") === cfg["tuning"]["t"]                 # nothing layered: the entry as it is
+        @test_throws ArgumentError layered_tuning_entry(cfg, "nope")
         @test s != lodr_protocol_tuning("t")
         @test tuning_table(s)["scale_multiple_window"]["lo"] == 1.5
         @test_throws ArgumentError tuning_spec(cfg, "t"; under = Dict("cross_validation" => cv),

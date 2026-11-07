@@ -217,10 +217,32 @@ end
 """
     intersects(c1::GeometryBasics.Circle, c2::GeometryBasics.Circle) -> Bool
 
-Check if two circles intersect (distance between centers < sum of radii).
+Check if two circles intersect (distance between centers < sum of radii;
+strict, so tangent circles do not). Compared squared, `‖c₁ − c₂‖² < (r₁ + r₂)²`:
+no square root, so the decision at tangency is the squares' (BlobBoards'
+placement, whose blob set and board uid it decides, reads exactly these bits).
 """
-intersects(c1::GeometryBasics.Circle, c2::GeometryBasics.Circle) =
-    norm(c1.center - c2.center) < (c1.r + c2.r)
+function intersects(c1::GeometryBasics.Circle, c2::GeometryBasics.Circle)
+    d = c1.center - c2.center
+    R = c1.r + c2.r
+    return dot(d, d) < R * R
+end
+
+"""
+    intersects(c::GeometryBasics.Circle, r::Rect{2}) -> Bool
+
+Whether a circle and an axis-aligned rectangle overlap: the squared distance
+from the circle's centre to the rectangle (its closest point, `0` inside it)
+is below `r²` — strict, so a circle touching the rectangle's edge does not.
+Either argument order.
+"""
+function intersects(c::GeometryBasics.Circle, r::Rect{2})
+    lo = GeometryBasics.origin(r)
+    hi = lo + GeometryBasics.widths(r)
+    dx = c.center[1] - clamp(c.center[1], lo[1], hi[1])
+    dy = c.center[2] - clamp(c.center[2], lo[2], hi[2])
+    return dx * dx + dy * dy < c.r * c.r
+end
 
 """
     intersects(p::Disc, q::Disc, cutoff) -> Bool

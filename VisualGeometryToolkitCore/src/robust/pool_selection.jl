@@ -30,17 +30,11 @@ when omitted.
 function best_pool_model(scoring::AbstractScoring, pair::Pools.PoolPair, R::AbstractMatrix;
                          ws = scoring_workspace(scoring, Pools.num_points(pair), codimension(scoring)),
                          scores::AbstractVector{Float64} = Vector{Float64}(undef, Pools.num_points(pair)))
-    n, M = Pools.num_points(pair), Pools.num_models(pair)
-    size(R) == (n, M) || throw(DimensionMismatch(
-        "residual matrix of size $(size(R)) for a pool pair of $n points and $M models " *
-            "(expected num_points × num_models)"))
-    best_j = 0; best = -Inf
-    for j in 1:M
-        s = score!(ws, scoring, scores, view(R, 1:n, j), n; sample = view(pair.sample_indices, :, j))
-        s = isfinite(s) ? Float64(s) : -Inf
-        s > best && (best = s; best_j = j)
+    Pools.check_residual_matrix(pair, R)
+    n = Pools.num_points(pair)
+    return Pools.best_model_index(Pools.num_models(pair)) do j
+        score!(ws, scoring, scores, view(R, 1:n, j), n; sample = view(pair.sample_indices, :, j))
     end
-    return best_j
 end
 
 """

@@ -50,9 +50,15 @@ _vignetting_tags() = join(keys(VIGNETTING_TAGS), ", ")
 function _validate(::_VignettingBody, x, file, at)
     x isa AbstractDict && haskey(x, :type) || _refuse(file, at, "a vignetting is an object with a `type` ($(_vignetting_tags()))")
     t = x[:type]
-    t isa AbstractString && haskey(VIGNETTING_TAGS, t) ||
-        _refuse(file, _at(at, :type), "$(repr(t)) is not a vignetting type ($(_vignetting_tags()))")
-    return _validate(_vignetting_body(VIGNETTING_TAGS[t]), x, file, at)
+    t isa AbstractString || _refuse(file, _at(at, :type), "$(repr(t)) is not a vignetting type ($(_vignetting_tags()))")
+    # the registry's lookup: an unknown tag lists the known ones, a retired one names its successor
+    T = try
+        VIGNETTING_TAGS[t]
+    catch err
+        err isa ArgumentError || rethrow()
+        _refuse(file, _at(at, :type), err.msg)
+    end
+    return _validate(_vignetting_body(T), x, file, at)
 end
 const _VIGNETTING_SPEC = _Obj(
     Pair{Symbol, _Spec}[:schema => _schema_tok("vignetting"), :pixel_frame => _Tok("colmap"), :vignetting => _VignettingBody()],
@@ -201,7 +207,7 @@ length (units.md).
 """
 function save(path::AbstractString, blurs::AbstractDict{Symbol, <:GaussianBlur}; length_unit::Units = mm, provenance::NamedTuple = (;))
     s = VgioStyle(; length_unit)
-    body = (schema = _schema("blur"), blurs = [merge((name = String(k),), JSON.lower(s, blurs[k])) for k in sort!(collect(keys(blurs)))])
+    body = (schema = _schema("blur"), blurs = JSON.lower(s, blurs))
     _write_store(path, _BLUR_SPEC, _with_provenance(body, provenance); style = s)
     return nothing
 end
@@ -213,8 +219,24 @@ Read a `vgio/blur/v1` file: name → `GaussianBlur`, each in the storage and the
 """
 function load(::Type{Dict{Symbol, GaussianBlur}}, path::AbstractString)
     d = _read_store(path, "blur", _BLUR_SPEC)
-    s = VgioStyle()
-    return Dict{Symbol, GaussianBlur}(Symbol(b.name::String) => JSON.lift(s, GaussianBlur, b::_Record) for b in d.blurs::Vector{Any})
+    return JSON.lift(VgioStyle(), Dict{Symbol, GaussianBlur}, d.blurs)
+end
+
+# Named blurs as a list body, `[{"name": …, "unit": …, "covariance": …}, …]`: the `blurs` of a `vgio/blur/v1`
+# file, and the same body nested in another package's record (a camera's per-channel in-focus blur), which lowers
+# and lifts it through these two methods so the body is written once. One block per blur, in name order (`sort` of
+# the symbols), each the blur's own lowering (px² for a blur on a sensor, the style's length unit squared for one in
+# lengths). The lift refuses a repeated name (a file's validator does too; a nested body has no validator).
+JSON.lower(s::VgioStyle{<:Units}, blurs::AbstractDict{Symbol, <:GaussianBlur}) =
+    [merge((name = String(k),), JSON.lower(s, blurs[k])) for k in sort!(collect(keys(blurs)))]
+function JSON.lift(s::VgioStyle, ::Type{Dict{Symbol, GaussianBlur}}, body::Vector)   # a parsed list (not JSON's lazy one)
+    blurs = Dict{Symbol, GaussianBlur}()
+    for b in body
+        k = Symbol(b.name::String)
+        haskey(blurs, k) && throw(ArgumentError("blurs: the name $(repr(String(k))) is repeated"))
+        blurs[k] = JSON.lift(s, GaussianBlur, b::_Record)
+    end
+    return blurs
 end
 
 # One blur's block, `{"unit": …, "covariance": …}`: the covariance in the storage it holds, in the unit the block

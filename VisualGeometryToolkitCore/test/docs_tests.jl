@@ -49,7 +49,6 @@
     # method of this package.
     SIGNATURE_EXCEPTIONS = Set([
         "score!: no method accepts: score!(W, scoring, scores, residuals, problem, θ::Uncertain, n; sample = nothing, bound = -Inf) -> Float64",
-        "update_weights!: no method accepts: update_weights!(policy::AbstractWeightPolicy) -> policy",
     ])
     undocumented = Set(undocumented_public(M))
     @test isempty(setdiff(undocumented, keys(EXCEPTIONS), BACKLOG))     # a new public name is documented

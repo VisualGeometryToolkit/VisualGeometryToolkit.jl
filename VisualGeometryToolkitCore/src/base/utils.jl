@@ -150,3 +150,18 @@ false
 stable_seed(seed::Integer, keys...) =
     reduce((acc, b) -> (acc << 8) | UInt64(b), sha256(join((string(seed), string.(keys)...), '\x1f'))[1:8];
            init = zero(UInt64))
+
+"""
+    sha256_hex(s::AbstractString) -> String
+    sha256_hex(bytes::AbstractVector{UInt8}) -> String
+    sha256_hex(io::IO) -> String
+
+Lower-case hex SHA-256 — the one hash behind every content identity in the
+stack (VisualGeometryToolkitIO's `sha256_hex(canonical_json(tree))`) and every
+file digest (a pinned model's, a data artifact's). A string is hashed as its
+bytes (never opened as a path); a stream is read to its end. A file's digest is
+the stream form, `open(sha256_hex, path)`.
+"""
+sha256_hex(s::AbstractString) = sha256_hex(codeunits(s))
+sha256_hex(bytes::AbstractVector{UInt8}) = bytes2hex(sha256(bytes))
+sha256_hex(io::IO) = bytes2hex(sha256(io))

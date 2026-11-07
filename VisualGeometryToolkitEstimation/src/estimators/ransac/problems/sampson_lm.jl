@@ -34,11 +34,11 @@ const SampsonChartProblem = Union{FundMatProblem, EssentialProblem, HomographyPr
 # (`retract_jacobian`, in the coordinates of the constraint's `G_θ`).
 function residual_rows!(r, lm::ChartLm{<:Any, <:SampsonChartProblem}, a)
     p = lm.problem
-    return whitened_residuals!(r, _constraint_model(p, lm.ch, _chart_point(p, a)), _measurement_set(lm))
+    return weighted_whitened_residuals!(r, _constraint_model(p, lm.ch, _chart_point(p, a)), _measurement_set(lm))
 end
 function residual_jacobian_rows!(J, lm::ChartLm{<:Any, <:SampsonChartProblem}, a)
     p = lm.problem; av = _chart_point(p, a)
-    return whitened_jacobian_rows!(J, _constraint_model(p, lm.ch, av), retract_jacobian(lm.ch, av), _measurement_set(lm))
+    return weighted_whitened_jacobian_rows!(J, _constraint_model(p, lm.ch, av), retract_jacobian(lm.ch, av), _measurement_set(lm))
 end
 @inline _chart_point(p, a) = SVector{chart_dof(typeof(p))}(a)
 _constraint_model(_p, ch, a) = retract(ch, a)

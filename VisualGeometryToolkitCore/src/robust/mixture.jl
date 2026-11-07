@@ -49,27 +49,47 @@ end
 # and at ν = Inf its Gaussian limit (2πŝ²)^{−d/2}, which the finite form cannot
 # reach (Inf·π·ŝ² in the log). THE one statement: the mixture's E-step below and
 # the MAP crossover's `GauInlier` both read it.
-@inline function _student_t_log_normaliser(ν, s_hat_sq, d::Integer)
-    isinf(ν) && return -(d / 2) * log(2 * π * s_hat_sq)
-    return loggamma((ν + d) / 2.0) - loggamma(ν / 2.0) - (d / 2.0) * log(ν * π * s_hat_sq)
+# Generic in the float type (a Float32 kernel computes in Float32: the halves are
+# `/ 2`, exact in every float type), with the log-gamma supplied (a kernel supplies
+# its device's). At Float64 it is bit for bit the `/ 2.0` spelling it replaced.
+@inline function _student_t_log_normaliser(ν::T, s_hat_sq::T, d::Integer, lgamma::F = loggamma) where {T <: Real, F}
+    isinf(ν) && return -(T(d) / 2) * log(2 * T(π) * s_hat_sq)
+    return lgamma((ν + T(d)) / 2) - lgamma(ν / 2) - (T(d) / 2) * log(ν * T(π) * s_hat_sq)
 end
+_student_t_log_normaliser(ν::Real, s_hat_sq::Real, d::Integer) =
+    _student_t_log_normaliser(promote(float(ν), float(s_hat_sq))..., d)
 
 function StudentTMixture(ν::Real, s_hat_sq::Real, log_two_outlier_halfwidth::Real, d_g::Integer,
                          inlier_prior::Real = 0.5)
-    ν = Float64(ν); s_hat_sq = Float64(s_hat_sq); log_two_outlier_halfwidth = Float64(log_two_outlier_halfwidth)
-    inlier_prior = Float64(inlier_prior)
+    return StudentTMixture{Float64}(ν, s_hat_sq, log_two_outlier_halfwidth, d_g, inlier_prior)
+end
+
+"""
+    StudentTMixture{T}(ν, s_hat_sq, log_two_outlier_halfwidth, d_g[, inlier_prior = 1/2]; lgamma = loggamma)
+
+The mixture built IN `T` (every constant computed in `T`, not in Float64 and
+rounded), with the log-gamma function supplied: kernel-lawful, so a device
+kernel whose ν and ŝ² change per work item builds one per item and calls
+[`inlier_posterior`](@ref) / [`posterior_weight`](@ref) on it. `lgamma` is the
+device's (CUDA's `__nv_lgamma`, Core's `lgamma_lanczos` elsewhere); the host
+default is SpecialFunctions' `loggamma`. `StudentTMixture(…)` is
+`StudentTMixture{Float64}(…)`.
+"""
+function StudentTMixture{T}(ν::Real, s_hat_sq::Real, log_two_outlier_halfwidth::Real, d_g::Integer,
+                            inlier_prior::Real = T(0.5); lgamma::F = loggamma) where {T <: AbstractFloat, F}
+    ν = T(ν); s_hat_sq = T(s_hat_sq); log_two_outlier_halfwidth = T(log_two_outlier_halfwidth)
+    inlier_prior = T(inlier_prior); dg = T(d_g)
     # Spelled as the E-step always spelled them, so the vector paths built on
     # this are bit-identical to the loops they replace.
-    half_νdg = (ν + d_g) / 2.0
-    log_C = _student_t_log_normaliser(ν, s_hat_sq, d_g)
-    log_pout = -d_g * log_two_outlier_halfwidth                          # uniform density (2·outlier_halfwidth)^{-d_g}
+    half_νdg = (ν + dg) / 2
+    log_C = _student_t_log_normaliser(ν, s_hat_sq, d_g, lgamma)
+    log_pout = -dg * log_two_outlier_halfwidth                          # uniform density (2·outlier_halfwidth)^{-d_g}
     # The inlier prior enters ONLY as an additive shift of the log-odds: the
     # outlier's prior log-odds −logit(π). At inlier_prior = 1/2 the shift is
     # `-logit(0.5) === -0.0` and `x - 0.0 === x`.
     log_odds_out = log_pout - logit(inlier_prior)
     log_mix_out = log_pout + log1p(-inlier_prior)
-    return StudentTMixture{Float64}(s_hat_sq, ν * s_hat_sq, ν + d_g, half_νdg, log_C,
-                                    log_odds_out, log_mix_out)
+    return StudentTMixture{T}(s_hat_sq, ν * s_hat_sq, ν + dg, half_νdg, log_C, log_odds_out, log_mix_out)
 end
 
 StudentTMixture{T}(m::StudentTMixture) where {T <: AbstractFloat} =
@@ -198,47 +218,95 @@ function next_nu(ν::Float64, sq_distances::AbstractVector, s_hat_sq::Float64,
                  w_fixed::AbstractVector, n::Int;
                  d_g::Int = 1, max_newton::Int = 5, ν_min::Float64 = 2.0, ν_max::Float64 = 1.0e4)
     for _ in 1:max_newton
-        dQ, d2Q, sum_w = _nu_derivatives(ν, sq_distances, s_hat_sq, w_fixed, n, d_g)
-        sum_w < 1.0e-10 && break
-        # Ascent safeguard: Newton only where Q is concave (its step is then
-        # uphill); a convex point steps geometrically along the gradient.
-        ν_new = d2Q < 0.0 ? ν - dQ / d2Q : (dQ > 0.0 ? 2.0 * ν : 0.5 * ν)
-        ν = clamp(ν_new, ν_min, ν_max)
-        abs(dQ / sum_w) < 1.0e-8 && break
+        dQ, d2Q_data, sum_w, ψ1_half_νdg, ψ1_half_ν = _nu_sums(ν, sq_distances, s_hat_sq, w_fixed, n, d_g)
+        ν, converged = next_nu_from_sums(ν, dQ, d2Q_data, sum_w, ψ1_half_νdg, ψ1_half_ν; d_g, ν_min, ν_max)
+        converged && break
     end
     return ν
 end
 
-# (∂Q/∂ν, ∂²Q/∂ν², Σwᵢ) of `next_nu`'s Q at ν — its docstring states both.
-# Points with wᵢ < 1e-15 are skipped, as outliers.
-function _nu_derivatives(ν::Float64, sq_distances::AbstractVector, s_hat_sq::Float64,
-                         w_fixed::AbstractVector, n::Int, d_g::Int)
+"""
+    nu_point_terms(z, ν, ψ_half_νdg, ψ_half_ν; d_g = 1) -> (dq, d2q_data)
+
+One point's terms of [`next_nu`](@ref)'s Q-derivatives at ν (its docstring
+states both): `dq` its summand of `∂Q/∂ν` and `d2q_data` the data part of its
+summand of `∂²Q/∂ν²` (the ν-only part is the sum's, `Σwᵢ` times a constant,
+added by [`next_nu_from_sums`](@ref)), at the scale-normalised squared
+residual `z = r²/(ν·ŝ²)`, with `ψ_half_νdg = ψ((ν + d_g)/2)` and
+`ψ_half_ν = ψ(ν/2)` the caller's digammas. Generic in the float type and
+allocation-free: a device kernel sums `wᵢ·dq` and `wᵢ·d2q_data` over its
+points (a workgroup reduction) and hands the sums to `next_nu_from_sums`, the
+same arithmetic as the host loop of `next_nu`.
+"""
+@inline function nu_point_terms(z::T, ν::T, ψ_half_νdg::T, ψ_half_ν::T; d_g::Integer = 1) where {T <: Real}
+    dg = T(d_g)
+    h = T(0.5)
+    inv_ν = one(T) / ν
+    inv_1pz = one(T) / (one(T) + z)
+    dq = h * ψ_half_νdg - h * ψ_half_ν - h * dg * inv_ν -
+        h * log1p(z) + (ν + dg) * z * inv_1pz * h * inv_ν
+    # ν + 2d + d·z, spelled so that d = 1 rounds exactly as the old ν+d+1+z
+    d2q_data = h * z * inv_1pz * inv_ν - h * z * (ν + dg + dg + dg * z) * inv_1pz * inv_1pz * (inv_ν * inv_ν)
+    return dq, d2q_data
+end
+
+"""
+    next_nu_from_sums(ν, dQ, d2Q_data, sum_w, ψ1_half_νdg, ψ1_half_ν; d_g = 1, ν_min = 2, ν_max = 1e4) -> (ν_new, converged)
+
+One safeguarded Newton update of [`next_nu`](@ref) from the reduced sums
+`dQ = Σwᵢ·dqᵢ`, `d2Q_data = Σwᵢ·d2q_dataᵢ` ([`nu_point_terms`](@ref)) and
+`sum_w = Σwᵢ`, with `ψ1_half_νdg = ψ₁((ν + d_g)/2)` and `ψ1_half_ν = ψ₁(ν/2)`
+the caller's trigammas. `∂²Q = sum_w·(¼ψ₁((ν+d)/2) − ¼ψ₁(ν/2) + d/(2ν²)) +
+d2Q_data`; Newton is taken only where Q is concave (`∂²Q < 0`, its step then
+uphill), elsewhere the step is geometric along the gradient (`2ν` or `ν/2`);
+the result is clamped to `[ν_min, ν_max]`. `converged` is `true` when the
+weights vanish (`sum_w < 1e-10`, ν returned unchanged) or `|dQ/sum_w| < 1e-8`.
+Generic in the float type, allocation-free: the ν update of a device kernel.
+"""
+@inline function next_nu_from_sums(ν::T, dQ::T, d2Q_data::T, sum_w::T, ψ1_half_νdg::T, ψ1_half_ν::T;
+                                   d_g::Integer = 1, ν_min::Real = 2.0, ν_max::Real = 1.0e4) where {T <: Real}
+    sum_w < T(1.0e-10) && return ν, true
+    d2Q = _nu_curvature(ν, d2Q_data, sum_w, ψ1_half_νdg, ψ1_half_ν, d_g)
+    # Ascent safeguard: Newton only where Q is concave (its step is then
+    # uphill); a convex point steps geometrically along the gradient.
+    ν_new = d2Q < zero(T) ? ν - dQ / d2Q : (dQ > zero(T) ? 2 * ν : T(0.5) * ν)
+    return clamp(ν_new, T(ν_min), T(ν_max)), abs(dQ / sum_w) < T(1.0e-8)
+end
+
+# The reduced sums of `next_nu`'s Q at ν, and the trigammas its curvature reads:
+# (Σwᵢdqᵢ, Σwᵢd2q_dataᵢ, Σwᵢ, ψ₁((ν+d)/2), ψ₁(ν/2)). Points with wᵢ < 1e-15 are
+# skipped, as outliers.
+function _nu_sums(ν::Float64, sq_distances::AbstractVector, s_hat_sq::Float64,
+                  w_fixed::AbstractVector, n::Int, d_g::Int)
     dg = Float64(d_g)
     ψ_half_νdg = digamma((ν + dg) / 2.0)
     ψ_half_ν = digamma(ν / 2.0)
-    ψ1_half_νdg = trigamma((ν + dg) / 2.0)
-    ψ1_half_ν = trigamma(ν / 2.0)
     dQ = 0.0
     d2Q_data = 0.0
     sum_w = 0.0
-    inv_ν = 1.0 / ν
-    inv_ν2 = inv_ν * inv_ν
     @inbounds for i in 1:n
         wi = w_fixed[i]
         wi < 1.0e-15 && continue
         z_i = sq_distances[i] / (ν * s_hat_sq)   # scale-normalised r²
-        inv_1pz = 1.0 / (1.0 + z_i)
-        dq_i = 0.5 * ψ_half_νdg - 0.5 * ψ_half_ν - 0.5 * dg * inv_ν -
-            0.5 * log1p(z_i) + (ν + dg) * z_i * inv_1pz * 0.5 * inv_ν
+        dq_i, d2q_data_i = nu_point_terms(z_i, ν, ψ_half_νdg, ψ_half_ν; d_g)
         dQ += wi * dq_i
         sum_w += wi
-        d2q_data_i = 0.5 * z_i * inv_1pz * inv_ν -
-            0.5 * z_i * (ν + dg + dg + dg * z_i) * inv_1pz * inv_1pz * inv_ν2
-        # ν + 2d + d·z, spelled so that d = 1 rounds exactly as the old ν+d+1+z
         d2Q_data += wi * d2q_data_i
     end
-    d2Q_nu_only = sum_w * (0.25 * ψ1_half_νdg - 0.25 * ψ1_half_ν + 0.5 * dg * inv_ν2)
-    return dQ, d2Q_nu_only + d2Q_data, sum_w
+    return dQ, d2Q_data, sum_w, trigamma((ν + dg) / 2.0), trigamma(ν / 2.0)
+end
+
+# (∂Q/∂ν, ∂²Q/∂ν², Σwᵢ) of `next_nu`'s Q at ν — its docstring states both.
+function _nu_derivatives(ν::Float64, sq_distances::AbstractVector, s_hat_sq::Float64,
+                         w_fixed::AbstractVector, n::Int, d_g::Int)
+    dQ, d2Q_data, sum_w, ψ1_half_νdg, ψ1_half_ν = _nu_sums(ν, sq_distances, s_hat_sq, w_fixed, n, d_g)
+    return dQ, _nu_curvature(ν, d2Q_data, sum_w, ψ1_half_νdg, ψ1_half_ν, d_g), sum_w
+end
+
+# ∂²Q/∂ν²: the ν-only part, Σwᵢ times its constant, plus the data part.
+@inline function _nu_curvature(ν::T, d2Q_data::T, sum_w::T, ψ1_half_νdg::T, ψ1_half_ν::T, d_g::Integer) where {T}
+    inv_ν = one(T) / ν
+    return sum_w * (T(0.25) * ψ1_half_νdg - T(0.25) * ψ1_half_ν + T(0.5) * T(d_g) * (inv_ν * inv_ν)) + d2Q_data
 end
 
 # =============================================================================

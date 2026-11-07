@@ -29,12 +29,26 @@ so the style rows' bare keys (`"RANSAC"`) match.
 
 Each sub-DataFrame is sorted by `n` so downstream rendering can index
 column vectors directly (`s.nn`, `s.mean_med`, `s.lo95_mean_med`, ...).
+The bucketing is [`results_by_method`](@ref), for a summary already in hand.
 """
 function load_results(path::String)
     keys_in_jld2 = JLD2.jldopen(path, "r") do f; collect(keys(f)); end
     "summary" in keys_in_jld2 ||
         error("load_results: no `summary` key in $path (keys: $keys_in_jld2)")
-    summary::DataFrame = JLD2.load(path, "summary")
+    return results_by_method(JLD2.load(path, "summary")::DataFrame)
+end
+
+"""
+    results_by_method(summary::DataFrame) -> Dict{Tuple{String,String}, SubDataFrame}
+
+A `summary` DataFrame (the rows `Evaluation.compute_method_rows` emits)
+bucketed into one `SubDataFrame` per `(method_key, tuning_criterion)`, each
+sorted by `n`, as [`load_results`](@ref) reads it from a file. The method key
+strips a trailing `(median|mAA)` suffix (either case). Each bucket carries
+the added columns `method_key`, `tune_key` and `nn` (`Float64(n)`). The
+summary itself is not modified.
+"""
+function results_by_method(summary::DataFrame)
     df = copy(summary)
     # Strip a trailing `(median|mAA)` suffix from the persisted method name.
     # Case-insensitive: artifacts written by the retired `_crit_tag` spell it

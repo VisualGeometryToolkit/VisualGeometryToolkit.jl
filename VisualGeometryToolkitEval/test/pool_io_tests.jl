@@ -165,6 +165,10 @@
         v3 = joinpath(dir, "v3.jld2"); JLD2.jldsave(v3; pool_format = 3, pairs = [1])
         m = errmsg(() -> load_pool(v3))
         @test occursin("pool format v3", m) && occursin("convert_pools_v4", m)
+        # pool_size: the pair count from the header, under the same format check (LODR's two jldopen copies)
+        @test pool_size(path) == length(load_pool(path)) == 2 == JLD2.jldopen(f -> length(f["scene_names"]), path, "r")
+        @test occursin("pool format v3", errmsg(() -> pool_size(v3)))
+        @test occursin("no such pool", errmsg(() -> pool_size(joinpath(dir, "absent.jld2"))))
         @test occursin("format v1", errmsg(() -> load_pool(residuals_path(path))))   # not a light file
         # a tampered pair no longer reproduces the stored key
         t = joinpath(dir, "tampered.jld2"); cp(path, t)

@@ -212,15 +212,32 @@ end
             ("plain, geometric", withattrs(Csponds(u₁, u₂); sqrt_weights = sqrtw), sampson_residuals!, sampson_jacobian_rows!),
             ("exact source, whitened", withattrs(Csponds(u₁, u₂); noise_columns(exact.(u₁), u₂)..., sqrt_weights = sqrtw),
                 whitened_residuals!, whitened_jacobian_rows!),
+            ("exact source, whitened, weighted", withattrs(Csponds(u₁, u₂); noise_columns(exact.(u₁), u₂)..., sqrt_weights = sqrtw),
+                VgtkCore.weighted_whitened_residuals!, VgtkCore.weighted_whitened_jacobian_rows!),
             ("uncertain points, whitened",
                 withattrs(Csponds(u₁, u₂); noise_columns([Uncertain(u, CovMat(SMatrix{2, 2}(2.0, 0.3, 0.3, 0.5))) for u in u₁], u₂)..., sqrt_weights = sqrtw),
-                whitened_residuals!, whitened_jacobian_rows!))
+                whitened_residuals!, whitened_jacobian_rows!),
+            ("uncertain points, whitened, weighted",
+                withattrs(Csponds(u₁, u₂); noise_columns([Uncertain(u, CovMat(SMatrix{2, 2}(2.0, 0.3, 0.3, 0.5))) for u in u₁], u₂)..., sqrt_weights = sqrtw),
+                VgtkCore.weighted_whitened_residuals!, VgtkCore.weighted_whitened_jacobian_rows!))
         @testset "$name: exact rows (ForwardDiff through the residuals)" begin
             J = zeros(2n, 8); J!(J, retract(ch, a), retract_jacobian(ch, a), xs)
             @test J ≈ ForwardDiff.jacobian(rows(xs, f!), a) rtol = 1.0e-10 atol = 1.0e-12
             allocs(J, M, D, xs) = (J!(J, M, D, xs); @allocated J!(J, M, D, xs))
             @test allocs(J, retract(ch, a), retract_jacobian(ch, a), xs) == 0
         end
+    end
+    @testset "whitened rows are unweighted; the weighted rows are √w times them" begin
+        xs = withattrs(Csponds(u₁, u₂); noise_columns([Uncertain(u, CovMat(SMatrix{2, 2}(2.0, 0.3, 0.3, 0.5))) for u in u₁], u₂)..., sqrt_weights = sqrtw)
+        x0 = withattrs(Csponds(u₁, u₂); noise_columns([Uncertain(u, CovMat(SMatrix{2, 2}(2.0, 0.3, 0.3, 0.5))) for u in u₁], u₂)...)
+        M = retract(ch, a)
+        r, r0, rw = zeros(2n), zeros(2n), zeros(2n)
+        whitened_residuals!(r, M, xs); whitened_residuals!(r0, M, x0); VgtkCore.weighted_whitened_residuals!(rw, M, xs)
+        @test r == r0                                   # the sqrt_weights column is not read
+        @test rw == repeat(sqrtw; inner = 2) .* r      # bit for bit: √w·s, one product
+        J, J0 = zeros(2n, 8), zeros(2n, 8)
+        whitened_jacobian_rows!(J, M, retract_jacobian(ch, a), xs); whitened_jacobian_rows!(J0, M, retract_jacobian(ch, a), x0)
+        @test J == J0
     end
     @testset "the 1 × 1 and 2 × 2 whitening factors are StaticArrays' Cholesky (IEEE sqrt)" begin
         for _ in 1:200

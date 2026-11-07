@@ -160,22 +160,44 @@ end
     return SVector(d̂[1] - v[1], d̂[2] - v[2])
 end
 
-# The signed rows (`whitened_residuals!`): the offset, or out of field a
-# residual whose norm is the distance's out-of-field constant.
+# The offset whitened by the point's measurement noise, as every problem whitens
+# (`measurement_covariance`, the pair block over (source, target)): the source is
+# exact by construction (`_exact_source_only`), so the target's 2 × 2 block
+# whitens it, `L⁻¹e` with `LLᵀ = Σ₂`; plain targets (`I`, today the only
+# kind the constructor admits) leave the offset as it is, bit for bit.
+@inline _whitened_offset(::UniformScaling{Bool}, e) = e
+@inline function _whitened_offset(Σ::StaticMatrix{4, 4}, e)
+    S = SMatrix{2, 2}(Σ[3, 3], Σ[4, 3], Σ[3, 4], Σ[4, 4])
+    return cholesky(Symmetric(S)).L \ e
+end
+
+# The signed rows (`whitened_residuals!`): the whitened offset. Out of field
+# there is no predicted point and so no offset; the residual is then
+# `OUT_OF_FIELD_RESIDUAL` along the measured target's radial direction from
+# the distortion centre (where the model's field ends) — a direction of the
+# data, not of an axis — and along the diagonal for a target at the centre.
+# Its norm is the distance's out-of-field constant to rounding.
 @inline function whitened_residual(p::RadialHomographyProblem, m::VgtkCore.RadialHomography, i::Int)
     e = _reprojection_offset(p, m, i)
-    e === nothing && return SVector(VgtkCore.OUT_OF_FIELD_RESIDUAL, 0.0)
-    return SVector{2, Float64}(e)
+    e === nothing && return _out_of_field_residual(m, @inbounds targets(p.cs)[i])
+    return SVector{2, Float64}(_whitened_offset(measurement_covariance(p, i), e))
+end
+function _out_of_field_residual(m::VgtkCore.RadialHomography, v)
+    d = SVector{2, Float64}(v[1] - m.center[1], v[2] - m.center[2])
+    n = norm(d)
+    u = n > 0 ? d / n : SVector(1.0, 1.0) / sqrt(2.0)
+    return VgtkCore.OUT_OF_FIELD_RESIDUAL * u
 end
 
 # The reprojection distance (`mahalanobis_distances!` is VisualGeometryToolkitCore's
-# loop over it); out of field, VGC's one out-of-field residual
-# (`OUT_OF_FIELD_RESIDUAL`), finite so the scoring sweep's sort and squares
-# stay well-defined while the point is buried among the outliers.
+# loop over it), the norm of the residual above; out of field exactly VGC's one
+# out-of-field residual (`OUT_OF_FIELD_RESIDUAL`), finite so the scoring
+# sweep's sort and squares stay well-defined while the point is buried among
+# the outliers. Jacobian-free, so it skips the residual's direction.
 @inline function mahalanobis_distance(p::RadialHomographyProblem, m::VgtkCore.RadialHomography, i::Int)
     e = _reprojection_offset(p, m, i)
     e === nothing && return VgtkCore.OUT_OF_FIELD_RESIDUAL
-    return Float64(norm(e))
+    return Float64(norm(_whitened_offset(measurement_covariance(p, i), e)))
 end
 
 # =============================================================================

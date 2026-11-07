@@ -120,6 +120,28 @@ struct SplineProjection{C, S <: ChartSpline{2}, R} <: CoordinateTransformations.
     region::R
 end
 
+"""
+    equidistant_chart(axis::StaticVector{3}) -> Lens(Equidistant()) ∘ LinearMap(R)
+
+The equidistant direction chart about `axis` (any nonzero 3-vector,
+normalized here): a ray at angle `θ` from the axis lands at radius `θ`
+(radians) in the chart plane, in the direction of its azimuth; singular only at
+`−axis`. `R` is the rotation whose rows are `(e₁, e₂, axis)`, with
+`e₁ = normalize(ŷ × axis)` (`x̂ × axis` when the axis is within 1e-6 of `±ŷ`)
+and `e₂ = axis × e₁` — right-handed, so the chart is the camera's own
+equidistant lens when `axis = ẑ`. The chart a [`SplineProjection`](@ref) is
+built on (VisualGeometryToolkitEstimation's `fit_camera`), and the one a
+direction field over a cap of the sphere (a panorama's vignetting) reads.
+"""
+function equidistant_chart(axis::StaticVector{3})
+    a = normalize(SVector{3, Float64}(axis))
+    e1 = cross(SVector(0.0, 1.0, 0.0), a)
+    e1 = norm(e1) > 1.0e-6 ? normalize(e1) : normalize(cross(SVector(1.0, 0.0, 0.0), a))
+    e2 = cross(a, e1)
+    R = SMatrix{3, 3, Float64}(e1[1], e2[1], a[1], e1[2], e2[2], a[2], e1[3], e2[3], a[3])   # rows e1, e2, axis
+    return Lens(Equidistant()) ∘ CoordinateTransformations.LinearMap(R)
+end
+
 Adapt.adapt_structure(to, sp::SplineProjection) =
     (s = Adapt.adapt(to, sp.spline); SplineProjection(sp.chart, s, _device_domain(sp.region)))
 

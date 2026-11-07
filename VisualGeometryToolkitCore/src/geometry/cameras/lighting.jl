@@ -198,6 +198,20 @@ radiance_map(light::EnvironmentLight) = light.map
 coefficients(light::EnvironmentLight) = coefficients(light.map)
 max_degree(light::EnvironmentLight) = max_degree(light.map)
 with_coefficients(light::EnvironmentLight, a::AbstractMatrix) = EnvironmentLight(with_coefficients(light.map, a), light.center, light.radius)
+
+# The parameter protocol: a light's coefficients are its map's spherical-harmonic
+# coefficients, column-major (`vec(coefficients(light))`: channel fastest),
+# named `a<channel>_<index>`, unbounded; the centre and the radius are the
+# light's geometry and stay fixed (`with_parameters` keeps them).
+parameter_vector(light::EnvironmentLight) = (a = coefficients(light); SVector{length(a), eltype(a)}(Tuple(a)))
+parameter_names(light::EnvironmentLight) = (a = coefficients(light); C = size(a, 1);
+    ntuple(i -> Symbol(:a, (i - 1) % C + 1, :_, (i - 1) ÷ C + 1), Val(length(a))))
+function with_parameters(light::EnvironmentLight, θ::AbstractVector)
+    a = coefficients(light)
+    length(θ) == length(a) || throw(ArgumentError("EnvironmentLight takes $(length(a)) parameters (its coefficients); got $(length(θ))"))
+    return with_coefficients(light, SMatrix{size(a)..., eltype(θ)}(Tuple(θ)))
+end
+
 convert_eltype(::Type{T}, light::EnvironmentLight) where {T <: Real} =
     EnvironmentLight(convert_eltype(T, light.map), SVector{3, T}(light.center), T(light.radius))
 

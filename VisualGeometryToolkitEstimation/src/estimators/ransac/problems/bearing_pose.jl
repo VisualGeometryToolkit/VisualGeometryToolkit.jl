@@ -178,10 +178,12 @@ end
     end
 end
 
-# The scoring residual: the norm of the whitened tangent residual (radians, or
-# pixels with an `M` column), the caller's weight not applied.
+# The signed residual: the whitened tangent residual (radians, or pixels with an
+# `M` column), the caller's weight not applied; the scoring distance its norm.
+@inline whitened_residual(p::BearingPoseProblem, pose::PlainEuclideanMap{3, Float64}, i::Int) =
+    _bearing_residual(p, rotation(pose), translation(pose), i)
 @inline mahalanobis_distance(p::BearingPoseProblem, pose::PlainEuclideanMap{3, Float64}, i::Int) =
-    norm(_bearing_residual(p, rotation(pose), translation(pose), i))
+    norm(whitened_residual(p, pose, i))
 
 # The unit of the class's file `threshold` (`[pipelines.bearing_pose]`): the
 # residual's BOUND — π (the largest angle between two rays) times the largest

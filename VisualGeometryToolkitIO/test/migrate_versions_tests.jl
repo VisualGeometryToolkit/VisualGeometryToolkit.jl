@@ -46,7 +46,7 @@ end
             @test occursin("vgio/target/v1", before) && occursin("\"warp\"", before) == (name == "target_planar.json")
             # read through its migration, as the committed current file
             a0, b0 = load(AbstractTarget, src), load(AbstractTarget, units_fixture(name))
-            @test VgtkIO._same_value(a0, b0)
+            @test VgtkIO.same_value(a0, b0)
             # a dry run verifies and writes nothing
             r = vgio_migrate(src; dry_run = true)
             @test r.out === nothing && r.from == "vgio/target/v1" && r.to == "vgio/target/v5"
@@ -96,12 +96,22 @@ end
     mktempdir() do dir
         rd(s) = (p = joinpath(dir, "r$(hash(s)).json"); write(p, s); load(Rig, p))
         old = rd(text)
-        @test VgtkIO._same_value(old, rd(text))
-        @test VgtkIO._same_value(old, rd(replace(text, t => repr(nextfloat(251.9)))))                     # a length: accepted
-        @test !VgtkIO._same_value(old, rd(replace(text, repr(q) => repr(nextfloat(q)))))                 # a quaternion: refused
-        @test !VgtkIO._same_value(old, rd(replace(text, f => "\"fx\": $(repr(nextfloat(900.0)))")))     # a focal length: refused
-        @test !VgtkIO._same_value(old, rd(replace(text, t => "252.0")))                                  # a length beyond 2 ulp: refused
+        @test VgtkIO.same_value(old, rd(text))
+        @test VgtkIO.same_value(old, rd(replace(text, t => repr(nextfloat(251.9)))))                     # a length: accepted
+        @test !VgtkIO.same_value(old, rd(replace(text, repr(q) => repr(nextfloat(q)))))                 # a quaternion: refused
+        @test !VgtkIO.same_value(old, rd(replace(text, f => "\"fx\": $(repr(nextfloat(900.0)))")))     # a focal length: refused
+        @test !VgtkIO.same_value(old, rd(replace(text, t => "252.0")))                                  # a length beyond 2 ulp: refused
+        # exact (BlobBoards' board check, a product codec): every leaf bit for bit
+        @test VgtkIO.same_value(old, rd(text); length_ulps = 0)
     end
+    # a length one ulp off in metres: within the default 2 ulp, refused when exact
+    @test VgtkIO.same_value(0.2519m, nextfloat(0.2519) * m) && !VgtkIO.same_value(0.2519m, nextfloat(0.2519) * m; length_ulps = 0)
+    @test VgtkIO.same_value([0.2519m], [0.2519m]; length_ulps = 0) && !VgtkIO.same_value([0.2519m], [nextfloat(0.2519) * m]; length_ulps = 0)
+    # the leaves: a signed zero, an Int quantity and its Float64 twin, a type, a container's type all differ
+    @test VgtkIO.same_value(0.142m, 0.142m; length_ulps = 0) && !VgtkIO.same_value(0.0m, -0.0m)
+    @test !VgtkIO.same_value(3 * m, 3.0 * m) && !VgtkIO.same_value(3, 3.0)
+    @test VgtkIO.same_value((Float64, :a, "s"), (Float64, :a, "s")) && !VgtkIO.same_value((Float64,), (Float32,))
+    @test VgtkIO.same_value([1.0, NaN], [1.0, NaN]) && !VgtkIO.same_value([1.0, 2.0], (1.0, 2.0)) && !VgtkIO.same_value([1.0], Float32[1.0])
     # a covariance entry by its parameters' length powers: a pose's rotation block bit for bit, its translation block within 2 ulp
     using VisualGeometryToolkitCore: EuclideanMap, Uncertain, CovMat
     using LinearAlgebra: I, Diagonal
@@ -110,7 +120,7 @@ end
     U(Σ) = Uncertain(P, CovMat{6, Float64}(Tuple(Σ)))
     Σt = copy(Σ); Σt[5, 5] = nextfloat(Σt[5, 5])
     Σr = copy(Σ); Σr[2, 2] = nextfloat(Σr[2, 2])
-    @test VgtkIO._same_value(U(Σ), U(Σt)) && !VgtkIO._same_value(U(Σ), U(Σr))
+    @test VgtkIO.same_value(U(Σ), U(Σt)) && !VgtkIO.same_value(U(Σ), U(Σr))
 end
 
 @testitem "vgio_migrate: a few hundred random full-precision lengths and covariances all migrate" setup = [VGIoFixtures, MigrateFixtures] begin
@@ -617,7 +627,7 @@ end
         v5 = joinpath(dir, "rig_v5.json")
         write(v5, JSON.json(d, 2))
         r = VgtkIO.vgio_migrate(v5; out = joinpath(dir, "rig_migrated.json"))
-        @test VgtkIO._same_value(VgtkIO.load(Rig, v5), VgtkIO.load(Rig, r.out))           # read through its migration, as its migrated file
+        @test VgtkIO.same_value(VgtkIO.load(Rig, v5), VgtkIO.load(Rig, r.out))           # read through its migration, as its migrated file
         @test VgtkIO.content_id(v5) == r.new_id
         @test r.to == "vgio/rig/v8"
         # the value changed kind (affine → its factors), so the identity moves: v5's is reported as the old one

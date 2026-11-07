@@ -1010,6 +1010,24 @@ decision_width(::CauchyShape, decision_threshold::Real) = Float64(decision_thres
 decision_width(::SmoothTLSShape, decision_threshold::Real) = sqrt(2.0) * Float64(decision_threshold)
 decision_width(::TLSShape, decision_threshold::Real) = Float64(decision_threshold)
 
+"""
+    decision_threshold(shape::AbstractLossShape, loss_width) -> Float64
+
+The inverse of [`decision_width`](@ref) for a loss shape: the residual at which
+the shape's normalized IRLS weight at `loss_width` is exactly ½ (its
+half-weight decision), with the same closed forms read the other way —
+Welsch `t = √(ln 2)·w`, Geman–McClure `t = √(√2 − 1)·w`, Cauchy and TLS
+`t = w`, smooth-TLS `t = w/√2`, Barron `t = w·√(b·(2^{2/(2−α)} − 1))`.
+`decision_threshold(shape, decision_width(shape, t)) ≈ t`. The mixture's
+method, `decision_threshold(::GauInlier, outlier_halfwidth)`, is the same
+inverse for the Gaussian-uniform pair.
+"""
+decision_threshold(::WelschShape, loss_width::Real) = Float64(loss_width) * sqrt(log(2.0))
+decision_threshold(::GemanMcclureShape, loss_width::Real) = Float64(loss_width) * sqrt(sqrt(2.0) - 1.0)
+decision_threshold(::CauchyShape, loss_width::Real) = Float64(loss_width)
+decision_threshold(::SmoothTLSShape, loss_width::Real) = Float64(loss_width) / sqrt(2.0)
+decision_threshold(::TLSShape, loss_width::Real) = Float64(loss_width)
+
 # -----------------------------------------------------------------------------
 # GNC surrogate facet — the graduated (μ-parameterized) surrogate closed forms
 # (Yang, Antonante, Tzoumas & Carlone, RA-L 2020; Black & Rangarajan, IJCV 96).
@@ -1365,6 +1383,8 @@ function decision_width(shape::BarronShape, decision_threshold::Real)
     b = _barron_b(shape.α)
     return Float64(decision_threshold) / sqrt(b * (2.0^(2.0 / (2.0 - shape.α)) - 1.0))
 end
+decision_threshold(shape::BarronShape, loss_width::Real) =
+    Float64(loss_width) * sqrt(_barron_b(shape.α) * (2.0^(2.0 / (2.0 - shape.α)) - 1.0))
 
 # =============================================================================
 # Loss identity: the loss FAMILY a shape belongs to (a figure roster's row)

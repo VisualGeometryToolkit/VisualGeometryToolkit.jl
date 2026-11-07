@@ -343,10 +343,12 @@
             @test_throws ArgumentError sbc(budget_unit = :models, nat_axis = ScaleMultiple())
         end
         methods = [SampleBudgetMethodSpec(:narrow, template(0.01)), SampleBudgetMethodSpec(:wide, template(0.03))]
-        msac = [MsacSpec(:msac, 0.01, WidthRefit(25); refinement_loss_width = 0.02)]
-        @test MsacSpec(:m, 1, WidthRefit(2)).refinement_loss_width === nothing
+        msac = [LossWidthSpec(:msac, MsacScoring(1), 0.01, WidthRefit(25); refinement_loss_width = 0.02)]
+        @test LossWidthSpec(:m, MsacScoring(1), 1, WidthRefit(2)).refinement_loss_width === nothing
+        @test LossWidthSpec(:m, MsacScoring(1), 1).lo === NoLocalOptimization()
+        @test_throws "not a loss-width family" LossWidthSpec(:m, template(0.01), 0.01)
         @testset "per pair: shapes, selections, refits, the MSAC and oracle columns" begin
-            res = evaluate_sample_budget(P, methods, [pair], [R]; pair_ids = ["synth-1"], msac_specs = msac, cfg)
+            res = evaluate_sample_budget(P, methods, [pair], [R]; pair_ids = ["synth-1"], loss_width_specs = msac, cfg)
             @test res.methods == [:narrow, :wide, :msac, :oracle] && res.pair_ids == ["synth-1"]
             @test res.sample_counts == [5, 10, 15, 20] && res.lo_counts == [5, 10, 20]
             @test size(res.err_batch) == (1, 4, 4) && size(res.err_lo) == (1, 4, 3)
@@ -376,25 +378,42 @@
             # nat_ref: every config-LO column refits at it
             cfg_ref = SampleBudgetConfig(; sample_cap = 20, batch_size = 5, lo_every = 10, budget_unit = :models,
                                          lo_strategy = irls(), nat_ref = 0.05)
-            r2 = evaluate_sample_budget(P, methods, [pair], [R]; msac_specs = msac, cfg = cfg_ref)
+            r2 = evaluate_sample_budget(P, methods, [pair], [R]; loss_width_specs = msac, cfg = cfg_ref)
             @test r2.best_idx_batch == res.best_idx_batch && r2.err_lo[:, 3, :] == res.err_lo[:, 3, :]
             seed1 = refit_seed(ctx, pair.models[r2.best_idx_batch[1, 1, end]])
             @test r2.err_lo[1, 1, end] === Float32(first(refit_imc!(ctx, irls(), seed1, 0.05)))
             # reuse: a rerun is identical, and a pair among others is scored as it is alone
-            again = evaluate_sample_budget(P, methods, [pair], [R]; pair_ids = ["synth-1"], msac_specs = msac, cfg)
+            again = evaluate_sample_budget(P, methods, [pair], [R]; pair_ids = ["synth-1"], loss_width_specs = msac, cfg)
             @test again.err_batch == res.err_batch && again.best_idx_batch == res.best_idx_batch &&
                   again.err_lo == res.err_lo
             other, Ro = synthetic_e_pool_pair(MersenneTwister(99))
-            both = evaluate_sample_budget(P, methods, [other, pair, other], [Ro, R, Ro]; msac_specs = msac, cfg)
+            both = evaluate_sample_budget(P, methods, [other, pair, other], [Ro, R, Ro]; loss_width_specs = msac, cfg)
             @test both.best_idx_batch[2:2, :, :] == res.best_idx_batch && both.err_lo[2:2, :, :] == res.err_lo
             @test both.best_idx_batch[1, :, :] == both.best_idx_batch[3, :, :] && both.err_lo[1, :, :] == both.err_lo[3, :, :]
+        end
+        @testset "a selection-only loss-width column (RSDR's families, NoLocalOptimization)" begin
+            sel = [LossWidthSpec(:ransac, VgtkCore.RansacScoring(1), 0.02), msac[1]]
+            res = evaluate_sample_budget(P, methods, [pair], [R]; loss_width_specs = sel, cfg)
+            @test res.methods == [:narrow, :wide, :ransac, :msac, :oracle]
+            ctx = build_pair_ctx(P, pair; scoring = template(0.01))
+            for (b, cap) in enumerate(res.sample_counts)        # the running argmax of the scorer at its width
+                j = best_pool_model(VgtkCore.RansacScoring(1; threshold = 0.02), subpair(pair, 1:cap), R[:, 1:cap])
+                @test res.best_idx_batch[1, 3, b] == j && res.err_batch[1, 3, b] === Float32(model_imc(pair.models[j], ctx))
+            end
+            # no refit: an LO checkpoint records the selected model's model_imc, its batch checkpoint's value
+            @test res.err_lo[1, 3, :] == res.err_batch[1, 3, [cap ÷ 5 for cap in res.lo_counts]]
+            @test res.lo_ns_total[3] == 0 && res.lo_startup_ns[3] == 0
+            # the MSAC column beside it is unchanged
+            @test res.err_lo[1, 4, :] == evaluate_sample_budget(P, methods, [pair], [R]; loss_width_specs = msac, cfg).err_lo[1, 3, :]
+            @test_throws "codimension" evaluate_sample_budget(P, methods, [pair], [R];
+                loss_width_specs = [LossWidthSpec(:r2, VgtkCore.RansacScoring(2), 0.02)], cfg)
         end
         @testset "refusals" begin
             # one refit template per evaluation
             @test_throws "different scoring templates" evaluate_sample_budget(P,
                 [methods[1], SampleBudgetMethodSpec(:h, HalfwidthMsac(2, 0.01))], [pair], [R]; cfg)
-            # a threshold scorer has no outlier half-width: it is an MsacSpec
-            @test_throws "MsacSpec" evaluate_sample_budget(P,
+            # a threshold scorer has no outlier half-width: it is a LossWidthSpec
+            @test_throws "LossWidthSpec" evaluate_sample_budget(P,
                 [SampleBudgetMethodSpec(:t, MsacScoring(1; threshold = 0.01))], [pair], [R]; cfg)
             @test_throws DimensionMismatch evaluate_sample_budget(P, methods, [pair], typeof(R)[]; cfg)
             @test_throws ErrorException evaluate_sample_budget(P, methods, [pair], [R]; pair_ids = ["a", "b"], cfg)
@@ -403,7 +422,7 @@
             cfg_s = SampleBudgetConfig(; sample_cap = 20, batch_size = 20, lo_every = 20, budget_unit = :samples,
                                        lo_strategy = irls())
             starts = sample_starts(starts_pool([pair], 25))
-            res_s = evaluate_sample_budget(P, methods[1:1], [pair], [R]; msac_specs = msac, cfg = cfg_s, sample_starts = starts)
+            res_s = evaluate_sample_budget(P, methods[1:1], [pair], [R]; loss_width_specs = msac, cfg = cfg_s, sample_starts = starts)
             # 20 samples reach model 22
             @test res_s.best_idx_batch[1, 2, end] == best_pool_model(MsacScoring(1; threshold = 0.01), subpair(pair, 1:22), R[:, 1:22])
             @test_throws ArgumentError evaluate_sample_budget(P, methods[1:1], [pair], [R]; cfg = cfg_s)

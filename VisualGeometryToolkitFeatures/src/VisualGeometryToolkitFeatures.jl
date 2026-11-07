@@ -38,6 +38,7 @@ using VisualGeometryToolkitCore: Csponds  # #21 correspondence layer
 using VisualGeometryToolkitCore: default_device   # the family's one KA backend resolver — never a hardcoded KA.CPU()
 using VisualGeometryToolkitCore: AbstractDetection, FeatureFrame, OrientedDisc, AffineFrame, PointFrame
 using VisualGeometryToolkitCore: characteristic_scale
+using VisualGeometryToolkitCore: image_warp, image_warp!, AffineMap, Rect   # LoMaDescriptor's resampling to the graph's input (loma.jl)
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, CaptureSettings, parse_unit, mm, m   # a RAW's EXIF, typed (raw_image.jl)
 using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain, implicit_covariance, propagate   # keypoint uncertainty
 import VisualGeometryToolkitCore: cov, geom   # extended for Detections of an Uncertain frame
@@ -173,6 +174,7 @@ export CspondSet                # N-way correspondence
 # -----------------------------------------------------------------------------
 export DescribedFeature, described_features, descriptor_matrix
 export LoMaDescriptor, LoMaMatcher   # LoMa (ONNX); models cached in the scratch space
+public LOMA_IMAGE_SIZE, strongest    # the descriptor graph's input side; the n strongest detections, in detector order
 
 # -----------------------------------------------------------------------------
 # 5. PERSISTENT CACHE - FileCache (JLD2 backend in VisualGeometryToolkitFeaturesJLD2Ext)

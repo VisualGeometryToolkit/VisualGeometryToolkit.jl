@@ -65,6 +65,35 @@ end
     @test box_downsample(C, 2)[:, :, 2] == 2 .* box_downsample(A, 2)[:, :, 1]
     @test box_downsample(C, 1) == C
     @test_throws ArgumentError box_downsample(C, 0)
+    # 2-D, and the element type's own float: an integer image averages in Float64, a Float32 one in Float32
+    @test box_downsample(A[:, :, 1], 2) == box_downsample(A, 2)[:, :, 1]
+    @test box_downsample(Int.(A), 2) == box_downsample(A, 2) && eltype(box_downsample(Float32.(A), 2)) === Float32
+    @test_throws ArgumentError box_downsample(zeros(2, 2, 2, 2), 1)
+end
+
+@testitem "linear image: the box downsample of a Gray{Float32} patch is BlobBoards' supersampling filter, bit for bit" begin
+    using VisualGeometryToolkitFeatures: box_downsample
+    using Colors: Gray
+    using Random: MersenneTwister
+    # BlobBoards' `_box_downsample` (canonicalize.jl, ≤ 0.13): a Float32 accumulation of the S × S block, scaled by 1/S²
+    function bb_box_downsample(hi::AbstractMatrix, S::Int)
+        P = size(hi, 1) ÷ S
+        out = Matrix{Gray{Float32}}(undef, P, P)
+        invn = 1.0f0 / (S * S)
+        for j in 1:P, i in 1:P
+            acc = 0.0f0
+            for jj in 1:S, ii in 1:S
+                acc += Float32(hi[(i - 1) * S + ii, (j - 1) * S + jj])
+            end
+            out[i, j] = Gray{Float32}(acc * invn)
+        end
+        return out
+    end
+    for S in (2, 3, 4)
+        hi = Gray{Float32}.(rand(MersenneTwister(S), Float32, 16S, 16S))
+        lo = box_downsample(hi, S)
+        @test lo isa Matrix{Gray{Float32}} && reinterpret(UInt32, Float32.(lo)) == reinterpret(UInt32, Float32.(bb_box_downsample(hi, S)))
+    end
 end
 
 @testitem "gaussian_blur: unit mass, the separable Gaussian, the masked (normalized) convolution" begin

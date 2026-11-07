@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Breaking: `sha256_hex` is VisualGeometryToolkitCore's** (public there, with its new byte-vector and stream forms;
+  a file's digest is `open(sha256_hex, path)`), so a package below IO (VisualGeometryToolkitFeatures) reads the
+  same digest; IO no longer defines or exports it, and drops its SHA dependency. Migration:
+  `VgtkIO.sha256_hex(x)` → `VgtkCore.sha256_hex(x)` (same value).
+- **`same_value(a, b; length_ulps = 2)` (public)**, the typed-record comparison every migration verifies with
+  (formerly the private `_same_value`): a length within `length_ulps` ulp of its metre value, every other leaf bit
+  for bit; `length_ulps = 0` is exact everywhere (BlobBoards' board migration check). Two leaves it compared loosely
+  now differ: two quantities of different numeric types (`3m` against `3.0m`), and a `Type` (compared by
+  `isequal`, not field by field).
+- **Named blurs as a body**: `JSON.lower(::VgioStyle, ::AbstractDict{Symbol, <:GaussianBlur})` and
+  `JSON.lift(::VgioStyle, Dict{Symbol, GaussianBlur}, body)`, the `blurs` list of a `vgio/blur/v1` file (one block per
+  blur, in name order; the lift refuses a repeated name), which `save`/`load` now call and a record of another kind
+  nests (RadiometricCamera's per-channel in-focus blur). No file changes.
 - The `vgio/vignetting/v1` body's `type` is read and written through VisualGeometryToolkitCore's `VIGNETTING_TAGS`
   (`tensor_product`, `radial`, `log`): the same strings, so no file changes; an unknown type is refused naming the
   registry's tags.

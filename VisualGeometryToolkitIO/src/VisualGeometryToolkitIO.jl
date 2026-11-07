@@ -103,7 +103,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     CameraModel, CameraCalibrationMat, AbstractLensModel, Lens, LiftLens, Pinhole, Division, KannalaBrandt, Scaramuzza,
     Perspective, Equidistant, DoubleSphere, Unified, ExtendedUnified,
     Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Even,
-    lens_record, lens_from_record,
+    lens_record, lens_from_record, sha256_hex,
     EuclideanMap, Size2, Vec3, PixelFrame,
     Rig, PosedTarget, BoundedCamera, PosedCamera, Attributed, sensor_rig, target_rig, Sensor, sensor,
     AbstractTarget, PointTarget, PlanarTarget, TargetCalibration, calibration, reference, is_resolved, Board, board,
@@ -194,7 +194,7 @@ include("conventions.jl")  # OpenCV's and Kalibr's lens models as VGC lenses, ex
 include("external_calibration.jl")  # OpenCV / MATLAB calibration exports (load-only)
 include("exporters.jl")    # TUM, EuRoC, BOP, TRC: our kinds in the community formats (write-only)
 include("jsonl.jl")
-include("canonical.jl")   # canonical JSON + sha256_hex — content identities (hoisted from BlobBoards)
+include("canonical.jl")   # canonical JSON — content identities, hashed by Core's sha256_hex (hoisted from BlobBoards)
 include("migrate.jl")     # migrate_opencv / migrate_matlab + the bin/vgio_migrate.jl command
 
 # Layer 2 — unit contract (the COLMAP adapter's world-unit declaration)
@@ -213,7 +213,7 @@ export ros_pose_covariance, pose_covariance_from_ros   # the pose covariance in 
 export migrate_opencv, migrate_matlab # a third-party OpenCV / MATLAB calibration → native v3 camera + image-named poses
 export vgio_migrate, vgio_migrate_tree   # an earlier schema version → the current one, once; a tree's measurements re-pointed at its migrated rigs
 export append_jsonl
-export canonical_json, sha256_hex
+export canonical_json   # its hash is Core's `sha256_hex(canonical_json(tree))`
 
 # Layer 3 — assembly to/from VGC types
 export camera_model, colmap_camera, colmap_image, rigid_transform
@@ -238,6 +238,7 @@ public read_quantity, write_quantity, json_value, from_json, ScalarOrQuantity, r
 public validate                       # check any vgio file against its kind's table
 public migrate_schema, CONTRACT_GENERICS   # the per-schema migration a schema owner extends (its declared extension points)
 public migrate_record                 # an earlier version's record as the current one, in memory: the version steps a reader runs
+public same_value                     # two typed records the same, a length within the codec's ulps (a migration's check)
 public write_staged                   # files written through a staging directory beside them, renamed into place once verified
 public pixel_frame_name, pixel_frame_from_name   # a pixel frame's serialized name, and back (VGC decides which exist)
 public pose_json, pose_from_json, pose_declarations, camera_json, camera_from_json,

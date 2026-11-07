@@ -7,8 +7,11 @@
   for an `EllipticFrame`, an `AffineFrame`, an `Ellipse` and a `Paraboloid3D`; the factor stays `shape_factor(f)`, with
   `M = shape_factor(f) * shape_factor(f)'`. `moment_matrix` has no method and no alias (retired, `check_naming`), and
   `EllipticFrame(center, M, Val(:shape_matrix))` replaces `Val(:moment_matrix)`. Migration: `moment_matrix(x)` →
-  `shape_matrix(x)`. **Caveat for a 0.5 → 0.7 jump:** code written against 0.5 that calls `shape_matrix` expecting the
-  FACTOR now compiles and gets `M`; such code must call `shape_factor` (0.6 is the release where it fails loudly).
+  `shape_matrix(x)`.
+- **SILENT CHANGE for code written against 0.5 (a 0.5 → 0.7 jump): `shape_matrix` returned the FACTOR in 0.5 and
+  returns `M` in 0.7, so such a call compiles and gets the wrong matrix.** Replace every 0.5 `shape_matrix(x)` with
+  `shape_factor(x)` before upgrading; 0.6 is the release where the old call fails loudly, so upgrading through 0.6
+  first finds them all.
 - **Breaking: the deprecated `distance(hyperplane, p)` and `field_center(v)` are removed.** Use
   `signed_distance(hyperplane, p)` (`abs` of it for the unsigned value) and `center(v)`. The `distance` generic stays,
   for a non-negative distance, with no method in Core.
@@ -50,6 +53,78 @@
     an old `whitened_residual` override → `mahalanobis_distance`;
     `whitened_constraint_residual(p, θ, i)` → `whitened_residual(p, θ, i)`; `whitened_distance(r)` → `norm(r)`;
     `sq_residuals(pws)` → `sq_distances(pws)`; `square_residuals!` → `square_distances!`.
+
+- **The upstream pieces the 2026-11-06 downstream duplication audit found missing** (its "(b)" items; the copies
+  in RadiometricCamera, BlobBoards, PanoramaStitching, LocalOptimizationDoneRight and RANSACScoringDoneRight are
+  deleted against these in the next wave):
+  - `SCORING_TAGS` (public): the scoring families' `TagRegistry`, `"ransac"`, `"msac"` (suffix `Scoring`); a
+    package that adds families declares its own of the same family and merges.
+  - `difference_rows(mask, order)` / `difference_rows(dims, order)` (public): the sparse forward differences of a
+    (masked) 2-D lattice along both axes, `DᵀD` the P-spline penalty. VisualGeometryToolkitCore now depends on the
+    SparseArrays stdlib.
+  - `FrozenNuisance()` (exported): the weight policy that holds nothing (no-op `update_nuisance!` /
+    `update_weights!`, returning the policy).
+  - `decision_threshold(shape, loss_width)`: the inverse of `decision_width` for every loss shape (Welsch √ln2·w,
+    Geman–McClure, Cauchy, smooth-TLS, TLS, Barron).
+  - `Pools.check_residual_matrix(pair, R)` and `Pools.best_model_index(score, M)` (public): the pool record's
+    residual-matrix contract and the one pool argmax (first strict best; a non-finite score, `±Inf` included, never
+    wins; `0` none); `best_pool_model` calls them.
+  - The generic models' accessors `directions(m)`, `grid_size(m)` (`(gx, gy)`, the `grid_size` keyword's order),
+    `window_offset(m)`, `lattice_spacing(m)` (were private `_directions`, `_grid_size`, `_offset`,
+    `_lattice_spacing`), and their set accessors `with_domain`, `with_present` (absent slots NaN), `with_nominal`,
+    `with_directions`, `with_points`, and `central_model(::NoncentralGenericModel)`; `primal_float(T)` (was
+    `_primal_float`).
+  - **Breaking: a generic model's `backproject` is NaN where it images nothing**, never `nothing` — the lens
+    contract's form, one concrete return type, kernel-callable: a `CentralGenericModel` returns an `SVector{3}` of
+    NaN outside the calibrated area and where the pixel's window holds an absent node, a `NoncentralGenericModel` a
+    `Ray3` of NaN. Migration: `backproject(m, u) === nothing` → `!all(isfinite, backproject(m, u))` (for a
+    non-central model, of `.direction`). `unproject` still returns `nothing` there.
+  - `convert_eltype(T, x)` takes any `T <: Real` (a ForwardDiff `Dual`) for a lens, `LogicalIntrinsics`,
+    `CameraModel`, `BoundedCamera`, `RotationMap` and an `OrientedCamera`; new: a plain `EuclideanMap` (rotation
+    representation and frames kept, translation converted).
+  - `StudentTMixture{T}(ν, s_hat_sq, log_two_outlier_halfwidth, d_g[, inlier_prior]; lgamma = loggamma)`: the
+    mixture built in `T` with the log-gamma supplied — kernel-lawful (isbits, allocation-free); the untyped
+    constructor is its Float64 form, bit for bit as before. `nu_point_terms(z, ν, ψ_half_νdg, ψ_half_ν; d_g)` and
+    `next_nu_from_sums(ν, dQ, d2Q_data, sum_w, ψ1_half_νdg, ψ1_half_ν; d_g, ν_min, ν_max)` (public): one point's
+    Q-derivative terms and the safeguarded Newton update from the reduced sums, which `next_nu` itself now runs (its
+    values unchanged, bit for bit).
+  - `is_peak(C::StaticMatrix{2,2})`; `is_valid_shape` is closed form (`‖S‖²_F ≤ (k² + k⁻²)|det S|`, the same
+    decision as the frame's `aspect_ratio ≤ k`, checked on 2·10⁵ random matrices), allocation-free and
+    kernel-callable; its `max_aspect_ratio` takes any `Real`.
+  - `equidistant_chart(axis)` (public): `Lens(Equidistant()) ∘ LinearMap(R)`, `R`'s rows `(e₁, e₂, axis)` —
+    VisualGeometryToolkitEstimation's `fit_camera` basis rule, so its fits are bit for bit unchanged.
+  - `Eliminable{E}(value)` (public): an NLLSsolver variable the Schur system may eliminate (`iseliminable` where
+    the installed NLLSsolver has it); VisualGeometryToolkitEstimation's bundle points use it.
+  - `pixel_centre([T,] I::CartesianIndex{2})` (public): the COLMAP centre `(col − ½, row − ½)` of an array index,
+    in `T`, kernel-lawful; `pixel_mask` and `pixel_centres` read it.
+  - `distortion_map(::RadialHomography)`: the radial model's undistorted → distorted pixel map,
+    `distortion_map(CameraModel(m))`.
+  - `convert_field(T, v, key)`: the keyed TOML conversion (a table refused, a tuple's length checked, a vector
+    converted element-wise, a string refused for an array, the key in every error); `read_table`'s default
+    converter is now the keyed form (stricter: a scalar or a string for a tuple or vector field is an
+    `ArgumentError` naming the key).
+  - `lens_label(lens)` (public; `lens_tag` is a retired name): a lens's display name by the tag rule — a named family's (`"pinhole"`,
+    `"kannala_brandt"`, `"division"`, `"scaramuzza"`), otherwise its record's leaf tags joined by `_`.
+  - `intersects(::Circle, ::Rect{2})` (squared, strict); `intersects(::Circle, ::Circle)` compares squares,
+    `‖c₁ − c₂‖² < (r₁ + r₂)²` (was the norm): the decision moves only within an ulp of tangency.
+  - The parameter protocol (`parameter_vector`, `parameter_names`, `with_parameters`) for the vignettings (their
+    control points, `c1…`), `EnvironmentLight` (its SH coefficients, `a<channel>_<index>`) and `GaussianBlur` (its
+    storage's free entries, `variance…` bounded below by 0, `covariance_xy` free; a print's blur is stripped
+    first), so each is a `ParameterManifold`; and `restrict(ch, Z::AbstractMatrix)`, the `LinearSubspaceManifold`
+    of a basis (`v = Z y`).
+  - `shape_matrix(::Disc)`, `shape_matrix(::OrientedDisc)`: `σ² I`.
+  - `sha256_hex(s | bytes | io)` (public; moved from VisualGeometryToolkitIO): the one hex digest of the stack; a
+    file's is `open(sha256_hex, path)`.
+- **Breaking: the model-level `whitened_residuals!(r, M, xs)` and `whitened_jacobian_rows!` are unweighted**, the
+  currency of the problem-level `whitened_residuals!(r, problem, model)`; a set's `sqrt_weights` column is read by
+  the new `weighted_whitened_residuals!` / `weighted_whitened_jacobian_rows!` (a weighted fit's, the chart LM's,
+  rows: the former bodies, bit for bit). Migration: a caller relying on the weighting calls the `weighted_` form.
+- The problem-level `whitened_residuals!(r, problem, model)` reads `codimension(problem)` components per point
+  and requires `length(r) == codimension(problem)·data_size(problem)` (`DimensionMismatch` otherwise, and for a
+  point whose residual has another number of components): a scalar override at `d_g ≥ 2` fails loudly.
+- `test_constraint_problem` also checks `norm(whitened_residual(p, ctx, i)) ≈ mahalanobis_distance(p, ctx, i)` at
+  every point (a non-finite distance matched by a non-finite residual).
+- `check_naming` retires `field_center`.
 
 ## 0.6.0 (2026-11-06)
 

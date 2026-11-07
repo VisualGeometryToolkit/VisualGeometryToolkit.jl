@@ -47,7 +47,7 @@ using ..Stats: stable_seed, POOL_RNG
 import ..Tuning: sampling_unit
 using ..Tuning: PairUnit
 
-export ScoringPool, PoolResiduals, pool_key, load_pool, save_pool, load_pool_residuals,
+export ScoringPool, PoolResiduals, pool_key, load_pool, pool_size, save_pool, load_pool_residuals,
     save_pool_residuals, residual_matrix, residuals_path, scene_loaders, write_scene_pool,
     save_pnp_pool, load_pnp_pool, sample_starts, sample_ids, derive_sample_starts, save_sample_starts,
     load_sample_starts, export_pixel_inputs, migrate_pool

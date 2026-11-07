@@ -17,8 +17,9 @@
     @test canonical_json(Dict("x" => 1, "y" => 2)) == canonical_json(Dict("y" => 2, "x" => 1))
 end
 
-@testitem "sha256_hex" setup = [VGIoFixtures] begin
-    @test sha256_hex("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    @test sha256_hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+@testitem "canonical identity" setup = [VGIoFixtures] begin
+    # a content identity is Core's sha256_hex of the canonical encoding (the digest itself is Core's, tested there)
+    using VisualGeometryToolkitCore: sha256_hex
     @test length(sha256_hex(canonical_json(Dict("a" => 1)))) == 64
+    @test sha256_hex(canonical_json(Dict("x" => 1, "y" => 2))) == sha256_hex(canonical_json(Dict("y" => 2, "x" => 1)))
 end

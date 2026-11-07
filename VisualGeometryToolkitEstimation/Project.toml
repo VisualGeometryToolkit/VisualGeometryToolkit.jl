@@ -3,6 +3,9 @@ uuid = "9a478df9-9a37-4dc7-9070-58617efe7573"
 version = "0.7.0"
 authors = ["James Pritts <jbpritts@gmail.com>"]
 
+[workspace]
+projects = ["test", "docs"]
+
 [deps]
 CoordinateTransformations = "150eb455-5306-5404-9cee-2592286d6298"
 FixedSizeArrays = "3821ddf9-e5b5-40d5-8e25-6813ab96b5e2"
@@ -31,8 +34,5 @@ SparseArrays = "1"
 StaticArrays = "1.9"
 Statistics = "1"
 TOML = "1"
-VisualGeometryToolkitCore = "0.7"
+VisualGeometryToolkitCore = "0.7, 0.6"
 julia = "1.12"
-
-[workspace]
-projects = ["test", "docs"]

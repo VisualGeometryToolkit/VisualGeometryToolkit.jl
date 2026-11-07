@@ -1,6 +1,7 @@
 # =============================================================================
-# The baseline scorers — RANSAC and MSAC (moved from RANSACScoringDoneRight's
-# loss-width families, not rewritten) — and their scoring-contract glue.
+# The threshold scorers — the abstract type whose one loop scores every
+# loss-width family at a threshold, and Core's two baselines on it, RANSAC and
+# MSAC (moved from RANSACScoringDoneRight's loss-width families, not rewritten).
 # =============================================================================
 #
 # One type per scorer, two uses:
@@ -8,9 +9,12 @@
 #     grid family RANSACScoringDoneRight sweeps a loss width over (its
 #     `grid_evaluate`, `best_pool_model`, `pool_model_score` methods);
 #   * AT A THRESHOLD (`MsacScoring(dg; threshold = τ)`): the RANSAC-loop scorer of
-#     the scoring contract. Its score is the SAME expression as RSDR's
-#     `pool_model_score` on one residual vector: Σ `residual_quality(sc, d², τ)`
-#     in index order, the minimal sample's points entering at zero residual.
+#     the scoring contract. Its score is Σ `residual_quality(sc, d², τ)` in index
+#     order, the minimal sample's points entering at zero residual.
+#
+# The loop is written once, on `AbstractThresholdScoring{Float64}`: a family
+# at a threshold supplies its `residual_quality` (and, where it is proven, its
+# `score_bound`), and inherits the rest of the scoring contract.
 #
 # MSAC's loss is truncated least squares (`loss_shape(::MsacScoring) ===
 # TLSShape()`): profiling the labels is a min of a quadratic against a constant.
@@ -19,7 +23,40 @@
 # =============================================================================
 
 """
-    RansacScoring{DG, T}
+    AbstractThresholdScoring{T} <: AbstractScoring
+
+A scorer whose score is a sum of per-point qualities at one threshold `τ` (its
+loss width): `S = Σᵢ `[`residual_quality`](@ref)`(scoring, dᵢ², τ)`, higher is
+better. `T` is the threshold's type: `Float64` at a threshold (a scorer of the
+scoring contract), `Nothing` for the width-free form, a grid family that a loss
+width is swept over and that implements no scoring contract.
+
+A subtype at a threshold implements [`residual_quality`](@ref) and holds its
+threshold in a field `threshold` (or adds an [`inlier_threshold`](@ref) method),
+and inherits the rest from `AbstractThresholdScoring{Float64}`:
+
+- [`score!`](@ref) on a [`ThresholdScoringWorkspace`](@ref): the one threshold
+  loop. Σ quality over every point in index order, a non-finite squared residual
+  an outlier (quality 0; a finite `d` whose square overflows too), then each of
+  the minimal sample's points corrected to zero residual; the consensus set is
+  `d² < τ²` (strict) with the sample's points in it.
+- [`scoring_workspace`](@ref), [`inlier_count`](@ref), [`consensus_order`](@ref),
+  [`inlier_threshold`](@ref) (`τ`) and [`has_inlier_threshold`](@ref) (`true`).
+- [`score_bound`](@ref): `nothing` (no early exit) by default. A subtype states a
+  bound `b` only where it holds `0 ≤ residual_quality(scoring, d², τ) ≤ b` for
+  every finite `d² ≥ 0`, to within a few ulps of `b` (the exit's margin absorbs
+  those). Both sides matter: the sample's points are corrected after the sum, so
+  a negative quality could let the corrected score exceed the bound the exit
+  tested.
+
+Core's subtypes are [`RansacScoring`](@ref) and [`MsacScoring`](@ref); a
+downstream package adds its own loss-width families (RANSACScoringDoneRight's
+paper baselines) the same way.
+"""
+abstract type AbstractThresholdScoring{T} <: AbstractScoring end
+
+"""
+    RansacScoring{DG, T} <: AbstractThresholdScoring{T}
 
 RANSAC inlier counting at codimension `DG`: a model's score is the number of
 residuals below the threshold (see [`residual_quality`](@ref)).
@@ -30,13 +67,13 @@ residuals below the threshold (see [`residual_quality`](@ref)).
   the loop scorer at threshold `τ` (in the problem's residual unit — pixels for
   the pixel-data problems), `T = Float64`.
 """
-struct RansacScoring{DG, T} <: AbstractScoring
+struct RansacScoring{DG, T} <: AbstractThresholdScoring{T}
     threshold::T
     RansacScoring{DG, T}(threshold) where {DG, T} = new{DG, T}(threshold)
 end
 
 """
-    MsacScoring{DG, T}
+    MsacScoring{DG, T} <: AbstractThresholdScoring{T}
 
 MSAC at codimension `DG`: the truncated quadratic `1 − ρ(d², τ²)/τ²` at the
 threshold `τ`, summed over the residuals (see [`residual_quality`](@ref)).
@@ -44,7 +81,7 @@ Constructors as [`RansacScoring`](@ref): width-free `MsacScoring()` /
 `MsacScoring(dg)` / `MsacScoring(problem)`, or the loop scorer
 `MsacScoring(dg; threshold = τ)`.
 """
-struct MsacScoring{DG, T} <: AbstractScoring
+struct MsacScoring{DG, T} <: AbstractThresholdScoring{T}
     threshold::T
     MsacScoring{DG, T}(threshold) where {DG, T} = new{DG, T}(threshold)
 end
@@ -62,7 +99,6 @@ retired)`, and its loaders read `merge(VgtkCore.SCORING_TAGS, its_tags)`.
 const SCORING_TAGS = TagRegistry(:scoring, "Scoring", "ransac" => RansacScoring, "msac" => MsacScoring)
 
 const _ThresholdScoring{DG, T} = Union{RansacScoring{DG, T}, MsacScoring{DG, T}}
-const _ScoringAtThreshold = Union{RansacScoring{<:Any, Float64}, MsacScoring{<:Any, Float64}}
 
 for S in (:RansacScoring, :MsacScoring)
     @eval begin
@@ -121,22 +157,24 @@ end
 """
     ThresholdScoringWorkspace
 
-The workspace of a threshold scorer ([`MsacScoring`](@ref) / [`RansacScoring`](@ref)
-at a threshold): the consensus order of the last [`score!`](@ref) (inliers
-first, each part in index order — a stable partition, no sort) and its size.
+The workspace of a threshold scorer (an [`AbstractThresholdScoring`](@ref) at a
+threshold): the consensus order of the last [`score!`](@ref) (inliers first,
+each part in index order — a stable partition, no sort) and its size.
 """
 mutable struct ThresholdScoringWorkspace
     order::Vector{Int}
     k::Int
 end
-scoring_workspace(::_ScoringAtThreshold, n::Int, _d_g::Int) = ThresholdScoringWorkspace(Vector{Int}(undef, n), 0)
+scoring_workspace(::AbstractThresholdScoring{Float64}, n::Int, _d_g::Int) =
+    ThresholdScoringWorkspace(Vector{Int}(undef, n), 0)
 Base.resize!(W::ThresholdScoringWorkspace, n::Integer) = (resize!(W.order, n); W)
 
-inlier_count(::_ScoringAtThreshold, W::ThresholdScoringWorkspace) = W.k
-consensus_order(::_ScoringAtThreshold, W::ThresholdScoringWorkspace) = W.order
-inlier_threshold(sc::_ScoringAtThreshold, _buf) = sc.threshold
-has_inlier_threshold(::Type{<:_ScoringAtThreshold}) = true
-score_bound(::_ScoringAtThreshold) = 1.0
+inlier_count(::AbstractThresholdScoring{Float64}, W::ThresholdScoringWorkspace) = W.k
+consensus_order(::AbstractThresholdScoring{Float64}, W::ThresholdScoringWorkspace) = W.order
+inlier_threshold(sc::AbstractThresholdScoring{Float64}, _buf) = sc.threshold
+has_inlier_threshold(::Type{<:AbstractThresholdScoring{Float64}}) = true
+# Each quality is in [0, 1]: RANSAC's an indicator, MSAC's `1 − min(d², τ²)/τ²`.
+score_bound(::_ThresholdScoring{<:Any, Float64}) = 1.0
 
 # Whether `i` is one of the minimal sample's points (a handful of comparisons).
 @inline _in_sample(::Nothing, _i) = false
@@ -147,39 +185,48 @@ score_bound(::_ScoringAtThreshold) = 1.0
     return false
 end
 
+# One point's quality: `d` squared in its own precision, a non-finite square an
+# outlier (quality 0) — a non-finite `d`, and a finite one whose square
+# overflows, alike.
+@inline function _threshold_quality(sc, d, τ::Float64)
+    d2 = Float64(d * d)
+    return isfinite(d2) ? residual_quality(sc, d2, τ) : 0.0
+end
+
 # The conservative margin of the early exit: a sum of n terms each ≤ b, summed
 # left to right in Float64, can exceed its exact value by at most n·eps·(|s| + n·b);
 # the exit fires only when even that cannot reach the bound.
 @inline _exit_margin(n, s, b) = n * eps(Float64) * (abs(s) + n * b) + eps(Float64)
 
-function score!(W::ThresholdScoringWorkspace, sc::_ScoringAtThreshold, scores::AbstractVector,
+# Whether a partial sum `s` with `rest` points still to come, each adding at
+# most `b`, provably cannot reach `bound`. Without a bound (`nothing`), never.
+@inline _cannot_reach(::Nothing, _s, _rest, _bound, _m) = false
+@inline _cannot_reach(b::Float64, s, rest, bound, m) = s + rest * b < bound - _exit_margin(m, s, b)
+
+function score!(W::ThresholdScoringWorkspace, sc::AbstractThresholdScoring{Float64}, scores::AbstractVector,
                 residuals::AbstractVector, n::Int; sample = nothing, bound::Float64 = -Inf)
-    τ = sc.threshold
+    τ = inlier_threshold(sc, nothing)
     τ2 = τ * τ
     q0 = residual_quality(sc, 0.0, τ)
     ns = sample === nothing ? 0 : length(sample)
     b = score_bound(sc)
-    # The pool score's arithmetic (RANSACScoringDoneRight `pool_model_score`):
-    # Σ quality over every point in index order, a non-finite residual an
-    # outlier (quality 0), then each sample point corrected to zero residual.
+    # Σ quality over every point in index order (a non-finite square an outlier,
+    # quality 0), then each sample point corrected to zero residual.
     s = 0.0
     k = 0; lo = 0
     order = W.order
     @inbounds for i in 1:n
-        d = residuals[i]
-        d2 = isfinite(d) ? Float64(d * d) : Inf
-        q = isfinite(d2) ? residual_quality(sc, d2, τ) : 0.0
+        q = _threshold_quality(sc, residuals[i], τ)
         s += q
         scores[i] = q
-        if isfinite(bound) && s + (n - i + ns) * b < bound - _exit_margin(n + ns, s, b)
+        if isfinite(bound) && _cannot_reach(b, s, n - i + ns, bound, n + ns)
             W.k = 0
             return -Inf
         end
     end
     if sample !== nothing
         for i in sample   # bounds-checked: an invalid sample index throws (a handful of reads)
-            d = residuals[i]
-            s += q0 - (isfinite(d) ? residual_quality(sc, Float64(d * d), τ) : 0.0)
+            s += q0 - _threshold_quality(sc, residuals[i], τ)
             scores[i] = q0
         end
     end

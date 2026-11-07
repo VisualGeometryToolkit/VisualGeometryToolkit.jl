@@ -155,6 +155,9 @@ const CONTRACT_GENERICS = (
     intrinsics, lens, model, extent, bounds_trait, is_posed, Pools.pair_scene,
     # the support protocol a node model implements (geometry/cameras/support.jl)
     support_trait, nodes, support, node_position,
+    # the generic models' rebuilders and central part (geometry/cameras/generic_models.jl),
+    # which a downstream wrapper of a generic model forwards (RadiometricCamera's NonCentralAperture)
+    with_domain, with_present, with_nominal, with_directions, with_points, central_model,
     # the parameter protocol downstream lenses and target calibrations implement (geometry/cameras/lens_chart.jl)
     parameter_vector, parameter_names, parameter_bounds, with_parameters,
     # the target-calibration protocol a downstream target implements

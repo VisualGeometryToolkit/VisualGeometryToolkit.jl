@@ -481,7 +481,8 @@ public scoring_workspace, score!, inlier_count, consensus_order, inlier_threshol
     has_inlier_threshold, is_predictive, scored_model, scale_prior, outlier_halfwidth,
     score_bound, check_workspace, consensus_s2, consensus_set, inlier_probabilities!,
     score_model!, consensus_mask!, ScoreBuffers, residuals, scores, consensus_mask,
-    with_width, RansacScoring, MsacScoring, ThresholdScoringWorkspace, residual_quality, SCORING_TAGS
+    with_width, AbstractThresholdScoring, RansacScoring, MsacScoring, ThresholdScoringWorkspace, residual_quality,
+    SCORING_TAGS
 # The local-optimization contract.
 public lo_workspace, locally_optimize!, lo_estimate, LoInfo, lo_width, loss_at,
     deployed_scale_multiple, width_scale_interface, width_s2, check_composition, width_value,

@@ -382,7 +382,8 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
             e
         end
         @test err isa ArgumentError
-        @test occursin("built for MsacScoring", err.msg) && occursin("for _WorkspaceTestScoring", err.msg)
+        # MSAC's workspace is every threshold scorer's (Core's AbstractThresholdScoring)
+        @test occursin("built for AbstractThresholdScoring", err.msg) && occursin("for _WorkspaceTestScoring", err.msg)
     end
 
     # The traits a pre-allocated workspace reads are defined on the TYPE, so

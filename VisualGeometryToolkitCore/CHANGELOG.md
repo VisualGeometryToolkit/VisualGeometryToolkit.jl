@@ -23,6 +23,15 @@
 - **Breaking: the deprecated `distance(hyperplane, p)` and `field_center(v)` are removed.** Use
   `signed_distance(hyperplane, p)` (`abs` of it for the unsigned value) and `center(v)`. The `distance` generic stays,
   for a non-negative distance, with no method in Core.
+- **`AbstractThresholdScoring{T} <: AbstractScoring` (public): one threshold loop for every loss-width family.**
+  `RansacScoring{DG, T}` and `MsacScoring{DG, T}` subtype it (`T` the threshold's type: `Float64` at a threshold,
+  `Nothing` width-free). A family at a threshold implements `residual_quality(sc, d², τ)` and holds `threshold`, and
+  inherits `score!` on a `ThresholdScoringWorkspace` (the consensus set `d² < τ²`), `scoring_workspace`,
+  `inlier_count`, `consensus_order`, `inlier_threshold` and `has_inlier_threshold`; its `score_bound` is `nothing`
+  (no early exit) unless it states one, which it may only where every quality is in `[0, b]`. The width-free form
+  still implements no scoring contract. RANSAC's and MSAC's scores are unchanged bit for bit; the loop now treats a
+  minimal-sample point whose finite residual overflows when squared as the main sum does (quality 0), which for
+  RANSAC and MSAC was already the value. The internal `_ScoringAtThreshold` union is gone.
 - **`VIGNETTING_TAGS` (public):** the vignetting fields' `TagRegistry`, `"tensor_product"` (`TensorProductVignetting`),
   `"radial"` (`RadialVignetting`) and `"log"` (`LogVignetting`) — the `type` VisualGeometryToolkitIO's
   `vgio/vignetting/v1` body writes; `"tensor"` is retired for `"tensor_product"`.

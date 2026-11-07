@@ -124,9 +124,11 @@ has_inlier_threshold(scoring::AbstractScoring) = has_inlier_threshold(typeof(sco
     score_bound(scoring) -> Float64 | nothing
 
 An upper bound of one point's contribution to a BOUNDED-SUM score (each point
-adds a quality in `[−∞, b]` to the total), or `nothing` (default) for a scorer
-whose score is not such a sum. A bounded-sum scorer may stop a [`score!`](@ref)
-early against its `bound` keyword.
+adds a quality in `[0, b]` to the total, to within a few ulps of `b`), or
+`nothing` (default) for a scorer whose score is not such a sum. A bounded-sum
+scorer may stop a [`score!`](@ref) early against its `bound` keyword. The
+threshold loop of [`AbstractThresholdScoring`](@ref) corrects the minimal
+sample's points after the sum, so its exit needs the lower bound 0 as well.
 """
 score_bound(::AbstractScoring) = nothing
 

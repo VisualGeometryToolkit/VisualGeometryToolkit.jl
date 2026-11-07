@@ -147,7 +147,11 @@ VisualGeometryToolkitCore.RansacScoring) (inlier count) and [`MsacScoring`](@ref
 VisualGeometryToolkitCore.MsacScoring) (truncated quadratic). `MsacScoring(problem;
 threshold = τ)` is a loop scorer at a threshold in the problem's residual unit;
 the width-free `MsacScoring()` is the grid family that pool selection sweeps
-over a width grid.
+over a width grid. Both are [`AbstractThresholdScoring`](@ref
+VisualGeometryToolkitCore.AbstractThresholdScoring)s: a family at a threshold
+supplies only its per-point `residual_quality` (and, where it is proven, its
+`score_bound`) and inherits the one threshold `score!` with its consensus set,
+so a downstream loss-width family shares the loop.
 
 **The local-optimization contract** (`AbstractLocalOptimization`):
 

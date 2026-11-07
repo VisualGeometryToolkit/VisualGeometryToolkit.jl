@@ -72,13 +72,17 @@
     end
 
     @testset "kernels: √w-weighted rows over a measurement set" begin
+        # The √w rows are the LM's, `weighted_whitened_*`; on a set without noise
+        # columns they are the geometric rows times √w. The geometric rows
+        # themselves are unweighted, as the whitened ones are.
+        wres!, wjac! = VgtkCore.weighted_whitened_residuals!, VgtkCore.weighted_whitened_jacobian_rows!
         ch, v = charts[1]
         M = retract(ch, v); dM = retract_directions(ch, v); A = retract_jacobian(ch, v)
         xs = withattrs(Csponds(u₁, u₂); sqrt_weights = sqrtw)
         r = zeros(n); J = zeros(n, 6)
-        sampson_residuals!(r, M, xs)
-        sampson_jacobian_rows!(J, M, dM, xs)
-        J2 = zeros(n, 6); sampson_jacobian_rows!(J2, M, A, xs)   # directions as the nθ × N matrix
+        wres!(r, M, xs)
+        wjac!(J, M, dM, xs)
+        J2 = zeros(n, 6); wjac!(J2, M, A, xs)   # directions as the nθ × N matrix
         @test J2 ≈ J rtol = 1.0e-14
         for i in 1:n
             s, ∂s = sampson_residual_with_jacobian(M, u₁[i], u₂[i]; directions = A)
@@ -101,17 +105,26 @@
         @test Jk ≈ J rtol = 1.0e-14
         # Float32 storage and points: the same kernel, single precision
         r32 = zeros(Float32, n)
-        sampson_residuals!(r32, FundMat(SMatrix{3, 3, Float32}(M)),
+        wres!(r32, FundMat(SMatrix{3, 3, Float32}(M)),
             withattrs(Csponds([Float32.(u) for u in u₁], [Float32.(u) for u in u₂]); sqrt_weights = Float32.(sqrtw)))
         @test r32 ≈ Float32.(r) rtol = 1.0f-3
         # without a weights column every √w is 1
         r1 = zeros(n); sampson_residuals!(r1, M, Csponds(u₁, u₂))
         @test r1 ≈ r ./ sqrtw rtol = 1.0e-13
+        r1w = zeros(n); wres!(r1w, M, Csponds(u₁, u₂))
+        @test r1w == r1
+        # the geometric rows do not read sqrt_weights: one currency with the whitened rows
+        rs = zeros(n); sampson_residuals!(rs, M, xs)
+        @test rs == r1
+        J1 = zeros(n, 6); sampson_jacobian_rows!(J1, M, dM, Csponds(u₁, u₂))
+        Js = zeros(n, 6); sampson_jacobian_rows!(Js, M, dM, xs)
+        @test Js == J1
+        @test J ≈ sqrtw .* J1 rtol = 1.0e-13
         # no allocation in the rows or the per-correspondence Jacobian
-        rows_allocs(r, M, xs) = (sampson_residuals!(r, M, xs); @allocated sampson_residuals!(r, M, xs))
-        jac_allocs(J, M, dM, xs) = (sampson_jacobian_rows!(J, M, dM, xs); @allocated sampson_jacobian_rows!(J, M, dM, xs))
-        @test rows_allocs(r, M, xs) == 0
-        @test jac_allocs(J, M, dM, xs) == 0
+        rows_allocs(f!, r, M, xs) = (f!(r, M, xs); @allocated f!(r, M, xs))
+        jac_allocs(f!, J, M, dM, xs) = (f!(J, M, dM, xs); @allocated f!(J, M, dM, xs))
+        @test rows_allocs(sampson_residuals!, r, M, xs) == 0 && rows_allocs(wres!, r, M, xs) == 0
+        @test jac_allocs(sampson_jacobian_rows!, J, M, dM, xs) == 0 && jac_allocs(wjac!, J, M, dM, xs) == 0
         f(M, u, w, A) = sampson_residual_with_jacobian(M, u, w; directions = A)
         allocs(M, u, w, A) = (f(M, u, w, A); @allocated f(M, u, w, A))
         @test allocs(M, u₁[1], u₂[1], A) == 0
@@ -124,11 +137,15 @@
         r1 = zeros(12); J1 = zeros(12, 2)
         set = withattrs(xs; sqrt_weights = w)
         @test set isa PointSet && set[3] == xs[3]
-        sampson_residuals!(r1, C, set); sampson_jacobian_rows!(J1, C, D, set)
+        VgtkCore.weighted_whitened_residuals!(r1, C, set); VgtkCore.weighted_whitened_jacobian_rows!(J1, C, D, set)
+        r0 = zeros(12); J0 = zeros(12, 2)
+        sampson_residuals!(r0, C, set); sampson_jacobian_rows!(J0, C, D, set)   # unweighted
         for i in eachindex(xs)
             s, ∂s = sampson_residual_with_jacobian(C, xs[i]; directions = D)
             @test r1[i] ≈ w[i] * only(s) rtol = 1.0e-14
             @test J1[i, :] ≈ w[i] * vec(∂s) rtol = 1.0e-14
+            @test r0[i] ≈ only(s) rtol = 1.0e-14
+            @test J0[i, :] ≈ vec(∂s) rtol = 1.0e-14
         end
     end
 

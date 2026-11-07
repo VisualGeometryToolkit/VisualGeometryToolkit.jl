@@ -171,7 +171,21 @@
         end
         @test layered_tuning_entry(cfg, "t"; under = types, over) == lodr_layered("t"; over)
         @test layered_tuning_entry(cfg, "t"; under = types) == lodr_layered("t")
-        @test layered_tuning_entry(cfg, "t") === cfg["tuning"]["t"]                 # nothing layered: the entry as it is
+        @test layered_tuning_entry(cfg, "t") == cfg["tuning"]["t"]                  # nothing layered: the entry as it is,
+        @test layered_tuning_entry(cfg, "t") !== cfg["tuning"]["t"]                 # as a copy
+        # editing the result never edits the config, layered or not, nested tables included
+        nested = Dict{String,Any}("tuning" => Dict{String,Any}("t" => Dict{String,Any}("type" => "windowed_bootstrap",
+            "cross_validation" => deepcopy(cv))))
+        snapshot = deepcopy(nested)
+        for kw in ((;), (; under = types), (; under = types, over), (; over))
+            e = layered_tuning_entry(nested, "t"; kw...)
+            e["seed"] = 7; delete!(e, "type")
+            haskey(e, "cross_validation") && (e["cross_validation"]["scene_split"]["name"] = "edited")
+            @test nested == snapshot
+        end
+        o = deepcopy(over); e = layered_tuning_entry(cfg, "t"; over = o)
+        e["scale_multiple_window"]["lo"] = -1.0
+        @test o == over                                                              # nor the `over` it was given
         @test_throws ArgumentError layered_tuning_entry(cfg, "nope")
         @test s != lodr_protocol_tuning("t")
         @test tuning_table(s)["scale_multiple_window"]["lo"] == 1.5

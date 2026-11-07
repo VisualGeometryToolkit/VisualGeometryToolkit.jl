@@ -228,6 +228,10 @@ end
     is_positive_definite(M::AbstractMatrix) -> Bool
 
 2×2 positive-definiteness test via Sylvester's criterion: M[1,1] > 0 and det(M) > 0.
+Reads only the leading 2×2 block, allocation-free and kernel-callable (no
+factorization); a symmetric `M` is assumed (the off-diagonal enters through
+`det`). The test behind [`is_valid_shape`](@ref) (and, negated, behind
+[`is_peak`](@ref)). Public, not exported.
 """
 is_positive_definite(M::AbstractMatrix) = M[1, 1] > 0 && M[1, 1] * M[2, 2] - M[1, 2] * M[2, 1] > 0
 

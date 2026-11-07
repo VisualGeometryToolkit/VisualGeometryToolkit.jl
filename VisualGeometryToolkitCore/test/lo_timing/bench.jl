@@ -9,8 +9,8 @@
 # THE KERNELS every local optimization of the stack spends its time in, per
 # correspondence (the "µs per call" of a kernel is one sweep over the scene):
 #   E-rows, E-jacobian   the tangent-Sampson rows of E on unit bearings, and
-#                        their Jacobian along the 5-dof chart (`sampson_residuals!`,
-#                        `sampson_jacobian_rows!` over a set with M₁/M₂ columns)
+#                        their Jacobian along the 5-dof chart (`weighted_whitened_residuals!`,
+#                        `weighted_whitened_jacobian_rows!` over a set with M₁/M₂ columns)
 #   F-rows, F-jacobian   the image-plane Sampson rows of F, 7-dof chart
 # (The lift accumulations moved with the lifts to LocalOptimizationDoneRight,
 # whose own timing gate runs them.)
@@ -19,7 +19,7 @@
 # =============================================================================
 
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: sampson_residuals!, sampson_jacobian_rows!, Csponds, withattrs, retract, retract_directions,
+using VisualGeometryToolkitCore: weighted_whitened_residuals!, weighted_whitened_jacobian_rows!, Csponds, withattrs, retract, retract_directions,
     zero_tangent, backproject_with_jacobian, EssentialManifold5, FundMatManifold7, minimal_manifold
 using StaticArrays, LinearAlgebra, Random
 
@@ -71,10 +71,10 @@ const FF = retract(CHF, aF); const dF = retract_directions(CHF, aF)
 const XE = withattrs(Csponds(F1, F2); M₁ = M1, M₂ = M2, sqrt_weights = SQRTW)
 const XF = withattrs(Csponds(U1, U2); sqrt_weights = SQRTW)
 const KERNELS = [
-    "E-rows"     => () -> sampson_residuals!(r, EE, XE),
-    "E-jacobian" => () -> sampson_jacobian_rows!(JE, EE, dE, XE),
-    "F-rows"     => () -> sampson_residuals!(r, FF, XF),
-    "F-jacobian" => () -> sampson_jacobian_rows!(JF, FF, dF, XF),
+    "E-rows"     => () -> weighted_whitened_residuals!(r, EE, XE),
+    "E-jacobian" => () -> weighted_whitened_jacobian_rows!(JE, EE, dE, XE),
+    "F-rows"     => () -> weighted_whitened_residuals!(r, FF, XF),
+    "F-jacobian" => () -> weighted_whitened_jacobian_rows!(JF, FF, dF, XF),
 ]
 
 function time_kernel(f)

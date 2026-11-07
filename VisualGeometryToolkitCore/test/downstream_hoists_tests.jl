@@ -287,10 +287,10 @@ end
     @test shape_matrix(OrientedDisc(Point2(1.0, 2.0), 1.5, 0.3)) == shape_matrix(VgtkCore.EllipticFrame(Disc(Point2(1.0, 2.0), 1.5)))
 end
 
-@testitem "downstream_hoists: convert_field with the key, intersects in squares" begin
+@testitem "downstream_hoists: convert_field with the key, intersects" begin
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: convert_field, intersects, Circle, Point2, Rect2
-    using LinearAlgebra: dot
+    using LinearAlgebra: dot, norm
     @test convert_field(NTuple{2, Float64}, [1, 2], "a.b") === (1.0, 2.0)
     @test convert_field(Vector{Int}, [1, 2.0], "a.v") == [1, 2]
     msg(f) = try f(); "" catch e; e.msg end
@@ -299,6 +299,28 @@ end
     @test occursin("`a.f` = \"x\" is not a Float64", msg(() -> convert_field(Float64, "x", "a.f")))
     @test occursin("`a.d` is a value, not a table", msg(() -> convert_field(Float64, Dict("k" => 1), "a.d")))
     @test occursin("`a.i`", msg(() -> convert_field(Int, 1.5, "a.i")))             # an InexactError, named
+    # a static-vector field converts by its constructor, as the unkeyed form does
+    using StaticArrays: SVector
+    @test convert_field(SVector{2, Float64}, [1, 2], "a.s") === SVector(1.0, 2.0) === convert_field(SVector{2, Float64}, [1, 2])
+    # (the type prints module-qualified where StaticArrays is not loaded in Main: match its two parts)
+    m3 = msg(() -> convert_field(SVector{2, Float64}, [1, 2, 3], "a.s"))
+    @test startswith(m3, "`a.s` = [1, 2, 3] is not a ") && endswith(m3, "SVector{2, Float64}")
+    mab = msg(() -> convert_field(SVector{2, Float64}, "ab", "a.s"))
+    @test startswith(mab, "`a.s` = \"ab\" is not a ") && endswith(mab, "SVector{2, Float64} (an array)")
+    # a Vararg tuple takes any length, element by element; its errors name the key
+    @test convert_field(Tuple{Vararg{Float64}}, [1, 2.5, 3], "a.u") === (1.0, 2.5, 3.0)
+    @test convert_field(Tuple{Vararg{Float64}}, [], "a.u") === ()
+    @test convert_field(Tuple{Int, Vararg{Float64}}, [1, 2], "a.u") === (1, 2.0)
+    @test occursin("`a.u` = \"x\" is not a Float64", msg(() -> convert_field(Tuple{Vararg{Float64}}, [1, "x"], "a.u")))
+    @test occursin("`a.u` = \"x\" is not a Tuple{Vararg{Float64}} (an array)", msg(() -> convert_field(Tuple{Vararg{Float64}}, "x", "a.u")))
+    @test occursin("`a.u`", msg(() -> convert_field(Tuple{Int, Vararg{Float64}}, [], "a.u")))  # too short, named
+    # read_table's default converter on a struct with both
+    struct _HoistFields
+        s::SVector{2, Float64}
+        u::Tuple{Vararg{Float64}}
+    end
+    kw = VgtkCore.read_table(_HoistFields, Dict("s" => [1, 2], "u" => [3, 4, 5]))
+    @test Dict(kw) == Dict(:s => SVector(1.0, 2.0), :u => (3.0, 4.0, 5.0))
     # BlobBoards' `_overlaps` (squares, strict): the same predicate
     bb_cc(a, b) = (d = a.center - b.center; R = a.r + b.r; dot(d, d) < R * R)
     bb_cr(c, r) = (lo = VgtkCore.GeometryBasics.origin(r); hi = lo + VgtkCore.GeometryBasics.widths(r);
@@ -307,6 +329,20 @@ end
     for c2 in (Circle(Point2(2.0, 0.0), 1.0), Circle(Point2(1.5, 0.5), 1.0), Circle(Point2(0.1, 0.1), 0.2), Circle(Point2(0.3, 0.4), 4.5))
         @test intersects(c1, c2) == bb_cc(c1, c2)
     end
+    # circle–circle compares distances, Core's form before 0.7: at an ulp from
+    # tangency it keeps its decision where the squared form flips
+    ca = Circle(Point2(1.5526026771305754, 0.8274757264628023), 0.9667711192602672)
+    cb = Circle(Point2(2.772163837984363, -0.49276547206988286), 0.8305508461555176)
+    @test intersects(ca, cb) == (norm(ca.center - cb.center) < ca.r + cb.r) == false
+    @test bb_cc(ca, cb)
+    # PanoramaStitching's phase-4 pair: the 2×2 Sylvester test is public, and a similarity maps the whole plane to itself
+    @test :is_positive_definite in names(VgtkCore) && Base.ispublic(VgtkCore, :is_positive_definite)
+    using StaticArrays: SMatrix
+    using Rotations: RotMatrix
+    @test VgtkCore.is_positive_definite(SMatrix{2, 2}(2.0, 0.5, 0.5, 1.0)) &&
+        !VgtkCore.is_positive_definite(SMatrix{2, 2}(1.0, 2.0, 2.0, 1.0))
+    S = VgtkCore.SimilarityMap(2.0, RotMatrix{2}(0.3), SVector(1.0, -2.0))
+    @test S(VgtkCore.WholePlane()) === VgtkCore.WholePlane()
     for r in (Rect2(1.0, -0.5, 1.0, 1.0), Rect2(0.9, -0.5, 1.0, 1.0), Rect2(-0.2, -0.2, 0.4, 0.4), Rect2(0.8, 0.8, 1.0, 1.0))
         @test intersects(c1, r) == bb_cr(c1, r) == intersects(r, c1)
     end
@@ -320,7 +356,7 @@ end
         ParameterManifold, retract, recenter, retract_jacobian, local_coordinates, restrict, tangent_size,
         control_points, coefficients, pole_regular_basis, Rect2, cov
     using StaticArrays: SVector
-    using LinearAlgebra: Diagonal
+    using LinearAlgebra: Diagonal, qr
     v = TensorProductVignetting((5, 4), Rect2(0.0, 0.0, 100.0, 80.0))
     θ = parameter_vector(v)
     @test length(θ) == 20 && θ == vec(control_points(v)) && parameter_names(v)[[1, 20]] == (:c1, :c20)
@@ -343,6 +379,22 @@ end
     @test local_coordinates(rch, retract(rch, y)) ≈ y
     @test parameter_vector(VgtkCore.model(recenter(rch, y))) ≈ parameter_vector(rv) + Z * y
     @test_throws ArgumentError restrict(ParameterManifold(rv), zeros(3, 2))
+    @test_throws ArgumentError restrict(ParameterManifold(rv), hcat(Z[:, 1], Z[:, 1]))  # dependent columns
+    # the cached factorization gives the normal-equation values, on a large basis too
+    v_off = parameter_vector(rv) .+ (1:length(parameter_vector(rv))) ./ 50
+    vfull = local_coordinates(ParameterManifold(rv), with_parameters(rv, v_off))
+    @test local_coordinates(rch, with_parameters(rv, v_off)) ≈ (Z' * Z) \ (Z' * vfull)
+    big = TensorProductVignetting((12, 12), Rect2(0.0, 0.0, 100.0, 80.0))
+    Zb = Matrix(qr(reshape(sin.(1:144 * 30), 144, 30)).Q)[:, 1:30] .+ 0.01 .* reshape(cos.(1:144 * 30), 144, 30)
+    tch = restrict(ParameterManifold(big), Zb)
+    @test tch.basis isa Matrix{Float64} && tangent_size(tch) == 30
+    yb = collect(range(-0.2, 0.3; length = 30))
+    @test parameter_vector(retract(tch, yb)) ≈ parameter_vector(big) + Zb * yb
+    @test local_coordinates(tch, retract(tch, yb)) ≈ yb
+    θb = parameter_vector(big) .+ cos.(1:144)
+    vb = local_coordinates(ParameterManifold(big), with_parameters(big, θb))
+    @test local_coordinates(tch, with_parameters(big, θb)) ≈ (Zb' * Zb) \ (Zb' * vb)
+    @test local_coordinates(recenter(tch, yb), retract(tch, yb)) ≈ zeros(30) atol = 1e-12
     # the light: its SH coefficients, column-major, centre and radius fixed
     L = EnvironmentLight(SphericalHarmonicMap(1.0, 1; channels = 2), SVector(0.0, 0.0, 0.0), 5.0)
     a = parameter_vector(L)

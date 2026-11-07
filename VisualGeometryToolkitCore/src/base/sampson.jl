@@ -368,7 +368,8 @@ end
 # COLUMNS (conventions/data-arguments.md), never keywords or positionals: the
 # noise (`Σ` of a point set; `Σ₁`/`Σ₂` of a correspondence set, absent = unit
 # isotropic), the columns a model's constraint takes as keywords (`M₁`/`M₂` of
-# bearings), and the rows' weights `sqrt_weights` (√w, absent = 1). Each
+# bearings), and the rows' weights `sqrt_weights` (√w, absent = 1; read only
+# by the `weighted_*` rows, the LM's). Each
 # batched function is ONE body: a plain loop on the CPU, one KernelAbstractions
 # kernel on a device, over the same per-element function as the one-element
 # verb. Element i's residual takes rows dg(i−1)+1 … dg·i.
@@ -449,9 +450,12 @@ end
 
 The Sampson residuals of the model `M` over the measurement set `xs` (a
 `PointSet` or vector of points, a `Csponds` or vector of `Pair`s): element
-`i`'s [`sampson_residual`](@ref) in rows `dg(i−1)+1 … dg·i` of `r`, times
-`√wᵢ` from the set's `sqrt_weights` column (absent: 1). GEOMETRIC: a noise
-column is not read. The constraint's keyword columns ([`constraint_keywords`](@ref):
+`i`'s [`sampson_residual`](@ref) in rows `dg(i−1)+1 … dg·i` of `r`.
+GEOMETRIC: a noise column is not read. UNWEIGHTED, like
+[`whitened_residuals!`](@ref): a `sqrt_weights` column is not read either; the
+√w-weighted least-squares rows are [`weighted_whitened_residuals!`](@ref)
+(which, on a set without noise columns, are these rows times `√wᵢ`). The
+constraint's keyword columns ([`constraint_keywords`](@ref):
 `M₁`, `M₂` on bearings) are read per element. A degenerate element is ZERO (the
 row an LM can take; its distance is `±Inf` under the rule). One body: a plain
 loop on the CPU, one KernelAbstractions kernel on the backend that owns `r`.
@@ -461,7 +465,7 @@ whitened rows are [`whitened_residuals!`](@ref); the model rows
 """
 sampson_residuals!(r::AbstractVector, M, xs::AbstractVector) =
     _foreach_row!(_sampson_residual_row!, r, length(xs), M, _measurement_columns(xs), constraint_keywords(M, xs), nothing,
-        attribute_column(xs, :sqrt_weights))
+        nothing)
 
 """
     whitened_residuals!(r, M, xs) -> r
@@ -474,7 +478,7 @@ transfer error in the target's units). UNWEIGHTED: a `sqrt_weights` column
 is not read — the same currency as the problem-level
 `whitened_residuals!(r, problem, model)`; the √w-weighted rows a least-squares
 solver takes are [`weighted_whitened_residuals!`](@ref). Without noise
-columns it is the unweighted `sampson_residuals!`. GTSAM's
+columns it is [`sampson_residuals!`](@ref) (both unweighted). GTSAM's
 `NoiseModelFactor::whitenedError` is this per factor (and `unwhitenedError`
 the constraint); a degenerate element is zero.
 """
@@ -498,25 +502,28 @@ weighted_whitened_residuals!(r::AbstractVector, M, xs::AbstractVector) =
 """
     sampson_jacobian_rows!(J, M, directions, xs) -> J
 
-The model rows of [`sampson_residuals!`](@ref) and [`whitened_residuals!`](@ref):
-element `i`'s EXACT derivative along the chart `directions` (an `nθ × N`
-matrix, `retract_jacobian`, or the models `dM = (∂M/∂θ₁, …)` of
-`retract_directions`) — [`sampson_residual_with_jacobian`](@ref)'s, with the
-noise's Cholesky factor differentiated with the model in the whitened form — in
-rows `dg(i−1)+1 … dg·i`, times `√wᵢ` from `sqrt_weights`. A degenerate element
-has zero rows. One body: a plain loop on the CPU, one KernelAbstractions kernel
-on the backend that owns `J`.
+The model rows of [`sampson_residuals!`](@ref): element `i`'s EXACT
+derivative along the chart `directions` (an `nθ × N` matrix,
+`retract_jacobian`, or the models `dM = (∂M/∂θ₁, …)` of `retract_directions`)
+— [`sampson_residual_with_jacobian`](@ref)'s — in rows `dg(i−1)+1 … dg·i`.
+GEOMETRIC and UNWEIGHTED, as its residuals: neither a noise nor a
+`sqrt_weights` column is read. The whitened rows are
+[`whitened_jacobian_rows!`](@ref), the √w-weighted ones
+[`weighted_whitened_jacobian_rows!`](@ref). A degenerate element has zero
+rows. One body: a plain loop on the CPU, one KernelAbstractions kernel on the
+backend that owns `J`.
 """
 sampson_jacobian_rows!(J::AbstractMatrix, M, directions::Union{StaticMatrix, Tuple}, xs::AbstractVector) =
     _foreach_row!(_sampson_jacobian_row!, J, length(xs), M, _direction_rows(directions), _measurement_columns(xs),
-        constraint_keywords(M, xs), nothing, attribute_column(xs, :sqrt_weights))
+        constraint_keywords(M, xs), nothing, nothing)
 """
     whitened_jacobian_rows!(J, M, directions, xs) -> J
 
 The model rows of [`whitened_residuals!`](@ref): [`sampson_jacobian_rows!`](@ref)
 with the measurements' noise columns, the Cholesky factor of `G_x·Σᵢ·G_xᵀ`
 differentiated with the model (exact, not frozen). Unweighted, as its
-residuals; [`weighted_whitened_jacobian_rows!`](@ref) is the √w form.
+residuals and as `sampson_jacobian_rows!`; [`weighted_whitened_jacobian_rows!`](@ref)
+is the √w form.
 """
 whitened_jacobian_rows!(J::AbstractMatrix, M, directions::Union{StaticMatrix, Tuple}, xs::AbstractVector) =
     _foreach_row!(_sampson_jacobian_row!, J, length(xs), M, _direction_rows(directions), _measurement_columns(xs),

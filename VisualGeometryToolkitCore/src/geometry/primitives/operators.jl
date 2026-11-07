@@ -218,15 +218,13 @@ end
     intersects(c1::GeometryBasics.Circle, c2::GeometryBasics.Circle) -> Bool
 
 Check if two circles intersect (distance between centers < sum of radii;
-strict, so tangent circles do not). Compared squared, `‖c₁ − c₂‖² < (r₁ + r₂)²`:
-no square root, so the decision at tangency is the squares' (BlobBoards'
-placement, whose blob set and board uid it decides, reads exactly these bits).
+strict, so tangent circles do not): `‖c₁ − c₂‖ < r₁ + r₂`, compared as
+distances. The squared comparison `‖c₁ − c₂‖² < (r₁ + r₂)²` is the same
+predicate in exact arithmetic but rounds differently within an ulp of
+tangency, so the two forms can disagree there.
 """
-function intersects(c1::GeometryBasics.Circle, c2::GeometryBasics.Circle)
-    d = c1.center - c2.center
-    R = c1.r + c2.r
-    return dot(d, d) < R * R
-end
+intersects(c1::GeometryBasics.Circle, c2::GeometryBasics.Circle) =
+    norm(c1.center - c2.center) < (c1.r + c2.r)
 
 """
     intersects(c::GeometryBasics.Circle, r::Rect{2}) -> Bool
@@ -234,7 +232,10 @@ end
 Whether a circle and an axis-aligned rectangle overlap: the squared distance
 from the circle's centre to the rectangle (its closest point, `0` inside it)
 is below `r²` — strict, so a circle touching the rectangle's edge does not.
-Either argument order.
+Either argument order. Unlike the circle–circle form, which compares distances
+(`norm(d) < r₁ + r₂`), it compares squares, BlobBoards' placement test bit for
+bit; within an ulp of tangency the two forms can round to different
+decisions.
 """
 function intersects(c::GeometryBasics.Circle, r::Rect{2})
     lo = GeometryBasics.origin(r)

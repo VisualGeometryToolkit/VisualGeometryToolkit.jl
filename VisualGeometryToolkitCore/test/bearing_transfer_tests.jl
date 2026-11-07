@@ -8,7 +8,7 @@
 @testitem "bearing transfer: constraint, Jacobians, rows" begin
     using Test, StaticArrays, LinearAlgebra, Random, Rotations
     using VisualGeometryToolkitCore: TransferForm, HomographyMat, constraint_with_jacobians, s2_tangent_basis,
-        sampson_residuals!, sampson_jacobian_rows!, sampson_residual, Csponds, withattrs
+        weighted_whitened_residuals!, weighted_whitened_jacobian_rows!, sampson_residual, Csponds, withattrs
     import ForwardDiff
     import VisualGeometryToolkitCore as VgtkCore
 
@@ -45,7 +45,7 @@
         sqrtw = rand(rng, n)
         xs = withattrs(Csponds(f₁, f₂); M₁, M₂, sqrt_weights = sqrtw)
         r = zeros(2n)
-        sampson_residuals!(r, TransferForm(H(R0)), xs)
+        weighted_whitened_residuals!(r, TransferForm(H(R0)), xs)
         for i in 1:n
             @test r[2i-1:2i] ≈ sqrtw[i] .* sampson_residual(TransferForm(H(R0)), f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i])
         end
@@ -54,12 +54,12 @@
         function rows(ω)
             out = zeros(eltype(ω), 2n)
             Hω = HomographyMat{eltype(ω)}(Tuple(SMatrix{3, 3}(Rof(ω))))
-            sampson_residuals!(out, TransferForm(Hω), xs)
+            weighted_whitened_residuals!(out, TransferForm(Hω), xs)
             return out
         end
         dH = ntuple(q -> (e = SVector{3}(ntuple(k -> Float64(k == q), 3)); SMatrix{3, 3}(0, e[3], -e[2], -e[3], 0, e[1], e[2], -e[1], 0) * SMatrix{3, 3}(R0)), 3)
         J = zeros(2n, 3)
-        sampson_jacobian_rows!(J, TransferForm(H(R0)), dH, xs)
+        weighted_whitened_jacobian_rows!(J, TransferForm(H(R0)), dH, xs)
         @test J ≈ ForwardDiff.jacobian(rows, zeros(3)) rtol = 1.0e-9
     end
 end

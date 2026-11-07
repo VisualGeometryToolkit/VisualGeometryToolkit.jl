@@ -108,6 +108,7 @@ export FeatureFrame, PointFrame, Disc, OrientedDisc, EllipticFrame, AffineFrame
 export Paraboloid3D, coeffs
 export is_valid_shape
 public DEFAULT_MAX_ASPECT_RATIO   # the default `is_valid_shape` bound, reached qualified
+public is_positive_definite       # the 2×2 positive-definiteness test (Sylvester), reached qualified
 export is_peak
 export boundary, region, scale, shape_factor
 export bbox
@@ -674,7 +675,7 @@ public constraint   # g alone: the `<f>` of `constraint_with_jacobians` (algebra
 export triangulate   # ray-domain triangulation: the point AND both ray depths (cheirality is λ > 0, not z > 0)
 public constraint_rounding_scale   # a model's rounding scales at a measurement: what the Sampson degeneracy rule reads
 public sampson_residual_with_jacobian, measurement_gradient_jacobian   # the Sampson residual's exact model Jacobian and the model protocol it reads
-public sampson_residuals!, whitened_residuals!, sampson_jacobian_rows!, whitened_jacobian_rows!   # over a measurement set (columns: noise, keywords; the geometric ones also sqrt_weights): one KA kernel each
+public sampson_residuals!, whitened_residuals!, sampson_jacobian_rows!, whitened_jacobian_rows!   # over a measurement set (columns: noise, keywords; unweighted): one KA kernel each
 public weighted_whitened_residuals!, weighted_whitened_jacobian_rows!   # the whitened rows times the set's sqrt_weights: a weighted fit's (the chart LM's) rows
 public constraint_keywords   # the attribute columns a model's constraint takes as keywords (M₁, M₂ on bearings)
 public sampson_distances!   # the n × M matrix of sampson_distance, models by elements (a pool's residuals)
@@ -860,6 +861,7 @@ include("geometry/transforms/rotation_fits.jl") # Kabsch/Wahba, chordal mean, SO
 include("geometry/primitives/primitives.jl")
 using .Primitives  # Import all exported symbols into parent namespace
 using .Primitives: rect_corners, _rect_edge_samples, _snap_outward   # the one corner order and per-edge rect walk (primitives/rectangles.jl)
+using .Primitives: is_positive_definite   # public here (feature_frames.jl)
 
 # Geometry Transforms (remaining - these use Ellipse from Primitives)
 include("geometry/transforms/conversions.jl")      # Coordinate system conversions

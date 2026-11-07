@@ -130,8 +130,13 @@ the top rows of the image. [`LoMaDescriptor`](@ref) describes the
 function strongest(detections, n::Integer)
     n >= 0 || throw(ArgumentError("strongest: n must be nonnegative, got $n"))
     length(detections) <= n && return detections
-    keep = sortperm(abs.(getproperty.(detections, :response)); rev = true)[1:n]   # stable: a tie keeps the earlier
-    return detections[sort!(keep)]
+    a = abs.(getproperty.(detections, :response))
+    # A partial selection, O(N): the first n indices in the order "larger |response|
+    # first, then the earlier index" — a stable descending sort's first n (a tie
+    # keeps the earlier), as `sortperm(a; rev = true)[1:n]` would choose.
+    before(i, j) = isless(a[j], a[i]) || (!isless(a[i], a[j]) && i < j)
+    keep = partialsort!(collect(eachindex(a)), 1:n; lt = before)
+    return detections[sort!(collect(keep))]
 end
 
 # =============================================================================
@@ -195,20 +200,38 @@ The side of the DeDoDe descriptor graph's fixed square input: a
 const LOMA_IMAGE_SIZE = 784
 
 # The descriptor graph's input: the image as it is at the graph's size, else each channel resampled to it by the
-# COLMAP scaling of the network's pixels onto the image's (a downscale's taps all lie on the image, so the fill
-# never enters).
+# COLMAP scaling of the network's pixels onto the image's. A downscale's taps all lie on the image (the network's
+# first and last pixel centres map to 0.5s and W − 0.5s, s = W/n ≥ 1), so the fill never enters. An upscale's
+# (s < 1) outermost centres map within half a pixel OUTSIDE the image's first and last pixel centres, so each
+# channel is resampled from a copy with one replicated border pixel on every side, the map shifted by that pixel:
+# a tap past the last centre reads the border pixel, i.e. the sample is clamped to the border (replicate), never
+# blended with the fill.
 function _loma_input(img::AbstractArray{<:Real, 3})
     C, H, W = size(img)
     C == 3 || throw(ArgumentError("LoMaDescriptor takes a 3 × H × W RGB channelview, got size $(size(img))"))
     n = LOMA_IMAGE_SIZE
     (H, W) == (n, n) && return convert(Array{Float32, 3}, img)
-    bm = image_warp(AffineMap(SMatrix{2, 2, Float64, 4}(W / n, 0.0, 0.0, H / n), SVector(0.0, 0.0)), Rect(0, 0, n, n))
+    upscale = H < n || W < n
+    pad = upscale ? 1 : 0
+    S = SMatrix{2, 2, Float64, 4}(W / n, 0.0, 0.0, H / n)
+    bm = image_warp(AffineMap(S, SVector{2, Float64}(pad, pad)), Rect(0, 0, n, n))
     out = Array{Float32}(undef, 3, n, n)
     plane = Matrix{Float32}(undef, n, n)
+    padded = upscale ? Matrix{Float32}(undef, H + 2, W + 2) : nothing
     for c in 1:3
-        out[c, :, :] .= image_warp!(plane, bm, view(img, c, :, :))
+        src = upscale ? _replicate_border!(padded, view(img, c, :, :)) : view(img, c, :, :)
+        out[c, :, :] .= image_warp!(plane, bm, src)
     end
     return out
+end
+
+# `src` with one border pixel replicated on every side, into `dst` ((H + 2) × (W + 2)).
+function _replicate_border!(dst::AbstractMatrix, src::AbstractMatrix)
+    H, W = size(src)
+    for j in 1:(W + 2), i in 1:(H + 2)
+        dst[i, j] = src[clamp(i - 1, 1, H), clamp(j - 1, 1, W)]
+    end
+    return dst
 end
 
 function (l::LoMaDescriptor)(img::AbstractArray{<:Real, 3}, detections)

@@ -56,8 +56,11 @@ function data_size end
 Constraint codimension `d_g`: the number of independent constraint equations a
 true datum satisfies (1 for F/E/line scalar residual, 2 for homography / PnP).
 A scoring reports the codimension it was built for through the same verb.
+A problem defines it on its type, `codimension(::Type{<:P})`; the instance form
+falls back through it.
 """
 function codimension end
+codimension(p::AbstractConstraintProblem) = codimension(typeof(p))
 
 """
     minimal_sample_size(problem) -> Int

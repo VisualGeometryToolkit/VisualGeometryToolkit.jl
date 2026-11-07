@@ -226,30 +226,44 @@ the one converter behind a typed [`present_kwargs`](@ref) spec.
 
 The keyed form checks the value's shape and names `key` in every error (an
 `ArgumentError`): a table where a value belongs is refused; a `Tuple` field
-takes an array of exactly its length, converted element by element; a
-`Vector` field an array, converted element-wise; any other value for a tuple or
-vector field (a string would convert character by character) is refused; a
-value that does not convert (`MethodError`, `InexactError`, `ArgumentError`)
-is reported as not a `T`. [`read_table`](@ref)'s default converter is the
-keyed form.
+takes an array of exactly its length (any length for a `Vararg` tuple such as
+`Tuple{Vararg{Float64}}`), converted element by element; a `Vector` field an
+array, converted element-wise; any other array field (an `SVector`) an array,
+converted by its constructor as the unkeyed form does; any other value for a
+tuple or array field (a string would convert character by character) is
+refused; a value that does not convert (`MethodError`, `InexactError`,
+`ArgumentError`, `DimensionMismatch`) is reported as not a `T`.
+[`read_table`](@ref)'s default converter is the keyed form.
 """
 convert_field(::Type{T}, v) where {T} = T(v)
 function convert_field(::Type{S}, v, key) where {S}
     v isa AbstractDict && throw(ArgumentError("`$key` is a value, not a table"))
+    return _keyed_convert(S, v, key)
+end
+function convert_field(::Type{S}, v::AbstractVector, key) where {S <: Tuple}
+    n = _tuple_length(S)
+    n === nothing || length(v) == n || throw(ArgumentError("`$key` needs $n values, got $(length(v))"))
+    return _keyed_convert(S, Tuple(convert_field(fieldtype(S, i), x, key) for (i, x) in enumerate(v)), key)
+end
+convert_field(::Type{Vector{E}}, v::AbstractVector, key) where {E} = E[convert_field(E, x, key) for x in v]
+convert_field(::Type{S}, v::AbstractVector, key) where {S <: AbstractVector} = _keyed_convert(S, v, key)
+function convert_field(::Type{S}, v, key) where {S <: Union{Tuple, AbstractVector}}
+    n = S <: Tuple ? _tuple_length(S) : nothing
+    throw(ArgumentError("`$key` = $(repr(v)) is not a $S (an array$(n === nothing ? "" : " of $n values"))"))
+end
+
+# The unkeyed conversion, its failure reported with the key.
+function _keyed_convert(::Type{S}, v, key) where {S}
     try
         return convert_field(S, v)
     catch err
-        err isa Union{MethodError, InexactError, ArgumentError} || rethrow()
+        err isa Union{MethodError, InexactError, ArgumentError, DimensionMismatch} || rethrow()
         throw(ArgumentError("`$key` = $(repr(v)) is not a $S"))
     end
 end
-function convert_field(::Type{S}, v::AbstractVector, key) where {S <: Tuple}
-    length(v) == fieldcount(S) || throw(ArgumentError("`$key` needs $(fieldcount(S)) values, got $(length(v))"))
-    return S(Tuple(convert_field(fieldtype(S, i), v[i], key) for i in 1:fieldcount(S)))
-end
-convert_field(::Type{Vector{E}}, v::AbstractVector, key) where {E} = E[convert_field(E, x, key) for x in v]
-convert_field(::Type{S}, v, key) where {S <: Union{Tuple, AbstractVector}} =
-    throw(ArgumentError("`$key` = $(repr(v)) is not a $S (an array$(S <: Tuple ? " of $(fieldcount(S)) values" : ""))"))
+
+# A tuple type's length; `nothing` for a `Vararg` tuple, which takes any length.
+_tuple_length(::Type{S}) where {S <: Tuple} = Base.isvatuple(S) ? nothing : fieldcount(S)
 
 """
     parse_defaults(path::AbstractString) -> Dict{String, Any}

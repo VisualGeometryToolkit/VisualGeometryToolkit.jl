@@ -84,11 +84,13 @@
         @test all(sign.(sgn) .== sign.(r))
     end
 
-    @testset "√w weighting, and the per-row form agrees with the batch" begin
-        r1 = zeros(n); r2 = zeros(n)
+    @testset "√w weighting (the LM's weighted rows only), and the per-row form agrees with the batch" begin
+        r1 = zeros(n); r2 = zeros(n); rg = zeros(n)
         sampson_residuals!(r1, Eᵥ, bset(M₁, M₂, ones(n)))
-        sampson_residuals!(r2, Eᵥ, bset(M₁, M₂, 2 .* ones(n)))
+        VgtkCore.weighted_whitened_residuals!(r2, Eᵥ, bset(M₁, M₂, 2 .* ones(n)))
         @test r2 ≈ 2 .* r1 rtol = 1.0e-12
+        sampson_residuals!(rg, Eᵥ, bset(M₁, M₂, 2 .* ones(n)))
+        @test rg == r1                                   # the geometric rows are unweighted
         for i in (1, 5, 11)
             @test only(sampson_residual(Eᵥ, f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i])) ≈ r1[i] rtol = 1.0e-12
         end

@@ -106,9 +106,9 @@ and stable-consensus gates.
 @inline _holds_stable_partition(m::Integer, k::Integer) = k > m + 1
 @inline _holds_stable_partition(P, k::Integer) = _holds_stable_partition(minimal_sample_size(P), k)
 
-# ONE code path for codimension and model_type: problems define the ::Type
-# method; the instance form falls back through it.
-codimension(p::AbstractRansacProblem) = codimension(typeof(p))
+# ONE code path for model_type: problems define the ::Type method; the
+# instance form falls back through it (codimension's instance fallback is
+# Core's, on every AbstractConstraintProblem).
 model_type(p::AbstractRansacProblem) = model_type(typeof(p))
 
 # data_size(problem) is declared in interface.jl alongside the AbstractRobustProblem

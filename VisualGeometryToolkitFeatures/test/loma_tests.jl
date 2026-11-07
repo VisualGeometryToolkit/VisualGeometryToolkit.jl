@@ -16,6 +16,16 @@
     for n in 0:7
         @test strongest(ds, n) == ps(ds, n)
     end
+    # the partial selection against the full stable sort, on many ties (signed, a few distinct magnitudes)
+    using Random: MersenneTwister
+    rng = MersenneTwister(7)
+    big = [det(rand(rng, (-3, -2, -1, 0, 1, 2, 3)) / 4, k) for k in 1:2000]
+    for n in (1, 2, 17, 285, 286, 1000, 1999)
+        @test strongest(big, n) == ps(big, n)
+    end
+    # all tied: the first n, in order
+    flat = [det(isodd(k) ? 0.5 : -0.5, k) for k in 1:50]
+    @test strongest(flat, 10) == flat[1:10]
 end
 
 @testitem "LoMaDescriptor's input: an image of any size, resampled to the graph's 784² as PanoramaStitching did" begin
@@ -43,6 +53,25 @@ end
     @test size(got) == (3, n, n) && reinterpret(UInt32, got) == reinterpret(UInt32, ref)
     # an upscale too, and a channel count other than 3 is refused
     @test size(VgtkFeatures._loma_input(rand(Float32, 3, 100, 120))) == (3, n, n)
+    # an upscale's border: a 392² image (x ↦ x/2) puts the network's last pixel centre 783.5 at 391.75, past the
+    # image's last centre 391.5; the tap clamps to the border pixel (replicate), never blends in the fill
+    small = rand(MersenneTwister(3), Float32, 3, 392, 392) .+ 0.5f0          # in [0.5, 1.5): a zero fill would show
+    up = VgtkFeatures._loma_input(small)
+    for c in 1:3
+        @test up[c, end, end] ≈ small[c, end, end] rtol = 1.0f-6             # the corner is the corner pixel
+        @test up[c, 1, 1] ≈ small[c, 1, 1] rtol = 1.0f-6
+        @test up[c, end, 1] ≈ small[c, end, 1] rtol = 1.0f-6
+        @test up[c, 1, end] ≈ small[c, 1, end] rtol = 1.0f-6
+    end
+    @test minimum(up) >= 0.5f0 - 1.0f-6                                       # no fill anywhere
+    # the last row is the image's last row, resampled along it only (the vertical tap clamped)
+    row = VgtkFeatures._loma_input(repeat(small[:, end:end, :]; outer = (1, 392, 1)))
+    @test up[:, end, :] ≈ row[:, end, :] rtol = 1.0f-6
+    # and the interior is the unpadded bilinear warp's, unchanged
+    bm2 = image_warp(AffineMap(SMatrix{2, 2, Float64, 4}(392 / n, 0.0, 0.0, 392 / n), SVector(0.0, 0.0)), Rect(0, 0, n, n))
+    inner = image_warp!(Matrix{Float32}(undef, n, n), bm2, small[1, :, :])
+    @test up[1, 2:(n - 1), 2:(n - 1)] ≈ inner[2:(n - 1), 2:(n - 1)] rtol = 1.0f-5
+    @test minimum(inner[end, :]) < 0.5f0                                       # the old path did blend the fill there
     @test_throws ArgumentError VgtkFeatures._loma_input(rand(Float32, 1, n, n))
     # the keypoint chart reads the image's own size: a detection needs no rescaling
     using VisualGeometryToolkitFeatures: Detection

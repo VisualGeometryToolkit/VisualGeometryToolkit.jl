@@ -10,7 +10,7 @@
     using ForwardDiff: ForwardDiff
     using FiniteDiff: FiniteDiff
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: TransferForm, whitening_factor, sampson_residuals!, sampson_jacobian_rows!,
+    using VisualGeometryToolkitCore: TransferForm, whitening_factor, weighted_whitened_residuals!, weighted_whitened_jacobian_rows!,
         measurement_gradient_jacobian, retract, retract_jacobian, whiten, Csponds, withattrs
 
     rng = Xoshiro(3)
@@ -73,9 +73,9 @@
         Hv = retract(ch, v)
         xs = withattrs(Csponds(u₁, u₂); sqrt_weights = sqrtw)
         r = zeros(2n); J = zeros(2n, 8)
-        sampson_residuals!(r, TransferForm(Hv), xs)
-        sampson_jacobian_rows!(J, TransferForm(Hv), retract_jacobian(ch, v), xs)
-        rv(w) = (out = zeros(eltype(w), 2n); sampson_residuals!(out, TransferForm(retract(ch, w)), xs); out)
+        weighted_whitened_residuals!(r, TransferForm(Hv), xs)
+        weighted_whitened_jacobian_rows!(J, TransferForm(Hv), retract_jacobian(ch, v), xs)
+        rv(w) = (out = zeros(eltype(w), 2n); weighted_whitened_residuals!(out, TransferForm(retract(ch, w)), xs); out)
         # the rows divide by h₃ at ~400 px, so their third derivative in the chart is
         # large: truncation-bound at FiniteDiff's default step, so a 1e-7 step
         fd = FiniteDiff.finite_difference_jacobian(w -> rv(SVector{8}(w)), v, Val(:central); relstep = 1.0e-7, absstep = 1.0e-7)

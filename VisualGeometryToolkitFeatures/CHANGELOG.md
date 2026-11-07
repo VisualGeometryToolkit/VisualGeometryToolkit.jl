@@ -10,12 +10,14 @@
   channelview of any real element type and the detections in its COLMAP pixels. An image that is not the graph's
   fixed `LOMA_IMAGE_SIZE`² (public, 784) is resampled to it per channel by Core's bilinear `image_warp!` (the COLMAP
   scaling, Float64 math, Float32 taps: PanoramaStitching's hand resampling, bit for bit); a `3 × 784 × 784` image is
-  taken as before. The keypoint chart reads the image's own size, so the detections are never rescaled and the
+  taken as before. An image smaller than 784 on either side (an upscale) is resampled with its border replicated:
+  the network's outermost pixel centres map within half a pixel past the image's, and their taps clamp to the
+  border pixel instead of blending in the fill. The keypoint chart reads the image's own size, so the detections are never rescaled and the
   described features carry them as given (PanoramaStitching rescaled its frames to 784² by hand, moment matrices
   included, which the descriptor never read).
 - **`strongest(detections, n)` (public)**, the selection `LoMaDescriptor` applies (formerly the private
   `_strongest`): the `n` largest `|response|`, in detector order. Ties at the cut now keep the earlier detections
-  (a stable sort; the former `partialsortperm` left that choice unspecified). BlobBoards' cap keeps the same set
+  (a stable partial selection, O(N) as the former `partialsortperm`, which left that choice unspecified). BlobBoards' cap keeps the same set
   but re-sorts it by response.
 - **`box_downsample` takes a 2-D image and any real or colour element type**, averaging in the element type's
   float (`Float32` for a `Float32`, `Gray{Float32}` or 8-bit image: BlobBoards' supersampling filter, bit for bit;

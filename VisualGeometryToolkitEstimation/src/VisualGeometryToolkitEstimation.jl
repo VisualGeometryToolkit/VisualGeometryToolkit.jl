@@ -7,9 +7,9 @@ import VisualGeometryToolkitCore as VgtkCore
 # =============================================================================
 
 using LinearAlgebra: LinearAlgebra, I, dot, norm, normalize, cross, svd, opnorm,
-    Diagonal, Symmetric, UniformScaling,
+    Diagonal, Symmetric,
     eigen                                                          # the ellipse refit rows' axes frame
-using StaticArrays: StaticArrays, MVector, SA, SMatrix, SVector, StaticVector, StaticMatrix
+using StaticArrays: StaticArrays, MVector, SA, SMatrix, SVector, StaticVector
 using FixedSizeArrays: FixedSizeArray
 using Random: Random
 using Rotations: Rotations, RotMatrix

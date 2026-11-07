@@ -87,6 +87,10 @@ model on the target side) from 2D-2D point correspondences.
   for the plain homography, the (H, k) local optimization supplying k on the
   consensus (header, point 4).
 - `pairs` (and its `:score` prior)/`sampler`/`backend`: as [`HomographyProblem`](@ref).
+  The sources are `exact` or plain and the targets plain (any other covariance
+  is an `ArgumentError`), so the residual is the reprojection error in target
+  pixels: with an exact source and a plain target that is the whitened
+  residual, and its norm the Mahalanobis distance.
 """
 function RadialHomographyProblem(
         pairs;
@@ -160,18 +164,15 @@ end
     return SVector(d̂[1] - v[1], d̂[2] - v[2])
 end
 
-# The offset whitened by the point's measurement noise, as every problem whitens
-# (`measurement_covariance`, the pair block over (source, target)): the source is
-# exact by construction (`_exact_source_only`), so the target's 2 × 2 block
-# whitens it, `L⁻¹e` with `LLᵀ = Σ₂`; plain targets (`I`, today the only
-# kind the constructor admits) leave the offset as it is, bit for bit.
-@inline _whitened_offset(::UniformScaling{Bool}, e) = e
-@inline function _whitened_offset(Σ::StaticMatrix{4, 4}, e)
-    S = SMatrix{2, 2}(Σ[3, 3], Σ[4, 3], Σ[3, 4], Σ[4, 4])
-    return cholesky(Symmetric(S)).L \ e
-end
-
-# The signed rows (`whitened_residuals!`): the whitened offset. Out of field
+# The signed rows (`whitened_residuals!`): the offset, in TARGET PIXELS. That
+# IS the whitened residual, because the problem admits only exact (or plain)
+# sources and plain targets (`_exact_source_only` refuses a target covariance
+# and drops the source's): an exact source with a plain target is the
+# measurement-noise rule's plain pixel case on one side, `Σ̃ = I`, so the
+# transfer error needs no whitening. The chart LM's rows
+# (`radial_transfer_rows!`) are in the same pixels. Admitting a target
+# covariance means whitening here, in the distance below and in those rows
+# together. Out of field
 # there is no predicted point and so no offset; the residual is then
 # `OUT_OF_FIELD_RESIDUAL` along the measured target's radial direction from
 # the distortion centre (where the model's field ends) — a direction of the
@@ -180,7 +181,7 @@ end
 @inline function whitened_residual(p::RadialHomographyProblem, m::VgtkCore.RadialHomography, i::Int)
     e = _reprojection_offset(p, m, i)
     e === nothing && return _out_of_field_residual(m, @inbounds targets(p.cs)[i])
-    return SVector{2, Float64}(_whitened_offset(measurement_covariance(p, i), e))
+    return SVector{2, Float64}(e)
 end
 function _out_of_field_residual(m::VgtkCore.RadialHomography, v)
     d = SVector{2, Float64}(v[1] - m.center[1], v[2] - m.center[2])
@@ -189,15 +190,16 @@ function _out_of_field_residual(m::VgtkCore.RadialHomography, v)
     return VgtkCore.OUT_OF_FIELD_RESIDUAL * u
 end
 
-# The reprojection distance (`mahalanobis_distances!` is VisualGeometryToolkitCore's
-# loop over it), the norm of the residual above; out of field exactly VGC's one
+# The reprojection distance in target pixels (`mahalanobis_distances!` is
+# VisualGeometryToolkitCore's loop over it), the norm of the residual above, the
+# Mahalanobis distance for the same reason; out of field exactly VGC's one
 # out-of-field residual (`OUT_OF_FIELD_RESIDUAL`), finite so the scoring
 # sweep's sort and squares stay well-defined while the point is buried among
 # the outliers. Jacobian-free, so it skips the residual's direction.
 @inline function mahalanobis_distance(p::RadialHomographyProblem, m::VgtkCore.RadialHomography, i::Int)
     e = _reprojection_offset(p, m, i)
     e === nothing && return VgtkCore.OUT_OF_FIELD_RESIDUAL
-    return Float64(norm(_whitened_offset(measurement_covariance(p, i), e)))
+    return Float64(norm(e))
 end
 
 # =============================================================================

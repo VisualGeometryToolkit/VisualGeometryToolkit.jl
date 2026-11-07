@@ -10,9 +10,12 @@
 - `RelposeBundleProblem` and `BearingPoseProblem` answer `whitened_residual` (the bundle's: the reprojection
   distance signed by the epipolar constraint's side; the bearing pose's: the whitened tangent 2-vector), and the
   conformance suite runs `test_constraint_problem` on both. `RotationProblem`'s hemisphere gate is on the residual
-  (`(Inf, Inf)` for an antipodal pair; its distance is Core's default norm). `RadialHomographyProblem` whitens its
-  offset by `measurement_covariance` and, out of field, points `OUT_OF_FIELD_RESIDUAL` along the target's radial
+  (`(Inf, Inf)` for an antipodal pair; its distance is Core's default norm). `RadialHomographyProblem`'s residual
+  is the reprojection offset in target pixels — the whitened residual, since the problem admits only exact (or
+  plain) sources and plain targets — and, out of field, points `OUT_OF_FIELD_RESIDUAL` along the target's radial
   direction (its norm the distance's constant), no longer along x.
+- The instance fallback `codimension(p::AbstractRansacProblem)` is deleted: VisualGeometryToolkitCore's
+  `codimension(p::AbstractConstraintProblem) = codimension(typeof(p))` answers every problem.
 - The chart LM's Sampson rows are VisualGeometryToolkitCore's `weighted_whitened_residuals!` /
   `weighted_whitened_jacobian_rows!` (Core's `whitened_*` are now unweighted); the rows are bit for bit unchanged.
 - `fit_camera`'s P-spline penalty is Core's `difference_rows((ny, nx), 3)` (`DᵀD` identical, entry for entry), its

@@ -333,8 +333,10 @@ the keys that are TOML keys of the entry's scheme (`VgtkCore.allowed_keys`: a
 Greek field by its ASCII spelling, skipped fields left out); `over` is
 layered above it, unfiltered; an `over` that names another scheme `type`
 replaces the entry, and `under` is filtered against the new scheme. With both
-empty the entry is returned as it is. A project that folds the layered entry
-into a run key, or writes it as a config of its own, reads it here.
+empty it is the entry as it is. The result is always a fresh `Dict`, a
+deep copy: editing it never edits `cfg`, `under` or `over`. A project that
+folds the layered entry into a run key, or writes it as a config of its own,
+reads it here.
 """
 function layered_tuning_entry(cfg::AbstractDict, name::AbstractString; under::AbstractDict = Dict{String,Any}(),
                               over::AbstractDict = Dict{String,Any}())
@@ -346,7 +348,7 @@ function layered_tuning_entry(cfg::AbstractDict, name::AbstractString; under::Ab
     entry isa AbstractDict || throw(ArgumentError("[tuning.$name] must be a table"))
     haskey(entry, "type") || throw(ArgumentError("[tuning.$name] names no scheme `type`"))
     T = _tag_type("scheme", entry["type"], "tuning.$name")   # an unknown tag is refused, layered or not
-    isempty(under) && isempty(over) && return entry
+    isempty(under) && isempty(over) && return Dict{String,Any}(String(k) => deepcopy(v) for (k, v) in entry)
     # an `over` naming another scheme replaces the entry, as `layer_tuning`
     # replaces a nested table whose type changes: the new scheme inherits
     # none of the entry's parameters, not even the keys both share, and
@@ -355,7 +357,8 @@ function layered_tuning_entry(cfg::AbstractDict, name::AbstractString; under::Ab
     replaced && (T = _tag_type("scheme", over["type"], "tuning.$name"))
     fields = Set(VgtkCore.allowed_keys(T))
     kept = Dict{String,Any}(String(k) => v for (k, v) in under if String(k) in fields)
-    return layer_tuning(layer_tuning(kept, replaced ? Dict{String,Any}() : entry), over)
+    # a copy all the way down: `layer_tuning` shares the values it does not merge
+    return deepcopy(layer_tuning(layer_tuning(kept, replaced ? Dict{String,Any}() : entry), over))
 end
 layered_tuning_entry(path::AbstractString, name::AbstractString; kw...) = layered_tuning_entry(TOML.parsefile(path), name; kw...)
 

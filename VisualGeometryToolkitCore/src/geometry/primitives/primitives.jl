@@ -208,6 +208,7 @@ export EllipticFrame           # 5 DOF: + aspect ratio (a, b, θ)
 export Paraboloid3D            # Quadratic surface z = a₀ + b'x + x'Cx in ℝ³
 export coeffs                  # Paraboloid3D{T,P} → SVector{P,T} free parameters
 export is_valid_shape, DEFAULT_MAX_ASPECT_RATIO
+public is_positive_definite    # the 2×2 Sylvester test is_valid_shape reads
 export is_peak
 export AffineFrame             # 6 DOF: + shear
 # MvNormal from Distributions.jl - use EllipticFrame(d) for geometry

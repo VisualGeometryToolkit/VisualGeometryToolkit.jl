@@ -199,6 +199,14 @@ in its class: see the class table above. A rotation or a uniform scaling
 @inline (S::SimilarityMap{2})(c::Circle) = Circle(_similar_center(S, centroid(c)), S.s * GeometryBasics.radius(c))
 @inline (S::SimilarityMap{2})(e::Ellipse) =
     Ellipse(_similar_center(S, e.center), S.s * e.a, S.s * e.b, e.θ + _rigid_angle(S.R))
+"""
+    (S::SimilarityMap{2})(w::WholePlane) -> WholePlane
+
+The whole plane maps to itself under any similarity: the identity on the
+region a lens without an image circle images (`valid_domain`), beside the
+`Circle` and `Ellipse` actions, so a region is mapped without testing its type.
+"""
+@inline (S::SimilarityMap{2})(w::WholePlane) = w
 @inline function (S::SimilarityMap{2, T, Sc})(l::Line2D{U}) where {T, Sc, U}
     V = promote_type(T, Sc, eltype(S.t), U)   # every part: a Dual scale or translation, a Float64 t over Float32 s, R
     n′ = S.R * normal(l)

@@ -2,6 +2,14 @@
 
 ## 0.7.0 (Unreleased)
 
+- **SILENT CHANGE — breaking: a generic model's `backproject` is NaN where it images nothing, never `nothing`.
+  A caller that tests `backproject(m, u) === nothing` (or `isnothing`) still compiles, and the test never fires:
+  the NaN ray flows on where the point used to be skipped.** It is the lens contract's form, one concrete return
+  type, kernel-callable: a `CentralGenericModel` returns an `SVector{3}` of NaN outside the calibrated area and
+  where the pixel's window holds an absent node, a `NoncentralGenericModel` a `Ray3` of NaN. Migration: replace
+  every `d === nothing` on a generic model's `backproject` with `!all(isfinite, d)` (or `all(isnan, d)`; for a
+  non-central model, of `d.direction`), and every `d === nothing ? nothing : f(d)` with
+  `all(isfinite, d) ? f(d) : nothing`. `unproject` still returns `nothing` there.
 - **Breaking: `moment_matrix` is `shape_matrix` (M); `shape_matrix` returns M again** (0.6 removed it so old factor
   calls failed loudly). `shape_matrix(f)` is the shape matrix `M` of an elliptical region, `{x : (x-c)ᵀ M⁻¹ (x-c) ≤ 1}`,
   for an `EllipticFrame`, an `AffineFrame`, an `Ellipse` and a `Paraboloid3D`; the factor stays `shape_factor(f)`, with
@@ -74,11 +82,7 @@
     `_lattice_spacing`), and their set accessors `with_domain`, `with_present` (absent slots NaN), `with_nominal`,
     `with_directions`, `with_points`, and `central_model(::NoncentralGenericModel)`; `primal_float(T)` (was
     `_primal_float`).
-  - **Breaking: a generic model's `backproject` is NaN where it images nothing**, never `nothing` — the lens
-    contract's form, one concrete return type, kernel-callable: a `CentralGenericModel` returns an `SVector{3}` of
-    NaN outside the calibrated area and where the pixel's window holds an absent node, a `NoncentralGenericModel` a
-    `Ray3` of NaN. Migration: `backproject(m, u) === nothing` → `!all(isfinite, backproject(m, u))` (for a
-    non-central model, of `.direction`). `unproject` still returns `nothing` there.
+  - The generic models' NaN `backproject`: see the SILENT CHANGE entry below.
   - `convert_eltype(T, x)` takes any `T <: Real` (a ForwardDiff `Dual`) for a lens, `LogicalIntrinsics`,
     `CameraModel`, `BoundedCamera`, `RotationMap` and an `OrientedCamera`; new: a plain `EuclideanMap` (rotation
     representation and frames kept, translation converted).
@@ -102,23 +106,34 @@
   - `convert_field(T, v, key)`: the keyed TOML conversion (a table refused, a tuple's length checked, a vector
     converted element-wise, a string refused for an array, the key in every error); `read_table`'s default
     converter is now the keyed form (stricter: a scalar or a string for a tuple or vector field is an
-    `ArgumentError` naming the key).
+    `ArgumentError` naming the key). Any other array field (an `SVector`) converts by its constructor as before
+    (`SVector{2, Float64}([1, 2])`), its failure named by the key; a `Vararg` tuple field
+    (`Tuple{Vararg{Float64}}`) takes an array of any length, element by element.
   - `lens_label(lens)` (public; `lens_tag` is a retired name): a lens's display name by the tag rule — a named family's (`"pinhole"`,
     `"kannala_brandt"`, `"division"`, `"scaramuzza"`), otherwise its record's leaf tags joined by `_`.
-  - `intersects(::Circle, ::Rect{2})` (squared, strict); `intersects(::Circle, ::Circle)` compares squares,
-    `‖c₁ − c₂‖² < (r₁ + r₂)²` (was the norm): the decision moves only within an ulp of tangency.
+  - `intersects(::Circle, ::Rect{2})` (either order; squared, strict: BlobBoards' placement test bit for bit).
+    `intersects(::Circle, ::Circle)` is unchanged, `norm(c₁ − c₂) < r₁ + r₂`; BlobBoards' squared circle test
+    differs from it within an ulp of tangency.
   - The parameter protocol (`parameter_vector`, `parameter_names`, `with_parameters`) for the vignettings (their
     control points, `c1…`), `EnvironmentLight` (its SH coefficients, `a<channel>_<index>`) and `GaussianBlur` (its
     storage's free entries, `variance…` bounded below by 0, `covariance_xy` free; a print's blur is stripped
     first), so each is a `ParameterManifold`; and `restrict(ch, Z::AbstractMatrix)`, the `LinearSubspaceManifold`
-    of a basis (`v = Z y`).
+    of a basis (`v = Z y`; `Z` held as a `Matrix{Float64}` with the Cholesky factor of `ZᵀZ`, computed once;
+    dependent columns are an `ArgumentError`).
   - `shape_matrix(::Disc)`, `shape_matrix(::OrientedDisc)`: `σ² I`.
+  - `is_positive_definite(M)` is public (the 2×2 Sylvester test `is_valid_shape` reads), and a `SimilarityMap{2}`
+    acts on `WholePlane` as the identity, beside its `Circle` and `Ellipse` actions (PanoramaStitching's copies).
   - `sha256_hex(s | bytes | io)` (public; moved from VisualGeometryToolkitIO): the one hex digest of the stack; a
     file's is `open(sha256_hex, path)`.
-- **Breaking: the model-level `whitened_residuals!(r, M, xs)` and `whitened_jacobian_rows!` are unweighted**, the
-  currency of the problem-level `whitened_residuals!(r, problem, model)`; a set's `sqrt_weights` column is read by
-  the new `weighted_whitened_residuals!` / `weighted_whitened_jacobian_rows!` (a weighted fit's, the chart LM's,
-  rows: the former bodies, bit for bit). Migration: a caller relying on the weighting calls the `weighted_` form.
+- **Breaking: the model-level row families are unweighted — `sampson_residuals!`, `sampson_jacobian_rows!`,
+  `whitened_residuals!(r, M, xs)` and `whitened_jacobian_rows!`**, the currency of the problem-level
+  `whitened_residuals!(r, problem, model)`: a set's `sqrt_weights` column is read only by the new
+  `weighted_whitened_residuals!` / `weighted_whitened_jacobian_rows!` (a weighted fit's, the chart LM's, rows: the
+  former whitened bodies, bit for bit; on a set without noise columns, the geometric rows times `√w`). The chart
+  LMs call only the weighted forms, so every LM result is bit for bit unchanged. Migration: a caller relying on
+  the weighting calls the `weighted_whitened_` form (for the geometric rows, on a set without noise columns).
+- `codimension(problem)` on an instance of any `AbstractConstraintProblem` falls back to `codimension(typeof(problem))`
+  (moved from VisualGeometryToolkitEstimation's `AbstractRansacProblem` method): a problem defines it on its type.
 - The problem-level `whitened_residuals!(r, problem, model)` reads `codimension(problem)` components per point
   and requires `length(r) == codimension(problem)·data_size(problem)` (`DimensionMismatch` otherwise, and for a
   point whose residual has another number of components): a scalar override at `d_g ≥ 2` fails loudly.

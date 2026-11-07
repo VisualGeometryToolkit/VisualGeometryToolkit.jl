@@ -14,7 +14,8 @@
 - **`Tuning.layered_tuning_entry(cfg, name; under, over) -> Dict`** (exported): the `[tuning.<name>]` entry with a
   campaign's protocol layered around it, as `tuning_spec` reads it (which now calls it), before it is read.
   `under` is filtered by the scheme's TOML keys (`allowed_keys`), not its field names: a Greek field is kept by its
-  ASCII spelling (LocalOptimizationDoneRight's `protocol_tuning` filtered by `fieldnames`).
+  ASCII spelling (LocalOptimizationDoneRight's `protocol_tuning` filtered by `fieldnames`). The result is always a
+  fresh deep copy, layered or not: editing it never edits the config.
 - **`Pools.pool_size(path) -> Int`** (exported): a light pool file's pair count from its header, under
   `load_pool`'s format check, without loading the pairs.
 - **`Render.results_by_method(summary::DataFrame)`** (exported): the per-`(method_key, tuning_criterion)` bucketing

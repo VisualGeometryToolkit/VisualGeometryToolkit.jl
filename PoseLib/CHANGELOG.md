@@ -1,6 +1,6 @@
 # PoseLib changelog
 
-## Unreleased
+## 0.1.8 (2026-11-07)
 
 - **`calibrated_loss_width(K1, K2, loss_width)` (public)**: the bearing-unit width PoseLib's relative-pose refiner
   works at when handed a width in the points' unit and the two intrinsics, `loss_width · ½(1/f₁ + 1/f₂)` with

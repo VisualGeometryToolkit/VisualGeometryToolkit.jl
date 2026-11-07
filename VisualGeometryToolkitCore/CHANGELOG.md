@@ -1,6 +1,6 @@
 # VisualGeometryToolkitCore changelog
 
-## 0.7.0 (Unreleased)
+## 0.7.0 (2026-11-07)
 
 - **SILENT CHANGE — breaking: a generic model's `backproject` is NaN where it images nothing, never `nothing`.
   A caller that tests `backproject(m, u) === nothing` (or `isnothing`) still compiles, and the test never fires:

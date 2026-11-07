@@ -1,6 +1,6 @@
 # VisualGeometryToolkitEval changelog
 
-## Unreleased
+## 0.6.0 (2026-11-07)
 
 - **Breaking: `MsacSpec` is `LossWidthSpec(name, scoring, loss_width, lo = NoLocalOptimization();
   refinement_loss_width)`**, and `evaluate_sample_budget`'s keyword `msac_specs` is `loss_width_specs`. A column

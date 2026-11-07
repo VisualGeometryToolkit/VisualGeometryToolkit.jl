@@ -1,6 +1,6 @@
 # VisualGeometryToolkitIO changelog
 
-## Unreleased
+## 0.7.0 (2026-11-07)
 
 - **Breaking: `sha256_hex` is VisualGeometryToolkitCore's** (public there, with its new byte-vector and stream forms;
   a file's digest is `open(sha256_hex, path)`), so a package below IO (VisualGeometryToolkitFeatures) reads the

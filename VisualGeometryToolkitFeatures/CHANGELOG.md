@@ -1,6 +1,6 @@
 # VisualGeometryToolkitFeatures changelog
 
-## Unreleased
+## 0.6.0 (2026-11-07)
 
 - The LoMa model digest and `cache_key` are VisualGeometryToolkitCore's `sha256_hex` (the same values); the SHA
   dependency is dropped.

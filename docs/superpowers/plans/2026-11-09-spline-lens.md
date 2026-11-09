@@ -91,7 +91,9 @@ Consolidate in the same task. The report names what was grepped and what was del
   - The same for the masked copy (`with_present`).
   - `@test calibration_matrix(cam) == calibration_matrix(KB_FISHEYE)` (a CameraModel source keeps its K).
   - `@test_throws ArgumentError CameraModel(SplineLens, skewed_cam, (1000, 1000))`.
-  - **Gauge from a Function source:** `pp ≈ project(KB_FISHEYE, ẑ)` within 1e-6 px; `fx ≈ 300` within 1e-3 (the local gnomonic scale at pp, `fx = 1/J[1,1]`, `fy = 1/J[2,2]` of `∂(d_xy/d_z)/∂u`).
+  - **Gauge from a Function source** (owner-agreed 2026-11-09, tolerances MEASURED at e33764a9). Set-up: the 4256×2848 KB fisheye `CameraModel(1754.7px, SA[2133.6px, 1422.5px]; lens = KannalaBrandt(0.2468, 0.1505, -0.0214, 0.1308))`, sampled as a pixel→ray Function. The pp is the projection of ẑ; `fx = 1/J[1,1]` and `fy = 1/J[2,2]` of `J = ∂(d_xy/d_z)/∂u` at pp.
+    - Measured on the old grid: 24×16 gives a pp error of 9.4e-5 px and an f error of 7.6e-5 relative; the default 70×48 gives 9.1e-7 px and 5.5e-7; 105×75 gives 1.7e-7 px and 5.8e-8. The off-diagonal of J is ≤ 2e-11·f.
+    - Test, at a 10× margin: 24×16 gives pp ≤ 1e-3 px and f ≤ 1e-3 relative; 70×48 gives pp ≤ 1e-5 px and f ≤ 1e-5 relative.
   - **Review Focus 1:** a Function source whose ẑ lies outside `calib_area = (600, 600, 999, 999)` gives pp = the calibrated-rect centre and does not throw.
   - **Review Focus 4:** `backproject(CameraModel(cam, K′), u′) ≈ backproject(cam, u)` to 1e-12 for `K′` = K scaled by (0.5, 0.5) with pp scaled, `u′` the scaled pixel.
   - `@inferred backproject(cam, u)` and `@inferred project(cam, X)` hold for a camera with and without `forward`/`present`.
@@ -188,7 +190,9 @@ Consolidate in the same task. The report names what was grepped and what was del
   - **Keep, docstring updated:** K is the gauge pinhole at the optical-axis pixel. These methods have a meaning because pp images ẑ.
     - `calibration_matrix`, `intrinsics`, `_principal_point`, `pinhole`, `distortion_map`, `undistort`/`undistort!` (all 6), `_frame_walk`, `valid_rect`;
     - `angle_of_view` (utilities.jl:118), `image_circle(::CameraModel, ::Sensor, d)`, `_footprint`, `rectify`'s default K, `_induced_plane_homography`, the plotting panels.
-  - **Refuse with one helper `_not_radial(lens)` (ArgumentError, "a SplineLens has no radial profile"):** `horizon_radius`, `fov_radius`, `undistorted_rect`'s `max_fov`, `RadialCamera`, `_default_max_fov`. These need a radial lens. Reuse `_not_scale_covariant`'s pattern; if a generic refusal helper exists, extend it instead of adding one.
+  - **Unchanged; these work as is:** `fov_radius` (it reads only f), `undistorted_rect`'s `max_fov`, `_default_max_fov` (a constant). The audit misfiled them.
+  - **Horizon from the grid (owner, 2026-11-09):** `monotone_radius(::SplineLens)` is the largest normalized radius about x = 0 whose disc lies inside the backward area ∩ the present nodes' support (where the grid is defined and one-to-one). `horizon_radius = f·monotone_radius` then needs no change. This matches the parametric lenses, whose `monotone_radius` reads their first radial piece and documents that decentering terms do not enter.
+  - **`RadialCamera(::PosedCamera{<:CameraModel})` refuses (owner, 2026-11-09)** a SplineLens AND any `Lens` whose distortion holds a decentering piece (`Tangential`, `ThinPrism`, `Tilt`, alone or inside an `Additive`/`∘` composition). It throws `ArgumentError`, because the radial camera is exact only for a radially symmetric lens. One type-level check over the distortion pieces, using the existing stage walk (`_stages`), not a new one. This closes a gap: such lenses used to be silently accepted. Breaking; note it in the CHANGELOG.
   - **Re-gauge:** `CameraModel(::CameraModel, K′)` uses Task 1's `_rescale_lens`. Done there.
   - **Unreachable** (Division/Pinhole/Projective-only): no change.
   - `_default_nominal` was deleted in Task 4.
@@ -196,7 +200,9 @@ Consolidate in the same task. The report names what was grepped and what was del
   - `parameter_names(cam)` lists only lens controls (no `:f`, `:cx`);
   - `with_parameters(cam, θ)` keeps `calibration_matrix` identical;
   - `refine_camera_and_poses(cam, poses, views)` leaves K bit-identical and lowers the reprojection cost on a synthetic 3-view fixture;
-  - `@test_throws ArgumentError horizon_radius(cam)` (and `fov_radius`, `RadialCamera`);
+  - `horizon_radius(cam)` is finite and within 1% of the KB source's `horizon_radius` clipped to the grid's inscribed radius; `fov_radius(cam, θ) == f·tan θ`;
+  - `@test_throws ArgumentError RadialCamera(PosedCamera(cam, X))`;
+  - `@test_throws ArgumentError RadialCamera(PosedCamera(brown_conrady_with_tangential, X))` and the same for a KB `Additive(Radial, Tangential)`. `RadialCamera(PosedCamera(KB_FISHEYE, X))` still works;
   - `angle_of_view(BoundedCamera(cam, Size2(1000, 1000)))` is within 0.5° of the KB source's.
 - [ ] **Step 2: Run.** Expected: FAIL (K parameters present; `horizon_radius` MethodError, not ArgumentError).
 - [ ] **Step 3: Implement the trait and the refusals.**
@@ -213,7 +219,7 @@ Consolidate in the same task. The report names what was grepped and what was del
   - `rig_schema.jl` (rig v8 → v9: a central generic sensor body becomes a camera body with a spline lens; v9 also stores the per-sensor `lens_coverage`, which retires the plan-1 refusal in `_sensor_json`);
   - `schoeps.jl` (central YAML → `BoundedCamera{CameraModel{…,SplineLens}}`, non-central → `BoundedCamera{NoncentralSplineModel}`);
   - `validate.jl` (`"generic_camera" => 4`, `"rig" => 9`, migrations table);
-  - `conventions.jl:141`, `assemble.jl:157`, `external_calibration.jl:169` (refuse SplineLens: ArgumentError naming the vgio record);
+  - `conventions.jl:141`, `assemble.jl:157`, `external_calibration.jl:169` (refuse SplineLens through ONE shared helper: `ArgumentError("a SplineLens camera has no OpenCV/COLMAP form; store it as a vgio camera record (VisualGeometryToolkitIO.save), or fit a parametric lens to it first (VisualGeometryToolkitEstimation.fit_camera)")`, owner 2026-11-09);
   - `VisualGeometryToolkitIO.jl` imports;
   - docs `guide/kinds.md`; CHANGELOG 0.9.0.
 - Move: `_present_runs`/`_present_from_runs` and `_RowRuns` out of `generic_camera_schema.jl` into `style.jl` (shared by the lens record and the non-central record; one copy).
@@ -227,6 +233,8 @@ Consolidate in the same task. The report names what was grepped and what was del
     - extent = `width × height`;
     - K = stored `nominal_intrinsics` (skew must be 0) else `_spline_gauge`;
     - `lens_coverage` = stored `domain` else the sensor Rect.
+    - Read migration only (owner, 2026-11-09): old v2/v3 files load forever and are never rewritten. The published `rc_baselines` grids and Ties's grids stay as they are on disk.
+    - The forward spline is stored exactly when it has been fitted (owner, 2026-11-09).
   - `load(CameraModel, …)` on a record with a domain throws (Review Focus 2).
 - [ ] **Step 1: Write the failing tests:**
   - **Old records load and match the golden values:** `test/fixtures/old/generic_camera_v2.json` (Noncentral) and `fixtures/units/generic_camera_masked.json` (Central v3) load. Their `backproject` equals `GOLDEN.io_fixtures` (Task 0) to 1e-12.

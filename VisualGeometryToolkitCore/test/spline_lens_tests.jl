@@ -257,24 +257,30 @@ end
         c32 = convert_eltype(Float32, cam)
         @test eltype(c32.lens.backward.controls) == SVector{3, Float32}
         d = adapt(Array, c32)
-        r32 = backproject(d, [SVector{2, Float32}(u) for u in pixels])
+        pixels32 = [SVector{2, Float32}(u) for u in pixels]
+        r32 = backproject(d, pixels32)
         @test eltype(r32) == SVector{3, Float32}
-        # On the area's own edge (pixel 0) K⁻¹ in Float32 rounds across the area's border,
-        # so there the Float32 ray may be NaN; everywhere else the NaN sets agree.
-        worst, same_nan, edge_nan = 0.0, true, 0
-        for (i, u) in enumerate(pixels)
-            a, b = backproject(cam, u), SVector{3, Float64}(r32[i])
-            on_edge = u[1] == 0 || u[2] == 0
-            if on_edge && isnan(b[1]) && !isnan(a[1])
-                edge_nan += 1
-                continue
+        # The Float32 camera images every pixel the Float64 one does, the area's own
+        # edge (u = 0 or v = 0) included: batched and scalar, Float32 and Float64 pixels.
+        for (name, rays) in (
+                ("batched, Float32 pixels", r32),
+                ("batched, Float64 pixels", backproject(d, pixels)),
+                ("scalar, Float32 pixels", [backproject(c32, u) for u in pixels32]),
+                ("scalar, Float64 pixels", [backproject(c32, u) for u in pixels]),
+            )
+            worst, nan_mismatch, edge_nan = 0.0, 0, 0
+            for (i, u) in enumerate(pixels)
+                a, b = backproject(cam, u), SVector{3, Float64}(rays[i])
+                if isnan(a[1]) != isnan(b[1])
+                    nan_mismatch += 1
+                    (u[1] == 0 || u[2] == 0) && (edge_nan += 1)
+                end
+                isnan(a[1]) || isnan(b[1]) || (worst = max(worst, norm(b - a)))
             end
-            same_nan &= isnan(a[1]) == isnan(b[1])
-            isnan(a[1]) || (worst = max(worst, norm(b - a)))
+            @test (name, edge_nan) == (name, 0)
+            @test (name, nan_mismatch) == (name, 0)
+            @test worst <= 1.0e-5
         end
-        @test same_nan
-        @test worst <= 1.0e-5
-        @test edge_nan <= 33                                                     # the 33 edge pixels at most
         m32 = convert_eltype(Float32, masked_fwd)
         @test m32.lens.present == masked.lens.present
         @test eltype(m32.lens.forward.controls) == SVector{2, Float32}

@@ -402,15 +402,37 @@ SplineLens(backward::ChartSpline{3}; forward::Union{Nothing, ChartSpline{2}} = n
 _spline_lens(backward::B, forward::F, present::P) where {B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <: Union{Nothing, AbstractMatrix{Bool}}} =
     SplineLens{B, F, P}(backward, forward, present)
 
+# The rounding slack of the box's lower edge, in ulps of the point's magnitude
+# (see `_in_backward`).
+const _EDGE_ULPS = 4
+
 # Whether the lens images the normalized point `x`: inside the backward area's
-# half-open box, tested in lattice coordinates, `[1, g − 2)` (every window inside
-# the grid; a NaN or Inf point fails it), and its 4 × 4 window present.
-# Device-safe.
+# half-open box, tested in lattice coordinates, `[1 − τ, g − 2)` per axis (a NaN
+# or Inf point fails it), and its 4 × 4 window present. Device-safe.
+#
+# The slack τ = c·ε·slope·(|x| + |o|) on the LOWER edge is the rounding of
+# `x = K⁻¹u` and of the lattice coordinate, so a pixel on the calibrated area's
+# own edge (u = min) is imaged in Float32 as in Float64: `K⁻¹u` rounds the two
+# entries of K⁻¹'s row, their product and the sum, each ≤ ε/2 of a term bounded by
+# |x| + |o| (o the area's origin); the lattice coordinate rounds `o` and the
+# difference — at most 3ε(|x| + |o|) in x in all, so c = `_EDGE_ULPS` = 4 bounds
+# it with a margin. ε is the coarser of the point's and the controls' precision
+# (a Float32 camera's K⁻¹ is Float32 even for a Float64 pixel). The upper edge
+# needs none: the LM's `ub` keeps its point inside, and a pixel at max + 1 is not
+# in the area. A window at gx ∈ [1 − τ, 1) is `_continued_window`'s clamped one
+# (the first), as `backward(x)` evaluates it.
 @inline function _in_backward(l::SplineLens, x)
-    gh, gw = size(l.backward.controls)
-    gx, gy = _lattice_coords(l.backward.area, (gh, gw), x)
-    (1 <= gx < gw - 2 && 1 <= gy < gh - 2) || return false
-    ix, iy, _, _ = _spline_window(gx, gy)
+    cs = l.backward
+    gsz = gh, gw = size(cs.controls)
+    all(isfinite, x) || return false
+    gx, gy = _lattice_coords(cs.area, gsz, x)
+    o = GeometryBasics.origin(cs.area)
+    sx, sy = _lattice_slope(cs.area, gsz)
+    ε = max(eps(float(eltype(x))), eps(eltype(eltype(cs.controls))))
+    τx = _EDGE_ULPS * ε * sx * (abs(x[1]) + abs(o[1]))
+    τy = _EDGE_ULPS * ε * sy * (abs(x[2]) + abs(o[2]))
+    (1 - τx <= gx < gw - 2 && 1 - τy <= gy < gh - 2) || return false
+    ix, iy, _, _ = _continued_window(gx, gy, gw, gh)
     return _window_present(l.present, ix, iy)
 end
 
@@ -589,18 +611,23 @@ end
     return SVector(x1, x2), 0
 end
 
+# The units an area is read in by `_spline_lm_box`: the reference's pixel constants
+# are kept at its 1000-px calibrated area.
+const _LM_AREA_UNITS = 1000
+
 # The scale-free setting of `_spline_lm` on a rectangle `area` of any unit (the
-# lens's normalized plane, a pixel rectangle): the area read as 1000 × 1000
-# units, `s = 1000 ./ widths` — the reference's pixel constants exactly on its
-# 1000-px calibrated area, and the same relative tolerances on any other, so the
-# solve depends on nothing but the area (not on K). The box is the area's
-# half-open one, `lb = origin`, `ub = origin + widths·(1 − 1e-6)`: the
-# reference's 0.001-px band `[min, max + 0.999]` on a 1000-px area.
+# lens's normalized plane, a pixel rectangle): the area read as
+# `_LM_AREA_UNITS` units per axis, `s = _LM_AREA_UNITS ./ widths` — the
+# reference's pixel constants exactly on its 1000-px calibrated area, and the same
+# relative tolerances on any other, so the solve depends on nothing but the area
+# (not on K). The box is the area's half-open one, `lb = origin`,
+# `ub = origin + widths·(1 − 0.001/_LM_AREA_UNITS)`: the reference's 0.001-px band
+# `[min, max + 0.999]`, one thousandth of an area unit.
 @inline function _spline_lm_box(area::Rect2)
     o = GeometryBasics.origin(area); w = GeometryBasics.widths(area)
     lb = SVector{2, Float64}(o[1], o[2])
     ws = SVector{2, Float64}(w[1], w[2])
-    return lb, lb + ws .* (1 - 1.0e-6), 1000.0 ./ ws
+    return lb, lb + ws .* (1 - 0.001 / _LM_AREA_UNITS), _LM_AREA_UNITS ./ ws
 end
 
 # THE central projection solve on a spline of direction controls `controls`
@@ -635,6 +662,10 @@ end
 # Computed, not stored; the forward spline's equidistant chart is about it.
 _lens_axis(l::SplineLens) = (d = l.backward(SVector(0.0, 0.0)); SVector{3, Float64}(d / norm(d)))
 
+# The forward spline's chart, the equidistant chart about the lens axis (`nothing`
+# without a forward): computed once per call or launch, never stored.
+_forward_chart(l::SplineLens) = l.forward === nothing ? nothing : equidistant_chart(_lens_axis(l))
+
 # THE projection of a SplineLens: the normalized point of the ray `X` and
 # whether the lens images it. With a forward spline, its value at the ray's
 # point of the equidistant chart about the lens axis — imaged within the
@@ -642,10 +673,11 @@ _lens_axis(l::SplineLens) = (d = l.backward(SVector(0.0, 0.0)); SVector{3, Float
 # (`_in_backward`: the box, a present window). Without one, the LM from `x₀`
 # (the scale-free `_spline_lm_box`), converged and onto a present window. The
 # scalar `project` and the batched kernel both run it; NaN when not imaged.
-@inline function _project_lens(l::SplineLens, X::StaticVector{3}, x₀::SVector{2, Float64}, maxiter::Int, tol2::Float64)
+# `chart` is the lens's `_forward_chart`.
+@inline function _project_lens(l::SplineLens, chart, X::StaticVector{3}, x₀::SVector{2, Float64}, maxiter::Int, tol2::Float64)
     nan = SVector(NaN, NaN)
     if l.forward !== nothing
-        c = equidistant_chart(_lens_axis(l))(X)
+        c = chart(X)
         _in_fitted_chart(l.forward, c) || return nan, false
         y = l.forward(c)
         x = SVector{2, Float64}(y[1], y[2])
@@ -672,13 +704,13 @@ residual), NaN unless it converges onto a point whose window is present.
 @inline function project(l::SplineLens, X::StaticVector{3})
     o = GeometryBasics.origin(l.backward.area); w = GeometryBasics.widths(l.backward.area)
     x₀ = SVector{2, Float64}(o[1] + w[1] / 2, o[2] + w[2] / 2)
-    return first(_project_lens(l, X, x₀, _PROJECT_MAXITER, _PROJECT_TOL^2))
+    return first(_project_lens(l, _forward_chart(l), X, x₀, _PROJECT_MAXITER, _PROJECT_TOL^2))
 end
 
-@kernel function _spline_project_kernel!(px_out, ok_out, lens, intrinsics, @Const(rays), @Const(p₀s), iters::Int, tol2::Float64)
+@kernel function _spline_project_kernel!(px_out, ok_out, lens, chart, intrinsics, @Const(rays), @Const(p₀s), iters::Int, tol2::Float64)
     i = @index(Global)
     @inbounds begin
-        x, ok = _project_lens(lens, rays[i], SVector{2, Float64}(_normalized_point(intrinsics, p₀s[i])), iters, tol2)
+        x, ok = _project_lens(lens, chart, rays[i], SVector{2, Float64}(_normalized_point(intrinsics, p₀s[i])), iters, tol2)
         u = _pixel_affine(intrinsics)(x)
         px_out[i] = SVector{2, Float64}(u[1], u[2])
         ok_out[i] = ok
@@ -706,7 +738,7 @@ function project(
     px = KA.allocate(backend, SVector{2, Float64}, N)
     ok = KA.allocate(backend, Bool, N)
     N == 0 && return (; px, ok)
-    _spline_project_kernel!(backend, 64)(px, ok, Adapt.adapt(backend, cam.lens), cam.intrinsics, rays, p₀s, iters, Float64(tol)^2; ndrange = N)
+    _spline_project_kernel!(backend, 64)(px, ok, Adapt.adapt(backend, cam.lens), _forward_chart(cam.lens), cam.intrinsics, rays, p₀s, iters, Float64(tol)^2; ndrange = N)
     KA.synchronize(backend)
     return (; px, ok)
 end

@@ -188,22 +188,23 @@ function _averaging_update(edges, col, r, w, nunk)
     return Vector((A' * A) \ (A' * b))
 end
 
-# The rotations the IRLS starts from (`seed`, above); every frame of the edges is covered.
+# The rotations the IRLS starts from (`seed`, above), for exactly the frames of the edges. The spanning-tree and the caller's
+# seed check what the spectral seed checks: the edges of positive prior connect every frame.
 function _averaging_seed(seed, relative, prior, edges, Rrel, p)
     seed === :spectral && return VgtkCore.spectral_rotation_averaging(relative, prior)
+    seed isa Symbol && seed !== :spanning_tree &&
+        throw(ArgumentError("fit_rotation_averaging: seed must be :spectral, :spanning_tree or a Dict, not :$seed"))
     frames = sort!(unique!([k for e in edges for k in e]))
-    if seed === :spanning_tree
-        live = Dict(e => (j_from_i = R, prior = q) for (e, R, q) in zip(edges, Rrel, p) if q > 0)
-        start = chain(ViewGraph(frames, live), first(frames); weight = e -> e.prior, identity = one(SMatrix{3, 3, Float64, 9}),
-                      inverse = transpose)
-        length(start) == length(frames) || throw(ArgumentError(
-            "fit_rotation_averaging: the edges of positive prior do not connect every frame (the spanning-tree seed reaches $(length(start)) of $(length(frames)))"))
-        return start
-    end
-    seed isa Symbol && throw(ArgumentError("fit_rotation_averaging: seed must be :spectral, :spanning_tree or a Dict, not :$seed"))
+    # the edges of positive prior on a ViewGraph, each pair canonical (i < j): a pair given as (j, i) carries R_ijᵀ
+    live = Dict((isless(i, j) ? (i, j) : (j, i)) => (j_from_i = isless(i, j) ? R : R', prior = q)
+                for ((i, j), R, q) in zip(edges, Rrel, p) if q > 0)
+    vg = ViewGraph(frames, live)
+    length(components(vg)) == 1 || throw(ArgumentError("fit_rotation_averaging: the edges of positive prior do not connect every frame"))
+    seed === :spanning_tree &&
+        return chain(vg, first(frames); weight = e -> e.prior, identity = one(SMatrix{3, 3, Float64, 9}), inverse = transpose)
     missing_frames = [k for k in frames if !haskey(seed, k)]
     isempty(missing_frames) || throw(ArgumentError("fit_rotation_averaging: the seed has no rotation for the frames $missing_frames"))
-    return seed
+    return Dict(k => seed[k] for k in frames)                         # a frame in no edge is not the averaging's
 end
 
 """
@@ -211,8 +212,11 @@ end
 
 Rotation averaging over a [`ViewGraph`](@ref) whose edge data carries the
 relative rotation (`j_from_i`) and a prior weight (`prior`, e.g. the inlier
-count): the same fit as the dictionary form, with the same keywords.
+count): the same fit as the dictionary form, with the same keywords. A view in
+no edge is a disconnected graph, an `ArgumentError` ([`require_connected`](@ref)).
 """
-fit_rotation_averaging(vg::ViewGraph; j_from_i = e -> e.j_from_i, prior = e -> 1.0, kwargs...) =
-    fit_rotation_averaging(Dict(p => j_from_i(e) for (p, e) in vg.edges),
-                           Dict(p => Float64(prior(e)) for (p, e) in vg.edges); kwargs...)
+function fit_rotation_averaging(vg::ViewGraph{K}; j_from_i = e -> e.j_from_i, prior = e -> 1.0, kwargs...) where {K}
+    require_connected(vg; what = "view graph")
+    return fit_rotation_averaging(Dict{Tuple{K, K}, SMatrix{3, 3, Float64, 9}}(p => j_from_i(e) for (p, e) in vg.edges),
+                                  Dict{Tuple{K, K}, Float64}(p => prior(e) for (p, e) in vg.edges); kwargs...)
+end

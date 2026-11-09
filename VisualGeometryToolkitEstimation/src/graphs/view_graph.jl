@@ -194,7 +194,7 @@ function chain(vg::ViewGraph, root; j_from_i = e -> e.j_from_i, weight = e -> 1.
     for (i, j) in tree
         push!(adj[i], j); push!(adj[j], i)
     end
-    out = Dict(root => identity)
+    out = Dict{eltype(vg.views), Any}(root => identity)               # composed transforms need not share identity's type
     queue = [root]
     while !isempty(queue)
         u = popfirst!(queue)
@@ -205,7 +205,7 @@ function chain(vg::ViewGraph, root; j_from_i = e -> e.j_from_i, weight = e -> 1.
             push!(queue, v)
         end
     end
-    return out
+    return Dict(k => T for (k, T) in out)                             # the narrowest value type the transforms share
 end
 
 """

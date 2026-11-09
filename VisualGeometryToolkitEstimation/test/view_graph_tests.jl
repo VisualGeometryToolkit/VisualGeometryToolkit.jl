@@ -114,6 +114,30 @@ end
     # the ViewGraph method is the dictionary form
     vg = ViewGraph(Dict(e => (j_from_i = noisy[e], inliers = prior[e]) for e in edges))
     @test estimate(fit_rotation_averaging(vg; prior = e -> e.inliers)) == estimate(spectral)
+
+    # every seed refuses a disconnected graph, as the spectral one does
+    split = Dict((1, 2) => rel(1, 2), (3, 4) => rel(3, 4))
+    @test_throws ArgumentError fit_rotation_averaging(split; seed = Dict(k => R[k] for k in 1:4))
+    @test_throws ArgumentError fit_rotation_averaging(split; seed = :spanning_tree)
+    # a seed's extra frames are not the averaging's: the gauge is the first frame of the edges
+    sub = Dict(e => noisy[e] for e in edges if e[1] >= 2)
+    res = fit_rotation_averaging(sub; seed = Dict(k => R[k] for k in 1:n))
+    @test sort!(collect(keys(estimate(res)))) == collect(2:n)
+    @test estimate(res)[2] ≈ one(RotMatrix{3, Float64}) atol = 1.0e-12
+    # a pair given as (j, i) is accepted by the spanning-tree seed, as by the spectral one
+    flipped = Dict(((j, i) => noisy[(i, j)]' for (i, j) in edges if i == 1)..., (e => noisy[e] for e in edges if e[1] != 1)...)
+    @test err(estimate(fit_rotation_averaging(flipped; seed = :spanning_tree))) < 5.0e-3
+    # a view in no edge is a disconnected ViewGraph
+    @test_throws ArgumentError fit_rotation_averaging(ViewGraph(vcat(1:n, 99), Dict(e => (j_from_i = noisy[e],) for e in edges)))
+end
+
+@testitem "chain: transforms of another type than the identity" begin
+    using Test, LinearAlgebra, StaticArrays
+    using VisualGeometryToolkitEstimation: ViewGraph, chain
+    A = SMatrix{2, 2}(2.0, 0.0, 0.0, 1.0)
+    vg = ViewGraph(Dict((1, 2) => (j_from_i = A,), (2, 3) => (j_from_i = A,)))
+    out = chain(vg, 1; identity = I)                     # UniformScaling at the root, matrices elsewhere
+    @test out[1] == I && out[2] ≈ inv(A) && out[3] ≈ inv(A) * inv(A)
 end
 
 @testitem "ObservationGraph: frames × boards, components, covisibility" begin

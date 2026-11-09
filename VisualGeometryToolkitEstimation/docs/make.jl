@@ -80,6 +80,7 @@ makedocs(;
             "Radial and Lens Calibration" => "api/radial.md",
             "Ellipse Fitting" => "api/ellipse.md",
             "Pose and Rotation from Directions" => "api/bearings.md",
+            "View and Observation Graphs" => "api/view_graph.md",
         ],
         "References" => "references.md",
     ],

@@ -221,6 +221,8 @@ using SparseArrays: sparse   # the relpose bundle's stacked Jacobian (its stall 
 # fit_camera's spline families: the penalized normal equations (a sparse
 # Cholesky), the direction chart, Core's lattice and its batched maps.
 using SparseArrays: SparseMatrixCSC
+import SparseArrays
+import Graphs   # the view and observation graphs' algorithms (components, articulation, bridges, spanning trees)
 using LinearAlgebra: cholesky, lu, issuccess, diag
 using VisualGeometryToolkitCore: ChartSpline, SplineLens, NoncentralSplineModel, Rect2, spline_window, pixel_centres,
     pointwise!, BoundedCamera, extent, spline_lattice, central_model, difference_rows, default_device
@@ -256,7 +258,11 @@ export fit_residual_mixture   # the inlier/outlier classification of a held mode
 export refine_camera_and_poses   # a camera (intrinsics + lens) and one pose per view from 3D → 2D correspondences
 export fit_rotation           # the robust rotation between two sets of directions
 export fit_linear             # the robust coefficients of a linear model (reweighted least squares)
-export fit_rotation_averaging # robust rotation averaging on a view graph (spectral seed, Lie-algebra IRLS)
+export fit_rotation_averaging # robust rotation averaging on a view graph (spectral or spanning-tree seed, Lie-algebra IRLS)
+export ViewGraph, ObservationGraph   # the frames and their verified pairs; the frames and what they observe (graphs/)
+public views, edgelist, adjacent_views, components, label_components, require_connected, induced, keep_largest_component,
+    articulation, bridges, spanning_tree, chain, triangles, filter_cycles, rotation_loop_angle, filter_by_orientation,
+    observers, observed, observed_in, observers_of, covisibility   # their queries and algorithms, public, not exported
 export fit_radial_camera, DivisionCameraError   # moved from VisualGeometryToolkitCore (estimator taxonomy v2)
 export fit_camera             # one model-to-model regression: a camera model of type T onto a source over a region
 export pspline_grid           # the spline targets' one P-spline solve on a given lattice (fit_camera's inner step)
@@ -409,7 +415,9 @@ include("fitting/refine_camera_and_poses.jl")   # a camera and one pose per view
 include("fitting/refine_spline_camera_and_poses.jl")   # its SplineLens route: 2 × 2 patches of sphere-charted controls, implicit-differentiation blocks, the Δ³ penalty, the rotation gauge
 include("fitting/fit_rotation.jl")           # the robust rotation between direction pairs (reweighted Kabsch)
 include("fitting/fit_linear.jl")             # the robust coefficients of a linear model (reweighted least squares)
-include("fitting/fit_rotation_averaging.jl") # robust rotation averaging on a view graph (spectral seed, Lie-algebra IRLS)
+include("graphs/view_graph.jl")              # ViewGraph: frames and verified pairs (Graphs.jl underneath)
+include("graphs/observation_graph.jl")       # ObservationGraph: frames and what they observe; covisibility → ViewGraph
+include("fitting/fit_rotation_averaging.jl") # robust rotation averaging on a view graph (spectral or spanning-tree seed, Lie-algebra IRLS)
 include("fitting/residual_mixture.jl")     # fit_residual_mixture: a held model's residuals → mixture EM → MAP labels
 # TOML loaders, the strategy-tag registry and the writer — dispatches on every
 # config-carrying type, so it is included last.

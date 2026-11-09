@@ -60,6 +60,13 @@ first-order Lie-algebra least squares over every edge (Chatterjee & Govindu
 - `max_iter`, `tol` — at most `max_iter` iterations; converged when one moves
   every frame by less than `tol` radians (configs/default.toml
   [fit_rotation_averaging]).
+- `seed` — where the iteration starts: `:spectral` (the default,
+  VisualGeometryToolkitCore's `spectral_rotation_averaging` over every edge),
+  `:spanning_tree` (the rotations chained along the maximum spanning tree of
+  the edges of positive prior, weighted by the prior: Theia's and OpenCV's
+  initialization, see [`chain`](@ref)), or an `AbstractDict` frame => rotation
+  given by the caller. The last two are re-gauged so the first sorted frame is
+  the identity.
 
 When the loss's weights drop every edge of a frame (a redescending loss past
 its cutoff), that frame is held at its current rotation for the iteration
@@ -78,6 +85,7 @@ function fit_rotation_averaging(
         scale_multiple::Union{Nothing, Real} = nothing,
         max_iter::Integer = _dflt("fit_rotation_averaging", "max_iter"),
         tol::Real = _dflt("fit_rotation_averaging", "tol"),
+        seed::Union{Symbol, AbstractDict} = :spectral,
     ) where {K}
     loss isa VgtkCore.AbstractMEstimator || scale_multiple !== nothing || throw(ArgumentError(
         "fit_rotation_averaging: the loss $(nameof(typeof(loss))) has no efficiency default; give its width as `scale_multiple`"))
@@ -86,9 +94,13 @@ function fit_rotation_averaging(
     all(>=(0), p) || throw(ArgumentError("fit_rotation_averaging: a prior edge weight is negative"))
     any(>(0), p) || throw(ArgumentError("fit_rotation_averaging: every prior edge weight is zero"))
     Rrel = [SMatrix{3, 3, Float64, 9}(relative[e]) for e in edges]
-    seed = VgtkCore.spectral_rotation_averaging(relative, prior)
-    frames = sort!(collect(keys(seed)))
-    R = Dict(k => SMatrix{3, 3, Float64, 9}(seed[k]) for k in frames)
+    start = _averaging_seed(seed, relative, prior, edges, p)
+    frames = sort!(collect(keys(start)))
+    R = Dict(k => SMatrix{3, 3, Float64, 9}(start[k]) for k in frames)
+    if seed !== :spectral                                              # the spectral seed is gauged already: unchanged bit for bit
+        gauge = R[first(frames)]'
+        foreach(k -> (R[k] = gauge * R[k]), frames)
+    end
     m = length(edges); r = Vector{SVector{3, Float64}}(undef, m); w = copy(p)
     edge_residuals!() = for (q, (i, j)) in enumerate(edges)
         r[q] = log_so3(R[j] * Rrel[q] * R[i]')
@@ -175,3 +187,32 @@ function _averaging_update(edges, col, r, w, nunk)
     A = sparse(Is, Js, Vs, 3 * length(edges), nunk)
     return Vector((A' * A) \ (A' * b))
 end
+
+# The rotations the IRLS starts from (`seed`, above); every frame of the edges is covered.
+function _averaging_seed(seed, relative, prior, edges, p)
+    seed === :spectral && return VgtkCore.spectral_rotation_averaging(relative, prior)
+    frames = sort!(unique!([k for e in edges for k in e]))
+    if seed === :spanning_tree
+        live = Dict(e => (j_from_i = SMatrix{3, 3, Float64, 9}(relative[e]), prior = q) for (e, q) in zip(edges, p) if q > 0)
+        start = chain(ViewGraph(frames, live), first(frames); weight = e -> e.prior, identity = one(SMatrix{3, 3, Float64, 9}),
+                      inverse = transpose)
+        length(start) == length(frames) || throw(ArgumentError(
+            "fit_rotation_averaging: the edges of positive prior do not connect every frame (the spanning-tree seed reaches $(length(start)) of $(length(frames)))"))
+        return start
+    end
+    seed isa Symbol && throw(ArgumentError("fit_rotation_averaging: seed must be :spectral, :spanning_tree or a Dict, not :$seed"))
+    missing_frames = [k for k in frames if !haskey(seed, k)]
+    isempty(missing_frames) || throw(ArgumentError("fit_rotation_averaging: the seed has no rotation for the frames $missing_frames"))
+    return seed
+end
+
+"""
+    fit_rotation_averaging(vg::ViewGraph; j_from_i = e -> e.j_from_i, prior = e -> 1.0, kwargs...)
+
+Rotation averaging over a [`ViewGraph`](@ref) whose edge data carries the
+relative rotation (`j_from_i`) and a prior weight (`prior`, e.g. the inlier
+count): the same fit as the dictionary form, with the same keywords.
+"""
+fit_rotation_averaging(vg::ViewGraph; j_from_i = e -> e.j_from_i, prior = e -> 1.0, kwargs...) =
+    fit_rotation_averaging(Dict(p => j_from_i(e) for (p, e) in vg.edges),
+                           Dict(p => Float64(prior(e)) for (p, e) in vg.edges); kwargs...)

@@ -59,12 +59,19 @@ Adapt.adapt_structure(to, cs::ChartSpline{K, T}) where {K, T} =
 
 (cs::ChartSpline)(c::StaticVector{2, <:Real}) = spline_value(cs.controls, cs.area, c)
 
+# The lattice coordinates `(gx, gy)` of the point `p` on a lattice of `gsz = (rows, cols)`
+# controls laid over the closed rectangle `area` (`size − 3` cells per axis): the ONE
+# area → lattice map of every spline on a rectangle (`spline_window`, a ChartSpline's
+# Jacobian, a SplineLens's backprojection).
+@inline function _lattice_coords(area::GeometryBasics.HyperRectangle{2}, (gh, gw), p)
+    o = GeometryBasics.origin(area); w = GeometryBasics.widths(area)
+    return _lattice_coord(p[1], o[1], w[1], gw), _lattice_coord(p[2], o[2], w[2], gh)
+end
+
 function transform_deriv(cs::ChartSpline, c::StaticVector{2, <:Real})
-    o = GeometryBasics.origin(cs.area)
     w = GeometryBasics.widths(cs.area)
     gh, gw = size(cs.controls)
-    gx = _lattice_coord(c[1], o[1], w[1], gw)
-    gy = _lattice_coord(c[2], o[2], w[2], gh)
+    gx, gy = _lattice_coords(cs.area, (gh, gw), c)
     ix, iy, wx, wy = _continued_window(gx, gy, gw, gh)
     dwx = _cubic_bspline_weights_deriv(_span_coordinate(gx + 2, ix))
     dwy = _cubic_bspline_weights_deriv(_span_coordinate(gy + 2, iy))

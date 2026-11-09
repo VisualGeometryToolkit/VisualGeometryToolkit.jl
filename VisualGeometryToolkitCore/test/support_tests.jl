@@ -129,7 +129,7 @@
             err
         end
         @test e isa ArgumentError
-        @test occursin("generic model", e.msg) && occursin("BlindLens", e.msg) && occursin("sampler", e.msg)
+        @test occursin("spline grid", e.msg) && occursin("BlindLens", e.msg) && occursin("sampler", e.msg)
     end
 
     @testset "a node's support is the spline window's footprint" begin

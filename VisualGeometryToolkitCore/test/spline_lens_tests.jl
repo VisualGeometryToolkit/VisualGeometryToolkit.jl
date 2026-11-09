@@ -114,15 +114,25 @@
         @test @inferred(backproject(cam, SVector(500.0f0, 400.0f0))) isa StaticVector{3, Float64}
     end
 
-    @testset "valid_domain: the calibrated area in pixels, ∩ the present nodes' supports" begin
+    @testset "valid_domain: the calibrated area in pixels; under a mask, the fully present windows" begin
         old = CentralGenericModel(src, image; grid_size = grid)
         r = @inferred valid_domain(cam)
         @test r isa Rect2{Float64}
-        ref = _calibrated_rect(old)
-        @test origin(r) ≈ origin(ref) atol = 1.0e-9
-        @test widths(r) ≈ widths(ref) atol = 1.0e-9
+        @test r == _calibrated_rect(old)
+        # the golden mask, independently: window (ix, iy) reads controls [iy-2:iy+1, ix-2:ix+1] and covers the
+        # cell from node ix − 1 to node ix (node j at pixel (j − 2)·h, h = 1000 / (n − 3))
+        P = G.masked.present
+        gh, gw = size(P)
+        full = [(ix, iy) for iy in 3:(gh - 1), ix in 3:(gw - 1) if all(P[(iy - 2):(iy + 1), (ix - 2):(ix + 1)])]
+        hx, hy = 1000.0 / (gw - 3), 1000.0 / (gh - 3)
+        x0, x1 = 0.0 + (minimum(first, full) - 3) * hx, 0.0 + (maximum(first, full) - 2) * hx
+        y0, y1 = 0.0 + (minimum(last, full) - 3) * hy, 0.0 + (maximum(last, full) - 2) * hy
         rm = @inferred valid_domain(masked)
         @test rm isa Rect2{Float64}
-        @test all(origin(rm) .>= origin(r) .- 1.0e-9) && all(origin(rm) .+ widths(rm) .<= origin(r) .+ widths(r) .+ 1.0e-9)
+        @test rm == Rect2{Float64}(SVector(x0, y0), SVector(x1 - x0, y1 - y0))
+        @test all(widths(rm) .< widths(r))                                       # the 3-ring mask shrinks it
+        # every finite golden backprojection of the masked camera lies in it
+        @test all(i -> isnan(G.masked.backproject[1, i]) || (origin(rm)[1] <= pixels[i][1] <= origin(rm)[1] + widths(rm)[1] &&
+            origin(rm)[2] <= pixels[i][2] <= origin(rm)[2] + widths(rm)[2]), axes(G.pixels, 2))
     end
 end

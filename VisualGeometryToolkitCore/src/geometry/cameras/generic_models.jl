@@ -143,7 +143,7 @@ struct CentralGenericModel{T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, I, 
             cminx::Integer, cminy::Integer, cmaxx::Integer, cmaxy::Integer,
             grid::G, nominal::I, domain::D, present::P
         ) where {T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, I, D, P <: Union{Nothing, AbstractMatrix{Bool}}}
-        _check_generic_area(width, height, cminx, cminy, cmaxx, cmaxy, size(grid))
+        _check_spline_area(width, height, cminx, cminy, cmaxx, cmaxy, size(grid))
         _check_present(present, size(grid))
         return new{T, G, I, D, P}(width, height, cminx, cminy, cmaxx, cmaxy, grid, nominal, domain, present)
     end
@@ -223,7 +223,7 @@ struct NoncentralGenericModel{T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, 
                     "got $(size(directions)) vs $(size(points))"
             )
         )
-        _check_generic_area(width, height, cminx, cminy, cmaxx, cmaxy, size(directions))
+        _check_spline_area(width, height, cminx, cminy, cmaxx, cmaxy, size(directions))
         _check_present(present, size(directions))
         return new{T, G, I, D, P}(width, height, cminx, cminy, cmaxx, cmaxy, directions, points, nominal, domain, present)
     end
@@ -676,11 +676,8 @@ same continuation [`interpolated_direction`](@ref) evaluates.
 """
 spline_window(m::_GenericLattice, pixel) = _continued_window(m, pixel[1], pixel[2])
 function spline_window(area::GeometryBasics.HyperRectangle{2}, grid_size::NTuple{2, Integer}, pixel)
-    o = GeometryBasics.origin(area); w = GeometryBasics.widths(area)
     gh, gw = grid_size
-    return _continued_window(
-        _lattice_coord(pixel[1], o[1], w[1], gw), _lattice_coord(pixel[2], o[2], w[2], gh), gw, gh
-    )
+    return _continued_window(_lattice_coords(area, grid_size, pixel)..., gw, gh)
 end
 
 """
@@ -1208,13 +1205,13 @@ source the fit itself handles.
 """
 function generic_lattice(
         ::Type{G}, source, size::Union{Tuple{Integer, Integer}, Size2};
-        grid_size::Tuple{Integer, Integer} = default_spline_grid(_generic_size(size)...),
+        grid_size::Tuple{Integer, Integer} = default_spline_grid(_spline_size(size)...),
         calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
-            (0, 0, _generic_size(size)[1] - 1, _generic_size(size)[2] - 1),
+            (0, 0, _spline_size(size)[1] - 1, _spline_size(size)[2] - 1),
         nominal = _default_nominal(source),
         domain = _default_domain(source),
     ) where {G <: _GenericModel}
-    W, H = _generic_size(size)
+    W, H = _spline_size(size)
     area = _area_bounds(calib_area)
     gw, gh = grid_size
     axis = fill(Vec3{Float64}(0, 0, 1), gh, gw)
@@ -1224,9 +1221,9 @@ end
 
 function CentralGenericModel(
         source::Union{_SplineSource, CentralGenericModel}, size::Union{Tuple{Integer, Integer}, Size2};
-        grid_size::Tuple{Integer, Integer} = default_spline_grid(_generic_size(size)...),
+        grid_size::Tuple{Integer, Integer} = default_spline_grid(_spline_size(size)...),
         calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
-            (0, 0, _generic_size(size)[1] - 1, _generic_size(size)[2] - 1),
+            (0, 0, _spline_size(size)[1] - 1, _spline_size(size)[2] - 1),
         init::Symbol = :interpolate,
         sampling_margin::Real = 0.97,
         unit_controls::Bool = init !== :quasi_interpolate,
@@ -1242,9 +1239,9 @@ end
 
 function NoncentralGenericModel(
         source::Union{_SplineSource, CentralGenericModel}, size::Union{Tuple{Integer, Integer}, Size2};
-        grid_size::Tuple{Integer, Integer} = default_spline_grid(_generic_size(size)...),
+        grid_size::Tuple{Integer, Integer} = default_spline_grid(_spline_size(size)...),
         calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
-            (0, 0, _generic_size(size)[1] - 1, _generic_size(size)[2] - 1),
+            (0, 0, _spline_size(size)[1] - 1, _spline_size(size)[2] - 1),
         init::Symbol = :interpolate,
         sampling_margin::Real = 0.97,
         unit_controls::Bool = init !== :quasi_interpolate,

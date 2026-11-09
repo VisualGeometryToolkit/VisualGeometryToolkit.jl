@@ -124,15 +124,15 @@ end
 
 # Shared validation of the calibrated-area rectangle (integer pixel indices,
 # inclusive, COLMAP frame: area spans [min_x, max_x + 1) × [min_y, max_y + 1)).
-function _check_generic_area(width, height, cminx, cminy, cmaxx, cmaxy, gsz)
+function _check_spline_area(width, height, cminx, cminy, cmaxx, cmaxy, gsz)
     (gsz[1] >= 4 && gsz[2] >= 4) || throw(
         ArgumentError(
-            "generic model: the B-spline grid needs at least 4×4 control points, got $(gsz[2])×$(gsz[1])"
+            "spline grid: the B-spline grid needs at least 4×4 control points, got $(gsz[2])×$(gsz[1])"
         )
     )
     (0 <= cminx < cmaxx < width && 0 <= cminy < cmaxy < height) || throw(
         ArgumentError(
-            "generic model: invalid calibrated area ($cminx, $cminy)–($cmaxx, $cmaxy) for a $(width)×$(height) image"
+            "spline grid: invalid calibrated area ($cminx, $cminy)–($cmaxx, $cmaxy) for a $(width)×$(height) image"
         )
     )
     return nothing
@@ -141,8 +141,8 @@ end
 # House-vocabulary acceptance: a size is a Size2, a calibrated area is a
 # Rect (origin + widths ↔ the inclusive integer bounds [min, max]); plain
 # tuples remain welcome.
-_generic_size(sz::Size2) = (Int(sz.width), Int(sz.height))
-_generic_size(sz::Tuple{Integer, Integer}) = (Int(sz[1]), Int(sz[2]))
+_spline_size(sz::Size2) = (Int(sz.width), Int(sz.height))
+_spline_size(sz::Tuple{Integer, Integer}) = (Int(sz[1]), Int(sz[2]))
 _area_bounds(a::NTuple{4, Integer}) = map(Int, a)
 function _area_bounds(r::GeometryBasics.HyperRectangle{2})
     o = GeometryBasics.origin(r); w = GeometryBasics.widths(r)
@@ -204,7 +204,7 @@ function _sampling_radius(model::CameraModel)
         e isa ArgumentError || rethrow()
         throw(
             ArgumentError(
-                "generic model from a $(nameof(typeof(l))) camera: the node sampler clamps to the lens model's " *
+                "spline grid from a $(nameof(typeof(l))) camera: the node sampler clamps to the lens model's " *
                     "valid domain, which is undefined — $(e.msg)"
             )
         )
@@ -233,7 +233,7 @@ function _directions_from(
     init === :sample && return [Vec3{T}(v) for v in S]
     init === :interpolate || throw(
         ArgumentError(
-            "generic model init must be :interpolate (cubic prefilter) or :sample " *
+            "spline grid init must be :interpolate (cubic prefilter) or :sample " *
                 "(quasi-interpolation), got :$init"
         )
     )
@@ -328,7 +328,7 @@ function _quasi_interpolation_directions(source, rect::Rect2, gsz)
         end
         throw(
             ArgumentError(
-                "generic model (:quasi_interpolate): the source images no sample on the way from the node at " *
+                "spline grid (:quasi_interpolate): the source images no sample on the way from the node at " *
                     "cell ($tx, $ty) to the area's centre"
             )
         )
@@ -342,7 +342,7 @@ function _init_directions(source, rect::Rect2, gsz, init::Symbol, sampling_margi
     init === :quasi_interpolate && return _quasi_interpolation_directions(source, rect, gsz)
     source isa CameraModel || throw(
         ArgumentError(
-            "generic model init :$init samples a camera model inside its valid domain; a $(nameof(typeof(source))) source " *
+            "spline grid init :$init samples a camera model inside its valid domain; a $(nameof(typeof(source))) source " *
                 "takes init = :quasi_interpolate"
         )
     )
@@ -388,24 +388,18 @@ struct SplineLens{B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <:
     end
 end
 SplineLens(backward::ChartSpline{3}; forward::Union{Nothing, ChartSpline{2}} = nothing, present = nothing) =
-    SplineLens(backward, forward, _present_mask(present, size(backward.controls)))
-# The lens of its parts' own types: a function barrier over the mask, `nothing` or a `Matrix{Bool}`.
-SplineLens(backward::B, forward::F, present::P) where {B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <: Union{Nothing, AbstractMatrix{Bool}}} =
+    _spline_lens(backward, forward, _present_mask(present, size(backward.controls)))
+# The lens of its parts' own types: a function barrier over the mask, `nothing` or a `Matrix{Bool}`
+# (already through `_present_mask`).
+_spline_lens(backward::B, forward::F, present::P) where {B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <: Union{Nothing, AbstractMatrix{Bool}}} =
     SplineLens{B, F, P}(backward, forward, present)
-
-# The lattice coordinates of the normalized point x on the backward spline.
-@inline function _backward_coords(cs::ChartSpline, x)
-    o = GeometryBasics.origin(cs.area)
-    w = GeometryBasics.widths(cs.area)
-    gh, gw = size(cs.controls)
-    return _lattice_coord(x[1], o[1], w[1], gw), _lattice_coord(x[2], o[2], w[2], gh), gw, gh
-end
 
 @inline function backproject(l::SplineLens, x::StaticVector{2})
     cs = l.backward
     T = promote_type(eltype(eltype(cs.controls)), float(eltype(x)))
     nan = SVector{3, T}(NaN, NaN, NaN)
-    gx, gy, gw, gh = _backward_coords(cs, x)
+    gh, gw = size(cs.controls)
+    gx, gy = _lattice_coords(cs.area, (gh, gw), x)
     # the half-open box in lattice coordinates, [1, g − 2): every window inside the grid; NaN fails it
     (1 <= gx < gw - 2 && 1 <= gy < gh - 2) || return nan
     ix, iy, wx, wy = _spline_window(gx, gy)
@@ -489,10 +483,10 @@ end
 # The layout of a lattice from a source's keywords: the calibrated pixel
 # rectangle and the grid's `(rows, cols)`, validated.
 function _spline_layout(size, grid_size, calib_area)
-    W, H = _generic_size(size)
+    W, H = _spline_size(size)
     a = _area_bounds(calib_area)
     gsz = (Int(grid_size[2]), Int(grid_size[1]))
-    _check_generic_area(W, H, a..., gsz)
+    _check_spline_area(W, H, a..., gsz)
     return _bounds_rect(a...), gsz
 end
 
@@ -509,9 +503,9 @@ A function source has no `K` without its sampled spline: build the camera.
 """
 function spline_lattice(
         ::Type{SplineLens}, source::CameraModel, size::Union{Tuple{Integer, Integer}, Size2};
-        grid_size::Tuple{Integer, Integer} = default_spline_grid(_generic_size(size)...),
+        grid_size::Tuple{Integer, Integer} = default_spline_grid(_spline_size(size)...),
         calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
-            (0, 0, _generic_size(size)[1] - 1, _generic_size(size)[2] - 1),
+            (0, 0, _spline_size(size)[1] - 1, _spline_size(size)[2] - 1),
     )
     rect, gsz = _spline_layout(size, grid_size, calib_area)
     axis = fill(SVector(0.0, 0.0, 1.0), gsz)
@@ -548,9 +542,9 @@ imaging ẑ (the calibrated area's centre when ẑ is not imaged inside it) and
 """
 function CameraModel(
         ::Type{SplineLens}, source::_SplineSource, size::Union{Tuple{Integer, Integer}, Size2};
-        grid_size::Tuple{Integer, Integer} = default_spline_grid(_generic_size(size)...),
+        grid_size::Tuple{Integer, Integer} = default_spline_grid(_spline_size(size)...),
         calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
-            (0, 0, _generic_size(size)[1] - 1, _generic_size(size)[2] - 1),
+            (0, 0, _spline_size(size)[1] - 1, _spline_size(size)[2] - 1),
         init::Symbol = :interpolate,
         sampling_margin::Real = 0.97,
         unit_controls::Bool = init !== :quasi_interpolate,
@@ -577,9 +571,10 @@ end
     valid_domain(camera::CameraModel{<:AbstractIntrinsics, <:SplineLens}) -> Rect2{Float64}
 
 Where a [`SplineLens`](@ref) camera is defined, in pixels: its backward area
-mapped through `K` (the calibrated pixel area `[min, max + 1]`), ∩ the bounding
-rectangle of the present nodes' supports ([`cubic_bspline_footprint`](@ref));
-the area itself when every node is present.
+mapped through `K` (the calibrated pixel area `[min, max + 1]`) when every node
+is present; under a presence mask, the bounding rectangle of the lattice cells
+whose 4 × 4 window holds present nodes only — where `backproject` can be finite.
+An `ArgumentError` when no window is fully present.
 """
 function valid_domain(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens})
     l = cam.lens
@@ -590,13 +585,12 @@ function valid_domain(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens})
     hi = K * SVector(o[1] + w[1], o[2] + w[2], 1.0)
     area = Rect2{Float64}(lo[1], lo[2], hi[1] - lo[1], hi[2] - lo[2])
     l.present === nothing && return area
-    gsz = size(b.controls)
-    idx = findall(l.present)                                    # [gy, gx]; the bounding corners of the present nodes:
-    jx = extrema(i -> i[2], idx); jy = extrema(i -> i[1], idx)
-    h = _lattice_spacing(area, gsz)
-    a = cubic_bspline_footprint(_lattice_node(area, gsz, jx[1], jy[1]), h)
-    z = cubic_bspline_footprint(_lattice_node(area, gsz, jx[2], jy[2]), h)
-    r = _closed_meet(area, Rect2{Float64}(minimum(a), maximum(z) - minimum(a)))
-    r === nothing && throw(ArgumentError("valid_domain: the present nodes' supports do not meet the spline's area"))
-    return r
+    gsz = gh, gw = size(b.controls)
+    # window (ix, iy) reads columns ix − 2 … ix + 1 and covers the cell between nodes ix − 1 and ix
+    full = [(ix, iy) for iy in 3:(gh - 1), ix in 3:(gw - 1) if _window_present(l.present, ix, iy)]
+    isempty(full) && throw(ArgumentError("valid_domain: no 4 × 4 window of the spline lens holds present nodes only"))
+    jx = extrema(first, full); jy = extrema(last, full)
+    a = _lattice_node(area, gsz, jx[1] - 1, jy[1] - 1)
+    z = _lattice_node(area, gsz, jx[2], jy[2])
+    return Rect2{Float64}(a, z - a)
 end

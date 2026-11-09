@@ -281,9 +281,7 @@ end
 # ---------------------------------------------------------------------------
 
 function _cells(line::AbstractString)
-    s = strip(line)
-    startswith(s, '|') && (s = s[2:end])
-    endswith(s, '|') && (s = s[1:(end - 1)])
+    s = chopsuffix(chopprefix(strip(line), "|"), "|")
     return [strip(replace(c, "\\|" => "|")) for c in split(s, r"(?<!\\)\|")]
 end
 

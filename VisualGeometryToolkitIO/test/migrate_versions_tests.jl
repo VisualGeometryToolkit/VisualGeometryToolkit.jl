@@ -795,7 +795,7 @@ end
         @test !occursin("FAILED", String(take!(out)))
         d = VgtkIO._raw_tree(obs)
         @test d["schema"] == "vgio/target_points2d/v2" && d["targets"] == [current_id()]
-        @test VgtkIO._same_value(load(TargetPoints2D, obs), load(TargetPoints2D, units_fixture("target_points2d.json")))
+        @test VgtkIO.same_value(load(TargetPoints2D, obs), load(TargetPoints2D, units_fixture("target_points2d.json")))
         @test read(obs, String) == read(units_fixture("target_points2d.json"), String)
     end
 end

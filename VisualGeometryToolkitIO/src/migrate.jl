@@ -397,7 +397,7 @@ function _migrate_toml(path, tree, out, dry_run, s, before_rename)
 end
 
 # Equal AND of the same type throughout (`1 == 1.0` is not enough), element by
-# element: not `_same_value`, whose container check is `typeof` too, and a TOML
+# element: not `same_value`, whose container check is `typeof` too, and a TOML
 # round trip turns an array's `Vector{Any}` into a `Vector{String}`.
 _same_tree(a::AbstractDict, b::AbstractDict) = keys(a) == keys(b) && all(_same_tree(a[k], b[k]) for k in keys(a))
 _same_tree(a::AbstractVector, b::AbstractVector) = length(a) == length(b) && all(_same_tree(x, y) for (x, y) in zip(a, b))

@@ -423,7 +423,7 @@ end
 # split no longer denotes anything.
 
 # ============================================================================
-# BoundedCamera{C, S} — wrap any AbstractCamera with pixel-space image bounds
+# BoundedCamera{C, B, R} — wrap any AbstractCamera with its bound (extent or Sensor) and its lit region
 # ============================================================================
 
 """

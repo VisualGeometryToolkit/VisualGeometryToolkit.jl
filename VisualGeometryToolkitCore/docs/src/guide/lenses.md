@@ -174,11 +174,11 @@ rcam = BoundedCamera(CameraModel(; focal = 2000.0, pp = (1224.0, 1024.0), lens =
 ```
 
 A local lens model — a grid of nodes rather than a formula — has observations
-only where light falls, so its domain is `Rect(extent(camera)) ∩ circle` with
-the image circle supplied:
+only where light falls: the camera's [`imaged_region`](@ref), the sensor ∩ its
+lit region (here the datasheet's circle) ∩ where the lens model is valid:
 
 ```@example imagecircle
-domain = imaged_region(cam, q)                          # a grid lens's domain
+domain = imaged_region(with_lit_region(cam, q))         # a grid lens's domain
 nodes = [Point2(x, y) for x in range(0.0, 2448.0; length = 25), y in range(0.0, 2048.0; length = 21)]
 lit = filter(n -> n ∈ domain, nodes)
 (length(lit), length(nodes) - length(lit))              # lit, outside
@@ -188,8 +188,9 @@ The whole example, runnable, is `examples/image_circle.jl`.
 
 ## Which parameters a camera can see
 
-A camera images a region of its sensor, [`imaged_region`](@ref)`(camera, circle)` =
-`Rect(extent) ∩ circle`, the image circle supplied; [`pixel_mask`](@ref)`(region, width, height)`
+A camera images a region of its sensor, [`imaged_region`](@ref)`(camera)` =
+`Rect(extent) ∩ lit_region(camera) ∩ valid_domain(camera)`, its lit region (the
+image circle it carries, [`lit_region`](@ref)); [`pixel_mask`](@ref)`(region, width, height)`
 rasterizes it, the pixels whose centres lie in it. Each parameter of a model has a
 support on the sensor; it is free when its support meets the imaged region
 and frozen otherwise. A global model (a parametric lens, `K`) has the whole
@@ -201,7 +202,7 @@ and only the nodes whose footprint meets the lit region are free.
 fish = CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = KannalaBrandt(k))
 g = CentralGenericModel(fish, (1280, 960); grid_size = (20, 16))
 circle = Ellipse(Point2(640.0, 480.0), 250.0, 250.0, 0.0)   # a measured image circle, 250 px
-R = imaged_region(BoundedCamera(fish, Size2(1280, 960)), circle)
+R = imaged_region(BoundedCamera(fish, Size2(1280, 960); region = circle))
 mask = node_mask(g, R)                                  # in the grid's shape
 lit = pixel_mask(R, 1280, 960)                          # the pixels it images: 960 × 1280, ≈ π · 250² of them
 (size(mask), count(mask), length(mask) - count(mask), free_nodes(fish, R), count(lit))   # free, frozen; a lens: all
@@ -242,10 +243,10 @@ domain ends inside the area. The model keeps the source's pinhole as its
 [`nominal_intrinsics`](@ref VisualGeometryToolkitCore.Cameras.nominal_intrinsics)
 and the `domain` it is given — a supplied image circle, the whole plane by
 default; a generic source carries its own over — so
-`free_nodes(m, imaged_region(m))` are the nodes that can reach a lit pixel.
+`free_nodes(m, valid_domain(m))` are the nodes that can reach a pixel where it is defined.
 
 A model need not hold the other nodes. Built with `present =
-node_mask(m, imaged_region(m))`, it keeps the same lattice (spacing, basis,
+node_mask(m, valid_domain(m))`, it keeps the same lattice (spacing, basis,
 the dense control matrix) and holds only those nodes; every pixel of the
 imaged region reads them alone, so the model evaluates the region bit for bit
 as the full one. [`present_nodes`](@ref VisualGeometryToolkitCore.Cameras.present_nodes)

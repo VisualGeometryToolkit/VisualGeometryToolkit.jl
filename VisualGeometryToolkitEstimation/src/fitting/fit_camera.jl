@@ -181,7 +181,7 @@ The metadata ([`CameraFitMetadata`](@ref)) records the region, the round trip's
 the round trip's root mean square in pixels.
 
 ```julia
-region = imaged_region(camera, image_circle(camera, 8.0mm))
+region = imaged_region(with_lit_region(camera, image_circle(camera, 8.0mm)))
 kb = fit_camera(KannalaBrandt{4}, model(camera), region)                       # a parametric lens
 fwd = fit_camera(SplineProjection, grid, region; tolerance = 1.0e-3)           # a grid's forward map
 project(estimate(fwd), ray)                                                    # its pixel, or nothing outside the region

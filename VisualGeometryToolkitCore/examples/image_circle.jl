@@ -2,12 +2,13 @@
 # of the sensor. `valid_domain(camera)` is where the lens FORMULA holds (its
 # view-angle limit's image); `image_circle(camera, diameter)` is where light
 # falls (a datasheet through the pitch, or a measured circle). A local lens
-# model (a grid of nodes) lives on `imaged_region(camera, circle)`.
+# model (a grid of nodes) lives on `imaged_region(camera)`: the sensor ∩ the camera's lit region
+# (`lit_region`, the image circle it carries) ∩ its valid domain.
 #
 #   julia --project=. examples/image_circle.jl
 
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: Pinhole, KannalaBrandt, WholePlane
+using VisualGeometryToolkitCore: Pinhole, KannalaBrandt
 
 # ── 1. A circular fisheye bounded by its physical sensor (2448 × 2048 @ 3.45 μm).
 # Kannala–Brandt r = θ(1 + k θ²) folds at θ = 1/√(−3k): k below puts the fold at
@@ -36,8 +37,8 @@ println("rectilinear valid domain: ", valid_domain(rcam))
 println("rectilinear fov: ", rad2deg(fov(rcam)), "° horizontal, ", rad2deg(fov(rcam; dimension = :diagonal)), "° diagonal")
 
 # ── 6. The consumer: a grid lens keeps only the nodes the lens lights
-domain = imaged_region(cam, q)
+domain = imaged_region(with_lit_region(cam, q))
 nodes = [Point2(x, y) for x in range(0.0, 2448.0; length = 25), y in range(0.0, 2048.0; length = 21)]
 lit = filter(n -> n ∈ domain, nodes)
 println("grid nodes lit: ", length(lit), " of ", length(nodes), " (", length(nodes) - length(lit), " outside)")
-println("no image circle known: the extent ", imaged_region(rcam, WholePlane()) == Rect(extent(rcam)))
+println("no image circle known: the extent ", imaged_region(rcam) == Rect(extent(rcam)))

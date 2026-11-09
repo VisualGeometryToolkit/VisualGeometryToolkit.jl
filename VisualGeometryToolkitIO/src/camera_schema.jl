@@ -331,23 +331,25 @@ end
 const _StoredCamera = Union{BoundedCamera{<:CameraModel}, Attributed{<:BoundedCamera{<:CameraModel}, <:NamedTuple{(:calibration,)}}}
 
 # A camera's lit region (VisualGeometryToolkitCore's `lit_region`) as the store's optional `image_circle`, pixels in the
-# canonical frame: {"circle": [cx, cy, r]} or {"ellipse": [cx, cy, a, b, θ]} (VGC's `Ellipse` numbers, the major semi-axis
-# first). The whole sensor lit writes nothing; any other `Rect` is refused — only an image circle is stored.
+# store's frame (converted as K's principal point is): {"circle": [cx, cy, r]} or {"ellipse": [cx, cy, a, b, θ]} (VGC's
+# `Ellipse` numbers, the major semi-axis first). The whole sensor lit writes nothing; any other `Rect` is refused — only
+# an image circle is stored.
 const _IMAGE_CIRCLE = _Obj(Pair{Symbol, _Spec}[], Pair{Symbol, _Spec}[:circle => _Vec(_Real(), 3), :ellipse => _Vec(_Real(), 5)])
-_image_circle_json(::VgioStyle, c::Circle, _, _) = (image_circle = (circle = Float64[c.center[1], c.center[2], c.r],),)
-_image_circle_json(s::VgioStyle, e::Ellipse, _, _) = (image_circle = (ellipse = JSON.lower(s, e),),)
-_image_circle_json(::VgioStyle, r::Rect2, ext::Size2, name) =
-    r == Rect2{Float64}(0, 0, ext.width, ext.height) ? (;) : throw(
+_image_circle_tag(::Circle) = :circle
+_image_circle_tag(::Ellipse) = :ellipse
+_image_circle_json(s::VgioStyle, r::Union{Circle, Ellipse}, _, _) =
+    (image_circle = NamedTuple{(_image_circle_tag(r),)}((JSON.lower(s, EuclideanMap(CANONICAL_PIXEL_FRAME, _pixel_frame(s))(r)),)),)
+_image_circle_json(::VgioStyle, r::Rect2, bc, name) =
+    r == lit_region(with_lit_region(bc, nothing)) ? (;) : throw(
         ArgumentError(
             "camera $(name): its lit region is a Rect other than the sensor's; only a Circle or an Ellipse is stored as an " *
                 "image circle (the whole sensor lit is stored as no image_circle)"
         )
     )
 _image_circle_from_json(::VgioStyle, ::Nothing) = nothing
-function _image_circle_from_json(s::VgioStyle, ic)
-    haskey(ic, :circle) && (v = Float64[Float64(x::Real) for x in ic.circle]; return Circle(Point2{Float64}(v[1], v[2]), v[3]))
-    return JSON.lift(s, Ellipse, ic.ellipse::Vector{Any})
-end
+_image_circle_from_json(s::VgioStyle, ic) =
+    EuclideanMap(_pixel_frame(s), CANONICAL_PIXEL_FRAME)(haskey(ic, :circle) ? JSON.lift(s, Circle, ic.circle::Vector{Any}) :
+                                                         JSON.lift(s, Ellipse, ic.ellipse::Vector{Any}))
 
 const _CAMERAS_SPEC = _Checked(
     _Obj(
@@ -363,16 +365,12 @@ const _CAMERAS_SPEC = _Checked(
         any(c -> haskey(c, :pitch), x[:cameras]) == haskey(x, :length_unit) ||
             return "`length_unit` is declared iff a camera carries a pitch"
         for c in x[:cameras]
-            haskey(c, :image_circle) || continue
-            length(c[:image_circle]) == 1 || return "camera $(c[:name]): an image_circle is ONE of {\"circle\": [cx, cy, r]} or {\"ellipse\": [cx, cy, a, b, θ]}"
-            haskey(c[:image_circle], :circle) && !(c[:image_circle][:circle][3] > 0) && return "camera $(c[:name]): the image circle's radius is positive"
-            if haskey(c[:image_circle], :ellipse)
-                e = c[:image_circle][:ellipse]
-                (e[3] > 0 && e[4] > 0) || return "camera $(c[:name]): the image ellipse's semi-axes are positive; got a = $(e[3]), b = $(e[4])"
-                e[3] >= e[4] || return "camera $(c[:name]): the image ellipse is stored major semi-axis first (a ≥ b); got a = $(e[3]) < b = $(e[4])"
-            end
-            x[:pixel_frame] == pixel_frame_name(CANONICAL_PIXEL_FRAME) ||
-                return "camera $(c[:name]): an image_circle is stored in the canonical pixel frame ($(pixel_frame_name(CANONICAL_PIXEL_FRAME))); this store declares $(x[:pixel_frame])"
+            ic = get(c, :image_circle, nothing)
+            ic === nothing && continue
+            length(ic) == 1 || return "camera $(c[:name]): an image_circle is ONE of {\"circle\": [cx, cy, r]} or {\"ellipse\": [cx, cy, a, b, θ]}"
+            haskey(ic, :circle) && !(ic[:circle][3] > 0) && return "camera $(c[:name]): the image circle's radius is positive"
+            p = haskey(ic, :ellipse) ? _ellipse_record_problem(ic[:ellipse], "camera $(c[:name]): the image ellipse") : nothing
+            p === nothing || return p
         end
         return nothing
     end,
@@ -384,7 +382,7 @@ _bounded(c::Attributed) = getfield(c, :value)
 function _camera_entry(s::VgioStyle, name::Symbol, c::_StoredCamera)
     bc = _bounded(c)
     e = merge((name = String(name),), _with_pitch(_camera_body(s, bc.camera, extent(bc)), sensor(bc), s.length_unit),
-              _image_circle_json(s, lit_region(bc), extent(bc), name))
+              _image_circle_json(s, lit_region(bc), bc, name))
     return c isa Attributed ? merge(e, (calibration = _calibration_json(c.calibration),)) : e
 end
 
@@ -494,7 +492,7 @@ TWO LOSSES, both deliberate and both surfaced rather than papered over:
 function colmap_cameras(cameras::AbstractDict{Symbol})
     names = sort!(collect(keys(cameras)))
     cams = [
-        (bc = _bounded(cameras[n]); colmap_camera(bc.camera, i, extent(bc).width, extent(bc).height))
+        (bc = _bounded(cameras[n]); e = extent(bc); colmap_camera(bc.camera, i, e.width, e.height))
             for (i, n) in enumerate(names)
     ]
     return cams, Dict(n => i for (i, n) in enumerate(names))

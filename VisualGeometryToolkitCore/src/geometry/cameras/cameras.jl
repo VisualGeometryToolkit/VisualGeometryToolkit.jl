@@ -549,7 +549,7 @@ The same camera and bound with the lit region `region` (a `Rect2`, `Circle` or
 `Ellipse` of any real element type, converted to `Float64`; `nothing` for the
 whole sensor).
 """
-with_lit_region(bc::BoundedCamera, region) = BoundedCamera(bc.camera, bc.bound, _lit_region(region, extent(bc)))
+with_lit_region(bc::BoundedCamera, region) = BoundedCamera(bc.camera, bc.bound; region)
 
 # The same bound and lit region around another camera: what a rebuild of the wrapped camera
 # (new extrinsics, new model, a unit change) keeps.

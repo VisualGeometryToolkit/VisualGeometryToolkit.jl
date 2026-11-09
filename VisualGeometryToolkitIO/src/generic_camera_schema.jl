@@ -128,9 +128,8 @@ function _generic_check(x)
     # pinhole's focal lengths positive (K maps the image the right way up, K⁻¹
     # is finite)
     if haskey(x, :domain)
-        e = x[:domain][:ellipse]
-        (e[3] > 0 && e[4] > 0) || return "the domain ellipse's semi-axes are positive; got a = $(e[3]), b = $(e[4])"
-        e[3] >= e[4] || return "the domain ellipse is stored major semi-axis first (a ≥ b, θ the angle of a); got a = $(e[3]) < b = $(e[4])"
+        p = _ellipse_record_problem(x[:domain][:ellipse], "the domain ellipse")
+        p === nothing || return p
     end
     if haskey(x, :nominal_intrinsics)
         v = x[:nominal_intrinsics]

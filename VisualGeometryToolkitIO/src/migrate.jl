@@ -952,9 +952,9 @@ migrate_schema(::Val{Symbol("vgio/cameras/v3")}, t::AbstractDict) = _cameras_v3_
 # vgio/cameras/v4 → v5: v5 adds the optional per-camera `image_circle` (a camera's lit region); a v4 store has none, so its
 # cameras read with the whole sensor lit. No number moves.
 function _cameras_v4_to_v5(old)
-    t = copy(old)
-    t["schema"] = "vgio/cameras/v5"
-    return t
+    any(c -> haskey(c, "image_circle"), old["cameras"]) &&
+        _not_written_by("a vgio/cameras/v4 store", "holds no \"image_circle\" (a camera's lit region is cameras v5)")
+    return _with_schema(old, "vgio/cameras/v5")
 end
 migrate_schema(::Val{Symbol("vgio/cameras/v4")}, t::AbstractDict) = _cameras_v4_to_v5(t)
 migrate_schema(::Val{Symbol("vgio/target/v1")}, t::AbstractDict) = _target_v1_to_v2(t)

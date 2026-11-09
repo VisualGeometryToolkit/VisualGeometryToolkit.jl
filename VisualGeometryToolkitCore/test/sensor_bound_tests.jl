@@ -17,7 +17,7 @@
 
     @testset "the extent is the sensor's resolution" begin
         @test extent(bs) == extent(be) == Size2(2448, 2048)
-        @test extent(bs) == extent(be) && bs.bound == sensor(bs)
+        @test bs.bound == sensor(bs)
         @test extent(bs) isa Size2{Int}
         @test (@inferred extent(bs)) == Size2(2448, 2048)
         @test Rect(s) == Rect(0, 0, extent(bs)...)

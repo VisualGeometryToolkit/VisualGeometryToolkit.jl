@@ -157,3 +157,16 @@ _k_from_values(v) = _k_from_record(NamedTuple{(:fx, :fy, :cx, :cy, :skew)}(Tuple
 JSON.lower(::VgioStyle, e::Ellipse) = Float64[e.center[1], e.center[2], e.a, e.b, e.θ]
 JSON.lift(::VgioStyle, ::Type{Ellipse}, v::AbstractVector{Any}) =
     (e = Float64[Float64(x::Real) for x in v]; Ellipse(Point2{Float64}(e[1], e[2]), e[3], e[4], e[5]))
+# A circle: its centre and its radius, in the value's own units.
+JSON.lower(::VgioStyle, c::Circle) = Float64[c.center[1], c.center[2], c.r]
+JSON.lift(::VgioStyle, ::Type{Circle}, v::AbstractVector{Any}) =
+    (c = Float64[Float64(x::Real) for x in v]; Circle(Point2{Float64}(c[1], c[2]), c[3]))
+
+# A stored ellipse's invariants, as VGC's `Ellipse` holds it — semi-axes positive, the major first — so it reads back as
+# the numbers the file holds; the message names `what`, or `nothing` when they hold. (A generic model's domain, a
+# camera store's image ellipse.)
+function _ellipse_record_problem(e, what)
+    (e[3] > 0 && e[4] > 0) || return "$(what)'s semi-axes are positive; got a = $(e[3]), b = $(e[4])"
+    e[3] >= e[4] || return "$(what) is stored major semi-axis first (a ≥ b, θ the angle of a); got a = $(e[3]) < b = $(e[4])"
+    return nothing
+end

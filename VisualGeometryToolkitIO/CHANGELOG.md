@@ -1,5 +1,15 @@
 # VisualGeometryToolkitIO changelog
 
+## 0.9.0 (unreleased)
+
+On VisualGeometryToolkitCore 0.9 (a bounded camera's lit region).
+
+- **Breaking: `vgio/cameras/v5`**: a stored camera may carry an optional `image_circle` — `{"circle": [cx, cy, r]}`
+  or `{"ellipse": [cx, cy, a, b, θ]}`, pixels in the canonical frame — read back as its lit region (`lit_region`);
+  absent, the whole sensor is lit. A lit region that is a `Rect` other than the sensor's is refused on write; an
+  `image_circle` in a store declaring a foreign pixel frame is refused on read. A v4 store reads through its
+  migration (its schema line alone), with the whole sensor lit; `save` writes v5.
+
 ## 0.8.0 (2026-11-09)
 
 On VisualGeometryToolkitCore 0.8 (its `RadialHomography{T, N}`, `TargetHomographies` and

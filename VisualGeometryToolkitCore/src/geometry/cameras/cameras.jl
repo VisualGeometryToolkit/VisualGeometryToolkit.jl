@@ -194,12 +194,13 @@ include("lens_rays.jl")       # THE lens contract: project/backproject on rays +
 include("equirectangular.jl") # the latitude/longitude projection of directions (panoramas, sky maps)
 include("lens_chart.jl") # parameter chart, ∂lens/∂θ, TOML lens registry (0.22.1)
 include("lens_spec.jl")  # LensSpec: a lens family by name and term counts
+include("chart_spline.jl")    # ChartSpline, SplineProjection: a spline on a 2-D chart; a forward map on a direction chart (methods use the window)
+include("spline_lens.jl")     # SplineLens: the central grid camera as a CameraModel lens; the spline lattice's shared helpers
 include("generic_models.jl") # Schöps et al. central/non-central generic grid models (0.16)
 include("support.jl")         # supports on the sensor: which parameters a camera can see (the generic models' lattice)
 include("vignetting.jl")      # TensorProductVignetting, RadialVignetting: a camera's vignetting (uses the support protocol, bspline_basis)
 include("lighting.jl")        # EnvironmentLight, SphericalHarmonicMap, sh_basis: the scene's light (extends vignetting.jl's coefficient_jacobian)
 include("blur.jl")            # GaussianBlur: one blur of an imaging model, the density N(0, Σ) by its covariance (extends Statistics' cov/var/std, Core's propagate)
-include("chart_spline.jl")    # ChartSpline, SplineProjection: a forward map as the grid models' lattice on a direction chart (uses spline_value, the window)
 include("imaging_chain.jl")   # framed stages between image frames + imaging_chain mint (0.10)
 
 # ==============================================================================
@@ -1134,7 +1135,7 @@ export coefficient_jacobian, active_coefficients, control_points, with_control_p
 export radial_part                         # a lens's radially symmetric part
 export CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models (Schöps et al.)
 export present_nodes, in_present_domain   # the nodes a grid model holds; where it evaluates (every window node present)
-export spline_support, spline_weights, window_controls, window_indices, direction_tangents, default_generic_grid  # the grid model's window interface (0.22.2)
+export spline_support, spline_weights, window_controls, window_indices, direction_tangents, default_spline_grid  # the grid model's window interface (0.22.2)
 export ControlPatchManifold              # a block of a grid model's controls as a manifold (public, not exported, at the top level)
 export ControlPointChart, AdditivePoints, RayNormalPoints   # how its point controls move (public, not exported, at the top level)
 export GenericModelWindow, window, nominal_intrinsics, interpolated_direction, interpolated_point   # a view onto a block of controls; the raw splines
@@ -1144,6 +1145,7 @@ export generic_lattice                   # a grid model's layout from a source, 
 export directions, grid_size, window_offset, lattice_spacing   # a grid model's lattice accessors (public, not exported, at the top level)
 export with_domain, with_present, with_nominal, with_directions, with_points, central_model   # its set accessors (likewise)
 export ChartSpline, SplineProjection     # a spline on a 2-D chart; a forward map (ray → pixel) as one on the equidistant direction chart
+export SplineLens, spline_lattice        # the central grid camera as a lens of a CameraModel; its lattice from a camera, unsampled
 export pixel_centre                      # an image array index's pixel centre, COLMAP frame, in T (public, not exported, at the top level)
 export equidistant_chart                 # the equidistant direction chart about an axis (public, not exported, at the top level)
 export with_model                         # same camera/rig, new model — rebuilds through the validating constructor

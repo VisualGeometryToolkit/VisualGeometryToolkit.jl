@@ -291,11 +291,11 @@
         @test project(gb, X, SVector(NaN, 1.0)) === nothing
     end
 
-    @testset "default_generic_grid" begin
-        using VisualGeometryToolkitCore: default_generic_grid
-        @test default_generic_grid(4240, 2832) == (70, 48)
-        @test default_generic_grid(2570, 2569) == (44, 44)
-        @test default_generic_grid(10, 10) == (4, 4)
+    @testset "default_spline_grid" begin
+        using VisualGeometryToolkitCore: default_spline_grid
+        @test default_spline_grid(4240, 2832) == (70, 48)
+        @test default_spline_grid(2570, 2569) == (44, 44)
+        @test default_spline_grid(10, 10) == (4, 4)
     end
 
     @testset "generic_lattice: the constructor's layout, unsampled" begin

@@ -166,7 +166,6 @@ end
 function _in_fitted_chart(cs::ChartSpline, c::StaticVector{2})
     o = GeometryBasics.origin(cs.area)
     w = GeometryBasics.widths(cs.area)
-    gh, gw = size(cs.controls)
-    hx, hy = w[1] / (gw - 3), w[2] / (gh - 3)
+    hx, hy = _lattice_spacing(cs.area, size(cs.controls))
     return o[1] - hx <= c[1] <= o[1] + w[1] + hx && o[2] - hy <= c[2] <= o[2] + w[2] + hy
 end

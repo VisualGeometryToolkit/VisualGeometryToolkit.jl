@@ -354,7 +354,7 @@ public parameter_box                      # a ParameterManifold's solver search 
 public coordinate_scale                   # a ParameterManifold's coordinate scales (`scale` keyword)
 export CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models
 public present_nodes, in_present_domain   # the nodes a grid model holds; where it evaluates (every window node present)
-export default_generic_grid  # the grid model's window interface (0.22.2)
+export default_spline_grid  # the grid model's window interface (0.22.2)
 public spline_support, spline_weights, window_controls, window_indices, direction_tangents
 public ControlPatchManifold   # a block of a generic grid model's controls as a Manifold: the per-tile refinement's variable
 public ControlPointChart, AdditivePoints, RayNormalPoints   # a ControlPatchManifold's point chart: additive (Δx, Δy, Δz) or across the ray (a, b)
@@ -365,6 +365,8 @@ public generic_lattice   # a grid model's layout from a source (its lattice and 
 public directions, grid_size, window_offset, lattice_spacing   # a grid model's lattice: its direction controls, (gx, gy), a window's corner, the cell size in px
 public with_domain, with_present, with_nominal, with_directions, with_points, central_model   # a grid model with one part replaced; a non-central model's central part
 public primal_float      # the float type under every ForwardDiff Dual layer (base/duals.jl)
+export SplineLens   # the central grid camera as a lens of a CameraModel (cameras/spline_lens.jl)
+public spline_lattice   # a SplineLens camera's layout from a camera (its lattice and K), without sampling it
 export ChartSpline, SplineProjection   # a spline on a 2-D chart; a forward map (ray → pixel) as one on the equidistant direction chart (fit_camera's)
 public pixel_centre        # the COLMAP centre (col − ½, row − ½) of an image array index, in T (kernel-lawful)
 public equidistant_chart   # the equidistant direction chart about an axis: Lens(Equidistant()) ∘ LinearMap(R), R's rows (e₁, e₂, axis)

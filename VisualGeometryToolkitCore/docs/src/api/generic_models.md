@@ -14,6 +14,19 @@ Private = false
 Pages = ["cameras/generic_models.jl"]
 ```
 
+## The central grid as a lens
+
+The central grid camera as an ordinary `CameraModel(K, SplineLens(…))`: a
+backward lens on the K-normalized image plane, `K` a gauge whose principal point
+is the pixel imaging ẑ. The spline lattice's shared helpers (the grid size, the
+quasi-interpolant) live beside it.
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Cameras]
+Private = false
+Pages = ["cameras/spline_lens.jl"]
+```
+
 ## A forward map as a spline on a chart
 
 A grid model's `project` is a small LM per ray. Its forward map can instead be

@@ -175,6 +175,10 @@ Consolidate in the same task. The report names what was grepped and what was del
   - the stereo-rectify test on two SplineLens cameras.
 - [ ] **Step 2: Run.** Expected: FAIL, or the generic path is missing a method. Note which.
 - [ ] **Step 3: Delete and port.** If the generic undistort is measurably slower than `_march_node!` (> 3× on the 1000² image), keep the speed as a method of the GENERIC undistort, not as a grid special case. Ledger it as a ruling.
+- [ ] **Step 3b: KernelAbstractions (owner, 2026-11-10).** The generic undistort/rectify of a SplineLens camera runs through Core's KernelAbstractions warp (`image_warp` → `_warp_kernel!` on `get_backend(dst)`). The lens's `project`, with and without a forward spline, must therefore be device-safe inside that kernel: no allocation, no throw, isbits after `adapt`.
+  - Test it on the KernelAbstractions CPU backend: the result `==` the plain CPU result.
+  - Test it on CUDA when available (skip otherwise): ≤ 1e-4 relative.
+  - The grid's own KA kernels (`_row_march_kernel!`, `_remap_dense_kernel!`, the old `_project_kernel!`/`_backproject_kernel!`) are DELETED. There is one KA warp path for every camera.
 - [ ] **Step 4: Run** the full Core suite plus `Aqua`/naming check (`run_tests` Core, all items). Expected: green. `grep -rn "CentralGenericModel\|NoncentralGenericModel\|SplineProjection\|nominal_intrinsics\|GenericModelWindow\|generic_lattice" VisualGeometryToolkitCore` returns CHANGELOG lines only.
 - [ ] **Step 5: Duplication gate.** Confirm there is exactly one LM, one window-evaluation path, one presence-mask rule and one batched kernel. Commit: `"VisualGeometryToolkitCore: the central grid is a CameraModel; CentralGenericModel, SplineProjection and nominal_intrinsics are gone"`.
 

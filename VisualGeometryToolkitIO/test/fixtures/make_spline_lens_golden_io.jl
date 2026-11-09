@@ -8,10 +8,7 @@ using StaticArrays
 using VisualGeometryToolkitCore: CentralGenericModel, NoncentralGenericModel, backproject, present_nodes
 using VisualGeometryToolkitIO: load
 
-lit(x::Real) = x isa Bool ? string(x) : repr(Float64(x))
-lit(A::AbstractArray) = (flat = "[" * join((lit(a) for a in A), ", ") * "]"; ndims(A) == 1 ? flat : "reshape($flat, $(join(size(A), ", ")))")
-lit(t::NamedTuple) = "(; " * join(("$k = $(lit(v))" for (k, v) in pairs(t)), ", ") * ")"
-col(vs) = reduce(hcat, (Float64.(collect(v)) for v in vs))
+include(joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitCore", "test", "fixtures", "golden_literals.jl"))   # lit, col
 
 # The fixture's own lattice: 17 × 17 over its calibrated area (x fastest), then 8 pixels beyond it.
 function lattice(m)

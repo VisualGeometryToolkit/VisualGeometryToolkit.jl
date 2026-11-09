@@ -1,16 +1,21 @@
 # =============================================================================
-# vgio/cameras/v4 — the camera store
+# vgio/cameras/v5 — the camera store
 # =============================================================================
 #
-# {"schema": "vgio/cameras/v4", "pixel_frame": "colmap",
+# {"schema": "vgio/cameras/v5", "pixel_frame": "colmap",
 #  "cameras": [{"name": "sony-fx3_tamron-20mm_f22", "width": 4240, "height": 2832,
 #               "K": {"fx": …, "fy": …, "cx": …, "cy": …, "skew": 0.0},
 #               "lens": {"perspective": [],
 #                        "add": [{"radial": [[k1, k2, k3], [k4, k5, k6]]},
 #                                {"tangential": [p1, p2]}, …]},
 #               "calibration": {"tool": …, "source": …, "date": "2026-01-19",
-#                               "reprojection_rms": 0.159, "n_images": 36}}],   (optional)
+#                               "reprojection_rms": 0.159, "n_images": 36},   (optional)
+#               "image_circle": {"ellipse": [cx, cy, a, b, θ]}}],               (optional; or {"circle": [cx, cy, r]})
 #  "provenance": {…}}                                               (optional)
+#
+# `image_circle` is the camera's LIT REGION (VGC's `lit_region`): where light reaches the sensor, in pixels in the
+# canonical frame — a Circle, or an Ellipse with its major semi-axis first. Absent, the whole sensor is lit. (v5;
+# a v4 store, which has none, reads through its migration with the whole sensor lit.)
 #
 # WHY THIS EXISTS, given COLMAP model directories already store cameras:
 # COLMAP's camera vocabulary is closed and smaller than VGC's lens families.
@@ -325,11 +330,31 @@ end
 
 const _StoredCamera = Union{BoundedCamera{<:CameraModel}, Attributed{<:BoundedCamera{<:CameraModel}, <:NamedTuple{(:calibration,)}}}
 
+# A camera's lit region (VisualGeometryToolkitCore's `lit_region`) as the store's optional `image_circle`, pixels in the
+# canonical frame: {"circle": [cx, cy, r]} or {"ellipse": [cx, cy, a, b, θ]} (VGC's `Ellipse` numbers, the major semi-axis
+# first). The whole sensor lit writes nothing; any other `Rect` is refused — only an image circle is stored.
+const _IMAGE_CIRCLE = _Obj(Pair{Symbol, _Spec}[], Pair{Symbol, _Spec}[:circle => _Vec(_Real(), 3), :ellipse => _Vec(_Real(), 5)])
+_image_circle_json(::VgioStyle, c::Circle, _, _) = (image_circle = (circle = Float64[c.center[1], c.center[2], c.r],),)
+_image_circle_json(s::VgioStyle, e::Ellipse, _, _) = (image_circle = (ellipse = JSON.lower(s, e),),)
+_image_circle_json(::VgioStyle, r::Rect2, ext::Size2, name) =
+    r == Rect2{Float64}(0, 0, ext.width, ext.height) ? (;) : throw(
+        ArgumentError(
+            "camera $(name): its lit region is a Rect other than the sensor's; only a Circle or an Ellipse is stored as an " *
+                "image circle (the whole sensor lit is stored as no image_circle)"
+        )
+    )
+_image_circle_from_json(::VgioStyle, ::Nothing) = nothing
+function _image_circle_from_json(s::VgioStyle, ic)
+    haskey(ic, :circle) && (v = Float64[Float64(x::Real) for x in ic.circle]; return Circle(Point2{Float64}(v[1], v[2]), v[3]))
+    return JSON.lift(s, Ellipse, ic.ellipse::Vector{Any})
+end
+
 const _CAMERAS_SPEC = _Checked(
     _Obj(
         Pair{Symbol, _Spec}[
             :schema => _schema_tok("cameras"), :pixel_frame => _PIXEL_FRAME,
-            :cameras => _Vec(_Obj(Pair{Symbol, _Spec}[:name => _NonEmpty(), _CAMERA_BODY_FIELDS...], Pair{Symbol, _Spec}[:calibration => _CALIBRATION, :pitch => _PITCH])),
+            :cameras => _Vec(_Obj(Pair{Symbol, _Spec}[:name => _NonEmpty(), _CAMERA_BODY_FIELDS...],
+                                  Pair{Symbol, _Spec}[:calibration => _CALIBRATION, :pitch => _PITCH, :image_circle => _IMAGE_CIRCLE])),
         ],
         Pair{Symbol, _Spec}[_PROVENANCE..., :length_unit => _LENGTH_UNIT],
     ),
@@ -337,6 +362,18 @@ const _CAMERAS_SPEC = _Checked(
         allunique(c[:name] for c in x[:cameras]) || return "camera names must be unique — they are the identity configs refer to"
         any(c -> haskey(c, :pitch), x[:cameras]) == haskey(x, :length_unit) ||
             return "`length_unit` is declared iff a camera carries a pitch"
+        for c in x[:cameras]
+            haskey(c, :image_circle) || continue
+            length(c[:image_circle]) == 1 || return "camera $(c[:name]): an image_circle is ONE of {\"circle\": [cx, cy, r]} or {\"ellipse\": [cx, cy, a, b, θ]}"
+            haskey(c[:image_circle], :circle) && !(c[:image_circle][:circle][3] > 0) && return "camera $(c[:name]): the image circle's radius is positive"
+            if haskey(c[:image_circle], :ellipse)
+                e = c[:image_circle][:ellipse]
+                (e[3] > 0 && e[4] > 0) || return "camera $(c[:name]): the image ellipse's semi-axes are positive; got a = $(e[3]), b = $(e[4])"
+                e[3] >= e[4] || return "camera $(c[:name]): the image ellipse is stored major semi-axis first (a ≥ b); got a = $(e[3]) < b = $(e[4])"
+            end
+            x[:pixel_frame] == pixel_frame_name(CANONICAL_PIXEL_FRAME) ||
+                return "camera $(c[:name]): an image_circle is stored in the canonical pixel frame ($(pixel_frame_name(CANONICAL_PIXEL_FRAME))); this store declares $(x[:pixel_frame])"
+        end
         return nothing
     end,
 )
@@ -346,7 +383,8 @@ _bounded(c::Attributed) = getfield(c, :value)
 
 function _camera_entry(s::VgioStyle, name::Symbol, c::_StoredCamera)
     bc = _bounded(c)
-    e = merge((name = String(name),), _with_pitch(_camera_body(s, bc.camera, bc.extent), sensor(bc), s.length_unit))
+    e = merge((name = String(name),), _with_pitch(_camera_body(s, bc.camera, extent(bc)), sensor(bc), s.length_unit),
+              _image_circle_json(s, lit_region(bc), extent(bc), name))
     return c isa Attributed ? merge(e, (calibration = _calibration_json(c.calibration),)) : e
 end
 
@@ -354,7 +392,7 @@ end
     save(path, cameras::AbstractDict{Symbol}; length_unit = mm, provenance = (;))
 
 Write a camera store — name → `BoundedCamera` of a `CameraModel`, or an
-`Attributed` one carrying its `calibration` block — as a `vgio/cameras/v4`
+`Attributed` one carrying its `calibration` block — as a `vgio/cameras/v5`
 file, cameras sorted by name. A camera bounded by its physical `Sensor`
 carries the sensor's `pitch` in `length_unit`, which the file then declares. `provenance` is the file's one free-form object,
 which VGIo never reads back.
@@ -388,7 +426,7 @@ end
 """
     load(Dict{Symbol, BoundedCamera}, path) -> Dict{Symbol, Union{BoundedCamera, Attributed{<:BoundedCamera}}}
 
-Read a `vgio/cameras/v4` store: name → `BoundedCamera` of a `CameraModel`
+Read a `vgio/cameras/v5` store: name → `BoundedCamera` of a `CameraModel`
 (its K moved from the file's declared pixel frame into the canonical one), an
 `Attributed` one where the file states the camera's `calibration` block. A
 v1, v2 or v3 store is read through its version steps (`migrate_record`).
@@ -399,7 +437,8 @@ function load(::Type{Dict{Symbol, BoundedCamera}}, path::AbstractString)
     out = Dict{Symbol, _StoredCamera}()
     for c in d.cameras::Vector{Any}
         ext = _extent_from_body(c)
-        bc = BoundedCamera(JSON.lift(s, CameraModel, c::_Record), haskey(c, :pitch) ? _bound_from_body(c, ext, parse_unit(d.length_unit::String)) : ext)
+        bc = BoundedCamera(JSON.lift(s, CameraModel, c::_Record), haskey(c, :pitch) ? _bound_from_body(c, ext, parse_unit(d.length_unit::String)) : ext;
+                           region = _image_circle_from_json(s, get(c, :image_circle, nothing)))
         out[Symbol(c.name::String)] = haskey(c, :calibration) ?
             Attributed(bc, (; calibration = _calibration_from_json(c.calibration::AbstractDict))) : bc
     end
@@ -410,7 +449,7 @@ end
     load(BoundedCamera, path; name = nothing) -> BoundedCamera
     load(CameraModel,  path; name = nothing) -> CameraModel
 
-Read ONE camera from a `vgio/cameras/v4` store — the bounded camera, or just
+Read ONE camera from a `vgio/cameras/v5` store — the bounded camera, or just
 its model (its `calibration` block, if any, is the store's to read). Without
 `name` the store must hold exactly one camera: a multi-camera store is
 REFUSED with the available names rather than defaulting to the first —
@@ -455,7 +494,7 @@ TWO LOSSES, both deliberate and both surfaced rather than papered over:
 function colmap_cameras(cameras::AbstractDict{Symbol})
     names = sort!(collect(keys(cameras)))
     cams = [
-        (bc = _bounded(cameras[n]); colmap_camera(bc.camera, i, bc.extent.width, bc.extent.height))
+        (bc = _bounded(cameras[n]); colmap_camera(bc.camera, i, extent(bc).width, extent(bc).height))
             for (i, n) in enumerate(names)
     ]
     return cams, Dict(n => i for (i, n) in enumerate(names))

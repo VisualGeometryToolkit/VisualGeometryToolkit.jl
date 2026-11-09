@@ -19,7 +19,7 @@ argument, because the value already carries it.
 
 | Kind | VGC value | Read | Write |
 |---|---|---|---|
-| `vgio/cameras/v4` (the camera store) | `Dict{Symbol, …}` of name → `BoundedCamera` of a `CameraModel` (unposed, like a COLMAP "camera"), or an `Attributed` one with its `(; calibration)` block | `load(Dict{Symbol, BoundedCamera}, path)`; one camera: `load(BoundedCamera, path; name)` or `load(CameraModel, path; name)` | `save(path, store)` |
+| `vgio/cameras/v5` (the camera store) | `Dict{Symbol, …}` of name → `BoundedCamera` of a `CameraModel` (unposed, like a COLMAP "camera"), or an `Attributed` one with its `(; calibration)` block | `load(Dict{Symbol, BoundedCamera}, path)`; one camera: `load(BoundedCamera, path; name)` or `load(CameraModel, path; name)` | `save(path, store)` |
 | `vgio/transforms/v4` | `Vector` of labeled `EuclideanMap{3, …, S, D}`, or `Uncertain` ones (mm) | `load(Vector{EuclideanMap}, path)` | `save(path, poses)` |
 | `vgio/rig/v8` | `Rig{F, M}` holding sensors (a tuple of `BoundedCamera`s), targets (a `Dict` of `PosedTarget`s), or both | `load(Rig, path; resolve)` | `save(path, rig)` |
 | `vgio/target/v5` | one `AbstractTarget` (`PointTarget`, `PlanarTarget` of any `TargetCalibration`, `Uncertain` or not, stated by its points, its reference or its layout), or an `Attributed` one with its `(; calibration_record)` | `load(AbstractTarget, path; resolve)`; a planar one: `load(PlanarTarget, path)` | `save(path, target)` |
@@ -264,7 +264,7 @@ julia> Tuple(extent(camera))
 julia> r = vgio_migrate(path);
 
 julia> (r.from, r.to, basename(r.out))
-("vgio/cameras/v1", "vgio/cameras/v4", "cameras.migrated.json")
+("vgio/cameras/v1", "vgio/cameras/v5", "cameras.migrated.json")
 
 julia> VgtkIO.load(BoundedCamera, r.out; name = :left) == camera
 true

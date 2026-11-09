@@ -1,5 +1,5 @@
 # =============================================================================
-# vgio/cameras/v4
+# vgio/cameras/v5 (the v4 store's tests: the body, the lens families, the pitch)
 # =============================================================================
 
 @testitem "vgio/cameras/v4" setup = [VGIoFixtures] begin
@@ -165,7 +165,7 @@
             @test refused(dd -> delete!(dd, :pixel_frame), "pixel_frame")
             @test refused(dd -> (dd[:cameras][1][:width] = 0), "width")
             @test refused(dd -> (dd[:cameras][1][:unit] = "px"), "unit")               # no key the table does not name
-            @test refused(dd -> (dd[:schema] = "vgio/cameras/v5"), "schema")                 # a version this reader does not know
+            @test refused(dd -> (dd[:schema] = "vgio/cameras/v6"), "schema")                 # a version this reader does not know
             # v3 is read through its migration (its lens "chain" → "compose", reversed): this record has no chain, so it reads as it is
             let dd = tomutable(d), q = joinpath(dir, "v3.json")
                 dd[:schema] = "vgio/cameras/v3"

@@ -172,7 +172,7 @@
                 @test relabeled("vgio/rig/v6") === nothing                                    # no layout: a v6 record as well
                 @test (name == "rig_targets") == (relabeled("vgio/rig/v4") !== nothing)     # a target's `calibration` was v4's `warp`
             elseif name == "cameras"
-                @test doc[:schema] == "vgio/cameras/v4"
+                @test doc[:schema] == "vgio/cameras/v5"
                 @test relabeled("vgio/cameras/v3") === nothing                                # no composed lens: a v3 record as well
                 @test occursin("vgio/cameras/v2 lens is", something(relabeled("vgio/cameras/v2"), ""))
                 @test occursin("vgio/camera/v1 record", something(relabeled(v1), ""))

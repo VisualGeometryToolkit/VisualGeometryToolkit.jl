@@ -210,7 +210,7 @@ const _POINT_INDEX_BASE = 1
 # target_points3d v2, target_detections v2. An earlier file reads through its
 # version step unchanged (its covariances are rows).
 const _SCHEMA_VERSION = Dict(
-    "cameras" => 4, "rig" => 8, "transforms" => 4, "trajectory" => 4, "generic_camera" => 3,
+    "cameras" => 5, "rig" => 8, "transforms" => 4, "trajectory" => 4, "generic_camera" => 3,
     "target" => 5, "target_poses" => 2, "target_points2d" => 2, "target_points3d" => 2,
     "target_homographies" => 1, "capture_settings" => 1, "target_detections" => 2, "calibration" => 1,
     "vignetting" => 1, "environment_light" => 1, "blur" => 1,   # 2026-11: a radiometric camera's fields, light and blurs

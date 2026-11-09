@@ -64,7 +64,7 @@ Convert a third-party OpenCV calibration export (`calibration_opencv_*.json`:
 image) into native files (cameras v4, transforms v3), where everything the export leaves implicit is
 declared. The original is never touched. Written to `out`:
 
-- `<stem>_cameras.json` — a `vgio/cameras/v4` store holding one camera named
+- `<stem>_cameras.json` — a `vgio/cameras/v5` store holding one camera named
   `<stem>`: `width`/`height` from `image_size`, `K` in the canonical pixel
   frame, and the lens record of `opencv_lens` for the export's distortion
   vector (the terms its length evaluates). The export's reprojection
@@ -291,7 +291,7 @@ julia> v1 = Dict("schema" => "vgio/cameras/v1", "cameras" => [Dict(
            "lens" => Dict("model" => "KannalaBrandt", "params" => [0.1, -0.02, 0.003, -0.0004]))]);
 
 julia> VgtkIO.migrate_record(v1)["schema"]
-"vgio/cameras/v4"
+"vgio/cameras/v5"
 ```
 """
 function migrate_record(tree::AbstractDict)
@@ -949,6 +949,14 @@ _rig_v6_to_v7(old) = (t = _map_rig_targets(b -> _layout_free_body(b, "a vgio/rig
 migrate_schema(::Val{Symbol("vgio/cameras/v1")}, t::AbstractDict) = _cameras_v1_to_v2(t)
 migrate_schema(::Val{Symbol("vgio/cameras/v2")}, t::AbstractDict) = _cameras_v2_to_v3(t)
 migrate_schema(::Val{Symbol("vgio/cameras/v3")}, t::AbstractDict) = _cameras_v3_to_v4(t)
+# vgio/cameras/v4 → v5: v5 adds the optional per-camera `image_circle` (a camera's lit region); a v4 store has none, so its
+# cameras read with the whole sensor lit. No number moves.
+function _cameras_v4_to_v5(old)
+    t = copy(old)
+    t["schema"] = "vgio/cameras/v5"
+    return t
+end
+migrate_schema(::Val{Symbol("vgio/cameras/v4")}, t::AbstractDict) = _cameras_v4_to_v5(t)
 migrate_schema(::Val{Symbol("vgio/target/v1")}, t::AbstractDict) = _target_v1_to_v2(t)
 migrate_schema(::Val{Symbol("vgio/target/v2")}, t::AbstractDict) = _target_v2_to_v3(t)
 migrate_schema(::Val{Symbol("vgio/target/v3")}, t::AbstractDict) = _target_v3_to_v4(t)
@@ -996,6 +1004,7 @@ _migrate_cameras(src, dst) = (_migrate_file(Dict{Symbol, BoundedCamera}, src, ds
 migrate_schema(::Val{Symbol("vgio/cameras/v1")}, src::AbstractString, dst::AbstractString) = _migrate_cameras(src, dst)
 migrate_schema(::Val{Symbol("vgio/cameras/v2")}, src::AbstractString, dst::AbstractString) = _migrate_cameras(src, dst)
 migrate_schema(::Val{Symbol("vgio/cameras/v3")}, src::AbstractString, dst::AbstractString) = _migrate_cameras(src, dst)
+migrate_schema(::Val{Symbol("vgio/cameras/v4")}, src::AbstractString, dst::AbstractString) = _migrate_cameras(src, dst)
 _migrate_target(src, dst) = (_migrate_file(AbstractTarget, src, dst, "the target record"); (; to = _schema("target")))
 migrate_schema(::Val{Symbol("vgio/target/v1")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
 migrate_schema(::Val{Symbol("vgio/target/v2")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)

@@ -115,7 +115,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     TARGET_CALIBRATION_ORDER, planar_kind, members, is_pure_bending, ThinPlateSplineSystem, iwasawa_parameters_with_jacobian, strip_or_bare,
     Trajectory, TargetPoses, TargetHomographies, HomographyMap, HomographyMat, PLANAR_MAP_TAGS, TargetPoints2D, TargetPoints3D, TargetPoint2D, TargetPoint3D,
     TargetDetections, Csponds, withattrs, sources, targets,
-    CentralGenericModel, NoncentralGenericModel, nominal_intrinsics, present_nodes, LogicalIntrinsics, Ellipse, WholePlane,
+    CentralGenericModel, NoncentralGenericModel, nominal_intrinsics, present_nodes, LogicalIntrinsics, Ellipse, WholePlane, Circle, Rect2, lit_region,
     Frame, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, UnlabeledFrame,
     Uncertain, CovMat, geom,
     Point2, FeatureFrame, Disc, OrientedDisc, EllipticFrame, AffineFrame, AbstractDetection,
@@ -135,7 +135,7 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 # transforms file errors instead of guessing, and the return type is what you
 # asked for. `save` needs no type argument; the value already carries it.
 #
-#   load(Dict{Symbol, BoundedCamera}, path)      vgio/cameras/v4     the camera store
+#   load(Dict{Symbol, BoundedCamera}, path)      vgio/cameras/v5     the camera store
 #   load(BoundedCamera | CameraModel, path; name = nothing)          one of its cameras (multi refused unnamed)
 #   load(Vector{EuclideanMap}, path)             vgio/transforms/v4  labeled poses
 #   load(Rig, path; resolve = nothing)           vgio/rig/v8         sensors, targets, or both

@@ -5,7 +5,7 @@
 # {"schema": "vgio/calibration/v1",
 #  "kind": "metric" | "projective" | "image",
 #  "model": {CameraModelSpec table},                                  (optional)
-#  "files": [{"path": "camera.json", "sha256": "<hex>", "kind": "vgio/cameras/v4",
+#  "files": [{"path": "camera.json", "sha256": "<hex>", "kind": "vgio/cameras/v5",
 #             "role": "authority", "derived_from": []},
 #            {"path": "target_poses.json", "sha256": "<hex>", "kind": "vgio/target_poses/v2",
 #             "role": "derived", "derived_from": ["trajectory_1.json", "targets_1.json"]}, …],

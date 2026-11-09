@@ -122,7 +122,7 @@ end
             "intrinsics" => Dict{String, Any}("unit" => "px", "fx" => 50.0, "fy" => 50.0, "cx" => 50.0, "cy" => 40.0, "skew" => 0.0),
             "lens" => Dict{String, Any}("model" => model, "params" => Any[params...]))
         t = VgtkIO.migrate_record(Dict{String, Any}("schema" => "vgio/cameras/v1", "cameras" => Any[cam]))
-        @test t["schema"] == "vgio/cameras/v4"
+        @test t["schema"] == "vgio/cameras/v5"
         return lens_from_record(t["cameras"][1]["lens"])
     end
     X = Vec3(0.3, -0.2, 1.0)

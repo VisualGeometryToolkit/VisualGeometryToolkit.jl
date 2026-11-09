@@ -344,7 +344,7 @@ end
 # the resolution the extent. Checked against Kalibr's equidistant projection written out (OpenCV's fisheye model) in OpenCV pixels.
 @testitem "Kalibr camchain (load_kalibr_camchain)" begin
     using VisualGeometryToolkitIO: load_kalibr_camchain
-    using VisualGeometryToolkitCore: BoundedCamera, Lens, Equidistant, Radial, DoubleSphere, PixelFrame, project
+    using VisualGeometryToolkitCore: BoundedCamera, Lens, Equidistant, Radial, DoubleSphere, PixelFrame, project, extent
     using StaticArrays
     k = [-0.0137, 0.0021, -0.0009, 0.00012]
     yml = """
@@ -372,7 +372,7 @@ end
     mktempdir() do dir
         p = joinpath(dir, "camchain.yaml"); write(p, yml)
         c0 = load_kalibr_camchain(p)
-        @test c0 isa BoundedCamera && (c0.extent.width, c0.extent.height) == (5208, 3476)
+        @test c0 isa BoundedCamera && (extent(c0).width, extent(c0).height) == (5208, 3476)
         K = c0.camera.intrinsics.K
         @test (K[1, 1], K[2, 2]) == (931.8, 932.4)
         @test K[1, 3] ≈ 2603.7 atol = 1.0e-12
@@ -384,7 +384,7 @@ end
             @test project(c0.camera, X) ≈ u_cv .+ 0.5 atol = 1.0e-9                               # COLMAP = OpenCV + ½
         end
         c1 = load_kalibr_camchain(p; camera = "cam1")
-        @test c1.camera.lens === Lens(DoubleSphere(-0.2, 0.59)) && (c1.extent.width, c1.extent.height) == (640, 480)
+        @test c1.camera.lens === Lens(DoubleSphere(-0.2, 0.59)) && (extent(c1).width, extent(c1).height) == (640, 480)
         c1c = load_kalibr_camchain(PixelFrame{:colmap}, p; camera = "cam1")        # a file in COLMAP's frame: no shift
         @test c1c.camera.intrinsics.K[1, 3] == 320.0 && c1.camera.intrinsics.K[1, 3] == 320.5
         @test_throws ArgumentError load_kalibr_camchain(p; camera = "cam2")

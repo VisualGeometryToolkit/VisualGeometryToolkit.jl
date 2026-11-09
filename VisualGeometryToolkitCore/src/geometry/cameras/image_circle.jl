@@ -13,8 +13,9 @@
 #   1318 px).
 # - `image_circle(camera, sensor, diameter)`: where light falls, from a lens
 #   datasheet's diameter through the sensor's pixel pitch (or a measured
-#   circle the caller supplies). `imaged_region(camera, circle)` intersects a
-#   supplied circle with the extent.
+#   circle the caller supplies), stored on a bounded camera as its `lit_region`.
+#   `imaged_region(camera)` intersects the extent, the lit region and the valid
+#   domain.
 #
 # The region algebra (`∩`, the reverse containment `Rect ∈ Ellipse`) is the
 # primitives' (primitives/regions.jl, primitives/containment.jl); nothing
@@ -36,7 +37,7 @@ This is a property of the formula, **not where light falls on the sensor**: a
 fitted lens's fold can lie well outside the lit disc, or inside the extent where
 the sensor is dark. Where light falls is the lens's
 [`image_circle`](@ref)`(camera, sensor, diameter)` from its datasheet, or a
-measured circle; [`imaged_region`](@ref)`(camera, circle)` takes either.
+measured circle; a bounded camera holds either as its [`lit_region`](@ref).
 
 For a lens that is not radially symmetric — a composed distortion (`∘`) with
 a tilt stage, tangential or thin-prism terms — `ρ` is the smallest image radius of the
@@ -95,7 +96,7 @@ is not a length. A [`BoundedCamera`](@ref) bounded by its physical
 The image circle is never predicted from the lens model: where the model's
 formula is valid is [`valid_domain`](@ref), a different region. A measured
 circle (an `Ellipse` segmented from images) serves wherever this one does.
-Where the camera images is [`imaged_region`](@ref)`(camera, circle)`.
+Where the camera images is [`imaged_region`](@ref)`(camera)`.
 
 ```julia
 cam = BoundedCamera(CameraModel(K; lens = KannalaBrandt(-0.135)), sensor("Sony", "IMX250"))
@@ -174,24 +175,24 @@ function _inscribed_radius(l::AbstractLensModel, θ::Float64)
 end
 
 """
-    imaged_region(camera::BoundedCamera, circle) -> Union{RegionIntersection, Rect}
+    imaged_region(camera::BoundedCamera) -> region
 
-The region of the sensor the camera images, in pixels in its pixel frame:
-`Rect(extent(camera)) ∩ circle` — the one place the extent and the image circle
-are combined. The image circle is SUPPLIED: a datasheet's
-[`image_circle`](@ref)`(camera, diameter)` or a measured one (any region, e.g.
-an `Ellipse` segmented from images). There is no form that predicts it from the
-lens: the lens model's [`valid_domain`](@ref) says where its formula holds, not
-where light falls.
+The region of the sensor the camera images, in pixels in its pixel frame: the
+sensor `Rect(extent(camera))` ∩ its [`lit_region`](@ref) (where light reaches
+the sensor: the lens's image circle, measured or from a datasheet's
+[`image_circle`](@ref), or the whole sensor) ∩ the [`valid_domain`](@ref) of
+its model (where the lens formula holds, or where a grid model is defined).
+The one place the three are combined, so a consumer asks the camera and never
+carries an image circle of its own. A lit region larger than the sensor, or
+cut by it, is clipped to the sensor.
 
-A lazy [`RegionIntersection`](@ref VisualGeometryToolkitCore.Primitives.RegionIntersection)
-of the extent and the circle, or the extent's `Rect` itself when the circle is
-the [`WholePlane`](@ref VisualGeometryToolkitCore.Primitives.WholePlane) (`∩`
-returns it). The pixel mask of any residual is `u ∈ imaged_region(camera, circle)`;
-the free parameters of a local model are
-[`free_nodes`](@ref)`(model, imaged_region(camera, circle))`.
+A lazy [`RegionIntersection`](@ref VisualGeometryToolkitCore.Primitives.RegionIntersection),
+or the sensor's `Rect` itself when the whole sensor is lit and the model has no
+limit (`∩` returns it). The pixel mask of any residual is
+`u ∈ imaged_region(camera)`; the free parameters of a local model are
+[`free_nodes`](@ref)`(model, imaged_region(camera))`.
 """
-imaged_region(camera::BoundedCamera, circle) = Rect(0, 0, extent(camera)...) ∩ circle
+imaged_region(bc::BoundedCamera) = (Rect(0, 0, extent(bc)...) ∩ lit_region(bc)) ∩ valid_domain(model(bc))
 
 """
     pixel_mask(region, width, height) -> BitMatrix
@@ -203,7 +204,7 @@ layout: `mask[v, u]` is pixel `(u, v)`, whose centre is the COLMAP point `(u −
 [`pixel_centres`](@ref) shares, made in one place.
 
 ```julia
-region = imaged_region(camera, circle)        # the sensor ∩ a supplied image circle (a datasheet's, or a measured Ellipse)
+region = imaged_region(camera)                # the sensor ∩ its lit region ∩ where its lens model is valid
 mask = pixel_mask(region, width, height)      # the pixels the camera images
 ```
 """

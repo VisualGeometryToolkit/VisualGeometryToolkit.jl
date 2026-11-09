@@ -453,9 +453,9 @@ is the `Sensor`, or `nothing` for the extent form. The bound is ONE field,
 
 # The lit region
 `BoundedCamera(camera, bound; region)` — where light reaches the sensor, in
-pixels: a `Circle` or an `Ellipse` (the lens's image circle, measured with
-a detector or from a datasheet), or a `Rect2`; any real element type,
-converted to `Float64`. Omitted, it is the sensor's own `Rect`: the whole
+pixels: a `Circle` or an `Ellipse` (the lens's image circle, measured with a
+detector or from a datasheet), or a `Rect2`; any real element type, converted
+to `Float64`, and kept as the kind given. Omitted, it is the sensor's own `Rect`: the whole
 sensor is lit. [`lit_region`](@ref)`(bc)` reads it, [`with_lit_region`](@ref)
 replaces it. What the camera images is [`imaged_region`](@ref)`(bc)`: the
 sensor ∩ the lit region ∩ where the lens model is valid.
@@ -508,7 +508,8 @@ _extent(s::Sensor) = (r = Rect(s); Size2(Int(r.widths[1]), Int(r.widths[2])))
 _sensor(::Size2{Int}) = nothing
 _sensor(s::Sensor) = s
 
-# The lit region: a geometric primitive in Float64 pixels; `nothing` is the whole sensor.
+# The lit region: a geometric primitive in Float64 pixels, kept as the kind given (a Circle stays a Circle: `∩` meets it as
+# its round Ellipse); `nothing` is the whole sensor.
 _lit_region(::Nothing, e::Size2{Int}) = Rect2{Float64}(0, 0, e.width, e.height)
 _lit_region(r::Rect2, _) = Rect2{Float64}(r)
 _lit_region(c::Circle, _) = Circle{Float64}(Point2{Float64}(c.center), Float64(c.r))
@@ -534,7 +535,8 @@ sensor(bc::BoundedCamera) = _sensor(bc.bound)
 
 Where light reaches the camera's sensor, in its pixels: the lens's image circle
 (a `Circle` or an `Ellipse`, measured or from a datasheet), or the sensor's own
-`Rect` when the whole sensor is lit. Not where the lens MODEL is valid — that is
+`Rect` when the whole sensor is lit — the kind it was given, in `Float64`. Not
+where the lens MODEL is valid — that is
 [`valid_domain`](@ref); what the camera images is both, inside the sensor:
 [`imaged_region`](@ref)`(camera)`.
 """
@@ -1107,7 +1109,7 @@ export rectify                            # stereo rectification: rectified pinh
 export view_angle_limit                   # honest θ-domains
 export valid_domain                       # where the lens MODEL is valid, not where light falls
 export image_circle                       # the lit region of the sensor, from a datasheet through the pitch
-export imaged_region                      # Rect(extent) ∩ a supplied image circle: what the camera images
+export imaged_region                      # Rect(extent) ∩ the camera's lit region ∩ its valid domain: what a bounded camera images
 export view_overlap                       # the solid angle every pair of a rotating camera's frames share (view_overlap.jl)
 export OrientedCamera                     # a PosedCamera posed by a RotationMap: a camera turning about its centre
 export pixel_mask                         # the pixels whose centres lie in a region (COLMAP centres, Julia layout)

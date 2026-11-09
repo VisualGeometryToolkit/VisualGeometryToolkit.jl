@@ -124,9 +124,9 @@ quasi-interpolated start or an optimizer stepping in each control's tangent
 plane has controls off the sphere. `nominal` is a pinhole
 `LogicalIntrinsics` the model reports with (the parametric camera it was
 built from; [`nominal_intrinsics`](@ref)) — projection never reads it.
-`domain` is the region of the sensor (pixels) the camera images — a supplied
+`domain` is the region of the sensor (pixels) where the grid is defined — a supplied
 image circle (a datasheet's [`image_circle`](@ref) or a measured one), or the
-`WholePlane()`; [`imaged_region`](@ref)`(m)` is the calibrated area ∩ `domain`.
+`WholePlane()`; [`valid_domain`](@ref)`(m)` is the calibrated area ∩ `domain`.
 
 `present` says which nodes the model holds: `nothing` (the default) for every
 node, or a `Bool` matrix of the grid's size (`[gy, gx]`, `true` = present). An
@@ -134,7 +134,7 @@ absent node's control is never read, and its value is not meaningful. The
 model evaluates a pixel only when every node of its 4×4 window is present
 ([`in_present_domain`](@ref)); elsewhere it answers as outside the calibrated
 area (`backproject` and the raw splines are NaN, `project` is `nothing`). The mask a fit over the imaged region takes is the footprint rule,
-[`node_mask`](@ref)`(m, imaged_region(m))`: every pixel of the region then
+[`node_mask`](@ref)`(m, valid_domain(m))`: every pixel of the region then
 reads present nodes only. An all-true mask is stored as `nothing`;
 [`present_nodes`](@ref) returns the mask.
 
@@ -161,7 +161,7 @@ The grid may be any matrix of `Vec3{T}` (a device array inside a kernel,
 through `Adapt`); `T` is the float type of the controls. `Adapt` carries the
 `domain` to the device only when it is an isbits region; any other (a mask,
 a region holding arrays) is replaced by `WholePlane()` on the device copy —
-the domain is a host-side bookkeeping region (node supports, `imaged_region`),
+the domain is a host-side bookkeeping region (node supports, `valid_domain`),
 which no device evaluation reads.
 """
 struct CentralGenericModel{T <: AbstractFloat, G <: AbstractMatrix{Vec3{T}}, I, D, P <: Union{Nothing, AbstractMatrix{Bool}}} <: AbstractCamera
@@ -316,8 +316,8 @@ _rebuild(m::NoncentralGenericModel; directions = m.directions, points = m.points
 """
     with_domain(m, domain) -> model
 
-The generic grid model `m` with `domain` as the region of the sensor it images
-(an image circle, or `WholePlane()`; see [`imaged_region`](@ref)), every other
+The generic grid model `m` with `domain` as the region of the sensor where it is defined
+(an image circle, or `WholePlane()`; see [`valid_domain`](@ref)), every other
 part kept.
 """
 with_domain(m::_GenericModel, domain) = _rebuild(m; domain)
@@ -379,15 +379,18 @@ central_model(m::NoncentralGenericModel) =
                         unit_controls = false, m.nominal, m.domain, m.present)
 
 """
-    imaged_region(m::Union{CentralGenericModel, NoncentralGenericModel}) -> region
+    valid_domain(m::Union{CentralGenericModel, NoncentralGenericModel}) -> region
 
-The region of the sensor a generic grid model images, in pixels: its
-calibrated area (the closed rectangle `[min, max + 1]`) ∩ its `domain`
-(`WholePlane()` unless the model was built with a `domain`, or from a generic
-model that had one).
-`free_nodes(m, imaged_region(m))` are the nodes that can reach an imaged pixel.
+Where a generic grid model is defined, in pixels: its calibrated area (the
+closed rectangle `[min, max + 1]`) ∩ its `domain` (`WholePlane()` unless the
+model was built with a `domain`, or from a generic model that had one) — the
+grid's answer to a parametric lens's [`valid_domain`](@ref) (where its formula
+holds). Where a camera with this model IMAGES is
+[`imaged_region`](@ref)`(BoundedCamera(m, extent; region))`, which also
+intersects where light falls. `free_nodes(m, valid_domain(m))` are the nodes
+that can reach a pixel where the grid is defined.
 """
-imaged_region(m::_GenericModel) = _calibrated_rect(m) ∩ m.domain
+valid_domain(m::_GenericModel) = _calibrated_rect(m) ∩ m.domain
 
 """
     in_present_domain(m, pixel) -> Bool
@@ -396,8 +399,8 @@ Whether a generic grid model evaluates `pixel` (COLMAP frame): inside the
 calibrated area, with every node of the pixel's 4×4 window present
 ([`present_nodes`](@ref)). Where it is `false`, `backproject` is NaN and
 `project` gives no pixel. For a model with every node present it is the
-calibrated area; under the footprint mask `node_mask(m, imaged_region(m))` it
-holds on all of `imaged_region(m)`.
+calibrated area; under the footprint mask `node_mask(m, valid_domain(m))` it
+holds on all of `valid_domain(m)`.
 """
 function in_present_domain(m::_GenericModel, pixel)
     x, y = float(pixel[1]), float(pixel[2])

@@ -27,8 +27,8 @@ const _FAR_ARC_CHORD = deg2rad(10)
 const _MAX_EDGE_PIECES = 64
 
 """
-    view_overlap(cameras, [circles]; boundary_points = 512) -> StructVector
-    view_overlap(a, b, [circle_a, [circle_b = circle_a]]; boundary_points = 512) -> NamedTuple
+    view_overlap(cameras; boundary_points = 512) -> StructVector
+    view_overlap(a, b; boundary_points = 512) -> NamedTuple
 
 The directions two frames of a camera turning about its centre both image,
 for every pair `i < j` of `cameras`: one row
@@ -49,13 +49,11 @@ Frames may have different cameras. A camera posed by an [`EuclideanMap`](@ref) h
 position, and an unposed one no orientation: both are an `ArgumentError`
 naming the fix. Frame `k`'s footprint is the set of directions
 `R_k · backproject(model, u)` over its region Ω_k,
-`imaged_region(camera, circle) ∩ valid_domain(camera)`: the sensor ∩ the
-image circle ∩ where the lens model is valid ([`valid_domain`](@ref)). The
-image circle is supplied, as for [`imaged_region`](@ref) (a datasheet's
-[`image_circle`](@ref), a measured `Ellipse`), one for every frame or one per
-frame (the pair form's one circle bounds both). Without one the footprint is the extent where the lens model holds,
-which is not where light falls for a lens whose image circle lies inside the
-sensor.
+[`imaged_region`](@ref)`(camera)`: the sensor ∩ the camera's lit region (its
+image circle, [`lit_region`](@ref)) ∩ where the lens model is valid
+([`valid_domain`](@ref)). Each frame carries its own lit region; a camera
+whose whole sensor is lit gives the extent where the lens model holds, which is
+not where light falls for a lens whose image circle lies inside the sensor.
 
 The pair `(i, j)` is computed once, in frame `i`'s image:
 
@@ -111,29 +109,23 @@ bounding caps about the optical axes are disjoint is 0 without clipping.
 
 ```julia
 cam = CameraModel(K; lens = KannalaBrandt(-0.135))
-frame(R) = BoundedCamera(PosedCamera(cam, relabel(CameraFrame, WorldFrame, RotationMap(R))), sensor("Sony", "IMX250"))
+bare(R) = BoundedCamera(PosedCamera(cam, relabel(CameraFrame, WorldFrame, RotationMap(R))), sensor("Sony", "IMX250"))
+frame(R) = (b = bare(R); with_lit_region(b, image_circle(b, 6.0mm)))   # its lit region: the datasheet's 6 mm circle
 frames = [frame(RotY(2π * k / 11)) for k in 0:10]   # 11 frames about the vertical axis
-rows = view_overlap(frames, image_circle(frames[1], 6.0mm))
+rows = view_overlap(frames)
 rows[1].fraction_i                                # the share of frame 1's view frame 2 sees
 ```
 """
-function view_overlap(
-        cameras::AbstractVector{<:BoundedCamera}, circles::AbstractVector;
-        boundary_points::Integer = 512,
-    )
+function view_overlap(cameras::AbstractVector{<:BoundedCamera}; boundary_points::Integer = 512)
     K = length(cameras)
-    length(circles) == K || throw(ArgumentError("view_overlap: $(length(circles)) image circles for $K cameras; supply one circle, or one per frame"))
     n = Int(boundary_points)
     n >= 16 || throw(ArgumentError("view_overlap: boundary_points = $n; at least 16 samples a boundary"))
-    footprints = [_footprint(cameras[k], circles[k], n) for k in 1:K]
+    footprints = [_footprint(cameras[k], n) for k in 1:K]
     rows = [_overlap_row(footprints[i], footprints[j], i, j) for i in 1:K for j in (i + 1):K]
     return StructArray(isempty(rows) ? _OverlapRow[] : rows)
 end
-view_overlap(cameras::AbstractVector{<:BoundedCamera}, circle = WholePlane(); kwargs...) =
-    view_overlap(cameras, fill(circle, length(cameras)); kwargs...)
-# One circle supplied bounds both frames, as the vector form's one circle bounds every frame.
-view_overlap(a::BoundedCamera, b::BoundedCamera, circle_a = WholePlane(), circle_b = circle_a; boundary_points::Integer = 512) =
-    only(view_overlap([a, b], [circle_a, circle_b]; boundary_points))
+view_overlap(a::BoundedCamera, b::BoundedCamera; boundary_points::Integer = 512) =
+    only(view_overlap([a, b]; boundary_points))
 
 const _OverlapRow = @NamedTuple{i::Int, j::Int, solid_angle::Float64, fraction_i::Float64, fraction_j::Float64}
 
@@ -166,7 +158,7 @@ struct _Footprint{M, G}
     far::Float64
 end
 
-function _footprint(camera::BoundedCamera, circle, n::Int)
+function _footprint(camera::BoundedCamera, n::Int)
     R = _orientation(camera.camera)
     m = model(camera)
     m isa CameraModel || throw(
@@ -175,7 +167,7 @@ function _footprint(camera::BoundedCamera, circle, n::Int)
                 "footprint); got $(nameof(typeof(m))) — resample a grid model's parametric source, or pose a CameraModel"
         )
     )
-    region = imaged_region(camera, circle) ∩ valid_domain(camera)
+    region = imaged_region(camera)
     ring = _region_ring(region, n)
     length(ring) >= 3 || throw(ArgumentError("view_overlap: the camera's imaged region is empty"))
     c = SVector{2, Float64}(_principal_point(m))

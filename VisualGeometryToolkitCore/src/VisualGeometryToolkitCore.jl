@@ -328,7 +328,7 @@ export rectify             # stereo rectification (rig types + fused warp)
 export view_angle_limit  # the honest θ-domain of a lens
 export valid_domain      # where the lens MODEL is valid (its view-angle limit's image), not where light falls
 export image_circle      # the lit region of the sensor, from a datasheet through the pitch
-export imaged_region     # Rect(extent) ∩ a supplied image circle: what a bounded camera images
+export imaged_region     # Rect(extent) ∩ the camera's lit region ∩ its valid domain: what a bounded camera images
 export view_overlap      # the solid angle every pair of a rotating camera's frames share, and its fraction of each footprint (cameras/view_overlap.jl)
 export RotationMap, OrientedCamera   # a rotation-only pose, and a camera posed by one (transforms/rotation_map.jl, cameras/cameras.jl)
 export pixel_mask        # the pixels whose centres lie in a region (COLMAP centres, Julia's array layout)

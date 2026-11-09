@@ -44,7 +44,8 @@
         # the image circle is never predicted from the lens: no one-argument form
         @test !hasmethod(image_circle, Tuple{CameraModel})
         @test !hasmethod(image_circle, Tuple{BoundedCamera})
-        @test !hasmethod(imaged_region, Tuple{BoundedCamera})
+        # nor through the bounded camera: its lit region defaults to the whole sensor, never to the lens's valid domain
+        @test lit_region(BoundedCamera(c, imx250)) == Rect2{Float64}(0, 0, extent(BoundedCamera(c, imx250))...) != q
     end
 
     @testset "anisotropic K: the ellipse with semi-axes fx·ρ, fy·ρ" begin

@@ -1,5 +1,5 @@
 # A grid model's presence mask: the nodes it holds. Under the footprint rule
-# `node_mask(m, imaged_region(m))` every imaged pixel reads present nodes only,
+# `node_mask(m, valid_domain(m))` every imaged pixel reads present nodes only,
 # so the masked model evaluates the region bit for bit as the full one, and
 # outside the complete-window domain it answers as outside the calibrated area.
 @testitem "generic_present_nodes" begin
@@ -17,23 +17,23 @@
     full(domain) = CentralGenericModel(fish, (W, H); grid_size = (24, 19), init = :quasi_interpolate, domain)
     masked(m; grid = m.grid) = CentralGenericModel(W, H, m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y, grid;
                                                    unit_controls = false, m.nominal, m.domain,
-                                                   present = node_mask(m, imaged_region(m)))
+                                                   present = node_mask(m, valid_domain(m)))
     pixels = [SVector(x, y) for x in 0.25:9.5:(W - 0.25), y in 0.25:9.5:(H - 0.25)]
     # absent slots set to NaN: any read of one shows in the result
-    nan_absent(m) = (g = copy(m.grid); g[.!node_mask(m, imaged_region(m))] .= Ref(Vec3{Float64}(NaN, NaN, NaN)); g)
+    nan_absent(m) = (g = copy(m.grid); g[.!node_mask(m, valid_domain(m))] .= Ref(Vec3{Float64}(NaN, NaN, NaN)); g)
 
     @testset "footprint presence: a disc, an ellipse cut by the frame, the whole plane" begin
         for (dom, some_absent) in ((disc, true), (cut, true), (WholePlane(), false))
             m = full(dom)
             mm = masked(m)
             P = present_nodes(mm)
-            @test size(P) == size(m.grid) && P == node_mask(m, imaged_region(m))
+            @test size(P) == size(m.grid) && P == node_mask(m, valid_domain(m))
             @test any(.!P) == some_absent
             @test (mm.present === nothing) == !some_absent        # every node present is stored as `nothing`
             # every imaged pixel reads present nodes only: the masked model evaluates it bit for bit, even with NaN in the
             # absent slots
             mn = masked(m; grid = nan_absent(m))
-            R = imaged_region(m)
+            R = valid_domain(m)
             inside = filter(p -> Point2(p...) ∈ R, pixels)
             @test !isempty(inside)
             @test all(p -> in_present_domain(mn, p), inside)

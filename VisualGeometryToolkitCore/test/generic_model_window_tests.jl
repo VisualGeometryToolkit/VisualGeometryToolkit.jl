@@ -168,13 +168,13 @@
         @test NoncentralGenericModel(fish, (W, H); grid_size = (20, 16)).domain === WholePlane()
         qk = CentralGenericModel(fish, (W, H); grid_size = (20, 16), init = :quasi_interpolate, domain = circ)
         @test all(v -> all(isfinite, v), qk.grid)
-        @test qk.domain == circ && imaged_region(qk) isa RegionIntersection
+        @test qk.domain == circ && valid_domain(qk) isa RegionIntersection
         @test CentralGenericModel(qk, (W, H); grid_size = (20, 16), init = :quasi_interpolate).domain == circ   # a generic source carries it over
         lit = [p for p in inside if norm(p - SVector(320.0, 240.0)) < 0.7 * circ.a]
         @test length(lit) > 200
         errs = [acos(min(1.0, dot(backproject(qk, p), backproject(fish, p)))) for p in lit]
         @test maximum(errs) < 2e-2 && median(errs) < 2e-3                             # measured 1.6e-2 / 9.4e-4
-        @test 0 < length(free_nodes(qk, imaged_region(qk))) < 20 * 16
+        @test 0 < length(free_nodes(qk, valid_domain(qk))) < 20 * 16
         # a source that images nothing on a node's way to the centre: an ArgumentError naming it
         @test_throws ArgumentError CentralGenericModel(p -> nothing, (W, H); grid_size = (gw, gh), init = :quasi_interpolate)
         # the parametric-only modes refuse a function source

@@ -7,13 +7,16 @@
 @testsetup module ViewOverlapSetup
     using StaticArrays, LinearAlgebra
     using VisualGeometryToolkitCore
-    export camera, oriented, frames, footprint, cap, cap_overlap, quad, spherical_clip, fan
+    export camera, oriented, frames, lit, lits, footprint, cap, cap_overlap, quad, spherical_clip, fan
 
     camera(f, cx, cy, lens, w, h) =
         BoundedCamera(CameraModel(CameraCalibrationMat(@SMatrix [f 0.0 cx; 0.0 f cy; 0.0 0.0 1.0]); lens), Size2(w, h))
     # a frame of the camera, oriented by its camera → world rotation R
     oriented(cam, R) = BoundedCamera(PosedCamera(model(cam), relabel(CameraFrame, WorldFrame, RotationMap(R))), extent(cam))
     frames(cam, Rs) = [oriented(cam, R) for R in Rs]
+    # a frame with its lit region (the image circle it carries; `nothing` for the whole sensor)
+    lit(c, r) = with_lit_region(c, r)
+    lits(cs, r) = [with_lit_region(c, r) for c in cs]
     # a row's frame-i footprint: the shared angle over its share
     footprint(row) = row.solid_angle / row.fraction_i
 
@@ -94,13 +97,13 @@ end
     disc = Circle(Point2(1000.0, 1000.0), 500α)
     a, b = oriented(eq, one(RotMatrix{3, Float64})), oriented(eq, RotMatrix(RotY(γ)))
     errors = map((64, 128, 256, 512, 1024)) do n
-        row = view_overlap(a, b, disc, disc; boundary_points = n)
+        row = view_overlap(lit(a, disc), lit(b, disc); boundary_points = n)
         @test (row.i, row.j) == (1, 2)
         @test row.fraction_i ≈ row.fraction_j        # equal footprints
         (footprint(row) - cap(α), row.solid_angle - cap_overlap(α, α, γ))
     end
     # the pair form's one circle bounds both frames, as the vector form's one circle bounds every frame
-    @test view_overlap(a, b, disc) == view_overlap(a, b, disc, disc) == only(view_overlap([a, b], disc))
+    @test view_overlap(lit(a, disc), lit(b, disc)) == only(view_overlap([lit(a, disc), lit(b, disc)]))
     # the chords' sag: 1.6e-5 sr of the 0.77 sr cap and 1.0e-5 of the 0.40 sr overlap at 512 …
     @test abs(errors[4][1]) < 2.0e-5 && abs(errors[4][2]) < 1.2e-5
     # … converging as O(1/n²): a quarter per doubling
@@ -110,7 +113,7 @@ end
     # a 190° fisheye: footprints past a hemisphere, side by side and back to back
     wide = camera(300.0, 550.0, 550.0, Lens(Equidistant()), 1100, 1100)
     θ = deg2rad(95)
-    rows = view_overlap(frames(wide, [RotMatrix(RotY(ψ)) for ψ in (0.0, π / 2, π)]), Circle(Point2(550.0, 550.0), 300θ))
+    rows = view_overlap(lits(frames(wide, [RotMatrix(RotY(ψ)) for ψ in (0.0, π / 2, π)]), Circle(Point2(550.0, 550.0), 300θ)))
     @test length(rows) == 3 && rows.i == [1, 1, 2] && rows.j == [2, 3, 3]
     @test footprint(rows[1]) ≈ cap(θ) rtol = 2.0e-6          # 6.83 sr, more than 2π
     @test rows[1].solid_angle ≈ cap_overlap(θ, θ, π / 2) rtol = 2.0e-6
@@ -159,7 +162,7 @@ end
     # |∂f/∂u × ∂f/∂v| from backproject_with_jacobian
     function counted(cam, circle, Ri, Rj)
         W, H = Tuple(extent(cam))
-        region = imaged_region(cam, circle) ∩ valid_domain(cam)
+        region = imaged_region(with_lit_region(cam, circle))
         mask = Float64.(pixel_mask(region, W, H))
         math = ToPixel(model(cam)) ∘ LinearMap(SMatrix{3, 3, Float64}(Rj' * Ri)) ∘ Backprojection(model(cam))
         seen = image_warp!(zeros(H, W), image_warp(math, Rect(0, 0, W, H)), mask; fillvalue = 0.0)
@@ -179,7 +182,7 @@ end
     kb = camera(320.0, 400.0, 400.0, KannalaBrandt(-0.02), 800, 800)
     disc = Circle(Point2(400.0, 400.0), 380.0)
     R = RotMatrix(RotXYZ(0.3, 1.1, 0.2))
-    row = view_overlap(oriented(kb, R0), oriented(kb, R), disc, disc)
+    row = view_overlap(lit(oriented(kb, R0), disc), lit(oriented(kb, R), disc))
     total, shared = counted(kb, disc, R0, R)
     @test footprint(row) ≈ total rtol = 2.0e-4
     @test row.solid_angle ≈ shared rtol = 2.0e-3
@@ -188,7 +191,7 @@ end
     dc = camera(600.0, 410.0, 300.0, dl, 800, 600)
     R = RotMatrix(RotXYZ(0.2, 0.5, -0.4))
     row = view_overlap(oriented(dc, R0), oriented(dc, R))
-    total, shared = counted(dc, WholePlane(), R0, R)
+    total, shared = counted(dc, nothing, R0, R)
     @test footprint(row) ≈ total rtol = 2.0e-4
     @test row.solid_angle ≈ shared rtol = 2.0e-3
     # a fisheye that sees behind a narrow perspective frame (its footprint holds
@@ -197,11 +200,11 @@ end
     wide = camera(300.0, 550.0, 550.0, Lens(Equidistant()), 1100, 1100)
     c190 = Circle(Point2(550.0, 550.0), 300 * deg2rad(95))
     Rp = RotMatrix(RotXYZ(0.0, 2.0, 0.0))
-    o = view_overlap(oriented(pin, Rp), oriented(wide, R0), WholePlane(), c190)
-    p = view_overlap(oriented(wide, R0), oriented(pin, Rp), c190, WholePlane())
+    o = view_overlap(oriented(pin, Rp), lit(oriented(wide, R0), c190))
+    p = view_overlap(lit(oriented(wide, R0), c190), oriented(pin, Rp))
     @test o.solid_angle ≈ p.solid_angle rtol = 1.0e-7
     @test o.fraction_i ≈ p.fraction_j rtol = 1.0e-7
-    total, _ = counted(pin, WholePlane(), Rp, Rp)
+    total, _ = counted(pin, nothing, Rp, Rp)
     @test footprint(o) ≈ total rtol = 2.0e-4
     @test 0 < o.fraction_i < 1 && o.fraction_j < o.fraction_i
 end
@@ -224,22 +227,21 @@ end
     @test isempty(view_overlap(frames(pin, [R(0.0)])))
     kb = camera(320.0, 400.0, 400.0, KannalaBrandt(-0.02), 800, 800)
     disc = Circle(Point2(400.0, 400.0), 380.0)
-    @test view_overlap(oriented(kb, R(1.0)), oriented(kb, R(1.0)), disc, disc).fraction_i ≈ 1 atol = 1.0e-12
+    @test view_overlap(lit(oriented(kb, R(1.0)), disc), lit(oriented(kb, R(1.0)), disc)).fraction_i ≈ 1 atol = 1.0e-12
     # a 352° field: measured (the fan's apex is the optical axis, not a hemisphere's centre)
     eq = camera(300.0, 1000.0, 1000.0, Lens(Equidistant()), 2000, 2000)
     θ = deg2rad(176)
     c352 = Circle(Point2(1000.0, 1000.0), 300θ)
-    row = view_overlap(oriented(eq, R(0.0)), oriented(eq, R(1.0)), c352, c352)
+    row = view_overlap(lit(oriented(eq, R(0.0)), c352), lit(oriented(eq, R(1.0)), c352))
     @test footprint(row) ≈ cap(θ) rtol = 1.0e-6
     @test row.solid_angle ≈ cap_overlap(θ, θ, 1.0) rtol = 1.0e-6
     # refused by name: a field reaching the backward axis, a camera with a
     # position, an unposed camera, mismatched lengths, too few samples
     c359 = Circle(Point2(1000.0, 1000.0), 300 * (π - 0.01))
-    @test_throws "backward axis" view_overlap(oriented(eq, R(0.0)), oriented(eq, R(1.0)), c359, c359)
+    @test_throws "backward axis" view_overlap(lit(oriented(eq, R(0.0)), c359), lit(oriented(eq, R(1.0)), c359))
     posed = BoundedCamera(PosedCamera(model(pin), EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, 0.0))), Size2(1920, 1080))
     @test_throws "posed by an EuclideanMap" view_overlap(posed, oriented(pin, R(0.0)))
     @test_throws "unposed" view_overlap(pin, oriented(pin, R(0.0)))
-    @test_throws "2 image circles for 3 cameras" view_overlap(frames(pin, [R(0.0), R(1.0), R(2.0)]), [disc, disc])
     @test_throws "at least 16" view_overlap(frames(pin, [R(0.0), R(1.0)]); boundary_points = 8)
     # a frame whose model is not a CameraModel (a grid model): refused by name, not a MethodError
     g = CentralGenericModel(CameraModel(CameraCalibrationMat(@SMatrix [320.0 0 400; 0 320.0 400; 0 0 1]); lens = KannalaBrandt(-0.02)),
@@ -254,7 +256,7 @@ end
     using VisualGeometryToolkitCore: KannalaBrandt
     using Rotations: RotMatrix, RotY
     kb = camera(500.0, 960.0, 600.0, KannalaBrandt(-0.02), 1920, 1200)
-    rows = view_overlap(frames(kb, [RotMatrix(RotY(2π * k / 11)) for k in 0:10]), Circle(Point2(960.0, 600.0), 700.0))
+    rows = view_overlap(lits(frames(kb, [RotMatrix(RotY(2π * k / 11)) for k in 0:10]), Circle(Point2(960.0, 600.0), 700.0)))
     @test length(rows) == 55
     @test all(r -> r.i < r.j, rows)
     @test all(0 .<= rows.fraction_i .<= 1) && rows.fraction_i ≈ rows.fraction_j   # one camera: equal footprints

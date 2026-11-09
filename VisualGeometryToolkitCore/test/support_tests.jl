@@ -6,7 +6,7 @@
 @testitem "support" begin
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: KannalaBrandt, Pinhole, WholePlane, RegionIntersection, SupportTrait,
+    using VisualGeometryToolkitCore: KannalaBrandt, Pinhole, WholePlane, RegionIntersection, lit_region, with_lit_region, SupportTrait,
         GlobalSupport, LocalSupport, support_trait, nodes, support, node_position, cubic_bspline_footprint, CONTRACT_GENERICS,
         Division, AbstractLensModel, spline_support, window_indices
     using StaticArrays
@@ -16,21 +16,20 @@
     fold = KannalaBrandt(-4 / (3π^2))                      # a 180° fisheye, r(90°) = π/3
     lit = Ellipse(Point2(640.0, 480.0), 250π / 3, 250π / 3, 0.0)   # its image circle at f = 250, supplied
 
-    @testset "imaged_region: the extent ∩ the supplied image circle" begin
-        bc = BoundedCamera(cam(250.0, fold), Size2(1280, 960))
-        R = imaged_region(bc, lit)
-        @test R isa RegionIntersection
-        @test R.a == Rect(0, 0, 1280, 960) && R.b == lit
+    @testset "imaged_region: the extent ∩ the camera's lit region ∩ its valid domain" begin
+        bc = BoundedCamera(cam(250.0, fold), Size2(1280, 960); region = lit)
+        R = imaged_region(bc)
+        @test R isa RegionIntersection && lit_region(bc) == lit
         @test Point2(640.0, 480.0) ∈ R && Point2(5.0, 5.0) ∉ R
-        @test imaged_region(BoundedCamera(cam(800.0, Pinhole()), Size2(1280, 960)), WholePlane()) === Rect(0, 0, 1280, 960)
+        @test imaged_region(BoundedCamera(cam(800.0, Pinhole()), Size2(1280, 960))) == Rect(0, 0, 1280, 960)
     end
 
     @testset "imaged_region of a Circle: the Ellipse's region (Rect ∩ Circle once threw on Base's iterate)" begin
         bc = BoundedCamera(cam(250.0, fold), Size2(1280, 960))
         circle = Circle(Point2(640.0, 480.0), 250π / 3)
-        Rc = imaged_region(bc, circle)
-        Re = imaged_region(bc, Ellipse(circle))
-        @test Rc isa RegionIntersection && Rc.b == Ellipse(circle)
+        Rc = imaged_region(with_lit_region(bc, circle))
+        Re = imaged_region(with_lit_region(bc, Ellipse(circle)))
+        @test Rc isa RegionIntersection && lit_region(with_lit_region(bc, circle)) === circle
         grid = [Point2(u, v) for u in -10.0:7.5:1290.0, v in -10.0:7.5:970.0]
         @test all(p -> (p ∈ Rc) == (p ∈ Re), grid)
         @test 0 < count(∈(Rc), grid) < length(grid)
@@ -39,7 +38,7 @@
     end
 
     @testset "pixel_mask: the pixels whose centres lie in a region" begin
-        R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960)), lit)
+        R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960); region = lit))
         M = pixel_mask(R, 1280, 960)
         @test M isa BitMatrix && size(M) == (960, 1280)                          # rows v, columns u (Julia's array layout)
         @test M[480, 640] && !M[5, 5]
@@ -62,7 +61,7 @@
         @test all(f -> any(g -> g === f, CONTRACT_GENERICS), (support_trait, nodes, support, node_position))
         @test node_position(fold, 1) === nothing
         # a global model: every parameter is free, one support covering everything
-        R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960)), lit)
+        R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960); region = lit))
         @test free_nodes(fold, R) === Colon()
         @test node_mask(fold, R) === Colon()
         θ = collect(1.0:5.0)
@@ -73,7 +72,7 @@
 
     @testset "a circular fisheye's grid model: nodes frozen where the footprint misses the circle" begin
         g = CentralGenericModel(cam(250.0, fold), (1280, 960); grid_size = (20, 16))
-        R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960)), lit)
+        R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960); region = lit))
         @test nodes(g) == CartesianIndices((16, 20))
         m = node_mask(g, R)
         @test size(m) == size(g.grid) == (16, 20)
@@ -95,7 +94,7 @@
         @test node_mask(gn, R) == m
         # a rectilinear lens images the whole extent: no node is frozen
         gr = CentralGenericModel(cam(800.0, Pinhole()), (1280, 960); grid_size = (20, 16))
-        @test all(node_mask(gr, imaged_region(BoundedCamera(cam(800.0, Pinhole()), Size2(1280, 960)), WholePlane())))
+        @test all(node_mask(gr, imaged_region(BoundedCamera(cam(800.0, Pinhole()), Size2(1280, 960)))))
     end
 
     @testset "the sampler clamps nodes inside the lens model's valid domain" begin
@@ -176,7 +175,7 @@ end
     fold = KannalaBrandt(-4 / (3π^2))                      # a 180° fisheye: its image circle lies inside the sensor
     lit = Ellipse(Point2(640.0, 480.0), 250π / 3, 250π / 3, 0.0)   # that circle at f = 250, supplied
     g = CentralGenericModel(cam(250.0, fold), (1280, 960); grid_size = (20, 16))
-    R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960)), lit)
+    R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960); region = lit))
     rule = BoundaryRule(g, R)
     @test rule.interior == node_mask(g, R) && count(rule.interior) == 108
     @test sort(vcat(findall(rule.interior), rule.dependent)) == vec(collect(nodes(g)))
@@ -262,7 +261,7 @@ end
     c = CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = fold)
     lit = Ellipse(Point2(640.0, 480.0), 250π / 3, 250π / 3, 0.0)
     g = CentralGenericModel(c, (1280, 960); grid_size = (20, 16))
-    R = imaged_region(BoundedCamera(c, Size2(1280, 960)), lit)
+    R = imaged_region(BoundedCamera(c, Size2(1280, 960); region = lit))
     r3 = BoundaryRule(g, R; order = 3)
     @test r3.order == 3 && r3.interior == node_mask(g, R)
     Q3 = [g.grid[i] + SVector(quad(i), -quad(i), 0.5 * lin(i)) for i in nodes(g)]

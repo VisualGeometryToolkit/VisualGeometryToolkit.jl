@@ -163,15 +163,16 @@ function bridges(og::ObservationGraph)
 end
 
 """
-    covisibility(og::ObservationGraph; side = :observers, weight = length) -> ViewGraph
+    covisibility(og::ObservationGraph; side = :observers) -> ViewGraph
 
 The co-visibility of one side as a [`ViewGraph`](@ref): two observers (`side =
 :observers`) are paired when they observe a common thing, two observed things
-(`side = :observed`) when a common observer observes both; each edge's data is
-`weight(shared)`, `shared` the sorted labels of the other side they share (by
-default their count, OpenSfM's pair connectivity).
+(`side = :observed`) when a common observer observes both. Each edge is
+`Attributed(shared, (; weight = length(shared)))`, `shared` the sorted labels of
+the other side they share and its weight their count (OpenSfM's pair
+connectivity), so [`spanning_tree`](@ref) keeps the best-connected pairs.
 """
-function covisibility(og::ObservationGraph; side::Symbol = :observers, weight = length)
+function covisibility(og::ObservationGraph; side::Symbol = :observers)
     if side === :observers
         labels = og.observers; through = og.observed; members = b -> observers_of(og, b)
     elseif side === :observed
@@ -187,7 +188,7 @@ function covisibility(og::ObservationGraph; side::Symbol = :observers, weight = 
             push!(get!(Vector{T}, shared, (ms[p], ms[q])), x)
         end
     end
-    return ViewGraph(labels, Dict(pair => weight(xs) for (pair, xs) in shared))   # xs is sorted: `through` is, in order
+    return ViewGraph(labels, Dict(pair => VgtkCore.Attributed(xs, (; weight = length(xs))) for (pair, xs) in shared))   # xs is sorted: `through` is
 end
 
 """

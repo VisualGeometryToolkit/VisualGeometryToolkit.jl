@@ -1,11 +1,11 @@
 # fit_rotation_averaging — robust rotation averaging on a view graph: exact on
-# consistent rotations, an outlier edge down-weighted, noise, prior weights, the
+# consistent rotations, an outlier edge down-weighted, noise, edge weights, the
 # gauge, a disconnected graph refused.
 
 @testitem "fit_rotation_averaging: exact, robust, gauged" begin
     using Test, Random, LinearAlgebra, StaticArrays, Rotations
     using VisualGeometryToolkitEstimation: fit_rotation_averaging, _averaging_columns
-    using VisualGeometryToolkitCore: estimate, converged, rms, spectral_rotation_averaging, CauchyShape, TLSShape
+    using VisualGeometryToolkitCore: estimate, converged, rms, spectral_rotation_averaging, CauchyShape, TLSShape, Attributed
 
     rng = Xoshiro(17)
     n = 8
@@ -13,6 +13,7 @@
     rel(i, j) = R[j]' * R[i]
     err(e) = maximum(k -> rotation_angle(RotMatrix{3}(SMatrix{3, 3}(e[k])' * R[k])), 1:n)
     edges = [(i, j) for i in 1:n for j in (i + 1):min(n, i + 3)]
+    weighted(d, p) = Dict(e => Attributed(d[e], (; weight = p[e])) for e in keys(d))   # Attributed edges, weight p
     @testset "consistent edges: exact" begin
         res = fit_rotation_averaging(Dict(e => rel(e...) for e in edges))
         @test converged(res)
@@ -24,39 +25,39 @@
         bad = (2, 4); noisy[bad] = RotMatrix(RotationVec(0.5, -0.3, 0.2)) * noisy[bad]
         res = fit_rotation_averaging(noisy; loss = CauchyShape())
         @test err(estimate(res)) < 5.0e-3
-        @test res.weights[bad] < 0.01
+        @test res.irls_weights[bad] < 0.01
         @test res.residuals[bad] > 0.3
-        # a zero prior weight drops the edge outright
+        # a zero edge weight drops the edge outright
         p = Dict(e => (e == bad ? 0.0 : 1.0) for e in keys(noisy))
-        @test err(estimate(fit_rotation_averaging(noisy, p))) < 5.0e-3
+        @test err(estimate(fit_rotation_averaging(weighted(noisy, p)))) < 5.0e-3
     end
-    @testset "zero prior: rms and n over the live edges, bridges and all-zero refused" begin
+    @testset "zero weight: rms and n over the live edges, bridges and all-zero refused" begin
         noisy = Dict(e => RotMatrix(RotationVec((2.0e-3 .* randn(rng, 3))...)) * rel(e...) for e in edges)
         bad = (2, 4); noisy[bad] = RotMatrix(RotationVec(0.5, -0.3, 0.2)) * noisy[bad]
         p = Dict(e => (e == bad ? 0.0 : 1.0) for e in keys(noisy))
-        res = fit_rotation_averaging(noisy, p)
+        res = fit_rotation_averaging(weighted(noisy, p))
         live = [e for e in keys(noisy) if e != bad]
         @test res.n == length(live)
         @test rms(res) ≈ sqrt(sum(e -> res.residuals[e]^2, live) / length(live))
         @test rms(res) < 0.01                                          # the dropped edge's 0.6 rad is not in it
         chain = Dict((k, k + 1) => rel(k, k + 1) for k in 1:3)
-        @test_throws ArgumentError fit_rotation_averaging(chain, Dict(e => (e == (2, 3) ? 0.0 : 1.0) for e in keys(chain)))
-        @test_throws ArgumentError fit_rotation_averaging(chain, Dict(e => 0.0 for e in keys(chain)))
+        @test_throws ArgumentError fit_rotation_averaging(weighted(chain, Dict(e => (e == (2, 3) ? 0.0 : 1.0) for e in keys(chain))))
+        @test_throws ArgumentError fit_rotation_averaging(weighted(chain, Dict(e => 0.0 for e in keys(chain))))
     end
     @testset "a frame whose every edge the loss drops is held, not singular" begin
         # frame 9 hangs on two mutually inconsistent edges: the seed splits the
         # difference, both residuals sit far past TLS's cutoff, so its weighted
         # degree is 0 from the first iteration — held at its seed rotation (a
-        # small prior on its edges keeps the seed of frames 1..8 clean; the TLS
+        # small weight on its edges keeps the seed of frames 1..8 clean; the TLS
         # weight is what zeroes them). This was a singular solve.
         R[9] = RotMatrix(QuatRotation(normalize(randn(rng, 4))))
         noisy = Dict(e => RotMatrix(RotationVec((2.0e-3 .* randn(rng, 3))...)) * rel(e...) for e in edges)
         noisy[(7, 9)] = RotMatrix(RotationVec(0.6, 0.0, 0.0)) * rel(7, 9)
         noisy[(8, 9)] = RotMatrix(RotationVec(-0.6, 0.0, 0.0)) * rel(8, 9)
         p = Dict(e => (9 in e ? 1.0e-3 : 1.0) for e in keys(noisy))
-        res = fit_rotation_averaging(noisy, p; loss = TLSShape(), scale_multiple = 3.0)
+        res = fit_rotation_averaging(weighted(noisy, p); loss = TLSShape(), scale_multiple = 3.0)
         seed = spectral_rotation_averaging(noisy, p)
-        @test res.weights[(7, 9)] == 0 && res.weights[(8, 9)] == 0
+        @test res.irls_weights[(7, 9)] == 0 && res.irls_weights[(8, 9)] == 0
         @test all(isfinite, estimate(res)[9])
         @test SMatrix{3, 3}(estimate(res)[9]) ≈ SMatrix{3, 3}(seed[9]) atol = 1.0e-9
         @test err(estimate(res)) < 1.0e-2                              # frames 1..8, at the noise level

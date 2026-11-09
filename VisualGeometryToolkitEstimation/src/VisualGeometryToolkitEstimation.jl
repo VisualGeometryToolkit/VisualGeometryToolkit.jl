@@ -259,6 +259,7 @@ export refine_camera_and_poses   # a camera (intrinsics + lens) and one pose per
 export fit_rotation           # the robust rotation between two sets of directions
 export fit_linear             # the robust coefficients of a linear model (reweighted least squares)
 export fit_rotation_averaging # robust rotation averaging on a view graph (spectral or spanning-tree seed, Lie-algebra IRLS)
+export filtered_rotation_averaging   # the same behind the cycle and orientation filters (Theia's global pipeline)
 export ViewGraph, ObservationGraph   # the frames and their verified pairs; the frames and what they observe (graphs/)
 public views, edgelist, nedges, adjacent_views, components, label_components, require_connected, induced, keep_largest_component,
     articulation, bridges, spanning_tree, chain, triangles, filter_cycles, rotation_loop_angle, filter_by_orientation,

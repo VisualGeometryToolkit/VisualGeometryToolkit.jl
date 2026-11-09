@@ -38,46 +38,46 @@ end
     using Test, Random, LinearAlgebra, StaticArrays, Rotations
     using VisualGeometryToolkitEstimation: ViewGraph, spanning_tree, chain, triangles, filter_cycles,
         rotation_loop_angle, filter_by_orientation, edgelist
-    using VisualGeometryToolkitCore: log_so3
+    using VisualGeometryToolkitCore: log_so3, Attributed
 
     rng = Xoshiro(3)
     n = 6
     R = Dict(k => (k == 1 ? one(SMatrix{3, 3, Float64, 9}) : SMatrix{3, 3, Float64, 9}(RotMatrix(QuatRotation(normalize(randn(rng, 4)))))) for k in 1:n)
-    j_from_i(i, j) = R[j]' * R[i]                                             # f_j = R_ij·f_i, d = R_k·f_k
+    rel(i, j) = R[j]' * R[i]                                                  # f_j = R_ij·f_i, d = R_k·f_k
     pairs = [(i, j) for i in 1:n for j in (i + 1):min(n, i + 2)]              # a sequence with lag-2 pairs: triangles
-    edge(i, j; inliers = 100) = (j_from_i = j_from_i(i, j), inliers = inliers)
-    vg = ViewGraph(Dict(p => edge(p...; inliers = 100 + 10 * p[1]) for p in pairs))
+    edge(i, j; weight = 100) = Attributed(rel(i, j), (; weight))
+    vg = ViewGraph(Dict(p => edge(p...; weight = 100 + 10 * p[1]) for p in pairs))
 
     @testset "spanning tree: maximum weight, n - 1 edges" begin
-        t = spanning_tree(vg; weight = e -> e.inliers)
+        t = spanning_tree(vg)
         @test length(t) == n - 1
         @test (5, 6) in t                                                    # the heaviest edges win
-        @test_throws ArgumentError spanning_tree(ViewGraph(Dict((1, 2) => (inliers = 0,))); weight = e -> e.inliers)
+        @test_throws ArgumentError spanning_tree(ViewGraph(Dict((1, 2) => Attributed(rel(1, 2), (; weight = 0)))))
     end
     @testset "chain: exact on consistent edges, world_from_k" begin
-        A = chain(vg, 1; weight = e -> e.inliers, identity = one(SMatrix{3, 3, Float64, 9}), inverse = transpose)
+        A = chain(vg, 1; identity = one(SMatrix{3, 3, Float64, 9}), inverse = transpose)
         @test sort!(collect(keys(A))) == collect(1:n)
         @test maximum(k -> norm(A[k] - R[k]), 1:n) < 1.0e-12                 # R_1 = I, so the gauges agree
         # a root other than 1: the same rotations up to that gauge
-        B = chain(vg, 4; weight = e -> e.inliers, identity = one(SMatrix{3, 3, Float64, 9}), inverse = transpose)
+        B = chain(vg, 4; identity = one(SMatrix{3, 3, Float64, 9}), inverse = transpose)
         @test maximum(k -> norm(B[k] - R[4]' * R[k]), 1:n) < 1.0e-12
         @test_throws ArgumentError chain(vg, 99; identity = one(SMatrix{3, 3, Float64, 9}))
     end
     @testset "triangles and the cycle filter catch a wrong edge" begin
         @test triangles(vg) == [(i, i + 1, i + 2) for i in 1:(n - 2)]
         bad = Dict(p => edge(p...) for p in pairs)
-        bad[(3, 4)] = (j_from_i = SMatrix{3, 3, Float64, 9}(RotMatrix(RotationVec(0.4, -0.2, 0.3))) * bad[(3, 4)].j_from_i, inliers = 100)
+        bad[(3, 4)] = Attributed(SMatrix{3, 3, Float64, 9}(RotMatrix(RotationVec(0.4, -0.2, 0.3))) * bad[(3, 4)].value, (; weight = 100))
         bg = ViewGraph(bad)
         @test rotation_loop_angle(bg[2, 3], bg[3, 4], bg[2, 4]) > 0.3
         @test rotation_loop_angle(bg[1, 2], bg[2, 3], bg[1, 3]) < 1.0e-12
-        kept = first.(edgelist(filter_cycles(bg; residual = rotation_loop_angle, tol = 1.0e-3)))
+        kept = first.(edgelist(filter_cycles(bg; tol = 1.0e-3)))
         # the corrupted edge goes, and with it (2, 4) and (3, 5): each lies only in a triangle through
         # (3, 4), so no consistent loop supports it (Theia's rule; the orientation filter is the precise one)
         @test kept == setdiff(sort(pairs), [(2, 4), (3, 4), (3, 5)])
         # an edge in no triangle stays unless keep_untested = false
         chain_only = ViewGraph(Dict(p => edge(p...) for p in [(1, 2), (2, 3)]))
-        @test length(edgelist(filter_cycles(chain_only; residual = rotation_loop_angle, tol = 1.0e-3))) == 2
-        @test isempty(edgelist(filter_cycles(chain_only; residual = rotation_loop_angle, tol = 1.0e-3, keep_untested = false)))
+        @test length(edgelist(filter_cycles(chain_only; tol = 1.0e-3))) == 2
+        @test isempty(edgelist(filter_cycles(chain_only; tol = 1.0e-3, keep_untested = false)))
         # the orientation filter against the true rotations removes the same edge
         @test first.(edgelist(filter_by_orientation(bg, R; tol = 1.0e-3))) == setdiff(sort(pairs), [(3, 4)])
     end
@@ -86,7 +86,7 @@ end
 @testitem "fit_rotation_averaging: the spanning-tree seed and the ViewGraph method" begin
     using Test, Random, LinearAlgebra, StaticArrays, Rotations
     using VisualGeometryToolkitEstimation: fit_rotation_averaging, ViewGraph
-    using VisualGeometryToolkitCore: estimate, converged
+    using VisualGeometryToolkitCore: estimate, converged, Attributed
 
     rng = Xoshiro(11)
     n = 8
@@ -94,26 +94,26 @@ end
     rel(i, j) = R[j]' * R[i]
     edges = [(i, j) for i in 1:n for j in (i + 1):min(n, i + 3)]
     noisy = Dict(e => RotMatrix(RotationVec((1.0e-3 .* randn(rng, 3))...)) * rel(e...) for e in edges)
-    prior = Dict(e => 50.0 + e[1] for e in edges)
+    weighted = Dict(e => Attributed(noisy[e], (; weight = 50.0 + e[1])) for e in edges)
     err(Rh) = maximum(k -> rotation_angle(RotMatrix{3}(SMatrix{3, 3}(Rh[k])' * R[k])), 1:n)
 
-    spectral = fit_rotation_averaging(noisy, prior)
-    tree = fit_rotation_averaging(noisy, prior; seed = :spanning_tree)
+    spectral = fit_rotation_averaging(weighted)
+    tree = fit_rotation_averaging(weighted; seed = :spanning_tree)
     @test converged(spectral) && converged(tree)
     @test err(estimate(tree)) < 5.0e-3
     @test maximum(k -> norm(Matrix(estimate(tree)[k]) - Matrix(estimate(spectral)[k])), 1:n) < 1.0e-8   # same optimum
     @test estimate(tree)[1] ≈ one(RotMatrix{3, Float64}) atol = 1.0e-12                                  # re-gauged
     # an explicit seed: the truth itself, any gauge
     G = RotMatrix(RotationVec(0.3, 0.1, -0.2))
-    given = fit_rotation_averaging(noisy, prior; seed = Dict(k => G * R[k] for k in 1:n))
+    given = fit_rotation_averaging(weighted; seed = Dict(k => G * R[k] for k in 1:n))
     @test maximum(k -> norm(Matrix(estimate(given)[k]) - Matrix(estimate(spectral)[k])), 1:n) < 1.0e-8
-    @test_throws ArgumentError fit_rotation_averaging(noisy, prior; seed = Dict(1 => R[1]))
-    @test_throws ArgumentError fit_rotation_averaging(noisy, prior; seed = :nonsense)
-    # the default is unchanged: bit for bit the spectral fit
-    @test estimate(fit_rotation_averaging(noisy, prior)) == estimate(spectral)
+    @test_throws ArgumentError fit_rotation_averaging(weighted; seed = Dict(1 => R[1]))
+    @test_throws ArgumentError fit_rotation_averaging(weighted; seed = :nonsense)
+    @test estimate(spectral)[1] ≈ one(RotMatrix{3, Float64}) atol = 1.0e-12                              # one gauge rule
     # the ViewGraph method is the dictionary form
-    vg = ViewGraph(Dict(e => (j_from_i = noisy[e], inliers = prior[e]) for e in edges))
-    @test estimate(fit_rotation_averaging(vg; prior = e -> e.inliers)) == estimate(spectral)
+    @test estimate(fit_rotation_averaging(ViewGraph(weighted))) == estimate(spectral)
+    # the weights matter: unit weights give another (close) optimum
+    @test estimate(fit_rotation_averaging(noisy)) != estimate(spectral)
 
     # every seed refuses a disconnected graph, as the spectral one does
     split = Dict((1, 2) => rel(1, 2), (3, 4) => rel(3, 4))
@@ -128,14 +128,14 @@ end
     flipped = Dict(((j, i) => noisy[(i, j)]' for (i, j) in edges if i == 1)..., (e => noisy[e] for e in edges if e[1] != 1)...)
     @test err(estimate(fit_rotation_averaging(flipped; seed = :spanning_tree))) < 5.0e-3
     # a view in no edge is a disconnected ViewGraph
-    @test_throws ArgumentError fit_rotation_averaging(ViewGraph(vcat(1:n, 99), Dict(e => (j_from_i = noisy[e],) for e in edges)))
+    @test_throws ArgumentError fit_rotation_averaging(ViewGraph(vcat(1:n, 99), Dict(e => noisy[e] for e in edges)))
 end
 
 @testitem "chain: transforms of another type than the identity" begin
     using Test, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitEstimation: ViewGraph, chain
     A = SMatrix{2, 2}(2.0, 0.0, 0.0, 1.0)
-    vg = ViewGraph(Dict((1, 2) => (j_from_i = A,), (2, 3) => (j_from_i = A,)))
+    vg = ViewGraph(Dict((1, 2) => A, (2, 3) => A))
     out = chain(vg, 1; identity = I)                     # UniformScaling at the root, matrices elsewhere
     @test out[1] == I && out[2] ≈ inv(A) && out[3] ≈ inv(A) * inv(A)
 end
@@ -167,9 +167,38 @@ end
     # covisibility of the frames: shared-board counts; of the boards: shared-frame counts
     fv = covisibility(og)
     @test fv isa ViewGraph
-    @test Dict(edgelist(fv)) == Dict((1, 2) => 1, (1, 3) => 1, (1, 4) => 1, (3, 4) => 1, (7, 8) => 1)
-    bv = covisibility(og; side = :observed, weight = identity)
-    @test Dict(edgelist(bv)) == Dict(("A", "B") => [1], ("B", "C") => [4])
+    @test Dict(p => e.weight for (p, e) in edgelist(fv)) == Dict((1, 2) => 1, (1, 3) => 1, (1, 4) => 1, (3, 4) => 1, (7, 8) => 1)
+    @test fv[1, 2].value == ["A"]
+    bv = covisibility(og; side = :observed)
+    @test Dict(p => e.value for (p, e) in edgelist(bv)) == Dict(("A", "B") => [1], ("B", "C") => [4])
     @test views(bv) == ["A", "B", "C", "Z"]
     @test_throws ArgumentError covisibility(og; side = :boards)
+end
+
+@testitem "filtered_rotation_averaging: the cycle and orientation filters around the averaging" begin
+    using Test, Random, LinearAlgebra, StaticArrays, Rotations
+    using VisualGeometryToolkitEstimation: filtered_rotation_averaging, fit_rotation_averaging, ViewGraph, edgelist, nedges
+    using VisualGeometryToolkitCore: estimate, Attributed
+
+    rng = Xoshiro(23)
+    n = 10
+    R = Dict(k => (k == 1 ? one(RotMatrix{3, Float64}) : RotMatrix(QuatRotation(normalize(randn(rng, 4))))) for k in 1:n)
+    pairs = [(i, j) for i in 1:n for j in (i + 1):min(n, i + 3)]
+    rel = Dict(p => RotMatrix(RotationVec((1.0e-3 .* randn(rng, 3))...)) * R[p[2]]' * R[p[1]] for p in pairs)
+    rel[(4, 6)] = RotMatrix(RotationVec(0.8, -0.4, 0.3)) * rel[(4, 6)]                   # one wrong pair
+    vg = ViewGraph(Dict(p => Attributed(rel[p], (; weight = 100.0)) for p in pairs))
+    err(Rh) = maximum(k -> rotation_angle(RotMatrix{3}(SMatrix{3, 3}(Rh[k])' * R[k])), 1:n)
+
+    # no filter: the plain fit on the whole graph
+    plain = filtered_rotation_averaging(vg)
+    @test plain.graph === vg && estimate(plain.fit) == estimate(fit_rotation_averaging(vg))
+    # the orientation filter removes the wrong pair and refits on the rest
+    o = filtered_rotation_averaging(vg; orientation_tol = deg2rad(2.0))
+    @test !haskey(o.graph, 4, 6) && nedges(o.graph) == length(pairs) - 1
+    @test err(estimate(o.fit)) < 5.0e-3
+    # the cycle filter removes it before averaging
+    c = filtered_rotation_averaging(vg; cycle_tol = deg2rad(2.0))
+    @test !haskey(c.graph, 4, 6) && err(estimate(c.fit)) < 5.0e-3
+    @test_throws ArgumentError filtered_rotation_averaging(vg; cycle_tol = -1.0)
+    @test_throws ArgumentError filtered_rotation_averaging(vg; orientation_tol = 0.0)
 end

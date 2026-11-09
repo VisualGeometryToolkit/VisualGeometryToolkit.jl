@@ -25,34 +25,36 @@
 
 `FitResult` metadata of [`fit_rotation_averaging`](@ref) at the returned
 rotations: per edge `(i, j)`, `residuals` the angle (radians) of the residual
-rotation `R_j·R_ij·R_iᵀ` and `weights` the loss's IRLS weight times the edge's
-prior weight; `sigma` the robust scale σ̂ (radians). They forward as properties.
+rotation `R_j·R_ij·R_iᵀ` and `irls_weights` the loss's IRLS weight times the
+edge's weight; `sigma` the robust scale σ̂ (radians). They forward as properties.
 """
 struct RotationAveragingMetadata{K}
     residuals::Dict{Tuple{K, K}, Float64}
-    weights::Dict{Tuple{K, K}, Float64}
+    irls_weights::Dict{Tuple{K, K}, Float64}
     sigma::Float64
 end
 
 """
-    fit_rotation_averaging(relative[, prior]; loss, scale_multiple = nothing, max_iter, tol)
+    fit_rotation_averaging(relative; loss, scale_multiple = nothing, max_iter, tol, seed = :spectral)
+    fit_rotation_averaging(vg::ViewGraph; kwargs...)
         -> FitResult{Dict{K, RotMatrix{3, Float64}}, RotationAveragingMetadata{K}}
 
 Robust rotation averaging on a view graph: the absolute rotations `R_k` of the
 frames (`d = R_k·f_k`, every frame's directions into the common frame, the
 first of the sorted frames the identity — the gauge) from the relative
-rotations `relative`, an `AbstractDict` keyed by frame pairs `(i, j)` whose value
-`R_ij` takes frame `i`'s directions into frame `j`'s (`f_j = R_ij·f_i`, so
-`R_i = R_j·R_ij`), some of them wrong. A fit: it seeds itself with
+rotations `relative`, an `AbstractDict` keyed by frame pairs `(i, j)` (or the
+edges of a [`ViewGraph`](@ref)) whose value `R_ij` takes frame `i`'s directions
+into frame `j`'s (`f_j = R_ij·f_i`, so `R_i = R_j·R_ij`), some of them wrong.
+Each value is the rotation, or VisualGeometryToolkitCore's
+`Attributed(R_ij, (; weight))` with a fixed non-negative edge weight (an inlier
+count); a bare rotation weighs 1. A fit: it seeds itself with
 VisualGeometryToolkitCore's `spectral_rotation_averaging` and iterates a reweighted
 first-order Lie-algebra least squares over every edge (Chatterjee & Govindu
 2013), each a sparse linear solve.
 
-- `prior` — fixed non-negative edge weights (an `AbstractDict` with the same
-  keys: inlier counts); all ones by default. A zero prior drops its edge: the
-  edges of positive prior must connect every frame (an `ArgumentError`
-  otherwise — a zero-prior bridge splits the graph), and an all-zero prior is
-  refused.
+- The edge weights: a zero weight drops its edge. The edges of positive weight
+  must connect every frame (an `ArgumentError` otherwise — a zero-weight bridge
+  splits the graph), and all-zero weights are refused.
 - `loss`, `scale_multiple` — the robust loss shape (default the TOML's) and its
   width as a multiple of σ̂ (the median of the residual angles over
   `√chisq_median(3)`); `nothing` takes the shape's efficiency constant at
@@ -63,10 +65,10 @@ first-order Lie-algebra least squares over every edge (Chatterjee & Govindu
 - `seed` — where the iteration starts: `:spectral` (the default,
   VisualGeometryToolkitCore's `spectral_rotation_averaging` over every edge),
   `:spanning_tree` (the rotations chained along the maximum spanning tree of
-  the edges of positive prior, weighted by the prior: Theia's and OpenCV's
+  the edges of positive weight, by weight: Theia's and OpenCV's
   initialization, see [`chain`](@ref)), or an `AbstractDict` frame => rotation
-  given by the caller. The last two are re-gauged so the first sorted frame is
-  the identity.
+  given by the caller. Every seed is re-gauged so the first sorted frame is the
+  identity.
 
 When the loss's weights drop every edge of a frame (a redescending loss past
 its cutoff), that frame is held at its current rotation for the iteration
@@ -75,12 +77,13 @@ the graph that the edges of positive weight no longer tie to the gauge frame,
 the first sorted frame is held and the rest move with it.
 
 `retcode` is `:converged` or `:max_iterations`; `rms` the root mean square
-residual angle, and `n` the count, over the edges of positive prior. A
-disconnected graph is an `ArgumentError` (VisualGeometryToolkitCore's seed
-refuses it, counting only the edges of positive prior).
+residual angle, and `n` the count, over the edges of positive weight. A
+disconnected graph is an `ArgumentError`, counting only the edges of positive
+weight; the `ViewGraph` form also refuses a view in no edge
+([`require_connected`](@ref)).
 """
 function fit_rotation_averaging(
-        relative::AbstractDict{<:Tuple{K, K}}, prior::Union{Nothing, AbstractDict} = nothing;
+        relative::AbstractDict{<:Tuple{K, K}};
         loss::VgtkCore.AbstractLossShape = LOSS_TAGS[_dflt("fit_rotation_averaging", "loss")](),
         scale_multiple::Union{Nothing, Real} = nothing,
         max_iter::Integer = _dflt("fit_rotation_averaging", "max_iter"),
@@ -90,17 +93,15 @@ function fit_rotation_averaging(
     loss isa VgtkCore.AbstractMEstimator || scale_multiple !== nothing || throw(ArgumentError(
         "fit_rotation_averaging: the loss $(nameof(typeof(loss))) has no efficiency default; give its width as `scale_multiple`"))
     edges = sort!(collect(keys(relative)))
-    p = [prior === nothing ? 1.0 : Float64(prior[e]) for e in edges]
-    all(>=(0), p) || throw(ArgumentError("fit_rotation_averaging: a prior edge weight is negative"))
-    any(>(0), p) || throw(ArgumentError("fit_rotation_averaging: every prior edge weight is zero"))
-    Rrel = [SMatrix{3, 3, Float64, 9}(relative[e]) for e in edges]
-    start = _averaging_seed(seed, relative, prior, edges, Rrel, p)
+    p = [_edge_weight(relative[e]) for e in edges]
+    all(>=(0), p) || throw(ArgumentError("fit_rotation_averaging: an edge weight is negative"))
+    any(>(0), p) || throw(ArgumentError("fit_rotation_averaging: every edge weight is zero"))
+    Rrel = [SMatrix{3, 3, Float64, 9}(_relative(relative[e])) for e in edges]
+    start = _averaging_seed(seed, edges, Rrel, p)
     frames = sort!(collect(keys(start)))
     R = Dict(k => SMatrix{3, 3, Float64, 9}(start[k]) for k in frames)
-    if seed !== :spectral                                              # the spectral seed is gauged already: unchanged bit for bit
-        gauge = R[first(frames)]'
-        foreach(k -> (R[k] = gauge * R[k]), frames)
-    end
+    gauge = R[first(frames)]'                                          # one rule for every seed: the first sorted frame is the identity
+    foreach(k -> (R[k] = gauge * R[k]), frames)
     m = length(edges); r = Vector{SVector{3, Float64}}(undef, m); w = copy(p)
     edge_residuals!() = for (q, (i, j)) in enumerate(edges)
         r[q] = log_so3(R[j] * Rrel[q] * R[i]')
@@ -126,22 +127,22 @@ function fit_rotation_averaging(
     σ = _averaging_weights!(w, r, p, loss, scale_multiple)
     out = Dict(k => RotMatrix{3, Float64, 9}(Rotations.nearest_rotation(R[k])) for k in frames)
     meta = RotationAveragingMetadata{K}(Dict(e => norm(r[q]) for (q, e) in enumerate(edges)), Dict(e => w[q] for (q, e) in enumerate(edges)), σ)
-    live = [q for q in 1:m if p[q] > 0]                                # a zero prior drops its edge
+    live = [q for q in 1:m if p[q] > 0]                                # a zero weight drops its edge
     return FitResult(out, retcode, iter, sqrt(sum(q -> norm(r[q])^2, live) / length(live)), length(live), meta)
 end
 
-# σ̂ from the residual angles of the edges of positive prior weight (the χ²₃
-# median), and the loss's IRLS weights times the prior into `w`; σ̂ = 0 leaves
-# the prior. Returns σ̂.
-function _averaging_weights!(w, r, prior, loss, scale_multiple)
-    σ = Statistics.median(norm(r[q]) for q in eachindex(r) if prior[q] > 0) / sqrt(VgtkCore.chisq_median(3))
+# σ̂ from the residual angles of the edges of positive weight (the χ²₃
+# median), and the loss's IRLS weights times the edge weights `p` into `w`;
+# σ̂ = 0 leaves the edge weights. Returns σ̂.
+function _averaging_weights!(w, r, p, loss, scale_multiple)
+    σ = Statistics.median(norm(r[q]) for q in eachindex(r) if p[q] > 0) / sqrt(VgtkCore.chisq_median(3))
     if iszero(σ)
-        w .= prior
+        w .= p
         return σ
     end
     c² = VgtkCore.sq_loss_width(_averaging_loss(loss, σ^2, scale_multiple))
     for q in eachindex(w)
-        w[q] = prior[q] * weight(loss, norm(r[q])^2, c²)
+        w[q] = p[q] * weight(loss, norm(r[q])^2, c²)
     end
     return σ
 end
@@ -188,35 +189,55 @@ function _averaging_update(edges, col, r, w, nunk)
     return Vector((A' * A) \ (A' * b))
 end
 
-# The rotations the IRLS starts from (`seed`, above), for exactly the frames of the edges. The spanning-tree and the caller's
-# seed check what the spectral seed checks: the edges of positive prior connect every frame.
-function _averaging_seed(seed, relative, prior, edges, Rrel, p)
-    seed === :spectral && return VgtkCore.spectral_rotation_averaging(relative, prior)
-    seed isa Symbol && seed !== :spanning_tree &&
+# The rotations the IRLS starts from (`seed`, above), for exactly the frames of the edges. Every seed checks what the spectral
+# seed checks: the edges of positive weight connect every frame.
+function _averaging_seed(seed, edges, Rrel, p)
+    seed isa Symbol && seed ∉ (:spectral, :spanning_tree) &&
         throw(ArgumentError("fit_rotation_averaging: seed must be :spectral, :spanning_tree or a Dict, not :$seed"))
     frames = sort!(unique!([k for e in edges for k in e]))
-    # the edges of positive prior on a ViewGraph, each pair canonical (i < j): a pair given as (j, i) carries R_ijᵀ
-    live = Dict((isless(i, j) ? (i, j) : (j, i)) => (j_from_i = isless(i, j) ? R : R', prior = q)
+    # the edges of positive weight on a ViewGraph, each pair canonical (i < j): a pair given as (j, i) carries R_ijᵀ
+    live = Dict((isless(i, j) ? (i, j) : (j, i)) => VgtkCore.Attributed(isless(i, j) ? R : R', (; weight = q))
                 for ((i, j), R, q) in zip(edges, Rrel, p) if q > 0)
     vg = ViewGraph(frames, live)
-    length(components(vg)) == 1 || throw(ArgumentError("fit_rotation_averaging: the edges of positive prior do not connect every frame"))
-    seed === :spanning_tree &&
-        return chain(vg, first(frames); weight = e -> e.prior, identity = one(SMatrix{3, 3, Float64, 9}), inverse = transpose)
+    length(components(vg)) == 1 || throw(ArgumentError("fit_rotation_averaging: the edges of positive weight do not connect every frame"))
+    seed === :spectral &&
+        return VgtkCore.spectral_rotation_averaging(Dict(e => _relative(a) for (e, a) in live), Dict(e => _edge_weight(a) for (e, a) in live))
+    seed === :spanning_tree && return chain(vg, first(frames); identity = one(SMatrix{3, 3, Float64, 9}), inverse = transpose)
     missing_frames = [k for k in frames if !haskey(seed, k)]
     isempty(missing_frames) || throw(ArgumentError("fit_rotation_averaging: the seed has no rotation for the frames $missing_frames"))
     return Dict(k => seed[k] for k in frames)                         # a frame in no edge is not the averaging's
 end
 
-"""
-    fit_rotation_averaging(vg::ViewGraph; j_from_i = e -> e.j_from_i, prior = e -> 1.0, kwargs...)
-
-Rotation averaging over a [`ViewGraph`](@ref) whose edge data carries the
-relative rotation (`j_from_i`) and a prior weight (`prior`, e.g. the inlier
-count): the same fit as the dictionary form, with the same keywords. A view in
-no edge is a disconnected graph, an `ArgumentError` ([`require_connected`](@ref)).
-"""
-function fit_rotation_averaging(vg::ViewGraph{K}; j_from_i = e -> e.j_from_i, prior = e -> 1.0, kwargs...) where {K}
+function fit_rotation_averaging(vg::ViewGraph; kwargs...)
     require_connected(vg; what = "view graph")
-    return fit_rotation_averaging(Dict{Tuple{K, K}, SMatrix{3, 3, Float64, 9}}(p => j_from_i(e) for (p, e) in vg.edges),
-                                  Dict{Tuple{K, K}, Float64}(p => prior(e) for (p, e) in vg.edges); kwargs...)
+    return fit_rotation_averaging(vg.edges; kwargs...)
+end
+
+"""
+    filtered_rotation_averaging(vg::ViewGraph; cycle_tol = nothing, orientation_tol = nothing, kwargs...)
+        -> (; fit, graph)
+
+Rotation averaging behind the two view-graph filters, as Theia's global
+pipeline runs them: [`filter_cycles`](@ref) at `cycle_tol` before the
+averaging, then [`filter_by_orientation`](@ref) at `orientation_tol` against
+the averaged rotations and, when it dropped an edge, the averaging again on
+what is left. Both tolerances are radians; `nothing` skips that filter.
+`kwargs` go to every [`fit_rotation_averaging`](@ref). Returns the fit and the
+view graph it was fitted on (`graph`: a caller drops whatever it keyed by a
+removed edge, a sequence's tracks). A graph a filter disconnects is an
+`ArgumentError` naming that filter ([`require_connected`](@ref)).
+"""
+function filtered_rotation_averaging(vg::ViewGraph; cycle_tol::Union{Nothing, Real} = nothing,
+                                     orientation_tol::Union{Nothing, Real} = nothing, kwargs...)
+    for (name, t) in (("cycle_tol", cycle_tol), ("orientation_tol", orientation_tol))
+        t === nothing || t > 0 || throw(ArgumentError("filtered_rotation_averaging: $name = $t is not positive"))
+    end
+    graph = cycle_tol === nothing ? vg :
+        require_connected(filter_cycles(vg; tol = cycle_tol); what = "view graph after the cycle filter")
+    fit = fit_rotation_averaging(graph; kwargs...)
+    orientation_tol === nothing && return (; fit, graph)
+    kept = filter_by_orientation(graph, VgtkCore.estimate(fit); tol = orientation_tol)
+    nedges(kept) == nedges(graph) && return (; fit, graph)
+    kept = require_connected(kept; what = "view graph after the orientation filter")
+    return (; fit = fit_rotation_averaging(kept; kwargs...), graph = kept)
 end

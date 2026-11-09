@@ -31,7 +31,7 @@ struct ObservationGraph{A, B, E}
     observers::Vector{A}
     observed::Vector{B}
     observer_index::Dict{A, Int}
-    observed_index::Dict{B, Int}     # graph vertex = length(observers) + this index
+    observed_index::Dict{B, Int}     # graph vertex = length(observers) + this index (`_vertex`)
     graph::Graphs.SimpleGraph{Int}
     edges::Dict{Tuple{A, B}, E}
 end
@@ -54,10 +54,11 @@ function ObservationGraph(edges::AbstractDict)
     ai = Dict(a => k for (k, a) in enumerate(as))
     bi = Dict(b => k for (k, b) in enumerate(bs))
     g = Graphs.SimpleGraph(length(as) + length(bs))
+    og = ObservationGraph{A, B, E}(as, bs, ai, bi, g, Dict{Tuple{A, B}, E}(edges))
     for (a, b) in keys(edges)
-        Graphs.add_edge!(g, ai[a], length(as) + bi[b])
+        Graphs.add_edge!(g, ai[a], _vertex(og, b))
     end
-    return ObservationGraph{A, B, E}(as, bs, ai, bi, g, Dict{Tuple{A, B}, E}(edges))
+    return og
 end
 
 """
@@ -84,7 +85,10 @@ edgelist(og::ObservationGraph) = sort!([p => e for (p, e) in og.edges]; by = fir
 
 Base.getindex(og::ObservationGraph, a, b) = og.edges[(a, b)]
 Base.haskey(og::ObservationGraph, a, b) = haskey(og.edges, (a, b))
+nedges(og::ObservationGraph) = length(og.edges)
 
+# Graph vertices: the observers first, then the observed things.
+_vertex(og::ObservationGraph, b) = length(og.observers) + og.observed_index[b]
 _vertex_label(og::ObservationGraph, v::Int) =
     v <= length(og.observers) ? (true, og.observers[v]) : (false, og.observed[v - length(og.observers)])
 
@@ -93,16 +97,14 @@ _vertex_label(og::ObservationGraph, v::Int) =
 
 The things observer `a` observes, sorted.
 """
-observed_in(og::ObservationGraph, a) =
-    sort!([og.observed[v - length(og.observers)] for v in Graphs.neighbors(og.graph, og.observer_index[a])])
+observed_in(og::ObservationGraph, a) = sort!([_vertex_label(og, v)[2] for v in Graphs.neighbors(og.graph, og.observer_index[a])])
 
 """
     observers_of(og::ObservationGraph, b) -> Vector
 
 The observers that observe `b`, sorted.
 """
-observers_of(og::ObservationGraph, b) =
-    sort!([og.observers[v] for v in Graphs.neighbors(og.graph, length(og.observers) + og.observed_index[b])])
+observers_of(og::ObservationGraph, b) = sort!([og.observers[v] for v in Graphs.neighbors(og.graph, _vertex(og, b))])
 
 function _split(og::ObservationGraph{A, B}, vs) where {A, B}
     as = A[]; bs = B[]
@@ -117,13 +119,13 @@ end
     components(og::ObservationGraph) -> Vector{@NamedTuple{observers, observed}}
 
 The connected components, each its sorted observers and observed things,
-largest first by vertex count (equal sizes keep Graphs.jl's order, the order of
-their first vertex). Poses are comparable only within one component: a
-calibration gives each its own gauge.
+largest first by vertex count (equal sizes by their smallest observer, as a
+ViewGraph's by their smallest view). Poses are comparable only within one
+component: a calibration gives each its own gauge.
 """
 components(og::ObservationGraph) =
     sort!([_split(og, c) for c in Graphs.connected_components(og.graph)];
-          by = c -> -(length(c.observers) + length(c.observed)), alg = Base.Sort.DEFAULT_STABLE)
+          by = c -> (-(length(c.observers) + length(c.observed)), first(c.observers)))
 
 """
     label_components(og::ObservationGraph) -> @NamedTuple{observers::Dict, observed::Dict}
@@ -136,19 +138,6 @@ function label_components(og::ObservationGraph{A, B}) where {A, B}
         foreach(a -> (la[a] = k), c.observers); foreach(b -> (lb[b] = k), c.observed)
     end
     return (; observers = la, observed = lb)
-end
-
-"""
-    require_connected(og::ObservationGraph; what = "observation graph") -> og
-
-`og` when it is connected, otherwise an `ArgumentError` that names its
-components' observers.
-"""
-function require_connected(og::ObservationGraph; what::AbstractString = "observation graph")
-    comps = components(og)
-    length(comps) <= 1 && return og
-    throw(ArgumentError("the $what is not connected; its components' observers are " *
-                        join(["[" * join(string.(c.observers), ", ") * "]" for c in comps], ", ")))
 end
 
 """
@@ -183,11 +172,12 @@ The co-visibility of one side as a [`ViewGraph`](@ref): two observers (`side =
 default their count, OpenSfM's pair connectivity).
 """
 function covisibility(og::ObservationGraph; side::Symbol = :observers, weight = length)
-    side in (:observers, :observed) || throw(ArgumentError("covisibility: side must be :observers or :observed, not :$side"))
     if side === :observers
         labels = og.observers; through = og.observed; members = b -> observers_of(og, b)
-    else
+    elseif side === :observed
         labels = og.observed; through = og.observers; members = a -> observed_in(og, a)
+    else
+        throw(ArgumentError("covisibility: side must be :observers or :observed, not :$side"))
     end
     K = eltype(labels); T = eltype(through)
     shared = Dict{Tuple{K, K}, Vector{T}}()
@@ -197,5 +187,22 @@ function covisibility(og::ObservationGraph; side::Symbol = :observers, weight = 
             push!(get!(Vector{T}, shared, (ms[p], ms[q])), x)
         end
     end
-    return ViewGraph(labels, Dict(pair => weight(sort!(xs)) for (pair, xs) in shared))
+    return ViewGraph(labels, Dict(pair => weight(xs) for (pair, xs) in shared))   # xs is sorted: `through` is, in order
 end
+
+"""
+    require_connected(g; what = "graph") -> g
+
+`g` (a [`ViewGraph`](@ref) or an [`ObservationGraph`](@ref)) when it is
+connected, otherwise an `ArgumentError` that names its components (an
+observation graph's by their observers): the policy of a method whose frames
+need one common gauge.
+"""
+function require_connected(g::Union{ViewGraph, ObservationGraph}; what::AbstractString = "graph")
+    comps = components(g)
+    length(comps) <= 1 && return g
+    throw(ArgumentError("the $what is not connected; its components are " *
+                        join(["[" * join(string.(_component_labels(c)), ", ") * "]" for c in comps], ", ")))
+end
+_component_labels(c::AbstractVector) = c
+_component_labels(c::NamedTuple) = c.observers

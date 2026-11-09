@@ -30,8 +30,8 @@ with [`components`](@ref), [`articulation`](@ref) and [`bridges`](@ref).
 """
 struct ViewGraph{K, E}
     views::Vector{K}
-    index::Dict{K, Int}
-    graph::Graphs.SimpleGraph{Int}
+    index::Dict{K, Int}               # cache: views → vertex, built once by the constructor
+    graph::Graphs.SimpleGraph{Int}    # cache: the structure of `edges`, for Graphs.jl's algorithms
     edges::Dict{Tuple{K, K}, E}
 end
 
@@ -85,16 +85,19 @@ Base.getindex(vg::ViewGraph, i, j) = vg.edges[(i, j)]
 Base.haskey(vg::ViewGraph, i, j) = haskey(vg.edges, (i, j))
 
 """
+    nedges(g) -> Int
+
+The number of edges of a [`ViewGraph`](@ref) (its verified pairs) or an
+[`ObservationGraph`](@ref) (its observations).
+"""
+nedges(vg::ViewGraph) = length(vg.edges)
+
+"""
     adjacent_views(vg::ViewGraph, v) -> Vector
 
 The views paired with `v`, sorted.
 """
 adjacent_views(vg::ViewGraph, v) = sort!([vg.views[u] for u in Graphs.neighbors(vg.graph, vg.index[v])])
-
-_label_sets(vg::ViewGraph, comps) = [sort!([vg.views[c] for c in comp]) for comp in comps]
-
-# Largest first; equal sizes by their smallest label.
-_by_size(sets) = sort!(sets; by = s -> (-length(s), first(s)))
 
 """
     components(vg::ViewGraph) -> Vector{Vector}
@@ -102,7 +105,8 @@ _by_size(sets) = sort!(sets; by = s -> (-length(s), first(s)))
 The connected components as sorted view labels, largest first (equal sizes by
 their smallest view). Poses are comparable only within one component.
 """
-components(vg::ViewGraph) = _by_size(_label_sets(vg, Graphs.connected_components(vg.graph)))
+components(vg::ViewGraph) =
+    sort!([sort!(vg.views[comp]) for comp in Graphs.connected_components(vg.graph)]; by = c -> (-length(c), first(c)))
 
 """
     label_components(vg::ViewGraph) -> Dict
@@ -111,19 +115,6 @@ Each view's component number, `1` the largest (GLOMAP's `MarkConnectedComponents
 the policy of one gauge per component.
 """
 label_components(vg::ViewGraph) = Dict(v => c for (c, comp) in enumerate(components(vg)) for v in comp)
-
-"""
-    require_connected(vg::ViewGraph; what = "view graph") -> vg
-
-`vg` when it is connected, otherwise an `ArgumentError` that names its
-components: the policy of a method whose frames need one common gauge.
-"""
-function require_connected(vg::ViewGraph; what::AbstractString = "view graph")
-    comps = components(vg)
-    length(comps) <= 1 && return vg
-    throw(ArgumentError("the $what is not connected; its components are " *
-                        join(["[" * join(string.(c), ", ") * "]" for c in comps], ", ")))
-end
 
 """
     induced(vg::ViewGraph, keep) -> ViewGraph
@@ -171,13 +162,14 @@ inlier counts.
 """
 function spanning_tree(vg::ViewGraph; weight = e -> 1.0)
     n = length(vg.views)
-    w = SparseArrays.spzeros(Float64, n, n)
+    I = Int[]; J = Int[]; V = Float64[]
     for ((i, j), e) in vg.edges
         a, b = vg.index[i], vg.index[j]
         x = Float64(weight(e))
         x > 0 || throw(ArgumentError("spanning_tree: the edge $((i, j)) has a non-positive weight $x"))
-        w[a, b] = x; w[b, a] = x
+        append!(I, (a, b)); append!(J, (b, a)); append!(V, (x, x))
     end
+    w = SparseArrays.sparse(I, J, V, n, n)
     return sort!([_pair(vg, Graphs.src(e), Graphs.dst(e)) for e in Graphs.kruskal_mst(vg.graph, w; minimize = false)])
 end
 
@@ -223,7 +215,8 @@ The 3-cycles `(i, j, k)`, `i < j < k`, every pair an edge, sorted.
 """
 function triangles(vg::ViewGraph)
     out = NTuple{3, eltype(vg.views)}[]
-    for (i, j) in keys(vg.edges), k in adjacent_views(vg, j)
+    for (i, j) in keys(vg.edges), u in Graphs.neighbors(vg.graph, vg.index[j])
+        k = vg.views[u]
         isless(j, k) && haskey(vg, i, k) && push!(out, (i, j, k))
     end
     return sort!(out)
@@ -259,8 +252,11 @@ The angle (radians) by which the rotations of a triangle's edges fail to close:
 The residual of [`filter_cycles`](@ref) for rotation edges.
 """
 rotation_loop_angle(ij, jk, ik; j_from_i = e -> e.j_from_i) =
-    norm(VgtkCore.log_so3(SMatrix{3, 3, Float64, 9}(j_from_i(ik))' *
-                          SMatrix{3, 3, Float64, 9}(j_from_i(jk)) * SMatrix{3, 3, Float64, 9}(j_from_i(ij))))
+    _rotation_angle(_m3(j_from_i(ik))' * _m3(j_from_i(jk)) * _m3(j_from_i(ij)))
+
+# The angle (radians) of a rotation, as fit_rotation_averaging measures its residuals: ‖log R‖.
+_rotation_angle(R) = norm(VgtkCore.log_so3(R))
+_m3(R) = SMatrix{3, 3, Float64, 9}(R)
 
 """
     filter_by_orientation(vg::ViewGraph, world_from; tol, j_from_i = e -> e.j_from_i) -> ViewGraph
@@ -273,7 +269,6 @@ An edge with a view missing from `world_from` stays.
 """
 function filter_by_orientation(vg::ViewGraph{K, E}, world_from::AbstractDict; tol::Real, j_from_i = e -> e.j_from_i) where {K, E}
     agrees(i, j, e) = !(haskey(world_from, i) && haskey(world_from, j)) ||
-        norm(VgtkCore.log_so3(SMatrix{3, 3, Float64, 9}(world_from[j]) * SMatrix{3, 3, Float64, 9}(j_from_i(e)) *
-                              SMatrix{3, 3, Float64, 9}(world_from[i])')) <= tol
+        _rotation_angle(_m3(world_from[j]) * _m3(j_from_i(e)) * _m3(world_from[i])') <= tol
     return ViewGraph(vg.views, Dict{Tuple{K, K}, E}(p => e for (p, e) in vg.edges if agrees(p..., e)))
 end

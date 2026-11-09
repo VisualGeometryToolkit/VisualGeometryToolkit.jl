@@ -260,7 +260,7 @@ export fit_rotation           # the robust rotation between two sets of directio
 export fit_linear             # the robust coefficients of a linear model (reweighted least squares)
 export fit_rotation_averaging # robust rotation averaging on a view graph (spectral or spanning-tree seed, Lie-algebra IRLS)
 export ViewGraph, ObservationGraph   # the frames and their verified pairs; the frames and what they observe (graphs/)
-public views, edgelist, adjacent_views, components, label_components, require_connected, induced, keep_largest_component,
+public views, edgelist, nedges, adjacent_views, components, label_components, require_connected, induced, keep_largest_component,
     articulation, bridges, spanning_tree, chain, triangles, filter_cycles, rotation_loop_angle, filter_by_orientation,
     observers, observed, observed_in, observers_of, covisibility   # their queries and algorithms, public, not exported
 export fit_radial_camera, DivisionCameraError   # moved from VisualGeometryToolkitCore (estimator taxonomy v2)

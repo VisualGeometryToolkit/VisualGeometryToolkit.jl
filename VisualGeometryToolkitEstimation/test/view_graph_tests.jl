@@ -5,14 +5,14 @@
 
 @testitem "ViewGraph: structure and connectivity policies" begin
     using Test
-    using VisualGeometryToolkitEstimation: ViewGraph, views, edgelist, adjacent_views, components, label_components,
+    using VisualGeometryToolkitEstimation: ViewGraph, views, edgelist, nedges, adjacent_views, components, label_components,
         require_connected, keep_largest_component, articulation, bridges, induced
 
     # two components: a triangle 1-2-3 with a tail 3-4, and the pair 10-11
     e = Dict((1, 2) => :a, (2, 3) => :b, (1, 3) => :c, (3, 4) => :d, (10, 11) => :e)
     vg = ViewGraph(e)
     @test views(vg) == [1, 2, 3, 4, 10, 11]
-    @test vg[3, 4] == :d && haskey(vg, 1, 3) && !haskey(vg, 3, 1)
+    @test vg[3, 4] == :d && haskey(vg, 1, 3) && !haskey(vg, 3, 1) && nedges(vg) == 5
     @test first.(edgelist(vg)) == [(1, 2), (1, 3), (2, 3), (3, 4), (10, 11)]
     @test ViewGraph(Dict(edgelist(vg))).edges == vg.edges                     # the edge list round-trips
     @test adjacent_views(vg, 3) == [1, 2, 4]
@@ -119,14 +119,14 @@ end
 @testitem "ObservationGraph: frames × boards, components, covisibility" begin
     using Test
     using VisualGeometryToolkitEstimation: ObservationGraph, ViewGraph, observers, observed, observed_in, observers_of,
-        edgelist, components, label_components, require_connected, articulation, bridges, covisibility, views
+        edgelist, nedges, components, label_components, require_connected, articulation, bridges, covisibility, views
 
     # frames 1-4 see boards "A" "B"; frame 4 alone links "C"; frames 7-8 see "Z" (a second component)
     obs = Dict((1, "A") => 10, (1, "B") => 11, (2, "A") => 12, (3, "B") => 13, (4, "B") => 14, (4, "C") => 15,
                (7, "Z") => 16, (8, "Z") => 17)
     og = ObservationGraph(obs)
     @test observers(og) == [1, 2, 3, 4, 7, 8] && observed(og) == ["A", "B", "C", "Z"]
-    @test og[4, "C"] == 15 && haskey(og, 1, "A") && !haskey(og, 1, "C")
+    @test og[4, "C"] == 15 && haskey(og, 1, "A") && !haskey(og, 1, "C") && nedges(og) == 8
     @test observed_in(og, 1) == ["A", "B"] && observers_of(og, "B") == [1, 3, 4]
     @test ObservationGraph(Dict(edgelist(og))).edges == og.edges
     cs = components(og)

@@ -94,7 +94,7 @@ function fit_rotation_averaging(
     all(>=(0), p) || throw(ArgumentError("fit_rotation_averaging: a prior edge weight is negative"))
     any(>(0), p) || throw(ArgumentError("fit_rotation_averaging: every prior edge weight is zero"))
     Rrel = [SMatrix{3, 3, Float64, 9}(relative[e]) for e in edges]
-    start = _averaging_seed(seed, relative, prior, edges, p)
+    start = _averaging_seed(seed, relative, prior, edges, Rrel, p)
     frames = sort!(collect(keys(start)))
     R = Dict(k => SMatrix{3, 3, Float64, 9}(start[k]) for k in frames)
     if seed !== :spectral                                              # the spectral seed is gauged already: unchanged bit for bit
@@ -189,11 +189,11 @@ function _averaging_update(edges, col, r, w, nunk)
 end
 
 # The rotations the IRLS starts from (`seed`, above); every frame of the edges is covered.
-function _averaging_seed(seed, relative, prior, edges, p)
+function _averaging_seed(seed, relative, prior, edges, Rrel, p)
     seed === :spectral && return VgtkCore.spectral_rotation_averaging(relative, prior)
     frames = sort!(unique!([k for e in edges for k in e]))
     if seed === :spanning_tree
-        live = Dict(e => (j_from_i = SMatrix{3, 3, Float64, 9}(relative[e]), prior = q) for (e, q) in zip(edges, p) if q > 0)
+        live = Dict(e => (j_from_i = R, prior = q) for (e, R, q) in zip(edges, Rrel, p) if q > 0)
         start = chain(ViewGraph(frames, live), first(frames); weight = e -> e.prior, identity = one(SMatrix{3, 3, Float64, 9}),
                       inverse = transpose)
         length(start) == length(frames) || throw(ArgumentError(

@@ -43,6 +43,7 @@ per component ([`label_components`](@ref), what a calibration does).
 
 ```@docs
 edgelist
+nedges
 components
 label_components
 require_connected

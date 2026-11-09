@@ -227,6 +227,7 @@ public homogeneous_w, maps_within
 # 3. CAMERAS - Camera models, sensors, and projection
 # -----------------------------------------------------------------------------
 export AbstractCamera, PosedCamera, BoundedCamera, CameraModel, Sensor, sensor, CMOS_SENSORS, Board, Canvas, CanvasTexture
+export lit_region, with_lit_region   # where light reaches a bounded camera's sensor (its image circle, or the whole sensor)
 public is_posed   # whether a camera or target carries a pose (the rig members' one placement trait)
 export extent
 public BoundsTrait, HasBounds, NoBounds, bounds_trait

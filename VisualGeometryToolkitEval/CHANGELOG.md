@@ -1,5 +1,11 @@
 # VisualGeometryToolkitEval changelog
 
+## 0.6.1 (2026-11-09)
+
+- On VisualGeometryToolkitCore, VisualGeometryToolkitIO and VisualGeometryToolkitEstimation 0.8 (compat `"0.8"`).
+- `reproduce_index`'s table-row splitter strips the outer pipes with `chopprefix`/`chopsuffix` (the same cells); JET
+  no longer reports `lastindex(::IO)` on Julia 1.13.
+
 ## 0.6.0 (2026-11-07)
 
 - **Breaking: `MsacSpec` is `LossWidthSpec(name, scoring, loss_width, lo = NoLocalOptimization();

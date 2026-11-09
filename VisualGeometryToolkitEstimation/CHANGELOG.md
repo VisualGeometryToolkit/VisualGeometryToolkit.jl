@@ -1,6 +1,6 @@
 # VisualGeometryToolkitEstimation changelog
 
-## Unreleased
+## 0.8.0 (2026-11-09)
 
 Needs the VisualGeometryToolkitCore release with `RadialHomography{T, N}` (its
 `RadialHomography{T, 1}` is a TypeError on VisualGeometryToolkitCore 0.5.x).

@@ -1,5 +1,9 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.6.1 (2026-11-09)
+
+- On VisualGeometryToolkitCore 0.8 (compat `"0.8"`); nothing else changes.
+
 ## 0.6.0 (2026-11-07)
 
 - The LoMa model digest and `cache_key` are VisualGeometryToolkitCore's `sha256_hex` (the same values); the SHA

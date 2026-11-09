@@ -1,6 +1,6 @@
 # VisualGeometryToolkitCore changelog
 
-## Unreleased
+## 0.8.0 (2026-11-09)
 
 Breaking (the next release is a minor bump). The `N = 1` `RadialHomography`
 is unchanged bit for bit: its solver, chart, rows and Jacobians.

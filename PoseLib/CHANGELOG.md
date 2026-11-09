@@ -1,5 +1,9 @@
 # PoseLib changelog
 
+## 0.1.9 (2026-11-09)
+
+- On VisualGeometryToolkitCore 0.8 (compat `"0.8"`); nothing else changes.
+
 ## 0.1.8 (2026-11-07)
 
 - **`calibrated_loss_width(K1, K2, loss_width)` (public)**: the bearing-unit width PoseLib's relative-pose refiner

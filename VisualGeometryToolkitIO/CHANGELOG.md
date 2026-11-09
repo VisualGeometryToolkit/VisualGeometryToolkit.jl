@@ -1,6 +1,9 @@
 # VisualGeometryToolkitIO changelog
 
-## Unreleased
+## 0.8.0 (2026-11-09)
+
+On VisualGeometryToolkitCore 0.8 (its `RadialHomography{T, N}`, `TargetHomographies` and
+`PLANAR_MAP_TAGS` are this release's records' types); nothing of IO's own is removed.
 
 - **New kind `vgio/target_homographies/v1`** (`save`, `load(TargetHomographies, path)`,
   `load(TargetHomographies{F}, path)`): per frame, each target's plane (mm) to

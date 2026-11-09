@@ -2,25 +2,27 @@
 
 ## 0.9.0 (unreleased)
 
-Breaking (the next release is a minor bump). A bounded camera carries where light reaches its sensor, so every
-consumer asks the camera what it images instead of supplying an image circle of its own.
+Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
+sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
 - **Breaking: `BoundedCamera{C, B, R}`**: the fields `extent` and `sensor` (the extent stored twice when a sensor was
   given) become ONE `bound` (a `Size2{Int}` extent, or the `Sensor` whose resolution IS the extent), and a new
-  `region`, the camera's **lit region**: where light reaches the sensor, a `Rect2`, `Circle` or `Ellipse` in
-  `Float64` pixels, kept as the kind given, by default the sensor's own `Rect` (never "none"). Both are type
-  parameters, so a bounded camera is concrete and `isbits` with its camera. Construct with
-  `BoundedCamera(camera, bound; region)`; read through `extent`, `sensor` and the new `lit_region`; replace with the
-  new `with_lit_region`. Every rebuild (re-posing, `with_model`, units, `convert_eltype`) keeps both. Code reading
-  `bc.extent` / `bc.sensor` reads `extent(bc)` / `sensor(bc)`.
-- **Breaking: `imaged_region(camera)`** is the sensor ∩ the camera's lit region ∩ the model's `valid_domain`; the
-  two-argument `imaged_region(camera, circle)` is removed (put the circle on the camera: `with_lit_region`). It is a
-  small two-type Union, kept on purpose: `valid_domain(::CameraModel)` is an `Ellipse` or `WholePlane` by the
+  `lens_coverage`: where the lens covers the sensor, a `Rect2`, `Circle` or `Ellipse` in `Float64` pixels, kept as
+  the kind given, by default the sensor's own `Rect` (never "none"; a degenerate or non-finite shape is an
+  `ArgumentError`). Both are type parameters, so a bounded camera is concrete and `isbits` with its camera. Construct
+  with `BoundedCamera(camera, bound; lens_coverage)`; read through `extent`, `sensor` and the new `lens_coverage`;
+  replace with the new `with_lens_coverage`. Every rebuild (re-posing, `with_model`, units, `convert_eltype`) keeps
+  both. Code reading `bc.extent` / `bc.sensor` reads `extent(bc)` / `sensor(bc)`. (A sensor CROP is the bound and K,
+  not the coverage.)
+- **Breaking: `imaged_region(camera)`** is the sensor ∩ the camera's lens coverage ∩ the model's `valid_domain`; the
+  two-argument `imaged_region(camera, circle)` is removed (put the circle on the camera: `with_lens_coverage`). It is
+  a small two-type Union, kept on purpose: `valid_domain(::CameraModel)` is an `Ellipse` or `WholePlane` by the
   lens's coefficients.
 - **Breaking: a grid model's `imaged_region(m)` is `valid_domain(m)`**: where the grid is defined (its calibrated
   area ∩ its `domain`), the counterpart of a parametric lens's `valid_domain`.
 - **Breaking: `view_overlap(cameras)` and `view_overlap(a, b)`** drop their circle arguments: each frame's footprint
   is its own `imaged_region`. The results for the same circles are unchanged bit for bit.
+- `fov(camera)` is unchanged: the model's angle of view over the extent, as documented; the coverage does not enter.
 
 ## 0.8.0 (2026-11-09)
 

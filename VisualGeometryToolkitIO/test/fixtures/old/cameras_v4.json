@@ -1,0 +1,75 @@
+{
+    "cameras": [
+        {
+            "K": {
+                "cx": 641.375,
+                "cy": 478.125,
+                "fx": 901.25,
+                "fy": 899.5,
+                "skew": 0
+            },
+            "height": 960,
+            "lens": {
+                "add": [
+                    {
+                        "radial": [
+                            [
+                                -0.15680625941667098,
+                                0.04565665542192153
+                            ],
+                            []
+                        ]
+                    },
+                    {
+                        "tangential": [
+                            -0.0003527415347489064,
+                            0.0008423616851487834
+                        ]
+                    }
+                ],
+                "perspective": []
+            },
+            "name": "radtan",
+            "width": 1280
+        },
+        {
+            "K": {
+                "cx": 320.0,
+                "cy": 240.0,
+                "fx": 500.0,
+                "fy": 500.0,
+                "skew": 0
+            },
+            "height": 480,
+            "lens": {
+                "compose": [
+                    {
+                        "tilt": [
+                            0.003,
+                            -0.001
+                        ]
+                    },
+                    {
+                        "radial": [
+                            [
+                                0.01,
+                                -0.002
+                            ],
+                            []
+                        ]
+                    }
+                ],
+                "perspective": []
+            },
+            "name": "tilted",
+            "width": 640
+        }
+    ],
+    "pixel_frame": "colmap",
+    "provenance": {
+        "camera_id": "test camera",
+        "converted_from": "pinhole_radtan",
+        "lens_id": "test lens"
+    },
+    "schema": "vgio/cameras/v4"
+}

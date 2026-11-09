@@ -815,6 +815,13 @@ function _sensor_json(s::VgioStyle, rig, i, id)
     else
         JSON.lower(s, m)      # generic grid model: carries its own extent
     end
+    # the rig record holds no lens coverage yet: a sensor that carries one is refused, not dropped
+    (c isa BoundedCamera && lens_coverage(c) != Rect2{Float64}(0, 0, extent(c).width, extent(c).height)) && throw(
+        ArgumentError(
+            "rig sensor $i ($(id)) carries a lens coverage ($(lens_coverage(c))), which a vgio/rig record does not store " *
+                "yet; save the camera in a camera store (vgio/cameras), or the rig with `with_lens_coverage(camera, nothing)`"
+        )
+    )
     body = _with_pitch(body, _sensor_of(c), s.length_unit)
     return (id = String(id), camera = body, extrinsics = JSON.lower(s, extrinsics(sensor_rig(rig), i)))   # <rig frame> → view:<id>
 end

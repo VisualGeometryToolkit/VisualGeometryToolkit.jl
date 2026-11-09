@@ -95,7 +95,7 @@ const _REGION_AZIMUTHS = 720
 
 The camera model of type `T` regressed onto `source` over `region`, a region of
 the source's sensor in its pixel frame (an [`imaged_region`](@extref
-`VisualGeometryToolkitCore.Cameras.imaged_region-Tuple{BoundedCamera, Any}`), an `Ellipse`, a `Rect`, their `∩`;
+`VisualGeometryToolkitCore.Cameras.imaged_region-Tuple{BoundedCamera}`), an `Ellipse`, a `Rect`, their `∩`;
 bounded): the minimizer of the integrated squared pixel error of the round trip,
 `∫ ‖π_T(π⁻¹_source(u)) − u‖² du` over the region. The target type selects the
 family and the solve:
@@ -181,7 +181,7 @@ The metadata ([`CameraFitMetadata`](@ref)) records the region, the round trip's
 the round trip's root mean square in pixels.
 
 ```julia
-region = imaged_region(with_lit_region(camera, image_circle(camera, 8.0mm)))
+region = imaged_region(with_lens_coverage(camera, image_circle(camera, 8.0mm)))
 kb = fit_camera(KannalaBrandt{4}, model(camera), region)                       # a parametric lens
 fwd = fit_camera(SplineProjection, grid, region; tolerance = 1.0e-3)           # a grid's forward map
 project(estimate(fwd), ray)                                                    # its pixel, or nothing outside the region

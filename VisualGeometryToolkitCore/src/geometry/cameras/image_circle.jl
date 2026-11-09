@@ -13,8 +13,8 @@
 #   1318 px).
 # - `image_circle(camera, sensor, diameter)`: where light falls, from a lens
 #   datasheet's diameter through the sensor's pixel pitch (or a measured
-#   circle the caller supplies), stored on a bounded camera as its `lit_region`.
-#   `imaged_region(camera)` intersects the extent, the lit region and the valid
+#   circle the caller supplies), stored on a bounded camera as its `lens_coverage`.
+#   `imaged_region(camera)` intersects the extent, the lens coverage and the valid
 #   domain.
 #
 # The region algebra (`∩`, the reverse containment `Rect ∈ Ellipse`) is the
@@ -37,7 +37,7 @@ This is a property of the formula, **not where light falls on the sensor**: a
 fitted lens's fold can lie well outside the lit disc, or inside the extent where
 the sensor is dark. Where light falls is the lens's
 [`image_circle`](@ref)`(camera, sensor, diameter)` from its datasheet, or a
-measured circle; a bounded camera holds either as its [`lit_region`](@ref).
+measured circle; a bounded camera holds either as its [`lens_coverage`](@ref).
 
 For a lens that is not radially symmetric — a composed distortion (`∘`) with
 a tilt stage, tangential or thin-prism terms — `ρ` is the smallest image radius of the
@@ -178,21 +178,21 @@ end
     imaged_region(camera::BoundedCamera) -> region
 
 The region of the sensor the camera images, in pixels in its pixel frame: the
-sensor `Rect(extent(camera))` ∩ its [`lit_region`](@ref) (where light reaches
+sensor `Rect(extent(camera))` ∩ its [`lens_coverage`](@ref) (where light reaches
 the sensor: the lens's image circle, measured or from a datasheet's
 [`image_circle`](@ref), or the whole sensor) ∩ the [`valid_domain`](@ref) of
 its model (where the lens formula holds, or where a grid model is defined).
 The one place the three are combined, so a consumer asks the camera and never
-carries an image circle of its own. A lit region larger than the sensor, or
+carries an image circle of its own. A lens coverage larger than the sensor, or
 cut by it, is clipped to the sensor.
 
 A lazy [`RegionIntersection`](@ref VisualGeometryToolkitCore.Primitives.RegionIntersection),
-or the sensor's `Rect` itself when the whole sensor is lit and the model has no
+or a `Rect` (the sensor's, in its eltype) when the whole sensor is covered and the model has no
 limit (`∩` returns it). The pixel mask of any residual is
 `u ∈ imaged_region(camera)`; the free parameters of a local model are
 [`free_nodes`](@ref)`(model, imaged_region(camera))`.
 """
-imaged_region(bc::BoundedCamera) = (Rect(0, 0, extent(bc)...) ∩ lit_region(bc)) ∩ valid_domain(model(bc))
+imaged_region(bc::BoundedCamera) = (Rect(0, 0, extent(bc)...) ∩ lens_coverage(bc)) ∩ valid_domain(model(bc))
 
 """
     pixel_mask(region, width, height) -> BitMatrix
@@ -204,7 +204,7 @@ layout: `mask[v, u]` is pixel `(u, v)`, whose centre is the COLMAP point `(u −
 [`pixel_centres`](@ref) shares, made in one place.
 
 ```julia
-region = imaged_region(camera)                # the sensor ∩ its lit region ∩ where its lens model is valid
+region = imaged_region(camera)                # the sensor ∩ its lens coverage ∩ where its lens model is valid
 mask = pixel_mask(region, width, height)      # the pixels the camera images
 ```
 """

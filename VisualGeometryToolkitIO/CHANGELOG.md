@@ -2,13 +2,16 @@
 
 ## 0.9.0 (unreleased)
 
-On VisualGeometryToolkitCore 0.9 (a bounded camera's lit region).
+On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
 
-- **Breaking: `vgio/cameras/v5`**: a stored camera may carry an optional `image_circle` — `{"circle": [cx, cy, r]}`
-  or `{"ellipse": [cx, cy, a, b, θ]}`, pixels in the canonical frame — read back as its lit region (`lit_region`);
-  absent, the whole sensor is lit. A lit region that is a `Rect` other than the sensor's is refused on write; an
-  `image_circle` in a store declaring a foreign pixel frame is refused on read. A v4 store reads through its
-  migration (its schema line alone), with the whole sensor lit; `save` writes v5.
+- **Breaking: `vgio/cameras/v5`**: a stored camera may carry an optional `lens_coverage` — `{"circle": [cx, cy, r]}`,
+  `{"ellipse": [cx, cy, a, b, θ]}` or `{"rect": [x, y, w, h]}` (a letterboxed or padded image), pixels in the store's
+  pixel frame, moved into the canonical frame on read as K's principal point is — read back as its `lens_coverage`;
+  absent, the whole sensor is covered. A v4 store reads through its migration (its schema line alone; one that
+  already holds a `lens_coverage` was not written by v4 and is refused), with the whole sensor covered; `save` writes
+  v5. `JSON.lower`/`lift` pairs for `Circle` and `Rect2` join the `Ellipse` one.
+- A rig sensor whose lens coverage is not the whole sensor is REFUSED by `save(path, rig)` rather than silently
+  dropped: the rig record does not hold a coverage yet.
 
 ## 0.8.0 (2026-11-09)
 

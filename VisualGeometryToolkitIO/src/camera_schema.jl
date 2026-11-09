@@ -10,10 +10,10 @@
 #                                {"tangential": [p1, p2]}, …]},
 #               "calibration": {"tool": …, "source": …, "date": "2026-01-19",
 #                               "reprojection_rms": 0.159, "n_images": 36},   (optional)
-#               "image_circle": {"ellipse": [cx, cy, a, b, θ]}}],               (optional; or {"circle": [cx, cy, r]})
+#               "lens_coverage": {"ellipse": [cx, cy, a, b, θ]}}],               (optional; or {"circle": [cx, cy, r]})
 #  "provenance": {…}}                                               (optional)
 #
-# `image_circle` is the camera's LIT REGION (VGC's `lit_region`): where light reaches the sensor, in pixels in the
+# `lens_coverage` is the camera's LENS COVERAGE (VGC's `lens_coverage`): where light reaches the sensor, in pixels in the
 # canonical frame — a Circle, or an Ellipse with its major semi-axis first. Absent, the whole sensor is lit. (v5;
 # a v4 store, which has none, reads through its migration with the whole sensor lit.)
 #
@@ -322,7 +322,7 @@ end
 # camera's name (the identity a config refers to) to a VGC `BoundedCamera` of a
 # `CameraModel` (COLMAP's "camera" row: intrinsics, lens, image size, no pose),
 # or an `Attributed` one carrying its `calibration` block. Once a pose is known,
-# `BoundedCamera(PosedCamera(model(bc), pose), bc.extent)` is the posed camera.
+# `BoundedCamera(PosedCamera(model(bc), pose), bc.bound; lens_coverage = lens_coverage(bc))` is the posed camera.
 #
 # No pixel frame is stored per camera: a model's K is in VGC's canonical frame
 # by construction. On disk the store still names its pixel frame, because a
@@ -330,33 +330,34 @@ end
 
 const _StoredCamera = Union{BoundedCamera{<:CameraModel}, Attributed{<:BoundedCamera{<:CameraModel}, <:NamedTuple{(:calibration,)}}}
 
-# A camera's lit region (VisualGeometryToolkitCore's `lit_region`) as the store's optional `image_circle`, pixels in the
-# store's frame (converted as K's principal point is): {"circle": [cx, cy, r]} or {"ellipse": [cx, cy, a, b, θ]} (VGC's
-# `Ellipse` numbers, the major semi-axis first). The whole sensor lit writes nothing; any other `Rect` is refused — only
-# an image circle is stored.
-const _IMAGE_CIRCLE = _Obj(Pair{Symbol, _Spec}[], Pair{Symbol, _Spec}[:circle => _Vec(_Real(), 3), :ellipse => _Vec(_Real(), 5)])
-_image_circle_tag(::Circle) = :circle
-_image_circle_tag(::Ellipse) = :ellipse
-_image_circle_json(s::VgioStyle, r::Union{Circle, Ellipse}, _, _) =
-    (image_circle = NamedTuple{(_image_circle_tag(r),)}((JSON.lower(s, EuclideanMap(CANONICAL_PIXEL_FRAME, _pixel_frame(s))(r)),)),)
-_image_circle_json(::VgioStyle, r::Rect2, bc, name) =
-    r == lit_region(with_lit_region(bc, nothing)) ? (;) : throw(
-        ArgumentError(
-            "camera $(name): its lit region is a Rect other than the sensor's; only a Circle or an Ellipse is stored as an " *
-                "image circle (the whole sensor lit is stored as no image_circle)"
-        )
-    )
-_image_circle_from_json(::VgioStyle, ::Nothing) = nothing
-_image_circle_from_json(s::VgioStyle, ic) =
-    EuclideanMap(_pixel_frame(s), CANONICAL_PIXEL_FRAME)(haskey(ic, :circle) ? JSON.lift(s, Circle, ic.circle::Vector{Any}) :
-                                                         JSON.lift(s, Ellipse, ic.ellipse::Vector{Any}))
+# A camera's lens coverage (VisualGeometryToolkitCore's `lens_coverage`: where the lens covers the sensor) as the store's
+# optional `lens_coverage`, pixels in the store's frame (moved between frames as K's principal point is):
+# {"circle": [cx, cy, r]}, {"ellipse": [cx, cy, a, b, θ]} (VGC's `Ellipse` numbers, the major semi-axis first) or
+# {"rect": [x, y, w, h]} (a letterboxed or padded image). The whole sensor covered writes nothing.
+const _LENS_COVERAGE = _Obj(Pair{Symbol, _Spec}[],
+                            Pair{Symbol, _Spec}[:circle => _Vec(_Real(), 3), :ellipse => _Vec(_Real(), 5), :rect => _Vec(_Real(), 4)])
+_lens_coverage_tag(::Circle) = :circle
+_lens_coverage_tag(::Ellipse) = :ellipse
+_lens_coverage_tag(::Rect2) = :rect
+# pixel frames differ by a translation: a Circle or an Ellipse moves under the map, a Rect by its origin
+_in_frame(m, x::Union{Circle, Ellipse}) = m(x)
+_in_frame(m, r::Rect2) = (o = m(Point2{Float64}(r.origin[1], r.origin[2])); Rect2{Float64}(o[1], o[2], r.widths[1], r.widths[2]))
+_lens_coverage_json(s::VgioStyle, r, ext::Size2) =
+    r == Rect2{Float64}(0, 0, ext.width, ext.height) ? (;) :
+    (lens_coverage = NamedTuple{(_lens_coverage_tag(r),)}((JSON.lower(s, _in_frame(EuclideanMap(CANONICAL_PIXEL_FRAME, _pixel_frame(s)), r)),)),)
+_lens_coverage_from_json(::VgioStyle, ::Nothing) = nothing
+function _lens_coverage_from_json(s::VgioStyle, lc)
+    k = Symbol(only(keys(lc)))
+    x = JSON.lift(s, k === :circle ? Circle : k === :ellipse ? Ellipse : Rect2, lc[k]::Vector{Any})
+    return _in_frame(EuclideanMap(_pixel_frame(s), CANONICAL_PIXEL_FRAME), x)
+end
 
 const _CAMERAS_SPEC = _Checked(
     _Obj(
         Pair{Symbol, _Spec}[
             :schema => _schema_tok("cameras"), :pixel_frame => _PIXEL_FRAME,
             :cameras => _Vec(_Obj(Pair{Symbol, _Spec}[:name => _NonEmpty(), _CAMERA_BODY_FIELDS...],
-                                  Pair{Symbol, _Spec}[:calibration => _CALIBRATION, :pitch => _PITCH, :image_circle => _IMAGE_CIRCLE])),
+                                  Pair{Symbol, _Spec}[:calibration => _CALIBRATION, :pitch => _PITCH, :lens_coverage => _LENS_COVERAGE])),
         ],
         Pair{Symbol, _Spec}[_PROVENANCE..., :length_unit => _LENGTH_UNIT],
     ),
@@ -365,10 +366,11 @@ const _CAMERAS_SPEC = _Checked(
         any(c -> haskey(c, :pitch), x[:cameras]) == haskey(x, :length_unit) ||
             return "`length_unit` is declared iff a camera carries a pitch"
         for c in x[:cameras]
-            ic = get(c, :image_circle, nothing)
+            ic = get(c, :lens_coverage, nothing)
             ic === nothing && continue
-            length(ic) == 1 || return "camera $(c[:name]): an image_circle is ONE of {\"circle\": [cx, cy, r]} or {\"ellipse\": [cx, cy, a, b, θ]}"
+            length(ic) == 1 || return "camera $(c[:name]): its lens_coverage is ONE of {\"circle\": [cx, cy, r]}, {\"ellipse\": [cx, cy, a, b, θ]} or {\"rect\": [x, y, w, h]}"
             haskey(ic, :circle) && !(ic[:circle][3] > 0) && return "camera $(c[:name]): the image circle's radius is positive"
+            haskey(ic, :rect) && !(ic[:rect][3] > 0 && ic[:rect][4] > 0) && return "camera $(c[:name]): the coverage rect's width and height are positive"
             p = haskey(ic, :ellipse) ? _ellipse_record_problem(ic[:ellipse], "camera $(c[:name]): the image ellipse") : nothing
             p === nothing || return p
         end
@@ -382,7 +384,7 @@ _bounded(c::Attributed) = getfield(c, :value)
 function _camera_entry(s::VgioStyle, name::Symbol, c::_StoredCamera)
     bc = _bounded(c)
     e = merge((name = String(name),), _with_pitch(_camera_body(s, bc.camera, extent(bc)), sensor(bc), s.length_unit),
-              _image_circle_json(s, lit_region(bc), bc, name))
+              _lens_coverage_json(s, lens_coverage(bc), extent(bc)))
     return c isa Attributed ? merge(e, (calibration = _calibration_json(c.calibration),)) : e
 end
 
@@ -436,7 +438,7 @@ function load(::Type{Dict{Symbol, BoundedCamera}}, path::AbstractString)
     for c in d.cameras::Vector{Any}
         ext = _extent_from_body(c)
         bc = BoundedCamera(JSON.lift(s, CameraModel, c::_Record), haskey(c, :pitch) ? _bound_from_body(c, ext, parse_unit(d.length_unit::String)) : ext;
-                           region = _image_circle_from_json(s, get(c, :image_circle, nothing)))
+                           lens_coverage = _lens_coverage_from_json(s, get(c, :lens_coverage, nothing)))
         out[Symbol(c.name::String)] = haskey(c, :calibration) ?
             Attributed(bc, (; calibration = _calibration_from_json(c.calibration::AbstractDict))) : bc
     end

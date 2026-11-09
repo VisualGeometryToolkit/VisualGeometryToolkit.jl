@@ -22,7 +22,7 @@
     # the restored migrations' own tests build them in.
     function old_versions(dir)
         out = Pair{String, Any}[]
-        for v in ("v1", "v2", "v3")
+        for v in ("v1", "v2", "v3", "v4")
             push!(out, old_fixture("cameras_$(v).json") => Dict{Symbol, BoundedCamera})
         end
         push!(out, old_fixture("generic_camera_v2.json") => NoncentralGenericModel)   # every node: v3's all-present model
@@ -96,8 +96,11 @@ end
 
 @testitem "cameras v1, v2 and v3: the same camera in every version loads equal" setup = [VGIoFixtures, OldVersions] begin
     import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitCore: BoundedCamera, Tilt, model, extent
-    v1, v2, v3 = (load(Dict{Symbol, BoundedCamera}, old_fixture("cameras_$(v).json")) for v in ("v1", "v2", "v3"))
+    using VisualGeometryToolkitCore: BoundedCamera, Tilt, model, extent, lens_coverage
+    import VisualGeometryToolkitCore as VgtkCore
+    v1, v2, v3, v4 = (load(Dict{Symbol, BoundedCamera}, old_fixture("cameras_$(v).json")) for v in ("v1", "v2", "v3", "v4"))
+    # v4 → v5 moves no number: v4's cameras are v3's, every one with the whole sensor covered
+    @test v4 == v3 && all(c -> lens_coverage(c) == VgtkCore.Rect2{Float64}(0, 0, extent(c)...), values(v4))
     # the Brown–Conrady lens of v1/v2 is the OpenCV lens of its shortest coefficient vector, as BlobBoards' cameras v3 of these files held it
     @test v1[:radtan] == v2[:radtan] == v3[:radtan]
     @test model(v1[:radtan]).lens == Lens(Perspective(), Additive(Radial((-0.15680625941667098, 0.04565665542192153)), Tangential(-0.0003527415347489064, 0.0008423616851487834)))

@@ -15,7 +15,7 @@
 # convention, the CLOSED meet `_closed_meet` (below): rectangles that share an
 # edge or a corner meet. GeometryBasics' strict `intersect` calls that empty;
 # Core chooses closed because a region and its supports are closed sets — a
-# node whose footprint touches the lit region at its edge is free, and a
+# node whose footprint touches the imaged region at its edge is free, and a
 # region's bounding box must contain every rectangle `intersects` says it
 # meets. `intersects`, a node's `support` clip and `Rect2(::RegionIntersection)`
 # all read `_closed_meet`.

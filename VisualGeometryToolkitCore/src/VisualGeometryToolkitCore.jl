@@ -227,7 +227,7 @@ public homogeneous_w, maps_within
 # 3. CAMERAS - Camera models, sensors, and projection
 # -----------------------------------------------------------------------------
 export AbstractCamera, PosedCamera, BoundedCamera, CameraModel, Sensor, sensor, CMOS_SENSORS, Board, Canvas, CanvasTexture
-export lit_region, with_lit_region   # where light reaches a bounded camera's sensor (its image circle, or the whole sensor)
+export lens_coverage, with_lens_coverage   # where light reaches a bounded camera's sensor (its image circle, or the whole sensor)
 public is_posed   # whether a camera or target carries a pose (the rig members' one placement trait)
 export extent
 public BoundsTrait, HasBounds, NoBounds, bounds_trait
@@ -327,8 +327,8 @@ export convert_frame   # the one way to change the pixel frame of pixel data
 export rectify             # stereo rectification (rig types + fused warp)
 export view_angle_limit  # the honest θ-domain of a lens
 export valid_domain      # where the lens MODEL is valid (its view-angle limit's image), not where light falls
-export image_circle      # the lit region of the sensor, from a datasheet through the pitch
-export imaged_region     # Rect(extent) ∩ the camera's lit region ∩ its valid domain: what a bounded camera images
+export image_circle      # the lens coverage of the sensor, from a datasheet through the pitch
+export imaged_region     # Rect(extent) ∩ the camera's lens coverage ∩ its valid domain: what a bounded camera images
 export view_overlap      # the solid angle every pair of a rotating camera's frames share, and its fraction of each footprint (cameras/view_overlap.jl)
 export RotationMap, OrientedCamera   # a rotation-only pose, and a camera posed by one (transforms/rotation_map.jl, cameras/cameras.jl)
 export pixel_mask        # the pixels whose centres lie in a region (COLMAP centres, Julia's array layout)

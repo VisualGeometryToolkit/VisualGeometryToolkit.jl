@@ -423,7 +423,7 @@ end
 # split no longer denotes anything.
 
 # ============================================================================
-# BoundedCamera{C, B, R} — wrap any AbstractCamera with its bound (extent or Sensor) and its lit region
+# BoundedCamera{C, B, R} — wrap any AbstractCamera with its bound (extent or Sensor) and its lens coverage
 # ============================================================================
 
 """
@@ -438,7 +438,7 @@ extent — information the bare `PosedCamera` type doesn't retain.
 The wrapped camera may be UNPOSED — a bare model, `is_posed(bc) == false`
 — which is COLMAP's "camera" row (intrinsics, lens and image size, no pose) and
 the element of a stored camera collection (VisualGeometryToolkitIO's `cameras`
-kind). `BoundedCamera(PosedCamera(model(bc), pose), bc.bound; region = lit_region(bc))` is its posed
+kind). `BoundedCamera(PosedCamera(model(bc), pose), bc.bound; lens_coverage = lens_coverage(bc))` is its posed
 counterpart; the pose accessors of an unposed one are an `ArgumentError`.
 [`is_posed`](@ref) is the wrapped camera's.
 
@@ -451,18 +451,18 @@ lens datasheet's millimetres into pixels ([`image_circle`](@ref)). Either way
 is the `Sensor`, or `nothing` for the extent form. The bound is ONE field,
 `bc.bound`: the extent, or the sensor whose resolution is the extent.
 
-# The lit region
-`BoundedCamera(camera, bound; region)` — where light reaches the sensor, in
+# The lens coverage
+`BoundedCamera(camera, bound; lens_coverage = region)` — where light reaches the sensor, in
 pixels: a `Circle` or an `Ellipse` (the lens's image circle, measured with a
 detector or from a datasheet), or a `Rect2`; any real element type, converted
 to `Float64`, and kept as the kind given. Omitted, it is the sensor's own `Rect`: the whole
-sensor is lit. [`lit_region`](@ref)`(bc)` reads it, [`with_lit_region`](@ref)
+sensor is lit. [`lens_coverage`](@ref)`(bc)` reads it, [`with_lens_coverage`](@ref)
 replaces it. What the camera images is [`imaged_region`](@ref)`(bc)`: the
-sensor ∩ the lit region ∩ where the lens model is valid.
+sensor ∩ the lens coverage ∩ where the lens model is valid.
 
 # Field access
-- `bc.camera`, `bc.bound`, `bc.region` — direct fields; read them through
-  `model`, `extent`/`sensor` and `lit_region`.
+- `bc.camera`, `bc.bound`, `bc.lens_coverage` — direct fields; read them through
+  `model`, `extent`/`sensor` and `lens_coverage`.
 
 # Method delegation (via `MacroTools.@forward`)
 The standard PosedCamera accessors (`intrinsics`, `lens`, `pose`, `extrinsics`,
@@ -489,14 +489,14 @@ inner = PosedCamera(CameraModel(K; lens=Pinhole()), pose)
 bc    = BoundedCamera(inner, Size2(6048, 4032))
 intrinsics(bc)     # forwarded → CameraCalibrationMat
 extent(bc)         # Size2(6048, 4032)
-lit_region(bc)     # Rect2(0, 0, 6048, 4032): the whole sensor is lit
+lens_coverage(bc)     # Rect2(0, 0, 6048, 4032): the whole sensor is lit
 ```
 """
 struct BoundedCamera{C <: AbstractCamera, B <: Union{Size2{Int}, Sensor{BaseQuantity, BaseQuantity}},
                      R <: Union{Rect2{Float64}, Circle{Float64}, Ellipse{Float64}}} <: AbstractCamera
     camera::C
     bound::B                   # the pixel extent, or the Sensor's stored form (sensors.jl) whose resolution IS the extent
-    region::R                  # where light reaches the sensor (pixels); the sensor's own Rect when the whole of it is lit
+    lens_coverage::R           # where the lens covers the sensor: where light reaches it (pixels); the sensor's own Rect when the whole of it is lit
 end
 # Both are type parameters, so a bounded camera is concrete and isbits with its camera, whichever bound and region it holds.
 
@@ -508,16 +508,22 @@ _extent(s::Sensor) = (r = Rect(s); Size2(Int(r.widths[1]), Int(r.widths[2])))
 _sensor(::Size2{Int}) = nothing
 _sensor(s::Sensor) = s
 
-# The lit region: a geometric primitive in Float64 pixels, kept as the kind given (a Circle stays a Circle: `∩` meets it as
+# The lens coverage: a geometric primitive in Float64 pixels, kept as the kind given (a Circle stays a Circle: `∩` meets it as
 # its round Ellipse); `nothing` is the whole sensor.
-_lit_region(::Nothing, e::Size2{Int}) = Rect2{Float64}(0, 0, e.width, e.height)
-_lit_region(r::Rect2, _) = Rect2{Float64}(r)
-_lit_region(c::Circle, _) = Circle{Float64}(Point2{Float64}(c.center), Float64(c.r))
-_lit_region(e::Ellipse, _) = Ellipse{Float64}(Point2{Float64}(e.center), Float64(e.a), Float64(e.b), Float64(e.θ))
-_lit_region(r, _) = throw(ArgumentError("a camera's lit region is a Rect2, a Circle or an Ellipse (pixels), got a $(nameof(typeof(r)))"))
+_lens_coverage(::Nothing, e::Size2{Int}) = Rect2{Float64}(0, 0, e.width, e.height)
+_lens_coverage(r::Rect2, _) = _covering(Rect2{Float64}(r), (r.origin..., r.widths...), r.widths)
+_lens_coverage(c::Circle, _) = _covering(Circle{Float64}(Point2{Float64}(c.center), Float64(c.r)), (c.center..., c.r), (c.r,))
+_lens_coverage(e::Ellipse, _) =
+    _covering(Ellipse{Float64}(Point2{Float64}(e.center), Float64(e.a), Float64(e.b), Float64(e.θ)), (e.center..., e.a, e.b, e.θ), (e.a, e.b))
+# A coverage is a real region: every number finite, every extent (a Rect's widths, a radius, the semi-axes) positive —
+# a degenerate one would be written by a store whose reader refuses it.
+_covering(x, numbers, extents) =
+    all(isfinite, numbers) && all(>(0), extents) ? x :
+    throw(ArgumentError("a camera's lens coverage is a region with finite numbers and a positive size; got $(x)"))
+_lens_coverage(r, _) = throw(ArgumentError("a camera's lens coverage is a Rect2, a Circle or an Ellipse (pixels), got a $(nameof(typeof(r)))"))
 
-BoundedCamera(camera::AbstractCamera, bound::Union{Size2, Sensor}; region = nothing) =
-    (b = _bound(bound); BoundedCamera(camera, b, _lit_region(region, _extent(b))))
+BoundedCamera(camera::AbstractCamera, bound::Union{Size2, Sensor}; lens_coverage = nothing) =
+    (b = _bound(bound); BoundedCamera(camera, b, _lens_coverage(lens_coverage, _extent(b))))
 
 """
     sensor(camera::BoundedCamera) -> Union{Sensor, Nothing}
@@ -531,7 +537,7 @@ two-argument database lookup `sensor(manufacturer, model)`: both answer a
 sensor(bc::BoundedCamera) = _sensor(bc.bound)
 
 """
-    lit_region(camera::BoundedCamera) -> Union{Rect2{Float64}, Circle{Float64}, Ellipse{Float64}}
+    lens_coverage(camera::BoundedCamera) -> Union{Rect2{Float64}, Circle{Float64}, Ellipse{Float64}}
 
 Where light reaches the camera's sensor, in its pixels: the lens's image circle
 (a `Circle` or an `Ellipse`, measured or from a datasheet), or the sensor's own
@@ -540,20 +546,20 @@ where the lens MODEL is valid — that is
 [`valid_domain`](@ref); what the camera images is both, inside the sensor:
 [`imaged_region`](@ref)`(camera)`.
 """
-lit_region(bc::BoundedCamera) = bc.region
+lens_coverage(bc::BoundedCamera) = bc.lens_coverage
 
 """
-    with_lit_region(camera::BoundedCamera, region) -> BoundedCamera
+    with_lens_coverage(camera::BoundedCamera, region) -> BoundedCamera
 
-The same camera and bound with the lit region `region` (a `Rect2`, `Circle` or
+The same camera and bound with the lens coverage `region` (a `Rect2`, `Circle` or
 `Ellipse` of any real element type, converted to `Float64`; `nothing` for the
 whole sensor).
 """
-with_lit_region(bc::BoundedCamera, region) = BoundedCamera(bc.camera, bc.bound; region)
+with_lens_coverage(bc::BoundedCamera, region) = BoundedCamera(bc.camera, bc.bound; lens_coverage = region)
 
-# The same bound and lit region around another camera: what a rebuild of the wrapped camera
+# The same bound and lens coverage around another camera: what a rebuild of the wrapped camera
 # (new extrinsics, new model, a unit change) keeps.
-_rebound(bc::BoundedCamera, camera::AbstractCamera) = BoundedCamera(camera, bc.bound, bc.region)
+_rebound(bc::BoundedCamera, camera::AbstractCamera) = BoundedCamera(camera, bc.bound, bc.lens_coverage)
 # a bounded camera in another element type: the wrapped camera converted, the bound kept (a device kernel's Float32 camera)
 convert_eltype(::Type{T}, bc::BoundedCamera) where {T <: Real} = _rebound(bc, convert_eltype(T, bc.camera))
 
@@ -574,7 +580,7 @@ is_posed(b::BoundedCamera) = is_posed(b.camera)
 @noinline _refuse_bounded_model(what) = throw(
     ArgumentError(
         "$(what): the model is a BoundedCamera — the bound goes outside the pose: " *
-            "`BoundedCamera(PosedCamera(model(bc), X), bc.bound; region = lit_region(bc))`"
+            "`BoundedCamera(PosedCamera(model(bc), X), bc.bound; lens_coverage = lens_coverage(bc))`"
     )
 )
 _check_camera_model(c::AbstractCamera, what) = is_posed(c) ? _refuse_posed_model(what, c) : nothing
@@ -587,7 +593,7 @@ _check_camera_model(::BoundedCamera, what) = _refuse_bounded_model(what)
 @noinline _refuse_unposed(what, x) = throw(
     ArgumentError("$(what): the $(_pose_hint(x)[1]) is unposed (a $(nameof(typeof(x))), `is_posed` is false) — pose it: $(_pose_hint(x)[2])")
 )
-_pose_hint(::AbstractCamera) = ("camera", "`PosedCamera(model, X)`, or `BoundedCamera(PosedCamera(model(bc), X), bc.bound; region = lit_region(bc))`")
+_pose_hint(::AbstractCamera) = ("camera", "`PosedCamera(model, X)`, or `BoundedCamera(PosedCamera(model(bc), X), bc.bound; lens_coverage = lens_coverage(bc))`")
 _unposed_only(f, what, x, args...) = is_posed(x) ? throw(MethodError(f, (x, args...))) : _refuse_unposed(what, x)
 
 # Method delegation to the wrapped camera (`bc.camera`).  Uses MacroTools.@forward
@@ -1078,7 +1084,7 @@ export CameraModel                     # Intrinsics + lens
 export AbstractCamera, PosedCamera          # PosedCamera with extrinsics
 export PosedPinholeCamera                   # Lens-dispatch alias
 export BoundedCamera, extent           # Wrapper that adds image bounds + accessor
-export lit_region, with_lit_region     # where light reaches a bounded camera's sensor (its image circle, or the whole sensor)
+export lens_coverage, with_lens_coverage     # where light reaches a bounded camera's sensor (its image circle, or the whole sensor)
 export model                            # CameraModel accessor on PosedCamera/AbstractCamera
 
 # -----------------------------------------------------------------------------
@@ -1108,8 +1114,8 @@ export convert_frame                      # the one way to change the pixel fram
 export rectify                            # stereo rectification: rectified pinhole rig + FramedImage pair
 export view_angle_limit                   # honest θ-domains
 export valid_domain                       # where the lens MODEL is valid, not where light falls
-export image_circle                       # the lit region of the sensor, from a datasheet through the pitch
-export imaged_region                      # Rect(extent) ∩ the camera's lit region ∩ its valid domain: what a bounded camera images
+export image_circle                       # the lens coverage of the sensor, from a datasheet through the pitch
+export imaged_region                      # Rect(extent) ∩ the camera's lens coverage ∩ its valid domain: what a bounded camera images
 export view_overlap                       # the solid angle every pair of a rotating camera's frames share (view_overlap.jl)
 export OrientedCamera                     # a PosedCamera posed by a RotationMap: a camera turning about its centre
 export pixel_mask                         # the pixels whose centres lie in a region (COLMAP centres, Julia layout)

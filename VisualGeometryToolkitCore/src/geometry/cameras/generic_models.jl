@@ -386,7 +386,7 @@ closed rectangle `[min, max + 1]`) ∩ its `domain` (`WholePlane()` unless the
 model was built with a `domain`, or from a generic model that had one) — the
 grid's answer to a parametric lens's [`valid_domain`](@ref) (where its formula
 holds). Where a camera with this model IMAGES is
-[`imaged_region`](@ref)`(BoundedCamera(m, extent; region))`, which also
+[`imaged_region`](@ref)`(BoundedCamera(m, extent; lens_coverage = region))`, which also
 intersects where light falls. `free_nodes(m, valid_domain(m))` are the nodes
 that can reach a pixel where the grid is defined.
 """

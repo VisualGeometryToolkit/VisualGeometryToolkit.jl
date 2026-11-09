@@ -61,7 +61,7 @@ end
 
 Convert a third-party OpenCV calibration export (`calibration_opencv_*.json`:
 `fx, fy, cx, cy`, named distortion coefficients, `rms`, one `{rvec, tvec}` per
-image) into native files (cameras v4, transforms v3), where everything the export leaves implicit is
+image) into native files (cameras v5, transforms v4), where everything the export leaves implicit is
 declared. The original is never touched. Written to `out`:
 
 - `<stem>_cameras.json` — a `vgio/cameras/v5` store holding one camera named
@@ -315,7 +315,7 @@ end
 
 Rewrite the file at `path`, of the earlier schema version it declares, in its
 kind's current one, by the file form of [`migrate_schema`](@ref) for that
-schema (cameras v1–v3, target v1–v3, rig v4–v6, generic_camera v2, and any a schema owner adds),
+schema (cameras v1–v4, target v1–v3, rig v4–v6, generic_camera v2, and any a schema owner adds),
 which runs the same version steps a reader runs on load: an old file need not
 be rewritten to be read, and this is how it is rewritten once. The migration
 is written through the current writer to a staging directory BESIDE `out`
@@ -949,11 +949,11 @@ _rig_v6_to_v7(old) = (t = _map_rig_targets(b -> _layout_free_body(b, "a vgio/rig
 migrate_schema(::Val{Symbol("vgio/cameras/v1")}, t::AbstractDict) = _cameras_v1_to_v2(t)
 migrate_schema(::Val{Symbol("vgio/cameras/v2")}, t::AbstractDict) = _cameras_v2_to_v3(t)
 migrate_schema(::Val{Symbol("vgio/cameras/v3")}, t::AbstractDict) = _cameras_v3_to_v4(t)
-# vgio/cameras/v4 → v5: v5 adds the optional per-camera `image_circle` (a camera's lit region); a v4 store has none, so its
+# vgio/cameras/v4 → v5: v5 adds the optional per-camera `lens_coverage` (a camera's lens coverage); a v4 store has none, so its
 # cameras read with the whole sensor lit. No number moves.
 function _cameras_v4_to_v5(old)
-    any(c -> haskey(c, "image_circle"), old["cameras"]) &&
-        _not_written_by("a vgio/cameras/v4 store", "holds no \"image_circle\" (a camera's lit region is cameras v5)")
+    any(c -> haskey(c, "lens_coverage"), old["cameras"]) &&
+        _not_written_by("a vgio/cameras/v4 store", "holds no \"lens_coverage\" (a camera's lens coverage is cameras v5)")
     return _with_schema(old, "vgio/cameras/v5")
 end
 migrate_schema(::Val{Symbol("vgio/cameras/v4")}, t::AbstractDict) = _cameras_v4_to_v5(t)
@@ -1562,7 +1562,7 @@ usage: julia --project=<VisualGeometryToolkitIO> bin/vgio_migrate.jl target|rig|
 
 Migrate a file of an earlier schema version into the current one (target:
 vgio/target/v1–v2 → v3; rig: vgio/rig/v4–v5 → v6; file: any schema with a
-migration, cameras v1–v3 among them), every such file under a directory (tree, then re-pointing the
+migration, cameras v1–v4 among them), every such file under a directory (tree, then re-pointing the
 measurement files that name a migrated rig), or re-point one measurement file
 (repoint). A DRY RUN unless --apply: migrated to a temporary directory, read
 back and compared number for number, nothing written. Written beside the

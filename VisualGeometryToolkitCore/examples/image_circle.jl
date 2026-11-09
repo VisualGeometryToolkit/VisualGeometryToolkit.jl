@@ -2,8 +2,8 @@
 # of the sensor. `valid_domain(camera)` is where the lens FORMULA holds (its
 # view-angle limit's image); `image_circle(camera, diameter)` is where light
 # falls (a datasheet through the pitch, or a measured circle). A local lens
-# model (a grid of nodes) lives on `imaged_region(camera)`: the sensor ∩ the camera's lit region
-# (`lit_region`, the image circle it carries) ∩ its valid domain.
+# model (a grid of nodes) lives on `imaged_region(camera)`: the sensor ∩ the camera's lens coverage
+# (`lens_coverage`, the image circle it carries) ∩ its valid domain.
 #
 #   julia --project=. examples/image_circle.jl
 
@@ -37,7 +37,7 @@ println("rectilinear valid domain: ", valid_domain(rcam))
 println("rectilinear fov: ", rad2deg(fov(rcam)), "° horizontal, ", rad2deg(fov(rcam; dimension = :diagonal)), "° diagonal")
 
 # ── 6. The consumer: a grid lens keeps only the nodes the lens lights
-domain = imaged_region(with_lit_region(cam, q))
+domain = imaged_region(with_lens_coverage(cam, q))
 nodes = [Point2(x, y) for x in range(0.0, 2448.0; length = 25), y in range(0.0, 2048.0; length = 21)]
 lit = filter(n -> n ∈ domain, nodes)
 println("grid nodes lit: ", length(lit), " of ", length(nodes), " (", length(nodes) - length(lit), " outside)")

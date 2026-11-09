@@ -175,10 +175,10 @@ rcam = BoundedCamera(CameraModel(; focal = 2000.0, pp = (1224.0, 1024.0), lens =
 
 A local lens model — a grid of nodes rather than a formula — has observations
 only where light falls: the camera's [`imaged_region`](@ref), the sensor ∩ its
-lit region (here the datasheet's circle) ∩ where the lens model is valid:
+lens coverage (here the datasheet's circle) ∩ where the lens model is valid:
 
 ```@example imagecircle
-domain = imaged_region(with_lit_region(cam, q))         # a grid lens's domain
+domain = imaged_region(with_lens_coverage(cam, q))         # a grid lens's domain
 nodes = [Point2(x, y) for x in range(0.0, 2448.0; length = 25), y in range(0.0, 2048.0; length = 21)]
 lit = filter(n -> n ∈ domain, nodes)
 (length(lit), length(nodes) - length(lit))              # lit, outside
@@ -189,20 +189,20 @@ The whole example, runnable, is `examples/image_circle.jl`.
 ## Which parameters a camera can see
 
 A camera images a region of its sensor, [`imaged_region`](@ref)`(camera)` =
-`Rect(extent) ∩ lit_region(camera) ∩ valid_domain(camera)`, its lit region (the
-image circle it carries, [`lit_region`](@ref)); [`pixel_mask`](@ref)`(region, width, height)`
+`Rect(extent) ∩ lens_coverage(camera) ∩ valid_domain(camera)`, its lens coverage (the
+image circle it carries, [`lens_coverage`](@ref)); [`pixel_mask`](@ref)`(region, width, height)`
 rasterizes it, the pixels whose centres lie in it. Each parameter of a model has a
 support on the sensor; it is free when its support meets the imaged region
 and frozen otherwise. A global model (a parametric lens, `K`) has the whole
 plane as every parameter's support, so [`free_nodes`](@ref) answers `Colon()`
 (all of them); a node model such as the generic grid model is `LocalSupport`
-and only the nodes whose footprint meets the lit region are free.
+and only the nodes whose footprint meets the lens coverage are free.
 
 ```@example imagecircle
 fish = CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = KannalaBrandt(k))
 g = CentralGenericModel(fish, (1280, 960); grid_size = (20, 16))
 circle = Ellipse(Point2(640.0, 480.0), 250.0, 250.0, 0.0)   # a measured image circle, 250 px
-R = imaged_region(BoundedCamera(fish, Size2(1280, 960); region = circle))
+R = imaged_region(BoundedCamera(fish, Size2(1280, 960); lens_coverage = circle))
 mask = node_mask(g, R)                                  # in the grid's shape
 lit = pixel_mask(R, 1280, 960)                          # the pixels it images: 960 × 1280, ≈ π · 250² of them
 (size(mask), count(mask), length(mask) - count(mask), free_nodes(fish, R), count(lit))   # free, frozen; a lens: all

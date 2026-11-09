@@ -161,6 +161,10 @@ JSON.lift(::VgioStyle, ::Type{Ellipse}, v::AbstractVector{Any}) =
 JSON.lower(::VgioStyle, c::Circle) = Float64[c.center[1], c.center[2], c.r]
 JSON.lift(::VgioStyle, ::Type{Circle}, v::AbstractVector{Any}) =
     (c = Float64[Float64(x::Real) for x in v]; Circle(Point2{Float64}(c[1], c[2]), c[3]))
+# A rectangle: its origin and its widths, in the value's own units.
+JSON.lower(::VgioStyle, r::Rect2) = Float64[r.origin[1], r.origin[2], r.widths[1], r.widths[2]]
+JSON.lift(::VgioStyle, ::Type{Rect2}, v::AbstractVector{Any}) =
+    (r = Float64[Float64(x::Real) for x in v]; Rect2{Float64}(r[1], r[2], r[3], r[4]))
 
 # A stored ellipse's invariants, as VGC's `Ellipse` holds it — semi-axes positive, the major first — so it reads back as
 # the numbers the file holds; the message names `what`, or `nothing` when they hold. (A generic model's domain, a

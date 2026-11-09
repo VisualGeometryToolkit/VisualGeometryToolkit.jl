@@ -1,11 +1,11 @@
-# A bounded camera's bound and its lit region (cameras.jl): the bound is the pixel extent, or the physical Sensor whose
-# resolution IS that extent; the lit region is where light reaches the sensor — a Rect2, a Circle or an Ellipse, by default
+# A bounded camera's bound and its lens coverage (cameras.jl): the bound is the pixel extent, or the physical Sensor whose
+# resolution IS that extent; the lens coverage is where light reaches the sensor — a Rect2, a Circle or an Ellipse, by default
 # the sensor's own Rect, never "none". Both are type parameters, so every bounded camera is a concrete, isbits value whose
 # accessors infer, whichever bound and region it carries.
-@testitem "BoundedCamera: bound and lit region" begin
+@testitem "BoundedCamera: bound and lens coverage" begin
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: model, with_model, convert_eltype, lit_region, with_lit_region, WholePlane
+    using VisualGeometryToolkitCore: model, with_model, convert_eltype, lens_coverage, with_lens_coverage, WholePlane
     using VisualGeometryToolkitCore.Cameras: _with_extrinsics
     using StaticArrays
     using Rotations: RotMatrix, RotXYZ
@@ -23,39 +23,47 @@
     u = SVector(2500.0, 1500.0)
 
     for bound in bounds, region in regions
-        bc = BoundedCamera(m, bound; region)
+        bc = BoundedCamera(m, bound; lens_coverage = region)
         @testset "bound $(nameof(typeof(bound))), region $(nameof(typeof(region)))" begin
             @test isconcretetype(typeof(bc))
             @test isbits(bc)
             @test (@inferred extent(bc)) == Size2(W, H)
             @test (@inferred sensor(bc)) == (bound isa Sensor ? bound : nothing)
-            @test (@inferred lit_region(bc)) == expected(region)
+            @test (@inferred lens_coverage(bc)) == expected(region)
             @test (@inferred backproject(bc, u)) == backproject(m, u)
             @test (@inferred project(bc, backproject(m, u))) ≈ u
             # every rebuild keeps the bound and the region
             for rb in (convert_eltype(Float32, bc), with_model(bc, m))
-                @test lit_region(rb) == lit_region(bc) && extent(rb) == extent(bc) && sensor(rb) == sensor(bc)
+                @test lens_coverage(rb) == lens_coverage(bc) && extent(rb) == extent(bc) && sensor(rb) == sensor(bc)
             end
-            posed = BoundedCamera(PosedCamera(m, E), bound; region)
+            posed = BoundedCamera(PosedCamera(m, E), bound; lens_coverage = region)
             reposed = _with_extrinsics(posed, inv(E))
-            @test lit_region(reposed) == lit_region(posed) && sensor(reposed) == sensor(posed)
+            @test lens_coverage(reposed) == lens_coverage(posed) && sensor(reposed) == sensor(posed)
+        end
+    end
+
+    @testset "a degenerate coverage is refused (a writer would store what its reader refuses)" begin
+        for bad in (Circle(Point2(5.0, 5.0), 0.0), Circle(Point2(5.0, 5.0), NaN), Circle(Point2(NaN, 5.0), 3.0),
+                    Ellipse(Point2(5.0, 5.0), 3.0, 0.0, 0.0), Ellipse(Point2(5.0, 5.0), 3.0, -1.0, 0.0),
+                    Rect2(0.0, 0.0, 0.0, 10.0), Rect2(0.0, 0.0, Inf, 10.0))
+            @test_throws ArgumentError BoundedCamera(m, Size2(10, 10); lens_coverage = bad)
         end
     end
 
     @testset "the region is a geometric primitive in Float64" begin
-        @test_throws ArgumentError BoundedCamera(m, Size2(10, 10); region = WholePlane())
-        @test lit_region(BoundedCamera(m, Size2(10, 10); region = Circle(Point2(5, 5), 4))) === Circle(Point2(5.0, 5.0), 4.0)   # kept a Circle, in Float64
-        b = with_lit_region(BoundedCamera(m, Size2(10, 10)), Circle(Point2(5.0, 5.0), 4.0))
-        @test lit_region(b) == Circle(Point2(5.0, 5.0), 4.0) && extent(b) == Size2(10, 10)
+        @test_throws ArgumentError BoundedCamera(m, Size2(10, 10); lens_coverage = WholePlane())
+        @test lens_coverage(BoundedCamera(m, Size2(10, 10); lens_coverage = Circle(Point2(5, 5), 4))) === Circle(Point2(5.0, 5.0), 4.0)   # kept a Circle, in Float64
+        b = with_lens_coverage(BoundedCamera(m, Size2(10, 10)), Circle(Point2(5.0, 5.0), 4.0))
+        @test lens_coverage(b) == Circle(Point2(5.0, 5.0), 4.0) && extent(b) == Size2(10, 10)
     end
 end
 
-# What a bounded camera images (image_circle.jl): the sensor ∩ its lit region ∩ where its lens model is valid — one
+# What a bounded camera images (image_circle.jl): the sensor ∩ its lens coverage ∩ where its lens model is valid — one
 # function of the camera alone, so no consumer carries an image circle of its own.
-@testitem "imaged_region: sensor ∩ lit region ∩ valid domain" begin
+@testitem "imaged_region: sensor ∩ lens coverage ∩ valid domain" begin
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: lit_region, with_lit_region, relabel, CameraFrame, WorldFrame, RotationMap, RegionIntersection
+    using VisualGeometryToolkitCore: lens_coverage, with_lens_coverage, relabel, CameraFrame, WorldFrame, RotationMap, RegionIntersection
     using VisualGeometryToolkitCore.Cameras: _calibrated_rect
     using StaticArrays
     using Rotations: RotY
@@ -64,7 +72,7 @@ end
     m = CameraModel(1754.7px, SA[2133.6px, 1422.5px]; lens = KannalaBrandt(0.2468, 0.1505, -0.0214, 0.1308))
 
     @testset "a lit disc cut by the sensor: clipped to the sensor" begin
-        bc = BoundedCamera(m, Size2(W, H); region = Circle(Point2(2140.8, 1375.8), 1742.2))   # the 14 mm's measured disc
+        bc = BoundedCamera(m, Size2(W, H); lens_coverage = Circle(Point2(2140.8, 1375.8), 1742.2))   # the 14 mm's measured disc
         # the one small Union kept on purpose (owner, 2026-11-09): valid_domain(::CameraModel) is an Ellipse or WholePlane
         # by the lens's coefficients, so imaged_region is one of two concrete RegionIntersections — pinned here, no wider
         r = @inferred RegionIntersection imaged_region(bc)
@@ -78,7 +86,7 @@ end
     @testset "a grid: lit but outside where the grid is defined is not imaged" begin
         dom = Ellipse(Point2(2133.9, 1423.7), 1611.8, 1607.8, 1.5777)
         g = CentralGenericModel(m, (W, H); grid_size = (35, 25), init = :quasi_interpolate, domain = dom)
-        bc = BoundedCamera(g, Size2(W, H); region = Circle(Point2(2140.8, 1375.8), 1742.2))
+        bc = BoundedCamera(g, Size2(W, H); lens_coverage = Circle(Point2(2140.8, 1375.8), 1742.2))
         @test Point2(2133.9 + 1650.0, 1423.7) ∉ imaged_region(bc)       # lit, past the grid's domain
         @test Point2(2133.9 + 1550.0, 1423.7) ∈ imaged_region(bc)
         for p in (Point2(2133.9, 1423.7), Point2(2133.9 + 1650.0, 1423.7), Point2(5.0, 5.0))
@@ -92,10 +100,10 @@ end
         @test all(Point2(u - 0.5, v - 0.5) ∈ r for u in 1:100, v in 1:80)
     end
 
-    @testset "view_overlap: each frame's own lit region, of different types" begin
+    @testset "view_overlap: each frame's own lens coverage, of different types" begin
         fish = CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = KannalaBrandt(-4 / (3π^2)))
         frame(R, region) = BoundedCamera(PosedCamera(fish, relabel(CameraFrame, WorldFrame, RotationMap(SMatrix{3, 3, Float64, 9}(R)))),
-                                         Size2(1280, 960); region)
+                                         Size2(1280, 960); lens_coverage = region)
         ca = Circle(Point2(640.0, 480.0), 240.0); eb = Ellipse(Point2(645.0, 478.0), 250.0, 230.0, 0.3)
         rows = view_overlap([frame(RotY(0.0), ca), frame(RotY(0.6), eb), frame(RotY(1.1), ca)])
         # the 0.8 two-argument form on the same frames and circles (view_overlap([A, B, C], [ca, eb, ca]), 2026-11-09)

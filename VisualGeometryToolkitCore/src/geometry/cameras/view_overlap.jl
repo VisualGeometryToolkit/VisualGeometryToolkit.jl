@@ -49,9 +49,9 @@ Frames may have different cameras. A camera posed by an [`EuclideanMap`](@ref) h
 position, and an unposed one no orientation: both are an `ArgumentError`
 naming the fix. Frame `k`'s footprint is the set of directions
 `R_k · backproject(model, u)` over its region Ω_k,
-[`imaged_region`](@ref)`(camera)`: the sensor ∩ the camera's lit region (its
-image circle, [`lit_region`](@ref)) ∩ where the lens model is valid
-([`valid_domain`](@ref)). Each frame carries its own lit region; a camera
+[`imaged_region`](@ref)`(camera)`: the sensor ∩ the camera's lens coverage (its
+image circle, [`lens_coverage`](@ref)) ∩ where the lens model is valid
+([`valid_domain`](@ref)). Each frame carries its own lens coverage; a camera
 whose whole sensor is lit gives the extent where the lens model holds, which is
 not where light falls for a lens whose image circle lies inside the sensor.
 
@@ -110,7 +110,7 @@ bounding caps about the optical axes are disjoint is 0 without clipping.
 ```julia
 cam = CameraModel(K; lens = KannalaBrandt(-0.135))
 bare(R) = BoundedCamera(PosedCamera(cam, relabel(CameraFrame, WorldFrame, RotationMap(R))), sensor("Sony", "IMX250"))
-frame(R) = (b = bare(R); with_lit_region(b, image_circle(b, 6.0mm)))   # its lit region: the datasheet's 6 mm circle
+frame(R) = (b = bare(R); with_lens_coverage(b, image_circle(b, 6.0mm)))   # its lens coverage: the datasheet's 6 mm circle
 frames = [frame(RotY(2π * k / 11)) for k in 0:10]   # 11 frames about the vertical axis
 rows = view_overlap(frames)
 rows[1].fraction_i                                # the share of frame 1's view frame 2 sees

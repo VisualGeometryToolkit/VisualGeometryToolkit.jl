@@ -488,13 +488,16 @@ family extends.
         intrinsics::AbstractIntrinsics, lens::AbstractLensModel,
         u::StaticVector{2, <:Real}
     )
-    h = to_affine(u)
-    xd = _K_inv(intrinsics) * h
     # The ONLY thing this layer owns is the pixel frame. The bearing itself is
     # the lens's, and it is already a unit `Vec` — a DIRECTION, not the position
     # at unit depth, which is `unproject`'s answer rather than this one.
-    return backproject(lens, SVector(xd[1], xd[2]))
+    return backproject(lens, _normalized_point(intrinsics, u))
 end
+
+# The pixel → normalized image point map, `K⁻¹u`: the one spelling of the
+# scalar backprojection and the batched kernels.
+@inline _normalized_point(intrinsics::AbstractIntrinsics, u::StaticVector{2}) =
+    (xd = _K_inv(intrinsics) * to_affine(u); SVector(xd[1], xd[2]))
 
 # The IsPhysical branches that used to double this dispatch table scaled the
 # ray by f and then normalized the scale away — direction-identical to the

@@ -136,3 +136,155 @@
             origin(rm)[2] <= pixels[i][2] <= origin(rm)[2] + widths(rm)[2]), axes(G.pixels, 2))
     end
 end
+
+@testitem "SplineLens: project" begin
+    using Test
+    using StaticArrays
+    using LinearAlgebra: norm, normalize
+    using Adapt: adapt
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, px, project, backproject,
+        calibration_matrix, with_present, Rect2, convert_eltype, equidistant_chart, LogicalIntrinsics, CameraCalibrationMat
+    using VisualGeometryToolkitCore.Cameras: _lens_axis, _lattice_spacing, _spline_camera
+
+    # =============================================================================
+    # project through a SplineLens against the golden outputs of the old grid
+    # models (test/fixtures/spline_lens_golden.jl): the LM without a forward spline
+    # (the old CentralGenericModel's), the forward spline (the old SplineProjection's),
+    # the batched and the Float32 device forms.
+    # =============================================================================
+
+    include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "spline_lens_golden.jl"))
+    G = GOLDEN
+    src = CameraModel(G.f * px, SA[G.pp[1] * px, G.pp[2] * px]; lens = KannalaBrandt(G.kb...))
+    image = (G.image[1], G.image[2])
+    cam = CameraModel(SplineLens, src, image; grid_size = (G.grid_size[1], G.grid_size[2]))
+    masked = with_present(cam, G.masked.present)
+    K = calibration_matrix(cam)
+    n = G.n_lattice
+    lattice = [SVector(G.pixels[1, i], G.pixels[2, i]) for i in 1:n]
+    rays_in = [SVector(G.central.backproject[1, i], G.central.backproject[2, i], G.central.backproject[3, i]) for i in 1:n]
+    rays_out = [SVector(G.rays_out[1, i], G.rays_out[2, i], G.rays_out[3, i]) for i in axes(G.rays_out, 2)]
+
+    # The largest deviation from a golden 2 × N projection where it is finite, and
+    # whether the camera is NaN exactly where the golden value is.
+    function deviation(c, rays, ref)
+        worst, same_nan = 0.0, true
+        for (i, X) in enumerate(rays)
+            u, r = project(c, X), SVector(ref[1, i], ref[2, i])
+            if any(isnan, r)
+                same_nan &= all(isnan, u)
+            else
+                same_nan &= all(isfinite, u)
+                worst = max(worst, norm(u - r))
+            end
+        end
+        return worst, same_nan
+    end
+
+    # The old SplineProjection's chart is about the ray of the fit's quadrature centroid,
+    # the pixel (499.5, 499.5), not of the principal point (500, 500): 2.4e-3 rad apart.
+    # The lens's chart is about the ray of its principal point, so the forward spline is
+    # read on the same pixel → ray map in the gauge whose principal point is that pixel
+    # (K′, pp = (499.5, 499.5), the same controls over the same pixel rectangle), its
+    # pixel output through K′⁻¹.
+    S = G.spline
+    K′ = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0.0, 0.0, 0.0, K[2, 2], 0.0, 499.5, 499.5, 1.0)))
+    cam′ = _spline_camera(K′, Rect2(0.0, 0.0, 1000.0, 1000.0), cam.lens.backward.controls)
+    C = [SVector((S.controls[1, i, j] - 499.5) / K[1, 1], (S.controls[2, i, j] - 499.5) / K[2, 2]) for i in axes(S.controls, 2), j in axes(S.controls, 3)]
+    forward = ChartSpline(Rect2(S.area[1], S.area[2], S.area[3], S.area[4]), C)
+    cam_fwd = CameraModel(K′, SplineLens(cam′.lens.backward; forward))
+    masked_fwd = with_present(cam_fwd, G.masked.present)
+    rays64 = [SVector(S.rays[1, i], S.rays[2, i], S.rays[3, i]) for i in axes(S.rays, 2)]
+
+    @testset "without a forward: the old central grid's projection" begin
+        worst, same_nan = deviation(cam, rays_in, G.central.project_in)
+        @test same_nan
+        @test worst <= 1.0e-9
+        @test all(X -> all(isnan, project(cam, X)), rays_out)
+        worst_m, same_nan_m = deviation(masked, rays_in, G.masked.project_in)
+        @test same_nan_m
+        @test worst_m <= 1.0e-9
+        @test count(i -> !isnan(G.masked.project_in[1, i]), 1:n) >= 100        # the masked comparison bites
+        @test all(X -> all(isnan, project(masked, X)), rays_out)
+    end
+
+    @testset "with a forward: the old SplineProjection on the lens axis" begin
+        @test norm(_lens_axis(cam.lens) - S.chart_rotation[3, :]) > 1.0e-3            # the principal point's ray is not the golden chart's axis
+        @test norm(_lens_axis(cam_fwd.lens) - S.chart_rotation[3, :]) <= 1.0e-12
+        @test masked_fwd.lens.forward === forward
+        worst, same_nan = deviation(cam_fwd, rays64, S.project)
+        @test same_nan
+        @test worst <= 1.0e-9
+        # the forward agrees with the LM to 0.01 px on the 64 golden rays
+        @test maximum(X -> norm(project(cam_fwd, X) - project(cam′, X)), rays64) <= 0.01
+        # a ray two knot cells beyond the forward's chart is not imaged
+        o, w = S.area[1:2], S.area[3:4]
+        hx, _ = _lattice_spacing(forward.area, size(forward.controls))
+        c = SVector(o[1] + w[1] + 2hx, o[2] + w[2] / 2)
+        θ = norm(c)
+        R = SMatrix{3, 3}(S.chart_rotation)
+        X_out = R' * SVector(sin(θ) * c[1] / θ, sin(θ) * c[2] / θ, cos(θ))
+        @test norm(equidistant_chart(_lens_axis(cam_fwd.lens))(X_out) - c) <= 1.0e-9
+        @test all(isnan, project(cam_fwd, X_out))
+    end
+
+    @testset "batched: the golden batched outputs; the scalar solve exactly" begin
+        for (c, ref) in ((cam, G.central), (masked, G.masked))
+            b = project(c, rays_in, lattice)
+            @test b.ok == ref.batch_project_ok
+            @test any(b.ok)
+            @test maximum(i -> norm(b.px[i] - SVector(ref.batch_project_px[1, i], ref.batch_project_px[2, i])), findall(b.ok)) <= 1.0e-9
+            @test all(i -> all(isnan, b.px[i]), findall(!, b.ok))
+        end
+        # the same seed and budget as the scalar form: the same solve, bit for bit
+        centre = fill(SVector(500.0, 500.0), length(rays64))
+        for c in (cam, masked, cam_fwd, masked_fwd)
+            b = project(c, rays64, centre; iters = 100)
+            @test all(i -> isequal(b.px[i], SVector{2, Float64}(project(c, rays64[i]))), eachindex(rays64))
+            @test b.ok == [all(isfinite, project(c, X)) for X in rays64]
+        end
+        @test project(cam, SVector{3, Float64}[], SVector{2, Float64}[]).px == SVector{2, Float64}[]
+        @test_throws ArgumentError project(cam, rays_in, lattice[1:3])
+    end
+
+    @testset "batched backproject: ChartSpline's kernel after K⁻¹; the Float32 device form" begin
+        pixels = [SVector(G.pixels[1, i], G.pixels[2, i]) for i in axes(G.pixels, 2)]
+        for c in (cam, masked)
+            r = backproject(c, pixels)
+            @test all(i -> isequal(r[i], SVector{3, Float64}(backproject(c, pixels[i]))), eachindex(pixels))
+        end
+        c32 = convert_eltype(Float32, cam)
+        @test eltype(c32.lens.backward.controls) == SVector{3, Float32}
+        d = adapt(Array, c32)
+        r32 = backproject(d, [SVector{2, Float32}(u) for u in pixels])
+        @test eltype(r32) == SVector{3, Float32}
+        # On the area's own edge (pixel 0) K⁻¹ in Float32 rounds across the area's border,
+        # so there the Float32 ray may be NaN; everywhere else the NaN sets agree.
+        worst, same_nan, edge_nan = 0.0, true, 0
+        for (i, u) in enumerate(pixels)
+            a, b = backproject(cam, u), SVector{3, Float64}(r32[i])
+            on_edge = u[1] == 0 || u[2] == 0
+            if on_edge && isnan(b[1]) && !isnan(a[1])
+                edge_nan += 1
+                continue
+            end
+            same_nan &= isnan(a[1]) == isnan(b[1])
+            isnan(a[1]) || (worst = max(worst, norm(b - a)))
+        end
+        @test same_nan
+        @test worst <= 1.0e-5
+        @test edge_nan <= 33                                                     # the 33 edge pixels at most
+        m32 = convert_eltype(Float32, masked_fwd)
+        @test m32.lens.present == masked.lens.present
+        @test eltype(m32.lens.forward.controls) == SVector{2, Float32}
+    end
+
+    @testset "inference, with and without a forward and a mask" begin
+        X = SVector(0.1, -0.2, 1.0)
+        for c in (cam, masked, cam_fwd, masked_fwd)
+            @test @inferred(project(c, X)) isa StaticVector{2, Float64}
+            @test @inferred(project(c.lens, X)) isa SVector{2, Float64}
+        end
+    end
+end

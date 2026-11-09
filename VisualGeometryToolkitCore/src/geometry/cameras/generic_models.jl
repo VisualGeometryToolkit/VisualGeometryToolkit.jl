@@ -505,10 +505,6 @@ Adapt.adapt_structure(to, w::GenericModelWindow{T}) where {T} =
 # The domain is a host-side region (masks, node supports): an isbits one travels,
 # anything else is left behind as the whole plane.
 _device_domain(d) = isbitstype(typeof(d)) ? d : WholePlane()
-# The presence mask travels (a dense `Bool` array: the identity on the host): the
-# evaluations read it on the device as on the host.
-_device_present(to, ::Nothing) = nothing
-_device_present(to, p::AbstractMatrix{Bool}) = Adapt.adapt(to, p)
 
 # ------------------------------------------------------------------------------
 # Area & grid mapping (verbatim from the reference; COLMAP frame throughout)
@@ -611,7 +607,7 @@ end
 # The window value at grid coordinates (gx, gy) and its partials along gx and
 # gy, in one sweep of the 4×4 controls. Device-safe (the batched kernel's LM
 # reads it per candidate step).
-@inline function _eval_window_grad(grid::AbstractMatrix{Vec3{T}}, gx, gy) where {T}
+@inline function _eval_window_grad(grid::AbstractMatrix{<:StaticVector{3}}, gx, gy)
     ix, iy, wx, wy = _spline_window(gx, gy)
     dwx = _cubic_bspline_weights_deriv(_span_coordinate(gx + 2, ix))
     dwy = _cubic_bspline_weights_deriv(_span_coordinate(gy + 2, iy))
@@ -1136,13 +1132,6 @@ function _project_from(m::CentralGenericModel, X, p0::SVector{2, Float64})
     return ok && in_present_domain(m, px) ? px : nothing
 end
 
-# The host budget of the one central solve: a cold start from the area center
-# gets 100 LM iterations (the batched form takes warm starts and a caller-set
-# `iters`). ONE convergence criterion for every projection solve, host and
-# batched: the residual norm below `_PROJECT_TOL` — the reference's 1e-12 cost.
-const _PROJECT_MAXITER = 100
-const _PROJECT_TOL = 1.0e-6
-
 """
     project(m::NoncentralGenericModel, X) -> SVector{2} | nothing
     project(m::NoncentralGenericModel, X, p₀) -> SVector{2} | nothing
@@ -1467,173 +1456,28 @@ end
 # Central projection — one solver, host and device (KernelAbstractions)
 # =============================================================================
 
-# The ONE central projection: Levenberg–Marquardt in pixel space (`_pixel_lm`)
-# on the direction residual d̂(u) − t̂ with the ANALYTIC spline Jacobian (the
-# normalize differential chain-ruled through the pixel→grid scales), for at most
-# `maxiter` LM iterations; converged (`ok`) means a final cost below `tol2`.
-# Device-safe — no allocation, no dual numbers, no Union return — so the batched
-# kernel runs it per ray and the scalar `project` runs it on the host: one
-# solver, not a host copy and a device copy.
-function _central_project(
-        grid, minx::Float64, miny::Float64, maxx::Float64, maxy::Float64,
-        t::StaticVector{3}, x0, y0, maxiter::Int, tol2::Float64
-    )
-    gh, gw = size(grid)
-    # scaled before the norm, so a tiny or huge ray does not under/overflow
-    tmax = max(abs(t[1]), abs(t[2]), abs(t[3]))
-    # a zero or non-finite ray, or start, has no projection (and a NaN pixel
-    # would reach `floor(Int, ·)` in the spline window)
-    (tmax > 0 && isfinite(tmax) && isfinite(x0) && isfinite(y0)) ||
-        return SVector(NaN, NaN), false
-    ts = SVector{3, Float64}(t[1] / tmax, t[2] / tmax, t[3] / tmax)
-    tn = normalize(ts)
-    sx = _grid_scale(minx, maxx, gw)
-    sy = _grid_scale(miny, maxy, gh)
-    # the direction residual d̂(u) − t̂ (the pixel is bounded to the area: every
-    # window stays inside the grid) …
-    function res(p, _)
-        St = @inbounds SVector{3, Float64}(
-            _eval_window(grid, _spline_window(_grid_coord(p[1], minx, maxx, gw), _grid_coord(p[2], miny, maxy, gh))...)
-        )
-        return normalize(St) - tn
-    end
-    # … and its Jacobian, the normalize differential (I − n nᵀ)/‖S‖ chain-ruled
-    # through the pixel→grid scales
-    function jac(p, _)
-        S, Sx, Sy = @inbounds _eval_window_grad(grid, _grid_coord(p[1], minx, maxx, gw), _grid_coord(p[2], miny, maxy, gh))
-        nrm = norm(S)
-        n = S / nrm
-        Jx = (Sx - n * (n[1] * Sx[1] + n[2] * Sx[2] + n[3] * Sx[3])) * (sx / nrm)
-        Jy = (Sy - n * (n[1] * Sy[1] + n[2] * Sy[2] + n[3] * Sy[3])) * (sy / nrm)
-        return hcat(Jx, Jy)
-    end
-    return _pixel_lm(res, jac, x0, y0, minx, miny, maxx, maxy, maxiter, tol2)
-end
+# The old grid's central projection: THE spline solve (`_spline_project`,
+# spline_lens.jl) over the pixel rectangle of the calibrated area, with the
+# reference's pixel constants (`_pixel_lm`). Deleted with the old grid (plan 1b
+# Task 4).
+@inline _central_project(
+    grid, minx::Float64, miny::Float64, maxx::Float64, maxy::Float64,
+    t::StaticVector{3}, x0, y0, maxiter::Int, tol2::Float64
+) = _spline_project(
+    grid, _bounds_rect(minx, miny, maxx, maxy), t, SVector(Float64(x0), Float64(y0)),
+    SVector(minx, miny), SVector(maxx + 0.999, maxy + 0.999), SVector(1.0, 1.0), maxiter, tol2
+)
 
-# THE two-unknown pixel LM kernel of the generic models: `res(p, _)` and its
-# Jacobian `jac(p, _)` from (x0, y0), the pixel bounded to `[min, max + 0.999]`
-# (a step is clipped at the bound), for at most `maxiter` LM iterations;
-# converged means a final cost below `tol2`. Device-safe — static arrays only,
-# no allocation, no Union return — so the batched kernel runs it per ray.
-#
-# It is the ONE device-side exception to the stack's one LM driver: NLLSsolver
-# builds heap problems and cannot run inside a KernelAbstractions kernel, so
-# this kernel is the stated single instance the retired-names rule allows
-# (`check_naming`'s RETIRED_NAMES: the hand-rolled LM cores stay retired).
-#
-# Levenberg's and Marquardt's damped Gauss–Newton (Levenberg 1944; Marquardt
-# 1963) with Marquardt's diagonal scaling, specialized to N = 2 and derived
-# from a static bounded `lmsolve` (Copyright (c) 2023 kamesy, MIT License),
-# with its defaults and operations in its order — the damping (λ₀ = 1e-6,
-# ×1/13 on ρ > 0.75, ×3 on ρ < 1e-3 or a rejected step, clamped to
-# [1e-28, 1e32]), the running-maximum DᵀD clamped to [1e-12, 1e16], the
-# unrolled 2 × 2 Cholesky, the ftol = gtol = eps and xtol = 1e-10 stops. NOT
-# the same bits as a run of that routine: `muladd` and StaticArrays' small
-# products fuse as LLVM decides per compilation context. Measured against a
-# recorded run of it on 1000 seeded problems (test/fixtures/pixel_lm): at most
-# 5.5e-12 px (Julia 1.13) / 4.5e-8 px (1.12) apart, 1.8e-6 px on the review's
-# 20 000-problem probe, converged flags identical; gated at 2e-6 px
-# (pixel_lm_reference_tests.jl). The generic-model
-# goldens (the C++ reference projections) hold unchanged at their tolerances.
-@inline function _pixel_lm(
-        res::R, jac::J, x0, y0, minx::Float64, miny::Float64, maxx::Float64, maxy::Float64,
-        maxiter::Int, tol2::Float64
-    ) where {R, J}
-    ϵ = eps(Float64)
-    ϵx = 1.0e-10
-    λ = 1.0e-6
-    lb = SVector(minx, miny)
-    ub = SVector(maxx + 0.999, maxy + 0.999)
-    x = min.(max.(SVector(Float64(x0), Float64(y0)), lb), ub)
-    f = res(x, nothing)
-    F = sum(abs2, f)
-    F < ϵ && return x, F < tol2
-    Jx = jac(x, nothing)
-    g = Jx' * f
-    norm(g, Inf) < ϵ && return x, F < tol2
-    JtJ = Jx' * Jx
-    DtD = clamp.(diag(JtJ), 1.0e-12, Inf)
-    iter = 0
-    while iter < maxiter
-        iter += 1
-        accepted = false
-        ac = 0.0
-        pr = 0.0
-        ρ = 0.0
-        xk = x
-        fk = f
-        Fk = F
-        p, info = _pixel_lm_increment(JtJ, λ, DtD, g)
-        # a step clipped to zero by either bound is rejected, as a failed solve is
-        clipped = false
-        if info == 0
-            p = min.(x .- lb, p)
-            clipped = all(iszero, p)
-            if !clipped
-                p = max.(x .- ub, p)
-                clipped = all(iszero, p)
-            end
-        end
-        if info == 0 && !clipped
-            xk = x .- p
-            fk = res(xk, nothing)
-            Fk = sum(abs2, fk)
-            if Fk < F
-                ac = F - Fk
-                pr = dot(p, (@. λ * DtD * p + g))
-                ρ = ac / pr
-                accepted = true
-            end
-            if all(>(0), (@. abs(p) < ϵx * (ϵx + abs(x))))
-                if accepted
-                    x, f, F = xk, fk, Fk
-                end
-                break
-            end
-        end
-        if accepted
-            x = xk
-            f = fk
-            Fold = F
-            F = Fk
-            # the reference routine's ftol test reads its swapped buffers: `Fk` is then the old F
-            abs(ac) < ϵ * Fold && pr < ϵ * Fold && ρ < 2 && break
-            Jx = jac(x, nothing)
-            g = Jx' * f
-            norm(g, Inf) < ϵ && break
-            JtJ = Jx' * Jx
-            DtD = clamp.(diag(JtJ), DtD, 1.0e16)
-            if ρ > 0.75
-                λ *= 1 / 13
-            elseif ρ < 1.0e-3
-                λ *= 3
-            end
-        else
-            λ *= 3
-        end
-        λ = clamp(λ, 1.0e-28, 1.0e32)
-    end
-    return x, F < tol2
-end
-
-# The unrolled Cholesky solve of (JᵀJ + λ·DᵀD) p = g at N = 2, the reference
-# routine's operations in its order; `info` ≠ 0 when a damped diagonal is
-# negative (a rejected step).
-@inline function _pixel_lm_increment(JtJ, λ, DtD, g)
-    x1 = g[1]
-    x2 = g[2]
-    A11 = muladd(λ, DtD[1], JtJ[1, 1])
-    A11 >= zero(A11) || return zero(SVector{2, Float64}), 1
-    A21 = JtJ[2, 1]
-    A22 = muladd(λ, DtD[2], JtJ[2, 2])
-    A22 >= zero(A22) || return zero(SVector{2, Float64}), 2
-    A22 = muladd(-A21, A21 / A11, A22)
-    x2 = muladd(-x1, A21 / A11, x2)
-    x2 /= A22
-    x1 = muladd(-x2, A21, x1)
-    x1 /= A11
-    return SVector(x1, x2), 0
-end
+# The old grid's pixel LM: THE LM (`_spline_lm`, spline_lens.jl) on a pixel
+# rectangle with the reference's pixel constants — bounded to `[min, max + 0.999]`,
+# s = 1. Deleted with the old grid (plan 1b Task 4).
+@inline _pixel_lm(
+    res::R, jac::J, x0, y0, minx::Float64, miny::Float64, maxx::Float64, maxy::Float64,
+    maxiter::Int, tol2::Float64
+) where {R, J} = _spline_lm(
+    res, jac, SVector(Float64(x0), Float64(y0)), SVector(minx, miny), SVector(maxx + 0.999, maxy + 0.999),
+    SVector(1.0, 1.0), maxiter, tol2
+)
 
 
 # Batched device projection: the reference ships ProjectWithInitialEstimate as

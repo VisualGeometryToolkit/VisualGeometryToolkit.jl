@@ -59,6 +59,9 @@ Adapt.adapt_structure(to, cs::ChartSpline{K, T}) where {K, T} =
 
 (cs::ChartSpline)(c::StaticVector{2, <:Real}) = spline_value(cs.controls, cs.area, c)
 
+# The controls convert as they are; the area stays.
+convert_eltype(::Type{T}, cs::ChartSpline{K}) where {T <: AbstractFloat, K} = ChartSpline(cs.area, map(SVector{K, T}, cs.controls))
+
 # The lattice coordinates `(gx, gy)` of the point `p` on a lattice of `gsz = (rows, cols)`
 # controls laid over the closed rectangle `area` (`size − 3` cells per axis): the ONE
 # area → lattice map of every spline on a rectangle (`spline_window`, a ChartSpline's
@@ -68,15 +71,21 @@ Adapt.adapt_structure(to, cs::ChartSpline{K, T}) where {K, T} =
     return _lattice_coord(p[1], o[1], w[1], gw), _lattice_coord(p[2], o[2], w[2], gh)
 end
 
+# The slope of that map per axis, `(∂gx/∂p₁, ∂gy/∂p₂) = ((cols − 3)/w₁, (rows − 3)/w₂)`.
+@inline function _lattice_slope(area::GeometryBasics.HyperRectangle{2}, (gh, gw))
+    w = GeometryBasics.widths(area)
+    return (gw - 3) / w[1], (gh - 3) / w[2]
+end
+
 function transform_deriv(cs::ChartSpline, c::StaticVector{2, <:Real})
-    w = GeometryBasics.widths(cs.area)
     gh, gw = size(cs.controls)
+    sx, sy = _lattice_slope(cs.area, (gh, gw))
     gx, gy = _lattice_coords(cs.area, (gh, gw), c)
     ix, iy, wx, wy = _continued_window(gx, gy, gw, gh)
     dwx = _cubic_bspline_weights_deriv(_span_coordinate(gx + 2, ix))
     dwy = _cubic_bspline_weights_deriv(_span_coordinate(gy + 2, iy))
-    Sx = _eval_window(cs.controls, ix, iy, dwx, wy) * ((gw - 3) / w[1])   # ∂/∂c₁: the lattice coordinate's slope
-    Sy = _eval_window(cs.controls, ix, iy, wx, dwy) * ((gh - 3) / w[2])
+    Sx = _eval_window(cs.controls, ix, iy, dwx, wy) * sx   # ∂/∂c₁: the lattice coordinate's slope
+    Sy = _eval_window(cs.controls, ix, iy, wx, dwy) * sy
     return hcat(Sx, Sy)
 end
 

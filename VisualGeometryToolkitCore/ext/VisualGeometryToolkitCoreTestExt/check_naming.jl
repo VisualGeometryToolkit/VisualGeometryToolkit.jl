@@ -246,12 +246,13 @@ const RETIRED_NAMES = String[
     "WMG" * "_NG",
     # the hand-rolled Levenberg–Marquardt cores, replaced by one LM driver
     # (NLLSsolver): the chart LM is VGC's `lmsolve_chart!`. The rule stands with ONE stated exception: the
-    # generic models' device-side two-unknown pixel LM kernel
-    # (`Cameras._pixel_lm`, `_pixel_lm_increment`; NLLSsolver cannot run in a
+    # spline models' device-side two-unknown LM kernel
+    # (`Cameras._spline_lm`, `_spline_lm_increment`; NLLSsolver cannot run in a
     # KernelAbstractions kernel). No other hand-rolled LM loop is allowed.
     "_lmsolve" * "_manifold!",               # a hand-rolled copy of a static LM loop
     "_lm" * "_cholsolve!",                   # its unrolled Cholesky
     "_lmsolve" * "_p3p!",                    # VisualGeometryToolkitEstimation's P3P copy of the same loop
+    "_pixel_lm" * "_increment",              # the pixel LM's Cholesky step: `_spline_lm_increment` (plan 1b, the one LM `_spline_lm`)
     "_REFINE_ROBOT_WORLD" * "_MAX_MARKERS",  # VisualGeometryToolkitEstimation: the robot-world refinement's 4-marker cap, removed (2026-10-01)
     # robot-world/hand-eye calibration is named as such (VisualGeometryToolkitEstimation,
     # 2026-10-01): AX = YB, eye-to-hand; "hand_eye" is two tokens

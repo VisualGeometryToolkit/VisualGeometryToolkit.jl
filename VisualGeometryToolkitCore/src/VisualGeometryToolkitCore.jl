@@ -291,7 +291,7 @@ export CameraCalibrationMat
 export project, backproject, unproject, transfer
 public backproject_with_jacobian   # the bearing and its 3×2 pixel Jacobian (a parametric camera, a generic grid model): the M columns of a bearing problem
 export focal_length, calibration_matrix  # Unit accessors; `focal_length(sensor, θ)` the focal a field of view implies
-export fov   # the angle of view a bounded camera's extent subtends (its inverse)
+export angle_of_view, field_of_view   # the angle of view a bounded camera images (focal_length's inverse), and the size it spans at a distance
 export intrinsics, lens, model  # Camera component accessors
 export aspect_ratio
 # `depth_transfer` (0.8): the renamed unit-depth transfer closure formerly

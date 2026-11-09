@@ -242,7 +242,7 @@ function calibration_matrix(model::CameraModel{<:LogicalIntrinsics})
 end
 
 # The principal point of a camera's pixel frame, in Float64 — the one read the
-# valid domain, the datasheet image circle, `fov` and the rectification panels make
+# valid domain, the datasheet image circle, `angle_of_view` and the rectification panels make
 # (`principal_point`, so a projective camera has one too).
 _principal_point(camera::CameraModel) = (c = principal_point(camera.intrinsics); Point2{Float64}(c[1], c[2]))
 

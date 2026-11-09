@@ -162,15 +162,15 @@ v = valid_domain(cam)                                   # where the lens formula
 
 ```@example imagecircle
 q = image_circle(cam, 6.0mm)                            # where light falls: the datasheet, through the pitch
-(v.a - q.a, Rect(extent(cam)) ∈ q, rad2deg(fov(cam)), rad2deg(fov(cam; dimension = :diagonal)))
+(v.a - q.a, Rect(extent(cam)) ∈ q, rad2deg(angle_of_view(cam)), rad2deg(angle_of_view(cam; dimension = :diagonal)))
 ```
 
 Here the lens was chosen so the two coincide; for a fitted lens they need not.
-[`fov`](@ref) is the model's field of view, clipped by its valid domain.
+[`angle_of_view`](@ref) is the angle of view the camera images — its extent bounded by its lens coverage, clipped by the model's valid domain; [`field_of_view`](@ref) is the size that angle spans at a distance.
 
 ```@example imagecircle
 rcam = BoundedCamera(CameraModel(; focal = 2000.0, pp = (1224.0, 1024.0), lens = Pinhole()), s)
-(valid_domain(rcam), rad2deg(fov(rcam)), rad2deg(fov(rcam; dimension = :diagonal)))
+(valid_domain(rcam), rad2deg(angle_of_view(rcam)), rad2deg(angle_of_view(rcam; dimension = :diagonal)))
 ```
 
 A local lens model — a grid of nodes rather than a formula — has observations

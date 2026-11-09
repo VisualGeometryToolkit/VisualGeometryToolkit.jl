@@ -29,12 +29,12 @@ println("this lens was built so they agree, to ", abs(v.a - q.a), " px (a fitted
 
 # ── 4. Is the whole sensor lit? The circular fisheye: no.
 println("fisheye lights the whole sensor: ", Rect(extent(cam)) ∈ q)
-println("fisheye fov: ", rad2deg(fov(cam)), "° horizontal, ", rad2deg(fov(cam; dimension = :diagonal)), "° diagonal")
+println("fisheye angle of view: ", rad2deg(angle_of_view(cam)), "° horizontal, ", rad2deg(angle_of_view(cam; dimension = :diagonal)), "° diagonal")
 
 # ── 5. A rectilinear lens has no limit of its own: its valid domain is the whole plane
 rcam = BoundedCamera(CameraModel(; focal = 2000.0, pp = (1224.0, 1024.0), lens = Pinhole()), s)
 println("rectilinear valid domain: ", valid_domain(rcam))
-println("rectilinear fov: ", rad2deg(fov(rcam)), "° horizontal, ", rad2deg(fov(rcam; dimension = :diagonal)), "° diagonal")
+println("rectilinear angle of view: ", rad2deg(angle_of_view(rcam)), "° horizontal, ", rad2deg(angle_of_view(rcam; dimension = :diagonal)), "° diagonal")
 
 # ── 6. The consumer: a grid lens keeps only the nodes the lens lights
 domain = imaged_region(with_lens_coverage(cam, q))

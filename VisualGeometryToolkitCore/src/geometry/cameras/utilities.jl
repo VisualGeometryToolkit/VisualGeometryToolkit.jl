@@ -5,16 +5,16 @@
 """
     focal_length(resolution::Size2, θ::Real; dimension=:horizontal)
 
-The focal length a field of view implies: in pixels from the FULL field of view angle (plain radians —
+The focal length an angle of view implies: in pixels from the FULL angle of view (plain radians —
 angles carry no dimension in the VGC unit system) and resolution. Its inverse, for a
-camera, is [`fov`](@ref). The other forms: `focal_length(sensor::Sensor, θ)` (a
+camera, is [`angle_of_view`](@ref). The other forms: `focal_length(sensor::Sensor, θ)` (a
 length) and the accessor `focal_length(intrinsics)` (`(fx, fy)` in pixels).
 
 # Arguments
 - `resolution::Size2`: Image resolution (width, height) in pixels: plain numbers or
   dimensionless quantities (`px`); a length is a `DimensionError`
-- `θ::Real`: Field of view angle in radians
-- `dimension::Symbol`: Which dimension the FOV applies to (`:horizontal` or `:vertical`)
+- `θ::Real`: the full angle of view in radians
+- `dimension::Symbol`: Which dimension the angle of view applies to (`:horizontal` or `:vertical`)
 
 # Returns
 - Focal length in pixels (same logical unit as resolution)
@@ -45,8 +45,8 @@ The physical focal length from the FULL field of view angle and the sensor:
 
 # Arguments
 - `sensor::Sensor`: the sensor (its `resolution` and `pitch`)
-- `θ::Real`: Field of view angle in radians
-- `dimension::Symbol`: Which dimension the FOV applies to (`:horizontal` or `:vertical`)
+- `θ::Real`: the full angle of view in radians
+- `dimension::Symbol`: Which dimension the angle of view applies to (`:horizontal` or `:vertical`)
 
 # Returns
 - Physical focal length (a length quantity)
@@ -70,17 +70,22 @@ function focal_length(sensor::Sensor, θ::Real; dimension = :horizontal)
 end
 
 """
-    fov(camera::BoundedCamera; dimension = :horizontal) -> θ
+    angle_of_view(camera::BoundedCamera; dimension = :horizontal) -> θ
 
-The angle of view of a bounded camera: the FULL angle, in radians, that its
-pixel extent subtends in `dimension` — for a pinhole with a centred principal
-point, the inverse of [`focal_length`](@ref)`(resolution, θ; dimension)`, which
-takes the same full angle (`focal_length(sensor, θ)` is its metric form). (The lens's
-own limit, [`view_angle_limit`](@ref), is a HALF angle from the optical axis.)
+The angle of view of a bounded camera: the FULL angle, in radians, of the scene it
+IMAGES in `dimension` — its pixel extent, bounded by its [`lens_coverage`](@ref)
+(where the lens covers the sensor) — read through the camera's own
+[`backproject`](@ref) (`K⁻¹`, then the lens), so a distorted or fisheye lens
+answers its true angle and an anisotropic `K` uses the focal length of that axis.
+For a pinhole with a centred principal point it is the inverse of
+[`focal_length`](@ref)`(resolution, θ; dimension)`, which takes the same full
+angle (`focal_length(sensor, θ)` is its metric form). (The lens's own limit,
+[`view_angle_limit`](@ref), is a HALF angle from the optical axis.) The size this
+angle spans at a distance is [`field_of_view`](@ref).
 
-The angle is read through the camera's own [`backproject`](@ref) (`K⁻¹`, then the lens),
-so a distorted or fisheye lens answers its true angle, and an anisotropic `K`
-uses the focal length of that axis:
+The sample points, each moved in along the line from the principal point to where
+the lens coverage ends when it lies past it (a circular fisheye's dark corners,
+the 14 mm disc cut by a wide sensor):
 
 - `:horizontal`: the two edge points on the principal point's row, `(0, c_y)`
   and `(width, c_y)`;
@@ -89,30 +94,31 @@ uses the focal length of that axis:
 
 The answer is twice the SMALLEST of those points' view angles — the nearer
 edge when the principal point is off-centre, so the cone of that full angle
-about the optical axis is imaged inside the extent in that dimension. For a
+about the optical axis is imaged in that dimension. A camera whose whole sensor
+is covered (the default coverage) reads the sensor's edges. A principal point
+outside the coverage images nothing about the axis: an `ArgumentError`. For a
 lens that is not radially symmetric the [`valid_domain`](@ref) is inscribed, so
-an edge point between it and the true limit counts as the lens's limit: the
-answer can then overstate the angle slightly.
+a point between it and the true limit counts as the lens's limit: the answer can
+then overstate the angle slightly.
 
-Clipping: a point outside the lens model's [`valid_domain`](@ref) (or one the
-lens does not image) counts as the lens's own limit, so when the valid domain
-clips the sensor in that dimension the answer is `2 · view_angle_limit(lens)`.
-This is the model's field of view; where light falls (a datasheet's
-[`image_circle`](@ref)) does not enter.
+Clipping by the model: a point outside the lens model's [`valid_domain`](@ref)
+(or one the lens does not image) counts as the lens's own limit, so when the
+valid domain clips the covered area in that dimension the answer is
+`2 · view_angle_limit(lens)`.
 
 ```julia
 cam = BoundedCamera(CameraModel(K; lens = Lens(Equidistant())), sensor("Sony", "IMX250"))
-fov(cam)                          # horizontal, full angle in radians
-fov(cam; dimension = :diagonal)
+angle_of_view(cam)                          # horizontal, full angle in radians
+angle_of_view(cam; dimension = :diagonal)
 ```
 """
-function fov(camera::BoundedCamera; dimension = :horizontal)
+function angle_of_view(camera::BoundedCamera; dimension = :horizontal)
     m = model(camera)
-    # a field of view needs a metric focal: none for a projective camera
+    # an angle of view needs a metric focal: none for a projective camera
     m isa CameraModel{<:ProjectiveIntrinsics} && throw(
         ArgumentError(
-            "a field of view needs a metric camera; " *
-                "a ProjectiveIntrinsics camera has no focal length, so no field of view"
+            "an angle of view needs a metric camera; " *
+                "a ProjectiveIntrinsics camera has no focal length, so no angle of view"
         )
     )
     w, h = Float64(extent(camera).width), Float64(extent(camera).height)
@@ -124,17 +130,65 @@ function fov(camera::BoundedCamera; dimension = :horizontal)
     elseif dimension === :diagonal
         (SVector(0.0, 0.0), SVector(w, 0.0), SVector(0.0, h), SVector(w, h))
     else
-        throw(ArgumentError("fov: dimension must be :horizontal, :vertical or :diagonal, got $(repr(dimension))"))
+        throw(ArgumentError("angle_of_view: dimension must be :horizontal, :vertical or :diagonal, got $(repr(dimension))"))
     end
+    c = SVector{2, Float64}(cx, cy)
+    cov = lens_coverage(camera)
+    _covers(cov, c) || throw(
+        ArgumentError("angle_of_view: the principal point $(Tuple(c)) lies outside the camera's lens coverage — it images nothing about its axis")
+    )
     θ_lim = Float64(view_angle_limit(lens(m)))
     q = valid_domain(m)
-    θ = minimum(pts) do u
+    θ = minimum(pts) do u0
+        u = _last_covered(cov, c, u0)          # the edge point, or where the coverage ends on the way to it
         Point2(u) ∈ q || return θ_lim          # outside the valid domain: past the lens's limit (or on its folded branch)
         b = backproject(m, u)                  # the camera's own pixel → bearing
         θu = atan(hypot(b[1], b[2]), b[3])
         isfinite(θu) ? min(θu, θ_lim) : θ_lim
     end
     return 2θ
+end
+
+# Whether the lens coverage holds a point, closed (a sensor edge point lies on the default coverage's boundary): a Rect by
+# its bounds, a Circle as its round Ellipse (as `∩` meets it), an Ellipse by its own membership.
+_covers(r::Rect2, p) = r.origin[1] <= p[1] <= r.origin[1] + r.widths[1] && r.origin[2] <= p[2] <= r.origin[2] + r.widths[2]
+_covers(c::Circle, p) = Point2(p) ∈ Ellipse(c)
+_covers(e::Ellipse, p) = Point2(p) ∈ e
+# The last point of the segment c → u0 the coverage holds (c held): u0 itself when held, else by bisection — the coverage
+# is convex, so the held points of the segment are one piece from c.
+function _last_covered(cov, c::SVector{2, Float64}, u0::SVector{2, Float64})
+    _covers(cov, u0) && return u0
+    lo, hi = 0.0, 1.0
+    for _ in 1:60
+        t = (lo + hi) / 2
+        _covers(cov, c + t * (u0 - c)) ? (lo = t) : (hi = t)
+    end
+    return c + lo * (u0 - c)
+end
+
+"""
+    field_of_view(camera::BoundedCamera, distance; dimension = :horizontal) -> size
+
+The field of view of a bounded camera at `distance`: the SIZE of the scene it
+images there, on a plane perpendicular to its optical axis — `2·distance·tan(θ/2)`
+for its [`angle_of_view`](@ref) `θ` in `dimension`, in the unit of `distance` (a
+length such as `2.0m`, or a plain number). An angle of view of 180° or more spans
+no finite size on a plane, and a distance must be positive: both an
+`ArgumentError`. (Not the field-of-view LENS model [`FieldOfView`](@ref), Devernay's
+distortion — a different thing that shares the words.)
+
+```julia
+field_of_view(cam, 3.0m)                         # the width of the scene imaged 3 m away
+field_of_view(cam, 3.0m; dimension = :vertical)
+```
+"""
+function field_of_view(camera::BoundedCamera, distance; dimension = :horizontal)
+    distance > zero(distance) || throw(ArgumentError("field_of_view: the distance is positive, got $(distance)"))
+    θ = angle_of_view(camera; dimension)
+    θ < π || throw(
+        ArgumentError("field_of_view: an angle of view of $(rad2deg(θ))° (≥ 180°) spans no finite size on a plane at a distance")
+    )
+    return 2 * distance * tan(θ / 2)
 end
 
 """

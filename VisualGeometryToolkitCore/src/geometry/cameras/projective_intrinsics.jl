@@ -13,7 +13,7 @@ homography that absorbs the focal length. There is no focal-length field, and
 none is implied — in particular it is not `f = 1`. Anything that needs a metric
 ray has no method and raises a `MethodError` (`focal_length`,
 `calibration_matrix`, `unproject`, P3P, absolute pose), except the field of
-view, which is refused with an `ArgumentError`: `fov` and `fov_radius`, and a
+view, which is refused with an `ArgumentError`: `angle_of_view` and `fov_radius`, and a
 finite `max_fov` in `undistorted_rect` (use `max_fov = Inf`).
 
 `CameraModel(ProjectiveIntrinsics(c), lens)` projects, back-projects and

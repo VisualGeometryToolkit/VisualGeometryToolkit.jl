@@ -365,7 +365,7 @@ LogicalIntrinsics(K::CameraCalibrationMat{T}) where {T <: Real} =
 # `_pixel_affine`), `backproject`, `distortion_map` / `undistort` and the
 # undistorted-rect frame walk. `LogicalIntrinsics` stores K; an intrinsics block
 # whose K is implicit (`ProjectiveIntrinsics`) adds these two methods and shares
-# those maps. The metric operations (`calibration_matrix`, `unproject`, `fov`,
+# those maps. The metric operations (`calibration_matrix`, `unproject`, `angle_of_view`,
 # ...) read the `LogicalIntrinsics` K directly and have no projective method.
 @inline _K(intrinsics::LogicalIntrinsics) = intrinsics.K
 @inline _K_inv(intrinsics::LogicalIntrinsics) = intrinsics.K_inv
@@ -381,7 +381,7 @@ For square pixels, fx ≈ fy.
 The other forms answer the focal length a FULL field of view `θ` implies:
 `focal_length(resolution::Size2, θ; dimension = :horizontal)` in pixels and
 `focal_length(sensor::Sensor, θ; dimension = :horizontal)` as a length (see
-their docstrings); [`fov`](@ref) is their inverse for a camera.
+their docstrings); [`angle_of_view`](@ref) is their inverse for a camera.
 
 # Example
 ```julia

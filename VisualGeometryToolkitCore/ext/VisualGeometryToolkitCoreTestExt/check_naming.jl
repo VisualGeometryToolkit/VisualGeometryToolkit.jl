@@ -359,7 +359,7 @@ const RETIRED_NAMES = String[
     # unretired: it is also the image warp (`image_warp`) across the stack
     "Abstract" * "Warp", "warp" * "_jacobian", "warp" * " = Rigid",
     # the focal length a field of view implies is a method of the accessor,
-    # `focal_length(sensor, θ; dimension)` (2026-10-27); its inverse is `fov`
+    # `focal_length(sensor, θ; dimension)` (2026-10-27); its inverse is `angle_of_view`
     "focal_length" * "_for_fov",
     # the Sampson distance is geometric and the whitening a second layer over
     # it (2026-11-02): `sampson_residual` (signed, an SVector) and

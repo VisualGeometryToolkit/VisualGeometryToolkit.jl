@@ -1179,7 +1179,7 @@ export backproject_with_jacobian   # the bearing AND its pixel Jacobian: calibra
 # 7. CAMERA ACCESSORS - Extract camera properties
 # -----------------------------------------------------------------------------
 export focal_length, calibration_matrix
-export fov                               # the angle of view a bounded camera subtends (utilities.jl)
+export angle_of_view, field_of_view       # the angle of view a bounded camera images, and the size it spans at a distance (utilities.jl)
 export pose, extrinsics, is_in_front, default_frustum_depth
 
 # -----------------------------------------------------------------------------

@@ -22,7 +22,13 @@ sensor — so every consumer asks the camera what it images instead of supplying
   area ∩ its `domain`), the counterpart of a parametric lens's `valid_domain`.
 - **Breaking: `view_overlap(cameras)` and `view_overlap(a, b)`** drop their circle arguments: each frame's footprint
   is its own `imaged_region`. The results for the same circles are unchanged bit for bit.
-- `fov(camera)` is unchanged: the model's angle of view over the extent, as documented; the coverage does not enter.
+- **Breaking: `fov` is renamed `angle_of_view`** (it always returned an angle, the angle of view; "field of view"
+  is the size it spans) and bounds the extent by the camera's lens coverage: each edge sample is read where the
+  coverage ends on the way to it, so a circular fisheye's dark corners or a disc cut by a wide sensor give the angle the
+  camera images. A camera whose whole sensor is covered reads as before, bit for bit. A principal point outside the
+  coverage is an `ArgumentError`. No alias: `fov` is gone.
+- **New: `field_of_view(camera, distance; dimension)`**: the size of the scene imaged at `distance`,
+  `2·distance·tan(θ/2)` for the angle of view `θ`, in the distance's unit (180° or more: an `ArgumentError`).
 
 ## 0.8.0 (2026-11-09)
 

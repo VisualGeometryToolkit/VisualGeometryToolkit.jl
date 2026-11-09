@@ -110,7 +110,7 @@ function spectral_rotation_averaging(relative::AbstractDict{<:Tuple{K, K}}, weig
         deg[a] += w; deg[b] += w
     end
     d = repeat(1 ./ sqrt.(deg); inner = 3)
-    V = eigen(Symmetric(d .* A .* d')).vectors[:, end:-1:(end - 2)] .* d   # the three leading eigenvectors
+    V = eigen(Symmetric(d .* A .* d'), (3n - 2):(3n)).vectors[:, 3:-1:1] .* d   # the three leading eigenvectors only (LAPACK's range form)
     blocks = [SMatrix{3, 3, Float64, 9}(V[(3a - 2):(3a), :]) for a in 1:n]
     count(B -> det(B) < 0, blocks) > n / 2 && (blocks = [B * Diagonal(SVector(1.0, 1.0, -1.0)) for B in blocks])
     Rt = [SMatrix{3, 3, Float64, 9}(Rotations.nearest_rotation(B)) for B in blocks]   # ≈ R_kᵀ·Q

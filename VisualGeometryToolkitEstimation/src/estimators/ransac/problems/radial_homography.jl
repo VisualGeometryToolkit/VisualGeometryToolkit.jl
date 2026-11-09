@@ -52,7 +52,7 @@
 # `K` is the minimal sample size — 5 for the radial 5-point kernel, 4 for
 # plain-homography hypotheses (`minimal = :homography`, below). A partial
 # application, as the cspond.jl aliases.
-const RadialHomographyProblem = MinimalSolveProblem{VgtkCore.RadialHomography{T}, K, T} where {T <: AbstractFloat, K}
+const RadialHomographyProblem = MinimalSolveProblem{VgtkCore.RadialHomography{T, 1}, K, T} where {T <: AbstractFloat, K}
 
 codimension(::Type{<:MinimalSolveProblem{<:VgtkCore.RadialHomography}}) = 2  # d_g = 2: reprojection pair
 
@@ -229,7 +229,7 @@ _radial_chart(H₀, k₀, c) = minimal_manifold(
     VgtkCore.RadialHomography{Float64}(HomographyMat{Float64}(Tuple(H₀)), Float64(k₀), c)
 )
 
-# The refit's model in the problem's type (`RadialHomography{T}`, as `solve`
+# The refit's model in the problem's type (`RadialHomography{T, 1}`, as `solve`
 # returns): a Float32 problem's LO result converts back into its workspace.
 function _model_at(::RadialHomographyProblem{T}, ch) where {T <: AbstractFloat}
     m = model(ch)

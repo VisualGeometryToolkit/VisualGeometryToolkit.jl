@@ -1,5 +1,73 @@
 # VisualGeometryToolkitCore changelog
 
+## Unreleased
+
+Breaking (the next release is a minor bump). The `N = 1` `RadialHomography`
+is unchanged bit for bit: its solver, chart, rows and Jacobians.
+
+- **Breaking: `RadialHomography{T, N}`**, `N` division coefficients. The
+  field `k` is now `λ::NTuple{N, T}`; `m.k` still reads `λ₁` through
+  `getproperty` (an `ArgumentError` for `N > 1`), but Accessors' `@set m.k`
+  no longer works. `RadialHomography{T}` is now a UnionAll:
+  `Vector{RadialHomography{Float64}}`, a `Ref{RadialHomography{Float64}}()[]`
+  placeholder and a field annotated `RadialHomography{T}` become abstract (write
+  `RadialHomography{T, 1}` for today's model). `division_coeffs(m)` (public)
+  reads every coefficient; `division_coeff(m)` throws for `N > 1`.
+- **Breaking: `CameraModel(::RadialHomography)` is projective** —
+  `CameraModel(ProjectiveIntrinsics(center(m)), Division(division_coeffs(m)...))`.
+  `calibration_matrix`, `unproject`, `image_circle` and the default nominal
+  camera on it are MethodErrors; `fov` is an `ArgumentError`, as are `fov_radius`
+  and a finite `max_fov` (`undistorted_rect`).
+  `RadialHomography(H, camera)` and `radial_homography(camera, H)` build the
+  model from such a camera.
+- **`radial_homography(camera::CameraModel{<:LogicalIntrinsics, <:Division}, H)`**
+  pairs a stored plane homography with a METRIC division camera: `λₚ = kₚ / f^(2p)`
+  about the principal point, so `radial_transfer` of it is `project(camera, K⁻¹·H·X̃)`.
+  An `ArgumentError` for `fx ≠ fy` or a skewed `K`.
+- **`CameraModelSpec{I, S}(…)` normalizes a parameterized intrinsics kind**
+  (`LogicalIntrinsics{Float64}`) to its wrapper in the inner constructor too, as
+  the keyword path does, so the specification round trips equal.
+- **`ProjectiveIntrinsics{T}` refuses an integer or rational `T`** (an
+  `ArgumentError`; floats and AD numbers stay, `ProjectiveIntrinsics(center)`
+  still takes `float(T)`).
+- **`LensSpec`**: `LensSpec(lens)` names a lens at the reference values whatever
+  its element type (a `Float32` lens is the named form), keeps a `-0.0`
+  coefficient in the record form, and `lens(spec)` is `Float64`; the 4-argument
+  inner constructor validates what the public ones do.
+- **Breaking: the metric operations are narrowed to `LogicalIntrinsics`**:
+  `calibration_matrix(::CameraModel)` and `unproject(::AbstractIntrinsics, …)`
+  have no method for another intrinsics kind.
+- **Breaking: `plot_rectification`'s `max_fov` defaults to `nothing`**, resolved
+  per camera: `DEFAULT_MAX_FOV` for a metric camera (today's value), no cap for
+  a projective one (a strong fisheye rectifies to the horizon clip).
+- **`ProjectiveIntrinsics(center)`**: the principal point alone, a projective
+  ray frame with no focal length; `principal_point` for both intrinsics kinds.
+  Project, backproject, `distortion_map`/`undistort` and the frame walk serve
+  both kinds through one pixel-matrix seam.
+- **`LensSpec`** (a lens family by name and term counts, or a record form for
+  the rest; `free_names`, public) and **`CameraModelSpec`** (what a calibration
+  is for: an intrinsics kind and a `LensSpec`, or the metric
+  `GenericGridSpec`; `intrinsics_kind`, public), with TOML tables through
+  `toml_value` and `CameraModelSpec(table)`. A `central_generic` table may name
+  `intrinsics = "metric"` (redundant but true); any other kind beside it is an
+  `ArgumentError`.
+- **`TargetHomographies{F, H}`**: per frame, each target's plane → pixel `HomographyMap`,
+  a capture like `TargetPoses`: the pixel frame `F` is part of the type
+  (`TargetHomographies{F}(frames; …)`; no frame-less form), the maps are stored
+  unlabeled (plain or `Uncertain`, an 8×8 covariance in `HomographyManifold8`) and
+  `homography(th, t, id)` mints `TargetPlaneFrame → F`; `targets` names the target
+  definitions by content identity. `radial_homography(camera, h::HomographyMap)`.
+- **`HomographyMap{3}` has the parameter protocol** (`parameter_names` `h11 … h33`,
+  `parameter_vector`, `with_parameters`, `length_mask`): its nine entries row-major,
+  canonical (unit Frobenius norm, `H[3,3] ≥ 0`, `sign_normalize`; a canonical matrix
+  as held). Nine, not eight: a homography has no global 8-number chart (`h33 = 1`
+  fails at `h33 = 0`), so the normalization is declared. Its tag is
+  `PLANAR_MAP_TAGS`' `"homography_map"` (a new `TagRegistry`, public). `relabel` and
+  `unlabel` take an `Uncertain` homography.
+- `division_coeffs` is in `CONTRACT_GENERICS`: another stack package may add a
+  method for its own model or state (VisualGeometryToolkitEstimation's
+  `DivisionCameraState` does).
+
 ## 0.7.0 (2026-11-07)
 
 - **SILENT CHANGE — breaking: a generic model's `backproject` is NaN where it images nothing, never `nothing`.

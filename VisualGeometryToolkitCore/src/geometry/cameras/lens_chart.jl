@@ -140,7 +140,8 @@ end
 
 The model's coefficients by name: `parameters(KannalaBrandt(-0.04, 0.01)).k2`.
 """
-parameters(l::AbstractLensModel) = NamedTuple{parameter_names(l)}(Tuple(parameter_vector(l)))
+parameters(x::Union{AbstractLensModel, AbstractIntrinsics, CameraModel}) =
+    NamedTuple{parameter_names(x)}(Tuple(parameter_vector(x)))
 
 # --- LogicalIntrinsics: absolute, reportable coordinates --------------------------
 #
@@ -168,6 +169,22 @@ function with_parameters(::LogicalIntrinsics, θ::AbstractVector)
     return LogicalIntrinsics(CameraCalibrationMat(K))
 end
 
+# --- ProjectiveIntrinsics: the principal point alone ---------------------------------
+
+parameter_names(::ProjectiveIntrinsics) = (:cx, :cy)
+@inline function parameter_bounds(::ProjectiveIntrinsics{T}) where {T}
+    F = float(T)
+    return (SVector{2, F}(-Inf, -Inf), SVector{2, F}(Inf, Inf))
+end
+parameter_vector(intr::ProjectiveIntrinsics{T}) where {T} = SVector{2, T}(intr.center[1], intr.center[2])
+function with_parameters(::ProjectiveIntrinsics, θ::AbstractVector)
+    length(θ) == 2 || throw(
+        ArgumentError("ProjectiveIntrinsics takes 2 parameters $((:cx, :cy)); got $(length(θ))")
+    )
+    cx, cy = float.(θ)
+    return ProjectiveIntrinsics(Point2(cx, cy))
+end
+
 """
     convert_eltype(::Type{T}, x) where {T <: Real}
 
@@ -175,7 +192,8 @@ end
 `LogicalIntrinsics` (`K`, with `K⁻¹` recomputed in `T`), a `CameraModel`
 (both), a `BoundedCamera` (its camera, the bound kept), a plain
 `EuclideanMap` or `RotationMap` (rotation and translation, representation and
-frames kept), a `CentralGenericModel` or `NoncentralGenericModel` (the grids;
+frames kept), a `RadialHomography` (its `H`, coefficients and centre;
+`T <: AbstractFloat` there), a `CentralGenericModel` or `NoncentralGenericModel` (the grids;
 the calibrated area stays as stored; `T <: AbstractFloat` there). Use it to
 move a camera to `Float32` before a GPU launch, or back to `Float64`, or to a
 ForwardDiff `Dual` for a Jacobian by forward differentiation (a `Dual` is a `Real`, not an
@@ -196,8 +214,12 @@ convert_eltype(::Type{T}, l::AbstractLensModel) where {T <: Real} =
 _widens(::Type{T}, ::Type{C}) where {T, C} = C === Union{} || promote_type(T, C) === T
 convert_eltype(::Type{T}, intr::LogicalIntrinsics) where {T <: Real} =
     LogicalIntrinsics(CameraCalibrationMat{T}(intr.K))
+convert_eltype(::Type{T}, intr::ProjectiveIntrinsics) where {T <: Real} =
+    ProjectiveIntrinsics{T}(intr.center)
 convert_eltype(::Type{T}, m::CameraModel) where {T <: Real} =
     CameraModel(convert_eltype(T, m.intrinsics), convert_eltype(T, m.lens))
+convert_eltype(::Type{T}, m::RadialHomography) where {T <: AbstractFloat} =
+    RadialHomography{T}(m.H, m.λ, m.center)
 
 # --- CameraModel: the intrinsics' coordinates, then the lens's ---------------------
 #
@@ -223,8 +245,6 @@ end
     θl = SVector{nl}(ntuple(k -> θ[ni + k], Val(nl)))
     return CameraModel(with_parameters(m.intrinsics, θi), with_parameters(m.lens, θl))
 end
-parameters(m::CameraModel) = NamedTuple{parameter_names(m)}(Tuple(parameter_vector(m)))
-parameters(intr::LogicalIntrinsics) = NamedTuple{parameter_names(intr)}(Tuple(parameter_vector(intr)))
 
 # --- the parameter manifold ----------------------------------------------------------
 

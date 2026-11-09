@@ -152,7 +152,7 @@ const CONTRACT_GENERICS = (
     toml_key, toml_skip_fields, toml_field,
     # geometry and camera accessors other packages implement for their own types
     centroid, region, shape_matrix, feature_frame, geom, csponds, focal_length,
-    intrinsics, lens, model, extent, bounds_trait, is_posed, Pools.pair_scene,
+    intrinsics, lens, model, extent, bounds_trait, is_posed, Pools.pair_scene, division_coeffs,
     # the support protocol a node model implements (geometry/cameras/support.jl)
     support_trait, nodes, support, node_position,
     # the generic models' rebuilders and central part (geometry/cameras/generic_models.jl),
@@ -203,7 +203,7 @@ VisualGeometryToolkitCore's, by group:
 - the minimal-solver backends PoseLib.jl implements;
 - the `FitResult` property forwarding and the TOML config hooks;
 - the geometry and camera accessors other packages implement for their own
-  types (`centroid`, `intrinsics`, `lens`, `model`, …);
+  types (`centroid`, `intrinsics`, `lens`, `model`, `division_coeffs`, …);
 - the parameter protocol (`parameter_vector`, `parameter_names`,
   `parameter_bounds`, `with_parameters`);
 - the target-calibration protocol (`regularizer`,

@@ -225,7 +225,7 @@ end
 # `m.H` was already centred. Measured against the model's own `radial_transfer`,
 # that put the predicted ray ~62° off the true one and 121 px from the observed
 # pixel whenever the centre was not the origin.
-RadialCamera(m::RadialHomography) = RadialCamera(m.H, m.center)
+RadialCamera(m::RadialHomography) = RadialCamera(m.H, center(m))
 
 """
     RadialCamera(cam::PosedCamera) -> RadialCamera

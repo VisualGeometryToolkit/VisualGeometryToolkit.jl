@@ -139,6 +139,7 @@ using VisualGeometryToolkitCore: RowsWorkspace, rows_workspace, task_buffers, po
     ManifoldLmWorkspace, lm_workspace_type, lmsolve_chart!, fill_sqrt_weights!, Incumbent, keep_best,
     lm_retcode, loss_robustifier
 import VisualGeometryToolkitCore: residual_rows!, residual_jacobian_rows!
+import VisualGeometryToolkitCore: division_coeffs   # RadialHomography's coefficients; DivisionCameraState's method is ours
 import VisualGeometryToolkitCore: rows_provider, lift_init, lift_refresh!, lift_jacobian!, lift_retract,
     lift_model, lift_valid, lift_rows, lift_residuals, lift_size
 # The robot-world, division-camera and lens-regression fits (fitting/): the
@@ -320,7 +321,7 @@ public lo_loss, strategy_loss, plain_scale_multiple, deployed_shape, lo_width_va
     ManifoldLiftProvider, LiftableProblem
 # Relative-pose bundle and robot-world calibration.
 # The division-camera step, its state, the lift constraint and fit_camera's metadata.
-public division_camera_step, DivisionCameraState, division_coeffs, board_sq_residuals,
+public division_camera_step, DivisionCameraState, board_sq_residuals,
     RadialLift, CameraFitMetadata
 public bundle_refine_relpose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
 public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata

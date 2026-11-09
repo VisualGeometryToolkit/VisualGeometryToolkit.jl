@@ -334,6 +334,15 @@ with whatever the schema's migration reports — a rig's `old_ids` (the v4
 identities measurement files may name it by: the one hashed from the file as
 written, and the one v4 minted for the value in millimetres, when the file is
 in another unit) and its `new_id`.
+
+A `.toml` record whose schema has a step but no file form (a schema owner's
+TOML config) is rewritten by the generic file form: parse, [`migrate_record`](@ref),
+`TOML.print` to the staging directory, re-parse and require the very tree back
+(types included: an `Int` stays an `Int`, a `1.0` a `Float64`, a date a `Date`),
+an `ArgumentError` otherwise. The rewrite drops the file's comments: the
+result's `comments_dropped` is `true`, and a `@warn` says so, when the file has
+any `#` (a comment line or a trailing comment; a `#` inside a string also
+counts, conservatively). The result is `(; path, out, from, to, comments_dropped)`.
 """
 vgio_migrate(path::AbstractString; out::AbstractString = _migrated_path(path), dry_run::Bool = false) =
     _vgio_migrate(path; out, dry_run)
@@ -341,10 +350,14 @@ vgio_migrate(path::AbstractString; out::AbstractString = _migrated_path(path), d
 # `vgio_migrate`, with `before_rename(r)` called on the verified result before
 # anything is put at `out` (a tree persists its identity map there).
 function _vgio_migrate(path::AbstractString; out::AbstractString, dry_run::Bool, before_rename = r -> nothing)
-    s = _peek_schema(path)
+    tree = _is_toml(path) ? _parse_toml_file(path) : nothing   # a TOML file is parsed once, here
+    s = tree === nothing ? _peek_schema(path) : get(tree, "schema", nothing)
     s isa AbstractString || throw(ArgumentError("$(path): not a vgio file (no schema)"))
     in_place = abspath(out) == abspath(path)
     (dry_run || in_place || !ispath(out)) || throw(ArgumentError("$(out) exists; refusing to overwrite it"))
+    if !_has_migration(s) && tree !== nothing && _has_record_migration(s)
+        return _migrate_toml(path, tree, out, dry_run, s, before_rename)
+    end
     _has_migration(s) ||
         throw(ArgumentError("$(path): no migration for a $(s) file (no method of VisualGeometryToolkitIO.migrate_schema for it)"))
     return write_staged(out => basename(path); dry_run) do staged
@@ -353,6 +366,42 @@ function _vgio_migrate(path::AbstractString; out::AbstractString, dry_run::Bool,
         r
     end
 end
+
+_is_toml(path) = endswith(lowercase(path), ".toml")
+
+# The generic file form for a TOML record whose schema has a step and no file
+# form: from the parsed `tree`, run the steps, print, read the print back and
+# require the very tree (types included), so a value TOML.print cannot reproduce
+# is a refusal.
+function _migrate_toml(path, tree, out, dry_run, s, before_rename)
+    # any `#`, trailing comments included (a `#` inside a string is a harmless false positive)
+    comments_dropped = occursin('#', read(path, String))
+    comments_dropped &&
+        @warn "vgio_migrate rewrites $(path) through TOML.print, which drops its comments; the original is kept unless out == path"
+    migrated = migrate_record(tree)
+    return write_staged(out => basename(out); dry_run) do staged
+        try
+            open(io -> TOML.print(io, migrated), staged, "w")
+        catch err
+            err isa ErrorException || rethrow()   # TOML.print refuses a value type it has no form for
+            throw(ArgumentError("$(path): the migrated record cannot be written as TOML ($(err.msg)); nothing written"))
+        end
+        back = TOML.parsefile(staged)
+        _same_tree(back, migrated) ||
+            throw(ArgumentError("$(path): the migrated record does not read back from TOML.print as itself (a value TOML.print cannot reproduce exactly); nothing written"))
+        r = (; path = String(path), out = dry_run ? nothing : String(out), from = String(s),
+            to = String(migrated["schema"]), comments_dropped)
+        before_rename(r)
+        r
+    end
+end
+
+# Equal AND of the same type throughout (`1 == 1.0` is not enough), element by
+# element: not `_same_value`, whose container check is `typeof` too, and a TOML
+# round trip turns an array's `Vector{Any}` into a `Vector{String}`.
+_same_tree(a::AbstractDict, b::AbstractDict) = keys(a) == keys(b) && all(_same_tree(a[k], b[k]) for k in keys(a))
+_same_tree(a::AbstractVector, b::AbstractVector) = length(a) == length(b) && all(_same_tree(x, y) for (x, y) in zip(a, b))
+_same_tree(a, b) = typeof(a) === typeof(b) && isequal(a, b)
 
 const _STAGE_PREFIX = ".vgio_migrate_"
 
@@ -1132,6 +1181,9 @@ end
 # `save_correspondences` resolves an old identity against the old rig file
 # (`_old_id_map`). Nothing else re-points.
 
+# (Every measurement kind's earlier versions are listed so an old file is re-pointed too, and
+# rewritten as its kind's current version by the same guarded write; `vgio_migrate_tree` leaves
+# every measurement file to the re-pointing step.)
 const _MEASUREMENT_KINDS = Dict(
     "vgio/target_points2d/v1" => TargetPoints2D, "vgio/target_points3d/v1" => TargetPoints3D,
     "vgio/target_detections/v1" => TargetDetections,
@@ -1139,14 +1191,20 @@ const _MEASUREMENT_KINDS = Dict(
     "vgio/target_detections/v2" => TargetDetections,
 )
 
+_is_old_measurement(s) = !_is_current(s)
+# What a measurement's `targets` may name in a tree: a current rig of targets or a
+# single unposed target file (a target_detections or target_homographies file's ids).
+_is_target_definition(s) = s == _schema("rig") || s == _schema("target")
+
 # Every measurement of a value as (frame, target, point index).
 _measured_points(obs::Union{TargetPoints2D, TargetPoints3D}) = ((f, o.target, o.index) for (f, os) in obs for o in os)
 _measured_points(obs::TargetDetections) = ((f, id, i) for (f, sets) in obs for (id, cs) in sets for i in sources(cs))
 
-# Re-point a measurement file (`vgio/target_points2d/v1`, `vgio/target_points3d/v1`, `vgio/target_detections/v1`)
+# Re-point a measurement file (`vgio/target_points2d`, `vgio/target_points3d`, `vgio/target_detections`, v1–v2)
 # at the rigs its targets were migrated to: every identity in its `targets`
 # that `ids` (old → new, a rig migration's `old_ids` and `new_id`) maps is
-# replaced; nothing else changes, and the file stays at its version. Every
+# replaced; nothing else changes, and the file is written as its kind's current
+# version (a v1 file becomes v2). Every
 # identity the file names must be mapped or be the `content_id` of one of
 # `rigs` (rigs or `vgio/rig/v5` paths; `hashes` their identities, when the
 # caller has them): any other is an `ArgumentError` naming the file and the
@@ -1166,7 +1224,7 @@ function _repoint_targets(
     )
     s = get(old, "schema", nothing)
     T = get(_MEASUREMENT_KINDS, s, nothing)
-    T === nothing && throw(ArgumentError("$(path): a $(repr(s)) file names no targets to re-point (target_points2d/v1, target_points3d/v1, target_detections/v1)"))
+    T === nothing && throw(ArgumentError("$(path): a $(repr(s)) file names no targets to re-point (target_points2d, target_points3d, target_detections, v1–v2)"))
     in_place = abspath(out) == abspath(path)
     (dry_run || in_place || !ispath(out)) || throw(ArgumentError("$(out) exists; refusing to overwrite it"))
     obs = load(T, path)
@@ -1227,8 +1285,8 @@ end
 Migrate every `.json` file under `dir` whose schema has a migration (cameras
 v1–v3, target v1–v3, rig v4–v6, generic_camera v2, and any schema whose owner added a
 [`migrate_schema`](@ref) file form), then re-point the measurement files under
-`dir` (`vgio/target_points2d/v1`, `vgio/target_points3d/v1`, `vgio/target_detections/v1`) at the current
-rigs of the tree, each by the guarded pattern of [`vgio_migrate`](@ref) (a
+`dir` (`vgio/target_points2d`, `vgio/target_points3d`, `vgio/target_detections`, v1–v2) at the current
+rigs and single target files of the tree, each by the guarded pattern of [`vgio_migrate`](@ref) (a
 full-precision length may be rewritten within 2 ulp, as the same metre value),
 with one line per file to `io`
 — a file left as it is says why (`current`, or no `targets`). Written beside
@@ -1254,16 +1312,18 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
     schemas = Dict(f => _try_schema(f) for f in files)
     results = NamedTuple[]
     ids = _read_ids(idsfile)
-    rigs = String[]                                                    # the current rigs of the tree
+    rigs = String[]                                                    # the current target definitions of the tree (rigs, single targets)
     failed = Pair{String, String}[]                                    # file => why it was refused
     for f in files
         s = schemas[f]
-        if !(s isa String && _has_migration(s))
+        if !(s isa String && _has_migration(s)) || haskey(_MEASUREMENT_KINDS, s)   # (a measurement file: below)
             if s === nothing
                 println(io, "SKIPPED   ", f, ": no readable schema")
+            elseif haskey(_MEASUREMENT_KINDS, s)
+                # re-pointed below; a v1 file is rewritten as v2 there
             elseif _is_current(s)
-                s == _schema("rig") && push!(rigs, f)
-                haskey(_MEASUREMENT_KINDS, s) || println(io, "current   ", f, ": ", s)   # (a measurement file: below)
+                _is_target_definition(s) && push!(rigs, f)
+                println(io, "current   ", f, ": ", s)
             else
                 println(io, "SKIPPED   ", f, ": ", s, " has no migration (a retired version, or a schema no package migrates)")
             end
@@ -1280,7 +1340,7 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
             _vgio_migrate(f; out, dry_run, before_rename = r -> _map_ids!(ids, r, idsfile, dry_run))
         end
         r === nothing && continue
-        (!dry_run && r.to == _schema("rig")) && push!(rigs, out)
+        (!dry_run && _is_target_definition(r.to)) && push!(rigs, out)
         push!(results, r)
         println(io, dry_run ? "verified  " : "migrated  ", f, ": ", s, " → ", r.to,
             haskey(r, :old_ids) ? "  (content id $(join(r.old_ids, ", ")) → $(r.new_id))" : "")
@@ -1297,7 +1357,7 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
             println(io, "current   ", f, ": names no targets (nothing to re-point)")
             continue
         end
-        if all(in(current), ts)
+        if all(in(current), ts) && !_is_old_measurement(schemas[f])
             println(io, "current   ", f, ": names current rigs")
             continue
         end

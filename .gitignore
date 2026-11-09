@@ -42,3 +42,6 @@ __pycache__/
 *.py[cod]
 venv/
 .venv/
+
+# Agent workspaces (subagent-driven development review packages) — local only
+.superpowers/

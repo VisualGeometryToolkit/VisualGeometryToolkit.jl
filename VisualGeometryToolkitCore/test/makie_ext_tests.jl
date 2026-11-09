@@ -48,6 +48,27 @@
         @test !isempty(methods(VgtkCore.frameplot!))
     end
 
+    @testset "plot_rectification: a projective camera at its default" begin
+        # A radial homography's camera is projective: no focal length, so no field
+        # of view. Left at its default, a panel is not capped by one (a metric
+        # camera's default stays DEFAULT_MAX_FOV); an explicit finite cap refuses.
+        H = VgtkCore.HomographyMat(SMatrix{3, 3, Float64}(1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0))
+        img = rand(96, 128)
+        c = Point2(64.0, 48.0)
+        for m in (VgtkCore.RadialHomography(H, -1.0e-5, c), VgtkCore.RadialHomography(H, CameraModel(ProjectiveIntrinsics(c), Division(-1.0e-5, 1.0e-10))))
+            cam = CameraModel(m)
+            @test plot_rectification(cam, img) isa Makie.Figure
+            @test_throws ArgumentError plot_rectification(cam, img; max_fov = deg2rad(70.0))
+            centre, r = ext._horizon(cam)
+            @test centre == c && r == VgtkCore.horizon_radius(cam)
+            @test isfinite(r)
+        end
+        # unit focal: the horizon is the lens's own monotone radius, in centred pixels
+        @test VgtkCore.horizon_radius(CameraModel(VgtkCore.RadialHomography(H, -1.0e-5, c))) == VgtkCore.monotone_radius(Division(-1.0e-5))
+        metric = CameraModel(; focal = 100.0, pp = (64.0, 48.0), lens = Division(-0.1))
+        @test plot_rectification(metric, img) isa Makie.Figure
+    end
+
     @testset "cameraplot! refuses an unposed camera" begin
         K = SMatrix{3, 3, Float64}(1000.0, 0, 0, 0, 1000.0, 0, 640.0, 480.0, 1.0)
         unposed = VgtkCore.BoundedCamera(VgtkCore.CameraModel(VgtkCore.CameraCalibrationMat(K)), VgtkCore.Size2(1280, 960))

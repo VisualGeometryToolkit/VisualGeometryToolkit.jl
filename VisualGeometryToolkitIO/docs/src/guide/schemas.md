@@ -26,9 +26,10 @@ that this class of bug cannot be written down:
 ## What every vgio file guarantees
 
 Every vgio file has a schema tag `vgio/<kind>/v<n>`. The current versions are
-rig v7; target and cameras v4; transforms, trajectory and generic_camera v3;
-target_poses, target_points2d, target_points3d, capture_settings and
-target_detections v1; and
+rig v8; target v5; cameras, transforms and trajectory v4; generic_camera v3;
+target_poses, target_points2d, target_points3d and target_detections v2;
+target_homographies, capture_settings, calibration, vignetting,
+environment_light and blur v1; and
 v2 for the rest. A file can be
 read exactly with nothing but itself. The rules that make this true:
 
@@ -59,8 +60,8 @@ coefficients, centre and counts) are recomputed rather than stored. The
 writer refuses data whose derived values disagree with their source.
 
 **Measurements name their targets by content.** A measurement file
-(`target_detections`, `target_points2d`, `target_points3d`) names the rigs that define the targets
-it indexes by their content identity, `content_id(rig)` or
+(`target_detections`, `target_points2d`, `target_points3d`) names the rigs (or, for `target_detections` and `target_homographies`, a single
+unposed target, by the SHA-256 of its target record) that define the targets it indexes by their content identity, `content_id(rig)` or
 `content_id(path)`. This is the SHA-256 of the rig's identity tree: built from
 the in-memory rig under names of the identity's own, fixed once in
 `content_id`'s docstring and independent of any record's key spellings, every
@@ -158,9 +159,9 @@ the producer re-exports:
 
 | Retired | Successor |
 |---|---|
-| `observations/v2` | `target_points2d/v1` |
+| `observations/v2` | `target_points2d/v2` |
 | `point_observations/v1` | `target_points3d/v1` |
-| `targets/v2`, `rig/v3` | `rig/v7` |
+| `targets/v2`, `rig/v3` | `rig/v8` |
 | `session/v3` | the calibration pipeline's own session kind |
 
 A pipeline's checkpoint belongs to the pipeline, not to core geometry, which

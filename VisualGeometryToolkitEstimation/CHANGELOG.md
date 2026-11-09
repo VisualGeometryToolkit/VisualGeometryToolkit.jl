@@ -1,5 +1,30 @@
 # VisualGeometryToolkitEstimation changelog
 
+## Unreleased
+
+Needs the VisualGeometryToolkitCore release with `RadialHomography{T, N}` (its
+`RadialHomography{T, 1}` is a TypeError on VisualGeometryToolkitCore 0.5.x).
+
+- **Breaking: `RadialHomographyProblem` is over `RadialHomography{T, 1}`**
+  (`RadialHomography{T}` is a UnionAll in VisualGeometryToolkitCore now; the
+  RANSAC workspace's model placeholder needs a concrete type). The problem and
+  its results are unchanged bit for bit.
+- **Breaking: `division_coeffs` is VisualGeometryToolkitCore's function.**
+  Estimation adds its `DivisionCameraState` method to it and no longer declares
+  a public `division_coeffs` of its own, so a module that loads both packages
+  sees one generic (`VisualGeometryToolkitCore.division_coeffs(state)` works;
+  `using` both no longer conflicts).
+- **`refine_radial_homography` takes `RadialHomography{<:Any, 1}` only**: an
+  `N > 1` model is a `MethodError` at dispatch.
+- The division-camera solve eliminates the per-board pose blocks by an arrow
+  (Schur) solve over blocks of any static size, each factored once by
+  Cholesky; the camera's one-coefficient solve is unchanged bit for bit (a
+  golden fixture pins it). A block whose `D` has a non-finite entry is left out
+  like one that is not positive definite (its pose NaN), and the blocks may be any
+  `AbstractVector`.
+- The radial-homography extent gate calls VisualGeometryToolkitCore's public
+  `radial_in_front` (no private names of another stack package).
+
 ## 0.7.0 (2026-11-07)
 
 ### Breaking

@@ -65,4 +65,12 @@
         @test fov(a; dimension = :vertical) ≈ 2atan(600 / 800) rtol = 1.0e-12
         @test_throws ArgumentError fov(c; dimension = :radial)
     end
+    @testset "a projective camera has no field of view: an ArgumentError, as fov_radius" begin
+        pc = BoundedCamera(CameraModel(ProjectiveIntrinsics(Point2(960.0, 600.0)), Pinhole()), s)
+        @test_throws ArgumentError fov(pc)
+        @test_throws ArgumentError fov(pc; dimension = :diagonal)
+        err = try fov(pc); catch e; e; end
+        @test occursin("needs a metric camera", sprint(showerror, err))
+        @test_throws ArgumentError fov_radius(model(pc), 1.0)
+    end
 end

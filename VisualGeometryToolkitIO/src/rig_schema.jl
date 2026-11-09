@@ -11,7 +11,7 @@
 # file may add a free-form "provenance" object that VGIo never reads.
 #
 # A rig of targets is the DEFINITION the per-frame measurements of
-# target_points2d/v1 and target_points3d/v1 (captures_schema.jl) resolve
+# target_points2d/v3 and target_points3d/v2 (captures_schema.jl) resolve
 # against: a point is named by (target, index), its `point_index_base`-based
 # position in that target's points, and a measurement file names the rig files
 # it resolves in by their content identity ([`content_id`](@ref)).
@@ -37,8 +37,18 @@
 
 _unique_check(xs, what) = allunique(xs) ? nothing : "$(what) must be unique"
 
+# A TOML file's tree; a malformed file is an ArgumentError naming the path.
+function _parse_toml_file(path::AbstractString)
+    return try
+        TOML.parsefile(path)
+    catch e
+        e isa TOML.ParserError ? throw(ArgumentError("$(path): not valid TOML ($(sprint(showerror, e)))")) : rethrow()
+    end
+end
+
 # Read the schema a file declares, before knowing which kind to validate it as.
 function _peek_schema(path::AbstractString)
+    _is_toml(path) && return get(_parse_toml_file(path), "schema", nothing)
     d = _read_vgio_json(path)
     d isa AbstractDict || throw(ArgumentError("$(path): not a JSON object"))
     return get(d, :schema, nothing)
@@ -664,7 +674,7 @@ const _TARGET_SPEC = _Obj(
     save(path, target::AbstractTarget; length_unit = mm, provenance = (;))
     save(path, Attributed(target, (; calibration_record)); length_unit = mm, provenance = (;))
 
-Write one physical target as a `vgio/target/v4` file — its body (rig_schema.jl:
+Write one physical target as a `vgio/target/v5` file — its body (rig_schema.jl:
 its points — a planar target's by its reference, its layout when it records
 one (`layout(t)`), or its nominal points — and a planar target's calibration with its parameters and, when
 `Uncertain`, their covariance) in `length_unit` and, for an `Attributed` one,
@@ -694,7 +704,7 @@ function save(
     _write_store(path, _TARGET_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit))
     return nothing
 end
-# A `vgio/target/v4` file holds an UNPOSED target: a posed one is refused here,
+# A `vgio/target/v5` file holds an UNPOSED target: a posed one is refused here,
 # before anything is written, rather than deep inside the writer. Its pose is a
 # rig member's, written by the rig writer.
 _refuse_posed_target(path) = throw(
@@ -717,7 +727,7 @@ save(path::AbstractString, ::Attributed{<:PosedTarget, <:NamedTuple{(:calibratio
 """
     load(AbstractTarget, path; resolve = nothing) -> AbstractTarget | Attributed{<:AbstractTarget}
 
-Read a `vgio/target/v4` file: the target, `Attributed` with its
+Read a `vgio/target/v5` file: the target, `Attributed` with its
 `calibration_record` where the file states one. `resolve(reference)` supplies
 a referenced design's nominal points (else the target is returned
 unresolved). A `vgio/target/v1`, `v2` or `v3` file is read through its version
@@ -843,7 +853,7 @@ end
 """
     save(path, rig::Rig; length_unit = mm, provenance = (;))
 
-Write a physical VGC `Rig` — sensors, targets, or both — as a `vgio/rig/v7`
+Write a physical VGC `Rig` — sensors, targets, or both — as a `vgio/rig/v8`
 file in `length_unit`: each sensor (a `BoundedCamera`) with its extrinsics
 `frame → view:<id>`, each target (sorted by id) with its body and its pose
 `target:<id> → frame` (a `covariance` iff `Uncertain`). A rig of plain
@@ -856,7 +866,7 @@ save(path::AbstractString, rig::Rig; length_unit::Units = mm, provenance::NamedT
 """
     load(Rig, path; resolve = nothing) -> Rig
 
-Read a `vgio/rig/v7` file back into a fully labeled VGC `Rig` of the storage
+Read a `vgio/rig/v8` file back into a fully labeled VGC `Rig` of the storage
 it holds, its lengths in metres: sensors (each a `BoundedCamera` labeled `frame → ViewFrame{id}`),
 targets (each a `PosedTarget`, minted `TargetFrame{id} → frame` on access), or both.
 `resolve(design)` supplies a referenced planar design's nominal points (see
@@ -896,8 +906,10 @@ end
 """
     content_id(targets) -> String
 
-The identity a measurement file (`target_points2d`, `target_points3d`) names a
-target definition by — `targets` a `Rig` or a `vgio/rig/v7` path: the SHA-256
+The identity a measurement file (`target_points2d`, `target_points3d`,
+`target_homographies`) names a target definition by — `targets` a `Rig`, a
+single unposed `AbstractTarget` (`Attributed` ones by their target), or a
+`vgio/rig` or `vgio/target` path (any version that reads): the SHA-256
 of the canonical JSON (`canonical_json`) of the rig's IDENTITY TREE. The tree
 is built from the in-memory value by the record writer's own walk, under the
 fixed names below — names of the identity's own, which a later record format
@@ -930,6 +942,11 @@ identity; a non-decimal unit (inch) is exact only for numbers born in it, so
 an inch file of mm-born numbers reads back within an ulp and its identity
 differs from the value's.
 
+A single target's identity is the SHA-256 of its `target` record below alone
+(the same record a rig's identity holds under each `"target"`), so a target's id
+is that of the file `save` wrote and `load` reads back, and differs from every
+rig's (a rig's tree has `frame`). A `PosedTarget` is an `ArgumentError`.
+
 The identity tree, fixed (a test pins it for a rig of every target kind):
 
     rig        {"frame": <frame name>,
@@ -958,10 +975,20 @@ The identity tree, fixed (a test pins it for a rig of every target kind):
                  whatever order the record lists them in),
                  "covariance": rows over the parameters, m^(lᵢ+lⱼ) (iff Uncertain)}
 """
-content_id(x::Union{Rig, AbstractString}) = _targets_hash(x)
+content_id(x::Union{Rig, AbstractTarget, Attributed{<:AbstractTarget}, AbstractString}) = _targets_hash(x)
 
-_targets_hash(path::AbstractString) = _targets_hash(_rig_from_record(_read_store(path, "rig", _RIG_SPEC)))   # a referenced design stays a reference
+# A path is a `vgio/rig` file or a `vgio/target` file (by its schema); a referenced design stays a reference.
+function _targets_hash(path::AbstractString)
+    v = _split_schema(_peek_schema(path))
+    v !== nothing && v.kind == "target" && return _targets_hash(load(AbstractTarget, path))
+    return _targets_hash(_rig_from_record(_read_store(path, "rig", _RIG_SPEC)))
+end
 _targets_hash(rig::Rig) = sha256_hex(canonical_json(_identity_tree(rig)))
+_targets_hash(t::Attributed{<:AbstractTarget}) = _targets_hash(t.value)   # who calibrated it is not part of what it is
+_targets_hash(t::AbstractTarget) = sha256_hex(canonical_json(_id_target(t)))
+_targets_hash(::PosedTarget) = throw(
+    ArgumentError("content_id: a PosedTarget has a pose, which an unposed target's identity does not hold — name `model(pt)`, or the rig it sits in")
+)
 
 # The identity tree (content_id's docstring). Its targets and poses are the
 # writer's own records (`JSON.lower` on `_ID_STYLE`), built with every length
@@ -980,11 +1007,9 @@ end
 const _ID_STYLE = VgioStyle(; length_unit = _PERSISTED)   # every length leaf its persisted metre value
 _id_sensor(rig, i, id) =      # (as the writer's `_sensor_json`: the rig untyped here)
     _Id("id" => String(id), "camera" => _id_camera(sensor_rig(rig).members[i]), "extrinsics" => _lower(JSON.lower(_ID_STYLE, extrinsics(sensor_rig(rig), i))))
+_id_target(t) = _id_order!(_id_kind!(_id_canvas!(_id_board!(_lower(JSON.lower(_ID_STYLE, t))))))
 _id_targets(tr) = Any[
-    _Id(
-        "id" => String(id), "target" => _id_order!(_id_kind!(_id_canvas!(_id_board!(_lower(JSON.lower(_ID_STYLE, tr[id].target)))))),
-        "pose" => _lower(JSON.lower(_ID_STYLE, pose(tr, id))),
-    )
+    _Id("id" => String(id), "target" => _id_target(tr[id].target), "pose" => _lower(JSON.lower(_ID_STYLE, pose(tr, id))))
         for id in sort!(collect(ids(tr)))
 ]
 # The identity's ONE member order, independent of the record's: a composed
@@ -1072,7 +1097,18 @@ _target_list(t::Union{Rig, AbstractString}) = Any[t]
 _target_list(ts::Union{AbstractVector, Tuple}) = collect(Any, ts)
 _target_rigs(ts; resolve = nothing) = [_target_rig(t; resolve) for t in _target_list(ts)]
 _target_rig(r::Rig; resolve = nothing) = target_rig(r)
-_target_rig(p::AbstractString; resolve = nothing) = target_rig(load(Rig, p; resolve))
+function _target_rig(p::AbstractString; resolve = nothing)
+    v = _split_schema(_peek_schema(p))
+    v !== nothing && v.kind == "target" && return _target_rig(load(AbstractTarget, p; resolve))
+    return target_rig(load(Rig, p; resolve))
+end
+# A single unposed target as a one-member rig, under the name its measurements
+# carry: its design `reference`, or its content id with none (the manifest's rule).
+_target_rig(t::Attributed{<:AbstractTarget}; resolve = nothing) = _target_rig(t.value; resolve)
+function _target_rig(t::AbstractTarget; resolve = nothing)
+    name = t isa PlanarTarget && reference(t) !== nothing ? reference(t) : Symbol(content_id(t))
+    return Rig{TargetFrame{name}}(Dict(name => PosedTarget(t, EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, 0.0) .* m))))
+end
 _target_hashes(ts) = String[_targets_hash(t) for t in _target_list(ts)]
 
 # Every (target, index) must resolve in the rigs the file will name — checked

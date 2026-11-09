@@ -271,7 +271,8 @@ function _decimal_rational(s::AbstractString, path, key)
         throw(ArgumentError("$(path): `$(key)` is $(repr(s)), not a decimal number"))
     frac = something(mt[3], "")
     digits = parse(BigInt, string(something(mt[2], ""), frac, "0"))   # the trailing 0 keeps an empty part a number
-    e = (mt[4] === nothing ? 0 : parse(Int, mt[4])) - length(frac) - 1
+    ex = mt[4]   # bound once, so the `nothing` check narrows it (JET: a second `mt[4]` is a fresh Union)
+    e = (ex === nothing ? 0 : parse(Int, ex)) - length(frac) - 1
     r = e >= 0 ? Rational{BigInt}(digits * big(10)^e) : digits // big(10)^(-e)
     return mt[1] == "-" ? -r : r
 end

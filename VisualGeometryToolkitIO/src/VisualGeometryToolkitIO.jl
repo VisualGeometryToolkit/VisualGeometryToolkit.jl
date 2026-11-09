@@ -33,9 +33,10 @@ and times) or an `Attributed` attribute (a camera's `calibration` block, a targe
 `calibration_record`; a covariance, as `Uncertain`).
 
 Every vgio file is a versioned schema (`vgio/<kind>/v<n>`, the current
-versions: rig v7; cameras and target v4; transforms, trajectory and
-generic_camera v3; target_poses, target_points2d, target_points3d,
-target_detections and capture_settings v1; the rest v2), and a file is
+versions: rig v8; target v5; cameras, transforms and trajectory v4;
+generic_camera v3; target_poses, target_points2d, target_points3d and
+target_detections v2; target_homographies, capture_settings, calibration,
+vignetting, environment_light and blur v1; the rest v2), and a file is
 sufficient on its own and minimal:
 - every convention a reader needs is DECLARED in the file, once — the pixel
   frame, the length unit, the rotation encoding (Hamilton quaternions, w-x-y-z,
@@ -97,6 +98,7 @@ using Statistics: cov
 using Rotations: QuatRotation, RotMatrix, RotationVec, RotZ, Angle2d, params
 using JSON: JSON
 using SQLite: SQLite
+using TOML: TOML
 using FlexUnits: Units, Quantity, ustrip, dimension, uscale, quantity
 using CoordinateTransformations: ComposedTransformation   # a target calibration's composition
 using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, px, dpi, has_units,
@@ -111,7 +113,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     AbstractTargetLayout, AprilGrid, SchoepsPattern, layout, design, TARGET_LAYOUT_TAGS, tag_of,
     Rigid, ThinPlateSpline, HeightField, Scale, Aspect, Skew, TARGET_CALIBRATION_TAGS, calibration_tag, parameter_vector, with_parameters, length_mask,
     TARGET_CALIBRATION_ORDER, planar_kind, members, is_pure_bending, ThinPlateSplineSystem, iwasawa_parameters_with_jacobian, strip_or_bare,
-    Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D, TargetPoint2D, TargetPoint3D,
+    Trajectory, TargetPoses, TargetHomographies, HomographyMap, HomographyMat, PLANAR_MAP_TAGS, TargetPoints2D, TargetPoints3D, TargetPoint2D, TargetPoint3D,
     TargetDetections, Csponds, withattrs, sources, targets,
     CentralGenericModel, NoncentralGenericModel, nominal_intrinsics, present_nodes, LogicalIntrinsics, Ellipse, WholePlane,
     Frame, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, UnlabeledFrame,
@@ -135,15 +137,16 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 #
 #   load(Dict{Symbol, BoundedCamera}, path)      vgio/cameras/v4     the camera store
 #   load(BoundedCamera | CameraModel, path; name = nothing)          one of its cameras (multi refused unnamed)
-#   load(Vector{EuclideanMap}, path)             vgio/transforms/v3  labeled poses
-#   load(Rig, path; resolve = nothing)           vgio/rig/v7         sensors, targets, or both
-#   load(AbstractTarget, path; resolve = nothing) vgio/target/v4     one target (+ its calibration record)
-#   load(PlanarTarget, path)                     a planar vgio/target/v4, or a Schöps pattern YAML or a Kalibr aprilgrid YAML
-#   load(Trajectory, path)                       vgio/trajectory/v3  a body's pose over time
-#   load(TargetPoses, path)                      vgio/target_poses/v1
-#   load(TargetPoints2D, path)                   vgio/target_points2d/v1 (or a Schöps dataset.bin; `target`)
-#   load(TargetPoints3D, path)                   vgio/target_points3d/v1
-#   load(TargetDetections, path)                 vgio/target_detections/v1 (or a target_points2d/3d/v1 file, converted, unless it has a duplicate or a form mix)
+#   load(Vector{EuclideanMap}, path)             vgio/transforms/v4  labeled poses
+#   load(Rig, path; resolve = nothing)           vgio/rig/v8         sensors, targets, or both
+#   load(AbstractTarget, path; resolve = nothing) vgio/target/v5     one target (+ its calibration record)
+#   load(PlanarTarget, path)                     a planar vgio/target/v5, or a Schöps pattern YAML or a Kalibr aprilgrid YAML
+#   load(Trajectory, path)                       vgio/trajectory/v4  a body's pose over time
+#   load(TargetPoses, path)                      vgio/target_poses/v2
+#   load(TargetHomographies, path)               vgio/target_homographies/v1 (and `load(TargetHomographies{F}, path)`)
+#   load(TargetPoints2D, path)                   vgio/target_points2d/v2 (or a Schöps dataset.bin; `target`)
+#   load(TargetPoints3D, path)                   vgio/target_points3d/v2
+#   load(TargetDetections, path)                 vgio/target_detections/v2 (or a target_points2d/3d file, converted, unless it has a duplicate or a form mix)
 #   load(CaptureSettings, path)                  vgio/capture_settings/v1 (Attributed with its identities' sources)
 #   load(CentralGenericModel | NoncentralGenericModel, path)   the Schöps grid models (vgio JSON, or Schöps' intrinsics0.yaml)
 #   load(ColmapModel, dir; contract = nothing)   COLMAP model directory (foreign)
@@ -184,9 +187,10 @@ include("transform_schema.jl")
 include("camera_schema.jl")
 include("generic_camera_schema.jl")  # the Schöps grid models (must precede rig_schema: sensors embed it)
 include("rig_schema.jl")
-include("captures_schema.jl")  # trajectory/v3, target_poses/v1, target_points2d/v1, target_points3d/v1, target_detections/v1: VGC's captures
+include("captures_schema.jl")  # trajectory/v4, target_poses/v2, target_homographies/v1, target_points2d/v2, target_points3d/v2, target_detections/v2: VGC's captures
 include("capture_settings_schema.jl")  # capture_settings/v1: the camera's settings per frame, the body and lens identities
 include("radiometry_schema.jl")  # vignetting/v1, environment_light/v1, blur/v1: a radiometric camera's fields, light and blurs
+include("calibration_manifest.jl")  # calibration.json: vgio/calibration/v1, the hash-bound set of a result's records (after the kinds it checks)
 include("schoeps.jl")      # Schöps et al.'s camera_calibration files (intrinsics0.yaml, dataset.bin), read through `load`
 include("correspondences.jl")  # export: measurements + targets → per-(frame, target) point arrays for external calibrators
 include("assemble.jl")
@@ -235,6 +239,7 @@ public SCHOEPS_PIXEL_FRAME            # the pixel frame of Schöps' camera_calib
 public ColmapModel                    # a COLMAP model directory's contents + its unit contract
 public read_length, write_length   # a file length <-> metres, decimal-exact (power-of-ten units shift the exponent)
 public read_quantity, write_quantity, json_value, from_json, ScalarOrQuantity, role_unit   # the quantity JSON format (core_json.jl); a contract's length roles
+public save_manifest, load_manifest     # vgio/calibration/v1: the manifest binding a result's record files by SHA-256
 public validate                       # check any vgio file against its kind's table
 public migrate_schema, CONTRACT_GENERICS   # the per-schema migration a schema owner extends (its declared extension points)
 public migrate_record                 # an earlier version's record as the current one, in memory: the version steps a reader runs

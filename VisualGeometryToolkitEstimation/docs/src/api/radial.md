@@ -36,7 +36,7 @@ division_camera_step
 DivisionCameraState
 DivisionCameraError
 RadialLift
-division_coeffs
+division_coeffs(::DivisionCameraState)
 board_sq_residuals
 ```
 

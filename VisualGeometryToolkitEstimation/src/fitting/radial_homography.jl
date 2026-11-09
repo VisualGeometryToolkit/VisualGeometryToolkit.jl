@@ -75,7 +75,8 @@ end
         -> RansacEstimate
 
 The radially distorted homography `model` (VisualGeometryToolkitCore
-`RadialHomography`: `H`, `k` and the distortion centre, in the data frame)
+`RadialHomography{<:Any, 1}`: `H`, `k` and the distortion centre, in the data
+frame; a model with more division coefficients has no method, a `MethodError`)
 refined against `correspondences`: [`find_radial_homography`](@ref)'s step
 without the sampling. The problem's distortion centre is the model's own
 (`center(model)`); `minimal` and `extra_check` choose `find_radial_homography`'s
@@ -87,7 +88,7 @@ every `refine_*`, documented on [`refine_homography`](@ref). The `:no_model` res
 for fewer than 5 correspondences.
 """
 function refine_radial_homography(
-        model::VgtkCore.RadialHomography, pairs::AbstractVector{<:Pair{<:_PlanePoint, <:_PlanePoint}};
+        model::VgtkCore.RadialHomography{<:Any, 1}, pairs::AbstractVector{<:Pair{<:_PlanePoint, <:_PlanePoint}};
         extent::Union{Nothing, HyperRectangle{2}} = nothing,
         kwargs...
     )

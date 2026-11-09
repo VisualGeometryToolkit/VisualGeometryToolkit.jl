@@ -39,9 +39,13 @@
 # it beside its parameters and is rebuilt by its own constructor.
 #
 # MINIMAL FORMS: a pose is its quaternion (w ≥ 0) and translation, a K its
-# five numbers `fx, fy, cx, cy, skew`, an ellipse `[cx, cy, a, b, θ]`; a dense
-# matrix is never written for a geometric value (only a foreign export whose
-# spec demands one writes one).
+# five numbers `fx, fy, cx, cy, skew`, an ellipse `[cx, cy, a, b, θ]`, a plane
+# homography the parametric record of its nine entries under a DECLARED
+# normalization (`{"type": "homography_map", "parameters": [h11 … h33]}`, unit
+# Frobenius norm and h33 ≥ 0: 8 degrees of freedom have no global 8-number
+# chart, so the ninth number and the rule that fixes it are stated instead); a
+# dense matrix is never written for a geometric value (only a foreign export
+# whose spec demands one writes one).
 
 """
     VgioStyle(; length_unit = mm, pixel_frame = PixelFrame{:colmap}) <: JSON.JSONStyle

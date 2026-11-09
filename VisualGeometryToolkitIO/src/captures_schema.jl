@@ -2,11 +2,13 @@
 # The per-frame kinds of a capture — VisualGeometryToolkitCore's captures, serialized
 # =============================================================================
 #
-#   vgio/trajectory/v3        ↔ VGC `Trajectory{S, D}`      a body's pose over time
-#   vgio/target_poses/v1      ↔ VGC `TargetPoses{F}`        per frame, the poses of the targets seen
-#   vgio/target_points2d/v1   ↔ VGC `TargetPoints2D{F}`     per frame, pixels of target points
-#   vgio/target_points3d/v1   ↔ VGC `TargetPoints3D{F}`     per frame, 3D positions of target points
-#   vgio/target_detections/v1 ↔ VGC `TargetDetections{F}`   per frame, per target, index => pixel or 3D point
+#   vgio/trajectory/v4        ↔ VGC `Trajectory{S, D}`      a body's pose over time
+#   vgio/target_poses/v2      ↔ VGC `TargetPoses{F}`        per frame, the poses of the targets seen
+#   vgio/target_homographies/v1 ↔ VGC `TargetHomographies{F, H}`
+#                                                         per frame, each target's plane → pixel homography
+#   vgio/target_points2d/v2   ↔ VGC `TargetPoints2D{F}`     per frame, pixels of target points
+#   vgio/target_points3d/v2   ↔ VGC `TargetPoints3D{F}`     per frame, 3D positions of target points
+#   vgio/target_detections/v2 ↔ VGC `TargetDetections{F}`   per frame, per target, index => pixel or 3D point
 #                               (load(TargetDetections, …) reads the two kinds above too, converted)
 #
 # Every one is a list of `frames`, each named by its index `t` — unique, the
@@ -38,6 +40,28 @@
 #              "poses": [{"target": "89b", "rotation": […], "translation": […], "covariance": …}]}]}
 #      each pose maps target:<target> → `to`: a detector's object → camera pose
 #
+# {"schema": "vgio/target_homographies/v1", "pixel_frame": "colmap",
+#  "targets": ["<content id of a targets rig or of a single target>", …],
+#  "frames": [{"t": 1, "image": "DSC04520.JPG", "sensor": "<camera name>", "time": 12.5,
+#              "homographies": [{"target": "89b", "type": "homography_map",
+#                                "parameters": [h11, h12, h13, h21, h22, h23, h31, h32, h33],
+#                                "covariance": …8×8 (optional)}]}]}
+#      each `target` names a board inside one of the `targets` — a `content_id` of
+#      EITHER a rig (rig/v8) of boards OR a single unposed target (target/v5); at
+#      least one. Each homography is VGC's `HomographyMap` as the parametric record
+#      (style.jl): its nine canonical entries (unit Frobenius norm, h33 ≥ 0), an
+#      `Uncertain` one's covariance in the HomographyManifold8 chart. It maps the
+#      target's plane — its own design frame, millimetres — to a pixel of the declared
+#      `pixel_frame`, as `RadialHomography`'s H does: BEFORE the lens of the camera
+#      `sensor` names, about that camera's centre. An H is paired with that camera by
+#      VGC's `radial_homography(camera, H)`: a PROJECTIVE camera (principal point +
+#      division in pixels) is the model itself; a METRIC one (K with fx == fy, no
+#      skew; division in K's normalized chart) converts to λₚ = kₚ / f^(2p) about its
+#      principal point — equivalently, the pixel of a plane point X is
+#      project(camera, K⁻¹·H·[X; 1]). A homography has no 3D frame, so the pixel frame
+#      is the TYPE parameter of the value (`TargetHomographies{F}`), as for
+#      target_points2d, and `targets` its field.
+#
 # {"schema": "vgio/target_points2d/v2", "pixel_frame": "colmap", "point_index_base": 1,
 #  "targets": ["<content id of a targets file>", …],
 #  "frames": [{"t": 17, "image": "DSC0017.png", "sensor": "cam1", "time": …,
@@ -57,7 +81,10 @@
 #                              "covariance": [[[…], […]], [[…], […]]], "weights": [1.0, 0.5]}]}]}
 #      per target the indices (unique), its points, and per point a covariance iff
 #      Uncertain and a weight iff the set has a `weights` column; required stamps as
-#      target_points2d (pixels) or target_points3d (3D points)
+#      target_points2d (pixels) or target_points3d (3D points). Each `targets` id is
+#      the `content_id` of a rig (rig/v8) of targets OR of a single unposed target
+#      (target/v5); a single target's detections are named by its design `reference`
+#      (or by its content id when it has none).
 #
 # COLMAP, for orientation (no exporter): target_points2d is COLMAP's images.txt
 # `points2D` with their `POINT3D_ID`, the (target, index) pair playing the
@@ -65,7 +92,8 @@
 # per-target frames (each target's points in its own TargetFrame, placed by its
 # mount) with no stored tracks — the measurements are the tracks.
 #
-# Required per kind: trajectory — `pose`; target_poses — `image`, `sensor`;
+# Required per kind: trajectory — `pose`; target_poses, target_homographies —
+# `image`, `sensor`;
 # target_points2d — `image`, `sensor`, and at least one `targets` identity
 # (the measurements cannot be resolved without it); target_points3d —
 # `sensor` (its `targets` absent when the constellation is not known
@@ -133,7 +161,7 @@ _stamp_specs(required::Vector{Symbol}) = (
 )
 
 # =============================================================================
-# trajectory/v3 ↔ Trajectory
+# trajectory/v4 ↔ Trajectory
 # =============================================================================
 
 const _TRAJECTORY_FRAME = _Obj(
@@ -155,7 +183,7 @@ const _TRAJECTORY_SPEC = _Checked(
 """
     save(path, tr::Trajectory{S, D}; length_unit = mm, provenance = (;))
 
-Write a physical VGC `Trajectory` as a `vgio/trajectory/v3` file: its frames
+Write a physical VGC `Trajectory` as a `vgio/trajectory/v4` file: its frames
 `from = frame_name(S)`, `to = frame_name(D)`, one record per frame index
 (sorted) — the pose (a `covariance` iff `Uncertain`), and its `image`, `time`
 and `recovered` flag where the trajectory has them — in `length_unit`. A
@@ -182,7 +210,7 @@ end
 """
     load(Trajectory, path) -> Trajectory{S, D}
 
-Read a `vgio/trajectory/v3` file: its frames as types (`S`, `D` from
+Read a `vgio/trajectory/v4` file: its frames as types (`S`, `D` from
 `from`/`to`), each pose labeled `S → D`, lengths in metres — `Uncertain` where the
 file states a covariance — with the images, times and recovered flags it
 records. Type-unstable by nature (the frame types come from the file): load
@@ -208,7 +236,7 @@ function JSON.lift(s::VgioStyle, ::Type{Trajectory}, d::_Record)
 end
 
 # =============================================================================
-# target_poses/v1 ↔ TargetPoses
+# target_poses/v2 ↔ TargetPoses
 # =============================================================================
 
 const _TARGET_POSE_RECORD = _Obj(
@@ -238,7 +266,7 @@ const _TARGET_POSES_SPEC = _Checked(
 """
     save(path, tp::TargetPoses{F}; length_unit = mm, provenance = (;))
 
-Write a physical VGC `TargetPoses` as a `vgio/target_poses/v1` file declaring
+Write a physical VGC `TargetPoses` as a `vgio/target_poses/v2` file declaring
 `to = frame_name(F)`: per frame index (sorted), its image and sensor (both
 required) and time, and every target's pose (ids sorted; a `covariance` iff
 `Uncertain`), in `length_unit`. Plain poses are an `ArgumentError`.
@@ -260,7 +288,7 @@ end
 """
     load(TargetPoses, path) -> TargetPoses{F}
 
-Read a `vgio/target_poses/v1` file: `F` the frame its poses map into, every
+Read a `vgio/target_poses/v2` file: `F` the frame its poses map into, every
 pose's lengths in metres, `Uncertain` where the file states a covariance.
 """
 function load(::Type{TargetPoses}, path::AbstractString)
@@ -274,6 +302,164 @@ function load(::Type{TargetPoses}, path::AbstractString)
         frames[t] = Dict{Symbol, Any}(Symbol(p.target::String) => JSON.lift(s, EuclideanMap{3}, p::_Record) for p in f.poses::Vector{Any})
     end
     return TargetPoses{frame_from_name(d.to::String)}(frames; images, sensors, times, time_origin = _time_origin(d))
+end
+
+# =============================================================================
+# target_homographies/v1 ↔ TargetHomographies
+# =============================================================================
+
+# The homography record (style.jl's parametric record): a plane homography is
+# `{"type": "homography_map", "parameters": [h11, …, h33]}` — VGC's parameter
+# protocol of a `HomographyMap`, its nine canonical entries row-major (unit
+# Frobenius norm, H[3,3] ≥ 0) — and, for an `Uncertain` one, its 8×8 covariance
+# in the `HomographyManifold8` chart about that matrix (dimensionless, in the
+# storage it holds). Its frames are not written: they are given by where it
+# sits (a target_homographies entry: its target's plane → the file's pixel frame).
+const _HOMOGRAPHY_TAG = tag_of(PLANAR_MAP_TAGS, HomographyMap)
+const _HOMOGRAPHY_PROTOTYPE = HomographyMap(HomographyMat{Float64}(one(SMatrix{3, 3, Float64, 9})))
+const _HOMOGRAPHY_COV_DIMS = ntuple(_ -> 0, 8)
+
+JSON.lower(s::VgioStyle, h::HomographyMap{3}) = _parametric_record(_HOMOGRAPHY_TAG, h, s.length_unit)
+JSON.lower(s::VgioStyle, u::Uncertain{<:HomographyMap{3}}) =
+    merge(JSON.lower(s, geom(u)), (covariance = _length_cov_json(cov(u), s.length_unit, _HOMOGRAPHY_COV_DIMS),))
+function JSON.lift(s::VgioStyle, ::Type{HomographyMap}, x::_Record)
+    h = _from_parametric_record(_HOMOGRAPHY_PROTOTYPE, x, s.length_unit)
+    haskey(x, :covariance) || return h
+    return Uncertain(h, CovMat(_length_cov_from_json(x.covariance, 8, s.length_unit, _HOMOGRAPHY_COV_DIMS)))
+end
+
+# A stored record's parameters are canonical as read (what `parameter_vector`
+# gives back for them) and not singular: VGC's protocol decides both.
+function _homography_parameters_check(θ)
+    h = try
+        with_parameters(_HOMOGRAPHY_PROTOTYPE, Float64[Float64(x) for x in θ])
+    catch e
+        e isa ArgumentError || rethrow()
+        return e.msg
+    end
+    return parameter_vector(h) == θ ? nothing :
+        "the homography is not canonical: its parameters must have unit Frobenius norm and h33 ≥ 0 (parameter_vector of HomographyMap)"
+end
+const _HOMOGRAPHY_RECORD = _Obj(
+    Pair{Symbol, _Spec}[
+        :target => _NonEmpty(), :type => _Tok(_HOMOGRAPHY_TAG),
+        :parameters => _Checked(_Vec(_Real(), 9), _homography_parameters_check),
+    ],
+    Pair{Symbol, _Spec}[:covariance => _cov_spec(8)],
+)
+
+const _TARGET_HOMOGRAPHIES_SPEC = _Checked(
+    _Obj(
+        Pair{Symbol, _Spec}[
+            :schema => _schema_tok("target_homographies"), :pixel_frame => _PIXEL_FRAME,
+            :targets => _Checked(_Vec(_HEX64), h -> isempty(h) ? "the homographies name at least one targets identity (a rig's or a single target's `content_id`)" : _unique_check(h, "targets identities")),
+            :frames => _Vec(
+                _Checked(
+                    _Obj(
+                        Pair{Symbol, _Spec}[
+                            :t => _Int(), _stamp_specs([:image, :sensor])[1]...,
+                            :homographies => _Vec(_HOMOGRAPHY_RECORD),
+                        ],
+                        _stamp_specs([:image, :sensor])[2],
+                    ),
+                    f -> _unique_check([h[:target] for h in f[:homographies]], "the targets of a frame"),
+                )
+            ),
+        ],
+        Pair{Symbol, _Spec}[:time_origin => _NonEmpty(), _PROVENANCE...],
+    ),
+    _FRAMES_CHECK,
+)
+
+"""
+    save(path, th::TargetHomographies{F}; provenance = (;))
+
+Write a VGC `TargetHomographies` as a `vgio/target_homographies/v1` file whose
+declared pixel frame is `F`, the value's own type — no pixel is converted and
+none can be written under another frame's label — and whose `targets` are the
+value's `th.targets`: the [`content_id`](@ref)s of the definitions its target
+ids resolve in, each the identity of a rig of boards (`vgio/rig/v8`) or of a
+single unposed target (`vgio/target/v5`). Per frame index (sorted) it writes
+the image and sensor (both required), the time, and every target's
+homography (ids sorted) as the homography record:
+
+    {"target": "a1f2", "type": "homography_map", "parameters": [h11, h12, h13, h21, h22, h23, h31, h32, h33]}
+
+— VGC's parameter protocol of the `HomographyMap`: its nine entries row-major,
+canonical (unit Frobenius norm, `h33 ≥ 0`, VGC `sign_normalize`), so one
+placement always writes the same bytes and a stored `H` seeds
+`HomographyManifold8(H)` directly; an `H` already canonical is written as it
+is. An `Uncertain` homography adds its 8×8 `covariance` in that chart.
+
+`H` maps the target's plane — its design frame, millimetres — to a pixel of
+`F`, BEFORE the lens of the camera the frame's `sensor` names, about that
+camera's centre: exactly `RadialHomography`'s `H`. An `H` is paired with that
+camera by VGC's `radial_homography(camera, H)`: for a projective camera the camera
+itself is the model; for a metric one (`fx == fy`, no skew) it converts the
+division coefficients `kₚ` of `K`'s normalized chart to `λₚ = kₚ / f^(2p)` about
+the principal point — equivalently, a plane point `X` lands on the pixel
+`project(camera, K⁻¹·H·[X; 1])`.
+
+A degenerate `H` (negligible norm, or non-finite), a value naming no
+`targets`, and a frame with no image or sensor are an `ArgumentError`, and no
+file is written.
+"""
+function save(path::AbstractString, th::TargetHomographies{F}; provenance::NamedTuple = (;)) where {F <: PixelFrame}
+    s = VgioStyle(; pixel_frame = F)
+    record(t, id) = try
+        merge((target = String(id),), JSON.lower(s, th[t][id]))
+    catch e
+        e isa ArgumentError ? throw(ArgumentError("$(path): frame $(t), target $(id): $(e.msg)")) : rethrow()
+    end
+    frames = map(sort!(collect(keys(th)))) do t
+        merge(_stamps_json(th, t), (homographies = [record(t, id) for id in sort!(collect(keys(th[t])))],))
+    end
+    body = merge(
+        (schema = _schema("target_homographies"), pixel_frame = pixel_frame_name(F), targets = copy(th.targets)),
+        _time_origin_json(th), (frames = frames,),
+    )
+    _write_store(path, _TARGET_HOMOGRAPHIES_SPEC, _with_provenance(body, provenance); style = s)
+    return nothing
+end
+
+"""
+    load(TargetHomographies, path) -> TargetHomographies{F}
+    load(TargetHomographies{F}, path) -> TargetHomographies{F}
+
+Read a `vgio/target_homographies/v1` file: the value it was written from,
+typed in the pixel frame `F` the file declares, per frame index every
+target's `HomographyMap` (stored unlabeled; `homography(th, t, id)` labels it
+`TargetPlaneFrame → F`) with its canonical parameters exactly as stored,
+`Uncertain` where the record states a covariance, with the frames' images,
+sensors and times and the `targets` identities. `H` maps the target's plane
+(millimetres) to a pixel of `F`, before the lens of the camera the frame's
+`sensor` names (pair them with VGC's `radial_homography(camera, H)`; see
+[`save`](@ref)).
+
+The second form asserts the frame: a file declaring another is an
+`ArgumentError`. So are parameters that are not canonical or are singular.
+"""
+function load(::Type{TargetHomographies}, path::AbstractString)
+    d = _read_store(path, "target_homographies", _TARGET_HOMOGRAPHIES_SPEC)
+    s = VgioStyle(; pixel_frame = pixel_frame_from_name(d.pixel_frame::String))
+    frames = Dict{Int, Dict{Symbol, Any}}()
+    images, sensors, times = Dict{Int, String}(), Dict{Int, String}(), Dict{Int, Float64}()
+    for f in d.frames::Vector{Any}
+        t = Int(f.t::Integer)
+        _read_stamps!(images, sensors, times, f, t)
+        frames[t] = Dict{Symbol, Any}(Symbol(h.target::String) => JSON.lift(s, HomographyMap, h::_Record) for h in f.homographies::Vector{Any})
+    end
+    return TargetHomographies{_pixel_frame(s)}(
+        frames; images, sensors, times, time_origin = _time_origin(d), targets = String[h::String for h in d.targets::Vector{Any}],
+    )
+end
+_pixel_frame_type(::TargetHomographies{F}) where {F} = F
+function load(::Type{<:TargetHomographies{F}}, path::AbstractString) where {F <: PixelFrame}
+    th = load(TargetHomographies, path)
+    th isa TargetHomographies{F} || throw(
+        ArgumentError("$(path): declares pixel_frame $(repr(pixel_frame_name(_pixel_frame_type(th)))), not the requested $(repr(pixel_frame_name(F)))")
+    )
+    return th
 end
 
 # =============================================================================
@@ -388,7 +574,7 @@ function load(::Type{TargetPoints2D}, path::AbstractString; target::Union{Nothin
 end
 
 # =============================================================================
-# target_points3d/v1 ↔ TargetPoints3D
+# target_points3d/v2 ↔ TargetPoints3D
 # =============================================================================
 
 const _TARGET_POINTS3D_SPEC = _Checked(
@@ -422,7 +608,7 @@ const _TARGET_POINTS3D_SPEC = _Checked(
 """
     save(path, obs::TargetPoints3D{F}; length_unit = mm, provenance = (;))
 
-Write a physical VGC `TargetPoints3D` as a `vgio/target_points3d/v1` file in
+Write a physical VGC `TargetPoints3D` as a `vgio/target_points3d/v2` file in
 frame `F`, in `length_unit`: per frame its sensor (required), image and time
 where stated; an `Uncertain` point writes its 3×3 `covariance` (`length_unit`²).
 Plain points are an `ArgumentError` (attach the unit, `p .* m`).
@@ -479,13 +665,13 @@ end
 """
     load(TargetPoints3D, path) -> TargetPoints3D{F}
 
-Read a `vgio/target_points3d/v1` file: the measurements in the frame `F` it
+Read a `vgio/target_points3d/v2` file: the measurements in the frame `F` it
 declares, lengths in metres (`Uncertain` where it states a covariance, in m²).
 """
 load(::Type{TargetPoints3D}, path::AbstractString) = _target_points3d(_read_store(path, "target_points3d", _TARGET_POINTS3D_SPEC))
 
 # =============================================================================
-# target_detections/v1 ↔ TargetDetections
+# target_detections/v2 ↔ TargetDetections
 # =============================================================================
 
 # One target's detections in a frame: its point indices (unique, at least
@@ -570,13 +756,16 @@ end
 """
     save(path, td::TargetDetections{F}; length_unit = mm, provenance = (;))
 
-Write a VGC `TargetDetections` as a `vgio/target_detections/v1` file: per
+Write a VGC `TargetDetections` as a `vgio/target_detections/v2` file: per
 frame index (sorted), its stamps, and per target (ids sorted) its point
 indices, its points, a `covariance` per point iff the points are `Uncertain`,
 and its `weights` column where it has one (the only column the kind holds).
 Pixels declare the value's pixel frame `F` and are written as they are; every
-frame must name its image and sensor, and the value its targets identities.
-3D points declare `frame = frame_name(F)` and are written in `length_unit`
+frame must name its image and sensor, and the value its targets identities:
+the [`content_id`](@ref)s of the definitions its ids resolve in, each a rig of
+targets (`vgio/rig/v8`) or a single unposed target (`vgio/target/v5`, its
+detections named by its design `reference`, or by its content id when it has
+none). 3D points declare `frame = frame_name(F)` and are written in `length_unit`
 (covariances in its square); every frame must name its sensor, and plain
 points are an `ArgumentError` (attach the unit, `p .* m`).
 """
@@ -621,11 +810,11 @@ end
 """
     load(TargetDetections, path) -> TargetDetections{F}
 
-Read a `vgio/target_detections/v1` file: per frame index, per target, its
+Read a `vgio/target_detections/v2` file: per frame index, per target, its
 detections typed in the frame `F` the file declares — pixels exactly as
 stored, 3D points in metres — `Uncertain` where it states covariances, with
 their `weights` column where stated, the frames' stamps and the targets
-identities. A `vgio/target_points2d/v1` or `vgio/target_points3d/v1` file is
+identities. A `vgio/target_points2d` or `vgio/target_points3d` file (any version that reads) is
 read too, converted (`TargetDetections(load(TargetPoints2D, path))`), unless
 it holds one of the two things those kinds allow and a `TargetDetections`
 does not: a (target, index) detected twice in one frame, or plain and

@@ -19,6 +19,7 @@
 #
 #   Trajectory{S, D}      the pose S → D per frame index (a body in the world)
 #   TargetPoses{F}        per frame, the pose of every target seen, TargetFrame{id} → F
+#   TargetHomographies{F, H} per frame, each target's plane → pixel HomographyMap (the projective TargetPoses)
 #   TargetPoints2D{F}     per frame, the pixels of target points, in the pixel frame F
 #   TargetPoints3D{F}     per frame, the 3D positions of target points, in the 3D frame F
 #   TargetDetections{F}   per frame, per target, `csponds(index, detection)` in the frame F
@@ -43,6 +44,14 @@ _frame_times(x::AbstractDict) = Dict{Int, Float64}(Int(t) => Float64(v) for (t, 
 # One name for every frame, or a frame index → name map.
 _frame_names(x::AbstractString, ts) = Dict{Int, String}(t => String(x) for t in ts)
 _frame_names(x::AbstractDict, ts) = _frame_strings(x, "")
+
+# The per-frame stamps of a capture value, normalized and checked against its
+# frame indices `ts`: (images, sensors, times).
+function _stamps(ts, images, sensors, times, time_origin)
+    imgs, sens, tms = _frame_strings(images, "images"), _frame_names(sensors, ts), _frame_times(times)
+    _check_stamps(ts, imgs, tms, time_origin, sens)
+    return imgs, sens, tms
+end
 
 function _check_stamps(ts, images, times, time_origin, sensors = Dict{Int, String}())
     for (what, d) in (("images", images), ("times", times), ("sensors", sensors))
@@ -195,8 +204,7 @@ struct TargetPoses{F <: Frame{3}, P} <: AbstractDict{Int, Dict{Symbol, P}}
         vals = [X for ps in values(fr) for X in values(ps)]
         _check_one_form(vals)   # all plain or all physical
         P = isempty(vals) ? EuclideanMap{3} : typejoin(map(typeof, vals)...)
-        imgs, sens, tms = _frame_strings(images, "images"), _frame_names(sensors, keys(fr)), _frame_times(times)
-        _check_stamps(keys(fr), imgs, tms, time_origin, sens)
+        imgs, sens, tms = _stamps(keys(fr), images, sensors, times, time_origin)
         return new{F, P}(
             Dict{Int, Dict{Symbol, P}}(t => Dict{Symbol, P}(ps) for (t, ps) in fr), imgs, sens, tms, _origin(time_origin),
         )
@@ -230,6 +238,154 @@ _map_poses(f, tp::TargetPoses{F}) where {F} = TargetPoses{F}(
 )
 FlexUnits.ustrip(u::Units, tp::TargetPoses) = _map_poses(X -> ustrip(u, X), tp)
 with_unit(tp::TargetPoses, u::Units) = _map_poses(X -> with_unit(X, u), tp)
+
+# ------------------------------------------------------------------------------
+# TargetHomographies
+# ------------------------------------------------------------------------------
+
+"""
+    TargetHomographies{F <: PixelFrame}(frames; images, sensors, times, time_origin, targets = String[])
+
+Per frame index, the homography of every target seen, each a `HomographyMap`
+taking the target's plane (its chart coordinates, millimetres) to pixels of
+the pixel frame `F`, part of the TYPE as in [`TargetPoints2D`](@ref) — the
+projective counterpart of [`TargetPoses`](@ref): `th[t]` is frame `t`'s target
+id → homography (stored unlabeled, plain or `Uncertain`, as `TargetPoses`
+stores its poses), [`homography`](@ref)`(th, t, id)` the labeled map
+[`TargetPlaneFrame`](@ref)` → F` (the plane frame is 2-D and carries no target
+id: `TargetFrame{id}` is the target's 3-D frame; the id is the entry's key). A
+given map is unlabeled, or labeled exactly so; any other labels are an
+`ArgumentError`. An `H` is `RadialHomography`'s `H`: it
+acts BEFORE the lens of the camera `sensors[t]` names, about that camera's
+centre ([`radial_homography`](@ref)`(camera, H)` pairs them). An `Uncertain`
+homography's covariance is 8×8, in the [`HomographyManifold8`](@ref) chart
+about its canonical matrix (`parameter_vector`'s: unit Frobenius norm,
+`H[3,3] ≥ 0`). `targets` names the target definitions the ids resolve in by
+content identity (VisualGeometryToolkitIO's `content_id`: a rig's or a single
+target's). `images[t]` names the image, `sensors[t]` the camera (one name for
+every frame, or a map), `times[t]` seconds since `time_origin`.
+The pixel frame is always stated: there is no form without `F`.
+Throws `ArgumentError` for a stamp (`images`, `sensors`, `times`) naming a
+frame index with no value, `times` without a `time_origin`, or a `targets`
+naming a definition twice. Otherwise a Dict: `keys`, `pairs`, iteration.
+"""
+struct TargetHomographies{F <: PixelFrame, H} <: AbstractDict{Int, Dict{Symbol, H}}
+    frames::Dict{Int, Dict{Symbol, H}}
+    images::Dict{Int, String}
+    sensors::Dict{Int, String}
+    times::Dict{Int, Float64}
+    time_origin::Union{Nothing, String}
+    targets::Vector{String}
+
+    function TargetHomographies{F}(
+            frames::AbstractDict{<:Integer}; images::AbstractDict = Dict{Int, String}(),
+            sensors::Union{AbstractString, AbstractDict} = Dict{Int, String}(),
+            times::AbstractDict = Dict{Int, Float64}(), time_origin::Union{Nothing, AbstractString} = nothing,
+            targets::AbstractVector{<:AbstractString} = String[],
+        ) where {F <: PixelFrame}
+        fr = Dict{Int, Dict{Symbol, Any}}(
+            Int(t) => Dict{Symbol, Any}(Symbol(id) => _unlabel_target_homography(F, Symbol(id), H) for (id, H) in hs)
+                for (t, hs) in frames
+        )
+        vals = [H for hs in values(fr) for H in values(hs)]
+        H = isempty(vals) ? HomographyMap{3, Float64, HomographyMat{Float64}, UnlabeledFrame{2}, UnlabeledFrame{2}} : typejoin(map(typeof, vals)...)
+        imgs, sens, tms = _stamps(keys(fr), images, sensors, times, time_origin)
+        allunique(targets) || throw(ArgumentError("`targets` names a target definition twice"))
+        return new{F, H}(
+            Dict{Int, Dict{Symbol, H}}(t => Dict{Symbol, H}(hs) for (t, hs) in fr), imgs, sens, tms, _origin(time_origin), String.(targets),
+        )
+    end
+end
+
+# Stored unlabeled; a labeled map must be the one the value names (TargetPoses' rule).
+_homography_frames(h::HomographyMap{3, T, M, S, D}) where {T, M, S, D} = (S, D)
+_homography_frames(u::Uncertain{<:HomographyMap{3}}) = _homography_frames(geom(u))
+_homography_frames(h) = throw(ArgumentError("a target homography is a HomographyMap (plain or Uncertain); got a $(typeof(h)) — lift a matrix with HomographyMap(H)"))
+function _unlabel_target_homography(::Type{F}, id::Symbol, h) where {F}
+    S, D = _homography_frames(h)
+    (S <: UnlabeledFrame && D <: UnlabeledFrame) || (S === TargetPlaneFrame && D === F) ||
+        throw(ArgumentError("target $(id): a homography labeled $(S) → $(D) where TargetPlaneFrame → $(F) is held"))
+    return unlabel(h)
+end
+
+"""
+    homography(th::TargetHomographies{F}, t, id) -> HomographyMap{3, …, TargetPlaneFrame, F} | Uncertain
+
+Target `id`'s plane → pixel homography in frame `t`, minted with its labels; an
+`Uncertain` one keeps its covariance.
+"""
+homography(th::TargetHomographies{F}, t::Integer, id::Symbol) where {F} = relabel(TargetPlaneFrame, F, th.frames[t][id])
+
+# ------------------------------------------------------------------------------
+# A plane homography's parameters: its nine entries, canonical
+# ------------------------------------------------------------------------------
+#
+# A homography has 8 degrees of freedom but no global 8-number chart: fixing
+# h33 = 1 fails for every H with h33 = 0 (a plane through the camera centre's
+# image line), and any other fixed entry fails likewise. Its parameters are
+# therefore its nine entries, row-major, under a DECLARED normalization —
+# unit Frobenius norm and H[3,3] ≥ 0 (`sign_normalize`) — which picks one
+# representative of the projective class: one placement always has the same
+# nine numbers. A tangent covariance is 8×8 in `HomographyManifold8` about
+# that representative (`minimal_manifold`), never over the nine.
+
+const _HOMOGRAPHY_PARAMETER_NAMES = (:h11, :h12, :h13, :h21, :h22, :h23, :h31, :h32, :h33)
+# canonical within a few ulp: `sign_normalize`'s gauge (dividing a unit-norm H by its norm can move its last bit)
+_is_canonical_homography(M::StaticMatrix{3, 3, T}) where {T} = abs(norm(M) - 1) <= 4 * eps(float(T)) && M[3, 3] >= 0
+
+"""
+    parameter_names(::HomographyMap{3}) -> NTuple{9, Symbol}
+    parameter_vector(h::HomographyMap{3}) -> SVector{9}
+    with_parameters(h::HomographyMap{3}, θ) -> HomographyMap{3}
+
+The parameter protocol of a plane homography: its nine entries `h11 … h33`,
+row-major, of its CANONICAL matrix — unit Frobenius norm and `H[3,3] ≥ 0`
+([`sign_normalize`](@ref)); a matrix already canonical (within 4 ulp) is
+returned as held, so a round trip is bit for bit. Nine numbers, not eight: a
+homography has 8 degrees of freedom but no global 8-number chart (fixing
+`h33 = 1` fails at `h33 = 0`), so the normalization is declared instead. A
+negligible or non-finite matrix is an `ArgumentError`. `with_parameters`
+rebuilds the map (its frames kept) from nine row-major entries as given; a
+singular one is an `ArgumentError`. No entry is a length (`length_mask`).
+Its tag is `PLANAR_MAP_TAGS`' `"homography_map"`.
+"""
+parameter_names(::HomographyMap{3}) = _HOMOGRAPHY_PARAMETER_NAMES
+function parameter_vector(h::HomographyMap{3, T}) where {T}
+    M = SMatrix{3, 3, T, 9}(h.forward)
+    all(isfinite, M) || throw(ArgumentError("parameter_vector(::HomographyMap): the homography has a non-finite entry"))
+    if !_is_canonical_homography(M)
+        Mn = sign_normalize(M)
+        Mn === nothing && throw(ArgumentError("parameter_vector(::HomographyMap): the homography is degenerate (negligible norm)"))
+        M = SMatrix{3, 3, T, 9}(Mn)
+    end
+    return SVector{9, T}(M[1, 1], M[1, 2], M[1, 3], M[2, 1], M[2, 2], M[2, 3], M[3, 1], M[3, 2], M[3, 3])
+end
+function with_parameters(h::HomographyMap{3, T, M, S, D}, θ::AbstractVector) where {T, M, S, D}
+    length(θ) == 9 || throw(ArgumentError("with_parameters(::HomographyMap): 9 parameters (h11 … h33, row-major); got $(length(θ))"))
+    U = float(eltype(θ))
+    H = HomographyMat{U}(SMatrix{3, 3, U, 9}(θ[1], θ[4], θ[7], θ[2], θ[5], θ[8], θ[3], θ[6], θ[9]))
+    m = HomographyMap(H)
+    all(isfinite, m.inverse) || throw(ArgumentError("with_parameters(::HomographyMap): the homography is singular (it has no inverse)"))
+    return relabel(S, D, m)
+end
+length_mask(::Type{<:HomographyMap{3}}) = SVector{9}(ntuple(_ -> false, Val(9)))
+length_mask(h::HomographyMap{3}) = length_mask(typeof(h))
+
+"""
+    PLANAR_MAP_TAGS
+
+The tags of the planar maps a record embeds by their parameters (the
+parametric record `{"type": <tag>, "parameters": [θ…]}`): `"homography_map"`
+→ `HomographyMap`. A [`TagRegistry`](@ref); the target calibrations, which are
+also planar maps, keep their own family ([`TARGET_CALIBRATION_TAGS`](@ref)) —
+a homography is a measurement of a placement, not a calibration of a target.
+"""
+const PLANAR_MAP_TAGS = TagRegistry(:planar_map, "", "homography_map" => HomographyMap)
+
+# Equal numbers in different pixel frames are different placements.
+Base.:(==)(a::TargetHomographies{F}, b::TargetHomographies{G}) where {F, G} =
+    F === G && a.frames == b.frames && a.images == b.images && a.sensors == b.sensors &&
+    a.times == b.times && isequal(a.time_origin, b.time_origin) && a.targets == b.targets
 
 # ------------------------------------------------------------------------------
 # TargetPoints2D / TargetPoints3D
@@ -327,8 +483,7 @@ struct TargetPoints2D{F <: PixelFrame} <: AbstractDict{Int, Vector{TargetPoint2D
             targets::AbstractVector{<:AbstractString} = String[],
         ) where {F <: PixelFrame}
         fr = Dict{Int, Vector{TargetPoint2D}}(Int(t) => TargetPoint2D[_target_point2d(o, t) for o in os] for (t, os) in frames)
-        imgs, sens, tms = _frame_strings(images, "images"), _frame_names(sensors, keys(fr)), _frame_times(times)
-        _check_stamps(keys(fr), imgs, tms, time_origin, sens)
+        imgs, sens, tms = _stamps(keys(fr), images, sensors, times, time_origin)
         allunique(targets) || throw(ArgumentError("`targets` names a target definition twice"))
         return new{F}(fr, imgs, sens, tms, _origin(time_origin), String.(targets))
     end
@@ -367,8 +522,7 @@ struct TargetPoints3D{F <: Frame{3}} <: AbstractDict{Int, Vector{TargetPoint3D}}
         F <: UnlabeledFrame && throw(ArgumentError("3D target points name the frame they are measured in (e.g. WorldFrame)"))
         fr = Dict{Int, Vector{TargetPoint3D}}(Int(t) => TargetPoint3D[_target_point3d(o, t) for o in os] for (t, os) in frames)
         _check_one_form([p.xyz for ps in values(fr) for p in ps])
-        imgs, sens, tms = _frame_strings(images, "images"), _frame_names(sensors, keys(fr)), _frame_times(times)
-        _check_stamps(keys(fr), imgs, tms, time_origin, sens)
+        imgs, sens, tms = _stamps(keys(fr), images, sensors, times, time_origin)
         allunique(targets) || throw(ArgumentError("`targets` names a target definition twice"))
         return new{F}(fr, imgs, sens, tms, _origin(time_origin), String.(targets))
     end
@@ -479,7 +633,9 @@ The per-frame stamps are a [`FrameStamps`](@ref) (`td.stamps`) — given as
 the four keywords or as one `stamps` value, not both (`ArgumentError`) — read as
 `td.images`, `td.sensors`, `td.times` and `td.time_origin` as on
 [`TargetPoints2D`](@ref); `targets` names the target definitions the indices
-resolve in by content identity (VisualGeometryToolkitIO's `content_id`), unique.
+resolve in by content identity (VisualGeometryToolkitIO's `content_id`: a rig's
+of targets, or a single unposed target's, whose detections are named by its
+design `reference`), unique.
 `==`, `isequal` and `hash` agree: the frame type, the frame keys, every set
 with its attribute columns, the stamps and the targets — equal numbers in
 different frames are different detections. Otherwise a Dict: `keys`, `pairs`,
@@ -653,7 +809,7 @@ TargetDetections(x::TargetPoints3D{F}) where {F} = _converted_detections(F, x, o
 # --- the Dict surface, frame index → value (the methods: end of file) --------------
 
 _frames(x::Trajectory) = x.poses
-_frames(x::Union{TargetPoses, TargetPoints2D, TargetPoints3D, TargetDetections}) = x.frames
+_frames(x::Union{TargetPoses, TargetHomographies, TargetPoints2D, TargetPoints3D, TargetDetections}) = x.frames
 
 Base.setindex!(x::TargetPoints2D, v, t) = (x.frames[Int(t)] = TargetPoint2D[_target_point2d(o, t) for o in v]; x)
 
@@ -686,6 +842,23 @@ end
 function convert_frame(::Type{G}, x::TargetDetections{F}) where {G <: PixelFrame, F <: PixelFrame}
     shift = EuclideanMap(F, G)
     return _map_detections(p -> _shifted(shift, p), G, x)
+end
+
+"""
+    convert_frame(G::Type{<:PixelFrame}, camera::CameraModel{<:ProjectiveIntrinsics}) -> CameraModel
+
+The projective camera with its principal point moved from the package's
+COLMAP pixel frame to `G` by `EuclideanMap(PixelFrame{:colmap}, G)`, so that
+`project` of the result is `project` of the camera in `G`'s pixels. The lens
+is unchanged: it acts on centred coordinates, which a translation of the pixel
+origin does not touch. The result is a `CameraModel` in `G`'s convention;
+the camera itself holds no frame tag, so converting it again is the caller's
+bookkeeping. The element type is preserved.
+"""
+function convert_frame(::Type{G}, camera::CameraModel{<:ProjectiveIntrinsics{T}}) where {G <: PixelFrame, T}
+    c = principal_point(camera.intrinsics)
+    moved = EuclideanMap(PixelFrame{:colmap}, G)(SVector{2, T}(c[1], c[2]))
+    return CameraModel(ProjectiveIntrinsics{T}(Point2{T}(moved[1], moved[2])), camera.lens)
 end
 
 # ------------------------------------------------------------------------------
@@ -852,7 +1025,7 @@ _frames(x::CaptureSettings) = x.frames
 # The Dict surface of every per-frame value, frame index → value
 # ------------------------------------------------------------------------------
 
-for T in (:Trajectory, :TargetPoses, :TargetPoints2D, :TargetPoints3D, :TargetDetections, :CaptureSettings)
+for T in (:Trajectory, :TargetPoses, :TargetHomographies, :TargetPoints2D, :TargetPoints3D, :TargetDetections, :CaptureSettings)
     @eval begin
         Base.length(x::$T) = length(_frames(x))
         Base.iterate(x::$T, s...) = iterate(_frames(x), s...)

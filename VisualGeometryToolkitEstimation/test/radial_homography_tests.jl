@@ -197,4 +197,19 @@ end
         @test abs(division_coeff(estimate(res)) - division_coeff(m_gt)) / abs(division_coeff(m_gt)) < 1.0e-3
     end
 end
+
+@testset "refine_radial_homography is N = 1 only: an N = 2 model is a MethodError at dispatch" begin
+    m2 = RadialHomography{Float64}(
+        HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(4.0, -0.2, 5.0e-5, 0.3, 4.2, -4.0e-5, 260.0, 200.0, 1.0))),
+        (1.0e-7, 1.0e-13), SVector(_RW / 2, _RH / 2)
+    )
+    @test m2 isa RadialHomography{Float64, 2}
+    pairs = [SVector(1.0 * i, 2.0 * i) => SVector(3.0 * i, 4.0 * i) for i in 1:8]
+    err = try
+        VgtkEstimation.refine_radial_homography(m2, pairs)
+    catch e
+        e
+    end
+    @test err isa MethodError && err.f === VgtkEstimation.refine_radial_homography   # at dispatch, not deep in the pipeline
+end
 end

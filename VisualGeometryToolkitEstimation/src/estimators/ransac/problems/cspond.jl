@@ -573,7 +573,7 @@ function _exact_source_only(::Type{M}, cs) where {M}
     rest = NamedTuple{filter(!=(:Σ₁), keys(a))}(a)
     return VgtkCore.Csponds(sources(cs), targets(cs), rest)
 end
-_model_class(::Type{VgtkCore.RadialHomography}, ::Type{T}) where {T} = VgtkCore.RadialHomography{T}
+_model_class(::Type{VgtkCore.RadialHomography}, ::Type{T}) where {T} = VgtkCore.RadialHomography{T, 1}
 _model_class(::Type{VgtkCore.RadialCamera}, ::Type) = VgtkCore.RadialCamera{Float64}
 
 """

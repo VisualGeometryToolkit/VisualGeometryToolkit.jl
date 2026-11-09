@@ -81,6 +81,7 @@ import ..VisualGeometryToolkitCore: _padding_value   # FixedModels' padding of a
 using ..VisualGeometryToolkitCore: intersects   # a node's support against the imaged region (support.jl)
 using ..VisualGeometryToolkitCore: HomEllipseMat, WholePlane   # the conic matrix a valid domain is built from, and the whole plane (image_circle.jl)
 import ..VisualGeometryToolkitCore: HomographyMap  # Import (not using) to extend the labeled camera lift
+import ..VisualGeometryToolkitCore: homography   # its TargetHomographies method, as pose(tp, t, id) (captures.jl)
 
 using ..VisualGeometryToolkitCore: Plane3D, signed_distance  # For chirality-filtered P3P
 using ..VisualGeometryToolkitCore: Line2D   # RadialCamera projects a plane point TO A LINE
@@ -162,6 +163,7 @@ using ..VisualGeometryToolkitCore: EssentialMat  # rig → labeled epipolar-form
 import ..VisualGeometryToolkitCore: points         # extended: a target rig's world points (rig.jl)
 import ..VisualGeometryToolkitCore: EpipolarForm  # Import (not using) to extend with the rig mint
 import ..VisualGeometryToolkitCore: HomographyMat  # Import to extend constructor
+using ..VisualGeometryToolkitCore: sign_normalize   # a homography's canonical parameters (captures.jl)
 import ..VisualGeometryToolkitCore: Extrinsics3   # Import to extend constructor: the planar-target pose from a homography (homography.jl)
 using ..VisualGeometryToolkitCore: _cross2d   # the 2-D cross product (base/coordinates.jl): radial_camera_5pt
 using ..VisualGeometryToolkitCore: _AffinePlanarMap   # the affine-class maps RadialCamera's ∘ accepts (calibration.jl)
@@ -184,12 +186,14 @@ include("boards.jl")           # Board: the board a planar target's pattern is p
 
 # Include modular camera components
 include("intrinsics.jl")
+include("projective_intrinsics.jl")  # ProjectiveIntrinsics: the principal point alone, no focal length
 include("lenses.jl")         # the lens families: Lens/LiftLens, projections, terms, combinators
 include("projections.jl")
 include("camera_models.jl")
 include("lens_rays.jl")       # THE lens contract: project/backproject on rays + the derived Jacobians
 include("equirectangular.jl") # the latitude/longitude projection of directions (panoramas, sky maps)
 include("lens_chart.jl") # parameter chart, ∂lens/∂θ, TOML lens registry (0.22.1)
+include("lens_spec.jl")  # LensSpec: a lens family by name and term counts
 include("generic_models.jl") # Schöps et al. central/non-central generic grid models (0.16)
 include("support.jl")         # supports on the sensor: which parameters a camera can see (the generic models' lattice)
 include("vignetting.jl")      # TensorProductVignetting, RadialVignetting: a camera's vignetting (uses the support protocol, bspline_basis)
@@ -960,6 +964,8 @@ export CMOS_SENSORS                    # Database of common sensors
 # -----------------------------------------------------------------------------
 export AbstractIntrinsics
 export LogicalIntrinsics               # Pixel-based (fx, fy, cx, cy)
+export ProjectiveIntrinsics            # the principal point alone: a projective ray frame, no focal length
+export principal_point                 # a projective camera's principal point
 export CameraCalibrationMat                        # 3x3 pixel-space calibration matrix
 export zhang_intrinsics                # Zhang IAC regression from plane homographies
 
@@ -981,7 +987,10 @@ export Backprojection    # a back-projection as a Transformation (equirectangula
 export AbstractPanoramaProjection   # the family's supertype (public, not exported, at the top level)
 export AbstractDistortionTerm, Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Even, Full
 export radial, isdelta, projection_frame, parameters, lens_record, lens_from_record, lens_label
+export LensSpec, free_names             # a lens family by name and term counts (lens_spec.jl; free_names public, not exported, at the top level)
+export CameraModelSpec, GenericGridSpec, intrinsics_kind   # what a calibration is for (lens_spec.jl; GenericGridSpec, intrinsics_kind public, not exported, at the top level)
 export division_bounded, undistorted_rect, valid_rect, horizon_radius, fov_radius, DEFAULT_MAX_FOV   # whole-extent undistortion
+export radial_homography   # a target homography seen through a projective division camera
 export undistort, undistort!           # Remove lens distortion from images
 export radial_camera_5pt, RadialCamera5pt   # the radial camera's 5-point minimal kernel and its solver
 export radial_rows                     # RadialCamera's rows accessor (public, not exported, at the top level)
@@ -1043,11 +1052,11 @@ export ChartPlacement, placement              # a calibration's dimensionless ch
 export calibration, design, reference, is_planar   # design, reference: public, not exported, at the top level
 export is_affine                         # the surface chart's trait (public, not exported, at the top level)
 export PlanarCalibration                 # the planar kinds as one type (public, not exported, at the top level)
-export TARGET_CALIBRATION_TAGS, calibration_tag, length_mask   # the kinds' tag registry and a kind's tag (public, not exported, at the top level)
+export TARGET_CALIBRATION_TAGS, PLANAR_MAP_TAGS, calibration_tag, length_mask   # the kinds' tag registry and a kind's tag (public, not exported, at the top level)
 export TARGET_CALIBRATION_ORDER, planar_kind, members, is_pure_bending   # the composition's structure (public, not exported, at the top level)
 export iwasawa_parameters, iwasawa_parameters_with_jacobian   # an affine's Iwasawa factors' parameters (public, not exported, at the top level)
 export regularizer, TargetManifold      # the calibratable-target protocol
-export Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
+export Trajectory, TargetPoses, TargetHomographies, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
 export TargetDetections, FrameStamps      # per frame, per target, index => detection; a capture's per-frame stamps (captures.jl)
 export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3
 export DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings, is_constant   # a capture's camera settings per frame, its hardware's identity (captures.jl; is_constant public, not exported, at the top level)

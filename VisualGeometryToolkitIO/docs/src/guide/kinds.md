@@ -25,13 +25,15 @@ argument, because the value already carries it.
 | `vgio/target/v5` | one `AbstractTarget` (`PointTarget`, `PlanarTarget` of any `TargetCalibration`, `Uncertain` or not, stated by its points, its reference or its layout), or an `Attributed` one with its `(; calibration_record)` | `load(AbstractTarget, path; resolve)`; a planar one: `load(PlanarTarget, path)` | `save(path, target)` |
 | `vgio/trajectory/v4` | `Trajectory{S, D}`: labeled poses per frame index, with images, times and recovered flags | `load(Trajectory, path)` | `save(path, tr)`; exporters `save_tum_trajectory`, `save_euroc_trajectory` |
 | `vgio/target_poses/v2` | `TargetPoses{F}`: per frame, `TargetFrame{id} → F` poses; `pose(tp, t, id)` | `load(TargetPoses, path)` | `save(path, tp)`; exporter `save_bop_scene` |
-| `vgio/target_detections/v2` | `TargetDetections{F}`: per frame, per target, `csponds(index, detection)` — pixels in a `PixelFrame` or 3D points in a named 3D frame, plain or `Uncertain`, with an optional `weights` column | `load(TargetDetections, path)` (a `target_points2d/v1` or `target_points3d/v1` file too, converted — except one with a (target, index) twice in a frame or with plain and `Uncertain` points mixed, refused by name; it still loads as `load(TargetPoints2D/3D, path)`) | `save(path, td)` |
+| `vgio/target_homographies/v1` | `TargetHomographies{F <: PixelFrame, H}`: per frame, each target's plane (mm) → pixel `HomographyMap` (plain or `Uncertain`), written as the parametric record `{"type": "homography_map", "parameters": [9]}` of its canonical entries (unit Frobenius norm, `h33 ≥ 0`; an 8×8 `covariance` in the `HomographyManifold8` chart), before the lens of the frame's `sensor`'s camera (a `RadialHomography`'s `H`); `targets` are the `content_id`s (a rig's or a single target's) its ids resolve in | `load(TargetHomographies, path)` | `save(path, th)` |
+| `vgio/target_detections/v2` | `TargetDetections{F}`: per frame, per target, `csponds(index, detection)` — pixels in a `PixelFrame` or 3D points in a named 3D frame, plain or `Uncertain`, with an optional `weights` column; `targets` the `content_id`s of rigs or of single unposed targets | `load(TargetDetections, path)` (a `target_points2d/v1` or `target_points3d/v1` file too, converted — except one with a (target, index) twice in a frame or with plain and `Uncertain` points mixed, refused by name; it still loads as `load(TargetPoints2D/3D, path)`) | `save(path, td)` |
 | `vgio/target_points2d/v2` | `TargetPoints2D{F <: PixelFrame}`: per frame, `(target, index, xy, weight)` | `load(TargetPoints2D, path)` | `save(path, obs)`; exporter `save_correspondences` |
 | `vgio/target_points3d/v2` | `TargetPoints3D{F}`: per frame, `(target, index, xyz)`, such as motion-capture markers | `load(TargetPoints3D, path)` | `save(path, obs)`; exporter `save_trc` |
 | `vgio/capture_settings/v1` | `CaptureSettings`: per frame, the exposure (time, f-number, ISO) and the nominal lens settings (focal length, focus distance); the body and lens `DeviceIdentity`, `Attributed` with each one's source (`"exif"` or `"config"`) and the EXIF lens claim a stated lens overrode | `load(CaptureSettings, path)` | `save(path, Attributed(cs, (; identity_sources = (body, lens)[, exif_lens])))` |
 | `vgio/vignetting/v1` | an `AbstractVignetting`: `TensorProductVignetting` (its knots stated), `RadialVignetting` or `LogVignetting`, positions in COLMAP pixels; rebuilt bit for bit | `load(AbstractVignetting, path)` | `save(path, v)` |
 | `vgio/environment_light/v1` | an `EnvironmentLight` of a `SphericalHarmonicMap`: centre and radius in `length_unit` (a plain light refused), coefficients per channel, the basis convention stated (`real_orthonormal_no_condon_shortley`) | `load(EnvironmentLight, path)` | `save(path, light)` |
 | `vgio/blur/v1` | name → `GaussianBlur`, each one's `covariance` in the storage it holds (round, axis-aligned, general) and the `unit` it states: `"px^2"` on a sensor, `length_unit` squared (`"mm^2"`) on a print; the unit is recorded, the blur's frame tag is not | `load(Dict{Symbol, GaussianBlur}, path)` | `save(path, blurs)` |
+| `vgio/calibration/v1` (`calibration.json`, the manifest) | the record files of one calibration result bound by SHA-256: each with its record schema, `role` (`"authority"` or `"derived"`) and `derived_from`; `kind` `"metric"`, `"projective"` or `"image"`, an optional `CameraModelSpec`, `metrics`, `provenance`; a load refuses a changed file by name and measurements naming targets the listed target and rig files do not hold | `load_manifest(dir)` | `save_manifest(dir, files; kind, model, metrics, provenance)` |
 | `vgio/generic_camera/v3` (Schöps grid models: the nodes the model holds, `present` as runs per lattice row, and only their controls) | `CentralGenericModel`, `NoncentralGenericModel` | `load(CentralGenericModel, path)`, `load(NoncentralGenericModel, path)` | `save(path, m)` |
 | `vgio/correspondences/v2` (flat 2D–3D pairs per frame and target) | an export of a `TargetPoints2D` and its target rigs; there is no reader | — | `save_correspondences([to_frame,] path, obs, targets...; resolve)` |
 
@@ -42,7 +44,7 @@ squared) and its `weights`:
 
 ```json
 {"schema": "vgio/target_detections/v2", "pixel_frame": "colmap", "point_index_base": 1,
- "targets": ["<content id of a rig>"],
+ "targets": ["<content id of a rig, or of a single unposed target>"],
  "frames": [{"t": 17, "image": "DSC0017.png", "sensor": "cam1",
              "detections": [{"target": "b89", "index": [1, 4], "points": [[u, v], [u, v]],
                              "covariance": [[[…], […]], [[…], […]]], "weights": [1.0, 0.5]}]}]}
@@ -111,7 +113,7 @@ written:
   design's owner. It reads back unresolved unless the caller supplies
   `resolve`, the owner's resolver (`reference::Symbol -> nominal points`).
 - A `PlanarTarget` built from a layout (`PlanarTarget(layout; …)`, which VGC
-  records as `layout(t)`) is written by its `layout` (`vgio/target/v4`,
+  records as `layout(t)`) is written by its `layout` (since `vgio/target/v4`,
   `vgio/rig/v7`); its points are VGC's from the layout and are not restated.
   The record's `type` is the layout's tag in VGC's `TARGET_LAYOUT_TAGS`, every
   key is written, and lengths are in the file's unit:

@@ -96,6 +96,7 @@ include("matching_ka.jl")   # the one matcher: KA kernels on the CPU and any GPU
 include("foerstner.jl")      # detect_foerstner — the Förstner interest operator (after ip_fop.m); after asift/ and matching_ka.jl, whose upsampling and upload it uses
 include("matching_stacked_ka.jl")   # stacked multi-gallery matcher (hoisted from BlobBoards)
 include("described_feature.jl")
+include("onnx_runtime.jl")   # ONNX Runtime sessions: the execution provider (the CUDA 12 libraries) and the thread pools
 include("loma.jl")
 include("visualization_stubs.jl")
 
@@ -182,6 +183,8 @@ export CspondSet                # N-way correspondence
 export DescribedFeature, described_features, descriptor_matrix
 export LoMaDescriptor, LoMaMatcher   # LoMa (ONNX); models cached in the scratch space
 public LOMA_IMAGE_SIZE, strongest    # the descriptor graph's input side; the n strongest detections, in detector order
+public loma_provenance              # the model, the execution provider used and the threads, as plain data
+public onnx_cuda_status, OnnxCudaStatus, resolve_execution_provider   # whether ONNX Runtime's CUDA provider runs here (why not); :auto's answer
 
 # -----------------------------------------------------------------------------
 # 5. PERSISTENT CACHE - FileCache (JLD2 backend in VisualGeometryToolkitFeaturesJLD2Ext)

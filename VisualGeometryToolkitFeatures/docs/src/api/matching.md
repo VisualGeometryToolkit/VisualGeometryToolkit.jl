@@ -14,5 +14,5 @@ nn_match
 ```@autodocs
 Modules = [VisualGeometryToolkitFeatures]
 Pages = ["matching.jl", "nn_match.jl", "matching_ka.jl", "matching_stacked_ka.jl",
-         "described_feature.jl", "loma.jl"]
+         "described_feature.jl", "loma.jl", "onnx_runtime.jl"]
 ```

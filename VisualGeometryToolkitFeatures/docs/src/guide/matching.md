@@ -82,6 +82,18 @@ fb = describe(img_b, asift_detect(img_b))
 matches = matcher(fa, fb, size(img_a), size(img_b))
 ```
 
+Both run on ONNX Runtime's CUDA provider when it is available and on the CPU
+otherwise (`execution_provider = :auto`, the default; the fallback warns and
+names why; `:cpu` and `:cuda` are explicit, and an explicit `:cuda` that
+cannot run is an error naming why). The CUDA provider needs a CUDA device and
+an environment that holds `CUDA_Runtime_jll` and `CUDNN_jll`: their CUDA 12
+builds are downloaded on first use and loaded for ONNX Runtime alone, whatever
+CUDA runtime CUDA.jl uses ([`onnx_cuda_status`](@ref) says what was found).
+ONNX Runtime's thread pool is `threads = Threads.nthreads()`, the process's
+allotment (start Julia with `--threads=$SLURM_CPUS_PER_TASK` in a Slurm job),
+never the machine's cores. [`loma_provenance`](@ref) records the provider
+used, the threads and the library versions.
+
 The package's `examples/loma.jl` runs this on a pair of downloaded images and
 draws the matches. Cite the LoMa and DeDoDe papers when you use these networks
 (their entries are on the [home page](../index.md#LoMa)).

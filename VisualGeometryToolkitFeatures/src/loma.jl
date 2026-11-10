@@ -18,8 +18,9 @@
 # detectors' COLMAP pixel centres (image corners at 0 and (w, h)) map to
 # 2x/w - 1, DeDoDe's `to_normalized_coords`. Nothing normalized leaves this file.
 #
-# `execution_provider` is ONNXRunTime's (`:cpu` or `:cuda`). `:cuda` loads
-# through ONNXRunTime's own CUDA extension, so CUDA is not a dependency here.
+# `execution_provider` is `:auto` (CUDA when ONNX Runtime's CUDA provider is
+# available, else the CPU with a warning), `:cpu` or `:cuda`; the sessions and the
+# CUDA libraries are onnx_runtime.jl's.
 # =============================================================================
 
 import ONNXRunTime as ORT
@@ -83,18 +84,30 @@ function _loma_model_path(file, digest)
     return path
 end
 
-_loma_session(file, digest, execution_provider) =
-    ORT.load_inference(_loma_model_path(file, digest); execution_provider)
-
-# Checked before the download: ONNX Runtime's CPU provider lacks bf16 kernels,
-# so a bf16 export fails to load there ("Could not find an implementation for
-# MatMul(13)" with loma_matcher_B128_bf16.onnx, "Mul(14)" with
+# The session of a release file on the resolved provider, and its provenance: the file, its digest, the provider and
+# the threads. The bf16 check comes after the provider is resolved (an :auto that fell back to the CPU is refused) and
+# before the download: ONNX Runtime's CPU provider lacks bf16 kernels, so a bf16 export fails to load there ("Could not
+# find an implementation for MatMul(13)" with loma_matcher_B128_bf16.onnx, "Mul(14)" with
 # loma_descriptor_dedode_g_bf16.onnx; measured).
-function _check_bf16_provider(bf16, execution_provider)
-    bf16 && execution_provider === :cpu && throw(ArgumentError(
-        "the bf16 LoMa exports need execution_provider = :cuda: ONNX Runtime's CPU provider lacks bf16 kernels"))
-    return nothing
+function _loma_session(file, digest, bf16, execution_provider, threads)
+    provider = resolve_execution_provider(execution_provider)
+    bf16 && provider === :cpu && throw(ArgumentError(
+        "the bf16 LoMa exports need ONNX Runtime's CUDA provider (its CPU provider lacks bf16 kernels); " *
+        "execution_provider = $(repr(execution_provider)) runs on the CPU here"))
+    session = _onnx_session(_loma_model_path(file, digest), provider, threads)
+    return session, (; model = file, sha256 = digest, _onnx_provenance(provider, threads)...)
 end
+
+"""
+    loma_provenance(l::Union{LoMaDescriptor, LoMaMatcher}) -> NamedTuple
+
+What runs `l`, as plain data for a result to record: `model` (the release
+file) and its `sha256`, the `execution_provider` actually used (`:cpu` or
+`:cuda`, after `:auto` is resolved), the ONNX Runtime intra-op `threads`, the
+`onnxruntime` version and, on CUDA, the `cuda_driver`, `cuda_runtime` and
+`cudnn` versions.
+"""
+loma_provenance(l) = l.provenance
 
 # =============================================================================
 # Keypoints and detections
@@ -144,15 +157,23 @@ end
 # =============================================================================
 
 """
-    LoMaDescriptor(variant = :b; max_detections = 2048, bf16 = false, execution_provider = :cpu)
+    LoMaDescriptor(variant = :b; max_detections = 2048, bf16 = false, execution_provider = :auto,
+                   threads = Threads.nthreads())
 
 A DeDoDe descriptor of LoMa: `:b` (DeDoDe-B, 128-dimensional, 54 MB) or `:g`
 (DeDoDe-G, 256-dimensional, 1.3 GB; 690 MB with `bf16 = true`, which needs
-`execution_provider = :cuda`). The model is
+ONNX Runtime's CUDA provider). The model is
 downloaded on first use and cached. `(descriptor)(img, detections)` describes
 the `max_detections` strongest detections (largest `|response|`) of `img` and
-returns a `StructArray{DescribedFeature}`. `execution_provider = :cuda` needs
-`import CUDA, cuDNN` and a functional device.
+returns a `StructArray{DescribedFeature}`.
+
+`execution_provider` is ONNX Runtime's: `:auto` runs on CUDA when
+[`onnx_cuda_status`](@ref) finds a device and the CUDA 12 libraries (the
+environment holds `CUDA_Runtime_jll` and `CUDNN_jll`), and on the CPU with a
+warning naming why otherwise; `:cuda` is an error where CUDA is unavailable,
+naming why; `:cpu` is the CPU. ONNX Runtime's intra-op pool has `threads`
+threads (the inter-op pool 1; no core pinning). [`loma_provenance`](@ref)
+records the provider used and the threads.
 
 The network is [DeDoDe](https://github.com/Parskatt/DeDoDe)'s (Edstedt et al.,
 3DV 2024), as exported by [LoMa](https://github.com/davnords/LoMa); cite both
@@ -179,15 +200,15 @@ struct LoMaDescriptor
     max_detections::Int
     descriptor_dim::Int
     descriptor_model::ORT.InferenceSession
+    provenance::NamedTuple
 end
 
 function LoMaDescriptor(
         variant::Symbol = :b; max_detections::Integer = 2048, bf16::Bool = false,
-        execution_provider::Symbol = :cpu
+        execution_provider::Symbol = :auto, threads::Integer = Threads.nthreads()
     )
     file, digest, dim = _loma_model(_LOMA_DESCRIPTORS, "descriptor", variant, bf16)
-    _check_bf16_provider(bf16, execution_provider)
-    return LoMaDescriptor(variant, max_detections, dim, _loma_session(file, digest, execution_provider))
+    return LoMaDescriptor(variant, max_detections, dim, _loma_session(file, digest, bf16, execution_provider, threads)...)
 end
 
 """
@@ -251,15 +272,16 @@ end
 # =============================================================================
 
 """
-    LoMaMatcher(variant = :b128; bf16 = false, execution_provider = :cpu)
+    LoMaMatcher(variant = :b128; bf16 = false, execution_provider = :auto, threads = Threads.nthreads())
 
 A LoMa matcher: `:b128` (48 MB) on 128-dimensional DeDoDe-B descriptors, or
 `:b` (48 MB), `:l` (184 MB), `:g` (726 MB) and `:r` (48 MB) on 256-dimensional
 DeDoDe-G ones ([`LoMaDescriptor`](@ref)`(:g)`). `bf16 = true` takes the
-half-size bf16 export of any of them, which needs `execution_provider = :cuda`
-(ONNX Runtime's CPU provider lacks bf16 kernels). The model is downloaded on first use and
-cached; see the call method for matching. `execution_provider = :cuda` needs
-`import CUDA, cuDNN` and a functional device.
+half-size bf16 export of any of them, which needs ONNX Runtime's CUDA provider
+(its CPU provider lacks bf16 kernels). The model is downloaded on first use and
+cached; see the call method for matching. `execution_provider` (`:auto`, `:cpu`
+or `:cuda`) and `threads` are [`LoMaDescriptor`](@ref)'s;
+[`loma_provenance`](@ref) records them.
 
 The network is [LoMa](https://github.com/davnords/LoMa)'s (Nordström et al.,
 "LoMa: Local Feature Matching Revisited", ECCV 2026); cite it (BibTeX in the
@@ -269,12 +291,13 @@ struct LoMaMatcher
     variant::Symbol
     descriptor_dim::Int
     matcher_model::ORT.InferenceSession
+    provenance::NamedTuple
 end
 
-function LoMaMatcher(variant::Symbol = :b128; bf16::Bool = false, execution_provider::Symbol = :cpu)
+function LoMaMatcher(variant::Symbol = :b128; bf16::Bool = false, execution_provider::Symbol = :auto,
+                     threads::Integer = Threads.nthreads())
     file, digest, dim = _loma_model(_LOMA_MATCHERS, "matcher", variant, bf16)
-    _check_bf16_provider(bf16, execution_provider)
-    return LoMaMatcher(variant, dim, _loma_session(file, digest, execution_provider))
+    return LoMaMatcher(variant, dim, _loma_session(file, digest, bf16, execution_provider, threads)...)
 end
 
 """

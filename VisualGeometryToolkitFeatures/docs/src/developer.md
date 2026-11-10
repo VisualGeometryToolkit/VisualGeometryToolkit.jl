@@ -61,8 +61,10 @@ part of the test suite: `keypoint_uncertainty_mc.jl` calibrates the keypoint
 covariance, and `zeisl_comparison.jl` compares it with Zeisl et al. (BMVC 2009).
 Both write their results to `benchmark/mc/results/`, which is not tracked.
 
-`examples/` has its own environment, outside the workspace, because its CUDA
-and cuDNN pins would otherwise hold back the CUDA of every package's tests.
+`examples/` has its own environment, outside the workspace, so its plotting
+and image-loading dependencies stay out of the one workspace Manifest. It holds
+`CUDA_Runtime_jll` and `CUDNN_jll` (as the test environment does), whose CUDA 12
+builds ONNX Runtime's CUDA provider takes (`src/onnx_runtime.jl`).
 Instantiate it with `julia --project=VisualGeometryToolkitFeatures/examples -e 'using Pkg; Pkg.instantiate()'`.
 
 ## Accuracy bounds that other code relies on

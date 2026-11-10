@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- **LoMa runs on ONNX Runtime's CUDA provider wherever it can, with no CUDA setup.** `execution_provider = :auto` is the
+  new default of `LoMaDescriptor` and `LoMaMatcher` (was `:cpu`): CUDA when a CUDA device is visible and the active
+  environment holds `CUDA_Runtime_jll` and `CUDNN_jll`, otherwise the CPU with a warning naming why. `:cpu` and `:cuda`
+  stay explicit; an explicit `:cuda` that cannot run is an error naming why. ONNX Runtime's GPU build needs CUDA's
+  12.x runtime and cuDNN 9, which CUDA.jl 5.11 (runtime 13 on a CUDA 13 driver) and cuDNN.jl (1.4 does not resolve
+  beside CUDA_Runtime_Discovery 2) could not give it: the package now takes the CUDA 12 builds of CUDA_Runtime_jll's and
+  CUDNN_jll's artifacts (lazy: downloaded on the first CUDA session), selected by their `cuda` tag and loaded for ONNX
+  Runtime alone, beside whatever runtime CUDA.jl uses. The two JLLs are weak dependencies pinned by `[compat]`
+  (`CUDA_Runtime_jll` 0.21 - 0.26, `CUDNN_jll` 9.20 - 9) and never loaded as modules (CUDNN_jll would load the host
+  CUDA's build under the same soname); an environment without them never resolves or downloads them. Neither CUDA.jl
+  nor cuDNN.jl is needed for LoMa on the GPU any more; a cuDNN or CUDA 12 library already loaded from another file is
+  refused by name. Needs a driver for CUDA ≥ 12 (≥ 525.60; Blackwell needs ≥ 570).
+- **New (public): `onnx_cuda_status()`** (an `OnnxCudaStatus`: available, or the reason why not; the driver, CUDA
+  runtime and cuDNN versions) and **`resolve_execution_provider(execution_provider)`**, `:auto`'s answer, for a caller
+  that keys a cache on the provider.
+- **ONNX Runtime's threads are the process's, not the machine's.** A new `threads` keyword of both constructors
+  (default `Threads.nthreads()`, the stack's measure of the allotment: a Slurm job starts Julia with
+  `--threads=$SLURM_CPUS_PER_TASK`) sizes ONNX Runtime's intra-op pool; the inter-op pool is 1 (the graphs run
+  sequentially). ONNX Runtime sized its pool from all cores and pinned each thread to one, which inside a Slurm cgroup
+  oversubscribed the allotment (six 28-CPU jobs drove a 112-thread machine to a load of 673) and failed to pin
+  (`pthread_setaffinity_np failed`); an explicit size disables the pinning.
+- **New (public): `loma_provenance(l)`** of a descriptor or matcher: the model file and its sha256, the provider used,
+  the threads, ONNX Runtime's version and, on CUDA, the driver, runtime and cuDNN versions.
+- `ONNXRunTime` compat is `~2.1`: the sessions are built through its C API (its `load_inference` takes no session
+  options), so a new minor version is checked before it is admitted.
+- Measured 2026-11-10 (RTX 4090, 32 threads, two 2128 × 1424 panorama frames, 2048 detections each, `:b` + `:b128`):
+  both descriptions and the match in 0.11 s on CUDA against 3.46 s on the CPU. CUDA against the CPU on six frames:
+  descriptors within 3.2e-3 of their largest component, 1103 of the 1109 matches of 15 frame pairs identical.
+
 - **The one RAW path.** Every RAW → image step of the stack lives in this module (`load_raw`, `load_raw_mosaic`,
   `LinearRaw`; the LibRaw_jll extension decodes), and VisualGeometryToolkitCore's `check_raw_decoding` flags any other
   decoding path (rawpy, LibRaw C calls, dcraw, a demosaic or a CFA interpolation, a decoded RAW re-read as a PNG); the

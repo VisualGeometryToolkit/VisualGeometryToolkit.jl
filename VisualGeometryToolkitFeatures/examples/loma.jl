@@ -7,9 +7,10 @@
 # bf16 exports (CUDA only). Models and images are downloaded once and cached in
 # VisualGeometryToolkitFeatures' scratch space.
 #
-# Runs on the GPU when CUDA is functional and on the CPU otherwise; set
-# LOMA_PROVIDER=cpu to force the CPU. Shows the matches as lines between the two
-# images, side by side, in a GLMakie window.
+# Runs on ONNX Runtime's CUDA provider when a CUDA device is visible (this
+# environment holds CUDA_Runtime_jll and CUDNN_jll, whose CUDA 12 builds it
+# loads) and on the CPU otherwise; LOMA_PROVIDER=cpu or cuda forces one. Shows
+# the matches as lines between the two images, side by side, in a GLMakie window.
 
 using ImageIO
 using FileIO
@@ -18,26 +19,22 @@ using ImageCore
 using Downloads: Downloads
 using Scratch: get_scratch!
 using SHA: sha256
-import CUDA
 import GLMakie
 
 using VisualGeometryToolkitFeatures
+using VisualGeometryToolkitFeatures: loma_provenance, resolve_execution_provider
 using VisualGeometryToolkitCore: Point2, Rect, centroid, imshow, imshow!, matches!
 
-const execution_provider =
-    get(ENV, "LOMA_PROVIDER", "") != "cpu" && CUDA.functional() ? :cuda : :cpu
-# cuDNN completes ONNXRunTime's CUDA extension, whose __init__ throws without a
-# GPU (it queries the CUDA runtime version), so load it only for :cuda.
-execution_provider === :cuda && @eval import cuDNN
+const execution_provider = resolve_execution_provider(Symbol(get(ENV, "LOMA_PROVIDER", "auto")))
 
 const matcher_variant = Symbol(get(ENV, "LOMA_MATCHER", "b128"))
 const descriptor_variant = matcher_variant === :b128 ? :b : :g
 const bf16 = get(ENV, "LOMA_BF16", "0") == "1" && (execution_provider === :cuda ||
     (@warn "LOMA_BF16 needs CUDA (ONNX Runtime's CPU provider lacks bf16 kernels); using the full-precision models"; false))
-@info "LoMa" execution_provider descriptor_variant matcher_variant bf16
 
 descriptor = LoMaDescriptor(descriptor_variant; bf16 = bf16 && descriptor_variant === :g, execution_provider)
 matcher = LoMaMatcher(matcher_variant; bf16, execution_provider)
+@info "LoMa" descriptor = loma_provenance(descriptor) matcher = loma_provenance(matcher)
 
 # LoMa's demo pair, pinned to a commit and by sha256
 const ASSETS = "https://github.com/davnords/LoMa/raw/48cfbec8e56853cdcfd307f97a6b5061c49c4728/assets"

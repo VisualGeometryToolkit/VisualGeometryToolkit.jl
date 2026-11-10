@@ -17,7 +17,7 @@
 #                            held-out maximum error meets `tolerance` (a SplineLens
 #                            source's backward is kept as it is); then its forward
 #                            spline (ray → x), a ChartSpline on the equidistant
-#                            direction chart about the lens axis, fitted to the
+#                            direction chart about ẑ, fitted to the
 #                            camera's own rays by the same solve and the same
 #                            spacing search
 #   NoncentralSplineModel    the same lattice, the source's LINES: the directions
@@ -159,7 +159,7 @@ family and the solve:
   backward is kept exactly (its controls `==`; a `grid_size` is then an
   `ArgumentError`) and only the forward is fitted.
   Its FORWARD spline (`forward = true`) is a `ChartSpline{2}` from the
-  equidistant direction chart about the lens axis to `x`, fitted to the
+  equidistant direction chart about ẑ to `x`, fitted to the
   camera's own rays over the region by the same penalized solve and the same
   spacing search, to `tolerance` in pixels of the held-out round trip; the
   camera projects through it (NaN outside the fitted chart). Each fit of a
@@ -998,7 +998,7 @@ _spline_backward(src, source, region, grid_size, tolerance, device) = throw(
 )
 
 # The forward spline of the camera `cam` (its backward) over `region`: a
-# ChartSpline{2} from the equidistant chart about the lens axis (the chart the
+# ChartSpline{2} from the equidistant chart about ẑ (the chart the
 # lens projects through) to the normalized point x, fitted to the camera's own
 # rays at the quadrature's pixels by linear least squares with the P-spline
 # penalty, its knot spacing by the spacing search to `tolerance` in pixels (the
@@ -1009,13 +1009,12 @@ function _forward_spline(cam, region, tolerance, device)
     return (; spline = r.spline, r, code, n)
 end
 
-# The quadrature in the chart: the equidistant direction chart about the lens
-# axis, the chart points of the fit's and the held-out rays, the chart's
+# The quadrature in the chart: the equidistant direction chart about ẑ, the chart points of the fit's and the held-out rays, the chart's
 # bounding rectangle, the fit points' normalized points (the right-hand side)
 # and the camera's x ↦ u.
 function _chart_quadrature(cam, region, device)
     q = _image_quadrature(cam, region; device)
-    chart = VgtkCore.Cameras._forward_chart(cam.lens.backward)   # THE chart `project` evaluates the forward on
+    chart = VgtkCore.Cameras._forward_chart()   # THE chart `project` evaluates the forward on (Core's one derivation)
     fit_charts = pointwise!(chart, similar(q.fit_rays, SVector{2, Float64}), q.fit_rays)
     held_charts = pointwise!(chart, similar(q.held_rays, SVector{2, Float64}), q.held_rays)
     lo, hi = zip(extrema(c -> c[1], fit_charts), extrema(c -> c[2], fit_charts))

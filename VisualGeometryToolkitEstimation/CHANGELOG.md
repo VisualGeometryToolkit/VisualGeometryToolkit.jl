@@ -12,7 +12,7 @@ non-central one is a `NoncentralSplineModel`).
   of Core's full-image lattice (`spline_lattice`) on the source's rays at x = K⁻¹u — at `grid_size` when given, else
   at the lattice the spacing search chooses to `tolerance` (the held-out direction error in pixels, as before). A
   SplineLens source's backward is kept exactly and only the forward is fitted. Its forward spline (`forward = true`)
-  is a `ChartSpline{2}` on the equidistant chart about the lens axis, fitted to the camera's own rays by the same
+  is a `ChartSpline{2}` on the equidistant chart about ẑ (Core's one derivation, `_forward_chart`), fitted to the camera's own rays by the same
   solve and the same spacing search, to `tolerance` in pixels of the held-out round trip; the camera then projects
   through it. The metadata `family` is the union of the old central grid's and the old forward map's records
   (`penalty, grid_size, stride, outer_iterations, n_held_out_dropped, tolerance`, then `spacing, counts,

@@ -206,7 +206,7 @@ end
     b = lens(est.camera).backward
     d, J = VC.Cameras._spline_direction_and_jacobian(b.controls, b.area, SVector(0.0, 0.0))
     @test angle_between(d, SVector(0.0, 0.0, 1.0)) < 1.0e-9 && abs(atan(J[2, 1], J[1, 1])) < 1.0e-9
-    @test VC.Cameras._lens_axis(b) ≈ SVector(0.0, 0.0, 1.0) atol = 1.0e-12
+    @test d / norm(d) ≈ SVector(0.0, 0.0, 1.0) atol = 1.0e-12
     @test res.spline.cost_after_gauge ≈ res.spline.cost_before_gauge rtol = 1.0e-10
     @test res.spline.anchor_cost == 0.0
     # the held scale: the node nearest x = 0 keeps its guess's norm

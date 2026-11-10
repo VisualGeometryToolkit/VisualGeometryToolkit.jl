@@ -555,13 +555,14 @@ end
 
 @testitem "fit_camera(SplineLens): the forward is fitted on the chart project evaluates it on" setup = [FitCameraFisheye] begin
     using Test
+    using StaticArrays: SVector
     using VisualGeometryToolkitCore: estimate, lens, SplineLens, default_device
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
     using VisualGeometryToolkitEstimation: fit_camera
     cam = estimate(fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3))
     q = VgtkEstimation._chart_quadrature(cam, REGION, default_device())
-    @test q.chart == lens(cam).chart == VgtkCore.Cameras._forward_chart(lens(cam).backward)
+    @test q.chart == lens(cam).chart == VgtkCore.Cameras._forward_chart() == VgtkCore.equidistant_chart(SVector(0.0, 0.0, 1.0))
 end
 
 @testitem "fit_camera(SplineLens), fit_camera(NoncentralSplineModel): the source's batched rays on `device`" setup = [FitCameraFisheye] begin

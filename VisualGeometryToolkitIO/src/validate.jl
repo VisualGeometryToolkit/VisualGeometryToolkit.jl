@@ -593,14 +593,14 @@ function validate(path::AbstractString)
     file = isdir(path) ? joinpath(path, UNITS_SIDECAR) : path
     s = _peek_schema(file)
     v = _split_schema(s)
-    kind = v === nothing ? nothing : _current_kind(v.kind)
     if v !== nothing
+        kind = _current_kind(v.kind)
         spec = _spec(kind)
         if spec !== nothing && (s == _schema(kind) || _reads_through_migration(s, kind))
             _read_store(file, kind, spec)
             return kind
         end
+        spec === nothing || _refuse_schema(file, kind, s)
     end
-    v !== nothing && _spec(kind) !== nothing && _refuse_schema(file, kind, s)
     throw(ArgumentError("$(file): not a vgio file (schema $(repr(s)))"))
 end

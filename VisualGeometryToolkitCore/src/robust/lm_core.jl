@@ -230,6 +230,24 @@ compares equal and is rejected like NaN everywhere else. Every NLLSsolver
 residual block of the stack returns its cost through it.
 """
 @inline finite_cost(c::Float64) = isfinite(c) ? c : Inf
+
+"""
+    finite_linearization(cost, g, H) -> (cost, g, H)
+
+A block's linearization (`computecostgradhess`: its cost ½‖r‖², gradient Jᵀr and
+Gauss–Newton Hessian JᵀJ) as the stack's NLLSsolver fits read it: as it is when all
+three are finite, else `(Inf, zero(g), zero(H))`. NLLSsolver 5.3.2's
+Levenberg–Marquardt damping loop exits only on an improved cost or a step below
+`dstep`; a non-finite gradient or Hessian at an accepted point makes every damped
+step NaN, so neither exit is ever met and the loop spins with no time check (fixed
+upstream by NLLSsolver#68, unreleased). With this form a non-finite linearization
+never reaches the linear system: at a trial point its `+Inf` cost rejects the step,
+and at a relinearized accepted point the cost disagrees with the one the step was
+accepted at (NLLSsolver's termination bit 10) and the solve stops on the finite
+system. Every `computecostgradhess` of the stack returns through it.
+"""
+@inline finite_linearization(cost::Float64, g, H) =
+    isfinite(cost) && all(isfinite, g) && all(isfinite, H) ? (cost, g, H) : (Inf, zero(g), zero(H))
 function NLLSsolver.computecost(c::_ChartRows, x)
     r = residual_rows!(c.r, c.state.lm, x)
     s = 0.0
@@ -260,7 +278,7 @@ function NLLSsolver.computecostgradhess(_varflags, c::_ChartRows{N}, x) where {N
         g += Ji * ri
         H += Ji * Ji'
     end
-    return finite_cost(0.5 * s), g, H
+    return finite_linearization(0.5 * s, g, H)
 end
 
 # The kept NLLSsolver problem of one linearization-state type, its state slot

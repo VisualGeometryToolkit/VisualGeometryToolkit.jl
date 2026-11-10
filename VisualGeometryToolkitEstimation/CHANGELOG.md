@@ -5,6 +5,11 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Fixed: a SplineLens `refine_camera_and_poses` always returns.** Its blocks hand NLLSsolver their linearizations
+  through Core's `finite_linearization` (a non-finite one made NLLSsolver 5.3.2's damping loop spin: a fixed
+  `penalty = 1e-9` on noisy detections ran > 60 min on dgx01), its rebuild rounds are a bounded loop, and a lattice
+  that folds where a point projects (the backward's Jacobian exactly singular) raises the not-projected error, naming
+  the fold, instead of being linearized.
 - **Breaking: a view-graph edge's weight and transform are Core's `weight_of` and `value_of`** (the private
   `_edge_weight`/`_relative` are gone; an edge without `:weight` still weighs 1). `fit_rotation_averaging`'s spectral
   seed hands Core's `spectral_rotation_averaging` the live (weight > 0) `Attributed` edges directly.

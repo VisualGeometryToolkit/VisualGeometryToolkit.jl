@@ -193,3 +193,35 @@ end
     tstate = St(lm, kt, zero(SVector{3, Float64}), false, false, ws.r, ws.J)
     @test !VgtkCore._robust_stationary(ws, tstate, SVector(5.0, 5.0, 0.0), Val(1), 0.05, 1.0e-12)
 end
+
+# NLLSsolver 5.3.2's damping loop spins on a non-finite linearization at an accepted point (every damped step NaN,
+# λ overflowing to Inf; NLLSsolver#68 unreleased): a block returning through `finite_linearization` hands it +Inf and
+# a zero gradient and Hessian instead, so the step is rejected and the solve stops on any machine.
+@testitem "finite_linearization: a NaN linearization at an accepted point stops the LM" begin
+    using StaticArrays: SVector, SMatrix
+    using VisualGeometryToolkitCore: finite_linearization, nlls_options, NLLSsolver
+    # r(x) = [acos(min(x, 1)), x − 2]: finite everywhere, its derivative NaN for x ≥ 1 (acos′(1)·0); from x = 0 the first
+    # step crosses x = 1 and lowers the cost, so it is accepted, and the linearization there is NaN
+    struct NaNPastOne <: NLLSsolver.AbstractResidual end
+    NLLSsolver.ndeps(::NaNPastOne) = NLLSsolver.static(1)
+    NLLSsolver.nres(::NaNPastOne) = NLLSsolver.static(2)
+    NLLSsolver.varindices(::NaNPastOne) = SVector(1)
+    NLLSsolver.getvars(::NaNPastOne, vars::Vector) = (vars[1]::Float64,)
+    Base.eltype(::NaNPastOne) = Float64
+    NLLSsolver.computeresidual(::NaNPastOne, x) = SVector(acos(min(x, 1.0)), x - 2.0)
+    function NLLSsolver.computecostgradhess(varflags, r::NaNPastOne, x)
+        res = NLLSsolver.computeresidual(r, x)
+        J = SMatrix{2, 1, Float64}(x < 1 ? -1 / sqrt(1 - x^2) : NaN, 1.0)
+        return finite_linearization(0.5 * sum(abs2, res), J' * res, J' * J)
+    end
+    @test finite_linearization(1.0, SVector(NaN), SMatrix{1, 1}(1.0)) == (Inf, SVector(0.0), SMatrix{1, 1}(0.0))
+    @test finite_linearization(1.0, SVector(2.0), SMatrix{1, 1}(3.0)) == (1.0, SVector(2.0), SMatrix{1, 1}(3.0))
+    problem = NLLSsolver.NLLSProblem(Float64, NaNPastOne)
+    NLLSsolver.addvariable!(problem, 0.0)
+    NLLSsolver.addcost!(problem, NaNPastOne())
+    result = NLLSsolver.optimize!(problem, nlls_options(; max_iter = 100, ftol = 1.0e-12, xtol = 1.0e-12))   # returns, rather than spinning
+    @test result.termination & (1 << 10) != 0                    # stopped: the relinearized cost disagrees with the accepted one
+    @test result.niterations <= 3
+    @test isfinite(result.bestcost) && result.bestcost < result.startcost
+    @test problem.variables[1] >= 1                              # the accepted step is kept
+end

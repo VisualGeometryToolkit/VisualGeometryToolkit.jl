@@ -5,6 +5,10 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New: `finite_linearization(cost, g, H)`** (public, not exported, beside `finite_cost`): a residual block's
+  linearization as the stack's NLLSsolver fits read it, `(Inf, 0, 0)` when any part is not finite. NLLSsolver 5.3.2's
+  Levenberg–Marquardt damping loop spins on a non-finite gradient or Hessian at an accepted point (NLLSsolver#68,
+  unreleased); the chart LM's rows return through it.
 - **New: `check_raw_decoding(dir)` and `RawDecodingViolation`** (public, the Test extension, beside `check_naming`):
   the stack's one RAW path. Flags, in code outside VisualGeometryToolkitFeatures' raw module, any use of rawpy, a
   LibRaw C call, dcraw, rawpy's `postprocess(`, a demosaic, a Bayer/CFA interpolation, or a decoded RAW output re-read

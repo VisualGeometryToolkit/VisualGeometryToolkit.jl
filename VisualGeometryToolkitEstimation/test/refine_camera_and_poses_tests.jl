@@ -192,8 +192,10 @@ end
     # the grid), refined with `penalty = :gcv`: the search's bookkeeping, and GCV's weight within a decade of the weight
     # of `grid` (log₁₀ β) whose estimate predicts the clean pixels best (the reprojection rms against them: gauge-free),
     # predicting them as well to 2%. A fixed small weight on the noisy detections: the error names the cause and the
-    # remedy.
-    function check_gcv_choice(E, p0, n, grid)
+    # remedy, and the call returns within 3× `weak_seconds`, its time measured warm on one core (raptorlake,
+    # 2026-11-11): its solves are bounded (the LM never sees a non-finite linearization, the rebuild rounds are capped),
+    # so no machine spins in it (on dgx01 NLLSsolver 5.3.2's damping loop once did, > 60 min).
+    function check_gcv_choice(E, p0, n, grid, weak_seconds)
         rough = perturbed_controls(spline_truth(), 0.02)
         clean = spline_views(rough, E, 1.1; n)
         rng = Xoshiro(20261110)
@@ -208,7 +210,8 @@ end
         errors = [prediction(refine_camera_and_poses(g0, p0, noisy; penalty = 10.0^k)) for k in grid]
         @test abs(log10(rg.spline.β) - grid[argmin(errors)]) <= 1
         @test prediction(rg) <= 1.02 * minimum(errors)
-        @test_throws r"penalty = :gcv" refine_camera_and_poses(g0, p0, noisy; penalty = 1.0e-9)
+        t = @elapsed @test_throws r"penalty = :gcv" refine_camera_and_poses(g0, p0, noisy; penalty = 1.0e-9)
+        @test t <= 3 * weak_seconds
         return nothing
     end
 end
@@ -394,6 +397,11 @@ end
     @test_throws ArgumentError refine_camera_and_poses(truth, poses0, views; penalty = -1.0)
     @test_throws ArgumentError refine_camera_and_poses(truth, poses0, views; box = (; c_1_1_x = (0.0, 1.0)))
     @test_throws ArgumentError refine_camera_and_poses(truth, poses0, views; free = (:c_1_1_x,))
+    # a lattice that folds where a point projects (every control ẑ: the backward's Jacobian exactly 0 there) is not
+    # linearized: the error names the fold
+    flat = CameraModel(truth.intrinsics, SplineLens(ChartSpline(b.area, fill(SVector(0.0, 0.0, 1.0), size(b.controls)))))
+    P = poses0[1]
+    @test_throws r"lattice folds where the point .* projects at the guess" refine_camera_and_poses(flat, [P], [[P.R' * (SVector(0.0, 0.0, 2.0) - P.t) => SVector(640.0, 480.0)]])
 end
 
 @testitem "refine_camera_and_poses: a SplineLens camera's smoothness is scale-free; the penalty fixed, off, or chosen by GCV" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
@@ -487,7 +495,7 @@ end
     # Measured: GCV β = 10^-2.24, prediction 0.2389 px; the grid 0.2573, 0.2385, 0.3726 px at β = 1e-3 … 1e-1 (at 1e-5
     # and below the noisy estimate stops projecting a correspondence: GCV = Inf there). The same claim at 6 views × 200
     # is the benchmark-size item below (VGTK_BENCHMARK_TESTS=1).
-    check_gcv_choice(Es, poses0, 60, -3:-1)
+    check_gcv_choice(Es, poses0, 60, -3:-1, 0.96)
 end
 
 # Benchmark size, opt-in (VGTK_BENCHMARK_TESTS=1; otherwise the item is skipped): 7.8 s and 8.3 GB of allocation
@@ -495,7 +503,7 @@ end
 @testitem "refine_camera_and_poses: GCV's weight on 6 views × 200 noisy detections (benchmark size, VGTK_BENCHMARK_TESTS=1)" setup = [CameraPoseScenes, SplineCameraPoseScenes] skip = get(ENV, "VGTK_BENCHMARK_TESTS", "") != "1" begin
     # Measured: GCV β = 10^-3.06, prediction 0.1214 px; the grid 0.1288, 0.1211, 0.1416 px at β = 1e-4 … 1e-2
     E6 = truth_poses(6)
-    check_gcv_choice(E6, [perturbed_pose(E, v) for (v, E) in enumerate(E6)], 200, -4:-2)
+    check_gcv_choice(E6, [perturbed_pose(E, v) for (v, E) in enumerate(E6)], 200, -4:-2, 2.35)
 end
 
 @testitem "gcv_curve, gcv_select, penalty_scale, mean_positive_eigenvalue: the stack's one GCV of a penalty weight" begin

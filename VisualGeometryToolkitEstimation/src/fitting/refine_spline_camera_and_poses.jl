@@ -209,9 +209,13 @@ struct _Gram <: AbstractMatrix{Float64}
 end
 Base.size(G::_Gram) = (size(G.J, 2), size(G.J, 2))
 Base.@propagate_inbounds Base.getindex(G::_Gram, i::Int, j::Int) = G.J[1, i] * G.J[1, j] + G.J[2, i] * G.J[2, j]
+# (Core's `finite_linearization` reads these: finite with its Jacobian, zero as a zero Jacobian's)
+Base.all(::typeof(isfinite), G::_Gram) = all(isfinite, G.J)
+Base.zero(G::_Gram) = _Gram(zero(G.J))
 
 # The block's cost, gradient and normal matrix (NLLSsolver's documented extension point;
-# the residual is not robustified): `(½‖r‖², Jᵀr, JᵀJ)`, the normal matrix the lazy `_Gram`.
+# the residual is not robustified): `(½‖r‖², Jᵀr, JᵀJ)`, the normal matrix the lazy `_Gram`,
+# through Core's `finite_linearization` (a non-finite one never reaches the LM's system).
 # The held gauge coordinates' columns are zeroed in the LM's gradient and normal matrix:
 # no block moves them (`_SplinePin` alone gives them a unit diagonal), so their step is 0
 # exactly. `computeresjac` (the Jacobian of the residual) keeps them.
@@ -220,7 +224,12 @@ function NLLSsolver.computecostgradhess(varflags, r::_SplineReprojection{10, P},
     k, n, rot = r.gauge
     k == 0 || (J[:, _patch_width(P) * (k - 1) + 8 + n] .= 0.0)
     rot == 1 && (J[:, (9 * _patch_width(P) + 1):(9 * _patch_width(P) + 3)] .= 0.0)
-    return 0.5 * sum(abs2, res), J' * res, _Gram(J)
+    return finite_linearization(0.5 * sum(abs2, res), J' * res, _Gram(J))
+end
+# The poses-alone block: NLLSsolver's own unrobustified form, through `finite_linearization`.
+function NLLSsolver.computecostgradhess(varflags, r::_SplineReprojection{1}, pose)
+    res, J = NLLSsolver.computeresjac(varflags, r, pose)
+    return finite_linearization(0.5 * NLLSsolver.sqnorm(res), J' * res, J' * J)
 end
 
 # Every variable of a block is free in this refinement (`varflags` all set).
@@ -280,7 +289,7 @@ function NLLSsolver.computecostgradhess(varflags, r::_SplineSmoothness{P}, patch
     k, n = r.gauge
     held = _patch_width(P) * (k - 1) + 8 + n
     Jh = k == 0 ? J : J .* SVector{size(J, 2), Float64}(ntuple(j -> j == held ? 0.0 : 1.0, Val(size(J, 2))))'
-    return 0.5 * sum(abs2, res), Jh' * res, Jh' * Jh
+    return finite_linearization(0.5 * sum(abs2, res), Jh' * res, Jh' * Jh)
 end
 
 # The anchor of a patch's unread coordinates at their guesses: per control with
@@ -402,15 +411,16 @@ function _spline_problem(
             unprojected += 1
             continue
         end
-        ok || throw(
-            _NotProjected(
-                "refine_camera_and_poses: view $v, correspondence $j: the point $(X) does not project $at (behind the camera or outside the lens's domain)" *
-                    (at == "at the guess" ? "" :
-                     ": the estimate's lattice moved there, where the data hold it weakly — on noisy detections a small smoothness " *
-                     "weight lets those nodes swing. Use `penalty = :gcv` (the default) or a larger `penalty`"),
-                0
-            )
-        )
+        weak = at == "at the guess" ? "" :
+            ": the estimate's lattice moved there, where the data hold it weakly — on noisy detections a small smoothness " *
+            "weight lets those nodes swing. Use `penalty = :gcv` (the default) or a larger `penalty`"
+        ok || throw(_NotProjected("refine_camera_and_poses: view $v, correspondence $j: the point $(X) does not project $at (behind the camera or outside the lens's domain)" * weak, 0))
+        # a projection where the lattice folds (the backward's Jacobian there exactly singular, or not finite): no
+        # Jacobian of the point exists, so it is not linearized
+        _, _, Jx, _ = VgtkCore.Cameras._spline_direction_differential(b.controls, b.area, x)
+        g = LinearAlgebra.det(Jx' * Jx)
+        (isfinite(g) && g != 0) ||
+            throw(_NotProjected("refine_camera_and_poses: view $v, correspondence $j: the lattice folds where the point $(X) projects $at (the backward's Jacobian is singular there)" * weak, 0))
         ix, iy, _, _ = spline_window(b.area, gsz, x)
         o = VgtkCore.Cameras._lattice_node(b.area, gsz, ix - 1, iy - 1)        # the window's own cell
         win = SMatrix{4, 4, CartesianIndex{2}, 16}(ntuple(m -> CartesianIndex(iy - 3 + (m - 1) % 4 + 1, ix - 3 + (m - 1) ÷ 4 + 1), Val(16)))
@@ -677,12 +687,11 @@ _with_λ(p, λ::Float64) = merge(p, (; λ, smooth = [_SplineSmoothness{_SplinePa
 # settled, the iterations, whether a solve stopped on the deadline, the joint objective
 # at the start, and the problem rebuilt at the estimate (`next`: a warm start).
 function _spline_rounds(p, isfree::Bool, back::CameraModel, views, penalty, offset, max_iter, ftol, xtol, deadline::Float64)
-    rounds = iterations = 0
-    settled = timed_out = false
+    iterations = 0
+    timed_out = false
     cost_start = _spline_cost(p.variables, _spline_blocks(p))
-    next = p
-    while true
-        rounds += 1
+    # at most `_SPLINE_REFINE_ROUNDS` solves, whatever the deadline (`Inf` by default)
+    for rounds in 1:_SPLINE_REFINE_ROUNDS
         result, solved = _spline_solve!(p, isfree, max_iter, ftol, xtol, _remaining(deadline))
         iterations += result.niterations
         timed_out |= _timed_out(result)
@@ -698,6 +707,7 @@ function _spline_rounds(p, isfree::Bool, back::CameraModel, views, penalty, offs
         rounds == _SPLINE_REFINE_ROUNDS &&
             return (; p, solved = collect(p.variables), result, rounds, settled = false, iterations, timed_out, cost_start, next = p)
     end
+    error("unreachable: the last round returns")
 end
 
 # GCV's trace: exact (`F \ JᵀJ`) up to this many coordinates, else a Hutchinson

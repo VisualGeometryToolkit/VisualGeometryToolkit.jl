@@ -6,7 +6,7 @@
 # Unifies weighted-alpha overlays (pose verification) and colormap-indexed
 # match visualization (feature matching) into one recipe.
 #
-#   matches!(ax, src_pts, tgt_pts; weights=...)    # alpha-weighted
+#   matches!(ax, src_pts, tgt_pts)                 # alpha from the targets' weights
 #   matches!(ax, src_pts, tgt_pts; colormap=:hsv)  # per-match color
 #   matches!(ax, src_pts, tgt_pts; colors=...)      # explicit colors
 #
@@ -19,23 +19,25 @@
 Visualize point correspondences on a single axis.
 
 Source and target points are drawn as markers connected by line segments.
-Three coloring modes are supported (checked in priority order):
+A point is bare or an `Attributed` point (`Attributed(x, (; weight))`): it is
+drawn at its value ([`value_of`](@ref)). Three coloring modes are supported
+(checked in priority order):
 
 1. `colors`: Explicit per-match color vector — each match (source marker,
    target marker, line) uses the same color for visual correspondence.
 2. `colormap`: Per-match indexed colors from a colormap — same visual
    grouping as `colors`, auto-generated from the map.
-3. `weights`: Alpha-weighted fixed colors — source/target/line use distinct
-   fixed colors (`src_color`, `tgt_color`, `line_color`) with per-match
-   alpha from `weights` (e.g., posterior inlier probabilities).
-4. None set: Full opacity fixed colors.
+3. Neither set: fixed colors — source/target/line use distinct fixed colors
+   (`src_color`, `tgt_color`, `line_color`) with per-match alpha the target
+   point's weight ([`weight_of`](@ref), in [0, 1], e.g. a posterior inlier
+   probability carried as `Attributed(x, (; weight = p))`); a bare target
+   point is drawn at full opacity.
 
 # Arguments
 - `src_pts::AbstractVector{<:Point2}`: Source (e.g., projected 3D) points
 - `tgt_pts::AbstractVector{<:Point2}`: Target (e.g., detected 2D) points
 
 # Attributes
-- `weights=nothing`: Per-correspondence α ∈ [0,1] (mode 3)
 - `colormap=nothing`: Colormap symbol for per-match colors (mode 2)
 - `colors=nothing`: Explicit per-match color vector (mode 1)
 - `src_color=:cyan`: Source marker color (weight mode only)
@@ -51,8 +53,8 @@ Three coloring modes are supported (checked in priority order):
 
 # Examples
 ```julia
-# Alpha-weighted (pose verification — inlier probabilities)
-matches!(ax, proj_pts, det_pts; weights)
+# Alpha-weighted (pose verification — inlier probabilities travel with the detections)
+matches!(ax, proj_pts, [Attributed(x, (; weight = p)) for (x, p) in zip(det_pts, posterior)])
 
 # Colormap-indexed (feature matching — identify correspondences)
 matches!(ax, src_pts, tgt_pts; colormap=:hsv)
@@ -64,7 +66,6 @@ matches!(ax, src_pts, tgt_pts; colors)
 """
 @recipe(Matches, src_pts, tgt_pts) do scene
     Attributes(
-        weights = nothing,
         colormap = nothing,
         colors = nothing,
         src_color = :cyan,
@@ -81,13 +82,13 @@ matches!(ax, src_pts, tgt_pts; colors)
 end
 
 function Makie.plot!(p::Matches)
-    src = p.src_pts[]
-    tgt = p.tgt_pts[]
+    src = value_of.(p.src_pts[])
+    tgt_data = p.tgt_pts[]
+    tgt = value_of.(tgt_data)
     n = length(src)
 
     cmap = p.colormap[]
     match_colors = p.colors[]
-    weights = p.weights[]
 
     if !isnothing(match_colors)
         # Mode 1: Explicit per-match colors
@@ -97,8 +98,8 @@ function Makie.plot!(p::Matches)
         cs = [Makie.cgrad(cmap, n, categorical = true)[i] for i in 1:n]
         _matches_colored!(p, src, tgt, cs, n)
     else
-        # Mode 3/4: Alpha-weighted fixed colors
-        α = something(weights, ones(Float32, n))
+        # Mode 3: fixed colors, alpha the target points' weights (1 for a bare point)
+        α = Float32.(weight_of.(tgt_data))
 
         if p.show_markers[]
             Makie.scatter!(

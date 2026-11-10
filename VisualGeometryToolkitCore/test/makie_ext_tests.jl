@@ -116,4 +116,18 @@
         zs = unique(round.(Float64[p[3] for p in drawn]; digits = 4))
         @test sort(zs) == [0.0, 5.0]
     end
+
+    @testset "matches: per-match alpha is the target point's weight_of" begin
+        src = [Point2(1.0, 2.0), Point2(3.0, 4.0), Point2(5.0, 6.0)]
+        bare = [Point2(1.5, 2.0), Point2(3.5, 4.0), Point2(5.5, 6.0)]
+        tgt = [VgtkCore.Attributed(x, (; weight = w)) for (x, w) in zip(bare, (0.25, 0.5, 1.0))]
+        fig, ax, pl = VgtkCore.matches(src, tgt)
+        sc = filter(q -> q isa Makie.Scatter, pl.plots)
+        @test length(sc) == 2
+        @test [Makie.to_color(c).alpha for c in sc[2].color[]] ≈ [0.25, 0.5, 1.0]
+        @test sc[2][1][] ≈ Point2f.(bare)                                  # drawn at the values
+        fig, ax, pl = VgtkCore.matches(src, bare)                          # bare targets: opaque
+        @test all(c -> Makie.to_color(c).alpha == 1, filter(q -> q isa Makie.Scatter, pl.plots)[2].color[])
+        @test !haskey(pl.attributes, :weights)                             # no parallel weights attribute
+    end
 end

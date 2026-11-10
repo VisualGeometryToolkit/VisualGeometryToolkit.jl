@@ -20,7 +20,7 @@ module VisualGeometryToolkitFeaturesMakieExt
 # which delegates to `Ellipse(center, Σ::Symmetric)` with `Σ = inv(Λ)`.
 
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, Uncertain, PrecMat, CovMat,
-    Point2, Ellipse, Cspond, sources, targets, feature_frame
+    Point2, Ellipse, Cspond, sources, targets, feature_frame, Attributed, weight_of, value_of
 import VisualGeometryToolkitFeatures: detections!
 using VisualGeometryToolkitCore: AbstractDetection   # a detection of a frame or of an uncertain frame
 import VisualGeometryToolkitCore: matches, matches!, ellipses!
@@ -42,19 +42,22 @@ const _PlainEndpoint = AbstractVector
 #
 # Plain-point overload: scatter color-coded endpoints on each axis.  `cs` may
 # be a `StructArray{Cspond{S,T}}` (built via `csponds(src, tgt)`) — its
-# `first`/`second` columns are accessed directly.
+# `first`/`second` columns are accessed directly. A cspond may carry its
+# weight, `Attributed(src => tgt, (; weight))`: the weight (`weight_of`, in
+# [0, 1]) is its markers' alpha; a bare cspond is drawn opaque.
+const _PlainCspond = Cspond{<:_PlainEndpoint, <:_PlainEndpoint}
 function matches!(
         ax_A, ax_B,
-        cs::AbstractVector{<:Cspond{<:_PlainEndpoint, <:_PlainEndpoint}};
+        cs::AbstractVector{<:Union{_PlainCspond, Attributed{<:_PlainCspond}}};
         colormap = :hsv,
         markersize::Real = 4.0,
         marker = :cross
     )
     n = length(cs)
     cmap = cgrad(colormap, n, categorical = true)
-    cols = [cmap[i] for i in 1:n]
-    src = [Point2{Float64}(p[1], p[2]) for p in sources(cs)]
-    tgt = [Point2{Float64}(p[1], p[2]) for p in targets(cs)]
+    cols = [(cmap[i], Float32(weight_of(cs[i]))) for i in 1:n]
+    src = [Point2{Float64}(first(value_of(c))[1], first(value_of(c))[2]) for c in cs]
+    tgt = [Point2{Float64}(last(value_of(c))[1], last(value_of(c))[2]) for c in cs]
     Makie.scatter!(ax_A, src; color = cols, markersize = markersize, marker = marker)
     Makie.scatter!(ax_B, tgt; color = cols, markersize = markersize, marker = marker)
     return nothing
@@ -139,7 +142,7 @@ end
 # forwarded to `matches!`.
 function matches(
         img_A, img_B,
-        cs::AbstractVector{<:Pair};
+        cs::AbstractVector{<:Union{Pair, Attributed{<:Pair}}};
         axis = (;),
         figure = (;),
         kwargs...

@@ -16,6 +16,9 @@ sensor — so every consumer asks the camera what it images instead of supplying
   bare (weight 1) or `Attributed(R_ij, (; weight))`. The positional `weights` dictionary is gone.
 - **Breaking: `Incumbent` is retired**: the best iterate of a descent is `Attributed(θ, (; cost))`, and
   `keep_best(best, θ, cost)` takes and returns one (`best.value`, `best.cost`).
+- **Breaking: the `matches` recipe has no `weights` attribute**: in its fixed-color mode a match's alpha is its target
+  point's `weight_of` (`Attributed(x, (; weight = p))`; a bare point is opaque), and points are drawn at their
+  `value_of`.
 
 - **`spectral_rotation_averaging` computes only its three leading eigenvectors** (the symmetric eigensolver's range
   form): the same rotations, about 4× faster at 300 frames.

@@ -57,6 +57,7 @@ import VisualGeometryToolkitCore: imshow, imshow!
 import VisualGeometryToolkitCore: plot_rectification   # extended in plotting/rectification.jl
 using VisualGeometryToolkitCore: FramedImage   # self-placing imshow forms (plotting/image.jl)
 import VisualGeometryToolkitCore: matches, matches!
+using VisualGeometryToolkitCore: weight_of, value_of   # a match's alpha and point (matches_recipe.jl)
 import VisualGeometryToolkitCore: poly!
 import VisualGeometryToolkitCore: LScene3D, camera!
 import VisualGeometryToolkitCore: cameraplot, cameraplot!

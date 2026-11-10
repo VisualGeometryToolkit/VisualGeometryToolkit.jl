@@ -1,5 +1,10 @@
 # VisualGeometryToolkitFeatures changelog
 
+## Unreleased
+
+- **The two-axis `matches!(ax_A, ax_B, cs)` and `matches(img_A, img_B, cs)` take weighted csponds**: a cspond is bare
+  (opaque) or `Attributed(src => tgt, (; weight))`, its weight (Core's `weight_of`, in [0, 1]) the alpha of its markers.
+
 ## 0.6.1 (2026-11-09)
 
 - On VisualGeometryToolkitCore 0.8 (compat `"0.8"`); nothing else changes.

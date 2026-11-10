@@ -155,7 +155,7 @@ function _k_from_record(k, frame::Type{<:PixelFrame})
     c = EuclideanMap(frame, CANONICAL_PIXEL_FRAME)(SVector{2, Float64}(K[1, 3], K[2, 3]))
     return CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0, 0, K[1, 2], K[2, 2], 0, c[1], c[2], 1))
 end
-# the five numbers as an array, as stored (a generic model's nominal pinhole,
+# the five numbers as an array, as stored (an old grid record's nominal pinhole,
 # the identity's intrinsics: no frame conversion, so a `-0.0` stays), and back
 _k_values(K::CameraCalibrationMat) = collect(Float64, _k_five(K, K[1, 3], K[2, 3]))
 _k_from_values(v) = _k_from_record(NamedTuple{(:fx, :fy, :cx, :cy, :skew)}(Tuple(v)))
@@ -175,7 +175,7 @@ JSON.lift(::VgioStyle, ::Type{Rect2}, v::AbstractVector{Any}) =
     (r = Float64[Float64(x::Real) for x in v]; Rect2{Float64}(r[1], r[2], r[3], r[4]))
 
 # A stored ellipse's invariants, as VGC's `Ellipse` holds it — semi-axes positive, the major first — so it reads back as
-# the numbers the file holds; the message names `what`, or `nothing` when they hold. (A generic model's domain, a
+# the numbers the file holds; the message names `what`, or `nothing` when they hold. (A spline lens camera's domain, a
 # camera store's image ellipse.)
 function _ellipse_record_problem(e, what)
     (e[3] > 0 && e[4] > 0) || return "$(what)'s semi-axes are positive; got a = $(e[3]), b = $(e[4])"

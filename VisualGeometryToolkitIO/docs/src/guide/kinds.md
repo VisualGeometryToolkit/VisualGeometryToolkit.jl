@@ -69,7 +69,7 @@ existing files keep their names.
 A camera bounded by its physical sensor (`BoundedCamera(camera, sensor::Sensor)`)
 carries the sensor's pixel pitch in its camera body, `"pitch": [width, height]`,
 a length per pixel in the file's `length_unit` — a rig sensor (parametric or
-generic grid model), and a camera of the store, which then declares
+SplineLens camera), and a camera of the store, which then declares
 `length_unit`. The readers restore the `Sensor` bound, and a rig's `content_id`
 covers the pitch. A camera bounded by a bare pixel extent has no `pitch` key.
 

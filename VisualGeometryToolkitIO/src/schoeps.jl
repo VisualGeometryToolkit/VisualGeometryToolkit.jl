@@ -24,7 +24,7 @@
 # of the top-left pixel, so the centre of pixel (i, j) is (i + ½, j + ½):
 # that IS `PixelFrame{:colmap}` (pixel-origins.md), the identity
 # `EuclideanMap(PixelFrame{:colmap}, PixelFrame{:colmap})` — no half pixel is
-# added anywhere. `SCHOEPS_PIXEL_FRAME` names it once: the generic models are
+# added anywhere. `SCHOEPS_PIXEL_FRAME` names it once: the spline models are
 # defined in it (VGC's own types are COLMAP-frame by construction), and the
 # detections come back typed in it (`TargetPoints2D{SCHOEPS_PIXEL_FRAME}`),
 # so moving them to another convention is `convert_frame`, explicitly.

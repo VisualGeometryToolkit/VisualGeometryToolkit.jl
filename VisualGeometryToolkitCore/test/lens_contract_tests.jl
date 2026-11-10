@@ -17,7 +17,7 @@
         # A family that folds must report the fold in BOTH currencies: the
         # incidence angle (`view_angle_limit`) and the distorted radius
         # (`monotone_radius`). Kannala–Brandt reported the angle and fell
-        # through to `Inf` for the radius, so the generic models' node sampler
+        # through to `Inf` for the radius, so the spline models' node sampler
         # (then clamped at the horizon, `fx · monotone_radius`) clamped nothing
         # and a spline grid built from such a camera filled its
         # control grid with NaN. The two must be the same fold.

@@ -428,7 +428,7 @@ end
     @test imaged[1] == imaged[2]
 end
 
-@testitem "SplineLens: undistort and rectify through the generic camera path" begin
+@testitem "SplineLens: undistort and rectify through the CameraModel warp path" begin
     using Test
     using StaticArrays
     using LinearAlgebra: norm
@@ -443,7 +443,7 @@ end
     import KernelAbstractions as KA
 
     # =============================================================================
-    # A SplineLens camera undistorts and rectifies through the generic CameraModel
+    # A SplineLens camera undistorts and rectifies through the CameraModel
     # path (`distortion_map` → `image_warp` → the one KernelAbstractions warp kernel
     # on the destination's backend): against the golden undistortion of the old
     # grid model (test/fixtures/spline_lens_golden.jl) and against an exact per-pixel

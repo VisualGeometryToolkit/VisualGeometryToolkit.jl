@@ -85,7 +85,7 @@ function _manifest_kind_check(x)
     return nothing
 end
 
-# A model's intrinsics must be the kind's (a generic grid is metric); a kind its records do not contradict.
+# A model's intrinsics must be the kind's (a spline lens camera is metric); a kind its records do not contradict.
 function _manifest_model_check(x)
     msg = _manifest_kind_check(x)
     msg === nothing || return msg

@@ -1291,7 +1291,7 @@ _rig_v4_id(old::AbstractDict) =
 # 6-digit metre values, and so another identity. v4's value also differed
 # from the file where v4's reader changed a number: a quaternion was
 # canonicalized to w ≥ 0 (`canonical_qvec`, which the current pose reader
-# shares), and a generic model's direction controls were renormalized unless
+# shares), and an old grid model's direction controls were renormalized unless
 # unit to 1e-12 (VisualGeometryToolkitCore 0.1's `_unit_or_normalize`, which
 # the current reader no longer applies: `_v4_direction`). The rest of the
 # record (order, rotations, cameras) is the current writer's re-emission of

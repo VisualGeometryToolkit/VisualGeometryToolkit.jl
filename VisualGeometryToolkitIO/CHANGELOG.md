@@ -7,7 +7,8 @@ On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
 - **Breaking: an old grid file whose lattice has no complete 4 × 4 window at the gauge's pixel, and no
   `nominal_intrinsics`, is refused** (Core's gauge: no scale to derive K from), where 0.8 loaded it; supply K with
   the new keyword `load(BoundedCamera, path; intrinsics = K)` (also `load(Dict{Symbol, BoundedCamera}, …)` and
-  `load(CameraModel, …)`), used only when the record holds no K (a record that holds one refuses it); the file is
+  `load(CameraModel, …)`; an old rig's grid sensors take one per sensor id, `load(Rig, path; intrinsics =
+  Dict(:id => K))`), used only when the record holds no K (a record that holds one refuses it); the file is
   never edited. With a stored nominal pinhole it loads as before.
 - **Breaking: the OpenCV calibration JSON declares its pixel frame under `pixel_frame`**: `save_opencv_calibration`
   writes `"pixel_frame"`; `load_opencv_calibration` reads it, and also the legacy key of files written before 0.9

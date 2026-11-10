@@ -455,6 +455,21 @@ end
         v8 = joinpath(dir, "grig_v8.json"); write(v8, JSON.json(t, 4))
         r = VgtkIO.vgio_migrate(v8)
         @test r.old_ids == ["9cfb569ce7b14e9e31416b3e70e13af89819a36e5c64f4a8899720579c577d51"] && r.new_id == content_id(grig)
+        # a grid sensor that stores no K: the reader supplies it, keyed by sensor id; the sensor's rays are the same
+        # camera's; a sensor that holds its K, or an unknown id, refuses one
+        delete!(t["sensors"][1]["camera"], "nominal_intrinsics")
+        sid = Symbol(t["sensors"][1]["id"])
+        nok = joinpath(dir, "grig_v8_nok.json"); write(nok, JSON.json(t, 4))
+        before = read(nok)
+        given = load(Rig, nok; intrinsics = Dict(sid => K))
+        gm = VisualGeometryToolkitCore.model(given.members[1])
+        @test gm.intrinsics.K == K && read(nok) == before
+        @test all(u -> isapprox(VisualGeometryToolkitCore.backproject(gm, u), VisualGeometryToolkitCore.backproject(gc, u); atol = 1.0e-12),
+            [SVector(x, y) for x in 0.5:5.0:63.5 for y in 0.5:5.0:47.5])
+        for (q, Ks) in ((v8, Dict(sid => K)), (nok, Dict(:nope => K)))
+            e = try load(Rig, q; intrinsics = Ks); nothing catch e; e end
+            @test e isa ArgumentError && (occursin("holds its K", e.msg) || occursin("no sensor", e.msg))
+        end
     end
 end
 

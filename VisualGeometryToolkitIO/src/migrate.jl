@@ -1095,7 +1095,7 @@ function _old_grid_camera(b::AbstractDict)
         build()
     catch e
         (e isa ArgumentError && occursin("supply K", e.msg)) || rethrow()
-        throw(ArgumentError(e.msg * "; an old grid file that stores no nominal pinhole takes it from the reader: load(BoundedCamera, path; intrinsics = K)"))
+        throw(ArgumentError(e.msg * "; an old grid file that stores no nominal pinhole takes it from the reader: load(BoundedCamera, path; intrinsics = K), or load(Rig, path; intrinsics = Dict(:sensor_id => K))"))
     end
 end
 # An old body's domain as the camera's lens coverage, and its pitch (a rig's), as the new bodies hold them.
@@ -1137,19 +1137,38 @@ function _generic_camera_v3_to_noncentral(old)
 end
 
 # The parsed file `d` with the K a caller supplies (`load(…; intrinsics)`): `nothing`
-# leaves it as it is; an old grid file that stores no nominal pinhole takes `K` as
-# one (in the parsed record only — the file is never edited), and any record that
-# holds a K refuses it.
-function _with_given_intrinsics(d, intrinsics::Union{Nothing, CameraCalibrationMat}, path)
-    intrinsics === nothing && return d
-    (d isa AbstractDict && get(d, :schema, nothing) in _OLD_GRID_SCHEMAS && !haskey(d, Symbol(_OLD_NOMINAL_KEY))) || throw(
-        ArgumentError("$(path): the record holds its K; `intrinsics` supplies K only to an old grid file that stores none")
-    )
+# leaves it as it is. An old grid body that stores no nominal pinhole takes the given
+# K as one (in the parsed record only — the file is never edited): the body of an old
+# grid file (`intrinsics` one K), or of an old rig's grid sensors (`intrinsics` a K per
+# sensor id). A record that holds its K refuses one, and so does an unknown sensor.
+_with_given_intrinsics(d, ::Nothing, path) = d
+function _with_given_intrinsics(d, K::CameraCalibrationMat, path)
+    (d isa AbstractDict && get(d, :schema, nothing) in _OLD_GRID_SCHEMAS) || _holds_k(path, "the record")
     t = _lower(d)
-    K = intrinsics
-    t[_OLD_NOMINAL_KEY] = Any[Float64(K[1, 1]), Float64(K[2, 2]), Float64(K[1, 3]), Float64(K[2, 3]), Float64(K[1, 2])]
+    _give_nominal!(t, K, path, "the record")
     return _parse_vgio_text(JSON.json(t; allownan = true), path)
 end
+function _with_given_intrinsics(d, Ks::AbstractDict{Symbol, <:CameraCalibrationMat}, path)
+    t = _lower(d)
+    sensors = Dict{String, Any}(String(s["id"]) => s for s in get(t, "sensors", Any[]) if s isa AbstractDict && haskey(s, "id"))
+    for (id, K) in Ks
+        s = get(sensors, String(id), nothing)
+        s === nothing && throw(ArgumentError("$(path): no sensor $(repr(String(id))) to supply K to; sensors: $(sort!(collect(keys(sensors))))"))
+        c = s["camera"]
+        (c isa AbstractDict && get(c, "type", nothing) in (_OLD_CENTRAL_TYPE, _OLD_NONCENTRAL_TYPE)) || _holds_k(path, "sensor $(repr(String(id)))")
+        _give_nominal!(c, K, path, "sensor $(repr(String(id)))")
+    end
+    return _parse_vgio_text(JSON.json(t; allownan = true), path)
+end
+# An old grid body `b` without a nominal pinhole takes K as one.
+function _give_nominal!(b::AbstractDict, K::CameraCalibrationMat, path, what)
+    haskey(b, _OLD_NOMINAL_KEY) && _holds_k(path, what)
+    b[_OLD_NOMINAL_KEY] = Any[Float64(K[1, 1]), Float64(K[2, 2]), Float64(K[1, 3]), Float64(K[2, 3]), Float64(K[1, 2])]
+    return b
+end
+_holds_k(path, what) = throw(
+    ArgumentError("$(path): $(what) holds its K; `intrinsics` supplies K only to an old grid body that stores none")
+)
 
 # A parsed file that is a central vgio/generic_camera/v2 or v3 record.
 _is_central_grid(d) = d isa AbstractDict && get(d, :schema, nothing) in _OLD_GRID_SCHEMAS &&

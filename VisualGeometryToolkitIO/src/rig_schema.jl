@@ -860,7 +860,7 @@ save(path::AbstractString, rig::Rig; length_unit::Units = mm, provenance::NamedT
     (_write_store(path, _RIG_SPEC, _with_provenance(_rig_body(rig, length_unit), provenance); style = VgioStyle(; length_unit)); nothing)
 
 """
-    load(Rig, path; resolve = nothing) -> Rig
+    load(Rig, path; resolve = nothing, intrinsics = nothing) -> Rig
 
 Read a `vgio/rig/v9` file back into a fully labeled VGC `Rig` of the storage
 it holds, its lengths in metres: sensors (each a `BoundedCamera` labeled `frame → ViewFrame{id}`),
@@ -869,9 +869,14 @@ targets (each a `PosedTarget`, minted `TargetFrame{id} → frame` on access), or
 [`target_from_json`](@ref)). Type-unstable by nature (frame types are minted
 from file data) — load once, dispatch after. A `vgio/rig/v4`–`v8` file is
 read through its version steps (`migrate_record`): a v8 sensor's old grid body
-as its spline camera.
+as its spline camera. `intrinsics` (sensor id → `CameraCalibrationMat`, in the
+canonical pixel frame) supplies K to an old grid sensor that stores no nominal
+pinhole — one whose lattice has no complete 4 × 4 window at the gauge's pixel is
+refused without it — read as if the file held it (the file is never edited); a
+sensor that holds its K, or an unknown id, refuses it.
 """
-load(::Type{Rig}, path::AbstractString; resolve = nothing) = _rig_from_record(_read_store(path, "rig", _RIG_SPEC); resolve)
+load(::Type{Rig}, path::AbstractString; resolve = nothing, intrinsics::Union{Nothing, AbstractDict{Symbol, <:CameraCalibrationMat}} = nothing) =
+    _rig_from_record(_checked_store(_with_given_intrinsics(_read_vgio_json(path), intrinsics, path), path, "rig", _RIG_SPEC); resolve)
 
 function _rig_from_record(d; resolve = nothing)
     F = frame_from_name(d.frame::String)

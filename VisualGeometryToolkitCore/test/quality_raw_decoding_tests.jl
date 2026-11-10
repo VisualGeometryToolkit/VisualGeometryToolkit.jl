@@ -48,6 +48,21 @@
     # the decoder trigger is a dependency, and the mosaic's metadata field a name, not a decoding path
     @test isempty(findings("test/a.jl" => "md = (; decoder = \"test\", $(lr)version = \"\")\n"))
     @test isempty(findings("Project.toml" => "name = \"Consumer\"\n[weakdeps]\nLibRaw_jll = \"d66ac3f3-933a-5ab8-8aa2-9e591b3c5af3\"\n"))
+    # the Features API in display mode is the approved path in every repository; a hand-rolled
+    # demosaic, or the mode given to anything else, stays flagged
+    @test isempty(findings("src/fig.jl" => "img = VgtkFeatures.load_raw(f; mode = :$dm, white_balance = wb).image\n"))
+    @test isempty(findings("src/fig.jl" => "L = LinearRaw(m; mode = :$dm)\n"))
+    @test uses("src/fig.jl" => "rgb = $(dm)(mosaic)\n") == [:demosaic]
+    @test uses("src/fig.jl" => "img = my_decode(f; mode = :$dm)\n") == [:demosaic]
+    # a conda environment file is code too
+    @test uses("environment.yml" => "dependencies:\n  - $rp>=0.25\n") == [:rawpy]
+    # a repository's genuine exception (rare): a path, or a pattern over paths
+    vendored = "scripts/legacy/a.py" => "import $rp\n"
+    @test uses(vendored) == [:rawpy]
+    @test isempty(mktempdir() do dir
+        mkpath(joinpath(dir, "scripts", "legacy")); write(joinpath(dir, first(vendored)), last(vendored))
+        (check_raw_decoding(dir; allow = ["scripts/legacy/a.py"]), check_raw_decoding(dir; allow = [r"^scripts/legacy/"]))
+    end |> x -> vcat(x...))
     # the raw module itself is the one place: allow-listed in VisualGeometryToolkitFeatures only
     mod = "src/raw_image.jl" => "f(h) = @ccall libraw.$(lr)dcraw_process(h::Ptr{Cvoid})::Cint  # $dm\n"
     @test isempty(findings(mod; name = "VisualGeometryToolkitFeatures"))

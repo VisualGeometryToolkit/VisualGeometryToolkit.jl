@@ -170,7 +170,8 @@ level) is kept.
 - `plane_offsets::Vector{SVector{2, Float64}}` — per plane, where its sample
   sits relative to the pixel centre, `(Δx, Δy)` in this image's pixels: the
   sample of pixel `(row, column)`, plane `k`, is at the COLMAP point
-  `(column − ½, row − ½) + plane_offsets[k]`.
+  `(column − ½, row − ½) + plane_offsets[k]`. Empty for `:demosaic`, whose
+  pixels are interpolated, not samples.
 - `green_offsets` — the cell's two green photosites, `(Δx, Δy)` from the cell
   centre in RAW pixels ([`green_cell_sites`](@ref)); `nothing` for `:demosaic`.
 - `mode`, `gain`, the mosaic's `metadata` (the decoder and LibRaw's version
@@ -296,7 +297,8 @@ function _cells(m::RawMosaic, gain::Float64, mode::Symbol)
     backend = KA.get_backend(img)
     _cells_kernel!(backend)(img, sat, m.raw, used, sites, black, den, gain, m.white; ndrange = (H2, W2))
     KA.synchronize(backend)
-    offsets = [sum(site_offset, ks) / (2 * length(ks)) for ks in used]
+    # in cell pixels: the frame map's scale, the one place it is stated
+    offsets = [sum(site_offset, ks) / (length(ks) * scale(_CELL_FRAME_MAP)) for ks in used]
     return LinearRaw(img, BitMatrix(sat), offsets, green_offsets, mode, gain, _CELL_FRAME_MAP, m.metadata)
 end
 
@@ -312,7 +314,8 @@ function _demosaic_image(rgb::Array{UInt16, 3}, metadata::NamedTuple, gain::Floa
         img[i, j, c] = (Float64(rgb[i, j, c]) / 65535) * wb[c] * gain
     end
     sat = BitMatrix(dropdims(any(==(typemax(UInt16)), rgb; dims = 3); dims = 3))
-    return LinearRaw(img, sat, fill(SVector(0.0, 0.0), 3), nothing, :demosaic, gain, nothing, metadata)
+    # no sample positions: every pixel is interpolated
+    return LinearRaw(img, sat, SVector{2, Float64}[], nothing, :demosaic, gain, nothing, metadata)
 end
 
 # The display demosaic carries no geometry: the refusal every geometric accessor shares.
@@ -329,8 +332,10 @@ exactly, for every Bayer phase and either parity of the visible origin (the
 cells start at the visible area's first photosite; an odd margin changes only
 the cell's colour phase). Its inverse is `inv(raw_frame_map(L))`, and a
 calibration matrix moves with it through Core,
-`reframed_calibration(raw_frame_map(L), K_cells)` (and back with the
-inverse). A `:demosaic` image is refused (`ArgumentError`): it is for display.
+`reframed_calibration(raw_frame_map(L), K_cells)`, `K_cells` in the cell
+image's pixels (`BayerCellFrame`), giving K in the raw's pixels (and back
+with the inverse; K carries no frame label, so which frame it is in is the
+caller's statement). A `:demosaic` image is refused (`ArgumentError`): it is for display.
 """
 raw_frame_map(L::LinearRaw) = _geometric(L, "raw_frame_map").frame_map
 

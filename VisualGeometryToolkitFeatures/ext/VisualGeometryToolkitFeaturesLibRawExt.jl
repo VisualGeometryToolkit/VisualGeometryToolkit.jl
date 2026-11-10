@@ -293,8 +293,11 @@ end
 
 # Locate the live structures and check the mirror against the accessors
 # (checks 1–2 of the header comment; they hold once the file is open).
+# The live `sizes`: libraw_data_t's second field, after the `image` pointer.
+_sizes_ptr(lr::Ptr{Cvoid}) = lr + sizeof(Ptr{Cvoid})
+
 function _structures(lr::Ptr{Cvoid})
-    sizes_p = lr + sizeof(Ptr{Cvoid})
+    sizes_p = _sizes_ptr(lr)
     idata_p = Ptr{Cvoid}(@ccall libraw.libraw_get_iparams(lr::Ptr{Cvoid})::Ptr{Cvoid})
     other_p = Ptr{Cvoid}(@ccall libraw.libraw_get_imgother(lr::Ptr{Cvoid})::Ptr{Cvoid})
     _check("idata offset", idata_p == sizes_p + sizeof(ImageSizes))
@@ -429,7 +432,7 @@ function _demosaiced(lr::Ptr{Cvoid}, path::AbstractString)
     end
     rc = @ccall libraw.libraw_dcraw_process(lr::Ptr{Cvoid})::Cint
     rc == 0 || error("load_raw: LibRaw cannot demosaic $path: $(_strerror(rc))")
-    _store_flip!(lr + sizeof(Ptr{Cvoid}), 0)                   # the live `sizes`: the sensor's orientation
+    _store_flip!(_sizes_ptr(lr), 0)                   # the live `sizes`: the sensor's orientation
     err = Ref{Cint}(0)
     img = @ccall libraw.libraw_dcraw_make_mem_image(lr::Ptr{Cvoid}, err::Ptr{Cint})::Ptr{ProcessedImageHeader}
     img == C_NULL && error("load_raw: LibRaw cannot copy out the demosaic of $path: $(_strerror(err[]))")

@@ -6,8 +6,8 @@
 # (src/raw_image.jl, ext/VisualGeometryToolkitFeaturesLibRawExt.jl). This scan
 # flags a decoding library or a colour-filter interpolation used anywhere else,
 # line by line, in code only: Julia files without their comments and
-# docstrings (Julia's own tokenizer separates them), Python, shell and TOML
-# files without their `#` comments. Prose (Markdown, comments) names the
+# docstrings (Julia's own tokenizer separates them), Python, shell, TOML and
+# YAML files without their `#` comments. Prose (Markdown, comments) names the
 # retired paths freely. Like `check_naming`, the patterns are BUILT from
 # fragments, so this file spells none of the words it flags.
 # =============================================================================
@@ -30,7 +30,19 @@ const _RAW_DECODING_USES = (
 const _PNG_READ = Regex("PNG" * "Files\\.load\\(|\\bGray\\.\\(")
 const _DECODED_OUTPUT = r"(?i)linear|decoded|prepared|bin2|green|raw_|_raw\b"
 
-const _RAW_CODE_EXTENSIONS = (".jl", ".py", ".sh", ".sbatch", ".toml")
+const _RAW_CODE_EXTENSIONS = (".jl", ".py", ".sh", ".sbatch", ".toml", ".yml", ".yaml")
+
+# The approved display path in every repository: the Features API asked for its display
+# mode, `load_raw(…; mode = :<display>)` or `LinearRaw(…; mode = :<display>)`. On a line
+# that calls either, that mode keyword is the API's, not a decoding path: it is taken out
+# before the line is matched (anything else on the line is still matched).
+const _FEATURES_RAW_CALL = r"\b(load_raw|LinearRaw)\s*\("
+const _DISPLAY_MODE = Regex("\\bmode\\s*=\\s*:" * _DEMOSAIC * "\\b")
+_without_display_call(line) = occursin(_FEATURES_RAW_CALL, line) ? replace(line, _DISPLAY_MODE => "") : line
+
+# A repository's genuine exception: a relative path, or a pattern over relative paths.
+_allowed(f, a::AbstractString) = f == a
+_allowed(f, a::Regex) = occursin(a, f)
 
 # The one allowed place: the raw module of the package that owns it, and its tests.
 const _RAW_MODULE_PACKAGE = "VisualGeometryToolkitFeatures"
@@ -75,22 +87,23 @@ function _hash_code_lines(src::AbstractString)
     end
 end
 
-function check_raw_decoding(dir::AbstractString)
+function check_raw_decoding(dir::AbstractString; allow = ())
     (; files) = naming_scope(dir)
     # (`_package_name` is check_naming's reader of the Project.toml name)
     allowed = _package_name(dir) == _RAW_MODULE_PACKAGE ? Set(_RAW_MODULE_FILES) : Set{String}()
     out = RawDecodingViolation[]
     for f in files
         any(e -> endswith(f, e), _RAW_CODE_EXTENSIONS) || continue
-        f in allowed && continue
+        (f in allowed || any(a -> _allowed(f, a), allow)) && continue
         src = read(joinpath(dir, f), String)
         lines = endswith(f, ".jl") ? _julia_code_lines(src) : _hash_code_lines(src)
-        for (n, line) in enumerate(lines)
+        for (n, code) in enumerate(lines)
+            line = _without_display_call(code)
             for (use, re) in _RAW_DECODING_USES
-                occursin(re, line) && push!(out, RawDecodingViolation(f, n, strip(line), use))
+                occursin(re, line) && push!(out, RawDecodingViolation(f, n, strip(code), use))
             end
             occursin(_PNG_READ, line) && occursin(_DECODED_OUTPUT, line) &&
-                push!(out, RawDecodingViolation(f, n, strip(line), :png_raw_output))
+                push!(out, RawDecodingViolation(f, n, strip(code), :png_raw_output))
         end
     end
     return out

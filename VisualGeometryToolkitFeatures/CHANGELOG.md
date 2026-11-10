@@ -19,7 +19,8 @@
 - **New: `mode = :demosaic`, for display figures only**: LibRaw's AHD demosaic (`libraw_dcraw_process`, linear: gamma 1,
   no auto-brightening, no maximum adjustment, 16 bits, raw colour, white balance 1) of the visible area, with an
   optional `white_balance` and the gain applied in Julia. It carries no frame map: `raw_frame_map` and
-  `green_cell_sites` refuse it. Through `load_raw(path; mode = :demosaic)` only.
+  `green_cell_sites` refuse it, and its `plane_offsets` is empty (no pixel is a sample). Through
+  `load_raw(path; mode = :demosaic)` only.
 - **The EXIF flip is never applied, in any mode** (the demosaic zeroes LibRaw's `flip` before it copies the image
   out); a demosaic whose output is not the visible area's size is refused.
 - **New: provenance.** `LinearRaw` carries its `frame_map`; `raw_provenance(L)` (public) gives the decoder, LibRaw's

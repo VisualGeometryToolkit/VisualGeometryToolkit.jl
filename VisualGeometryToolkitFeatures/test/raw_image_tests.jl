@@ -229,42 +229,57 @@ end
     using LibRaw_jll: LibRaw_jll, libraw
     VGF = VisualGeometryToolkitFeatures
     X = Base.get_extension(VGF, :VisualGeometryToolkitFeaturesLibRawExt)
-    # A synthetic Bayer buffer opened by LibRaw itself (libraw_open_bayer), RGGB, a dark top half
-    # and a bright bottom half, with the EXIF orientation set to portrait (flip 6: 90° CW) the way
-    # a camera held upright records it. The display image keeps the sensor's landscape grid.
+    # A synthetic Bayer buffer opened by LibRaw itself (libraw_open_bayer), RGGB, its top-left
+    # quadrant dark and the rest bright, with the EXIF orientation set the way a camera records it
+    # held upside down (flip 3: 180°) or upright (5: 90° CCW, 6: 90° CW). The display image keeps
+    # the sensor's grid and its content where the sensor saw it: a 180° turn keeps H × W, so the
+    # content is what tells it apart.
     H, W = 48, 64
-    data = UInt16[i <= H ÷ 2 ? 2000 : 30000 for i in 1:H, j in 1:W]
+    data = UInt16[(i <= H ÷ 2 && j <= W ÷ 2) ? 2000 : 30000 for i in 1:H, j in 1:W]
     buf = collect(reinterpret(UInt8, vec(permutedims(data))))
-    lr = @ccall libraw.libraw_init(0::Cuint)::Ptr{Cvoid}
-    try
-        rc = @ccall libraw.libraw_open_bayer(lr::Ptr{Cvoid}, buf::Ptr{UInt8}, length(buf)::Cuint, W::Cushort, H::Cushort,
-            0::Cushort, 0::Cushort, 0::Cushort, 0::Cushort, 0::Cuchar, 0x94::Cuchar, 0::Cuint, 0::Cuint, 512::Cuint)::Cint
-        @test rc == 0
-        @test (@ccall libraw.libraw_unpack(lr::Ptr{Cvoid})::Cint) == 0
-        # the portrait flag, in the live sizes and in the unpacked copy LibRaw's processing restores them from
-        s = X._structures(lr)
-        for sizes_p in (s.sizes_p, X._fieldptr(X._rawdata_ptr(s.other_p), X.RawData, :sizes))
-            X._store_flip!(sizes_p, 6)
+    function demosaic_with_flip(flip)
+        lr = @ccall libraw.libraw_init(0::Cuint)::Ptr{Cvoid}
+        try
+            rc = @ccall libraw.libraw_open_bayer(lr::Ptr{Cvoid}, buf::Ptr{UInt8}, length(buf)::Cuint, W::Cushort, H::Cushort,
+                0::Cushort, 0::Cushort, 0::Cushort, 0::Cushort, 0::Cuchar, 0x94::Cuchar, 0::Cuint, 0::Cuint, 512::Cuint)::Cint
+            rc == 0 || error("libraw_open_bayer: $rc")
+            (@ccall libraw.libraw_unpack(lr::Ptr{Cvoid})::Cint) == 0 || error("libraw_unpack")
+            # the flag, in the live sizes and in the unpacked copy LibRaw's processing restores them from
+            s = X._structures(lr)
+            for sizes_p in (s.sizes_p, X._fieldptr(X._rawdata_ptr(s.other_p), X.RawData, :sizes))
+                X._store_flip!(sizes_p, flip)
+            end
+            m = X._mosaic(lr, "synthetic.raw")
+            rgb, md = GC.@preserve buf X._demosaiced(lr, "synthetic.raw")
+            return m, rgb, md
+        finally
+            @ccall libraw.libraw_close(lr::Ptr{Cvoid})::Cvoid
         end
-        m = X._mosaic(lr, "synthetic.raw")
-        rgb, md = GC.@preserve buf X._demosaiced(lr, "synthetic.raw")
+    end
+    for flip in (3, 5, 6)
+        m, rgb, md = demosaic_with_flip(flip)
         L = VGF._demosaic_image(rgb, md, 1.0, nothing)
         @test L isa LinearRaw && L.mode === :demosaic
-        @test size(L.image) == (H, W, 3)          # landscape: the flip is never applied
-        @test all(L.image[1:20, :, :] .< L.image[29:end, :, :][1:20, :, :])   # the dark half stays on top
-        # linear: the flat bright half reads its level, (raw − black) / (white − black) to LibRaw's 16 bits
-        @test isapprox(L.image[40, 30, 2], (30000 - m.black[2]) / (m.white - m.black[2]); rtol = 1e-3)
-        # display only: no frame map, no footprint
-        @test_throws ArgumentError raw_frame_map(L)
-        @test_throws ArgumentError green_cell_sites(L, 1, 1)
-        @test raw_provenance(L).mode == "demosaic" && raw_provenance(L).frame_map === nothing
-        @test startswith(raw_provenance(L).libraw_version, "0.22")
-        # white balance, if asked, is applied in Julia: per channel, after LibRaw's linear output
-        Lw = VGF._demosaic_image(rgb, md, 2.0, (2.0, 1.0, 0.5))
-        @test Lw.image[:, :, 1] == L.image[:, :, 1] .* 2.0 .* 2.0 && Lw.image[:, :, 3] == L.image[:, :, 3] .* 0.5 .* 2.0
-    finally
-        @ccall libraw.libraw_close(lr::Ptr{Cvoid})::Cvoid
+        @test size(L.image) == (H, W, 3)          # the sensor's grid: the flip is never applied
+        g = L.image[:, :, 2]
+        q = (1:20, 1:28)                          # well inside the dark quadrant
+        @test maximum(g[q...]) < minimum(g[29:end, 37:end])   # dark top-left, bright bottom-right
+        @test maximum(g[q...]) < minimum(g[1:20, 37:end])     # and bright top-right: no mirror either
+        @test maximum(g[q...]) < minimum(g[29:end, 1:28])     # nor bright bottom-left
+        # linear: the flat bright part reads its level, (raw − black) / (white − black) to LibRaw's 16 bits
+        @test isapprox(g[40, 50], (30000 - m.black[2]) / (m.white - m.black[2]); rtol = 1e-3)
     end
+    m, rgb, md = demosaic_with_flip(0)
+    L = VGF._demosaic_image(rgb, md, 1.0, nothing)
+    # display only: no frame map, no footprint, no sample positions
+    @test_throws ArgumentError raw_frame_map(L)
+    @test_throws ArgumentError green_cell_sites(L, 1, 1)
+    @test isempty(L.plane_offsets)
+    @test raw_provenance(L).mode == "demosaic" && raw_provenance(L).frame_map === nothing
+    @test startswith(raw_provenance(L).libraw_version, "0.22")
+    # white balance, if asked, is applied in Julia: per channel, after LibRaw's linear output
+    Lw = VGF._demosaic_image(rgb, md, 2.0, (2.0, 1.0, 0.5))
+    @test Lw.image[:, :, 1] == L.image[:, :, 1] .* 2.0 .* 2.0 && Lw.image[:, :, 3] == L.image[:, :, 3] .* 0.5 .* 2.0
 end
 
 @testitem "raw: provenance records the decoder, the mode, LibRaw and the frame map" setup = [RawFixtures] begin

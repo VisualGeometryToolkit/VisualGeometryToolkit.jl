@@ -48,3 +48,12 @@ end
     end
     @test all(e -> e < 0.1, values(worst))
 end
+
+@testitem "AsiftPlan: an out-of-memory error halves the resident warps; any other error is raised" begin
+    import VisualGeometryToolkitFeatures as VF
+    import KernelAbstractions as KA
+    @test VF._out_of_memory(OutOfMemoryError()) && !VF._out_of_memory(ArgumentError("x"))
+    # an explicit chunk is honoured: the buffers of 3 warps, as asked
+    r = VF._pyramid_buffers(KA.CPU(), 64, 48, 70, 60, [(128, 96), (64, 48)], 3, 3, true)
+    @test r[5] == 3 && size(r[2]) == (64, 48, 3) && size(r[3][1]) == (128, 96, 6, 3)
+end

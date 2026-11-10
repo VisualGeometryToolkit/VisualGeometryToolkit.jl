@@ -152,6 +152,10 @@ function clear_asift_plans!()
         foreach(_free_plan!, values(_ASIFT_PLAN_CACHE))
         empty!(_ASIFT_PLAN_CACHE)
         empty!(_ASIFT_PLAN_ORDER)
+        # `unsafe_free!` releases a buffer only when no array derived from it (a reshape made during a detection) is
+        # still alive: those wrappers are garbage now, but may have been promoted past a young collection, so a full
+        # one drops them (measured: a panorama frame's 10.6 GiB plan stayed in use after the frees until it ran)
+        isempty(devices) || GC.gc()
         foreach(_reclaim_device_pool, devices)
     end
     return nothing

@@ -16,7 +16,11 @@
 - **`clear_asift_plans!()` returns the memory to the device** (CUDA.jl's pool is reclaimed), and a `LoMaDescriptor`
   or `LoMaMatcher` on ONNX Runtime's CUDA provider calls it before it runs: the cached plan (most of the device, sized
   from what was free) stayed resident after detection, and ONNX Runtime, which allocates outside CUDA.jl's pool, then
-  failed to allocate in a long-lived process. The next detection rebuilds its plan.
+  failed to allocate in a long-lived process. The next detection rebuilds its plan (+0.04 s on a 2128 × 1424 frame on
+  the RTX 4090; the release itself 0.3 s: a full collection, since `unsafe_free!` frees a buffer only once the arrays
+  derived from it during a detection are collected, and they held a 10.6 GiB plan in use until then). A plan whose
+  pyramid buffers no longer fit (another allocator grew after the chunk was sized from the free memory) halves its
+  resident warps and retries instead of failing; an explicit `chunk` is never shrunk.
 
 - **New: `variance_stabilize(L::LinearRaw; electrons_per_dn, read_noise) -> StabilizedImage`, the detection image of a
   RAW.** The generalized Anscombe transform of the green cells (`:green_cells`, or `:bin2`'s G plane) for

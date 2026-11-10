@@ -765,6 +765,33 @@ function _reclaim_device_pool(dev)
     return nothing
 end
 
+# The per-chunk warp and pyramid buffers for `nwc` resident warps. The free memory the chunk was sized from is the
+# device's at that moment, and another allocator on the device (ONNX Runtime's arena grows as its sessions run) can
+# leave less by the time the buffers are allocated: an out-of-memory error then releases what was allocated and
+# halves the chunk, down to one warp. An explicit `chunk` is honoured, never shrunk.
+function _pyramid_buffers(dev, W, H, Wr_max, Hr_max, dims, S, nwc, fixed::Bool)
+    while true
+        bufs = Any[]
+        try
+            rot = KA.allocate(dev, Float32, Wr_max, Hr_max, nwc); push!(bufs, rot)
+            canvas = KA.allocate(dev, Float32, W, H, nwc); push!(bufs, canvas)
+            gauss = [(g = KA.allocate(dev, Float32, d[1], d[2], S + 3, nwc); push!(bufs, g); g) for d in dims]
+            dogs = [(g = KA.allocate(dev, Float32, d[1], d[2], S + 2, nwc); push!(bufs, g); g) for d in dims]
+            return rot, canvas, gauss, dogs, nwc
+        catch e
+            foreach(_free_plan_buffers!, bufs)
+            (fixed || nwc == 1 || !_out_of_memory(e)) && rethrow()
+            _reclaim_device_pool(dev)
+            @debug "AsiftPlan: out of device memory for $nwc resident warps, retrying with $(nwc ÷ 2)"
+            nwc ÷= 2
+        end
+    end
+end
+
+# A backend's out-of-memory error (CUDA.jl's `OutOfGPUMemoryError`, Julia's `OutOfMemoryError`), told by its type's
+# name: the backend packages are not dependencies.
+_out_of_memory(e) = occursin("OutOf", string(nameof(typeof(e)))) && occursin("Memory", string(nameof(typeof(e))))
+
 # Fraction of free device memory the resident pyramids may claim. Note the
 # descriptor session's arena is already allocated before the plan is built, so
 # it is excluded from "free" — the reserve here only has to cover what comes
@@ -827,11 +854,7 @@ function AsiftPlan(
 
     inp = KA.allocate(dev, Float32, W, H)
     inp_u8 = KA.allocate(dev, UInt8, H, W)
-    rot = KA.allocate(dev, Float32, Wr_max, Hr_max, nwc)
-    canvas = KA.allocate(dev, Float32, W, H, nwc)
-
-    gauss = [KA.allocate(dev, Float32, d[1], d[2], S + 3, nwc) for d in dims]
-    dogs = [KA.allocate(dev, Float32, d[1], d[2], S + 2, nwc) for d in dims]
+    rot, canvas, gauss, dogs, nwc = _pyramid_buffers(dev, W, H, Wr_max, Hr_max, dims, S, nwc, chunk > 0)
 
     # Blur bookkeeping for the 2× seed: the input's nominal blur is stated in
     # NATIVE pixels, so at octave −1 — whose pixels are half a native pixel —

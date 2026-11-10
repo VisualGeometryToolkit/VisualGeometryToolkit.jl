@@ -235,6 +235,9 @@ function expected_core_value(key::AbstractString, g, V)
         field == "tag" && composed && !V.composition_tags && return :absent
         # (the gauge fields' names are retired, so spelled here by parts)
         hasproperty(V, :gauges) && !V.gauges && field in _GAUGE_FIELDS && return :absent
+        # (a deformed target's surface: the code's is a MappedSurface, no golden fields)
+        hasproperty(V, :mapped_surfaces) && V.mapped_surfaces && startswith(field, "surface/") &&
+            any(in((:H, :T)), case_members(name)) && return :absent
         # (`:aside`: the code still has the value, and it moved on purpose)
         hasproperty(V, :projected) && name in V.projected &&
             (field in _PROJECTED_FIELDS || (composed && field == "jacobian_theta")) && return :aside

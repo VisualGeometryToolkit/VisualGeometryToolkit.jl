@@ -89,6 +89,8 @@ function target_values(P, V)
         s = attempt(() -> surface(PosedTarget(t, X)))
         if s isa AbstractString
             emit("$k/surface/error", s)
+        elseif s isa VgtkCore.Cameras.MappedSurface
+            # (a deformed target's surface, 0.9.0: no quad affine to read; its goldens are set aside)
         else
             q = s isa VgtkCore.Cameras.Quad ? s : s.quad
             emit("$k/surface/type", string(nameof(typeof(s))))

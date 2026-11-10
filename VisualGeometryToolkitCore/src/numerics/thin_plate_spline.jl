@@ -86,13 +86,23 @@ sides by one LU factorization. The matrices live on
 the host; [`tps_coefficients`](@ref) turns nodal values into the isbits `(w,
 a)` that [`tps_evaluate`](@ref) and [`tps_gradient`](@ref) take.
 """
-struct ThinPlateSplineSystem{N}
-    nodes::SVector{N, SVector{2, Float64}}
-    coeff::Matrix{Float64}      # (N+3) × N, the caller's frame
-    Q::Matrix{Float64}          # N × N, the caller's frame
-    plane::Matrix{Float64}      # N × 3: the plane fields [1 x y] at the nodes (the system's P, the caller's frame)
-    affine::Matrix{Float64}     # 3 × N: coeff's affine rows, a = affine · values
+struct ThinPlateSplineSystem{N, T <: AbstractFloat, M <: AbstractMatrix{T}}
+    nodes::SVector{N, SVector{2, T}}
+    coeff::M                    # (N+3) × N, the caller's frame
+    Q::M                        # N × N, the caller's frame
+    plane::M                    # N × 3: the plane fields [1 x y] at the nodes (the system's P, the caller's frame)
+    affine::M                   # 3 × N: coeff's affine rows, a = affine · values
 end
+ThinPlateSplineSystem{N}(nodes::SVector{N, SVector{2, T}}, coeff::M, Q::M, plane::M, affine::M) where {N, T, M <: AbstractMatrix{T}} =
+    ThinPlateSplineSystem{N, T, M}(nodes, coeff, Q, plane, affine)
+
+# The device form (`Adapt.adapt(backend, system)`): the matrices move, the
+# (isbits) nodes travel as they are. In a kernel only `coeff` is read
+# (`tps_coefficients`, `tps_pure_bending`); the rest moves with it so the
+# adapted system is one object of the host's layout.
+Adapt.adapt_structure(to, s::ThinPlateSplineSystem{N}) where {N} =
+    ThinPlateSplineSystem{N}(s.nodes, Adapt.adapt(to, s.coeff), Adapt.adapt(to, s.Q), Adapt.adapt(to, s.plane), Adapt.adapt(to, s.affine))
+# (`convert_eltype` of a system: geometry/cameras/target_calibration.jl, beside the kinds')
 
 function ThinPlateSplineSystem(nodes::AbstractVector{<:StaticVector{2}})
     N = length(nodes)
@@ -146,10 +156,79 @@ element type: a `ForwardDiff.Dual` or a `Float32` is kept (the product
 with the `Float64` matrix is formed first, then converted to the values'
 element type).
 """
-function tps_coefficients(tps::ThinPlateSplineSystem{N}, t::AbstractVector{T}) where {N, T}
-    length(t) == N || throw(DimensionMismatch("expected $N nodal values, got $(length(t))"))
-    wa = tps.coeff * t
-    return SVector{N, T}(ntuple(i -> wa[i], Val(N))), SVector{3, T}(wa[N + 1], wa[N + 2], wa[N + 3])
+function tps_coefficients(tps::ThinPlateSplineSystem{N}, t::AbstractVector) where {N}
+    length(t) == N || _refuse_value_count(N, t)
+    return _tps_coefficients(tps.coeff, Val(N), t)
+end
+@noinline _refuse_value_count(N, t) = throw(DimensionMismatch("expected $N nodal values, got $(length(t))"))
+# THE map from nodal values to (w, a): row r of `coeff` times the values, a
+# loop in the values' order (no BLAS: device-safe and allocation-free, generic
+# in the element type). Accumulated in the promoted type of the system and the
+# values (a Float64 system keeps a Float32 value vector's sums in Float64, then
+# rounds; a Float32 device system sums in Float32), returned in the values'
+# float type.
+@inline function _tps_coefficients(C::AbstractMatrix, ::Val{N}, t::AbstractVector) where {N}
+    T = float(eltype(t))
+    S = promote_type(eltype(C), T)
+    o = firstindex(t) - 1
+    row(r) = (acc = zero(S); @inbounds(for j in 1:N; acc += C[r, j] * t[o + j]; end); T(acc))
+    return SVector{N, T}(ntuple(row, Val(N))), SVector{3, T}(row(N + 1), row(N + 2), row(N + 3))
+end
+
+"""
+    tps_pure_bending(tps::ThinPlateSplineSystem{N}, values) -> SVector{N}
+
+The nodal values without the affine term of their interpolant — the
+pure-bending rule of the thin-plate target calibration kinds
+([`HeightField`](@ref), [`ThinPlateSpline`](@ref)): `v ↦ v − M a(v)`, `M =
+[1 u v]` the plane fields at the nodes and `a(v)` the interpolant's affine
+coefficients ([`tps_coefficients`](@ref)). The spline through `M a` is that
+plane exactly, so the projection keeps the weights `w` and zeroes `a`; it is
+oblique (along the plane fields, not orthogonal to them: orthogonal to the
+affine rows of `coeff`) and idempotent. Values whose plane part is within
+`1e-12` of them (`‖M a(v)‖ ≤ 1e-12 ‖v‖`, the rule of
+[`is_pure_bending`](@ref)) are kept as they are, bit for bit — a ForwardDiff
+`Dual`'s partials too, the derivative along the pure-bending subspace (where the
+projection is the identity); other values are projected, values and partials. Loops only: allocation-free, generic in the element type and
+callable in a KernelAbstractions kernel on an adapted system.
+"""
+function tps_pure_bending(tps::ThinPlateSplineSystem{N}, v::AbstractVector) where {N}
+    length(v) == N || _refuse_value_count(N, v)
+    return _tps_pure_bending(tps, SVector{N, float(eltype(v))}(ntuple(i -> v[firstindex(v) + i - 1], Val(N))))
+end
+@inline function _tps_pure_bending(tps::ThinPlateSplineSystem{N}, v::SVector{N, T}) where {N, T}
+    A = tps.affine
+    S = promote_type(eltype(A), T)
+    arow(k) = (acc = zero(S); @inbounds(for j in 1:N; acc += A[k, j] * v[j]; end); acc)
+    a1, a2, a3 = arow(1), arow(2), arow(3)
+    nodes = tps.nodes
+    plane = SVector{N, S}(ntuple(i -> a1 + a2 * nodes[i][1] + a3 * nodes[i][2], Val(N)))
+    # within the tolerance the values are kept as they are, a Dual's partials too: the
+    # derivative ALONG the pure-bending subspace, where the projection is the identity
+    # (the kinds' `transform_deriv_params`, their nodal weights)
+    _within_rtol(_primal_values(plane), _primal_values(v)) && return v
+    return SVector{N, T}(ntuple(i -> v[i] - plane[i], Val(N)))
+end
+# The relative size of an affine term below which nodal values count as pure
+# bending: far above the rounding of a projection, far below any real plane.
+const _PLANE_PART_RTOL = 1.0e-12
+@inline _within_rtol(plane, v) = sqrt(sum(abs2, plane)) <= _PLANE_PART_RTOL * sqrt(sum(abs2, v))
+@inline _primal_values(v::StaticVector) = map(_primal, v)
+
+"""
+    tps_bending_coefficients(tps::ThinPlateSplineSystem{N}, values) -> (v, w, a)
+
+The pure-bending values `v = `[`tps_pure_bending`](@ref)`(tps, values)` and
+their spline's weights and affine part `(w, a) = `[`tps_coefficients`](@ref)`(tps,
+v)` (`a` zero to rounding) — what a [`HeightField`](@ref) or
+[`ThinPlateSpline`](@ref) built from `values` holds, by the same two functions.
+Isbits results, allocation-free, generic in the element type (`Dual`s,
+`Float32`) and callable in a KernelAbstractions kernel on an adapted system.
+"""
+@inline function tps_bending_coefficients(tps::ThinPlateSplineSystem{N}, values::AbstractVector) where {N}
+    v = tps_pure_bending(tps, values)
+    w, a = _tps_coefficients(tps.coeff, Val(N), v)
+    return v, w, a
 end
 
 """

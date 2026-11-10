@@ -581,6 +581,10 @@ const _PROJECT_TOL = 1.0e-6
 # pixel: its pixel constants are read in it — the step tolerance `ϵx = 1e-10 / s`,
 # the DᵀD clamp `[1e-12, 1e16]·s²`. Device-safe — static arrays only, no
 # allocation, no Union return — so the batched kernels run it per ray.
+# Generic in the float type `T` of its arguments (Float32 in a device
+# kernel; at Float64 the reference's operations and constants exactly, the
+# step tolerance scaled by eps(T)/eps(Float64) otherwise); the ray–board root
+# of a MappedSurface calls it too (mapped_surface.jl `_board_root`).
 #
 # It is the ONE device-side exception to the stack's one LM driver: NLLSsolver
 # builds heap problems and cannot run inside a KernelAbstractions kernel, so
@@ -601,12 +605,12 @@ const _PROJECT_TOL = 1.0e-6
 # 4.5e-8 px (1.12) apart, 1.8e-6 px on the review's 20 000-problem probe,
 # converged flags identical; gated at 2e-6 px (pixel_lm_reference_tests.jl).
 @inline function _spline_lm(
-        fj::FJ, x₀::SVector{2, Float64}, lb::SVector{2, Float64}, ub::SVector{2, Float64},
-        s::SVector{2, Float64}, maxiter::Int, tol2::Float64
-    ) where {FJ}
-    ϵ = eps(Float64)
-    ϵx = 1.0e-10 ./ s
-    λ = 1.0e-6
+        fj::FJ, x₀::SVector{2, T}, lb::SVector{2, T}, ub::SVector{2, T},
+        s::SVector{2, T}, maxiter::Int, tol2::T
+    ) where {FJ, T <: AbstractFloat}
+    ϵ = eps(T)
+    ϵx = T(1.0e-10 * (eps(T) / eps(Float64))) ./ s   # the reference's 1e-10 at Float64, the same in ulps of T
+    λ = T(1.0e-6)
     x = min.(max.(x₀, lb), ub)
     f, Jx = fj(x)
     F = sum(abs2, f)
@@ -614,15 +618,15 @@ const _PROJECT_TOL = 1.0e-6
     g = Jx' * f
     norm(g, Inf) < ϵ && return x, F < tol2
     JtJ = Jx' * Jx
-    DtD = clamp.(diag(JtJ), 1.0e-12 .* s .^ 2, Inf)
-    DtD_max = 1.0e16 .* s .^ 2
+    DtD = clamp.(diag(JtJ), T(1.0e-12) .* s .^ 2, T(Inf))
+    DtD_max = T(1.0e16) .* s .^ 2
     iter = 0
     while iter < maxiter
         iter += 1
         accepted = false
-        ac = 0.0
-        pr = 0.0
-        ρ = 0.0
+        ac = zero(T)
+        pr = zero(T)
+        ρ = zero(T)
         xk = x
         fk = f
         Jk = Jx
@@ -667,15 +671,15 @@ const _PROJECT_TOL = 1.0e-6
             norm(g, Inf) < ϵ && break
             JtJ = Jx' * Jx
             DtD = clamp.(diag(JtJ), DtD, DtD_max)
-            if ρ > 0.75
-                λ *= 1 / 13
-            elseif ρ < 1.0e-3
+            if ρ > T(0.75)
+                λ *= T(1 / 13)
+            elseif ρ < T(1.0e-3)
                 λ *= 3
             end
         else
             λ *= 3
         end
-        λ = clamp(λ, 1.0e-28, 1.0e32)
+        λ = clamp(λ, T(1.0e-28), T(1.0e32))
     end
     return x, F < tol2
 end
@@ -687,10 +691,10 @@ end
     x1 = g[1]
     x2 = g[2]
     A11 = muladd(λ, DtD[1], JtJ[1, 1])
-    A11 >= zero(A11) || return zero(SVector{2, Float64}), 1
+    A11 >= zero(A11) || return zero(SVector{2, typeof(A11)}), 1
     A21 = JtJ[2, 1]
     A22 = muladd(λ, DtD[2], JtJ[2, 2])
-    A22 >= zero(A22) || return zero(SVector{2, Float64}), 2
+    A22 >= zero(A22) || return zero(SVector{2, typeof(A22)}), 2
     A22 = muladd(-A21, A21 / A11, A22)
     x2 = muladd(-x1, A21 / A11, x2)
     x2 /= A22

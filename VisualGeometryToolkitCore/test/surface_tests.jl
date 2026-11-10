@@ -1,11 +1,10 @@
 # =============================================================================
-# The surface a ray meets (geometry/primitives/surfaces.jl): Quad and
-# HeightSurface, and surface(::PosedTarget) (geometry/cameras/target_surfaces.jl).
+# The surface a ray meets (geometry/primitives/surfaces.jl): Quad, and
+# surface(::PosedTarget) (geometry/cameras/target_surfaces.jl); a
+# MappedSurface's root: mapped_surface_tests.jl.
 #
 # A Quad's intersection is ray_plane_intersection's arithmetic, bit for bit,
-# NaN behind the ray's origin or outside its rectangle. A HeightSurface's is RadiometricCamera's
-# `intersect_board` on its own warped test board: test/fixtures/height_surface/
-# reference.jl holds what RadiometricCamera returned (generate.jl beside it).
+# NaN behind the ray's origin or outside its rectangle.
 # =============================================================================
 
 @testitem "surfaces: a Quad is ray_plane_intersection, bounded" begin
@@ -107,108 +106,6 @@
     @test all(isnan, intersection(qa, SVector(edge[1], edge[2], 2.0), SVector(0.0, 0.0, -1.0))[2])
 end
 
-@testitem "surfaces: a HeightSurface meets RadiometricCamera's warped board" begin
-    using Test, StaticArrays, LinearAlgebra
-    using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: intersection, chart, bounds, normal, surface_point, ThinPlateSplineSystem,
-        tps_coefficients, tps_evaluate, grid_nodes
-
-    include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "height_surface", "reference.jl"))
-    REF = HEIGHT_SURFACE_REFERENCE
-    # RadiometricCamera's board is the square [-1, 1]² of z = 0, normal +z, its
-    # chart [0, 1]²; here the chart is metric, the target's own (x, y), so the
-    # nodes are -1 + 2 b and the heights the bending part at them (generate.jl)
-    nodes = SVector{25}([REF.origin[SOneTo(2)] + 2 .* b for b in REF.nodes])
-    h = SVector{25}(REF.bending_heights)
-    w, a = tps_coefficients(ThinPlateSplineSystem(nodes), Vector(h))
-    I3 = SMatrix{3, 3}(1.0I)
-    quad = Quad(SVector(0.0, 0.0, 0.0), I3, Rect2(-1.0, -1.0, 2.0, 2.0))
-    s = HeightSurface(quad, nodes, h, w, a)
-    @test isbits(s) && s isa HeightSurface{25, Float64} && bounds(s) == bounds(quad)
-    @test s == HeightSurface(quad, nodes, h, w, a) && hash(s) == hash(HeightSurface(quad, nodes, h, w, a))
-    # (RadiometricCamera's spline over [0, 1]² through these heights has no
-    # affine part; over the metric chart the scale's ln 2 lands in the constant a₁)
-
-    hits = [intersection(s, o, d) for (o, d) in zip(REF.ray_origins, REF.ray_directions)]
-    xs = last.(hits)
-    Δt = maximum(abs.(first.(hits) - REF.t))
-    Δx = maximum(maximum(abs, x - r) for (x, r) in zip(xs, REF.x))
-    Δc = maximum(maximum(abs, chart(s, x) - (REF.origin[SOneTo(2)] + 2 .* c)) for (x, c) in zip(xs, REF.chart))
-    Δn = maximum(maximum(abs, normal(s, x) - r) for (x, r) in zip(xs, REF.surface_normal))
-    @test all(abs(x[3] - tps_evaluate(nodes, w, a, chart(s, x))) < 1.0e-15 for x in xs)   # on the surface
-    @test length(REF.t) == 100
-    # 16 eps: the (w, a) of a factorized, conditioned solve, not RadiometricCamera's `inv` (measured: Δt 1.1e-15, Δx
-    # 8.9e-16, Δc 1.0e-15, Δn 5.1e-16)
-    @test Δt <= 16eps() && Δx <= 16eps() && Δc <= 16eps() && Δn <= 16eps()
-    # the normal leans against the slope: (−∂h/∂u, −∂h/∂v, 1), normalised
-    x = intersection(s, REF.ray_origins[1], REF.ray_directions[1])[2]
-    ε = 1.0e-6
-    hu = (tps_evaluate(nodes, w, a, chart(s, x) + SVector(ε, 0)) - tps_evaluate(nodes, w, a, chart(s, x) - SVector(ε, 0))) / 2ε
-    hv = (tps_evaluate(nodes, w, a, chart(s, x) + SVector(0, ε)) - tps_evaluate(nodes, w, a, chart(s, x) - SVector(0, ε))) / 2ε
-    @test normal(s, x) ≈ normalize(SVector(-hu, -hv, 1.0)) atol = 1.0e-9
-    # misses: outside the rectangle, behind the origin, parallel, a NaN origin
-    t, x = intersection(s, SVector(1.5, 0.0, 1.0), SVector(0.0, 0.0, -1.0))
-    @test isnan(t) && all(isnan, x)
-    @test all(isnan, intersection(s, SVector(0.1, 0.2, 1.0), SVector(0.0, 0.0, 1.0))[2])
-    @test all(isnan, intersection(s, SVector(0.1, 0.2, 1.0), SVector(1.0, 0.0, 0.0))[2])
-    @test all(isnan, intersection(s, SVector(NaN, 0.2, 1.0), SVector(0.0, 0.0, -1.0))[2])
-    # surface_point is chart's inverse, on the surface
-    for uv in (SVector(0.3, -0.4), SVector(-0.9, 0.8))
-        p = surface_point(s, uv)
-        @test chart(s, p) ≈ uv atol = 1.0e-15
-        @test p[3] == tps_evaluate(nodes, w, a, uv)
-        @test intersection(s, p + SVector(0.0, 0.0, 1.0), SVector(0.0, 0.0, -1.0))[2] ≈ p atol = 1.0e-15
-    end
-end
-
-@testitem "surfaces: Newton continues past four iterations, or misses" begin
-    using Test, StaticArrays, LinearAlgebra
-    using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: intersection, surface_point, ThinPlateSplineSystem, tps_coefficients, tps_evaluate,
-        tps_gradient, grid_nodes
-
-    # a 10 cm bump on a 1 m quad (slope ≈ 0.4), a ray at 10° elevation aimed at its flank
-    nodes = SVector{25}(grid_nodes(5; lo = 0.0, hi = 1.0))
-    h = SVector{25}([i == 13 ? 0.1 : 0.0 for i in 1:25])
-    w, a = tps_coefficients(ThinPlateSplineSystem(nodes), Vector(h))
-    s = HeightSurface(Quad(SVector(0.0, 0.0, 0.0), SMatrix{3, 3}(1.0I), Rect2(0.0, 0.0, 1.0, 1.0)), nodes, h, w, a)
-    θ = deg2rad(10)
-    d = SVector(cos(θ), 0.0, -sin(θ))
-    on_surface(x) = abs(x[3] - tps_evaluate(nodes, w, a, x[SOneTo(2)]))
-    # the four iterations alone (RadiometricCamera's intersect_board)
-    function four(o, d)
-        t = -o[3] / d[3]
-        for _ in 1:4
-            x = o + t * d
-            m = x[SOneTo(2)]
-            g = t * d[3] + o[3] - tps_evaluate(nodes, w, a, m)
-            gp = d[3] - dot(tps_gradient(nodes, w, a, m), d[SOneTo(2)])
-            t -= g / gp
-        end
-        return o + t * d
-    end
-    # aimed at the flank at u = 0.4: four iterations stop 0.4 μm off the surface, the continuation lands on it
-    P = surface_point(s, SVector(0.4, 0.5))
-    o = P - 0.5 * d
-    @test on_surface(four(o, d)) > 1.0e-7
-    t, x = intersection(s, o, d)
-    @test isfinite(t) && on_surface(x) < 1.0e-12 && norm(x - (o + t * d)) < 1.0e-15
-    # aimed at u = 0.35 behind the crest: four iterations report a point 7.6 cm off the surface
-    # (23 cm from the aimed point); the continuation does not converge, and the ray is a miss
-    P = surface_point(s, SVector(0.35, 0.5))
-    o = P - 0.5 * d
-    @test on_surface(four(o, d)) > 0.05
-    t, x = intersection(s, o, d)
-    @test isnan(t) && all(isnan, x)
-    # the grazing limit: a miss or a point on the surface, never one off it
-    rs = [begin
-        φ = deg2rad(elevation)
-        dg = SVector(cos(φ), 0.0, -sin(φ))
-        intersection(s, surface_point(s, SVector(u, 0.5)) - 0.5 * dg, dg)
-    end for elevation in (10, 5, 2, 1), u in 0.1:0.1:0.9]
-    @test all(r -> isnan(r[1]) || on_surface(r[2]) < 1.0e-12, rs)
-end
-
 @testitem "surfaces: Float32 and ForwardDiff, inferred and allocation-free" begin
     using Test, StaticArrays, LinearAlgebra, Random
     using ForwardDiff
@@ -221,15 +118,12 @@ end
     o = SVector(0.1, -0.2, 0.3)
     quad = Quad(o, R, Rect2(-0.5, -0.5, 1.0, 1.0))
     nodes = SVector{9}(grid_nodes(3; lo = -0.5, hi = 0.5))
-    sys = ThinPlateSplineSystem(nodes)
-    h = SVector{9}(0.01 .* randn(rng, 9))
-    surf = HeightSurface(quad, nodes, h, tps_coefficients(sys, Vector(h))...)
     ro = o + R * SVector(0.1, 0.05, 1.5)
     d = R * normalize(SVector(-0.05, 0.1, -1.0))
 
     allocs(f, args...) = (f(args...); @allocated f(args...))
 
-    for p in (quad, surf)
+    for p in (quad,)   # (a MappedSurface's: mapped_surface_tests.jl)
         t, x = @inferred intersection(p, ro, d)
         @test isfinite(t) && allocs(intersection, p, ro, d) == 0
         @test (@inferred normal(p, x)) isa SVector{3, Float64} && allocs(normal, p, x) == 0
@@ -237,7 +131,7 @@ end
         @test (@inferred bounds(p)) == Rect2(-0.5, -0.5, 1.0, 1.0)
 
         # Float32: the primitive and the ray converted
-        p32 = p isa Quad ? Quad{Float32}(p) : HeightSurface{9, Float32}(p)
+        p32 = Quad{Float32}(p)
         @test isbits(p32)
         t32, x32 = @inferred intersection(p32, Float32.(ro), Float32.(d))
         @test t32 isa Float32 && x32 isa SVector{3, Float32} && allocs(intersection, p32, Float32.(ro), Float32.(d)) == 0
@@ -256,20 +150,10 @@ end
         od = ForwardDiff.Dual.(ro, 1.0), ForwardDiff.Dual.(d, 0.5)
         td, xd = @inferred intersection(p, od...)
         @test td isa ForwardDiff.Dual && allocs(intersection, p, od...) == 0
-        # a Quad's normal does not depend on the point: plain; a HeightSurface's carries the partials
-        @test (@inferred normal(p, xd)) isa (p isa Quad ? SVector{3, Float64} : SVector{3, <:ForwardDiff.Dual}) && allocs(normal, p, xd) == 0
+        # a Quad's normal does not depend on the point: plain
+        @test (@inferred normal(p, xd)) isa SVector{3, Float64} && allocs(normal, p, xd) == 0
     end
 
-    # Dual heights: the hit's derivative in the nodal heights
-    hit(hv) = intersection(HeightSurface(quad, nodes, SVector{9}(hv), tps_coefficients(sys, hv)...), ro, d)[2]
-    J = ForwardDiff.jacobian(hit, Vector(h))
-    ε = 1.0e-7
-    Jfd = reduce(hcat, [(hit(Vector(h) + ε * (1:9 .== k)) - hit(Vector(h) - ε * (1:9 .== k))) / 2ε for k in 1:9])
-    @test J ≈ Jfd atol = 1.0e-7
-    hd = ForwardDiff.Dual.(Vector(h), 1.0)
-    sd = HeightSurface(quad, nodes, SVector{9}(hd), tps_coefficients(sys, hd)...)
-    @test isbits(sd) && allocs(intersection, sd, ro, d) == 0
-    @test (@inferred intersection(sd, ro, d))[1] isa ForwardDiff.Dual
 end
 
 @testitem "surfaces: a conversion returns the requested type, concrete or not" begin
@@ -279,185 +163,11 @@ end
     using VisualGeometryToolkitCore: ThinPlateSplineSystem, tps_coefficients, grid_nodes
     R = RotMatrix(QuatRotation(1.0, 0.1, -0.2, 0.05))
     quad = Quad(SVector(0.1, -0.2, 0.3), R, Rect2(-0.5, -0.5, 1.0, 1.0))
-    nodes = SVector{9}(grid_nodes(3; lo = -0.5, hi = 0.5))
-    h = SVector{9}(0.01 .* randn(Xoshiro(3), 9))
-    surf = HeightSurface(quad, nodes, h, tps_coefficients(ThinPlateSplineSystem(nodes), Vector(h))...)
     @test Quad{Real}(quad) isa Quad{Real} && Quad{Real}(quad) == quad
-    @test HeightSurface{9, Real}(surf) isa HeightSurface{9, Real} && HeightSurface{9, Real}(surf) == surf
-    @test Quad{Float32}(quad) isa Quad{Float32} && HeightSurface{9, Float32}(surf) isa HeightSurface{9, Float32}
+    @test Quad{Float32}(quad) isa Quad{Float32}
 end
 
-@testitem "surfaces: a HeightSurface's Dual hit is the implicit derivative of the plain root" begin
-    using Test, StaticArrays, LinearAlgebra, Random
-    using ForwardDiff
-    using Rotations: RotMatrix, QuatRotation
-    using VisualGeometryToolkitCore
-    import VisualGeometryToolkitCore as VgtkCore
-    import KernelAbstractions
-    using VisualGeometryToolkitCore: intersection, surface_point, ThinPlateSplineSystem, tps_coefficients, grid_nodes
-
-    # the reference: Newton differentiated through every iteration (the method before the implicit derivative)
-    function dual_newton(s, o, d)
-        t, x, converged = VgtkCore._height_newton(s, o, d)
-        return VgtkCore._within(s.quad, t, x, converged)
-    end
-    rng = Xoshiro(3)
-    R = RotMatrix(QuatRotation(1.0, 0.1, -0.2, 0.05))
-    org = SVector(0.1, -0.2, 0.3)
-    nodes = SVector{25}(grid_nodes(5; lo = -0.5, hi = 0.5))
-    sys = ThinPlateSplineSystem(nodes)
-    h = 0.02 .* randn(rng, 25)
-    quad = Quad(org, R, Rect2(-0.5, -0.5, 1.0, 1.0))
-    surf = HeightSurface(quad, nodes, SVector{25}(h), tps_coefficients(sys, h)...)
-    c = org + R * SVector(0.05, -0.03, 1.5)
-    # a third aimed off the rectangle: misses
-    rays = [(c, normalize(org + R * SVector(1.2 * rand(rng) - 0.6, 1.2 * rand(rng) - 0.6, 0.0) - c) * (0.5 + rand(rng)))
-            for _ in 1:60]
-    relerr(a, b) = norm(a - b) / norm(b)
-
-    # p = [o; d; heights; the quad's origin]: Duals carried by the ray, the heights and the pose
-    function hit(f, T = Float64)
-        return p -> begin
-            hp = p[7:31]
-            q = Quad(SVector{3}(p[32], p[33], p[34]), SMatrix{3, 3, T}(R), Rect2{T}(-0.5, -0.5, 1.0, 1.0))
-            t, x = f(HeightSurface(q, SVector{25, SVector{2, T}}(nodes), SVector{25}(hp), tps_coefficients(sys, hp)...),
-                     SVector{3}(p[1], p[2], p[3]), SVector{3}(p[4], p[5], p[6]))
-            SVector(t, x[1], x[2], x[3])
-        end
-    end
-    # The two paths: the default takes the implicit derivative at every partial count (the CPU's choice);
-    # the GPU's, ImplicitRoot(8), runs Newton in the Duals below 8 partials. SMALL and LARGE chunks.
-    @test VgtkCore.implicit_root(KernelAbstractions.CPU()) === VgtkCore.ImplicitRoot() === VgtkCore.ImplicitRoot(1)
-    on_gpu(s, o, d) = intersection(s, o, d; derivative = VgtkCore.ImplicitRoot(8))
-    SMALL, LARGE = 4, 17
-    jac(f, p, C) = ForwardDiff.jacobian(f, p, ForwardDiff.JacobianConfig(f, p, ForwardDiff.Chunk{C}()))
-
-    @testset "partials: both paths, the dual Newton's, and central differences" begin
-        nhit = 0
-        for (o, d) in rays
-            p = [o; d; h; org]
-            isnan(hit(intersection)(p)[1]) && continue
-            nhit += 1
-            J = jac(hit(intersection), p, LARGE)
-            @test relerr(J, jac(hit(dual_newton), p, LARGE)) <= 1.0e-12
-            @test relerr(jac(hit(intersection), p, SMALL), J) <= 1.0e-12   # implicit at a few partials
-            @test jac(hit(on_gpu), p, SMALL) == jac(hit(dual_newton), p, SMALL)   # the Newton path IS the dual Newton
-            @test relerr(jac(hit(on_gpu), p, SMALL), J) <= 1.0e-12
-            @test jac(hit(on_gpu), p, LARGE) == J
-            ε = 1.0e-6
-            Jfd = reduce(hcat, [(hit(intersection)(p + ε * (1:34 .== k)) - hit(intersection)(p - ε * (1:34 .== k))) / 2ε for k in 1:34])
-            @test relerr(J, Jfd) <= 1.0e-8
-            # Float32: Float32 rounding of the same derivative, on either path
-            p32 = Float32.(p)
-            isnan(hit(intersection, Float32)(p32)[1]) && continue
-            J64 = jac(hit(intersection), Float64.(p32), LARGE)
-            for C in (SMALL, LARGE), f in (intersection, on_gpu)
-                @test relerr(jac(hit(f, Float32), p32, C), J64) <= 1.0e-5
-            end
-        end
-        @test nhit >= 30
-    end
-
-    @testset "values: the plain result's bits (implicit path), misses as before" begin
-        # Dual inputs whose values are exactly the plain ones (random partials), in every carrier
-        dz(x, N, tag) = ForwardDiff.Dual{tag}(x, ForwardDiff.Partials(ntuple(_ -> randn(rng, typeof(x)), N)))
-        for T in (Float64, Float32), N in (SMALL, 8)
-            s = HeightSurface{25, T}(surf)
-            D = ForwardDiff.Dual{:v, T, N}
-            z(x) = dz(x, N, :v)
-            q = s.quad
-            qd = Quad{D}(VgtkCore.Plane3D{D}(z.(q.plane.coeffs)), z.(q.origin), z.(q.e_u), z.(q.e_v), z.(q.A), z.(q.b), z.(q.A_inv),
-                         Rect2{D}(z.(q.rect.origin), z.(q.rect.widths)))
-            sd = HeightSurface{25, D}(qd, map(n -> z.(n), s.nodes), z.(s.heights), z.(s.w), z.(s.a))
-            for (o, d) in rays
-                o, d = SVector{3, T}(o), SVector{3, T}(d)
-                od, dd = z.(o), z.(d)
-                plain = intersection(s, o, d)
-                for args in ((sd, od, dd), (sd, o, d), (s, od, d), (s, o, dd))
-                    td, xd = intersection(args...)    # implicit: the plain bits at any partial count
-                    @test isequal((ForwardDiff.value(td), ForwardDiff.value.(xd)), plain)
-                    tg, xg = on_gpu(args...)
-                    v = (ForwardDiff.value(tg), ForwardDiff.value.(xg))
-                    if N >= 8
-                        @test isequal((tg, xg), (td, xd))
-                    else   # Newton in the Duals: the plain values to an ulp (a muladd's fusing is per context)
-                        @test isequal((tg, xg), dual_newton(args...))
-                        @test isnan(v[1]) == isnan(plain[1])
-                        isnan(plain[1]) || @test abs(v[1] - plain[1]) <= 4 * eps(abs(plain[1])) &&
-                                                 maximum(abs, v[2] - plain[2]) <= 4 * eps(T)
-                    end
-                    if isnan(plain[1])   # NaN with zero partials, exactly as the dual Newton returns it
-                        @test isequal((td, xd), dual_newton(args...))
-                    end
-                end
-            end
-        end
-    end
-
-    @testset "nested Duals: the Hessian on both paths, and two tags" begin
-        for (o, d) in rays[1:12]
-            p = [o; d; h; org]
-            isnan(hit(intersection)(p)[1]) && continue
-            Href = ForwardDiff.hessian(q -> hit(dual_newton)(q)[1], p)
-            for f in (intersection, on_gpu), C in (SMALL, LARGE)
-                tn = q -> hit(f)(q)[1]   # one tag nested in itself
-                H = ForwardDiff.hessian(tn, p, ForwardDiff.HessianConfig(tn, p, ForwardDiff.Chunk{C}()))
-                @test relerr(H, Href) <= 1.0e-12
-                @test norm(H - H') <= 1.0e-12 * norm(H)
-            end
-            # ∂/∂heights of ∂t/∂o: the heights' tag outside the origin's
-            g(f) = hv -> ForwardDiff.gradient(
-                oo -> f(HeightSurface(quad, nodes, SVector{25}(hv), tps_coefficients(sys, hv)...), SVector{3}(oo), d)[1], Vector(o))
-            @test relerr(ForwardDiff.jacobian(g(intersection), h), ForwardDiff.jacobian(g(dual_newton), h)) <= 1.0e-12
-        end
-    end
-
-    @testset "grazing rays: the implicit derivative is the converged one" begin
-        # the continuation scene (a 10 cm bump, rays down to 1° elevation): the dual Newton stops on its
-        # VALUE and can carry partials a few 1e-11 short; the implicit derivative agrees with a 200-bit
-        # dual Newton to rounding
-        bn = SVector{25}(grid_nodes(5; lo = 0.0, hi = 1.0))
-        bsys = ThinPlateSplineSystem(bn)
-        bh = [i == 13 ? 0.1 : 0.0 for i in 1:25]
-        bq = Quad(SVector(0.0, 0.0, 0.0), SMatrix{3, 3}(1.0I), Rect2(0.0, 0.0, 1.0, 1.0))
-        bs = HeightSurface(bq, bn, SVector{25}(bh), tps_coefficients(bsys, bh)...)
-        f(fun, T) = p -> begin
-            w, a = tps_coefficients(bsys, p[7:31])
-            t, x = fun(HeightSurface(Quad{T}(bq), SVector{25, SVector{2, T}}(bn), SVector{25}(p[7:31]), w, a),
-                       SVector{3}(p[1], p[2], p[3]), SVector{3}(p[4], p[5], p[6]))
-            SVector(t, x[1], x[2], x[3])
-        end
-        n = 0
-        for elevation in (5, 2, 1), u in 0.1:0.1:0.9
-            φ = deg2rad(elevation)
-            d = SVector(cos(φ), 0.0, -sin(φ))
-            p = [surface_point(bs, SVector(u, 0.5)) - 0.5 * d; d; bh]
-            isnan(f(intersection, Float64)(p)[1]) && continue
-            n += 1
-            Jb = setprecision(() -> Float64.(ForwardDiff.jacobian(f(dual_newton, BigFloat), big.(p))), BigFloat, 200)
-            @test relerr(jac(f(intersection, Float64), p, LARGE), Jb) <= 1.0e-12   # the implicit path
-        end
-        @test n >= 10
-    end
-
-    @testset "inferred and allocation-free on both paths" begin
-        allocs(f, args...) = (f(args...); @allocated f(args...))
-        o, d = rays[1]
-        for (T, N) in ((Float64, 32), (Float32, 15), (Float32, 8), (Float32, 4), (Float64, 1))
-            s = HeightSurface{25, T}(surf)
-            D = ForwardDiff.Dual{:a, T, N}
-            sd = HeightSurface{25, D}(s)
-            oT, dT = SVector{3, T}(o), SVector{3, T}(d)
-            od, dd = D.(oT), D.(dT)
-            for args in ((sd, od, dd), (sd, oT, dT), (s, od, dd)), f in (intersection, on_gpu)
-                @test (@inferred f(args...))[1] isa D
-                @test allocs(f, args...) == 0
-            end
-        end
-    end
-end
-
-@testitem "surfaces: both primitives in a KernelAbstractions kernel (CPU)" begin
+@testitem "surfaces: a Quad in a KernelAbstractions kernel (CPU)" begin
     using Test, StaticArrays, LinearAlgebra, Random
     using KernelAbstractions
     using KernelAbstractions: @kernel, @index, @Const
@@ -474,16 +184,13 @@ end
 
     rng = Xoshiro(5)
     quad = Quad(SVector(0.0, 0.0, 0.0), SMatrix{3, 3}(1.0I), Rect2(-0.5, -0.5, 1.0, 1.0))
-    nodes = SVector{9}(grid_nodes(3; lo = -0.5, hi = 0.5))
-    h = SVector{9}(0.01 .* randn(rng, 9))
-    surf = HeightSurface(quad, nodes, h, tps_coefficients(ThinPlateSplineSystem(nodes), Vector(h))...)
     origins = [SVector(0.3 * randn(rng), 0.3 * randn(rng), 1.0 + rand(rng)) for _ in 1:257]
     # every fifth ray aimed off the rectangle, every seventh turned away: the miss branch
     directions = [normalize((k % 5 == 0 ? SVector(0.9, 0.0, 0.0) : SVector(0.4 * rand(rng) - 0.2, 0.4 * rand(rng) - 0.2, 0.0)) - o) *
                   (k % 7 == 0 ? -1 : 1) for (k, o) in enumerate(origins)]
     backend = KernelAbstractions.CPU()
-    for T in (Float64, Float32), p in (quad, surf)
-        pT = p isa Quad ? Quad{T}(p) : HeightSurface{9, T}(p)
+    for T in (Float64, Float32), p in (quad,)   # (a MappedSurface's: mapped_surface_tests.jl)
+        pT = Quad{T}(p)
         oT, dT = SVector{3, T}.(origins), SVector{3, T}.(directions)
         t = zeros(T, length(oT)); x = zeros(SVector{3, T}, length(oT)); nrm = similar(x)
         surface_hits!(backend, 64)(t, x, nrm, oT, dT, pT; ndrange = length(oT))
@@ -544,11 +251,10 @@ end
         end
     end
 
-    @testset "HeightField: a HeightSurface with the field's heights and weights" begin
+    @testset "HeightField: the MappedSurface of pose ∘ lift ∘ H" begin
         s = @inferred surface(PosedTarget(PlanarTarget(pts; calibration = H), X))
-        @test s isa HeightSurface{9, Float64}
-        @test s.heights == H.h && s.nodes == SVector{9}(nodes) && s.w === H.w && s.a === H.a
-        @test bounds(s) == bbox(pts) && s.quad == surface(PosedTarget(PlanarTarget(pts), X))
+        @test s isa MappedSurface && s.map.t1 == X && s.map.t2.t1.t2.c == H
+        @test bounds(s) == bbox(pts) && s.frame == surface(PosedTarget(PlanarTarget(pts), X))
         # a hit lies on the surface: in TargetFrame its z is h(x, y)
         p = SVector(0.13, -0.07)
         t, x = intersection(s, X(SVector(p[1], p[2], 0.0)) + R * SVector(0.1, 0.0, 1.0), R * normalize(SVector(-0.1, 0.0, -1.0)))
@@ -556,11 +262,10 @@ end
         @test isfinite(t) && abs(y[3] - H(SVector(y[1], y[2]))[3]) < 1.0e-15 && chart(s, x) ≈ y[SOneTo(2)]
     end
 
-    @testset "HeightField ∘ the affine factors: a HeightSurface over the calibrated plane" begin
+    @testset "HeightField ∘ the affine factors: the MappedSurface over the calibrated plane" begin
         t = PlanarTarget(pts; calibration = H ∘ A)
         s = surface(PosedTarget(t, X))
-        @test s isa HeightSurface{9, Float64} && s.heights == H.h && s.w === H.w
-        @test bounds(s) == bbox(pts) && isapprox(s.quad.A, A_lin; rtol = 1.0e-15) && isapprox(s.quad.b, A_b; rtol = 1.0e-15)
+        @test s isa MappedSurface && bounds(s) == bbox(pts)
         # a ray aimed at a calibrated point (a 3-vector: the height applied) meets it; its chart is the nominal point
         for (p, P) in zip(pts, points(t))
             XP = X(P)
@@ -572,10 +277,20 @@ end
         end
     end
 
-    @testset "an in-plane ThinPlateSpline: not supported yet" begin
+    @testset "an in-plane ThinPlateSpline, alone or under a height field" begin
         T = ThinPlateSpline(nodes, 1.0e-4 .* randn(rng, 9), 1.0e-4 .* randn(rng, 9))
-        @test_throws ArgumentError surface(PosedTarget(PlanarTarget(pts; calibration = T), X))
-        @test_throws ArgumentError surface(PosedTarget(PlanarTarget(pts; calibration = H ∘ T), X))
+        for c in (T, H ∘ T, H ∘ T ∘ A)
+            t = PlanarTarget(pts; calibration = c)
+            s = surface(PosedTarget(t, X))
+            @test s isa MappedSurface
+            for (p, P) in zip(pts, points(t))
+                XP = X(length(P) == 2 ? SVector(P[1], P[2], 0.0) : P)
+                dd = R * normalize(SVector(-0.03, 0.04, -1.0))
+                tt, x = intersection(s, XP - 0.5 * dd, dd)
+                @test x ≈ XP atol = 1.0e-14
+                @test chart(s, x) ≈ p atol = 1.0e-13
+            end
+        end
     end
 
     @testset "a board bounds the surface" begin
@@ -594,44 +309,14 @@ end
         @test chart(s, x) ≈ SVector(0.55, 0.35) atol = 1.0e-14
     end
 
-    @testset "the RadiometricCamera fixture board, posed" begin
-        include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "height_surface", "reference.jl"))
-        REF = HEIGHT_SURFACE_REFERENCE
-        rn = [REF.origin[SOneTo(2)] + 2 .* b for b in REF.nodes]
-        # The fixture's heights are RadiometricCamera's BENDING part at its chart
-        # nodes, pure bending there: a HeightField on those nodes keeps them bit
-        # for bit. On the world nodes (the chart scaled by 2) the same values'
-        # interpolant gains a piston (U(2r) = 4U(r) + 4 log 2 r², and Σwᵢ|p − pᵢ|²
-        # is a constant): the HeightField drops it (0.5.0) and the pose carries it.
-        @test parameter_vector(HeightField(REF.nodes, REF.bending_heights)) == REF.bending_heights
-        Hr = HeightField(rn, REF.bending_heights)
-        w, a = tps_coefficients(ThinPlateSplineSystem(rn), Vector(REF.bending_heights))
-        @test parameter_vector(Hr) ≈ REF.bending_heights .- a[1] atol = 1.0e-15        # the piston a₁ dropped, the bending kept
-        pt = PosedTarget(PlanarTarget(grid_nodes(3; lo = -1.0, hi = 1.0); calibration = Hr), EuclideanMap(one(RotMatrix{3, Float64}), SVector(0.0, 0.0, a[1])))
-        s = surface(pt)
-        hits = [intersection(s, o, d) for (o, d) in zip(REF.ray_origins, REF.ray_directions)]
-        # The surface's spline comes from inv([K P; Pᵀ 0]) on the world nodes, LAPACK's LU and
-        # inversion, whose last bits follow OpenBLAS's core type: its relative error is of
-        # the order of κ·eps (κ ≈ 410 here), so a hit is within 4κ ulps of the largest
-        # hit value. Measured on Julia 1.12.7, t and x off by 4 and 3 eps natively
-        # (i9-13900K), Haswell and Zen, 5 and 4 Nehalem, 7 and 6 Sandybridge, 9 and 8
-        # Prescott, against the fixed 1e-15 (4.5 eps) this replaces. The bound,
-        # 4κ·eps(2.57) = 7.3e-13 for t and 4κ·eps(0.91) = 1.8e-13 for x, holds the worst
-        # (Prescott) with a margin of 360 and 100.
-        P = [ones(length(rn)) first.(rn) last.(rn)]
-        κ = cond([[tps_radial_basis(p, q) for p in rn, q in rn] P; P' zeros(3, 3)])
-        @test maximum(abs.(first.(hits) - REF.t)) <= 4κ * eps(maximum(abs, REF.t))
-        @test maximum(maximum(abs, x - r) for (x, r) in zip(last.(hits), REF.x)) <= 4κ * eps(maximum(r -> maximum(abs, r), REF.x))
-    end
-
     @testset "a physical target: plain metres; an uncertain pose: its value" begin
         pts_mm = [p .* 1000 .* mm for p in pts]
         H_mm = HeightField([p .* 1000 .* mm for p in nodes], H.h .* 1000 .* mm)
         X_mm = EuclideanMap(R, tr .* 1000 .* mm)
         s = surface(PosedTarget(PlanarTarget(pts_mm; calibration = H_mm), X_mm))
         s_m = surface(PosedTarget(PlanarTarget(pts; calibration = H), X))
-        @test s isa HeightSurface{9, Float64}
-        @test s.quad.origin ≈ tr && s.nodes ≈ s_m.nodes && s.heights ≈ s_m.heights && bounds(s).origin ≈ bounds(s_m).origin
+        @test s isa MappedSurface
+        @test s.frame.origin ≈ tr && bounds(s).origin ≈ bounds(s_m).origin
         o, d = tr + R * SVector(0.1, 0.0, 1.0), R * normalize(SVector(-0.1, 0.05, -1.0))
         @test intersection(s, o, d)[2] ≈ intersection(s_m, o, d)[2] atol = 1.0e-14
         Xu = Uncertain(X, CovMat(SMatrix{6, 6}(1.0e-6 * I)))

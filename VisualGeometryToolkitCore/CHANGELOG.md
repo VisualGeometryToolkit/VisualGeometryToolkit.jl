@@ -5,6 +5,31 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **Breaking: a placed target's placement is Core's `SimilarityMap{3}`** (scale the chart's side, the identity
+  rotation, the translation `(origin, 0)`): `PlanarTarget(…; placement = S₃)`, plain numbers in the target's own form
+  (metres for a physical target), a unit move rescaling it; a rotation or an offset along the normal is an
+  `ArgumentError`. A placed target's point is the composition `S₃ ∘ lift ∘ C ∘ S₂⁻¹` of the design point (its plane
+  point the design point to rounding, no longer bit for bit). It retires `ChartPlacement` (no alias); an unresolved
+  placed target takes no unit form from its placement. VisualGeometryToolkitIO's record keeps its
+  `"placement": {"origin", "side"}` keys.
+- **Breaking: `MappedSurface` replaces `HeightSurface`** (and `ImplicitRoot` / `implicit_root`): a deformed posed
+  target's surface is the surface of ONE composed chart map, `pose ∘ S₃ ∘ lift ∘ C ∘ S₂⁻¹`, every member a
+  CoordinateTransformations map with its `transform_deriv`. `surface(pt)` gives a `Quad` for a planar affine
+  calibration and a `MappedSurface` for any other — **an in-plane `ThinPlateSpline`, alone or under a `HeightField`,
+  is now supported** (formerly an `ArgumentError`). `MappedSurface(pose, calibration, placement, rect)` is the one
+  builder (the device form of its parts too). Its intersection is a 2 × 2 root in the design chart behind one
+  internal function, solved by Core's one static LM (`_spline_lm`, now generic in the float type: Float32 in a kernel,
+  the SplineLens projection's Float64 operations unchanged) and differentiated by the implicit function theorem one
+  Dual layer at a time (nested Duals exact). A height field alone or over the affine factors keeps a 1-D Newton as
+  the root's specialization for its map type (plain numbers): 1.1–1.8 µs a ray against the 2 × 2 root's 17 µs, the
+  hits within 8.9e-16 and every hit and miss the same.
+- **New: the thin-plate kinds on the device.** `ThinPlateSplineSystem{N, T, M}`, `HeightField` and `ThinPlateSpline`
+  take `Adapt.adapt_structure` (their matrices become device arrays, nodes and values stay isbits) and
+  `convert_eltype` (a Float32 device form). `tps_coefficients` is a loop (no BLAS: allocation-free, kernel-safe, any
+  element type), and the pure-bending projection is the new public `tps_pure_bending`, with `tps_bending_coefficients(system, values) -> (v, w, a)` the two in one: the host
+  constructors and a kernel call the same functions.
+- **New: `fit_height_field(nodes, points, heights; smoothing = 0)`**: the pure-bending `HeightField` fitted to
+  scattered heights in the least-squares sense, the plane (the pose's piston and tilts) fitted and dropped.
 - **Breaking: `CameraModel(K; lens, pixel_frame = :colmap)`**: the keyword naming the pixel frame K is stated in
   (`:colmap`, `:opencv`, `:julia`) is `pixel_frame`, formerly `image_origin` (no alias).
 - **New: the `RadialSymmetry` Holy trait** (`RadiallySymmetric()` / `RadiallyAsymmetric()`, public, not exported:

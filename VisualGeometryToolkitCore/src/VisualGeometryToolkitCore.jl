@@ -137,9 +137,9 @@ public ray_plane_intersection
 # The surface a ray meets (geometry/primitives/surfaces.jl): one protocol,
 # isbits and allocation-free. The verbs are generic words, so they stay public
 # (qualified access), as `model` does.
-export Quad, HeightSurface
+export fit_height_field     # a pure-bending HeightField fitted to scattered heights, the plane removed (geometry/cameras/target_calibration.jl)
+export Quad, MappedSurface   # MappedSurface: the surface of a chart map (geometry/cameras/mapped_surface.jl)
 public intersection, chart, bounds, surface, surface_point
-public ImplicitRoot, implicit_root   # how a HeightSurface's root is differentiated under ForwardDiff, per device
 
 # -----------------------------------------------------------------------------
 # 2. TRANSFORMS - Maps for transforming geometry
@@ -212,7 +212,7 @@ public bspline_basis_iterative, evaluate_bspline_surface, bspline_surface_partia
 public evaluate_bspline_4d, bspline_4d_partial, contract_basis_4d_weighted
 # Thin-plate spline (hoisted from RadiometricCamera, arithmetic unchanged): the
 # host-side solver object and the isbits, allocation-free evaluator and gradient.
-public ThinPlateSplineSystem, tps_radial_basis, grid_nodes, tps_coefficients
+public ThinPlateSplineSystem, tps_radial_basis, grid_nodes, tps_coefficients, tps_pure_bending, tps_bending_coefficients
 public tps_evaluate, tps_gradient, nodal_weights, bending_energy, bending_factor
 public SphericalSplineSystem, spherical_spline_kernel, spherical_spline_coefficients, spherical_spline_evaluate   # the spherical spline (Wahba)
 
@@ -310,8 +310,7 @@ public AbstractTargetLayout, layout, TARGET_LAYOUT_TAGS   # a target's parametri
 export TargetCalibration, Rigid, ThinPlateSpline, HeightField   # a planar target's calibration kinds (with the affine factors and their ∘)
 export Aspect, Skew, Scale        # the affine print error's gauge-free Iwasawa factors: Aspect ∘ Skew (Scale ∘ with a ruler, EuclideanMap ∘ Scale ∘ with a known pose)
 export calibration, is_planar
-export ChartPlacement   # where a target calibration's dimensionless chart lies in the design chart (fixed data, no parameters)
-public placement        # a planar target's chart placement (not exported: a common word)
+public placement        # a planar target's placement, a SimilarityMap{3} (not exported: a common word)
 public is_affine   # a calibration's in-plane part is an affine of the design (the surface chart's)
 public TARGET_CALIBRATION_ORDER, planar_kind, members   # a calibration composition's canonical order, a kind's planar type, its members outer first
 public is_pure_bending   # the thin-plate kinds' rule: nodal values with no affine term in their interpolant
@@ -929,7 +928,7 @@ include("numerics/small_lu.jl")   # in-register partial-pivot LU for fixed-size 
 include("numerics/ka_reduce.jl")  # KernelAbstractions workgroup tree reduction
 include("numerics/thin_plate_spline.jl")   # thin-plate spline: host-side solver, isbits allocation-free evaluator
 include("numerics/minimize.jl")   # the one grid-and-golden 1-D minimizer
-include("geometry/primitives/surfaces.jl")   # Quad, HeightSurface: the surface a ray meets (needs the thin-plate evaluator)
+include("geometry/primitives/surfaces.jl")   # the surface protocol and Quad (MappedSurface: geometry/cameras/mapped_surface.jl)
 include("base/raster.jl")         # array plotting without Makie (masks, debug frames)
 include("geometry/primitives/bbox.jl")   # shape → SpatialIndexing.Rect (needs frames + dilate)
 # Allocation-free R-tree queries (intersection, nearest neighbour) and the

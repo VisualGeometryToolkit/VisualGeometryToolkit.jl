@@ -120,20 +120,21 @@ form, plain or physical, and move with `ustrip`/`with_unit`; `Scale`,
 the nodes a thin-plate kind is built on (`r² log r` is not scale-invariant:
 rescaling the nodes moves a piston into the affine part), so a field computed
 on a dimensionless chart of the board — RadiometricCamera's page `[0, 1]²` —
-stays on that chart, and the target places the chart with a
-[`ChartPlacement`](@ref)`(origin, side)`, `p = origin + side·c`:
-`PlanarTarget(…; calibration, placement)` applies its calibration as
-`P(C(P⁻¹(p)))`, a height scaled by `side`. The calibration is plain chart
-numbers whatever the points' form; the placement is fixed data in the points'
-form (it carries the lengths, moves with `ustrip`/`with_unit`, and adds no
-parameters). A page whose chart runs down the design's y is placed at its
+stays on that chart, and the target places the chart with a placement, Core's
+`SimilarityMap{3}` `S₃` of scale `side`, the identity rotation and the
+translation `(origin, 0)` (the design point `p = origin + side·c`):
+`PlanarTarget(…; calibration, placement)` applies its calibration as the
+composition `S₃ ∘ lift ∘ C ∘ S₂⁻¹`, a height scaled by `side`. The calibration
+is plain chart numbers whatever the points' form; the placement is fixed data,
+plain numbers in the points' unit (metres for a physical target, rescaled by
+`ustrip`/`with_unit`), and adds no parameters. A page whose chart runs down the design's y is placed at its
 top-left corner on the reflected chart nodes `(u, −v)`, which keep the
 bending pure.
 
 ```julia
 nodes = [SVector(n[1], -n[2]) for n in grid_nodes(5; lo = 0.0, hi = 1.0)]   # the page's chart, rows down
 t = PlanarTarget(:page; calibration = HeightField(nodes, heights ./ side),     # heights in chart units
-                 placement = ChartPlacement(SVector(x0, ytop), side), board, canvas)
+                 placement = SimilarityMap(side, one(RotMatrix{3, Float64}), SVector(x0, ytop, 0.0)), board, canvas)
 ```
 
 **Planarity is in the type.** [`is_planar`](@ref) is true for `Rigid`, the
@@ -167,10 +168,27 @@ its chart — an affine calibration (the factors, `Aspect ∘ Skew`, …) is the
 hit's chart coordinates are the nominal ones it shows — bounded by the
 target's [`Board`](@ref) (`board = …` on [`PlanarTarget`](@ref), `Rect(board)` in
 the design chart) or else by its nominal points: a [`Quad`](@ref) for a
-`Rigid` or affine calibration, a [`HeightSurface`](@ref) for a
-`HeightField` (alone or after the affine factors). An in-plane `ThinPlateSpline` is not
-supported by the ray primitives yet. The choice is by type, so a
-rigid target's ray caster never compiles the height field's Newton loop. See
+`Rigid` or affine calibration, a [`MappedSurface`](@ref) for any other — a
+`HeightField`, an in-plane `ThinPlateSpline`, either after the affine
+factors — the surface of the composed chart map `pose ∘ S₃ ∘ lift ∘ C ∘ S₂⁻¹`,
+built by `MappedSurface(pose, calibration, placement, rect)` (a device caller
+builds it from adapted parts). The choice is by type, so a rigid target's ray
+caster never compiles the root.
+
+**On the device.** `HeightField`, `ThinPlateSpline` and their
+`ThinPlateSplineSystem` take `Adapt.adapt` (their matrices become device
+arrays) and `convert_eltype` (a `Float32` form); [`tps_pure_bending`](@ref)
+and [`tps_bending_coefficients`](@ref) give a field's pure-bending values and
+spline coefficients from nodal values in a kernel, the same functions the
+host constructors call. [`fit_height_field`](@ref) fits a pure-bending field
+to scattered heights, the plane removed.
+
+**No gauge freedom.** The thin-plate kinds' pure bending is the OBLIQUE
+complement of the pose's directions (values orthogonal to the interpolant's
+affine rows, not to the plane fields), so no deformation direction is a pose
+change: the stacked Jacobian of the posed points in the deformation and the
+pose has full rank (test/mapped_surface_tests.jl pins its condition number and
+the smallest principal angle between the two spans for each composition). See
 [The Surface a Ray Meets](primitives.md#The-Surface-a-Ray-Meets), where
 `surface` is documented with the primitives.
 

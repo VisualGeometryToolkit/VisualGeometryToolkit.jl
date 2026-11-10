@@ -34,18 +34,18 @@ usable in a KernelAbstractions kernel. A ray is an origin and a direction in
 the surface's frame and units, as [`ray_plane_intersection`](@ref) takes it,
 and a half-line (`t ≥ 0`). A [`Quad`](@ref) is a bounded plane, its
 intersection `ray_plane_intersection`'s arithmetic bit for bit; a
-[`HeightSurface`](@ref) is a thin-plate height field over one, its
-intersection Newton from the plane hit (four iterations, then on while the
-update is above rounding). The chart is the DESIGN chart: an in-plane affine
-(a print's calibration) maps it to the plane, so a pattern lookup uses
-nominal coordinates. A ray that misses (parallel, behind the origin, outside
+[`MappedSurface`](@ref) is the surface of a chart map — a deformed posed
+target's `pose ∘ S₃ ∘ lift ∘ C ∘ S₂⁻¹` — its intersection a 2 × 2 root in
+the chart (the spline models' static LM behind one internal function, the
+implicit function theorem for Duals, nested ones included). The chart is
+the DESIGN chart, so a pattern lookup uses nominal coordinates. A ray that misses (parallel, behind the origin, outside
 the rectangle, or not converging) gives `NaN`. The normal is geometric, the
 frame's `e_u × e_v`; flip it against the ray for a camera-facing one. A
 posed target's primitive is [`surface`](@ref)`(pt)` ([Imaging Chain and
 Stereo API](imaging.md)).
 
 ```julia
-s = surface(PosedTarget(target, pose))          # a Quad, or a HeightSurface for a height field
+s = surface(PosedTarget(target, pose))          # a Quad, or a MappedSurface for a deformed target
 t, x = VisualGeometryToolkitCore.intersection(s, o, d)
 uv = VisualGeometryToolkitCore.chart(s, x)       # the design coordinates of the hit
 ```
@@ -54,6 +54,12 @@ uv = VisualGeometryToolkitCore.chart(s, x)       # the design coordinates of the
 Modules = [VisualGeometryToolkitCore]
 Private = false
 Pages = ["primitives/surfaces.jl"]
+```
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore.Cameras]
+Private = false
+Pages = ["cameras/mapped_surface.jl", "cameras/target_surfaces.jl"]
 ```
 
 ## Conics and 3D Primitives

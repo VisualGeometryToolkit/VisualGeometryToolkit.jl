@@ -5,8 +5,8 @@
 # RadiometricCamera's test/unit/test_height.jl: the 2 × 2 board
 # `Board([-1, -1, 0], [2, 0, 0], [0, 2, 0], …; facing = [0, 0, 1.5])` and the
 # saddle `hh`. Every value is printed with `repr` (exact round trip). The test
-# (test/surface_tests.jl) builds the same board as a HeightSurface
-# and compares `intersection`, `chart` and `normal` of its `HeightSurface`.
+# (test/mapped_surface_tests.jl) builds the same board as a placed target's
+# MappedSurface and compares its `intersection`, `chart` and `normal`.
 #
 # Recorded from RadiometricCamera 0.2.0 at 642410fa, Julia 1.12, in that
 # checkout's own environment:

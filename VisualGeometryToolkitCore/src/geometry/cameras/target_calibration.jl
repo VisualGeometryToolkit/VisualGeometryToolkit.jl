@@ -441,15 +441,7 @@ with_unit(c::Union{Scale, Aspect, Skew}, ::Units) = c
 # rows of `system.coeff`, which the target manifold's basis spans
 # (`_constraint_columns`); a covariance over them has that rank.
 
-_bending_rows(L::Matrix{Float64}, v::SVector{K}) where {K} = SVector{K}(L * v)
-
-# The relative size of an affine term below which nodal values count as pure
-# bending: far above the rounding of a projection, far below any real plane.
-const _PLANE_PART_RTOL = 1.0e-12
-# The plane part M a(v) of nodal values v (M = [1 u v] at the nodes, a(v) the
-# interpolant's affine coefficients), and whether it is within the tolerance of v.
-_plane_part(system::ThinPlateSplineSystem, v::AbstractVector) = system.plane * (system.affine * Vector(v))
-_within_rtol(plane, v) = sqrt(sum(abs2, plane)) <= _PLANE_PART_RTOL * sqrt(sum(abs2, v))
+_bending_rows(L::AbstractMatrix, v::SVector{K}) where {K} = SVector{K}(L * v)
 
 """
     is_pure_bending(system::ThinPlateSplineSystem{K}, v::AbstractVector) -> Bool
@@ -463,13 +455,7 @@ it projects any other. Defined on the nodes the system is built on (scaling
 them moves a piston between the affine and the bending parts).
 """
 is_pure_bending(system::ThinPlateSplineSystem{K}, v::AbstractVector) where {K} =
-    (length(v) == K || throw(DimensionMismatch("is_pure_bending: $K nodes, $(length(v)) values")); _within_rtol(_plane_part(system, v), v))
-# v without the affine term of its interpolant (v kept, bit for bit, when it has none).
-function _without_plane(system::ThinPlateSplineSystem{K}, v::SVector{K, T}) where {K, T}
-    plane = _plane_part(system, v)
-    _within_rtol(plane, v) && return v
-    return v - SVector{K, T}(plane)
-end
+    (length(v) == K || throw(DimensionMismatch("is_pure_bending: $K nodes, $(length(v)) values")); tps_pure_bending(system, v) == v)
 _node_lengths(system, physical) = physical ? [map(x -> _attach_length(x, m), p) for p in system.nodes] : collect(system.nodes)
 # 2 × 2K: (nᵀ, 0) over (0, nᵀ) — the two splines' nodal weights
 _two_rows(a::SVector{K}, b::SVector{K}) where {K} = SMatrix{2, K}(ntuple(k -> isodd(k) ? a[(k + 1) ÷ 2] : b[k ÷ 2], Val(2K)))
@@ -510,24 +496,26 @@ stored displacements have `2K − 6` free directions, the
 rank `2K − 6`. `transform_deriv_params` is the derivative along that subspace
 (the nodal weights; the projection is the identity there).
 """
-struct ThinPlateSpline{K, T} <: CoordinateTransformations.Transformation
-    system::ThinPlateSplineSystem{K}
+struct ThinPlateSpline{K, T, S <: ThinPlateSplineSystem{K}, B <: AbstractMatrix} <: CoordinateTransformations.Transformation
+    system::S
     fx::SVector{K, T}
     fy::SVector{K, T}
     wx::SVector{K, T}
     ax::SVector{3, T}
     wy::SVector{K, T}
     ay::SVector{3, T}
-    bending::Matrix{Float64}
+    bending::B
     physical::Bool
 end
+ThinPlateSpline{K, T}(system::S, fx, fy, wx, ax, wy, ay, bending::B, physical::Bool) where {K, T, S, B} =
+    ThinPlateSpline{K, T, S, B}(system, fx, fy, wx, ax, wy, ay, bending, physical)
 # (`project = false`: a unit move, whose values were pure bending on the
 # nodes they came from — re-projecting them on rescaled nodes would move a
 # piston, see "no affine term" above)
 function _thin_plate_spline(system::ThinPlateSplineSystem{K}, L, fx::SVector{K, T}, fy::SVector{K, T}, physical, project::Bool = true) where {K, T}
-    project && ((fx, fy) = (_without_plane(system, fx), _without_plane(system, fy)))
-    wx, ax = tps_coefficients(system, Vector(fx))   # a Vector, as RadiometricCamera supplies its values:
-    wy, ay = tps_coefficients(system, Vector(fy))   # the same BLAS product, the same bits
+    project && ((fx, fy) = (tps_pure_bending(system, fx), tps_pure_bending(system, fy)))
+    wx, ax = tps_coefficients(system, fx)
+    wy, ay = tps_coefficients(system, fy)
     return ThinPlateSpline{K, T}(system, fx, fy, wx, ax, wy, ay, L, physical)
 end
 ThinPlateSpline(nodes::AbstractVector, fx::AbstractVector, fy::AbstractVector; project::Bool = true) = _thin_plate_spline(nodes, fx, fy, project)
@@ -639,9 +627,9 @@ width (`[0, 1] × [0, H/W]`, RadiometricCamera's page), a uniform scaling. Never
 scale x and y apart (a non-square board onto `[0, 1]²`): a thin-plate spline is
 the same surface only under a similarity of its domain, so per-axis scaling
 makes its bending depend on the board's aspect. Place that chart on the target
-with a [`ChartPlacement`](@ref) (a similarity)
-(`PlanarTarget(…; calibration, placement)`): the field stays plain, its
-heights in chart units, and the placement carries the lengths. A
+with a placement, a `SimilarityMap{3}` (`PlanarTarget(…; calibration,
+placement)`): the field stays plain, its heights in chart units, and the
+placement scales them to the target's. A
 physical field's condition holds in metres, its stored form; a unit move
 (`ustrip(u, c)`, [`with_unit`](@ref)) converts the values and does not
 re-project them (the geometry stays where it is), so in another unit the
@@ -652,17 +640,18 @@ checking it was pure bending in the unit it was written in (VisualGeometryToolki
 `K − 3` free directions, the [`TargetManifold`](@ref)'s tangent, and no
 gauges; a covariance over them has rank `K − 3`.
 """
-struct HeightField{K, T} <: CoordinateTransformations.Transformation
-    system::ThinPlateSplineSystem{K}
+struct HeightField{K, T, S <: ThinPlateSplineSystem{K}, B <: AbstractMatrix} <: CoordinateTransformations.Transformation
+    system::S
     h::SVector{K, T}
     w::SVector{K, T}
     a::SVector{3, T}
-    bending::Matrix{Float64}
+    bending::B
     physical::Bool
 end
+HeightField{K, T}(system::S, h, w, a, bending::B, physical::Bool) where {K, T, S, B} = HeightField{K, T, S, B}(system, h, w, a, bending, physical)
 function _height_field(system::ThinPlateSplineSystem{K}, L, h::SVector{K, T}, physical, project::Bool = true) where {K, T}
-    project && (h = _without_plane(system, h))
-    w, a = tps_coefficients(system, Vector(h))   # a Vector, as RadiometricCamera supplies its heights: the same bits
+    project && (h = tps_pure_bending(system, h))
+    w, a = tps_coefficients(system, h)
     return HeightField{K, T}(system, h, w, a, L, physical)
 end
 HeightField(nodes::AbstractVector, heights::AbstractVector; project::Bool = true) = _height_field(nodes, heights, project)
@@ -722,6 +711,46 @@ _values(c::HeightField) = (c.h,)
 _with_form(c::HeightField{K, T}, physical::Bool) where {K, T} = HeightField{K, T}(c.system, c.h, c.w, c.a, c.bending, physical)
 _refit(::HeightField, nodes, (h,)) = _height_field(nodes, h, false)
 
+"""
+    fit_height_field(nodes, points, heights; smoothing = 0) -> HeightField
+
+The [`HeightField`](@ref) over `nodes` that fits the scattered `heights` at the
+plane `points` in the least-squares sense, the PLANE REMOVED: the heights are
+modelled as the pure-bending field plus a plane, `zₖ ≈ h(pₖ) + a₁ + a_u uₖ +
+a_v vₖ`, and the plane (the pose's piston and two tilts) is fitted and dropped,
+so the result is pure bending ([`is_pure_bending`](@ref)) and a planar input
+gives a flat field. The unknowns are the field's `K − 3` free directions (the
+pure-bending basis of its nodal heights, the null space of the interpolant's
+affine rows) and the three plane coefficients; the rows are the spline's
+[`nodal_weights`](@ref) at each point (it is linear in its values), solved by a
+pivoted QR (`\`). `smoothing = λ ≥ 0` adds the bending energy `λ hᵀQh`
+([`bending_energy`](@ref)) as `K` residual rows (a smoothing thin-plate spline);
+with `λ = 0` the fit needs at least `K` points in general position.
+
+`nodes`, `points` and `heights` share one form: plain numbers, or lengths (the
+field is then physical, as `HeightField(nodes, heights)` is). The
+scattered-point counterpart of the constructor, which interpolates nodal
+values.
+"""
+function fit_height_field(nodes::AbstractVector, points::AbstractVector, heights::AbstractVector; smoothing::Real = 0.0)
+    length(points) == length(heights) || throw(DimensionMismatch("fit_height_field: $(length(points)) points, $(length(heights)) heights"))
+    (isfinite(smoothing) && smoothing >= 0) || throw(ArgumentError("fit_height_field: smoothing is a finite λ ≥ 0, got $smoothing"))
+    flat = HeightField(nodes)
+    sys, K = flat.system, length(flat.system.nodes)
+    z, ph = _lengths(collect(heights))
+    ph == flat.physical || _refuse_form("fit_height_field", first(heights), flat.physical)
+    ps = [(_check_one_form((flat, p)); _plain_point(p)) for p in points]
+    # the pure-bending basis: the target manifold's, a plain flat field's on these nodes (one null-space basis)
+    B = Matrix(retract_jacobian(TargetManifold(PlanarTarget(collect(sys.nodes); calibration = HeightField(sys, zeros(K))))))
+    rows = reduce(vcat, [hcat(collect(nodal_weights(sys, p))' * B, [1.0 p[1] p[2]]) for p in ps])
+    A = smoothing > 0 ? vcat(rows, hcat(sqrt(smoothing) .* (bending_factor(sys) * B), zeros(K, 3))) : rows
+    rhs = smoothing > 0 ? vcat(Float64.(z), zeros(K)) : Float64.(z)
+    size(A, 1) >= size(A, 2) || throw(ArgumentError("fit_height_field: $(length(ps)) points cannot fix $(K - 3) bending directions and a plane; give at least $K points or smoothing > 0"))
+    y = A \ rhs
+    h = B * y[1:(K - 3)]
+    return _height_field(sys, flat.bending, SVector{K, Float64}(h), flat.physical)
+end
+
 # A thin-plate kind's unit move. To or from metres it leaves the stored nodes
 # and values as they are (lengths are stored as plain metres): the spline's
 # solver, coefficients and bending factor are reused, only the form flips. Any
@@ -740,6 +769,27 @@ Base.:(==)(a::HeightField, b::HeightField) = a.system.nodes == b.system.nodes &&
 Base.hash(c::HeightField, h::UInt) = hash(c.physical, hash(c.h, hash(c.system.nodes, hash(:HeightField, h))))
 Base.show(io::IO, c::HeightField{K}) where {K} =
     print(io, "HeightField over ", K, " nodes", c.physical ? " (lengths in metres)" : "")
+
+# The device form (`Adapt.adapt(backend, c)`) of the thin-plate kinds: the
+# solver's matrices and the bending factor move, the isbits nodes, values,
+# weights and affine parts travel as they are. In a kernel a kind is applied
+# (`c(p)`, `transform_deriv`) and rebuilt from new values (`with_parameters`:
+# `tps_pure_bending` and `tps_coefficients` on the adapted solver), both
+# without allocating. `convert_eltype(T, c)` converts the solver, the values
+# and the factor (a Float32 device kind), nothing re-solved.
+Adapt.adapt_structure(to, c::HeightField{K, T}) where {K, T} =
+    HeightField{K, T}(Adapt.adapt(to, c.system), c.h, c.w, c.a, Adapt.adapt(to, c.bending), c.physical)
+Adapt.adapt_structure(to, c::ThinPlateSpline{K, T}) where {K, T} =
+    ThinPlateSpline{K, T}(Adapt.adapt(to, c.system), c.fx, c.fy, c.wx, c.ax, c.wy, c.ay, Adapt.adapt(to, c.bending), c.physical)
+convert_eltype(::Type{F}, s::ThinPlateSplineSystem{N}) where {F <: AbstractFloat, N} =
+    ThinPlateSplineSystem{N}(map(SVector{2, F}, s.nodes), _eltype_matrix(F, s.coeff), _eltype_matrix(F, s.Q), _eltype_matrix(F, s.plane), _eltype_matrix(F, s.affine))
+_eltype_matrix(::Type{F}, A::AbstractMatrix{F}) where {F} = A
+_eltype_matrix(::Type{F}, A::AbstractMatrix) where {F} = F.(A)
+convert_eltype(::Type{F}, c::HeightField{K}) where {F <: AbstractFloat, K} =
+    HeightField{K, F}(convert_eltype(F, c.system), SVector{K, F}(c.h), SVector{K, F}(c.w), SVector{3, F}(c.a), _eltype_matrix(F, c.bending), c.physical)
+convert_eltype(::Type{F}, c::ThinPlateSpline{K}) where {F <: AbstractFloat, K} =
+    ThinPlateSpline{K, F}(convert_eltype(F, c.system), SVector{K, F}(c.fx), SVector{K, F}(c.fy), SVector{K, F}(c.wx), SVector{3, F}(c.ax),
+                          SVector{K, F}(c.wy), SVector{3, F}(c.ay), _eltype_matrix(F, c.bending), c.physical)
 
 # The thin-plate kinds applied to a design point: the kind computes on plain
 # numbers (`_apply`), the point keeps its form. A kind with lengths and a point
@@ -858,6 +908,10 @@ with_unit(c::_CalibrationComposition, u::Units) =
 # CoordinateTransformations defines `==` on a composition, member by member,
 # and no `hash`: the default hashes the thin-plate kinds' arrays by identity.
 Base.hash(c::_CalibrationComposition, h::UInt) = hash(c.t2, hash(c.t1, hash(:ComposedTransformation, h)))
+# A composition in another float type: member by member, its association kept.
+convert_eltype(::Type{F}, c::_CalibrationComposition) where {F <: AbstractFloat} = _map_members(l -> convert_eltype(F, l), c)
+convert_eltype(::Type{F}, c::Rigid) where {F <: AbstractFloat} = c
+
 
 # --- lengths ---------------------------------------------------------------------
 #

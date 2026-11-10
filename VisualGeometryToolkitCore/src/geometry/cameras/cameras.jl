@@ -115,8 +115,9 @@ import ..VisualGeometryToolkitCore: toml_value   # extended on lenses (lens_char
 using ..VisualGeometryToolkitCore: pointwise!, ExecutionPolicy, Auto   # a lens over a batch of points (lens_rays.jl)
 using ..VisualGeometryToolkitCore: default_device, on_device   # the family's one backend resolver and upload: the warps' and batched kernels' `device` (base/device.jl)
 import ..VisualGeometryToolkitCore: aspect_ratio  # Extend interface stub (shared with Primitives)
-import ..VisualGeometryToolkitCore: surface   # a posed target's primitive (target_surfaces.jl)
-using ..VisualGeometryToolkitCore: Quad, HeightSurface, Rect2, rotation, _in_rect   # _in_rect: the surface containment test, the board check's too
+import ..VisualGeometryToolkitCore: surface, intersection, chart, normal, surface_point, bounds   # a posed target's primitive (target_surfaces.jl); the MappedSurface protocol (mapped_surface.jl)
+using ..VisualGeometryToolkitCore: _plane_hit, _plane_coordinates, _masked, _primal, primal_float, _with_value, _lift_dual, _outer_value   # MappedSurface's root (mapped_surface.jl)
+using ..VisualGeometryToolkitCore: Quad, Rect2, rotation, _in_rect   # _in_rect: the surface containment test, the board check's too
 using ..VisualGeometryToolkitCore: _check_length   # a length, or a DimensionError (euclidean_map.jl)
 using ..VisualGeometryToolkitCore: Attributed, csponds, Csponds  # composition primitives (depth-attributed points, correspondence sets)
 using ..VisualGeometryToolkitCore: sources, targets, centroid  # correspondence access protocol (#21)
@@ -138,7 +139,7 @@ import ..VisualGeometryToolkitCore: _unit_form, _form_sample   # the one-form ru
 using ..VisualGeometryToolkitCore: translation, UnitfulEuclideanMap, _attach_unit, _ustrip_point, _attach_point, _stored_point,
     _check_one_form, strip_metres, _translation_metres,   # the one strip/attach of maps and points, the one-form rule (euclidean_map.jl)
     _strip_length, _attach_length, _metre_factor, _scale_length_form   # one length's strip/attach, a unit's metre factor (a calibration's lengths)
-using ..VisualGeometryToolkitCore: ThinPlateSplineSystem, tps_coefficients, tps_evaluate, tps_gradient, nodal_weights, bending_factor   # the thin-plate calibration kinds (target_calibration.jl)
+using ..VisualGeometryToolkitCore: ThinPlateSplineSystem, tps_coefficients, tps_pure_bending, tps_evaluate, tps_gradient, nodal_weights, bending_factor   # the thin-plate calibration kinds (target_calibration.jl)
 using FlexUnits: Units, DimensionError
 using ..VisualGeometryToolkitCore: TargetPlaneFrame, PixelFrame, UnlabeledFrame, relabel, unlabel, Frame
 using ..VisualGeometryToolkitCore: FramedImage   # rect-form undistort return currency (warp layer)
@@ -988,7 +989,8 @@ unproject(camera::_UnitfulPosedCamera, u::AbstractVector{Float64}, depth::Quanti
 include("target_calibration.jl")  # TargetCalibration: the kinds of a planar target's calibration and their protocol
 include("targets.jl")  # AbstractTarget, PointTarget, PlanarTarget{C} (+ the calibratable-target protocol)
 include("rig.jl")     # Rig (sensors: tuple storage; targets: dict storage; both: the two side by side; gauge in the frame) + PosedTarget — before the stereo alias
-include("target_surfaces.jl")  # surface(::PosedTarget): the Quad or HeightSurface a ray meets
+include("mapped_surface.jl")   # MappedSurface: the surface of a chart map, its ray root (after spline_lens.jl: its LM)
+include("target_surfaces.jl")  # surface(::PosedTarget): the Quad or MappedSurface a ray meets
 include("captures.jl")  # Trajectory, TargetPoses, TargetPoints2D/3D: per-frame values of a capture (+ convert_frame)
 include("stereo.jl")
 include("rectify.jl")    # stereo rectification on the rig types (0.16)
@@ -1106,7 +1108,9 @@ export SchoepsPattern                         # Schöps et al.'s tagged star pat
 export AbstractTargetLayout, layout, TARGET_LAYOUT_TAGS   # a target's parametric design, recorded by PlanarTarget(layout), and the layouts' tags (public, not exported, at the top level)
 export TargetCalibration, Rigid, ThinPlateSpline, HeightField   # a planar target's calibration kinds (with the affine factors and their ∘)
 export Aspect, Skew, Scale                    # the affine print error's gauge-free Iwasawa factors (with a planar EuclideanMap)
-export ChartPlacement, placement              # a calibration's dimensionless chart in the design chart (targets.jl; placement public, not exported, at the top level)
+export placement                              # a calibration's dimensionless chart in the target's frame, a SimilarityMap{3} (targets.jl; public, not exported, at the top level)
+export MappedSurface                          # the surface of a chart map: a deformed posed target's (mapped_surface.jl)
+export fit_height_field                       # a pure-bending HeightField fitted to scattered heights, the plane removed (target_calibration.jl)
 export calibration, design, reference, is_planar   # design, reference: public, not exported, at the top level
 export is_affine                         # the surface chart's trait (public, not exported, at the top level)
 export PlanarCalibration                 # the planar kinds as one type (public, not exported, at the top level)

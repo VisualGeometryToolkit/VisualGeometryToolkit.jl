@@ -1,11 +1,10 @@
 # =============================================================================
-# The surface a ray meets: Quad (a bounded plane) and HeightSurface (a height
-# field over one)
+# The surface a ray meets: the protocol, and Quad (a bounded plane)
 # =============================================================================
 #
-# Two isbits primitives behind one protocol, every method generic in the
-# element type (Float32, Float64, ForwardDiff.Dual), allocation-free and
-# usable inside a KernelAbstractions kernel:
+# One protocol, every method generic in the element type (Float32, Float64,
+# ForwardDiff.Dual), allocation-free and usable inside a KernelAbstractions
+# kernel:
 #
 #   intersection(s, o, d) -> (t, x)   the ray o + t d (t ≥ 0) meets s at x; NaN if it misses
 #   normal(s, x)                      the unit normal of s at its point x
@@ -17,26 +16,19 @@
 # takes it; there is no ray type. It is in the surface's frame (the posed
 # target's destination frame F) and units (metres when physical).
 #
-# Two planar coordinate systems. The METRIC plane coordinates of x are
+# Two primitives: the closed-form Quad here, and the MappedSurface of a chart
+# map (geometry/cameras/mapped_surface.jl: a deformed target, solved beside
+# the spline models' LM). For a Quad, the METRIC plane coordinates of x are
 # m = ((x − o)·e_u, (x − o)·e_v), (e_u, e_v, n) a right-handed orthonormal
-# frame (a posed target's TargetFrame: metres when physical). The CHART is
+# frame (a posed target's TargetFrame: metres when physical), and its CHART is
 # the design's: m = A c + b, an in-plane affine fixed at construction
 # (identity for a rigid target, the print's affine factors otherwise), so
-# chart(s, x) = A⁻¹ (m − b) — a pattern lookup uses nominal coordinates and
-# the print's calibration is corrected, not ignored. The bounds are a
-# rectangle in the chart. A HeightSurface's height is a function of m (a
-# HeightField acts on the calibrated plane point): the points
-# o + m₁ e_u + m₂ e_v + h(m) n.
+# chart(s, x) = A⁻¹ (m − b). The bounds are a rectangle in the chart.
 #
 # A ray misses when it is parallel to the plane, when the hit is behind its
 # origin (t < 0: a ray is a half-line), when its hit's chart coordinates fall
-# outside `bounds` (closed), or (HeightSurface) when Newton does not
+# outside `bounds` (closed), or (MappedSurface) when its root does not
 # converge: t and every coordinate of x are then NaN.
-#
-# Kept here, not in the Primitives submodule, because the height field
-# evaluates the thin-plate spline (included after Primitives), as bbox.jl is
-# kept for the frames it needs. `surface(::PosedTarget)` builds either
-# primitive from a posed target (geometry/cameras/target_surfaces.jl).
 # =============================================================================
 
 """
@@ -48,59 +40,27 @@ point `x`. The ray and `x` are in the surface's frame — for
 [`surface`](@ref)`(pt)` the pose's destination frame `F` — and its units
 (metres when the target is physical). A ray that misses — parallel to a
 plane, hitting behind its origin (`t < 0`), hitting outside
-[`bounds`](@ref)`(s)`, or (a [`HeightSurface`](@ref)) not converging —
-returns `t` and every coordinate of `x` as `NaN`, never an error. Methods: [`Quad`](@ref) (closed form, the arithmetic of
-[`ray_plane_intersection`](@ref)) and [`HeightSurface`](@ref) (Newton).
-Allocation-free and generic in the element type, so it runs on the GPU path
-and under `ForwardDiff`. The keyword `derivative` ([`ImplicitRoot`](@ref)) is
-how a `HeightSurface`'s root is differentiated under `ForwardDiff`; a kernel
-launch supplies [`implicit_root`](@ref)`(backend)`.
+[`bounds`](@ref)`(s)`, or (a [`MappedSurface`](@ref)) not converging —
+returns `t` and every coordinate of `x` as `NaN`, never an error. Methods:
+[`Quad`](@ref) (closed form, the arithmetic of
+[`ray_plane_intersection`](@ref)) and [`MappedSurface`](@ref) (a 2 × 2 root in
+its chart). Allocation-free and generic in the element type, so it runs on the
+GPU path and under `ForwardDiff` (a MappedSurface's root by the implicit
+function theorem).
 """
 function intersection end
-
-"""
-    ImplicitRoot(min_partials = 1)
-
-How [`intersection`](@ref) differentiates a [`HeightSurface`](@ref)'s Newton
-root under ForwardDiff: a `Dual` with at least `min_partials` partials (its
-outermost layer's) takes the implicit derivative — Newton on the values, then
-`−(∂g/∂p)/g′` from one `Dual` evaluation at the root, the values the plain
-result's bit for bit — and one with fewer runs Newton in the `Dual`s (its values
-the plain ones to an ulp). Both give the derivative of the root; the choice is
-cost. The default, `ImplicitRoot()`, always takes the implicit derivative.
-[`implicit_root`](@ref)`(backend)` is the measured choice for a device.
-"""
-struct ImplicitRoot{M} end
-ImplicitRoot(min_partials::Integer = 1) = ImplicitRoot{Int(min_partials)}()
-
-"""
-    implicit_root(backend::KernelAbstractions.Backend) -> ImplicitRoot
-
-The [`ImplicitRoot`](@ref) measured fastest on `backend`: `ImplicitRoot(1)` on
-the CPU, where the implicit derivative wins at every partial count, and
-`ImplicitRoot(8)` on a GPU, where a few partials cost almost nothing over the
-plain Newton and the implicit derivative's extra plain solve and `Dual`
-evaluation do not pay. Measured 2026-11-04 on a 25-node surface, `Dual`s in the
-heights and the ray, time of Newton in the `Dual`s over the implicit
-derivative's: an RTX 4090 in `Dual{Float32, N}` for N = 1, 2, 4, 6, 8, 12, 15, 32
-gives 0.50, 0.55, 0.59, 1.01, 1.84, 2.26, 2.52, 2.84 (and RadiometricCamera's
-GPU Jacobian at N = 4 ran 10% slower on the implicit path), a crossover at 6,
-taken at 8 for a margin; the CPU in `Dual{Float64, N}` gives 1.2 to 3.7.
-"""
-implicit_root(::KernelAbstractions.Backend) = ImplicitRoot(1)
-implicit_root(::KernelAbstractions.GPU) = ImplicitRoot(8)
 
 """
     chart(s, x) -> SVector{2}
 
 The chart coordinates `(u, v)` of the point `x` of the surface `s` — the
 DESIGN chart (for [`surface`](@ref)`(pt)`, the coordinates of the target's
-nominal points): the projection of `x − o` on the in-plane basis of `s`, then
-the inverse of the surface's in-plane affine (the print's calibration). The
-component along the normal is ignored, so for a [`HeightSurface`](@ref) they
-are the coordinates under the surface point. `x` is in the surface's frame
-and units, as for [`intersection`](@ref); [`surface_point`](@ref) is the
-inverse.
+nominal points). For a [`Quad`](@ref) the projection of `x − o` on its
+in-plane basis, then the inverse of its in-plane affine (the print's
+calibration; the component along the normal is ignored); for a
+[`MappedSurface`](@ref) the chart point whose image is `x`. `x` is in the
+surface's frame and units, as for [`intersection`](@ref);
+[`surface_point`](@ref) is the inverse.
 """
 function chart end
 
@@ -108,8 +68,8 @@ function chart end
     surface_point(s, uv) -> SVector{3}
 
 The point of the surface `s` at chart coordinates `uv` (the inverse of
-[`chart`](@ref)): the in-plane affine applied, placed in the frame, lifted by
-the height for a [`HeightSurface`](@ref). In the surface's frame and units.
+[`chart`](@ref)): a [`Quad`](@ref)'s in-plane affine applied and placed in its
+frame, a [`MappedSurface`](@ref)'s chart map. In the surface's frame and units.
 """
 function surface_point end
 
@@ -121,41 +81,33 @@ The rectangle of chart coordinates the surface `s` covers ([`chart`](@ref)).
 function bounds end
 
 """
-    surface(pt::PosedTarget{<:PlanarTarget}) -> Quad | HeightSurface
+    surface(pt::PosedTarget{<:PlanarTarget}) -> Quad | MappedSurface
 
 The surface a ray meets on the posed planar target `pt`, in the pose's
-destination frame: the frame of the [`Quad`](@ref) is the target's
-TargetFrame placed by `pose(pt)` (origin its translation, `e_u`, `e_v` and the
-normal the rotation's columns: the normal is TargetFrame +z, heights are
-positive along it, and nothing is turned towards a viewer). Its CHART is the
-design chart: the target's in-plane calibration (`Rigid`, or the affine
-factors `Aspect ∘ Skew`, …) is the quad's affine, so [`chart`](@ref) of a hit is the
-nominal coordinates it shows. Its rectangle, in that chart, is
+destination frame, its CHART the design chart (so [`chart`](@ref) of a hit is
+the nominal coordinates it shows). Its rectangle, in that chart, is
 `Rect(`[`board`](@ref)`(t))` when the target has a [`Board`](@ref), else the
 design bounding box — either grown by 16 eps of its coordinates, the margin
 within which `PlanarTarget` accepts a point on its board, so a ray at a point
 on the edge is a hit (up to the chart's own rounding).
 
 - A planar affine calibration (`Rigid`, the factors `EuclideanMap ∘ Scale ∘
-  Aspect ∘ Skew` or any of them) gives a `Quad`.
-- A [`HeightField`](@ref), alone or after the affine factors (`HeightField ∘
-  Aspect ∘ Skew`), gives a [`HeightSurface`](@ref) over that `Quad` with the field's
-  nodes and heights (in the calibrated plane coordinates, TargetFrame
-  `(x, y)`) and the weights the field formed once, when it was built; nothing
-  is solved per ray.
-- An in-plane [`ThinPlateSpline`](@ref) (alone or under a height field) is not supported by the ray
-  primitives yet: an `ArgumentError` naming it.
-- A placed target ([`ChartPlacement`](@ref) `p = o + s c`): its calibration
-  acts in the chart, and the primitive is re-expressed in the design chart —
-  the same affine `A` with `b = s β − (A − I) o`, a height field's nodes
-  `o + s cᵢ`, heights `s hᵢ`, weights `wᵢ / s` and the constant
-  `−s ln s Σ wᵢ|cᵢ|²` the scaled radial basis `U(r) = r² log r` adds (exact,
-  not an approximation).
+  Aspect ∘ Skew` or any of them) gives a [`Quad`](@ref): the target's
+  TargetFrame placed by `pose(pt)` (origin its translation, `e_u`, `e_v` and
+  the normal the rotation's columns), the calibration its affine (placed:
+  `A p + b`, `b = s β − (A − I) o`).
+- Any other — a [`HeightField`](@ref), an in-plane [`ThinPlateSpline`](@ref),
+  either after the affine factors (`HeightField ∘ ThinPlateSpline ∘ Aspect ∘
+  Skew`) — gives the [`MappedSurface`](@ref) of the composed chart map
+  `pose ∘ S₃ ∘ lift ∘ C ∘ S₂⁻¹` (the pose, the [`placement`](@ref) `S₃` and
+  its in-plane part `S₂`, the calibration `C`, the lift `(c, 0)` of a planar
+  one), built by `MappedSurface(pose, calibration, placement, rect)`. Heights
+  are along TargetFrame +z.
 
 A physical target (metres) gives a primitive in metres, plain numbers. An
 uncertain pose or calibration gives its value. A `PointTarget` has no surface
 (a `MethodError`). The kind is chosen by the calibration's type, so a rigid
-target's ray caster never compiles the height field's Newton loop.
+target's ray caster never compiles the root.
 """
 function surface end   # the method: geometry/cameras/target_surfaces.jl
 
@@ -269,220 +221,7 @@ end
     return ifelse(ok, t, nan), ifelse(ok, x, SVector(nan, nan, nan))
 end
 
-# `derivative` is the HeightSurface's choice (ImplicitRoot); a plane hit has no root to differentiate
-@inline function intersection(q::Quad, o::StaticVector{3}, d::StaticVector{3}; derivative::ImplicitRoot = ImplicitRoot())
+@inline function intersection(q::Quad, o::StaticVector{3}, d::StaticVector{3})
     t, x = _plane_hit(q, o, d)
     return _within(q, t, x)
 end
-
-"""
-    HeightSurface(quad, nodes, heights, w, a)
-    HeightSurface{K, T}(s::HeightSurface)
-
-A height field over a [`Quad`](@ref): the points `o + m₁ e_u + m₂ e_v + h(m) n`
-for `m` in the quad's metric plane coordinates, `h` the thin-plate spline
-through the `K` nodal `heights` at the plane points `nodes` (metric plane
-coordinates: a target's calibrated TargetFrame `(x, y)`, which is the design
-chart when the quad's affine is the identity), with its weights `w` and
-affine part `a` ([`tps_coefficients`](@ref); formed once, by whoever builds
-the surface — [`surface`](@ref) takes them from the [`HeightField`](@ref)).
-Heights are positive along the quad's normal. `HeightSurface{K, T}(s)`
-converts the element type.
-
-isbits. [`intersection`](@ref) is Newton's method on
-`g(t) = (o_ray + t d − o)·n − h(m(o_ray + t d))`, started at the plane hit:
-four iterations unconditionally (RadiometricCamera's count, so a ray that
-has converged by then is bit-identical to it), then up to sixteen more while
-the update is above rounding. The update `Δt` counts as rounding when
-`|Δt|·‖d‖ ≤ 64 eps(T) · (L + |t|‖d‖)` (it is then not applied), `L` the
-diagonal of [`bounds`](@ref) in metric plane coordinates (the quad's affine
-applied to its widths) — a length scale of the surface; the iteration
-also counts as converged if its last applied update was below
-`√eps(T) · (L + |t|‖d‖)` (rounding amplified at grazing incidence).
-Otherwise the ray is a miss (`NaN`), as is one whose final surface point is
-behind the origin or outside `bounds`. The four iterations alone suffice
-while the height's slope × tan(incidence) is well below 1 (a print's warp);
-the continuation covers steep or grazing cases.
-
-Under ForwardDiff (`Dual`s in the surface, the origin or the direction, nested
-ones included) the root is differentiated as the keyword `derivative`
-([`ImplicitRoot`](@ref)) says. By default by the implicit function theorem:
-Newton runs on the values — the plain result, bit for bit, misses included —
-and the partials are `−(∂g/∂p)/g′` at the root, from one `Dual` evaluation of
-`g` and `g′`. They are the derivative of the converged root, which
-differentiating every Newton iteration only approaches (to about 1e-11
-relative at grazing incidence). Below its partial count Newton runs in the
-`Dual`s instead — cheaper on a GPU ([`implicit_root`](@ref)); its values agree
-with the plain result to an ulp (the fusing of a `muladd` is the compiler's
-choice in each context) and its partials with the implicit ones to rounding.
-
-[`normal`](@ref)`(s, x)` is the unit normal `(n − ∂h/∂m₁ e_u − ∂h/∂m₂ e_v) / ‖·‖`
-from the spline's analytic gradient ([`tps_gradient`](@ref)), on the side of
-the quad's normal (geometric; flip it against the ray for a camera-facing
-one). [`chart`](@ref) and [`surface_point`](@ref) are the quad's, the latter
-lifted by the height.
-"""
-struct HeightSurface{K, T}
-    quad::Quad{T}
-    nodes::SVector{K, SVector{2, T}}
-    heights::SVector{K, T}
-    w::SVector{K, T}
-    a::SVector{3, T}
-end
-function HeightSurface(quad::Quad, nodes::StaticVector{K, <:StaticVector{2}}, heights::StaticVector{K},
-                       w::StaticVector{K}, a::StaticVector{3}) where {K}
-    T = promote_type(eltype(eltype(nodes)), eltype(heights), eltype(w), eltype(a), eltype(quad.origin))
-    return HeightSurface{K, T}(Quad{T}(quad), SVector{K, SVector{2, T}}(nodes), SVector{K, T}(heights),
-                               SVector{K, T}(w), SVector{3, T}(a))
-end
-HeightSurface{K, T}(s::HeightSurface{K, T}) where {K, T} = s
-HeightSurface{K, T}(s::HeightSurface{K}) where {K, T} = _map_numbers(x -> convert(T, x), s, T)
-# Every number of s mapped by f, as for a Quad.
-@inline _map_numbers(f::F, s::HeightSurface) where {F} = (q = _map_numbers(f, s.quad); _height_surface_of(f, s, q))
-@inline _map_numbers(f::F, s::HeightSurface, ::Type{T}) where {F, T} = _height_surface_of(f, s, _map_numbers(f, s.quad, T))
-@inline _height_surface_of(f::F, s::HeightSurface{K}, q::Quad{T}) where {F, K, T} =
-    HeightSurface{K, T}(q, map(n -> map(f, n), s.nodes), map(f, s.heights), map(f, s.w), map(f, s.a))
-_eltype(::HeightSurface{K, T}) where {K, T} = T
-_height_surface_fields(s::HeightSurface) = (s.quad, s.nodes, s.heights, s.w, s.a)
-Base.:(==)(a::HeightSurface, b::HeightSurface) = _height_surface_fields(a) == _height_surface_fields(b)
-Base.hash(s::HeightSurface, h::UInt) = hash(_height_surface_fields(s), hash(:HeightSurface, h))
-
-bounds(s::HeightSurface) = bounds(s.quad)
-chart(s::HeightSurface, x::StaticVector{3}) = chart(s.quad, x)
-@inline _height(s::HeightSurface, m::StaticVector{2}) = tps_evaluate(s.nodes, s.w, s.a, m)
-# The height and its gradient at `m` computed together, one r² and one log per
-# node: `tps_evaluate`'s value and `tps_gradient`'s gradient term for
-# term, in their operation order (the nodes converted to the gradient's element
-# type, as `tps_gradient` converts them: the same r² as `tps_evaluate`'s for the
-# surface's own element type), so Newton's iterates keep their bits.
-@inline function _height_and_gradient(s::HeightSurface{K}, m::StaticVector{2}) where {K}
-    w, a = s.w, s.a
-    S = promote_type(eltype(w), eltype(m))
-    h = a[1] + a[2] * m[1] + a[3] * m[2]
-    g1 = zero(S); g2 = zero(S)
-    @inbounds for i in 1:K
-        n = s.nodes[i]
-        d1 = m[1] - S(n[1]); d2 = m[2] - S(n[2])
-        r2 = d1 * d1 + d2 * d2
-        if r2 > 0
-            l = log(r2)
-            h += w[i] * (r2 * l / 2)
-            f = w[i] * (l + 1)
-        else
-            h += w[i] * zero(r2)
-            f = zero(S)
-        end
-        g1 += f * d1; g2 += f * d2
-    end
-    return h, SVector(a[2] + g1, a[3] + g2)
-end
-@inline function surface_point(s::HeightSurface, uv::StaticVector{2})
-    q = s.quad
-    m = q.A * uv + q.b
-    return q.origin + m[1] * q.e_u + m[2] * q.e_v + _height(s, m) * normal(q)
-end
-@inline function normal(s::HeightSurface, x::StaticVector{3})
-    q = s.quad
-    g = tps_gradient(s.nodes, s.w, s.a, _plane_coordinates(q, x))
-    return LinearAlgebra.normalize(normal(q) - g[1] * q.e_u - g[2] * q.e_v)
-end
-
-# RadiometricCamera's count (src/board/warping.jl `intersect_board`), then the
-# continuation's cap.
-const _HEIGHT_NEWTON_ITERATIONS = 4
-const _HEIGHT_NEWTON_MAX_ITER = 20
-# Newton's g(t) = t den − s0 − h(m(x)) and g′(t) = den − ∇h·cd at the ray point
-# x = o + t d, the height and its gradient computed together.
-@inline function _newton_terms(s::HeightSurface, den, s0, cd, t, x)
-    h, ∇h = _height_and_gradient(s, _plane_coordinates(s.quad, x))
-    return t * den - s0 - h, den - dot(∇h, cd)
-end
-
-# Newton from the plane hit: (t, x, converged), in the arguments' arithmetic.
-@inline function _height_newton(s::HeightSurface, o::StaticVector{3}, d::StaticVector{3})
-    q = s.quad
-    n = normal(q)
-    den = dot(d, n)                       # g′ without the height's slope
-    s0 = dot(q.origin - o, n)             # g(t) = t den − s0 − h(m(x))
-    t, x = _plane_hit(q, o, d)            # the seed
-    cd = SVector(dot(d, q.e_u), dot(d, q.e_v))   # the plane velocity of the ray
-    for _ in 1:_HEIGHT_NEWTON_ITERATIONS
-        g, gp = _newton_terms(s, den, s0, cd, t, x)
-        t -= g / gp
-        x = o + t * d
-    end
-    # the continuation: stop at a rounding-level update, which is not applied
-    # (a converged ray keeps RadiometricCamera's four-iteration bits)
-    nd = norm(d)
-    w = q.A * q.rect.widths               # the bounds' widths in metric plane coordinates
-    L = hypot(w[1], w[2])
-    ε = eps(typeof(t))                   # a Dual's is its value type's (ForwardDiff)
-    converged = false
-    last = oftype(abs(t), Inf)
-    for _ in (_HEIGHT_NEWTON_ITERATIONS + 1):_HEIGHT_NEWTON_MAX_ITER
-        g, gp = _newton_terms(s, den, s0, cd, t, x)
-        Δ = g / gp
-        scale = L + abs(t) * nd
-        if abs(Δ) * nd <= 64 * ε * scale
-            converged = true
-            break
-        end
-        last = abs(Δ) * nd / scale
-        t -= Δ
-        x = o + t * d
-    end
-    converged |= last <= sqrt(ε)
-    return t, x, converged
-end
-
-# Plain numbers are solved by Newton; a ForwardDiff Dual anywhere (the surface,
-# the origin or the direction) as `derivative` says (ImplicitRoot): the implicit
-# derivative of the root, or Newton differentiated through.
-@inline intersection(s::HeightSurface{K, T}, o::StaticVector{3}, d::StaticVector{3};
-                     derivative::ImplicitRoot = ImplicitRoot()) where {K, T} =
-    _height_intersection(promote_type(T, eltype(o), eltype(d)), s, o, d, derivative)
-
-@inline function _height_intersection(::Type{V}, s::HeightSurface, o::StaticVector{3}, d::StaticVector{3}, ::ImplicitRoot) where {V}
-    t, x, converged = _height_newton(s, o, d)
-    return _within(s.quad, t, x, converged)
-end
-
-# The values' hit, not inlined so that its Newton compiles as it does in a plain
-# call: StaticArrays' `dot` is a `muladd`, whose fusion LLVM decides per compile
-# context, and inlined beside the Dual evaluation the values moved by an ulp on
-# about 1 ray in 9. ({V}: specialized, or a dynamic call on the device.)
-@noinline _height_root(::Type{V}, s::HeightSurface, o::StaticVector{3}, d::StaticVector{3}, r::ImplicitRoot) where {V} =
-    _height_intersection(V, s, o, d, r)
-
-# The implicit function theorem. g(t; p) = t (d·n) − (o_q − o)·n − h(m(o + t d))
-# vanishes at the root t(p), so ∂t/∂p = −(∂g/∂p)/g′(t): Newton runs on the
-# VALUES of D's outermost layer — the plain path, its bits and its misses (or,
-# nested, the next layer solved the same way) — and g and g′ are evaluated once
-# in Duals at that root, t held at its value. The value parts are the values'
-# result exactly; the partials are the derivative of the converged root, which
-# Newton's Duals only approach, for one Dual evaluation instead of every
-# iteration's. With fewer than M partials Newton runs in the Duals.
-@inline function _height_intersection(::Type{D}, s::HeightSurface, o::StaticVector{3}, d::StaticVector{3},
-                                      r::ImplicitRoot{M}) where {G, V, N, D <: ForwardDiff.Dual{G, V, N}, M}
-    if N < M
-        t, x, converged = _height_newton(s, o, d)
-        return _within(s.quad, t, x, converged)
-    end
-    sv, ov, dv = _outer_value(D, s), _outer_value(D, o), _outer_value(D, d)
-    tv, xv = _height_root(promote_type(_eltype(sv), eltype(ov), eltype(dv)), sv, ov, dv, r)
-    q = s.quad
-    n = normal(q)
-    tD = _lift_dual(D, tv)
-    xD = o + tD * d                                     # the Dual ray point at the root, formed once
-    g, gp = _newton_terms(s, dot(d, n), dot(q.origin - o, n), SVector(dot(d, q.e_u), dot(d, q.e_v)), tD, xD)
-    ∂t = -(ForwardDiff.partials(g) / ForwardDiff.value(gp))
-    t = _with_value(D, tv, ∂t)
-    # x = o + t d: xD's partials plus ∂t times the direction's values
-    x = map((xi, ξ, di) -> _with_value(D, xi, ForwardDiff.partials(ξ) + ∂t * di), xv, xD, dv)
-    return _masked(!isnan(tv), t, x)                    # the values' decision: a miss is NaN with zero partials
-end
-
-# The surface at the values of D's outermost layer (base/duals.jl), or as it is
-# when that layer is not in it.
-@inline _outer_value(::Type{D}, s::HeightSurface{K, T}) where {D <: ForwardDiff.Dual, K, T} =
-    _in_layer(D, T) ? _map_numbers(x -> _outer_value(D, x), s) : s

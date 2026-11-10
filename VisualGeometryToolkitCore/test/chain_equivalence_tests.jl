@@ -44,6 +44,12 @@
         # carry one, they are projected, so every value read
         # off their nodal values moves (corpus.jl `_PROJECTED_FIELDS`)
         projected = Set(["T", "H", "T_H"]),
+        # a deformed target's surface is a MappedSurface (0.9.0): the surface of
+        # its composed chart map, whose chart is the design's — no height-surface
+        # type and quad affine to read, and a ThinPlateSpline is no longer refused.
+        # The goldens' surface fields of the H and T cases are set aside; the
+        # surface is checked against RadiometricCamera in mapped_surface_tests.jl.
+        mapped_surfaces = true,
         compose_calibrations = members -> ∘(reverse(members)...),
         compose_distortions = stages -> ∘(reverse(stages)...),
         jacobian_theta = transform_deriv_params,
@@ -105,8 +111,9 @@ end
     @test isempty(failures)
     @test n_compared + n_set_aside == length(G)
     # 52: the A and A_H goldens, set aside with the affine kind (0.5.0); 8: the
-    # gauge fields of R, T, H and T_H; 34: the projected fields of T, H and T_H
-    @test n_compared >= 250 - 52 - 8 - 34
+    # gauge fields of R, T, H and T_H; 34: the projected fields of T, H and T_H;
+    # 5: the surface fields of T, H and T_H (MappedSurface, 0.9.0)
+    @test n_compared >= 250 - 52 - 8 - 34 - 5
 end
 
 @testitem "chain equivalence: the retired compositions are refused" setup = [ChainEquivalenceCore] begin

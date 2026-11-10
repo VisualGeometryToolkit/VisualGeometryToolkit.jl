@@ -181,13 +181,17 @@ end
 @testitem "downstream_hoists: spline models (accessors, rebuilders, NaN backproject)" begin
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, SplineLens, NoncentralSplineModel, ChartSpline, px,
-        backproject, lattice_spacing, with_present, with_directions, with_points, central_model, present_nodes, window, Ray3
+        backproject, lattice_spacing, with_present, with_directions, with_points, central_model, present_nodes, window, Ray3,
+        directions, grid_size, window_offset
     using StaticArrays: SA, SVector, StaticVector
     model = CameraModel(300.0px, SA[320.0px, 240.0px]; lens = KannalaBrandt(-0.02))
     g = CameraModel(SplineLens, model, (640, 480); grid_size = (12, 10))
     G = g.lens.backward.controls
     # RadiometricCamera's private-name copies: `_dirs`, `_full_size` / `grid_dims`, `_first_node`, `_lattice_spacing_px`
-    @test size(G) == (10, 12)
+    @test directions(g) === G && size(G) == (10, 12)
+    @test grid_size(g) == (12, 10) == reverse(size(G))
+    @test window_offset(g, g) == (0, 0) && window_offset(window(g, 3:6, 2:5), g) == (2, 1)
+    @test grid_size(window(g, 3:6, 2:5)) == (4, 4)
     @test all(lattice_spacing(g) .≈ (640 / (12 - 3), 480 / (10 - 3)))
     @test all(lattice_spacing(window(g, 3:6, 2:5)) .≈ lattice_spacing(g))     # a window keeps the lattice's spacing
     # the rebuilders keep every other part (RadiometricCamera's nine field-by-field rebuilds)

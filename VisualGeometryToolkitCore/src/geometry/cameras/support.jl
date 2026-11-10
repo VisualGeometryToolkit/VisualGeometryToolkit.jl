@@ -149,6 +149,44 @@ over its cells, `(w / (gx − 3), h / (gy − 3))`.
 """
 lattice_spacing(m::_LatticeCamera) = _lattice_spacing(_pixel_lattice(m)...)
 
+"""
+    directions(m) -> AbstractMatrix{<:SVector{3}}
+
+The direction controls of a [`SplineLens`](@ref) camera (its backward spline's) or
+of a [`NoncentralSplineModel`](@ref), `[gy, gx]`: kept as given, not normalized.
+"""
+directions(m::_LatticeCamera) = _lattice_lens(m).backward.controls
+
+"""
+    grid_size(m) -> (gx, gy)
+
+The size of the control grid of a [`SplineLens`](@ref) camera or a
+[`NoncentralSplineModel`](@ref), `(columns, rows)` — the `grid_size` keyword's
+order, the reverse of `size(directions(m))`. A [`window`](@ref) reports its block's.
+"""
+grid_size(m::_LatticeCamera) = reverse(size(directions(m)))
+
+"""
+    window_offset(w, m) -> (row, col)
+
+The 0-based `(row, col)` of the first control of the window `w` in the control grid
+of `m`, the camera or model it was cut from (`w = window(m, rows, cols)`: `rows =
+row + 1 : …`, `cols = col + 1 : …`), so a control `directions(w)[i, j]` is
+`directions(m)[row + i, col + j]`. Read off the two lattices' areas; an
+`ArgumentError` when `w` does not lie on `m`'s lattice.
+"""
+function window_offset(w::_LatticeCamera, m::_LatticeCamera)
+    bw, bm = _lattice_lens(w).backward, _lattice_lens(m).backward
+    h = _lattice_spacing(bm.area, size(bm.controls))
+    hw = _lattice_spacing(bw.area, size(bw.controls))
+    d = (GeometryBasics.origin(bw.area) - GeometryBasics.origin(bm.area)) ./ SVector(h[1], h[2])
+    off = round.(Int, d)
+    (all(isapprox.(hw, h; rtol = 1.0e-9)) && all(abs.(d - off) .<= 1.0e-6) && all(>=(0), off) &&
+        all(off .+ reverse(size(bw.controls)) .<= reverse(size(bm.controls)))) ||
+        throw(ArgumentError("window_offset: the window's lattice is not a block of the model's"))
+    return (off[2], off[1])
+end
+
 support_trait(::Type{<:_LatticeCamera}) = LocalSupport()
 nodes(m::_LatticeCamera) = CartesianIndices(last(_pixel_lattice(m)))
 _node_present(m::_LatticeCamera, i::CartesianIndex{2}) = (p = _lattice_lens(m).present; p === nothing || p[i])

@@ -65,10 +65,9 @@ Base.inv(p::AbstractPanoramaProjection) = Backprojection(p)
 Base.inv(b::Backprojection{<:AbstractPanoramaProjection}) = b.model
 Base.show(io::IO, b::Backprojection) = print(io, "Backprojection(", b.model, ")")
 # A model's own back-projection Jacobian (tangent to the sphere) where it has
-# one — a CameraModel here, a NoncentralSplineModel beside its own
-# (noncentral_spline_model.jl) — and any other model's (a panorama projection, a bounded
+# one — a CameraModel or a NoncentralSplineModel, one method in
+# noncentral_spline_model.jl — and any other model's (a panorama projection, a bounded
 # camera) by ForwardDiff through its `backproject`; the pixel floated first.
-transform_deriv(b::Backprojection{<:CameraModel}, q::StaticVector{2}) = last(backproject_with_jacobian(b.model, _float_static(q)))
 transform_deriv(b::Backprojection, q::StaticVector{2}) = last(_backproject_value_and_jacobian(b.model, q))
 
 # The shared parts of the family: the longitude, its gradient, and the guard

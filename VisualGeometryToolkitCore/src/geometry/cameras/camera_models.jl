@@ -827,19 +827,6 @@ function distortion_map(model::CameraModel{<:AbstractIntrinsics, <:AbstractLensM
         affine_part(SMatrix{3, 3, T}(_K_inv(model.intrinsics)))
 end
 
-# How a warp through a lens samples its math: `nothing` (every output pixel
-# through the lens, the default) or `(nr, nc)`, the cells of a coarse grid over
-# the output rectangle at whose nodes the math is evaluated and bilinearly
-# interpolated between (warp.jl's `_sampled_map`) — for a lens whose `project`
-# is an iterative solve, where a solve per output pixel is the warp's whole cost.
-_warp_samples(::AbstractLensModel) = nothing
-
-# THE math of a warp through `model` over the window `rect` of its output frame:
-# `math` itself, or its samples where the lens asks for them (`_warp_samples`).
-# Every image warp through a camera model (undistortion, rectification) reads it.
-_lens_warp(model::CameraModel, math, rect) =
-    (s = _warp_samples(model.lens); s === nothing ? math : _sampled_map(math, Rect2{Float64}(rect), s))
-
 """
     undistort(model::CameraModel{<:AbstractIntrinsics, <:AbstractLensModel}, img)
 
@@ -937,7 +924,7 @@ function undistort!(
         SMatrix{2, 2, Float64}(wd[1] / Wout, 0, 0, wd[2] / Hout),
         SVector(Float64(o[1]), Float64(o[2]))
     )
-    bm = image_warp(T, _lens_warp(model, distortion_map(model), rect) ∘ place, Rect(0, 0, Wout, Hout))
+    bm = image_warp(T, distortion_map(model) ∘ place, Rect(0, 0, Wout, Hout))
     return image_warp!(dst, bm, src; fillvalue)
 end
 

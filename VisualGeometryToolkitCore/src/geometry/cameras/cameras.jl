@@ -62,7 +62,6 @@ using Adapt: Adapt, adapt   # device upload of the controls and rays; the spline
 
 # Import from parent module (VisualGeometryToolkitCore-specific types only)
 import KernelAbstractions as KA   # the spline models' batched kernels
-using ..VisualGeometryToolkitCore: _sampled_map   # a map read off its samples at a coarse grid (warp.jl): a lens warp's coarse inverse
 using ..VisualGeometryToolkitCore: _pixel_extent   # a size in pixels, plain or `px` (homography_solvers.jl)
 using ..VisualGeometryToolkitCore: _pushforward, _pullback   # the constant-Jacobian transport laws (propagate_framed.jl)
 using ..VisualGeometryToolkitCore: Point2, Point3, Vec2, Vec3
@@ -1136,6 +1135,7 @@ export radial_part                         # a lens's radially symmetric part
 export SplineLens, NoncentralSplineModel, spline_lattice        # the central grid camera as a lens of a CameraModel; the non-central grid; a lattice from a camera, unsampled
 export Ray3                              # a non-central pixel's observation line
 export present_nodes, window, lattice_spacing   # the nodes a spline model holds; the camera of a block of its controls; its cell size in px (public, not exported, at the top level)
+export directions, grid_size, window_offset, spline_weights   # its control grid, (gx, gy), a window's corner in its model's grid; a point's window weights and their partials (likewise)
 export direction_tangents, default_spline_grid   # a direction's tangent basis; the reference's control grid of an area
 export ControlPatchManifold              # a block of a spline lattice's controls as a manifold (public, not exported, at the top level)
 export ControlPointChart, AdditivePoints, RayNormalPoints   # how its point controls move (public, not exported, at the top level)

@@ -354,6 +354,7 @@ public parameter_box                      # a ParameterManifold's solver search 
 public coordinate_scale                   # a ParameterManifold's coordinate scales (`scale` keyword)
 export Ray3   # a non-central pixel's observation line (NoncentralSplineModel's backprojection)
 public present_nodes, window, lattice_spacing   # the nodes a spline model holds; the camera of a block of its controls; its cell size in px
+public directions, grid_size, window_offset, spline_weights   # its control grid and (gx, gy); a window's corner in its model's grid; a point's window weights and their partials
 export default_spline_grid  # the reference's control grid of an area
 public direction_tangents   # a direction's tangent basis: the chart a direction control moves in
 public ControlPatchManifold   # a block of a spline lattice's controls as a Manifold: the per-tile refinement's variable

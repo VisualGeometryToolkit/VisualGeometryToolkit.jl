@@ -122,16 +122,17 @@ end
 # One rectified view through a camera model: the fused warp.
 # The destination FOLLOWS the source's backend (similar, not zeros): supply
 # CuArrays and the homography∘lens∘K math runs per output pixel ON
-# the device — one KA bilinear kernel. `precision` (the leading
-# type of `rectify`) keeps the per-pixel math single-precision for GPU throughput. A lens
-# whose projection is a solve is sampled on a coarse grid (`_lens_warp`), as in `undistort`.
+# the device — one KA bilinear kernel, every output pixel through the lens's
+# `project`. `precision` (the leading type of `rectify`) keeps the per-pixel math
+# single-precision for GPU throughput.
 function _rectified_view(
         mi::CameraModel, img::AbstractMatrix, Ki::SMatrix{3, 3, Float64, 9},
         Qi, Kr_inv::SMatrix{3, 3, Float64, 9}, window, Wout::Int, Hout::Int, precision
     )
-    wd = GeometryBasics.widths(window)
-    place = AffineMap(SMatrix{2, 2, Float64}(wd[1] / Wout, 0, 0, wd[2] / Hout), SVector(0.0, 0.0))
-    math = _lens_warp(mi, _rectify_math(mi, Ki, Qi, Kr_inv), window) ∘ place
+    # the canvas [0, Wout] × [0, Hout] onto the window of the rectified frame, its origin included
+    o = GeometryBasics.origin(window); wd = GeometryBasics.widths(window)
+    place = AffineMap(SMatrix{2, 2, Float64}(wd[1] / Wout, 0, 0, wd[2] / Hout), SVector(Float64(o[1]), Float64(o[2])))
+    math = _rectify_math(mi, Ki, Qi, Kr_inv) ∘ place
     bm = image_warp(precision, math, Rect(0, 0, Wout, Hout))
     dst = fill!(similar(img, Hout, Wout), zero(eltype(img)))
     return FramedImage(image_warp!(dst, bm, img), window)

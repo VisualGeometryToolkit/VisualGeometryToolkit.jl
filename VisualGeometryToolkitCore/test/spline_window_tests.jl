@@ -6,7 +6,8 @@
     using Test
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: KannalaBrandt, Pinhole, SplineLens, ChartSpline, NoncentralSplineModel, window,
-        spline_window, spline_value, quasi_interpolant, convert_eltype, LogicalIntrinsics, CameraCalibrationMat, calibration_matrix
+        spline_window, spline_value, quasi_interpolant, convert_eltype, LogicalIntrinsics, CameraCalibrationMat, calibration_matrix,
+        window_offset, directions, grid_size
     using VisualGeometryToolkitCore.Cameras: _normalized_point
     using StaticArrays
     using LinearAlgebra: normalize, norm, dot
@@ -51,6 +52,10 @@
         wn = window(nc, rows, cols)
         @test w isa CameraModel{<:Any, <:SplineLens} && wn isa NoncentralSplineModel
         @test w.intrinsics === m.intrinsics && w.lens.backward.controls == G[rows, cols]
+        # the window's corner in the full grid, read off the two lattices; its own grid size
+        @test window_offset(w, m) == (2, 3) && window_offset(wn, nc) == (2, 3) && window_offset(m, m) == (0, 0)
+        @test directions(w) == directions(m)[rows, cols] && grid_size(w) == (length(cols), length(rows)) && grid_size(m) == (gw, gh)
+        @test_throws ArgumentError window_offset(m, w)
         n = 0
         for p in inside
             x = _normalized_point(m.intrinsics, p)

@@ -194,51 +194,6 @@ _precision(::Type{T}, bm::BoundedMap) where {T <: AbstractFloat} =
     BoundedMap(_precision(T, bm.map), bm.rect)
 
 # =============================================================================
-# A map read off its samples — the coarse inverse of an expensive map
-# =============================================================================
-#
-# A map whose evaluation is an iterative solve per point (a backward lens's
-# `project`: the inverse of its spline) costs a solve per output pixel. Where
-# the map is smooth on the scale of its model, its values at the nodes of a
-# coarse uniform grid over the output rectangle, bilinearly interpolated, lose
-# nothing beyond the model's own approximation order (O(h²) in the node
-# spacing). `_sampled_map(math, rect, (nr, nc))` evaluates `math` at the
-# `(nr + 1) × (nc + 1)` nodes of `rect` once (`pointwise!`) and is the
-# interpolation of those samples by the one bilinear sampler (`_bilinear_sample`):
-# a Transformation like any other, so the one warp kernel samples through it on
-# every backend (its table moves to the device with the warp). A node `math` does
-# not image (NaN) leaves its cells unimaged (all four nodes of a cell are needed),
-# and so does a point outside the rectangle.
-
-struct _SampledMap{M <: AbstractMatrix{<:StaticVector{2}}} <: Transformation
-    origin::SVector{2, Float64}
-    widths::SVector{2, Float64}
-    table::M          # [row = y node, col = x node]: math at origin + (ci, ri) .* widths ./ (nc, nr)
-end
-
-function _sampled_map(math, rect::Rect{2}, (nr, nc)::NTuple{2, Integer})
-    o = GeometryBasics.origin(rect); w = GeometryBasics.widths(rect)
-    nodes = [SVector{2, Float64}(o[1] + ci * w[1] / nc, o[2] + ri * w[2] / nr) for ri in 0:nr, ci in 0:nc]
-    table = similar(nodes)
-    pointwise!(p -> (q = math(p); SVector{2, Float64}(q[1], q[2])), table, nodes)
-    return _SampledMap(SVector{2, Float64}(o[1], o[2]), SVector{2, Float64}(w[1], w[2]), table)
-end
-
-# `p`'s node coordinates (node `(ri, ci)` at table index `(ri + 1, ci + 1)`) and the
-# table's bilinear sample there, NaN outside it. Device-safe: a NaN point gives NaN.
-@inline function (s::_SampledMap)(p::StaticVector{2})
-    H, W = size(s.table)
-    T = eltype(eltype(s.table))
-    gx = (p[1] - T(s.origin[1])) / T(s.widths[1]) * (W - 1)
-    gy = (p[2] - T(s.origin[2])) / T(s.widths[2]) * (H - 1)
-    return _bilinear_sample(s.table, gy + 1, gx + 1, SVector{2, T}(T(NaN), T(NaN)), H, W)
-end
-
-_precision(::Type{T}, s::_SampledMap) where {T <: AbstractFloat} =
-    _SampledMap(s.origin, s.widths, map(SVector{2, T}, s.table))
-Adapt.adapt_structure(to, s::_SampledMap) = _SampledMap(s.origin, s.widths, Adapt.adapt(to, s.table))
-
-# =============================================================================
 # image_warp — the single warp adapter
 # =============================================================================
 
@@ -365,14 +320,22 @@ end
 @inline _warp_index(::CartesianIndex{2}) = 1
 @inline _warp_index(I::CartesianIndex{3}) = I[3]
 
+# THE launch policy of the warp kernel, one warp or a batch: the warps' device form
+# (a link holding arrays — a spline lens's controls — moves beside the destination;
+# an isbits chain, or a vector already there, is unchanged), launched with the
+# backend's own workgroup (a lens's iterative solve in the warp needs registers a
+# fixed 32 × 32 group exceeds on a GPU).
+_device_warp(backend, w) = Adapt.adapt(backend, w)
+
 """
     image_warp!(dst, bm::BoundedMap, src; fillvalue=0) -> dst
 
 Resample `src` into `dst` through the warp `bm` (built by [`image_warp`](@ref)):
 for each `(row, col)` of `dst`, bilinearly sample `src` at `bm((row, col))`.
 Runs the shared KernelAbstractions kernel on the backend that owns `dst` —
-supply `CuArray`s for GPU execution (the warp math evaluates on-device; `bm`
-is isbits).
+supply `CuArray`s for GPU execution (the warp math evaluates on-device: `bm`'s
+device form, `Adapt.adapt(backend, bm)`, which moves a link holding arrays — a
+spline lens's controls — beside `dst`, is isbits; the workgroup is the backend's).
 
 `dst` and `src` may differ in eltype: samples accumulate in float and store
 back through the destination eltype (`UInt8` rounds saturating, colorants
@@ -385,11 +348,7 @@ function image_warp!(
     )
     backend = get_backend(dst)
     fv = _sample_type(eltype(dst))(fillvalue)
-    # the warp's device form: a link holding arrays (a spline lens's controls, a
-    # sampled map's table) moves beside `dst`; an isbits chain is unchanged
-    # the backend's workgroup: an iterative lens solve in the warp needs registers a
-    # fixed 32 × 32 group exceeds on a GPU
-    _warp_kernel!(backend)(dst, src, (Adapt.adapt(backend, bm),), fv; ndrange = size(dst))
+    _warp_kernel!(backend)(dst, src, (_device_warp(backend, bm),), fv; ndrange = size(dst))
     KernelAbstractions.synchronize(backend)
     return dst
 end
@@ -432,7 +391,7 @@ function image_warp_batch_to!(
     )
     backend = get_backend(out)
     fv = _sample_type(T)(fillvalue)
-    _warp_kernel!(backend, (16, 16, 1))(out, src, warps, fv; ndrange = size(out))
+    _warp_kernel!(backend)(out, src, _device_warp(backend, warps), fv; ndrange = size(out))
     KernelAbstractions.synchronize(backend)
     return out
 end

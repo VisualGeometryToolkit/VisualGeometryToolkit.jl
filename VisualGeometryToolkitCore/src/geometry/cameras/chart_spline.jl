@@ -184,6 +184,21 @@ Adapt.adapt_structure(to, cs::ChartSpline{K, T}) where {K, T} =
 # The controls convert as they are; the area stays.
 convert_eltype(::Type{T}, cs::ChartSpline{K}) where {T <: AbstractFloat, K} = ChartSpline(cs.area, map(SVector{K, T}, cs.controls))
 
+# THE weights of a point's window and their derivatives in the lattice coordinate, from
+# ONE evaluation of the cubic pieces: `(gx, ix, iy, wx, wy, dwx, dwy)` at the point `x`
+# of the lattice of `gsz = (rows, cols)` over `area`, the window the point's own
+# continued one (`window = nothing`) or the given `(ix, iy)`, whose pieces then
+# extrapolate off its cell. Read by the value-and-partials sweep and by `spline_weights`.
+@inline function _window_weights(gsz, area, x, window = nothing)
+    gh, gw = gsz
+    gx, gy = _lattice_coords(area, gsz, x)
+    ix, iy, wx, wy = window === nothing ? _continued_window(gx, gy, gw, gh) :
+        (window[1], window[2], cubic_bspline_weights(_span_coordinate(gx + 2, window[1])), cubic_bspline_weights(_span_coordinate(gy + 2, window[2])))
+    dwx = _cubic_bspline_weights_deriv(_span_coordinate(gx + 2, ix))
+    dwy = _cubic_bspline_weights_deriv(_span_coordinate(gy + 2, iy))
+    return gx, ix, iy, wx, wy, dwx, dwy
+end
+
 # THE value of a spline of `controls` over `area` at the point `x` and its two partials
 # `(S, ∂S/∂x₁, ∂S/∂x₂)`, from ONE evaluation of the basis weights and one sweep of the
 # 4 × 4 window (`_continued_window`'s: continued past the area, the window clamped to
@@ -191,11 +206,8 @@ convert_eltype(::Type{T}, cs::ChartSpline{K}) where {T <: AbstractFloat, K} = Ch
 # and the controls (a Float32 lattice stays Float32). The value sums in
 # `_eval_window`'s order, so it is the spline's value bit for bit. Device-safe.
 @inline function _spline_value_and_partials(controls::AbstractMatrix{<:StaticVector{K}}, area, x::StaticVector{2}) where {K}
-    gsz = gh, gw = size(controls)
-    gx, gy = _lattice_coords(area, gsz, x)
-    ix, iy, wx, wy = _continued_window(gx, gy, gw, gh)
-    dwx = _cubic_bspline_weights_deriv(_span_coordinate(gx + 2, ix))
-    dwy = _cubic_bspline_weights_deriv(_span_coordinate(gy + 2, iy))
+    gsz = size(controls)
+    gx, ix, iy, wx, wy, dwx, dwy = _window_weights(gsz, area, x)
     T = promote_type(typeof(gx), eltype(eltype(controls)))
     S = Sx = Sy = zero(SVector{K, T})
     @inbounds for r in 1:4
@@ -211,6 +223,32 @@ convert_eltype(::Type{T}, cs::ChartSpline{K}) where {T <: AbstractFloat, K} = Ch
     end
     sx, sy = _lattice_slope(area, gsz)
     return S, Sx * T(sx), Sy * T(sy)
+end
+
+"""
+    spline_weights(cs::ChartSpline, x[, (ix, iy)]) -> (ix, iy, w, (∂w₁, ∂w₂))
+
+The weights of the 16 controls a point `x` of the chart reads, and their partials:
+`w[r, c]` multiplies `cs.controls[iy - 3 + r, ix - 3 + c]` (`r` the second
+coordinate's tap, `c` the first's; `sum(w .* window controls)` is `cs(x)`), and
+`∂wᵢ = ∂w/∂xᵢ`, all `SMatrix{4, 4}`. The window is the point's own (continued past
+the area, as [`spline_window`](@ref)), or the given `(ix, iy)` held fixed — a
+refinement that keeps a support between rebuilds — whose cubic pieces then
+extrapolate smoothly off its cell (an `ArgumentError` outside the grid). In the
+point's precision. For a [`SplineLens`](@ref) camera's `backward` spline, `x` is the
+normalized point `K⁻¹u`: the pixel partials are `∂w₁ / fx`, `∂w₂ / fy` (skew 0).
+"""
+function spline_weights(cs::ChartSpline, x::StaticVector{2, <:Real}, window::Union{Nothing, NTuple{2, Integer}} = nothing)
+    gsz = gh, gw = size(cs.controls)
+    window === nothing || (3 <= window[1] <= gw - 1 && 3 <= window[2] <= gh - 1) ||
+        throw(ArgumentError("spline_weights: window $window outside the $gh × $gw grid's windows (3:$(gw - 1), 3:$(gh - 1))"))
+    gx, ix, iy, wx, wy, dwx, dwy = _window_weights(gsz, cs.area, float.(x), window)
+    sx, sy = _lattice_slope(cs.area, gsz)
+    T = typeof(gx)
+    w = SMatrix{4, 4, T, 16}(ntuple(k -> wy[(k - 1) % 4 + 1] * wx[(k - 1) ÷ 4 + 1], Val(16)))
+    w1 = SMatrix{4, 4, T, 16}(ntuple(k -> wy[(k - 1) % 4 + 1] * dwx[(k - 1) ÷ 4 + 1] * T(sx), Val(16)))
+    w2 = SMatrix{4, 4, T, 16}(ntuple(k -> dwy[(k - 1) % 4 + 1] * T(sy) * wx[(k - 1) ÷ 4 + 1], Val(16)))
+    return ix, iy, w, (w1, w2)
 end
 
 function transform_deriv(cs::ChartSpline, c::StaticVector{2, <:Real})

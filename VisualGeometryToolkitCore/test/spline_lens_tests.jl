@@ -394,16 +394,17 @@ end
     using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, Division, px, project, model,
         calibration_matrix, undistort, image_warp, image_warp!, distortion_map, Rect2, LogicalIntrinsics, CameraCalibrationMat,
         _bilinear_sample
-    using VisualGeometryToolkitCore.Cameras: _spline_camera, _lens_warp
+    using VisualGeometryToolkitCore.Cameras: _spline_camera
     using CoordinateTransformations: AffineMap
 
     # =============================================================================
     # A SplineLens camera undistorts and rectifies through the generic CameraModel
     # path (`distortion_map` → `image_warp` → the one KernelAbstractions warp kernel
     # on the destination's backend): against the golden undistortion of the old
-    # grid model (test/fixtures/spline_lens_golden.jl), the kernel against a host
-    # loop over the same warp (with and without a forward spline), on CUDA where
-    # available, and the stereo rectification of two SplineLens cameras.
+    # grid model (test/fixtures/spline_lens_golden.jl) and against an exact per-pixel
+    # reference by scalar `project`, the kernel against a host loop over the same warp
+    # (with and without a forward spline), on CUDA where available, and the stereo
+    # rectification of two SplineLens cameras. Every pixel goes through the lens.
     # =============================================================================
 
     include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "spline_lens_golden.jl"))
@@ -421,14 +422,25 @@ end
     checker = [Float64(isodd(fld(x, Int(U.cell)) + fld(y, Int(U.cell)))) for y in 0:(H - 1), x in 0:(W - 1)]   # [row, col]
     rect = Rect2(U.rect...)
 
-    # The warp of an undistortion of `rect` into a Wout × Hout canvas through `c`:
-    # the generic one (`_lens_warp`: sampled where the lens asks), or every output
-    # pixel through the lens (`exact`).
-    function warp_of(c, rect, Wout, Hout; exact::Bool)
+    # The warp of an undistortion of `rect` into a Wout × Hout canvas through `c`, every
+    # output pixel through the lens (the generic path: `undistort` builds the same).
+    function warp_of(c, rect, Wout, Hout)
         o = rect.origin; wd = rect.widths
         place = AffineMap(SMatrix{2, 2, Float64}(wd[1] / Wout, 0, 0, wd[2] / Hout), SVector(o[1], o[2]))
-        math = exact ? distortion_map(c) : _lens_warp(c, distortion_map(c), rect)
-        return image_warp(Float64, math ∘ place, Rect(0, 0, Wout, Hout))
+        return image_warp(Float64, distortion_map(c) ∘ place, Rect(0, 0, Wout, Hout))
+    end
+    # The exact reference, by scalar `project`: output pixel (r, k)'s centre in the rect,
+    # its ray K⁻¹ũ, the source pixel the camera projects it to, as a source index
+    # (COLMAP → index: +½, (x, y) → (row, col)), and the bilinear sample there.
+    function exact_index(c, rect, Wout, Hout, r, k)
+        Ki = inv(SMatrix{3, 3, Float64}(calibration_matrix(c)))
+        o = rect.origin; wd = rect.widths
+        p = project(c, Ki * SVector(o[1] + (k - 0.5) * wd[1] / Wout, o[2] + (r - 0.5) * wd[2] / Hout, 1.0))
+        return SVector(p[2] + 0.5, p[1] + 0.5)
+    end
+    function exact_undistort(c, img, rect, Wout, Hout)
+        Hs, Ws = size(img)
+        return [(q = exact_index(c, rect, Wout, Hout, r, k); _bilinear_sample(img, q[1], q[2], 0.0, Hs, Ws)) for r in 1:Hout, k in 1:Wout]
     end
     # The same warp by a host loop: each output pixel sampled by the warp kernel's bilinear sampler.
     function host_loop(bm, img, Wout, Hout)
@@ -437,26 +449,32 @@ end
     end
     kernel(bm, img, Wout, Hout) = image_warp!(zeros(Hout, Wout), bm, img)
 
-    @testset "the golden undistortion of the old grid, through the camera's own K" begin
+    @testset "exact: every pixel through project, to 1e-12; the golden to the old remap's approximation" begin
         @test K == SMatrix{3, 3, Float64}(U.Kr)                     # the old grid's target pinhole is the camera's K
-        und = undistort(cam, checker, rect)
-        @test und isa FramedImage && und.rect == rect
-        @test size(und.data) == size(U.central)
-        @test maximum(abs.(und.data .- U.central)) <= 1.0e-6
-        @test und.data == kernel(warp_of(cam, rect, 32, 32; exact = false), checker, 32, 32)
-        # every pixel through the lens: the old grid's own per-pixel projection, which the
-        # coarse grid approximates to the golden's O(h²) (measured 2.4e-6)
-        @test maximum(abs.(kernel(warp_of(cam, rect, 32, 32; exact = true), checker, 32, 32) .- U.central)) <= 1.0e-5
+        for c in (cam, cam_fwd)
+            und = undistort(c, checker, rect)
+            @test und isa FramedImage && und.rect == rect
+            @test size(und.data) == size(U.central)
+            bm = warp_of(c, rect, 32, 32)
+            @test maximum(norm(bm(SVector(r, k)) - exact_index(c, rect, 32, 32, r, k)) for r in 1:32, k in 1:32) <= 1.0e-12
+            @test maximum(abs.(und.data .- exact_undistort(c, checker, rect, 32, 32))) <= 1.0e-12
+        end
+        # The golden is the OLD grid's undistortion: its coarse inverse (the map solved at
+        # 97 × 97 nodes, 4 × the 24 × 24 lattice, bilinearly interpolated), which the exact
+        # map differs from by at most 2.17e-6 px, 2.45e-6 in intensity on this checker
+        # (measured; the coarse map rebuilt from scalar `project` gives the golden to 1e-12).
+        # The bound is twice the measured intensity difference.
+        @test maximum(abs.(undistort(cam, checker, rect).data .- U.central)) <= 5.0e-6
     end
 
     @testset "the KernelAbstractions CPU kernel == the host loop, with and without a forward spline" begin
-        for c in (cam, cam_fwd), exact in (true, false)
-            bm = warp_of(c, rect, 32, 32; exact)
+        for c in (cam, cam_fwd)
+            bm = warp_of(c, rect, 32, 32)
             k = kernel(bm, checker, 32, 32)
             @test k == host_loop(bm, checker, 32, 32)
+            @test k == undistort(c, checker, rect).data
             @test count(isfinite, k) == length(k)
         end
-        @test undistort(cam_fwd, checker, rect).data == kernel(warp_of(cam_fwd, rect, 32, 32; exact = true), checker, 32, 32)
         # the lens's project allocates nothing, with and without a forward spline
         X = SVector(0.1, -0.05, 1.0)
         for c in (cam, cam_fwd)
@@ -477,14 +495,11 @@ end
         else
             CuArray = getproperty(cuda, :CuArray)
             dimg = Base.invokelatest(CuArray, checker)
-            for c in (cam, cam_fwd), exact in (true, false)
-                bm = warp_of(c, rect, 32, 32; exact)
-                host = kernel(bm, checker, 32, 32)
-                dev = Base.invokelatest(Array, Base.invokelatest(image_warp!, Base.invokelatest(CuArray, zeros(32, 32)), bm, dimg))
-                @test maximum(abs.(dev .- host)) <= 1.0e-4 * max(1.0, maximum(abs, host))
+            for c in (cam, cam_fwd)
+                host = undistort(c, checker, rect).data
+                dev = Base.invokelatest(undistort, c, dimg, rect)
+                @test maximum(abs.(Base.invokelatest(Array, dev.data) .- host)) <= 1.0e-4 * max(1.0, maximum(abs, host))
             end
-            dev = Base.invokelatest(undistort, cam, dimg, rect)
-            @test maximum(abs.(Base.invokelatest(Array, dev.data) .- undistort(cam, checker, rect).data)) <= 1.0e-4
         end
     end
 

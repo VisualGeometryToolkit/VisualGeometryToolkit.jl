@@ -440,15 +440,6 @@ end
 # A backward lens: its direction Jacobian differentiates `backproject` (camera_models.jl).
 LensDirection(::Type{<:SplineLens}) = BackwardLens()
 
-# A warp through the lens without a forward spline solves the LM per point, so it
-# is sampled on a coarse grid of `_WARP_OVERSAMPLE` times the lattice's own
-# density per axis (at least 8 cells), bilinearly interpolated between (camera_models.jl's
-# `_lens_warp`): measured 0.19 px worst case on a 3 MP calibration at 4, O(h²).
-# With a forward spline `project` is one spline evaluation: every pixel exactly.
-const _WARP_OVERSAMPLE = 4
-_warp_samples(l::SplineLens) = l.forward === nothing ?
-    (max(8, _WARP_OVERSAMPLE * size(l.backward.controls, 1)), max(8, _WARP_OVERSAMPLE * size(l.backward.controls, 2))) : nothing
-
 # The same camera under a diagonal change of the normalized plane, x′ = x / s
 # (`CameraModel(model, K′)` with a shared principal point, s = f′/f per axis):
 # the backward area scales and its controls stay (the lattice coordinate is

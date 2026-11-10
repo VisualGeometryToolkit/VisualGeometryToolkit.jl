@@ -267,13 +267,11 @@ const RETIRED_NAMES = String[
     "GenericGrid" * "Spec",                  # `SplineLensSpec`
     "central" * "_generic",                  # `CameraModelSpec(:spline; …)`, the TOML table type "spline"
     "default" * "_generic_grid",             # `default_spline_grid`
-    "interpolated" * "_direction",           # the backward spline continued past its area: `lens(cam).backward(x)`, x = K⁻¹u
-    "interpolated" * "_point",               # a NoncentralSplineModel's point spline: `m.points(x)`
+    "interpolated" * "_direction",           # the backward spline continued past its area: `cam.lens.backward(x)`, x = K⁻¹u
+    "interpolated" * "_point",               # a NoncentralSplineModel's point spline: `m.points(x)`, x = K⁻¹u
     "in_present" * "_domain",                # where a spline camera images: `all(isfinite, backproject(cam, u))`
-    "spline" * "_support",                   # a point's window: `spline_window(area, size(controls), x)` (its `ix, iy`)
-    "spline" * "_weights",                   # a window's weights: `spline_window`; their partials: `transform_deriv(::ChartSpline, x)`
-    "window" * "_controls", "window" * "_indices",   # the window's controls `controls[iy - 3 + r, ix - 3 + c]`, r, c ∈ 1:4
-    "window" * "_offset",                    # a window is a camera of its own (`window(cam, rows, cols)`): the block's corner is the caller's
+    "spline" * "_support",                   # a point's window: `spline_weights(cam.lens.backward, x)[1:2]` (its `ix, iy`)
+    "window" * "_controls", "window" * "_indices",   # a window's controls: `directions(cam)[iy - 3 + r, ix - 3 + c]`, r, c ∈ 1:4
     "_REFINE_ROBOT_WORLD" * "_MAX_MARKERS",  # VisualGeometryToolkitEstimation: the robot-world refinement's 4-marker cap, removed (2026-10-01)
     # robot-world/hand-eye calibration is named as such (VisualGeometryToolkitEstimation,
     # 2026-10-01): AX = YB, eye-to-hand; "hand_eye" is two tokens

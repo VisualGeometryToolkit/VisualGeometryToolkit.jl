@@ -72,7 +72,7 @@ display rendering for a descriptor among them).
 """
 function variance_stabilize(L::LinearRaw; electrons_per_dn::Real, read_noise::Real)
     L.mode in (:green_cells, :bin2) || throw(ArgumentError(
-        "variance_stabilize: the green cells of a :green_cells or :bin2 image, got :$(L.mode) (the display demosaic interpolates)"))
+        "variance_stabilize: the green cells of a :green_cells or :bin2 image, got :$(L.mode) (an interpolated display image)"))
     isfinite(electrons_per_dn) && electrons_per_dn > 0 ||
         throw(ArgumentError("variance_stabilize: electrons_per_dn must be positive and finite, got $electrons_per_dn"))
     isfinite(read_noise) && read_noise >= 0 ||

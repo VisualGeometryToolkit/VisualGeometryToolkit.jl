@@ -99,7 +99,9 @@ sensor — so every consumer asks the camera what it images instead of supplying
 - **Internal: the implicit derivatives of a SplineLens projection** (`_projection_jacobians`, beside the direction
   Jacobian): `∂x*/∂t` and `∂x*/∂c` of a converged projection solve x* of the ray t, by the implicit function theorem
   on the direction residual — the analytic Jacobian of Estimation's `refine_camera_and_poses` on a SplineLens camera,
-  so no ForwardDiff dual reaches the solve. The direction differential also returns `‖S‖`.
+  so no ForwardDiff dual reaches the solve; and `_solved_projection`, THE solve it differentiates (from the area's
+  centre: the LM returns a start within √eps unmoved, which would make x*(c) a step function). The direction
+  differential also returns `‖S‖`.
 - **New: `field_of_view(camera, distance; dimension)`**: the size of the scene imaged at `distance`,
   `2·distance·tan(θ/2)` for the angle of view `θ`, in the distance's unit (180° or more: an `ArgumentError`).
 

@@ -779,7 +779,10 @@ end
 # control's weight times the normalize differential `(I − ddᵀ)/‖S‖`, and
 # `H (I − ddᵀ) = H`). Returns `(∂x/∂t, −H/‖S‖, ix, iy, w)`, `w` the window's weights
 # (`spline_weights`'s). Exact at a zero residual; the solve's tolerance bounds the
-# term it omits. A SplineLens camera's bundle refinement reads it
+# term it omits. PRECONDITION: `x` is solved to rounding — `_solved_projection`'s, never
+# a solve warm-started within √eps of its answer, which `_spline_lm` returns as it is
+# (the reference's F < eps stop), so that x*(c) would be a step function of the
+# controls. A SplineLens camera's bundle refinement reads it
 # (VisualGeometryToolkitEstimation's `refine_camera_and_poses`).
 function _projection_jacobians(controls::AbstractMatrix{<:SVector{3}}, area::Rect2, x::StaticVector{2}, t::StaticVector{3})
     _, _, Jx, n = _spline_direction_differential(controls, area, x)
@@ -789,6 +792,16 @@ function _projection_jacobians(controls::AbstractMatrix{<:SVector{3}}, area::Rec
     ix, iy, w, _ = spline_weights(ChartSpline(area, controls), x)
     return H * (SMatrix{3, 3, Float64}(LinearAlgebra.I) - t̂ * t̂') / tn, -H / n, ix, iy, w
 end
+
+# THE projection solve that `_projection_jacobians` differentiates: `_spline_project` of
+# the ray `t` through `controls` over `area`, started at the area's centre and bounded
+# to the box `(lb, ub, s)` (a lens's `_spline_lm_box`) — never from a previous answer,
+# which the LM would return unmoved once within √eps (1.5e-8 rad) of the ray; from the
+# centre its quadratic convergence lands to rounding, so x*(c, t) is smooth. `area` may
+# be one cell of a lattice with its 4 × 4 window as `controls` (the pieces extrapolate
+# off the cell): the window a refinement holds between rebuilds.
+@inline _solved_projection(controls, area::Rect2, t::StaticVector{3}, lb, ub, s) =
+    _spline_project(controls, area, t, _rect_centre(area), lb, ub, s, _PROJECT_MAXITER, _PROJECT_TOL^2)
 
 # A SplineLens's bearing at the normalized point `x` and its Jacobian (the BackwardLens
 # route of `backproject_with_jacobian`): the analytic one, NaN where the lens does not

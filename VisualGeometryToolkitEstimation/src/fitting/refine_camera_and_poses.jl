@@ -42,20 +42,24 @@ block order, each view's correspondences in their order); `s²`, the residual
 variance `Σ‖rᵢ‖² / ν` (px²); `ν = 2n − p`, its degrees of freedom (`p` the
 free camera parameters plus 6 per view); `free`, the names of the camera
 parameters refined; and `spline`, `nothing` for a parametric camera, for a
-SplineLens camera `(; penalty, n_dropped_window, rounds, forward, forward_max_px,
-gauge_angle, cost_before_gauge, cost_after_gauge, anchor_cost)`: the
-third-difference weight `λ`, the correspondences dropped on an absent window,
-the solve-and-rebuild rounds (the blocks rebuilt at the estimate until every
-window is its own), what became of a forward
-spline (`:none` without one, `:refitted`, `:dropped`, or `:kept` with the
-controls held) and the refit's held-out maximum (pixels, or `nothing`), the
-angle of the gauge rotation (rad) and the cost on either side of it (equal to
-rounding: the rotation is an exact symmetry), and the anchors' part of the
-cost (0: the controls no row reads are held at their guesses). For a SplineLens
-camera `s²` reads the whole cost, the third-difference rows included, and
-`ν = 2n + 3m − p` counts its `m` third-difference rows as observations and
-`p = 2·(the nodes a row reads) + 6·views − 3` (the rotation gauge's 3
-dimensions are no unknowns). All forward as properties:
+SplineLens camera `(; penalty, n_dropped_window, n_dropped_unprojected, rounds,
+windows_settled, held_scale_node, forward, forward_max_px, gauge_angle,
+gauge_roll, cost_before_gauge, cost_after_gauge, anchor_cost)`: the
+third-difference weight `λ`; the correspondences detected on an absent window,
+and those the camera does not project when detected within a cell of one (they
+can be inliers); the solve-and-rebuild rounds (the blocks rebuilt at the
+estimate until every window is its own) and whether the windows settled before
+the cap; the node whose scale is held; what became of a forward spline
+(`:none` without one, `:refitted`, `:dropped`, or `:kept` with the controls
+held) and the refit's held-out maximum (pixels, or `nothing`); the gauge
+rotation's two angles (the axis's and the roll's, rad) and the cost on either
+side of it (equal to rounding: the rotation is an exact symmetry); and the
+anchors' part of the cost (0: the coordinates no row reads are held at their
+guesses). For a SplineLens camera `s²` reads the whole cost, the
+third-difference rows included, and `ν = 2n + 3m − p` counts its `m`
+third-difference rows as observations and `p = 3·(the nodes a row reads) − 4 +
+6·views` (the held scale and the rotation gauge's 3 dimensions are no
+unknowns). All forward as properties:
 `result.residuals`, `result.spline`, ….
 """
 struct CameraPosesRefineMetadata
@@ -149,35 +153,46 @@ inliers.
 Its K is a frozen gauge (skew 0) and its parameters are its backward lattice's
 controls at the present nodes, so its route differs (Core's `IntrinsicsRole`
 trait, `GaugeIntrinsics`, selects it):
-- The variables are the present nodes' controls, each on its own sphere (the
-  reference's chart, Core's `ControlPatchManifold`: 2 coordinates, its norm
-  kept, the controls grouped into 2 × 2 patches, NLLSsolver's 10-variable
-  block cap), and the poses; a control no row reads is held at its guess. The
-  controls must be unit (an `ArgumentError`
-  otherwise: a lens of non-unit controls weighs its blend by their norms, which
-  the sphere chart would hold and normalizing would change). `free` is
-  `(:controls,)` (the default) or `()` (the poses alone, the camera returned as
-  given); a `box` is an `ArgumentError`.
+- The variables are the present nodes' controls, any norms (a `fit_camera`
+  lattice's, a quasi-interpolant's: they are kept as they are, as normalizing
+  them would change the backprojection), each `c = e^ℓ·D` its direction on its
+  own sphere (the reference's chart, Core's `ControlPatchManifold`) and its
+  log-scale `ℓ` (3 coordinates; the controls grouped into 2 × 2 patches,
+  NLLSsolver's 10-variable block cap), and the poses; a coordinate no row reads
+  is held at its guess. One common scale of every control changes no ray, so
+  the scale of the live node nearest x = 0 is held (its norm comes back as the
+  guess's; the third-difference penalty is not scale-free, so the choice biases
+  it, negligibly at its 1e-8 relative weight). The poses are first refined
+  alone through the guess's lens, then everything together (a node's scale is
+  weakly observed, and a first joint step from poses far off would let the
+  scales absorb the poses' error). `free` is `(:controls,)` (the default) or
+  `()` (the poses alone, the camera returned as given); a `box` is an
+  `ArgumentError`.
 - Each correspondence's rows are `K·x* − u`, `x*` the lens's projection solve
   on the correspondence's 4 × 4 window at the guess, its Jacobian analytic by
   implicit differentiation at `x*` (no automatic differentiation reaches the
   solve). A correspondence detected on a window with an absent node is
   dropped and counted (`result.spline.n_dropped_window`), and so is one the
-  guess does not project when detected within one knot cell of such a window
-  (the guess images it onto the absent nodes); every other one must project at
-  the guess. A third-difference penalty (Core's
+  camera does not project when detected within one knot cell of such a window
+  (it images it onto the absent nodes; counted apart,
+  `result.spline.n_dropped_unprojected`: it can be an inlier); every other one
+  must project at the guess (and at each rebuild's estimate: an
+  `ArgumentError` names the round). A third-difference penalty (Core's
   `difference_rows`, the P-spline fit's operator, along every row and column
   of present nodes), weighted by `λ = penalty · mean(diag)` of the data's
   normal matrix in the node coordinates (`penalty` defaults to `fit_camera`'s
   P-spline weight, 1e-8), holds the nodes the data reach weakly or not at all.
   The blocks are rebuilt at the estimate and solved again until every
-  correspondence reads its own window (`result.spline.rounds`, at most 5;
-  `:max_iterations` if the windows still move).
+  correspondence reads its own window (`result.spline.rounds`, at most 5; at
+  the cap the rows, `rms` and the stationarity test are read on the returned
+  camera's own windows, and `windows_settled` is `false`). `iterations` sums
+  every solve.
 - The gauge: a rotation of every control together with every pose leaves the
   cost unchanged; the estimate is the one whose lens axis
-  `normalize(backward(0, 0))` is ẑ, reached after the solve by the minimal
-  rotation (the rotation about ẑ stays the solve's). K is bit-identical to the
-  guess's.
+  `normalize(backward(0, 0))` is ẑ and whose backward x-derivative at x = 0
+  lies in the xz plane (the convention a SplineLens camera's K is read in),
+  reached after the solve by one rotation (the minimal one onto ẑ, then the
+  roll). K is bit-identical to the guess's.
 - A forward spline is dropped for the refinement and, with `refit_forward`
   (the default), refitted over `imaged_region(camera)` by
   `fit_camera(SplineLens, …; tolerance = forward_tolerance)` (pixels), which

@@ -151,19 +151,19 @@ end
 
 @testsetup module SplineCameraPoseScenes
     using StaticArrays: SVector
-    using LinearAlgebra: normalize
-    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, project, reprojection_error
-    export spline_truth, perturbed_controls, spline_views, spline_rms
+    using LinearAlgebra: normalize, norm
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, project, reprojection_error, backproject, angle_between
+    export spline_truth, perturbed_controls, spline_views, spline_rms, ray_error
 
     # the truth: a Kannala–Brandt fisheye's SplineLens camera (unit controls, 12 × 10 nodes over 1280 × 960)
     spline_truth() = CameraModel(SplineLens, CameraModel(; focal = 420.0, pp = (640.0, 480.0), lens = KannalaBrandt(-0.02, 0.004, -0.001, 0.0002)),
                                  (1280, 960); grid_size = (12, 10))
-    # every present control turned by ≈ `ϵ` rad off its own direction, differently per node (kept unit)
+    # every present control turned by ≈ `ϵ` rad off its own direction, differently per node (its norm kept)
     function perturbed_controls(cam, ϵ)
         b = cam.lens.backward
         C = map(CartesianIndices(b.controls)) do i
             c = b.controls[i]; k = i[1] + 13 * i[2]
-            isfinite(c[1]) ? normalize(c + ϵ * SVector(sin(1.3k), cos(0.7k), sin(2.1k + 0.5))) : c
+            isfinite(c[1]) ? norm(c) * normalize(c / norm(c) + ϵ * SVector(sin(1.3k), cos(0.7k), sin(2.1k + 0.5))) : c
         end
         return CameraModel(cam.intrinsics, SplineLens(ChartSpline(b.area, C); present = cam.lens.present))
     end
@@ -179,13 +179,15 @@ end
             end
         end
     end
+    # the largest angle between two cameras' rays at the detections
+    ray_error(a, b, views) = maximum(angle_between(backproject(a, last(x)), backproject(b, last(x))) for cs in views for x in cs)
     spline_rms(camera, poses, views) =
         sqrt(sum(sum(abs2, reprojection_error(camera, P, first(c), last(c))) for (P, cs) in zip(poses, views) for c in cs) / sum(length, views))
 end
 
 @testitem "refine_camera_and_poses: a SplineLens camera's controls and poses refined, K frozen, the axis on ẑ" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
     using StaticArrays: SVector
-    using LinearAlgebra: normalize
+    using LinearAlgebra: normalize, norm
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, estimate, retcode, rms, calibration_matrix, backproject, lens, SplineLens,
         parameter_vector, angle_between
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, refine_camera_and_poses
@@ -199,24 +201,54 @@ end
     @test lens(est.camera) isa SplineLens && lens(est.camera).forward === nothing
     @test rms(res) < 1.0e-3 < spline_rms(cam0, poses0, views)                  # the guess's error is ≈ 3 px
     @test rms(res) ≈ spline_rms(est.camera, est.poses, views) rtol = 1.0e-6     # the rows are the refined camera's own
-    # the axis: normalize(backward(0, 0)) is ẑ to rounding, and the gauge rotation left the cost where it was
-    @test VC.Cameras._lens_axis(lens(est.camera).backward) ≈ SVector(0.0, 0.0, 1.0) atol = 1.0e-12
-    @test angle_between(VC.Cameras._lens_axis(lens(est.camera).backward), SVector(0.0, 0.0, 1.0)) < 1.0e-9
+    # the gauge, one rotation: the axis normalize(backward(0, 0)) on ẑ and the roll (the x-derivative at x = 0 in
+    # the xz plane) to rounding, the cost where it was
+    b = lens(est.camera).backward
+    d, J = VC.Cameras._spline_direction_and_jacobian(b.controls, b.area, SVector(0.0, 0.0))
+    @test angle_between(d, SVector(0.0, 0.0, 1.0)) < 1.0e-9 && abs(atan(J[2, 1], J[1, 1])) < 1.0e-9
+    @test VC.Cameras._lens_axis(b) ≈ SVector(0.0, 0.0, 1.0) atol = 1.0e-12
     @test res.spline.cost_after_gauge ≈ res.spline.cost_before_gauge rtol = 1.0e-10
-    # backprojection against the truth, read in the refined frame (the truth up to the rotation about ẑ the data
-    # leave free: Q = R_est R_trueᵀ, the same for every view), at the detections: better than the guess by > 10×
-    Q = est.poses[1].R * Es[1].R'
-    @test maximum(maximum(abs, P.R * E.R' - Q) for (P, E) in zip(est.poses, Es)) < 1.0e-6
-    err(c) = maximum(angle_between(backproject(c, last(x)), Q * backproject(truth, last(x))) for cs in views for x in cs)
-    err0 = maximum(angle_between(backproject(cam0, last(x)), backproject(truth, last(x))) for cs in views for x in cs)
-    @test err(est.camera) < err0 / 10
-    @test res.n == 360 && res.spline.n_dropped_window == 0 && res.free == (:controls,)
     @test res.spline.anchor_cost == 0.0
+    # the held scale: the node nearest x = 0 keeps its guess's norm
+    @test norm(b.controls[res.spline.held_scale_node]) == norm(lens(cam0).backward.controls[res.spline.held_scale_node])
+    # backprojection against the truth at the detections (the truth's own frame: the gauge is the truth's): better
+    # than the guess by > 10³, and the poses the truth's
+    @test ray_error(est.camera, truth, views) < ray_error(cam0, truth, views) / 1000
+    @test maximum(maximum(abs, P.R - E.R) for (P, E) in zip(est.poses, Es)) < 1.0e-6
+    @test res.n == 360 && res.spline.n_dropped_window == 0 && res.spline.n_dropped_unprojected == 0 && res.free == (:controls,)
     # the patch layout is no part of the estimate: the lattice laid one node into the patches agrees to the solver's tolerance
     e1 = first(VE._refine_spline_camera_and_poses(cam0, poses0, views, 1))
-    @test maximum(angle_between(backproject(e1.camera, last(x)), backproject(est.camera, last(x))) for cs in views for x in cs) < 1.0e-8
-    @test maximum(maximum(abs, P.R - E.R) for (P, E) in zip(e1.poses, est.poses)) < 1.0e-8
-    @test maximum(abs, parameter_vector(e1.camera) - parameter_vector(est.camera)) < 1.0e-5
+    @test ray_error(e1.camera, est.camera, views) < 1.0e-9
+    @test maximum(maximum(abs, P.R - E.R) for (P, E) in zip(e1.poses, est.poses)) < 1.0e-9
+    @test maximum(abs, parameter_vector(e1.camera) - parameter_vector(est.camera)) < 1.0e-6
+end
+
+@testitem "refine_camera_and_poses: the SplineLens cameras fit_camera and the constructors make, non-unit controls" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
+    using StaticArrays: SVector
+    using LinearAlgebra: norm
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, BoundedCamera, Size2, backproject, imaged_region,
+        estimate, retcode, rms, lens
+    using VisualGeometryToolkitEstimation: refine_camera_and_poses, fit_camera
+    kb = CameraModel(; focal = 420.0, pp = (640.0, 480.0), lens = KannalaBrandt(-0.02, 0.004, -0.001, 0.0002))
+    bk = BoundedCamera(kb, Size2(1280, 960))
+    fitted = estimate(fit_camera(SplineLens, bk, imaged_region(bk); tolerance = 1.0e-2, forward = false))   # the P-spline's controls, 1.8e-2 off unit
+    quasi = CameraModel(SplineLens, u -> backproject(kb, u), (1280, 960); init = :quasi_interpolate)          # 7.7e-3 off unit
+    t = spline_truth(); bt = lens(t).backward
+    scaled = CameraModel(t.intrinsics, SplineLens(ChartSpline(bt.area, map(c -> 2.0 * c, bt.controls))))        # every norm 2
+    Es = truth_poses(3); poses0 = [perturbed_pose(E, v) for (v, E) in enumerate(Es)]
+    for truth in (fitted, quasi, scaled)
+        @test maximum(c -> abs(norm(c) - 1), lens(truth).backward.controls) > 1.0e-3
+        views = spline_views(truth, Es, 1.1)
+        cam0 = perturbed_controls(truth, 0.01)
+        res = refine_camera_and_poses(cam0, poses0, views)
+        est = estimate(res)
+        @test retcode(res) === :converged
+        @test est.camera.intrinsics === cam0.intrinsics                                      # K bit-identical
+        @test rms(res) < 1.0e-3 < spline_rms(cam0, poses0, views)
+        @test ray_error(est.camera, truth, views) < ray_error(cam0, truth, views) / 1000
+        h = res.spline.held_scale_node
+        @test norm(lens(est.camera).backward.controls[h]) == norm(lens(cam0).backward.controls[h])
+    end
 end
 
 @testitem "refine_camera_and_poses: a SplineLens block's analytic Jacobian matches finite differences of its residual" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
@@ -279,8 +311,9 @@ end
     n_absent = count(absent(last(x)) for cs in views for x in cs)
     @test n_absent > 0
     rm = refine_camera_and_poses(masked, poses0, views)
-    @test rm.spline.n_dropped_window >= n_absent && rm.n == 360 - rm.spline.n_dropped_window
-    @test rm.spline.n_dropped_window <= n_absent + 10        # and the few the guess images onto an absent window, within a cell of one
+    @test rm.spline.n_dropped_window == n_absent
+    @test rm.n == 360 - n_absent - rm.spline.n_dropped_unprojected
+    @test rm.spline.n_dropped_unprojected <= 10        # those the camera images onto an absent window, within a cell of one (the guess's taken back)
     @test lens(estimate(rm).camera).present == present
     # a present node no window and no third-difference row reads is anchored: it comes back as its guess, and the anchors add 0
     island = trues(10, 12); island[1:4, 1:4] .= false; island[1, 1] = true           # node (1, 1) alone in its corner
@@ -288,10 +321,7 @@ end
     @test lens(estimate(ri).camera).backward.controls[1, 1] == lens(cam0).backward.controls[1, 1]
     @test ri.spline.anchor_cost == 0.0
     @test ri.spline.cost_after_gauge ≈ ri.spline.cost_before_gauge rtol = 1.0e-10
-    # refusals: non-unit controls (a per-node sphere chart would fix each norm, a blend weight), a box, a partial `free`
-    bt = truth.lens.backward
-    loose = CameraModel(truth.intrinsics, SplineLens(ChartSpline(bt.area, map(c -> 2.0 * c, bt.controls))))
-    @test_throws r"unit" refine_camera_and_poses(loose, poses0, views)
+    # refusals: a box, a partial `free`
     @test_throws ArgumentError refine_camera_and_poses(truth, poses0, views; box = (; c_1_1_x = (0.0, 1.0)))
     @test_throws ArgumentError refine_camera_and_poses(truth, poses0, views; free = (:c_1_1_x,))
 end

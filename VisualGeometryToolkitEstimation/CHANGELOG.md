@@ -39,18 +39,21 @@ non-central one is a `NoncentralSplineModel`).
 - **Breaking: a spline fit's `grid_size` is `(columns, rows)`** everywhere — the keyword, `pspline_grid`'s argument and
   the metadata's `family.grid_size` — Core's `grid_size(m)` order (a fit once reported `(rows, columns)`).
 - **`refine_camera_and_poses` refines a SplineLens camera's controls with its poses, K frozen** (bit-identical): the
-  present nodes' backward controls, each on its own sphere (Core's `ControlPatchManifold`, grouped into 2 × 2
-  patches: NLLSsolver's 10-variable block cap), one block per correspondence on its window's 3 × 3 patches and its
-  pose, its Jacobian analytic by implicit differentiation of the projection solve at x* (no ForwardDiff reaches the
-  solve), a third-difference penalty over the present nodes (Core's `difference_rows`; `penalty`, default the P-spline
-  fit's 1e-8 relative weight), the blocks rebuilt at the estimate until every window is its own, and the rotation
-  gauge fixed after the solve (the lens axis back on ẑ; the cost unchanged). The controls must be unit (an
-  `ArgumentError` otherwise); `free` is `(:controls,)` or `()` (the poses alone). A forward spline is dropped and,
-  with `refit_forward = true` (the default), refitted by `fit_camera(SplineLens, …; tolerance = forward_tolerance)`
-  over the camera's imaged region (a `BoundedCamera` then required). Correspondences detected on an absent window are
-  dropped and counted. `CameraPosesRefineMetadata` gains a fifth field, `spline` (`nothing` for a parametric camera;
-  a positional construction now takes it). Every camera argument may be
-  a `BoundedCamera` of a `CameraModel` (the estimate comes back bounded alike). CPU (NLLSsolver).
+  present nodes' backward controls, any norms (a `fit_camera` lattice, a quasi-interpolant), each `c = e^ℓ·D` its
+  direction on its sphere (Core's `ControlPatchManifold`) and its log-scale, grouped into 2 × 2 patches (NLLSsolver's
+  10-variable block cap); one block per correspondence on its window's 3 × 3 patches and its pose, its Jacobian
+  analytic by implicit differentiation of the projection solve at x* (Core's `_solved_projection` and
+  `_projection_jacobians`: no ForwardDiff reaches the solve); a third-difference penalty over the present nodes
+  (Core's `difference_rows`; `penalty`, default the P-spline fit's 1e-8 relative weight); the scale of the node
+  nearest x = 0 held (the common-scale gauge); the poses refined alone first; the blocks rebuilt at the estimate until
+  every window is its own; and the rotation gauge fixed after the solve by one rotation (the lens axis onto ẑ, the
+  roll putting the x-derivative at x = 0 in the xz plane; the cost unchanged). `free` is `(:controls,)` or `()` (the
+  poses alone). A forward spline is dropped and, with `refit_forward = true` (the default), refitted by
+  `fit_camera(SplineLens, …; tolerance = forward_tolerance)` over the camera's imaged region (a `BoundedCamera` then
+  required). Correspondences detected on an absent window are dropped and counted, and those not projected within a
+  cell of one counted apart. `CameraPosesRefineMetadata` gains a fifth field, `spline` (`nothing` for a parametric
+  camera; a positional construction now takes it). Every camera argument may be a `BoundedCamera` of a `CameraModel`
+  (the estimate comes back bounded alike). CPU (NLLSsolver).
 - `fit_camera(L, …)` warns about non-radial terms only when Core's type-level radial-symmetry test flags the lens; the
   decentering norm is the warning's magnitude (a symmetric `∘` composition is no longer measured as decentered).
 

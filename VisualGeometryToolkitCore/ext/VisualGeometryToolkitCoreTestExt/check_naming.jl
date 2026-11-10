@@ -74,6 +74,7 @@ const RETIRED_NAMES = String[
     "image" * "_origin",                    # the pixel-frame keyword of `CameraModel(K; …)`: `pixel_frame` (2026-11)
     "_radially" * "_symmetric",             # a lens's radial symmetry is a Holy trait: `RadialSymmetry` (`RadiallySymmetric()` / `RadiallyAsymmetric()`) (2026-11)
     "_check" * "_refinable",                # refine_camera_and_poses routes by Core's `IntrinsicsRole` (a SplineLens camera refines; no refusal): `_refine_camera_and_poses(::GaugeIntrinsics, …)` (2026-11)
+    "bundle" * "_adjust",                   # PoseLib's alias of its absolute-pose refinement, a second name: `refine_absolute_pose` (2026-11)
     "Tensor" * "Vignetting",                  # a tensor-PRODUCT B-spline surface, not a tensor: `TensorProductVignetting` (2026-11)
     "ShapeMatrix" * "Scale",                  # the trait dispatches on `shape_factor`: `ShapeFactorScale` (2026-11)
     "moment" * "_matrix",                   # M is a region's shape, not its second moment: `shape_matrix` (0.7; the factor is `shape_factor`)

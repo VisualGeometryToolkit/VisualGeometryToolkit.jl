@@ -1,5 +1,11 @@
 # PoseLib changelog
 
+## Unreleased
+
+- **Breaking: the unexported alias `PoseLib.bundle_adjust` is removed.** It was a second name for
+  `refine_absolute_pose`, under the name of PoseLib's C++ function. Call `refine_absolute_pose(pose, K, cs; …)`,
+  with the same arguments. The C wrapper `poselib_bundle_adjust_cam` that the refinement calls is unchanged.
+
 ## 0.1.9 (2026-11-09)
 
 - On VisualGeometryToolkitCore 0.8 (compat `"0.8"`); nothing else changes.

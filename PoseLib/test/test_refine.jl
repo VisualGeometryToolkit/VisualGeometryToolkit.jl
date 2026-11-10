@@ -122,8 +122,8 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
             sprint(showerror, e)
         end
         @test occursin("refine_absolute_pose(pose, K, cs; max_iter, loss_width)", msg)
-        # The alias is the FUNCTION, so it survives a method withdrawal.
-        @test PoseLib.bundle_adjust === refine_absolute_pose
+        # One name for the refinement: PoseLib's upstream name is no second binding.
+        @test !isdefined(PoseLib, Symbol("bundle" * "_adjust"))
     end
 
     # -------------------------------------------------------------------------

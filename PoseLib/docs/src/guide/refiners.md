@@ -115,9 +115,6 @@ degrees of freedom of the pose are refined; `K` stays fixed. Because the
 camera is a pinhole, this package offers no correct absolute-pose refinement
 for a fisheye camera.
 
-`PoseLib.bundle_adjust`, PoseLib's own name for this refinement, is an
-unexported alias of `refine_absolute_pose` with the same arguments.
-
 ## Poses
 
 The pose refiners take and return a [`Rigid3`](@ref PoseLib.Rigid3), an

@@ -771,7 +771,7 @@ end
     refine_absolute_pose(pose::Rigid3, K, cs; max_iter, loss = TLSShape(), loss_width) -> Rigid3
 
 Robust Levenberg–Marquardt refinement of an absolute pose from 3D-to-2D
-correspondences, through PoseLib's `bundle_adjust`. The residual is the
+correspondences, through PoseLib's C++ absolute-pose bundle adjustment. The residual is the
 reprojection error `project(camera, R X + t) − u`.
 
 `pose` is the seed [`Rigid3`](@ref), mapping the world frame to the camera's.
@@ -861,16 +861,6 @@ refine_absolute_pose(::Rigid3, ::AbstractMatrix, ::_PhysicalPoints3; kwargs...) 
     "refine_absolute_pose: the world points are physical but the seed is plain; attach its unit, " *
         "EuclideanMap(pose.R, pose.t .* m)"
 ))
-
-"""
-    PoseLib.bundle_adjust(pose, K, cs; max_iter, loss, loss_width)
-
-An alias of [`refine_absolute_pose`](@ref) under PoseLib's own name for
-absolute-pose refinement. It is not exported. It takes
-`refine_absolute_pose`'s arguments (the pose first, then the `X => u`
-correspondences), not upstream's `(x, X, pose)` order.
-"""
-const bundle_adjust = refine_absolute_pose
 
 """
     refine_homography(H, cs; max_iter, loss = TLSShape(), loss_width) -> HomographyMat

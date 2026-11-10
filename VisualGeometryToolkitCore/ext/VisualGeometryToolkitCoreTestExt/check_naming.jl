@@ -455,35 +455,34 @@ const RETIRED_NAMES = String[
     "_refuse" * "_domain",                   # an old grid model's domain: the bound's lens coverage, any of its kinds (a camera store's form)
 ]
 
-# Tokens a FOREIGN or STORED format owns, spelled as that format stores them, which
-# are retired as names in the stack: each the exact string, the format that holds it.
-# A retired name that is such a token is accepted (1) inside a Julia string
-# literal — a reader or writer of that format names the token it parses — and (2)
-# anywhere in a data fixture file (`.yaml`, `.yml`, `.json`); never as an
-# identifier, nor in a comment or prose. (Built from fragments, as the lists above.)
+# Retired names that a FOREIGN party owns — a foreign or stored format's token, or a
+# foreign library's API function — each the exact string, its owner, and where it is
+# accepted (`accepted_in`), never as an identifier, nor in a comment or prose elsewhere:
+# - `:format_literal`, a format's token: inside a Julia string literal (a reader or
+#   writer of that format names the token it parses) and anywhere in a data fixture
+#   (`.yaml`, `.yml`, `.json`);
+# - `:c_source`, a library's function: in a C/C++ source (`_C_SOURCE_EXTENSIONS`), the
+#   wrapper that calls the library (built into a prebuilt artifact, so it is not edited
+#   for a Julia rename).
+# (Built from fragments, as the lists above.)
 const FOREIGN_FORMAT_TOKENS = [
-    "Central" * "GenericModel" => "the `type` of Schöps et al.'s camera_calibration intrinsics0.yaml, and of the old vgio grid " *
-        "records (vgio/generic_camera v2/v3, a vgio/rig v6–v8 sensor's body), read through their migrations",
-    "Noncentral" * "GenericModel" => "the same, for the non-central grid model",
-    "nominal" * "_intrinsics" => "an old vgio grid record's key (vgio/generic_camera v2/v3, a vgio/rig v6–v8 sensor's body): its nominal pinhole",
-    "image" * "_origin" => "the legacy pixel-frame key of the OpenCV calibration JSON written before 0.9 (read by load_opencv_calibration, never written)",
+    "Central" * "GenericModel" => (; owner = "the `type` of Schöps et al.'s camera_calibration intrinsics0.yaml, and of the old vgio grid " *
+        "records (vgio/generic_camera v2/v3, a vgio/rig v6–v8 sensor's body), read through their migrations", accepted_in = :format_literal),
+    "Noncentral" * "GenericModel" => (; owner = "the same, for the non-central grid model", accepted_in = :format_literal),
+    "nominal" * "_intrinsics" => (; owner = "an old vgio grid record's key (vgio/generic_camera v2/v3, a vgio/rig v6–v8 sensor's body): its nominal pinhole",
+        accepted_in = :format_literal),
+    "image" * "_origin" => (; owner = "the legacy pixel-frame key of the OpenCV calibration JSON written before 0.9 (read by load_opencv_calibration, never written)",
+        accepted_in = :format_literal),
+    "bundle" * "_adjust" => (; owner = "PoseLib's C++ absolute-pose refinement, called by PoseLib.jl's C wrapper", accepted_in = :c_source),
 ]
-# Functions a FOREIGN library's API owns, whose names are retired as the stack's names:
-# each the exact name and the library. A retired name that is such a function is
-# accepted in a C/C++ source (`.cpp`, `.h`, `.hpp`): the wrapper that calls the library
-# names its API (and is built into a prebuilt artifact, so it is not edited for a Julia
-# rename); never in a Julia file or prose.
-const FOREIGN_API_NAMES = [
-    "bundle" * "_adjust" => "PoseLib's C++ absolute-pose refinement, called by PoseLib.jl's C wrapper",
-]
-_is_c_source(f) = any(e -> endswith(f, e), (".cpp", ".h", ".hpp"))
+_is_c_source(f) = any(e -> endswith(f, e), _C_SOURCE_EXTENSIONS)
 _is_data_fixture(f) = any(e -> endswith(f, e), (".yaml", ".yml", ".json"))
 # Whether the retired-name hit `r` on `line` (its string-literal text `strings`, a
-# Julia file's) is a foreign format's token where one is accepted.
+# Julia file's) is a foreign party's name where its entry accepts it.
 function _foreign_token(f, r, re, line, strings)
-    api = findfirst(t -> first(t) == r, FOREIGN_API_NAMES)
-    api === nothing || return _is_c_source(f)
-    any(t -> first(t) == r, FOREIGN_FORMAT_TOKENS) || return false
+    k = findfirst(t -> first(t) == r, FOREIGN_FORMAT_TOKENS)
+    k === nothing && return false
+    last(FOREIGN_FORMAT_TOKENS[k]).accepted_in === :c_source && return _is_c_source(f)
     _is_data_fixture(f) && return true
     return endswith(f, ".jl") && count(re, line) == count(re, strings)
 end
@@ -555,7 +554,8 @@ const _STACK_PACKAGES = Set([
 
 # Paper sources (`.tex`, `.bib`, figure data) are out of scope by extension
 # alone: the experiment code, scripts and docs kept beside a paper are stack text.
-const _NAMING_EXTENSIONS = (".jl", ".md", ".toml", ".yml", ".yaml", ".cpp", ".h", ".hpp", ".sh", ".sbatch", ".py")
+const _C_SOURCE_EXTENSIONS = (".cpp", ".h", ".hpp")   # the C/C++ sources scanned (a `:c_source` name is accepted in them)
+const _NAMING_EXTENSIONS = (".jl", ".md", ".toml", ".yml", ".yaml", _C_SOURCE_EXTENSIONS..., ".sh", ".sbatch", ".py")
 const _LICENSE_FILES = ("LICENSE", "LICENSE.md", "LICENSE.txt", "COPYING", "NOTICE")
 # Third-party provenance is DECLARED here, at the repository root (see `naming_scope`).
 const _VENDORED_FILE = "VENDORED.toml"

@@ -55,7 +55,7 @@ end
     old = NC.RETIRED_NAMES[1]                    # any retired name
 
     @testset "R9: a foreign format's token is accepted in a string literal and a data fixture, never as a name" begin
-        tok = first(first(NC.FOREIGN_FORMAT_TOKENS))      # a retired name a stored format spells (from the checker's list)
+        tok = first(NC.FOREIGN_FORMAT_TOKENS[findfirst(t -> last(t).accepted_in === :format_literal, NC.FOREIGN_FORMAT_TOKENS)])   # a retired name a stored format spells
         @test tok in NC.RETIRED_NAMES
         @test quiet("src/a.jl" => "is_old(d) = d[\"type\"] == \"$(tok)\"\n")                      # the token a reader parses
         @test quiet("test/fixtures/old.yaml" => "type : $(tok)\n", "test/fixtures/old.json" => "{\"type\": \"$(tok)\"}\n")
@@ -69,11 +69,14 @@ end
     end
 
     @testset "R9: a foreign library's function is accepted in a C/C++ source, nowhere else" begin
-        name = first(first(NC.FOREIGN_API_NAMES))
+        name = first(NC.FOREIGN_FORMAT_TOKENS[findfirst(t -> last(t).accepted_in === :c_source, NC.FOREIGN_FORMAT_TOKENS)])
+        @test all(t -> last(t).accepted_in in (:format_literal, :c_source), NC.FOREIGN_FORMAT_TOKENS)
+        @test all(e -> e in NC._NAMING_EXTENSIONS, NC._C_SOURCE_EXTENSIONS)                      # every C source is scanned
         @test name in NC.RETIRED_NAMES
-        @test quiet("wrapper/w.cpp" => "    auto s = poselib::$(name)(p, P, &image, opt);   // every $(name) overload\n")
+        @test quiet("wrapper/w.cpp" => "    auto s = poselib::$(name)(p, P, &image, opt);   // every $(name) overload\n", "wrapper/w.hpp" => "int $(name)();\n")
         @test rules("src/a.jl" => "f(x) = \"$(name)\"\n") == [:R9]                                   # a Julia file
         @test rules("docs/a.md" => "the $(name) call\n") == [:R9]                                      # prose
+        @test rules("test/fixtures/a.yaml" => "f: $(name)\n") == [:R9]                              # a data fixture: not a format token
     end
 
     @testset "R3: update_ ends in !" begin

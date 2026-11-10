@@ -343,12 +343,17 @@ end
 
     @testset "Float32 project: batched and scalar, with and without a forward, the Float64 scalar's" begin
         # the device throughput form (Review Focus 5): a Float32 camera, host-adapted, its batched and scalar
-        # projection against the Float64 scalar projection — the same imaged mask, and the pixel to 1e-5 in the
-        # normalized plane (Focus 5's unit, the backprojection's) and to 1e-4 px. A Float32 camera evaluates its
-        # directions in Float32: f·eps(Float32) = 3.6e-5 px at this f ≈ 300 (measured 4.4e-5 px against the same
-        # camera's values in Float64), so 1e-5 px is below its resolution; and its K is Float32 (an ulp of a
-        # pixel coordinate near 1000 is 6e-5 px)
-        for (c64, rays, seeds) in ((cam, rays_in, lattice), (masked, rays_in, lattice), (cam_fwd, rays64, fill(SVector(500.0, 500.0), length(rays64))))
+        # projection against the Float64 scalar projection — the same imaged mask, the pixel to 1e-5 in the
+        # normalized plane (Focus 5's unit, the backprojection's), and in pixels to k·f·eps(Float32) with k = 4:
+        # a Float32 camera evaluates its directions (and its K) in Float32, so its pixel error scales with the
+        # camera's f. Measured worst case 1.62·f·eps(Float32), at f = 300 (5.8e-5 px) and at f = 3000 (5.8e-4 px)
+        # alike; a fixed pixel bound would hold a long lens to a tighter relative precision than a short one.
+        # The same lens at ten times the focal length and image (f = 3000)
+        src10 = CameraModel(10 * G.f * px, SA[10 * G.pp[1] * px, 10 * G.pp[2] * px]; lens = KannalaBrandt(G.kb...))
+        cam10 = CameraModel(SplineLens, src10, (10 * G.image[1], 10 * G.image[2]); grid_size = (G.grid_size[1], G.grid_size[2]))
+        lattice10 = [10 .* u for u in lattice]
+        for (c64, rays, seeds) in ((cam, rays_in, lattice), (masked, rays_in, lattice), (cam_fwd, rays64, fill(SVector(500.0, 500.0), length(rays64))),
+                                   (cam10, [backproject(cam10, u) for u in lattice10], lattice10))
             c32 = adapt(Array, convert_eltype(Float32, c64))
             same32 = convert_eltype(Float64, c32)
             ref = [project(same32, X) for X in rays]
@@ -363,10 +368,11 @@ end
                 mask = [all(isfinite, p) for p in px]
                 @test (name, mask) == (name, [all(isfinite, p) for p in ref])
                 @test (name, mask) == (name, [all(isfinite, p) for p in orig])
+                f = calibration_matrix(c64)[1, 1]
                 for r in (ref, orig)
                     err = maximum(i -> norm(SVector{2, Float64}(px[i]) - r[i]), imaged; init = 0.0)
-                    @test err <= 1.0e-4
-                    @test err / K[1, 1] <= 1.0e-5
+                    @test err <= 4 * f * eps(Float32)    # k = 4
+                    @test err / f <= 1.0e-5
                 end
             end
         end

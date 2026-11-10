@@ -5,6 +5,14 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New: `check_raw_decoding(dir)` and `RawDecodingViolation`** (public, the Test extension, beside `check_naming`):
+  the stack's one RAW path. Flags, in code outside VisualGeometryToolkitFeatures' raw module, any use of rawpy, a
+  LibRaw C call, dcraw, rawpy's `postprocess(`, a demosaic, a Bayer/CFA interpolation, or a decoded RAW output re-read
+  with `PNGFiles.load`/`Gray.(…)`.
+- **New: `reframed_calibration(S::SimilarityMap{2}, K)`**, a calibration matrix carried by a similarity of the image
+  plane (`to_homogeneous(S)·K`; a rotated `S` is refused by K's structure check). The pixel-frame change
+  `reframed_calibration(from, to, K)` is this map form with `SimilarityMap(EuclideanMap(from, to))`: one formula.
+
 - **New: `weight_of(x)` and `value_of(x)`** (public, not exported): a datum's weight (the `weight` attribute of an
   `Attributed(x, (; weight))`, as `Float64`; `1.0` for a bare value or one without `:weight`) and its value. Weights
   travel with their data as `Attributed` values; `conventions/data-arguments.md` states the rule (a fit returns a

@@ -80,6 +80,8 @@ const RETIRED_NAMES = String[
     "_grid" * "_golden_minimum",            # the one 1-D minimizer is public: `grid_golden_minimum` (2026-11)
     "_lens" * "_axis",                      # the forward spline's chart is about ẑ, not the principal point's ray: `_forward_chart()` (2026-11)
     "fit" * "_height_field",                  # a one-step algorithm is no `fit_*` (the estimators guide): `HeightField(nodes, points .=> heights; smoothing)` (2026-11)
+    "Raw" * "pyDecoder",                      # the stack's one RAW decoder: `LibRawDecoder()` (VisualGeometryToolkitFeatures, 2026-11)
+    "VisualGeometryToolkitFeatures" * "PythonExt",   # its extension, removed with it: the LibRaw_jll extension decodes (2026-11)
     "tps" * "_bending_coefficients",          # a wrapper of two calls: `tps_pure_bending`, then `tps_coefficients` (or `with_parameters` on the kind) (2026-11)
     "Chart" * "Placement",                    # a target's calibration chart in its frame is Core's `SimilarityMap{3}` (scale the side, the identity rotation, translation (origin, 0)): `PlanarTarget(…; placement = S₃)` (2026-11)
     "Height" * "Surface",                     # a deformed target's surface is the chart map's: `MappedSurface` (pose ∘ S₃ ∘ lift ∘ C ∘ S₂⁻¹), one root for every deformation (2026-11)

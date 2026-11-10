@@ -371,6 +371,17 @@ end
     @test (R[1, 1], R[2, 2], R[1, 2]) == (K[1, 1], K[2, 2], K[1, 2]) && (R[1, 3], R[2, 3]) == (320.5, 240.5)
     @test calibration_matrix(CameraModel(K; pixel_frame = :opencv)) == SMatrix{3, 3, Float64}(R)
     @test reframed_calibration(PixelFrame{:colmap}, PixelFrame{:opencv}, R) == K
+    # the map form, which the pixel-frame change goes through: a similarity of the image plane
+    # acts on K by its homogeneous matrix, S·K, and its inverse brings K back exactly
+    using VisualGeometryToolkitCore: SimilarityMap, EuclideanMap
+    using Rotations: RotMatrix
+    S = SimilarityMap(2.0, RotMatrix{2}(0.0), SVector(3.0, -1.0))
+    K2 = reframed_calibration(S, K)
+    @test (K2[1, 1], K2[2, 2], K2[1, 2], K2[1, 3], K2[2, 3]) == (1600.0, 1580.0, 1.0, 643.0, 479.0)
+    @test reframed_calibration(inv(S), K2) == K
+    @test reframed_calibration(SimilarityMap(EuclideanMap(PixelFrame{:opencv}, PixelFrame{:colmap})), K) == R
+    # a rotated image plane has no upper-triangular K: refused by K's own check
+    @test_throws ArgumentError reframed_calibration(SimilarityMap(1.0, RotMatrix{2}(0.3), SVector(0.0, 0.0)), K)
     # the warp's device form is `Adapt.adapt` itself: no forwarding wrapper
     @test !isdefined(VisualGeometryToolkitCore, :_device_warp)
 end

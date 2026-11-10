@@ -152,25 +152,35 @@ function CameraModel(
 end
 
 """
+    reframed_calibration(S::SimilarityMap{2}, K::CameraCalibrationMat) -> CameraCalibrationMat{Float64}
     reframed_calibration(from::Type{<:PixelFrame}, to::Type{<:PixelFrame}, K::CameraCalibrationMat) -> CameraCalibrationMat{Float64}
 
-THE pixel-frame change of a calibration matrix: the same `K` with its principal
-point moved from the pixel frame `from` into `to` by the frame map
-`EuclideanMap(from, to)` (a translation by the frames' half-pixel offset), the
-focal lengths and the skew kept, in `Float64`. `CameraModel(K; pixel_frame)`
-and VisualGeometryToolkitIO's stored K (its readers and writers) all move a K
-through it. `K` was checked (or deliberately not, `check = false`) when it was
-built: the shift moves its principal point only, so nothing is re-checked.
+THE change of image frame of a calibration matrix: `K` in `S`'s source frame
+becomes `to_homogeneous(S)·K` in its destination frame, so a pixel `K·x̃` of the
+source is `S(K·x̃)` of the destination. In `Float64`. A similarity of the image
+plane keeps K's form when its rotation is the identity (a scale `s` multiplies
+the focals, the skew and the principal point, then the translation moves the
+principal point); a rotated `S` gives no upper-triangular K and is refused by
+K's own structure check (`ArgumentError`). `inv(S)` brings K back.
+
+The 3-argument form is the pixel-frame change, `S = SimilarityMap(EuclideanMap(from, to))`
+(a translation by the frames' half-pixel offset; the focal lengths and the skew
+kept): `CameraModel(K; pixel_frame)` and VisualGeometryToolkitIO's stored K (its
+readers and writers) all move a K through it. VisualGeometryToolkitFeatures'
+half-resolution RAW images move K through the map form with their frame map
+(`raw_frame_map`). `K` was checked (or deliberately not, `check = false`) when it
+was built; a positive scale keeps its focals positive, so only the structure is
+re-checked.
 
 ```julia
 K = CameraCalibrationMat(800.0px, [320.0px, 240.0px])            # OpenCV's frame
 reframed_calibration(PixelFrame{:opencv}, PixelFrame{:colmap}, K) # cx, cy = 320.5, 240.5
 ```
 """
-function reframed_calibration(from::Type{<:PixelFrame}, to::Type{<:PixelFrame}, K::CameraCalibrationMat)
-    c = EuclideanMap(from, to)(SVector{2, Float64}(K[1, 3], K[2, 3]))
-    return CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0, 0, K[1, 2], K[2, 2], 0, c[1], c[2], 1); check = false)
-end
+reframed_calibration(S::SimilarityMap{2}, K::CameraCalibrationMat) =
+    CameraCalibrationMat(SMatrix{3, 3, Float64}(to_homogeneous(S)) * SMatrix{3, 3, Float64}(K); check = false)
+reframed_calibration(from::Type{<:PixelFrame}, to::Type{<:PixelFrame}, K::CameraCalibrationMat) =
+    reframed_calibration(SimilarityMap(EuclideanMap(from, to)), K)
 
 """
     CameraModel(K::SMatrix{3,3,<:Real}; lens=Pinhole(), pixel_frame=:colmap) -> CameraModel

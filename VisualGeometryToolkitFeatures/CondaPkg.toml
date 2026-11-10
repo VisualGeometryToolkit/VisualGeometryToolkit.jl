@@ -1,8 +1,0 @@
-# Read by CondaPkg wherever VisualGeometryToolkitFeatures sits beside PythonCall:
-# the Python packages behind load_raw's RawpyDecoder (VisualGeometryToolkitFeaturesPythonExt).
-# The python cap follows BlobBoards': conda-forge's 3.15 builds shipped no
-# libpython, which PythonCall loads.
-[deps]
-python = ">=3.10,<3.15"
-rawpy = ">=0.25"
-exifread = ">=3"

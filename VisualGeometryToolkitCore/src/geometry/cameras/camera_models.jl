@@ -145,14 +145,14 @@ function CameraModel(
         image_origin::Symbol = :colmap
     )
     return if image_origin != :colmap
-        CameraModel(LogicalIntrinsics(reframed_calibration(K, PixelFrame{image_origin}, PixelFrame{:colmap})), lens)
+        CameraModel(LogicalIntrinsics(reframed_calibration(PixelFrame{image_origin}, PixelFrame{:colmap}, K)), lens)
     else
         CameraModel(LogicalIntrinsics(K), lens)
     end
 end
 
 """
-    reframed_calibration(K::CameraCalibrationMat, from::Type{<:PixelFrame}, to::Type{<:PixelFrame}) -> CameraCalibrationMat{Float64}
+    reframed_calibration(from::Type{<:PixelFrame}, to::Type{<:PixelFrame}, K::CameraCalibrationMat) -> CameraCalibrationMat{Float64}
 
 THE pixel-frame change of a calibration matrix: the same `K` with its principal
 point moved from the pixel frame `from` into `to` by the frame map
@@ -164,10 +164,10 @@ built: the shift moves its principal point only, so nothing is re-checked.
 
 ```julia
 K = CameraCalibrationMat(800.0px, [320.0px, 240.0px])            # OpenCV's frame
-reframed_calibration(K, PixelFrame{:opencv}, PixelFrame{:colmap}) # cx, cy = 320.5, 240.5
+reframed_calibration(PixelFrame{:opencv}, PixelFrame{:colmap}, K) # cx, cy = 320.5, 240.5
 ```
 """
-function reframed_calibration(K::CameraCalibrationMat, from::Type{<:PixelFrame}, to::Type{<:PixelFrame})
+function reframed_calibration(from::Type{<:PixelFrame}, to::Type{<:PixelFrame}, K::CameraCalibrationMat)
     c = EuclideanMap(from, to)(SVector{2, Float64}(K[1, 3], K[2, 3]))
     return CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0, 0, K[1, 2], K[2, 2], 0, c[1], c[2], 1); check = false)
 end

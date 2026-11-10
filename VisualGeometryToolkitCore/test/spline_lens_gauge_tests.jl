@@ -159,7 +159,7 @@
     end
 end
 
-@testitem "SplineLens gauge: a lattice whose centre window holds an absent node gauges by its present nodes" begin
+@testitem "SplineLens gauge: a lattice with no complete window at the gauge's pixel is refused; a given K still builds" begin
     using Test
     using StaticArrays
     using VisualGeometryToolkitCore
@@ -167,11 +167,11 @@ end
         backproject
     import VisualGeometryToolkitCore.Cameras as VgtkCore
 
-    # Any skew-0 K is an exact gauge of a SplineLens camera (a pixel's lattice
-    # coordinate does not depend on it). A lattice whose window at the calibrated
-    # area's centre holds an absent node has no local scale there, so the gauge
-    # takes the paraxial Jacobian discretely, from the present nodes nearest the
-    # centre; with no two adjacent present nodes it has none, and refuses.
+    # The gauge reads K off the lattice's local scale at its pixel (ẑ's, else the
+    # calibrated area's centre), which needs a fully present 4 × 4 window there. A
+    # lattice without one has no scale to derive K from: refused, naming the remedy
+    # (supply K). Any skew-0 K is an exact gauge (a pixel's lattice coordinate does
+    # not depend on it), so a given K builds the same camera.
     W, H = 640, 480
     src = CameraModel(400.0px, SA[321.5px, 238.25px]; lens = KannalaBrandt(-0.02, 0.003, 0.0, 0.0))
     cam = CameraModel(SplineLens, src, (W, H); grid_size = (12, 10))
@@ -180,43 +180,27 @@ end
     rect = VgtkCore._bounds_rect(0, 0, W - 1, H - 1)
     nan_absent(P) = map((v, p) -> p ? v : SVector(NaN, NaN, NaN), C, P)
     gauge(P) = VgtkCore._spline_gauge(ChartSpline(rect, nan_absent(P)), rect)
-    camera(K, P) = VgtkCore._spline_camera(K, rect, nan_absent(P); present = P)
-    pixels = [SVector(x, y) for y in 0.5:7.0:(H - 0.5) for x in 0.5:7.0:(W - 0.5)]
-    same_rays(a, b) = all(pixels) do u
-        p, q = backproject(a, u), backproject(b, u)
-        all(isnan, p) ? all(isnan, q) : (all(isfinite, q) && maximum(abs.(p - q)) <= 1e-12)
+    refusal(P) = try
+        gauge(P); nothing
+    catch err
+        err
     end
+    refused(e) = e isa ArgumentError && occursin("no complete 4 × 4 window", e.msg) && occursin("supply K", e.msg)
 
-    @testset "a hole at the centre: the gauge is finite, skew 0, and backproject is any skew-0 K's" begin
-        P = trues(gh, gw)
-        P[(gh ÷ 2):(gh ÷ 2 + 1), (gw ÷ 2):(gw ÷ 2 + 1)] .= false
-        K = gauge(P)
-        Kc = K.K
-        @test all(isfinite, Kc) && iszero(Kc[1, 2]) && Kc[1, 1] > 0 && Kc[2, 2] > 0
-        @test Kc[1, 3] == W / 2 && Kc[2, 3] == H / 2                     # the calibrated area's centre
-        a, b = camera(K, P), camera(src.intrinsics, P)
-        @test count(u -> all(isfinite, backproject(a, u)), pixels) > length(pixels) ÷ 2
-        @test same_rays(a, b)
+    hole = trues(gh, gw)
+    hole[(gh ÷ 2):(gh ÷ 2 + 1), (gw ÷ 2):(gw ÷ 2 + 1)] .= false
+    sparse = [!(gy % 3 == 0 && gx % 3 == 0) for gy in 1:gh, gx in 1:gw]   # every window meets an absent node
+    checker = [iseven(gx + gy) for gy in 1:gh, gx in 1:gw]
+    for P in (hole, sparse, checker)
+        @test refused(refusal(P))
+        # the camera of the same lattice under a given K: built, its rays the lattice's
+        c = CameraModel(SplineLens, nan_absent(P), (W, H); intrinsics = src.intrinsics, present = P)
+        @test calibration_matrix(c) == calibration_matrix(src)
     end
-
-    @testset "every window holds an absent node: the gauge is finite, backproject NaN for every K alike" begin
-        P = [!(gy % 3 == 0 && gx % 3 == 0) for gy in 1:gh, gx in 1:gw]   # 4 consecutive rows and columns meet a multiple of 3
-        K = gauge(P)
-        Kc = K.K
-        @test all(isfinite, Kc) && iszero(Kc[1, 2]) && Kc[1, 1] > 0 && Kc[2, 2] > 0
-        a, b = camera(K, P), camera(src.intrinsics, P)
-        @test all(u -> all(isnan, backproject(a, u)), pixels) && same_rays(a, b)
-    end
-
-    @testset "no two adjacent present nodes: refused, naming the cause and the remedy" begin
-        P = [iseven(gx + gy) for gy in 1:gh, gx in 1:gw]                 # a checkerboard
-        e = try
-            gauge(P); nothing
-        catch err
-            err
-        end
-        @test e isa ArgumentError && occursin("adjacent nodes", e.msg) && occursin("supply K", e.msg)
-    end
+    @test count(u -> all(isfinite, backproject(CameraModel(SplineLens, nan_absent(hole), (W, H); intrinsics = src.intrinsics, present = hole), u)),
+        [SVector(x, y) for y in 0.5:7.0:(H - 0.5) for x in 0.5:7.0:(W - 0.5)]) > 1000
+    # every node present: gauged as before
+    @test all(isfinite, gauge(trues(gh, gw)).K)
 end
 
 @testitem "CameraModel(SplineLens, controls, size): the camera of a given pixel lattice" begin
@@ -242,8 +226,8 @@ end
     P = trues(size(C)); P[1, 1] = false
     m = CameraModel(SplineLens, 2 .* C, (640, 480); calib_area = area, intrinsics = cam.intrinsics, present = P, unit_controls = true)
     @test m.lens.present == P && all(v -> abs(sqrt(sum(abs2, v)) - 1) < 1.0e-12, m.lens.backward.controls[P])
-    # the gauge reads no absent node: finite placeholders there gauge as NaN does (a hole at the centre: the node tier)
-    H = trues(size(C)); H[5:6, 6:7] .= false
+    # the gauge reads no absent node: finite placeholders there gauge as NaN does (a hole off the gauge's window)
+    H = trues(size(C)); H[1:2, 1:3] .= false
     nan_C = map((v, p) -> p ? v : SVector(NaN, NaN, NaN), C, H)
     a, b = CameraModel(SplineLens, C, (640, 480); calib_area = area, present = H), CameraModel(SplineLens, nan_C, (640, 480); calib_area = area, present = H)
     @test a.intrinsics.K == b.intrinsics.K && all(v -> all(isnan, v), a.lens.backward.controls[.!H])

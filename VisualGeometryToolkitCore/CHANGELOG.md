@@ -102,9 +102,9 @@ sensor — so every consumer asks the camera what it images instead of supplying
 - **New: `CameraModel(SplineLens, controls, size; calib_area, intrinsics, present, unit_controls)`**: the SplineLens
   camera of a given pixel lattice, as Schöps et al.'s `intrinsics0.yaml` and the stored grid records state one — its
   direction controls over a calibrated pixel area, K the given one (skew 0) or the lattice's gauge; each pixel
-  backprojects as the pixel grid does, whatever the K. The SplineLens gauge of a lattice whose window at the centre
-  holds an absent node is taken from the present nodes nearest the centre (an `ArgumentError` naming the cause when
-  no two adjacent nodes are present).
+  backprojects as the pixel grid does, whatever the K. A lattice with no complete (fully present) 4 × 4 window at
+  the gauge's pixel — ẑ's pixel, else the calibrated area's centre — has no local scale to derive K from: without a
+  given K it is an `ArgumentError` naming that pixel and saying to supply K.
 - **Internal: the implicit derivatives of a SplineLens projection** (`_projection_jacobians`, beside the direction
   Jacobian): `∂x*/∂t` and `∂x*/∂c` of a converged projection solve x* of the ray t, by the implicit function theorem
   on the direction residual — the analytic Jacobian of Estimation's `refine_camera_and_poses` on a SplineLens camera,

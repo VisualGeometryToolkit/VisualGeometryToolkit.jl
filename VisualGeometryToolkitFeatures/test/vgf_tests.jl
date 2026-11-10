@@ -801,3 +801,31 @@ end
     @test count(p -> p isa Makie.Poly, a2.scene.plots) == 7
     @test_throws ArgumentError matches!(a2, b2, scs; max_display = 0)
 end
+
+@testitem "asift_detect!: a view or an adjoint input uploads as a dense frame (Core's on_device)" setup = [Fixtures] begin
+    using CUDA: CUDA
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    # A device `copyto!` from the host takes a dense array only: a Float32 view or adjoint, or a byte view, is
+    # made dense by Core's upload (`on_device`, `ka_upload`'s `DenseArray` rule) — on the CPU and on CUDA when
+    # it is functional — and detects exactly as the dense frame.
+    key(f) = (round(f.x; digits = 3), round(f.y; digits = 3), round(f.σ; digits = 3), f.warp_idx)
+    tilts = VgtkFeatures._imas_tilts_25()[1:3]
+    H, W = size(IMG)
+    yx = Float32.(gray_f32(IMG))                         # H × W
+    xy = permutedims(yx)                                 # the float input: W × H [x, y]
+    big = zeros(Float32, W + 3, H + 2); big[2:(W + 1), 2:(H + 1)] .= xy
+    bytes = gray_u8(IMG)                                 # the byte input: H × W
+    bigb = zeros(UInt8, H + 2, W + 1); bigb[2:(H + 1), 1:W] .= bytes
+    devices = Any[KA.CPU()]
+    CUDA.functional() && push!(devices, CUDA.CUDABackend())
+    for dev in devices
+        plan = AsiftPlan(W, H; device = dev, tilts)
+        ref = sort(key.(asift_detect!(plan, xy; nms = :none, intensity_thr = 0.01)))
+        @test !isempty(ref)
+        for (name, input) in (("Float32 view", view(big, 2:(W + 1), 2:(H + 1))), ("Float32 adjoint", yx'))
+            @test (string(dev), name, sort(key.(asift_detect!(plan, input; nms = :none, intensity_thr = 0.01)))) == (string(dev), name, ref)
+        end
+        refb = sort(key.(asift_detect!(plan, bytes; nms = :none, intensity_thr = 0.01)))
+        @test (string(dev), sort(key.(asift_detect!(plan, view(bigb, 2:(H + 1), 1:W); nms = :none, intensity_thr = 0.01)))) == (string(dev), refb)
+    end
+end

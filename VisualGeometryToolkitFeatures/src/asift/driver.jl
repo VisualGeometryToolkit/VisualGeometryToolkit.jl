@@ -1069,7 +1069,7 @@ function asift_detect!(
                 "UInt8 input must be H×W = ($(H), $(W)), got $(size(img_xy))"
             )
         )
-        copyto!(plan.inp_u8, img_xy)
+        copyto!(plan.inp_u8, on_device(UInt8, dev, img_xy))   # Core's upload: a view, an adjoint or a host frame made dense on `dev`
         K.u8xy(plan.inp, plan.inp_u8; ndrange = (W, H))
     else
         # W×H [x,y] floats. `copyto!` copies element by element, so without this
@@ -1080,7 +1080,7 @@ function asift_detect!(
                 "float input must be W×H = ($(W), $(H)) [x,y], got $(size(img_xy))"
             )
         )
-        copyto!(plan.inp, img_xy isa AbstractMatrix{Float32} ? img_xy : Float32.(img_xy))
+        copyto!(plan.inp, on_device(Float32, dev, img_xy))   # Core's upload: dense Float32 on `dev` (its `DenseArray` rule)
     end
     uncertainty === nothing || _ensure_cov!(plan)
     fill!(plan.count, Int32(0))

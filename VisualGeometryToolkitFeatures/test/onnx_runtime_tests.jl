@@ -19,6 +19,10 @@
     @test (@test_logs resolve(:cuda, gpu)) === :cuda
     # and the bf16 exports refuse a provider that resolved to the CPU, before any download
     @test_throws ArgumentError VgtkFeatures.LoMaMatcher(:b128; bf16 = true, execution_provider = :cpu)
+    # an already-loaded library of the same soname serves when at least as new as ours (its version from the file name)
+    @test VgtkFeatures._library_version("/a/lib/libcurand.so.10.4.2.55") > VgtkFeatures._library_version("/b/libcurand.so.10.3.10.19")
+    @test VgtkFeatures._library_version("/b/libcurand.so.10.3.10.19") == v"10.3.10"
+    @test VgtkFeatures._library_version("/c/libcudart.so") == v"0"
     # this machine's own probe answers, available or with a reason
     s = onnx_cuda_status()
     @test s.available ? isempty(s.reason) && s.cuda_runtime.major == 12 : !isempty(s.reason)

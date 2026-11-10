@@ -95,14 +95,22 @@ function _probe_onnx_cuda()
     dnn isa String && return _cuda_unavailable(dnn, driver)
     libs = vcat([joinpath(rt.dir, "lib", l) for l in _CUDA_RUNTIME_LIBRARIES],
                 [joinpath(dnn.dir, "lib", l) for l in _CUDNN_LIBRARIES])
+    # A library of the same soname already loaded from another file is what the provider will bind to. A CUDA library's
+    # soname carries its ABI major, so one at least as new as ours serves (CUDA.jl's CUDA 13 CURAND is libcurand.so.10 as
+    # CUDA 12's is, self-contained); an older one may lack symbols, and a cuDNN's soname does not say which CUDA it was
+    # built for (CUDNN_jll's CUDA 13 build is libcudnn.so.9 too): both are refused by name.
     for l in libs
         isfile(l) || return _cuda_unavailable("$(basename(l)) is not in $(dirname(l))", driver)
         h = Libdl.dlopen(basename(l), Libdl.RTLD_NOLOAD; throw_error = false)
         h === nothing && continue
-        loaded = Libdl.dlpath(h)
-        realpath(loaded) == realpath(l) || return _cuda_unavailable(
-            "$(basename(l)) is already loaded from $loaded (cuDNN.jl, or a system CUDA 12), which ONNX Runtime's CUDA " *
-            "provider would take instead of $(l); load neither in this process", driver)
+        loaded = realpath(Libdl.dlpath(h))
+        ours = realpath(l)
+        loaded == ours && continue
+        cudnn = startswith(basename(l), "libcudnn")
+        !cudnn && _library_version(loaded) >= _library_version(ours) && continue
+        why = cudnn ? "a cuDNN built for an unknown CUDA (cuDNN.jl's?)" : "older than $ours"
+        return _cuda_unavailable("$(basename(l)) is already loaded from $loaded, $why, and ONNX Runtime's CUDA provider " *
+                                 "would bind to it; do not load it in this process", driver)
     end
     # local: the provider's and cuDNN's lookups by soname find them loaded; their symbols stay out of the global scope
     for l in libs
@@ -118,6 +126,12 @@ function _probe_onnx_cuda()
         return _cuda_unavailable("ONNX Runtime's CUDA build does not run here: $(sprint(showerror, err))", driver)
     end
     return OnnxCudaStatus(true, "", driver, rt.version, dnn.version)
+end
+
+# A shared library's version from its file name (libcurand.so.10.3.10.19 → v"10.3.10"); v"0" without one.
+function _library_version(path)
+    m = Base.match(r"\.so\.(\d+(?:\.\d+){0,2})", basename(path))
+    return m === nothing ? v"0" : VersionNumber(something(m[1]))
 end
 
 # The CUDA driver API version, or why there is none to use.

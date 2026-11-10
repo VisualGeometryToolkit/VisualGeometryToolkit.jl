@@ -55,7 +55,10 @@ julia --startup-file=no ci/affected.jl origin/main HEAD   # packages a change to
 Test dependencies live in `<Package>/test/Project.toml` (no `[extras]`/`[targets]`).
 GPU items record a skip without a device; run them locally before a release
 with `CUDA_VISIBLE_DEVICES=0`. The LO timing gate (`LO_TIMING_GATE=1`) runs on
-the release machine only. See `RELEASING.md`.
+the release machine only. See `RELEASING.md`. Benchmark-size items (a statistical
+claim at a size that costs more than seconds; the default suite holds the same
+claim on a small fixture) run only with `VGTK_BENCHMARK_TESTS=1`; without it they
+are skipped (`@testitem … skip = get(ENV, "VGTK_BENCHMARK_TESTS", "") != "1"`).
 
 ## Git commit conventions
 

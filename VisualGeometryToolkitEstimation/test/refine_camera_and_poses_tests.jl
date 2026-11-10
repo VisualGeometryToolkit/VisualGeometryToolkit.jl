@@ -153,7 +153,11 @@ end
     using StaticArrays: SVector
     using LinearAlgebra: normalize, norm
     using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, project, reprojection_error, backproject, angle_between
-    export spline_truth, perturbed_controls, spline_views, spline_rms, ray_error
+    using Test: @test, @test_throws
+    using Random: Xoshiro, randn
+    using VisualGeometryToolkitCore: estimate, retcode
+    using VisualGeometryToolkitEstimation: refine_camera_and_poses
+    export spline_truth, perturbed_controls, spline_views, spline_rms, ray_error, check_gcv_choice
 
     # the truth: a Kannala–Brandt fisheye's SplineLens camera (unit controls, 12 × 10 nodes over 1280 × 960)
     spline_truth() = CameraModel(SplineLens, CameraModel(; focal = 420.0, pp = (640.0, 480.0), lens = KannalaBrandt(-0.02, 0.004, -0.001, 0.0002)),
@@ -183,6 +187,30 @@ end
     ray_error(a, b, views) = maximum(angle_between(backproject(a, last(x)), backproject(b, last(x))) for cs in views for x in cs)
     spline_rms(camera, poses, views) =
         sqrt(sum(sum(abs2, reprojection_error(camera, P, first(c), last(c))) for (P, cs) in zip(poses, views) for c in cs) / sum(length, views))
+    # The views of the poses `E` (their perturbed starts `p0`), `n` detections each with known noise (σ = 0.3 px), of a
+    # lattice rougher than the KB one (every control turned 0.02 rad, so the penalty's bias and the noise trade within
+    # the grid), refined with `penalty = :gcv`: the search's bookkeeping, and GCV's weight within a decade of the weight
+    # of `grid` (log₁₀ β) whose estimate predicts the clean pixels best (the reprojection rms against them: gauge-free),
+    # predicting them as well to 2%. A fixed small weight on the noisy detections: the error names the cause and the
+    # remedy.
+    function check_gcv_choice(E, p0, n, grid)
+        rough = perturbed_controls(spline_truth(), 0.02)
+        clean = spline_views(rough, E, 1.1; n)
+        rng = Xoshiro(20261110)
+        noisy = [[first(c) => last(c) + 0.3 * SVector(randn(rng), randn(rng)) for c in cs] for cs in clean]
+        g0 = perturbed_controls(rough, 0.01)
+        prediction(r) = spline_rms(estimate(r).camera, estimate(r).poses, clean)
+        rg = refine_camera_and_poses(g0, p0, noisy)
+        @test retcode(rg) === :converged && !rg.spline.gcv_at_bound
+        @test rg.spline.gcv_limit isa Float64 && rg.spline.β > rg.spline.gcv_limit              # the largest β that failed, below the choice
+        @test rg.spline.β == first(sort(filter(e -> isfinite(e.gcv), rg.spline.gcv); by = e -> e.gcv)).β
+        @test any(e -> e.gcv == Inf, rg.spline.gcv)                                   # the descent stopped at a weight that fails
+        errors = [prediction(refine_camera_and_poses(g0, p0, noisy; penalty = 10.0^k)) for k in grid]
+        @test abs(log10(rg.spline.β) - grid[argmin(errors)]) <= 1
+        @test prediction(rg) <= 1.02 * minimum(errors)
+        @test_throws r"penalty = :gcv" refine_camera_and_poses(g0, p0, noisy; penalty = 1.0e-9)
+        return nothing
+    end
 end
 
 @testitem "refine_camera_and_poses: a SplineLens camera's controls and poses refined, K frozen, the axis on ẑ" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
@@ -371,7 +399,6 @@ end
 @testitem "refine_camera_and_poses: a SplineLens camera's smoothness is scale-free; the penalty fixed, off, or chosen by GCV" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
     using StaticArrays: SVector
     using LinearAlgebra: norm, eigvals, Symmetric
-    using Random: Xoshiro, randn
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, ChartSpline, estimate, retcode, rms, lens,
         parameter_vector, spline_window, angle_between, backproject
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, refine_camera_and_poses
@@ -456,28 +483,19 @@ end
     @test lens(estimate(r0).camera).backward.controls[.!read] == b.controls[.!read]
     @test rms(r0) < 1.0e-6                                                        # exact data, no penalty bias
 
-    # detections with known noise (σ = 0.3 px) of a lattice rougher than the KB one (every control turned 0.02 rad, so
-    # the penalty's bias and the noise trade within the grid), 6 views × 200: GCV's weight lies within a decade of the
-    # grid weight whose estimate predicts the clean pixels best (the reprojection rms against them: gauge-free), and
-    # predicts them as well to 2%. Measured: GCV β = 10^-3.06, prediction 0.1214 px; the grid 0.1288, 0.1211, 0.1416 px
-    # at β = 1e-4 … 1e-2 (at 1e-5 and below the noisy estimate stops projecting a correspondence: GCV = Inf there).
-    rough = perturbed_controls(truth, 0.02); E6 = truth_poses(6)
-    clean = spline_views(rough, E6, 1.1; n = 200)
-    rng = Xoshiro(20261110)
-    noisy = [[first(c) => last(c) + 0.3 * SVector(randn(rng), randn(rng)) for c in cs] for cs in clean]
-    g0 = perturbed_controls(rough, 0.01); p6 = [perturbed_pose(E, v) for (v, E) in enumerate(E6)]
-    prediction(r) = spline_rms(estimate(r).camera, estimate(r).poses, clean)
-    rg = refine_camera_and_poses(g0, p6, noisy)
-    @test retcode(rg) === :converged && !rg.spline.gcv_at_bound
-    @test rg.spline.gcv_limit isa Float64 && rg.spline.β > rg.spline.gcv_limit                  # the largest β that failed, below the choice
-    @test rg.spline.β == first(sort(filter(e -> isfinite(e.gcv), rg.spline.gcv); by = e -> e.gcv)).β
-    @test any(e -> e.gcv == Inf, rg.spline.gcv)                                   # the descent stopped at a weight that fails
-    grid = -4:-2
-    errors = [prediction(refine_camera_and_poses(g0, p6, noisy; penalty = 10.0^k)) for k in grid]
-    @test abs(log10(rg.spline.β) - grid[argmin(errors)]) <= 1
-    @test prediction(rg) <= 1.02 * minimum(errors)
-    # a fixed small weight on the noisy detections: the error names the cause and the remedy
-    @test_throws r"penalty = :gcv" refine_camera_and_poses(g0, p6, noisy; penalty = 1.0e-9)
+    # detections with known noise (σ = 0.3 px), 3 views × 60: GCV's choice (`check_gcv_choice`, the scenes' setup).
+    # Measured: GCV β = 10^-2.24, prediction 0.2389 px; the grid 0.2573, 0.2385, 0.3726 px at β = 1e-3 … 1e-1 (at 1e-5
+    # and below the noisy estimate stops projecting a correspondence: GCV = Inf there). The same claim at 6 views × 200
+    # is the benchmark-size item below (VGTK_BENCHMARK_TESTS=1).
+    check_gcv_choice(Es, poses0, 60, -3:-1)
+end
+
+# Benchmark size, opt-in (VGTK_BENCHMARK_TESTS=1; otherwise the item is skipped): 7.8 s and 8.3 GB of allocation
+# warm on one core (2026-11-10, raptorlake), where the default item's 3 × 60 case above takes ≈ 3 s and 2.7 GB.
+@testitem "refine_camera_and_poses: GCV's weight on 6 views × 200 noisy detections (benchmark size, VGTK_BENCHMARK_TESTS=1)" setup = [CameraPoseScenes, SplineCameraPoseScenes] skip = get(ENV, "VGTK_BENCHMARK_TESTS", "") != "1" begin
+    # Measured: GCV β = 10^-3.06, prediction 0.1214 px; the grid 0.1288, 0.1211, 0.1416 px at β = 1e-4 … 1e-2
+    E6 = truth_poses(6)
+    check_gcv_choice(E6, [perturbed_pose(E, v) for (v, E) in enumerate(E6)], 200, -4:-2)
 end
 
 @testitem "gcv_curve, gcv_select, penalty_scale, mean_positive_eigenvalue: the stack's one GCV of a penalty weight" begin

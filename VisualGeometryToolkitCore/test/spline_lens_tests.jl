@@ -220,7 +220,7 @@ end
         @test same_nan
         @test worst <= 1.0e-9
         # the turn is a different camera, not a migration: the old map's controls as the forward of the camera itself
-        # (unturned, K′) miss the old map by more than a pixel — a 0.8 SplineProjection is refitted, never reused
+        # (unturned, K′) miss the old map by more than a pixel — an old 0.8 forward map is refitted, never reused
         unturned = CameraModel(K′, SplineLens(_spline_camera(K′, Rect2(0.0, 0.0, 1000.0, 1000.0), cam.lens.backward.controls).lens.backward; forward))
         @test first(deviation(unturned, [R' * X for X in rays64], S.project)) > 1.0
         # the forward agrees with the LM to 0.01 px on the 64 golden rays

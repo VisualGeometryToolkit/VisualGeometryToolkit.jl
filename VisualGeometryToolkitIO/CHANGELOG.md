@@ -4,9 +4,11 @@
 
 On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
 
-- **An old central grid file whose lattice has no complete 4 × 4 window at the gauge's pixel, and no
-  `nominal_intrinsics`, is refused** (Core's gauge: no scale to derive K from; supply K); with a stored nominal
-  pinhole it loads as before.
+- **Breaking: an old grid file whose lattice has no complete 4 × 4 window at the gauge's pixel, and no
+  `nominal_intrinsics`, is refused** (Core's gauge: no scale to derive K from), where 0.8 loaded it; supply K with
+  the new keyword `load(BoundedCamera, path; intrinsics = K)` (also `load(Dict{Symbol, BoundedCamera}, …)` and
+  `load(CameraModel, …)`), used only when the record holds no K (a record that holds one refuses it); the file is
+  never edited. With a stored nominal pinhole it loads as before.
 - **Breaking: the OpenCV calibration JSON declares its pixel frame under `pixel_frame`**: `save_opencv_calibration`
   writes `"pixel_frame"`; `load_opencv_calibration` reads it, and also the legacy key of files written before 0.9
   (never both: an `ArgumentError`); a file on disk is never rewritten. Every caller of Core's `CameraModel(K; …)`
@@ -21,8 +23,9 @@ On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
   `SplineLens`).** A SplineLens camera is stored as any camera, in `vgio/cameras/v5`: its camera body's `lens` is
   `{"spline": {"area", "grid_size", "present"?, "controls", "forward"?}}` — the backward spline over the K-normalized
   plane, the held nodes as runs per lattice row and their controls row by row, the forward spline exactly when it has
-  been fitted — and K is the body's own (a gauge, skew 0). It reads back bit for bit, and moves between pixel frames
-  by its K alone.
+  been fitted (by Estimation's `fit_camera(SplineLens, …)`; a 0.8 `SplineProjection`'s spline is never stored as one:
+  its chart is about another ray — refit it) — and K is the body's own (a gauge, skew 0). It reads back bit for bit,
+  and moves between pixel frames by its K alone.
 - **A stored spline camera's K is refused unless it is a skew-0 gauge** — a `{"spline": …}` lens in a camera store or a
   rig sensor, and a non-central record — by Core's one check of a spline camera's K, when the camera is built (the
   non-central record's own copy of the check is gone). A skewed spline lens record once loaded silently.
@@ -39,7 +42,7 @@ On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
   one writes a NEW file, the `vgio/cameras/v5` record of its camera at `<stem>.camera.json` beside it, the input
   byte for byte untouched (an existing output, or `out == path`, is an `ArgumentError` naming the path);
   on a non-central one writes its `vgio/noncentral_spline/v1` record to a new `<stem>.noncentral.json` under the same
-  rule; `vgio_migrate_tree` does the same for each. Every pixel backprojects as the old models did (the old reader's values,
+  rule; `vgio_migrate_tree` does the same for each, in place or not (a rerun finds the output current). Every pixel backprojects as the old models did (the old reader's values,
   `test/fixtures/spline_lens_golden_io.jl`).
 - **Breaking: `vgio/rig/v9`**: a sensor's camera body carries its `lens_coverage` (a camera store's form, in the rig's
   pixel frame), which `save` used to refuse; a v8 sensor's old grid body becomes its SplineLens camera's body or the

@@ -396,7 +396,7 @@ function _refuse_schema(path, kind::AbstractString, s)
     if _is_earlier_version(s, kind)
         throw(
             ArgumentError(
-                "$(path) is a retired $(s) file, which no migration reads (VisualGeometryToolkitIO reads " *
+                "$(path) is $(something(_split_schema(s)).kind == kind ? "a retired" : "an earlier or unreleased") $(s) file, which no migration reads (VisualGeometryToolkitIO reads " *
                     "$(_schema(kind)) and the earlier versions a published file holds): re-export it from its producer"
             )
         )

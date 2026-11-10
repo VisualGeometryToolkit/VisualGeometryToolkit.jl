@@ -66,6 +66,18 @@ end
     bc = load(BoundedCamera, p)
     cam = model(bc)
     @test cam.intrinsics.K == model(only(values(load(Dict{Symbol, BoundedCamera}, joinpath(fixtures, "units", "spline_camera_masked.json"))))).intrinsics.K   # the stored fixture's K
+    # the refusal names the reader's keyword; given K, the file loads as it is (never edited), the same rays as the
+    # stored-K form; a record that holds K refuses the keyword
+    @test occursin("load(BoundedCamera, path; intrinsics = K)", e.msg)
+    Kg = cam.intrinsics.K
+    for given in (load(BoundedCamera, p0; intrinsics = Kg), only(values(load(Dict{Symbol, BoundedCamera}, p0; intrinsics = Kg))))
+        @test model(given).intrinsics.K == Kg && isequal(model(given).lens.backward.controls, cam.lens.backward.controls)
+        @test all(u -> isequal(backproject(model(given), u), backproject(cam, u)), [SVector(x, y) for x in 0.5:3.0:63.5 for y in 0.5:3.0:47.5])
+    end
+    for q in (p, joinpath(fixtures, "units", "spline_camera_masked.json"))
+        e2 = try load(BoundedCamera, q; intrinsics = Kg); nothing catch e2; e2 end
+        @test e2 isa ArgumentError && occursin("intrinsics", e2.msg)
+    end
     @test cam isa CameraModel && cam.lens isa SplineLens && extent(bc) == Size2(g.size[1], g.size[2])
     @test iszero(cam.intrinsics.K[1, 2])                                        # the gauge: skew 0
     P = cam.lens.present
@@ -125,6 +137,20 @@ end
         @test occursin("grid.camera.json", log) && occursin("nc.noncentral.json", log)
         @test sort(readdir(dir)) == ["grid.camera.json", "grid.json", "nc.json", "nc.noncentral.json"]
         @test read(joinpath(dir, "grid.json")) == before && read(joinpath(dir, "nc.json")) == read(nc)
+        @test only(keys(load(Dict{Symbol, BoundedCamera}, joinpath(dir, "grid.camera.json")))) === :grid
+    end
+    # in place, twice: an old grid file is never rewritten, and the second run finds its output current
+    mktempdir() do dir
+        cp(p, joinpath(dir, "grid.json"))
+        cp(joinpath(fixtures, "old", "generic_camera_v2.json"), joinpath(dir, "nc.json"))
+        for run in 1:2
+            io = IOBuffer()
+            VisualGeometryToolkitIO.vgio_migrate_tree(dir; in_place = true, io)
+            log = String(take!(io))
+            @test (run, sort(readdir(dir))) == (run, ["grid.camera.json", "grid.json", "nc.json", "nc.noncentral.json"])
+            run == 2 && @test occursin("already migrated", log) && !occursin("FAILED", log)
+        end
+        @test read(joinpath(dir, "grid.json")) == before
         @test only(keys(load(Dict{Symbol, BoundedCamera}, joinpath(dir, "grid.camera.json")))) === :grid
     end
 end

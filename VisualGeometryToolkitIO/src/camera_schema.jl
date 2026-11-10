@@ -488,7 +488,7 @@ function save(path::AbstractString, cameras::AbstractDict{Symbol}; length_unit::
 end
 
 """
-    load(Dict{Symbol, BoundedCamera}, path) -> Dict{Symbol, Union{BoundedCamera, Attributed{<:BoundedCamera}}}
+    load(Dict{Symbol, BoundedCamera}, path; intrinsics = nothing) -> Dict{Symbol, Union{BoundedCamera, Attributed{<:BoundedCamera}}}
 
 Read a `vgio/cameras/v5` store: name → `BoundedCamera` of a `CameraModel`
 (its K moved from the file's declared pixel frame into the canonical one), an
@@ -497,8 +497,14 @@ v1–v4 store is read through its version steps (`migrate_record`), and a
 central `vgio/generic_camera/v2` or `v3` file as the store of its one camera,
 named after the file's basename (`fisheye_14mm.json` → `:fisheye_14mm`; a
 `CameraModel` with a `SplineLens`: noncentral_spline_schema.jl).
+
+`intrinsics` (a `CameraCalibrationMat`, in the canonical pixel frame) supplies K
+to an old grid file that stores no nominal pinhole — one whose lattice has no
+complete 4 × 4 window at the gauge's pixel is refused without it — read as if
+the file held it (the file is never edited); a record that holds a K refuses it.
 """
-load(::Type{Dict{Symbol, BoundedCamera}}, path::AbstractString) = _load_store(_read_vgio_json(path), path)
+load(::Type{Dict{Symbol, BoundedCamera}}, path::AbstractString; intrinsics::Union{Nothing, CameraCalibrationMat} = nothing) =
+    _load_store(_with_given_intrinsics(_read_vgio_json(path), intrinsics, path), path)
 # The store of a parsed file (`d`, its JSON).
 function _load_store(d, path::AbstractString)
     _is_central_grid(d) && (d = _central_grid_store(d, path))   # a vgio/generic_camera/v2 or v3 central file: a store of its camera
@@ -516,7 +522,7 @@ function _load_store(d, path::AbstractString)
 end
 
 """
-    load(BoundedCamera, path; name = nothing, file_unit = nothing) -> BoundedCamera
+    load(BoundedCamera, path; name = nothing, file_unit = nothing, intrinsics = nothing) -> BoundedCamera
     load(CameraModel,  path; name = nothing) -> CameraModel
 
 Read ONE camera from a `vgio/cameras/v5` store — the bounded camera, or just
@@ -541,15 +547,17 @@ the `BoundedCamera`.
 """
 function load(
         ::Type{BoundedCamera}, path::AbstractString;
-        name::Union{Nothing, AbstractString, Symbol} = nothing, file_unit::Union{Nothing, Units} = nothing
+        name::Union{Nothing, AbstractString, Symbol} = nothing, file_unit::Union{Nothing, Units} = nothing,
+        intrinsics::Union{Nothing, CameraCalibrationMat} = nothing,
     )
     if _file_form(path) !== :json                       # a Schöps intrinsics0.yaml (schoeps.jl)
         name === nothing || throw(ArgumentError("$(path): a Schöps YAML holds one camera; `name` names a camera of a store"))
+        intrinsics === nothing || throw(ArgumentError("$(path): `intrinsics` supplies K to an old vgio grid file; a Schöps YAML's K is its lattice's gauge"))
         return _load_schoeps_camera(path, file_unit)
     end
     file_unit === nothing ||
         throw(ArgumentError("$(path): a vgio file declares its own length_unit; `file_unit` is for a Schöps YAML"))
-    d = _read_vgio_json(path)                           # parsed once (a grid file is large), read as the kind it is
+    d = _with_given_intrinsics(_read_vgio_json(path), intrinsics, path)   # parsed once (a grid file is large), read as the kind it is
     if _is_noncentral_grid(d)                           # a non-central record (noncentral_spline_schema.jl)
         name === nothing || throw(ArgumentError("$(path) holds one non-central camera; `name` names a camera of a store"))
         return _load_noncentral(d, path)
@@ -567,8 +575,11 @@ function load(
     return _bounded(store[Symbol(name)])
 end
 
-function load(::Type{CameraModel}, path::AbstractString; name::Union{Nothing, AbstractString, Symbol} = nothing)
-    bc = load(BoundedCamera, path; name)
+function load(
+        ::Type{CameraModel}, path::AbstractString;
+        name::Union{Nothing, AbstractString, Symbol} = nothing, intrinsics::Union{Nothing, CameraCalibrationMat} = nothing,
+    )
+    bc = load(BoundedCamera, path; name, intrinsics)
     m = model(bc)
     m isa CameraModel || throw(ArgumentError("$(path) holds a $(nameof(typeof(m))), not a CameraModel: load(BoundedCamera, path)"))
     lens_coverage(bc) == Rect2{Float64}(0, 0, extent(bc).width, extent(bc).height) || throw(

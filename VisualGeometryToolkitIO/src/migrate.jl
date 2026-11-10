@@ -321,7 +321,7 @@ function _moves_forward_owned(from::AbstractString, to)
 end
 
 """
-    vgio_migrate(path; out = <stem>.migrated.json beside path, dry_run = false) -> NamedTuple
+    vgio_migrate(path; out = <stem>.migrated.json beside path (an old grid file: <stem>.camera.json or <stem>.noncentral.json), dry_run = false) -> NamedTuple
 
 An old grid file (`vgio/generic_camera/v2` or `v3`) is never rewritten: a
 central one's camera store — the `vgio/cameras/v5` record of its one camera,
@@ -386,8 +386,9 @@ function _vgio_migrate(path::AbstractString; out::AbstractString, dry_run::Bool,
 end
 
 _is_toml(path) = endswith(lowercase(path), ".toml")
-# An old grid file (vgio/generic_camera v2/v3) is read, never rewritten (owner, 2026-11-09).
-const _OLD_GRID_REFUSAL = "an old grid file is read, never rewritten (owner, 2026-11-09): load(BoundedCamera, path) reads it as it is"
+# An old grid file (vgio/generic_camera v2/v3) is read, never rewritten in place.
+const _OLD_GRID_REFUSAL = "an old grid file is never rewritten in place: vgio_migrate(path) writes its current record to a new " *
+    "<stem>.camera.json (a central one) or <stem>.noncentral.json (a non-central one); load(BoundedCamera, path) reads it as it is"
 
 # Where `vgio_migrate` writes a file by default: an old grid file's current record to a
 # NEW file beside it (the input is never rewritten) — a central one's camera store,
@@ -1085,8 +1086,17 @@ function _old_grid_camera(b::AbstractDict)
     P = haskey(b, "present") ? _present_from_runs(b["present"], gw, gh) : trues(gh, gw)
     bounds = (Int(b["calibration_min_x"]), Int(b["calibration_min_y"]), Int(b["calibration_max_x"]), Int(b["calibration_max_y"]))
     nominal = haskey(b, _OLD_NOMINAL_KEY) ? LogicalIntrinsics(_k_from_values(b[_OLD_NOMINAL_KEY])) : nothing
-    return CameraModel(SplineLens, _controls_from_json(b["direction_grid"], P, Val(3)), (Int(b["width"]), Int(b["height"]));
-                       calib_area = bounds, intrinsics = nominal, present = all(P) ? nothing : P)
+    build() = CameraModel(SplineLens, _controls_from_json(b["direction_grid"], P, Val(3)), (Int(b["width"]), Int(b["height"]));
+                          calib_area = bounds, intrinsics = nominal, present = all(P) ? nothing : P)
+    nominal === nothing || return build()
+    # no nominal pinhole: K is the lattice's gauge, which a lattice without a complete window at its pixel lacks
+    # (Core's refusal says to supply K) — name the reader's keyword that supplies it
+    return try
+        build()
+    catch e
+        (e isa ArgumentError && occursin("supply K", e.msg)) || rethrow()
+        throw(ArgumentError(e.msg * "; an old grid file that stores no nominal pinhole takes it from the reader: load(BoundedCamera, path; intrinsics = K)"))
+    end
 end
 # An old body's domain as the camera's lens coverage, and its pitch (a rig's), as the new bodies hold them.
 _old_grid_extras(b::AbstractDict) = merge(
@@ -1124,6 +1134,21 @@ function _generic_camera_v3_to_noncentral(old)
     )
     head = Dict{String, Any}(k => old[k] for k in ("pixel_frame", "length_unit", "provenance") if haskey(old, k))
     return merge(head, _noncentral_grid_body(old), Dict{String, Any}("schema" => _schema("noncentral_spline")))
+end
+
+# The parsed file `d` with the K a caller supplies (`load(…; intrinsics)`): `nothing`
+# leaves it as it is; an old grid file that stores no nominal pinhole takes `K` as
+# one (in the parsed record only — the file is never edited), and any record that
+# holds a K refuses it.
+function _with_given_intrinsics(d, intrinsics::Union{Nothing, CameraCalibrationMat}, path)
+    intrinsics === nothing && return d
+    (d isa AbstractDict && get(d, :schema, nothing) in _OLD_GRID_SCHEMAS && !haskey(d, Symbol(_OLD_NOMINAL_KEY))) || throw(
+        ArgumentError("$(path): the record holds its K; `intrinsics` supplies K only to an old grid file that stores none")
+    )
+    t = _lower(d)
+    K = intrinsics
+    t[_OLD_NOMINAL_KEY] = Any[Float64(K[1, 1]), Float64(K[2, 2]), Float64(K[1, 3]), Float64(K[2, 3]), Float64(K[1, 2])]
+    return _parse_vgio_text(JSON.json(t; allownan = true), path)
 end
 
 # A parsed file that is a central vgio/generic_camera/v2 or v3 record.
@@ -1499,14 +1524,17 @@ end
     vgio_migrate_tree(dir; in_place = false, dry_run = false, io = stdout) -> Vector{NamedTuple}
 
 Migrate every `.json` file under `dir` whose schema has a migration (cameras
-v1–v3, target v1–v3, rig v4–v6, generic_camera v2, and any schema whose owner added a
+v1–v4, target v1–v4, rig v4–v8, generic_camera v2–v3, and any schema whose owner added a
 [`migrate_schema`](@ref) file form), then re-point the measurement files under
 `dir` (`vgio/target_points2d`, `vgio/target_points3d`, `vgio/target_detections`, v1–v2) at the current
 rigs and single target files of the tree, each by the guarded pattern of [`vgio_migrate`](@ref) (a
 full-precision length may be rewritten within 2 ulp, as the same metre value),
 with one line per file to `io`
 — a file left as it is says why (`current`, or no `targets`). Written beside
-each original as `<stem>.migrated.json`, or over it with `in_place`.
+each original as `<stem>.migrated.json`, or over it with `in_place`; an old
+grid file is never rewritten, in place or not: its current record goes to a new
+`<stem>.camera.json` (central) or `<stem>.noncentral.json` (non-central), and a
+rerun finds it current.
 
 The re-pointing is a one-time consequence of the rig/v4 migration (and of a
 v5 rig whose affine calibration became its factors): the v4 identity hashed
@@ -1547,7 +1575,7 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
         end
         out = in_place && !(s in _OLD_GRID_SCHEMAS) ? f : _default_out(f)   # an old grid file is never rewritten
         so = isfile(out) ? _try_schema(out) : nothing
-        if !in_place && so isa String && _is_current(so)
+        if (!in_place || s in _OLD_GRID_SCHEMAS) && so isa String && _is_current(so)   # an old grid's output is never in place
             println(io, "current   ", f, ": already migrated to ", out)
             continue
         end

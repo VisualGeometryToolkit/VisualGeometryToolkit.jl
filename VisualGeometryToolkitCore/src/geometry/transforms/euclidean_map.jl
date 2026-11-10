@@ -143,18 +143,22 @@ end
 
 # Rotation-validity helper — used by all public EuclideanMap constructors, in
 # every dimension. Accepts either a typed `Rotation{N}` or a raw
-# `StaticMatrix{N,N}` and verifies `R Rᵀ ≈ I` and `det(R) ≈ 1` via
-# `Rotations.isrotation`. Throws `ArgumentError` with the measured deviation on
-# failure.
+# `StaticMatrix{N,N}` and verifies `R Rᵀ ≈ I` (Frobenius norm) and `det(R) > 0`.
+# The residual is measured in Float64 whatever the element type, and the decision
+# and the error message use that one quantity, so the message can never contradict
+# the verdict. The default tolerance `10·√eps(T)` follows the element type `T`:
+# a Float32 matrix carries a Float32 rounding residual (a few ulps ≈ 1e-7), which
+# the Float64 tolerance (≈ 1.5e-7, unchanged for Float64) would refuse. Throws
+# `ArgumentError` with the measured deviation on failure.
 function _assert_rotation(
         R::Union{Rotation{N}, StaticMatrix{N, N}};
-        atol::Real = sqrt(eps(Float64)) * 10
+        atol::Real = 10 * sqrt(eps(float(real(eltype(R)))))
     ) where {N}
-    Rotations.isrotation(R, atol) && return nothing
-    # Compute diagnostics for the error message
     Rm = SMatrix{N, N, Float64}(R)
     dev_orth = norm(Rm * Rm' - SMatrix{N, N, Float64}(LinearAlgebra.I))
-    dev_det = abs(det(Rm) - 1.0)
+    detR = det(Rm)
+    dev_det = abs(detR - 1.0)
+    (dev_orth <= atol && detR > 0) && return nothing
     throw(
         ArgumentError(
             "R is not a proper rotation matrix: |R Rᵀ - I| = $dev_orth, " *

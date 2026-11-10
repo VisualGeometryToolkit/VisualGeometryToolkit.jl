@@ -28,7 +28,11 @@ The patterns no agent instruction file of a stack package may match
 private keys and access tokens.
 """ AGENT_DOC_FORBIDDEN
 
-_is_agent_doc(path) = basename(path) in ("CLAUDE.md", "AGENTS.md") || ".claude" in splitpath(path)
+# A path typed: JET analyses the method at its declared signature, and an untyped one
+# reached `splitpath(::FilePathsBase.AbstractPath)` (no method) whenever a test item had
+# loaded FilePathsBase (Makie) into the same process, so the gate's count depended on
+# which items shared a worker.
+_is_agent_doc(path::AbstractString) = basename(path) in ("CLAUDE.md", "AGENTS.md") || ".claude" in splitpath(path)
 
 function _agent_doc_files(root)
     git = Sys.which("git")

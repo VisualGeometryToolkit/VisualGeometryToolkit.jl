@@ -39,4 +39,12 @@
     @test _assert_rotation(R64) === nothing
     @test_throws ArgumentError _assert_rotation(R64 + 1.0e-6 * SMatrix{3, 3}(0, 1, 0, -1, 0, 1, 0, -1, 0))
     @test _assert_rotation(R64; atol = 1.0e-3) === nothing
+
+    # ForwardDiff Duals flow through the constructors (the verdict is about values).
+    using ForwardDiff
+    using VisualGeometryToolkitCore: SimilarityMap
+    f(x) = (E = RotationMap(RotMatrix{3}(RotXYZ(x[1], x[2], x[3]))); sum(E.R))
+    @test all(isfinite, ForwardDiff.gradient(f, [0.1, 0.2, 0.3]))
+    g(x) = (S = SimilarityMap(x[1], RotMatrix{3}(RotXYZ(x[2], 0.2, 0.3)), SVector(0.0, 0.0, 0.0)); S.s * sum(S.R))
+    @test all(isfinite, ForwardDiff.gradient(g, [1.1, 0.1]))
 end

@@ -151,24 +151,29 @@ end
 # rounding residual is a few Float32 ulps (≈ 1e-7) — is held to ≈ 1.2e-5, not to a
 # √eps(Float32) bound loose enough to accept a visibly non-rigid matrix. Throws
 # `ArgumentError` with the measured deviation on failure.
-function _assert_rotation(
+@inline function _assert_rotation(
         R::Union{Rotation{N}, StaticMatrix{N, N}};
-        atol::Real = max(10 * sqrt(eps(Float64)), 100 * eps(float(real(eltype(R)))))
+        atol::Real = max(10 * sqrt(eps(Float64)), 100 * eps(float(primal_float(eltype(R)))))
     ) where {N}
-    Rm = SMatrix{N, N, Float64}(R)
+    # The verdict is about values: every ForwardDiff Dual layer is stripped (the
+    # Duals themselves flow on through the constructor, which returns `nothing` here).
+    Rm = SMatrix{N, N, Float64}(map(_primal, SMatrix{N, N}(R)))
     dev_orth = norm(Rm * Rm' - SMatrix{N, N, Float64}(LinearAlgebra.I))
     detR = det(Rm)
-    dev_det = abs(detR - 1.0)
     (dev_orth <= atol && detR > 0) && return nothing
-    throw(
-        ArgumentError(
-            "R is not a proper rotation matrix: |R Rᵀ - I| = $dev_orth, " *
-                "|det R - 1| = $dev_det  (tolerance = $atol).  Supply `check=false` " *
-                "to skip validation, or `project=true` to snap to the nearest valid " *
-                "rotation before validation."
-        )
-    )
+    _refuse_rotation(dev_orth, abs(detR - 1.0), atol)
 end
+
+# The refusal, apart from the check: the message is built only here, so the check
+# itself compiles into a device kernel (string interpolation allocates).
+@noinline _refuse_rotation(dev_orth, dev_det, atol) = throw(
+    ArgumentError(
+        "R is not a proper rotation matrix: |R Rᵀ - I| = $dev_orth, " *
+            "|det R - 1| = $dev_det  (tolerance = $atol).  Supply `check=false` " *
+            "to skip validation, or `project=true` to snap to the nearest valid " *
+            "rotation before validation."
+    )
+)
 
 
 # The rotation a positional constructor stores: a `RotMatrix`, a `QuatRotation`
@@ -196,7 +201,7 @@ base-form quantities — metres (`base_quantity`). A `RotMatrix`, `QuatRotation`
 `Angle2d` rotation is stored as given; any other `Rotation` as a `RotMatrix` of
 its own eltype.
 """
-function EuclideanMap(
+@inline function EuclideanMap(
         R::Rotation{N, T}, t::AbstractVector{<:Quantity};
         check::Bool = true
     ) where {N, T}
@@ -209,7 +214,7 @@ end
 # A plain (non-static) translation: stored as an `SVector` of its own float
 # type (B2: a Float32 vector stays Float32, an integer one becomes Float64);
 # the rotation keeps its eltype.
-function EuclideanMap(
+@inline function EuclideanMap(
         R::Rotation{N, T}, t::AbstractVector{<:Real};
         check::Bool = true
     ) where {N, T}
@@ -234,7 +239,7 @@ If a typed container (e.g. `MVector{4, Extrinsics3}` or
 implicit `Base.convert` defined below performs the (zero-cost) bitcast at
 the storage boundary.
 """
-function EuclideanMap(
+@inline function EuclideanMap(
         R::Rotation{N, T}, t::StaticVector{N, <:Real};
         check::Bool = true
     ) where {N, T}
@@ -308,7 +313,7 @@ dispatch ambiguity with the `Rotation`-typed constructor: `RotMatrix{3,T}`
 is a subtype of both `Rotation` and `StaticMatrix{3,3,T}`, but is not an
 `SMatrix`, so narrowing here keeps the two paths disjoint.
 """
-function EuclideanMap(
+@inline function EuclideanMap(
         R::SMatrix{3, 3, T, 9}, t::StaticVector{3};
         check::Bool = true,
         project::Bool = false

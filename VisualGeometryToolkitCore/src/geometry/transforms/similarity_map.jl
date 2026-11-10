@@ -61,10 +61,13 @@ rotation(S::SimilarityMap) = S.R
 translation(S::SimilarityMap) = S.t
 has_units(::SimilarityMap) = false
 
-function _assert_similarity_scale(s::Real)
-    (s > 0 && isfinite(s)) || throw(ArgumentError("a SimilarityMap's scale must be positive and finite, got $(s)"))
+@inline function _assert_similarity_scale(s::Real)
+    (s > 0 && isfinite(s)) || _refuse_similarity_scale(s)
     return nothing
 end
+
+# The refusal apart from the check (the message is built only here: the check compiles into a device kernel).
+@noinline _refuse_similarity_scale(s) = throw(ArgumentError("a SimilarityMap's scale must be positive and finite, got $(s)"))
 
 # THE refusal of a physical (unitful) value where only plain numbers can be
 # held — a similarity, a homography, a planar primitive's action — naming the
@@ -84,7 +87,7 @@ The similarity `x ↦ s·R·x + t`. A `RotMatrix`, `QuatRotation` or `Angle2d`
 is stored as given, any other `Rotation` as a `RotMatrix`; an integer scale
 or translation becomes its float type.
 """
-function SimilarityMap(s::Number, R::Rotation{N, T}, t::AbstractVector; check::Bool = true) where {N, T}
+@inline function SimilarityMap(s::Number, R::Rotation{N, T}, t::AbstractVector; check::Bool = true) where {N, T}
     (has_units(s) || has_units(t)) && _refuse_unitful("SimilarityMap")
     check && (_assert_rotation(R); _assert_similarity_scale(s))
     R_typed = _stored_rotation(R)

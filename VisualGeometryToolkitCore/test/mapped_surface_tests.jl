@@ -100,7 +100,12 @@ end
     w, a = tps_coefficients(sys, v)
     H = HeightField(nodes, raw)
     @test parameter_vector(H) == v && H.w == w && H.a == a
-    @test is_pure_bending(sys, v) && norm(a) <= 1.0e-14 * norm(v)
+    # a is exactly zero for a pure-bending v; computed, it is the rounding of the (n+3)-term
+    # products coeff·v: |δa| <= γ_(n+3) ‖coeff‖ ‖v‖ with γ_k ≈ k·eps (the standard bound), so the
+    # bound scales with the system's own norm instead of an absolute 1e-14 (FMA and summation
+    # order move the measured value by tens of eps: 25·eps here)
+    rounding_bound = size(sys.coeff, 1) * eps() * opnorm(Matrix(sys.coeff)) * norm(v)
+    @test is_pure_bending(sys, v) && norm(a) <= rounding_bound
     @test tps_pure_bending(sys, v) === v                                    # pure bending is kept bit for bit
     @test norm(tps_pure_bending(sys, SVector{25}(M * [1.0, 2.0, -3.0]))) <= 1.0e-13   # a plane is all pose: nothing left
     # against the matrix (BLAS) form of the same map: to 1e-12

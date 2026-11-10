@@ -197,6 +197,7 @@ include("lens_spec.jl")  # LensSpec: a lens family by name and term counts
 include("chart_spline.jl")    # ChartSpline, SplineProjection: a spline on a 2-D chart; a forward map on a direction chart (methods use the window)
 include("spline_lens.jl")     # SplineLens: the central grid camera as a CameraModel lens; the spline lattice's shared helpers
 include("generic_models.jl") # Schöps et al. central/non-central generic grid models (0.16)
+include("noncentral_spline_model.jl")  # NoncentralSplineModel: the non-central grid on ChartSpline (the SplineLens's directions plus a point spline)
 include("support.jl")         # supports on the sensor: which parameters a camera can see (the generic models' lattice)
 include("vignetting.jl")      # TensorProductVignetting, RadialVignetting: a camera's vignetting (uses the support protocol, bspline_basis)
 include("lighting.jl")        # EnvironmentLight, SphericalHarmonicMap, sh_basis: the scene's light (extends vignetting.jl's coefficient_jacobian)
@@ -641,8 +642,8 @@ transfer_ellipse(::_UnitfulPosedCamera, ::Union{Circle, Ellipse}) = _refuse_phys
 
 has_units(c::PosedCamera) = has_units(c.extrinsics)
 has_units(c::BoundedCamera) = has_units(c.camera)
-# An unposed camera holds no length (a NoncentralGenericModel's grid is plain
-# metres by its type, generic_models.jl); a posed camera type answers itself.
+# An unposed camera holds no length (a non-central grid model's points are plain
+# metres by its type, noncentral_spline_model.jl); a posed camera type answers itself.
 has_units(c::AbstractCamera) = is_posed(c) ? throw(MethodError(has_units, (c,))) : false
 _rebuilt(c::PosedCamera, X::Union{EuclideanMap, RotationMap{3}}) = PosedCamera{typeof(c.model), typeof(X)}(c.model, X)
 
@@ -662,33 +663,34 @@ with_unit(c::PosedCamera, u::Units) = _rebuilt(c, _attach_unit(c.extrinsics, u))
 FlexUnits.ustrip(u::Units, c::AbstractCamera) = is_posed(c) ? throw(MethodError(ustrip, (u, c))) : c
 with_unit(c::AbstractCamera, u::Units) = is_posed(c) ? throw(MethodError(with_unit, (c, u))) : c
 
-# A non-central generic model's point grid is plain metres — the one length of
-# the stack its type cannot carry (generic_models.jl). A plain extrinsics is
+# A non-central grid model's point spline is plain metres — the one length of
+# the stack its type cannot carry (noncentral_spline_model.jl). A plain extrinsics is
 # "in the caller's unit", so a camera of the two would compare the grid's
 # metres with scene points in whatever unit the caller meant (mm: offsets
 # 1000× too small, a wrong pixel and no error). The ambiguous pair is refused
 # where it is built, naming the fix; the plain-metres camera is reached only by
 # stating the unit, `ustrip(m, camera)` of a physical one (and `with_unit(·, m)`
 # back), so a strip or attach in another unit is refused too.
+const _NoncentralGrid = Union{NoncentralGenericModel, NoncentralSplineModel}
 @noinline _refuse_plain_noncentral(what) = throw(
     ArgumentError(
-        "$(what): a NoncentralGenericModel's point grid is in metres but the extrinsics are plain numbers " *
+        "$(what): a non-central grid model's point grid is in metres but the extrinsics are plain numbers " *
             "with no unit — attach the unit to the extrinsics: `PosedCamera(model, EuclideanMap(R, t .* m))`, or " *
             "`PosedCamera(model, with_unit(extrinsics, mm))` for a map in mm"
     )
 )
-PosedCamera(model::NoncentralGenericModel, X::EuclideanMap{3}) =
+PosedCamera(model::_NoncentralGrid, X::EuclideanMap{3}) =
     has_units(X) ? PosedCamera{typeof(model), typeof(X)}(model, X) : _refuse_plain_noncentral("PosedCamera")
-PosedCamera(model::NoncentralGenericModel, p::CameraPose) = PosedCamera(model, inv(p))
+PosedCamera(model::_NoncentralGrid, p::CameraPose) = PosedCamera(model, inv(p))
 @noinline _refuse_noncentral_unit(what, u) = throw(
     ArgumentError(
-        "$(what)($(u), camera): a NoncentralGenericModel's point grid is in metres, so its camera's plain form " *
+        "$(what)($(u), camera): a non-central grid model's point grid is in metres, so its camera's plain form " *
             "is in metres too — use `m`, and the same unit for the scene points"
     )
 )
-FlexUnits.ustrip(u::Units, c::PosedCamera{<:NoncentralGenericModel}) =
+FlexUnits.ustrip(u::Units, c::PosedCamera{<:_NoncentralGrid}) =
     u == m ? _rebuilt(c, ustrip(u, c.extrinsics)) : _refuse_noncentral_unit("ustrip", u)
-with_unit(c::PosedCamera{<:NoncentralGenericModel}, u::Units) =
+with_unit(c::PosedCamera{<:_NoncentralGrid}, u::Units) =
     u == m ? _rebuilt(c, _attach_unit(c.extrinsics, u)) : _refuse_noncentral_unit("with_unit", u)
 with_unit(c::BoundedCamera, u::Units) = _rebound(c, with_unit(c.camera, u))
 
@@ -1145,7 +1147,7 @@ export generic_lattice                   # a grid model's layout from a source, 
 export directions, grid_size, window_offset, lattice_spacing   # a grid model's lattice accessors (public, not exported, at the top level)
 export with_domain, with_present, with_nominal, with_directions, with_points, central_model   # its set accessors (likewise)
 export ChartSpline, SplineProjection     # a spline on a 2-D chart; a forward map (ray → pixel) as one on the equidistant direction chart
-export SplineLens, spline_lattice        # the central grid camera as a lens of a CameraModel; its lattice from a camera, unsampled
+export SplineLens, NoncentralSplineModel, spline_lattice        # the central grid camera as a lens of a CameraModel; its lattice from a camera, unsampled
 export pixel_centre                      # an image array index's pixel centre, COLMAP frame, in T (public, not exported, at the top level)
 export equidistant_chart                 # the equidistant direction chart about an axis (public, not exported, at the top level)
 export with_model                         # same camera/rig, new model — rebuilds through the validating constructor

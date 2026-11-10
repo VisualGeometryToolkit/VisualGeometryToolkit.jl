@@ -555,9 +555,6 @@ calib_min_y) / (gy − 3))`.
 @inline lattice_spacing(m::_GenericLattice) = _lattice_spacing(_calibrated_rect(m), _grid_size(m))
 _calibrated_rect(m::_GenericLattice) = _bounds_rect(m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y)
 
-# Grid node (Julia 1-based control index) → pixel: inverse of `_grid_coords`.
-@inline _node_pixel(m::_GenericLattice, gx1::Integer, gy1::Integer) = _lattice_node(_calibrated_rect(m), _grid_size(m), gx1, gy1)
-
 # The reference (util.h, EvalUniformCubicBSpline) evaluates its cubic pieces in
 # its window coordinate x ∈ [3, 4) itself, which cancels to ~1e-5 absolute in
 # Float32 (|x³| ≈ 64 against weights ≤ 2/3); the weights below take the local
@@ -606,9 +603,11 @@ end
 
 # The window value at grid coordinates (gx, gy) and its partials along gx and
 # gy, in one sweep of the 4×4 controls. Device-safe (the batched kernel's LM
-# reads it per candidate step).
+# reads it per candidate step). The window is `_continued_window`'s, clamped to the
+# grid (inside the box it is `_spline_window`'s, bit for bit), so a point inside the
+# lens's lower-edge slack (`_in_backward`) reads the first window, not past the grid.
 @inline function _eval_window_grad(grid::AbstractMatrix{<:StaticVector{3}}, gx, gy)
-    ix, iy, wx, wy = _spline_window(gx, gy)
+    ix, iy, wx, wy = _continued_window(gx, gy, size(grid, 2), size(grid, 1))
     dwx = _cubic_bspline_weights_deriv(_span_coordinate(gx + 2, ix))
     dwy = _cubic_bspline_weights_deriv(_span_coordinate(gy + 2, iy))
     S = Sx = Sy = zero(SVector{3, Float64})
@@ -1084,18 +1083,6 @@ function local_coordinates(ch::ControlPatchManifold{PX, PY, L}, x::NamedTuple) w
     return out
 end
 
-# Noncentral tangent-plane residual of a candidate pixel against target X.
-@inline function _noncentral_residual(m::NoncentralGenericModel, p::SVector{2}, X::SVector{3})
-    gx, gy = _grid_coords(m, p[1], p[2])
-    ix, iy, wx, wy = _spline_window(gx, gy)
-    d = _eval_window(m.directions, ix, iy, wx, wy)
-    o = _eval_window(m.points, ix, iy, wx, wy)
-    dn = SVector{3}(d) / norm(d)
-    t1, t2 = direction_tangents(dn)
-    pto = SVector{3}(o) - X
-    return SVector(dot(t1, pto), dot(t2, pto))
-end
-
 # ------------------------------------------------------------------------------
 # Projection — both models run the ONE pixel-space LM, `_pixel_lm` (below,
 # shared with the batched kernel): the central model on its direction residual
@@ -1153,8 +1140,10 @@ project(m::NoncentralGenericModel, X, p₀) = _project_from(m, X, SVector{2, Flo
 function _project_from(m::NoncentralGenericModel, X, p0::SVector{2, Float64})
     Xv = SVector{3, Float64}(X[1], X[2], X[3])
     all(isfinite, p0) || return nothing
-    res(p, _) = _noncentral_residual(m, p, Xv)
-    jac(p, _) = ForwardDiff.jacobian(q -> _noncentral_residual(m, q, Xv), p)
+    # THE tangent-plane residual (noncentral_spline_model.jl) on the pixel lattice
+    rect = _calibrated_rect(m)
+    res(p, _) = _noncentral_residual(m.directions, m.points, rect, p, Xv)
+    jac(p, _) = ForwardDiff.jacobian(q -> _noncentral_residual(m.directions, m.points, rect, q, Xv), p)
     px, ok = _pixel_lm(
         res, jac, p0[1], p0[2], Float64(m.calib_min_x), Float64(m.calib_min_y), Float64(m.calib_max_x),
         Float64(m.calib_max_y), _PROJECT_MAXITER, _PROJECT_TOL^2

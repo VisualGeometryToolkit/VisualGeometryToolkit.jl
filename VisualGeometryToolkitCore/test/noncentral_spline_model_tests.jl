@@ -1,0 +1,201 @@
+@testitem "NoncentralSplineModel: the non-central grid on ChartSpline" begin
+    using Test
+    using StaticArrays
+    using Rotations: RotMatrix, RotXYZ
+    using LinearAlgebra: norm, dot
+    using Random: MersenneTwister
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, NoncentralSplineModel, KannalaBrandt, px,
+        backproject, backproject_with_jacobian, project, central_model, with_points, with_directions, with_present,
+        calibration_matrix, CameraCalibrationMat, LogicalIntrinsics, Ray3, PosedCamera, EuclideanMap, m, mm, ustrip,
+        with_unit, has_units, valid_domain, support_trait, LocalSupport, nodes, node_position, support, RotationMap
+    using GeometryBasics: origin, widths
+
+    # =============================================================================
+    # The non-central grid (Schöps et al.) rebuilt on ChartSpline in the normalized
+    # plane x = K⁻¹u, against the golden outputs of the old NoncentralGenericModel
+    # (test/fixtures/spline_lens_golden.jl): the central grid's directions, points
+    # 0.01 · direction (plain metres), project at X = origin + 1500 · direction.
+    # =============================================================================
+
+    include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "spline_lens_golden.jl"))
+    G = GOLDEN
+    src = CameraModel(G.f * px, SA[G.pp[1] * px, G.pp[2] * px]; lens = KannalaBrandt(G.kb...))
+    image = (G.image[1], G.image[2])
+    grid = (G.grid_size[1], G.grid_size[2])
+    cam = CameraModel(SplineLens, src, image; grid_size = grid)
+    b = cam.lens.backward
+    pts = ChartSpline(b.area, map(d -> 0.01 * d, b.controls))
+    nc = NoncentralSplineModel(cam.intrinsics, b, pts)
+    pixels = [SVector(G.pixels[1, i], G.pixels[2, i]) for i in axes(G.pixels, 2)]
+    col3(A, i) = SVector(A[1, i], A[2, i], A[3, i])
+
+    @testset "backproject: the golden lines, NaN where they are" begin
+        worst_o, worst_d, same_nan = 0.0, 0.0, true
+        for (i, u) in enumerate(pixels)
+            r = backproject(nc, u)
+            @test r isa Ray3{Float64}
+            o, d = col3(G.noncentral.origins, i), col3(G.central.backproject, i)
+            if any(isnan, o)
+                same_nan &= all(isnan, r.origin) && all(isnan, r.direction)
+            else
+                same_nan &= all(isfinite, r.origin) && all(isfinite, r.direction)
+                worst_o = max(worst_o, norm(SVector{3}(r.origin) - o))
+                worst_d = max(worst_d, norm(SVector{3}(r.direction) - d))
+            end
+        end
+        @test same_nan
+        @test worst_o <= 1.0e-12
+        @test worst_d <= 1.0e-12
+    end
+
+    @testset "backproject_with_jacobian: the direction and its pixel Jacobian" begin
+        worst, tangent, same_nan = 0.0, 0.0, true
+        for (i, u) in enumerate(pixels)
+            f, M = backproject_with_jacobian(nc, u)
+            Mg = SMatrix{3, 2}(G.central.jac_M[:, :, i])
+            if any(isnan, Mg)
+                same_nan &= all(isnan, f) && all(isnan, M)
+            else
+                same_nan &= all(isfinite, M)
+                worst = max(worst, maximum(abs.(M - Mg)), norm(f - col3(G.central.backproject, i)))
+                tangent = max(tangent, maximum(abs.(f' * M)))
+            end
+        end
+        @test same_nan
+        @test worst <= 1.0e-12
+        @test tangent <= 1.0e-15
+    end
+
+    @testset "project: the tangent-plane LM, the golden pixels" begin
+        worst, same_nan = 0.0, true
+        for i in 1:(G.n_lattice)
+            X = col3(G.noncentral.origins, i) + 1500.0 * col3(G.central.backproject, i)
+            p = project(nc, X)
+            ref = SVector(G.noncentral.project_X[1, i], G.noncentral.project_X[2, i])
+            if any(isnan, ref)
+                same_nan &= all(isnan, p)
+            else
+                same_nan &= all(isfinite, p)
+                worst = max(worst, norm(p - ref))
+            end
+        end
+        @test same_nan
+        @test worst <= 1.0e-9
+        @test all(isnan, project(nc, SVector(NaN, 0.0, 1.0)))
+        @test all(isnan, project(nc, SVector(0.0, 0.0, 1.0), SVector(NaN, 0.0)))
+    end
+
+    @testset "a perturbed point grid: the projected pixel's line goes through X" begin
+        rng = MersenneTwister(11)
+        gn = with_points(nc, [SVector(0.4 * randn(rng), 0.4 * randn(rng), 0.4 * randn(rng)) for _ in 1:grid[2], _ in 1:grid[1]])
+        worst = 0.0
+        for _ in 1:15
+            p0 = SVector(60 + 880 * rand(rng), 60 + 880 * rand(rng))
+            r = backproject(gn, p0)
+            X = SVector{3}(r.origin) + 1500.0 * SVector{3}(r.direction)
+            p1 = project(gn, X, p0 + SVector(3.0, -2.0))
+            @test all(isfinite, p1)
+            r1 = backproject(gn, p1)
+            pto = SVector{3}(r1.origin) - X
+            worst = max(worst, norm(pto - dot(pto, SVector{3}(r1.direction)) * SVector{3}(r1.direction)))
+        end
+        @test worst < 1.0e-4                                       # point-to-line distance
+    end
+
+    @testset "central_model: the SplineLens camera of the directions" begin
+        c = central_model(nc)
+        @test c isa CameraModel{<:LogicalIntrinsics, <:SplineLens}
+        @test calibration_matrix(c) == calibration_matrix(cam)
+        worst, same_nan = 0.0, true
+        for (i, u) in enumerate(pixels)
+            d, ref = backproject(c, u), col3(G.central.backproject, i)
+            if any(isnan, ref)
+                same_nan &= all(isnan, d)
+            else
+                same_nan &= all(isfinite, d)
+                worst = max(worst, norm(d - ref))
+            end
+        end
+        @test same_nan
+        @test worst <= 1.0e-12
+        @test valid_domain(nc) == valid_domain(c)
+    end
+
+    @testset "constructors: skew, mismatched grids, the source constructor" begin
+        skewed = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(300.0, 0.0, 0.0, 1.0, 300.0, 0.0, 500.0, 500.0, 1.0)))
+        @test_throws ArgumentError NoncentralSplineModel(skewed, b, pts)
+        @test_throws ArgumentError NoncentralSplineModel(cam.intrinsics, b, ChartSpline(b.area, pts.controls[1:(end - 1), :]))
+        moved = ChartSpline(typeof(b.area)(origin(b.area) .+ 0.1, widths(b.area)), pts.controls)
+        @test_throws ArgumentError NoncentralSplineModel(cam.intrinsics, b, moved)
+        skewed_src = CameraModel(skewed, KannalaBrandt(G.kb...))
+        @test_throws ArgumentError NoncentralSplineModel(skewed_src, image; grid_size = grid)
+
+        s = NoncentralSplineModel(src, image; grid_size = grid)
+        @test s.directions.controls == b.controls
+        @test s.directions.area == b.area
+        @test all(iszero, s.points.controls)
+        @test calibration_matrix(central_model(s)) == calibration_matrix(cam)
+        r = backproject(s, SVector(345.0, 210.0))
+        @test r.origin == zero(r.origin)
+        @test SVector{3}(r.direction) == backproject(cam, SVector(345.0, 210.0))
+    end
+
+    @testset "with_present, with_points, with_directions" begin
+        mk = with_present(nc, G.masked.present)
+        @test mk.present == G.masked.present
+        @test all(isnan, mk.points.controls[1, 1]) && all(isnan, mk.directions.controls[1, 1])
+        fin = 0
+        for (i, u) in enumerate(pixels)
+            r, ref = backproject(mk, u), col3(G.masked.backproject, i)
+            if any(isnan, ref)
+                @test all(isnan, r.origin) && all(isnan, r.direction)
+            else
+                fin += 1
+                @test norm(SVector{3}(r.direction) - ref) <= 1.0e-12
+                @test norm(SVector{3}(r.origin) - col3(G.noncentral.origins, i)) <= 1.0e-12
+            end
+        end
+        @test fin >= 100
+        @test with_present(nc, trues(size(b.controls))).present === nothing
+
+        z = with_points(nc, zero(pts.controls))
+        @test z.directions === nc.directions && z.intrinsics === nc.intrinsics
+        @test all(iszero, z.points.controls) && z.points.area == pts.area
+        d2 = with_directions(nc, map(d -> 2 * d, b.controls))
+        @test d2.points === nc.points
+        @test SVector{3}(backproject(d2, SVector(345.0, 210.0)).direction) ≈ SVector{3}(backproject(nc, SVector(345.0, 210.0)).direction) atol = 1.0e-14
+        @test_throws ArgumentError with_points(nc, pts.controls[1:(end - 1), :])
+    end
+
+    @testset "the lattice's support hooks, in pixels" begin
+        @test support_trait(nc) isa LocalSupport
+        @test nodes(nc) == CartesianIndices(size(b.controls))
+        h = 1000 / (grid[1] - 3)
+        for I in (CartesianIndex(1, 1), CartesianIndex(5, 7), CartesianIndex(grid[2], grid[1]))
+            q = node_position(nc, I)
+            @test q ≈ SVector((I[2] - 2) * h, (I[1] - 2) * h) atol = 1.0e-9
+            s = support(nc, I)
+            @test minimum(s)[1] >= -1.0e-9 && maximum(s)[1] <= 1000 + 1.0e-9
+        end
+    end
+
+    @testset "a plain camera of the model is refused; the physical one is in metres" begin
+        R1 = RotMatrix{3, Float64}(RotXYZ(0.01, -0.02, 0.005))
+        t1 = SVector(0.012, -0.004, 0.0021)
+        E1u = EuclideanMap(R1, t1 .* m)
+        msg(f) = (err = try f(); nothing catch e; e end; err isa ArgumentError ? sprint(showerror, err) : err)
+        s = msg(() -> PosedCamera(nc, EuclideanMap(R1, t1 .* 1000)))
+        @test s isa String && occursin("t .* m", s) && occursin("with_unit(extrinsics, mm)", s)
+        @test msg(() -> PosedCamera(nc, RotationMap(R1))) isa String
+        Cu = PosedCamera(nc, E1u)
+        @test has_units(Cu)
+        @test ustrip(m, Cu).extrinsics === ustrip(m, E1u)
+        @test has_units(with_unit(ustrip(m, Cu), m))
+        @test msg(() -> ustrip(mm, Cu)) isa String
+        @test msg(() -> with_unit(ustrip(m, Cu), mm)) isa String
+        # the physical camera projects a point in metres as the plain model does
+        Xw = SVector(0.05, -0.02, 1.2) .* m
+        @test project(Cu, Xw) == project(nc, ustrip(m, E1u)(SVector(0.05, -0.02, 1.2)))
+    end
+end

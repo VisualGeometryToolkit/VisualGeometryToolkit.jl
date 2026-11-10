@@ -681,7 +681,7 @@ _forward_chart(l::SplineLens) = l.forward === nothing ? nothing : equidistant_ch
         _in_fitted_chart(l.forward, c) || return nan, false
         y = l.forward(c)
         x = SVector{2, Float64}(y[1], y[2])
-        return all(isfinite, x) && _in_backward(l, x) ? (x, true) : (nan, false)
+        return _in_backward(l, x) ? (x, true) : (nan, false)
     end
     b = l.backward
     lb, ub, s = _spline_lm_box(b.area)
@@ -756,6 +756,30 @@ function backproject(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, pixel
     intr = cam.intrinsics
     xs = map(u -> _normalized_point(intr, u), pixels)
     return map((x, d) -> _backward_ray(l, x, d), xs, l.backward(xs))
+end
+
+"""
+    backproject_with_jacobian(camera::CameraModel{<:AbstractIntrinsics, <:SplineLens}, u::StaticVector{2}) -> (f, M)
+
+The unit bearing `f` of the pixel `u` and its Jacobian `M = ∂f/∂u` (3×2),
+analytic: the backward spline's derivative weights, the normalize differential
+`(I − f fᵀ)/‖S‖` (so `fᵀM = 0` to rounding), the lattice slope and `K⁻¹`.
+`(NaN, NaN)` where the lens does not image `K⁻¹u` (outside the area, a window
+holding an absent node); never throws.
+"""
+function backproject_with_jacobian(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, u::StaticVector{2})
+    l = cam.lens
+    x = _normalized_point(cam.intrinsics, u)
+    _in_backward(l, x) || return SVector{3, Float64}(NaN, NaN, NaN), SMatrix{3, 2, Float64, 6}(ntuple(_ -> NaN, Val(6)))
+    b = l.backward
+    gsz = size(b.controls)
+    S, Sx, Sy = _eval_window_grad(b.controls, _lattice_coords(b.area, gsz, x)...)
+    sx, sy = _lattice_slope(b.area, gsz)                  # ∂gx/∂x, ∂gy/∂y
+    n = norm(S)
+    f = S / n
+    P = (one(SMatrix{3, 3, Float64}) - f * transpose(f)) / n   # ∂(S/‖S‖)/∂S
+    Ki = SMatrix{3, 3, Float64}(_K_inv(cam.intrinsics))
+    return f, hcat(P * (sx * Sx), P * (sy * Sy)) * SMatrix{2, 2, Float64, 4}(Ki[1, 1], Ki[2, 1], Ki[1, 2], Ki[2, 2])
 end
 
 # ------------------------------------------------------------------------------
@@ -903,6 +927,16 @@ function with_present(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, pres
     return CameraModel(cam.intrinsics, SplineLens(ChartSpline(b.area, _absent_nan(b.controls, present)); l.forward, present))
 end
 
+# A rectangle of the normalized plane in pixels: its corners through `K` (skew 0, so
+# a rectangle again) — the calibrated pixel area of a lattice over `area`.
+function _pixel_area(intrinsics::AbstractIntrinsics, area::Rect2)
+    K = SMatrix{3, 3, Float64}(_K(intrinsics))
+    o = GeometryBasics.origin(area); w = GeometryBasics.widths(area)
+    lo = K * SVector(o[1], o[2], 1.0)
+    hi = K * SVector(o[1] + w[1], o[2] + w[2], 1.0)
+    return Rect2{Float64}(lo[1], lo[2], hi[1] - lo[1], hi[2] - lo[2])
+end
+
 """
     valid_domain(camera::CameraModel{<:AbstractIntrinsics, <:SplineLens}) -> Rect2{Float64}
 
@@ -915,11 +949,7 @@ An `ArgumentError` when no window is fully present.
 function valid_domain(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens})
     l = cam.lens
     b = l.backward
-    K = SMatrix{3, 3, Float64}(_K(cam.intrinsics))
-    o = GeometryBasics.origin(b.area); w = GeometryBasics.widths(b.area)
-    lo = K * SVector(o[1], o[2], 1.0)
-    hi = K * SVector(o[1] + w[1], o[2] + w[2], 1.0)
-    area = Rect2{Float64}(lo[1], lo[2], hi[1] - lo[1], hi[2] - lo[2])
+    area = _pixel_area(cam.intrinsics, b.area)
     l.present === nothing && return area
     gsz = gh, gw = size(b.controls)
     # window (ix, iy) reads columns ix − 2 … ix + 1 and covers the cell between nodes ix − 1 and ix

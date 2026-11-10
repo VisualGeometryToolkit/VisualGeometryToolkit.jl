@@ -27,6 +27,18 @@ Private = false
 Pages = ["cameras/spline_lens.jl"]
 ```
 
+## The non-central grid on the lens's directions
+
+`NoncentralSplineModel`: the central grid's directions (a `SplineLens`'s backward
+spline) and a point spline over the same rectangle of the normalized plane, one
+observation line per pixel.
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Cameras]
+Private = false
+Pages = ["cameras/noncentral_spline_model.jl"]
+```
+
 ## A forward map as a spline on a chart
 
 A grid model's `project` is a small LM per ray. Its forward map can instead be

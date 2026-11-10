@@ -365,7 +365,7 @@ public generic_lattice   # a grid model's layout from a source (its lattice and 
 public directions, grid_size, window_offset, lattice_spacing   # a grid model's lattice: its direction controls, (gx, gy), a window's corner, the cell size in px
 public with_domain, with_present, with_nominal, with_directions, with_points, central_model   # a grid model with one part replaced; a non-central model's central part
 public primal_float      # the float type under every ForwardDiff Dual layer (base/duals.jl)
-export SplineLens   # the central grid camera as a lens of a CameraModel (cameras/spline_lens.jl)
+export SplineLens, NoncentralSplineModel   # the central grid camera as a lens of a CameraModel (cameras/spline_lens.jl); the non-central grid on its directions (cameras/noncentral_spline_model.jl)
 public spline_lattice   # a SplineLens camera's layout from a camera (its lattice and K), without sampling it
 export ChartSpline, SplineProjection   # a spline on a 2-D chart; a forward map (ray → pixel) as one on the equidistant direction chart (fit_camera's)
 public pixel_centre        # the COLMAP centre (col − ½, row − ½) of an image array index, in T (kernel-lawful)

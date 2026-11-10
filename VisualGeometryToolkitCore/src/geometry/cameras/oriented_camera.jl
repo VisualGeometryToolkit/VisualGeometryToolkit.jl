@@ -38,12 +38,12 @@ _raw_extrinsics(::OrientedCamera) = throw(
 
 @noinline _refuse_oriented_noncentral() = throw(
     ArgumentError(
-        "PosedCamera: a NoncentralGenericModel's rays start at points in metres, and a rotation-only pose " *
+        "PosedCamera: a non-central grid model's rays start at points in metres, and a rotation-only pose " *
             "cannot state the scene's unit — pose it by a physical EuclideanMap, `EuclideanMap(R, zeros(3) .* m)`"
     )
 )
-PosedCamera(::NoncentralGenericModel, ::RotationMap{3}) = _refuse_oriented_noncentral()
-PosedCamera(::NoncentralGenericModel, ::RotationMap{3, T, R, CameraFrame, WorldFrame}) where {T, R} = _refuse_oriented_noncentral()
+PosedCamera(::_NoncentralGrid, ::RotationMap{3}) = _refuse_oriented_noncentral()
+PosedCamera(::_NoncentralGrid, ::RotationMap{3, T, R, CameraFrame, WorldFrame}) where {T, R} = _refuse_oriented_noncentral()
 
 # A rotation map in another float type, its representation and tags kept.
 convert_eltype(::Type{T}, M::RotationMap{N, S, R, Src, Dst}) where {T <: Real, N, S, R, Src, Dst} =

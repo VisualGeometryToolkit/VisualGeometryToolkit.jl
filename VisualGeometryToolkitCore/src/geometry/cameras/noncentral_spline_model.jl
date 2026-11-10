@@ -1,0 +1,220 @@
+# ==============================================================================
+# NoncentralSplineModel — the non-central grid camera on ChartSpline
+# ==============================================================================
+#
+# The non-central generic model of Schöps, Larsson, Pollefeys and Sattler (CVPR
+# 2020): per pixel an observation LINE, a direction spline and a point spline
+# over one lattice. Here both are `ChartSpline{3}`s over the same rectangle of the
+# K-normalized plane x = K⁻¹u, as the backward spline of a `SplineLens`: the
+# directions are a SplineLens's (`central_model(m)`), and every evaluation of
+# them, the box and presence test (`_in_backward`), the LM (`_spline_lm` on the
+# area's scale-free `_spline_lm_box`) and the gauge rule (skew 0) are the lens's.
+# What is the model's own: the point spline and the tangent-plane residual of
+# its projection.
+
+"""
+    NoncentralSplineModel(K::LogicalIntrinsics, directions::ChartSpline{3}, points::ChartSpline{3};
+                          present = nothing) <: AbstractCamera
+    NoncentralSplineModel(source, size; grid_size, calib_area, init, sampling_margin, unit_controls)
+
+The non-central grid camera (Schöps et al., CVPR 2020): the pixel `u` observes
+the LINE through `points(x)` along `normalize(directions(x))`, `x = K⁻¹u` the
+normalized image point, both splines laid over the same rectangle of the
+normalized plane with the same lattice ([`ChartSpline`](@ref); controls
+`[row = y, column = x]`). [`backproject`](@ref) returns a [`Ray3`](@ref);
+[`project`](@ref) is Levenberg–Marquardt on the reference's tangent-plane
+point-to-line residual. With an all-zero point spline the model is exactly
+its [`central_model`](@ref), a `SplineLens` camera.
+
+`K` is the gauge of a `SplineLens` camera (skew 0, else an `ArgumentError`).
+`present` says which nodes the model holds, as a `SplineLens`'s (`nothing`, or
+a `Bool` matrix of the grid's size; an all-true mask is `nothing`).
+
+The `points` are plain metres in the camera frame. This is an exception to the
+units layering that the type forces: its controls are interpolated in the inner
+loop and cannot hold quantities, so the unit is stated here instead. A reader
+or writer of the model converts at its boundary. A [`PosedCamera`](@ref) of the
+model therefore takes physical extrinsics (`EuclideanMap(R, t .* m)`, or
+`with_unit(E, mm)` of a map in mm) and projects scene points that are lengths; a
+plain extrinsics is an `ArgumentError`. `ustrip(m, camera)` is the plain camera,
+in metres only.
+
+The model carries no image extent: a stored or rig camera holds it in its
+[`BoundedCamera`](@ref).
+
+From a `source` (a camera or a function `pixel -> direction`): the directions
+of `CameraModel(SplineLens, source, size; …)` (the same keywords and `K`), the
+points all zero.
+"""
+struct NoncentralSplineModel{I <: LogicalIntrinsics, S <: ChartSpline{3}, P <: Union{Nothing, AbstractMatrix{Bool}}} <: AbstractCamera
+    intrinsics::I
+    directions::S
+    points::S
+    present::P
+    function NoncentralSplineModel{I, S, P}(intrinsics::I, directions::S, points::S, present::P) where {I <: LogicalIntrinsics, S <: ChartSpline{3}, P <: Union{Nothing, AbstractMatrix{Bool}}}
+        K = _K(intrinsics)
+        iszero(K[1, 2]) || throw(ArgumentError("NoncentralSplineModel: a spline camera has skew 0; K has skew $(K[1, 2])"))
+        size(directions.controls) == size(points.controls) || throw(
+            ArgumentError(
+                "NoncentralSplineModel: the direction and point splines must have equal grids, " *
+                    "got $(size(directions.controls)) vs $(size(points.controls))"
+            )
+        )
+        directions.area == points.area || throw(
+            ArgumentError("NoncentralSplineModel: the direction and point splines must share their area, got $(directions.area) vs $(points.area)")
+        )
+        _check_present(present, size(directions.controls))
+        return new{I, S, P}(intrinsics, directions, points, present)
+    end
+end
+function NoncentralSplineModel(K::LogicalIntrinsics, directions::ChartSpline{3}, points::ChartSpline{3}; present = nothing)
+    if typeof(directions) !== typeof(points)              # one spline type for both: materialize them
+        T = promote_type(eltype(eltype(directions.controls)), eltype(eltype(points.controls)))
+        directions = ChartSpline(directions.area, Matrix{SVector{3, T}}(directions.controls))
+        points = ChartSpline(points.area, Matrix{SVector{3, T}}(points.controls))
+    end
+    return _noncentral_spline_model(K, directions, points, _present_mask(present, size(directions.controls)))
+end
+# The model of its parts' own types: a function barrier over the mask, as `_spline_lens`.
+_noncentral_spline_model(K::I, d::S, p::S, present::P) where {I, S, P} = NoncentralSplineModel{I, S, P}(K, d, p, present)
+
+function NoncentralSplineModel(source::_SplineSource, size::Union{Tuple{Integer, Integer}, Size2}; kwargs...)
+    c = CameraModel(SplineLens, source, size; kwargs...)
+    d = c.lens.backward
+    return NoncentralSplineModel(c.intrinsics, d, ChartSpline(d.area, zero(d.controls)))
+end
+
+# The direction lens of the model: a SplineLens of its directions and mask (already
+# through `_present_mask`, so not re-checked or copied).
+_direction_lens(m::NoncentralSplineModel) = _spline_lens(m.directions, nothing, m.present)
+
+"""
+    central_model(m::NoncentralSplineModel) -> CameraModel{<:LogicalIntrinsics, <:SplineLens}
+
+The central camera of a non-central one's directions — what a point at
+infinity sees: the same `K`, direction spline and present nodes as a
+[`SplineLens`](@ref) camera; the line points dropped.
+"""
+central_model(m::NoncentralSplineModel) = CameraModel(m.intrinsics, _direction_lens(m))
+
+# The controls of a replaced spline: `SVector{3}`s over the model's area, kept as given.
+function _model_spline(m::NoncentralSplineModel, controls::AbstractMatrix, what)
+    size(controls) == size(m.directions.controls) || throw(
+        ArgumentError("$(what): a $(size(controls)) control grid for a $(size(m.directions.controls)) model")
+    )
+    T = eltype(eltype(m.directions.controls))
+    return ChartSpline(m.directions.area, Matrix{SVector{3, T}}(map(v -> SVector{3, T}(v[1], v[2], v[3]), controls)))
+end
+
+"""
+    with_points(m::NoncentralSplineModel, P::AbstractMatrix{<:StaticVector{3}}) -> NoncentralSplineModel
+
+The model `m` with the line-point controls `P` (`[gy, gx]`, plain metres in the
+camera frame, kept exactly as given), every other part kept.
+"""
+with_points(m::NoncentralSplineModel, P::AbstractMatrix) =
+    _noncentral_spline_model(m.intrinsics, m.directions, _model_spline(m, P, "with_points"), m.present)
+
+"""
+    with_directions(m::NoncentralSplineModel, D::AbstractMatrix{<:StaticVector{3}}) -> NoncentralSplineModel
+
+The model `m` with the direction controls `D` (`[gy, gx]`, kept exactly as
+given), every other part kept.
+"""
+with_directions(m::NoncentralSplineModel, D::AbstractMatrix) =
+    _noncentral_spline_model(m.intrinsics, _model_spline(m, D, "with_directions"), m.points, m.present)
+
+"""
+    with_present(m::NoncentralSplineModel, present::AbstractMatrix{Bool}) -> NoncentralSplineModel
+
+The model `m` holding the nodes `present` (`[gy, gx]`, `true` = present): the
+same `K` and lattice, the controls of the present nodes kept and NaN in the
+absent ones, in both splines.
+"""
+with_present(m::NoncentralSplineModel, present::AbstractMatrix{Bool}) =
+    NoncentralSplineModel(
+    m.intrinsics, ChartSpline(m.directions.area, _absent_nan(m.directions.controls, present)),
+    ChartSpline(m.points.area, _absent_nan(m.points.controls, present)); present
+)
+
+"""
+    valid_domain(m::NoncentralSplineModel) -> Rect2{Float64}
+
+Where the model is defined, in pixels: its [`central_model`](@ref)'s valid domain.
+"""
+valid_domain(m::NoncentralSplineModel) = valid_domain(central_model(m))
+
+"""
+    backproject(m::NoncentralSplineModel, u::StaticVector{2}) -> Ray3{Float64}
+
+The observation LINE of the pixel `u`: the direction of the
+[`central_model`](@ref) (normalized) and the point spline's value (plain metres
+in the camera frame). A ray of NaN origin and direction where the direction lens
+does not image `u` (outside the area, or a window holding an absent node): the
+lens contract's form, never `nothing`.
+"""
+function backproject(m::NoncentralSplineModel, u::StaticVector{2})
+    x = _normalized_point(m.intrinsics, u)
+    d = backproject(_direction_lens(m), x)
+    o = isnan(d[1]) ? SVector(NaN, NaN, NaN) : m.points(x)
+    return Ray3{Float64}(Vec3{Float64}(o[1], o[2], o[3]), Vec3{Float64}(d[1], d[2], d[3]))
+end
+
+"""
+    backproject_with_jacobian(m::NoncentralSplineModel, u) -> (f, M)
+
+The unit DIRECTION `f` of the pixel `u`'s observation line and its Jacobian
+`M = ∂f/∂u` (3×2): the [`central_model`](@ref)'s. The line's point is not
+differentiated: `backproject` gives it.
+"""
+backproject_with_jacobian(m::NoncentralSplineModel, u::StaticVector{2}) = backproject_with_jacobian(central_model(m), u)
+
+# The non-central projection's residual at the normalized point `p` against the
+# camera-frame point `X`: the two components of `origin(p) − X` in the tangent basis
+# of the line direction `d̂(p)` (the reference's tangent-plane point-to-line
+# residual), both splines read through ONE window of the lattice of `(rows, cols) =
+# size(dctrl)` over `area`. Generic in `p`'s element type (ForwardDiff's duals).
+@inline function _noncentral_residual(dctrl::AbstractMatrix, pctrl::AbstractMatrix, area, p::SVector{2}, X::SVector{3})
+    ix, iy, wx, wy = _spline_window(_lattice_coords(area, size(dctrl), p)...)
+    d = _eval_window(dctrl, ix, iy, wx, wy)
+    o = _eval_window(pctrl, ix, iy, wx, wy)
+    t1, t2 = direction_tangents(SVector{3}(d) / norm(d))
+    pto = SVector{3}(o) - X
+    return SVector(dot(t1, pto), dot(t2, pto))
+end
+
+# THE non-central projection: `_spline_lm` on the tangent-plane residual with a
+# ForwardDiff Jacobian, from the normalized point `x₀`, on the direction area's
+# scale-free box; the pixel, NaN unless it converged onto an imaged point.
+function _noncentral_project(m::NoncentralSplineModel, X, x₀::SVector{2, Float64})
+    Xv = SVector{3, Float64}(X[1], X[2], X[3])
+    nan = SVector(NaN, NaN)
+    (all(isfinite, Xv) && all(isfinite, x₀)) || return nan
+    a = m.directions.area
+    res(p, _) = _noncentral_residual(m.directions.controls, m.points.controls, a, p, Xv)
+    jac(p, _) = ForwardDiff.jacobian(q -> res(q, nothing), p)
+    lb, ub, s = _spline_lm_box(a)
+    x, ok = _spline_lm(res, jac, x₀, lb, ub, s, _PROJECT_MAXITER, _PROJECT_TOL^2)
+    (ok && _in_backward(_direction_lens(m), x)) || return nan
+    u = _pixel_affine(m.intrinsics)(x)
+    return SVector{2, Float64}(u[1], u[2])
+end
+
+"""
+    project(m::NoncentralSplineModel, X) -> SVector{2}
+    project(m::NoncentralSplineModel, X, p₀) -> SVector{2}
+
+Project the camera-frame point `X` — plain metres, the point spline's unit — to
+a pixel: Levenberg–Marquardt in the normalized plane on the reference's
+tangent-plane point-to-line residual, so a converged pixel's observation line
+goes through `X`. The two-argument form starts at the area's centre, the
+three-argument form at the seed pixel `p₀` (a good seed matters for a
+non-central model; positional, per-call data). NaN when the solve does not
+converge onto a point the model images (inside the area, its window present).
+"""
+function project(m::NoncentralSplineModel, X)
+    o = GeometryBasics.origin(m.directions.area); w = GeometryBasics.widths(m.directions.area)
+    return _noncentral_project(m, X, SVector{2, Float64}(o[1] + w[1] / 2, o[2] + w[2] / 2))
+end
+project(m::NoncentralSplineModel, X, p₀) =
+    _noncentral_project(m, X, SVector{2, Float64}(_normalized_point(m.intrinsics, SVector{2, Float64}(p₀[1], p₀[2]))))

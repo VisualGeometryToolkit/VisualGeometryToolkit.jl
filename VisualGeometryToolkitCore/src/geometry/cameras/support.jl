@@ -123,15 +123,23 @@ end
 # calibrated area
 # -----------------------------------------------------------------------------
 
-support_trait(::Type{<:_GenericModel}) = LocalSupport()
-nodes(m::_GenericModel) = CartesianIndices(_grid_size(m))
-_node_present(m::_GenericModel, i::CartesianIndex{2}) = m.present === nothing || m.present[i]
-node_position(m::_GenericModel, i::CartesianIndex{2}) = Point2{Float64}(_node_pixel(m, i[2], i[1]))
+# The pixel lattice of a grid model: its calibrated pixel rectangle and `(rows, cols)`
+# (a NoncentralSplineModel's is its direction area mapped through K, `_pixel_area`).
+const _LatticeCamera = Union{_GenericModel, NoncentralSplineModel}
+_pixel_lattice(m::_GenericModel) = (_calibrated_rect(m), _grid_size(m))
+_pixel_lattice(m::NoncentralSplineModel) = (_pixel_area(m.intrinsics, m.directions.area), size(m.directions.controls))
+
+support_trait(::Type{<:_LatticeCamera}) = LocalSupport()
+nodes(m::_LatticeCamera) = CartesianIndices(last(_pixel_lattice(m)))
+_node_present(m::_LatticeCamera, i::CartesianIndex{2}) = m.present === nothing || m.present[i]
+node_position(m::_LatticeCamera, i::CartesianIndex{2}) = Point2{Float64}(_lattice_node(_pixel_lattice(m)..., i[2], i[1]))
 # A node's footprint, clipped to the calibrated area the model is defined on.
 # (The closed meet, Core's one rect-meet convention: a footprint always overlaps
 # the area by at least a cell, so it is never empty.)
-support(m::_GenericModel, i::CartesianIndex{2}) =
-    _closed_meet(cubic_bspline_footprint(node_position(m, i), lattice_spacing(m)), _calibrated_rect(m))
+function support(m::_LatticeCamera, i::CartesianIndex{2})
+    rect, gsz = _pixel_lattice(m)
+    return _closed_meet(cubic_bspline_footprint(node_position(m, i), _lattice_spacing(rect, gsz)), rect)
+end
 
 # -----------------------------------------------------------------------------
 # The boundary rule of a lattice under an imaged region: the nodes outside it are

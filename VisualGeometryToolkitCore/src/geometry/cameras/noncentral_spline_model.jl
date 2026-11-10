@@ -43,7 +43,7 @@ normalized plane with the same lattice ([`ChartSpline`](@ref); controls
 point-to-line residual. With an all-zero point spline the model is exactly
 its [`central_model`](@ref), a `SplineLens` camera.
 
-`K` is the gauge of a `SplineLens` camera (skew 0, else an `ArgumentError`).
+`K` is the gauge of a `SplineLens` camera (skew 0 and positive focal lengths, else an `ArgumentError`).
 `present` says which nodes the model holds, as a `SplineLens`'s (`nothing`, or
 a `Bool` matrix of the grid's size; an all-true mask is `nothing`).
 
@@ -69,8 +69,7 @@ struct NoncentralSplineModel{I <: LogicalIntrinsics, S <: ChartSpline{3}, P <: U
     points::S
     present::P
     function NoncentralSplineModel{I, S, P}(intrinsics::I, directions::S, points::S, present::P) where {I <: LogicalIntrinsics, S <: ChartSpline{3}, P <: Union{Nothing, AbstractMatrix{Bool}}}
-        K = _K(intrinsics)
-        iszero(K[1, 2]) || throw(ArgumentError("NoncentralSplineModel: a spline camera has skew 0; K has skew $(K[1, 2])"))
+        _check_spline_gauge(intrinsics)
         size(directions.controls) == size(points.controls) || throw(
             ArgumentError(
                 "NoncentralSplineModel: the direction and point splines must have equal grids, " *

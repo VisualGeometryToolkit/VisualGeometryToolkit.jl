@@ -327,13 +327,6 @@ end
 @inline _warp_index(::CartesianIndex{2}) = 1
 @inline _warp_index(I::CartesianIndex{3}) = I[3]
 
-# THE launch policy of the warp kernel, one warp or a batch: the warps' device form
-# (a link holding arrays — a spline lens's controls — moves beside the destination;
-# an isbits chain, or a vector already there, is unchanged), launched with the
-# backend's own workgroup (a lens's iterative solve in the warp needs registers a
-# fixed 32 × 32 group exceeds on a GPU).
-_device_warp(backend, w) = Adapt.adapt(backend, w)
-
 """
     image_warp!(dst, bm::BoundedMap, src; fillvalue=0) -> dst
 
@@ -355,7 +348,12 @@ function image_warp!(
     )
     backend = get_backend(dst)
     fv = _sample_type(eltype(dst))(fillvalue)
-    _warp_kernel!(backend)(dst, src, (_device_warp(backend, bm),), fv; ndrange = size(dst))
+    # THE launch policy of the warp kernel, here and in `image_warp_batch_to!`: the
+    # warps' device form (a link holding arrays — a spline lens's controls — moves
+    # beside the destination; an isbits chain, or a vector already there, is
+    # unchanged), launched with the backend's own workgroup (a lens's iterative solve
+    # in the warp needs registers a fixed 32 × 32 group exceeds on a GPU).
+    _warp_kernel!(backend)(dst, src, (Adapt.adapt(backend, bm),), fv; ndrange = size(dst))
     KernelAbstractions.synchronize(backend)
     return dst
 end
@@ -398,7 +396,7 @@ function image_warp_batch_to!(
     )
     backend = get_backend(out)
     fv = _sample_type(T)(fillvalue)
-    _warp_kernel!(backend)(out, src, _device_warp(backend, warps), fv; ndrange = size(out))
+    _warp_kernel!(backend)(out, src, Adapt.adapt(backend, warps), fv; ndrange = size(out))
     KernelAbstractions.synchronize(backend)
     return out
 end

@@ -169,6 +169,7 @@ function _footprint(camera::BoundedCamera, n::Int)
                 "footprint); got $(nameof(typeof(m))) — resample a grid model's parametric source, or pose a CameraModel"
         )
     )
+    _check_lens_axis(m.lens, "view_overlap")
     region = imaged_region(camera)
     ring = _region_ring(region, n)
     length(ring) >= 3 || throw(ArgumentError("view_overlap: the camera's imaged region is empty"))

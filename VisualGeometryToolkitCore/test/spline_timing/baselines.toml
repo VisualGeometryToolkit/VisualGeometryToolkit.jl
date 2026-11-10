@@ -7,6 +7,10 @@ julia = "1.13.3"
 core = 1
 core_class = "performance"
 
+# OWNER DECISION (2026-11-10, plan 1b's final review): the plan's CPU gate "≤ the old grid" is waived for the
+# backprojection — batched +2.8 %, scalar +0.3 % against the old central grid at 004a004c, within the re-measurement
+# margin of an efficiency-core baseline; the rounding change that would close it is not worth a golden shift. These
+# baselines are the SplineLens's own, and the gate holds the code to them.
 [arms."backproject"]
 us_per_call = 7.2
 bytes_per_call = 0.0

@@ -145,23 +145,22 @@ function CameraModel(
         image_origin::Symbol = :colmap
     )
     return if image_origin != :colmap
-        # Origin shift via the 0.7 frame-map factory. The removed 0.6 surface
-        # `Translation(::Symbol, ::Symbol)` must NOT be called here: without
-        # the VGC method, that expression silently matches CT's generic
-        # `Translation(x, y)` and builds a `Translation{SVector{2,Symbol}}`
-        # (the 0.7.0 leftover bug). Wrapped back into a CT `Translation` (via
-        # `.t`, unitless `Vec2{Float64}`) so `∘ affine_part(K)` fuses eagerly
-        # into a plain `AffineMap`, as before.
-        origin_shift = Translation(
-            EuclideanMap(PixelFrame{image_origin}, PixelFrame{:colmap}).t
-        )
-        # K was checked (or deliberately not, `check = false`) when it was
-        # built: the shift moves its principal point only, so nothing is re-checked
-        a = origin_shift ∘ affine_part(K)
-        CameraModel(LogicalIntrinsics(_calibration_from_affine(Float64, a.linear, a.translation; check = false)), lens)
+        CameraModel(LogicalIntrinsics(_reframed_calibration(K, PixelFrame{image_origin}, PixelFrame{:colmap})), lens)
     else
         CameraModel(LogicalIntrinsics(K), lens)
     end
+end
+
+# THE pixel-frame change of a calibration matrix: the same K with its principal
+# point moved from the pixel frame `from` into `to` (the frame map
+# `EuclideanMap(from, to)`, a translation by the frames' half-pixel offset), the
+# focal lengths and the skew kept, in Float64. `CameraModel(K; image_origin)`
+# and VisualGeometryToolkitIO's stored K (its reader and its writer) all move a K
+# through it. K was checked (or deliberately not, `check = false`) when it was
+# built: the shift moves its principal point only, so nothing is re-checked.
+function _reframed_calibration(K::CameraCalibrationMat, from::Type{<:PixelFrame}, to::Type{<:PixelFrame})
+    c = EuclideanMap(from, to)(SVector{2, Float64}(K[1, 3], K[2, 3]))
+    return CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0, 0, K[1, 2], K[2, 2], 0, c[1], c[2], 1); check = false)
 end
 
 """
@@ -713,23 +712,34 @@ distortion_map(m::RadialHomography) = distortion_map(CameraModel(m))
     CameraModel(model::CameraModel, K′::CameraCalibrationMat) -> CameraModel
 
 The same camera with intrinsics `K′`: the lens re-expressed under the new
-intrinsics matrix sharing the principal point, so the pixel map is unchanged: `normalized′ = normalized / s` with `s = f′/f`, so a scale-covariant
-radial lens transforms its coefficients by the law aᵢ → aᵢ·s^(2i),
-bⱼ → bⱼ·s^(2j) (the generalized `k′ = k·s²`). Throws for a moved principal
-point (the lens center is data, not a frame choice), for anisotropic
-rescaling of a radial lens (radial symmetry would be broken), and for
-families whose coefficients are only meaningful under a metric K.
+intrinsics matrix, so the pixel map is unchanged. A parametric lens shares the
+principal point: `normalized′ = normalized / s` with `s = f′/f`, so a
+scale-covariant radial lens transforms its coefficients by the law
+aᵢ → aᵢ·s^(2i), bⱼ → bⱼ·s^(2j) (the generalized `k′ = k·s²`); it throws for a
+moved principal point (the lens center is data, not a frame choice), for
+anisotropic rescaling of a radial lens (radial symmetry would be broken), and
+for families whose coefficients are only meaningful under a metric K. A
+[`SplineLens`](@ref) takes any skew-0 `K′`, a moved principal point included
+(its K is a gauge): its backward area moves by the change of the normalized
+plane, `x′ = x / s + (c − c′)/f′`, and so does a forward's output; a lens with
+a forward keeps its principal point (the forward's chart is about its ray).
 """
 function CameraModel(model::CameraModel{<:LogicalIntrinsics}, K′::CameraCalibrationMat)
     K = model.intrinsics.K
+    (iszero(K[1, 2]) && iszero(K′[1, 2])) || throw(ArgumentError("CameraModel(model, K′): skewed intrinsics are not supported"))
+    return CameraModel(LogicalIntrinsics(K′), _regauge_lens(model.lens, K, K′))
+end
+
+# The lens under K′ (`CameraModel(model, K′)`): a parametric lens's principal point is
+# data, so it must be shared, and the lens takes the scale law below; a SplineLens
+# re-gauges (spline_lens.jl).
+function _regauge_lens(lens::AbstractLensModel, K, K′)
     (
         isapprox(K[1, 3], K′[1, 3]; atol = 1.0e-9 * max(1, abs(K[1, 3]))) &&
             isapprox(K[2, 3], K′[2, 3]; atol = 1.0e-9 * max(1, abs(K[2, 3])))
     ) ||
         throw(ArgumentError("CameraModel(model, K′): the principal point must be shared — the lens center is data, not a frame choice"))
-    (iszero(K[1, 2]) && iszero(K′[1, 2])) || throw(ArgumentError("CameraModel(model, K′): skewed intrinsics are not supported"))
-    sx, sy = K′[1, 1] / K[1, 1], K′[2, 2] / K[2, 2]
-    return CameraModel(LogicalIntrinsics(K′), _rescale_lens(model.lens, sx, sy))
+    return _rescale_lens(lens, K′[1, 1] / K[1, 1], K′[2, 2] / K[2, 2])
 end
 
 # The scale law, leaf by leaf (radius r ↦ r/s): a radial coefficient of r^(2i)
@@ -842,6 +852,7 @@ For a [`SplineLens`](@ref) camera K is the gauge pinhole at the optical-axis
 pixel, so the undistorted frame is that pinhole's.
 """
 function distortion_map(model::CameraModel{<:AbstractIntrinsics, <:AbstractLensModel})
+    _check_lens_axis(model.lens, "distortion_map (undistort)")
     K = _K(model.intrinsics)
     T = eltype(K)
     return affine_part(SMatrix{3, 3, T}(K)) ∘ model.lens ∘
@@ -1072,6 +1083,7 @@ end
 # pixel imaging ẑ), so the walk is about the optical axis there too.
 _frame_edges(W::Float64, H::Float64) = rect_edges(Rect(0.0, 0.0, W, H), EdgeGrid{Closed}(400))
 function _frame_walk(model::CameraModel, sz, margin::Real)
+    _check_lens_axis(model.lens, "valid_rect / undistorted_rect")
     K = _K(model.intrinsics)
     fx, fy, cx, cy = Float64(K[1, 1]), Float64(K[2, 2]), Float64(K[1, 3]), Float64(K[2, 3])
     lens = _precision(Float64, model.lens)

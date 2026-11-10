@@ -325,6 +325,49 @@ end
         end
     end
 
+    @testset "a non-finite batched seed starts from the area's centre" begin
+        # a warm start from a previous frame's failed point is NaN: the ray is imaged as the scalar form images it
+        nan_seeds = fill(SVector(NaN, NaN), length(rays_in))
+        for c in (cam, masked)
+            b = project(c, rays_in, nan_seeds; iters = 100, device = KA.CPU())
+            sc = [project(c, X) for X in rays_in]
+            @test b.ok == [all(isfinite, p) for p in sc]
+            @test count(b.ok) >= 100
+            @test maximum(i -> norm(b.px[i] - sc[i]), findall(b.ok); init = 0.0) <= 1.0e-9
+        end
+    end
+
+    @testset "Float32 project: batched and scalar, with and without a forward, the Float64 scalar's" begin
+        # the device throughput form (Review Focus 5): a Float32 camera, host-adapted, its batched and scalar
+        # projection against the Float64 scalar projection — the same imaged mask, and the pixel to 1e-5 in the
+        # normalized plane (Focus 5's unit, the backprojection's) and to 1e-4 px. A Float32 camera evaluates its
+        # directions in Float32: f·eps(Float32) = 3.6e-5 px at this f ≈ 300 (measured 4.4e-5 px against the same
+        # camera's values in Float64), so 1e-5 px is below its resolution; and its K is Float32 (an ulp of a
+        # pixel coordinate near 1000 is 6e-5 px)
+        for (c64, rays, seeds) in ((cam, rays_in, lattice), (masked, rays_in, lattice), (cam_fwd, rays64, fill(SVector(500.0, 500.0), length(rays64))))
+            c32 = adapt(Array, convert_eltype(Float32, c64))
+            same32 = convert_eltype(Float64, c32)
+            ref = [project(same32, X) for X in rays]
+            orig = [project(c64, X) for X in rays]
+            @test count(p -> all(isfinite, p), ref) >= 50
+            imaged = findall(p -> all(isfinite, p), ref)
+            for (name, px) in (
+                    ("batched", project(c32, rays, seeds; iters = 100, device = KA.CPU()).px),
+                    ("batched, Float32 rays", project(c32, [SVector{3, Float32}(X) for X in rays], seeds; iters = 100, device = KA.CPU()).px),
+                    ("scalar", [project(c32, X) for X in rays]),
+                )
+                mask = [all(isfinite, p) for p in px]
+                @test (name, mask) == (name, [all(isfinite, p) for p in ref])
+                @test (name, mask) == (name, [all(isfinite, p) for p in orig])
+                for r in (ref, orig)
+                    err = maximum(i -> norm(SVector{2, Float64}(px[i]) - r[i]), imaged; init = 0.0)
+                    @test err <= 1.0e-4
+                    @test err / K[1, 1] <= 1.0e-5
+                end
+            end
+        end
+    end
+
     @testset "inference, with and without a forward and a mask" begin
         X = SVector(0.1, -0.2, 1.0)
         for c in (cam, masked, cam_fwd, masked_fwd)
@@ -459,10 +502,12 @@ end
     cam = CameraModel(SplineLens, src, (W, H); grid_size = (G.grid_size[1], G.grid_size[2]))
     K = calibration_matrix(cam)
     S = G.spline
-    K′ = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0.0, 0.0, 0.0, K[2, 2], 0.0, 499.5, 499.5, 1.0)))
-    cam′ = _spline_camera(K′, Rect2(0.0, 0.0, 1000.0, 1000.0), cam.lens.backward.controls)
-    C = [SVector((S.controls[1, i, j] - 499.5) / K[1, 1], (S.controls[2, i, j] - 499.5) / K[2, 2]) for i in axes(S.controls, 2), j in axes(S.controls, 3)]
-    cam_fwd = CameraModel(K′, SplineLens(cam′.lens.backward; forward = ChartSpline(Rect2(S.area[1], S.area[2], S.area[3], S.area[4]), C)))
+    # the golden forward spline's controls on the camera's own gauge (its principal point images ẑ, which an
+    # undistortion onto the gauge pinhole needs): the golden chart is about the ray of the pixel (499.5, 499.5),
+    # 2.4e-3 rad from this lens's axis, so this forward is not the golden map — the warp's own exactness against
+    # scalar `project` is what it is for
+    C = [SVector((S.controls[1, i, j] - K[1, 3]) / K[1, 1], (S.controls[2, i, j] - K[2, 3]) / K[2, 2]) for i in axes(S.controls, 2), j in axes(S.controls, 3)]
+    cam_fwd = CameraModel(cam.intrinsics, SplineLens(cam.lens.backward; forward = ChartSpline(Rect2(S.area[1], S.area[2], S.area[3], S.area[4]), C)))
     U = G.undistort
     checker = [Float64(isodd(fld(x, Int(U.cell)) + fld(y, Int(U.cell)))) for y in 0:(H - 1), x in 0:(W - 1)]   # [row, col]
     rect = Rect2(U.rect...)

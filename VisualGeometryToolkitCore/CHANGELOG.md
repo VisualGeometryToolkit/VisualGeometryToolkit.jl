@@ -5,6 +5,23 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **A SplineLens camera's K is checked wherever the camera is built** — `CameraModel(K, ::SplineLens)` itself, so
+  every constructor, a stored camera store or rig sensor read back, a re-gauge and a device copy: skew 0 and positive
+  focal lengths, else an `ArgumentError` (ONE check, the non-central model's too). A skewed K once built silently.
+- **`CameraModel(camera, K′)` re-gauges a SplineLens camera to any skew-0 K′**, a moved principal point included: the
+  backward area moves by the change of the normalized plane `x′ = x / s + (c − c′)/f′`, a forward's output with it;
+  every pixel's ray is unchanged. A lens with a forward keeps its principal point (the forward's chart is about the
+  principal point's ray): drop the forward and refit it. A parametric lens still refuses a moved principal point.
+- **The off-axis gauge is refused where the principal point is read as the optical axis**: when a SplineLens camera's
+  principal point does not image ẑ to 1e-6 rad (ẑ outside the calibrated area, so the gauge is the area's centre, or
+  a principal point moved by `CameraModel(camera, K′)`), `undistort`/`undistort!`, `distortion_map`, `valid_rect`,
+  `undistorted_rect`, `angle_of_view`, `horizon_radius`/`monotone_radius`, `image_circle(camera, sensor, d)` and
+  `view_overlap` throw an `ArgumentError` naming it, instead of centring on a ray the lens does not image.
+- **A non-finite seed of the batched SplineLens `project`** (a previous frame's failed point) starts the solve from
+  the backward area's centre, the scalar form's fallback, instead of returning NaN for a ray the lens images.
+- **Owner decision (2026-11-10): the CPU timing gate "≤ the old grid" is waived for the SplineLens backprojection** —
+  batched +2.8 %, scalar +0.3 % against the old central grid, within the re-measurement margin of the baseline host;
+  recorded in test/spline_timing/baselines.toml, whose baselines the gate holds the code to.
 - **Breaking: `BoundedCamera{C, B, R}`**: the fields `extent` and `sensor` (the extent stored twice when a sensor was
   given) become ONE `bound` (a `Size2{Int}` extent, or the `Sensor` whose resolution IS the extent), and a new
   `lens_coverage`: where the lens covers the sensor, a `Rect2`, `Circle` or `Ellipse` in `Float64` pixels, kept as

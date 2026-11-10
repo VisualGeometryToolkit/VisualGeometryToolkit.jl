@@ -369,8 +369,16 @@ nodes the lens holds: `nothing` (every node) or a `Bool` matrix of
 `nothing`, an all-false one is an `ArgumentError`. An absent node's control is
 never read.
 
-A camera of this lens has skew 0, and its `K` is a gauge: the principal point
-is the pixel imaging ẑ (`CameraModel(SplineLens, source, size)`).
+A camera of this lens has skew 0 and positive focal lengths (an
+`ArgumentError` wherever one is built otherwise), and its `K` is a gauge: the
+principal point is the pixel imaging ẑ (`CameraModel(SplineLens, source,
+size)`). Where ẑ is not imaged inside the calibrated area, the gauge falls back
+to the area's centre, a pixel that does not image ẑ (as does a principal point
+moved by `CameraModel(camera, K′)`): the methods that read the principal point
+as the optical axis — `undistort` and `undistort!` onto the gauge pinhole,
+`distortion_map`, `valid_rect`, `undistorted_rect`, `angle_of_view`,
+`horizon_radius` and `monotone_radius`, `image_circle(camera, sensor, d)`,
+`view_overlap` — then throw an `ArgumentError` naming the off-axis gauge.
 """
 struct SplineLens{B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <: Union{Nothing, AbstractMatrix{Bool}}, C} <: AbstractLensModel
     backward::B
@@ -392,6 +400,21 @@ SplineLens(backward::ChartSpline{3}; forward::Union{Nothing, ChartSpline{2}} = n
 # (already through `_present_mask`).
 _spline_lens(backward::B, forward::F, present::P) where {B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <: Union{Nothing, AbstractMatrix{Bool}}} =
     SplineLens{B, F, P}(backward, forward, present)
+
+# THE check of a spline camera's K — a SplineLens camera's and a
+# NoncentralSplineModel's, built or read: a gauge of skew 0 and positive focal
+# lengths (`_pixel_area`, `valid_domain`, `support` and the pixel partials of
+# `spline_weights` read the calibrated rectangle as a rectangle under K).
+function _check_spline_gauge(intrinsics::AbstractIntrinsics)
+    M = _K(intrinsics)
+    iszero(M[1, 2]) || throw(ArgumentError("a spline camera's K is a gauge of skew 0; the K has skew $(M[1, 2])"))
+    (M[1, 1] > 0 && M[2, 2] > 0) ||
+        throw(ArgumentError("a spline camera's K has positive focal lengths; got fx = $(M[1, 1]), fy = $(M[2, 2])"))
+    return intrinsics
+end
+# Every SplineLens camera is built here (the constructors, the readers, a re-gauge, a device copy): its K checked.
+CameraModel(intrinsics::AbstractIntrinsics, lens::SplineLens) =
+    CameraModel{typeof(intrinsics), typeof(lens)}(_check_spline_gauge(intrinsics), lens)
 
 # The rounding slack of the box's lower edge, in ulps of the point's magnitude
 # (see `_in_backward`).
@@ -491,6 +514,7 @@ _rebuild(l::SplineLens, θ) = with_parameters(l, θ)
 # lies inside the lens's support: its backward area ∩ the cells whose 4 × 4 window is
 # fully present (`monotone_radius`'s docstring, projections.jl).
 function monotone_radius(l::SplineLens)
+    _check_lens_axis(l, "monotone_radius (horizon_radius)")
     b = l.backward
     o = GeometryBasics.origin(b.area); w = GeometryBasics.widths(b.area)
     r = max(0.0, min(-o[1], o[1] + w[1], -o[2], o[2] + w[2]))     # the area's edges (0 outside it)
@@ -505,17 +529,31 @@ function monotone_radius(l::SplineLens)
     return r
 end
 
-# The same camera under a diagonal change of the normalized plane, x′ = x / s
-# (`CameraModel(model, K′)` with a shared principal point, s = f′/f per axis):
-# the backward area scales and its controls stay (the lattice coordinate is
-# invariant), the forward's output scales; exact up to rounding of the area.
-function _rescale_lens(l::SplineLens, sx, sy)
-    s = SVector{2, Float64}(sx, sy)
+# The same camera under any other skew-0 K′ (`CameraModel(model, K′)`): the
+# normalized plane changes by the affinity x′ = x / s + t, s = f′/f and
+# t = (c − c′)/f′ per axis (u = f x + c = f′ x′ + c′), so the backward area
+# moves by it and its controls stay (the lattice coordinate is invariant):
+# exact up to rounding of the area, a principal-point move included — the
+# K of a gauge lens is a choice of the normalized plane, not data. The
+# forward's output moves by the same affinity (its controls do: a B-spline's
+# weights sum to one). A forward's chart is about the ray of the principal
+# point (`_forward_chart`), which a principal-point move changes and its
+# controls cannot follow: a lens with a forward refuses that move.
+function _regauge_lens(l::SplineLens, K, K′)
+    s = SVector{2, Float64}(K′[1, 1] / K[1, 1], K′[2, 2] / K[2, 2])
+    t = SVector{2, Float64}((K[1, 3] - K′[1, 3]) / K′[1, 1], (K[2, 3] - K′[2, 3]) / K′[2, 2])
+    (l.forward === nothing || iszero(t)) || throw(
+        ArgumentError(
+            "CameraModel(model, K′): a SplineLens with a forward spline keeps its principal point — the forward's chart is " *
+                "about the principal point's ray, which the move changes; drop the forward first " *
+                "(SplineLens(lens.backward; present = lens.present)) and refit it, or keep the principal point"
+        )
+    )
     b = l.backward
     o = GeometryBasics.origin(b.area); w = GeometryBasics.widths(b.area)
-    backward = ChartSpline(Rect2{Float64}(SVector(o[1], o[2]) ./ s, SVector(w[1], w[2]) ./ s), b.controls)
+    backward = ChartSpline(Rect2{Float64}(SVector(o[1], o[2]) ./ s .+ t, SVector(w[1], w[2]) ./ s), b.controls)
     forward = l.forward === nothing ? nothing :
-        ChartSpline(l.forward.area, map(c -> typeof(c)(c ./ s), l.forward.controls))
+        ChartSpline(l.forward.area, map(c -> typeof(c)(c ./ s .+ t), l.forward.controls))
     return SplineLens(backward; forward, present = l.present)
 end
 
@@ -747,8 +785,35 @@ _lens_axis(backward::ChartSpline{3}) = (d = backward(SVector(0.0, 0.0)); SVector
 # The forward spline's chart, the equidistant chart about the lens axis (`nothing`
 # without a forward): computed once, when the lens is built (its `chart` field), as a
 # per-ray recomputation would cost a backward evaluation and two cross products a ray.
+# THE derivation: the lens's field and a fit of a forward (VisualGeometryToolkitEstimation's
+# `fit_camera`, the one-argument form) both read it, so the chart a forward is fitted on
+# is the chart `project` evaluates it on.
 _forward_chart(::ChartSpline{3}, ::Nothing) = nothing
-_forward_chart(backward::ChartSpline{3}, ::ChartSpline{2}) = equidistant_chart(_lens_axis(backward))
+_forward_chart(backward::ChartSpline{3}, ::ChartSpline{2}) = _forward_chart(backward)
+_forward_chart(backward::ChartSpline{3}) = equidistant_chart(_lens_axis(backward))
+
+# Whether a SplineLens camera's principal point images ẑ, the premise of every
+# method that reads it as the optical axis (`undistort` onto the gauge pinhole,
+# `valid_rect`, `angle_of_view`, `horizon_radius`, the footprint, …): THE check,
+# an `ArgumentError` naming `what` when the lens axis (`_lens_axis`) is more than
+# `_AXIS_TOL` off ẑ — the off-axis gauge (ẑ not imaged inside the calibrated area,
+# so the principal point is the area's centre) or a principal point moved by
+# `CameraModel(model, K′)`. A principal point the lens does not image (an absent
+# window: no axis) is not measured. Every other lens has nothing to check.
+const _AXIS_TOL = 1.0e-6
+_check_lens_axis(::AbstractLensModel, what) = nothing
+function _check_lens_axis(l::SplineLens, what)
+    a = _lens_axis(l.backward)
+    θ = atan(hypot(a[1], a[2]), a[3])
+    (isfinite(θ) && θ > _AXIS_TOL) && throw(
+        ArgumentError(
+            "$what: the SplineLens camera's principal point does not image ẑ (its ray is $(θ) rad off it: the off-axis " *
+                "gauge, or a principal point moved by CameraModel(model, K′)); the method reads the principal point as " *
+                "the optical axis, so it has no meaning here"
+        )
+    )
+    return nothing
+end
 
 # THE projection of a SplineLens: the normalized point of the ray `X` and
 # whether the lens images it. With a forward spline, its value at the ray's
@@ -768,9 +833,13 @@ _forward_chart(backward::ChartSpline{3}, ::ChartSpline{2}) = equidistant_chart(_
     end
     b = l.backward
     lb, ub, s = _spline_lm_box(b.area)
+    x₀ = all(isfinite, x₀) ? x₀ : _rect_centre(b.area)      # a non-finite seed (a failed warm start): the cold start's fallback
     x, ok = _spline_project(b.controls, b.area, X, x₀, lb, ub, s, maxiter, tol2)
     return ok && _in_backward(l, x) ? (x, true) : (nan, false)
 end
+
+# The centre of a rectangle, the cold start's fallback and the gauge's.
+@inline _rect_centre(r::Rect2) = (o = GeometryBasics.origin(r); w = GeometryBasics.widths(r); SVector{2, Float64}(o[1] + w[1] / 2, o[2] + w[2] / 2))
 
 # The cold start of a projection solve of the ray (or camera-frame point) `X` through
 # the lens `l`: its pinhole point `(X₁/X₃, X₂/X₃)` — the gauge's first-order inverse
@@ -781,8 +850,7 @@ end
 # (measured 2.7e-12 px from the centre start over the golden cameras, the imaged mask
 # identical; tested).
 @inline function _cold_start(l::SplineLens, X::StaticVector{3})
-    o = GeometryBasics.origin(l.backward.area); w = GeometryBasics.widths(l.backward.area)
-    c = SVector{2, Float64}(o[1] + w[1] / 2, o[2] + w[2] / 2)
+    c = _rect_centre(l.backward.area)
     X[3] > 0 || return c
     p = SVector{2, Float64}(X[1] / X[3], X[2] / X[3])
     return _in_backward(l, p) ? p : c
@@ -911,8 +979,7 @@ end
 # fixes only the normalized plane. A lattice with no two adjacent present nodes
 # along an axis has no scale at all: an `ArgumentError` saying to supply K.
 function _spline_gauge(pixel_direction::ChartSpline{3}, rect::Rect2)
-    o = GeometryBasics.origin(rect); w = GeometryBasics.widths(rect)
-    c = SVector{2, Float64}(o[1] + w[1] / 2, o[2] + w[2] / 2)
+    c = _rect_centre(rect)
     lb, ub, s = _spline_lm_box(rect)
     p, ok = _spline_project(pixel_direction.controls, rect, SVector(0.0, 0.0, 1.0), c, lb, ub, s, _PROJECT_MAXITER, _PROJECT_TOL^2)
     pp = ok && all(isfinite, p) ? SVector{2, Float64}(p) : c
@@ -1090,12 +1157,7 @@ function CameraModel(
     rect, _ = _spline_layout(size, (gw, gh), calib_area)
     C = Matrix{SVector{3, Float64}}(map(v -> SVector{3, Float64}(unit_controls ? _unit_or_normalize(v) : v), controls))
     present === nothing || (C = _absent_nan(C, present))   # the absent nodes hold no value: the gauge reads none
-    if intrinsics !== nothing
-        M = SMatrix{3, 3, Float64}(_K(intrinsics))
-        iszero(M[1, 2]) || throw(ArgumentError("CameraModel(SplineLens, …): a SplineLens camera has skew 0; the K has skew $(M[1, 2])"))
-        (M[1, 1] > 0 && M[2, 2] > 0) ||
-            throw(ArgumentError("CameraModel(SplineLens, …): a SplineLens camera's focal lengths are positive; got fx = $(M[1, 1]), fy = $(M[2, 2])"))
-    end
+    intrinsics === nothing || _check_spline_gauge(intrinsics)   # before the lattice is laid under it
     K = intrinsics === nothing ? _spline_gauge(ChartSpline(rect, C), rect) : intrinsics
     return _spline_camera(K, rect, C; present)
 end

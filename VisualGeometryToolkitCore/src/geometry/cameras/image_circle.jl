@@ -107,6 +107,7 @@ Rect(extent(cam)) ∈ q                       # is the whole sensor lit?
 """
 function image_circle(camera::CameraModel, sensor::Sensor, diameter::Quantity)
     dimension(diameter) == dimension(mm) || throw(DimensionError(diameter, mm))
+    _check_lens_axis(camera.lens, "image_circle")
     a = Float64(ustrip(px, diameter / (2 * sensor.pitch.width)))
     b = Float64(ustrip(px, diameter / (2 * sensor.pitch.height)))
     return Ellipse(_principal_point(camera), a, b, 0.0)

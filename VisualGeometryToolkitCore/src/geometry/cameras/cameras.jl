@@ -52,7 +52,7 @@ import FlexUnits
 using FlexUnits: ustrip, dimension
 using StructArrays: StructArrays, StructArray
 using IntervalSets: IntervalSets
-using CoordinateTransformations: CoordinateTransformations, AffineMap, Translation, ComposedTransformation   # ∘: a lens's distortion stages, a target calibration's height field after its in-plane kind
+using CoordinateTransformations: CoordinateTransformations, AffineMap, ComposedTransformation   # ∘: a lens's distortion stages, a target calibration's height field after its in-plane kind
 import CoordinateTransformations: transform_deriv, transform_deriv_params
 using Rotations: Rotations, Rotation, RotMatrix, Angle2d, rotation_angle
 using GeometryBasics: GeometryBasics

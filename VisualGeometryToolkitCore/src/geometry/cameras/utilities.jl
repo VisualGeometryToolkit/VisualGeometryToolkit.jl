@@ -124,6 +124,8 @@ function angle_of_view(camera::BoundedCamera; dimension = :horizontal)
                 "a ProjectiveIntrinsics camera has no focal length, so no angle of view"
         )
     )
+    l = lens(m)
+    _check_lens_axis(l, "angle_of_view")
     w, h = Float64(extent(camera).width), Float64(extent(camera).height)
     cx, cy = _principal_point(m)
     pts = if dimension === :horizontal
@@ -140,7 +142,7 @@ function angle_of_view(camera::BoundedCamera; dimension = :horizontal)
     _covers(cov, c) || throw(
         ArgumentError("angle_of_view: the principal point $(Tuple(c)) lies outside the camera's lens coverage — it images nothing about its axis")
     )
-    θ_lim = Float64(view_angle_limit(lens(m)))
+    θ_lim = Float64(view_angle_limit(l))
     q = valid_domain(m)
     θ = minimum(pts) do u0
         u = _last_covered(cov, c, u0)          # the edge point, or where the coverage ends on the way to it

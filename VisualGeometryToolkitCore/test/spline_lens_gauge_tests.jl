@@ -220,3 +220,114 @@ end
     @test_throws ArgumentError CameraModel(SplineLens, C, (640, 480); calib_area = area, intrinsics = skewed)
     @test_throws ArgumentError CameraModel(SplineLens, C, (640, 480); calib_area = (0, 0, 700, 479))   # outside the image
 end
+
+@testitem "SplineLens: every camera of the lens has a skew-0 gauge K, through one check" begin
+    using Test
+    using StaticArrays
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, NoncentralSplineModel, ChartSpline, KannalaBrandt, px,
+        calibration_matrix, LogicalIntrinsics, CameraCalibrationMat
+
+    src = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
+    cam = CameraModel(SplineLens, src, (1000, 1000); grid_size = (12, 12))
+    K = calibration_matrix(cam)
+    skewed = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0.0, 0.0, 0.25, K[2, 2], 0.0, K[1, 3], K[2, 3], 1.0)))
+    message(f) = (e = try f(); nothing catch e; e end; e isa ArgumentError ? e.msg : e)
+    # the plain constructor, as a reader builds it
+    m_plain = message(() -> CameraModel(skewed, cam.lens))
+    @test m_plain isa String && occursin("skew", m_plain)
+    # the controls constructor and the non-central model: the same check, the same message
+    m_controls = message(() -> CameraModel(SplineLens, cam.lens.backward.controls, (1000, 1000); intrinsics = skewed))
+    d = cam.lens.backward
+    m_noncentral = message(() -> NoncentralSplineModel(skewed, d, ChartSpline(d.area, fill(SVector(0.0, 0.0, 0.0), size(d.controls)))))
+    @test m_controls == m_plain
+    @test m_noncentral == m_plain
+    # a skew-0 K builds
+    @test CameraModel(cam.intrinsics, cam.lens) isa CameraModel
+end
+
+@testitem "SplineLens: CameraModel(cam, K′) re-gauges to any skew-0 K′, a principal-point move included" begin
+    using Test
+    using StaticArrays
+    using LinearAlgebra: norm
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, px, calibration_matrix,
+        backproject, project, CameraCalibrationMat, Rect2, with_present
+
+    src = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
+    cam = CameraModel(SplineLens, src, (1000, 1000); grid_size = (16, 14))
+    P = trues(size(cam.lens.backward.controls)); P[1, 1] = P[end, 3] = false
+    masked = with_present(cam, P)
+    K = calibration_matrix(cam)
+    Kat(fx, fy, cx, cy) = CameraCalibrationMat(SMatrix{3, 3, Float64}(fx, 0.0, 0.0, 0.0, fy, 0.0, cx, cy, 1.0))
+    moved = Kat(0.8 * K[1, 1], 0.9 * K[2, 2], K[1, 3] + 37.25, K[2, 3] - 21.5)        # a principal-point move and a scale
+    pixels = [SVector(x, y) for x in 0.5:23.0:999.5 for y in 0.5:19.0:999.5]
+    rays = [backproject(cam, u) for u in pixels[1:7:end]]
+    same(a, b; tol) = all(isnan, b) ? all(isnan, a) : (all(isfinite, a) && norm(a - b) <= tol)
+    for c in (cam, masked)
+        c′ = CameraModel(c, moved)
+        @test calibration_matrix(c′) == moved
+        @test all(u -> same(backproject(c′, u), backproject(c, u); tol = 1.0e-12), pixels)
+        @test count(u -> all(isfinite, backproject(c, u)), pixels) > length(pixels) ÷ 2
+        # the projection solve finds the same pixel under either gauge, to its tolerance
+        @test all(X -> same(project(c′, X), project(c, X); tol = 1.0e-9), rays)
+    end
+    # a forward's output moves by the scale (its chart, about the principal point's ray, stays): every
+    # projection the same; a principal-point move would change that chart, so a lens with a forward refuses it
+    fwd = ChartSpline(Rect2(-1.2, -1.2, 2.4, 2.4), [SVector(0.03 * gx - 0.4, -0.02 * gy + 0.3) for gy in 1:6, gx in 1:7])
+    cf = CameraModel(cam.intrinsics, SplineLens(cam.lens.backward; forward = fwd))
+    cf′ = CameraModel(cf, Kat(0.8 * K[1, 1], 0.9 * K[2, 2], K[1, 3], K[2, 3]))
+    @test cf′.lens.chart == cf.lens.chart
+    @test count(X -> all(isfinite, project(cf, X)), rays) > length(rays) ÷ 2
+    @test all(X -> same(project(cf′, X), project(cf, X); tol = 1.0e-12), rays)
+    @test_throws ArgumentError CameraModel(cf, moved)
+    # a parametric lens's principal point is data: still refused
+    @test_throws ArgumentError CameraModel(src, Kat(K[1, 1], K[2, 2], K[1, 3] + 1.0, K[2, 3]))
+end
+
+@testitem "SplineLens: the off-axis gauge refuses the methods that read the principal point as the optical axis" begin
+    using Test
+    using StaticArrays
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, KannalaBrandt, px, mm, μm, calibration_matrix, backproject,
+        undistort, valid_rect, undistorted_rect, angle_of_view, horizon_radius, monotone_radius, image_circle, distortion_map,
+        BoundedCamera, Size2, Sensor, CameraCalibrationMat
+    import KernelAbstractions as KA
+
+    src = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
+    # Review Focus 1: ẑ (the pixel (500, 500)) is outside the calibrated area, so the gauge's principal point is
+    # the area's centre, which images a ray off ẑ
+    off = CameraModel(SplineLens, u -> backproject(src, u), (1000, 1000); calib_area = (600, 600, 999, 999), init = :quasi_interpolate)
+    on = CameraModel(SplineLens, src, (1000, 1000); grid_size = (16, 16))
+    K = calibration_matrix(on)
+    moved = CameraModel(on, CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0.0, 0.0, 0.0, K[2, 2], 0.0, K[1, 3] + 40.0, K[2, 3], 1.0)))
+    img = zeros(64, 64)
+    sensor = Sensor(Size2(width = 1000px, height = 1000px), 3.45μm)
+    refusals(c) = (
+        () -> undistort(c, img; device = KA.CPU()), () -> distortion_map(c), () -> valid_rect(c, (1000, 1000)),
+        () -> undistorted_rect(c, (1000, 1000)), () -> angle_of_view(BoundedCamera(c, Size2(1000, 1000))),
+        () -> horizon_radius(c), () -> monotone_radius(c.lens), () -> image_circle(c, sensor, 3.0mm),
+    )
+    for c in (off, moved), f in refusals(c)
+        e = try f(); nothing catch e; e end
+        @test e isa ArgumentError && occursin("does not image ẑ", e.msg)
+    end
+    # on the axis, every one of them answers
+    @test isfinite(horizon_radius(on)) && isfinite(angle_of_view(BoundedCamera(on, Size2(1000, 1000))))
+    @test size(undistort(on, img; device = KA.CPU())) == size(img) && monotone_radius(on.lens) > 0
+end
+
+@testitem "the pixel-frame change of K: one Core function" begin
+    using Test
+    using StaticArrays
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: CameraModel, CameraCalibrationMat, PixelFrame, calibration_matrix
+    using VisualGeometryToolkitCore.Cameras: _reframed_calibration
+    K = CameraCalibrationMat(SMatrix{3, 3, Float64}(800.0, 0.0, 0.0, 0.5, 790.0, 0.0, 320.0, 240.0, 1.0))
+    R = _reframed_calibration(K, PixelFrame{:opencv}, PixelFrame{:colmap})
+    @test (R[1, 1], R[2, 2], R[1, 2]) == (K[1, 1], K[2, 2], K[1, 2]) && (R[1, 3], R[2, 3]) == (320.5, 240.5)
+    @test calibration_matrix(CameraModel(K; image_origin = :opencv)) == SMatrix{3, 3, Float64}(R)
+    @test _reframed_calibration(R, PixelFrame{:colmap}, PixelFrame{:opencv}) == K
+    # the warp's device form is `Adapt.adapt` itself: no forwarding wrapper
+    @test !isdefined(VisualGeometryToolkitCore, :_device_warp)
+end

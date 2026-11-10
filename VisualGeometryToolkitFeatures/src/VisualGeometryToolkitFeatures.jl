@@ -90,6 +90,7 @@ include("asift/crosswarp.jl")
 include("asift/uncertainty.jl")   # FeatureCovariance: the keypoint covariance tables and per-keypoint math
 include("asift/driver.jl")
 include("asift/api.jl")
+include("variance_stabilization.jl")   # variance_stabilize — a RAW's green cells with noise σ = 1 everywhere; ASIFT on it at k noise σ, saturation masked
 include("matching.jl")
 include("nn_match.jl")
 include("matching_ka.jl")   # the one matcher: KA kernels on the CPU and any GPU
@@ -151,6 +152,7 @@ export load_linear_image        # a PNG as linear radiance: no gamma re-encoding
 public srgb_to_linear, box_downsample, gaussian_blur   # gaussian_blur: the (masked) separable Gaussian of a linear image
 export load_raw, load_raw_mosaic   # a camera RAW file as linear values (:green_cells, :bin2; :demosaic for display), and its decoded mosaic
 export LinearRaw, RawMosaic, RawDecoder, LibRawDecoder
+export variance_stabilize, StabilizedImage   # the detection image of a RAW: the generalized Anscombe transform (noise σ = 1), saturation masked
 export BayerCellFrame, raw_frame_map, green_cell_sites   # the cell grid's frame, its exact map onto the raw, a green cell's footprint
 public raw_provenance        # decoder, mode, LibRaw version and frame map, as plain data
 public cfa_string, photosite_colors   # the pattern as letters; each photosite's colour index (the pattern tiled)

@@ -48,6 +48,20 @@ Modules = [VisualGeometryToolkitFeatures]
 Pages = ["raw_image.jl"]
 ```
 
+## The detection image of a RAW
+
+[`variance_stabilize`](@ref) maps the green cells to the generalized Anscombe
+transform for Poisson–Gaussian noise: the noise has σ ≈ 1 at every level, so
+ASIFT on it ([`asift_detect`](@ref) of a [`StabilizedImage`](@ref)) thresholds
+its DoG at `noise_sigmas` noise σ, in a dim interior as in a bright window, and
+masks the saturated pixels. A descriptor still reads a display rendering of the
+same cells: both are pixel-wise, so the positions coincide.
+
+```@autodocs
+Modules = [VisualGeometryToolkitFeatures]
+Pages = ["variance_stabilization.jl"]
+```
+
 ## Image input and the linear PNG reader
 
 ```@autodocs

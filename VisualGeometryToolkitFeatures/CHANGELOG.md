@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **New: `variance_stabilize(L::LinearRaw; electrons_per_dn, read_noise) -> StabilizedImage`, the detection image of a
+  RAW.** The generalized Anscombe transform of the green cells (`:green_cells`, or `:bin2`'s G plane) for
+  Poisson–Gaussian noise, from the photosites' own code spans (`white − black` of each green), the gain, the conversion
+  gain (electrons per code) and the read noise (codes): after it the noise has σ ≈ 1 from a few electrons to the white
+  level. Neither noise parameter is in a RAW's metadata (LibRaw reports neither): they are stated per camera and ISO.
+  `LinearRaw` gains the field `green_dn` (the two greens' `white − black`; `nothing` for `:demosaic`).
+- **New: `asift_detect(s::StabilizedImage; noise_sigmas = 3.0, kwargs...)`**: the DoG contrast threshold in noise σ.
+  The DoG's noise σ for unit iid input is derived from the pyramid's own impulse response (the root energy per sample
+  phase) in its noisiest slice, the finest octave's finest (0.137 for the default upsampled pyramid, seed blur 1.6):
+  every coarser slice and tilted view is held to more than `noise_sigmas` of its own σ. A detection whose centre lies
+  within three of its scales of a saturated pixel is dropped (masked, not clamped). `intensity_thr` stays the threshold
+  of `asift_detect` on an arbitrary image, which has no noise model.
+
 - **New: `spread_strongest(detections, image_size, n; tolerance = 0.1, device)`, about `n` of the strongest
   detections spread over the image** — Suppression via Square Covering (SSC) of Bailo et al. (Pattern Recognition
   Letters 106, 2018), ported from the authors' code (https://github.com/BAILOOL/ANMS-Codes, MIT License, Copyright (c)

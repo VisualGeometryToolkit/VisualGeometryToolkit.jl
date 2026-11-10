@@ -8,7 +8,9 @@
     using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, NoncentralSplineModel, KannalaBrandt, px,
         backproject, backproject_with_jacobian, project, central_model, with_points, with_directions, with_present,
         calibration_matrix, CameraCalibrationMat, LogicalIntrinsics, Ray3, PosedCamera, EuclideanMap, m, mm, ustrip,
-        with_unit, has_units, valid_domain, support_trait, LocalSupport, nodes, node_position, support, RotationMap
+        with_unit, has_units, valid_domain, support_trait, LocalSupport, nodes, node_position, support, RotationMap,
+        convert_eltype
+    using Adapt: adapt
     using GeometryBasics: origin, widths
 
     # =============================================================================
@@ -166,6 +168,33 @@
         @test d2.points === nc.points
         @test SVector{3}(backproject(d2, SVector(345.0, 210.0)).direction) ≈ SVector{3}(backproject(nc, SVector(345.0, 210.0)).direction) atol = 1.0e-14
         @test_throws ArgumentError with_points(nc, pts.controls[1:(end - 1), :])
+    end
+
+    @testset "precision and device forms: convert_eltype, adapt, mixed-precision splines" begin
+        n32 = convert_eltype(Float32, nc)
+        @test eltype(eltype(n32.directions.controls)) === Float32 && eltype(eltype(n32.points.controls)) === Float32
+        @test n32.present === nc.present
+        worst, nan_mismatch = 0.0, 0
+        for u in pixels
+            r, r32 = backproject(nc, u), backproject(n32, u)
+            if all(isfinite, r.direction)
+                nan_mismatch += !all(isfinite, r32.direction)
+                all(isfinite, r32.direction) &&
+                    (worst = max(worst, norm(SVector{3}(r32.direction) - SVector{3}(r.direction)), norm(SVector{3}(r32.origin) - SVector{3}(r.origin))))
+            else
+                nan_mismatch += all(isfinite, r32.direction)
+            end
+        end
+        @test nan_mismatch == 0
+        @test worst <= 1.0e-5
+        a = adapt(Array, nc)
+        @test a isa typeof(nc)
+        @test all(u -> isequal(backproject(a, u), backproject(nc, u)), pixels)
+        am = adapt(Array, with_present(nc, G.masked.present))
+        @test am.present == G.masked.present
+        mixed = NoncentralSplineModel(cam.intrinsics, b, convert_eltype(Float32, pts))
+        @test typeof(mixed.points) === typeof(mixed.directions)
+        @test eltype(eltype(mixed.points.controls)) === Float64
     end
 
     @testset "the lattice's support hooks, in pixels" begin

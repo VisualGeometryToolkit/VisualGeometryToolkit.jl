@@ -428,7 +428,7 @@ const _EDGE_ULPS = 4
     gx, gy = _lattice_coords(cs.area, gsz, x)
     o = GeometryBasics.origin(cs.area)
     sx, sy = _lattice_slope(cs.area, gsz)
-    ε = max(eps(float(eltype(x))), eps(eltype(eltype(cs.controls))))
+    ε = max(eps(float(typeof(_primal(x[1])))), eps(eltype(eltype(cs.controls))))   # a dual point: its primal's precision
     τx = _EDGE_ULPS * ε * sx * (abs(x[1]) + abs(o[1]))
     τy = _EDGE_ULPS * ε * sy * (abs(x[2]) + abs(o[2]))
     (1 - τx <= gx < gw - 2 && 1 - τy <= gy < gh - 2) || return false
@@ -447,6 +447,9 @@ end
 # (The spline is evaluated, continued, outside the box too: a non-finite point
 # gives NaN weights, never an error.)
 @inline backproject(l::SplineLens, x::StaticVector{2}) = _backward_ray(l, x, l.backward(x))
+
+# A backward lens: its direction Jacobian differentiates `backproject` (camera_models.jl).
+LensDirection(::Type{<:SplineLens}) = BackwardLens()
 
 # The same camera under a diagonal change of the normalized plane, x′ = x / s
 # (`CameraModel(model, K′)` with a shared principal point, s = f′/f per axis):
@@ -632,31 +635,33 @@ end
 
 # THE central projection solve on a spline of direction controls `controls`
 # (`[gy, gx]`) over the rectangle `area`: LM (`_spline_lm`) on the direction
-# residual d̂(x) − t̂ with the ANALYTIC spline Jacobian (the normalize
-# differential (I − n nᵀ)/‖S‖ chain-ruled through the area → lattice slope), from
-# `x₀`, bounded to `[lb, ub]` (inside the area: every window stays in the grid).
-# Device-safe — no allocation, no dual numbers, no Union return. Returns the
-# point and whether the solve converged.
+# residual d̂(x) − t̂, d̂ the backward map (`_spline_direction`) and its Jacobian
+# ForwardDiff of that same map, from `x₀`, bounded to `[lb, ub]` (inside the area:
+# every window stays in the grid). Device-safe — isbits duals, no allocation, no
+# Union return. Returns the point and whether the solve converged.
 @inline function _spline_project(controls, area::Rect2, t::StaticVector{3}, x₀::SVector{2, Float64}, lb, ub, s, maxiter::Int, tol2::Float64)
-    gsz = gh, gw = size(controls)
     # scaled before the norm, so a tiny or huge ray does not under/overflow
     tmax = max(abs(t[1]), abs(t[2]), abs(t[3]))
     # a zero or non-finite ray, or start, has no projection (and a NaN point
     # would reach `floor(Int, ·)` in the spline window)
     (tmax > 0 && isfinite(tmax) && all(isfinite, x₀)) || return SVector(NaN, NaN), false
     tn = normalize(SVector{3, Float64}(t[1] / tmax, t[2] / tmax, t[3] / tmax))
-    sx, sy = _lattice_slope(area, gsz)                    # ∂gx/∂x, ∂gy/∂y
-    res(p, _) = normalize(@inbounds SVector{3, Float64}(_eval_window(controls, _spline_window(_lattice_coords(area, gsz, p)...)...))) - tn
-    function jac(p, _)
-        S, Sx, Sy = @inbounds _eval_window_grad(controls, _lattice_coords(area, gsz, p)...)
-        nrm = norm(S)
-        n = S / nrm
-        Jx = (Sx - n * (n[1] * Sx[1] + n[2] * Sx[2] + n[3] * Sx[3])) * (sx / nrm)
-        Jy = (Sy - n * (n[1] * Sy[1] + n[2] * Sy[2] + n[3] * Sy[3])) * (sy / nrm)
-        return hcat(Jx, Jy)
-    end
+    res(p, _) = SVector{3, Float64}(_spline_direction(controls, area, p)) - tn
+    jac(p, _) = _spline_direction_jacobian(controls, area, p)
     return _spline_lm(res, jac, x₀, lb, ub, s, maxiter, tol2)
 end
+
+# The backward map of a spline of direction controls over `area`: the direction of the
+# point `p` (element-type generic), and its Jacobian, ForwardDiff of that same map.
+@inline _spline_direction(controls, area, p) = (S = spline_value(controls, area, p); SVector{3}(S) / norm(S))
+#
+# The Jacobian is a call, not inlined into the LM: inlined there, the compiled
+# solve (Julia 1.13.2) depended on its calling context — `all(isfinite,
+# project(c, X))` in a comprehension over a tuple of cameras was false on 42 of the
+# 64 golden rays whose `project(c, X)` is finite (plan 1b Task 3, fix round 1; the
+# cause, a compiler fault or undefined behaviour under the inlined duals, is not
+# isolated). The function barrier gives one compiled body in every context.
+@noinline _spline_direction_jacobian(controls, area, p) = last(_value_and_jacobian(q -> _spline_direction(controls, area, q), p))
 
 # The lens axis: the ray of the principal point, `normalize(backward(0, 0))`.
 # Computed, not stored; the forward spline's equidistant chart is about it.
@@ -758,51 +763,22 @@ function backproject(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, pixel
     return map((x, d) -> _backward_ray(l, x, d), xs, l.backward(xs))
 end
 
-"""
-    backproject_with_jacobian(camera::CameraModel{<:AbstractIntrinsics, <:SplineLens}, u::StaticVector{2}) -> (f, M)
-
-The unit bearing `f` of the pixel `u` and its Jacobian `M = ∂f/∂u` (3×2),
-analytic: the backward spline's derivative weights, the normalize differential
-`(I − f fᵀ)/‖S‖` (so `fᵀM = 0` to rounding), the lattice slope and `K⁻¹`.
-`(NaN, NaN)` where the lens does not image `K⁻¹u` (outside the area, a window
-holding an absent node); never throws.
-"""
-function backproject_with_jacobian(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, u::StaticVector{2})
-    l = cam.lens
-    x = _normalized_point(cam.intrinsics, u)
-    _in_backward(l, x) || return SVector{3, Float64}(NaN, NaN, NaN), SMatrix{3, 2, Float64, 6}(ntuple(_ -> NaN, Val(6)))
-    b = l.backward
-    gsz = size(b.controls)
-    S, Sx, Sy = _eval_window_grad(b.controls, _lattice_coords(b.area, gsz, x)...)
-    sx, sy = _lattice_slope(b.area, gsz)                  # ∂gx/∂x, ∂gy/∂y
-    n = norm(S)
-    f = S / n
-    P = (one(SMatrix{3, 3, Float64}) - f * transpose(f)) / n   # ∂(S/‖S‖)/∂S
-    Ki = SMatrix{3, 3, Float64}(_K_inv(cam.intrinsics))
-    return f, hcat(P * (sx * Sx), P * (sy * Sy)) * SMatrix{2, 2, Float64, 4}(Ki[1, 1], Ki[2, 1], Ki[1, 2], Ki[2, 2])
-end
-
 # ------------------------------------------------------------------------------
 # The gauge
 # ------------------------------------------------------------------------------
 
-# THE gauge of a SplineLens camera: `K` from the camera's pixel → direction map
-# `pixel_direction` (any callable on a pixel `SVector{2}`, ForwardDiff-generic:
-# a pixel-lattice `ChartSpline`, an old record's grid) over the calibrated pixel
-# rectangle `rect`. The principal point is the pixel imaging ẑ, found by the
-# projection solve from the rectangle's centre; `fx = 1/J[1,1]`,
+# THE gauge of a SplineLens camera: `K` from the camera's pixel-lattice direction
+# spline `pixel_direction` (a `ChartSpline{3}` over the calibrated pixel rectangle
+# `rect`). The principal point is the pixel imaging ẑ, found by THE central
+# projection solve (`_spline_project`) from the rectangle's centre; `fx = 1/J[1,1]`,
 # `fy = 1/J[2,2]` with `J = ∂(d_xy/d_z)/∂u` there; skew 0. When ẑ is not imaged
 # inside `rect` (the solve does not converge there), the principal point is the
 # rectangle's centre and the focal lengths the local scale there.
-function _spline_gauge(pixel_direction, rect::Rect2)
+function _spline_gauge(pixel_direction::ChartSpline{3}, rect::Rect2)
     o = GeometryBasics.origin(rect); w = GeometryBasics.widths(rect)
     c = SVector{2, Float64}(o[1] + w[1] / 2, o[2] + w[2] / 2)
-    ẑ = SVector(0.0, 0.0, 1.0)
-    dir(p) = (d = pixel_direction(p); SVector(d[1], d[2], d[3]) / norm(SVector(d[1], d[2], d[3])))
-    res(p, _) = dir(p) - ẑ
-    jac(p, _) = last(_value_and_jacobian(dir, SVector{2, Float64}(p)))
     lb, ub, s = _spline_lm_box(rect)
-    p, ok = _spline_lm(res, jac, c, lb, ub, s, _PROJECT_MAXITER, _PROJECT_TOL^2)
+    p, ok = _spline_project(pixel_direction.controls, rect, SVector(0.0, 0.0, 1.0), c, lb, ub, s, _PROJECT_MAXITER, _PROJECT_TOL^2)
     pp = ok && all(isfinite, p) ? SVector{2, Float64}(p) : c
     _, J = _value_and_jacobian(u -> (d = pixel_direction(u); SVector(d[1] / d[3], d[2] / d[3])), pp)
     fx, fy = 1 / J[1, 1], 1 / J[2, 2]

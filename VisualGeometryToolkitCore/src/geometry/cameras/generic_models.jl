@@ -601,30 +601,6 @@ end
     return (a, b, c, d)
 end
 
-# The window value at grid coordinates (gx, gy) and its partials along gx and
-# gy, in one sweep of the 4×4 controls. Device-safe (the batched kernel's LM
-# reads it per candidate step). The window is `_continued_window`'s, clamped to the
-# grid (inside the box it is `_spline_window`'s, bit for bit), so a point inside the
-# lens's lower-edge slack (`_in_backward`) reads the first window, not past the grid.
-@inline function _eval_window_grad(grid::AbstractMatrix{<:StaticVector{3}}, gx, gy)
-    ix, iy, wx, wy = _continued_window(gx, gy, size(grid, 2), size(grid, 1))
-    dwx = _cubic_bspline_weights_deriv(_span_coordinate(gx + 2, ix))
-    dwy = _cubic_bspline_weights_deriv(_span_coordinate(gy + 2, iy))
-    S = Sx = Sy = zero(SVector{3, Float64})
-    @inbounds for r in 1:4
-        row = drow = zero(SVector{3, Float64})
-        for c in 1:4
-            g = SVector{3, Float64}(grid[iy - 3 + r, ix - 3 + c])
-            row += wx[c] * g
-            drow += dwx[c] * g
-        end
-        S += wy[r] * row
-        Sx += wy[r] * drow
-        Sy += dwy[r] * row
-    end
-    return S, Sx, Sy
-end
-
 # ------------------------------------------------------------------------------
 # The spline window as an interface — what a bundle over the grid needs
 # ------------------------------------------------------------------------------
@@ -645,8 +621,8 @@ end
 @inline function _continued_window(gx, gy, gw::Integer, gh::Integer)
     x = gx + 2
     y = gy + 2
-    ix = clamp(unsafe_trunc(Int, floor(x)), 3, gw - 1)
-    iy = clamp(unsafe_trunc(Int, floor(y)), 3, gh - 1)
+    ix = clamp(unsafe_trunc(Int, floor(_primal(x))), 3, gw - 1)   # a dual coordinate: its primal's cell
+    iy = clamp(unsafe_trunc(Int, floor(_primal(y))), 3, gh - 1)
     return ix, iy, cubic_bspline_weights(_span_coordinate(x, ix)), cubic_bspline_weights(_span_coordinate(y, iy))
 end
 
@@ -888,26 +864,13 @@ end
     backproject_with_jacobian(m::NoncentralGenericModel, u) -> (f, M)
 
 The unit DIRECTION `f` of the pixel `u`'s observation line (COLMAP frame) and
-its Jacobian `M = ∂f/∂u` (3×2), analytic from the direction spline's
-derivative weights — tangent to the sphere (`fᵀM = 0`). The line's point is not
+its Jacobian `M = ∂f/∂u` (3×2): its [`central_model`](@ref)'s —
+tangent to the sphere (`fᵀM = 0`). The line's point is not
 differentiated: `backproject` gives it. `(NaN, NaN)` outside the calibrated
 area and where the pixel's window holds an absent node
 ([`in_present_domain`](@ref)); never throws.
 """
-function backproject_with_jacobian(m::NoncentralGenericModel, u::StaticVector{2})
-    x, y = Float64(u[1]), Float64(u[2])
-    in_present_domain(m, SVector(x, y)) ||
-        return SVector{3, Float64}(NaN, NaN, NaN), SMatrix{3, 2, Float64, 6}(ntuple(_ -> NaN, Val(6)))
-    gh, gw = _grid_size(m)
-    gx, gy = _grid_coords(m, x, y)
-    S, Sx, Sy = _eval_window_grad(m.directions, gx, gy)
-    n = norm(S)
-    f = S / n
-    P = (one(SMatrix{3, 3, Float64}) - f * transpose(f)) / n   # ∂(S/‖S‖)/∂S
-    sx = _grid_scale(m.calib_min_x, m.calib_max_x, gw)   # ∂gx/∂x
-    sy = _grid_scale(m.calib_min_y, m.calib_max_y, gh)   # ∂gy/∂y
-    return f, hcat(P * (sx * Sx), P * (sy * Sy))
-end
+backproject_with_jacobian(m::NoncentralGenericModel, u::StaticVector{2}) = backproject_with_jacobian(central_model(m), u)
 # A generic model's Backprojection takes its own Jacobian (equirectangular.jl).
 transform_deriv(b::Backprojection{<:Union{CentralGenericModel, NoncentralGenericModel}}, q::StaticVector{2}) =
     last(backproject_with_jacobian(b.model, _float_static(q)))
@@ -1255,14 +1218,7 @@ convert_eltype(::Type{T}, w::GenericModelWindow) where {T <: AbstractFloat} =
      GenericModelWindow{T, typeof(d), typeof(p), typeof(w.present)}(
         w.width, w.height, w.calib_min_x, w.calib_min_y, w.calib_max_x, w.calib_max_y, w.grid_size, w.offset, d, p, w.present))
 
-# The one bridge from transforms/warp.jl's private `_precision` (the fused
-# image_warp chain and the batched kernels) to the public conversion: a lens
-# or grid model in a chain converts through `convert_eltype`, so a downstream
-# lens's method is the one the kernels apply. Intrinsics and camera models are
-# deliberately NOT bridged: a chain holding one has always kept it as it is
-# (`_precision`'s identity fallback), and still does.
-_precision(::Type{T}, x::Union{AbstractLensModel, _GenericModel}) where {T <: AbstractFloat} =
-    convert_eltype(T, x)
+# (The warp chain's `_precision` bridge to `convert_eltype` is in noncentral_spline_model.jl.)
 
 # ------------------------------------------------------------------------------
 # Undistortion through the generic model — coarse-inverse remap

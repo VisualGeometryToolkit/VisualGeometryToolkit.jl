@@ -66,12 +66,17 @@ struct NoncentralSplineModel{I <: LogicalIntrinsics, S <: ChartSpline{3}, P <: U
         _check_present(present, size(directions.controls))
         return new{I, S, P}(intrinsics, directions, points, present)
     end
+    # A value already validated (its device form): no check, as `SplineLens`'s.
+    NoncentralSplineModel{I, S, P}(intrinsics::I, directions::S, points::S, present::P, ::Val{:unchecked}) where {I, S, P} =
+        new{I, S, P}(intrinsics, directions, points, present)
 end
 function NoncentralSplineModel(K::LogicalIntrinsics, directions::ChartSpline{3}, points::ChartSpline{3}; present = nothing)
-    if typeof(directions) !== typeof(points)              # one spline type for both: materialize them
+    if typeof(directions) !== typeof(points)              # one spline type for both: the promoted precision
         T = promote_type(eltype(eltype(directions.controls)), eltype(eltype(points.controls)))
-        directions = ChartSpline(directions.area, Matrix{SVector{3, T}}(directions.controls))
-        points = ChartSpline(points.area, Matrix{SVector{3, T}}(points.controls))
+        directions, points = convert_eltype(T, directions), convert_eltype(T, points)   # each array keeps its kind
+        typeof(directions) === typeof(points) || throw(
+            ArgumentError("NoncentralSplineModel: the direction and point controls are arrays of two kinds, $(typeof(directions.controls)) and $(typeof(points.controls))")
+        )
     end
     return _noncentral_spline_model(K, directions, points, _present_mask(present, size(directions.controls)))
 end
@@ -83,6 +88,26 @@ function NoncentralSplineModel(source::_SplineSource, size::Union{Tuple{Integer,
     d = c.lens.backward
     return NoncentralSplineModel(c.intrinsics, d, ChartSpline(d.area, zero(d.controls)))
 end
+
+# The device form (`Adapt.adapt(backend, m)`): both splines' controls and the mask
+# move, nothing is re-validated.
+Adapt.adapt_structure(to, m::NoncentralSplineModel) =
+    _device_noncentral(m.intrinsics, Adapt.adapt(to, m.directions), Adapt.adapt(to, m.points), _device_present(to, m.present))
+# The model of its device parts' own types (a function barrier, as `_device_spline_lens`), unchecked.
+_device_noncentral(K::I, d::S, p::S, present::P) where {I, S, P} = NoncentralSplineModel{I, S, P}(K, d, p, present, Val(:unchecked))
+
+# The controls and K convert as they are (no re-normalization); the area and the mask stay.
+convert_eltype(::Type{T}, m::NoncentralSplineModel) where {T <: AbstractFloat} =
+    _noncentral_spline_model(convert_eltype(T, m.intrinsics), convert_eltype(T, m.directions), convert_eltype(T, m.points), m.present)
+
+# The one bridge from transforms/warp.jl's private `_precision` (the fused
+# image_warp chain and the batched kernels) to the public conversion: a lens
+# or grid model in a chain converts through `convert_eltype`, so a downstream
+# lens's method is the one the kernels apply. Intrinsics and camera models are
+# deliberately NOT bridged: a chain holding one has always kept it as it is
+# (`_precision`'s identity fallback), and still does.
+_precision(::Type{T}, x::Union{AbstractLensModel, _GenericModel, NoncentralSplineModel}) where {T <: AbstractFloat} =
+    convert_eltype(T, x)
 
 # The direction lens of the model: a SplineLens of its directions and mask (already
 # through `_present_mask`, so not re-checked or copied).

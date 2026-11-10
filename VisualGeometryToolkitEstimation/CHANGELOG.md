@@ -5,6 +5,17 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **New: view graphs.** `ViewGraph` (frames and their verified pairs, Graphs.jl underneath; an edge is the pair's
+  relative transform or Core's `Attributed(transform, (; weight))`, a bare transform weighing 1) with
+  `spanning_tree`, `chain`, `filter_cycles` (Theia's rule: an edge stays when one of its triangles closes to `tol`),
+  `rotation_loop_angle` and `filter_by_orientation`; `ObservationGraph` (frames × what they observe) with
+  `components` (largest first) and `covisibility(og; side)`, whose edges are `Attributed(shared, (; weight))`.
+- **New: `filtered_rotation_averaging(vg; cycle_tol, orientation_tol, kwargs...) -> (; fit, graph)`**: the cycle
+  filter, the averaging, the orientation filter and a refit, tolerances in radians.
+- **Breaking: `fit_rotation_averaging(relative; loss, scale_multiple, max_iter, tol, seed)`** takes a pair's weight
+  from its edge (`Attributed(R, (; weight))`) and no positional prior or `j_from_i` keyword; it also takes a
+  `ViewGraph`. `seed = :spectral | :spanning_tree | Dict`, and every seed is re-gauged so the first sorted frame is the
+  identity. The per-edge IRLS weights are the metadata's `irls_weights`.
 - **`fit_camera`'s warning of a source's non-radial terms reads Core's `RadialSymmetry` trait** (a lens type
   declared `RadiallySymmetric()` is not measured for decentering); `_decentering` still measures the magnitude.
 - **Breaking: `fit_camera(SplineLens, source, region; tolerance, grid_size = nothing, forward = true)`** fits ONE

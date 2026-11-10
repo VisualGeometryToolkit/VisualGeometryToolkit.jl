@@ -5,6 +5,8 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **`spectral_rotation_averaging` computes only its three leading eigenvectors** (the symmetric eigensolver's range
+  form): the same rotations, about 4× faster at 300 frames.
 - **Breaking: a placed target's placement is Core's `SimilarityMap{3}`** (scale the chart's side, the identity
   rotation, the translation `(origin, 0)`): `PlanarTarget(…; placement = S₃)`, plain numbers in the target's own form
   (metres for a physical target), a unit move rescaling it; a rotation or an offset along the normal is an

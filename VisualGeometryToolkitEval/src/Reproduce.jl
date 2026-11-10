@@ -5,9 +5,11 @@
 # (label | asset | kind | generator | config | data | provenance), and enforced by the
 # project's suite through `reproduce_index_violations`.
 #
-# The implementation is the dependency-free reproduce/reproduce_index.jl (and
-# reproduce/paper_assets.jl, the verify / deploy / numbers stages, which needs
-# it), which an environment that cannot load this package includes by path.
+# The implementation is the dependency-free reproduce/reproduce_index.jl (then
+# reproduce/number_macros.jl, the one writer of a driver's number macros, and
+# reproduce/paper_assets.jl, the verify / deploy / numbers stages, each needing
+# the files before it), which an environment that cannot load this package
+# includes by path, in that order.
 # =============================================================================
 """
     Reproduce
@@ -19,18 +21,23 @@ that do not write their asset, static assets without provenance, and generated
 numbers re-typed in prose); and the regeneration's last stages:
 [`verify_assets`](@ref) and [`deploy_assets`](@ref) (a submitted asset is
 replaced only with sign-off), [`gather_numbers`](@ref) (the numbers file) and
-[`uncited_macros`](@ref) (numbers the paper defines but never cites).
+[`uncited_macros`](@ref) (numbers the paper defines but never cites); and the
+one writer of a driver's number macros: [`PaperNumbers`](@ref),
+[`add_number!`](@ref), [`add_table_row!`](@ref), [`write_numbers`](@ref),
+[`tex_number`](@ref) and [`number_macro_name`](@ref).
 """
 module Reproduce
 
 include("reproduce/reproduce_index.jl")
+include("reproduce/number_macros.jl")
 include("reproduce/paper_assets.jl")
 
 export PaperAsset, PaperAssetGraph, IndexEntry, ReproduceViolation,
     paper_asset_graph, read_reproduce_index, declared_outputs, declared_inputs, tex_macro_values,
     macro_literal_violations, reproduce_index_violations,
     fragment_coordinates, compare_fragments, verify_assets, assets_deployed, deploy_assets,
-    gather_numbers, uncited_macros
+    gather_numbers, uncited_macros,
+    PaperNumbers, add_number!, add_table_row!, write_numbers, tex_number, number_macro_name
 
 public VERIFY_REPORT
 

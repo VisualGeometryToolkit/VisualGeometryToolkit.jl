@@ -92,10 +92,62 @@ results from the drivers' fragments, one `\newcommand` per number, and
 numbers the paper defines but never cites, over the files the paper reads
 (the ones [`paper_asset_graph`](@ref) visits), with an allow table of reasons.
 
+## Writing a driver's numbers
+
+Every number a performance change could move is a macro: a number of the
+prose, each cell of a table row, a value a figure (its caption, its axis)
+reads. A driver writes its numbers with the one writer, into a fragment beside
+its results; [`gather_numbers`](@ref) gathers the fragments into the numbers
+file, and [`deploy_assets`](@ref) puts that into the paper only once the
+author has signed off a change (`replace_submitted`).
+
+```julia
+using VisualGeometryToolkitEval.Reproduce
+
+nums = PaperNumbers(; driver = "scripts/hand_eye.jl", config = "configs/hand_eye.toml",
+                    run_key = KEY, commit = read_provenance(OUTDIR)["gitcommit"])
+add_number!(nums, "heFrames", 240)                                  # a number of the prose
+add_number!(nums, number_macro_name("he", "rot_deg", "p90"), 0.0412; digits = 3)
+add_number!(nums, "heShare", 0.256; percent = true, digits = 0)     # 26\%
+add_number!(nums, "teaserBoards", 12; label = "fig:teaser")         # a value a figure reads
+row = add_table_row!(nums, "heBaxter", ["frames" => 61, "transMm" => tex_number(1.234; digits = 2)];
+                     label = "tab:handeye")                         # "\heBaxterFrames & \heBaxterTransMm"
+write_numbers(joinpath(OUTDIR, "numbers.tex"), nums)
+```
+
+The fragment holds, sorted by name, each macro after its provenance comment:
+
+```latex
+% provenance \heBaxterFrames: driver=scripts/hand_eye.jl; config=configs/hand_eye.toml; run=3f2a9c1e; commit=f11598f7; label=tab:handeye
+\newcommand{\heBaxterFrames}{61}
+```
+
+- **Format** ([`tex_number`](@ref)): `digits` fixed decimals (Printf's
+  `%.<d>f`), or `sigdigits` significant digits without trailing zeros and
+  without an exponent; an integer needs neither. `percent`, `group_from`
+  (thin-space thousands), `unit`, and a range `(lo, hi)` with its
+  `range_separator`. A NaN or an infinity is refused: a missing evaluation
+  fails the stage. A string value is a body already typeset (`"---"`,
+  `"10^{-6}"`), one value with balanced braces.
+- **Names** ([`number_macro_name`](@ref)): letters only, never beginning with
+  `end`; a driver prefix and name parts, each digit spelled out
+  (`"fx3_14mm"` → `FxThreeOneFourMm`).
+- **A table row is one macro per cell.** The table's tex reads the row
+  [`add_table_row!`](@ref) returns, and the prose cites a cell by the same
+  macro. One macro holding `a & b & c` would hide its numbers from
+  [`compare_fragments`](@ref), [`macro_literal_violations`](@ref) and
+  [`uncited_macros`](@ref), which read a macro's value as one number.
+- **Provenance**: the driver, its config of record (project-relative), the run
+  key and the run's commit (its recorded `gitcommit`: the comment changes only
+  when the run does). A number read from another run overrides fields with
+  `provenance = (; run_key = …)`. [`gather_numbers`](@ref) keeps each comment.
+- **Deterministic**: the same numbers write the same bytes, whatever the
+  order they were added in.
+
 A driver defines top-level constants meant for a process of its own;
 [`run_isolated`](@ref) includes it in a module of its own, so one regeneration
 script can run every driver in one warm session.
 
-`src/reproduce/reproduce_index.jl` and `src/reproduce/paper_assets.jl` depend on
-Base only, so an environment that cannot load this package can include them by
-path.
+`src/reproduce/reproduce_index.jl`, `src/reproduce/number_macros.jl` and
+`src/reproduce/paper_assets.jl` depend on Base only, so an environment that
+cannot load this package can include them by path, in that order.

@@ -1,6 +1,18 @@
 # VisualGeometryToolkitEval changelog
 
-## Unreleased
+## 0.9.0 (unreleased)
+
+- **New: the one writer of a paper's number macros** (`Reproduce`, src/reproduce/number_macros.jl, Base only).
+  `PaperNumbers(; driver, config, run_key, commit)` collects a driver's numbers; `add_number!(nums, name, value;
+  label, provenance, format...)` adds a number of the prose or a value a figure reads (`label = "fig:…"`);
+  `add_table_row!(nums, row, column => value pairs)` adds a table row as one macro per cell and returns the row's
+  tex; `write_numbers(path, nums)` writes the fragment, sorted by name, each macro after its provenance comment
+  (`% provenance \<name>: driver=…; config=…; run=…; commit=…[; label=…]`). `tex_number` typesets a number
+  (`digits` as Printf's `%.<d>f`, or `sigdigits` without an exponent; `percent`, `group_from`, `unit`, a range) and
+  refuses a NaN or an infinity; `number_macro_name(prefix, parts...)` builds a letters-only name, digits spelled
+  out. `gather_numbers` carries each macro's provenance comment into the numbers file. The paper projects'
+  own writers (radiometric-camera cvpr2027, BlobBoards bmvc2026, LocalOptimizationDoneRight accv2026,
+  RANSACScoringDoneRight neurips2026, CaliBlobs icra2026) port to it.
 
 - **Breaking: `load_sparse_matches(path)` returns a `Csponds` carrying the per-match confidence as its attribute column
   `confidence`** (`withattrs`; read `cs.confidence`), formerly the pair `(; csponds, confidence)`. The consolidated

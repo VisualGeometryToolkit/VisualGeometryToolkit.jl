@@ -195,7 +195,9 @@ Write the paper's numbers file `out` from the generators' number-macro
 `fragments` (tex files): every argument-free macro of every fragment, one
 `\\newcommand{\\<name>}{<value>}` per line, sorted by name, under a header
 naming the `generator` and each fragment as `<root_label>/<path relative to
-root>` (no machine path). Never `\\providecommand`: a macro the manuscript
+root>` (no machine path). A macro's provenance comment in its fragment (the
+`% provenance \\<name>: …` line [`write_numbers`](@ref) writes) goes before
+it. Never `\\providecommand`: a macro the manuscript
 also defines must clash. A macro that two fragments define, and a fragment
 macro with arguments (a number is a value, not a template), are an
 `ArgumentError`.
@@ -208,14 +210,17 @@ function gather_numbers(fragments, out::AbstractString; generator::AbstractStrin
         root_label::AbstractString = "<results_root()>")
     numbers = Dict{String, String}()
     owner = Dict{String, String}()
+    provenance = Dict{String, String}()
     for f in fragments
         text = read(f, String)
         args = _macros_with_arguments(text)
         isempty(args) || throw(ArgumentError("$f defines macros with arguments (" * join("\\" .* args, ", ") *
             "): a number fragment defines values only"))
+        comments = _macro_provenance(text)
         for (name, value) in _macro_values(text)
             haskey(owner, name) && throw(ArgumentError("\\$name is defined by both $(owner[name]) and $f"))
             numbers[name], owner[name] = value, f
+            haskey(comments, name) && (provenance[name] = comments[name])
         end
     end
     mkpath(dirname(out))
@@ -225,6 +230,7 @@ function gather_numbers(fragments, out::AbstractString; generator::AbstractStrin
             println(io, "%   ", root_label, "/", relpath(f, root))
         end
         for name in sort!(collect(keys(numbers)))
+            haskey(provenance, name) && println(io, provenance[name])
             println(io, "\\newcommand{\\", name, "}{", numbers[name], "}")
         end
     end

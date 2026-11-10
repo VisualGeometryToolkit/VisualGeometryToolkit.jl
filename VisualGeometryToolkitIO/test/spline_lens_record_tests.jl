@@ -50,11 +50,20 @@ end
         @test count(j -> all(isfinite, g.directions[:, j]), eachindex(R)) > 250      # most of the lattice is imaged
     end
 
-    # the masked central v3 fixture: a camera with a spline lens, its nodes and mask the old model's
+    # the masked central v3 fixture: every 4 × 4 window holds an absent node and the file stores no K, so the
+    # lattice has no scale to gauge K by — refused, saying to supply K; with a stored K (its nominal pinhole) it
+    # loads: a camera with a spline lens, its nodes and mask the old model's
     g = GOLDEN_IO.units_masked_central
-    p = joinpath(fixtures, "units", "generic_camera_masked.json")
+    p0 = joinpath(fixtures, "units", "generic_camera_masked.json")
+    e = try load(BoundedCamera, p0); nothing catch e; e end
+    @test e isa ArgumentError && occursin("no complete 4 × 4 window", e.msg) && occursin("supply K", e.msg)
+    tmp = mktempdir()
+    p = joinpath(tmp, "generic_camera_masked.json")
+    t = JSON.parse(read(p0, String)); t["nominal_intrinsics"] = Any[640.0, 640.0, 32.0, 24.0, 0.0]
+    write(p, JSON.json(t))
     bc = load(BoundedCamera, p)
     cam = model(bc)
+    @test cam.intrinsics.K == model(only(values(load(Dict{Symbol, BoundedCamera}, joinpath(fixtures, "units", "spline_camera_masked.json"))))).intrinsics.K   # the stored fixture's K
     @test cam isa CameraModel && cam.lens isa SplineLens && extent(bc) == Size2(g.size[1], g.size[2])
     @test iszero(cam.intrinsics.K[1, 2])                                        # the gauge: skew 0
     P = cam.lens.present

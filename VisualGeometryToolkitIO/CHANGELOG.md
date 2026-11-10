@@ -4,6 +4,9 @@
 
 On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
 
+- **An old central grid file whose lattice has no complete 4 × 4 window at the gauge's pixel, and no
+  `nominal_intrinsics`, is refused** (Core's gauge: no scale to derive K from; supply K); with a stored nominal
+  pinhole it loads as before.
 - **Breaking: the OpenCV calibration JSON declares its pixel frame under `pixel_frame`**: `save_opencv_calibration`
   writes `"pixel_frame"`; `load_opencv_calibration` reads it, and also the legacy key of files written before 0.9
   (never both: an `ArgumentError`); a file on disk is never rewritten. Every caller of Core's `CameraModel(K; …)`

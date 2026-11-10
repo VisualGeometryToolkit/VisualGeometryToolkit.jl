@@ -68,6 +68,14 @@ end
         @test rules("src/a.jl" => "f(x) = \"$(old)\"\n") == [:R9]                                    # any other retired name, in a string
     end
 
+    @testset "R9: a foreign library's function is accepted in a C/C++ source, nowhere else" begin
+        name = first(first(NC.FOREIGN_API_NAMES))
+        @test name in NC.RETIRED_NAMES
+        @test quiet("wrapper/w.cpp" => "    auto s = poselib::$(name)(p, P, &image, opt);   // every $(name) overload\n")
+        @test rules("src/a.jl" => "f(x) = \"$(name)\"\n") == [:R9]                                   # a Julia file
+        @test rules("docs/a.md" => "the $(name) call\n") == [:R9]                                      # prose
+    end
+
     @testset "R3: update_ ends in !" begin
         @test rules("src/a.jl" => "update_prior(x) = x\n") == [:R3]
         @test rules("src/a.jl" => "update_model(x) = x\n") == [:R3, :R8]   # also a hook variant

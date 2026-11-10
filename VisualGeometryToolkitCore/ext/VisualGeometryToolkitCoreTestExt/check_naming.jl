@@ -468,10 +468,21 @@ const FOREIGN_FORMAT_TOKENS = [
     "nominal" * "_intrinsics" => "an old vgio grid record's key (vgio/generic_camera v2/v3, a vgio/rig v6–v8 sensor's body): its nominal pinhole",
     "image" * "_origin" => "the legacy pixel-frame key of the OpenCV calibration JSON written before 0.9 (read by load_opencv_calibration, never written)",
 ]
+# Functions a FOREIGN library's API owns, whose names are retired as the stack's names:
+# each the exact name and the library. A retired name that is such a function is
+# accepted in a C/C++ source (`.cpp`, `.h`, `.hpp`): the wrapper that calls the library
+# names its API (and is built into a prebuilt artifact, so it is not edited for a Julia
+# rename); never in a Julia file or prose.
+const FOREIGN_API_NAMES = [
+    "bundle" * "_adjust" => "PoseLib's C++ absolute-pose refinement, called by PoseLib.jl's C wrapper",
+]
+_is_c_source(f) = any(e -> endswith(f, e), (".cpp", ".h", ".hpp"))
 _is_data_fixture(f) = any(e -> endswith(f, e), (".yaml", ".yml", ".json"))
 # Whether the retired-name hit `r` on `line` (its string-literal text `strings`, a
 # Julia file's) is a foreign format's token where one is accepted.
 function _foreign_token(f, r, re, line, strings)
+    api = findfirst(t -> first(t) == r, FOREIGN_API_NAMES)
+    api === nothing || return _is_c_source(f)
     any(t -> first(t) == r, FOREIGN_FORMAT_TOKENS) || return false
     _is_data_fixture(f) && return true
     return endswith(f, ".jl") && count(re, line) == count(re, strings)

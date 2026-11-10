@@ -362,7 +362,7 @@ axis). [`backproject`](@ref)`(lens, x)` is NaN outside the area's half-open box
 `[origin, origin + widths)` and where the point's 4 × 4 window holds an absent
 node; it never throws.
 
-`forward` (a `ChartSpline{2}` from the equidistant chart about the lens axis to
+`forward` (a `ChartSpline{2}` from the equidistant chart about ẑ to
 `x`, or `nothing`) is the optional fitted forward map. `present` says which
 nodes the lens holds: `nothing` (every node) or a `Bool` matrix of
 `size(backward.controls)` (`true` = present); an all-true mask is stored as
@@ -383,10 +383,10 @@ struct SplineLens{B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <:
     backward::B
     forward::F
     present::P
-    chart::C   # the forward's chart (`_forward_chart`), derived from `backward` here, never given; `nothing` without a forward
+    chart::C   # the forward's chart (`_forward_chart`: about ẑ), formed here, never given; `nothing` without a forward
     function SplineLens{B, F, P}(backward::B, forward::F, present::P) where {B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <: Union{Nothing, AbstractMatrix{Bool}}}
         _check_present(present, size(backward.controls))
-        chart = _forward_chart(backward, forward)
+        chart = _forward_chart(forward)
         return SplineLens{B, F, P, typeof(chart)}(backward, forward, present, chart, Val(:unchecked))
     end
     # A value already validated (its device form): no check, as `ChartSpline`'s.
@@ -535,20 +535,11 @@ end
 # exact up to rounding of the area, a principal-point move included — the
 # K of a gauge lens is a choice of the normalized plane, not data. The
 # forward's output moves by the same affinity (its controls do: a B-spline's
-# weights sum to one). A forward's chart is about the ray of the principal
-# point (`_forward_chart`), which a principal-point move changes and its
-# controls cannot follow: a lens with a forward refuses that move.
+# weights sum to one), and its chart is about ẑ (`_forward_chart`), which no K
+# moves: every projection is kept too.
 function _regauge_lens(l::SplineLens, K, K′)
     s = SVector{2, Float64}(K′[1, 1] / K[1, 1], K′[2, 2] / K[2, 2])
     t = SVector{2, Float64}((K[1, 3] - K′[1, 3]) / K′[1, 1], (K[2, 3] - K′[2, 3]) / K′[2, 2])
-    (l.forward === nothing || iszero(t)) || throw(
-        ArgumentError(
-            "CameraModel(model, K′): a SplineLens with a forward spline keeps its principal point — the forward's chart is " *
-                "about the principal point's ray, which the move changes; drop the forward first " *
-                "(SplineLens(lens.backward; present = lens.present)) and refit it through VisualGeometryToolkitEstimation.fit_camera(SplineLens, " *
-                "BoundedCamera(camera, extent), region; tolerance), or keep the principal point"
-        )
-    )
     b = l.backward
     o = GeometryBasics.origin(b.area); w = GeometryBasics.widths(b.area)
     backward = ChartSpline(Rect2{Float64}(SVector(o[1], o[2]) ./ s .+ t, SVector(w[1], w[2]) ./ s), b.controls)
@@ -812,19 +803,16 @@ end
     return _spline_direction_and_jacobian(l.backward.controls, l.backward.area, x)
 end
 
-# The lens axis: the ray of the principal point, `normalize(backward(0, 0))`.
-# The forward spline's equidistant chart is about it.
-_lens_axis(backward::ChartSpline{3}) = (d = backward(SVector(0.0, 0.0)); SVector{3, Float64}(d / norm(d)))
-
-# The forward spline's chart, the equidistant chart about the lens axis (`nothing`
-# without a forward): computed once, when the lens is built (its `chart` field), as a
-# per-ray recomputation would cost a backward evaluation and two cross products a ray.
-# THE derivation: the lens's field and a fit of a forward (VisualGeometryToolkitEstimation's
-# `fit_camera`, the one-argument form) both read it, so the chart a forward is fitted on
-# is the chart `project` evaluates it on.
-_forward_chart(::ChartSpline{3}, ::Nothing) = nothing
-_forward_chart(backward::ChartSpline{3}, ::ChartSpline{2}) = _forward_chart(backward)
-_forward_chart(backward::ChartSpline{3}) = equidistant_chart(_lens_axis(backward))
+# The forward spline's chart, the equidistant chart about ẑ (`nothing` without a
+# forward): fixed in the camera frame, so no K moves it — a re-gauge
+# (`CameraModel(cam, K′)`) maps the forward's output by the normalized plane's
+# affinity and keeps every projection exactly. Formed once, when the lens is built
+# (its `chart` field). THE derivation: the lens's field and a fit of a forward
+# (VisualGeometryToolkitEstimation's `fit_camera`, the one-argument form) both read
+# it, so the chart a forward is fitted on is the chart `project` evaluates it on.
+_forward_chart(::Nothing) = nothing
+_forward_chart(::ChartSpline{2}) = _forward_chart()
+_forward_chart() = equidistant_chart(SVector(0.0, 0.0, 1.0))
 
 # Where a lattice images ẑ: THE solve of ẑ through `controls` over `area` (from the
 # area's centre, the scale-free box) and whether it converged there — the gauge's
@@ -856,7 +844,7 @@ end
 
 # THE projection of a SplineLens: the normalized point of the ray `X` and
 # whether the lens images it. With a forward spline, its value at the ray's
-# point of the equidistant chart about the lens axis — imaged within the
+# point of the equidistant chart about ẑ — imaged within the
 # forward's fitted chart (`_in_fitted_chart`) and where the backward images it
 # (`_in_backward`: the box, a present window). Without one, the LM from `x₀`
 # (the scale-free `_spline_lm_box`), converged and onto a present window. The
@@ -900,8 +888,8 @@ end
 
 The normalized image point of the ray `X` (`K` maps it to the pixel), NaN
 where the lens does not image it. With a forward spline (`lens.forward`), its
-value at the ray's point of the equidistant chart about the lens axis (the ray
-of the principal point), NaN outside the forward's fitted chart (more than one
+value at the ray's point of the equidistant chart about ẑ (fixed in the camera
+frame, so no choice of K moves it), NaN outside the forward's fitted chart (more than one
 knot cell past its area) or where the backward spline does not image the
 point. Without one, Levenberg–Marquardt on the backward spline's direction
 mismatch (100 iterations, converged below a 1e-6 residual) from the ray's

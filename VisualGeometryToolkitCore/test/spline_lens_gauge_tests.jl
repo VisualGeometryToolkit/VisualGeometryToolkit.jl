@@ -290,15 +290,26 @@ end
         # the projection solve finds the same pixel under either gauge, to its tolerance
         @test all(X -> same(project(c′, X), project(c, X); tol = 1.0e-9), rays)
     end
-    # a forward's output moves by the scale (its chart, about the principal point's ray, stays): every
-    # projection the same; a principal-point move would change that chart, so a lens with a forward refuses it
+    # a forward's chart is about ẑ, which no K moves: its output moves by the same scale and shift as the backward
+    # area, so every projection and backprojection is the same, a principal-point move included
     fwd = ChartSpline(Rect2(-1.2, -1.2, 2.4, 2.4), [SVector(0.03 * gx - 0.4, -0.02 * gy + 0.3) for gy in 1:6, gx in 1:7])
     cf = CameraModel(cam.intrinsics, SplineLens(cam.lens.backward; forward = fwd))
-    cf′ = CameraModel(cf, Kat(0.8 * K[1, 1], 0.9 * K[2, 2], K[1, 3], K[2, 3]))
-    @test cf′.lens.chart == cf.lens.chart
+    @test cf.lens.chart == VisualGeometryToolkitCore.equidistant_chart(SVector(0.0, 0.0, 1.0))
     @test count(X -> all(isfinite, project(cf, X)), rays) > length(rays) ÷ 2
-    @test all(X -> same(project(cf′, X), project(cf, X); tol = 1.0e-12), rays)
-    @test_throws ArgumentError CameraModel(cf, moved)
+    for K′ in (Kat(0.8 * K[1, 1], 0.9 * K[2, 2], K[1, 3], K[2, 3]), moved)
+        cf′ = CameraModel(cf, K′)
+        @test calibration_matrix(cf′) == K′ && cf′.lens.chart == cf.lens.chart
+        @test all(X -> same(project(cf′, X), project(cf, X); tol = 1.0e-12), rays)
+        @test all(u -> same(backproject(cf′, u), backproject(cf, u); tol = 1.0e-12), pixels)
+        # its Float32 form keeps the forward: the same chart, the same imaged rays, the pixel to its precision
+        c32 = VisualGeometryToolkitCore.convert_eltype(Float32, cf′)
+        @test c32.lens.chart == cf.lens.chart && c32.lens.forward isa ChartSpline
+        @test all(X -> same(project(c32, X), project(cf, X); tol = 4 * K[1, 1] * eps(Float32) + 1.0e-3), rays)
+    end
+    # the moved principal point's ray is off ẑ: the chart does not follow it
+    @test norm(cf.lens.backward(SVector(0.0, 0.0)) / norm(cf.lens.backward(SVector(0.0, 0.0))) - SVector(0.0, 0.0, 1.0)) <= 1.0e-12
+    b′ = CameraModel(cf, moved).lens.backward
+    @test norm(b′(SVector(0.0, 0.0)) / norm(b′(SVector(0.0, 0.0))) - SVector(0.0, 0.0, 1.0)) > 1.0e-2
     # a parametric lens's principal point is data: still refused
     @test_throws ArgumentError CameraModel(src, Kat(K[1, 1], K[2, 2], K[1, 3] + 1.0, K[2, 3]))
 end
@@ -333,7 +344,7 @@ end
     # inside its area, and answers
     io = CameraModel(; focal = 31.7, pp = (32.25, 23.875), lens = KannalaBrandt(-4 / (3π^2)))
     coarse = (CameraModel(SplineLens, io, (64, 48); grid_size = (8, 7)), CameraModel(SplineLens, io, (64, 48); grid_size = (4, 4)))
-    @test all(c -> VisualGeometryToolkitCore.Cameras._lens_axis(c.lens.backward)[3] < cos(1.0e-4), coarse)   # off ẑ by approximation
+    @test all(c -> (d = c.lens.backward(SVector(0.0, 0.0)); d[3] / sqrt(sum(abs2, d)) < cos(1.0e-4)), coarse)   # off ẑ by approximation
     for c in (on, coarse...)
         @test isfinite(horizon_radius(c)) && monotone_radius(c.lens) > 0
         @test size(undistort(c, img; device = KA.CPU())) == size(img)

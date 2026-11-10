@@ -14,7 +14,7 @@ from the [Cameras API](cameras.md) page. See the [Lenses](../guide/lenses.md) gu
 The central grid camera as an ordinary `CameraModel(K, SplineLens(…))`: a
 backward lens on the K-normalized image plane, `K` a gauge whose principal point
 is the pixel imaging ẑ. Its optional forward spline maps the equidistant chart
-about the lens axis to the image plane. The spline lattice's shared helpers (the
+about ẑ to the image plane. The spline lattice's shared helpers (the
 grid size, the quasi-interpolant, the window of a block of controls, the chart a
 control moves in) live beside it.
 

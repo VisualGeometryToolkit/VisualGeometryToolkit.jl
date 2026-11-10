@@ -322,7 +322,7 @@ normalized here): a ray at angle `θ` from the axis lands at radius `θ`
 `e₁ = normalize(ŷ × axis)` (`x̂ × axis` when the axis is within 1e-6 of `±ŷ`)
 and `e₂ = axis × e₁` — right-handed, so the chart is the camera's own
 equidistant lens when `axis = ẑ`. The chart a [`SplineLens`](@ref)'s forward
-spline is laid on (about the lens axis), and the one a direction field over a
+spline is laid on (about ẑ), and the one a direction field over a
 cap of the sphere (a panorama's vignetting) reads.
 """
 function equidistant_chart(axis::StaticVector{3})

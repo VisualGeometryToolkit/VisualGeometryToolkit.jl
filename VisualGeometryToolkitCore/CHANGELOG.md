@@ -19,8 +19,13 @@ sensor — so every consumer asks the camera what it images instead of supplying
   focal lengths, else an `ArgumentError` (ONE check, the non-central model's too). A skewed K once built silently.
 - **`CameraModel(camera, K′)` re-gauges a SplineLens camera to any skew-0 K′**, a moved principal point included: the
   backward area moves by the change of the normalized plane `x′ = x / s + (c − c′)/f′`, a forward's output with it;
-  every pixel's ray is unchanged. A lens with a forward keeps its principal point (the forward's chart is about the
-  principal point's ray): drop the forward and refit it through Estimation's `fit_camera(SplineLens, …)`. A parametric lens still refuses a moved principal point.
+  every pixel's ray and every projection are unchanged, a lens with a forward included. A parametric lens still
+  refuses a moved principal point.
+- **A SplineLens's forward spline is on the equidistant chart about ẑ** (fixed in the camera frame), not about the
+  ray of the principal point, `normalize(backward(0, 0))`: no choice of K moves it, so a re-gauge keeps the forward
+  exactly and a Float32 copy (`convert_eltype`) keeps its chart. On a gauged camera the two axes agree to rounding
+  (measured: the fitted forwards' projections move by ≤ 9e-12 px, a forward on its own gauge by ≤ 1.4e-12 px); a
+  forward fitted about another axis is read in the camera frame turned onto ẑ.
 - **The off-axis gauge is refused where the principal point is read as the optical axis**: when a SplineLens camera's
   lattice does not image ẑ inside its calibrated area — the gauge's own fallback condition, one predicate shared with
   the gauge, so the principal point is the area's centre — `undistort`/`undistort!`, `distortion_map`, `valid_rect`,
@@ -62,7 +67,7 @@ sensor — so every consumer asks the camera what it images instead of supplying
 - **Breaking: the grid camera is a `SplineLens`; the central and non-central grid models are retired** (plan 1b, the
   SplineLens fold-in). The central grid camera is an ordinary `CameraModel(K, SplineLens(…))`: a backward lens (a
   `ChartSpline` of rays over the K-normalized plane, `x = K⁻¹u`, K a skew-0 gauge) with an optional forward spline
-  on the equidistant chart about the lens axis. The non-central one is `NoncentralSplineModel`, on the same lattice.
+  on the equidistant chart about ẑ. The non-central one is `NoncentralSplineModel`, on the same lattice.
   Retired, with no alias (replacement after the arrow):
   `CentralGenericModel` → `CameraModel(K, SplineLens(…))`, built from a source by `CameraModel(SplineLens, source,
   size; grid_size)`; `NoncentralGenericModel` → `NoncentralSplineModel`; `SplineProjection` → the `forward` of a

@@ -70,6 +70,7 @@ const _ITERATION_WORDS = ("iter", "iters", _IT, _IT * "s")
 # retired in one form lists each form it took. Names renamed by the naming
 # sweep are listed here as they are renamed.
 const RETIRED_NAMES = String[
+    "_lens" * "_axis",                      # the forward spline's chart is about ẑ, not the principal point's ray: `_forward_chart()` (2026-11)
     "image" * "_origin",                    # the pixel-frame keyword of `CameraModel(K; …)`: `pixel_frame` (2026-11)
     "_radially" * "_symmetric",             # a lens's radial symmetry is a Holy trait: `RadialSymmetry` (`RadiallySymmetric()` / `RadiallyAsymmetric()`) (2026-11)
     "_check" * "_refinable",                # refine_camera_and_poses routes by Core's `IntrinsicsRole` (a SplineLens camera refines; no refusal): `_refine_camera_and_poses(::GaugeIntrinsics, …)` (2026-11)
@@ -261,7 +262,7 @@ const RETIRED_NAMES = String[
     # CameraModel with a SplineLens, the non-central one a NoncentralSplineModel
     "Central" * "GenericModel",              # `CameraModel(K, SplineLens(…))`, from a source `CameraModel(SplineLens, source, size)`
     "Noncentral" * "GenericModel",           # `NoncentralSplineModel`
-    "Spline" * "Projection",                 # a SplineLens's `forward` spline, on `equidistant_chart` about the lens axis
+    "Spline" * "Projection",                 # a SplineLens's `forward` spline, on `equidistant_chart` about ẑ
     "nominal" * "_intrinsics",               # a SplineLens camera's K, its gauge: `calibration_matrix(cam)`, `intrinsics(cam)`
     "with" * "_nominal",                     # a re-gauge: `CameraModel(cam, K′)`
     "with" * "_domain",                      # where light falls is the bound's: `with_lens_coverage(BoundedCamera(cam, extent), region)`

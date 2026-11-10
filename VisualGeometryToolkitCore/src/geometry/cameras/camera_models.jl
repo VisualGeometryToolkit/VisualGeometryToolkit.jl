@@ -730,8 +730,8 @@ anisotropic rescaling of a radial lens (radial symmetry would be broken), and
 for families whose coefficients are only meaningful under a metric K. A
 [`SplineLens`](@ref) takes any skew-0 `K′`, a moved principal point included
 (its K is a gauge): its backward area moves by the change of the normalized
-plane, `x′ = x / s + (c − c′)/f′`, and so does a forward's output; a lens with
-a forward keeps its principal point (the forward's chart is about its ray).
+plane, `x′ = x / s + (c − c′)/f′`, and so does a forward's output (its chart is
+about ẑ, which no K moves), so every projection is kept too.
 """
 function CameraModel(model::CameraModel{<:LogicalIntrinsics}, K′::CameraCalibrationMat)
     K = model.intrinsics.K

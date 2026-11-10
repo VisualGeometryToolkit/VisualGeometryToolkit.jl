@@ -143,7 +143,7 @@ end
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, px, project, backproject,
         calibration_matrix, with_present, Rect2, convert_eltype, equidistant_chart, LogicalIntrinsics, CameraCalibrationMat
-    using VisualGeometryToolkitCore.Cameras: _lens_axis, _lattice_spacing, _spline_camera, _project_lens, _pixel_affine
+    using VisualGeometryToolkitCore.Cameras: _lattice_spacing, _spline_camera, _project_lens, _pixel_affine
     import KernelAbstractions as KA
 
     # =============================================================================
@@ -181,20 +181,23 @@ end
         return worst, same_nan
     end
 
-    # The old fitted forward map's chart is about the ray of the fit's quadrature centroid,
-    # the pixel (499.5, 499.5), not of the principal point (500, 500): 2.4e-3 rad apart.
-    # The lens's chart is about the ray of its principal point, so the forward spline is
-    # read on the same pixel → ray map in the gauge whose principal point is that pixel
-    # (K′, pp = (499.5, 499.5), the same controls over the same pixel rectangle), its
-    # pixel output through K′⁻¹.
+    # The old fitted forward map's chart is about the ray `a` of the fit's quadrature
+    # centroid, the pixel (499.5, 499.5) — S.chart_rotation's third row, 2.4e-3 rad off
+    # ẑ (the ray of the principal point (500, 500)). A lens's forward chart is about ẑ,
+    # fixed in the camera frame, so the golden map is read in the camera frame turned by
+    # R = S.chart_rotation (a ↦ ẑ): the lattice's directions R·d over the same pixel
+    # rectangle, in the gauge whose principal point is that pixel (K′, pp = (499.5,
+    # 499.5)), the golden rays R·X, its pixel output through K′⁻¹. The golden values
+    # are the old model's, never regenerated: only the frame they are read in turns.
     S = G.spline
+    R = SMatrix{3, 3, Float64}(S.chart_rotation)
     K′ = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0.0, 0.0, 0.0, K[2, 2], 0.0, 499.5, 499.5, 1.0)))
-    cam′ = _spline_camera(K′, Rect2(0.0, 0.0, 1000.0, 1000.0), cam.lens.backward.controls)
+    cam′ = _spline_camera(K′, Rect2(0.0, 0.0, 1000.0, 1000.0), map(d -> R * d, cam.lens.backward.controls))
     C = [SVector((S.controls[1, i, j] - 499.5) / K[1, 1], (S.controls[2, i, j] - 499.5) / K[2, 2]) for i in axes(S.controls, 2), j in axes(S.controls, 3)]
     forward = ChartSpline(Rect2(S.area[1], S.area[2], S.area[3], S.area[4]), C)
     cam_fwd = CameraModel(K′, SplineLens(cam′.lens.backward; forward))
     masked_fwd = with_present(cam_fwd, G.masked.present)
-    rays64 = [SVector(S.rays[1, i], S.rays[2, i], S.rays[3, i]) for i in axes(S.rays, 2)]
+    rays64 = [R * SVector(S.rays[1, i], S.rays[2, i], S.rays[3, i]) for i in axes(S.rays, 2)]   # in the turned frame
 
     @testset "without a forward: the old central grid's projection" begin
         worst, same_nan = deviation(cam, rays_in, G.central.project_in)
@@ -208,9 +211,11 @@ end
         @test all(X -> all(isnan, project(masked, X)), rays_out)
     end
 
-    @testset "with a forward: the old fitted forward map on the lens axis" begin
-        @test norm(_lens_axis(cam.lens.backward) - S.chart_rotation[3, :]) > 1.0e-3            # the principal point's ray is not the golden chart's axis
-        @test norm(_lens_axis(cam_fwd.lens.backward) - S.chart_rotation[3, :]) <= 1.0e-12
+    @testset "with a forward: the old fitted forward map, its chart about ẑ" begin
+        axis(c) = (d = c.lens.backward(SVector(0.0, 0.0)); d / norm(d))
+        @test norm(axis(cam) - S.chart_rotation[3, :]) > 1.0e-3                     # the principal point's ray is not the golden chart's axis
+        @test norm(axis(cam_fwd) - SVector(0.0, 0.0, 1.0)) <= 1.0e-12               # turned: K′'s principal point images ẑ
+        @test cam_fwd.lens.chart == equidistant_chart(SVector(0.0, 0.0, 1.0))
         @test masked_fwd.lens.forward === forward
         worst, same_nan = deviation(cam_fwd, rays64, S.project)
         @test same_nan
@@ -222,9 +227,8 @@ end
         hx, _ = _lattice_spacing(forward.area, size(forward.controls))
         c = SVector(o[1] + w[1] + 2hx, o[2] + w[2] / 2)
         θ = norm(c)
-        R = SMatrix{3, 3}(S.chart_rotation)
-        X_out = R' * SVector(sin(θ) * c[1] / θ, sin(θ) * c[2] / θ, cos(θ))
-        @test norm(equidistant_chart(_lens_axis(cam_fwd.lens.backward))(X_out) - c) <= 1.0e-9
+        X_out = SVector(sin(θ) * c[1] / θ, sin(θ) * c[2] / θ, cos(θ))              # in the turned frame
+        @test norm(cam_fwd.lens.chart(X_out) - c) <= 1.0e-9
         @test all(isnan, project(cam_fwd, X_out))
     end
 

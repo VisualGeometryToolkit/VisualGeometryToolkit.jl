@@ -104,13 +104,8 @@ end
 # Float32 stays Float32, Float64 stays Float64, integers and fixed-point widen.
 _score_eltype(As...) = float(promote_type(map(eltype, As)...))
 
-# A `T` copy of `A` on `dev` (`ka_upload`), `A` on `dev` (`on_device`): Core's
+# A `T` copy of `A` on `dev` (`ka_upload`), `A` on `dev` in `T` (`on_device`): Core's
 # (base/device.jl), the family's one upload.
-
-# A precomputed score matrix as the kernels read it: used as is when it already
-# lives on `dev` in a float type, otherwise copied there in its own float type.
-_on_backend(dev, A::AbstractMatrix) =
-    eltype(A) <: AbstractFloat ? on_device(dev, A) : ka_upload(float(eltype(A)), dev, A)
 
 # The scores of gallery rows r1:r2 against every feature, into `blk`. Generic
 # array code: the GEMM is BLAS on `Array` and the vendor BLAS on device arrays,
@@ -361,7 +356,7 @@ function _match(
     else
         size(dm) == (N1, N2) ||
             throw(DimensionMismatch("dm is $(size(dm)) for $N1 × $N2 descriptors"))
-        _nn_select(strategy, metric, dev, [0], [N1]; S = _on_backend(dev, dm))
+        _nn_select(strategy, metric, dev, [0], [N1]; S = on_device(float(eltype(dm)), dev, dm))   # a precomputed score matrix: as is when on `dev` in a float type
     end
     return _block_matches(
         strategy, metric, top_idx, top_sc, rev_idx, 1, 0, N1, N2;

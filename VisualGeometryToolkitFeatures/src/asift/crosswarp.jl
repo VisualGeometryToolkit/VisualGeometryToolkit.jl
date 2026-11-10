@@ -276,8 +276,7 @@ function cross_warp_nms(
     for (i, f) in enumerate(feats)
         fh[:, i] .= (f.x, f.y, f.σ, f.intensity, f.s_xx, f.s_xy, f.s_yy, Float32(f.warp_idx), 1.0f0)
     end
-    feat = KA.allocate(device, Float32, 9, n)
-    copyto!(feat, fh)
+    feat = ka_upload(Float32, device, fh)
     keep = KA.allocate(device, Int32, n)
     _pool_nms!(
         device, _scheduled(_nms_kernels, device), keep, KA.allocate(device, UInt64, W, H), feat,

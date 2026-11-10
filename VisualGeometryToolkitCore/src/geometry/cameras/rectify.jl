@@ -138,7 +138,7 @@ function _rectified_view(
     bm = image_warp(precision, math, Rect(0, 0, Wout, Hout))
     src = on_device(device, img)
     dst = similar(src, Hout, Wout)      # every pixel is written by the warp (out-of-source taps take its zero fill)
-    return FramedImage(in_kind_of(img, image_warp!(dst, bm, src)), window)
+    return FramedImage(on_device(get_backend(img), image_warp!(dst, bm, src)), window)
 end
 
 rectify(rig::StereoRig, images::Tuple{AbstractMatrix, AbstractMatrix}; kwargs...) =

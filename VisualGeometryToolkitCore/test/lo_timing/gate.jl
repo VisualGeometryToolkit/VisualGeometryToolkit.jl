@@ -22,7 +22,10 @@
 #
 # ROBUST ON A BUSY HOST: the bench runs under `taskset` on the least-loaded core
 # whose SMT siblings are idle too (sampled from /proc/stat over 1 s;
-# LO_TIMING_CORE overrides), takes the min of 7 reps, and a run is accepted only
+# LO_TIMING_CORE overrides) of the baseline's CLASS on a hybrid CPU (a
+# performance core is 1.5–2× an efficiency core: a recording takes a
+# performance core and writes `core_class`, a check runs on that class only and
+# skips loudly when none is idle), takes the min of 7 reps, and a run is accepted only
 # when it is quiet — the calibration loop's spread < 2 % and every arm's two
 # fastest reps within 3 %. Up to three runs; an arm over its bound is
 # re-measured once in a fresh process before it fails. When no quiet run is
@@ -49,24 +52,43 @@ function _gate_cpu_jiffies()
 end
 # The logical CPUs sharing core `c` (its SMT siblings, `c` included), from sysfs.
 function _gate_siblings(c)
-    p = "/sys/devices/system/cpu/cpu$c/topology/thread_siblings_list"
-    isfile(p) || return [c]
+    s = _gate_cpu_list("/sys/devices/system/cpu/cpu$c/topology/thread_siblings_list")
+    return isempty(s) ? [c] : s
+end
+
+# A sysfs CPU list ("0-15,20") as integers; empty when the file is absent.
+function _gate_cpu_list(p)
+    isfile(p) || return Int[]
     out = Int[]
     for part in split(strip(read(p, String)), ',')
+        isempty(part) && continue
         lo_hi = parse.(Int, split(part, '-'))
         append!(out, first(lo_hi):last(lo_hi))
     end
     return out
 end
+# The class of core `c` on a hybrid CPU — "performance" (Intel's `cpu_core`) or
+# "efficiency" (`cpu_atom`), whose speeds differ by 1.5–2× — and "uniform" on a
+# CPU with one kind of core. A baseline is valid only on cores of its own class.
+function _gate_core_class(c)
+    c in _gate_cpu_list("/sys/devices/cpu_core/cpus") && return "performance"
+    c in _gate_cpu_list("/sys/devices/cpu_atom/cpus") && return "efficiency"
+    return "uniform"
+end
+# The class a recording takes: the performance cores of a hybrid CPU.
+_gate_record_class() = isempty(_gate_cpu_list("/sys/devices/cpu_core/cpus")) ? "uniform" : "performance"
 
-# The least-loaded core (busy fraction over 1 s) whose SMT siblings are idle
-# too, or `nothing` when every core is busier than 5 %.
-function _gate_pick_core()
+# The least-loaded core of class `class` (any class for `nothing`: a baseline
+# recorded before the class was) whose SMT siblings are idle too (busy fraction
+# over 1 s), or `nothing` when every such core is busier than 5 %.
+function _gate_pick_core(class::Union{Nothing, AbstractString})
     haskey(ENV, "LO_TIMING_CORE") && return parse(Int, ENV["LO_TIMING_CORE"])
     a = _gate_cpu_jiffies(); sleep(1.0); b = _gate_cpu_jiffies()
     util = Dict(c => (b[c][1] - a[c][1]) / max(1, b[c][2] - a[c][2]) for c in keys(a) if haskey(b, c))
     load(c) = maximum(get(util, s, 1.0) for s in _gate_siblings(c))
-    best = argmin(load, filter(!=(0), collect(keys(util))))
+    candidates = filter(c -> c != 0 && (class === nothing || _gate_core_class(c) == class), collect(keys(util)))
+    isempty(candidates) && return nothing
+    best = argmin(load, candidates)
     return load(best) < 0.05 ? best : nothing
 end
 
@@ -109,9 +131,12 @@ function run_lo_timing_gate(DIR::AbstractString)
     else
         base = isfile(BASELINES) ? TOML.parsefile(BASELINES) : nothing
         host = (cpu = Sys.cpu_info()[1].model, julia = string(VERSION))
-        core = _gate_pick_core()
+        # the class of core the timing runs on: the baseline's own (any, for a baseline
+        # recorded before the class was), the performance cores for a recording
+        class = MODE == "record" || base === nothing ? _gate_record_class() : get(base["host"], "core_class", nothing)
+        core = _gate_pick_core(class)
         if core === nothing
-            _gate_skip("no idle core (every core > 5 % busy over 1 s) — the machine is too busy to time")
+            _gate_skip("no idle $(something(class, "")) core (every one > 5 % busy over 1 s, or none of that class) — the machine is too busy to time")
         elseif MODE == "record"
             m = _gate_quiet_measurement(core, DIR)
             if m === nothing
@@ -124,6 +149,7 @@ function run_lo_timing_gate(DIR::AbstractString)
                 println(io, "[host]")
                 println(io, "cpu = ", repr(host.cpu)); println(io, "julia = ", repr(host.julia))
                 println(io, "core = ", core)
+                println(io, "core_class = ", repr(_gate_core_class(core)))
                 for name in sort!(collect(keys(m["arms"])))
                     a = m["arms"][name]
                     println(io, "\n[arms.", repr(name), "]")

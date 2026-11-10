@@ -30,7 +30,6 @@
 # package extension, with the batched-kernel rules.
 # =============================================================================
 
-using Adapt: adapt
 
 # ---------------------------------------------------------------------------
 # The scalar basis (hoisted from RadiometricCamera src/camera/bspline.jl,
@@ -279,8 +278,7 @@ function contract_basis_4d_weighted(
     A, B, dims = _basis_pair_4d(u1, u2, u3, u4, degrees, k1, k2, k3, k4)
     w_vec = vec(w)
     backend = get_backend(u1)
-    w_dev = (eltype(w_vec) === Float32 && get_backend(w_vec) == backend) ?
-        w_vec : adapt(backend, Float32.(w_vec))
+    w_dev = on_device(Float32, backend, w_vec)
     return _contract_pair_weighted(A, B, w_dev, dims)
 end
 

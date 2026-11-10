@@ -280,6 +280,8 @@ const RETIRED_NAMES = String[
     "_to" * "_host",                         # VisualGeometryToolkitFeatures: `on_device(KA.CPU(), A)` (Core's one upload, base/device.jl)
     "_upload" * "_i32",                      # VisualGeometryToolkitFeatures: `ka_upload(Int32, dev, v)` (Core's one upload, base/device.jl)
     "_ka" * "_upload",                       # VisualGeometryToolkitFeatures' upload, hoisted public: `VisualGeometryToolkitCore.ka_upload`
+    "in_kind" * "_of",                       # a forwarding wrapper, deleted: `on_device(get_backend(like), A)`
+    "_on" * "_backend",                      # VisualGeometryToolkitFeatures: `on_device(T, dev, A)` (an array on `dev` in `T`, else a copy there)
     "_REFINE_ROBOT_WORLD" * "_MAX_MARKERS",  # VisualGeometryToolkitEstimation: the robot-world refinement's 4-marker cap, removed (2026-10-01)
     # robot-world/hand-eye calibration is named as such (VisualGeometryToolkitEstimation,
     # 2026-10-01): AX = YB, eye-to-hand; "hand_eye" is two tokens

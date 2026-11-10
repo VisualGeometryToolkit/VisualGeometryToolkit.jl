@@ -872,7 +872,7 @@ function undistort(
         device::KA.Backend = default_device()
     )
     src = on_device(device, img)
-    return in_kind_of(img, undistort!(similar(src), model, src))
+    return on_device(get_backend(img), undistort!(similar(src), model, src))
 end
 # "No camera" is the identity: BlobBoards' pipeline (_undistort_adapt) supplies
 # `nothing` when a stage has no calibration. Consumed downstream; keep.
@@ -967,7 +967,7 @@ function undistort(
     # `fillvalue`, which is why that had to be a keyword rather than a `fill!`.
     src = on_device(device, img)
     dst = similar(src, ceil(Int, wd[2] / scale), ceil(Int, wd[1] / scale))
-    return FramedImage(in_kind_of(img, undistort!(dst, model, src, rect; fillvalue))::AbstractMatrix, rect)
+    return FramedImage(on_device(get_backend(img), undistort!(dst, model, src, rect; fillvalue))::AbstractMatrix, rect)
 end
 
 """

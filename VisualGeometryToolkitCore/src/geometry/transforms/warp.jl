@@ -49,7 +49,8 @@
 
 using CoordinateTransformations: Transformation, Translation, LinearMap, AffineMap,
     PerspectiveMap, ComposedTransformation
-using ImageCore: ImageCore, Colorant, clamp01, floattype
+using ImageCore: ImageCore, Colorant, clamp01, floattype, mapc
+using FixedPointNumbers: FixedPoint   # a fixed-point colorant's store (`_store`)
 
 # -----------------------------------------------------------------------------
 # Row/col ↔ (x, y) permutation — singleton Transformation, zero arithmetic.
@@ -304,6 +305,12 @@ _sample_type(::Type{C}) where {C <: Colorant} = floattype(C)
 @inline _store(::Type{T}, v) where {T <: AbstractFloat} = T(v)
 @inline _store(::Type{UInt8}, v) = round(UInt8, clamp(v, zero(v), oftype(v, 255)))
 @inline _store(::Type{C}, v) where {C <: Colorant} = convert(C, clamp01(v))
+# A fixed-point colorant (`Gray{N0f8}`, `RGB{N0f8}`, …) through FixedPointNumbers'
+# unchecked conversion `x % T`: the value is clamped to [0, 1] first, so it cannot
+# overflow, and it rounds as the checked `convert` does there (the same
+# `round(rawone · x)`). The checked one's error branch builds its message with
+# `show`, which a GPU kernel cannot compile.
+@inline _store(::Type{C}, v) where {C <: Colorant{<:FixedPoint}} = C(mapc(x -> x % eltype(C), clamp01(v)))
 
 # ONE warp kernel: output (i, j) of warp k samples `src` at warps[k]((i, j)).
 # `warps` is a device vector of isbits BoundedMaps (the batch, launched over the

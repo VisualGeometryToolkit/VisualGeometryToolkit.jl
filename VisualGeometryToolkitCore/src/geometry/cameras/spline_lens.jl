@@ -674,7 +674,9 @@ end
     n = norm(S)
     d = S / n
     m = inv(n)
-    return d, m * S, hcat((Sx - d * dot(d, Sx)) * m, (Sy - d * dot(d, Sy)) * m)
+    # `sum(d .* Sx)`, not `dot`: StaticArrays' `dot` is an `@simd` reduction, whose order
+    # (so the last digit) is the compilation context's; the unrolled sum has one order
+    return d, m * S, hcat((Sx - d * sum(d .* Sx)) * m, (Sy - d * sum(d .* Sy)) * m)
 end
 
 # The direction `d = S/‖S‖` and its Jacobian `∂d/∂x` (3 × 2): the lens's
@@ -787,16 +789,28 @@ function project(
     )
     length(p₀s) == length(rays) || throw(ArgumentError("project: length(p₀s) != length(rays)"))
     N = length(rays)
+    rs, ss = _concrete_points(rays), _concrete_points(p₀s)
     px = KA.allocate(device, SVector{2, Float64}, N)
     ok = KA.allocate(device, Bool, N)
     if N > 0
         _spline_project_kernel!(device, 64)(
-            px, ok, Adapt.adapt(device, cam.lens), cam.intrinsics, on_device(device, rays), on_device(device, p₀s),
+            px, ok, Adapt.adapt(device, cam.lens), cam.intrinsics, on_device(device, rs), on_device(device, ss),
             iters, Float64(tol)^2; ndrange = N
         )
         KA.synchronize(device)
     end
-    return (; px = in_kind_of(rays, px), ok = in_kind_of(rays, ok))
+    return (; px = on_device(get_backend(rays), px), ok = on_device(get_backend(rays), ok))
+end
+
+# A batch of points as the kernels take it: of a concrete element type. A host vector
+# of an abstract one (`Vector{StaticVector{2}}`, which the batched signatures admit) is
+# converted to `SVector`s of its elements' promoted number type; any other batch is
+# taken as it is.
+_concrete_points(xs::AbstractVector) = xs
+function _concrete_points(xs::AbstractVector{<:StaticVector{N}}) where {N}
+    isconcretetype(eltype(xs)) && return xs
+    T = isempty(xs) ? Float64 : mapreduce(eltype, promote_type, xs)
+    return SVector{N, T}.(xs)
 end
 
 @kernel function _spline_backproject_kernel!(rays, lens, intrinsics, s, @Const(pixels))
@@ -820,14 +834,15 @@ function backproject(
     )
     l = Adapt.adapt(device, cam.lens)
     intr = cam.intrinsics
-    Tx = eltype(_normalized_point(intr, zero(eltype(pixels))))
+    pts = _concrete_points(pixels)
+    Tx = eltype(_normalized_point(intr, zero(eltype(pts))))
     rays = KA.allocate(device, SVector{3, promote_type(Tx, eltype(eltype(l.backward.controls)))}, length(pixels))
     if !isempty(pixels)
         s = _lattice_scales(Tx, l.backward.area, size(l.backward.controls))
-        _spline_backproject_kernel!(device, 64)(rays, l, intr, s, on_device(device, pixels); ndrange = length(pixels))
+        _spline_backproject_kernel!(device, 64)(rays, l, intr, s, on_device(device, pts); ndrange = length(pixels))
         KA.synchronize(device)
     end
-    return in_kind_of(pixels, rays)
+    return on_device(get_backend(pixels), rays)
 end
 
 # ------------------------------------------------------------------------------

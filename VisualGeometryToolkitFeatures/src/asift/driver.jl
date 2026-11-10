@@ -857,10 +857,10 @@ function AsiftPlan(
         tapmh[1:length(tp), w] .= tp
         radh[w] = Int32(length(tp) - 1)
     end
-    rp = KA.allocate(dev, Float32, 8, nw); copyto!(rp, rph)
-    fpt = KA.allocate(dev, Float32, 5, nw); copyto!(fpt, fpth)
-    tapm = KA.allocate(dev, Float32, 17, nw); copyto!(tapm, tapmh)
-    rads = KA.allocate(dev, Int32, nw); copyto!(rads, radh)
+    rp = ka_upload(Float32, dev, rph)
+    fpt = ka_upload(Float32, dev, fpth)
+    tapm = ka_upload(Float32, dev, tapmh)
+    rads = ka_upload(Int32, dev, radh)
 
     wph = zeros(Float32, 11, nw)
     for (w, g) in enumerate(geo)

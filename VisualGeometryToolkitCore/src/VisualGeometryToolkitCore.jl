@@ -116,7 +116,7 @@ export bbox
 # Compute backend dispatch tags (shared across the package family)
 export ClosedInterval  # Re-export from IntervalSets
 export default_device, reset_default_device!   # the ONE KA backend resolver (base/device.jl)
-public ka_upload, on_device, in_kind_of   # the ONE upload to a device and back: a copy there, an array there, a result in the caller's array kind (base/device.jl)
+export ka_upload, on_device   # the ONE upload to a device, beside the resolver: a `T` copy there; the array itself when it is there (base/device.jl)
 
 # Uncertainty types and accessors
 export Uncertain, PrecMat, CovMat

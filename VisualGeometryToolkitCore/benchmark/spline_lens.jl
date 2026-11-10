@@ -4,8 +4,8 @@
 #   julia -t 2 --project=VisualGeometryToolkitCore/benchmark VisualGeometryToolkitCore/benchmark/spline_lens.jl [out.toml]
 #
 # BenchmarkTools minimum; per-call µs for a scalar path (the mean over its point set),
-# ms for a batch or an image. The OLD grid's numbers (CentralGenericModel,
-# NoncentralGenericModel, SplineProjection at BASE 004a004c, the same paths on the same
+# ms for a batch or an image. The OLD grid's numbers (its central and non-central grid
+# models and its fitted forward map, at BASE 004a004c, the same paths on the same
 # machine and thread count, its own script) are recorded below; the timing gate on the
 # CPU paths is test/spline_timing (LO_TIMING_GATE's mechanism).
 #
@@ -32,8 +32,8 @@
 #   gpu parametric batch 1024 × 64² (ms)     |  0.760   |  0.771   |  0.772   |
 #   ⁽ˢ⁾ the old SAMPLED remap (a coarse inverse, interpolated); every 4b warp is exact per pixel.
 #   ⁽ᶠ⁾ the old GPU undistortion does not compile (a non-isbits closure in its coarse phase).
-#   The old grid's script is the same paths at BASE through its API (CentralGenericModel,
-#   NoncentralGenericModel, SplineProjection from the golden spline); not kept, its numbers are.
+#   The old grid's script is the same paths at BASE through its API (the central and
+#   non-central grid models, the forward map from the golden spline); not kept, its numbers are.
 using VisualGeometryToolkitCore, StaticArrays, BenchmarkTools, CUDA, TOML
 import KernelAbstractions as KA
 using LinearAlgebra: norm

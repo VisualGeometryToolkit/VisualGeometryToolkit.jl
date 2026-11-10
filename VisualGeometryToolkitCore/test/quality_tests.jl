@@ -90,8 +90,11 @@
         # `score_model!` — and two come from the new local-optimization contract
         # (`_loss_at`/`_width_s2` on `lo_width(lo) === missing`, the default of
         # an optimizer without a width mode, which has no method there). Lower
-        # it as those go. LOWERED to 12 on 2026-11-10 (plan 1b Task 4b): the
-        # package analysed alone has 12 (the spline-lens fold-in retired one).
+        # it as those go. LOWERED to 12 on 2026-11-10 (plan 1b Task 4b): the report
+        # that went away is `FramedImage(::AbstractMatrix, ::AbstractRange)` (a union
+        # split on `_rectified_view`'s untyped `window`, rectify.jl), gone once the
+        # window is typed `HyperRectangle{2}`; measured with the package analysed
+        # alone, 13 at 02dfb2ed and 12 after.
         jet_bound = 12,
     )
 end

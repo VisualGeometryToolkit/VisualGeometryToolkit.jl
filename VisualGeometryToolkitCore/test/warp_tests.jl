@@ -167,9 +167,7 @@
             )
 
             img_g = Gray{N0f8}.(rand(100, 120))
-            # on the host: the colorant store is not GPU-compilable (a dynamic subtype
-            # test in the N0f8 conversion), so the default device must not be a GPU here
-            u = undistort(cam, img_g; device = VgtkCore.KernelAbstractions.CPU())
+            u = undistort(cam, img_g)
             @test eltype(u) === Gray{N0f8}
             @test size(u) == size(img_g)
 
@@ -224,5 +222,58 @@
         @test ci.data == dst
         # same-size form still returns a bare matrix (placement = the frame)
         @test undistort(m, img) isa AbstractMatrix
+    end
+end
+
+@testitem "undistort and rectify of a Gray{N0f8} image under the GPU default (availability-gated)" begin
+    using Test, StaticArrays, ImageCore, FixedPointNumbers, Random
+    using Rotations: RotMatrix, RotXYZ
+    import KernelAbstractions as KA
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: CameraModel, Lens, Perspective, Additive, Radial, Tangential, undistort, rectify,
+        StereoRig, PosedCamera, EuclideanMap, CameraCalibrationMat, Division, _DEFAULT_DEVICE, reset_default_device!, default_device
+    # The fixed-point colorant store is GPU-compilable (the unchecked `%` conversion after
+    # the clamp): a host `Gray{N0f8}` image under the default device (the GPU) comes back
+    # an `Array{Gray{N0f8}}` within 1 LSB of the host's; a `CuArray` one stays on the device.
+    cuda = try
+        mod = Base.require(Main, :CUDA)
+        (mod !== nothing && Base.invokelatest(getproperty(mod, :functional))) ? mod : nothing
+    catch
+        nothing
+    end
+    if cuda === nothing
+        @test_skip cuda !== nothing      # no functional GPU here: recorded as Broken, not as a success
+    else
+        old_device = _DEFAULT_DEVICE[]
+        try
+            reset_default_device!()
+            gpu = Base.invokelatest(default_device)
+            @test gpu isa Base.invokelatest(getproperty, cuda, :CUDABackend)
+            cam = CameraModel(; focal = 800.0, pp = (60.0, 50.0),
+                lens = Lens(Perspective(), Additive(Radial((-0.15, 0.05)), Tangential(0.003, -0.002))))
+            img = Gray{N0f8}.(rand(Xoshiro(5), 100, 120))
+            lsb(a, b) = maximum(abs.(Int.(reinterpret.(gray.(a))) .- Int.(reinterpret.(gray.(b)))))
+            host = undistort(cam, img; device = KA.CPU())
+            dev = Base.invokelatest(undistort, cam, img)
+            @test dev isa Array{Gray{N0f8}}
+            @test lsb(dev, host) <= 1
+            dimg = Base.invokelatest(getproperty(cuda, :CuArray), img)
+            dd = Base.invokelatest(undistort, cam, dimg)
+            @test !(dd isa Array) && eltype(dd) == Gray{N0f8}
+            @test lsb(Base.invokelatest(Array, dd), host) <= 1
+            Ks = @SMatrix [80.0 0.0 60.0; 0.0 80.0 50.0; 0.0 0.0 1.0]
+            m = CameraModel(CameraCalibrationMat(Ks); lens = Division(-0.12))
+            X = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.0, 0.03, 0.0)), SVector(-40.0, 0.0, 0.0))
+            I3 = EuclideanMap(one(RotMatrix{3, Float64}), zeros(SVector{3, Float64}))
+            rig = StereoRig(PosedCamera(m, I3), PosedCamera(m, X); ids = (:l, :r))
+            rh = rectify(rig, (img, img); device = KA.CPU())
+            rd = Base.invokelatest(rectify, rig, (img, img))
+            for i in 1:2
+                @test rd.images[i].data isa Array{Gray{N0f8}}
+                @test lsb(rd.images[i].data, rh.images[i].data) <= 1
+            end
+        finally
+            _DEFAULT_DEVICE[] = old_device
+        end
     end
 end

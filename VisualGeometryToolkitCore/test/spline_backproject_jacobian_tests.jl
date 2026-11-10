@@ -91,8 +91,7 @@ end
     for x in vcat(interior, slack)
         d, J = _spline_direction_and_jacobian(dctrl, area, x)
         d2, u, J2 = _spline_direction_differential(dctrl, area, x)
-        @test d2 == d
-        @test J2 ≈ J rtol = 1.0e-14      # its last digits are the compilation context's (StaticArrays' `muladd`s fuse as LLVM decides)
+        @test (d2, J2) == (d, J)
         @test u == normalize(spline_value(dctrl, area, x))
         @test d ≈ normalize(spline_value(dctrl, area, x)) rtol = 1.0e-15
         worst_d = max(worst_d, rel(J, ForwardDiff.jacobian(p -> normalize(spline_value(dctrl, area, p)), x)))

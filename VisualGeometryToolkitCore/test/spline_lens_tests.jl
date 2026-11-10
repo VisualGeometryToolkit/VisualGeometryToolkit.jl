@@ -251,8 +251,11 @@ end
             sc = [project(c, X) for X in rays64]
             @test [all(isfinite, p) for p in sc] == b.ok
             @test maximum(i -> norm(sc[i] - b.px[i]), findall(b.ok); init = 0.0) <= 1.0e-9
-            # a forward reads no seed: the same evaluation (to the last digits of the chart's
-            # rotation, StaticArrays' `muladd`s fused as LLVM decides per compilation context)
+            # a forward reads no seed: the same evaluation, to the last digits — not bitwise:
+            # the chart is a `muladd` chain (StaticArrays' `SMatrix * SVector` for its
+            # rotation, Base's `atan` polynomial in the equidistant chart), which LLVM fuses or
+            # not by the inlining context, the batched kernel's and this comprehension's
+            # differing; avoidable only by rewriting those library products
             c.lens.forward === nothing || @test maximum(i -> norm(b.px[i] - sc[i]), findall(b.ok); init = 0.0) <= 1.0e-12
         end
         @test project(cam, SVector{3, Float64}[], SVector{2, Float64}[]).px == SVector{2, Float64}[]
@@ -265,6 +268,13 @@ end
             r = backproject(c, pixels; device = KA.CPU())
             @test all(i -> isequal(r[i], SVector{3, Float64}(backproject(c, pixels[i]))), eachindex(pixels))
         end
+        # a batch of an abstract element type, which the signatures admit
+        # (`Vector{StaticVector{2, Float64}}`: SVectors and MVectors mixed)
+        mixed = StaticVector{2, Float64}[i % 2 == 0 ? MVector{2, Float64}(u) : u for (i, u) in enumerate(pixels)]
+        @test isequal(backproject(cam, mixed; device = KA.CPU()), backproject(cam, pixels; device = KA.CPU()))
+        mrays = StaticVector{3}[backproject(cam, u) for u in pixels[1:n]]
+        @test isequal(project(cam, mrays, StaticVector{2, Float64}[u for u in lattice]; device = KA.CPU()).px,
+            project(cam, SVector{3, Float64}.(mrays), lattice; device = KA.CPU()).px)
         c32 = convert_eltype(Float32, cam)
         @test eltype(c32.lens.backward.controls) == SVector{3, Float32}
         d = adapt(Array, c32)
@@ -333,13 +343,16 @@ end
     using VisualGeometryToolkitCore.Cameras: _spline_camera
 
     # =============================================================================
-    # A guard against the -O2 miscompile of plan 1b Task 3 (test/fixtures/
-    # repro_o2_miscompile.jl; Julia 1.12.7, 1.13.2, 1.13.3): with a ForwardDiff
-    # Jacobian inlined into the LM, the rays a camera images changed with the
-    # optimization level and with how the result was tested. Over the golden rays,
-    # compiled at optimization levels 1 and 2: the fused and the stored test agree,
-    # the two levels agree, and each camera images its golden count at BOTH levels
-    # (so a fault at both levels fails too).
+    # A cross-optimization-level invariance check of the CURRENT code (plan 1b Task 3's
+    # -O2 miscompile: test/fixtures/repro_o2_miscompile.jl, Julia 1.12.7, 1.13.2,
+    # 1.13.3). Over the golden rays, compiled at optimization levels 1 and 2: the fused
+    # and the stored test agree, the two levels agree, and each camera images its
+    # golden count at BOTH levels (so a fault at both levels fails too). It was shown
+    # red against the Task 3 LM shape (a ForwardDiff Jacobian inlined into the LM,
+    # two functions per iteration); the current one-evaluation LM with analytic
+    # Jacobians does not form that pattern, and with it the fault no longer shows even
+    # with an inlined AD Jacobian, so this item guards the current code's invariance,
+    # not that hazard. The hazard's protection is the owner's rule: no AD in an LM.
     # =============================================================================
 
     include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "spline_lens_golden.jl"))

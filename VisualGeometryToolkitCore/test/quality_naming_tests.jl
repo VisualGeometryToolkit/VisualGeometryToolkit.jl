@@ -63,6 +63,8 @@ end
         @test rules("src/a.jl" => "f(x) = x   # a $(tok)\n") == [:R9]                                # in a comment
         @test rules("src/a.jl" => "f(x) = (\"$(tok)\", $(tok))\n") == [:R9]                          # a string beside a name
         @test rules("docs/a.md" => "the $(tok) record\n") == [:R9]                                     # in prose
+        @test rules("src/a.jl" => "\"\"\"\n    f(x)\n\nthe $(tok) record\n\"\"\"\nf(x) = x\n") == [:R9]   # in a docstring
+        @test rules("test/a_tests.jl" => "@testset \"the $(tok) record\" begin end\n") == [:R9]       # in a test's name
         @test rules("src/a.jl" => "f(x) = \"$(old)\"\n") == [:R9]                                    # any other retired name, in a string
     end
 

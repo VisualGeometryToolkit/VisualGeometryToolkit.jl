@@ -961,15 +961,11 @@ function _node_gauge_scale(pixel_direction::ChartSpline{3}, rect::Rect2, c::SVec
     return f[1], f[2]
 end
 
-# The intrinsics of a SplineLens camera built from `source`: a camera keeps its
-# own K (skew 0 required); any other source takes the gauge of the pixel spline
-# of `controls` over `rect`.
-function _spline_intrinsics(source::CameraModel, rect, controls)
-    K = SMatrix{3, 3, Float64}(calibration_matrix(source))
-    iszero(K[1, 2]) || throw(ArgumentError("CameraModel(SplineLens, …): a SplineLens camera has skew 0; the source's K has skew $(K[1, 2])"))
-    return LogicalIntrinsics(CameraCalibrationMat(K))
-end
-_spline_intrinsics(_, rect, controls) = _spline_gauge(ChartSpline(rect, controls), rect)
+# The K a SplineLens camera built from `source` keeps: a camera's own (checked by
+# the one constructor, `CameraModel(SplineLens, controls, size)`); `nothing` for any
+# other source, which takes the gauge of its sampled lattice.
+_source_intrinsics(source::CameraModel) = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(calibration_matrix(source))))
+_source_intrinsics(_) = nothing
 
 # ------------------------------------------------------------------------------
 # The camera: from a source, its lattice, its valid domain
@@ -1016,9 +1012,8 @@ function spline_lattice(
         calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
             (0, 0, _spline_size(size)[1] - 1, _spline_size(size)[2] - 1),
     )
-    rect, gsz = _spline_layout(size, grid_size, calib_area)
-    axis = fill(SVector(0.0, 0.0, 1.0), gsz)
-    return _spline_camera(_spline_intrinsics(source, rect, axis), rect, axis)
+    _, gsz = _spline_layout(size, grid_size, calib_area)
+    return CameraModel(SplineLens, fill(SVector(0.0, 0.0, 1.0), gsz), size; calib_area, intrinsics = _source_intrinsics(source))
 end
 
 """
@@ -1059,8 +1054,8 @@ function CameraModel(
         unit_controls::Bool = init !== :quasi_interpolate,
     )
     rect, gsz = _spline_layout(size, grid_size, calib_area)
-    C = map(v -> SVector{3, Float64}(unit_controls ? _unit_or_normalize(v) : v), _init_directions(source, rect, gsz, init, sampling_margin))
-    return _spline_camera(_spline_intrinsics(source, rect, C), rect, C)
+    C = _init_directions(source, rect, gsz, init, sampling_margin)
+    return CameraModel(SplineLens, C, size; calib_area, intrinsics = _source_intrinsics(source), unit_controls)
 end
 
 """
@@ -1068,11 +1063,13 @@ end
                 intrinsics = nothing, present = nothing, unit_controls = false)
         -> CameraModel{<:LogicalIntrinsics, <:SplineLens}
 
-The [`SplineLens`](@ref) camera of a pixel lattice given by its direction
-controls, as the reference implementation (Schöps et al.'s `intrinsics0.yaml`)
-and the stored grid records state one: `controls` (`[gy, gx]`, NaN where a node
-is absent) laid over the calibrated pixel area `calib_area` (inclusive integer
-bounds `(min_x, min_y, max_x, max_y)` or a `Rect`, the rectangle `[min, max + 1)`;
+THE constructor of a [`SplineLens`](@ref) camera (the source constructor and
+[`spline_lattice`](@ref) build through it): the camera of a pixel lattice given
+by its direction controls, as the reference implementation (Schöps et al.'s
+`intrinsics0.yaml`) and the stored grid records state one: `controls` (`[gy, gx]`;
+an absent node's control is never read, not even by the gauge) laid over the
+calibrated pixel area `calib_area` (inclusive integer bounds
+`(min_x, min_y, max_x, max_y)` or a `Rect`, the rectangle `[min, max + 1)`;
 default the whole image) of an image of `size`, the nodes `present` held
 (`nothing`: every node). Its `K` is `intrinsics` (skew 0, positive focal
 lengths, else an `ArgumentError`) or, without one, the lattice's gauge. Its
@@ -1092,11 +1089,12 @@ function CameraModel(
     gh, gw = Base.size(controls)
     rect, _ = _spline_layout(size, (gw, gh), calib_area)
     C = Matrix{SVector{3, Float64}}(map(v -> SVector{3, Float64}(unit_controls ? _unit_or_normalize(v) : v), controls))
+    present === nothing || (C = _absent_nan(C, present))   # the absent nodes hold no value: the gauge reads none
     if intrinsics !== nothing
         M = SMatrix{3, 3, Float64}(_K(intrinsics))
-        iszero(M[1, 2]) || throw(ArgumentError("CameraModel(SplineLens, controls, …): a SplineLens camera has skew 0; the intrinsics have skew $(M[1, 2])"))
+        iszero(M[1, 2]) || throw(ArgumentError("CameraModel(SplineLens, …): a SplineLens camera has skew 0; the K has skew $(M[1, 2])"))
         (M[1, 1] > 0 && M[2, 2] > 0) ||
-            throw(ArgumentError("CameraModel(SplineLens, controls, …): the focal lengths are positive; got fx = $(M[1, 1]), fy = $(M[2, 2])"))
+            throw(ArgumentError("CameraModel(SplineLens, …): a SplineLens camera's focal lengths are positive; got fx = $(M[1, 1]), fy = $(M[2, 2])"))
     end
     K = intrinsics === nothing ? _spline_gauge(ChartSpline(rect, C), rect) : intrinsics
     return _spline_camera(K, rect, C; present)

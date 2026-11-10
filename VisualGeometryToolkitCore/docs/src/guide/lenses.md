@@ -245,6 +245,14 @@ imaging ẑ). Where light falls is the bound's, not the lens's:
 circle, and `free_nodes(cam, imaged_region(bc))` are the nodes that can reach a
 pixel it images.
 
+A lattice already known — Schöps et al.'s `intrinsics0.yaml`, a stored grid
+record — is built from its controls: `CameraModel(SplineLens, controls, size;
+calib_area, intrinsics, present)` lays the direction controls (`[gy, gx]`) over
+the calibrated pixel area as the reference does, so every pixel backprojects as
+its grid does; `K` is the given one (skew 0) or the lattice's gauge, and an
+absent node's control is never read. It is the one constructor: the source
+constructor and `spline_lattice` build through it.
+
 A lens need not hold the other nodes. Built with `with_present(cam,
 node_mask(cam, region))`, it keeps the same lattice (spacing, basis, the dense
 control matrix) and holds only those nodes; every pixel of the region reads

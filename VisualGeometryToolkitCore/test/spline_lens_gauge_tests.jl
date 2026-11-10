@@ -208,7 +208,14 @@ end
     P = trues(size(C)); P[1, 1] = false
     m = CameraModel(SplineLens, 2 .* C, (640, 480); calib_area = area, intrinsics = cam.intrinsics, present = P, unit_controls = true)
     @test m.lens.present == P && all(v -> abs(sqrt(sum(abs2, v)) - 1) < 1.0e-12, m.lens.backward.controls[P])
-    # a skewed or flipped K has no SplineLens camera
+    # the gauge reads no absent node: finite placeholders there gauge as NaN does (a hole at the centre: the node tier)
+    H = trues(size(C)); H[5:6, 6:7] .= false
+    nan_C = map((v, p) -> p ? v : SVector(NaN, NaN, NaN), C, H)
+    a, b = CameraModel(SplineLens, C, (640, 480); calib_area = area, present = H), CameraModel(SplineLens, nan_C, (640, 480); calib_area = area, present = H)
+    @test a.intrinsics.K == b.intrinsics.K && all(v -> all(isnan, v), a.lens.backward.controls[.!H])
+    # a skewed or flipped K has no SplineLens camera, given or a source's (one check, the one constructor's)
+    flipped = CameraModel(-400.0px, SA[321.5px, 238.25px]; lens = KannalaBrandt(-0.02, 0.003, 0.0, 0.0))
+    @test_throws ArgumentError CameraModel(SplineLens, flipped, (640, 480); grid_size = (12, 10))
     skewed = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(400.0, 0, 0, 0.5, 400.0, 0, 320.0, 240.0, 1)))
     @test_throws ArgumentError CameraModel(SplineLens, C, (640, 480); calib_area = area, intrinsics = skewed)
     @test_throws ArgumentError CameraModel(SplineLens, C, (640, 480); calib_area = (0, 0, 700, 479))   # outside the image

@@ -773,7 +773,22 @@ end
 _LexFrame(kind::Symbol; depth::Int = 0, interp::Bool = false, delim::String = "") =
     _LexFrame(kind, depth, interp, delim)
 
-# The comment and string text of `src` by line; with `comments = false`, its string literals' text alone.
+# Whether the string opening at `cs[i]` is a test's name: the code before it, spaces
+# skipped, ends in `@testset` or `@testitem`.
+function _names_a_test(cs, i)
+    j = i - 1
+    while j >= 1 && cs[j] in (' ', '\t')
+        j -= 1
+    end
+    k = j
+    while k >= 1 && _is_ident_char(cs[k])
+        k -= 1
+    end
+    return k >= 1 && cs[k] == '@' && String(cs[(k + 1):j]) in ("testset", "testitem")
+end
+
+# The comment and string text of `src` by line; with `comments = false`, its plain
+# string literals' text alone (not a docstring's, not a test's name: those are prose).
 function _julia_prose(src::AbstractString; comments::Bool = true)
     cs = collect(src)
     n = length(cs)
@@ -805,7 +820,10 @@ function _julia_prose(src::AbstractString; comments::Bool = true)
             elseif c == '"' || c == '`'
                 interp = !(i > 1 && _is_ident_char(cs[i - 1]))
                 delim = at(i + 1) == c && at(i + 2) == c ? string(c, c, c) : string(c)
-                push!(frames, _LexFrame(:string; interp, delim))
+                # with `comments = false` only plain literals are kept: a docstring (triple-quoted) and a
+                # test's name (`@testset "…"`, `@testitem "…"`) are prose
+                as_prose = !comments && (length(delim) == 3 || _names_a_test(cs, i))
+                push!(frames, _LexFrame(as_prose ? :prose_string : :string; interp, delim))
                 i += length(delim)
             elseif c == '\''
                 p = i > 1 ? cs[i - 1] : ' '
@@ -831,20 +849,21 @@ function _julia_prose(src::AbstractString; comments::Bool = true)
             else
                 i += 1
             end
-        elseif top.kind === :string
+        elseif top.kind === :string || top.kind === :prose_string
             delim = top.delim
+            keep = top.kind === :string
             if c == '\\' && at(i + 1) != '\n'
-                print(buf, c, at(i + 1))
+                keep && print(buf, c, at(i + 1))
                 i += 2
             elseif all(k -> at(i + k - 1) == delim[k], 1:length(delim))
                 pop!(frames)
-                print(buf, ' ')                              # separate literals stay separate words
+                keep && print(buf, ' ')                      # separate literals stay separate words
                 i += length(delim)
             elseif top.interp && c == '$' && at(i + 1) == '('
                 push!(frames, _LexFrame(:code; depth = 1, interp = true))
                 i += 2
             else
-                print(buf, c)
+                keep && print(buf, c)
                 i += 1
             end
         elseif top.kind === :line_comment

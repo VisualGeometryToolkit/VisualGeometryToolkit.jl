@@ -47,62 +47,84 @@ struct MappedSurface{M, T}
     map::M
     frame::Quad{T}
 end
-# The device form: every member of the chart map adapted (a thin-plate kind's
-# matrices become device arrays), the isbits frame as it is. (CT's composition
-# has no Adapt rule of its own, and it is not this package's to give one.)
-Adapt.adapt_structure(to, s::MappedSurface) = MappedSurface(_adapt_members(to, s.map), s.frame)
-_adapt_members(to, c::ComposedTransformation) = ComposedTransformation(_adapt_members(to, c.t1), _adapt_members(to, c.t2))
-_adapt_members(to, c) = Adapt.adapt(to, c)
+# The members of a chart map, each mapped by `f` and the composition rebuilt
+# (`_map_members`, target_calibration.jl, through the plain calibration member
+# too): ONE traversal for the device form, a float type and a Dual layer's values.
+# The device form: every member adapted (a thin-plate kind's matrices become
+# device arrays), the isbits frame as it is. (CT's composition has no Adapt rule
+# of its own, and it is not this package's to give one.)
+Adapt.adapt_structure(to, s::MappedSurface) = MappedSurface(_map_members(x -> Adapt.adapt(to, x), s.map), s.frame)
 # The surface in another float type (a Float32 device form): every member of
 # the chart map and the frame converted, nothing re-solved.
-convert_eltype(::Type{T}, s::MappedSurface) where {T <: AbstractFloat} = MappedSurface(_convert_members(T, s.map), Quad{T}(s.frame))
-_convert_members(::Type{T}, c::ComposedTransformation) where {T} = ComposedTransformation(_convert_members(T, c.t1), _convert_members(T, c.t2))
-_convert_members(::Type{T}, c::CoordinateTransformations.LinearMap{<:StaticMatrix{<:Any, <:Any, Bool}}) where {T} = c
-_convert_members(::Type{T}, S::SimilarityMap{N}) where {T, N} = SimilarityMap(T(S.s), RotMatrix{N, T}(SMatrix{N, N}(S.R)), SVector{N, T}(S.t); check = false)
-_convert_members(::Type{T}, c) where {T} = convert_eltype(T, c)
+convert_eltype(::Type{T}, s::MappedSurface) where {T <: AbstractFloat} = MappedSurface(_map_members(x -> _member_eltype(T, x), s.map), Quad{T}(s.frame))
+_member_eltype(::Type{T}, c::CoordinateTransformations.LinearMap{<:StaticMatrix{<:Any, <:Any, Bool}}) where {T} = c
+_member_eltype(::Type{T}, S::SimilarityMap) where {T} = _member_numbers(v -> T(v), S)
+_member_eltype(::Type{T}, c) where {T} = convert_eltype(T, c)
+# A member with every number mapped by `f` (a Dual layer's values; a conversion):
+# the solver data (a thin-plate kind's system, its bending factor) kept.
+_member_numbers(f, c::CoordinateTransformations.LinearMap{<:StaticMatrix{<:Any, <:Any, Bool}}) = c
+_member_numbers(f, S::SimilarityMap{N}) where {N} = _similarity(f(S.s), map(f, SMatrix{N, N}(S.R)), map(f, S.t))
+_member_numbers(f, E::EuclideanMap{N}) where {N} = EuclideanMap(RotMatrix{N}(map(f, SMatrix{N, N}(rotation(E)))), map(f, translation(E)))
+_member_numbers(f, c::HeightField{K}) where {K} = (h = map(f, c.h); HeightField{K, eltype(h)}(c.system, h, map(f, c.w), map(f, c.a), c.bending, c.physical))
+_member_numbers(f, c::ThinPlateSpline{K}) where {K} = (fx = map(f, c.fx);
+    ThinPlateSpline{K, eltype(fx)}(c.system, fx, map(f, c.fy), map(f, c.wx), map(f, c.ax), map(f, c.wy), map(f, c.ay), c.bending, c.physical))
+_member_numbers(f, c) = with_parameters(c, map(f, parameter_vector(c)))      # the affine factors
+# a similarity of the given parts, unchecked (a device path: no message to build)
+@inline _similarity(s, R::SMatrix{N, N}, t::StaticVector{N}) where {N} =
+    SimilarityMap{N, eltype(R), typeof(s), RotMatrix{N, eltype(R), N * N}, SVector{N, eltype(t)}}(s, RotMatrix{N, eltype(R)}(R), SVector{N}(t))
 bounds(s::MappedSurface) = bounds(s.frame)
 surface_point(s::MappedSurface, p::StaticVector{2}) = s.map(p)
 
-# The iteration budget of a board root and its acceptance: a final residual
-# below √eps of the chart's diagonal (rounding amplified at grazing incidence).
+# The iteration budget of a board root, its box and its scale: the chart's
+# rectangle (in primal Float64: a Dual pose's frame contributes its values), its
+# unit per axis, the acceptance of a final residual below √eps of the chart's
+# diagonal (rounding amplified at grazing incidence), and the diagonal itself,
+# the residual's scale for the LM's precision-aware stops.
 const _BOARD_MAXITER = 100
 @inline function _board_box(q::Quad)
     r = q.rect
-    o, wr = map(_primal, SVector{2}(r.origin)), map(_primal, SVector{2}(r.widths))   # a Dual pose's frame: its values
+    o, wr = map(_primal, SVector{2}(r.origin)), map(_primal, SVector{2}(r.widths))
     lb = SVector{2, Float64}(o)
     ub = SVector{2, Float64}(o + wr)
     w = max.(SVector{2, Float64}(wr), floatmin(Float64))
     L = hypot(w[1], w[2])
-    return lb, ub, _LM_AREA_UNITS ./ w, (sqrt(eps(_primal_float(q))) * L)^2
+    return lb, ub, _LM_AREA_UNITS ./ w, (sqrt(eps(_primal_float(q))) * L)^2, L
 end
 _primal_float(::Quad{T}) where {T} = primal_float(T)
 
-@inline intersection(s::MappedSurface, o::StaticVector{3}, d::StaticVector{3}) = _mapped_intersection(s, o, d)
-# (the generic root; a height field over an affine chart has a 1-D fast path, target_surfaces.jl)
-@inline function _mapped_intersection(s::MappedSurface, o::StaticVector{3}, d::StaticVector{3})
-    t0, x0 = _plane_hit(s.frame, o, d)
-    p0 = _plane_coordinates(s.frame, x0)
-    b1, b2 = s2_tangent_basis(d)                 # an orthonormal pair across the ray (Core's one tangent basis of S²),
-    u1, u2 = oftype(d, b1), oftype(d, b2)        # in the ray's element type
+# The residual and its Jacobian of a ray hit, `map(p) − o` across the ray
+# (an orthonormal pair across d, Core's one tangent basis of S², in the ray's
+# element type), and of a chart lookup, `map(p) − x`.
+@inline function _hit_residual(s::MappedSurface, o::StaticVector{3}, d::StaticVector{3})
+    b1, b2 = s2_tangent_basis(d)
+    u1, u2 = oftype(d, b1), oftype(d, b2)
     function fj(p)
         X = s.map(p)
         J = transform_deriv(s.map, p)
         δ = X - o
         return SVector(dot(u1, δ), dot(u2, δ)), vcat(u1' * J, u2' * J)
     end
-    lb, ub, sc, tol2 = _board_box(s.frame)
-    seed_ok = all(isfinite, map(_primal, p0))
-    p, ok = _board_root(fj, ifelse(seed_ok, map(_primal, p0), oftype(map(_primal, p0), (lb + ub) / 2)), lb, ub, sc, tol2)
+    return fj
+end
+@inline _chart_residual(s::MappedSurface, x::StaticVector{3}) = p -> (s.map(p) - x, transform_deriv(s.map, p))
+
+@inline intersection(s::MappedSurface, o::StaticVector{3}, d::StaticVector{3}) = _mapped_intersection(s, o, d)
+# (the generic root; a height field over an affine chart has a 1-D fast path, target_surfaces.jl)
+@inline function _mapped_intersection(s::MappedSurface, o::StaticVector{3}, d::StaticVector{3})
+    t0, x0 = _plane_hit(s.frame, o, d)
+    p0 = map(_primal, _plane_coordinates(s.frame, x0))
+    lb, ub, sc, tol2, L = _board_box(s.frame)
+    seed_ok = all(isfinite, p0)
+    p, ok = _board_root(_hit_residual, (s, o, d), ifelse(seed_ok, p0, oftype(p0, (lb + ub) / 2)), lb, ub, sc, tol2, L)
     x = s.map(p)
     t = dot(x - o, d) / dot(d, d)
     return _masked(seed_ok & ok & (t >= 0) & _in_rect(s.frame.rect, map(_primal, p)), t, x)
 end
 
 @inline function chart(s::MappedSurface, x::StaticVector{3})
-    p0 = _plane_coordinates(s.frame, x)
-    fj(p) = (s.map(p) - x, transform_deriv(s.map, p))
-    lb, ub, sc, tol2 = _board_box(s.frame)
-    p, ok = _board_root(fj, map(_primal, p0), lb, ub, sc, tol2)
+    p0 = map(_primal, _plane_coordinates(s.frame, x))
+    lb, ub, sc, tol2, L = _board_box(s.frame)
+    p, ok = _board_root(_chart_residual, (s, x), p0, lb, ub, sc, tol2, L)
     nan = oftype(p[1], NaN)
     return ifelse(ok, p, SVector(nan, nan))
 end
@@ -113,32 +135,39 @@ end
 end
 
 # THE ray–board root behind one narrow interface, so the solver behind it can
-# be swapped: `fj(p) -> (r, ∂r/∂p)` the residual and its Jacobian at a chart
-# point, `x₀` the seed, `[lb, ub]` the box, `s` the chart's unit per axis and
-# `tol2` the acceptance of the final squared residual. Returns `(p, converged)`.
-# Generic in the element type: plain numbers are solved by Core's one static 2-D
-# LM (`_spline_lm`, the SplineLens projection's, in their float type), a
-# ForwardDiff `Dual` residual by the implicit function theorem one layer at a
-# time — the root of the values (recursively), then `∂p = −(JᵀJ)⁻¹Jᵀ ∂r` from
-# ONE evaluation of `fj` in the Duals at that root, the value parts the
-# values' root exactly. No Dual enters the iteration.
-@inline function _board_root(fj::F, x₀::StaticVector{2}, lb, ub, s, tol2) where {F}
-    x = map(_primal, x₀)
-    r, J = fj(x)
-    return _board_root(promote_type(eltype(r), eltype(J)), fj, x, lb, ub, s, tol2)
+# be swapped: `residual(parts...)` builds `fj(p) -> (r, ∂r/∂p)`, the residual and
+# its Jacobian at a chart point, from the problem's parts (the surface and the
+# ray, or the surface and a point); `x₀` the seed, `[lb, ub]` the box, `s` the
+# chart's unit per axis, `tol2` the acceptance of the final squared residual,
+# `L` the residual's scale. Returns `(p, converged)`.
+#
+# The ITERATION IS PLAIN. Plain parts are solved by Core's one static 2-D LM
+# (`_spline_lm`, the SplineLens projection's, in their float type). Parts with
+# ForwardDiff Duals are solved by the implicit function theorem one layer at a
+# time: the parts with the outermost layer's values (the surface's members and
+# frame, the ray) are solved first — recursively, so the LM only ever sees
+# plain numbers — and then `∂p = −(JᵀJ)⁻¹Jᵀ ∂r` comes from ONE evaluation of `fj`
+# on the Dual parts at that root (`J⁻¹` for a square J), the value parts the
+# values' root exactly. Nested Duals (a Hessian) differentiate exactly.
+@inline function _board_root(residual::R, parts::Tuple, x₀::StaticVector{2}, lb, ub, s, tol2, L) where {R}
+    r, J = residual(parts...)(x₀)
+    return _board_root(promote_type(eltype(r), eltype(J)), residual, parts, x₀, lb, ub, s, tol2, L)
 end
-@inline function _board_root(::Type{T}, fj::F, x₀, lb, ub, s, tol2) where {T <: AbstractFloat, F}
+@inline function _board_root(::Type{T}, residual::R, parts::Tuple, x₀, lb, ub, s, tol2, L) where {T <: AbstractFloat, R}
+    fj = residual(parts...)
     fT(p) = (rJ = fj(p); (SVector{length(rJ[1]), T}(rJ[1]), SMatrix{size(rJ[2], 1), 2, T}(rJ[2])))
-    return _spline_lm(fT, SVector{2, T}(x₀), SVector{2, T}(lb), SVector{2, T}(ub), SVector{2, T}(s), _BOARD_MAXITER, T(tol2))
+    return _spline_lm(fT, SVector{2, T}(x₀), SVector{2, T}(lb), SVector{2, T}(ub), SVector{2, T}(s), _BOARD_MAXITER, T(tol2), T(L))
 end
-@inline function _board_root(::Type{D}, fj::F, x₀, lb, ub, s, tol2) where {D <: ForwardDiff.Dual, F}
+@inline function _board_root(::Type{D}, residual::R, parts::Tuple, x₀, lb, ub, s, tol2, L) where {D <: ForwardDiff.Dual, R}
     V = ForwardDiff.valtype(D)
-    lift(p) = map(v -> _lift_dual(D, v), p)
-    fjV(p) = (rJ = fj(lift(p)); (map(x -> _outer_value(D, x), rJ[1]), map(x -> _outer_value(D, x), rJ[2])))
-    pV, ok = _board_root(V, fjV, x₀, lb, ub, s, tol2)
-    rD, JD = fj(lift(pV))
+    pV, ok = _board_root(V, residual, map(x -> _layer_values(D, x), parts), x₀, lb, ub, s, tol2, L)
+    rD, JD = residual(parts...)(map(v -> _lift_dual(D, v), pV))
     Jv = map(x -> _outer_value(D, x), JD)
     G = inv(Jv' * Jv) * Jv'                       # 2 × R: the least-squares inverse (J⁻¹ for a square J)
     ∂(i) = -sum(ntuple(k -> G[i, k] * ForwardDiff.partials(rD[k]), Val(length(rD))))
     return SVector(_with_value(D, pV[1], ∂(1)), _with_value(D, pV[2], ∂(2))), ok
 end
+# A part with D's outermost layer's values: a vector's numbers, a surface's members and frame.
+@inline _layer_values(::Type{D}, x::StaticVector) where {D} = map(v -> _outer_value(D, v), x)
+@inline _layer_values(::Type{D}, s::MappedSurface) where {D} =
+    MappedSurface(_map_members(m -> _member_numbers(v -> _outer_value(D, v), m), s.map), _map_numbers(v -> _outer_value(D, v), s.frame))

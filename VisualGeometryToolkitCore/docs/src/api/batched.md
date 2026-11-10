@@ -148,14 +148,13 @@ unchanged). [`ThinPlateSplineSystem`](@ref) is the host-side solver; the evaluat
 [`tps_evaluate`](@ref) and its gradient [`tps_gradient`](@ref) take isbits
 `(nodes, w, a)`, allocate nothing and run in a KernelAbstractions kernel.
 [`tps_coefficients`](@ref) is a loop (no BLAS), and with the pure-bending
-projection [`tps_pure_bending`](@ref) and the two together,
-[`tps_bending_coefficients`](@ref), it runs in a kernel on an adapted system
+projection [`tps_pure_bending`](@ref) it runs in a kernel on an adapted system
 (`Adapt.adapt(backend, tps)`, a `Float32` one by `convert_eltype`).
 
 ```julia
 tps = ThinPlateSplineSystem(grid_nodes(5))      # 5 × 5 nodes over [-½, ½]²
 w, a = tps_coefficients(tps, values)            # linear in the 25 nodal values
-v, w, a = tps_bending_coefficients(tps, values) # the plane dropped first: a HeightField's (v, w, a)
+w, a = tps_coefficients(tps, tps_pure_bending(tps, values))   # the plane dropped first: a HeightField's (w, a)
 f = tps_evaluate(tps.nodes, w, a, SVector(0.1, -0.2))
 ∇f = tps_gradient(tps.nodes, w, a, SVector(0.1, -0.2))
 ```

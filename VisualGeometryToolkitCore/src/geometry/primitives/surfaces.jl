@@ -172,6 +172,16 @@ function Quad(origin::StaticVector{3}, frame::StaticMatrix{3, 3}, rect::Rect2, A
     return Quad{T}(plane, o, u, v, Aₜ, SVector{2, T}(b), inv(Aₜ), Rect2{T}(rect))
 end
 Quad{T}(q::Quad{T}) where {T} = q
+# The quad of an orthonormal frame with the identity chart affine, unchecked —
+# the checked constructor's numbers exactly, without its checks' messages: a
+# device builder's (a MappedSurface's frame, geometry/cameras/target_surfaces.jl).
+@inline function _frame_quad(origin::StaticVector{3}, frame::StaticMatrix{3, 3}, rect::Rect2)
+    T = float(promote_type(eltype(origin), eltype(frame), eltype(rect.origin)))
+    R = SMatrix{3, 3, T}(frame)
+    o, u, v = SVector{3, T}(origin), R[:, 1], R[:, 2]
+    I2 = SMatrix{2, 2, T}(1, 0, 0, 1)
+    return Quad{T}(Plane3D(Point3{T}(o...), Vec3{T}(cross(u, v)...)), o, u, v, I2, zero(SVector{2, T}), I2, Rect2{T}(rect))
+end
 Quad{T}(q::Quad) where {T} = _map_numbers(x -> convert(T, x), q, T)
 # Every number of q mapped by f (a conversion, or a Dual's value), as a Quad{T}:
 # the requested T (a conversion's, concrete or not), else the mapped numbers' type.

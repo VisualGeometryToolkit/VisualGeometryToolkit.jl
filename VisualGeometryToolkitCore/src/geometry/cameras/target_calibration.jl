@@ -712,43 +712,41 @@ _with_form(c::HeightField{K, T}, physical::Bool) where {K, T} = HeightField{K, T
 _refit(::HeightField, nodes, (h,)) = _height_field(nodes, h, false)
 
 """
-    fit_height_field(nodes, points, heights; smoothing = 0) -> HeightField
+    HeightField(nodes, points .=> heights; smoothing = 0) -> HeightField
 
 The [`HeightField`](@ref) over `nodes` that fits the scattered `heights` at the
-plane `points` in the least-squares sense, the PLANE REMOVED: the heights are
-modelled as the pure-bending field plus a plane, `zₖ ≈ h(pₖ) + a₁ + a_u uₖ +
-a_v vₖ`, and the plane (the pose's piston and two tilts) is fitted and dropped,
-so the result is pure bending ([`is_pure_bending`](@ref)) and a planar input
-gives a flat field. The unknowns are the field's `K − 3` free directions (the
-pure-bending basis of its nodal heights, the null space of the interpolant's
-affine rows) and the three plane coefficients; the rows are the spline's
-[`nodal_weights`](@ref) at each point (it is linear in its values), solved by a
-pivoted QR (`\`). `smoothing = λ ≥ 0` adds the bending energy `λ hᵀQh`
-([`bending_energy`](@ref)) as `K` residual rows (a smoothing thin-plate spline);
-with `λ = 0` the fit needs at least `K` points in general position.
+plane `points` (`point => height` pairs, Core's correspondence form) in the
+least-squares sense, the PLANE REMOVED: the heights are modelled as the
+pure-bending field plus a plane, `zₖ ≈ h(pₖ) + a₁ + a_u uₖ + a_v vₖ`, and the
+plane (the pose's piston and two tilts) is fitted and dropped, so the result
+is pure bending ([`is_pure_bending`](@ref)) and a planar input gives a flat
+field. A one-step algorithm (one pivoted-QR solve, `\`), the scattered-point
+counterpart of `HeightField(nodes, heights)`, which interpolates nodal values.
+The unknowns are the field's `K − 3` free directions (its target manifold's
+null-space basis of the interpolant's affine rows) and the three plane
+coefficients; the rows are the spline's [`nodal_weights`](@ref) at each point.
+`smoothing = λ ≥ 0` adds the bending energy `λ hᵀQh` ([`bending_energy`](@ref))
+as `K` residual rows (a smoothing thin-plate spline); with `λ = 0` the fit
+needs at least `K` points in general position.
 
-`nodes`, `points` and `heights` share one form: plain numbers, or lengths (the
-field is then physical, as `HeightField(nodes, heights)` is). The
-scattered-point counterpart of the constructor, which interpolates nodal
-values.
+`nodes`, points and heights share one form: plain numbers, or lengths (the
+field is then physical, as `HeightField(nodes, heights)` is).
 """
-function fit_height_field(nodes::AbstractVector, points::AbstractVector, heights::AbstractVector; smoothing::Real = 0.0)
-    length(points) == length(heights) || throw(DimensionMismatch("fit_height_field: $(length(points)) points, $(length(heights)) heights"))
-    (isfinite(smoothing) && smoothing >= 0) || throw(ArgumentError("fit_height_field: smoothing is a finite λ ≥ 0, got $smoothing"))
+function HeightField(nodes::AbstractVector, data::AbstractVector{<:Pair}; smoothing::Real = 0.0)
+    (isfinite(smoothing) && smoothing >= 0) || throw(ArgumentError("HeightField: smoothing is a finite λ ≥ 0, got $smoothing"))
+    points, heights = first.(data), last.(data)
     flat = HeightField(nodes)
     sys, K = flat.system, length(flat.system.nodes)
     z, ph = _lengths(collect(heights))
-    ph == flat.physical || _refuse_form("fit_height_field", first(heights), flat.physical)
+    ph == flat.physical || _refuse_form("HeightField", first(heights), flat.physical)
     ps = [(_check_one_form((flat, p)); _plain_point(p)) for p in points]
-    # the pure-bending basis: the target manifold's, a plain flat field's on these nodes (one null-space basis)
-    B = Matrix(retract_jacobian(TargetManifold(PlanarTarget(collect(sys.nodes); calibration = HeightField(sys, zeros(K))))))
+    B = _free_basis(Matrix{Float64}(LinearAlgebra.I, K, K), _constraint_columns(flat))
     rows = reduce(vcat, [hcat(collect(nodal_weights(sys, p))' * B, [1.0 p[1] p[2]]) for p in ps])
     A = smoothing > 0 ? vcat(rows, hcat(sqrt(smoothing) .* (bending_factor(sys) * B), zeros(K, 3))) : rows
     rhs = smoothing > 0 ? vcat(Float64.(z), zeros(K)) : Float64.(z)
-    size(A, 1) >= size(A, 2) || throw(ArgumentError("fit_height_field: $(length(ps)) points cannot fix $(K - 3) bending directions and a plane; give at least $K points or smoothing > 0"))
+    size(A, 1) >= size(A, 2) || throw(ArgumentError("HeightField: $(length(ps)) points cannot fix $(K - 3) bending directions and a plane; give at least $K points or smoothing > 0"))
     y = A \ rhs
-    h = B * y[1:(K - 3)]
-    return _height_field(sys, flat.bending, SVector{K, Float64}(h), flat.physical)
+    return _height_field(sys, flat.bending, SVector{K, Float64}(B * y[1:(K - 3)]), flat.physical)
 end
 
 # A thin-plate kind's unit move. To or from metres it leaves the stored nodes
@@ -772,17 +770,19 @@ Base.show(io::IO, c::HeightField{K}) where {K} =
 
 # The device form (`Adapt.adapt(backend, c)`) of the thin-plate kinds: the
 # solver's matrices and the bending factor move, the isbits nodes, values,
-# weights and affine parts travel as they are. In a kernel a kind is applied
-# (`c(p)`, `transform_deriv`) and rebuilt from new values (`with_parameters`:
-# `tps_pure_bending` and `tps_coefficients` on the adapted solver), both
-# without allocating. `convert_eltype(T, c)` converts the solver, the values
+# weights and affine parts travel as they are. In a kernel a kind is rebuilt
+# from new values (`with_parameters`: `tps_pure_bending` and `tps_coefficients`
+# on the adapted solver) and applied through a MappedSurface's chart map (its
+# plain member reads the kind's `_apply`/`_point_jacobian`; `transform_deriv`
+# works too). The call `c(p)` is host-only: its one-form check's DimensionError
+# cannot be compiled for a device. `convert_eltype(T, c)` converts the solver, the values
 # and the factor (a Float32 device kind), nothing re-solved.
 Adapt.adapt_structure(to, c::HeightField{K, T}) where {K, T} =
     HeightField{K, T}(Adapt.adapt(to, c.system), c.h, c.w, c.a, Adapt.adapt(to, c.bending), c.physical)
 Adapt.adapt_structure(to, c::ThinPlateSpline{K, T}) where {K, T} =
     ThinPlateSpline{K, T}(Adapt.adapt(to, c.system), c.fx, c.fy, c.wx, c.ax, c.wy, c.ay, Adapt.adapt(to, c.bending), c.physical)
 convert_eltype(::Type{F}, s::ThinPlateSplineSystem{N}) where {F <: AbstractFloat, N} =
-    ThinPlateSplineSystem{N}(map(SVector{2, F}, s.nodes), _eltype_matrix(F, s.coeff), _eltype_matrix(F, s.Q), _eltype_matrix(F, s.plane), _eltype_matrix(F, s.affine))
+    ThinPlateSplineSystem{N}(map(SVector{2, F}, s.nodes), _eltype_matrix(F, s.coeff), _eltype_matrix(F, s.Q), _eltype_matrix(F, s.affine))
 _eltype_matrix(::Type{F}, A::AbstractMatrix{F}) where {F} = A
 _eltype_matrix(::Type{F}, A::AbstractMatrix) where {F} = F.(A)
 convert_eltype(::Type{F}, c::HeightField{K}) where {F <: AbstractFloat, K} =

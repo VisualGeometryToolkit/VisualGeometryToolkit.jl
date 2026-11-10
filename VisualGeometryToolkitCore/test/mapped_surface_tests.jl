@@ -1,7 +1,7 @@
 # =============================================================================
 # The board's deformation on the device, and the surface of its chart map:
 # the thin-plate kinds' device form (Adapt, convert_eltype), the static
-# pure-bending coefficients, fit_height_field, MappedSurface (the surface of
+# pure-bending coefficients, a HeightField from scattered heights, MappedSurface (the surface of
 # pose ∘ S₃ ∘ lift ∘ C ∘ S₂⁻¹, geometry/cameras/mapped_surface.jl) and the
 # deformation's freedom from the pose's gauge.
 # =============================================================================
@@ -86,7 +86,7 @@ end
     using KernelAbstractions
     using KernelAbstractions: @kernel, @index, @Const
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: grid_nodes, ThinPlateSplineSystem, tps_coefficients, tps_pure_bending, tps_bending_coefficients,
+    using VisualGeometryToolkitCore: grid_nodes, ThinPlateSplineSystem, tps_coefficients, tps_pure_bending,
         tps_evaluate, is_pure_bending, convert_eltype
 
     rng = Xoshiro(22)
@@ -96,10 +96,10 @@ end
     bend = SVector{25}(0.01 .* randn(rng, 25))
     raw = bend + SVector{25}(M * [0.3, -0.2, 0.7])                         # a plane on top: the pose's piston and tilts
     # (a) one implementation: the host kinds hold exactly what the static path gives
-    v, w, a = tps_bending_coefficients(sys, raw)
+    v = tps_pure_bending(sys, raw)
+    w, a = tps_coefficients(sys, v)
     H = HeightField(nodes, raw)
     @test parameter_vector(H) == v && H.w == w && H.a == a
-    @test (v, w, a) == (tps_pure_bending(sys, raw), tps_coefficients(sys, tps_pure_bending(sys, raw))...)
     @test is_pure_bending(sys, v) && norm(a) <= 1.0e-14 * norm(v)
     @test tps_pure_bending(sys, v) === v                                    # pure bending is kept bit for bit
     @test norm(tps_pure_bending(sys, SVector{25}(M * [1.0, 2.0, -3.0]))) <= 1.0e-13   # a plane is all pose: nothing left
@@ -110,13 +110,13 @@ end
     @test H(p)[3] ≈ tps_evaluate(sys.nodes, SVector{25}(wa[1:25]), SVector{3}(wa[26:28]), p) atol = 1.0e-12
 
     # (b) a ForwardDiff Dual through it against central differences (the projection's derivative included)
-    g(h) = ((vv, ww, aa) = tps_bending_coefficients(sys, h); tps_evaluate(sys.nodes, ww, aa, p))
+    g(h) = ((ww, aa) = tps_coefficients(sys, tps_pure_bending(sys, h)); tps_evaluate(sys.nodes, ww, aa, p))
     G = ForwardDiff.gradient(g, Vector(raw))
     ε = 1.0e-6
     Gfd = [(g(Vector(raw) + ε * (1:25 .== k)) - g(Vector(raw) - ε * (1:25 .== k))) / 2ε for k in 1:25]
     @test G ≈ Gfd atol = 1.0e-9
     @test abs(sum(G .* (M * [1.0, 0.5, -0.25]))) <= 1.0e-12               # a plane direction moves nothing
-    # at pure-bending values a Dual passes through as it is: the derivative along the subspace (the nodal
+    # at pure-bending values a Dual is kept as it is: the derivative along the subspace (the nodal
     # weights, the kinds' transform_deriv_params), equal to the projected one on every pure-bending direction
     Gv = ForwardDiff.gradient(g, Vector(v))
     @test Gv ≈ collect(VisualGeometryToolkitCore.nodal_weights(sys, p)) atol = 1.0e-12
@@ -125,15 +125,14 @@ end
 
     # (c) allocation-free on the CPU
     allocs(fn, args...) = (fn(args...); @allocated fn(args...))
-    @test allocs(tps_bending_coefficients, sys, raw) == 0
     @test allocs(tps_pure_bending, sys, raw) == 0 && allocs(tps_coefficients, sys, raw) == 0
     d = ForwardDiff.Dual.(raw, 1.0)
-    @test allocs(tps_bending_coefficients, sys, d) == 0
+    @test allocs(tps_pure_bending, sys, d) == 0 && allocs(tps_coefficients, sys, d) == 0
 
     # (d) in a KernelAbstractions kernel, the system adapted, in Float64 and Float32
     @kernel function bending_kernel!(out, @Const(values), s)
         i = @index(Global)
-        _, ww, _ = tps_bending_coefficients(s, values[i])
+        ww, _ = tps_coefficients(s, tps_pure_bending(s, values[i]))
         out[i] = ww
     end
     backend = KernelAbstractions.CPU()
@@ -144,15 +143,15 @@ end
         out = zeros(SVector{25, F}, length(vals))
         bending_kernel!(backend, 16)(out, valsF, sF; ndrange = length(vals))
         KernelAbstractions.synchronize(backend)
-        @test out == [tps_bending_coefficients(sF, x)[2] for x in valsF]
-        host = [tps_bending_coefficients(sys, x)[2] for x in vals]
+        @test out == [tps_coefficients(sF, tps_pure_bending(sF, x))[1] for x in valsF]
+        host = [tps_coefficients(sys, tps_pure_bending(sys, x))[1] for x in vals]
         # within the summation's rounding in F: 64 eps(F) of the terms' magnitudes Σⱼ |Cᵢⱼ vⱼ| (the projection's too)
         C = abs.(sys.coeff[1:25, :])
         @test all(all(abs.(Float64.(a) - b) .<= 64 * eps(F) .* (C * abs.(x) .+ norm(b))) for (a, b, x) in zip(out, host, vals))
     end
 end
 
-@testitem "board deformation: fit_height_field" begin
+@testitem "board deformation: HeightField from scattered heights" begin
     using Test, StaticArrays, Random, LinearAlgebra
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: grid_nodes, is_pure_bending, mm, m, has_units
@@ -163,22 +162,21 @@ end
     pts = [SVector(rand(rng), rand(rng)) for _ in 1:200]
     plane(p) = 0.02 - 0.05p[1] + 0.03p[2]
     z = [truth(p)[3] + plane(p) for p in pts]
-    H = fit_height_field(nodes, pts, z)
+    H = HeightField(nodes, pts .=> z)
     @test H isa HeightField{16} && is_pure_bending(H.system, parameter_vector(H))
     @test norm(parameter_vector(H) - parameter_vector(truth)) <= 1.0e-10 * norm(parameter_vector(truth))
     # a planar input: zero bending
-    Hp = fit_height_field(nodes, pts, plane.(pts))
+    Hp = HeightField(nodes, pts .=> plane.(pts))
     @test norm(parameter_vector(Hp)) <= 1.0e-12
     # smoothing pulls the field towards a plane: less bending energy
-    Hs = fit_height_field(nodes, pts, z .+ 1.0e-3 .* randn(rng, length(z)); smoothing = 1.0e-3)
+    Hs = HeightField(nodes, pts .=> z .+ 1.0e-3 .* randn(rng, length(z)); smoothing = 1.0e-3)
     using VisualGeometryToolkitCore: bending_energy
     @test bending_energy(Hs.system, parameter_vector(Hs)) < bending_energy(truth.system, parameter_vector(truth))
     # lengths: the physical field
-    Hm = fit_height_field([n .* m for n in nodes], [p .* m for p in pts], z .* m)
+    Hm = HeightField([n .* m for n in nodes], [p .* m for p in pts] .=> z .* m)
     @test has_units(Hm) && isapprox(parameter_vector(Hm), parameter_vector(H); rtol = 1.0e-9)
-    @test_throws ArgumentError fit_height_field(nodes, pts[1:5], z[1:5])
-    @test_throws ArgumentError fit_height_field(nodes, pts, z; smoothing = -1)
-    @test_throws DimensionMismatch fit_height_field(nodes, pts, z[1:3])
+    @test_throws ArgumentError HeightField(nodes, pts[1:5] .=> z[1:5])
+    @test_throws ArgumentError HeightField(nodes, pts .=> z; smoothing = -1)
 end
 
 @testitem "board deformation: MappedSurface, the surface of the chart map" begin
@@ -247,9 +245,57 @@ end
             end
             o, d = rays[1]
             @test allocs(intersection, s, o, d) == 0
-            t32, x32 = @inferred intersection(convert_eltype(Float32, s), Float32.(o), Float32.(d))
-            @test t32 isa Float32
+            # Float32 takes the fast path too, and it is the Float32 root to Float32 rounding
+            s32 = convert_eltype(Float32, s)
+            @test VisualGeometryToolkitCore.Cameras._plain_fast(typeof(s32.map), SVector{3, Float32}, SVector{3, Float32})
+            for (o, d) in rays
+                tf, xf = @inferred intersection(s32, Float32.(o), Float32.(d))
+                tg, xg = generic(s32, Float32.(o), Float32.(d))
+                @test tf isa Float32
+                if isnan(tf) != isnan(tg)
+                    # a hit and a miss differ only on the rectangle's edge, within Float32's rounding of the chart point
+                    x64 = generic(s, o, d)[2]
+                    c64 = isnan(x64[1]) ? generic(s, o, d)[2] : chart(s, x64)
+                    lo, hi = rect.origin, rect.origin + rect.widths
+                    @test isnan(c64[1]) || minimum(abs, vcat(c64 - lo, hi - c64)) <= 1.0e-5
+                else
+                    isnan(tf) || @test maximum(abs, xf - xg) <= 64 * eps(Float32) * 2
+                end
+            end
         end
+    end
+
+    @testset "Float32 resolves a sub-millimetre relief (the LM's precision-aware stops)" begin
+        # 0.2 mm heights: the plane-hit seed is within a few tenths of a millimetre of the surface, which the LM's
+        # former absolute eps(Float32) stop on the squared residual accepted as it was
+        Hl = HeightField(nodes, 2.0e-4 .* randn(rng, 16))
+        s = MappedSurface(X, Hl ∘ ThinPlateSpline(nodes), nothing, rect)    # the 2 × 2 root
+        s32 = convert_eltype(Float32, s)
+        plane = MappedSurface(X, ThinPlateSpline(nodes), nothing, rect)
+        e32, eplane = Float64[], Float64[]
+        for (o, d) in rays
+            t, x = intersection(s, o, d)
+            isnan(t) && continue
+            t32, x32 = intersection(s32, Float32.(o), Float32.(d))
+            push!(e32, norm(Float64.(x32) - x))
+            push!(eplane, norm(intersection(plane, o, d)[2] - x))
+        end
+        L = hypot(rect.widths...)
+        @test length(e32) > 100
+        @test maximum(e32) <= 2 * 16 * eps(Float32) * L                     # within the stop's floor (twice: rounding)
+        @test sort(e32)[end ÷ 2] < sort(eplane)[end ÷ 2] / 100              # far nearer the surface than the plane is
+    end
+
+    @testset "the iteration is plain: no Dual reaches the LM" begin
+        c = H ∘ T ∘ A
+        s = MappedSurface(X, c, nothing, rect)
+        o, d = rays[1]
+        ForwardDiff.jacobian(od -> intersection(s, SVector{3}(od[1:3]), SVector{3}(od[4:6]))[2], [o; d])
+        ForwardDiff.hessian(od -> intersection(s, SVector{3}(od[1:3]), SVector{3}(od[4:6]))[2][3], [o; d])
+        # every method instance the LM was compiled for (dispatch tuples: the concrete calls) is Dual-free
+        lm = VisualGeometryToolkitCore.Cameras._spline_lm
+        calls = [mi.specTypes for m in methods(lm) for mi in Base.specializations(m) if Base.isdispatchtuple(mi.specTypes)]
+        @test !isempty(calls) && !any(t -> occursin("ForwardDiff.Dual", string(t)), calls)
     end
 
     @testset "a pure in-plane warp with zero height: the plane hit at the warped point" begin
@@ -318,20 +364,55 @@ end
         pt = PosedTarget(PlanarTarget(design; calibration = c), X)
         s = surface(pt)
         @test s == MappedSurface(X, VisualGeometryToolkitCore.Cameras._stored_calibration(c), nothing, bounds(s))
-        # rebuilt from new nodal heights inside a kernel (with_parameters on the field, the builder)
-        @kernel function rebuild_hits!(t, @Const(heights), field, rest, X, rect, o, d)
+        # rebuilt from new nodal heights inside a kernel: with_parameters on the adapted field, then the
+        # unchecked builder with a placement (the parts checked once, on the host), in the parts' element type
+        build = VisualGeometryToolkitCore.Cameras._mapped_surface
+        # (a kernel adapts each argument: the in-plane spline is given as itself — a CT composition has
+        # no Adapt rule — and composed in the kernel)
+        @kernel function rebuild_hits!(t, @Const(heights), field, spline, affine, X, S, rect, o, d)
             i = @index(Global)
-            si = MappedSurface(X, with_parameters(field, heights[i]) ∘ rest, nothing, rect)
+            Hi = with_parameters(field, heights[i])
+            si = build(X, spline === nothing ? Hi : Hi ∘ (spline ∘ affine), S, rect)
             t[i] = intersection(si, o, d)[1]
         end
         o, d = SVector(0.05, -0.1, 0.0), SVector(0.1, 0.2, 1.0)
         hs = [SVector{16}(0.01 .* randn(rng, 16)) for _ in 1:32]
+        S = SimilarityMap(0.9, one(RotMatrix{3, Float64}), SVector(-0.4, -0.45, 0.0))
+        host(h, spline, F) = intersection(convert_eltype(F, MappedSurface(X, spline === nothing ? with_parameters(H, h) : with_parameters(H, h) ∘ (spline ∘ A),
+                                                                          S, bounds(s))), SVector{3, F}(o), SVector{3, F}(d))[1]
+        parts(F, spline) = (convert_eltype(F, H), spline === nothing ? nothing : convert_eltype(F, spline), convert_eltype(F, A), convert_eltype(F, X),
+                            VisualGeometryToolkitCore.Cameras._member_numbers(v -> F(v), S), Rect2{F}(bounds(s)), SVector{3, F}(o), SVector{3, F}(d))
         backend = KernelAbstractions.CPU()
-        Hd = adapt(backend, H)
-        t = zeros(length(hs))
-        rebuild_hits!(backend, 8)(t, hs, Hd, T ∘ A, X, bounds(s), o, d; ndrange = length(hs))
-        KernelAbstractions.synchronize(backend)
-        @test isequal(t, [intersection(MappedSurface(X, with_parameters(H, h) ∘ (T ∘ A), nothing, bounds(s)), o, d)[1] for h in hs])
+        for spline in (nothing, T), F in (Float64, Float32)                  # the fast path, the 2 × 2 root
+            Hd, TF, AF, XF, SF, rF, oF, dF = parts(F, spline)
+            t = zeros(F, length(hs))
+            rebuild_hits!(backend, 8)(t, [SVector{16, F}(h) for h in hs], adapt(backend, Hd), TF, AF, XF, SF, rF, oF, dF; ndrange = length(hs))
+            KernelAbstractions.synchronize(backend)
+            ref = [host(SVector{16, F}(h), spline, F) for h in hs]
+            @test isequal(isnan.(t), isnan.(ref)) && maximum(abs, filter(isfinite, t - ref)) <= 64 * eps(F)
+        end
+        cuda = try
+            m = Base.require(Main, :CUDA)
+            (m !== nothing && Base.invokelatest(getproperty(m, :functional))) ? m : nothing
+        catch
+            nothing
+        end
+        if cuda === nothing
+            @test_skip cuda !== nothing   # CUDA is in the test target: no functional GPU here
+        else
+            CuArray = getproperty(cuda, :CuArray)
+            gpu = Base.invokelatest(getproperty(cuda, :CUDABackend))
+            for spline in (nothing, T), F in (Float64, Float32)
+                Hd, TF, AF, XF, SF, rF, oF, dF = parts(F, spline)
+                t = Base.invokelatest(CuArray, zeros(F, length(hs)))
+                Base.invokelatest(rebuild_hits!(gpu, 8), t, Base.invokelatest(CuArray, [SVector{16, F}(h) for h in hs]),
+                                  Base.invokelatest(adapt, gpu, Hd), TF === nothing ? nothing : Base.invokelatest(adapt, gpu, TF), AF, XF, SF, rF, oF, dF;
+                                  ndrange = length(hs))
+                tg = Base.invokelatest(Array, t)
+                ref = [host(SVector{16, F}(h), spline, F) for h in hs]
+                @test isequal(isnan.(tg), isnan.(ref)) && maximum(abs, filter(isfinite, tg - ref)) <= 64 * eps(F)
+            end
+        end
     end
 
     @testset "in a KernelAbstractions kernel, and on CUDA" begin
@@ -467,27 +548,47 @@ end
             J[r, 1:m] = poses[f] * D[k]
             J[r, (m + 6f - 5):(m + 6f)] = hcat(-sk(poses[f] * lift3(pts[k])), Matrix(1.0I, 3, 3))
         end
+        # the condition numbers of the column-normalized Jacobians (a radian, a metre and a deformation
+        # coordinate are not commensurate: unscaled, cond measures the units); the angle is scale-free
+        unit(A) = A ./ [norm(col) for col in eachcol(A)]'
         J1 = J[1:3n, 1:(m + 6)]                                             # one pose: the identity
         Qd = Matrix(qr(J1[:, 1:m]).Q)[:, 1:m]
         Qp = Matrix(qr(J1[:, (m + 1):end]).Q)[:, 1:6]
-        return (m = m, cond = cond(J), cond1 = cond(J1), angle = acos(min(1.0, opnorm(Qd' * Qp))))
+        F1 = svd(Qd' * Qp)
+        # the principal deformation direction (nearest the pose's span), as the calibration's parameter change
+        y = J1[:, 1:m] \ (Qd * F1.U[:, 1])
+        mode = Matrix(retract_jacobian(ch)) * y
+        return (m = m, cond = cond(unit(J)), cond1 = cond(unit(J1)), angle = acos(min(1.0, F1.S[1])), mode = mode / norm(mode))
     end
-    # measured 2026-11-10 (cond over three poses, cond at the identity pose alone, smallest principal angle in rad):
-    #   height only        40.4  54.6  0.095
-    #   in-plane only      35.6  54.6  0.095
-    #   Aspect∘Skew∘TPS    44.1  62.6  0.086
-    #   full chain         44.0  62.4  0.086
-    #   Skew alone          3.7   5.2  0.88   (the Iwasawa N: its antisymmetric part is no gauge of the in-plane rotation)
+    # measured 2026-11-10 (cond of the column-normalized Jacobian over three poses, at the identity pose alone, the
+    # smallest principal angle in rad):
+    #   height only        26.3  26.3  0.095
+    #   in-plane only      27.2  26.9  0.095
+    #   Aspect∘Skew∘TPS    31.3  31.6  0.086
+    #   full chain         31.1  31.6  0.086
+    #   Skew alone          2.2   2.1  0.88   (the Iwasawa N: its antisymmetric part is no gauge of the in-plane rotation)
+    #   height, nodes inside the data   6.2  5.7  0.36
+    #   full chain, nodes inside        8.5  8.4  0.29
     # pinned at twice the conditions and half the angles
-    for (name, cal, κ, κ1, α) in (("height only", H, 81, 110, 0.047), ("in-plane only", T, 72, 110, 0.047),
-                                  ("Aspect∘Skew∘TPS", T ∘ Aspect(0.01) ∘ Skew(-0.003), 89, 126, 0.043),
-                                  ("full chain", H ∘ T ∘ Aspect(0.01) ∘ Skew(-0.003), 88, 125, 0.043),
-                                  ("Skew alone", Skew(-0.003), 7.4, 10.4, 0.44))
+    ni = grid_nodes(4; lo = -0.4, hi = 0.4)                                # nodes inside the sampled rectangle
+    for (name, cal, κ, κ1, α) in (("height only", H, 53, 53, 0.047), ("in-plane only", T, 55, 54, 0.047),
+                                  ("Aspect∘Skew∘TPS", T ∘ Aspect(0.01) ∘ Skew(-0.003), 63, 64, 0.043),
+                                  ("full chain", H ∘ T ∘ Aspect(0.01) ∘ Skew(-0.003), 63, 64, 0.043),
+                                  ("Skew alone", Skew(-0.003), 4.4, 4.3, 0.44),
+                                  ("height, nodes inside the data", HeightField(ni, zeros(16)), 13, 12, 0.18),
+                                  ("full chain, nodes inside the data", HeightField(ni, zeros(16)) ∘ ThinPlateSpline(ni) ∘ Aspect(0.01) ∘ Skew(-0.003), 17, 17, 0.145))
         r = stats(cal)
         @testset "$name" begin
             @test r.cond <= κ && r.cond1 <= κ1 && r.angle >= α
         end
     end
+    # THE NEAR-GAUGE, identified: with the nodes outside the data (±0.6 against samples to ±0.5, ±0.4) the
+    # deformation direction nearest the pose's span is a nearly CONSTANT field of nodal heights — a pure-bending
+    # bowl whose curvature lies beyond the samples, so on the data it is almost a piston (0.095 rad from it, a
+    # variance inflation of 1/sin² ≈ 110 along it); with the nodes inside the data the angle is 0.36 rad.
+    mode = stats(H).mode
+    @test abs(sum(mode)) / (sqrt(16) * norm(mode)) > 0.9                  # its correlation with a constant
+    @test stats(HeightField(ni, zeros(16))).angle > 3 * stats(H).angle
 
     # (2) the pose's fields at the nodes are all affine: the pure-bending projection leaves nothing of them
     sys = H.system
@@ -507,4 +608,14 @@ end
     @test_throws ArgumentError minimal_manifold(PlanarTarget(design; calibration = H ∘ T ∘ Scale(0.001) ∘ Aspect(0.01)))
     @test_throws ArgumentError minimal_manifold(PlanarTarget(design; calibration = H ∘ T ∘ EuclideanMap(RotMatrix{2}(0.01), SVector(0.0, 0.0))))
     @test minimal_manifold(PlanarTarget(design; calibration = H ∘ T ∘ Scale(0.001)); known = (:length,)) isa VisualGeometryToolkitCore.TargetManifold
+
+    # a placed target's action through the composition's members, planar (2 rows) and lifted (3 rows)
+    using ForwardDiff
+    P = SimilarityMap(0.9, one(RotMatrix{3, Float64}), SVector(-0.4, -0.45, 0.0))
+    for cal in (T, H ∘ T)
+        tp = PlanarTarget(design; calibration = cal, placement = P)
+        chp = minimal_manifold(tp)
+        Jp = ForwardDiff.jacobian(θ -> points(with_parameters(tp, θ))[3], Vector(parameter_vector(tp)))
+        @test action_jacobian(chp, design[3]) ≈ Jp * Matrix(retract_jacobian(chp)) rtol = 1.0e-10
+    end
 end

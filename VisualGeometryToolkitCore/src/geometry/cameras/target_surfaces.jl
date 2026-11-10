@@ -24,25 +24,26 @@ function surface(pt::PosedTarget{<:PlanarTarget})
     c = geom(physical ? _calibration_unit_move(t, c -> _ustrip_calibration(m, geom(c))) : calibration(t))
     X = geom(pose(pt))
     X = physical ? ustrip(m, X) : X
-    return _surface(Val(is_affine(typeof(c)) && is_planar(typeof(c))), X, c, placement(t), _design_rect(t, physical))
+    # (the target checked and stored its calibration and placement)
+    S = something(placement(t), _identity_placement(Float64))
+    return _surface(Val(is_affine(typeof(c)) && is_planar(typeof(c))), X, c, S, Quad(translation(X), rotation(X), _design_rect(t, physical)))
 end
-# An affine calibration is a plane: the closed-form Quad, its chart's affine the
-# calibration's (placed: `A p + b` with `b = s β − (A − I) o`).
-function _surface(::Val{true}, X, c, P, rect)
-    A, b = _placed_affine(P, _chart_affine(c)...)
-    return Quad(translation(X), rotation(X), rect, A, b)
+# An affine calibration is a plane: the closed-form Quad, its chart's affine read
+# off the design map S₂ ∘ C ∘ S₂⁻¹ (its Jacobian and its image of the origin).
+function _surface(::Val{true}, X, c, S, frame::Quad)
+    D = _design_map(S, c)
+    o = zero(SVector{2, Float64})
+    return Quad(frame.origin, rotation(X), frame.rect, transform_deriv(D, o), D(o))
 end
 # Any other: the composed chart map's surface.
-_surface(::Val{false}, X, c, P, rect) = MappedSurface(X, c, P, rect)
+_surface(::Val{false}, X, c, S, frame::Quad) = _mapped_surface(X, c, S, frame)
 
 """
     MappedSurface(pose, calibration, placement, rect::Rect2) -> MappedSurface
 
 The deformed surface of a posed planar target from its parts — THE builder:
-[`surface`](@ref)`(pt)` calls it with the target's stored parts, and a device
-caller with adapted ones (a [`HeightField`](@ref) or [`ThinPlateSpline`](@ref)
-rebuilt from new nodal values by `with_parameters` on its adapted solver, in a
-kernel). The chart map is the composition
+[`surface`](@ref)`(pt)` builds it from the target's stored parts. The chart
+map is the composition
 
     pose ∘ S₃ ∘ lift ∘ C ∘ S₂⁻¹        (design chart → the pose's frame)
 
@@ -52,24 +53,33 @@ inverse `S₂⁻¹`, the calibration `C` (any kind or composition, plain numbers
 and, for a planar calibration, the lift `(c, 0)`. `rect` is the design chart's
 rectangle. Each member is a CoordinateTransformations map with its
 `transform_deriv`; the composition's derivative is CT's chain rule.
+
+This form checks its parts (the calibration's composition, the placement, the
+pose's frame), on the host. A device caller — a kernel that rebuilds a
+`HeightField` or `ThinPlateSpline` from new nodal values by `with_parameters`
+on its adapted solver — calls the unchecked inner builder
+`VisualGeometryToolkitCore.Cameras._mapped_surface(pose, calibration,
+placement, rect)` with parts it has checked once on the host; it keeps the
+parts' element type (an unplaced target gets the identity placement in that
+type).
 """
-function MappedSurface(X::EuclideanMap{3}, c::TargetCalibration, P::Union{Nothing, SimilarityMap{3}}, rect::Rect2)
-    # an unplaced target is placed by the identity (scale 1, no translation: the
-    # same numbers exactly), so the surface's type does not depend on whether a
-    # target is placed
-    S = P === nothing ? _IDENTITY_PLACEMENT : _stored_placement(P)
-    D = ComposedTransformation(_target_map(S, c), inv(_placement_plane(S)))
-    return MappedSurface(ComposedTransformation(X, D), Quad(translation(X), rotation(X), rect))
-end
-const _IDENTITY_PLACEMENT = _Placement(1.0, RotMatrix{3, Float64}(SMatrix{3, 3, Float64}(1, 0, 0, 0, 1, 0, 0, 0, 1)), SVector(0.0, 0.0, 0.0))
+MappedSurface(X::EuclideanMap{3}, c::TargetCalibration, P::Union{Nothing, SimilarityMap{3}}, rect::Rect2) =
+    _mapped_surface(X, _stored_calibration(c), something(_stored_placement(P), _identity_placement(Float64)), Quad(translation(X), rotation(X), rect))
+# The unchecked builder: no check, no message to build, the parts' element type.
+@inline _mapped_surface(X::EuclideanMap{3}, c, ::Nothing, frame) = _mapped_surface(X, c, _identity_placement(float(eltype(translation(X)))), frame)
+@inline _mapped_surface(X::EuclideanMap{3}, c, S::SimilarityMap{3}, rect::Rect2) = _mapped_surface(X, c, S, _frame_quad(translation(X), rotation(X), rect))
+@inline _mapped_surface(X::EuclideanMap{3}, c, S::SimilarityMap{3}, frame::Quad) =
+    MappedSurface(ComposedTransformation(X, ComposedTransformation(_target_map(S, c), inv(_placement_plane(S)))), frame)
 
 # THE target-frame map of a calibration chart point: S₃ ∘ lift ∘ C (C alone
 # when it lifts the point itself, a height field outermost). Its points are
-# `points(t)` (targets.jl), its posed composition the surface's chart map.
-_target_map(::Nothing, c) = _lifted(Val(is_planar(typeof(c))), _PlainCalibration(c))
-_target_map(P::SimilarityMap{3}, c) = ComposedTransformation(P, _lifted(Val(is_planar(typeof(c))), _PlainCalibration(c)))
+# `points(t)` (targets.jl), its posed composition the surface's chart map; the
+# design map S₂ ∘ C ∘ S₂⁻¹ is a planar calibration's in the design chart.
+_target_map(S::SimilarityMap{3}, c) = ComposedTransformation(S, _lifted(Val(is_planar(typeof(c))), _PlainCalibration(c)))
 _lifted(::Val{true}, c) = ComposedTransformation(_PLANE_LIFT, c)
 _lifted(::Val{false}, c) = c
+_design_map(S::SimilarityMap{3}, c) =
+    ComposedTransformation(_placement_plane(S), ComposedTransformation(_PlainCalibration(c), inv(_placement_plane(S))))
 
 # The calibration as a member of the chart map: its own arithmetic on plain
 # numbers (`_apply`, `_point_jacobian`: the kinds' and CT's chain rule over a
@@ -82,19 +92,13 @@ struct _PlainCalibration{C} <: CoordinateTransformations.Transformation
 end
 @inline (f::_PlainCalibration)(q::StaticVector{2}) = _apply(f.c, q)
 @inline transform_deriv(f::_PlainCalibration, q::StaticVector{2}) = _point_jacobian(f.c, q)
-Adapt.adapt_structure(to, f::_PlainCalibration) = _PlainCalibration(_adapt_members(to, f.c))
-convert_eltype(::Type{T}, f::_PlainCalibration) where {T <: AbstractFloat} = _PlainCalibration(convert_eltype(T, f.c))
+# (the chart map's traversal descends into it: Adapt, convert_eltype, a Dual layer's values)
+_map_members(f, c::_PlainCalibration) = _PlainCalibration(_map_members(f, c.c))
 Base.:(==)(a::_PlainCalibration, b::_PlainCalibration) = a.c == b.c
 Base.hash(f::_PlainCalibration, h::UInt) = hash(f.c, hash(:_PlainCalibration, h))
 # the chart plane in its 3-D frame: (c, 0) — Bool entries, so the lift keeps
 # the point's element type (Float32, Duals)
 const _PLANE_LIFT = CoordinateTransformations.LinearMap(SMatrix{3, 2, Bool}(1, 0, 0, 0, 1, 0))
-
-# A placed target's affine calibration y = J c + β in the chart is, on the
-# design chart, p ↦ p + s (J c + β − c) = J p + (s β − (J − I) o): the same J,
-# b = s β − (J − I) o — exactly 0 with J = I for the identity.
-_placed_affine(::Nothing, J, β) = (J, β)
-_placed_affine(P::SimilarityMap{3}, J, β) = (J, _placement_side(P) * β - (J - one(J)) * _placement_origin(P))
 
 # The rectangle in the design chart: the board, or the nominal points' box —
 # grown by the rounding margin (`_grown_rect`), the one `PlanarTarget` checks
@@ -134,46 +138,59 @@ end
 # ------------------------------------------------------------------------------
 #
 # When the calibration is a HeightField alone or over the planar affine factors
-# (no in-plane ThinPlateSpline), the surface is {o + s·(y, h(y))} in the target
-# frame and the chart is an affine of y, so the 2 × 2 root reduces to ONE
-# unknown: Newton on the ray parameter t of g(t) = z(t) − s·h(y(t)), y(t) the
-# chart point of the ray's plane coordinates, then the design point in closed
-# form. It is the generic root's specialization for this map type, kept because
-# it is faster at the same answer: measured 2026-11-10 on 20 000 rays of a
-# 16-node field (CPU, Float64), 1.1–1.8 µs a ray against the 2 × 2 root's
-# 17 µs (CT's chain rule re-evaluates the field's spline in every member's
-# Jacobian: four sweeps a step against two), the hits within 8.9e-16 of each
-# other and every hit and miss the same (alone, over Aspect ∘ Skew, placed). Plain
-# numbers only: a Dual anywhere (the field, the pose, the ray) takes the generic
-# root, whose implicit derivative is the Jacobian path's.
-const _HeightOnlyMap{C} = ComposedTransformation{<:EuclideanMap{3}, <:ComposedTransformation{ComposedTransformation{_Placement, _PlainCalibration{C}}, <:SimilarityMap{2}}}
+# (no in-plane ThinPlateSpline), the surface is S₃(y, h(y)) in the target frame
+# and the chart is an affine of y, so the 2 × 2 root reduces to ONE unknown:
+# Newton on the ray parameter t of g(t) = z(t) − z_S(m(t)), the ray's height
+# above the plane against the surface's at the ray's plane coordinates m — the
+# surface's z through the chart map's own members (y = S₂⁻¹(m), the field's
+# `_apply` and `_point_jacobian`, S₃ and their `transform_deriv`s) — then the
+# design point S₂(A⁻¹(y)) in closed form. It is the generic root's
+# specialization for this map type, kept because it is faster at the same
+# answer: measured 2026-11-10 on 20 000 rays of a 16-node field (CPU, Float64),
+# 1.1–1.8 µs a ray against the 2 × 2 root's 17 µs (CT's chain rule
+# re-evaluates the field's spline in every member's Jacobian: four sweeps a
+# step against two), the hits within 8.9e-16 of each other and every hit and
+# miss the same (alone, over Aspect ∘ Skew, placed). Plain numbers only, by type:
+# a Dual anywhere (the field, the pose, the ray) takes the generic root, whose
+# implicit derivative is the Jacobian path's. Any float type, any placement's.
+const _HeightOnlyMap{C} = ComposedTransformation{<:EuclideanMap{3},
+    <:ComposedTransformation{<:ComposedTransformation{<:SimilarityMap{3}, _PlainCalibration{C}}, <:SimilarityMap{2}}}
 _height_over_affine(::Type) = false
 _height_over_affine(::Type{<:HeightField}) = true
 _height_over_affine(::Type{ComposedTransformation{A, B}}) where {A, B} = A <: HeightField && is_affine(B) && is_planar(B)
-_field_and_affine(c::HeightField) = (c, SMatrix{2, 2, Float64}(1, 0, 0, 1), zero(SVector{2, Float64}))
+_field_and_affine(c::HeightField) = (c, one(SMatrix{2, 2, eltype(c.h)}), zero(SVector{2, eltype(c.h)}))
 _field_and_affine(c::ComposedTransformation) = (c.t1, _chart_affine(c.t2)...)
+# the numbers' type of a calibration type (its parameter vector's), at compile time
+_numbers_type(::Type{C}) where {C} = eltype(Base.promote_op(parameter_vector, C))
+_numbers_type(::Type{<:EuclideanMap{3, T}}) where {T} = T
+_numbers_type(::Type{<:SimilarityMap{N, T, Sc}}) where {N, T, Sc} = promote_type(T, Sc)
+_plain_fast(::Type{ComposedTransformation{X, ComposedTransformation{ComposedTransformation{S, _PlainCalibration{C}}, I₂}}}, ::Type{O}, ::Type{Dr}) where {X, S, C, I₂, O, Dr} =
+    _height_over_affine(C) && promote_type(_numbers_type(X), _numbers_type(S), _numbers_type(C), eltype(O), eltype(Dr)) <: AbstractFloat
 
 const _HEIGHT_NEWTON_ITERATIONS = 4
 const _HEIGHT_NEWTON_MAX_ITER = 20
 
-@inline function intersection(s::MappedSurface{<:_HeightOnlyMap{C}}, o::StaticVector{3}, d::StaticVector{3}) where {C}
-    c = s.map.t2.t1.t2.c
-    T = promote_type(eltype(s.frame.origin), eltype(parameter_vector(_field_and_affine(c)[1])), eltype(o), eltype(d))
-    (_height_over_affine(C) && T <: AbstractFloat) || return _mapped_intersection(s, o, d)
-    return _height_fast(s, s.map.t2.t1.t1, _field_and_affine(c)..., o, d)
+@inline function intersection(s::MappedSurface{M}, o::StaticVector{3}, d::StaticVector{3}) where {C, M <: _HeightOnlyMap{C}}
+    _plain_fast(M, typeof(o), typeof(d)) || return _mapped_intersection(s, o, d)
+    return _height_fast(s, s.map.t2.t1.t1, _field_and_affine(s.map.t2.t1.t2.c)..., o, d)
 end
 
-@inline function _height_fast(s::MappedSurface, P::_Placement, H::HeightField, J, β, o::StaticVector{3}, d::StaticVector{3})
+@inline function _height_fast(s::MappedSurface, S::SimilarityMap{3}, H::HeightField, J, β, o::StaticVector{3}, d::StaticVector{3})
     q = s.frame
     n = normal(q)
-    side, org = P.s, _placement_origin(P)
-    nodes, w, a = H.system.nodes, H.w, H.a
-    den = dot(d, n)                                # g′ without the height's slope
-    s0 = dot(q.origin - o, n)                      # g(t) = t den − s0 − s h(y(t))
+    S₂ = _placement_plane(S)
+    S₂⁻¹ = inv(S₂)
+    field = _PlainCalibration(H)
+    den = dot(d, n)                                # g′ without the surface's slope
+    s0 = dot(q.origin - o, n)                      # the ray's height above the plane: t den − s0
     cd = SVector(dot(d, q.e_u), dot(d, q.e_v))     # the plane velocity of the ray
+    # the surface's height z_S(m) at plane coordinates m and its gradient, through the members
     function terms(t, x)
-        y = (_plane_coordinates(q, x) - org) / side
-        return t * den - s0 - side * tps_evaluate(nodes, w, a, y), den - dot(tps_gradient(nodes, w, a, y), cd)
+        m = _plane_coordinates(q, x)
+        y = S₂⁻¹(m)
+        Y = field(y)
+        Jz = (transform_deriv(S, Y) * transform_deriv(field, y) * transform_deriv(S₂⁻¹, m))[SVector(3), :]
+        return t * den - s0 - S(Y)[3], den - dot(Jz[1, :], cd)
     end
     t, x = _plane_hit(q, o, d)                     # the seed
     for _ in 1:_HEIGHT_NEWTON_ITERATIONS
@@ -200,7 +217,7 @@ end
         x = o + t * d
     end
     converged |= last <= sqrt(ε)
-    # the design point: y = J c + β, p = org + side·c
-    p = org + side * (J \ ((_plane_coordinates(q, x) - org) / side - β))
+    # the design point: y = J c + β of the affine factors, p = S₂(c)
+    p = S₂(J \ (S₂⁻¹(_plane_coordinates(q, x)) - β))
     return _masked(converged & (t >= 0) & _in_rect(q.rect, p), t, x)
 end

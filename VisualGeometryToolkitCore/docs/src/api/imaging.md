@@ -178,17 +178,23 @@ caster never compiles the root.
 **On the device.** `HeightField`, `ThinPlateSpline` and their
 `ThinPlateSplineSystem` take `Adapt.adapt` (their matrices become device
 arrays) and `convert_eltype` (a `Float32` form); [`tps_pure_bending`](@ref)
-and [`tps_bending_coefficients`](@ref) give a field's pure-bending values and
-spline coefficients from nodal values in a kernel, the same functions the
-host constructors call. [`fit_height_field`](@ref) fits a pure-bending field
-to scattered heights, the plane removed.
+and [`tps_coefficients`](@ref) give a field's pure-bending values and spline
+coefficients from nodal values in a kernel (`with_parameters` on the adapted
+kind), the same functions the host constructors call.
+`HeightField(nodes, points .=> heights; smoothing)` fits a pure-bending field
+to scattered heights, the plane removed (a one-step algorithm).
 
 **No gauge freedom.** The thin-plate kinds' pure bending is the OBLIQUE
 complement of the pose's directions (values orthogonal to the interpolant's
 affine rows, not to the plane fields), so no deformation direction is a pose
 change: the stacked Jacobian of the posed points in the deformation and the
 pose has full rank (test/mapped_surface_tests.jl pins its condition number and
-the smallest principal angle between the two spans for each composition). See
+the smallest principal angle between the two spans for each composition). The
+spans can still come close: with nodes reaching past the detections the
+nearest bending mode is a nearly constant bowl, almost a piston on the data,
+about 5° from the pose's span (a variance inflation of about 110× along that
+mode); a node layout covered by detections and the bending regularizer
+control it. See
 [The Surface a Ray Meets](primitives.md#The-Surface-a-Ray-Meets), where
 `surface` is documented with the primitives.
 

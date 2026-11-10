@@ -137,7 +137,6 @@ public ray_plane_intersection
 # The surface a ray meets (geometry/primitives/surfaces.jl): one protocol,
 # isbits and allocation-free. The verbs are generic words, so they stay public
 # (qualified access), as `model` does.
-export fit_height_field     # a pure-bending HeightField fitted to scattered heights, the plane removed (geometry/cameras/target_calibration.jl)
 export Quad, MappedSurface   # MappedSurface: the surface of a chart map (geometry/cameras/mapped_surface.jl)
 public intersection, chart, bounds, surface, surface_point
 
@@ -212,7 +211,7 @@ public bspline_basis_iterative, evaluate_bspline_surface, bspline_surface_partia
 public evaluate_bspline_4d, bspline_4d_partial, contract_basis_4d_weighted
 # Thin-plate spline (hoisted from RadiometricCamera, arithmetic unchanged): the
 # host-side solver object and the isbits, allocation-free evaluator and gradient.
-public ThinPlateSplineSystem, tps_radial_basis, grid_nodes, tps_coefficients, tps_pure_bending, tps_bending_coefficients
+public ThinPlateSplineSystem, tps_radial_basis, grid_nodes, tps_coefficients, tps_pure_bending
 public tps_evaluate, tps_gradient, nodal_weights, bending_energy, bending_factor
 public SphericalSplineSystem, spherical_spline_kernel, spherical_spline_coefficients, spherical_spline_evaluate   # the spherical spline (Wahba)
 

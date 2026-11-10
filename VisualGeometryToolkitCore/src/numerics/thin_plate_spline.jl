@@ -56,9 +56,9 @@ node positions, the `(N + 3) × N` matrix `coeff` that maps nodal values to the
 spline's weights and affine part, `(w; a) = coeff · values`, and the `N × N`
 bending-energy form `Q` (`valuesᵀ Q values = wᵀ K w`, `K = [U(𝐩ᵢ, 𝐩ⱼ)]`, see
 [`bending_energy`](@ref)), and, read by the target calibration kinds' pure-bending
-rule ([`is_pure_bending`](@ref)), the `N × 3` plane fields `plane = [1 𝐩_x 𝐩_y]`
-at the nodes and the `3 × N` affine rows of `coeff`, `affine` (`a = affine ·
-values`).
+rule ([`is_pure_bending`](@ref), [`tps_pure_bending`](@ref): the plane fields
+`[1 𝐩_x 𝐩_y]` are formed from the nodes), the `3 × N` affine rows of `coeff`,
+`affine` (`a = affine · values`).
 
 Everything it holds is in the CALLER's frame (frame in = frame out): the
 nodes as given, `(w, a)` of the spline `f(𝐩)` in those coordinates, and `Q`
@@ -90,18 +90,17 @@ struct ThinPlateSplineSystem{N, T <: AbstractFloat, M <: AbstractMatrix{T}}
     nodes::SVector{N, SVector{2, T}}
     coeff::M                    # (N+3) × N, the caller's frame
     Q::M                        # N × N, the caller's frame
-    plane::M                    # N × 3: the plane fields [1 x y] at the nodes (the system's P, the caller's frame)
     affine::M                   # 3 × N: coeff's affine rows, a = affine · values
 end
-ThinPlateSplineSystem{N}(nodes::SVector{N, SVector{2, T}}, coeff::M, Q::M, plane::M, affine::M) where {N, T, M <: AbstractMatrix{T}} =
-    ThinPlateSplineSystem{N, T, M}(nodes, coeff, Q, plane, affine)
+ThinPlateSplineSystem{N}(nodes::SVector{N, SVector{2, T}}, coeff::M, Q::M, affine::M) where {N, T, M <: AbstractMatrix{T}} =
+    ThinPlateSplineSystem{N, T, M}(nodes, coeff, Q, affine)
 
 # The device form (`Adapt.adapt(backend, system)`): the matrices move, the
 # (isbits) nodes travel as they are. In a kernel only `coeff` is read
 # (`tps_coefficients`, `tps_pure_bending`); the rest moves with it so the
 # adapted system is one object of the host's layout.
 Adapt.adapt_structure(to, s::ThinPlateSplineSystem{N}) where {N} =
-    ThinPlateSplineSystem{N}(s.nodes, Adapt.adapt(to, s.coeff), Adapt.adapt(to, s.Q), Adapt.adapt(to, s.plane), Adapt.adapt(to, s.affine))
+    ThinPlateSplineSystem{N}(s.nodes, Adapt.adapt(to, s.coeff), Adapt.adapt(to, s.Q), Adapt.adapt(to, s.affine))
 # (`convert_eltype` of a system: geometry/cameras/target_calibration.jl, beside the kinds')
 
 function ThinPlateSplineSystem(nodes::AbstractVector{<:StaticVector{2}})
@@ -124,8 +123,7 @@ function ThinPlateSplineSystem(nodes::AbstractVector{<:StaticVector{2}})
     coeff[N + 2, :] .= σ .* C′[N + 2, :]                                                # (a_x, a_y) = σ (a′_x, a′_y)
     coeff[N + 3, :] .= σ .* C′[N + 3, :]
     Q = Matrix(Symmetric(σ^2 .* (Cw′' * Umat * Cw′)))                                   # Q = σ² Q′
-    P = [ones(N) getindex.(ps, 1) getindex.(ps, 2)]
-    return ThinPlateSplineSystem{N}(SVector{N}(ps), coeff, Q, P, coeff[(N + 1):(N + 3), :])
+    return ThinPlateSplineSystem{N}(SVector{N}(ps), coeff, Q, coeff[(N + 1):(N + 3), :])
 end
 
 """
@@ -215,21 +213,6 @@ const _PLANE_PART_RTOL = 1.0e-12
 @inline _within_rtol(plane, v) = sqrt(sum(abs2, plane)) <= _PLANE_PART_RTOL * sqrt(sum(abs2, v))
 @inline _primal_values(v::StaticVector) = map(_primal, v)
 
-"""
-    tps_bending_coefficients(tps::ThinPlateSplineSystem{N}, values) -> (v, w, a)
-
-The pure-bending values `v = `[`tps_pure_bending`](@ref)`(tps, values)` and
-their spline's weights and affine part `(w, a) = `[`tps_coefficients`](@ref)`(tps,
-v)` (`a` zero to rounding) — what a [`HeightField`](@ref) or
-[`ThinPlateSpline`](@ref) built from `values` holds, by the same two functions.
-Isbits results, allocation-free, generic in the element type (`Dual`s,
-`Float32`) and callable in a KernelAbstractions kernel on an adapted system.
-"""
-@inline function tps_bending_coefficients(tps::ThinPlateSplineSystem{N}, values::AbstractVector) where {N}
-    v = tps_pure_bending(tps, values)
-    w, a = _tps_coefficients(tps.coeff, Val(N), v)
-    return v, w, a
-end
 
 """
     tps_evaluate(nodes, w, a, 𝐩) -> scalar

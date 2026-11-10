@@ -157,14 +157,17 @@ const _Placement = SimilarityMap{3, Float64, Float64, RotMatrix{3, Float64, 9}, 
 _stored_placement(::Nothing) = nothing
 _stored_placement(S::SimilarityMap{3}) =
     (_check_placement(S); _Placement(Float64(S.s), RotMatrix{3, Float64}(SMatrix{3, 3}(S.R)), SVector{3, Float64}(S.t)))
-# the placement's in-plane part S₂ and its parts
-_placement_side(S::SimilarityMap{3}) = S.s
+# the placement's in-plane part S₂ (in the placement's element type, unchecked:
+# a device path), and the identity placement of an unplaced target's chart map
 _placement_origin(S::SimilarityMap{3}) = (t = S.t; SVector(t[1], t[2]))
-_placement_plane(S::SimilarityMap{3}) = SimilarityMap(S.s, RotMatrix{2}(SMatrix{2, 2}(1.0, 0.0, 0.0, 1.0)), _placement_origin(S); check = false)
+@inline function _placement_plane(S::SimilarityMap{3})
+    T = eltype(S.t)
+    return _similarity(S.s, SMatrix{2, 2, T}(1, 0, 0, 1), _placement_origin(S))
+end
+@inline _identity_placement(::Type{T}) where {T} = _similarity(one(T), SMatrix{3, 3, T}(1, 0, 0, 0, 1, 0, 0, 0, 1), zero(SVector{3, T}))
 # the placement after a unit move of the target's numbers, `f` one length's conversion
 _move_placement(S::SimilarityMap{3}, f) = SimilarityMap(f(S.s), S.R, map(f, S.t))
 _move_placement(::Nothing, _) = nothing
-@inline _to_chart(S::SimilarityMap{3}, q::StaticVector{2}) = (q - _placement_origin(S)) / S.s
 
 # ------------------------------------------------------------------------------
 # PlanarTarget
@@ -828,8 +831,15 @@ the pose's spans intersect trivially — the stacked point Jacobian has full
 rank (test/mapped_surface_tests.jl pins its condition number and the smallest
 principal angle between the spans per composition) — which is the
 gauge-freedom statement; a Euclidean orthogonality in point space is not a
-property any parametrization can have. A `Scale` and an in-plane
-`EuclideanMap` ARE pose directions, hence refused without `known`.
+property any parametrization can have. The spans can come close: with a
+4 × 4 node grid reaching past the detections (nodes at ±0.6, samples to
+±0.5 × ±0.4), the nearest bending direction is a nearly constant field of
+nodal heights — a bowl whose curvature lies outside the data, almost a piston
+on it — at about 5° (0.095 rad) from the pose's span, which inflates the
+variance along that one mode about 110×; nodes covered by detections (0.36 rad
+with the grid inside the samples) and the bending regularizer control it. A
+`Scale` and an in-plane `EuclideanMap` ARE pose directions, hence refused
+without `known`.
 
 THE BASIS IS FIXED AT THE ANCHOR, and `recenter` keeps it: the constrained
 directions are constants of the nodes, so the slice is the same wherever it
@@ -890,18 +900,20 @@ function _target_manifold(t::PlanarTarget, fixed::Vector{Symbol})
     f = length(free_axes)
     E = zeros(n, f)                                                    # the free parameter axes
     foreach(((j, i),) -> E[i, j] = 1.0, enumerate(free_axes))
-    D = _constraint_columns(c)
-    B = if size(D, 2) == 0 || f == 0
-        E
-    else
-        X = E' * D                                                     # f × g
-        F = LinearAlgebra.qr(X, LinearAlgebra.ColumnNorm())
-        d = abs.(diag(F.R))
-        r = isempty(d) ? 0 : count(>(sqrt(eps(Float64)) * maximum(d)), d)
-        Q = F.Q * Matrix{Float64}(LinearAlgebra.I, f, f)
-        E * Q[:, (r + 1):f]
-    end
+    B = _free_basis(E, _constraint_columns(c))
     return TargetManifold(t, _basis(B, Val(n <= _STATIC_BASIS_MAX)), fixed)
+end
+# THE null-space step: the directions E y of the axes E that keep Dᵀ E y = 0 (the
+# manifold's basis, and a scattered fit's unknowns, HeightField(nodes, data)).
+function _free_basis(E::Matrix{Float64}, D::AbstractMatrix)
+    f = size(E, 2)
+    (size(D, 2) == 0 || f == 0) && return E
+    X = E' * D                                                         # f × g
+    F = LinearAlgebra.qr(X, LinearAlgebra.ColumnNorm())
+    d = abs.(diag(F.R))
+    r = isempty(d) ? 0 : count(>(sqrt(eps(Float64)) * maximum(d)), d)
+    Q = F.Q * Matrix{Float64}(LinearAlgebra.I, f, f)
+    return E * Q[:, (r + 1):f]
 end
 _basis(B::Matrix{Float64}, ::Val{true}) = SMatrix{size(B, 1), size(B, 2), Float64}(B)
 _basis(B::Matrix{Float64}, ::Val{false}) = B
@@ -919,7 +931,13 @@ action_jacobian(ch::TargetManifold{<:PlanarTarget}, x) = _placed_action(ch.targe
 # in-plane rows and height row come back scaled by the placement's side
 # (`x = p + side·(y − c)`, `side·y₃`: ∂x/∂θ = side·∂y/∂θ).
 _placed_action(::Nothing, c, x, B) = _calibration_action(c, x, B)
-_placed_action(P::SimilarityMap{3}, c, x, B) = P.s * _calibration_action(c, _to_chart(P, _plain_point(x)), B)
+# placed: through the members, ∂/∂θ S₃(lift(C(S₂⁻¹ x))) = ∂S₃ · lift · ∂C/∂θ at S₂⁻¹ x
+function _placed_action(P::SimilarityMap{3}, c, x, B)
+    y = inv(_placement_plane(P))(_plain_point(x))
+    A = _calibration_action(c, y, B)
+    JS = transform_deriv(P, SVector(y[1], y[2], zero(eltype(y))))
+    return size(A, 1) == 2 ? JS[StaticArrays.SOneTo(2), StaticArrays.SOneTo(2)] * A : JS * A
+end
 # ∂C(x)/∂θ · B, multiplying only the rows and columns the calibration's Jacobian
 # can have nonzero: a height field moves only z, a thin-plate spline's two rows
 # each depend on one of its two value blocks.

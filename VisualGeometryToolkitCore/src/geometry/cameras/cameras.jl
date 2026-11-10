@@ -116,7 +116,7 @@ using ..VisualGeometryToolkitCore: pointwise!, ExecutionPolicy, Auto   # a lens 
 using ..VisualGeometryToolkitCore: default_device, on_device   # the family's one backend resolver and upload: the warps' and batched kernels' `device` (base/device.jl)
 import ..VisualGeometryToolkitCore: aspect_ratio  # Extend interface stub (shared with Primitives)
 import ..VisualGeometryToolkitCore: surface, intersection, chart, normal, surface_point, bounds   # a posed target's primitive (target_surfaces.jl); the MappedSurface protocol (mapped_surface.jl)
-using ..VisualGeometryToolkitCore: _plane_hit, _plane_coordinates, _masked, _primal, primal_float, _with_value, _lift_dual, _outer_value   # MappedSurface's root (mapped_surface.jl)
+using ..VisualGeometryToolkitCore: _plane_hit, _plane_coordinates, _masked, _primal, primal_float, _with_value, _lift_dual, _outer_value, _map_numbers, _frame_quad   # MappedSurface's root (mapped_surface.jl)
 using ..VisualGeometryToolkitCore: Quad, Rect2, rotation, _in_rect   # _in_rect: the surface containment test, the board check's too
 using ..VisualGeometryToolkitCore: _check_length   # a length, or a DimensionError (euclidean_map.jl)
 using ..VisualGeometryToolkitCore: Attributed, csponds, Csponds  # composition primitives (depth-attributed points, correspondence sets)
@@ -1110,7 +1110,6 @@ export TargetCalibration, Rigid, ThinPlateSpline, HeightField   # a planar targe
 export Aspect, Skew, Scale                    # the affine print error's gauge-free Iwasawa factors (with a planar EuclideanMap)
 export placement                              # a calibration's dimensionless chart in the target's frame, a SimilarityMap{3} (targets.jl; public, not exported, at the top level)
 export MappedSurface                          # the surface of a chart map: a deformed posed target's (mapped_surface.jl)
-export fit_height_field                       # a pure-bending HeightField fitted to scattered heights, the plane removed (target_calibration.jl)
 export calibration, design, reference, is_planar   # design, reference: public, not exported, at the top level
 export is_affine                         # the surface chart's trait (public, not exported, at the top level)
 export PlanarCalibration                 # the planar kinds as one type (public, not exported, at the top level)

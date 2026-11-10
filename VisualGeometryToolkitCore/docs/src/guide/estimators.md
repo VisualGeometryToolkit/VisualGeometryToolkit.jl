@@ -31,6 +31,7 @@ per-correspondence weights as its `weights` column.
 | Line through 2D points, with its covariance | [`tls_line`](@ref)`(points)` | one-step | VGC |
 | The point nearest to N lines (`origin => direction` pairs) | [`nearest_point`](@ref)`(lines)` | one-step | VGC |
 | Ellipse through 2D points (algebraic, always an ellipse) | [`direct_ellipse`](@ref)`(points)` | one-step | VGC |
+| A pure-bending height field through scattered heights (`point => height` pairs, the plane dropped) | [`HeightField`](@ref)`(nodes, points .=> heights; smoothing)` | one-step | VGC |
 | Normalize points for a solve (centroid, or a known centre) | `AffineMap(`[`HartleyNormalization`](@ref)`(; center), points)` | normalization | VGC |
 | Normalize a correspondence set for a model class | [`CspondNormalization`](@ref VisualGeometryToolkitCore.CspondNormalization)`(M, cs; center)` | normalization | VGC |
 | Store image points resolution-independently (pools) | `AffineMap(`[`DiagonalNormalization`](@ref)`(size))` | normalization | VGC |

@@ -582,9 +582,15 @@ const _PROJECT_TOL = 1.0e-6
 # the DᵀD clamp `[1e-12, 1e16]·s²`. Device-safe — static arrays only, no
 # allocation, no Union return — so the batched kernels run it per ray.
 # Generic in the float type `T` of its arguments (Float32 in a device
-# kernel; at Float64 the reference's operations and constants exactly, the
-# step tolerance scaled by eps(T)/eps(Float64) otherwise); the ray–board root
-# of a MappedSurface calls it too (mapped_surface.jl `_board_root`).
+# kernel; at Float64 the reference's operations and constants exactly). Its stops
+# are precision-aware: the step tolerance is the reference's in ulps of T
+# (`1e-10·eps(T)/eps(Float64)`), and the absolute residual and gradient stops are
+# the reference's `eps(Float64)` or what T resolves of a residual of scale `fs`
+# (`(16 eps(T) fs)²`), whichever is larger — so a Float32 solve stops where
+# Float32 can resolve it, and at Float64 with `fs` of order one (the SplineLens
+# residual, a difference of unit directions) every stop is the reference's
+# exactly. The ray–board root of a MappedSurface calls it with `fs` its chart's
+# diagonal (mapped_surface.jl `_board_root`).
 #
 # It is the ONE device-side exception to the stack's one LM driver: NLLSsolver
 # builds heap problems and cannot run inside a KernelAbstractions kernel, so
@@ -606,17 +612,20 @@ const _PROJECT_TOL = 1.0e-6
 # converged flags identical; gated at 2e-6 px (pixel_lm_reference_tests.jl).
 @inline function _spline_lm(
         fj::FJ, x₀::SVector{2, T}, lb::SVector{2, T}, ub::SVector{2, T},
-        s::SVector{2, T}, maxiter::Int, tol2::T
+        s::SVector{2, T}, maxiter::Int, tol2::T, fs::T = one(T)
     ) where {FJ, T <: AbstractFloat}
     ϵ = eps(T)
     ϵx = T(1.0e-10 * (eps(T) / eps(Float64))) ./ s   # the reference's 1e-10 at Float64, the same in ulps of T
+    # the absolute stops: the reference's eps(Float64), or what T resolves of a residual of scale fs
+    ϵF = max(T(eps(Float64)), (16 * ϵ * fs)^2)
+    ϵG = max(T(eps(Float64)), (16 * ϵ * fs)^2 * maximum(s) / _LM_AREA_UNITS)
     λ = T(1.0e-6)
     x = min.(max.(x₀, lb), ub)
     f, Jx = fj(x)
     F = sum(abs2, f)
-    F < ϵ && return x, F < tol2
+    F < ϵF && return x, F < tol2
     g = Jx' * f
-    norm(g, Inf) < ϵ && return x, F < tol2
+    norm(g, Inf) < ϵG && return x, F < tol2
     JtJ = Jx' * Jx
     DtD = clamp.(diag(JtJ), T(1.0e-12) .* s .^ 2, T(Inf))
     DtD_max = T(1.0e16) .* s .^ 2
@@ -668,7 +677,7 @@ const _PROJECT_TOL = 1.0e-6
             abs(ac) < ϵ * Fold && pr < ϵ * Fold && ρ < 2 && break
             Jx = Jk
             g = Jx' * f
-            norm(g, Inf) < ϵ && break
+            norm(g, Inf) < ϵG && break
             JtJ = Jx' * Jx
             DtD = clamp.(diag(JtJ), DtD, DtD_max)
             if ρ > T(0.75)

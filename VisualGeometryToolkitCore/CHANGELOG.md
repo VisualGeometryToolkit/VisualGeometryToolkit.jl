@@ -26,10 +26,11 @@ sensor — so every consumer asks the camera what it images instead of supplying
 - **New: the thin-plate kinds on the device.** `ThinPlateSplineSystem{N, T, M}`, `HeightField` and `ThinPlateSpline`
   take `Adapt.adapt_structure` (their matrices become device arrays, nodes and values stay isbits) and
   `convert_eltype` (a Float32 device form). `tps_coefficients` is a loop (no BLAS: allocation-free, kernel-safe, any
-  element type), and the pure-bending projection is the new public `tps_pure_bending`, with `tps_bending_coefficients(system, values) -> (v, w, a)` the two in one: the host
-  constructors and a kernel call the same functions.
-- **New: `fit_height_field(nodes, points, heights; smoothing = 0)`**: the pure-bending `HeightField` fitted to
-  scattered heights in the least-squares sense, the plane (the pose's piston and tilts) fitted and dropped.
+  element type), and the pure-bending projection is the new public `tps_pure_bending`: the host constructors and a
+  kernel (`with_parameters` on an adapted kind) call the same two functions.
+- **New: `HeightField(nodes, points .=> heights; smoothing = 0)`**, a one-step algorithm: the pure-bending
+  `HeightField` fitted to scattered heights in the least-squares sense, the plane (the pose's piston and tilts)
+  fitted and dropped.
 - **Breaking: `CameraModel(K; lens, pixel_frame = :colmap)`**: the keyword naming the pixel frame K is stated in
   (`:colmap`, `:opencv`, `:julia`) is `pixel_frame`, formerly `image_origin` (no alias).
 - **New: the `RadialSymmetry` Holy trait** (`RadiallySymmetric()` / `RadiallyAsymmetric()`, public, not exported:

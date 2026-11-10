@@ -125,8 +125,7 @@ function opencv_camera(file_frame::Type{<:PixelFrame}, K::AbstractMatrix{<:Real}
     size(K) == (3, 3) || throw(ArgumentError("opencv_camera: K is 3 × 3; got $(size(K))"))
     (iszero(K[1, 2]) && iszero(K[2, 1]) && iszero(K[3, 1]) && iszero(K[3, 2]) && isone(K[3, 3])) ||
         throw(ArgumentError("opencv_camera: OpenCV's camera matrix is [fx 0 cx; 0 fy cy; 0 0 1]; got $(K)"))
-    c = EuclideanMap(file_frame, CANONICAL_PIXEL_FRAME)(SVector{2, Float64}(K[1, 3], K[2, 3]))
-    K′ = CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0, 0, 0, K[2, 2], 0, c[1], c[2], 1))
+    K′ = VgtkCore.Cameras.reframed_calibration(CameraCalibrationMat(SMatrix{3, 3, Float64}(K)), file_frame, CANONICAL_PIXEL_FRAME)
     return CameraModel(LogicalIntrinsics(K′), opencv_lens(dist))
 end
 
@@ -145,8 +144,8 @@ function opencv_parameters(to_frame::Type{<:PixelFrame}, camera::CameraModel)
         throw(ArgumentError("opencv_parameters: a camera with a calibration matrix (LogicalIntrinsics); got $(typeof(camera.intrinsics))"))
     K = SMatrix{3, 3, Float64}(camera.intrinsics.K)
     iszero(K[1, 2]) || throw(ArgumentError("opencv_parameters: OpenCV's camera matrix has no skew; the camera's K carries skew = $(K[1, 2])"))
-    c = EuclideanMap(CANONICAL_PIXEL_FRAME, to_frame)(SVector(K[1, 3], K[2, 3]))
-    return (; K = SMatrix{3, 3, Float64}(K[1, 1], 0, 0, 0, K[2, 2], 0, c[1], c[2], 1), dist = opencv_coefficients(VgtkCore.lens(camera)))
+    R = VgtkCore.Cameras.reframed_calibration(camera.intrinsics.K, CANONICAL_PIXEL_FRAME, to_frame)
+    return (; K = SMatrix{3, 3, Float64}(R[1, 1], 0, 0, 0, R[2, 2], 0, R[1, 3], R[2, 3], 1), dist = opencv_coefficients(VgtkCore.lens(camera)))
 end
 
 # -----------------------------------------------------------------------------

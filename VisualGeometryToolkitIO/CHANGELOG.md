@@ -16,8 +16,11 @@ On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
   plane, the held nodes as runs per lattice row and their controls row by row, the forward spline exactly when it has
   been fitted — and K is the body's own (a gauge, skew 0). It reads back bit for bit, and moves between pixel frames
   by its K alone.
+- **A stored spline camera's K is refused unless it is a skew-0 gauge** — a `{"spline": …}` lens in a camera store or a
+  rig sensor, and a non-central record — by Core's one check of a spline camera's K, when the camera is built (the
+  non-central record's own copy of the check is gone). A skewed spline lens record once loaded silently.
 - **Breaking: `vgio/generic_camera/v4`** holds the non-central grid camera alone, a
-  `BoundedCamera{<:NoncentralSplineModel}`: `type` "NoncentralSplineModel", the extent, K and
+  `BoundedCamera{<:NoncentralSplineModel}`: `type` "noncentral_spline" (a token of the format, not a Julia type name), the extent, K and
   `{"spline": {"area", "grid_size", "present"?, "directions", "points"}}` (points in `length_unit`), with an optional
   `pitch` and `lens_coverage`; `save(path, camera)`, `load(BoundedCamera, path)`. A record naming the central type is
   refused, pointing at the read below.

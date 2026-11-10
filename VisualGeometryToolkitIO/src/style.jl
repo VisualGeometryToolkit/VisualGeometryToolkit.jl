@@ -131,33 +131,25 @@ _from_parametric_record(proto, x, u) =
 
 # A K's five numbers, its principal point moved from the canonical frame (a
 # stored K's, VGC's) into `frame`, the pixel frame the file declares; and back,
-# the K as the record states it, in the file's frame (`CameraModel(K;
-# image_origin)` moves it into the canonical one).
+# the K as the record states it, in the file's frame, moved into the canonical
+# one. Both moves are Core's one pixel-frame change of a K
+# (`reframed_calibration`, which `CameraModel(K; image_origin)` makes too).
 #
 # The principal point always goes through the frame conversion, the canonical
 # frame's identity included: its `+ 0.0` writes a stored `-0.0` as `0.0`, as
 # the camera bodies always have.
-function _k_record(K::CameraCalibrationMat, frame::Type{<:PixelFrame})
-    c = EuclideanMap(CANONICAL_PIXEL_FRAME, frame)(SVector{2, Float64}(K[1, 3], K[2, 3]))
-    return _k_five(K, c[1], c[2])
-end
-_k_five(K, cx, cy) = (fx = Float64(K[1, 1]), fy = Float64(K[2, 2]), cx = Float64(cx), cy = Float64(cy), skew = Float64(K[1, 2]))
+_k_record(K::CameraCalibrationMat, frame::Type{<:PixelFrame}) = _k_five(VgtkCore.Cameras.reframed_calibration(K, CANONICAL_PIXEL_FRAME, frame))
+_k_five(K) = (fx = Float64(K[1, 1]), fy = Float64(K[2, 2]), cx = Float64(K[1, 3]), cy = Float64(K[2, 3]), skew = Float64(K[1, 2]))
 _k_from_record(k) = CameraCalibrationMat(
     SMatrix{3, 3, Float64}(
         Float64(k.fx::Real), 0, 0, Float64(k.skew::Real), Float64(k.fy::Real), 0, Float64(k.cx::Real), Float64(k.cy::Real), 1,
     )
 )
-# …and the K a record states in `frame`, moved into the canonical frame (the
-# conversion `CameraModel(K; image_origin)` makes, for a model whose K is not a
-# CameraModel's: a non-central grid camera's).
-function _k_from_record(k, frame::Type{<:PixelFrame})
-    K = _k_from_record(k)
-    c = EuclideanMap(frame, CANONICAL_PIXEL_FRAME)(SVector{2, Float64}(K[1, 3], K[2, 3]))
-    return CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0, 0, K[1, 2], K[2, 2], 0, c[1], c[2], 1))
-end
+# …and the K a record states in `frame`, in the canonical frame.
+_k_from_record(k, frame::Type{<:PixelFrame}) = VgtkCore.Cameras.reframed_calibration(_k_from_record(k), frame, CANONICAL_PIXEL_FRAME)
 # the five numbers as an array, as stored (an old grid record's nominal pinhole,
 # the identity's intrinsics: no frame conversion, so a `-0.0` stays), and back
-_k_values(K::CameraCalibrationMat) = collect(Float64, _k_five(K, K[1, 3], K[2, 3]))
+_k_values(K::CameraCalibrationMat) = collect(Float64, _k_five(K))
 _k_from_values(v) = _k_from_record(NamedTuple{(:fx, :fy, :cx, :cy, :skew)}(Tuple(v)))
 
 # An ellipse: its centre, its semi-axes (the major first, as VGC's `Ellipse`

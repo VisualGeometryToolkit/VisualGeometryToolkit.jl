@@ -2,7 +2,7 @@
     "schema": "vgio/generic_camera/v4",
     "pixel_frame": "colmap",
     "length_unit": "mm",
-    "type": "NoncentralSplineModel",
+    "type": "noncentral_spline",
     "width": 64,
     "height": 48,
     "K": {

@@ -192,7 +192,8 @@ end
     cam = spline_camera()
     bc = BoundedCamera(cam, Size2(64, 48))
     msg = "a SplineLens camera has no OpenCV/COLMAP form; store it as a vgio camera record (VisualGeometryToolkitIO.save), " *
-        "or fit a parametric lens to it first (VisualGeometryToolkitEstimation.fit_camera)"
+        "or fit a parametric lens to it first, `VisualGeometryToolkitEstimation.fit_camera(KannalaBrandt{4}, camera, region)` " *
+        "(any lens family; the region of its image to fit over)"   # the route Estimation's fit_camera tests follow
     refused(f) = (e = try f(); nothing catch e; e end; e isa ArgumentError && e.msg == msg)
     @test refused(() -> VgtkIO.opencv_parameters(cam))
     @test refused(() -> VgtkIO.colmap_cameras(Dict(:c => bc)))
@@ -215,7 +216,7 @@ end
         bc = BoundedCamera(nc, Sensor(Size2(width = 64px, height = 48px), 3.45μm); lens_coverage = circle)
         save(p, bc)
         j = parse_json(read(p, String))
-        @test j.schema == "vgio/generic_camera/v4" && j.type == "NoncentralSplineModel" && j.length_unit == "mm"
+        @test j.schema == "vgio/generic_camera/v4" && j.type == "noncentral_spline" && j.length_unit == "mm"   # a token of the format
         @test length(j.spline.directions) == length(j.spline.points) == 8 * 7 - 2 && haskey(j, :pitch)
         back = load(BoundedCamera, p)
         @test VgtkIO.same_value(model(back), nc) && lens_coverage(back) == circle && sensor(back) !== nothing
@@ -265,7 +266,7 @@ end
     mktempdir() do dir
         p = joinpath(dir, "rig.json"); save(p, rig)
         j = parse_json(read(p, String))
-        @test j.schema == "vgio/rig/v9" && haskey(j.sensors[1].camera, :lens) && j.sensors[2].camera.type == "NoncentralSplineModel"
+        @test j.schema == "vgio/rig/v9" && haskey(j.sensors[1].camera, :lens) && j.sensors[2].camera.type == "noncentral_spline"
         back = load(Rig, p)
         @test isequal(model(back[1]).lens.backward.controls, c.lens.backward.controls) && lens_coverage(back[1]) == circle
         @test VgtkIO.same_value(model(back[2]), nc)
@@ -304,4 +305,23 @@ end
         worst_o = max(worst_o, norm(δ - (δ' * d) * d))
     end
     @test worst_d < 1.0e-12 && worst_o < 1.0e-12
+end
+
+@testitem "a spline lens camera's K is a skew-0 gauge in a camera store and a rig sensor: Core's one check" setup = [VGIoFixtures, SplineRecordFixtures] begin
+    using VisualGeometryToolkitCore: Rig, PosedCamera, ViewFrame, relabel
+    using Rotations: RotXYZ
+    cam = spline_camera()
+    X = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.0, 0.0, 0.0)), [0.0mm, 0.0mm, 0.0mm])
+    skewed(f) = t -> (f(t)["K"]["skew"] = 0.25)
+    mktempdir() do dir
+        refusal(p) = (e = try load(p[1], p[2]); nothing catch e; e end; e isa ArgumentError && occursin("skew 0", e.msg))
+        p = joinpath(dir, "cams.json"); save(p, Dict(:grid => BoundedCamera(cam, Size2(64, 48))))
+        r = joinpath(dir, "rig.json"); save(r, Rig{ViewFrame{:g}}((BoundedCamera(PosedCamera(cam, relabel(ViewFrame{:g}, ViewFrame{:a}, X)), Size2(64, 48)),)))
+        for (path, T, f) in ((p, Dict{Symbol, BoundedCamera}, t -> t["cameras"][1]), (r, Rig, t -> t["sensors"][1]["camera"]))
+            @test load(T, path) !== nothing                             # as written: a skew-0 gauge
+            t = JSON.parse(read(path, String)); skewed(f)(t)
+            bad = joinpath(dir, "bad.json"); write(bad, JSON.json(t))
+            @test refusal((T, bad))
+        end
+    end
 end

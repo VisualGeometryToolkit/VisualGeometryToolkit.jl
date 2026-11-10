@@ -8,7 +8,7 @@
 # rectangle of the K-normalized plane x = K⁻¹u:
 #
 # {"schema": "vgio/generic_camera/v4", "pixel_frame": "colmap", "length_unit": "mm",
-#  "type": "NoncentralSplineModel",
+#  "type": "noncentral_spline",
 #  "width": …, "height": …,
 #  "K": {"fx": …, "fy": …, "cx": …, "cy": …, "skew": 0.0},   the gauge pinhole, in the file's pixel frame
 #  "spline": {"area": [x, y, w, h], "grid_size": [gw, gh],
@@ -35,7 +35,8 @@
 # that is a non-central grid camera embeds this BODY (no schema or declarations:
 # the rig declares them).
 
-const _NONCENTRAL_TYPE = "NoncentralSplineModel"
+# The record's type: a token of the format, never a Julia type's name (a renamed type would otherwise force a new schema).
+const _NONCENTRAL_TYPE = "noncentral_spline"
 const _GRID = _Vec(_XYZ)
 const _NONCENTRAL_SPLINE = _Obj(
     Pair{Symbol, _Spec}[:area => _Vec(_Real(), 4), :grid_size => _Vec(_PosInt(), 2), :directions => _GRID, :points => _GRID],
@@ -52,14 +53,12 @@ const _NONCENTRAL_BODY_FIELDS = Pair{Symbol, _Spec}[
 const _NONCENTRAL_BODY_OPTIONAL = Pair{Symbol, _Spec}[:pitch => _PITCH, :lens_coverage => _LENS_COVERAGE]
 
 # The body's own check, the standalone file's and a rig sensor's: its lattice
-# (`_lattice_problem`: two control arrays of the held nodes' count), a gauge K
-# (skew 0, positive focal lengths) and its lens coverage.
+# (`_lattice_problem`: two control arrays of the held nodes' count) and its lens
+# coverage. Its K, a gauge (skew 0, positive focal lengths), is Core's one check
+# of a spline camera's K, when the model is built.
 function _noncentral_check(x)
     p = _lattice_problem(x[:spline], (:directions, :points))
     p === nothing || return p
-    k = x[:K]
-    iszero(k[:skew]) || return "a grid camera's K is a gauge of skew 0; got skew = $(k[:skew])"
-    (k[:fx] > 0 && k[:fy] > 0) || return "K's focal lengths fx, fy are positive; got fx = $(k[:fx]), fy = $(k[:fy])"
     return _lens_coverage_problem(get(x, :lens_coverage, nothing), "the non-central camera")
 end
 const _NONCENTRAL_BODY = _Checked(_Obj(_NONCENTRAL_BODY_FIELDS, _NONCENTRAL_BODY_OPTIONAL), _noncentral_check)

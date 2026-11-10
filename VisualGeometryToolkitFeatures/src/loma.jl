@@ -74,13 +74,18 @@ function _loma_model_path(file, digest)
     path = joinpath(@get_scratch!("loma_models"), file)
     isfile(path) && return path
     @info "Downloading LoMa model $file (cached in this package's scratch space)"
-    tmp = Downloads.download("$_LOMA_RELEASE/$file", tempname(dirname(path)))
+    return _download_verified("$_LOMA_RELEASE/$file", digest, path)
+end
+
+# `url` downloaded to `path` and checked against its sha256 `digest`; a mismatch is an error and leaves no file at `path`.
+function _download_verified(url, digest, path)
+    tmp = Downloads.download(url, tempname(dirname(path)))
     got = open(sha256_hex, tmp)
     if got != digest
         rm(tmp; force = true)
-        error("LoMa model $file: sha256 $got, expected $digest")
+        error("$url: sha256 $got, expected $digest")
     end
-    mv(tmp, path; force = true)   # same directory: atomic, so no partial file is ever cached
+    mv(tmp, path; force = true)   # same directory: atomic, so no partial file is ever left
     return path
 end
 
@@ -169,7 +174,8 @@ returns a `StructArray{DescribedFeature}`.
 
 `execution_provider` is ONNX Runtime's: `:auto` runs on CUDA when
 [`onnx_cuda_status`](@ref) finds a device and the CUDA 12 libraries (the
-environment holds `CUDA_Runtime_jll` and `CUDNN_jll`), and on the CPU with a
+environment holds `CUDA_Runtime_jll` and `CUDNN_jll`; ONNX Runtime's CUDA
+build, conda-forge's, is installed on first use), and on the CPU with a
 warning naming why otherwise; `:cuda` is an error where CUDA is unavailable,
 naming why; `:cpu` is the CPU. ONNX Runtime's intra-op pool has `threads`
 threads (the inter-op pool 1; no core pinning). [`loma_provenance`](@ref)

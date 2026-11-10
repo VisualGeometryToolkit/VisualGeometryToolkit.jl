@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **LoMa on CUDA runs on the B200 (sm_100) too.** Microsoft's GPU builds of ONNX Runtime (1.30 and 1.31, CUDA 12 and
+  13, and the CUDA plugin EP) carry device code for sm_60 to sm_90 and sm_120 only, no sm_100 and no PTX, so on a B200
+  every kernel failed (`cudaErrorNoKernelImageForDevice`) and `:auto` fell back to the CPU. The CUDA path now runs
+  conda-forge's build of ONNX Runtime 1.31.1 (`onnxruntime-cpp`, `cuda129`; sm_70 to sm_120 with sm_100), merged with
+  the libraries it links (libprotobuf, libabseil, libre2) into one artifact, `onnxruntime_cuda` in the new
+  `Artifacts.toml`, pinned by its tree hash and installed by the first CUDA probe from the four conda-forge files it pins
+  by sha256 (Pkg cannot unpack a `.conda`; Julia's own 7z does), 0.34 GB once per depot; ONNXRunTime's own GPU
+  download is no longer used. The CUDA 12 runtime and cuDNN stay the JLLs' (the runtime now at least 12.9, the build's
+  floor; `libcusparse.so.12` is loaded too). The CPU path is unchanged (ONNXRunTime's Microsoft 1.30 build).
+  `loma_provenance` records `onnxruntime_build` on CUDA. New dependencies: the stdlibs `Tar` and `p7zip_jll`.
 - **LoMa runs on ONNX Runtime's CUDA provider wherever it can, with no CUDA setup.** `execution_provider = :auto` is the
   new default of `LoMaDescriptor` and `LoMaMatcher` (was `:cpu`): CUDA when a CUDA device is visible and the active
   environment holds `CUDA_Runtime_jll` and `CUDNN_jll`, otherwise the CPU with a warning naming why. `:cpu` and `:cuda`

@@ -322,12 +322,12 @@ end
     using StaticArrays
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: CameraModel, CameraCalibrationMat, PixelFrame, calibration_matrix
-    using VisualGeometryToolkitCore.Cameras: _reframed_calibration
+    using VisualGeometryToolkitCore.Cameras: reframed_calibration
     K = CameraCalibrationMat(SMatrix{3, 3, Float64}(800.0, 0.0, 0.0, 0.5, 790.0, 0.0, 320.0, 240.0, 1.0))
-    R = _reframed_calibration(K, PixelFrame{:opencv}, PixelFrame{:colmap})
+    R = reframed_calibration(K, PixelFrame{:opencv}, PixelFrame{:colmap})
     @test (R[1, 1], R[2, 2], R[1, 2]) == (K[1, 1], K[2, 2], K[1, 2]) && (R[1, 3], R[2, 3]) == (320.5, 240.5)
     @test calibration_matrix(CameraModel(K; image_origin = :opencv)) == SMatrix{3, 3, Float64}(R)
-    @test _reframed_calibration(R, PixelFrame{:colmap}, PixelFrame{:opencv}) == K
+    @test reframed_calibration(R, PixelFrame{:colmap}, PixelFrame{:opencv}) == K
     # the warp's device form is `Adapt.adapt` itself: no forwarding wrapper
     @test !isdefined(VisualGeometryToolkitCore, :_device_warp)
 end

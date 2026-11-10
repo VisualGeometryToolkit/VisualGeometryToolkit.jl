@@ -121,11 +121,11 @@ function CameraModel(map::AffineMap; lens::AbstractLensModel = Pinhole())
 end
 
 """
-    CameraModel(K::CameraCalibrationMat; lens=Pinhole(), image_origin=:colmap) -> CameraModel
+    CameraModel(K::CameraCalibrationMat; lens=Pinhole(), pixel_frame=:colmap) -> CameraModel
 
 Convenience constructor from a calibration matrix K directly.
 
-Wraps K in `LogicalIntrinsics` internally. The `image_origin` keyword specifies
+Wraps K in `LogicalIntrinsics` internally. The `pixel_frame` keyword specifies
 which pixel coordinate convention K is expressed in (`:opencv`, `:colmap`, or
 `:julia`). The principal point is shifted to COLMAP convention (pixel centers at
 0.5) before storage.
@@ -137,15 +137,15 @@ model = CameraModel(K; lens=Lens(Perspective(), Radial((-0.1,))))
 
 # From OpenCV calibration (pixel centers at 0,0)
 K_cv = CameraCalibrationMat(M)
-model = CameraModel(K_cv; lens=lens, image_origin=:opencv)
+model = CameraModel(K_cv; lens=lens, pixel_frame=:opencv)
 ```
 """
 function CameraModel(
         K::CameraCalibrationMat; lens::AbstractLensModel = Pinhole(),
-        image_origin::Symbol = :colmap
+        pixel_frame::Symbol = :colmap
     )
-    return if image_origin != :colmap
-        CameraModel(LogicalIntrinsics(reframed_calibration(PixelFrame{image_origin}, PixelFrame{:colmap}, K)), lens)
+    return if pixel_frame != :colmap
+        CameraModel(LogicalIntrinsics(reframed_calibration(PixelFrame{pixel_frame}, PixelFrame{:colmap}, K)), lens)
     else
         CameraModel(LogicalIntrinsics(K), lens)
     end
@@ -157,7 +157,7 @@ end
 THE pixel-frame change of a calibration matrix: the same `K` with its principal
 point moved from the pixel frame `from` into `to` by the frame map
 `EuclideanMap(from, to)` (a translation by the frames' half-pixel offset), the
-focal lengths and the skew kept, in `Float64`. `CameraModel(K; image_origin)`
+focal lengths and the skew kept, in `Float64`. `CameraModel(K; pixel_frame)`
 and VisualGeometryToolkitIO's stored K (its readers and writers) all move a K
 through it. `K` was checked (or deliberately not, `check = false`) when it was
 built: the shift moves its principal point only, so nothing is re-checked.
@@ -173,7 +173,7 @@ function reframed_calibration(from::Type{<:PixelFrame}, to::Type{<:PixelFrame}, 
 end
 
 """
-    CameraModel(K::SMatrix{3,3,<:Real}; lens=Pinhole(), image_origin=:colmap) -> CameraModel
+    CameraModel(K::SMatrix{3,3,<:Real}; lens=Pinhole(), pixel_frame=:colmap) -> CameraModel
 
 A camera model from a plain static 3×3 calibration matrix, as dataset readers
 and pool records store it: `K` is validated and wrapped as a
@@ -181,8 +181,8 @@ and pool records store it: `K` is validated and wrapped as a
 default `Pinhole()` lens this is the pinhole camera of `K`. (A plain `Matrix`
 goes through `CameraCalibrationMat(K)` first.)
 """
-CameraModel(K::SMatrix{3, 3, <:Real}; lens::AbstractLensModel = Pinhole(), image_origin::Symbol = :colmap) =
-    CameraModel(CameraCalibrationMat(K); lens, image_origin)
+CameraModel(K::SMatrix{3, 3, <:Real}; lens::AbstractLensModel = Pinhole(), pixel_frame::Symbol = :colmap) =
+    CameraModel(CameraCalibrationMat(K); lens, pixel_frame)
 
 """
     CameraModel(; focal, pp, lens=Pinhole()) -> CameraModel

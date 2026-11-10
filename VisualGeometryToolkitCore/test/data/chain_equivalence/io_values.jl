@@ -55,7 +55,7 @@ function io_values(P, V, dir::AbstractString)
     end
     cams = Dict{Symbol, BoundedCamera}()
     for (name, l) in lens_cases(P, V)
-        cm = CameraModel(RECORD_K; lens = l, image_origin = :colmap)
+        cm = CameraModel(RECORD_K; lens = l, pixel_frame = :colmap)
         cams[Symbol(name)] = BoundedCamera(cm, Size2(1280, 960))
         VgtkIO.save(joinpath(dir, "cameras_$name.json"), Dict(:cam => cams[Symbol(name)]))
         model = VgtkIO.colmap_model(l)

@@ -371,7 +371,7 @@ end
     K = CameraCalibrationMat(SMatrix{3, 3, Float64}(800.0, 0.0, 0.0, 0.5, 790.0, 0.0, 320.0, 240.0, 1.0))
     R = reframed_calibration(PixelFrame{:opencv}, PixelFrame{:colmap}, K)
     @test (R[1, 1], R[2, 2], R[1, 2]) == (K[1, 1], K[2, 2], K[1, 2]) && (R[1, 3], R[2, 3]) == (320.5, 240.5)
-    @test calibration_matrix(CameraModel(K; image_origin = :opencv)) == SMatrix{3, 3, Float64}(R)
+    @test calibration_matrix(CameraModel(K; pixel_frame = :opencv)) == SMatrix{3, 3, Float64}(R)
     @test reframed_calibration(PixelFrame{:colmap}, PixelFrame{:opencv}, R) == K
     # the warp's device form is `Adapt.adapt` itself: no forwarding wrapper
     @test !isdefined(VisualGeometryToolkitCore, :_device_warp)

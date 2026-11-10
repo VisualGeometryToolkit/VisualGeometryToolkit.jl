@@ -367,15 +367,15 @@
         end
     end
 
-    @testset "CameraModel image_origin regression (0.7.0 leftover)" begin
+    @testset "CameraModel pixel_frame regression (0.7.0 leftover)" begin
         # 0.7.0 removed Translation(::Symbol, ::Symbol) but CameraModel's
-        # image_origin path still spelled it — silently matching CT's generic
+        # pixel_frame path still spelled it — silently matching CT's generic
         # Translation(x, y) and building a Translation{SVector{2,Symbol}} that
         # exploded on first use. Pin the fixed path: eager AffineMap fusion and
         # numerically correct principal-point shifts for both non-colmap origins.
         K = CameraCalibrationMat(@SMatrix [800.0 0.0 320.0; 0.0 800.0 240.0; 0.0 0.0 1.0])
         for origin in (:opencv, :julia)
-            model = CameraModel(K; image_origin = origin)
+            model = CameraModel(K; pixel_frame = origin)
             @test model.intrinsics isa LogicalIntrinsics   # fused to a plain affine — no lazy Symbol carrier
             u = project(model, SVector(0.1, -0.2, 2.0))
             @test all(isfinite, u)

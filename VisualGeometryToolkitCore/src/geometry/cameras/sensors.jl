@@ -151,8 +151,8 @@ function Rect(sensor::Sensor)
     return Rect(0, 0, w, h)
 end
 
-# NOTE (2026-07-26, found by JET): a `Rect2(sensor::Sensor, image_origin::Symbol)`
-# method used to live here, forwarding to `Rect(sensor, image_origin)`. No 2-arg
+# NOTE (2026-07-26, found by JET): a `Rect2(sensor::Sensor, pixel_frame::Symbol)`
+# method used to live here, forwarding to `Rect(sensor, pixel_frame)`. No 2-arg
 # `Rect(::Sensor, ::Symbol)` has ever existed — only the 1-arg `Rect(::Sensor)`
 # above — so the method raised on every call, and its docstring promised an
 # origin-dependent rect the codebase never implemented (`Rect(::Sensor)` is

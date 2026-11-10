@@ -70,6 +70,7 @@ const _ITERATION_WORDS = ("iter", "iters", _IT, _IT * "s")
 # retired in one form lists each form it took. Names renamed by the naming
 # sweep are listed here as they are renamed.
 const RETIRED_NAMES = String[
+    "image" * "_origin",                    # the pixel-frame keyword of `CameraModel(K; …)`: `pixel_frame` (2026-11)
     "_radially" * "_symmetric",             # a lens's radial symmetry is a Holy trait: `RadialSymmetry` (`RadiallySymmetric()` / `RadiallyAsymmetric()`) (2026-11)
     "_check" * "_refinable",                # refine_camera_and_poses routes by Core's `IntrinsicsRole` (a SplineLens camera refines; no refusal): `_refine_camera_and_poses(::GaugeIntrinsics, …)` (2026-11)
     "Tensor" * "Vignetting",                  # a tensor-PRODUCT B-spline surface, not a tensor: `TensorProductVignetting` (2026-11)
@@ -461,6 +462,7 @@ const FOREIGN_FORMAT_TOKENS = [
         "records (vgio/generic_camera v2/v3, a vgio/rig v6–v8 sensor's body), read through their migrations",
     "Noncentral" * "GenericModel" => "the same, for the non-central grid model",
     "nominal" * "_intrinsics" => "an old vgio grid record's key (vgio/generic_camera v2/v3, a vgio/rig v6–v8 sensor's body): its nominal pinhole",
+    "image" * "_origin" => "the legacy pixel-frame key of the OpenCV calibration JSON written before 0.9 (read by load_opencv_calibration, never written)",
 ]
 _is_data_fixture(f) = any(e -> endswith(f, e), (".yaml", ".yml", ".json"))
 # Whether the retired-name hit `r` on `line` (its string-literal text `strings`, a

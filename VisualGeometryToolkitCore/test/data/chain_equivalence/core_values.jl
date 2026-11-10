@@ -138,7 +138,7 @@ function lens_values(P, V)
         emit("$k/with_parameters/theta", collect(parameter_vector(l2)))
         emit("$k/with_parameters/project", columns([project(l2, X) for X in Xs[1:50]]))
         emit("$k/manifold/retract", collect(parameter_vector(retract(LensManifold(l), δ))))
-        cm = CameraModel(K; lens = l, image_origin = :colmap)
+        cm = CameraModel(K; lens = l, pixel_frame = :colmap)
         us = [project(cm, X) for X in Xs[1:50]]
         emit("$k/camera/project", columns(us))
         emit("$k/camera/backproject", columns([backproject(cm, u) for u in us]))

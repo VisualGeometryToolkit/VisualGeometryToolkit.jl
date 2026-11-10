@@ -5,6 +5,8 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **Breaking: `CameraModel(K; lens, pixel_frame = :colmap)`**: the keyword naming the pixel frame K is stated in
+  (`:colmap`, `:opencv`, `:julia`) is `pixel_frame`, formerly `image_origin` (no alias).
 - **New: the `RadialSymmetry` Holy trait** (`RadiallySymmetric()` / `RadiallyAsymmetric()`, public, not exported:
   `VisualGeometryToolkitCore.Cameras.RadialSymmetry`) says whether a lens is radially symmetric about the principal
   point, by its type: every projection, no distortion, `Radial`, `FieldOfView` and `LiftLens` are; an `Additive`, a

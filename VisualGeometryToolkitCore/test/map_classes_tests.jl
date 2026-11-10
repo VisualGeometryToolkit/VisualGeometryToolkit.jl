@@ -328,7 +328,7 @@ end
     Kn = CameraCalibrationMat(SMatrix{3, 3}(-800.0, 0, 0, 0, 790.0, 0, 320.0, 240.0, 1); check = false)
     @test copy(Kn) === Kn
     @test convert(CameraCalibrationMat{Float32}, Kn)[1, 1] == -800.0f0
-    @test CameraModel(Kn; image_origin = :opencv) isa CameraModel
+    @test CameraModel(Kn; pixel_frame = :opencv) isa CameraModel
     # a non-finite focal with check = false (a fit that ended non-finite reports it, VisualGeometryToolkitEstimation's fit_camera)
     @test CameraCalibrationMat(SMatrix{3, 3}(Inf, 0, 0, 0, Inf, 0, 320.0, 240.0, 1); check = false)[1, 1] == Inf
     # a 3-D affine map is not a calibration matrix

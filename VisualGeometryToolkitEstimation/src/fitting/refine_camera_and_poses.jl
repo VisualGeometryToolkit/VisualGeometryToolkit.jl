@@ -86,7 +86,9 @@ scratch and the camera keeps its family (its lens type).
 # Arguments
 - `camera::CameraModel` — the camera guess: intrinsics and lens, the
   parameters VisualGeometryToolkitCore's `parameter_vector(camera)` lists
-  (`f, aspect, skew, cx, cy`, then the lens's coefficients), in pixels.
+  (`f, aspect, skew, cx, cy`, then the lens's coefficients), in pixels. A
+  SplineLens camera (its K a frozen gauge, its parameters its lattice's
+  controls) is an `ArgumentError`, with `free = ()` too.
 - `poses` — one world → camera `EuclideanMap{3}` per view (`X_c = R·X + t`, `X`
   in the target's frame), keyed like `views`.
 - `views` — per view, its correspondences `cs = [X => u, …]`: `X` a target
@@ -200,6 +202,7 @@ function _refine_camera_and_poses(
         xtol::Real = _dflt("refine_camera_and_poses", "xtol"),
         max_time::Union{Nothing, Real} = nothing,
     )
+    _check_refinable(VgtkCore.Cameras.IntrinsicsRole(camera.lens))   # first: before any chart or Dual touches the lens
     V = length(views)
     V >= 1 || throw(ArgumentError("refine_camera_and_poses: no views"))
     names = parameter_names(camera)
@@ -245,6 +248,21 @@ function _refine_camera_and_poses(
     out = [relabel(_frames(p0)..., EuclideanMap(RotMatrix{3, Float64}(rotation(model(ch))), SVector{3, Float64}(translation(model(ch))))) for (p0, ch) in zip(poses, poses_out)]
     return (; camera = camera_out, poses = out), code, result.niterations, sqrt(S / n), n, CameraPosesRefineMetadata(r, S / ν, ν, free)
 end
+
+# Which cameras this refinement takes, by Core's `IntrinsicsRole` trait: a camera
+# whose K is free (a parametric lens). A gauge camera (a SplineLens: K frozen, the
+# parameters its lattice's controls) is refused before anything differentiates
+# it — with `free = ()` too: the pose rows would carry ForwardDiff duals into the
+# lens's projection solve, and its controls (10³–10⁴) are no dense chart's
+# variable (Core's `ParameterManifold` names the `ControlPatchManifold` route).
+_check_refinable(::VgtkCore.Cameras.FreeIntrinsics) = nothing
+_check_refinable(::VgtkCore.Cameras.GaugeIntrinsics) = throw(
+    ArgumentError(
+        "refine_camera_and_poses: a SplineLens camera (its K a frozen gauge, its parameters the lattice's controls) is not " *
+            "refined here: its controls need a per-node chart (`ControlPatchManifold`), and its projection solve is not " *
+            "differentiated by ForwardDiff, so not even its poses alone (`free = ()`) are refined through it"
+    )
+)
 
 # The frame labels of a pose, to put back on the refined one.
 _frames(::EuclideanMap{3, T, R, V, S, D}) where {T, R, V, S, D} = (S, D)

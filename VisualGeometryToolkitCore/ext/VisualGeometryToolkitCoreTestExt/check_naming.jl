@@ -269,6 +269,8 @@ const RETIRED_NAMES = String[
     "default" * "_generic_grid",             # `default_spline_grid`
     "interpolated" * "_direction",           # the backward spline continued past its area: `cam.lens.backward(x)`, x = K⁻¹u
     "interpolated" * "_point",               # a NoncentralSplineModel's point spline: `m.points(x)`, x = K⁻¹u
+    "_spline_projection" * "_fit",           # VisualGeometryToolkitEstimation: the forward spline's fit at one spacing, `_forward_fit`
+    "_PixelFunction" * "Source",             # VisualGeometryToolkitEstimation: a function source; fit its `CameraModel(SplineLens, f, size)` instead
     "in_present" * "_domain",                # where a spline camera images: `all(isfinite, backproject(cam, u))`
     "spline" * "_support",                   # a point's window: `spline_weights(cam.lens.backward, x)[1:2]` (its `ix, iy`)
     "window" * "_controls", "window" * "_indices",   # a window's controls: `directions(cam)[iy - 3 + r, ix - 3 + c]`, r, c ∈ 1:4

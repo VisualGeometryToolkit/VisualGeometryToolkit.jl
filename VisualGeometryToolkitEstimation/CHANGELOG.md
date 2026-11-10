@@ -1,5 +1,37 @@
 # VisualGeometryToolkitEstimation changelog
 
+## 0.9.0 (unreleased)
+
+On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
+non-central one is a `NoncentralSplineModel`).
+
+- **Breaking: `fit_camera(SplineLens, source, region; tolerance, grid_size = nothing, forward = true)`** fits ONE
+  camera: a `CameraModel` with a `SplineLens`, its K the source's own (skew 0). Its backward spline is the P-spline
+  of Core's full-image lattice (`spline_lattice`) on the source's rays at x = K⁻¹u — at `grid_size` when given, else
+  at the lattice the spacing search chooses to `tolerance` (the held-out direction error in pixels, as before). A
+  SplineLens source's backward is kept exactly and only the forward is fitted. Its forward spline (`forward = true`)
+  is a `ChartSpline{2}` on the equidistant chart about the lens axis, fitted to the camera's own rays by the same
+  solve and the same spacing search, to `tolerance` in pixels of the held-out round trip; the camera then projects
+  through it. The metadata `family` is the union of the old central grid's and the old forward map's records
+  (`penalty, grid_size, stride, outer_iterations, n_held_out_dropped, tolerance`, then `spacing, counts,
+  forward_penalty, forward_outer_iterations, forward_max_px, forward_max_px_edge, forward_rms`, `nothing` without a
+  forward). It replaces `fit_camera(CentralGenericModel, …)` and `fit_camera(SplineProjection, …)`, both deleted.
+- **Breaking: `fit_camera(NoncentralSplineModel, source, region; tolerance, grid_size = nothing)`** replaces
+  `fit_camera(NoncentralGenericModel, …)`: the same lines, anchor and one solve, returning a `NoncentralSplineModel`
+  (its directions and points `ChartSpline`s over the K-normalized plane).
+- **Breaking: `pspline_grid(SplineLens | NoncentralSplineModel, source, region, grid_size)`** replaces the
+  `CentralGenericModel`/`NoncentralGenericModel` forms (a SplineLens camera without a forward, or the non-central
+  model).
+- **Breaking: the spline targets take a `BoundedCamera` source only** (the lattice is laid over its image): a
+  non-central source is `BoundedCamera(model, Size2(w, h))`, and a function of the pixel is no longer a source — build
+  its SplineLens camera with Core's `CameraModel(SplineLens, f, size)` (which gauges its K) and fit that, which keeps
+  its backward and fits its forward.
+- **Breaking: `refine_camera_and_poses` refuses a SplineLens camera** (an `ArgumentError`, also with `free = ()`): its
+  K is a frozen gauge, its parameters are its lattice's controls, and its projection solve is not differentiated by
+  ForwardDiff.
+- `fit_camera(L, …)` warns about non-radial terms only when Core's type-level radial-symmetry test flags the lens; the
+  decentering norm is the warning's magnitude (a symmetric `∘` composition is no longer measured as decentered).
+
 ## 0.8.0 (2026-11-09)
 
 Needs the VisualGeometryToolkitCore release with `RadialHomography{T, N}` (its

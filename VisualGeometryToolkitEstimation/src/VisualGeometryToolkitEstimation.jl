@@ -222,10 +222,9 @@ using SparseArrays: sparse   # the relpose bundle's stacked Jacobian (its stall 
 # Cholesky), the direction chart, Core's lattice and its batched maps.
 using SparseArrays: SparseMatrixCSC
 using LinearAlgebra: cholesky, lu, issuccess, diag
-using VisualGeometryToolkitCore: equidistant_chart, ChartSpline, SplineProjection, CentralGenericModel, Rect2, spline_window, pixel_centres,
-    pointwise!, Serial, nominal_intrinsics, BoundedCamera, AbstractCamera, extent, generic_lattice, difference_rows
-using VisualGeometryToolkitCore: NoncentralGenericModel, interpolated_direction, interpolated_point, nearest_point,
-    backproject_with_jacobian
+using VisualGeometryToolkitCore: equidistant_chart, ChartSpline, SplineLens, NoncentralSplineModel, Rect2, spline_window, pixel_centres,
+    pointwise!, BoundedCamera, extent, spline_lattice, central_model, difference_rows
+using VisualGeometryToolkitCore: nearest_point, backproject_with_jacobian
 
 
 # =============================================================================
@@ -260,7 +259,7 @@ export fit_linear             # the robust coefficients of a linear model (rewei
 export fit_rotation_averaging # robust rotation averaging on a view graph (spectral seed, Lie-algebra IRLS)
 export fit_radial_camera, DivisionCameraError   # moved from VisualGeometryToolkitCore (estimator taxonomy v2)
 export fit_camera             # one model-to-model regression: a camera model of type T onto a source over a region
-export pspline_grid           # the grid targets' one P-spline solve on a given lattice (fit_camera's inner step)
+export pspline_grid           # the spline targets' one P-spline solve on a given lattice (fit_camera's inner step)
 
 # -----------------------------------------------------------------------------
 # 2. RANSAC — the loop, its configuration and result, and seeded refinement
@@ -395,7 +394,7 @@ include("fitting/radial_camera.jl")
 include("fitting/fit_radial_camera.jl")        # one board's radial camera, an iterative whitened fit (moved from VGC)
 include("fitting/division_camera_step.jl")     # one iteration of the stacked linear focal solve + its state and failure (moved from VGC)
 include("fitting/fit_division_camera.jl")       # iterated Sampson-whitened, Student-t re-weighted focal stack (IRLS under block_coordinate_descent!)
-include("fitting/fit_camera.jl")                # one model-to-model regression: a lens family, a SplineProjection or a grid onto a source over a region
+include("fitting/fit_camera.jl")                # one model-to-model regression: a lens family, or a SplineLens camera or non-central spline model, onto a source over a region
 include("fitting/essential.jl")
 include("fitting/rotation.jl")
 include("fitting/circle.jl")

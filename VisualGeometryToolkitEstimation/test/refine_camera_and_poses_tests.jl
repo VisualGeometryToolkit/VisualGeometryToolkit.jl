@@ -141,3 +141,17 @@ end
     @test retcode(rt) === :max_time && rt.iterations <= 1
     @test estimate(refine_camera_and_poses(cam0, poses0, views; max_time = Inf)).camera == estimate(rv).camera
 end
+
+@testitem "refine_camera_and_poses: a SplineLens camera is refused before anything differentiates it" setup = [CameraPoseScenes] begin
+    using VisualGeometryToolkitCore: CameraModel, SplineLens
+    using VisualGeometryToolkitEstimation: refine_camera_and_poses
+    # its K is a frozen gauge and its parameters are its lattice's controls: no dense
+    # chart holds them, and its projection solve takes no ForwardDiff duals — so
+    # the refusal comes first, for the poses alone (`free = ()`) as well
+    cam = CameraModel(SplineLens, fisheye_camera(), (1280, 960); grid_size = (12, 10))
+    Es = truth_poses(3)
+    views = views_of(fisheye_camera(), Es, 0.5; n = 20)
+    @test_throws r"SplineLens camera.*ControlPatchManifold" refine_camera_and_poses(cam, Es, views)
+    @test_throws r"SplineLens camera.*ControlPatchManifold" refine_camera_and_poses(cam, Es, views; free = ())
+    @test_throws ArgumentError refine_camera_and_poses(cam, Es, views; free = ())
+end

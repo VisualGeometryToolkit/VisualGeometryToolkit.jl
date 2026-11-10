@@ -81,16 +81,18 @@ end
 
 # -----------------------------------------------------------------------------
 # PanoramaStitching's synthetic camera: a Kannala–Brandt fisheye (f = 300 px)
-# imaging to ~100° off axis, its 40 × 40 grid resampled over a 1000 × 1000
-# image, the lit disc of radius 480 px about the centre.
+# imaging to ~100° off axis, its 40 × 40 SplineLens camera resampled over a
+# 1000 × 1000 image (the source constructor: the fisheye's own K), the lit disc
+# of radius 480 px about the centre.
 # -----------------------------------------------------------------------------
 @testsetup module FitCameraFisheye
 using StaticArrays: SA, SVector
-using VisualGeometryToolkitCore: CameraModel, CentralGenericModel, KannalaBrandt, Ellipse, Rect, px
-export FISHEYE, GRID, DISC, REGION
+using VisualGeometryToolkitCore: CameraModel, SplineLens, BoundedCamera, Size2, KannalaBrandt, Ellipse, Rect, px
+export FISHEYE, GRID, GRID_BOUNDED, DISC, REGION
 
 const FISHEYE = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
-const GRID = CentralGenericModel(FISHEYE, (1000, 1000); grid_size = (40, 40))
+const GRID = CameraModel(SplineLens, FISHEYE, (1000, 1000); grid_size = (40, 40))
+const GRID_BOUNDED = BoundedCamera(GRID, Size2(1000, 1000))
 const DISC = Ellipse(SVector(500.0, 500.0), 480.0, 480.0, 0.0)
 const REGION = Rect(0, 0, 1000, 1000) ∩ DISC
 end
@@ -100,26 +102,30 @@ end
 # lattice (not the fit's) and a smooth, known origin field — sub-millimetre
 # lateral waves and a 3 mm axial bulge growing with the radius — so the lines
 # miss each other as a real non-central lens's do, imaging to ~97° off axis
-# over the lit disc.
+# over the lit disc. `SOURCE` bounds it by its 1000 × 1000 image; `MODEL` is the
+# model itself.
 # -----------------------------------------------------------------------------
 @testsetup module FitCameraNoncentral
 using StaticArrays: SA, SVector
-using VisualGeometryToolkitCore: CameraModel, CentralGenericModel, NoncentralGenericModel, KannalaBrandt, Ellipse, Rect, Vec3, px
-export FISHEYE, REGION, SOURCE, noncentral_source
+using VisualGeometryToolkitCore: CameraModel, SplineLens, NoncentralSplineModel, ChartSpline, BoundedCamera, Size2, KannalaBrandt,
+    Ellipse, Rect, model, px
+export FISHEYE, REGION, SOURCE, MODEL, noncentral_source
 
 const FISHEYE = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
 const REGION = Rect(0, 0, 1000, 1000) ∩ Ellipse(SVector(500.0, 500.0), 480.0, 480.0, 0.0)
-const CENTRAL = CentralGenericModel(FISHEYE, (1000, 1000); grid_size = (53, 47))
-# the source with every line translated by `t` (metres)
+const CENTRAL = CameraModel(SplineLens, FISHEYE, (1000, 1000); grid_size = (53, 47))
+# the source with every line translated by `t` (metres), bounded by its image
 function noncentral_source(t = SVector(0.0, 0.0, 0.0))
-    gh, gw = size(CENTRAL.grid)
+    d = CENTRAL.lens.backward
+    gh, gw = size(d.controls)
     points = map(CartesianIndices((gh, gw))) do ij
         i, j = Tuple(ij)
         x, y = (j - 2) * 1000 / (gw - 3), (i - 2) * 1000 / (gh - 3)
         ρ = hypot(x - 500, y - 500) / 500
-        Vec3{Float64}(2.0e-4 * sin(x / 300) + t[1], 1.5e-4 * cos(y / 400) + t[2], 3.0e-3 * ρ^2 + t[3])
+        SVector{3, Float64}(2.0e-4 * sin(x / 300) + t[1], 1.5e-4 * cos(y / 400) + t[2], 3.0e-3 * ρ^2 + t[3])
     end
-    return NoncentralGenericModel{Float64}(1000, 1000, 0, 0, 999, 999, CENTRAL.grid, points; nominal = CENTRAL.nominal)
+    return BoundedCamera(NoncentralSplineModel(CENTRAL.intrinsics, d, ChartSpline(d.area, points)), Size2(1000, 1000))
 end
 const SOURCE = noncentral_source()
+const MODEL = model(SOURCE)
 end

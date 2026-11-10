@@ -10,15 +10,17 @@
 #   a lens family L          the fitted lens's radial profile against the source's,
 #                            the exact 1-D reduction of the integral (below), the
 #                            family's parameters by the stack's chart LM
-#   SplineProjection         the forward map ray → pixel, a ChartSpline on the
-#                            equidistant direction chart about the region centre's
-#                            ray, by penalized linear least squares; its knot
-#                            spacing bisected to the largest one whose held-out
-#                            maximum error meets `tolerance`
-#   CentralGenericModel      the grid of Core's full-image layout, the source's
-#                            rays by penalized linear least squares; its lattice
-#                            spacing searched as the SplineProjection's knots are
-#   NoncentralGenericModel   the same lattice, the source's LINES: the directions
+#   SplineLens               a CameraModel with a SplineLens: its backward spline
+#                            (pixel → ray, x = K⁻¹u) on Core's full-image lattice,
+#                            the source's rays by penalized linear least squares,
+#                            its lattice spacing bisected to the largest one whose
+#                            held-out maximum error meets `tolerance` (a SplineLens
+#                            source's backward is kept as it is); then its forward
+#                            spline (ray → x), a ChartSpline on the equidistant
+#                            direction chart about the lens axis, fitted to the
+#                            camera's own rays by the same solve and the same
+#                            spacing search
+#   NoncentralSplineModel    the same lattice, the source's LINES: the directions
 #                            and each line's point closest to the lines' common
 #                            nearest point c*, by the same penalized solve
 #
@@ -54,22 +56,27 @@ a `NamedTuple`:
   rescale `s`, the fitted and the source's angular domains (radians), and
   whether the target family cut the source's domain; the errors are at the
   quadrature's nodes of the radial profile;
-- `SplineProjection`: `(; spacing, penalty, counts, stride, tolerance,
-  outer_iterations)` — the knot spacing `h` (radians in the chart), the
-  P-spline weight `λ`, the control counts per chart axis, the quadrature's
-  stride in pixels, the tolerance asked for and the spacing search's fits; the
-  errors are the held-out check's;
-- `CentralGenericModel`: `(; penalty, grid_size, stride, tolerance,
-  outer_iterations, n_held_out_dropped)`, `grid_size` the chosen lattice's
-  `(rows, columns)`; the errors are the held-out direction error, as the
-  non-central target's (below), over the held-out pixels where the source's
-  back-projection Jacobian is finite — `n_held_out_dropped` counts the others;
-- `NoncentralGenericModel`: `(; penalty, grid_size, stride, tolerance,
+- `SplineLens`: `(; penalty, grid_size, stride, outer_iterations,
+  n_held_out_dropped, tolerance, spacing, counts, forward_penalty,
+  forward_outer_iterations, forward_max_px, forward_max_px_edge, forward_rms)` —
+  the backward lattice's P-spline weight `λ` (`nothing` for a SplineLens
+  source's kept backward), its `(rows, columns)`, the quadrature's stride in
+  pixels, the spacing search's fits (0 for a given or kept lattice), the
+  held-out pixels dropped (below) and the tolerance asked for; then the forward
+  spline's knot spacing `h` (radians in the chart), its control counts per chart
+  axis, its `λ`, its search's fits and its held-out round trip
+  `‖K·forward(chart(ray)) − u‖` in pixels (maximum, edge-band maximum, rms) —
+  every forward field `nothing` with `forward = false`. The result's errors
+  (`max_px`, `max_px_edge`, `rms`) are the backward's held-out direction error,
+  as the non-central target's (below), over the held-out pixels where the
+  source's back-projection Jacobian is finite — `n_held_out_dropped` counts the
+  others;
+- `NoncentralSplineModel`: `(; penalty, grid_size, stride, tolerance,
   outer_iterations, center, max_offset, rms_offset, max_offset_edge,
   n_held_out_dropped)` —
   `center` the anchor c* (the
   least-squares point nearest to the source's quadrature lines, in the
-  source's frame, plain metres as the grid's points), and the held-out line
+  source's frame, plain metres as the model's points), and the held-out line
   offset `‖(I − ddᵀ)(o_fit − o_src)‖` (plain metres); the pixel errors are the
   held-out DIRECTION error, mapped to pixels through the source's
   back-projection Jacobian.
@@ -124,53 +131,51 @@ family and the solve:
   any other type must carry its arities (`KannalaBrandt{4}`). The `retcode` is
   the LM's; a regression that ends at a non-finite focal rescale is
   `:solve_failed` (its camera's focals non-finite), never a throw.
-- **`SplineProjection`** (`fit_camera(SplineProjection, source, region;
-  tolerance)`): the forward map ray → pixel as a VisualGeometryToolkitCore
-  `ChartSpline` on the equidistant direction chart about the
-  source's ray at the region's centroid, fitted to the source's pixels by
-  linear least squares with a P-spline penalty. THE SPACING SEARCH, shared by
-  the spline and grid targets: the knot spacing `h` is doubled down from 4
-  knot intervals along the longer side and then bisected to the LARGEST spacing whose
-  held-out maximum error is at most `tolerance` (px), `retcode :converged`; a
-  fit that cannot reach it at the finest spacing of the bracket (a knot interval of three
-  quadrature strides) returns `retcode :max_iterations` with what it reached.
-  Each fit of the search is an outer iteration, counted in the metadata's
-  `outer_iterations`; `iterations(result)` is 0.
-- **`CentralGenericModel`** (`fit_camera(CentralGenericModel, source, region;
-  tolerance)`): a grid model in Core's full-image layout — the lattice the
-  constructor `CentralGenericModel(source, size; grid_size)` lays over the whole
-  image, Core's `generic_lattice`
-  (the source is not sampled: the solve sets every control) — with `domain` the
-  region, fitted to the source's rays by linear least squares with the P-spline
-  penalty, its lattice spacing chosen by the spacing search (`grid_size` is not
-  an input: the tolerance chooses it; the metadata records it). The region
-  restricts the quadrature only, never the lattice: a node whose support misses
-  it is held by the penalty. The tolerance bounds the held-out DIRECTION error in
-  pixels, the non-central target's metric (below). The image is the source's: a grid model's own, or a
-  [`BoundedCamera`](@extref VisualGeometryToolkitCore.Cameras.BoundedCamera)'s extent (a
-  bare `CameraModel` has none: an `ArgumentError`).
-- **`NoncentralGenericModel`** (`fit_camera(NoncentralGenericModel, source,
-  region; tolerance)`): the same design and search on the source's observation
-  LINES — a non-central grid source's `Ray3`s, or a central source's rays
-  through its centre. Both grids, the unit directions and the points, come
-  from ONE penalized solve on the same lattice. A line's point is pinned by
-  an anchor: c*, Core's `nearest_point` of all the quadrature lines, and each
-  line contributes its point closest to c*, `o + ((c* − o)·d) d` — bounded for
-  rays at and past 90°, where a plane anchor (the pupil plane) runs off. The
-  points are in the source's frame (frame in = frame out; plain metres, the
-  grid's unit), c* in the metadata; a central source's are all c*. The
-  tolerance bounds the held-out DIRECTION error in pixels: the direction's
-  deviation mapped through the source's back-projection Jacobian (the round
-  trip through the source to first order); the line offset is reported beside
-  it, in metres. A non-central source is a `NoncentralGenericModel`, which has
-  its own image.
+- **`SplineLens`** (`fit_camera(SplineLens, source, region; tolerance,
+  grid_size = nothing, forward = true)`): a `CameraModel` with a
+  VisualGeometryToolkitCore `SplineLens`, its `K` the source's own (skew 0).
+  Its BACKWARD spline is Core's full-image lattice on the source's image
+  (`spline_lattice`; the source is not sampled: the solve sets every control),
+  fitted to the source's rays at the normalized points `x = K⁻¹u` by linear
+  least squares with the P-spline penalty — [`pspline_grid`](@ref) at
+  `grid_size` (columns, rows) when given, else at the lattice THE SPACING
+  SEARCH chooses: the spacing is doubled down from 4 cells along the longer
+  side and then bisected to the LARGEST spacing whose held-out maximum error is
+  at most `tolerance` (px), `retcode :converged`; a fit that cannot reach it at
+  the finest spacing of the bracket (a cell of three quadrature strides)
+  returns `retcode :max_iterations` with what it reached. The region restricts
+  the quadrature only, never the lattice: a node whose support misses it is
+  held by the penalty. The tolerance bounds the held-out DIRECTION error in
+  pixels, the non-central target's metric (below). A SplineLens source's
+  backward is kept exactly (its controls `==`; a `grid_size` is then an
+  `ArgumentError`) and only the forward is fitted.
+  Its FORWARD spline (`forward = true`) is a `ChartSpline{2}` from the
+  equidistant direction chart about the lens axis to `x`, fitted to the
+  camera's own rays over the region by the same penalized solve and the same
+  spacing search, to `tolerance` in pixels of the held-out round trip; the
+  camera projects through it (NaN outside the fitted chart). Each fit of a
+  search is an outer iteration, counted in the metadata; `iterations(result)`
+  is 0; the retcode is `:converged` when every search met the tolerance.
+- **`NoncentralSplineModel`** (`fit_camera(NoncentralSplineModel, source,
+  region; tolerance, grid_size = nothing)`): the same lattice and search on the
+  source's observation LINES — a non-central model's `Ray3`s, or a central
+  source's rays through its centre. Both splines, the unit directions and the
+  points, come from ONE penalized solve on the same lattice. A line's point is
+  pinned by an anchor: c*, Core's `nearest_point` of all the quadrature lines,
+  and each line contributes its point closest to c*, `o + ((c* − o)·d) d` —
+  bounded for rays at and past 90°, where a plane anchor (the pupil plane) runs
+  off. The points are in the source's frame (frame in = frame out; plain
+  metres, the model's unit), c* in the metadata; a central source's are all
+  c*. The tolerance bounds the held-out DIRECTION error in pixels: the
+  direction's deviation mapped through the source's back-projection Jacobian
+  (the round trip through the source to first order); the line offset is
+  reported beside it, in metres.
 
-`source` is a `CameraModel` (bounded or not) or a `CentralGenericModel` (anything
-with a batched `backproject(source, pixels)`; for `SplineProjection` also a
-function of the pixel returning its ray or `nothing`, as Core's generic models
-take one), and for the non-central target
-also a `NoncentralGenericModel`. The spline families' quadrature is on the
-image (they take no `weight`). Their per-point steps (the source's
+The spline targets' `source` is a [`BoundedCamera`](@extref
+VisualGeometryToolkitCore.Cameras.BoundedCamera) — the lattice is laid over its
+image (a bare model has none: an `ArgumentError`) — of a `CameraModel`, and for
+the non-central target also of a `NoncentralSplineModel`. Their quadrature is
+on the image (they take no `weight`). Their per-point steps (the source's
 backprojection, the chart, the design rows, the evaluation, the errors) run as
 batches — Core's KernelAbstractions kernels and [`pointwise!`](@extref
 VisualGeometryToolkitCore.pointwise!) — on the host, and the penalized normal
@@ -183,8 +188,8 @@ the round trip's root mean square in pixels.
 ```julia
 region = imaged_region(with_lens_coverage(camera, image_circle(camera, 8.0mm)))
 kb = fit_camera(KannalaBrandt{4}, model(camera), region)                       # a parametric lens
-fwd = fit_camera(SplineProjection, grid, region; tolerance = 1.0e-3)           # a grid's forward map
-project(estimate(fwd), ray)                                                    # its pixel, or nothing outside the region
+sl = fit_camera(SplineLens, camera, region; tolerance = 1.0e-3)                 # its backward grid and forward spline
+project(estimate(sl), ray)                                                     # its pixel through the forward, NaN outside the fitted chart
 ```
 """
 function fit_camera end
@@ -198,7 +203,9 @@ function fit_camera(
         weight::Symbol = :image, max_iter::Int = _dflt("fit_camera", "max_iter")
     ) where {L <: AbstractLensModel}
     src = lens(source)
-    dec = _decentering(src)
+    # the type-level symmetry test (Core's) says whether anything is non-radial;
+    # `_decentering` measures how much (a symmetric ∘ composition is not measured)
+    dec = VgtkCore.Cameras._radially_symmetric(src) ? 0.0 : _decentering(src)
     dec > 1.0e-8 &&
         @warn "fit_camera: the source $(nameof(typeof(src))) carries non-radial terms (decentering, norm $(round(dec; sigdigits = 3))) — no radially symmetric target can represent them; fitting the radial part only"
     srcr = radial_part(src)
@@ -299,7 +306,10 @@ function _clenshaw_curtis(n::Int, b::Float64)
 end
 
 # The size of what VGC's `radial_part` strips from a lens (its tangential,
-# thin-prism and other non-radial terms; zero for a radially symmetric lens).
+# thin-prism and other non-radial terms): the magnitude of what Core's
+# type-level `_radially_symmetric` flags, read only for a lens it flags (for a
+# symmetric `∘` composition `radial_part` is the bare projection, so this
+# would count its radial coefficients).
 _decentering(l::AbstractLensModel) = sqrt(max(sum(abs2, parameter_vector(l)) - sum(abs2, parameter_vector(radial_part(l))), 0.0))
 
 # The target's anchor: its zero lens (the double sphere at ξ = α = ½, inside
@@ -435,7 +445,7 @@ end
 _coverage(exits, ρ) = count(e -> e >= ρ * (1 - 1.0e-9), exits) / length(exits)
 
 # ==============================================================================
-# The spline families: a quadrature on the image, penalized linear least squares
+# The spline targets: a quadrature on the image, penalized linear least squares
 # ==============================================================================
 
 # The quadrature of the region: the pixel centres (COLMAP) in the region on a
@@ -474,31 +484,10 @@ _source_rays(source, pixels) = _svectors(backproject(source, pixels))
 _svectors(r::AbstractVector{SVector{3, Float64}}) = r
 _svectors(r) = SVector{3, Float64}.(r)
 
-# A function of the pixel as a source (one of Core's generic sources: `u ->
-# ray` or `nothing`), wrapped once at the `fit_camera` entry that takes one: its
-# `backproject` is the function's ray, NaN where it gives none — at a pixel,
-# and batched through `pointwise!`, serially: a user function is not known to
-# be thread-safe (a Python callback is not).
-struct _PixelFunctionSource{F}
-    f::F
-end
-function VgtkCore.backproject(s::_PixelFunctionSource, u::StaticVector{2})
-    r = s.f(u)
-    return r === nothing ? SVector(NaN, NaN, NaN) : SVector{3, Float64}(r)
-end
-VgtkCore.backproject(s::_PixelFunctionSource, pixels::AbstractVector{<:StaticVector{2}}) =
-    pointwise!(Base.Fix1(backproject, s), Vector{SVector{3, Float64}}(undef, length(pixels)), pixels; exec = Serial())
-
-# The source a fit samples: a camera's model (a bounded camera's unbounded
-# model, Core's `model`), and any other source — a wrapped function of the
-# pixel, any value with a batched `backproject` — as it is.
-_source_model(source::AbstractCamera) = model(source)
-_source_model(source) = source
-
 # The source's observation lines at `pixels`, `(origin, unit direction)`, NaN where
-# it images none: a non-central grid's `Ray3`s (plain metres), and for a central
+# it images none: a non-central model's `Ray3`s (plain metres), and for a central
 # source its rays through the projection centre, the origin.
-function _source_lines(source::NoncentralGenericModel, pixels)
+function _source_lines(source::NoncentralSplineModel, pixels)
     return map(pixels) do p
         r = backproject(source, p)                       # NaN where the source images nothing
         (SVector{3, Float64}(r.origin), SVector{3, Float64}(r.direction))
@@ -515,9 +504,15 @@ _is_finite_sample(l::Tuple) = all(_is_finite_sample, l)
 _in_edge_band(region, p) = any(e -> Point2{Float64}((p + _EDGE_BAND_PX * e)...) ∉ region, _EDGE_DIRECTIONS)
 const _EDGE_DIRECTIONS = ntuple(k -> SVector(cospi((k - 1) / 8), sinpi((k - 1) / 8)), 16)
 
+# The normalized points `x = K⁻¹u` of the pixels `pixels`: Core's one pixel →
+# normalized map (`_normalized_point`, what a camera's `backproject` applies), so a
+# pixel's lattice coordinate in the fit is the one the fitted camera evaluates.
+_normalized_points(K, pixels::AbstractVector) = map(u -> SVector{2, Float64}(VgtkCore.Cameras._normalized_point(K, SVector{2, Float64}(u))), pixels)
+
 # One sample's design row: the 16 controls of its spline window and their
-# weights, in the column-major linear order of a `ny`-row control matrix (the
-# window's columns outer, its rows inner: increasing, as a CSC column needs).
+# weights, at their nodes' linear indices in a `ny`-row control matrix — the
+# column-major node order of Core's control vector (`_control_vector`), the
+# window's columns outer, its rows inner: increasing, as a CSC column needs.
 @inline function _design_row(window, ny::Int)
     ix, iy, wx, wy = window
     # control [iy - 3 + r, ix - 3 + c] (spline_window's layout) at linear index (column − 1)·ny + row
@@ -526,10 +521,9 @@ const _EDGE_DIRECTIONS = ntuple(k -> SVector(cospi((k - 1) / 8), sinpi((k - 1) /
     return (idx, w)
 end
 
-# The design rows of the points `pts` on an `ny`-row lattice, `window_fn(p)` each
-# point's spline window.
-_design_rows(window_fn::F, pts, ny::Int) where {F} = pointwise!(
-    p -> _design_row(window_fn(p), ny), Vector{Tuple{SVector{16, Int}, SVector{16, Float64}}}(undef, length(pts)), pts
+# The design rows of the points `pts` on the `ny × nx` lattice over `area`.
+_design_rows(area, (ny, nx), pts) = pointwise!(
+    p -> _design_row(spline_window(area, (ny, nx), p), ny), Vector{Tuple{SVector{16, Int}, SVector{16, Float64}}}(undef, length(pts)), pts
 )
 
 # The right-hand side of a solve: one row per sample, one column per component.
@@ -538,7 +532,8 @@ _rhs_matrix(vs::AbstractVector{<:StaticVector{K}}) where {K} = [v[k] for v in vs
 # The P-spline least squares of an `ny × nx` lattice: the controls minimizing
 # ‖A c − B‖² + λ(‖Dₓ³c‖² + ‖Dᵧ³c‖²) for the design rows `rows` and the targets `B`
 # (one column per component), λ = `_PSPLINE_PENALTY` · mean(diag(AᵀA)); the
-# controls as an `ny × nx` matrix of `SVector{K}` and λ.
+# controls as an `ny × nx` matrix of `SVector{K}` (read back through Core's one
+# control-vector layout, `_with_control_vector`) and λ.
 function _penalized_solve(rows::AbstractVector, B::Matrix{Float64}, ny::Int, nx::Int, ::Val{K}) where {K}
     _check_lattice_size(ny, nx)
     N = length(rows)
@@ -558,12 +553,12 @@ function _penalized_solve(rows::AbstractVector, B::Matrix{Float64}, ny::Int, nx:
     AtB = Matrix(At * B)
     F = cholesky(Symmetric(M); check = false)
     X = issuccess(F) ? F \ AtB : lu(M) \ AtB   # a pivot lost to rounding: the sparse LU, never a dense copy
-    controls = [SVector{K, Float64}(ntuple(k -> X[(c - 1) * ny + r, k], Val(K))) for r in 1:ny, c in 1:nx]
+    controls = VgtkCore.Cameras._with_control_vector(fill(zero(SVector{K, Float64}), ny, nx), nothing, vec(permutedims(X)))
     return controls, λ
 end
 
 # The third-difference penalty and the cubic window need at least 4 nodes per axis
-# (ChartSpline's and the generic models' own bound).
+# (ChartSpline's own bound).
 _check_lattice_size(ny::Integer, nx::Integer) = (ny >= 4 && nx >= 4) || throw(
     ArgumentError("fit_camera: a uniform cubic lattice needs at least 4 × 4 nodes, got $ny × $nx")
 )
@@ -574,58 +569,6 @@ function _held_out_errors(err::AbstractVector{Float64}, edge::AbstractVector{Boo
     return (; max = maximum(err), rms = sqrt(sum(abs2, err) / length(err)), max_edge = any(edge) ? maximum(err[edge]) : 0.0)
 end
 
-# ------------------------------------------------------------------------------
-# SplineProjection
-# ------------------------------------------------------------------------------
-
-# The quadrature in the chart: the equidistant direction chart about the
-# source's ray at the region's centroid (a rotation R whose third row is that
-# axis), the chart points of the fit's and the held-out rays, and the chart's
-# bounding rectangle.
-function _chart_quadrature(source, region)
-    q = _image_quadrature(source, region)
-    c = sum(q.fit_px) / length(q.fit_px)
-    a = backproject(source, c)
-    all(isfinite, a) || throw(ArgumentError("fit_camera: the source images no ray at the region's centroid $c"))
-    chart = equidistant_chart(SVector{3, Float64}(a))
-    fit_charts = pointwise!(chart, similar(q.fit_rays, SVector{2, Float64}), q.fit_rays)
-    held_charts = pointwise!(chart, similar(q.held_rays, SVector{2, Float64}), q.held_rays)
-    lo, hi = zip(extrema(c -> c[1], fit_charts), extrema(c -> c[2], fit_charts))
-    margin = 1.0e-6
-    area = Rect2(lo[1] - margin, lo[2] - margin, hi[1] - lo[1] + 2margin, hi[2] - lo[2] + 2margin)
-    # the spacing search's one right-hand side: the fit points' pixels
-    return (; q..., chart, fit_charts, held_charts, area, rhs = _rhs_matrix(q.fit_px))
-end
-
-# The spline fit at `cells` knot spacings along the chart's longer side: the
-# spacing h, the counts nᵢ = ⌈extentᵢ / h⌉ + 3, the controls, λ, the held-out errors.
-function _spline_projection_fit(q, cells::Int)
-    w = SVector{2, Float64}(maximum(q.area) - minimum(q.area))
-    h = maximum(w) / cells
-    nx = ceil(Int, w[1] / h * (1 - 1.0e-12)) + 3
-    ny = ceil(Int, w[2] / h * (1 - 1.0e-12)) + 3
-    rows = _design_rows(c -> spline_window(q.area, (ny, nx), c), q.fit_charts, ny)
-    controls, λ = _penalized_solve(rows, q.rhs, ny, nx, Val(2))
-    spline = ChartSpline(q.area, controls)
-    err = norm.(spline(q.held_charts) .- q.held_px)
-    return (; spline, h, λ, counts = (nx, ny), errors = _held_out_errors(err, q.edge))
-end
-
-fit_camera(::Type{SplineProjection}, source::Function, region; tolerance::Real) =
-    fit_camera(SplineProjection, _PixelFunctionSource(source), region; tolerance)
-function fit_camera(::Type{SplineProjection}, source, region; tolerance::Real)
-    _check_tolerance(tolerance)
-    q = _chart_quadrature(_source_model(source), region)
-    r, code, n = _spacing_search(cells -> _spline_projection_fit(q, cells), tolerance, _max_cells(q.extent, q.stride))
-    return FitResult(
-        SplineProjection(q.chart, r.spline, q.region), code, 0, r.errors.rms, length(q.fit_px),
-        CameraFitMetadata(
-            q.region, :image, r.errors.max, r.errors.max_edge,
-            (; spacing = r.h, penalty = r.λ, counts = r.counts, stride = q.stride, tolerance = Float64(tolerance), outer_iterations = n)
-        )
-    )
-end
-
 _check_tolerance(tolerance::Real) =
     tolerance > 0 || throw(ArgumentError("fit_camera: tolerance must be positive, got $tolerance"))
 
@@ -634,13 +577,14 @@ _check_tolerance(tolerance::Real) =
 # points per cell leave it to the penalty).
 _max_cells(extent::Real, stride::Integer) = max(1, floor(Int, extent / (3 * stride)))
 
-# The spacing search of the spline and grid targets: `fit(cells)` the fit with
-# `cells` knot cells along the longer side, its held-out maximum `errors.max`.
-# Doubling from 4 cells to the first count that meets `tolerance`, then
-# bisection between it and the last that did not: the LARGEST spacing that meets
-# it, `:converged`; `:max_iterations` with what the finest spacing reached when
-# `cells_max` does not meet it. Each fit is an outer iteration (the fit's inputs
-# change, the estimator repeats); their count is the third value.
+# THE spacing search of the spline targets (the backward lattice and the forward
+# spline): `fit(cells)` the fit with `cells` knot cells along the longer side,
+# its held-out maximum `errors.max`. Doubling from 4 cells to the first count that
+# meets `tolerance`, then bisection between it and the last that did not: the
+# LARGEST spacing that meets it, `:converged`; `:max_iterations` with what the
+# finest spacing reached when `cells_max` does not meet it. Each fit is an outer
+# iteration (the fit's inputs change, the estimator repeats); their count is the
+# third value.
 function _spacing_search(fit::F, tolerance::Real, cells_max::Int) where {F}
     meets(r) = r.errors.max <= tolerance
     outer_iterations = 1
@@ -669,85 +613,99 @@ function _spacing_search(fit::F, tolerance::Real, cells_max::Int) where {F}
 end
 
 # ------------------------------------------------------------------------------
-# The grid targets: CentralGenericModel and NoncentralGenericModel
+# The backward lattice: a SplineLens camera's, or a NoncentralSplineModel's
 # ------------------------------------------------------------------------------
 #
-# One body for both: the quadrature of the source's data, then the spacing
-# search over Core's full-image lattice on the source's image (the calibrated
-# area is the image; the region restricts the quadrature only) — at each
-# spacing the design rows, ONE penalized solve, the model and the held-out
-# errors. The target type selects the data (`_grid_samples`), the right-hand
-# side, the model built from the controls and the errors.
-
-fit_camera(::Type{CentralGenericModel}, source, region; tolerance::Real) =
-    _fit_grid(CentralGenericModel, source, region, tolerance)
-
-function _fit_grid(::Type{G}, source, region, tolerance::Real) where {G}
-    _check_tolerance(tolerance)
-    g = _grid_data(G, source, region)
-    W, H = g.size
-    r, code, n = _spacing_search(cells -> _pspline_grid(G, g, _lattice_grid_size(W, H, cells)), tolerance, _max_cells(max(W, H), g.q.stride))
-    return _grid_result(r, code, g, (; tolerance = Float64(tolerance), outer_iterations = n))
-end
+# One body for both targets: the quadrature of the source's data, then (unless
+# the lattice is given) the spacing search over Core's full-image lattice on the
+# source's image (`spline_lattice`: the calibrated area is the image, K the
+# source's own; the region restricts the quadrature only) — at each spacing the
+# design rows on the normalized points x = K⁻¹u, ONE penalized solve, the model
+# and the held-out errors. The target type selects the data (`_grid_samples`),
+# the right-hand side, the model built from the controls and the errors.
 
 # What every lattice of one fit shares: the source's image, its model, the
-# quadrature, the right-hand side and its anchor, and the held-out check's
-# source side (`_held_out`).
+# lattice's K and normalized area (the same for every grid size: the image and
+# K are), the quadrature and its normalized points, the right-hand side and its
+# anchor, and the held-out check's source side (`_held_out`).
 function _grid_data(::Type{G}, source, region) where {G}
     size = _image_size(source)
-    cam = _source_model(source)
+    cam = model(source)
     q = _image_quadrature(_grid_samples(G), cam, region)
     rhs, anchor = _grid_rhs(G, q)
-    return (; size, cam, q, held = _held_out(G, cam, q), B = _rhs_matrix(rhs), anchor, region, K = Val(length(eltype(rhs))))
+    base = spline_lattice(SplineLens, _lattice_source(cam), size; grid_size = (4, 4))
+    K = base.intrinsics
+    held = _held_out(G, cam, q, K)
+    return (;
+        size, cam, q, K, area = base.lens.backward.area, xs = _normalized_points(K, q.fit_px), held,
+        B = _rhs_matrix(rhs), anchor, region, ncomp = Val(length(eltype(rhs))),
+    )
 end
-# The P-spline solve on one lattice of `grid_size` (columns, rows) — the
-# lattice, the design rows, ONE penalized solve, the model and its held-out
-# errors: the one implementation `pspline_grid` runs once and `fit_camera`'s
-# spacing search at every spacing it tries.
+# The camera whose layout (K, the image's lattice) a fit takes: a central camera
+# as it is, a non-central model's central part (the same K).
+_lattice_source(cam::CameraModel) = cam
+_lattice_source(m::NoncentralSplineModel) = central_model(m)
+
+# The P-spline solve on one lattice of `grid_size` (columns, rows) — the design
+# rows, ONE penalized solve, the model and its held-out errors: the one
+# implementation `pspline_grid` runs once and `fit_camera`'s spacing search at
+# every spacing it tries.
 function _pspline_grid(::Type{G}, g, grid_size) where {G}
-    lattice = _grid_lattice(G, g.cam, g.size, Tuple(Int.(grid_size)), g.region)
-    gh, gw = _lattice_size(lattice)
-    rows = _design_rows(p -> spline_window(lattice, p), g.q.fit_px, gh)
-    controls, λ = _penalized_solve(rows, g.B, gh, gw, g.K)
-    fitted = _grid_model(G, lattice, controls, g.anchor, g.region)
+    gw, gh = Int.(Tuple(grid_size))
+    rows = _design_rows(g.area, (gh, gw), g.xs)
+    controls, λ = _penalized_solve(rows, g.B, gh, gw, g.ncomp)
+    fitted = _grid_model(G, g, controls)
     errors, family = _grid_errors(fitted, g.held, g.anchor)
     return (; fitted, errors, family = (; family..., n_held_out_dropped = g.held.n_dropped), λ, grid_size = (gh, gw))
 end
-_grid_result(r, code, g, extra::NamedTuple) = FitResult(
-    r.fitted, code, 0, r.errors.rms, length(g.q.fit_px),
-    CameraFitMetadata(
-        g.region, :image, r.errors.max, r.errors.max_edge,
-        (; penalty = r.λ, grid_size = r.grid_size, stride = g.q.stride, extra..., r.family...)
-    )
+# The lattice the spacing search chose (or `grid_size`, when given: no search,
+# the tolerance read off it): the solve, its retcode and its outer iterations.
+function _backward_search(::Type{G}, g, grid_size, tolerance::Real) where {G}
+    if grid_size !== nothing
+        r = _pspline_grid(G, g, grid_size)
+        return r, (r.errors.max <= tolerance ? :converged : :max_iterations), 0
+    end
+    W, H = g.size
+    return _spacing_search(cells -> _pspline_grid(G, g, _lattice_grid_size(W, H, cells)), tolerance, _max_cells(max(W, H), g.q.stride))
+end
+
+_grid_metadata(r, g, extra::NamedTuple) = CameraFitMetadata(
+    g.region, :image, r.errors.max, r.errors.max_edge,
+    (; penalty = r.λ, grid_size = r.grid_size, stride = g.q.stride, extra..., r.family...)
 )
 
 """
-    pspline_grid(G, source, region, grid_size) -> FitResult{G, CameraFitMetadata}
+    pspline_grid(T, source, region, grid_size) -> FitResult{<:model of T, CameraFitMetadata}
 
-The P-spline (penalized B-spline least squares, Eilers–Marx) of a generic
-grid model `G` — `CentralGenericModel` or `NoncentralGenericModel` — onto
-`source` over `region`, on the GIVEN lattice: Core's full-image lattice of
-`grid_size = (columns, rows)` nodes on the source's image (as
-`generic_lattice` takes it), the region restricting the quadrature only, ONE
-penalized solve with the third-difference penalty `fit_camera` uses — the
-non-central grid's points anchored on c*, its directions and points one
-right-hand side — in the source's frame. No spacing search and no tolerance:
-the one deterministic least-squares step `fit_camera(G, source, region;
-tolerance)` repeats at each spacing it tries (the same implementation), so
-`pspline_grid(G, source, region, (gw, gh))` at the lattice `fit_camera` chose
-is its result.
+The P-spline (penalized B-spline least squares, Eilers–Marx) of a spline
+camera's lattice onto `source` over `region`, on the GIVEN lattice: `T` is
+`SplineLens` (a `CameraModel` with a [`SplineLens`](@extref
+VisualGeometryToolkitCore.Cameras.SplineLens), its backward spline, no forward)
+or `NoncentralSplineModel` (its direction and point splines). The lattice is
+Core's full-image layout of `grid_size = (columns, rows)` nodes on the source's
+image (`spline_lattice`, the source's own `K`), the region restricting the
+quadrature only, ONE penalized solve with the third-difference penalty
+`fit_camera` uses — the non-central model's points anchored on c*, its
+directions and points one right-hand side — in the source's frame. No spacing
+search and no tolerance: the one deterministic least-squares step
+`fit_camera(T, source, region; tolerance)` repeats at each spacing it tries
+(the same implementation), so `pspline_grid(T, source, region, (gw, gh))` at
+the lattice `fit_camera` chose is its backward.
 
-`source` is what [`fit_camera`](@ref)'s grid targets take (a grid model, or a
-bounded camera: the lattice needs the image). The result's `retcode` is
-`:solved`, `iterations` 0; its metadata is `fit_camera`'s, the held-out errors
-(the direction error in pixels; for the non-central grid also the line
-offsets in metres, and `center`) and `family = (; penalty, grid_size, stride,
+`source` is a [`BoundedCamera`](@extref
+VisualGeometryToolkitCore.Cameras.BoundedCamera) (the lattice needs the image:
+a bare model is an `ArgumentError`) of a `CameraModel` or, for the non-central
+target, also of a `NoncentralSplineModel`. The result's `retcode` is `:solved`,
+`iterations` 0; its metadata is `fit_camera`'s, the held-out errors (the
+direction error in pixels; for the non-central model also the line offsets in
+metres, and `center`) and `family = (; penalty, grid_size, stride,
 n_held_out_dropped, …)` with `grid_size` the lattice's `(rows, columns)`, as
 `fit_camera` reports it, and no `tolerance` or `outer_iterations`.
 """
-function pspline_grid(::Type{G}, source, region, grid_size::Tuple{Integer, Integer}) where {G <: Union{CentralGenericModel, NoncentralGenericModel}}
+function pspline_grid(::Type{G}, source, region, grid_size::Tuple{Integer, Integer}) where {G <: Union{SplineLens, NoncentralSplineModel}}
     g = _grid_data(G, source, region)
-    return _grid_result(_pspline_grid(G, g, grid_size), :solved, g, (;))
+    r = _pspline_grid(G, g, grid_size)
+    return FitResult(r.fitted, :solved, 0, r.errors.rms, length(g.q.fit_px), _grid_metadata(r, g, (;)))
 end
 
 # The lattice of `cells` cells along the image's longer side: the spacing
@@ -758,122 +716,230 @@ function _lattice_grid_size(W::Integer, H::Integer, cells::Integer)
     return (ceil(Int, W / h * (1 - 1.0e-12)) + 3, ceil(Int, H / h * (1 - 1.0e-12)) + 3)
 end
 
-_lattice_size(m::CentralGenericModel) = size(m.grid)
-_lattice_size(m::NoncentralGenericModel) = size(m.directions)
-_lattice_area(m) = (m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y)
-
-_grid_samples(::Type{CentralGenericModel}) = _source_rays
-
-# The lattice: Core's layout of a grid model from the source (its nominal
-# pinhole), without sampling it — the solve sets every control.
-_grid_lattice(::Type{G}, source, size, grid_size, region) where {G} = generic_lattice(G, source, size; grid_size, domain = region)
-_grid_rhs(::Type{CentralGenericModel}, q) = (q.fit_rays, nothing)
-_grid_model(::Type{CentralGenericModel}, lattice, controls, _, region) = CentralGenericModel{Float64}(
-    lattice.width, lattice.height, _lattice_area(lattice)..., Vec3{Float64}.(controls);
-    unit_controls = false, nominal = nominal_intrinsics(lattice), domain = region
-)
-_held_out(::Type{CentralGenericModel}, source, q) = _held_out(source, q, normalize.(q.held_rays), nothing)
-_grid_errors(fitted::CentralGenericModel, held, _) = (_held_out_errors(_direction_errors(fitted, held), held.edge), (;))
-
-# The image a grid target's lattice covers: a grid source's own, a bounded
-# camera's extent. A bare camera model has no image.
-_image_size(m::Union{CentralGenericModel, NoncentralGenericModel}) = (m.width, m.height)
+# The image a spline target's lattice covers: a bounded camera's extent. A bare
+# camera model has none.
 _image_size(bc::BoundedCamera) = (e = extent(bc); (Int(e.width), Int(e.height)))
-_image_size(source) = throw(
+_image_size(source) = _no_image(source)
+_no_image(source) = throw(
     ArgumentError(
-        "fit_camera(<grid model>, …): a $(nameof(typeof(source))) source has no image for the grid's full-image lattice; " *
+        "fit_camera(<spline target>, …): a $(nameof(typeof(source))) source has no image for the lattice's full-image layout; " *
             "bound it by its sensor or extent, `BoundedCamera(model, sensor)`"
     )
 )
 
+_grid_samples(::Type{SplineLens}) = _source_rays
+_grid_rhs(::Type{SplineLens}, q) = (q.fit_rays, nothing)
+# The camera of the solved controls: Core's one SplineLens constructor, on the
+# image's lattice with the lattice's K (the controls kept as solved).
+_grid_model(::Type{SplineLens}, g, controls) = CameraModel(SplineLens, controls, g.size; intrinsics = g.K)
+_held_out(::Type{SplineLens}, source, q, K) = _held_out(source, q, K, normalize.(q.held_rays), nothing)
+_grid_errors(fitted::CameraModel, held, _) = (_held_out_errors(_direction_errors(fitted, held), held.edge), (;))
+
 # ------------------------------------------------------------------------------
-# NoncentralGenericModel
+# NoncentralSplineModel
 # ------------------------------------------------------------------------------
 #
-# The same design as the central grid, on lines: Core's full-image lattice, the
-# region restricting the quadrature only, ONE penalized solve for both grids
-# (the unit directions and the points are columns of one right-hand side over
-# one design). A line's point is not data — any point of the line is the same
-# line — so the fit pins it: every quadrature line contributes its point closest
-# to c*, the least-squares point nearest to all of them (Core's `nearest_point`).
-# The points then vary as little as the lines allow, and a central source's are
-# c* itself. Anchoring on a plane instead (the pupil plane z = const) explodes
-# for rays near and past 90°, where the plane meets the line far away or never.
+# The same design as the central lattice, on lines: Core's full-image lattice,
+# the region restricting the quadrature only, ONE penalized solve for both
+# splines (the unit directions and the points are columns of one right-hand side
+# over one design). A line's point is not data — any point of the line is the
+# same line — so the fit pins it: every quadrature line contributes its point
+# closest to c*, the least-squares point nearest to all of them (Core's
+# `nearest_point`). The points then vary as little as the lines allow, and a
+# central source's are c* itself. Anchoring on a plane instead (the pupil plane
+# z = const) explodes for rays near and past 90°, where the plane meets the
+# line far away or never.
 
-fit_camera(::Type{NoncentralGenericModel}, source, region; tolerance::Real) =
-    _fit_grid(NoncentralGenericModel, source, region, tolerance)
+"""
+    fit_camera(NoncentralSplineModel, source, region; tolerance, grid_size = nothing)
+        -> FitResult{<:NoncentralSplineModel, CameraFitMetadata}
 
-_grid_samples(::Type{NoncentralGenericModel}) = _source_lines
+See [`fit_camera`](@ref): the non-central spline model's direction and point
+splines on one lattice, from one penalized solve.
+"""
+function fit_camera(::Type{NoncentralSplineModel}, source, region; tolerance::Real, grid_size::Union{Nothing, Tuple{Integer, Integer}} = nothing)
+    _check_tolerance(tolerance)
+    g = _grid_data(NoncentralSplineModel, source, region)
+    r, code, n = _backward_search(NoncentralSplineModel, g, grid_size, tolerance)
+    return FitResult(
+        r.fitted, code, 0, r.errors.rms, length(g.q.fit_px),
+        _grid_metadata(r, g, (; tolerance = Float64(tolerance), outer_iterations = n))
+    )
+end
+
+_grid_samples(::Type{NoncentralSplineModel}) = _source_lines
 
 # The right-hand side: the unit direction, and the line's point closest to c*
 # relative to c* (the solve is translation-equivariant: a B-spline's weights sum
 # to one and the third differences vanish on constants); c* the anchor.
-function _grid_rhs(::Type{NoncentralGenericModel}, q)
+function _grid_rhs(::Type{NoncentralSplineModel}, q)
     center = nearest_point([o => d for (o, d) in q.fit_rays])
     return [vcat(d, o + dot(center - o, d) * d - center) for (o, d) in q.fit_rays], center
 end
 
 # A control of the joint solve split into its direction and its absolute point.
-_direction_control(x::SVector{6}) = Vec3{Float64}(x[1], x[2], x[3])
-_point_control(x::SVector{6}, center) = Vec3{Float64}(x[4] + center[1], x[5] + center[2], x[6] + center[3])
+_direction_control(x::SVector{6}) = SVector{3, Float64}(x[1], x[2], x[3])
+_point_control(x::SVector{6}, center) = SVector{3, Float64}(x[4] + center[1], x[5] + center[2], x[6] + center[3])
 
-_grid_model(::Type{NoncentralGenericModel}, lattice, controls, center, region) = NoncentralGenericModel{Float64}(
-    lattice.width, lattice.height, _lattice_area(lattice)..., _direction_control.(controls), _point_control.(controls, Ref(center));
-    unit_controls = false, nominal = nominal_intrinsics(lattice), domain = region
+_grid_model(::Type{NoncentralSplineModel}, g, controls) = NoncentralSplineModel(
+    g.K, ChartSpline(g.area, _direction_control.(controls)), ChartSpline(g.area, _point_control.(controls, Ref(g.anchor)))
 )
-_held_out(::Type{NoncentralGenericModel}, source, q) = _held_out(source, q, last.(q.held_rays), first.(q.held_rays))
-function _grid_errors(fitted::NoncentralGenericModel, held, center)
+_held_out(::Type{NoncentralSplineModel}, source, q, K) = _held_out(source, q, K, last.(q.held_rays), first.(q.held_rays))
+function _grid_errors(fitted::NoncentralSplineModel, held, center)
     e, offsets = _line_errors(fitted, held)
     return e, (; center, max_offset = offsets.max, rms_offset = offsets.rms, max_offset_edge = offsets.max_edge)
 end
 
-# The held-out DIRECTION error of a fitted grid (either target) in pixels: at
+# The fitted direction and point splines at a normalized point, continued past
+# their area as the fit's design is.
+_fitted_direction(cam::CameraModel, x) = cam.lens.backward(x)
+_fitted_direction(m::NoncentralSplineModel, x) = m.directions(x)
+
+# The held-out DIRECTION error of a fitted lattice (either target) in pixels: at
 # each held-out pixel the fitted direction's tangent deviation from the source's
 # unit direction `d`, mapped back through the source's back-projection Jacobian
 # `J = ∂d/∂u` (its `backproject_with_jacobian`), `‖J⁺δ‖` — the round trip
 # through the source to first order. Evaluated directly through the fitted
-# spline (`interpolated_direction`, continued past the calibrated area as the
-# fit's design is): no projection, no seed, so no solver tolerance floors it.
+# spline at x = K⁻¹u (continued past the calibrated area as the fit's design
+# is): no projection, no seed, so no solver tolerance floors it.
 #
 # Everything of the check but the fitted spline is the source's and is
 # computed ONCE per fit (`_held_out`), not per spacing: the source's
 # back-projection Jacobian at each held-out pixel and its pseudo-inverse
-# `J⁺ = (JᵀJ)⁻¹Jᵀ` (2 × 3), the unit directions, and the one mask of the pixels
-# kept. A held-out pixel where the source's Jacobian is not finite (a source
-# that images the ray but cannot differentiate there) has no pixel error: it
-# is dropped from every held-out error — the direction's and the line
-# offset's — as a non-finite sample is from the quadrature, and counted
-# (`n_dropped`). Each spacing then evaluates the fitted direction and one
-# 2 × 3 product per kept pixel (`pointwise!`).
-function _held_out(source, q, directions, origins)
+# `J⁺ = (JᵀJ)⁻¹Jᵀ` (2 × 3), the unit directions, the normalized points and the
+# one mask of the pixels kept. A held-out pixel where the source's Jacobian is
+# not finite (a source that images the ray but cannot differentiate there) has
+# no pixel error: it is dropped from every held-out error — the direction's and
+# the line offset's — as a non-finite sample is from the quadrature, and
+# counted (`n_dropped`). Each spacing then evaluates the fitted direction and
+# one 2 × 3 product per kept pixel (`pointwise!`).
+function _held_out(source, q, K, directions, origins)
     J = map(u -> last(backproject_with_jacobian(source, u)), q.held_px)
     kept = map(j -> all(isfinite, j), J)
     any(kept) || throw(ArgumentError("fit_camera: the source's back-projection Jacobian is not finite at any held-out pixel"))
     pinv = map(j -> SMatrix{2, 3, Float64}((transpose(j) * j) \ transpose(j)), J[kept])
+    px = q.held_px[kept]
     return (;
-        px = q.held_px[kept], directions = directions[kept], origins = origins === nothing ? nothing : origins[kept],
+        px, xs = _normalized_points(K, px), directions = directions[kept], origins = origins === nothing ? nothing : origins[kept],
         pinv, edge = q.edge[kept], n_dropped = count(!, kept),
     )
 end
 _direction_errors(fitted, held) = pointwise!(
-    (u, d, P) -> _direction_error(fitted, u, d, P), Vector{Float64}(undef, length(held.px)), held.px, held.directions, held.pinv
+    (x, d, P) -> _direction_error(fitted, x, d, P), Vector{Float64}(undef, length(held.px)), held.xs, held.directions, held.pinv
 )
-@inline function _direction_error(fitted, u, d, P)
-    f = normalize(SVector{3, Float64}(interpolated_direction(fitted, u)))
+@inline function _direction_error(fitted, x, d, P)
+    f = normalize(SVector{3, Float64}(_fitted_direction(fitted, x)))
     δ = f - d
     δ -= dot(δ, d) * d
     return norm(P * δ)
 end
 
-# The held-out errors of a fitted non-central grid against the source's lines,
+# The held-out errors of a fitted non-central model against the source's lines,
 # over the kept held-out pixels: the direction error in pixels (above) and the
 # LINE OFFSET `‖(I − ddᵀ)(o_fit − o_src)‖`, the distance from the source's
 # point to the fitted line's point across the source's direction, in the
 # source's length unit (plain metres), through the fitted point spline.
-function _line_errors(fitted::NoncentralGenericModel, held)
+function _line_errors(fitted::NoncentralSplineModel, held)
     offset = pointwise!(
-        (u, o, d) -> (Δ = SVector{3, Float64}(interpolated_point(fitted, u)) - o; norm(Δ - dot(Δ, d) * d)),
-        Vector{Float64}(undef, length(held.px)), held.px, held.origins, held.directions
+        (x, o, d) -> (Δ = SVector{3, Float64}(fitted.points(x)) - o; norm(Δ - dot(Δ, d) * d)),
+        Vector{Float64}(undef, length(held.px)), held.xs, held.origins, held.directions
     )
     return _held_out_errors(_direction_errors(fitted, held), held.edge), _held_out_errors(offset, held.edge)
+end
+
+# ------------------------------------------------------------------------------
+# SplineLens: the backward lattice and the forward spline of one camera
+# ------------------------------------------------------------------------------
+
+function fit_camera(
+        ::Type{SplineLens}, source::BoundedCamera, region;
+        tolerance::Real, grid_size::Union{Nothing, Tuple{Integer, Integer}} = nothing, forward::Bool = true
+    )
+    _check_tolerance(tolerance)
+    back, code, family = _spline_backward(model(source), source, region, grid_size, tolerance)
+    cam = back.camera
+    fwd = forward ? _forward_spline(cam, region, tolerance) : nothing
+    fwd === nothing || fwd.code === :converged || (code = fwd.code)
+    out = fwd === nothing ? cam : CameraModel(cam.intrinsics, SplineLens(cam.lens.backward; forward = fwd.spline, present = cam.lens.present))
+    ff = fwd === nothing ? (; spacing = nothing, counts = nothing, forward_penalty = nothing, forward_outer_iterations = nothing,
+            forward_max_px = nothing, forward_max_px_edge = nothing, forward_rms = nothing) :
+        (; spacing = fwd.r.h, counts = fwd.r.counts, forward_penalty = fwd.r.λ, forward_outer_iterations = fwd.n,
+            forward_max_px = fwd.r.errors.max, forward_max_px_edge = fwd.r.errors.max_edge, forward_rms = fwd.r.errors.rms)
+    return FitResult(
+        out, code, 0, back.errors.rms, back.n,
+        CameraFitMetadata(region, :image, back.errors.max, back.errors.max_edge, (; family..., tolerance = Float64(tolerance), ff...))
+    )
+end
+
+# Any other source has no image for the lattice — a bare camera model as well (it
+# is not the lens-family regression's: `SplineLens` names the spline target).
+fit_camera(::Type{SplineLens}, source, region; kwargs...) = _no_image(source)
+fit_camera(::Type{SplineLens}, source::CameraModel, region; kwargs...) = _no_image(source)
+
+# The backward of the SplineLens target: a SplineLens source's own, kept exactly
+# (its forward dropped; the held-out direction errors against it, its own), or
+# the P-spline lattice of any other camera source (`grid_size`, or the spacing
+# search to `tolerance`). Its camera, its errors and point count, the retcode and
+# the central fields of the family.
+function _spline_backward(src::CameraModel{<:VgtkCore.Cameras.AbstractIntrinsics, <:SplineLens}, source, region, grid_size, tolerance)
+    grid_size === nothing || throw(
+        ArgumentError("fit_camera(SplineLens, …): the source is a SplineLens camera, whose backward is kept as it is; a `grid_size` has no lattice to choose")
+    )
+    cam = CameraModel(src.intrinsics, SplineLens(src.lens.backward; present = src.lens.present))
+    q = _image_quadrature(cam, region)
+    held = _held_out(SplineLens, cam, q, cam.intrinsics)
+    errors = _held_out_errors(_direction_errors(cam, held), held.edge)
+    family = (; penalty = nothing, grid_size = size(cam.lens.backward.controls), stride = q.stride, outer_iterations = 0, n_held_out_dropped = held.n_dropped)
+    return (; camera = cam, errors, n = length(q.fit_px)), :converged, family
+end
+function _spline_backward(::CameraModel, source, region, grid_size, tolerance)
+    g = _grid_data(SplineLens, source, region)
+    r, code, n = _backward_search(SplineLens, g, grid_size, tolerance)
+    family = (; penalty = r.λ, grid_size = r.grid_size, stride = g.q.stride, outer_iterations = n, r.family...)
+    return (; camera = r.fitted, r.errors, n = length(g.q.fit_px)), code, family
+end
+_spline_backward(src, source, region, grid_size, tolerance) = throw(
+    ArgumentError("fit_camera(SplineLens, …): the source must bound a central CameraModel, got a $(nameof(typeof(src))) (a non-central model fits `NoncentralSplineModel`)")
+)
+
+# The forward spline of the camera `cam` (its backward) over `region`: a
+# ChartSpline{2} from the equidistant chart about the lens axis (the chart the
+# lens projects through) to the normalized point x, fitted to the camera's own
+# rays at the quadrature's pixels by linear least squares with the P-spline
+# penalty, its knot spacing by the spacing search to `tolerance` in pixels (the
+# held-out round trip `‖K·forward(chart(ray)) − u‖`).
+function _forward_spline(cam, region, tolerance)
+    q = _chart_quadrature(cam, region)
+    r, code, n = _spacing_search(cells -> _forward_fit(q, cells), tolerance, _max_cells(q.extent, q.stride))
+    return (; spline = r.spline, r, code, n)
+end
+
+# The quadrature in the chart: the equidistant direction chart about the lens
+# axis, the chart points of the fit's and the held-out rays, the chart's
+# bounding rectangle, the fit points' normalized points (the right-hand side)
+# and the camera's x ↦ u.
+function _chart_quadrature(cam, region)
+    q = _image_quadrature(cam, region)
+    chart = equidistant_chart(VgtkCore.Cameras._lens_axis(cam.lens.backward))
+    fit_charts = pointwise!(chart, similar(q.fit_rays, SVector{2, Float64}), q.fit_rays)
+    held_charts = pointwise!(chart, similar(q.held_rays, SVector{2, Float64}), q.held_rays)
+    lo, hi = zip(extrema(c -> c[1], fit_charts), extrema(c -> c[2], fit_charts))
+    margin = 1.0e-6
+    area = Rect2(lo[1] - margin, lo[2] - margin, hi[1] - lo[1] + 2margin, hi[2] - lo[2] + 2margin)
+    pixel = VgtkCore.Cameras._pixel_affine(cam.intrinsics)   # Core's x ↦ K x, what the camera's `project` applies
+    return (; q..., fit_charts, held_charts, area, pixel, rhs = _rhs_matrix(_normalized_points(cam.intrinsics, q.fit_px)))
+end
+
+# The forward fit at `cells` knot spacings along the chart's longer side: the
+# spacing h, the counts nᵢ = ⌈extentᵢ / h⌉ + 3, the spline, λ, the held-out
+# errors in pixels.
+function _forward_fit(q, cells::Int)
+    w = SVector{2, Float64}(maximum(q.area) - minimum(q.area))
+    h = maximum(w) / cells
+    nx = ceil(Int, w[1] / h * (1 - 1.0e-12)) + 3
+    ny = ceil(Int, w[2] / h * (1 - 1.0e-12)) + 3
+    controls, λ = _penalized_solve(_design_rows(q.area, (ny, nx), q.fit_charts), q.rhs, ny, nx, Val(2))
+    spline = ChartSpline(q.area, controls)
+    err = map((c, u) -> norm(q.pixel(spline(c)) - u), q.held_charts, q.held_px)
+    return (; spline, h, λ, counts = (nx, ny), errors = _held_out_errors(err, q.edge))
 end

@@ -142,9 +142,10 @@ The fragment holds, sorted by name, each macro after its provenance comment:
   key and the run's commit (its recorded `gitcommit`: the comment changes only
   when the run does). A number read from another run overrides fields with
   `provenance = (; run_key = …)`. [`gather_numbers`](@ref) keeps each comment,
-  and [`deploy_assets`](@ref) deploys a numbers file whose comments alone
-  changed (a rerun at a new run key or commit, the same numbers) without
-  sign-off; a changed value still needs it.
+  and [`deploy_assets`](@ref) deploys a numbers file that differs from the
+  submitted one in its `% provenance` lines alone (a rerun at a new run key or
+  commit; the verify report's `provenance_only`) without sign-off. Any other
+  change, a value, a hand-written comment or whitespace, still needs it.
 - **Deterministic**: the same numbers write the same bytes, whatever the
   order they were added in; the fragment is written whole (a temporary file
   renamed into place).

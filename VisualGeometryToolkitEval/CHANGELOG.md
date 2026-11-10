@@ -11,8 +11,9 @@
   (`digits` as Printf's `%.<d>f`, or `sigdigits` without an exponent; `percent`, `group_from`, `unit`, a range) and
   refuses a NaN or an infinity; `number_macro_name(prefix, parts...)` builds a letters-only name, digits spelled
   out. `gather_numbers` carries each macro's provenance comment into the numbers file, and `deploy_assets` deploys a
-  numbers file whose comments alone changed (a rerun at a new run key or commit, the same macro values) without
-  sign-off; a changed value still needs it. The paper projects'
+  numbers file that differs from the submitted one in its `% provenance` lines alone (a rerun at a new run key or
+  commit) without sign-off; any other change, a changed value, a hand-written comment or whitespace, still needs it.
+  The verify report gains the column `provenance_only`. The paper projects'
   own writers (radiometric-camera cvpr2027, BlobBoards bmvc2026, LocalOptimizationDoneRight accv2026,
   RANSACScoringDoneRight neurips2026, CaliBlobs icra2026) port to it.
 

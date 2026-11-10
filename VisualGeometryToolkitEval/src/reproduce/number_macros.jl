@@ -287,9 +287,9 @@ end
     add_table_row!(nums, row, cells; label = "", provenance = (;), format...) -> String
 
 Add a table row's numbers to `nums`, one macro per cell: `cells` is an
-ordered collection (a vector or tuple) of `column => value` pairs in the
-table's column order; a dictionary or a set has no column order and is an
-`ArgumentError`. The
+ordered collection (a vector, a tuple, an `OrderedDict`) of `column => value`
+pairs in the table's column order; a `Dict` or a `Set` has no column order and
+is an `ArgumentError`. The
 cell's macro is `\\<row><Column>` (`row` and each `column` letters only, the
 column capitalised). Each value is typeset as by [`add_number!`](@ref), the
 `format` keywords shared by the row; a cell of another format is given as its
@@ -304,7 +304,7 @@ macro the table prints, and the gatherer's checks
 function add_table_row!(nums::PaperNumbers, row::AbstractString, cells;
         label::AbstractString = "", provenance::NamedTuple = (;), format...)
     _check_macro_name(row)
-    cells isa Union{AbstractDict, AbstractSet} &&
+    cells isa Union{Dict, IdDict, WeakKeyDict, Set} &&             # unordered; an OrderedDict keeps its order
         throw(ArgumentError("table row $(repr(row)): a $(nameof(typeof(cells))) has no column order; give the cells as an ordered vector or tuple of column => value pairs"))
     isempty(cells) && throw(ArgumentError("table row $(repr(row)) has no cells"))
     _check_label(label)
@@ -326,14 +326,22 @@ _provenance_comment(name::AbstractString, m::_NumberMacro) =
     "% provenance \\" * name * ": driver=" * m.provenance.driver * "; config=" * m.provenance.config *
     "; run=" * m.provenance.run_key * "; commit=" * m.provenance.commit * (isempty(m.label) ? "" : "; label=" * m.label)
 
+# A provenance comment line, `% provenance \<name>: …`, capturing the name.
+const _PROVENANCE_LINE = r"^%\s*provenance\s+\\([A-Za-z]+):"
+
 # The provenance comment of each macro of a tex text, as `name => comment line`.
 function _macro_provenance(text::AbstractString)
     out = Dict{String, String}()
-    for m in eachmatch(r"^%\s*provenance\s+\\([A-Za-z]+):.*$"m, text)
-        out[String(_cap(m, 1))] = String(m.match)
+    for line in eachsplit(text, '\n')
+        m = match(_PROVENANCE_LINE, line)
+        m === nothing || (out[String(_cap(m, 1))] = String(line))
     end
     return out
 end
+
+# A tex text without its provenance comment lines: what must be byte-equal for
+# two numbers files to differ in their provenance alone.
+_without_provenance(text::AbstractString) = [l for l in eachsplit(text, '\n') if !occursin(_PROVENANCE_LINE, l)]
 
 """
     write_numbers(path, nums) -> path
@@ -359,6 +367,7 @@ function write_numbers(path::AbstractString, nums::PaperNumbers)
         end
         close(io)
         chmod(tmp, 0o644)                  # mktemp's file is private; a fragment is not
+        isdir(path) && throw(ArgumentError("write_numbers: $path is a directory"))   # mv(…; force) would delete it
         mv(tmp, path; force = true)
     catch
         close(io)

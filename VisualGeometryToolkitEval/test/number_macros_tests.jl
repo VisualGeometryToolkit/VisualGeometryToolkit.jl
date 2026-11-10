@@ -9,6 +9,13 @@
     using Printf: Printf
     using VisualGeometryToolkitEval.Reproduce
 
+    # a minimal ordered AbstractDict, standing in for OrderedCollections' OrderedDict
+    struct OrderedPairs <: AbstractDict{String, Int}
+        pairs::Vector{Pair{String, Int}}
+    end
+    Base.iterate(d::OrderedPairs, i = 1) = iterate(d.pairs, i)
+    Base.length(d::OrderedPairs) = length(d.pairs)
+
     prov = (; driver = "scripts/pose_table.jl", config = "configs/pose_table.toml", run_key = "3f2a9c1e", commit = "f11598f7")
 
     @testset "tex_number: the number exactly as configured" begin
@@ -98,8 +105,12 @@
         # a Dict has no column order: refused, with the ordered collection to give instead
         err = try add_table_row!(nums, "heUr", Dict("frames" => 3, "recovered" => 4)); nothing catch e; e end
         @test err isa ArgumentError && occursin("ordered", err.msg)
+        @test_throws ArgumentError add_table_row!(nums, "heUr", Set(["frames" => 3]))
         @test length(nums) == n
         @test add_table_row!(nums, rows[2][1], rows[2][2]; rows[2][3]...) == "\\heUrFrames & \\heUrRecovered"
+        # an ordered AbstractDict (an OrderedDict) is a column order: accepted, in its order
+        scratch = PaperNumbers(; prov...)
+        @test add_table_row!(scratch, "ord", OrderedPairs(["zeta" => 1, "alpha" => 2])) == "\\ordZeta & \\ordAlpha"
 
         dir = mktempdir()
         frag = write_numbers(joinpath(dir, "run-a", "numbers.tex"), nums)
@@ -133,8 +144,11 @@
         end
         foreach(((n, v, kw),) -> add_number!(again, n, v; kw...), reverse(scalars))
         @test read(write_numbers(joinpath(dir, "again.tex"), again), String) == text
-        # the write is whole or nothing: no temp file left beside the fragment
+        # the write is whole or nothing: no temp file left beside the fragment, on success or on failure
         @test readdir(dirname(frag)) == ["numbers.tex"]
+        taken = mkpath(joinpath(dir, "run-a", "taken.tex"))                # a directory where the file would go
+        @test_throws ArgumentError write_numbers(taken, nums)
+        @test isdir(taken) && sort(readdir(dirname(frag))) == ["numbers.tex", "taken.tex"]
 
         # gather_numbers keeps every macro and its provenance comment
         other = write_numbers(joinpath(dir, "run-b", "numbers.tex"),
@@ -180,6 +194,28 @@
         @test read(joinpath(paper, "numbers.tex"), String) == deployed
         @test quietly(() -> deploy_assets(results, paper, ["numbers.tex"]; replace_submitted = true)) == ["numbers.tex"]
         @test occursin("{0.045}", read(joinpath(paper, "numbers.tex"), String))
+        submitted = joinpath(paper, "numbers.tex")
+        rows = quietly(() -> verify_assets(results, paper, ["numbers.tex"]))
+        @test only(rows).identical
+        # the verify report names the provenance-only case
+        regenerate(; run_key = "dddd4444", commit = "0123abcd", value = 0.0452)
+        r = only(quietly(() -> verify_assets(results, paper, ["numbers.tex"])))
+        @test r.provenance_only && !r.identical
+        @test occursin("provenance", readlines(joinpath(results, "verify.tsv"))[1])
+        @test quietly(() -> deploy_assets(results, paper, ["numbers.tex"])) == ["numbers.tex"]
+        # anything but a provenance line changed: refused as before
+        good = read(submitted, String)
+        for (what, edit) in (
+                "a hand-written comment" => t -> replace(t, "\\newcommand" => "% checked by hand\n\\newcommand"; count = 1),
+                "whitespace" => t -> replace(t, "\\newcommand" => "\\newcommand "; count = 1),
+                "a renamed macro" => t -> replace(t, "\\poseRotMed}" => "\\poseRotMedian}"),
+                "an added macro" => t -> t * "\\newcommand{\\poseExtra}{1}\n",
+                "a removed macro" => t -> replace(t, r"\\newcommand\{\\poseRotMed\}\{[^}]*\}\n" => ""))
+            write(submitted, edit(good))
+            @test read(submitted, String) != good
+            @test !only(quietly(() -> verify_assets(results, paper, ["numbers.tex"]))).provenance_only
+            @test_throws ErrorException quietly(() -> deploy_assets(results, paper, ["numbers.tex"]))
+        end
     end
 
     @testset "a table row of number macros compiles in LaTeX" begin

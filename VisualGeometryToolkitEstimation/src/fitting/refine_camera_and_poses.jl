@@ -163,10 +163,11 @@ trait, `GaugeIntrinsics`, selects it):
   is held at its guess. One common scale of every control changes no ray, so
   the scale of the live node nearest x = 0 is held (its norm comes back as the
   guess's; the third-difference penalty is not scale-free, so the choice biases
-  it, negligibly at its 1e-8 relative weight). The poses are first refined
-  alone through the guess's lens, then everything together (a node's scale is
-  weakly observed, and a first joint step from poses far off would let the
-  scales absorb the poses' error). `free` is `(:controls,)` (the default) or
+  it, negligibly at its 1e-8 relative weight). The solve runs in three stages,
+  each from the last: the poses alone through the guess's lens, then the
+  directions and the poses with every scale held, then everything (a node's
+  scale is weakly observed and nearly collinear with its direction, so a joint
+  solve from far off creeps, or lets the scales absorb the poses' error). `free` is `(:controls,)` (the default) or
   `()` (the poses alone, the camera returned as given); a `box` is an
   `ArgumentError`.
 - Each correspondence's rows are `K·x* − u`, `x*` the lens's projection solve

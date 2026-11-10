@@ -45,7 +45,7 @@ non-central one is a `NoncentralSplineModel`).
   analytic by implicit differentiation of the projection solve at x* (Core's `_solved_projection` and
   `_projection_jacobians`: no ForwardDiff reaches the solve); a third-difference penalty over the present nodes
   (Core's `difference_rows`; `penalty`, default the P-spline fit's 1e-8 relative weight, read against the direction
-  coordinates); the scale of the node nearest x = 0 held (a normalization constraint: the penalty is not scale-free); the poses refined alone first; the blocks rebuilt at the estimate until
+  coordinates); the scale of the node nearest x = 0 held (a normalization constraint: the penalty is not scale-free); the poses refined alone first, then the directions with the scales held, then everything; the blocks rebuilt at the estimate until
   every window is its own; and the rotation gauge fixed after the solve by one rotation (the lens axis onto ẑ, the
   roll putting the x-derivative at x = 0 in the xz plane; the cost unchanged). `free` is `(:controls,)` or `()` (the
   poses alone). A forward spline is dropped and, with `refit_forward = true` (the default), refitted by

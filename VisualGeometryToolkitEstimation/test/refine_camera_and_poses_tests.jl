@@ -220,6 +220,12 @@ end
     # exact data: at a 1e-14 relative weight it falls toward the solver's floor
     @test res.spline.cost_after_gauge <= res.spline.cost_start
     @test rms(refine_camera_and_poses(cam0, poses0, views; penalty = 1.0e-14)) < 1.0e-6
+    # a lens five times as far off (every control turned ≈ 0.05 rad): converges within the per-solve cap (the
+    # directions-first stage; a joint solve from there crept for 158 iterations)
+    far = perturbed_controls(truth, 0.05)
+    rf = refine_camera_and_poses(far, poses0, views)
+    @test retcode(rf) === :converged && rf.spline.windows_settled
+    @test ray_error(estimate(rf).camera, truth, views) < ray_error(far, truth, views) / 1000
     # the patch layout is no part of the estimate: the lattice laid one node into the patches agrees to the solver's tolerance
     e1 = first(VE._refine_spline_camera_and_poses(cam0, poses0, views, 1))
     @test ray_error(e1.camera, est.camera, views) < 1.0e-9

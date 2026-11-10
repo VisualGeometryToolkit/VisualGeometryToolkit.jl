@@ -289,6 +289,10 @@ order κ·eps that moves with it. So these values are compared within
 `MAX_ULPS · κ` ulps of the array's largest entry (`compare_value`'s
 `condition`), not entry by entry. κ ≈ 3.0e3 for `spline_nodes()`.
 
+With the adapter's `lens_inverse_lm` (`V`), a lens's iterative inverse — its
+`backproject`, `undistort_normalized` and `camera/backproject` — has κ = 2:
+within `2·MAX_ULPS` ulps of the array's largest entry (see the adapter).
+
 Measured on Julia 1.12.7: bit-identical under OpenBLAS's native (an
 i9-13900K), Haswell and Zen core types; under Sandybridge 40 and under Prescott
 25 ulps of the largest entry (83712 and 13376 ulps of the worst entry, whose
@@ -296,7 +300,8 @@ magnitude is a tenth of the largest or less); GitHub's ubuntu-26.04 runner
 19200 ulps of the worst entry. The bound, 4κ ≈ 1.2e4 ulps of the largest
 entry, holds all of them with a margin of 300.
 """
-function solve_condition(key::AbstractString)
+function solve_condition(key::AbstractString, V = (;))
+    haskey(V, :lens_inverse_lm) && V.lens_inverse_lm && _is_lens_inverse(key) && return 2.0
     key in ("target/T/jacobian_theta", "target/H/jacobian_theta") || return nothing
     nodes = spline_nodes()
     N = length(nodes)
@@ -304,6 +309,7 @@ function solve_condition(key::AbstractString)
     P = [ones(N) first.(nodes) last.(nodes)]
     return cond([U P; P' zeros(3, 3)])
 end
+_is_lens_inverse(key::AbstractString) = occursin(r"^lens/[^/]+/(camera/)?(backproject|undistort_normalized)$", key)
 
 """
     value_precision(key) -> Type
@@ -361,9 +367,13 @@ function compare_value(e, a; scaled::Bool = false, condition::Union{Nothing, Rea
         size(e) == size(a) || return (false, Int128(0), "size $(size(a)), the golden's $(size(e))")
         d = isempty(e) ? Int128(0) : maximum(ulps.(precision.(e), precision.(a)))
         if (scaled || condition !== nothing) && !isempty(e)
-            δ, s = maximum(abs.(Float64.(e) .- Float64.(a))), maximum(abs, e)
+            # a NaN (a point not imaged) is pinned where it stands; the bound is on the numbers
+            m = .!isnan.(e)
+            same_nans = isnan.(e) == isnan.(Float64.(a))
+            δ = maximum(abs.(Float64.(e[m]) .- Float64.(a[m])); init = 0.0)
+            s = maximum(abs, e[m]; init = 0.0)
             bound = condition === nothing ? MAX_ULPS : MAX_ULPS * condition
-            ok = δ <= bound * eps(s)
+            ok = same_nans && δ <= bound * eps(s)
             return (ok, d, ok ? "" : "off by $(δ), $(δ / eps(s)) ulps of the array's largest entry $(s) (bound $(bound))")
         end
         return (d <= MAX_ULPS, d, d <= MAX_ULPS ? "" : "$(d) ulps")

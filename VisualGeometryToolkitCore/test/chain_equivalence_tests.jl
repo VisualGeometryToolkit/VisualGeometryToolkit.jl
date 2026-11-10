@@ -60,6 +60,14 @@
         composition_tags = false,
         ct_order = true,
         lens_ct_order = true,
+        # the lens inverse runs on Core's one LM (plan 1b): its 2-D roots are roots
+        # to rounding whose last bits follow the iteration path, not accuracy, so a
+        # lens's inverse fields are compared within 2·MAX_ULPS ulps of the array's
+        # largest entry (`solve_condition`'s κ = 2), not entry by entry. Measured
+        # worst: 6 ulps of the largest entry (fisheye624/backproject, 6.7e-16), with
+        # every mask identical and the lens oracle's BigFloat "no worse residual"
+        # test green.
+        lens_inverse_lm = true,
         # Two in-plane kinds never compose (a Rigid member is an in-plane kind):
         # the only composition left is T_H, a height field after a
         # ThinPlateSpline. A target refuses every one of these. The affine kind
@@ -97,7 +105,7 @@ end
             continue
         end
         haskey(actual, key) || (push!(failures, "$key: missing"); continue)
-        ok, d, why = compare_value(e, actual[key]; scaled = scaled_comparison(key, CODE), condition = solve_condition(key), precision = value_precision(key),
+        ok, d, why = compare_value(e, actual[key]; scaled = scaled_comparison(key, CODE), condition = solve_condition(key, CODE), precision = value_precision(key),
             printed = printed_value(key))
         n_compared += 1
         ok || push!(failures, "$key: $why")

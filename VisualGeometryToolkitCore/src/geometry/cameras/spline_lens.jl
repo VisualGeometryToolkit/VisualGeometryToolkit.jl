@@ -599,7 +599,7 @@ const _PROJECT_TOL = 1.0e-6
 # reads (lens_rays.jl `_inverse_lm`). `cost_floor` is the absolute stops' floor, the
 # reference's `eps(Float64)` by default: a cost below it ends the solve, a residual
 # of order one resolved to √eps. A root that must be resolved to rounding (the lens
-# inverse: a seed whose residual is 1e-9 is not its root) passes 0, leaving the
+# inverse: a seed whose residual is 1e-9 is not its root) gives 0, leaving the
 # stops at what T resolves.
 #
 # It is the ONE device-side exception to the stack's one LM driver: NLLSsolver

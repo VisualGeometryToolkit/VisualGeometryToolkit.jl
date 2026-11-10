@@ -82,18 +82,24 @@ function _verify_row(outdir::AbstractString, paperdir::AbstractString, name::Abs
     bytes = (bytes_new = filesize(new), bytes_old = submitted ? filesize(old) : 0)
     if !submitted
         nblocks = _is_tex(name) ? length(fragment_coordinates(read(new, String))) : 0
-        return (; asset = String(name), submitted, identical = false, same_numbers = false,
+        return (; asset = String(name), submitted, identical = false, same_numbers = false, provenance_only = false,
                 blocks_new = nblocks, blocks_old = 0, max_abs_diff = NaN, bytes...)
     elseif _is_tex(name)
-        return (; asset = String(name), submitted, compare_fragments(read(new, String), read(old, String))..., bytes...)
+        a, b = read(new, String), read(old, String)
+        c = compare_fragments(a, b)
+        # the same numbers, and every byte but the `% provenance \<name>:` lines equal (a rerun's new run key or commit)
+        provenance_only = !c.identical && c.same_numbers && _without_provenance(a) == _without_provenance(b)
+        return (; asset = String(name), submitted, c.identical, c.same_numbers, provenance_only,
+                c.blocks_new, c.blocks_old, c.max_abs_diff, bytes...)
     else   # an image or any other binary asset: its bytes are its content
         identical = read(new) == read(old)
-        return (; asset = String(name), submitted, identical, same_numbers = identical,
+        return (; asset = String(name), submitted, identical, same_numbers = identical, provenance_only = false,
                 blocks_new = 0, blocks_old = 0, max_abs_diff = identical ? 0.0 : NaN, bytes...)
     end
 end
 
 _verdict(r) = !r.submitted ? "NEW (no submitted copy)" : r.identical ? "identical" :
+    r.provenance_only ? "same numbers, provenance comments differ (deploys without sign-off)" :
     r.same_numbers ? "same numbers, formatting differs" :
     r.blocks_new + r.blocks_old > 0 ? "DIFFERS (max |Δ| = $(r.max_abs_diff), blocks $(r.blocks_new) vs $(r.blocks_old))" :
     "DIFFERS ($(r.bytes_new) vs $(r.bytes_old) bytes)"
@@ -103,7 +109,10 @@ _verdict(r) = !r.submitted ? "NEW (no submitted copy)" : r.identical ? "identica
 
 Compare each rendered `outdir/<name>` with the submitted `paperdir/<name>` and
 write the report `outdir/verify.tsv` ([`VERIFY_REPORT`](@ref)): one row per
-asset with `asset`, `submitted`, `identical`, `same_numbers`, `blocks_new`,
+asset with `asset`, `submitted`, `identical`, `same_numbers`,
+`provenance_only` (a `.tex` that differs from the submitted copy in its
+`% provenance \\<name>: …` lines alone, which [`deploy_assets`](@ref) deploys
+without sign-off), `blocks_new`,
 `blocks_old`, `max_abs_diff`, `bytes_new` and `bytes_old`. A `.tex` asset is
 compared by its numbers as well as its bytes ([`compare_fragments`](@ref)); any
 other asset by its bytes. Each verdict is printed. A missing render is an
@@ -112,7 +121,7 @@ error. Returns the rows.
 """
 function verify_assets(outdir::AbstractString, paperdir::AbstractString, names)
     rows = [_verify_row(outdir, paperdir, n) for n in names]
-    cols = (:asset, :submitted, :identical, :same_numbers, :blocks_new, :blocks_old, :max_abs_diff, :bytes_new, :bytes_old)
+    cols = (:asset, :submitted, :identical, :same_numbers, :provenance_only, :blocks_new, :blocks_old, :max_abs_diff, :bytes_new, :bytes_old)
     open(joinpath(outdir, VERIFY_REPORT), "w") do io
         println(io, join(cols, '\t'))
         for r in rows
@@ -147,14 +156,19 @@ difference the report states: `replace_submitted = true` signs off every asset
 of the call, a collection of names only those (per-asset sign-off, so one call
 deploys every asset and the report keeps every row). Without it the deploy is
 refused, as an error naming each differing asset and the report, and copies
-nothing. Returns the assets copied (an identical one is not copied).
+nothing. A numbers file that differs from the submitted one in its
+`% provenance \\<name>: …` lines alone (a rerun at a new run key or commit,
+the same macro values; the report's `provenance_only`) changed no number: it
+is deployed without sign-off, its provenance updated. Any other difference,
+a hand-written comment or whitespace included, still needs sign-off. Returns
+the assets copied (an identical one is not copied).
 """
 function deploy_assets(outdir::AbstractString, paperdir::AbstractString, names;
         replace_submitted::Union{Bool, AbstractVector{<:AbstractString}, AbstractSet{<:AbstractString}} = false)
     signed(asset) = replace_submitted === true || (!(replace_submitted isa Bool) && asset in replace_submitted)
     rows = verify_assets(outdir, paperdir, names)
     report = joinpath(outdir, VERIFY_REPORT)
-    refused = [r for r in rows if r.submitted && !r.identical && !signed(r.asset)]
+    refused = [r for r in rows if r.submitted && !r.identical && !signed(r.asset) && !r.provenance_only]
     if !isempty(refused)
         error("deploy: the regenerated asset(s) differ from the submitted one(s) in $paperdir:\n" *
               join(("  " * r.asset * ": " * _verdict(r) for r in refused), "\n") *
@@ -195,7 +209,9 @@ Write the paper's numbers file `out` from the generators' number-macro
 `fragments` (tex files): every argument-free macro of every fragment, one
 `\\newcommand{\\<name>}{<value>}` per line, sorted by name, under a header
 naming the `generator` and each fragment as `<root_label>/<path relative to
-root>` (no machine path). Never `\\providecommand`: a macro the manuscript
+root>` (no machine path). A macro's provenance comment in its fragment (the
+`% provenance \\<name>: …` line [`write_numbers`](@ref) writes) goes before
+it. Never `\\providecommand`: a macro the manuscript
 also defines must clash. A macro that two fragments define, and a fragment
 macro with arguments (a number is a value, not a template), are an
 `ArgumentError`.
@@ -208,14 +224,17 @@ function gather_numbers(fragments, out::AbstractString; generator::AbstractStrin
         root_label::AbstractString = "<results_root()>")
     numbers = Dict{String, String}()
     owner = Dict{String, String}()
+    provenance = Dict{String, String}()
     for f in fragments
         text = read(f, String)
         args = _macros_with_arguments(text)
         isempty(args) || throw(ArgumentError("$f defines macros with arguments (" * join("\\" .* args, ", ") *
             "): a number fragment defines values only"))
+        comments = _macro_provenance(text)
         for (name, value) in _macro_values(text)
             haskey(owner, name) && throw(ArgumentError("\\$name is defined by both $(owner[name]) and $f"))
             numbers[name], owner[name] = value, f
+            haskey(comments, name) && (provenance[name] = comments[name])
         end
     end
     mkpath(dirname(out))
@@ -225,6 +244,7 @@ function gather_numbers(fragments, out::AbstractString; generator::AbstractStrin
             println(io, "%   ", root_label, "/", relpath(f, root))
         end
         for name in sort!(collect(keys(numbers)))
+            haskey(provenance, name) && println(io, provenance[name])
             println(io, "\\newcommand{\\", name, "}{", numbers[name], "}")
         end
     end

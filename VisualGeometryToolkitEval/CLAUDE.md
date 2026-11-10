@@ -12,7 +12,8 @@ engine, `live_runs`, rosters and their gate-enforced readers,
 figure and table rendering (`Render`), scoring-pool IO (`Pools`), the raw
 dataset readers (`Datasets`), the published-data catalog (`DataArtifacts`), the
 reproducible-figures contract (`Reproduce`: a paper project's REPRODUCE.md
-asset index checked against what its tex reads) and the paper-project
+asset index checked against what its tex reads, and the one writer of a
+driver's number macros, `PaperNumbers`/`write_numbers`) and the paper-project
 conventions (`PaperProjects`: `paper_project_violations`, the one check every
 paper project's suite calls, and `new_paper_project`, the template whose files
 live in `templates/paper_project/`; the docs page `docs/src/paper-projects.md`). It
@@ -62,7 +63,8 @@ public name needs a docstring and a page that includes it.
   other format. An older file is converted or regenerated, never shimmed.
 
 `src/render/axis_style.jl`, `src/evaluation/cv_probe.jl`,
-`src/experiments/stages.jl` and `src/reproduce/reproduce_index.jl` are
+`src/experiments/stages.jl`, `src/reproduce/reproduce_index.jl` and
+`src/reproduce/number_macros.jl` are
 dependency-free by contract: environments that
 cannot load this package include them by path.
 

@@ -18,6 +18,7 @@
         StereoPair, GTConfig, stereo_pairs, load_validation_data, gt_config, consolidate_csponds,
         load_sparse_matches, load_roma_pairs, CONSOLIDATED_FORMAT
     import VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: Csponds, sources, targets
     const _D = VgtkEval.Datasets
     rng = MersenneTwister(20261009)
 
@@ -129,9 +130,10 @@
             end
             for name in ("splg.h5", "roma.h5")
                 m = load_sparse_matches(joinpath(d, name))
-                @test m.confidence == c
-                @test [p.first for p in m.csponds] == [SVector{2,Float32}(a[:, i]) for i in 1:4]
-                @test [p.second for p in m.csponds] == [SVector{2,Float32}(b[:, i]) for i in 1:4]
+                @test m isa Csponds && m.confidence == c          # the confidence travels with its matches
+                @test m[2:3].confidence == c[2:3]
+                @test collect(sources(m)) == [SVector{2,Float32}(a[:, i]) for i in 1:4]
+                @test collect(targets(m)) == [SVector{2,Float32}(b[:, i]) for i in 1:4]
             end
             @test_throws "unknown matcher" load_sparse_matches(joinpath(d, "other.h5"))
             @test _D._pair_file_id((scene = "chess/seq-03", source_name = "frame-000000.color.png",

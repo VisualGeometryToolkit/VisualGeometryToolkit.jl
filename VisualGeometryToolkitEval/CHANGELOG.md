@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Breaking: `load_sparse_matches(path)` returns a `Csponds` carrying the per-match confidence as its attribute column
+  `confidence`** (`withattrs`; read `cs.confidence`), formerly the pair `(; csponds, confidence)`. The consolidated
+  record's layout is unchanged.
+
 - The dataset readers (KITTI, ScanNet-1500, the stereo datasets) build their cameras with Core's renamed keyword
   `CameraModel(K; pixel_frame = :opencv)` (formerly `image_origin`).
 

@@ -50,7 +50,7 @@ using Rotations: QuatRotation
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, Size2, FundMat, EssentialMat, sampson_distance, intrinsics,
     centroid, model, extent, extrinsics, source, destination, project, unproject, csponds, Point3, Vec3,
     PosedCamera, BoundedCamera, CameraModel, CameraCalibrationMat, EuclideanMap, StereoRig,
-    validate_gt_inliers, m, mm, ustrip
+    validate_gt_inliers, m, mm, ustrip, Csponds, withattrs, sources, targets
 using VisualGeometryToolkitCore: BaseQuantity   # FlexUnits' stored form of a base quantity
 using VisualGeometryToolkitCore.Pools: Pools, StereoRawPair
 import VisualGeometryToolkitIO

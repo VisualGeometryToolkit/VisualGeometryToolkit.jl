@@ -9,19 +9,21 @@
 #   SP+LG     kpts_A, kpts_B (N, 2) Float32 pixels; scores (N,); kpt_scores_A/_B
 #
 # Python writes row-major, so HDF5.jl hands each (N, 2) back as (2, N): one
-# match per column. The readers return pixel correspondences and the
-# per-match confidence (higher = better); RoMa's precision is not carried.
+# match per column. The readers return pixel correspondences carrying the
+# per-match confidence (higher = better) as an attribute column; RoMa's
+# precision is not carried.
 # =============================================================================
 
 # The `confidence` dataset of each layout, by the file's `matcher` attribute.
 const _MATCH_CONFIDENCE = Dict("roma_v2" => "confidence", "superpoint+lightglue" => "scores")
 
 """
-    load_sparse_matches(path) -> (; csponds, confidence)
+    load_sparse_matches(path) -> Csponds
 
-The correspondences (pixels, `Float32` as written) and the per-match
-confidence (higher = better) of one sparse-match HDF5 file of the match
-extractor, RoMa v2 or SuperPoint + LightGlue by its `matcher` attribute.
+The correspondences (pixels, `Float32` as written) of one sparse-match HDF5
+file of the match extractor, RoMa v2 or SuperPoint + LightGlue by its
+`matcher` attribute, each carrying its confidence (higher = better) as the
+attribute column `confidence` (`withattrs`; read `cs.confidence`).
 """
 function load_sparse_matches(path::AbstractString)
     h5open(path, "r") do f
@@ -33,7 +35,7 @@ function load_sparse_matches(path::AbstractString)
         confidence = read(f[key])::Vector{Float32}
         src = [SVector{2,Float32}(a[1, i], a[2, i]) for i in axes(a, 2)]
         tgt = [SVector{2,Float32}(b[1, i], b[2, i]) for i in axes(b, 2)]
-        return (; csponds = StructArray(src .=> tgt), confidence)
+        return withattrs(Csponds(src, tgt); confidence)
     end
 end
 

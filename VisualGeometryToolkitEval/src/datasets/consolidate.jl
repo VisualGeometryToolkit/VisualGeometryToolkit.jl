@@ -31,7 +31,7 @@ _pixel_size(cam) = (e = extent(cam); Size2(Int(e.width), Int(e.height)))
 function _consolidated_record(p, matches, inlier_mask::BitVector)
     E = ustrip(m, extrinsics(p.rig))                        # source camera → target camera, plain metres
     return (; scene = p.scene, source_name = p.source_name, target_name = p.target_name,
-            csponds = matches.csponds, confidence = matches.confidence, inlier_mask,
+            csponds = StructArray(sources(matches) .=> targets(matches)), confidence = matches.confidence, inlier_mask,
             K1 = _pixel_K(source(p.rig)), K2 = _pixel_K(destination(p.rig)),
             size1 = _pixel_size(source(p.rig)), size2 = _pixel_size(destination(p.rig)),
             R_gt = SMatrix{3,3,Float64,9}(E.R), t_gt = SVector{3,Float64}(E.t))
@@ -67,7 +67,7 @@ function consolidate_csponds(ds::AbstractStereoDataset, matcher::Symbol;
             h5 = joinpath(match_dir, "$(_pair_file_id(p)).h5")
             isfile(h5) || continue
             matches = load_sparse_matches(h5)
-            v = load_validation_data(ds, p, matches.csponds)
+            v = load_validation_data(ds, p, matches)
             mask = validate_gt_inliers(v.rig, v.csponds, v.depth_src, v.depth_tgt;
                                        rel_tol = cfg.rel_tol, metric_tol = cfg.metric_tol,
                                        bidirectional_depth = cfg.bidirectional)

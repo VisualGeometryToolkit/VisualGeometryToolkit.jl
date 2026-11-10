@@ -824,6 +824,8 @@ model(c::AbstractCamera) = is_posed(c) ? throw(MethodError(model, (c,))) : c
 Return the camera's intrinsics block (e.g. `LogicalIntrinsics`,
 `PhysicalIntrinsics`).  Equivalent to `camera.model.intrinsics` /
 `model.intrinsics` but lets downstream code stop reaching into the field.
+For a [`SplineLens`](@ref) camera they are the lens's gauge — the pinhole at the
+pixel imaging ẑ (skew 0) — kept as they are by every fit.
 """
 intrinsics(camera::PosedCamera) = intrinsics(camera.model)
 intrinsics(model::CameraModel) = model.intrinsics

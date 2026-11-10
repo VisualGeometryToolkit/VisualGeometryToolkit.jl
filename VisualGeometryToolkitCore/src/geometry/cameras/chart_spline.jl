@@ -204,7 +204,7 @@ convert_eltype(::Type{T}, cs::ChartSpline{K}) where {T <: AbstractFloat, K} = Ch
 # turn. `present` is a presence mask (`nothing`: every node held); an absent node
 # holds no coordinate and keeps its control on a rebuild.
 _held_nodes(::Nothing, sz) = vec(CartesianIndices(sz))
-_held_nodes(present::AbstractMatrix{Bool}, sz) = [i for i in CartesianIndices(sz) if present[i]]
+_held_nodes(present::AbstractMatrix{Bool}, sz) = findall(present)
 _control_vector(controls::AbstractMatrix{SVector{K, T}}, present) where {K, T} =
     T[controls[i][k] for i in _held_nodes(present, size(controls)) for k in 1:K]
 _control_names(controls::AbstractMatrix{<:SVector{K}}, present) where {K} =

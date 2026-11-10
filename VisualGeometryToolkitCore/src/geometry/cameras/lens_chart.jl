@@ -71,12 +71,10 @@ solver's option, keyed by [`parameter_names`](@ref).
 """
 function parameter_bounds end
 
-# The unbounded default: any model with a parameter vector.
-@inline function parameter_bounds(x)
-    θ = parameter_vector(x)
-    T = eltype(θ)
-    return (zero(θ) .- T(Inf), zero(θ) .+ T(Inf))
-end
+# The unbounded default: any model with a parameter vector (`_unbounded_bounds`, the
+# one spelling of "every coordinate unbounded", also a SplineLens's).
+@inline parameter_bounds(x) = _unbounded_bounds(parameter_vector(x))
+@inline _unbounded_bounds(θ) = (T = eltype(θ); (zero(θ) .- T(Inf), zero(θ) .+ T(Inf)))
 
 @inline function parameter_vector(l::AbstractLensModel)
     c = _coefficients_of(l)
@@ -127,10 +125,9 @@ end
 # Per coordinate, `(a_closed, b_closed, mirrored)` of `parameter_bounds`' interval
 # (the same table): a model states its closed endpoints here, every other
 # endpoint is open. A function of the model's type alone, so it constant-folds.
-@inline function _bound_kinds(x)
-    lo, _ = parameter_bounds(x)
-    return map(_ -> (false, false, false), lo)
-end
+@inline _bound_kinds(x) = _open_kinds(first(parameter_bounds(x)))
+# every endpoint open, entry by entry over `θ` (the one spelling, also a SplineLens's)
+@inline _open_kinds(θ) = map(_ -> (false, false, false), θ)
 @inline _bound_kinds(l::AbstractLensModel) = SVector(map(p -> (p[3], p[4], p[5]), _flatmap(_bound_spec, _leaves(l))))
 @inline _bound_kinds(m::CameraModel) = vcat(map(_bound_kinds, _parameter_parts(m))...)
 @inline _bounds_eltype(l) = (T = _coeff_type(l); T === Union{} ? Float64 : T)
@@ -240,13 +237,11 @@ parameter_names(m::CameraModel) = _flatmap(parameter_names, _parameter_parts(m))
     b = map(parameter_bounds, _parameter_parts(m))
     return vcat(map(first, b)...), vcat(map(last, b)...)
 end
-function with_parameters(m::CameraModel, θ::AbstractVector)
-    n = length(parameter_names(m))
-    length(θ) == n || throw(ArgumentError("CameraModel takes $n parameters $(parameter_names(m)); got $(length(θ))"))
-    return _with_camera_parameters(IntrinsicsRole(m.lens), m, θ)
-end
+with_parameters(m::CameraModel, θ::AbstractVector) = _with_camera_parameters(IntrinsicsRole(m.lens), m, θ)
 function _with_camera_parameters(::FreeIntrinsics, m::CameraModel, θ)
     ni, nl = length(parameter_names(m.intrinsics)), length(parameter_names(m.lens))
+    length(θ) == ni + nl ||
+        throw(ArgumentError("CameraModel takes $(ni + nl) parameters $(parameter_names(m)); got $(length(θ))"))
     return _with_camera_parameters(m, θ, Val(ni), Val(nl))
 end
 @inline function _with_camera_parameters(m::CameraModel, θ, ::Val{ni}, ::Val{nl}) where {ni, nl}
@@ -254,7 +249,8 @@ end
     θl = SVector{nl}(ntuple(k -> θ[ni + k], Val(nl)))
     return CameraModel(with_parameters(m.intrinsics, θi), with_parameters(m.lens, θl))
 end
-# the gauge K as it is: `CameraModel(intrinsics, lens)`, so `calibration_matrix` is identical
+# the gauge K as it is: `CameraModel(intrinsics, lens)`, so `calibration_matrix` is identical;
+# the lens checks the length (no names are built on this path)
 _with_camera_parameters(::GaugeIntrinsics, m::CameraModel, θ) = CameraModel(m.intrinsics, with_parameters(m.lens, θ))
 
 # --- the parameter manifold ----------------------------------------------------------
@@ -333,8 +329,20 @@ struct ParameterManifold{M, B <: Union{Nothing, Tuple{SVector, SVector}}, S <: U
     scale::S
     ParameterManifold{M, B, S}(x::M, box::B, scale::S) where {M, B, S} = new{M, B, S}(x, box, scale)
 end
-ParameterManifold(x; box::Union{Nothing, NamedTuple} = nothing, scale::Union{Nothing, NamedTuple} = nothing) =
-    _parameter_manifold(x, _resolved_box(x, box), _resolved_scale(x, scale))
+function ParameterManifold(x; box::Union{Nothing, NamedTuple} = nothing, scale::Union{Nothing, NamedTuple} = nothing)
+    _check_static_parameters(parameter_vector(x), x)
+    return _parameter_manifold(x, _resolved_box(x, box), _resolved_scale(x, scale))
+end
+# The chart is static (`SMatrix{n, n}` differentials, `SVector{n}` box and scale): a
+# model whose parameter vector is a heap vector — a SplineLens's 10³–10⁴ controls —
+# would compile an n × n static matrix. It is refused, naming the controls' own chart.
+_check_static_parameters(::StaticVector, x) = nothing
+_check_static_parameters(θ::AbstractVector, x) = throw(
+    ArgumentError(
+        "ParameterManifold: a $(nameof(typeof(x))) has $(length(θ)) coordinates in a heap vector, which the static chart cannot take; " *
+            "a SplineLens's controls move in a ControlPatchManifold"
+    )
+)
 function _parameter_manifold(x, box, scale = nothing)
     _check_bounds(x)
     return ParameterManifold{typeof(x), typeof(box), typeof(scale)}(_interior(x), box, scale)

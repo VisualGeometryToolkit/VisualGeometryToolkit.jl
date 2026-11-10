@@ -251,7 +251,10 @@ distorted camera is not a homography, but its radial camera is exact.
 A lens that is NOT radially symmetric is an `ArgumentError`: a decentering
 piece of the distortion (`Tangential`, `ThinPrism`, `Tilt`, alone or inside an
 `Additive` or a `∘` composition) or a [`SplineLens`](@ref) moves points off
-their rays from the centre, so the radial camera would not be exact.
+their rays from the centre, so the radial camera would not be exact. The check
+fails closed: a lens or a distortion piece not known to be radially symmetric
+(anything but a `LiftLens` or a `Lens` of `Radial`, `FieldOfView` and `Additive`s
+of them) is refused too.
 """
 function RadialCamera(cam::PosedCamera{<:CameraModel})
     l = lens(cam)
@@ -263,14 +266,17 @@ function RadialCamera(cam::PosedCamera{<:CameraModel})
 end
 
 # Whether a lens is radially symmetric about the principal point — a function of its
-# type: a `Lens` is unless a stage of its distortion (`_stages`) holds a decentering
-# piece; a `SplineLens` is not (a calibrated grid has no symmetry).
-_radially_symmetric(::AbstractLensModel) = true
+# type, failing closed: a lens or a distortion piece is symmetric only when it says so.
+# A `LiftLens` (one radial factor) is; a `Lens` is when every stage of its distortion
+# (`_stages`) is — no distortion, a `Radial`, a `FieldOfView`, or an `Additive` of
+# such terms (so `Tangential`, `ThinPrism`, `Tilt` and any unknown piece are not). A
+# `SplineLens` (a calibrated grid has no symmetry), or any other lens, is not.
+_radially_symmetric(::AbstractLensModel) = false
+_radially_symmetric(::LiftLens) = true
 _radially_symmetric(l::Lens) = all(_symmetric_stage, _stages(l.distortion))
-_radially_symmetric(::SplineLens) = false
+_symmetric_stage(::Union{Nothing, Radial, FieldOfView}) = true
 _symmetric_stage(a::Additive) = all(_symmetric_stage, a.terms)
-_symmetric_stage(::Union{Tangential, ThinPrism, Tilt}) = false
-_symmetric_stage(_) = true
+_symmetric_stage(_) = false
 
 HomographyMat(P::RadialCamera{T}) where {T} = HomographyMat{T}(
     Tuple(

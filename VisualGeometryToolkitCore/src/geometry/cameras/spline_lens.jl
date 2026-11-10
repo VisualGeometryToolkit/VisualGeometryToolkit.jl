@@ -116,11 +116,6 @@ end
     return SVector(o[1] + (gx1 - 2) * hx, o[2] + (gy1 - 2) * hy)
 end
 
-# The cell of window `(ix, iy)` (it reads columns ix − 2 … ix + 1 and covers the cell
-# between nodes ix − 1 and ix, rows likewise) as its corners `(lo, hi)` on `rect`.
-@inline _window_cell(rect::Rect2, gsz, ix::Integer, iy::Integer) =
-    (_lattice_node(rect, gsz, ix - 1, iy - 1), _lattice_node(rect, gsz, ix, iy))
-
 # Shared validation of the calibrated-area rectangle (integer pixel indices,
 # inclusive, COLMAP frame: area spans [min_x, max_x + 1) × [min_y, max_y + 1)).
 function _check_spline_area(width, height, cminx, cminy, cmaxx, cmaxy, gsz)
@@ -473,12 +468,13 @@ IntrinsicsRole(::Type{<:SplineLens}) = GaugeIntrinsics()
 # named `c_<row>_<col>_<x|y|z>`, unbounded. A heap vector: a lattice holds 10³–10⁴
 # coordinates. `with_parameters` keeps the area and the mask; a lens with a forward
 # spline refuses it — the forward is a fit of the backward, which a new backward
-# would leave stale (and `project` reads the forward). The parameter manifold of
-# a lattice of this size (`ParameterManifold`'s chart is static) is not yet served.
+# would leave stale (and `project` reads the forward). `ParameterManifold`'s chart is
+# static, so it refuses this heap vector (lens_chart.jl); the controls' chart is a
+# `ControlPatchManifold`.
 parameter_vector(l::SplineLens) = _control_vector(l.backward.controls, l.present)
 parameter_names(l::SplineLens) = _control_names(l.backward.controls, l.present)
-parameter_bounds(l::SplineLens) = invoke(parameter_bounds, Tuple{Any}, l)        # unbounded: the generic default
-_bound_kinds(l::SplineLens) = invoke(_bound_kinds, Tuple{Any}, l)
+parameter_bounds(l::SplineLens) = _unbounded_bounds(parameter_vector(l))
+_bound_kinds(l::SplineLens) = _open_kinds(parameter_vector(l))
 function with_parameters(l::SplineLens, θ::AbstractVector)
     l.forward === nothing || throw(
         ArgumentError(
@@ -502,7 +498,8 @@ function monotone_radius(l::SplineLens)
     gsz = gh, gw = size(b.controls)
     for iy in 3:(gh - 1), ix in 3:(gw - 1)
         _window_present(l.present, ix, iy) && continue
-        lo, hi = _window_cell(b.area, gsz, ix, iy)
+        c = _window_area(b.area, gsz, (iy - 2):(iy + 1), (ix - 2):(ix + 1))   # the window's own cell
+        lo = SVector{2, Float64}(GeometryBasics.origin(c)); hi = lo + SVector{2, Float64}(GeometryBasics.widths(c))
         r = min(r, norm(max.(lo, min.(zero(lo), hi))))             # the disc's distance to an absent cell
     end
     return r
@@ -1114,8 +1111,10 @@ function valid_domain(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens})
     full = [(ix, iy) for iy in 3:(gh - 1), ix in 3:(gw - 1) if _window_present(l.present, ix, iy)]
     isempty(full) && throw(ArgumentError("valid_domain: no 4 × 4 window of the spline lens holds present nodes only"))
     jx = extrema(first, full); jy = extrema(last, full)
-    a = first(_window_cell(area, gsz, jx[1], jy[1]))
-    z = last(_window_cell(area, gsz, jx[2], jy[2]))
+    # window (ix, iy) reads columns ix − 2 … ix + 1 and covers the cell between nodes ix − 1 and ix:
+    # the corners are the lattice's own nodes, exactly (`_window_area`'s width (n − 3)·h rounds apart)
+    a = _lattice_node(area, gsz, jx[1] - 1, jy[1] - 1)
+    z = _lattice_node(area, gsz, jx[2], jy[2])
     return Rect2{Float64}(a, z - a)
 end
 

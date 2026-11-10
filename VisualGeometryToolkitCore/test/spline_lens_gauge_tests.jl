@@ -5,10 +5,10 @@
     using Rotations: RotXYZ, RotMatrix
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, Lens, Perspective, Equidistant,
-        Radial, Tangential, ThinPrism, Tilt, Additive, px, calibration_matrix, with_present, valid_domain, Rect2,
-        parameter_names, parameter_vector, parameter_bounds, with_parameters, parameters, monotone_radius,
+        Radial, Tangential, ThinPrism, Tilt, Additive, FieldOfView, px, calibration_matrix, with_present, valid_domain, Rect2,
+        parameter_names, parameter_vector, parameter_bounds, with_parameters, monotone_radius,
         horizon_radius, fov_radius, angle_of_view, BoundedCamera, Size2, RadialCamera, PosedCamera, EuclideanMap,
-        backproject, ParameterManifold, tangent_size
+        backproject, ParameterManifold, minimal_manifold
     using GeometryBasics: origin, widths
 
     # =============================================================================
@@ -37,7 +37,6 @@
         @test θ[1:3] == cam.lens.backward.controls[1, 1]
         lo, hi = parameter_bounds(cam)
         @test all(==(-Inf), lo) && all(==(Inf), hi) && length(lo) == length(θ)
-        @test keys(parameters(cam)) == names
         # a masked lens holds coordinates for its present nodes only
         @test length(parameter_vector(masked)) == 3 * count(G.masked.present)
         @test all(isfinite, parameter_vector(masked))
@@ -62,9 +61,11 @@
         forward = ChartSpline(Rect2(-1.0, -1.0, 2.0, 2.0), fill(SVector(0.0, 0.0), 4, 4))
         with_forward = CameraModel(cam.intrinsics, SplineLens(cam.lens.backward; forward))
         @test_throws ArgumentError with_parameters(with_forward, θ)
-        # the camera's parameter manifold has the lens's coordinates only (a small lattice)
+        # the static parameter chart refuses a heap vector of controls (an ArgumentError, not an n × n static matrix)
         small = CameraModel(SplineLens, src, image; grid_size = (5, 4))
-        @test tangent_size(ParameterManifold(small)) == 3 * 5 * 4
+        @test_throws ArgumentError ParameterManifold(small)
+        @test_throws ArgumentError minimal_manifold(cam)
+        @test_throws ArgumentError ParameterManifold(cam.lens)
     end
 
     @testset "horizon from the grid" begin
@@ -73,13 +74,28 @@
         d = valid_domain(cam)
         inscribed = minimum(vcat(pp - origin(d), origin(d) + widths(d) - pp))
         @test isfinite(horizon_radius(cam))
+        @test horizon_radius(src) > inscribed            # the grid's clip binds, not the KB source's fold
         expect = min(horizon_radius(src), inscribed)
         @test abs(horizon_radius(cam) - expect) <= 0.01 * expect
-        @test horizon_radius(cam) == f * monotone_radius(cam.lens)
-        # a mask shrinks it: the golden mask drops the 3 outermost node rings
-        @test monotone_radius(masked.lens) < monotone_radius(cam.lens)
+        # the golden mask drops the 3 outermost node rings: the support is the valid-domain rectangle
         dm = valid_domain(masked)
-        @test horizon_radius(masked) <= minimum(vcat(pp - origin(dm), origin(dm) + widths(dm) - pp)) + 1.0e-9
+        @test horizon_radius(masked) ≈ minimum(vcat(pp - origin(dm), origin(dm) + widths(dm) - pp)) rtol = 1.0e-9
+        # one absent interior node off the axis poisons the 16 cells of its windows: the block of
+        # nodes c0 − 2 … c0 + 2 (rows likewise), [o + (c0 − 4)h, o + c0·h] in x
+        b = cam.lens.backward
+        o, w = origin(b.area), widths(b.area)
+        h = (w[1] / (gw - 3), w[2] / (gh - 3))
+        x0 = 2 + (0 - o[1]) / h[1]; y0 = 2 + (0 - o[2]) / h[2]             # x = 0 at node coordinates (x0, y0)
+        c0 = ceil(Int, x0) + 4; r0 = round(Int, y0)
+        @test 4 <= c0 <= gw - 3 && 4 <= r0 <= gh - 3                     # interior: its windows are all on the lattice
+        lo_x = o[1] + (c0 - 4) * h[1]
+        @test lo_x > 0 && o[2] + (r0 - 4) * h[2] < 0 < o[2] + r0 * h[2]  # the block lies right of x = 0, across y = 0
+        one_off = trues(gh, gw); one_off[r0, c0] = false
+        @test monotone_radius(with_present(cam, one_off).lens) ≈ min(lo_x, monotone_radius(cam.lens)) rtol = 1.0e-12
+        @test monotone_radius(with_present(cam, one_off).lens) < monotone_radius(cam.lens)
+        # an absent node whose windows cover x = 0: no disc
+        centre_off = trues(gh, gw); centre_off[round(Int, y0), round(Int, x0)] = false
+        @test monotone_radius(with_present(cam, centre_off).lens) == 0
         for θ in (0.1, 0.5, 1.0)
             @test fov_radius(cam, θ) == f * tan(θ)
         end
@@ -99,10 +115,12 @@
         prism = CameraModel(K; lens = Lens(Perspective(), Additive(Radial((-0.1,)), ThinPrism((1.0e-3,), (2.0e-4,)))))
         tilted = CameraModel(K; lens = Lens(Perspective(), Tilt(0.02, -0.01) ∘ Radial((-0.1,))))
         tangential_alone = CameraModel(K; lens = Lens(Perspective(), Tangential(1.0e-3, 0.0)))
-        for c in (cam, bc, kb_tan, prism, tilted, tangential_alone)
+        nested = CameraModel(K; lens = Lens(Perspective(), FieldOfView(0.1) ∘ Additive(Radial((-0.1,)), Tangential(1.0e-3, 0.0))))
+        for c in (cam, bc, kb_tan, prism, tilted, tangential_alone, nested)
             @test_throws ArgumentError RadialCamera(PosedCamera(c, X))
         end
         @test RadialCamera(PosedCamera(src, X)) isa RadialCamera
         @test RadialCamera(PosedCamera(CameraModel(K; lens = Lens(Perspective(), Radial((-0.2, 0.05)))), X)) isa RadialCamera
+        @test RadialCamera(PosedCamera(CameraModel(K; lens = Lens(Perspective(), FieldOfView(0.1) ∘ Radial((-0.1,)))), X)) isa RadialCamera
     end
 end

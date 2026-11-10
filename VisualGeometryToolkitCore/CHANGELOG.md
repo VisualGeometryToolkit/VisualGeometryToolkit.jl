@@ -30,12 +30,19 @@ sensor — so every consumer asks the camera what it images instead of supplying
 - **Breaking: `RadialCamera(::PosedCamera{<:CameraModel})` refuses a lens that is not radially symmetric** — a
   `Tangential`, `ThinPrism` or `Tilt` piece (alone, inside an `Additive` or in a `∘` composition) or a `SplineLens` —
   with an `ArgumentError`: such a lens moves points off their rays from the centre, so the radial camera is not exact.
-  These were accepted silently before.
+  These were accepted silently before. The check fails closed: a lens or a distortion piece not known to be radially
+  symmetric is refused; a `LiftLens` and a `Lens` of `Radial`, `FieldOfView` and `Additive`s of them are accepted.
 - **New: a `SplineLens` camera's K is a frozen gauge.** An internal trait (`IntrinsicsRole`: free by default, a gauge
   for a `SplineLens`) is the one switch of a camera's parameter protocol: for a gauge camera `parameter_names`,
   `parameter_vector`, `parameter_bounds`, `parameters` and `with_parameters` (K kept identical) read the lens's
   controls only. `monotone_radius(::SplineLens)` is the largest normalized disc about the principal point inside the
   lens's support, so `horizon_radius` reads a grid.
+- **New: a `SplineLens`'s parameter protocol.** Its parameters are its backward controls at the present nodes (an
+  absent node holds none), column-major over the grid, each node's x, y, z in turn, named `:c_<row>_<col>_<x|y|z>`,
+  unbounded, in a heap `Vector`. `with_parameters` keeps the area and the mask, and refuses a lens holding a forward
+  spline (`ArgumentError`: the forward is a fit of the backward and would be stale). `ParameterManifold`'s chart is
+  static, so it refuses a model with a heap parameter vector (`ArgumentError`) — a SplineLens camera's
+  `minimal_manifold` is not served yet; its controls' chart is a `ControlPatchManifold`.
 - **New: `field_of_view(camera, distance; dimension)`**: the size of the scene imaged at `distance`,
   `2·distance·tan(θ/2)` for the angle of view `θ`, in the distance's unit (180° or more: an `ArgumentError`).
 

@@ -226,7 +226,9 @@ Return the 3×3 calibration matrix K as a plain `SMatrix`, preserving the
 intrinsics' stored element type (`Float64` for the default constructors,
 `Float32` for e.g. `LogicalIntrinsics(CameraCalibrationMat{Float32}(…))`).
 A projective camera (`ProjectiveIntrinsics`) has no calibration matrix: there is
-no method, so the call raises a `MethodError`.
+no method, so the call raises a `MethodError`. For a [`SplineLens`](@ref) camera
+K is the lens's gauge — the pinhole at the pixel imaging ẑ (skew 0) — kept as it
+is by every fit.
 
 # Example
 ```julia

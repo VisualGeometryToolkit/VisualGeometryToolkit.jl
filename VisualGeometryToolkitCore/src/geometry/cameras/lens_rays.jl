@@ -92,7 +92,8 @@ _core_tol(::Type{T}) where {T <: AbstractFloat} = sqrt(eps(T))
 
 @inline function _inverse_lm(d, xd::SVector{2, S}, seed::SVector{2, S} = xd) where {S <: AbstractFloat}
     x0 = ifelse(isfinite(seed[1]) & isfinite(seed[2]), seed, xd)
-    fj(x) = ((y, J) = _distort_and_jacobian(d, x); (SVector{2, S}(y[1] - xd[1], y[2] - xd[2]), SMatrix{2, 2, S}(J)))
+    # (its own names: a name of the enclosing body assigned in the closure is boxed)
+    fj(z) = (yJ = _distort_and_jacobian(d, z); y = yJ[1]; (SVector{2, S}(y[1] - xd[1], y[2] - xd[2]), SMatrix{2, 2, S}(yJ[2])))
     tol2 = _core_tol(S)^2 + (8 * eps(S))^2 * (xd[1]^2 + xd[2]^2)
     inf, s = S(Inf), _inverse_lm_scale(S)
     fs = max(one(S), sqrt(xd[1]^2 + xd[2]^2))
@@ -415,10 +416,10 @@ end
 @inline _id2(x) = (o = one(x[1]); z = zero(o); SMatrix{2, 2}(o, z, z, o))
 @inline _distort_jacobian(d, x::StaticVector{2}) = last(_distort_and_jacobian(d, x))
 
-@inline _distort_and_jacobian(::Nothing, x::StaticVector{2}) = (Vec2(x[1], x[2]), _id2(x))
+@inline _map_and_jacobian(::Nothing, x::StaticVector{2}) = (Vec2(x[1], x[2]), _id2(x))
 # x ↦ F(u)·x, u = |x|²: F·I + 2F′(u)·x xᵀ.
 @inline _radial_jacobian(F, dF, x) = (c = 2 * dF; SMatrix{2, 2}(F + c * x[1] * x[1], c * x[1] * x[2], c * x[1] * x[2], F + c * x[2] * x[2]))
-@inline function _distort_and_jacobian(r::Radial{Even}, x::StaticVector{2})
+@inline function _map_and_jacobian(r::Radial{Even}, x::StaticVector{2})
     u = x[1] * x[1] + x[2] * x[2]
     F = radial_ratio(r, u)
     return Vec2(F * x[1], F * x[2]), _radial_jacobian(F, _dratio(r, u), x)
@@ -438,14 +439,14 @@ end
 end
 # y = v₁₂/v₃, v = M·(x, 1): ∂yᵢ/∂xⱼ = (Mᵢⱼ − yᵢ·M₃ⱼ)/v₃ — the matrix (four
 # trigonometric calls) built once for both.
-@inline function _distort_and_jacobian(t::Tilt, x::StaticVector{2})
+@inline function _map_and_jacobian(t::Tilt, x::StaticVector{2})
     M = _tilt_matrix(t)
     y, v3 = _tilt_point(M, x)
     return y, SMatrix{2, 2}(M[1, 1] - y[1] * M[3, 1], M[2, 1] - y[2] * M[3, 1], M[1, 2] - y[1] * M[3, 2], M[2, 2] - y[2] * M[3, 2]) / v3
 end
 # F = (a/ω)·g(q), q = a²u, g = atan(√q)/√q: dg/dq = (1/(1 + q) − g)/(2q), its
 # series −1/3 + 2q/5 where `_fov_factor` takes g's.
-@inline function _distort_and_jacobian(t::FieldOfView, x::StaticVector{2})
+@inline function _map_and_jacobian(t::FieldOfView, x::StaticVector{2})
     u = x[1] * x[1] + x[2] * x[2]
     ω = t.omega
     a = 2 * tan(ω / 2)
@@ -456,15 +457,21 @@ end
 @inline _delta_jacobian_sum(ds::Tuple, x) = _delta_jacobian_sum(_delta_jacobian(first(ds), x), Base.tail(ds), x)
 @inline _delta_jacobian_sum(acc, ::Tuple{}, x) = acc
 @inline _delta_jacobian_sum(acc, ds::Tuple, x) = _delta_jacobian_sum(acc + _delta_jacobian(first(ds), x), Base.tail(ds), x)
-@inline function _distort_and_jacobian(a::Union{Additive, Tangential, ThinPrism}, x::StaticVector{2})
+@inline function _additive_and_jacobian(a, x::StaticVector{2})
     h, ds = _head(a), _deltas(a)
-    y, J = _distort_and_jacobian(h, x)
+    y, J = _map_and_jacobian(h, x)
     return isempty(ds) ? (y, J) : (y + _delta_sum(ds, x), J + _delta_jacobian_sum(ds, x))
 end
+# One function per level (a map term, an Additive stage, a chain), none calling
+# itself through another: a self-recursion through the stages is widened by
+# inference (to `Any`, a heap Jacobian per evaluation).
+@inline _stage_and_jacobian(a::Union{Additive, Tangential, ThinPrism}, x::StaticVector{2}) = _additive_and_jacobian(a, x)
+@inline _stage_and_jacobian(m, x::StaticVector{2}) = _map_and_jacobian(m, x)
+@inline _distort_and_jacobian(d, x::StaticVector{2}) = _stage_and_jacobian(d, x)
 @inline _distort_and_jacobian(c::ComposedTransformation, x::StaticVector{2}) = _chain_and_jacobian(_stages(c), Vec2(x[1], x[2]), _id2(x))
 @inline _chain_and_jacobian(::Tuple{}, x, J) = (x, J)
 @inline function _chain_and_jacobian(ds::Tuple, x, J)
-    y, Js = _distort_and_jacobian(first(ds), x)
+    y, Js = _stage_and_jacobian(first(ds), x)
     return _chain_and_jacobian(Base.tail(ds), y, Js * J)
 end
 

@@ -635,10 +635,10 @@ end
 
 # THE central projection solve on a spline of direction controls `controls`
 # (`[gy, gx]`) over the rectangle `area`: LM (`_spline_lm`) on the direction
-# residual d̂(x) − t̂, d̂ the backward map (`_spline_direction`) and its Jacobian
-# ForwardDiff of that same map, from `x₀`, bounded to `[lb, ub]` (inside the area:
-# every window stays in the grid). Device-safe — isbits duals, no allocation, no
-# Union return. Returns the point and whether the solve converged.
+# residual d̂(x) − t̂, d̂ the backward map (`_spline_direction`) and its analytic
+# Jacobian (`_spline_direction_and_jacobian`), from `x₀`, bounded to `[lb, ub]`
+# (inside the area: every window stays in the grid). Device-safe — no allocation,
+# no Union return. Returns the point and whether the solve converged.
 @inline function _spline_project(controls, area::Rect2, t::StaticVector{3}, x₀::SVector{2, Float64}, lb, ub, s, maxiter::Int, tol2::Float64)
     # scaled before the norm, so a tiny or huge ray does not under/overflow
     tmax = max(abs(t[1]), abs(t[2]), abs(t[3]))
@@ -646,22 +646,57 @@ end
     # would reach `floor(Int, ·)` in the spline window)
     (tmax > 0 && isfinite(tmax) && all(isfinite, x₀)) || return SVector(NaN, NaN), false
     tn = normalize(SVector{3, Float64}(t[1] / tmax, t[2] / tmax, t[3] / tmax))
-    res(p, _) = SVector{3, Float64}(_spline_direction(controls, area, p)) - tn
-    jac(p, _) = _spline_direction_jacobian(controls, area, p)
+    res(p, _) = _spline_direction(controls, area, p) - tn
+    jac(p, _) = last(_spline_direction_and_jacobian(controls, area, p))
     return _spline_lm(res, jac, x₀, lb, ub, s, maxiter, tol2)
 end
 
 # The backward map of a spline of direction controls over `area`: the direction of the
-# point `p` (element-type generic), and its Jacobian, ForwardDiff of that same map.
-@inline _spline_direction(controls, area, p) = (S = spline_value(controls, area, p); SVector{3}(S) / norm(S))
-#
-# The Jacobian is a call, not inlined into the LM: inlined there, the compiled
-# solve (Julia 1.13.2) depended on its calling context — `all(isfinite,
-# project(c, X))` in a comprehension over a tuple of cameras was false on 42 of the
-# 64 golden rays whose `project(c, X)` is finite (plan 1b Task 3, fix round 1; the
-# cause, a compiler fault or undefined behaviour under the inlined duals, is not
-# isolated). The function barrier gives one compiled body in every context.
-@noinline _spline_direction_jacobian(controls, area, p) = last(_value_and_jacobian(q -> _spline_direction(controls, area, q), p))
+# point `p`, the LM's residual.
+# Inside the area only (the LM keeps its point there): the area's own window, not the
+# continued one, so the solve reads no clamp.
+@inline _spline_direction(controls, area, p) =
+    normalize(SVector{3, Float64}(_eval_window(controls, _spline_window(_lattice_coords(area, size(controls), p)...)...)))
+
+# THE direction of that spline at `x` and its Jacobian `∂d/∂x` (3 × 2), analytic and
+# from ONE evaluation of the basis weights: the value and its two partials in one
+# sweep of the 4 × 4 window (`_continued_window`'s, so a point in `_in_backward`'s
+# lower-edge slack reads the first window), the normalize differential
+# `(I − d dᵀ)/‖S‖` and the area → lattice slope. Device-safe (isbits, no
+# allocation): the LM's Jacobian and the lens's `backproject_with_jacobian`.
+@inline function _spline_direction_and_jacobian(controls::AbstractMatrix, area, x::StaticVector{2})
+    gsz = gh, gw = size(controls)
+    gx, gy = _lattice_coords(area, gsz, x)
+    ix, iy, wx, wy = _continued_window(gx, gy, gw, gh)
+    dwx = _cubic_bspline_weights_deriv(_span_coordinate(gx + 2, ix))
+    dwy = _cubic_bspline_weights_deriv(_span_coordinate(gy + 2, iy))
+    S = Sx = Sy = zero(SVector{3, Float64})
+    @inbounds for r in 1:4
+        row = drow = zero(SVector{3, Float64})
+        for c in 1:4
+            g = SVector{3, Float64}(controls[iy - 3 + r, ix - 3 + c])
+            row += wx[c] * g
+            drow += dwx[c] * g
+        end
+        S += wy[r] * row
+        Sx += wy[r] * drow
+        Sy += dwy[r] * row
+    end
+    sx, sy = _lattice_slope(area, gsz)
+    n = norm(S)
+    d = S / n
+    Jx = (Sx - d * dot(d, Sx)) * (sx / n)
+    Jy = (Sy - d * dot(d, Sy)) * (sy / n)
+    return d, hcat(Jx, Jy)
+end
+
+# A SplineLens's bearing at the normalized point `x` and its Jacobian (the BackwardLens
+# route of `backproject_with_jacobian`): the analytic one, NaN where the lens does not
+# image `x`.
+@inline function _backward_value_and_jacobian(l::SplineLens, x::StaticVector{2})
+    _in_backward(l, x) || return SVector{3, Float64}(NaN, NaN, NaN), SMatrix{3, 2, Float64, 6}(ntuple(_ -> NaN, Val(6)))
+    return _spline_direction_and_jacobian(l.backward.controls, l.backward.area, x)
+end
 
 # The lens axis: the ray of the principal point, `normalize(backward(0, 0))`.
 # Computed, not stored; the forward spline's equidistant chart is about it.

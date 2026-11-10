@@ -294,3 +294,55 @@ end
         end
     end
 end
+
+@testitem "SplineLens: project's imaged mask is the same at every optimization level" begin
+    using Test
+    using StaticArrays
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, px, with_present, Rect2,
+        LogicalIntrinsics, CameraCalibrationMat, calibration_matrix
+    using VisualGeometryToolkitCore.Cameras: _spline_camera
+
+    # =============================================================================
+    # A guard against the -O2 miscompile of plan 1b Task 3 (test/fixtures/
+    # repro_o2_miscompile.jl): with a ForwardDiff Jacobian inlined into the LM, the
+    # rays a camera images over a tuple of cameras changed with the optimization level
+    # and with how the result was tested (-O2 and -O3 only). Both forms, compiled at
+    # optimization levels 1 and 2, must agree on every golden ray, and the two levels
+    # with each other.
+    # =============================================================================
+
+    include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "spline_lens_golden.jl"))
+    G = GOLDEN
+    src = CameraModel(G.f * px, SA[G.pp[1] * px, G.pp[2] * px]; lens = KannalaBrandt(G.kb...))
+    cam = CameraModel(SplineLens, src, (G.image[1], G.image[2]); grid_size = (G.grid_size[1], G.grid_size[2]))
+    masked = with_present(cam, G.masked.present)
+    K = calibration_matrix(cam)
+    S = G.spline
+    K′ = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0.0, 0.0, 0.0, K[2, 2], 0.0, 499.5, 499.5, 1.0)))
+    cam′ = _spline_camera(K′, Rect2(0.0, 0.0, 1000.0, 1000.0), cam.lens.backward.controls)
+    C = [SVector((S.controls[1, i, j] - 499.5) / K[1, 1], (S.controls[2, i, j] - 499.5) / K[2, 2]) for i in axes(S.controls, 2), j in axes(S.controls, 3)]
+    cam_fwd = CameraModel(K′, SplineLens(cam′.lens.backward; forward = ChartSpline(Rect2(S.area[1], S.area[2], S.area[3], S.area[4]), C)))
+    rays = vcat([SVector(S.rays[1, i], S.rays[2, i], S.rays[3, i]) for i in axes(S.rays, 2)],
+                [SVector(G.central.backproject[1, i], G.central.backproject[2, i], G.central.backproject[3, i]) for i in 1:(G.n_lattice)])
+    cams = (cam, masked, cam_fwd)
+
+    imaged = Dict{Int, Any}()
+    for level in (1, 2)
+        M = Module()
+        Core.eval(M, :(using VisualGeometryToolkitCore: project))
+        Core.eval(M, quote
+            Base.Experimental.@optlevel $level
+            fused(cams, rays) = [[all(isfinite, project(c, X)) for X in rays] for c in cams]
+            stored(cams, rays) = [[all(isfinite.(project(c, X))) for X in rays] for c in cams]
+        end)
+        a = Base.invokelatest(M.fused, cams, rays)
+        b = Base.invokelatest(M.stored, cams, rays)
+        @test (level, a) == (level, b)
+        @test (level, count.(a)) == (level, count.(b))
+        @test all(any, a)                                     # the comparison bites on every camera
+        imaged[level] = a
+    end
+    @test count.(imaged[1]) == count.(imaged[2])              # the same code images the same rays at -O1 and -O2
+    @test imaged[1] == imaged[2]
+end

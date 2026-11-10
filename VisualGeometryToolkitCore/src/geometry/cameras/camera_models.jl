@@ -388,8 +388,9 @@ forward lens — Kannala-Brandt, double sphere, the OpenCV models — is covered
 without a per-model derivation, the same derivation-risk-free stance
 `retract_jacobian` takes. A BACKWARD lens (a `LiftLens` — division, Scaramuzza —
 or a `SplineLens`), whose back-projection is the closed form and whose
-projection a solve, instead differentiates `backproject` itself, by the same
-automatic differentiation: `M = ∂backproject(model, u)/∂u`.
+projection a solve, instead differentiates `backproject` itself:
+`M = ∂backproject(lens, x)/∂x · ∂x/∂u` at `x = K⁻¹u`, by the same automatic
+differentiation, or analytically where the lens has its own (`SplineLens`).
 
 This is PoseLib's `unproject_with_jac`; GTSAM's nearest relative is
 `PinholeBase::backprojectPointAtInfinity(p, Dresult_dpose, Dresult_dpoint)`,
@@ -407,10 +408,10 @@ singular (a ray the camera cannot resolve in two directions). Never throws.
 # The direction of a lens (a holy trait): a BACKWARD lens's back-projection is the
 # closed-form map and its projection the solve (`LiftLens`, `SplineLens`); a
 # FORWARD lens's (every `Lens`) the other way round. The ONE switch of the
-# direction Jacobian's route: a backward lens differentiates `backproject` itself
-# (ForwardDiff through the closed form, `M` tangent as the derivative of a unit
-# vector); a forward lens differentiates its `project` and inverts the tangent
-# restriction (below).
+# direction Jacobian's route: a backward lens differentiates its `backproject` at
+# the normalized point (`_backward_value_and_jacobian`, then `K⁻¹`'s linear part;
+# `M` tangent as the derivative of a unit vector); a forward lens differentiates
+# its `project` and inverts the tangent restriction (below).
 abstract type LensDirection end
 struct ForwardLens <: LensDirection end
 struct BackwardLens <: LensDirection end
@@ -418,13 +419,25 @@ LensDirection(::Type{<:AbstractLensModel}) = ForwardLens()
 LensDirection(::Type{<:LiftLens}) = BackwardLens()
 LensDirection(l::AbstractLensModel) = LensDirection(typeof(l))
 
+# The bearing of `q` under `m`'s `backproject` and its 3 × 2 Jacobian, by ForwardDiff
+# through that `backproject` (element-type generic: the duals ride through it), the
+# point floated first. The ONE automatic-differentiation route of a back-projection:
+# a backward lens's default (below) and a `Backprojection` transform's
+# (equirectangular.jl).
+@inline _backproject_value_and_jacobian(m, q::StaticVector{2}) =
+    _value_and_jacobian(p -> SVector{3}(Tuple(backproject(m, p))), _float_static(q))
+
+# A backward lens's bearing at the normalized point `x` and its Jacobian `∂/∂x`: by
+# default the automatic-differentiation route; a lens with an analytic one
+# (`SplineLens`, spline_lens.jl) adds its method.
+@inline _backward_value_and_jacobian(lens::AbstractLensModel, x::StaticVector{2}) = _backproject_value_and_jacobian(lens, x)
+
 @inline function _backproject_with_jacobian(::BackwardLens, model::CameraModel, u::StaticVector{2})
-    f = backproject(model, u)
+    f, Jx = _backward_value_and_jacobian(model.lens, _normalized_point(model.intrinsics, u))
     T = eltype(f)
     all(isfinite, f) || return f, SMatrix{3, 2, T, 6}(ntuple(_ -> T(NaN), Val(6)))
-    # element-type generic, as the forward route's closure: ForwardDiff's duals ride through K⁻¹ and the lens
-    _, M = _value_and_jacobian(v -> SVector{3}(Tuple(backproject(model, v))), _float_static(u))
-    return f, SMatrix{3, 2, T, 6}(M)
+    Ki = SMatrix{3, 3, T}(_K_inv(model.intrinsics))       # x = K⁻¹u: ∂x/∂u is its linear part
+    return f, SMatrix{3, 2, T, 6}(Jx * SMatrix{2, 2, T, 4}(Ki[1, 1], Ki[2, 1], Ki[1, 2], Ki[2, 2]))
 end
 
 @inline function _backproject_with_jacobian(::ForwardLens, model::CameraModel, u::StaticVector{2})

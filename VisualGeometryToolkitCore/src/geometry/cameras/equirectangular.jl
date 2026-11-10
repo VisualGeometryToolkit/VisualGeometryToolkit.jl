@@ -69,8 +69,7 @@ Base.show(io::IO, b::Backprojection) = print(io, "Backprojection(", b.model, ")"
 # (generic_models.jl) — and any other model's (a panorama projection, a bounded
 # camera) by ForwardDiff through its `backproject`; the pixel floated first.
 transform_deriv(b::Backprojection{<:CameraModel}, q::StaticVector{2}) = last(backproject_with_jacobian(b.model, _float_static(q)))
-transform_deriv(b::Backprojection, q::StaticVector{2}) =
-    last(_value_and_jacobian(p -> SVector{3}(Tuple(backproject(b.model, p))), _float_static(q)))
+transform_deriv(b::Backprojection, q::StaticVector{2}) = last(_backproject_value_and_jacobian(b.model, q))
 
 # The shared parts of the family: the longitude, its gradient, and the guard
 # (a zero, non-finite or — where `pole_ok` is false — polar vector has no

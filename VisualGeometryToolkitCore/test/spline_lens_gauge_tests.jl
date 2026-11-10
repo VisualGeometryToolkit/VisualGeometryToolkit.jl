@@ -93,9 +93,10 @@
         one_off = trues(gh, gw); one_off[r0, c0] = false
         @test monotone_radius(with_present(cam, one_off).lens) ≈ min(lo_x, monotone_radius(cam.lens)) rtol = 1.0e-12
         @test monotone_radius(with_present(cam, one_off).lens) < monotone_radius(cam.lens)
-        # an absent node whose windows cover x = 0: no disc
+        # an absent node whose windows cover x = 0: the lattice no longer images ẑ there — the gauge's own fallback
+        # condition (`_imaged_z`) — so the radius about the principal point is refused, not 0
         centre_off = trues(gh, gw); centre_off[round(Int, y0), round(Int, x0)] = false
-        @test monotone_radius(with_present(cam, centre_off).lens) == 0
+        @test_throws ArgumentError monotone_radius(with_present(cam, centre_off).lens)
         for θ in (0.1, 0.5, 1.0)
             @test fov_radius(cam, θ) == f * tan(θ)
         end
@@ -299,8 +300,6 @@ end
     # the area's centre, which images a ray off ẑ
     off = CameraModel(SplineLens, u -> backproject(src, u), (1000, 1000); calib_area = (600, 600, 999, 999), init = :quasi_interpolate)
     on = CameraModel(SplineLens, src, (1000, 1000); grid_size = (16, 16))
-    K = calibration_matrix(on)
-    moved = CameraModel(on, CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0.0, 0.0, 0.0, K[2, 2], 0.0, K[1, 3] + 40.0, K[2, 3], 1.0)))
     img = zeros(64, 64)
     sensor = Sensor(Size2(width = 1000px, height = 1000px), 3.45μm)
     refusals(c) = (
@@ -308,13 +307,26 @@ end
         () -> undistorted_rect(c, (1000, 1000)), () -> angle_of_view(BoundedCamera(c, Size2(1000, 1000))),
         () -> horizon_radius(c), () -> monotone_radius(c.lens), () -> image_circle(c, sensor, 3.0mm),
     )
-    for c in (off, moved), f in refusals(c)
+    for f in refusals(off)
         e = try f(); nothing catch e; e end
         @test e isa ArgumentError && occursin("does not image ẑ", e.msg)
     end
-    # on the axis, every one of them answers
-    @test isfinite(horizon_radius(on)) && isfinite(angle_of_view(BoundedCamera(on, Size2(1000, 1000))))
-    @test size(undistort(on, img; device = KA.CPU())) == size(img) && monotone_radius(on.lens) > 0
+    # the refusal is the gauge's own fallback condition, not a tolerance on the lens axis: a coarse lattice whose
+    # approximation error puts its axis off ẑ (IO's 8 × 7 test camera, 4e-4 rad; a 4 × 4 lattice, 1e-2 rad) images ẑ
+    # inside its area, and answers
+    io = CameraModel(; focal = 31.7, pp = (32.25, 23.875), lens = KannalaBrandt(-4 / (3π^2)))
+    coarse = (CameraModel(SplineLens, io, (64, 48); grid_size = (8, 7)), CameraModel(SplineLens, io, (64, 48); grid_size = (4, 4)))
+    @test all(c -> VisualGeometryToolkitCore.Cameras._lens_axis(c.lens.backward)[3] < cos(1.0e-4), coarse)   # off ẑ by approximation
+    for c in (on, coarse...)
+        @test isfinite(horizon_radius(c)) && monotone_radius(c.lens) > 0
+        @test size(undistort(c, img; device = KA.CPU())) == size(img)
+        @test distortion_map(c) !== nothing
+    end
+    @test isfinite(angle_of_view(BoundedCamera(on, Size2(1000, 1000))))
+    # a principal point moved by CameraModel(camera, K′) is a gauge choice, not the fallback: the lattice images ẑ
+    K = calibration_matrix(on)
+    moved = CameraModel(on, CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0.0, 0.0, 0.0, K[2, 2], 0.0, K[1, 3] + 40.0, K[2, 3], 1.0)))
+    @test isfinite(horizon_radius(moved))
 end
 
 @testitem "the pixel-frame change of K: one Core function" begin

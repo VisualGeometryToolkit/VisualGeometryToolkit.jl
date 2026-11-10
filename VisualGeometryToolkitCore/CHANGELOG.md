@@ -11,10 +11,10 @@ sensor — so every consumer asks the camera what it images instead of supplying
 - **`CameraModel(camera, K′)` re-gauges a SplineLens camera to any skew-0 K′**, a moved principal point included: the
   backward area moves by the change of the normalized plane `x′ = x / s + (c − c′)/f′`, a forward's output with it;
   every pixel's ray is unchanged. A lens with a forward keeps its principal point (the forward's chart is about the
-  principal point's ray): drop the forward and refit it. A parametric lens still refuses a moved principal point.
+  principal point's ray): drop the forward and refit it through Estimation's `fit_camera(SplineLens, …)`. A parametric lens still refuses a moved principal point.
 - **The off-axis gauge is refused where the principal point is read as the optical axis**: when a SplineLens camera's
-  principal point does not image ẑ to 1e-6 rad (ẑ outside the calibrated area, so the gauge is the area's centre, or
-  a principal point moved by `CameraModel(camera, K′)`), `undistort`/`undistort!`, `distortion_map`, `valid_rect`,
+  lattice does not image ẑ inside its calibrated area — the gauge's own fallback condition, one predicate shared with
+  the gauge, so the principal point is the area's centre — `undistort`/`undistort!`, `distortion_map`, `valid_rect`,
   `undistorted_rect`, `angle_of_view`, `horizon_radius`/`monotone_radius`, `image_circle(camera, sensor, d)` and
   `view_overlap` throw an `ArgumentError` naming it, instead of centring on a ray the lens does not image.
 - **A non-finite seed of the batched SplineLens `project`** (a previous frame's failed point) starts the solve from

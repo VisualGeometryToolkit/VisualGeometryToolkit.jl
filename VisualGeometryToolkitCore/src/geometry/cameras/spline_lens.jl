@@ -373,8 +373,7 @@ A camera of this lens has skew 0 and positive focal lengths (an
 `ArgumentError` wherever one is built otherwise), and its `K` is a gauge: the
 principal point is the pixel imaging ẑ (`CameraModel(SplineLens, source,
 size)`). Where ẑ is not imaged inside the calibrated area, the gauge falls back
-to the area's centre, a pixel that does not image ẑ (as does a principal point
-moved by `CameraModel(camera, K′)`): the methods that read the principal point
+to the area's centre, a pixel that does not image ẑ: the methods that read the principal point
 as the optical axis — `undistort` and `undistort!` onto the gauge pinhole,
 `distortion_map`, `valid_rect`, `undistorted_rect`, `angle_of_view`,
 `horizon_radius` and `monotone_radius`, `image_circle(camera, sensor, d)`,
@@ -546,7 +545,8 @@ function _regauge_lens(l::SplineLens, K, K′)
         ArgumentError(
             "CameraModel(model, K′): a SplineLens with a forward spline keeps its principal point — the forward's chart is " *
                 "about the principal point's ray, which the move changes; drop the forward first " *
-                "(SplineLens(lens.backward; present = lens.present)) and refit it, or keep the principal point"
+                "(SplineLens(lens.backward; present = lens.present)) and refit it through VisualGeometryToolkitEstimation.fit_camera(SplineLens, " *
+                "BoundedCamera(camera, extent), region; tolerance), or keep the principal point"
         )
     )
     b = l.backward
@@ -792,24 +792,31 @@ _forward_chart(::ChartSpline{3}, ::Nothing) = nothing
 _forward_chart(backward::ChartSpline{3}, ::ChartSpline{2}) = _forward_chart(backward)
 _forward_chart(backward::ChartSpline{3}) = equidistant_chart(_lens_axis(backward))
 
-# Whether a SplineLens camera's principal point images ẑ, the premise of every
-# method that reads it as the optical axis (`undistort` onto the gauge pinhole,
-# `valid_rect`, `angle_of_view`, `horizon_radius`, the footprint, …): THE check,
-# an `ArgumentError` naming `what` when the lens axis (`_lens_axis`) is more than
-# `_AXIS_TOL` off ẑ — the off-axis gauge (ẑ not imaged inside the calibrated area,
-# so the principal point is the area's centre) or a principal point moved by
-# `CameraModel(model, K′)`. A principal point the lens does not image (an absent
-# window: no axis) is not measured. Every other lens has nothing to check.
-const _AXIS_TOL = 1.0e-6
+# Where a lattice images ẑ: THE solve of ẑ through `controls` over `area` (from the
+# area's centre, the scale-free box) and whether it converged there — the gauge's
+# choice of principal point (`_spline_gauge`: the pixel imaging ẑ, else the
+# rectangle's centre, the fallback) and the off-axis check's condition below, one
+# predicate for both.
+function _imaged_z(controls::AbstractMatrix, area::Rect2)
+    c = _rect_centre(area)
+    lb, ub, s = _spline_lm_box(area)
+    p, ok = _spline_project(controls, area, SVector(0.0, 0.0, 1.0), c, lb, ub, s, _PROJECT_MAXITER, _PROJECT_TOL^2)
+    return ok && all(isfinite, p) ? (SVector{2, Float64}(p), true) : (c, false)
+end
+
+# Whether a SplineLens camera's gauge is the off-axis fallback — ẑ not imaged inside
+# the backward area (`_imaged_z`, the gauge's own condition), so the principal point is
+# the area's centre, a pixel that does not image ẑ — the premise of every method that
+# reads the principal point as the optical axis (`undistort` onto the gauge pinhole,
+# `valid_rect`, `angle_of_view`, `horizon_radius`, the footprint, …): THE check, an
+# `ArgumentError` naming `what`. Every other lens has nothing to check.
 _check_lens_axis(::AbstractLensModel, what) = nothing
 function _check_lens_axis(l::SplineLens, what)
-    a = _lens_axis(l.backward)
-    θ = atan(hypot(a[1], a[2]), a[3])
-    (isfinite(θ) && θ > _AXIS_TOL) && throw(
+    last(_imaged_z(l.backward.controls, l.backward.area)) || throw(
         ArgumentError(
-            "$what: the SplineLens camera's principal point does not image ẑ (its ray is $(θ) rad off it: the off-axis " *
-                "gauge, or a principal point moved by CameraModel(model, K′)); the method reads the principal point as " *
-                "the optical axis, so it has no meaning here"
+            "$what: the SplineLens camera's lattice does not image ẑ inside its calibrated area, so its principal point " *
+                "is the off-axis gauge's fallback (the area's centre); the method reads the principal point as the " *
+                "optical axis, so it has no meaning here"
         )
     )
     return nothing
@@ -980,9 +987,7 @@ end
 # along an axis has no scale at all: an `ArgumentError` saying to supply K.
 function _spline_gauge(pixel_direction::ChartSpline{3}, rect::Rect2)
     c = _rect_centre(rect)
-    lb, ub, s = _spline_lm_box(rect)
-    p, ok = _spline_project(pixel_direction.controls, rect, SVector(0.0, 0.0, 1.0), c, lb, ub, s, _PROJECT_MAXITER, _PROJECT_TOL^2)
-    pp = ok && all(isfinite, p) ? SVector{2, Float64}(p) : c
+    pp, _ = _imaged_z(pixel_direction.controls, rect)    # the pixel imaging ẑ, else the centre (the fallback)
     _, J = _value_and_jacobian(u -> (d = pixel_direction(u); SVector(d[1] / d[3], d[2] / d[3])), pp)
     fx, fy = 1 / J[1, 1], 1 / J[2, 2]
     if !(isfinite(fx) && isfinite(fy))   # no fully present window there: the present nodes' differences nearest the centre

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **Every ASIFT detection is refined; an extremum whose refinement fails is dropped, never returned on the octave's
+  grid.** The extrema were searched on all S + 2 DoG slices of an octave, the two boundary slices included, whose
+  extrema have no slice above or below and were emitted unrefined (integer positions on the octave's grid, 2^octave
+  input pixels; `NaN` covariance), and an extremum whose sub-pixel refinement failed (a singular or non-finite step, a
+  walk off the interior) was emitted unrefined too. On a Tamron panorama frame 1451 of the 3077 detections (47 %) were
+  unrefined: 1382 from boundary slices, 69 failed refinements. Now only the interior slices are searched, as Lowe's
+  SIFT does (the boundary slices' scales are the adjacent octaves' interior slices), and a failed refinement is
+  dropped and counted (`plan.refine_dropped`). The same frame gives 2099 detections, all refined. On a synthetic field
+  of blobs at known sub-pixel centres (IMAS-25, every pooled detection): rms error 0.52 → 0.17 px (octave −1 0.46 →
+  0.08, octave 0 0.60 → 0.28, octave 1 0.65 → 0.39); two renders 1.4° apart, the matched detections' rms 0.30 →
+  0.16 px. The tilted views' back-projection carries no bias (every warp's mean error below 0.04 px).
+- **`clear_asift_plans!()` returns the memory to the device** (CUDA.jl's pool is reclaimed), and a `LoMaDescriptor`
+  or `LoMaMatcher` on ONNX Runtime's CUDA provider calls it before it runs: the cached plan (most of the device, sized
+  from what was free) stayed resident after detection, and ONNX Runtime, which allocates outside CUDA.jl's pool, then
+  failed to allocate in a long-lived process. The next detection rebuilds its plan.
+
 - **New: `variance_stabilize(L::LinearRaw; electrons_per_dn, read_noise) -> StabilizedImage`, the detection image of a
   RAW.** The generalized Anscombe transform of the green cells (`:green_cells`, or `:bin2`'s G plane) for
   Poisson–Gaussian noise, from the photosites' own code spans (`white − black` of each green), the gain, the conversion

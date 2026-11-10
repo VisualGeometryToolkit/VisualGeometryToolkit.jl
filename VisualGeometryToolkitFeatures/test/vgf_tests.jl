@@ -572,11 +572,12 @@ end
     @test sort(key.(asift_detect!(small, img; nms = :none, intensity_thr = 0.01))) ==
         sort(key.(pool_big))
     # the pool buffers and the keypoint-covariance buffers (grown alongside them
-    # when in use) are exactly the plan's non-const fields: `_grow_pool!` can
-    # replace every one of them, and nothing else
+    # when in use) are exactly the plan's non-const fields but the last call's
+    # count of failed refinements: `_grow_pool!` can replace every one of them,
+    # and nothing else
     P = typeof(small)
     @test Set(nm for nm in fieldnames(P) if !isconst(P, nm)) ==
-        Set(pool_names) ∪ Set((:rawcov, :featcov, :covh))
+        Set(pool_names) ∪ Set((:rawcov, :featcov, :covh, :refine_dropped))
 end
 
 @testitem "ASIFT polarity: is_dark / is_light follow the response sign" setup = [Fixtures] begin

@@ -141,13 +141,18 @@ The cache is keyed by `(W, H, device, tilts, upsample, seed_sigma)` and holds at
 most [`set_max_cached_plans!`](@ref) plans (default 1), evicting the least
 recently used. Call this to release the resident plans outright — e.g. between
 sequences in a mixed-resolution corpus, or before handing the device to another
-workload.
+workload. The freed memory is returned to the device (on CUDA, CUDA.jl's pool is
+reclaimed), so an allocator outside the backend's pool, such as ONNX Runtime's,
+can use it: a [`LoMaDescriptor`](@ref) or [`LoMaMatcher`](@ref) on ONNX
+Runtime's CUDA provider calls this before it runs.
 """
 function clear_asift_plans!()
     lock(_ASIFT_LOCK) do
+        devices = unique(p.dev for p in values(_ASIFT_PLAN_CACHE))
         foreach(_free_plan!, values(_ASIFT_PLAN_CACHE))
         empty!(_ASIFT_PLAN_CACHE)
         empty!(_ASIFT_PLAN_ORDER)
+        foreach(_reclaim_device_pool, devices)
     end
     return nothing
 end
@@ -220,10 +225,11 @@ CPU (pinned by the test suite):
 - an exact half-pixel centre, where the DoG ties between the two pixels, is
   refined like any other: the extremum test breaks the tie toward the first
   pixel, so it carries that side's bias (−0.031 px at σ = 4). A test strict
-  against all 26 neighbours would reject both pixels and leave an unrefined
-  detection from a coarser octave, 0.5 px low;
-- a feature found only on a pyramid boundary scale slice is not refined and
-  sits on that octave's pixel grid.
+  against all 26 neighbours would reject both pixels;
+- every detection is refined: extrema are searched on the interior scale slices
+  only (each with a slice above and below), and an extremum whose refinement
+  fails is dropped (`plan.refine_dropped` counts them), never returned on the
+  octave's pixel grid.
 With `raw = true` the features are in 0-indexed OpenCV coordinates (top-left
 pixel centre (0, 0)), 0.5 less on both axes.
 

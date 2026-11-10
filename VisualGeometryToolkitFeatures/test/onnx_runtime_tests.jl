@@ -101,3 +101,31 @@ end
         @test length(intersect(pc, pg)) >= 0.97 * length(union(pc, pg))
     end
 end
+
+@testitem "LoMa on CUDA after ASIFT on CUDA in one process: the detector's plans are released first (skipped without a device)" begin
+    using Random: Xoshiro
+    using CUDA: CUDA
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    using VisualGeometryToolkitFeatures: LoMaDescriptor, LoMaMatcher, onnx_cuda_status, asift_detect
+    status = onnx_cuda_status()
+    if !(status.available && CUDA.functional())
+        @test_skip "ONNX Runtime's CUDA provider or CUDA.jl unavailable"
+    else
+        rng = Xoshiro(5)
+        H, W = 1424, 2128                                  # a panorama frame's green cells: the plan takes most of the device
+        base = rand(rng, Float32, H, W)
+        for _ in 1:3
+            base .= (base .+ circshift(base, (1, 0)) .+ circshift(base, (0, 1))) ./ 3
+        end
+        d = LoMaDescriptor(:b; execution_provider = :cuda); m = LoMaMatcher(:b128; execution_provider = :cuda)
+        img = permutedims(repeat(base, 1, 1, 3), (3, 1, 2))
+        feats = map(1:2) do _                              # detect, describe, detect again: the loop of a registration
+            dets = asift_detect(base; device = CUDA.CUDABackend())
+            @test !isempty(VgtkFeatures._ASIFT_PLAN_CACHE)
+            f = d(img, dets)
+            @test isempty(VgtkFeatures._ASIFT_PLAN_CACHE)   # released before ONNX Runtime ran
+            f
+        end
+        @test length(m(feats[1], feats[2], (H, W), (H, W))) > 100
+    end
+end

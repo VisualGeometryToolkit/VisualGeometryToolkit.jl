@@ -61,9 +61,10 @@ schedule), so `(x, y, log σ)` are its only free parameters and `Σ̃` is full r
 float input image, and the `[0, 1]` scale for 8-bit input (`UInt8`, `N0f8`, …;
 σ_n = σ_gray / 255). The physical covariance is `σ_n²·Σ̃`.
 
-**Unrefined detections** — on a boundary scale slice, or whose sub-pixel
-refinement failed — sit on the octave's pixel grid and have no such covariance:
-their `Σ̃` is all `NaN`.
+**Every detection is refined**: the detector searches the interior scale slices
+only and drops an extremum whose sub-pixel refinement fails, so every returned
+keypoint has its covariance (`NaN` only where the implicit-function system is
+singular).
 
 Extension point (not implemented): an intensity-dependent noise model, e.g.
 `FeatureCovariance(noise = ShotNoise(a, b))`, makes the middle term

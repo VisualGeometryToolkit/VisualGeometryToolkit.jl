@@ -291,11 +291,19 @@ end
 #     the neighbours before the centre in (ds, dy, dx) order and non-strict
 #     against those after it — the one deliberate departure from the shader,
 #     which is strict against all 26 and so rejects both pixels of an exact
-#     tie; the boundary slices (s0 == 0, s0 == last) use the 17-neighbour test
+#     tie. Only the interior slices (2 … NS − 1) are searched, as Lowe's SIFT
+#     does: the S + 3 Gaussians give S + 2 DoG slices, and an extremum must have
+#     a slice above and below to be refined in scale. The two boundary slices'
+#     scales are the interior slices of the adjacent octaves (slice 1 of octave
+#     o is slice S + 1 of octave o − 1, slice S + 2 is slice 2 of octave o + 1),
+#     so nothing within the kept scales is lost; an extremum found there was
+#     emitted unrefined, on the octave's pixel grid
 #   • early reject |center| ≤ 0.8·dog_threshold
 #   • up to 5 Newton iterations; axis map h11↔scale, h22↔x, h33↔y; symmetric 3×3
-#     inverse; converge < 0.6; round-walk within the interior; accept |off| < 1.5;
-#     a failed refine keeps the integer extremum; boundary slices emit integer
+#     inverse; converge < 0.6; round-walk within the interior; accept |off| < 1.5
+#     (VLFeat's rule); a refinement that fails (a singular or non-finite step, a
+#     walk off the interior, no convergence) DROPS the extremum, counted in
+#     `count[2]` — never emitted unrefined
 #   • validity gate |new_val| > dog_threshold
 #   • edge test tr²/det < (r+1)²/r on the spatial Hessian, r = edge_thr, det > 0
 #   • emission (0-indexed subpixel): sf = 2^octave_idx,
@@ -304,7 +312,7 @@ end
 #     `rawcov` a (6, capacity) buffer, or `nothing` — a separate specialization,
 #     so the default compiles to the kernel without it. Only the refinement's
 #     state is stored here, `(xi, yi, code, offS, offX, offY)` with code =
-#     sl + 8·(octave_idx + 2) (0: unrefined); `_bcov!` computes the covariance
+#     sl + 8·(octave_idx + 2); `_bcov!` computes the covariance
 #     from it, keeping this kernel's registers (and occupancy) the default's
 @inline function _extract_at!(
         out, count, dog, X, Y, Sl, Lw, W, H, ::Val{NS},
@@ -313,7 +321,6 @@ end
     @inbounds begin
         c = dog[X, Y, Sl, Lw]
         if abs(c) > 0.8f0 * dog_thr
-            is_low = (Sl == 1); is_high = (Sl == NS); at_bnd = is_low || is_high
             # 26-neighbour extremum test with a lexicographic tie-break over
             # (ds, dy, dx): strict against the neighbours before the centre,
             # non-strict against those after it, so of two equal DoG values the
@@ -330,8 +337,6 @@ end
             end
             if ismax || ismin
                 for ds in (-1, 1)
-                    (ds == -1 && is_low) && continue
-                    (ds == 1 && is_high) && continue
                     for dy in -1:1, dx in -1:1
                         v = dog[X + dx, Y + dy, Sl + ds, Lw]
                         ismax &= _beats(c, v, ds > 0); ismin &= _beats(v, c, ds > 0)
@@ -341,8 +346,8 @@ end
             if ismax || ismin
                 xi = X; yi = Y; sl = Sl
                 offX = 0.0f0; offY = 0.0f0; offS = 0.0f0
-                new_val = c; valid = true; good = false
-                if !at_bnd
+                new_val = c; valid = true
+                begin
                     for iter in 1:5
                         cc = dog[xi, yi, sl, Lw]
                         gX = 0.5f0 * (dog[xi + 1, yi, sl, Lw] - dog[xi - 1, yi, sl, Lw])
@@ -384,17 +389,15 @@ end
                     end
                     good = valid && abs(offX) < 1.5f0 && abs(offY) < 1.5f0 && abs(offS) < 1.5f0
                 end
-                local sx::Float32, sy::Float32, ssv::Float32
-                if good
-                    sx = Float32(xi - 1) + offX; sy = Float32(yi - 1) + offY; ssv = Float32(sl - 1) + offS
-                    gX = 0.5f0 * (dog[xi + 1, yi, sl, Lw] - dog[xi - 1, yi, sl, Lw])
-                    gY = 0.5f0 * (dog[xi, yi + 1, sl, Lw] - dog[xi, yi - 1, sl, Lw])
-                    gS = 0.5f0 * (dog[xi, yi, sl + 1, Lw] - dog[xi, yi, sl - 1, Lw])
-                    new_val = dog[xi, yi, sl, Lw] + 0.5f0 * (gS * offS + gX * offX + gY * offY)
-                else
-                    sx = Float32(X - 1); sy = Float32(Y - 1); ssv = Float32(Sl - 1)
-                    new_val = c; xi = X; yi = Y; sl = Sl
+                if !good                     # the refinement failed: dropped, counted
+                    Atomix.@atomic count[2] += Int32(1)
+                    return nothing
                 end
+                sx = Float32(xi - 1) + offX; sy = Float32(yi - 1) + offY; ssv = Float32(sl - 1) + offS
+                gX = 0.5f0 * (dog[xi + 1, yi, sl, Lw] - dog[xi - 1, yi, sl, Lw])
+                gY = 0.5f0 * (dog[xi, yi + 1, sl, Lw] - dog[xi, yi - 1, sl, Lw])
+                gS = 0.5f0 * (dog[xi, yi, sl + 1, Lw] - dog[xi, yi, sl - 1, Lw])
+                new_val = dog[xi, yi, sl, Lw] + 0.5f0 * (gS * offS + gX * offX + gY * offY)
                 keep = abs(new_val) > dog_thr &&
                     0.0f0 <= sx <= Float32(W - 1) && 0.0f0 <= sy <= Float32(H - 1) &&
                     0.0f0 <= ssv <= Float32(NS - 1)
@@ -418,7 +421,7 @@ end
                         out[5, idx] = Float32(Lw)
                         if rawcov !== nothing
                             rawcov[1, idx] = Float32(xi); rawcov[2, idx] = Float32(yi)
-                            rawcov[3, idx] = good ? Float32(sl + 8 * (octave_idx + 2)) : 0.0f0
+                            rawcov[3, idx] = Float32(sl + 8 * (octave_idx + 2))
                             rawcov[4, idx] = offS; rawcov[5, idx] = offX; rawcov[6, idx] = offY
                         end
                     end
@@ -443,7 +446,7 @@ end
     ox, oy, Lw = _tile_origin(tiles, gi)
     X = ox + lx
     @inbounds if 2 <= X <= W - 1 && X <= aw[Lw]
-        for Sl in 1:NS, q in 0:(32 ÷ NY - 1)
+        for Sl in 2:(NS - 1), q in 0:(32 ÷ NY - 1)
             Y = oy + ly + NY * q
             if 2 <= Y <= H - 1 && Y <= ah[Lw]
                 _extract_at!(
@@ -496,8 +499,8 @@ end
 
 # The covariances of a tilt chunk's keypoints, the pooled entries `n0+1 …
 # n0+n`, into `cov` from the refinement state `_bextract!` stored in `rawcov`
-# (see there): the IFT covariance (uncertainty.jl) when the refinement
-# converged, NaN for an unrefined keypoint. One launch for all octaves:
+# (see there): the IFT covariance (uncertainty.jl); every pooled keypoint is
+# refined (a failed refinement is dropped). One launch for all octaves:
 # `dogs`/`ctabs` are tuples of the octaves' chunk views (one array type), the
 # keypoint's octave decoded from its code. `raw[5, i]` is the chunk-local warp.
 @kernel function _bcov!(
@@ -508,20 +511,14 @@ end
     @inbounds if j <= n
         i = Int(n0) + j
         code = unsafe_trunc(Int32, rawcov[3, i])
-        if code == Int32(0)
-            for k in 1:6
-                cov[k, i] = NaN32
-            end
-        else
-            octave_idx = (code >> 3) - Int32(2)
-            oi = Int(octave_idx - o_first) + 1
-            xi = unsafe_trunc(Int, rawcov[1, i]); yi = unsafe_trunc(Int, rawcov[2, i])
-            sl = Int(code & Int32(7)); Lw = unsafe_trunc(Int, raw[5, i])
-            sf = exp2(Float32(octave_idx))
-            c = _ift_cov_at(dogs[oi], xi, yi, sl, Lw, ctabs[oi], rawcov[4, i], rawcov[5, i], rawcov[6, i], sf, nb_scales)
-            for k in 1:6
-                cov[k, i] = c[k]
-            end
+        octave_idx = (code >> 3) - Int32(2)
+        oi = Int(octave_idx - o_first) + 1
+        xi = unsafe_trunc(Int, rawcov[1, i]); yi = unsafe_trunc(Int, rawcov[2, i])
+        sl = Int(code & Int32(7)); Lw = unsafe_trunc(Int, raw[5, i])
+        sf = exp2(Float32(octave_idx))
+        c = _ift_cov_at(dogs[oi], xi, yi, sl, Lw, ctabs[oi], rawcov[4, i], rawcov[5, i], rawcov[6, i], sf, nb_scales)
+        for k in 1:6
+            cov[k, i] = c[k]
         end
     end
 end
@@ -662,7 +659,9 @@ loop over same-size frames without the cache's lock.
   device's free memory.
 
 A plan holds device memory (several GiB for a large image under the full
-schedule). It is mutable only because its feature pool grows.
+schedule). It is mutable because its feature pool grows, and because
+`plan.refine_dropped` records how many extrema the last call dropped when
+their sub-pixel refinement failed (no unrefined detection is returned).
 
 ```jldoctest
 julia> using VisualGeometryToolkitFeatures
@@ -720,6 +719,7 @@ mutable struct AsiftPlan{D, A1, A2, A3, A4, AI, AU, AU8, GT, KN}
     keeph::Vector{Int32}
     bandh::Vector{Int32}
     const counth::Vector{Int32}
+    refine_dropped::Int                  # the last call's extrema whose sub-pixel refinement failed (dropped)
     const kern::KN
     const seed_sigma::Float64            # the pyramid's seed blur, and the σ the extractor reports
     # keypoint covariance (uncertainty.jl), built on the first call that asks for
@@ -751,6 +751,18 @@ function device_free_bytes(dev)
     end
     @warn "no free-memory query for $(typeof(dev)): tilt and score chunking are disabled" maxlog = 1
     return typemax(Int)
+end
+
+# Return the memory the backend's pool holds to the device: freed buffers stay in CUDA.jl's pool, which no allocator
+# outside it (ONNX Runtime's) can use. The package that defines the backend answers, as for `device_free_bytes`; a
+# backend with no pool query is left as it is.
+function _reclaim_device_pool(dev)
+    dev isa KA.CPU && return nothing
+    pkg = Base.moduleroot(parentmodule(typeof(dev)))
+    if nameof(pkg) in (:CUDA, :CUDACore) && isdefined(pkg, :reclaim)
+        Base.invokelatest(getfield(pkg, :reclaim))
+    end
+    return nothing
 end
 
 # Fraction of free device memory the resident pyramids may claim. Note the
@@ -899,7 +911,7 @@ function AsiftPlan(
     seedtiles = [ka_upload(Int32, dev, _dilate_tiles(c[1][1], dims[1]...)) for c in lists]
 
     pool = _pool_buffers(dev, Int(capacity))
-    count = KA.allocate(dev, Int32, 1)
+    count = KA.allocate(dev, Int32, 2)       # the pool's size; the extrema whose refinement failed
     splat = KA.allocate(dev, UInt64, W, H)
 
     kern = _scheduled(_asift_kernels, dev)
@@ -909,7 +921,7 @@ function AsiftPlan(
         inp, inp_u8, rot, canvas, gauss, dogs, dims,
         pyr_taps, pyr_r, rp, fpt, tapm, rads, geo, wp, awd, ahd, tiles, masked, seedtiles,
         pool.raw, pool.feat, count, splat, pool.nmskeep, pool.band,
-        pool.feath, pool.keeph, pool.bandh, Int32[0], kern, Float64(seed_sigma),
+        pool.feath, pool.keeph, pool.bandh, Int32[0, 0], 0, kern, Float64(seed_sigma),
         empty(gauss), KA.allocate(dev, Float32, 6, 0), KA.allocate(dev, Float32, 6, 0),
         Float32[]
     )
@@ -1083,7 +1095,7 @@ function asift_detect!(
         copyto!(plan.inp, on_device(Float32, dev, img_xy))   # Core's upload: dense Float32 on `dev` (its `DenseArray` rule)
     end
     uncertainty === nothing || _ensure_cov!(plan)
-    fill!(plan.count, Int32(0))
+    fill!(plan.count, Int32(0)); fill!(plan.counth, Int32(0))
     npooled = 0                              # `count` as read after each chunk
 
     dog_thr = Float32(intensity_thr) / S
@@ -1157,6 +1169,7 @@ function asift_detect!(
         # above σ ≈ 6 px). The DoG stacks are still resident, so on overflow the
         # pool grows and only `ext` reruns, not the blurs.
         nbefore = npooled
+        dbefore = Int32(plan.counth[2])      # the failed refinements before this chunk (a rerun recounts its own)
         for attempt in 1:2
             for o in 1:plan.nb_octaves
                 Wo, Ho = plan.dims[o]
@@ -1176,7 +1189,7 @@ function asift_detect!(
                 "asift_detect!: the extrema pool overflowed after growth ($npooled > $(_capacity(plan)))"
             )
             _grow_pool!(plan, npooled, nbefore)
-            fill!(plan.count, Int32(nbefore))
+            copyto!(plan.count, Int32[nbefore, dbefore])
         end
         nnew = npooled - nbefore
         if nnew > 0
@@ -1197,6 +1210,7 @@ function asift_detect!(
         end
     end
 
+    plan.refine_dropped = Int(plan.counth[2])
     # ---- pooled results: NMS below runs across every chunk's detections ----
     n = npooled
     n == 0 && return _no_features(uncertainty)

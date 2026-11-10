@@ -225,6 +225,10 @@ end
     far = perturbed_controls(truth, 0.05)
     rf = refine_camera_and_poses(far, poses0, views)
     @test retcode(rf) === :converged && rf.spline.windows_settled
+    # `max_time` caps the whole refine, all stages and rounds: with a zero cap the first solve stops after its first
+    # iteration, and only the joint solve's one capped iteration follows
+    rt = refine_camera_and_poses(far, poses0, views; max_time = 0.0)
+    @test retcode(rt) === :max_time && rt.iterations <= 2 && rt.spline.rounds == 1
     @test ray_error(estimate(rf).camera, truth, views) < ray_error(far, truth, views) / 1000
     # the patch layout is no part of the estimate: the lattice laid one node into the patches agrees to the solver's tolerance
     e1 = first(VE._refine_spline_camera_and_poses(cam0, poses0, views, 1))

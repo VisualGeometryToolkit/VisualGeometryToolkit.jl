@@ -154,8 +154,8 @@ NLLSsolver.computecost(vars::Vector{_CameraPosePose}, r::_SplineReprojection{1})
 # implicit differentiation of the solve at x*: per window control
 # `diag(fx, fy)·w[r, c]·(−H/‖S‖)` (zero for the controls outside the window),
 # through each patch's chart; for the pose `diag(fx, fy)·∂x*/∂X_c·[−[X_c]× I₃]`
-# (the left perturbation's action). A heap matrix (2 × 114): NLLSsolver forms its
-# 114 × 114 JᵀJ, too large to unroll.
+# (the left perturbation's action). A heap matrix (2 × 114), too large to unroll; its
+# normal matrix goes to NLLSsolver as the lazy rank-2 `_Gram`.
 function _spline_rows_and_jacobian(r::_SplineReprojection{N}, C, patches, pose) where {N}
     Xc, x, ok = _spline_solve(r, C, pose)
     np = N == 10 ? 108 : 0
@@ -241,13 +241,13 @@ end
 # The anchor of a patch's unread coordinates at their guesses: per control with
 # `dead[n]`, its direction (`D − D₀`, 3 rows) and its log-scale (1 row); per control
 # with only `scale[n]` (the held scale, or every scale in the directions-first solve),
-# its log-scale alone, weighted by `w`. 16 rows (zero for the others).
+# its log-scale alone, weighted by `w[n]`. 16 rows (zero for the others).
 struct _SplineAnchor <: NLLSsolver.AbstractResidual
     varind::SVector{1, Int}
     dead::SVector{4, Bool}
     scale::SVector{4, Bool}
     guess::SMatrix{2, 2, SVector{3, Float64}, 4}
-    w::Float64
+    w::SVector{4, Float64}
 end
 NLLSsolver.ndeps(::_SplineAnchor) = NLLSsolver.static(1)
 NLLSsolver.nres(::_SplineAnchor) = NLLSsolver.static(16)
@@ -256,13 +256,13 @@ NLLSsolver.getvars(r::_SplineAnchor, vars::_SplineVars) = (vars[r.varind[1]]::_S
 Base.eltype(::_SplineAnchor) = Float64
 NLLSsolver.computeresidual(r::_SplineAnchor, patch) = vcat(
     ntuple(n -> r.dead[n] ? _patch_direction(patch, n) - r.guess[n] : zero(SVector{3, Float64}), Val(4))...,
-    SVector{4, Float64}(ntuple(n -> r.scale[n] ? r.w * _patch_scale(patch, n) : 0.0, Val(4)))
+    SVector{4, Float64}(ntuple(n -> r.scale[n] ? r.w[n] * _patch_scale(patch, n) : 0.0, Val(4)))
 )
 function NLLSsolver.computeresjac(varflags, r::_SplineAnchor, patch)
     varflags == 1 || throw(ArgumentError("refine_camera_and_poses: the patch is free (varflags = $varflags)"))
     RJ = SMatrix{12, 8, Float64}(VgtkCore.retract_jacobian(patch.charts[1]))
     Jd = SMatrix{12, 8, Float64}(ntuple(i -> r.dead[(((i - 1) % 12) ÷ 3) + 1] ? RJ[i] : 0.0, Val(96)))
-    Js = SMatrix{4, 4, Float64}(LinearAlgebra.Diagonal(SVector{4, Float64}(map(b -> b ? r.w : 0.0, r.scale))))
+    Js = SMatrix{4, 4, Float64}(LinearAlgebra.Diagonal(SVector{4, Float64}(map((b, w) -> b ? w : 0.0, r.scale, r.w))))
     J = vcat(hcat(Jd, zero(SMatrix{12, 4, Float64})), hcat(zero(SMatrix{4, 8, Float64}), Js))
     return NLLSsolver.computeresidual(r, patch), J
 end
@@ -276,13 +276,13 @@ end
 # correspondences dropped on an absent window and of those the camera does not project
 # within a cell of one, the layout, the live nodes (those a row reads), the patch count,
 # the held-scale node and the blocks' windows. A given `λ` and `held_node` are kept (a
-# rebuild's); `rebuild` names the estimate the problem is built at (0: the guess);
+# rebuild's); `at` names the point the problem is built at (an error's wording);
 # `scales_held` anchors every log-scale (the directions-first solve), at a weight
 # `_SCALES_HELD_WEIGHT` times the data's mean direction curvature, so they stay put.
 function _spline_problem(
         cam::CameraModel, poses::AbstractVector, views::AbstractVector, free::Bool, penalty::Real, offset::Integer = 0;
         λ::Union{Nothing, Real} = nothing, held_node::Union{Nothing, CartesianIndex{2}} = nothing, held_norm::Union{Nothing, Real} = nothing,
-        rebuild::Integer = 0, scales_held::Bool = false
+        at::AbstractString = "at the guess", scales_held::Bool = false
     )
     l = cam.lens
     b = l.backward
@@ -298,7 +298,6 @@ function _spline_problem(
     live = falses(gsz)
     found = Tuple{SVector{3, Float64}, SVector{2, Float64}, Int, SMatrix{4, 4, CartesianIndex{2}, 16}, Rect2{Float64}}[]
     dropped = unprojected = 0
-    where_ = rebuild == 0 ? "at the guess" : "at the estimate of rebuild round $rebuild"
     for (v, cs) in enumerate(views), (j, c) in enumerate(cs)
         X = SVector{3, Float64}(first(c)[1], first(c)[2], first(c)[3]); u = SVector{2, Float64}(last(c)[1], last(c)[2])
         (all(isfinite, X) && all(isfinite, u)) || throw(ArgumentError("refine_camera_and_poses: view $v, correspondence $j: non-finite point or pixel"))
@@ -317,7 +316,7 @@ function _spline_problem(
             continue
         end
         ok || throw(
-            ArgumentError("refine_camera_and_poses: view $v, correspondence $j: the point $(X) does not project $where_ (behind the camera or outside the lens's domain)")
+            ArgumentError("refine_camera_and_poses: view $v, correspondence $j: the point $(X) does not project $at (behind the camera or outside the lens's domain)")
         )
         ix, iy, _, _ = spline_window(b.area, gsz, x)
         o = VgtkCore.Cameras._lattice_node(b.area, gsz, ix - 1, iy - 1)        # the window's own cell
@@ -385,10 +384,11 @@ function _spline_problem(
             end)
             k = _patch_index(L, P, Q)
             if scales_held
-                push!(anchors, _SplineAnchor(SVector(k), dead, SVector(true, true, true, true), guess[P, Q], sqrt(_SCALES_HELD_WEIGHT * curvature)))
+                w = sqrt(_SCALES_HELD_WEIGHT * curvature) * SVector{4, Float64}(map(norm, guess[P, Q]))   # ‖c‖: a unit ℓ step moves c by ‖c‖
+                push!(anchors, _SplineAnchor(SVector(k), dead, SVector(true, true, true, true), guess[P, Q], w))
             else
                 scale = SVector{4, Bool}(ntuple(n -> dead[n] || (k, n) == hold, Val(4)))
-                any(scale) && push!(anchors, _SplineAnchor(SVector(k), dead, scale, guess[P, Q], 1.0))
+                any(scale) && push!(anchors, _SplineAnchor(SVector(k), dead, scale, guess[P, Q], ones(SVector{4, Float64})))
             end
         end
         for (ns, s) in stencils
@@ -525,8 +525,16 @@ function _refine_camera_and_poses(::VgtkCore.Cameras.GaugeIntrinsics, camera::_R
 end
 
 # The directions-first solve's hold on the log-scales: their anchors' curvature against
-# the data's mean direction curvature.
+# the data's mean direction curvature (per unit of control length, so each anchor carries
+# its control's ‖c‖). A log-scale's own data curvature is ≈ that curvature · ‖c‖²·sin²δ (δ
+# the window's angular node spacing, 0.05–0.3 rad), so 1e6 ≫ 1/δ² holds every scale by a
+# factor ≳ 10⁴ over what the data could move it.
 const _SCALES_HELD_WEIGHT = 1.0e6
+
+# What is left of the refine's time at `deadline` (`nothing`: no cap), and whether an
+# NLLSsolver solve stopped on its time cap (termination bit 9).
+_remaining(deadline::Float64) = isinf(deadline) ? nothing : max(0.0, deadline - time())
+_timed_out(result) = result.termination & (1 << 9) != 0
 
 # The cap on the solve-and-rebuild rounds (each round a full solve; the windows settle
 # in one or two).
@@ -540,6 +548,14 @@ function _spline_solve!(p, isfree::Bool, max_iter, ftol, xtol, max_time)
     foreach(c -> NLLSsolver.addcost!(problem, c), _spline_blocks(p))
     result = NLLSsolver.optimize!(problem, nlls_options(; max_iter, ftol, xtol, max_time))
     return result, collect(problem.variables)
+end
+
+# The problem rebuilt at the solved variables of `p` (the camera of its patches, its
+# poses), keeping its λ, held node and held norm; `at` names that point.
+function _rebuilt(p, solved::_SplineVars, cam::CameraModel, views, penalty, offset, at::AbstractString)
+    b = cam.lens.backward
+    est = CameraModel(cam.intrinsics, SplineLens(ChartSpline(b.area, _patch_controls(b, p, solved)); present = cam.lens.present))
+    return _spline_problem(est, _solved_poses(p, solved), views, true, penalty, offset; λ = p.λ, held_node = p.held, held_norm = p.held_norm, at)
 end
 
 # The solved poses of a problem with patches, as plain maps (a rebuild's start).
@@ -588,17 +604,25 @@ function _refine_spline_camera_and_poses(
     # scales absorb the poses' error (a factor of 10³ in one step on a fit_camera lattice).
     # (1) The poses alone, through the guess's lens. (2) The directions and the poses, every
     # log-scale held (16 iterations there). (3) Everything (9 there).
+    # `max_time` caps the whole refine: every stage and round reads what is left of it.
+    deadline = max_time === nothing ? Inf : time() + Float64(max_time)
     iterations = 0
+    timed_out = false
     if isfree
-        pre = _refine_spline_camera_and_poses(back, poses, views, offset; free = (), penalty, max_iter, ftol, xtol, max_time)
+        pre = _refine_spline_camera_and_poses(back, poses, views, offset; free = (), penalty, max_iter, ftol, xtol, max_time = _remaining(deadline))
         iterations += pre[3]
-        p₀ = _spline_problem(back, pre[1].poses, views, true, penalty, offset; scales_held = true)
-        r₀, s₀ = _spline_solve!(p₀, isfree, max_iter, ftol, xtol, max_time)
-        iterations += r₀.niterations
-        b₀ = back.lens.backward
-        dir_cam = CameraModel(cam.intrinsics, SplineLens(ChartSpline(b₀.area, _patch_controls(b₀, p₀, s₀::_SplineVars)); present = l.present))
-        p = _spline_problem(dir_cam, _solved_poses(p₀, s₀::_SplineVars), views, true, penalty, offset;
-            λ = p₀.λ, held_node = p₀.held, held_norm = p₀.held_norm)
+        timed_out |= pre[2] === :max_time
+        # a stage cut short by `max_time` is not built on: the joint solve starts where it did
+        if timed_out
+            p = _spline_problem(back, pre[1].poses, views, true, penalty, offset)
+        else
+            p₀ = _spline_problem(back, pre[1].poses, views, true, penalty, offset; scales_held = true)
+            r₀, s₀ = _spline_solve!(p₀, isfree, max_iter, ftol, xtol, _remaining(deadline))
+            iterations += r₀.niterations
+            timed_out |= _timed_out(r₀)
+            p = timed_out ? _spline_problem(back, pre[1].poses, views, true, penalty, offset) :
+                _rebuilt(p₀, s₀::_SplineVars, back, views, penalty, offset, "at the estimate of the directions-first stage")
+        end
     else
         p = _spline_problem(back, poses, views, isfree, penalty, offset)
     end
@@ -614,15 +638,15 @@ function _refine_spline_camera_and_poses(
     # problem rebuilt at the estimate is the one reported (the camera's own windows).
     rounds = 0
     settled = true
-    cost_start = _spline_cost(p.variables, _spline_blocks(p))   # the joint objective at its start (the poses refined alone)
+    cost_start = _spline_cost(p.variables, _spline_blocks(p))   # the joint objective at its start (after the poses-alone and directions-first stages)
     local result, solved
     while true
         rounds += 1
-        result, solved = _spline_solve!(p, isfree, max_iter, ftol, xtol, max_time)
+        result, solved = _spline_solve!(p, isfree, max_iter, ftol, xtol, _remaining(deadline))
         iterations += result.niterations
-        isfree || break
-        at = CameraModel(cam.intrinsics, SplineLens(ChartSpline(b.area, _patch_controls(b, p, solved::_SplineVars)); present = l.present))
-        q = _spline_problem(at, _solved_poses(p, solved::_SplineVars), views, true, penalty, offset; λ = p.λ, held_node = p.held, held_norm = p.held_norm, rebuild = rounds)
+        timed_out |= _timed_out(result)
+        (isfree && !timed_out) || break
+        q = _rebuilt(p, solved::_SplineVars, back, views, penalty, offset, "at the estimate of rebuild round $rounds")
         q.windows == p.windows && break
         p = q
         if rounds == _SPLINE_REFINE_ROUNDS
@@ -644,6 +668,7 @@ function _refine_spline_camera_and_poses(
 
     r, J = _spline_problem_rows_and_jacobian(p, vars)
     code = nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol)
+    timed_out && (code = :max_time)                          # a stage or round cut short by the refine's `max_time`
     rd = r[1:2n]
     ν = nobs - np
     refined = isfree ? CameraModel(cam.intrinsics, SplineLens(ChartSpline(b.area, controls); present = l.present)) : cam

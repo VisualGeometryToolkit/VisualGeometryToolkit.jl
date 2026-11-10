@@ -205,6 +205,8 @@ trait, `GaugeIntrinsics`, selects it):
   design (an in-plane warp, an affine or smooth deformation, a height field)
   is not modelled here: that is the board-deformation solve of
   RadiometricCamera's calibration pipeline.
+- `max_time` caps the whole refine (every stage and rebuild round reads what
+  is left of it; `:max_time` when any was cut short).
 - Device: the CPU (NLLSsolver).
 
 # Units

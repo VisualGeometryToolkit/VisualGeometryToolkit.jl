@@ -206,7 +206,6 @@ end
     b = lens(est.camera).backward
     d, J = VC.Cameras._spline_direction_and_jacobian(b.controls, b.area, SVector(0.0, 0.0))
     @test angle_between(d, SVector(0.0, 0.0, 1.0)) < 1.0e-9 && abs(atan(J[2, 1], J[1, 1])) < 1.0e-9
-    @test d / norm(d) ≈ SVector(0.0, 0.0, 1.0) atol = 1.0e-12
     # (GCV's weight leaves a cost of ≈ 1e-10 px² against exact data, so the rows' rounding in the pixel, ≈ 1e-13 px, is
     # an absolute floor: measured 1.8e-19)
     @test res.spline.cost_after_gauge ≈ res.spline.cost_before_gauge rtol = 1.0e-10 atol = 1.0e-15

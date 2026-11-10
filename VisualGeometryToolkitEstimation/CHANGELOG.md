@@ -17,7 +17,9 @@ non-central one is a `NoncentralSplineModel`).
   through it. The metadata `family` is the union of the old central grid's and the old forward map's records
   (`penalty, grid_size, stride, outer_iterations, n_held_out_dropped, tolerance`, then `spacing, counts,
   forward_penalty, forward_outer_iterations, forward_max_px, forward_max_px_edge, forward_rms`, `nothing` without a
-  forward). It replaces `fit_camera(CentralGenericModel, …)` and `fit_camera(SplineProjection, …)`, both deleted.
+  forward). It replaces `fit_camera(CentralGenericModel, …)` and `fit_camera(SplineProjection, …)`, both deleted. A
+  0.8 `SplineProjection`'s spline is not a valid forward (its chart is about the region-centroid ray, the forward's
+  about ẑ): refit with `fit_camera(SplineLens, …)`, never reuse it.
 - **Breaking: `fit_camera(NoncentralSplineModel, source, region; tolerance, grid_size = nothing)`** replaces
   `fit_camera(NoncentralGenericModel, …)`: the same lines, anchor and one solve, returning a `NoncentralSplineModel`
   (its directions and points `ChartSpline`s over the K-normalized plane).

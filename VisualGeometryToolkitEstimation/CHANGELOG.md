@@ -38,9 +38,19 @@ non-central one is a `NoncentralSplineModel`).
   KernelAbstractions backend of a SplineLens source's batched back-projection (the rest of the fit runs on the host).
 - **Breaking: a spline fit's `grid_size` is `(columns, rows)`** everywhere — the keyword, `pspline_grid`'s argument and
   the metadata's `family.grid_size` — Core's `grid_size(m)` order (a fit once reported `(rows, columns)`).
-- **Breaking: `refine_camera_and_poses` refuses a SplineLens camera** (an `ArgumentError`, also with `free = ()`): its
-  K is a frozen gauge, its parameters are its lattice's controls, and its projection solve is not differentiated by
-  ForwardDiff.
+- **`refine_camera_and_poses` refines a SplineLens camera's controls with its poses, K frozen** (bit-identical): the
+  present nodes' backward controls, each on its own sphere (Core's `ControlPatchManifold`, grouped into 2 × 2
+  patches: NLLSsolver's 10-variable block cap), one block per correspondence on its window's 3 × 3 patches and its
+  pose, its Jacobian analytic by implicit differentiation of the projection solve at x* (no ForwardDiff reaches the
+  solve), a third-difference penalty over the present nodes (Core's `difference_rows`; `penalty`, default the P-spline
+  fit's 1e-8 relative weight), the blocks rebuilt at the estimate until every window is its own, and the rotation
+  gauge fixed after the solve (the lens axis back on ẑ; the cost unchanged). The controls must be unit (an
+  `ArgumentError` otherwise); `free` is `(:controls,)` or `()` (the poses alone). A forward spline is dropped and,
+  with `refit_forward = true` (the default), refitted by `fit_camera(SplineLens, …; tolerance = forward_tolerance)`
+  over the camera's imaged region (a `BoundedCamera` then required). Correspondences detected on an absent window are
+  dropped and counted. `CameraPosesRefineMetadata` gains a fifth field, `spline` (`nothing` for a parametric camera;
+  a positional construction now takes it). Every camera argument may be
+  a `BoundedCamera` of a `CameraModel` (the estimate comes back bounded alike). CPU (NLLSsolver).
 - `fit_camera(L, …)` warns about non-radial terms only when Core's type-level radial-symmetry test flags the lens; the
   decentering norm is the warning's magnitude (a symmetric `∘` composition is no longer measured as decentered).
 

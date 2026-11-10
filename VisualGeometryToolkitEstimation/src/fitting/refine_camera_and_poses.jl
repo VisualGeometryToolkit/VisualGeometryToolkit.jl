@@ -40,15 +40,36 @@
 reprojection rows at the estimate (pixels, two per correspondence: views in
 block order, each view's correspondences in their order); `s²`, the residual
 variance `Σ‖rᵢ‖² / ν` (px²); `ν = 2n − p`, its degrees of freedom (`p` the
-free camera parameters plus 6 per view); and `free`, the names of the camera
-parameters refined. All forward as properties: `result.residuals`, ….
+free camera parameters plus 6 per view); `free`, the names of the camera
+parameters refined; and `spline`, `nothing` for a parametric camera, for a
+SplineLens camera `(; penalty, n_dropped_window, rounds, forward, forward_max_px,
+gauge_angle, cost_before_gauge, cost_after_gauge, anchor_cost)`: the
+third-difference weight `λ`, the correspondences dropped on an absent window,
+the solve-and-rebuild rounds (the blocks rebuilt at the estimate until every
+window is its own), what became of a forward
+spline (`:none` without one, `:refitted`, `:dropped`, or `:kept` with the
+controls held) and the refit's held-out maximum (pixels, or `nothing`), the
+angle of the gauge rotation (rad) and the cost on either side of it (equal to
+rounding: the rotation is an exact symmetry), and the anchors' part of the
+cost (0: the controls no row reads are held at their guesses). For a SplineLens
+camera `s²` reads the whole cost, the third-difference rows included, and
+`ν = 2n + 3m − p` counts its `m` third-difference rows as observations and
+`p = 2·(the nodes a row reads) + 6·views − 3` (the rotation gauge's 3
+dimensions are no unknowns). All forward as properties:
+`result.residuals`, `result.spline`, ….
 """
 struct CameraPosesRefineMetadata
     residuals::Vector{Float64}
     s²::Float64
     ν::Int
     free::Tuple{Vararg{Symbol}}
+    spline::Union{Nothing, NamedTuple}
 end
+
+# The cameras refined: a camera model, or a bounded one (refined as its model, returned bounded alike).
+const _RefinedCamera = Union{CameraModel, BoundedCamera{<:CameraModel}}
+_camera_model(c::CameraModel) = c
+_camera_model(c::BoundedCamera) = model(c)
 
 # One correspondence's residual block: the target point and its pixel, its
 # variables (camera, pose) — or (pose,) under a held camera, which it carries.
@@ -73,8 +94,10 @@ NLLSsolver.computecost(vars::AbstractVector, r::_CameraPoseResidual) =
     finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
 
 """
-    refine_camera_and_poses(camera::CameraModel, poses, views; free, box = nothing,
+    refine_camera_and_poses(camera, poses, views; free, box = nothing,
                             max_iter, ftol, xtol, max_time = nothing)   # defaults: configs/default.toml [refine_camera_and_poses]
+    refine_camera_and_poses(spline_camera, poses, views; free = (:controls,), penalty = 1e-8,
+                            refit_forward = true, forward_tolerance, max_iter, ftol, xtol, max_time = nothing)
         -> FitResult{<:NamedTuple{(:camera, :poses)}, CameraPosesRefineMetadata}
 
 Refine a camera and one pose per view jointly against the reprojection error of
@@ -84,11 +107,11 @@ and `poses`. A refine: both guesses are required, nothing is re-estimated from
 scratch and the camera keeps its family (its lens type).
 
 # Arguments
-- `camera::CameraModel` — the camera guess: intrinsics and lens, the
-  parameters VisualGeometryToolkitCore's `parameter_vector(camera)` lists
-  (`f, aspect, skew, cx, cy`, then the lens's coefficients), in pixels. A
-  SplineLens camera (its K a frozen gauge, its parameters its lattice's
-  controls) is an `ArgumentError`, with `free = ()` too.
+- `camera` — the camera guess, a `CameraModel` or a `BoundedCamera` of one
+  (the estimate is then bounded alike): intrinsics and lens, the parameters
+  VisualGeometryToolkitCore's `parameter_vector(camera)` lists (`f, aspect,
+  skew, cx, cy`, then the lens's coefficients), in pixels. A SplineLens camera
+  takes its own route (below).
 - `poses` — one world → camera `EuclideanMap{3}` per view (`X_c = R·X + t`, `X`
   in the target's frame), keyed like `views`.
 - `views` — per view, its correspondences `cs = [X => u, …]`: `X` a target
@@ -122,13 +145,58 @@ stationary point (VisualGeometryToolkitCore's `nlls_retcode`), else
 the free parameter names. Plain least squares: the correspondences must be
 inliers.
 
+# A SplineLens camera
+Its K is a frozen gauge (skew 0) and its parameters are its backward lattice's
+controls at the present nodes, so its route differs (Core's `IntrinsicsRole`
+trait, `GaugeIntrinsics`, selects it):
+- The variables are the present nodes' controls, each on its own sphere (the
+  reference's chart, Core's `ControlPatchManifold`: 2 coordinates, its norm
+  kept, the controls grouped into 2 × 2 patches, NLLSsolver's 10-variable
+  block cap), and the poses; a control no row reads is held at its guess. The
+  controls must be unit (an `ArgumentError`
+  otherwise: a lens of non-unit controls weighs its blend by their norms, which
+  the sphere chart would hold and normalizing would change). `free` is
+  `(:controls,)` (the default) or `()` (the poses alone, the camera returned as
+  given); a `box` is an `ArgumentError`.
+- Each correspondence's rows are `K·x* − u`, `x*` the lens's projection solve
+  on the correspondence's 4 × 4 window at the guess, its Jacobian analytic by
+  implicit differentiation at `x*` (no automatic differentiation reaches the
+  solve). A correspondence detected on a window with an absent node is
+  dropped and counted (`result.spline.n_dropped_window`), and so is one the
+  guess does not project when detected within one knot cell of such a window
+  (the guess images it onto the absent nodes); every other one must project at
+  the guess. A third-difference penalty (Core's
+  `difference_rows`, the P-spline fit's operator, along every row and column
+  of present nodes), weighted by `λ = penalty · mean(diag)` of the data's
+  normal matrix in the node coordinates (`penalty` defaults to `fit_camera`'s
+  P-spline weight, 1e-8), holds the nodes the data reach weakly or not at all.
+  The blocks are rebuilt at the estimate and solved again until every
+  correspondence reads its own window (`result.spline.rounds`, at most 5;
+  `:max_iterations` if the windows still move).
+- The gauge: a rotation of every control together with every pose leaves the
+  cost unchanged; the estimate is the one whose lens axis
+  `normalize(backward(0, 0))` is ẑ, reached after the solve by the minimal
+  rotation (the rotation about ẑ stays the solve's). K is bit-identical to the
+  guess's.
+- A forward spline is dropped for the refinement and, with `refit_forward`
+  (the default), refitted over `imaged_region(camera)` by
+  `fit_camera(SplineLens, …; tolerance = forward_tolerance)` (pixels), which
+  needs a `BoundedCamera` (an `ArgumentError` for a bare camera model). With
+  `free = ()` it is kept.
+- The model: the target is exact, so the estimate is the maximum-likelihood
+  one under isotropic Gaussian detection noise. A board that departs from its
+  design (an in-plane warp, an affine or smooth deformation, a height field)
+  is not modelled here: that is the board-deformation solve of
+  RadiometricCamera's calibration pipeline.
+- Device: the CPU (NLLSsolver).
+
 # Units
 Plain inputs give plain poses; physical ones (unitful poses and target points,
 all one form) are read in metres at entry and the poses come back physical, in
 metres. The residuals are pixels either way.
 """
 function refine_camera_and_poses(
-        camera::CameraModel, poses::AbstractDict{K, <:PlainEuclideanMap{3}},
+        camera::_RefinedCamera, poses::AbstractDict{K, <:PlainEuclideanMap{3}},
         views::AbstractDict{K, <:AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}};
         kwargs...
     ) where {K}
@@ -137,7 +205,7 @@ function refine_camera_and_poses(
     return _camera_poses_result((; camera = est.camera, poses = Dict{K, eltype(est.poses)}(zip(ids, est.poses))), rest...)
 end
 function refine_camera_and_poses(
-        camera::CameraModel, poses::AbstractVector{<:PlainEuclideanMap{3}},
+        camera::_RefinedCamera, poses::AbstractVector{<:PlainEuclideanMap{3}},
         views::AbstractVector{<:AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}};
         kwargs...
     )
@@ -148,7 +216,7 @@ end
 # Physical inputs: the poses and the target points in metres once, the plain
 # refinement, the poses read back in metres once.
 function refine_camera_and_poses(
-        camera::CameraModel, poses::AbstractDict{K, <:_PhysicalPose3},
+        camera::_RefinedCamera, poses::AbstractDict{K, <:_PhysicalPose3},
         views::AbstractDict{K, <:AbstractVector{<:Cspond{<:_PhysicalPoint3, <:StaticVector{2}}}}; kwargs...
     ) where {K}
     r = refine_camera_and_poses(
@@ -158,7 +226,7 @@ function refine_camera_and_poses(
     return _camera_poses_result((; camera = est.camera, poses = Dict(k => _in_metres(p) for (k, p) in est.poses)), retcode(r), iterations(r), rms(r), r.n, metadata(r))
 end
 function refine_camera_and_poses(
-        camera::CameraModel, poses::AbstractVector{<:_PhysicalPose3},
+        camera::_RefinedCamera, poses::AbstractVector{<:_PhysicalPose3},
         views::AbstractVector{<:AbstractVector{<:Cspond{<:_PhysicalPoint3, <:StaticVector{2}}}}; kwargs...
     )
     r = refine_camera_and_poses(camera, map(_plain_metres, poses), [_map_csponds(_plain_metres, identity, cs) for cs in views]; kwargs...)
@@ -167,6 +235,11 @@ function refine_camera_and_poses(
 end
 
 _camera_poses_result(est, code, iters, rms, n, meta) = FitResult(est, code, iters, rms, n, meta)
+
+# The route, by Core's `IntrinsicsRole` trait: a free K (a parametric lens) below; a gauge K
+# (a SplineLens) in refine_spline_camera_and_poses.jl.
+_refine_camera_and_poses(camera::_RefinedCamera, poses::AbstractVector, views::AbstractVector; kwargs...) =
+    _refine_camera_and_poses(VgtkCore.Cameras.IntrinsicsRole(_camera_model(camera).lens), camera, poses, views; kwargs...)
 
 const _CameraPosePose = LeftRigidManifold6{Float64}
 
@@ -194,15 +267,15 @@ function _camera_poses_rows_and_jacobian(costs, camera_chart, pose_charts, nd::I
 end
 
 function _refine_camera_and_poses(
-        camera::CameraModel, poses::AbstractVector, views::AbstractVector;
-        free::Tuple{Vararg{Symbol}} = Tuple(p for p in parameter_names(camera) if p !== :skew),
+        ::VgtkCore.Cameras.FreeIntrinsics, bounded::_RefinedCamera, poses::AbstractVector, views::AbstractVector;
+        free::Tuple{Vararg{Symbol}} = Tuple(p for p in parameter_names(_camera_model(bounded)) if p !== :skew),
         box::Union{Nothing, NamedTuple} = nothing,
         max_iter::Integer = _dflt("refine_camera_and_poses", "max_iter"),
         ftol::Real = _dflt("refine_camera_and_poses", "ftol"),
         xtol::Real = _dflt("refine_camera_and_poses", "xtol"),
         max_time::Union{Nothing, Real} = nothing,
     )
-    _check_refinable(VgtkCore.Cameras.IntrinsicsRole(camera.lens), camera.lens)   # first: before any chart or Dual touches the lens
+    camera = _camera_model(bounded)
     V = length(views)
     V >= 1 || throw(ArgumentError("refine_camera_and_poses: no views"))
     names = parameter_names(camera)
@@ -246,23 +319,9 @@ function _refine_camera_and_poses(
     S = sum(abs2, r)
     ν = 2n - p
     out = [relabel(_frames(p0)..., EuclideanMap(RotMatrix{3, Float64}(rotation(model(ch))), SVector{3, Float64}(translation(model(ch))))) for (p0, ch) in zip(poses, poses_out)]
-    return (; camera = camera_out, poses = out), code, result.niterations, sqrt(S / n), n, CameraPosesRefineMetadata(r, S / ν, ν, free)
+    camera_out = camera_out === camera ? bounded : bounded isa BoundedCamera ? VgtkCore.with_model(bounded, camera_out) : camera_out
+    return (; camera = camera_out, poses = out), code, result.niterations, sqrt(S / n), n, CameraPosesRefineMetadata(r, S / ν, ν, free, nothing)
 end
-
-# Which cameras this refinement takes, by Core's `IntrinsicsRole` trait: a camera
-# whose K is free (a parametric lens). A gauge camera (a SplineLens: K frozen, the
-# parameters its lattice's controls) is refused before anything differentiates
-# it — with `free = ()` too: the pose rows would carry ForwardDiff duals into the
-# lens's projection solve, and its controls (10³–10⁴) are no dense chart's
-# variable (Core's `ParameterManifold` names the `ControlPatchManifold` route).
-_check_refinable(::VgtkCore.Cameras.FreeIntrinsics, _) = nothing
-_check_refinable(::VgtkCore.Cameras.GaugeIntrinsics, lens) = throw(
-    ArgumentError(
-        "refine_camera_and_poses: a camera of gauge intrinsics, here a $(nameof(typeof(lens))) camera (its K a frozen gauge, its parameters the lattice's controls), is not " *
-            "refined here: its controls need a per-node chart (`ControlPatchManifold`), and its projection solve is not " *
-            "differentiated by ForwardDiff, so not even its poses alone (`free = ()`) are refined through it"
-    )
-)
 
 # The frame labels of a pose, to put back on the refined one.
 _frames(::EuclideanMap{3, T, R, V, S, D}) where {T, R, V, S, D} = (S, D)

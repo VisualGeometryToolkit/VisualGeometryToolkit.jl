@@ -129,6 +129,9 @@ max_iter = 100                   # the camera + poses LM's cap on ACCEPTED itera
 # experiments' camera + poses bundle ran with (RadiometricCamera, until 2026-10-28).
 ftol = 1.0e-12
 xtol = 1.0e-12
+# A SplineLens camera's forward spline, refitted after the refinement
+# (fit_camera(SplineLens, …)): its held-out round-trip tolerance, pixels.
+forward_tolerance = 1.0e-3
 [fit_rotation]
 # The reweighted Kabsch of `fit_rotation`. The loss's width follows the robust
 # scale of the residual angles at every iteration (`scale_multiple` × σ̂, the

@@ -96,6 +96,10 @@ sensor — so every consumer asks the camera what it images instead of supplying
   backprojects as the pixel grid does, whatever the K. The SplineLens gauge of a lattice whose window at the centre
   holds an absent node is taken from the present nodes nearest the centre (an `ArgumentError` naming the cause when
   no two adjacent nodes are present).
+- **Internal: the implicit derivatives of a SplineLens projection** (`_projection_jacobians`, beside the direction
+  Jacobian): `∂x*/∂t` and `∂x*/∂c` of a converged projection solve x* of the ray t, by the implicit function theorem
+  on the direction residual — the analytic Jacobian of Estimation's `refine_camera_and_poses` on a SplineLens camera,
+  so no ForwardDiff dual reaches the solve. The direction differential also returns `‖S‖`.
 - **New: `field_of_view(camera, distance; dimension)`**: the size of the scene imaged at `distance`,
   `2·distance·tan(θ/2)` for the angle of view `θ`, in the distance's unit (180° or more: an `ArgumentError`).
 

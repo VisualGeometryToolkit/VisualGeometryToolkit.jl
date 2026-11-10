@@ -745,7 +745,7 @@ end
 end
 
 # THE direction of a spline of direction controls over `area` at `x`, and its
-# Jacobian: `(d, n⁻¹S, ∂d/∂x)` from the value and partials of
+# Jacobian: `(d, n⁻¹S, ∂d/∂x, n)` (`n = ‖S‖`) from the value and partials of
 # `_spline_value_and_partials` (one evaluation of the basis weights, the continued
 # window: inside the area it is the point's own cell, and on the lower edge's rounding
 # slack the value and partials still agree) through the normalize differential
@@ -759,7 +759,7 @@ end
     m = inv(n)
     # `sum(d .* Sx)`, not `dot`: StaticArrays' `dot` is an `@simd` reduction, whose order
     # (so the last digit) is the compilation context's; the unrolled sum has one order
-    return d, m * S, hcat((Sx - d * sum(d .* Sx)) * m, (Sy - d * sum(d .* Sy)) * m)
+    return d, m * S, hcat((Sx - d * sum(d .* Sx)) * m, (Sy - d * sum(d .* Sy)) * m), n
 end
 
 # The direction `d = S/‖S‖` and its Jacobian `∂d/∂x` (3 × 2): the lens's
@@ -767,6 +767,27 @@ end
 @inline function _spline_direction_and_jacobian(controls::AbstractMatrix, area, x::StaticVector{2})
     d, _, J = _spline_direction_differential(controls, area, x)
     return d, J
+end
+
+# THE implicit derivatives of a converged central projection: the point `x` that
+# `_spline_project` solved for the ray `t` (`d(x) = t̂`) through the spline of
+# direction controls `controls` over `area`, differentiated by the implicit function
+# theorem on the direction residual `f(x, c, t) = d(x; c) − t̂(t)` — never through the
+# LM (no dual enters it). With `Jx = ∂d/∂x` (3 × 2, its columns ⟂ d) and
+# `H = (JxᵀJx)⁻¹Jxᵀ`: `∂x/∂t = H (I − t̂t̂ᵀ)/‖t‖`, and per control of the point's
+# window, `controls[iy − 3 + r, ix − 3 + c]`, `∂x/∂c = −(w[r, c]/‖S‖)·H` (the
+# control's weight times the normalize differential `(I − ddᵀ)/‖S‖`, and
+# `H (I − ddᵀ) = H`). Returns `(∂x/∂t, −H/‖S‖, ix, iy, w)`, `w` the window's weights
+# (`spline_weights`'s). Exact at a zero residual; the solve's tolerance bounds the
+# term it omits. A SplineLens camera's bundle refinement reads it
+# (VisualGeometryToolkitEstimation's `refine_camera_and_poses`).
+function _projection_jacobians(controls::AbstractMatrix{<:SVector{3}}, area::Rect2, x::StaticVector{2}, t::StaticVector{3})
+    _, _, Jx, n = _spline_direction_differential(controls, area, x)
+    H = inv(Jx' * Jx) * Jx'
+    tn = norm(t)
+    t̂ = t / tn
+    ix, iy, w, _ = spline_weights(ChartSpline(area, controls), x)
+    return H * (SMatrix{3, 3, Float64}(LinearAlgebra.I) - t̂ * t̂') / tn, -H / n, ix, iy, w
 end
 
 # A SplineLens's bearing at the normalized point `x` and its Jacobian (the BackwardLens

@@ -70,6 +70,7 @@ const _ITERATION_WORDS = ("iter", "iters", _IT, _IT * "s")
 # retired in one form lists each form it took. Names renamed by the naming
 # sweep are listed here as they are renamed.
 const RETIRED_NAMES = String[
+    "_check" * "_refinable",                # refine_camera_and_poses routes by Core's `IntrinsicsRole` (a SplineLens camera refines; no refusal): `_refine_camera_and_poses(::GaugeIntrinsics, …)` (2026-11)
     "Tensor" * "Vignetting",                  # a tensor-PRODUCT B-spline surface, not a tensor: `TensorProductVignetting` (2026-11)
     "ShapeMatrix" * "Scale",                  # the trait dispatches on `shape_factor`: `ShapeFactorScale` (2026-11)
     "moment" * "_matrix",                   # M is a region's shape, not its second moment: `shape_matrix` (0.7; the factor is `shape_factor`)

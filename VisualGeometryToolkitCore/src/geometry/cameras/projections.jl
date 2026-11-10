@@ -217,11 +217,20 @@ end
 # steps); the smallest value evaluated. The one azimuthal minimizer: the chain's
 # view-angle limit above and the valid domain's inscribed radius
 # (image_circle.jl).
-function _azimuth_minimum(f, n::Int; iters::Int = 40)
-    ψs = range(0, 2π; length = n + 1)[1:n]
-    vs = map(f, ψs)
+_azimuth_minimum(f, n::Int; iters::Int = 40) = _grid_golden_minimum(f, range(0, 2π; length = n + 1)[1:n]; iters, periodic = true).value
+# The minimum of `f` over the evenly spaced grid `xs` (evaluated in its order), the
+# least refined by a golden-section search between its neighbours (`iters` steps):
+# `(; x, value, at_end)` of the smallest value evaluated. On a `periodic` grid the
+# neighbours wrap (`f` periodic); on a linear one a least value at an end of the grid
+# is not refined (`at_end`). The one grid-and-golden minimizer: the azimuthal minimum
+# above and Estimation's GCV weight search (refine_spline_camera_and_poses.jl).
+function _grid_golden_minimum(f, xs::AbstractRange; iters::Int, periodic::Bool = false)
+    vs = map(f, xs)
     k = argmin(vs)
-    a, b = ψs[k] - 2π / n, ψs[k] + 2π / n
+    at_end = !periodic && (k == firstindex(xs) || k == lastindex(xs))
+    at_end && return (; x = float(xs[k]), value = vs[k], at_end)
+    h = abs(step(xs))
+    a, b = xs[k] - h, xs[k] + h
     g = (sqrt(5) - 1) / 2
     c, d = b - g * (b - a), a + g * (b - a)
     fc, fd = f(c), f(d)
@@ -236,7 +245,8 @@ function _azimuth_minimum(f, n::Int; iters::Int = 40)
             fd = f(d)
         end
     end
-    return min(vs[k], fc, fd)
+    x, v = fc < fd ? (c, fc) : (d, fd)
+    return v < vs[k] ? (; x = float(x), value = v, at_end) : (; x = float(xs[k]), value = vs[k], at_end)
 end
 # The last angle at which `imaged` holds, scanning [10⁻⁴, edge] and bisecting the
 # first failure to rounding; `edge` when it never fails.

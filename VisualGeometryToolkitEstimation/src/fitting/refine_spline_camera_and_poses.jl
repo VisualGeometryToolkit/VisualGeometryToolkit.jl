@@ -26,26 +26,32 @@
 # analytic, by implicit differentiation at x* (Core's `_projection_jacobians`): no
 # ForwardDiff dual enters the lens's solve. One block per third-difference row of
 # the present nodes (Core's `difference_rows`, the P-spline fit's operator),
-# `√λ·Δ³c`, 3 rows on the 3 patches holding its 4 nodes. A coordinate no row
-# reads — a pad slot, an absent node, a present node outside every window and Δ³
-# row, and the held log-scale (below) — would leave the Marquardt system singular:
-# an anchor row `coordinate − guess` holds it (zero at the solution, so it adds
-# nothing to the cost).
+# `√λ·Δ³c / ρ`, 3 rows on the 3 patches holding its 4 nodes, `ρ` the mean length of
+# those 4 controls at the current values (so the row stays within its patches and is
+# exactly invariant to a common scale). A coordinate no row reads — a pad slot, an
+# absent node, a present node outside every window and Δ³ row — would leave the
+# Marquardt system singular: an anchor row `coordinate − guess` holds it (zero at the
+# solution, so it adds nothing to the cost). With no penalty (`λ = 0`) there are no Δ³
+# rows, and every node outside every window is anchored so.
 #
-# THE CONSTRAINT AND THE GAUGE. K is never a variable. One common scale of every
-# control leaves every x* where it is (the direction normalizes the weighted sum), but
-# not the Δ³ penalty (‖Δ³(s·c)‖ = s‖Δ³c‖), whose infimum is at s → 0: the scale is a
-# symmetry of the data alone, so it is fixed by a normalization CONSTRAINT, not a gauge —
-# the scale of one node, the live node nearest x = 0, is held at its guess (the rows read
-# its `D` alone, its `ℓ` anchored). The estimate depends on the node held, through the
-# penalty only (≲ its own bias, negligible at the 1e-8 relative weight). A rotation Q of
-# every control and every pose together — controls Q·c, poses (Q·R, Q·t) — leaves every
-# x* (so the data rows) and the Δ³ rows' norms where they are: an exact symmetry of the
-# cost, a gauge of 3 dimensions. After the LM the estimate is moved along it by ONE
-# rotation: the minimal rotation that takes the lens axis `normalize(backward(0, 0))` onto
-# ẑ, then the roll about ẑ that puts the backward's x-derivative at x = 0 in the xz plane
-# — the convention `_spline_gauge` reads K from (a parametric source's own). The anchored
-# slots stay at their guesses.
+# THE GAUGE. K is never a variable. One common scale of every control leaves every x*
+# where it is (the direction normalizes the weighted sum) and every Δ³ row (each is
+# divided by its own nodes' mean length): an exact symmetry of the cost, a gauge of 1
+# dimension. A rotation Q of every control and every pose together — controls Q·c,
+# poses (Q·R, Q·t) — leaves every x* (so the data rows) and the Δ³ rows' norms where
+# they are: a gauge of 3 dimensions. Marquardt's damping keeps the step finite along
+# them; after the LM the estimate is moved along all 4 in ONE step: the minimal rotation
+# that takes the lens axis `normalize(backward(0, 0))` onto ẑ, then the roll about ẑ that
+# puts the backward's x-derivative at x = 0 in the xz plane — the convention
+# `_spline_gauge` reads K from (a parametric source's own) — and the common scale that
+# makes the live controls' mean length the guess's. The anchored slots stay at their
+# guesses.
+#
+# THE WEIGHT. The stack's convention (gcv.jl): `λ = β·λ₁`, `λ₁ = penalty_scale(energy,
+# N, m̄)` with the data's Gauss–Newton energy per direction coordinate (the mean diagonal
+# of JᵀJ there, times the controls' squared mean length: scale-free, like the rows) and
+# m̄ the mean positive eigenvalue of the Δ³ operator's DᵀD. β is a number, 0 (no
+# smoothness), or chosen by generalized cross-validation (`_gcv`, `gcv_select`).
 # =============================================================================
 
 const _SplineDirections = VgtkCore.ControlPatchManifold{2, 2, 4, Float64, Nothing, VgtkCore.Cameras.AdditivePoints}
@@ -56,18 +62,18 @@ _spline_patch(D::SMatrix{2, 2, SVector{3, Float64}, 4}, ℓ::SVector{4, Float64}
     ProductManifold(VgtkCore.ControlPatchManifold(D), EuclideanManifold(ℓ))
 @inline _patch_direction(patch::_SplinePatch, n) = patch.charts[1].directions[n]
 @inline _patch_scale(patch::_SplinePatch, n) = patch.charts[2].x[n]
-# Control `n` of a patch, `e^ℓ·D` — its direction `D` alone where its scale is held.
-@inline _patch_control(patch::_SplinePatch, n, held::Bool) = held ? _patch_direction(patch, n) : exp(_patch_scale(patch, n)) * _patch_direction(patch, n)
+# Control `n` of a patch, `e^ℓ·D`.
+@inline _patch_control(patch::_SplinePatch, n) = exp(_patch_scale(patch, n)) * _patch_direction(patch, n)
 
 # The rows' Jacobian in a patch's 12 chart coordinates from their Jacobian `Jc` in its 4
 # controls (`R × 12`, control-major): the directions' through the sphere chart's
 # derivative at δ = 0 (Core's `retract_jacobian`, `(t₁ t₂)` per control) scaled by
-# `e^ℓ`, the log-scales' `Jc·c` (zero for a held scale).
-function _in_patch_chart(Jc::SMatrix{R, 12, Float64}, patch::_SplinePatch, hold::Integer) where {R}
-    E = SVector{4, Float64}(ntuple(n -> n == hold ? 1.0 : exp(_patch_scale(patch, n)), Val(4)))
+# `e^ℓ`, the log-scales' `Jc·c`.
+function _in_patch_chart(Jc::SMatrix{R, 12, Float64}, patch::_SplinePatch) where {R}
+    E = SVector{4, Float64}(ntuple(n -> exp(_patch_scale(patch, n)), Val(4)))
     S = SMatrix{12, 12, Float64}(LinearAlgebra.Diagonal(SVector{12, Float64}(ntuple(i -> E[(i - 1) ÷ 3 + 1], Val(12)))))
     Jd = (Jc * S) * SMatrix{12, 8, Float64}(VgtkCore.retract_jacobian(patch.charts[1]))
-    Js = hcat(ntuple(n -> n == hold ? zero(SVector{R, Float64}) : Jc[:, SVector{3}(3n - 2, 3n - 1, 3n)] * _patch_control(patch, n, false), Val(4))...)
+    Js = hcat(ntuple(n -> Jc[:, SVector{3}(3n - 2, 3n - 1, 3n)] * _patch_control(patch, n), Val(4))...)
     return hcat(Jd, Js)
 end
 
@@ -99,13 +105,11 @@ const _SplineBox = NTuple{3, SVector{2, Float64}}
 
 # One correspondence's block: the target point, its pixel, its window's cell and where
 # its 16 controls sit. `N = 10`: its 3 × 3 patches (column-major) and its pose,
-# `slots[r, c] = (k, n)` the window control `[r, c]`'s patch and control, `hold` the
-# patch variable and control whose scale is held (`(0, 0)` none); `N = 1`: its pose
-# alone, the window's controls held (`held`, read only then).
+# `slots[r, c] = (k, n)` the window control `[r, c]`'s patch and control; `N = 1`: its
+# pose alone, the window's controls held (`held`, read only then).
 struct _SplineReprojection{N} <: NLLSsolver.AbstractResidual
     varind::SVector{N, Int}
     slots::SMatrix{4, 4, NTuple{2, Int}, 16}
-    hold::NTuple{2, Int}
     held::SMatrix{4, 4, SVector{3, Float64}, 16}
     cell::Rect2{Float64}
     box::_SplineBox
@@ -123,10 +127,8 @@ NLLSsolver.getvars(r::_SplineReprojection{10}, vars::_SplineVars) =
 NLLSsolver.getvars(r::_SplineReprojection{1}, vars::Vector{_CameraPosePose}) = (vars[r.varind[1]],)
 Base.eltype(::_SplineReprojection) = Float64
 
-# The held control of patch `k` of a block (0: none).
-@inline _held_slot(r, k) = r.varind[k] == r.hold[1] ? r.hold[2] : 0
 _window_controls(r::_SplineReprojection, patches::NTuple{9, _SplinePatch}) =
-    SMatrix{4, 4, SVector{3, Float64}, 16}(ntuple(m -> (s = r.slots[m]; _patch_control(patches[s[1]], s[2], _held_slot(r, s[1]) == s[2])), Val(16)))
+    SMatrix{4, 4, SVector{3, Float64}, 16}(ntuple(m -> (s = r.slots[m]; _patch_control(patches[s[1]], s[2])), Val(16)))
 
 # The block's projection: the camera-frame point, the solve's point and whether it
 # converged — Core's solve for differentiation (from the cell's centre).
@@ -176,7 +178,7 @@ function _window_columns!(J, r::_SplineReprojection, w, AG, patches::NTuple{9, _
             km == k || continue
             Jc += hcat(ntuple(q -> q == n ? w[m] * AG : zero(SMatrix{2, 3, Float64}), Val(4))...)
         end
-        iszero(Jc) || (J[:, (12k - 11):(12k)] = _in_patch_chart(Jc, patches[k], _held_slot(r, k)))
+        iszero(Jc) || (J[:, (12k - 11):(12k)] = _in_patch_chart(Jc, patches[k]))
     end
     return J
 end
@@ -207,13 +209,13 @@ function NLLSsolver.computeresjac(varflags, r::_SplineReprojection{1}, pose)
     return _spline_rows_and_jacobian(r, r.held, nothing, pose)
 end
 
-# One third-difference row of the present nodes, weighted: `√λ·Σₘ sₘcₘ` (3 rows) on
-# the 3 patches holding its 4 nodes, `slots[m] = (k, n)` node m's patch and control,
-# `coef = √λ·s` the stencil, `hold` as a data block's.
+# One third-difference row of the present nodes, weighted and scale-free:
+# `√λ·Σₘ sₘcₘ / ρ` (3 rows), `ρ = ¼Σₘ‖cₘ‖` the mean length of its own 4 controls at their
+# current values, on the 3 patches holding its 4 nodes, `slots[m] = (k, n)` node m's
+# patch and control, `coef = √λ·s` the stencil.
 struct _SplineSmoothness <: NLLSsolver.AbstractResidual
     varind::SVector{3, Int}
     slots::SVector{4, NTuple{2, Int}}
-    hold::NTuple{2, Int}
     coef::SVector{4, Float64}
 end
 NLLSsolver.ndeps(::_SplineSmoothness) = NLLSsolver.static(3)
@@ -221,27 +223,35 @@ NLLSsolver.nres(::_SplineSmoothness) = NLLSsolver.static(3)
 NLLSsolver.varindices(r::_SplineSmoothness) = r.varind
 NLLSsolver.getvars(r::_SplineSmoothness, vars::_SplineVars) = ntuple(k -> vars[r.varind[k]]::_SplinePatch, Val(3))
 Base.eltype(::_SplineSmoothness) = Float64
-@inline _smooth_control(r::_SplineSmoothness, patches, m) = (s = r.slots[m]; _patch_control(patches[s[1]], s[2], _held_slot(r, s[1]) == s[2]))
-NLLSsolver.computeresidual(r::_SplineSmoothness, patches...) =
-    sum(m -> r.coef[m] * _smooth_control(r, patches, m), 1:4)
+# The row's 4 controls, its rows and their mean length `ρ`.
+function _smoothness_rows(r::_SplineSmoothness, patches)
+    c = ntuple(m -> (s = r.slots[m]; _patch_control(patches[s[1]], s[2])), Val(4))
+    ρ = sum(norm, c) / 4
+    return sum(m -> r.coef[m] * c[m], 1:4) / ρ, c, ρ
+end
+NLLSsolver.computeresidual(r::_SplineSmoothness, patches...) = first(_smoothness_rows(r, patches))
+# The rows' Jacobian in control m: `(coefₘ·I − row·ĉₘᵀ/4) / ρ` (the denominator's
+# derivative `∂ρ/∂cₘ = ĉₘᵀ/4`), through each patch's chart.
 function NLLSsolver.computeresjac(varflags, r::_SplineSmoothness, patches...)
     varflags == 7 || throw(ArgumentError("refine_camera_and_poses: every patch is free (varflags = $varflags)"))
+    row, c, ρ = _smoothness_rows(r, patches)
     I3 = SMatrix{3, 3, Float64}(LinearAlgebra.I)
     blocks = ntuple(Val(3)) do k
         Jc = zero(SMatrix{3, 12, Float64})
         for m in 1:4
             km, n = r.slots[m]
-            km == k && (Jc += hcat(ntuple(q -> q == n ? r.coef[m] * I3 : zero(SMatrix{3, 3, Float64}), Val(4))...))
+            Jm = (r.coef[m] * I3 - row * (c[m] / norm(c[m]))' / 4) / ρ
+            km == k && (Jc += hcat(ntuple(q -> q == n ? Jm : zero(SMatrix{3, 3, Float64}), Val(4))...))
         end
-        _in_patch_chart(Jc, patches[k], _held_slot(r, k))
+        _in_patch_chart(Jc, patches[k])
     end
-    return NLLSsolver.computeresidual(r, patches...), hcat(blocks...)
+    return row, hcat(blocks...)
 end
 
 # The anchor of a patch's unread coordinates at their guesses: per control with
 # `dead[n]`, its direction (`D − D₀`, 3 rows) and its log-scale (1 row); per control
-# with only `scale[n]` (the held scale, or every scale in the directions-first solve),
-# its log-scale alone, weighted by `w[n]`. 16 rows (zero for the others).
+# with only `scale[n]` (every scale in the directions-first solve), its log-scale
+# alone, weighted by `w[n]`. 16 rows (zero for the others).
 struct _SplineAnchor <: NLLSsolver.AbstractResidual
     varind::SVector{1, Int}
     dead::SVector{4, Bool}
@@ -270,19 +280,20 @@ end
 # The problem of a SplineLens camera `cam` (no forward) at the guesses, its patches laid
 # `offset` nodes into the first (`_PatchLayout`): its variables (the patches, column-major
 # over the patch grid, when `free`; then the poses), its data blocks, its Δ³ blocks
-# (`λ = penalty · mean(diag)` of the data's normal matrix over the present nodes'
-# direction coordinates — the controls' own scale, as the P-spline fit weighs its penalty;
-# the weak log-scale columns, ≈ δ² of them, would lower it), its anchors, the counts of the
-# correspondences dropped on an absent window and of those the camera does not project
-# within a cell of one, the layout, the live nodes (those a row reads), the patch count,
-# the held-scale node and the blocks' windows. A given `λ` and `held_node` are kept (a
-# rebuild's); `at` names the point the problem is built at (an error's wording);
-# `scales_held` anchors every log-scale (the directions-first solve), at a weight
-# `_SCALES_HELD_WEIGHT` times the data's mean direction curvature, so they stay put.
+# (`λ = penalty·λ₁`, `λ₁ = penalty_scale(energy, N, m̄)` the unit weight: the data's
+# energy per parameter is the mean diagonal of its normal matrix over the present nodes'
+# direction coordinates — the weak log-scale columns, ≈ δ² of them, would lower it — times
+# the present controls' squared mean length, so λ₁ is scale-free as the rows are; m̄ the
+# mean positive eigenvalue of the Δ³ operator's DᵀD; none when the weight is 0),
+# its anchors, the counts of the correspondences dropped on an absent window and of
+# those the camera does not project within a cell of one, the layout, the live nodes
+# (those a row reads), the present nodes, the patch count and the blocks' windows. A
+# given `λ` is kept (a rebuild's); `at` names the point the problem is built at (an
+# error's wording); `scales_held` anchors every log-scale (the directions-first solve), at
+# a weight `_SCALES_HELD_WEIGHT` times the data's mean direction curvature, so they stay put.
 function _spline_problem(
         cam::CameraModel, poses::AbstractVector, views::AbstractVector, free::Bool, penalty::Real, offset::Integer = 0;
-        λ::Union{Nothing, Real} = nothing, held_node::Union{Nothing, CartesianIndex{2}} = nothing, held_norm::Union{Nothing, Real} = nothing,
-        at::AbstractString = "at the guess", scales_held::Bool = false
+        λ::Union{Nothing, Real} = nothing, at::AbstractString = "at the guess", scales_held::Bool = false
     )
     l = cam.lens
     b = l.backward
@@ -316,7 +327,12 @@ function _spline_problem(
             continue
         end
         ok || throw(
-            ArgumentError("refine_camera_and_poses: view $v, correspondence $j: the point $(X) does not project $at (behind the camera or outside the lens's domain)")
+            ArgumentError(
+                "refine_camera_and_poses: view $v, correspondence $j: the point $(X) does not project $at (behind the camera or outside the lens's domain)" *
+                    (at == "at the guess" ? "" :
+                     ": the estimate's lattice moved there, where the data hold it weakly — on noisy detections a small smoothness " *
+                     "weight lets those nodes swing. Use `penalty = :gcv` (the default) or a larger `penalty`")
+            )
         )
         ix, iy, _, _ = spline_window(b.area, gsz, x)
         o = VgtkCore.Cameras._lattice_node(b.area, gsz, ix - 1, iy - 1)        # the window's own cell
@@ -325,8 +341,11 @@ function _spline_problem(
         push!(found, (X, u, v, win, Rect2{Float64}(o[1], o[2], hx, hy)))
     end
     stencils = Tuple{NTuple{4, CartesianIndex{2}}, SVector{4, Float64}}[]
-    if free
-        D = sparse(transpose(difference_rows(present, 3)))   # column m: Δ³ row m
+    m̄ = 1.0
+    if free && (λ === nothing ? penalty : λ) > 0                  # weight 0: no smoothness, no Δ³ rows
+        Δ = difference_rows(present, 3)
+        m̄ = mean_positive_eigenvalue(Δ)
+        D = sparse(transpose(Δ))                             # column m: Δ³ row m
         nodes = vec(CartesianIndices(gsz))
         for m in 1:size(D, 2)
             rg = D.colptr[m]:(D.colptr[m + 1] - 1)
@@ -334,11 +353,6 @@ function _spline_problem(
         end
         foreach(s -> foreach(i -> live[i] = true, s[1]), stencils)
     end
-    # the held scale: the live node nearest x = 0 (the guess's choice, kept by a rebuild)
-    held = !free ? CartesianIndex(0, 0) : held_node !== nothing ? held_node :
-        argmin(i -> norm(VgtkCore.Cameras._lattice_node(b.area, gsz, i[2], i[1])), filter(i -> live[i], vec(CartesianIndices(gsz))))
-    hold = free ? _node_slot(L, held) : (0, 0)
-    held_norm = held_norm !== nothing ? Float64(held_norm) : free ? norm(b.controls[held]) : 0.0
     N = free ? 10 : 1
     costs = _SplineReprojection{N}[]
     windows = SMatrix{4, 4, CartesianIndex{2}, 16}[]
@@ -347,14 +361,14 @@ function _spline_problem(
         P₀, Q₀ = _patch_of(L, win[1][1]), _patch_of(L, win[1][2])
         slots = map(i -> _patch_slot(L, P₀, Q₀, i[1], i[2]), win)
         varind = free ? SVector{10, Int}(ntuple(k -> k <= 9 ? _patch_index(L, P₀ + (k - 1) % 3, Q₀ + (k - 1) ÷ 3) : nP + v, Val(10))) : SVector(v)
-        push!(costs, _SplineReprojection{N}(varind, slots, hold, C, cell, box, pixel, X, u))
+        push!(costs, _SplineReprojection{N}(varind, slots, C, cell, box, pixel, X, u))
         push!(windows, win)
     end
     smooth = _SplineSmoothness[]
     anchors = _SplineAnchor[]
     variables = free ? Union{_SplinePatch, _CameraPosePose}[] : _CameraPosePose[]   # the poses alone: their own type, the problem's
     λ₀ = λ
-    λ = 0.0
+    λ = λ₁ = 0.0
     if free
         # the patches: the guess's controls (scale 0), a unit stand-in (ẑ) in the pad and absent slots
         guess = [
@@ -376,7 +390,8 @@ function _spline_problem(
             end
         end
         curvature = sum(diagonal) / (2count(present))          # the data's mean direction curvature
-        λ = λ₀ === nothing ? penalty * curvature : Float64(λ₀)
+        λ₁ = penalty_scale(sum(diagonal) * (sum(i -> norm(b.controls[i]), findall(present)) / count(present))^2, 2count(present), m̄)
+        λ = λ₀ === nothing ? penalty * λ₁ : Float64(λ₀)
         for P in 1:L.ph, Q in 1:L.pw
             dead = SVector{4, Bool}(ntuple(Val(4)) do n
                 i, j = _slot_node(L, P, Q, n)
@@ -387,8 +402,7 @@ function _spline_problem(
                 w = sqrt(_SCALES_HELD_WEIGHT * curvature) * SVector{4, Float64}(map(norm, guess[P, Q]))   # ‖c‖: a unit ℓ step moves c by ‖c‖
                 push!(anchors, _SplineAnchor(SVector(k), dead, SVector(true, true, true, true), guess[P, Q], w))
             else
-                scale = SVector{4, Bool}(ntuple(n -> dead[n] || (k, n) == hold, Val(4)))
-                any(scale) && push!(anchors, _SplineAnchor(SVector(k), dead, scale, guess[P, Q], ones(SVector{4, Float64})))
+                any(dead) && push!(anchors, _SplineAnchor(SVector(k), dead, dead, guess[P, Q], ones(SVector{4, Float64})))
             end
         end
         for (ns, s) in stencils
@@ -400,12 +414,12 @@ function _spline_problem(
                 i, j = Tuple(ns[m])
                 (1 + (_patch_of(L, i) - P₀) + (_patch_of(L, j) - Q₀), _slot_of(L, i) + 2(_slot_of(L, j) - 1))
             end)
-            push!(smooth, _SplineSmoothness(varind, slots, hold, sqrt(λ) * s))
+            push!(smooth, _SplineSmoothness(varind, slots, sqrt(λ) * s))
         end
     else
         append!(variables, pose_charts)
     end
-    return (; variables, costs, smooth, anchors, λ, dropped, unprojected, layout = L, live, nP, held, hold, held_norm,
+    return (; variables, costs, smooth, anchors, λ, λ₁, dropped, unprojected, layout = L, live, present, nP,
         windows = [(w[1][2], w[1][1]) for w in windows])
 end
 
@@ -442,29 +456,19 @@ function _spline_problem_rows_and_jacobian(p, variables)
 end
 
 # The controls of the patches at the lattice's live nodes (the guess's elsewhere: the
-# absent slots and the nodes no row reads); the held-scale node's at the guess's norm
-# to rounding (its sphere chart keeps the norm to an ulp a step).
+# absent slots and the nodes no row reads).
 function _patch_controls(b::ChartSpline, p, variables::_SplineVars)
     controls = copy(b.controls)
     for i in CartesianIndices(controls)
         p.live[i] || continue
         k, n = _node_slot(p.layout, i)
-        c = _patch_control(variables[k]::_SplinePatch, n, (k, n) == p.hold)
-        controls[i] = (k, n) == p.hold ? _with_norm(c, p.held_norm) : c
+        controls[i] = _patch_control(variables[k]::_SplinePatch, n)
     end
     return controls
 end
 
-# The vector along `c` whose computed norm is `ν`, to the last bit where a few rescales
-# reach it (each lands within an ulp, and the next one usually exactly on it).
-function _with_norm(c::SVector{3, Float64}, ν::Float64)
-    v = ν * normalize(c)
-    for _ in 1:4
-        norm(v) == ν && break
-        v *= ν / norm(v)
-    end
-    return v
-end
+# The mean length of the controls at the nodes `live`.
+_mean_length(controls::AbstractMatrix, live::AbstractMatrix{Bool}) = sum(i -> norm(controls[i]), findall(live)) / count(live)
 
 # THE gauge rotation of a solved lattice: the minimal rotation taking its axis
 # `normalize(backward(0, 0))` onto ẑ (Rotations' `rotation_between`), then the roll
@@ -479,11 +483,13 @@ function _gauge_rotation(controls::AbstractMatrix, area::Rect2)
     return SMatrix{3, 3, Float64}(Rotations.RotZ(-β)) * Qa, θ, β
 end
 
+
 # The variables moved along the gauge: the live controls' directions and the poses
-# turned by `Q`, the anchored coordinates back at their guesses bit for bit (the LM's
-# zero step through the sphere chart's renormalization may move them an ulp), so the
-# anchors add 0.
-function _turned_variables(p, variables::_SplineVars, Q)
+# turned by `Q`, the live controls' log-scales moved by `Δℓ` (every live control scaled
+# by e^Δℓ), the anchored coordinates back at their guesses bit for bit (the LM's zero
+# step through the sphere chart's renormalization may move them an ulp), so the anchors
+# add 0.
+function _turned_variables(p, variables::_SplineVars, Q, Δℓ::Float64)
     out = copy(variables)
     for k in 1:p.nP
         ch = variables[k]::_SplinePatch
@@ -494,7 +500,7 @@ function _turned_variables(p, variables::_SplineVars, Q)
             1 <= i <= size(p.live, 1) && 1 <= j <= size(p.live, 2) && p.live[i, j]
         end
         D = SMatrix{2, 2, SVector{3, Float64}, 4}(ntuple(n -> live[n] ? Q * _patch_direction(ch, n) : _patch_direction(g, n), Val(4)))
-        ℓ = SVector{4, Float64}(ntuple(n -> live[n] && (k, n) != p.hold ? _patch_scale(ch, n) : _patch_scale(g, n), Val(4)))
+        ℓ = SVector{4, Float64}(ntuple(n -> live[n] ? _patch_scale(ch, n) + Δℓ : _patch_scale(g, n), Val(4)))
         out[k] = _spline_patch(D, ℓ)
     end
     for k in (p.nP + 1):length(variables)
@@ -504,11 +510,14 @@ function _turned_variables(p, variables::_SplineVars, Q)
     return out
 end
 
-# The solved variables moved along the gauge (`_gauge_rotation`, `_turned_variables`),
-# the lattice's controls they give, and the gauge's two angles; the poses alone: as they are.
+# The solved variables moved along the gauge in one step — the rotation
+# (`_gauge_rotation`) and the common scale that makes the live controls' mean length
+# that of the guess `b`'s at the same nodes (`_turned_variables`) — the lattice's
+# controls they give, and the rotation's two angles; the poses alone: as they are.
 function _gauged(p, solved::_SplineVars, b::ChartSpline)
-    Q, θ, β = _gauge_rotation(_patch_controls(b, p, solved), b.area)
-    vars = _turned_variables(p, solved, Q)
+    controls = _patch_controls(b, p, solved)
+    Q, θ, β = _gauge_rotation(controls, b.area)
+    vars = _turned_variables(p, solved, Q, log(_mean_length(b.controls, p.live) / _mean_length(controls, p.live)))
     return vars, _patch_controls(b, p, vars), θ, β
 end
 _gauged(p, solved::Vector{_CameraPosePose}, b::ChartSpline) = (solved, b.controls, 0.0, 0.0)
@@ -551,11 +560,11 @@ function _spline_solve!(p, isfree::Bool, max_iter, ftol, xtol, max_time)
 end
 
 # The problem rebuilt at the solved variables of `p` (the camera of its patches, its
-# poses), keeping its λ, held node and held norm; `at` names that point.
+# poses), keeping its λ; `at` names that point.
 function _rebuilt(p, solved::_SplineVars, cam::CameraModel, views, penalty, offset, at::AbstractString)
     b = cam.lens.backward
     est = CameraModel(cam.intrinsics, SplineLens(ChartSpline(b.area, _patch_controls(b, p, solved)); present = cam.lens.present))
-    return _spline_problem(est, _solved_poses(p, solved), views, true, penalty, offset; λ = p.λ, held_node = p.held, held_norm = p.held_norm, at)
+    return _spline_problem(est, _solved_poses(p, solved), views, true, penalty, offset; λ = p.λ, at)
 end
 
 # The solved poses of a problem with patches, as plain maps (a rebuild's start).
@@ -563,13 +572,131 @@ _solved_poses(p, solved::_SplineVars) = [_plain_pose(solved[k]::_CameraPosePose)
 
 _plain_pose(ch::_CameraPosePose) = EuclideanMap(RotMatrix{3, Float64}(rotation(model(ch))), SVector{3, Float64}(translation(model(ch))))
 
+# The problem `p` with its Δ³ rows reweighted to `λ` (`p.λ > 0`).
+_with_λ(p, λ::Float64) = merge(p, (; λ, smooth = [_SplineSmoothness(s.varind, s.slots, sqrt(λ / p.λ) * s.coef) for s in p.smooth]))
+
+# Solve `p`, then rebuild the blocks at the estimate: a point whose x* moved to another
+# cell reads another window (the held one only extrapolates), so the blocks are rebuilt
+# and solved again until every window is the estimate's own. At the cap the problem
+# rebuilt at the estimate is the one reported (the camera's own windows). Returns the
+# problem solved last, its solved variables and result, the rounds, whether the windows
+# settled, the iterations, whether a solve stopped on the deadline, the joint objective
+# at the start, and the problem rebuilt at the estimate (`next`: a warm start).
+function _spline_rounds(p, isfree::Bool, back::CameraModel, views, penalty, offset, max_iter, ftol, xtol, deadline::Float64)
+    rounds = iterations = 0
+    settled = timed_out = false
+    cost_start = _spline_cost(p.variables, _spline_blocks(p))
+    next = p
+    while true
+        rounds += 1
+        result, solved = _spline_solve!(p, isfree, max_iter, ftol, xtol, _remaining(deadline))
+        iterations += result.niterations
+        timed_out |= _timed_out(result)
+        settled = true
+        (isfree && !timed_out) || return (; p, solved, result, rounds, settled, iterations, timed_out, cost_start, next = p)
+        q = _rebuilt(p, solved::_SplineVars, back, views, penalty, offset, "at the estimate of rebuild round $rounds")
+        q.windows == p.windows && return (; p, solved, result, rounds, settled, iterations, timed_out, cost_start, next = q)
+        p = q
+        rounds == _SPLINE_REFINE_ROUNDS &&
+            return (; p, solved = collect(p.variables), result, rounds, settled = false, iterations, timed_out, cost_start, next = p)
+    end
+end
+
+# GCV's trace: exact (`F \ JᵀJ`) up to this many coordinates, else a Hutchinson
+# estimate with `_GCV_PROBES` Rademacher probes from a fixed seed (deterministic). The
+# probes read the symmetric `zᵀ J M⁻¹ Jᵀ z` (H's eigenvalues in [0, 1]), so the
+# estimate's standard deviation is ≤ √(2·tr H / _GCV_PROBES).
+const _GCV_EXACT_MAX = 3000
+const _GCV_PROBES = 64
+const _GCV_SEED = 20261110
+
+# The generalized cross-validation score of the solved problem `p` at `solved`:
+# `GCV = n‖r‖² / (n − tr H)²`, `n` the data rows, `r` their residuals, and
+# `H = J (JᵀJ + λDᵀD + AᵀA)⁻¹ Jᵀ` with J the data rows' Jacobian, D the Δ³ rows' and A
+# the anchors' (a sparse Cholesky, SparseArrays' CHOLMOD: NLLSsolver's factorization is
+# internal to its iterate). The gauge is removed by deleting coordinates: the first
+# pose's 3 rotation coordinates (the rotation gauge) and one live node's log-scale (the
+# scale gauge, null in J and D alike). Returns `(; gcv, trace, rss, n)`.
+function _gcv(p, solved::_SplineVars; exact_max::Integer = _GCV_EXACT_MAX)
+    r, J = _spline_problem_rows_and_jacobian(p, solved)
+    n = 2length(p.costs)
+    keep = trues(size(J, 2))
+    keep[(12p.nP + 1):(12p.nP + 3)] .= false
+    k, c = _node_slot(p.layout, findfirst(p.live))
+    keep[12(k - 1) + 8 + c] = false
+    Jr = J[:, keep]
+    Jd = Jr[1:n, :]
+    F = cholesky(Symmetric(Jr' * Jr))
+    rss = sum(abs2, view(r, 1:n))
+    trace = if size(Jr, 2) <= exact_max
+        LinearAlgebra.tr(F \ Matrix(Jd' * Jd))
+    else
+        Z = rand(Random.Xoshiro(_GCV_SEED), (-1.0, 1.0), n, _GCV_PROBES)
+        W = Jd' * Z
+        sum(W .* (F \ W)) / _GCV_PROBES
+    end
+    return (; gcv = n * rss / (n - trace)^2, trace, rss, n)
+end
+
+# The GCV search over the weight β (λ = β·λ₁): the stack's `gcv_select` (gcv.jl) over
+# log₁₀ β ∈ `_GCV_LOG10_BRACKET`, one scan point a decade, solved from the largest weight
+# down, each solve warm-started from the last one's estimate, then golden-section steps
+# to `_GCV_XTOL` (a final bracket 0.1 decade wide), each warm-started from the estimate
+# of the nearest weight solved. Each λ is a nonlinear solve (with its rebuild rounds), not
+# a linearization, so the curve is that of the refine's own estimates. A weight whose
+# estimate stops projecting a correspondence (noisy detections fitted by a weakly held
+# lattice: its extrapolated nodes swing) scores `GCV = Inf`, and the scan descends no
+# further; past the deadline nothing more is solved. Returns the rounds of the weight
+# with the least GCV, the curve `[(; penalty = β, λ, gcv)]` (ascending β), whether that
+# weight is a scan end, the weight, its tr H and the iterations of every solve.
+const _GCV_LOG10_BRACKET = (-12.0, 0.0)
+const _GCV_XTOL = 0.05
+function _gcv_search(p, λ₁::Float64, back::CameraModel, views, offset, max_iter, ftol, xtol, deadline::Float64)
+    points = round(Int, _GCV_LOG10_BRACKET[2] - _GCV_LOG10_BRACKET[1]) + 1
+    function evaluate(β, start)
+        st = _spline_rounds(_with_λ(start, β * λ₁), true, back, views, β, offset, max_iter, ftol, xtol, deadline)
+        return (; β, st, g = _gcv(st.p, st.solved::_SplineVars), ok = true)
+    end
+    # a weight whose estimate does not project every correspondence: GCV = Inf (the start's rounds stand in)
+    function attempt(β, start, fallback)
+        try
+            return evaluate(β, start)
+        catch e
+            e isa ArgumentError || rethrow()
+            return (; β, st = fallback, g = (; gcv = Inf, trace = NaN, rss = NaN, n = 0), ok = false)
+        end
+    end
+    first_eval = evaluate(exp10(_GCV_LOG10_BRACKET[2]), p)
+    evals = [first_eval]
+    timed_out = Ref(first_eval.st.timed_out)
+    failed = Ref(false)                                       # the scan's descent stopped
+    near(β) = argmin(e -> e.ok ? abs(log10(e.β / β)) : Inf, evals).st   # the nearest weight solved: the warm start
+    calls = Ref(0)
+    function score(λ)
+        calls[] += 1
+        calls[] == 1 && return (; gcv = first_eval.g.gcv, rss = first_eval.g.rss, dof = first_eval.g.trace)   # the scan's top: solved above
+        β = λ / λ₁
+        scan = calls[] <= points                              # gcv_select scans first, from the top down
+        (timed_out[] || (failed[] && scan)) && return (; gcv = Inf, rss = NaN, dof = NaN)   # not solved
+        e = attempt(β, near(β).next, near(β))
+        push!(evals, e)
+        timed_out[] |= e.st.timed_out
+        failed[] |= !e.ok && scan
+        return (; gcv = e.g.gcv, rss = e.g.rss, dof = e.g.trace)
+    end
+    found = gcv_select(score, λ₁; log10_bracket = _GCV_LOG10_BRACKET, points, xtol = _GCV_XTOL)
+    best = argmin(e -> e.g.gcv, evals)
+    curve = [(; penalty = e.β, λ = e.β * λ₁, gcv = e.g.gcv) for e in sort(evals; by = e -> e.β)]
+    return best.st, curve, found.at_bracket_end && !timed_out[], best.β, best.g.trace, sum(e -> e.ok ? e.st.iterations : 0, evals)
+end
+
 # The refinement with the patches laid `offset` nodes into the first (the estimate does
 # not depend on it, to the solver's tolerance: a test reads both layouts).
 function _refine_spline_camera_and_poses(
         camera::_RefinedCamera, poses::AbstractVector, views::AbstractVector, offset::Integer;
         free::Tuple{Vararg{Symbol}} = (:controls,),
         box::Union{Nothing, NamedTuple} = nothing,
-        penalty::Real = _PSPLINE_PENALTY,
+        penalty::Union{Symbol, Real, Nothing} = :gcv,
         refit_forward::Bool = true,
         forward_tolerance::Real = _dflt("refine_camera_and_poses", "forward_tolerance"),
         max_iter::Integer = _dflt("refine_camera_and_poses", "max_iter"),
@@ -583,7 +710,9 @@ function _refine_spline_camera_and_poses(
         ArgumentError("refine_camera_and_poses: a SplineLens camera's `free` is (:controls,) (every present node's backward control) or () (the poses alone), got $free")
     )
     box === nothing || throw(ArgumentError("refine_camera_and_poses: a SplineLens camera's controls are unbounded; a `box` has nothing to bound"))
-    penalty >= 0 || throw(ArgumentError("refine_camera_and_poses: `penalty` must be ≥ 0, got $penalty"))
+    check_penalty_weight(penalty, "refine_camera_and_poses: penalty")
+    search = penalty === :gcv
+    w = search ? exp10(_GCV_LOG10_BRACKET[2]) : penalty === nothing ? 0.0 : Float64(penalty::Real)   # under :gcv the scan's top β: the stages' start aid
     isfree = !isempty(free)
     held = VgtkCore.Cameras._held_nodes(l.present, size(l.backward.controls))
     forward = l.forward === nothing ? :none : !isfree ? :kept : refit_forward ? :refitted : :dropped
@@ -603,61 +732,52 @@ function _refine_spline_camera_and_poses(
     # under Marquardt's diagonal damping (158 iterations at a 0.05 rad lens error) or lets the
     # scales absorb the poses' error (a factor of 10³ in one step on a fit_camera lattice).
     # (1) The poses alone, through the guess's lens. (2) The directions and the poses, every
-    # log-scale held (16 iterations there). (3) Everything (9 there).
+    # log-scale held (16 iterations there). (3) Everything (9 there): at the weight given, or
+    # over GCV's search (stages 1–2 once, at the grid's top weight: a start aid that keeps
+    # the extrapolated nodes from swinging on noisy detections, as 1e-8 lets them).
     # `max_time` caps the whole refine: every stage and round reads what is left of it.
     deadline = max_time === nothing ? Inf : time() + Float64(max_time)
     iterations = 0
     timed_out = false
     if isfree
-        pre = _refine_spline_camera_and_poses(back, poses, views, offset; free = (), penalty, max_iter, ftol, xtol, max_time = _remaining(deadline))
+        pre = _refine_spline_camera_and_poses(back, poses, views, offset; free = (), penalty = w, max_iter, ftol, xtol, max_time = _remaining(deadline))
         iterations += pre[3]
         timed_out |= pre[2] === :max_time
         # a stage cut short by `max_time` is not built on: the joint solve starts where it did
         if timed_out
-            p = _spline_problem(back, pre[1].poses, views, true, penalty, offset)
+            p = _spline_problem(back, pre[1].poses, views, true, w, offset)
         else
-            p₀ = _spline_problem(back, pre[1].poses, views, true, penalty, offset; scales_held = true)
+            p₀ = _spline_problem(back, pre[1].poses, views, true, w, offset; scales_held = true)
             r₀, s₀ = _spline_solve!(p₀, isfree, max_iter, ftol, xtol, _remaining(deadline))
             iterations += r₀.niterations
             timed_out |= _timed_out(r₀)
-            p = timed_out ? _spline_problem(back, pre[1].poses, views, true, penalty, offset) :
-                _rebuilt(p₀, s₀::_SplineVars, back, views, penalty, offset, "at the estimate of the directions-first stage")
+            p = timed_out ? _spline_problem(back, pre[1].poses, views, true, w, offset) :
+                _rebuilt(p₀, s₀::_SplineVars, back, views, w, offset, "at the estimate of the directions-first stage")
         end
     else
-        p = _spline_problem(back, poses, views, isfree, penalty, offset)
+        p = _spline_problem(back, poses, views, isfree, w, offset)
     end
     b = l.backward
-    # the unknowns: the live controls' 3 coordinates (less the held scale and the rotation gauge's 3) and the poses'; the rows: the data's and the Δ³ rows'
+    # the unknowns: the live controls' 3 coordinates (less the gauge's 4: the common scale and the rotation) and the poses'; the rows: the data's and the Δ³ rows'
     counts(q) = (m = length(q.costs); (m, (isfree ? 3count(q.live) - 4 : 0) + 6V, 2m + 3length(q.smooth)))
     n, np, nobs = counts(p)
     nobs > np || throw(ArgumentError("refine_camera_and_poses: underdetermined: $n correspondences and $(length(p.smooth)) third-difference rows ($nobs rows) for $np unknowns"))
 
-    # Solve, then rebuild the blocks at the estimate: a point whose x* moved to another
-    # cell reads another window (the held one only extrapolates), so the blocks are
-    # rebuilt and solved again until every window is the estimate's own. At the cap the
-    # problem rebuilt at the estimate is the one reported (the camera's own windows).
-    rounds = 0
-    settled = true
-    cost_start = _spline_cost(p.variables, _spline_blocks(p))   # the joint objective at its start (after the poses-alone and directions-first stages)
-    local result, solved
-    while true
-        rounds += 1
-        result, solved = _spline_solve!(p, isfree, max_iter, ftol, xtol, _remaining(deadline))
-        iterations += result.niterations
-        timed_out |= _timed_out(result)
-        (isfree && !timed_out) || break
-        q = _rebuilt(p, solved::_SplineVars, back, views, penalty, offset, "at the estimate of rebuild round $rounds")
-        q.windows == p.windows && break
-        p = q
-        if rounds == _SPLINE_REFINE_ROUNDS
-            settled = false
-            solved = collect(p.variables)                       # the estimate, in the blocks of its own windows
-            break
-        end
+    gcv = nothing
+    gcv_at_bound = false
+    effective_dof = nothing
+    if search && isfree
+        st, gcv, gcv_at_bound, w, effective_dof, its = _gcv_search(p, p.λ / w, back, views, offset, max_iter, ftol, xtol, deadline)
+    else
+        st = _spline_rounds(p, isfree, back, views, w, offset, max_iter, ftol, xtol, deadline)
+        its = st.iterations
     end
+    iterations += its
+    timed_out |= st.timed_out
+    p, solved, result, rounds, settled, cost_start = st.p, st.solved, st.result, st.rounds, st.settled, st.cost_start
     n, np, nobs = counts(p)                                    # a rebuild may take back a point the guess did not project
 
-    # the gauge: the live controls and the poses turned by ONE rotation (the axis onto ẑ, the roll)
+    # the gauge, one step: the live controls and the poses turned by ONE rotation (the axis onto ẑ, the roll), the live controls scaled to the guess's mean length
     cost_before = _spline_cost(solved, _spline_blocks(p))
     vars, controls, θ, β = _gauged(p, solved, b)
     cost_after = _spline_cost(vars, _spline_blocks(p))
@@ -679,8 +799,10 @@ function _refine_spline_camera_and_poses(
         fcode === :converged || code !== :converged || (code = fcode)
     end
     out = [relabel(_frames(p0)..., _plain_pose(ch)) for (p0, ch) in zip(poses, poses_out)]
-    spline = (; penalty = p.λ, n_dropped_window = p.dropped, n_dropped_unprojected = p.unprojected, rounds, windows_settled = settled,
-        held_scale_node = p.held, forward, forward_max_px, gauge_angle = θ, gauge_roll = β,
+    n_nodes_unrefined = isfree ? count(p.present .& .!p.live) : count(p.present)
+    spline = (; penalty = isfree ? w : 0.0, λ = p.λ, gcv, gcv_at_bound, effective_dof, n_nodes_unrefined,
+        n_dropped_window = p.dropped, n_dropped_unprojected = p.unprojected, rounds, windows_settled = settled,
+        forward, forward_max_px, gauge_angle = θ, gauge_roll = β,
         cost_start, cost_before_gauge = cost_before, cost_after_gauge = cost_after, anchor_cost)
     return (; camera = out_camera, poses = out), code, iterations, sqrt(sum(abs2, rd) / n), n, CameraPosesRefineMetadata(rd, sum(abs2, r) / ν, ν, free, spline)
 end

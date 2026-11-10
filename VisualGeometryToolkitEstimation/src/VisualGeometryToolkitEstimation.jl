@@ -277,6 +277,7 @@ export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem,
 # 4. LOCAL-OPTIMIZATION strategies a user picks
 # -----------------------------------------------------------------------------
 export Irls, Triggs, NoLocalOptimization
+public gcv_select, gcv_curve, penalty_scale, mean_positive_eigenvalue, check_penalty_weight   # the one GCV of a penalty weight (RadiometricCamera's solves call it)
 public CountedLO   # instrumentation: counts a strategy's locally_optimize! calls and iterations
 # The terminal placement (one LO of a raw race's incumbent) and the placement trait.
 public TerminalLO, lo_placement, InLoopPlacement, TerminalPlacement
@@ -394,6 +395,7 @@ include("fitting/radial_camera.jl")
 include("fitting/fit_radial_camera.jl")        # one board's radial camera, an iterative whitened fit (moved from VGC)
 include("fitting/division_camera_step.jl")     # one iteration of the stacked linear focal solve + its state and failure (moved from VGC)
 include("fitting/fit_division_camera.jl")       # iterated Sampson-whitened, Student-t re-weighted focal stack (IRLS under block_coordinate_descent!)
+include("fitting/gcv.jl")                       # the stack's one GCV of a penalty weight and its normalization (penalty_scale, gcv_curve, gcv_select)
 include("fitting/fit_camera.jl")                # one model-to-model regression: a lens family, or a SplineLens camera or non-central spline model, onto a source over a region
 include("fitting/essential.jl")
 include("fitting/rotation.jl")

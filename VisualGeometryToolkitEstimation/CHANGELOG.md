@@ -40,16 +40,35 @@ non-central one is a `NoncentralSplineModel`).
   KernelAbstractions backend of a SplineLens source's batched back-projection (the rest of the fit runs on the host).
 - **Breaking: a spline fit's `grid_size` is `(columns, rows)`** everywhere — the keyword, `pspline_grid`'s argument and
   the metadata's `family.grid_size` — Core's `grid_size(m)` order (a fit once reported `(rows, columns)`).
+- **New (public, not exported): the stack's one generalized cross-validation of a penalty weight and its
+  normalization** — `penalty_scale(energy, N, m̄)` (`λ = β·energy/N/m̄`: β relative to the data's energy per parameter
+  and to the penalty operator's mean positive eigenvalue), `mean_positive_eigenvalue(D)` (`‖D‖²_F / rank D`, a sparse
+  QR's rank), `gcv_curve(G, h, rr, Q, q, n)` (the closed-form GCV curve of one Gauss–Newton system, a generalized
+  eigendecomposition), `gcv_select(score, scale; log10_bracket, points, xtol)` (a scan of log₁₀ β from the top down,
+  then golden-section steps through Core's grid-and-golden minimizer; `at_bracket_end` reported) and
+  `check_penalty_weight`. Moved from RadiometricCamera's linear solves (its `_gcv_curve`, `gcv_select`,
+  `_mean_positive_eigenvalue`, `_check_penalty_weight`: its copies go when it adopts these); `refine_camera_and_poses` on a
+  SplineLens camera uses them too.
 - **`refine_camera_and_poses` refines a SplineLens camera's controls with its poses, K frozen** (bit-identical): the
   present nodes' backward controls, any norms (a `fit_camera` lattice, a quasi-interpolant), each `c = e^ℓ·D` its
   direction on its sphere (Core's `ControlPatchManifold`) and its log-scale, grouped into 2 × 2 patches (NLLSsolver's
   10-variable block cap); one block per correspondence on its window's 3 × 3 patches and its pose, its Jacobian
   analytic by implicit differentiation of the projection solve at x* (Core's `_solved_projection` and
-  `_projection_jacobians`: no ForwardDiff reaches the solve); a third-difference penalty over the present nodes
-  (Core's `difference_rows`; `penalty`, default the P-spline fit's 1e-8 relative weight, read against the direction
-  coordinates); the scale of the node nearest x = 0 held (a normalization constraint: the penalty is not scale-free); the poses refined alone first, then the directions with the scales held, then everything; the blocks rebuilt at the estimate until
-  every window is its own; and the rotation gauge fixed after the solve by one rotation (the lens axis onto ẑ, the
-  roll putting the x-derivative at x = 0 in the xz plane; the cost unchanged). `free` is `(:controls,)` or `()` (the
+  `_projection_jacobians`: no ForwardDiff reaches the solve); a scale-free third-difference penalty over the present
+  nodes (Core's `difference_rows`, each row divided by the mean control length of its own 4 nodes, its denominator in
+  the analytic Jacobian), weighted by the stack's normalized β (`λ = β·energy/N/m̄`, the data's Gauss–Newton energy per
+  direction coordinate and the Δ³ operator's mean positive eigenvalue; see `penalty_scale` below) set by `penalty`:
+  `:gcv` (the default) chooses β by generalized cross-validation, `GCV = n‖r‖²/(n − tr H)²`, through `gcv_select`
+  (one β a decade over 1e-12…1, solved top down with warm starts — each β a full nonlinear solve — then golden-section
+  steps to a 0.1-decade bracket; tr H from a gauge-reduced sparse Cholesky, exact up to 3000 coordinates, else a
+  64-probe Hutchinson estimate with a fixed seed), a number fixes β (GCV off; a small one that lets noisy data swing a
+  node until a correspondence no longer projects is an `ArgumentError` naming `:gcv`), and `0` or `nothing` turns the smoothness off (the nodes no correspondence's window reads then held at their guesses); the
+  poses refined alone first, then the directions with the scales held, then everything; the blocks rebuilt at the
+  estimate until every window is its own; and the gauge (the rotation and the common scale, both exact symmetries)
+  fixed after the solve in one step (the lens axis onto ẑ, the roll putting the x-derivative at x = 0 in the xz
+  plane, the live controls' mean length the guess's; the cost unchanged). `result.spline` carries the weight and λ,
+  the GCV curve, whether its minimum is a grid end (`gcv_at_bound`), tr H (`effective_dof`) and the present nodes
+  no row reads (`n_nodes_unrefined`). `free` is `(:controls,)` or `()` (the
   poses alone). A forward spline is dropped and, with `refit_forward = true` (the default), refitted by
   `fit_camera(SplineLens, …; tolerance = forward_tolerance)` over the camera's imaged region (a `BoundedCamera` then
   required). Correspondences detected on an absent window are dropped and counted, and those not projected within a

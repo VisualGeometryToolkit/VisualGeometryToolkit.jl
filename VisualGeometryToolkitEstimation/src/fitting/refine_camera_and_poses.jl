@@ -42,24 +42,31 @@ block order, each view's correspondences in their order); `s²`, the residual
 variance `Σ‖rᵢ‖² / ν` (px²); `ν = 2n − p`, its degrees of freedom (`p` the
 free camera parameters plus 6 per view); `free`, the names of the camera
 parameters refined; and `spline`, `nothing` for a parametric camera, for a
-SplineLens camera `(; penalty, n_dropped_window, n_dropped_unprojected, rounds,
-windows_settled, held_scale_node, forward, forward_max_px, gauge_angle,
-gauge_roll, cost_start, cost_before_gauge, cost_after_gauge, anchor_cost)`: the
-third-difference weight `λ`; the correspondences detected on an absent window,
+SplineLens camera `(; penalty, λ, gcv, gcv_at_bound, effective_dof,
+n_nodes_unrefined, n_dropped_window, n_dropped_unprojected, rounds,
+windows_settled, forward, forward_max_px, gauge_angle, gauge_roll, cost_start,
+cost_before_gauge, cost_after_gauge, anchor_cost)`: the third-difference
+penalty's normalized weight β and its `λ` (0 for none, and with `free = ()`);
+the GCV curve `[(; penalty = β, λ, gcv)]` over the weights solved (ascending;
+`nothing` unless `penalty = :gcv`), whether its minimum is an end of the decade
+scan (then not refined: the weight GCV wants lies at or past it), and tr H, the
+effective number of parameters at the chosen weight (`nothing` without GCV);
+the present nodes no data row and no third-difference row reads (held at their
+guesses); the correspondences detected on an absent window,
 and those the camera does not project when detected within a cell of one (they
 can be inliers); the solve-and-rebuild rounds (the blocks rebuilt at the
 estimate until every window is its own) and whether the windows settled before
-the cap; the node whose scale is held; what became of a forward spline
+the cap; what became of a forward spline
 (`:none` without one, `:refitted`, `:dropped`, or `:kept` with the controls
 held) and the refit's held-out maximum (pixels, or `nothing`); the gauge
 rotation's two angles (the axis's and the roll's, rad); the joint objective
 (½ the sum of squares, the penalty rows included) at the joint solve's start and
-on either side of the gauge rotation (equal to rounding: the rotation is an exact symmetry); and the
+on either side of the gauge step (equal to rounding: the rotation and the common scale are exact symmetries); and the
 anchors' part of the cost (0: the coordinates no row reads are held at their
 guesses). For a SplineLens camera `s²` reads the whole cost, the
 third-difference rows included, and `ν = 2n + 3m − p` counts its `m`
 third-difference rows as observations and `p = 3·(the nodes a row reads) − 4 +
-6·views` (the held scale and the rotation gauge's 3 dimensions are no
+6·views` (the gauge's 4 dimensions, the common scale and the rotation, are no
 unknowns). All forward as properties:
 `result.residuals`, `result.spline`, ….
 """
@@ -101,7 +108,7 @@ NLLSsolver.computecost(vars::AbstractVector, r::_CameraPoseResidual) =
 """
     refine_camera_and_poses(camera, poses, views; free, box = nothing,
                             max_iter, ftol, xtol, max_time = nothing)   # defaults: configs/default.toml [refine_camera_and_poses]
-    refine_camera_and_poses(spline_camera, poses, views; free = (:controls,), penalty = 1e-8,
+    refine_camera_and_poses(spline_camera, poses, views; free = (:controls,), penalty = :gcv,
                             refit_forward = true, forward_tolerance, max_iter, ftol, xtol, max_time = nothing)
         -> FitResult{<:NamedTuple{(:camera, :poses)}, CameraPosesRefineMetadata}
 
@@ -160,10 +167,8 @@ trait, `GaugeIntrinsics`, selects it):
   own sphere (the reference's chart, Core's `ControlPatchManifold`) and its
   log-scale `ℓ` (3 coordinates; the controls grouped into 2 × 2 patches,
   NLLSsolver's 10-variable block cap), and the poses; a coordinate no row reads
-  is held at its guess. One common scale of every control changes no ray, so
-  the scale of the live node nearest x = 0 is held (its norm comes back as the
-  guess's; the third-difference penalty is not scale-free, so the choice biases
-  it, negligibly at its 1e-8 relative weight). The solve runs in three stages,
+  is held at its guess (`result.spline.n_nodes_unrefined` counts those nodes).
+  The solve runs in three stages,
   each from the last: the poses alone through the guess's lens, then the
   directions and the poses with every scale held, then everything (a node's
   scale is weakly observed and nearly collinear with its direction, so a joint
@@ -181,27 +186,55 @@ trait, `GaugeIntrinsics`, selects it):
   must project at the guess (and at each rebuild's estimate: an
   `ArgumentError` names the round). A third-difference penalty (Core's
   `difference_rows`, the P-spline fit's operator, along every row and column
-  of present nodes), weighted by `λ = penalty · mean(diag)` of the data's
-  normal matrix in the nodes' direction coordinates (`penalty` defaults to `fit_camera`'s
-  P-spline weight, 1e-8), holds the nodes the data reach weakly or not at all.
+  of present nodes) holds the nodes the data reach weakly or not at all. Each
+  of its rows is divided by the mean control length of its own 4 nodes, so it
+  is scale-free. Its weight is the stack's normalized β (`penalty_scale`):
+  `λ = β · energy / N / m̄`, the data's energy per parameter read as the mean
+  diagonal of its Gauss–Newton matrix in the nodes' direction coordinates
+  times the controls' squared mean length (scale-free too; the residuals of
+  exact data vanish, so they cannot set it), and `m̄` the mean positive
+  eigenvalue of the Δ³ operator's `DᵀD`. β = 1 weighs the penalty like the
+  data. β is set by `penalty`:
+  - `:gcv` (the default): β minimizes the generalized cross-validation score
+    `GCV = n‖r‖² / (n − tr H)²` (`n` the data rows, `r` their residuals at
+    the estimate for β, `H = J(JᵀJ + λDᵀD)⁻¹Jᵀ`, J and D the data and penalty
+    rows' Jacobians there, the gauge removed), by the stack's `gcv_select`:
+    a scan of one β a decade over `10⁻¹² … 1`, solved from the top down with
+    warm starts, then golden-section steps on `log₁₀ β` to a bracket 0.1
+    decade wide; a minimum at a scan end is not refined and is reported
+    (`gcv_at_bound`). Each β is a full nonlinear solve (not a linearization).
+    tr H comes from a sparse Cholesky: exact up to 3000 coordinates, else a
+    64-probe Hutchinson estimate from a fixed seed (deterministic; standard
+    deviation ≤ √(2·tr H / 64)). The poses-alone and directions-first stages
+    run once, at the scan's top β = 1, as a start aid. A β whose estimate
+    stops projecting a correspondence scores `GCV = Inf` (in the curve), and
+    the scan descends no further.
+  - a number β > 0: that weight; no GCV. On noisy detections a small weight
+    can let the nodes the data hold weakly swing until a correspondence no
+    longer projects: an `ArgumentError` says so and suggests `:gcv` or a
+    larger weight.
+  - `0` or `nothing`: no smoothness. Then every present node outside every
+    correspondence's window is held at its guess (and counted).
   The blocks are rebuilt at the estimate and solved again until every
   correspondence reads its own window (`result.spline.rounds`, at most 5; at
   the cap the rows, `rms` and the stationarity test are read on the returned
   camera's own windows, and `windows_settled` is `false`). `iterations` sums
   every solve.
-- The gauge: a rotation of every control together with every pose leaves the
-  cost unchanged; the estimate is the one whose lens axis
-  `normalize(backward(0, 0))` is ẑ and whose backward x-derivative at x = 0
-  lies in the xz plane (the convention a SplineLens camera's K is read in),
-  reached after the solve by one rotation (the minimal one onto ẑ, then the
-  roll). K is bit-identical to the guess's.
+- The gauge: a rotation of every control together with every pose, and one
+  common scale of every control, leave the cost unchanged; the estimate is the
+  one whose lens axis `normalize(backward(0, 0))` is ẑ, whose backward
+  x-derivative at x = 0 lies in the xz plane (the convention a SplineLens
+  camera's K is read in), and whose refined controls' mean length is the
+  guess's, reached after the solve in one step (the minimal rotation onto ẑ,
+  the roll, the scale). K is bit-identical to the guess's.
 - A forward spline is dropped for the refinement and, with `refit_forward`
   (the default), refitted over `imaged_region(camera)` by
   `fit_camera(SplineLens, …; tolerance = forward_tolerance)` (pixels), which
   needs a `BoundedCamera` (an `ArgumentError` for a bare camera model). With
   `free = ()` it is kept.
 - The model: the target is exact, so the estimate is the maximum-likelihood
-  one under isotropic Gaussian detection noise. A board that departs from its
+  one under isotropic Gaussian detection noise (penalized by the
+  smoothness prior; with `penalty = 0` the plain maximum-likelihood one). A board that departs from its
   design (an in-plane warp, an affine or smooth deformation, a height field)
   is not modelled here: that is the board-deformation solve of
   RadiometricCamera's calibration pipeline.

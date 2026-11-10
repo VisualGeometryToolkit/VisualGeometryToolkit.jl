@@ -216,6 +216,10 @@ end
     @test ray_error(est.camera, truth, views) < ray_error(cam0, truth, views) / 1000
     @test maximum(maximum(abs, P.R - E.R) for (P, E) in zip(est.poses, Es)) < 1.0e-6
     @test res.n == 360 && res.spline.n_dropped_window == 0 && res.spline.n_dropped_unprojected == 0 && res.free == (:controls,)
+    # the joint solve lowers its objective (λ fixed across the rounds), and the rows' rms is the penalty's bias against
+    # exact data: at a 1e-14 relative weight it falls toward the solver's floor
+    @test res.spline.cost_after_gauge <= res.spline.cost_start
+    @test rms(refine_camera_and_poses(cam0, poses0, views; penalty = 1.0e-14)) < 1.0e-6
     # the patch layout is no part of the estimate: the lattice laid one node into the patches agrees to the solver's tolerance
     e1 = first(VE._refine_spline_camera_and_poses(cam0, poses0, views, 1))
     @test ray_error(e1.camera, est.camera, views) < 1.0e-9
@@ -249,6 +253,12 @@ end
         h = res.spline.held_scale_node
         @test norm(lens(est.camera).backward.controls[h]) == norm(lens(cam0).backward.controls[h])
     end
+    # a lens five times as far off (every control turned ≈ 0.05 rad): the fit_camera lattice still converges
+    views = spline_views(fitted, Es, 1.1)
+    cam0 = perturbed_controls(fitted, 0.05)
+    res = refine_camera_and_poses(cam0, poses0, views)
+    @test retcode(res) === :converged
+    @test ray_error(estimate(res).camera, fitted, views) < ray_error(cam0, fitted, views) / 1000
 end
 
 @testitem "refine_camera_and_poses: a SplineLens block's analytic Jacobian matches finite differences of its residual" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin

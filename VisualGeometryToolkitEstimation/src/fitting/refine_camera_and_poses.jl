@@ -44,7 +44,7 @@ free camera parameters plus 6 per view); `free`, the names of the camera
 parameters refined; and `spline`, `nothing` for a parametric camera, for a
 SplineLens camera `(; penalty, n_dropped_window, n_dropped_unprojected, rounds,
 windows_settled, held_scale_node, forward, forward_max_px, gauge_angle,
-gauge_roll, cost_before_gauge, cost_after_gauge, anchor_cost)`: the
+gauge_roll, cost_start, cost_before_gauge, cost_after_gauge, anchor_cost)`: the
 third-difference weight `λ`; the correspondences detected on an absent window,
 and those the camera does not project when detected within a cell of one (they
 can be inliers); the solve-and-rebuild rounds (the blocks rebuilt at the
@@ -52,8 +52,9 @@ estimate until every window is its own) and whether the windows settled before
 the cap; the node whose scale is held; what became of a forward spline
 (`:none` without one, `:refitted`, `:dropped`, or `:kept` with the controls
 held) and the refit's held-out maximum (pixels, or `nothing`); the gauge
-rotation's two angles (the axis's and the roll's, rad) and the cost on either
-side of it (equal to rounding: the rotation is an exact symmetry); and the
+rotation's two angles (the axis's and the roll's, rad); the joint objective
+(½ the sum of squares, the penalty rows included) at the joint solve's start and
+on either side of the gauge rotation (equal to rounding: the rotation is an exact symmetry); and the
 anchors' part of the cost (0: the coordinates no row reads are held at their
 guesses). For a SplineLens camera `s²` reads the whole cost, the
 third-difference rows included, and `ν = 2n + 3m − p` counts its `m`
@@ -180,7 +181,7 @@ trait, `GaugeIntrinsics`, selects it):
   `ArgumentError` names the round). A third-difference penalty (Core's
   `difference_rows`, the P-spline fit's operator, along every row and column
   of present nodes), weighted by `λ = penalty · mean(diag)` of the data's
-  normal matrix in the node coordinates (`penalty` defaults to `fit_camera`'s
+  normal matrix in the nodes' direction coordinates (`penalty` defaults to `fit_camera`'s
   P-spline weight, 1e-8), holds the nodes the data reach weakly or not at all.
   The blocks are rebuilt at the estimate and solved again until every
   correspondence reads its own window (`result.spline.rounds`, at most 5; at

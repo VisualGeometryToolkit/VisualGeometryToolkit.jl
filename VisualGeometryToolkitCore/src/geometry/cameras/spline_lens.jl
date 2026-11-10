@@ -832,10 +832,8 @@ _forward_chart(backward::ChartSpline{3}) = equidistant_chart(_lens_axis(backward
 # rectangle's centre, the fallback) and the off-axis check's condition below, one
 # predicate for both.
 function _imaged_z(controls::AbstractMatrix, area::Rect2)
-    c = _rect_centre(area)
-    lb, ub, s = _spline_lm_box(area)
-    p, ok = _spline_project(controls, area, SVector(0.0, 0.0, 1.0), c, lb, ub, s, _PROJECT_MAXITER, _PROJECT_TOL^2)
-    return ok && all(isfinite, p) ? (SVector{2, Float64}(p), true) : (c, false)
+    p, ok = _solved_projection(controls, area, SVector(0.0, 0.0, 1.0), _spline_lm_box(area)...)
+    return ok && all(isfinite, p) ? (SVector{2, Float64}(p), true) : (_rect_centre(area), false)
 end
 
 # Whether a SplineLens camera's gauge is the off-axis fallback — ẑ not imaged inside

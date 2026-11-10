@@ -32,18 +32,20 @@
 # an anchor row `coordinate − guess` holds it (zero at the solution, so it adds
 # nothing to the cost).
 #
-# THE GAUGE. K is never a variable. One common scale of every control leaves every
-# x* where it is (the direction normalizes the weighted sum), and the Δ³ penalty
-# would shrink it: the scale of one node — the live node nearest x = 0 — is held
-# at its guess (the rows read its `D` alone, its `ℓ` anchored), which biases the
-# 1e-8-relative penalty negligibly. A rotation Q of every control and every pose
-# together — controls Q·c, poses (Q·R, Q·t) — leaves every x* (so the data rows)
-# and the Δ³ rows' norms where they are: an exact symmetry of the cost, of 3
-# dimensions. After the LM the estimate is moved along it by ONE rotation: the
-# minimal rotation that takes the lens axis `normalize(backward(0, 0))` onto ẑ,
-# then the roll about ẑ that puts the backward's x-derivative at x = 0 in the xz
-# plane — the convention `_spline_gauge` reads K from (a parametric source's own).
-# The anchored slots stay at their guesses.
+# THE CONSTRAINT AND THE GAUGE. K is never a variable. One common scale of every
+# control leaves every x* where it is (the direction normalizes the weighted sum), but
+# not the Δ³ penalty (‖Δ³(s·c)‖ = s‖Δ³c‖), whose infimum is at s → 0: the scale is a
+# symmetry of the data alone, so it is fixed by a normalization CONSTRAINT, not a gauge —
+# the scale of one node, the live node nearest x = 0, is held at its guess (the rows read
+# its `D` alone, its `ℓ` anchored). The estimate depends on the node held, through the
+# penalty only (≲ its own bias, negligible at the 1e-8 relative weight). A rotation Q of
+# every control and every pose together — controls Q·c, poses (Q·R, Q·t) — leaves every
+# x* (so the data rows) and the Δ³ rows' norms where they are: an exact symmetry of the
+# cost, a gauge of 3 dimensions. After the LM the estimate is moved along it by ONE
+# rotation: the minimal rotation that takes the lens axis `normalize(backward(0, 0))` onto
+# ẑ, then the roll about ẑ that puts the backward's x-derivative at x = 0 in the xz plane
+# — the convention `_spline_gauge` reads K from (a parametric source's own). The anchored
+# slots stay at their guesses.
 # =============================================================================
 
 const _SplineDirections = VgtkCore.ControlPatchManifold{2, 2, 4, Float64, Nothing, VgtkCore.Cameras.AdditivePoints}
@@ -178,6 +180,22 @@ function _window_columns!(J, r::_SplineReprojection, w, AG, patches::NTuple{9, _
     end
     return J
 end
+# The normal matrix of a block of 2 rows, `JᵀJ`, as the rank-2 form it is: its entries
+# read from the 2 × n Jacobian when NLLSsolver adds its blocks into the system, never
+# stored (a 114 × 114 heap matrix per block per iteration otherwise).
+struct _Gram <: AbstractMatrix{Float64}
+    J::Matrix{Float64}
+end
+Base.size(G::_Gram) = (size(G.J, 2), size(G.J, 2))
+Base.@propagate_inbounds Base.getindex(G::_Gram, i::Int, j::Int) = G.J[1, i] * G.J[1, j] + G.J[2, i] * G.J[2, j]
+
+# The block's cost, gradient and normal matrix (NLLSsolver's documented extension point;
+# the residual is not robustified): `(½‖r‖², Jᵀr, JᵀJ)`, the normal matrix the lazy `_Gram`.
+function NLLSsolver.computecostgradhess(varflags, r::_SplineReprojection{10}, vars...)
+    res, J = NLLSsolver.computeresjac(varflags, r, vars...)
+    return 0.5 * sum(abs2, res), J' * res, _Gram(J)
+end
+
 # Every variable of a block is free in this refinement (`varflags` all set).
 function NLLSsolver.computeresjac(varflags, r::_SplineReprojection{10}, vars...)
     varflags == 2^10 - 1 || throw(ArgumentError("refine_camera_and_poses: every patch and pose is free (varflags = $varflags)"))
@@ -252,7 +270,8 @@ end
 # `offset` nodes into the first (`_PatchLayout`): its variables (the patches, column-major
 # over the patch grid, when `free`; then the poses), its data blocks, its Δ³ blocks
 # (`λ = penalty · mean(diag)` of the data's normal matrix over the present nodes'
-# coordinates, as the P-spline fit weighs its penalty), its anchors, the counts of the
+# direction coordinates — the controls' own scale, as the P-spline fit weighs its penalty;
+# the weak log-scale columns, ≈ δ² of them, would lower it), its anchors, the counts of the
 # correspondences dropped on an absent window and of those the camera does not project
 # within a cell of one, the layout, the live nodes (those a row reads), the patch count,
 # the held-scale node and the blocks' windows. A given `λ` and `held_node` are kept (a
@@ -331,7 +350,7 @@ function _spline_problem(
     end
     smooth = _SplineSmoothness[]
     anchors = _SplineAnchor[]
-    variables = Union{_SplinePatch, _CameraPosePose}[]
+    variables = free ? Union{_SplinePatch, _CameraPosePose}[] : _CameraPosePose[]   # the poses alone: their own type, the problem's
     λ₀ = λ
     λ = 0.0
     if free
@@ -355,15 +374,15 @@ function _spline_problem(
             scale = SVector{4, Bool}(ntuple(n -> dead[n] || (k, n) == hold, Val(4)))
             any(scale) && push!(anchors, _SplineAnchor(SVector(k), dead, scale, guess[P, Q]))
         end
-        diagonal = zeros(gsz)                                   # the data's normal matrix: its diagonal per node (its 3 coordinates)
+        diagonal = zeros(gsz)                                   # the data's normal matrix: its diagonal per node, the 2 direction coordinates
         for (c, win) in zip(costs, windows)
             _, J = NLLSsolver.computeresjac(2^10 - 1, c, NLLSsolver.getvars(c, variables)...)
             for m in 1:16
                 k, n = c.slots[m]
-                diagonal[win[m]] += sum(abs2, view(J, :, 12(k - 1) .+ [2n - 1, 2n, 8 + n]))
+                diagonal[win[m]] += sum(abs2, view(J, :, (12(k - 1) + 2n - 1):(12(k - 1) + 2n)))
             end
         end
-        λ = λ₀ === nothing ? penalty * sum(diagonal) / (3count(present)) : Float64(λ₀)
+        λ = λ₀ === nothing ? penalty * sum(diagonal) / (2count(present)) : Float64(λ₀)
         for (ns, s) in stencils
             P₀, Q₀ = _patch_of(L, ns[1][1]), _patch_of(L, ns[1][2])
             varind = ns[1][1] == ns[2][1] ?                     # along a row (the column moves): 3 patches across, else down
@@ -423,9 +442,20 @@ function _patch_controls(b::ChartSpline, p, variables::_SplineVars)
         p.live[i] || continue
         k, n = _node_slot(p.layout, i)
         c = _patch_control(variables[k]::_SplinePatch, n, (k, n) == p.hold)
-        controls[i] = (k, n) == p.hold ? p.held_norm * normalize(c) : c
+        controls[i] = (k, n) == p.hold ? _with_norm(c, p.held_norm) : c
     end
     return controls
+end
+
+# The vector along `c` whose computed norm is `ν`, to the last bit where a few rescales
+# reach it (each lands within an ulp, and the next one usually exactly on it).
+function _with_norm(c::SVector{3, Float64}, ν::Float64)
+    v = ν * normalize(c)
+    for _ in 1:4
+        norm(v) == ν && break
+        v *= ν / norm(v)
+    end
+    return v
 end
 
 # THE gauge rotation of a solved lattice: the minimal rotation taking its axis
@@ -550,6 +580,7 @@ function _refine_spline_camera_and_poses(
     # problem rebuilt at the estimate is the one reported (the camera's own windows).
     rounds = 0
     settled = true
+    cost_start = _spline_cost(p.variables, _spline_blocks(p))   # the joint objective at its start (the poses refined alone)
     local result, solved
     while true
         rounds += 1
@@ -596,6 +627,6 @@ function _refine_spline_camera_and_poses(
     out = [relabel(_frames(p0)..., _plain_pose(ch)) for (p0, ch) in zip(poses, poses_out)]
     spline = (; penalty = p.λ, n_dropped_window = p.dropped, n_dropped_unprojected = p.unprojected, rounds, windows_settled = settled,
         held_scale_node = p.held, forward, forward_max_px, gauge_angle = θ, gauge_roll = β,
-        cost_before_gauge = cost_before, cost_after_gauge = cost_after, anchor_cost)
+        cost_start, cost_before_gauge = cost_before, cost_after_gauge = cost_after, anchor_cost)
     return (; camera = out_camera, poses = out), code, iterations, sqrt(sum(abs2, rd) / n), n, CameraPosesRefineMetadata(rd, sum(abs2, r) / ν, ν, free, spline)
 end

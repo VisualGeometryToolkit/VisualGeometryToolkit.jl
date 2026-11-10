@@ -101,7 +101,7 @@ sensor — so every consumer asks the camera what it images instead of supplying
   on the direction residual — the analytic Jacobian of Estimation's `refine_camera_and_poses` on a SplineLens camera,
   so no ForwardDiff dual reaches the solve; and `_solved_projection`, THE solve it differentiates (from the area's
   centre: the LM returns a start within √eps unmoved, which would make x*(c) a step function). The direction
-  differential also returns `‖S‖`.
+  differential also returns `‖S‖`; `_imaged_z` (the gauge's solve of ẑ) is `_solved_projection` too.
 - **New: `field_of_view(camera, distance; dimension)`**: the size of the scene imaged at `distance`,
   `2·distance·tan(θ/2)` for the angle of view `θ`, in the distance's unit (180° or more: an `ArgumentError`).
 

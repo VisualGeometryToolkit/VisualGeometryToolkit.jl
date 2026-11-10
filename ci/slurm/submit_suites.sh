@@ -8,7 +8,8 @@
 #   bash ci/slurm/summarize.sh <job id | log directory>  # the table of a launch
 #
 # Sizing (the environment; every value overridable):
-#   CPUS_PER_TASK   default: the partition's CPUs per node divided by the number of packages (at least 4); --local: nproc
+#   CPUS_PER_TASK   default: the partition's CPUs per node divided by six, the number of packages (at least 4), so a subset
+#                   takes the same share per task as a full launch; --local: nproc
 #   MEM_PER_CPU     default: the node's memory per CPU in MB (floor), so the tasks of a full node share its memory evenly
 #   TIME_LIMIT      default 03:00:00 per task
 #   VGTK_SLURM_PARTITION, VGTK_SLURM_ACCOUNT   --partition / --account (default: none, the site's defaults; Slurm's own
@@ -52,8 +53,8 @@ command -v sbatch > /dev/null || { echo "no sbatch on PATH: run with --local"; e
 SINFO_P=(); [ -n "${VGTK_SLURM_PARTITION:-}" ] && SINFO_P=(-p "$VGTK_SLURM_PARTITION")
 # the partition's largest node: CPUs and memory (MB)
 read -r NODE_CPUS NODE_MEM < <(sinfo -h ${SINFO_P[@]+"${SINFO_P[@]}"} -o '%c %m' | tr -d '+' | sort -n | tail -n 1)
-N=${#PKGS[@]}
-CPUS=${CPUS_PER_TASK:-$(( NODE_CPUS / N > 4 ? NODE_CPUS / N : 4 ))}
+N=${#PKGS[@]}; NALL=${#VGTK_ALL_PACKAGES[@]}
+CPUS=${CPUS_PER_TASK:-$(( NODE_CPUS / NALL > 4 ? NODE_CPUS / NALL : 4 ))}
 MEM=${MEM_PER_CPU:-$(( NODE_MEM / NODE_CPUS ))}
 OPTS=(--parsable --array=0-$(( N - 1 )) --cpus-per-task="$CPUS" --mem-per-cpu="${MEM}M" --time="${TIME_LIMIT:-03:00:00}"
       --output="$VGTK_SUITE_LOGDIR/slurm-%A_%a.out")

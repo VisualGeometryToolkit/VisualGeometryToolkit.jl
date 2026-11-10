@@ -60,10 +60,12 @@ run_package() {
     echo "[$(date +%T)] package=$pkg commit=$(git rev-parse HEAD) host=$(hostname) job=${SLURM_ARRAY_JOB_ID:-${SLURM_JOB_ID:-local}}_${SLURM_ARRAY_TASK_ID:-}"
     echo "[$(date +%T)] cpus=$cpus workers=$RETESTITEMS_NWORKERS gpu=$(gpu_label) LO_TIMING_GATE=${LO_TIMING_GATE:-} VGTK_BENCHMARK_TESTS=${VGTK_BENCHMARK_TESTS:-}"
   } > "$log"
-  # The workspace has one Manifest at the root: the tasks of an array instantiate one at a time (a lock in the git directory).
+  # The workspace has one Manifest at the root (untracked): it is resolved first, so a [deps] change since its last resolve
+  # (a package that gained a dependency) is picked up, then instantiated; the tasks of an array do this one at a time (a lock
+  # in the git directory).
   {
     flock 9
-    "$JULIA" --startup-file=no --project="$pkg/test" -e 'using Pkg; Pkg.instantiate()'
+    "$JULIA" --startup-file=no --project="$pkg/test" -e 'using Pkg; Pkg.resolve(); Pkg.instantiate()'
   } 9> "$(git rev-parse --git-dir)/vgtk-suite-instantiate.lock" >> "$log" 2>&1
   rc=$?
   if [ $rc -eq 0 ]; then

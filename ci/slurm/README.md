@@ -38,7 +38,7 @@ Julia thread and one BLAS thread (`JULIA_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `CPUS_PER_TASK` | the partition's CPUs per node ÷ the number of packages (at least 4); `--local`: `nproc` | CPUs of one task |
+| `CPUS_PER_TASK` | the partition's CPUs per node ÷ 6, the number of packages (at least 4), for a subset too; `--local`: `nproc` | CPUs of one task |
 | `MEM_PER_CPU` | the node's memory ÷ its CPUs, in MB | `--mem-per-cpu` |
 | `TIME_LIMIT` | `03:00:00` | `--time` of one task |
 | `VGTK_SLURM_PARTITION` | none (the site's default) | `--partition`; Slurm's own `SBATCH_PARTITION` works too |
@@ -55,7 +55,9 @@ reaches every task.
 
 ## Notes
 
-- **One Manifest.** The workspace resolves into one root `Manifest.toml`, so the tasks of a launch instantiate one at a time
+- **One Manifest.** The workspace resolves into one root `Manifest.toml` (untracked). Each task runs `Pkg.resolve()` before
+  `Pkg.instantiate()`, so a checkout whose Project.toml files changed since the Manifest was last resolved (a package that
+  gained a dependency) is brought up to date rather than failing to load; the tasks of a launch resolve and instantiate one at a time
   (an `flock` on a file in the git directory); the suites themselves run in parallel.
 - **The GPU a task saw.** Under Slurm's device cgroup a task sees its card as index 0; the log header records the card's UUID as
   well (`nvidia-smi --query-gpu=index,uuid`), which tells the cards apart.

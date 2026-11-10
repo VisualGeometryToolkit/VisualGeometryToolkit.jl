@@ -696,7 +696,8 @@ _is_under(f, d) = f == d || startswith(f, d * "/")
 The in-scope files of the package at `dir` (relative paths), and the directory
 trees excluded as third-party source, each as `tree => reason`. Scope is every
 git-tracked file (every file, outside a git checkout) with a stack-text
-extension, less `Manifest.toml`, `docs/build/` and the declared vendored trees.
+extension, less `Manifest.toml`, `docs/build/`, `docs/superpowers/` (plans and
+process records, which name retired APIs on purpose) and the declared vendored trees.
 Paper sources are out of scope by extension (`.tex`, `.bib` and figure data are
 not scanned); the code and docs beside a paper are in scope.
 
@@ -751,7 +752,7 @@ function naming_scope(dir::AbstractString)
         base = parts[end]
         any(endswith(base, e) for e in _NAMING_EXTENSIONS) || continue
         (startswith(base, "Manifest") || startswith(base, "JuliaManifest")) && endswith(base, ".toml") && continue
-        length(parts) >= 2 && parts[1] == "docs" && parts[2] == "build" && continue
+        length(parts) >= 2 && parts[1] == "docs" && parts[2] in ("build", "superpowers") && continue
         any(d -> _is_under(f, d), keys(decl.vendored)) && continue
         push!(files, f)
     end

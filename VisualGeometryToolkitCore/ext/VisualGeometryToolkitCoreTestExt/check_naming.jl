@@ -70,6 +70,7 @@ const _ITERATION_WORDS = ("iter", "iters", _IT, _IT * "s")
 # retired in one form lists each form it took. Names renamed by the naming
 # sweep are listed here as they are renamed.
 const RETIRED_NAMES = String[
+    "_grid" * "_golden_minimum",            # the one 1-D minimizer is public: `grid_golden_minimum` (2026-11)
     "_lens" * "_axis",                      # the forward spline's chart is about ẑ, not the principal point's ray: `_forward_chart()` (2026-11)
     "image" * "_origin",                    # the pixel-frame keyword of `CameraModel(K; …)`: `pixel_frame` (2026-11)
     "_radially" * "_symmetric",             # a lens's radial symmetry is a Holy trait: `RadialSymmetry` (`RadiallySymmetric()` / `RadiallyAsymmetric()`) (2026-11)

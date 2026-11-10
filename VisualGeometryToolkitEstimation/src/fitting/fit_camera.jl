@@ -59,8 +59,8 @@ a `NamedTuple`:
   rescale `s`, the fitted and the source's angular domains (radians), and
   whether the target family cut the source's domain; the errors are at the
   quadrature's nodes of the radial profile;
-- `SplineLens`: `(; penalty, grid_size, stride, outer_iterations,
-  n_held_out_dropped, tolerance, spacing, counts, forward_penalty,
+- `SplineLens`: `(; λ, grid_size, stride, outer_iterations,
+  n_held_out_dropped, tolerance, spacing, counts, forward_λ,
   forward_outer_iterations, forward_max_px, forward_max_px_edge, forward_rms)` —
   the backward lattice's P-spline weight `λ` (`nothing` for a SplineLens
   source's kept backward), its `(columns, rows)` (Core's `grid_size`), the quadrature's stride in
@@ -74,7 +74,7 @@ a `NamedTuple`:
   as the non-central target's (below), over the held-out pixels where the
   source's back-projection Jacobian is finite — `n_held_out_dropped` counts the
   others;
-- `NoncentralSplineModel`: `(; penalty, grid_size, stride, tolerance,
+- `NoncentralSplineModel`: `(; λ, grid_size, stride, tolerance,
   outer_iterations, center, max_offset, rms_offset, max_offset_edge,
   n_held_out_dropped)` —
   `center` the anchor c* (the
@@ -743,7 +743,7 @@ end
 
 _grid_metadata(r, g, extra::NamedTuple) = CameraFitMetadata(
     g.region, :image, r.errors.max, r.errors.max_edge,
-    (; penalty = r.λ, grid_size = r.grid_size, stride = g.q.stride, extra..., r.family...)
+    (; λ = r.λ, grid_size = r.grid_size, stride = g.q.stride, extra..., r.family...)
 )
 
 """
@@ -770,7 +770,7 @@ a bare model is an `ArgumentError`) of a `CameraModel` or, for the non-central
 target, also of a `NoncentralSplineModel`. The result's `retcode` is `:solved`,
 `iterations` 0; its metadata is `fit_camera`'s, the held-out errors (the
 direction error in pixels; for the non-central model also the line offsets in
-metres, and `center`) and `family = (; penalty, grid_size, stride,
+metres, and `center`) and `family = (; λ, grid_size, stride,
 n_held_out_dropped, …)` with `grid_size` the lattice's `(columns, rows)`, as
 `fit_camera` reports it, and no `tolerance` or `outer_iterations`.
 """
@@ -959,9 +959,9 @@ function fit_camera(
     fwd = forward ? _forward_spline(cam, region, tolerance, device) : nothing
     fwd === nothing || fwd.code === :converged || (code = fwd.code)
     out = fwd === nothing ? cam : CameraModel(cam.intrinsics, SplineLens(cam.lens.backward; forward = fwd.spline, present = cam.lens.present))
-    ff = fwd === nothing ? (; spacing = nothing, counts = nothing, forward_penalty = nothing, forward_outer_iterations = nothing,
+    ff = fwd === nothing ? (; spacing = nothing, counts = nothing, forward_λ = nothing, forward_outer_iterations = nothing,
             forward_max_px = nothing, forward_max_px_edge = nothing, forward_rms = nothing) :
-        (; spacing = fwd.r.h, counts = fwd.r.counts, forward_penalty = fwd.r.λ, forward_outer_iterations = fwd.n,
+        (; spacing = fwd.r.h, counts = fwd.r.counts, forward_λ = fwd.r.λ, forward_outer_iterations = fwd.n,
             forward_max_px = fwd.r.errors.max, forward_max_px_edge = fwd.r.errors.max_edge, forward_rms = fwd.r.errors.rms)
     return FitResult(
         out, code, 0, back.errors.rms, back.n,
@@ -987,13 +987,13 @@ function _spline_backward(src::CameraModel{<:VgtkCore.Cameras.AbstractIntrinsics
     q = _image_quadrature(cam, region; device)
     held = _held_out(SplineLens, cam, q, cam.intrinsics)
     errors = _held_out_errors(_direction_errors(cam, held), held.edge)
-    family = (; penalty = nothing, grid_size = VgtkCore.grid_size(cam), stride = q.stride, outer_iterations = 0, n_held_out_dropped = held.n_dropped)
+    family = (; λ = nothing, grid_size = VgtkCore.grid_size(cam), stride = q.stride, outer_iterations = 0, n_held_out_dropped = held.n_dropped)
     return (; camera = cam, errors, n = length(q.fit_px)), :converged, family
 end
 function _spline_backward(::CameraModel, source, region, grid_size, tolerance, device)
     g = _grid_data(SplineLens, source, region, device)
     r, code, n = _backward_search(SplineLens, g, grid_size, tolerance)
-    family = (; penalty = r.λ, grid_size = r.grid_size, stride = g.q.stride, outer_iterations = n, r.family...)
+    family = (; λ = r.λ, grid_size = r.grid_size, stride = g.q.stride, outer_iterations = n, r.family...)
     return (; camera = r.fitted, r.errors, n = length(g.q.fit_px)), code, family
 end
 _spline_backward(src, source, region, grid_size, tolerance, device) = throw(

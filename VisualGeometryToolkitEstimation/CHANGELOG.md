@@ -15,8 +15,8 @@ non-central one is a `NoncentralSplineModel`).
   is a `ChartSpline{2}` on the equidistant chart about ẑ (Core's one derivation, `_forward_chart`), fitted to the camera's own rays by the same
   solve and the same spacing search, to `tolerance` in pixels of the held-out round trip; the camera then projects
   through it. The metadata `family` is the union of the old central grid's and the old forward map's records
-  (`penalty, grid_size, stride, outer_iterations, n_held_out_dropped, tolerance`, then `spacing, counts,
-  forward_penalty, forward_outer_iterations, forward_max_px, forward_max_px_edge, forward_rms`, `nothing` without a
+  (`λ, grid_size, stride, outer_iterations, n_held_out_dropped, tolerance`, then `spacing, counts,
+  forward_λ, forward_outer_iterations, forward_max_px, forward_max_px_edge, forward_rms`, `nothing` without a
   forward). It replaces `fit_camera(CentralGenericModel, …)` and `fit_camera(SplineProjection, …)`, both deleted. A
   0.8 `SplineProjection`'s spline is not a valid forward (its chart is about the region-centroid ray, the forward's
   about ẑ): refit with `fit_camera(SplineLens, …)`, never reuse it.
@@ -45,7 +45,7 @@ non-central one is a `NoncentralSplineModel`).
 - **`fit_camera`'s P-spline weight is in the stack's one convention**: `λ = β·penalty_scale(tr AᵀA, nodes, m̄)` with
   β = 3e-7 (`_PSPLINE_BETA`) and m̄ the Δ³ operator's mean positive eigenvalue (≈ 31 on a 12 × 10 lattice, → 40 on
   large ones), in place of `1e-8·mean(diag(AᵀA))`: λ is 3e-7/m̄ ≈ 0.75–1 × the former one, so the fitted lattices
-  move within the fit's tolerance (`penalty` in the metadata is the new λ).
+  move within the fit's tolerance (the metadata's `family.λ`, formerly `penalty`, and `forward_λ`, formerly `forward_penalty`).
 - **New (public, not exported): the stack's one generalized cross-validation of a penalty weight and its
   normalization** — `penalty_scale(energy, N, m̄)` (`λ = β·energy/N/m̄`: β relative to the data's energy per parameter
   and to the penalty operator's mean positive eigenvalue), `mean_positive_eigenvalue(D)` (`‖D‖²_F / rank D`, a sparse

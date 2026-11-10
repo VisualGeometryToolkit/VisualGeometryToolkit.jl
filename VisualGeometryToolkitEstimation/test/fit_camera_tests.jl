@@ -159,7 +159,7 @@ end
     @test lens(cam).backward.controls == lens(GRID).backward.controls && lens(cam).backward.area == lens(GRID).backward.area
     @test calibration_matrix(cam) == calibration_matrix(GRID)
     fam = metadata(r).family
-    @test fam.penalty === nothing && fam.grid_size == (40, 40) && fam.outer_iterations == 0
+    @test fam.λ === nothing && fam.grid_size == (40, 40) && fam.outer_iterations == 0
     @test metadata(r).max_px < 1.0e-9                                           # the kept backward against itself
     # the forward's held-out maximum, the edge band's included (the old forward map
     # it replaced measured 2026-11-04: 9.2e-4 px, in the band; rms 1.0e-4 px; 28 × 28 controls)
@@ -183,7 +183,7 @@ end
     r2 = fit_camera(SplineLens, BoundedCamera(cam, Size2(1000, 1000)), REGION; tolerance = 1.0e-3)
     @test lens(estimate(r2)).backward.controls == lens(GRID).backward.controls
     @test lens(estimate(r2)).forward.controls == lens(cam).forward.controls
-    @test retcode(r2) === :converged && metadata(r2).family.penalty === nothing && metadata(r2).family.forward_max_px <= 1.0e-3
+    @test retcode(r2) === :converged && metadata(r2).family.λ === nothing && metadata(r2).family.forward_max_px <= 1.0e-3
     # a kept backward has no lattice to choose
     @test_throws r"kept as it is" fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3, grid_size = (40, 40))
 end
@@ -376,7 +376,7 @@ end
     p = pspline_grid(SplineLens, bc, REGION, (gw, gh))       # (columns, rows), Core's lattice convention
     @test retcode(p) === :solved && iterations(p) == 0 && metadata(p) isa CameraFitMetadata && lens(estimate(p)).forward === nothing
     @test lens(estimate(p)).backward.controls == lens(estimate(r)).backward.controls && rms(p) == rms(r) && metadata(p).max_px == metadata(r).max_px
-    @test metadata(p).family == (; penalty = metadata(r).family.penalty, grid_size = (gw, gh), stride = metadata(r).family.stride, n_held_out_dropped = 0)
+    @test metadata(p).family == (; λ = metadata(r).family.λ, grid_size = (gw, gh), stride = metadata(r).family.stride, n_held_out_dropped = 0)
     for (cols, rows) in ((35, 25), (105, 75))
         g = pspline_grid(SplineLens, bc, REGION, (cols, rows))
         G = lens(estimate(g)).backward.controls

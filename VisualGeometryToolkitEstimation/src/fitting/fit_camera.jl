@@ -60,7 +60,7 @@ a `NamedTuple`:
   n_held_out_dropped, tolerance, spacing, counts, forward_penalty,
   forward_outer_iterations, forward_max_px, forward_max_px_edge, forward_rms)` —
   the backward lattice's P-spline weight `λ` (`nothing` for a SplineLens
-  source's kept backward), its `(rows, columns)`, the quadrature's stride in
+  source's kept backward), its `(columns, rows)` (Core's `grid_size`), the quadrature's stride in
   pixels, the spacing search's fits (0 for a given or kept lattice), the
   held-out pixels dropped (below) and the tolerance asked for; then the forward
   spline's knot spacing `h` (radians in the chart), its control counts per chart
@@ -138,8 +138,8 @@ family and the solve:
   (`spline_lattice`; the source is not sampled: the solve sets every control),
   fitted to the source's rays at the normalized points `x = K⁻¹u` by linear
   least squares with the P-spline penalty — [`pspline_grid`](@ref) at
-  `grid_size` (columns, rows; reported back in the metadata as (rows,
-  columns), as `size(controls)`) when given, else at the lattice THE SPACING
+  `grid_size` (columns, rows; reported back in the metadata in that order,
+  as Core's `grid_size(camera)`) when given, else at the lattice THE SPACING
   SEARCH chooses: the spacing is doubled down from 4 cells along the longer
   side and then bisected to the LARGEST spacing whose held-out maximum error is
   at most `tolerance` (px), `retcode :converged`; a fit that cannot reach it at
@@ -657,7 +657,7 @@ function _pspline_grid(::Type{G}, g, grid_size) where {G}
     controls, λ = _penalized_solve(rows, g.B, gh, gw, g.ncomp)
     fitted = _grid_model(G, g, controls)
     errors, family = _grid_errors(fitted, g.held, g.anchor)
-    return (; fitted, errors, family = (; family..., n_held_out_dropped = g.held.n_dropped), λ, grid_size = (gh, gw))
+    return (; fitted, errors, family = (; family..., n_held_out_dropped = g.held.n_dropped), λ, grid_size = (gw, gh))
 end
 # The lattice the spacing search chose (or `grid_size`, when given: no search,
 # the tolerance read off it): the solve, its retcode and its outer iterations.
@@ -700,7 +700,7 @@ target, also of a `NoncentralSplineModel`. The result's `retcode` is `:solved`,
 `iterations` 0; its metadata is `fit_camera`'s, the held-out errors (the
 direction error in pixels; for the non-central model also the line offsets in
 metres, and `center`) and `family = (; penalty, grid_size, stride,
-n_held_out_dropped, …)` with `grid_size` the lattice's `(rows, columns)`, as
+n_held_out_dropped, …)` with `grid_size` the lattice's `(columns, rows)`, as
 `fit_camera` reports it, and no `tolerance` or `outer_iterations`.
 """
 function pspline_grid(::Type{G}, source, region, grid_size::Tuple{Integer, Integer}) where {G <: Union{SplineLens, NoncentralSplineModel}}
@@ -910,7 +910,7 @@ function _spline_backward(src::CameraModel{<:VgtkCore.Cameras.AbstractIntrinsics
     q = _image_quadrature(cam, region)
     held = _held_out(SplineLens, cam, q, cam.intrinsics)
     errors = _held_out_errors(_direction_errors(cam, held), held.edge)
-    family = (; penalty = nothing, grid_size = size(cam.lens.backward.controls), stride = q.stride, outer_iterations = 0, n_held_out_dropped = held.n_dropped)
+    family = (; penalty = nothing, grid_size = VgtkCore.grid_size(cam), stride = q.stride, outer_iterations = 0, n_held_out_dropped = held.n_dropped)
     return (; camera = cam, errors, n = length(q.fit_px)), :converged, family
 end
 function _spline_backward(::CameraModel, source, region, grid_size, tolerance)

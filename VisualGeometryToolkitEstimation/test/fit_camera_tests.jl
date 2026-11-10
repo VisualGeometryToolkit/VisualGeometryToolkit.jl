@@ -240,7 +240,7 @@ end
     using StaticArrays: SA, SVector
     using LinearAlgebra: norm, normalize
     using VisualGeometryToolkitCore: estimate, metadata, retcode, iterations, BoundedCamera, Size2, SplineLens,
-        CameraModel, KannalaBrandt, Rect, Ellipse, angle_between, calibration_matrix, lens, px
+        CameraModel, KannalaBrandt, Rect, Ellipse, angle_between, calibration_matrix, lens, grid_size, px
     import VisualGeometryToolkitEstimation as VgtkEstimation
     using VisualGeometryToolkitEstimation: fit_camera
     bc = BoundedCamera(FISHEYE, Size2(1000, 1000))
@@ -252,7 +252,7 @@ end
     # 2026-11-04: 35 × 35 nodes, 9.6e-5 px; 40 × 40 reached 5.4e-5 px)
     @test retcode(r) === :converged && iterations(r) == 0 && md.family.outer_iterations > 1
     @test md.max_px <= 1.0e-4 && md.family.tolerance == 1.0e-4
-    gh, gw = md.family.grid_size
+    gw, gh = md.family.grid_size
     @test gh == gw && 20 <= gh <= 40 && VgtkEstimation._lattice_grid_size(1000, 1000, gw - 3) == (gw, gh)
     # Core's full-image lattice, with the source's K
     @test size(G) == (gh, gw) && calibration_matrix(g) == calibration_matrix(FISHEYE)
@@ -295,9 +295,9 @@ end
     # a given lattice: no search, the tolerance read off it
     rg = fit_camera(SplineLens, bc, REGION; tolerance = 1.0e-4, grid_size = (40, 40), forward = false)
     @test metadata(rg).family.grid_size == (40, 40) && metadata(rg).family.outer_iterations == 0 && retcode(rg) === :converged
-    # a non-square one: given as (columns, rows), reported as (rows, columns), as size(controls)
+    # a non-square one: given as (columns, rows) and reported in that order, Core's grid_size's
     rn = fit_camera(SplineLens, bc, REGION; tolerance = 1.0e-4, grid_size = (40, 30), forward = false)
-    @test metadata(rn).family.grid_size == (30, 40) && size(lens(estimate(rn)).backward.controls) == (30, 40)
+    @test metadata(rn).family.grid_size == grid_size(estimate(rn)) == (40, 30) && size(lens(estimate(rn)).backward.controls) == (30, 40)
     # a bare camera model has no image for the full-image lattice
     @test_throws r"no image" fit_camera(SplineLens, FISHEYE, REGION; tolerance = 0.01)
     @test_throws ArgumentError fit_camera(SplineLens, bc, REGION; tolerance = 0.0)
@@ -372,15 +372,15 @@ end
     r = fit_camera(SplineLens, bc, REGION; tolerance = 1.0e-3)
     rb = fit_camera(SplineLens, bc, REGION; tolerance = 1.0e-3, forward = false)
     @test lens(estimate(r)).backward.controls == lens(estimate(rb)).backward.controls   # the forward does not move the backward
-    gh, gw = metadata(r).family.grid_size
+    gw, gh = metadata(r).family.grid_size
     p = pspline_grid(SplineLens, bc, REGION, (gw, gh))       # (columns, rows), Core's lattice convention
     @test retcode(p) === :solved && iterations(p) == 0 && metadata(p) isa CameraFitMetadata && lens(estimate(p)).forward === nothing
     @test lens(estimate(p)).backward.controls == lens(estimate(r)).backward.controls && rms(p) == rms(r) && metadata(p).max_px == metadata(r).max_px
-    @test metadata(p).family == (; penalty = metadata(r).family.penalty, grid_size = (gh, gw), stride = metadata(r).family.stride, n_held_out_dropped = 0)
+    @test metadata(p).family == (; penalty = metadata(r).family.penalty, grid_size = (gw, gh), stride = metadata(r).family.stride, n_held_out_dropped = 0)
     for (cols, rows) in ((35, 25), (105, 75))
         g = pspline_grid(SplineLens, bc, REGION, (cols, rows))
         G = lens(estimate(g)).backward.controls
-        @test size(G) == (rows, cols) && metadata(g).family.grid_size == (rows, cols) && retcode(g) === :solved
+        @test size(G) == (rows, cols) && metadata(g).family.grid_size == (cols, rows) && retcode(g) === :solved
         @test isfinite(metadata(g).max_px) && all(c -> all(isfinite, c), G)
     end
     @test metadata(pspline_grid(SplineLens, bc, REGION, (105, 75))).max_px < metadata(pspline_grid(SplineLens, bc, REGION, (35, 25))).max_px
@@ -393,7 +393,7 @@ end
     using VisualGeometryToolkitCore: estimate, metadata, retcode, rms, NoncentralSplineModel
     using VisualGeometryToolkitEstimation: fit_camera, pspline_grid
     r = fit_camera(NoncentralSplineModel, SOURCE, REGION; tolerance = 1.0e-3)
-    gh, gw = metadata(r).family.grid_size
+    gw, gh = metadata(r).family.grid_size
     p = pspline_grid(NoncentralSplineModel, SOURCE, REGION, (gw, gh))
     @test retcode(p) === :solved && estimate(p).directions.controls == estimate(r).directions.controls &&
         estimate(p).points.controls == estimate(r).points.controls
@@ -448,7 +448,7 @@ end
     md = metadata(r)
     # the tolerance chooses the lattice (measured 2026-11-04: 26 × 26 nodes)
     @test retcode(r) === :converged && iterations(r) == 0 && md.family.outer_iterations > 1
-    gh, gw = md.family.grid_size
+    gw, gh = md.family.grid_size
     # Core's full-image lattice with the source's K
     @test g isa NoncentralSplineModel && g.intrinsics.K == MODEL.intrinsics.K && g.directions.area == MODEL.directions.area
     @test size(g.directions.controls) == size(g.points.controls) == (gh, gw)

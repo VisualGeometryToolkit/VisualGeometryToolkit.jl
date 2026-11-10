@@ -658,43 +658,25 @@ end
 @inline _spline_direction(controls, area, p) =
     normalize(SVector{3, Float64}(_eval_window(controls, _spline_window(_lattice_coords(area, size(controls), p)...)...)))
 
-# THE direction of that spline at `x` and its Jacobian `∂d/∂x` (3 × 2), analytic and
-# from ONE evaluation of the basis weights: the value and its two partials in one
-# sweep of the 4 × 4 window (`_continued_window`'s, so a point in `_in_backward`'s
-# lower-edge slack reads the first window), the normalize differential
-# `(I − d dᵀ)/‖S‖` and the area → lattice slope. Device-safe (isbits, no
-# allocation): the LM's Jacobian and the lens's `backproject_with_jacobian`.
+# THE direction of that spline at `x` and its Jacobian `∂d/∂x` (3 × 2), analytic:
+# the value and partials of `_spline_value_and_partials` (one evaluation of the basis
+# weights) through the normalize differential `(I − d dᵀ)/‖S‖`. In the precision of
+# `x` and the controls, as `backproject`. Device-safe (isbits, no allocation): the
+# LM's Jacobian, the lens's `backproject_with_jacobian`, the non-central residual's.
 @inline function _spline_direction_and_jacobian(controls::AbstractMatrix, area, x::StaticVector{2})
-    gsz = gh, gw = size(controls)
-    gx, gy = _lattice_coords(area, gsz, x)
-    ix, iy, wx, wy = _continued_window(gx, gy, gw, gh)
-    dwx = _cubic_bspline_weights_deriv(_span_coordinate(gx + 2, ix))
-    dwy = _cubic_bspline_weights_deriv(_span_coordinate(gy + 2, iy))
-    S = Sx = Sy = zero(SVector{3, Float64})
-    @inbounds for r in 1:4
-        row = drow = zero(SVector{3, Float64})
-        for c in 1:4
-            g = SVector{3, Float64}(controls[iy - 3 + r, ix - 3 + c])
-            row += wx[c] * g
-            drow += dwx[c] * g
-        end
-        S += wy[r] * row
-        Sx += wy[r] * drow
-        Sy += dwy[r] * row
-    end
-    sx, sy = _lattice_slope(area, gsz)
+    S, Sx, Sy = _spline_value_and_partials(controls, area, x)
     n = norm(S)
     d = S / n
-    Jx = (Sx - d * dot(d, Sx)) * (sx / n)
-    Jy = (Sy - d * dot(d, Sy)) * (sy / n)
-    return d, hcat(Jx, Jy)
+    m = inv(n)
+    return d, hcat((Sx - d * dot(d, Sx)) * m, (Sy - d * dot(d, Sy)) * m)
 end
 
 # A SplineLens's bearing at the normalized point `x` and its Jacobian (the BackwardLens
 # route of `backproject_with_jacobian`): the analytic one, NaN where the lens does not
 # image `x`.
 @inline function _backward_value_and_jacobian(l::SplineLens, x::StaticVector{2})
-    _in_backward(l, x) || return SVector{3, Float64}(NaN, NaN, NaN), SMatrix{3, 2, Float64, 6}(ntuple(_ -> NaN, Val(6)))
+    T = promote_type(float(eltype(x)), eltype(eltype(l.backward.controls)))
+    _in_backward(l, x) || return SVector{3, T}(NaN, NaN, NaN), SMatrix{3, 2, T, 6}(ntuple(_ -> T(NaN), Val(6)))
     return _spline_direction_and_jacobian(l.backward.controls, l.backward.area, x)
 end
 

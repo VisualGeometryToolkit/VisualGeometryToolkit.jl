@@ -208,8 +208,35 @@ backproject_with_jacobian(m::NoncentralSplineModel, u::StaticVector{2}) = backpr
     return SVector(dot(t1, pto), dot(t2, pto))
 end
 
-# THE non-central projection: `_spline_lm` on the tangent-plane residual with a
-# ForwardDiff Jacobian, from the normalized point `x₀`, on the direction area's
+# The Jacobian `∂r/∂p` (2 × 2) of that residual, analytic: the direction spline's
+# `_spline_direction_and_jacobian` and the point spline's `_spline_value_and_partials`
+# at `p` (one evaluation of the basis weights each), chained through the tangent
+# basis. With `t₁ = (d × a)/‖d × a‖`, `t₂ = d × t₁` (`a` = `_tangent_axis(d)`,
+# piecewise constant) and `w = o − X`: `∂(t₁·w) = δd·(a × w⊥)/‖d × a‖ + t₁·δo` and
+# `∂(t₂·w) = δd·(t₁ × w + (a × q⊥)/‖d × a‖) + t₂·δo`, `q = w × d`, `⊥` the part
+# orthogonal to `t₁`. No automatic differentiation inside the LM: a ForwardDiff
+# Jacobian there is the pattern Julia 1.12 and 1.13 miscompile at -O2
+# (test/fixtures/repro_o2_miscompile.jl).
+@inline function _noncentral_residual_jacobian(dctrl::AbstractMatrix, pctrl::AbstractMatrix, area, p::SVector{2}, X::SVector{3})
+    d, Jd = _spline_direction_and_jacobian(dctrl, area, p)
+    o, ox, oy = _spline_value_and_partials(pctrl, area, p)
+    a = _tangent_axis(d)
+    u = cross(d, a)
+    nu = norm(u)
+    t1 = u / nu
+    t2 = cross(d, t1)
+    w = o - X
+    q = cross(w, d)
+    g1 = cross(a, w - t1 * dot(t1, w)) / nu
+    g2 = cross(t1, w) + cross(a, q - t1 * dot(t1, q)) / nu
+    Jo = hcat(ox, oy)
+    r1 = transpose(Jd) * g1 + transpose(Jo) * t1          # ∇ₚ(t₁·w)
+    r2 = transpose(Jd) * g2 + transpose(Jo) * t2          # ∇ₚ(t₂·w)
+    return SMatrix{2, 2}(r1[1], r2[1], r1[2], r2[2])
+end
+
+# THE non-central projection: `_spline_lm` on the tangent-plane residual with its
+# analytic Jacobian, from the normalized point `x₀`, on the direction area's
 # scale-free box; the pixel, NaN unless it converged onto an imaged point.
 function _noncentral_project(m::NoncentralSplineModel, X, x₀::SVector{2, Float64})
     Xv = SVector{3, Float64}(X[1], X[2], X[3])
@@ -217,7 +244,7 @@ function _noncentral_project(m::NoncentralSplineModel, X, x₀::SVector{2, Float
     (all(isfinite, Xv) && all(isfinite, x₀)) || return nan
     a = m.directions.area
     res(p, _) = _noncentral_residual(m.directions.controls, m.points.controls, a, p, Xv)
-    jac(p, _) = ForwardDiff.jacobian(q -> res(q, nothing), p)
+    jac(p, _) = _noncentral_residual_jacobian(m.directions.controls, m.points.controls, a, p, Xv)
     lb, ub, s = _spline_lm_box(a)
     x, ok = _spline_lm(res, jac, x₀, lb, ub, s, _PROJECT_MAXITER, _PROJECT_TOL^2)
     (ok && _in_backward(_direction_lens(m), x)) || return nan

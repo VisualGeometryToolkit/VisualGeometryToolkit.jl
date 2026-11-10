@@ -22,10 +22,14 @@
 # 64 unmasked rays. Nothing in the code reads out of bounds, truncates a NaN or
 # depends on the tag: the review ruled those out, and -O0/-O1 are clean. So it is
 # most likely an LLVM -O2 miscompile. (run_tests runs with check_bounds == 0.)
-# Not yet run on 1.13.3 or 1.12.7: the controller runs this file on both.
+# Also measured (by the controller, a cold run of this file) on Julia 1.13.3 and on
+# 1.12.7 (CI's): the same on both — -O1 fused/stored [64, 50, 64, 50], -O2
+# [64, 20, 64, 50]. So the AD-Jacobian-inside-the-LM pattern is wrong at -O2 on every
+# supported Julia.
 #
-# The package no longer forms this pattern: the LM's Jacobian is analytic
-# (`_spline_direction_and_jacobian`). The guard is the test item "SplineLens:
+# The package no longer forms this pattern: every LM Jacobian is analytic (the
+# central `_spline_direction_and_jacobian`, the non-central
+# `_noncentral_residual_jacobian`). The guard is the test item "SplineLens:
 # project's imaged mask is the same at every optimization level". Whether to report
 # this upstream is the owner's decision.
 
@@ -55,8 +59,9 @@ function _repro_cameras()
     return (cam, masked, cam_fwd, with_present(cam_fwd, G.masked.present)), rays
 end
 
-# The package's projection as it stood at fix round 1 (spline_lens.jl, d54a0637), but
-# with the LM's ForwardDiff Jacobian INLINED (there it sat behind a `@noinline` barrier).
+# FROZEN: a copy of round 1's code (spline_lens.jl at d54a0637), with the LM's
+# ForwardDiff Jacobian INLINED (there it sat behind a `@noinline` barrier). Do not
+# update it to the package's current code: it must keep the pattern that miscompiles.
 const REPRO_BODY = quote
     @inline function solve(controls, area, t, x₀, lb, ub, s, maxiter, tol2)
         tmax = max(abs(t[1]), abs(t[2]), abs(t[3]))

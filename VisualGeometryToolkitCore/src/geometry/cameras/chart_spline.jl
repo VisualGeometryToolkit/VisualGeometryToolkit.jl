@@ -77,15 +77,37 @@ end
     return (gw - 3) / w[1], (gh - 3) / w[2]
 end
 
-function transform_deriv(cs::ChartSpline, c::StaticVector{2, <:Real})
-    gh, gw = size(cs.controls)
-    sx, sy = _lattice_slope(cs.area, (gh, gw))
-    gx, gy = _lattice_coords(cs.area, (gh, gw), c)
+# THE value of a spline of `controls` over `area` at the point `x` and its two partials
+# `(S, ∂S/∂x₁, ∂S/∂x₂)`, from ONE evaluation of the basis weights and one sweep of the
+# 4 × 4 window (`_continued_window`'s: continued past the area, the window clamped to
+# the grid), the partials through the area → lattice slope. In the precision of `x`
+# and the controls (a Float32 lattice stays Float32). The value sums in
+# `_eval_window`'s order, so it is the spline's value bit for bit. Device-safe.
+@inline function _spline_value_and_partials(controls::AbstractMatrix{<:StaticVector{K}}, area, x::StaticVector{2}) where {K}
+    gsz = gh, gw = size(controls)
+    gx, gy = _lattice_coords(area, gsz, x)
     ix, iy, wx, wy = _continued_window(gx, gy, gw, gh)
     dwx = _cubic_bspline_weights_deriv(_span_coordinate(gx + 2, ix))
     dwy = _cubic_bspline_weights_deriv(_span_coordinate(gy + 2, iy))
-    Sx = _eval_window(cs.controls, ix, iy, dwx, wy) * sx   # ∂/∂c₁: the lattice coordinate's slope
-    Sy = _eval_window(cs.controls, ix, iy, wx, dwy) * sy
+    T = promote_type(typeof(gx), eltype(eltype(controls)))
+    S = Sx = Sy = zero(SVector{K, T})
+    @inbounds for r in 1:4
+        row = drow = zero(SVector{K, T})
+        for c in 1:4
+            g = SVector{K, T}(controls[iy - 3 + r, ix - 3 + c])
+            row += wx[c] * g
+            drow += dwx[c] * g
+        end
+        S += wy[r] * row
+        Sx += wy[r] * drow
+        Sy += dwy[r] * row
+    end
+    sx, sy = _lattice_slope(area, gsz)
+    return S, Sx * T(sx), Sy * T(sy)
+end
+
+function transform_deriv(cs::ChartSpline, c::StaticVector{2, <:Real})
+    _, Sx, Sy = _spline_value_and_partials(cs.controls, cs.area, c)
     return hcat(Sx, Sy)
 end
 

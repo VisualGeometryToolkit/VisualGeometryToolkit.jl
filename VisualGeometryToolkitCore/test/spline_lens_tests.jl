@@ -300,16 +300,17 @@ end
     using StaticArrays
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, px, with_present, Rect2,
-        LogicalIntrinsics, CameraCalibrationMat, calibration_matrix
+        LogicalIntrinsics, CameraCalibrationMat, calibration_matrix, NoncentralSplineModel
     using VisualGeometryToolkitCore.Cameras: _spline_camera
 
     # =============================================================================
     # A guard against the -O2 miscompile of plan 1b Task 3 (test/fixtures/
-    # repro_o2_miscompile.jl): with a ForwardDiff Jacobian inlined into the LM, the
-    # rays a camera images over a tuple of cameras changed with the optimization level
-    # and with how the result was tested (-O2 and -O3 only). Both forms, compiled at
-    # optimization levels 1 and 2, must agree on every golden ray, and the two levels
-    # with each other.
+    # repro_o2_miscompile.jl; Julia 1.12.7, 1.13.2, 1.13.3): with a ForwardDiff
+    # Jacobian inlined into the LM, the rays a camera images changed with the
+    # optimization level and with how the result was tested. Over the golden rays,
+    # compiled at optimization levels 1 and 2: the fused and the stored test agree,
+    # the two levels agree, and each camera images its golden count at BOTH levels
+    # (so a fault at both levels fails too).
     # =============================================================================
 
     include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "spline_lens_golden.jl"))
@@ -323,26 +324,64 @@ end
     cam′ = _spline_camera(K′, Rect2(0.0, 0.0, 1000.0, 1000.0), cam.lens.backward.controls)
     C = [SVector((S.controls[1, i, j] - 499.5) / K[1, 1], (S.controls[2, i, j] - 499.5) / K[2, 2]) for i in axes(S.controls, 2), j in axes(S.controls, 3)]
     cam_fwd = CameraModel(K′, SplineLens(cam′.lens.backward; forward = ChartSpline(Rect2(S.area[1], S.area[2], S.area[3], S.area[4]), C)))
-    rays = vcat([SVector(S.rays[1, i], S.rays[2, i], S.rays[3, i]) for i in axes(S.rays, 2)],
-                [SVector(G.central.backproject[1, i], G.central.backproject[2, i], G.central.backproject[3, i]) for i in 1:(G.n_lattice)])
-    cams = (cam, masked, cam_fwd)
+    b = cam.lens.backward
+    nc = NoncentralSplineModel(cam.intrinsics, b, ChartSpline(b.area, map(d -> 0.01 * d, b.controls)))
+    col3(A, i) = SVector(A[1, i], A[2, i], A[3, i])
+    n = G.n_lattice
+    rays64 = [col3(S.rays, i) for i in axes(S.rays, 2)]
+    lattice = [col3(G.central.backproject, i) for i in 1:n]
+    nc_X = [col3(G.noncentral.origins, i) + 1500.0 * col3(G.central.backproject, i) for i in 1:n]
+    imaged_golden(ref) = count(i -> !isnan(ref[1, i]), 1:n)
+    # (camera, its rays, the count it images on the first 64, on the rest; `nothing` = no golden count)
+    cases = ((cam, vcat(rays64, lattice), 64, imaged_golden(G.central.project_in)),
+             (masked, vcat(rays64, lattice), 50, imaged_golden(G.masked.project_in)),   # 50: the scalar and batched solves at -O1
+             (cam_fwd, rays64, 64, nothing),
+             (nc, nc_X, nothing, imaged_golden(G.noncentral.project_X)))
+    cam_rays = Tuple((c, r) for (c, r, _, _) in cases)
 
     imaged = Dict{Int, Any}()
     for level in (1, 2)
         M = Module()
         Core.eval(M, :(using VisualGeometryToolkitCore: project))
+        # The test of each ray compiled three ways at this level (a fault was seen in
+        # some calling contexts and not others): an explicit loop per camera type, a
+        # comprehension over the tuple of cameras, and a comprehension inside a loop
+        # over it; each against the stored test.
         Core.eval(M, quote
             Base.Experimental.@optlevel $level
-            fused(cams, rays) = [[all(isfinite, project(c, X)) for X in rays] for c in cams]
-            stored(cams, rays) = [[all(isfinite.(project(c, X))) for X in rays] for c in cams]
+            function loop1(c, rays)
+                v = Vector{Bool}(undef, length(rays))
+                for i in eachindex(rays)
+                    v[i] = all(isfinite, project(c, rays[i]))
+                end
+                return v
+            end
+            by_loop(cr) = collect(map(((c, rays),) -> loop1(c, rays), cr))
+            by_comprehension(cr) = [[all(isfinite, project(c, X)) for X in rays] for (c, rays) in cr]
+            function by_loop_of_comprehensions(cr)
+                out = Vector{Vector{Bool}}()
+                for (c, rays) in cr
+                    push!(out, [all(isfinite, project(c, X)) for X in rays])
+                end
+                return out
+            end
+            stored(cr) = [[all(isfinite.(project(c, X))) for X in rays] for (c, rays) in cr]
         end)
-        a = Base.invokelatest(M.fused, cams, rays)
-        b = Base.invokelatest(M.stored, cams, rays)
-        @test (level, a) == (level, b)
-        @test (level, count.(a)) == (level, count.(b))
-        @test all(any, a)                                     # the comparison bites on every camera
-        imaged[level] = a
+        st = Base.invokelatest(M.stored, cam_rays)
+        for form in (:by_loop, :by_comprehension, :by_loop_of_comprehensions)
+            a = Base.invokelatest(getfield(M, form), cam_rays)
+            @test (level, form, a) == (level, form, st)
+            for (k, (_, rays, n64, nrest)) in enumerate(cases)
+                if nrest === nothing
+                    @test (level, form, k, count(a[k])) == (level, form, k, n64)
+                elseif n64 === nothing
+                    @test (level, form, k, count(a[k])) == (level, form, k, nrest)
+                else
+                    @test (level, form, k, count(a[k][1:64]), count(a[k][65:end])) == (level, form, k, n64, nrest)
+                end
+            end
+        end
+        imaged[level] = st
     end
-    @test count.(imaged[1]) == count.(imaged[2])              # the same code images the same rays at -O1 and -O2
     @test imaged[1] == imaged[2]
 end

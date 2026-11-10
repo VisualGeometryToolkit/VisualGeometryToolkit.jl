@@ -901,12 +901,13 @@ differentiated residual is never promoted.
 """
 @inline function direction_tangents(d)
     v = SVector{3}(d)
-    o, z = one(eltype(v)), zero(eltype(v))
-    axis = abs(v[1]) > 9 * o / 10 ? SVector(z, o, z) : SVector(o, z, z)
-    t1 = normalize(cross(v, axis))
+    t1 = normalize(cross(v, _tangent_axis(v)))
     t2 = cross(v, t1)
     return t1, t2
 end
+# The axis `direction_tangents` crosses a direction with: ŷ near ±x̂, x̂ otherwise
+# (piecewise constant: its derivative is zero, as the non-central residual's Jacobian reads it).
+@inline _tangent_axis(v) = (o = one(eltype(v)); z = zero(eltype(v)); abs(v[1]) > 9 * o / 10 ? SVector(z, o, z) : SVector(o, z, z))
 
 """
     ControlPointChart
@@ -1106,7 +1107,7 @@ function _project_from(m::NoncentralGenericModel, X, p0::SVector{2, Float64})
     # THE tangent-plane residual (noncentral_spline_model.jl) on the pixel lattice
     rect = _calibrated_rect(m)
     res(p, _) = _noncentral_residual(m.directions, m.points, rect, p, Xv)
-    jac(p, _) = ForwardDiff.jacobian(q -> _noncentral_residual(m.directions, m.points, rect, q, Xv), p)
+    jac(p, _) = _noncentral_residual_jacobian(m.directions, m.points, rect, p, Xv)
     px, ok = _pixel_lm(
         res, jac, p0[1], p0[2], Float64(m.calib_min_x), Float64(m.calib_min_y), Float64(m.calib_max_x),
         Float64(m.calib_max_y), _PROJECT_MAXITER, _PROJECT_TOL^2

@@ -192,6 +192,21 @@
         @test all(u -> isequal(backproject(a, u), backproject(nc, u)), pixels)
         am = adapt(Array, with_present(nc, G.masked.present))
         @test am.present == G.masked.present
+        # the direction Jacobian of a Float32 camera follows `backproject`'s precision —
+        # Float32 for a Float32 pixel — and is the Float64 one to 1e-5
+        c32 = convert_eltype(Float32, cam)
+        worst_j, nan_mismatch_j, wrong_type = 0.0, 0, 0
+        for u in pixels
+            f, M = backproject_with_jacobian(cam, u)
+            f32, M32 = backproject_with_jacobian(c32, SVector{2, Float32}(u))
+            wrong_type += !(eltype(f32) === Float32 && eltype(M32) === Float32)
+            wrong_type += eltype(first(backproject_with_jacobian(c32, u))) !== eltype(backproject(c32, u))
+            nan_mismatch_j += all(isfinite, f) != all(isfinite, f32)
+            all(isfinite, f) && all(isfinite, f32) && (worst_j = max(worst_j, norm(f32 - f), maximum(abs.(M32 - M))))
+        end
+        @test wrong_type == 0
+        @test nan_mismatch_j == 0
+        @test worst_j <= 1.0e-5
         mixed = NoncentralSplineModel(cam.intrinsics, b, convert_eltype(Float32, pts))
         @test typeof(mixed.points) === typeof(mixed.directions)
         @test eltype(eltype(mixed.points.controls)) === Float64

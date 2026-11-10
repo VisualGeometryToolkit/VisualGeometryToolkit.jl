@@ -228,6 +228,54 @@ end
 RadialCamera(m::RadialHomography) = RadialCamera(m.H, center(m))
 
 """
+    RadialSymmetry(lens) -> RadiallySymmetric() | RadiallyAsymmetric()
+    RadialSymmetry(::Type) -> RadiallySymmetric() | RadiallyAsymmetric()
+
+Whether a lens (or a piece of one: a projection, a distortion term, a
+composition) is radially symmetric about the principal point — a Holy trait of
+its TYPE, which [`RadialCamera`](@ref)`(::PosedCamera)` dispatches on and
+VisualGeometryToolkitEstimation's `fit_camera` reads to warn of non-radial
+terms it cannot fit.
+
+The default is `RadiallyAsymmetric()`, so the trait fails closed: a type that
+has not declared itself is treated as asymmetric until it declares itself
+symmetric, by a method `RadialSymmetry(::Type{MyLens}) = RadiallySymmetric()`.
+
+Symmetric: every projection (`AbstractProjection`), no distortion (`nothing`),
+`Radial`, `FieldOfView` and `LiftLens`; an `Additive`, a `∘` composition and a
+`Lens` (its projection and its distortion) when every piece is.
+Asymmetric: `Tangential`, `ThinPrism`, `Tilt`, a [`SplineLens`](@ref) (a
+calibrated grid has no symmetry), and anything else undeclared.
+
+Public, not exported: `VisualGeometryToolkitCore.Cameras.RadialSymmetry`.
+"""
+abstract type RadialSymmetry end
+"""
+    RadiallySymmetric() <: RadialSymmetry
+
+The [`RadialSymmetry`](@ref) of a lens radially symmetric about the principal point.
+"""
+struct RadiallySymmetric <: RadialSymmetry end
+"""
+    RadiallyAsymmetric() <: RadialSymmetry
+
+The [`RadialSymmetry`](@ref) of a lens not known to be radially symmetric (the default).
+"""
+struct RadiallyAsymmetric <: RadialSymmetry end
+RadialSymmetry(x) = RadialSymmetry(typeof(x))
+RadialSymmetry(::Type) = RadiallyAsymmetric()
+RadialSymmetry(::Type{<:Union{Nothing, AbstractProjection, Radial, FieldOfView, LiftLens}}) = RadiallySymmetric()
+RadialSymmetry(::Type{Additive{D}}) where {D <: Tuple} = _all_symmetric(D)
+RadialSymmetry(::Type{ComposedTransformation{T1, T2}}) where {T1, T2} = _both_symmetric(RadialSymmetry(T1), RadialSymmetry(T2))
+RadialSymmetry(::Type{Lens{F, D}}) where {F, D} = _both_symmetric(RadialSymmetry(F), RadialSymmetry(D))
+# Symmetric when every piece is: two verdicts, and the piece types of a tuple type (an
+# `Additive`'s terms), folded at compile time.
+_both_symmetric(::RadiallySymmetric, ::RadiallySymmetric) = RadiallySymmetric()
+_both_symmetric(::RadialSymmetry, ::RadialSymmetry) = RadiallyAsymmetric()
+_all_symmetric(::Type{Tuple{}}) = RadiallySymmetric()
+_all_symmetric(::Type{T}) where {T <: Tuple} = _both_symmetric(RadialSymmetry(Base.tuple_type_head(T)), _all_symmetric(Base.tuple_type_tail(T)))
+
+"""
     RadialCamera(cam::PosedCamera) -> RadialCamera
 
 The 1-D radial camera of a POSED camera viewing the plane `z = 0` of its
@@ -251,32 +299,20 @@ distorted camera is not a homography, but its radial camera is exact.
 A lens that is NOT radially symmetric is an `ArgumentError`: a decentering
 piece of the distortion (`Tangential`, `ThinPrism`, `Tilt`, alone or inside an
 `Additive` or a `∘` composition) or a [`SplineLens`](@ref) moves points off
-their rays from the centre, so the radial camera would not be exact. The check
-fails closed: a lens or a distortion piece not known to be radially symmetric
-(anything but a `LiftLens` or a `Lens` of `Radial`, `FieldOfView` and `Additive`s
-of them) is refused too.
+their rays from the centre, so the radial camera would not be exact. Which lenses are
+radially symmetric is the [`RadialSymmetry`](@ref) trait's verdict, which fails
+closed: a lens type that has not declared itself `RadiallySymmetric()` is
+refused too.
 """
-function RadialCamera(cam::PosedCamera{<:CameraModel})
-    l = lens(cam)
-    _radially_symmetric(l) || throw(
-        ArgumentError("RadialCamera: the camera's $(nameof(typeof(l))) is not radially symmetric about its principal point, so its radial camera is not exact")
-    )
+RadialCamera(cam::PosedCamera{<:CameraModel}) = _radial_camera(RadialSymmetry(lens(cam)), cam)
+function _radial_camera(::RadiallySymmetric, cam::PosedCamera)
     K = calibration_matrix(cam)
     return RadialCamera(_induced_plane_homography(cam), Point2{Float64}(K[1, 3], K[2, 3]))
 end
+_radial_camera(::RadiallyAsymmetric, cam::PosedCamera) = throw(
+    ArgumentError("RadialCamera: the camera's $(nameof(typeof(lens(cam)))) is not radially symmetric about its principal point, so its radial camera is not exact")
+)
 
-# Whether a lens is radially symmetric about the principal point — a function of its
-# type, failing closed: a lens or a distortion piece is symmetric only when it says so.
-# A `LiftLens` (one radial factor) is; a `Lens` is when every stage of its distortion
-# (`_stages`) is — no distortion, a `Radial`, a `FieldOfView`, or an `Additive` of
-# such terms (so `Tangential`, `ThinPrism`, `Tilt` and any unknown piece are not). A
-# `SplineLens` (a calibrated grid has no symmetry), or any other lens, is not.
-_radially_symmetric(::AbstractLensModel) = false
-_radially_symmetric(::LiftLens) = true
-_radially_symmetric(l::Lens) = all(_symmetric_stage, _stages(l.distortion))
-_symmetric_stage(::Union{Nothing, Radial, FieldOfView}) = true
-_symmetric_stage(a::Additive) = all(_symmetric_stage, a.terms)
-_symmetric_stage(_) = false
 
 HomographyMat(P::RadialCamera{T}) where {T} = HomographyMat{T}(
     Tuple(

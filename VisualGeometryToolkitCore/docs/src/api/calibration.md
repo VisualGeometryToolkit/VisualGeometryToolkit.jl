@@ -13,6 +13,12 @@ regression — lives in VisualGeometryToolkitEstimation. Split from the
 
 ## Radial Camera, Intrinsics
 
+`RadialCamera(::PosedCamera)` is exact only for a radially symmetric lens; which
+lenses are is Core's camera trait [`RadialSymmetry`](@ref)
+(`RadiallySymmetric()` / `RadiallyAsymmetric()`, public, not exported: reached as
+`VisualGeometryToolkitCore.Cameras.RadialSymmetry`). It fails closed: a lens type
+that has not declared itself symmetric is treated as asymmetric.
+
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false

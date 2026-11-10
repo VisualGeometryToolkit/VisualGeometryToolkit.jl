@@ -11,6 +11,11 @@
         backproject, ParameterManifold, minimal_manifold
     using GeometryBasics: origin, widths
 
+    # two downstream-style lens types: one declares itself radially symmetric, one does not
+    struct _UndeclaredLens <: VisualGeometryToolkitCore.AbstractLensModel end
+    struct _DeclaredSymmetricLens <: VisualGeometryToolkitCore.AbstractLensModel end
+    VisualGeometryToolkitCore.Cameras.RadialSymmetry(::Type{_DeclaredSymmetricLens}) = VisualGeometryToolkitCore.Cameras.RadiallySymmetric()
+
     # =============================================================================
     # A SplineLens camera's K is the gauge pinhole at the optical-axis pixel, never a
     # parameter: the camera's parameter protocol reads the lens's controls alone. The
@@ -123,6 +128,34 @@
         @test RadialCamera(PosedCamera(src, X)) isa RadialCamera
         @test RadialCamera(PosedCamera(CameraModel(K; lens = Lens(Perspective(), Radial((-0.2, 0.05)))), X)) isa RadialCamera
         @test RadialCamera(PosedCamera(CameraModel(K; lens = Lens(Perspective(), FieldOfView(0.1) ∘ Radial((-0.1,)))), X)) isa RadialCamera
+    end
+
+    @testset "RadialSymmetry: the trait's verdicts; a downstream lens declares itself" begin
+        RS = VisualGeometryToolkitCore.Cameras.RadialSymmetry
+        sym = VisualGeometryToolkitCore.Cameras.RadiallySymmetric()
+        asym = VisualGeometryToolkitCore.Cameras.RadiallyAsymmetric()
+        @test Base.ispublic(VisualGeometryToolkitCore.Cameras, :RadialSymmetry) && !Base.isexported(VisualGeometryToolkitCore.Cameras, :RadialSymmetry)
+        symmetric = (
+            Lens(Perspective()), Lens(Equidistant()), Lens(Perspective(), Radial((-0.2, 0.05))), Lens(Perspective(), FieldOfView(0.1)),
+            Lens(Perspective(), FieldOfView(0.1) ∘ Radial((-0.1,))), Lens(Perspective(), Additive(Radial((-0.1,)))),
+            src.lens, VisualGeometryToolkitCore.LiftLens(Radial((1.0, -0.2))),
+        )
+        asymmetric = (
+            cam.lens, Lens(Perspective(), Tangential(1.0e-3, 0.0)), Lens(Perspective(), Tilt(0.02, -0.01) ∘ Radial((-0.1,))),
+            Lens(Perspective(), Additive(Radial((-0.1,)), ThinPrism((1.0e-3,), (2.0e-4,)))),
+            Lens(Perspective(), FieldOfView(0.1) ∘ Additive(Radial((-0.1,)), Tangential(1.0e-3, 0.0))),
+        )
+        @test all(l -> RS(l) === sym && RS(typeof(l)) === sym, symmetric)
+        @test all(l -> RS(l) === asym, asymmetric)
+        @test all(p -> RS(p) === sym, (Perspective(), Equidistant()))       # a projection is symmetric
+        # a lens type the stack has never seen is asymmetric until it declares itself
+        K = calibration_matrix(src)
+        X = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.1, -0.05, 0.02)), SVector(0.1, -0.2, 2.0))
+        undeclared = CameraModel(K; lens = _UndeclaredLens())
+        declared = CameraModel(K; lens = _DeclaredSymmetricLens())
+        @test RS(_UndeclaredLens()) === asym && RS(_DeclaredSymmetricLens()) === sym
+        @test_throws ArgumentError RadialCamera(PosedCamera(undeclared, X))
+        @test RadialCamera(PosedCamera(declared, X)).P == RadialCamera(PosedCamera(CameraModel(K), X)).P
     end
 end
 

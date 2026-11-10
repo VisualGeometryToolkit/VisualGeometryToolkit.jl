@@ -42,6 +42,7 @@ module Cameras
 public pixel_intrinsics   # the pixel intrinsics of a camera (the stack's fits read them)
 public coefficient_names  # a lens leaf type's coefficient names (the stack's lens fits read them)
 public reframed_calibration   # the pixel-frame change of a K (VisualGeometryToolkitIO's stored K reads and writes through it)
+public RadialSymmetry, RadiallySymmetric, RadiallyAsymmetric   # whether a lens is radially symmetric about the principal point (a Holy trait; RadialCamera and Estimation's fit_camera read it)
 
 # Import general Julia packages directly (not through parent)
 using StaticArrays: StaticArrays, SVector, SMatrix, StaticVector, StaticMatrix

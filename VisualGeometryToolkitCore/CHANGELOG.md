@@ -5,6 +5,13 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New: the `RadialSymmetry` Holy trait** (`RadiallySymmetric()` / `RadiallyAsymmetric()`, public, not exported:
+  `VisualGeometryToolkitCore.Cameras.RadialSymmetry`) says whether a lens is radially symmetric about the principal
+  point, by its type: every projection, no distortion, `Radial`, `FieldOfView` and `LiftLens` are; an `Additive`, a
+  `∘` composition and a `Lens` are when every piece is; the default is `RadiallyAsymmetric()` (fail closed), so
+  `SplineLens`, `Tangential`, `ThinPrism`, `Tilt` and any undeclared type are not. `RadialCamera(::PosedCamera)`
+  dispatches on it, and a downstream lens type is admitted by declaring
+  `RadialSymmetry(::Type{MyLens}) = RadiallySymmetric()`. It replaces the internal `_radially_symmetric`.
 - **A SplineLens camera's K is checked wherever the camera is built** — `CameraModel(K, ::SplineLens)` itself, so
   every constructor, a stored camera store or rig sensor read back, a re-gauge and a device copy: skew 0 and positive
   focal lengths, else an `ArgumentError` (ONE check, the non-central model's too). A skewed K once built silently.

@@ -193,7 +193,7 @@ end
     import VisualGeometryToolkitEstimation as VgtkEstimation
     # the property the bisection relies on, at three spacings (the forward map it
     # replaced measured 2026-11-04: 5.1e-3, 2.7e-3, 5.4e-4 px at 8, 16, 32 cells)
-    q = VgtkEstimation._chart_quadrature(GRID, REGION)
+    q = VgtkEstimation._chart_quadrature(GRID, REGION, VgtkEstimation.default_device())
     errs = [VgtkEstimation._forward_fit(q, c).errors.max for c in (8, 16, 32)]
     @test issorted(errs; rev = true)
     @test errs[3] < 1.0e-3 < errs[1]
@@ -352,7 +352,7 @@ end
     VgtkCore.backproject_with_jacobian(s::NaNJacobianLines, u) =
         u in s.bad ? (first(backproject_with_jacobian(s.model, u)), fill(NaN, SMatrix{3, 2, Float64})) : backproject_with_jacobian(s.model, u)
     fitted = estimate(fit_camera(NoncentralSplineModel, SOURCE, REGION; tolerance = 1.0e-3))
-    q = VgtkEstimation._image_quadrature(VgtkEstimation._source_lines, MODEL, REGION)
+    q = VgtkEstimation._image_quadrature(VgtkEstimation._lines_on(VgtkEstimation.default_device()), MODEL, REGION)
     xs = VgtkEstimation._normalized_points(fitted.intrinsics, q.held_px)
     offset(i) = VgtkEstimation._line_offset(fitted, xs[i], first(q.held_rays[i]), last(q.held_rays[i]))   # the batch's own scalar offset
     worst = partialsortperm(map(offset, eachindex(q.held_px)), 1:3; rev = true)   # the three largest offsets
@@ -453,7 +453,7 @@ end
     @test g isa NoncentralSplineModel && g.intrinsics.K == MODEL.intrinsics.K && g.directions.area == MODEL.directions.area
     @test size(g.directions.controls) == size(g.points.controls) == (gh, gw)
     # the anchor: Core's nearest point of every quadrature line of the source
-    q = VgtkEstimation._image_quadrature(VgtkEstimation._source_lines, MODEL, REGION)
+    q = VgtkEstimation._image_quadrature(VgtkEstimation._lines_on(VgtkEstimation.default_device()), MODEL, REGION)
     @test md.family.center ≈ nearest_point([o => d for (o, d) in q.fit_rays])
     # held out, interior and edge band (measured 2026-11-04 at 26 × 26: direction
     # 9.2e-4 px max, 1.3e-4 px rms, the max at the edge; line offset 5.1e-8 m max
@@ -527,7 +527,52 @@ end
     @test retcode(ru) === :max_iterations && metadata(ru).max_px > 1.0e-6
     # the batched central source lines are the scalar back-projection, normalized
     pix = [SVector(500.5, 400.5), SVector(20.5, 500.5), SVector(950.5, 980.5)]
-    @test VgtkEstimation._source_lines(FISHEYE, pix) ==
+    @test VgtkEstimation._source_lines(FISHEYE, pix, VgtkEstimation.default_device()) ==
         [(SVector(0.0, 0.0, 0.0), normalize(SVector{3, Float64}(backproject(FISHEYE, p)))) for p in pix]
     @test_throws ArgumentError fit_camera(NoncentralSplineModel, FISHEYE, REGION; tolerance = 0.01)
+end
+
+@testitem "fit_camera: a parametric lens from a SplineLens camera, through the camera's rays (the exporters' route)" setup = [FitCameraFisheye] begin
+    using Test
+    using VisualGeometryToolkitCore: estimate, metadata, lens, rms, parameter_vector, calibration_matrix, KannalaBrandt
+    using VisualGeometryToolkitEstimation: fit_camera
+    # A SplineLens camera has no OpenCV/COLMAP form: the exporters' refusal (VisualGeometryToolkitIO) says to fit a
+    # parametric lens to it first, `fit_camera(KannalaBrandt{4}, camera, region)` — the bounded camera or its model.
+    # Its K is a gauge, so its lens has no radial profile of its own: the fit samples the camera's rays. GRID is the
+    # 40 × 40 SplineLens camera of a Kannala–Brandt fisheye (k₁ = −0.02, f = 300 px, its K kept).
+    for src in (GRID_BOUNDED, GRID)
+        r = fit_camera(KannalaBrandt{4}, src, REGION)
+        kb = estimate(r)
+        @test lens(kb) isa KannalaBrandt{4}
+        @test maximum(abs.(collect(parameter_vector(lens(kb))) .- [-0.02, 0.0, 0.0, 0.0])) <= 1.0e-3
+        @test abs(metadata(r).family.focal_scale - 1) <= 1.0e-3
+        @test rms(r) < 0.05 && metadata(r).max_px < 0.5
+        @test calibration_matrix(kb)[1:2, 3] == calibration_matrix(GRID)[1:2, 3]   # the principal point kept
+    end
+    # the image samples carry the :image density only
+    @test_throws ArgumentError fit_camera(KannalaBrandt{4}, GRID, REGION; weight = :solid_angle)
+end
+
+@testitem "fit_camera(SplineLens): the forward is fitted on the chart project evaluates it on" setup = [FitCameraFisheye] begin
+    using Test
+    using VisualGeometryToolkitCore: estimate, lens, SplineLens, default_device
+    import VisualGeometryToolkitCore as VgtkCore
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    using VisualGeometryToolkitEstimation: fit_camera
+    cam = estimate(fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3))
+    q = VgtkEstimation._chart_quadrature(cam, REGION, default_device())
+    @test q.chart == lens(cam).chart == VgtkCore.Cameras._forward_chart(lens(cam).backward)
+end
+
+@testitem "fit_camera(SplineLens), fit_camera(NoncentralSplineModel): the source's batched rays on `device`" setup = [FitCameraFisheye] begin
+    using Test
+    using VisualGeometryToolkitCore: estimate, lens, SplineLens, NoncentralSplineModel, default_device
+    using VisualGeometryToolkitEstimation: fit_camera, pspline_grid
+    a = estimate(fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3, device = default_device()))
+    b = estimate(fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3))
+    @test lens(a).forward.controls == lens(b).forward.controls
+    # the keyword reaches the batched backprojection (a backend is a KernelAbstractions.Backend)
+    @test_throws TypeError fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3, device = :none)
+    @test_throws TypeError fit_camera(NoncentralSplineModel, GRID_BOUNDED, REGION; tolerance = 1.0e-3, device = :none)
+    @test_throws TypeError pspline_grid(SplineLens, GRID_BOUNDED, REGION, (12, 12); device = :none)
 end

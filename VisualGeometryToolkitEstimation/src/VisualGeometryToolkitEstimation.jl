@@ -222,8 +222,8 @@ using SparseArrays: sparse   # the relpose bundle's stacked Jacobian (its stall 
 # Cholesky), the direction chart, Core's lattice and its batched maps.
 using SparseArrays: SparseMatrixCSC
 using LinearAlgebra: cholesky, lu, issuccess, diag
-using VisualGeometryToolkitCore: equidistant_chart, ChartSpline, SplineLens, NoncentralSplineModel, Rect2, spline_window, pixel_centres,
-    pointwise!, BoundedCamera, extent, spline_lattice, central_model, difference_rows
+using VisualGeometryToolkitCore: ChartSpline, SplineLens, NoncentralSplineModel, Rect2, spline_window, pixel_centres,
+    pointwise!, BoundedCamera, extent, spline_lattice, central_model, difference_rows, default_device
 using VisualGeometryToolkitCore: nearest_point, backproject_with_jacobian
 
 

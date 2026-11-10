@@ -26,6 +26,16 @@ non-central one is a `NoncentralSplineModel`).
   non-central source is `BoundedCamera(model, Size2(w, h))`, and a function of the pixel is no longer a source — build
   its SplineLens camera with Core's `CameraModel(SplineLens, f, size)` (which gauges its K) and fit that, which keeps
   its backward and fits its forward.
+- **Breaking: a function of the pixel goes through `CameraModel(SplineLens, f, size)`**: its backward is Core's
+  quasi-interpolant at the default lattice (`init = :quasi_interpolate`), and `fit_camera(SplineLens, …)` keeps that
+  backward exactly and fits only its forward. The P-spline backward fitted to `tolerance` from a bare function of
+  the pixel is gone (a camera source still gets it).
+- **`fit_camera(L, source, region)` takes a SplineLens camera** (a `CameraModel` or a `BoundedCamera`): a gauge K has
+  no radial profile of its own lens, so the regression samples the camera's rays on the image over the region (each
+  pixel's view angle and normalized radius, the `:image` density; another `weight` is an `ArgumentError`) — the route
+  VisualGeometryToolkitIO's exporters name for a SplineLens camera, which has no OpenCV/COLMAP form.
+- **`fit_camera(SplineLens | NoncentralSplineModel, …)` and `pspline_grid` take `device = default_device()`**: the
+  KernelAbstractions backend of a SplineLens source's batched back-projection (the rest of the fit runs on the host).
 - **Breaking: a spline fit's `grid_size` is `(columns, rows)`** everywhere — the keyword, `pspline_grid`'s argument and
   the metadata's `family.grid_size` — Core's `grid_size(m)` order (a fit once reported `(rows, columns)`).
 - **Breaking: `refine_camera_and_poses` refuses a SplineLens camera** (an `ArgumentError`, also with `free = ()`): its

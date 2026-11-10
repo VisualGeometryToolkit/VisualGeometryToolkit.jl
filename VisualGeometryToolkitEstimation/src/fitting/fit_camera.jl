@@ -138,7 +138,8 @@ family and the solve:
   (`spline_lattice`; the source is not sampled: the solve sets every control),
   fitted to the source's rays at the normalized points `x = K⁻¹u` by linear
   least squares with the P-spline penalty — [`pspline_grid`](@ref) at
-  `grid_size` (columns, rows) when given, else at the lattice THE SPACING
+  `grid_size` (columns, rows; reported back in the metadata as (rows,
+  columns), as `size(controls)`) when given, else at the lattice THE SPACING
   SEARCH chooses: the spacing is doubled down from 4 cells along the longer
   side and then bisected to the LARGEST spacing whose held-out maximum error is
   at most `tolerance` (px), `retcode :converged`; a fit that cannot reach it at
@@ -708,13 +709,17 @@ function pspline_grid(::Type{G}, source, region, grid_size::Tuple{Integer, Integ
     return FitResult(r.fitted, :solved, 0, r.errors.rms, length(g.q.fit_px), _grid_metadata(r, g, (;)))
 end
 
-# The lattice of `cells` cells along the image's longer side: the spacing
-# h = max(W, H) / cells, the node counts ⌈extent / h⌉ + 3 per axis (the chart
-# spline's rule), as Core's `grid_size` (columns, rows).
-function _lattice_grid_size(W::Integer, H::Integer, cells::Integer)
-    h = max(W, H) / cells
-    return (ceil(Int, W / h * (1 - 1.0e-12)) + 3, ceil(Int, H / h * (1 - 1.0e-12)) + 3)
+# THE knot-count rule of the spacing search (the backward lattice's and the
+# forward's): `cells` cells along the longer of the widths `(w₁, w₂)`, the spacing
+# h = max(w) / cells, the node counts ⌈wᵢ / h⌉ + 3 per axis — the spacing and the
+# counts `(n₁, n₂)` along the two axes (x, y).
+function _knot_counts(w1::Real, w2::Real, cells::Integer)
+    h = max(w1, w2) / cells
+    return h, (ceil(Int, w1 / h * (1 - 1.0e-12)) + 3, ceil(Int, w2 / h * (1 - 1.0e-12)) + 3)
 end
+# The image's lattice of `cells` cells along its longer side, as Core's
+# `grid_size` (columns, rows).
+_lattice_grid_size(W::Integer, H::Integer, cells::Integer) = last(_knot_counts(W, H, cells))
 
 # The image a spline target's lattice covers: a bounded camera's extent. A bare
 # camera model has none.
@@ -724,6 +729,14 @@ _no_image(source) = throw(
     ArgumentError(
         "fit_camera(<spline target>, …): a $(nameof(typeof(source))) source has no image for the lattice's full-image layout; " *
             "bound it by its sensor or extent, `BoundedCamera(model, sensor)`"
+    )
+)
+# A function of the pixel has neither an image nor a K: its route is the SplineLens
+# camera of the function (Core's source constructor, which gauges K), bounded.
+_no_image(::Function) = throw(
+    ArgumentError(
+        "fit_camera(<spline target>, …): a function of the pixel has no image and no K; fit the SplineLens camera of it, " *
+            "`fit_camera(SplineLens, BoundedCamera(CameraModel(SplineLens, f, size; init = :quasi_interpolate), Size2(size...)), region; tolerance)`"
     )
 )
 
@@ -841,10 +854,18 @@ end
 # source's length unit (plain metres), through the fitted point spline.
 function _line_errors(fitted::NoncentralSplineModel, held)
     offset = pointwise!(
-        (x, o, d) -> (Δ = SVector{3, Float64}(fitted.points(x)) - o; norm(Δ - dot(Δ, d) * d)),
-        Vector{Float64}(undef, length(held.px)), held.xs, held.origins, held.directions
+        (x, o, d) -> _line_offset(fitted, x, o, d), Vector{Float64}(undef, length(held.px)), held.xs, held.origins, held.directions
     )
     return _held_out_errors(_direction_errors(fitted, held), held.edge), _held_out_errors(offset, held.edge)
+end
+# One held-out line offset at the normalized point `x`: the fitted point's offset
+# from the source's `o` across the source's unit direction `d`. The dot product is
+# written out: StaticArrays' `dot` is an `@simd` reduction, which LLVM may
+# reassociate differently where it inlines (a batch's closure against a scalar
+# call), so the same offset would differ in its last bit by call site.
+@inline function _line_offset(fitted::NoncentralSplineModel, x, o, d)
+    Δ = SVector{3, Float64}(fitted.points(x)) - o
+    return norm(Δ - (Δ[1] * d[1] + Δ[2] * d[2] + Δ[3] * d[3]) * d)
 end
 
 # ------------------------------------------------------------------------------
@@ -935,9 +956,7 @@ end
 # errors in pixels.
 function _forward_fit(q, cells::Int)
     w = SVector{2, Float64}(maximum(q.area) - minimum(q.area))
-    h = maximum(w) / cells
-    nx = ceil(Int, w[1] / h * (1 - 1.0e-12)) + 3
-    ny = ceil(Int, w[2] / h * (1 - 1.0e-12)) + 3
+    h, (nx, ny) = _knot_counts(w[1], w[2], cells)
     controls, λ = _penalized_solve(_design_rows(q.area, (ny, nx), q.fit_charts), q.rhs, ny, nx, Val(2))
     spline = ChartSpline(q.area, controls)
     err = map((c, u) -> norm(q.pixel(spline(c)) - u), q.held_charts, q.held_px)

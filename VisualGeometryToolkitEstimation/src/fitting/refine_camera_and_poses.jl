@@ -202,7 +202,7 @@ function _refine_camera_and_poses(
         xtol::Real = _dflt("refine_camera_and_poses", "xtol"),
         max_time::Union{Nothing, Real} = nothing,
     )
-    _check_refinable(VgtkCore.Cameras.IntrinsicsRole(camera.lens))   # first: before any chart or Dual touches the lens
+    _check_refinable(VgtkCore.Cameras.IntrinsicsRole(camera.lens), camera.lens)   # first: before any chart or Dual touches the lens
     V = length(views)
     V >= 1 || throw(ArgumentError("refine_camera_and_poses: no views"))
     names = parameter_names(camera)
@@ -255,10 +255,10 @@ end
 # it — with `free = ()` too: the pose rows would carry ForwardDiff duals into the
 # lens's projection solve, and its controls (10³–10⁴) are no dense chart's
 # variable (Core's `ParameterManifold` names the `ControlPatchManifold` route).
-_check_refinable(::VgtkCore.Cameras.FreeIntrinsics) = nothing
-_check_refinable(::VgtkCore.Cameras.GaugeIntrinsics) = throw(
+_check_refinable(::VgtkCore.Cameras.FreeIntrinsics, _) = nothing
+_check_refinable(::VgtkCore.Cameras.GaugeIntrinsics, lens) = throw(
     ArgumentError(
-        "refine_camera_and_poses: a SplineLens camera (its K a frozen gauge, its parameters the lattice's controls) is not " *
+        "refine_camera_and_poses: a camera of gauge intrinsics, here a $(nameof(typeof(lens))) camera (its K a frozen gauge, its parameters the lattice's controls), is not " *
             "refined here: its controls need a per-node chart (`ControlPatchManifold`), and its projection solve is not " *
             "differentiated by ForwardDiff, so not even its poses alone (`free = ()`) are refined through it"
     )

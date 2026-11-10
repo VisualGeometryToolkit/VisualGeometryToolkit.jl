@@ -147,7 +147,7 @@ end
     using StaticArrays: SVector
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore: estimate, metadata, retcode, iterations, rms, ChartSpline, SplineLens, CameraModel,
-        project, backproject, calibration_matrix, lens
+        BoundedCamera, Size2, project, backproject, calibration_matrix, lens
     using VisualGeometryToolkitEstimation: fit_camera, CameraFitMetadata
 
     r = fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3)
@@ -178,9 +178,12 @@ end
     rb = fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3, forward = false)
     @test lens(estimate(rb)).forward === nothing && lens(estimate(rb)).backward.controls == lens(GRID).backward.controls
     @test metadata(rb).family.forward_max_px === nothing && metadata(rb).family.counts === nothing
-    # refitting the fitted camera keeps its backward again (the forward refitted, the same)
-    r2 = fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3)
-    @test lens(estimate(r2)).backward.controls == lens(cam).backward.controls && lens(estimate(r2)).forward.controls == lens(cam).forward.controls
+    # refitting the fitted camera, which holds a forward: the forward is dropped and
+    # refitted (the same rays, the same solve), the backward kept again
+    r2 = fit_camera(SplineLens, BoundedCamera(cam, Size2(1000, 1000)), REGION; tolerance = 1.0e-3)
+    @test lens(estimate(r2)).backward.controls == lens(GRID).backward.controls
+    @test lens(estimate(r2)).forward.controls == lens(cam).forward.controls
+    @test retcode(r2) === :converged && metadata(r2).family.penalty === nothing && metadata(r2).family.forward_max_px <= 1.0e-3
     # a kept backward has no lattice to choose
     @test_throws r"kept as it is" fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3, grid_size = (40, 40))
 end
@@ -213,15 +216,21 @@ end
     r = fit_camera(SplineLens, wide, Rect(0, 0, 1000, 1000); tolerance = 1.0e-3)
     @test retcode(r) === :converged && metadata(r).max_px <= 1.0e-3 && metadata(r).family.forward_max_px <= 1.0e-3
     # the grid's whole sensor (its corners near 150°, far past the lit disc): the
-    # forward on the lens axis's chart reaches 1e-3 px within the bracket (the
-    # old forward map it replaced, on the centroid ray's chart fitted in pixels,
-    # measured 1.4e-3 px at 169 × 169 and did not)
+    # forward reaches 1e-3 px within the bracket, where the old forward map did
+    # not. The cause, measured 2026-11-10 against the old code (004a004c): the
+    # chart's axis. The source is the same — the 40 × 40 controls bit-identical to
+    # the old grid's, its rays equal, the same 250 000 quadrature points (none
+    # dropped) and bracket (166 cells) — and fitting x instead of pixels changes
+    # nothing (1.41027e-3 px either way on the old axis). At 169 × 169 the old
+    # chart's axis, the ray of the quadrature's centroid (499.5, 499.5) — 1.7 mrad
+    # off ẑ — reaches 1.41e-3 px; the lens axis (ẑ, the ray of the principal
+    # point) reaches 5.69e-4 px.
     r = fit_camera(SplineLens, GRID_BOUNDED, Rect(0, 0, 1000, 1000); tolerance = 1.0e-3)
     @test retcode(r) === :converged && metadata(r).family.forward_max_px <= 1.0e-3
     # a forward tolerance out of reach within the bracket: the fit says so and
     # reports what it reached, the kept backward notwithstanding
     r = fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-7)
-    @test retcode(r) === :max_iterations && metadata(r).family.forward_max_px > 1.0e-7 && metadata(r).max_px < 1.0e-9
+    @test retcode(r) === :max_iterations && 1.0e-7 < metadata(r).family.forward_max_px < 1.0e-3 && metadata(r).max_px < 1.0e-9
     # the quadrature is on the image: a spline target takes no weight
     @test_throws MethodError fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3, weight = :image)
 end
@@ -286,6 +295,9 @@ end
     # a given lattice: no search, the tolerance read off it
     rg = fit_camera(SplineLens, bc, REGION; tolerance = 1.0e-4, grid_size = (40, 40), forward = false)
     @test metadata(rg).family.grid_size == (40, 40) && metadata(rg).family.outer_iterations == 0 && retcode(rg) === :converged
+    # a non-square one: given as (columns, rows), reported as (rows, columns), as size(controls)
+    rn = fit_camera(SplineLens, bc, REGION; tolerance = 1.0e-4, grid_size = (40, 30), forward = false)
+    @test metadata(rn).family.grid_size == (30, 40) && size(lens(estimate(rn)).backward.controls) == (30, 40)
     # a bare camera model has no image for the full-image lattice
     @test_throws r"no image" fit_camera(SplineLens, FISHEYE, REGION; tolerance = 0.01)
     @test_throws ArgumentError fit_camera(SplineLens, bc, REGION; tolerance = 0.0)
@@ -342,13 +354,13 @@ end
     fitted = estimate(fit_camera(NoncentralSplineModel, SOURCE, REGION; tolerance = 1.0e-3))
     q = VgtkEstimation._image_quadrature(VgtkEstimation._source_lines, MODEL, REGION)
     xs = VgtkEstimation._normalized_points(fitted.intrinsics, q.held_px)
-    offset(i) = (d = last(q.held_rays[i]); Δ = SVector{3, Float64}(fitted.points(xs[i])) - first(q.held_rays[i]); norm(Δ - dot(Δ, d) * d))
+    offset(i) = VgtkEstimation._line_offset(fitted, xs[i], first(q.held_rays[i]), last(q.held_rays[i]))   # the batch's own scalar offset
     worst = partialsortperm(map(offset, eachindex(q.held_px)), 1:3; rev = true)   # the three largest offsets
     held = VgtkEstimation._held_out(NoncentralSplineModel, NaNJacobianLines(MODEL, Set{Any}(q.held_px[worst])), q, fitted.intrinsics)
     direction, offsets = VgtkEstimation._line_errors(fitted, held)
     kept = setdiff(eachindex(q.held_px), worst)
     @test held.n_dropped == 3 && offsets.max < maximum(offset, worst)
-    @test offsets.max ≈ maximum(offset, kept) rtol = 1.0e-12   # (the batched evaluation compiles apart: the last bits may differ)
+    @test offsets.max == maximum(offset, kept)   # bit for bit: the offset's dot product is written out (`_line_offset`)
     # (measured 2026-11-04: 5.04e-8 m over the kept pixels; 5.10e-8 m when the dropped ones were still counted)
 end
 
@@ -402,6 +414,7 @@ end
     # whose backward the fit keeps and whose forward it fits
     f = u -> backproject(FISHEYE, u)
     @test_throws r"no image" fit_camera(SplineLens, f, REGION; tolerance = 1.0e-2)
+    @test_throws r"CameraModel\(SplineLens, f, size" fit_camera(SplineLens, f, REGION; tolerance = 1.0e-2)   # the refusal names the route
     cam = CameraModel(SplineLens, f, (1000, 1000); grid_size = (40, 40), init = :quasi_interpolate)
     r = fit_camera(SplineLens, BoundedCamera(cam, Size2(1000, 1000)), REGION; tolerance = 1.0e-2)
     @test retcode(r) === :converged && metadata(r).family.forward_max_px <= 1.0e-2

@@ -1050,12 +1050,13 @@ function _window_controls(controls::AbstractMatrix, rows, cols, given)
 end
 
 # The rectangle the block `rows × cols` of a lattice over `area` spans: from the
-# node of its second column (row) on, `size − 3` of the lattice's own cells (the
-# block's lattice is the lattice's, its first node one cell outside the rectangle).
+# node of its second column (row) to the node of its second-to-last, `size − 3` of
+# the lattice's own cells (the block's lattice is the lattice's, its first node one
+# cell outside the rectangle). Its corners are the lattice's own nodes, exactly.
 function _window_area(area::Rect2, gsz, rows, cols)
-    hx, hy = _lattice_spacing(area, gsz)
-    o = _lattice_node(area, gsz, first(cols) + 1, first(rows) + 1)
-    return Rect2{Float64}(o[1], o[2], (length(cols) - 3) * hx, (length(rows) - 3) * hy)
+    a = _lattice_node(area, gsz, first(cols) + 1, first(rows) + 1)
+    z = _lattice_node(area, gsz, last(cols) - 1, last(rows) - 1)
+    return Rect2{Float64}(a, z - a)
 end
 
 """
@@ -1111,11 +1112,8 @@ function valid_domain(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens})
     full = [(ix, iy) for iy in 3:(gh - 1), ix in 3:(gw - 1) if _window_present(l.present, ix, iy)]
     isempty(full) && throw(ArgumentError("valid_domain: no 4 × 4 window of the spline lens holds present nodes only"))
     jx = extrema(first, full); jy = extrema(last, full)
-    # window (ix, iy) reads columns ix − 2 … ix + 1 and covers the cell between nodes ix − 1 and ix:
-    # the corners are the lattice's own nodes, exactly (`_window_area`'s width (n − 3)·h rounds apart)
-    a = _lattice_node(area, gsz, jx[1] - 1, jy[1] - 1)
-    z = _lattice_node(area, gsz, jx[2], jy[2])
-    return Rect2{Float64}(a, z - a)
+    # window (ix, iy) reads columns ix − 2 … ix + 1: the block of every fully present window's controls
+    return _window_area(area, gsz, (jy[1] - 2):(jy[2] + 1), (jx[1] - 2):(jx[2] + 1))
 end
 
 # ------------------------------------------------------------------------------

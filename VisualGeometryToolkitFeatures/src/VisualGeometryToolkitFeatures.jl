@@ -98,6 +98,7 @@ include("matching_stacked_ka.jl")   # stacked multi-gallery matcher (hoisted fro
 include("described_feature.jl")
 include("onnx_runtime.jl")   # ONNX Runtime sessions: the execution provider (the CUDA 12 libraries) and the thread pools
 include("loma.jl")
+include("spread.jl")         # spread_strongest — SSC (Bailo et al. 2018): N detections spread over the image, on KernelAbstractions
 include("visualization_stubs.jl")
 
 include("cache.jl")
@@ -182,7 +183,8 @@ export CspondSet                # N-way correspondence
 # -----------------------------------------------------------------------------
 export DescribedFeature, described_features, descriptor_matrix
 export LoMaDescriptor, LoMaMatcher   # LoMa (ONNX); models cached in the scratch space
-public LOMA_IMAGE_SIZE, strongest    # the descriptor graph's input side; the n strongest detections, in detector order
+public LOMA_IMAGE_SIZE              # the descriptor graph's input side
+export spread_strongest             # about n of the strongest detections spread over the image (SSC), in detector order
 public loma_provenance              # the model, the execution provider used and the threads, as plain data
 public onnx_cuda_status, OnnxCudaStatus, resolve_execution_provider   # whether ONNX Runtime's CUDA provider runs here (why not); :auto's answer
 

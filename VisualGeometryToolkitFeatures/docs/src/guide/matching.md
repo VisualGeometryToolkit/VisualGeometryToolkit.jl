@@ -68,7 +68,8 @@ between calls.
 descriptors and LoMa matchers of Nordström et al. (ECCV 2026) from the authors'
 ONNX exports, through ONNX Runtime on the CPU or CUDA. The models are
 downloaded on first use and cached in the package's scratch space. A
-descriptor describes the strongest detections ([`strongest`](@ref)) of a
+descriptor describes about `max_detections` of the strongest detections, spread
+over the image ([`spread_strongest`](@ref)), of a
 `3 × H × W` RGB channelview of any size (it resamples the image to the
 network's [`LOMA_IMAGE_SIZE`](@ref)² input itself, and the detections stay in
 the image's pixels); a matcher matches two described sets and returns

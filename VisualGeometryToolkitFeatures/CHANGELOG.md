@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **New: `spread_strongest(detections, image_size, n; tolerance = 0.1, device)`, about `n` of the strongest
+  detections spread over the image** — Suppression via Square Covering (SSC) of Bailo et al. (Pattern Recognition
+  Letters 106, 2018), ported from the authors' code (https://github.com/BAILOOL/ANMS-Codes, MIT License, Copyright (c)
+  2018 Oleksandr Bailo; credited in the docstring and the README's Citing section) and parallelised on
+  KernelAbstractions: one implementation on the CPU and CUDA. The sequential covering is computed as per-cell maxima
+  (two atomic reductions, no sort) and synchronous rounds of the greedy independent set of the cells in score order, and
+  returns the authors' sequential result exactly, ties included (test/data/ssc_bailo.toml is their C++'s output). Where
+  the authors' integer width search misses the tolerance band, the width is bisected between the bracketing integers,
+  so the count lands in the band. It **replaces `strongest` (removed)**, the global top `n` by `|response|`, which on
+  a frame with a bright window and a dim interior kept nearly every detection in the window; `LoMaDescriptor` now
+  describes `spread_strongest(detections, size(img), max_detections)`. A caller of `strongest(d, n)` calls
+  `spread_strongest(d, image_size, n)`.
+
 - **LoMa runs on ONNX Runtime's CUDA provider wherever it can, with no CUDA setup.** `execution_provider = :auto` is the
   new default of `LoMaDescriptor` and `LoMaMatcher` (was `:cpu`): CUDA when a CUDA device is visible and the active
   environment holds `CUDA_Runtime_jll` and `CUDNN_jll`, otherwise the CPU with a warning naming why. `:cpu` and `:cuda`

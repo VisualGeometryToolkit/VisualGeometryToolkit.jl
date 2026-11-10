@@ -128,30 +128,6 @@ function _loma_keypoints(features, sz)
     return kpts
 end
 
-"""
-    strongest(detections, n) -> detections
-
-The `n` strongest detections — the largest `|response|` (a DoG response is
-signed: a dark and a light blob of the same contrast are equally strong) — in
-detector order. Of detections that tie at the cut, the earlier ones are kept.
-With `n` or fewer detections, `detections` itself is returned (not a copy).
-
-Not `first(detections, n)`: ASIFT emits in scan order, so a prefix covers only
-the top rows of the image. [`LoMaDescriptor`](@ref) describes the
-`max_detections` strongest this way.
-"""
-function strongest(detections, n::Integer)
-    n >= 0 || throw(ArgumentError("strongest: n must be nonnegative, got $n"))
-    length(detections) <= n && return detections
-    a = abs.(getproperty.(detections, :response))
-    # A partial selection, O(N): the first n indices in the order "larger |response|
-    # first, then the earlier index" — a stable descending sort's first n (a tie
-    # keeps the earlier), as `sortperm(a; rev = true)[1:n]` would choose.
-    before(i, j) = isless(a[j], a[i]) || (!isless(a[i], a[j]) && i < j)
-    keep = partialsort!(collect(eachindex(a)), 1:n; lt = before)
-    return detections[sort!(collect(keep))]
-end
-
 # =============================================================================
 # Descriptor
 # =============================================================================
@@ -164,8 +140,9 @@ A DeDoDe descriptor of LoMa: `:b` (DeDoDe-B, 128-dimensional, 54 MB) or `:g`
 (DeDoDe-G, 256-dimensional, 1.3 GB; 690 MB with `bf16 = true`, which needs
 ONNX Runtime's CUDA provider). The model is
 downloaded on first use and cached. `(descriptor)(img, detections)` describes
-the `max_detections` strongest detections (largest `|response|`) of `img` and
-returns a `StructArray{DescribedFeature}`.
+about `max_detections` of the strongest detections of `img`, spread over it
+([`spread_strongest`](@ref) at its default tolerance), and returns a
+`StructArray{DescribedFeature}`.
 
 `execution_provider` is ONNX Runtime's: `:auto` runs on CUDA when
 [`onnx_cuda_status`](@ref) finds a device and the CUDA 12 libraries (the
@@ -257,7 +234,7 @@ end
 
 function (l::LoMaDescriptor)(img::AbstractArray{<:Real, 3}, detections)
     input = _loma_input(img)
-    detections = strongest(detections, l.max_detections)
+    detections = spread_strongest(detections, size(img), l.max_detections)
     descriptor_inputs = l.descriptor_model.input_names
 
     descriptors = l.descriptor_model(Dict(

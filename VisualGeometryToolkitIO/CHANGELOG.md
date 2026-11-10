@@ -4,6 +4,10 @@
 
 On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
 
+- **Breaking: the OpenCV calibration JSON declares its pixel frame under `pixel_frame`**: `save_opencv_calibration`
+  writes `"pixel_frame"`; `load_opencv_calibration` reads it, and also the legacy key of files written before 0.9
+  (never both: an `ArgumentError`); a file on disk is never rewritten. Every caller of Core's `CameraModel(K; …)`
+  passes `pixel_frame` (formerly `image_origin`).
 - **Breaking: `vgio/cameras/v5`**: a stored camera may carry an optional `lens_coverage` — `{"circle": [cx, cy, r]}`,
   `{"ellipse": [cx, cy, a, b, θ]}` or `{"rect": [x, y, w, h]}` (a letterboxed or padded image), pixels in the store's
   pixel frame, moved into the canonical frame on read as K's principal point is — read back as its `lens_coverage`;

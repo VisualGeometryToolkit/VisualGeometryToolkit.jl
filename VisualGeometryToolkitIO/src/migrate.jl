@@ -866,7 +866,7 @@ end
 
 # A v1 camera record as its v2 body, its principal point in `frame`. v1's
 # reader built each camera in its record's own chart (`CameraModel`'s
-# `image_origin`): a store whose cameras share one chart declares it, every
+# `pixel_frame`): a store whose cameras share one chart declares it, every
 # number as it is; one whose cameras do not has each principal point moved into
 # the canonical frame by the pixel frames' map, as that constructor did.
 const _V1_CAMERA_KEYS = ("schema", "name", "size", "pixel_chart", "intrinsics", "lens")

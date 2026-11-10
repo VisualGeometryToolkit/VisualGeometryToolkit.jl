@@ -78,7 +78,7 @@ end
     Kc = cam.intrinsics.K
     @test (Kc[1, 1], Kc[2, 2], Kc[1, 3], Kc[2, 3]) == (1210.5, 1208.75, 1011.75, 764.0)
     # the same camera as Core's own origin-shifted construction: equal projections
-    ref = CameraModel(CameraCalibrationMat(SMatrix{3, 3, Float64}(K)); lens = opencv_lens(dist), image_origin = :opencv)
+    ref = CameraModel(CameraCalibrationMat(SMatrix{3, 3, Float64}(K)); lens = opencv_lens(dist), pixel_frame = :opencv)
     X = SVector(0.3, -0.2, 1.0)
     @test project(cam, X) ≈ project(ref, X) atol = 1e-12
     # another declared frame of the file: MATLAB's (1, 1) centre

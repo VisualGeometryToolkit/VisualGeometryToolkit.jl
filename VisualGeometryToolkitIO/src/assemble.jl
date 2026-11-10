@@ -210,7 +210,7 @@ function camera_model(::Type{T}, c::ColmapCamera) where {T <: AbstractFloat}
     fx, fy, cx, cy = _colmap_intrinsics(Val(c.model), c.params)
     K = CameraCalibrationMat(SMatrix{3, 3, T}(fx, 0, 0, 0, fy, 0, cx, cy, 1))
     lens = _colmap_lens(Val(c.model), c.params, T)
-    return CameraModel(K; lens, image_origin = :colmap)
+    return CameraModel(K; lens, pixel_frame = :colmap)
 end
 
 camera_model(c::ColmapCamera) = camera_model(Float64, c)

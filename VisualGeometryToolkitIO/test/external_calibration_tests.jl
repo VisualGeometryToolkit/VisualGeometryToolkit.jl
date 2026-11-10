@@ -272,7 +272,17 @@
             @test ustrip.(m, x.t) ≈ ustrip.(m, y.t) atol = 1.0e-12
         end
         declared = parse_json(read(mmfile, String))
-        @test declared.unit == "mm" && declared.image_origin == "opencv"
+        @test declared.unit == "mm" && declared.pixel_frame == "opencv" && !haskey(declared, Symbol("image_origin"))
+        # a file written before 0.9 declares its pixel frame under the legacy key: read the same way, never
+        # rewritten; held to it; both keys at once refused
+        legacy(f) = (t = JSON.parse(read(mmfile, String)); f(t); q = joinpath(dir, "legacy.json"); write(q, JSON.json(t)); q)
+        old = legacy(t -> (t["image_origin"] = t["pixel_frame"]; delete!(t, "pixel_frame")))
+        before = read(old)
+        @test load_opencv_calibration(old; file_unit = mm).camera == c.camera && read(old) == before
+        @test_throws ArgumentError load_opencv_calibration(PixelFrame{:julia}, old; file_unit = mm)
+        both = legacy(t -> (t["image_origin"] = t["pixel_frame"]))
+        e = try load_opencv_calibration(both; file_unit = mm); nothing catch e; e end
+        @test e isa ArgumentError && occursin("twice", e.msg)
 
         # A file that DECLARES its unit and origin is held to them. A metre
         # file read as millimetres would be a thousand times too near and still
@@ -291,13 +301,13 @@
         catch e
             e
         end
-        @test wrong_origin isa ArgumentError && occursin("`image_origin`", wrong_origin.msg)
+        @test wrong_origin isa ArgumentError && occursin("`pixel_frame`", wrong_origin.msg)
         @test occursin("\"opencv\"", wrong_origin.msg) && occursin("\"julia\"", wrong_origin.msg)
         # The matching declaration reads, in any frame the file was written in:
         # a `:julia` file read as `:julia` is the same camera as the `:opencv` one.
         jlfile = joinpath(dir, "julia.json")
         save_opencv_calibration(PixelFrame{:julia}, jlfile, a; to_unit = mm, images = names)
-        @test parse_json(read(jlfile, String)).image_origin == "julia"
+        @test parse_json(read(jlfile, String)).pixel_frame == "julia"
         jl = load_opencv_calibration(PixelFrame{:julia}, jlfile; file_unit = mm)
         @test SMatrix{3, 3, Float64}(jl.camera.intrinsics.K) ≈ Ka atol = 1.0e-9
         @test_throws ArgumentError load_opencv_calibration(jlfile; file_unit = mm)   # default :opencv ≠ declared

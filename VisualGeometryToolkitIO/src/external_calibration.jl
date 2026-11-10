@@ -80,13 +80,13 @@ end
 
 # fx, fy, cx, cy → a camera in the COLMAP pixel frame, through `CameraModel`'s own
 # origin shift (the one place the half pixel is applied).
-function _external_camera(d, lens, image_origin::Symbol, path, what)
+function _external_camera(d, lens, pixel_frame::Symbol, path, what)
     fx = Float64(_need(d, :fx, path, what)::Real)
     fy = Float64(_need(d, :fy, path, what)::Real)
     cx = Float64(_need(d, :cx, path, what)::Real)
     cy = Float64(_need(d, :cy, path, what)::Real)
     K = CameraCalibrationMat(SMatrix{3, 3, Float64}(fx, 0, 0, 0, fy, 0, cx, cy, 1))
-    return CameraModel(K; lens, image_origin)
+    return CameraModel(K; lens, pixel_frame)
 end
 
 # `{rvec, tvec}` per image → `target → camera_optical`, lengths in metres (`tvec`
@@ -155,7 +155,7 @@ translations are lengths — never labels for it:
               a pose 1.39719 m from the target is `tvec` 1.39719 in `m`,
               1397.19 in `mm`). A plain translation is an `ArgumentError`.
 
-Both are also written into the file, under `image_origin` and `unit`, and the
+Both are also written into the file, under `pixel_frame` and `unit`, and the
 reader refuses a caller who states different ones.
 
 `camera` must carry a lens OpenCV's distortion model computes
@@ -170,7 +170,7 @@ function save_opencv_calibration(
         to_frame::Type{<:PixelFrame}, path::AbstractString, camera::CameraModel, poses::AbstractVector;
         rms::Real, to_unit::Units, images::AbstractVector{<:AbstractString},
     )
-    unit, image_origin = to_unit, pixel_origin(to_frame)
+    unit, pixel_frame = to_unit, pixel_origin(to_frame)
     dimension(unit) == dimension(m) || throw(
         ArgumentError("save_opencv_calibration: `to_unit` must be a length (mm, m, …), got $(unit)")
     )
@@ -192,7 +192,7 @@ function save_opencv_calibration(
     )
     # The camera holds the principal point in the CANONICAL frame; put it back
     # into the convention the file is written in (Core's one pixel-frame change of a K).
-    Kf = VgtkCore.Cameras.reframed_calibration(CANONICAL_PIXEL_FRAME, PixelFrame{image_origin}, camera.intrinsics.K)
+    Kf = VgtkCore.Cameras.reframed_calibration(CANONICAL_PIXEL_FRAME, PixelFrame{pixel_frame}, camera.intrinsics.K)
     cx, cy = Float64(Kf[1, 3]), Float64(Kf[2, 3])
     body = (
         fx = Float64(K[1, 1]), fy = Float64(K[2, 2]), cx = cx, cy = cy,
@@ -200,7 +200,7 @@ function save_opencv_calibration(
         poses = [p === nothing ? nothing : _opencv_pose(p, unit) for p in poses],
         images = String.(images),
         NamedTuple{_OPENCV_KEYS[1:length(c)]}(Tuple(c))...,
-        unit = string(unit), image_origin = String(image_origin),
+        unit = string(unit), pixel_frame = String(pixel_frame),
     )
     _write_json(path, body)
     return path
@@ -221,13 +221,16 @@ end
 # unit the registry has no symbol for still prints as FlexUnits shows it,
 # something a human can read, rather than refusing the export.
 
-# The caller's `unit` and `image_origin` against what the file DECLARES, where
+# The caller's `unit` and `pixel_frame` against what the file DECLARES, where
 # it declares them (`save_opencv_calibration` writes both; third-party exports
 # write neither). Compared by the name the writer spells them with, so a file
 # this package wrote agrees with exactly the caller that would write it again.
-function _check_declared(d, unit::Units, image_origin::Symbol, path)
+function _check_declared(d, unit::Units, pixel_frame::Symbol, path)
     # `unit` is this package's writer's key; `tvec_unit` a third-party exporter's
-    for (key, expected) in ((:unit, string(unit)), (:tvec_unit, string(unit)), (:image_origin, String(image_origin)))
+    (haskey(d, :pixel_frame) && haskey(d, _LEGACY_FRAME_KEY)) && throw(
+        ArgumentError("$(path): the file declares its pixel frame twice, under `pixel_frame` and the legacy `$(_LEGACY_FRAME_KEY)`")
+    )
+    for (key, expected) in ((:unit, string(unit)), (:tvec_unit, string(unit)), (:pixel_frame, String(pixel_frame)), (_LEGACY_FRAME_KEY, String(pixel_frame)))
         haskey(d, key) || continue
         declared = d[key]
         declared isa AbstractString || throw(
@@ -243,9 +246,14 @@ function _check_declared(d, unit::Units, image_origin::Symbol, path)
     return nothing
 end
 
+# The legacy key declaring the pixel frame `cx, cy` are in, which files written before
+# 0.9 hold instead of `pixel_frame`: read (never both), never written, the files on
+# disk never rewritten.
+const _LEGACY_FRAME_KEY = Symbol("image_origin")
+
 # OpenCV's distortion vector, entry by entry, as this shape names it.
 const _OPENCV_KEYS = (:k1, :k2, :p1, :p2, :k3, :k4, :k5, :k6, :s1, :s2, :s3, :s4, :tilt_x, :tilt_y)
-const _OPENCV_FILE_KEYS = (:fx, :fy, :cx, :cy, :rms, :poses, :images, :unit, :tvec_unit, :image_origin, _OPENCV_KEYS...)
+const _OPENCV_FILE_KEYS = (:fx, :fy, :cx, :cy, :rms, :poses, :images, :unit, :tvec_unit, :pixel_frame, _LEGACY_FRAME_KEY, _OPENCV_KEYS...)
 
 # The distortion vector a file states: the shortest OpenCV vector holding every
 # coefficient the file names (k1, k2, p1, p2 required), the others zero.
@@ -297,7 +305,8 @@ names the pattern in the pose records (`target → camera_optical`).
 
 Most third-party exports declare neither and are read as stated; some declare
 `tvec_unit`. A file written by [`save_opencv_calibration`](@ref) declares both
-(`unit`, `image_origin`), and a declaration that differs from the caller's is
+(`unit`, `pixel_frame`; a file written before 0.9 declares its pixel frame
+under the legacy key of earlier releases, read the same way, never both), and a declaration that differs from the caller's is
 an `ArgumentError`, never a silent rescale: a metre file read as millimetres
 puts every target a thousand times too near.
 """
@@ -307,12 +316,12 @@ function load_opencv_calibration(
         file_frame::Type{<:PixelFrame}, path::AbstractString; file_unit::Units,
         target::AbstractString = "calibration_target",
     )
-    unit, image_origin = file_unit, pixel_origin(file_frame)
+    unit, pixel_frame = file_unit, pixel_origin(file_frame)
     d = _read_json(path)::AbstractDict   # a JSON object
     what = "OpenCV"
-    _check_declared(d, unit, image_origin, path)
+    _check_declared(d, unit, pixel_frame, path)
     lens = opencv_lens(_opencv_file_vector(d, path, what))
-    camera = _external_camera(d, lens, image_origin, path, what)
+    camera = _external_camera(d, lens, pixel_frame, path, what)
     poses = _external_poses(_need(d, :poses, path, what)::Vector{Any}, unit, target, path)
     images = haskey(d, :images) ? String[n::String for n in d.images::Vector{Any}] : nothing
     (images === nothing || length(images) == length(poses)) || throw(
@@ -363,7 +372,7 @@ function load_matlab_calibration(
         file_frame::Type{<:PixelFrame}, path::AbstractString; file_unit::Units,
         target::AbstractString = "calibration_target",
     )
-    unit, image_origin = file_unit, pixel_origin(file_frame)
+    unit, pixel_frame = file_unit, pixel_origin(file_frame)
     d = _read_json(path)::AbstractDict   # a JSON object
     what = "MATLAB"
     camera, twist = if haskey(d, :mapping_coeffs)
@@ -393,11 +402,11 @@ function load_matlab_calibration(
             SMatrix{3, 3, Float64}(a0 * U[1, 1], 0.0, 0.0, a0 * U[1, 2], a0 * U[2, 2], 0.0, c[1], c[2], 1.0)
         )
         lens = Scaramuzza(a[2] * a0, a[3] * a0^2, a[4] * a0^3)
-        CameraModel(K; lens, image_origin), RotMatrix{3, Float64}(RotZ(φ))
+        CameraModel(K; lens, pixel_frame), RotMatrix{3, Float64}(RotZ(φ))
     else
         r(k) = Float64(_need(d, k, path, what)::Real)
         lens = opencv_lens([r(:r1), r(:r2), r(:t1), r(:t2), r(:r3)])
-        _external_camera(d, lens, image_origin, path, what), one(RotMatrix{3, Float64})
+        _external_camera(d, lens, pixel_frame, path, what), one(RotMatrix{3, Float64})
     end
     poses = _external_poses(_need(d, :poses, path, what)::Vector{Any}, unit, target, path; twist)
     return ExternalCalibration(
@@ -465,6 +474,6 @@ function load_kalibr_camchain(file_frame::Type{<:PixelFrame}, path::AbstractStri
     (length(res) == 2 && all(r -> r > 0 && isinteger(r), res)) ||
         throw(ArgumentError("$(path): `resolution` is $(res), not two positive integers"))
     K = CameraCalibrationMat(SMatrix{3, 3, Float64}(fx, 0, 0, 0, fy, 0, cx, cy, 1))
-    model = CameraModel(K; lens, image_origin = pixel_origin(file_frame))
+    model = CameraModel(K; lens, pixel_frame = pixel_origin(file_frame))
     return BoundedCamera(model, Size2(Int(res[1]), Int(res[2])))
 end

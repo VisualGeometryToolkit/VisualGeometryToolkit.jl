@@ -9,7 +9,7 @@
     # this package promises — so each one is asserted rather than left to the
     # first caller to discover. Named by a coverage audit, not by taste.
     K = CameraCalibrationMat(SMatrix{3, 3, Float64}(800.0, 0, 0, 0, 800.0, 0, 320.5, 240.5, 1))
-    cam = CameraModel(K; lens = Pinhole(), image_origin = :colmap)
+    cam = CameraModel(K; lens = Pinhole(), pixel_frame = :colmap)
     model = ColmapModel(
         [colmap_camera(cam, 1, 640, 480)], ColmapImage[],
         ColmapPoint3D[], MM_PX

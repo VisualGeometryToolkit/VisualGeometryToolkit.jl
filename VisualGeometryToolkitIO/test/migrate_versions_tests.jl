@@ -221,7 +221,7 @@ end
     stages = Dict(:opencv => (Perspective(), [add14, tilt]), :aria => (Equidistant(), [rad, aria_add]))
     expected = Dict(n => Lens(p, s[2] ∘ s[1]) for (n, (p, s)) in stages)
     I3 = EuclideanMap(one(RotMatrix{3, Float64}), [0.0mm, 0.0mm, 0.0mm])
-    cam(n) = BoundedCamera(PosedCamera(CameraModel(K; lens = expected[n], image_origin = :colmap), relabel(BodyFrame{:camera_rig}, ViewFrame{n}, I3)), Size2(1280, 960))
+    cam(n) = BoundedCamera(PosedCamera(CameraModel(K; lens = expected[n], pixel_frame = :colmap), relabel(BodyFrame{:camera_rig}, ViewFrame{n}, I3)), Size2(1280, 960))
     rig = Rig{BodyFrame{:camera_rig}}((cam(:opencv), cam(:aria)))
     mktempdir() do dir
         v6 = joinpath(dir, "rig_v6.json")
@@ -244,7 +244,7 @@ end
         @test length(r.old_ids) == 1 && r.new_id == VgtkIO.content_id(rig)   # an mm file: v4's two identities agree
         back = load(Rig, r.out)
         for (i, n) in enumerate((:opencv, :aria))
-            got, want = model(back.members[i]), CameraModel(K; lens = expected[n], image_origin = :colmap)
+            got, want = model(back.members[i]), CameraModel(K; lens = expected[n], pixel_frame = :colmap)
             @test got.lens == expected[n]
             for x in -0.4:0.2:0.4, y in -0.3:0.15:0.3
                 X = SVector(x, y, 1.0)
@@ -270,7 +270,7 @@ end
     term(x) = Dict{String, Any}(k => v for (k, v) in lens_record(Lens(Perspective(), x)) if k != "perspective")
     v5_lens = Dict{String, Any}("perspective" => Any[], "chain" => Any[Dict{String, Any}("chain" => Any[term(A1), term(A2)]), term(T1)])
     I3 = EuclideanMap(one(RotMatrix{3, Float64}), [0.0mm, 0.0mm, 0.0mm])
-    cam = BoundedCamera(PosedCamera(CameraModel(K; lens = L, image_origin = :colmap), relabel(BodyFrame{:camera_rig}, ViewFrame{:c}, I3)), Size2(1280, 960))
+    cam = BoundedCamera(PosedCamera(CameraModel(K; lens = L, pixel_frame = :colmap), relabel(BodyFrame{:camera_rig}, ViewFrame{:c}, I3)), Size2(1280, 960))
     rig = Rig{BodyFrame{:camera_rig}}((cam,))
     @test VgtkIO._lens_v3_to_v4(v5_lens) == Dict{String, Any}("perspective" => Any[], "compose" => Any[term(T1), Dict{String, Any}("compose" => Any[term(A2), term(A1)])])
     @test VgtkIO._lens_v4_to_v3(VgtkIO._lens_v3_to_v4(v5_lens)) == v5_lens
@@ -606,7 +606,7 @@ end
     K = SMatrix{3, 3}(800.0, 0.0, 0.0, 0.0, 810.0, 0.0, 640.0, 480.0, 1.0)
     lens = Lens(Perspective(), Tilt(0.01, -0.02) ∘ Additive(Radial((-0.12, 0.03)), Tangential(1.0e-3, -5.0e-4)))
     I3 = EuclideanMap(one(RotMatrix{3, Float64}), [0.0mm, 0.0mm, 0.0mm])
-    cam = BoundedCamera(PosedCamera(CameraModel(K; lens, image_origin = :colmap), relabel(BodyFrame{:camera_rig}, ViewFrame{:cam}, I3)), Size2(1280, 960))
+    cam = BoundedCamera(PosedCamera(CameraModel(K; lens, pixel_frame = :colmap), relabel(BodyFrame{:camera_rig}, ViewFrame{:cam}, I3)), Size2(1280, 960))
     nodes = [VgtkIO.read_length.(p, mm) for p in grid_nodes(3; lo = 0.0, hi = 100.0)]
     fb(x) = VgtkIO.read_length(VgtkIO.write_length(x * VisualGeometryToolkitCore.m, mm), mm)    # file-born
     H = HeightField(nodes, fb.(parameter_vector(HeightField(nodes, VgtkIO.read_length.([0.1, 0.0, -0.1, 0.2, 0.0, 0.0, 0.0, 0.3, 0.0], mm)))))

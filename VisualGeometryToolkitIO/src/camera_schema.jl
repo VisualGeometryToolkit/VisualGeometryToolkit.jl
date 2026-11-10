@@ -60,7 +60,7 @@ julia> VgtkIO.pixel_frame_name(PixelFrame{:opencv})
 ```
 """
 pixel_frame_name(::Type{PixelFrame{O}}) where {O} = String(O)
-# The origin symbol VGC's `image_origin` keyword takes (private).
+# The origin symbol VGC's `pixel_frame` keyword takes (private).
 pixel_origin(::Type{PixelFrame{O}}) where {O} = O
 
 """

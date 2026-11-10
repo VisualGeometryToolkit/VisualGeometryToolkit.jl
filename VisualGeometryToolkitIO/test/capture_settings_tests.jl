@@ -66,7 +66,7 @@ end
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: BoundedCamera, Attributed, DeviceIdentity
     K = CameraCalibrationMat(SMatrix{3, 3, Float64}(2400.0, 0, 0, 0, 2400.0, 0, 2120.0, 1416.0, 1))
-    bc = BoundedCamera(CameraModel(K; lens = KannalaBrandt(0.1, -0.02, 0.003, -0.0004), image_origin = :colmap), Size2(4240, 2832))
+    bc = BoundedCamera(CameraModel(K; lens = KannalaBrandt(0.1, -0.02, 0.003, -0.0004), pixel_frame = :colmap), Size2(4240, 2832))
     device = (body = DeviceIdentity(; make = "Sony", model = "ILME-FX3", serial = "1234"), lens = DeviceIdentity(; model = "14mm F1.8 DG HSM | Art"))
     mktempdir() do dir
         p = joinpath(dir, "cameras.json")

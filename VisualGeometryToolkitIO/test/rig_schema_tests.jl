@@ -460,7 +460,7 @@ end
         # BOP: scene_gt (cam_R_m2c row-major, cam_t_m2c mm, integer obj_id) + scene_camera (cam_K row-major)
         tp = TargetPoses{CameraFrame}(Dict(2 => Dict(:b89 => poses[2], :a01 => poses[3])); images = Dict(2 => "DSC2.JPG"), sensors = "cam")
         K = CameraCalibrationMat(SMatrix{3, 3, Float64}(900.0, 0, 0, 0, 901.0, 0, 640.5, 480.5, 1))
-        cams = Dict(:cam => BoundedCamera(CameraModel(K; lens = opencv_lens([-0.1, 0.01, 0.0, 0.0]), image_origin = :colmap), Size2(1280, 960)))
+        cams = Dict(:cam => BoundedCamera(CameraModel(K; lens = opencv_lens([-0.1, 0.01, 0.0, 0.0]), pixel_frame = :colmap), Size2(1280, 960)))
         @test_throws ArgumentError save_bop_scene(PixelFrame{:opencv}, joinpath(dir, "bop"), tp, cams)   # a lens, not a pinhole
         out = save_bop_scene(PixelFrame{:opencv}, joinpath(dir, "bop"), tp, cams; undistorted = true)
         gt = parse_json(read(out.scene_gt, String))

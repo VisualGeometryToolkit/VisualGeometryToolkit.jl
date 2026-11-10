@@ -94,7 +94,7 @@ const _Record = Union{JSON.Object, NamedTuple}
 
 # `CANONICAL_PIXEL_FRAME` is the single thing VGIo must state: which frame a
 # `CameraModel`'s stored K is in. VGC guarantees it — every `CameraModel`
-# constructor converts its `image_origin` argument to this frame on the way in
+# constructor converts its `pixel_frame` argument to this frame on the way in
 # — but exposes no accessor for it, so it is named here ONCE rather than as a
 # `:colmap` literal in every writer and reader.
 const CANONICAL_PIXEL_FRAME = PixelFrame{:colmap}
@@ -133,7 +133,7 @@ _from_parametric_record(proto, x, u) =
 # stored K's, VGC's) into `frame`, the pixel frame the file declares; and back,
 # the K as the record states it, in the file's frame, moved into the canonical
 # one. Both moves are Core's one pixel-frame change of a K
-# (`reframed_calibration`, which `CameraModel(K; image_origin)` makes too).
+# (`reframed_calibration`, which `CameraModel(K; pixel_frame)` makes too).
 #
 # The principal point always goes through the frame conversion, the canonical
 # frame's identity included: its `+ 0.0` writes a stored `-0.0` as `0.0`, as

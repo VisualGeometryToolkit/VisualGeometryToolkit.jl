@@ -26,7 +26,7 @@ The kinds that store no producer pixels (the camera store, rigs and the grid
 models) declare the canonical `colmap` frame. A stored camera carries no frame
 of its own, because its model's intrinsics are canonical by construction. A
 source frame is declared where the conversion happens, as in
-`CameraModel(K; image_origin = :opencv)`. A foreign file that declares
+`CameraModel(K; pixel_frame = :opencv)`. A foreign file that declares
 `opencv` or `julia` is converted on read and saved again in the canonical
 frame.
 

@@ -47,7 +47,10 @@
     #   application order), and a composed calibration's record is
     #   `{"type": "composition", "compose": […]}`: a golden v3 store is migrated by
     #   `vgio_migrate` and must be the writer's v4 output byte for byte. The
-    #   OpenCV and COLMAP exports are unchanged.
+    #   COLMAP export is unchanged; the OpenCV export declares its pixel frame
+    #   under `pixel_frame` (0.9), where the goldens hold the legacy key: a
+    #   golden export, read as it is (the reader accepts the legacy key, below),
+    #   becomes the code's by that key alone.
     const CODE = (
         affine = nothing,
         gauges = false,
@@ -64,7 +67,9 @@
         # retired cases whose golden records migrate (to the affine factors) rather than being refused
         migrated_affine = Set(["A"]),
         migrate = (golden, out) -> occursin(r"^(target|rig|cameras)_", basename(golden)) ?
-            VisualGeometryToolkitIO.vgio_migrate(golden; out) : cp(golden, out; force = true),
+            VisualGeometryToolkitIO.vgio_migrate(golden; out) :
+            startswith(basename(golden), "opencv_") ? write(out, replace(read(golden, String), "\"image_origin\":" => "\"pixel_frame\":")) :
+            cp(golden, out; force = true),
         new_content_ids = Dict{String, String}(),
     )
 end
@@ -133,6 +138,17 @@ end
             same || @error "chain equivalence: the record $rel moved"
             @test same
             n_files += 1
+        end
+        # a golden OpenCV export, its pixel frame under the legacy key, is read as it is (never rewritten): the
+        # camera and poses of the code's export
+        legacy = filter(f -> startswith(f, "opencv_"), readdir(golden_records))
+        @test length(legacy) == 5
+        for f in legacy
+            g = joinpath(golden_records, f)
+            @test occursin("\"image_origin\": \"opencv\"", read(g, String))
+            a = VisualGeometryToolkitIO.load_opencv_calibration(g; file_unit = VgtkCore.mm)
+            b = VisualGeometryToolkitIO.load_opencv_calibration(joinpath(written, f); file_unit = VgtkCore.mm)
+            @test a.camera == b.camera && isequal(a.poses, b.poses) && a.images == b.images
         end
         # an affine golden is its factors: the same map, and the rig reports the golden (v5) id as its old one
         g = VisualGeometryToolkitIO._raw_tree(joinpath(golden_records, "target_A.json"))

@@ -38,7 +38,7 @@
     @testset "round trip is exact for every lens type" begin
         names = [Symbol("cam_", lpad(i, 2, '0')) for i in eachindex(every_lens)]
         recs = Dict(
-            n => BoundedCamera(CameraModel(K; lens = l, image_origin = :colmap), Size2(4240, 2832))
+            n => BoundedCamera(CameraModel(K; lens = l, pixel_frame = :colmap), Size2(4240, 2832))
                 for (n, l) in zip(names, every_lens)
         )
         mktempdir() do dir
@@ -76,7 +76,7 @@
         # canonical PixelFrame{:colmap} puts it at (0.5, 0.5). Reference values
         # cross-checked against cameras_vgio/cameras.bin and poses/bb undist_K
         # in the BlobBoards dataset, which are derived by an independent path.
-        m = CameraModel(K; lens = bc, image_origin = :opencv)
+        m = CameraModel(K; lens = bc, pixel_frame = :opencv)
         @test m.intrinsics.K[1, 3] == raw_cx + 0.5
         @test m.intrinsics.K[2, 3] == raw_cy + 0.5
 
@@ -95,7 +95,7 @@
         # hand-edited one is what exercises the conversion that is the
         # declaration's whole purpose. Signs: opencv→colmap is +0.5, julia→colmap is -0.5.
         mktempdir() do dir
-            canonical = CameraModel(K; lens = bc, image_origin = :colmap)
+            canonical = CameraModel(K; lens = bc, pixel_frame = :colmap)
             path = joinpath(dir, "cameras.json")
             save(path, Dict(:c => BoundedCamera(canonical, Size2(4240, 2832))))
             top = Dict{Symbol, Any}(pairs(parse_json(read(path, String))))
@@ -133,7 +133,7 @@
     end
 
     @testset "corrupt records are refused, not repaired" begin
-        rec = BoundedCamera(CameraModel(K; lens = bc, image_origin = :colmap), Size2(4240, 2832))
+        rec = BoundedCamera(CameraModel(K; lens = bc, pixel_frame = :colmap), Size2(4240, 2832))
         mktempdir() do dir
             path = joinpath(dir, "cameras.json")
             save(path, Dict(:c => rec))
@@ -231,7 +231,7 @@
         for (l, want) in expressible
             @test colmap_model(l) === want
         end
-        ok = Dict(Symbol("cam_", lpad(i, 2, '0')) => BoundedCamera(CameraModel(K; lens = l, image_origin = :colmap), Size2(4240, 2832)) for (i, (l, m)) in enumerate(expressible) if m !== nothing)
+        ok = Dict(Symbol("cam_", lpad(i, 2, '0')) => BoundedCamera(CameraModel(K; lens = l, pixel_frame = :colmap), Size2(4240, 2832)) for (i, (l, m)) in enumerate(expressible) if m !== nothing)
         cams, ids = colmap_cameras(ok)
         @test ids[:cam_02] == 2 && ids[:cam_01] == 1                                    # ids in name order
         mktempdir() do dir
@@ -246,13 +246,13 @@
             @test !hasproperty(back.cameras[1], :name)
         end
         # the partial-export filter of `colmap_cameras`' docstring
-        mixed = Dict(:a => ok[:cam_01], :ds => BoundedCamera(CameraModel(K; lens = Lens(DoubleSphere(0.5, 0.5)), image_origin = :colmap), Size2(4240, 2832)))
+        mixed = Dict(:a => ok[:cam_01], :ds => BoundedCamera(CameraModel(K; lens = Lens(DoubleSphere(0.5, 0.5)), pixel_frame = :colmap), Size2(4240, 2832)))
         @test length(filter(p -> colmap_model(model(last(p)).lens) !== nothing, mixed)) == 1
         @test_throws ArgumentError colmap_cameras(mixed)
     end
 
     @testset "the calibration block: an attribute of the value, closed, read back exactly" begin
-        m = CameraModel(K; lens = bc, image_origin = :opencv)
+        m = CameraModel(K; lens = bc, pixel_frame = :opencv)
         full = (;
             tool = "OpenCV calibrateCamera", source = "sony-fx3_tamron-20mm-f-2.8-f-8.json", date = "2026-01-19",
             reprojection_rms = 0.15948540185086135, n_images = 36, n_points = 2016, note = "chessboard 7x8, 50 mm squares",
@@ -313,7 +313,7 @@
     end
 
     @testset "a lens the store cannot hold fails loudly at write time" begin
-        unregistered = BoundedCamera(CameraModel(K; lens = _UnregisteredLens(), image_origin = :colmap), Size2(10, 10))
+        unregistered = BoundedCamera(CameraModel(K; lens = _UnregisteredLens(), pixel_frame = :colmap), Size2(10, 10))
         mktempdir() do dir
             @test_throws ArgumentError save(joinpath(dir, "u.json"), Dict(:u => unregistered))
             @test !isfile(joinpath(dir, "u.json"))                                     # nothing half-written

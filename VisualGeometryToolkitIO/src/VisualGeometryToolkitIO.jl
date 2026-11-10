@@ -109,7 +109,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     EuclideanMap, Size2, Vec3, PixelFrame,
     Rig, PosedTarget, BoundedCamera, PosedCamera, Attributed, sensor_rig, target_rig, Sensor, sensor,
     AbstractTarget, PointTarget, PlanarTarget, TargetCalibration, calibration, reference, is_resolved, Board, board,
-    Canvas, CanvasTexture, canvas, ChartPlacement, placement,
+    Canvas, CanvasTexture, canvas, placement, SimilarityMap, scale, translation,
     AbstractTargetLayout, AprilGrid, SchoepsPattern, layout, design, TARGET_LAYOUT_TAGS, tag_of,
     Rigid, ThinPlateSpline, HeightField, Scale, Aspect, Skew, TARGET_CALIBRATION_TAGS, calibration_tag, parameter_vector, with_parameters, length_mask,
     TARGET_CALIBRATION_ORDER, planar_kind, members, is_pure_bending, ThinPlateSplineSystem, iwasawa_parameters_with_jacobian, strip_or_bare,

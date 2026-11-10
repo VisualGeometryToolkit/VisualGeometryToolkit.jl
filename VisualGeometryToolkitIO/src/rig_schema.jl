@@ -66,7 +66,7 @@ end
 #   … "canvas": {"size": {"width": w, "height": h}, "origin": [u, v],              (optional) the printed page,
 #                "texture": {"path": "<relative path>", "sha256": "<hex>",          its printed image (optional):
 #                            "size": {"width": w, "height": h}, "origin": [u, v]}}  the file and the rectangle it covers
-#   … "placement": {"origin": [u, v], "side": s}                                   (optional, planar only) VGC's ChartPlacement
+#   … "placement": {"origin": [u, v], "side": s}                                   (optional, planar only) VGC's placement (a SimilarityMap{3})
 #
 # A PLACEMENT says where the calibration's dimensionless chart lies in the
 # design chart (the chart point c is the design point origin + side·c): its
@@ -390,7 +390,7 @@ end
 _metres_json(x::Real, u::_LeafUnit) = _leaf_power(Float64(x), u, 1)
 
 # Where a calibration's lengths go: the file's unit or the identity's persisted
-# metres (`_LeafUnit`), or — for a PLACED target (VGC's `ChartPlacement`),
+# metres (`_LeafUnit`), or — for a PLACED target (VGC's placement, a `SimilarityMap{3}`),
 # whose calibration acts in the board's dimensionless chart — `_CHART`: its
 # nodes, values and covariance are plain chart numbers, written and read as
 # they are, never scaled by `length_mask` (the placement carries the lengths).
@@ -584,16 +584,20 @@ function JSON.lift(s::VgioStyle, ::Type{AbstractTargetLayout}, x::_Record)
     return T(; (k => value(k) for k in _layout_keys(T))...)
 end
 
-# The placement ↔ its record (VGC's `ChartPlacement`: the chart point c is the
-# design point origin + side·c): its origin and side, lengths in the file's
-# unit, decimal-exactly; read back as lengths (stored plain metres).
+# The placement ↔ its record (VGC's placement, a `SimilarityMap{3}` of scale
+# `side`, the identity rotation and the translation `(origin, 0)`: the chart
+# point c is the design point origin + side·c): its origin and side, lengths in
+# the file's unit, decimal-exactly; read back as plain metres, the placement of
+# the physical target the record describes (the keys of the 0.8 record).
 _placement_json(::Nothing, ::_LeafUnit) = (;)
-function _placement_json(P::ChartPlacement, u::_LeafUnit)
-    has_units(P) || _refuse_plain("a target's chart placement")
-    return (placement = (origin = [_metres_json(x, u) for x in P.origin], side = _metres_json(P.side, u)),)
+function _placement_json(P::SimilarityMap{3}, u::_LeafUnit)
+    o = translation(P)
+    return (placement = (origin = [_metres_json(o[1], u), _metres_json(o[2], u)], side = _metres_json(scale(P), u)),)
 end
-_placement_from_json(x, u::Units) =
-    ChartPlacement(SVector(read_length(x.origin[1]::Real, u), read_length(x.origin[2]::Real, u)), read_length(x.side::Real, u))
+function _placement_from_json(x, u::Units)
+    metres(v) = ustrip(m, read_length(v::Real, u))
+    return SimilarityMap(metres(x.side), RotMatrix{3}(SMatrix{3, 3}(1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0)), SVector(metres(x.origin[1]), metres(x.origin[2]), 0.0))
+end
 
 # The board ↔ its record. VGC's `Board` holds its size as lengths (metres) and
 # its lower-left corner as plain metres (a physical target's; a unitless one is

@@ -617,19 +617,20 @@ end
     end
 end
 
-@testitem "target/v3: a chart placement — the calibration in plain chart numbers, the placement in the file's unit" setup = [VGIoFixtures, TargetRecordFixtures] begin
+@testitem "target/v3: a placement — the calibration in plain chart numbers, the placement in the file's unit" setup = [VGIoFixtures, TargetRecordFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, ChartPlacement, HeightField, ThinPlateSpline, Aspect, Skew, Rigid,
+    using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, SimilarityMap, HeightField, ThinPlateSpline, Aspect, Skew, Rigid,
         Uncertain, CovMat, Rig, PosedTarget, TargetFrame, grid_nodes, calibration, parameter_vector, geom, placement
     using Statistics: cov
     using LinearAlgebra: Diagonal
-    # VGC's ChartPlacement: the calibration acts in the board's dimensionless
+    # VGC's placement (a SimilarityMap{3}): the calibration acts in the board's dimensionless
     # chart ([0, 1]², RadiometricCamera's page), plain numbers whatever the
     # points' form; the placement (origin, side) carries the lengths.
     chart = grid_nodes(3; lo = 0.0, hi = 1.0)
     H = HeightField(chart, [0.01, 0.0, -0.01, 0.02, 0.0, 0.0, 0.0, 0.03, 0.0])          # projected: pure bending, plain
     c = Uncertain(foldr(∘, (H, Aspect(0.002), Skew(-0.001))), CovMat(SMatrix{11, 11, Float64}(Diagonal([1.0e-6 * i for i in 1:11]))))
-    P = ChartPlacement(SVector(mmq(-13.9), mmq(0.0)), mmq(150.0))
+    placed_at(o, side) = SimilarityMap(side, one(RotMatrix{3, Float64}), SVector(o[1], o[2], 0.0))   # plain metres: the target is physical
+    P = placed_at(SVector(-0.0139, 0.0), 0.15)
     t = PlanarTarget(design_points(); calibration = c, placement = P)
     mktempdir() do dir
         p = joinpath(dir, "t.json")
@@ -666,7 +667,7 @@ end
     rig(tt) = Rig{TargetFrame{:a}}(Dict(:a => PosedTarget(tt, X)))
     placed = PlanarTarget(design_points(); calibration = Rigid(), placement = P)
     unplaced = PlanarTarget(design_points(); calibration = Rigid())
-    moved = PlanarTarget(design_points(); calibration = Rigid(), placement = ChartPlacement(SVector(mmq(-13.9), mmq(0.0)), mmq(151.0)))
+    moved = PlanarTarget(design_points(); calibration = Rigid(), placement = placed_at(SVector(-0.0139, 0.0), 0.151))
     ids = VgtkIO.content_id.(rig.((placed, unplaced, moved)))
     @test allunique(ids)
     @test VgtkIO._identity_tree(rig(placed))["targets"][1]["target"]["placement"] == Dict("origin" => [-0.0139, 0.0], "side" => 0.15)

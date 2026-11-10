@@ -286,21 +286,24 @@ end
     truth = spline_truth(); Es = truth_poses(2)
     views = spline_views(truth, Es, 1.1; n = 12)
     cam0 = perturbed_controls(truth, 0.01); poses0 = [perturbed_pose(E, v) for (v, E) in enumerate(Es)]
-    p = VE._spline_problem(cam0, poses0, views, true, 1.0e-8)
     h = 1.0e-6
-    @test !isempty(p.costs) && !isempty(p.smooth) && !isempty(p.anchors)
-    for c in [p.costs; p.smooth; p.anchors]                                    # the data, Δ³ and anchor blocks
-        vars = NLLSsolver.getvars(c, p.variables)
-        J = NLLSsolver.computeresjac(2^length(c.varind) - 1, c, vars...)[2]
-        col = 0
-        for (k, v) in enumerate(vars), j in 1:NLLSsolver.dynamic(NLLSsolver.nvars(v))
-            col += 1
-            e = zeros(NLLSsolver.dynamic(NLLSsolver.nvars(v))); e[j] = h
-            f(δ) = NLLSsolver.computeresidual(c, ntuple(i -> i == k ? NLLSsolver.update(v, δ) : vars[i], length(vars))...)
-            fd = (f(e) - f(-e)) / 2h
-            @test norm(J[:, col] - fd) <= 1.0e-6 * max(norm(fd), maximum(abs, J))
+    # the full patches (directions and log-scales) and the directions-first stage's directions-only patches
+    for directions_only in (false, true)
+        p = VE._spline_problem(cam0, poses0, views, true, 1.0e-8; directions_only)
+        @test !isempty(p.costs) && !isempty(p.smooth) && !isempty(p.anchors)
+        for c in [p.costs; p.smooth; p.anchors]                                # the data, Δ³ and anchor blocks
+            vars = NLLSsolver.getvars(c, p.variables)
+            J = NLLSsolver.computeresjac(2^length(c.varind) - 1, c, vars...)[2]
+            col = 0
+            for (k, v) in enumerate(vars), j in 1:NLLSsolver.dynamic(NLLSsolver.nvars(v))
+                col += 1
+                e = zeros(NLLSsolver.dynamic(NLLSsolver.nvars(v))); e[j] = h
+                f(δ) = NLLSsolver.computeresidual(c, ntuple(i -> i == k ? NLLSsolver.update(v, δ) : vars[i], length(vars))...)
+                fd = (f(e) - f(-e)) / 2h
+                @test norm(J[:, col] - fd) <= 1.0e-6 * max(norm(fd), maximum(abs, J))
+            end
+            @test col == size(J, 2)
         end
-        @test col == size(J, 2)
     end
 end
 
@@ -363,7 +366,7 @@ end
 
 @testitem "refine_camera_and_poses: a SplineLens camera's smoothness is scale-free; the penalty fixed, off, or chosen by GCV" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
     using StaticArrays: SVector
-    using LinearAlgebra: norm
+    using LinearAlgebra: norm, eigvals, Symmetric
     using Random: Xoshiro, randn
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, ChartSpline, estimate, retcode, rms, lens,
         parameter_vector, spline_window, angle_between, backproject
@@ -382,6 +385,18 @@ end
     @test VE._spline_cost(q.variables, VE._spline_blocks(q)) ≈ VE._spline_cost(p.variables, VE._spline_blocks(p)) rtol = 1.0e-12
     @test VE._spline_problem(scaled, poses0[1:2], small, true, 1.0e-8).λ ≈ p.λ rtol = 1.0e-12
     # tr H: the exact trace and the 64-probe Hutchinson estimate (the switch lowered to 0) agree within 3σ, σ ≤ √(2 tr H / 64)
+    # the gauge held exactly: at the refined estimate, the normal matrix of every row (data, Δ³, anchors) over the
+    # coordinates the solve moves (the pins' held ones deleted) is full rank, while the unreduced one is singular along
+    # the common scale (the rotation's 3 directions are held off zero only by the Δ³ rows' Gauss–Newton term).
+    # Measured: reduced λmin/λmax 4.9e-13; unreduced 4e-20, then 5e-14 (×3)
+    r7 = estimate(refine_camera_and_poses(cam0, poses0, spline_views(truth, Es, 1.1); penalty = 3.0e-7))
+    pf = VE._spline_problem(r7.camera, r7.poses, spline_views(truth, Es, 1.1), true, 3.0e-7)
+    _, Jf = VE._spline_problem_rows_and_jacobian(pf, pf.variables)
+    @test length(pf.held) == 4 && length(pf.pins) == 2
+    kept = setdiff(axes(Jf, 2), pf.held)
+    ev = eigvals(Symmetric(Matrix(Jf[:, kept]' * Jf[:, kept]))); ev0 = sort(eigvals(Symmetric(Matrix(Jf' * Jf))))
+    @test minimum(ev) / maximum(ev) > 1.0e-13 && ev0[1] / ev0[end] < 1.0e-17
+
     # tr H on the 3-view fixture: the exact trace and the 64-probe Hutchinson estimate (the switch lowered to 0) agree
     # within 3σ, σ ≤ √(2 tr H / 64); tr H well below the 720 data rows
     views = spline_views(truth, Es, 1.1)
@@ -400,7 +415,9 @@ end
     @test retcode(r1) === :converged && r1.spline.penalty == 1.0e-8 && r1.spline.gcv === nothing && !r1.spline.gcv_at_bound
     @test parameter_vector(estimate(r1).camera) == parameter_vector(estimate(r2).camera)
     # penalty = 0: no smoothness; the present nodes no correspondence's window reads are held at their guesses and counted
-    r0 = refine_camera_and_poses(cam0, poses0, views; penalty = 0)
+    # (without the Δ³ rows each log-scale is held by its data alone, nearly collinear with its direction: the joint
+    # solve takes ≈ 210 iterations, past the default per-solve cap)
+    r0 = refine_camera_and_poses(cam0, poses0, views; penalty = 0, max_iter = 300)
     @test retcode(r0) === :converged && r0.spline.penalty == 0 && r0.spline.λ == 0 && r0.spline.gcv === nothing
     read = falses(size(b.controls))
     for cs in views, x in cs

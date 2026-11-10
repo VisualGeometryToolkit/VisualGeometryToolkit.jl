@@ -39,8 +39,12 @@
 # divided by its own nodes' mean length): an exact symmetry of the cost, a gauge of 1
 # dimension. A rotation Q of every control and every pose together — controls Q·c,
 # poses (Q·R, Q·t) — leaves every x* (so the data rows) and the Δ³ rows' norms where
-# they are: a gauge of 3 dimensions. Marquardt's damping keeps the step finite along
-# them; after the LM the estimate is moved along all 4 in ONE step: the minimal rotation
+# they are: a gauge of 3 dimensions. The LM never runs with them open: each is held
+# EXACTLY during the solve (`_SplinePin`: the step 0 on its coordinates, no cost row) —
+# the first view's rotation (stages 2–3) and the log-scale of the live node nearest x = 0
+# (stage 3) — so the reduced normal matrix is full rank. After the LM the estimate is
+# moved, in ONE step, to the canonical representative of its orbit (a representative
+# choice, not a gauge fix): the minimal rotation
 # that takes the lens axis `normalize(backward(0, 0))` onto ẑ, then the roll about ẑ that
 # puts the backward's x-derivative at x = 0 in the xz plane — the convention
 # `_spline_gauge` reads K from (a parametric source's own) — and the common scale that
@@ -77,6 +81,18 @@ function _in_patch_chart(Jc::SMatrix{R, 12, Float64}, patch::_SplinePatch) where
     return hcat(Jd, Js)
 end
 
+# The directions-only patch: the directions-first stage's variable, every log-scale held
+# EXACTLY (no coordinate of it): its controls are its directions as they are (each `‖D‖`
+# its guess's control length; the guess's log-scale is 0).
+@inline _patch_direction(patch::_SplineDirections, n) = patch.directions[n]
+@inline _patch_control(patch::_SplineDirections, n) = patch.directions[n]
+_in_patch_chart(Jc::SMatrix{R, 12, Float64}, patch::_SplineDirections) where {R} = Jc * SMatrix{12, 8, Float64}(VgtkCore.retract_jacobian(patch))
+const _AnyPatch = Union{_SplinePatch, _SplineDirections}
+# A patch variable's coordinates: 12 (directions and log-scales), 8 (directions alone).
+_patch_width(::Type{_SplinePatch}) = 12
+_patch_width(::Type{_SplineDirections}) = 8
+_patch_width(::Type{Nothing}) = 0                     # the poses alone: no patch
+
 # The patch layout of a `gh × gw` lattice, `offset` nodes into its first patch (0: the
 # lattice's first node is a patch's first slot): node `(i, j)` is slot `(a, b)` of patch
 # `(P, Q)`, the patch grid `ph × pw` (padded so the 3 × 3 patches of every window exist).
@@ -105,9 +121,10 @@ const _SplineBox = NTuple{3, SVector{2, Float64}}
 
 # One correspondence's block: the target point, its pixel, its window's cell and where
 # its 16 controls sit. `N = 10`: its 3 × 3 patches (column-major) and its pose,
-# `slots[r, c] = (k, n)` the window control `[r, c]`'s patch and control; `N = 1`: its
-# pose alone, the window's controls held (`held`, read only then).
-struct _SplineReprojection{N} <: NLLSsolver.AbstractResidual
+# `slots[r, c] = (k, n)` the window control `[r, c]`'s patch and control, `P` the patch
+# variable's type; `N = 1`: its pose alone, the window's controls held (`held`, read
+# only then; `P = Nothing`).
+struct _SplineReprojection{N, P} <: NLLSsolver.AbstractResidual
     varind::SVector{N, Int}
     slots::SMatrix{4, 4, NTuple{2, Int}, 16}
     held::SMatrix{4, 4, SVector{3, Float64}, 16}
@@ -116,18 +133,19 @@ struct _SplineReprojection{N} <: NLLSsolver.AbstractResidual
     pixel::SVector{4, Float64}           # fx, fy, cx, cy (skew 0: the gauge)
     X::SVector{3, Float64}
     u::SVector{2, Float64}
+    gauge::NTuple{3, Int}                # the held gauge coordinates it reads: (its patch k ∈ 1:9 holding the held log-scale, or 0; that control n; 1 if its pose's rotation is held)
 end
 NLLSsolver.ndeps(::_SplineReprojection{N}) where {N} = NLLSsolver.static(N)
 NLLSsolver.nres(::_SplineReprojection) = NLLSsolver.static(2)
 NLLSsolver.varindices(r::_SplineReprojection) = r.varind
 # The problems' variable vectors: patches and poses, or the poses alone.
 const _SplineVars = Vector{Union{_SplinePatch, _CameraPosePose}}
-NLLSsolver.getvars(r::_SplineReprojection{10}, vars::_SplineVars) =
-    (ntuple(k -> vars[r.varind[k]]::_SplinePatch, Val(9))..., vars[r.varind[10]]::_CameraPosePose)
+NLLSsolver.getvars(r::_SplineReprojection{10, P}, vars::Vector{Union{P, _CameraPosePose}}) where {P} =
+    (ntuple(k -> vars[r.varind[k]]::P, Val(9))..., vars[r.varind[10]]::_CameraPosePose)
 NLLSsolver.getvars(r::_SplineReprojection{1}, vars::Vector{_CameraPosePose}) = (vars[r.varind[1]],)
 Base.eltype(::_SplineReprojection) = Float64
 
-_window_controls(r::_SplineReprojection, patches::NTuple{9, _SplinePatch}) =
+_window_controls(r::_SplineReprojection, patches::NTuple{9, _AnyPatch}) =
     SMatrix{4, 4, SVector{3, Float64}, 16}(ntuple(m -> (s = r.slots[m]; _patch_control(patches[s[1]], s[2])), Val(16)))
 
 # The block's projection: the camera-frame point, the solve's point and whether it
@@ -145,9 +163,9 @@ function _spline_rows(r::_SplineReprojection, C, pose)
     _, x, ok = _spline_solve(r, C, pose)
     return ok ? _spline_pixel(r, x) - r.u : SVector(NaN, NaN)
 end
-NLLSsolver.computeresidual(r::_SplineReprojection{10}, vars...) = _spline_rows(r, _window_controls(r, ntuple(k -> vars[k], Val(9))), vars[10])
+NLLSsolver.computeresidual(r::_SplineReprojection{10, <:_AnyPatch}, vars...) = _spline_rows(r, _window_controls(r, ntuple(k -> vars[k], Val(9))), vars[10])
 NLLSsolver.computeresidual(r::_SplineReprojection{1}, pose) = _spline_rows(r, r.held, pose)
-NLLSsolver.computecost(vars::_SplineVars, r::_SplineReprojection{10}) =
+NLLSsolver.computecost(vars::Vector{Union{P, _CameraPosePose}}, r::_SplineReprojection{10, P}) where {P} =
     finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
 NLLSsolver.computecost(vars::Vector{_CameraPosePose}, r::_SplineReprojection{1}) =
     finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
@@ -158,19 +176,20 @@ NLLSsolver.computecost(vars::Vector{_CameraPosePose}, r::_SplineReprojection{1})
 # through each patch's chart; for the pose `diag(fx, fy)·∂x*/∂X_c·[−[X_c]× I₃]`
 # (the left perturbation's action). A heap matrix (2 × 114), too large to unroll; its
 # normal matrix goes to NLLSsolver as the lazy rank-2 `_Gram`.
-function _spline_rows_and_jacobian(r::_SplineReprojection{N}, C, patches, pose) where {N}
+function _spline_rows_and_jacobian(r::_SplineReprojection{N, P}, C, patches, pose) where {N, P}
     Xc, x, ok = _spline_solve(r, C, pose)
-    np = N == 10 ? 108 : 0
+    np = N == 10 ? 9 * _patch_width(P) : 0
     J = fill(ok ? 0.0 : NaN, 2, np + 6)
     ok || return SVector(NaN, NaN), J
     Dt, G, _, _, w = VgtkCore.Cameras._projection_jacobians(C, r.cell, x, Xc)
     A = SMatrix{2, 2, Float64}(r.pixel[1], 0.0, 0.0, r.pixel[2])
     J[:, (np + 1):(np + 6)] = A * Dt * VgtkCore.action_jacobian(pose, r.X)
-    N == 10 && _window_columns!(J, r, w, A * G, patches::NTuple{9, _SplinePatch})
+    N == 10 && _window_columns!(J, r, w, A * G, patches::NTuple{9, P})
     return _spline_pixel(r, x) - r.u, J
 end
-# Each patch's 2 × 12 columns: the window controls it holds, `w[m]·AG` in their slots.
-function _window_columns!(J, r::_SplineReprojection, w, AG, patches::NTuple{9, _SplinePatch})
+# Each patch's columns (2 × its width): the window controls it holds, `w[m]·AG` in their slots.
+function _window_columns!(J, r::_SplineReprojection{10, P}, w, AG, patches::NTuple{9, P}) where {P}
+    W = _patch_width(P)
     for k in 1:9
         Jc = zero(SMatrix{2, 12, Float64})
         for m in 1:16
@@ -178,7 +197,7 @@ function _window_columns!(J, r::_SplineReprojection, w, AG, patches::NTuple{9, _
             km == k || continue
             Jc += hcat(ntuple(q -> q == n ? w[m] * AG : zero(SMatrix{2, 3, Float64}), Val(4))...)
         end
-        iszero(Jc) || (J[:, (12k - 11):(12k)] = _in_patch_chart(Jc, patches[k]))
+        iszero(Jc) || (J[:, (W * (k - 1) + 1):(W * k)] = _in_patch_chart(Jc, patches[k]))
     end
     return J
 end
@@ -193,13 +212,19 @@ Base.@propagate_inbounds Base.getindex(G::_Gram, i::Int, j::Int) = G.J[1, i] * G
 
 # The block's cost, gradient and normal matrix (NLLSsolver's documented extension point;
 # the residual is not robustified): `(½‖r‖², Jᵀr, JᵀJ)`, the normal matrix the lazy `_Gram`.
-function NLLSsolver.computecostgradhess(varflags, r::_SplineReprojection{10}, vars...)
+# The held gauge coordinates' columns are zeroed in the LM's gradient and normal matrix:
+# no block moves them (`_SplinePin` alone gives them a unit diagonal), so their step is 0
+# exactly. `computeresjac` (the Jacobian of the residual) keeps them.
+function NLLSsolver.computecostgradhess(varflags, r::_SplineReprojection{10, P}, vars...) where {P <: _AnyPatch}
     res, J = NLLSsolver.computeresjac(varflags, r, vars...)
+    k, n, rot = r.gauge
+    k == 0 || (J[:, _patch_width(P) * (k - 1) + 8 + n] .= 0.0)
+    rot == 1 && (J[:, (9 * _patch_width(P) + 1):(9 * _patch_width(P) + 3)] .= 0.0)
     return 0.5 * sum(abs2, res), J' * res, _Gram(J)
 end
 
 # Every variable of a block is free in this refinement (`varflags` all set).
-function NLLSsolver.computeresjac(varflags, r::_SplineReprojection{10}, vars...)
+function NLLSsolver.computeresjac(varflags, r::_SplineReprojection{10, <:_AnyPatch}, vars...)
     varflags == 2^10 - 1 || throw(ArgumentError("refine_camera_and_poses: every patch and pose is free (varflags = $varflags)"))
     patches = ntuple(k -> vars[k], Val(9))
     return _spline_rows_and_jacobian(r, _window_controls(r, patches), patches, vars[10])
@@ -213,15 +238,16 @@ end
 # `√λ·Σₘ sₘcₘ / ρ` (3 rows), `ρ = ¼Σₘ‖cₘ‖` the mean length of its own 4 controls at their
 # current values, on the 3 patches holding its 4 nodes, `slots[m] = (k, n)` node m's
 # patch and control, `coef = √λ·s` the stencil.
-struct _SplineSmoothness <: NLLSsolver.AbstractResidual
+struct _SplineSmoothness{P} <: NLLSsolver.AbstractResidual
     varind::SVector{3, Int}
     slots::SVector{4, NTuple{2, Int}}
     coef::SVector{4, Float64}
+    gauge::NTuple{2, Int}                # the held log-scale it reads: (its patch k ∈ 1:3, control n), or (0, 0)
 end
 NLLSsolver.ndeps(::_SplineSmoothness) = NLLSsolver.static(3)
 NLLSsolver.nres(::_SplineSmoothness) = NLLSsolver.static(3)
 NLLSsolver.varindices(r::_SplineSmoothness) = r.varind
-NLLSsolver.getvars(r::_SplineSmoothness, vars::_SplineVars) = ntuple(k -> vars[r.varind[k]]::_SplinePatch, Val(3))
+NLLSsolver.getvars(r::_SplineSmoothness{P}, vars::Vector{Union{P, _CameraPosePose}}) where {P} = ntuple(k -> vars[r.varind[k]]::P, Val(3))
 Base.eltype(::_SplineSmoothness) = Float64
 # The row's 4 controls, its rows and their mean length `ρ`.
 function _smoothness_rows(r::_SplineSmoothness, patches)
@@ -248,34 +274,74 @@ function NLLSsolver.computeresjac(varflags, r::_SplineSmoothness, patches...)
     return row, hcat(blocks...)
 end
 
+# The LM's gradient and normal matrix with the held log-scale's column zeroed (as a data block's).
+function NLLSsolver.computecostgradhess(varflags, r::_SplineSmoothness{P}, patches...) where {P}
+    res, J = NLLSsolver.computeresjac(varflags, r, patches...)
+    k, n = r.gauge
+    held = _patch_width(P) * (k - 1) + 8 + n
+    Jh = k == 0 ? J : J .* SVector{size(J, 2), Float64}(ntuple(j -> j == held ? 0.0 : 1.0, Val(size(J, 2))))'
+    return 0.5 * sum(abs2, res), Jh' * res, Jh' * Jh
+end
+
 # The anchor of a patch's unread coordinates at their guesses: per control with
-# `dead[n]`, its direction (`D − D₀`, 3 rows) and its log-scale (1 row); per control
-# with only `scale[n]` (every scale in the directions-first solve), its log-scale
-# alone, weighted by `w[n]`. 16 rows (zero for the others).
-struct _SplineAnchor <: NLLSsolver.AbstractResidual
+# `dead[n]`, its direction (`D − D₀`, 3 rows) and, in a full patch, its log-scale (1 row):
+# 16 rows (12 for a directions-only patch), zero for the others.
+struct _SplineAnchor{P} <: NLLSsolver.AbstractResidual
     varind::SVector{1, Int}
     dead::SVector{4, Bool}
-    scale::SVector{4, Bool}
     guess::SMatrix{2, 2, SVector{3, Float64}, 4}
-    w::SVector{4, Float64}
 end
 NLLSsolver.ndeps(::_SplineAnchor) = NLLSsolver.static(1)
-NLLSsolver.nres(::_SplineAnchor) = NLLSsolver.static(16)
+NLLSsolver.nres(::_SplineAnchor{_SplinePatch}) = NLLSsolver.static(16)
+NLLSsolver.nres(::_SplineAnchor{_SplineDirections}) = NLLSsolver.static(12)
 NLLSsolver.varindices(r::_SplineAnchor) = r.varind
-NLLSsolver.getvars(r::_SplineAnchor, vars::_SplineVars) = (vars[r.varind[1]]::_SplinePatch,)
+NLLSsolver.getvars(r::_SplineAnchor{P}, vars::Vector{Union{P, _CameraPosePose}}) where {P} = (vars[r.varind[1]]::P,)
 Base.eltype(::_SplineAnchor) = Float64
-NLLSsolver.computeresidual(r::_SplineAnchor, patch) = vcat(
-    ntuple(n -> r.dead[n] ? _patch_direction(patch, n) - r.guess[n] : zero(SVector{3, Float64}), Val(4))...,
-    SVector{4, Float64}(ntuple(n -> r.scale[n] ? r.w[n] * _patch_scale(patch, n) : 0.0, Val(4)))
-)
-function NLLSsolver.computeresjac(varflags, r::_SplineAnchor, patch)
+_anchor_directions(r::_SplineAnchor, patch) = vcat(ntuple(n -> r.dead[n] ? _patch_direction(patch, n) - r.guess[n] : zero(SVector{3, Float64}), Val(4))...)
+NLLSsolver.computeresidual(r::_SplineAnchor{_SplineDirections}, patch) = _anchor_directions(r, patch)
+NLLSsolver.computeresidual(r::_SplineAnchor{_SplinePatch}, patch) =
+    vcat(_anchor_directions(r, patch), SVector{4, Float64}(ntuple(n -> r.dead[n] ? _patch_scale(patch, n) : 0.0, Val(4))))
+# the dead directions' rows of the sphere chart's derivative (12 × 8)
+_anchor_jacobian(r::_SplineAnchor, ch::_SplineDirections) =
+    (RJ = SMatrix{12, 8, Float64}(VgtkCore.retract_jacobian(ch)); SMatrix{12, 8, Float64}(ntuple(i -> r.dead[(((i - 1) % 12) ÷ 3) + 1] ? RJ[i] : 0.0, Val(96))))
+function NLLSsolver.computeresjac(varflags, r::_SplineAnchor{_SplineDirections}, patch)
     varflags == 1 || throw(ArgumentError("refine_camera_and_poses: the patch is free (varflags = $varflags)"))
-    RJ = SMatrix{12, 8, Float64}(VgtkCore.retract_jacobian(patch.charts[1]))
-    Jd = SMatrix{12, 8, Float64}(ntuple(i -> r.dead[(((i - 1) % 12) ÷ 3) + 1] ? RJ[i] : 0.0, Val(96)))
-    Js = SMatrix{4, 4, Float64}(LinearAlgebra.Diagonal(SVector{4, Float64}(map((b, w) -> b ? w : 0.0, r.scale, r.w))))
-    J = vcat(hcat(Jd, zero(SMatrix{12, 4, Float64})), hcat(zero(SMatrix{4, 8, Float64}), Js))
+    return NLLSsolver.computeresidual(r, patch), _anchor_jacobian(r, patch)
+end
+function NLLSsolver.computeresjac(varflags, r::_SplineAnchor{_SplinePatch}, patch)
+    varflags == 1 || throw(ArgumentError("refine_camera_and_poses: the patch is free (varflags = $varflags)"))
+    Js = SMatrix{4, 4, Float64}(LinearAlgebra.Diagonal(SVector{4, Float64}(map(b -> b ? 1.0 : 0.0, r.dead))))
+    J = vcat(hcat(_anchor_jacobian(r, patch.charts[1]), zero(SMatrix{12, 4, Float64})), hcat(zero(SMatrix{4, 8, Float64}), Js))
     return NLLSsolver.computeresidual(r, patch), J
 end
+# The patch type of a problem's blocks.
+_patch_type(::AbstractVector{_SplineSmoothness{P}}) where {P} = P
+
+# The exact hold of a gauge's coordinates during the LM: on one variable, the
+# coordinates `held` (a mask) get the step 0 EXACTLY — the block hands NLLSsolver a zero
+# cost, a zero gradient and the identity on those coordinates of its normal matrix (and
+# nothing else), so the system has a unit row and column there, decoupled from the rest:
+# the LM's step there is 0 under any damping, and the cost has no row for it. The rotation
+# gauge holds the first view's rotation (its pose's first 3 coordinates), the scale gauge
+# one live node's log-scale. The reduced normal matrix is then full rank.
+struct _SplinePin{V} <: NLLSsolver.AbstractResidual
+    varind::SVector{1, Int}
+    held::SVector{12, Bool}                 # the first `nvars(V)` entries are read
+end
+NLLSsolver.ndeps(::_SplinePin) = NLLSsolver.static(1)
+NLLSsolver.nres(::_SplinePin) = NLLSsolver.static(1)
+NLLSsolver.varindices(r::_SplinePin) = r.varind
+NLLSsolver.getvars(r::_SplinePin, vars::AbstractVector) = (vars[r.varind[1]],)   # read for its type alone
+Base.eltype(::_SplinePin) = Float64
+NLLSsolver.computeresidual(::_SplinePin, v) = SVector(0.0)
+NLLSsolver.computecost(::AbstractVector, ::_SplinePin) = 0.0
+_pin_width(::Type{_CameraPosePose}) = 6
+_pin_width(::Type{V}) where {V} = _patch_width(V)
+function NLLSsolver.computecostgradhess(varflags, r::_SplinePin{V}, v) where {V}
+    n = _pin_width(V)
+    return 0.0, zero(SVector{n, Float64}), SMatrix{n, n, Float64}(LinearAlgebra.Diagonal(SVector{n, Float64}(ntuple(i -> r.held[i] ? 1.0 : 0.0, Val(n)))))
+end
+
 
 # The problem of a SplineLens camera `cam` (no forward) at the guesses, its patches laid
 # `offset` nodes into the first (`_PatchLayout`): its variables (the patches, column-major
@@ -289,12 +355,14 @@ end
 # those the camera does not project within a cell of one, the layout, the live nodes
 # (those a row reads), the present nodes, the patch count and the blocks' windows. A
 # given `λ` is kept (a rebuild's); `at` names the point the problem is built at (an
-# error's wording); `scales_held` anchors every log-scale (the directions-first solve), at
-# a weight `_SCALES_HELD_WEIGHT` times the data's mean direction curvature, so they stay put.
+# error's wording); `directions_only` makes each patch variable its directions alone (the
+# directions-first solve: every log-scale held exactly, at the guess's 0).
 function _spline_problem(
         cam::CameraModel, poses::AbstractVector, views::AbstractVector, free::Bool, penalty::Real, offset::Integer = 0;
-        λ::Union{Nothing, Real} = nothing, at::AbstractString = "at the guess", scales_held::Bool = false
+        λ::Union{Nothing, Real} = nothing, at::AbstractString = "at the guess", directions_only::Bool = false
     )
+    PT = directions_only ? _SplineDirections : _SplinePatch
+    W = _patch_width(PT)
     l = cam.lens
     b = l.backward
     gsz = size(b.controls)
@@ -353,20 +421,26 @@ function _spline_problem(
         end
         foreach(s -> foreach(i -> live[i] = true, s[1]), stencils)
     end
+    # the scale gauge's held log-scale (with the scales free): the live node nearest x = 0
+    scale_node = free && !directions_only ?
+        argmin(i -> norm(VgtkCore.Cameras._lattice_node(b.area, gsz, i[2], i[1])), filter(i -> live[i], vec(CartesianIndices(gsz)))) : CartesianIndex(0, 0)
     N = free ? 10 : 1
-    costs = _SplineReprojection{N}[]
+    RP = free ? PT : Nothing
+    costs = _SplineReprojection{N, RP}[]
     windows = SMatrix{4, 4, CartesianIndex{2}, 16}[]
     for (X, u, v, win, cell) in found
         C = SMatrix{4, 4, SVector{3, Float64}, 16}(map(i -> b.controls[i], win))
         P₀, Q₀ = _patch_of(L, win[1][1]), _patch_of(L, win[1][2])
         slots = map(i -> _patch_slot(L, P₀, Q₀, i[1], i[2]), win)
         varind = free ? SVector{10, Int}(ntuple(k -> k <= 9 ? _patch_index(L, P₀ + (k - 1) % 3, Q₀ + (k - 1) ÷ 3) : nP + v, Val(10))) : SVector(v)
-        push!(costs, _SplineReprojection{N}(varind, slots, C, cell, box, pixel, X, u))
+        hk = findfirst(==(scale_node), win)
+        gauge = ((hk === nothing ? (0, 0) : slots[hk])..., Int(free && v == 1))
+        push!(costs, _SplineReprojection{N, RP}(varind, slots, C, cell, box, pixel, X, u, gauge))
         push!(windows, win)
     end
-    smooth = _SplineSmoothness[]
-    anchors = _SplineAnchor[]
-    variables = free ? Union{_SplinePatch, _CameraPosePose}[] : _CameraPosePose[]   # the poses alone: their own type, the problem's
+    smooth = _SplineSmoothness{PT}[]
+    anchors = _SplineAnchor{PT}[]
+    variables = free ? Union{PT, _CameraPosePose}[] : _CameraPosePose[]   # the poses alone: their own type, the problem's
     λ₀ = λ
     λ = λ₁ = 0.0
     if free
@@ -379,17 +453,16 @@ function _spline_problem(
                 end
             ) for P in 1:L.ph, Q in 1:L.pw
         ]
-        foreach(C -> push!(variables, _spline_patch(C)), vec(guess))
+        foreach(C -> push!(variables, directions_only ? VgtkCore.ControlPatchManifold(C) : _spline_patch(C)), vec(guess))
         append!(variables, pose_charts)
         diagonal = zeros(gsz)                                   # the data's normal matrix: its diagonal per node, the 2 direction coordinates
         for (c, win) in zip(costs, windows)
             _, J = NLLSsolver.computeresjac(2^10 - 1, c, NLLSsolver.getvars(c, variables)...)
             for m in 1:16
                 k, n = c.slots[m]
-                diagonal[win[m]] += sum(abs2, view(J, :, (12(k - 1) + 2n - 1):(12(k - 1) + 2n)))
+                diagonal[win[m]] += sum(abs2, view(J, :, (W * (k - 1) + 2n - 1):(W * (k - 1) + 2n)))
             end
         end
-        curvature = sum(diagonal) / (2count(present))          # the data's mean direction curvature
         λ₁ = penalty_scale(sum(diagonal) * (sum(i -> norm(b.controls[i]), findall(present)) / count(present))^2, 2count(present), m̄)
         λ = λ₀ === nothing ? penalty * λ₁ : Float64(λ₀)
         for P in 1:L.ph, Q in 1:L.pw
@@ -398,12 +471,7 @@ function _spline_problem(
                 !(1 <= i <= gsz[1] && 1 <= j <= gsz[2] && live[i, j])
             end)
             k = _patch_index(L, P, Q)
-            if scales_held
-                w = sqrt(_SCALES_HELD_WEIGHT * curvature) * SVector{4, Float64}(map(norm, guess[P, Q]))   # ‖c‖: a unit ℓ step moves c by ‖c‖
-                push!(anchors, _SplineAnchor(SVector(k), dead, SVector(true, true, true, true), guess[P, Q], w))
-            else
-                any(dead) && push!(anchors, _SplineAnchor(SVector(k), dead, dead, guess[P, Q], ones(SVector{4, Float64})))
-            end
+            any(dead) && push!(anchors, _SplineAnchor{PT}(SVector(k), dead, guess[P, Q]))
         end
         for (ns, s) in stencils
             P₀, Q₀ = _patch_of(L, ns[1][1]), _patch_of(L, ns[1][2])
@@ -414,12 +482,26 @@ function _spline_problem(
                 i, j = Tuple(ns[m])
                 (1 + (_patch_of(L, i) - P₀) + (_patch_of(L, j) - Q₀), _slot_of(L, i) + 2(_slot_of(L, j) - 1))
             end)
-            push!(smooth, _SplineSmoothness(varind, slots, sqrt(λ) * s))
+            hk = findfirst(m -> ns[m] == scale_node, 1:4)
+            push!(smooth, _SplineSmoothness{PT}(varind, slots, sqrt(λ) * s, hk === nothing ? (0, 0) : slots[hk]))
         end
     else
         append!(variables, pose_charts)
     end
-    return (; variables, costs, smooth, anchors, λ, λ₁, dropped, unprojected, layout = L, live, present, nP,
+    # the gauges held exactly: the first view's rotation (with the lens free), and the log-scale of the live node
+    # nearest x = 0 (with the scales free); `held` their coordinates in the problem's [patches | poses] columns
+    pins = Union{_SplinePin{_CameraPosePose}, _SplinePin{_SplinePatch}}[]
+    held = Int[]
+    if free
+        push!(pins, _SplinePin{_CameraPosePose}(SVector(nP + 1), SVector{12, Bool}(ntuple(i -> i <= 3, Val(12)))))
+        append!(held, W * nP .+ (1:3))
+        if !directions_only
+            k, n = _node_slot(L, scale_node)
+            push!(pins, _SplinePin{_SplinePatch}(SVector(k), SVector{12, Bool}(ntuple(i -> i == 8 + n, Val(12)))))
+            push!(held, W * (k - 1) + 8 + n)
+        end
+    end
+    return (; variables, costs, smooth, anchors, pins, held, λ, λ₁, dropped, unprojected, layout = L, live, present, nP,
         windows = [(w[1][2], w[1][1]) for w in windows])
 end
 
@@ -437,14 +519,15 @@ _spline_blocks(p) = Iterators.flatten((p.costs, p.smooth, p.anchors))
 # postcondition's.
 function _spline_problem_rows_and_jacobian(p, variables)
     nP = p.nP
-    nc = 12nP + 6 * (length(variables) - nP)
+    W = _patch_width(_patch_type(p.smooth))
+    nc = W * nP + 6 * (length(variables) - nP)
     rows = Float64[]; Ii = Int[]; Jj = Int[]; Vv = Float64[]
     for c in _spline_blocks(p)
         rk, Jk = NLLSsolver.computeresjac(2^length(c.varind) - 1, c, NLLSsolver.getvars(c, variables)...)
         o = length(rows)
         append!(rows, rk)
         col = 0
-        for v in c.varind, q in (v <= nP ? ((12v - 11):(12v)) : ((12nP + 6(v - nP) - 5):(12nP + 6(v - nP))))
+        for v in c.varind, q in (v <= nP ? ((W * (v - 1) + 1):(W * v)) : ((W * nP + 6(v - nP) - 5):(W * nP + 6(v - nP))))
             col += 1
             for i in eachindex(rk)
                 Jk[i, col] == 0 && continue
@@ -457,12 +540,12 @@ end
 
 # The controls of the patches at the lattice's live nodes (the guess's elsewhere: the
 # absent slots and the nodes no row reads).
-function _patch_controls(b::ChartSpline, p, variables::_SplineVars)
+function _patch_controls(b::ChartSpline, p, variables::AbstractVector)
     controls = copy(b.controls)
     for i in CartesianIndices(controls)
         p.live[i] || continue
         k, n = _node_slot(p.layout, i)
-        controls[i] = _patch_control(variables[k]::_SplinePatch, n)
+        controls[i] = _patch_control(variables[k]::_AnyPatch, n)
     end
     return controls
 end
@@ -533,13 +616,6 @@ function _refine_camera_and_poses(::VgtkCore.Cameras.GaugeIntrinsics, camera::_R
     return _refine_spline_camera_and_poses(camera, poses, views, 0; kwargs...)
 end
 
-# The directions-first solve's hold on the log-scales: their anchors' curvature against
-# the data's mean direction curvature (per unit of control length, so each anchor carries
-# its control's ‖c‖). A log-scale's own data curvature is ≈ that curvature · ‖c‖²·sin²δ (δ
-# the window's angular node spacing, 0.05–0.3 rad), so 1e6 ≫ 1/δ² holds every scale by a
-# factor ≳ 10⁴ over what the data could move it.
-const _SCALES_HELD_WEIGHT = 1.0e6
-
 # What is left of the refine's time at `deadline` (`nothing`: no cap), and whether an
 # NLLSsolver solve stopped on its time cap (termination bit 9).
 _remaining(deadline::Float64) = isinf(deadline) ? nothing : max(0.0, deadline - time())
@@ -551,29 +627,32 @@ const _SPLINE_REFINE_ROUNDS = 5
 
 # One NLLSsolver solve of the problem `p` from its variables: the result and the solved variables.
 function _spline_solve!(p, isfree::Bool, max_iter, ftol, xtol, max_time)
-    problem = isfree ? NLLSsolver.NLLSProblem(Union{_SplinePatch, _CameraPosePose}, Union{_SplineReprojection{10}, _SplineSmoothness, _SplineAnchor}) :
-        NLLSsolver.NLLSProblem(_CameraPosePose, _SplineReprojection{1})
+    PT = _patch_type(p.smooth)
+    problem = isfree ?
+        NLLSsolver.NLLSProblem(Union{PT, _CameraPosePose}, Union{_SplineReprojection{10, PT}, _SplineSmoothness{PT}, _SplineAnchor{PT}, _SplinePin{_CameraPosePose}, _SplinePin{_SplinePatch}}) :
+        NLLSsolver.NLLSProblem(_CameraPosePose, _SplineReprojection{1, Nothing})
     foreach(v -> NLLSsolver.addvariable!(problem, v), p.variables)
     foreach(c -> NLLSsolver.addcost!(problem, c), _spline_blocks(p))
+    foreach(c -> NLLSsolver.addcost!(problem, c), p.pins)       # the gauges held exactly
     result = NLLSsolver.optimize!(problem, nlls_options(; max_iter, ftol, xtol, max_time))
     return result, collect(problem.variables)
 end
 
 # The problem rebuilt at the solved variables of `p` (the camera of its patches, its
 # poses), keeping its λ; `at` names that point.
-function _rebuilt(p, solved::_SplineVars, cam::CameraModel, views, penalty, offset, at::AbstractString)
+function _rebuilt(p, solved::AbstractVector, cam::CameraModel, views, penalty, offset, at::AbstractString)
     b = cam.lens.backward
     est = CameraModel(cam.intrinsics, SplineLens(ChartSpline(b.area, _patch_controls(b, p, solved)); present = cam.lens.present))
     return _spline_problem(est, _solved_poses(p, solved), views, true, penalty, offset; λ = p.λ, at)
 end
 
 # The solved poses of a problem with patches, as plain maps (a rebuild's start).
-_solved_poses(p, solved::_SplineVars) = [_plain_pose(solved[k]::_CameraPosePose) for k in (p.nP + 1):length(solved)]
+_solved_poses(p, solved::AbstractVector) = [_plain_pose(solved[k]::_CameraPosePose) for k in (p.nP + 1):length(solved)]
 
 _plain_pose(ch::_CameraPosePose) = EuclideanMap(RotMatrix{3, Float64}(rotation(model(ch))), SVector{3, Float64}(translation(model(ch))))
 
 # The problem `p` with its Δ³ rows reweighted to `λ` (`p.λ > 0`).
-_with_λ(p, λ::Float64) = merge(p, (; λ, smooth = [_SplineSmoothness(s.varind, s.slots, sqrt(λ / p.λ) * s.coef) for s in p.smooth]))
+_with_λ(p, λ::Float64) = merge(p, (; λ, smooth = [_SplineSmoothness{_SplinePatch}(s.varind, s.slots, sqrt(λ / p.λ) * s.coef, s.gauge) for s in p.smooth]))
 
 # Solve `p`, then rebuild the blocks at the estimate: a point whose x* moved to another
 # cell reads another window (the held one only extrapolates), so the blocks are rebuilt
@@ -614,16 +693,13 @@ const _GCV_SEED = 20261110
 # `GCV = n‖r‖² / (n − tr H)²`, `n` the data rows, `r` their residuals, and
 # `H = J (JᵀJ + λDᵀD + AᵀA)⁻¹ Jᵀ` with J the data rows' Jacobian, D the Δ³ rows' and A
 # the anchors' (a sparse Cholesky, SparseArrays' CHOLMOD: NLLSsolver's factorization is
-# internal to its iterate). The gauge is removed by deleting coordinates: the first
-# pose's 3 rotation coordinates (the rotation gauge) and one live node's log-scale (the
-# scale gauge, null in J and D alike). Returns `(; gcv, trace, rss, n)`.
+# internal to its iterate), over the coordinates the solve moves: the problem's held
+# gauge coordinates (`p.held`, the pins') are none of them. Returns `(; gcv, trace, rss, n)`.
 function _gcv(p, solved::_SplineVars; exact_max::Integer = _GCV_EXACT_MAX)
     r, J = _spline_problem_rows_and_jacobian(p, solved)
     n = 2length(p.costs)
     keep = trues(size(J, 2))
-    keep[(12p.nP + 1):(12p.nP + 3)] .= false
-    k, c = _node_slot(p.layout, findfirst(p.live))
-    keep[12(k - 1) + 8 + c] = false
+    keep[p.held] .= false
     Jr = J[:, keep]
     Jd = Jr[1:n, :]
     F = cholesky(Symmetric(Jr' * Jr))
@@ -732,7 +808,7 @@ function _refine_spline_camera_and_poses(
     # under Marquardt's diagonal damping (158 iterations at a 0.05 rad lens error) or lets the
     # scales absorb the poses' error (a factor of 10³ in one step on a fit_camera lattice).
     # (1) The poses alone, through the guess's lens. (2) The directions and the poses, every
-    # log-scale held (16 iterations there). (3) Everything (9 there): at the weight given, or
+    # log-scale held exactly: the patches are their directions alone (14–18 iterations). (3) Everything (9 there): at the weight given, or
     # over GCV's search (stages 1–2 once, at the grid's top weight: a start aid that keeps
     # the extrapolated nodes from swinging on noisy detections, as 1e-8 lets them).
     # `max_time` caps the whole refine: every stage and round reads what is left of it.
@@ -747,12 +823,12 @@ function _refine_spline_camera_and_poses(
         if timed_out
             p = _spline_problem(back, pre[1].poses, views, true, w, offset)
         else
-            p₀ = _spline_problem(back, pre[1].poses, views, true, w, offset; scales_held = true)
+            p₀ = _spline_problem(back, pre[1].poses, views, true, w, offset; directions_only = true)
             r₀, s₀ = _spline_solve!(p₀, isfree, max_iter, ftol, xtol, _remaining(deadline))
             iterations += r₀.niterations
             timed_out |= _timed_out(r₀)
             p = timed_out ? _spline_problem(back, pre[1].poses, views, true, w, offset) :
-                _rebuilt(p₀, s₀::_SplineVars, back, views, w, offset, "at the estimate of the directions-first stage")
+                _rebuilt(p₀, s₀, back, views, w, offset, "at the estimate of the directions-first stage")
         end
     else
         p = _spline_problem(back, poses, views, isfree, w, offset)

@@ -63,10 +63,13 @@ non-central one is a `NoncentralSplineModel`).
   steps to a 0.1-decade bracket; tr H from a gauge-reduced sparse Cholesky, exact up to 3000 coordinates, else a
   64-probe Hutchinson estimate with a fixed seed), a number fixes β (GCV off; a small one that lets noisy data swing a
   node until a correspondence no longer projects is an `ArgumentError` naming `:gcv`), and `0` or `nothing` turns the smoothness off (the nodes no correspondence's window reads then held at their guesses); the
-  poses refined alone first, then the directions with the scales held, then everything; the blocks rebuilt at the
-  estimate until every window is its own; and the gauge (the rotation and the common scale, both exact symmetries)
-  fixed after the solve in one step (the lens axis onto ẑ, the roll putting the x-derivative at x = 0 in the xz
-  plane, the live controls' mean length the guess's; the cost unchanged). `result.spline` carries the weight and λ,
+  poses refined alone first, then the directions with the scales held exactly (a directions-only patch variable, no
+  weighted rows), then everything; the blocks rebuilt at the
+  estimate until every window is its own; the gauge (the rotation and the common scale, both exact symmetries)
+  held exactly during every solve (the first view's rotation and one node's log-scale get the step 0, no cost row,
+  so the normal matrix is full rank), and the estimate moved after the solve, in one step, to the canonical
+  representative (the lens axis onto ẑ, the roll putting the x-derivative at x = 0 in the xz plane, the live
+  controls' mean length the guess's; the cost unchanged). `result.spline` carries the weight and λ,
   the GCV curve, whether its minimum is a grid end (`gcv_at_bound`), tr H (`effective_dof`) and the present nodes
   no row reads (`n_nodes_unrefined`). `free` is `(:controls,)` or `()` (the
   poses alone). A forward spline is dropped and, with `refit_forward = true` (the default), refitted by

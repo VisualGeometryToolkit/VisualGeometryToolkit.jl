@@ -170,7 +170,8 @@ trait, `GaugeIntrinsics`, selects it):
   is held at its guess (`result.spline.n_nodes_unrefined` counts those nodes).
   The solve runs in three stages,
   each from the last: the poses alone through the guess's lens, then the
-  directions and the poses with every scale held, then everything (a node's
+  directions and the poses with every scale held exactly (the scales are no
+  variable of that stage), then everything (a node's
   scale is weakly observed and nearly collinear with its direction, so a joint
   solve from far off creeps, or lets the scales absorb the poses' error). `free` is `(:controls,)` (the default) or
   `()` (the poses alone, the camera returned as given); a `box` is an
@@ -225,8 +226,11 @@ trait, `GaugeIntrinsics`, selects it):
   one whose lens axis `normalize(backward(0, 0))` is ẑ, whose backward
   x-derivative at x = 0 lies in the xz plane (the convention a SplineLens
   camera's K is read in), and whose refined controls' mean length is the
-  guess's, reached after the solve in one step (the minimal rotation onto ẑ,
-  the roll, the scale). K is bit-identical to the guess's.
+  guess's. During the solve the gauge is held exactly (the first view's
+  rotation, and the log-scale of the node nearest x = 0: their steps are 0,
+  with no cost row), so the LM's normal matrix is full rank; after it, one
+  step (the minimal rotation onto ẑ, the roll, the scale) moves the estimate
+  to that canonical representative. K is bit-identical to the guess's.
 - A forward spline is dropped for the refinement and, with `refit_forward`
   (the default), refitted over `imaged_region(camera)` by
   `fit_camera(SplineLens, …; tolerance = forward_tolerance)` (pixels), which

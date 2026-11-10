@@ -550,7 +550,7 @@ function JSON.lower(s::VgioStyle, t::PlanarTarget)
         (type = "planar",), _design_json(s, t), (calibration = _target_calibration_json(cs, calibration(t)),),
         _board_json(board(t), unit),
         _canvas_json(canvas(t), unit),
-        _placement_json(pl, unit),
+        _placement_json(t, pl, unit),
     )
 end
 # The design: its reference, its layout, or its nominal points. The identity
@@ -589,8 +589,10 @@ end
 # point c is the design point origin + side·c): its origin and side, lengths in
 # the file's unit, decimal-exactly; read back as plain metres, the placement of
 # the physical target the record describes (the keys of the 0.8 record).
-_placement_json(::Nothing, ::_LeafUnit) = (;)
-function _placement_json(P::SimilarityMap{3}, u::_LeafUnit)
+_placement_json(_, ::Nothing, ::_LeafUnit) = (;)
+function _placement_json(t, P::SimilarityMap{3}, u::_LeafUnit)
+    # the placement carries no unit: its numbers are metres only on a physical target (its points, board or canvas)
+    has_units(t) || _refuse_plain("a placed target (its placement's numbers are metres only on a target with lengths)")
     o = translation(P)
     return (placement = (origin = [_metres_json(o[1], u), _metres_json(o[2], u)], side = _metres_json(scale(P), u)),)
 end

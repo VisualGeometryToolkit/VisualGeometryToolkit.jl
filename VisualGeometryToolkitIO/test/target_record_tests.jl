@@ -661,6 +661,11 @@ end
         write(q, JSON.json(dd))
         e = try load(AbstractTarget, q); nothing catch e; e end
         @test e isa ArgumentError && occursin("side is > 0", e.msg)
+        # a placed target without lengths is refused when written: its placement's numbers are metres only on a
+        # physical target
+        plain = PlanarTarget(:page; calibration = c, placement = P)
+        e = try save(p, plain); nothing catch e; e end
+        @test e isa ArgumentError && occursin("placed target", e.msg)
     end
     # the identity holds the placement (origin and side, in metres): placed and unplaced differ, and so do two placements
     X = EuclideanMap(one(RotMatrix{3, Float64}), [mmq(0.0), mmq(0.0), mmq(0.0)])

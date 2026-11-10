@@ -4,6 +4,10 @@
 
 On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
 
+- **Breaking: a target's placement reads back as Core's `SimilarityMap{3}`** (scale the chart's side, the identity
+  rotation, the translation `(origin, 0)`, plain metres), formerly a `ChartPlacement` with lengths; the record keeps its
+  `"placement": {"origin", "side"}` keys, so every file reads as before. Writing a placed target without lengths
+  (no unit form: its placement's numbers would be read as metres) is an `ArgumentError`.
 - **Breaking: an old grid file whose lattice has no complete 4 × 4 window at the gauge's pixel, and no
   `nominal_intrinsics`, is refused** (Core's gauge: no scale to derive K from), where 0.8 loaded it; supply K with
   the new keyword `load(BoundedCamera, path; intrinsics = K)` (also `load(Dict{Symbol, BoundedCamera}, …)` and

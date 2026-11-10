@@ -58,7 +58,7 @@ extent(::HasBounds, bm::BoundedMap) = bm.rect
 # Callable forwards to the inner map.
 @inline (bm::BoundedMap)(p) = bm.map(p)
 
-# The device form of a warp: each link of the chain adapted (a SplineProjection's
+# The device form of a warp: each link of the chain adapted (a SplineLens's
 # control grid to the device), the rect kept. The chain is walked by Core's own
 # helper: an `adapt_structure` method on CoordinateTransformations'
 # `ComposedTransformation` would be type piracy. (A map of a BoundedMap is a

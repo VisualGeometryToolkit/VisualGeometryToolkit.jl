@@ -45,7 +45,7 @@ abstract type AbstractPanoramaProjection <: CoordinateTransformations.Transforma
 
 The back-projection of `m` as a map: its call is [`backproject`](@ref)`(m, q)`
 and `transform_deriv(b, q)` its `3 × 2` Jacobian (a `CameraModel`'s or a
-generic grid model's own, `last(backproject_with_jacobian(m, q))`; any other
+`NoncentralSplineModel`'s own, `last(backproject_with_jacobian(m, q))`; any other
 model's — a panorama projection, a `BoundedCamera` — by ForwardDiff through its
 `backproject`). `m` is a
 panorama projection (`inv(p)` builds it, `inv(Backprojection(p)) === p`) or a
@@ -65,8 +65,8 @@ Base.inv(p::AbstractPanoramaProjection) = Backprojection(p)
 Base.inv(b::Backprojection{<:AbstractPanoramaProjection}) = b.model
 Base.show(io::IO, b::Backprojection) = print(io, "Backprojection(", b.model, ")")
 # A model's own back-projection Jacobian (tangent to the sphere) where it has
-# one — a CameraModel here, the generic grid models beside theirs
-# (generic_models.jl) — and any other model's (a panorama projection, a bounded
+# one — a CameraModel here, a NoncentralSplineModel beside its own
+# (noncentral_spline_model.jl) — and any other model's (a panorama projection, a bounded
 # camera) by ForwardDiff through its `backproject`; the pixel floated first.
 transform_deriv(b::Backprojection{<:CameraModel}, q::StaticVector{2}) = last(backproject_with_jacobian(b.model, _float_static(q)))
 transform_deriv(b::Backprojection, q::StaticVector{2}) = last(_backproject_value_and_jacobian(b.model, q))

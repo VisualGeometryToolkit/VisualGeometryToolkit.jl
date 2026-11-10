@@ -193,8 +193,8 @@ end
 (both), a `BoundedCamera` (its camera, the bound kept), a plain
 `EuclideanMap` or `RotationMap` (rotation and translation, representation and
 frames kept), a `RadialHomography` (its `H`, coefficients and centre;
-`T <: AbstractFloat` there), a `CentralGenericModel` or `NoncentralGenericModel` (the grids;
-the calibrated area stays as stored; `T <: AbstractFloat` there). Use it to
+`T <: AbstractFloat` there), a `SplineLens` or a `NoncentralSplineModel` (the
+splines' controls; their areas stay as stored; `T <: AbstractFloat` there). Use it to
 move a camera to `Float32` before a GPU launch, or back to `Float64`, or to a
 ForwardDiff `Dual` for a Jacobian by forward differentiation (a `Dual` is a `Real`, not an
 `AbstractFloat`).

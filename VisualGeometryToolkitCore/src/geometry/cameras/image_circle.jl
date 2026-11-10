@@ -124,8 +124,8 @@ end
 
 # The lens model's valid domain as a normalized radius ρ (the radius of the disc
 # the θ_max cone images, inscribed), or `nothing` when the lens has no limit of
-# its own. The one owner of that radius: `valid_domain` and the generic models'
-# node sampler (generic_models.jl) read it here.
+# its own. The one owner of that radius: `valid_domain` and the spline lattice's
+# node sampler (spline_lens.jl) read it here.
 function _valid_domain_radius(l::AbstractLensModel)
     θ = Float64(view_angle_limit(l))
     _own_view_angle_limit(l, θ) || return nothing   # the edge is a cap: no limit of its own

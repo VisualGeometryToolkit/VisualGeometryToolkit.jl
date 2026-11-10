@@ -9,7 +9,7 @@
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: HomographyMat, EssentialMat, SvdWorkspace, homography_dlt,
         fundamental_dlt, dlt_conditioning, whiten, whitening_factor, sampson_residual,
-        sampson_distances!, sampson_distance, CentralGenericModel, CameraModel,
+        sampson_distances!, sampson_distance, SplineLens, CameraModel,
         Division
     using StaticArrays, LinearAlgebra, Random
 
@@ -116,18 +116,18 @@
         @test sampson_distance(E7, f₁, f₂; M₁ = M, M₂ = M) ≈ d
     end
 
-    @testset "grid model: non-finite rays and bounded-domain lenses" begin
+    @testset "spline lens: non-finite rays and bounded-domain lenses" begin
         mk(f, lens) = CameraModel(; focal = f, pp = (640, 480), lens = lens)
-        ge = CentralGenericModel(mk(250.0, Lens(Equidistant())), (1280, 960))
-        @test all(v -> all(isfinite, v), ge.grid)
+        ge = CameraModel(SplineLens, mk(250.0, Lens(Equidistant())), (1280, 960))
+        @test all(v -> all(isfinite, v), ge.lens.backward.controls)
         @test VgtkCore.project(ge, SVector(0.0, 0.0, 1.0)) ≈ SVector(640.0, 480.0) atol = 1.0e-6
 
-        gd = CentralGenericModel(mk(300.0, Division(-0.3)), (1280, 960))
+        gd = CameraModel(SplineLens, mk(300.0, Division(-0.3)), (1280, 960))
         d = normalize(SVector(0.1, 0.05, 1.0))
         p = VgtkCore.project(gd, d)
-        @test p !== nothing
+        @test all(isfinite, p)
         @test VgtkCore.project(gd, 1.0e-170 * d) ≈ p
         @test VgtkCore.project(gd, 1.0e160 * d) ≈ p
-        @test VgtkCore.project(gd, SVector(NaN, 0.0, 1.0)) === nothing
+        @test all(isnan, VgtkCore.project(gd, SVector(NaN, 0.0, 1.0)))
     end
 end

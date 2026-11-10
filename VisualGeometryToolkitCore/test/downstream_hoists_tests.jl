@@ -178,48 +178,42 @@ end
     @test is_valid_shape(SMatrix{2, 2, Float32}(1, 0, 0, 2); max_aspect_ratio = 10) && !is_peak(SMatrix{2, 2}(1.0, 0, 0, 1))
 end
 
-@testitem "downstream_hoists: generic models (accessors, rebuilders, NaN backproject)" begin
+@testitem "downstream_hoists: spline models (accessors, rebuilders, NaN backproject)" begin
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, CentralGenericModel, NoncentralGenericModel, px, Vec3,
-        backproject, directions, grid_size, window_offset, lattice_spacing, with_domain, with_present, with_nominal,
-        with_directions, with_points, central_model, present_nodes, in_present_domain, window, Circle, Point2, Ray3
-    using StaticArrays: SA, SVector
+    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, SplineLens, NoncentralSplineModel, ChartSpline, px,
+        backproject, lattice_spacing, with_present, with_directions, with_points, central_model, present_nodes, window, Ray3
+    using StaticArrays: SA, SVector, StaticVector
     model = CameraModel(300.0px, SA[320.0px, 240.0px]; lens = KannalaBrandt(-0.02))
-    g = CentralGenericModel(model, (640, 480); grid_size = (12, 10))
+    g = CameraModel(SplineLens, model, (640, 480); grid_size = (12, 10))
+    G = g.lens.backward.controls
     # RadiometricCamera's private-name copies: `_dirs`, `_full_size` / `grid_dims`, `_first_node`, `_lattice_spacing_px`
-    @test directions(g) === g.grid
-    @test grid_size(g) == (12, 10) == reverse(size(g.grid))
-    @test window_offset(g) == (0, 0) && window_offset(window(g, 3:6, 2:5)) == (2, 1)
-    @test grid_size(window(g, 3:6, 2:5)) == grid_size(g)
-    G_x, G_y = grid_size(g)
-    @test lattice_spacing(g) == ((g.calib_max_x + 1 - g.calib_min_x) / (G_x - 3), (g.calib_max_y + 1 - g.calib_min_y) / (G_y - 3))
+    @test size(G) == (10, 12)
+    @test all(lattice_spacing(g) .≈ (640 / (12 - 3), 480 / (10 - 3)))
+    @test all(lattice_spacing(window(g, 3:6, 2:5)) .≈ lattice_spacing(g))     # a window keeps the lattice's spacing
     # the rebuilders keep every other part (RadiometricCamera's nine field-by-field rebuilds)
-    P = trues(size(g.grid)); P[1:2, :] .= false
+    P = trues(size(G)); P[1:2, :] .= false
     gp = with_present(g, P)
-    @test present_nodes(gp) == P && all(isnan, gp.grid[1, 1]) && gp.grid[5, 5] == g.grid[5, 5] && gp.nominal === g.nominal
+    @test present_nodes(gp) == P && all(isnan, gp.lens.backward.controls[1, 1]) && gp.lens.backward.controls[5, 5] == G[5, 5]
+    @test gp.intrinsics === g.intrinsics && gp.lens.backward.area == g.lens.backward.area
     @test_throws DimensionMismatch with_present(g, trues(3, 3))
-    c = Circle(Point2(320.0, 240.0), 200.0)
-    @test with_domain(g, c).domain == c && with_domain(g, c).grid === g.grid
-    @test with_nominal(g, nothing).nominal === nothing && with_nominal(g, nothing).domain == g.domain
-    D = map(v -> 2v, g.grid)
-    @test with_directions(g, D).grid == D                                   # kept as given, not normalized
-    nc = NoncentralGenericModel(640, 480, 0, 0, 639, 479, g.grid, fill(Vec3{Float64}(0, 0, 0), size(g.grid));
-        unit_controls = false, present = P)
-    Pts = fill(Vec3{Float64}(0.001, 0, 0), size(g.grid))
-    @test with_points(nc, Pts).points == Pts && with_points(nc, Pts).directions == nc.directions
-    @test with_directions(nc, D).directions == D && with_directions(nc, D).points == nc.points
+    D = map(v -> 2v, G)
+    b = g.lens.backward
+    nc = NoncentralSplineModel(g.intrinsics, b, ChartSpline(b.area, zero(G)); present = P)
+    Pts = fill(SVector(0.001, 0.0, 0.0), size(G))
+    @test with_points(nc, Pts).points.controls == Pts && with_points(nc, Pts).directions == nc.directions
+    @test with_directions(nc, D).directions.controls == D && with_directions(nc, D).points == nc.points   # kept as given, not normalized
     cm = central_model(nc)
-    @test cm isa CentralGenericModel && cm.grid == nc.directions && present_nodes(cm) == P && cm.domain == nc.domain
+    @test cm isa CameraModel{<:Any, <:SplineLens} && cm.lens.backward == nc.directions && present_nodes(cm) == P
     ncp = with_present(nc, P)
-    @test all(isnan, ncp.points[1, 1]) && all(isnan, ncp.directions[1, 1])
+    @test all(isnan, ncp.points.controls[1, 1]) && all(isnan, ncp.directions.controls[1, 1])
     # the lens contract's backproject: NaN, one concrete type, never `nothing`
     out = SVector(-1.0, 10.0)
-    @test backproject(g, out) isa SVector{3, Float64} && all(isnan, backproject(g, out))
+    @test backproject(g, out) isa StaticVector{3, Float64} && all(isnan, backproject(g, out))
     @test isfinite(backproject(g, SVector(320.0, 240.0))[3])
     r = backproject(nc, out)
     @test r isa Ray3{Float64} && all(isnan, r.origin) && all(isnan, r.direction)
     probe = SVector(320.0, 10.0)                                             # a pixel whose window reads an absent node
-    @test !in_present_domain(gp, probe) && all(isnan, backproject(gp, probe))
+    @test all(isnan, backproject(gp, probe)) && all(isfinite, backproject(g, probe))
     f(m, u) = backproject(m, u)
     f(g, out); @test (@allocated f(g, out)) == 0
     @test VgtkCore.primal_float(VgtkCore.ForwardDiff.Dual{Nothing, VgtkCore.ForwardDiff.Dual{Nothing, Float32, 1}, 2}) === Float32

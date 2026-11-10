@@ -64,7 +64,6 @@ end
     using Test
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: lens_coverage, with_lens_coverage, relabel, CameraFrame, WorldFrame, RotationMap, RegionIntersection
-    using VisualGeometryToolkitCore.Cameras: _calibrated_rect
     using StaticArrays
     using Rotations: RotY
 
@@ -83,14 +82,17 @@ end
         @test Point2(2140.8, 1375.8) ∈ r && Point2(10.0, 10.0) ∉ r
     end
 
-    @testset "a grid: lit but outside where the grid is defined is not imaged" begin
-        dom = Ellipse(Point2(2133.9, 1423.7), 1611.8, 1607.8, 1.5777)
-        g = CentralGenericModel(m, (W, H); grid_size = (35, 25), init = :quasi_interpolate, domain = dom)
+    @testset "a spline lens: lit but outside where its grid is defined is not imaged" begin
+        # the grid calibrated over a band of the sensor (x from 500 to 3755): its valid domain is that area
+        g = CameraModel(SplineLens, m, (W, H); grid_size = (35, 25), init = :quasi_interpolate, calib_area = (500, 0, 3755, H - 1))
         bc = BoundedCamera(g, Size2(W, H); lens_coverage = Circle(Point2(2140.8, 1375.8), 1742.2))
-        @test Point2(2133.9 + 1650.0, 1423.7) ∉ imaged_region(bc)       # lit, past the grid's domain
-        @test Point2(2133.9 + 1550.0, 1423.7) ∈ imaged_region(bc)
-        for p in (Point2(2133.9, 1423.7), Point2(2133.9 + 1650.0, 1423.7), Point2(5.0, 5.0))
-            @test (p ∈ valid_domain(g)) == (p ∈ _calibrated_rect(g) && p ∈ dom)
+        @test Point2(450.0, 1423.7) ∉ imaged_region(bc)                 # lit, left of the grid's area
+        @test Point2(550.0, 1423.7) ∈ imaged_region(bc)
+        area = Rect2(500.0, 0.0, 3256.0, Float64(H))
+        r = valid_domain(g)
+        @test r.origin ≈ area.origin && r.widths ≈ area.widths
+        for p in (Point2(2133.9, 1423.7), Point2(450.0, 1423.7), Point2(3800.0, 5.0))
+            @test (p ∈ valid_domain(g)) == (p ∈ area)
         end
     end
 

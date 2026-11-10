@@ -245,7 +245,7 @@ export radial, parameters, lens_record, lens_from_record
 public lens_label   # a lens's display name by the tag rule (a named family, or its record's leaf tags)
 export LensSpec
 export CameraModelSpec
-public GenericGridSpec, intrinsics_kind   # what a calibration is for: the intrinsics kind and a lens or grid spec
+public SplineLensSpec, intrinsics_kind   # what a calibration is for: the intrinsics kind and a lens or spline-lens spec
 public free_names   # a LensSpec's free coefficients (not exported: a calibrator may define its own)
 export division_bounded, undistorted_rect, valid_rect, horizon_radius, fov_radius
 export radial_homography   # a target homography seen through a projective division camera (camera_models.jl)
@@ -289,7 +289,7 @@ export project!, backproject!, distort_normalized!, undistort_normalized!
 export undistort, undistort!, distortion_map
 export CameraCalibrationMat
 export project, backproject, unproject, transfer
-public backproject_with_jacobian   # the bearing and its 3×2 pixel Jacobian (a parametric camera, a generic grid model): the M columns of a bearing problem
+public backproject_with_jacobian   # the bearing and its 3×2 pixel Jacobian (a parametric or spline camera, a non-central spline model): the M columns of a bearing problem
 export focal_length, calibration_matrix  # Unit accessors; `focal_length(sensor, θ)` the focal a field of view implies
 export angle_of_view, field_of_view   # the angle of view a bounded camera images (focal_length's inverse), and the size it spans at a distance
 export intrinsics, lens, model  # Camera component accessors
@@ -352,22 +352,19 @@ public convert_eltype                     # a camera, lens or intrinsics rebuilt
 public ParameterManifold, LensManifold    # a parametric model's Manifold, inside its parameter_bounds (minimal_manifold(lens or camera)); restrict it to the free coefficients
 public parameter_box                      # a ParameterManifold's solver search box (`box` keyword), within parameter_bounds
 public coordinate_scale                   # a ParameterManifold's coordinate scales (`scale` keyword)
-export CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models
-public present_nodes, in_present_domain   # the nodes a grid model holds; where it evaluates (every window node present)
-export default_spline_grid  # the grid model's window interface (0.22.2)
-public spline_support, spline_weights, window_controls, window_indices, direction_tangents
-public ControlPatchManifold   # a block of a generic grid model's controls as a Manifold: the per-tile refinement's variable
+export Ray3   # a non-central pixel's observation line (NoncentralSplineModel's backprojection)
+public present_nodes, window, lattice_spacing   # the nodes a spline model holds; the camera of a block of its controls; its cell size in px
+export default_spline_grid  # the reference's control grid of an area
+public direction_tangents   # a direction's tangent basis: the chart a direction control moves in
+public ControlPatchManifold   # a block of a spline lattice's controls as a Manifold: the per-tile refinement's variable
 public ControlPointChart, AdditivePoints, RayNormalPoints   # a ControlPatchManifold's point chart: additive (Δx, Δy, Δz) or across the ray (a, b)
-public GenericModelWindow, window, nominal_intrinsics, interpolated_direction, interpolated_point   # a view onto a block of a grid model's controls; its raw splines
 public spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice for any control type; the 4th-order quasi-interpolant
 public cubic_bspline_weights   # a uniform cubic B-spline span's four weights at its local coordinate (kernel-lawful)
-public generic_lattice   # a grid model's layout from a source (its lattice and nominal), without sampling it
-public directions, grid_size, window_offset, lattice_spacing   # a grid model's lattice: its direction controls, (gx, gy), a window's corner, the cell size in px
-public with_domain, with_present, with_nominal, with_directions, with_points, central_model   # a grid model with one part replaced; a non-central model's central part
+public with_present, with_directions, with_points, central_model   # a spline model with one part replaced; a non-central model's central part
 public primal_float      # the float type under every ForwardDiff Dual layer (base/duals.jl)
 export SplineLens, NoncentralSplineModel   # the central grid camera as a lens of a CameraModel (cameras/spline_lens.jl); the non-central grid on its directions (cameras/noncentral_spline_model.jl)
 public spline_lattice   # a SplineLens camera's layout from a camera (its lattice and K), without sampling it
-export ChartSpline, SplineProjection   # a spline on a 2-D chart; a forward map (ray → pixel) as one on the equidistant direction chart (fit_camera's)
+export ChartSpline   # a uniform cubic B-spline on a 2-D chart (a SplineLens's backward and forward maps)
 public pixel_centre        # the COLMAP centre (col − ½, row − ½) of an image array index, in T (kernel-lawful)
 public equidistant_chart   # the equidistant direction chart about an axis: Lens(Equidistant()) ∘ LinearMap(R), R's rows (e₁, e₂, axis)
 export with_model          # same camera/rig, new model (validated rebuild)

@@ -169,7 +169,7 @@ end
     using Test, StaticArrays
     using ForwardDiff: ForwardDiff
     using CoordinateTransformations: transform_deriv
-    using VisualGeometryToolkitCore: Backprojection, CameraModel, BoundedCamera, CentralGenericModel, Lens, Equidistant, Size2, px,
+    using VisualGeometryToolkitCore: Backprojection, CameraModel, BoundedCamera, NoncentralSplineModel, SplineLens, Lens, Equidistant, Size2, px,
         backproject_with_jacobian
     cm = CameraModel(300.0px, SA[320.0px, 240.0px]; lens = Lens(Equidistant()))
     u = SVector(400.0, 100.0)
@@ -178,7 +178,9 @@ end
     @test transform_deriv(Backprojection(bc), u) ≈ J rtol = 1.0e-10
     @test transform_deriv(Backprojection(bc), SVector(400, 100)) ≈ J rtol = 1.0e-10
     @test transform_deriv(Backprojection(cm), SVector(400, 100)) ≈ J rtol = 1.0e-10
-    # a generic grid model keeps its own Jacobian
-    gen = CentralGenericModel(cm, (640, 480); grid_size = (6, 5))
+    # a spline camera, and a non-central model, take their own (analytic) Jacobian
+    gen = CameraModel(SplineLens, cm, (640, 480); grid_size = (6, 5))
     @test transform_deriv(Backprojection(gen), SVector(400, 100)) == last(backproject_with_jacobian(gen, u))
+    nc = NoncentralSplineModel(cm, (640, 480); grid_size = (6, 5))
+    @test transform_deriv(Backprojection(nc), SVector(400, 100)) == last(backproject_with_jacobian(nc, u))
 end

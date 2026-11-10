@@ -15,7 +15,7 @@
 
     # =============================================================================
     # The non-central grid (Schöps et al.) rebuilt on ChartSpline in the normalized
-    # plane x = K⁻¹u, against the golden outputs of the old NoncentralGenericModel
+    # plane x = K⁻¹u, against the golden outputs of the old non-central grid model
     # (test/fixtures/spline_lens_golden.jl): the central grid's directions, points
     # 0.01 · direction (plain metres), project at X = origin + 1500 · direction.
     # =============================================================================

@@ -289,50 +289,50 @@ end
 # =============================================================================
 
 """
-    GenericGridSpec(; grid_size = nothing, calib_area = nothing)
+    SplineLensSpec(; grid_size = nothing, calib_area = nothing)
 
-The grid of a central generic camera (one ray per grid point, no lens family):
-`grid_size`, the `(columns, rows)` of the grid, and `calib_area`, the
-`(x0, y0, x1, y1)` pixel rectangle the grid covers; `nothing` leaves either to
-the calibrator.
+The lattice of a [`SplineLens`](@ref) camera (the central grid camera: one ray
+per lattice node, no lens family): `grid_size`, the `(columns, rows)` of the
+control grid, and `calib_area`, the `(x0, y0, x1, y1)` pixel rectangle the grid
+covers; `nothing` leaves either to the calibrator.
 
 Throws an `ArgumentError` for a `grid_size` that is not two positive integers
 or a `calib_area` that is not four integers.
 """
-struct GenericGridSpec
+struct SplineLensSpec
     grid_size::Union{Nothing, Tuple{Int, Int}}
     calib_area::Union{Nothing, NTuple{4, Int}}
 end
 
 function _int_tuple(what::Symbol, x, n::Int)
     (x isa Union{Tuple, AbstractVector} && length(x) == n && all(v -> v isa Integer && !(v isa Bool), x)) ||
-        throw(ArgumentError("GenericGridSpec: $what is a list of $n integers; got $(repr(x))"))
+        throw(ArgumentError("SplineLensSpec: $what is a list of $n integers; got $(repr(x))"))
     return ntuple(i -> Int(x[i]), n)
 end
 
-function GenericGridSpec(; grid_size = nothing, calib_area = nothing)
+function SplineLensSpec(; grid_size = nothing, calib_area = nothing)
     gs = grid_size === nothing ? nothing : _int_tuple(:grid_size, grid_size, 2)
     gs === nothing || all(>(0), gs) ||
-        throw(ArgumentError("GenericGridSpec: grid_size must be positive; got $(repr(grid_size))"))
+        throw(ArgumentError("SplineLensSpec: grid_size must be positive; got $(repr(grid_size))"))
     ca = calib_area === nothing ? nothing : _int_tuple(:calib_area, calib_area, 4)
-    return GenericGridSpec(gs, ca)
+    return SplineLensSpec(gs, ca)
 end
 
 """
     CameraModelSpec(lens::LensSpec; intrinsics::Type{<:AbstractIntrinsics} = LogicalIntrinsics)
-    CameraModelSpec(:central_generic; grid_size = nothing, calib_area = nothing)
+    CameraModelSpec(:spline; grid_size = nothing, calib_area = nothing)
     CameraModelSpec(table::AbstractDict)
 
 What a calibration is for: an intrinsics kind (the type parameter `I`: metric
 [`LogicalIntrinsics`](@ref), or the projective `ProjectiveIntrinsics` of a
-partial calibration) and a [`LensSpec`](@ref) or a [`GenericGridSpec`](@ref)
-(the field `model`). The generic form is always metric.
+partial calibration) and a [`LensSpec`](@ref) or a [`SplineLensSpec`](@ref)
+(the field `model`). The spline form is always metric.
 
 `toml_value(spec)` is the table `Dict("intrinsics" => "metric" | "projective",
 "lens" => …, …)` (a `LensSpec` table plus `intrinsics`) or
-`Dict("type" => "central_generic", "grid_size" => […], "calib_area" => […])`
+`Dict("type" => "spline", "grid_size" => […], "calib_area" => […])`
 with the unset keys left out; `CameraModelSpec(table)` reads it back, and
-`intrinsics` defaults to `"metric"` when absent (a `central_generic` table may
+`intrinsics` defaults to `"metric"` when absent (a `spline` table may
 also name it, as `"metric"` only). `==` compares the specification.
 
 A parameterized `intrinsics` (`LogicalIntrinsics{Float64}`) names its kind: it
@@ -341,17 +341,17 @@ round trips equal.
 
 Throws an `ArgumentError` for an `intrinsics` other than `metric` or
 `projective` (and `toml_value` for an intrinsics kind with neither name), for
-a `central_generic` table whose `intrinsics` is not `metric`, for an unknown
-`type` or key, and for whatever [`LensSpec`](@ref) or
-[`GenericGridSpec`](@ref) refuses.
+a `spline` table whose `intrinsics` is not `metric`, for an unknown
+`type` or key (the grid's type before Core 0.9 included: it names `"spline"`), and for whatever [`LensSpec`](@ref) or
+[`SplineLensSpec`](@ref) refuses.
 """
 struct CameraModelSpec{I, S}
     model::S
-    function CameraModelSpec{I, S}(model::S) where {I, S <: Union{LensSpec, GenericGridSpec}}
+    function CameraModelSpec{I, S}(model::S) where {I, S <: Union{LensSpec, SplineLensSpec}}
         I isa Type && I <: AbstractIntrinsics ||
             throw(ArgumentError("CameraModelSpec: the intrinsics kind is a subtype of AbstractIntrinsics; got $(repr(I))"))
-        S === GenericGridSpec && I !== LogicalIntrinsics &&
-            throw(ArgumentError("CameraModelSpec: a generic grid is metric (LogicalIntrinsics); got $I"))
+        S === SplineLensSpec && I !== LogicalIntrinsics &&
+            throw(ArgumentError("CameraModelSpec: a spline lens is metric (LogicalIntrinsics); got $I"))
         # a parameterized kind names its wrapper (as the keyword path does)
         Base.typename(I).wrapper === I || return CameraModelSpec{Base.typename(I).wrapper, S}(model)
         return new{I, S}(model)
@@ -362,9 +362,9 @@ CameraModelSpec(lens::LensSpec; intrinsics::Type{<:AbstractIntrinsics} = Logical
     CameraModelSpec{Base.typename(intrinsics).wrapper, LensSpec}(lens)
 
 function CameraModelSpec(type::Symbol; grid_size = nothing, calib_area = nothing)
-    type === :central_generic ||
-        throw(ArgumentError("CameraModelSpec: unknown type :$type; known: central_generic (or a LensSpec)"))
-    return CameraModelSpec{LogicalIntrinsics, GenericGridSpec}(GenericGridSpec(; grid_size, calib_area))
+    type === :spline ||
+        throw(ArgumentError("CameraModelSpec: unknown type :$type; known: spline (or a LensSpec)"))
+    return CameraModelSpec{LogicalIntrinsics, SplineLensSpec}(SplineLensSpec(; grid_size, calib_area))
 end
 
 """
@@ -393,24 +393,30 @@ function _intrinsics_type(name)
     throw(ArgumentError("CameraModelSpec: unknown intrinsics $(repr(name)); known: $(_intrinsics_names())"))
 end
 
-# The fields of a generic grid a table names; the set ones, name => value, in the order they are shown and written.
-const _GRID_KEYS = String.(fieldnames(GenericGridSpec))
-_grid_args(g::GenericGridSpec) =
-    Pair{Symbol, Any}[k => getfield(g, k) for k in fieldnames(GenericGridSpec) if getfield(g, k) !== nothing]
-_grid_text(g::GenericGridSpec) = join(("$k = $v" for (k, v) in _grid_args(g)), ", ")
+# The fields of a spline lattice a table names; the set ones, name => value, in the order they are shown and written.
+const _GRID_KEYS = String.(fieldnames(SplineLensSpec))
+_grid_args(g::SplineLensSpec) =
+    Pair{Symbol, Any}[k => getfield(g, k) for k in fieldnames(SplineLensSpec) if getfield(g, k) !== nothing]
+_grid_text(g::SplineLensSpec) = join(("$k = $v" for (k, v) in _grid_args(g)), ", ")
+
+# The grid's table type before Core 0.9 (a retired name, spelled in two parts): refused, naming "spline".
+const _OLD_GRID_TYPE = "central" * "_generic"
 
 function CameraModelSpec(table::AbstractDict)
     d = Dict{String, Any}(String(k) => v for (k, v) in table)
     if haskey(d, "type")
-        d["type"] == "central_generic" ||
-            throw(ArgumentError("CameraModelSpec: unknown type $(repr(d["type"])); known: central_generic"))
-        # a generic grid is metric: `intrinsics = "metric"` beside it is redundant but true
+        d["type"] == _OLD_GRID_TYPE && throw(
+            ArgumentError("CameraModelSpec: the grid's type is \"spline\" (a SplineLens camera); $(repr(_OLD_GRID_TYPE)) was its name before VisualGeometryToolkitCore 0.9")
+        )
+        d["type"] == "spline" ||
+            throw(ArgumentError("CameraModelSpec: unknown type $(repr(d["type"])); known: spline"))
+        # a spline lens is metric: `intrinsics = "metric"` beside it is redundant but true
         name = pop!(d, "intrinsics", "metric")
         name == "metric" ||
-            throw(ArgumentError("CameraModelSpec: a central_generic grid is metric; got intrinsics = $(repr(name))"))
+            throw(ArgumentError("CameraModelSpec: a spline lens is metric; got intrinsics = $(repr(name))"))
         extra = setdiff(keys(d), ("type", _GRID_KEYS...))
-        isempty(extra) || throw(ArgumentError("CameraModelSpec: a central_generic table takes type, $(join(_GRID_KEYS, ", ")); got also $(sort(collect(extra)))"))
-        return CameraModelSpec(:central_generic; (Symbol(k) => d[k] for k in _GRID_KEYS if haskey(d, k))...)
+        isempty(extra) || throw(ArgumentError("CameraModelSpec: a spline table takes type, $(join(_GRID_KEYS, ", ")); got also $(sort(collect(extra)))"))
+        return CameraModelSpec(:spline; (Symbol(k) => d[k] for k in _GRID_KEYS if haskey(d, k))...)
     end
     name = pop!(d, "intrinsics", "metric")
     return CameraModelSpec(LensSpec(d); intrinsics = _intrinsics_type(name))
@@ -422,20 +428,20 @@ function toml_value(spec::CameraModelSpec{I, LensSpec}) where {I}
     return d
 end
 
-function toml_value(spec::CameraModelSpec{LogicalIntrinsics, GenericGridSpec})
-    d = Dict{String, Any}("type" => "central_generic")
+function toml_value(spec::CameraModelSpec{LogicalIntrinsics, SplineLensSpec})
+    d = Dict{String, Any}("type" => "spline")
     for (k, v) in _grid_args(spec.model)
         d[String(k)] = Any[v...]
     end
     return d
 end
 
-Base.:(==)(a::GenericGridSpec, b::GenericGridSpec) = a.grid_size == b.grid_size && a.calib_area == b.calib_area
-Base.hash(g::GenericGridSpec, h::UInt) = hash((g.grid_size, g.calib_area), hash(:GenericGridSpec, h))
+Base.:(==)(a::SplineLensSpec, b::SplineLensSpec) = a.grid_size == b.grid_size && a.calib_area == b.calib_area
+Base.hash(g::SplineLensSpec, h::UInt) = hash((g.grid_size, g.calib_area), hash(:SplineLensSpec, h))
 Base.:(==)(a::CameraModelSpec{I}, b::CameraModelSpec{J}) where {I, J} = I === J && a.model == b.model
 Base.hash(s::CameraModelSpec{I}, h::UInt) where {I} = hash((I, s.model), hash(:CameraModelSpec, h))
 
-Base.show(io::IO, g::GenericGridSpec) = print(io, "GenericGridSpec(", _grid_text(g), ")")
+Base.show(io::IO, g::SplineLensSpec) = print(io, "SplineLensSpec(", _grid_text(g), ")")
 
 function Base.show(io::IO, s::CameraModelSpec{I, LensSpec}) where {I}
     print(io, "CameraModelSpec(", s.model)
@@ -443,7 +449,7 @@ function Base.show(io::IO, s::CameraModelSpec{I, LensSpec}) where {I}
     return print(io, ")")
 end
 
-function Base.show(io::IO, s::CameraModelSpec{LogicalIntrinsics, GenericGridSpec})
+function Base.show(io::IO, s::CameraModelSpec{LogicalIntrinsics, SplineLensSpec})
     a = _grid_text(s.model)
-    return print(io, "CameraModelSpec(:central_generic", isempty(a) ? "" : "; " * a, ")")
+    return print(io, "CameraModelSpec(:spline", isempty(a) ? "" : "; " * a, ")")
 end

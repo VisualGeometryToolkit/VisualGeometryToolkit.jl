@@ -17,8 +17,9 @@
 # the pixel grid's to rounding.
 #
 # This file also hosts the spline lattice's shared helpers (the 4 × 4 window,
-# the presence mask, the source sampling of the initialization), which the
-# older grid models of generic_models.jl call.
+# the presence mask, the source sampling of the initialization, the chart a
+# control moves in), which the non-central model (noncentral_spline_model.jl)
+# reads too.
 
 # ------------------------------------------------------------------------------
 # The window of a lattice: one tensor 4 × 4 evaluation
@@ -29,18 +30,6 @@
 # byte-exact serialization round trips); anything genuinely unnormalized is
 # normalized — the reference Read() behavior.
 _unit_or_normalize(v) = abs(norm(v) - 1) < 1.0e-12 ? v : normalize(v)
-
-# Window bookkeeping shared by every eval (EvalUniformCubicBSplineSurface's
-# "+2 so the SURROUNDING control points are used" convention).
-@inline function _spline_window(gx, gy)
-    x = gx + 2
-    y = gy + 2
-    ix = floor(Int, x)
-    iy = floor(Int, y)
-    wx = cubic_bspline_weights(_span_coordinate(x, ix))
-    wy = cubic_bspline_weights(_span_coordinate(y, iy))
-    return ix, iy, wx, wy
-end
 
 # 4×4 tensor-window evaluation of one control grid. C++ 0-based window
 # columns ix-3 … ix map to Julia columns ix-2 … ix+1 (rows likewise); a
@@ -108,7 +97,7 @@ end
 # calibrated area (inclusive integer bounds, COLMAP frame) with `(rows, cols)`
 # controls, `size − 3` cells per axis; the node of 1-based index j sits at cell
 # coordinate j − 2. The ONE spelling of that geometry: the spline lens's
-# initialization and the older grid models read it.
+# initialization, its valid domain and the support hooks (support.jl) read it.
 
 # The calibrated area of inclusive integer bounds as the closed rectangle `[min, max + 1]`.
 _bounds_rect(minx, miny, maxx, maxy) = Rect2{Float64}(minx, miny, maxx + 1 - minx, maxy + 1 - miny)
@@ -451,6 +440,15 @@ end
 # A backward lens: its direction Jacobian differentiates `backproject` (camera_models.jl).
 LensDirection(::Type{<:SplineLens}) = BackwardLens()
 
+# A warp through the lens without a forward spline solves the LM per point, so it
+# is sampled on a coarse grid of `_WARP_OVERSAMPLE` times the lattice's own
+# density per axis (at least 8 cells), bilinearly interpolated between (camera_models.jl's
+# `_lens_warp`): measured 0.19 px worst case on a 3 MP calibration at 4, O(h²).
+# With a forward spline `project` is one spline evaluation: every pixel exactly.
+const _WARP_OVERSAMPLE = 4
+_warp_samples(l::SplineLens) = l.forward === nothing ?
+    (max(8, _WARP_OVERSAMPLE * size(l.backward.controls, 1)), max(8, _WARP_OVERSAMPLE * size(l.backward.controls, 2))) : nothing
+
 # The same camera under a diagonal change of the normalized plane, x′ = x / s
 # (`CameraModel(model, K′)` with a shared principal point, s = f′/f per axis):
 # the backward area scales and its controls stay (the lattice coordinate is
@@ -642,8 +640,7 @@ end
 @inline function _spline_project(controls, area::Rect2, t::StaticVector{3}, x₀::SVector{2, Float64}, lb, ub, s, maxiter::Int, tol2::Float64)
     # scaled before the norm, so a tiny or huge ray does not under/overflow
     tmax = max(abs(t[1]), abs(t[2]), abs(t[3]))
-    # a zero or non-finite ray, or start, has no projection (and a NaN point
-    # would reach `floor(Int, ·)` in the spline window)
+    # a zero or non-finite ray, or start, has no projection
     (tmax > 0 && isfinite(tmax) && all(isfinite, x₀)) || return SVector(NaN, NaN), false
     tn = normalize(SVector{3, Float64}(t[1] / tmax, t[2] / tmax, t[3] / tmax))
     res(p, _) = _spline_direction(controls, area, p) - tn
@@ -652,11 +649,13 @@ end
 end
 
 # The backward map of a spline of direction controls over `area`: the direction of the
-# point `p`, the LM's residual.
-# Inside the area only (the LM keeps its point there): the area's own window, not the
-# continued one, so the solve reads no clamp.
-@inline _spline_direction(controls, area, p) =
-    normalize(SVector{3, Float64}(_eval_window(controls, _spline_window(_lattice_coords(area, size(controls), p)...)...)))
+# point `p`, the LM's residual. The window is the continued one, as its Jacobian's
+# (`_spline_value_and_partials`): inside the area (where the LM keeps its point) it is
+# the point's own cell, and on the lower edge's rounding slack the two still agree.
+@inline function _spline_direction(controls, area, p)
+    gsz = gh, gw = size(controls)
+    return normalize(SVector{3, Float64}(_eval_window(controls, _continued_window(_lattice_coords(area, gsz, p)..., gw, gh)...)))
+end
 
 # THE direction of that spline at `x` and its Jacobian `∂d/∂x` (3 × 2), analytic:
 # the value and partials of `_spline_value_and_partials` (one evaluation of the basis
@@ -920,6 +919,59 @@ function with_present(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, pres
     return CameraModel(cam.intrinsics, SplineLens(ChartSpline(b.area, _absent_nan(b.controls, present)); l.forward, present))
 end
 
+# ------------------------------------------------------------------------------
+# A window: the camera of a block of the lattice's controls
+# ------------------------------------------------------------------------------
+
+# The controls of the block `rows × cols` of a lattice's `controls` (`[gy, gx]`):
+# a view of the block, or `given` (an equal-size matrix of 3-vectors, kept as given).
+function _window_controls(controls::AbstractMatrix, rows, cols, given)
+    gh, gw = size(controls)
+    (1 <= first(rows) && last(rows) <= gh && 1 <= first(cols) && last(cols) <= gw) ||
+        throw(ArgumentError("window: rows $rows × cols $cols outside the $gh × $gw grid"))
+    (length(rows) >= 4 && length(cols) >= 4) ||
+        throw(ArgumentError("window: a block of at least 4 × 4 controls, got $(length(rows)) × $(length(cols))"))
+    given === nothing && return view(controls, rows, cols)
+    size(given) == (length(rows), length(cols)) ||
+        throw(DimensionMismatch("window: $(size(given)) controls for a $(length(rows)) × $(length(cols)) block"))
+    T = eltype(eltype(controls))
+    return map(v -> SVector{3, T}(v[1], v[2], v[3]), given)
+end
+
+# The rectangle the block `rows × cols` of a lattice over `area` spans: from the
+# node of its second column (row) on, `size − 3` of the lattice's own cells (the
+# block's lattice is the lattice's, its first node one cell outside the rectangle).
+function _window_area(area::Rect2, gsz, rows, cols)
+    hx, hy = _lattice_spacing(area, gsz)
+    o = _lattice_node(area, gsz, first(cols) + 1, first(rows) + 1)
+    return Rect2{Float64}(o[1], o[2], (length(cols) - 3) * hx, (length(rows) - 3) * hy)
+end
+
+"""
+    window(camera::CameraModel{<:AbstractIntrinsics, <:SplineLens}, rows, cols; directions = nothing) -> CameraModel
+
+The block `rows × cols` (unit ranges into the lens's controls `[gy, gx]`, at
+least 4 × 4) of a [`SplineLens`](@ref) camera as a SplineLens camera of its own:
+the same `K`, the block of the backward spline's controls (or `directions`, an
+equal-size matrix of 3-vectors, kept as given) over the rectangle of the
+normalized plane they span, and the block of the presence mask; no forward
+spline. It images a point exactly when the point's 4 × 4 window lies inside the
+block (and is present), and there it evaluates as the camera holding those
+controls, to the rounding of the lattice coordinate. It is what a per-tile cost
+block of a refinement evaluates: a few hundred controls instead of the whole
+lattice.
+"""
+function window(
+        cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, rows::AbstractUnitRange{<:Integer}, cols::AbstractUnitRange{<:Integer};
+        directions::Union{Nothing, AbstractMatrix} = nothing
+    )
+    l = cam.lens
+    b = l.backward
+    C = _window_controls(b.controls, rows, cols, directions)
+    present = l.present === nothing ? nothing : l.present[rows, cols]
+    return CameraModel(cam.intrinsics, SplineLens(ChartSpline(_window_area(b.area, size(b.controls), rows, cols), C); present))
+end
+
 # A rectangle of the normalized plane in pixels: its corners through `K` (skew 0, so
 # a rectangle again) — the calibrated pixel area of a lattice over `area`.
 function _pixel_area(intrinsics::AbstractIntrinsics, area::Rect2)
@@ -952,4 +1004,166 @@ function valid_domain(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens})
     a = _lattice_node(area, gsz, jx[1] - 1, jy[1] - 1)
     z = _lattice_node(area, gsz, jx[2], jy[2])
     return Rect2{Float64}(a, z - a)
+end
+
+# ------------------------------------------------------------------------------
+# The controls as a manifold: the chart a direction control moves in
+# ------------------------------------------------------------------------------
+
+"""
+    direction_tangents(d) -> (t1, t2)
+
+The reference's orthonormal tangent basis of the unit direction `d` — the
+2-dof chart a grid control moves in (`normalize(d + δ₁t1 + δ₂t2)`), and the
+plane a direction residual is measured in. Generic in the element type: the
+basis is in `d`'s type (a `Float32` direction gives `Float32` tangents, a
+`ForwardDiff.Dual` direction dual tangents), so a device kernel or a
+differentiated residual is never promoted.
+"""
+@inline function direction_tangents(d)
+    v = SVector{3}(d)
+    t1 = normalize(cross(v, _tangent_axis(v)))
+    t2 = cross(v, t1)
+    return t1, t2
+end
+# The axis `direction_tangents` crosses a direction with: ŷ near ±x̂, x̂ otherwise
+# (piecewise constant: its derivative is zero, as the non-central residual's Jacobian reads it).
+@inline _tangent_axis(v) = (o = one(eltype(v)); z = zero(eltype(v)); abs(v[1]) > 9 * o / 10 ? SVector(z, o, z) : SVector(o, z, z))
+
+"""
+    ControlPointChart
+
+How a [`ControlPatchManifold`](@ref) moves its point controls:
+[`AdditivePoints`](@ref) (3 coordinates per point) or
+[`RayNormalPoints`](@ref) (2, across the point's own ray).
+"""
+abstract type ControlPointChart end
+
+"""
+    AdditivePoints() <: ControlPointChart
+
+A point control moves additively, `p + (Δx, Δy, Δz)`: 3 coordinates, the
+identity as its block of `retract_jacobian`. The default chart of a
+[`ControlPatchManifold`](@ref).
+"""
+struct AdditivePoints <: ControlPointChart end
+
+"""
+    RayNormalPoints() <: ControlPointChart
+
+A point control moves across its own ray, `p + a·t₁ + b·t₂` with
+`(t₁, t₂) = direction_tangents(normalize(d))` of the same node's direction
+control `d` at the anchor: 2 coordinates, `(t₁ t₂)` as its block of
+`retract_jacobian`, and `local_coordinates` the offset's dot products with
+`t₁` and `t₂`. A move along the ray leaves the node's line where it is, so this
+chart drops the one coordinate of [`AdditivePoints`](@ref) that does not move
+the line: `local_coordinates` of a point moved along its ray is the move's
+projection onto `(t₁, t₂)`, the component along the ray dropped. The tangents
+are off the z = 0 plane where the ray is off axis, so a pupil-plane model's
+points leave their plane under this chart; hold them on it with
+`AdditivePoints` and a `restrict` mask on `Δz`.
+"""
+struct RayNormalPoints <: ControlPointChart end
+
+"""
+    ControlPatchManifold(directions[, points[, point_chart = AdditivePoints()]]) <: Manifold
+
+A patch of a spline lattice's controls as a manifold (a [`SplineLens`](@ref)'s,
+a [`NoncentralSplineModel`](@ref)'s): a `PX × PY` block of its direction controls (an `SMatrix` of 3-vectors, in the caller's layout:
+the coordinates follow its column-major order) and, for a non-central model, the
+matching block of its point controls —
+the block a per-tile refinement moves (an NLLSsolver variable through the
+manifold adapter). A direction control `d` moves on its own sphere by the
+reference's chart,
+
+    ‖d‖ · normalize(d + δ₁t₁ + δ₂t₂),   (t₁, t₂) = direction_tangents(d / ‖d‖),
+
+2 coordinates that keep its norm (the norm is a weight of the spline's blend,
+not a gauge) and whose derivative at δ = 0 is `(t₁, t₂)`. A point control moves
+by `point_chart` (a [`ControlPointChart`](@ref)): additively, 3 coordinates
+([`AdditivePoints`](@ref)), or across its own ray, 2 ([`RayNormalPoints`](@ref)).
+The coordinates are per control, column-major over the block: `(δ₁, δ₂)` each,
+`(δ₁, δ₂, Δx, Δy, Δz)` with additive points or `(δ₁, δ₂, a, b)` with ray-normal
+points — [`restrict`](@ref) them by mask to hold some fixed (a pupil-plane
+model's `Δz`, with additive points). `model(ch)` is `(; directions, points)` (`points` is `nothing`
+for a central patch, whose `point_chart` is unused); `retract_jacobian(ch)` is
+block diagonal, `(t₁ t₂)` per direction and the point chart's block per point.
+"""
+struct ControlPatchManifold{PX, PY, L, T <: Real, P <: Union{Nothing, SMatrix{PX, PY, SVector{3, T}, L}}, C <: ControlPointChart} <: Manifold
+    directions::SMatrix{PX, PY, SVector{3, T}, L}
+    points::P
+    point_chart::C
+end
+ControlPatchManifold(directions::SMatrix{PX, PY, <:StaticVector{3}}) where {PX, PY} =
+    (T = float(eltype(eltype(directions))); ControlPatchManifold(SMatrix{PX, PY, SVector{3, T}}(directions), nothing))
+ControlPatchManifold(directions::SMatrix{PX, PY, SVector{3, T}, L}, points::Union{Nothing, SMatrix{PX, PY, SVector{3, T}, L}}) where {PX, PY, L, T <: Real} =
+    ControlPatchManifold(directions, points, AdditivePoints())
+
+_point_coordinates(::AdditivePoints) = 3
+_point_coordinates(::RayNormalPoints) = 2
+_control_coordinates(::ControlPatchManifold{PX, PY, L, T, Nothing}) where {PX, PY, L, T <: Real} = 2
+_control_coordinates(ch::ControlPatchManifold) = 2 + _point_coordinates(ch.point_chart)
+tangent_size(ch::ControlPatchManifold{PX, PY, L}) where {PX, PY, L} = _control_coordinates(ch) * L
+model(ch::ControlPatchManifold) = (; directions = ch.directions, points = ch.points)
+
+# One direction control stepped on its sphere (the reference's chart), its norm
+# kept; (t1, t2) = direction_tangents(normalize(d)).
+@inline _retracted_direction(d::SVector{3}, t1, t2, δ₁, δ₂) = norm(d) * normalize(d + δ₁ * t1 + δ₂ * t2)
+# One point control stepped by its chart from the coordinates v[j+1], v[j+2], …;
+# (t1, t2) are the same node's direction tangents.
+@inline _retracted_point(::AdditivePoints, p::SVector{3}, t1, t2, v, j) = p + SVector(v[j + 1], v[j + 2], v[j + 3])
+@inline _retracted_point(::RayNormalPoints, p::SVector{3}, t1, t2, v, j) = p + v[j + 1] * t1 + v[j + 2] * t2
+function _retracted_controls(ch::ControlPatchManifold{PX, PY, L, T, Nothing}, v) where {PX, PY, L, T <: Real}
+    dirs = SMatrix{PX, PY}(ntuple(Val(L)) do n
+        d = ch.directions[n]
+        return _retracted_direction(d, direction_tangents(normalize(d))..., v[2n - 1], v[2n])
+    end)
+    return dirs, nothing
+end
+function _retracted_controls(ch::ControlPatchManifold{PX, PY, L}, v) where {PX, PY, L}
+    k = _control_coordinates(ch)
+    nodes = ntuple(Val(L)) do n                      # each node's tangents once, for its direction and its point
+        d = ch.directions[n]; j = k * (n - 1)
+        t1, t2 = direction_tangents(normalize(d))
+        return _retracted_direction(d, t1, t2, v[j + 1], v[j + 2]), _retracted_point(ch.point_chart, ch.points[n], t1, t2, v, j + 2)
+    end
+    return SMatrix{PX, PY}(map(first, nodes)), SMatrix{PX, PY}(map(last, nodes))
+end
+retract(ch::ControlPatchManifold, v) = (s = _retracted_controls(ch, v); (; directions = s[1], points = s[2]))
+recenter(ch::ControlPatchManifold, v) = (s = _retracted_controls(ch, v); ControlPatchManifold(s[1], s[2], ch.point_chart))
+# A point chart's block of `retract_jacobian`: rows r+1:r+3, columns c+1:c+k.
+_point_jacobian!(J, ::AdditivePoints, r, c, t1, t2) = (for i in 1:3; J[r + i, c + i] = one(eltype(J)); end; J)
+_point_jacobian!(J, ::RayNormalPoints, r, c, t1, t2) = (J[(r + 1):(r + 3), c + 1] = t1; J[(r + 1):(r + 3), c + 2] = t2; J)
+function retract_jacobian(ch::ControlPatchManifold{PX, PY, L, T}) where {PX, PY, L, T}
+    k = _control_coordinates(ch)
+    central = ch.points === nothing
+    J = zeros(T, 3 * L * (central ? 1 : 2), k * L)
+    for n in 1:L
+        t1, t2 = direction_tangents(normalize(ch.directions[n]))
+        r = 3 * (central ? n - 1 : 2n - 2)
+        J[(r + 1):(r + 3), k * (n - 1) + 1] = t1
+        J[(r + 1):(r + 3), k * (n - 1) + 2] = t2
+        central || _point_jacobian!(J, ch.point_chart, r + 3, k * (n - 1) + 2, t1, t2)
+    end
+    return J
+end
+# A point chart's coordinates of the offset Δ, written to out[j+1], out[j+2], ….
+_point_local_coordinates!(out, ::AdditivePoints, j, Δ, t1, t2) = (out[(j + 1):(j + 3)] = Δ; out)
+_point_local_coordinates!(out, ::RayNormalPoints, j, Δ, t1, t2) = (out[j + 1] = dot(Δ, t1); out[j + 2] = dot(Δ, t2); out)
+# The coordinates of a block of controls: per direction, the step's tangent
+# coordinates (its sphere's chart inverted — the norm is the anchor's), per point
+# its chart's coordinates of the offset.
+function local_coordinates(ch::ControlPatchManifold{PX, PY, L}, x::NamedTuple) where {PX, PY, L}
+    k = _control_coordinates(ch)
+    out = zeros(promote_type(eltype(eltype(ch.directions)), eltype(eltype(x.directions))), k * L)
+    for n in 1:L
+        d = ch.directions[n]; d̂ = normalize(d)
+        t1, t2 = direction_tangents(d̂)
+        y = normalize(x.directions[n])
+        s = norm(d) / dot(y, d̂)                     # s·y = d + δ₁t₁ + δ₂t₂, and t ⟂ d̂
+        out[k * (n - 1) + 1] = s * dot(y, t1)
+        out[k * (n - 1) + 2] = s * dot(y, t2)
+        ch.points === nothing || _point_local_coordinates!(out, ch.point_chart, k * (n - 1) + 2, x.points[n] - ch.points[n], t1, t2)
+    end
+    return out
 end

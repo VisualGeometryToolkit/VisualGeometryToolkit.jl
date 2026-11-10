@@ -56,8 +56,8 @@ target, a rig or a capture. It is never a value rebuilt from stripped
 components. A unit is attached by construction, `EuclideanMap(R, t .* m)`, or
 by `with_unit(X, u)`, which reads a plain value — a map included, its rotation
 kept exactly — as being in `u`. One exception
-is forced by its type: [`NoncentralGenericModel`](@ref) holds its line points
-as plain metres, because its grid of `Vec3{T}` cannot hold quantities, and its
+is forced by its type: [`NoncentralSplineModel`](@ref) holds its line points
+as plain metres, because its spline of `SVector{3, T}` controls cannot hold quantities, and its
 docstring says so. Because a plain extrinsics is "in the caller's unit", a
 `PosedCamera` of that model refuses one (`ArgumentError`, naming `t .* m`); its
 plain form is `ustrip(m, camera)` only.

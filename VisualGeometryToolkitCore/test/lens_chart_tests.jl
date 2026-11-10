@@ -307,7 +307,7 @@ end
     using Test, StaticArrays
     using VisualGeometryToolkitCore
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: convert_eltype, CentralGenericModel, NoncentralGenericModel, Division, CONTRACT_GENERICS
+    using VisualGeometryToolkitCore: convert_eltype, SplineLens, NoncentralSplineModel, Division, CONTRACT_GENERICS
 
     @test convert_eltype in CONTRACT_GENERICS && Base.ispublic(VgtkCore, :convert_eltype) && !Base.isexported(VgtkCore, :convert_eltype)
     # within one Float32 rounding of the value (relative), back in Float64
@@ -336,20 +336,21 @@ end
 
     K = @SMatrix [300.0 0.0 320.0; 0.0 300.0 240.0; 0.0 0.0 1.0]
     src = CameraModel(CameraCalibrationMat(K); lens = Division(-0.1))
-    g = CentralGenericModel(src, (640, 480); grid_size = (12, 10))
+    g = CameraModel(SplineLens, src, (640, 480); grid_size = (12, 10))
     g32 = convert_eltype(Float32, g)
-    @test g32 isa CentralGenericModel{Float32}
+    @test g32 isa CameraModel{LogicalIntrinsics{Float32}, <:SplineLens} && eltype(g32.lens.backward.controls) === SVector{3, Float32}
     g64 = convert_eltype(Float64, g32)
-    @test g64 isa CentralGenericModel{Float64} && all(near(a, b) for (a, b) in zip(g64.grid, g.grid))
-    n = NoncentralGenericModel(src, (640, 480); grid_size = (12, 10))
+    @test typeof(g64) === typeof(g) && all(near(a, b) for (a, b) in zip(g64.lens.backward.controls, g.lens.backward.controls))
+    n = NoncentralSplineModel(src, (640, 480); grid_size = (12, 10))
     n32 = convert_eltype(Float32, n)
-    @test n32 isa NoncentralGenericModel{Float32}
-    @test all(near(a, b) for (a, b) in zip(convert_eltype(Float64, n32).directions, n.directions))
+    @test eltype(n32.directions.controls) === SVector{3, Float32} && eltype(n32.points.controls) === SVector{3, Float32}
+    @test all(near(a, b) for (a, b) in zip(convert_eltype(Float64, n32).directions.controls, n.directions.controls))
 
     # the kernels' private conversion forwards to it: a downstream lens's own
     # method is the one the batched and fused kernels apply
     @test VgtkCore._precision(Float32, KannalaBrandt(-0.04, 0.01)) === convert_eltype(Float32, KannalaBrandt(-0.04, 0.01))
-    @test VgtkCore._precision(Float32, g).grid == g32.grid
+    @test VgtkCore._precision(Float32, g.lens).backward.controls == g32.lens.backward.controls
+    @test VgtkCore._precision(Float32, n).directions.controls == n32.directions.controls
     @test VgtkCore._precision(Float32, intr) === intr          # intrinsics are not converted inside a warp chain
     @eval struct _TaggedLens{T} <: VgtkCore.AbstractLensModel
         k::T

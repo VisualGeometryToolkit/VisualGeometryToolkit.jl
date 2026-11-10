@@ -144,7 +144,7 @@ lens whose bound is radially symmetric reads it at azimuth 0. `cap` bounds the a
 scan runs to it (default `π − 10⁻³`); the closed forms clamp to it (default
 none). A ray projected EXACTLY at the limit can be NaN (a lift's root there is
 √eps-conditioned); a caller that needs a finite value steps inside, as the
-valid domain's inscribed radius and the generic models' sampler do.
+valid domain's inscribed radius and the spline lattice's sampler do.
 """
 function view_angle_limit(lens::AbstractLensModel; cap::Real = _SPHERE_EDGE)
     θs = range(1.0e-4, float(cap); length = 1024)

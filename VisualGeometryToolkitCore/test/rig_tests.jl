@@ -263,10 +263,10 @@
             rb = StereoRig(BoundedCamera(cam1, Size2(640, 480)), cam2; ids = (:l, :r))
             rb2 = with_model(rb, 1 => m2)
             @test source(rb2) isa BoundedCamera && extent(source(rb2)) == Size2(640, 480)
-            # a GENERIC model rides a rig (PosedCamera's model is any unposed AbstractCamera)
-            gen = CentralGenericModel(m2, (640, 480); grid_size = (6, 5))
+            # a spline camera rides a rig, as any unposed camera model does
+            gen = CameraModel(SplineLens, m2, (640, 480); grid_size = (6, 5))
             rg = with_model(rb, 1 => gen)
-            @test model(source(rg)) isa CentralGenericModel
+            @test model(source(rg)) isa CameraModel{<:Any, <:SplineLens}
             @test ids(rg) == (:l, :r)
             # single-sensor convenience + guards
             cammono = PosedCamera(model(cam1), relabel(WorldFrame, ViewFrame{:cam}, cam1.extrinsics))

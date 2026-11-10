@@ -160,7 +160,7 @@ end
 @testitem "camera_model_spec" begin
     using Test, TOML
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: toml_value, GenericGridSpec, intrinsics_kind
+    using VisualGeometryToolkitCore: toml_value, SplineLensSpec, intrinsics_kind
 
     roundtrip(spec) = CameraModelSpec(TOML.parse(sprint(TOML.print, toml_value(spec))))
 
@@ -211,38 +211,45 @@ end
         @test hash(back) == hash(spec)
     end
 
-    @testset "generic grid spec" begin
+    @testset "spline lens spec" begin
         for kw in (NamedTuple(), (; grid_size = (9, 7)), (; calib_area = (0, 0, 640, 480)), (; grid_size = (9, 7), calib_area = (0, 0, 640, 480)))
-            spec = CameraModelSpec(:central_generic; kw...)
+            spec = CameraModelSpec(:spline; kw...)
             @test intrinsics_kind(spec) === LogicalIntrinsics
-            @test spec.model isa GenericGridSpec
-            @test toml_value(spec)["type"] == "central_generic"
+            @test spec.model isa SplineLensSpec
+            @test toml_value(spec)["type"] == "spline"
             @test Set(keys(toml_value(spec))) == Set(vcat("type", String[String(k) for k in keys(kw)]))
             @test roundtrip(spec) == spec
         end
-        @test_throws ArgumentError CameraModelSpec(:central_generic; grid_size = (0, 7))
-        @test_throws ArgumentError CameraModelSpec(:central_generic; calib_area = (1, 2, 3))
+        @test_throws ArgumentError CameraModelSpec(:spline; grid_size = (0, 7))
+        @test_throws ArgumentError CameraModelSpec(:spline; calib_area = (1, 2, 3))
         @test_throws ArgumentError CameraModelSpec(:nonsense)
-        @test_throws ArgumentError CameraModelSpec(Dict("type" => "central_generic", "bogus" => 1))
+        @test_throws ArgumentError CameraModelSpec(Dict("type" => "spline", "bogus" => 1))
         # the config template's `intrinsics = "metric"` left beside an uncommented `type`:
-        # redundant but true (a generic grid is metric), so accepted; any other kind is refused
-        g = CameraModelSpec(Dict("type" => "central_generic", "intrinsics" => "metric", "grid_size" => [9, 7]))
-        @test g == CameraModelSpec(:central_generic; grid_size = (9, 7))
+        # redundant but true (a spline lens is metric), so accepted; any other kind is refused
+        g = CameraModelSpec(Dict("type" => "spline", "intrinsics" => "metric", "grid_size" => [9, 7]))
+        @test g == CameraModelSpec(:spline; grid_size = (9, 7))
         e = try
-            CameraModelSpec(Dict("type" => "central_generic", "intrinsics" => "projective")); nothing
+            CameraModelSpec(Dict("type" => "spline", "intrinsics" => "projective")); nothing
         catch err
             err
         end
         @test e isa ArgumentError && occursin("metric", e.msg) && occursin("projective", e.msg)
+        # the grid's table type before Core 0.9 is refused, naming the type it is now
+        e = try
+            CameraModelSpec(Dict("type" => "central" * "_generic", "grid_size" => [9, 7])); nothing
+        catch err
+            err
+        end
+        @test e isa ArgumentError && occursin("\"spline\"", e.msg)
     end
 
-    @testset "generic spec hash" begin
-        a = CameraModelSpec(:central_generic; grid_size = (9, 7), calib_area = (0, 0, 640, 480))
-        b = CameraModelSpec(:central_generic; grid_size = [9, 7], calib_area = [0, 0, 640, 480])
+    @testset "spline spec hash" begin
+        a = CameraModelSpec(:spline; grid_size = (9, 7), calib_area = (0, 0, 640, 480))
+        b = CameraModelSpec(:spline; grid_size = [9, 7], calib_area = [0, 0, 640, 480])
         @test a == b && hash(a) == hash(b)
-        @test hash(a) != hash(CameraModelSpec(:central_generic; grid_size = (9, 8), calib_area = (0, 0, 640, 480)))
-        @test hash(CameraModelSpec(:central_generic)) == hash(CameraModelSpec(:central_generic))
-        @test hash(GenericGridSpec(; grid_size = (9, 7))) == hash(GenericGridSpec(; grid_size = [9, 7]))
+        @test hash(a) != hash(CameraModelSpec(:spline; grid_size = (9, 8), calib_area = (0, 0, 640, 480)))
+        @test hash(CameraModelSpec(:spline)) == hash(CameraModelSpec(:spline))
+        @test hash(SplineLensSpec(; grid_size = (9, 7))) == hash(SplineLensSpec(; grid_size = [9, 7]))
         @test hash(roundtrip(a)) == hash(a)
     end
 
@@ -257,6 +264,6 @@ end
 
     @testset "show" begin
         @test sprint(show, CameraModelSpec(LensSpec(:division; coefficients = 2))) == "CameraModelSpec(LensSpec(:division; coefficients = 2))"
-        @test sprint(show, CameraModelSpec(:central_generic; grid_size = (9, 7))) == "CameraModelSpec(:central_generic; grid_size = (9, 7))"
+        @test sprint(show, CameraModelSpec(:spline; grid_size = (9, 7))) == "CameraModelSpec(:spline; grid_size = (9, 7))"
     end
 end

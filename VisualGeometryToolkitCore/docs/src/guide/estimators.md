@@ -45,7 +45,7 @@ per-correspondence weights as its `weights` column.
 | A model from contaminated correspondences | `find_homography`, `find_absolute_pose`, `find_radial_camera`, `find_circle`, `find_ellipse`, … | find (RANSAC) | RVG |
 | Radial camera of one board, whitened iterations | `fit_radial_camera` | fit | RVG |
 | Division camera (focal and distortion) from boards | `fit_division_camera` (over `division_camera_step`) | fit | RVG |
-| A camera model re-expressed in another family (a lens family, a `SplineProjection`, a grid) over a region | `fit_camera` | fit | RVG |
+| A camera model re-expressed in another family (a lens family, a `SplineLens` and its forward spline) over a region | `fit_camera` | fit | RVG |
 | Line through points carrying covariances | `fit_line` | fit | RVG |
 | A `find_*`'s model refined from a given one (its local optimization alone) | `refine_homography`, `refine_absolute_pose`, `refine_circle`, `refine_ellipse`, … | refine | RVG |
 | Robot–world / hand–eye from a guess | `refine_robot_world_hand_eye` | refine | RVG |

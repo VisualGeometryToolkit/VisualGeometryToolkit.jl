@@ -252,7 +252,28 @@ const RETIRED_NAMES = String[
     "_lmsolve" * "_manifold!",               # a hand-rolled copy of a static LM loop
     "_lm" * "_cholsolve!",                   # its unrolled Cholesky
     "_lmsolve" * "_p3p!",                    # VisualGeometryToolkitEstimation's P3P copy of the same loop
-    "_pixel_lm" * "_increment",              # the pixel LM's Cholesky step: `_spline_lm_increment` (plan 1b, the one LM `_spline_lm`)
+    "_pixel" * "_lm_increment",              # the pixel LM's Cholesky step: `_spline_lm_increment` (plan 1b, the one LM `_spline_lm`)
+    "_pixel" * "_lm",                        # the pixel LM of the old grid: `_spline_lm` on the area's scale-free box (plan 1b)
+    # the SplineLens fold-in (plan 1b, Core 0.9): the central grid camera is a
+    # CameraModel with a SplineLens, the non-central one a NoncentralSplineModel
+    "Central" * "GenericModel",              # `CameraModel(K, SplineLens(…))`, from a source `CameraModel(SplineLens, source, size)`
+    "Noncentral" * "GenericModel",           # `NoncentralSplineModel`
+    "Spline" * "Projection",                 # a SplineLens's `forward` spline, on `equidistant_chart` about the lens axis
+    "nominal" * "_intrinsics",               # a SplineLens camera's K, its gauge: `calibration_matrix(cam)`, `intrinsics(cam)`
+    "with" * "_nominal",                     # a re-gauge: `CameraModel(cam, K′)`
+    "with" * "_domain",                      # where light falls is the bound's: `with_lens_coverage(BoundedCamera(cam, extent), region)`
+    "generic" * "_lattice",                  # `spline_lattice(SplineLens, source, size)`
+    "GenericModel" * "Window",               # `window(cam, rows, cols)`: a SplineLens camera (or NoncentralSplineModel) of the block
+    "GenericGrid" * "Spec",                  # `SplineLensSpec`
+    "central" * "_generic",                  # `CameraModelSpec(:spline; …)`, the TOML table type "spline"
+    "default" * "_generic_grid",             # `default_spline_grid`
+    "interpolated" * "_direction",           # the backward spline continued past its area: `lens(cam).backward(x)`, x = K⁻¹u
+    "interpolated" * "_point",               # a NoncentralSplineModel's point spline: `m.points(x)`
+    "in_present" * "_domain",                # where a spline camera images: `all(isfinite, backproject(cam, u))`
+    "spline" * "_support",                   # a point's window: `spline_window(area, size(controls), x)` (its `ix, iy`)
+    "spline" * "_weights",                   # a window's weights: `spline_window`; their partials: `transform_deriv(::ChartSpline, x)`
+    "window" * "_controls", "window" * "_indices",   # the window's controls `controls[iy - 3 + r, ix - 3 + c]`, r, c ∈ 1:4
+    "window" * "_offset",                    # a window is a camera of its own (`window(cam, rows, cols)`): the block's corner is the caller's
     "_REFINE_ROBOT_WORLD" * "_MAX_MARKERS",  # VisualGeometryToolkitEstimation: the robot-world refinement's 4-marker cap, removed (2026-10-01)
     # robot-world/hand-eye calibration is named as such (VisualGeometryToolkitEstimation,
     # 2026-10-01): AX = YB, eye-to-hand; "hand_eye" is two tokens
@@ -391,7 +412,7 @@ const RETIRED_NAMES = String[
     # has no `free` keyword
     "gauge" * "_names", "gauge" * "_directions",
     # one model-to-model regression, `fit_camera(T, source, region)` (a lens
-    # family, a `SplineProjection`, a grid), and its `CameraFitMetadata`
+    # family, a spline lens and its forward spline), and its `CameraFitMetadata`
     # (VisualGeometryToolkitEstimation 0.6.0, 2026-11-04)
     "fit" * "_lens", "LensFit" * "Metadata",
     # the RANSAC per-point scalar is a distance under a distance's name (the 0.7

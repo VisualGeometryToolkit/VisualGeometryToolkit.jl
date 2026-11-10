@@ -1,6 +1,6 @@
 # Regenerates reference.txt: the reference Levenberg–Marquardt — a static bounded
 # `lmsolve(f, J, x0, nothing, lo, hi; maxit)` with Marquardt's scaling (MIT, Copyright (c) 2023
-# kamesy), the routine the generic models' two-unknown pixel LM kernel (`Cameras._pixel_lm`)
+# kamesy), the routine the spline models' two-unknown LM kernel (`Cameras._spline_lm`)
 # derives from — on the 1000 problems of problems.jl. The routine is not a dependency of the
 # stack: give the path of the source file that defines it and the module it defines (the source
 # the fixture was recorded from is named in this directory's git history):

@@ -108,53 +108,5 @@
         b = image_warp!(similar(img), image_warp(Float64, H, Rect(0, 0, 160, 120)), img)
         @test maximum(abs.(a .- b)) < 1.0e-9
     end
-
-    @testset "rectify with grid-model sensors" begin
-        Ws, Hs = 160, 120
-        Ks = @SMatrix [80.0 0.0 80.0; 0.0 80.0 60.0; 0.0 0.0 1.0]
-        mdiv = CameraModel(CameraCalibrationMat(Ks); lens = VgtkCore.Division(-0.12))
-        g1 = CentralGenericModel(mdiv, (Ws, Hs); grid_size = (10, 8))
-        g2 = CentralGenericModel(mdiv, (Ws, Hs); grid_size = (10, 8))
-        X = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.0, 0.03, 0.0)), SVector(-40.0, 0.0, 0.0))
-        rig_par = StereoRig(PosedCamera(mdiv, EuclideanMap(one(RotMatrix{3, Float64}), zeros(SVector{3, Float64}))), PosedCamera(mdiv, X); ids = (:l, :r))
-        rig_gen = StereoRig(PosedCamera(g1, EuclideanMap(one(RotMatrix{3, Float64}), zeros(SVector{3, Float64}))), PosedCamera(g2, X); ids = (:l, :r))
-        # geometry form: a grid sensor cannot derive the shared K — loud contract
-        @test_throws ArgumentError rectify(rig_gen)
-        geo = rectify(rig_par)
-        imgt = [
-            exp(-((x - 70)^2 + (y - 55)^2) / 400) + 0.2 * sin(x / 9) * cos(y / 7)
-                for y in 1:Hs, x in 1:Ws
-        ]
-        rp = rectify(rig_par, (imgt, imgt))
-        rg = rectify(rig_gen, (imgt, imgt); K = geo.K)
-        @test rg.K ≈ geo.K
-        for i in 1:2
-            @test rg.images[i].rect == rp.images[i].rect
-            a = rg.images[i].data; b = rp.images[i].data
-            @test size(a) == size(b)
-            di = abs.(a[20:(end - 20), 20:(end - 20)] .- b[20:(end - 20), 20:(end - 20)])
-            # grid-fit floor + remap interpolation vs the exact parametric warp
-            @test maximum(di) < 0.03
-        end
-        # Float32: the grid view's dense kernel runs in the requested precision, as
-        # its parametric sibling's warp does (the host remap used to refuse it)
-        rg32 = rectify(Float32, rig_gen, (Float32.(imgt), Float32.(imgt)); K = geo.K)
-        for i in 1:2
-            @test eltype(rg32.images[i].data) == Float32
-            @test maximum(abs.(rg32.images[i].data .- rg.images[i].data)) < 1.0e-4
-        end
-        # The grid view takes the output size `rectify` computed for the pair,
-        # not a height re-derived from the horizontal scale: at scale 3 on this
-        # 160×120 window that re-derivation gave 41 rows beside the parametric
-        # view's 40.
-        for s in (2.5, 3)
-            rp_s = rectify(rig_par, (imgt, imgt); scale = s)
-            rg_s = rectify(rig_gen, (imgt, imgt); K = geo.K, scale = s)
-            for i in 1:2
-                a = rg_s.images[i].data; b = rp_s.images[i].data
-                @test size(a) == size(b)
-                @test maximum(abs.(a[8:(end - 8), 8:(end - 8)] .- b[8:(end - 8), 8:(end - 8)])) < 0.03
-            end
-        end
-    end
+    # the rectification of two SplineLens cameras: spline_lens_tests.jl
 end

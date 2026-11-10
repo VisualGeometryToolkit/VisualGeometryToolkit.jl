@@ -76,7 +76,7 @@ The parameters of `m` free under the imaged `region` (an
 [`imaged_region`](@ref), a `Rect`, an `Ellipse`, …): for a `LocalSupport` model
 the nodes whose [`support`](@ref) meets the region,
 `[i for i in nodes(m) if intersects(region, support(m, i))]`, less any node
-the model does not hold (a grid model's absent nodes, [`present_nodes`](@ref)); for a
+the model does not hold (a spline model's absent nodes, [`present_nodes`](@ref)); for a
 `GlobalSupport` model every parameter, `Colon()` — an index that selects them
 all (`θ[free_nodes(m, region)]`), the same answer [`node_mask`](@ref) gives. A
 consumer that needs to iterate nodes asks a `LocalSupport` model
@@ -86,7 +86,7 @@ free_nodes(m, region) = _free_nodes(support_trait(m), m, region)
 _free_nodes(::GlobalSupport, m, region) = Colon()
 _free_nodes(::LocalSupport, m, region) = [i for i in nodes(m) if _is_free(m, region, i)]
 # A node is free when the model holds it and its support meets the region (a
-# grid model's absent node, `present_nodes`, is never free).
+# spline model's absent node, `present_nodes`, is never free).
 _is_free(m, region, i) = _node_present(m, i) && intersects(region, support(m, i))
 _node_present(m, i) = true
 
@@ -119,19 +119,39 @@ function cubic_bspline_footprint(center, spacing)
 end
 
 # -----------------------------------------------------------------------------
-# Core's generic grid models: a uniform cubic B-spline lattice over the
-# calibrated area
+# Core's spline models: a uniform cubic B-spline lattice over the calibrated area
 # -----------------------------------------------------------------------------
 
-# The pixel lattice of a grid model: its calibrated pixel rectangle and `(rows, cols)`
-# (a NoncentralSplineModel's is its direction area mapped through K, `_pixel_area`).
-const _LatticeCamera = Union{_GenericModel, NoncentralSplineModel}
-_pixel_lattice(m::_GenericModel) = (_calibrated_rect(m), _grid_size(m))
-_pixel_lattice(m::NoncentralSplineModel) = (_pixel_area(m.intrinsics, m.directions.area), size(m.directions.controls))
+# The lattice cameras: a SplineLens camera and a NoncentralSplineModel, each read
+# through its (direction) lens. Their pixel lattice: the calibrated pixel rectangle
+# (the backward area mapped through K, `_pixel_area`) and `(rows, cols)`.
+const _LatticeCamera = Union{CameraModel{<:AbstractIntrinsics, <:SplineLens}, NoncentralSplineModel}
+_lattice_lens(m::CameraModel{<:AbstractIntrinsics, <:SplineLens}) = m.lens
+_lattice_lens(m::NoncentralSplineModel) = _direction_lens(m)
+_pixel_lattice(m::_LatticeCamera) = (b = _lattice_lens(m).backward; (_pixel_area(m.intrinsics, b.area), size(b.controls)))
+
+"""
+    present_nodes(m) -> BitMatrix
+
+The nodes a [`SplineLens`](@ref) camera or a [`NoncentralSplineModel`](@ref)
+holds, `[gy, gx]` like its controls: `true` = present. Every node for a model
+built without a `present` mask.
+"""
+present_nodes(m::_LatticeCamera) =
+    (l = _lattice_lens(m); l.present === nothing ? trues(size(l.backward.controls)) : BitMatrix(l.present))
+
+"""
+    lattice_spacing(m) -> (hx, hy)
+
+The cell size of a [`SplineLens`](@ref) camera's or a
+[`NoncentralSplineModel`](@ref)'s lattice in pixels: the calibrated pixel span
+over its cells, `(w / (gx − 3), h / (gy − 3))`.
+"""
+lattice_spacing(m::_LatticeCamera) = _lattice_spacing(_pixel_lattice(m)...)
 
 support_trait(::Type{<:_LatticeCamera}) = LocalSupport()
 nodes(m::_LatticeCamera) = CartesianIndices(last(_pixel_lattice(m)))
-_node_present(m::_LatticeCamera, i::CartesianIndex{2}) = m.present === nothing || m.present[i]
+_node_present(m::_LatticeCamera, i::CartesianIndex{2}) = (p = _lattice_lens(m).present; p === nothing || p[i])
 node_position(m::_LatticeCamera, i::CartesianIndex{2}) = Point2{Float64}(_lattice_node(_pixel_lattice(m)..., i[2], i[1]))
 # A node's footprint, clipped to the calibrated area the model is defined on.
 # (The closed meet, Core's one rect-meet convention: a footprint always overlaps

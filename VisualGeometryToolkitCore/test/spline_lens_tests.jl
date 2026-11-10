@@ -3,14 +3,13 @@
     using StaticArrays
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, CentralGenericModel, KannalaBrandt, px, backproject,
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, px, backproject,
         calibration_matrix, with_present, valid_domain, Rect2, CameraCalibrationMat, LogicalIntrinsics
-    using VisualGeometryToolkitCore.Cameras: _calibrated_rect
     using GeometryBasics: origin, widths
 
     # =============================================================================
     # The central grid as a CameraModel lens: the backward map against the golden
-    # outputs of the old CentralGenericModel (test/fixtures/spline_lens_golden.jl,
+    # outputs of the old central grid model (test/fixtures/spline_lens_golden.jl,
     # recorded before the fold-in), the gauge, the re-gauge and the valid domain.
     # =============================================================================
 
@@ -115,10 +114,9 @@
     end
 
     @testset "valid_domain: the calibrated area in pixels; under a mask, the fully present windows" begin
-        old = CentralGenericModel(src, image; grid_size = grid)
         r = @inferred valid_domain(cam)
         @test r isa Rect2{Float64}
-        @test r == _calibrated_rect(old)
+        @test r == Rect2{Float64}(0.0, 0.0, Float64(image[1]), Float64(image[2]))   # the old grid's calibrated area [0, 1000]²
         # the golden mask, independently: window (ix, iy) reads controls [iy-2:iy+1, ix-2:ix+1] and covers the
         # cell from node ix − 1 to node ix (node j at pixel (j − 2)·h, h = 1000 / (n − 3))
         P = G.masked.present
@@ -150,7 +148,7 @@ end
     # =============================================================================
     # project through a SplineLens against the golden outputs of the old grid
     # models (test/fixtures/spline_lens_golden.jl): the LM without a forward spline
-    # (the old CentralGenericModel's), the forward spline (the old SplineProjection's),
+    # (the old central grid model's), the forward spline (the old fitted forward map's),
     # the batched and the Float32 device forms.
     # =============================================================================
 
@@ -182,7 +180,7 @@ end
         return worst, same_nan
     end
 
-    # The old SplineProjection's chart is about the ray of the fit's quadrature centroid,
+    # The old fitted forward map's chart is about the ray of the fit's quadrature centroid,
     # the pixel (499.5, 499.5), not of the principal point (500, 500): 2.4e-3 rad apart.
     # The lens's chart is about the ray of its principal point, so the forward spline is
     # read on the same pixel → ray map in the gauge whose principal point is that pixel
@@ -209,7 +207,7 @@ end
         @test all(X -> all(isnan, project(masked, X)), rays_out)
     end
 
-    @testset "with a forward: the old SplineProjection on the lens axis" begin
+    @testset "with a forward: the old fitted forward map on the lens axis" begin
         @test norm(_lens_axis(cam.lens) - S.chart_rotation[3, :]) > 1.0e-3            # the principal point's ray is not the golden chart's axis
         @test norm(_lens_axis(cam_fwd.lens) - S.chart_rotation[3, :]) <= 1.0e-12
         @test masked_fwd.lens.forward === forward
@@ -384,4 +382,150 @@ end
         imaged[level] = st
     end
     @test imaged[1] == imaged[2]
+end
+
+@testitem "SplineLens: undistort and rectify through the generic camera path" begin
+    using Test
+    using StaticArrays
+    using LinearAlgebra: norm
+    using Rotations: RotMatrix, RotXYZ
+    import Adapt
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, Division, px, project, model,
+        calibration_matrix, undistort, image_warp, image_warp!, distortion_map, Rect2, LogicalIntrinsics, CameraCalibrationMat,
+        _bilinear_sample
+    using VisualGeometryToolkitCore.Cameras: _spline_camera, _lens_warp
+    using CoordinateTransformations: AffineMap
+
+    # =============================================================================
+    # A SplineLens camera undistorts and rectifies through the generic CameraModel
+    # path (`distortion_map` → `image_warp` → the one KernelAbstractions warp kernel
+    # on the destination's backend): against the golden undistortion of the old
+    # grid model (test/fixtures/spline_lens_golden.jl), the kernel against a host
+    # loop over the same warp (with and without a forward spline), on CUDA where
+    # available, and the stereo rectification of two SplineLens cameras.
+    # =============================================================================
+
+    include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "spline_lens_golden.jl"))
+    G = GOLDEN
+    src = CameraModel(G.f * px, SA[G.pp[1] * px, G.pp[2] * px]; lens = KannalaBrandt(G.kb...))
+    W, H = G.image[1], G.image[2]
+    cam = CameraModel(SplineLens, src, (W, H); grid_size = (G.grid_size[1], G.grid_size[2]))
+    K = calibration_matrix(cam)
+    S = G.spline
+    K′ = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0.0, 0.0, 0.0, K[2, 2], 0.0, 499.5, 499.5, 1.0)))
+    cam′ = _spline_camera(K′, Rect2(0.0, 0.0, 1000.0, 1000.0), cam.lens.backward.controls)
+    C = [SVector((S.controls[1, i, j] - 499.5) / K[1, 1], (S.controls[2, i, j] - 499.5) / K[2, 2]) for i in axes(S.controls, 2), j in axes(S.controls, 3)]
+    cam_fwd = CameraModel(K′, SplineLens(cam′.lens.backward; forward = ChartSpline(Rect2(S.area[1], S.area[2], S.area[3], S.area[4]), C)))
+    U = G.undistort
+    checker = [Float64(isodd(fld(x, Int(U.cell)) + fld(y, Int(U.cell)))) for y in 0:(H - 1), x in 0:(W - 1)]   # [row, col]
+    rect = Rect2(U.rect...)
+
+    # The warp of an undistortion of `rect` into a Wout × Hout canvas through `c`:
+    # the generic one (`_lens_warp`: sampled where the lens asks), or every output
+    # pixel through the lens (`exact`).
+    function warp_of(c, rect, Wout, Hout; exact::Bool)
+        o = rect.origin; wd = rect.widths
+        place = AffineMap(SMatrix{2, 2, Float64}(wd[1] / Wout, 0, 0, wd[2] / Hout), SVector(o[1], o[2]))
+        math = exact ? distortion_map(c) : _lens_warp(c, distortion_map(c), rect)
+        return image_warp(Float64, math ∘ place, Rect(0, 0, Wout, Hout))
+    end
+    # The same warp by a host loop: each output pixel sampled by the warp kernel's bilinear sampler.
+    function host_loop(bm, img, Wout, Hout)
+        Hs, Ws = size(img)
+        return [(p = bm(SVector(r, k)); _bilinear_sample(img, p[1], p[2], 0.0, Hs, Ws)) for r in 1:Hout, k in 1:Wout]
+    end
+    kernel(bm, img, Wout, Hout) = image_warp!(zeros(Hout, Wout), bm, img)
+
+    @testset "the golden undistortion of the old grid, through the camera's own K" begin
+        @test K == SMatrix{3, 3, Float64}(U.Kr)                     # the old grid's target pinhole is the camera's K
+        und = undistort(cam, checker, rect)
+        @test und isa FramedImage && und.rect == rect
+        @test size(und.data) == size(U.central)
+        @test maximum(abs.(und.data .- U.central)) <= 1.0e-6
+        @test und.data == kernel(warp_of(cam, rect, 32, 32; exact = false), checker, 32, 32)
+        # every pixel through the lens: the old grid's own per-pixel projection, which the
+        # coarse grid approximates to the golden's O(h²) (measured 2.4e-6)
+        @test maximum(abs.(kernel(warp_of(cam, rect, 32, 32; exact = true), checker, 32, 32) .- U.central)) <= 1.0e-5
+    end
+
+    @testset "the KernelAbstractions CPU kernel == the host loop, with and without a forward spline" begin
+        for c in (cam, cam_fwd), exact in (true, false)
+            bm = warp_of(c, rect, 32, 32; exact)
+            k = kernel(bm, checker, 32, 32)
+            @test k == host_loop(bm, checker, 32, 32)
+            @test count(isfinite, k) == length(k)
+        end
+        @test undistort(cam_fwd, checker, rect).data == kernel(warp_of(cam_fwd, rect, 32, 32; exact = true), checker, 32, 32)
+        # the lens's project allocates nothing, with and without a forward spline
+        X = SVector(0.1, -0.05, 1.0)
+        for c in (cam, cam_fwd)
+            project(c.lens, X)
+            @test (@allocated project(c.lens, X)) == 0
+        end
+    end
+
+    @testset "CUDA: the device warp equals the host's (availability-gated)" begin
+        cuda = try
+            mod = Base.require(Main, :CUDA)
+            (mod !== nothing && Base.invokelatest(getproperty(mod, :functional))) ? mod : nothing
+        catch
+            nothing
+        end
+        if cuda === nothing
+            @test_skip cuda !== nothing      # no functional GPU here: recorded as Broken, not as a success
+        else
+            CuArray = getproperty(cuda, :CuArray)
+            dimg = Base.invokelatest(CuArray, checker)
+            for c in (cam, cam_fwd), exact in (true, false)
+                bm = warp_of(c, rect, 32, 32; exact)
+                host = kernel(bm, checker, 32, 32)
+                dev = Base.invokelatest(Array, Base.invokelatest(image_warp!, Base.invokelatest(CuArray, zeros(32, 32)), bm, dimg))
+                @test maximum(abs.(dev .- host)) <= 1.0e-4 * max(1.0, maximum(abs, host))
+            end
+            dev = Base.invokelatest(undistort, cam, dimg, rect)
+            @test maximum(abs.(Base.invokelatest(Array, dev.data) .- undistort(cam, checker, rect).data)) <= 1.0e-4
+        end
+    end
+
+    @testset "stereo rectification of two SplineLens cameras" begin
+        Ws, Hs = 160, 120
+        Ks = @SMatrix [80.0 0.0 80.0; 0.0 80.0 60.0; 0.0 0.0 1.0]
+        mdiv = CameraModel(CameraCalibrationMat(Ks); lens = Division(-0.12))
+        g1 = CameraModel(SplineLens, mdiv, (Ws, Hs); grid_size = (10, 8))
+        g2 = CameraModel(SplineLens, mdiv, (Ws, Hs); grid_size = (10, 8))
+        X = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.0, 0.03, 0.0)), SVector(-40.0, 0.0, 0.0))
+        I3 = EuclideanMap(one(RotMatrix{3, Float64}), zeros(SVector{3, Float64}))
+        rig_par = StereoRig(PosedCamera(mdiv, I3), PosedCamera(mdiv, X); ids = (:l, :r))
+        rig_spl = StereoRig(PosedCamera(g1, I3), PosedCamera(g2, X); ids = (:l, :r))
+        geo = rectify(rig_par)
+        @test rectify(rig_spl).K ≈ geo.K                             # a SplineLens camera has its K: the shared K derives
+        imgt = [exp(-((x - 70)^2 + (y - 55)^2) / 400) + 0.2 * sin(x / 9) * cos(y / 7) for y in 1:Hs, x in 1:Ws]
+        rp = rectify(rig_par, (imgt, imgt))
+        rg = rectify(rig_spl, (imgt, imgt); K = geo.K)
+        @test rg.K ≈ geo.K
+        for i in 1:2
+            @test rg.images[i].rect == rp.images[i].rect
+            a = rg.images[i].data; b = rp.images[i].data
+            @test size(a) == size(b)
+            # the grid-fit floor against the exact parametric warp
+            @test maximum(abs.(a[20:(end - 20), 20:(end - 20)] .- b[20:(end - 20), 20:(end - 20)])) < 0.03
+        end
+        # Float32: the warp runs in the requested precision
+        rg32 = rectify(Float32, rig_spl, (Float32.(imgt), Float32.(imgt)); K = geo.K)
+        for i in 1:2
+            @test eltype(rg32.images[i].data) == Float32
+            @test maximum(abs.(rg32.images[i].data .- rg.images[i].data)) < 1.0e-4
+        end
+        # the output size is the one `rectify` computes for the pair
+        for s in (2.5, 3)
+            rp_s = rectify(rig_par, (imgt, imgt); scale = s)
+            rg_s = rectify(rig_spl, (imgt, imgt); K = geo.K, scale = s)
+            for i in 1:2
+                a = rg_s.images[i].data; b = rp_s.images[i].data
+                @test size(a) == size(b)
+                @test maximum(abs.(a[8:(end - 8), 8:(end - 8)] .- b[8:(end - 8), 8:(end - 8)])) < 0.03
+            end
+        end
+    end
 end

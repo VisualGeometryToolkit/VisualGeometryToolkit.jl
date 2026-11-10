@@ -8,7 +8,8 @@
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: KannalaBrandt, Pinhole, WholePlane, RegionIntersection, lens_coverage, with_lens_coverage, SupportTrait,
         GlobalSupport, LocalSupport, support_trait, nodes, support, node_position, cubic_bspline_footprint, CONTRACT_GENERICS,
-        Division, AbstractLensModel, spline_support, window_indices
+        Division, AbstractLensModel, SplineLens, NoncentralSplineModel, spline_window
+    using VisualGeometryToolkitCore.Cameras: _normalized_point
     using StaticArrays
     using LinearAlgebra: normalize, dot
 
@@ -56,8 +57,8 @@
     @testset "the trait and its contract" begin
         @test support_trait(fold) === GlobalSupport() && support_trait(typeof(fold)) === GlobalSupport()
         @test support_trait(cam(800.0, Pinhole())) === GlobalSupport()
-        @test support_trait(CentralGenericModel) === LocalSupport()
-        @test support_trait(NoncentralGenericModel) === LocalSupport()
+        @test support_trait(CameraModel(SplineLens, cam(250.0, fold), (1280, 960); grid_size = (8, 6))) === LocalSupport()
+        @test support_trait(NoncentralSplineModel) === LocalSupport()
         @test all(f -> any(g -> g === f, CONTRACT_GENERICS), (support_trait, nodes, support, node_position))
         @test node_position(fold, 1) === nothing
         # a global model: every parameter is free, one support covering everything
@@ -70,12 +71,12 @@
         @test cubic_bspline_footprint((100.0, 50.0), (10.0, 5.0)) == Rect2(80.0, 40.0, 40.0, 20.0)
     end
 
-    @testset "a circular fisheye's grid model: nodes frozen where the footprint misses the circle" begin
-        g = CentralGenericModel(cam(250.0, fold), (1280, 960); grid_size = (20, 16))
+    @testset "a circular fisheye's spline lens: nodes frozen where the footprint misses the circle" begin
+        g = CameraModel(SplineLens, cam(250.0, fold), (1280, 960); grid_size = (20, 16))
         R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960); lens_coverage = lit))
         @test nodes(g) == CartesianIndices((16, 20))
         m = node_mask(g, R)
-        @test size(m) == size(g.grid) == (16, 20)
+        @test size(m) == size(g.lens.backward.controls) == (16, 20)
         @test sum(m) == 108                                    # of 320
         @test free_nodes(g, R) == [i for i in nodes(g) if m[i]]
         # frozen exactly where the footprint misses the circle: brute-force sampling of each footprint
@@ -90,27 +91,27 @@
         i = CartesianIndex(8, 10)
         @test node_position(g, i) ≈ Point2((minimum(support(g, i)) .+ maximum(support(g, i))) ./ 2...)
         # the noncentral model has the same lattice
-        gn = NoncentralGenericModel(cam(250.0, fold), (1280, 960); grid_size = (20, 16))
+        gn = NoncentralSplineModel(cam(250.0, fold), (1280, 960); grid_size = (20, 16))
         @test node_mask(gn, R) == m
         # a rectilinear lens images the whole extent: no node is frozen
-        gr = CentralGenericModel(cam(800.0, Pinhole()), (1280, 960); grid_size = (20, 16))
+        gr = CameraModel(SplineLens, cam(800.0, Pinhole()), (1280, 960); grid_size = (20, 16))
         @test all(node_mask(gr, imaged_region(BoundedCamera(cam(800.0, Pinhole()), Size2(1280, 960)))))
     end
 
     @testset "the sampler clamps nodes inside the lens model's valid domain" begin
         # every node of the circular fisheye's grid backprojects finitely, outside the valid domain too
-        g = CentralGenericModel(cam(250.0, fold), (1280, 960); grid_size = (20, 16))
-        @test all(v -> all(isfinite, v), g.grid)
+        g = CameraModel(SplineLens, cam(250.0, fold), (1280, 960); grid_size = (20, 16))
+        @test all(v -> all(isfinite, v), g.lens.backward.controls)
         # the margin is a keyword (0.97 by default; 1 would sample the corner nodes AT the fold, which rings)
-        g1 = CentralGenericModel(cam(250.0, fold), (1280, 960); grid_size = (20, 16), sampling_margin = 0.9)
-        @test g1.grid != g.grid
+        g1 = CameraModel(SplineLens, cam(250.0, fold), (1280, 960); grid_size = (20, 16), sampling_margin = 0.9)
+        @test g1.lens.backward.controls != g.lens.backward.controls
     end
 
     @testset "a lift that never folds: sampled past 90°, finite and accurate" begin
         src = cam(300.0, Division(-0.3))                      # images the whole plane: no clamp
         @test valid_domain(src) === WholePlane()
-        g = CentralGenericModel(src, (1280, 960); grid_size = (20, 16))
-        @test all(v -> all(isfinite, v), g.grid)
+        g = CameraModel(SplineLens, src, (1280, 960); grid_size = (20, 16))
+        @test all(v -> all(isfinite, v), g.lens.backward.controls)
         worst = 0.0                                           # angular error × f, in px
         for x in 5:20:1275, y in 5:20:955
             d0 = normalize(SVector{3, Float64}(backproject(src, SVector(x + 0.0, y + 0.0))))
@@ -124,7 +125,7 @@
         struct BlindLens <: AbstractLensModel end             # images nothing
         VisualGeometryToolkitCore.project(::BlindLens, X::StaticVector{3}) = SVector(NaN, NaN)
         e = try
-            CentralGenericModel(cam(300.0, BlindLens()), (640, 480); grid_size = (8, 6)); nothing
+            CameraModel(SplineLens, cam(300.0, BlindLens()), (640, 480); grid_size = (8, 6)); nothing
         catch err
             err
         end
@@ -137,15 +138,16 @@
         # node outside the window has the pixel strictly inside its support —
         # on the default calibrated area and on a non-default one
         for g in (
-                CentralGenericModel(cam(250.0, fold), (1280, 960); grid_size = (20, 16)),
-                CentralGenericModel(cam(250.0, fold), (1280, 960); grid_size = (9, 7), calib_area = (100, 50, 1099, 899)),
+                CameraModel(SplineLens, cam(250.0, fold), (1280, 960); grid_size = (20, 16)),
+                CameraModel(SplineLens, cam(250.0, fold), (1280, 960); grid_size = (9, 7), calib_area = (100, 50, 1099, 899)),
             )
             missing_from_footprint = 0
             outside_window = 0
+            b = g.lens.backward
             for x in 0.5:37.3:1279.0, y in 0.5:29.1:959.0
-                w = spline_support(g, SVector(x, y))
-                w === nothing && continue
-                win = Set(window_indices(g, w...))
+                all(isfinite, backproject(g, SVector(x, y))) || continue
+                ix, iy, _, _ = spline_window(b.area, size(b.controls), _normalized_point(g.intrinsics, SVector(x, y)))
+                win = Set(CartesianIndex(iy - 3 + r, ix - 3 + c) for r in 1:4, c in 1:4)
                 for I in nodes(g)
                     s = support(g, I)
                     closed = minimum(s)[1] <= x <= maximum(s)[1] && minimum(s)[2] <= y <= maximum(s)[2]
@@ -158,8 +160,8 @@
             @test outside_window == 0
         end
         # the clip matters on a smaller calibrated area: no support reaches outside it
-        g = CentralGenericModel(cam(250.0, fold), (1280, 960); grid_size = (9, 7), calib_area = (100, 50, 1099, 899))
-        @test all(I -> minimum(support(g, I))[1] >= 100 && maximum(support(g, I))[1] <= 1100, nodes(g))
+        g = CameraModel(SplineLens, cam(250.0, fold), (1280, 960); grid_size = (9, 7), calib_area = (100, 50, 1099, 899))
+        @test all(I -> minimum(support(g, I))[1] >= 100 - 1.0e-9 && maximum(support(g, I))[1] <= 1100 + 1.0e-9, nodes(g))
     end
 end
 
@@ -167,14 +169,21 @@ end
     using Test
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: KannalaBrandt, Pinhole, BoundaryRule, extend_controls, boundary_rule_jacobian, nodes,
-        spline_support, spline_weights, interpolated_direction
+        SplineLens, ChartSpline, spline_window
+    using VisualGeometryToolkitCore.Cameras: _normalized_point
     using StaticArrays, ForwardDiff
     using Random: Xoshiro
 
     cam(f, l) = CameraModel(; focal = f, pp = (640.0, 480.0), lens = l)
     fold = KannalaBrandt(-4 / (3π^2))                      # a 180° fisheye: its image circle lies inside the sensor
     lit = Ellipse(Point2(640.0, 480.0), 250π / 3, 250π / 3, 0.0)   # that circle at f = 250, supplied
-    g = CentralGenericModel(cam(250.0, fold), (1280, 960); grid_size = (20, 16))
+    g = CameraModel(SplineLens, cam(250.0, fold), (1280, 960); grid_size = (20, 16))
+    b = g.lens.backward
+    # the window a pixel reads: its index and the 4 × 4 weights w[r, c] = wy[r]·wx[c]
+    function window_weights(p)
+        ix, iy, wx, wy = spline_window(b.area, size(b.controls), _normalized_point(g.intrinsics, p))
+        return ix, iy, SMatrix{4, 4}([wy[r] * wx[c] for r in 1:4, c in 1:4])
+    end
     R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960); lens_coverage = lit))
     rule = BoundaryRule(g, R)
     @test rule.interior == node_mask(g, R) && count(rule.interior) == 108
@@ -183,7 +192,7 @@ end
     J = boundary_rule_jacobian(rule)
     @test size(J) == (320, 108) && all(sum(J; dims = 2) .≈ 1)
     # zero second difference across the border: an affine correction of the lattice is extended exactly
-    ref = g.grid
+    ref = b.controls
     aff = [ref[i] + SVector(0.01 * i[1] - 0.02 * i[2], 0.003 * i[2], 0.002 * i[1] + 0.001) for i in nodes(g)]
     @test extend_controls(rule, aff, ref) ≈ aff
     @test extend_controls(rule, ref, ref) == ref
@@ -194,16 +203,16 @@ end
     θ = [rule.interior[i] ? ref[i] + 0.02 * (SVector{3}(rand(rng, 3)) .- 0.5) : ref[i] for i in nodes(g)]
     full = extend_controls(rule, θ, ref)
     junk = [rule.interior[i] ? θ[i] : SVector(5.0, -3.0, 1.0) for i in nodes(g)]
-    gm(grid) = CentralGenericModel(g.width, g.height, g.calib_min_x, g.calib_min_y, g.calib_max_x, g.calib_max_y, grid; unit_controls = false)
+    gm(grid) = CameraModel(g.intrinsics, SplineLens(ChartSpline(b.area, grid)))
+    raw(c, p) = c.lens.backward(_normalized_point(c.intrinsics, p))
     mf, mj = gm(full), gm(junk)
     q = lit
     rim = [SVector{2, Float64}(q.center + 0.9999 * (SVector{2, Float64}(boundary_point(q, t)) - q.center)) for t in range(0, 2π; length = 721)]
     imaged = vcat([SVector(x, y) for x in 0.5:9:1279.5, y in 0.5:9:959.5 if Point2(x, y) ∈ R], filter(p -> Point2(p...) ∈ R, rim))
     @test length(imaged) > 2000 + 700                                      # a raster and the circle's rim
-    @test all(p -> interpolated_direction(mf, p) == interpolated_direction(mj, p), imaged)
+    @test all(p -> raw(mf, p) == raw(mj, p), imaged)
     for p in imaged
-        ix, iy = spline_support(g, p)
-        w, _, _ = spline_weights(g, ix, iy, p)
+        ix, iy, w = window_weights(p)
         @test sum(w[r, c] for r in 1:4, c in 1:4 if rule.interior[iy - 3 + r, ix - 3 + c]) ≈ 1 atol = 1.0e-12
     end
 
@@ -212,8 +221,7 @@ end
     outside = [SVector(30.0, 40.0), SVector(1250.0, 900.0), SVector(640.0, 12.0)]
     @test all(p -> Point2(p...) ∉ R, outside)
     for p in outside, comp in 1:3
-        ix, iy = spline_support(g, p)
-        w, _, _ = spline_weights(g, ix, iy, p)
+        ix, iy, w = window_weights(p)
         val(t) = (c = extend_controls(rule, (z = [x[comp] for x in θ]; zz = Matrix{eltype(t)}(z); zz[inner] .= t; zz), [x[comp] for x in ref]);
                   sum(w[r, c2] * c[iy - 3 + r, ix - 3 + c2] for r in 1:4, c2 in 1:4))
         wfull = zeros(320); L = LinearIndices(rule.interior)
@@ -230,7 +238,7 @@ end
 @testitem "support: the boundary rule's order — Δ²c = 0 extends a linear correction, Δ³c = 0 a quadratic" begin
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: KannalaBrandt, BoundaryRule, extend_controls, boundary_rule_jacobian, nodes
+    using VisualGeometryToolkitCore: KannalaBrandt, BoundaryRule, extend_controls, boundary_rule_jacobian, nodes, SplineLens
     using StaticArrays
 
     lin(i) = 0.01 * i[1] - 0.02 * i[2] + 0.5
@@ -260,12 +268,13 @@ end
     fold = KannalaBrandt(-4 / (3π^2))
     c = CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = fold)
     lit = Ellipse(Point2(640.0, 480.0), 250π / 3, 250π / 3, 0.0)
-    g = CentralGenericModel(c, (1280, 960); grid_size = (20, 16))
+    g = CameraModel(SplineLens, c, (1280, 960); grid_size = (20, 16))
+    G = g.lens.backward.controls
     R = imaged_region(BoundedCamera(c, Size2(1280, 960); lens_coverage = lit))
     r3 = BoundaryRule(g, R; order = 3)
     @test r3.order == 3 && r3.interior == node_mask(g, R)
-    Q3 = [g.grid[i] + SVector(quad(i), -quad(i), 0.5 * lin(i)) for i in nodes(g)]
-    @test extend_controls(r3, Q3, g.grid) ≈ Q3
+    Q3 = [G[i] + SVector(quad(i), -quad(i), 0.5 * lin(i)) for i in nodes(g)]
+    @test extend_controls(r3, Q3, G) ≈ Q3
     @test_throws ArgumentError BoundaryRule(trues(4, 4); order = 4)
     @test_throws ArgumentError BoundaryRule(g, R; order = 1)
 end

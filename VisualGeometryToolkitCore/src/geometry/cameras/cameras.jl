@@ -58,11 +58,11 @@ using Rotations: Rotations, Rotation, RotMatrix, Angle2d, rotation_angle
 using GeometryBasics: GeometryBasics
 using MacroTools: MacroTools
 using KernelAbstractions: KernelAbstractions, @kernel, @index, @Const, get_backend
-using Adapt: Adapt, adapt   # device upload of the grid and rays; the models' and windows' `adapt_structure` (generic_models.jl)
+using Adapt: Adapt, adapt   # device upload of the controls and rays; the spline models' `adapt_structure` (spline_lens.jl, noncentral_spline_model.jl)
 
 # Import from parent module (VisualGeometryToolkitCore-specific types only)
-import KernelAbstractions as KA   # batched generic-model projection kernel
-using ..VisualGeometryToolkitCore: _bilinear_sample, _store, _sample_type   # the one bilinear sampler (warp.jl): the grid remap's dense kernel
+import KernelAbstractions as KA   # the spline models' batched kernels
+using ..VisualGeometryToolkitCore: _sampled_map   # a map read off its samples at a coarse grid (warp.jl): a lens warp's coarse inverse
 using ..VisualGeometryToolkitCore: _pixel_extent   # a size in pixels, plain or `px` (homography_solvers.jl)
 using ..VisualGeometryToolkitCore: _pushforward, _pullback   # the constant-Jacobian transport laws (propagate_framed.jl)
 using ..VisualGeometryToolkitCore: Point2, Point3, Vec2, Vec3
@@ -194,11 +194,10 @@ include("lens_rays.jl")       # THE lens contract: project/backproject on rays +
 include("equirectangular.jl") # the latitude/longitude projection of directions (panoramas, sky maps)
 include("lens_chart.jl") # parameter chart, ∂lens/∂θ, TOML lens registry (0.22.1)
 include("lens_spec.jl")  # LensSpec: a lens family by name and term counts
-include("chart_spline.jl")    # ChartSpline, SplineProjection: a spline on a 2-D chart; a forward map on a direction chart (methods use the window)
+include("chart_spline.jl")    # ChartSpline: a uniform cubic B-spline on a rectangle of a 2-D chart; the lattice primitives (weights, window)
 include("spline_lens.jl")     # SplineLens: the central grid camera as a CameraModel lens; the spline lattice's shared helpers
-include("generic_models.jl") # Schöps et al. central/non-central generic grid models (0.16)
 include("noncentral_spline_model.jl")  # NoncentralSplineModel: the non-central grid on ChartSpline (the SplineLens's directions plus a point spline)
-include("support.jl")         # supports on the sensor: which parameters a camera can see (the generic models' lattice)
+include("support.jl")         # supports on the sensor: which parameters a camera can see (the spline models' lattice)
 include("vignetting.jl")      # TensorProductVignetting, RadialVignetting: a camera's vignetting (uses the support protocol, bspline_basis)
 include("lighting.jl")        # EnvironmentLight, SphericalHarmonicMap, sh_basis: the scene's light (extends vignetting.jl's coefficient_jacobian)
 include("blur.jl")            # GaussianBlur: one blur of an imaging model, the density N(0, Σ) by its covariance (extends Statistics' cov/var/std, Core's propagate)
@@ -671,7 +670,6 @@ with_unit(c::AbstractCamera, u::Units) = is_posed(c) ? throw(MethodError(with_un
 # where it is built, naming the fix; the plain-metres camera is reached only by
 # stating the unit, `ustrip(m, camera)` of a physical one (and `with_unit(·, m)`
 # back), so a strip or attach in another unit is refused too.
-const _NoncentralGrid = Union{NoncentralGenericModel, NoncentralSplineModel}
 @noinline _refuse_plain_noncentral(what) = throw(
     ArgumentError(
         "$(what): a non-central grid model's point grid is in metres but the extrinsics are plain numbers " *
@@ -679,18 +677,18 @@ const _NoncentralGrid = Union{NoncentralGenericModel, NoncentralSplineModel}
             "`PosedCamera(model, with_unit(extrinsics, mm))` for a map in mm"
     )
 )
-PosedCamera(model::_NoncentralGrid, X::EuclideanMap{3}) =
+PosedCamera(model::NoncentralSplineModel, X::EuclideanMap{3}) =
     has_units(X) ? PosedCamera{typeof(model), typeof(X)}(model, X) : _refuse_plain_noncentral("PosedCamera")
-PosedCamera(model::_NoncentralGrid, p::CameraPose) = PosedCamera(model, inv(p))
+PosedCamera(model::NoncentralSplineModel, p::CameraPose) = PosedCamera(model, inv(p))
 @noinline _refuse_noncentral_unit(what, u) = throw(
     ArgumentError(
         "$(what)($(u), camera): a non-central grid model's point grid is in metres, so its camera's plain form " *
             "is in metres too — use `m`, and the same unit for the scene points"
     )
 )
-FlexUnits.ustrip(u::Units, c::PosedCamera{<:_NoncentralGrid}) =
+FlexUnits.ustrip(u::Units, c::PosedCamera{<:NoncentralSplineModel}) =
     u == m ? _rebuilt(c, ustrip(u, c.extrinsics)) : _refuse_noncentral_unit("ustrip", u)
-with_unit(c::PosedCamera{<:_NoncentralGrid}, u::Units) =
+with_unit(c::PosedCamera{<:NoncentralSplineModel}, u::Units) =
     u == m ? _rebuilt(c, _attach_unit(c.extrinsics, u)) : _refuse_noncentral_unit("with_unit", u)
 with_unit(c::BoundedCamera, u::Units) = _rebound(c, with_unit(c.camera, u))
 
@@ -1040,7 +1038,7 @@ export AbstractPanoramaProjection   # the family's supertype (public, not export
 export AbstractDistortionTerm, Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Even, Full
 export radial, isdelta, projection_frame, parameters, lens_record, lens_from_record, lens_label
 export LensSpec, free_names             # a lens family by name and term counts (lens_spec.jl; free_names public, not exported, at the top level)
-export CameraModelSpec, GenericGridSpec, intrinsics_kind   # what a calibration is for (lens_spec.jl; GenericGridSpec, intrinsics_kind public, not exported, at the top level)
+export CameraModelSpec, SplineLensSpec, intrinsics_kind   # what a calibration is for (lens_spec.jl; SplineLensSpec, intrinsics_kind public, not exported, at the top level)
 export division_bounded, undistorted_rect, valid_rect, horizon_radius, fov_radius, DEFAULT_MAX_FOV   # whole-extent undistortion
 export radial_homography   # a target homography seen through a projective division camera
 export undistort, undistort!           # Remove lens distortion from images
@@ -1135,19 +1133,16 @@ export radiance, exit_direction, radiance_map, coefficients, with_coefficients, 
 export coefficient_jacobian, active_coefficients, control_points, with_control_points, n_control_points, knot_vectors, spline_degree,
        field_radius, radial_coordinate, pole_regular_basis   # (public, not exported, at the top level)
 export radial_part                         # a lens's radially symmetric part
-export CentralGenericModel, NoncentralGenericModel, Ray3  # generic grid models (Schöps et al.)
-export present_nodes, in_present_domain   # the nodes a grid model holds; where it evaluates (every window node present)
-export spline_support, spline_weights, window_controls, window_indices, direction_tangents, default_spline_grid  # the grid model's window interface (0.22.2)
-export ControlPatchManifold              # a block of a grid model's controls as a manifold (public, not exported, at the top level)
+export SplineLens, NoncentralSplineModel, spline_lattice        # the central grid camera as a lens of a CameraModel; the non-central grid; a lattice from a camera, unsampled
+export Ray3                              # a non-central pixel's observation line
+export present_nodes, window, lattice_spacing   # the nodes a spline model holds; the camera of a block of its controls; its cell size in px (public, not exported, at the top level)
+export direction_tangents, default_spline_grid   # a direction's tangent basis; the reference's control grid of an area
+export ControlPatchManifold              # a block of a spline lattice's controls as a manifold (public, not exported, at the top level)
 export ControlPointChart, AdditivePoints, RayNormalPoints   # how its point controls move (public, not exported, at the top level)
-export GenericModelWindow, window, nominal_intrinsics, interpolated_direction, interpolated_point   # a view onto a block of controls; the raw splines
 export spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice as a primitive (any control type); the 4th-order quasi-interpolant
 export cubic_bspline_weights             # a uniform cubic B-spline span's four weights (public, not exported, at the top level)
-export generic_lattice                   # a grid model's layout from a source, without sampling it
-export directions, grid_size, window_offset, lattice_spacing   # a grid model's lattice accessors (public, not exported, at the top level)
-export with_domain, with_present, with_nominal, with_directions, with_points, central_model   # its set accessors (likewise)
-export ChartSpline, SplineProjection     # a spline on a 2-D chart; a forward map (ray → pixel) as one on the equidistant direction chart
-export SplineLens, NoncentralSplineModel, spline_lattice        # the central grid camera as a lens of a CameraModel; its lattice from a camera, unsampled
+export with_present, with_directions, with_points, central_model   # a spline model with one part replaced; a non-central model's central part (likewise)
+export ChartSpline                       # a uniform cubic B-spline on a 2-D chart
 export pixel_centre                      # an image array index's pixel centre, COLMAP frame, in T (public, not exported, at the top level)
 export equidistant_chart                 # the equidistant direction chart about an axis (public, not exported, at the top level)
 export with_model                         # same camera/rig, new model — rebuilds through the validating constructor

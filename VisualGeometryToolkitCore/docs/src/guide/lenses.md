@@ -195,12 +195,12 @@ rasterizes it, the pixels whose centres lie in it. Each parameter of a model has
 support on the sensor; it is free when its support meets the imaged region
 and frozen otherwise. A global model (a parametric lens, `K`) has the whole
 plane as every parameter's support, so [`free_nodes`](@ref) answers `Colon()`
-(all of them); a node model such as the generic grid model is `LocalSupport`
+(all of them); a node model such as a [`SplineLens`](@ref) camera is `LocalSupport`
 and only the nodes whose footprint meets the lens coverage are free.
 
 ```@example imagecircle
 fish = CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = KannalaBrandt(k))
-g = CentralGenericModel(fish, (1280, 960); grid_size = (20, 16))
+g = CameraModel(SplineLens, fish, (1280, 960); grid_size = (20, 16))
 circle = Ellipse(Point2(640.0, 480.0), 250.0, 250.0, 0.0)   # a measured image circle, 250 px
 R = imaged_region(BoundedCamera(fish, Size2(1280, 960); lens_coverage = circle))
 mask = node_mask(g, R)                                  # in the grid's shape
@@ -216,48 +216,47 @@ sensor in pixels — for a uniform cubic B-spline lattice
 [`cubic_bspline_footprint`](@ref VisualGeometryToolkitCore.Cameras.cubic_bspline_footprint)`(center, spacing)`);
 [`free_nodes`](@ref) and [`node_mask`](@ref) then work unchanged.
 
-## A generic model in a refinement
+## A spline lens in a refinement
 
-A refinement of the generic grid models reads them through a few primitives
-of the same lattice. The controls of a model may be kept off the sphere
+A refinement of a [`SplineLens`](@ref) camera reads it through a few primitives
+of its lattice. The controls of a lens may be kept off the sphere
 (`unit_controls = false`): `backproject` normalizes the spline value, so a
 control's norm is an interpolation weight, not a gauge — an optimizer stepping
 in each control's tangent plane ([`direction_tangents`](@ref VisualGeometryToolkitCore.Cameras.direction_tangents))
-leaves them there. [`interpolated_direction`](@ref VisualGeometryToolkitCore.Cameras.interpolated_direction)
-is the raw spline (generic in the element type, Float32 on a device),
-continued past the calibrated area by the outermost cells' cubic pieces; a
+leaves them there. The lens's `backward` is the raw spline, a [`ChartSpline`](@ref)
+on the normalized plane `x = K⁻¹u` (generic in the element type, Float32 on a
+device), continued past its area by the outermost cells' cubic pieces; a
 per-tile cost block evaluates a [`window`](@ref VisualGeometryToolkitCore.Cameras.window)
-— a view onto a block of controls, possibly replaced, that evaluates bit for
-bit as the model; [`spline_window`](@ref VisualGeometryToolkitCore.Cameras.spline_window)
-gives the 4 × 4 controls and weights a pixel reads, for the Jacobian's fan-out
+— the camera of a block of controls, possibly replaced, which evaluates as the
+camera wherever its windows lie in the block; [`spline_window`](@ref VisualGeometryToolkitCore.Cameras.spline_window)
+gives the 4 × 4 controls and weights a point reads, for the Jacobian's fan-out
 onto the controls; and [`spline_value`](@ref VisualGeometryToolkitCore.Cameras.spline_value)
 lays the same lattice under any control type (a scalar field over the image).
 
-`init = :quasi_interpolate` builds a model from any source — a camera, a
-generic model (continued past its area), or a function `pixel -> direction`
-(`nothing` where it images nothing) — by the local 4th-order
-[`quasi_interpolant`](@ref VisualGeometryToolkitCore.Cameras.quasi_interpolant)
+`init = :quasi_interpolate` builds a camera from any source — a camera or a
+function `pixel -> direction` (`nothing` where it images nothing) — by the local
+4th-order [`quasi_interpolant`](@ref VisualGeometryToolkitCore.Cameras.quasi_interpolant)
 on a lattice extended one node past the area, linearly extrapolating per axis
 where the source images nothing and inward from the area's centre where its
-domain ends inside the area. The model keeps the source's pinhole as its
-[`nominal_intrinsics`](@ref VisualGeometryToolkitCore.Cameras.nominal_intrinsics)
-and the `domain` it is given — a supplied image circle, the whole plane by
-default; a generic source carries its own over — so
-`free_nodes(m, valid_domain(m))` are the nodes that can reach a pixel where it is defined.
+domain ends inside the area. A camera source keeps its own `K`; a function
+source takes the gauge of its sampled spline (the principal point is the pixel
+imaging ẑ). Where light falls is the bound's, not the lens's:
+`BoundedCamera(cam, extent; lens_coverage = circle)` carries a supplied image
+circle, and `free_nodes(cam, imaged_region(bc))` are the nodes that can reach a
+pixel it images.
 
-A model need not hold the other nodes. Built with `present =
-node_mask(m, valid_domain(m))`, it keeps the same lattice (spacing, basis,
-the dense control matrix) and holds only those nodes; every pixel of the
-imaged region reads them alone, so the model evaluates the region bit for bit
-as the full one. [`present_nodes`](@ref VisualGeometryToolkitCore.Cameras.present_nodes)
-is the mask, and [`in_present_domain`](@ref VisualGeometryToolkitCore.Cameras.in_present_domain)
-says where the model evaluates: past it `backproject` is `nothing` and
-`project` gives no pixel, as outside the calibrated area.
+A lens need not hold the other nodes. Built with `with_present(cam,
+node_mask(cam, region))`, it keeps the same lattice (spacing, basis, the dense
+control matrix) and holds only those nodes; every pixel of the region reads
+them alone, so the camera evaluates the region as the full one.
+[`present_nodes`](@ref VisualGeometryToolkitCore.Cameras.present_nodes) is the
+mask; past the fully present windows `backproject` is NaN and `project` gives a
+NaN pixel, as outside the area.
 
 ```julia
-m = CentralGenericModel(fish, (1280, 960); grid_size = (35, 25), init = :quasi_interpolate)
-w = window(m, 5:14, 15:24)                        # rows (y) × cols (x) of the grid
-interpolated_direction(w, SVector(700.0, 400.0)) == interpolated_direction(m, SVector(700.0, 400.0))
+cam = CameraModel(SplineLens, fish, (1280, 960); grid_size = (35, 25), init = :quasi_interpolate)
+w = window(cam, 5:14, 15:24)                       # rows (y) × cols (x) of the grid
+backproject(w, SVector(700.0, 400.0)) ≈ backproject(cam, SVector(700.0, 400.0))
 ```
 
 ## The lens record

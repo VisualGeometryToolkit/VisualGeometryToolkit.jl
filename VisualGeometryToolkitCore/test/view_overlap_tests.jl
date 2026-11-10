@@ -7,7 +7,10 @@
 @testsetup module ViewOverlapSetup
     using StaticArrays, LinearAlgebra
     using VisualGeometryToolkitCore
-    export camera, oriented, frames, footprint, cap, cap_overlap, quad, spherical_clip, fan
+    export camera, oriented, frames, footprint, cap, cap_overlap, quad, spherical_clip, fan, ViewOverlapUnposed
+
+    # an unposed camera that is not a CameraModel (view_overlap refuses its frames by name)
+    struct ViewOverlapUnposed <: VisualGeometryToolkitCore.AbstractCamera end
 
     camera(f, cx, cy, lens, w, h) =
         BoundedCamera(CameraModel(CameraCalibrationMat(@SMatrix [f 0.0 cx; 0.0 f cy; 0.0 0.0 1.0]); lens), Size2(w, h))
@@ -240,9 +243,8 @@ end
     @test_throws "posed by an EuclideanMap" view_overlap(posed, oriented(pin, R(0.0)))
     @test_throws "unposed" view_overlap(pin, oriented(pin, R(0.0)))
     @test_throws "at least 16" view_overlap(frames(pin, [R(0.0), R(1.0)]); boundary_points = 8)
-    # a frame whose model is not a CameraModel (a grid model): refused by name, not a MethodError
-    g = CentralGenericModel(CameraModel(CameraCalibrationMat(@SMatrix [320.0 0 400; 0 320.0 400; 0 0 1]); lens = KannalaBrandt(-0.02)),
-                            (800, 800); grid_size = (12, 12))
+    # a frame whose model is not a CameraModel: refused by name, not a MethodError
+    g = ViewOverlapUnposed()
     gframe = BoundedCamera(PosedCamera(g, relabel(CameraFrame, WorldFrame, RotationMap(R(0.0)))), Size2(800, 800))
     @test_throws "a frame's model is a CameraModel" view_overlap(gframe, oriented(kb, R(0.5)))
 end

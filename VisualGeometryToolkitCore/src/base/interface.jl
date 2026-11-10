@@ -61,7 +61,7 @@ function feature_frame end
     AbstractCamera
 
 The one camera type: every camera — an unposed model ([`CameraModel`](@ref),
-the generic grid models), a posed camera ([`PosedCamera`](@ref)) and a bounded one
+a [`NoncentralSplineModel`](@ref)), a posed camera ([`PosedCamera`](@ref)) and a bounded one
 ([`BoundedCamera`](@ref)) — subtypes it. Whether a camera carries a pose is a
 trait, [`is_posed`](@ref) (shared with the targets), not a second type root.
 
@@ -91,7 +91,7 @@ abstract type AbstractCamera end
 Whether a rig member kind carries a pose — the one placement trait of both
 kinds. For a camera: `true` for a [`PosedCamera`](@ref) (a model and its
 extrinsics), `false` for an unposed model ([`CameraModel`](@ref),
-[`CentralGenericModel`](@ref), [`NoncentralGenericModel`](@ref)), and the
+[`NoncentralSplineModel`](@ref)), and the
 wrapped camera's answer for a [`BoundedCamera`](@ref). For a target: `true`
 for a [`PosedTarget`](@ref), `false` for an unposed one ([`PlanarTarget`](@ref),
 [`PointTarget`](@ref)). It is decided by the type, so a branch on it compiles

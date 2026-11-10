@@ -2,7 +2,7 @@
 # NoncentralSplineModel — the non-central grid camera on ChartSpline
 # ==============================================================================
 #
-# The non-central generic model of Schöps, Larsson, Pollefeys and Sattler (CVPR
+# The non-central grid model of Schöps, Larsson, Pollefeys and Sattler (CVPR
 # 2020): per pixel an observation LINE, a direction spline and a point spline
 # over one lattice. Here both are `ChartSpline{3}`s over the same rectangle of the
 # K-normalized plane x = K⁻¹u, as the backward spline of a `SplineLens`: the
@@ -11,6 +11,23 @@
 # area's scale-free `_spline_lm_box`) and the gauge rule (skew 0) are the lens's.
 # What is the model's own: the point spline and the tangent-plane residual of
 # its projection.
+
+# ------------------------------------------------------------------------------
+# Ray3 — the non-central unprojection currency
+# ------------------------------------------------------------------------------
+
+"""
+    Ray3(origin, direction)
+
+A 3D ray: `origin + t·direction`, `direction` unit by contract. The
+unprojection currency of [`NoncentralSplineModel`](@ref) — a non-central
+pixel observes a LINE in the camera frame, not a direction through a common
+center.
+"""
+struct Ray3{T <: AbstractFloat}
+    origin::Vec3{T}
+    direction::Vec3{T}
+end
 
 """
     NoncentralSplineModel(K::LogicalIntrinsics, directions::ChartSpline{3}, points::ChartSpline{3};
@@ -102,11 +119,11 @@ convert_eltype(::Type{T}, m::NoncentralSplineModel) where {T <: AbstractFloat} =
 
 # The one bridge from transforms/warp.jl's private `_precision` (the fused
 # image_warp chain and the batched kernels) to the public conversion: a lens
-# or grid model in a chain converts through `convert_eltype`, so a downstream
+# or a non-central model in a chain converts through `convert_eltype`, so a downstream
 # lens's method is the one the kernels apply. Intrinsics and camera models are
 # deliberately NOT bridged: a chain holding one has always kept it as it is
 # (`_precision`'s identity fallback), and still does.
-_precision(::Type{T}, x::Union{AbstractLensModel, _GenericModel, NoncentralSplineModel}) where {T <: AbstractFloat} =
+_precision(::Type{T}, x::Union{AbstractLensModel, NoncentralSplineModel}) where {T <: AbstractFloat} =
     convert_eltype(T, x)
 
 # The direction lens of the model: a SplineLens of its directions and mask (already
@@ -163,6 +180,27 @@ with_present(m::NoncentralSplineModel, present::AbstractMatrix{Bool}) =
 )
 
 """
+    window(m::NoncentralSplineModel, rows, cols; directions = nothing, points = nothing) -> NoncentralSplineModel
+
+The block `rows × cols` (unit ranges into the controls `[gy, gx]`, at least
+4 × 4) of the model as a model of its own, as [`window`](@ref) of a
+`SplineLens` camera: the same `K`, the block of both splines' controls (or
+`directions`, `points`, equal-size matrices of 3-vectors, kept as given) over
+the rectangle they span, and the block of the presence mask.
+"""
+function window(
+        m::NoncentralSplineModel, rows::AbstractUnitRange{<:Integer}, cols::AbstractUnitRange{<:Integer};
+        directions::Union{Nothing, AbstractMatrix} = nothing, points::Union{Nothing, AbstractMatrix} = nothing
+    )
+    gsz = size(m.directions.controls)
+    area = _window_area(m.directions.area, gsz, rows, cols)
+    D = _window_controls(m.directions.controls, rows, cols, directions)
+    P = _window_controls(m.points.controls, rows, cols, points)
+    present = m.present === nothing ? nothing : m.present[rows, cols]
+    return NoncentralSplineModel(m.intrinsics, ChartSpline(area, D), ChartSpline(area, P); present)
+end
+
+"""
     valid_domain(m::NoncentralSplineModel) -> Rect2{Float64}
 
 Where the model is defined, in pixels: its [`central_model`](@ref)'s valid domain.
@@ -193,14 +231,19 @@ The unit DIRECTION `f` of the pixel `u`'s observation line and its Jacobian
 differentiated: `backproject` gives it.
 """
 backproject_with_jacobian(m::NoncentralSplineModel, u::StaticVector{2}) = backproject_with_jacobian(central_model(m), u)
+# Its Backprojection takes the same Jacobian, the direction's (equirectangular.jl).
+transform_deriv(b::Backprojection{<:NoncentralSplineModel}, q::StaticVector{2}) =
+    last(backproject_with_jacobian(b.model, _float_static(q)))
 
 # The non-central projection's residual at the normalized point `p` against the
 # camera-frame point `X`: the two components of `origin(p) − X` in the tangent basis
 # of the line direction `d̂(p)` (the reference's tangent-plane point-to-line
 # residual), both splines read through ONE window of the lattice of `(rows, cols) =
-# size(dctrl)` over `area`. Generic in `p`'s element type (ForwardDiff's duals).
+# size(dctrl)` over `area` (the continued window, as its Jacobian's). Generic in `p`'s
+# element type (ForwardDiff's duals).
 @inline function _noncentral_residual(dctrl::AbstractMatrix, pctrl::AbstractMatrix, area, p::SVector{2}, X::SVector{3})
-    ix, iy, wx, wy = _spline_window(_lattice_coords(area, size(dctrl), p)...)
+    gsz = gh, gw = size(dctrl)
+    ix, iy, wx, wy = _continued_window(_lattice_coords(area, gsz, p)..., gw, gh)   # its Jacobian's window
     d = _eval_window(dctrl, ix, iy, wx, wy)
     o = _eval_window(pctrl, ix, iy, wx, wy)
     t1, t2 = direction_tangents(SVector{3}(d) / norm(d))

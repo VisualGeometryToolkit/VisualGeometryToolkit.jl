@@ -23,7 +23,7 @@
     E = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.1, -0.2, 0.05)), SVector(0.3, -0.1, 2.0))
     cam = PosedCamera(cm, E)
     sz = Size2(640, 480)
-    gen = CentralGenericModel(cm, (640, 480); grid_size = (6, 5))
+    gen = NoncentralSplineModel(cm, (640, 480); grid_size = (6, 5))   # an unposed camera that is not a CameraModel
 
     @testset "one root, one trait" begin
         for c in (cm, gen, cam, BoundedCamera(cm, sz), BoundedCamera(cam, sz))

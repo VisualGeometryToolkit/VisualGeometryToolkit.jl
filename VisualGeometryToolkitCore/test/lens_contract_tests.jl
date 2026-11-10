@@ -19,7 +19,7 @@
         # (`monotone_radius`). Kannala–Brandt reported the angle and fell
         # through to `Inf` for the radius, so the generic models' node sampler
         # (then clamped at the horizon, `fx · monotone_radius`) clamped nothing
-        # and a `CentralGenericModel` built from such a camera filled its
+        # and a spline grid built from such a camera filled its
         # control grid with NaN. The two must be the same fold.
         for l in (
                 KannalaBrandt(-0.3, 0.0, 0.0, 0.0),

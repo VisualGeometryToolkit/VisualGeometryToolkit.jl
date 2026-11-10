@@ -1,6 +1,6 @@
 # =============================================================================
-# ControlPatchManifold (geometry/cameras/generic_models.jl): a block of a generic
-# grid model's controls as a manifold — the reference's direction chart, the norm
+# ControlPatchManifold (geometry/cameras/spline_lens.jl): a block of a spline
+# lattice's controls as a manifold — the reference's direction chart, the norm
 # kept, points additive; restrict, the NLLSsolver variable.
 # =============================================================================
 

@@ -4,8 +4,8 @@
 CurrentModule = VisualGeometryToolkitCore
 ```
 
-Cameras, camera models, intrinsics, and sensors. The generic (grid) camera
-models are on the [Generic Camera Models API](generic_models.md) page;
+Cameras, camera models, intrinsics, and sensors. The grid cameras (a
+`SplineLens`, a `NoncentralSplineModel`) are on the [Spline Lens API](spline_lens.md) page;
 calibration (the radial
 camera, intrinsics from homographies, view-angle limits) is on the
 [Calibration API](calibration.md) page; lens models and the lens contract with

@@ -1,10 +1,10 @@
-@testitem "generic_models" begin
+@testitem "spline camera" begin
     import VisualGeometryToolkitCore as VgtkCore
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: CentralGenericModel, NoncentralGenericModel, Ray3, Division,
-        is_posed, cubic_bspline_weights
-    using VisualGeometryToolkitCore.Cameras: _cubic_bspline_weights_deriv, _spline_window, _eval_window, _grid_coords
+    using VisualGeometryToolkitCore: SplineLens, ChartSpline, Division, is_posed, cubic_bspline_weights, spline_window,
+        spline_lattice, calibration_matrix, Rect2
+    using VisualGeometryToolkitCore.Cameras: _cubic_bspline_weights_deriv, _continued_window, _eval_window, _normalized_point
     using StaticArrays
     using FiniteDiff: FiniteDiff
     using GeometryBasics: Vec3
@@ -14,18 +14,18 @@
     using ForwardDiff: ForwardDiff
 
     # =============================================================================
-    # Generic camera models (Schöps et al. CVPR 2020) — the grid models
+    # The central grid camera (Schöps et al. CVPR 2020) as a SplineLens camera
     # =============================================================================
     #
     # Covers: the ported uniform-cubic window weights against BSplineKit (the
     # oracle pattern of bspline_tests.jl — the standard package validates the
-    # scalar port), central project∘backproject round trips and parity with the
+    # scalar port), project∘backproject round trips and parity with the
     # parametric source it was initialized from, the calibrated-area contract
-    # (nothing outside), the z-depth unproject, the noncentral model's
-    # central-reduction (zero point grid) and genuine non-central round trip
-    # (the projected pixel's LINE goes through the point), and _precision.
+    # (NaN outside), the z-depth unproject, the undistortion, the precision
+    # bridge, the batched projection and the window a point reads. The
+    # non-central model's cases are in noncentral_spline_model_tests.jl.
 
-    @testset "Generic camera models (Schöps et al.)" begin
+    @testset "the central grid camera (Schöps et al.)" begin
         @testset "spline window weights — BSplineKit oracle" begin
             rng = MersenneTwister(7)
             n = 11
@@ -41,7 +41,7 @@
             # basis-index origin on these knots) — verified to 1e-14.
             cxy = [Vec3{Float64}(c[gx], 0, 0) for _ in 1:4, gx in 1:n]  # 4 rows (y), n cols (x)
             for g in range(1.5, n - 2.5; length = 40)
-                ix, iy, wx, wy = _spline_window(g, 1.0)
+                ix, iy, wx, wy = _continued_window(g, 1.0, n, 4)
                 ours = _eval_window(cxy, ix, iy, wx, wy)[1]
                 @test isapprox(ours, S(g - 1); atol = 1.0e-12)
             end
@@ -84,8 +84,8 @@
         K = @SMatrix [300.0 0.0 320.0; 0.0 300.0 240.0; 0.0 0.0 1.0]
         src = CameraModel(CameraCalibrationMat(K); lens = Division(-0.1))
 
-        @testset "central: round trip + parity with the source" begin
-            g = CentralGenericModel(src, (W, H); grid_size = (20, 16))
+        @testset "round trip + parity with the source" begin
+            g = CameraModel(SplineLens, src, (W, H); grid_size = (20, 16))
             @test g isa AbstractCamera && !is_posed(g)
             rng = MersenneTwister(3)
             worst_rt = 0.0
@@ -93,19 +93,19 @@
             for _ in 1:25
                 px = SVector(20 + (W - 40) * rand(rng), 20 + (H - 40) * rand(rng))
                 d = backproject(g, px)
-                @test d !== nothing && isapprox(norm(d), 1; atol = 1.0e-12)
+                @test all(isfinite, d) && isapprox(norm(d), 1; atol = 1.0e-12)
                 # parity with the parametric source it was initialized from
                 ds = normalize(SVector{3, Float64}(backproject(src, px)))
                 worst_angle = max(worst_angle, translation_angle(d, ds))
                 # project the direction back (any positive depth)
                 px2 = project(g, 3.7 * d)
-                @test px2 !== nothing
+                @test all(isfinite, px2)
                 worst_rt = max(worst_rt, norm(px2 - px))
             end
             @test worst_rt < 1.0e-3            # LM converges to the same pixel
             @test worst_angle < 2.0e-4         # prefilter-init floor (measured 8.9e-5)
             # the prefilter init beats quasi-interpolation by an order of magnitude
-            gq = CentralGenericModel(src, (W, H); grid_size = (20, 16), init = :sample)
+            gq = CameraModel(SplineLens, src, (W, H); grid_size = (20, 16), init = :sample)
             wq = 0.0
             rng2 = MersenneTwister(3)
             for _ in 1:25
@@ -118,69 +118,33 @@
             # calibrated-area contract
             @test all(isnan, backproject(g, SVector(-1.0, 10.0)))
             @test all(isnan, backproject(g, SVector(Float64(W), 10.0)))
-            @test backproject(g, SVector(-1.0, 10.0)) isa SVector{3, Float64}   # one return type: kernel-lawful
+            @test backproject(g, SVector(-1.0, 10.0)) isa StaticVector{3, Float64}   # one return type: kernel-lawful
             @inferred backproject(g, SVector(Float64(W), 10.0))
             # z-depth unproject (VGC convention)
             px = SVector(200.0, 150.0)
             X = unproject(g, px, 5.0)
-            @test X !== nothing && isapprox(X[3], 5.0; atol = 1.0e-12)
-            @test project(g, X) !== nothing
-            # the positional seed is honored
-            @test norm(project(g, 3.7 * backproject(g, px), px) - px) < 1.0e-3
+            @test all(isfinite, X) && isapprox(X[3], 5.0; atol = 1.0e-12)
+            @test all(isfinite, project(g, X))
+            # a seed is honored: the batched form's per-ray warm start
+            @test norm(project(g, [3.7 * backproject(g, px)], [px]; iters = 100).px[1] - px) < 1.0e-3
         end
 
-        @testset "noncentral: central reduction + genuine lines" begin
-            gc = CentralGenericModel(src, (W, H); grid_size = (16, 12))
-            gn = NoncentralGenericModel(src, (W, H); grid_size = (16, 12))
-            px = SVector(345.0, 210.0)
-            ray = backproject(gn, px)
-            @test ray isa Ray3
-            @test isapprox(norm(ray.direction), 1; atol = 1.0e-12)
-            @test norm(ray.origin) < 1.0e-12                       # zero point grid ⇒ central
-            @test norm(SVector{3}(ray.direction) - backproject(gc, px)) < 1.0e-12
-            X = 2000.0 * SVector{3}(ray.direction)
-            pc = project(gc, X)
-            pn = project(gn, X)
-            @test pc !== nothing && pn !== nothing && norm(pn - pc) < 1.0e-3
-
-            # perturb the point grid: rays no longer share a center, and the
-            # projected pixel's LINE goes through the query point
-            rng = MersenneTwister(11)
-            pts = [
-                Vec3{Float64}(0.4 * randn(rng), 0.4 * randn(rng), 0.4 * randn(rng))
-                    for _ in 1:12, _ in 1:16
-            ]
-            gnc = NoncentralGenericModel(W, H, 0, 0, W - 1, H - 1, gn.directions, pts)
-            worst = 0.0
-            for _ in 1:15
-                p0 = SVector(30 + (W - 60) * rand(rng), 30 + (H - 60) * rand(rng))
-                r = backproject(gnc, p0)
-                X = SVector{3}(r.origin) + 1500.0 * SVector{3}(r.direction)
-                p1 = project(gnc, X, p0 + SVector(3.0, -2.0))
-                @test p1 !== nothing
-                r1 = backproject(gnc, p1)
-                pto = SVector{3}(r1.origin) - X
-                dist = norm(pto - dot(pto, SVector{3}(r1.direction)) * SVector{3}(r1.direction))
-                worst = max(worst, dist)
-            end
-            @test worst < 1.0e-4                                   # point-to-line distance
-        end
-
-        @testset "undistortion through the generic model" begin
+        @testset "undistortion through the spline camera" begin
             # smooth synthetic image; compare undistort through the SOURCE
-            # parametric camera vs through the generic model fitted to it, in
-            # the same target frame (the source's K)
+            # parametric camera vs through the spline camera fitted to it, in
+            # the same target frame (the source's K, which the camera keeps)
             Ws, Hs = 160, 120
             Ks = @SMatrix [80.0 0.0 80.0; 0.0 80.0 60.0; 0.0 0.0 1.0]
             msrc = CameraModel(CameraCalibrationMat(Ks); lens = Division(-0.12))
-            gsrc = CentralGenericModel(msrc, (Ws, Hs); grid_size = (10, 8))
+            gsrc = CameraModel(SplineLens, msrc, (Ws, Hs); grid_size = (10, 8))
+            @test calibration_matrix(gsrc) == Ks
             imgt = [
                 exp(-((x - 70)^2 + (y - 55)^2) / 400) + 0.2 * sin(x / 9) * cos(y / 7)
                     for y in 1:Hs, x in 1:Ws
             ]
             rect = VgtkCore.Rect(30.0, 20.0, 100.0, 80.0)
             up = undistort(msrc, imgt, rect)                 # parametric (fused warp)
-            ug = undistort(gsrc, imgt, Ks, rect)             # generic (coarse-inverse remap)
+            ug = undistort(gsrc, imgt, rect)                 # the spline lens (the warp sampled on a coarse grid)
             @test ug isa FramedImage && ug.rect === rect
             @test size(ug.data) == size(up.data)
             # interiors agree to the fit's approximation floor (borders differ by
@@ -190,22 +154,22 @@
         end
 
         @testset "house-type acceptance (Size2 / Rect)" begin
-            gt = CentralGenericModel(src, (W, H); grid_size = (8, 6))
-            gs = CentralGenericModel(src, VgtkCore.Size2(W, H); grid_size = (8, 6))
-            @test gs.grid == gt.grid && gs.calib_max_x == gt.calib_max_x
-            gr = CentralGenericModel(
-                src, VgtkCore.Size2(W, H); grid_size = (8, 6),
+            gt = CameraModel(SplineLens, src, (W, H); grid_size = (8, 6))
+            gs = CameraModel(SplineLens, src, VgtkCore.Size2(W, H); grid_size = (8, 6))
+            @test gs.lens.backward.controls == gt.lens.backward.controls && valid_domain(gs) == valid_domain(gt)
+            gr = CameraModel(
+                SplineLens, src, VgtkCore.Size2(W, H); grid_size = (8, 6),
                 calib_area = VgtkCore.Rect(0, 0, W, H)
             )
-            @test gr.calib_min_x == 0 && gr.calib_max_x == W - 1 && gr.calib_max_y == H - 1
-            @test gr.grid == gt.grid
+            @test valid_domain(gr) == Rect2{Float64}(0.0, 0.0, Float64(W), Float64(H))
+            @test gr.lens.backward.controls == gt.lens.backward.controls
         end
 
         @testset "_precision" begin
-            g = CentralGenericModel(src, (W, H); grid_size = (8, 6))
-            g32 = VgtkCore.Cameras._precision(Float32, g)
-            @test eltype(g32.grid) == Vec3{Float32}
-            @test all(isfinite, backproject(g32, SVector(100.0, 100.0)))
+            g = CameraModel(SplineLens, src, (W, H); grid_size = (8, 6))
+            l32 = VgtkCore.Cameras._precision(Float32, g.lens)
+            @test eltype(l32.backward.controls) == SVector{3, Float32}
+            @test all(isfinite, backproject(CameraModel(g.intrinsics, l32), SVector(100.0, 100.0)))
         end
     end
 
@@ -214,16 +178,16 @@
         W, H = 160, 120
         Ks = @SMatrix [80.0 0.0 80.0; 0.0 80.0 60.0; 0.0 0.0 1.0]
         msrc = CameraModel(CameraCalibrationMat(Ks); lens = Division(-0.12))
-        g = CentralGenericModel(msrc, (W, H); grid_size = (12, 9))
+        g = CameraModel(SplineLens, msrc, (W, H); grid_size = (12, 9))
         pts = [SVector(10.0 + 140.0 * rand(rng), 8.0 + 104.0 * rand(rng)) for _ in 1:200]
         rays = [backproject(g, p) for p in pts]
-        keep = findall(!isnothing, rays)
+        keep = findall(r -> all(isfinite, r), rays)
         pts = pts[keep]; rays = SVector{3, Float64}.(rays[keep])
         seeds = [p + SVector(2.0 * randn(rng), 2.0 * randn(rng)) for p in pts]   # warm, ±2 px
         out = project(g, rays, seeds)
         @test all(out.ok)
-        # parity vs the host per-ray LM from the same seeds
-        hostpx = [project(g, rays[i], seeds[i]) for i in eachindex(rays)]
+        # parity vs the host per-ray LM (cold, from the area's centre)
+        hostpx = [project(g, rays[i]) for i in eachindex(rays)]
         dmax = maximum(norm(out.px[i] - hostpx[i]) for i in eachindex(rays))
         @test dmax < 5.0e-4
         # …and both land on the true pixel
@@ -231,32 +195,24 @@
     end
 
     # =============================================================================
-    # The window interface (0.22.2): support, weights + pixel derivatives, controls
+    # The window a point reads: its controls and weights, the tangent basis
     # =============================================================================
-    @testset "spline window interface" begin
-        using VisualGeometryToolkitCore: spline_support, spline_weights, window_controls, window_indices, direction_tangents
+    @testset "the window a point reads" begin
+        using VisualGeometryToolkitCore: direction_tangents
         W, H = 1200, 800
         src = CameraModel(CameraCalibrationMat(500.0px, [600.0px, 400.0px]); lens = Division(-0.25, 0.02))
-        g = CentralGenericModel(src, (W, H); grid_size = (20, 16))
+        g = CameraModel(SplineLens, src, (W, H); grid_size = (20, 16))
+        b = g.lens.backward
         for px in (SVector(613.7, 388.2), SVector(101.3, 702.9), SVector(1150.0, 40.0))
-            sup = spline_support(g, px)
-            @test sup !== nothing
-            ix, iy = sup
-            w, wx, wy = spline_weights(g, ix, iy, px)
-            C = window_controls(g, ix, iy)
-            idx = window_indices(g, ix, iy)
-            @test all(g.grid[idx[k]] == C[k] for k in 1:16)
+            x = _normalized_point(g.intrinsics, px)
+            ix, iy, wx, wy = spline_window(b.area, size(b.controls), x)
+            w = SMatrix{4, 4}([wy[r] * wx[c] for r in 1:4, c in 1:4])
+            C = SMatrix{4, 4}([b.controls[iy - 3 + r, ix - 3 + c] for r in 1:4, c in 1:4])
             @test sum(w) ≈ 1 atol = 1.0e-12                                   # partition of unity
             d = sum(w .* C)
             @test normalize(SVector{3}(d)) ≈ backproject(g, px) atol = 1.0e-12   # the same direction backproject reads
-            # derivatives vs central differences, the window held fixed
-            Jw = FiniteDiff.finite_difference_jacobian(p -> vec(spline_weights(g, ix, iy, p)[1]), px, Val(:central))
-            @test maximum(abs.(vec(wx) .- Jw[:, 1])) < 1.0e-7
-            @test maximum(abs.(vec(wy) .- Jw[:, 2])) < 1.0e-7
-            @test sum(wx) ≈ 0 atol = 1.0e-10
-            @test sum(wy) ≈ 0 atol = 1.0e-10
         end
-        @test spline_support(g, SVector(-5.0, 10.0)) === nothing
+        @test all(isnan, backproject(g, SVector(-5.0, 10.0)))
         t1, t2 = direction_tangents(SVector(0.0, 0.0, 1.0))
         @test norm(t1) ≈ 1 && norm(t2) ≈ 1 && abs(dot(t1, t2)) < 1.0e-12 && abs(dot(t1, SVector(0.0, 0.0, 1.0))) < 1.0e-12
         # the basis keeps the direction's element type: Float32 stays Float32 (a device kernel is not promoted), and a dual
@@ -281,14 +237,17 @@
     @testset "projection through a degenerate grid fails, never throws" begin
         W, H = 640, 480
         src = CameraModel(CameraCalibrationMat(300.0px, [320.0px, 240.0px]); lens = Division(-0.2))
-        g = CentralGenericModel(src, (W, H); grid_size = (12, 10))
-        bad = copy(g.grid)
+        g = CameraModel(SplineLens, src, (W, H); grid_size = (12, 10))
+        bad = copy(g.lens.backward.controls)
         bad[5, 6] = -bad[5, 6]                       # an antipodal control: blends near it cross zero
-        gb = CentralGenericModel{Float64}(W, H, g.calib_min_x, g.calib_min_y, g.calib_max_x, g.calib_max_y, bad)
+        gb = CameraModel(g.intrinsics, SplineLens(ChartSpline(g.lens.backward.area, bad)))
         X = SVector(0.05, -0.02, 1.0)
-        p = project(gb, X, SVector(330.0, 235.0))
-        @test p === nothing || all(isfinite, p)
-        @test project(gb, X, SVector(NaN, 1.0)) === nothing
+        p = project(gb, [X], [SVector(330.0, 235.0)]).px[1]
+        @test all(isnan, p) || all(isfinite, p)
+        p = project(gb, X)
+        @test all(isnan, p) || all(isfinite, p)
+        b = project(gb, [X], [SVector(NaN, 1.0)])
+        @test !b.ok[1] && all(isnan, b.px[1])
     end
 
     @testset "default_spline_grid" begin
@@ -298,22 +257,16 @@
         @test default_spline_grid(10, 10) == (4, 4)
     end
 
-    @testset "generic_lattice: the constructor's layout, unsampled" begin
-        using VisualGeometryToolkitCore: generic_lattice, spline_window, nominal_intrinsics
+    @testset "spline_lattice: the constructor's layout, unsampled" begin
         src = CameraModel(CameraCalibrationMat(300.0px, [320.0px, 240.0px]); lens = Division(-0.2))
-        for G in (CentralGenericModel, NoncentralGenericModel)
-            built = G(src, (640, 480); grid_size = (12, 10), domain = Rect(0, 0, 600, 400))
-            lat = generic_lattice(G, src, (640, 480); grid_size = (12, 10), domain = Rect(0, 0, 600, 400))
-            @test lat isa G
-            @test (lat.width, lat.height, lat.calib_min_x, lat.calib_min_y, lat.calib_max_x, lat.calib_max_y) ==
-                (built.width, built.height, built.calib_min_x, built.calib_min_y, built.calib_max_x, built.calib_max_y)
-            @test nominal_intrinsics(lat) == nominal_intrinsics(built) && lat.domain == built.domain
-            @test all(p -> spline_window(lat, p) == spline_window(built, p), (SVector(3.5, 7.5), SVector(631.0, 470.5), SVector(-20.0, 500.0)))
-        end
-        @test all(==(Vec3(0.0, 0.0, 1.0)), generic_lattice(CentralGenericModel, src, (640, 480)).grid)
-        # a grid source keeps its nominal and domain
-        g = CentralGenericModel(src, (640, 480); grid_size = (12, 10), domain = Rect(0, 0, 600, 400))
-        n = generic_lattice(NoncentralGenericModel, g, (640, 480); grid_size = (8, 8))
-        @test nominal_intrinsics(n) == nominal_intrinsics(g) && n.domain == g.domain && all(iszero, n.points)
+        built = CameraModel(SplineLens, src, (640, 480); grid_size = (12, 10), calib_area = (0, 0, 599, 399))
+        lat = spline_lattice(SplineLens, src, (640, 480); grid_size = (12, 10), calib_area = (0, 0, 599, 399))
+        @test lat isa CameraModel{<:Any, <:SplineLens}
+        @test calibration_matrix(lat) == calibration_matrix(built) && lat.lens.backward.area == built.lens.backward.area
+        @test size(lat.lens.backward.controls) == size(built.lens.backward.controls) == (10, 12)
+        @test valid_domain(lat) == valid_domain(built)
+        a, sz = built.lens.backward.area, size(built.lens.backward.controls)
+        @test all(p -> spline_window(lat.lens.backward.area, sz, p) == spline_window(a, sz, p), (SVector(-0.9, -0.7), SVector(0.9, 0.5), SVector(2.0, -3.0)))
+        @test all(==(SVector(0.0, 0.0, 1.0)), spline_lattice(SplineLens, src, (640, 480)).lens.backward.controls)
     end
 end

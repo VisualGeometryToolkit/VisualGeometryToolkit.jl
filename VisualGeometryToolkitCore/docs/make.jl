@@ -64,7 +64,7 @@ makedocs(;
         # from the 100 KiB default. The hard 200 KiB error threshold is kept.
         # Measured at the 2026-09-15 build: api/cameras.html 187 KiB, 13 KiB
         # short of the error. Split on 2026-09-21: calibration.jl and the lens regression to
-        # api/calibration.md, generic_models.jl to api/generic_models.md, and the
+        # api/calibration.md, the grid models to api/spline_lens.md, and the
         # manifolds + confidence regions off api/estimators (184 KiB) to
         # api/manifolds.md. Split on 2026-10-09 (api/estimators.html had grown
         # to 365 KiB): the losses and width axes to api/robust_losses.md, the
@@ -120,7 +120,7 @@ makedocs(;
             "Warping" => "api/warping.md",
             "Batched" => "api/batched.md",
             "Cameras" => "api/cameras.md",
-            "Generic Camera Models" => "api/generic_models.md",
+            "Spline Lens" => "api/spline_lens.md",
             "Calibration" => "api/calibration.md",
             "Lenses" => "api/lenses.md",
             # Split on 2026-11-04 (api/imaging.html 226 KiB, api/core.html

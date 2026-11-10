@@ -1,4 +1,4 @@
-# The literal writer shared by the golden-fixture generators (make_spline_lens_golden.jl in Core, make_spline_lens_golden_io.jl
+# The literal writer shared by the golden-fixture generators (the Core generator, at commit f745af7c; make_spline_lens_golden_io.jl
 # in IO): a NamedTuple of numbers and arrays to Julia source. Floats go through `repr` (exact round trip, NaN as NaN),
 # integers and Bools as themselves; an array of 2 or more dimensions as `reshape([...], dims...)`.
 lit(x::Bool) = string(x)

@@ -31,8 +31,11 @@
 # searched: the data are noise-free (the source model), so a smaller λ is better
 # until the normal equations lose conditioning — measured 2026-11-03 on the
 # FX3 + Sigma 8 mm grid (`λ = 1e-6` absolute held the edge to the interior's
-# accuracy at every lattice size; a larger λ only lost accuracy), here as
-# `1e-8 · mean(diag(AᵀA))`.
+# accuracy at every lattice size; a larger λ only lost accuracy), here in the
+# stack's one weight convention (gcv.jl): `λ = β · penalty_scale(tr AᵀA, nodes, m̄)`,
+# β = `_PSPLINE_BETA` = 3e-7 relative to the data's energy per node and the Δ³
+# operator's mean positive eigenvalue m̄ (≈ 31 on a 12 × 10 lattice, → 40 on large
+# ones): 3e-7 / m̄ ≈ the former 1e-8 · mean(diag(AᵀA)) relative weight.
 #
 # THE HELD-OUT CHECK of the spline families is the quadrature offset by half its
 # stride over the region, and its edge band: the held-out points within
@@ -90,8 +93,8 @@ struct CameraFitMetadata{R, F <: NamedTuple}
 end
 
 const _EDGE_BAND_PX = 100.0
-# The P-spline penalty's relative weight (see the file header).
-const _PSPLINE_PENALTY = 1.0e-8
+# The P-spline penalty's normalized weight β (`penalty_scale`; see the file header).
+const _PSPLINE_BETA = 3.0e-7
 # The radial profile's quadrature order (n + 1 Clenshaw–Curtis nodes) and the
 # azimuths the region's coverage of a radius is counted over.
 const _PROFILE_NODES = 128
@@ -600,7 +603,7 @@ _rhs_matrix(vs::AbstractVector{<:StaticVector{K}}) where {K} = [v[k] for v in vs
 
 # The P-spline least squares of an `ny × nx` lattice: the controls minimizing
 # ‖A c − B‖² + λ(‖Dₓ³c‖² + ‖Dᵧ³c‖²) for the design rows `rows` and the targets `B`
-# (one column per component), λ = `_PSPLINE_PENALTY` · mean(diag(AᵀA)); the
+# (one column per component), λ = `_PSPLINE_BETA` · penalty_scale(tr AᵀA, nodes, m̄ of Δ³); the
 # controls as an `ny × nx` matrix of `SVector{K}` (read back through Core's one
 # control-vector layout, `_with_control_vector`) and λ.
 function _penalized_solve(rows::AbstractVector, B::Matrix{Float64}, ny::Int, nx::Int, ::Val{K}) where {K}
@@ -616,8 +619,8 @@ function _penalized_solve(rows::AbstractVector, B::Matrix{Float64}, ny::Int, nx:
         throw(ArgumentError("fit_camera: a design row reads a control outside the $ny × $nx lattice"))   # the CSC constructor does not check
     At = SparseMatrixCSC(ny * nx, N, collect(1:16:(16N + 1)), rowval, nzval)
     AtA = At * transpose(At)
-    λ = _PSPLINE_PENALTY * sum(diag(AtA)) / size(AtA, 1)
     D = difference_rows((ny, nx), 3)   # Core's Δ³ rows along both lattice axes
+    λ = _PSPLINE_BETA * penalty_scale(sum(diag(AtA)), size(AtA, 1), mean_positive_eigenvalue(D))
     M = AtA + λ * (transpose(D) * D)
     AtB = Matrix(At * B)
     F = cholesky(Symmetric(M); check = false)

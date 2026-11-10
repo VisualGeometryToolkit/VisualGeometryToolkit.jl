@@ -277,7 +277,6 @@ export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem,
 # 4. LOCAL-OPTIMIZATION strategies a user picks
 # -----------------------------------------------------------------------------
 export Irls, Triggs, NoLocalOptimization
-public gcv_select, gcv_curve, penalty_scale, mean_positive_eigenvalue, check_penalty_weight   # the one GCV of a penalty weight (RadiometricCamera's solves call it)
 public CountedLO   # instrumentation: counts a strategy's locally_optimize! calls and iterations
 # The terminal placement (one LO of a raw race's incumbent) and the placement trait.
 public TerminalLO, lo_placement, InLoopPlacement, TerminalPlacement
@@ -287,6 +286,7 @@ export ransac!
 # -----------------------------------------------------------------------------
 # PUBLIC, not exported — the machinery
 # -----------------------------------------------------------------------------
+public gcv_select, gcv_curve, gcv_score, penalty_scale, mean_positive_eigenvalue, check_penalty_weight   # the one GCV of a penalty weight and its normalization (RadiometricCamera's solves call it)
 # Problem plumbing and RVG's own RANSAC-interface verbs. `Rigid3` is the
 # unlabeled EuclideanMap alias find_hand_eye returns (generic enough to collide:
 # PoseLib has its own), `refine!` the LO refit an extender implements.

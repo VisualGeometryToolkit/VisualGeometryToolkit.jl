@@ -216,7 +216,7 @@ end
     @test res.spline.n_nodes_unrefined == 0                                   # every node a data or Δ³ row reads
     # GCV chose the weight (the default): the curve over the decade grid and its golden refinement, tr H in (0, 2n)
     @test res.spline.gcv isa Vector && length(res.spline.gcv) >= 13 && res.spline.λ > 0
-    @test res.spline.gcv_at_bound == (res.spline.penalty in (1.0e-12, 1.0))
+    @test res.spline.gcv_at_bound == (res.spline.β in (1.0e-12, 1.0))
     @test 0 < res.spline.effective_dof < 2res.n
     # backprojection against the truth at the detections (the truth's own frame: the gauge is the truth's): better
     # than the guess by > 10³, and the poses the truth's
@@ -311,6 +311,7 @@ end
     using StaticArrays: SVector
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, ChartSpline, BoundedCamera, Size2, estimate, retcode,
         lens, model, parameter_vector, with_present, spline_window, imaged_region
+    using LinearAlgebra: norm
     using VisualGeometryToolkitEstimation: refine_camera_and_poses, fit_camera
     truth = spline_truth(); Es = truth_poses(3)
     views = spline_views(truth, Es, 1.1)
@@ -357,6 +358,10 @@ end
     rr = refine_camera_and_poses(with_present(cam0, rim), poses0, views; penalty = 1.0e-8)
     @test rr.spline.n_nodes_unrefined == 2
     @test lens(estimate(rr).camera).backward.controls[1, 1:2] == lens(cam0).backward.controls[1, 1:2]
+    # the scale gauge's definition: the mean length over the LIVE nodes (the rim's two excluded) is the guess's
+    live = copy(rim); live[1, 1:2] .= false
+    mean_live(c) = sum(norm, lens(c).backward.controls[live]) / count(live)
+    @test mean_live(estimate(rr).camera) ≈ mean_live(with_present(cam0, rim)) rtol = 1.0e-14
     # refusals: a box, a partial `free`, a penalty that is neither :gcv nor a weight ≥ 0
     @test_throws ArgumentError refine_camera_and_poses(truth, poses0, views; penalty = :aic)
     @test_throws ArgumentError refine_camera_and_poses(truth, poses0, views; penalty = -1.0)
@@ -395,7 +400,30 @@ end
     @test length(pf.held) == 4 && length(pf.pins) == 2
     kept = setdiff(axes(Jf, 2), pf.held)
     ev = eigvals(Symmetric(Matrix(Jf[:, kept]' * Jf[:, kept]))); ev0 = sort(eigvals(Symmetric(Matrix(Jf' * Jf))))
-    @test minimum(ev) / maximum(ev) > 1.0e-13 && ev0[1] / ev0[end] < 1.0e-17
+    @test ev0[1] / ev0[end] < 1.0e-17                                                         # the scale's null, unreduced
+    @test minimum(ev) > 1.0e4 * ev0[1] && count(>(eps() * length(ev) * maximum(ev)), ev) == length(ev)   # full rank, reduced
+
+    # the hold acts in the LM: an NLLSsolver solve of the directions-first (stage 2) and the joint (stage 3) problem
+    # leaves the held log-scale == its start and the pinned view's rotation to the SO(3) re-projection's ulps, while
+    # the rest moves
+    using VisualGeometryToolkitCore: rotation, model
+    for directions_only in (true, false)
+        ph = VE._spline_problem(cam0, poses0, spline_views(truth, Es, 1.1), true, 3.0e-7; directions_only)
+        _, sh = VE._spline_solve!(ph, true, 10, 1.0e-12, 1.0e-12, nothing)
+        pin = ph.pins[1]; v = pin.varind[1]
+        R0 = rotation(model(ph.variables[v])); R1 = rotation(model(sh[v]))
+        @test maximum(abs, R1 - R0) <= 4 * eps()
+        @test maximum(abs, VC.translation(model(sh[v])) - VC.translation(model(ph.variables[v]))) > 1.0e-6   # its translation moved
+        if !directions_only
+            sp = ph.pins[2]; k = sp.varind[1]; n = findfirst(sp.held) - 8
+            @test VE._patch_scale(sh[k], n) == VE._patch_scale(ph.variables[k], n)
+            @test any(m -> m != n && VE._patch_scale(sh[k], m) != VE._patch_scale(ph.variables[k], m), 1:4) ||
+                any(j -> j != k && sh[j] isa VE._SplinePatch && VE._patch_scale(sh[j], 1) != VE._patch_scale(ph.variables[j], 1), 1:ph.nP)
+        end
+    end
+    # a normal matrix that is not positive definite (the anchors removed: the unread coordinates hold nothing) scores
+    # GCV = Inf, not an error
+    @test VE._gcv(merge(pf, (; anchors = empty(pf.anchors))), pf.variables).gcv == Inf
 
     # tr H on the 3-view fixture: the exact trace and the 64-probe Hutchinson estimate (the switch lowered to 0) agree
     # within 3σ, σ ≤ √(2 tr H / 64); tr H well below the 720 data rows
@@ -412,13 +440,14 @@ end
     # a numeric penalty: GCV off, the weight as given, the same result every time
     r1 = refine_camera_and_poses(cam0, poses0, views; penalty = 1.0e-8)
     r2 = refine_camera_and_poses(cam0, poses0, views; penalty = 1.0e-8)
-    @test retcode(r1) === :converged && r1.spline.penalty == 1.0e-8 && r1.spline.gcv === nothing && !r1.spline.gcv_at_bound
+    @test retcode(r1) === :converged && r1.spline.β == 1.0e-8 && r1.spline.gcv === nothing && !r1.spline.gcv_at_bound
     @test parameter_vector(estimate(r1).camera) == parameter_vector(estimate(r2).camera)
     # penalty = 0: no smoothness; the present nodes no correspondence's window reads are held at their guesses and counted
     # (without the Δ³ rows each log-scale is held by its data alone, nearly collinear with its direction: the joint
     # solve takes ≈ 210 iterations, past the default per-solve cap)
+    @test retcode(refine_camera_and_poses(cam0, poses0, views; penalty = 0)) === :max_iterations   # the default cap: visible
     r0 = refine_camera_and_poses(cam0, poses0, views; penalty = 0, max_iter = 300)
-    @test retcode(r0) === :converged && r0.spline.penalty == 0 && r0.spline.λ == 0 && r0.spline.gcv === nothing
+    @test retcode(r0) === :converged && r0.spline.β == 0 && r0.spline.λ == 0 && r0.spline.gcv === nothing
     read = falses(size(b.controls))
     for cs in views, x in cs
         w = spline_window(b.area, size(b.controls), VC.Cameras._normalized_point(cam0.intrinsics, last(x)))
@@ -441,11 +470,12 @@ end
     prediction(r) = spline_rms(estimate(r).camera, estimate(r).poses, clean)
     rg = refine_camera_and_poses(g0, p6, noisy)
     @test retcode(rg) === :converged && !rg.spline.gcv_at_bound
-    @test rg.spline.penalty == first(sort(filter(e -> isfinite(e.gcv), rg.spline.gcv); by = e -> e.gcv)).penalty
+    @test rg.spline.gcv_limit isa Float64 && rg.spline.β > rg.spline.gcv_limit                  # the largest β that failed, below the choice
+    @test rg.spline.β == first(sort(filter(e -> isfinite(e.gcv), rg.spline.gcv); by = e -> e.gcv)).β
     @test any(e -> e.gcv == Inf, rg.spline.gcv)                                   # the descent stopped at a weight that fails
     grid = -4:-2
     errors = [prediction(refine_camera_and_poses(g0, p6, noisy; penalty = 10.0^k)) for k in grid]
-    @test abs(log10(rg.spline.penalty) - grid[argmin(errors)]) <= 1
+    @test abs(log10(rg.spline.β) - grid[argmin(errors)]) <= 1
     @test prediction(rg) <= 1.02 * minimum(errors)
     # a fixed small weight on the noisy detections: the error names the cause and the remedy
     @test_throws r"penalty = :gcv" refine_camera_and_poses(g0, p6, noisy; penalty = 1.0e-9)
@@ -456,12 +486,13 @@ end
     using Random: Xoshiro, randn
     using SparseArrays: sparse
     using VisualGeometryToolkitCore: difference_rows
-    using VisualGeometryToolkitEstimation: gcv_curve, gcv_select, penalty_scale, mean_positive_eigenvalue, check_penalty_weight
+    using VisualGeometryToolkitEstimation: gcv_curve, gcv_select, gcv_score, penalty_scale, mean_positive_eigenvalue, check_penalty_weight
     # m̄ from the operator (‖D‖²_F / rank) is the mean positive eigenvalue of DᵀD, sparse or dense
     D = difference_rows(trues(10, 12), 3)
     λs = eigvals(Symmetric(Matrix(D' * D))); pos = λs[λs .> 1.0e-10 * maximum(λs)]
     @test mean_positive_eigenvalue(D) ≈ sum(pos) / length(pos) rtol = 1.0e-12
     @test mean_positive_eigenvalue(Matrix(D)) ≈ mean_positive_eigenvalue(D) rtol = 1.0e-12
+    @test mean_positive_eigenvalue(Symmetric(Matrix(D' * D))) ≈ mean_positive_eigenvalue(D) rtol = 1.0e-12   # the normal-matrix form
     @test penalty_scale(12.0, 3, 2.0) == 2.0
     # the closed-form curve equals the direct solve at every λ: rss of the penalized fit and tr H
     rng = Xoshiro(3)
@@ -478,10 +509,19 @@ end
     end
     # the search: a minimum inside the bracket refined to xtol; one at an end reported, not refined
     s = gcv_select(λ -> (; gcv = (log10(λ) + 2.3)^2, rss = 0.0, dof = 0.0), 1.0; log10_bracket = (-8.0, 4.0), points = 25, xtol = 1.0e-3)
-    @test abs(log10(s.beta) + 2.3) < 2.0e-3 && !s.at_bracket_end
+    @test abs(log10(s.β) + 2.3) < 2.0e-3 && !s.at_bracket_end && s.λ == s.β
     e = gcv_select(λ -> (; gcv = log10(λ), rss = 0.0, dof = 0.0), 1.0; log10_bracket = (-8.0, 4.0), points = 25)
-    @test e.at_bracket_end && e.beta == 1.0e-8
+    @test e.at_bracket_end && e.β == 1.0e-8
+    # a minimum inside the scan's first interval, sampled lowest at the scan's end: refined there and interior (RC's
+    # rule); `refine_ends = false` returns the end as it is
+    s1 = gcv_select(λ -> (; gcv = (log10(λ) - 3.8)^2, rss = 0.0, dof = 0.0), 1.0; log10_bracket = (-8.0, 4.0), points = 25)
+    @test abs(log10(s1.β) - 3.8) < 2.0e-3 && !s1.at_bracket_end
+    s2 = gcv_select(λ -> (; gcv = (log10(λ) - 3.8)^2, rss = 0.0, dof = 0.0), 1.0; log10_bracket = (-8.0, 4.0), points = 25, refine_ends = false)
+    @test s2.β == 1.0e4 && s2.at_bracket_end
+    @test gcv_score(40, 2.0, 8.0) == 40 * 2.0 / 32^2
     @test check_penalty_weight(:gcv, "w") === :gcv && check_penalty_weight(0.5, "w") == 0.5
+    @test_throws ArgumentError check_penalty_weight(nothing, "w")                              # RC's options: no `nothing`
+    @test check_penalty_weight(nothing, "w"; allow_nothing = true) === nothing
     @test_throws ArgumentError check_penalty_weight(-1.0, "w")
     @test_throws ArgumentError check_penalty_weight(:aic, "w")
 end

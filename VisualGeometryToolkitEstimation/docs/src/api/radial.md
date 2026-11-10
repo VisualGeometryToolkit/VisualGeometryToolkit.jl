@@ -74,6 +74,7 @@ VisualGeometryToolkitEstimation.penalty_scale
 VisualGeometryToolkitEstimation.mean_positive_eigenvalue
 VisualGeometryToolkitEstimation.gcv_curve
 VisualGeometryToolkitEstimation.gcv_select
+VisualGeometryToolkitEstimation.gcv_score
 VisualGeometryToolkitEstimation.check_penalty_weight
 ```
 

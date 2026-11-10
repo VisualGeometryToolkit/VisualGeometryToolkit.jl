@@ -262,12 +262,12 @@ function NLLSsolver.computeresjac(varflags, r::_SplineSmoothness, patches...)
     varflags == 7 || throw(ArgumentError("refine_camera_and_poses: every patch is free (varflags = $varflags)"))
     row, c, ρ = _smoothness_rows(r, patches)
     I3 = SMatrix{3, 3, Float64}(LinearAlgebra.I)
+    Jm = ntuple(m -> (r.coef[m] * I3 - row * (c[m] / norm(c[m]))' / 4) / ρ, Val(4))
     blocks = ntuple(Val(3)) do k
         Jc = zero(SMatrix{3, 12, Float64})
         for m in 1:4
             km, n = r.slots[m]
-            Jm = (r.coef[m] * I3 - row * (c[m] / norm(c[m]))' / 4) / ρ
-            km == k && (Jc += hcat(ntuple(q -> q == n ? Jm : zero(SMatrix{3, 3, Float64}), Val(4))...))
+            km == k && (Jc += hcat(ntuple(q -> q == n ? Jm[m] : zero(SMatrix{3, 3, Float64}), Val(4))...))
         end
         _in_patch_chart(Jc, patches[k])
     end
@@ -343,6 +343,14 @@ function NLLSsolver.computecostgradhess(varflags, r::_SplinePin{V}, v) where {V}
 end
 
 
+# A correspondence the camera does not project at an estimate (`msg` the refine's
+# ArgumentError text), and the iterations solved before it was found. Internal: the GCV
+# search scores its weight `Inf`; the refine's boundary throws it as an ArgumentError.
+struct _NotProjected <: Exception
+    msg::String
+    iterations::Int
+end
+
 # The problem of a SplineLens camera `cam` (no forward) at the guesses, its patches laid
 # `offset` nodes into the first (`_PatchLayout`): its variables (the patches, column-major
 # over the patch grid, when `free`; then the poses), its data blocks, its Δ³ blocks
@@ -395,11 +403,12 @@ function _spline_problem(
             continue
         end
         ok || throw(
-            ArgumentError(
+            _NotProjected(
                 "refine_camera_and_poses: view $v, correspondence $j: the point $(X) does not project $at (behind the camera or outside the lens's domain)" *
                     (at == "at the guess" ? "" :
                      ": the estimate's lattice moved there, where the data hold it weakly — on noisy detections a small smoothness " *
-                     "weight lets those nodes swing. Use `penalty = :gcv` (the default) or a larger `penalty`")
+                     "weight lets those nodes swing. Use `penalty = :gcv` (the default) or a larger `penalty`"),
+                0
             )
         )
         ix, iy, _, _ = spline_window(b.area, gsz, x)
@@ -424,6 +433,8 @@ function _spline_problem(
     # the scale gauge's held log-scale (with the scales free): the live node nearest x = 0
     scale_node = free && !directions_only ?
         argmin(i -> norm(VgtkCore.Cameras._lattice_node(b.area, gsz, i[2], i[1])), filter(i -> live[i], vec(CartesianIndices(gsz)))) : CartesianIndex(0, 0)
+    # the rotation gauge's held view: the first with a data row (an unread pose would be singular)
+    pinned_view = isempty(found) ? 1 : minimum(f -> f[3], found)
     N = free ? 10 : 1
     RP = free ? PT : Nothing
     costs = _SplineReprojection{N, RP}[]
@@ -434,7 +445,7 @@ function _spline_problem(
         slots = map(i -> _patch_slot(L, P₀, Q₀, i[1], i[2]), win)
         varind = free ? SVector{10, Int}(ntuple(k -> k <= 9 ? _patch_index(L, P₀ + (k - 1) % 3, Q₀ + (k - 1) ÷ 3) : nP + v, Val(10))) : SVector(v)
         hk = findfirst(==(scale_node), win)
-        gauge = ((hk === nothing ? (0, 0) : slots[hk])..., Int(free && v == 1))
+        gauge = ((hk === nothing ? (0, 0) : slots[hk])..., Int(free && v == pinned_view))
         push!(costs, _SplineReprojection{N, RP}(varind, slots, C, cell, box, pixel, X, u, gauge))
         push!(windows, win)
     end
@@ -442,7 +453,7 @@ function _spline_problem(
     anchors = _SplineAnchor{PT}[]
     variables = free ? Union{PT, _CameraPosePose}[] : _CameraPosePose[]   # the poses alone: their own type, the problem's
     λ₀ = λ
-    λ = λ₁ = 0.0
+    λ = 0.0
     if free
         # the patches: the guess's controls (scale 0), a unit stand-in (ẑ) in the pad and absent slots
         guess = [
@@ -463,7 +474,7 @@ function _spline_problem(
                 diagonal[win[m]] += sum(abs2, view(J, :, (W * (k - 1) + 2n - 1):(W * (k - 1) + 2n)))
             end
         end
-        λ₁ = penalty_scale(sum(diagonal) * (sum(i -> norm(b.controls[i]), findall(present)) / count(present))^2, 2count(present), m̄)
+        λ₁ = penalty_scale(sum(diagonal) * _mean_length(b.controls, live)^2, 2count(present), m̄)
         λ = λ₀ === nothing ? penalty * λ₁ : Float64(λ₀)
         for P in 1:L.ph, Q in 1:L.pw
             dead = SVector{4, Bool}(ntuple(Val(4)) do n
@@ -493,15 +504,15 @@ function _spline_problem(
     pins = Union{_SplinePin{_CameraPosePose}, _SplinePin{_SplinePatch}}[]
     held = Int[]
     if free
-        push!(pins, _SplinePin{_CameraPosePose}(SVector(nP + 1), SVector{12, Bool}(ntuple(i -> i <= 3, Val(12)))))
-        append!(held, W * nP .+ (1:3))
+        push!(pins, _SplinePin{_CameraPosePose}(SVector(nP + pinned_view), SVector{12, Bool}(ntuple(i -> i <= 3, Val(12)))))
+        append!(held, W * nP + 6(pinned_view - 1) .+ (1:3))
         if !directions_only
             k, n = _node_slot(L, scale_node)
             push!(pins, _SplinePin{_SplinePatch}(SVector(k), SVector{12, Bool}(ntuple(i -> i == 8 + n, Val(12)))))
             push!(held, W * (k - 1) + 8 + n)
         end
     end
-    return (; variables, costs, smooth, anchors, pins, held, λ, λ₁, dropped, unprojected, layout = L, live, present, nP,
+    return (; variables, costs, smooth, anchors, pins, held, λ, dropped, unprojected, layout = L, live, present, nP,
         windows = [(w[1][2], w[1][1]) for w in windows])
 end
 
@@ -613,7 +624,11 @@ function _refit_forward(camera::BoundedCamera, tolerance)
 end
 
 function _refine_camera_and_poses(::VgtkCore.Cameras.GaugeIntrinsics, camera::_RefinedCamera, poses::AbstractVector, views::AbstractVector; kwargs...)
-    return _refine_spline_camera_and_poses(camera, poses, views, 0; kwargs...)
+    try
+        return _refine_spline_camera_and_poses(camera, poses, views, 0; kwargs...)
+    catch e
+        e isa _NotProjected ? throw(ArgumentError(e.msg)) : rethrow()   # the public error of a point that does not project
+    end
 end
 
 # What is left of the refine's time at `deadline` (`nothing`: no cap), and whether an
@@ -673,7 +688,11 @@ function _spline_rounds(p, isfree::Bool, back::CameraModel, views, penalty, offs
         timed_out |= _timed_out(result)
         settled = true
         (isfree && !timed_out) || return (; p, solved, result, rounds, settled, iterations, timed_out, cost_start, next = p)
-        q = _rebuilt(p, solved::_SplineVars, back, views, penalty, offset, "at the estimate of rebuild round $rounds")
+        q = try
+            _rebuilt(p, solved::_SplineVars, back, views, penalty, offset, "at the estimate of rebuild round $rounds")
+        catch e
+            e isa _NotProjected ? throw(_NotProjected(e.msg, e.iterations + iterations)) : rethrow()
+        end
         q.windows == p.windows && return (; p, solved, result, rounds, settled, iterations, timed_out, cost_start, next = q)
         p = q
         rounds == _SPLINE_REFINE_ROUNDS &&
@@ -694,7 +713,9 @@ const _GCV_SEED = 20261110
 # `H = J (JᵀJ + λDᵀD + AᵀA)⁻¹ Jᵀ` with J the data rows' Jacobian, D the Δ³ rows' and A
 # the anchors' (a sparse Cholesky, SparseArrays' CHOLMOD: NLLSsolver's factorization is
 # internal to its iterate), over the coordinates the solve moves: the problem's held
-# gauge coordinates (`p.held`, the pins') are none of them. Returns `(; gcv, trace, rss, n)`.
+# gauge coordinates (`p.held`, the pins') are none of them. A normal matrix that is not
+# positive definite scores `Inf` (CHOLMOD's factorization fails; no ridge is added).
+# Returns `(; gcv, trace, rss, n)`.
 function _gcv(p, solved::_SplineVars; exact_max::Integer = _GCV_EXACT_MAX)
     r, J = _spline_problem_rows_and_jacobian(p, solved)
     n = 2length(p.costs)
@@ -702,8 +723,9 @@ function _gcv(p, solved::_SplineVars; exact_max::Integer = _GCV_EXACT_MAX)
     keep[p.held] .= false
     Jr = J[:, keep]
     Jd = Jr[1:n, :]
-    F = cholesky(Symmetric(Jr' * Jr))
     rss = sum(abs2, view(r, 1:n))
+    F = cholesky(Symmetric(Jr' * Jr); check = false)
+    issuccess(F) || return (; gcv = Inf, trace = NaN, rss, n)   # not positive definite (a coordinate no row holds): this weight is not scored
     trace = if size(Jr, 2) <= exact_max
         LinearAlgebra.tr(F \ Matrix(Jd' * Jd))
     else
@@ -711,59 +733,60 @@ function _gcv(p, solved::_SplineVars; exact_max::Integer = _GCV_EXACT_MAX)
         W = Jd' * Z
         sum(W .* (F \ W)) / _GCV_PROBES
     end
-    return (; gcv = n * rss / (n - trace)^2, trace, rss, n)
+    return (; gcv = gcv_score(n, rss, trace), trace, rss, n)
 end
 
 # The GCV search over the weight β (λ = β·λ₁): the stack's `gcv_select` (gcv.jl) over
 # log₁₀ β ∈ `_GCV_LOG10_BRACKET`, one scan point a decade, solved from the largest weight
 # down, each solve warm-started from the last one's estimate, then golden-section steps
 # to `_GCV_XTOL` (a final bracket 0.1 decade wide), each warm-started from the estimate
-# of the nearest weight solved. Each λ is a nonlinear solve (with its rebuild rounds), not
-# a linearization, so the curve is that of the refine's own estimates. A weight whose
-# estimate stops projecting a correspondence (noisy detections fitted by a weakly held
-# lattice: its extrapolated nodes swing) scores `GCV = Inf`, and the scan descends no
-# further; past the deadline nothing more is solved. Returns the rounds of the weight
-# with the least GCV, the curve `[(; penalty = β, λ, gcv)]` (ascending β), whether that
-# weight is a scan end, the weight, its tr H and the iterations of every solve.
+# of the nearest weight solved. A minimum at a scan end is not refined there
+# (`refine_ends = false`: each step is a nonlinear solve, ≈ 5 of them at an end). Each λ
+# is a nonlinear solve (with its rebuild rounds), not a linearization, so the curve is
+# that of the refine's own estimates. A weight whose estimate stops projecting a
+# correspondence (noisy detections fitted by a weakly held lattice: its extrapolated
+# nodes swing) scores `GCV = Inf`, and no smaller weight is solved (`limit`, the largest
+# such β); past the deadline nothing more is solved. The rules read β, not the order of
+# the calls. Returns the rounds of the chosen weight, the curve `[(; β, λ, gcv)]`
+# (ascending β), whether it is a scan end, the weight, its tr H, the limit (or
+# `nothing`) and the iterations of every solve, failed ones included.
 const _GCV_LOG10_BRACKET = (-12.0, 0.0)
 const _GCV_XTOL = 0.05
 function _gcv_search(p, λ₁::Float64, back::CameraModel, views, offset, max_iter, ftol, xtol, deadline::Float64)
     points = round(Int, _GCV_LOG10_BRACKET[2] - _GCV_LOG10_BRACKET[1]) + 1
     function evaluate(β, start)
         st = _spline_rounds(_with_λ(start, β * λ₁), true, back, views, β, offset, max_iter, ftol, xtol, deadline)
-        return (; β, st, g = _gcv(st.p, st.solved::_SplineVars), ok = true)
+        return (; β, st, g = _gcv(st.p, st.solved::_SplineVars), ok = true, iterations = st.iterations)
     end
     # a weight whose estimate does not project every correspondence: GCV = Inf (the start's rounds stand in)
     function attempt(β, start, fallback)
         try
             return evaluate(β, start)
         catch e
-            e isa ArgumentError || rethrow()
-            return (; β, st = fallback, g = (; gcv = Inf, trace = NaN, rss = NaN, n = 0), ok = false)
+            e isa _NotProjected || rethrow()
+            return (; β, st = fallback, g = (; gcv = Inf, trace = NaN, rss = NaN, n = 0), ok = false, iterations = e.iterations)
         end
     end
-    first_eval = evaluate(exp10(_GCV_LOG10_BRACKET[2]), p)
+    top = exp10(_GCV_LOG10_BRACKET[2])
+    first_eval = evaluate(top, p)
     evals = [first_eval]
     timed_out = Ref(first_eval.st.timed_out)
-    failed = Ref(false)                                       # the scan's descent stopped
+    limit = Ref(0.0)                                          # the largest β that failed: no smaller β is solved
     near(β) = argmin(e -> e.ok ? abs(log10(e.β / β)) : Inf, evals).st   # the nearest weight solved: the warm start
-    calls = Ref(0)
     function score(λ)
-        calls[] += 1
-        calls[] == 1 && return (; gcv = first_eval.g.gcv, rss = first_eval.g.rss, dof = first_eval.g.trace)   # the scan's top: solved above
         β = λ / λ₁
-        scan = calls[] <= points                              # gcv_select scans first, from the top down
-        (timed_out[] || (failed[] && scan)) && return (; gcv = Inf, rss = NaN, dof = NaN)   # not solved
+        isapprox(β, top; rtol = 1.0e-12) && return (; gcv = first_eval.g.gcv, rss = first_eval.g.rss, dof = first_eval.g.trace)   # solved above
+        (timed_out[] || β <= limit[]) && return (; gcv = Inf, rss = NaN, dof = NaN)   # not solved
         e = attempt(β, near(β).next, near(β))
         push!(evals, e)
         timed_out[] |= e.st.timed_out
-        failed[] |= !e.ok && scan
+        e.ok || (limit[] = max(limit[], β))
         return (; gcv = e.g.gcv, rss = e.g.rss, dof = e.g.trace)
     end
-    found = gcv_select(score, λ₁; log10_bracket = _GCV_LOG10_BRACKET, points, xtol = _GCV_XTOL)
-    best = argmin(e -> e.g.gcv, evals)
-    curve = [(; penalty = e.β, λ = e.β * λ₁, gcv = e.g.gcv) for e in sort(evals; by = e -> e.β)]
-    return best.st, curve, found.at_bracket_end && !timed_out[], best.β, best.g.trace, sum(e -> e.ok ? e.st.iterations : 0, evals)
+    found = gcv_select(score, λ₁; log10_bracket = _GCV_LOG10_BRACKET, points, xtol = _GCV_XTOL, refine_ends = false)
+    chosen = argmin(e -> abs(log10(e.β / found.β)), evals)
+    curve = [(; e.β, λ = e.β * λ₁, gcv = e.g.gcv) for e in sort(evals; by = e -> e.β)]
+    return chosen.st, curve, found.at_bracket_end, found.β, found.dof, limit[] > 0 ? limit[] : nothing, sum(e -> e.iterations, evals)
 end
 
 # The refinement with the patches laid `offset` nodes into the first (the estimate does
@@ -786,7 +809,7 @@ function _refine_spline_camera_and_poses(
         ArgumentError("refine_camera_and_poses: a SplineLens camera's `free` is (:controls,) (every present node's backward control) or () (the poses alone), got $free")
     )
     box === nothing || throw(ArgumentError("refine_camera_and_poses: a SplineLens camera's controls are unbounded; a `box` has nothing to bound"))
-    check_penalty_weight(penalty, "refine_camera_and_poses: penalty")
+    check_penalty_weight(penalty, "refine_camera_and_poses: penalty"; allow_nothing = true)
     search = penalty === :gcv
     w = search ? exp10(_GCV_LOG10_BRACKET[2]) : penalty === nothing ? 0.0 : Float64(penalty::Real)   # under :gcv the scan's top β: the stages' start aid
     isfree = !isempty(free)
@@ -842,8 +865,9 @@ function _refine_spline_camera_and_poses(
     gcv = nothing
     gcv_at_bound = false
     effective_dof = nothing
+    gcv_limit = nothing
     if search && isfree
-        st, gcv, gcv_at_bound, w, effective_dof, its = _gcv_search(p, p.λ / w, back, views, offset, max_iter, ftol, xtol, deadline)
+        st, gcv, gcv_at_bound, w, effective_dof, gcv_limit, its = _gcv_search(p, p.λ / w, back, views, offset, max_iter, ftol, xtol, deadline)
     else
         st = _spline_rounds(p, isfree, back, views, w, offset, max_iter, ftol, xtol, deadline)
         its = st.iterations
@@ -855,7 +879,7 @@ function _refine_spline_camera_and_poses(
 
     # the gauge, one step: the live controls and the poses turned by ONE rotation (the axis onto ẑ, the roll), the live controls scaled to the guess's mean length
     cost_before = _spline_cost(solved, _spline_blocks(p))
-    vars, controls, θ, β = _gauged(p, solved, b)
+    vars, controls, θ, roll = _gauged(p, solved, b)
     cost_after = _spline_cost(vars, _spline_blocks(p))
     anchor_cost = _spline_cost(vars, p.anchors)
     poses_out = [vars[p.nP + v]::_CameraPosePose for v in 1:V]
@@ -876,9 +900,9 @@ function _refine_spline_camera_and_poses(
     end
     out = [relabel(_frames(p0)..., _plain_pose(ch)) for (p0, ch) in zip(poses, poses_out)]
     n_nodes_unrefined = isfree ? count(p.present .& .!p.live) : count(p.present)
-    spline = (; penalty = isfree ? w : 0.0, λ = p.λ, gcv, gcv_at_bound, effective_dof, n_nodes_unrefined,
+    spline = (; β = isfree ? w : 0.0, λ = p.λ, gcv, gcv_at_bound, gcv_limit, effective_dof, n_nodes_unrefined,
         n_dropped_window = p.dropped, n_dropped_unprojected = p.unprojected, rounds, windows_settled = settled,
-        forward, forward_max_px, gauge_angle = θ, gauge_roll = β,
+        forward, forward_max_px, gauge_angle = θ, gauge_roll = roll,
         cost_start, cost_before_gauge = cost_before, cost_after_gauge = cost_after, anchor_cost)
     return (; camera = out_camera, poses = out), code, iterations, sqrt(sum(abs2, rd) / n), n, CameraPosesRefineMetadata(rd, sum(abs2, r) / ν, ν, free, spline)
 end

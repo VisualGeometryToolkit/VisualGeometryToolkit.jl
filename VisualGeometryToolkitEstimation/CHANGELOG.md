@@ -40,13 +40,20 @@ non-central one is a `NoncentralSplineModel`).
   KernelAbstractions backend of a SplineLens source's batched back-projection (the rest of the fit runs on the host).
 - **Breaking: a spline fit's `grid_size` is `(columns, rows)`** everywhere — the keyword, `pspline_grid`'s argument and
   the metadata's `family.grid_size` — Core's `grid_size(m)` order (a fit once reported `(rows, columns)`).
+- **`fit_camera`'s P-spline weight is in the stack's one convention**: `λ = β·penalty_scale(tr AᵀA, nodes, m̄)` with
+  β = 3e-7 (`_PSPLINE_BETA`) and m̄ the Δ³ operator's mean positive eigenvalue (≈ 31 on a 12 × 10 lattice, → 40 on
+  large ones), in place of `1e-8·mean(diag(AᵀA))`: λ is 3e-7/m̄ ≈ 0.75–1 × the former one, so the fitted lattices
+  move within the fit's tolerance (`penalty` in the metadata is the new λ).
 - **New (public, not exported): the stack's one generalized cross-validation of a penalty weight and its
   normalization** — `penalty_scale(energy, N, m̄)` (`λ = β·energy/N/m̄`: β relative to the data's energy per parameter
   and to the penalty operator's mean positive eigenvalue), `mean_positive_eigenvalue(D)` (`‖D‖²_F / rank D`, a sparse
-  QR's rank), `gcv_curve(G, h, rr, Q, q, n)` (the closed-form GCV curve of one Gauss–Newton system, a generalized
-  eigendecomposition), `gcv_select(score, scale; log10_bracket, points, xtol)` (a scan of log₁₀ β from the top down,
-  then golden-section steps through Core's grid-and-golden minimizer; `at_bracket_end` reported) and
-  `check_penalty_weight`. Moved from RadiometricCamera's linear solves (its `_gcv_curve`, `gcv_select`,
+  QR's rank) or `mean_positive_eigenvalue(Symmetric(DᵀD))` (`tr / rank`), `gcv_score(n, rss, dof)`,
+  `gcv_curve(G, h, rr, Q, q, n)` (the closed-form GCV curve of one Gauss–Newton system, a generalized
+  eigendecomposition), `gcv_select(score, scale; log10_bracket, points, xtol, refine_ends = true)` → `(; β, λ, gcv,
+  rss, dof, log10_β_bracket, at_bracket_end)` (a scan of log₁₀ β from the top down, then golden-section steps through
+  Core's `grid_golden_minimum`, a least value at a scan end refined on its one interval; `at_bracket_end` when the
+  result lies at the end) and `check_penalty_weight(w, what; allow_nothing = false)`. Moved from RadiometricCamera's
+  linear solves (its `_gcv_curve`, `gcv_select`,
   `_mean_positive_eigenvalue`, `_check_penalty_weight`: its copies go when it adopts these); `refine_camera_and_poses` on a
   SplineLens camera uses them too.
 - **`refine_camera_and_poses` refines a SplineLens camera's controls with its poses, K frozen** (bit-identical): the
@@ -69,9 +76,10 @@ non-central one is a `NoncentralSplineModel`).
   held exactly during every solve (the first view's rotation and one node's log-scale get the step 0, no cost row,
   so the normal matrix is full rank), and the estimate moved after the solve, in one step, to the canonical
   representative (the lens axis onto ẑ, the roll putting the x-derivative at x = 0 in the xz plane, the live
-  controls' mean length the guess's; the cost unchanged). `result.spline` carries the weight and λ,
-  the GCV curve, whether its minimum is a grid end (`gcv_at_bound`), tr H (`effective_dof`) and the present nodes
-  no row reads (`n_nodes_unrefined`). `free` is `(:controls,)` or `()` (the
+  controls' mean length the guess's; the cost unchanged). `result.spline` carries the weight `β` and `λ`,
+  the GCV curve `[(; β, λ, gcv)]`, whether its minimum is a scan end (`gcv_at_bound`), the largest β whose estimate
+  stopped projecting a correspondence (`gcv_limit`), tr H (`effective_dof`) and the present nodes no row reads
+  (`n_nodes_unrefined`). `free` is `(:controls,)` or `()` (the
   poses alone). A forward spline is dropped and, with `refit_forward = true` (the default), refitted by
   `fit_camera(SplineLens, …; tolerance = forward_tolerance)` over the camera's imaged region (a `BoundedCamera` then
   required). Correspondences detected on an absent window are dropped and counted, and those not projected within a

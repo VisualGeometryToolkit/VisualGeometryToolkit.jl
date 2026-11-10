@@ -42,15 +42,18 @@ block order, each view's correspondences in their order); `s²`, the residual
 variance `Σ‖rᵢ‖² / ν` (px²); `ν = 2n − p`, its degrees of freedom (`p` the
 free camera parameters plus 6 per view); `free`, the names of the camera
 parameters refined; and `spline`, `nothing` for a parametric camera, for a
-SplineLens camera `(; penalty, λ, gcv, gcv_at_bound, effective_dof,
+SplineLens camera `(; β, λ, gcv, gcv_at_bound, gcv_limit, effective_dof,
 n_nodes_unrefined, n_dropped_window, n_dropped_unprojected, rounds,
 windows_settled, forward, forward_max_px, gauge_angle, gauge_roll, cost_start,
 cost_before_gauge, cost_after_gauge, anchor_cost)`: the third-difference
-penalty's normalized weight β and its `λ` (0 for none, and with `free = ()`);
-the GCV curve `[(; penalty = β, λ, gcv)]` over the weights solved (ascending;
-`nothing` unless `penalty = :gcv`), whether its minimum is an end of the decade
-scan (then not refined: the weight GCV wants lies at or past it), and tr H, the
-effective number of parameters at the chosen weight (`nothing` without GCV);
+penalty's normalized weight β and its `λ` (0 for none, and with `free = ()`;
+`gcv_select`'s `β` and `λ`); the GCV curve `[(; β, λ, gcv)]` over the weights
+solved (ascending; `nothing` unless `penalty = :gcv`), whether its minimum is an
+end of the decade scan (then not refined: the weight GCV wants lies at or past
+it), the largest β whose estimate stopped projecting a correspondence (no
+smaller β was solved, so a minimum just above it lies against that limit; or
+`nothing`), and tr H, the effective number of parameters at the chosen weight
+(`nothing` without GCV);
 the present nodes no data row and no third-difference row reads (held at their
 guesses); the correspondences detected on an absent window,
 and those the camera does not project when detected within a cell of one (they
@@ -208,14 +211,18 @@ trait, `GaugeIntrinsics`, selects it):
     64-probe Hutchinson estimate from a fixed seed (deterministic; standard
     deviation ≤ √(2·tr H / 64)). The poses-alone and directions-first stages
     run once, at the scan's top β = 1, as a start aid. A β whose estimate
-    stops projecting a correspondence scores `GCV = Inf` (in the curve), and
-    the scan descends no further.
+    stops projecting a correspondence scores `GCV = Inf` (in the curve), no
+    smaller β is solved, and `gcv_limit` records it.
   - a number β > 0: that weight; no GCV. On noisy detections a small weight
     can let the nodes the data hold weakly swing until a correspondence no
     longer projects: an `ArgumentError` says so and suggests `:gcv` or a
     larger weight.
   - `0` or `nothing`: no smoothness. Then every present node outside every
-    correspondence's window is held at its guess (and counted).
+    correspondence's window is held at its guess (and counted). Without the
+    Δ³ rows each node's log-scale is held by its data alone, nearly collinear
+    with its own direction, so the joint solve needs ≈ 2–3× the default
+    `max_iter` (≈ 210 iterations on the 3-view fixture); at the default cap it
+    returns `:max_iterations`.
   The blocks are rebuilt at the estimate and solved again until every
   correspondence reads its own window (`result.spline.rounds`, at most 5; at
   the cap the rows, `rms` and the stationarity test are read on the returned

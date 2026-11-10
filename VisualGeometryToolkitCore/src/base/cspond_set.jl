@@ -271,7 +271,7 @@ attribute_column(::Any, ::Symbol) = nothing
 weights_column(cs) = attribute_column(cs, :weights)
 
 # A `weights` vector's contract, the one check for every estimator that takes
-# FIXED weights (a `weights` column, `tls_line`'s, `zhang_intrinsics`'): every
+# FIXED weights (a `weights` column, `tls_line`'s, the `weight_of`s of `zhang_intrinsics`' homographies): every
 # entry finite and non-negative (+Inf included: rejected), and with `n` given,
 # one weight per datum. A violation is the caller's error, named with its index —
 # never `sqrt`'s `DomainError` or a silently NaN solve downstream. `nothing` (no

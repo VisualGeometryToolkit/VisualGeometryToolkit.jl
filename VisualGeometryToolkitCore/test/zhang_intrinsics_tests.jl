@@ -3,7 +3,7 @@
     using Test
     using StaticArrays: SVector, SMatrix, @SMatrix
     using Rotations: RotXYZ
-    using VisualGeometryToolkitCore: HomographyMat, LogicalIntrinsics, Size2,
+    using VisualGeometryToolkitCore: HomographyMat, LogicalIntrinsics, Size2, Attributed,
         zhang_intrinsics, focal_length, μm, px
 
     _hom(K, R, t) = HomographyMat{Float64}(
@@ -38,16 +38,21 @@
             @test intr isa LogicalIntrinsics{Float64}
         end
 
-        @testset "weights are per-homography vote strengths" begin
+        @testset "weights are per-homography vote strengths, carried as Attributed" begin
             # a garbage homography with zero weight must not perturb the solve
             junk = _hom(
                 (@SMatrix [500.0 0 0; 0 900.0 0; 0 0 1.0]),
                 RotXYZ(0.3, 0.2, 0.1), SVector(0.1, 0.1, 2.0)
             )
-            intr = zhang_intrinsics(vcat(Hs, [junk]); center = _c, weights = vcat(fill(10.0, length(Hs)), 0.0))
+            voted = [[Attributed(H, (; weight = 10)) for H in Hs]; Attributed(junk, (; weight = 0))]   # integer votes
+            intr = zhang_intrinsics(voted; center = _c)
             f̂x, f̂y = focal_length(intr)
             @test f̂x ≈ fx atol = 1.0e-6
             @test f̂y ≈ fy atol = 1.0e-6
+            # a bare homography weighs 1; Attributed and bare mix
+            @test focal_length(zhang_intrinsics([Hs[1:3]; [Attributed(H, (; weight = 1.0)) for H in Hs[4:end]]]; center = _c))[1] ≈ fx atol = 1.0e-6
+            pitch = Size2(width = 1.0μm / px, height = 1.0μm / px)
+            @test zhang_intrinsics(voted[1:end-1], pitch; center = _c) isa LogicalIntrinsics{Float64}
         end
 
         @testset "known pitch → single f (dispatch on Size2)" begin
@@ -73,9 +78,9 @@
 
         @testset "input validation" begin
             @test_throws ArgumentError zhang_intrinsics(HomographyMat{Float64}[]; center = _c)
-            @test_throws ArgumentError zhang_intrinsics(Hs; center = _c, weights = [1.0])
-            @test_throws ArgumentError zhang_intrinsics(Hs; center = _c, weights = [-1.0; ones(length(Hs) - 1)])
-            @test_throws ArgumentError zhang_intrinsics(Hs; center = _c, weights = [Inf; ones(length(Hs) - 1)])
+            @test_throws MethodError zhang_intrinsics(Hs; center = _c, weights = ones(length(Hs)))   # no weights vector
+            @test_throws ArgumentError zhang_intrinsics([Attributed(Hs[1], (; weight = -1.0)); Hs[2:end]]; center = _c)
+            @test_throws ArgumentError zhang_intrinsics([Attributed(Hs[1], (; weight = Inf)); Hs[2:end]]; center = _c)
         end
     end
 end

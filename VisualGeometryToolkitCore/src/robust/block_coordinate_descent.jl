@@ -423,30 +423,21 @@ function block_coordinate_descent!(
 end
 
 # =============================================================================
-# The incumbent — best-tracking of an instance that claims descent
+# The best iterate — best-tracking of an instance that claims descent
 # =============================================================================
 
 """
-    Incumbent(θ, cost)
+    keep_best(best, θ, cost) -> (best′, improved::Bool)
 
-The best iterate of a [`block_coordinate_descent!`](@ref) run and its cost. The
-loop never rejects an iterate, so an instance that claims descent keeps one: its
-`post_iteration!` offers every iterate to [`keep_best`](@ref), and its
-`block_coordinate_result` returns `incumbent.θ`. Immutable, so a state holds it
-inline and replacing it allocates nothing.
+Best-tracking for a [`block_coordinate_descent!`](@ref) instance that claims
+descent. The loop never rejects an iterate, so such an instance keeps its best
+one as `best = Attributed(θ, (; cost))` (`cost` a `Float64`): its
+`post_iteration!` offers every iterate here, and its `block_coordinate_result`
+returns `best.value`. Returns `(Attributed(θ, (; cost)), true)` when `cost` is
+STRICTLY below `best.cost`, and `(best, false)` otherwise. Pure and
+allocation-free: the caller stores the result.
 """
-struct Incumbent{M}
-    θ::M
-    cost::Float64
-end
-
-"""
-    keep_best(incumbent, θ, cost) -> (incumbent′, improved::Bool)
-
-`(Incumbent(θ, cost), true)` when `cost` is STRICTLY below the incumbent's, and
-`(incumbent, false)` otherwise. Pure: the caller stores the result.
-"""
-@inline function keep_best(inc::Incumbent{M}, θ, cost::Real) where {M}
-    improved = cost < inc.cost
-    return (improved ? Incumbent{M}(θ, Float64(cost)) : inc), improved
+@inline function keep_best(best::Attributed{M, @NamedTuple{cost::Float64}}, θ, cost::Real) where {M}
+    improved = cost < best.cost
+    return (improved ? Attributed{M, @NamedTuple{cost::Float64}}(θ, (; cost = Float64(cost))) : best), improved
 end

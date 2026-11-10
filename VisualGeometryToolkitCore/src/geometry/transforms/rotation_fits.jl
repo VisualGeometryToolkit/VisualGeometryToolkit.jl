@@ -68,7 +68,7 @@ function chordal_mean(Rs::AbstractVector{<:Union{Rotation{3}, StaticMatrix{3, 3}
 end
 
 """
-    spectral_rotation_averaging(relative[, weights]) -> Dict{K, RotMatrix{3, Float64}}
+    spectral_rotation_averaging(relative) -> Dict{K, RotMatrix{3, Float64}}
 
 Spectral chordal rotation averaging (Singer 2011; Arie-Nachimson et al. 2012):
 the absolute rotations of a set of frames from their relative rotations,
@@ -83,28 +83,27 @@ eigenvectors; each `3 × 3` block of them is projected onto SO(3)
 proper), and the result is gauged so the first of the sorted frames is the
 identity (the common frame is that frame's). Symmetric in the frames, exact on
 consistent relative rotations, one eigendecomposition — the seed of a robust
-rotation averaging, not a robust estimator. `weights` (an `AbstractDict` with
-the same keys, non-negative) weigh the pairs; all ones by default. A
-zero-weight pair contributes nothing, so frames that no pair of positive weight
+rotation averaging, not a robust estimator. A pair carries its non-negative
+weight as `Attributed(R_ij, (; weight))`, read with [`weight_of`](@ref); a bare
+`R_ij` weighs 1. A zero-weight pair contributes nothing, so frames that no pair of positive weight
 connects are an `ArgumentError` (a zero-weight bridge splits the graph).
 """
-function spectral_rotation_averaging(relative::AbstractDict{<:Tuple{K, K}}, weights::Union{Nothing, AbstractDict} = nothing) where {K}
+function spectral_rotation_averaging(relative::AbstractDict{<:Tuple{K, K}}) where {K}
     isempty(relative) && throw(ArgumentError("spectral_rotation_averaging: no relative rotations"))
     frames = sort!(unique!(collect(Iterators.flatten(keys(relative)))))
-    w_of(p) = weights === nothing ? 1.0 : Float64(weights[p])
-    for p in keys(relative)
-        w_of(p) >= 0 || throw(ArgumentError("spectral_rotation_averaging: weight $(w_of(p)) of the pair $p is negative"))
+    for (p, e) in relative
+        weight_of(e) >= 0 || throw(ArgumentError("spectral_rotation_averaging: weight $(weight_of(e)) of the pair $p is negative"))
     end
     # a zero-weight pair contributes no block: connectivity is over the pairs that carry weight
-    _check_connected(frames, [p for p in keys(relative) if w_of(p) > 0])
+    _check_connected(frames, [p for (p, e) in relative if weight_of(e) > 0])
     n = length(frames); idx = Dict(k => a for (a, k) in enumerate(frames))
     A = zeros(3n, 3n); deg = ones(n)
     for a in 1:n
         A[(3a - 2):(3a), (3a - 2):(3a)] .= I(3)
     end
-    for ((i, j), Rij) in relative
-        w = w_of((i, j))
-        a, b = idx[i], idx[j]; M = w * SMatrix{3, 3, Float64, 9}(Rij)   # block (b, a) = R_bᵀR_a = R_ij
+    for ((i, j), e) in relative
+        w = weight_of(e)
+        a, b = idx[i], idx[j]; M = w * SMatrix{3, 3, Float64, 9}(value_of(e))   # block (b, a) = R_bᵀR_a = R_ij
         A[(3b - 2):(3b), (3a - 2):(3a)] .+= M
         A[(3a - 2):(3a), (3b - 2):(3b)] .+= M'
         deg[a] += w; deg[b] += w

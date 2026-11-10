@@ -442,11 +442,8 @@ const _CAMERAS_SPEC = _Checked(
     end,
 )
 
-_bounded(c::BoundedCamera) = c
-_bounded(c::Attributed) = getfield(c, :value)
-
 function _camera_entry(s::VgioStyle, name::Symbol, c::_StoredCamera)
-    bc = _bounded(c)
+    bc = value_of(c)
     e = merge((name = String(name),), _with_pitch(_camera_body(s, bc.camera, extent(bc)), sensor(bc), s.length_unit),
               _lens_coverage_json(s, lens_coverage(bc), extent(bc)))
     return c isa Attributed ? merge(e, (calibration = _calibration_json(c.calibration),)) : e
@@ -476,7 +473,7 @@ function save(path::AbstractString, cameras::AbstractDict{Symbol}; length_unit::
         )
         isempty(String(name)) && throw(ArgumentError("a camera name is non-empty — it is the identity a config refers to"))
     end
-    pitched = any(c -> sensor(_bounded(c)) !== nothing, values(cameras))
+    pitched = any(c -> sensor(value_of(c)) !== nothing, values(cameras))
     s = VgioStyle(; length_unit)
     body = merge(
         (schema = _schema("cameras"), pixel_frame = pixel_frame_name(CANONICAL_PIXEL_FRAME)),
@@ -567,12 +564,12 @@ function load(
         length(store) == 1 || throw(
             ArgumentError("$(path) holds $(length(store)) cameras; supply `name` — one of $(sort!(String.(collect(keys(store)))))")
         )
-        return _bounded(only(values(store)))
+        return value_of(only(values(store)))
     end
     haskey(store, Symbol(name)) || throw(
         ArgumentError("no camera named $(repr(String(name))); available: $(sort!(String.(collect(keys(store)))))")
     )
-    return _bounded(store[Symbol(name)])
+    return value_of(store[Symbol(name)])
 end
 
 function load(
@@ -624,7 +621,7 @@ TWO LOSSES, both deliberate and both surfaced rather than papered over:
 function colmap_cameras(cameras::AbstractDict{Symbol})
     names = sort!(collect(keys(cameras)))
     cams = [
-        (bc = _bounded(cameras[n]); e = extent(bc); colmap_camera(bc.camera, i, e.width, e.height))
+        (bc = value_of(cameras[n]); e = extent(bc); colmap_camera(bc.camera, i, e.width, e.height))
             for (i, n) in enumerate(names)
     ]
     return cams, Dict(n => i for (i, n) in enumerate(names))

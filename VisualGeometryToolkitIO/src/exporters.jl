@@ -113,7 +113,7 @@ function save_bop_scene(
     for t in ts
         name = Symbol(tp.sensors[t])
         haskey(cameras, name) || throw(ArgumentError("save_bop_scene: frame $(t)'s sensor $(repr(tp.sensors[t])) is not among the cameras"))
-        cm = model(_bounded(cameras[name]))
+        cm = model(value_of(cameras[name]))
         (cm.lens isa Pinhole || undistorted) || throw(
             ArgumentError(
                 "save_bop_scene: camera $(name) has a lens; BOP's K is a pinhole — state `undistorted = true` " *

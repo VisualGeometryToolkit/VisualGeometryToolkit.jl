@@ -172,7 +172,7 @@ import ..VisualGeometryToolkitCore: Extrinsics3   # Import to extend constructor
 using ..VisualGeometryToolkitCore: _cross2d   # the 2-D cross product (base/coordinates.jl): radial_camera_5pt
 using ..VisualGeometryToolkitCore: _AffinePlanarMap   # the affine-class maps RadialCamera's ∘ accepts (calibration.jl)
 using ..VisualGeometryToolkitCore: rescale_radial_coeff   # the one radial-coefficient scaling law (radial_models.jl; _rescale_lens)
-using ..VisualGeometryToolkitCore: check_weights
+using ..VisualGeometryToolkitCore: check_weights, weight_of, value_of   # a homography's weight and value (zhang_intrinsics)
 import ..VisualGeometryToolkitCore: propagate   # extended for FramedAffine (imaging_chain.jl)
 using ..VisualGeometryToolkitCore: CovMat, PrecMat, Uncertain, _junction_ok, _check_junction   # the checked statistical forms and the one frame-junction rule (base/frames.jl)
 import ..VisualGeometryToolkitCore: constraint_with_jacobians   # extended for the radial camera and the division lift (calibration.jl), the full camera (camera_models.jl)

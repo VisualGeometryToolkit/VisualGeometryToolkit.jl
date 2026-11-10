@@ -11,7 +11,7 @@ using Test, Random, LinearAlgebra, StaticArrays
 using StableRNGs
 using Rotations: RotXYZ
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: CameraModel, Point2, Vec3, csponds, estimate, retcode, iterations, Incumbent,
+using VisualGeometryToolkitCore: CameraModel, Point2, Vec3, csponds, estimate, retcode, iterations, Attributed,
     WelschShape, GemanMcclureShape, HuberShape, block_coordinate_descent!, Recorded, current_cost, MsacScoring
 using VisualGeometryToolkitEstimation
 const VgtkEstimation = VisualGeometryToolkitEstimation
@@ -92,7 +92,7 @@ end
 snap(x::Union{Number, Symbol, Nothing}) = x
 snap(x::AbstractArray{<:Number}) = collect(x)
 snap(x::StaticArray) = Tuple(x)
-snap(x::Incumbent) = (snap(x.θ), x.cost)
+snap(x::Attributed{<:Any, @NamedTuple{cost::Float64}}) = (snap(x.value), x.cost)   # an incumbent
 snap(x) = isbits(x) ? x : nameof(typeof(x)) in (:PosteriorWeightState, :_PositionalDivisionState, :MuLadderState) ?
     Tuple(snap(getfield(x, i)) for i in 1:fieldcount(typeof(x))) : :skipped
 snap_state(st) = Tuple(snap(getfield(st, i)) for i in 1:fieldcount(typeof(st)))

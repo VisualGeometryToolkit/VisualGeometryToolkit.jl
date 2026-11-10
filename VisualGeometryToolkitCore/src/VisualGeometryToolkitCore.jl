@@ -386,6 +386,7 @@ export AffineMap, Translation
 # -----------------------------------------------------------------------------
 # Core composition primitive (defined in base/types.jl)
 export Attributed
+public weight_of, value_of         # a datum's weight (1.0 without one) and its wrapped value
 export AbstractDetection           # = Attributed{<:Union{FeatureFrame, Uncertain{<:FeatureFrame}}}
 export feature_frame               # Interface function stub: a detection's feature frame
 public BoundedRange                # Validated range type
@@ -603,8 +604,9 @@ public init_state!, update_model!, update_residuals!, post_iteration!,
 public initialize_solver!, step_solver!, stop_solver!,
     StoppingCriterion, stop_reason, StopAfterIteration, StopWhenSolveFailed, StopNever, StopWhenAny,
     Recorded, current_cost, current_s2
-# Best-tracking of an instance that claims descent (robust/block_coordinate_descent.jl).
-public Incumbent, keep_best
+# Best-tracking of an instance that claims descent (robust/block_coordinate_descent.jl):
+# the best iterate is `Attributed(θ, (; cost))`.
+public keep_best
 # The chart LM (robust/lm_core.jl): NLLSsolver on the row protocol below;
 # `lmsolve_chart!` stays internal (import-by-name), the workspace type is public.
 public ManifoldLmWorkspace

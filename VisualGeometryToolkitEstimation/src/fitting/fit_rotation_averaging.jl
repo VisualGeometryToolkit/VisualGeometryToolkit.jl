@@ -93,10 +93,10 @@ function fit_rotation_averaging(
     loss isa VgtkCore.AbstractMEstimator || scale_multiple !== nothing || throw(ArgumentError(
         "fit_rotation_averaging: the loss $(nameof(typeof(loss))) has no efficiency default; give its width as `scale_multiple`"))
     edges = sort!(collect(keys(relative)))
-    p = [_edge_weight(relative[e]) for e in edges]
+    p = [VgtkCore.weight_of(relative[e]) for e in edges]
     all(>=(0), p) || throw(ArgumentError("fit_rotation_averaging: an edge weight is negative"))
     any(>(0), p) || throw(ArgumentError("fit_rotation_averaging: every edge weight is zero"))
-    Rrel = [SMatrix{3, 3, Float64, 9}(_relative(relative[e])) for e in edges]
+    Rrel = [SMatrix{3, 3, Float64, 9}(VgtkCore.value_of(relative[e])) for e in edges]
     start = _averaging_seed(seed, edges, Rrel, p)
     frames = sort!(collect(keys(start)))
     R = Dict(k => SMatrix{3, 3, Float64, 9}(start[k]) for k in frames)
@@ -201,7 +201,7 @@ function _averaging_seed(seed, edges, Rrel, p)
     vg = ViewGraph(frames, live)
     length(components(vg)) == 1 || throw(ArgumentError("fit_rotation_averaging: the edges of positive weight do not connect every frame"))
     seed === :spectral &&
-        return VgtkCore.spectral_rotation_averaging(Dict(e => _relative(a) for (e, a) in live), Dict(e => _edge_weight(a) for (e, a) in live))
+        return VgtkCore.spectral_rotation_averaging(live)
     seed === :spanning_tree && return chain(vg, first(frames); identity = one(SMatrix{3, 3, Float64, 9}), inverse = transpose)
     missing_frames = [k for k in frames if !haskey(seed, k)]
     isempty(missing_frames) || throw(ArgumentError("fit_rotation_averaging: the seed has no rotation for the frames $missing_frames"))

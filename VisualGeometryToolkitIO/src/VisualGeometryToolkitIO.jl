@@ -107,7 +107,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Even,
     lens_record, lens_from_record, sha256_hex,
     EuclideanMap, Size2, Vec3, PixelFrame,
-    Rig, PosedTarget, BoundedCamera, PosedCamera, Attributed, sensor_rig, target_rig, Sensor, sensor,
+    Rig, PosedTarget, BoundedCamera, PosedCamera, Attributed, value_of, sensor_rig, target_rig, Sensor, sensor,
     AbstractTarget, PointTarget, PlanarTarget, TargetCalibration, calibration, reference, is_resolved, Board, board,
     Canvas, CanvasTexture, canvas, placement, SimilarityMap, scale, translation,
     AbstractTargetLayout, AprilGrid, SchoepsPattern, layout, design, TARGET_LAYOUT_TAGS, tag_of,

@@ -70,6 +70,13 @@ const _ITERATION_WORDS = ("iter", "iters", _IT, _IT * "s")
 # retired in one form lists each form it took. Names renamed by the naming
 # sweep are listed here as they are renamed.
 const RETIRED_NAMES = String[
+    # a value with its cost is Core's `Attributed(θ, (; cost))` (`keep_best`) (2026-11). Only the
+    # forms Core's type took are listed: Eval's tuning `Incumbent` (a search's setting in force and
+    # its bootstrap test) is a different concept and keeps the bare word
+    "Incumbent" * "{M}", "VisualGeometryToolkitCore" * ".Incumbent", "VgtkCore" * ".Incumbent",
+    "_edge" * "_weight",                      # an edge's weight is Core's `weight_of` (2026-11)
+    "_rel" * "ative",                         # an edge's transform is Core's `value_of` (2026-11)
+    "_bou" * "nded",                          # a stored camera's BoundedCamera is Core's `value_of` (2026-11)
     "_grid" * "_golden_minimum",            # the one 1-D minimizer is public: `grid_golden_minimum` (2026-11)
     "_lens" * "_axis",                      # the forward spline's chart is about ẑ, not the principal point's ray: `_forward_chart()` (2026-11)
     "fit" * "_height_field",                  # a one-step algorithm is no `fit_*` (the estimators guide): `HeightField(nodes, points .=> heights; smoothing)` (2026-11)

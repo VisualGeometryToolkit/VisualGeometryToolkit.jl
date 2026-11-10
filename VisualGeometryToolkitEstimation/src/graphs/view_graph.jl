@@ -154,12 +154,8 @@ bridges(vg::ViewGraph) = sort!([_pair(vg, Graphs.src(e), Graphs.dst(e)) for e in
 
 _pair(vg::ViewGraph, a::Int, b::Int) = (i = vg.views[a]; j = vg.views[b]; isless(i, j) ? (i, j) : (j, i))
 
-# An edge's relative transform and its weight: the value and the `weight` attribute of an `Attributed`
-# edge; a bare transform is its own value and weighs 1.
-_relative(e) = e
-_relative(e::VgtkCore.Attributed) = e.value
-_edge_weight(e) = 1.0
-_edge_weight(e::VgtkCore.Attributed) = hasproperty(e.attributes, :weight) ? Float64(e.weight) : 1.0
+# An edge's relative transform and its weight are VGC's `value_of` and `weight_of`: the value and the
+# `weight` attribute of an `Attributed` edge; a bare transform is its own value and weighs 1.
 
 """
     spanning_tree(vg::ViewGraph) -> Vector{Tuple}
@@ -174,7 +170,7 @@ function spanning_tree(vg::ViewGraph)
     I = Int[]; J = Int[]; V = Float64[]
     for ((i, j), e) in vg.edges
         a, b = vg.index[i], vg.index[j]
-        x = _edge_weight(e)
+        x = VgtkCore.weight_of(e)
         x > 0 || throw(ArgumentError("spanning_tree: the edge $((i, j)) has a non-positive weight $x"))
         append!(I, (a, b)); append!(J, (b, a)); append!(V, (x, x))
     end
@@ -207,8 +203,8 @@ function chain(vg::ViewGraph, root; compose = *, inverse = inv, identity)
         u = popfirst!(queue)
         for v in sort!(adj[u])
             haskey(out, v) && continue
-            out[v] = isless(u, v) ? compose(out[u], inverse(_relative(vg[u, v]))) :
-                                    compose(out[u], _relative(vg[v, u]))
+            out[v] = isless(u, v) ? compose(out[u], inverse(VgtkCore.value_of(vg[u, v]))) :
+                                    compose(out[u], VgtkCore.value_of(vg[v, u]))
             push!(queue, v)
         end
     end
@@ -264,7 +260,7 @@ The angle (radians) by which the rotations of a triangle's edges fail to close:
 The residual of [`filter_cycles`](@ref) for rotation edges (each edge a rotation
 or an `Attributed` one).
 """
-rotation_loop_angle(ij, jk, ik) = _rotation_angle(_m3(_relative(ik))' * _m3(_relative(jk)) * _m3(_relative(ij)))
+rotation_loop_angle(ij, jk, ik) = _rotation_angle(_m3(VgtkCore.value_of(ik))' * _m3(VgtkCore.value_of(jk)) * _m3(VgtkCore.value_of(ij)))
 
 # The angle (radians) of a rotation, as fit_rotation_averaging measures its residuals: ‖log R‖.
 _rotation_angle(R) = norm(VgtkCore.log_so3(R))
@@ -281,6 +277,6 @@ An edge with a view missing from `world_from` stays.
 """
 function filter_by_orientation(vg::ViewGraph{K, E}, world_from::AbstractDict; tol::Real) where {K, E}
     agrees(i, j, e) = !(haskey(world_from, i) && haskey(world_from, j)) ||
-        _rotation_angle(_m3(world_from[j]) * _m3(_relative(e)) * _m3(world_from[i])') <= tol
+        _rotation_angle(_m3(world_from[j]) * _m3(VgtkCore.value_of(e)) * _m3(world_from[i])') <= tol
     return ViewGraph(vg.views, Dict{Tuple{K, K}, E}(p => e for (p, e) in vg.edges if agrees(p..., e)))
 end

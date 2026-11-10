@@ -353,7 +353,7 @@ Either way the target records its layout, so `save` writes it as one.
 """
 function load(::Type{PlanarTarget}, path::AbstractString; resolve = nothing)
     t = load(AbstractTarget, path; resolve)
-    geom_t = t isa Attributed ? t.value : t
+    geom_t = value_of(t)
     geom_t isa PlanarTarget || throw(ArgumentError("$(path) holds a $(nameof(typeof(geom_t))), not a PlanarTarget"))
     return t
 end

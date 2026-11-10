@@ -56,7 +56,7 @@
         noisy[(8, 9)] = RotMatrix(RotationVec(-0.6, 0.0, 0.0)) * rel(8, 9)
         p = Dict(e => (9 in e ? 1.0e-3 : 1.0) for e in keys(noisy))
         res = fit_rotation_averaging(weighted(noisy, p); loss = TLSShape(), scale_multiple = 3.0)
-        seed = spectral_rotation_averaging(noisy, p)
+        seed = spectral_rotation_averaging(weighted(noisy, p))
         @test res.irls_weights[(7, 9)] == 0 && res.irls_weights[(8, 9)] == 0
         @test all(isfinite, estimate(res)[9])
         @test SMatrix{3, 3}(estimate(res)[9]) ≈ SMatrix{3, 3}(seed[9]) atol = 1.0e-9

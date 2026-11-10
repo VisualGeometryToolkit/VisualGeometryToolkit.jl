@@ -18,5 +18,14 @@
 - Nest only a measurement with its evidence: `A_i => csponds(X, u)` (a rig
   pose => that frame's features) in `refine_robot_world_hand_eye`.
 - **Keywords are configuration only.**
+- A value carried between stages carries its per-datum attributes as
+  `Attributed(x, attrs)` (`Attributed(H, (; weight))`, `Attributed(R_ij, (; weight))`):
+  a stage reads the weight with `weight_of` (1.0 for a bare value) and the
+  value with `value_of`, never from a parallel `weights` vector or keyword.
+  `Attributed` is for the data, not for wrapping results.
+- A fit returns a `FitResult`; its extras go in its metadata. Several fits
+  come back keyed by what was fitted (a `Dict`). Per-datum outputs are
+  index-aligned in the metadata, and callers attach them to their data with
+  `withattrs`.
 - Minimal-solver kernels stay positional internals (public, not exported);
   the public entry is `solve(solver, cs, idx)`.

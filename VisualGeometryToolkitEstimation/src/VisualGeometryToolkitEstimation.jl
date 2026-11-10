@@ -131,12 +131,12 @@ using VisualGeometryToolkitCore: StoppingCriterion
 # The chart-rows contract (VGC robust/rows.jl: the rows a lifted local
 # optimizer reads, and the one task-local reuse policy) — RVG's chart problems
 # provide it (`import`) — the chart-LM core and protocol (VGC
-# robust/lm_core.jl) and the incumbent of a descent run (VGC
-# robust/block_coordinate_descent.jl). Internal helpers imported by name; the
+# robust/lm_core.jl) and the incumbent of a descent run, `Attributed(θ, (; cost))`
+# (VGC robust/block_coordinate_descent.jl). Internal helpers imported by name; the
 # chart-LM protocol is `import`ed so every problem's linearization state adds
 # its methods to VGC's functions.
 using VisualGeometryToolkitCore: RowsWorkspace, rows_workspace, task_buffers, point_norms!,
-    ManifoldLmWorkspace, lm_workspace_type, lmsolve_chart!, fill_sqrt_weights!, Incumbent, keep_best,
+    ManifoldLmWorkspace, lm_workspace_type, lmsolve_chart!, fill_sqrt_weights!, keep_best, Attributed,
     lm_retcode, loss_robustifier
 import VisualGeometryToolkitCore: residual_rows!, residual_jacobian_rows!
 import VisualGeometryToolkitCore: division_coeffs   # RadialHomography's coefficients; DivisionCameraState's method is ours

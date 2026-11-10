@@ -51,6 +51,12 @@ p.attributes   # the depth
 - **Scored correspondences.** [`ScoredCspond`](@ref) is
   `Attributed{Pair, Float64}` — even scalar metadata uses the same
   pattern.
+- **Per-datum weights.** A value carried between stages carries its weight
+  as `Attributed(x, (; weight))` — a homography's vote in
+  [`zhang_intrinsics`](@ref), a relative rotation's in
+  [`spectral_rotation_averaging`](@ref), a view-graph edge's — and a stage
+  reads it with [`weight_of`](@ref) (1.0 for a bare value) and the value with
+  [`value_of`](@ref): never a parallel `weights` vector.
 
 Downstream packages use `Attributed` for their own value-plus-attributes
 pairs and `FitResult` for their estimator results (RANSAC estimates, IRLS

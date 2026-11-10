@@ -4,6 +4,9 @@
 
 On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
 
+- A stored camera's `BoundedCamera` and a loaded target's geometry are read with Core's `value_of` (the private
+  `_bounded` is gone); nothing a caller sees changes.
+
 - **Breaking: a target's placement reads back as Core's `SimilarityMap{3}`** (scale the chart's side, the identity
   rotation, the translation `(origin, 0)`, plain metres), formerly a `ChartPlacement` with lengths; the record keeps its
   `"placement": {"origin", "side"}` keys, so every file reads as before. Writing a placed target without lengths

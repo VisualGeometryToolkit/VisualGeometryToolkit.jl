@@ -33,14 +33,16 @@ function _iac_rows(H::HomographyMat)
     return r1, r2
 end
 
-function _iac_system(Hs, weights)
+# The stacked rows of the homographies `Hs` (read about the principal point),
+# each scaled by the square root of its weight `ws[i]`.
+function _iac_system(Hs, ws)
     n = length(Hs)
     n ≥ 1 || throw(ArgumentError("zhang_intrinsics needs at least one homography"))
-    check_weights(weights, n)
+    check_weights(ws, n)
     A = Matrix{Float64}(undef, 2n, 2)
     c = Vector{Float64}(undef, 2n)
     for (i, H) in enumerate(Hs)
-        w = weights === nothing ? 1.0 : sqrt(Float64(weights[i]))
+        w = sqrt(ws[i])
         r1, r2 = _iac_rows(H)
         A[2i - 1, 1] = w * r1[1]; A[2i - 1, 2] = w * r1[2]; c[2i - 1] = -w * r1[3]
         A[2i, 1] = w * r2[1]; A[2i, 2] = w * r2[2]; c[2i] = -w * r2[3]
@@ -60,7 +62,7 @@ function _iac_focal(x)
 end
 
 """
-    zhang_intrinsics(Hs; center, weights = nothing) -> LogicalIntrinsics{Float64}
+    zhang_intrinsics(Hs; center) -> LogicalIntrinsics{Float64}
 
 The calibration from plane→image homographies by Zhang's IAC constraints —
 one linear least-squares step, assuming zero skew and the principal point at
@@ -69,12 +71,13 @@ caller's pixels; they are read about `center` internally, and the result is
 in the caller's pixels: `K = [fx 0 cx; 0 fy cy; 0 0 1]` with `(cx, cy) =
 center`. Each homography contributes two linear equations on
 `(1/fx², 1/fy²)`; the overdetermined system is solved by (optionally
-weighted) least squares. `weights` holds one non-negative vote strength per
-homography (e.g. inlier counts). Throws `ArgumentError` when the set is
-degenerate — all views near fronto-parallel leave the IAC unobservable.
+weighted) least squares. A homography carries its weight, a non-negative vote
+strength (e.g. an inlier count), as `Attributed(H, (; weight))`, read with
+[`weight_of`](@ref); a bare `H` weighs 1. Throws `ArgumentError` when the set
+is degenerate — all views near fronto-parallel leave the IAC unobservable.
 """
-function zhang_intrinsics(Hs::AbstractVector{<:HomographyMat}; center, weights = nothing)
-    A, c = _iac_system(_about_center(Hs, center), weights)
+function zhang_intrinsics(Hs::AbstractVector; center)
+    A, c = _iac_system(_about_center(Hs, center), weight_of.(Hs))
     F = svd(A)
     F.S[2] > 1.0e-10 * F.S[1] || throw(
         ArgumentError(
@@ -92,14 +95,14 @@ end
 # by −center: the IAC system is written with the principal point at the
 # origin), and the K back in the caller's pixels.
 _about_center(Hs, center) =
-    [HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(1, 0, 0, 0, 1, 0, -center[1], -center[2], 1) * SMatrix{3, 3, Float64}(H))) for H in Hs]
+    [HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(1, 0, 0, 0, 1, 0, -center[1], -center[2], 1) * SMatrix{3, 3, Float64}(value_of(H)::HomographyMat))) for H in Hs]
 # The pixel K literal (focal lengths `fx`, `fy`, principal point `center`, no
 # skew) — the one spelling — and the intrinsics wrapping it.
 _pixel_K(fx, fy, center) = SMatrix{3, 3, Float64, 9}(fx, 0, 0, 0, fy, 0, center[1], center[2], 1)
 pixel_intrinsics(fx, fy, center) = LogicalIntrinsics(CameraCalibrationMat(_pixel_K(fx, fy, center)))
 
 """
-    zhang_intrinsics(Hs, pitch::Size2; center, weights = nothing) -> LogicalIntrinsics{Float64}
+    zhang_intrinsics(Hs, pitch::Size2; center) -> LogicalIntrinsics{Float64}
 
 Known-sensor variant: with the pixel pitch given, the aspect ratio is fixed
 (`fy/fx = pitch.width / pitch.height`) and only a single focal length remains.
@@ -108,14 +111,14 @@ weighted least squares — this stays well-posed even for view sets that cannot
 separate `fx` from `fy`. The metric focal length is `fx * pitch.width`.
 """
 function zhang_intrinsics(
-        Hs::AbstractVector{<:HomographyMat}, pitch::Size2;
-        center, weights = nothing
+        Hs::AbstractVector, pitch::Size2;
+        center
     )
     # px is dimensionless, so a length per pixel is a length (3.9μm == 3.9μm/px)
     all(c -> dimension(c) == dimension(mm / px), pitch) ||
         throw(ArgumentError("pitch must be a length per pixel, got $pitch"))
     τ = ustrip(pitch.width / pitch.height)   # fy/fx, dimensionless: fx = f/pitch_x, fy = f/pitch_y
-    A, c = _iac_system(_about_center(Hs, center), weights)
+    A, c = _iac_system(_about_center(Hs, center), weight_of.(Hs))
     u = A[:, 1] .+ A[:, 2] ./ τ^2            # b = a/τ²
     den = dot(u, u)
     den > 0 || throw(ArgumentError("IAC system is degenerate — no constraint on f"))

@@ -5,6 +5,11 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Breaking: a view-graph edge's weight and transform are Core's `weight_of` and `value_of`** (the private
+  `_edge_weight`/`_relative` are gone; an edge without `:weight` still weighs 1). `fit_rotation_averaging`'s spectral
+  seed hands Core's `spectral_rotation_averaging` the live (weight > 0) `Attributed` edges directly.
+- **Breaking: `PosteriorIrlsState.best` is Core's `Attributed(θ, (; cost))`**, formerly an `Incumbent`.
+
 - **New: view graphs.** `ViewGraph` (frames and their verified pairs, Graphs.jl underneath; an edge is the pair's
   relative transform or Core's `Attributed(transform, (; weight))`, a bare transform weighing 1) with
   `spanning_tree`, `chain`, `filter_cycles` (Theia's rule: an edge stays when one of its triangles closes to `tol`),

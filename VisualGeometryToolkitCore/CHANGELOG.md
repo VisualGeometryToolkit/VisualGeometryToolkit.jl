@@ -5,6 +5,18 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New: `weight_of(x)` and `value_of(x)`** (public, not exported): a datum's weight (the `weight` attribute of an
+  `Attributed(x, (; weight))`, as `Float64`; `1.0` for a bare value or one without `:weight`) and its value. Weights
+  travel with their data as `Attributed` values; `conventions/data-arguments.md` states the rule (a fit returns a
+  `FitResult`, several fits a `Dict` keyed by what was fitted, per-datum outputs index-aligned in the metadata and
+  attached by the caller with `withattrs`).
+- **Breaking: `zhang_intrinsics(Hs[, pitch]; center)` reads each homography's weight off the data**: a homography is
+  bare (weight 1) or `Attributed(H, (; weight))`. The `weights` keyword is gone.
+- **Breaking: `spectral_rotation_averaging(relative)` reads each pair's weight off the data**: a relative rotation is
+  bare (weight 1) or `Attributed(R_ij, (; weight))`. The positional `weights` dictionary is gone.
+- **Breaking: `Incumbent` is retired**: the best iterate of a descent is `Attributed(θ, (; cost))`, and
+  `keep_best(best, θ, cost)` takes and returns one (`best.value`, `best.cost`).
+
 - **`spectral_rotation_averaging` computes only its three leading eigenvectors** (the symmetric eigensolver's range
   form): the same rotations, about 4× faster at 300 frames.
 - **Breaking: a placed target's placement is Core's `SimilarityMap{3}`** (scale the chart's side, the identity

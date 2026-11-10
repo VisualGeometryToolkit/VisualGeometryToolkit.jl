@@ -1086,6 +1086,28 @@ end
     return :((:value, :attributes, $(QuoteNode.(attr_names)...)))
 end
 
+"""
+    weight_of(x) -> Float64
+
+The weight a stage reads off a datum: the `weight` attribute of an
+[`Attributed`](@ref) value (`Attributed(R, (; weight))`), as `Float64`, and
+`1.0` for an `Attributed` without one or a bare value. Weights travel with
+their data this way, never as a parallel vector (`data-arguments.md`).
+"""
+weight_of(::Any) = 1.0
+weight_of(a::Attributed{V, A}) where {V, A} =
+    hasfield(A, :weight) ? Float64(getfield(getfield(a, :attributes), :weight)) : 1.0
+
+"""
+    value_of(x)
+
+The value a datum carries: the wrapped value of an [`Attributed`](@ref), and a
+bare value itself. The twin of [`weight_of`](@ref), for a stage that takes
+either.
+"""
+value_of(x) = x
+value_of(a::Attributed) = getfield(a, :value)
+
 # The one constructor: the form is a CovMat or a PrecMat, never a bare matrix or
 # a scalar — which form is stored is part of the value, so the caller states it.
 # Anything else is a MethodError (`Attributed(v, Σ::SMatrix)` is a plain

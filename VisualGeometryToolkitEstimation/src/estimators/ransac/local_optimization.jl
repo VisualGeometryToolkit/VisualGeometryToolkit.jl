@@ -87,10 +87,10 @@ mutable struct PosteriorIrlsState{M, T}
     # the cost drops, so `locally_optimize!` can hand them off to the scoring
     # buffers at IRLS exit and let Phase 3 skip a redundant mahalanobis_distances!() sweep.
     best_residuals::Vector{T}
-    # The incumbent (VGC `Incumbent`) and the current cost. Costs are Float64
-    # regardless of the workspace storage T: the stop rule compares running
-    # sums Σwᵢrᵢ², whose resolution must not degrade with Float32 storage.
-    best::Incumbent{M}
+    # The incumbent, `Attributed(θ, (; cost))` (VGC `keep_best`), and the current
+    # cost. Costs are Float64 regardless of the workspace storage T: the stop rule
+    # compares running sums Σwᵢrᵢ², whose resolution must not degrade with Float32 storage.
+    best::Attributed{M, @NamedTuple{cost::Float64}}
     current_cost::Float64
     # Whether the LAST iteration lowered the incumbent cost — written by
     # `post_iteration!`, read by the stopping criterion (`StopWhenNoImprovement`).
@@ -114,7 +114,10 @@ workspace ([`posterior_irls!`](@ref)) or any caller's own.
 """
 PosteriorIrlsState(rws::PosteriorWeightState, residuals::Vector{T}, best_residuals::Vector{T},
                    θ₀::M, cost::Real) where {M, T} =
-    PosteriorIrlsState{M, T}(rws, residuals, best_residuals, Incumbent{M}(θ₀, cost), Float64(cost), false)
+    PosteriorIrlsState{M, T}(rws, residuals, best_residuals, _with_cost(M, θ₀, cost), Float64(cost), false)
+
+# The incumbent: the model `θ` (held as an `M`) with its cost, a Float64.
+_with_cost(::Type{M}, θ, cost::Real) where {M} = Attributed{M, @NamedTuple{cost::Float64}}(θ, (; cost = Float64(cost)))
 
 """
     consensus_posterior(L::LoBuffers, problem, cs::ConsensusSet, buf::ScoreBuffers, scoring, a::Float64)
@@ -176,7 +179,7 @@ end
 # The workspace's state, reset (its buffers are `L`'s), when it holds the
 # seed's model type; any other seed type builds its own state, as before.
 function _reset_irls_state!(state::PosteriorIrlsState{M}, _rws, _L, θ₀::M, cost) where {M}
-    state.best = Incumbent{M}(θ₀, cost)
+    state.best = _with_cost(M, θ₀, cost)
     state.current_cost = Float64(cost)
     state.improved = false
     return state
@@ -211,18 +214,18 @@ current_cost(state::PosteriorIrlsState) = state.current_cost
 # just reached (after its nuisance and E-step), the incumbent is the held model
 # at that cost, and the verdict is whether the NLL fell by more than `tol`
 # relative. The residuals never move, so there is nothing to copy.
-function post_iteration!(state::PosteriorIrlsState, method::PosteriorIrlsMethod{<:Any, KeepModel}, prob, θ, iter)
+function post_iteration!(state::PosteriorIrlsState{M}, method::PosteriorIrlsMethod{<:Any, KeepModel}, prob, θ, iter) where {M}
     nll = mixture_nll(state.rws, state.residuals, data_size(prob))
     previous = state.best.cost
     state.improved = previous - nll > method.model_update.tol * abs(previous)
     state.current_cost = nll
-    state.best = Incumbent(θ, nll)
+    state.best = _with_cost(M, θ, nll)
     return nothing
 end
 stopping_criterion(::PosteriorIrlsMethod{<:Any, KeepModel}) = StopWhenNoImprovement(1, 1)
 
 function block_coordinate_result(state::PosteriorIrlsState{M, T}, method::PosteriorIrlsMethod, prob, θ, stop_reason, final_iter) where {M, T}
-    return lo_estimate(state.best.θ, stop_reason; iterations = final_iter)
+    return lo_estimate(state.best.value, stop_reason; iterations = final_iter)
 end
 
 """
@@ -284,11 +287,11 @@ end
 # weights so the best-tracking/stop rule compares like with like. The posterior
 # keeps the seed state's own weights.
 _seed_policy_weights!(::PosteriorIrlsState, ::PosteriorLikelihood, ::Int) = nothing
-function _seed_policy_weights!(state::PosteriorIrlsState, lh, n::Int)
+function _seed_policy_weights!(state::PosteriorIrlsState{M}, lh, n::Int) where {M}
     update_nuisance!(lh)
     update_weights!(lh)
     cost = weighted_rss(robust_weight(state.rws), sq_distances(state.rws), n)
-    state.best = Incumbent(state.best.θ, cost)
+    state.best = _with_cost(M, state.best.value, cost)
     state.current_cost = cost
     return nothing
 end

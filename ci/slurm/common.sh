@@ -1,0 +1,77 @@
+# common.sh — the body every launcher of this directory shares, sourced from the repository root
+# (`source ci/slurm/common.sh`; Slurm copies a batch script into its spool, so suites.sbatch finds this file through
+# SLURM_SUBMIT_DIR, the repository root it was submitted from, never through $0).
+#
+# The environment it reads (all optional):
+#   JULIA                  the julia binary (default: julia on PATH)
+#   VGTK_SUITE_PACKAGES    the packages of a launch, space-separated, short or full names (default: all six, below)
+#   VGTK_SUITE_LOGS        the base of the log directories (default: ci/slurm/logs, git-ignored)
+#   RETESTITEMS_NWORKERS   the ReTestItems workers of one package (default: the task's CPUs minus one, at least 1)
+#   LO_TIMING_GATE         handed to the suites as set (VisualGeometryToolkitEstimation's LO timing gate: the release machine only)
+#   VGTK_BENCHMARK_TESTS   handed to the suites as set (the benchmark test items)
+# Every worker runs one Julia thread and one BLAS thread (JULIA_NUM_THREADS=1, OPENBLAS_NUM_THREADS=1): the parallelism is the
+# worker pool, sized from the CPUs the task was given.
+
+JULIA=${JULIA:-julia}
+command -v "$JULIA" > /dev/null || { echo "no julia binary \"$JULIA\" (set JULIA, or put julia on PATH)"; exit 2; }
+[ -f ci/slurm/common.sh ] || { echo "run from the repository root"; exit 2; }
+
+# The packages, in dependency order: the short name a launch may use, and the directory.
+VGTK_ALL_PACKAGES=(VisualGeometryToolkitCore VisualGeometryToolkitIO VisualGeometryToolkitEstimation
+                   VisualGeometryToolkitFeatures VisualGeometryToolkitEval PoseLib)
+
+# package_dir <name>: the package directory of a short or full name (Core, IO, Estimation, Features, Eval, PoseLib)
+package_dir() {
+  local n=$1
+  case $n in
+    Core|IO|Estimation|Features|Eval) n=VisualGeometryToolkit$n ;;
+  esac
+  [ -f "$n/Project.toml" ] && [ -d "$n/test" ] || { echo "unknown package $1 (no $n/Project.toml and $n/test)" >&2; return 2; }
+  echo "$n"
+}
+
+# selected_packages [names…]: the package directories of a launch, one per line — the names given, else VGTK_SUITE_PACKAGES,
+# else all six
+selected_packages() {
+  local names=("$@") n
+  [ ${#names[@]} -gt 0 ] || read -ra names <<< "${VGTK_SUITE_PACKAGES:-${VGTK_ALL_PACKAGES[*]}}"
+  for n in "${names[@]}"; do package_dir "$n" || return 2; done
+}
+
+# gpu_label: the GPUs this process sees, as the driver names them (index and UUID; under Slurm's device cgroup the index is the
+# job-local one, the UUID identifies the card)
+gpu_label() {
+  command -v nvidia-smi > /dev/null || { echo "none (no nvidia-smi)"; return; }
+  [ "${CUDA_VISIBLE_DEVICES-unset}" = "" ] && { echo "none (CUDA_VISIBLE_DEVICES empty)"; return; }
+  nvidia-smi --query-gpu=index,uuid --format=csv,noheader 2>/dev/null | paste -sd ';' - || echo "unknown"
+}
+
+# run_package <dir> <logdir> <cpus>: instantiate <dir>/test, then Pkg.test() of <dir>, into <logdir>/<dir>.log. The first and the
+# last lines of the log are this function's: what ran where, and `wall=<s>s exit=<code>`. Returns Pkg.test's exit code.
+run_package() {
+  local pkg=$1 logdir=$2 cpus=$3 log rc t0
+  log=$logdir/$pkg.log
+  export JULIA_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+  export RETESTITEMS_NWORKERS=${RETESTITEMS_NWORKERS:-$(( cpus > 1 ? cpus - 1 : 1 ))}
+  [ -n "${LO_TIMING_GATE:-}" ] && export LO_TIMING_GATE
+  [ -n "${VGTK_BENCHMARK_TESTS:-}" ] && export VGTK_BENCHMARK_TESTS
+  t0=$(date +%s)
+  {
+    echo "[$(date +%T)] package=$pkg commit=$(git rev-parse HEAD) host=$(hostname) job=${SLURM_ARRAY_JOB_ID:-${SLURM_JOB_ID:-local}}_${SLURM_ARRAY_TASK_ID:-}"
+    echo "[$(date +%T)] cpus=$cpus workers=$RETESTITEMS_NWORKERS gpu=$(gpu_label) LO_TIMING_GATE=${LO_TIMING_GATE:-} VGTK_BENCHMARK_TESTS=${VGTK_BENCHMARK_TESTS:-}"
+  } > "$log"
+  # The workspace has one Manifest at the root: the tasks of an array instantiate one at a time (a lock in the git directory).
+  {
+    flock 9
+    "$JULIA" --startup-file=no --project="$pkg/test" -e 'using Pkg; Pkg.instantiate()'
+  } 9> "$(git rev-parse --git-dir)/vgtk-suite-instantiate.lock" >> "$log" 2>&1
+  rc=$?
+  if [ $rc -eq 0 ]; then
+    "$JULIA" --startup-file=no --project="$pkg" -e 'using Pkg; Pkg.test()' >> "$log" 2>&1
+    rc=$?
+  else
+    echo "[$(date +%T)] instantiate of $pkg/test failed (exit $rc): no tests run" >> "$log"
+  fi
+  echo "[$(date +%T)] package=$pkg wall=$(( $(date +%s) - t0 ))s exit=$rc" >> "$log"
+  return $rc
+}

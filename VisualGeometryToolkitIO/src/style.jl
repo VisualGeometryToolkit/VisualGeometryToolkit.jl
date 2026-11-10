@@ -138,7 +138,7 @@ _from_parametric_record(proto, x, u) =
 # The principal point always goes through the frame conversion, the canonical
 # frame's identity included: its `+ 0.0` writes a stored `-0.0` as `0.0`, as
 # the camera bodies always have.
-_k_record(K::CameraCalibrationMat, frame::Type{<:PixelFrame}) = _k_five(VgtkCore.Cameras.reframed_calibration(K, CANONICAL_PIXEL_FRAME, frame))
+_k_record(K::CameraCalibrationMat, frame::Type{<:PixelFrame}) = _k_five(VgtkCore.Cameras.reframed_calibration(CANONICAL_PIXEL_FRAME, frame, K))
 _k_five(K) = (fx = Float64(K[1, 1]), fy = Float64(K[2, 2]), cx = Float64(K[1, 3]), cy = Float64(K[2, 3]), skew = Float64(K[1, 2]))
 _k_from_record(k) = CameraCalibrationMat(
     SMatrix{3, 3, Float64}(
@@ -146,7 +146,7 @@ _k_from_record(k) = CameraCalibrationMat(
     )
 )
 # …and the K a record states in `frame`, in the canonical frame.
-_k_from_record(k, frame::Type{<:PixelFrame}) = VgtkCore.Cameras.reframed_calibration(_k_from_record(k), frame, CANONICAL_PIXEL_FRAME)
+_k_from_record(k, frame::Type{<:PixelFrame}) = VgtkCore.Cameras.reframed_calibration(frame, CANONICAL_PIXEL_FRAME, _k_from_record(k))
 # the five numbers as an array, as stored (an old grid record's nominal pinhole,
 # the identity's intrinsics: no frame conversion, so a `-0.0` stays), and back
 _k_values(K::CameraCalibrationMat) = collect(Float64, _k_five(K))

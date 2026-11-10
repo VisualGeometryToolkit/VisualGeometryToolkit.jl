@@ -192,7 +192,7 @@ function save_opencv_calibration(
     )
     # The camera holds the principal point in the CANONICAL frame; put it back
     # into the convention the file is written in (Core's one pixel-frame change of a K).
-    Kf = VgtkCore.Cameras.reframed_calibration(camera.intrinsics.K, CANONICAL_PIXEL_FRAME, PixelFrame{image_origin})
+    Kf = VgtkCore.Cameras.reframed_calibration(CANONICAL_PIXEL_FRAME, PixelFrame{image_origin}, camera.intrinsics.K)
     cx, cy = Float64(Kf[1, 3]), Float64(Kf[2, 3])
     body = (
         fx = Float64(K[1, 1]), fy = Float64(K[2, 2]), cx = cx, cy = cy,

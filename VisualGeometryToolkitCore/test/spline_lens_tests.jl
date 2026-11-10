@@ -135,7 +135,7 @@
     end
 end
 
-@testitem "SplineLens: project" begin
+@testitem "SplineLens: project" setup = [SplineAxis] begin
     using Test
     using StaticArrays
     using LinearAlgebra: norm, normalize
@@ -212,14 +212,17 @@ end
     end
 
     @testset "with a forward: the old fitted forward map, its chart about ẑ" begin
-        axis(c) = (d = c.lens.backward(SVector(0.0, 0.0)); d / norm(d))
-        @test norm(axis(cam) - S.chart_rotation[3, :]) > 1.0e-3                     # the principal point's ray is not the golden chart's axis
-        @test norm(axis(cam_fwd) - SVector(0.0, 0.0, 1.0)) <= 1.0e-12               # turned: K′'s principal point images ẑ
+        @test norm(principal_ray(cam) - S.chart_rotation[3, :]) > 1.0e-3            # the principal point's ray is not the golden chart's axis
+        @test norm(principal_ray(cam_fwd) - SVector(0.0, 0.0, 1.0)) <= 1.0e-12      # turned: K′'s principal point images ẑ
         @test cam_fwd.lens.chart == equidistant_chart(SVector(0.0, 0.0, 1.0))
         @test masked_fwd.lens.forward === forward
         worst, same_nan = deviation(cam_fwd, rays64, S.project)
         @test same_nan
         @test worst <= 1.0e-9
+        # the turn is a different camera, not a migration: the old map's controls as the forward of the camera itself
+        # (unturned, K′) miss the old map by more than a pixel — a 0.8 SplineProjection is refitted, never reused
+        unturned = CameraModel(K′, SplineLens(_spline_camera(K′, Rect2(0.0, 0.0, 1000.0, 1000.0), cam.lens.backward.controls).lens.backward; forward))
+        @test first(deviation(unturned, [R' * X for X in rays64], S.project)) > 1.0
         # the forward agrees with the LM to 0.01 px on the 64 golden rays
         @test maximum(X -> norm(project(cam_fwd, X) - project(cam′, X)), rays64) <= 0.01
         # a ray two knot cells beyond the forward's chart is not imaged

@@ -999,21 +999,26 @@ end
 #
 # The local scale needs a fully present 4 × 4 window at that pixel: a lattice holding
 # absent nodes (NaN controls) without one there has no scale to derive K from, an
-# `ArgumentError` naming the pixel and saying to supply K. Any skew-0 K is an exact
-# gauge of the camera (a pixel's lattice coordinate does not depend on it).
+# `ArgumentError` naming the pixel and saying to supply K. When ẑ's pixel is not found
+# and the centre's own window is incomplete, the search for it could not start there:
+# ẑ may be imaged under an incomplete window (a hole over ẑ) or not at all, so the
+# refusal says which pixel lacks a window, not that ẑ is not imaged. Any skew-0 K is an
+# exact gauge of the camera (a pixel's lattice coordinate does not depend on it).
 function _spline_gauge(pixel_direction::ChartSpline{3}, rect::Rect2)
     pp, on_axis = _imaged_z(pixel_direction.controls, rect)    # the pixel imaging ẑ, else the centre (the fallback)
-    _, J = _value_and_jacobian(u -> (d = pixel_direction(u); SVector(d[1] / d[3], d[2] / d[3])), pp)
-    fx, fy = 1 / J[1, 1], 1 / J[2, 2]
-    (isfinite(fx) && isfinite(fy)) || throw(
+    G = pixel_direction.controls
+    ix, iy, _, _ = spline_window(rect, size(G), pp)
+    _window_present(map(v -> all(isfinite, v), G), ix, iy) || throw(
         ArgumentError(
             "SplineLens gauge: the grid has no complete 4 × 4 window at " *
-                (on_axis ? "the pixel $pp imaging ẑ" : "the calibrated area's centre $pp (ẑ is not imaged inside the area)") *
+                (on_axis ? "the pixel $pp imaging ẑ" : "the calibrated area's centre $pp, where the search for the pixel imaging ẑ starts (ẑ may lie under an incomplete window)") *
                 ", so K cannot be derived from it; supply K (intrinsics: a stored record's nominal pinhole, or a camera source)"
         )
     )
-    (fx > 0 && fy > 0) || throw(
-        ArgumentError("SplineLens gauge: the grid's local scale at the pixel $pp is not a positive focal length ($fx, $fy)")
+    _, J = _value_and_jacobian(u -> (d = pixel_direction(u); SVector(d[1] / d[3], d[2] / d[3])), pp)
+    fx, fy = 1 / J[1, 1], 1 / J[2, 2]
+    (isfinite(fx) && isfinite(fy) && fx > 0 && fy > 0) || throw(
+        ArgumentError("SplineLens gauge: the grid's local scale at the pixel $pp is not a positive finite focal length ($fx, $fy)")
     )
     return LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(fx, 0.0, 0.0, 0.0, fy, 0.0, pp[1], pp[2], 1.0)))
 end

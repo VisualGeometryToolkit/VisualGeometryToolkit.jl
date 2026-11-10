@@ -191,6 +191,9 @@ end
     hole[(gh ÷ 2):(gh ÷ 2 + 1), (gw ÷ 2):(gw ÷ 2 + 1)] .= false
     sparse = [!(gy % 3 == 0 && gx % 3 == 0) for gy in 1:gh, gx in 1:gw]   # every window meets an absent node
     checker = [iseven(gx + gy) for gy in 1:gh, gx in 1:gw]
+    # a hole over ẑ and the centre: the refusal says the search for ẑ's pixel cannot start, not that ẑ is not imaged
+    e = refusal(hole)
+    @test occursin("where the search for the pixel imaging ẑ starts", e.msg) && !occursin("not imaged", e.msg)
     for P in (hole, sparse, checker)
         @test refused(refusal(P))
         # the camera of the same lattice under a given K: built, its rays the lattice's
@@ -264,7 +267,7 @@ end
     @test CameraModel(cam.intrinsics, cam.lens) isa CameraModel
 end
 
-@testitem "SplineLens: CameraModel(cam, K′) re-gauges to any skew-0 K′, a principal-point move included" begin
+@testitem "SplineLens: CameraModel(cam, K′) re-gauges to any skew-0 K′, a principal-point move included" setup = [SplineAxis] begin
     using Test
     using StaticArrays
     using LinearAlgebra: norm
@@ -304,17 +307,17 @@ end
         # its Float32 form keeps the forward: the same chart, the same imaged rays, the pixel to its precision
         c32 = VisualGeometryToolkitCore.convert_eltype(Float32, cf′)
         @test c32.lens.chart == cf.lens.chart && c32.lens.forward isa ChartSpline
-        @test all(X -> same(project(c32, X), project(cf, X); tol = 4 * K[1, 1] * eps(Float32) + 1.0e-3), rays)
+        # (k = 4, as the Float32 project test's: measured worst 0.25·f·eps(Float32), f = 300)
+        @test all(X -> same(project(c32, X), project(cf, X); tol = 4 * K[1, 1] * eps(Float32)), rays)
     end
     # the moved principal point's ray is off ẑ: the chart does not follow it
-    @test norm(cf.lens.backward(SVector(0.0, 0.0)) / norm(cf.lens.backward(SVector(0.0, 0.0))) - SVector(0.0, 0.0, 1.0)) <= 1.0e-12
-    b′ = CameraModel(cf, moved).lens.backward
-    @test norm(b′(SVector(0.0, 0.0)) / norm(b′(SVector(0.0, 0.0))) - SVector(0.0, 0.0, 1.0)) > 1.0e-2
+    @test norm(principal_ray(cf) - SVector(0.0, 0.0, 1.0)) <= 1.0e-12
+    @test norm(principal_ray(CameraModel(cf, moved)) - SVector(0.0, 0.0, 1.0)) > 1.0e-2
     # a parametric lens's principal point is data: still refused
     @test_throws ArgumentError CameraModel(src, Kat(K[1, 1], K[2, 2], K[1, 3] + 1.0, K[2, 3]))
 end
 
-@testitem "SplineLens: the off-axis gauge refuses the methods that read the principal point as the optical axis" begin
+@testitem "SplineLens: the off-axis gauge refuses the methods that read the principal point as the optical axis" setup = [SplineAxis] begin
     using Test
     using StaticArrays
     using VisualGeometryToolkitCore
@@ -344,7 +347,7 @@ end
     # inside its area, and answers
     io = CameraModel(; focal = 31.7, pp = (32.25, 23.875), lens = KannalaBrandt(-4 / (3π^2)))
     coarse = (CameraModel(SplineLens, io, (64, 48); grid_size = (8, 7)), CameraModel(SplineLens, io, (64, 48); grid_size = (4, 4)))
-    @test all(c -> (d = c.lens.backward(SVector(0.0, 0.0)); d[3] / sqrt(sum(abs2, d)) < cos(1.0e-4)), coarse)   # off ẑ by approximation
+    @test all(c -> principal_ray(c)[3] < cos(1.0e-4), coarse)   # off ẑ by approximation
     for c in (on, coarse...)
         @test isfinite(horizon_radius(c)) && monotone_radius(c.lens) > 0
         @test size(undistort(c, img; device = KA.CPU())) == size(img)

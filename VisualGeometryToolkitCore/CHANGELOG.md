@@ -24,8 +24,9 @@ sensor — so every consumer asks the camera what it images instead of supplying
 - **A SplineLens's forward spline is on the equidistant chart about ẑ** (fixed in the camera frame), not about the
   ray of the principal point, `normalize(backward(0, 0))`: no choice of K moves it, so a re-gauge keeps the forward
   exactly and a Float32 copy (`convert_eltype`) keeps its chart. On a gauged camera the two axes agree to rounding
-  (measured: the fitted forwards' projections move by ≤ 9e-12 px, a forward on its own gauge by ≤ 1.4e-12 px); a
-  forward fitted about another axis is read in the camera frame turned onto ẑ.
+  (measured: the fitted forwards' projections move by ≤ 9e-12 px, a forward on its own gauge by ≤ 1.4e-12 px). A 0.8
+  `SplineProjection`'s spline is NOT a valid forward (its chart is about the region-centroid ray; reused, it projects
+  wrong by pixels): refit with Estimation's `fit_camera(SplineLens, source, region; tolerance)`.
 - **The off-axis gauge is refused where the principal point is read as the optical axis**: when a SplineLens camera's
   lattice does not image ẑ inside its calibrated area — the gauge's own fallback condition, one predicate shared with
   the gauge, so the principal point is the area's centre — `undistort`/`undistort!`, `distortion_map`, `valid_rect`,
@@ -71,7 +72,7 @@ sensor — so every consumer asks the camera what it images instead of supplying
   Retired, with no alias (replacement after the arrow):
   `CentralGenericModel` → `CameraModel(K, SplineLens(…))`, built from a source by `CameraModel(SplineLens, source,
   size; grid_size)`; `NoncentralGenericModel` → `NoncentralSplineModel`; `SplineProjection` → the `forward` of a
-  `SplineLens`; `GenericGridSpec` → `SplineLensSpec`, its TOML table type `central_generic` → `spline`;
+  `SplineLens`, REFITTED by Estimation's `fit_camera(SplineLens, …)` (an old spline is never reused as a forward); `GenericGridSpec` → `SplineLensSpec`, its TOML table type `central_generic` → `spline`;
   `GenericModelWindow` and `window(m, rows, cols)` of a grid → `window(cam, rows, cols)`, a SplineLens camera (or a
   `NoncentralSplineModel`) of the block; `default_generic_grid` → `default_spline_grid`; `generic_lattice` →
   `spline_lattice(SplineLens, source, size)`; `nominal_intrinsics`/`with_nominal` → `calibration_matrix(cam)`,

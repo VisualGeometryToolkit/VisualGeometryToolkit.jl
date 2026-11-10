@@ -80,6 +80,14 @@ lift).
   the stages the same way (`"compose"`, the outer first; the retired
   `"chain"`, which listed them in application order, is refused).
 
+Whether a lens is radially symmetric about the principal point — what
+`RadialCamera(::PosedCamera)` needs — is the trait
+[`RadialSymmetry`](@ref VisualGeometryToolkitCore.Cameras.RadialSymmetry), read
+off the lens's type: the projections, `Radial`, `FieldOfView` and `LiftLens` are,
+and an `Additive`, a `∘` composition or a `Lens` when every piece is. It fails
+closed: a lens type defined downstream is asymmetric until it declares itself,
+`VisualGeometryToolkitCore.Cameras.RadialSymmetry(::Type{MyLens}) = VisualGeometryToolkitCore.Cameras.RadiallySymmetric()`.
+
 ## Familiar models
 
 | model | lens |

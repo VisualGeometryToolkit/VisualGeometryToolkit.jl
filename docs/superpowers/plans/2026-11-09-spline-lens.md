@@ -182,6 +182,43 @@ Consolidate in the same task. The report names what was grepped and what was del
 - [ ] **Step 4: Run** the full Core suite plus `Aqua`/naming check (`run_tests` Core, all items). Expected: green. `grep -rn "CentralGenericModel\|NoncentralGenericModel\|SplineProjection\|nominal_intrinsics\|GenericModelWindow\|generic_lattice" VisualGeometryToolkitCore` returns CHANGELOG lines only.
 - [ ] **Step 5: Duplication gate.** Confirm there is exactly one LM, one window-evaluation path, one presence-mask rule and one batched kernel. Commit: `"VisualGeometryToolkitCore: the central grid is a CameraModel; CentralGenericModel, SplineProjection and nominal_intrinsics are gone"`.
 
+### Task 4b: Performance: SplineLens on the GPU, without losing precision (owner, 2026-11-10)
+
+**Goal:** the SplineLens hot paths run efficiently on the GPU through KernelAbstractions, and are no slower than the old grid on CPU. Precision is never traded for speed.
+
+**Files:**
+- `spline_lens.jl`, `chart_spline.jl`, `noncentral_spline_model.jl`, Core's warp (`image_warp`/`_warp_kernel!`) where a SplineLens path needs it.
+- Benchmarks: `VisualGeometryToolkitCore/benchmark/spline_lens.jl` (BenchmarkTools), with baselines taken from the OLD grid at BASE `004a004c` and recorded in the file.
+- Gate: add the CPU timings to Core's pinned-baseline timing gate (the `LO_TIMING_GATE` mechanism), so a release keeps checking them.
+
+**Rules:**
+- **No `@fastmath`, and nothing that implies it** (`@turbo`, `@simd ivdep` over reductions whose order matters). The lens contract depends on NaN/Inf (NaN where the lens does not image), and fastmath makes those undefined.
+- **Allowed:** `@inbounds` where bounds are proven by construction (the window clamp), `muladd`/`fma`, `@simd` on independent lanes, `@inline`, and StaticArrays unrolling. Each must leave the golden results bit-identical, or within 1 ulp with a recorded ruling.
+- **Precision:** Float64 golden tests stay as before (≤ 1e-12 backproject, ≤ 1e-9 px project). Float32 stays as before (edge pixels image; ≤ 1e-5 against Float64).
+
+**Steps:**
+- [ ] **Step 1: Benchmarks (CPU and, where CUDA is present, GPU)** at the old grid's BASE and at HEAD. Cover:
+  - scalar and batched `backproject`;
+  - `project` through the LM and through the forward spline;
+  - the backward-lens `backproject_with_jacobian`;
+  - undistort through the KA warp;
+  - non-central `project`.
+- [ ] **Step 2: Profile each path** (`Profile` via kaimon `ex`, plus `@code_warntype` and `@allocated`), and record the hot spots.
+- [ ] **Step 3: GPU efficiency.** Per kernel:
+  - isbits arguments and no allocation, with Duals isbits;
+  - one thread per pixel or ray;
+  - coalesced reads of the controls;
+  - the B-spline basis weights computed once per point and shared between the value and the Jacobian;
+  - the LM with a FIXED iteration budget and masking instead of data-dependent early exit, where that reduces warp divergence without changing results beyond tolerance;
+  - Float32 on device where the caller asks for it.
+- [ ] **Step 4: Fix what Step 2 shows.** Allocations, instability, missed inlining, repeated basis evaluation. The analytic `(direction, ∂direction/∂x)` helper (owner: speed is required) is the LM's Jacobian if ForwardDiff cannot match it.
+- [ ] **Step 5: Gate.**
+  - Every CPU path is ≤ the old grid's time.
+  - LM `project` is ≤ 0.75 µs/ray on the golden lattice.
+  - The GPU paths are recorded, with CPU-vs-GPU speedups in the report.
+  - Duplication gate.
+  - Commit: "VisualGeometryToolkitCore: SplineLens on the GPU: kernels, shared basis weights, benchmarks and timing baselines".
+
 ### Task 5: K-as-physics audit (the CameraModel methods that read K)
 
 **Files:**

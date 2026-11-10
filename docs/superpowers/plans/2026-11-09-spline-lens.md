@@ -211,6 +211,14 @@ Consolidate in the same task. The report names what was grepped and what was del
   - the B-spline basis weights computed once per point and shared between the value and the Jacobian;
   - the LM with a FIXED iteration budget and masking instead of data-dependent early exit, where that reduces warp divergence without changing results beyond tolerance;
   - Float32 on device where the caller asks for it.
+- [ ] **Step 3c: User-facing calls take `device` (owner, 2026-11-10).** Every user-facing ALLOCATING warp entry point gets `device::KA.Backend = default_device()`. That means `undistort`, `rectify`, `image_warp`, and the SplineLens camera's allocating batched `project`/`backproject`. It uses the family's ONE resolver (`base/device.jl`): an accelerator when one is functional, else `KA.CPU()`.
+  - Explicit `device` always wins.
+  - The input is uploaded once and the kernel runs on `device`.
+  - The result comes back in the caller's array kind: an `Array` in gives an `Array` out, and a device array in stays on the device with no copies.
+  - In-place `!` forms keep following `get_backend(dst)`.
+  - The upload helper is ONE function in Core. If Features' `_ka_upload` is the same thing, hoist it into Core's `base/device.jl` and delete the Features copy (a downstream port in this branch's monorepo).
+  - Tests: `device = KA.CPU()` gives the same result as the default on a CPU-only run. On CUDA (skipped without it), the default resolves to the GPU and the result equals CPU within 1e-4.
+  - The Task 4b benchmark list also gains a parametric-lens warp, since the `image_warp!` launch-policy change applies to every warp.
 - [ ] **Step 4: Fix what Step 2 shows.** Allocations, instability, missed inlining, repeated basis evaluation. The analytic `(direction, ∂direction/∂x)` helper (owner: speed is required) is the LM's Jacobian if ForwardDiff cannot match it.
 - [ ] **Step 5: Gate.**
   - Every CPU path is ≤ the old grid's time.

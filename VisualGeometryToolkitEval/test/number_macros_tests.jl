@@ -62,24 +62,32 @@
     end
 
     @testset "add_number! and add_table_row!: one macro per number" begin
+        # the driver's calls, as data, so the determinism check can replay them in another order
+        scalars = [("poseFrames", 240, (;)), ("poseRotMed", 0.0412, (; digits = 3)),
+            ("poseShare", 0.5, (; percent = true, digits = 0)), ("poseRange", (0.1, 0.25), (; digits = 2)),
+            ("poseRtol", "10^{-6}", (;)),                                  # a typeset body, verbatim
+            ("teaserBoards", 12, (; label = "fig:teaser")),                # a value a figure reads
+            ("otherRunMed", 1.25, (; digits = 2, provenance = (; run_key = "77aa00bb")))]
+        rows = [("heBaxter", ["frames" => 61, "recovered" => 58, "transMm" => tex_number(1.234; digits = 2),
+                              "rotDeg" => tex_number(0.0456; digits = 3)], (; label = "tab:handeye")),
+                ("heUr", (:frames => 12.5, :recovered => 12.0), (; digits = 1))]
         nums = PaperNumbers(; prov...)
-        @test add_number!(nums, "poseFrames", 240) === nums
-        add_number!(nums, "poseRotMed", 0.0412; digits = 3)
-        add_number!(nums, "poseShare", 0.5; percent = true, digits = 0)
-        add_number!(nums, "poseRange", (0.1, 0.25); digits = 2)
-        add_number!(nums, "poseRtol", "10^{-6}")                         # a typeset body, verbatim
-        add_number!(nums, "teaserBoards", 12; label = "fig:teaser")      # a value a figure reads
-        add_number!(nums, "otherRunMed", 1.25; digits = 2, provenance = (; run_key = "77aa00bb"))
+        @test add_number!(nums, scalars[1][1], scalars[1][2]) === nums
+        foreach(((n, v, kw),) -> add_number!(nums, n, v; kw...), scalars[2:end])
         @test_throws ArgumentError add_number!(nums, "poseFrames", 241)  # a name is one number
         @test_throws ArgumentError add_number!(nums, "poseX", "10^{-6}"; digits = 2)
-        for body in ("1 & 2", "50%", "#1", "{1", "1}", "a\\\\b", "1\n2", "")
-            @test_throws ArgumentError add_number!(nums, "poseBad", body)
+        for body in ("1 & 2", "50%", "#1", "{1", "1}", "a\\\\b", "1\n2", "", "x\\", "\$1")
+            @test_throws ArgumentError add_number!(nums, "poseBad", body)   # incl. a trailing backslash, an odd \$
         end
+        @test_throws ArgumentError add_number!(nums, "poseBad", true)    # a Bool is not a number the paper prints
         @test_throws ArgumentError add_number!(nums, "poseBad", 1; provenance = (; host = "x"))
+        # a `;` would make the provenance comment ambiguous
+        @test_throws ArgumentError add_number!(nums, "poseBad", 1; provenance = (; run_key = "a;b"))
+        @test_throws ArgumentError add_number!(nums, "poseBad", 1; label = "fig:a;b")
+        @test_throws ArgumentError PaperNumbers(; prov..., config = "configs/a;b.toml")
         @test_throws ArgumentError PaperNumbers(; prov..., config = "/home/me/configs/x.toml")   # no machine path
         @test_throws ArgumentError PaperNumbers(; prov..., commit = "")
-        row = add_table_row!(nums, "heBaxter", ["frames" => 61, "recovered" => 58,
-            "transMm" => tex_number(1.234; digits = 2), "rotDeg" => tex_number(0.0456; digits = 3)]; label = "tab:handeye")
+        row = add_table_row!(nums, rows[1][1], rows[1][2]; rows[1][3]...)
         @test row == "\\heBaxterFrames & \\heBaxterRecovered & \\heBaxterTransMm & \\heBaxterRotDeg"
         # a row is added whole or not at all
         n = length(nums)
@@ -87,8 +95,11 @@
         @test_throws ArgumentError add_table_row!(nums, "heUr", ["frames" => 3, "frames" => 4])
         @test_throws ArgumentError add_table_row!(nums, "heBaxter", ["frames" => 3])
         @test_throws ArgumentError add_table_row!(nums, "heUr", ["frames" => NaN]; digits = 1)
+        # a Dict has no column order: refused, with the ordered collection to give instead
+        err = try add_table_row!(nums, "heUr", Dict("frames" => 3, "recovered" => 4)); nothing catch e; e end
+        @test err isa ArgumentError && occursin("ordered", err.msg)
         @test length(nums) == n
-        @test add_table_row!(nums, "heUr", (:frames => 12.5, :recovered => 12.0); digits = 1) == "\\heUrFrames & \\heUrRecovered"
+        @test add_table_row!(nums, rows[2][1], rows[2][2]; rows[2][3]...) == "\\heUrFrames & \\heUrRecovered"
 
         dir = mktempdir()
         frag = write_numbers(joinpath(dir, "run-a", "numbers.tex"), nums)
@@ -115,13 +126,15 @@
             "heUrFrames" => "12.5", "heUrRecovered" => "12.0")
         @test Dict(tex_macro_values(frag)) == expected
         @test first.(tex_macro_values(frag)) == sort(collect(keys(expected)))
-        # deterministic: the same numbers, added in another order, write the same bytes
+        # deterministic: the same calls in another order write the same bytes
         again = PaperNumbers(; prov...)
-        for (name, value) in reverse(sort(collect(expected)))
-            m = match(Regex("; run=([^;]+); commit=[^;\\n]+(?:; label=([^\\n]+))?\\n\\\\newcommand\\{\\\\" * name * "\\}"), text)
-            add_number!(again, name, value; label = something(m.captures[2], ""), provenance = (; run_key = m.captures[1]))
+        for (r, cells, kw) in reverse(rows)
+            add_table_row!(again, r, cells; kw...)
         end
+        foreach(((n, v, kw),) -> add_number!(again, n, v; kw...), reverse(scalars))
         @test read(write_numbers(joinpath(dir, "again.tex"), again), String) == text
+        # the write is whole or nothing: no temp file left beside the fragment
+        @test readdir(dirname(frag)) == ["numbers.tex"]
 
         # gather_numbers keeps every macro and its provenance comment
         other = write_numbers(joinpath(dir, "run-b", "numbers.tex"),
@@ -143,6 +156,30 @@
         write(prose, "The Baxter arm recovered 58 of its frames, at 1.23 mm.\n")
         hits = macro_literal_violations([prose], [out]; root = dir, min_integer_digits = 2)
         @test Set(v.subject for v in hits) == Set(["58", "1.23"])
+    end
+
+    @testset "deploy: a provenance-only change deploys, a changed value needs sign-off" begin
+        quietly(f) = redirect_stdout(f, devnull)
+        dir = mktempdir()
+        paper, results = mkpath(joinpath(dir, "paper")), mkpath(joinpath(dir, "results"))
+        frag = joinpath(dir, "run", "numbers.tex")
+        function regenerate(; run_key, commit, value)
+            write_numbers(frag, add_number!(PaperNumbers(; prov..., run_key, commit), "poseRotMed", value; digits = 3))
+            gather_numbers([frag], joinpath(results, "numbers.tex"); generator = "scripts/numbers.jl", root = dir)
+        end
+        regenerate(; run_key = "aaaa1111", commit = "f11598f7", value = 0.0412)
+        @test quietly(() -> deploy_assets(results, paper, ["numbers.tex"])) == ["numbers.tex"]     # new: no sign-off
+        # a rerun at a new run key and commit, the same numbers: deployed without sign-off, its comments updated
+        regenerate(; run_key = "bbbb2222", commit = "0123abcd", value = 0.0412)
+        @test quietly(() -> deploy_assets(results, paper, ["numbers.tex"])) == ["numbers.tex"]
+        deployed = read(joinpath(paper, "numbers.tex"), String)
+        @test occursin("run=bbbb2222; commit=0123abcd", deployed) && !occursin("aaaa1111", deployed)
+        # a changed value: refused without sign-off, the submitted file untouched
+        regenerate(; run_key = "cccc3333", commit = "0123abcd", value = 0.0452)
+        @test_throws ErrorException quietly(() -> deploy_assets(results, paper, ["numbers.tex"]))
+        @test read(joinpath(paper, "numbers.tex"), String) == deployed
+        @test quietly(() -> deploy_assets(results, paper, ["numbers.tex"]; replace_submitted = true)) == ["numbers.tex"]
+        @test occursin("{0.045}", read(joinpath(paper, "numbers.tex"), String))
     end
 
     @testset "a table row of number macros compiles in LaTeX" begin

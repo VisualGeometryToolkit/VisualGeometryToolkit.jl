@@ -1,6 +1,6 @@
 # VisualGeometryToolkitEval changelog
 
-## 0.9.0 (unreleased)
+## Unreleased
 
 - **New: the one writer of a paper's number macros** (`Reproduce`, src/reproduce/number_macros.jl, Base only).
   `PaperNumbers(; driver, config, run_key, commit)` collects a driver's numbers; `add_number!(nums, name, value;
@@ -10,7 +10,9 @@
   (`% provenance \<name>: driver=…; config=…; run=…; commit=…[; label=…]`). `tex_number` typesets a number
   (`digits` as Printf's `%.<d>f`, or `sigdigits` without an exponent; `percent`, `group_from`, `unit`, a range) and
   refuses a NaN or an infinity; `number_macro_name(prefix, parts...)` builds a letters-only name, digits spelled
-  out. `gather_numbers` carries each macro's provenance comment into the numbers file. The paper projects'
+  out. `gather_numbers` carries each macro's provenance comment into the numbers file, and `deploy_assets` deploys a
+  numbers file whose comments alone changed (a rerun at a new run key or commit, the same macro values) without
+  sign-off; a changed value still needs it. The paper projects'
   own writers (radiometric-camera cvpr2027, BlobBoards bmvc2026, LocalOptimizationDoneRight accv2026,
   RANSACScoringDoneRight neurips2026, CaliBlobs icra2026) port to it.
 

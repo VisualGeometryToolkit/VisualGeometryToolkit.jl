@@ -80,8 +80,10 @@ end
 
 function macros()
     f = TOML.parsefile(FIT)
+    prov = read_provenance(OUTDIR)
+    haskey(prov, "gitcommit") || error("$OUTDIR records no commit: run the stages inside the project's git checkout")
     nums = PaperNumbers(; driver = relpath(@__FILE__, projectdir()), config = relpath(CFG_PATH, projectdir()),
-                        run_key = KEY, commit = read_provenance(OUTDIR)["gitcommit"])
+                        run_key = KEY, commit = prov["gitcommit"])
     add_number!(nums, "ExampleSlope", f["slope"]; digits = CFG["render"]["digits"])
     add_number!(nums, "ExampleN", f["n"])
     write_numbers(MACROS, nums)

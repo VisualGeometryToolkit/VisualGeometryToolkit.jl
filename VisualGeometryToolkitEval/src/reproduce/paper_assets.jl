@@ -136,6 +136,18 @@ assets_deployed(outdir::AbstractString, paperdir::AbstractString, names) =
     all(n -> isfile(joinpath(outdir, n)) && isfile(joinpath(paperdir, n)) &&
         read(joinpath(outdir, n)) == read(joinpath(paperdir, n)), names)
 
+# A submitted numbers file the render changes in its comments only: the same
+# macro values, and nothing else but comments differs (a layout or any other
+# tex still needs sign-off).
+function _numbers_unchanged(outdir::AbstractString, paperdir::AbstractString, r)
+    (r.submitted && _is_tex(r.asset)) || return false
+    new, old = joinpath(outdir, r.asset), joinpath(paperdir, r.asset)
+    values = sort(tex_macro_values(new))
+    (!isempty(values) && values == sort(tex_macro_values(old))) || return false
+    code(p) = filter(!isempty, strip.(split(_strip_comments(read(p, String)), '\n')))
+    return code(new) == code(old)
+end
+
 """
     deploy_assets(outdir, paperdir, names; replace_submitted = false) -> Vector{String}
 
@@ -147,14 +159,18 @@ difference the report states: `replace_submitted = true` signs off every asset
 of the call, a collection of names only those (per-asset sign-off, so one call
 deploys every asset and the report keeps every row). Without it the deploy is
 refused, as an error naming each differing asset and the report, and copies
-nothing. Returns the assets copied (an identical one is not copied).
+nothing. A numbers file whose macro values ([`tex_macro_values`](@ref)) are
+the submitted ones, and which differs from it in its comments only (the
+provenance comments of a rerun at a new run key or commit), changed no number:
+it is deployed without sign-off, its comments updated. Returns the assets
+copied (an identical one is not copied).
 """
 function deploy_assets(outdir::AbstractString, paperdir::AbstractString, names;
         replace_submitted::Union{Bool, AbstractVector{<:AbstractString}, AbstractSet{<:AbstractString}} = false)
     signed(asset) = replace_submitted === true || (!(replace_submitted isa Bool) && asset in replace_submitted)
     rows = verify_assets(outdir, paperdir, names)
     report = joinpath(outdir, VERIFY_REPORT)
-    refused = [r for r in rows if r.submitted && !r.identical && !signed(r.asset)]
+    refused = [r for r in rows if r.submitted && !r.identical && !signed(r.asset) && !_numbers_unchanged(outdir, paperdir, r)]
     if !isempty(refused)
         error("deploy: the regenerated asset(s) differ from the submitted one(s) in $paperdir:\n" *
               join(("  " * r.asset * ": " * _verdict(r) for r in refused), "\n") *

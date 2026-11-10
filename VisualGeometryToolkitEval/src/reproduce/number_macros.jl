@@ -134,7 +134,8 @@ function _check_macro_name(name::AbstractString)
     return String(name)
 end
 
-# A macro body (or a piece of one): one line, braces balanced, and none of the
+# A macro body (or a piece of one): one line, braces and math shifts balanced,
+# no trailing backslash (it would escape the closing brace), and none of the
 # characters that would make it more than one value: an unescaped `%` (the
 # rest is a comment), `#` (an argument), `&` (a second table cell), `\\` (a row break).
 function _check_tex_text(s::AbstractString, what::AbstractString)
@@ -142,18 +143,28 @@ function _check_tex_text(s::AbstractString, what::AbstractString)
     isempty(s) && bad("is empty")
     occursin(r"[\n\r]", s) && bad("is not one line")
     occursin("\\\\", s) && bad("holds a row break \\\\")
-    depth, prev = 0, ' '
+    depth, shifts, prev = 0, 0, ' '
     for c in s
         if prev != '\\'
             c == '{' && (depth += 1)
             c == '}' && (depth -= 1)
+            c == '$' && (shifts += 1)
             depth < 0 && bad("closes a brace it never opened")
             c in ('%', '#', '&') && bad("holds an unescaped $c")
         end
         prev = c
     end
+    prev == '\\' && bad("ends in a backslash")
     depth == 0 || bad("leaves a brace open")
+    iseven(shifts) || bad("leaves math mode open (an odd number of \$)")
     return String(s)
+end
+
+# A label (`fig:…`, `tab:…`): tex text without the provenance comment's separator `;`.
+function _check_label(label::AbstractString)
+    isempty(label) && return ""
+    occursin(';', label) && throw(ArgumentError("label $(repr(label)) holds a `;` (the provenance comment's separator)"))
+    return _check_tex_text(label, "label")
 end
 
 const _DIGIT_WORDS = ("Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine")
@@ -198,7 +209,8 @@ function _provenance(p::NamedTuple)
     out = _Provenance(Tuple(String(p[k]) for k in _PROVENANCE_FIELDS))
     for k in _PROVENANCE_FIELDS
         v = out[k]
-        (isempty(v) || occursin(r"\s", v)) && throw(ArgumentError("provenance $k $(repr(v)): empty or holds a space"))
+        (isempty(v) || occursin(r"[\s;]", v)) &&
+            throw(ArgumentError("provenance $k $(repr(v)): empty, or holds a space or a `;` (the comment's separator)"))
     end
     for k in (:driver, :config)
         isabspath(out[k]) && throw(ArgumentError("provenance $k $(repr(out[k])) is a machine path; give it project-relative"))
@@ -236,7 +248,7 @@ Base.length(nums::PaperNumbers) = length(nums.macros)
 function _add!(nums::PaperNumbers, name::AbstractString, body::AbstractString, label::AbstractString, provenance::NamedTuple)
     _check_macro_name(name)
     haskey(nums.macros, name) && throw(ArgumentError("\\$name is already one of this driver's numbers"))
-    isempty(label) || _check_tex_text(label, "label")
+    _check_label(label)
     nums.macros[name] = _NumberMacro(body, _provenance(merge(nums.provenance, provenance)), label)
     return nums
 end
@@ -245,6 +257,7 @@ _body(value::AbstractString; format...) =
     isempty(format) ? _check_tex_text(value, "the value") :
     throw(ArgumentError("a typeset value $(repr(value)) takes no format keywords ($(join(keys(format), ", ")))"))
 _body(value::Real; format...) = tex_number(value; format...)
+_body(value::Bool; format...) = throw(ArgumentError("$value is a Bool, not a number the paper prints; give its text"))
 _body(value::Tuple{Real, Real}; format...) = tex_number(value...; format...)
 
 """
@@ -261,8 +274,9 @@ driver's ([`PaperNumbers`](@ref)) for this number.
 
 `name` is letters only, never beginning with `end` ([`number_macro_name`](@ref)
 builds one); a name `nums` already holds, a body of more than one value (an
-unescaped `%`, `#` or `&`, a row break, unbalanced braces) and a NaN are each
-an `ArgumentError`.
+unescaped `%`, `#` or `&`, a row break, unbalanced braces or math shifts, a
+trailing backslash), a `;` in the label or provenance (the comment's
+separator), a `Bool` and a NaN are each an `ArgumentError`.
 """
 function add_number!(nums::PaperNumbers, name::AbstractString, value::Union{Real, Tuple{Real, Real}, AbstractString};
         label::AbstractString = "", provenance::NamedTuple = (;), format...)
@@ -272,8 +286,10 @@ end
 """
     add_table_row!(nums, row, cells; label = "", provenance = (;), format...) -> String
 
-Add a table row's numbers to `nums`, one macro per cell: `cells` is a
-collection of `column => value` pairs in the table's column order, and the
+Add a table row's numbers to `nums`, one macro per cell: `cells` is an
+ordered collection (a vector or tuple) of `column => value` pairs in the
+table's column order; a dictionary or a set has no column order and is an
+`ArgumentError`. The
 cell's macro is `\\<row><Column>` (`row` and each `column` letters only, the
 column capitalised). Each value is typeset as by [`add_number!`](@ref), the
 `format` keywords shared by the row; a cell of another format is given as its
@@ -288,8 +304,10 @@ macro the table prints, and the gatherer's checks
 function add_table_row!(nums::PaperNumbers, row::AbstractString, cells;
         label::AbstractString = "", provenance::NamedTuple = (;), format...)
     _check_macro_name(row)
+    cells isa Union{AbstractDict, AbstractSet} &&
+        throw(ArgumentError("table row $(repr(row)): a $(nameof(typeof(cells))) has no column order; give the cells as an ordered vector or tuple of column => value pairs"))
     isempty(cells) && throw(ArgumentError("table row $(repr(row)) has no cells"))
-    isempty(label) || _check_tex_text(label, "label")
+    _check_label(label)
     _provenance(merge(nums.provenance, provenance))
     staged = map(collect(cells)) do (col, value)       # every cell checked before any is added
         column = string(col)
@@ -324,19 +342,28 @@ Write `nums` as a number-macro fragment at `path` (a file beside the driver's
 results, never in the paper): a header naming the driver, then per macro,
 sorted by name, its provenance comment (`% provenance \\<name>: driver=…;
 config=…; run=…; commit=…[; label=…]`) and its `\\newcommand{\\<name>}{<body>}`.
-The same numbers write the same bytes. [`gather_numbers`](@ref) gathers the
+The same numbers write the same bytes; the file is written whole (a temporary
+file renamed into place). [`gather_numbers`](@ref) gathers the
 fragments, comments included, into the paper's numbers file;
 [`tex_macro_values`](@ref) reads the macros back.
 """
 function write_numbers(path::AbstractString, nums::PaperNumbers)
-    mkpath(dirname(abspath(path)))
-    open(path, "w") do io
+    dir = mkpath(dirname(abspath(path)))
+    tmp, io = mktemp(dir)                  # written whole, then renamed: never a truncated fragment
+    try
         println(io, "% generated by ", nums.provenance.driver, " — do not edit; gathered by gather_numbers")
         for name in sort!(collect(keys(nums.macros)))
             m = nums.macros[name]
             println(io, _provenance_comment(name, m))
             println(io, "\\newcommand{\\", name, "}{", m.value, "}")
         end
+        close(io)
+        chmod(tmp, 0o644)                  # mktemp's file is private; a fragment is not
+        mv(tmp, path; force = true)
+    catch
+        close(io)
+        rm(tmp; force = true)
+        rethrow()
     end
     return path
 end

@@ -103,9 +103,10 @@ author has signed off a change (`replace_submitted`).
 
 ```julia
 using VisualGeometryToolkitEval.Reproduce
+using VisualGeometryToolkitEval.Experiments: read_provenance
 
 nums = PaperNumbers(; driver = "scripts/hand_eye.jl", config = "configs/hand_eye.toml",
-                    run_key = KEY, commit = read_provenance(OUTDIR)["gitcommit"])
+                    run_key = KEY, commit = read_provenance(OUTDIR)["gitcommit"])   # the run's commit
 add_number!(nums, "heFrames", 240)                                  # a number of the prose
 add_number!(nums, number_macro_name("he", "rot_deg", "p90"), 0.0412; digits = 3)
 add_number!(nums, "heShare", 0.256; percent = true, digits = 0)     # 26\%
@@ -140,9 +141,13 @@ The fragment holds, sorted by name, each macro after its provenance comment:
 - **Provenance**: the driver, its config of record (project-relative), the run
   key and the run's commit (its recorded `gitcommit`: the comment changes only
   when the run does). A number read from another run overrides fields with
-  `provenance = (; run_key = …)`. [`gather_numbers`](@ref) keeps each comment.
+  `provenance = (; run_key = …)`. [`gather_numbers`](@ref) keeps each comment,
+  and [`deploy_assets`](@ref) deploys a numbers file whose comments alone
+  changed (a rerun at a new run key or commit, the same numbers) without
+  sign-off; a changed value still needs it.
 - **Deterministic**: the same numbers write the same bytes, whatever the
-  order they were added in.
+  order they were added in; the fragment is written whole (a temporary file
+  renamed into place).
 
 A driver defines top-level constants meant for a process of its own;
 [`run_isolated`](@ref) includes it in a module of its own, so one regeneration

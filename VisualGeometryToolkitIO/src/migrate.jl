@@ -260,8 +260,8 @@ A declared extension point (VisualGeometryToolkitIO's `CONTRACT_GENERICS`): the
 owner of a schema adds both forms for each of its old versions.
 VisualGeometryToolkitIO's own: `vgio/cameras/v1` → … → v5,
 `vgio/target/v1` → … → v5, `vgio/rig/v4` → … → v9 and
-`vgio/generic_camera/v2` → v3 → v4 (the steps only: an old grid file is read,
-never rewritten).
+`vgio/generic_camera/v2` → v3 → v4 (an old grid file is read, never rewritten:
+the file form of a central one writes its camera store to a new file).
 """
 function migrate_schema end
 # Whether a schema has a file migration (`vgio_migrate`), a step (the readers).
@@ -314,10 +314,15 @@ end
 """
     vgio_migrate(path; out = <stem>.migrated.json beside path, dry_run = false) -> NamedTuple
 
+An old central grid file (`vgio/generic_camera/v2` or `v3`) is never rewritten:
+its camera store — the `vgio/cameras/v5` record of its one camera, named after
+the file — is written to a NEW file, by default `<stem>.camera.json` beside it
+(an existing one refused, `out == path` refused); a non-central one is refused.
+
 Rewrite the file at `path`, of the earlier schema version it declares, in its
 kind's current one, by the file form of [`migrate_schema`](@ref) for that
-schema (cameras v1–v4, target v1–v4, rig v4–v8, the measurement kinds' v1, and any a schema owner adds;
-not an old grid file, vgio/generic_camera v2 or v3, which is read and never rewritten),
+schema (cameras v1–v4, target v1–v4, rig v4–v8, the measurement kinds' v1, an old central grid file, and any
+a schema owner adds),
 which runs the same version steps a reader runs on load: an old file need not
 be rewritten to be read, and this is how it is rewritten once. The migration
 is written through the current writer to a staging directory BESIDE `out`
@@ -346,7 +351,7 @@ result's `comments_dropped` is `true`, and a `@warn` says so, when the file has
 any `#` (a comment line or a trailing comment; a `#` inside a string also
 counts, conservatively). The result is `(; path, out, from, to, comments_dropped)`.
 """
-vgio_migrate(path::AbstractString; out::AbstractString = _migrated_path(path), dry_run::Bool = false) =
+vgio_migrate(path::AbstractString; out::AbstractString = _default_out(path), dry_run::Bool = false) =
     _vgio_migrate(path; out, dry_run)
 
 # `vgio_migrate`, with `before_rename(r)` called on the verified result before
@@ -356,11 +361,11 @@ function _vgio_migrate(path::AbstractString; out::AbstractString, dry_run::Bool,
     s = tree === nothing ? _peek_schema(path) : get(tree, "schema", nothing)
     s isa AbstractString || throw(ArgumentError("$(path): not a vgio file (no schema)"))
     in_place = abspath(out) == abspath(path)
+    (in_place && s in _OLD_GRID_SCHEMAS) && throw(ArgumentError("$(path): $(_OLD_GRID_REFUSAL)"))
     (dry_run || in_place || !ispath(out)) || throw(ArgumentError("$(out) exists; refusing to overwrite it"))
     if !_has_migration(s) && tree !== nothing && _has_record_migration(s)
         return _migrate_toml(path, tree, out, dry_run, s, before_rename)
     end
-    s in _OLD_GRID_SCHEMAS && throw(ArgumentError("$(path): $(_OLD_GRID_REFUSAL)"))
     _has_migration(s) ||
         throw(ArgumentError("$(path): no migration for a $(s) file (no method of VisualGeometryToolkitIO.migrate_schema for it)"))
     return write_staged(out => basename(path); dry_run) do staged
@@ -373,6 +378,13 @@ end
 _is_toml(path) = endswith(lowercase(path), ".toml")
 # An old grid file (vgio/generic_camera v2/v3) is read, never rewritten (owner, 2026-11-09).
 const _OLD_GRID_REFUSAL = "an old grid file is read, never rewritten (owner, 2026-11-09): load(BoundedCamera, path) reads it as it is"
+
+# Where `vgio_migrate` writes a file by default: an old central grid file's camera store
+# to a NEW file beside it, `<stem>.camera.json` (the input is never rewritten); any
+# other file beside itself as `<stem>.migrated<ext>`.
+_default_out(path) = _is_central_grid(_try_tree(path)) ? string(first(splitext(path)), ".camera.json") : _migrated_path(path)
+# The parsed file, `nothing` when it is not a readable JSON object.
+_try_tree(path) = endswith(lowercase(path), ".json") && isfile(path) ? (try _read_vgio_json(path) catch; nothing end) : nothing
 
 # The generic file form for a TOML record whose schema has a step and no file
 # form: from the parsed `tree`, run the steps, print, read the print back and
@@ -622,8 +634,7 @@ end
 # steps give, read back as a `T` and compared with the value (`same_value`: a
 # length within the conversion's guarantee, every other number bit for bit),
 # its unit and provenance with that record's. Returns the value.
-function _migrate_file(::Type{T}, src::AbstractString, dst::AbstractString, what) where {T}
-    current = migrate_record(_raw_tree(src))
+function _migrate_file(::Type{T}, src::AbstractString, dst::AbstractString, what; current = migrate_record(_raw_tree(src))) where {T}
     value = load(T, src)
     save(dst, value; _resave_kwargs(current)...)
     _verify(same_value(value, load(T, dst)) && _same_file_extras(_raw_tree(dst), current), src, what)
@@ -1106,14 +1117,15 @@ end
 # A parsed file that is a central vgio/generic_camera/v2 or v3 record.
 _is_central_grid(d) = d isa AbstractDict && get(d, :schema, nothing) in _OLD_GRID_SCHEMAS &&
     get(d, :type, nothing) == _OLD_CENTRAL_TYPE
-# …as the vgio/cameras record of its one camera, `camera` (`d` parsed, so the reader meets what a store file holds).
+# …as the vgio/cameras record of its one camera, named after the file (`fisheye_14mm.json` → `fisheye_14mm`;
+# `d` parsed, so the reader meets what a store file holds).
 function _central_grid_store(d, path)
     t = _lower(d)
     t["schema"] == "vgio/generic_camera/v2" && (t = _generic_camera_v2_to_v3(t))
     store = try
         Dict{String, Any}(
             "schema" => _schema("cameras"), "pixel_frame" => t["pixel_frame"],
-            "cameras" => Any[merge(Dict{String, Any}("name" => "camera"), _central_grid_body(t))],
+            "cameras" => Any[merge(Dict{String, Any}("name" => first(splitext(basename(path)))), _central_grid_body(t))],
             (haskey(t, "provenance") ? ("provenance" => t["provenance"],) : ())...,
         )
     catch e
@@ -1142,6 +1154,17 @@ migrate_schema(::Val{Symbol("vgio/cameras/v1")}, src::AbstractString, dst::Abstr
 migrate_schema(::Val{Symbol("vgio/cameras/v2")}, src::AbstractString, dst::AbstractString) = _migrate_cameras(src, dst)
 migrate_schema(::Val{Symbol("vgio/cameras/v3")}, src::AbstractString, dst::AbstractString) = _migrate_cameras(src, dst)
 migrate_schema(::Val{Symbol("vgio/cameras/v4")}, src::AbstractString, dst::AbstractString) = _migrate_cameras(src, dst)
+# An old grid file (vgio/generic_camera v2/v3) is never rewritten: a central one's
+# camera store — the store its reader gives — is written to the new file `dst`
+# (`vgio_migrate`'s default `<stem>.camera.json`), a non-central one is refused.
+function _migrate_old_grid(src, dst)
+    d = _read_vgio_json(src)
+    _is_central_grid(d) || throw(ArgumentError("$(src): $(_OLD_GRID_REFUSAL)"))
+    _migrate_file(Dict{Symbol, BoundedCamera}, src, dst, "the camera store of the old central grid file"; current = _lower(_central_grid_store(d, src)))
+    return (; to = _schema("cameras"))
+end
+migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, src::AbstractString, dst::AbstractString) = _migrate_old_grid(src, dst)
+migrate_schema(::Val{Symbol("vgio/generic_camera/v3")}, src::AbstractString, dst::AbstractString) = _migrate_old_grid(src, dst)
 _migrate_target(src, dst) = (_migrate_file(AbstractTarget, src, dst, "the target record"); (; to = _schema("target")))
 migrate_schema(::Val{Symbol("vgio/target/v1")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
 migrate_schema(::Val{Symbol("vgio/target/v2")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
@@ -1501,8 +1524,6 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
                 println(io, "SKIPPED   ", f, ": no readable schema")
             elseif haskey(_MEASUREMENT_KINDS, s)
                 # re-pointed below; a v1 file is rewritten as v2 there
-            elseif s in _OLD_GRID_SCHEMAS
-                println(io, "SKIPPED   ", f, ": ", s, ": ", _OLD_GRID_REFUSAL)
             elseif _is_current(s)
                 _is_target_definition(s) && push!(rigs, f)
                 println(io, "current   ", f, ": ", s)
@@ -1511,7 +1532,8 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
             end
             continue
         end
-        out = in_place ? f : _migrated_path(f)
+        s in _OLD_GRID_SCHEMAS && !_is_central_grid(_try_tree(f)) && (println(io, "SKIPPED   ", f, ": ", s, ": ", _OLD_GRID_REFUSAL); continue)
+        out = in_place && !(s in _OLD_GRID_SCHEMAS) ? f : _default_out(f)   # an old grid file is never rewritten
         so = isfile(out) ? _try_schema(out) : nothing
         if !in_place && so isa String && _is_current(so)
             println(io, "current   ", f, ": already migrated to ", out)
@@ -1524,7 +1546,7 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
         r === nothing && continue
         (!dry_run && _is_target_definition(r.to)) && push!(rigs, out)
         push!(results, r)
-        println(io, dry_run ? "verified  " : "migrated  ", f, ": ", s, " → ", r.to,
+        println(io, dry_run ? "verified  " : "migrated  ", f, ": ", s, " → ", r.to, out == f ? "" : " in $(out)",
             haskey(r, :old_ids) ? "  (content id $(join(r.old_ids, ", ")) → $(r.new_id))" : "")
     end
     sort!(unique!(rigs))

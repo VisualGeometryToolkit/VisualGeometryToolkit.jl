@@ -280,7 +280,8 @@ end
 # generic_camera kind holds the non-central grid camera alone, its splines over
 # the K-normalized plane and its K the camera's. A central v2/v3 file reads as a
 # camera store of its one camera (`load(BoundedCamera, path)`), a non-central
-# one through its v3 → v4 step; neither is rewritten. A rig/v8 sensor's grid
+# one through its v3 → v4 step; neither is rewritten (`vgio_migrate` writes a
+# central one's camera store to a new file beside it). A rig/v8 sensor's grid
 # body becomes the camera body or the non-central body; v9 also stores each
 # sensor's lens coverage (its camera body's `lens_coverage`, a camera store's
 # form), which v8 refused to write.

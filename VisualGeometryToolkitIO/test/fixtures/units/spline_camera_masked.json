@@ -3,7 +3,7 @@
     "pixel_frame": "colmap",
     "cameras": [
         {
-            "name": "camera",
+            "name": "generic_camera_masked",
             "width": 64,
             "height": 48,
             "K": {

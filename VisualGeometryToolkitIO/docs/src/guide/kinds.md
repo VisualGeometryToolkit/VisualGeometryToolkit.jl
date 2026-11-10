@@ -217,7 +217,7 @@ never shadows the target's `calibration`.
 ## Reading an earlier version
 
 Every earlier version a published file holds is read: `vgio/cameras/v1`–`v4`,
-`vgio/target/v1`–`v4`, `vgio/rig/v4`–`v8`, `vgio/generic_camera/v2`–`v3` (read, never rewritten), `vgio/transforms/v3`,
+`vgio/target/v1`–`v4`, `vgio/rig/v4`–`v8`, `vgio/generic_camera/v2`–`v3` (read, never rewritten: a central one's camera store is written to a new `<stem>.camera.json`), `vgio/transforms/v3`,
 `vgio/trajectory/v3`, and v1 of `target_poses`, `target_points2d`, `target_points3d` and
 `target_detections`.
 

@@ -32,9 +32,12 @@ On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
   `pitch` and `lens_coverage`; `save(path, camera)`, `load(BoundedCamera, path)`. A record naming the central type is
   refused, pointing at the read below.
 - **Old grid files are read, never rewritten** (owner, 2026-11-09): a central `vgio/generic_camera/v2` or `v3` file
-  reads as the camera store of its one camera, `:camera` — `load(BoundedCamera, path)` — K its `nominal_intrinsics`
-  (skew 0) else the lattice's gauge, its `domain` the camera's lens coverage; a non-central one reads through its
-  v3 → v4 step. `vgio_migrate` refuses both. Every pixel backprojects as the old models did (the old reader's values,
+  reads as the camera store of its one camera, named after the file's basename (`fisheye_14mm.json` →
+  `:fisheye_14mm`) — `load(BoundedCamera, path)` — K its `nominal_intrinsics` (skew 0) else the lattice's gauge, its
+  `domain` the camera's lens coverage; a non-central one reads through its v3 → v4 step. `vgio_migrate` on a central
+  one writes a NEW file, the `vgio/cameras/v5` record of its camera at `<stem>.camera.json` beside it, the input
+  byte for byte untouched (an existing output, or `out == path`, is an `ArgumentError` naming the path);
+  `vgio_migrate_tree` does the same for each; a non-central one is refused. Every pixel backprojects as the old models did (the old reader's values,
   `test/fixtures/spline_lens_golden_io.jl`).
 - **Breaking: `vgio/rig/v9`**: a sensor's camera body carries its `lens_coverage` (a camera store's form, in the rig's
   pixel frame), which `save` used to refuse; a v8 sensor's old grid body becomes its SplineLens camera's body or the

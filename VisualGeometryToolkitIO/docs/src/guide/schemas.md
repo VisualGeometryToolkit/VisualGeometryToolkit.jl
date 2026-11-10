@@ -146,8 +146,11 @@ map), `target/v1`–`v3`, `rig/v4`–`v6` (a v3 target / v6 rig body is a
 current one as it stands: v4 / v7 only add a planar target's `layout`),
 `rig/v7`–`v8` (a v8 sensor's old grid body becomes its spline camera's body in
 v9) and `generic_camera/v2`–`v3` (the old grid records: a central one reads as
-the camera store of its one camera with a `SplineLens`, a non-central one as the
-v4 record; read, never rewritten — `vgio_migrate` refuses them).
+the camera store of its one camera with a `SplineLens`, named after the file
+(`fisheye_14mm.json` → `:fisheye_14mm`), a non-central one as the v4 record;
+read, never rewritten — `vgio_migrate` writes a central one's camera store to a
+NEW `vgio/cameras/v5` file beside it, `<stem>.camera.json`, never overwriting
+one, and refuses a non-central one).
 
 A version no published file holds, and that no step reads, is refused by
 name. A v1 or v2 transforms or trajectory file never had a migration,

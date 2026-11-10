@@ -495,7 +495,8 @@ Read a `vgio/cameras/v5` store: name → `BoundedCamera` of a `CameraModel`
 `Attributed` one where the file states the camera's `calibration` block. A
 v1–v4 store is read through its version steps (`migrate_record`), and a
 central `vgio/generic_camera/v2` or `v3` file as the store of its one camera,
-`:camera` (a `CameraModel` with a `SplineLens`: generic_camera_schema.jl).
+named after the file's basename (`fisheye_14mm.json` → `:fisheye_14mm`; a
+`CameraModel` with a `SplineLens`: generic_camera_schema.jl).
 """
 load(::Type{Dict{Symbol, BoundedCamera}}, path::AbstractString) = _load_store(_read_vgio_json(path), path)
 # The store of a parsed file (`d`, its JSON).

@@ -24,7 +24,8 @@
 # `{"spline": …}` record, camera_schema.jl). A central `vgio/generic_camera/v2`
 # or `v3` file reads as the camera store of its one camera — `load(BoundedCamera,
 # path)` — and a non-central one through its v3 → v4 step (migrate.jl); neither
-# is rewritten (owner, 2026-11-09). A v4 record naming the central type is
+# is rewritten (owner, 2026-11-09): `vgio_migrate` writes a central one's camera
+# store to a new file beside it. A v4 record naming the central type is
 # refused, pointing at that read.
 #
 # The spline record is the lens record's (`_spline_json`): the held nodes (Core's

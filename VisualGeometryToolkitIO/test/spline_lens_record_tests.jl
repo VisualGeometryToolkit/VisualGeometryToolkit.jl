@@ -8,7 +8,8 @@
 # camera is the generic_camera/v4 record. An old central grid file
 # (vgio/generic_camera/v2, v3) reads as the camera store of its one camera, a
 # non-central one through its v3 → v4 step; both backproject as the old models
-# did (GOLDEN_IO, recorded with the old reader), and neither is rewritten.
+# did (GOLDEN_IO, recorded with the old reader), and neither is rewritten:
+# `vgio_migrate` writes a central one's camera store to a new file beside it.
 
 @testsetup module SplineRecordFixtures
     using StaticArrays: SVector
@@ -76,18 +77,37 @@ end
     # the fixture's domain is the camera's lens coverage, which a bare CameraModel would drop
     @test lens_coverage(bc) == VisualGeometryToolkitCore.Ellipse(VisualGeometryToolkitCore.Point2(32.0, 24.0), 30.0, 22.0, 0.0)
     @test_throws ArgumentError load(CameraModel, p)
-    # a store of its one camera; the old file is read, never rewritten
-    @test only(keys(load(Dict{Symbol, BoundedCamera}, p))) === :camera
-    for q in (p, joinpath(fixtures, "old", "generic_camera_v2.json"))
-        e = try VisualGeometryToolkitIO.vgio_migrate(q; dry_run = true); nothing catch e; e end
-        @test e isa ArgumentError && occursin("never rewritten", e.msg) && occursin("load(BoundedCamera, path)", e.msg)
-    end
-    # a tree holding one says so, and rewrites nothing
+    # a store of its one camera, named after the file
+    @test only(keys(load(Dict{Symbol, BoundedCamera}, p))) === :generic_camera_masked
+    # vgio_migrate writes a NEW file beside it, <stem>.camera.json, the vgio/cameras/v5 record of the same camera;
+    # the input stays byte for byte, and an existing output is never overwritten
+    before = read(p)
+    r = VisualGeometryToolkitIO.vgio_migrate(p)
+    out = joinpath(tmp, "generic_camera_masked.camera.json")
+    @test r.out == out && r.from == "vgio/generic_camera/v3" && r.to == "vgio/cameras/v5"
+    @test read(p) == before
+    @test VisualGeometryToolkitIO._peek_schema(out) == "vgio/cameras/v5"
+    back = load(Dict{Symbol, BoundedCamera}, out)
+    @test only(keys(back)) === :generic_camera_masked
+    @test VisualGeometryToolkitIO.same_value(back, load(Dict{Symbol, BoundedCamera}, p))
+    e = try VisualGeometryToolkitIO.vgio_migrate(p); nothing catch e; e end
+    @test e isa ArgumentError && occursin(out, e.msg) && read(p) == before
+    e = try VisualGeometryToolkitIO.vgio_migrate(p; out = p); nothing catch e; e end
+    @test e isa ArgumentError && occursin("never rewritten", e.msg) && read(p) == before
+    # without a stored K the camera is refused, so nothing is written
+    e = try VisualGeometryToolkitIO.vgio_migrate(p0; out = joinpath(tmp, "nok.camera.json")); nothing catch e; e end
+    @test e isa ArgumentError && occursin("supply K", e.msg) && !ispath(joinpath(tmp, "nok.camera.json"))
+    # the non-central old file is read, never rewritten
+    e = try VisualGeometryToolkitIO.vgio_migrate(joinpath(fixtures, "old", "generic_camera_v2.json"); dry_run = true); nothing catch e; e end
+    @test e isa ArgumentError && occursin("never rewritten", e.msg)
+    # a tree: the same, file by file; the inputs untouched
     mktempdir() do dir
         cp(p, joinpath(dir, "grid.json"))
         io = IOBuffer()
-        VisualGeometryToolkitIO.vgio_migrate_tree(dir; dry_run = true, io)
-        @test occursin("load(BoundedCamera, path)", String(take!(io))) && readdir(dir) == ["grid.json"]
+        VisualGeometryToolkitIO.vgio_migrate_tree(dir; io)
+        @test occursin("grid.camera.json", String(take!(io))) && sort(readdir(dir)) == ["grid.camera.json", "grid.json"]
+        @test read(joinpath(dir, "grid.json")) == before
+        @test only(keys(load(Dict{Symbol, BoundedCamera}, joinpath(dir, "grid.camera.json")))) === :grid
     end
 end
 

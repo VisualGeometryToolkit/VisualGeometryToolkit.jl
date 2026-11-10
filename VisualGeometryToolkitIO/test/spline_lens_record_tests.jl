@@ -157,7 +157,8 @@ end
 end
 
 @testitem "the spline lens record: a masked lens with a forward spline round-trips bit for bit" setup = [VGIoFixtures, SplineRecordFixtures] begin
-    using VisualGeometryToolkitCore: model, lens_coverage, Ellipse, Point2, backproject
+    using VisualGeometryToolkitCore: model, lens_coverage, Ellipse, Point2, backproject, ChartSpline, CameraModel
+    using StaticArrays: SVector, SMatrix
     cam = with_forward(corner_cut(spline_camera()))
     ell = Ellipse(Point2(32.25, 23.875), 33.2, 30.5, 0.125)
     mktempdir() do dir
@@ -178,6 +179,18 @@ end
         @test back.intrinsics.K == cam.intrinsics.K && lens_coverage(bc) == ell
         q = joinpath(dir, "again.json"); save(q, Dict(:grid => bc))
         @test read(q, String) == read(p, String)                       # the file a lens writes is its own
+        # re-gauged to a moved principal point and a new scale, the forward held (its chart is about ẑ): stored and
+        # read back, every projection the same as the camera's own, and its Float32 form keeps a forward
+        K = cam.intrinsics.K
+        K′ = VisualGeometryToolkitCore.CameraCalibrationMat(SMatrix{3, 3, Float64}(0.9 * K[1, 1], 0.0, 0.0, 0.0, 1.1 * K[2, 2], 0.0, K[1, 3] + 3.25, K[2, 3] - 1.5, 1.0))
+        moved = CameraModel(cam, K′)
+        r = joinpath(dir, "moved.json"); save(r, Dict(:grid => BoundedCamera(moved, Size2(64, 48))))
+        mb = model(load(BoundedCamera, r))
+        rays = [backproject(cam, SVector(x, y)) for x in 0.5:5.0:63.5 for y in 0.5:5.0:47.5]
+        @test count(X -> all(isfinite, VisualGeometryToolkitCore.project(cam, X)), rays) > 10
+        @test all(X -> rays_match(VisualGeometryToolkitCore.project(mb, X), VisualGeometryToolkitCore.project(cam, X)), rays)
+        @test all(X -> isequal(VisualGeometryToolkitCore.project(mb, X), VisualGeometryToolkitCore.project(moved, X)), rays)
+        @test VisualGeometryToolkitCore.convert_eltype(Float32, mb).lens.forward isa ChartSpline
         # no mask, no forward: neither key
         save(q, Dict(:grid => BoundedCamera(spline_camera(), Size2(64, 48))))
         sp0 = only(parse_json(read(q, String)).cameras).lens.spline

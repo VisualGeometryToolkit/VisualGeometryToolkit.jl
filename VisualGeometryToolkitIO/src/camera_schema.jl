@@ -119,7 +119,7 @@ _lens_json(l) = applicable(lens_record, l) ? lens_record(l) :
 # `area` is the backward spline's rectangle of the normalized plane, `grid_size`
 # its lattice (columns, rows), the controls as stored (never re-normalized:
 # a fit's controls may be off the sphere, and normalizing would change the
-# spline). The forward spline (from the equidistant chart about the lens axis
+# spline). The forward spline (from the equidistant chart about ẑ
 # to x) is stored exactly when it has been fitted (owner, 2026-11-09). Floats
 # are JSON's shortest round-trip form, so a lens reads back bit for bit.
 _spline_json(cs::ChartSpline, P::AbstractMatrix{Bool}) =
